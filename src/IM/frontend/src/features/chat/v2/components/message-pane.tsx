@@ -605,6 +605,82 @@ function MessageBubble({
     isDirectChat &&
     Boolean(message.kernel_message_id);
   const forkClass = forkEligible ? (agentOnline ? " is-forkable" : " is-offline") : "";
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const longPressRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+
+  function clearLongPress() {
+    if (longPressRef.current !== null) {
+      window.clearTimeout(longPressRef.current);
+      longPressRef.current = null;
+    }
+  }
+
+  function openMenu(x: number, y: number) {
+    const menuWidth = 148;
+    const menuHeight = isMobile && forkEligible ? 92 : 52;
+    setMenu({
+      x: Math.min(Math.max(8, x), Math.max(8, window.innerWidth - menuWidth)),
+      y: Math.min(Math.max(8, y), Math.max(8, window.innerHeight - menuHeight)),
+    });
+  }
+
+  function handleContextMenu(e: React.MouseEvent) {
+    if (isMobile) return;
+    e.preventDefault();
+    openMenu(e.clientX, e.clientY);
+  }
+
+  function handleTouchStart(e: React.TouchEvent) {
+    if (!isMobile || e.touches.length === 0) return;
+    const touch = e.touches[0]!;
+    touchStartRef.current = { x: touch.clientX, y: touch.clientY };
+    clearLongPress();
+    longPressRef.current = window.setTimeout(() => {
+      openMenu(touch.clientX, touch.clientY);
+      longPressRef.current = null;
+    }, 600);
+  }
+
+  function handleTouchMove(e: React.TouchEvent) {
+    const start = touchStartRef.current;
+    if (!start || e.touches.length === 0) return;
+    const touch = e.touches[0]!;
+    if (Math.abs(touch.clientX - start.x) > 10 || Math.abs(touch.clientY - start.y) > 10) {
+      clearLongPress();
+    }
+  }
+
+  function handleCopy() {
+    void navigator.clipboard?.writeText(message.content ?? "");
+    setMenu(null);
+  }
+
+  function handleMenuFork() {
+    if (agentOnline && !forkPending) onFork?.(message.id);
+    setMenu(null);
+  }
+
+  useEffect(() => clearLongPress, []);
+
+  useEffect(() => {
+    if (!menu) return;
+    function onDocumentMouseDown(e: MouseEvent) {
+      const target = e.target as Node;
+      if (menuRef.current?.contains(target)) return;
+      setMenu(null);
+    }
+    function onDocumentKeyDown(e: globalThis.KeyboardEvent) {
+      if (e.key === "Escape") setMenu(null);
+    }
+    document.addEventListener("mousedown", onDocumentMouseDown);
+    document.addEventListener("keydown", onDocumentKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onDocumentMouseDown);
+      document.removeEventListener("keydown", onDocumentKeyDown);
+    };
+  }, [menu]);
 
   // feat-414 决策 2: running 时前端本地 tick（锚 message.created_at），
   // completed 后用后端权威 elapsed_ms 定格，不再 tick。
@@ -659,7 +735,15 @@ function MessageBubble({
             </span>
           </div>
         )}
-        <div data-testid={`message-bubble-${message.id}`} className="chat-bubble-card">
+        <div
+          data-testid={`message-bubble-${message.id}`}
+          className="chat-bubble-card"
+          onContextMenu={handleContextMenu}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={clearLongPress}
+          onTouchCancel={clearLongPress}
+        >
           {message.content && (
             isUser
               ? <div className="chat-bubble-content">{renderInlineContent(message.content, participants)}</div>
@@ -700,7 +784,7 @@ function MessageBubble({
             ))}
           {/* feat-445-M1: fork from this completed agent reply. Child of the bubble
               card (zero hover gap), revealed on hover via CSS .is-forkable/.is-offline. */}
-          {forkEligible && (
+          {forkEligible && !isMobile && (
             <>
               <button
                 type="button"
@@ -719,6 +803,29 @@ function MessageBubble({
                 <div className="fork-tip">{t("chat.messagePane.forkOffline")}</div>
               )}
             </>
+          )}
+          {menu && (
+            <div
+              ref={menuRef}
+              role="menu"
+              className="chat-message-menu"
+              style={{ left: menu.x, top: menu.y }}
+            >
+              <button type="button" role="menuitem" className="chat-message-menu-item" onClick={handleCopy}>
+                {t("chat.messagePane.copy")}
+              </button>
+              {isMobile && forkEligible && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="chat-message-menu-item"
+                  disabled={!agentOnline || forkPending}
+                  onClick={handleMenuFork}
+                >
+                  {t("chat.messagePane.fork")}
+                </button>
+              )}
+            </div>
           )}
         </div>
         <div className={`chat-bubble-status mt-[2px] flex items-center gap-2 text-[11px] text-[oklch(0.55 0.01 240)] ${statusAlign}`}>

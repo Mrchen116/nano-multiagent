@@ -362,6 +362,7 @@
       "tokenWarnCritical": "⚠ Context nearly full — consider /compact",
       "sendErrorTitle": "Send failed",
       "sendError": "Failed to send message. Please try again.",
+      "copy": "Copy",
       "fork": "fork",
       "forkOffline": "This agent is offline; fork is unavailable right now",
       "forkError": "Fork failed. Please try again.",

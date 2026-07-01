@@ -1615,6 +1615,45 @@ body {
   display: block;
 }
 
+.chat-message-menu {
+  position: fixed;
+  z-index: 80;
+  min-width: 132px;
+  overflow: hidden;
+  background: var(--im-surface);
+  border: 1px solid var(--im-border);
+  border-radius: 8px;
+  box-shadow: 0 14px 36px -22px rgba(0, 0, 0, 0.45);
+  padding: 4px;
+}
+
+.chat-message-menu-item {
+  width: 100%;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--im-text);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  font: inherit;
+  font-size: 0.82rem;
+  padding: 7px 9px;
+  text-align: left;
+}
+
+.chat-message-menu-item:hover,
+.chat-message-menu-item:focus-visible {
+  background: var(--im-surface-2);
+  outline: none;
+}
+
+.chat-message-menu-item:disabled {
+  color: var(--im-text-muted);
+  cursor: not-allowed;
+}
+
 /* fork success toast — IM in-app-toast form (top-left card, white rounded + border +
    shadow), 4s auto fade. Not a persistent in-conversation banner (branch-relation
    visualisation is a spec non-goal). */
