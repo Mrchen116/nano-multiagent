@@ -38,7 +38,7 @@ Gateway 通过飞书 SDK WebSocket 长连接收发消息。1:1 私聊直接响�
 
 ### Requirement: 按触发源路由 agent 回复
 
-agent 回复是否回写外部 channel 取决于触发该 run 的用户消息来源。由外部 channel 消息触发的回复回写原 channel 并同步到内部 IM;由内部 IM 影子会话消息触发的回复只留在内部 IM,不回写外部 channel。两种来源复用同一 kernel session,保证上下文连续。
+agent 回复是否回写外部 channel 取决于触发该 run 的用户消息来源。由外部 channel 消息触发的回复回写原 channel 并同步到内部 IM;由内部 IM 影子会话消息触发的回复只留在内部 IM,不回写外部 channel。两种来源复用同一 kernel session,保证上下文连续。Gateway 的 kernel session identity 和外部 group buffer identity 均使用 `external_source + external_chat_id + agent_id`;IM conversation id 只作为 shadow conversation delivery 目标,不参与 session identity 或 group buffer identity。
 
 #### Scenario: 在内部 IM 回复不会回写飞书
 - **GIVEN** 内部 IM 已存在 `plato · feishu` 会话
@@ -48,13 +48,24 @@ agent 回复是否回写外部 channel 取决于触发该 run 的用户消息来
 #### Scenario: 在内部 IM 群聊影子会话发消息自动触发 agent 回复
 - **GIVEN** 内部 IM 已存在 `plato · 产品群 · feishu` group 影子会话
 - **WHEN** 用户在该会话中发送消息（不 @plato）
-- **THEN** Gateway 自动在消息文本前注入 `@plato` 后提交给 kernel
+- **THEN** Gateway 在群聊 mention gate 之前自动注入 `@plato` 或等效 mention metadata 后提交给 kernel
 - **AND** plato 的回复只出现在内部 IM 会话,不回写飞书
 
 #### Scenario: 同一 kernel session 跨入口上下文连续
 - **GIVEN** 用户在飞书问了 plato-bot "我叫什么"
 - **WHEN** 用户在内部 IM 的 `plato · feishu` 会话中回复 "你刚才不是知道吗"
 - **THEN** plato 能引用前一条上下文,不会当成新会话
+
+#### Scenario: IM shadow conversation id 不污染 kernel session
+- **GIVEN** 飞书 chat id 为 `oc_xxx`,内部 IM shadow conversation id 为 `conv_yyy`
+- **WHEN** 用户分别从飞书和内部 IM shadow 会话向 plato 发送消息
+- **THEN** Gateway 两次都使用 `feishu:oc_xxx:plato` 对应的同一 kernel session,不会使用 `web_relay:conv_yyy:plato` 创建新 session
+
+#### Scenario: 未 @ 群聊上下文可被 IM shadow group 入口使用
+- **GIVEN** Alice 在飞书群「产品群」发了未 @plato 的消息“版本延期因为测试环境不可用”
+- **WHEN** 用户随后在内部 IM 的 `plato · 产品群 · feishu` shadow group 中发送“总结刚才”
+- **THEN** Gateway 使用同一外部 group buffer,plato 能引用 Alice 的延期原因
+- **AND** plato 的回复只出现在内部 IM shadow group,不回写飞书
 
 ### Requirement: IM 离线时飞书对话不阻塞
 
@@ -85,7 +96,7 @@ Gateway 调用 IM HTTP API 同步外部 channel 用户消息时,必须是非阻�
 
 ### Requirement: 飞书对话同步到内部 IM
 
-原 MVP 条目声明「MVP 阶段仅同步 Agent 回复，用户原始消息不写入内部 IM」。本 unit 将其扩展为通用外部 channel 同步规则:Gateway 收到来自外部 channel（以飞书为首个实现）的用户消息后,调用 IM 服务创建或查找对应的影子会话,并将用户消息写入该会话;agent 回复亦同步到同一影子会话。1:1 私聊的影子会话名为 `agent名 · channel名`;群聊的影子会话名为 `agent名 · 群名 · channel名`。外部群聊消息携带原发送者显示名;IM owner 自己从外部 channel 发送的消息显示为「你」。未 @ 的群聊上下文消息、不 @ 也回的 agent 群聊消息均按同样规则同步。
+原 MVP 条目声明「MVP 阶段仅同步 Agent 回复，用户原始消息不写入内部 IM」。本 unit 将其扩展为通用外部 channel 同步规则:Gateway 收到来自外部 channel（以飞书为首个实现）的用户消息后,调用 IM 服务创建或查找对应的影子会话,并将用户消息写入该会话;agent 回复亦同步到同一影子会话。1:1 私聊的影子会话名为 `agent名 · channel名`;群聊的影子会话名为 `agent名 · 群名 · channel名`。外部群聊消息携带原发送者显示名;IM owner 自己从外部 channel 发送的消息显示为「你」。未 @ 的群聊上下文消息、不 @ 也回的 agent 群聊消息均按同样规则同步。未 @ 且不应触发回复的群聊消息使用 `sync_only` 入站语义:同步到 IM 并写入 GroupContextStore,但不分配 kernel session、不进入 run queue、不发送 agent 回复。
 
 #### Scenario: 外部 1:1 用户消息同步到内部 IM
 - **GIVEN** 用户在飞书与 plato-bot 1:1 对话

@@ -4,7 +4,7 @@
 
 ### Requirement: 外部 channel 影子会话
 
-IM 支持创建带有 `external_source` 和 `external_chat_id` 标记的会话,用于镜像外部 channel 中的聊天。1:1 私聊映射为 `direct` 类型,群聊映射为 `group` 类型。会话按 `(external_source, external_chat_id, agent_id, owner_id)` 幂等创建或查找。
+IM 支持创建带有 `external_source` 和 `external_chat_id` 标记的会话,用于镜像外部 channel 中的聊天。1:1 私聊映射为 `direct` 类型,群聊映射为 `group` 类型。会话按 `(external_source, external_chat_id, agent_id, owner_id)` 幂等创建或查找;实现上 `agent_id` 对应现有 conversation agent 配置维度,不得产生第二套 agent 身份来源。
 
 #### Scenario: 外部 1:1 会话在内部 IM 有独立会话
 - **GIVEN** Gateway 请求为 plato 的飞书 1:1 聊天创建影子会话
@@ -37,12 +37,17 @@ IM 支持将来自外部 channel 的用户消息写入影子会话。消息持�
 
 ### Requirement: 外部 channel 会话元数据回环
 
-IM 通过 WebSocket relay 把影子会话中的用户消息转发给 Gateway 时,必须携带该会话的外部 channel 元数据(`channel_name`、`external_chat_id`、`agent_id`)以及触发来源标记,使 Gateway 能够复用同一 kernel session 并按触发源决定回复去向。
+IM 通过 WebSocket relay 把影子会话中的用户消息转发给 Gateway 时,必须携带该会话的外部 channel 元数据(`external_source`、`external_chat_id`、`agent_id`、`conversation_type`)以及触发来源标记(`trigger_source`),使 Gateway 能够复用同一 kernel session、识别影子 group,并按触发源决定回复去向。`external_chat_id` 指外部 channel 的 chat id,不是 IM conversation id。
 
 #### Scenario: 内部 IM 消息被 Gateway 识别为 IM 来源
 - **GIVEN** 内部 IM 中存在 `plato · feishu` 影子会话
 - **WHEN** 用户在该会话中发送消息
 - **THEN** Gateway 收到该消息后,将其识别为来自 IM 的触发,agent 回复只留在 IM,不回写飞书
+
+#### Scenario: 影子群聊消息携带 conversation_type
+- **GIVEN** 内部 IM 中存在 `plato · 产品群 · feishu` group 影子会话
+- **WHEN** 用户在该会话中发送消息
+- **THEN** relay payload 携带 `conversation_type="group"`、`external_source="feishu"`、飞书 `external_chat_id` 和 `agent_id="plato"`,Gateway 可按 group 路径触发 agent 回复
 
 ### Requirement: 现有 IM 行为不变
 
