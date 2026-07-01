@@ -67,6 +67,7 @@ class CreateMessageRequest(BaseModel):
     content: str = Field(default="")
     attachments: list[AttachmentPayload] = Field(default_factory=list)
     target_node_id: str | None = None
+    sender_display_name: str | None = None
 
     @model_validator(mode="after")
     def validate_sender(self) -> "CreateMessageRequest":
@@ -348,6 +349,7 @@ async def create_message(
                 for item in payload.attachments
             ],
             auto_complete_delivery=resolved_target_node_id is None,
+            sender_display_name=payload.sender_display_name,
         )
     except ValueError as exc:
         raise map_message_write_error(exc) from exc

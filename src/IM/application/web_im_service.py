@@ -69,6 +69,42 @@ class WebIMService:
             caller_owner_id=caller_owner_id,
         )
 
+    def find_or_create_external_conversation(
+        self,
+        *,
+        external_source: str,
+        external_chat_id: str,
+        agent_id: str,
+        title: str,
+        is_group: bool,
+        participant_ids: list[str],
+        owner_id: str,
+        creator_id: str,
+    ) -> tuple[Conversation, bool]:
+        """Find or create an owner-scoped external-channel shadow conversation."""
+        before = self._conversations._connection.execute(  # noqa: SLF001
+            """
+            SELECT id
+            FROM conversations
+            WHERE external_source = ?
+              AND external_chat_id = ?
+              AND config_agent_id = ?
+              AND owner_id = ?
+            """,
+            (external_source, external_chat_id, agent_id, owner_id),
+        ).fetchone()
+        conversation = self._conversations.find_or_create_external_conversation(
+            external_source=external_source,
+            external_chat_id=external_chat_id,
+            agent_id=agent_id,
+            title=title,
+            is_group=is_group,
+            participant_ids=participant_ids,
+            owner_id=owner_id,
+            creator_id=creator_id,
+        )
+        return conversation, before is None
+
     def get_conversation(self, *, conversation_id: str) -> Conversation | None:
         """Load one conversation snapshot by identifier."""
         return self._conversations.get_conversation(conversation_id=conversation_id)
@@ -163,6 +199,7 @@ class WebIMService:
         sender_type: str = "user",
         attachments: list[Attachment] | None = None,
         auto_complete_delivery: bool = True,
+        sender_display_name: str | None = None,
     ) -> Message:
         """Create one message inside a conversation.
 
@@ -185,6 +222,7 @@ class WebIMService:
             sender_type=sender_type,
             attachments=attachments,
             auto_complete_delivery=auto_complete_delivery,
+            sender_display_name=sender_display_name,
         )
         if self._metrics_service is not None and auto_complete_delivery:
             conversation = self._conversations.get_conversation(
