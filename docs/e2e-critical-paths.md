@@ -21,12 +21,12 @@ scripts/e2e-critical.sh -m "not slow"   # 跳过时间驱动（cron/heartbeat）
 每条「必保活」路径都必须对应一个真实存在、能跑的测试函数；清单与测试一旦 drift，门禁不过。
 当前还没有 e2e 兜底的关键路径，诚实登记在「已知缺口 backlog」段，而非默认为已覆盖。
 
-## v1 必保活路径（11 条）
+## v1 必保活路径（13 条）
 
 > 「守护测试」列指向 `tests/e2e/critical_paths/` 下的测试函数，均经真 Gateway 进程真跑通过。
 > heartbeat（原 #7）端到端不冒泡（真实产品 bug #126），其 e2e 旅程已写但标
 > `@pytest.mark.xfail(strict=True, #126)`（真跑 → 预期 XFAIL；#126 修复后转 XPASS 即 strict
-> 报错提醒去 xfail），暂移至下方 backlog 段——故 v1 必保活当前为 10 条。
+> 报错提醒去 xfail），暂移至下方 backlog 段——故 v1 必保活当前为 12 条。
 
 | # | 用户旅程 | 守护测试 | 归属子系统 | 引入 unit |
 |---|---|---|---|---|
@@ -41,6 +41,7 @@ scripts/e2e-critical.sh -m "not slow"   # 跳过时间驱动（cron/heartbeat）
 | 10 | **进程重启后会话续接**——发消息建立上下文后**重启 Gateway 进程**，再发消息 agent 仍记得重启前的上文 | `test_restart_session_continuity_critical_path.py::test_context_survives_gateway_restart` | gateway（`docs/specs/gateway/spec.md`） | feat-421 |
 | 11 | **经 IM 创建 agent 并落地可聊**——在 IM 配置中心新建一个 agent，它在节点落地 workspace 并上线，随后能跟它聊出回复 | `test_create_agent_via_im_critical_path.py::test_agent_created_via_im_lands_and_replies` | im（`docs/specs/im/spec.md`）+ gateway | feat-421 |
 | 12 | **从消息 fork 出分支单聊**——在一条已完成 agent 回复上 fork，进入同 agent 的新分支单聊，分支带着到 fork 点的记忆（基于历史追问答得对）、不含 fork 点之后的消息，原会话保持不变（两线独立） | `test_message_fork_critical_path.py::test_fork_branch_carries_memory_and_leaves_source_intact` | im（`docs/specs/im/spec.md`）+ gateway + kernel | feat-445 |
+| 13 | **Gateway-IM 连接韧性**——节点 online 后 kill IM 再重启，**无需手动重启 Gateway**节点自动回 online；先起 Gateway（IM 未起）Gateway 不崩、IM 起后节点变 online（覆盖断网/休眠/IM 重启/启动早于 IM 四类瞬态故障，经 `/im/v1/nodes` 观察） | `test_gateway_im_resilience_critical_path.py::test_gateway_recovers_node_online_after_transient_faults`（驱动 `scripts/e2e-resilience.sh`；**不门控 LLM proxy**，连接韧性不调模型） | gateway（`docs/specs/gateway/spec.md`） | bugfix-446 |
 
 ## 已知缺口 / backlog（暂无 e2e 兜底）
 

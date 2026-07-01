@@ -95,7 +95,6 @@ def test_gateway_runtime_keeps_running_until_shutdown_requested(tmp_path: Path) 
         channel_registry=ChannelRegistry([_FakeChannel(events)]),
         heartbeat_runner=_FakeHeartbeatRunner(events),
         im_connection_manager=_FakeIMManager(events),
-        post_im_connect=lambda: events.append("im.bootstrap"),
     )
     outcome: dict[str, int] = {}
     thread = threading.Thread(
@@ -108,21 +107,16 @@ def test_gateway_runtime_keeps_running_until_shutdown_requested(tmp_path: Path) 
     try:
         assert runtime.wait_until_ready(timeout=1.0) is True
         assert thread.is_alive() is True
-        # heartbeat.start is appended AFTER im.bootstrap (run_forever starts the heartbeat
-        # runner only after im.connect_once, feat-393 fix-r1). Wait for the LAST expected
-        # event — not im.bootstrap — otherwise the assertion races the runner.start() append
-        # and fails intermittently under slow CI (which then skips request_shutdown and
-        # leaks the non-daemon asyncio.to_thread worker → process hangs to the 6h job cap).
+        # bugfix-446-M1: the eager connect_once + post_im_connect block is gone — the IM
+        # connection is now owned by the supervised run_forever loop. Heartbeat startup
+        # still waits for the first connect attempt to resolve before its first tick
+        # (feat-393 guard), so heartbeat.start is the last startup event to land.
         deadline = time.time() + 1.0
         while "heartbeat.start" not in events and time.time() < deadline:
             time.sleep(0.01)
-        # feat-393 fix-r1: heartbeat must start AFTER im.connect so the kernel_event_observer
-        # sees manager.connected=True on the very first heartbeat tick.
-        assert events[:5] == [
+        assert events[:3] == [
             "kernel.start",
             "channel.start:web_relay",
-            "im.connect",
-            "im.bootstrap",
             "heartbeat.start",
         ]
     finally:
@@ -136,8 +130,6 @@ def test_gateway_runtime_keeps_running_until_shutdown_requested(tmp_path: Path) 
     assert events == [
         "kernel.start",
         "channel.start:web_relay",
-        "im.connect",
-        "im.bootstrap",
         "heartbeat.start",
         "heartbeat.stop",
         "channel.stop:web_relay",
@@ -146,28 +138,9 @@ def test_gateway_runtime_keeps_running_until_shutdown_requested(tmp_path: Path) 
     ]
 
 
-def test_gateway_runtime_cleans_up_reverse_order_when_im_start_fails(
-    tmp_path: Path,
-) -> None:
-    config = build_config(tmp_path)
-    events: list[str] = []
-    runtime = GatewayRuntime(
-        config,
-        _FakeProcessManager(events),
-        channel_registry=ChannelRegistry([_FakeChannel(events)]),
-        heartbeat_runner=_FakeHeartbeatRunner(events),
-        im_connection_manager=_FakeIMManager(events, fail_connect=True),
-    )
-
-    with pytest.raises(RuntimeError, match="im offline"):
-        runtime.run_forever()
-
-    # feat-393 fix-r1: heartbeat starts after im.connect attempt; if im.connect fails,
-    # heartbeat was never started so only cleanup for channels/kernel is needed.
-    assert events == [
-        "kernel.start",
-        "channel.start:web_relay",
-        "im.connect",
-        "channel.stop:web_relay",
-        "kernel.stop",
-    ]
+# bugfix-446-M1: the old test_gateway_runtime_cleans_up_reverse_order_when_im_start_fails
+# asserted that a failed initial IM connect crashes the gateway (fail-fast). That contract
+# is intentionally inverted by decision 3 — startup is now order-insensitive — and the new
+# behavior (gateway survives an unreachable IM at startup) is covered by
+# test_gateway_runtime_watchdog.py::test_gateway_survives_unreachable_im_at_startup with a
+# real IMConnectionManager.

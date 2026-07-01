@@ -187,6 +187,80 @@ async def test_polling_runner_without_cron_fn_runs_normally(
 
 
 # ---------------------------------------------------------------------------
+# bugfix-446-M1 (decision 4): heartbeat tick resilience + done callback
+# ---------------------------------------------------------------------------
+
+
+class _FlakyHeartbeatScheduler:
+    """tick raises the first ``fail_times`` calls, then returns an empty summary."""
+
+    def __init__(self, *, fail_times: int) -> None:
+        self.tick_count = 0
+        self._fail_times = fail_times
+
+    async def tick(self) -> Any:
+        self.tick_count += 1
+        if self.tick_count <= self._fail_times:
+            raise RuntimeError(f"tick boom {self.tick_count}")
+
+        class _Summary:
+            triggered_runs: list = []
+
+        return _Summary()
+
+
+@pytest.mark.asyncio
+async def test_polling_runner_survives_scheduler_tick_failure(tmp_path: Path) -> None:
+    """decision 4: a failing scheduler.tick must not kill the polling loop — the loop
+    logs and retries on the next interval. Before the fix, the bare ``await tick()``
+    let the exception propagate and silently kill the heartbeat subsystem."""
+    from personal_assistant.main import PollingHeartbeatRunner
+
+    hb_scheduler = _FlakyHeartbeatScheduler(fail_times=1)
+    hb_config = HeartbeatConfig(tick_interval_seconds=0.001)
+
+    runner = PollingHeartbeatRunner(scheduler=hb_scheduler, config=hb_config)
+
+    await runner.start()
+    # Allow several intervals so a surviving loop ticks again after the first failure.
+    for _ in range(50):
+        if hb_scheduler.tick_count >= 2:
+            break
+        await asyncio.sleep(0.005)
+    tick_count = hb_scheduler.tick_count
+    await runner.close()
+
+    assert tick_count >= 2, (
+        f"loop must survive a failing tick and tick again; got tick_count={tick_count}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_polling_runner_start_attaches_done_callback(tmp_path: Path) -> None:
+    """decision 4: the heartbeat loop task must carry a done callback so a truly
+    unexpected loop crash is observed (logged) rather than swallowed silently."""
+    from personal_assistant.main import PollingHeartbeatRunner, _consume_task_exception
+
+    hb_scheduler = _FakeHeartbeatScheduler()
+    hb_config = HeartbeatConfig(tick_interval_seconds=999)
+
+    runner = PollingHeartbeatRunner(scheduler=hb_scheduler, config=hb_config)
+    await runner.start()
+    try:
+        task = runner._task  # noqa: SLF001
+        assert task is not None
+        registered = [
+            cb[0] if isinstance(cb, tuple) else cb
+            for cb in (task._callbacks or [])  # noqa: SLF001
+        ]
+        assert _consume_task_exception in registered, (
+            "heartbeat loop task must have _consume_task_exception as a done callback"
+        )
+    finally:
+        await runner.close()
+
+
+# ---------------------------------------------------------------------------
 # Regression: _cron_tick_for_agent reaches CronSchedulerStateStore construction
 # ---------------------------------------------------------------------------
 
