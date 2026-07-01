@@ -20,7 +20,7 @@
   - E2E/Regression: Added regression coverage in `chat-api.test.ts`, `chat-workspace.integration.test.tsx`, and `message-pane.test.tsx`. Red state before C2: 4 failures for missing load trigger, anchor restoration, top history status, and older-page fetch.
   - Visual/Interaction: Top loading/no-more CSS and i18n landed; screenshot evidence deferred to R3 browser QA.
 - Rollback: Revert `452d9f2f` after `c689b124` to remove R1 implementation while keeping red tests, or revert both R1 commits to restore pre-R1 behavior.
-- Commits: C1=`c689b124`, C2=`452d9f2f`, C3=TODO
+- Commits: C1=`c689b124`, C2=`452d9f2f`, C3=`e8eae8d3`
 - Next: R2
 
 ## R2 — 智能滚底与 composer 输入行为
@@ -36,21 +36,31 @@
   - E2E/Regression: Added `message-pane.test.tsx` cases for off-bottom no auto-scroll, near-bottom auto-scroll, mobile Enter send, desktop Shift+Enter newline, slash picker Enter ownership, mobile composer auto-grow. Red state before C2: 3 failures for off-bottom scroll, mobile Enter, mobile rows; slash picker ownership already passed after correcting the expected behavior.
   - Visual/Interaction: CSS max-height/overflow for composer landed; screenshot evidence deferred to R3 browser QA.
 - Rollback: Revert `30809ad4` after `767ce6fe` to remove R2 implementation while keeping R2 tests, or revert both R2 commits.
-- Commits: C1=`767ce6fe`, C2=`30809ad4`, C3=TODO
+- Commits: C1=`767ce6fe`, C2=`30809ad4`, C3=`6debd8e6`
 - Next: R3
 
 ## R3 — 消息菜单、移动端 fork 与真实浏览器验收
 
-- Context: TODO
-- Decision: TODO
-- Rationale: TODO
+- Context: R1/R2 已完成历史分页、智能滚底和 composer 输入行为后，剩余缺口是消息级菜单：复制没有统一入口，移动端没有 hover，现有 fork 按钮虽在 DOM 中但移动端不可达。
+- Decision: 在 `MessageBubble` 内新增受控菜单状态。桌面端 `contextmenu` 打开菜单并提供 Copy；移动端通过 600ms 长按打开菜单，touch move 超过 10px 取消以避免滚动误触。菜单固定定位并按视口夹取，always 提供 Copy；移动端 direct agent 完成回复且有 `kernel_message_id` 时额外提供 fork。桌面端 hover fork 按钮继续按原 CSS 显示，移动端不渲染 hover fork 按钮，fork 只走长按菜单。
+- Rationale: 保持桌面既有 hover fork 交互，最小化用户可见变更；移动端没有 hover，因此将 fork 放入长按菜单才能满足可达性。菜单状态放在每个 bubble 内，避免提升到 MessagePane 造成跨消息复杂状态；Copy 使用 `navigator.clipboard.writeText`，失败时不阻塞菜单关闭，符合轻量操作菜单预期。
 - Evidence:
-  - Tests: TODO
-  - Entry: TODO
-  - Frontend State Matrix: TODO
-  - Browser QA: TODO
-  - E2E/Regression: TODO
-  - Visual/Interaction: TODO
-- Rollback: TODO
-- Commits: TODO
+  - Tests: Red before implementation: `cd src/IM/frontend && npm run test -- src/features/chat/v2/components/message-pane.test.tsx` → 3 expected failures for missing desktop menu, mobile copy menu, mobile fork menu. After implementation: same command → 1 file / 68 tests passed. Combined targeted check: `npm run test -- src/features/chat/v2/chat-api.test.ts src/features/chat/v2/chat-workspace.integration.test.tsx src/features/chat/v2/components/message-pane.test.tsx` → 3 files / 103 tests passed. `npx tsc -b` → passed.
+  - Entry: Browser opened real Vite entry `/chat/c1` with route-level IM fixtures: initial history response 50 messages and `next_before_message_id=h-11`; older-history response 10 messages and `next_before_message_id=null`; real React Router, React Query, MessagePane, CSS, keyboard and clipboard paths were exercised.
+  - Frontend State Matrix: default/history list, no-more after older page, desktop right-click menu, desktop hover fork, desktop Shift+Enter, desktop Enter send, mobile Enter send, mobile auto-grow, mobile long-press copy, mobile long-press fork all covered. Error UI remains N/A for this milestone because design did not introduce a history-load error surface.
+  - Browser QA: `Vite http://127.0.0.1:50839/chat/c1`; desktop viewport `1366x900` result: older request `GET /im/v1/conversations/c1/messages?limit=50&before_message_id=h-11`, 60 message rows after prepend, right-click Copy wrote `Agent reply 60`, hover fork computed display `flex`, Shift+Enter value `Desktop line\n`, Enter send cleared composer, no console/page errors. Mobile viewport `390x844` result: initial rows `1`, multi-line rows capped at `4`, Enter send cleared composer, long-press Copy wrote `Agent reply 60`, mobile hover fork button count `0`, long-press fork POST payload `{ "fork_message_id": "h-60" }`, no console/page errors. Screenshots were generated during QA under worktree-local `output/playwright/` and not committed; viewport/result evidence above is the retained artifact.
+  - E2E/Regression: Added `message-pane.test.tsx` coverage for desktop right-click copy, mobile long-press copy, and mobile long-press fork. Existing `message-pane-fork.test.tsx` remains the desktop hover fork regression suite.
+  - Visual/Interaction: Menu styling added in `global.css` as a compact fixed overlay with 8px radius, keyboard focus state, disabled state, and viewport-clamped placement; i18n added `copy` in en/zh.
+- Rollback: Revert `c779dab7` after `c8dcfb27` to remove R3 implementation while keeping red tests, or revert both R3 commits. No backend contract changes.
+- Commits: C1=`c8dcfb27`, C2=`c779dab7`, C3=this docs update
 - Next: Milestone integration
+
+## Final Exit Criteria Evidence
+
+- `[reviewer]` >50 history pagination: Component/integration tests prove first request uses `limit=50, markAsRead=true`, scroll threshold is `scrollTop <= (scrollHeight - clientHeight) / 3`, and older request uses `limit=50&before_message_id=<cursor>`. Browser QA on `/chat/c1` confirmed `before_message_id=h-11` and 60 rendered rows after loading earlier messages.
+- `[reviewer]` reading position and no-more behavior: `message-pane.test.tsx` covers anchor restoration after prepend and loading/no-more status rendering; R1 fix added skip of the next auto-scroll after anchor restore to prevent jumping to bottom.
+- `[reviewer]` smart bottom behavior: `message-pane.test.tsx` covers no auto-scroll when user is reading history and auto-scroll when user is near bottom; local send uses a force-bottom flag.
+- `[reviewer]` composer behavior: `message-pane.test.tsx` covers mobile Enter send/clear, desktop Shift+Enter newline, slash picker Enter ownership, and mobile auto-grow to 4 rows. Browser QA confirmed desktop Shift+Enter retained newline and Enter sent/cleared, plus mobile Enter sent/cleared and rows capped at 4.
+- `[reviewer]` message action menu/fork: `message-pane.test.tsx` covers desktop right-click Copy, mobile long-press Copy, mobile long-press fork. Browser QA confirmed desktop Copy clipboard text, desktop hover fork displayed, mobile hover fork not rendered, mobile long-press fork POST payload.
+- `[worker]` `cd src/IM/frontend && npm run test`: 63 files / 575 tests passed. Existing warnings observed: React `act(...)`, Vitest `--localstorage-file`, one existing query-data warning in an unrelated agent detail test; no test failures.
+- `[worker]` `cd src/IM/frontend && npx tsc -b`: passed.
