@@ -280,6 +280,168 @@ describe("MessagePane", () => {
     });
   });
 
+  describe("smart auto-scroll and composer input behavior (feat-451 R2)", () => {
+    const BASE_MESSAGES: Message[] = Array.from({ length: 3 }, (_, idx) => ({
+      id: `scroll-${idx + 1}`,
+      conversation_id: "c1",
+      sender: idx % 2 === 0
+        ? { type: "user", id: "u1", display_name: "You" }
+        : { type: "agent", id: "a-planner", display_name: "Planner" },
+      sender_user_id: idx % 2 === 0 ? "u1" : "a-planner",
+      sender_type: idx % 2 === 0 ? "user" : "agent",
+      content: `scroll message ${idx + 1}`,
+      attachments: [],
+      delivery_status: "completed",
+      created_at: `2026-01-01T00:00:0${idx}Z`,
+      permission_requests: []
+    }));
+
+    it("does not auto-scroll to bottom when a new message arrives while the user is reading history", () => {
+      const { container, rerender } = render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={BASE_MESSAGES}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+      const scroller = container.querySelector(".chat-pane-messages") as HTMLElement;
+      const metrics = { scrollTop: 120, scrollHeight: 1200, clientHeight: 300 };
+      setScrollMetrics(scroller, metrics);
+      fireEvent.scroll(scroller);
+
+      rerender(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[
+            ...BASE_MESSAGES,
+            {
+              ...BASE_MESSAGES[0]!,
+              id: "scroll-new",
+              content: "new arrival",
+              created_at: "2026-01-01T00:00:10Z"
+            }
+          ]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+
+      expect(scroller.scrollTop).toBe(120);
+    });
+
+    it("auto-scrolls to bottom when a new message arrives and the user is already near bottom", () => {
+      const { container, rerender } = render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={BASE_MESSAGES}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+      const scroller = container.querySelector(".chat-pane-messages") as HTMLElement;
+      const metrics = { scrollTop: 860, scrollHeight: 1200, clientHeight: 300 };
+      setScrollMetrics(scroller, metrics);
+      fireEvent.scroll(scroller);
+      metrics.scrollHeight = 1400;
+
+      rerender(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[
+            ...BASE_MESSAGES,
+            {
+              ...BASE_MESSAGES[0]!,
+              id: "scroll-bottom-new",
+              content: "bottom arrival",
+              created_at: "2026-01-01T00:00:10Z"
+            }
+          ]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+
+      expect(scroller.scrollTop).toBe(1400);
+    });
+
+    it("sends on Enter on mobile and clears the composer", async () => {
+      const user = userEvent.setup();
+      const onSend = vi.fn();
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={BASE_MESSAGES}
+          mentionCandidates={[]}
+          isMobile
+          onSend={onSend}
+        />
+      );
+      const composer = screen.getByRole("textbox") as HTMLTextAreaElement;
+      await user.type(composer, "mobile send");
+      await user.keyboard("{Enter}");
+      expect(onSend).toHaveBeenCalledWith("mobile send", []);
+      expect(composer.value).toBe("");
+    });
+
+    it("keeps desktop Shift+Enter as newline without sending", async () => {
+      const user = userEvent.setup();
+      const onSend = vi.fn();
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={BASE_MESSAGES}
+          mentionCandidates={[]}
+          onSend={onSend}
+        />
+      );
+      const composer = screen.getByRole("textbox") as HTMLTextAreaElement;
+      await user.type(composer, "line one");
+      await user.keyboard("{Shift>}{Enter}{/Shift}");
+      await user.type(composer, "line two");
+      expect(onSend).not.toHaveBeenCalled();
+      expect(composer.value).toBe("line one\nline two");
+    });
+
+    it("lets the slash picker own mobile Enter instead of sending raw slash text", async () => {
+      const user = userEvent.setup();
+      const onSend = vi.fn();
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={BASE_MESSAGES}
+          mentionCandidates={[]}
+          slashSkills={[{ kind: "skill", name: "doc", description: "docs", location: "/skills/doc", fromAgents: ["Planner"] }]}
+          isMobile
+          onSend={onSend}
+        />
+      );
+      const composer = screen.getByRole("textbox") as HTMLTextAreaElement;
+      await user.type(composer, "/");
+      expect(await screen.findByText("/stop")).toBeInTheDocument();
+      await user.keyboard("{Enter}");
+      expect(onSend).not.toHaveBeenCalled();
+      expect(composer.value).toBe("/stop ");
+    });
+
+    it("auto-grows the mobile composer up to four rows", async () => {
+      const user = userEvent.setup();
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={BASE_MESSAGES}
+          mentionCandidates={[]}
+          isMobile
+          onSend={() => {}}
+        />
+      );
+      const composer = screen.getByRole("textbox") as HTMLTextAreaElement;
+      expect(composer.rows).toBe(1);
+      await user.type(composer, "one{Shift>}{Enter}{/Shift}two{Shift>}{Enter}{/Shift}three{Shift>}{Enter}{/Shift}four{Shift>}{Enter}{/Shift}five");
+      expect(composer.rows).toBe(4);
+    });
+  });
+
 
   it("renders a GFM markdown table in an agent message as a real <table>", () => {
     const tableMsg: Message = {
