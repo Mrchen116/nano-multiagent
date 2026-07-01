@@ -36,7 +36,7 @@
 
 - Q2（通用规则）：对于任意外部 channel 在内部 IM 的同步会话，用户在该会话里回复，算「在原 channel 里接着聊」还是「只在内部 IM 里继续」？
   A(原话): 理解对的。后续再在飞书聊的话，agent还是能接上对应的上下文。
-  Agent 解读: 外部 channel 在内部 IM 的同步会话是双向镜像：用户在 IM 里的回复会回写到原 channel，且无论用户从哪个入口说话，都复用同一个 kernel session，上下文连续。
+  Agent 解读: 外部 channel 在内部 IM 的同步会话是双向镜像：外部 channel 用户消息同步到内部 IM；agent 回复按触发源路由——飞书触发的回复回写飞书并同步到 IM，IM 触发的回复只留在 IM。无论用户从哪个入口说话，都复用同一个 kernel session，上下文连续。
 
 - Q3（通用规则）：外部 channel 群聊里，未 @Bot、只进 history buffer 的消息，要同步到内部 IM 吗？
   A(原话): 可能是我之前说的不够明确，这个应该是复用我内部IM的逻辑吧，对于设置了@才回的agent，是未@暂存，@就回应。设置了不@也回的，则都回应。
@@ -136,10 +136,17 @@
 - **WHEN** plato-bot 回复用户
 - **THEN** 该回复出现在内部 IM 的 `plato · feishu` 会话中，包含完整 agent 输出（正文、tool call、thinking 等）
 
-#### Scenario: 在内部 IM 回复会回写到原 channel
+#### Scenario: 在内部 IM 回复不会回写飞书但上下文连续
 - **GIVEN** 内部 IM 已存在 `plato · feishu` 会话
 - **WHEN** 用户在该会话中发送消息
-- **THEN** plato 的回复同时出现在内部 IM 会话和飞书原对话中
+- **THEN** plato 的回复只出现在内部 IM 会话，不出现在飞书原对话中
+- **AND** 下次用户在飞书原对话中发消息时，plato 能引用本次 IM 中的上下文
+
+#### Scenario: 在内部 IM 群聊影子会话发消息自动触发 agent 回复
+- **GIVEN** 内部 IM 已存在 `plato · 产品群 · feishu` group 影子会话
+- **WHEN** 用户在该会话中发送消息（不 @plato）
+- **THEN** plato 正常回复该消息
+- **AND** 该回复只出现在内部 IM 会话，不回写飞书
 
 #### Scenario: 同一 kernel session 跨入口上下文连续
 - **GIVEN** 用户在飞书问了 plato-bot "我叫什么"
@@ -175,6 +182,12 @@
 - **GIVEN** plato 的 group_reply_policy 为 ALWAYS
 - **WHEN** 群成员在飞书群「产品群」发送任意消息
 - **THEN** 每条消息都触发 plato 回复，并全部同步到内部 IM 的 `plato · 产品群 · feishu` group 会话中
+
+#### Scenario: IM 离线时飞书对话不中断
+- **GIVEN** IM 服务当前不可达
+- **WHEN** 用户在飞书与 plato-bot 1:1 对话
+- **THEN** plato-bot 仍正常回复用户
+- **AND** 该对话在 IM 恢复前暂不同步到内部 IM
 
 ### Requirement: 飞书云文档操作（用户身份）
 
@@ -217,8 +230,9 @@
   - 群聊未 @ 消息的 history buffer 上下文
   - 外部 channel 会话同步到内部 IM（以飞书为首个实现）：
     - 每个外部 channel 在内部 IM 有独立会话；1:1 命名为 `agent名 · channel名`，群聊命名为 `agent名 · 群名 · channel名`
-    - 用户消息、agent 回复、tool call、thinking 等完整同步
-    - 内部 IM 的回复回写到原 channel，复用同一 kernel session
+    - 用户消息、agent 回复、tool call、thinking 等完整同步到内部 IM
+    - agent 回复按触发源路由：飞书触发的回复同时回写飞书和 IM；IM 触发的回复只留在 IM
+    - 跨入口复用同一 kernel session，保证上下文连续
     - 群聊映射为独立 group 会话，外部成员消息显示原发送者名字
   - 以用户身份操作飞书云文档（通过 feishu-cli，创建文档、读取、编辑/追加、创建文件夹、移动文件）
 - 非目标：
@@ -230,3 +244,5 @@
   - 多飞书应用账号
   - 飞书群维度的精细权限配置（allowFrom / 黑名单等）
   - 非 owner 外部成员在内部 IM 中创建真实用户账号或参与会话权限管理
+  - 文件、图片、富文本等非文本消息从飞书同步到内部 IM（本期只同步文本）
+  - 内部 IM 中编辑/删除消息同步回外部 channel（IM 现有功能不支持编辑删除，本期不新增）

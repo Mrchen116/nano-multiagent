@@ -10,42 +10,49 @@
 
 ### 涉及范围
 
-- `src/personal_assistant/channels/base.py` — 定义 `ChannelAdapter` Protocol（name / start / send / stop）、`InboundMessage` / `OutboundMessage` / `ReplyContext`。飞书 adapter 直接实现此 Protocol。只读不改。
-- `src/personal_assistant/channels/` — 新增 `feishu_adapter.py`（飞书消息收发 adapter）、`feishu_client.py`（飞书 SDK 封装）。
-- `src/personal_assistant/gateway/channel_registry.py` — `ChannelRegistry`，飞书 adapter 通过它注册。只读不改。
-- `src/personal_assistant/gateway/bootstrap.py` — `start_channels` / `stop_channels`，驱动 adapter 生命周期。只读不改。
-- `src/personal_assistant/gateway/outbound_router.py` — `OutboundRouter.send_text()`，路由回复到 adapter。只读不改。
-- `src/personal_assistant/gateway/inbound_pipeline.py` — 入站消息处理、agent 路由、群聊 mention 门控。只读不改。
-- `src/personal_assistant/gateway/group_context_store.py` — 群上下文 buffer，飞书 adapter 复用。只读不改。
-- `src/personal_assistant/config/local_store.py` — 扩展 `ChannelConfig` 支持飞书 channel 配置结构。
-- `src/personal_assistant/main.py` — 注册飞书 adapter。
-- `skills/` — 新增飞书文档操作 skill（教 agent 调用 feishu-cli 命令操作云文档）。
+- `src/personal_assistant/channels/base.py` — `ChannelAdapter` Protocol、`InboundMessage` / `OutboundMessage` / `ReplyContext`。飞书 adapter 已实现，只读不改。
+- `src/personal_assistant/channels/feishu_client.py` — 飞书 SDK 封装（WS 接收、REST 发送、reaction、错误分类）。已实现，M6 修复后稳定。
+- `src/personal_assistant/channels/feishu_adapter.py` — 飞书消息收发 adapter（1:1 DM、群聊 @Bot、history buffer、ack reaction）。已实现，M6 修复后稳定。
+- `src/personal_assistant/gateway/inbound_pipeline.py` — 入站消息处理、agent 路由、群聊 mention 门控。已有 `_resolve_sender_label` 从 `metadata.sender_display_name` 取发送者名字；需要在飞书入站时把名字写进 metadata。
+- `src/personal_assistant/gateway/outbound_router.py` — 回复路由。已实现，不改。
+- `src/IM/domain/models.py` — `Conversation` 无外部 channel 来源标记；`Message.sender` 是 `Actor`，`Actor.display_name` 已存在但当前未持久化到 `messages` 表。
+- `src/IM/infra/db.py` — `conversations` 表缺 `external_source` / `external_chat_id`；`messages` 表缺 `sender_display_name`。
+- `src/IM/infra/repositories.py` — `ConversationRepository.create_conversation` 和 `MessageRepository.create_message` 需要扩展新字段。
+- `src/IM/api/routes/messages.py` / `src/IM/api/routes/conversations.py` — 需要新增外部 channel 会话 find-or-create 接口，并支持 `sender_display_name`。
+- `src/IM/ws/gateway_handler.py` — `_handle_streaming_delta` 已支持 lazy direct chat 创建；群聊场景需要外部 channel 影子 group 创建路径。
+- `src/IM/application/web_im_service.py` — 需要新增外部 channel 会话创建/查找业务方法。
+- `src/personal_assistant/main.py` / `config/local_store.py` — Gateway 启动、channel 注册、配置解析。已稳定，本次需要补充 owner 飞书 open_id 配置（用于 IM 显示「你」）。
+- `skills/feishu-doc.md` — M2/M3/M4 已落地，不改。
 
 ### 既有约束
 
-- Gateway 只经 `agent.sdk` 持有内核，禁止 import 内核内部
-- 配置统一走 `~/.nano-assistant/config.yaml`
-- channel adapter 是进程本地的，start/send/stop 是同步接口
-- 回复通过 `OutboundRouter.send_text()` 路由，adapter 不直接调内核
+- Gateway 只经 `agent.sdk` 持有内核，禁止 import 内核内部。
+- `coding_cli` / `personal_assistant` 只能 import `agent.sdk`，禁止 import `agent.core` / `agent.platform`。
+- IM 不调用 agent，只与用户和 personal_assistant 交互。
+- channel adapter 是进程本地的，start/send/stop 是同步接口。
+- 配置统一走 `~/.nano-assistant/config.yaml`。
+- 在 worktree 内起任何监听端口的服务必须分配空闲端口并 kill 自己起的进程。
 
 ### 可复用能力
 
-- **`ChannelAdapter` Protocol**（`base.py`）— 飞书 adapter 直接实现，无需新建抽象。**用**。
-- **`GroupContextStore`**（`group_context_store.py`）— 群上下文 buffer，飞书 adapter 未 @ 消息存入、@ 时取出。**用**。
-- **`ChannelRegistry` + `bootstrap.py`** — adapter 注册和生命周期管理。**用**。
-- **`OutboundRouter`** — 回复路由。**用**。
-- **`InboundMessage` / `ReplyContext` 数据类** — 消息标准化。**用**。
-- **feishu-cli**（飞书官方开源 CLI）— 封装全部飞书 API，内置 OAuth 流程，agent 通过 shell 调用即可操作云文档。**用**。不自建飞书 doc tools。
+- **`ChannelAdapter` Protocol + FeishuAdapter/FeishuClient** — 飞书消息收发已完成。**用**。
+- **`GroupContextStore`** — 群上下文 buffer。**用**。
+- **`InboundPipeline` + `OutboundRouter`** — Gateway 核心消息处理。**用**，并扩展 IM 同步 hook。
+- **IM `messages.py` REST API** — 已有创建消息接口，支持 `sender` actor-first payload。**扩展**以透传 `sender_display_name`。
+- **IM `gateway_handler.py` lazy conversation 创建** — `_handle_streaming_delta` 的 `turn_start` 在 `conversation_id=""` 且 `to_user_id` 存在时会创建 direct chat。**扩展**为支持外部 channel 影子会话的预创建/查找。
+- **kernel event observer (`node.streaming_delta`)** — agent 输出同步到 IM 已工作（M1 后修复）。**用**。
 
 ### 相关历史
 
-无相关历史变更。这是第一个外部 IM channel adapter。
+- M1 `feat-447-M1`：飞书消息收发、多 Bot 路由、ack reaction、半边对话同步（仅 agent 回复）。
+- M4/M5/M6：config 一致性、ack reaction、DM receive_id_type、重试计数器分离、registry 必填 group_context_store。
+- `docs(feat-447): 补全外部 channel 同步到内部 IM 的 spec`：spec 更新，要求外部 channel 用户消息同步到 IM、群聊影子 group、发送者名字显示、按触发源路由 agent 回复、同一 kernel session 跨入口复用。
 
 ## 架构总览
 
-**Before**: Gateway 只有一个 `WebRelayAdapter`，通过 IM WebSocket relay 收发消息。
+**Before**：Gateway 飞书 channel 已能收发消息，agent 回复通过 `node.streaming_delta` 懒创建 direct chat 同步到 IM，但 IM 侧没有用户原始消息，呈现"半边对话"。
 
-**After**: Gateway 新增 `FeishuAdapter`，通过飞书 SDK 长连接直接收发消息。云文档操作通过 feishu-cli（外部 CLI 工具）实现，agent 通过 shell 调用，零自建代码。
+**After**：外部 channel 在 IM 中有独立的影子会话（1:1 为 `direct`，群聊为 `group`），用户消息完整同步到 IM；agent 回复按触发源路由——飞书触发的回复同时回写飞书和 IM，IM 触发的回复只留在 IM；同一 kernel session 跨入口复用，保证上下文连续。
 
 ```mermaid
 graph TD
@@ -54,114 +61,151 @@ graph TD
         PIPE[InboundPipeline]
         OUT[OutboundRouter]
         GCTX[GroupContextStore]
-        MAIN[main.py]
-
-        REG --> PIPE
-        PIPE --> OUT
-        GCTX --> PIPE
+        IMCONN[IMConnectionManager]
     end
 
-    subgraph "channels/ (新增标★)"
-        WRA[WebRelayAdapter]
-        FA[★ FeishuAdapter]
-        FC[★ FeishuClient]
+    subgraph "channels/ (已实现)"
+        FA[FeishuAdapter]
+        FC[FeishuClient]
     end
 
-    subgraph "外部工具 (不改代码)"
-        FCLI[feishu-cli<br/>飞书官方 CLI]
+    subgraph "IM"
+        API[IM HTTP API]
+        DB[(SQLite)]
+        WS[IM WS GatewayHandler]
     end
 
     subgraph "外部"
-        IM[IM Service<br/>WebSocket Relay]
-        FS[飞书服务器<br/>长连接]
-        FDOC[飞书云文档 API]
-        BROWSER[用户浏览器]
+        FS[飞书服务器]
+        IMUI[内部 IM Web UI]
     end
 
-    WRA -->|relay.message| REG
+    FS -->|P2ImMessageReceiveV1| FC
+    FC --> FA
     FA -->|InboundMessage| REG
-    OUT -->|OutboundMessage| FA
+    REG --> PIPE
+    PIPE -->|创建/查找影子会话 + 写入用户消息| IMCONN
+    IMCONN --> API
+    API --> DB
+    PIPE -->|kernel.submit| K[Agent Kernel]
+    K -->|SSE| PIPE
+    PIPE -->|node.streaming_delta| WS
+    WS --> DB
+    PIPE -->|OutboundMessage| OUT
+    OUT --> FA
     FA --> FC
-    FC -->|WebSocket| FS
-    FA -.->|未@消息存入| GCTX
-    FA -.->|@时取出| GCTX
-    WRA -->|relay| IM
-    PIPE -->|kernel event observer<br/>自动同步| IM
-    PIPE -->|agent shell 调用| FCLI
-    FCLI -->|OAuth| BROWSER
-    FCLI -->|API 调用| FDOC
+    FC --> FS
+    IMUI -->|回复| API
+    API -->|relay| IMCONN
+    IMCONN -->|InboundMessage| PIPE
+    PIPE -->|复用同一 session| K
+    PIPE -->|回复| OUT
+    OUT --> FA
 ```
-
-飞书消息收发通过 `FeishuAdapter`（自建）接入 gateway；云文档操作通过 `feishu-cli`（外部工具）实现。两层解耦，互不依赖。
 
 ## 关键决策
 
 ### 决策 1: 飞书事件连接方式
 
-**选了 WebSocket 长连接模式作为默认**。
+**选了 WebSocket 长连接模式**。
 
-- **理由**: Gateway 跑在用户本机（NAT 后面），无公网 IP。WebSocket 由 Bot 主动连飞书服务器，零配置开箱即用。飞书 SDK（lark-oapi）内置 WSClient，自带自动重连。
-- **拒绝**: Webhook 模式——需要公网 HTTPS 端点 + verificationToken + encryptKey，部署门槛高。
-- **风险**: Gateway 重启时短暂断连，飞书 SDK 自动重连，断连窗口内消息有飞书重试机制兜底。
+- **理由**: Gateway 跑在用户本机（NAT 后面），无公网 IP。WebSocket 由 Bot 主动连飞书服务器，零配置开箱即用。
+- **拒绝**: Webhook 模式——需要公网 HTTPS 端点。
+- **风险**: Gateway 重启时短暂断连，飞书 SDK 自动重连。
 
 ### 决策 2: 多 Bot 配置模型
 
-**选了 `channels` 列表中每个飞书 Bot 作为一个独立 entry，entry name 直接就是 `feishu:<agent_id>`**。
+**选了 `channels` 列表中每个飞书 Bot 作为一个独立 entry，name = `feishu:<agent_id>`**。
 
-```yaml
-channels:
-- name: web_relay
-- name: feishu:plato
-  settings:
-    appId: cli_xxx
-    appSecret: xxx
-- name: feishu:luban
-  settings:
-    appId: cli_yyy
-    appSecret: yyy
-```
-
-- **理由**: channel registry key、adapter name、agent 路由三者用同一个标识，不需要额外的 `name` 或 `agentId` 字段。配置最简，用户只看 agent id 就能知道哪个 bot 对应哪个 agent。
-- **拒绝**: `channels.feishu.accounts` 子列表——每个 account 要额外 `name` + `agentId`，但运行时 adapter name 和路由实际都靠 `agent_id`，`name` 成了无消费的冗余字段。
-- **风险**: 一个 agent 只能绑一个飞书 bot；如果需要多 bot 对应同一 agent，需要新增独立路由层（当前 spec 不需要）。
+- **理由**: channel registry key、adapter name、agent 路由三者统一。
+- **拒绝**: `channels.feishu.accounts` 子列表——冗余字段。
+- **风险**: 一个 agent 只能绑一个飞书 bot。
 
 ### 决策 3: 云文档操作方案
 
-**选了 feishu-cli（飞书官方开源 CLI）作为云文档操作的唯一路径，不自建飞书 doc tools**。
+**选了 feishu-cli 作为云文档操作路径**。
 
-- **理由**: feishu-cli 封装了全部飞书 API（文档、知识库、电子表格、消息、日历、任务），内置 OAuth 用户授权流程（`feishu-cli auth login`），agent 有 shell 执行能力即可调用。零自建代码，维护成本为零。
-- **拒绝**: 自建 feishu_doc_tools.py + OAuth 模块——重复造轮子，飞书官方已经做好了。
-- **风险**: feishu-cli 是外部依赖，需确保安装。但它是飞书官方维护，npm 一键安装，稳定性有保障。
+- **理由**: 飞书官方 CLI 封装全部 API + OAuth，agent 有 shell 能力即可调用。
+- **拒绝**: 自建飞书 doc tools。
+- **风险**: 外部依赖，需在 skill 中引导安装。
 
 ### 决策 4: Session 隔离 key 设计
 
 **选了 `feishu:<agent_id>:dm/group:<id>` 格式**。
 
-- **理由**: 用 `agent_id` 而非 `app_id`，可读性好，调试直观。跟 OpenClaw 的 `agent:<agentId>:feishu:...` 模式一致。一对一映射保证隔离。
-- **拒绝**: 用 `app_id`（不可读）；不加标识（多 bot 碰撞）。
-- **风险**: 无。改 agent_id 会断 session，但实际不会改。
+- **理由**: 可读、与 OpenClaw 模式一致。
+- **风险**: 无。
 
 ### 决策 5: 群聊未 @ 消息的 history buffer
 
-**选了直接复用现有 `GroupContextStore`**。
+**选了复用现有 `GroupContextStore`**。
 
-- **理由**: 代码已存在，gateway spec 已定义行为。飞书 adapter 只需在未 @ 时 push、@ 时 flush。
-- **拒绝**: 自己实现 buffer——重复造轮子。
-- **风险**: 无。纯复用。
+- **理由**: 代码已存在，gateway spec 已定义行为。
+- **风险**: 无。
 
-### 决策 6: 飞书对话同步到内部 IM
+### 决策 6: 外部 channel 会话同步到内部 IM
 
-**选了复用现有 kernel event observer 的 `node.streaming_delta` 机制，不新建 mirror 通道**。
+**选了外部 channel 用户消息同步到 IM，agent 回复按触发源决定是否回写外部 channel**。
 
-- **理由**: Gateway 已有 `_build_kernel_event_observer`（main.py:3377），它把 kernel 的 SSE 事件（run_status / assistant_message / tool_start / tool_end / turn_end）翻译成 `node.streaming_delta` WebSocket 帧推给 IM 服务。这个 observer 对所有 channel 的 kernel run 都生效——飞书消息走的是同一条 InboundPipeline → kernel 路径，observer 自然会把事件推到 IM。IM 服务收到 `turn_start`（conversation_id 为空时）会懒创建一个会话，后续 delta 填充内容。**不需要新建 mirror 机制，现有 observer 已经是 mirror**。
-- **关键前提**: 飞书 adapter 的 `InboundMessage` 必须正确设置 `agent_id`（从 channel name `feishu:<agent_id>` 解析），这样 `run_context_store` 里的 `agent_id` 才正确，IM 侧才能把消息归到正确的 agent 会话。
-- **拒绝**: 新建独立 mirror 模块——重复造轮子，现有 observer 已经覆盖。
-- **已知 gap**: kernel event observer 只同步 agent 输出（assistant_message / tool_start / tool_end / turn_end）到 IM，**不转发用户原始消息**。飞书路径绕过 IM 服务，IM 侧没有用户消息记录。结果：内部 IM 显示"只有 agent 回复、没有用户提问"的半边对话。WebRelayAdapter 的用户消息由 IM 服务自己存储（relay 时已入库），所以不走 observer 也完整。**作为 MVP 接受半边对话**；如需完整同步，需在 FeishuAdapter 入站时额外调用 IM 的消息创建 API，留后续 unit。
-- **风险**: IM 服务离线时 observer 的 send_json 静默失败，不影响飞书主路径。
+- **理由**: spec 明确要求用户在 IM 影子会话里的消息只进 kernel 上下文、不回写原 channel，否则飞书侧会看到 agent 突然回复的"灵异对话";外部 channel 用户消息必须出现在 IM 中。同一 kernel session 跨入口复用，保证上下文连续。
+- **拒绝**: 完整双向镜像（IM 用户消息也回写外部 channel）——违反用户新明确的体验约束。
+- **实现要点**:
+  - Gateway 在 `InboundPipeline.handle_inbound` 早期调用 IM HTTP API 创建/查找外部 channel 影子会话并写入用户消息。
+  - IM 同步必须是**非阻塞 best-effort**：调用超时或异常时捕获并记录，不阻塞飞书主路径，agent 仍正常回复。
+  - IM 侧会话带 `external_source` + `external_chat_id` 标记，保持 `direct` / `group` 类型语义。
+  - agent 回复继续通过现有 `node.streaming_delta` 同步到同一 conversation。
+  - 每个 run 在 `run_context_store` 中记录 `trigger_source`（`feishu` / `im`）， outbound 阶段据此判断是否回写外部 channel。
 
-## 接口与数据流
+### 决策 7: IM 会话来源标识
 
-### 飞书消息收发主流程
+**选了在 `conversations` 表新增 `external_source` + `external_chat_id`，不改变现有 `direct` / `group` 类型**。
+
+- **理由**: 语义清楚，1:1 私聊仍映射为 `direct`、群聊映射为 `group`，不破坏 IM 现有分支逻辑。
+- **拒绝**: 新增 `external` 类型——需要改 Conversation enum 和多处 switch/case，回归面大。
+- **拒绝**: 仅靠 title 区分——IM 无法识别来源，也无法做按 channel 过滤/管理。
+
+### 决策 8: 外部发送者名字持久化
+
+**选了在 `messages` 表新增 `sender_display_name` 列**。
+
+- **理由**: 外部群成员名字需要随历史记录保留，metadata 透传不持久化会在历史加载时丢失。
+- **拒绝**: 给每个外部发送者建 IM 用户——产生脏数据，且 owner 自己也要建 fake 用户才能显示「你」。
+
+### 决策 9: IM 影子会话创建/查找接口
+
+**选了新增专用 POST `/im/v1/conversations/external/find-or-create`**。
+
+- **理由**: 幂等键 `(external_source, external_chat_id, agent_id, owner_id)` 明确，IM 负责去重和 participant 规则，Gateway 不维护 IM conversation_id → session_key 的本地映射。
+- **拒绝**: Gateway 自己先查后创——竞态条件下可能重复创建。
+- **拒绝**: Gateway 启动时预创建——外部群聊信息（群名、成员）事前未知。
+- **补充**: 每次同步消息时都调用该接口，IM 侧命中已有会话时**同步更新 title**（如飞书群名已修改），保持两边会话名一致。
+
+### 决策 10: 按触发源路由 agent 回复
+
+**选了 run 级 `trigger_source` 标记 + conversation metadata 回环路由**。
+
+- **理由**: 与现有 IM → Gateway WebSocket relay 机制一致，无需新增 HTTP 接入面；通过 `trigger_source` 区分飞书触发和 IM 触发，避免 IM 主动对话时把回复回写到飞书。
+- **拒绝**: Gateway 本地维护反向映射——重启丢失、多实例不共享。
+- **拒绝**: IM 直接调 Gateway HTTP dispatch——增加新的集成面。
+- **拒绝**: 不区分触发源、所有 IM 影子会话回复都回写外部 channel——违反"IM 主动沟通不回写飞书"的约束。
+
+### 决策 11: IM owner 在外部 channel 的消息显示为「你」
+
+**选了 Gateway config 中显式配置 `ownerOpenId`，入站时对比 `sender_open_id`**。
+
+- **理由**: 实现最简单稳定，MVP 可接受。飞书 open_id 在创建 Bot 后可在飞书管理后台查看。
+- **拒绝**: IM 绑定飞书账号后动态查询——增加 IM 侧账号绑定流程，超出本期范围。
+- **影响**: `sender_display_name` 在 owner 自己发消息时传 `"你"`（或前端根据 sender_user_id 渲染为「你」，但外部 channel 用户没有 IM user_id，所以必须由 Gateway 侧决定）。
+
+### 决策 12: IM 群聊影子会话自动注入 @agent
+
+**选了 Gateway 收到 IM 群聊影子会话的用户消息后，在提交给 kernel 前自动在文本前注入 `@<agent_id>`（或等效 mention 标记）**。
+
+- **理由**: 外部 channel 群聊中，agent 的群聊提示词依赖 `@Bot` 来确认自己被点名；IM 群聊影子会话里没有真实的 @ 动作，需要 Gateway 侧补一个等效提及，保证 agent 按群聊路径响应。
+- **拒绝**: 让 IM 前端强制用户手动 @agent——体验割裂，且影子会话里 agent 是主角，不应要求用户每次 @。
+- **限制**: 1:1 影子会话是 direct 类型，不存在群聊门控，不需要注入。
+
+### 1. 外部 channel 用户消息同步到 IM
 
 ```mermaid
 sequenceDiagram
@@ -169,144 +213,145 @@ sequenceDiagram
     participant FS as 飞书服务器
     participant FC as FeishuClient
     participant FA as FeishuAdapter
-    participant REG as ChannelRegistry
     participant PIPE as InboundPipeline
-    participant K as Agent Kernel
-    participant OUT as OutboundRouter
-
-    participant IMS as IM 服务
+    participant IM as IM HTTP API
+    participant DB as IM DB
 
     U->>FS: 发消息
-    FS->>FC: WebSocket 事件推送
-    FC->>FA: 解析消息事件
-    FA->>FA: mention 检测（群聊）
+    FS->>FC: P2ImMessageReceiveV1
+    FC->>FA: FeishuMessageEvent
     alt 群聊未 @Bot
-        FA->>FA: push 到 GroupContextStore
+        FA->>FA: push GroupContextStore
+        FA->>PIPE: 同时同步该消息到 IM（即使不触发 agent）
     else 1:1 或群聊 @Bot
-        FA->>FA: flush GroupContextStore（群聊）
-        FA->>REG: on_inbound(InboundMessage)
-        REG->>PIPE: 路由到 agent
-        PIPE->>K: 执行
-        K-->>PIPE: SSE 事件流
-        PIPE-->>IMS: kernel event observer<br/>node.streaming_delta（自动同步）
-        K->>PIPE: 回复
-        PIPE->>OUT: send_text(reply_context)
-        OUT->>FA: send(OutboundMessage)
-        FA->>FC: 调飞书 API 发消息
-        FC->>FS: 发送
-        FS->>U: 显示回复
+        FA->>FA: flush GroupContextStore
+        FA->>PIPE: InboundMessage
     end
+    PIPE->>IM: POST /im/v1/conversations/external/find-or-create
+    IM->>DB: 创建/查找影子会话
+    IM-->>PIPE: conversation_id, conversation_type
+    PIPE->>IM: POST /im/v1/conversations/{id}/messages
+    IM->>DB: 写入用户消息（带 sender_display_name）
+    PIPE->>PIPE: 继续原有 agent 路由（如应触发）
 ```
 
-### 云文档操作流程（通过 feishu-cli）
+### 2. Agent 回复同步到 IM（复用现有路径）
 
 ```mermaid
 sequenceDiagram
-    participant U as 飞书用户
-    participant A as Agent
-    participant CLI as feishu-cli
-    participant FS as 飞书 API
+    participant PIPE as InboundPipeline
+    participant K as Agent Kernel
+    participant OBS as KernelEventObserver
+    participant WS as IM WS GatewayHandler
+    participant DB as IM DB
 
-    U->>A: "帮我创建一篇飞书文档"
-    A->>CLI: shell 调用 feishu-cli doc create --title "xxx"
-    CLI->>FS: API 调用（user_access_token）
-    FS->>CLI: 返回文档 URL
-    CLI->>A: 输出结果
-    A->>U: "文档已创建: <URL>"
+    PIPE->>K: kernel.submit
+    K-->>OBS: SSE 事件流
+    OBS->>WS: node.streaming_delta
+    WS->>DB: 懒创建或更新 conversation 消息
 ```
 
-OAuth 授权（一次性）:
-1. 用户执行 `feishu-cli auth login`
-2. 浏览器打开飞书授权页 → 用户点同意
-3. feishu-cli 自动保存 token 到本地
-4. 后续所有 `feishu-cli` 命令自动使用该 token
+### 3. IM 影子会话消息进入 kernel 上下文（回复按触发源路由）
 
-### FeishuAdapter 接口
+```mermaid
+sequenceDiagram
+    participant IMUI as 内部 IM Web UI
+    participant API as IM HTTP API
+    participant WS as IM WS GatewayHandler
+    participant GWS as Gateway WS 客户端
+    participant PIPE as InboundPipeline
+    participant K as Agent Kernel
+    participant OUT as OutboundRouter
+    participant FA as FeishuAdapter
 
-```python
-class FeishuAdapter:
-    """实现 ChannelAdapter Protocol"""
-
-    name: str                           # "feishu:<agent_id>"，从 config 传入
-    app_id: str                         # 飞书应用 ID
-    agent_id: str                       # 从 name 解析出的 agent ID
-
-    def start(self, on_inbound: InboundHandler) -> None:
-        """启动飞书 WebSocket 长连接，注册入站回调"""
-
-    def send(self, outbound: OutboundMessage) -> None:
-        """通过飞书 API 发送消息"""
-
-    def stop(self) -> None:
-        """关闭 WebSocket 连接"""
+    IMUI->>API: 在影子会话发消息
+    API->>WS: relay message
+    WS->>GWS: 转发用户消息 + conversation metadata(trigger_source=im)
+    GWS->>PIPE: InboundMessage(metadata 含 channel_name/external_chat_id/agent_id/trigger_source)
+    PIPE->>PIPE: 解析 metadata 还原 session_key,标记 trigger_source=im
+    PIPE->>K: 复用同一 kernel session
+    K-->>PIPE: 回复
+    PIPE->>OUT: send_text(reply_context, trigger_source=im)
+    OUT-->>IM: 回复同步到 IM 影子会话(不回写飞书)
 ```
-
-**关键**: `on_inbound(InboundMessage)` 中必须设置 `agent_id=self.agent_id`（从 channel name `feishu:<agent_id>` 解析）。否则三个 Bot 的消息全路由到 default agent，多 Agent 路由失效。
-
-### Session key 生成
-
-FeishuAdapter 产出的 InboundMessage 的 `external_chat_id` 与 `agent_id` 组合，由现有 `build_conversation_session_key` 生成 session key：
-
-| 场景 | external_chat_id | agent_id | 最终 key（由 build_session_key 生成） |
-|---|---|---|---|
-| 1:1 私聊 | `feishu:<app_id>:dm:<user_open_id>` | `plato` | `feishu:<app_id>:dm:<user_open_id>:plato` |
-| 群聊 | `feishu:<app_id>:group:<chat_id>` | `plato` | `feishu:<app_id>:group:<chat_id>:plato` |
-
-`external_chat_id` 用 `feishu:<app_id>:...` 格式编码飞书会话标识（含 app_id 保证多 Bot 不碰撞），`agent_id` 由 `build_session_key` 自动拼接。不自定义 key 格式，完全复用现有 `session_keys.py` 的 `f"{channel}:{chat_id}:{agent_id}"` 模式。
 
 ### 关键数据结构
 
-**InboundMessage 字段**:
-- `channel_name` = `"feishu:<agent_id>"`（用于 OutboundRouter 路由回正确 adapter）
-- `external_user_id` = 飞书 sender open_id
-- `external_chat_id` = `feishu:<app_id>:dm:<user_open_id>` 或 `feishu:<app_id>:group:<chat_id>`
-- `agent_id` = 从 channel name 解析出的 agent_id（**必须设置**，驱动多 Agent 路由）
-- `is_group` = chat_type != "p2p"
-- `metadata["feishu_message_id"]` — 飞书消息 ID
-- `metadata["feishu_chat_type"]` — p2p / group
-- `metadata["feishu_mentions"]` — @ 列表
+**InboundMessage 扩展字段**（Gateway → IM 同步用户消息时）：
+- `metadata["sender_display_name"]` — 发送者显示名（owner 自己为 `"你"`）
+- `metadata["external_source"]` = `"feishu"`
+- `metadata["external_chat_id"]` — 飞书会话标识
+- `metadata["agent_id"]` — 对应 agent
+- `metadata["conversation_title"]` — 预计算的会话名（`agent名 · channel名` 或 `agent名 · 群名 · channel名`）
+- `metadata["chat_name"]` — 飞书群名（群聊时）
+- `metadata["is_group"]` — 是否群聊
+- `metadata["trigger_source"]` — 触发来源，`"feishu"` 或 `"im"`，决定 agent 回复是否回写外部 channel
 
-**ReplyContext 字段**:
-- `channel_name` = `"feishu:<agent_id>"`
-- `target_chat_id` = InboundMessage.external_chat_id
-- `metadata["feishu_message_id"]` — 回复目标消息 ID（飞书回复语义）
+**IM `conversations` 表新增列**：
+- `external_source TEXT` — 外部 channel 来源，如 `"feishu"`
+- `external_chat_id TEXT` — 外部 channel 的 chat id
+- 联合索引：`(external_source, external_chat_id, agent_id, owner_id)` 用于幂等查找
 
-### 环境依赖
+**IM `messages` 表新增列**：
+- `sender_display_name TEXT` — 发送者显示名
 
-- **lark-oapi**（飞书官方 Python SDK）— 需在 `pyproject.toml` / `requirements.txt` 中声明依赖。FeishuClient 内部 import。
+**IM API 新增接口**：
+- `POST /im/v1/conversations/external/find-or-create`
+  - Request: `{ external_source, external_chat_id, agent_id, title, is_group, participant_ids, owner_id, metadata }`
+  - Response: `{ conversation_id, conversation_type, title }`
+
+**IM → Gateway WebSocket relay 扩展字段**（影子会话消息）：
+- `metadata["trigger_source"]` = `"im"` — 标识消息来自内部 IM，Gateway 收到后不回写外部 channel
+- `metadata["external_source"]` / `metadata["external_chat_id"]` / `metadata["agent_id"]` — 复用同一 kernel session
+- 群聊影子会话中，Gateway 解析到 `conversation_type=group` 时，在提交给 kernel 前自动在文本前注入 `@<agent_id>`，模拟外部群聊中的 @Bot 触发
+
+**FeishuMessageEvent 扩展**：
+- `sender_display_name: str` — 从飞书事件 `sender.name` 解析
+
+**FeishuClient 扩展**：
+- 新增 `get_chat_name(chat_id: str) -> str` 调用飞书 `GET /open-apis/im/v1/chats/{chat_id}` 获取群名。
 
 ## 契约层增量 (delta-spec)
 
 - kernel: no spec delta
-- im: no spec delta
+- im: `specs/im/spec.md` — ADDED:
+  - **Requirement: 外部 channel 影子会话** — IM 支持创建带 `external_source` / `external_chat_id` 标记的会话，1:1 映射为 `direct`、群聊映射为 `group`。
+  - **Requirement: 外部 channel 消息写入** — IM 支持写入来自外部 channel 的用户消息，并持久化 `sender_display_name`。
+  - **Requirement: 外部 channel 会话元数据回环** — IM 通过 WebSocket relay 把影子会话的用户消息、外部 channel 元数据及触发来源标记转发给 Gateway。
 - gateway: `specs/gateway/spec.md` — ADDED:
-  - **Requirement: 飞书 channel 消息收发** — Gateway 通过飞书 SDK WebSocket 长连接收发消息，1:1 私聊直接响应，群聊 @Bot 触发，未 @ 消息暂存为上下文
-  - **Requirement: 飞书多 Bot 路由** — 每个飞书 Bot 通过 channel name `feishu:<agent_id>` 绑定 agent，消息路由到对应 Agent
-  - **Requirement: 飞书对话同步到内部 IM** — 飞书消息和回复通过现有 kernel event observer 自动同步到 IM 服务
+  - **Requirement: 外部 channel 用户消息同步到内部 IM** — Gateway 在入站时调用 IM API 创建影子会话并写入用户消息。
+  - **Requirement: 按触发源路由 agent 回复** — Gateway 解析 IM 转发的 conversation 元数据与触发来源，复用同一 kernel session，并按触发源决定是否把 agent 回复回写外部 channel。
+  - **Requirement: 外部 channel 群聊发送者显示名** — Gateway 从飞书事件提取 sender display name 并写入 IM 消息。
 - cli: no spec delta
 
 ## 风险与回退
 
 | 风险 | 影响 | 应对 |
 |---|---|---|
-| 飞书 SDK 版本兼容 | lark-oapi API 变动可能破坏集成 | 锁定 SDK 版本，单测覆盖核心路径 |
-| WebSocket 断连丢消息 | gateway 重启窗口内消息可能丢失 | 飞书 SDK 自带重连 + 消息重试；可后续加 webhook fallback |
-| feishu-cli 未安装 | agent 无法操作云文档 | gateway 启动时检测，未安装则提示；或在 skill 里引导安装 |
-| feishu-cli token 过期 | 云文档操作失败 | feishu-cli 内置 refresh 机制；refresh 也过期则提示用户重新 `feishu-cli auth login` |
-| 三个 Bot 同时连飞书 | 资源占用 | 每个 Bot 独立 WebSocket 连接，飞书 SDK 轻量，无显著开销 |
+| IM 侧新增字段需要 DB 迁移 | 旧 DB 无列会报错 | 在 `db.py` 增加迁移函数，启动时自动执行 |
+| Gateway 调用 IM HTTP API 失败（离线/超时/错误） | 用户消息同步不到 IM，飞书回复也可能被阻塞 | 同步调用必须加短超时 + 异常捕获并记录，绝不阻塞飞书主路径；失败时降级为"半边对话"，IM 恢复后由用户重新触发同步 |
+| FeishuClient 获取群名需要额外 API 权限 | 群聊会话 title 无法生成 | 权限不足时 fallback 到 `agent名 · 群聊 · channel名` |
+| ownerOpenId 配置错误 | owner 自己消息在 IM 不显示「你」 | 配置校验 + 文档说明 |
+| 三个 Bot 同时连飞书 | 资源占用 | 每个 Bot 独立 WebSocket 连接，飞书 SDK 轻量 |
+| 飞书 SDK 版本兼容 | lark-oapi API 变动 | 锁定 SDK 版本，单测覆盖 |
 
 ## Runbook for Reviewer
 
 | 服务 | 停止命令 | 启动命令 | 健康检查 |
 |---|---|---|---|
-| Gateway (personal_assistant) | `PYTHONPATH=src python -m personal_assistant.main stop` | `PYTHONPATH=src python -m personal_assistant.main --config ~/.nano-assistant/config.yaml` | 检查进程存活 + 飞书 Bot 在线状态 |
+| IM (uvicorn) | `stop_pidfile .im.pid` | `PYTHONPATH=src python -m uvicorn IM.app:app --host 127.0.0.1 --port <IM_PORT>` | 访问 `http://127.0.0.1:<IM_PORT>/health` |
+| Gateway (personal_assistant) | `stop_pidfile .gateway.pid` | `PYTHONPATH=src python -m personal_assistant.main --config <WT_CFG> --im-service-url http://127.0.0.1:<IM_PORT> --foreground --auto-bind` | 检查进程存活 + 飞书 Bot 在线状态 |
 
-**Review 驱动方式**: 端到端真栈;客户端面是飞书客户端——reviewer 需在飞书里实际发消息验证收发。云文档操作通过 feishu-cli shell 命令验证。
+**Review 驱动方式**: 端到端真栈。 reviewer 在飞书客户端发消息，验证内部 IM 出现影子会话且内容一致；再在内部 IM 影子会话回复，验证回复只留在 IM、不回写飞书；最后回到飞书原对话发消息，验证 agent 能引用 IM 中的上下文。
 
 ## Milestones
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| feat-447-M1 | feishu-messaging | — | A | channels/feishu_adapter.py, channels/feishu_client.py, config/local_store.py, main.py | [reviewer] 1:1 私聊收发正常（覆盖 Scenario: 用户在 1:1 私聊中发消息）;群聊 @Bot 触发回复（覆盖 Scenario: 群聊中 @Bot 触发回复）;未 @ 不回复（覆盖 Scenario: 群聊中未 @Bot 不触发）;未 @ 消息作为上下文（覆盖 Scenario: 未 @ 消息作为上下文）;多 Bot 各自路由到对应 Agent（覆盖 Scenario: 不同 Bot 对应不同 Agent）;飞书对话同步到内部 IM（覆盖 Scenario: 飞书消息出现在内部 IM + 飞书群聊消息出现在内部 IM）;[worker] feishu_adapter 单测全绿;飞书 SDK 连接建立成功;config.yaml 解析正确;mirror 到 IM 服务单测覆盖 |
-| feat-447-M2 | feishu-cli-integration | feat-447-M1 | B | skills/feishu-doc.md（飞书文档操作 skill） | [reviewer] 以用户身份创建文档（覆盖 Scenario: 以用户身份创建文档）;以用户身份编辑文档（覆盖 Scenario: 以用户身份编辑文档）;以用户身份读取文档（覆盖 Scenario: 以用户身份读取文档）;以用户身份创建文件夹（覆盖 Scenario: 以用户身份创建文件夹）;以用户身份移动文件（覆盖 Scenario: 以用户身份移动文件）;未授权时提示授权（覆盖 Scenario: 未授权时提示授权）;API 失败时反馈错误（覆盖 Scenario: 云文档 API 调用失败）;[worker] feishu-cli 安装验证;OAuth 授权流程验证;skill 文件格式正确 |
-| feat-447-M6 | fix-dm-retry-and-registry | feat-447-M5 | — | src/personal_assistant/channels/feishu_client.py, src/personal_assistant/channels/feishu_adapter.py, src/personal_assistant/main.py (post-acceptance fix, round 2) | [worker] DM 回复使用 receive_id_type=open_id;5xx 与 429 重试计数器分离;_build_channel_registry 要求 group_context_store 非空或 FeishuAdapter 对 None 安全;新增/更新对应单测;全量非 e2e 测试无回归 |
+| feat-447-M1 | feishu-messaging | — | A | channels/feishu_adapter.py, channels/feishu_client.py, config/local_store.py, main.py | 历史已合并：1:1 私聊收发正常；群聊 @Bot 触发回复；未 @ 不回复；未 @ 消息作为上下文；多 Bot 各自路由；agent 回复同步到 IM。 |
+| feat-447-M2 | feishu-cli-integration | feat-447-M1 | B | skills/feishu-doc.md | 历史已合并：以用户身份创建/编辑/读取文档、创建文件夹、移动文件；未授权提示；API 失败反馈。 |
+| feat-447-M3 | feishu-client-error-handling | feat-447-M2 | B | channels/feishu_client.py, channels/feishu_adapter.py, tests/unit/test_feishu_client.py, tests/unit/test_feishu_adapter.py | 历史已合并：send_message 错误分类（FeishuAPIError/FeishuAuthError）；429 指数退避重试、5xx 重试；adapter 结构化错误日志。 |
+| feat-447-M4 | fix-critical-param-and-skill | feat-447-M3 | — | main.py, skills/feishu-doc.md, tests/unit/test_feishu_integration.py | 历史已合并：_build_channel_registry 传入 group_context_store 与 bot_open_id；build_runtime 调用点同步修复；skill 补充 mkdir/move 命令。 |
+| feat-447-M5 | fix-config-consistency | feat-447-M4 | — | config/local_store.py, main.py, channels/feishu_adapter.py, tests/unit/test_feishu_*.py | 历史已合并：_parse_feishu_accounts 保留 botOpenId；feishu 顶层 enabled=false 跳过 accounts；统一 group buffer key 格式。 |
+| feat-447-M6 | fast-lane-fixes | feat-447-M5 | — | channels/feishu_client.py, channels/feishu_adapter.py, main.py, tests/unit/test_feishu_*.py | 历史已合并：DM 回复使用 receive_id_type=open_id；5xx 与 429 重试计数器分离；registry 必填 group_context_store。 |
+| feat-447-M7 | external-channel-full-sync | feat-447-M6 | A | src/IM/infra/db.py, src/IM/infra/repositories.py, src/IM/domain/models.py, src/IM/api/routes/conversations.py, src/IM/api/routes/messages.py, src/IM/application/web_im_service.py, src/IM/ws/gateway_handler.py, src/personal_assistant/channels/feishu_adapter.py, src/personal_assistant/channels/feishu_client.py, src/personal_assistant/gateway/inbound_pipeline.py, src/personal_assistant/config/local_store.py | [reviewer] 外部 1:1 会话在内部 IM 有独立会话（覆盖 Scenario: 外部 1:1 会话在内部 IM 有独立会话）;外部 1:1 用户消息同步到内部 IM（覆盖 Scenario: 外部 1:1 用户消息同步到内部 IM）;外部 1:1 agent 回复同步到内部 IM（覆盖 Scenario: 外部 1:1 agent 回复同步到内部 IM）;在内部 IM 回复不会回写飞书但上下文连续（覆盖 Scenario: 在内部 IM 回复不会回写飞书但上下文连续）;在内部 IM 群聊影子会话发消息自动触发 agent 回复（覆盖 Scenario: 在内部 IM 群聊影子会话发消息自动触发 agent 回复）;同一 kernel session 跨入口上下文连续（覆盖 Scenario: 同一 kernel session 跨入口上下文连续）;外部群聊在内部 IM 有独立 group 会话（覆盖 Scenario: 外部群聊在内部 IM 有独立 group 会话）;同一外部群绑定多个 agent 时生成多个独立会话（覆盖 Scenario: 同一外部群绑定多个 agent 时生成多个独立会话）;外部群聊消息显示原发送者名字（覆盖 Scenario: 外部群聊消息显示原发送者名字）;外部群聊中 IM owner 的消息显示为「你」（覆盖 Scenario: 外部群聊中 IM owner 的消息显示为「你」）;未 @ 的群聊上下文消息同步到内部 IM（覆盖 Scenario: 未 @ 的群聊上下文消息同步到内部 IM）;不 @ 也回的 agent 群聊消息全量同步（覆盖 Scenario: 不 @ 也回的 agent 群聊消息全量同步）;IM 离线时飞书对话不中断（覆盖 Scenario: IM 离线时飞书对话不中断）;[worker] IM DB migration 单测覆盖;`external/find-or-create` API 单测覆盖;sender_display_name 读写单测覆盖;Gateway 同步路径单测覆盖;全量非 e2e 测试无回归。 |
