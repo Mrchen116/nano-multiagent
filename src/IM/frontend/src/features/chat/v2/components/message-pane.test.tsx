@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, createEvent, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -466,6 +466,25 @@ describe("MessagePane", () => {
       expect(composer.value).toBe("");
     });
 
+    it("sends on desktop Enter without Shift and clears the composer", async () => {
+      const user = userEvent.setup();
+      const onSend = vi.fn();
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={BASE_MESSAGES}
+          mentionCandidates={[]}
+          isMobile={false}
+          onSend={onSend}
+        />
+      );
+      const composer = screen.getByRole("textbox") as HTMLTextAreaElement;
+      await user.type(composer, "desktop send");
+      await user.keyboard("{Enter}");
+      expect(onSend).toHaveBeenCalledWith("desktop send", []);
+      expect(composer.value).toBe("");
+    });
+
     it("keeps desktop Shift+Enter as newline without sending", async () => {
       const user = userEvent.setup();
       const onSend = vi.fn();
@@ -554,7 +573,7 @@ describe("MessagePane", () => {
       expect(screen.queryByRole("menu")).not.toBeInTheDocument();
     });
 
-    it("opens the copy menu from a mobile long press", () => {
+    it("keeps the mobile long-press copy menu open after touch release and synthetic mouse down", () => {
       vi.useFakeTimers();
       const writeText = stubClipboard();
       render(
@@ -567,17 +586,22 @@ describe("MessagePane", () => {
         />
       );
 
-      fireEvent.touchStart(screen.getByTestId("message-bubble-m1"), {
+      const bubble = screen.getByTestId("message-bubble-m1");
+      fireEvent.touchStart(bubble, {
         touches: [{ clientX: 24, clientY: 32 }],
       });
       act(() => vi.advanceTimersByTime(650));
+      fireEvent.touchEnd(bubble);
+      fireEvent.mouseDown(bubble);
+      expect(screen.getByRole("menu")).toBeInTheDocument();
       fireEvent.click(screen.getByRole("menuitem", { name: /Copy/i }));
 
       expect(writeText).toHaveBeenCalledWith("Hello");
+      expect(screen.queryByRole("menu")).not.toBeInTheDocument();
       vi.useRealTimers();
     });
 
-    it("offers fork in the mobile long-press menu for a completed direct agent reply", () => {
+    it("keeps the mobile long-press fork menu open after touch release and synthetic mouse down", () => {
       vi.useFakeTimers();
       const onFork = vi.fn();
       const forkable: Message = {
@@ -599,14 +623,83 @@ describe("MessagePane", () => {
         />
       );
 
-      fireEvent.touchStart(screen.getByTestId("message-bubble-forkable-mobile"), {
+      const bubble = screen.getByTestId("message-bubble-forkable-mobile");
+      fireEvent.touchStart(bubble, {
         touches: [{ clientX: 48, clientY: 72 }],
       });
       act(() => vi.advanceTimersByTime(650));
+      fireEvent.touchEnd(bubble);
+      fireEvent.mouseDown(bubble);
+      expect(screen.getByRole("menu")).toBeInTheDocument();
       fireEvent.click(screen.getByRole("menuitem", { name: /fork/i }));
 
       expect(onFork).toHaveBeenCalledWith("forkable-mobile");
       vi.useRealTimers();
+    });
+
+    it("prevents the native mobile context menu after long press", () => {
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={SAMPLE_MESSAGES}
+          mentionCandidates={[]}
+          isMobile
+          onSend={() => {}}
+        />
+      );
+
+      const event = createEvent.contextMenu(screen.getByTestId("message-bubble-m1"));
+      const preventDefault = vi.spyOn(event, "preventDefault");
+      fireEvent(screen.getByTestId("message-bubble-m1"), event);
+
+      expect(preventDefault).toHaveBeenCalled();
+      expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    });
+
+    it("keeps the menu open and reports a clipboard rejection", async () => {
+      const writeText = vi.fn(async () => {
+        throw new Error("denied");
+      });
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: { writeText },
+      });
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={SAMPLE_MESSAGES}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+
+      fireEvent.contextMenu(screen.getByTestId("message-bubble-m2"));
+      fireEvent.click(screen.getByRole("menuitem", { name: /Copy/i }));
+
+      expect(writeText).toHaveBeenCalledWith("Hi back");
+      expect(await screen.findByText(/Copy failed/i)).toBeInTheDocument();
+      expect(screen.getByRole("menu")).toBeInTheDocument();
+    });
+
+    it("keeps the menu open and reports when clipboard is unavailable", async () => {
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: undefined,
+      });
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={SAMPLE_MESSAGES}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+
+      fireEvent.contextMenu(screen.getByTestId("message-bubble-m2"));
+      fireEvent.click(screen.getByRole("menuitem", { name: /Copy/i }));
+
+      expect(await screen.findByText(/Copy failed/i)).toBeInTheDocument();
+      expect(screen.getByRole("menu")).toBeInTheDocument();
     });
   });
 
