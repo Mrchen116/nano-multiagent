@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import { InAppToast } from "../../chat/components/in-app-toast";
@@ -56,10 +56,13 @@ import {
 import { MessagePane } from "./components/message-pane";
 import { NewGroupModal } from "./components/new-group-modal";
 
+const HISTORY_PAGE_SIZE = 50;
+
 function streamReducer(
   state: ConversationState,
   action:
     | { type: "reset"; conversationId: string; messages: Message[] }
+    | { type: "prepend_history"; messages: Message[] }
     | { type: "event"; event: WsEvent; sendersById?: Record<string, string | undefined> }
     | { type: "append_optimistic"; message: Message }
 ): ConversationState {
@@ -95,6 +98,39 @@ function streamReducer(
     // bugfix-419: REST history may already be sorted, but sort explicitly so
     // any WS messages merged in via existingById keep the ordering invariant.
     return { conversation_id: action.conversationId, messages: [...merged].sort(compareMessages) };
+  }
+  if (action.type === "prepend_history") {
+    if (state.conversation_id === null) return state;
+    const existingById = new Map(state.messages.map((m) => [m.id, m]));
+    const mergedOlder = action.messages.map((m) => {
+      const existing = existingById.get(m.id);
+      let out = m;
+      if (!m.token_usage && existing?.token_usage) {
+        out = {
+          ...out,
+          token_usage: existing.token_usage,
+          delivery_status: existing.delivery_status
+        };
+      }
+      const permission_requests = mergePermissionRequests(
+        m.permission_requests,
+        existing?.permission_requests
+      );
+      if (
+        permission_requests.length > 0
+        || (m.permission_requests?.length ?? 0) > 0
+        || (existing?.permission_requests?.length ?? 0) > 0
+      ) {
+        out = { ...out, permission_requests };
+      }
+      return out;
+    });
+    const byId = new Map<string, Message>();
+    for (const m of mergedOlder) byId.set(m.id, m);
+    for (const m of state.messages) {
+      if (!byId.has(m.id)) byId.set(m.id, m);
+    }
+    return { ...state, messages: Array.from(byId.values()).sort(compareMessages) };
   }
   if (action.type === "append_optimistic") {
     // feat-340-M18 R9-3: insert the user-authored bubble the moment the POST
@@ -212,9 +248,12 @@ export function ChatWorkspacePageV2() {
   const messagesQuery = useQuery({
     enabled: Boolean(conversationId),
     queryKey: ["chat-v2", "messages", conversationId],
-    queryFn: () => listMessages(conversationId!, { markAsRead: true }),
+    queryFn: () => listMessages(conversationId!, { limit: HISTORY_PAGE_SIZE, markAsRead: true }),
     refetchOnWindowFocus: false
   });
+  const [historyCursor, setHistoryCursor] = useState<string | null>(null);
+  const [hasMoreHistory, setHasMoreHistory] = useState(false);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
 
   // bugfix-442: 实时消息流驱动侧边栏会话列表刷新时去抖，避免群聊多 agent 同回合
   // 连续重拉。timer 跨渲染稳定，组件卸载时清理。
@@ -443,6 +482,8 @@ export function ChatWorkspacePageV2() {
   // the current reducer state.
   useEffect(() => {
     if (!conversationId || !messagesQuery.data) return;
+    setHistoryCursor(messagesQuery.data.next_before_message_id);
+    setHasMoreHistory(messagesQuery.data.next_before_message_id !== null);
     const restored = messagesQuery.data.items.map((m) => {
       const cached = tokenUsageCache.current.get(m.id);
       if (cached) {
@@ -460,6 +501,29 @@ export function ChatWorkspacePageV2() {
     });
     dispatch({ type: "reset", conversationId, messages: restored });
   }, [conversationId, messagesQuery.data]);
+
+  useEffect(() => {
+    setHistoryCursor(null);
+    setHasMoreHistory(false);
+    setIsLoadingHistory(false);
+  }, [conversationId]);
+
+  const loadOlderMessages = useCallback(async () => {
+    if (!conversationId || !historyCursor || !hasMoreHistory || isLoadingHistory) return;
+    setIsLoadingHistory(true);
+    try {
+      const page = await listMessages(conversationId, {
+        limit: HISTORY_PAGE_SIZE,
+        beforeMessageId: historyCursor,
+        markAsRead: false
+      });
+      dispatch({ type: "prepend_history", messages: page.items });
+      setHistoryCursor(page.next_before_message_id);
+      setHasMoreHistory(page.next_before_message_id !== null);
+    } finally {
+      setIsLoadingHistory(false);
+    }
+  }, [conversationId, hasMoreHistory, historyCursor, isLoadingHistory]);
 
   // Open the WS stream once for the workspace lifetime; events flow into the
   // reducer which ignores any not matching the active conversation.
@@ -717,6 +781,11 @@ export function ChatWorkspacePageV2() {
             agentOnline={headerAgentContext.nodeStatus === "online"}
             onFork={(messageId) => forkMutation.mutate(messageId)}
             forkPending={forkMutation.isPending}
+            hasMoreHistory={hasMoreHistory}
+            isLoadingHistory={isLoadingHistory}
+            onLoadOlder={() => {
+              void loadOlderMessages();
+            }}
             onBack={isMobile ? () => navigate("/chat") : undefined}
             isMobile={isMobile}
             onOpenConfig={
@@ -770,4 +839,3 @@ export function ChatWorkspacePageV2() {
     </div>
   );
 }
-

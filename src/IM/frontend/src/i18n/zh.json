@@ -364,6 +364,8 @@
       "forkError": "fork 失败，请重试。",
       "forkToastTitle": "已 fork 出分支单聊",
       "forkToastSub": "已带入起点 → fork 点的完整历史，agent 记得这段对话。",
+      "historyLoading": "正在加载更早消息…",
+      "historyEnd": "没有更早消息了",
       "toolCall": "次工具调用",
       "toolCalls": "次工具调用",
       "process": "过程",

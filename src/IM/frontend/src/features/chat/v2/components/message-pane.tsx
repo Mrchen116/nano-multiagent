@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -59,6 +59,12 @@ export interface MessagePaneProps {
   onFork?(messageId: string): void;
   /** feat-445-M2 #7: a fork is in flight — disable fork buttons to block double-submit. */
   forkPending?: boolean;
+  /** Older history page exists above the currently loaded messages. */
+  hasMoreHistory?: boolean;
+  /** Older history request is in flight. */
+  isLoadingHistory?: boolean;
+  /** Trigger loading the next older history page. */
+  onLoadOlder?(): void;
   /** Test seam: overrides the real upload helper so vitest can stub uploads. */
   uploadAttachment?(file: File): Promise<Attachment>;
 }
@@ -150,6 +156,9 @@ export function MessagePane({
   agentOnline = false,
   onFork,
   forkPending = false,
+  hasMoreHistory = false,
+  isLoadingHistory = false,
+  onLoadOlder,
   uploadAttachment = uploadOneAttachment
 }: MessagePaneProps) {
   const { t } = useTranslation();
@@ -163,6 +172,13 @@ export function MessagePane({
   const mirrorRef = useRef<HTMLDivElement | null>(null);
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const slashWrapRef = useRef<HTMLDivElement | null>(null);
+  const historyWasLoadingRef = useRef(false);
+  const historyAnchorRef = useRef<{
+    messageId: string;
+    scrollTop: number;
+    scrollHeight: number;
+  } | null>(null);
+  const skipNextMessageAutoScrollRef = useRef(false);
 
   const kind = classifyConversationKind(conversation);
   const isGroup = kind === "group" || kind === "agent-network";
@@ -260,14 +276,81 @@ export function MessagePane({
     }
   }
 
+  function messageRows(): HTMLElement[] {
+    const el = messagesContainerRef.current;
+    if (!el) return [];
+    return Array.from(el.querySelectorAll<HTMLElement>("[data-message-id]"));
+  }
+
+  function captureHistoryAnchor() {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    const rows = messageRows();
+    const anchor = rows.find((row) => row.offsetTop >= el.scrollTop) ?? rows[0] ?? null;
+    historyAnchorRef.current = anchor
+      ? {
+        messageId: anchor.dataset.messageId ?? "",
+        scrollTop: el.scrollTop,
+        scrollHeight: el.scrollHeight
+      }
+      : null;
+  }
+
+  function restoreHistoryAnchor() {
+    const el = messagesContainerRef.current;
+    const anchor = historyAnchorRef.current;
+    if (!el || !anchor) return;
+    const row = messageRows().find((candidate) => candidate.dataset.messageId === anchor.messageId);
+    if (row) {
+      el.scrollTop = row.offsetTop;
+    } else {
+      el.scrollTop = anchor.scrollTop + (el.scrollHeight - anchor.scrollHeight);
+    }
+    skipNextMessageAutoScrollRef.current = true;
+    historyAnchorRef.current = null;
+  }
+
+  function maybeLoadOlderFromScroll() {
+    const el = messagesContainerRef.current;
+    if (!el || !hasMoreHistory || isLoadingHistory || !onLoadOlder) return;
+    const scrollable = el.scrollHeight - el.clientHeight;
+    if (scrollable <= 0) return;
+    if (el.scrollTop <= scrollable / 3) onLoadOlder();
+  }
+
+  function handleMessagesScroll() {
+    maybeLoadOlderFromScroll();
+  }
+
   // Auto-scroll: when messages change, scroll the internal message container to
-  // the bottom (not the whole page).  Uses scrollTop instead of scrollIntoView so
-  // only the pane scrolls.
+  // the bottom (not the whole page), unless a prepend-history anchor is waiting
+  // to restore the user's reading position.
   useEffect(() => {
     const el = messagesContainerRef.current;
     if (!el) return;
+    if (skipNextMessageAutoScrollRef.current) {
+      skipNextMessageAutoScrollRef.current = false;
+      return;
+    }
+    if (historyAnchorRef.current) return;
     el.scrollTop = el.scrollHeight;
   }, [messages]);
+
+  useLayoutEffect(() => {
+    if (isLoadingHistory && !historyWasLoadingRef.current) {
+      captureHistoryAnchor();
+    }
+    if (!isLoadingHistory && historyWasLoadingRef.current) {
+      restoreHistoryAnchor();
+    }
+    historyWasLoadingRef.current = isLoadingHistory;
+  }, [isLoadingHistory, messages]);
+
+  useEffect(() => {
+    const el = messagesContainerRef.current;
+    if (!el || !hasMoreHistory || isLoadingHistory || !onLoadOlder) return;
+    if (el.scrollHeight > 0 && el.scrollHeight <= el.clientHeight) onLoadOlder();
+  }, [hasMoreHistory, isLoadingHistory, messages.length, onLoadOlder]);
 
   // feat-430: clicking outside the slash picker and composer dismisses it while
   // preserving the typed `/` text (spec: Esc / 点面板外关闭).
@@ -337,7 +420,7 @@ export function MessagePane({
         )}
       </header>
 
-      <div ref={messagesContainerRef} className="chat-pane-messages">
+      <div ref={messagesContainerRef} className="chat-pane-messages" onScroll={handleMessagesScroll}>
         {messages.length === 0 ? (
           <div className="chat-pane-empty">
             <div className="chat-pane-empty-icon" aria-hidden="true">✨</div>
@@ -345,18 +428,28 @@ export function MessagePane({
             <p className="chat-pane-empty-sub">{t("chat.messagePane.emptySubtitle")}</p>
           </div>
         ) : (
-          messages.map((m) => (
-            <MessageBubble
-              key={m.id}
-              message={m}
-              isMobile={isMobile}
-              participants={conversation.participants}
-              isDirectChat={isDirectChat}
-              agentOnline={agentOnline}
-              onFork={onFork}
-              forkPending={forkPending}
-            />
-          ))
+          <>
+            {(isLoadingHistory || !hasMoreHistory) && (
+              <div className="chat-history-status" role="status">
+                {isLoadingHistory && <span className="chat-history-spinner" aria-hidden="true" />}
+                {isLoadingHistory
+                  ? t("chat.messagePane.historyLoading")
+                  : t("chat.messagePane.historyEnd")}
+              </div>
+            )}
+            {messages.map((m) => (
+              <MessageBubble
+                key={m.id}
+                message={m}
+                isMobile={isMobile}
+                participants={conversation.participants}
+                isDirectChat={isDirectChat}
+                agentOnline={agentOnline}
+                onFork={onFork}
+                forkPending={forkPending}
+              />
+            ))}
+          </>
         )}
       </div>
 
@@ -508,7 +601,10 @@ function MessageBubble({
   }
 
   return (
-    <div className={`chat-bubble chat-bubble--${isUser ? "user" : "agent"}${forkClass} flex ${rowFlex} gap-2 items-end`}>
+    <div
+      data-message-id={message.id}
+      className={`chat-bubble chat-bubble--${isUser ? "user" : "agent"}${forkClass} flex ${rowFlex} gap-2 items-end`}
+    >
       {!isUser && (
         <span
           data-testid={`message-avatar-${message.id}`}

@@ -1351,6 +1351,33 @@ body {
   margin-bottom: 4px;
 }
 
+.chat-history-status {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 28px;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  color: var(--im-text-muted);
+  font-size: 0.76rem;
+}
+
+.chat-history-spinner {
+  width: 13px;
+  height: 13px;
+  border-radius: 999px;
+  border: 2px solid var(--im-border);
+  border-top-color: var(--im-accent);
+  animation: chat-history-spin 0.8s linear infinite;
+}
+
+@keyframes chat-history-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* Composer */
 .chat-pane-composer {
   flex-shrink: 0;

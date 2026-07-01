@@ -367,6 +367,8 @@
       "forkError": "Fork failed. Please try again.",
       "forkToastTitle": "Branched into a new chat",
       "forkToastSub": "Brought in the full history up to the fork point — the agent remembers it.",
+      "historyLoading": "Loading earlier messages…",
+      "historyEnd": "No earlier messages",
       "toolCall": "tool call",
       "toolCalls": "tool calls",
       "process": "Process",
