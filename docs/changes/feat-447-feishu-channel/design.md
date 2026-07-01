@@ -17,7 +17,7 @@
 - `src/personal_assistant/gateway/outbound_router.py` — `OutboundRouter.send_text()`，路由回复到 adapter。只读不改。
 - `src/personal_assistant/gateway/inbound_pipeline.py` — 入站消息处理、agent 路由、群聊 mention 门控。只读不改。
 - `src/personal_assistant/gateway/group_context_store.py` — 群上下文 buffer，飞书 adapter 复用。只读不改。
-- `src/personal_assistant/config/local_store.py` — 扩展 `ChannelConfig` 支持飞书 accounts 配置结构。
+- `src/personal_assistant/config/local_store.py` — 扩展 `ChannelConfig` 支持飞书 channel 配置结构。
 - `src/personal_assistant/main.py` — 注册飞书 adapter。
 - `skills/` — 新增飞书文档操作 skill（教 agent 调用 feishu-cli 命令操作云文档）。
 
@@ -106,21 +106,24 @@ graph TD
 
 ### 决策 2: 多 Bot 配置模型
 
-**选了 config.yaml 的 `channels.feishu.accounts` 列表，每个 account 绑定一个 `agentId`**。
+**选了 `channels` 列表中每个飞书 Bot 作为一个独立 entry，entry name 直接就是 `feishu:<agent_id>`**。
 
 ```yaml
 channels:
-  feishu:
-    accounts:
-      - name: plato-bot
-        appId: cli_xxx
-        appSecret: xxx
-        agentId: plato
+- name: web_relay
+- name: feishu:plato
+  settings:
+    appId: cli_xxx
+    appSecret: xxx
+- name: feishu:luban
+  settings:
+    appId: cli_yyy
+    appSecret: yyy
 ```
 
-- **理由**: 跟 OpenClaw multi-account 模式一致。显式绑定 agentId，配置一目了然。
-- **拒绝**: 靠 bot name 隐式匹配——不直观，改名断绑定。
-- **风险**: 无。
+- **理由**: channel registry key、adapter name、agent 路由三者用同一个标识，不需要额外的 `name` 或 `agentId` 字段。配置最简，用户只看 agent id 就能知道哪个 bot 对应哪个 agent。
+- **拒绝**: `channels.feishu.accounts` 子列表——每个 account 要额外 `name` + `agentId`，但运行时 adapter name 和路由实际都靠 `agent_id`，`name` 成了无消费的冗余字段。
+- **风险**: 一个 agent 只能绑一个飞书 bot；如果需要多 bot 对应同一 agent，需要新增独立路由层（当前 spec 不需要）。
 
 ### 决策 3: 云文档操作方案
 
@@ -151,7 +154,7 @@ channels:
 **选了复用现有 kernel event observer 的 `node.streaming_delta` 机制，不新建 mirror 通道**。
 
 - **理由**: Gateway 已有 `_build_kernel_event_observer`（main.py:3377），它把 kernel 的 SSE 事件（run_status / assistant_message / tool_start / tool_end / turn_end）翻译成 `node.streaming_delta` WebSocket 帧推给 IM 服务。这个 observer 对所有 channel 的 kernel run 都生效——飞书消息走的是同一条 InboundPipeline → kernel 路径，observer 自然会把事件推到 IM。IM 服务收到 `turn_start`（conversation_id 为空时）会懒创建一个会话，后续 delta 填充内容。**不需要新建 mirror 机制，现有 observer 已经是 mirror**。
-- **关键前提**: 飞书 adapter 的 `InboundMessage` 必须正确设置 `agent_id`（= account.agentId），这样 `run_context_store` 里的 `agent_id` 才正确，IM 侧才能把消息归到正确的 agent 会话。
+- **关键前提**: 飞书 adapter 的 `InboundMessage` 必须正确设置 `agent_id`（从 channel name `feishu:<agent_id>` 解析），这样 `run_context_store` 里的 `agent_id` 才正确，IM 侧才能把消息归到正确的 agent 会话。
 - **拒绝**: 新建独立 mirror 模块——重复造轮子，现有 observer 已经覆盖。
 - **已知 gap**: kernel event observer 只同步 agent 输出（assistant_message / tool_start / tool_end / turn_end）到 IM，**不转发用户原始消息**。飞书路径绕过 IM 服务，IM 侧没有用户消息记录。结果：内部 IM 显示"只有 agent 回复、没有用户提问"的半边对话。WebRelayAdapter 的用户消息由 IM 服务自己存储（relay 时已入库），所以不走 observer 也完整。**作为 MVP 接受半边对话**；如需完整同步，需在 FeishuAdapter 入站时额外调用 IM 的消息创建 API，留后续 unit。
 - **风险**: IM 服务离线时 observer 的 send_json 静默失败，不影响飞书主路径。
@@ -224,9 +227,9 @@ OAuth 授权（一次性）:
 class FeishuAdapter:
     """实现 ChannelAdapter Protocol"""
 
-    name: str                           # "feishu:<agent_id>"
+    name: str                           # "feishu:<agent_id>"，从 config 传入
     app_id: str                         # 飞书应用 ID
-    agent_id: str                       # 绑定的 agent ID
+    agent_id: str                       # 从 name 解析出的 agent ID
 
     def start(self, on_inbound: InboundHandler) -> None:
         """启动飞书 WebSocket 长连接，注册入站回调"""
@@ -238,7 +241,7 @@ class FeishuAdapter:
         """关闭 WebSocket 连接"""
 ```
 
-**关键**: `on_inbound(InboundMessage)` 中必须设置 `agent_id=self.agent_id`（来自 config accounts 绑定）。否则三个 Bot 的消息全路由到 default agent，多 Agent 路由失效。
+**关键**: `on_inbound(InboundMessage)` 中必须设置 `agent_id=self.agent_id`（从 channel name `feishu:<agent_id>` 解析）。否则三个 Bot 的消息全路由到 default agent，多 Agent 路由失效。
 
 ### Session key 生成
 
@@ -257,7 +260,7 @@ FeishuAdapter 产出的 InboundMessage 的 `external_chat_id` 与 `agent_id` 组
 - `channel_name` = `"feishu:<agent_id>"`（用于 OutboundRouter 路由回正确 adapter）
 - `external_user_id` = 飞书 sender open_id
 - `external_chat_id` = `feishu:<app_id>:dm:<user_open_id>` 或 `feishu:<app_id>:group:<chat_id>`
-- `agent_id` = account.agentId（**必须设置**，驱动多 Agent 路由）
+- `agent_id` = 从 channel name 解析出的 agent_id（**必须设置**，驱动多 Agent 路由）
 - `is_group` = chat_type != "p2p"
 - `metadata["feishu_message_id"]` — 飞书消息 ID
 - `metadata["feishu_chat_type"]` — p2p / group
@@ -278,7 +281,7 @@ FeishuAdapter 产出的 InboundMessage 的 `external_chat_id` 与 `agent_id` 组
 - im: no spec delta
 - gateway: `specs/gateway/spec.md` — ADDED:
   - **Requirement: 飞书 channel 消息收发** — Gateway 通过飞书 SDK WebSocket 长连接收发消息，1:1 私聊直接响应，群聊 @Bot 触发，未 @ 消息暂存为上下文
-  - **Requirement: 飞书多 Bot 路由** — 每个飞书 Bot 通过 config accounts 绑定 agentId，消息路由到对应 Agent
+  - **Requirement: 飞书多 Bot 路由** — 每个飞书 Bot 通过 channel name `feishu:<agent_id>` 绑定 agent，消息路由到对应 Agent
   - **Requirement: 飞书对话同步到内部 IM** — 飞书消息和回复通过现有 kernel event observer 自动同步到 IM 服务
 - cli: no spec delta
 

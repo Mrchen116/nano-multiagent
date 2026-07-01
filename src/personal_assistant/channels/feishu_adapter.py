@@ -9,6 +9,7 @@ non-mention group messages as conversation context.
 from __future__ import annotations
 
 import logging
+import threading
 
 from personal_assistant.channels.base import (
     InboundHandler,
@@ -26,14 +27,18 @@ from personal_assistant.gateway.group_context_store import GroupContextStore
 
 logger = logging.getLogger(__name__)
 
+_ACK_REACTION_EMOJI_TYPE = "THINKING"
+
 
 class FeishuAdapter:
     """Feishu channel adapter implementing the ChannelAdapter Protocol.
 
     Args:
+        name: Stable channel adapter name in the form ``feishu:<agent_id>``.
+            The agent id is parsed from the suffix and used for routing and
+            session isolation.
         app_id: Feishu application ID.
         app_secret: Feishu application secret.
-        agent_id: Gateway agent this bot is bound to.
         bot_open_id: Feishu open_id of this bot, used for @mention detection.
             When ``None``, group messages without explicit mentions will all be
             buffered (safe default).
@@ -44,25 +49,28 @@ class FeishuAdapter:
     def __init__(
         self,
         *,
+        name: str,
         app_id: str,
         app_secret: str,
-        agent_id: str,
         bot_open_id: str | None = None,
         group_context_store: GroupContextStore,
         domain: str = "https://open.feishu.cn",
     ) -> None:
+        self._name = name
         self._app_id = app_id
         self._app_secret = app_secret
-        self._agent_id = agent_id
+        self._agent_id = _parse_agent_id_from_name(name)
         self._bot_open_id = bot_open_id
         self._group_ctx = group_context_store
         self._domain = domain
         self._client: FeishuClient | None = None
         self._on_inbound: InboundHandler | None = None
+        self._ack_reactions: dict[str, str] = {}
+        self._ack_reactions_lock = threading.Lock()
 
     @property
     def name(self) -> str:
-        return f"feishu:{self._agent_id}"
+        return self._name
 
     def start(self, on_inbound: InboundHandler) -> None:
         """Start the feishu WebSocket listener and register the inbound callback."""
@@ -97,9 +105,7 @@ class FeishuAdapter:
         # Determine receive_id_type based on chat type encoded in external_chat_id
         # Format: "feishu:<app_id>:dm:<user_open_id>" → "open_id" (DM)
         # Format: "feishu:<app_id>:group:<chat_id>" → "chat_id" (group)
-        receive_id_type = (
-            "open_id" if ":dm:" in outbound.target_chat_id else "chat_id"
-        )
+        receive_id_type = "open_id" if ":dm:" in outbound.target_chat_id else "chat_id"
 
         try:
             self._client.send_message(
@@ -107,6 +113,7 @@ class FeishuAdapter:
                 text=outbound.text,
                 receive_id_type=receive_id_type,
             )
+            self._remove_ack_after_reply(outbound)
         except FeishuAuthError:
             logger.error(
                 "feishu auth error — app credentials may be expired",
@@ -150,13 +157,68 @@ class FeishuAdapter:
             return
 
         if not event.is_group:
+            self._ack_received(event)
             self._deliver_dm(event)
             return
 
         if _is_bot_mentioned(event.mentions, self._bot_open_id):
+            self._ack_received(event)
             self._deliver_group_with_context(event)
         else:
             self._buffer_group_message(event)
+
+    def _ack_received(self, event: FeishuMessageEvent) -> None:
+        """React to a message that is about to enter the agent pipeline."""
+        if self._client is None or not event.message_id:
+            return
+        try:
+            reaction_id = self._client.add_reaction(
+                message_id=event.message_id,
+                emoji_type=_ACK_REACTION_EMOJI_TYPE,
+            )
+            if reaction_id:
+                with self._ack_reactions_lock:
+                    self._ack_reactions[event.message_id] = reaction_id
+        except (FeishuAuthError, FeishuAPIError, RuntimeError):
+            logger.warning(
+                "failed to add feishu ack reaction",
+                exc_info=True,
+                extra={
+                    "error_code": "feishu_ack_reaction_failed",
+                    "message_id": event.message_id,
+                    "chat_id": event.chat_id,
+                    "agent_id": self._agent_id,
+                    "adapter": self.name,
+                },
+            )
+
+    def _remove_ack_after_reply(self, outbound: OutboundMessage) -> None:
+        """Remove the ack reaction once a reply has been delivered."""
+        if self._client is None:
+            return
+        message_id = outbound.metadata.get("feishu_message_id")
+        if not isinstance(message_id, str) or not message_id:
+            return
+        with self._ack_reactions_lock:
+            reaction_id = self._ack_reactions.pop(message_id, None)
+        if not reaction_id:
+            return
+        try:
+            self._client.delete_reaction(
+                message_id=message_id,
+                reaction_id=reaction_id,
+            )
+        except (FeishuAuthError, FeishuAPIError, RuntimeError):
+            logger.warning(
+                "failed to remove feishu ack reaction",
+                exc_info=True,
+                extra={
+                    "error_code": "feishu_ack_reaction_remove_failed",
+                    "message_id": message_id,
+                    "agent_id": self._agent_id,
+                    "adapter": self.name,
+                },
+            )
 
     def _deliver_dm(self, event: FeishuMessageEvent) -> None:
         """Deliver a 1:1 DM as an InboundMessage."""
@@ -219,14 +281,10 @@ class FeishuAdapter:
         external_chat_id = f"feishu:{self._app_id}:group:{event.chat_id}"
         buf_key = _group_buf_key(self._agent_id, self.name, external_chat_id)
         self._group_ctx.append(buf_key, event.text, sender=event.sender_open_id)
-        logger.debug(
-            "buffered group message for %s: %s", buf_key, event.text[:50]
-        )
+        logger.debug("buffered group message for %s: %s", buf_key, event.text[:50])
 
 
-def _is_bot_mentioned(
-    mentions: list[FeishuMention], bot_open_id: str | None
-) -> bool:
+def _is_bot_mentioned(mentions: list[FeishuMention], bot_open_id: str | None) -> bool:
     """Check if the bot is explicitly mentioned in the message.
 
     Returns True when:
@@ -270,3 +328,23 @@ def _extract_chat_id(external_chat_id: str) -> str:
     if len(parts) >= 4:
         return parts[-1]
     return external_chat_id
+
+
+def _parse_agent_id_from_name(name: str) -> str:
+    """Parse the agent id from a feishu channel name.
+
+    Args:
+        name: Channel name in the form ``feishu:<agent_id>``.
+
+    Returns:
+        The ``agent_id`` suffix.
+
+    Raises:
+        ValueError: When the name is not a valid feishu channel name.
+    """
+    if not name.startswith("feishu:"):
+        raise ValueError(f"invalid feishu channel name: {name}")
+    agent_id = name[len("feishu:") :]
+    if not agent_id:
+        raise ValueError(f"feishu channel name missing agent id: {name}")
+    return agent_id

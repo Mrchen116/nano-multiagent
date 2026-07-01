@@ -2893,9 +2893,7 @@ def _build_channel_registry(
     dedup_db_path: Path | None = None,
     group_context_store: GroupContextStore | None = None,
 ) -> ChannelRegistry:
-    has_feishu = any(
-        ch.enabled and ch.name.startswith("feishu:") for ch in channels
-    )
+    has_feishu = any(ch.enabled and ch.name.startswith("feishu:") for ch in channels)
     if has_feishu and group_context_store is None:
         raise ValueError(
             "group_context_store is required when feishu channels are enabled"
@@ -2910,14 +2908,14 @@ def _build_channel_registry(
                 dedup_store = RelayDeduplicationStore(db_path=dedup_db_path)
             registry.register(WebRelayAdapter(dedup_store=dedup_store))
             continue
-        # feat-447: feishu channels are named "feishu:<account_name>"
+        # feat-447: feishu channels are named "feishu:<agent_id>"
         if channel.name.startswith("feishu:"):
             settings = channel.settings
             registry.register(
                 FeishuAdapter(
+                    name=channel.name,
                     app_id=settings["appId"],
                     app_secret=settings["appSecret"],
-                    agent_id=settings["agentId"],
                     bot_open_id=settings.get("botOpenId"),
                     group_context_store=group_context_store,
                 )

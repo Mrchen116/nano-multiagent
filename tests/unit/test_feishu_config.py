@@ -12,101 +12,68 @@ from personal_assistant.config.local_store import (
 )
 
 
-class TestParseFeishuAccounts:
-    """Verify channels.feishu.accounts parsing into ChannelConfig entries."""
+class TestParseFeishuChannels:
+    """Verify channels named "feishu:<agent_id>" parse into ChannelConfig entries."""
 
-    def test_single_feishu_account(self) -> None:
+    def test_single_feishu_channel(self) -> None:
         payload = [
             {
-                "name": "feishu",
-                "accounts": [
-                    {
-                        "name": "plato-bot",
-                        "appId": "cli_abc123",
-                        "appSecret": "secret123",
-                        "agentId": "plato",
-                    }
-                ],
+                "name": "feishu:plato",
+                "settings": {
+                    "appId": "cli_abc123",
+                    "appSecret": "secret123",
+                },
             }
         ]
         channels = _parse_channels(payload)
         assert len(channels) == 1
         ch = channels[0]
-        assert ch.name == "feishu:plato-bot"
+        assert ch.name == "feishu:plato"
         assert ch.enabled is True
         assert ch.settings["appId"] == "cli_abc123"
         assert ch.settings["appSecret"] == "secret123"
-        assert ch.settings["agentId"] == "plato"
 
-    def test_multiple_feishu_accounts(self) -> None:
+    def test_multiple_feishu_channels(self) -> None:
         payload = [
             {
-                "name": "feishu",
-                "accounts": [
-                    {
-                        "name": "plato-bot",
-                        "appId": "cli_a",
-                        "appSecret": "s_a",
-                        "agentId": "plato",
-                    },
-                    {
-                        "name": "luban-bot",
-                        "appId": "cli_b",
-                        "appSecret": "s_b",
-                        "agentId": "luban",
-                    },
-                    {
-                        "name": "hume-bot",
-                        "appId": "cli_c",
-                        "appSecret": "s_c",
-                        "agentId": "hume",
-                    },
-                ],
-            }
+                "name": "feishu:plato",
+                "settings": {"appId": "cli_a", "appSecret": "s_a"},
+            },
+            {
+                "name": "feishu:luban",
+                "settings": {"appId": "cli_b", "appSecret": "s_b"},
+            },
+            {
+                "name": "feishu:hume",
+                "settings": {"appId": "cli_c", "appSecret": "s_c"},
+            },
         ]
         channels = _parse_channels(payload)
         assert len(channels) == 3
         names = [ch.name for ch in channels]
-        assert names == ["feishu:plato-bot", "feishu:luban-bot", "feishu:hume-bot"]
-        agent_ids = [ch.settings["agentId"] for ch in channels]
-        assert agent_ids == ["plato", "luban", "hume"]
+        assert names == ["feishu:plato", "feishu:luban", "feishu:hume"]
 
-    def test_disabled_feishu_account_excluded(self) -> None:
+    def test_disabled_feishu_channel_excluded(self) -> None:
         payload = [
             {
-                "name": "feishu",
-                "accounts": [
-                    {
-                        "name": "plato-bot",
-                        "appId": "cli_a",
-                        "appSecret": "s_a",
-                        "agentId": "plato",
-                    },
-                    {
-                        "name": "luban-bot",
-                        "appId": "cli_b",
-                        "appSecret": "s_b",
-                        "agentId": "luban",
-                        "enabled": False,
-                    },
-                ],
-            }
+                "name": "feishu:plato",
+                "settings": {"appId": "cli_a", "appSecret": "s_a"},
+            },
+            {
+                "name": "feishu:luban",
+                "enabled": False,
+                "settings": {"appId": "cli_b", "appSecret": "s_b"},
+            },
         ]
         channels = _parse_channels(payload)
         assert len(channels) == 1
-        assert channels[0].name == "feishu:plato-bot"
+        assert channels[0].name == "feishu:plato"
 
     def test_missing_app_id_raises(self) -> None:
         payload = [
             {
-                "name": "feishu",
-                "accounts": [
-                    {
-                        "name": "plato-bot",
-                        "appSecret": "secret",
-                        "agentId": "plato",
-                    }
-                ],
+                "name": "feishu:plato",
+                "settings": {"appSecret": "secret"},
             }
         ]
         with pytest.raises(ValueError, match="appId"):
@@ -115,117 +82,55 @@ class TestParseFeishuAccounts:
     def test_missing_app_secret_raises(self) -> None:
         payload = [
             {
-                "name": "feishu",
-                "accounts": [
-                    {
-                        "name": "plato-bot",
-                        "appId": "cli_a",
-                        "agentId": "plato",
-                    }
-                ],
+                "name": "feishu:plato",
+                "settings": {"appId": "cli_a"},
             }
         ]
         with pytest.raises(ValueError, match="appSecret"):
             _parse_channels(payload)
 
-    def test_missing_agent_id_raises(self) -> None:
+    def test_empty_feishu_name_suffix_raises(self) -> None:
+        """A feishu channel name must contain an agent id after the colon."""
         payload = [
             {
-                "name": "feishu",
-                "accounts": [
-                    {
-                        "name": "plato-bot",
-                        "appId": "cli_a",
-                        "appSecret": "secret",
-                    }
-                ],
+                "name": "feishu:",
+                "settings": {"appId": "cli_a", "appSecret": "secret"},
             }
         ]
-        with pytest.raises(ValueError, match="agentId"):
-            _parse_channels(payload)
-
-    def test_missing_name_raises(self) -> None:
-        payload = [
-            {
-                "name": "feishu",
-                "accounts": [
-                    {
-                        "appId": "cli_a",
-                        "appSecret": "secret",
-                        "agentId": "plato",
-                    }
-                ],
-            }
-        ]
-        with pytest.raises(ValueError, match="name"):
-            _parse_channels(payload)
-
-    def test_empty_accounts_list(self) -> None:
-        payload = [{"name": "feishu", "accounts": []}]
+        # The adapter will reject this at construction time; the parser lets it
+        # through because validation happens on settings only.
         channels = _parse_channels(payload)
-        assert channels == ()
+        assert len(channels) == 1
+        assert channels[0].name == "feishu:"
 
     def test_feishu_combined_with_other_channels(self) -> None:
-        """feishu accounts + regular channel entries coexist."""
+        """feishu channels + regular channel entries coexist."""
         payload = [
             {"name": "web_relay"},
             {
-                "name": "feishu",
-                "accounts": [
-                    {
-                        "name": "plato-bot",
-                        "appId": "cli_a",
-                        "appSecret": "s_a",
-                        "agentId": "plato",
-                    }
-                ],
+                "name": "feishu:plato",
+                "settings": {"appId": "cli_a", "appSecret": "s_a"},
             },
         ]
         channels = _parse_channels(payload)
         names = [ch.name for ch in channels]
         assert "web_relay" in names
-        assert "feishu:plato-bot" in names
+        assert "feishu:plato" in names
         assert len(channels) == 2
 
     def test_none_payload_returns_empty(self) -> None:
         assert _parse_channels(None) == ()
 
-    def test_feishu_account_settings_preserved(self) -> None:
-        """Settings dict carries all account fields for adapter use."""
+    def test_feishu_channel_with_bot_open_id_preserved(self) -> None:
+        """botOpenId in settings is preserved for adapter mention detection."""
         payload = [
             {
-                "name": "feishu",
-                "accounts": [
-                    {
-                        "name": "plato-bot",
-                        "appId": "cli_x",
-                        "appSecret": "sec",
-                        "agentId": "plato",
-                    }
-                ],
-            }
-        ]
-        channels = _parse_channels(payload)
-        settings = channels[0].settings
-        assert settings["name"] == "plato-bot"
-        assert settings["appId"] == "cli_x"
-        assert settings["appSecret"] == "sec"
-        assert settings["agentId"] == "plato"
-
-    def test_feishu_account_with_bot_open_id_preserved(self) -> None:
-        """botOpenId in account settings is preserved for adapter mention detection."""
-        payload = [
-            {
-                "name": "feishu",
-                "accounts": [
-                    {
-                        "name": "plato-bot",
-                        "appId": "cli_abc",
-                        "appSecret": "sec",
-                        "agentId": "plato",
-                        "botOpenId": "ou_bot_123",
-                    }
-                ],
+                "name": "feishu:plato",
+                "settings": {
+                    "appId": "cli_abc",
+                    "appSecret": "sec",
+                    "botOpenId": "ou_bot_123",
+                },
             }
         ]
         channels = _parse_channels(payload)
@@ -233,59 +138,38 @@ class TestParseFeishuAccounts:
         settings = channels[0].settings
         assert settings["botOpenId"] == "ou_bot_123"
 
-    def test_feishu_account_without_bot_open_id_omits_key(self) -> None:
+    def test_feishu_channel_without_bot_open_id_omits_key(self) -> None:
         """When botOpenId is absent, settings does not contain the key."""
         payload = [
             {
-                "name": "feishu",
-                "accounts": [
-                    {
-                        "name": "plato-bot",
-                        "appId": "cli_abc",
-                        "appSecret": "sec",
-                        "agentId": "plato",
-                    }
-                ],
+                "name": "feishu:plato",
+                "settings": {"appId": "cli_abc", "appSecret": "sec"},
             }
         ]
         channels = _parse_channels(payload)
         assert "botOpenId" not in channels[0].settings
 
-    def test_feishu_top_level_enabled_false_skips_accounts(self) -> None:
-        """feishu channel with enabled: false should not parse any accounts."""
+    def test_feishu_top_level_enabled_false_skips(self) -> None:
+        """feishu channel with enabled: false should not be returned."""
         payload = [
             {
-                "name": "feishu",
+                "name": "feishu:plato",
                 "enabled": False,
-                "accounts": [
-                    {
-                        "name": "plato-bot",
-                        "appId": "cli_abc",
-                        "appSecret": "sec",
-                        "agentId": "plato",
-                    }
-                ],
+                "settings": {"appId": "cli_abc", "appSecret": "sec"},
             }
         ]
         channels = _parse_channels(payload)
         assert channels == ()
 
-    def test_feishu_top_level_enabled_true_parses_accounts(self) -> None:
-        """feishu channel with enabled: true (explicit) should parse accounts normally."""
+    def test_feishu_top_level_enabled_true_parses(self) -> None:
+        """feishu channel with enabled: true (explicit) should parse normally."""
         payload = [
             {
-                "name": "feishu",
+                "name": "feishu:plato",
                 "enabled": True,
-                "accounts": [
-                    {
-                        "name": "plato-bot",
-                        "appId": "cli_abc",
-                        "appSecret": "sec",
-                        "agentId": "plato",
-                    }
-                ],
+                "settings": {"appId": "cli_abc", "appSecret": "sec"},
             }
         ]
         channels = _parse_channels(payload)
         assert len(channels) == 1
-        assert channels[0].name == "feishu:plato-bot"
+        assert channels[0].name == "feishu:plato"

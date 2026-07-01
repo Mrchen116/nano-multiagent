@@ -888,90 +888,41 @@ def _parse_channels(payload: Any) -> tuple[ChannelConfig, ...]:
         name = _require_non_empty_string(
             item.get("name"), field_name=f"channels[{index}].name"
         )
-        # feat-447: feishu channel uses accounts sub-list, each account becomes
-        # a separate ChannelConfig named "feishu:<account_name>".
-        if name == "feishu" and "accounts" in item:
-            enabled = item.get("enabled", True)
-            if not isinstance(enabled, bool):
-                raise ValueError(f"channels[{index}].enabled must be a bool")
-            if not enabled:
-                continue
-            channels.extend(
-                _parse_feishu_accounts(item["accounts"], prefix=f"channels[{index}]")
-            )
-            continue
         enabled = item.get("enabled", True)
         if not isinstance(enabled, bool):
             raise ValueError(f"channels[{index}].enabled must be a bool")
+        if not enabled:
+            continue
         settings = item.get("settings", {})
         if not isinstance(settings, dict):
             raise ValueError(f"channels[{index}].settings must be a mapping")
+        # feat-447: feishu channels are named "feishu:<agent_id>" and require
+        # app credentials in settings.
+        if name.startswith("feishu:"):
+            _validate_feishu_settings(settings, prefix=f"channels[{index}].settings")
         channels.append(
             ChannelConfig(name=name, enabled=enabled, settings=dict(settings))
         )
     return tuple(channels)
 
 
-def _parse_feishu_accounts(
-    payload: Any, *, prefix: str
-) -> tuple[ChannelConfig, ...]:
-    """Parse a feishu accounts list into individual ChannelConfig entries.
-
-    Each account must define ``name``, ``appId``, ``appSecret``, and ``agentId``.
-    Disabled accounts (``enabled: false``) are silently skipped.
+def _validate_feishu_settings(settings: dict[str, Any], *, prefix: str) -> None:
+    """Validate that a feishu channel settings dict contains required credentials.
 
     Args:
-        payload: Raw YAML list of feishu account dicts.
+        settings: Raw settings mapping from config.yaml.
         prefix: Diagnostic label prefix for error messages.
-
-    Returns:
-        Tuple of ChannelConfig entries named ``feishu:<account_name>``.
 
     Raises:
         ValueError: When required fields are missing or malformed.
     """
-    if not isinstance(payload, list):
-        raise ValueError(f"{prefix}.accounts must be a list")
-
-    result: list[ChannelConfig] = []
-    for ai, account in enumerate(payload):
-        loc = f"{prefix}.accounts[{ai}]"
-        if not isinstance(account, dict):
-            raise ValueError(f"{loc} must be a mapping")
-        acct_name = _require_non_empty_string(
-            account.get("name"), field_name=f"{loc}.name"
-        )
-        acct_enabled = account.get("enabled", True)
-        if not isinstance(acct_enabled, bool):
-            raise ValueError(f"{loc}.enabled must be a bool")
-        if not acct_enabled:
-            continue
-        app_id = _require_non_empty_string(
-            account.get("appId"), field_name=f"{loc}.appId"
-        )
-        app_secret = _require_non_empty_string(
-            account.get("appSecret"), field_name=f"{loc}.appSecret"
-        )
-        agent_id = _require_non_empty_string(
-            account.get("agentId"), field_name=f"{loc}.agentId"
-        )
-        settings: dict[str, Any] = {
-            "name": acct_name,
-            "appId": app_id,
-            "appSecret": app_secret,
-            "agentId": agent_id,
-        }
-        bot_open_id = account.get("botOpenId")
-        if bot_open_id is not None:
-            settings["botOpenId"] = bot_open_id
-        result.append(
-            ChannelConfig(
-                name=f"feishu:{acct_name}",
-                enabled=True,
-                settings=settings,
-            )
-        )
-    return tuple(result)
+    _require_non_empty_string(settings.get("appId"), field_name=f"{prefix}.appId")
+    _require_non_empty_string(
+        settings.get("appSecret"), field_name=f"{prefix}.appSecret"
+    )
+    bot_open_id = settings.get("botOpenId")
+    if bot_open_id is not None and not isinstance(bot_open_id, str):
+        raise ValueError(f"{prefix}.botOpenId must be a string")
 
 
 def _parse_kernel(payload: Any) -> KernelConfig:

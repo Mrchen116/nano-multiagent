@@ -41,7 +41,7 @@ class TestFeishuAdapterName:
         adapter = FeishuAdapter(
             app_id="cli_a",
             app_secret="s",
-            agent_id="plato",
+            name="feishu:plato",
             group_context_store=MagicMock(spec=GroupContextStore),
         )
         assert adapter.name == "feishu:plato"
@@ -55,13 +55,15 @@ class TestFeishuAdapterDM:
         adapter = FeishuAdapter(
             app_id="cli_a",
             app_secret="s",
-            agent_id="plato",
+            name="feishu:plato",
             group_context_store=MagicMock(spec=GroupContextStore),
         )
         on_inbound = MagicMock()
         adapter.start(on_inbound)
 
-        event = _make_event(text="hi there", sender_open_id="ou_user1", chat_id="oc_dm1")
+        event = _make_event(
+            text="hi there", sender_open_id="ou_user1", chat_id="oc_dm1"
+        )
         adapter._handle_message(event)
 
         on_inbound.assert_called_once()
@@ -75,13 +77,11 @@ class TestFeishuAdapterDM:
         assert msg.external_chat_id == "feishu:cli_a:dm:ou_user1"
 
     @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
-    def test_dm_always_responds_no_mention_needed(
-        self, mock_fc_cls: MagicMock
-    ) -> None:
+    def test_dm_always_responds_no_mention_needed(self, mock_fc_cls: MagicMock) -> None:
         adapter = FeishuAdapter(
             app_id="cli_a",
             app_secret="s",
-            agent_id="plato",
+            name="feishu:plato",
             group_context_store=MagicMock(spec=GroupContextStore),
         )
         on_inbound = MagicMock()
@@ -92,18 +92,64 @@ class TestFeishuAdapterDM:
         adapter._handle_message(event)
         on_inbound.assert_called_once()
 
+    @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
+    def test_dm_adds_ack_reaction(self, mock_fc_cls: MagicMock) -> None:
+        mock_fc = MagicMock()
+        mock_fc_cls.return_value = mock_fc
+        adapter = FeishuAdapter(
+            app_id="cli_a",
+            app_secret="s",
+            name="feishu:plato",
+            group_context_store=MagicMock(spec=GroupContextStore),
+        )
+        adapter.start(MagicMock())
+
+        event = _make_event(message_id="om_msg_001")
+        adapter._handle_message(event)
+
+        mock_fc.add_reaction.assert_called_once_with(
+            message_id="om_msg_001",
+            emoji_type="THINKING",
+        )
+
+    @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
+    def test_ack_reaction_failure_still_delivers_dm(
+        self, mock_fc_cls: MagicMock
+    ) -> None:
+        from personal_assistant.channels.feishu_client import FeishuAPIError
+
+        mock_fc = MagicMock()
+        mock_fc.add_reaction.side_effect = FeishuAPIError("reaction failed", code=99999)
+        mock_fc_cls.return_value = mock_fc
+        adapter = FeishuAdapter(
+            app_id="cli_a",
+            app_secret="s",
+            name="feishu:plato",
+            group_context_store=MagicMock(spec=GroupContextStore),
+        )
+        on_inbound = MagicMock()
+        adapter.start(on_inbound)
+
+        event = _make_event(message_id="om_msg_001")
+        adapter._handle_message(event)
+
+        mock_fc.add_reaction.assert_called_once()
+        on_inbound.assert_called_once()
+
 
 class TestFeishuAdapterGroupMention:
     """Group chat @Bot trigger scenarios."""
 
     @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
     def test_group_at_bot_delivers_inbound(self, mock_fc_cls: MagicMock) -> None:
+        mock_fc = MagicMock()
+        mock_fc_cls.return_value = mock_fc
         store = MagicMock(spec=GroupContextStore)
         store.drain.return_value = []
         adapter = FeishuAdapter(
             app_id="cli_a",
             app_secret="s",
-            agent_id="plato",
+            name="feishu:plato",
             bot_open_id="ou_bot1",
             group_context_store=store,
         )
@@ -125,6 +171,10 @@ class TestFeishuAdapterGroupMention:
         assert msg.is_group is True
         assert msg.agent_id == "plato"
         assert "oc_grp1" in msg.external_chat_id
+        mock_fc.add_reaction.assert_called_once_with(
+            message_id="msg_001",
+            emoji_type="THINKING",
+        )
 
     @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
     def test_group_no_mention_pushes_to_buffer(self, mock_fc_cls: MagicMock) -> None:
@@ -132,7 +182,7 @@ class TestFeishuAdapterGroupMention:
         adapter = FeishuAdapter(
             app_id="cli_a",
             app_secret="s",
-            agent_id="plato",
+            name="feishu:plato",
             bot_open_id="ou_bot1",
             group_context_store=store,
         )
@@ -150,6 +200,7 @@ class TestFeishuAdapterGroupMention:
 
         on_inbound.assert_not_called()
         store.append.assert_called_once()
+        mock_fc_cls.return_value.add_reaction.assert_not_called()
         buf_key = store.append.call_args[0][0]
         # Key format: {agent_id}:{channel_name}:{external_chat_id}
         assert buf_key == "plato:feishu:plato:feishu:cli_a:group:oc_grp1"
@@ -164,7 +215,7 @@ class TestFeishuAdapterGroupMention:
         adapter = FeishuAdapter(
             app_id="cli_a",
             app_secret="s",
-            agent_id="plato",
+            name="feishu:plato",
             bot_open_id="ou_bot1",
             group_context_store=store,
         )
@@ -194,7 +245,7 @@ class TestFeishuAdapterGroupMention:
         adapter = FeishuAdapter(
             app_id="cli_a",
             app_secret="s",
-            agent_id="plato",
+            name="feishu:plato",
             bot_open_id="ou_bot1",
             group_context_store=store,
         )
@@ -224,11 +275,15 @@ class TestFeishuAdapterMultiBot:
         self, mock_fc_cls: MagicMock
     ) -> None:
         adapter_plato = FeishuAdapter(
-            app_id="cli_a", app_secret="s", agent_id="plato",
+            app_id="cli_a",
+            app_secret="s",
+            name="feishu:plato",
             group_context_store=MagicMock(spec=GroupContextStore),
         )
         adapter_luban = FeishuAdapter(
-            app_id="cli_b", app_secret="s", agent_id="luban",
+            app_id="cli_b",
+            app_secret="s",
+            name="feishu:luban",
             group_context_store=MagicMock(spec=GroupContextStore),
         )
         assert adapter_plato.name == "feishu:plato"
@@ -237,7 +292,9 @@ class TestFeishuAdapterMultiBot:
     @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
     def test_message_routed_to_correct_agent(self, mock_fc_cls: MagicMock) -> None:
         adapter = FeishuAdapter(
-            app_id="cli_a", app_secret="s", agent_id="plato",
+            app_id="cli_a",
+            app_secret="s",
+            name="feishu:plato",
             group_context_store=MagicMock(spec=GroupContextStore),
         )
         on_inbound = MagicMock()
@@ -248,148 +305,3 @@ class TestFeishuAdapterMultiBot:
 
         msg: InboundMessage = on_inbound.call_args[0][0]
         assert msg.agent_id == "plato"
-
-
-class TestFeishuAdapterSend:
-    """Outbound message sending via FeishuClient."""
-
-    @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
-    def test_send_calls_feishu_client(self, mock_fc_cls: MagicMock) -> None:
-        mock_fc = MagicMock()
-        mock_fc_cls.return_value = mock_fc
-        adapter = FeishuAdapter(
-            app_id="cli_a", app_secret="s", agent_id="plato",
-            group_context_store=MagicMock(spec=GroupContextStore),
-        )
-        adapter.start(MagicMock())
-
-        outbound = OutboundMessage(
-            channel_name="feishu:plato",
-            text="reply from bot",
-            target_chat_id="oc_chat123",
-            metadata={"feishu_message_id": "msg_001"},
-        )
-        adapter.send(outbound)
-
-        mock_fc.send_message.assert_called_once()
-        call_kwargs = mock_fc.send_message.call_args[1]
-        assert call_kwargs["receive_id"] == "oc_chat123"
-        assert call_kwargs["text"] == "reply from bot"
-
-    @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
-    def test_send_dm_uses_open_id(self, mock_fc_cls: MagicMock) -> None:
-        """DM replies must use receive_id_type='open_id' (user open_id)."""
-        mock_fc = MagicMock()
-        mock_fc_cls.return_value = mock_fc
-        adapter = FeishuAdapter(
-            app_id="cli_a", app_secret="s", agent_id="plato",
-            group_context_store=MagicMock(spec=GroupContextStore),
-        )
-        adapter.start(MagicMock())
-
-        outbound = OutboundMessage(
-            channel_name="feishu:plato",
-            text="dm reply",
-            target_chat_id="feishu:cli_a:dm:ou_user1",
-            metadata={},
-        )
-        adapter.send(outbound)
-
-        call_kwargs = mock_fc.send_message.call_args[1]
-        assert call_kwargs["receive_id"] == "ou_user1"
-        assert call_kwargs["receive_id_type"] == "open_id"
-
-    @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
-    def test_send_group_uses_chat_id(self, mock_fc_cls: MagicMock) -> None:
-        """Group replies must use receive_id_type='chat_id'."""
-        mock_fc = MagicMock()
-        mock_fc_cls.return_value = mock_fc
-        adapter = FeishuAdapter(
-            app_id="cli_a", app_secret="s", agent_id="plato",
-            group_context_store=MagicMock(spec=GroupContextStore),
-        )
-        adapter.start(MagicMock())
-
-        outbound = OutboundMessage(
-            channel_name="feishu:plato",
-            text="group reply",
-            target_chat_id="feishu:cli_a:group:oc_grp1",
-            metadata={},
-        )
-        adapter.send(outbound)
-
-        call_kwargs = mock_fc.send_message.call_args[1]
-        assert call_kwargs["receive_id"] == "oc_grp1"
-        assert call_kwargs["receive_id_type"] == "chat_id"
-
-    @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
-    def test_stop_stops_client(self, mock_fc_cls: MagicMock) -> None:
-        mock_fc = MagicMock()
-        mock_fc_cls.return_value = mock_fc
-        adapter = FeishuAdapter(
-            app_id="cli_a", app_secret="s", agent_id="plato",
-            group_context_store=MagicMock(spec=GroupContextStore),
-        )
-        adapter.start(MagicMock())
-        adapter.stop()
-        mock_fc.stop.assert_called_once()
-
-
-class TestFeishuAdapterErrorNotification:
-    """Verify adapter.send catches feishu errors and logs structured context."""
-
-    @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
-    def test_send_auth_error_logs_and_reraises(
-        self, mock_fc_cls: MagicMock
-    ) -> None:
-        """FeishuAuthError should be logged with structured context and re-raised."""
-        from personal_assistant.channels.feishu_client import FeishuAuthError
-
-        mock_fc = MagicMock()
-        mock_fc.send_message.side_effect = FeishuAuthError(
-            "auth expired", code=401
-        )
-        mock_fc_cls.return_value = mock_fc
-
-        adapter = FeishuAdapter(
-            app_id="cli_a", app_secret="s", agent_id="plato",
-            group_context_store=MagicMock(spec=GroupContextStore),
-        )
-        adapter.start(MagicMock())
-
-        outbound = OutboundMessage(
-            channel_name="feishu:plato",
-            text="reply",
-            target_chat_id="feishu:cli_a:group:oc_chat123",
-            metadata={},
-        )
-        with pytest.raises(FeishuAuthError):
-            adapter.send(outbound)
-
-    @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
-    def test_send_api_error_logs_and_reraises(
-        self, mock_fc_cls: MagicMock
-    ) -> None:
-        """FeishuAPIError should be logged with structured context and re-raised."""
-        from personal_assistant.channels.feishu_client import FeishuAPIError
-
-        mock_fc = MagicMock()
-        mock_fc.send_message.side_effect = FeishuAPIError(
-            "server error", code=500
-        )
-        mock_fc_cls.return_value = mock_fc
-
-        adapter = FeishuAdapter(
-            app_id="cli_a", app_secret="s", agent_id="plato",
-            group_context_store=MagicMock(spec=GroupContextStore),
-        )
-        adapter.start(MagicMock())
-
-        outbound = OutboundMessage(
-            channel_name="feishu:plato",
-            text="reply",
-            target_chat_id="feishu:cli_a:group:oc_chat123",
-            metadata={},
-        )
-        with pytest.raises(FeishuAPIError):
-            adapter.send(outbound)

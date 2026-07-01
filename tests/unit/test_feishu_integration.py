@@ -27,13 +27,11 @@ class TestBuildChannelRegistryFeishu:
             group_ctx = GroupContextStore(db_path=db_path)
             channels = (
                 ChannelConfig(
-                    name="feishu:plato-bot",
+                    name="feishu:plato",
                     enabled=True,
                     settings={
-                        "name": "plato-bot",
                         "appId": "cli_a",
                         "appSecret": "s_a",
-                        "agentId": "plato",
                     },
                 ),
             )
@@ -42,12 +40,10 @@ class TestBuildChannelRegistryFeishu:
             call_kwargs = mock_fa_cls.call_args[1]
             assert call_kwargs["app_id"] == "cli_a"
             assert call_kwargs["app_secret"] == "s_a"
-            assert call_kwargs["agent_id"] == "plato"
+            assert call_kwargs["name"] == "feishu:plato"
 
     @patch("personal_assistant.main.FeishuAdapter")
-    def test_multiple_feishu_accounts_registered(
-        self, mock_fa_cls: MagicMock
-    ) -> None:
+    def test_multiple_feishu_accounts_registered(self, mock_fa_cls: MagicMock) -> None:
         from personal_assistant.gateway.group_context_store import GroupContextStore
 
         # Return distinct mock instances with unique names
@@ -62,43 +58,37 @@ class TestBuildChannelRegistryFeishu:
             group_ctx = GroupContextStore(db_path=db_path)
             channels = (
                 ChannelConfig(
-                    name="feishu:plato-bot",
+                    name="feishu:plato",
                     enabled=True,
                     settings={
-                        "name": "plato-bot",
                         "appId": "cli_a",
                         "appSecret": "s_a",
-                        "agentId": "plato",
                     },
                 ),
                 ChannelConfig(
-                    name="feishu:luban-bot",
+                    name="feishu:luban",
                     enabled=True,
                     settings={
-                        "name": "luban-bot",
                         "appId": "cli_b",
                         "appSecret": "s_b",
-                        "agentId": "luban",
                     },
                 ),
             )
             registry = _build_channel_registry(channels, group_context_store=group_ctx)
             assert mock_fa_cls.call_count == 2
-            agent_ids = [c[1]["agent_id"] for c in mock_fa_cls.call_args_list]
-            assert "plato" in agent_ids
-            assert "luban" in agent_ids
+            names = [c[1]["name"] for c in mock_fa_cls.call_args_list]
+            assert "feishu:plato" in names
+            assert "feishu:luban" in names
 
     @patch("personal_assistant.main.FeishuAdapter")
     def test_feishu_disabled_not_registered(self, mock_fa_cls: MagicMock) -> None:
         channels = (
             ChannelConfig(
-                name="feishu:plato-bot",
+                name="feishu:plato",
                 enabled=False,
                 settings={
-                    "name": "plato-bot",
                     "appId": "cli_a",
                     "appSecret": "s_a",
-                    "agentId": "plato",
                 },
             ),
         )
@@ -123,19 +113,15 @@ class TestBuildChannelRegistryFeishu:
             channels = (
                 ChannelConfig(name="web_relay", enabled=True, settings={}),
                 ChannelConfig(
-                    name="feishu:plato-bot",
+                    name="feishu:plato",
                     enabled=True,
                     settings={
-                        "name": "plato-bot",
                         "appId": "cli_a",
                         "appSecret": "s_a",
-                        "agentId": "plato",
                     },
                 ),
             )
-            registry = _build_channel_registry(
-                channels, group_context_store=group_ctx
-            )
+            registry = _build_channel_registry(channels, group_context_store=group_ctx)
             mock_wra_cls.assert_called_once()
             mock_fa_cls.assert_called_once()
 
@@ -161,7 +147,7 @@ class TestBuildChannelRegistryFeishuRealAdapter:
             adapter = FeishuAdapter(
                 app_id="cli_a",
                 app_secret="s_a",
-                agent_id="plato",
+                name="feishu:plato",
                 bot_open_id="ou_123",
                 group_context_store=group_ctx,
             )
@@ -178,20 +164,16 @@ class TestBuildChannelRegistryFeishuRealAdapter:
 
             channels = (
                 ChannelConfig(
-                    name="feishu:plato-bot",
+                    name="feishu:plato",
                     enabled=True,
                     settings={
-                        "name": "plato-bot",
                         "appId": "cli_a",
                         "appSecret": "s_a",
-                        "agentId": "plato",
                     },
                 ),
             )
             # This must not raise TypeError for missing group_context_store
-            registry = _build_channel_registry(
-                channels, group_context_store=group_ctx
-            )
+            registry = _build_channel_registry(channels, group_context_store=group_ctx)
             # Verify the adapter was actually registered
             assert len(registry.list()) == 1
             adapter = registry.list()[0]
@@ -203,13 +185,11 @@ class TestBuildChannelRegistryFeishuRealAdapter:
         must raise ValueError immediately rather than creating a broken adapter."""
         channels = (
             ChannelConfig(
-                name="feishu:plato-bot",
+                name="feishu:plato",
                 enabled=True,
                 settings={
-                    "name": "plato-bot",
                     "appId": "cli_a",
                     "appSecret": "s_a",
-                    "agentId": "plato",
                 },
             ),
         )
@@ -228,20 +208,16 @@ class TestBuildChannelRegistryFeishuRealAdapter:
 
             channels = (
                 ChannelConfig(
-                    name="feishu:plato-bot",
+                    name="feishu:plato",
                     enabled=True,
                     settings={
-                        "name": "plato-bot",
                         "appId": "cli_a",
                         "appSecret": "s_a",
-                        "agentId": "plato",
                     },
                 ),
             )
             # This is the bootstrap path: create GroupContextStore then pass it
-            registry = _build_channel_registry(
-                channels, group_context_store=group_ctx
-            )
+            registry = _build_channel_registry(channels, group_context_store=group_ctx)
             adapter = registry.list()[0]
             assert isinstance(adapter, FeishuAdapter)
             assert adapter.name == "feishu:plato"
@@ -260,20 +236,16 @@ class TestBuildChannelRegistryFeishuRealAdapter:
 
             channels = (
                 ChannelConfig(
-                    name="feishu:plato-bot",
+                    name="feishu:plato",
                     enabled=True,
                     settings={
-                        "name": "plato-bot",
                         "appId": "cli_a",
                         "appSecret": "s_a",
-                        "agentId": "plato",
                         "botOpenId": "ou_bot_123",
                     },
                 ),
             )
-            registry = _build_channel_registry(
-                channels, group_context_store=group_ctx
-            )
+            registry = _build_channel_registry(channels, group_context_store=group_ctx)
             adapter = registry.list()[0]
             assert isinstance(adapter, FeishuAdapter)
             assert adapter.name == "feishu:plato"
@@ -299,7 +271,7 @@ class TestFeishuBufferKeyConsistency:
         adapter = FeishuAdapter(
             app_id="cli_a",
             app_secret="s",
-            agent_id="plato",
+            name="feishu:plato",
             bot_open_id="ou_bot1",
             group_context_store=store,
         )
@@ -348,7 +320,7 @@ class TestFeishuBufferKeyConsistency:
         adapter = FeishuAdapter(
             app_id="cli_a",
             app_secret="s",
-            agent_id="plato",
+            name="feishu:plato",
             bot_open_id="ou_bot1",
             group_context_store=store,
         )
