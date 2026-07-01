@@ -194,6 +194,7 @@ class TestAcceptedPhaseSeedsRunContextForNonRelay:
             reporter=reporter,
             im_connection_manager_factory=lambda: manager,
             run_context_store=run_context_store,
+            owner_user_id="im-owner-123",
         )
 
         message = MagicMock(spec=InboundMessage)
@@ -210,10 +211,14 @@ class TestAcceptedPhaseSeedsRunContextForNonRelay:
 
         assert "run-feishu-001" in run_context_store
         ctx = run_context_store["run-feishu-001"]
-        assert ctx["conversation_id"] == "feishu:cli_a:dm:ou_user1"
+        # Non-relay channels must leave conversation_id empty so IM lazily creates
+        # a direct chat instead of trying to look up a Feishu external_chat_id.
+        assert ctx["conversation_id"] == ""
         assert ctx["agent_id"] == "default-agent"
         assert ctx["kernel_session_id"] == "ksession-1"
         assert ctx["message_id"] == ""
+        # Lazy direct-chat creation needs the owning IM user.
+        assert ctx["to_user_id"] == "im-owner-123"
         reporter.send_delivery_receipt.assert_not_called()
         manager.send_json.assert_not_called()
 

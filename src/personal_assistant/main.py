@@ -2428,6 +2428,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         reporter=reporter,
         im_connection_manager_factory=lambda: im_connection_manager,
         run_context_store=_run_context_store,
+        owner_user_id=_owner_user_id,
     )
     if config.im_service is not None:
         _kernel_event_observer = _build_kernel_event_observer(
@@ -3156,6 +3157,7 @@ def _build_relay_lifecycle_callback(
     reporter: UpstreamReporter | None,
     im_connection_manager_factory: Callable[[], IMConnectionManager | None],
     run_context_store: dict[str, dict[str, str]] | None = None,
+    owner_user_id: str = "",
 ):
     async def _callback(message: InboundMessage, update: RelayLifecycleUpdate) -> None:
         # Seed/clean run_context_store for EVERY channel, not only web_relay.
@@ -3179,7 +3181,20 @@ def _build_relay_lifecycle_callback(
                 and update.run_id
                 and update.run_id not in run_context_store
             ):
-                conversation_id = message.external_chat_id or ""
+                # For relay messages, external_chat_id is already an IM conversation id.
+                # For non-relay channels (e.g. feishu) the external_chat_id is a foreign
+                # channel identifier; IM cannot create a conversation from it. Leave
+                # conversation_id empty so IM lazily creates a direct chat for the agent.
+                relay_task_id = _metadata_text(message.metadata, key="relay_task_id")
+                if relay_task_id is not None:
+                    conversation_id = message.external_chat_id
+                    to_user_id = ""
+                else:
+                    conversation_id = ""
+                    # Lazy direct-chat creation needs the owning IM user. When no owner
+                    # is configured (fire-and-forget mode) streaming to IM is impossible;
+                    # leaving to_user_id empty makes the observer skip turn_start cleanly.
+                    to_user_id = owner_user_id
                 agent_id_meta = (
                     _metadata_text(message.metadata, key="agent_id")
                     or update.agent_id
@@ -3192,6 +3207,7 @@ def _build_relay_lifecycle_callback(
                     # Stored so permission_response_handler can route the user's
                     # decision back to the correct kernel session via reverse lookup.
                     "kernel_session_id": update.kernel_session_id or "",
+                    "to_user_id": to_user_id,
                 }
         elif update.phase in ("completed", "failed"):
             if run_context_store is not None and update.run_id:
