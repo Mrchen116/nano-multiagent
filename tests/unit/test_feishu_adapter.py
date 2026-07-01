@@ -240,12 +240,10 @@ class TestFeishuAdapterGroupMention:
         assert msg.metadata["sender_display_name"] == "你"
 
     @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
-    def test_group_at_bot_flushes_context_buffer(self, mock_fc_cls: MagicMock) -> None:
+    def test_group_at_bot_delivers_mention_for_pipeline_buffer_drain(
+        self, mock_fc_cls: MagicMock
+    ) -> None:
         store = MagicMock(spec=GroupContextStore)
-        store.drain.return_value = [
-            ("ou_user1", "project delay reason discussion"),
-            ("ou_user2", "we need more time"),
-        ]
         adapter = FeishuAdapter(
             app_id="cli_a",
             app_secret="s",
@@ -268,10 +266,10 @@ class TestFeishuAdapterGroupMention:
 
         on_inbound.assert_called_once()
         msg: InboundMessage = on_inbound.call_args[0][0]
-        # Context should be prepended to the message text
-        assert "project delay reason discussion" in msg.text
-        assert "summarize" in msg.text
-        store.drain.assert_called_once()
+        assert msg.text == "@_user_1 summarize"
+        assert msg.metadata["mentioned_agent_ids"] == ["plato"]
+        assert "sync_only" not in msg.metadata
+        store.drain.assert_not_called()
 
     @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
     def test_group_at_everyone_does_not_trigger(self, mock_fc_cls: MagicMock) -> None:

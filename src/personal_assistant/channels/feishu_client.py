@@ -89,6 +89,7 @@ class FeishuMessageEvent:
         message_id: Feishu message identifier for reply threading.
         is_group: Convenience flag derived from chat_type.
         mentions: List of @mention entities found in the message.
+        sender_display_name: Optional display name reported by Feishu for the sender.
     """
 
     text: str
@@ -98,6 +99,7 @@ class FeishuMessageEvent:
     message_id: str
     is_group: bool
     mentions: list[FeishuMention]
+    sender_display_name: str | None = None
 
 
 class FeishuClient:
@@ -383,6 +385,7 @@ def _parse_feishu_event(event: Any) -> FeishuMessageEvent:
         Parsed FeishuMessageEvent.
     """
     sender_open_id: str = event.event.sender.sender_id.open_id or ""
+    sender_display_name = _extract_sender_display_name(event.event.sender)
     message = event.event.message
     chat_id: str = message.chat_id or ""
     chat_type: str = message.chat_type or "p2p"
@@ -410,7 +413,24 @@ def _parse_feishu_event(event: Any) -> FeishuMessageEvent:
         message_id=message_id,
         is_group=chat_type != "p2p",
         mentions=mentions,
+        sender_display_name=sender_display_name,
     )
+
+
+def _extract_sender_display_name(sender: Any) -> str | None:
+    """Return the first non-empty Feishu sender display label available."""
+
+    for attr in ("name", "tenant_key"):
+        value = getattr(sender, attr, None)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    sender_id = getattr(sender, "sender_id", None)
+    if sender_id is not None:
+        for attr in ("user_id", "union_id", "open_id"):
+            value = getattr(sender_id, attr, None)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return None
 
 
 def _extract_text(raw_content: str) -> str:

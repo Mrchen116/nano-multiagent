@@ -28,6 +28,7 @@ from personal_assistant.gateway.run_queue import SessionRunQueue
 from personal_assistant.gateway.session_keys import (
     SessionBinding,
     SessionBindingStore,
+    build_external_session_key,
     build_reply_context,
     build_session_key,
     session_binding_store,
@@ -263,9 +264,10 @@ class InboundPipeline:
         # Relay metadata supplies display_name when the IM service could resolve it.
         # Fallback to external_user_id ensures pre-M247 payloads still get the UUID prefix.
         sender_label = _resolve_sender_label(message)
+        sync_only = message.metadata.get("sync_only") is True
 
         if message.is_group and self._group_context_store is not None:
-            if not should_process:
+            if sync_only or not should_process:
                 # This relay's agent is not addressed — buffer message as background context
                 # for this agent's own future turn.  Each agent receives its own relay from IM,
                 # so we only write to this agent's buffer key (no cross-agent fan-out).
@@ -276,6 +278,8 @@ class InboundPipeline:
                     sender=sender_label,
                 )
 
+        if sync_only:
+            return None
         if not should_process:
             return None
         session_key = build_session_key(message, agent_id=agent_id)
@@ -595,6 +599,20 @@ class InboundPipeline:
 
     @staticmethod
     def _group_buf_key_for_agent(message: InboundMessage, agent_id: str) -> str:
+        metadata = dict(message.metadata)
+        external_source = metadata.get("external_source")
+        external_chat_id = metadata.get("external_chat_id")
+        if (
+            isinstance(external_source, str)
+            and external_source.strip()
+            and isinstance(external_chat_id, str)
+            and external_chat_id.strip()
+        ):
+            return build_external_session_key(
+                external_source=external_source.strip(),
+                external_chat_id=external_chat_id.strip(),
+                agent_id=agent_id,
+            )
         return f"{agent_id}:{message.channel_name}:{message.external_chat_id}"
 
     def _drain_lock_for(self, session_key: str) -> asyncio.Lock:

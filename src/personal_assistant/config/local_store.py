@@ -920,6 +920,9 @@ def _validate_feishu_settings(settings: dict[str, Any], *, prefix: str) -> None:
     _require_non_empty_string(
         settings.get("appSecret"), field_name=f"{prefix}.appSecret"
     )
+    _require_non_empty_string(
+        settings.get("ownerOpenId"), field_name=f"{prefix}.ownerOpenId"
+    )
     bot_open_id = settings.get("botOpenId")
     if bot_open_id is not None and not isinstance(bot_open_id, str):
         raise ValueError(f"{prefix}.botOpenId must be a string")

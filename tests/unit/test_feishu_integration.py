@@ -15,6 +15,16 @@ from personal_assistant.gateway.group_context_store import GroupContextStore
 from personal_assistant.main import _build_channel_registry
 
 
+def _feishu_settings(**overrides) -> dict[str, str]:
+    settings = {
+        "appId": "cli_a",
+        "appSecret": "s_a",
+        "ownerOpenId": "ou_owner",
+    }
+    settings.update(overrides)
+    return settings
+
+
 class TestBuildChannelRegistryFeishu:
     """Verify _build_channel_registry creates FeishuAdapter for feishu channels."""
 
@@ -29,10 +39,7 @@ class TestBuildChannelRegistryFeishu:
                 ChannelConfig(
                     name="feishu:plato",
                     enabled=True,
-                    settings={
-                        "appId": "cli_a",
-                        "appSecret": "s_a",
-                    },
+                    settings=_feishu_settings(),
                 ),
             )
             registry = _build_channel_registry(channels, group_context_store=group_ctx)
@@ -60,18 +67,12 @@ class TestBuildChannelRegistryFeishu:
                 ChannelConfig(
                     name="feishu:plato",
                     enabled=True,
-                    settings={
-                        "appId": "cli_a",
-                        "appSecret": "s_a",
-                    },
+                    settings=_feishu_settings(),
                 ),
                 ChannelConfig(
                     name="feishu:luban",
                     enabled=True,
-                    settings={
-                        "appId": "cli_b",
-                        "appSecret": "s_b",
-                    },
+                    settings=_feishu_settings(appId="cli_b", appSecret="s_b"),
                 ),
             )
             registry = _build_channel_registry(channels, group_context_store=group_ctx)
@@ -86,10 +87,7 @@ class TestBuildChannelRegistryFeishu:
             ChannelConfig(
                 name="feishu:plato",
                 enabled=False,
-                settings={
-                    "appId": "cli_a",
-                    "appSecret": "s_a",
-                },
+                    settings=_feishu_settings(),
             ),
         )
         # Disabled feishu channels don't need group_context_store
@@ -115,10 +113,7 @@ class TestBuildChannelRegistryFeishu:
                 ChannelConfig(
                     name="feishu:plato",
                     enabled=True,
-                    settings={
-                        "appId": "cli_a",
-                        "appSecret": "s_a",
-                    },
+                    settings=_feishu_settings(),
                 ),
             )
             registry = _build_channel_registry(channels, group_context_store=group_ctx)
@@ -149,6 +144,7 @@ class TestBuildChannelRegistryFeishuRealAdapter:
                 app_secret="s_a",
                 name="feishu:plato",
                 bot_open_id="ou_123",
+                owner_open_id="ou_owner",
                 group_context_store=group_ctx,
             )
             assert adapter.name == "feishu:plato"
@@ -166,10 +162,7 @@ class TestBuildChannelRegistryFeishuRealAdapter:
                 ChannelConfig(
                     name="feishu:plato",
                     enabled=True,
-                    settings={
-                        "appId": "cli_a",
-                        "appSecret": "s_a",
-                    },
+                    settings=_feishu_settings(),
                 ),
             )
             # This must not raise TypeError for missing group_context_store
@@ -210,10 +203,7 @@ class TestBuildChannelRegistryFeishuRealAdapter:
                 ChannelConfig(
                     name="feishu:plato",
                     enabled=True,
-                    settings={
-                        "appId": "cli_a",
-                        "appSecret": "s_a",
-                    },
+                    settings=_feishu_settings(),
                 ),
             )
             # This is the bootstrap path: create GroupContextStore then pass it
@@ -238,11 +228,7 @@ class TestBuildChannelRegistryFeishuRealAdapter:
                 ChannelConfig(
                     name="feishu:plato",
                     enabled=True,
-                    settings={
-                        "appId": "cli_a",
-                        "appSecret": "s_a",
-                        "botOpenId": "ou_bot_123",
-                    },
+                    settings=_feishu_settings(botOpenId="ou_bot_123"),
                 ),
             )
             registry = _build_channel_registry(channels, group_context_store=group_ctx)
@@ -251,21 +237,19 @@ class TestBuildChannelRegistryFeishuRealAdapter:
             assert adapter.name == "feishu:plato"
             # Verify bot_open_id was passed (internal attribute check)
             assert adapter._bot_open_id == "ou_bot_123"
+            assert adapter._owner_open_id == "ou_owner"
 
 
 class TestFeishuBufferKeyConsistency:
     """Group buffer key alignment between FeishuAdapter and InboundPipeline."""
 
     @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
-    def test_group_buf_key_matches_inbound_pipeline(
+    def test_sync_only_inbound_metadata_matches_pipeline_external_buffer_key(
         self, mock_fc_cls: MagicMock
     ) -> None:
-        """FeishuAdapter and InboundPipeline must generate the same buffer key for
-        the same group chat so that buffered context is correctly drained.
-        """
+        """FeishuAdapter emits external identity metadata consumed by Pipeline buffer keys."""
         from personal_assistant.channels.feishu_adapter import FeishuAdapter
         from personal_assistant.gateway.inbound_pipeline import InboundPipeline
-        from personal_assistant.channels.base import InboundMessage
 
         store = MagicMock(spec=GroupContextStore)
         adapter = FeishuAdapter(
@@ -275,20 +259,6 @@ class TestFeishuBufferKeyConsistency:
             bot_open_id="ou_bot1",
             group_context_store=store,
         )
-
-        # Simulate what InboundPipeline._group_buf_key_for_agent produces
-        # for a feishu group message
-        msg = InboundMessage(
-            channel_name="feishu:plato",
-            text="hello",
-            external_user_id="ou_user1",
-            external_chat_id="feishu:cli_a:group:oc_grp1",
-            is_group=True,
-            agent_id="plato",
-        )
-        pipeline_key = InboundPipeline._group_buf_key_for_agent(msg, "plato")
-
-        # Trigger a buffer operation to capture the key FeishuAdapter uses
         on_inbound = MagicMock()
         adapter.start(on_inbound)
         from personal_assistant.channels.feishu_client import FeishuMessageEvent
@@ -304,19 +274,21 @@ class TestFeishuBufferKeyConsistency:
         )
         adapter._handle_message(event)
 
-        adapter_key = store.append.call_args[0][0]
-        assert adapter_key == pipeline_key, (
-            f"buffer key mismatch: adapter={adapter_key!r} vs pipeline={pipeline_key!r}"
+        store.append.assert_not_called()
+        inbound = on_inbound.call_args[0][0]
+        assert inbound.metadata["sync_only"] is True
+        assert InboundPipeline._group_buf_key_for_agent(inbound, "plato") == (
+            "feishu:feishu:cli_a:group:oc_grp1:plato"
         )
 
     @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
-    def test_drain_key_matches_append_key(self, mock_fc_cls: MagicMock) -> None:
-        """The key used to drain must match the key used to append."""
+    def test_group_mention_does_not_drain_adapter_buffer(
+        self, mock_fc_cls: MagicMock
+    ) -> None:
+        """Group buffer drain is owned by InboundPipeline, not FeishuAdapter."""
         from personal_assistant.channels.feishu_adapter import FeishuAdapter
-        from personal_assistant.channels.feishu_client import FeishuMessageEvent
 
         store = MagicMock(spec=GroupContextStore)
-        store.drain.return_value = []
         adapter = FeishuAdapter(
             app_id="cli_a",
             app_secret="s",
@@ -328,21 +300,10 @@ class TestFeishuBufferKeyConsistency:
         on_inbound = MagicMock()
         adapter.start(on_inbound)
 
-        # First buffer a message
-        buffer_event = FeishuMessageEvent(
-            text="just chatting",
-            sender_open_id="ou_user1",
-            chat_id="oc_grp1",
-            chat_type="group",
-            message_id="msg_002",
-            is_group=True,
-            mentions=[],
+        from personal_assistant.channels.feishu_client import (
+            FeishuMention,
+            FeishuMessageEvent,
         )
-        adapter._handle_message(buffer_event)
-        append_key = store.append.call_args[0][0]
-
-        # Then @Bot to trigger drain
-        from personal_assistant.channels.feishu_client import FeishuMention
 
         mention = FeishuMention(open_id="ou_bot1", name="plato", key="@_user_1")
         deliver_event = FeishuMessageEvent(
@@ -355,8 +316,9 @@ class TestFeishuBufferKeyConsistency:
             mentions=[mention],
         )
         adapter._handle_message(deliver_event)
-        drain_key = store.drain.call_args[0][0]
 
-        assert append_key == drain_key, (
-            f"append/drain key mismatch: append={append_key!r} vs drain={drain_key!r}"
-        )
+        store.append.assert_not_called()
+        store.drain.assert_not_called()
+        inbound = on_inbound.call_args[0][0]
+        assert inbound.metadata["mentioned_agent_ids"] == ["plato"]
+        assert "sync_only" not in inbound.metadata

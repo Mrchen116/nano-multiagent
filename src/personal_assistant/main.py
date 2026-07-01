@@ -3037,6 +3037,7 @@ def _build_channel_registry(
                     app_id=settings["appId"],
                     app_secret=settings["appSecret"],
                     bot_open_id=settings.get("botOpenId"),
+                    owner_open_id=settings["ownerOpenId"],
                     group_context_store=group_context_store,
                 )
             )

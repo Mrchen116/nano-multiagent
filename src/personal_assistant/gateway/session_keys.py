@@ -412,12 +412,35 @@ def build_session_key(message: InboundMessage, *, agent_id: str) -> str:
         agent_id: Routed agent id chosen in pipeline step 1.
 
     Returns:
-        Conversation-scoped key ``{channel}:{external_chat_id}:{agent_id}`` for both
-        group and direct chats so already-started direct conversations keep their
-        original kernel session after later agent config updates.
+        External-channel messages use ``metadata.external_source`` and
+        ``metadata.external_chat_id`` so Feishu and IM shadow entries share the
+        same kernel session. Ordinary channels keep the legacy
+        ``{channel}:{external_chat_id}:{agent_id}`` key.
     """
 
+    metadata = dict(message.metadata)
+    external_source = metadata.get("external_source")
+    external_chat_id = metadata.get("external_chat_id")
+    if (
+        isinstance(external_source, str)
+        and external_source.strip()
+        and isinstance(external_chat_id, str)
+        and external_chat_id.strip()
+    ):
+        return build_external_session_key(
+            external_source=external_source.strip(),
+            external_chat_id=external_chat_id.strip(),
+            agent_id=agent_id,
+        )
     return f"{message.channel_name}:{message.external_chat_id}:{agent_id}"
+
+
+def build_external_session_key(
+    *, external_source: str, external_chat_id: str, agent_id: str
+) -> str:
+    """Build a gateway key from a channel-neutral external conversation identity."""
+
+    return f"{external_source}:{external_chat_id}:{agent_id}"
 
 
 def build_reply_context(message: InboundMessage) -> ReplyContext:
