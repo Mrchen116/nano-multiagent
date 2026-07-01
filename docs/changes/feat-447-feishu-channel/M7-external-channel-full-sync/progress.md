@@ -77,7 +77,7 @@
   - E2E/Regression: Regression coverage in `tests/unit/personal_assistant/test_inbound_pipeline_session.py` and `tests/unit/personal_assistant/test_gateway_relay_lifecycle.py`; true live Feishu/IM E2E is deferred to R5 per tasks.
   - Visual/Interaction: N/A
 - Rollback: revert `df613767` then `227a0074`.
-- Commits: C1=227a0074, C2=df613767, C3=694f4122
+- Commits: C1=227a0074, C2=df613767, C3=14b5f0f7
 - Next: R5
 
 ### R5 — 非 e2e 门禁与真实飞书端到端验收
