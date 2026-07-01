@@ -789,6 +789,7 @@ export function ChatWorkspacePageV2() {
             agentInitials={headerAgentContext.agentInitials}
             onSend={(text, attachments) => sendMutation.mutate({ text, attachments })}
             sendError={sendError}
+            selfUserId={selfUserId}
             isSending={sendMutation.isPending}
             isDirectChat={conversationKind === "direct-agent"}
             agentOnline={headerAgentContext.nodeStatus === "online"}

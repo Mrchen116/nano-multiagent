@@ -581,6 +581,7 @@ describe("MessagePane", () => {
           conversation={DIRECT_CONV}
           messages={BASE_MESSAGES}
           mentionCandidates={[]}
+          selfUserId="u1"
           onSend={onSend}
         />
       );
@@ -602,7 +603,7 @@ describe("MessagePane", () => {
           messages={[
             ...BASE_MESSAGES,
             {
-              ...BASE_MESSAGES[0]!,
+              ...BASE_MESSAGES[1]!,
               id: "external-after-no-append",
               content: "external after no append",
               created_at: "2026-01-01T00:00:10Z"
@@ -614,6 +615,49 @@ describe("MessagePane", () => {
       );
 
       expect(scroller.scrollTop).toBe(120);
+    });
+
+    it("keeps force-scroll for the local user message appended after send", async () => {
+      const user = userEvent.setup();
+      const onSend = vi.fn();
+      const { container, rerender } = render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={BASE_MESSAGES}
+          mentionCandidates={[]}
+          selfUserId="u1"
+          onSend={onSend}
+        />
+      );
+      const scroller = container.querySelector(".chat-pane-messages") as HTMLElement;
+      const metrics = { scrollTop: 120, scrollHeight: 1200, clientHeight: 300 };
+      setScrollMetrics(scroller, metrics);
+      fireEvent.scroll(scroller);
+
+      const composer = screen.getByRole("textbox") as HTMLTextAreaElement;
+      await user.type(composer, "local append");
+      await user.keyboard("{Enter}");
+      metrics.scrollHeight = 1400;
+
+      rerender(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[
+            ...BASE_MESSAGES,
+            {
+              ...BASE_MESSAGES[0]!,
+              id: "local-user-append",
+              content: "local append",
+              created_at: "2026-01-01T00:00:10Z"
+            }
+          ]}
+          mentionCandidates={[]}
+          selfUserId="u1"
+          onSend={onSend}
+        />
+      );
+
+      expect(scroller.scrollTop).toBe(1400);
     });
 
     it("keeps desktop Shift+Enter as newline without sending", async () => {

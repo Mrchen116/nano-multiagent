@@ -49,6 +49,8 @@ export interface MessagePaneProps {
   onOpenConfig?(): void;
   /** Send mutation error message, shown as an in-app toast. */
   sendError?: string | null;
+  /** Current logged-in user id; used to distinguish local send appends from external user messages. */
+  selfUserId?: string | null;
   /** Whether a message is currently being sent. */
   isSending?: boolean;
   /** feat-445-M1: this is a direct user↔agent chat (fork is only offered here). */
@@ -152,6 +154,7 @@ export function MessagePane({
   onBack,
   onOpenConfig,
   sendError,
+  selfUserId = null,
   isSending,
   isDirectChat = false,
   agentOnline = false,
@@ -215,7 +218,12 @@ export function MessagePane({
     // bugfix-358 (composer): textarea 装可见 `@DisplayName`, wire XML 在此处重建。
     const wireContent = reconstructWireContent(trimmed, draftMentions);
     forceScrollToBottomRef.current = true;
-    onSend(wireContent, pending);
+    try {
+      onSend(wireContent, pending);
+    } catch (err) {
+      forceScrollToBottomRef.current = false;
+      throw err;
+    }
     setDraft("");
     setDraftMentions([]);
     setPending([]);
@@ -317,6 +325,7 @@ export function MessagePane({
     } else {
       el.scrollTop = anchor.scrollTop + (el.scrollHeight - anchor.scrollHeight);
     }
+    updateNearBottom();
     skipNextMessageAutoScrollRef.current = true;
     historyAnchorRef.current = null;
   }
@@ -349,6 +358,10 @@ export function MessagePane({
     skipNextMessageAutoScrollRef.current = false;
   }, [conversation.id]);
 
+  useEffect(() => {
+    if (sendError) forceScrollToBottomRef.current = false;
+  }, [sendError]);
+
   // Auto-scroll only when the user is already following the bottom, or when the
   // local user just sent a message. Prepending history and off-bottom arrivals
   // must not steal the reading position.
@@ -360,11 +373,17 @@ export function MessagePane({
       return;
     }
     if (historyAnchorRef.current) return;
-    const lastMessageId = messages[messages.length - 1]?.id ?? null;
+    const lastMessage = messages[messages.length - 1] ?? null;
+    const lastMessageId = lastMessage?.id ?? null;
+    const lastMessageChanged = lastMessageIdRef.current !== lastMessageId;
+    const lastMessageIsSelfAuthored =
+      lastMessage?.sender.type === "user" &&
+      selfUserId !== null &&
+      (lastMessage.sender_user_id === selfUserId || lastMessage.sender.id === selfUserId);
     const isInitialHydration = lastMessageIdRef.current === null;
     const shouldFollowBottom =
       isInitialHydration
-      || forceScrollToBottomRef.current
+      || (forceScrollToBottomRef.current && lastMessageChanged && lastMessageIsSelfAuthored)
       || nearBottomRef.current;
     lastMessageIdRef.current = lastMessageId;
     if (shouldFollowBottom) {
