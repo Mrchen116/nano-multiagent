@@ -15,8 +15,12 @@ from typing import Any, Callable
 
 import lark_oapi as lark
 from lark_oapi.api.im.v1 import (
+    CreateMessageReactionRequest,
+    CreateMessageReactionRequestBody,
     CreateMessageRequest,
     CreateMessageRequestBody,
+    DeleteMessageReactionRequest,
+    Emoji,
 )
 from lark_oapi.event.dispatcher_handler import EventDispatcherHandler
 from lark_oapi.ws import Client as WSClient
@@ -270,6 +274,94 @@ class FeishuClient:
                 f"feishu API error: code={code}, msg={msg}",
                 code=code,
             )
+
+    def add_reaction(
+        self, *, message_id: str, emoji_type: str = "THINKING"
+    ) -> str | None:
+        """Add a reaction to an inbound feishu message.
+
+        Args:
+            message_id: Feishu message identifier to react to.
+            emoji_type: Feishu emoji type name, for example ``THINKING``.
+
+        Returns:
+            Feishu reaction id when the API returns one. ``None`` when
+            ``message_id`` is empty or the response omits ``reaction_id``.
+
+        Raises:
+            RuntimeError: When the client has not been started.
+            FeishuAuthError: When the feishu API returns 401/403.
+            FeishuAPIError: When the feishu API returns any other error.
+        """
+        if self._rest_client is None:
+            raise RuntimeError("feishu client is not started")
+        if not message_id:
+            return
+
+        reaction_type = Emoji.builder().emoji_type(emoji_type).build()
+        body = CreateMessageReactionRequestBody.builder() \
+            .reaction_type(reaction_type) \
+            .build()
+        request = CreateMessageReactionRequest.builder() \
+            .message_id(message_id) \
+            .request_body(body) \
+            .build()
+
+        response = self._rest_client.im.v1.message_reaction.create(request)
+        if response.success():
+            data = getattr(response, "data", None)
+            reaction_id = getattr(data, "reaction_id", None)
+            return str(reaction_id) if reaction_id else None
+
+        code: int = response.code
+        msg: str = response.msg
+        if code in _AUTH_ERROR_CODES:
+            raise FeishuAuthError(
+                f"feishu auth error while adding reaction: code={code}, msg={msg}",
+                code=code,
+            )
+        raise FeishuAPIError(
+            f"feishu reaction API error: code={code}, msg={msg}",
+            code=code,
+        )
+
+    def delete_reaction(self, *, message_id: str, reaction_id: str) -> None:
+        """Delete one reaction previously added to a feishu message.
+
+        Args:
+            message_id: Feishu message identifier that carries the reaction.
+            reaction_id: Feishu reaction identifier returned by ``add_reaction``.
+
+        Raises:
+            RuntimeError: When the client has not been started.
+            FeishuAuthError: When the feishu API returns 401/403.
+            FeishuAPIError: When the feishu API returns any other error.
+        """
+        if self._rest_client is None:
+            raise RuntimeError("feishu client is not started")
+        if not message_id or not reaction_id:
+            return
+
+        request = DeleteMessageReactionRequest.builder() \
+            .message_id(message_id) \
+            .reaction_id(reaction_id) \
+            .build()
+
+        response = self._rest_client.im.v1.message_reaction.delete(request)
+        if response.success():
+            return
+
+        code: int = response.code
+        msg: str = response.msg
+        if code in _AUTH_ERROR_CODES:
+            raise FeishuAuthError(
+                f"feishu auth error while deleting reaction: code={code}, msg={msg}",
+                code=code,
+            )
+        raise FeishuAPIError(
+            f"feishu reaction delete API error: code={code}, msg={msg}",
+            code=code,
+        )
 
     def _handle_message_event(self, event: Any) -> None:
         """Internal callback registered on the lark-oapi event dispatcher."""
