@@ -6,6 +6,8 @@
 
 ## Changelog
 
+- 2026-07-01: Added `feat-451-M2` post-acceptance fix milestone after round 1 acceptance failed and code review found additional correctness issues.
+
 ## 现状分析
 
 ### 涉及范围
@@ -244,3 +246,4 @@ flowchart TD
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
 | feat-451-M1 | impl | — | A | `src/IM/frontend/src/features/chat/v2/chat-workspace-page.tsx`<br>`src/IM/frontend/src/features/chat/v2/components/message-pane.tsx`<br>`src/IM/frontend/src/features/chat/v2/chat-api.test.ts`<br>`src/IM/frontend/src/features/chat/v2/chat-workspace.integration.test.tsx`<br>`src/IM/frontend/src/features/chat/v2/components/message-pane.test.tsx`<br>`src/IM/frontend/src/styles/global.css`<br>`src/IM/frontend/src/i18n/en.json` / `zh.json` | `[reviewer]` 在消息数 > 50 的会话中向上滚动进入已加载内容上方 1/3，更早消息自动加载并插入顶部，阅读位置保持稳定。<br>`[reviewer]` 新消息到达时，若用户已在底部则自动滚底，若正在看历史则不打扰。<br>`[reviewer]` 移动端在 composer 按 Enter 发送消息，输入框自动增高；桌面端 Enter 发送、Shift+Enter 换行保持可用。<br>`[reviewer]` 长按/右键消息气泡出现「复制」菜单；移动端单聊里长按 agent 完成回复出现「fork」；桌面端保留 hover fork 按钮不变。<br>`[worker]` `npm run test`（vitest）在 `src/IM/frontend` 通过。<br>`[worker]` `npx tsc -b` 无类型错误。 |
+| feat-451-M2 | fix-acceptance-code-review | feat-451-M1 | B | `src/IM/frontend/src/features/chat/v2/chat-workspace-page.tsx`<br>`src/IM/frontend/src/features/chat/v2/components/message-pane.tsx`<br>`src/IM/frontend/src/features/chat/v2/components/message-pane.test.tsx`<br>`src/IM/frontend/src/features/chat/v2/chat-workspace.integration.test.tsx`<br>`src/IM/frontend/src/styles/global.css` / `src/IM/frontend/src/i18n/en.json` / `zh.json`（如需要用户反馈文案） | `[reviewer]` 开着聊天页时，同会话新消息可实时出现在 UI；用户看历史时不打扰，用户在底部时自动跟底。<br>`[reviewer]` 移动端长按菜单在松手后仍可选择 Copy/fork，不被浏览器原生长按菜单或选择层破坏。<br>`[worker]` 修复 code review confirmed correctness issues：历史加载进行中切换会话不复用旧 anchor；重复 `onLoadOlder`/同 cursor 请求被同步 guard 阻止；会话切换/初始元数据未知时不错误显示 `No earlier messages`；复制失败有可观察处理或安全兜底。<br>`[worker]` 补充对应回归测试，并处理 verifier round 1 的桌面 Enter 独立测试 warning；`npm run test` 与 `npx tsc -b` 在 `src/IM/frontend` 通过。 |
