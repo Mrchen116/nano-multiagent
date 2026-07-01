@@ -66,18 +66,18 @@
 
 ### R4 — Shadow conversation 同步、run context 与出站路由
 
-- Context: TODO
-- Decision: TODO
-- Rationale: TODO
+- Context: R1/R2/R3 已让 IM shadow conversation schema、relay metadata、external session key 和 Feishu `sync_only` 入站可用；R4 需要把外部 channel 入站用户消息实际写入 IM shadow，并把 shadow conversation id 交给 accepted lifecycle seed `run_context_store`。关键约束是同步失败不能阻塞飞书回复，也不能让 observer 通过 `to_user_id=owner` 懒创建普通 direct chat；IM shadow 入口触发的 run 必须只写回 IM，不回写飞书。
+- Decision: 在 `InboundPipeline` 增加 `ShadowConversationSync` 端口，外部 channel 入站（metadata 有 `external_source/external_chat_id` 且 `trigger_source != im`）在 mention/buffer 短路前 best-effort 调用 shadow sync；成功后把 `shadow_conversation_id` 放入当前 `InboundMessage.metadata`，失败则记录 warning 并继续原外部 channel 回复路径。`main.py` 新增 `_IMShadowConversationSyncClient`，使用 IM HTTP `external/find-or-create` + `POST /messages` 写用户消息，并在 `build_runtime` 中注入 Pipeline。`_build_relay_lifecycle_callback` accepted 阶段优先使用 `shadow_conversation_id` seed `run_context_store.conversation_id`；外部来源缺 shadow 时 `conversation_id=""` 且 `to_user_id=""`，禁用 lazy direct；同时记录 `trigger_source`，IM shadow relay run 使用同一 shadow conversation id。
+- Rationale: Pipeline 是 Feishu/WebRelay 两个入口共同经过的唯一入站边界，放在这里能让正常回复与 `sync_only` 都共享同一 shadow 写入行为。HTTP sync client 留在 `main.py` 集成层，保持 Pipeline 只依赖小端口。run context 必须等 lifecycle accepted 拿到 `run_id` 后 seed，符合 design；shadow 不可用时不设置 `to_user_id`，才能满足“IM 离线时飞书对话不中断且暂不同步到 IM”，避免创建错误的普通 direct 会话。
 - Evidence:
-  - Tests: TODO
-  - Entry: TODO
+  - Tests: R4 red: `pytest -q tests/unit/personal_assistant/test_inbound_pipeline_session.py::test_external_inbound_syncs_user_message_and_seeds_shadow_metadata tests/unit/personal_assistant/test_inbound_pipeline_session.py::test_external_shadow_sync_failure_does_not_block_or_seed_lazy_direct tests/unit/personal_assistant/test_gateway_relay_lifecycle.py::test_relay_lifecycle_callback_seeds_external_shadow_run_context tests/unit/personal_assistant/test_gateway_relay_lifecycle.py::test_relay_lifecycle_callback_skips_lazy_direct_when_external_shadow_missing tests/unit/personal_assistant/test_gateway_relay_lifecycle.py::test_relay_lifecycle_callback_routes_im_shadow_run_to_shadow_conversation` -> 5 failed for missing `shadow_sync`, missing shadow seed, lazy direct still enabled, and missing `trigger_source`. R4 green: same command -> 5 passed. R4 related suite: `pytest -q tests/unit/personal_assistant/test_inbound_pipeline_session.py tests/unit/personal_assistant/test_gateway_relay_lifecycle.py tests/unit/personal_assistant/test_gateway_pipeline_sender_prefix.py tests/unit/personal_assistant/test_gateway_web_relay_adapter.py tests/unit/personal_assistant/test_gateway_pipeline_channel.py tests/unit/test_feishu_adapter.py tests/unit/test_feishu_config.py` -> 81 passed.
+  - Entry: Gateway Pipeline entry test proves external Feishu inbound calls the shadow sync port, writes returned `shadow_conversation_id` into message metadata before accepted lifecycle, and still routes final reply through `feishu:<agent_id>`. Failure-path entry test proves a missing/failed shadow returns a Feishu outbound reply while accepted lifecycle sees no shadow id. Lifecycle unit tests prove external runs seed `conversation_id=shadow_conversation_id`, external shadow-missing runs keep `to_user_id=""`, and IM shadow relay runs target the shadow conversation with `trigger_source=im`.
   - Frontend State Matrix: N/A
   - Browser QA: N/A
-  - E2E/Regression: TODO
+  - E2E/Regression: Regression coverage in `tests/unit/personal_assistant/test_inbound_pipeline_session.py` and `tests/unit/personal_assistant/test_gateway_relay_lifecycle.py`; true live Feishu/IM E2E is deferred to R5 per tasks.
   - Visual/Interaction: N/A
-- Rollback: TODO
-- Commits: C1=TODO, C2=TODO, C3=TODO
+- Rollback: revert `df613767` then `227a0074`.
+- Commits: C1=227a0074, C2=df613767, C3=694f4122
 - Next: R5
 
 ### R5 — 非 e2e 门禁与真实飞书端到端验收

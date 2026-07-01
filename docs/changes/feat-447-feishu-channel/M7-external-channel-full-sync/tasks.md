@@ -49,7 +49,7 @@
 
 ### R4 — Shadow conversation 同步、run context 与出站路由
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: Gateway 在外部入站早期 best-effort find-or-create + 写用户消息；accepted lifecycle seed shadow conversation id；外部 shadow 失败时不 lazy direct；IM shadow group gate 前触发；IM 触发 run 不回写飞书。
 - 验证: InboundPipeline lifecycle/outbound/router/main wiring 单测红转绿，相关窄测试通过。
 
