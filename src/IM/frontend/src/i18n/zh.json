@@ -360,6 +360,7 @@
       "sendErrorTitle": "发送失败",
       "sendError": "消息发送失败,请重试。",
       "copy": "复制",
+      "copyError": "复制失败，请重试。",
       "fork": "fork",
       "forkOffline": "该 agent 当前不可用，暂时无法 fork",
       "forkError": "fork 失败，请重试。",

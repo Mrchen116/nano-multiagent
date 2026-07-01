@@ -608,9 +608,12 @@ function MessageBubble({
     Boolean(message.kernel_message_id);
   const forkClass = forkEligible ? (agentOnline ? " is-forkable" : " is-offline") : "";
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const [copyError, setCopyError] = useState<string | null>(null);
+  const cardRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const longPressRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const ignoreNextCardMouseDownRef = useRef(false);
 
   function clearLongPress() {
     if (longPressRef.current !== null) {
@@ -622,6 +625,7 @@ function MessageBubble({
   function openMenu(x: number, y: number) {
     const menuWidth = 148;
     const menuHeight = isMobile && forkEligible ? 92 : 52;
+    setCopyError(null);
     setMenu({
       x: Math.min(Math.max(8, x), Math.max(8, window.innerWidth - menuWidth)),
       y: Math.min(Math.max(8, y), Math.max(8, window.innerHeight - menuHeight)),
@@ -629,8 +633,8 @@ function MessageBubble({
   }
 
   function handleContextMenu(e: React.MouseEvent) {
-    if (isMobile) return;
     e.preventDefault();
+    if (isMobile) return;
     openMenu(e.clientX, e.clientY);
   }
 
@@ -641,6 +645,7 @@ function MessageBubble({
     clearLongPress();
     longPressRef.current = window.setTimeout(() => {
       openMenu(touch.clientX, touch.clientY);
+      ignoreNextCardMouseDownRef.current = true;
       longPressRef.current = null;
     }, 600);
   }
@@ -654,9 +659,30 @@ function MessageBubble({
     }
   }
 
-  function handleCopy() {
-    void navigator.clipboard?.writeText(message.content ?? "");
-    setMenu(null);
+  function handleTouchEnd(e: React.TouchEvent) {
+    if (menu) e.preventDefault();
+    clearLongPress();
+    touchStartRef.current = null;
+  }
+
+  function handleTouchCancel() {
+    clearLongPress();
+    touchStartRef.current = null;
+  }
+
+  async function handleCopy() {
+    setCopyError(null);
+    const writeText = navigator.clipboard?.writeText;
+    if (!writeText) {
+      setCopyError(t("chat.messagePane.copyError"));
+      return;
+    }
+    try {
+      await writeText.call(navigator.clipboard, message.content ?? "");
+      setMenu(null);
+    } catch {
+      setCopyError(t("chat.messagePane.copyError"));
+    }
   }
 
   function handleMenuFork() {
@@ -671,6 +697,11 @@ function MessageBubble({
     function onDocumentMouseDown(e: MouseEvent) {
       const target = e.target as Node;
       if (menuRef.current?.contains(target)) return;
+      if (ignoreNextCardMouseDownRef.current && cardRef.current?.contains(target)) {
+        ignoreNextCardMouseDownRef.current = false;
+        return;
+      }
+      ignoreNextCardMouseDownRef.current = false;
       setMenu(null);
     }
     function onDocumentKeyDown(e: globalThis.KeyboardEvent) {
@@ -738,13 +769,14 @@ function MessageBubble({
           </div>
         )}
         <div
+          ref={cardRef}
           data-testid={`message-bubble-${message.id}`}
           className="chat-bubble-card"
           onContextMenu={handleContextMenu}
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
-          onTouchEnd={clearLongPress}
-          onTouchCancel={clearLongPress}
+          onTouchEnd={handleTouchEnd}
+          onTouchCancel={handleTouchCancel}
         >
           {message.content && (
             isUser
@@ -826,6 +858,11 @@ function MessageBubble({
                 >
                   {t("chat.messagePane.fork")}
                 </button>
+              )}
+              {copyError && (
+                <div className="chat-message-menu-error" role="status">
+                  {copyError}
+                </div>
               )}
             </div>
           )}

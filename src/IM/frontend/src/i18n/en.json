@@ -363,6 +363,7 @@
       "sendErrorTitle": "Send failed",
       "sendError": "Failed to send message. Please try again.",
       "copy": "Copy",
+      "copyError": "Copy failed. Please try again.",
       "fork": "fork",
       "forkOffline": "This agent is offline; fork is unavailable right now",
       "forkError": "Fork failed. Please try again.",

@@ -1563,6 +1563,15 @@ body {
   font-size: 0.875rem;
   line-height: 1.5;
   box-shadow: none;
+  -webkit-touch-callout: none;
+}
+
+@media (pointer: coarse) {
+  .chat-bubble-card {
+    -webkit-user-select: none;
+    user-select: none;
+    touch-action: manipulation;
+  }
 }
 
 /* feat-445-M1: message-level fork action. Child of .chat-bubble-card and overlapping
@@ -1652,6 +1661,16 @@ body {
 .chat-message-menu-item:disabled {
   color: var(--im-text-muted);
   cursor: not-allowed;
+}
+
+.chat-message-menu-error {
+  border-top: 1px solid var(--im-border);
+  color: var(--im-danger);
+  font-size: 0.72rem;
+  line-height: 1.35;
+  margin-top: 3px;
+  padding: 6px 9px 5px;
+  max-width: 180px;
 }
 
 /* fork success toast — IM in-app-toast form (top-left card, white rounded + border +

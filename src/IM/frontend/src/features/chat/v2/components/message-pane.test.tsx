@@ -573,7 +573,7 @@ describe("MessagePane", () => {
       expect(screen.queryByRole("menu")).not.toBeInTheDocument();
     });
 
-    it("keeps the mobile long-press copy menu open after touch release and synthetic mouse down", () => {
+    it("keeps the mobile long-press copy menu open after touch release and synthetic mouse down", async () => {
       vi.useFakeTimers();
       const writeText = stubClipboard();
       render(
@@ -597,6 +597,10 @@ describe("MessagePane", () => {
       fireEvent.click(screen.getByRole("menuitem", { name: /Copy/i }));
 
       expect(writeText).toHaveBeenCalledWith("Hello");
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
       expect(screen.queryByRole("menu")).not.toBeInTheDocument();
       vi.useRealTimers();
     });
