@@ -19,6 +19,16 @@ from personal_assistant.gateway.session_keys import (
 from ._pipeline_helpers import _FakeChannel, _FakeKernel, _agents
 
 
+class _ShadowSync:
+    def __init__(self, *, conversation_id: str | None = "shadow-conv-1") -> None:
+        self.conversation_id = conversation_id
+        self.calls: list[dict[str, object]] = []
+
+    async def sync_user_message(self, message: InboundMessage, *, agent_id: str) -> str | None:
+        self.calls.append({"message": message, "agent_id": agent_id})
+        return self.conversation_id
+
+
 def test_inbound_pipeline_runs_four_steps_and_replies_via_origin_channel(
     tmp_path: Path,
 ) -> None:
@@ -74,6 +84,109 @@ def test_inbound_pipeline_runs_four_steps_and_replies_via_origin_channel(
     assert kernel_client.send_calls == [
         {"session_id": "sess-1", "texts": ["ping"], "run_id": "run-1"}
     ]
+
+
+def test_external_inbound_syncs_user_message_and_seeds_shadow_metadata(
+    tmp_path: Path,
+) -> None:
+    agents = _agents(tmp_path)
+    channel = _FakeChannel("feishu:agent-a")
+    registry = ChannelRegistry((channel,))
+    kernel_client = _FakeKernel()
+    sync = _ShadowSync(conversation_id="shadow-conv-1")
+    lifecycle: list[tuple[str, str | None, str | None]] = []
+
+    async def _capture(message: InboundMessage, update) -> None:  # noqa: ANN001
+        lifecycle.append(
+            (
+                update.phase,
+                update.run_id,
+                message.metadata.get("shadow_conversation_id"),
+            )
+        )
+
+    pipeline = InboundPipeline(
+        kernel=kernel_client,
+        agents=agents,
+        outbound_router=OutboundRouter(registry),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+        relay_lifecycle_callback=_capture,
+        shadow_sync=sync,
+    )
+    inbound = InboundMessage(
+        channel_name="feishu:agent-a",
+        text="ping from lark",
+        external_user_id="ou_user",
+        external_chat_id="oc_feishu_chat",
+        is_group=False,
+        agent_id="agent-a",
+        metadata={
+            "external_source": "feishu",
+            "external_chat_id": "oc_feishu_chat",
+            "trigger_source": "feishu",
+            "sender_display_name": "你",
+            "conversation_title": "Agent A · feishu",
+        },
+    )
+
+    result = asyncio.run(pipeline.handle_inbound(inbound))
+
+    assert result is not None
+    assert sync.calls == [{"message": inbound, "agent_id": "agent-a"}]
+    assert lifecycle[0] == ("accepted", "run-1", "shadow-conv-1")
+    assert channel.sent[0].target_chat_id == "oc_feishu_chat"
+
+
+def test_external_shadow_sync_failure_does_not_block_or_seed_lazy_direct(
+    tmp_path: Path,
+) -> None:
+    agents = _agents(tmp_path)
+    channel = _FakeChannel("feishu:agent-a")
+    registry = ChannelRegistry((channel,))
+    kernel_client = _FakeKernel()
+    sync = _ShadowSync(conversation_id=None)
+    lifecycle: list[tuple[str, str | None, str | None]] = []
+
+    async def _capture(message: InboundMessage, update) -> None:  # noqa: ANN001
+        lifecycle.append(
+            (
+                update.phase,
+                update.run_id,
+                message.metadata.get("shadow_conversation_id"),
+            )
+        )
+
+    pipeline = InboundPipeline(
+        kernel=kernel_client,
+        agents=agents,
+        outbound_router=OutboundRouter(registry),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+        relay_lifecycle_callback=_capture,
+        shadow_sync=sync,
+    )
+    inbound = InboundMessage(
+        channel_name="feishu:agent-a",
+        text="still reply in feishu",
+        external_user_id="ou_user",
+        external_chat_id="oc_feishu_chat",
+        is_group=False,
+        agent_id="agent-a",
+        metadata={
+            "external_source": "feishu",
+            "external_chat_id": "oc_feishu_chat",
+            "trigger_source": "feishu",
+        },
+    )
+
+    result = asyncio.run(pipeline.handle_inbound(inbound))
+
+    assert result is not None
+    assert lifecycle[0] == ("accepted", "run-1", None)
+    assert channel.sent[0].target_chat_id == "oc_feishu_chat"
 
 
 def test_inbound_pipeline_passes_local_config_metadata_when_creating_new_kernel_sessions(
