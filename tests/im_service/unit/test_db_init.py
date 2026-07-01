@@ -28,6 +28,23 @@ def test_initialize_schema_is_idempotent(tmp_path: Path) -> None:
     assert "nodes" in table_names
     assert "bind_requests" in table_names
 
+    conversation_columns = {
+        row["name"]
+        for row in connection.execute("PRAGMA table_info(conversations)").fetchall()
+    }
+    message_columns = {
+        row["name"]
+        for row in connection.execute("PRAGMA table_info(messages)").fetchall()
+    }
+    conversation_indexes = {
+        row["name"]
+        for row in connection.execute("PRAGMA index_list(conversations)").fetchall()
+    }
+
+    assert {"external_source", "external_chat_id"} <= conversation_columns
+    assert "sender_display_name" in message_columns
+    assert "idx_conversations_external_identity" in conversation_indexes
+
 
 def test_connect_supports_cross_thread_parameterized_reads_without_interface_errors(
     tmp_path: Path,
