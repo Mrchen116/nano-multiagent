@@ -57,6 +57,45 @@ def test_web_relay_adapter_converts_relay_payload_to_inbound_message() -> None:
     assert adapter.sent[0].text == "reply"
 
 
+def test_web_relay_adapter_preserves_shadow_identity_and_group_target_agent() -> None:
+    """Shadow relay metadata drives external session identity while delivery stays on IM id."""
+    adapter = WebRelayAdapter()
+    seen: list[InboundMessage] = []
+    adapter.start(seen.append)
+
+    inbound = adapter.accept_relay(
+        {
+            "relay_task_id": "relay-shadow",
+            "idempotency_key": "idem-shadow",
+            "agent_id": "plato",
+            "message": {
+                "id": "msg-shadow",
+                "sender_user_id": "owner-user",
+                "conversation_id": "im-conv-shadow",
+                "content": "summarize the feishu background",
+            },
+            "metadata": {
+                "trigger_source": "im",
+                "conversation_type": "group",
+                "external_source": "feishu",
+                "external_chat_id": "oc_product",
+                "agent_id": "plato",
+            },
+        }
+    )
+
+    assert inbound == seen[0]
+    assert inbound.channel_name == "web_relay"
+    assert inbound.external_chat_id == "im-conv-shadow"
+    assert inbound.is_group is True
+    assert inbound.agent_id == "plato"
+    assert inbound.metadata["trigger_source"] == "im"
+    assert inbound.metadata["external_source"] == "feishu"
+    assert inbound.metadata["external_chat_id"] == "oc_product"
+    assert inbound.metadata["agent_id"] == "plato"
+    assert inbound.metadata["mentioned_agent_ids"] == ["plato"]
+
+
 def test_web_relay_adapter_uses_dedup_store_on_accept(tmp_path: Path) -> None:
     store = RelayDeduplicationStore(db_path=tmp_path / "relay-dedup.sqlite3")
     adapter = WebRelayAdapter(dedup_store=store)

@@ -242,3 +242,56 @@ def test_direct_relay_payload_does_not_include_sender_participants(
     payload = result.relay_task.payload
     assert "sender" not in payload
     assert "participants" not in payload
+
+
+def test_external_shadow_relay_payload_loops_back_external_identity(
+    tmp_path: Path,
+) -> None:
+    """Shadow conversations must relay external identity metadata back to Gateway."""
+    relay_service, messages, conversations, users, profiles = _build_fixture(tmp_path)
+    owner = users.create_user(username="owner", display_name="Owner")
+    users.create_user(username="agent:plato", display_name="Plato")
+    profiles.upsert_profile(
+        agent_id="plato",
+        owner_id=owner.owner_id,
+        display_name="Plato",
+        description="",
+        system_prompt="You are Plato.",
+        skills=[],
+        tool_allowlist=[],
+        group_reply_policy="MENTION",
+        default_model=None,
+        workspace_root=None,
+    )
+    conversation = conversations.find_or_create_external_conversation(
+        external_source="feishu",
+        external_chat_id="oc_product",
+        agent_id="plato",
+        title="Plato · 产品群 · feishu",
+        is_group=True,
+        participant_ids=[f"user:{owner.id}", "agent:plato"],
+        owner_id=owner.owner_id,
+        creator_id=f"user:{owner.id}",
+    )
+    message = messages.create_message(
+        conversation_id=conversation.id,
+        sender_user_id=owner.id,
+        content="shadow group prompt",
+    )
+
+    result = relay_service.enqueue_message_relay(
+        message=message,
+        target_node_id="node-1",
+        idempotency_key="idem-shadow",
+        sender_user_id=owner.id,
+        conversation_type=conversation.type,
+    )
+
+    payload = result.relay_task.payload
+    assert payload["agent_id"] == "plato"
+    assert payload["conversation_id"] == conversation.id
+    assert payload["metadata"]["trigger_source"] == "im"
+    assert payload["metadata"]["conversation_type"] == "group"
+    assert payload["metadata"]["external_source"] == "feishu"
+    assert payload["metadata"]["external_chat_id"] == "oc_product"
+    assert payload["metadata"]["agent_id"] == "plato"
