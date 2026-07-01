@@ -30,17 +30,45 @@
   A(原话): 加到spec。
   Agent 解读: 飞书消息和回复 mirror 到 IM 服务，内部 IM web UI 可见。参考 OpenClaw/Hermes 的共享 session store 模式，方案 A：飞书消息处理完后回推到 IM 服务。
 
+- Q7: 外部 channel（以飞书为首个实现）同步过来的消息，在内部 IM 里要作为一个独立的会话，还是合并进该 agent 的普通直连会话？
+  A(原话): 独立会话，其他在内部IM的会话命名都是agent名，其他channel的应该设计成 agent名 · channel名。
+  Agent 解读: 所有外部 channel 在内部 IM 都有独立会话，会话显示名为 `agent名 · channel名`（例如 `plato · feishu`）。这是跨 channel 的通用规则。
+
+- Q2（通用规则）：对于任意外部 channel 在内部 IM 的同步会话，用户在该会话里回复，算「在原 channel 里接着聊」还是「只在内部 IM 里继续」？
+  A(原话): 理解对的。后续再在飞书聊的话，agent还是能接上对应的上下文。
+  Agent 解读: 外部 channel 在内部 IM 的同步会话是双向镜像：用户在 IM 里的回复会回写到原 channel，且无论用户从哪个入口说话，都复用同一个 kernel session，上下文连续。
+
+- Q3（通用规则）：外部 channel 群聊里，未 @Bot、只进 history buffer 的消息，要同步到内部 IM 吗？
+  A(原话): 可能是我之前说的不够明确，这个应该是复用我内部IM的逻辑吧，对于设置了@才回的agent，是未@暂存，@就回应。设置了不@也回的，则都回应。
+  Agent 解读: 外部 channel 的 mention 门控逻辑与内部 IM 完全一致：@才回的 agent，未 @ 消息作为上下文暂存并同步到 IM；不 @ 也回的 agent，所有消息都触发回复并同步到 IM。
+
+- Q4：外部 channel 的群聊，在内部 IM 里怎么表示？
+  A(原话): A看起来合适
+  Agent 解读: 外部 channel 群聊在内部 IM 映射为一个独立的 group 会话（影子 group），会话显示名为 `agent名 · channel名`，会话参与者为 IM owner + agent；外部群成员以带名字的用户消息形式出现在该 group 会话中。
+
+- Q4-1：外部 channel 群聊消息在内部 IM 中是否显示原发送者名称？
+  A(原话): A
+  Agent 解读: 外部群聊的每条用户消息气泡旁显示该用户在原 channel 中的名字（如 Alice、Bob）。
+
+- Q5：外部 channel 会话里，IM owner 自己从外部 channel 发的消息，在内部 IM 显示成「你」还是带原 channel 名字？
+  A(原话): 对
+  Agent 解读: IM owner 自己从外部 channel 发的消息，在内部 IM 显示为「你」，与内部 IM 其他会话中 owner 自己的消息显示一致。
+
+- Q6：外部 channel 的群聊在内部 IM 里的会话名怎么定？
+  A(原话): agent名 · 群名 · channel名。考虑一种情况，一个飞书群，有两个我们的agent，对于内部IM来说这也是两个不同的会话，不同的agent是主角。
+  Agent 解读: 外部 channel 群聊在内部 IM 的会话名为 `agent名 · 群名 · channel名`（例如 `plato · 产品群 · feishu`）。同一外部群如果绑了多个 agent，内部 IM 会生成多个独立会话，每个 agent 各自一个。1:1 私聊保持 `agent名 · channel名`。
+
 ## 用户场景
 
-用户在飞书上通过三个飞书 Bot（plato / luban / hume）分别与对应的 Agent 交互，体验与内部 IM 页面一致。
+用户在飞书上通过三个飞书 Bot（plato / luban / hume）分别与对应的 Agent 交互，体验与内部 IM 页面一致。飞书对话以独立会话的形式同步到内部 IM，用户可在内部 IM 继续同一会话的上下文；该规则同时作为所有外部 channel（以飞书为首个实现）的通用同步规范。
 
 ### 1:1 私聊
 
-用户打开某个 Agent 对应的飞书 Bot 对话窗口，直接发消息。Bot 永远响应，无需 @。session 按用户维度隔离，每个用户跟每个 Bot 有独立的对话上下文。
+用户打开某个 Agent 对应的飞书 Bot 对话窗口，直接发消息。Bot 永远响应，无需 @。session 按用户维度隔离，每个用户跟每个 Bot 有独立的对话上下文。该对话在内部 IM 中以 `agent名 · channel名` 的独立会话呈现，与 agent 的普通直连会话区分。
 
 ### 群聊
 
-用户在飞书群里 @Bot 发消息，Bot 响应。未 @ 的消息不会触发回复，但会被暂存为上下文——当用户下次 @Bot 时，agent 能看到之前未 @ 的群聊消息作为背景信息。群聊 session 默认按群维度隔离（整个群共用一个 session），可配置为按群+用户隔离。
+用户在飞书群里 @Bot 发消息，Bot 响应。未 @ 的消息不会触发回复，但会被暂存为上下文——当用户下次 @Bot 时，agent 能看到之前未 @ 的群聊消息作为背景信息。群聊 session 默认按群维度隔离（整个群共用一个 session）。飞书群聊在内部 IM 中映射为一个独立的 group 会话，会话名为 `agent名 · 群名 · channel名`；外部群成员的消息以带原发送者名字的用户消息显示，IM owner 自己从飞书发的消息显示为「你」。如果同一飞书群绑了多个 agent，每个 agent 在内部 IM 都有各自的独立 group 会话。
 
 ### 飞书云文档操作（用户身份）
 
@@ -91,15 +119,62 @@
 - **WHEN** 用户与 plato-bot 对话
 - **THEN** 回复来自 plato Agent，而非 luban 或 hume
 
-### Requirement: 飞书对话同步到内部 IM
+### Requirement: 外部 channel 会话同步到内部 IM
 
-#### Scenario: 飞书消息出现在内部 IM
-- **WHEN** 用户在飞书跟 Bot 对话，Bot 回复
-- **THEN** 该对话（用户消息 + Bot 回复）同步出现在内部 IM 的对应 Agent 会话中
+#### Scenario: 外部 1:1 会话在内部 IM 有独立会话
+- **GIVEN** 用户与 plato-bot 在飞书 1:1 对话
+- **WHEN** 用户发送第一条消息
+- **THEN** 内部 IM 中出现一个名为 `plato · feishu` 的独立会话，且不与 plato 的普通直连会话合并
 
-#### Scenario: 飞书群聊消息出现在内部 IM
-- **WHEN** 用户在飞书群 @Bot 对话，Bot 回复
-- **THEN** 该对话同步出现在内部 IM 的对应 Agent 会话中
+#### Scenario: 外部 1:1 用户消息同步到内部 IM
+- **GIVEN** 用户在飞书与 plato-bot 1:1 对话
+- **WHEN** 用户发送一条消息
+- **THEN** 该消息作为「你」的消息出现在内部 IM 的 `plato · feishu` 会话中
+
+#### Scenario: 外部 1:1 agent 回复同步到内部 IM
+- **GIVEN** 用户在飞书与 plato-bot 1:1 对话
+- **WHEN** plato-bot 回复用户
+- **THEN** 该回复出现在内部 IM 的 `plato · feishu` 会话中，包含完整 agent 输出（正文、tool call、thinking 等）
+
+#### Scenario: 在内部 IM 回复会回写到原 channel
+- **GIVEN** 内部 IM 已存在 `plato · feishu` 会话
+- **WHEN** 用户在该会话中发送消息
+- **THEN** plato 的回复同时出现在内部 IM 会话和飞书原对话中
+
+#### Scenario: 同一 kernel session 跨入口上下文连续
+- **GIVEN** 用户在飞书问了 plato-bot "我叫什么"
+- **WHEN** 用户在内部 IM 的 `plato · feishu` 会话中回复 "你刚才不是知道吗"
+- **THEN** plato 能引用前一条上下文，不会当成新会话
+
+#### Scenario: 外部群聊在内部 IM 有独立 group 会话
+- **GIVEN** plato-bot 已加入飞书群「产品群」
+- **WHEN** 用户在群里 @plato-bot 并发消息
+- **THEN** 内部 IM 中出现一个名为 `plato · 产品群 · feishu` 的独立 group 会话，会话参与者为 IM owner 和 plato
+
+#### Scenario: 同一外部群绑定多个 agent 时生成多个独立会话
+- **GIVEN** 飞书群「产品群」同时配置了 plato-bot 和 luban-bot
+- **WHEN** 用户在群里分别 @plato-bot 和 @luban-bot
+- **THEN** 内部 IM 中同时存在 `plato · 产品群 · feishu` 和 `luban · 产品群 · feishu` 两个独立的 group 会话，各自的内容互不混淆
+
+#### Scenario: 外部群聊消息显示原发送者名字
+- **GIVEN** 飞书群「产品群」中 Alice 发了消息
+- **WHEN** 该消息同步到内部 IM
+- **THEN** 内部 IM 中显示为 Alice 发送的用户消息（非匿名「用户」）
+
+#### Scenario: 外部群聊中 IM owner 的消息显示为「你」
+- **GIVEN** IM owner 在飞书群「产品群」中发了消息
+- **WHEN** 该消息同步到内部 IM
+- **THEN** 内部 IM 中该消息显示为「你」发送的消息
+
+#### Scenario: 未 @ 的群聊上下文消息同步到内部 IM
+- **GIVEN** plato 的 group_reply_policy 为 MENTION，Alice 在飞书群「产品群」发了 2 条未 @plato 的消息
+- **WHEN** 这些消息作为上下文被暂存
+- **THEN** 它们作为普通用户消息同步到内部 IM 的 `plato · 产品群 · feishu` group 会话中，显示发送者名字
+
+#### Scenario: 不 @ 也回的 agent 群聊消息全量同步
+- **GIVEN** plato 的 group_reply_policy 为 ALWAYS
+- **WHEN** 群成员在飞书群「产品群」发送任意消息
+- **THEN** 每条消息都触发 plato 回复，并全部同步到内部 IM 的 `plato · 产品群 · feishu` group 会话中
 
 ### Requirement: 飞书云文档操作（用户身份）
 
@@ -140,7 +215,11 @@
   - 飞书 Bot 消息收发（1:1 私聊 + 群聊 @Bot 触发）
   - 多 Agent 路由（一个飞书 Bot 对应一个 Agent）
   - 群聊未 @ 消息的 history buffer 上下文
-  - 飞书对话同步到内部 IM（消息和回复 mirror 到 IM 服务，内部 IM web 可见）
+  - 外部 channel 会话同步到内部 IM（以飞书为首个实现）：
+    - 每个外部 channel 在内部 IM 有独立会话；1:1 命名为 `agent名 · channel名`，群聊命名为 `agent名 · 群名 · channel名`
+    - 用户消息、agent 回复、tool call、thinking 等完整同步
+    - 内部 IM 的回复回写到原 channel，复用同一 kernel session
+    - 群聊映射为独立 group 会话，外部成员消息显示原发送者名字
   - 以用户身份操作飞书云文档（通过 feishu-cli，创建文档、读取、编辑/追加、创建文件夹、移动文件）
 - 非目标：
   - 飞书 wiki（知识库）操作
@@ -150,3 +229,4 @@
   - 流式卡片（streaming cards）富交互
   - 多飞书应用账号
   - 飞书群维度的精细权限配置（allowFrom / 黑名单等）
+  - 非 owner 外部成员在内部 IM 中创建真实用户账号或参与会话权限管理
