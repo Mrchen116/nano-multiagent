@@ -31,7 +31,7 @@
 
 ### R1 — IM 影子会话与消息持久化
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 增加 IM schema migration、domain/repository 字段、`external/find-or-create` 服务/API、sender_display_name 写入与响应。
 - 验证: DB migration/repository/API/message route 单测或集成测试红转绿。
 
