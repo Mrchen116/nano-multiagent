@@ -255,6 +255,94 @@ describe("MessagePane", () => {
       expect(scroller.scrollTop).toBe(afterAnchorOffset);
     });
 
+    it("does not treat the user as near bottom after restoring an older-history anchor away from bottom", () => {
+      let anchorOffset = 600;
+      const { container, rerender } = render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={MANY_MESSAGES}
+          mentionCandidates={[]}
+          hasMoreHistory
+          isLoadingHistory={false}
+          onLoadOlder={() => {}}
+          onSend={() => {}}
+        />
+      );
+      const scroller = container.querySelector(".chat-pane-messages") as HTMLElement;
+      const metrics = { scrollTop: 600, scrollHeight: 900, clientHeight: 300 };
+      setScrollMetrics(scroller, metrics);
+      fireEvent.scroll(scroller);
+      const anchor = screen.getByTestId("message-bubble-hist-1").closest(".chat-bubble") as HTMLElement;
+      Object.defineProperty(anchor, "offsetTop", {
+        configurable: true,
+        get: () => anchorOffset,
+      });
+
+      rerender(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={MANY_MESSAGES}
+          mentionCandidates={[]}
+          hasMoreHistory
+          isLoadingHistory
+          onLoadOlder={() => {}}
+          onSend={() => {}}
+        />
+      );
+
+      anchorOffset = 100;
+      metrics.scrollHeight = 1200;
+      rerender(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[
+            {
+              ...MANY_MESSAGES[0]!,
+              id: "older-near-bottom-1",
+              content: "older near bottom reset",
+              created_at: "2025-12-31T23:59:00Z"
+            },
+            ...MANY_MESSAGES
+          ]}
+          mentionCandidates={[]}
+          hasMoreHistory
+          isLoadingHistory={false}
+          onLoadOlder={() => {}}
+          onSend={() => {}}
+        />
+      );
+      expect(scroller.scrollTop).toBe(100);
+
+      metrics.scrollHeight = 1300;
+      rerender(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[
+            {
+              ...MANY_MESSAGES[0]!,
+              id: "older-near-bottom-1",
+              content: "older near bottom reset",
+              created_at: "2025-12-31T23:59:00Z"
+            },
+            ...MANY_MESSAGES,
+            {
+              ...MANY_MESSAGES[0]!,
+              id: "live-after-anchor-restore",
+              content: "live after anchor restore",
+              created_at: "2026-01-01T00:00:20Z"
+            }
+          ]}
+          mentionCandidates={[]}
+          hasMoreHistory
+          isLoadingHistory={false}
+          onLoadOlder={() => {}}
+          onSend={() => {}}
+        />
+      );
+
+      expect(scroller.scrollTop).toBe(100);
+    });
+
     it("clears an in-flight history anchor when switching conversations", () => {
       const beforeAnchorOffset = 240;
       const afterAnchorOffset = 640;
@@ -483,6 +571,49 @@ describe("MessagePane", () => {
       await user.keyboard("{Enter}");
       expect(onSend).toHaveBeenCalledWith("desktop send", []);
       expect(composer.value).toBe("");
+    });
+
+    it("does not keep a force-scroll request when send resolves without appending a message", async () => {
+      const user = userEvent.setup();
+      const onSend = vi.fn();
+      const { container, rerender } = render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={BASE_MESSAGES}
+          mentionCandidates={[]}
+          onSend={onSend}
+        />
+      );
+      const scroller = container.querySelector(".chat-pane-messages") as HTMLElement;
+      const metrics = { scrollTop: 120, scrollHeight: 1200, clientHeight: 300 };
+      setScrollMetrics(scroller, metrics);
+      fireEvent.scroll(scroller);
+
+      const composer = screen.getByRole("textbox") as HTMLTextAreaElement;
+      await user.type(composer, "send but no append");
+      await user.keyboard("{Enter}");
+      expect(onSend).toHaveBeenCalledWith("send but no append", []);
+      expect(scroller.scrollTop).toBe(120);
+
+      metrics.scrollHeight = 1400;
+      rerender(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[
+            ...BASE_MESSAGES,
+            {
+              ...BASE_MESSAGES[0]!,
+              id: "external-after-no-append",
+              content: "external after no append",
+              created_at: "2026-01-01T00:00:10Z"
+            }
+          ]}
+          mentionCandidates={[]}
+          onSend={onSend}
+        />
+      );
+
+      expect(scroller.scrollTop).toBe(120);
     });
 
     it("keeps desktop Shift+Enter as newline without sending", async () => {
