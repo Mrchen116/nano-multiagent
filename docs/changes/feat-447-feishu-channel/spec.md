@@ -245,4 +245,5 @@
   - 飞书群维度的精细权限配置（allowFrom / 黑名单等）
   - 非 owner 外部成员在内部 IM 中创建真实用户账号或参与会话权限管理
   - 文件、图片、富文本等非文本消息从飞书同步到内部 IM（本期只同步文本）
+  - channel 级 prompt / capabilities 注入（如根据 channel 来源调整 system prompt、声明飞书支持的输出格式/messageToolHints、Markdown sanitize、消息分块等）——本期只做纯文本同步，该能力留待后续 unit
   - 内部 IM 中编辑/删除消息同步回外部 channel（IM 现有功能不支持编辑删除，本期不新增）
