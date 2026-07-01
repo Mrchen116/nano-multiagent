@@ -140,3 +140,99 @@ Actual:
 ## Recommended Next Step
 
 Route back to implementation. Re-review is required after fixing realtime message arrival in the open chat and making the mobile long-press menu remain selectable after release.
+
+---
+
+# Round 2 — 2026-07-01
+
+## Verdict
+
+- Verdict: `pass`
+- Highest Required Action: `pass`
+- Reviewer mode: full
+- Tested entry: Web IM via Vite dev server `http://127.0.0.1:54763/chat/ac040109c6634aa19da406d7e4955202` against real IM + Gateway processes in the unit worktree.
+- Test data: direct user-agent conversation with 130 seeded historical agent messages plus real Gateway-generated completed agent replies.
+
+## Runbook Notes
+
+- Services were restarted in the unit worktree on isolated ports: IM `127.0.0.1:54762`, Vite `127.0.0.1:54763`, Gateway node `wt-unit-feat-451-r2`.
+- Vite was started in real IM mode with `VITE_CHAT_API_MODE=im` and `VITE_IM_API_BASE_URL=http://127.0.0.1:54762`.
+- Gateway was auto-bound and visible through the authenticated node list as `online` with `relay_enabled=true`.
+- The browser loaded Vite's `/src/main.tsx` module from this worktree, confirming the current unit frontend was under test.
+
+## User Journeys Exercised
+
+1. Desktop history pagination: open a direct-agent chat with more than 130 messages, verify first page, scroll upward to load older messages, continue to no-more state, and observe reading position stability.
+2. Realtime message behavior: while viewing history, create a same-conversation agent message through IM's public API and verify it appears without moving the viewport; while at bottom, create another same-conversation message and verify bottom follow; then send through the real composer and wait for a completed Gateway direct-agent reply.
+3. Desktop composer and actions: verify Shift+Enter newline, Enter send/clear, right-click Copy, and hover fork visibility.
+4. Mobile pagination and composer: open the same chat at `390x844`, scroll upward to load older history, press Enter to send, and verify auto-grow caps at 4 rows with internal scroll.
+5. Mobile long-press actions: with Chromium real touch input, long-press visible message bubbles, release, choose Copy, then long-press a completed direct-agent reply and choose fork.
+
+## Round 1 Failures Rechecked
+
+- Round 1 Issue 1, realtime open-chat updates: closed. Same-conversation messages appeared in the already-open chat. Off-bottom viewport stayed at `scrollTop=5180` with `scrollDelta=0`; bottom viewport stayed at `bottomDistance=0`. A real composer send produced a completed Gateway reply in the open chat (`forkable` replies `5 -> 6`, rows `51 -> 53`) and remained at bottom.
+- Round 1 Issue 2, mobile long-press menu disappears on release: closed. On a `390x844` mobile viewport using CDP touch input, Copy remained visible after `touchEnd`, clipboard became `Agent historical reply 130 -- feat451 round2 anchor`, selection text stayed empty, and a completed direct-agent reply showed Copy + fork after release; choosing fork navigated to `/chat/a793ab92b63f4ae8a2d933dcbcc78dd9`.
+
+## Issues
+
+No in-unit acceptance issues found in Round 2.
+
+## Acceptance Criteria Coverage
+
+### Requirement: 消息历史可通过向上滚动分页加载更早内容 — group result: `pass`
+
+| Scenario | Expected Source | Verification | Evidence | Result | Notes |
+|---|---|---|---|---|---|
+| 会话有多页历史，用户向上滚动触发加载 | `spec.md` | Desktop chat opened with latest page, then scrolled upward. | Initial render had 51 rows; first upward load increased to 101 rows and showed older `Agent historical reply 033+`. | `pass` | Reading stayed anchored near the same real message rather than jumping to bottom. |
+| 已经翻到最老的消息 | `spec.md` | Continued upward loading until first history page. | Row count reached 133 and top displayed `No earlier messages`; further top scroll did not add rows. | `pass` | No-more state was visible. |
+| 正在加载更早消息 | `spec.md` | Delayed older-history request in browser while still continuing to real IM. | Body contained `Loading earlier messages…` during pending request. | `pass` | Verified in desktop and mobile. |
+
+### Requirement: 新消息到达不打扰正在翻看历史的用户 — group result: `pass`
+
+| Scenario | Expected Source | Verification | Evidence | Result | Notes |
+|---|---|---|---|---|---|
+| 用户正在看历史时收到新消息 | `spec.md` | Desktop viewport stayed in older history; same-conversation agent message was created through public IM API. | Message `Agent live offbottom r2 ...` appeared; `scrollTop` stayed `5180`, `scrollDelta=0`. | `pass` | This directly closes Round 1's missing realtime update for off-bottom reading. |
+| 用户在底部时收到新消息 | `spec.md` | Desktop viewport at bottom; same-conversation message arrived, then a real composer send triggered Gateway reply. | API message appeared with `bottomDistance=0`; real Gateway reply appeared in the open chat with `forkable 5 -> 6`, rows `51 -> 53`, `bottomDistance=0`. | `pass` | Covers direct-agent reply path and bottom follow. |
+
+### Requirement: 移动端输入法回车发送消息 — group result: `pass`
+
+| Scenario | Expected Source | Verification | Evidence | Result | Notes |
+|---|---|---|---|---|---|
+| 移动端按回车发送 | `spec.md` | Mobile viewport typed `Mobile enter r2` and pressed Enter. | Textarea value became empty and message appeared in chat. | `pass` | No newline inserted. |
+| 桌面端保持 Enter 发送 / Shift+Enter 换行 | `spec.md` | Desktop typed `Desktop line A`, pressed Shift+Enter, typed second line, then Enter. | Textarea contained `Desktop line A\nDesktop line B`; after Enter it cleared and message appeared. | `pass` | No regression. |
+
+### Requirement: composer 输入框随内容自动增高 — group result: `pass`
+
+| Scenario | Expected Source | Verification | Evidence | Result | Notes |
+|---|---|---|---|---|---|
+| 输入多行文字时 composer 增高 | `spec.md` | Mobile viewport filled six lines. | Textarea reported `rows="4"`, `clientHeight=100`, `scrollHeight=146`. | `pass` | Capped and internally scrollable. |
+
+### Requirement: 消息气泡支持复制与长按菜单 — group result: `pass`
+
+| Scenario | Expected Source | Verification | Evidence | Result | Notes |
+|---|---|---|---|---|---|
+| 长按/右键消息气泡调出菜单 | `spec.md` | Desktop right-click and mobile long-press were exercised. | Desktop menu showed Copy; mobile CDP touch long-press showed Copy while holding and after release. | `pass` | Browser native selection did not appear on mobile (`window.getSelection()` empty). |
+| 复制消息文本 | `spec.md` | Desktop right-click Copy; mobile long-press release then Copy. | Desktop clipboard: `Agent historical reply 130 -- feat451 round2 anchor`; mobile clipboard same. | `pass` | Copy closes menu after success. |
+| 移动端单聊里长按 agent 回复进行 fork | `spec.md` | Mobile long-pressed a visible completed direct-agent reply, released, then selected fork. | Menu retained Copy + fork after release; URL changed from original chat to `/chat/a793ab92b63f4ae8a2d933dcbcc78dd9`. | `pass` | Clear user-visible fork feedback through navigation. |
+
+### Requirement: 桌面与移动端体验一致 — group result: `pass`
+
+| Scenario | Expected Source | Verification | Evidence | Result | Notes |
+|---|---|---|---|---|---|
+| 在手机端向上滚动加载历史 | `spec.md` | Mobile `390x844` opened same chat and scrolled upward. | Initial mobile render had 51 rows; upward load increased to 101 rows and showed `Loading earlier messages…`. | `pass` | Reading position stayed near the loaded anchor, not bottom. |
+| 在手机端长按 agent 消息 fork | `spec.md` | Mobile long-pressed completed direct-agent reply with real touch input. | Copy + fork stayed visible after release; choosing fork navigated to a new chat. | `pass` | Closes Round 1 mobile fork failure. |
+
+## Side Findings
+
+- Browser console still logged transient WebSocket connection warnings against both the Vite origin and IM origin during initial auth/stream setup. User-visible realtime behavior passed in this run, so I did not classify this as an acceptance issue.
+
+## Upper-Level Document Sync
+
+- [x] `SPEC.md` (cross-package top architecture): no update needed; this unit changes IM frontend user behavior only.
+- [x] `docs/specs/im/spec.md` (canonical IM behavior contract): needs final orchestrator sync before landing; the unit delta exists under `docs/changes/feat-451-chat-history-pagination/specs/im/spec.md`, while canonical visible hits still mainly cover pre-existing fork behavior.
+- [x] `AGENTS.md` / `CLAUDE.md`: no update needed.
+- [x] `docs/SPEC_GUIDE.md`: no update needed.
+
+## Recommended Next Step
+
+Proceed toward landing after the normal orchestrator document-sync gate. No Round 3 product re-review is required for feat-451 acceptance.
