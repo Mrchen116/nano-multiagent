@@ -894,6 +894,71 @@ describe("ChatWorkspacePage v2 — integration", () => {
     await screen.findByText(/No messages yet/i);
   });
 
+  it("does not render the previous conversation messages while the newly selected conversation history is still loading", async () => {
+    let resolveC2!: () => void;
+    const c2Messages = new Promise<Response>((resolve) => {
+      resolveC2 = () => resolve(jsonResponse({ items: [], next_before_message_id: null }));
+    });
+    fetchSpy = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (/\/im\/v1\/conversations\/c2\/messages/.test(url) && (!init || init.method === undefined || init.method === "GET")) {
+        return c2Messages;
+      }
+      return mockFetch()(input, init);
+    }) as ReturnType<typeof mockFetch>;
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const user = userEvent.setup();
+    renderAtRoute("/chat/c1");
+    await screen.findByText("Hi Planner");
+
+    await user.click(screen.getByRole("button", { name: /Research Squad/ }));
+
+    expect(screen.getByRole("heading", { name: "Research Squad" })).toBeInTheDocument();
+    expect(screen.queryByText("Hi Planner")).not.toBeInTheDocument();
+    act(() => resolveC2());
+    await screen.findByText(/No messages yet/i);
+  });
+
+  it("ignores shared stream chat events for other conversations before the active conversation history seeds the reducer", async () => {
+    let resolveC1!: () => void;
+    const c1Messages = new Promise<Response>((resolve) => {
+      resolveC1 = () => resolve(jsonResponse({ items: FIXTURES.messagesC1, next_before_message_id: null }));
+    });
+    fetchSpy = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (/\/im\/v1\/conversations\/c1\/messages/.test(url) && (!init || init.method === undefined || init.method === "GET")) {
+        return c1Messages;
+      }
+      return mockFetch()(input, init);
+    }) as ReturnType<typeof mockFetch>;
+    vi.stubGlobal("fetch", fetchSpy);
+
+    renderAtRoute("/chat/c1");
+    expect(await screen.findByRole("heading", { name: "Planner" })).toBeInTheDocument();
+    await waitFor(() => expect(capturedStatusHandler).toBeTruthy());
+
+    act(() => {
+      emitSharedChatEvent({
+        type: "message.created",
+        conversation_id: "c2",
+        message_id: "m-c2-before-c1-seed",
+        sender_user_id: "user-uuid-writer",
+        sender_type: "agent",
+        content: "c2 should not seed c1 pane",
+        tool_calls: [],
+        token_usage: null,
+        delivery_status: "completed",
+        created_at: "2026-05-01T00:03:00Z"
+      });
+    });
+
+    expect(screen.queryByText("c2 should not seed c1 pane")).not.toBeInTheDocument();
+    act(() => resolveC1());
+    await screen.findByText("Hi Planner");
+    expect(screen.queryByText("c2 should not seed c1 pane")).not.toBeInTheDocument();
+  });
+
   it("feat-438: group ⚙ opens Group settings (does not navigate to an agent config)", async () => {
     const user = userEvent.setup();
     renderAtRoute("/chat/c2");
