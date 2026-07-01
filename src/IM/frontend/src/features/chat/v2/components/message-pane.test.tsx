@@ -1,6 +1,6 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import "../../../../i18n";
 import type { Attachment, Conversation, MentionCandidate, Message, PermissionRequest } from "../chat-types";
@@ -70,6 +70,10 @@ const MENTION_CANDIDATES: MentionCandidate[] = [
 ];
 
 describe("MessagePane", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   function setScrollMetrics(
     el: HTMLElement,
     metrics: { scrollTop: number; scrollHeight: number; clientHeight: number }
@@ -439,6 +443,92 @@ describe("MessagePane", () => {
       expect(composer.rows).toBe(1);
       await user.type(composer, "one{Shift>}{Enter}{/Shift}two{Shift>}{Enter}{/Shift}three{Shift>}{Enter}{/Shift}four{Shift>}{Enter}{/Shift}five");
       expect(composer.rows).toBe(4);
+    });
+  });
+
+  describe("message action menu (feat-451 R3)", () => {
+    function stubClipboard() {
+      const writeText = vi.fn(async () => undefined);
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: { writeText },
+      });
+      return writeText;
+    }
+
+    it("opens a desktop right-click menu and copies the message text", async () => {
+      const user = userEvent.setup();
+      const writeText = stubClipboard();
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={SAMPLE_MESSAGES}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+
+      fireEvent.contextMenu(screen.getByTestId("message-bubble-m2"));
+      expect(screen.getByRole("menu")).toBeInTheDocument();
+      await user.click(screen.getByRole("menuitem", { name: /Copy/i }));
+
+      expect(writeText).toHaveBeenCalledWith("Hi back");
+      expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    });
+
+    it("opens the copy menu from a mobile long press", () => {
+      vi.useFakeTimers();
+      const writeText = stubClipboard();
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={SAMPLE_MESSAGES}
+          mentionCandidates={[]}
+          isMobile
+          onSend={() => {}}
+        />
+      );
+
+      fireEvent.touchStart(screen.getByTestId("message-bubble-m1"), {
+        touches: [{ clientX: 24, clientY: 32 }],
+      });
+      act(() => vi.advanceTimersByTime(650));
+      fireEvent.click(screen.getByRole("menuitem", { name: /Copy/i }));
+
+      expect(writeText).toHaveBeenCalledWith("Hello");
+      vi.useRealTimers();
+    });
+
+    it("offers fork in the mobile long-press menu for a completed direct agent reply", () => {
+      vi.useFakeTimers();
+      const onFork = vi.fn();
+      const forkable: Message = {
+        ...SAMPLE_MESSAGES[1]!,
+        id: "forkable-mobile",
+        kernel_message_id: "kernel-forkable",
+        delivery_status: "completed"
+      };
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[forkable]}
+          mentionCandidates={[]}
+          isMobile
+          isDirectChat
+          agentOnline
+          onFork={onFork}
+          onSend={() => {}}
+        />
+      );
+
+      fireEvent.touchStart(screen.getByTestId("message-bubble-forkable-mobile"), {
+        touches: [{ clientX: 48, clientY: 72 }],
+      });
+      act(() => vi.advanceTimersByTime(650));
+      fireEvent.click(screen.getByRole("menuitem", { name: /fork/i }));
+
+      expect(onFork).toHaveBeenCalledWith("forkable-mobile");
+      vi.useRealTimers();
     });
   });
 

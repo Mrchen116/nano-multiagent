@@ -74,6 +74,6 @@ UI 状态矩阵：
 
 ### R3 — 消息菜单、移动端 fork 与真实浏览器验收
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 扩展组件测试；新增复制/右键/长按菜单；移动端 fork 放入菜单；补 CSS/i18n；跑真实浏览器入口自测。
 - 验证: `message-pane.test.tsx` + `npm run test` + `npx tsc -b` + 浏览器证据。
