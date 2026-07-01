@@ -25,18 +25,18 @@
 
 ## R2 — 智能滚底与 composer 输入行为
 
-- Context: TODO
-- Decision: TODO
-- Rationale: TODO
+- Context: R1 解决历史 prepend 后，剩余体验问题是旧 `messages` effect 仍把普通新消息无条件滚底；移动端 Enter 被旧的 `!isMobile` 条件排除；移动端 composer 固定 1 行。
+- Decision: MessagePane 维护 near-bottom 状态、last message id、刚发送消息 force-bottom 标记。消息变化时仅在初次 hydration、用户已在底部附近、或本地刚发送时滚到底部；用户滚到历史中间时新消息不抢位置。Enter 发送逻辑移除 `!isMobile` 限制，slash picker 打开时仍拦截 Enter 让 picker 接管。Composer rows 按草稿行数增长，移动端 1-4 行、桌面 2-5 行，超过上限后 textarea 内部滚动。
+- Rationale: 滚动策略必须区分“用户正在看历史”和“用户正在跟随底部”。near-bottom ref 由真实 scroll 事件维护，避免每次 render 误判；本地发送单独 force-bottom，符合 spec 中“用户自己刚发出消息时应看到最新内容”的口径。Rows 直接来自受控 draft 行数，和现有 mention mirror 同步，不引入新依赖。
 - Evidence:
-  - Tests: TODO
-  - Entry: TODO
-  - Frontend State Matrix: TODO
-  - Browser QA: TODO
-  - E2E/Regression: TODO
-  - Visual/Interaction: TODO
-- Rollback: TODO
-- Commits: TODO
+  - Tests: `cd src/IM/frontend && npm run test -- src/features/chat/v2/components/message-pane.test.tsx` → 1 file / 65 tests passed. `cd src/IM/frontend && npm run test -- src/features/chat/v2/chat-api.test.ts src/features/chat/v2/chat-workspace.integration.test.tsx src/features/chat/v2/components/message-pane.test.tsx` → 3 files / 100 tests passed. `cd src/IM/frontend && npx tsc -b` → passed.
+  - Entry: Component/integration entry covered real `/chat/:conversationId` React path for send and WS append behavior; full browser entry deferred to R3 combined QA.
+  - Frontend State Matrix: default, long content, mobile input, desktop Shift+Enter, bottom/off-bottom scroll states covered by regression tests; browser viewport checks deferred to R3.
+  - Browser QA: Deferred to R3 after menu/fork lands.
+  - E2E/Regression: Added `message-pane.test.tsx` cases for off-bottom no auto-scroll, near-bottom auto-scroll, mobile Enter send, desktop Shift+Enter newline, slash picker Enter ownership, mobile composer auto-grow. Red state before C2: 3 failures for off-bottom scroll, mobile Enter, mobile rows; slash picker ownership already passed after correcting the expected behavior.
+  - Visual/Interaction: CSS max-height/overflow for composer landed; screenshot evidence deferred to R3 browser QA.
+- Rollback: Revert `30809ad4` after `767ce6fe` to remove R2 implementation while keeping R2 tests, or revert both R2 commits.
+- Commits: C1=`767ce6fe`, C2=`30809ad4`, C3=TODO
 - Next: R3
 
 ## R3 — 消息菜单、移动端 fork 与真实浏览器验收

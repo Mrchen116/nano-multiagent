@@ -68,7 +68,7 @@ UI 状态矩阵：
 
 ### R2 — 智能滚底与 composer 输入行为
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 扩展组件测试；修正自动滚底条件；移动端 Enter 发送；Shift+Enter 换行；textarea 根据内容 auto-grow。
 - 验证: `message-pane.test.tsx` + `npm run test`。
 
