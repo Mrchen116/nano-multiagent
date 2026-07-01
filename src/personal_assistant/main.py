@@ -3158,14 +3158,10 @@ def _build_relay_lifecycle_callback(
     run_context_store: dict[str, dict[str, str]] | None = None,
 ):
     async def _callback(message: InboundMessage, update: RelayLifecycleUpdate) -> None:
-        if reporter is None:
-            return
-        relay_task_id = _metadata_text(message.metadata, key="relay_task_id")
-        if relay_task_id is None:
-            return
-        manager = im_connection_manager_factory()
-        if manager is None:
-            return
+        # Seed/clean run_context_store for EVERY channel, not only web_relay.
+        # kernel_event_observer needs this context to push streaming events to IM;
+        # without it, non-relay channels (e.g. feishu) produce replies that never
+        # appear in the internal IM.
         if update.phase == "accepted":
             # Seed run_context_store with conversation/agent meta so kernel_event_observer
             # can send the turn_start frame.  message_id starts empty; it is filled
@@ -3197,6 +3193,21 @@ def _build_relay_lifecycle_callback(
                     # decision back to the correct kernel session via reverse lookup.
                     "kernel_session_id": update.kernel_session_id or "",
                 }
+        elif update.phase in ("completed", "failed"):
+            if run_context_store is not None and update.run_id:
+                run_context_store.pop(update.run_id, None)
+
+        # Everything below is relay-task specific: delivery receipts and progress
+        # reports go back to the IM service only for messages that originated there.
+        if reporter is None:
+            return
+        relay_task_id = _metadata_text(message.metadata, key="relay_task_id")
+        if relay_task_id is None:
+            return
+        manager = im_connection_manager_factory()
+        if manager is None:
+            return
+        if update.phase == "accepted":
             payload = reporter.send_delivery_receipt(
                 relay_task_id=relay_task_id,
                 delivery_status="sent",
@@ -3220,8 +3231,6 @@ def _build_relay_lifecycle_callback(
             await manager.send_json("node.report", payload)
             return
         if update.phase == "completed":
-            if run_context_store is not None and update.run_id:
-                run_context_store.pop(update.run_id, None)
             message_id = _metadata_text(message.metadata, key="message_id")
             send_report = getattr(reporter, "send_report", None)
             if (
@@ -3271,8 +3280,6 @@ def _build_relay_lifecycle_callback(
             await manager.send_json("node.delivery_receipt", payload)
             return
         if update.phase == "failed":
-            if run_context_store is not None and update.run_id:
-                run_context_store.pop(update.run_id, None)
             # bugfix-437 decision 3: mirror the completed branch with a message-level
             # node.report(status=failed) so the placeholder bubble flips to failed
             # within seconds carrying the real cause. send_report has no `error`

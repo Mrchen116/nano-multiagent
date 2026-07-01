@@ -168,6 +168,94 @@ class TestAcceptedPhaseSeedsRunContext:
         reporter.send_delivery_receipt.assert_called_once()
 
 
+class TestAcceptedPhaseSeedsRunContextForNonRelay:
+    """Non-relay channels (e.g. feishu) must also seed run_context_store so the
+    kernel event observer can sync streaming replies to IM.
+    """
+
+    @pytest.mark.asyncio
+    async def test_accepted_phase_without_relay_task_id_seeds_run_context(self):
+        """A message with no relay_task_id (e.g. from feishu) still populates
+        run_context_store; no relay delivery receipt is sent."""
+        from personal_assistant.main import _build_relay_lifecycle_callback
+        from personal_assistant.gateway.inbound_pipeline import RelayLifecycleUpdate
+        from personal_assistant.channels.base import InboundMessage
+
+        run_context_store: dict[str, dict[str, str]] = {}
+
+        manager = MagicMock()
+        manager.connected = True
+        manager.send_json = AsyncMock()
+
+        reporter = MagicMock()
+        reporter.send_delivery_receipt.return_value = {"type": "delivery_receipt"}
+
+        callback = _build_relay_lifecycle_callback(
+            reporter=reporter,
+            im_connection_manager_factory=lambda: manager,
+            run_context_store=run_context_store,
+        )
+
+        message = MagicMock(spec=InboundMessage)
+        message.external_chat_id = "feishu:cli_a:dm:ou_user1"
+        message.metadata = {}  # no relay_task_id
+
+        update = MagicMock(spec=RelayLifecycleUpdate)
+        update.phase = "accepted"
+        update.run_id = "run-feishu-001"
+        update.agent_id = "default-agent"
+        update.kernel_session_id = "ksession-1"
+
+        await callback(message, update)
+
+        assert "run-feishu-001" in run_context_store
+        ctx = run_context_store["run-feishu-001"]
+        assert ctx["conversation_id"] == "feishu:cli_a:dm:ou_user1"
+        assert ctx["agent_id"] == "default-agent"
+        assert ctx["kernel_session_id"] == "ksession-1"
+        assert ctx["message_id"] == ""
+        reporter.send_delivery_receipt.assert_not_called()
+        manager.send_json.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_completed_phase_without_relay_task_id_cleans_run_context(self):
+        """A non-relay completed lifecycle must remove the run_context entry."""
+        from personal_assistant.main import _build_relay_lifecycle_callback
+        from personal_assistant.gateway.inbound_pipeline import RelayLifecycleUpdate
+        from personal_assistant.channels.base import InboundMessage
+
+        run_context_store: dict[str, dict[str, str]] = {
+            "run-feishu-001": {
+                "conversation_id": "feishu:cli_a:dm:ou_user1",
+                "message_id": "msg-1",
+                "agent_id": "default-agent",
+            }
+        }
+
+        reporter = MagicMock()
+        reporter.send_delivery_receipt.return_value = {"type": "delivery_receipt"}
+
+        callback = _build_relay_lifecycle_callback(
+            reporter=reporter,
+            im_connection_manager_factory=lambda: None,
+            run_context_store=run_context_store,
+        )
+
+        message = MagicMock(spec=InboundMessage)
+        message.external_chat_id = "feishu:cli_a:dm:ou_user1"
+        message.metadata = {}
+
+        update = MagicMock(spec=RelayLifecycleUpdate)
+        update.phase = "completed"
+        update.run_id = "run-feishu-001"
+        update.agent_id = "default-agent"
+
+        await callback(message, update)
+
+        assert "run-feishu-001" not in run_context_store
+        reporter.send_delivery_receipt.assert_not_called()
+
+
 # ─── R2b tests: kernel skips run_status=running (direct assistant_message) ───
 
 
