@@ -37,7 +37,7 @@
 
 ### R2 — IM relay metadata 回环到 Gateway
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: RelayService 从 conversation 外部字段与 config agent 生成 metadata，WebRelayAdapter 保留 IM conversation id 作为 delivery id，并把外部身份、trigger_source、conversation_type、group mention 标记传给 InboundMessage。
 - 验证: RelayService payload 与 WebRelayAdapter 单测红转绿。
 

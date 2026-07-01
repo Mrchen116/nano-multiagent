@@ -34,18 +34,18 @@
 
 ### R2 — IM relay metadata 回环到 Gateway
 
-- Context: TODO
-- Decision: TODO
-- Rationale: TODO
+- Context: IM shadow 会话里的用户消息会经 relay.message 回到 Gateway；如果 payload 不带外部身份，Gateway 会把 IM conversation id 当 kernel session identity，跨入口上下文会断。
+- Decision: RelayService 从 `conversations.external_source/external_chat_id/config_agent_id/type` 回环 `trigger_source=im`、外部身份、agent id 和 conversation type；WebRelayAdapter 保留 `message.conversation_id` 为 IM delivery id，并在 shadow group metadata 下补 `mentioned_agent_ids=[agent_id]`。
+- Rationale: delivery/shadow conversation identity 与 external session identity 必须分离；shadow group 的 agent 是会话主角，用户不应手动 @，因此 Gateway 入站前就要有等效 mention。
 - Evidence:
-  - Tests: TODO
-  - Entry: TODO
+  - Tests: `pytest -q tests/im_service/unit/test_relay_service_payload.py::test_external_shadow_relay_payload_loops_back_external_identity tests/unit/personal_assistant/test_gateway_web_relay_adapter.py::test_web_relay_adapter_preserves_shadow_identity_and_group_target_agent` -> 2 passed; `pytest -q tests/im_service/unit/test_relay_service_payload.py tests/im_service/unit/test_relay_service_mention_routing.py tests/unit/personal_assistant/test_gateway_web_relay_adapter.py` -> 16 passed.
+  - Entry: Relay payload now carries shadow metadata expected by Gateway; WebRelayAdapter converts it into `InboundMessage(channel_name=web_relay, external_chat_id=<im conversation id>, metadata.external_chat_id=<feishu chat id>)`.
   - Frontend State Matrix: N/A
   - Browser QA: N/A
-  - E2E/Regression: TODO
+  - E2E/Regression: Regression coverage in `tests/im_service/unit/test_relay_service_payload.py` and `tests/unit/personal_assistant/test_gateway_web_relay_adapter.py`.
   - Visual/Interaction: N/A
-- Rollback: TODO
-- Commits: C1=TODO, C2=TODO, C3=TODO
+- Rollback: revert `4d3b84bb` then `0934e99a`.
+- Commits: C1=0934e99a, C2=4d3b84bb, C3=TODO
 - Next: R3
 
 ### R3 — Gateway 外部 session identity、sync_only 与 group buffer
