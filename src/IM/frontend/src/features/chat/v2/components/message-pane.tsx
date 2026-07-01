@@ -70,6 +70,7 @@ export interface MessagePaneProps {
 }
 
 const MENTION_RE = /@([^@\s]*)$/;
+const NEAR_BOTTOM_PX = 80;
 
 /**
  * Build the overlay mirror nodes for the composer textarea.
@@ -179,6 +180,9 @@ export function MessagePane({
     scrollHeight: number;
   } | null>(null);
   const skipNextMessageAutoScrollRef = useRef(false);
+  const lastMessageIdRef = useRef<string | null>(null);
+  const nearBottomRef = useRef(true);
+  const forceScrollToBottomRef = useRef(false);
 
   const kind = classifyConversationKind(conversation);
   const isGroup = kind === "group" || kind === "agent-network";
@@ -189,6 +193,12 @@ export function MessagePane({
   // never simultaneously with the @ mention picker. Available in single and group chats.
   const slashMatch =
     mentionQuery === null && !slashDismissed ? matchSlashTrigger(draft) : null;
+  const minComposerRows = isMobile ? 1 : 2;
+  const maxComposerRows = isMobile ? 4 : 5;
+  const composerRows = Math.min(
+    maxComposerRows,
+    Math.max(minComposerRows, draft.split("\n").length)
+  );
 
   function changeDraft(next: string) {
     setSlashDismissed(false);
@@ -204,6 +214,7 @@ export function MessagePane({
     if (!trimmed && pending.length === 0) return;
     // bugfix-358 (composer): textarea 装可见 `@DisplayName`, wire XML 在此处重建。
     const wireContent = reconstructWireContent(trimmed, draftMentions);
+    forceScrollToBottomRef.current = true;
     onSend(wireContent, pending);
     setDraft("");
     setDraftMentions([]);
@@ -224,12 +235,12 @@ export function MessagePane({
     // feat-430: while the slash picker is open it owns Arrow/Enter/Tab/Esc (its own
     // window keydown handler). Here we only stop Enter from sending the raw `/...` text.
     if (slashMatch !== null) {
-      if (!isMobile && e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+      if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
         e.preventDefault();
       }
       return;
     }
-    if (!isMobile && e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       if (mentionQuery !== null) return;
       e.preventDefault();
       commit(draft);
@@ -318,13 +329,26 @@ export function MessagePane({
     if (el.scrollTop <= scrollable / 3) onLoadOlder();
   }
 
+  function updateNearBottom() {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    nearBottomRef.current = el.scrollHeight - el.clientHeight - el.scrollTop <= NEAR_BOTTOM_PX;
+  }
+
   function handleMessagesScroll() {
+    updateNearBottom();
     maybeLoadOlderFromScroll();
   }
 
-  // Auto-scroll: when messages change, scroll the internal message container to
-  // the bottom (not the whole page), unless a prepend-history anchor is waiting
-  // to restore the user's reading position.
+  useEffect(() => {
+    lastMessageIdRef.current = null;
+    nearBottomRef.current = true;
+    forceScrollToBottomRef.current = false;
+  }, [conversation.id]);
+
+  // Auto-scroll only when the user is already following the bottom, or when the
+  // local user just sent a message. Prepending history and off-bottom arrivals
+  // must not steal the reading position.
   useEffect(() => {
     const el = messagesContainerRef.current;
     if (!el) return;
@@ -333,7 +357,19 @@ export function MessagePane({
       return;
     }
     if (historyAnchorRef.current) return;
-    el.scrollTop = el.scrollHeight;
+    const lastMessageId = messages[messages.length - 1]?.id ?? null;
+    const isInitialHydration = lastMessageIdRef.current === null;
+    const lastMessageChanged = lastMessageId !== lastMessageIdRef.current;
+    const shouldFollowBottom =
+      isInitialHydration
+      || forceScrollToBottomRef.current
+      || nearBottomRef.current;
+    lastMessageIdRef.current = lastMessageId;
+    if (shouldFollowBottom || (!lastMessageChanged && nearBottomRef.current)) {
+      el.scrollTop = el.scrollHeight;
+      updateNearBottom();
+    }
+    forceScrollToBottomRef.current = false;
   }, [messages]);
 
   useLayoutEffect(() => {
@@ -506,7 +542,7 @@ export function MessagePane({
                   }
                 }}
                 placeholder={placeholder}
-                rows={isMobile ? 1 : 2}
+                rows={composerRows}
                 className="chat-pane-composer-input chat-composer-highlight-input"
               />
             </div>

@@ -1454,6 +1454,14 @@ body {
   font-size: 0.9rem;
   color: var(--im-text);
   resize: none;
+  max-height: calc((1.5em * 5) + 1rem);
+  overflow-y: auto;
+}
+
+@media (max-width: 767px) {
+  .chat-pane-composer-input {
+    max-height: calc((1.5em * 4) + 1rem);
+  }
 }
 
 .chat-composer-highlight-input {
