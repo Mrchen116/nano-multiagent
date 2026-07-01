@@ -131,6 +131,23 @@ const FIXTURES = {
   ]
 };
 
+function historyMessage(id: string, index: number, content = `history ${id}`) {
+  return {
+    id,
+    conversation_id: "c1",
+    sender: index % 2 === 0
+      ? { type: "user", id: "u-self", display_name: "You" }
+      : { type: "agent", id: "a-planner", display_name: "Planner" },
+    sender_user_id: index % 2 === 0 ? "u-self" : "user-uuid-planner",
+    sender_type: index % 2 === 0 ? "user" : "agent",
+    content,
+    attachments: [],
+    delivery_status: "completed",
+    created_at: new Date(Date.UTC(2026, 4, 1, 0, 0, index)).toISOString(),
+    permission_requests: []
+  };
+}
+
 function jsonResponse(data: unknown, init: ResponseInit = {}): Response {
   return new Response(JSON.stringify(data), { status: 200, headers: { "Content-Type": "application/json" }, ...init });
 }
@@ -715,6 +732,62 @@ describe("ChatWorkspacePage v2 — integration", () => {
   });
 
   // ─── feat-438-M1 R4: ⚙ entry dispatch by conversation kind ────────────────
+
+  it("loads older messages with a before cursor when the message list enters the upper third", async () => {
+    const newestPage = Array.from({ length: 50 }, (_, idx) => historyMessage(`new-${idx + 1}`, idx + 50));
+    const olderPage = Array.from({ length: 50 }, (_, idx) => historyMessage(`old-${idx + 1}`, idx, `older ${idx + 1}`));
+    fetchSpy = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (/\/im\/v1\/conversations\/c1\/messages/.test(url) && (!init || init.method === undefined || init.method === "GET")) {
+        if (url.includes("before_message_id=new-1")) {
+          return jsonResponse({ items: olderPage, next_before_message_id: null });
+        }
+        return jsonResponse({ items: newestPage, next_before_message_id: "new-1" });
+      }
+      return mockFetch()(input, init);
+    }) as ReturnType<typeof mockFetch>;
+    const sent: { url: string; init?: RequestInit }[] = [];
+    const originalImpl = fetchSpy.getMockImplementation()!;
+    fetchSpy.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      sent.push({ url, init });
+      return originalImpl(input, init);
+    });
+    (fetchSpy as unknown as { sent: typeof sent }).sent = sent;
+    vi.stubGlobal("fetch", fetchSpy);
+
+    renderAtRoute("/chat/c1");
+    expect(await screen.findByText("history new-1")).toBeInTheDocument();
+    const scroller = document.querySelector(".chat-pane-messages") as HTMLElement;
+    const metrics = { scrollTop: 200, scrollHeight: 1200, clientHeight: 300 };
+    Object.defineProperty(scroller, "scrollTop", {
+      configurable: true,
+      get: () => metrics.scrollTop,
+      set: (value) => {
+        metrics.scrollTop = Number(value);
+      }
+    });
+    Object.defineProperty(scroller, "scrollHeight", {
+      configurable: true,
+      get: () => metrics.scrollHeight
+    });
+    Object.defineProperty(scroller, "clientHeight", {
+      configurable: true,
+      get: () => metrics.clientHeight
+    });
+
+    act(() => {
+      scroller.dispatchEvent(new Event("scroll", { bubbles: true }));
+    });
+
+    await screen.findByText("older 1");
+    const messageGets = sent.filter((entry) => /\/im\/v1\/conversations\/c1\/messages/.test(entry.url));
+    expect(messageGets[0]!.url).toContain("limit=50");
+    expect(messageGets[0]!.url).toContain("mark_as_read=true");
+    expect(messageGets[1]!.url).toContain("limit=50");
+    expect(messageGets[1]!.url).toContain("before_message_id=new-1");
+    expect(messageGets[1]!.url).not.toContain("mark_as_read=true");
+  });
 
   it("feat-438: group ⚙ opens Group settings (does not navigate to an agent config)", async () => {
     const user = userEvent.setup();

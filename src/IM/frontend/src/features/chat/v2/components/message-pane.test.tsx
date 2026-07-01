@@ -70,6 +70,27 @@ const MENTION_CANDIDATES: MentionCandidate[] = [
 ];
 
 describe("MessagePane", () => {
+  function setScrollMetrics(
+    el: HTMLElement,
+    metrics: { scrollTop: number; scrollHeight: number; clientHeight: number }
+  ) {
+    Object.defineProperty(el, "scrollTop", {
+      configurable: true,
+      get: () => metrics.scrollTop,
+      set: (value) => {
+        metrics.scrollTop = Number(value);
+      },
+    });
+    Object.defineProperty(el, "scrollHeight", {
+      configurable: true,
+      get: () => metrics.scrollHeight,
+    });
+    Object.defineProperty(el, "clientHeight", {
+      configurable: true,
+      get: () => metrics.clientHeight,
+    });
+  }
+
   it("renders the conversation title and each message content", () => {
     render(
       <MessagePane
@@ -83,6 +104,182 @@ describe("MessagePane", () => {
     expect(screen.getByText("Hello")).toBeInTheDocument();
     expect(screen.getByText("Hi back")).toBeInTheDocument();
   });
+
+  describe("history pagination scroll trigger (feat-451 R1)", () => {
+    const MANY_MESSAGES: Message[] = Array.from({ length: 8 }, (_, idx) => ({
+      id: `hist-${idx + 1}`,
+      conversation_id: "c1",
+      sender: idx % 2 === 0
+        ? { type: "user", id: "u1", display_name: "You" }
+        : { type: "agent", id: "a-planner", display_name: "Planner" },
+      sender_user_id: idx % 2 === 0 ? "u1" : "a-planner",
+      sender_type: idx % 2 === 0 ? "user" : "agent",
+      content: `history message ${idx + 1}`,
+      attachments: [],
+      delivery_status: "completed",
+      created_at: `2026-01-01T00:00:0${idx}Z`,
+      permission_requests: []
+    }));
+
+    it("calls onLoadOlder when scrollTop enters the upper third of scrollable content", () => {
+      const onLoadOlder = vi.fn();
+      const { container } = render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={MANY_MESSAGES}
+          mentionCandidates={[]}
+          hasMoreHistory
+          isLoadingHistory={false}
+          onLoadOlder={onLoadOlder}
+          onSend={() => {}}
+        />
+      );
+      const scroller = container.querySelector(".chat-pane-messages") as HTMLElement;
+      setScrollMetrics(scroller, {
+        scrollTop: 260,
+        scrollHeight: 1200,
+        clientHeight: 300
+      });
+
+      fireEvent.scroll(scroller);
+
+      expect(onLoadOlder).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not call onLoadOlder below the upper-third threshold or while loading", () => {
+      const onLoadOlder = vi.fn();
+      const { container, rerender } = render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={MANY_MESSAGES}
+          mentionCandidates={[]}
+          hasMoreHistory
+          isLoadingHistory={false}
+          onLoadOlder={onLoadOlder}
+          onSend={() => {}}
+        />
+      );
+      const scroller = container.querySelector(".chat-pane-messages") as HTMLElement;
+      setScrollMetrics(scroller, {
+        scrollTop: 400,
+        scrollHeight: 1200,
+        clientHeight: 300
+      });
+      fireEvent.scroll(scroller);
+      expect(onLoadOlder).not.toHaveBeenCalled();
+
+      rerender(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={MANY_MESSAGES}
+          mentionCandidates={[]}
+          hasMoreHistory
+          isLoadingHistory
+          onLoadOlder={onLoadOlder}
+          onSend={() => {}}
+        />
+      );
+      setScrollMetrics(scroller, {
+        scrollTop: 100,
+        scrollHeight: 1200,
+        clientHeight: 300
+      });
+      fireEvent.scroll(scroller);
+      expect(onLoadOlder).not.toHaveBeenCalled();
+    });
+
+    it("keeps the prior anchor message at the same viewport position after older messages prepend", () => {
+      const beforeAnchorOffset = 240;
+      const afterAnchorOffset = 640;
+      let anchorOffset = beforeAnchorOffset;
+      const { container, rerender } = render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={MANY_MESSAGES}
+          mentionCandidates={[]}
+          hasMoreHistory
+          isLoadingHistory={false}
+          onLoadOlder={() => {}}
+          onSend={() => {}}
+        />
+      );
+      const scroller = container.querySelector(".chat-pane-messages") as HTMLElement;
+      setScrollMetrics(scroller, {
+        scrollTop: beforeAnchorOffset,
+        scrollHeight: 900,
+        clientHeight: 300
+      });
+      const anchor = screen.getByTestId("message-bubble-hist-4").closest(".chat-bubble") as HTMLElement;
+      Object.defineProperty(anchor, "offsetTop", {
+        configurable: true,
+        get: () => anchorOffset,
+      });
+
+      rerender(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={MANY_MESSAGES}
+          mentionCandidates={[]}
+          hasMoreHistory
+          isLoadingHistory
+          onLoadOlder={() => {}}
+          onSend={() => {}}
+        />
+      );
+
+      anchorOffset = afterAnchorOffset;
+      rerender(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[
+            {
+              ...MANY_MESSAGES[0]!,
+              id: "older-1",
+              content: "older message",
+              created_at: "2025-12-31T23:59:00Z"
+            },
+            ...MANY_MESSAGES
+          ]}
+          mentionCandidates={[]}
+          hasMoreHistory
+          isLoadingHistory={false}
+          onLoadOlder={() => {}}
+          onSend={() => {}}
+        />
+      );
+
+      expect(scroller.scrollTop).toBe(afterAnchorOffset);
+    });
+
+    it("renders loading and no-more history status at the top of the message list", () => {
+      const { rerender } = render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={MANY_MESSAGES}
+          mentionCandidates={[]}
+          hasMoreHistory
+          isLoadingHistory
+          onLoadOlder={() => {}}
+          onSend={() => {}}
+        />
+      );
+      expect(screen.getByText(/Loading earlier messages/i)).toBeInTheDocument();
+
+      rerender(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={MANY_MESSAGES}
+          mentionCandidates={[]}
+          hasMoreHistory={false}
+          isLoadingHistory={false}
+          onLoadOlder={() => {}}
+          onSend={() => {}}
+        />
+      );
+      expect(screen.getByText(/No earlier messages/i)).toBeInTheDocument();
+    });
+  });
+
 
   it("renders a GFM markdown table in an agent message as a real <table>", () => {
     const tableMsg: Message = {

@@ -62,7 +62,7 @@ UI 状态矩阵：
 
 ### R1 — 历史分页与阅读位置保持
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 扩展 API/集成/组件测试；在 workspace 管理 cursor/loading/hasMore；在 MessagePane 按上方 1/3 触发加载并恢复 anchor。
 - 验证: 相关 vitest 文件 + `npm run test`。
 
