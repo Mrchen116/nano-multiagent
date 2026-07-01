@@ -60,7 +60,7 @@ export interface MessagePaneProps {
   /** feat-445-M2 #7: a fork is in flight — disable fork buttons to block double-submit. */
   forkPending?: boolean;
   /** Older history page exists above the currently loaded messages. */
-  hasMoreHistory?: boolean;
+  hasMoreHistory?: boolean | null;
   /** Older history request is in flight. */
   isLoadingHistory?: boolean;
   /** Trigger loading the next older history page. */
@@ -157,7 +157,7 @@ export function MessagePane({
   agentOnline = false,
   onFork,
   forkPending = false,
-  hasMoreHistory = false,
+  hasMoreHistory = null,
   isLoadingHistory = false,
   onLoadOlder,
   uploadAttachment = uploadOneAttachment
@@ -323,7 +323,7 @@ export function MessagePane({
 
   function maybeLoadOlderFromScroll() {
     const el = messagesContainerRef.current;
-    if (!el || !hasMoreHistory || isLoadingHistory || !onLoadOlder) return;
+    if (!el || hasMoreHistory !== true || isLoadingHistory || !onLoadOlder) return;
     const scrollable = el.scrollHeight - el.clientHeight;
     if (scrollable <= 0) return;
     if (el.scrollTop <= scrollable / 3) onLoadOlder();
@@ -344,6 +344,9 @@ export function MessagePane({
     lastMessageIdRef.current = null;
     nearBottomRef.current = true;
     forceScrollToBottomRef.current = false;
+    historyWasLoadingRef.current = false;
+    historyAnchorRef.current = null;
+    skipNextMessageAutoScrollRef.current = false;
   }, [conversation.id]);
 
   // Auto-scroll only when the user is already following the bottom, or when the
@@ -359,13 +362,12 @@ export function MessagePane({
     if (historyAnchorRef.current) return;
     const lastMessageId = messages[messages.length - 1]?.id ?? null;
     const isInitialHydration = lastMessageIdRef.current === null;
-    const lastMessageChanged = lastMessageId !== lastMessageIdRef.current;
     const shouldFollowBottom =
       isInitialHydration
       || forceScrollToBottomRef.current
       || nearBottomRef.current;
     lastMessageIdRef.current = lastMessageId;
-    if (shouldFollowBottom || (!lastMessageChanged && nearBottomRef.current)) {
+    if (shouldFollowBottom) {
       el.scrollTop = el.scrollHeight;
       updateNearBottom();
     }
@@ -384,7 +386,7 @@ export function MessagePane({
 
   useEffect(() => {
     const el = messagesContainerRef.current;
-    if (!el || !hasMoreHistory || isLoadingHistory || !onLoadOlder) return;
+    if (!el || hasMoreHistory !== true || isLoadingHistory || !onLoadOlder) return;
     if (el.scrollHeight > 0 && el.scrollHeight <= el.clientHeight) onLoadOlder();
   }, [hasMoreHistory, isLoadingHistory, messages.length, onLoadOlder]);
 
@@ -465,7 +467,7 @@ export function MessagePane({
           </div>
         ) : (
           <>
-            {(isLoadingHistory || !hasMoreHistory) && (
+            {(isLoadingHistory || hasMoreHistory === false) && (
               <div className="chat-history-status" role="status">
                 {isLoadingHistory && <span className="chat-history-spinner" aria-hidden="true" />}
                 {isLoadingHistory

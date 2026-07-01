@@ -19,7 +19,6 @@ import {
   updateConversation,
   type AgentRow
 } from "./chat-api";
-import { openChatStream } from "./chat-stream";
 import {
   applyWsEvent,
   compareMessages,
@@ -57,6 +56,48 @@ import { MessagePane } from "./components/message-pane";
 import { NewGroupModal } from "./components/new-group-modal";
 
 const HISTORY_PAGE_SIZE = 50;
+const CHAT_STREAM_EVENT_TYPES = new Set([
+  "message.created",
+  "message.delta",
+  "message.completed",
+  "tool_call.upserted",
+  "tool_call.completed",
+  "thinking.segment",
+  "permission.request",
+  "permission.resolved",
+]);
+
+function toChatWsEvent(eventType: string, payload: Record<string, unknown>, eventId?: number): WsEvent | null {
+  if (!CHAT_STREAM_EVENT_TYPES.has(eventType)) return null;
+  return {
+    ...payload,
+    type: eventType,
+    seq: eventId,
+  } as WsEvent;
+}
+
+function mergeMessageWithExisting(message: Message, existing?: Message): Message {
+  let out = message;
+  if (!message.token_usage && existing?.token_usage) {
+    out = {
+      ...out,
+      token_usage: existing.token_usage,
+      delivery_status: existing.delivery_status
+    };
+  }
+  const permission_requests = mergePermissionRequests(
+    message.permission_requests,
+    existing?.permission_requests
+  );
+  if (
+    permission_requests.length > 0
+    || (message.permission_requests?.length ?? 0) > 0
+    || (existing?.permission_requests?.length ?? 0) > 0
+  ) {
+    out = { ...out, permission_requests };
+  }
+  return out;
+}
 
 function streamReducer(
   state: ConversationState,
@@ -72,29 +113,7 @@ function streamReducer(
     const existingById = state.conversation_id === action.conversationId
       ? new Map(state.messages.map((m) => [m.id, m]))
       : new Map();
-    const merged = action.messages.map((m) => {
-      const existing = existingById.get(m.id);
-      let out = m;
-      if (!m.token_usage && existing?.token_usage) {
-        out = {
-          ...out,
-          token_usage: existing.token_usage,
-          delivery_status: existing.delivery_status
-        };
-      }
-      const permission_requests = mergePermissionRequests(
-        m.permission_requests,
-        existing?.permission_requests
-      );
-      if (
-        permission_requests.length > 0
-        || (m.permission_requests?.length ?? 0) > 0
-        || (existing?.permission_requests?.length ?? 0) > 0
-      ) {
-        out = { ...out, permission_requests };
-      }
-      return out;
-    });
+    const merged = action.messages.map((m) => mergeMessageWithExisting(m, existingById.get(m.id)));
     // bugfix-419: REST history may already be sorted, but sort explicitly so
     // any WS messages merged in via existingById keep the ordering invariant.
     return { conversation_id: action.conversationId, messages: [...merged].sort(compareMessages) };
@@ -102,29 +121,7 @@ function streamReducer(
   if (action.type === "prepend_history") {
     if (state.conversation_id === null) return state;
     const existingById = new Map(state.messages.map((m) => [m.id, m]));
-    const mergedOlder = action.messages.map((m) => {
-      const existing = existingById.get(m.id);
-      let out = m;
-      if (!m.token_usage && existing?.token_usage) {
-        out = {
-          ...out,
-          token_usage: existing.token_usage,
-          delivery_status: existing.delivery_status
-        };
-      }
-      const permission_requests = mergePermissionRequests(
-        m.permission_requests,
-        existing?.permission_requests
-      );
-      if (
-        permission_requests.length > 0
-        || (m.permission_requests?.length ?? 0) > 0
-        || (existing?.permission_requests?.length ?? 0) > 0
-      ) {
-        out = { ...out, permission_requests };
-      }
-      return out;
-    });
+    const mergedOlder = action.messages.map((m) => mergeMessageWithExisting(m, existingById.get(m.id)));
     const byId = new Map<string, Message>();
     for (const m of mergedOlder) byId.set(m.id, m);
     for (const m of state.messages) {
@@ -213,7 +210,7 @@ function mergePermissionRequests(
  * Data flow:
  *  - `listConversations` / `listMessages` via react-query for the historical
  *    backbone.
- *  - `openChatStream` for the live WS feed; events are pushed through
+ *  - owner-scoped user stream for the live WS feed; events are pushed through
  *    `applyWsEvent` (pure reducer from R2) into a local conversation state
  *    keyed by active conversation. When the user switches conversations we
  *    `reset` the reducer with the freshly fetched history.
@@ -252,8 +249,10 @@ export function ChatWorkspacePageV2() {
     refetchOnWindowFocus: false
   });
   const [historyCursor, setHistoryCursor] = useState<string | null>(null);
-  const [hasMoreHistory, setHasMoreHistory] = useState(false);
+  const [hasMoreHistory, setHasMoreHistory] = useState<boolean | null>(null);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const conversationIdRef = useRef(conversationId);
+  const historyRequestRef = useRef<{ conversationId: string; cursor: string } | null>(null);
 
   // bugfix-442: 实时消息流驱动侧边栏会话列表刷新时去抖，避免群聊多 agent 同回合
   // 连续重拉。timer 跨渲染稳定，组件卸载时清理。
@@ -503,13 +502,18 @@ export function ChatWorkspacePageV2() {
   }, [conversationId, messagesQuery.data]);
 
   useEffect(() => {
+    conversationIdRef.current = conversationId;
     setHistoryCursor(null);
-    setHasMoreHistory(false);
+    setHasMoreHistory(null);
     setIsLoadingHistory(false);
+    historyRequestRef.current = null;
   }, [conversationId]);
 
   const loadOlderMessages = useCallback(async () => {
-    if (!conversationId || !historyCursor || !hasMoreHistory || isLoadingHistory) return;
+    if (!conversationId || !historyCursor || hasMoreHistory !== true || isLoadingHistory) return;
+    const request = historyRequestRef.current;
+    if (request?.conversationId === conversationId && request.cursor === historyCursor) return;
+    historyRequestRef.current = { conversationId, cursor: historyCursor };
     setIsLoadingHistory(true);
     try {
       const page = await listMessages(conversationId, {
@@ -517,26 +521,27 @@ export function ChatWorkspacePageV2() {
         beforeMessageId: historyCursor,
         markAsRead: false
       });
+      if (conversationIdRef.current !== conversationId) return;
       dispatch({ type: "prepend_history", messages: page.items });
       setHistoryCursor(page.next_before_message_id);
       setHasMoreHistory(page.next_before_message_id !== null);
     } finally {
-      setIsLoadingHistory(false);
+      if (
+        historyRequestRef.current?.conversationId === conversationId
+        && historyRequestRef.current.cursor === historyCursor
+      ) {
+        historyRequestRef.current = null;
+      }
+      if (conversationIdRef.current === conversationId) {
+        setIsLoadingHistory(false);
+      }
     }
   }, [conversationId, hasMoreHistory, historyCursor, isLoadingHistory]);
 
-  // Open the WS stream once for the workspace lifetime; events flow into the
-  // reducer which ignores any not matching the active conversation.
   // Captures the latest sendersById via a ref so a fresh agents fetch becomes
-  // visible to in-flight reducer dispatches without recreating the WS handle.
+  // visible to in-flight reducer dispatches without recreating the user stream.
   const sendersByIdRef = useRef(sendersById);
   sendersByIdRef.current = sendersById;
-  useEffect(() => {
-    const handle = openChatStream({
-      onEvent: (ev) => dispatch({ type: "event", event: ev, sendersById: sendersByIdRef.current })
-    });
-    return () => handle.close();
-  }, []);
 
   // Subscribe to owner-scoped status events so all node/agent status indicators
   // in the Chat workspace (Node chip, sidebar status dot, mention candidate
@@ -553,6 +558,10 @@ export function ChatWorkspacePageV2() {
         await queryClient.invalidateQueries({ queryKey: ["chat-v2", "conversations"] });
       },
       onEvent: (event) => {
+        const chatEvent = toChatWsEvent(event.eventType, event.payload, event.eventId);
+        if (chatEvent) {
+          dispatch({ type: "event", event: chatEvent, sendersById: sendersByIdRef.current });
+        }
         if (event.eventType === "node.status_changed") {
           const payload = event.payload as { node_id?: unknown; status?: unknown };
           const nodeId = typeof payload.node_id === "string" ? payload.node_id : null;

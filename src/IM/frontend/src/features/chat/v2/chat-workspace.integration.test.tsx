@@ -36,6 +36,12 @@ vi.mock("../../chat/im-chat-api", async (importOriginal) => {
   };
 });
 
+function emitSharedChatEvent(event: Record<string, unknown> & { type: string }, eventId = 100) {
+  if (!capturedStatusHandler) throw new Error("shared user stream handler not attached");
+  const { type, ...payload } = event;
+  capturedStatusHandler({ eventType: type, payload, eventId });
+}
+
 // ─── Fake WebSocket ─────────────────────────────────────────────────────────
 class FakeWebSocket {
   static instances: FakeWebSocket[] = [];
@@ -383,44 +389,40 @@ describe("ChatWorkspacePage v2 — integration", () => {
     renderAtRoute("/chat/c1");
     await screen.findByText("Hi Planner");
 
-    // The reducer + page wait for `messages` to be hydrated before applying WS
-    // events; once the historical fetch resolves, FakeWebSocket has been created
-    // by the workspace effect. Emit the three-event sequence.
-    await waitFor(() => expect(FakeWebSocket.instances.length).toBeGreaterThan(0));
-    const ws = FakeWebSocket.instances[0]!;
+    await waitFor(() => expect(capturedStatusHandler).toBeTruthy());
 
     act(() => {
-      ws.emit({
-      type: "message.created",
-      conversation_id: "c1",
-      message_id: "m99",
-      sender_user_id: "agent:a-planner",
-      sender_type: "agent",
-      content: "",
-      tool_calls: [],
-      token_usage: null,
-      delivery_status: "running",
-      created_at: "2026-05-01T00:00:10Z"
-    });
-    ws.emit({
-      type: "message.delta",
-      conversation_id: "c1",
-      message_id: "m99",
-      delta_text: "Hello "
-    });
-    ws.emit({
-      type: "message.delta",
-      conversation_id: "c1",
-      message_id: "m99",
-      delta_text: "there"
-    });
-    ws.emit({
-      type: "message.completed",
-      conversation_id: "c1",
-      message_id: "m99",
-      content: "Hello there",
-      token_usage: { output: 12, context_used: 200, context_window: 200_000 }
-    });
+      emitSharedChatEvent({
+        type: "message.created",
+        conversation_id: "c1",
+        message_id: "m99",
+        sender_user_id: "agent:a-planner",
+        sender_type: "agent",
+        content: "",
+        tool_calls: [],
+        token_usage: null,
+        delivery_status: "running",
+        created_at: "2026-05-01T00:00:10Z"
+      });
+      emitSharedChatEvent({
+        type: "message.delta",
+        conversation_id: "c1",
+        message_id: "m99",
+        delta_text: "Hello "
+      });
+      emitSharedChatEvent({
+        type: "message.delta",
+        conversation_id: "c1",
+        message_id: "m99",
+        delta_text: "there"
+      });
+      emitSharedChatEvent({
+        type: "message.completed",
+        conversation_id: "c1",
+        message_id: "m99",
+        content: "Hello there",
+        token_usage: { output: 12, context_used: 200, context_window: 200_000 }
+      });
     });
 
     await waitFor(() => expect(screen.getByText(/Hello there/)).toBeInTheDocument());
@@ -430,29 +432,29 @@ describe("ChatWorkspacePage v2 — integration", () => {
   it("shows elapsed_ms in the bubble status row after message.completed", async () => {
     renderAtRoute("/chat/c1");
     await screen.findByText("Hi Planner");
-    const ws = FakeWebSocket.instances[0]!;
+    await waitFor(() => expect(capturedStatusHandler).toBeTruthy());
 
     act(() => {
-    ws.emit({
-      type: "message.created",
-      conversation_id: "c1",
-      message_id: "m-elapsed",
-      sender_user_id: "agent:a-planner",
-      sender_type: "agent",
-      content: "",
-      tool_calls: [],
-      token_usage: null,
-      delivery_status: "running",
-      created_at: new Date(Date.now() - 5000).toISOString(),
-    });
-    ws.emit({
-      type: "message.completed",
-      conversation_id: "c1",
-      message_id: "m-elapsed",
-      content: "Done answer",
-      token_usage: null,
-      elapsed_ms: 3721,
-    });
+      emitSharedChatEvent({
+        type: "message.created",
+        conversation_id: "c1",
+        message_id: "m-elapsed",
+        sender_user_id: "agent:a-planner",
+        sender_type: "agent",
+        content: "",
+        tool_calls: [],
+        token_usage: null,
+        delivery_status: "running",
+        created_at: new Date(Date.now() - 5000).toISOString(),
+      });
+      emitSharedChatEvent({
+        type: "message.completed",
+        conversation_id: "c1",
+        message_id: "m-elapsed",
+        content: "Done answer",
+        token_usage: null,
+        elapsed_ms: 3721,
+      });
     });
 
     await waitFor(() => {
@@ -539,10 +541,9 @@ describe("ChatWorkspacePage v2 — integration", () => {
     });
 
     // A late echo for the same message id must not produce a duplicate bubble.
-    await waitFor(() => expect(FakeWebSocket.instances.length).toBeGreaterThan(0));
-    const ws = FakeWebSocket.instances[0]!;
+    await waitFor(() => expect(capturedStatusHandler).toBeTruthy());
     act(() => {
-      ws.emit({
+      emitSharedChatEvent({
         type: "message.created",
         conversation_id: "c1",
         message_id: "m2",
@@ -585,11 +586,10 @@ describe("ChatWorkspacePage v2 — integration", () => {
   it("R8-2: WS message.created with sender_user_id UUID renders the agent display_name (Planner), not the UUID", async () => {
     renderAtRoute("/chat/c1");
     await screen.findByText("Hi Planner");
-    await waitFor(() => expect(FakeWebSocket.instances.length).toBeGreaterThan(0));
-    const ws = FakeWebSocket.instances[0]!;
+    await waitFor(() => expect(capturedStatusHandler).toBeTruthy());
 
     act(() => {
-      ws.emit({
+      emitSharedChatEvent({
         type: "message.created",
         conversation_id: "c1",
         message_id: "m-live-1",
@@ -721,8 +721,7 @@ describe("ChatWorkspacePage v2 — integration", () => {
     const user = userEvent.setup();
     renderAtRoute("/chat/c1");
     await screen.findByText("Hi Planner");
-    await waitFor(() => expect(FakeWebSocket.instances.length).toBeGreaterThan(0));
-    const ws = FakeWebSocket.instances[0]!;
+    await waitFor(() => expect(capturedStatusHandler).toBeTruthy());
 
     // Send message → optimistic bubble lands (created_at from POST response = 2026-05-01T00:00:02Z)
     await user.type(screen.getByRole("textbox"), "user question");
@@ -731,7 +730,7 @@ describe("ChatWorkspacePage v2 — integration", () => {
 
     // Agent reply via WS with created_at BEFORE the user message (01Z < 02Z)
     act(() => {
-      ws.emit({
+      emitSharedChatEvent({
         type: "message.created",
         conversation_id: "c1",
         message_id: "m-agent-reply",
