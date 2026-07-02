@@ -49,7 +49,11 @@ from personal_assistant.config.local_store import (
     save_local_config,
 )
 from personal_assistant.config.sync_client import ConfigSyncClient
-from personal_assistant.gateway.bootstrap import start_channels, stop_channels
+from personal_assistant.gateway.bootstrap import (
+    install_builtin_skills,
+    start_channels,
+    stop_channels,
+)
 from personal_assistant.gateway.channel_registry import ChannelRegistry
 from personal_assistant.gateway.group_context_store import GroupContextStore
 from personal_assistant.gateway.inbound_pipeline import (
@@ -2296,6 +2300,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     refactor-387 M3: kernel is now in-process via agent.sdk.  No kernel child
     process is spawned; GatewayProcessManager is no longer used here.
     """
+    install_builtin_skills()
     # refactor-406-M1 R6: PA assembles its kernel through the 2-layer SDK surface
     # via its own factory (personal_assistant.product).  PA imports only agent.sdk +
     # its own package — no product_profile / host_capabilities.
