@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 import os
 from pathlib import Path
@@ -59,6 +59,7 @@ _DEFAULT_KERNEL_HEALTH_PATH = "/v1/health"
 DEFAULT_LOCAL_KERNEL_TOKEN = "nano-local-gateway"
 DEFAULT_LOCAL_CONFIG_DIR = Path("~/.nano-assistant").expanduser()
 DEFAULT_LOCAL_CONFIG_PATH = DEFAULT_LOCAL_CONFIG_DIR / "config.yaml"
+FEISHU_DOC_SKILL_ID = "feishu-doc"
 _DEFAULT_STARTUP_TIMEOUT_SECONDS = 15.0
 _DEFAULT_SHUTDOWN_GRACE_SECONDS = 5.0
 _DEFAULT_POLL_INTERVAL_SECONDS = 0.25
@@ -414,6 +415,49 @@ def resolve_run_model(
     if agent is not None and getattr(agent, "default_model", None):
         return agent.default_model
     return product_default
+
+
+def ensure_feishu_doc_skill_for_feishu_agents(
+    config: LocalConfig,
+) -> tuple[LocalConfig, bool]:
+    """Add the built-in Feishu doc skill to explicit Feishu agent allowlists.
+
+    Args:
+        config: Parsed Gateway config.
+
+    Returns:
+        Tuple of ``(updated_config, changed)``. ``changed`` is True only when an
+        enabled ``feishu:<agent_id>`` channel maps to an agent that already has a
+        non-empty explicit skills allowlist missing ``feishu-doc``.
+    """
+
+    feishu_agent_ids = {
+        channel.name.removeprefix("feishu:")
+        for channel in config.channels
+        if channel.enabled
+        and channel.name.startswith("feishu:")
+        and channel.name.removeprefix("feishu:").strip()
+    }
+    if not feishu_agent_ids:
+        return config, False
+
+    changed = False
+    updated_agents: list[AgentWorkspaceConfig] = []
+    for agent in config.agents:
+        if (
+            agent.agent_id in feishu_agent_ids
+            and agent.skills
+            and FEISHU_DOC_SKILL_ID not in agent.skills
+        ):
+            updated_agents.append(
+                replace(agent, skills=(*agent.skills, FEISHU_DOC_SKILL_ID))
+            )
+            changed = True
+        else:
+            updated_agents.append(agent)
+    if not changed:
+        return config, False
+    return replace(config, agents=tuple(updated_agents)), True
 
 
 _BACKUP_RETAIN = 30

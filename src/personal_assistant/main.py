@@ -45,6 +45,7 @@ from personal_assistant.config.local_store import (
     WORKSPACE_CONFIG_DIRNAME as _WCD,
     default_local_config_path,
     ensure_workspace_defaults,
+    ensure_feishu_doc_skill_for_feishu_agents,
     load_local_config,
     resolve_run_model,
     save_local_config,
@@ -2509,6 +2510,11 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         install_builtin_skills()
     except Exception:  # noqa: BLE001
         _log.warning("failed to install built-in personal assistant skills", exc_info=True)
+    config, feishu_skill_config_changed = ensure_feishu_doc_skill_for_feishu_agents(
+        config
+    )
+    if feishu_skill_config_changed:
+        save_local_config(config, config.source_path)
 
     # CronServiceRegistry holds the per-agent CronExecutionService map + lifecycle
     # (set_gateway_loop / drain_all / register).  refactor-406 决策 9: the cron *tool*
