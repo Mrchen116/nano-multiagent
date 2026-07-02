@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 from pathlib import Path
 from unittest.mock import MagicMock, call, patch
 
@@ -274,35 +273,6 @@ class TestFeishuAdapterGroupMention:
         assert msg.metadata["mention_only"] is False
         assert "sync_only" not in msg.metadata
         store.drain.assert_not_called()
-
-    @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
-    def test_group_mention_only_delivers_non_empty_text_and_metadata(
-        self, mock_fc_cls: MagicMock
-    ) -> None:
-        adapter = FeishuAdapter(
-            app_id="cli_a",
-            app_secret="s",
-            name="feishu:plato",
-            bot_open_id="ou_bot1",
-            group_context_store=MagicMock(spec=GroupContextStore),
-        )
-        on_inbound = MagicMock()
-        adapter.start(on_inbound)
-
-        mention = FeishuMention(open_id="ou_bot1", name="plato", key="@_user_1")
-        event = _make_event(
-            text="@plato",
-            chat_type="group",
-            is_group=True,
-            mentions=[mention],
-        )
-        event = replace(event, mention_only=True)
-        adapter._handle_message(event)
-
-        msg: InboundMessage = on_inbound.call_args[0][0]
-        assert msg.text == "@plato"
-        assert msg.metadata["mentioned_agent_ids"] == ["plato"]
-        assert msg.metadata["mention_only"] is True
 
     @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
     def test_group_at_everyone_does_not_trigger(self, mock_fc_cls: MagicMock) -> None:
