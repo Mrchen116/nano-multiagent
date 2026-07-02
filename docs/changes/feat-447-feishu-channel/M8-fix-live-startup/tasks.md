@@ -8,10 +8,10 @@
 
 ## 退出标准
 
-- [ ] 旧 IM SQLite DB 缺 `conversations.external_source` / `external_chat_id` 时，`initialize_schema()` 自动增列并创建 external identity index，不再启动崩溃。
-- [ ] `.gateway-config.yaml` 的 Feishu channel 缺 `ownerOpenId` 时 Gateway 可启动；配置 `ownerOpenId` 后 owner 消息显示为「你」的验收路径在 runbook 中明确。
-- [ ] Feishu group 入站 metadata 携带 `chat_name` 或 `conversation_title`，shadow title 使用真实群名而非固定「群聊」。
-- [ ] 非 e2e 测试无回归；用 runbook 真栈路径启动 IM + Gateway，并用 `lark-cli im +messages-send --as user` 完成真实飞书 smoke。
+- [x] 旧 IM SQLite DB 缺 `conversations.external_source` / `external_chat_id` 时，`initialize_schema()` 自动增列并创建 external identity index，不再启动崩溃。
+- [x] `.gateway-config.yaml` 的 Feishu channel 缺 `ownerOpenId` 时 Gateway 可启动；Gateway 自启动在 `appId` 匹配时自动写回 worktree-local `ownerOpenId`，owner 消息显示为「你」的验收路径在 runbook 中明确。
+- [x] Feishu group 入站 metadata 携带 `chat_name` 或 `conversation_title`，shadow title 使用真实群名而非固定「群聊」；chat name API 未 start / 失败时不阻断入站。
+- [x] 非 e2e 测试无回归；用 runbook 真栈路径启动 IM + Gateway，并用 `lark-cli im +messages-send --as user` 完成真实飞书 smoke，IM shadow conversation/message 可见。
 
 ## 测试策略
 
@@ -25,6 +25,6 @@
 
 ### R1 — Round 4 live startup fixes
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 补 Round 4 复现测试；修复 IM legacy migration 顺序、Feishu `ownerOpenId` 非阻塞配置、group chat name REST/metadata；更新 design runbook 与 M8 progress。
-- 验证: 红测失败点与反馈一致；相关窄测、`pytest -m "not e2e"`、runbook 真栈 + `lark-cli im +messages-send --as user` smoke 通过。
+- 验证: 红测失败点与反馈一致；相关窄测、`pytest -m "not e2e"`、runbook 真栈 + `lark-cli im +messages-send --as user` smoke 通过，最终 live nonce `feat447-m8-live3-20260702113138` 在 IM shadow DB 中有 conversation/message row。
