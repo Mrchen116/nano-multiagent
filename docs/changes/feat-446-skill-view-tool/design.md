@@ -28,6 +28,7 @@
 | `core/skills/root_resolver.py` (新增) | 无共享解析 | 提取 skill_root 解析为共享函数 |
 | `platform/background/skill_batch_review.py` (新增) | 无 per-skill 批量复盘 side-chain | 新增 per-skill 批量复盘编排（platform 层，接收 runtime 注入的后台 fork callable；对应 F4 能力） |
 | `sdk/kernel.py` / runtime housekeeping | 已注册 self-evolution builtins，无 skill 维护入口 | 新增 SDK 内部 skill maintenance 入口负责 Curator 扫描；runtime 提供 F4 background fork enqueue 入口 |
+| `src/personal_assistant/builtin_skills/conversation-skill-distiller/SKILL.md` (新增) | 无历史会话蒸馏内置 skill | 作为 PA 包内内置 skill 源，复用 feat-447 的 built-in skill bootstrap 安装到 `~/.nanoassistant/skills` |
 | `IM/frontend/` | 无 skill 使用面板 | 新增面板组件 + 调用新增 API |
 | `IM/frontend/src/features/chat/v2/components/tool-*` | memory/skill_manage 已有专属工具卡片，未知工具走通用展示 | 新增 skill_view 工具行专属展示（折叠摘要、展开详情、失败态） |
 | `IM/app/` (routes) | 无 skills usage API | 新增 HTTP route |
@@ -58,6 +59,7 @@ PA 默认工具语义沿用现状：`personal_assistant/product.py::DEFAULT_TOOL
 
 - feat-392：kernel spec 契约层建立，skill_manage 作为 kernel built-in 注册
 - refactor-406：products 装配层解散，tool 注册下沉到 `_register_self_evolution_builtins()`
+- feat-447 M10：飞书 channel 设计了 PA built-in skill bootstrap：包内 `src/personal_assistant/builtin_skills/<skill-name>/SKILL.md` 随 package data 分发，Gateway 启动时缺失复制到 `~/.nanoassistant/skills/<skill-name>/SKILL.md`，存在不覆盖。`conversation-skill-distiller` 必须复用这套通用机制，不能另写一套蒸馏专用安装逻辑。
 
 ## 架构总览
 
@@ -219,7 +221,17 @@ skill_manage（写侧）:
 - **SKILLS_GUIDANCE 条件渲染**: 当只有 skill_view 在场而 skill_manage 不在时，不应引导调 skill_manage（"save with skill_manage"）。`_render_skills_guidance` 需根据 `ctx.has_tool("skill_manage")` 条件渲染保存相关文案。
 - **拒绝**: skill_view 独立 feature entry — skill_view 不需要独立的 prompt guidance，它只是读工具。不需要自己的 feature flag。
 
-### 决策 7: F4 Batch 触发与执行
+### 决策 7: PA 内置 skill 分发策略
+
+**选了复用 feat-447 M10 的 PA built-in skill bootstrap，`conversation-skill-distiller` 作为包内内置 skill 分发**。
+
+- **理由**: `conversation-skill-distiller` 是 PA 产品级操作入口，不属于某个 agent workspace；新安装用户不能依赖开发仓里手工放置的 skill 文件。feat-447 已经为 `feishu-doc` 设计了通用 built-in skill 分发路径，本 unit 应共享同一套目录、package data 和启动复制逻辑。
+- **源位置**: `src/personal_assistant/builtin_skills/conversation-skill-distiller/SKILL.md`；如需参考资料，放同目录 `references/`。
+- **运行态安装**: Gateway 启动时扫描包内 `builtin_skills/*/SKILL.md`，缺失时复制整个目录到 `~/.nanoassistant/skills/<skill-name>/`，已存在时不覆盖用户本地改动。该 helper 若已由 feat-447 M10 落地，本 unit 只新增 `conversation-skill-distiller` 目录；若本 unit 先落地，必须实现同一通用 helper，不能写成 feishu 或 distill 专用逻辑。
+- **agent skills 语义**: 未显式配置 `skills` 的 agent 按全部可发现 skills 解析，会自然看到该内置 skill。已显式配置 `skills` allowlist 的 agent 不自动追加 `conversation-skill-distiller`；IM 历史会话蒸馏入口在生成预填消息前应确认本次执行 agent 可发现该 skill，不可用时提示用户到配置页启用，而不是静默发送一个无法加载的 `/skill:`。
+- **拒绝**: 把蒸馏 skill 放进某个 agent workspace — 其他 agent 不可见；也拒绝新增 repo 根目录 `skills/` 搜索根 — Gateway 运行不应依赖源码 cwd。
+
+### 决策 8: F4 Batch 触发与执行
 
 **选了 `skill_view` 成功计数越线后即时 enqueue F4Trigger，SDK/runtime 用内部 background fork 执行 per-skill 批量复盘**。
 
@@ -232,7 +244,7 @@ skill_manage（写侧）:
 - **拒绝**: 把 F4 做成 `platform/tools/builtins/*` 下的 Tool — 它不是用户/agent 正常 turn 中可见的工具，而是后台 side-chain；做成 Tool 会让 worker 误接 tool schema 和 presenter。也拒绝用 `f4_*` 命名模块，阶段编号是产品分层标签，不是代码职责名。
 - **batch job 流程**: 读 session_refs → 过滤已 reviewed 的（`curator_state.reviewed_session_ids`）→ 读取对应 JSONL transcript → background fork 分析 ≥2 证据 → 调 `skill_manage(patch)` 写入修补 → 追加 reviewed_session_ids（cap 200）。
 
-### 决策 8: skill_view 工具接口
+### 决策 9: skill_view 工具接口
 
 **选了 platform 层独立 SkillViewTool 类，与 SkillManageTool 同构**。
 
@@ -407,7 +419,7 @@ IM 工具调用面板
 
 ### F2 蒸馏数据流
 
-F2 是端到端用户旅程，不只是一个蒸馏 skill 文件。IM 前端仍从 conversation 列表发起，但跳转新对话时预填给 agent 的不是 conversation ID，而是所选 conversation 对应的 JSONL 绝对路径列表。字段名统一为 `source_jsonl_paths`：IM 负责把用户选中的可见 conversation 解析成完整 JSONL 路径；在跳转前弹窗让用户选择写入范围（agent 级 / PA 产品级）；确认后预填现有 `/skill:conversation-skill-distiller` 调用、`source_jsonl_paths`、`target_scope` 和可编辑意图。用户发送后，这就是一条普通聊天消息，Gateway 不解析 `source_jsonl_paths`、不读取 transcript、也不注入隐藏上下文。蒸馏 skill 负责指导 agent 从消息文本读取 JSONL 路径，按现有工具能力读取这些 JSONL 文件，并根据用户意图生成并写入 SKILL.md。写入结果只走现有工具调用展示/普通 assistant 回复，不新增专门的 SKILL.md 草稿预览/确认 UI。
+F2 是端到端用户旅程，不只是一个蒸馏 skill 文件。`conversation-skill-distiller` 本身是 PA built-in skill，源文件放在 `src/personal_assistant/builtin_skills/conversation-skill-distiller/SKILL.md`，通过与 feat-447 `feishu-doc` 相同的 built-in skill bootstrap 安装到 `~/.nanoassistant/skills`。IM 前端仍从 conversation 列表发起，但跳转新对话时预填给 agent 的不是 conversation ID，而是所选 conversation 对应的 JSONL 绝对路径列表。字段名统一为 `source_jsonl_paths`：IM 负责把用户选中的可见 conversation 解析成完整 JSONL 路径；若所选 conversation 都属于同一个 agent，IM 自动把该 agent 作为执行 agent；若所选 conversation 来自多个 agent，IM 在弹窗中让用户选择执行 agent。同一弹窗再让用户选择写入范围（agent 级 / PA 产品级）；确认后跳转到执行 agent 的新对话，并预填现有 `/skill:conversation-skill-distiller` 调用、`source_jsonl_paths`、`execution_agent_id`、`target_scope` 和可编辑意图。用户发送后，这就是一条普通聊天消息，Gateway 不解析 `source_jsonl_paths`、不读取 transcript、也不注入隐藏上下文。蒸馏 skill 负责指导 agent 从消息文本读取 JSONL 路径，按现有工具能力读取这些 JSONL 文件，并根据用户意图生成并写入 SKILL.md。写入结果只走现有工具调用展示/普通 assistant 回复，不新增专门的 SKILL.md 草稿预览/确认 UI。
 
 Conversation 列表默认不展示运行态标签。只有用户进入"生成 skill"多选模式时，左侧 checkbox 和运行态提示一同出现：`run_state="idle"` 的 conversation 可勾选；`run_state="running"` 的 conversation 禁选并显示"运行中"。`run_state` 是通用会话运行态字段，不带 distill 命名，后续其他功能也可复用。
 
@@ -418,14 +430,19 @@ IM conversation 列表
   ├─ 用户多选 run_state=idle 的 conversation
   ├─ run_state=running 的 conversation 禁选并显示"运行中"
   ├─ 点击"蒸馏为 skill"
-  ├─ 弹窗选择写入范围:
+  ├─ 若来源 conversation 都属于同一个 agent:
+  │     └─ execution_agent = 该 agent
+  ├─ 若来源 conversation 来自多个 agent:
+  │     └─ 弹窗要求用户选择 execution_agent
+  ├─ 同一弹窗选择写入范围:
   │     ├─ agent 级（默认）
   │     └─ PA 产品级
-  └─ 跳转新对话，在现有输入框预填:
+  └─ 跳转 execution_agent 的新对话，在现有输入框预填:
        /skill:conversation-skill-distiller
        source_jsonl_paths:
          <absolute-jsonl-path-1>
          <absolute-jsonl-path-2>
+       execution_agent_id: <agent-id>
        target_scope: agent
 
        请基于上述会话 transcript，总结我反复使用且值得复用的工作方式，
@@ -441,10 +458,10 @@ IM conversation 列表
        │
        ▼
 蒸馏 skill
-  ├─ 从消息文本读取 source_jsonl_paths 和 target_scope
+  ├─ 从消息文本读取 source_jsonl_paths、execution_agent_id 和 target_scope
   ├─ 按现有工具能力读取 JSONL 文件，结合用户 intent 生成 SKILL.md
   ├─ 若证据不足以形成稳定模式 → 普通 assistant 回复说明原因，不调用 skill_manage
-  ├─ 若证据充足 → skill_manage(create) 写入 PA 级或 agent 级 skill root
+  ├─ 若证据充足 → skill_manage(create) 写入 PA 级或 execution_agent 的 agent 级 skill root
   └─ 通过现有工具调用展示/普通 assistant 回复告知写入结果
 ```
 
@@ -455,6 +472,7 @@ IM conversation 列表
 source_jsonl_paths:
   <absolute-jsonl-path-1>
   <absolute-jsonl-path-2>
+execution_agent_id: <agent-id>
 target_scope: agent
 
 请基于上述会话 transcript，总结我反复使用且值得复用的工作方式，直接生成并写入一个 agent 级 skill。重点关注：
@@ -464,7 +482,9 @@ target_scope: agent
 如果这些会话不足以形成稳定模式，请说明原因，不要创建 skill。
 ```
 
-用户选择范围的主路径是弹窗；弹窗确认后系统把结果写入 `target_scope: agent|pa`。用户仍可在发送前编辑意图文本；这里不设计草稿预览卡片、确认写入/取消按钮。需要先审稿的用户可以直接把意图改成"先展示草稿，不要写入"。
+用户选择执行 agent / 写入范围的主路径是弹窗。若来源 conversation 全部属于同一 agent，执行 agent 自动确定，不展示执行 agent 选择；若来源跨多个 agent，弹窗必须要求选择一个执行 agent。弹窗确认后系统把结果写入 `execution_agent_id` 和 `target_scope: agent|pa`。用户仍可在发送前编辑意图文本；这里不设计草稿预览卡片、确认写入/取消按钮。需要先审稿的用户可以直接把意图改成"先展示草稿，不要写入"。
+
+如果执行 agent 因显式 `skills` allowlist 看不到 `conversation-skill-distiller`，IM 不应继续预填 `/skill:conversation-skill-distiller` 并让用户发送失败消息；应在范围确认前提示该 agent 未启用蒸馏内置 skill，并引导用户到配置页启用或取消本次操作。未显式配置 `skills` 的 agent 走全部可发现 skills，正常可看到该 built-in skill。
 
 **F2 RPC / payload 约定**:
 
@@ -473,8 +493,9 @@ target_scope: agent
 | IM HTTP / sync → 前端 | `run_state: "idle" \| "running"` | 通用 conversation 运行态；由 IM 服务根据该 conversation 是否存在 running 消息/relay 派生 |
 | IM 前端 → IM 后端 | `selected_conversation_ids: string[]` | 用户在左侧 conversation 列表选择的 IM conversation ID，仅用于换取可审计的 JSONL 路径 |
 | IM 后端 → 输入框预填 | `source_jsonl_paths: string[]` | 所选 conversation 对应的 JSONL 绝对路径；这是 agent 可理解、可读取的蒸馏输入 |
-| IM 范围选择弹窗 | `target_scope: "agent" \| "pa"` | 用户显式选择写入当前 agent 级 skill root 或 PA 产品级 skill root |
-| IM → 普通聊天消息 | 预填文本 | `/skill:conversation-skill-distiller`、`source_jsonl_paths`、`target_scope` 和用户意图作为普通消息内容发送 |
+| IM 弹窗 | `execution_agent_id: string` | 执行本次蒸馏的新对话所属 agent；来源 conversation 全属同一 agent 时自动确定，跨 agent 时用户选择 |
+| IM 弹窗 | `target_scope: "agent" \| "pa"` | 用户显式选择写入执行 agent 级 skill root 或 PA 产品级 skill root |
+| IM → 普通聊天消息 | 预填文本 | `/skill:conversation-skill-distiller`、`source_jsonl_paths`、`execution_agent_id`、`target_scope` 和用户意图作为普通消息内容发送 |
 | agent / 蒸馏 skill | 消息文本中的 `source_jsonl_paths` | agent 根据蒸馏 skill 指令读取 JSONL 文件；读取失败按普通工具失败/assistant 回复展示 |
 
 **run_state 派生规则**:
@@ -488,13 +509,13 @@ target_scope: agent
 | 级别 | 用户含义 | 写入位置 | 可见性 |
 |---|---|---|---|
 | PA 产品级 | 给这个个人助手产品下的多个 agent 复用 | PA 产品级 skill root | 后续支持该 root 的 agent 可发现 |
-| agent 级 | 只给当前 agent 使用 | 当前 agent workspace skill root | 当前 agent 的 `<available_skills>` / `/skill:` 候选可发现 |
+| agent 级 | 只给执行 agent 使用 | 执行 agent workspace skill root | 执行 agent 的 `<available_skills>` / `/skill:` 候选可发现 |
 
 **`target_scope -> skill_manage(create)` 写入接口**:
 - `skill_manage(action="create")` 新增可选参数 `scope: "agent" | "pa"`，默认 `"agent"`，只对 create 生效；edit/patch/write_file/remove_file 继续按已存在 skill 的 location 操作，不接受任意 root/path。
-- `scope="agent"` 使用当前 session metadata 中的 `workspace_root + workspace_config_dirname`，写入当前 agent workspace skill root。
+- `scope="agent"` 使用执行 agent 新对话 session metadata 中的 `workspace_root + workspace_config_dirname`，写入执行 agent workspace skill root。来源 conversation 可能来自多个 agent，但不决定 agent 级写入位置。
 - `scope="pa"` 使用产品层注入的 PA skill root resolver（例如 PA product config 暴露的共享 skill root）。若当前产品/agent 未启用 PA root，工具返回 `success=false`，不回退写入 agent root。
-- F2 范围弹窗选择出的 `target_scope` 只进入用户可见的首条蒸馏消息 / relay payload，不作为隐藏写入范围存入 metadata。`conversation-skill-distiller` 的 SKILL.md 明确要求读取输入框中的 `target_scope`，并调用 `skill_manage(create, scope=<target_scope>)`。若模型漏传 `scope`，`skill_manage` 按自身默认 `"agent"` 处理；这会在工具调用展示中暴露，用户可以看到写入结果。
+- F2 弹窗确定出的 `execution_agent_id` 和 `target_scope` 只进入用户可见的首条蒸馏消息 / relay payload，不作为隐藏写入范围存入 metadata。`conversation-skill-distiller` 的 SKILL.md 明确要求读取输入框中的 `target_scope`，并调用 `skill_manage(create, scope=<target_scope>)`。若模型漏传 `scope`，`skill_manage` 按自身默认 `"agent"` 处理；这会在工具调用展示中暴露，用户可以看到写入结果。
 - `source` 仍不由 tool args 控制。`skill_manage(create)` 写入 `.usage.json.source` 时读取受控 `skill_creation_source` metadata；没有该 metadata 时按 F1 处理。
 
 ### Dashboard 数据通道
@@ -549,7 +570,7 @@ Gateway WS handler
 
 - kernel: specs/kernel/spec.md — skill_view 作为新 kernel built-in 工具，skill_manage 移除 view action 并为 create 增加 `scope`，内置工具列表新增 skill_view，stale/archived 可见集合，skill_view 越线触发 F4
 - im: specs/im/spec.md — 新增 dashboard 数据 API（GET /im/v1/agents/:agentId/skills/usage），MODIFIED conversation 列表/sync 通用 `run_state` 字段，F2 conversation 选择入口（左侧面板右键菜单 + 范围选择弹窗 + 预填 `source_jsonl_paths`），skill_view 工具调用面板专属展示
-- gateway: specs/gateway/spec.md — 新增 skills_usage WS RPC provider（读 .usage.json 聚合返回）；历史会话蒸馏不新增 Gateway 契约，`source_jsonl_paths` 和 `target_scope` 都只是 IM 预填的普通消息内容
+- gateway: specs/gateway/spec.md — 新增 skills_usage WS RPC provider（读 .usage.json 聚合返回）；新增通用 PA built-in skill 启动自举（复用 feat-447 的 `builtin_skills/*/SKILL.md` → `~/.nanoassistant/skills` 机制）；历史会话蒸馏不新增 Gateway 消息解析契约，`source_jsonl_paths`、`execution_agent_id` 和 `target_scope` 都只是 IM 预填的普通消息内容
 - cli: no spec delta（CLI 只是默认工具列表增加 skill_view，无新增外部命令面契约）
 
 ## 风险与回退
@@ -588,7 +609,7 @@ synthetic user message 注入到 compact_boundary 之后。如果 resume 逻辑�
 |---|---|---|---|---|---|
 | feat-446-M1 | skill-view-core | — | A | `platform/tools/builtins/skill_view.py`(新)、`skill_manage.py`(删 view + create scope 参数)、`core/skills/usage.py`(新)、`core/skills/root_resolver.py`(新：提取共享 skill_root 解析，含 agent/PA root)、`core/skills/formatter.py`、`sdk/kernel.py`、`core/agent/prompt_sections/core_sections.py`、`core/agent/prompt_sections/feature_registry.py`(requires_any_tool 扩展)、`platform/hooks/builtins/self_improvement.py`、`coding_cli/product.py`、`personal_assistant/product.py`、`personal_assistant/reporter/capability_projection.py` | `[reviewer]` agent 调用 skill_view 返回 SKILL.md 内容; skill_manage 不含 view action; skill_manage(create, scope=agent/pa) 写入指定 root 且不可用 PA root 时失败不回退; PA 默认工具集合和 capability projection 均包含 skill_view 且 default_on=true；未显式配置工具白名单的 PA agent 默认启用 skill_view；已有显式 tool_allowlist 不被自动扩宽，不含 skill_view 时后续 session 不启用 skill_view; 使用统计记录到 .usage.json（含 source=F1/F2/F3/F4）且同一 tool_call_id 重放不重复计数; compaction 时按 location 重读当前 SKILL.md 并以 `<system-reminder>` 注入，resume 后 metadata 可恢复; `[worker]` `pytest tests/unit/test_skill_view.py tests/unit/test_usage.py tests/contract/ -x` 全绿 |
 | feat-446-M2 | curator-f4 | feat-446-M1 | B | `core/skills/curator.py`(新：确定性扫描，返回 CuratorResult 数据，只管 stale/archive)、`platform/background/skill_batch_review.py`(新：per-skill 批量复盘编排，接收 runtime 注入的 background fork callable)、`sdk/kernel.py` / runtime enqueue（内部 skill batch review 入口）、`core/skills/usage.py`(扩展 state 字段 + F4Trigger 返回)、CLI 启动入口、Gateway housekeeping | `[reviewer]` 30 天未用的 F3/F4 skill 标记 stale; stale skill 仍出现在 `<available_skills>` 和 `/skill:` 候选并在统计面板标记 stale; 90 天归档到 .archive/ 后默认退出 `<available_skills>` 和 `/skill:` 候选，但在统计面板 archived 过滤视图可审计; stale skill 被重新读取后复活; F1/F2 skill 不被自动流转; skill_view 成功后 uses_since_last_B 越线即 enqueue per-skill 批量复盘，不等待 7 天 Curator; 同一 skill running/queued 时不并发启动第二个 batch; ≥2 session 证据才采纳; 只 patch 不创建; `[worker]` `pytest tests/unit/test_curator.py tests/unit/test_skill_batch_review.py -x` 全绿; `tests/contract/test_core_no_platform_imports.py` 全绿（core 不 import platform） |
-| feat-446-M3 | f2-distill | feat-446-M1 | B | `conversation-skill-distiller` 蒸馏 skill（SKILL.md）+ IM conversation 多选/范围选择弹窗/跳转/输入框预填入口 + conversation `run_state` 派生字段 + `source_jsonl_paths` 预填 + `target_scope` 解析 + 现有对话内写入结果展示 | `[reviewer]` 默认 IM conversation 列表不显示运行态标签；用户进入"生成 skill"多选模式后，checkbox 出现，`run_state=idle` 的 conversation 可选，`run_state=running` 的 conversation 禁选并显示"运行中"; 用户选择一个或多个可选 conversation 后，点击"蒸馏为 skill"会先弹窗选择 agent 级或 PA 产品级写入范围，再跳转到新对话；现有输入框预填 `/skill:conversation-skill-distiller`、`source_jsonl_paths`、`target_scope` 和默认意图 prompt; 用户编辑后按普通聊天消息发送，Gateway 不解析 source_jsonl_paths、不注入 transcript; agent 在蒸馏 skill 指导下读取 JSONL path，任一 source 不可读或证据不足时不创建 skill; agent 通过 `skill_manage(create, scope=<target_scope>)` 写入对应 skill root，并通过现有工具调用展示/普通回复告知结果; 本期不新增 SKILL.md 草稿预览卡片或确认写入/取消按钮; `[worker]` 蒸馏 skill 文件存在且格式正确; IM 前端相关测试全绿; skill_manage(create) 正确写入指定 skill root；历史蒸馏创建的 skill 按用户主动创建处理，不进入自动 Curator |
+| feat-446-M3 | f2-distill | feat-446-M1 | B | `src/personal_assistant/builtin_skills/conversation-skill-distiller/SKILL.md` + PA built-in skill bootstrap 复用/补齐 + IM conversation 多选/执行 agent 选择（仅跨 agent 来源）/范围选择弹窗/跳转/输入框预填入口 + conversation `run_state` 派生字段 + `source_jsonl_paths` 预填 + `execution_agent_id` + `target_scope` 解析 + 现有对话内写入结果展示 | `[reviewer]` 干净 HOME 或移走 `~/.nanoassistant/skills/conversation-skill-distiller` 后启动 Gateway，会自动生成 `~/.nanoassistant/skills/conversation-skill-distiller/SKILL.md`，且不覆盖已存在的用户本地同名 skill；默认 IM conversation 列表不显示运行态标签；用户进入"生成 skill"多选模式后，checkbox 出现，`run_state=idle` 的 conversation 可选，`run_state=running` 的 conversation 禁选并显示"运行中"; 用户选择一个或多个可选 conversation 后，点击"蒸馏为 skill"会先按来源 agent 集合确定执行 agent：来源全属同一 agent 时自动使用该 agent，来源跨多个 agent 时弹窗要求用户选择一个执行 agent；随后确认执行 agent 可发现 `conversation-skill-distiller`，不可见时提示去配置页启用，不预填无法加载的 `/skill:`；可见时同一弹窗选择 agent 级或 PA 产品级写入范围，再跳转到执行 agent 的新对话；现有输入框预填 `/skill:conversation-skill-distiller`、`source_jsonl_paths`、`execution_agent_id`、`target_scope` 和默认意图 prompt; 用户编辑后按普通聊天消息发送，Gateway 不解析 source_jsonl_paths、不注入 transcript; agent 在蒸馏 skill 指导下读取 JSONL path，任一 source 不可读或证据不足时不创建 skill; agent 通过 `skill_manage(create, scope=<target_scope>)` 写入对应 skill root，并通过现有工具调用展示/普通回复告知结果; 本期不新增 SKILL.md 草稿预览卡片或确认写入/取消按钮; `[worker]` 蒸馏 skill 使用标准目录型包内资源并纳入 package data；若 feat-447 M10 的 generic built-in skill bootstrap 已合并则复用它，未合并则实现同一通用 helper，不能写 feishu/distill 专用逻辑；IM 前端相关测试全绿; skill_manage(create) 在 `target_scope=agent` 时写入执行 agent 的 skill root，在 `target_scope=pa` 时写入 PA skill root；历史蒸馏创建的 skill 按用户主动创建处理，不进入自动 Curator |
 | feat-446-M4 | dashboard | feat-446-M1, feat-446-M3 | C | IM HTTP API（`/im/v1/agents/:agentId/skills/usage`）+ gateway WS RPC provider + `IM/frontend/src/` 面板组件 + `IM/frontend/src/features/chat/v2/components/tool-*` skill_view 展示 | `[reviewer]` Skill 列表视图显示 use_count + 状态 + 趋势（真实数据），支持查看 archived 过滤视图; Agent 维度视图显示热力图; 健康度视图显示漏斗数字; 空态/离线态正确显示; skill_view 工具行折叠态显示"查看 skill：<name>"，展开态显示 name/location/content 预览，失败态标红并展示错误原因; `[worker]` `cd src/IM/frontend && npm run test` 全绿; IM API 返回真实 .usage.json 数据; M4 串在 M3 后执行以避免同改 IM chat v2/frontend 状态模型造成并行冲突 |
 
 ```mermaid

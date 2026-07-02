@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>F2 从历史 session 蒸馏 skill — 交互原型</title>
+  <title>从历史会话生成 skill — 交互原型</title>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
@@ -256,6 +256,16 @@
       padding: 18px; display: flex; flex-direction: column; gap: 14px;
     }
     .scope-modal-title { font-weight: 800; font-size: 1rem; }
+    .scope-modal-note { font-size: 0.78rem; color: var(--im-text-muted); margin-top: 4px; }
+    .modal-section { display: grid; gap: 8px; }
+    .modal-section-title { font-size: 0.72rem; font-weight: 800; color: var(--im-text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+    .execution-auto {
+      border: 1px solid var(--im-border); border-radius: 8px;
+      background: oklch(0.985 0.003 240); padding: 10px 12px;
+      font-size: 0.82rem; line-height: 1.45;
+    }
+    .execution-auto strong { display: block; font-size: 0.86rem; color: var(--im-text); }
+    .execution-auto span { color: var(--im-text-muted); font-size: 0.76rem; }
     .scope-options { display: grid; grid-template-columns: 1fr; gap: 8px; }
     .scope-option {
       border: 1px solid var(--im-border); border-radius: 8px; background: var(--im-surface);
@@ -345,18 +355,41 @@
 <div class="scope-modal-backdrop" id="scope-modal">
   <div class="scope-modal" onclick="event.stopPropagation()">
     <div>
-      <div class="scope-modal-title">选择写入范围</div>
-      <div style="font-size:0.78rem;color:var(--im-text-muted);margin-top:4px;">生成后的 skill 要放在哪里？</div>
+      <div class="scope-modal-title">生成 skill</div>
+      <div class="scope-modal-note">先确定由哪个 agent 执行，再选择生成后的 skill 写入哪里。</div>
     </div>
+    <div class="modal-section" id="execution-auto-section">
+      <div class="modal-section-title">执行 agent</div>
+      <div class="execution-auto">
+        <strong id="execution-auto-name">default-agent</strong>
+        <span>所选会话都来自同一个 agent，已自动确定。</span>
+      </div>
+    </div>
+    <div class="modal-section" id="execution-choice-section" style="display:none;">
+      <div class="modal-section-title">执行 agent</div>
+      <div class="scope-options">
+        <button class="scope-option selected" id="exec-default-agent" onclick="selectExecutionAgent('default-agent')">
+          <strong>default-agent</strong>
+          <span>在这个 agent 的新对话中执行蒸馏。</span>
+        </button>
+        <button class="scope-option" id="exec-coding-agent" onclick="selectExecutionAgent('coding-agent')">
+          <strong>coding-agent</strong>
+          <span>在这个 agent 的新对话中执行蒸馏。</span>
+        </button>
+      </div>
+    </div>
+    <div class="modal-section">
+      <div class="modal-section-title">写入范围</div>
     <div class="scope-options">
       <button class="scope-option selected" id="scope-agent" onclick="selectScope('agent')">
-        <strong>当前 agent 级</strong>
-        <span>只给当前 agent 使用，默认选择。</span>
+        <strong>执行 agent 级</strong>
+        <span>只给本次执行 agent 使用，默认选择。</span>
       </button>
       <button class="scope-option" id="scope-pa" onclick="selectScope('pa')">
         <strong>PA 产品级</strong>
         <span>给支持该产品级 skill root 的多个 agent 复用。</span>
       </button>
+    </div>
     </div>
     <div class="scope-modal-actions">
       <button class="scope-modal-cancel" onclick="closeScopeModal()">取消</button>
@@ -423,6 +456,7 @@
               /Users/czj/.nano-assistant/sessions/def-456.jsonl<br>
               /Users/czj/.nano-assistant/sessions/ghi-789.jsonl
             </span>
+            execution_agent_id: default-agent<br>
             target_scope: agent
           </div>
           <div style="margin-top:8px;font-size:0.82rem;">
@@ -440,7 +474,7 @@
             • 67% 的会话在 design 阶段需要多轮澄清<br>
             • 所有会话都使用了 <code style="font-family:var(--im-font-mono);font-size:0.75rem;background:oklch(0.92 0.006 240);padding:1px 5px;border-radius:3px;">change-spec-author</code> → <code style="font-family:var(--im-font-mono);font-size:0.75rem;background:oklch(0.92 0.006 240);padding:1px 5px;border-radius:3px;">change-design-author</code> → <code style="font-family:var(--im-font-mono);font-size:0.75rem;background:oklch(0.92 0.006 240);padding:1px 5px;border-radius:3px;">change-orchestrator</code> 的 skill 链路<br><br>
             正在生成并写入 SKILL.md...<br>
-            <span style="font-size:0.72rem;color:var(--im-text-muted);">目标：写入 agent 级 skill root</span>
+            <span style="font-size:0.72rem;color:var(--im-text-muted);">目标：写入执行 agent 级 skill root</span>
           </div>
         </div>
       </div>
@@ -451,7 +485,7 @@
           <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;">
             <div>
               <div style="font-weight:700;">已创建 skill：change-workflow</div>
-              <div style="font-size:0.76rem;color:var(--im-text-muted);margin-top:4px;">目标：agent 级 skill root</div>
+              <div style="font-size:0.76rem;color:var(--im-text-muted);margin-top:4px;">目标：执行 agent 级 skill root</div>
             </div>
             <span style="background:oklch(0.92 0.08 170);color:oklch(0.36 0.10 170);border-radius:999px;padding:4px 10px;font-size:0.72rem;font-weight:700;">success</span>
           </div>
@@ -461,7 +495,7 @@
         <div class="bubble-avatar" style="background:oklch(0.52 0.14 260);">A</div>
         <div class="bubble-card">
           <div style="font-size:0.82rem;line-height:1.65;">
-            已经把这组会话中的共性流程沉淀为 <strong>change-workflow</strong>。后续当前 agent 可以在匹配场景下通过 <code style="font-family:var(--im-font-mono);font-size:0.75rem;background:oklch(0.92 0.006 240);padding:1px 5px;border-radius:3px;">skill_view</code> 查看并使用它。
+            已经把这组会话中的共性流程沉淀为 <strong>change-workflow</strong>。后续执行 agent 可以在匹配场景下通过 <code style="font-family:var(--im-font-mono);font-size:0.75rem;background:oklch(0.92 0.006 240);padding:1px 5px;border-radius:3px;">skill_view</code> 查看并使用它。
           </div>
         </div>
       </div>
@@ -477,18 +511,19 @@
 
 <script>
 const sessions = [
-  { id: 'abc-123', jsonl: '/Users/czj/.nano-assistant/sessions/abc-123.jsonl', title: 'feat-445 message-fork-branch', preview: 'spec → design → M1 实施完成', time: '2 小时前', run_state: 'idle', color: 'oklch(0.52 0.14 180)' },
-  { id: 'def-456', jsonl: '/Users/czj/.nano-assistant/sessions/def-456.jsonl', title: 'feat-444 session-wakeup', preview: 'M2 已完成，M3 进行中', time: '1 天前', run_state: 'idle', color: 'oklch(0.52 0.14 260)' },
-  { id: 'ghi-789', jsonl: '/Users/czj/.nano-assistant/sessions/ghi-789.jsonl', title: 'feat-440 tool-rejection-feedback', preview: '全 milestone 完成，已合并', time: '3 天前', run_state: 'idle', color: 'oklch(0.52 0.14 30)' },
-  { id: 'jkl-012', jsonl: '/Users/czj/.nano-assistant/sessions/jkl-012.jsonl', title: 'bugfix-437 compaction crash', preview: '定位到 workspace_root 为 None', time: '5 天前', run_state: 'idle', color: 'oklch(0.52 0.14 300)' },
-  { id: 'mno-345', jsonl: '/Users/czj/.nano-assistant/sessions/mno-345.jsonl', title: 'feat-439 im-cache-hit-and-thinking', preview: 'thinking 展示优化', time: '1 周前', run_state: 'idle', color: 'oklch(0.52 0.14 120)' },
-  { id: 'pqr-678', jsonl: '/Users/czj/.nano-assistant/sessions/pqr-678.jsonl', title: '当前会话', preview: '正在处理上一条消息...', time: '现在', run_state: 'running', color: 'oklch(0.52 0.14 180)' },
+  { id: 'abc-123', agent_id: 'default-agent', jsonl: '/Users/czj/.nano-assistant/sessions/abc-123.jsonl', title: 'feat-445 message-fork-branch', preview: 'default-agent · spec → design → M1 实施完成', time: '2 小时前', run_state: 'idle', color: 'oklch(0.52 0.14 180)' },
+  { id: 'def-456', agent_id: 'default-agent', jsonl: '/Users/czj/.nano-assistant/sessions/def-456.jsonl', title: 'feat-444 session-wakeup', preview: 'default-agent · M2 已完成，M3 进行中', time: '1 天前', run_state: 'idle', color: 'oklch(0.52 0.14 260)' },
+  { id: 'ghi-789', agent_id: 'coding-agent', jsonl: '/Users/czj/.nano-assistant/sessions/ghi-789.jsonl', title: 'feat-440 tool-rejection-feedback', preview: 'coding-agent · 全 milestone 完成，已合并', time: '3 天前', run_state: 'idle', color: 'oklch(0.52 0.14 30)' },
+  { id: 'jkl-012', agent_id: 'coding-agent', jsonl: '/Users/czj/.nano-assistant/sessions/jkl-012.jsonl', title: 'bugfix-437 compaction crash', preview: 'coding-agent · 定位到 workspace_root 为 None', time: '5 天前', run_state: 'idle', color: 'oklch(0.52 0.14 300)' },
+  { id: 'mno-345', agent_id: 'default-agent', jsonl: '/Users/czj/.nano-assistant/sessions/mno-345.jsonl', title: 'feat-439 im-cache-hit-and-thinking', preview: 'default-agent · thinking 展示优化', time: '1 周前', run_state: 'idle', color: 'oklch(0.52 0.14 120)' },
+  { id: 'pqr-678', agent_id: 'default-agent', jsonl: '/Users/czj/.nano-assistant/sessions/pqr-678.jsonl', title: '当前会话', preview: 'default-agent · 正在处理上一条消息...', time: '现在', run_state: 'running', color: 'oklch(0.52 0.14 180)' },
 ];
 
 const selected = new Set();
 let selectMode = false;
 let contextTarget = null;
 let targetScope = 'agent';
+let executionAgentId = 'default-agent';
 
 function renderSessions() {
   const list = document.getElementById('session-list');
@@ -525,7 +560,7 @@ function renderSessions() {
     if (selected.size > 0) {
       bar.classList.remove('hidden');
       count.textContent = `已选 ${selected.size} 个会话`;
-      btn.disabled = selected.size < 2;
+      btn.disabled = selected.size < 1;
     } else {
       bar.classList.remove('hidden');
       count.textContent = '点击会话进行选择';
@@ -564,6 +599,7 @@ function hideContextMenu() {
 }
 
 function openScopeModal() {
+  updateExecutionAgentOptions();
   document.getElementById('scope-modal').classList.add('visible');
 }
 
@@ -575,6 +611,35 @@ function selectScope(scope) {
   targetScope = scope;
   document.getElementById('scope-agent').classList.toggle('selected', scope === 'agent');
   document.getElementById('scope-pa').classList.toggle('selected', scope === 'pa');
+}
+
+function selectedSessions() {
+  return [...selected]
+    .map(id => sessions.find(s => s.id === id))
+    .filter(Boolean);
+}
+
+function updateExecutionAgentOptions() {
+  const selectedRows = selectedSessions();
+  const agentIds = [...new Set(selectedRows.map(s => s.agent_id))];
+  const isCrossAgent = agentIds.length > 1;
+  const autoSection = document.getElementById('execution-auto-section');
+  const choiceSection = document.getElementById('execution-choice-section');
+  autoSection.style.display = isCrossAgent ? 'none' : 'grid';
+  choiceSection.style.display = isCrossAgent ? 'grid' : 'none';
+  executionAgentId = isCrossAgent ? agentIds[0] : (agentIds[0] || 'default-agent');
+  document.getElementById('execution-auto-name').textContent = executionAgentId;
+  updateExecutionAgentSelection();
+}
+
+function selectExecutionAgent(agentId) {
+  executionAgentId = agentId;
+  updateExecutionAgentSelection();
+}
+
+function updateExecutionAgentSelection() {
+  document.getElementById('exec-default-agent').classList.toggle('selected', executionAgentId === 'default-agent');
+  document.getElementById('exec-coding-agent').classList.toggle('selected', executionAgentId === 'coding-agent');
 }
 
 function enterSelectMode() {
@@ -607,13 +672,11 @@ function goToStep2() {
   closeScopeModal();
   // Pre-fill the composer with /skill invocation — user edits, then sends manually
   const composer = document.getElementById('composer-prefilled');
-  const paths = [...selected]
-    .map(id => sessions.find(s => s.id === id))
-    .filter(Boolean)
+  const paths = selectedSessions()
     .map(s => `  ${s.jsonl}`)
     .join('\n');
-  const scopeLabel = targetScope === 'pa' ? 'PA 产品级' : 'agent 级';
-  composer.value = `/skill:conversation-skill-distiller\nsource_jsonl_paths:\n${paths}\ntarget_scope: ${targetScope}\n\n请基于上述会话 transcript，总结我反复使用且值得复用的工作方式，直接生成并写入一个 ${scopeLabel} skill。重点关注：\n- 触发这个 skill 的场景\n- 应遵循的步骤/检查点\n- 失败或边界情况\n如果这些会话不足以形成稳定模式，请说明原因，不要创建 skill。`;
+  const scopeLabel = targetScope === 'pa' ? 'PA 产品级' : '执行 agent 级';
+  composer.value = `/skill:conversation-skill-distiller\nsource_jsonl_paths:\n${paths}\nexecution_agent_id: ${executionAgentId}\ntarget_scope: ${targetScope}\n\n请基于上述会话 transcript，总结我反复使用且值得复用的工作方式，直接生成并写入一个 ${scopeLabel} skill。重点关注：\n- 触发这个 skill 的场景\n- 应遵循的步骤/检查点\n- 失败或边界情况\n如果这些会话不足以形成稳定模式，请说明原因，不要创建 skill。`;
   composer.focus();
   // Move cursor to the intent line (after the source JSONL paths)
   const intentStart = composer.value.indexOf('请基于');

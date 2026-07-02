@@ -19,11 +19,25 @@
 - **WHEN** 用户在 IM 左侧 conversation 列表面板中右键 conversation 并进入"生成 skill"多选模式
 - **THEN** 提供 checkbox 选择入口；`run_state=idle` 的 conversation 可选，`run_state=running` 的 conversation 禁选并显示"运行中"
 
-#### Scenario: 用户确认写入范围后跳转新对话
+#### Scenario: 单一来源 agent 时自动确定执行 agent
 - **GIVEN** 用户已选择一个或多个 `run_state=idle` 的 conversation
 - **WHEN** 用户点击"生成 skill"
-- **THEN** IM 弹窗让用户选择 agent 级或 PA 产品级写入范围
-- **AND** 用户确认后跳转到新对话
+- **THEN** 若所选 conversation 都属于同一个 agent，IM 自动把该 agent 作为执行 agent
+- **AND** IM 弹窗让用户选择 agent 级或 PA 产品级写入范围
+- **AND** 用户确认后跳转到执行 agent 的新对话
+
+#### Scenario: 跨 agent 来源时选择执行 agent
+- **GIVEN** 用户已选择多个 `run_state=idle` 的 conversation，且这些 conversation 来自多个 agent
+- **WHEN** 用户点击"生成 skill"
+- **THEN** IM 弹窗让用户选择一个执行 agent
+- **AND** 同一弹窗让用户选择 agent 级或 PA 产品级写入范围
+- **AND** 用户确认后跳转到执行 agent 的新对话
+
+#### Scenario: 执行 agent 未启用历史会话蒸馏 skill
+- **GIVEN** 执行 agent 的可见 skill 集合不包含 `conversation-skill-distiller`
+- **WHEN** 用户点击"生成 skill"
+- **THEN** IM 提示执行 agent 未启用历史会话蒸馏 skill
+- **AND** 不跳转新对话，也不预填 `/skill:conversation-skill-distiller`
 
 #### Scenario: 默认 conversation 列表不显示运行态标签
 - **WHEN** 用户正常浏览 IM 左侧 conversation 列表，且未进入"生成 skill"多选模式
@@ -32,9 +46,9 @@
 #### Scenario: 用户通过范围弹窗指定生成级别后提交蒸馏
 - **GIVEN** 新对话已预填所选 conversation 对应的 `source_jsonl_paths`
 - **WHEN** 用户补充意图说明并提交
-- **THEN** 对话将 `/skill:conversation-skill-distiller`、`source_jsonl_paths`、用户意图与弹窗选择出的 `target_scope` 预填为用户可见消息
+- **THEN** 对话将 `/skill:conversation-skill-distiller`、`source_jsonl_paths`、用户意图与弹窗确定出的 `execution_agent_id`、`target_scope` 预填为用户可见消息
 - **AND** 该消息按普通聊天消息发送；Gateway 不解析 `source_jsonl_paths`，不注入 transcript 上下文
-- **AND** agent/蒸馏 skill 从消息文本读取 `source_jsonl_paths` 与 `target_scope`，自行读取 JSONL 路径并用于 `skill_manage(create, scope=...)`
+- **AND** agent/蒸馏 skill 从消息文本读取 `source_jsonl_paths`、`execution_agent_id` 与 `target_scope`，自行读取 JSONL 路径并用于 `skill_manage(create, scope=...)`
 
 #### Scenario: 蒸馏写入结果复用现有对话展示
 - **GIVEN** 用户已发送预填后的蒸馏消息

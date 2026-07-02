@@ -54,7 +54,7 @@ A(原话): 用户主动发起。看skill-evolution中讲的。agent自己判断�
 Agent 解读: F2 是用户主动入口（选 session + 写意图），和 F3/F4 的自动触发正交。agent 自动判断并创建 skill 已有 F3 覆盖。
 - Q12: F2 的入口形态?
 A(原话): 我觉得这个可以做成一个skill，然后IM上可以在左边右键或者某种交互，选择某个session或者某几个session，然后跳转到一个新的对话中，写意图说明，然后用这个session总结生成skill的skill来给用户生成skill。这个skill用户可以选择生成成PA产品级的，还是agent级的
-Agent 解读: F2 两层实现——IM 前端做历史会话选择交互（多选 → 范围选择 → 跳转新对话），蒸馏 skill 本身是一个标准 SKILL.md（教 agent 读 transcript + 意图 → 生成 skill）。后续 Q20-Q22 收口为：跳转新对话时预填 `/skill:conversation-skill-distiller`、`source_jsonl_paths` 完整路径列表和弹窗选择出的 `target_scope`。
+Agent 解读: F2 两层实现——IM 前端做历史会话选择交互（多选 → 执行 agent 确定/选择 → 范围选择 → 跳转新对话），蒸馏 skill 本身是一个标准 SKILL.md（教 agent 读 transcript + 意图 → 生成 skill）。后续 Q20-Q22 及执行 agent 补充收口为：若所选 conversation 都属于同一个 agent，自动把该 agent 作为执行 agent；若跨多个 agent，弹窗要求用户选择执行 agent；跳转执行 agent 的新对话时预填 `/skill:conversation-skill-distiller`、`source_jsonl_paths` 完整路径列表、`execution_agent_id` 和弹窗选择出的 `target_scope`。
 - Q13: 面板归哪?
 A(原话): 本unit包含了IM的实现
 Agent 解读: skill 使用统计面板（IM 前端）在本 unit 内实现，不只是数据层。
@@ -82,7 +82,7 @@ Agent 解读: 读了 hermes 源码确认触发方式——CLI 启动时 daemon �
 我的推荐：本 unit 交付最小完整 F2 端到端旅程：session 多选入口、范围选择弹窗、跳转新对话、预填 `/skill:conversation-skill-distiller`、用户补意图、发送后由 agent 在普通对话里生成并写入 skill。
 理由：否则用户旅程断在"有蒸馏 skill，但用户不知道怎么从历史 session 触发它"。
 A(原话): 纳入
-Agent 解读: F2 的 IM session 选择交互、范围选择弹窗、跳转新对话和意图编辑都纳入本 unit，不另开 unit；写入走现有对话与 tool call 展示，不新增专门的 SKILL.md 草稿预览/确认 UI。
+Agent 解读: F2 的 IM session 选择交互、执行 agent 确定/选择、范围选择弹窗、跳转新对话和意图编辑都纳入本 unit，不另开 unit；写入走现有对话与 tool call 展示，不新增专门的 SKILL.md 草稿预览/确认 UI。
 - Q16: Curator 把自动 skill 标成 `stale` 或归档成 `archived` 后，用户在 IM 和 `/skill:` 里应该看到什么?
 我的推荐：`stale` 仍可见、可用，并在统计面板/候选详情里标记为 stale；`archived` 默认不再出现在 `<available_skills>` 和 `/skill:` 候选里，只在统计面板的 archived 过滤视图里可见。restore 本期只做手动文件级恢复，不做 UI 入口。
 理由：这样不会因为 stale 误伤仍可能有用的 skill，同时 archived 真正退出日常使用路径。
@@ -105,10 +105,10 @@ A(原话): 我觉得不是给id，而是应该给完整的对应jsonl的路径�
 Agent 解读: F2 输入改为 `source_jsonl_paths`。IM 仍从可见 conversation 列表发起，但跳转新对话时预填对应 transcript JSONL 的完整路径列表，而不是 conversation ID。这样跨 agent 蒸馏时 agent 不需要再猜 ID 到文件路径的映射。提交后这是一条普通聊天消息；Gateway/运行时不做专门解析、校验或 transcript 注入。agent 在 `conversation-skill-distiller` 指导下读取这些路径，读取失败按普通工具失败/assistant 回复处理。
 - Q21: F2 的生成范围 scope 怎么让用户选择?
 A(原话): 还有scope还是在勾选完会话之后，弹个窗让用户选择一下会好点。否则用户不明所以。
-Agent 解读: 用户选完 conversation 并点击"生成 skill"后，先弹出范围选择弹窗，让用户在 agent 级 / PA 产品级之间二选一。确认后再跳转新对话，系统把选择结果写入预填 prompt 的 `target_scope` 字段。不要只把 `scope` 藏在输入框里让用户猜。
+Agent 解读: 用户选完 conversation 并点击"生成 skill"后，先确定执行 agent：单一来源 agent 时自动确定，跨 agent 来源时在弹窗中让用户选择。随后在同一弹窗让用户在 agent 级 / PA 产品级之间二选一。确认后再跳转执行 agent 的新对话，系统把选择结果写入预填 prompt 的 `execution_agent_id` 与 `target_scope` 字段。不要只把 `scope` 藏在输入框里让用户猜。
 - Q22: F2 蒸馏 skill 的触发文案应该是什么形式?
 A(原话): 而且skill调用是/skill:xxx吧，你预填的prompt不对
-Agent 解读: 预填 prompt 必须使用现有 `/skill:<name>` 触发形式。本期新增的蒸馏 skill 名称固定为 `conversation-skill-distiller`，预填首行是 `/skill:conversation-skill-distiller`，后面追加 `source_jsonl_paths`、`target_scope` 和用户可编辑意图。
+Agent 解读: 预填 prompt 必须使用现有 `/skill:<name>` 触发形式。本期新增的蒸馏 skill 名称固定为 `conversation-skill-distiller`，预填首行是 `/skill:conversation-skill-distiller`，后面追加 `source_jsonl_paths`、`execution_agent_id`、`target_scope` 和用户可编辑意图。
 
 
 
@@ -168,11 +168,11 @@ F4 只 patch 不创建。分析的是"这个 skill 哪里有问题"，不是"要
 同一个 skill 同一时间只允许有一个 F4 batch 在运行。若已有 batch 运行中，后续 skill_view 继续增加使用次数也不能启动第二个并发 batch。F4 使用该 skill 的 session 引用去收集已结束 session 的 JSONL transcript；session 尚未结束或 transcript 缺失时，该 session 不作为分析证据。具体分析流程（W: map-reduce 多 agent 并行 vs A: 单 agent 单轮）留 design 阶段选型。
 
 **F2 手动蒸馏 skill**：
-用户在 IM 左边栏右键进入"生成 skill"多选模式 → checkbox 出现；默认 conversation 列表不显示运行态标签，多选模式下 `run_state=idle` 的会话可选，`run_state="running"` 的会话禁选并显示"运行中" → 用户选择若干可选会话后点击"生成 skill" → IM 弹窗让用户选择写入范围（agent 级或 PA 产品级）→ 用户确认后跳转到新对话 → 系统把 `/skill:conversation-skill-distiller`、所选 conversation 对应的 `source_jsonl_paths` 完整路径列表、`target_scope` 和可编辑意图预填到现有输入框 → 用户编辑后按普通消息发送 → agent 在蒸馏 skill 指导下读取 JSONL、提取模式并调用 `skill_manage(create)` 写入对应 skill root → 对话里通过现有工具调用展示/普通回复展示写入结果。
+用户在 IM 左边栏右键进入"生成 skill"多选模式 → checkbox 出现；默认 conversation 列表不显示运行态标签，多选模式下 `run_state=idle` 的会话可选，`run_state="running"` 的会话禁选并显示"运行中" → 用户选择若干可选会话后点击"生成 skill" → 若所选会话都属于同一个 agent，IM 自动把该 agent 作为本次执行 agent；若所选会话来自多个 agent，IM 在弹窗中让用户选择执行 agent → 同一弹窗让用户选择写入范围（agent 级或 PA 产品级）→ 用户确认后跳转到执行 agent 的新对话 → 系统把 `/skill:conversation-skill-distiller`、所选 conversation 对应的 `source_jsonl_paths` 完整路径列表、`execution_agent_id`、`target_scope` 和可编辑意图预填到现有输入框 → 用户编辑后按普通消息发送 → 执行 agent 在蒸馏 skill 指导下读取 JSONL、提取模式并调用 `skill_manage(create)` 写入对应 skill root → 对话里通过现有工具调用展示/普通回复展示写入结果。
 
 F2 正常入口只允许用户从当前可见的 conversation 列表中选择 `run_state=idle` 的 conversation。用户也可以复制或手动调整预填命令里的 `source_jsonl_paths`。提交后，agent 按蒸馏 skill 的指令读取这些路径；若任一路径不存在、不是 JSONL 或不可读，蒸馏流程必须在用户可见错误处停止，不得部分读取、不得部分生成、不得写入新 skill。
 
-本 unit 交付最小完整端到端旅程：IM 前端 session 多选/范围选择弹窗/跳转/输入框预填入口 + `conversation-skill-distiller` 蒸馏 skill（SKILL.md）+ prompt 中的 `target_scope`/意图编辑 + 现有对话内写入结果展示。不新增专门的 SKILL.md 草稿预览/确认 UI。
+本 unit 交付最小完整端到端旅程：IM 前端 session 多选/执行 agent 选择（仅跨 agent 来源时出现）/范围选择弹窗/跳转/输入框预填入口 + `conversation-skill-distiller` PA 内置蒸馏 skill（标准 SKILL.md）+ prompt 中的 `execution_agent_id`、`target_scope`、意图编辑 + 现有对话内写入结果展示。不新增专门的 SKILL.md 草稿预览/确认 UI。
 
 **与 hermes 的对齐**：hermes 本来就是三工具拆分（skills_list / skill_view / skill_manage）+ Curator。用户抄代码时把 view 和 list 合进了 skill_manage，Curator 没抄。现在补上，并从全局改为 per-workspace。
 
@@ -413,15 +413,17 @@ F2 正常入口只允许用户从当前可见的 conversation 列表中选择 `r
 
 - **GIVEN** 用户已在多选模式中选择一个或多个 `run_state=idle` 的 conversation
 - **WHEN** 用户点击"蒸馏为 skill"
-- **THEN** IM 先弹窗让用户选择 agent 级或 PA 产品级写入范围
-- **AND** 用户确认后跳转到一个新对话，并预填 `/skill:conversation-skill-distiller`、所选 conversation 对应的 `source_jsonl_paths` 完整路径列表与 `target_scope`
+- **THEN** 若所选 conversation 都属于同一个 agent，IM 自动把该 agent 作为执行 agent
+- **AND** 若所选 conversation 来自多个 agent，IM 在弹窗中让用户选择一个执行 agent
+- **AND** IM 在同一弹窗中让用户选择 agent 级或 PA 产品级写入范围
+- **AND** 用户确认后跳转到执行 agent 的新对话，并预填 `/skill:conversation-skill-distiller`、所选 conversation 对应的 `source_jsonl_paths` 完整路径列表、`execution_agent_id` 与 `target_scope`
 - **AND** 用户可以继续补充意图说明
 
 
 
 #### Scenario: 用户通过弹窗指定生成级别后提交蒸馏
 
-- **GIVEN** 用户已在范围选择弹窗中选择 agent 级或 PA 产品级，且新对话已预填所选 `source_jsonl_paths` 与对应 `target_scope`
+- **GIVEN** 用户已确定执行 agent 与写入范围，且新对话已预填所选 `source_jsonl_paths`、`execution_agent_id` 与对应 `target_scope`
 - **WHEN** 用户补充意图说明并发送
 - **THEN** agent 在蒸馏 skill 指导下按该级别决定目标 skill root，并开始读取消息中 `source_jsonl_paths` 对应的 JSONL transcript
 
@@ -465,9 +467,14 @@ F2 正常入口只允许用户从当前可见的 conversation 列表中选择 `r
 #### Scenario: 蒸馏 skill 是一个普通 `SKILL.md`
 
 - **WHEN** 查看蒸馏 skill 的实现
-- **THEN** 它是名为 `conversation-skill-distiller` 的标准 SKILL.md 文件，教 agent 如何读 session transcript + 意图 → 生成 skill，使用 skill_manage(create) 写入
+- **THEN** 它是名为 `conversation-skill-distiller` 的 PA 内置标准 SKILL.md 文件，教 agent 如何读 session transcript + 意图 → 生成 skill，使用 skill_manage(create) 写入
 
+#### Scenario: 执行 agent 未启用蒸馏 skill
 
+- **GIVEN** 本次确定出的执行 agent 因显式 skills 白名单看不到 `conversation-skill-distiller`
+- **WHEN** 用户从历史 conversation 发起 skill 蒸馏
+- **THEN** IM 在跳转新对话/预填 `/skill:conversation-skill-distiller` 前提示执行 agent 未启用蒸馏 skill
+- **AND** 不发送一条注定无法加载该 skill 的普通聊天消息
 
 ### Requirement: Per-skill Batch 优化触发
 
@@ -616,7 +623,7 @@ F2 正常入口只允许用户从当前可见的 conversation 列表中选择 `r
   - 压缩存活机制（addInvokedSkill + compaction 时 re-inject），同一 skill 去重，并在 compaction 时重新读取当前 SKILL.md 内容
   - Curator 生命周期管理（active/stale/archived，per-workspace，periodic 触发，7 天门控，只管 F3/F4 自动创建的 skill；F1/F2/manual/unknown 来源受保护）
   - Per-skill Batch 优化（F4）：uses_since_last_B 阈值触发，收集已结束 session JSONL，LLM 分析跨 session 系统性缺陷，≥2 证据阈值，只自动 patch F3/F4 自动 skill，不自动 patch F1/F2/manual/unknown skill
-  - 手动蒸馏 skill（F2）：IM 前端 session 多选/范围选择弹窗/跳转/输入框预填入口 + `conversation-skill-distiller` 蒸馏 skill 本身（SKILL.md）+ prompt 中的 `target_scope` 与意图编辑 + 现有对话内写入结果展示；`source_jsonl_paths` 可复制/手动调整，但必须对应用户可见、已结束、已登记且 transcript 可用的 JSONL 文件
+  - 手动蒸馏 skill（F2）：IM 前端 session 多选/执行 agent 选择（仅跨 agent 来源时出现）/范围选择弹窗/跳转/输入框预填入口 + `conversation-skill-distiller` 蒸馏 skill 本身（SKILL.md）+ prompt 中的 `execution_agent_id`、`target_scope` 与意图编辑 + 现有对话内写入结果展示；`source_jsonl_paths` 可复制/手动调整，但必须对应用户可见、已结束、已登记且 transcript 可用的 JSONL 文件
   - IM 前端 skill 使用统计面板（per-skill 使用情况 + per-agent skill 使用分布）
   - 所有引用点迁移（product.py、kernel.py、self_improvement.py、feature_registry、reporter 等）
 - 非目标：

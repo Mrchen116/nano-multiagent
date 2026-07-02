@@ -12,6 +12,18 @@
 - **WHEN** agent workspace 不存在或 `.usage.json` 文件缺失
 - **THEN** 返回空 skill 列表（不报错）
 
+### Requirement: PA 内置 skill 启动自举
+
+#### Scenario: Gateway 启动时安装缺失的 PA 内置 skill
+- **WHEN** Gateway 启动并发现包内 `builtin_skills/<skill-name>/SKILL.md`
+- **THEN** 若 `~/.nanoassistant/skills/<skill-name>/SKILL.md` 不存在，复制整个内置 skill 目录到该运行态全局 skill root
+- **AND** 复制后的 skill 可被 PA agent 的 skill discovery 发现
+
+#### Scenario: 用户已有同名内置 skill 时不覆盖
+- **GIVEN** `~/.nanoassistant/skills/<skill-name>/SKILL.md` 已存在
+- **WHEN** Gateway 启动
+- **THEN** 不覆盖该目录中的用户文件
+
 ## MODIFIED Requirements
 
 ### Requirement: PA agent 默认工具集合
