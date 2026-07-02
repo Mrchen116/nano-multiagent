@@ -586,9 +586,36 @@ class InboundPipeline:
                 lifecycle_detail = {"suppressed_by": "cancelled"}
             elif not self._should_suppress_no_reply(
                 reply_text, in_group=message.is_group
+            ) and not (
+                _is_external_channel_inbound(message)
+                and self._is_no_reply_token(reply_text)
             ):
+                reply_context = binding.reply_context
+                if _is_external_channel_inbound(message):
+                    reply_context = replace(
+                        reply_context,
+                        metadata={
+                            **dict(reply_context.metadata),
+                            "reply_phase": "final",
+                            "reply_dedupe_key": (
+                                f"{run_id}:text:{reply_text.strip()}"
+                            ),
+                            **(
+                                {
+                                    "feishu_message_id": str(
+                                        message.metadata["feishu_message_id"]
+                                    )
+                                }
+                                if isinstance(
+                                    message.metadata.get("feishu_message_id"), str
+                                )
+                                and str(message.metadata["feishu_message_id"]).strip()
+                                else {}
+                            ),
+                        },
+                    )
                 outbound = self._outbound_router.send_text(
-                    text=reply_text, reply_context=binding.reply_context
+                    text=reply_text, reply_context=reply_context
                 )
             else:
                 lifecycle_detail = {"suppressed_by": "no_reply_token"}

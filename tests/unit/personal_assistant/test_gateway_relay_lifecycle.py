@@ -130,6 +130,7 @@ def test_relay_lifecycle_callback_seeds_external_shadow_run_context() -> None:
         owner_user_id="owner-1",
     )
     message = type("_Message", (), {})()
+    message.channel_name = "feishu:agent-a"
     message.external_chat_id = "oc_feishu_chat"
     message.metadata = {
         "external_source": "feishu",
@@ -137,6 +138,7 @@ def test_relay_lifecycle_callback_seeds_external_shadow_run_context() -> None:
         "shadow_conversation_id": "shadow-conv-1",
         "trigger_source": "feishu",
         "agent_id": "agent-a",
+        "feishu_message_id": "om_msg_1",
     }
 
     async def _exercise() -> None:
@@ -160,6 +162,9 @@ def test_relay_lifecycle_callback_seeds_external_shadow_run_context() -> None:
         "kernel_session_id": "sess-1",
         "to_user_id": "",
         "trigger_source": "feishu",
+        "reply_channel_name": "feishu:agent-a",
+        "reply_target_chat_id": "oc_feishu_chat",
+        "feishu_message_id": "om_msg_1",
     }
 
 

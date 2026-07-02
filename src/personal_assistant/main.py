@@ -28,7 +28,7 @@ import httpx
 import websockets
 from websockets.asyncio.client import ClientConnection
 
-from personal_assistant.channels.base import InboundMessage
+from personal_assistant.channels.base import InboundMessage, ReplyContext
 from personal_assistant.channels.web_relay_adapter import (
     RelayDeduplicationStore,
     WebRelayAdapter,
@@ -2782,9 +2782,30 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         owner_user_id=_owner_user_id,
     )
     if config.im_service is not None:
+        def _send_external_reply(text: str, metadata: Mapping[str, str]) -> None:
+            channel_name = metadata.get("channel_name") or ""
+            target_chat_id = metadata.get("target_chat_id") or ""
+            if not channel_name or not target_chat_id:
+                return
+            reply_metadata = {
+                key: value
+                for key, value in metadata.items()
+                if key not in {"channel_name", "target_chat_id", "reply_thread_id"}
+            }
+            outbound_router.send_text(
+                text=text,
+                reply_context=ReplyContext(
+                    channel_name=channel_name,
+                    target_chat_id=target_chat_id,
+                    thread_id=metadata.get("reply_thread_id") or None,
+                    metadata=reply_metadata,
+                ),
+            )
+
         _kernel_event_observer = _build_kernel_event_observer(
             im_connection_manager_factory=lambda: im_connection_manager,
             run_context_store=_run_context_store,
+            external_reply_sender=_send_external_reply,
         )
         pipeline._kernel_event_observer = _kernel_event_observer
         # feat-393: wire observer into heartbeat_runner now that it's built.
@@ -3579,6 +3600,26 @@ def _build_relay_lifecycle_callback(
                 }
                 if trigger_source:
                     run_context_store[update.run_id]["trigger_source"] = trigger_source
+                if trigger_source and trigger_source != "im":
+                    channel_name = str(getattr(message, "channel_name", "") or "")
+                    run_context_store[update.run_id]["reply_channel_name"] = (
+                        channel_name
+                    )
+                    run_context_store[update.run_id]["reply_target_chat_id"] = (
+                        message.external_chat_id
+                    )
+                    thread_id = getattr(message, "thread_id", None)
+                    if thread_id:
+                        run_context_store[update.run_id]["reply_thread_id"] = (
+                            str(thread_id)
+                        )
+                    feishu_message_id = _metadata_text(
+                        message.metadata, key="feishu_message_id"
+                    )
+                    if feishu_message_id is not None:
+                        run_context_store[update.run_id]["feishu_message_id"] = (
+                            feishu_message_id
+                        )
         elif update.phase in ("completed", "failed"):
             if run_context_store is not None and update.run_id:
                 run_context_store.pop(update.run_id, None)
@@ -3796,6 +3837,7 @@ def _build_kernel_event_observer(
     im_connection_manager_factory: Callable[[], IMConnectionManager | None],
     run_context_store: dict[str, dict[str, str]],
     running_tool_calls: dict[str, dict[str, dict[str, Any]]] | None = None,
+    external_reply_sender: Callable[[str, Mapping[str, str]], Any] | None = None,
 ) -> Callable[[Mapping[str, Any]], "Coroutine[Any, Any, None] | None"]:
     """Build a kernel SSE event observer that forwards streaming events to IM via node.streaming_delta.
 
@@ -3845,6 +3887,42 @@ def _build_kernel_event_observer(
             # IM send failure must not propagate into the event stream; log so the
             # drop is observable (refactor-395-M1).
             _log.warning("IM observer send failed for %s: %s", message_type, exc)
+
+    def _is_external_reply_context(ctx: Mapping[str, str]) -> bool:
+        channel_name = ctx.get("reply_channel_name") or ""
+        target_chat_id = ctx.get("reply_target_chat_id") or ""
+        return bool(
+            external_reply_sender is not None
+            and ctx.get("trigger_source") != "im"
+            and channel_name
+            and channel_name != "web_relay"
+            and target_chat_id
+        )
+
+    def _mirror_external_reply(
+        *, rid: str, ctx: dict[str, str], phase: str, text: str
+    ) -> None:
+        if not _is_external_reply_context(ctx):
+            return
+        cleaned_text = text.strip()
+        if not cleaned_text:
+            return
+        if InboundPipeline._is_no_reply_token(cleaned_text):
+            return
+        metadata: dict[str, str] = {
+            "reply_phase": phase,
+            "reply_dedupe_key": f"{rid}:text:{cleaned_text}",
+            "channel_name": ctx["reply_channel_name"],
+            "target_chat_id": ctx["reply_target_chat_id"],
+        }
+        optional_keys = ("reply_thread_id", "feishu_message_id")
+        for key in optional_keys:
+            value = ctx.get(key)
+            if value:
+                metadata[key] = value
+        result = external_reply_sender(cleaned_text, metadata)
+        if asyncio.iscoroutine(result):
+            asyncio.get_event_loop().create_task(result)
 
     def observer(event: Mapping[str, Any]) -> "Coroutine[Any, Any, None] | None":
         manager = im_connection_manager_factory()
@@ -4039,6 +4117,13 @@ def _build_kernel_event_observer(
                     new_kernel_id: str = kernel_msg_id,
                 ) -> None:
                     try:
+                        old_text = ctx.get("external_current_text") or ""
+                        _mirror_external_reply(
+                            rid=rid,
+                            ctx=ctx,
+                            phase="intermediate",
+                            text=old_text,
+                        )
                         new_msg_id = await _roll_bubble(
                             mgr,
                             run_id=rid,
@@ -4049,6 +4134,7 @@ def _build_kernel_event_observer(
                             new_kernel_message_id=new_kernel_id,
                         )
                         if new_msg_id:
+                            ctx["external_current_text"] = text
                             if reasoning_text:
                                 await mgr.send_json(
                                     "node.streaming_delta",
@@ -4096,6 +4182,7 @@ def _build_kernel_event_observer(
                     # turn_start already ack'd — send delta directly.
                     if kernel_msg_id:
                         ctx["kernel_message_id"] = kernel_msg_id
+                    ctx["external_current_text"] = content
                     loop.create_task(
                         _send(
                             manager,
@@ -4137,6 +4224,7 @@ def _build_kernel_event_observer(
                                 run_context_store[rid]["kernel_message_id"] = (
                                     new_kernel_id
                                 )
+                            run_context_store[rid]["external_current_text"] = text
                             # feat-439-M2: 思考过程项先于正文 delta 转发到新建气泡。
                             if reasoning_text:
                                 await mgr.send_json(
@@ -4206,6 +4294,12 @@ def _build_kernel_event_observer(
                         cache_total_input if isinstance(cache_total_input, int) else 0
                     )
             if message_id:
+                _mirror_external_reply(
+                    rid=run_id,
+                    ctx=ctx,
+                    phase="final",
+                    text=ctx.get("external_current_text") or "",
+                )
                 loop.create_task(
                     _send(
                         manager,
