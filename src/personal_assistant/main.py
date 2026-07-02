@@ -1607,6 +1607,7 @@ class GatewayRuntime:
                     await _dispatch_site.start()
                 except Exception:  # noqa: BLE001
                     dispatch_runner = None
+            self._run_skill_maintenance()
             self._ready_event.set()
             if self._im_connection_manager is not None:
                 # bugfix-446-M1 (decision 1): own the IM connection through a
@@ -1692,6 +1693,26 @@ class GatewayRuntime:
         if self._shutdown_requested.is_set():
             event.set()
         return event
+
+    def _run_skill_maintenance(self) -> None:
+        """Run best-effort per-agent skill housekeeping at Gateway startup."""
+
+        if self._kernel is None or not hasattr(self._kernel, "run_skill_maintenance"):
+            return
+        run_skill_maintenance = getattr(self._kernel, "run_skill_maintenance")
+        for agent in self._config.agents:
+            workspace_root = getattr(agent, "workspace_root", None)
+            if workspace_root is None:
+                continue
+            try:
+                run_skill_maintenance(workspace_root=workspace_root)
+            except Exception as exc:  # noqa: BLE001
+                _log.warning(
+                    "skill maintenance failed for agent=%s workspace=%s: %s",
+                    getattr(agent, "agent_id", ""),
+                    workspace_root,
+                    exc,
+                )
 
     async def _wait_for_shutdown_request(self, *, timeout: float | None = None) -> bool:
         event = self._shutdown_event_for_loop()

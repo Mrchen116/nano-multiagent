@@ -235,6 +235,7 @@ class AgentRuntime:
         self._session_prompt_slots: dict[str, object] = {}
         self._skill_batch_review_queued: set[str] = set()
         self._skill_batch_review_running: set[str] = set()
+        self._skill_batch_review_triggers: dict[str, Any] = {}
         tool_results_dir = self._repo_root / ".nano" / "tool-results"
         self._tool_result_compressor = ToolResultCompressor(tool_results_dir)
         self._context_fork = AgentContextFork(
@@ -1001,6 +1002,7 @@ class AgentRuntime:
     def enqueue_skill_batch_review(self, trigger: Any) -> bool:
         """Record one per-skill batch review enqueue request with per-skill dedupe."""
 
+        self._ensure_skill_batch_review_state()
         skill_name = getattr(trigger, "skill_name", None)
         if not isinstance(skill_name, str) or not skill_name:
             return False
@@ -1010,7 +1012,37 @@ class AgentRuntime:
         ):
             return False
         self._skill_batch_review_queued.add(skill_name)
+        self._skill_batch_review_triggers[skill_name] = trigger
         return True
+
+    def pop_queued_skill_batch_reviews(self) -> tuple[Any, ...]:
+        """Move queued skill batch reviews into running state and return triggers."""
+
+        self._ensure_skill_batch_review_state()
+        triggers: list[Any] = []
+        for skill_name in tuple(sorted(self._skill_batch_review_queued)):
+            trigger = self._skill_batch_review_triggers.get(skill_name)
+            self._skill_batch_review_queued.discard(skill_name)
+            if trigger is None:
+                continue
+            self._skill_batch_review_running.add(skill_name)
+            triggers.append(trigger)
+        return tuple(triggers)
+
+    def finish_skill_batch_review(self, skill_name: str) -> None:
+        """Release per-skill running state after a batch review finishes."""
+
+        self._ensure_skill_batch_review_state()
+        self._skill_batch_review_running.discard(skill_name)
+        self._skill_batch_review_triggers.pop(skill_name, None)
+
+    def _ensure_skill_batch_review_state(self) -> None:
+        if not hasattr(self, "_skill_batch_review_queued"):
+            self._skill_batch_review_queued = set()
+        if not hasattr(self, "_skill_batch_review_running"):
+            self._skill_batch_review_running = set()
+        if not hasattr(self, "_skill_batch_review_triggers"):
+            self._skill_batch_review_triggers = {}
 
     @property
     def hook_runner(self) -> HookRunner | None:

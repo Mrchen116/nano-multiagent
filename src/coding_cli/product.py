@@ -167,6 +167,8 @@ async def open_cli_session(kernel: Any, *, workspace_root: Path) -> Any:
     Returns:
         SessionInfo for the new session.
     """
+    if hasattr(kernel, "run_skill_maintenance"):
+        kernel.run_skill_maintenance(workspace_root=workspace_root)
     return await kernel.create_session(
         workspace_root=workspace_root,
         enabled_tools=list(DEFAULT_ENABLED_TOOLS),

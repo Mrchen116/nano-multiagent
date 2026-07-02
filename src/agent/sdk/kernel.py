@@ -1353,6 +1353,48 @@ class Kernel:
             for s in skills
         ]
 
+    def run_skill_maintenance(
+        self, *, workspace_root: Path | None = None, force: bool = False
+    ) -> Any:
+        """Run deterministic skill lifecycle housekeeping for one workspace."""
+
+        from agent.core.skills.curator import (  # noqa: PLC0415
+            apply_curator_transitions,
+            run_curator_scan,
+        )
+
+        effective_root = Path(workspace_root or self._repo_root).expanduser().resolve()
+        skill_root = (
+            effective_root / (self._workspace_config_dirname or ".nano") / "skills"
+        )
+        result = run_curator_scan(skill_root=skill_root, force=force)
+        return apply_curator_transitions(result)
+
+    async def run_queued_skill_batch_reviews(
+        self, *, run_background_analysis: Callable[..., Awaitable[Any] | Any]
+    ) -> tuple[Any, ...]:
+        """Drain queued per-skill batch reviews using an injected background fork."""
+
+        from agent.platform.background.skill_batch_review import (  # noqa: PLC0415
+            run_skill_batch_review_async,
+        )
+
+        triggers = self._c.runtime.pop_queued_skill_batch_reviews()
+        results: list[Any] = []
+        for trigger in triggers:
+            skill_name = getattr(trigger, "skill_name", "")
+            try:
+                results.append(
+                    await run_skill_batch_review_async(
+                        trigger,
+                        run_background_analysis=run_background_analysis,
+                    )
+                )
+            finally:
+                if isinstance(skill_name, str) and skill_name:
+                    self._c.runtime.finish_skill_batch_review(skill_name)
+        return tuple(results)
+
     def get_llm_config(self) -> LLMConfig:
         """Return the active LLM configuration as an SDK-owned ``LLMConfig`` (决策 5).
 
