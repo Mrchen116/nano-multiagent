@@ -61,4 +61,6 @@
   - `c5549ad0 test(feat-451/M4/R1): cover live pane arrival regressions`
   - `5307e6ac fix(feat-451/M4/R1): keep active pane live arrivals`
   - `1be33c97 docs(feat-451/M4/R1): record live pane evidence`
-- Next: Merge `milestone/feat-451-M4` into `unit/feat-451`.
+  - `15be73e5 docs(feat-451/M4/R1): record final validation`
+  - `e8deb2b4 merge(feat-451/M4): fix live pane arrivals`
+- Next: COMPLETE. M4 has been merged into `unit/feat-451` at merge commit `e8deb2b4`; milestone branch/worktree cleanup is the remaining orchestrator bookkeeping outside this progress file.
