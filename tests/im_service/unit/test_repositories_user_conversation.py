@@ -1,6 +1,7 @@
 """Unit tests for user, conversation, node, and bind repositories."""
 
 from pathlib import Path
+import sqlite3
 
 import pytest
 
@@ -247,3 +248,24 @@ def test_external_conversation_find_or_create_is_agent_scoped_and_updates_title(
     assert second.external_chat_id == "oc_product"
     assert other_agent.id != first.id
     assert other_agent.config_agent_id == "luban"
+
+    with pytest.raises(sqlite3.IntegrityError):
+        conversations._connection.execute(  # noqa: SLF001
+            """
+            INSERT INTO conversations(
+                id, title, type, owner_id, creator_id, config_agent_id,
+                external_source, external_chat_id, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "duplicate-shadow",
+                "Duplicate",
+                "group",
+                owner.owner_id,
+                owner.id,
+                "plato",
+                "feishu",
+                "oc_product",
+                "2026-01-01T00:00:00Z",
+            ),
+        )

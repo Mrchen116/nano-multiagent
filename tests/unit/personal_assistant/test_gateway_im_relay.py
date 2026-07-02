@@ -189,6 +189,7 @@ def test_external_shadow_sync_uses_authenticated_im_user_not_stale_config_user()
             return httpx.Response(201, json={"id": "conv-shadow"})
         if request.url.path == "/im/v1/conversations/conv-shadow/messages":
             assert payload["sender_user_id"] == "actual-user"
+            assert payload["suppress_relay"] is True
             return httpx.Response(201, json={"id": "msg-shadow"})
         raise AssertionError(f"unexpected request: {request.url.path}")
 

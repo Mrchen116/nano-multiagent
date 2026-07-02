@@ -334,18 +334,18 @@ def _is_bot_mentioned(mentions: list[FeishuMention], bot_open_id: str | None) ->
 
     Returns True when:
     - bot_open_id is set and appears in the mentions list
-    - bot_open_id is None and any non-@所有人 mention exists (conservative: trigger)
 
     Returns False when:
     - No mentions at all
     - Only @所有人 (open_id="all") is mentioned
+    - bot_open_id is missing, because another human/bot mention is not proof that
+      this adapter was addressed
     """
     if not mentions:
         return False
 
     if bot_open_id is None:
-        # No bot_open_id configured — any real mention triggers
-        return any(m.open_id != "all" for m in mentions)
+        return False
 
     return any(m.open_id == bot_open_id for m in mentions)
 

@@ -82,7 +82,47 @@ def test_autofill_feishu_owner_open_id_from_matching_lark_cli_auth(
     )
 
     assert updated.channels[0].settings["ownerOpenId"] == "ou_owner"
+    assert updated.channels[0].settings["botOpenId"] == "ou_bot"
     assert saved == [updated]
+
+
+def test_autofill_feishu_bot_open_id_without_overwriting_owner(
+    tmp_path: Path,
+) -> None:
+    config = _local_config(
+        tmp_path,
+        (
+            ChannelConfig(
+                name="feishu:plato",
+                enabled=True,
+                settings={
+                    "appId": "cli_a",
+                    "appSecret": "s_a",
+                    "ownerOpenId": "ou_existing_owner",
+                },
+            ),
+        ),
+    )
+
+    def _run(*_args, **_kwargs):  # noqa: ANN001
+        return subprocess.CompletedProcess(
+            args=["lark-cli"],
+            returncode=0,
+            stdout=(
+                '{"appId":"cli_a","identities":'
+                '{"user":{"openId":"ou_owner"},"bot":{"openId":"ou_bot"}}}'
+            ),
+            stderr="",
+        )
+
+    updated = _autofill_feishu_owner_open_id(
+        config,
+        save_config=lambda _cfg, _path: None,
+        command_runner=_run,
+    )
+
+    assert updated.channels[0].settings["ownerOpenId"] == "ou_existing_owner"
+    assert updated.channels[0].settings["botOpenId"] == "ou_bot"
 
 
 def test_autofill_feishu_owner_open_id_without_source_path_keeps_memory_update(
@@ -155,6 +195,7 @@ def test_autofill_feishu_owner_open_id_ignores_app_id_mismatch(
     )
 
     assert "ownerOpenId" not in updated.channels[0].settings
+    assert "botOpenId" not in updated.channels[0].settings
 
 
 def test_autofill_feishu_owner_open_id_degrades_when_lark_cli_missing(

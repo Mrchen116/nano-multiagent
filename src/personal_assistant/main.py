@@ -871,6 +871,7 @@ class _IMShadowConversationSyncClient:
                     "sender_display_name": _metadata_text(
                         metadata, key="sender_display_name"
                     ),
+                    "suppress_relay": True,
                 },
             )
             message_response.raise_for_status()
@@ -1900,7 +1901,7 @@ def _autofill_feishu_owner_open_id(
     save_config: Callable[[LocalConfig, str | Path], None] = save_local_config,
     command_runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
 ) -> LocalConfig:
-    """Fill missing Feishu ownerOpenId from the matching local lark-cli auth."""
+    """Fill missing Feishu owner/bot open IDs from the matching local lark-cli auth."""
     updated_channels: list[ChannelConfig] = []
     changed = False
     for channel in config.channels:
@@ -1909,20 +1910,33 @@ def _autofill_feishu_owner_open_id(
             continue
         settings = dict(channel.settings)
         owner_open_id = settings.get("ownerOpenId")
-        if isinstance(owner_open_id, str) and owner_open_id.strip():
+        bot_open_id = settings.get("botOpenId")
+        needs_owner_open_id = not (
+            isinstance(owner_open_id, str) and owner_open_id.strip()
+        )
+        needs_bot_open_id = not (isinstance(bot_open_id, str) and bot_open_id.strip())
+        if not needs_owner_open_id and not needs_bot_open_id:
             updated_channels.append(channel)
             continue
         app_id = settings.get("appId")
         if not isinstance(app_id, str) or not app_id.strip():
             updated_channels.append(channel)
             continue
-        inferred = _infer_feishu_owner_open_id_from_lark_cli(
+        inferred = _infer_feishu_open_ids_from_lark_cli(
             app_id.strip(), command_runner=command_runner
         )
-        if inferred is None:
+        updated_settings = False
+        inferred_owner_open_id = inferred.get("ownerOpenId")
+        if needs_owner_open_id and inferred_owner_open_id is not None:
+            settings["ownerOpenId"] = inferred_owner_open_id
+            updated_settings = True
+        inferred_bot_open_id = inferred.get("botOpenId")
+        if needs_bot_open_id and inferred_bot_open_id is not None:
+            settings["botOpenId"] = inferred_bot_open_id
+            updated_settings = True
+        if not updated_settings:
             updated_channels.append(channel)
             continue
-        settings["ownerOpenId"] = inferred
         updated_channels.append(replace(channel, settings=settings))
         changed = True
     if not changed:
@@ -1934,12 +1948,12 @@ def _autofill_feishu_owner_open_id(
     return updated
 
 
-def _infer_feishu_owner_open_id_from_lark_cli(
+def _infer_feishu_open_ids_from_lark_cli(
     app_id: str,
     *,
     command_runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
-) -> str | None:
-    """Return lark-cli user open_id when its verified app matches ``app_id``."""
+) -> dict[str, str]:
+    """Return lark-cli open IDs when its verified app matches ``app_id``."""
     try:
         result = command_runner(
             ["lark-cli", "auth", "status", "--json", "--verify"],
@@ -1948,33 +1962,40 @@ def _infer_feishu_owner_open_id_from_lark_cli(
             timeout=10,
         )
     except (OSError, subprocess.SubprocessError):
-        _log.warning("failed to run lark-cli auth status for ownerOpenId inference")
-        return None
+        _log.warning("failed to run lark-cli auth status for Feishu open-id inference")
+        return {}
     if result.returncode != 0:
         _log.warning(
-            "lark-cli auth status failed; ownerOpenId will not be auto-filled"
+            "lark-cli auth status failed; Feishu open IDs will not be auto-filled"
         )
-        return None
+        return {}
     try:
         payload = json.loads(result.stdout)
     except json.JSONDecodeError:
         _log.warning("lark-cli auth status returned invalid JSON")
-        return None
+        return {}
     if payload.get("appId") != app_id:
         _log.warning(
-            "lark-cli appId does not match feishu channel; ownerOpenId not filled"
+            "lark-cli appId does not match feishu channel; Feishu open IDs not filled"
         )
-        return None
+        return {}
     identities = payload.get("identities")
     user_identity = (
         identities.get("user") if isinstance(identities, dict) else None
     )
-    open_id = (
+    bot_identity = identities.get("bot") if isinstance(identities, dict) else None
+    owner_open_id = (
         user_identity.get("openId") if isinstance(user_identity, dict) else None
     )
-    if isinstance(open_id, str) and open_id.strip():
-        return open_id.strip()
-    return None
+    bot_open_id = (
+        bot_identity.get("openId") if isinstance(bot_identity, dict) else None
+    )
+    inferred: dict[str, str] = {}
+    if isinstance(owner_open_id, str) and owner_open_id.strip():
+        inferred["ownerOpenId"] = owner_open_id.strip()
+    if isinstance(bot_open_id, str) and bot_open_id.strip():
+        inferred["botOpenId"] = bot_open_id.strip()
+    return inferred
 
 
 def run_gateway(

@@ -44,6 +44,7 @@ def test_initialize_schema_is_idempotent(tmp_path: Path) -> None:
     assert {"external_source", "external_chat_id"} <= conversation_columns
     assert "sender_display_name" in message_columns
     assert "idx_conversations_external_identity" in conversation_indexes
+    assert "idx_conversations_external_identity_unique" in conversation_indexes
 
 
 def test_initialize_schema_migrates_legacy_conversations_before_external_index(
@@ -101,9 +102,115 @@ def test_initialize_schema_migrates_legacy_conversations_before_external_index(
         conversation_columns
     )
     assert "idx_conversations_external_identity" in conversation_indexes
+    assert "idx_conversations_external_identity_unique" in conversation_indexes
     assert {"sender_type", "thinking_json", "elapsed_ms", "sender_display_name"} <= (
         message_columns
     )
+
+
+def test_initialize_schema_deduplicates_legacy_external_conversations(
+    tmp_path: Path,
+) -> None:
+    """Legacy duplicate shadow rows are merged before the unique index is added."""
+    connection = connect(tmp_path / "legacy-duplicates.db")
+    connection.executescript(
+        """
+        CREATE TABLE users (
+            id TEXT PRIMARY KEY,
+            username TEXT NOT NULL UNIQUE,
+            display_name TEXT NOT NULL,
+            owner_id TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE conversations (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            type TEXT NOT NULL DEFAULT 'group',
+            owner_id TEXT NOT NULL DEFAULT '',
+            config_agent_id TEXT,
+            external_source TEXT,
+            external_chat_id TEXT,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE conversation_participants (
+            conversation_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            PRIMARY KEY (conversation_id, user_id)
+        );
+        CREATE TABLE messages (
+            id TEXT PRIMARY KEY,
+            conversation_id TEXT NOT NULL,
+            sender_user_id TEXT NOT NULL,
+            content TEXT NOT NULL,
+            attachments_json TEXT NOT NULL DEFAULT '[]',
+            delivery_status TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE conversation_events (
+            event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            conversation_id TEXT NOT NULL,
+            message_id TEXT,
+            event_type TEXT NOT NULL,
+            delivery_status TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE relay_tasks (
+            relay_task_id TEXT PRIMARY KEY,
+            message_id TEXT NOT NULL,
+            conversation_id TEXT NOT NULL,
+            target_node_id TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            idempotency_key TEXT NOT NULL UNIQUE,
+            status TEXT NOT NULL,
+            receipt_status TEXT,
+            receipt_detail TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        INSERT INTO users(id, username, display_name, owner_id, created_at)
+        VALUES ('owner', 'owner', 'Owner', 'owner', '2026-01-01T00:00:00Z');
+        INSERT INTO conversations(
+            id, title, type, owner_id, config_agent_id,
+            external_source, external_chat_id, created_at
+        )
+        VALUES
+          ('conv-a', 'A', 'direct', 'owner', 'plato', 'feishu', 'oc_1', '2026-01-01T00:00:00Z'),
+          ('conv-b', 'B', 'direct', 'owner', 'plato', 'feishu', 'oc_1', '2026-01-01T00:00:01Z');
+        INSERT INTO conversation_participants(conversation_id, user_id)
+        VALUES ('conv-a', 'owner'), ('conv-b', 'owner');
+        INSERT INTO messages(
+            id, conversation_id, sender_user_id, content,
+            attachments_json, delivery_status, created_at
+        )
+        VALUES
+          ('msg-a', 'conv-a', 'owner', 'a', '[]', 'completed', '2026-01-01T00:00:02Z'),
+          ('msg-b', 'conv-b', 'owner', 'b', '[]', 'completed', '2026-01-01T00:00:03Z');
+        """
+    )
+    connection.commit()
+
+    initialize_schema(connection)
+
+    conversations = connection.execute(
+        """
+        SELECT id
+        FROM conversations
+        WHERE external_source = 'feishu'
+          AND external_chat_id = 'oc_1'
+          AND config_agent_id = 'plato'
+          AND owner_id = 'owner'
+        """
+    ).fetchall()
+    message_conversation_ids = {
+        row["conversation_id"]
+        for row in connection.execute(
+            "SELECT conversation_id FROM messages ORDER BY id"
+        ).fetchall()
+    }
+
+    assert [row["id"] for row in conversations] == ["conv-a"]
+    assert message_conversation_ids == {"conv-a"}
 
 
 def test_connect_supports_cross_thread_parameterized_reads_without_interface_errors(

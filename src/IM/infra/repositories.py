@@ -594,51 +594,81 @@ class ConversationRepository:
         conversation_id = uuid4().hex
         created_at = _utc_now()
         conversation_type = "group" if is_group else "direct"
-        with self._connection:
-            self._connection.execute(
+        try:
+            with self._connection:
+                self._connection.execute(
+                    """
+                    INSERT INTO conversations(
+                        id,
+                        title,
+                        type,
+                        owner_id,
+                        creator_id,
+                        is_pinned,
+                        is_muted,
+                        unread_count,
+                        last_message_preview,
+                        last_message_at,
+                        config_agent_id,
+                        config_profile_version,
+                        config_system_prompt,
+                        external_source,
+                        external_chat_id,
+                        created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        conversation_id,
+                        " ".join(title.split()),
+                        conversation_type,
+                        normalized_owner_id,
+                        resolved_creator_id,
+                        0,
+                        0,
+                        0,
+                        None,
+                        None,
+                        normalized_agent_id,
+                        profile_version,
+                        system_prompt,
+                        normalized_source,
+                        normalized_chat_id,
+                        created_at,
+                    ),
+                )
+                self._connection.executemany(
+                    "INSERT INTO conversation_participants(conversation_id, user_id) VALUES (?, ?)",
+                    [(conversation_id, user_id) for user_id in normalized_participants],
+                )
+        except sqlite3.IntegrityError:
+            existing_after_race = self._connection.execute(
                 """
-                INSERT INTO conversations(
-                    id,
-                    title,
-                    type,
-                    owner_id,
-                    creator_id,
-                    is_pinned,
-                    is_muted,
-                    unread_count,
-                    last_message_preview,
-                    last_message_at,
-                    config_agent_id,
-                    config_profile_version,
-                    config_system_prompt,
-                    external_source,
-                    external_chat_id,
-                    created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                SELECT id
+                FROM conversations
+                WHERE external_source = ?
+                  AND external_chat_id = ?
+                  AND config_agent_id = ?
+                  AND owner_id = ?
                 """,
                 (
-                    conversation_id,
-                    " ".join(title.split()),
-                    conversation_type,
-                    normalized_owner_id,
-                    resolved_creator_id,
-                    0,
-                    0,
-                    0,
-                    None,
-                    None,
-                    normalized_agent_id,
-                    profile_version,
-                    system_prompt,
                     normalized_source,
                     normalized_chat_id,
-                    created_at,
+                    normalized_agent_id,
+                    normalized_owner_id,
                 ),
+            ).fetchone()
+            if existing_after_race is None:
+                raise
+            with self._connection:
+                self._connection.execute(
+                    "UPDATE conversations SET title = ?, type = ? WHERE id = ?",
+                    (" ".join(title.split()), conversation_type, existing_after_race["id"]),
+                )
+            found_after_race = self.get_conversation(
+                conversation_id=str(existing_after_race["id"])
             )
-            self._connection.executemany(
-                "INSERT INTO conversation_participants(conversation_id, user_id) VALUES (?, ?)",
-                [(conversation_id, user_id) for user_id in normalized_participants],
-            )
+            assert found_after_race is not None
+            return found_after_race
         created = self.get_conversation(conversation_id=conversation_id)
         assert created is not None
         return created

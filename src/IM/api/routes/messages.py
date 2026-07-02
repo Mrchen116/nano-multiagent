@@ -68,6 +68,7 @@ class CreateMessageRequest(BaseModel):
     attachments: list[AttachmentPayload] = Field(default_factory=list)
     target_node_id: str | None = None
     sender_display_name: str | None = None
+    suppress_relay: bool = False
 
     @model_validator(mode="after")
     def validate_sender(self) -> "CreateMessageRequest":
@@ -328,13 +329,15 @@ async def create_message(
         )
     try:
         sender_user_id, sender_type = _resolve_create_message_sender(payload)
-        resolved_target_node_id = (
-            payload.target_node_id
-            or service.resolve_target_node_id(
-                conversation_id=conversation_id,
-                content=payload.content,
+        resolved_target_node_id = None
+        if not payload.suppress_relay:
+            resolved_target_node_id = (
+                payload.target_node_id
+                or service.resolve_target_node_id(
+                    conversation_id=conversation_id,
+                    content=payload.content,
+                )
             )
-        )
         created = service.create_message(
             conversation_id=conversation_id,
             sender_user_id=sender_user_id,

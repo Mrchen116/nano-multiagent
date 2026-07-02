@@ -325,10 +325,21 @@ def _migrate_conversations_metadata(connection: sqlite3.Connection) -> None:
         connection.execute("ALTER TABLE conversations ADD COLUMN external_source TEXT")
     if "external_chat_id" not in column_names:
         connection.execute("ALTER TABLE conversations ADD COLUMN external_chat_id TEXT")
+    _deduplicate_external_conversations(connection)
     connection.execute(
         """
         CREATE INDEX IF NOT EXISTS idx_conversations_external_identity
         ON conversations(external_source, external_chat_id, config_agent_id, owner_id)
+        """
+    )
+    connection.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_conversations_external_identity_unique
+        ON conversations(external_source, external_chat_id, config_agent_id, owner_id)
+        WHERE external_source IS NOT NULL AND external_source <> ''
+          AND external_chat_id IS NOT NULL AND external_chat_id <> ''
+          AND config_agent_id IS NOT NULL AND config_agent_id <> ''
+          AND owner_id IS NOT NULL AND owner_id <> ''
         """
     )
     # M234: creator_id records who created the conversation for dissolve-permission checks.
@@ -354,6 +365,75 @@ def _migrate_conversations_metadata(connection: sqlite3.Connection) -> None:
             WHERE creator_id = ''
             """
         )
+
+
+def _deduplicate_external_conversations(connection: sqlite3.Connection) -> None:
+    """Merge legacy duplicate external shadow conversations before adding uniqueness."""
+    duplicate_groups = connection.execute(
+        """
+        SELECT external_source, external_chat_id, config_agent_id, owner_id
+        FROM conversations
+        WHERE COALESCE(external_source, '') <> ''
+          AND COALESCE(external_chat_id, '') <> ''
+          AND COALESCE(config_agent_id, '') <> ''
+          AND COALESCE(owner_id, '') <> ''
+        GROUP BY external_source, external_chat_id, config_agent_id, owner_id
+        HAVING COUNT(*) > 1
+        """
+    ).fetchall()
+    for group in duplicate_groups:
+        rows = connection.execute(
+            """
+            SELECT id
+            FROM conversations
+            WHERE external_source = ?
+              AND external_chat_id = ?
+              AND config_agent_id = ?
+              AND owner_id = ?
+            ORDER BY rowid
+            """,
+            (
+                group["external_source"],
+                group["external_chat_id"],
+                group["config_agent_id"],
+                group["owner_id"],
+            ),
+        ).fetchall()
+        if len(rows) < 2:
+            continue
+        keeper_id = str(rows[0]["id"])
+        duplicate_ids = [str(row["id"]) for row in rows[1:]]
+        for duplicate_id in duplicate_ids:
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO conversation_participants(conversation_id, user_id)
+                SELECT ?, user_id
+                FROM conversation_participants
+                WHERE conversation_id = ?
+                """,
+                (keeper_id, duplicate_id),
+            )
+            connection.execute(
+                "UPDATE messages SET conversation_id = ? WHERE conversation_id = ?",
+                (keeper_id, duplicate_id),
+            )
+            connection.execute(
+                """
+                UPDATE conversation_events
+                SET conversation_id = ?
+                WHERE conversation_id = ?
+                """,
+                (keeper_id, duplicate_id),
+            )
+            connection.execute(
+                "UPDATE relay_tasks SET conversation_id = ? WHERE conversation_id = ?",
+                (keeper_id, duplicate_id),
+            )
+            connection.execute(
+                "DELETE FROM conversation_participants WHERE conversation_id = ?",
+                (duplicate_id,),
+            )
+            connection.execute("DELETE FROM conversations WHERE id = ?", (duplicate_id,))
 
 
 def _migrate_messages_metadata(connection: sqlite3.Connection) -> None:

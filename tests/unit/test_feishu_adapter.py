@@ -299,6 +299,34 @@ class TestFeishuAdapterGroupMention:
         assert msg.metadata["sync_only"] is True
         store.append.assert_not_called()
 
+    @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
+    def test_missing_bot_open_id_does_not_treat_other_mentions_as_bot_trigger(
+        self, mock_fc_cls: MagicMock
+    ) -> None:
+        store = MagicMock(spec=GroupContextStore)
+        adapter = FeishuAdapter(
+            app_id="cli_a",
+            app_secret="s",
+            name="feishu:plato",
+            group_context_store=store,
+        )
+        on_inbound = MagicMock()
+        adapter.start(on_inbound)
+
+        mention_other = FeishuMention(open_id="ou_other", name="Bob", key="@_user_1")
+        event = _make_event(
+            text="@_user_1 can you check this?",
+            chat_type="group",
+            is_group=True,
+            mentions=[mention_other],
+        )
+        adapter._handle_message(event)
+
+        on_inbound.assert_called_once()
+        msg: InboundMessage = on_inbound.call_args[0][0]
+        assert msg.metadata["sync_only"] is True
+        mock_fc_cls.return_value.add_reaction.assert_not_called()
+
 
 class TestFeishuAdapterMultiBot:
     """Multiple bot routing — different agent_id per adapter."""

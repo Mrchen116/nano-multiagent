@@ -128,6 +128,34 @@ def test_gateway_websocket_registers_and_receives_relay_messages(
             }
 
 
+def test_create_message_suppress_relay_persists_without_gateway_task(
+    tmp_path: Path,
+) -> None:
+    """Shadow-sync writes are local IM messages, not outbound relay work."""
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        alice_id = _create_user(client, "alice")
+        conversation_id = _create_conversation(client, alice_id)
+
+        created = client.post(
+            f"/im/v1/conversations/{conversation_id}/messages",
+            headers={"Idempotency-Key": "idem-suppressed"},
+            json={
+                "sender_user_id": alice_id,
+                "content": "external copy only",
+                "target_node_id": "node-1",
+                "suppress_relay": True,
+            },
+        )
+
+        assert created.status_code == 201
+        assert created.json()["delivery_status"] == "completed"
+        relay_count = app.state.connection.execute(
+            "SELECT COUNT(*) FROM relay_tasks"
+        ).fetchone()[0]
+        assert relay_count == 0
+
+
 def test_gateway_websocket_receives_config_and_heartbeat_pushes(tmp_path: Path) -> None:
     """Push config.sync and heartbeat.trigger frames to connected nodes."""
     app = create_app(db_path=tmp_path / "im.db")
