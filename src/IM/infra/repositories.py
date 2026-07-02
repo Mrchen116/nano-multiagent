@@ -4,6 +4,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import json
+from pathlib import Path
 import sqlite3
 from uuid import uuid4
 
@@ -36,6 +37,10 @@ class UserAlreadyExistsError(ValueError):
 
 class RepositoryConstraintError(ValueError):
     """Raise when SQLite integrity constraints need API-safe translation."""
+
+
+_PA_WORKSPACE_CONFIG_DIRNAME = ".nanoassistant"
+_ACTIVE_AGENT_DELIVERY_STATUSES = frozenset({"sent", "running"})
 
 
 def _raise_constraint_error(error: sqlite3.IntegrityError) -> None:
@@ -494,13 +499,14 @@ class ConversationRepository:
             config_profile_version=config_snapshot.profile_version,
             created_at=created_at,
             participants=[self._actor_from_user_row(row) for row in ordered_rows],
+            source_agent_id=config_snapshot.agent_id,
         )
 
     def get_conversation(self, *, conversation_id: str) -> Conversation | None:
         """Load one conversation with participants."""
         row = self._connection.execute(
             """
-            SELECT id, title, type, owner_id, creator_id, is_pinned, is_muted, unread_count, last_message_preview, last_message_at, config_profile_version, created_at
+            SELECT id, title, type, owner_id, creator_id, is_pinned, is_muted, unread_count, last_message_preview, last_message_at, config_agent_id, config_profile_version, created_at
             FROM conversations
             WHERE id = ?
             """,
@@ -548,7 +554,7 @@ class ConversationRepository:
         """
         conversation_rows = self._connection.execute(
             """
-            SELECT id, title, type, owner_id, creator_id, is_pinned, is_muted, unread_count, last_message_preview, last_message_at, config_profile_version, created_at
+            SELECT id, title, type, owner_id, creator_id, is_pinned, is_muted, unread_count, last_message_preview, last_message_at, config_agent_id, config_profile_version, created_at
             FROM conversations
             ORDER BY is_pinned DESC, COALESCE(last_message_at, created_at) DESC, rowid DESC
             """
@@ -559,7 +565,7 @@ class ConversationRepository:
         """Owner-scoped list — filters at the SQL layer to prevent cross-tenant leakage."""
         conversation_rows = self._connection.execute(
             """
-            SELECT id, title, type, owner_id, creator_id, is_pinned, is_muted, unread_count, last_message_preview, last_message_at, config_profile_version, created_at
+            SELECT id, title, type, owner_id, creator_id, is_pinned, is_muted, unread_count, last_message_preview, last_message_at, config_agent_id, config_profile_version, created_at
             FROM conversations
             WHERE owner_id = ?
             ORDER BY is_pinned DESC, COALESCE(last_message_at, created_at) DESC, rowid DESC
@@ -721,12 +727,23 @@ class ConversationRepository:
             else None
         )
         row_keys = row.keys()
+        configured_agent_id = (
+            str(row["config_agent_id"])
+            if "config_agent_id" in row_keys and row["config_agent_id"] is not None
+            else None
+        )
         # creator_id was added by M234 migration; fall back to owner_id for legacy rows.
         creator_id = (
             str(row["creator_id"]) if "creator_id" in row_keys else str(row["owner_id"])
         )
+        participants = [self._actor_from_user_row(item) for item in participant_rows]
+        source_agent_id = self._resolve_source_agent_id(
+            configured_agent_id=configured_agent_id,
+            participants=participants,
+        )
+        conversation_id = str(row["id"])
         return Conversation(
-            id=row["id"],
+            id=conversation_id,
             title=row["title"],
             participant_ids=[str(item["id"]) for item in participant_rows],
             type=row["type"],
@@ -741,8 +758,100 @@ class ConversationRepository:
             last_message_at=row["last_message_at"],
             config_profile_version=profile_version,
             created_at=row["created_at"],
-            participants=[self._actor_from_user_row(item) for item in participant_rows],
+            participants=participants,
+            run_state=self._resolve_run_state(conversation_id=conversation_id),
+            source_agent_id=source_agent_id,
+            source_jsonl_path=self._resolve_source_jsonl_path(
+                conversation_id=conversation_id,
+                source_agent_id=source_agent_id,
+            ),
         )
+
+    @staticmethod
+    def _resolve_source_agent_id(
+        *, configured_agent_id: str | None, participants: list[Actor]
+    ) -> str | None:
+        """Return the single agent that owns the conversation transcript, if knowable."""
+        if configured_agent_id:
+            return configured_agent_id
+        participant_agent_ids = sorted(
+            {item.id for item in participants if item.type == "agent"}
+        )
+        if len(participant_agent_ids) == 1:
+            return participant_agent_ids[0]
+        return None
+
+    def _resolve_run_state(self, *, conversation_id: str) -> str:
+        """Derive conversation running state from live agent message rows."""
+        placeholders = ", ".join("?" for _ in _ACTIVE_AGENT_DELIVERY_STATUSES)
+        row = self._connection.execute(
+            f"""
+            SELECT 1
+            FROM messages
+            WHERE conversation_id = ?
+              AND sender_type = 'agent'
+              AND delivery_status IN ({placeholders})
+            LIMIT 1
+            """,
+            (conversation_id, *_ACTIVE_AGENT_DELIVERY_STATUSES),
+        ).fetchone()
+        return "running" if row is not None else "idle"
+
+    def _resolve_source_jsonl_path(
+        self, *, conversation_id: str, source_agent_id: str | None
+    ) -> str | None:
+        """Find the actual PA session JSONL whose metadata points at this conversation."""
+        if not source_agent_id:
+            return None
+        profile_row = self._connection.execute(
+            "SELECT workspace_root FROM agent_profiles WHERE agent_id = ?",
+            (source_agent_id,),
+        ).fetchone()
+        if profile_row is None or profile_row["workspace_root"] is None:
+            return None
+        workspace_root = str(profile_row["workspace_root"]).strip()
+        if not workspace_root:
+            return None
+        sessions_dir = (
+            Path(workspace_root).expanduser()
+            / _PA_WORKSPACE_CONFIG_DIRNAME
+            / "sessions"
+        )
+        if not sessions_dir.is_dir():
+            return None
+        for path in sorted(sessions_dir.glob("*.jsonl")):
+            if self._session_jsonl_matches_conversation(
+                path=path,
+                conversation_id=conversation_id,
+                source_agent_id=source_agent_id,
+            ):
+                return str(path.resolve())
+        return None
+
+    @staticmethod
+    def _session_jsonl_matches_conversation(
+        *, path: Path, conversation_id: str, source_agent_id: str
+    ) -> bool:
+        """Return whether one kernel session file was created for this IM conversation."""
+        try:
+            with path.open("r", encoding="utf-8") as fh:
+                for line in fh:
+                    stripped = line.strip()
+                    if not stripped:
+                        continue
+                    record = json.loads(stripped)
+                    if record.get("type") != "session_created":
+                        return False
+                    metadata = record.get("metadata")
+                    if not isinstance(metadata, dict):
+                        return False
+                    return (
+                        metadata.get("conversation_id") == conversation_id
+                        and metadata.get("agent_id") == source_agent_id
+                    )
+        except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+            return False
+        return False
 
     def _resolve_participant_user_row(self, *, reference: str) -> sqlite3.Row | None:
         """Resolve one participant reference into a concrete IM user row."""
