@@ -30,7 +30,7 @@
 
 ### R1 — 内置 skill 资源与 bootstrap 安装
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 迁移 flat skill 到 `src/personal_assistant/builtin_skills/feishu-doc/SKILL.md`；新增/接入 bootstrap helper；配置 package data。
 - 验证: 单测证明缺失复制、已有用户 skill 不覆盖；package data 配置存在；窄测通过。
 
