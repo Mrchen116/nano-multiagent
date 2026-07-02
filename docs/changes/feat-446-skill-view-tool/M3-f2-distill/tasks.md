@@ -72,13 +72,13 @@ UI 状态矩阵：
 
 ### R2 — conversation distill metadata
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 为 IM conversation 响应派生 `run_state` 与 `source_jsonl_path`；保持默认列表不展示运行态由前端控制。
 - 验证: `PYTHONPATH=src pytest tests/im_service/unit/test_repositories_user_conversation.py tests/im_service/unit/test_message_runtime_state.py tests/im_service/integration/test_users_conversations_api.py -x`
 
 ### R3 — frontend selection and prefill flow
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 在 chat v2 conversation 侧栏接入右键"生成 skill"多选、running 禁选、执行 agent/scope 弹窗、skill 可见性检查、跳转执行 agent 新对话并预填 composer。
 - 验证: `cd src/IM/frontend && npm run test -- --run src/features/chat/v2/components/conversation-sidebar.test.tsx src/features/chat/v2/chat-workspace.integration.test.tsx`
 
