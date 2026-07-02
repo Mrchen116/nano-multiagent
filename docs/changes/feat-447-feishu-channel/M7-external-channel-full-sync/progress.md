@@ -82,16 +82,17 @@
 
 ### R5 — 非 e2e 门禁与真实飞书端到端验收
 
-- Context: TODO
-- Decision: TODO
-- Rationale: TODO
+- Context: R1-R4 已完成代码与窄测；R5 只做非 e2e 门禁、worktree live runtime、真实飞书 user 入站和 IM shadow 证据收口。live config `.gateway-config-live.yaml` 是未跟踪本地文件，含 secret，不提交。
+- Decision: 使用 worktree IM `http://127.0.0.1:56127` + foreground Gateway `--config .gateway-config-live.yaml --auto-bind`；从 config 读取 Feishu `settings.appId=cli_aac9315ef3f9dbda`，用 `lark-cli auth status --json --verify` 校验同 appId，取同 appId bot openId `ou_b33ae16df1338a00a77d4cdbec653b71` 作为 `lark-cli im +messages-send --as user --user-id ...` 目标。
+- Rationale: R5 的 live-critical 证据必须从真实飞书入站进入 Gateway，不能用 stub/API/UI fallback。IM shadow 证据以 worktree IM SQLite 为准；飞书可见回复以 `lark-cli im +chat-messages-list --as user` 返回为准。
 - Evidence:
-  - Tests: TODO
-  - Entry: TODO
+  - Tests: `pytest -q tests/unit/personal_assistant/test_inbound_pipeline_session.py tests/unit/personal_assistant/test_gateway_relay_lifecycle.py tests/unit/personal_assistant/test_gateway_pipeline_sender_prefix.py tests/unit/personal_assistant/test_gateway_web_relay_adapter.py tests/unit/personal_assistant/test_gateway_pipeline_channel.py tests/unit/test_feishu_adapter.py tests/unit/test_feishu_config.py tests/im_service/unit/test_relay_service_payload.py tests/im_service/integration/test_messages_api.py` -> 104 passed, 1 skipped. `pytest -m "not e2e"` -> 3223 passed, 1 skipped, 22 deselected, 20 warnings in 134.12s.
+  - Entry: Commands used with secrets hidden: `lark-cli auth status --json --verify` -> `verified=true`, `appId=cli_aac9315ef3f9dbda`, bot `openId=ou_b33ae16df1338a00a77d4cdbec653b71`, user `openId=ou_e6d1591026cfdac8d131eb1fdd71bdb9`; `lark-cli im +messages-send --as user --user-id ou_b33ae16df1338a00a77d4cdbec653b71 --text "R5 live nonce: <nonce>" --idempotency-key <nonce>`. Passing nonce: `feat447-m7-r5-20260702093934`; send result `chat_id=oc_1906eead0189484ce5ea8a4c245400a6`, `message_id=om_x100b6b685bb610bcc2a5db880d234b8`, `create_time=2026-07-02 09:39:35`. 飞书可见 agent 回复: `message_id=om_x100b6b685b1bdc84c438291adddcf4b`, content includes `Acknowledged. R5 live nonce: feat447-m7-r5-20260702093934`.
   - Frontend State Matrix: N/A
   - Browser QA: N/A
-  - E2E/Regression: TODO
+  - E2E/Regression: Live Feishu entry used real `lark-cli im +messages-send --as user` and real Gateway Feishu WS. Worktree IM shadow evidence in `data/feat447_m7_live.sqlite3`: conversation `903f3551ef474dc1980a95b4a1a400eb`, `title=default-agent · feishu`, `type=direct`, `external_source=feishu`, `external_chat_id=feishu:cli_aac9315ef3f9dbda:dm:ou_e6d1591026cfdac8d131eb1fdd71bdb9`. Messages include user row `1fabb21559bf409e948c166501ec23a4`, `sender_display_name=你`, content `R5 live nonce: feat447-m7-r5-20260702093934`; agent rows `5098ce36b6ba4c80bc920c355deadba5` and `9e21f6866bec48ba814b28bb981ea61e` containing the same nonce. Related prior successful nonce `feat447-m7-r5-20260702093836` produced user row `cd5ea06d18fe4ce8acee52879d36c69d` and agent row `be72b0d6af6a458d846bbaca138fc516`.
   - Visual/Interaction: N/A
-- Rollback: TODO
-- Commits: C1=TODO, C2=TODO, C3=TODO
-- Next: milestone DONE after live evidence is complete.
+- Runtime/logs/caveat: IM ran as foreground process on port 56127 with DB `data/feat447_m7_live.sqlite3`; Gateway ran as foreground process with `.gateway-config-live.yaml`. The initial fresh live DB had no `agent:<id>` alias user rows and `.gateway-config-live.yaml` had stale `node.user_id`, causing early `external/find-or-create` 400s; R5 fixed only the untracked live config (`node.user_id` aligned to the transient IM owner) and invoked real IM `GET /im/v1/agents` to lazy-provision agent alias rows before final live evidence. Other same-app Gateway processes were present on the machine, so multiple nonces were sent; only IM shadow rows in this worktree DB were treated as passing evidence. `.gateway-config-live.yaml`, live DBs, PID files, and logs are local/untracked and intentionally not committed.
+- Rollback: revert the R5 docs commit only; no R5 implementation changes.
+- Commits: C1=N/A, C2=N/A, C3=ae1c97d9
+- Next: milestone DONE; merge to `unit/feat-447`.

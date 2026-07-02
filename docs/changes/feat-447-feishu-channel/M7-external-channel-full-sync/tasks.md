@@ -8,16 +8,16 @@
 
 ## 退出标准
 
-- [ ] IM 持久化支持 `conversations.external_source` / `external_chat_id` 与 `messages.sender_display_name`，旧库自动迁移。
-- [ ] `POST /im/v1/conversations/external/find-or-create` 以 `(external_source, external_chat_id, config_agent_id, owner_id)` 幂等创建/更新影子会话，复用 `config_agent_id`，不新增第二套 agent id。
-- [ ] Relay payload 对影子会话回环 `external_source` / `external_chat_id` / `agent_id` / `trigger_source` / `conversation_type`。
-- [ ] Gateway 使用外部身份生成 session key 和 group buffer key，`web_relay` 的 IM conversation id 只作为 delivery/shadow id。
-- [ ] Feishu 未 @ 群消息走 `sync_only` 入站：同步到 IM、写 GroupContextStore，但不分配 session、不提交 run、不重复 adapter 本地 buffer。
-- [ ] 外部 channel 用户消息 best-effort 同步到 IM；同步失败不阻塞飞书回复，也不触发 IM lazy direct 创建。
-- [ ] run context 经 lifecycle accepted seed `shadow_conversation_id`；外部 run 的 agent 回复落到 IM 影子会话，shadow 不可用时跳过 IM 同步。
-- [ ] IM 影子 group 入口在 mention gate 前等效 @agent；IM 触发的 run 只写 IM，不回写飞书。
-- [ ] `ownerOpenId` 配置校验生效，owner 从飞书发的消息在 IM 显示为「你」。
-- [ ] 非 e2e 测试无回归；live-critical 验收使用 `lark-cli im +messages-send --as user` 向 `<WT_CFG>` 中同 `appId` 的 Bot 发送 nonce，证明确实经真实飞书入站跑到用户可见结果。
+- [x] IM 持久化支持 `conversations.external_source` / `external_chat_id` 与 `messages.sender_display_name`，旧库自动迁移。
+- [x] `POST /im/v1/conversations/external/find-or-create` 以 `(external_source, external_chat_id, config_agent_id, owner_id)` 幂等创建/更新影子会话，复用 `config_agent_id`，不新增第二套 agent id。
+- [x] Relay payload 对影子会话回环 `external_source` / `external_chat_id` / `agent_id` / `trigger_source` / `conversation_type`。
+- [x] Gateway 使用外部身份生成 session key 和 group buffer key，`web_relay` 的 IM conversation id 只作为 delivery/shadow id。
+- [x] Feishu 未 @ 群消息走 `sync_only` 入站：同步到 IM、写 GroupContextStore，但不分配 session、不提交 run、不重复 adapter 本地 buffer。
+- [x] 外部 channel 用户消息 best-effort 同步到 IM；同步失败不阻塞飞书回复，也不触发 IM lazy direct 创建。
+- [x] run context 经 lifecycle accepted seed `shadow_conversation_id`；外部 run 的 agent 回复落到 IM 影子会话，shadow 不可用时跳过 IM 同步。
+- [x] IM 影子 group 入口在 mention gate 前等效 @agent；IM 触发的 run 只写 IM，不回写飞书。
+- [x] `ownerOpenId` 配置校验生效，owner 从飞书发的消息在 IM 显示为「你」。
+- [x] 非 e2e 测试无回归；live-critical 验收使用 `lark-cli im +messages-send --as user` 向 `<WT_CFG>` 中同 `appId` 的 Bot 发送 nonce，证明确实经真实飞书入站跑到用户可见结果。
 
 ## 测试策略
 
@@ -55,6 +55,6 @@
 
 ### R5 — 非 e2e 门禁与真实飞书端到端验收
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 跑窄测与 `pytest -m "not e2e"`；启动 worktree IM/Gateway；用 runbook 中 appId 校验后的 `lark-cli im +messages-send --as user` 发 nonce 到目标 Bot，核对飞书回复、IM 影子会话和消息。
 - 验证: progress.md 记录真实入口证据、日志路径、message/conversation id 与环境 caveat。
