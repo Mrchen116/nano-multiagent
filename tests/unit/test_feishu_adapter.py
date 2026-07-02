@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import MagicMock, call, patch
 
@@ -35,6 +36,8 @@ def _make_event(
         message_id=message_id,
         is_group=is_group,
         mentions=mentions or [],
+        raw_text=text,
+        mention_only=False,
     )
 
 
@@ -256,7 +259,7 @@ class TestFeishuAdapterGroupMention:
 
         mention = FeishuMention(open_id="ou_bot1", name="plato", key="@_user_1")
         event = _make_event(
-            text="@_user_1 summarize",
+            text="@plato summarize",
             chat_type="group",
             is_group=True,
             chat_id="oc_grp1",
@@ -266,10 +269,40 @@ class TestFeishuAdapterGroupMention:
 
         on_inbound.assert_called_once()
         msg: InboundMessage = on_inbound.call_args[0][0]
-        assert msg.text == "@_user_1 summarize"
+        assert msg.text == "@plato summarize"
         assert msg.metadata["mentioned_agent_ids"] == ["plato"]
+        assert msg.metadata["mention_only"] is False
         assert "sync_only" not in msg.metadata
         store.drain.assert_not_called()
+
+    @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
+    def test_group_mention_only_delivers_non_empty_text_and_metadata(
+        self, mock_fc_cls: MagicMock
+    ) -> None:
+        adapter = FeishuAdapter(
+            app_id="cli_a",
+            app_secret="s",
+            name="feishu:plato",
+            bot_open_id="ou_bot1",
+            group_context_store=MagicMock(spec=GroupContextStore),
+        )
+        on_inbound = MagicMock()
+        adapter.start(on_inbound)
+
+        mention = FeishuMention(open_id="ou_bot1", name="plato", key="@_user_1")
+        event = _make_event(
+            text="@plato",
+            chat_type="group",
+            is_group=True,
+            mentions=[mention],
+        )
+        event = replace(event, mention_only=True)
+        adapter._handle_message(event)
+
+        msg: InboundMessage = on_inbound.call_args[0][0]
+        assert msg.text == "@plato"
+        assert msg.metadata["mentioned_agent_ids"] == ["plato"]
+        assert msg.metadata["mention_only"] is True
 
     @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
     def test_group_at_everyone_does_not_trigger(self, mock_fc_cls: MagicMock) -> None:
@@ -287,7 +320,7 @@ class TestFeishuAdapterGroupMention:
         # @所有人 — mention with open_id "all" (feishu convention) or no bot mention
         mention_all = FeishuMention(open_id="all", name="所有人", key="@_user_1")
         event = _make_event(
-            text="@_user_1 hey everyone",
+            text="@所有人 hey everyone",
             chat_type="group",
             is_group=True,
             mentions=[mention_all],
@@ -297,6 +330,8 @@ class TestFeishuAdapterGroupMention:
         on_inbound.assert_called_once()
         msg: InboundMessage = on_inbound.call_args[0][0]
         assert msg.metadata["sync_only"] is True
+        assert "mentioned_agent_ids" not in msg.metadata
+        assert msg.text == "@所有人 hey everyone"
         store.append.assert_not_called()
 
     @patch("personal_assistant.channels.feishu_adapter.FeishuClient")

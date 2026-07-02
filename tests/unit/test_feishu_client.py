@@ -94,8 +94,8 @@ class TestFeishuClientEventParsing:
         result = _parse_feishu_event(ev)
         assert result.is_group is True
 
-    def test_parse_text_content_extraction(self) -> None:
-        """Feishu text content is JSON: {"text": "@_user_1 actual text"}."""
+    def test_parse_text_content_preserves_visible_mention(self) -> None:
+        """Feishu @ placeholders remain visible as user-authored text."""
         from personal_assistant.channels.feishu_client import _parse_feishu_event
 
         mention = MagicMock()
@@ -107,8 +107,40 @@ class TestFeishuClientEventParsing:
             mentions=[mention],
         )
         result = _parse_feishu_event(ev)
-        # Placeholder is stripped and mention removed from text
-        assert result.text == "help me"
+        assert result.text == "@plato-bot help me"
+        assert result.raw_text == "@_user_1 help me"
+        assert result.mention_only is False
+
+    def test_parse_mention_only_keeps_non_empty_visible_text(self) -> None:
+        from personal_assistant.channels.feishu_client import _parse_feishu_event
+
+        mention = MagicMock()
+        mention.id.open_id = "ou_bot1"
+        mention.name = "plato-bot"
+        mention.key = "@_user_1"
+        ev = self._make_event(
+            content='{"text":"@_user_1"}',
+            mentions=[mention],
+        )
+        result = _parse_feishu_event(ev)
+        assert result.text == "@plato-bot"
+        assert result.raw_text == "@_user_1"
+        assert result.mention_only is True
+
+    def test_parse_at_all_keeps_visible_text(self) -> None:
+        from personal_assistant.channels.feishu_client import _parse_feishu_event
+
+        mention = MagicMock()
+        mention.id.open_id = "all"
+        mention.name = "所有人"
+        mention.key = "@_user_1"
+        ev = self._make_event(
+            content='{"text":"@_user_1 deploy freeze"}',
+            mentions=[mention],
+        )
+        result = _parse_feishu_event(ev)
+        assert result.text == "@所有人 deploy freeze"
+        assert result.mention_only is False
 
     def test_parse_empty_content(self) -> None:
         from personal_assistant.channels.feishu_client import _parse_feishu_event
