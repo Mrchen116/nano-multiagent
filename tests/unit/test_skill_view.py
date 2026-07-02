@@ -75,6 +75,83 @@ def test_skill_view_returns_skill_content_and_records_usage(tmp_path: Path) -> N
     ]
 
 
+def test_skill_view_enqueues_f4_trigger_and_resets_counter(tmp_path: Path) -> None:
+    skill_root = tmp_path / ".nanoassistant" / "skills"
+    _write_skill(skill_root, "auto-skill")
+    usage = {
+        "auto-skill": {
+            "source": "F3",
+            "state": "active",
+            "use_count": 19,
+            "last_used_at": "2026-07-01T00:00:00Z",
+            "session_refs": [
+                {
+                    "session_id": "old-session",
+                    "tool_call_id": "old-call",
+                    "timestamp": "2026-07-01T00:00:00Z",
+                }
+            ],
+            "recent_call_keys": ["old-session:old-call"],
+            "uses_since_last_B": 19,
+        }
+    }
+    (skill_root / ".usage.json").write_text(json.dumps(usage), encoding="utf-8")
+    tool = SkillViewTool(workspace_config_dirname=".nanoassistant")
+    ctx = _Ctx(
+        workspace_root=tmp_path,
+        session_id="new-session",
+        tool_call_id="new-call",
+        metadata={"skill_creation_source": "F3"},
+    )
+    enqueued: list[str] = []
+
+    def enqueue(trigger: Any) -> bool:
+        enqueued.append(trigger.skill_name)
+        return True
+
+    ctx.skill_batch_review_enqueue = enqueue
+
+    result = tool.run({"name": "auto-skill"}, ctx)  # type: ignore[arg-type]
+
+    assert result["success"] is True
+    assert enqueued == ["auto-skill"]
+    updated = json.loads((skill_root / ".usage.json").read_text(encoding="utf-8"))
+    assert updated["auto-skill"]["uses_since_last_B"] == 0
+
+
+def test_skill_view_does_not_reset_f4_counter_when_enqueue_is_deduped(
+    tmp_path: Path,
+) -> None:
+    skill_root = tmp_path / ".nanoassistant" / "skills"
+    _write_skill(skill_root, "auto-skill")
+    usage = {
+        "auto-skill": {
+            "source": "F4",
+            "state": "active",
+            "use_count": 19,
+            "last_used_at": "2026-07-01T00:00:00Z",
+            "session_refs": [],
+            "recent_call_keys": [],
+            "uses_since_last_B": 19,
+        }
+    }
+    (skill_root / ".usage.json").write_text(json.dumps(usage), encoding="utf-8")
+    tool = SkillViewTool(workspace_config_dirname=".nanoassistant")
+    ctx = _Ctx(
+        workspace_root=tmp_path,
+        session_id="new-session",
+        tool_call_id="new-call",
+        metadata={"skill_creation_source": "F4"},
+    )
+    ctx.skill_batch_review_enqueue = lambda trigger: False
+
+    result = tool.run({"name": "auto-skill"}, ctx)  # type: ignore[arg-type]
+
+    assert result["success"] is True
+    updated = json.loads((skill_root / ".usage.json").read_text(encoding="utf-8"))
+    assert updated["auto-skill"]["uses_since_last_B"] == 20
+
+
 def test_skill_view_failure_does_not_create_usage_file(tmp_path: Path) -> None:
     skill_root = tmp_path / ".nanoassistant" / "skills"
     skill_root.mkdir(parents=True)
