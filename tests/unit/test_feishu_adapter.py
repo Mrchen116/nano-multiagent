@@ -220,6 +220,38 @@ class TestFeishuAdapterGroupMention:
         assert msg.metadata["sender_display_name"] == "Alice"
 
     @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
+    def test_group_inbound_metadata_includes_chat_name(
+        self, mock_fc_cls: MagicMock
+    ) -> None:
+        mock_fc = MagicMock()
+        mock_fc.get_chat_name.return_value = "产品群"
+        mock_fc_cls.return_value = mock_fc
+        adapter = FeishuAdapter(
+            app_id="cli_a",
+            app_secret="s",
+            name="feishu:plato",
+            bot_open_id="ou_bot1",
+            group_context_store=MagicMock(spec=GroupContextStore),
+        )
+        on_inbound = MagicMock()
+        adapter.start(on_inbound)
+
+        mention = FeishuMention(open_id="ou_bot1", name="plato", key="@_user_1")
+        event = _make_event(
+            text="@_user_1 help",
+            chat_type="group",
+            is_group=True,
+            chat_id="oc_grp1",
+            mentions=[mention],
+        )
+        adapter._handle_message(event)
+
+        msg: InboundMessage = on_inbound.call_args[0][0]
+        mock_fc.get_chat_name.assert_called_once_with("oc_grp1")
+        assert msg.metadata["chat_name"] == "产品群"
+        assert msg.metadata["conversation_title"] == "plato · 产品群 · feishu"
+
+    @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
     def test_owner_open_id_maps_sender_display_name_to_you(
         self, mock_fc_cls: MagicMock
     ) -> None:

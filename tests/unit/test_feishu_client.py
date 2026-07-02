@@ -10,7 +10,7 @@ import pytest
 
 lark_oapi = pytest.importorskip("lark_oapi")
 
-from personal_assistant.channels.feishu_client import FeishuClient
+from personal_assistant.channels.feishu_client import FeishuAPIError, FeishuClient
 
 
 class TestFeishuClientLifecycle:
@@ -231,6 +231,35 @@ class TestFeishuClientSendMessage:
         request = mock_rest.im.v1.message_reaction.delete.call_args[0][0]
         assert request.message_id == "om_msg_001"
         assert request.reaction_id == "reaction_001"
+
+    def test_get_chat_name_returns_group_name(self) -> None:
+        mock_rest = MagicMock()
+        mock_resp = MagicMock()
+        mock_resp.success.return_value = True
+        mock_resp.code = 0
+        mock_resp.data.name = "产品群"
+        mock_rest.im.v1.chat.get.return_value = mock_resp
+
+        client = FeishuClient(app_id="cli_abc", app_secret="secret")
+        client._rest_client = mock_rest
+
+        assert client.get_chat_name("oc_chat123") == "产品群"
+        request = mock_rest.im.v1.chat.get.call_args[0][0]
+        assert request.chat_id == "oc_chat123"
+
+    def test_get_chat_name_failure_raises_feishu_api_error(self) -> None:
+        mock_rest = MagicMock()
+        mock_resp = MagicMock()
+        mock_resp.success.return_value = False
+        mock_resp.code = 99999
+        mock_resp.msg = "bad chat"
+        mock_rest.im.v1.chat.get.return_value = mock_resp
+
+        client = FeishuClient(app_id="cli_abc", app_secret="secret")
+        client._rest_client = mock_rest
+
+        with pytest.raises(FeishuAPIError):
+            client.get_chat_name("oc_chat123")
 
 
 class TestFeishuClientErrorClassification:

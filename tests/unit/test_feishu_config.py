@@ -182,7 +182,7 @@ class TestParseFeishuChannels:
         assert len(channels) == 1
         assert channels[0].name == "feishu:plato"
 
-    def test_missing_owner_open_id_raises(self) -> None:
+    def test_missing_owner_open_id_does_not_block_startup(self) -> None:
         payload = [
             {
                 "name": "feishu:plato",
@@ -192,8 +192,9 @@ class TestParseFeishuChannels:
                 },
             }
         ]
-        with pytest.raises(ValueError, match="ownerOpenId"):
-            _parse_channels(payload)
+        channels = _parse_channels(payload)
+        assert len(channels) == 1
+        assert "ownerOpenId" not in channels[0].settings
 
     def test_non_string_owner_open_id_raises(self) -> None:
         payload = [
