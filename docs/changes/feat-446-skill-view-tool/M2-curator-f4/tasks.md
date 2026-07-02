@@ -40,7 +40,7 @@
 
 ### R2 — F4 trigger and runtime enqueue dedupe
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 扩展 usage bump 返回 `F4Trigger`；`skill_view` 成功读取后把 trigger 交给 runtime/kernel enqueue；同 skill queued/running 去重；enqueue 成功后 reset `uses_since_last_B`。
 - 验证: `PYTHONPATH=src pytest tests/unit/test_usage.py tests/unit/test_skill_view.py -x`
 

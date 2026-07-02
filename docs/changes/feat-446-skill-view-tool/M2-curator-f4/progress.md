@@ -25,19 +25,19 @@
 
 ## R2 — F4 trigger and runtime enqueue dedupe
 
-- Context:
-- Decision:
-- Rationale:
+- Context: M1 的 `bump_skill_usage()` 只更新 counters，没有把 `uses_since_last_B` 越线暴露给 runtime；`skill_view` 也没有 enqueue 能力。
+- Decision: `core/skills/usage.py` 新增 `F4Trigger` 纯数据返回和 `reset_uses_since_last_batch()`；`ToolContext` 增加可选 `skill_batch_review_enqueue` 回调；`SkillViewTool` 在成功 bump 后把 trigger 交给该回调，只有 enqueue 返回 true 才 reset；`AgentRuntime.enqueue_skill_batch_review()` 维护 queued/running set 并按 skill name 去重。
+- Rationale: core 只产出数据、不 import platform；tool 不直接启动后台任务；runtime 是 per-skill 并发去重的 owner。enqueue 失败或被去重时不 reset counter，避免丢掉后续触发机会。
 - Evidence:
-  - Tests:
-  - Entry:
+  - Tests: C1 红测 `PYTHONPATH=src pytest tests/unit/test_usage.py tests/unit/test_skill_view.py -x` -> 失败，`ImportError: cannot import name 'F4Trigger'`；C2 后同命令 -> 14 passed；`PYTHONPATH=src pytest tests/contract/test_core_no_platform_imports.py -x` -> 1 passed。
+  - Entry: `tests/unit/test_usage.py::test_bump_skill_usage_returns_f4_trigger_for_auto_skill_threshold` 覆盖自动 skill 越线返回 trigger；`test_runtime_dedupes_running_or_queued_skill_batch_reviews` 覆盖同 skill queued/running 不并发；`tests/unit/test_skill_view.py::test_skill_view_enqueues_f4_trigger_and_resets_counter` 覆盖 skill_view 成功后即时 enqueue 并 reset；deduped enqueue 不 reset。
   - Frontend State Matrix: N/A
   - Browser QA: N/A
-  - E2E/Regression:
+  - E2E/Regression: R2 是内核/tool 执行链路，永久回归落在 usage/skill_view unit tests；不启动真服务。
   - Visual/Interaction: N/A
-- Rollback:
-- Commits:
-- Next:
+- Rollback: revert `2f01750b` and `822f6003` together to remove R2 implementation/tests.
+- Commits: C1=822f6003, C2=2f01750b, C3=5323b67c
+- Next: R3
 
 ## R3 — batch review orchestration and housekeeping entrypoints
 
