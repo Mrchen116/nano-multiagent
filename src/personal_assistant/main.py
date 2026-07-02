@@ -809,17 +809,18 @@ class _IMShadowConversationSyncClient:
         token_getter: Callable[[], Awaitable[str | None]],
         owner_user_id: str,
         timeout_seconds: float = 3.0,
+        transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self._base_url = _im_http_base_url(base_url)
         self._token_getter = token_getter
         self._owner_user_id = owner_user_id.strip()
         self._timeout_seconds = timeout_seconds
+        self._transport = transport
+        self._resolved_owner_user_id: str | None = None
 
     async def sync_user_message(
         self, message: InboundMessage, *, agent_id: str
     ) -> str | None:
-        if not self._owner_user_id:
-            return None
         metadata = dict(message.metadata)
         external_source = _metadata_text(metadata, key="external_source")
         external_chat_id = _metadata_text(metadata, key="external_chat_id")
@@ -832,7 +833,9 @@ class _IMShadowConversationSyncClient:
             headers=headers,
             timeout=self._timeout_seconds,
             trust_env=False,
+            transport=self._transport,
         ) as client:
+            owner_user_id = await self._resolve_owner_user_id(client)
             conversation_response = await client.post(
                 "/im/v1/conversations/external/find-or-create",
                 json={
@@ -844,7 +847,7 @@ class _IMShadowConversationSyncClient:
                     ),
                     "is_group": bool(message.is_group),
                     "participant_ids": [
-                        f"user:{self._owner_user_id}",
+                        f"user:{owner_user_id}",
                         f"agent:{agent_id}",
                     ],
                     "metadata": {
@@ -862,7 +865,7 @@ class _IMShadowConversationSyncClient:
             message_response = await client.post(
                 f"/im/v1/conversations/{conversation_id}/messages",
                 json={
-                    "sender_user_id": self._owner_user_id,
+                    "sender_user_id": owner_user_id,
                     "sender_type": "user",
                     "content": message.text,
                     "sender_display_name": _metadata_text(
@@ -872,6 +875,18 @@ class _IMShadowConversationSyncClient:
             )
             message_response.raise_for_status()
             return conversation_id
+
+    async def _resolve_owner_user_id(self, client: httpx.AsyncClient) -> str:
+        if self._resolved_owner_user_id:
+            return self._resolved_owner_user_id
+        response = await client.get("/im/v1/me")
+        response.raise_for_status()
+        payload = response.json()
+        user_id = payload.get("id") or payload.get("user_id")
+        if not isinstance(user_id, str) or not user_id.strip():
+            raise ValueError("IM /me response missing user id")
+        self._resolved_owner_user_id = user_id.strip()
+        return self._resolved_owner_user_id
 
 
 def _external_shadow_title(
