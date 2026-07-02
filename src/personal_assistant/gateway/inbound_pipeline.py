@@ -7,8 +7,10 @@ import base64
 import logging
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 from typing import Literal
+from typing import Protocol
 
 from personal_assistant.channels.base import (
     InboundMessage,
@@ -28,6 +30,7 @@ from personal_assistant.gateway.run_queue import SessionRunQueue
 from personal_assistant.gateway.session_keys import (
     SessionBinding,
     SessionBindingStore,
+    build_external_session_key,
     build_reply_context,
     build_session_key,
     session_binding_store,
@@ -81,6 +84,15 @@ class RelayLifecycleUpdate:
 RelayLifecycleCallback = Callable[
     [InboundMessage, RelayLifecycleUpdate], Awaitable[None]
 ]
+
+
+class ShadowConversationSync(Protocol):
+    """Best-effort IM shadow conversation writer for external-channel inbound."""
+
+    async def sync_user_message(
+        self, message: InboundMessage, *, agent_id: str
+    ) -> str | None:
+        """Persist one inbound user message and return the IM shadow conversation id."""
 
 _TERMINAL_RUN_STATUSES = TERMINAL_RUN_STATUSES
 # Default port for the Gateway's internal HTTP dispatch endpoint.
@@ -183,6 +195,7 @@ class InboundPipeline:
         product_default_model: str | None = None,
         attachment_fetcher: Callable[[str], Awaitable[bytes]] | None = None,
         max_image_bytes: int = _DEFAULT_MAX_IMAGE_BYTES,
+        shadow_sync: ShadowConversationSync | None = None,
     ) -> None:
         if run_idle_timeout_seconds <= 0:
             raise ValueError("run_idle_timeout_seconds must be > 0")
@@ -201,6 +214,7 @@ class InboundPipeline:
         # cap (决策5) above which an image is rejected rather than sent.
         self._attachment_fetcher = attachment_fetcher
         self._max_image_bytes = max_image_bytes
+        self._shadow_sync = shadow_sync
         self._outbound_router = outbound_router
         self._run_queue = run_queue
         self._session_store = session_store
@@ -263,9 +277,13 @@ class InboundPipeline:
         # Relay metadata supplies display_name when the IM service could resolve it.
         # Fallback to external_user_id ensures pre-M247 payloads still get the UUID prefix.
         sender_label = _resolve_sender_label(message)
+        sync_only = message.metadata.get("sync_only") is True
+        message = await self._sync_external_shadow_message(
+            message, agent_id=agent_id
+        )
 
         if message.is_group and self._group_context_store is not None:
-            if not should_process:
+            if sync_only or not should_process:
                 # This relay's agent is not addressed — buffer message as background context
                 # for this agent's own future turn.  Each agent receives its own relay from IM,
                 # so we only write to this agent's buffer key (no cross-agent fan-out).
@@ -276,6 +294,8 @@ class InboundPipeline:
                     sender=sender_label,
                 )
 
+        if sync_only:
+            return None
         if not should_process:
             return None
         session_key = build_session_key(message, agent_id=agent_id)
@@ -412,6 +432,32 @@ class InboundPipeline:
             ),
             parts,
         )
+
+    async def _sync_external_shadow_message(
+        self, message: InboundMessage, *, agent_id: str
+    ) -> InboundMessage:
+        sync = self._shadow_sync
+        if sync is None or not _is_external_channel_inbound(message):
+            return message
+        metadata = dict(message.metadata)
+        try:
+            shadow_conversation_id = await sync.sync_user_message(
+                message, agent_id=agent_id
+            )
+        except Exception as exc:  # noqa: BLE001
+            logging.getLogger(__name__).warning(
+                "external shadow sync failed channel=%s chat=%s agent=%s: %s",
+                message.channel_name,
+                message.external_chat_id,
+                agent_id,
+                exc,
+            )
+            shadow_conversation_id = None
+        if isinstance(shadow_conversation_id, str) and shadow_conversation_id.strip():
+            metadata["shadow_conversation_id"] = shadow_conversation_id.strip()
+        else:
+            metadata.pop("shadow_conversation_id", None)
+        return replace(message, metadata=metadata)
 
     async def _run_turn(
         self,
@@ -595,6 +641,20 @@ class InboundPipeline:
 
     @staticmethod
     def _group_buf_key_for_agent(message: InboundMessage, agent_id: str) -> str:
+        metadata = dict(message.metadata)
+        external_source = metadata.get("external_source")
+        external_chat_id = metadata.get("external_chat_id")
+        if (
+            isinstance(external_source, str)
+            and external_source.strip()
+            and isinstance(external_chat_id, str)
+            and external_chat_id.strip()
+        ):
+            return build_external_session_key(
+                external_source=external_source.strip(),
+                external_chat_id=external_chat_id.strip(),
+                agent_id=agent_id,
+            )
         return f"{agent_id}:{message.channel_name}:{message.external_chat_id}"
 
     def _drain_lock_for(self, session_key: str) -> asyncio.Lock:
@@ -1671,6 +1731,21 @@ def _resolve_sender_label(message: "InboundMessage") -> str:
     if isinstance(display_name, str) and display_name.strip():
         return display_name.strip()
     return message.external_user_id
+
+
+def _is_external_channel_inbound(message: "InboundMessage") -> bool:
+    """Return whether this message originated from an external channel, not IM relay."""
+    metadata = dict(message.metadata)
+    trigger_source = metadata.get("trigger_source")
+    external_source = metadata.get("external_source")
+    external_chat_id = metadata.get("external_chat_id")
+    return bool(
+        isinstance(external_source, str)
+        and external_source.strip()
+        and isinstance(external_chat_id, str)
+        and external_chat_id.strip()
+        and trigger_source != "im"
+    )
 
 
 def _normalize_group_participants(raw_participants: object) -> list[dict[str, str]]:

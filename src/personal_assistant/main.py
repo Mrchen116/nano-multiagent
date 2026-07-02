@@ -799,6 +799,94 @@ def _make_workspace_root_factory(
     return _factory
 
 
+class _IMShadowConversationSyncClient:
+    """Best-effort HTTP writer for external-channel shadow conversations."""
+
+    def __init__(
+        self,
+        *,
+        base_url: str,
+        token_getter: Callable[[], Awaitable[str | None]],
+        owner_user_id: str,
+        timeout_seconds: float = 3.0,
+    ) -> None:
+        self._base_url = _im_http_base_url(base_url)
+        self._token_getter = token_getter
+        self._owner_user_id = owner_user_id.strip()
+        self._timeout_seconds = timeout_seconds
+
+    async def sync_user_message(
+        self, message: InboundMessage, *, agent_id: str
+    ) -> str | None:
+        if not self._owner_user_id:
+            return None
+        metadata = dict(message.metadata)
+        external_source = _metadata_text(metadata, key="external_source")
+        external_chat_id = _metadata_text(metadata, key="external_chat_id")
+        if external_source is None or external_chat_id is None:
+            return None
+        token = await self._token_getter()
+        headers = _im_http_headers(token)
+        async with httpx.AsyncClient(
+            base_url=self._base_url,
+            headers=headers,
+            timeout=self._timeout_seconds,
+            trust_env=False,
+        ) as client:
+            conversation_response = await client.post(
+                "/im/v1/conversations/external/find-or-create",
+                json={
+                    "external_source": external_source,
+                    "external_chat_id": external_chat_id,
+                    "agent_id": agent_id,
+                    "title": _external_shadow_title(
+                        metadata, agent_id=agent_id, external_source=external_source
+                    ),
+                    "is_group": bool(message.is_group),
+                    "participant_ids": [
+                        f"user:{self._owner_user_id}",
+                        f"agent:{agent_id}",
+                    ],
+                    "metadata": {
+                        key: value
+                        for key, value in metadata.items()
+                        if isinstance(key, str)
+                    },
+                },
+            )
+            conversation_response.raise_for_status()
+            conversation_payload = conversation_response.json()
+            conversation_id = str(conversation_payload.get("id") or "").strip()
+            if not conversation_id:
+                raise ValueError("external shadow conversation response missing id")
+            message_response = await client.post(
+                f"/im/v1/conversations/{conversation_id}/messages",
+                json={
+                    "sender_user_id": self._owner_user_id,
+                    "sender_type": "user",
+                    "content": message.text,
+                    "sender_display_name": _metadata_text(
+                        metadata, key="sender_display_name"
+                    ),
+                },
+            )
+            message_response.raise_for_status()
+            return conversation_id
+
+
+def _external_shadow_title(
+    metadata: Mapping[str, object], *, agent_id: str, external_source: str
+) -> str:
+    title = _metadata_text(metadata, key="conversation_title")
+    if title is not None:
+        return title
+    chat_name = _metadata_text(metadata, key="chat_name")
+    conversation_type = _metadata_text(metadata, key="conversation_type")
+    if conversation_type == "group":
+        return f"{agent_id} · {chat_name or '群聊'} · {external_source}"
+    return f"{agent_id} · {external_source}"
+
+
 class _IMBootstrapClient:
     """Query IM ownership state and launch browser binding when a node is unbound.
 
@@ -2433,6 +2521,12 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                 _sync_client_ref.update_token(token)
             return token
 
+        pipeline._shadow_sync = _IMShadowConversationSyncClient(  # noqa: SLF001
+            base_url=config.im_service.url,
+            token_getter=_token_getter,
+            owner_user_id=_owner_user_id,
+        )
+
         # M3: permission response handler is no longer wired — the SDK's can_use_tool
         # callback handles all permission decisions in-process (design decision 3).
         _im_sync_client = ConfigSyncClient(fetcher=im_config_sync_client.sync_agent)
@@ -3037,6 +3131,7 @@ def _build_channel_registry(
                     app_id=settings["appId"],
                     app_secret=settings["appSecret"],
                     bot_open_id=settings.get("botOpenId"),
+                    owner_open_id=settings["ownerOpenId"],
                     group_context_store=group_context_store,
                 )
             )
@@ -3300,13 +3395,30 @@ def _build_relay_lifecycle_callback(
                 and update.run_id
                 and update.run_id not in run_context_store
             ):
-                # For relay messages, external_chat_id is already an IM conversation id.
-                # For non-relay channels (e.g. feishu) the external_chat_id is a foreign
-                # channel identifier; IM cannot create a conversation from it. Leave
-                # conversation_id empty so IM lazily creates a direct chat for the agent.
+                shadow_conversation_id = _metadata_text(
+                    message.metadata, key="shadow_conversation_id"
+                )
+                trigger_source = (
+                    _metadata_text(message.metadata, key="trigger_source") or ""
+                )
+                external_source = _metadata_text(
+                    message.metadata, key="external_source"
+                )
                 relay_task_id = _metadata_text(message.metadata, key="relay_task_id")
-                if relay_task_id is not None:
+                if shadow_conversation_id is not None:
+                    conversation_id = shadow_conversation_id
+                    to_user_id = ""
+                elif relay_task_id is not None:
+                    # For regular relay messages, external_chat_id is already an IM
+                    # conversation id. External shadow relay messages are handled by
+                    # shadow_conversation_id above.
                     conversation_id = message.external_chat_id
+                    to_user_id = ""
+                elif external_source is not None:
+                    # External-channel messages whose shadow sync failed must not use
+                    # owner_user_id lazy creation, otherwise IM would create a normal
+                    # direct chat and pollute the internal conversation list.
+                    conversation_id = ""
                     to_user_id = ""
                 else:
                     conversation_id = ""
@@ -3328,6 +3440,8 @@ def _build_relay_lifecycle_callback(
                     "kernel_session_id": update.kernel_session_id or "",
                     "to_user_id": to_user_id,
                 }
+                if trigger_source:
+                    run_context_store[update.run_id]["trigger_source"] = trigger_source
         elif update.phase in ("completed", "failed"):
             if run_context_store is not None and update.run_id:
                 run_context_store.pop(update.run_id, None)

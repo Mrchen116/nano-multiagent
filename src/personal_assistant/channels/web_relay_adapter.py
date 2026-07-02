@@ -242,6 +242,16 @@ def _build_inbound(
     # can propagate structured participant info to communication_context hook.
     if envelope.participants:
         extra["participants"] = envelope.participants
+    metadata = dict(envelope.metadata)
+    external_agent_id = _optional_text(metadata.get("agent_id"))
+    if (
+        conversation_type == "group"
+        and external_agent_id is not None
+        and _optional_text(metadata.get("external_source")) is not None
+        and _optional_text(metadata.get("external_chat_id")) is not None
+        and not metadata.get("mentioned_agent_ids")
+    ):
+        metadata["mentioned_agent_ids"] = [external_agent_id]
     return InboundMessage(
         channel_name="web_relay",
         text=envelope.content,
@@ -254,7 +264,7 @@ def _build_inbound(
             "relay_task_id": envelope.relay_task_id,
             "idempotency_key": envelope.idempotency_key,
             "message_id": message_id,
-            **dict(envelope.metadata),
+            **metadata,
             **extra,
         },
     )

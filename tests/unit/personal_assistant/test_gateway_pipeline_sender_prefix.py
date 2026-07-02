@@ -320,3 +320,81 @@ def test_buffered_messages_use_display_name_from_metadata(tmp_path: Path) -> Non
 
     texts = kernel.send_calls[0]["texts"]
     assert texts == ["[Bob Smith] first message", "[Alice Chen] @agent-a respond"]
+
+
+def test_sync_only_group_message_buffers_without_creating_run(tmp_path: Path) -> None:
+    """sync_only 外部群消息只进 buffer，不创建 kernel session/run。"""
+    pipeline, store, kernel = _build_pipeline(tmp_path)
+
+    plain = InboundMessage(
+        channel_name="feishu:agent-a",
+        text="background from feishu",
+        external_user_id="ou_alice",
+        external_chat_id="feishu:cli_a:group:oc_grp1",
+        is_group=True,
+        agent_id="agent-a",
+        metadata={
+            "sync_only": True,
+            "sender_display_name": "Alice",
+            "external_source": "feishu",
+            "external_chat_id": "feishu:cli_a:group:oc_grp1",
+            "trigger_source": "feishu",
+        },
+    )
+
+    result = asyncio.run(pipeline.handle_inbound(plain))
+
+    assert result is None
+    assert kernel.create_session_calls == []
+    assert kernel.send_calls == []
+    assert store is not None
+    assert store.drain("feishu:feishu:cli_a:group:oc_grp1:agent-a") == [
+        ("Alice", "background from feishu")
+    ]
+
+
+def test_external_group_buffer_key_is_shared_across_feishu_and_shadow_im(
+    tmp_path: Path,
+) -> None:
+    """飞书 sync_only buffer 可被同一 external identity 的 IM shadow group 入口 drain。"""
+    pipeline, store, kernel = _build_pipeline(tmp_path)
+
+    feishu_background = InboundMessage(
+        channel_name="feishu:agent-a",
+        text="release slipped because QA found blockers",
+        external_user_id="ou_alice",
+        external_chat_id="feishu:cli_a:group:oc_grp1",
+        is_group=True,
+        agent_id="agent-a",
+        metadata={
+            "sync_only": True,
+            "sender_display_name": "Alice",
+            "external_source": "feishu",
+            "external_chat_id": "feishu:cli_a:group:oc_grp1",
+        },
+    )
+    shadow_question = InboundMessage(
+        channel_name="web_relay",
+        text="总结刚才",
+        external_user_id="im-owner",
+        external_chat_id="im-shadow-conv-1",
+        is_group=True,
+        agent_id="agent-a",
+        metadata={
+            "mentioned_agent_ids": ["agent-a"],
+            "sender_display_name": "你",
+            "external_source": "feishu",
+            "external_chat_id": "feishu:cli_a:group:oc_grp1",
+            "trigger_source": "im",
+        },
+    )
+
+    asyncio.run(pipeline.handle_inbound(feishu_background))
+    result = asyncio.run(pipeline.handle_inbound(shadow_question))
+
+    assert result is not None
+    assert result.session_key == "feishu:feishu:cli_a:group:oc_grp1:agent-a"
+    assert kernel.send_calls[0]["texts"] == [
+        "[Alice] release slipped because QA found blockers",
+        "[你] 总结刚才",
+    ]

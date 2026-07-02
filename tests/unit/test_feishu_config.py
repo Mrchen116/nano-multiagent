@@ -12,6 +12,16 @@ from personal_assistant.config.local_store import (
 )
 
 
+def _feishu_settings(**overrides) -> dict[str, object]:
+    settings: dict[str, object] = {
+        "appId": "cli_abc",
+        "appSecret": "sec",
+        "ownerOpenId": "ou_owner",
+    }
+    settings.update(overrides)
+    return settings
+
+
 class TestParseFeishuChannels:
     """Verify channels named "feishu:<agent_id>" parse into ChannelConfig entries."""
 
@@ -19,10 +29,9 @@ class TestParseFeishuChannels:
         payload = [
             {
                 "name": "feishu:plato",
-                "settings": {
-                    "appId": "cli_abc123",
-                    "appSecret": "secret123",
-                },
+                "settings": _feishu_settings(
+                    appId="cli_abc123", appSecret="secret123"
+                ),
             }
         ]
         channels = _parse_channels(payload)
@@ -37,15 +46,15 @@ class TestParseFeishuChannels:
         payload = [
             {
                 "name": "feishu:plato",
-                "settings": {"appId": "cli_a", "appSecret": "s_a"},
+                "settings": _feishu_settings(appId="cli_a", appSecret="s_a"),
             },
             {
                 "name": "feishu:luban",
-                "settings": {"appId": "cli_b", "appSecret": "s_b"},
+                "settings": _feishu_settings(appId="cli_b", appSecret="s_b"),
             },
             {
                 "name": "feishu:hume",
-                "settings": {"appId": "cli_c", "appSecret": "s_c"},
+                "settings": _feishu_settings(appId="cli_c", appSecret="s_c"),
             },
         ]
         channels = _parse_channels(payload)
@@ -57,12 +66,12 @@ class TestParseFeishuChannels:
         payload = [
             {
                 "name": "feishu:plato",
-                "settings": {"appId": "cli_a", "appSecret": "s_a"},
+                "settings": _feishu_settings(appId="cli_a", appSecret="s_a"),
             },
             {
                 "name": "feishu:luban",
                 "enabled": False,
-                "settings": {"appId": "cli_b", "appSecret": "s_b"},
+                "settings": _feishu_settings(appId="cli_b", appSecret="s_b"),
             },
         ]
         channels = _parse_channels(payload)
@@ -73,7 +82,7 @@ class TestParseFeishuChannels:
         payload = [
             {
                 "name": "feishu:plato",
-                "settings": {"appSecret": "secret"},
+                "settings": _feishu_settings(appId=None, appSecret="secret"),
             }
         ]
         with pytest.raises(ValueError, match="appId"):
@@ -83,7 +92,7 @@ class TestParseFeishuChannels:
         payload = [
             {
                 "name": "feishu:plato",
-                "settings": {"appId": "cli_a"},
+                "settings": _feishu_settings(appId="cli_a", appSecret=None),
             }
         ]
         with pytest.raises(ValueError, match="appSecret"):
@@ -94,7 +103,7 @@ class TestParseFeishuChannels:
         payload = [
             {
                 "name": "feishu:",
-                "settings": {"appId": "cli_a", "appSecret": "secret"},
+                "settings": _feishu_settings(appId="cli_a", appSecret="secret"),
             }
         ]
         # The adapter will reject this at construction time; the parser lets it
@@ -109,7 +118,7 @@ class TestParseFeishuChannels:
             {"name": "web_relay"},
             {
                 "name": "feishu:plato",
-                "settings": {"appId": "cli_a", "appSecret": "s_a"},
+                "settings": _feishu_settings(appId="cli_a", appSecret="s_a"),
             },
         ]
         channels = _parse_channels(payload)
@@ -127,8 +136,7 @@ class TestParseFeishuChannels:
             {
                 "name": "feishu:plato",
                 "settings": {
-                    "appId": "cli_abc",
-                    "appSecret": "sec",
+                    **_feishu_settings(),
                     "botOpenId": "ou_bot_123",
                 },
             }
@@ -143,7 +151,7 @@ class TestParseFeishuChannels:
         payload = [
             {
                 "name": "feishu:plato",
-                "settings": {"appId": "cli_abc", "appSecret": "sec"},
+                "settings": _feishu_settings(),
             }
         ]
         channels = _parse_channels(payload)
@@ -155,7 +163,7 @@ class TestParseFeishuChannels:
             {
                 "name": "feishu:plato",
                 "enabled": False,
-                "settings": {"appId": "cli_abc", "appSecret": "sec"},
+                "settings": _feishu_settings(),
             }
         ]
         channels = _parse_channels(payload)
@@ -167,9 +175,32 @@ class TestParseFeishuChannels:
             {
                 "name": "feishu:plato",
                 "enabled": True,
-                "settings": {"appId": "cli_abc", "appSecret": "sec"},
+                "settings": _feishu_settings(),
             }
         ]
         channels = _parse_channels(payload)
         assert len(channels) == 1
         assert channels[0].name == "feishu:plato"
+
+    def test_missing_owner_open_id_raises(self) -> None:
+        payload = [
+            {
+                "name": "feishu:plato",
+                "settings": {
+                    "appId": "cli_a",
+                    "appSecret": "secret",
+                },
+            }
+        ]
+        with pytest.raises(ValueError, match="ownerOpenId"):
+            _parse_channels(payload)
+
+    def test_non_string_owner_open_id_raises(self) -> None:
+        payload = [
+            {
+                "name": "feishu:plato",
+                "settings": _feishu_settings(ownerOpenId=123),
+            }
+        ]
+        with pytest.raises(ValueError, match="ownerOpenId"):
+            _parse_channels(payload)

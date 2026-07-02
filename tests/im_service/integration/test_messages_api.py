@@ -68,6 +68,77 @@ def test_messages_roundtrip_and_order(tmp_path: Path) -> None:
         assert [item["content"] for item in payload] == ["hello", "world"]
 
 
+def test_external_find_or_create_and_message_display_name_roundtrip(
+    tmp_path: Path,
+) -> None:
+    """Expose the shadow conversation entrypoint and sender display name over HTTP."""
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        owner_id = _create_user(client, "owner")
+        agent_user_id = _create_user(client, "agent:plato")
+        profile_repo = AgentProfileRepository(app.state.connection)
+        owner = UserRepository(app.state.connection).get_user(user_id=owner_id)
+        assert owner is not None
+        profile_repo.upsert_profile(
+            agent_id="plato",
+            owner_id=owner.owner_id,
+            display_name="Plato",
+            description="",
+            system_prompt="You are Plato.",
+            skills=[],
+            tool_allowlist=[],
+            group_reply_policy="MENTION",
+            default_model=None,
+            workspace_root="",
+        )
+
+        created = client.post(
+            "/im/v1/conversations/external/find-or-create",
+            json={
+                "external_source": "feishu",
+                "external_chat_id": "ou_user",
+                "agent_id": "plato",
+                "title": "Plato · feishu",
+                "is_group": False,
+                "participant_ids": [f"user:{owner_id}", "agent:plato"],
+                "metadata": {"channel": "feishu"},
+            },
+        )
+        assert created.status_code == 201, created.text
+        conversation = created.json()
+        assert conversation["type"] == "direct"
+        assert conversation["external_source"] == "feishu"
+        assert conversation["external_chat_id"] == "ou_user"
+        assert conversation["config_agent_id"] == "plato"
+
+        same = client.post(
+            "/im/v1/conversations/external/find-or-create",
+            json={
+                "external_source": "feishu",
+                "external_chat_id": "ou_user",
+                "agent_id": "plato",
+                "title": "Plato renamed · feishu",
+                "is_group": False,
+                "participant_ids": [f"user:{owner_id}", f"user:{agent_user_id}"],
+                "metadata": {},
+            },
+        )
+        assert same.status_code == 200, same.text
+        assert same.json()["id"] == conversation["id"]
+        assert same.json()["title"] == "Plato renamed · feishu"
+
+        message = client.post(
+            f"/im/v1/conversations/{conversation['id']}/messages",
+            json={
+                "sender_user_id": owner_id,
+                "content": "from feishu",
+                "sender_display_name": "你",
+            },
+        )
+        assert message.status_code == 201, message.text
+        assert message.json()["sender"]["display_name"] == "你"
+
+
 def test_list_messages_mark_as_read_clears_conversation_unread_counter(
     tmp_path: Path,
 ) -> None:

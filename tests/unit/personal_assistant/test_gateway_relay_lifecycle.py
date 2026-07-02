@@ -120,6 +120,122 @@ def test_relay_lifecycle_callback_sends_receipts_and_reports_with_real_usage_to_
     assert manager.sent_frames[3][1]["detail"] == "hello from agent"
 
 
+def test_relay_lifecycle_callback_seeds_external_shadow_run_context() -> None:
+    run_context_store: dict[str, dict[str, str]] = {}
+    callback = _build_relay_lifecycle_callback(
+        reporter=None,
+        im_connection_manager_factory=lambda: None,
+        run_context_store=run_context_store,
+        owner_user_id="owner-1",
+    )
+    message = type("_Message", (), {})()
+    message.external_chat_id = "oc_feishu_chat"
+    message.metadata = {
+        "external_source": "feishu",
+        "external_chat_id": "oc_feishu_chat",
+        "shadow_conversation_id": "shadow-conv-1",
+        "trigger_source": "feishu",
+        "agent_id": "agent-a",
+    }
+
+    async def _exercise() -> None:
+        await callback(
+            message,
+            RelayLifecycleUpdate(
+                phase="accepted",
+                agent_id="agent-a",
+                session_key="feishu:oc_feishu_chat:agent-a",
+                run_id="run-1",
+                kernel_session_id="sess-1",
+            ),
+        )
+
+    asyncio.run(_exercise())
+
+    assert run_context_store["run-1"] == {
+        "conversation_id": "shadow-conv-1",
+        "message_id": "",
+        "agent_id": "agent-a",
+        "kernel_session_id": "sess-1",
+        "to_user_id": "",
+        "trigger_source": "feishu",
+    }
+
+
+def test_relay_lifecycle_callback_skips_lazy_direct_when_external_shadow_missing() -> None:
+    run_context_store: dict[str, dict[str, str]] = {}
+    callback = _build_relay_lifecycle_callback(
+        reporter=None,
+        im_connection_manager_factory=lambda: None,
+        run_context_store=run_context_store,
+        owner_user_id="owner-1",
+    )
+    message = type("_Message", (), {})()
+    message.external_chat_id = "oc_feishu_chat"
+    message.metadata = {
+        "external_source": "feishu",
+        "external_chat_id": "oc_feishu_chat",
+        "trigger_source": "feishu",
+        "agent_id": "agent-a",
+    }
+
+    async def _exercise() -> None:
+        await callback(
+            message,
+            RelayLifecycleUpdate(
+                phase="accepted",
+                agent_id="agent-a",
+                session_key="feishu:oc_feishu_chat:agent-a",
+                run_id="run-1",
+                kernel_session_id="sess-1",
+            ),
+        )
+
+    asyncio.run(_exercise())
+
+    assert run_context_store["run-1"]["conversation_id"] == ""
+    assert run_context_store["run-1"]["to_user_id"] == ""
+    assert run_context_store["run-1"]["trigger_source"] == "feishu"
+
+
+def test_relay_lifecycle_callback_routes_im_shadow_run_to_shadow_conversation() -> None:
+    run_context_store: dict[str, dict[str, str]] = {}
+    callback = _build_relay_lifecycle_callback(
+        reporter=None,
+        im_connection_manager_factory=lambda: None,
+        run_context_store=run_context_store,
+    )
+    message = type("_Message", (), {})()
+    message.external_chat_id = "shadow-conv-1"
+    message.metadata = {
+        "relay_task_id": "relay-1",
+        "message_id": "msg-1",
+        "trigger_source": "im",
+        "external_source": "feishu",
+        "external_chat_id": "oc_feishu_chat",
+        "shadow_conversation_id": "shadow-conv-1",
+        "agent_id": "agent-a",
+    }
+
+    async def _exercise() -> None:
+        await callback(
+            message,
+            RelayLifecycleUpdate(
+                phase="accepted",
+                agent_id="agent-a",
+                session_key="feishu:oc_feishu_chat:agent-a",
+                run_id="run-1",
+                kernel_session_id="sess-1",
+            ),
+        )
+
+    asyncio.run(_exercise())
+
+    assert run_context_store["run-1"]["conversation_id"] == "shadow-conv-1"
+    assert run_context_store["run-1"]["to_user_id"] == ""
+    assert run_context_store["run-1"]["trigger_source"] == "im"
+
+
 def test_relay_lifecycle_callback_failed_sends_message_level_report_with_real_cause() -> (
     None
 ):

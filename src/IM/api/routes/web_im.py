@@ -1,6 +1,6 @@
 """Conversation routes for IM HTTP APIs."""
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field, model_validator
 
 from IM.api.deps import current_user, get_gateway_handler, get_web_im_service
@@ -90,8 +90,23 @@ class ConversationResponse(BaseModel):
     unread_count: int
     last_message_preview: str | None
     last_message_at: str | None
+    config_agent_id: str | None
     config_profile_version: int | None
+    external_source: str | None = None
+    external_chat_id: str | None = None
     created_at: str
+
+
+class ExternalFindOrCreateConversationRequest(BaseModel):
+    """Request payload for external-channel shadow conversation upsert."""
+
+    external_source: str = Field(min_length=1)
+    external_chat_id: str = Field(min_length=1)
+    agent_id: str = Field(min_length=1)
+    title: str = Field(min_length=1)
+    is_group: bool = False
+    participant_ids: list[str] = Field(default_factory=list)
+    metadata: dict[str, object] = Field(default_factory=dict)
 
 
 class ListConversationsResponse(BaseModel):
@@ -134,7 +149,10 @@ def to_conversation_response(conversation: Conversation) -> ConversationResponse
         unread_count=conversation.unread_count,
         last_message_preview=conversation.last_message_preview,
         last_message_at=conversation.last_message_at,
+        config_agent_id=conversation.config_agent_id,
         config_profile_version=conversation.config_profile_version,
+        external_source=conversation.external_source,
+        external_chat_id=conversation.external_chat_id,
         created_at=conversation.created_at,
     )
 
@@ -260,6 +278,50 @@ def list_conversations(
             to_conversation_response(item)
             for item in service.list_conversations_for_owner(owner_id=user.owner_id)
         ]
+    )
+
+
+@router.post(
+    "/im/v1/conversations/external/find-or-create",
+    response_model=ConversationResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def find_or_create_external_conversation(
+    payload: ExternalFindOrCreateConversationRequest,
+    response: Response,
+    user: User = Depends(current_user),
+    service: WebIMService = Depends(get_web_im_service),
+) -> ConversationResponse:
+    """Find or create an owner-scoped external-channel shadow conversation."""
+    participant_ids = payload.participant_ids or [
+        f"user:{user.id}",
+        f"agent:{payload.agent_id}",
+    ]
+    try:
+        conversation, created = service.find_or_create_external_conversation(
+            external_source=payload.external_source,
+            external_chat_id=payload.external_chat_id,
+            agent_id=payload.agent_id,
+            title=payload.title,
+            is_group=payload.is_group,
+            participant_ids=participant_ids,
+            owner_id=user.owner_id,
+            creator_id=f"user:{user.id}",
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+    if not created:
+        response.status_code = status.HTTP_200_OK
+    persisted = service.get_conversation(conversation_id=conversation.id)
+    assert persisted is not None
+    return to_conversation_response(persisted).model_copy(
+        update={
+            "config_agent_id": payload.agent_id,
+            "external_source": payload.external_source,
+            "external_chat_id": payload.external_chat_id,
+        }
     )
 
 

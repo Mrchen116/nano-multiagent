@@ -2,8 +2,9 @@
 
 Implements the ``ChannelAdapter`` protocol, bridging feishu message events
 (1:1 DM and group @Bot) into the gateway inbound pipeline.  Uses
-``FeishuClient`` for SDK connectivity and ``GroupContextStore`` for buffering
-non-mention group messages as conversation context.
+``FeishuClient`` for SDK connectivity. Non-mention group messages are delivered
+as ``sync_only`` inbound messages so the gateway pipeline owns buffering and IM
+shadow sync.
 """
 
 from __future__ import annotations
@@ -42,7 +43,10 @@ class FeishuAdapter:
         bot_open_id: Feishu open_id of this bot, used for @mention detection.
             When ``None``, group messages without explicit mentions will all be
             buffered (safe default).
-        group_context_store: Shared buffer for non-mention group messages.
+        owner_open_id: Feishu open_id of the IM owner. Messages from this user
+            are displayed as "你" in the IM shadow conversation.
+        group_context_store: Shared buffer retained for constructor compatibility;
+            buffering is owned by InboundPipeline for M7+.
         domain: Feishu API domain (default ``https://open.feishu.cn``).
     """
 
@@ -53,6 +57,7 @@ class FeishuAdapter:
         app_id: str,
         app_secret: str,
         bot_open_id: str | None = None,
+        owner_open_id: str | None = None,
         group_context_store: GroupContextStore,
         domain: str = "https://open.feishu.cn",
     ) -> None:
@@ -61,6 +66,7 @@ class FeishuAdapter:
         self._app_secret = app_secret
         self._agent_id = _parse_agent_id_from_name(name)
         self._bot_open_id = bot_open_id
+        self._owner_open_id = owner_open_id
         self._group_ctx = group_context_store
         self._domain = domain
         self._client: FeishuClient | None = None
@@ -150,8 +156,8 @@ class FeishuAdapter:
 
         Decision tree:
         - 1:1 DM → always deliver
-        - Group + @Bot → flush context buffer + deliver
-        - Group + no @Bot (or @所有人) → push to context buffer
+        - Group + @Bot → deliver
+        - Group + no @Bot (or @所有人) → deliver sync_only for pipeline-owned buffer
         """
         if self._on_inbound is None:
             return
@@ -163,9 +169,9 @@ class FeishuAdapter:
 
         if _is_bot_mentioned(event.mentions, self._bot_open_id):
             self._ack_received(event)
-            self._deliver_group_with_context(event)
+            self._deliver_group(event, sync_only=False)
         else:
-            self._buffer_group_message(event)
+            self._deliver_group(event, sync_only=True)
 
     def _ack_received(self, event: FeishuMessageEvent) -> None:
         """React to a message that is about to enter the agent pipeline."""
@@ -236,52 +242,62 @@ class FeishuAdapter:
                     {"open_id": m.open_id, "name": m.name, "key": m.key}
                     for m in event.mentions
                 ],
+                **self._external_metadata(event, is_group=False),
             },
         )
         assert self._on_inbound is not None
         self._on_inbound(inbound)
 
-    def _deliver_group_with_context(self, event: FeishuMessageEvent) -> None:
-        """Flush buffered context and deliver a group @Bot message."""
+    def _deliver_group(self, event: FeishuMessageEvent, *, sync_only: bool) -> None:
+        """Deliver a group message and let InboundPipeline own buffering/drain."""
         external_chat_id = f"feishu:{self._app_id}:group:{event.chat_id}"
-        buf_key = _group_buf_key(self._agent_id, self.name, external_chat_id)
-        buffered = self._group_ctx.drain(buf_key)
-
-        # Prepend buffered context as "[sender] text" lines
-        context_lines: list[str] = []
-        for sender, text in buffered:
-            context_lines.append(f"[{sender}] {text}")
-
-        full_text = event.text
-        if context_lines:
-            context_prefix = "\n".join(context_lines)
-            full_text = f"(previous messages)\n{context_prefix}\n\n{full_text}"
+        metadata = {
+            "feishu_message_id": event.message_id,
+            "feishu_chat_type": event.chat_type,
+            "feishu_mentions": [
+                {"open_id": m.open_id, "name": m.name, "key": m.key}
+                for m in event.mentions
+            ],
+            **self._external_metadata(event, is_group=True),
+        }
+        if sync_only:
+            metadata["sync_only"] = True
+        else:
+            metadata["mentioned_agent_ids"] = [self._agent_id]
 
         inbound = InboundMessage(
             channel_name=self.name,
-            text=full_text,
+            text=event.text,
             external_user_id=event.sender_open_id,
-            external_chat_id=f"feishu:{self._app_id}:group:{event.chat_id}",
+            external_chat_id=external_chat_id,
             is_group=True,
             agent_id=self._agent_id,
-            metadata={
-                "feishu_message_id": event.message_id,
-                "feishu_chat_type": event.chat_type,
-                "feishu_mentions": [
-                    {"open_id": m.open_id, "name": m.name, "key": m.key}
-                    for m in event.mentions
-                ],
-            },
+            metadata=metadata,
         )
         assert self._on_inbound is not None
         self._on_inbound(inbound)
 
-    def _buffer_group_message(self, event: FeishuMessageEvent) -> None:
-        """Push a non-@Bot group message into the context buffer."""
-        external_chat_id = f"feishu:{self._app_id}:group:{event.chat_id}"
-        buf_key = _group_buf_key(self._agent_id, self.name, external_chat_id)
-        self._group_ctx.append(buf_key, event.text, sender=event.sender_open_id)
-        logger.debug("buffered group message for %s: %s", buf_key, event.text[:50])
+    def _external_metadata(
+        self, event: FeishuMessageEvent, *, is_group: bool
+    ) -> dict[str, object]:
+        external_chat_id = (
+            f"feishu:{self._app_id}:group:{event.chat_id}"
+            if is_group
+            else f"feishu:{self._app_id}:dm:{event.sender_open_id}"
+        )
+        sender_display_name = (
+            "你"
+            if self._owner_open_id and event.sender_open_id == self._owner_open_id
+            else event.sender_display_name or event.sender_open_id
+        )
+        return {
+            "external_source": "feishu",
+            "external_chat_id": external_chat_id,
+            "agent_id": self._agent_id,
+            "trigger_source": "feishu",
+            "conversation_type": "group" if is_group else "direct",
+            "sender_display_name": sender_display_name,
+        }
 
 
 def _is_bot_mentioned(mentions: list[FeishuMention], bot_open_id: str | None) -> bool:
@@ -303,15 +319,6 @@ def _is_bot_mentioned(mentions: list[FeishuMention], bot_open_id: str | None) ->
         return any(m.open_id != "all" for m in mentions)
 
     return any(m.open_id == bot_open_id for m in mentions)
-
-
-def _group_buf_key(agent_id: str, channel_name: str, external_chat_id: str) -> str:
-    """Build the GroupContextStore buffer key for a feishu group chat.
-
-    Format aligns with InboundPipeline._group_buf_key_for_agent:
-    ``{agent_id}:{channel_name}:{external_chat_id}``
-    """
-    return f"{agent_id}:{channel_name}:{external_chat_id}"
 
 
 def _extract_chat_id(external_chat_id: str) -> str:

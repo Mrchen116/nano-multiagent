@@ -46,6 +46,8 @@ CREATE TABLE IF NOT EXISTS conversations (
     config_agent_id TEXT,
     config_profile_version INTEGER,
     config_system_prompt TEXT,
+    external_source TEXT,
+    external_chat_id TEXT,
     created_at TEXT NOT NULL
 );
 
@@ -127,9 +129,13 @@ CREATE TABLE IF NOT EXISTS messages (
     -- feat-414: 本轮 agent 处理墙钟耗时（毫秒）。turn_start 建行时为 NULL，
     -- on_message_completed 写入 elapsed_ms = round((T1 − T0) * 1000)。
     elapsed_ms INTEGER,
+    sender_display_name TEXT,
     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
     FOREIGN KEY (sender_user_id) REFERENCES users(id) ON DELETE CASCADE
 );
+
+CREATE INDEX IF NOT EXISTS idx_conversations_external_identity
+ON conversations(external_source, external_chat_id, config_agent_id, owner_id);
 
 CREATE TABLE IF NOT EXISTS conversation_events (
     event_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -318,6 +324,16 @@ def _migrate_conversations_metadata(connection: sqlite3.Connection) -> None:
         connection.execute(
             "ALTER TABLE conversations ADD COLUMN config_system_prompt TEXT"
         )
+    if "external_source" not in column_names:
+        connection.execute("ALTER TABLE conversations ADD COLUMN external_source TEXT")
+    if "external_chat_id" not in column_names:
+        connection.execute("ALTER TABLE conversations ADD COLUMN external_chat_id TEXT")
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_conversations_external_identity
+        ON conversations(external_source, external_chat_id, config_agent_id, owner_id)
+        """
+    )
     # M234: creator_id records who created the conversation for dissolve-permission checks.
     # Legacy rows are backfilled with the first participant (owner_id fallback).
     if "creator_id" not in column_names:
@@ -390,6 +406,8 @@ def _migrate_messages_metadata(connection: sqlite3.Connection) -> None:
     # have none — fork is disabled on bubbles without it.
     if "kernel_message_id" not in column_names:
         connection.execute("ALTER TABLE messages ADD COLUMN kernel_message_id TEXT")
+    if "sender_display_name" not in column_names:
+        connection.execute("ALTER TABLE messages ADD COLUMN sender_display_name TEXT")
 
 
 def _migrate_agent_profile_tables(connection: sqlite3.Connection) -> None:
