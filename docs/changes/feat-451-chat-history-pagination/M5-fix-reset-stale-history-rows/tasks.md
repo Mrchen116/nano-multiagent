@@ -8,15 +8,15 @@
 
 ## 退出标准
 
-- [ ] `[worker]` history reset 不得保留同会话旧 state 中已不在服务端历史响应里的消息，例如后端 `list_messages` suppress 的 synthetic `:relay:` mirror row。
-- [ ] `[worker]` active pane 在 history reset 后与服务端 history response 收敛。
-- [ ] `[worker]` 保持 M4 行为：c1 -> c2 切换且 c2 history response 未返回时，c2 live event 先到不丢。
-- [ ] `[worker]` 保持 M4 行为：随后 c2 history response 到达后，不覆盖/删除 history 尚未包含的 live row。
-- [ ] `[worker]` 外会话 event 仍不污染 active pane。
-- [ ] `[worker]` 补充 stale/suppressed row 被 reset 移除和 live-before-history row 仍保留的回归测试。
-- [ ] `[worker]` `cd src/IM/frontend && npm run test -- src/features/chat/v2/chat-workspace.integration.test.tsx src/features/chat/v2/components/message-pane.test.tsx` 通过。
-- [ ] `[worker]` `cd src/IM/frontend && npm run test` 通过。
-- [ ] `[worker]` `cd src/IM/frontend && npx tsc -b` 通过。
+- [x] `[worker]` history reset 不得保留同会话旧 state 中已不在服务端历史响应里的消息，例如后端 `list_messages` suppress 的 synthetic `:relay:` mirror row。
+- [x] `[worker]` active pane 在 history reset 后与服务端 history response 收敛。
+- [x] `[worker]` 保持 M4 行为：c1 -> c2 切换且 c2 history response 未返回时，c2 live event 先到不丢。
+- [x] `[worker]` 保持 M4 行为：随后 c2 history response 到达后，不覆盖/删除 history 尚未包含的 live row。
+- [x] `[worker]` 外会话 event 仍不污染 active pane。
+- [x] `[worker]` 补充 stale/suppressed row 被 reset 移除和 live-before-history row 仍保留的回归测试。
+- [x] `[worker]` `cd src/IM/frontend && npm run test -- src/features/chat/v2/chat-workspace.integration.test.tsx src/features/chat/v2/components/message-pane.test.tsx` 通过。
+- [x] `[worker]` `cd src/IM/frontend && npm run test` 通过。
+- [x] `[worker]` `cd src/IM/frontend && npx tsc -b` 通过。
 
 ## 测试策略
 
@@ -61,7 +61,7 @@
 
 ### R1 — Reset 收敛并保留 pending live rows
 
-- 状态: TODO
+- 状态: DONE
 - 步骤:
   - C1: 补 suppressed synthetic relay mirror stale row 红测。
   - C2: 调整 `streamReducer` reset 合并策略，只保留 history response 后先到的 live/pending rows，不无条件回填旧 state rows。
