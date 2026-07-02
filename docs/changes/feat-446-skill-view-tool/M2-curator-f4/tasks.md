@@ -34,7 +34,7 @@
 
 ### R1 — curator state machine and archive visibility
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 新增 Curator 行为测试；实现 `core/skills/curator.py`，让 F3/F4 active→stale、stale/active→archived、stale→active 数据流转；更新 skill discovery 使 `.archive/` 下 skill 默认不进入候选。
 - 验证: `PYTHONPATH=src pytest tests/unit/test_curator.py tests/contract/test_core_no_platform_imports.py -x`
 
