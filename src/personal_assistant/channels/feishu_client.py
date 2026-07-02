@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 # Regex-free mention placeholder prefix used by feishu JSON text content.
 # Feishu encodes @mentions as @_user_N placeholders inside {"text": "..."}.
 _MENTION_PLACEHOLDER_PREFIX = "@_user_"
+_ALL_MENTION_PLACEHOLDER = "@_all"
 
 # Retry policy constants for send_message error handling.
 _MAX_RATE_LIMIT_RETRIES = 3  # Total attempts for 429 (original + 2 retries)
@@ -508,7 +509,7 @@ def _extract_text(raw_content: str) -> str:
 def _normalize_mention_text(text: str, mentions: list[FeishuMention]) -> str:
     """Replace Feishu mention placeholders with user-visible @ labels."""
 
-    normalized = text
+    normalized = text.replace(_ALL_MENTION_PLACEHOLDER, "@所有人")
     for mention in mentions:
         if not mention.key:
             continue
@@ -517,7 +518,7 @@ def _normalize_mention_text(text: str, mentions: list[FeishuMention]) -> str:
 
 
 def _text_without_mentions(text: str, mentions: list[FeishuMention]) -> str:
-    remaining = text
+    remaining = text.replace(_ALL_MENTION_PLACEHOLDER, " ")
     for mention in mentions:
         if mention.key:
             remaining = remaining.replace(mention.key, " ")

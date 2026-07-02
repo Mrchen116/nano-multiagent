@@ -25,6 +25,7 @@ def _make_event(
     open_id: str = "ou_bot1",
     name: str = "plato-bot",
     key: str = "@_user_1",
+    include_mention: bool = True,
 ) -> MagicMock:
     event = MagicMock()
     event.event.sender.sender_id.open_id = "ou_user1"
@@ -36,7 +37,7 @@ def _make_event(
     mention.id.open_id = open_id
     mention.name = name
     mention.key = key
-    event.event.message.mentions = [mention]
+    event.event.message.mentions = [mention] if include_mention else []
     return event
 
 
@@ -68,6 +69,20 @@ def test_parse_at_all_keeps_visible_text() -> None:
     )
 
     assert result.text == "@所有人 deploy freeze"
+    assert result.mention_only is False
+
+
+def test_parse_live_at_all_placeholder_keeps_visible_text_without_entity() -> None:
+    result = _parse_feishu_event(
+        _make_event(
+            content='{"text":"@_all deploy freeze"}',
+            include_mention=False,
+        )
+    )
+
+    assert result.text == "@所有人 deploy freeze"
+    assert result.raw_text == "@_all deploy freeze"
+    assert result.mentions == []
     assert result.mention_only is False
 
 
