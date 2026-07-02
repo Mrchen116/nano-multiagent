@@ -5,7 +5,7 @@ description: 提 PR 前对代码 diff 做精确率导向的多角度 code review
 
 # Change Code Review
 
-`medium effort → 3+4 个角度 × 6 个候选 → 1 票验证 → ≤8 条发现`
+`medium effort → full / patch / closure → 1 票验证 → 高精确率发现`
 
 你正在以 **medium effort / 中等强度** 进行以 **precision / 精确率** 为目标的代码审查：你暴露的每一条 finding，都应该是 maintainer 会采取行动处理的问题。
 
@@ -13,19 +13,41 @@ description: 提 PR 前对代码 diff 做精确率导向的多角度 code review
 
 ## Phase 0 — 获取 diff
 
-运行 `git diff @{upstream}...HEAD`，如果没有 upstream，则运行 `git diff main...HEAD` / `git diff HEAD~1`，获取本次待审查范围的 unified diff。
+输入可包含:
+
+```yaml
+review_mode: full | patch | closure
+diff_range: main...HEAD | <pre_fix_head>..HEAD | <finding_origin_head>..HEAD
+focus_findings: [<上一轮 finding>]   # closure 必传
+```
+
+`review_mode` 缺失时默认 `full`。按模式获取 diff:
+
+| Mode | Diff | 目标 |
+|---|---|---|
+| `full` | `git diff @{upstream}...HEAD`;无 upstream 则 `git diff main...HEAD` / `git diff HEAD~1` | 提 PR 前完整审查 |
+| `patch` | `git diff <pre_fix_head>..HEAD` | 只审本次 fix patch 是否引入新 bug / 坏味道 |
+| `closure` | `git diff <finding_origin_head>..HEAD` + `focus_findings` | 只验证上一轮 finding 是否关闭;不重新扩展搜索 |
 
 如果存在未提交修改，或者 range diff 为空，也运行 `git diff HEAD`，并将工作区改动纳入审查范围——审查经常发生在提交之前。
 
 如果传入了 PR 编号、分支名或文件路径作为参数，则审查该目标。
 
-将这个 diff 视为本次审查范围。
+将这个 diff 视为本次审查范围。`patch` / `closure` 模式严禁扩大到 `main...HEAD`,除非发现本次 fix 触及高风险区域并明确要求 orchestrator 升级 full。
 
 ## Phase 1 — 寻找候选问题
 
-### 3 个 correctness 角度 + 3 个 cleanup 角度 + 1 个 altitude 角度，每个最多 6 个
+### 角度与候选上限
 
-通过 Agent 工具运行 **7 个彼此独立的 finder 角度**。每个角度最多产出 **6 个候选发现**，每个候选包含 `file`、`line`、一句话 `summary`，以及具体的 `failure_scenario`。
+按模式运行 finder:
+
+| Mode | Finder 角度 | 每角度候选上限 | 输出上限 |
+|---|---|---:|---:|
+| `full` | A / B / C / Reuse / Simplification / Efficiency / Altitude | 6 | 8 |
+| `patch` | A / C / Altitude;若 diff 删除 guard 或缩窄校验,加 B | 3 | 4 |
+| `closure` | 不跑新 finder;只把 `focus_findings` 送验证。若验证过程中看到明显新 bug,可输出,但不扩展搜索 | N/A | 4 |
+
+每个候选包含 `file`、`line`、一句话 `summary`,以及具体的 `failure_scenario`。
 
 ### Angle A — 逐行 diff 扫描
 
@@ -77,11 +99,11 @@ description: 提 PR 前对代码 diff 做精确率导向的多角度 code review
 - **PLAUSIBLE** —— 机制真实存在，但触发条件不确定，例如时序、环境、配置。说明还需要什么才能确认。
 - **REFUTED** —— 事实错误，例如代码并非如此，或其他地方已有 guard。引用能证明它被反驳的代码行。
 
-保留投票结果为 **CONFIRMED** 或 **PLAUSIBLE** 的候选。
+保留投票结果为 **CONFIRMED** 或 **PLAUSIBLE** 的候选。`closure` 模式还要为每个 `focus_findings` 给出 `closed | still_open | superseded` 结论;`still_open` 作为阻塞 finding 返回。
 
 ## Output
 
-以 JSON 数组返回最多 8 个对象：
+以 JSON 数组返回,数量不超过本模式输出上限:
 
 ```json
 [
@@ -89,9 +111,11 @@ description: 提 PR 前对代码 diff 做精确率导向的多角度 code review
     "file": "path/to/file.ext",
     "line": 123,
     "summary": "一句话说明这个 bug",
-    "failure_scenario": "具体输入 / 状态 → 错误输出 / 崩溃"
+    "failure_scenario": "具体输入 / 状态 → 错误输出 / 崩溃",
+    "review_mode": "full|patch|closure",
+    "status": "CONFIRMED|PLAUSIBLE"
   }
 ]
 ```
 
-按严重度从高到低排序。如果验证后存活的发现超过 8 条，保留最严重的 8 条。如果没有任何发现通过验证，返回 `[]`。
+按严重度从高到低排序。如果验证后存活的发现超过本模式输出上限,保留最严重的几条。如果没有任何发现通过验证,返回 `[]`。`closure` 模式若所有 focus findings 都关闭且未发现明显新 bug,返回 `[]`,并在回报文字说明 closed findings 数量。
