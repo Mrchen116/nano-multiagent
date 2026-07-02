@@ -114,9 +114,16 @@ function streamReducer(
       ? new Map(state.messages.map((m) => [m.id, m]))
       : new Map();
     const merged = action.messages.map((m) => mergeMessageWithExisting(m, existingById.get(m.id)));
+    const byId = new Map<string, Message>();
+    for (const m of merged) byId.set(m.id, m);
+    for (const m of state.messages) {
+      if (state.conversation_id === action.conversationId && !byId.has(m.id)) {
+        byId.set(m.id, m);
+      }
+    }
     // bugfix-419: REST history may already be sorted, but sort explicitly so
     // any WS messages merged in via existingById keep the ordering invariant.
-    return { conversation_id: action.conversationId, messages: [...merged].sort(compareMessages) };
+    return { conversation_id: action.conversationId, messages: Array.from(byId.values()).sort(compareMessages) };
   }
   if (action.type === "prepend_history") {
     if (state.conversation_id === null) return state;
@@ -511,6 +518,9 @@ export function ChatWorkspacePageV2() {
     setHasMoreHistory(null);
     setIsLoadingHistory(false);
     historyRequestRef.current = null;
+    if (conversationId) {
+      dispatch({ type: "reset", conversationId, messages: [] });
+    }
   }, [conversationId]);
 
   const loadOlderMessages = useCallback(async () => {
@@ -620,6 +630,12 @@ export function ChatWorkspacePageV2() {
           // 后端不再 emit，不应出现在 onEvent 分支里。
           // 这条用户维流覆盖所有会话，是驱动侧边栏的正确通道；与会话内
           // openChatStream（只更新当前打开会话的气泡）正交。
+          const payload = event.payload as { conversation_id?: unknown };
+          if (payload.conversation_id === conversationIdRef.current) {
+            void queryClient.invalidateQueries({
+              queryKey: ["chat-v2", "messages", conversationIdRef.current]
+            });
+          }
           if (conversationsRefreshTimer.current) clearTimeout(conversationsRefreshTimer.current);
           conversationsRefreshTimer.current = setTimeout(() => {
             void queryClient.invalidateQueries({ queryKey: ["chat-v2", "conversations"] });
