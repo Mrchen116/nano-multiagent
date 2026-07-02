@@ -52,5 +52,5 @@
   - E2E/Regression: 本 roadpoint 不起真服务；最终 contract gate 全量覆盖 SDK/compaction/capability 边界。
   - Visual/Interaction: N/A
 - Rollback: revert `0399cd6` and `3d20080` together to remove R3 implementation/tests.
-- Commits: C1=3d20080, C2=0399cd6, C3=TODO
+- Commits: C1=3d20080, C2=0399cd6, C3=7806890
 - Next: DONE
