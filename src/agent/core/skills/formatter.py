@@ -7,10 +7,10 @@ from .registry import SkillMetadata
 
 SKILLS_GUIDANCE = (
     "The following skills provide specialized instructions for specific tasks.\n"
-    "Use the read tool to load a skill's file when the task matches its description.\n"
+    "Use the skill_view tool to load a skill's SKILL.md when the task matches its description.\n"
     "When a skill file references a relative path, resolve it against the skill directory "
     "(parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n"
-    "When a task matches a listed skill, first call read on its <location> before following its instructions."
+    "When a task matches a listed skill, first call skill_view with its <name> before following its instructions."
 )
 
 

@@ -74,6 +74,7 @@ DEFAULT_TOOL_IDS = [
     "web_fetch",
     "web_search",
     "skill_manage",
+    "skill_view",
     "memory",
 ]
 

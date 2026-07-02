@@ -245,22 +245,26 @@ _CORE_MEMORY_GUIDANCE = CORE_MEMORY_GUIDANCE
 
 
 def _skills_guidance_enabled(ctx: PromptContext) -> bool:
-    """Active when skill_manage tool is present AND skill_creation feature is on (default True)."""
-    has_skill_manage = ctx.has_tool("skill_manage")
+    """Active when a skill tool is present AND skill_creation feature is on."""
+    has_skill_tool = ctx.has_tool("skill_manage") or ctx.has_tool("skill_view")
     feature_on = ctx.flags.get("skill_creation", True)
-    return has_skill_manage and feature_on
+    return has_skill_tool and feature_on
 
 
 def _render_skills_guidance(ctx: PromptContext) -> str:
-    # Provenance: new — migrated verbatim from SKILLS_GUIDANCE in prompts.py
-    return (
-        "After completing a complex task (5+ tool calls), fixing a tricky error, "
-        "or discovering a non-trivial workflow, save the approach as a skill with "
-        "skill_manage so you can reuse it next time. "
-        "When using a skill and finding it outdated, incomplete, or wrong, "
-        "patch it immediately with skill_manage(action='patch') — don't wait to be asked. "
-        "Skills that aren't maintained become liabilities."
-    )
+    parts: list[str] = []
+    if ctx.has_tool("skill_view"):
+        parts.append("Use skill_view to inspect listed skills before following them.")
+    if ctx.has_tool("skill_manage"):
+        parts.append(
+            "After completing a complex task (5+ tool calls), fixing a tricky error, "
+            "or discovering a non-trivial workflow, save the approach as a skill with "
+            "skill_manage so you can reuse it next time. "
+            "When using a skill and finding it outdated, incomplete, or wrong, "
+            "patch it immediately with skill_manage(action='patch') — don't wait to be asked. "
+            "Skills that aren't maintained become liabilities."
+        )
+    return " ".join(parts)
 
 
 # Provenance: new — migrated from SKILLS_GUIDANCE constant in prompts.py

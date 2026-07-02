@@ -273,7 +273,7 @@ def test_build_system_prompt_injects_both_guidance_when_both_tools_present():
         available_skills=(),
         available_tools=tools,
     )
-    assert SKILLS_GUIDANCE in result
+    assert "skill_manage" in result
     assert MEMORY_GUIDANCE in result
 
 

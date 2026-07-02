@@ -29,9 +29,9 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 # Review prompts — faithful port of hermes background_review.py §3, adapted to
-# our tool vocabulary: skill_manage action=list (≈ skills_list), action=view
-# (≈ skill_view), action=write_file (support files), action=patch/edit/create.
-# All skill inspection + change goes through skill_manage; general file tools
+# our tool vocabulary: skill_manage action=list/write_file/patch/edit/create and
+# skill_view for reading SKILL.md content.
+# All skill inspection + change goes through skill tools; general file tools
 # (read/bash) are not in the review fork's execution allowlist.
 
 _MEMORY_REVIEW_PROMPT = (
@@ -50,10 +50,10 @@ _SKILL_REVIEW_PROMPT = (
     "Review the conversation above and update the skill library. Be ACTIVE — most "
     "sessions produce at least one skill update, even if small. A pass that does "
     "nothing is a missed learning opportunity, not a neutral outcome.\n\n"
-    "All inspection and changes go through the skill_manage tool: action=list to see "
-    "skills, action=view to read one (it also shows the skill's support files), "
-    "action=patch/edit/create to change SKILL.md, action=write_file to add a support "
-    "file. (General file tools are not available in this session.)\n\n"
+    "Use skill_manage action=list to see skills, skill_view to read one, "
+    "skill_manage action=patch/edit/create to change SKILL.md, and skill_manage "
+    "action=write_file to add a support file. (General file tools are not available "
+    "in this session.)\n\n"
     "Target shape of the library: CLASS-LEVEL skills, each with a rich SKILL.md and "
     "support files for session-specific detail. Not a long flat list of narrow "
     "one-session-one-skill entries. This shapes HOW you update, not WHETHER you update.\n\n"
@@ -70,8 +70,8 @@ _SKILL_REVIEW_PROMPT = (
     "patch it NOW.\n\n"
     "Preference order — pick the earliest that fits, but do pick one when a signal fired:\n"
     "  1. UPDATE A SKILL THAT WAS IN PLAY. Look back for skills you viewed/used this "
-    "session (skill_manage action=view); if one covers the new learning, patch it first.\n"
-    "  2. UPDATE AN EXISTING UMBRELLA (skill_manage action=list + action=view to find "
+    "session (skill_view); if one covers the new learning, patch it first.\n"
+    "  2. UPDATE AN EXISTING UMBRELLA (skill_manage action=list + skill_view to find "
     "the right one); add a subsection, a pitfall, or broaden a trigger.\n"
     "  3. ADD A SUPPORT FILE under an existing umbrella via skill_manage "
     "action=write_file, file_path starting 'references/' (session detail / condensed "
@@ -111,8 +111,8 @@ _COMBINED_REVIEW_PROMPT = (
     "with the memory tool, each with a short source index (which turn / what was said).\n\n"
     "**Skills** — how to do this class of task. Be ACTIVE: most sessions produce at "
     "least one skill update; a pass that does nothing is a missed learning opportunity. "
-    "All skill inspection/change goes through skill_manage (action=list / view / patch / "
-    "edit / create / write_file); general file tools are unavailable here.\n\n"
+    "Use skill_manage action=list/write_file/patch/edit/create for skill changes and "
+    "skill_view for reading SKILL.md content; general file tools are unavailable here.\n\n"
     "Target shape: CLASS-LEVEL skills with a rich SKILL.md and support files for "
     "session-specific detail — not a flat list of narrow one-session entries.\n\n"
     "Signals that warrant a skill update (any one is enough): user corrected your "
@@ -120,8 +120,8 @@ _COMBINED_REVIEW_PROMPT = (
     "not just memory — embed it in the governing skill); a non-trivial technique/fix "
     "emerged; a consulted skill turned out wrong/outdated (patch now).\n\n"
     "Preference order for skills — earliest that fits:\n"
-    "  1. PATCH A SKILL THAT WAS IN PLAY (skill_manage action=view to re-read it).\n"
-    "  2. UPDATE AN EXISTING UMBRELLA (action=list + action=view to find it).\n"
+    "  1. PATCH A SKILL THAT WAS IN PLAY (skill_view to re-read it).\n"
+    "  2. UPDATE AN EXISTING UMBRELLA (skill_manage action=list + skill_view to find it).\n"
     "  3. ADD A SUPPORT FILE via skill_manage action=write_file — file_path under "
     "'references/' (session detail / condensed knowledge banks), 'templates/' "
     "(copy-and-modify starters), or 'scripts/' (re-runnable actions); add a one-line "
@@ -208,13 +208,13 @@ def setup(hooks: Any) -> None:  # noqa: ANN001
         # Build prompt and tool allowlist.
         if review_skills and review_memory:
             review_prompt = _COMBINED_REVIEW_PROMPT
-            tool_allowlist = ("skill_manage", "memory")
+            tool_allowlist = ("skill_manage", "skill_view", "memory")
         elif review_memory:
             review_prompt = _MEMORY_REVIEW_PROMPT
             tool_allowlist = ("memory",)
         else:
             review_prompt = _SKILL_REVIEW_PROMPT
-            tool_allowlist = ("skill_manage",)
+            tool_allowlist = ("skill_manage", "skill_view")
 
         try:
             fork_result = await fork_fn(
