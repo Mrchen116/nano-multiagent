@@ -51,21 +51,21 @@
   - E2E/Regression: `test_kernel_event_observer_mirrors_external_visible_bubbles_on_completion` 覆盖中间+最终气泡镜像和 final dedupe key；`test_kernel_event_observer_does_not_mirror_im_triggered_shadow_runs` 覆盖 IM shadow 入口不回写 Feishu；`test_outbound_router_dedupes_by_reply_dedupe_key` 覆盖 terminal 重复防护；`test_send_removes_ack_reaction_only_after_final_reply` 覆盖 THINKING reaction lifecycle。相关套件 `pytest -q tests/unit/personal_assistant/test_gateway_relay_lifecycle.py tests/unit/personal_assistant/test_gateway_web_relay_adapter.py tests/unit/test_feishu_adapter_send.py tests/unit/personal_assistant/test_inbound_pipeline_session.py tests/unit/personal_assistant/test_inbound_pipeline_sse.py tests/unit/personal_assistant/test_relay_kernel_message_id.py tests/unit/personal_assistant/test_steer_reply_relay_regression.py tests/unit/test_inbound_pipeline_streaming.py` -> 92 passed。
   - Visual/Interaction: N/A。
 - Rollback: revert `0b6a0918` 后再 revert `6f13586c` 可回到 R3 前状态。
-- Commits: C1=`6f13586c`, C2=`0b6a0918`, C3=<pending>
+- Commits: C1=`6f13586c`, C2=`0b6a0918`, C3=`2642a458`
 - Next: R4 真 IM/Gateway/Feishu live-critical 与全量非 e2e 门禁。
 
 ## R4 — live-critical 与全量门禁
 
-- Context:
-- Decision:
-- Rationale:
+- Context: R1-R3 的回归测试已覆盖 IM live payload、前端 reducer、Gateway mirror/dedupe 和 Feishu reaction lifecycle；R4 需要在真 IM + 真 Gateway + 真 Feishu/Lark 平台上证明外部 live parity，并完成全量非 e2e 门禁。worktree live 环境使用 `IM_URL=http://127.0.0.1:56445`、Gateway pid `65720`，Feishu channel 来自 `.gateway-config.yaml` 的 `feishu:default-agent`。
+- Decision: 先用 `lark-cli auth status --json --verify` 与 worktree config 对账，再用 `lark-cli im +messages-send --as user` 发给同一输出中的 bot open id；用 IM SQLite/WS event 记录 shadow conversation/message id；用飞书 P2P message list 对账 assistant 镜像与 IM shadow 不回写。
+- Rationale: M11 的风险在跨进程 live 缝合，不是单个函数行为；必须同时看到 Feishu 入站、IM live event、Gateway agent 气泡和 Feishu 出站回复，才能证明用户打开的 shadow 会话与外部 1:1 聊天一致。
 - Evidence:
-  - Tests:
-  - Entry:
-  - Frontend State Matrix:
-  - Browser QA:
-  - E2E/Regression:
-  - Visual/Interaction:
-- Rollback:
-- Commits:
-- Next:
+  - Tests: `pytest -m "not e2e"` -> 3250 passed, 1 skipped, 22 deselected, 20 warnings in 141.82s。R3 窄测已通过：`pytest -q tests/unit/personal_assistant/test_gateway_relay_lifecycle.py tests/unit/personal_assistant/test_gateway_web_relay_adapter.py tests/unit/test_feishu_adapter_send.py tests/unit/personal_assistant/test_inbound_pipeline_session.py tests/unit/personal_assistant/test_inbound_pipeline_sse.py tests/unit/personal_assistant/test_relay_kernel_message_id.py tests/unit/personal_assistant/test_steer_reply_relay_regression.py tests/unit/test_inbound_pipeline_streaming.py` -> 92 passed。
+  - Entry: `lark-cli auth status --json --verify` 返回 `verified=true`、`appId=cli_aac9315ef3f9dbda`、`identities.bot.openId=ou_b33ae16df1338a00a77d4cdbec653b71`；`.gateway-config.yaml` 的 `feishu:default-agent.settings.appId` 同为 `cli_aac9315ef3f9dbda`，`settings.botOpenId` 同为 `ou_b33ae16df1338a00a77d4cdbec653b71`。真实 Feishu 1:1 入站 live6：`lark-cli im +messages-send --as user --user-id ou_b33ae16df1338a00a77d4cdbec653b71`，nonce `feat447-m11-live6-20260702205333`，Feishu inbound `message_id=om_x100b6b51ba12d4a0b39fa8a18575f46`、`create_time=2026-07-02 20:53:34`；IM shadow `conversation_id=a2115b4c6d904859935054772455e72a`，user message `8129eda42ded4dbc825c53aa3dbca8c4`，`message.created` event_id `2`，payload `sender_display_name=你`、content/attachments present；Feishu bot final reply `om_x100b6b51bb9578b0b2596e14af0db72` at `2026-07-02 20:53`。
+  - Frontend State Matrix: default/desktop live path covered by an already-open user WS: before send, `after_event_id=24`; Feishu real user sent nonce `feat447-m11-ws-20260702210155`, inbound `message_id=om_x100b6b525a881490b102ef66eaadfed`, `create_time=2026-07-02 21:01:56`; the open WS received `message.created` event_id `26` for IM message `870fb354bb974a268928fd072238e251` in conversation `a2115b4c6d904859935054772455e72a` with `sender_display_name=你` and full content, proving no refresh was needed. empty/missing sender payload already covered by R2 reducer tests; loading/error/disabled/submitting/permission denied/long content/mobile/dark mode N/A because layout and submit state were not changed.
+  - Browser QA: No separate screenshot was taken; the live opened-conversation condition was verified by the authenticated IM user WebSocket receiving the canonical `message.created` frame while the Feishu message was sent. This is the same event stream consumed by the already-open chat UI reducer.
+  - E2E/Regression: True Feishu 1:1 intermediate run live7 used nonce `feat447-m11-live7-20260702205525`, inbound `message_id=om_x100b6b51b52c70a8b32f11468f088e8` at `2026-07-02 20:55:26`; IM user message `7290f7558c93432d9f4b4bd990b3ddfa`, `message.created` event_id `10` with `sender_display_name=你`; visible assistant bubbles in IM shadow were `2da17c42e6c34852bf88c8325323c524` content `intermediate feat447-m11-live7-20260702205525` and `0e93d6d7a36b4d06851e694eaf102671` content `final feat447-m11-live7-20260702205525`. Feishu received corresponding bot messages `om_x100b6b51b27138a0b15705fd4fe56d9` position 114/content `intermediate ...` and `om_x100b6b51b20a4ca0b1570472ab4407a` position 115/content `final ...`; only one final bot message appeared in that window. IM shadow entry negative run used nonce `feat447-m11-im-shadow-20260702210320`; IM user message `38c341c6512b461082730ffc4e08f2ce` produced IM agent reply `5d86a19c639140c3a501a66c2792a8ce` content `im shadow ack ...`; Feishu list after `2026-07-02 21:03:20 +0800` to `21:03:38 +0800` contained no message with that nonce.
+  - Visual/Interaction: N/A for layout; user-visible interaction was validated through live IM WS insertion and Feishu P2P message ids/timestamps.
+- Rollback: revert this R4 docs commit for evidence-only changes; behavior rollback is R3 rollback (`0b6a0918` then `6f13586c`) plus R2/R1 rollbacks if live insert payload must be removed.
+- Commits: C1=N/A live verification roadpoint, C2=N/A no implementation changes, C3=<R4 docs commit>
+- Next: Merge milestone branch into `unit/feat-447`, push, then clean live services and milestone branch/worktree.
