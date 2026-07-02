@@ -1,8 +1,8 @@
 """Built-in `skill_manage` tool: thin platform wrapper over core/skills SkillWriter.
 
 Responsibilities:
-- Expose create / edit / patch / view / list actions to the LLM via the Tool protocol.
-- Delegate write-side operations to ``SkillWriter``; read-side to ``SkillRegistry``.
+- Expose create / edit / patch / list actions to the LLM via the Tool protocol.
+- Delegate write-side operations to ``SkillWriter``; list-side to ``SkillRegistry``.
 - Return structured ``{"success": bool, ...}`` dicts; never raise exceptions from run().
 - No security scan (design R6; can be added later).
 
@@ -16,6 +16,8 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from agent.core.skills.registry import SkillRegistry
+from agent.core.skills.root_resolver import ResolvedSkillRoots, resolve_skill_roots
+from agent.core.skills.usage import ensure_skill_record, source_from_metadata
 from agent.core.skills.writer import SkillWriter
 from agent.platform.tools.presentation import (
     ToolPresentationEvent,
@@ -25,7 +27,7 @@ from agent.platform.tools.presentation import (
 
 # Actions supported by this tool (design §4 interface)
 _SUPPORTED_ACTIONS = frozenset(
-    {"create", "edit", "patch", "view", "list", "write_file", "remove_file"}
+    {"create", "edit", "patch", "list", "write_file", "remove_file"}
 )
 
 
@@ -37,8 +39,8 @@ _SUPPORTED_ACTIONS = frozenset(
 class _SkillManagePresenter:
     """Presenter for the `skill_manage` tool.
 
-    Result varies by action (create/edit/patch → ``{message}``; view → ``{content,
-    location}``; list → ``{skills}``). Detail surfaces ``action`` / ``name`` (args)
+    Result varies by action (create/edit/patch → ``{message}``; list → ``{skills}``).
+    Detail surfaces ``action`` / ``name`` (args)
     plus the result message and best-effort path, so the human sees which skill was
     touched instead of truncated JSON.
     """
@@ -75,7 +77,7 @@ class _SkillManagePresenter:
             bool(output.get("success", True)) if isinstance(output, Mapping) else True
         )
         message = str(output.get("message", "")) if isinstance(output, Mapping) else ""
-        # view returns content/location; list returns skills — surface what exists.
+        # list returns skills; write actions return the path/message when available.
         path = str(output.get("location", "")) if isinstance(output, Mapping) else ""
         if not success:
             err = str(output.get("error", "")) if isinstance(output, Mapping) else ""
@@ -119,7 +121,7 @@ _SKILL_MANAGE_PRESENTER = _SkillManagePresenter()
 
 
 class SkillManageTool:
-    """Manage user skills: create, edit, patch, view, and list skill files.
+    """Manage user skills: create, edit, patch, list, and support files.
 
     This tool is used by both the primary agent (when it wants to
     proactively create or update a skill) and the background review agent
@@ -128,7 +130,7 @@ class SkillManageTool:
     Args:
         skill_root: Directory containing per-skill subdirectories. Injected at
             construction time by bootstrap / wiring layer.
-        registry: SkillRegistry instance to use for list/view operations and
+        registry: SkillRegistry instance to use for list operations and
             cache invalidation after writes.
     """
 
@@ -142,10 +144,10 @@ class SkillManageTool:
     description = (
         "Manage persistent skill files that teach you how to do classes of tasks.\n\n"
         "ACTIONS:\n"
-        "- create: Create a new skill (name + content with YAML frontmatter).\n"
+        "- create: Create a new skill (name + content with YAML frontmatter). "
+        "Optional scope='agent'|'pa' controls the write root.\n"
         "- edit: Fully replace an existing skill's SKILL.md content.\n"
         "- patch: Apply a find-and-replace to an existing skill (old_string → new_string).\n"
-        "- view: Read an existing skill's SKILL.md content + its support files by name.\n"
         "- list: List all available skill names and descriptions.\n"
         "- write_file: Add/overwrite a support file under a skill, turning it into a "
         "class-level umbrella. file_path must start with references/ (session detail, "
@@ -172,7 +174,6 @@ class SkillManageTool:
                     "create",
                     "edit",
                     "patch",
-                    "view",
                     "list",
                     "write_file",
                     "remove_file",
@@ -181,11 +182,16 @@ class SkillManageTool:
             },
             "name": {
                 "type": "string",
-                "description": "Skill name (required for create/edit/patch/view/write_file/remove_file).",
+                "description": "Skill name (required for create/edit/patch/write_file/remove_file).",
             },
             "content": {
                 "type": "string",
                 "description": "Full SKILL.md content for create/edit actions.",
+            },
+            "scope": {
+                "type": "string",
+                "enum": ["agent", "pa"],
+                "description": "Create destination scope; only applies to create. Defaults to agent.",
             },
             "old_string": {
                 "type": "string",
@@ -218,6 +224,7 @@ class SkillManageTool:
         registry: SkillRegistry | None = None,
         workspace_config_dirname: str | None = None,
         extra_roots: tuple[Path, ...] = (),
+        pa_skill_root: Path | None = None,
     ) -> None:
         """Construct the skill-manage tool.
 
@@ -233,6 +240,8 @@ class SkillManageTool:
         """
         self._workspace_config_dirname = workspace_config_dirname
         self._extra_roots = tuple(extra_roots)
+        self._pa_skill_root = pa_skill_root
+        self._fixed_skill_root = skill_root.expanduser().resolve() if skill_root else None
         if skill_root is not None and registry is not None:
             self._fixed_writer: SkillWriter | None = SkillWriter(
                 skill_root=skill_root, registry=registry
@@ -261,15 +270,16 @@ class SkillManageTool:
             }
 
         try:
-            writer, registry = self._resolve_writer_registry(ctx)
-            return self._dispatch(action, args, writer=writer, registry=registry)
+            roots = self._resolve_skill_roots(ctx)
+            metadata = getattr(ctx, "session_metadata", {}) or {}
+            return self._dispatch(action, args, roots=roots, metadata=metadata)
         except ValueError as exc:
             return {"success": False, "error": str(exc)}
         except Exception as exc:  # noqa: BLE001
             return {"success": False, "error": f"Unexpected error: {exc}"}
 
-    def _resolve_writer_registry(self, ctx: Any) -> tuple[SkillWriter, SkillRegistry]:
-        """Resolve the per-session (writer, registry) from ctx, or the fixed pair.
+    def _resolve_skill_roots(self, ctx: Any) -> ResolvedSkillRoots:
+        """Resolve per-session skill roots from ctx, or the fixed test pair.
 
         Production (2-layer) path: derive ``<workspace_root>/<workspace_config_dirname>/
         skills`` from session_metadata as the write root, and a SkillRegistry searching
@@ -277,34 +287,27 @@ class SkillManageTool:
         ``Kernel.list_skills`` so writes land where list/IM read. Test/legacy path:
         return the fixed writer+registry bound at construction.
         """
-        if self._fixed_writer is not None and self._fixed_registry is not None:
-            return self._fixed_writer, self._fixed_registry
-
-        metadata = getattr(ctx, "session_metadata", {}) or {}
-        workspace_root = metadata.get("workspace_root")
-        dirname = (
-            metadata.get("workspace_config_dirname") or self._workspace_config_dirname
-        )
-        if not workspace_root or not dirname:
-            raise RuntimeError(
-                "skill_manage cannot resolve a per-session skill root: missing "
-                "workspace_root or workspace_config_dirname in session_metadata. "
-                "Ensure build_kernel threads workspace_config_dirname into "
-                "default_session_metadata and runtime injects workspace_root per turn."
+        if (
+            self._fixed_writer is not None
+            and self._fixed_registry is not None
+            and self._fixed_skill_root is not None
+        ):
+            return ResolvedSkillRoots(
+                agent_skill_root=self._fixed_skill_root,
+                search_roots=(self._fixed_skill_root,),
+                registry=self._fixed_registry,
+                agent_writer=self._fixed_writer,
+                pa_skill_root=self._pa_skill_root.expanduser().resolve()
+                if self._pa_skill_root is not None
+                else None,
             )
 
-        ws = Path(str(workspace_root)).expanduser().resolve()
-        write_root = ws / str(dirname) / "skills"
-        # Search roots: per-session workspace skills FIRST, then deployment extra_roots
-        # (global/compat), deduped — same precedence as Kernel.list_skills (决策4).
-        search_roots: list[Path] = [write_root]
-        for root in self._extra_roots:
-            resolved = Path(root).expanduser().resolve()
-            if resolved not in search_roots:
-                search_roots.append(resolved)
-        registry = SkillRegistry(search_roots=tuple(search_roots))
-        writer = SkillWriter(skill_root=write_root, registry=registry)
-        return writer, registry
+        return resolve_skill_roots(
+            ctx,
+            workspace_config_dirname=self._workspace_config_dirname,
+            extra_roots=self._extra_roots,
+            pa_skill_root=self._pa_skill_root,
+        )
 
     def serialize_result(self, output: Any, error: str | None = None) -> str:
         """Serialize tool result to a string for the LLM."""
@@ -327,23 +330,21 @@ class SkillManageTool:
         action: str,
         args: Mapping[str, Any],
         *,
-        writer: SkillWriter,
-        registry: SkillRegistry,
+        roots: ResolvedSkillRoots,
+        metadata: Mapping[str, Any],
     ) -> Mapping[str, Any]:
         if action == "create":
-            return self._create(args, writer)
+            return self._create(args, roots, metadata=metadata)
         if action == "edit":
-            return self._edit(args, writer)
+            return self._edit(args, roots.agent_writer)
         if action == "patch":
-            return self._patch(args, writer)
-        if action == "view":
-            return self._view(args, writer, registry)
+            return self._patch(args, roots.agent_writer)
         if action == "list":
-            return self._list(registry)
+            return self._list(roots.registry)
         if action == "write_file":
-            return self._write_file(args, writer)
+            return self._write_file(args, roots.agent_writer)
         if action == "remove_file":
-            return self._remove_file(args, writer)
+            return self._remove_file(args, roots.agent_writer)
         raise ValueError(f"Unhandled action '{action}'")  # unreachable
 
     def _write_file(
@@ -379,14 +380,19 @@ class SkillManageTool:
                 "success": False,
                 "error": "remove_file action requires 'file_path'",
             }
-        writer.remove_file(str(name), str(file_path))
+        path = writer.remove_file(str(name), str(file_path))
         return {
             "success": True,
             "message": f"removed support file '{file_path}' from skill '{name}'",
+            "path": str(path),
         }
 
     def _create(
-        self, args: Mapping[str, Any], writer: SkillWriter
+        self,
+        args: Mapping[str, Any],
+        roots: ResolvedSkillRoots,
+        *,
+        metadata: Mapping[str, Any],
     ) -> Mapping[str, Any]:
         name = args.get("name")
         content = args.get("content")
@@ -394,7 +400,14 @@ class SkillManageTool:
             return {"success": False, "error": "create action requires 'name'"}
         if not content:
             return {"success": False, "error": "create action requires 'content'"}
+        scope = str(args.get("scope") or "agent")
+        writer = roots.writer_for_scope(scope)
         path = writer.create(str(name), str(content))
+        ensure_skill_record(
+            skill_root=Path(path).parent.parent,
+            skill_name=str(name),
+            source=source_from_metadata(dict(metadata)),
+        )
         return {"success": True, "message": f"created skill '{name}' at {path}"}
 
     def _edit(self, args: Mapping[str, Any], writer: SkillWriter) -> Mapping[str, Any]:
@@ -421,32 +434,6 @@ class SkillManageTool:
             str(name), old_string=str(old_string), new_string=str(new_string)
         )
         return {"success": True, "message": f"patched skill '{name}' at {path}"}
-
-    def _view(
-        self, args: Mapping[str, Any], writer: SkillWriter, registry: SkillRegistry
-    ) -> Mapping[str, Any]:
-        name = args.get("name")
-        if not name:
-            return {"success": False, "error": "view action requires 'name'"}
-        # Find the skill in the registry
-        skills = registry.list_skills()
-        skill = next((s for s in skills if s.name == str(name)), None)
-        if skill is None:
-            return {"success": False, "error": f"Skill '{name}' not found"}
-        content = skill.location.read_text(encoding="utf-8")
-        # Surface the skill's support files so the agent can see what's bundled
-        # (and patch/extend it) without a generic filesystem read tool.
-        try:
-            support_files = writer.list_support_files(str(name))
-        except ValueError:
-            support_files = []
-        return {
-            "success": True,
-            "name": str(name),
-            "content": content,
-            "location": str(skill.location),
-            "support_files": support_files,
-        }
 
     def _list(self, registry: SkillRegistry) -> Mapping[str, Any]:
         skills = registry.list_skills()

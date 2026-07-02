@@ -84,6 +84,7 @@ def build_kernel(
     can_use_tool: CanUseToolFn | None = None,
     repo_root: Path | None = None,
     skill_search_roots: Sequence[Path] = (),
+    pa_skill_root: Path | None = None,
     tool_search_roots: Sequence[Path] = (),
     hook_search_roots: Sequence[Path] = (),
     # Internal escape hatch for tests: skip LLM client construction and use
@@ -141,6 +142,7 @@ def build_kernel(
         can_use_tool=can_use_tool,
         repo_root=repo_root,
         skill_search_roots=tuple(skill_search_roots),
+        pa_skill_root=pa_skill_root,
         tool_search_roots=tuple(tool_search_roots),
         hook_search_roots=tuple(hook_search_roots),
         _llm_client_override=_llm_client_override,
@@ -308,6 +310,7 @@ def _build_kernel_base(
     can_use_tool: CanUseToolFn | None,
     repo_root: Path | None,
     skill_search_roots: tuple[Path, ...] = (),
+    pa_skill_root: Path | None = None,
     tool_search_roots: tuple[Path, ...] = (),
     hook_search_roots: tuple[Path, ...] = (),
     _llm_client_override: LLMClient | None,
@@ -496,6 +499,9 @@ def _build_kernel_base(
         skill_search_roots=tuple(
             Path(r).expanduser().resolve() for r in skill_search_roots
         ),
+        pa_skill_root=pa_skill_root.expanduser().resolve()
+        if pa_skill_root is not None
+        else None,
     )
     for tool in tools:
         tool_registry.register(tool, replace=True)
@@ -567,6 +573,7 @@ def _register_self_evolution_builtins(
     repo_root: Path,
     workspace_config_dirname: str,
     skill_search_roots: tuple[Path, ...] = (),
+    pa_skill_root: Path | None = None,
 ) -> None:
     """Register the kernel built-in memory / skill_manage tools (决策 3).
 
@@ -585,12 +592,22 @@ def _register_self_evolution_builtins(
     from agent.platform.tools.builtins import (  # noqa: PLC0415
         MemoryTool,
         SkillManageTool,
+        SkillViewTool,
     )
 
     tool_registry.register(
         SkillManageTool(
             workspace_config_dirname=workspace_config_dirname,
             extra_roots=skill_search_roots,
+            pa_skill_root=pa_skill_root,
+        ),
+        replace=True,
+    )
+    tool_registry.register(
+        SkillViewTool(
+            workspace_config_dirname=workspace_config_dirname,
+            extra_roots=skill_search_roots,
+            pa_skill_root=pa_skill_root,
         ),
         replace=True,
     )

@@ -418,6 +418,7 @@ def build_pa_kernel(
         workspace_config_dirname=WORKSPACE_CONFIG_DIRNAME,
         repo_root=resolved_root,
         skill_search_roots=PA_SKILL_SEARCH_ROOTS,
+        pa_skill_root=PA_SKILL_SEARCH_ROOTS[0],
         tool_search_roots=PA_TOOL_SEARCH_ROOTS,  # #2: ~/.nanoassistant/tools
         hook_search_roots=PA_HOOK_SEARCH_ROOTS,  # #2: ~/.nanoassistant/hooks
     )
