@@ -16,6 +16,18 @@ _USAGE_FILENAME = ".usage.json"
 _MAX_SESSION_REFS = 60
 _MAX_RECENT_CALL_KEYS = 200
 _VALID_SOURCES = {"F1", "F2", "F3", "F4", "unknown"}
+_AUTO_SOURCES = {"F3", "F4"}
+_DEFAULT_F4_THRESHOLD = 20
+
+
+@dataclass(frozen=True, slots=True)
+class F4Trigger:
+    """Pure data returned when a skill crosses the per-skill batch threshold."""
+
+    skill_name: str
+    skill_root: Path
+    session_refs: tuple[dict[str, Any], ...]
+    call_key: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,6 +36,7 @@ class UsageBumpResult:
 
     counted: bool
     usage_path: Path
+    trigger: F4Trigger | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,6 +89,7 @@ def bump_skill_usage(
     source: str,
     location: Path | str | None = None,
     now_iso: str | None = None,
+    threshold: int = _DEFAULT_F4_THRESHOLD,
 ) -> UsageBumpResult:
     """Increment usage for a successful skill_view call.
 
@@ -117,8 +131,31 @@ def bump_skill_usage(
     record.setdefault("source", _normalize_source(source))
     record.setdefault("created_at", now)
     record.setdefault("state", "active")
+    trigger = _maybe_build_f4_trigger(
+        record=record,
+        skill_name=skill_name,
+        skill_root=root,
+        call_key=call_key,
+        threshold=threshold,
+    )
     _save_usage(root, data)
-    return UsageBumpResult(counted=True, usage_path=root / _USAGE_FILENAME)
+    return UsageBumpResult(
+        counted=True,
+        usage_path=root / _USAGE_FILENAME,
+        trigger=trigger,
+    )
+
+
+def reset_uses_since_last_batch(*, skill_root: Path, skill_name: str) -> None:
+    """Reset F4 usage counter after a batch review has been accepted for enqueue."""
+
+    root = skill_root.expanduser().resolve()
+    data = _load_usage(root)
+    record = data.get(skill_name)
+    if not isinstance(record, dict):
+        return
+    record["uses_since_last_B"] = 0
+    _save_usage(root, data)
 
 
 def source_from_metadata(metadata: dict[str, Any] | Any) -> SkillSource:
@@ -174,6 +211,28 @@ def _new_record(*, source: SkillSource, now_iso: str) -> dict[str, Any]:
         "created_at": now_iso,
         "archived_at": None,
     }
+
+
+def _maybe_build_f4_trigger(
+    *,
+    record: dict[str, Any],
+    skill_name: str,
+    skill_root: Path,
+    call_key: str,
+    threshold: int,
+) -> F4Trigger | None:
+    if threshold <= 0:
+        return None
+    if record.get("source") not in _AUTO_SOURCES:
+        return None
+    if int(record.get("uses_since_last_B") or 0) < threshold:
+        return None
+    return F4Trigger(
+        skill_name=skill_name,
+        skill_root=skill_root,
+        session_refs=tuple(_list_of_mappings(record.get("session_refs"))),
+        call_key=call_key,
+    )
 
 
 def _load_usage(skill_root: Path) -> dict[str, Any]:
@@ -238,10 +297,12 @@ def _dedupe_roots(roots: Sequence[Path]) -> tuple[Path, ...]:
 
 __all__ = [
     "SkillSource",
+    "F4Trigger",
     "SkillSessionRef",
     "UsageBumpResult",
     "bump_skill_usage",
     "ensure_skill_record",
+    "reset_uses_since_last_batch",
     "skill_refs_for_session",
     "source_from_metadata",
     "utc_now_iso",

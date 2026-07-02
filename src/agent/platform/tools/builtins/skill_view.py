@@ -8,7 +8,11 @@ from typing import Any, Mapping
 
 from agent.core.skills.registry import SkillRegistry
 from agent.core.skills.root_resolver import resolve_skill_roots
-from agent.core.skills.usage import bump_skill_usage, source_from_metadata
+from agent.core.skills.usage import (
+    bump_skill_usage,
+    reset_uses_since_last_batch,
+    source_from_metadata,
+)
 from agent.platform.tools.presentation import ToolPresentationEvent, _enforce_cap
 
 
@@ -137,7 +141,7 @@ class SkillViewTool:
                 return {"success": False, "name": name, "error": f"Skill '{name}' not found"}
             content = skill.location.read_text(encoding="utf-8")
             metadata = dict(getattr(ctx, "session_metadata", {}) or {})
-            bump_skill_usage(
+            usage_result = bump_skill_usage(
                 skill_root=skill_root,
                 skill_name=name,
                 session_id=getattr(ctx, "session_id", None),
@@ -145,6 +149,10 @@ class SkillViewTool:
                 source=source_from_metadata(metadata),
                 location=skill.location,
             )
+            if usage_result.trigger is not None and self._enqueue_skill_batch_review(
+                ctx, usage_result.trigger
+            ):
+                reset_uses_since_last_batch(skill_root=skill_root, skill_name=name)
             self._register_invoked_skill(ctx, name=name, location=skill.location, root=skill_root)
             return {
                 "success": True,
@@ -185,6 +193,12 @@ class SkillViewTool:
         register = getattr(ctx, "register_invoked_skill", None)
         if callable(register):
             register(name=name, location=str(location), root_id=str(root))
+
+    def _enqueue_skill_batch_review(self, ctx: Any, trigger: Any) -> bool:
+        enqueue = getattr(ctx, "skill_batch_review_enqueue", None)
+        if not callable(enqueue):
+            return False
+        return bool(enqueue(trigger))
 
 
 __all__ = ["SkillViewTool"]

@@ -624,6 +624,7 @@ def _resolve_execution_context(
         tool_call_id=base_context.tool_call_id,
         safety_overrides=base_context.safety_overrides,
         execution_event_callback=base_context.execution_event_callback,
+        skill_batch_review_enqueue=base_context.skill_batch_review_enqueue,
         llm_client=base_context.llm_client,
     )
 

@@ -548,6 +548,7 @@ def _build_kernel_base(
         repo_root=resolved_repo_root,
         safety_config=load_tool_safety_config(repo_root=resolved_repo_root),
         llm_client=getattr(runtime, "_llm_client", None),
+        skill_batch_review_enqueue=runtime.enqueue_skill_batch_review,
     )
     tool_registry = ToolRegistry(context=base_context, hook_runner=hook_runner)
     register_builtin_tools(

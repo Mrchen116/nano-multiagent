@@ -233,6 +233,8 @@ class AgentRuntime:
         # (no core→sdk import); not persisted to JSONL (it can't round-trip JSON
         # and is rebuilt per process by the consumer factory on session open).
         self._session_prompt_slots: dict[str, object] = {}
+        self._skill_batch_review_queued: set[str] = set()
+        self._skill_batch_review_running: set[str] = set()
         tool_results_dir = self._repo_root / ".nano" / "tool-results"
         self._tool_result_compressor = ToolResultCompressor(tool_results_dir)
         self._context_fork = AgentContextFork(
@@ -995,6 +997,20 @@ class AgentRuntime:
         self._tool_registry = tool_registry
         self._loop.bind_tool_registry(tool_registry)
         self._context_fork.bind_tool_registry(tool_registry)
+
+    def enqueue_skill_batch_review(self, trigger: Any) -> bool:
+        """Record one per-skill batch review enqueue request with per-skill dedupe."""
+
+        skill_name = getattr(trigger, "skill_name", None)
+        if not isinstance(skill_name, str) or not skill_name:
+            return False
+        if (
+            skill_name in self._skill_batch_review_queued
+            or skill_name in self._skill_batch_review_running
+        ):
+            return False
+        self._skill_batch_review_queued.add(skill_name)
+        return True
 
     @property
     def hook_runner(self) -> HookRunner | None:

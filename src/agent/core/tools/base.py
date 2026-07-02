@@ -134,6 +134,7 @@ class ToolContext:
     tool_call_id: str | None = None
     safety_overrides: Mapping[str, Any] = field(default_factory=dict)
     execution_event_callback: Callable[[Mapping[str, Any]], None] | None = None
+    skill_batch_review_enqueue: Callable[[Any], bool] | None = None
     # Per-session metadata forwarded from the kernel session so product tools
     # (e.g. send_message) can read runtime-injected fields such as
     # ``gateway_dispatch_url`` without requiring a separate registry lookup.
@@ -151,6 +152,7 @@ class ToolContext:
         cwd: Path | None = None,
         safety_config: ToolSafetyConfigLike | None = None,
         llm_client: Optional["LLMClient"] = None,
+        skill_batch_review_enqueue: Callable[[Any], bool] | None = None,
     ) -> "ToolContext":
         """Build a context rooted at the resolved repository sandbox."""
 
@@ -169,6 +171,7 @@ class ToolContext:
             cwd=resolved_cwd,
             safety=safety,
             llm_client=llm_client,
+            skill_batch_review_enqueue=skill_batch_review_enqueue,
         )
 
     def with_session(
@@ -178,6 +181,7 @@ class ToolContext:
         tool_call_id: str | None = None,
         safety_overrides: Mapping[str, Any] | None = None,
         execution_event_callback: Callable[[Mapping[str, Any]], None] | None = None,
+        skill_batch_review_enqueue: Callable[[Any], bool] | None = None,
         session_metadata: Mapping[str, Any] | None = None,
         session_file_state: Optional["SessionFileState"] = None,
     ) -> "ToolContext":
@@ -191,6 +195,9 @@ class ToolContext:
             tool_call_id=tool_call_id,
             safety_overrides=dict(safety_overrides or {}),
             execution_event_callback=execution_event_callback,
+            skill_batch_review_enqueue=(
+                skill_batch_review_enqueue or self.skill_batch_review_enqueue
+            ),
             session_metadata=dict(session_metadata)
             if session_metadata is not None
             else dict(self.session_metadata),
