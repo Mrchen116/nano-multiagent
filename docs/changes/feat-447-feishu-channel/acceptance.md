@@ -468,3 +468,119 @@ Round 4 的 `ownerOpenId` 缺失启动阻塞只部分关闭：Gateway 确实在 
 **Issues: 1 blocking, 0 major, 0 minor**
 **Top Concern: `ownerOpenId` 已自动写回，但当前 worktree Gateway 未保持运行，真实 Lark 用户消息没有 Bot 回复，也没有内部 IM shadow 可见结果。**
 **Needs Re-review: true**
+
+---
+
+# Round 6 — 2026-07-02
+
+> Reviewer: feat-447-reviewer
+> Unit: feat-447 (飞书 channel 支持)
+> Mode: fast-lane, focused only on Round 5 blocking after M9 merge `b60702b7`
+
+## Summary
+
+| Field | Value |
+|---|---|
+| **Highest Required Action** | pass |
+| **Verdict** | pass |
+| **Issues** | 0 blocking, 0 major, 0 minor |
+| **GH Issues Filed** | None |
+| **Needs Re-review** | false |
+
+Round 6 只复验 Round 5 blocking: Gateway 使用当前 `<WT_CFG>` 启动后必须保持运行，真实 Lark 用户消息必须进入 Gateway，并且 worktree IM 能看到 external shadow conversation/message，或 Lark 侧能看到符合 spec 的 Bot 回复。
+
+目标 Bot 严格从当前 `<WT_CFG>` 决定：
+
+- `<WT_CFG>`: `.gateway-config.yaml`
+- Feishu channel: `feishu:default-agent`
+- Gateway config appId: `cli_aac9315ef3f9dbda`
+- `lark-cli auth status --json --verify`: `verified=true`, `appId=cli_aac9315ef3f9dbda`
+- 目标 Bot: 同一 auth 输出的 `identities.bot.openId=ou_b33ae16df1338a00a77d4cdbec653b71`
+- Lark user openId: 同一 auth 输出的 `identities.user.openId=ou_e6d1591026cfdac8d131eb1fdd71bdb9`
+- 当前 `<WT_CFG>` 的 `settings.ownerOpenId`: `ou_e6d1591026cfdac8d131eb1fdd71bdb9`
+
+我没有手改 `<WT_CFG>`。因 Round 5 已观察到 ownerOpenId 自动写回，本轮在不清空配置的前提下验证该已写回状态下 Gateway 可以保持运行并处理真实 Lark 入站。
+
+## User Journey Exercised
+
+1. **Worktree IM + Gateway live smoke**
+   - IM: `http://127.0.0.1:56197`，使用 worktree `data/im_service.sqlite3`。
+   - Gateway: `PYTHONPATH=src python -m personal_assistant.main --config .gateway-config.yaml --foreground --auto-bind`。
+   - 结果: 发送真实 Lark 消息后，IM 进程 `34457` 与 Gateway 进程 `35239` 仍保持运行，未复现 Round 5 的 Gateway 退出。
+
+2. **真实 Lark 1:1 入站**
+   - 命令: `lark-cli im +messages-send --as user --user-id ou_b33ae16df1338a00a77d4cdbec653b71 --text "feat447-r6-20260702161330 round6 lark-cli user -> gateway bot" --idempotency-key feat447-r6-20260702161330 --format json`
+   - Lark send evidence: `ok=true`, `chat_id=oc_1906eead0189484ce5ea8a4c245400a6`, `message_id=om_x100b6b559474848cc3829e22226c808`, `create_time=2026-07-02 16:13:31`
+   - Lark Bot reply evidence: same chat contained app reply `message_id=om_x100b6b5595a668bcc45880bff97102a`, sender `app_id=cli_aac9315ef3f9dbda`, content included `feat447-r6-20260702161330`.
+
+3. **Current worktree IM shadow evidence**
+   - Queried current worktree IM HTTP: `GET http://127.0.0.1:56197/im/v1/conversations` with a fresh login token from the same worktree IM.
+   - HTTP conversation evidence:
+     - id `603339e85e56450bb0c2a2b27d9694ba`
+     - title `default-agent · feishu`
+     - type `direct`
+     - owner_id `b5ac314aa4354f36a9fffd6058589a19`
+     - config_agent_id `default-agent`
+     - external_source `feishu`
+     - external_chat_id `feishu:cli_aac9315ef3f9dbda:dm:ou_e6d1591026cfdac8d131eb1fdd71bdb9`
+     - last_message_preview included `feat447-r6-20260702161330`
+   - DB conversation evidence from worktree `data/im_service.sqlite3`:
+     - `603339e85e56450bb0c2a2b27d9694ba | default-agent · feishu | direct | feishu | feishu:cli_aac9315ef3f9dbda:dm:ou_e6d1591026cfdac8d131eb1fdd71bdb9 | default-agent`
+   - DB user message evidence:
+     - `c91eea1c18c14b438b66ce48de367d05 | 603339e85e56450bb0c2a2b27d9694ba | user | 你 | completed | feat447-r6-20260702161330 round6 lark-cli user -> gateway bot`
+   - DB agent message evidence:
+     - `c53bdcf53d6149c788d1c83040c00a51 | 603339e85e56450bb0c2a2b27d9694ba | agent | completed | Got it ... feat447-r6-20260702161330 ...`
+
+## Round 5 Blocking Closure
+
+| Round 5 Item | Round 6 Evidence | Result |
+|---|---|---|
+| Gateway 自动写回 `ownerOpenId` 后未保持运行 | 当前 `<WT_CFG>` 的 `ownerOpenId` 与 lark-cli user openId 一致；Gateway 启动后在真实 Lark 入站和 IM shadow 写入后仍保持运行 | closed |
+| 真实 Lark 用户消息没有 Bot 回复 | `lark-cli im +messages-send --as user` 返回 user `message_id=om_x100b6b559474848cc3829e22226c808`；Lark 同 chat 随后出现 app reply `message_id=om_x100b6b5595a668bcc45880bff97102a`，内容包含同 nonce | closed |
+| worktree IM 没有 external shadow conversation/message | 当前 worktree IM HTTP 和 `data/im_service.sqlite3` 均显示 `default-agent · feishu` external conversation，以及 sender_display_name 为「你」的同 nonce 用户消息 | closed |
+
+## 验收标准覆盖（Round 6 fast-lane update）
+
+### Requirement: 飞书 1:1 私聊对话
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 用户在 1:1 私聊中发消息 | spec.md | 真实 `lark-cli im +messages-send --as user` 到当前 `<WT_CFG>` appId 对应 Bot | Lark user message `om_x100b6b559474848cc3829e22226c808`; Lark app reply `om_x100b6b5595a668bcc45880bff97102a`; Gateway 保持运行 | pass | 关闭 Round 5 主阻塞 |
+| 私聊无需 @ 触发 | spec.md | 同一不带 @ 的 nonce 消息 | Bot 正常回复，内容包含 `feat447-r6-20260702161330` | pass | 关闭 Round 5 主阻塞 |
+
+### Requirement: 外部 channel 会话同步到内部 IM
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 外部 1:1 会话在内部 IM 有独立会话 | spec.md | 真实 Lark 入站 + 当前 worktree IM HTTP/DB 查询 | `default-agent · feishu`, `external_source=feishu`, `external_chat_id=feishu:cli_aac9315ef3f9dbda:dm:ou_e6d1591026cfdac8d131eb1fdd71bdb9` | pass | 会话未合并到普通 direct |
+| 外部 1:1 用户消息同步到内部 IM | spec.md | 当前 worktree DB 查询 nonce | message `c91eea1c18c14b438b66ce48de367d05`, sender_type `user`, sender_display_name `你`, content 含 nonce | pass | 关闭 Round 5 shadow 用户消息阻塞 |
+| 外部 1:1 agent 回复同步到内部 IM | spec.md | 当前 worktree DB/HTTP 查询 nonce | agent message `c53bdcf53d6149c788d1c83040c00a51`, content 含 nonce；HTTP last_message_preview 含 nonce | pass | 同时 Lark 侧也有 Bot 回复证据 |
+| 外部群聊中 IM owner 的消息显示为「你」 | spec.md | 当前 `<WT_CFG>` ownerOpenId + IM shadow message sender_display_name | ownerOpenId 与 Lark user openId 一致；DB user message sender_display_name 为「你」 | pass | 本轮只复验 1:1 shadow 中 owner 显示，群聊仍继承既有非 fast-lane 覆盖 |
+
+## Issues
+
+None for the Round 5 blocking scope.
+
+## Side Findings
+
+- 当前 worktree IM DB 中同一 nonce 下除首个 agent shadow message 外，还出现一条额外 agent message `dc0bd85cfded4e5e854d0b794f47b388`，内容为 duplicate acknowledgement；Lark 侧最近消息只看到一条同 nonce app reply。本轮 fast-lane 目标是关闭 Round 5 的 Gateway keepalive / true Lark inbound / external shadow 可见阻塞，因此未把该观察升级为本轮 issue。
+
+## 上层文档同步检查
+
+| 文档 | 状态 | 备注 |
+|---|---|---|
+| SPEC.md | 无需本轮 reviewer 修改 | 本轮只复验实现行为 |
+| docs/specs/kernel/spec.md | 无需更新 | kernel spec 无增量 |
+| docs/specs/im/spec.md | 待 orchestrator 收尾归并时复核 | Round 6 已用产品证据确认 1:1 external shadow 行为 |
+| docs/specs/gateway/spec.md | 待 orchestrator 收尾归并时复核 | Round 6 已用产品证据确认当前 `<WT_CFG>` Gateway live 行为 |
+| docs/specs/cli/spec.md | 无需更新 | CLI spec 无增量 |
+| AGENTS.md / CLAUDE.md | 无需更新 | 操作约束无增量 |
+| docs/SPEC_GUIDE.md | 无需更新 | 非文档体系变更 |
+
+## Verdict
+
+**Verdict: pass**
+**Highest Required Action: pass**
+**Issues: 0 blocking, 0 major, 0 minor**
+**Top Concern: None for Round 5 blocking; real Lark inbound reached Gateway, produced a Bot reply, and created visible worktree IM external shadow conversation/message.**
+**Needs Re-review: false**
