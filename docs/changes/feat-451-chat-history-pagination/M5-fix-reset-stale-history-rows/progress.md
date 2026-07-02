@@ -53,4 +53,7 @@
   - `88aa1f77 docs(feat-451/M5): plan reset stale history fix`
   - `42aa6cd4 test(feat-451/M5/R1): cover stale relay mirror reset`
   - `73d87215 fix(feat-451/M5/R1): prune stale reset rows`
-- Next: COMPLETE. Ready to merge into `unit/feat-451` and clean milestone worktree/branch.
+  - `ac3e37e2 docs(feat-451/M5/R1): record reset stale row evidence`
+  - `65bfd893 docs(feat-451/M5/R1): record final validation`
+  - `2242c7bc merge(feat-451/M5): fix reset stale history rows`
+- Next: COMPLETE. M5 has been merged into `unit/feat-451` at merge commit `2242c7bc`; milestone worktree `/Users/czj/Repos/nano-multiagent/.worktrees/feat-451-M5`, local branch `milestone/feat-451-M5`, and remote branch `origin/milestone/feat-451-M5` have all been cleaned up.
