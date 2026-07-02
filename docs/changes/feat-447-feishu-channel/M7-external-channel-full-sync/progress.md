@@ -94,5 +94,5 @@
   - Visual/Interaction: N/A
 - Runtime/logs/caveat: IM ran as foreground process on port 56127 with DB `data/feat447_m7_live.sqlite3`; Gateway ran as foreground process with `.gateway-config-live.yaml`. The initial fresh live DB had no `agent:<id>` alias user rows and `.gateway-config-live.yaml` had stale `node.user_id`, causing early `external/find-or-create` 400s; R5 fixed only the untracked live config (`node.user_id` aligned to the transient IM owner) and invoked real IM `GET /im/v1/agents` to lazy-provision agent alias rows before final live evidence. Other same-app Gateway processes were present on the machine, so multiple nonces were sent; only IM shadow rows in this worktree DB were treated as passing evidence. `.gateway-config-live.yaml`, live DBs, PID files, and logs are local/untracked and intentionally not committed.
 - Rollback: revert the R5 docs commit only; no R5 implementation changes.
-- Commits: C1=N/A, C2=N/A, C3=ae1c97d9
+- Commits: C1=N/A, C2=N/A, C3=381f0749
 - Next: milestone DONE; merge to `unit/feat-447`.
