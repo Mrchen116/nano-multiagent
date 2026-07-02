@@ -102,7 +102,7 @@ function mergeMessageWithExisting(message: Message, existing?: Message): Message
 function streamReducer(
   state: ConversationState,
   action:
-    | { type: "reset"; conversationId: string; messages: Message[] }
+    | { type: "reset"; conversationId: string; messages: Message[]; preserveMessageIds?: ReadonlySet<string> }
     | { type: "prepend_history"; messages: Message[] }
     | { type: "event"; event: WsEvent; sendersById?: Record<string, string | undefined> }
     | { type: "append_optimistic"; message: Message }
@@ -117,7 +117,11 @@ function streamReducer(
     const byId = new Map<string, Message>();
     for (const m of merged) byId.set(m.id, m);
     for (const m of state.messages) {
-      if (state.conversation_id === action.conversationId && !byId.has(m.id)) {
+      if (
+        state.conversation_id === action.conversationId
+        && !byId.has(m.id)
+        && action.preserveMessageIds?.has(m.id)
+      ) {
         byId.set(m.id, m);
       }
     }
@@ -260,6 +264,10 @@ export function ChatWorkspacePageV2() {
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const conversationIdRef = useRef(conversationId);
   const historyRequestRef = useRef<{ conversationId: string; cursor: string } | null>(null);
+  const messagesQueryFetchingRef = useRef(false);
+  // M5: reset should converge to REST history, except for live rows accepted
+  // while that same history request is still in flight.
+  const pendingLiveMessageIdsRef = useRef(new Set<string>());
 
   // bugfix-442: 实时消息流驱动侧边栏会话列表刷新时去抖，避免群聊多 agent 同回合
   // 连续重拉。timer 跨渲染稳定，组件卸载时清理。
@@ -467,6 +475,8 @@ export function ChatWorkspacePageV2() {
 
   const [streamState, dispatch] = useReducer(streamReducer, emptyConversationState);
 
+  messagesQueryFetchingRef.current = messagesQuery.isFetching;
+
   // Persistent cache for token_usage (and delivery_status) so that switching
   // browser tabs — which triggers React Query refetchOnWindowFocus — does not
   // wipe token chips.  REST history never carries token_usage; only WS
@@ -509,7 +519,11 @@ export function ChatWorkspacePageV2() {
       }
       return m;
     });
-    dispatch({ type: "reset", conversationId, messages: restored });
+    const preserveMessageIds = new Set(pendingLiveMessageIdsRef.current);
+    dispatch({ type: "reset", conversationId, messages: restored, preserveMessageIds });
+    for (const messageId of restored.map((m) => m.id)) {
+      pendingLiveMessageIdsRef.current.delete(messageId);
+    }
   }, [conversationId, messagesQuery.data]);
 
   useEffect(() => {
@@ -518,6 +532,7 @@ export function ChatWorkspacePageV2() {
     setHasMoreHistory(null);
     setIsLoadingHistory(false);
     historyRequestRef.current = null;
+    pendingLiveMessageIdsRef.current.clear();
     if (conversationId) {
       dispatch({ type: "reset", conversationId, messages: [] });
     }
@@ -574,6 +589,9 @@ export function ChatWorkspacePageV2() {
       onEvent: (event) => {
         const chatEvent = toChatWsEvent(event.eventType, event.payload, event.eventId);
         if (chatEvent && chatEvent.conversation_id === conversationIdRef.current) {
+          if (chatEvent.type === "message.created" && messagesQueryFetchingRef.current) {
+            pendingLiveMessageIdsRef.current.add(chatEvent.message_id);
+          }
           dispatch({ type: "event", event: chatEvent, sendersById: sendersByIdRef.current });
         }
         if (event.eventType === "node.status_changed") {
