@@ -480,6 +480,110 @@ describe("ChatWorkspacePage v2 — integration", () => {
     });
   });
 
+  it("clears pending live preserve ids after one history reset so later history can converge", async () => {
+    let resolveRefetch!: () => void;
+    let c1MessageRequestCount = 0;
+    const racedHistoryMessages = FIXTURES.messagesC1.map((message) =>
+      message.id === "m1" ? { ...message, content: "Hi Planner after raced reset" } : message
+    );
+    let c1MessagesResponse = () => Promise.resolve(
+      jsonResponse({ items: FIXTURES.messagesC1, next_before_message_id: null })
+    );
+    fetchSpy = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (/\/im\/v1\/conversations\/c1\/messages/.test(url) && (!init || init.method === undefined || init.method === "GET")) {
+        c1MessageRequestCount += 1;
+        return c1MessagesResponse();
+      }
+      return mockFetch()(input, init);
+    }) as ReturnType<typeof mockFetch>;
+    vi.stubGlobal("fetch", fetchSpy);
+
+    renderAtRoute("/chat/c1");
+    await screen.findByText("Hi Planner");
+    await waitFor(() => expect(capturedStatusHandler).toBeTruthy());
+
+    const pendingRefetchResolvers: Array<(response: Response) => void> = [];
+    c1MessagesResponse = () => new Promise<Response>((resolve) => {
+      pendingRefetchResolvers.push(resolve);
+    });
+    resolveRefetch = () => {
+      for (const resolve of pendingRefetchResolvers.splice(0)) {
+        resolve(jsonResponse({ items: racedHistoryMessages, next_before_message_id: null }));
+      }
+    };
+    const requestCountBeforeRacedRefetch = c1MessageRequestCount;
+
+    act(() => {
+      capturedStatusHandler!({
+        eventType: "message.sent",
+        payload: {
+          conversation_id: "c1",
+          message_id: "sidebar-refresh-1",
+          sender_user_id: "u-other",
+          sender_type: "user",
+          sender: { type: "user", id: "u-other" },
+          attachments: [],
+          delivery_status: "sent",
+          created_at: "2026-05-01T00:02:00Z"
+        },
+        eventId: 47
+      });
+    });
+    await waitFor(() => expect(c1MessageRequestCount).toBeGreaterThan(requestCountBeforeRacedRefetch));
+
+    act(() => {
+      emitSharedChatEvent({
+        type: "message.created",
+        conversation_id: "c1",
+        message_id: "m-live-one-reset-only",
+        sender_user_id: "user-uuid-planner",
+        sender_type: "agent",
+        content: "live row gets one reset grace",
+        tool_calls: [],
+        token_usage: null,
+        delivery_status: "completed",
+        created_at: "2026-05-01T00:03:00Z"
+      }, 48);
+    });
+
+    await screen.findByText("live row gets one reset grace");
+
+    act(() => resolveRefetch());
+    await waitFor(() => {
+      expect(screen.getByText("Hi Planner after raced reset")).toBeInTheDocument();
+      expect(screen.getByText("live row gets one reset grace")).toBeInTheDocument();
+    });
+
+    c1MessagesResponse = () => Promise.resolve(
+      jsonResponse({ items: FIXTURES.messagesC1, next_before_message_id: null })
+    );
+    const requestCountBeforeConvergingRefetch = c1MessageRequestCount;
+
+    act(() => {
+      capturedStatusHandler!({
+        eventType: "message.sent",
+        payload: {
+          conversation_id: "c1",
+          message_id: "sidebar-refresh-2",
+          sender_user_id: "u-other",
+          sender_type: "user",
+          sender: { type: "user", id: "u-other" },
+          attachments: [],
+          delivery_status: "sent",
+          created_at: "2026-05-01T00:04:00Z"
+        },
+        eventId: 49
+      });
+    });
+
+    await waitFor(() => expect(c1MessageRequestCount).toBeGreaterThan(requestCountBeforeConvergingRefetch));
+    await waitFor(() => {
+      expect(screen.queryByText("live row gets one reset grace")).not.toBeInTheDocument();
+    });
+    expect(screen.getByText("Hi Planner")).toBeInTheDocument();
+  });
+
   // Fix B: v2 订阅必须注册 onResyncRequired，否则断线重连后 IM 发 resync 命令时
   // v2 侧边栏不强制刷新，可能停在断线期间错过消息的旧状态。
   it("v2 subscription registers onResyncRequired for post-reconnect refresh", async () => {
