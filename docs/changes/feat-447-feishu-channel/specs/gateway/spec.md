@@ -22,6 +22,12 @@ Gateway 通过飞书 SDK WebSocket 长连接收发消息。1:1 私聊直接响�
 - **THEN** Bot 不在群里回复
 - **AND** 当用户随后 @Bot 提问时,Bot 回复能引用之前未 @ 的群聊消息作为上下文
 
+#### Scenario: @所有人 不算 @Bot
+- **GIVEN** Gateway 配置的飞书 Bot 已加入某飞书群
+- **WHEN** 用户在群里 @所有人 发消息,但没有单独 @Bot
+- **THEN** Bot 不在群里回复
+- **AND** 该消息按普通未 @ 群消息进入群上下文
+
 #### Scenario: Bot 对即将响应的消息显示 THINKING 反应并在回复后移除
 - **GIVEN** Gateway 配置的飞书 Bot 收到一条需要响应的消息
 - **WHEN** Bot 开始处理并随后发出回复
@@ -67,6 +73,58 @@ agent 回复是否回写外部 channel 取决于触发该 run 的用户消息来
 - **THEN** Gateway 使用同一外部 group buffer,plato 能引用 Alice 的延期原因
 - **AND** plato 的回复只出现在内部 IM shadow group,不回写飞书
 
+### Requirement: 外部 channel 可见回复镜像
+
+外部 channel 消息触发 agent run 时,Gateway 必须把该 run 中每个用户可见 assistant 文本气泡镜像回原外部 channel。镜像边界是 assistant 气泡完成,不是 token delta;terminal 阶段不得把已经镜像过的最后气泡重复发送。由内部 IM shadow 会话触发的 run 仍只写 IM,不回写外部 channel。
+
+#### Scenario: 飞书收到中间可见回复
+- **GIVEN** 用户在飞书向 plato-bot 发送一个会让 agent 先回复“我查一下”再调用工具的问题
+- **WHEN** 内部 IM shadow 会话中出现“我查一下”这一用户可见 assistant 气泡
+- **THEN** 飞书原对话也收到对应的文本消息
+- **AND** 后续最终答案也发送到同一飞书对话
+
+#### Scenario: 最终气泡不重复发送
+- **GIVEN** 外部 channel 触发的 run 产生了一个最终 assistant 文本气泡
+- **WHEN** Gateway 已经按气泡完成边界把该文本镜像到飞书
+- **THEN** run terminal 后不得再通过 terminal `reply_text` 把同一文本发送第二次
+
+#### Scenario: IM 触发 run 不走外部镜像
+- **GIVEN** 用户在内部 IM 的 `plato · feishu` shadow 会话中发送消息
+- **WHEN** agent 产生中间回复和最终回复
+- **THEN** 这些回复只出现在内部 IM
+- **AND** 飞书原对话不收到任何对应消息
+
+### Requirement: 飞书群聊背景上下文等价内部 IM 群聊
+
+飞书群聊必须复用内部 IM 群聊的 group-context 语义:不 @Bot 的群消息也进入该 agent 的群背景上下文,后续 @Bot 或纯 @Bot 触发时,这些背景消息会作为 `[sender] text` 注入 LLM context。`@Bot` 既是用户可见正文的一部分,也是触发 drain 的结构化信号;Gateway 不得为了 mention gate 从 IM 展示或 LLM 输入中删除 @ 内容。
+
+#### Scenario: 未 @ 背景被纯 @Bot 触发使用
+- **GIVEN** 用户在飞书群里发送“你会数学吗”且没有 @nano
+- **WHEN** 用户随后只发送 `@nano`
+- **THEN** Gateway 将第一条未 @ 消息作为 group context 注入 nano 的本轮 LLM 输入
+- **AND** nano 的回复能针对“你会数学吗”作答,而不是把 `@nano` 当成无上下文测试消息
+- **AND** 两条用户消息都同步显示在内部 IM shadow group
+
+#### Scenario: 飞书普通群消息投递能力缺失时验收失败
+- **GIVEN** Gateway 配置了飞书群聊 channel
+- **WHEN** 用户在飞书群发送不 @Bot 的 nonce 消息
+- **THEN** Gateway 必须能收到该事件并写入 IM shadow group / GroupContextStore
+- **AND** 如果飞书平台或 app 权限只投递 @Bot 事件,该配置不得被验收为支持飞书群聊背景上下文
+
+#### Scenario: 纯 @Bot 保留为用户可见正文和 LLM 输入
+- **GIVEN** 用户在飞书群里只发送 `@nano`
+- **WHEN** FeishuClient 解析事件并交给 InboundPipeline
+- **THEN** InboundMessage 的文本保留该 @ 行为（例如 IM mention wire 或 `@nano`）
+- **AND** 结构化 mention metadata 同时标记 nano 被提及
+- **AND** shadow sync 不会因为空文本被 IM 拒绝
+- **AND** kernel 当前消息中仍能看到该 @ 内容,不是空字符串
+
+#### Scenario: @Bot 加正文时正文不被删减
+- **GIVEN** 用户在飞书群里发送 `@nano hi`
+- **WHEN** Gateway 写入 IM shadow group 并提交给 kernel
+- **THEN** IM 中该用户消息显示为 `@nano hi` 或等效 mention chip + `hi`
+- **AND** kernel 当前消息包含 @nano 和 hi,而不是只剩 hi
+
 ### Requirement: IM 离线时飞书对话不阻塞
 
 Gateway 调用 IM HTTP API 同步外部 channel 用户消息时,必须是非阻塞的 best-effort 调用。IM 不可达不得影响飞书主路径,agent 仍需正常回复用户。
@@ -91,6 +149,28 @@ Gateway 调用 IM HTTP API 同步外部 channel 用户消息时,必须是非阻�
 - **GIVEN** 飞书群「产品群」同时配置了 plato-bot 和 luban-bot
 - **WHEN** 用户在群里分别 @plato-bot 和 @luban-bot
 - **THEN** 内部 IM 中同时存在 `plato · 产品群 · feishu` 和 `luban · 产品群 · feishu` 两个独立的 group 会话,各自的内容互不混淆
+
+### Requirement: 内置 skills 启动自举
+
+Gateway 随包携带 PA 产品级内置 skills。启动时,Gateway 将包内 `builtin_skills/<skill-name>/SKILL.md`
+按标准目录形态安装到用户全局 skill root `~/.nanoassistant/skills/<skill-name>/SKILL.md`;目标已存在时默认不覆盖用户本地版本。启用飞书 channel 的 agent 必须能发现 `feishu-doc` skill,使用户在飞书中要求云文档操作时,agent 能按该 skill 给出授权和文档操作路径。
+
+#### Scenario: 新安装用户启动后获得 feishu-doc
+- **GIVEN** 用户本机没有 `~/.nanoassistant/skills/feishu-doc/SKILL.md`
+- **WHEN** Gateway 启动
+- **THEN** Gateway 从包内内置资源安装 `feishu-doc` 到用户全局 skill root
+- **AND** 后续 capabilities 查询和会话 prompt 均能解析到 `feishu-doc`
+
+#### Scenario: 已存在的用户 skill 不被覆盖
+- **GIVEN** 用户本机已存在自定义的 `~/.nanoassistant/skills/feishu-doc/SKILL.md`
+- **WHEN** Gateway 启动
+- **THEN** Gateway 保留用户已有文件,不以包内版本覆盖
+
+#### Scenario: 飞书绑定 agent 自动启用 feishu-doc
+- **GIVEN** Gateway 配置了 `feishu:plato` channel 且 plato agent 的 skills allowlist 未包含 `feishu-doc`
+- **WHEN** Gateway 启动
+- **THEN** Gateway 将 `feishu-doc` 加入 plato 的本地 skills 配置
+- **AND** 用户从飞书向 plato-bot 请求云文档操作时,plato 的会话可见 `feishu-doc`
 
 ## MODIFIED Requirements
 
