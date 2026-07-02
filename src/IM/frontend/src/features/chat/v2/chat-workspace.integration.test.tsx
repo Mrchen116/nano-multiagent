@@ -419,6 +419,67 @@ describe("ChatWorkspacePage v2 — integration", () => {
     });
   });
 
+  it("removes a same-conversation relay mirror when the refreshed history suppresses it", async () => {
+    const syntheticRelayMirror = {
+      id: "turn-1:relay:relay-dup-1",
+      conversation_id: "c1",
+      sender: { type: "agent", id: "a-planner", display_name: "Planner" },
+      sender_user_id: "user-uuid-planner",
+      sender_type: "agent",
+      content: "synthetic relay mirror that should disappear",
+      attachments: [],
+      delivery_status: "completed",
+      created_at: "2026-05-01T00:00:02Z",
+      permission_requests: []
+    };
+    const realAgentMessage = {
+      id: "real-agent-1",
+      conversation_id: "c1",
+      sender: { type: "agent", id: "a-planner", display_name: "Planner" },
+      sender_user_id: "user-uuid-planner",
+      sender_type: "agent",
+      content: "real agent row returned by refreshed history",
+      attachments: [],
+      delivery_status: "completed",
+      created_at: "2026-05-01T00:00:03Z",
+      permission_requests: []
+    };
+    let c1Messages = [...FIXTURES.messagesC1, syntheticRelayMirror];
+    fetchSpy = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (/\/im\/v1\/conversations\/c1\/messages/.test(url) && (!init || init.method === undefined || init.method === "GET")) {
+        return jsonResponse({ items: c1Messages, next_before_message_id: null });
+      }
+      return mockFetch()(input, init);
+    }) as ReturnType<typeof mockFetch>;
+    vi.stubGlobal("fetch", fetchSpy);
+
+    renderAtRoute("/chat/c1");
+    await screen.findByText("synthetic relay mirror that should disappear");
+    await waitFor(() => expect(capturedStatusHandler).toBeTruthy());
+
+    c1Messages = [...FIXTURES.messagesC1, realAgentMessage];
+    act(() => {
+      capturedStatusHandler!({
+        eventType: "message.sent",
+        payload: {
+          conversation_id: "c1",
+          message_id: "real-agent-1",
+          sender_user_id: "user-uuid-planner",
+          sender_type: "agent",
+          delivery_status: "completed",
+          created_at: "2026-05-01T00:00:03Z"
+        },
+        eventId: 46
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("real agent row returned by refreshed history")).toBeInTheDocument();
+      expect(screen.queryByText("synthetic relay mirror that should disappear")).not.toBeInTheDocument();
+    });
+  });
+
   // Fix B: v2 订阅必须注册 onResyncRequired，否则断线重连后 IM 发 resync 命令时
   // v2 侧边栏不强制刷新，可能停在断线期间错过消息的旧状态。
   it("v2 subscription registers onResyncRequired for post-reconnect refresh", async () => {
