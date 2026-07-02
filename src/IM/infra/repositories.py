@@ -1104,6 +1104,7 @@ class MessageRepository:
         kernel_message_id: str | None = None,
         delivery_status: str | None = None,
         sender_display_name: str | None = None,
+        emit_created_event: bool = False,
     ) -> Message:
         """Create a message in a conversation.
 
@@ -1212,6 +1213,22 @@ class MessageRepository:
             else None
         )
         token_usage_json = _encode_token_usage(token_usage)
+        created_message = Message(
+            id=message_id,
+            conversation_id=conversation_id,
+            sender_user_id=resolved_sender_user_id,
+            sender_type=sender_type,
+            sender=sender_actor,
+            content=content,
+            attachments=normalized_attachments,
+            delivery_status=final_status,
+            created_at=created_at,
+            tool_calls=normalized_tool_calls,
+            token_usage=token_usage,
+            # feat-414: 建行时始终为 None，由 on_message_completed 写入。
+            elapsed_ms=None,
+            kernel_message_id=kernel_message_id,
+        )
         with self._connection:
             self._connection.execute(
                 """
@@ -1254,6 +1271,16 @@ class MessageRepository:
                     payload=sent_payload,
                 )
             )
+            if emit_created_event:
+                pending_live_events.append(
+                    self._insert_event(
+                        conversation_id=conversation_id,
+                        message_id=message_id,
+                        event_type="message.created",
+                        delivery_status=final_status,
+                        payload=_message_created_payload(created_message),
+                    )
+                )
             if auto_complete_delivery:
                 # feat-445-M3 清理-1: the delivered event must carry the message's actual
                 # terminal status (final_status), not a hardcoded "completed". fork copies a
@@ -1306,22 +1333,7 @@ class MessageRepository:
         if self._notify is not None:
             for live_event in pending_live_events:
                 self._notify(live_event)
-        return Message(
-            id=message_id,
-            conversation_id=conversation_id,
-            sender_user_id=resolved_sender_user_id,
-            sender_type=sender_type,
-            sender=sender_actor,
-            content=content,
-            attachments=normalized_attachments,
-            delivery_status=final_status,
-            created_at=created_at,
-            tool_calls=normalized_tool_calls,
-            token_usage=token_usage,
-            # feat-414: 建行时始终为 None，由 on_message_completed 写入。
-            elapsed_ms=None,
-            kernel_message_id=kernel_message_id,
-        )
+        return created_message
 
     def update_runtime_state(
         self,
@@ -3131,6 +3143,60 @@ def _attachment_to_dict(attachment: Attachment) -> dict[str, object]:
     if attachment.file_name is not None:
         payload["file_name"] = attachment.file_name
     return payload
+
+
+def _actor_to_event_dict(
+    actor: Actor | None, *, fallback_type: str, fallback_id: str
+) -> dict[str, str | None]:
+    """Serialize an actor for live events without depending on API modules."""
+    return {
+        "type": actor.type if actor is not None else fallback_type,
+        "id": actor.id if actor is not None else fallback_id,
+        "display_name": actor.display_name if actor is not None else None,
+    }
+
+
+def _token_usage_to_event_dict(usage: TokenUsage | None) -> dict[str, int] | None:
+    """Serialize token usage using the same shape as websocket payloads."""
+    if usage is None:
+        return None
+    return {
+        "output": int(usage.output),
+        "context_used": int(usage.context_used),
+        "context_window": int(usage.context_window),
+        "total": int(usage.total)
+        if usage.total is not None
+        else int(usage.context_used) + int(usage.output),
+        "cache_read_tokens": int(usage.cache_read_tokens),
+        "cache_total_input_tokens": int(usage.cache_total_input_tokens),
+    }
+
+
+def _message_created_payload(message: Message) -> dict[str, object]:
+    """Build the canonical live insert payload for a persisted message."""
+    sender = _actor_to_event_dict(
+        message.sender,
+        fallback_type=message.sender_type,
+        fallback_id=message.sender_user_id,
+    )
+    return {
+        "conversation_id": message.conversation_id,
+        "message_id": message.id,
+        "sender_user_id": message.sender_user_id,
+        "sender_type": message.sender_type,
+        "sender": sender,
+        "sender_display_name": sender.get("display_name"),
+        "content": message.content,
+        "attachments": [_attachment_to_dict(item) for item in message.attachments],
+        "tool_calls": [_tool_call_to_dict(tc) for tc in (message.tool_calls or [])],
+        "thinking": [
+            {"seq": int(segment.seq), "text": segment.text}
+            for segment in (message.thinking or [])
+        ],
+        "token_usage": _token_usage_to_event_dict(message.token_usage),
+        "delivery_status": message.delivery_status,
+        "created_at": message.created_at,
+    }
 
 
 def _normalize_attachments(attachments: list[Attachment] | None) -> list[Attachment]:

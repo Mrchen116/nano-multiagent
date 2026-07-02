@@ -200,6 +200,7 @@ class WebIMService:
         attachments: list[Attachment] | None = None,
         auto_complete_delivery: bool = True,
         sender_display_name: str | None = None,
+        emit_created_event: bool = False,
     ) -> Message:
         """Create one message inside a conversation.
 
@@ -223,6 +224,7 @@ class WebIMService:
             attachments=attachments,
             auto_complete_delivery=auto_complete_delivery,
             sender_display_name=sender_display_name,
+            emit_created_event=emit_created_event,
         )
         if self._metrics_service is not None and auto_complete_delivery:
             conversation = self._conversations.get_conversation(
