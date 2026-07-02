@@ -257,3 +257,92 @@ No critical issues. 2 warning(s) to consider. Ready for PR (with noted improveme
 - The implementation reuses existing IM frontend mechanisms: `attachUserConversationStream`, `streamReducer` / `applyWsEvent`, `listMessages`, and `MessagePane` scroll state. It does not introduce a parallel stream, API, or state model.
 
 No critical issue(s) found. Ready for PR with the warnings above tracked.
+
+# Round 4
+
+## Verification Report: feat-451
+
+### Summary
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 33/33 tasks complete |
+| Correctness | 6/6 spec requirements implemented; Round 3 W1 and reviewer blocking closed |
+| Coherence | Followed |
+
+No critical issues. 1 warning(s) to consider. Ready for PR (with noted improvement).
+
+### Scope
+
+- Verified HEAD: `27dc008e` (`origin/unit/feat-451`, `docs(feat-451/M4): record unit merge completion`).
+- Baseline requested by orchestrator: `27dc008e` or later on `origin/unit/feat-451`.
+- Reviewed docs: `spec.md`, `design.md`, M1/M2/M3/M4 `tasks.md` and `progress.md`, prior `verification.md`, `SPEC.md`, `docs/TESTING_GUIDE.md`, `COMMENTING_GUIDE.md`, `docs/specs/im/spec.md`, and the unit IM delta spec.
+- Local test rerun: attempted targeted Vitest in the verify worktree. It failed before test execution because this isolated worktree has no `src/IM/frontend/node_modules` (`NO_VITEST`). A no-write retry using the main worktree frontend `.bin` plus `NODE_PATH` still failed during Vite config loading because `@vitejs/plugin-react` was not resolvable from the verify worktree. Per verifier rules, I did not run `npm ci` or create dependencies. Worker progress records final `npm run test` and `npx tsc -b` as passed after rebase in `M4-fix-live-pane-arrivals/progress.md:33-37`.
+
+## Completeness
+
+### Tasks: 33/33 complete
+
+- M1: all 8 exit criteria in `M1-impl/tasks.md` are marked `[x]`.
+- M2: all 9 exit criteria in `M2-fix-acceptance-code-review/tasks.md` are marked `[x]`.
+- M3: all 8 exit criteria in `M3-fix-verification-round2/tasks.md` are marked `[x]`.
+- M4: all 8 exit criteria in `M4-fix-live-pane-arrivals/tasks.md:11-18` are marked `[x]`.
+
+### M4 closure evidence
+
+| Round 3 / M4 focus | Evidence | Status |
+|---|---|---|
+| Same-conversation live arrival updates active pane, not only sidebar preview | Same-conversation `message.sent` / `message.created` / `relay.completed` invalidates the active messages query when `payload.conversation_id === conversationIdRef.current` at `src/IM/frontend/src/features/chat/v2/chat-workspace-page.tsx:619-638`. Regression test mutates the REST result, emits `message.sent`, and asserts the active pane renders `REST live update that refreshed the sidebar` at `src/IM/frontend/src/features/chat/v2/chat-workspace.integration.test.tsx:370-420`. Browser evidence records active pane and sidebar both showing off-bottom and bottom live messages at `M4-fix-live-pane-arrivals/progress.md:46-52`. | closed |
+| Active pane same-conversation live arrival preserves scroll policy | `MessagePane` keeps the off-bottom / bottom-follow gate in `src/IM/frontend/src/features/chat/v2/components/message-pane.tsx:341-394`; component regressions cover off-bottom no scroll and near-bottom follow at `message-pane.test.tsx:469-535`. M4 live browser evidence records off-bottom `scrollTop` unchanged and bottom `bottomDistance=0` at `M4-fix-live-pane-arrivals/progress.md:49-50`. | closed |
+| c1 -> c2 switch where c2 live arrives before c2 history | Conversation switch immediately binds the reducer to the new route conversation with an empty reset at `chat-workspace-page.tsx:515-524`, so `applyWsEvent` no longer drops the active c2 event as mismatched. Later REST reset preserves same-conversation reducer rows not present in the REST response at `chat-workspace-page.tsx:110-126`. Regression test delays c2 history, emits c2 `message.created`, asserts the c2 live row appears, resolves history, and asserts the live row remains while c1 text is absent at `chat-workspace.integration.test.tsx:1014-1060`. | closed |
+| External conversation events do not pollute active pane | User-stream dispatch still requires `chatEvent.conversation_id === conversationIdRef.current` at `chat-workspace-page.tsx:574-578`; `applyWsEvent` also bypasses mismatched events at `src/IM/frontend/src/features/chat/v2/chat-stream-reducer.ts:90-94`. Existing M3 regression remains at `chat-workspace.integration.test.tsx:975-1012`. | closed |
+| M3 send failure / history anchor / near-bottom behavior did not regress | Force-scroll cleanup and self-authored append guard remain at `message-pane.tsx:215-230` and `message-pane.tsx:361-394`; anchor restore recomputes near-bottom at `message-pane.tsx:318-330`. Tests remain at `message-pane.test.tsx:258-343` and `message-pane.test.tsx:576-660`; M4 targeted suite passed in progress evidence (`2 files / 106 tests`) at `M4-fix-live-pane-arrivals/progress.md:33-34`. | closed |
+
+## Correctness
+
+### Requirement / scenario coverage
+
+| Spec Requirement | Implementation evidence | Test / live evidence | Status |
+|---|---|---|---|
+| 消息历史可通过向上滚动分页加载更早内容 | Manual cursor/loading state and older-page request at `chat-workspace-page.tsx:526-553`; upper-third trigger and auto-fill handling at `message-pane.tsx:333-410`; status UI remains in `MessagePane`. | API/component/integration tests in `chat-api.test.ts:77-92`, `message-pane.test.tsx:128-195`, `chat-workspace.integration.test.tsx:813-867`; M1 progress browser evidence. | covered |
+| 新消息到达不打扰正在翻看历史的用户 | Near-bottom state and auto-scroll gate at `message-pane.tsx:341-394`; M4 active-pane refetch path at `chat-workspace-page.tsx:619-638`. | Off-bottom and bottom component tests at `message-pane.test.tsx:469-535`; M4 browser evidence at `M4-fix-live-pane-arrivals/progress.md:49-50`. | covered |
+| 移动端输入法回车发送消息 | `handleKeyDown` sends on Enter without an `isMobile` exclusion and still avoids slash-picker raw send at `message-pane.tsx:237-255`. | Mobile Enter test at `message-pane.test.tsx:538-555`; desktop Enter and Shift+Enter at `message-pane.test.tsx:557-680`; M1/M2 browser evidence. | covered |
+| composer 输入框随内容自动增高 | Row limits are derived from `isMobile` at `message-pane.tsx:199-204`; CSS max/overflow remains in `global.css`. | Mobile auto-grow test at `message-pane.test.tsx:703-718`; M1 browser evidence. | covered |
+| 消息气泡支持复制与长按菜单 | Long-press/right-click menu state and handlers at `message-pane.tsx:620-735` and render at `message-pane.tsx:860-886`. | Copy/fork menu tests at `message-pane.test.tsx:731-883`; M2 browser evidence. | covered |
+| 桌面与移动端体验一致 | Same `MessagePane` drives desktop/mobile; mobile-specific affordances are gated by `isMobile`, while core pagination/scroll/send behavior is shared. | Mobile pagination/fork evidence in prior acceptance/progress; M4 mobile spot check shows active pane live content at `M4-fix-live-pane-arrivals/progress.md:51`. | covered |
+
+### CRITICAL
+
+无。
+
+### WARNING
+
+- **W1: Frontend chat test files are well beyond the 400-line soft limit in `docs/TESTING_GUIDE.md` §7.** This is not a product correctness blocker and the added M4 assertions are behavior-level regressions, but `message-pane.test.tsx` is now 2062 lines and `chat-workspace.integration.test.tsx` is 1113 lines. The current unit followed the "extend the file that already owns the behavior" rule, yet the accumulated size is now a maintenance risk.
+  - Location: `src/IM/frontend/src/features/chat/v2/components/message-pane.test.tsx`; `src/IM/frontend/src/features/chat/v2/chat-workspace.integration.test.tsx`
+  - Fix: after this unit lands, split by behavior owner while preserving assertions: e.g. `message-pane-pagination.test.tsx`, `message-pane-scroll-send.test.tsx`, `message-pane-menu.test.tsx`, and a smaller `chat-workspace-live-events.integration.test.tsx`.
+
+### SUGGESTION
+
+无。
+
+## Coherence
+
+| design 决策 | Round 4 status | Evidence |
+|---|---|---|
+| 决策 1: 手动 cursor，不用 `useInfiniteQuery` | followed | `chat-workspace-page.tsx:258-262` and `chat-workspace-page.tsx:526-553`. |
+| 决策 2: 上方 1/3 滚动阈值 | followed | `message-pane.tsx:333-339`. |
+| 决策 3: anchor 消息 id 恢复阅读位置 | followed | `message-pane.tsx:304-330`; near-bottom recomputation from M3 remains. |
+| 决策 4: 最后一条 id 变化 + near-bottom 滚底 | followed | `message-pane.tsx:365-394`; M4 active-pane arrival uses the same MessagePane policy after query/refetch or stream append. |
+| 决策 5: 移动端 Enter 发送、桌面 Shift+Enter 换行 | followed | `message-pane.tsx:237-255`. |
+| 决策 6: composer auto-grow 4/5 行上限 | followed | `message-pane.tsx:199-204`. |
+| 决策 7: 长按/右键菜单，移动端 fork 放进菜单 | followed | `message-pane.tsx:620-735` and `message-pane.tsx:860-886`. |
+| M4 design addendum: close active-pane live arrival and switch-before-history races | followed | `chat-workspace-page.tsx:110-126`, `chat-workspace-page.tsx:515-524`, `chat-workspace-page.tsx:574-578`, `chat-workspace-page.tsx:619-638`; tests at `chat-workspace.integration.test.tsx:370-420` and `chat-workspace.integration.test.tsx:1014-1060`. |
+
+### Architecture self-consistency
+
+- Code changes remain in `src/IM/frontend/src/features/chat/v2/` plus i18n/CSS and unit docs. No backend, Gateway, CLI, or agent kernel code was modified for this unit.
+- No cross-package import boundary from `SPEC.md` / AGENTS.md was violated by the feat-451 diff.
+- The implementation reuses existing IM frontend mechanisms: `listMessages`, React Query invalidation, `attachUserConversationStream`, `streamReducer`, `applyWsEvent`, and `MessagePane` scroll state. It does not add a parallel stream or API path.
+- The unit has an IM delta spec under `docs/changes/feat-451-chat-history-pagination/specs/im/spec.md`. The canonical `docs/specs/im/spec.md` has not yet been folded forward on this branch; based on prior project history this appears to be a release/landing documentation merge step rather than an M1-M4 implementation blocker, but it should not be forgotten during final documentation consolidation.
+
+No critical issue(s) found. Ready for PR with the warning above tracked.
