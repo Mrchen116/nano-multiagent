@@ -8,15 +8,15 @@
 
 ## 退出标准
 
-- [ ] `[worker]` pending live id 被紧随其后的 history reset 使用/考虑后立即清理。
-- [ ] `[worker]` 后续 REST history 仍不返回该 row 时，active pane 与服务端 history 收敛并移除该 row。
-- [ ] `[worker]` 保持 M5 行为：suppressed synthetic `:relay:` mirror row 会在 refreshed history 中被移除。
-- [ ] `[worker]` 保持 M4 行为：切换期间 active conversation live event 先于 history 到达不丢，紧随其后的 history response 不覆盖该 live row。
-- [ ] `[worker]` 外会话 event 仍不污染 active pane。
-- [ ] `[worker]` 补充回归测试覆盖 pending live id 使用一次后清理、后续 reset 收敛，以及 M4/M5 关键回归。
-- [ ] `[worker]` `cd src/IM/frontend && npm run test -- src/features/chat/v2/chat-workspace.integration.test.tsx src/features/chat/v2/components/message-pane.test.tsx` 通过。
-- [ ] `[worker]` `cd src/IM/frontend && npm run test` 通过。
-- [ ] `[worker]` `cd src/IM/frontend && npx tsc -b` 通过。
+- [x] `[worker]` pending live id 被紧随其后的 history reset 使用/考虑后立即清理。
+- [x] `[worker]` 后续 REST history 仍不返回该 row 时，active pane 与服务端 history 收敛并移除该 row。
+- [x] `[worker]` 保持 M5 行为：suppressed synthetic `:relay:` mirror row 会在 refreshed history 中被移除。
+- [x] `[worker]` 保持 M4 行为：切换期间 active conversation live event 先于 history 到达不丢，紧随其后的 history response 不覆盖该 live row。
+- [x] `[worker]` 外会话 event 仍不污染 active pane。
+- [x] `[worker]` 补充回归测试覆盖 pending live id 使用一次后清理、后续 reset 收敛，以及 M4/M5 关键回归。
+- [x] `[worker]` `cd src/IM/frontend && npm run test -- src/features/chat/v2/chat-workspace.integration.test.tsx src/features/chat/v2/components/message-pane.test.tsx` 通过。
+- [x] `[worker]` `cd src/IM/frontend && npm run test` 通过。
+- [x] `[worker]` `cd src/IM/frontend && npx tsc -b` 通过。
 
 ## 测试策略
 
@@ -28,7 +28,7 @@
 - 已有测试在：`src/IM/frontend/src/features/chat/v2/chat-workspace.integration.test.tsx`（扩展 active pane reset/live/refetch 回归）。
 - 落层/目录/marker：Vitest integration（`src/IM/frontend/src/features/chat/v2/chat-workspace.integration.test.tsx`），marker：无。
 - 可选依赖 importorskip：无。
-- 本 milestone 产生的一次性验收证据（收尾删除，不进套件）：前端真实浏览器 spot check 记录；不提交临时脚本。
+- 本 milestone 不产生一次性验收脚本；变更点是 active pane reset 状态收敛逻辑，无视觉布局面，验收落在 integration regression 与类型检查。
 
 ## 前端 UI 状态矩阵
 
@@ -45,8 +45,8 @@
 | permission denied | N/A，本 milestone 不改权限卡 |
 | long content | N/A，本 milestone 不改文本布局 |
 | missing/nullable data | reducer conversation binding / pending preserve set 清理覆盖 |
-| mobile viewport | 真实浏览器 spot check active pane 渲染 |
-| desktop viewport | 真实浏览器 spot check active pane 渲染 |
+| mobile viewport | N/A，本 milestone 不改响应式布局 |
+| desktop viewport | N/A，本 milestone 不改布局 |
 | dark mode（如项目支持） | N/A，项目当前无 dark mode scope |
 
 ## 测试与验收映射
@@ -57,17 +57,17 @@
 | suppressed relay mirror reset 后残留 | 既有 M5 regression 保持 + targeted rerun | 是 |
 | live-before-history row 被第一次 history reset 误删 | 既有 M4 regression 保持 + targeted rerun | 是 |
 | 外会话 event 污染 active pane | 既有 M3/M4 regression 保持 + targeted rerun | 是 |
-| active pane 真实入口仍渲染 | 浏览器 spot check + 测试证据 | 临时证据 |
+| active pane 真实入口仍渲染 | 既有 integration regression 覆盖 active pane 渲染路径 | 是 |
 
 ## Roadpoints
 
 ### R1 — Pending live preserve 一次性生命周期
 
-- 状态: TODO
+- 状态: DONE
 - 步骤:
   - C1: 补 pending live id 第一次 reset 保留、第二次 reset 收敛移除的红测。
   - C2: 调整 reset effect，在每次 reset 构造 preserve set 后清空已考虑的 pending ids，而不是只删除 REST returned ids。
-  - C3: 更新 tasks/progress，记录窄测、全测、类型检查和浏览器 spot check 证据。
+  - C3: 更新 tasks/progress，记录窄测、全测和类型检查证据。
 - 验证:
   - `cd src/IM/frontend && npm run test -- src/features/chat/v2/chat-workspace.integration.test.tsx -t "clears pending live preserve ids after one history reset"`
   - `cd src/IM/frontend && npm run test -- src/features/chat/v2/chat-workspace.integration.test.tsx src/features/chat/v2/components/message-pane.test.tsx`
