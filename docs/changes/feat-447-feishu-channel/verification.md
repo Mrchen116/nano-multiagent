@@ -592,3 +592,61 @@ All checks passed. Ready for PR.
 ### SUGGESTION（可以修）
 
 无。
+
+---
+
+# Round 6
+
+## Verification Report: feat-447
+
+### Summary
+
+Mode: focused
+Delta range: `03b111fe..b60702b7` (M9 merge; implementation commit `41cd66ff`)
+Focus issues: stale `config.node.user_id` caused external `find-or-create` 400 in live Gateway shadow sync
+requires_full_verification: false
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 7/7 M9 tasks complete |
+| Correctness | 3/3 focused checks covered |
+| Coherence | Followed |
+
+All checks passed. Ready for PR.
+
+## Completeness
+
+- Tasks: `docs/changes/feat-447-feishu-channel/M9-fix-gateway-live-run/tasks.md:11` through `:17` are all checked.
+- M9 progress documents the live root cause: Gateway used stale `config.node.user_id` for shadow participant/sender, while IM derives identity from the Bearer-token user and rejected the stale participant (`docs/changes/feat-447-feishu-channel/M9-fix-gateway-live-run/progress.md:10` through `:19`).
+- The M9 implementation commit changes only `src/personal_assistant/main.py`, `tests/unit/personal_assistant/test_gateway_im_relay.py`, and M9 docs; no unrelated product surface was changed.
+
+## Correctness
+
+| Requirement / Scenario | 实现位置 | 测试覆盖 | 状态 |
+|---|---|---|---|
+| Shadow sync uses current authenticated IM user, not stale config user | `src/personal_assistant/main.py:829` gets the live token, `:838` resolves `/im/v1/me`, `:849` through `:851` use `user:<resolved_id>` as participant, and `:865` through `:869` use the same id as `sender_user_id` | `tests/unit/personal_assistant/test_gateway_im_relay.py:160` through `:222` mocks stale `owner_user_id` and asserts only `actual-user` is sent to both IM APIs | covered |
+| IM remains the identity authority; Gateway does not send trusted owner id | IM `GET /im/v1/me` returns `id/user_id` from the token subject (`src/IM/api/routes/account.py:112` through `:121`); external find-or-create derives `owner_id=user.owner_id` and `creator_id=user:<current>` (`src/IM/api/routes/web_im.py:289` through `:310`) | Existing auth/API tests cover `/me`; M9 unit test verifies Gateway consumes `/me` before find-or-create | covered |
+| Shadow sync failures remain best-effort and do not block external channel handling | `src/personal_assistant/gateway/inbound_pipeline.py:436` through `:459` catches any sync exception, logs it, and removes stale `shadow_conversation_id` | Narrow focused run passed: `PYTHONDONTWRITEBYTECODE=1 pytest -q -p no:cacheprovider tests/unit/personal_assistant/test_gateway_im_relay.py::test_external_shadow_sync_uses_authenticated_im_user_not_stale_config_user tests/unit/personal_assistant/test_gateway_im_relay.py tests/unit/personal_assistant/test_inbound_pipeline_session.py tests/unit/personal_assistant/test_gateway_relay_lifecycle.py` -> 47 passed, 7 third-party deprecation warnings | covered |
+
+## Coherence
+
+| design 决策 | 遵守? | 代码证据 |
+|---|---|---|
+| 决策 9: external find-or-create request body does not carry trusted `owner_id`; IM derives ownership from Bearer current user | 是 | Gateway calls `/im/v1/me` and sends only participant refs (`src/personal_assistant/main.py:838`, `:849` through `:851`); IM uses `user.owner_id` (`src/IM/api/routes/web_im.py:307` through `:310`) |
+| 决策 6: IM sync is non-blocking best-effort | 是 | Pipeline wraps `sync.sync_user_message` in broad exception handling and continues (`src/personal_assistant/gateway/inbound_pipeline.py:443` through `:459`) |
+| 架构边界: Gateway obtains current user through IM API; IM does not read Gateway local state | 是 | Only `personal_assistant` code changed for `/im/v1/me`; IM routes continue to use FastAPI `current_user` dependency (`src/IM/api/routes/account.py:112`, `src/IM/api/routes/web_im.py:292`) |
+| Backward compatibility for old constructors | 是 | `_IMShadowConversationSyncClient.__init__` still accepts `owner_user_id` (`src/personal_assistant/main.py:805` through `:817`); M9 progress explicitly states the argument remains for compatibility (`docs/changes/feat-447-feishu-channel/M9-fix-gateway-live-run/progress.md:16` through `:19`) |
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+无。
+
+### WARNING（应该修）
+
+无。
+
+### SUGGESTION（可以修）
+
+无。
