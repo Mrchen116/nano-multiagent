@@ -92,6 +92,8 @@
       transition: all 0.15s;
     }
     .select-mode .row-checkbox { display: flex; }
+    .select-mode .chat-sidebar-row.running { cursor: not-allowed; opacity: 0.58; }
+    .select-mode .chat-sidebar-row.running .row-checkbox { border-style: dashed; opacity: 0.7; }
     .row-checkbox svg { width: 12px; height: 12px; stroke: white; stroke-width: 3; fill: none; opacity: 0; transition: opacity 0.15s; }
     .chat-sidebar-row.selected .row-checkbox { background: var(--im-accent); border-color: var(--im-accent); }
     .chat-sidebar-row.selected .row-checkbox svg { opacity: 1; }
@@ -112,9 +114,11 @@
     }
     .row-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; }
     .row-time { font-size: 0.7rem; color: var(--im-sidebar-text-muted); }
-    .row-status { font-size: 0.6rem; padding: 1px 6px; border-radius: 999px; font-weight: 600; }
-    .row-status.ended { background: oklch(0.35 0.01 240); color: oklch(0.65 0.008 240); }
-    .row-status.active { background: oklch(0.35 0.06 150); color: var(--im-success); }
+    .row-run-state {
+      display: none; font-size: 0.6rem; padding: 1px 6px; border-radius: 999px;
+      font-weight: 600; background: oklch(0.35 0.06 150); color: var(--im-success);
+    }
+    .select-mode .row-run-state.running { display: inline-flex; }
 
     /* --- Context menu --- */
     .context-menu {
@@ -239,6 +243,35 @@
     }
     .hint-toast.visible { opacity: 1; }
 
+    .scope-modal-backdrop {
+      position: fixed; inset: 0; z-index: 260;
+      background: oklch(0.1 0.01 240 / 0.42);
+      display: none; align-items: center; justify-content: center;
+    }
+    .scope-modal-backdrop.visible { display: flex; }
+    .scope-modal {
+      width: min(420px, calc(100vw - 32px));
+      background: var(--im-surface); border: 1px solid var(--im-border-strong);
+      border-radius: 12px; box-shadow: 0 18px 60px oklch(0.1 0.01 240 / 0.32);
+      padding: 18px; display: flex; flex-direction: column; gap: 14px;
+    }
+    .scope-modal-title { font-weight: 800; font-size: 1rem; }
+    .scope-options { display: grid; grid-template-columns: 1fr; gap: 8px; }
+    .scope-option {
+      border: 1px solid var(--im-border); border-radius: 8px; background: var(--im-surface);
+      padding: 12px; text-align: left; cursor: pointer; font-family: inherit;
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    .scope-option.selected { border-color: var(--im-accent); outline: 2px solid oklch(0.75 0.1 180 / 0.35); }
+    .scope-option strong { font-size: 0.86rem; }
+    .scope-option span { font-size: 0.76rem; color: var(--im-text-muted); }
+    .scope-modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
+    .scope-modal-actions button {
+      border-radius: 8px; padding: 7px 12px; font-family: inherit; cursor: pointer;
+    }
+    .scope-modal-cancel { border: 1px solid var(--im-border-strong); color: var(--im-text-muted); background: transparent; }
+    .scope-modal-confirm { border: none; color: var(--im-accent-fg); background: var(--im-accent); font-weight: 700; }
+
     .session-tag {
       display: inline-flex; align-items: center; gap: 4px;
       font-family: var(--im-font-mono); font-size: 0.7rem;
@@ -259,7 +292,7 @@
   <div class="step-dot" onclick="showStep(3)"></div>
   <span class="step-label" id="step-label">Step 1: 右键会话</span>
 </div>
-<div class="hint-toast" id="hint">右键点击一个已结束的会话试试</div>
+<div class="hint-toast" id="hint">右键点击一个会话试试</div>
 
 <!-- Step 1: Normal sidebar → right-click → select mode -->
 <div class="chat-workspace panel active" id="step1">
@@ -276,7 +309,7 @@
       <span class="count" id="selection-count">已选 0 个会话</span>
       <div style="display:flex;gap:8px;">
         <button class="btn-clear" onclick="exitSelectMode()">取消</button>
-        <button class="btn-distill" id="btn-distill" onclick="goToStep2()" disabled>
+        <button class="btn-distill" id="btn-distill" onclick="openScopeModal()" disabled>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
           生成 skill
         </button>
@@ -307,6 +340,29 @@
   <button class="context-menu-item" onclick="hideContextMenu()" style="color:var(--im-danger);">
     <span class="icon">🗑</span> 删除会话
   </button>
+</div>
+
+<div class="scope-modal-backdrop" id="scope-modal">
+  <div class="scope-modal" onclick="event.stopPropagation()">
+    <div>
+      <div class="scope-modal-title">选择写入范围</div>
+      <div style="font-size:0.78rem;color:var(--im-text-muted);margin-top:4px;">生成后的 skill 要放在哪里？</div>
+    </div>
+    <div class="scope-options">
+      <button class="scope-option selected" id="scope-agent" onclick="selectScope('agent')">
+        <strong>当前 agent 级</strong>
+        <span>只给当前 agent 使用，默认选择。</span>
+      </button>
+      <button class="scope-option" id="scope-pa" onclick="selectScope('pa')">
+        <strong>PA 产品级</strong>
+        <span>给支持该产品级 skill root 的多个 agent 复用。</span>
+      </button>
+    </div>
+    <div class="scope-modal-actions">
+      <button class="scope-modal-cancel" onclick="closeScopeModal()">取消</button>
+      <button class="scope-modal-confirm" onclick="goToStep2()">继续</button>
+    </div>
+  </div>
 </div>
 
 <!-- Step 2: New conversation — composer pre-filled, NOT sent -->
@@ -360,15 +416,17 @@
         <div class="bubble-avatar" style="background:var(--im-accent);">U</div>
         <div class="bubble-card">
           <div style="font-family:var(--im-font-mono);font-size:0.78rem;line-height:1.6;">
-            /distill-from-sessions 我选了以下 session 做蒸馏：<br>
-            <span style="display:inline-flex;gap:4px;margin-top:4px;">
-              <span style="background:oklch(0.45 0.12 180);padding:1px 6px;border-radius:3px;font-size:0.7rem;">abc-123</span>
-              <span style="background:oklch(0.45 0.12 180);padding:1px 6px;border-radius:3px;font-size:0.7rem;">def-456</span>
-              <span style="background:oklch(0.45 0.12 180);padding:1px 6px;border-radius:3px;font-size:0.7rem;">ghi-789</span>
+            /skill:conversation-skill-distiller<br>
+            source_jsonl_paths：<br>
+            <span style="display:block;margin-top:4px;color:oklch(0.92 0.02 180);">
+              /Users/czj/.nano-assistant/sessions/abc-123.jsonl<br>
+              /Users/czj/.nano-assistant/sessions/def-456.jsonl<br>
+              /Users/czj/.nano-assistant/sessions/ghi-789.jsonl
             </span>
+            target_scope: agent
           </div>
           <div style="margin-top:8px;font-size:0.82rem;">
-            我想把这个项目的 spec → design → implement 流程沉淀成一个 skill，覆盖从需求对齐到代码提交的完整路径。
+            请基于上述会话 transcript，总结我反复使用且值得复用的工作方式，直接生成并写入一个 agent 级 skill。重点关注触发场景、步骤/检查点、失败或边界情况。如果这些会话不足以形成稳定模式，请说明原因，不要创建 skill。
           </div>
         </div>
       </div>
@@ -381,15 +439,36 @@
             • 100% 的会话都走了 spec → design → implement 三阶段<br>
             • 67% 的会话在 design 阶段需要多轮澄清<br>
             • 所有会话都使用了 <code style="font-family:var(--im-font-mono);font-size:0.75rem;background:oklch(0.92 0.006 240);padding:1px 5px;border-radius:3px;">change-spec-author</code> → <code style="font-family:var(--im-font-mono);font-size:0.75rem;background:oklch(0.92 0.006 240);padding:1px 5px;border-radius:3px;">change-design-author</code> → <code style="font-family:var(--im-font-mono);font-size:0.75rem;background:oklch(0.92 0.006 240);padding:1px 5px;border-radius:3px;">change-orchestrator</code> 的 skill 链路<br><br>
-            正在生成 SKILL.md...<br>
+            正在生成并写入 SKILL.md...<br>
             <span style="font-size:0.72rem;color:var(--im-text-muted);">目标：写入 agent 级 skill root</span>
+          </div>
+        </div>
+      </div>
+      <div class="chat-bubble agent">
+        <div class="bubble-avatar" style="background:oklch(0.52 0.14 260);">A</div>
+        <div class="bubble-card" style="min-width:360px;">
+          <div style="font-family:var(--im-font-mono);font-size:0.72rem;color:var(--im-text-muted);margin-bottom:8px;">skill_manage · create</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;">
+            <div>
+              <div style="font-weight:700;">已创建 skill：change-workflow</div>
+              <div style="font-size:0.76rem;color:var(--im-text-muted);margin-top:4px;">目标：agent 级 skill root</div>
+            </div>
+            <span style="background:oklch(0.92 0.08 170);color:oklch(0.36 0.10 170);border-radius:999px;padding:4px 10px;font-size:0.72rem;font-weight:700;">success</span>
+          </div>
+        </div>
+      </div>
+      <div class="chat-bubble agent">
+        <div class="bubble-avatar" style="background:oklch(0.52 0.14 260);">A</div>
+        <div class="bubble-card">
+          <div style="font-size:0.82rem;line-height:1.65;">
+            已经把这组会话中的共性流程沉淀为 <strong>change-workflow</strong>。后续当前 agent 可以在匹配场景下通过 <code style="font-family:var(--im-font-mono);font-size:0.75rem;background:oklch(0.92 0.006 240);padding:1px 5px;border-radius:3px;">skill_view</code> 查看并使用它。
           </div>
         </div>
       </div>
     </div>
     <div class="chat-pane-composer">
-      <textarea class="composer-input" placeholder="等待 agent 生成..." rows="2" disabled style="opacity:0.5;"></textarea>
-      <button class="composer-send" disabled style="opacity:0.3;">
+      <textarea class="composer-input" placeholder="继续输入..." rows="2"></textarea>
+      <button class="composer-send">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
       </button>
     </div>
@@ -398,23 +477,24 @@
 
 <script>
 const sessions = [
-  { id: 'abc-123', title: 'feat-445 message-fork-branch', preview: 'spec → design → M1 实施完成', time: '2 小时前', status: 'ended', color: 'oklch(0.52 0.14 180)' },
-  { id: 'def-456', title: 'feat-444 session-wakeup', preview: 'M2 已完成，M3 进行中', time: '1 天前', status: 'ended', color: 'oklch(0.52 0.14 260)' },
-  { id: 'ghi-789', title: 'feat-440 tool-rejection-feedback', preview: '全 milestone 完成，已合并', time: '3 天前', status: 'ended', color: 'oklch(0.52 0.14 30)' },
-  { id: 'jkl-012', title: 'bugfix-437 compaction crash', preview: '定位到 workspace_root 为 None', time: '5 天前', status: 'ended', color: 'oklch(0.52 0.14 300)' },
-  { id: 'mno-345', title: 'feat-439 im-cache-hit-and-thinking', preview: 'thinking 展示优化', time: '1 周前', status: 'ended', color: 'oklch(0.52 0.14 120)' },
-  { id: 'pqr-678', title: '当前会话', preview: '正在进行中...', time: '现在', status: 'active', color: 'oklch(0.52 0.14 180)' },
+  { id: 'abc-123', jsonl: '/Users/czj/.nano-assistant/sessions/abc-123.jsonl', title: 'feat-445 message-fork-branch', preview: 'spec → design → M1 实施完成', time: '2 小时前', run_state: 'idle', color: 'oklch(0.52 0.14 180)' },
+  { id: 'def-456', jsonl: '/Users/czj/.nano-assistant/sessions/def-456.jsonl', title: 'feat-444 session-wakeup', preview: 'M2 已完成，M3 进行中', time: '1 天前', run_state: 'idle', color: 'oklch(0.52 0.14 260)' },
+  { id: 'ghi-789', jsonl: '/Users/czj/.nano-assistant/sessions/ghi-789.jsonl', title: 'feat-440 tool-rejection-feedback', preview: '全 milestone 完成，已合并', time: '3 天前', run_state: 'idle', color: 'oklch(0.52 0.14 30)' },
+  { id: 'jkl-012', jsonl: '/Users/czj/.nano-assistant/sessions/jkl-012.jsonl', title: 'bugfix-437 compaction crash', preview: '定位到 workspace_root 为 None', time: '5 天前', run_state: 'idle', color: 'oklch(0.52 0.14 300)' },
+  { id: 'mno-345', jsonl: '/Users/czj/.nano-assistant/sessions/mno-345.jsonl', title: 'feat-439 im-cache-hit-and-thinking', preview: 'thinking 展示优化', time: '1 周前', run_state: 'idle', color: 'oklch(0.52 0.14 120)' },
+  { id: 'pqr-678', jsonl: '/Users/czj/.nano-assistant/sessions/pqr-678.jsonl', title: '当前会话', preview: '正在处理上一条消息...', time: '现在', run_state: 'running', color: 'oklch(0.52 0.14 180)' },
 ];
 
 const selected = new Set();
 let selectMode = false;
 let contextTarget = null;
+let targetScope = 'agent';
 
 function renderSessions() {
   const list = document.getElementById('session-list');
   list.innerHTML = sessions.map(s => `
     <li>
-      <button class="chat-sidebar-row ${selected.has(s.id) ? 'selected' : ''}"
+      <button class="chat-sidebar-row ${selected.has(s.id) ? 'selected' : ''} ${s.run_state === 'running' ? 'running' : ''}"
               onclick="${selectMode ? `toggleSelect('${s.id}')` : `selectSession('${s.id}')`}"
               oncontextmenu="showContextMenu(event, '${s.id}')">
         <div class="row-checkbox">
@@ -427,7 +507,7 @@ function renderSessions() {
         </div>
         <div class="row-meta">
           <span class="row-time">${s.time}</span>
-          <span class="row-status ${s.status}">${s.status === 'active' ? '进行中' : '已结束'}</span>
+          <span class="row-run-state ${s.run_state}">运行中</span>
         </div>
       </button>
     </li>
@@ -462,7 +542,7 @@ function selectSession(id) {}
 
 function toggleSelect(id) {
   const s = sessions.find(s => s.id === id);
-  if (s && s.status === 'active') return;
+  if (s && s.run_state === 'running') return;
   if (selected.has(id)) selected.delete(id);
   else selected.add(id);
   renderSessions();
@@ -477,13 +557,24 @@ function showContextMenu(e, id) {
   menu.style.left = e.clientX + 'px';
   menu.style.top = e.clientY + 'px';
   menu.classList.add('visible');
-  const distillBtn = menu.querySelector('.context-menu-item');
-  distillBtn.style.opacity = s.status === 'active' ? '0.3' : '1';
-  distillBtn.style.pointerEvents = s.status === 'active' ? 'none' : 'auto';
 }
 
 function hideContextMenu() {
   document.getElementById('context-menu').classList.remove('visible');
+}
+
+function openScopeModal() {
+  document.getElementById('scope-modal').classList.add('visible');
+}
+
+function closeScopeModal() {
+  document.getElementById('scope-modal').classList.remove('visible');
+}
+
+function selectScope(scope) {
+  targetScope = scope;
+  document.getElementById('scope-agent').classList.toggle('selected', scope === 'agent');
+  document.getElementById('scope-pa').classList.toggle('selected', scope === 'pa');
 }
 
 function enterSelectMode() {
@@ -491,7 +582,7 @@ function enterSelectMode() {
   selectMode = true;
   if (contextTarget) {
     const s = sessions.find(s => s.id === contextTarget);
-    if (s && s.status === 'ended') selected.add(contextTarget);
+    if (s && s.run_state !== 'running') selected.add(contextTarget);
   }
   renderSessions();
 }
@@ -506,20 +597,26 @@ function showStep(n) {
   document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
   document.getElementById('step' + n).classList.add('active');
   document.querySelectorAll('.step-dot').forEach((d, i) => d.classList.toggle('active', i === n - 1));
-  const labels = ['Step 1: 右键会话', 'Step 2: 编辑预填内容后发送', 'Step 3: agent 生成中'];
+  const labels = ['Step 1: 右键会话', 'Step 2: 编辑预填内容后发送', 'Step 3: agent 写入结果'];
   document.getElementById('step-label').textContent = labels[n - 1];
 }
 
 function goToStep1() { showStep(1); }
 
 function goToStep2() {
-  // Pre-fill the composer with the distill command — user edits, then sends manually
+  closeScopeModal();
+  // Pre-fill the composer with /skill invocation — user edits, then sends manually
   const composer = document.getElementById('composer-prefilled');
-  const ids = [...selected].map(id => `  ${id}`).join('\n');
-  composer.value = `/distill-from-sessions 我选了以下 session 做蒸馏：\n${ids}\n\n我想把这个项目的 spec → design → implement 流程沉淀成一个 skill，覆盖从需求对齐到代码提交的完整路径。`;
+  const paths = [...selected]
+    .map(id => sessions.find(s => s.id === id))
+    .filter(Boolean)
+    .map(s => `  ${s.jsonl}`)
+    .join('\n');
+  const scopeLabel = targetScope === 'pa' ? 'PA 产品级' : 'agent 级';
+  composer.value = `/skill:conversation-skill-distiller\nsource_jsonl_paths:\n${paths}\ntarget_scope: ${targetScope}\n\n请基于上述会话 transcript，总结我反复使用且值得复用的工作方式，直接生成并写入一个 ${scopeLabel} skill。重点关注：\n- 触发这个 skill 的场景\n- 应遵循的步骤/检查点\n- 失败或边界情况\n如果这些会话不足以形成稳定模式，请说明原因，不要创建 skill。`;
   composer.focus();
-  // Move cursor to the intent line (after the session IDs)
-  const intentStart = composer.value.indexOf('我想把');
+  // Move cursor to the intent line (after the source JSONL paths)
+  const intentStart = composer.value.indexOf('请基于');
   if (intentStart > 0) {
     composer.setSelectionRange(intentStart, composer.value.length);
   }
