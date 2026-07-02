@@ -83,7 +83,7 @@ class FeishuMessageEvent:
     """Parsed feishu message event ready for adapter consumption.
 
     Args:
-        text: Plain-text content with @mention placeholders stripped.
+        text: User-visible text with @mention placeholders normalized.
         sender_open_id: Feishu open_id of the message sender.
         chat_id: Feishu chat identifier (``oc_xxx``).
         chat_type: ``p2p`` or ``group``.
@@ -91,6 +91,8 @@ class FeishuMessageEvent:
         is_group: Convenience flag derived from chat_type.
         mentions: List of @mention entities found in the message.
         sender_display_name: Optional display name reported by Feishu for the sender.
+        raw_text: Raw extracted text before mention placeholder normalization.
+        mention_only: Whether the message contains mentions but no non-mention text.
     """
 
     text: str
@@ -101,6 +103,8 @@ class FeishuMessageEvent:
     is_group: bool
     mentions: list[FeishuMention]
     sender_display_name: str | None = None
+    raw_text: str = ""
+    mention_only: bool = False
 
 
 class FeishuClient:
@@ -447,18 +451,11 @@ def _parse_feishu_event(event: Any) -> FeishuMessageEvent:
     message_id: str = message.message_id or ""
     raw_content: str = message.content or ""
 
-    # Parse text from feishu JSON content {"text": "..."}
-    text = _extract_text(raw_content)
-
-    # Parse mentions — strip placeholder keys from the visible text
+    # Parse text from feishu JSON content {"text": "..."}.
+    raw_text = _extract_text(raw_content)
     mentions = _extract_mentions(message)
-    for m in mentions:
-        text = text.replace(m.key, "").strip()
-
-    # Collapse multiple spaces left by removed placeholders
-    while "  " in text:
-        text = text.replace("  ", " ")
-    text = text.strip()
+    text = _normalize_mention_text(raw_text, mentions)
+    mention_only = bool(mentions) and _text_without_mentions(raw_text, mentions) == ""
 
     return FeishuMessageEvent(
         text=text,
@@ -469,6 +466,8 @@ def _parse_feishu_event(event: Any) -> FeishuMessageEvent:
         is_group=chat_type != "p2p",
         mentions=mentions,
         sender_display_name=sender_display_name,
+        raw_text=raw_text,
+        mention_only=mention_only,
     )
 
 
@@ -504,6 +503,43 @@ def _extract_text(raw_content: str) -> str:
     except (json.JSONDecodeError, TypeError):
         pass
     return raw_content
+
+
+def _normalize_mention_text(text: str, mentions: list[FeishuMention]) -> str:
+    """Replace Feishu mention placeholders with user-visible @ labels."""
+
+    normalized = text
+    for mention in mentions:
+        if not mention.key:
+            continue
+        normalized = normalized.replace(mention.key, _visible_mention_text(mention))
+    return _collapse_spaces(normalized)
+
+
+def _text_without_mentions(text: str, mentions: list[FeishuMention]) -> str:
+    remaining = text
+    for mention in mentions:
+        if mention.key:
+            remaining = remaining.replace(mention.key, " ")
+    return _collapse_spaces(remaining)
+
+
+def _visible_mention_text(mention: FeishuMention) -> str:
+    if mention.open_id == "all":
+        label = mention.name.strip() if mention.name.strip() else "all"
+    else:
+        label = mention.name.strip() or mention.open_id.strip()
+    if not label:
+        return "@"
+    if label.startswith("@"):
+        return label
+    return f"@{label}"
+
+
+def _collapse_spaces(text: str) -> str:
+    while "  " in text:
+        text = text.replace("  ", " ")
+    return text.strip()
 
 
 def _extract_mentions(message: Any) -> list[FeishuMention]:

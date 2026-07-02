@@ -245,6 +245,8 @@ class FeishuAdapter:
                     {"open_id": m.open_id, "name": m.name, "key": m.key}
                     for m in event.mentions
                 ],
+                "raw_text": event.raw_text,
+                "mention_only": event.mention_only,
                 **self._external_metadata(event, is_group=False),
             },
         )
@@ -262,6 +264,8 @@ class FeishuAdapter:
                 {"open_id": m.open_id, "name": m.name, "key": m.key}
                 for m in event.mentions
             ],
+            "raw_text": event.raw_text,
+            "mention_only": event.mention_only,
             **self._external_metadata(event, is_group=True, chat_name=chat_name),
         }
         if sync_only:
