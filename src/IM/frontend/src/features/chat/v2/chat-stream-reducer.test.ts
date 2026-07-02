@@ -284,6 +284,48 @@ describe("chat-stream-reducer", () => {
     expect(next.messages[0]!.sender.display_name).toBe("Alpha");
   });
 
+  it("uses sender display name and attachments from external message.created payload", () => {
+    const state: ConversationState = { ...emptyConversationState, conversation_id: "c1", messages: [] };
+    const ev: WsEvent & {
+      sender: { type: "user"; id: string; display_name: string };
+      sender_display_name: string;
+      attachments: [{ url: string; content_type: string; file_name: string }];
+    } = {
+      type: "message.created",
+      conversation_id: "c1",
+      message_id: "m-external-1",
+      sender_user_id: "owner-user-id",
+      sender_type: "user",
+      sender: { type: "user", id: "owner-user-id", display_name: "Alice" },
+      sender_display_name: "Alice",
+      content: "from feishu",
+      attachments: [
+        {
+          url: "https://example.test/a.png",
+          content_type: "image/png",
+          file_name: "a.png"
+        }
+      ],
+      tool_calls: [],
+      token_usage: null,
+      delivery_status: "completed",
+      created_at: "2026-01-01T00:00:01Z"
+    };
+
+    let next = applyWsEvent(state, ev);
+    next = applyWsEvent(next, ev);
+
+    expect(next.messages).toHaveLength(1);
+    expect(next.messages[0]!.sender.display_name).toBe("Alice");
+    expect(next.messages[0]!.attachments).toEqual([
+      {
+        url: "https://example.test/a.png",
+        content_type: "image/png",
+        file_name: "a.png"
+      }
+    ]);
+  });
+
   it("R8-1: ignores message.created whose id contains :relay: (defensive against synthetic mirror)", () => {
     const state: ConversationState = { ...emptyConversationState, conversation_id: "c1", messages: [] };
     const ev: WsEvent = {
