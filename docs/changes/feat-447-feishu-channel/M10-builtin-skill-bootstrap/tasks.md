@@ -36,7 +36,7 @@
 
 ### R2 — Feishu-bound allowlist 写回
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: Gateway 启动早期识别 enabled `feishu:<agent_id>` channel；显式 allowlist 自动补 `feishu-doc`；写回本地 config；不影响未绑定 agent。
 - 验证: 单测覆盖补入、持久化、非 Feishu-bound 不补。
 
