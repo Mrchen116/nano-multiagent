@@ -49,6 +49,9 @@ package-dir = {"" = "src"}
 where = ["src"]
 include = ["agent*", "coding_cli*", "personal_assistant*"]
 
+[tool.setuptools.package-data]
+personal_assistant = ["builtin_skills/**"]
+
 [tool.ruff]
 # feat-388: target-version 与 requires-python = ">=3.11" 对齐
 target-version = "py311"
