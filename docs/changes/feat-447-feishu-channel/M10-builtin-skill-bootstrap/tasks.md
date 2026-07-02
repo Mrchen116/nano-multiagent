@@ -42,6 +42,6 @@
 
 ### R3 — skill 同源可见与 live-critical 验证
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 覆盖 capabilities、prompt preview、list_skills、runtime session skill 注入同源可见 `feishu-doc`；跑 Gateway 真启动路径与真实飞书 1:1 smoke。
 - 验证: 相关单测、`pytest -m "not e2e"`、真实 Gateway + `lark-cli --as user` 证据。
