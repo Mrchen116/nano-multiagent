@@ -13,8 +13,8 @@
 - [ ] 从 IM shadow 入口触发的回复仍不得回写飞书。
 - [x] 根因回归测试覆盖：外部 sync 用户消息写入后产生可被前端 reducer 插入的 canonical `message.created` payload（含 content/attachments/sender display name），`message.sent/delivered` 保持 delivery/progress 语义。
 - [x] 前端 reducer 对 `message.created` 去重并正确渲染 sender display name。
-- [ ] Gateway external reply mirror 以 assistant 气泡完成为边界发送，跳过 thinking/tool-only/NO_REPLY，按 dedupe key 防 terminal 重复。
-- [ ] Feishu THINKING reaction 只在 final/terminal 删除，中间 visible reply 不提前删除。
+- [x] Gateway external reply mirror 以 assistant 气泡完成为边界发送，跳过 thinking/tool-only/NO_REPLY，按 dedupe key 防 terminal 重复。
+- [x] Feishu THINKING reaction 只在 final/terminal 删除，中间 visible reply 不提前删除。
 - [ ] 全量非 e2e 测试无回归，至少跑相关窄测 + `pytest -m "not e2e"` 或说明环境 blocker。
 - [ ] live-critical 证据：真 Gateway + 真 IM + 真 Feishu/Lark 平台入站。使用 `lark-cli im +messages-send --as user` 发给本 worktree Gateway config 中 `channels[].name == "feishu:<agent_id>"` 的 `settings.appId` 对应 Bot。
 
@@ -86,7 +86,7 @@ UI 状态矩阵：
 - 验证:
   - `cd src/IM/frontend && npm run test -- chat-stream-reducer.test.ts`
 
-### R3 — Gateway external reply mirror 与 reaction lifecycle
+### R3 — Gateway external reply mirror 与 reaction lifecycle — DONE
 
 - 步骤:
   - 在 Gateway kernel event observer wiring 中增加 external reply mirror。
@@ -94,7 +94,7 @@ UI 状态矩阵：
   - `OutboundRouter`/`OutboundMessage.metadata` 携带 `reply_phase` 与 `reply_dedupe_key`，terminal final send 去重。
   - Feishu THINKING reaction 只在 `reply_phase=final` 或 terminal 阶段删除。
 - 验证:
-  - `pytest -q tests/unit/personal_assistant/test_gateway_relay_lifecycle.py tests/unit/test_feishu_adapter_send.py tests/unit/test_feishu_adapter.py`
+  - `pytest -q tests/unit/personal_assistant/test_gateway_relay_lifecycle.py tests/unit/personal_assistant/test_gateway_web_relay_adapter.py tests/unit/test_feishu_adapter_send.py tests/unit/personal_assistant/test_inbound_pipeline_session.py tests/unit/personal_assistant/test_inbound_pipeline_sse.py tests/unit/personal_assistant/test_relay_kernel_message_id.py tests/unit/personal_assistant/test_steer_reply_relay_regression.py tests/unit/test_inbound_pipeline_streaming.py`
 
 ### R4 — live-critical 与全量门禁
 
