@@ -27,18 +27,18 @@
 
 ## R2 — External group buffer key 与纯 @ drain
 
-- Context: TODO
-- Decision: TODO
-- Rationale: TODO
+- Context: M7 已实现 external `GroupContextStore` key，但 M12 需要明确覆盖未 @ Feishu 背景消息可被后续纯 @Bot drain，且 `@所有人` 只作为普通群上下文进入 buffer。
+- Decision: 在现有 pipeline group-context 测试中补 verify/regression：`sync_only` Feishu 背景消息写入 `feishu:<chat>:agent` key；后续纯 `@plato` 使用同一 key drain，并把当前 mention-only message 作为非空 current part；`@所有人` 消息不触发 run，只缓存为普通上下文。
+- Rationale: 行为 owner 是 `InboundPipeline` + `GroupContextStore`，不是 FeishuAdapter 私有 buffer；扩展现有 pipeline 测试比新建 milestone 测试文件更符合 TESTING_GUIDE。
 - Evidence:
-  - Tests: TODO
-  - Entry: TODO
+  - Tests: `pytest -q tests/unit/personal_assistant/test_gateway_pipeline_sender_prefix.py` -> 14 passed in 0.22s.
+  - Entry: Unit-level Gateway pipeline boundary; R3 记录真实 Feishu live-critical 入口。
   - Frontend State Matrix: N/A
   - Browser QA: N/A
-  - E2E/Regression: TODO
+  - E2E/Regression: `tests/unit/personal_assistant/test_gateway_pipeline_sender_prefix.py::test_feishu_background_is_drained_by_pure_bot_mention` and `::test_feishu_at_all_message_is_buffered_without_triggering_bot`.
   - Visual/Interaction: N/A
-- Rollback: TODO
-- Commits: C1=TODO, C2=TODO, C3=TODO
+- Rollback: Revert C1 `528accd1` to remove the verify/regression coverage. No R2 production-code commit was required because existing external-key implementation satisfied this roadpoint after R1 preserved non-empty mention text.
+- Commits: C1=528accd1, C2=N/A verify-only, C3=TODO
 - Next: R3
 
 ## R3 — 普通群消息投递能力 warning/health 诊断与收尾验收

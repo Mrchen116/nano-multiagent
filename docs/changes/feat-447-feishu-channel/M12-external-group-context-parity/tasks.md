@@ -54,7 +54,7 @@ UI 状态矩阵：N/A
 
 ### R2 — External group buffer key 与纯 @ drain
 
-- 状态: TODO
+- 状态: DONE
 - 步骤:
   - 扩展 pipeline group context tests，先证明未 @ Feishu `sync_only` 背景和后续纯 @Bot 共享 external key 且 current message 非空。
   - 修正 pipeline/adapter 必要处，确保 `mention_only` 不影响 shadow sync、session/run 触发和 `_build_message_parts`。
