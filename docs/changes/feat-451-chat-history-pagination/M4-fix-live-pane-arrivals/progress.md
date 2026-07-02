@@ -34,6 +34,7 @@
     - Targeted regression: `cd src/IM/frontend && npm run test -- src/features/chat/v2/chat-workspace.integration.test.tsx src/features/chat/v2/components/message-pane.test.tsx` passed: 2 files / 106 tests.
     - Full frontend: `cd src/IM/frontend && npm run test` passed: 63 files / 591 tests.
     - Typecheck: `cd src/IM/frontend && npx tsc -b` passed.
+    - Final after rebase on `origin/unit/feat-451`: `cd src/IM/frontend && npm run test` passed: 63 files / 591 tests; `cd src/IM/frontend && npx tsc -b` passed.
   - Entry:
     - `src/IM/frontend/src/features/chat/v2/chat-workspace-page.tsx`
     - `src/IM/frontend/src/features/chat/v2/chat-workspace.integration.test.tsx`
@@ -59,4 +60,5 @@
   - `5e40d55b docs(feat-451/M4): plan live pane arrival fix`
   - `c5549ad0 test(feat-451/M4/R1): cover live pane arrival regressions`
   - `5307e6ac fix(feat-451/M4/R1): keep active pane live arrivals`
-- Next: Re-run final validation after rebasing on `origin/unit/feat-451`, then merge `milestone/feat-451-M4` into `unit/feat-451`.
+  - `1be33c97 docs(feat-451/M4/R1): record live pane evidence`
+- Next: Merge `milestone/feat-451-M4` into `unit/feat-451`.
