@@ -367,6 +367,58 @@ describe("ChatWorkspacePage v2 — integration", () => {
     await waitFor(() => expect(screen.getByText("shared stream live reply")).toBeInTheDocument());
   });
 
+  it("refreshes the active pane when a same-conversation message.sent event updates the sidebar preview", async () => {
+    let c1Messages = FIXTURES.messagesC1;
+    fetchSpy = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (/\/im\/v1\/conversations\/c1\/messages/.test(url) && (!init || init.method === undefined || init.method === "GET")) {
+        return jsonResponse({ items: c1Messages, next_before_message_id: null });
+      }
+      return mockFetch()(input, init);
+    }) as ReturnType<typeof mockFetch>;
+    vi.stubGlobal("fetch", fetchSpy);
+
+    renderAtRoute("/chat/c1");
+    await screen.findByText("Hi Planner");
+    await waitFor(() => expect(capturedStatusHandler).toBeTruthy());
+
+    c1Messages = [
+      ...FIXTURES.messagesC1,
+      {
+        id: "m-rest-live",
+        conversation_id: "c1",
+        sender: { type: "user", id: "u-other", display_name: "Other User" },
+        sender_user_id: "u-other",
+        sender_type: "user",
+        content: "REST live update that refreshed the sidebar",
+        attachments: [],
+        delivery_status: "completed",
+        created_at: "2026-05-01T00:02:00Z"
+      }
+    ];
+
+    act(() => {
+      capturedStatusHandler!({
+        eventType: "message.sent",
+        payload: {
+          conversation_id: "c1",
+          message_id: "m-rest-live",
+          sender_user_id: "u-other",
+          sender_type: "user",
+          sender: { type: "user", id: "u-other" },
+          attachments: [],
+          delivery_status: "sent",
+          created_at: "2026-05-01T00:02:00Z"
+        },
+        eventId: 45
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("REST live update that refreshed the sidebar")).toBeInTheDocument();
+    });
+  });
+
   // Fix B: v2 订阅必须注册 onResyncRequired，否则断线重连后 IM 发 resync 命令时
   // v2 侧边栏不强制刷新，可能停在断线期间错过消息的旧状态。
   it("v2 subscription registers onResyncRequired for post-reconnect refresh", async () => {
@@ -957,6 +1009,54 @@ describe("ChatWorkspacePage v2 — integration", () => {
     act(() => resolveC1());
     await screen.findByText("Hi Planner");
     expect(screen.queryByText("c2 should not seed c1 pane")).not.toBeInTheDocument();
+  });
+
+  it("keeps an active conversation live message that arrives before the switched conversation history resolves", async () => {
+    let resolveC2!: () => void;
+    const c2Messages = new Promise<Response>((resolve) => {
+      resolveC2 = () => resolve(jsonResponse({ items: [], next_before_message_id: null }));
+    });
+    fetchSpy = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (/\/im\/v1\/conversations\/c2\/messages/.test(url) && (!init || init.method === undefined || init.method === "GET")) {
+        return c2Messages;
+      }
+      return mockFetch()(input, init);
+    }) as ReturnType<typeof mockFetch>;
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const user = userEvent.setup();
+    renderAtRoute("/chat/c1");
+    await screen.findByText("Hi Planner");
+    await waitFor(() => expect(capturedStatusHandler).toBeTruthy());
+
+    await user.click(screen.getByRole("button", { name: /Research Squad/ }));
+    expect(screen.getByRole("heading", { name: "Research Squad" })).toBeInTheDocument();
+    expect(screen.queryByText("Hi Planner")).not.toBeInTheDocument();
+
+    act(() => {
+      emitSharedChatEvent({
+        type: "message.created",
+        conversation_id: "c2",
+        message_id: "m-c2-live-before-history",
+        sender_user_id: "user-uuid-writer",
+        sender_type: "agent",
+        content: "c2 live before history",
+        tool_calls: [],
+        token_usage: null,
+        delivery_status: "completed",
+        created_at: "2026-05-01T00:04:00Z"
+      });
+    });
+
+    await screen.findByText("c2 live before history");
+    expect(screen.queryByText("Hi Planner")).not.toBeInTheDocument();
+
+    act(() => resolveC2());
+    await waitFor(() => {
+      expect(screen.getByText("c2 live before history")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Hi Planner")).not.toBeInTheDocument();
   });
 
   it("feat-438: group ⚙ opens Group settings (does not navigate to an agent config)", async () => {
