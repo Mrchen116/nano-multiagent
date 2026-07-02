@@ -36,6 +36,7 @@ EXPECTED_GATE_POSITION: dict[str, str] = {
     "write": "check",
     "web_fetch": "check",
     "skill_manage": "classifier",  # writes user skill files → classifier judges per call
+    "skill_view": "classifier",  # new builtin; explicit gate position required
 }
 
 

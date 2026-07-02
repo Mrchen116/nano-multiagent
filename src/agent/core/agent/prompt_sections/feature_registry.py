@@ -5,6 +5,9 @@ Each entry maps a feature key to:
   default_on:    product-level default (user can override per-agent in config.yaml).
   requires_tool: segment also requires this tool in the session's active toolset;
                  None means no tool dependency.
+  requires_any_tool: optional OR gate for prompt rendering when more than one tool
+                 can satisfy the feature. ``requires_tool`` remains the legacy
+                 projection field for capability payloads.
   layer:         "core" (segment lives in core_sections) or "product".
   label_i18n:    i18n key for the feature toggle label shown in the IM frontend.
   help_i18n:     i18n key for the one-line help text shown below the label.
@@ -29,6 +32,7 @@ class FeatureEntry(TypedDict):
     sections: tuple[str, ...]
     default_on: bool
     requires_tool: str | None
+    requires_any_tool: tuple[str, ...] | None
     layer: str
     label_i18n: str
     help_i18n: str
@@ -54,6 +58,7 @@ FEATURE_REGISTRY: dict[str, FeatureEntry] = {
         sections=("core.memory_guidance",),
         default_on=True,
         requires_tool="memory",
+        requires_any_tool=None,
         layer="core",
         label_i18n="feature.memory_curation.label",
         help_i18n="feature.memory_curation.help",
@@ -64,6 +69,7 @@ FEATURE_REGISTRY: dict[str, FeatureEntry] = {
         sections=("core.skills_guidance",),
         default_on=True,
         requires_tool="skill_manage",
+        requires_any_tool=("skill_manage", "skill_view"),
         layer="core",
         label_i18n="feature.skill_creation.label",
         help_i18n="feature.skill_creation.help",
@@ -80,6 +86,7 @@ FEATURE_REGISTRY: dict[str, FeatureEntry] = {
         sections=(),
         default_on=True,
         requires_tool="read",
+        requires_any_tool=None,
         layer="core",
         label_i18n="feature.nested_memory.label",
         help_i18n="feature.nested_memory.help",
@@ -103,6 +110,7 @@ FEATURE_REGISTRY: dict[str, FeatureEntry] = {
         sections=("pa.cron",),
         default_on=False,
         requires_tool="cron",
+        requires_any_tool=None,
         layer="product",
         label_i18n="feature.cron_scheduling.label",
         help_i18n="feature.cron_scheduling.help",
@@ -113,6 +121,7 @@ FEATURE_REGISTRY: dict[str, FeatureEntry] = {
         sections=("pa.heartbeat",),
         default_on=False,
         requires_tool=None,
+        requires_any_tool=None,
         layer="product",
         label_i18n="feature.heartbeat.label",
         help_i18n="feature.heartbeat.help",

@@ -61,6 +61,7 @@ DEFAULT_ENABLED_TOOLS = [
     "agent",
     "task_stop",
     "skill_manage",
+    "skill_view",
     "memory",
 ]
 

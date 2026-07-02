@@ -46,6 +46,7 @@ PA_DEFAULT_TOOL_IDS: tuple[str, ...] = (
     "web_fetch",
     "web_search",
     "skill_manage",
+    "skill_view",
     "memory",
 )
 

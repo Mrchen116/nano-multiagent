@@ -20,6 +20,20 @@ from agent.core.skills.registry import SkillMetadata
 # ---------------------------------------------------------------------------
 
 SKILLS_GUIDANCE: str = (
+    "Use skill_view to inspect listed skills before following them. "
+    "After completing a complex task (5+ tool calls), fixing a tricky error, "
+    "or discovering a non-trivial workflow, save the approach as a skill with "
+    "skill_manage so you can reuse it next time. "
+    "When using a skill and finding it outdated, incomplete, or wrong, "
+    "patch it immediately with skill_manage(action='patch') — don't wait to be asked. "
+    "Skills that aren't maintained become liabilities."
+)
+
+_SKILL_VIEW_GUIDANCE: str = (
+    "Use skill_view to inspect listed skills before following them."
+)
+
+_SKILL_MANAGE_GUIDANCE: str = (
     "After completing a complex task (5+ tool calls), fixing a tricky error, "
     "or discovering a non-trivial workflow, save the approach as a skill with "
     "skill_manage so you can reuse it next time. "
@@ -273,8 +287,9 @@ def build_system_prompt(
     guidance_parts: list[str] = []
     if "memory" in tool_names:
         guidance_parts.append(MEMORY_GUIDANCE)
-    if "skill_manage" in tool_names:
-        guidance_parts.append(SKILLS_GUIDANCE)
+    skill_guidance = _render_skill_guidance(tool_names)
+    if skill_guidance:
+        guidance_parts.append(skill_guidance)
     if guidance_parts:
         result = f"{result}\n\n{' '.join(guidance_parts)}"
 
@@ -285,6 +300,15 @@ def build_system_prompt(
     # Append background task handling instructions so the model knows how to
     # treat <task-notification> messages delivered from completed workers.
     return f"{result}\n\n{BACKGROUND_TASK_PROMPT_BLOCK}"
+
+
+def _render_skill_guidance(tool_names: frozenset[str]) -> str:
+    parts: list[str] = []
+    if "skill_view" in tool_names:
+        parts.append(_SKILL_VIEW_GUIDANCE)
+    if "skill_manage" in tool_names:
+        parts.append(_SKILL_MANAGE_GUIDANCE)
+    return " ".join(parts)
 
 
 def _fill_runtime_placeholders(

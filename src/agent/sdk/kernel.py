@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncIterator, Awaitable, Callable, Sequence
 
 from agent.core.agent.runtime import AgentRuntime
+from agent.core.skills.usage import SkillSessionRef, skill_refs_for_session
 from agent.core.hooks.registry import HookRegistry
 from agent.core.hooks.runner import HookRunner
 from agent.core.llm.factory import LLMFactoryConfig
@@ -61,6 +62,74 @@ if TYPE_CHECKING:
 CanUseToolFn = Callable[[str, Any, Any], Awaitable[PermissionDecision]]
 
 
+def _build_skill_reinjection_payload(
+    *,
+    session_id: str,
+    workspace_root: Path,
+    workspace_config_dirname: str,
+    skill_search_roots: Sequence[Path],
+) -> tuple[str, list[dict[str, str]]] | None:
+    roots = _skill_roots_for_workspace(
+        workspace_root=workspace_root,
+        workspace_config_dirname=workspace_config_dirname,
+        skill_search_roots=skill_search_roots,
+    )
+    refs = skill_refs_for_session(skill_roots=roots, session_id=session_id)
+    blocks: list[str] = []
+    metadata_refs: list[dict[str, str]] = []
+    for ref in refs:
+        content = _read_skill_ref(ref)
+        if content is None:
+            continue
+        metadata_refs.append(
+            {
+                "name": ref.name,
+                "location": str(ref.location),
+                "root_id": ref.root_id,
+            }
+        )
+        blocks.append(
+            f"Skill: {ref.name}\nLocation: {ref.location}\n\n{content}"
+        )
+    if not blocks:
+        return None
+    reminder = (
+        "<system-reminder>\n"
+        "The following skill content was reloaded from the current SKILL.md files "
+        "after compaction. Use it as refreshed context for skills already viewed "
+        "in this session.\n\n"
+        + "\n\n---\n\n".join(blocks)
+        + "\n</system-reminder>"
+    )
+    return reminder, metadata_refs
+
+
+def _skill_roots_for_workspace(
+    *,
+    workspace_root: Path,
+    workspace_config_dirname: str,
+    skill_search_roots: Sequence[Path],
+) -> tuple[Path, ...]:
+    roots = [workspace_root.expanduser().resolve() / workspace_config_dirname / "skills"]
+    roots.extend(skill_search_roots)
+    deduped: list[Path] = []
+    seen: set[str] = set()
+    for root in roots:
+        resolved = root.expanduser().resolve()
+        key = str(resolved)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(resolved)
+    return tuple(deduped)
+
+
+def _read_skill_ref(ref: SkillSessionRef) -> str | None:
+    if not ref.location.is_file():
+        return None
+    return ref.location.read_text(encoding="utf-8")
+
+
 @dataclass
 class _KernelComponents:
     """Hold all assembled platform components for a Kernel instance."""
@@ -84,6 +153,7 @@ def build_kernel(
     can_use_tool: CanUseToolFn | None = None,
     repo_root: Path | None = None,
     skill_search_roots: Sequence[Path] = (),
+    pa_skill_root: Path | None = None,
     tool_search_roots: Sequence[Path] = (),
     hook_search_roots: Sequence[Path] = (),
     # Internal escape hatch for tests: skip LLM client construction and use
@@ -141,6 +211,7 @@ def build_kernel(
         can_use_tool=can_use_tool,
         repo_root=repo_root,
         skill_search_roots=tuple(skill_search_roots),
+        pa_skill_root=pa_skill_root,
         tool_search_roots=tuple(tool_search_roots),
         hook_search_roots=tuple(hook_search_roots),
         _llm_client_override=_llm_client_override,
@@ -308,6 +379,7 @@ def _build_kernel_base(
     can_use_tool: CanUseToolFn | None,
     repo_root: Path | None,
     skill_search_roots: tuple[Path, ...] = (),
+    pa_skill_root: Path | None = None,
     tool_search_roots: tuple[Path, ...] = (),
     hook_search_roots: tuple[Path, ...] = (),
     _llm_client_override: LLMClient | None,
@@ -496,6 +568,9 @@ def _build_kernel_base(
         skill_search_roots=tuple(
             Path(r).expanduser().resolve() for r in skill_search_roots
         ),
+        pa_skill_root=pa_skill_root.expanduser().resolve()
+        if pa_skill_root is not None
+        else None,
     )
     for tool in tools:
         tool_registry.register(tool, replace=True)
@@ -567,6 +642,7 @@ def _register_self_evolution_builtins(
     repo_root: Path,
     workspace_config_dirname: str,
     skill_search_roots: tuple[Path, ...] = (),
+    pa_skill_root: Path | None = None,
 ) -> None:
     """Register the kernel built-in memory / skill_manage tools (决策 3).
 
@@ -585,12 +661,22 @@ def _register_self_evolution_builtins(
     from agent.platform.tools.builtins import (  # noqa: PLC0415
         MemoryTool,
         SkillManageTool,
+        SkillViewTool,
     )
 
     tool_registry.register(
         SkillManageTool(
             workspace_config_dirname=workspace_config_dirname,
             extra_roots=skill_search_roots,
+            pa_skill_root=pa_skill_root,
+        ),
+        replace=True,
+    )
+    tool_registry.register(
+        SkillViewTool(
+            workspace_config_dirname=workspace_config_dirname,
+            extra_roots=skill_search_roots,
+            pa_skill_root=pa_skill_root,
         ),
         replace=True,
     )
@@ -836,7 +922,16 @@ class Kernel:
             CompactResult or None when compaction is skipped.
         """
         effective_root = workspace_root or self._repo_root
-        return await self._c.runtime.compact(session_id, workspace_root=effective_root)
+        result = await self._c.runtime.compact(
+            session_id, workspace_root=effective_root
+        )
+        if result is not None:
+            self._append_skill_reinjection_reminder(
+                session_id=session_id,
+                workspace_root=effective_root,
+                compact_entry_id=str(getattr(result, "entry_id", "")),
+            )
+        return result
 
     def submit(
         self,
@@ -1315,6 +1410,35 @@ class Kernel:
         # awareness injection was written but never seen by the model).
         self._c.runtime.invalidate_session_cache(session_id)
         return result
+
+    def _append_skill_reinjection_reminder(
+        self,
+        *,
+        session_id: str,
+        workspace_root: Path,
+        compact_entry_id: str,
+    ) -> None:
+        payload = _build_skill_reinjection_payload(
+            session_id=session_id,
+            workspace_root=workspace_root,
+            workspace_config_dirname=self._workspace_config_dirname,
+            skill_search_roots=self._skill_search_roots,
+        )
+        if payload is None:
+            return
+        content, refs = payload
+        self.append_message(
+            session_id,
+            role="user",
+            content=content,
+            metadata={
+                "is_meta": True,
+                "is_skill_reinjection": True,
+                "skill_reinjection_refs": refs,
+            },
+            idempotency_key=f"skill-reinjection:{session_id}:{compact_entry_id}",
+            workspace_root=workspace_root,
+        )
 
     def get_session(
         self,
