@@ -521,9 +521,7 @@ export function ChatWorkspacePageV2() {
     });
     const preserveMessageIds = new Set(pendingLiveMessageIdsRef.current);
     dispatch({ type: "reset", conversationId, messages: restored, preserveMessageIds });
-    for (const messageId of restored.map((m) => m.id)) {
-      pendingLiveMessageIdsRef.current.delete(messageId);
-    }
+    pendingLiveMessageIdsRef.current.clear();
   }, [conversationId, messagesQuery.data]);
 
   useEffect(() => {
