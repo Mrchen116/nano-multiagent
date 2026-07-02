@@ -8,14 +8,14 @@
 
 ## 退出标准
 
-- [ ] `[reviewer]` 开着聊天页时，同会话 live message 到达后 active message pane 渲染该消息，sidebar preview 与 open thread 保持一致。
-- [ ] `[reviewer]` 用户正在历史位置时，同会话 live arrival 不跳到底部；用户在底部时跟底。
-- [ ] `[worker]` 从 c1 切到 c2 且 c2 history 尚未绑定 reducer 时，c2 `message.created` 先到不丢失。
-- [ ] `[worker]` 外会话 shared user stream event 仍不污染 active pane。
-- [ ] `[worker]` 保持 M3 行为：切换会话时 history 未回来前不显示旧会话消息；发送失败、历史 anchor、near-bottom 行为不回退。
-- [ ] `[worker]` 补充对应回归测试。
-- [ ] `[worker]` `npm run test` 与 `npx tsc -b` 在 `src/IM/frontend` 通过。
-- [ ] `[worker]` 使用隔离端口跑真浏览器 live-arrival evidence，并记录 bottom / off-bottom 行为、console/network 观察。
+- [x] `[reviewer]` 开着聊天页时，同会话 live message 到达后 active message pane 渲染该消息，sidebar preview 与 open thread 保持一致。
+- [x] `[reviewer]` 用户正在历史位置时，同会话 live arrival 不跳到底部；用户在底部时跟底。
+- [x] `[worker]` 从 c1 切到 c2 且 c2 history 尚未绑定 reducer 时，c2 `message.created` 先到不丢失。
+- [x] `[worker]` 外会话 shared user stream event 仍不污染 active pane。
+- [x] `[worker]` 保持 M3 行为：切换会话时 history 未回来前不显示旧会话消息；发送失败、历史 anchor、near-bottom 行为不回退。
+- [x] `[worker]` 补充对应回归测试。
+- [x] `[worker]` `npm run test` 与 `npx tsc -b` 在 `src/IM/frontend` 通过。
+- [x] `[worker]` 使用隔离端口跑真浏览器 live-arrival evidence，并记录 bottom / off-bottom 行为、console/network 观察。
 
 ## 测试策略
 
@@ -63,7 +63,7 @@
 
 ### R1 — Active conversation live event 不丢
 
-- 状态: TODO
+- 状态: DONE
 - 步骤:
   - C1: 补 round 3 blocking 与 verifier W1 红测。
   - C2: 在 workspace active conversation 状态边界修复 reducer 绑定 / live 合并 / history 合并。
