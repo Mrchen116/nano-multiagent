@@ -10,7 +10,9 @@ import pytest
 
 lark_oapi = pytest.importorskip("lark_oapi")
 
-from personal_assistant.config.local_store import ChannelConfig
+from personal_assistant.config.local_store import (
+    ChannelConfig,
+)
 from personal_assistant.gateway.group_context_store import GroupContextStore
 from personal_assistant.main import _build_channel_registry
 
@@ -238,6 +240,29 @@ class TestBuildChannelRegistryFeishuRealAdapter:
             # Verify bot_open_id was passed (internal attribute check)
             assert adapter._bot_open_id == "ou_bot_123"
             assert adapter._owner_open_id == "ou_owner"
+
+    @patch("personal_assistant.main.FeishuAdapter")
+    def test_build_channel_registry_allows_missing_owner_open_id(
+        self, mock_fa_cls: MagicMock
+    ) -> None:
+        """Runbook configs can start without ownerOpenId; only "你" display is disabled."""
+        channels = (
+            ChannelConfig(
+                name="feishu:plato",
+                enabled=True,
+                settings={
+                    "appId": "cli_a",
+                    "appSecret": "s_a",
+                    "botOpenId": "ou_bot_123",
+                },
+            ),
+        )
+        with TemporaryDirectory() as tmpdir:
+            group_ctx = GroupContextStore(db_path=Path(tmpdir) / "group.sqlite3")
+            _build_channel_registry(channels, group_context_store=group_ctx)
+
+        mock_fa_cls.assert_called_once()
+        assert mock_fa_cls.call_args.kwargs["owner_open_id"] is None
 
 
 class TestFeishuBufferKeyConsistency:

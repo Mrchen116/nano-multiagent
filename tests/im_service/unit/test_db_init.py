@@ -46,6 +46,66 @@ def test_initialize_schema_is_idempotent(tmp_path: Path) -> None:
     assert "idx_conversations_external_identity" in conversation_indexes
 
 
+def test_initialize_schema_migrates_legacy_conversations_before_external_index(
+    tmp_path: Path,
+) -> None:
+    """Older IM DBs without external columns should start and gain the M7 index."""
+    connection = connect(tmp_path / "legacy-im.db")
+    connection.executescript(
+        """
+        CREATE TABLE users (
+            id TEXT PRIMARY KEY,
+            username TEXT NOT NULL UNIQUE,
+            display_name TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE conversations (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE conversation_participants (
+            conversation_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            PRIMARY KEY (conversation_id, user_id)
+        );
+        CREATE TABLE messages (
+            id TEXT PRIMARY KEY,
+            conversation_id TEXT NOT NULL,
+            sender_user_id TEXT NOT NULL,
+            content TEXT NOT NULL,
+            attachments_json TEXT NOT NULL DEFAULT '[]',
+            delivery_status TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        """
+    )
+    connection.commit()
+
+    initialize_schema(connection)
+
+    conversation_columns = {
+        row["name"]
+        for row in connection.execute("PRAGMA table_info(conversations)").fetchall()
+    }
+    conversation_indexes = {
+        row["name"]
+        for row in connection.execute("PRAGMA index_list(conversations)").fetchall()
+    }
+    message_columns = {
+        row["name"]
+        for row in connection.execute("PRAGMA table_info(messages)").fetchall()
+    }
+
+    assert {"external_source", "external_chat_id", "config_agent_id", "owner_id"} <= (
+        conversation_columns
+    )
+    assert "idx_conversations_external_identity" in conversation_indexes
+    assert {"sender_type", "thinking_json", "elapsed_ms", "sender_display_name"} <= (
+        message_columns
+    )
+
+
 def test_connect_supports_cross_thread_parameterized_reads_without_interface_errors(
     tmp_path: Path,
 ) -> None:

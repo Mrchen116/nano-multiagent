@@ -418,6 +418,7 @@ sequenceDiagram
 
 **真实飞书入口验收**:
 - 前置条件：以本次启动 Gateway 实际使用的 `<WT_CFG>` 为准确定“要发给哪个 Bot”。查找 `channels[].name == "feishu:<agent_id>"`，该条目的 `settings.appId` 就是 Gateway 正在监听的目标 Bot 所属应用；reviewer 发送消息时必须发给这个 app 对应的 Bot，而不是发给 reviewer 机器上其他默认 Lark CLI app 的 Bot。当前 live 配置示例是 `.gateway-config.yaml` 中 `feishu:default-agent` 绑定 `appId=cli_aac9315ef3f9dbda`。Bot 已安装到同一租户且可被 reviewer 用户私聊或加入测试群。
+- `ownerOpenId` 启动行为：reviewer 不需要手改 `<WT_CFG>`。Gateway 启动读取 Feishu channel 时会执行 `lark-cli auth status --json --verify`；当输出 `appId` 与该 channel 的 `settings.appId` 完全一致时，Gateway 将 `identities.user.openId` 自动写回本次 worktree-local `<WT_CFG>` 的 `settings.ownerOpenId`，并用它让 owner 消息在 IM shadow 中显示为「你」。若 `lark-cli` 不存在、返回非 0、输出不可解析、缺 user openId，或 `appId` mismatch，Gateway 仍启动，但不自动填 `ownerOpenId`；此时「你」显示不作为通过证据，reviewer 必须先修正 lark-cli app auth 使其匹配 `<WT_CFG>` 的 appId，再重跑 live smoke。
 - `lark-cli` 用法：`lark-cli` 只扮演真实用户发消息，消息收件人必须是 `<WT_CFG>` 中 `feishu:<agent_id>.settings.appId` 对应的 Bot。先用 `lark-cli auth status --json --verify` 确认输出中的 `appId` 等于该 `settings.appId`，再从同一输出的 `identities.bot.openId` 取得 `<bot_open_id>`；如果 `<WT_CFG>` 已配置 `settings.botOpenId`，还必须确认它与 `identities.bot.openId` 一致。然后用 `lark-cli im +messages-send --as user --user-id <bot_open_id> --text "feat-447-dm-<nonce>"` 发送 1:1，或 `lark-cli im +messages-send --as user --chat-id <oc_xxx> --text "@<bot> feat-447-group-<nonce>"` 发送群聊。`--as bot` 只能用于辅助查验/建群，不作为验收入站，因为它不能证明普通用户消息经飞书平台触发了目标 Bot。
 - 与当前验证一致的 1:1 smoke test 命令如下；若 `appId mismatch`，reviewer 必须停止并用 `<WT_CFG>` 中该 channel 的 `settings.appId` / `settings.appSecret` 重新配置 `lark-cli`，不得把消息发给当前 CLI 默认 Bot：
   ```bash
@@ -428,6 +429,8 @@ sequenceDiagram
   CLI_APP_ID=$(printf '%s' "$AUTH_JSON" | ruby -rjson -e 'puts JSON.parse(STDIN.read).fetch("appId")')
   BOT_OPEN_ID=$(printf '%s' "$AUTH_JSON" | ruby -rjson -e 'puts JSON.parse(STDIN.read).dig("identities","bot","openId")')
   test "$CLI_APP_ID" = "$EXPECTED_APP_ID" || { echo "appId mismatch: gateway=$EXPECTED_APP_ID cli=$CLI_APP_ID"; exit 1; }
+  OWNER_OPEN_ID=$(ruby -ryaml -e 'cfg=YAML.load_file(ENV.fetch("WT_CFG")); ch=(cfg["channels"]||[]).find{|c| c["name"]=="feishu:#{ENV.fetch("AGENT_ID")}"}; puts ch.dig("settings","ownerOpenId")')
+  test -n "$OWNER_OPEN_ID" || { echo "ownerOpenId was not auto-filled; check lark-cli appId/auth"; exit 1; }
   NONCE="feat-447-dm-$(date +%Y%m%d-%H%M%S)"
   lark-cli im +messages-send --as user --user-id "$BOT_OPEN_ID" --text "$NONCE lark-cli user -> gateway bot"
   ```

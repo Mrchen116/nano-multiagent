@@ -251,6 +251,7 @@ class FeishuAdapter:
     def _deliver_group(self, event: FeishuMessageEvent, *, sync_only: bool) -> None:
         """Deliver a group message and let InboundPipeline own buffering/drain."""
         external_chat_id = f"feishu:{self._app_id}:group:{event.chat_id}"
+        chat_name = self._group_chat_name(event.chat_id)
         metadata = {
             "feishu_message_id": event.message_id,
             "feishu_chat_type": event.chat_type,
@@ -258,7 +259,7 @@ class FeishuAdapter:
                 {"open_id": m.open_id, "name": m.name, "key": m.key}
                 for m in event.mentions
             ],
-            **self._external_metadata(event, is_group=True),
+            **self._external_metadata(event, is_group=True, chat_name=chat_name),
         }
         if sync_only:
             metadata["sync_only"] = True
@@ -278,7 +279,11 @@ class FeishuAdapter:
         self._on_inbound(inbound)
 
     def _external_metadata(
-        self, event: FeishuMessageEvent, *, is_group: bool
+        self,
+        event: FeishuMessageEvent,
+        *,
+        is_group: bool,
+        chat_name: str | None = None,
     ) -> dict[str, object]:
         external_chat_id = (
             f"feishu:{self._app_id}:group:{event.chat_id}"
@@ -290,7 +295,7 @@ class FeishuAdapter:
             if self._owner_open_id and event.sender_open_id == self._owner_open_id
             else event.sender_display_name or event.sender_open_id
         )
-        return {
+        metadata: dict[str, object] = {
             "external_source": "feishu",
             "external_chat_id": external_chat_id,
             "agent_id": self._agent_id,
@@ -298,6 +303,30 @@ class FeishuAdapter:
             "conversation_type": "group" if is_group else "direct",
             "sender_display_name": sender_display_name,
         }
+        if is_group and chat_name:
+            metadata["chat_name"] = chat_name
+            metadata["conversation_title"] = (
+                f"{self._agent_id} · {chat_name} · feishu"
+            )
+        return metadata
+
+    def _group_chat_name(self, chat_id: str) -> str | None:
+        if self._client is None:
+            return None
+        try:
+            return self._client.get_chat_name(chat_id)
+        except (FeishuAuthError, FeishuAPIError, RuntimeError):
+            logger.warning(
+                "failed to fetch feishu group chat name",
+                exc_info=True,
+                extra={
+                    "error_code": "feishu_chat_name_lookup_failed",
+                    "chat_id": chat_id,
+                    "agent_id": self._agent_id,
+                    "adapter": self.name,
+                },
+            )
+            return None
 
 
 def _is_bot_mentioned(mentions: list[FeishuMention], bot_open_id: str | None) -> bool:
