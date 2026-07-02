@@ -8,17 +8,17 @@
 
 ## 退出标准
 
-- [ ] 30 天未用的 F3/F4 skill 标记 stale。
-- [ ] stale skill 仍出现在 `<available_skills>` 和 `/skill:` 候选，并在 usage state 中标记 stale 供统计面板读取。
-- [ ] 90 天归档到 `.archive/` 后默认退出 `<available_skills>` 和 `/skill:` 候选，但 `.usage.json` 保留 archived 记录供统计面板 archived 过滤视图审计。
-- [ ] stale skill 被 `skill_view` 重新读取后复活为 active。
-- [ ] F1/F2/unknown skill 不被 Curator 自动流转。
-- [ ] `skill_view` 成功后 `uses_since_last_B` 越线即 enqueue per-skill batch review，不等待 7 天 Curator。
-- [ ] 同一 skill running/queued 时不并发启动第二个 batch。
-- [ ] batch review 至少需要 2 个 session transcript 证据才采纳 patch。
-- [ ] batch review 只允许 patch，不创建新 skill。
-- [ ] `PYTHONPATH=src pytest tests/unit/test_curator.py tests/unit/test_skill_batch_review.py -x` 全绿。
-- [ ] `PYTHONPATH=src pytest tests/contract/test_core_no_platform_imports.py -x` 全绿。
+- [x] 30 天未用的 F3/F4 skill 标记 stale。
+- [x] stale skill 仍出现在 `<available_skills>` 和 `/skill:` 候选，并在 usage state 中标记 stale 供统计面板读取。
+- [x] 90 天归档到 `.archive/` 后默认退出 `<available_skills>` 和 `/skill:` 候选，但 `.usage.json` 保留 archived 记录供统计面板 archived 过滤视图审计。
+- [x] stale skill 被 `skill_view` 重新读取后复活为 active。
+- [x] F1/F2/unknown skill 不被 Curator 自动流转。
+- [x] `skill_view` 成功后 `uses_since_last_B` 越线即 enqueue per-skill batch review，不等待 7 天 Curator。
+- [x] 同一 skill running/queued 时不并发启动第二个 batch。
+- [x] batch review 至少需要 2 个 session transcript 证据才采纳 patch。
+- [x] batch review 只允许 patch，不创建新 skill。
+- [x] `PYTHONPATH=src pytest tests/unit/test_curator.py tests/unit/test_skill_batch_review.py -x` 全绿。
+- [x] `PYTHONPATH=src pytest tests/contract/test_core_no_platform_imports.py -x` 全绿。
 
 ## 测试策略
 
@@ -46,6 +46,6 @@
 
 ### R3 — batch review orchestration and housekeeping entrypoints
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 新增 `platform/background/skill_batch_review.py`，过滤 reviewed/缺 transcript session，要求 ≥2 session 证据，限制 background fork 只用 `skill_view` + `skill_manage` 且 prompt 明确只 patch；补 SDK skill maintenance 入口，接入 CLI 启动和 Gateway housekeeping。
 - 验证: `PYTHONPATH=src pytest tests/unit/test_skill_batch_review.py tests/unit/test_curator.py tests/contract/test_core_no_platform_imports.py -x`
