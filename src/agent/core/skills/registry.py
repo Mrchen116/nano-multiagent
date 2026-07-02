@@ -44,7 +44,9 @@ class SkillRegistry:
             if not root.exists():
                 continue
             discovered_files: list[Path] = []
-            for dir_path, _, file_names in os.walk(root, followlinks=True):
+            for dir_path, dir_names, file_names in os.walk(root, followlinks=True):
+                if ".archive" in dir_names:
+                    dir_names.remove(".archive")
                 if "SKILL.md" not in file_names:
                     continue
                 discovered_files.append(Path(dir_path) / "SKILL.md")
