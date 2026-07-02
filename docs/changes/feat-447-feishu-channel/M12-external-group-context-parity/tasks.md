@@ -44,7 +44,7 @@ UI 状态矩阵：N/A
 
 ### R1 — Mention 正文保真与结构化 metadata
 
-- 状态: TODO
+- 状态: DONE
 - 步骤:
   - 扩展 FeishuClient parse tests，先证明 `@bot hi` 当前会被删 @、纯 @Bot 会变空、`@所有人` 应保留可见文本。
   - 实现 mention placeholder 到用户可见 @ 文本的规范化；新增 raw/mention_only/normalized mention metadata 承载字段。
