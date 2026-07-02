@@ -25,6 +25,7 @@ from personal_assistant.main import (
     RuntimeFactories,
     _IMBootstrapClient,
     _build_channel_registry,
+    _build_kernel_event_observer,
     _build_relay_lifecycle_callback,
     build_runtime,
     run_gateway,
@@ -236,6 +237,166 @@ def test_relay_lifecycle_callback_routes_im_shadow_run_to_shadow_conversation() 
     assert run_context_store["run-1"]["conversation_id"] == "shadow-conv-1"
     assert run_context_store["run-1"]["to_user_id"] == ""
     assert run_context_store["run-1"]["trigger_source"] == "im"
+
+
+def test_kernel_event_observer_mirrors_external_visible_bubbles_on_completion() -> (
+    None
+):
+    class _Manager:
+        connected = True
+
+        def __init__(self) -> None:
+            self.sent_frames: list[tuple[str, dict[str, object]]] = []
+            self._counter = 0
+
+        async def send_json_await_ack(
+            self, message_type: str, payload: dict[str, object]
+        ) -> dict[str, object]:
+            self.sent_frames.append((message_type, payload))
+            self._counter += 1
+            return {
+                "payload": {
+                    "message_id": f"im-msg-{self._counter}",
+                    "conversation_id": payload.get("conversation_id"),
+                }
+            }
+
+        async def send_json(
+            self, message_type: str, payload: dict[str, object]
+        ) -> None:
+            self.sent_frames.append((message_type, payload))
+
+    manager = _Manager()
+    mirrored: list[tuple[str, dict[str, str]]] = []
+    run_context_store = {
+        "run-1": {
+            "conversation_id": "shadow-conv",
+            "message_id": "",
+            "agent_id": "agent-a",
+            "kernel_session_id": "sess-1",
+            "to_user_id": "",
+            "trigger_source": "feishu",
+            "reply_channel_name": "feishu:agent-a",
+            "reply_target_chat_id": "feishu:cli_a:dm:ou_user",
+            "feishu_message_id": "om_msg_1",
+        }
+    }
+    observer = _build_kernel_event_observer(
+        im_connection_manager_factory=lambda: manager,
+        run_context_store=run_context_store,
+        external_reply_sender=lambda text, metadata: mirrored.append(
+            (text, dict(metadata))
+        ),
+    )
+
+    async def _exercise() -> None:
+        result = observer(
+            {"event": "run_status", "run_id": "run-1", "status": "running"}
+        )
+        assert asyncio.iscoroutine(result)
+        await result
+        observer(
+            {
+                "event": "assistant_message",
+                "run_id": "run-1",
+                "message_id": "kernel-msg-a",
+                "content": "I will check.",
+            }
+        )
+        await asyncio.sleep(0)
+        roll = observer(
+            {
+                "event": "assistant_message",
+                "run_id": "run-1",
+                "message_id": "kernel-msg-b",
+                "content": "Final answer.",
+            }
+        )
+        assert asyncio.iscoroutine(roll)
+        await roll
+        observer({"event": "turn_end", "run_id": "run-1", "completed": True})
+        await asyncio.sleep(0)
+
+    asyncio.run(_exercise())
+
+    assert mirrored == [
+        (
+            "I will check.",
+            {
+                "reply_phase": "intermediate",
+                "reply_dedupe_key": "run-1:text:I will check.",
+                "channel_name": "feishu:agent-a",
+                "target_chat_id": "feishu:cli_a:dm:ou_user",
+                "feishu_message_id": "om_msg_1",
+            },
+        ),
+        (
+            "Final answer.",
+            {
+                "reply_phase": "final",
+                "reply_dedupe_key": "run-1:text:Final answer.",
+                "channel_name": "feishu:agent-a",
+                "target_chat_id": "feishu:cli_a:dm:ou_user",
+                "feishu_message_id": "om_msg_1",
+            },
+        ),
+    ]
+
+
+def test_kernel_event_observer_does_not_mirror_im_triggered_shadow_runs() -> None:
+    class _Manager:
+        connected = True
+
+        async def send_json_await_ack(
+            self, _message_type: str, _payload: dict[str, object]
+        ) -> dict[str, object]:
+            return {"payload": {"message_id": "im-msg-1"}}
+
+        async def send_json(
+            self, _message_type: str, _payload: dict[str, object]
+        ) -> None:
+            return None
+
+    mirrored: list[tuple[str, dict[str, str]]] = []
+    observer = _build_kernel_event_observer(
+        im_connection_manager_factory=lambda: _Manager(),
+        run_context_store={
+            "run-1": {
+                "conversation_id": "shadow-conv",
+                "message_id": "",
+                "agent_id": "agent-a",
+                "kernel_session_id": "sess-1",
+                "to_user_id": "",
+                "trigger_source": "im",
+                "reply_channel_name": "web_relay",
+                "reply_target_chat_id": "shadow-conv",
+            }
+        },
+        external_reply_sender=lambda text, metadata: mirrored.append(
+            (text, dict(metadata))
+        ),
+    )
+
+    async def _exercise() -> None:
+        result = observer(
+            {"event": "run_status", "run_id": "run-1", "status": "running"}
+        )
+        assert asyncio.iscoroutine(result)
+        await result
+        observer(
+            {
+                "event": "assistant_message",
+                "run_id": "run-1",
+                "message_id": "kernel-msg-a",
+                "content": "Internal only.",
+            }
+        )
+        observer({"event": "turn_end", "run_id": "run-1", "completed": True})
+        await asyncio.sleep(0)
+
+    asyncio.run(_exercise())
+
+    assert mirrored == []
 
 
 def test_relay_lifecycle_callback_failed_sends_message_level_report_with_real_cause() -> (

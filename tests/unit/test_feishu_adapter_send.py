@@ -65,7 +65,7 @@ class TestFeishuAdapterSend:
         assert call_kwargs["text"] == "reply from bot"
 
     @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
-    def test_send_removes_ack_reaction_after_reply(
+    def test_send_removes_ack_reaction_only_after_final_reply(
         self, mock_fc_cls: MagicMock
     ) -> None:
         mock_fc = MagicMock()
@@ -80,15 +80,28 @@ class TestFeishuAdapterSend:
         adapter.start(MagicMock())
         adapter._handle_message(_make_event(message_id="om_msg_001"))
 
-        outbound = OutboundMessage(
+        intermediate = OutboundMessage(
+            channel_name="feishu:plato",
+            text="I will check.",
+            target_chat_id="feishu:cli_a:dm:ou_user1",
+            metadata={
+                "feishu_message_id": "om_msg_001",
+                "reply_phase": "intermediate",
+            },
+        )
+        adapter.send(intermediate)
+
+        mock_fc.send_message.assert_called_once()
+        mock_fc.delete_reaction.assert_not_called()
+
+        final = OutboundMessage(
             channel_name="feishu:plato",
             text="reply from bot",
             target_chat_id="feishu:cli_a:dm:ou_user1",
-            metadata={"feishu_message_id": "om_msg_001"},
+            metadata={"feishu_message_id": "om_msg_001", "reply_phase": "final"},
         )
-        adapter.send(outbound)
+        adapter.send(final)
 
-        mock_fc.send_message.assert_called_once()
         mock_fc.delete_reaction.assert_called_once_with(
             message_id="om_msg_001",
             reaction_id="reaction_001",

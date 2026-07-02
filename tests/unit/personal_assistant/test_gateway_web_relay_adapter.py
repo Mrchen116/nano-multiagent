@@ -96,6 +96,38 @@ def test_web_relay_adapter_preserves_shadow_identity_and_group_target_agent() ->
     assert inbound.metadata["mentioned_agent_ids"] == ["plato"]
 
 
+def test_outbound_router_dedupes_by_reply_dedupe_key() -> None:
+    class _Adapter:
+        name = "feishu:agent-a"
+
+        def __init__(self) -> None:
+            self.sent: list[OutboundMessage] = []
+
+        def start(self, _on_inbound) -> None:  # noqa: ANN001
+            return None
+
+        def send(self, outbound: OutboundMessage) -> None:
+            self.sent.append(outbound)
+
+        def stop(self) -> None:
+            return None
+
+    adapter = _Adapter()
+    router = OutboundRouter(ChannelRegistry([adapter]))
+    context = ReplyContext(
+        channel_name="feishu:agent-a",
+        target_chat_id="feishu:cli_a:dm:ou_user",
+        metadata={"reply_dedupe_key": "run-1:text:Final answer."},
+    )
+
+    first = router.send_text(text="Final answer.", reply_context=context)
+    second = router.send_text(text="Final answer.", reply_context=context)
+
+    assert first is not None
+    assert second is None
+    assert [item.text for item in adapter.sent] == ["Final answer."]
+
+
 def test_web_relay_adapter_uses_dedup_store_on_accept(tmp_path: Path) -> None:
     store = RelayDeduplicationStore(db_path=tmp_path / "relay-dedup.sqlite3")
     adapter = WebRelayAdapter(dedup_store=store)
