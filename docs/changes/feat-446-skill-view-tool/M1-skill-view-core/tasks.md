@@ -32,7 +32,7 @@
 
 ### R1 — tool contract and usage sidecar
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 新增 `skill_view` 行为测试、usage sidecar 测试、`skill_manage` schema/create scope 测试；实现 root resolver、usage 记录、`skill_view` tool、`skill_manage` scope 与注册。
 - 验证: `PYTHONPATH=src pytest tests/unit/test_skill_view.py tests/unit/test_usage.py tests/unit/test_skill_manage_tool.py -x`
 
