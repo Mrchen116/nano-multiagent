@@ -24,19 +24,19 @@
 
 ## R2 — 前端 reducer display name 与去重
 
-- Context:
-- Decision:
-- Rationale:
+- Context: R1 后后端 `message.created` live payload 已带 `sender` / `sender_display_name` / `attachments`；此前 v2 reducer 插入消息时只查本地 `sendersById`，外部 channel 用户不是 IM agent map 成员，会先显示 `null`/UUID 且附件被置空。
+- Decision: 扩展 `WsEvent.message.created` 类型接收 canonical payload 字段；reducer 插入消息时优先使用 `ev.sender.display_name`，再用 `ev.sender_display_name`，最后回退 `sendersById`，并从 `ev.attachments` 写入 Message。既有按 `message_id` 去重逻辑保持不变。
+- Rationale: display name 和附件属于后端 canonical event payload，前端不应靠刷新历史或 agent map 修正外部消息；保持 `message_id` 去重可兼容浏览器 optimistic insert 和 websocket echo。
 - Evidence:
-  - Tests:
-  - Entry:
-  - Frontend State Matrix:
-  - Browser QA:
-  - E2E/Regression:
-  - Visual/Interaction:
-- Rollback:
-- Commits:
-- Next:
+  - Tests: `npm run test -- chat-stream-reducer.test.ts` 先红，失败点为 `expected null to be 'Alice'`；实现后同命令 -> 23 passed。
+  - Entry: Frontend reducer 单元入口覆盖 websocket `message.created` 事件插入当前 conversation state。
+  - Frontend State Matrix: default/empty 覆盖从空列表插入外部用户消息；missing/nullable data 覆盖有 payload display name 时优先使用；重复事件覆盖 `message_id` 去重；loading/error/disabled/submitting/permission denied/long content/mobile/dark mode 不适用或未改。
+  - Browser QA: R2 仅改纯 reducer；真实浏览器打开 shadow 会话的 live 验收在 R4 执行。
+  - E2E/Regression: `src/IM/frontend/src/features/chat/v2/chat-stream-reducer.test.ts` 新增 external `message.created` payload regression。
+  - Visual/Interaction: N/A，未改 CSS/布局；渲染字段由 reducer 回归覆盖。
+- Rollback: revert `9db14613` 后再 revert `f44c962c` 可回到 R2 前状态。
+- Commits: C1=`f44c962c`, C2=`9db14613`, C3=<pending>
+- Next: R3 Gateway external reply mirror 与 Feishu reaction lifecycle。
 
 ## R3 — Gateway external reply mirror 与 reaction lifecycle
 

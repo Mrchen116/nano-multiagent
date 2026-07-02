@@ -12,7 +12,7 @@
 - [ ] 真实飞书 1:1 入站触发一个会产生中间 assistant 气泡的问题时，内部 IM shadow 中每个用户可见 assistant 文本气泡都必须在飞书收到对应消息；最终气泡不得重复。
 - [ ] 从 IM shadow 入口触发的回复仍不得回写飞书。
 - [x] 根因回归测试覆盖：外部 sync 用户消息写入后产生可被前端 reducer 插入的 canonical `message.created` payload（含 content/attachments/sender display name），`message.sent/delivered` 保持 delivery/progress 语义。
-- [ ] 前端 reducer 对 `message.created` 去重并正确渲染 sender display name。
+- [x] 前端 reducer 对 `message.created` 去重并正确渲染 sender display name。
 - [ ] Gateway external reply mirror 以 assistant 气泡完成为边界发送，跳过 thinking/tool-only/NO_REPLY，按 dedupe key 防 terminal 重复。
 - [ ] Feishu THINKING reaction 只在 final/terminal 删除，中间 visible reply 不提前删除。
 - [ ] 全量非 e2e 测试无回归，至少跑相关窄测 + `pytest -m "not e2e"` 或说明环境 blocker。
@@ -78,7 +78,7 @@ UI 状态矩阵：
 - 验证:
   - `pytest -q tests/im_service/unit/test_ws_event_types.py tests/im_service/unit/test_repositories_message.py tests/im_service/integration/test_messages_api.py`
 
-### R2 — 前端 reducer display name 与去重
+### R2 — 前端 reducer display name 与去重 — DONE
 
 - 步骤:
   - 扩展 `WsEvent` 的 `message.created` 类型，接收 attachments 和 sender display name。
