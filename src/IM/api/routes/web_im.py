@@ -92,6 +92,9 @@ class ConversationResponse(BaseModel):
     last_message_at: str | None
     config_profile_version: int | None
     created_at: str
+    run_state: str
+    source_agent_id: str | None = None
+    source_jsonl_path: str | None = None
 
 
 class ListConversationsResponse(BaseModel):
@@ -136,6 +139,9 @@ def to_conversation_response(conversation: Conversation) -> ConversationResponse
         last_message_at=conversation.last_message_at,
         config_profile_version=conversation.config_profile_version,
         created_at=conversation.created_at,
+        run_state=conversation.run_state,
+        source_agent_id=conversation.source_agent_id,
+        source_jsonl_path=conversation.source_jsonl_path,
     )
 
 
