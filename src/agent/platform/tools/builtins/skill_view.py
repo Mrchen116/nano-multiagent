@@ -143,6 +143,7 @@ class SkillViewTool:
                 session_id=getattr(ctx, "session_id", None),
                 tool_call_id=getattr(ctx, "tool_call_id", None),
                 source=source_from_metadata(metadata),
+                location=skill.location,
             )
             self._register_invoked_skill(ctx, name=name, location=skill.location, root=skill_root)
             return {

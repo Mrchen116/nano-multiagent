@@ -6,7 +6,7 @@ import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Sequence
 
 from agent.core.utils.fileio import atomic_write
 
@@ -24,6 +24,15 @@ class UsageBumpResult:
 
     counted: bool
     usage_path: Path
+
+
+@dataclass(frozen=True, slots=True)
+class SkillSessionRef:
+    """A skill invocation reference used for compaction reinjection."""
+
+    name: str
+    location: Path
+    root_id: str
 
 
 def utc_now_iso() -> str:
@@ -65,6 +74,7 @@ def bump_skill_usage(
     session_id: str | None,
     tool_call_id: str | None,
     source: str,
+    location: Path | str | None = None,
     now_iso: str | None = None,
 ) -> UsageBumpResult:
     """Increment usage for a successful skill_view call.
@@ -92,9 +102,14 @@ def bump_skill_usage(
     if record.get("state") == "stale":
         record["state"] = "active"
     refs = _list_of_mappings(record.get("session_refs"))
-    refs.append(
-        {"session_id": session_id, "tool_call_id": tool_call_id, "timestamp": now}
-    )
+    ref: dict[str, Any] = {
+        "session_id": session_id,
+        "tool_call_id": tool_call_id,
+        "timestamp": now,
+    }
+    if location is not None:
+        ref["location"] = str(Path(location).expanduser().resolve())
+    refs.append(ref)
     record["session_refs"] = refs[-_MAX_SESSION_REFS:]
     recent_keys.append(call_key)
     record["recent_call_keys"] = recent_keys[-_MAX_RECENT_CALL_KEYS:]
@@ -110,6 +125,41 @@ def source_from_metadata(metadata: dict[str, Any] | Any) -> SkillSource:
     """Return controlled skill source from session metadata."""
     raw = metadata.get("skill_creation_source") if isinstance(metadata, dict) else None
     return _normalize_source(raw or "F1")
+
+
+def skill_refs_for_session(
+    *, skill_roots: Sequence[Path], session_id: str
+) -> tuple[SkillSessionRef, ...]:
+    """Return skill usage refs for a session across usage sidecars."""
+
+    refs: list[SkillSessionRef] = []
+    seen: set[tuple[str, str]] = set()
+    for root in _dedupe_roots(skill_roots):
+        data = _load_usage(root)
+        for skill_name, record in data.items():
+            if not isinstance(skill_name, str) or not isinstance(record, dict):
+                continue
+            for ref in _list_of_mappings(record.get("session_refs")):
+                if ref.get("session_id") != session_id:
+                    continue
+                raw_location = ref.get("location")
+                location = (
+                    Path(raw_location).expanduser().resolve()
+                    if isinstance(raw_location, str) and raw_location
+                    else (root / skill_name / "SKILL.md").expanduser().resolve()
+                )
+                key = (skill_name, str(location))
+                if key in seen:
+                    continue
+                seen.add(key)
+                refs.append(
+                    SkillSessionRef(
+                        name=skill_name,
+                        location=location,
+                        root_id=str(root.expanduser().resolve()),
+                    )
+                )
+    return tuple(refs)
 
 
 def _new_record(*, source: SkillSource, now_iso: str) -> dict[str, Any]:
@@ -173,11 +223,26 @@ def _list_of_mappings(value: Any) -> list[dict[str, Any]]:
     return [dict(item) for item in value if isinstance(item, dict)]
 
 
+def _dedupe_roots(roots: Sequence[Path]) -> tuple[Path, ...]:
+    deduped: list[Path] = []
+    seen: set[str] = set()
+    for root in roots:
+        resolved = root.expanduser().resolve()
+        key = str(resolved)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(resolved)
+    return tuple(deduped)
+
+
 __all__ = [
     "SkillSource",
+    "SkillSessionRef",
     "UsageBumpResult",
     "bump_skill_usage",
     "ensure_skill_record",
+    "skill_refs_for_session",
     "source_from_metadata",
     "utc_now_iso",
 ]
