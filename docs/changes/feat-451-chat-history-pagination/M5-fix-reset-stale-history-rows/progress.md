@@ -27,6 +27,7 @@
     - Required targeted suite: `cd src/IM/frontend && npm run test -- src/features/chat/v2/chat-workspace.integration.test.tsx src/features/chat/v2/components/message-pane.test.tsx` passed: 2 files / 107 tests.
     - Full frontend: `cd src/IM/frontend && npm run test` passed: 63 files / 592 tests.
     - Typecheck: `cd src/IM/frontend && npx tsc -b` passed.
+    - Final after rebase on `origin/unit/feat-451`: targeted suite passed (2 files / 107 tests), full frontend passed (63 files / 592 tests), and `npx tsc -b` passed.
   - Entry:
     - `src/IM/frontend/src/features/chat/v2/chat-workspace-page.tsx`
     - `src/IM/frontend/src/features/chat/v2/chat-workspace.integration.test.tsx`
@@ -52,4 +53,4 @@
   - `88aa1f77 docs(feat-451/M5): plan reset stale history fix`
   - `42aa6cd4 test(feat-451/M5/R1): cover stale relay mirror reset`
   - `73d87215 fix(feat-451/M5/R1): prune stale reset rows`
-- Next: COMPLETE. Rebase on latest `origin/unit/feat-451`, rerun required gates, merge into unit branch, push, and clean milestone worktree/branch.
+- Next: COMPLETE. Ready to merge into `unit/feat-451` and clean milestone worktree/branch.
