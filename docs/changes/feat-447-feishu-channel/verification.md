@@ -266,6 +266,97 @@ All spec requirements have implementation evidence (unchanged from Round 1):
 
 ---
 
+## Round 4
+
+## Summary
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 37/37 checked tasks complete; M5/M6 non-checkbox criteria verified via progress/tests |
+| Correctness | 34/35 covered |
+| Coherence | Followed, with 1 spec/design drift |
+
+No critical issues. 1 warning to consider. Ready for PR (with noted improvements).
+
+## Completeness
+
+### Tasks: complete
+
+- `M1`/`M2`/`M3`/`M4`/`M7` tasks contain 37 checked boxes and no unchecked boxes.
+- `M5` uses non-checkbox exit criteria; progress records the config and buffer-key fixes, and current tests cover them.
+- `M6` has no `tasks.md` in this unit tree; progress records 3/3 reviewer-loop bugs fixed, and current tests cover the DM `receive_id_type`, independent retry counters, and `group_context_store` fail-fast paths.
+
+### Spec Coverage
+
+| Requirement area | Implementation evidence | Status |
+|---|---|---|
+| Feishu 1:1 and group message intake | `src/personal_assistant/channels/feishu_adapter.py:154`, `src/personal_assistant/channels/feishu_adapter.py:229`, `src/personal_assistant/channels/feishu_adapter.py:251` | covered |
+| DM send uses `open_id`, group send uses `chat_id` | `src/personal_assistant/channels/feishu_adapter.py:107`, `src/personal_assistant/channels/feishu_adapter.py:114` | covered |
+| Rate-limit/server/auth error handling | `src/personal_assistant/channels/feishu_client.py:216`, `src/personal_assistant/channels/feishu_client.py:231`, `src/personal_assistant/channels/feishu_client.py:237`, `src/personal_assistant/channels/feishu_client.py:257` | covered |
+| External session identity shared by Feishu and IM shadow | `src/personal_assistant/gateway/session_keys.py:407`, `src/personal_assistant/gateway/inbound_pipeline.py:642` | covered |
+| `sync_only` buffers and short-circuits without run allocation | `src/personal_assistant/gateway/inbound_pipeline.py:280`, `src/personal_assistant/gateway/inbound_pipeline.py:285`, `src/personal_assistant/gateway/inbound_pipeline.py:297` | covered |
+| IM shadow conversation schema/API | `src/IM/infra/db.py:35`, `src/IM/api/routes/web_im.py:100`, `src/IM/api/routes/web_im.py:284`, `src/IM/infra/repositories.py:504` | covered |
+| `sender_display_name` persistence/display | `src/IM/api/routes/messages.py:61`, `src/IM/infra/repositories.py:1108`, `src/IM/infra/repositories.py:1175` | covered |
+| Relay metadata loops external identity back to Gateway | `src/IM/application/relay_service.py:197`, `src/personal_assistant/channels/web_relay_adapter.py:245` | covered |
+| IM shadow group auto-mentions target agent before gate | `src/personal_assistant/channels/web_relay_adapter.py:247` | covered |
+| External shadow sync best-effort and no lazy direct on failure | `src/personal_assistant/gateway/inbound_pipeline.py:436`, `src/personal_assistant/main.py:3417` | covered |
+| Run context seeds shadow conversation and trigger source | `src/personal_assistant/main.py:3398`, `src/personal_assistant/main.py:3408`, `src/personal_assistant/main.py:3443` | covered |
+| Feishu group shadow title includes actual group name | `src/personal_assistant/main.py:883` can use `chat_name`, but Feishu metadata never supplies it | WARNING |
+
+## Correctness
+
+### Requirement / Scenario Mapping
+
+| Requirement / Scenario | 实现位置 | 测试覆盖 | 状态 |
+|---|---|---|---|
+| 外部 1:1 shadow 会话独立且用户消息显示「你」 | `src/personal_assistant/channels/feishu_adapter.py:280`, `src/personal_assistant/main.py:802`, `src/IM/infra/repositories.py:1108` | `tests/im_service/integration/test_messages_api.py`, `tests/unit/test_feishu_adapter.py` | covered |
+| 外部群聊消息 `sync_only` 同步 + buffer，不提交 run | `src/personal_assistant/channels/feishu_adapter.py:263`, `src/personal_assistant/gateway/inbound_pipeline.py:285`, `src/personal_assistant/gateway/inbound_pipeline.py:297` | `tests/unit/personal_assistant/test_gateway_pipeline_sender_prefix.py`, `tests/unit/test_feishu_adapter.py` | covered |
+| IM shadow 入口复用同一 kernel session | `src/personal_assistant/gateway/session_keys.py:421` | `tests/unit/personal_assistant/test_gateway_channel_and_session.py` | covered |
+| IM shadow group 不手动 @ 也触发 | `src/personal_assistant/channels/web_relay_adapter.py:247` | `tests/unit/personal_assistant/test_gateway_web_relay_adapter.py` | covered |
+| IM 触发不回写飞书，只写 IM shadow | `src/personal_assistant/main.py:3408`, `src/personal_assistant/main.py:3443` | `tests/unit/personal_assistant/test_gateway_relay_lifecycle.py` | covered |
+| Shadow sync 失败时飞书主路径继续，且不 lazy-create 普通 direct | `src/personal_assistant/gateway/inbound_pipeline.py:447`, `src/personal_assistant/main.py:3417` | `tests/unit/personal_assistant/test_inbound_pipeline_session.py`, `tests/unit/personal_assistant/test_gateway_relay_lifecycle.py` | covered |
+| 同一外部群多个 agent 生成多个 IM group shadow 会话 | `src/IM/infra/repositories.py:532` uses `(external_source, external_chat_id, config_agent_id, owner_id)` | `tests/im_service/unit/test_repositories_user_conversation.py:211` | covered |
+| Feishu group shadow title uses `agent · 群名 · feishu` | `src/personal_assistant/main.py:883` falls back to `"群聊"`; `src/personal_assistant/channels/feishu_adapter.py:293` metadata omits `chat_name` / `conversation_title` | no Feishu inbound test asserts real group title propagation | WARNING |
+
+### Verification Commands
+
+- `pytest -q tests/unit/personal_assistant/test_inbound_pipeline_session.py tests/unit/personal_assistant/test_gateway_relay_lifecycle.py tests/unit/personal_assistant/test_gateway_pipeline_sender_prefix.py tests/unit/personal_assistant/test_gateway_web_relay_adapter.py tests/unit/personal_assistant/test_gateway_pipeline_channel.py tests/unit/test_feishu_adapter.py tests/unit/test_feishu_config.py tests/im_service/unit/test_relay_service_payload.py tests/im_service/integration/test_messages_api.py` -> 104 passed, 1 skipped.
+- `pytest -m "not e2e"` -> 3223 passed, 1 skipped, 22 deselected, 20 warnings.
+
+## Coherence
+
+| design 决策 | 遵守? | 代码证据 |
+|---|---|---|
+| WebSocket Feishu channel, one adapter per `feishu:<agent_id>` | 是 | `src/personal_assistant/main.py:3126`, `src/personal_assistant/channels/feishu_adapter.py:34` |
+| `feishu-cli` user-token doc operations | 是 | `skills/feishu-doc.md` |
+| Session identity / reply target / shadow conversation id 分离 | 是 | `src/personal_assistant/gateway/session_keys.py:407`, `src/personal_assistant/gateway/session_keys.py:446`, `src/personal_assistant/main.py:3398` |
+| Pipeline owns `sync_only` buffering | 是 | `src/personal_assistant/channels/feishu_adapter.py:5`, `src/personal_assistant/gateway/inbound_pipeline.py:285` |
+| IM shadow schema uses `config_agent_id`, no second agent id column | 是 | `src/IM/infra/db.py:46`, `src/IM/infra/repositories.py:538` |
+| Request identity derives owner from auth, not request body | 是 | `src/IM/api/routes/web_im.py:300`, `src/IM/api/routes/web_im.py:308` |
+| Feishu group name is read and propagated as `chat_name` | 否 | `docs/changes/feat-447-feishu-channel/design.md:379` requires `get_chat_name`; no implementation found |
+
+### 架构自洽性
+
+- **依赖方向**: contract tests passed; IM still does not import `agent`, and Gateway/CLI use `agent.sdk` boundaries.
+- **跨机/进程边界**: IM reads shadow metadata through DB/relay and Gateway HTTP/WS; it does not read Gateway workspace files.
+- **复用 vs 平行**: external channel behavior extends existing ChannelAdapter, InboundPipeline, RelayService, and run_context_store paths; no parallel delivery stack found.
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+无。
+
+### WARNING（应该修）
+
+1. **Feishu 群聊 shadow 会话名缺真实群名** — spec 要求外部群聊在 IM 中显示为 `agent名 · 群名 · channel名`（例如 `plato · 产品群 · feishu`），见 `docs/changes/feat-447-feishu-channel/spec.md:57` and `docs/changes/feat-447-feishu-channel/spec.md:156`。design 也要求 `FeishuClient.get_chat_name(chat_id)` 并把 `metadata["chat_name"]` 传入 title 计算，见 `docs/changes/feat-447-feishu-channel/design.md:337` and `docs/changes/feat-447-feishu-channel/design.md:379`。当前 `src/personal_assistant/main.py:883` 只有在 metadata 已含 `chat_name` 时才会生成 `agent · <群名> · feishu`，否则 group fallback 为 `agent · 群聊 · feishu`；但 `src/personal_assistant/channels/feishu_adapter.py:293` 返回的外部 metadata 只有 `external_source/external_chat_id/agent_id/trigger_source/conversation_type/sender_display_name`，没有 `chat_name` 或 `conversation_title`，且代码库没有 `get_chat_name` 实现。真实 Feishu 群聊入站因此会创建 `plato · 群聊 · feishu`，不满足群名场景；现有测试只覆盖 IM repository 接受调用方传入的 title（如 `tests/im_service/unit/test_repositories_user_conversation.py:211`），没有覆盖 Feishu 入站到 shadow title 的端到端映射。
+
+   **建议**: 在 `FeishuClient` 实现 `get_chat_name(chat_id: str) -> str | None`（调用飞书 chats API，失败时返回 `None`/记录 warning），FeishuAdapter 处理 group event 时把 `metadata["chat_name"]` 或 `metadata["conversation_title"] = f"{agent_id} · {chat_name} · feishu"` 传给 Pipeline；补测试断言 group Feishu event 生成的 metadata 含群名，并补 `_IMShadowConversationSyncClient`/Pipeline 层测试确保 `external/find-or-create` 收到 `plato · 产品群 · feishu`。
+
+### SUGGESTION（可以修）
+
+无。
+
 All checks passed. Ready for PR.
 
 ---
