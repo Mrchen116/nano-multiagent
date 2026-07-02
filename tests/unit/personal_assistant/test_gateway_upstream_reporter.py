@@ -159,13 +159,13 @@ def test_node_capabilities_models_carry_provider(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_node_capabilities_tools_include_memory_and_skill_manage(
+def test_node_capabilities_tools_include_memory_skill_manage_and_skill_view(
     tmp_path: Path,
 ) -> None:
-    """capabilities.tools 必须含 memory 和 skill_manage。
+    """capabilities.tools 必须含 memory、skill_manage 和 skill_view。
 
     前端联动（决策13）依赖前端从 capabilities.tools 取 feature 要求的工具名把它们
-    变绿；memory/skill_manage 在 PA 默认工具集中，投影必须把它们 advertise 出来。
+    变绿；默认 skill 工具在 PA 默认工具集中，投影必须把它们 advertise 出来。
     """
     kernel = _build_test_kernel(tmp_path / "kernel-root")
     payload = build_node_capabilities_payload(kernel)
@@ -175,6 +175,9 @@ def test_node_capabilities_tools_include_memory_and_skill_manage(
     )
     assert "skill_manage" in names, (
         "skill_manage 必须在 capabilities.tools 中 — 否则前端联动无法把 skill_manage 变绿 (feat-379-M9 决策13)"
+    )
+    assert "skill_view" in names, (
+        "skill_view 必须在 capabilities.tools 中 — 否则默认 PA agent 无法查看 skill 内容"
     )
 
 

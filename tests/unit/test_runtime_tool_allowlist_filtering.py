@@ -56,6 +56,27 @@ def test_resolve_session_tools_no_allowlist_filters_by_default_tool_ids() -> Non
     assert "send_message" not in names
 
 
+def test_unconfigured_pa_defaults_include_skill_view_without_widening_explicit_allowlist() -> (
+    None
+):
+    """Empty PA allowlist uses product defaults; explicit allowlist stays exact."""
+    from personal_assistant.product import DEFAULT_TOOL_IDS
+
+    runtime = _make_runtime_with_specs(
+        tool_names=["read", "skill_manage", "skill_view", "send_message"],
+        default_tool_ids=list(DEFAULT_TOOL_IDS),
+    )
+
+    default_session = _make_session(tool_allowlist=None)
+    default_names = {spec.name for spec in runtime._resolve_session_available_tools(default_session)}
+    assert "skill_view" in default_names
+
+    explicit_session = _make_session(tool_allowlist=["read", "skill_manage"])
+    explicit_names = {spec.name for spec in runtime._resolve_session_available_tools(explicit_session)}
+    assert explicit_names == {"read", "skill_manage"}
+    assert "skill_view" not in explicit_names
+
+
 def test_resolve_session_tools_with_allowlist_includes_send_message() -> None:
     """With tool_allowlist containing send_message, _resolve_session_available_tools must return it."""
     runtime = _make_runtime_with_specs(

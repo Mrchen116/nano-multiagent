@@ -17,6 +17,7 @@ import pytest
 
 from agent.core.agent.prompt_sections.base import PromptContext
 from agent.core.agent.prompt_sections.core_sections import CORE_SECTIONS
+from agent.core.types import ToolSpec
 
 
 def _ctx(**kwargs) -> PromptContext:
@@ -37,6 +38,10 @@ def _get_section(name: str):
         if s.name == name:
             return s
     raise KeyError(f"section {name!r} not found in CORE_SECTIONS")
+
+
+def _tool(name: str) -> ToolSpec:
+    return ToolSpec(name=name, description=f"{name} tool", input_schema={})
 
 
 # ---------------------------------------------------------------------------
@@ -91,6 +96,37 @@ class TestCoreSystemM4:
         s = _get_section("core.system")
         text = s.render(_ctx())
         assert text.startswith("# System")
+
+
+class TestCoreSkillsGuidance:
+    def test_skills_guidance_renders_with_skill_view_only(self):
+        s = _get_section("core.skills_guidance")
+        ctx = _ctx(
+            available_tools=(_tool("skill_view"),),
+            flags={"skill_creation": True},
+        )
+
+        assert s.enabled_when(ctx) is True
+        text = s.render(ctx)
+        assert "skill_view" in text
+        assert "skill_manage" not in text
+
+    def test_skills_guidance_renders_manage_guidance_when_skill_manage_present(self):
+        s = _get_section("core.skills_guidance")
+        ctx = _ctx(
+            available_tools=(_tool("skill_manage"),),
+            flags={"skill_creation": True},
+        )
+
+        assert s.enabled_when(ctx) is True
+        text = s.render(ctx)
+        assert "skill_manage" in text
+
+    def test_skills_guidance_requires_some_skill_tool(self):
+        s = _get_section("core.skills_guidance")
+        ctx = _ctx(available_tools=(_tool("read"),), flags={"skill_creation": True})
+
+        assert s.enabled_when(ctx) is False
 
 
 # ---------------------------------------------------------------------------

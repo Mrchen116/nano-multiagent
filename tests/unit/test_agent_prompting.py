@@ -78,7 +78,8 @@ def test_build_prompt_messages_injects_available_skills_section_with_absolute_lo
     system_prompt = prompts[0].content
     assert "<available_skills>" in system_prompt
     assert "<name>demo</name>" in system_prompt
-    assert "Use the read tool to load a skill's file" in system_prompt
+    assert "Use the skill_view tool to load a skill's SKILL.md" in system_prompt
+    assert "call read on its <location>" not in system_prompt
     assert "resolve it against the skill directory" in system_prompt
     assert (
         f"<location>{relative_location.expanduser().resolve()}</location>"
@@ -178,9 +179,10 @@ async def test_runtime_fills_system_prompt_placeholders_before_llm_call(
 # ---------------------------------------------------------------------------
 
 
-def test_skills_guidance_constant_exists_and_mentions_skill_manage():
-    """SKILLS_GUIDANCE must exist and guide when to use skill_manage."""
+def test_skills_guidance_constant_exists_and_mentions_skill_view_and_manage():
+    """SKILLS_GUIDANCE must guide read-side skill usage and write-side maintenance."""
     assert SKILLS_GUIDANCE, "SKILLS_GUIDANCE must be non-empty"
+    assert "skill_view" in SKILLS_GUIDANCE
     assert "skill_manage" in SKILLS_GUIDANCE
 
 
@@ -201,11 +203,26 @@ def test_build_system_prompt_injects_skills_guidance_when_skill_manage_in_tools(
         available_skills=(),
         available_tools=tools,
     )
-    assert SKILLS_GUIDANCE in result
+    assert "skill_manage" in result
+
+
+def test_build_system_prompt_injects_read_side_guidance_when_skill_view_in_tools():
+    """skill_view alone should enable skill guidance without advertising skill writes."""
+    tools = (
+        ToolSpec(name="skill_view", description="View skills.", input_schema={}),
+        ToolSpec(name="read", description="Read a file.", input_schema={}),
+    )
+    result = build_system_prompt(
+        system_prompt=_CODING_FIXTURE,
+        available_skills=(),
+        available_tools=tools,
+    )
+    assert "skill_view" in result
+    assert "skill_manage" not in result
 
 
 def test_build_system_prompt_no_skills_guidance_without_skill_manage():
-    """SKILLS_GUIDANCE is NOT injected when skill_manage is absent."""
+    """Skill guidance is NOT injected when neither skill tool is present."""
     tools = (
         ToolSpec(name="read", description="Read a file.", input_schema={}),
         ToolSpec(name="bash", description="Run bash.", input_schema={}),
@@ -215,7 +232,8 @@ def test_build_system_prompt_no_skills_guidance_without_skill_manage():
         available_skills=(),
         available_tools=tools,
     )
-    assert SKILLS_GUIDANCE not in result
+    assert "skill_view" not in result
+    assert "skill_manage" not in result
 
 
 def test_build_system_prompt_injects_memory_guidance_when_memory_in_tools():

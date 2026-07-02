@@ -28,13 +28,14 @@ def test_feature_registry_has_skill_creation_entry():
 
 
 def test_feature_registry_entries_have_required_fields():
-    """Each registry entry must have: sections, default_on, requires_tool, layer, label_i18n, help_i18n."""
+    """Each registry entry must have the standard feature projection fields."""
     from agent.core.agent.prompt_sections.feature_registry import FEATURE_REGISTRY
 
     required_fields = {
         "sections",
         "default_on",
         "requires_tool",
+        "requires_any_tool",
         "layer",
         "label_i18n",
         "help_i18n",
@@ -70,6 +71,21 @@ def test_feature_registry_requires_tool_is_str_or_none():
         )
 
 
+def test_feature_registry_requires_any_tool_is_tuple_of_strings_or_none():
+    from agent.core.agent.prompt_sections.feature_registry import FEATURE_REGISTRY
+
+    for key, entry in FEATURE_REGISTRY.items():
+        val = entry["requires_any_tool"]
+        assert val is None or isinstance(val, tuple), (
+            f"{key}: requires_any_tool must be tuple[str, ...] or None"
+        )
+        if val is not None:
+            assert val, f"{key}: requires_any_tool must not be empty when set"
+            assert all(isinstance(tool, str) for tool in val), (
+                f"{key}: requires_any_tool entries must be strings"
+            )
+
+
 def test_feature_registry_layer_is_valid():
     from agent.core.agent.prompt_sections.feature_registry import FEATURE_REGISTRY
 
@@ -95,6 +111,7 @@ def test_skill_creation_defaults():
     entry = FEATURE_REGISTRY["skill_creation"]
     assert entry["default_on"] is True
     assert entry["requires_tool"] == "skill_manage"
+    assert entry["requires_any_tool"] == ("skill_manage", "skill_view")
     assert "core.skills_guidance" in entry["sections"]
 
 
