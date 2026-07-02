@@ -11,7 +11,7 @@
 - [ ] 外部 channel 同步用户消息写入 IM 后，打开的 IM shadow 会话无需刷新即可实时出现该用户消息，显示「你」或外部发送者名。
 - [ ] 真实飞书 1:1 入站触发一个会产生中间 assistant 气泡的问题时，内部 IM shadow 中每个用户可见 assistant 文本气泡都必须在飞书收到对应消息；最终气泡不得重复。
 - [ ] 从 IM shadow 入口触发的回复仍不得回写飞书。
-- [ ] 根因回归测试覆盖：外部 sync 用户消息写入后产生可被前端 reducer 插入的 canonical `message.created` payload（含 content/attachments/sender display name），`message.sent/delivered` 保持 delivery/progress 语义。
+- [x] 根因回归测试覆盖：外部 sync 用户消息写入后产生可被前端 reducer 插入的 canonical `message.created` payload（含 content/attachments/sender display name），`message.sent/delivered` 保持 delivery/progress 语义。
 - [ ] 前端 reducer 对 `message.created` 去重并正确渲染 sender display name。
 - [ ] Gateway external reply mirror 以 assistant 气泡完成为边界发送，跳过 thinking/tool-only/NO_REPLY，按 dedupe key 防 terminal 重复。
 - [ ] Feishu THINKING reaction 只在 final/terminal 删除，中间 visible reply 不提前删除。
@@ -70,7 +70,7 @@ UI 状态矩阵：
 
 ## Roadpoints
 
-### R1 — IM live `message.created` payload
+### R1 — IM live `message.created` payload — DONE
 
 - 步骤:
   - 扩展 `message.created` payload builder，包含 attachments 和 sender display name。
