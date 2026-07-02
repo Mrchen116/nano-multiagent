@@ -8,13 +8,13 @@
 
 ## 退出标准
 
-- [ ] `skills/feishu-doc.md` 迁移为 `src/personal_assistant/builtin_skills/feishu-doc/SKILL.md`，并纳入 package data。
-- [ ] Gateway 启动检查 `~/.nanoassistant/skills/feishu-doc/SKILL.md`，缺失则复制内置版本，已有用户 skill 不覆盖。
-- [ ] enabled `feishu:<agent_id>` channel 绑定的 agent 若显式配置 skills allowlist，会自动补 `feishu-doc` 并写回本地 config；非 Feishu-bound agent 不补。
-- [ ] capabilities、prompt preview、list_skills、真实 session skill 注入同源可见 `feishu-doc`。
-- [ ] 单测覆盖缺失复制、不覆盖已有用户 skill、Feishu-bound allowlist 自动补并写回、prompt preview/list_skills/session 注入同源。
-- [ ] 相关窄测与 `pytest -m "not e2e"` 通过，或记录环境 blocker。
-- [ ] live-critical：真 Gateway 启动路径 + 真实飞书 1:1 入站证明 `feishu-doc` 可见并能给出云文档授权/创建指引。
+- [x] `skills/feishu-doc.md` 迁移为 `src/personal_assistant/builtin_skills/feishu-doc/SKILL.md`，并纳入 package data。
+- [x] Gateway 启动检查 `~/.nanoassistant/skills/feishu-doc/SKILL.md`，缺失则复制内置版本，已有用户 skill 不覆盖。
+- [x] enabled `feishu:<agent_id>` channel 绑定的 agent 若显式配置 skills allowlist，会自动补 `feishu-doc` 并写回本地 config；非 Feishu-bound agent 不补。
+- [x] capabilities、prompt preview、list_skills、真实 session skill 注入同源可见 `feishu-doc`。
+- [x] 单测覆盖缺失复制、不覆盖已有用户 skill、Feishu-bound allowlist 自动补并写回、prompt preview/list_skills/session 注入同源。
+- [x] 相关窄测与 `pytest -m "not e2e"` 通过，或记录环境 blocker。
+- [x] live-critical：真 Gateway 启动路径 + 真实飞书 1:1 入站证明 `feishu-doc` 可见并能给出云文档授权/创建指引。
 
 ## 测试策略
 
@@ -42,6 +42,6 @@
 
 ### R3 — skill 同源可见与 live-critical 验证
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 覆盖 capabilities、prompt preview、list_skills、runtime session skill 注入同源可见 `feishu-doc`；跑 Gateway 真启动路径与真实飞书 1:1 smoke。
 - 验证: 相关单测、`pytest -m "not e2e"`、真实 Gateway + `lark-cli --as user` 证据。

@@ -29,21 +29,21 @@
   - E2E/Regression: `tests/unit/personal_assistant/test_builtin_skill_bootstrap.py::test_gateway_startup_persists_feishu_doc_for_feishu_bound_allowlist` 覆盖启动写回和非绑定 agent 不补。
   - Visual/Interaction: N/A
 - Rollback: revert `3aca12cf` 并删除对应 C1 测试断言，再 revert 本文档提交。
-- Commits: C1=aaca4fe8, C2=3aca12cf, C3=TODO
+- Commits: C1=aaca4fe8, C2=3aca12cf, C3=5ed782ef
 - Next: R3
 
 ## R3 — skill 同源可见与 live-critical 验证
 
-- Context: TODO
-- Decision: TODO
-- Rationale: TODO
+- Context: R1/R2 已让内置 `feishu-doc` 进入 Gateway 启动路径并写回 Feishu-bound agent allowlist；剩余风险是 capabilities、prompt preview、`list_skills`、真实 session skill 注入是否真的使用同一个 skill resolver，以及真实飞书入站链路是否能触发 agent 引用 `feishu-doc`。
+- Decision: 新增同源单测覆盖 PA kernel capabilities、prompt preview、`kernel.list_skills()` 与 runtime session skill resolution；在真实 Gateway 启动路径中用临时移走全局 `~/.nanoassistant/skills/feishu-doc` 的方式验证 bootstrap 复制，并用真实 `lark-cli im +messages-send --as user` P2P 消息触发 agent 回复。
+- Rationale: 同源单测防止未来 capabilities/prompt/session 各走各的 resolver；live-critical 保留一次真实飞书链路证据，覆盖 webhook/IM/Gateway/session/LLM/飞书回发的集成风险。
 - Evidence:
-  - Tests: TODO
-  - Entry: TODO
+  - Tests: `pytest -q tests/unit/personal_assistant/test_builtin_skill_bootstrap.py` -> 5 passed；`pytest -q tests/unit/personal_assistant/test_builtin_skill_bootstrap.py tests/unit/personal_assistant/test_gateway_upstream_reporter.py tests/unit/agent/test_runtime_skill_resolution_same_source.py` -> 18 passed；`pytest -m "not e2e"` -> 3246 passed, 1 skipped, 22 deselected, 20 warnings in 143.04s。
+  - Entry: live config `/Users/czj/Repos/nano-multiagent/.worktrees/feat-447-M10/.gateway-config.yaml` 使用 `feishu:default-agent.settings.appId = cli_aac9315ef3f9dbda`，`lark-cli auth status --json --verify` 返回相同 `appId`，bot open id `ou_b33ae16df1338a00a77d4cdbec653b71`，user open id `ou_e6d1591026cfdac8d131eb1fdd71bdb9`。启动前临时移走全局 user skill；Gateway 启动后生成 `/Users/czj/.nanoassistant/skills/feishu-doc/SKILL.md`，local config 写回 `default-agent.skills = [change-spec-author, feishu-doc]`。IM `GET /im/v1/nodes/wt-feat-447-M10-live/capabilities` 输出 `node_capability_has_feishu_doc True`，`GET /im/v1/agents/default-agent/capabilities?node_id=wt-feat-447-M10-live` 输出 `agent_capability_has_feishu_doc True`。真实飞书发送命令：`lark-cli im +messages-send --as user --user-id ou_b33ae16df1338a00a77d4cdbec653b71 --text "feat-447-m10-live-20260702-200233 请使用 feishu-doc 说明如何创建飞书文档；如果未授权，请给出授权指引"`；输出 `message_id = om_x100b6b517b5164b0b39585855bc2f7b`, `chat_id = oc_1906eead0189484ce5ea8a4c245400a6`, `create_time = 2026-07-02 20:02:33`。随后 `lark-cli im +chat-messages-list --as user --chat-id oc_1906eead0189484ce5ea8a4c245400a6 --start 2026-07-02T20:02:00+08:00 --end 2026-07-02T20:08:00+08:00 --order asc` 返回 app 回复 `message_id = om_x100b6b517934c0b8b4bd4aa87ed1f7e`, `create_time = 2026-07-02 20:03`，内容引用 `feishu-doc` skill 并给出 `feishu-cli auth login` / `feishu-cli auth status` 授权指引和创建文档命令示例。
   - Frontend State Matrix: N/A
   - Browser QA: N/A
-  - E2E/Regression: TODO
+  - E2E/Regression: live Gateway/IM 前台会话在 127.0.0.1:65083 启动并已停止；IM 日志包含 `POST /im/v1/conversations/external/find-or-create` 201、`POST /im/v1/conversations/.../messages` 201、capabilities 200。停止后 `lsof -nP -iTCP:65083 -sTCP:LISTEN` 无输出；`.im.pid` / `.gateway.pid` 已删除；临时移走的用户全局 `feishu-doc` skill 已恢复。
   - Visual/Interaction: N/A
-- Rollback: TODO
-- Commits: C1=TODO, C2=TODO, C3=TODO
+- Rollback: revert `020eed33` 删除启动日志，revert `24563421` 删除同源单测，再保留 R1/R2 或整体 revert 本 milestone；live-critical 仅为一次性证据，无运行时状态需回滚。
+- Commits: C1=24563421, C2=020eed33, C3=this commit
 - Next: 本 milestone 完成
