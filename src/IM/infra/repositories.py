@@ -549,7 +549,11 @@ class ConversationRepository:
             with self._connection:
                 self._connection.execute(
                     "UPDATE conversations SET title = ?, type = ? WHERE id = ?",
-                    (" ".join(title.split()), "group" if is_group else "direct", existing["id"]),
+                    (
+                        " ".join(title.split()),
+                        "group" if is_group else "direct",
+                        existing["id"],
+                    ),
                 )
             found = self.get_conversation(conversation_id=str(existing["id"]))
             assert found is not None
@@ -662,7 +666,11 @@ class ConversationRepository:
             with self._connection:
                 self._connection.execute(
                     "UPDATE conversations SET title = ?, type = ? WHERE id = ?",
-                    (" ".join(title.split()), conversation_type, existing_after_race["id"]),
+                    (
+                        " ".join(title.split()),
+                        conversation_type,
+                        existing_after_race["id"],
+                    ),
                 )
             found_after_race = self.get_conversation(
                 conversation_id=str(existing_after_race["id"])
@@ -897,7 +905,9 @@ class ConversationRepository:
             if "config_profile_version" in row.keys()
             else None
         )
-        config_agent_id = row["config_agent_id"] if "config_agent_id" in row.keys() else None
+        config_agent_id = (
+            row["config_agent_id"] if "config_agent_id" in row.keys() else None
+        )
         row_keys = row.keys()
         # creator_id was added by M234 migration; fall back to owner_id for legacy rows.
         creator_id = (

@@ -162,7 +162,9 @@ def test_relay_lifecycle_callback_seeds_external_shadow_run_context() -> None:
     }
 
 
-def test_relay_lifecycle_callback_skips_lazy_direct_when_external_shadow_missing() -> None:
+def test_relay_lifecycle_callback_skips_lazy_direct_when_external_shadow_missing() -> (
+    None
+):
     run_context_store: dict[str, dict[str, str]] = {}
     callback = _build_relay_lifecycle_callback(
         reporter=None,

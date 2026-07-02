@@ -24,7 +24,9 @@ class _ShadowSync:
         self.conversation_id = conversation_id
         self.calls: list[dict[str, object]] = []
 
-    async def sync_user_message(self, message: InboundMessage, *, agent_id: str) -> str | None:
+    async def sync_user_message(
+        self, message: InboundMessage, *, agent_id: str
+    ) -> str | None:
         self.calls.append({"message": message, "agent_id": agent_id})
         return self.conversation_id
 

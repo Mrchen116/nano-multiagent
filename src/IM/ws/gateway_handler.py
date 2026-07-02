@@ -987,9 +987,10 @@ class GatewayHandler:
                     features=runtime_features,
                     custom_prompt=runtime_custom_prompt,
                 )
-                if user_repository.get_user_by_username(
-                    username=f"agent:{agent_id}"
-                ) is None:
+                if (
+                    user_repository.get_user_by_username(username=f"agent:{agent_id}")
+                    is None
+                ):
                     user_repository.create_user(
                         username=f"agent:{agent_id}",
                         display_name=runtime_display_name,

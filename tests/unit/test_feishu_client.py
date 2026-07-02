@@ -236,18 +236,14 @@ class TestFeishuClientSendMessage:
 class TestFeishuClientErrorClassification:
     """Verify send_message classifies feishu API errors correctly."""
 
-    def _make_started_client(
-        self, mock_rest: MagicMock
-    ) -> FeishuClient:
+    def _make_started_client(self, mock_rest: MagicMock) -> FeishuClient:
         """Create a FeishuClient with mocked REST client (bypasses WSClient)."""
         client = FeishuClient(app_id="cli_abc", app_secret="secret")
         # Inject mocked REST client directly — no WSClient needed for send tests
         client._rest_client = mock_rest
         return client
 
-    def _mock_response(
-        self, *, success: bool, code: int, msg: str = ""
-    ) -> MagicMock:
+    def _mock_response(self, *, success: bool, code: int, msg: str = "") -> MagicMock:
         """Build a mock lark-oapi API response."""
         resp = MagicMock()
         resp.success.return_value = success
@@ -267,7 +263,9 @@ class TestFeishuClientErrorClassification:
         rate_limit_resp = self._mock_response(success=False, code=429, msg="rate limit")
         ok_resp = self._mock_response(success=True, code=0)
         mock_rest.im.v1.message.create.side_effect = [
-            rate_limit_resp, rate_limit_resp, ok_resp
+            rate_limit_resp,
+            rate_limit_resp,
+            ok_resp,
         ]
 
         client = self._make_started_client(mock_rest)
@@ -312,9 +310,7 @@ class TestFeishuClientErrorClassification:
             assert str(code) in str(exc_info.value)
 
     @patch("time.sleep")
-    def test_server_error_retries_once(
-        self, mock_sleep: MagicMock
-    ) -> None:
+    def test_server_error_retries_once(self, mock_sleep: MagicMock) -> None:
         """5xx should retry exactly once, then raise FeishuAPIError if still failing."""
         from personal_assistant.channels.feishu_client import FeishuAPIError
 
@@ -339,11 +335,16 @@ class TestFeishuClientErrorClassification:
         mock_rest = MagicMock()
         # 429 → 429 → 429 (exhausted) → 500 (should still get 1 retry)
         rate_limit_resp = self._mock_response(success=False, code=429, msg="rate limit")
-        server_err_resp = self._mock_response(success=False, code=500, msg="server error")
+        server_err_resp = self._mock_response(
+            success=False, code=500, msg="server error"
+        )
         ok_resp = self._mock_response(success=True, code=0)
         mock_rest.im.v1.message.create.side_effect = [
-            rate_limit_resp, rate_limit_resp, rate_limit_resp,
-            server_err_resp, ok_resp,
+            rate_limit_resp,
+            rate_limit_resp,
+            rate_limit_resp,
+            server_err_resp,
+            ok_resp,
         ]
 
         client = self._make_started_client(mock_rest)
@@ -355,9 +356,7 @@ class TestFeishuClientErrorClassification:
         assert mock_sleep.call_count == 3  # 2 sleeps for 429 + 1 for 5xx
 
     @patch("time.sleep")
-    def test_server_error_retry_succeeds(
-        self, mock_sleep: MagicMock
-    ) -> None:
+    def test_server_error_retry_succeeds(self, mock_sleep: MagicMock) -> None:
         """5xx first call fails, retry succeeds → no exception."""
         mock_rest = MagicMock()
         server_resp = self._mock_response(success=False, code=502, msg="bad gateway")

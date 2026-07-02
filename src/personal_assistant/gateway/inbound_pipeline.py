@@ -94,6 +94,7 @@ class ShadowConversationSync(Protocol):
     ) -> str | None:
         """Persist one inbound user message and return the IM shadow conversation id."""
 
+
 _TERMINAL_RUN_STATUSES = TERMINAL_RUN_STATUSES
 # Default port for the Gateway's internal HTTP dispatch endpoint.
 _DEFAULT_GATEWAY_INTERNAL_PORT = 8089
@@ -278,9 +279,7 @@ class InboundPipeline:
         # Fallback to external_user_id ensures pre-M247 payloads still get the UUID prefix.
         sender_label = _resolve_sender_label(message)
         sync_only = message.metadata.get("sync_only") is True
-        message = await self._sync_external_shadow_message(
-            message, agent_id=agent_id
-        )
+        message = await self._sync_external_shadow_message(message, agent_id=agent_id)
 
         if message.is_group and self._group_context_store is not None:
             if sync_only or not should_process:

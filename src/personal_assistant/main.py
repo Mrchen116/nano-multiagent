@@ -1980,16 +1980,12 @@ def _infer_feishu_open_ids_from_lark_cli(
         )
         return {}
     identities = payload.get("identities")
-    user_identity = (
-        identities.get("user") if isinstance(identities, dict) else None
-    )
+    user_identity = identities.get("user") if isinstance(identities, dict) else None
     bot_identity = identities.get("bot") if isinstance(identities, dict) else None
     owner_open_id = (
         user_identity.get("openId") if isinstance(user_identity, dict) else None
     )
-    bot_open_id = (
-        bot_identity.get("openId") if isinstance(bot_identity, dict) else None
-    )
+    bot_open_id = bot_identity.get("openId") if isinstance(bot_identity, dict) else None
     inferred: dict[str, str] = {}
     if isinstance(owner_open_id, str) and owner_open_id.strip():
         inferred["ownerOpenId"] = owner_open_id.strip()

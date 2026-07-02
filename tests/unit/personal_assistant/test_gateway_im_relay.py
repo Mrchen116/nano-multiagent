@@ -157,7 +157,9 @@ def test_web_relay_adapter_converts_relay_payload_to_inbound_message() -> None:
     assert adapter.sent[0].text == "reply"
 
 
-def test_external_shadow_sync_uses_authenticated_im_user_not_stale_config_user() -> None:
+def test_external_shadow_sync_uses_authenticated_im_user_not_stale_config_user() -> (
+    None
+):
     """External shadow writes must use the Bearer-token user, not config.node.user_id."""
     requests: list[dict[str, object]] = []
 

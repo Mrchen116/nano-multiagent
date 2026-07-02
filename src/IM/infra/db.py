@@ -433,7 +433,9 @@ def _deduplicate_external_conversations(connection: sqlite3.Connection) -> None:
                 "DELETE FROM conversation_participants WHERE conversation_id = ?",
                 (duplicate_id,),
             )
-            connection.execute("DELETE FROM conversations WHERE id = ?", (duplicate_id,))
+            connection.execute(
+                "DELETE FROM conversations WHERE id = ?", (duplicate_id,)
+            )
 
 
 def _migrate_messages_metadata(connection: sqlite3.Connection) -> None:

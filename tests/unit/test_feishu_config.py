@@ -29,9 +29,7 @@ class TestParseFeishuChannels:
         payload = [
             {
                 "name": "feishu:plato",
-                "settings": _feishu_settings(
-                    appId="cli_abc123", appSecret="secret123"
-                ),
+                "settings": _feishu_settings(appId="cli_abc123", appSecret="secret123"),
             }
         ]
         channels = _parse_channels(payload)

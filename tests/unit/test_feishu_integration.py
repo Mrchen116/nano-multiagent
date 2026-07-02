@@ -89,7 +89,7 @@ class TestBuildChannelRegistryFeishu:
             ChannelConfig(
                 name="feishu:plato",
                 enabled=False,
-                    settings=_feishu_settings(),
+                settings=_feishu_settings(),
             ),
         )
         # Disabled feishu channels don't need group_context_store

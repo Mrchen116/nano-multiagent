@@ -305,9 +305,7 @@ class FeishuAdapter:
         }
         if is_group and chat_name:
             metadata["chat_name"] = chat_name
-            metadata["conversation_title"] = (
-                f"{self._agent_id} · {chat_name} · feishu"
-            )
+            metadata["conversation_title"] = f"{self._agent_id} · {chat_name} · feishu"
         return metadata
 
     def _group_chat_name(self, chat_id: str) -> str | None:

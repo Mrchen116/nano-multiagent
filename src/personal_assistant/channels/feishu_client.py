@@ -150,11 +150,13 @@ class FeishuClient:
             auto_reconnect=True,
         )
 
-        self._rest_client = lark.Client.builder() \
-            .app_id(self._app_id) \
-            .app_secret(self._app_secret) \
-            .domain(self._domain) \
+        self._rest_client = (
+            lark.Client.builder()
+            .app_id(self._app_id)
+            .app_secret(self._app_secret)
+            .domain(self._domain)
             .build()
+        )
 
         # WSClient.start() blocks — run in daemon thread so gateway bootstrap
         # is not blocked.
@@ -204,15 +206,19 @@ class FeishuClient:
             raise RuntimeError("feishu client is not started")
 
         content = json.dumps({"text": text})
-        body = CreateMessageRequestBody.builder() \
-            .receive_id(receive_id) \
-            .msg_type("text") \
-            .content(content) \
+        body = (
+            CreateMessageRequestBody.builder()
+            .receive_id(receive_id)
+            .msg_type("text")
+            .content(content)
             .build()
-        request = CreateMessageRequest.builder() \
-            .receive_id_type(receive_id_type) \
-            .request_body(body) \
+        )
+        request = (
+            CreateMessageRequest.builder()
+            .receive_id_type(receive_id_type)
+            .request_body(body)
             .build()
+        )
 
         max_rate_limit_attempts = _MAX_RATE_LIMIT_RETRIES
         max_server_error_attempts = _SERVER_ERROR_RETRIES
@@ -248,7 +254,10 @@ class FeishuClient:
                     logger.warning(
                         "feishu rate limited (code=%d), retrying in %.1fs "
                         "(attempt %d/%d)",
-                        code, backoff, rate_limit_attempt, max_rate_limit_attempts,
+                        code,
+                        backoff,
+                        rate_limit_attempt,
+                        max_rate_limit_attempts,
                     )
                     time.sleep(backoff)
                     continue
@@ -302,13 +311,17 @@ class FeishuClient:
             return
 
         reaction_type = Emoji.builder().emoji_type(emoji_type).build()
-        body = CreateMessageReactionRequestBody.builder() \
-            .reaction_type(reaction_type) \
+        body = (
+            CreateMessageReactionRequestBody.builder()
+            .reaction_type(reaction_type)
             .build()
-        request = CreateMessageReactionRequest.builder() \
-            .message_id(message_id) \
-            .request_body(body) \
+        )
+        request = (
+            CreateMessageReactionRequest.builder()
+            .message_id(message_id)
+            .request_body(body)
             .build()
+        )
 
         response = self._rest_client.im.v1.message_reaction.create(request)
         if response.success():
@@ -384,10 +397,12 @@ class FeishuClient:
         if not message_id or not reaction_id:
             return
 
-        request = DeleteMessageReactionRequest.builder() \
-            .message_id(message_id) \
-            .reaction_id(reaction_id) \
+        request = (
+            DeleteMessageReactionRequest.builder()
+            .message_id(message_id)
+            .reaction_id(reaction_id)
             .build()
+        )
 
         response = self._rest_client.im.v1.message_reaction.delete(request)
         if response.success():
