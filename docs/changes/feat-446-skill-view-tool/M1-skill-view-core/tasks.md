@@ -38,7 +38,7 @@
 
 ### R2 — prompt gates, defaults, and self-improvement
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 扩展 feature gate OR 逻辑、prompt guidance、self-improvement 白名单与提示、CLI/PA 默认工具和 capability projection。
 - 验证: `PYTHONPATH=src pytest tests/unit/test_agent_prompting.py tests/unit/test_self_improvement_hook.py tests/unit/test_runtime_tool_allowlist_filtering.py tests/contract/ -x`
 
