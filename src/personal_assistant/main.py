@@ -2490,6 +2490,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     # via its own factory (personal_assistant.product).  PA imports only agent.sdk +
     # its own package — no product_profile / host_capabilities.
     from agent.sdk import LLMConfig
+    from personal_assistant.builtin_skills.bootstrap import install_builtin_skills
     from personal_assistant.product import build_pa_kernel
 
     # PA does not supply can_use_tool: permission ask always parks on broker future
@@ -2503,6 +2504,11 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     # K2.6 thinking config) flow into build_kernel and the model registry.  decision 5:
     # build_kernel owns registry init internally from this LLMConfig.
     llm = LLMConfig.from_payload(config.llm)
+
+    try:
+        install_builtin_skills()
+    except Exception:  # noqa: BLE001
+        _log.warning("failed to install built-in personal assistant skills", exc_info=True)
 
     # CronServiceRegistry holds the per-agent CronExecutionService map + lifecycle
     # (set_gateway_loop / drain_all / register).  refactor-406 决策 9: the cron *tool*
