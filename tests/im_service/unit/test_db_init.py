@@ -92,11 +92,18 @@ def test_initialize_schema_migrates_legacy_conversations_before_external_index(
         row["name"]
         for row in connection.execute("PRAGMA index_list(conversations)").fetchall()
     }
+    message_columns = {
+        row["name"]
+        for row in connection.execute("PRAGMA table_info(messages)").fetchall()
+    }
 
     assert {"external_source", "external_chat_id", "config_agent_id", "owner_id"} <= (
         conversation_columns
     )
     assert "idx_conversations_external_identity" in conversation_indexes
+    assert {"sender_type", "thinking_json", "elapsed_ms", "sender_display_name"} <= (
+        message_columns
+    )
 
 
 def test_connect_supports_cross_thread_parameterized_reads_without_interface_errors(

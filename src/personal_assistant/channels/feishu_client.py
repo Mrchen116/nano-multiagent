@@ -21,6 +21,7 @@ from lark_oapi.api.im.v1 import (
     CreateMessageRequestBody,
     DeleteMessageReactionRequest,
     Emoji,
+    GetChatRequest,
 )
 from lark_oapi.event.dispatcher_handler import EventDispatcherHandler
 from lark_oapi.ws import Client as WSClient
@@ -324,6 +325,45 @@ class FeishuClient:
             )
         raise FeishuAPIError(
             f"feishu reaction API error: code={code}, msg={msg}",
+            code=code,
+        )
+
+    def get_chat_name(self, chat_id: str) -> str | None:
+        """Return the display name for a feishu group chat.
+
+        Args:
+            chat_id: Feishu group chat id (``oc_xxx``).
+
+        Returns:
+            The group name when Feishu returns one, otherwise ``None``.
+
+        Raises:
+            RuntimeError: When the client has not been started.
+            FeishuAuthError: When feishu returns 401/403.
+            FeishuAPIError: When feishu returns any other API error.
+        """
+        if self._rest_client is None:
+            raise RuntimeError("feishu client is not started")
+
+        request = GetChatRequest.builder().chat_id(chat_id).build()
+        response = self._rest_client.im.v1.chat.get(request)
+        if response.success():
+            data = getattr(response, "data", None)
+            name = getattr(data, "name", None)
+            if name is None:
+                return None
+            chat_name = str(name).strip()
+            return chat_name or None
+
+        code: int = response.code
+        msg: str = response.msg
+        if code in _AUTH_ERROR_CODES:
+            raise FeishuAuthError(
+                f"feishu auth error while fetching chat name: code={code}, msg={msg}",
+                code=code,
+            )
+        raise FeishuAPIError(
+            f"feishu API error while fetching chat name: code={code}, msg={msg}",
             code=code,
         )
 

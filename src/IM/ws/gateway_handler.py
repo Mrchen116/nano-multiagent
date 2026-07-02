@@ -929,6 +929,7 @@ class GatewayHandler:
             profile_repository = AgentProfileRepository(
                 self._node_repository._connection
             )
+            user_repository = UserRepository(self._node_repository._connection)
             for agent_id in agents:
                 existing = profile_repository.get_profile(agent_id=agent_id)
                 owner_id = (
@@ -986,6 +987,13 @@ class GatewayHandler:
                     features=runtime_features,
                     custom_prompt=runtime_custom_prompt,
                 )
+                if user_repository.get_user_by_username(
+                    username=f"agent:{agent_id}"
+                ) is None:
+                    user_repository.create_user(
+                        username=f"agent:{agent_id}",
+                        display_name=runtime_display_name,
+                    )
                 self._node_repository._connection.execute(
                     "UPDATE agent_profiles SET node_id = ? WHERE agent_id = ?",
                     (node_id, agent_id),

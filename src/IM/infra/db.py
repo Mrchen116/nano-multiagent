@@ -134,9 +134,6 @@ CREATE TABLE IF NOT EXISTS messages (
     FOREIGN KEY (sender_user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_conversations_external_identity
-ON conversations(external_source, external_chat_id, config_agent_id, owner_id);
-
 CREATE TABLE IF NOT EXISTS conversation_events (
     event_id INTEGER PRIMARY KEY AUTOINCREMENT,
     conversation_id TEXT NOT NULL,
@@ -384,6 +381,8 @@ def _migrate_messages_metadata(connection: sqlite3.Connection) -> None:
     # feat-439-M2: 整轮多段思考（过程时间线）。Nullable JSON：旧行 / 无思考的轮为 NULL。
     if "thinking_json" not in column_names:
         connection.execute("ALTER TABLE messages ADD COLUMN thinking_json TEXT")
+    if "elapsed_ms" not in column_names:
+        connection.execute("ALTER TABLE messages ADD COLUMN elapsed_ms INTEGER")
     # feat-333-M2: embeds permission_request payload (pending/resolved) alongside tool_calls.
     if "permission_request_json" not in column_names:
         connection.execute(

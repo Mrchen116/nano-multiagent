@@ -10,7 +10,9 @@ import pytest
 
 lark_oapi = pytest.importorskip("lark_oapi")
 
-from personal_assistant.config.local_store import ChannelConfig
+from personal_assistant.config.local_store import (
+    ChannelConfig,
+)
 from personal_assistant.gateway.group_context_store import GroupContextStore
 from personal_assistant.main import _build_channel_registry
 

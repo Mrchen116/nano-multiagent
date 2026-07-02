@@ -1848,9 +1848,16 @@ def _load_runtime_config(
     config_path: str | Path,
     *,
     load_config: Callable[[str | Path], LocalConfig] = load_local_config,
+    save_config: Callable[[LocalConfig, str | Path], None] = save_local_config,
+    command_runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
     im_service_url_override: str | None = None,
 ) -> LocalConfig:
     config = load_config(config_path)
+    config = _autofill_feishu_owner_open_id(
+        config,
+        save_config=save_config,
+        command_runner=command_runner,
+    )
     if (
         not isinstance(im_service_url_override, str)
         or not im_service_url_override.strip()
@@ -1870,6 +1877,89 @@ def _load_runtime_config(
             password=old_im.password,
         ),
     )
+
+
+def _autofill_feishu_owner_open_id(
+    config: LocalConfig,
+    *,
+    save_config: Callable[[LocalConfig, str | Path], None] = save_local_config,
+    command_runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+) -> LocalConfig:
+    """Fill missing Feishu ownerOpenId from the matching local lark-cli auth."""
+    updated_channels: list[ChannelConfig] = []
+    changed = False
+    for channel in config.channels:
+        if not channel.enabled or not channel.name.startswith("feishu:"):
+            updated_channels.append(channel)
+            continue
+        settings = dict(channel.settings)
+        owner_open_id = settings.get("ownerOpenId")
+        if isinstance(owner_open_id, str) and owner_open_id.strip():
+            updated_channels.append(channel)
+            continue
+        app_id = settings.get("appId")
+        if not isinstance(app_id, str) or not app_id.strip():
+            updated_channels.append(channel)
+            continue
+        inferred = _infer_feishu_owner_open_id_from_lark_cli(
+            app_id.strip(), command_runner=command_runner
+        )
+        if inferred is None:
+            updated_channels.append(channel)
+            continue
+        settings["ownerOpenId"] = inferred
+        updated_channels.append(replace(channel, settings=settings))
+        changed = True
+    if not changed:
+        return config
+    updated = replace(config, channels=tuple(updated_channels))
+    source_path = getattr(updated, "source_path", None)
+    if source_path is not None:
+        save_config(updated, source_path)
+    return updated
+
+
+def _infer_feishu_owner_open_id_from_lark_cli(
+    app_id: str,
+    *,
+    command_runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+) -> str | None:
+    """Return lark-cli user open_id when its verified app matches ``app_id``."""
+    try:
+        result = command_runner(
+            ["lark-cli", "auth", "status", "--json", "--verify"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        _log.warning("failed to run lark-cli auth status for ownerOpenId inference")
+        return None
+    if result.returncode != 0:
+        _log.warning(
+            "lark-cli auth status failed; ownerOpenId will not be auto-filled"
+        )
+        return None
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        _log.warning("lark-cli auth status returned invalid JSON")
+        return None
+    if payload.get("appId") != app_id:
+        _log.warning(
+            "lark-cli appId does not match feishu channel; ownerOpenId not filled"
+        )
+        return None
+    identities = payload.get("identities")
+    user_identity = (
+        identities.get("user") if isinstance(identities, dict) else None
+    )
+    open_id = (
+        user_identity.get("openId") if isinstance(user_identity, dict) else None
+    )
+    if isinstance(open_id, str) and open_id.strip():
+        return open_id.strip()
+    return None
 
 
 def run_gateway(
@@ -3131,7 +3221,7 @@ def _build_channel_registry(
                     app_id=settings["appId"],
                     app_secret=settings["appSecret"],
                     bot_open_id=settings.get("botOpenId"),
-                    owner_open_id=settings["ownerOpenId"],
+                    owner_open_id=settings.get("ownerOpenId"),
                     group_context_store=group_context_store,
                 )
             )
