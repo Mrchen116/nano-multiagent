@@ -339,3 +339,100 @@ Actual:
 ## Recommended Next Step
 
 Route back to implementation. Re-review is required after the open chat pane renders same-conversation live arrivals again; the stale force-scroll path should be rechecked only after that prerequisite passes.
+
+---
+
+# Round 4 — 2026-07-02
+
+## Verdict
+
+- Verdict: `pass`
+- Highest Required Action: `pass`
+- Reviewer mode: full.
+- Tested entry: Web IM via Vite dev server `http://127.0.0.1:59613/chat/...` against isolated IM `127.0.0.1:59612` and an isolated Gateway `wt-feat451-r4` for direct-agent fork coverage.
+- Test data: user `feat451r4ok_1782957560`; primary conversation `ac00f842d8044bfaa59c8aa1746a616d` with 75 historical messages; switch conversation `1241a5eaf3e6473c9f69f1504349fff9`; direct user-agent conversation `ef4fe2eb34d74dd8bca0920bb0387388` with a completed `r4-agent` reply.
+
+## Runbook Notes
+
+- Services were restarted for this round on isolated ports: IM `127.0.0.1:59612`, Vite `127.0.0.1:59613`, Gateway node `wt-feat451-r4`.
+- Vite was started in real IM mode with `VITE_CHAT_API_MODE=im` and `VITE_IM_API_BASE_URL=http://127.0.0.1:59612`.
+- Browser loaded `/src/main.tsx` from the worktree Vite server.
+- The direct-agent fork precondition required a real Gateway-bound agent; `r4-agent` appeared online in IM nodes/agents before the fork journey.
+
+## User Journeys Exercised
+
+1. Desktop history pagination: open a 75-message conversation, verify initial latest page is capped at 50 rows, scroll into the upper portion, observe older messages prepended, no-more state, and stable reading position.
+2. Round 3 live-arrival regression: while off-bottom in the active conversation, create a same-conversation message and verify both active pane and sidebar preview show it without jumping to bottom; repeat at bottom and verify bottom follow.
+3. Conversation switch regression: navigate from the primary conversation to a second conversation and verify the second pane contains only its own messages.
+4. Desktop and mobile input/actions: desktop Shift+Enter newline and Enter send; desktop right-click Copy; mobile Enter send, composer auto-grow cap, long-press Copy.
+5. Mobile direct-agent fork: start an isolated Gateway, produce a completed direct-agent reply, long-press the agent reply on mobile, select fork, and verify the fork request succeeds with visible navigation to a new chat.
+
+## Round 3 Failure Rechecked
+
+- Round 3 Issue 1, open chat pane does not render same-conversation live messages: closed. Off-bottom live text `R4 live offbottom 1782957717086` appeared in `.chat-pane-messages` and `.chat-sidebar`; scroll stayed in history (`bottomDistance` increased from `1976` to `2043`, no bottom jump). Bottom live text `R4 live bottom 1782957717948` appeared in both places and stayed at `bottomDistance=0`.
+- Conversation switching regression remains closed. Switching to `R4 Switch Clean OK` showed `R4 B history 001` through `006` and no `R4 A history` or live messages from the prior conversation.
+
+## Issues
+
+No in-unit acceptance issues found in Round 4.
+
+## Acceptance Criteria Coverage
+
+### Requirement: 消息历史可通过向上滚动分页加载更早内容 — group result: `pass`
+
+| Scenario | Expected Source | Verification | Evidence | Result | Notes |
+|---|---|---|---|---|---|
+| 会话有多页历史，用户向上滚动触发加载 | `spec.md` | Desktop opened 75-message conversation and scrolled upward into the upper loaded region. | Initial pane had 50 rows and latest `R4 A history 075`; after scroll it had 75 rows and older `R4 A history 001`/`025` content. | `pass` | Reading stayed in history, not bottom. |
+| 已经翻到最老的消息 | `spec.md` | Continued top scroll after older page loaded. | `No earlier messages` was visible and row count stayed at the full history size. | `pass` | Empty/no-more state is clear. |
+| 正在加载更早消息 | `spec.md` | Delayed the real older-history request in the browser while still continuing to IM. | `Loading earlier messages...` was visible during the delayed request; older content appeared after response. | `pass` | Delay was only to observe the user-visible loading state. |
+
+### Requirement: 新消息到达不打扰正在翻看历史的用户 — group result: `pass`
+
+| Scenario | Expected Source | Verification | Evidence | Result | Notes |
+|---|---|---|---|---|---|
+| 用户正在看历史时收到新消息 | `spec.md`; M4 exit criteria | Off-bottom in primary conversation, then same-conversation message was created through public IM API. | Active pane and sidebar both showed `R4 live offbottom 1782957717086`; `scrollTop` stayed in the historical region (`2465 -> 2427`), with no bottom jump. | `pass` | This directly closes Round 3's pane/sidebar inconsistency. |
+| 用户在底部时收到新消息 | `spec.md`; M4 exit criteria | Scrolled primary conversation to bottom, then created same-conversation message. | Active pane and sidebar both showed `R4 live bottom 1782957717948`; bottom distance stayed `0 -> 0`. | `pass` | Bottom follow works. |
+
+### Requirement: 移动端输入法回车发送消息 — group result: `pass`
+
+| Scenario | Expected Source | Verification | Evidence | Result | Notes |
+|---|---|---|---|---|---|
+| 移动端按回车发送 | `spec.md` | Mobile `390x844`: typed `R4 mobile enter send` and pressed Enter. | Message appeared in pane; textarea value became empty. | `pass` | No newline inserted. |
+| 桌面端保持 Enter 发送 / Shift+Enter 换行 | `spec.md` | Desktop typed one line, pressed Shift+Enter, typed second line, then Enter. | Textarea held `R4 desktop line A\nR4 desktop line B`; after Enter, message appeared and composer cleared. | `pass` | Existing desktop behavior preserved. |
+
+### Requirement: composer 输入框随内容自动增高 — group result: `pass`
+
+| Scenario | Expected Source | Verification | Evidence | Result | Notes |
+|---|---|---|---|---|---|
+| 输入多行文字时 composer 增高 | `spec.md` | Mobile filled six lines into composer. | Textarea reported `rows="4"`, `clientHeight=100`, `scrollHeight=146`. | `pass` | It capped and became internally scrollable. |
+
+### Requirement: 消息气泡支持复制与长按菜单 — group result: `pass`
+
+| Scenario | Expected Source | Verification | Evidence | Result | Notes |
+|---|---|---|---|---|---|
+| 长按/右键消息气泡调出菜单 | `spec.md` | Desktop right-clicked a message; mobile long-pressed a visible message and released. | Desktop menu showed `Copy`; mobile menu showed `Copy` during hold and after release. | `pass` | Menu remained selectable after release. |
+| 复制消息文本 | `spec.md` | Desktop chose Copy; mobile chose Copy after long-press release. | Desktop clipboard became `R4 A history 028 other`; mobile clipboard became `R4 live bottom 1782957717948`. | `pass` | Clipboard permission was granted in browser context. |
+| 移动端单聊里长按 agent 回复进行 fork | `spec.md` | Mobile long-pressed completed `r4-agent` reply in direct user-agent chat, then selected fork. | Menu showed `Copy` + `fork`; `POST /im/v1/conversations/.../fork` returned `201`; URL changed from `/chat/ef4fe2...` to `/chat/e3aaf59263e64b7980f039d305620c5a`. | `pass` | Navigation is clear user feedback. |
+
+### Requirement: 桌面与移动端体验一致 — group result: `pass`
+
+| Scenario | Expected Source | Verification | Evidence | Result | Notes |
+|---|---|---|---|---|---|
+| 在手机端向上滚动加载历史 | `spec.md` | Mobile `390x844` opened the same primary conversation and scrolled upward into the upper loaded region. | Initial mobile pane had 50 rows; after upward scroll it had 78 rows, showed older history / `No earlier messages`, and stayed off-bottom (`bottomDistance=1976`). | `pass` | Reading position stayed in history rather than jumping to bottom. |
+| 在手机端长按 agent 消息 fork | `spec.md` | Mobile direct-agent completed reply long-press. | `fork` stayed visible after release; click returned `201` and navigated to a new chat. | `pass` | Direct-agent fork is usable on mobile. |
+
+## Side Findings
+
+- Browser console still logged transient user-stream WebSocket handshake/reconnect warnings during page load and route changes. User-visible live arrivals, sidebar preview, and active pane behavior passed despite those warnings.
+- An incorrectly created API-only agent conversation that omitted the current user showed a product-level send error (`sender_user_id is not a participant of conversation`). I did not classify it as an in-unit issue because the correct direct user-agent conversation path was subsequently verified and fork passed.
+
+## Upper-Level Document Sync
+
+- [x] `SPEC.md` (cross-package top architecture): no update needed; this unit changes IM frontend user behavior only.
+- [x] `docs/specs/im/spec.md` (canonical IM behavior contract): still needs final orchestrator sync before landing; this unit's delta remains under `docs/changes/feat-451-chat-history-pagination/specs/im/spec.md`.
+- [x] `AGENTS.md` / `CLAUDE.md`: no update needed.
+- [x] `docs/SPEC_GUIDE.md`: no update needed.
+
+## Recommended Next Step
+
+Proceed toward landing after the normal orchestrator document-sync gate. No further product re-review is required for feat-451 acceptance.
