@@ -164,11 +164,15 @@ class FeishuAdapter:
             return
 
         if not event.is_group:
+            if self._is_self_sender(event):
+                return
             self._ack_received(event)
             self._deliver_dm(event)
             return
 
         self._deliver_group_history_before(event)
+        if self._is_self_sender(event):
+            return
         if _is_bot_mentioned(event.mentions, self._bot_open_id):
             self._ack_received(event)
             self._deliver_group(event, sync_only=False)
@@ -197,8 +201,17 @@ class FeishuAdapter:
             )
             return
 
+        pending: list[FeishuMessageEvent] = []
         for message in messages:
+            if self._is_self_sender(message):
+                pending.clear()
+                continue
+            pending.append(message)
+
+        for message in pending:
             if not message.message_id or message.message_id == event.message_id:
+                continue
+            if not message.text.strip():
                 continue
             if self._was_group_message_seen(message):
                 continue
@@ -215,6 +228,9 @@ class FeishuAdapter:
         seen[event.message_id] = None
         if len(seen) > 500:
             self._seen_group_message_ids[event.chat_id] = dict(list(seen.items())[-250:])
+
+    def _is_self_sender(self, event: FeishuMessageEvent) -> bool:
+        return event.sender_open_id in {self._bot_open_id, self._app_id}
 
     def _ack_received(self, event: FeishuMessageEvent) -> None:
         """React to a message that is about to enter the agent pipeline."""

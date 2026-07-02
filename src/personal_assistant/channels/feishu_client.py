@@ -314,7 +314,7 @@ class FeishuClient:
             .container_id_type("chat")
             .container_id(chat_id)
             .page_size(page_size)
-            .sort_type("ByCreateTimeAsc")
+            .sort_type("ByCreateTimeDesc")
             .build()
         )
         response = self._rest_client.im.v1.message.list(request)
@@ -333,11 +333,14 @@ class FeishuClient:
                 code=code,
             )
         items = getattr(response.data, "items", None) or []
-        return [
-            _parse_feishu_history_message(item, chat_id=chat_id)
-            for item in items
-            if _message_type(item) == "text"
-        ]
+        events: list[FeishuMessageEvent] = []
+        for item in reversed(items):
+            if _message_type(item) != "text":
+                continue
+            event = _parse_feishu_history_message(item, chat_id=chat_id)
+            if event.text.strip():
+                events.append(event)
+        return events
 
     def add_reaction(
         self, *, message_id: str, emoji_type: str = "THINKING"
@@ -522,7 +525,7 @@ def _parse_feishu_event(event: Any) -> FeishuMessageEvent:
 def _parse_feishu_history_message(message: Any, *, chat_id: str) -> FeishuMessageEvent:
     sender_open_id = _extract_message_sender_open_id(message)
     message_id = str(getattr(message, "message_id", "") or getattr(message, "id", ""))
-    raw_content = str(getattr(message, "content", "") or "")
+    raw_content = _extract_message_content(message)
     raw_text = _extract_text(raw_content)
     mentions = _extract_mentions(message)
     text = _normalize_mention_text(raw_text, mentions)
@@ -543,6 +546,25 @@ def _parse_feishu_history_message(message: Any, *, chat_id: str) -> FeishuMessag
 
 def _message_type(message: Any) -> str:
     return str(getattr(message, "msg_type", "") or getattr(message, "message_type", ""))
+
+
+def _extract_message_content(message: Any) -> str:
+    for value in (
+        getattr(message, "content", None),
+        getattr(getattr(message, "body", None), "content", None),
+    ):
+        if isinstance(value, str) and value:
+            return value
+    if isinstance(message, dict):
+        for key in ("content", "body"):
+            value = message.get(key)
+            if isinstance(value, str) and value:
+                return value
+            if isinstance(value, dict):
+                nested = value.get("content")
+                if isinstance(nested, str) and nested:
+                    return nested
+    return ""
 
 
 def _extract_message_sender_open_id(message: Any) -> str:
