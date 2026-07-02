@@ -2507,7 +2507,10 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     llm = LLMConfig.from_payload(config.llm)
 
     try:
-        install_builtin_skills()
+        installed_builtin_skills = install_builtin_skills()
+        if installed_builtin_skills:
+            installed_names = ", ".join(sorted(installed_builtin_skills))
+            _log.info("installed built-in personal assistant skills: %s", installed_names)
     except Exception:  # noqa: BLE001
         _log.warning("failed to install built-in personal assistant skills", exc_info=True)
     config, feishu_skill_config_changed = ensure_feishu_doc_skill_for_feishu_agents(
