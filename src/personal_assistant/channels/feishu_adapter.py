@@ -73,6 +73,7 @@ class FeishuAdapter:
         self._on_inbound: InboundHandler | None = None
         self._ack_reactions: dict[str, str] = {}
         self._ack_reactions_lock = threading.Lock()
+        self._seen_group_message_ids: dict[str, dict[str, None]] = {}
 
     @property
     def name(self) -> str:
@@ -167,11 +168,53 @@ class FeishuAdapter:
             self._deliver_dm(event)
             return
 
+        self._deliver_group_history_before(event)
         if _is_bot_mentioned(event.mentions, self._bot_open_id):
             self._ack_received(event)
             self._deliver_group(event, sync_only=False)
         else:
             self._deliver_group(event, sync_only=True)
+        self._remember_group_message(event)
+
+    def _deliver_group_history_before(self, event: FeishuMessageEvent) -> None:
+        """Best-effort catch-up for ordinary group messages missing from events."""
+        if self._client is None:
+            return
+        try:
+            messages = self._client.fetch_group_messages(chat_id=event.chat_id)
+        except (FeishuAuthError, FeishuAPIError, RuntimeError) as exc:
+            logger.warning(
+                "failed to fetch feishu group history; ordinary group messages "
+                "may be missing from IM shadow and group context",
+                exc_info=True,
+                extra={
+                    "error_code": "feishu_group_history_fetch_failed",
+                    "chat_id": event.chat_id,
+                    "agent_id": self._agent_id,
+                    "adapter": self.name,
+                    "feishu_error_code": getattr(exc, "code", None),
+                },
+            )
+            return
+
+        for message in messages:
+            if not message.message_id or message.message_id == event.message_id:
+                continue
+            if self._was_group_message_seen(message):
+                continue
+            self._deliver_group(message, sync_only=True, source="history_catchup")
+            self._remember_group_message(message)
+
+    def _was_group_message_seen(self, event: FeishuMessageEvent) -> bool:
+        return event.message_id in self._seen_group_message_ids.get(event.chat_id, {})
+
+    def _remember_group_message(self, event: FeishuMessageEvent) -> None:
+        if not event.message_id:
+            return
+        seen = self._seen_group_message_ids.setdefault(event.chat_id, {})
+        seen[event.message_id] = None
+        if len(seen) > 500:
+            self._seen_group_message_ids[event.chat_id] = dict(list(seen.items())[-250:])
 
     def _ack_received(self, event: FeishuMessageEvent) -> None:
         """React to a message that is about to enter the agent pipeline."""
@@ -253,7 +296,13 @@ class FeishuAdapter:
         assert self._on_inbound is not None
         self._on_inbound(inbound)
 
-    def _deliver_group(self, event: FeishuMessageEvent, *, sync_only: bool) -> None:
+    def _deliver_group(
+        self,
+        event: FeishuMessageEvent,
+        *,
+        sync_only: bool,
+        source: str = "event",
+    ) -> None:
         """Deliver a group message and let InboundPipeline own buffering/drain."""
         external_chat_id = f"feishu:{self._app_id}:group:{event.chat_id}"
         chat_name = self._group_chat_name(event.chat_id)
@@ -266,6 +315,7 @@ class FeishuAdapter:
             ],
             "raw_text": event.raw_text,
             "mention_only": event.mention_only,
+            "feishu_delivery_source": source,
             **self._external_metadata(event, is_group=True, chat_name=chat_name),
         }
         if sync_only:

@@ -22,6 +22,7 @@ from lark_oapi.api.im.v1 import (
     DeleteMessageReactionRequest,
     Emoji,
     GetChatRequest,
+    ListMessageRequest,
 )
 from lark_oapi.event.dispatcher_handler import EventDispatcherHandler
 from lark_oapi.ws import Client as WSClient
@@ -292,6 +293,52 @@ class FeishuClient:
                 code=code,
             )
 
+    def fetch_group_messages(
+        self,
+        *,
+        chat_id: str,
+        page_size: int = 50,
+    ) -> list[FeishuMessageEvent]:
+        """Fetch recent group chat messages visible to the bot identity.
+
+        This is used as a compensation path for Feishu/Lark app configurations
+        where ``im.message.receive_v1`` delivers mention-class events but omits
+        ordinary group messages. It requires the app/bot to have the associated
+        group-message read capability; missing permission is surfaced as
+        ``FeishuAPIError`` with the platform code.
+        """
+        if self._rest_client is None:
+            raise RuntimeError("feishu client is not started")
+        request = (
+            ListMessageRequest.builder()
+            .container_id_type("chat")
+            .container_id(chat_id)
+            .page_size(page_size)
+            .sort_type("ByCreateTimeAsc")
+            .build()
+        )
+        response = self._rest_client.im.v1.message.list(request)
+        if not response.success():
+            code: int = response.code
+            msg: str = response.msg
+            if code in _AUTH_ERROR_CODES:
+                raise FeishuAuthError(
+                    f"feishu auth error while listing group messages: "
+                    f"code={code}, msg={msg}",
+                    code=code,
+                )
+            raise FeishuAPIError(
+                f"feishu API error while listing group messages: "
+                f"code={code}, msg={msg}",
+                code=code,
+            )
+        items = getattr(response.data, "items", None) or []
+        return [
+            _parse_feishu_history_message(item, chat_id=chat_id)
+            for item in items
+            if _message_type(item) == "text"
+        ]
+
     def add_reaction(
         self, *, message_id: str, emoji_type: str = "THINKING"
     ) -> str | None:
@@ -470,6 +517,56 @@ def _parse_feishu_event(event: Any) -> FeishuMessageEvent:
         raw_text=raw_text,
         mention_only=mention_only,
     )
+
+
+def _parse_feishu_history_message(message: Any, *, chat_id: str) -> FeishuMessageEvent:
+    sender_open_id = _extract_message_sender_open_id(message)
+    message_id = str(getattr(message, "message_id", "") or getattr(message, "id", ""))
+    raw_content = str(getattr(message, "content", "") or "")
+    raw_text = _extract_text(raw_content)
+    mentions = _extract_mentions(message)
+    text = _normalize_mention_text(raw_text, mentions)
+    mention_only = bool(mentions) and _text_without_mentions(raw_text, mentions) == ""
+    return FeishuMessageEvent(
+        text=text,
+        sender_open_id=sender_open_id,
+        chat_id=chat_id,
+        chat_type="group",
+        message_id=message_id,
+        is_group=True,
+        mentions=mentions,
+        sender_display_name=_extract_message_sender_display_name(message),
+        raw_text=raw_text,
+        mention_only=mention_only,
+    )
+
+
+def _message_type(message: Any) -> str:
+    return str(getattr(message, "msg_type", "") or getattr(message, "message_type", ""))
+
+
+def _extract_message_sender_open_id(message: Any) -> str:
+    sender = getattr(message, "sender", None)
+    if sender is None:
+        return ""
+    sender_id = getattr(sender, "sender_id", None)
+    if sender_id is not None:
+        value = getattr(sender_id, "open_id", None)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    value = getattr(sender, "id", None)
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _extract_message_sender_display_name(message: Any) -> str | None:
+    sender = getattr(message, "sender", None)
+    if sender is None:
+        return None
+    for attr in ("name", "tenant_key"):
+        value = getattr(sender, attr, None)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
 
 
 def _extract_sender_display_name(sender: Any) -> str | None:

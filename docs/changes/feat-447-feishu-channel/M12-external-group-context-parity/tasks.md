@@ -10,8 +10,8 @@
 
 - [x] FeishuClient mention 解析保留用户可见 @ 正文，同时输出 `mentioned_agent_ids` / `mention_only` metadata；不把 `@<bot>` 从正文删掉。
 - [x] `@所有人` / `@all` 不进入目标 agent 的 `mentioned_agent_ids`，也不触发 Bot，只作为普通群上下文可见。
-- [ ] 未 @ 群消息走 `sync_only` 并复用 `GroupContextStore` external key；后续 @Bot 或纯 @Bot drain 同一 external key。代码路径已有单测覆盖；真实 Feishu app 当前未投递普通未 @ 群消息，live 阻塞见 progress.md R3。
-- [ ] 纯 @Bot 不变成空文本，IM shadow sync 不再 400；纯 @ 消息可在 IM shadow group 中实时出现，并能触发 agent 使用之前未 @ 背景。纯 @ 非空和 IM shadow 已通过；“之前未 @ 背景”真实 live 阻塞见 progress.md R3。
+- [ ] 未 @ 群消息走 `sync_only` 并复用 `GroupContextStore` external key；后续 @Bot 或纯 @Bot drain 同一 external key。代码路径和 Feishu group history catch-up 已有单测覆盖；真实 Feishu app 当前既未投递普通未 @ 群消息，也缺 bot 历史读取权限，live 阻塞见 progress.md R3。
+- [ ] 纯 @Bot 不变成空文本，IM shadow sync 不再 400；纯 @ 消息可在 IM shadow group 中实时出现，并能触发 agent 使用之前未 @ 背景。纯 @ 非空和 IM shadow 已通过；“之前未 @ 背景”真实 live 因当前 app 缺 `im:message.group_msg` 阻塞，见 progress.md R3。
 - [x] `@bot hi` 在 IM 和 LLM context 均保留 @ 与 hi，不能只剩 hi。
 - [x] 如果飞书平台/app 只投递 @Bot 事件，有 health/warning 或可诊断证据表明权限/订阅缺失。
 - [x] 单测覆盖未 @ -> 纯 @ drain、mention-only 非空化、`@bot hi` 不删 @、`@所有人` 不触发 Bot、平台普通群消息缺失的 health/warning。
@@ -37,7 +37,7 @@ UI 状态矩阵：N/A
 |---|---|---|
 | mention-only 变空导致 IM shadow 400 | FeishuClient + adapter + pipeline 单测；live 纯 @Bot 证据 | 单测落库，live 证据不落库 |
 | @Bot 正文被删导致 IM/LLM 只剩 hi | FeishuClient parse 单测 + pipeline parts 单测 | 是 |
-| 未 @ 背景不能被纯 @ drain | pipeline external key 单测 + live nonce | 单测落库，live 证据不落库 |
+| 未 @ 背景不能被纯 @ drain | pipeline external key 单测 + Feishu group history catch-up 单测 + live nonce | 单测落库，live 证据不落库 |
 | 飞书 app 只投递 @Bot 事件时不可诊断 | config/adapter health warning 单测 + live 日志 | 是 |
 
 ## Roadpoints
