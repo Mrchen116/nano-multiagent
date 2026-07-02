@@ -36,21 +36,21 @@
   - E2E/Regression: R2 仅改提示词/默认工具投影/自改进 hook，不起真服务；相关回归为上述 unit/contract 窄测。
   - Visual/Interaction: N/A
 - Rollback: revert `6edab5f` and `8a8b3a6` together to remove R2 implementation/tests.
-- Commits: C1=8a8b3a6, C2=6edab5f, C3=TODO
+- Commits: C1=8a8b3a6, C2=6edab5f, C3=218e9d0
 - Next: R3
 
 ## R3 — compaction survival and final contract gate
 
-- Context: TODO
-- Decision: TODO
-- Rationale: TODO
+- Context: 生产 `ToolContext` 不持有 `register_invoked_skill`，不能靠工具上下文直接改 session metadata；但 `skill_view` 已有 `.usage.json` session_refs，可作为 compaction 后重读当前 SKILL.md 的审计索引。
+- Decision: `bump_skill_usage()` 的 session_ref 增加 `location`；`Kernel.compact()` 成功后扫描 workspace/PA search roots 的 `.usage.json`，找当前 session 的 refs，按 `location` 重读当前 SKILL.md，并通过 `append_message()` 追加 `<system-reminder>` synthetic user message，metadata 写入 `is_skill_reinjection` 和 `skill_reinjection_refs`。
+- Rationale: 不改 runtime compaction 内部即可满足重读/注入/resume metadata；`append_message()` 既有 JSONL 持久化和 runtime cache invalidation，后续 resume/load 能恢复该 synthetic message 及 metadata。
 - Evidence:
-  - Tests: TODO
-  - Entry: TODO
+  - Tests: C1 红测 `PYTHONPATH=src pytest tests/unit/test_skill_view.py -x` -> 失败，usage session_ref 缺 `location`；C2 后 `PYTHONPATH=src pytest tests/unit/test_skill_view.py tests/unit/test_usage.py -x` -> 9 passed；最终 gate `PYTHONPATH=src pytest tests/unit/test_skill_view.py tests/unit/test_usage.py tests/contract/ -x` -> 141 passed。
+  - Entry: `tests/unit/test_skill_view.py::test_kernel_compact_reinjects_current_skill_content_from_usage_location` 覆盖 compact 后重读已修改的当前 SKILL.md、注入 `<system-reminder>`、metadata 含 `is_skill_reinjection` 和 `skill_reinjection_refs`；`test_skill_view_returns_skill_content_and_records_usage` 覆盖 usage ref 写 location。
   - Frontend State Matrix: N/A
   - Browser QA: N/A
-  - E2E/Regression: TODO
+  - E2E/Regression: 本 roadpoint 不起真服务；最终 contract gate 全量覆盖 SDK/compaction/capability 边界。
   - Visual/Interaction: N/A
-- Rollback: TODO
-- Commits: C1=TODO, C2=TODO, C3=TODO
+- Rollback: revert `0399cd6` and `3d20080` together to remove R3 implementation/tests.
+- Commits: C1=3d20080, C2=0399cd6, C3=TODO
 - Next: DONE

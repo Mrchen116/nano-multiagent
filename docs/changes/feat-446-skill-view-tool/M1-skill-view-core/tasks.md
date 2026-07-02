@@ -8,15 +8,15 @@
 
 ## 退出标准
 
-- [ ] agent 调用 `skill_view` 返回 SKILL.md 内容。
-- [ ] `skill_manage` 不含 `view` action。
-- [ ] `skill_manage(create, scope=agent/pa)` 写入指定 root，且不可用 PA root 时失败不回退。
-- [ ] PA 默认工具集合和 capability projection 均包含 `skill_view` 且 `default_on=true`。
-- [ ] 未显式配置工具白名单的 PA agent 默认启用 `skill_view`。
-- [ ] 已有显式 `tool_allowlist` 不被自动扩宽，不含 `skill_view` 时后续 session 不启用 `skill_view`。
-- [ ] 使用统计记录到 `.usage.json`（含 source=F1/F2/F3/F4），同一 `tool_call_id` 重放不重复计数。
-- [ ] compaction 时按 location 重读当前 SKILL.md 并以 `<system-reminder>` 注入，resume 后 metadata 可恢复。
-- [ ] `PYTHONPATH=src pytest tests/unit/test_skill_view.py tests/unit/test_usage.py tests/contract/ -x` 全绿。
+- [x] agent 调用 `skill_view` 返回 SKILL.md 内容。
+- [x] `skill_manage` 不含 `view` action。
+- [x] `skill_manage(create, scope=agent/pa)` 写入指定 root，且不可用 PA root 时失败不回退。
+- [x] PA 默认工具集合和 capability projection 均包含 `skill_view` 且 `default_on=true`。
+- [x] 未显式配置工具白名单的 PA agent 默认启用 `skill_view`。
+- [x] 已有显式 `tool_allowlist` 不被自动扩宽，不含 `skill_view` 时后续 session 不启用 `skill_view`。
+- [x] 使用统计记录到 `.usage.json`（含 source=F1/F2/F3/F4），同一 `tool_call_id` 重放不重复计数。
+- [x] compaction 时按 location 重读当前 SKILL.md 并以 `<system-reminder>` 注入，resume 后 metadata 可恢复。
+- [x] `PYTHONPATH=src pytest tests/unit/test_skill_view.py tests/unit/test_usage.py tests/contract/ -x` 全绿。
 
 ## 测试策略
 
@@ -44,6 +44,6 @@
 
 ### R3 — compaction survival and final contract gate
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: `skill_view` 成功调用注册 invoked skill；compaction 写入 `<system-reminder>` synthetic message；resume metadata 恢复 invoked skill refs。
 - 验证: `PYTHONPATH=src pytest tests/unit/test_skill_view.py tests/unit/test_usage.py tests/contract/ -x`
