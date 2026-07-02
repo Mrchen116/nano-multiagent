@@ -346,3 +346,93 @@ No critical issues. 1 warning(s) to consider. Ready for PR (with noted improveme
 - The unit has an IM delta spec under `docs/changes/feat-451-chat-history-pagination/specs/im/spec.md`. The canonical `docs/specs/im/spec.md` has not yet been folded forward on this branch; based on prior project history this appears to be a release/landing documentation merge step rather than an M1-M4 implementation blocker, but it should not be forgotten during final documentation consolidation.
 
 No critical issue(s) found. Ready for PR with the warning above tracked.
+
+# Round 5
+
+## Verification Report: feat-451
+
+### Summary
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 42/42 tasks complete |
+| Correctness | 6/6 spec requirements implemented; M5 reset-stale-row issue closed |
+| Coherence | Followed |
+
+No critical issues. 1 warning(s) to consider. Ready for PR (with noted improvement).
+
+### Scope
+
+- Verified HEAD: `57c21e4f` (`origin/unit/feat-451`, `docs(feat-451/M5): record merge cleanup completion`).
+- Baseline requested by orchestrator: `57c21e4f` or later on the same unit branch.
+- Reviewed docs: `spec.md`, `design.md`, M1-M5 `tasks.md` and `progress.md`, prior `verification.md`, `SPEC.md`, `docs/TESTING_GUIDE.md`, `COMMENTING_GUIDE.md`, and the unit IM delta spec.
+- Local test rerun: attempted `npm run test -- src/features/chat/v2/chat-workspace.integration.test.tsx src/features/chat/v2/components/message-pane.test.tsx` in the verify worktree. It failed before test execution because this isolated worktree has no `src/IM/frontend/node_modules`; a no-write retry using the main worktree frontend `.bin` and `NODE_PATH` still failed during Vite config loading because `@vitejs/plugin-react` was not resolvable from the verify worktree. Per verifier rules, I did not run `npm ci` or create dependencies. Worker progress records final targeted suite, full `npm run test`, and `npx tsc -b` as passed in `M5-fix-reset-stale-history-rows/progress.md`.
+
+## Completeness
+
+### Tasks: 42/42 complete
+
+- M1: all 8 exit criteria in `M1-impl/tasks.md` are marked `[x]`.
+- M2: all 9 exit criteria in `M2-fix-acceptance-code-review/tasks.md` are marked `[x]`.
+- M3: all 8 exit criteria in `M3-fix-verification-round2/tasks.md` are marked `[x]`.
+- M4: all 8 exit criteria in `M4-fix-live-pane-arrivals/tasks.md` are marked `[x]`.
+- M5: all 9 exit criteria in `M5-fix-reset-stale-history-rows/tasks.md` are marked `[x]`.
+
+### M5 closure evidence
+
+| Round 4 code-review / M5 focus | Evidence | Status |
+|---|---|---|
+| History reset no longer preserves same-conversation old state rows absent from the REST history response, including suppressed synthetic `:relay:` mirror rows | `streamReducer` reset now starts from `action.messages`, merges metadata only for returned IDs, and only carries old rows when `preserveMessageIds` explicitly contains the ID at `src/IM/frontend/src/features/chat/v2/chat-workspace-page.tsx:110-130`. Regression test first renders `turn-1:relay:relay-dup-1`, then refetches history without that row and asserts the mirror disappears at `src/IM/frontend/src/features/chat/v2/chat-workspace.integration.test.tsx:422-480`. | closed |
+| Active pane converges to server history after reset | The messages query effect dispatches reset from restored REST items with an explicit preserve set at `chat-workspace-page.tsx:503-527`; the M5 test asserts the real server-returned agent row appears while the suppressed mirror is removed at `chat-workspace.integration.test.tsx:461-480`. | closed |
+| M4 live-before-history behavior remains: c2 live event before c2 history is not lost | Conversation switch still immediately binds the reducer to the active conversation with an empty reset at `chat-workspace-page.tsx:529-539`; same-conversation `message.created` while the messages query is fetching is recorded in `pendingLiveMessageIdsRef` at `chat-workspace-page.tsx:589-596`. Regression coverage remains at `chat-workspace.integration.test.tsx:1075-1120`. | closed |
+| Later history reset does not delete the live-before-history row | The reset effect passes `pendingLiveMessageIdsRef.current` as `preserveMessageIds` at `chat-workspace-page.tsx:522-523`, and the reducer carries only those explicit IDs across reset at `chat-workspace-page.tsx:119-126`. The same regression resolves c2 history after the live row appears and asserts it remains at `chat-workspace.integration.test.tsx:1116-1120`. | closed |
+| External conversation events still do not pollute the active pane | Shared user stream dispatch still requires `chatEvent.conversation_id === conversationIdRef.current` at `chat-workspace-page.tsx:589-596`, while `applyWsEvent` retains its reducer-scope guard at `src/IM/frontend/src/features/chat/v2/chat-stream-reducer.ts:90-94`. Existing regression remains at `chat-workspace.integration.test.tsx:1036-1072`. | closed |
+
+## Correctness
+
+### Requirement / scenario coverage
+
+| Spec Requirement | Implementation evidence | Test / progress evidence | Status |
+|---|---|---|---|
+| 消息历史可通过向上滚动分页加载更早内容 | Manual cursor/loading state and older-page request remain at `chat-workspace-page.tsx:541-568`; upper-third trigger and anchor restore remain in `MessagePane`. | Existing API/component/integration tests retained; M5 did not alter pagination UI behavior. | covered |
+| 新消息到达不打扰正在翻看历史的用户 | Near-bottom and force-scroll policy remain in `message-pane.tsx`; M5 only changes reset convergence in workspace state. | Existing M3/M4 MessagePane regressions retained; M5 targeted suite passed in progress evidence. | covered |
+| 移动端输入法回车发送消息 | `handleKeyDown` still sends on Enter without a mobile exclusion. | Existing mobile/desktop Enter tests retained. | covered |
+| composer 输入框随内容自动增高 | Row-limit logic and CSS remain unchanged by M5. | Existing auto-grow tests retained. | covered |
+| 消息气泡支持复制与长按菜单 | Long-press/right-click menu code remains unchanged by M5. | Existing copy/fork menu tests retained. | covered |
+| 桌面与移动端体验一致 | Same `MessagePane` continues to drive desktop/mobile; M5 affects only active-pane history reset state. | Prior browser evidence plus M5 browser spot check recorded in `M5-fix-reset-stale-history-rows/progress.md`. | covered |
+
+### CRITICAL
+
+无。
+
+### WARNING
+
+- **W1: Frontend chat test files remain far beyond the 400-line soft limit in `docs/TESTING_GUIDE.md` §7.** This does not invalidate M5: the new M5 assertions are behavior-level regressions and were added to the existing owner file per the "extend existing file" rule. However, `message-pane.test.tsx` is 2062 lines and `chat-workspace.integration.test.tsx` is 1174 lines, so the accumulated suite is a maintenance risk.
+  - Location: `src/IM/frontend/src/features/chat/v2/components/message-pane.test.tsx`; `src/IM/frontend/src/features/chat/v2/chat-workspace.integration.test.tsx`
+  - Fix: after feat-451 lands, split by behavior owner while preserving assertions, e.g. `message-pane-pagination.test.tsx`, `message-pane-scroll-send.test.tsx`, `message-pane-menu.test.tsx`, and `chat-workspace-live-events.integration.test.tsx`.
+
+### SUGGESTION
+
+无。
+
+## Coherence
+
+| design 决策 | Round 5 status | Evidence |
+|---|---|---|
+| 决策 1: 手动 cursor，不用 `useInfiniteQuery` | followed | `chat-workspace-page.tsx:262-270`, `chat-workspace-page.tsx:541-568`. |
+| 决策 2: 上方 1/3 滚动阈值 | followed | `MessagePane` scroll trigger unchanged from prior rounds. |
+| 决策 3: anchor 消息 id 恢复阅读位置 | followed | `MessagePane` anchor restore unchanged from prior rounds. |
+| 决策 4: 最后一条 id 变化 + near-bottom 滚底 | followed | `MessagePane` scroll policy unchanged; M5 reset convergence does not bypass it. |
+| 决策 5: 移动端 Enter 发送、桌面 Shift+Enter 换行 | followed | `MessagePane` key handling unchanged. |
+| 决策 6: composer auto-grow 4/5 行上限 | followed | `MessagePane` row limit and CSS unchanged. |
+| 决策 7: 长按/右键菜单，移动端 fork 放进菜单 | followed | Message menu code unchanged. |
+| M4/M5 reset/live addendum: preserve active live rows without preserving arbitrary stale history rows | followed | Explicit `pendingLiveMessageIdsRef` preservation at `chat-workspace-page.tsx:267-270`, `chat-workspace-page.tsx:522-527`, and `chat-workspace-page.tsx:589-596`; reset convergence at `chat-workspace-page.tsx:110-130`. |
+
+### Architecture self-consistency
+
+- Code changes remain in `src/IM/frontend/src/features/chat/v2/` plus unit docs. No backend, Gateway, CLI, or agent kernel code was modified for M5.
+- No cross-package import boundary from `SPEC.md` / AGENTS.md was violated by the feat-451 diff.
+- The implementation reuses existing IM frontend mechanisms: `listMessages`, React Query invalidation, `attachUserConversationStream`, `streamReducer`, `applyWsEvent`, and `MessagePane` scroll state. It does not introduce a parallel stream or API path.
+- M5 narrows the existing reducer merge semantics instead of adding a new history state model: REST remains authoritative for reset rows, while live rows accepted during an in-flight active history request are explicitly preserved.
+
+No critical issue(s) found. Ready for PR with the warning above tracked.
