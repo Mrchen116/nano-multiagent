@@ -66,13 +66,13 @@ UI 状态矩阵：
 
 ### R1 — built-in distiller and scope contract
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 补 PA 内置 skill bootstrap 测试与 distiller SKILL.md；确认/补 package data；回归 `skill_manage(create, scope=agent|pa)`。
 - 验证: `PYTHONPATH=src pytest tests/unit/personal_assistant/test_builtin_skills_bootstrap.py tests/unit/personal_assistant/test_gateway_launch.py tests/unit/test_skill_manage_tool.py -x`
 
 ### R2 — conversation distill metadata
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 为 IM conversation 响应派生 `run_state` 与 `source_jsonl_path`；保持默认列表不展示运行态由前端控制。
 - 验证: `PYTHONPATH=src pytest tests/im_service/unit/test_repositories_user_conversation.py tests/im_service/unit/test_message_runtime_state.py tests/im_service/integration/test_users_conversations_api.py -x`
 
