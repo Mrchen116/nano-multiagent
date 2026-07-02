@@ -27,18 +27,18 @@
 
 ## R2 — conversation distill metadata
 
-- Context: TODO
-- Decision: TODO
-- Rationale: TODO
+- Context: F2 前端必须从 IM conversation 列表拿到通用运行态和可读 transcript 路径；Gateway 的 kernel session id 绑定在 Gateway 本地 session binding store，IM 不能从 conversation id 直接拼出 session JSONL 文件名。
+- Decision: 在 `Conversation` domain/API response 增加 `run_state`、`source_agent_id`、`source_jsonl_path`。`run_state` 由 IM messages 中未完成 agent bubble 派生；`source_agent_id` 优先使用 conversation 创建时冻结的 `config_agent_id`，否则退回唯一 agent participant；`source_jsonl_path` 通过 `agent_profiles.workspace_root/.nanoassistant/sessions/*.jsonl` 扫描 `session_created.metadata.conversation_id + agent_id` 匹配的真实文件。
+- Rationale: 不让 IM 猜随机 kernel session id，也不在 list conversations 时写新 transcript 文件；只有真实存在且 metadata 匹配的 JSONL 才暴露给前端。路径不可得时返回 `null`，后续前端不把该会话作为可蒸馏 source。
 - Evidence:
-  - Tests: TODO
-  - Entry: TODO
+  - Tests: C1 红测 `PYTHONPATH=src pytest tests/im_service/unit/test_repositories_user_conversation.py::test_conversation_exposes_run_state_and_source_jsonl_path tests/im_service/unit/test_repositories_user_conversation.py::test_conversation_run_state_is_running_for_active_agent_message tests/im_service/integration/test_users_conversations_api.py::test_agent_conversation_response_includes_source_jsonl_path -q` -> 3 failed，缺 `run_state` / `source_agent_id` 字段；C2 后 `PYTHONPATH=src pytest tests/im_service/unit/test_repositories_user_conversation.py::test_conversation_exposes_run_state_and_source_jsonl_path tests/im_service/unit/test_repositories_user_conversation.py::test_conversation_run_state_is_running_for_active_agent_message tests/im_service/integration/test_users_conversations_api.py::test_agent_conversation_response_includes_source_jsonl_path tests/im_service/integration/test_users_conversations_api.py::test_users_and_conversations_roundtrip -q` -> 4 passed.
+  - Entry: `/im/v1/conversations`、`/im/v1/sync`、`/im/v1/conversations/{id}` now serialize the three fields through existing `to_conversation_response()`.
   - Frontend State Matrix: N/A
   - Browser QA: N/A
-  - E2E/Regression: TODO
+  - E2E/Regression: Backend repository/API tests cover idle default, running active agent message, null path without agent source, and real JSONL path when session metadata matches.
   - Visual/Interaction: N/A
-- Rollback: TODO
-- Commits: TODO
+- Rollback: revert `f0a24c0a` and `6bb1eb33` together to remove response fields and tests.
+- Commits: C1=6bb1eb33, C2=f0a24c0a, C3=TODO
 - Next: R3
 
 ## R3 — frontend selection and prefill flow
