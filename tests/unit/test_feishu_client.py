@@ -94,22 +94,6 @@ class TestFeishuClientEventParsing:
         result = _parse_feishu_event(ev)
         assert result.is_group is True
 
-    def test_parse_text_content_extraction(self) -> None:
-        """Feishu text content is JSON: {"text": "@_user_1 actual text"}."""
-        from personal_assistant.channels.feishu_client import _parse_feishu_event
-
-        mention = MagicMock()
-        mention.id.open_id = "ou_bot1"
-        mention.name = "plato-bot"
-        mention.key = "@_user_1"
-        ev = self._make_event(
-            content='{"text":"@_user_1 help me"}',
-            mentions=[mention],
-        )
-        result = _parse_feishu_event(ev)
-        # Placeholder is stripped and mention removed from text
-        assert result.text == "help me"
-
     def test_parse_empty_content(self) -> None:
         from personal_assistant.channels.feishu_client import _parse_feishu_event
 

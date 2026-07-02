@@ -3283,6 +3283,10 @@ def _build_channel_registry(
         # feat-447: feishu channels are named "feishu:<agent_id>"
         if channel.name.startswith("feishu:"):
             settings = channel.settings
+            _warn_if_feishu_group_message_delivery_not_declared(
+                channel_name=channel.name,
+                settings=settings,
+            )
             registry.register(
                 FeishuAdapter(
                     name=channel.name,
@@ -3296,6 +3300,22 @@ def _build_channel_registry(
             continue
         raise ValueError(f"unsupported channel adapter: {channel.name}")
     return registry
+
+
+def _warn_if_feishu_group_message_delivery_not_declared(
+    *, channel_name: str, settings: Mapping[str, object]
+) -> None:
+    """Warn when M12 live group-context parity cannot be proven from config alone."""
+
+    if settings.get("receiveAllGroupMessages") is True:
+        return
+    _log.warning(
+        "Feishu channel %s does not declare receiveAllGroupMessages=true; "
+        "feat-447-M12 requires the Feishu app to deliver ordinary group messages, "
+        "not only @Bot events. If live validation misses non-mention background "
+        "messages, check Feishu/Lark app event subscriptions and permissions.",
+        channel_name,
+    )
 
 
 def _make_token_getter(

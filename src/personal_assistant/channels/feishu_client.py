@@ -22,6 +22,7 @@ from lark_oapi.api.im.v1 import (
     DeleteMessageReactionRequest,
     Emoji,
     GetChatRequest,
+    ListMessageRequest,
 )
 from lark_oapi.event.dispatcher_handler import EventDispatcherHandler
 from lark_oapi.ws import Client as WSClient
@@ -31,6 +32,7 @@ logger = logging.getLogger(__name__)
 # Regex-free mention placeholder prefix used by feishu JSON text content.
 # Feishu encodes @mentions as @_user_N placeholders inside {"text": "..."}.
 _MENTION_PLACEHOLDER_PREFIX = "@_user_"
+_ALL_MENTION_PLACEHOLDER = "@_all"
 
 # Retry policy constants for send_message error handling.
 _MAX_RATE_LIMIT_RETRIES = 3  # Total attempts for 429 (original + 2 retries)
@@ -83,7 +85,7 @@ class FeishuMessageEvent:
     """Parsed feishu message event ready for adapter consumption.
 
     Args:
-        text: Plain-text content with @mention placeholders stripped.
+        text: User-visible text with @mention placeholders normalized.
         sender_open_id: Feishu open_id of the message sender.
         chat_id: Feishu chat identifier (``oc_xxx``).
         chat_type: ``p2p`` or ``group``.
@@ -91,6 +93,8 @@ class FeishuMessageEvent:
         is_group: Convenience flag derived from chat_type.
         mentions: List of @mention entities found in the message.
         sender_display_name: Optional display name reported by Feishu for the sender.
+        raw_text: Raw extracted text before mention placeholder normalization.
+        mention_only: Whether the message contains mentions but no non-mention text.
     """
 
     text: str
@@ -101,6 +105,8 @@ class FeishuMessageEvent:
     is_group: bool
     mentions: list[FeishuMention]
     sender_display_name: str | None = None
+    raw_text: str = ""
+    mention_only: bool = False
 
 
 class FeishuClient:
@@ -287,6 +293,55 @@ class FeishuClient:
                 code=code,
             )
 
+    def fetch_group_messages(
+        self,
+        *,
+        chat_id: str,
+        page_size: int = 50,
+    ) -> list[FeishuMessageEvent]:
+        """Fetch recent group chat messages visible to the bot identity.
+
+        This is used as a compensation path for Feishu/Lark app configurations
+        where ``im.message.receive_v1`` delivers mention-class events but omits
+        ordinary group messages. It requires the app/bot to have the associated
+        group-message read capability; missing permission is surfaced as
+        ``FeishuAPIError`` with the platform code.
+        """
+        if self._rest_client is None:
+            raise RuntimeError("feishu client is not started")
+        request = (
+            ListMessageRequest.builder()
+            .container_id_type("chat")
+            .container_id(chat_id)
+            .page_size(page_size)
+            .sort_type("ByCreateTimeDesc")
+            .build()
+        )
+        response = self._rest_client.im.v1.message.list(request)
+        if not response.success():
+            code: int = response.code
+            msg: str = response.msg
+            if code in _AUTH_ERROR_CODES:
+                raise FeishuAuthError(
+                    f"feishu auth error while listing group messages: "
+                    f"code={code}, msg={msg}",
+                    code=code,
+                )
+            raise FeishuAPIError(
+                f"feishu API error while listing group messages: "
+                f"code={code}, msg={msg}",
+                code=code,
+            )
+        items = getattr(response.data, "items", None) or []
+        events: list[FeishuMessageEvent] = []
+        for item in reversed(items):
+            if _message_type(item) != "text":
+                continue
+            event = _parse_feishu_history_message(item, chat_id=chat_id)
+            if event.text.strip():
+                events.append(event)
+        return events
+
     def add_reaction(
         self, *, message_id: str, emoji_type: str = "THINKING"
     ) -> str | None:
@@ -447,18 +502,11 @@ def _parse_feishu_event(event: Any) -> FeishuMessageEvent:
     message_id: str = message.message_id or ""
     raw_content: str = message.content or ""
 
-    # Parse text from feishu JSON content {"text": "..."}
-    text = _extract_text(raw_content)
-
-    # Parse mentions — strip placeholder keys from the visible text
+    # Parse text from feishu JSON content {"text": "..."}.
+    raw_text = _extract_text(raw_content)
     mentions = _extract_mentions(message)
-    for m in mentions:
-        text = text.replace(m.key, "").strip()
-
-    # Collapse multiple spaces left by removed placeholders
-    while "  " in text:
-        text = text.replace("  ", " ")
-    text = text.strip()
+    text = _normalize_mention_text(raw_text, mentions)
+    mention_only = bool(mentions) and _text_without_mentions(raw_text, mentions) == ""
 
     return FeishuMessageEvent(
         text=text,
@@ -469,7 +517,78 @@ def _parse_feishu_event(event: Any) -> FeishuMessageEvent:
         is_group=chat_type != "p2p",
         mentions=mentions,
         sender_display_name=sender_display_name,
+        raw_text=raw_text,
+        mention_only=mention_only,
     )
+
+
+def _parse_feishu_history_message(message: Any, *, chat_id: str) -> FeishuMessageEvent:
+    sender_open_id = _extract_message_sender_open_id(message)
+    message_id = str(getattr(message, "message_id", "") or getattr(message, "id", ""))
+    raw_content = _extract_message_content(message)
+    raw_text = _extract_text(raw_content)
+    mentions = _extract_mentions(message)
+    text = _normalize_mention_text(raw_text, mentions)
+    mention_only = bool(mentions) and _text_without_mentions(raw_text, mentions) == ""
+    return FeishuMessageEvent(
+        text=text,
+        sender_open_id=sender_open_id,
+        chat_id=chat_id,
+        chat_type="group",
+        message_id=message_id,
+        is_group=True,
+        mentions=mentions,
+        sender_display_name=_extract_message_sender_display_name(message),
+        raw_text=raw_text,
+        mention_only=mention_only,
+    )
+
+
+def _message_type(message: Any) -> str:
+    return str(getattr(message, "msg_type", "") or getattr(message, "message_type", ""))
+
+
+def _extract_message_content(message: Any) -> str:
+    for value in (
+        getattr(message, "content", None),
+        getattr(getattr(message, "body", None), "content", None),
+    ):
+        if isinstance(value, str) and value:
+            return value
+    if isinstance(message, dict):
+        for key in ("content", "body"):
+            value = message.get(key)
+            if isinstance(value, str) and value:
+                return value
+            if isinstance(value, dict):
+                nested = value.get("content")
+                if isinstance(nested, str) and nested:
+                    return nested
+    return ""
+
+
+def _extract_message_sender_open_id(message: Any) -> str:
+    sender = getattr(message, "sender", None)
+    if sender is None:
+        return ""
+    sender_id = getattr(sender, "sender_id", None)
+    if sender_id is not None:
+        value = getattr(sender_id, "open_id", None)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    value = getattr(sender, "id", None)
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _extract_message_sender_display_name(message: Any) -> str | None:
+    sender = getattr(message, "sender", None)
+    if sender is None:
+        return None
+    for attr in ("name", "tenant_key"):
+        value = getattr(sender, attr, None)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
 
 
 def _extract_sender_display_name(sender: Any) -> str | None:
@@ -504,6 +623,43 @@ def _extract_text(raw_content: str) -> str:
     except (json.JSONDecodeError, TypeError):
         pass
     return raw_content
+
+
+def _normalize_mention_text(text: str, mentions: list[FeishuMention]) -> str:
+    """Replace Feishu mention placeholders with user-visible @ labels."""
+
+    normalized = text.replace(_ALL_MENTION_PLACEHOLDER, "@所有人")
+    for mention in mentions:
+        if not mention.key:
+            continue
+        normalized = normalized.replace(mention.key, _visible_mention_text(mention))
+    return _collapse_spaces(normalized)
+
+
+def _text_without_mentions(text: str, mentions: list[FeishuMention]) -> str:
+    remaining = text.replace(_ALL_MENTION_PLACEHOLDER, " ")
+    for mention in mentions:
+        if mention.key:
+            remaining = remaining.replace(mention.key, " ")
+    return _collapse_spaces(remaining)
+
+
+def _visible_mention_text(mention: FeishuMention) -> str:
+    if mention.open_id == "all":
+        label = mention.name.strip() if mention.name.strip() else "all"
+    else:
+        label = mention.name.strip() or mention.open_id.strip()
+    if not label:
+        return "@"
+    if label.startswith("@"):
+        return label
+    return f"@{label}"
+
+
+def _collapse_spaces(text: str) -> str:
+    while "  " in text:
+        text = text.replace("  ", " ")
+    return text.strip()
 
 
 def _extract_mentions(message: Any) -> list[FeishuMention]:
