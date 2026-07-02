@@ -199,8 +199,11 @@ class FeishuAdapter:
             )
 
     def _remove_ack_after_reply(self, outbound: OutboundMessage) -> None:
-        """Remove the ack reaction once a reply has been delivered."""
+        """Remove the ack reaction once the final visible reply has been delivered."""
         if self._client is None:
+            return
+        reply_phase = outbound.metadata.get("reply_phase")
+        if reply_phase not in {"final", "terminal"}:
             return
         message_id = outbound.metadata.get("feishu_message_id")
         if not isinstance(message_id, str) or not message_id:

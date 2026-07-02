@@ -353,6 +353,7 @@ async def create_message(
             ],
             auto_complete_delivery=resolved_target_node_id is None,
             sender_display_name=payload.sender_display_name,
+            emit_created_event=payload.suppress_relay,
         )
     except ValueError as exc:
         raise map_message_write_error(exc) from exc

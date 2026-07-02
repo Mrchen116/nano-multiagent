@@ -133,10 +133,47 @@ def test_external_find_or_create_and_message_display_name_roundtrip(
                 "sender_user_id": owner_id,
                 "content": "from feishu",
                 "sender_display_name": "你",
+                "attachments": [
+                    {
+                        "url": "https://example.test/a.png",
+                        "content_type": "image/png",
+                        "file_name": "a.png",
+                    }
+                ],
+                "suppress_relay": True,
             },
         )
         assert message.status_code == 201, message.text
         assert message.json()["sender"]["display_name"] == "你"
+        rows = app.state.connection.execute(
+            """
+            SELECT event_type, payload_json
+            FROM conversation_events
+            WHERE conversation_id = ? AND message_id = ?
+            ORDER BY event_id
+            """,
+            (conversation["id"], message.json()["id"]),
+        ).fetchall()
+        assert [row["event_type"] for row in rows] == [
+            "message.sent",
+            "message.created",
+            "message.delivered",
+        ]
+        sent_payload = json.loads(rows[0]["payload_json"])
+        created_payload = json.loads(rows[1]["payload_json"])
+        delivered_payload = json.loads(rows[2]["payload_json"])
+        assert sent_payload["semantic"] == "persisted_to_im"
+        assert delivered_payload["semantic"] == "message_history_ready"
+        assert created_payload["content"] == "from feishu"
+        assert created_payload["attachments"] == [
+            {
+                "url": "https://example.test/a.png",
+                "content_type": "image/png",
+                "file_name": "a.png",
+            }
+        ]
+        assert created_payload["sender"]["display_name"] == "你"
+        assert created_payload["sender_display_name"] == "你"
 
 
 def test_list_messages_mark_as_read_clears_conversation_unread_counter(
