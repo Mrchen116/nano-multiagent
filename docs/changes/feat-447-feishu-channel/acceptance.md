@@ -311,3 +311,160 @@ Round 4 按 `design.md` 的 `Runbook for Reviewer` 做服务接管，并优先�
 **Issues: 2 blocking, 0 major, 0 minor**
 **Top Concern: 按 design.md Runbook 启动真栈时 IM 与 Gateway 都无法启动，用户无法完成任何 feat-447 目标。**
 **Needs Re-review: true**
+
+---
+
+# Round 5 — 2026-07-02
+
+> Reviewer: feat-447-reviewer
+> Unit: feat-447 (飞书 channel 支持)
+> Mode: full, focused on Round 4 blocking fixes while inheriting prior fail/inconclusive items
+
+## Summary
+
+| Field | Value |
+|---|---|
+| **Highest Required Action** | fix-implementation |
+| **Verdict** | fail |
+| **Issues** | 1 blocking, 0 major, 0 minor |
+| **GH Issues Filed** | None |
+| **Needs Re-review** | true |
+
+Round 5 按 `design.md` 的 `Runbook for Reviewer` 重新接管 worktree 服务，并使用真实 Lark 入站：
+
+- `<WT_CFG>`: `.gateway-config.yaml`
+- Feishu channel: `feishu:default-agent`
+- Gateway config appId: `cli_aac9315ef3f9dbda`
+- `lark-cli auth status --json --verify`: `verified=true`, `appId=cli_aac9315ef3f9dbda`
+- 目标 Bot: 同一输出的 `identities.bot.openId=ou_b33ae16df1338a00a77d4cdbec653b71`
+- 真实入站命令: `lark-cli im +messages-send --as user --user-id ou_b33ae16df1338a00a77d4cdbec653b71 --text "feat447-r5-20260702114951 round5 lark-cli user -> gateway bot" --idempotency-key feat447-r5-20260702114951 --format json`
+
+Round 4 的 IM legacy DB schema 崩溃已关闭：IM 从现有 `data/im_service.sqlite3` 启动，未出现 `sqlite3.OperationalError: no such column: external_source` / `elapsed_ms`，并且 `conversations.external_source`、`conversations.external_chat_id`、`messages.elapsed_ms`、`messages.sender_display_name` 均存在。
+
+Round 4 的 `ownerOpenId` 缺失启动阻塞只部分关闭：Gateway 确实在 reviewer 未手改 config 的情况下，把 `.gateway-config.yaml` 中 `settings.ownerOpenId` 自动写回为 `ou_e6d1591026cfdac8d131eb1fdd71bdb9`。但当前 worktree Gateway 进程随后退出，`.gateway.pid` 指向的进程已不存在，`.gateway.log` 为空；真实 Lark 消息只看到用户消息，未看到同 nonce 的 Bot 回复，worktree IM DB 也没有同 nonce 的 shadow conversation/message。因此用户仍看不到 feat-447 的结果，本轮仍 fail。
+
+## User Journeys Exercised
+
+1. **Round 4 legacy IM DB 启动复验**
+   - 覆盖: Round 4 Issue 1，以及所有依赖 IM shadow 的外部 channel 同步场景前置。
+   - 步骤: 停止 worktree `.im.pid`；用空闲端口 `59941` 启动 `IM_JWT_SECRET=<fresh> PYTHONPATH=src python -m uvicorn IM.app:app --host 127.0.0.1 --port 59941`，使用现有 `data/im_service.sqlite3`。
+   - 结果: IM 进程保持运行，日志为 `Uvicorn running on http://127.0.0.1:59941`；未出现 Round 4 的 `external_source` schema 崩溃。注意：runbook 写的 `/health` 在本服务上返回 404，但这次不是 schema crash。
+
+2. **`ownerOpenId` 自动写回复验**
+   - 覆盖: Round 4 Issue 2 的配置缺失启动前置，以及 `外部群聊中 IM owner 的消息显示为「你」` 的必要前置。
+   - 步骤: 保持 `.gateway-config.yaml` 中 `feishu:default-agent.settings.ownerOpenId=nil`；启动 `PYTHONPATH=src python -m personal_assistant.main --config .gateway-config.yaml --im-service-url http://127.0.0.1:59941 --foreground --auto-bind`。
+   - 结果: `.gateway-config.yaml` 被产品自动写回 `ownerOpenId=ou_e6d1591026cfdac8d131eb1fdd71bdb9`，与同一 `lark-cli auth status --json --verify` 输出的 user openId 一致；但 Gateway 进程没有保持运行。
+
+3. **真实 Lark 1:1 入站 smoke**
+   - 覆盖: 飞书 1:1 私聊、外部 1:1 shadow 会话、用户消息显示为「你」。
+   - 步骤: 用 `lark-cli im +messages-send --as user` 向同 appId 的 Bot openId 发送 nonce `feat447-r5-20260702114951`。
+   - 结果: Lark 发送成功，返回 `chat_id=oc_1906eead0189484ce5ea8a4c245400a6`、`message_id=om_x100b6b69b0cf5cbcc43e5434f9d9b11`、`create_time=2026-07-02 11:49:52`。随后 `chat-messages-list` 中只有该 nonce 的 user 消息，没有同 nonce 的 app/Bot 回复；worktree IM `conversations/messages` 中也没有该 nonce。
+
+## Round 4 Blocking Closure
+
+| Round 4 Item | Round 5 Evidence | Result |
+|---|---|---|
+| IM 旧 DB 因 `external_source` / `elapsed_ms` 等旧 schema 崩溃 | IM 在现有 `data/im_service.sqlite3` 上启动并保持运行；关键列存在；日志未出现 `OperationalError` | closed |
+| Feishu channel 缺 `ownerOpenId` 时 Gateway 不需手改 config 能启动并自动写回 | `ownerOpenId` 自动写回成功；但 Gateway 随后不再运行，真实 Lark 入站无 Bot 回复、IM 无 shadow 记录 | still blocking |
+
+## 验收标准覆盖（Round 5）
+
+### Requirement: 飞书 1:1 私聊对话
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 用户在 1:1 私聊中发消息 | spec.md | 真实 `lark-cli im +messages-send --as user` | Lark user 消息发送成功；当前 worktree Gateway 不运行，未看到同 nonce Bot 回复 | fail | 继承 Round 4，用户看不到回复 |
+| 私聊无需 @ 触发 | spec.md | 同上 | 不带 @ 的 nonce 消息未得到同 nonce Bot 回复 | fail | 主路径仍不可用 |
+| 私聊 session 隔离 | spec.md | 需要两个真实用户或等价真实入口 | 单用户主路径已失败，无法继续验证隔离 | inconclusive | 继承 Round 4 |
+
+### Requirement: 飞书群聊 @Bot 触发
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 群聊中 @Bot 触发回复 | spec.md | 真实 Lark 群聊入站 | Gateway 不运行，未进入群聊复验 | fail | 主路径阻塞 |
+| 群聊中未 @Bot 不触发 | spec.md | 真实 Lark 群聊入站 | Gateway 不运行，无法观察“无回复”是否来自正确门控 | inconclusive | 继承 Round 4 |
+| 未 @ 消息作为上下文 | spec.md | 未 @ 背景 + 后续 @ 总结 | Gateway 不运行 | inconclusive | 继承 Round 4 |
+| @所有人 不算 @Bot | spec.md | 真实 Lark 群聊入站 | Gateway 不运行 | inconclusive | 继承 Round 4 |
+
+### Requirement: 多 Agent 路由
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 不同 Bot 对应不同 Agent | spec.md | 多 Bot 真实入站 | 本轮只校验到 `feishu:default-agent` appId；Gateway 不运行，不能观察回复身份 | inconclusive | 继承 Round 4 |
+
+### Requirement: 外部 channel 会话同步到内部 IM
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 外部 1:1 会话在内部 IM 有独立会话 | spec.md | 真实 Lark 入站 + IM shadow 观察 | worktree IM 无同 nonce shadow conversation/message | fail | 用户看不到 `agent · feishu` 会话 |
+| 外部 1:1 用户消息同步到内部 IM | spec.md | 同上 | worktree IM 无同 nonce message | fail | 用户消息未同步到可见 shadow |
+| 外部 1:1 agent 回复同步到内部 IM | spec.md | 同上 | Lark 无同 nonce Bot 回复，IM 无 agent message | fail | 回复不可见 |
+| 在内部 IM 回复不会回写飞书但上下文连续 | spec.md | IM shadow 会话发消息 + 回到飞书追问 | 1:1 shadow 会话未出现 | fail | 前置不可用 |
+| 在内部 IM 群聊影子会话发消息自动触发 agent 回复 | spec.md | IM shadow group 发消息 | Gateway 不运行，shadow group 未出现 | fail | 前置不可用 |
+| 同一 kernel session 跨入口上下文连续 | spec.md | 飞书和 IM shadow 跨入口追问 | shadow 会话未出现 | fail | 前置不可用 |
+| 外部群聊在内部 IM 有独立 group 会话 | spec.md | 真实 Lark 群聊 @Bot + IM 观察 | Gateway 不运行 | fail | 前置不可用 |
+| 同一外部群绑定多个 agent 时生成多个独立会话 | spec.md | 多 Bot 群聊入站 | Gateway 不运行，未能复验 | inconclusive | 继承 Round 4 |
+| 外部群聊消息显示原发送者名字 | spec.md | Lark 群消息同步到 IM 后观察 sender | Gateway 不运行 | fail | 用户面看不到 sender |
+| 外部群聊中 IM owner 的消息显示为「你」 | spec.md | owner 从 Lark 发消息后观察 IM sender | `ownerOpenId` 已自动写回，但 IM 无同 nonce shadow message，不能看到「你」 | fail | 自动写回前置关闭，用户可见结果未关闭 |
+| 未 @ 的群聊上下文消息同步到内部 IM | spec.md | 未 @ 群消息 + IM shadow 观察 | Gateway 不运行 | fail | 同步路径不可用 |
+| 不 @ 也回的 agent 群聊消息全量同步 | spec.md | `group_reply_policy=ALWAYS` 群消息 | Gateway 不运行，也未确认 live ALWAYS agent | inconclusive | 继承 Round 4 |
+| IM 离线时飞书对话不中断 | spec.md | 停 IM 后真实 Lark 1:1 入站 | 当前 IM 在线时 Gateway 已不运行，无法证明 IM 离线时飞书不中断 | fail | 飞书主路径不可达 |
+
+### Requirement: 飞书云文档操作（用户身份）
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 以用户身份创建文档 | spec.md | 通过 agent 对话触发 | Gateway 不运行，无法从用户对话触发 | fail | 继承 Round 4 |
+| 以用户身份编辑文档 | spec.md | 同上 | Gateway 不运行 | fail | 主路径不可达 |
+| 未授权时提示授权 | spec.md | 同上 | Gateway 不运行 | fail | 用户无法收到提示 |
+| 以用户身份读取文档内容 | spec.md | 同上 | Gateway 不运行 | fail | 主路径不可达 |
+| 以用户身份创建文件夹 | spec.md | 同上 | Gateway 不运行 | fail | 主路径不可达 |
+| 以用户身份移动文件 | spec.md | 同上 | Gateway 不运行 | fail | 主路径不可达 |
+| 云文档 API 调用失败 | spec.md | 同上 | Gateway 不运行 | fail | 用户无法收到失败原因 |
+
+## Issues
+
+### Issue 1: Gateway 自动写回 `ownerOpenId` 后未保持运行，真实 Lark 入站没有 Bot 回复或 IM shadow
+
+- **Severity**: blocking
+- **Regression Relation**: direct
+- **Recommended Action**: fix-implementation
+- **Action Rationale**: feat-447 的核心用户旅程要求从真实飞书入站触发 Gateway、Bot 回复和 IM shadow 同步；当前 worktree Gateway 进程退出后，用户只看到自己发出的 Lark 消息，看不到 Bot 回复，也看不到内部 IM shadow 会话。
+- **Reproduction**:
+  1. 在 `/Users/czj/Repos/nano-multiagent/.worktrees/unit-feat-447`。
+  2. 用现有 `data/im_service.sqlite3` 启动 IM: `IM_JWT_SECRET=<fresh> PYTHONPATH=src python -m uvicorn IM.app:app --host 127.0.0.1 --port 59941`。
+  3. 确认 `.gateway-config.yaml` 的 `feishu:default-agent.settings.appId=cli_aac9315ef3f9dbda` 且 `ownerOpenId` 初始为空。
+  4. `lark-cli auth status --json --verify` 返回同一 `appId=cli_aac9315ef3f9dbda`、bot openId `ou_b33ae16df1338a00a77d4cdbec653b71`、user openId `ou_e6d1591026cfdac8d131eb1fdd71bdb9`。
+  5. 启动 Gateway: `PYTHONPATH=src python -m personal_assistant.main --config .gateway-config.yaml --im-service-url http://127.0.0.1:59941 --foreground --auto-bind > .gateway.log 2>&1 &`.
+  6. 观察 `.gateway-config.yaml` 已自动写回 `ownerOpenId=ou_e6d1591026cfdac8d131eb1fdd71bdb9`，但 `.gateway.pid` 对应进程不存在，`.gateway.log` 为空。
+  7. 发送真实 Lark 用户消息: `lark-cli im +messages-send --as user --user-id ou_b33ae16df1338a00a77d4cdbec653b71 --text "feat447-r5-20260702114951 round5 lark-cli user -> gateway bot" --idempotency-key feat447-r5-20260702114951 --format json`。
+  8. `chat-messages-list` 仅显示该 nonce 的 user 消息；worktree IM `conversations/messages` 查不到该 nonce。
+- **Evidence**:
+  - Lark send: `ok=true`, `chat_id=oc_1906eead0189484ce5ea8a4c245400a6`, `message_id=om_x100b6b69b0cf5cbcc43e5434f9d9b11`, `create_time=2026-07-02 11:49:52`.
+  - Lark list: 同 nonce 的消息 sender 为 `user` / `ou_e6d1591026cfdac8d131eb1fdd71bdb9`; 最近 app 消息均为本轮之前的历史消息，没有同 nonce Bot 回复。
+  - IM shadow: worktree `data/im_service.sqlite3` 中 `content LIKE '%feat447-r5-20260702114951%'` 无记录。
+
+## Side Findings
+
+- `design.md` Runbook 的 IM 健康检查写 `GET /health`，本轮实际服务返回 404；但 IM 进程启动成功且未复现旧 schema crash。本轮未把该 runbook/API mismatch 作为 blocking，因为当前用户面阻塞在 Gateway 不运行。
+- 机器上存在主仓默认 Gateway 进程（`--config /Users/czj/.nano-assistant/config.yaml`），但它不是本轮 `<WT_CFG>` 启动的 worktree Gateway，不能作为 feat-447 Round 5 证据。
+
+## 上层文档同步检查
+
+| 文档 | 状态 | 备注 |
+|---|---|---|
+| SPEC.md | 无需本轮 reviewer 修改 | 本轮是运行态阻塞，不是跨包架构文档缺口 |
+| docs/specs/kernel/spec.md | 无需更新 | kernel spec 无增量 |
+| docs/specs/im/spec.md | 待修复后复核 | IM legacy schema 启动前置已关闭，但 shadow 用户面仍未成立 |
+| docs/specs/gateway/spec.md | 待修复后复核 | Gateway `ownerOpenId` 自动写回前置已关闭，但 Gateway 未保持运行 |
+| docs/specs/cli/spec.md | 无需更新 | CLI spec 无增量 |
+| AGENTS.md / CLAUDE.md | 无需更新 | runbook 操作约束已足够 |
+| docs/SPEC_GUIDE.md | 无需更新 | 非文档体系变更 |
+
+## Verdict
+
+**Verdict: fail**
+**Highest Required Action: fix-implementation**
+**Issues: 1 blocking, 0 major, 0 minor**
+**Top Concern: `ownerOpenId` 已自动写回，但当前 worktree Gateway 未保持运行，真实 Lark 用户消息没有 Bot 回复，也没有内部 IM shadow 可见结果。**
+**Needs Re-review: true**
