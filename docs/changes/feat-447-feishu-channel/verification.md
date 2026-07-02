@@ -506,3 +506,89 @@ All spec requirements have implementation evidence (unchanged from Round 1/2):
 ### SUGGESTION（可以修）
 
 无。
+
+---
+
+## Round 5
+
+## Summary
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 41/41 checked tasks complete; M5/M6 non-checkbox criteria verified via progress/tests |
+| Correctness | 35/35 covered |
+| Coherence | Followed |
+
+All checks passed. Ready for PR.
+
+## Completeness
+
+### Tasks: complete
+
+- `M1`/`M2`/`M3`/`M4`/`M7`/`M8` tasks contain 41 checked boxes and no unchecked boxes.
+- `M5` uses non-checkbox exit criteria; current code/tests cover botOpenId preservation, top-level `enabled=false`, and shared group buffer key.
+- `M6` has only `progress.md`; current tests cover the three fast-lane bugs: DM `receive_id_type`, independent retry counters, and fail-fast `group_context_store` handling.
+
+### Spec Coverage
+
+| Requirement area | Implementation evidence | Status |
+|---|---|---|
+| Feishu 1:1 and group message intake | `src/personal_assistant/channels/feishu_adapter.py:230`, `src/personal_assistant/channels/feishu_adapter.py:251` | covered |
+| External shadow session identity shared by Feishu and IM shadow | `src/personal_assistant/gateway/session_keys.py:407`, `src/personal_assistant/gateway/inbound_pipeline.py:642` | covered |
+| `sync_only` group messages sync/buffer without allocating a run | `src/personal_assistant/gateway/inbound_pipeline.py:280`, `src/personal_assistant/gateway/inbound_pipeline.py:297` | covered |
+| IM shadow schema/API and idempotent title update | `src/IM/infra/db.py:324`, `src/IM/infra/repositories.py:504`, `src/IM/infra/repositories.py:548` | covered |
+| Round 4 legacy DB migration/index startup blocker | `src/IM/infra/db.py:324`, `src/IM/infra/db.py:328`, `src/IM/infra/db.py:384` | covered |
+| Round 4 runtime `agent:<id>` user provisioning blocker | `src/IM/ws/gateway_handler.py:990` | covered |
+| Round 4 missing `ownerOpenId` config startup blocker | `src/personal_assistant/config/local_store.py:923`, `src/personal_assistant/main.py:1856`, `src/personal_assistant/main.py:1882`, `src/personal_assistant/main.py:3224` | covered |
+| Round 4 Feishu group shadow title warning | `src/personal_assistant/channels/feishu_client.py:331`, `src/personal_assistant/channels/feishu_adapter.py:254`, `src/personal_assistant/channels/feishu_adapter.py:306`, `src/personal_assistant/main.py:877` | covered |
+| Shadow sync failure remains best-effort and does not create lazy direct chat | `src/personal_assistant/gateway/inbound_pipeline.py:436`, `src/personal_assistant/main.py:3417` | covered |
+
+## Correctness
+
+### Requirement / Scenario Mapping
+
+| Requirement / Scenario | 实现位置 | 测试覆盖 | 状态 |
+|---|---|---|---|
+| Feishu group shadow conversation uses real group name when Feishu lookup succeeds | `src/personal_assistant/channels/feishu_client.py:348`, `src/personal_assistant/channels/feishu_adapter.py:306`, `src/personal_assistant/main.py:880` | `tests/unit/test_feishu_client_chat_info.py:14`, `tests/unit/test_feishu_adapter_chat_title.py:34` | covered |
+| Feishu chat name lookup failure does not block inbound delivery | `src/personal_assistant/channels/feishu_adapter.py:313` catches `FeishuAuthError`/`FeishuAPIError`/`RuntimeError` and returns `None` | `tests/unit/test_feishu_adapter_chat_title.py:56` | covered |
+| Legacy IM DB migrates external columns before creating external identity index | `src/IM/infra/db.py:324` adds columns before `src/IM/infra/db.py:328` creates `idx_conversations_external_identity` | `tests/im_service/unit/test_db_init.py:85` | covered |
+| Legacy `messages.elapsed_ms` missing column is added during startup migration | `src/IM/infra/db.py:384` | `tests/im_service/unit/test_db_init.py:95` | covered |
+| `node.register` runtime profiles provision matching `agent:<id>` user row | `src/IM/ws/gateway_handler.py:990` | `tests/im_service/unit/test_gateway_handler.py:1360` | covered |
+| Missing `ownerOpenId` does not block config parse or registry build | `src/personal_assistant/config/local_store.py:923`, `src/personal_assistant/main.py:3224` | `tests/unit/test_feishu_config.py:185`, `tests/unit/test_feishu_integration.py:245` | covered |
+| Startup auto-fills `ownerOpenId` only when `lark-cli` appId matches the channel appId, and degrades when missing/mismatched | `src/personal_assistant/main.py:1882`, `src/personal_assistant/main.py:1922` | `tests/unit/personal_assistant/test_gateway_feishu_owner_open_id.py:52`, `tests/unit/personal_assistant/test_gateway_feishu_owner_open_id.py:129`, `tests/unit/personal_assistant/test_gateway_feishu_owner_open_id.py:160` | covered |
+| Owner messages display as `你` when `ownerOpenId` is available | `src/personal_assistant/channels/feishu_adapter.py:293` | `tests/unit/test_feishu_adapter.py:223` | covered |
+
+### Verification Commands
+
+- `pytest -q tests/unit/personal_assistant/test_gateway_feishu_owner_open_id.py tests/unit/test_feishu_adapter_chat_title.py tests/unit/test_feishu_client_chat_info.py tests/unit/test_feishu_integration.py tests/unit/test_feishu_config.py tests/im_service/unit/test_gateway_handler.py::test_handle_register_runtime_profile_provisions_agent_user tests/im_service/unit/test_db_init.py::test_initialize_schema_migrates_legacy_conversations_before_external_index tests/unit/personal_assistant/test_inbound_pipeline_session.py tests/unit/personal_assistant/test_gateway_relay_lifecycle.py` -> 73 passed, 7 warnings.
+- `pytest -m "not e2e"` -> 3236 passed, 1 skipped, 22 deselected, 20 warnings.
+
+## Coherence
+
+| design 决策 | 遵守? | 代码证据 |
+|---|---|---|
+| External session identity / shadow conversation id / reply target remain separate | 是 | `src/personal_assistant/gateway/session_keys.py:407`, `src/personal_assistant/gateway/session_keys.py:438`, `src/personal_assistant/main.py:840` |
+| Pipeline owns `sync_only` buffering and short-circuiting | 是 | `src/personal_assistant/channels/feishu_adapter.py:264`, `src/personal_assistant/gateway/inbound_pipeline.py:285`, `src/personal_assistant/gateway/inbound_pipeline.py:297` |
+| Feishu group name is read best-effort and propagated to shadow title | 是 | `src/personal_assistant/channels/feishu_client.py:331`, `src/personal_assistant/channels/feishu_adapter.py:306`, `src/personal_assistant/main.py:880` |
+| IM external shadow conversation reuses `config_agent_id`, not a second agent id column | 是 | `src/IM/infra/repositories.py:538`, `src/IM/infra/repositories.py:611` |
+| Gateway config still tolerates missing `ownerOpenId` while preserving strict type validation when present | 是 | `src/personal_assistant/config/local_store.py:923` |
+
+### 架构自洽性
+
+- **依赖方向**: `pytest -m "not e2e"` includes the contract tests and passed; no evidence of `IM` importing `agent` or Gateway bypassing `agent.sdk`.
+- **跨机/进程边界**: Feishu group names are fetched by Gateway through Feishu REST, and IM only receives title/metadata over HTTP/WS; IM does not read Gateway local state.
+- **复用 vs 平行**: M8 extends the existing FeishuAdapter, InboundPipeline, IM schema migration, GatewayHandler register, and config load paths. No parallel channel/session/migration mechanism found.
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+无。
+
+### WARNING（应该修）
+
+无。
+
+### SUGGESTION（可以修）
+
+无。
