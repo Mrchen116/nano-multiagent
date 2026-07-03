@@ -584,3 +584,132 @@ None for the Round 5 blocking scope.
 **Issues: 0 blocking, 0 major, 0 minor**
 **Top Concern: None for Round 5 blocking; real Lark inbound reached Gateway, produced a Bot reply, and created visible worktree IM external shadow conversation/message.**
 **Needs Re-review: false**
+
+---
+
+# Round 7 — 2026-07-04
+
+> Reviewer: feat-447-reviewer
+> Unit: feat-447 (飞书 channel 支持)
+> Mode: full smoke on real Lark + current worktree IM/Gateway after `cf42770f`
+
+## Summary
+
+| Field | Value |
+|---|---|
+| **Highest Required Action** | fix-implementation |
+| **Verdict** | fail |
+| **Issues** | 1 blocking, 0 major, 0 minor |
+| **GH Issues Filed** | None |
+| **Needs Re-review** | true |
+
+本轮使用真实 Lark 用户入站，并用当前 worktree 的 IM/Gateway 做可控验收对象：
+
+- Worktree: `/Users/czj/Repos/nano-multiagent/.worktrees/unit-feat-447`
+- HEAD: `cf42770f fix(feat-447): close Feishu channel review gaps`
+- `<WT_CFG>`: `.gateway-config.yaml`
+- Feishu channel: `feishu:default-agent`
+- Gateway config appId: `cli_aac9315ef3f9dbda`
+- `lark-cli auth status --json --verify`: `verified=true`, `appId=cli_aac9315ef3f9dbda`
+- 目标 Bot: `ou_b33ae16df1338a00a77d4cdbec653b71`
+- Lark user openId: `ou_e6d1591026cfdac8d131eb1fdd71bdb9`
+- IM: `http://127.0.0.1:60052`
+- Gateway: `python -m personal_assistant.main --config .gateway-config.yaml --im-service-url http://127.0.0.1:60052 --foreground --auto-bind`
+
+机器上同时存在用户主仓默认 Gateway/IM 常驻实例（`~/.nano-assistant/config.yaml`, IM `:8011`）。本轮不停止该实例，也不把它作为 worktree 验收证据；worktree 结果以 `http://127.0.0.1:60052` 的 IM API/DB 以及同 appId 的真实 Lark 消息列表为准。
+
+## User Journeys Exercised
+
+1. **真实 Lark 1:1 入站 + worktree IM shadow**
+   - 命令: `lark-cli im +messages-send --as user --user-id ou_b33ae16df1338a00a77d4cdbec653b71 --text "feat447-r7-live-20260704-014328 请只回复一句话并包含这个 nonce" --idempotency-key feat447-r7-live-20260704-014328 --format json`
+   - Lark send evidence: `ok=true`, `chat_id=oc_1906eead0189484ce5ea8a4c245400a6`, user `message_id=om_x100b6b4b02c34ca4b4ca523ab4874de`, `create_time=2026-07-04 01:43:29`
+   - Lark reply evidence: same chat had app `message_id=om_x100b6b4b02ae64a0b2700073227257c`, content `已确认 live nonce：feat447-r7-live-20260704-014328。`
+   - Worktree IM evidence: conversation `096b4947494e4081adf0b2c1fb6a9bf7`, title `default-agent · feishu`, `external_chat_id=feishu:cli_aac9315ef3f9dbda:dm:ou_e6d1591026cfdac8d131eb1fdd71bdb9`; exactly one同 nonce user message (`sender_display_name=你`) and one agent message.
+   - Result: pass for 1:1 DM trigger, no-@ trigger, 1:1 external shadow user/agent sync, and no duplicate final bubble for this nonce.
+
+2. **飞书 `/stop` 可见确认**
+   - Command: `lark-cli im +messages-send --as user --user-id <bot_open_id> --text "/stop" --idempotency-key feat447-r7-stop-20260704-014524 --format json`
+   - Lark send evidence: user `message_id=om_x100b6b4b1d9a94a0b1ce413a868c2d8`, `create_time=2026-07-04 01:45:25`
+   - Lark reply evidence: app `message_id=om_x100b6b4b1da110a8b48a04bfe9c015b`, content `当前没有正在执行的操作。`
+   - Worktree IM evidence: IM API/DB show the `/stop` user message `5736a2597a9b4950aedf82fc2d6f934f`, but no corresponding agent confirmation after it in the shadow conversation. The next agent message in IM is a delayed reply for an older nonce (`feat447-r7-dm-20260704-014014`), not the `/stop` confirmation.
+   - Result: fail. Feishu side sees the control acknowledgement, but the internal IM shadow does not, violating the external-visible control parity expected by M14.
+
+3. **飞书原生工具审批主卡 smoke**
+   - Command: `lark-cli im +messages-send --as user --user-id <bot_open_id> --text "FEISHU_R7_APPROVAL_20260704_014715 请用 write 工具在当前 workspace 创建或覆盖一个名为 .gitconfig 的文件，内容写入 FEISHU_R7_APPROVAL_20260704_014715。这会触发工具权限审批；不要绕过审批。"`
+   - Lark evidence: app interactive card `message_id=om_x100b6b4b146988a0b21e034a88b870f`, content summarized as `Tool approval required`, `Tool: write`, `Input: {"content":"FEISHU_R7_APPROVAL_20260704_014715","path":".gitconfig"}`, buttons `[Allow once] [Deny] [Allow for session]`.
+   - Worktree IM evidence: IM API shows agent message `5236aaac26f244119b403abf2919ee94` with `permission_requests[0].request_id=7f967b32-7ce1-48b3-8285-a3f373701b10`, `tool_name=write`, matching tool input and `status=pending`.
+   - Result: pass for initial pending card presence and same request propagation. I did not click approve/deny in this round because the current blocking `/stop` shadow issue already requires implementation work, and no controllable Lark desktop window was available for real UI interaction.
+
+## 验收标准覆盖（Round 7 update）
+
+### Requirement: 飞书 1:1 私聊对话
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 用户在 1:1 私聊中发消息 | spec.md | 真实 `lark-cli im +messages-send --as user` 到当前 `<WT_CFG>` appId 对应 Bot | Lark user `om_x100b6b4b02c34ca4b4ca523ab4874de`; Lark app reply `om_x100b6b4b02ae64a0b2700073227257c`; worktree Gateway/IM session active | pass | 本轮有效运行态下通过 |
+| 私聊无需 @ 触发 | spec.md | 同一不带 @ 的 nonce 消息 | Bot 正常回复，内容包含 `feat447-r7-live-20260704-014328` | pass | 1:1 no-mention path passed |
+| 私聊 session 隔离 | spec.md | 需要第二个真实用户 | 本轮未获得第二个真实用户入口 | inconclusive | 非本轮阻塞主因；继承为未覆盖项 |
+
+### Requirement: 外部 channel 会话同步到内部 IM
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 外部 1:1 会话在内部 IM 有独立会话 | spec.md | 真实 Lark 入站 + worktree IM API/DB | conversation `096b4947494e4081adf0b2c1fb6a9bf7`, title `default-agent · feishu`, `external_source=feishu` | pass | 独立 shadow 会话存在 |
+| 外部 1:1 用户消息同步到内部 IM | spec.md | worktree IM API/DB 查询 nonce | message `fdf60c4ffda846fc9df022f4bcbb401d`, sender `user`, `sender_display_name=你` in DB, content 含 nonce | pass | 用户消息可见 |
+| 外部 1:1 agent 回复同步到内部 IM | spec.md | worktree IM API/DB 查询 nonce | message `c164ced24bdd44e4a078b93500fdee22`, sender `agent`, content 含 nonce | pass | 同 nonce 无重复 agent 回复 |
+| 外部用户可见控制确认同步到 IM shadow | design.md M14 Runbook | 真实飞书 `/stop` + worktree IM API/DB | Feishu 有 `当前没有正在执行的操作。`; IM shadow 只有用户 `/stop`，没有对应 agent 确认 | fail | 这是本轮 blocking |
+
+### Requirement: 飞书原生工具审批
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 飞书原对话出现 interactive approval card | design.md M13/M14 Runbook | 真实 Lark 1:1 触发 write 权限请求 | Lark app interactive `om_x100b6b4b146988a0b21e034a88b870f`, card 摘要紧凑，包含 write/input/三按钮 | pass | 初始主卡 smoke passed |
+| 内部 IM shadow 同步同一审批请求 | design.md M13 Runbook | worktree IM API 查询 `permission_requests` | IM agent message `5236aaac26f244119b403abf2919ee94`, request `7f967b32-7ce1-48b3-8285-a3f373701b10`, tool input 与 Lark card 一致 | pass | pending request 已同步 |
+| 飞书允许/拒绝/拒绝原因/旧卡失效 | design.md M13 Runbook | 需要真实点击飞书 interactive card | 本轮未执行真实 UI 点击 | inconclusive | 当前轮已因 `/stop` shadow fail；待 fix 后复验 |
+
+## Issues
+
+### Issue 1: `/stop` confirmation appears in Feishu but is missing from the internal IM shadow conversation
+
+- **Severity**: blocking
+- **Regression Relation**: direct
+- **Recommended Action**: fix-implementation
+- **Action Rationale**: design.md M14 runbook requires external user-visible control events to appear in both the Feishu original conversation and the internal IM shadow. In this round, the Feishu user saw the `/stop` acknowledgement, but the shadow conversation did not show the acknowledgement, so users watching IM see an incomplete conversation.
+- **Reproduction**:
+  1. Start worktree IM on `http://127.0.0.1:60052` and Gateway with `.gateway-config.yaml`.
+  2. Confirm `lark-cli auth status --json --verify` appId equals `.gateway-config.yaml` `feishu:default-agent.settings.appId=cli_aac9315ef3f9dbda`.
+  3. Send real Lark user message `/stop` to bot openId `ou_b33ae16df1338a00a77d4cdbec653b71`.
+  4. Observe Feishu app reply `当前没有正在执行的操作。`.
+  5. Open/query worktree IM shadow conversation `default-agent · feishu`.
+- **Observed**:
+  - Feishu: user `/stop` `om_x100b6b4b1d9a94a0b1ce413a868c2d8`, app reply `om_x100b6b4b1da110a8b48a04bfe9c015b`.
+  - IM shadow: user `/stop` message `5736a2597a9b4950aedf82fc2d6f934f`; no following agent confirmation message. The next agent message in IM is for older nonce `feat447-r7-dm-20260704-014014`.
+- **Expected**:
+  - The same user-visible stop acknowledgement should be recorded and rendered in the internal IM shadow conversation.
+
+## Side Findings
+
+- The plain shell background-start pattern used by earlier review commands did not keep worktree IM/Gateway alive in this tool environment; I switched to long-running terminal sessions before counting evidence. This is a review-environment issue, not a product issue.
+- The machine still has a user main Gateway/IM running against `~/.nano-assistant/config.yaml` / port `8011`. Historical duplicate Feishu replies in the shared Lark chat are therefore not attributed to the current worktree unless also present in the current worktree IM. For the Round 7 live nonce, worktree IM had exactly one user message and one agent reply.
+- When Gateway reconnected, Feishu delivered an older message (`feat447-r7-dm-20260704-014014`) and the bot replied at 01:45. This looks like delayed event delivery after downtime. It is not the blocking issue in this round, but it is visible in the user conversation and should be considered in later UX review.
+- `design.md` runbook still mentions `GET /health` for IM, but current IM returns 404. This did not block the user journey because the service accepted Gateway WebSocket and IM API calls.
+
+## 上层文档同步检查
+
+| 文档 | 状态 | 备注 |
+|---|---|---|
+| SPEC.md | 无需本轮 reviewer 修改 | 本轮发现是运行态事件同步缺口 |
+| docs/specs/kernel/spec.md | 无需更新 | kernel spec 无新增结论 |
+| docs/specs/im/spec.md | 待修复后复核 | `/stop` shadow acknowledgement 行为需要实现修复后再确认是否写入长青契约 |
+| docs/specs/gateway/spec.md | 待修复后复核 | 外部可见控制事件目的地需要修复后复核 |
+| docs/specs/cli/spec.md | 无需更新 | CLI spec 无增量 |
+| AGENTS.md / CLAUDE.md | 无需更新 | 操作约束无增量 |
+| docs/SPEC_GUIDE.md | 无需更新 | 非文档体系变更 |
+
+## Verdict
+
+**Verdict: fail**
+**Highest Required Action: fix-implementation**
+**Issues: 1 blocking, 0 major, 0 minor**
+**Top Concern: 飞书 `/stop` 用户可见确认已发送到飞书，但没有同步到内部 IM shadow，会让 IM 侧对话记录缺失控制结果。**
+**Needs Re-review: true**
