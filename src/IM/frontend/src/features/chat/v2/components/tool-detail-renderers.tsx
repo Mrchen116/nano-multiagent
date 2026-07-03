@@ -461,6 +461,45 @@ function SkillCard({ detail, isResultPending = false }: ToolDetailCardProps) {
   );
 }
 
+function SkillViewCard({ detail }: { detail: ToolDetail }) {
+  const name = str(detail.name);
+  const location = str(detail.location);
+  const content = str(detail.content);
+  const error = errorText(detail.error) || str(detail.message);
+  const failed = detail.success === false;
+  if (failed) {
+    return (
+      <div className="chat-tool-detail-info chat-tool-detail-info--failed chat-tool-detail-skill-view">
+        <div className="chat-tool-detail-info-head">✕ {name}</div>
+        {error && <div className="chat-tool-detail-info-body">{error}</div>}
+      </div>
+    );
+  }
+  return (
+    <div className="chat-tool-detail-skill-view">
+      {name && (
+        <Section label="name">
+          <div className="chat-tool-detail-info-body">{name}</div>
+        </Section>
+      )}
+      {location && (
+        <Section label="location">
+          <div className="chat-tool-detail-info-meta">{location}</div>
+        </Section>
+      )}
+      {content && (
+        <Section label="content">
+          <LongOutput
+            text={content}
+            truncatedAtSource={detail.truncated === true}
+            render={(shown) => <pre className="chat-tool-call-pre">{shown}</pre>}
+          />
+        </Section>
+      )}
+    </div>
+  );
+}
+
 function TaskStopCard({ detail, isResultPending = false }: ToolDetailCardProps) {
   const taskId = str(detail.task_id);
   const status = str(detail.status);
@@ -510,6 +549,7 @@ const BESPOKE: Record<string, (p: ToolDetailCardProps) => ReactNode> = {
   agent: AgentCard,
   memory: MemoryCard,
   skill_manage: SkillCard,
+  skill_view: SkillViewCard,
   task_stop: TaskStopCard
 };
 
@@ -546,6 +586,8 @@ function hasTerminalDetail(name: string, detail: ToolDetail): boolean {
       return detail.success != null || hasAnyValue(detail, ["message", "error"]);
     case "skill_manage":
       return detail.success != null || hasAnyValue(detail, ["message", "path", "error"]);
+    case "skill_view":
+      return detail.success != null || hasAnyValue(detail, ["name", "location", "content", "error", "message"]);
     case "task_stop":
       return hasAnyValue(detail, ["status", "error", "message"]);
     default:

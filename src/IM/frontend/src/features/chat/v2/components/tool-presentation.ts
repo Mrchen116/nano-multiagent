@@ -25,6 +25,7 @@ const TOOL_EMOJI: Record<string, string> = {
   agent: "🔀",
   memory: "🧠",
   skill_manage: "📚",
+  skill_view: "📚",
   task_stop: "⏹"
 };
 
@@ -51,7 +52,14 @@ export function toolEmojiFor(call: ToolCall): string {
  * still renders cleanly with just emoji + name.
  */
 export function collapsedSummary(call: ToolCall): string {
-  return typeof call.output === "string" ? call.output : "";
+  if (typeof call.output === "string" && call.output) return call.output;
+  if (call.name === "skill_view") {
+    const detailName = call.detail?.name;
+    const inputName = call.input?.name;
+    const name = typeof detailName === "string" && detailName ? detailName : inputName;
+    if (typeof name === "string" && name) return `查看 skill：${name}`;
+  }
+  return "";
 }
 
 /**
