@@ -461,3 +461,88 @@ Evidence:
 ## Recommended Action
 
 继续走 fix-implementation。Round 3 关闭了 Round 2 的 dashboard 空白、`/skill:` 无 row/无统计、F2 无反馈三项核心症状，但 F2 主路径仍因真实 conversation 无 `source_jsonl_path` 阻塞；`/skill:` 的工具行完成态也仍不可信。
+
+---
+
+# Round 4 — 2026-07-03
+
+> 对齐: `docs/changes/feat-446-skill-view-tool/spec.md`
+> validated_head: `0db64232208ddc426752f407ea33cc4d1bd7c076`
+
+## Verdict
+
+pass
+
+Highest Required Action: pass
+
+Issues count: blocking 0, major 0, minor 0
+
+## User Journeys Exercised
+
+1. 真栈启动与登录: `npm run build` 重建 Web IM dist，确认 IM host serving `assets/index-BpuZmqF_.js`；用隔离端口启动真实 IM/Gateway，登录 `nano/nano1234`，确认 node `wt-unit-feat-446-84343` online。由于 `e2e-up.sh` 在本地非持久 shell 退出后会带走子进程，本轮按 Round 3 经验将 launcher 留在长驻 shell 中，验收后已执行 `./scripts/e2e-down.sh` 并停止 launcher。
+2. F2 transcript-backed journey: 通过 Web IM 新建真实 `default-agent` chat，发送用户消息并等待 assistant 回复；随后 `/im/v1/conversations` 与 `/im/v1/sync` 均返回该 conversation 的 `run_state=idle` 和非空 `source_jsonl_path`，路径指向存在的 JSONL 文件。右键该 conversation 选择 `Distill to skill`，进入多选模式，点击 `Distill to skill`，看到 scope 弹窗，执行 agent 自动为 `default-agent`，写入范围可选 Agent / PA product；点击 `Start distillation` 后跳转新对话，输入框预填 `/skill:conversation-skill-distiller`、完整 `source_jsonl_paths`、`execution_agent_id: default-agent`、`target_scope: agent` 和默认意图。
+3. `/skill:` visible `skill_view` row: 在真实 default-agent 对话中发送 `/skill:change-spec-author`，等待 assistant 完成；Process row 从运行态变为完成态，展开后显示 `skill_view`、`查看 skill：change-spec-author`、name、location、content；usage API 中 `change-spec-author.use_count` 从 3 增至 4。
+4. Direct `skill_view` regression and dashboard usage spot-check: 在新 default-agent chat 中要求 agent 直接调用 `skill_view(name="change-spec-author")`；完成后 usage 从 5 增至 6，展开 row 显示完成态 `skill_view` 详情。Agent Skills dashboard 的 List 视图显示 `change-spec-author`, `active`, `F1`, `6 uses`；Agent 视图显示 30-day heatmap；Health 视图显示 funnel 卡片。
+
+Evidence:
+- `/tmp/feat446-r4-acceptance/index.html` — IM host HTML references rebuilt `assets/index-BpuZmqF_.js`.
+- `/tmp/feat446-r4-acceptance/nodes.json` — authenticated node list shows `wt-unit-feat-446-84343` online.
+- `/tmp/feat446-r4-acceptance/06-after-seed-reply.png` — real default-agent chat completed with assistant reply, producing a finished transcript source.
+- `/tmp/feat446-r4-acceptance/conversations-after-seed.json` and `/tmp/feat446-r4-acceptance/sync-after-seed.json` — both expose `source_jsonl_path` for conversation `c6c54c7f42b346e7aa2a840f6b61bc03`.
+- `/tmp/feat446-r4-acceptance/source-jsonl-stat.txt` — referenced JSONL path exists, size 5897 bytes.
+- `/tmp/feat446-r4-acceptance/07-f2-context-menu-transcript-row.png`, `/tmp/feat446-r4-acceptance/09-f2-scope-dialog.png`, `/tmp/feat446-r4-acceptance/10-f2-prefilled-distiller-chat.png`, `/tmp/feat446-r4-acceptance/f2-prefill-text.txt` — F2 selection reaches scope selection and prefilled distiller prompt with JSONL path, execution agent, and target scope.
+- `/tmp/feat446-r4-acceptance/14-slash-expanded-complete.png`, `/tmp/feat446-r4-acceptance/usage-before-slash-r4.json`, `/tmp/feat446-r4-acceptance/usage-after-slash-90s-r4.json` — slash-triggered `skill_view` row completes and usage increments 3 -> 4.
+- `/tmp/feat446-r4-acceptance/18-fresh-direct-expanded.png`, `/tmp/feat446-r4-acceptance/usage-before-fresh-direct-r4.json`, `/tmp/feat446-r4-acceptance/usage-after-fresh-direct-r4.json` — direct `skill_view` row completes and usage increments 5 -> 6.
+- `/tmp/feat446-r4-acceptance/20-dashboard-skills-usage.png`, `/tmp/feat446-r4-acceptance/21-dashboard-agent-view.png`, `/tmp/feat446-r4-acceptance/22-dashboard-health-view.png`, `/tmp/feat446-r4-acceptance/usage-final-r4.json` — dashboard list/agent/health views render from real usage data; final API shows `use_count=6`.
+
+## Issues
+
+None.
+
+## 验收标准覆盖（Round 4 targeted）
+
+### Requirement: 从历史 session 蒸馏 skill（F2） — 组内结论: pass
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 用户选择可蒸馏 conversation 后选择写入范围并跳转 | spec.md / prototype-f2.html | 真实 Web IM default-agent chat 完成后，从 conversation 右键进入 F2 | `/tmp/feat446-r4-acceptance/conversations-after-seed.json`, `/tmp/feat446-r4-acceptance/sync-after-seed.json`, `/tmp/feat446-r4-acceptance/09-f2-scope-dialog.png`, `/tmp/feat446-r4-acceptance/10-f2-prefilled-distiller-chat.png` | pass | Round 3 的 `source_jsonl_path=null` 已修复；scope dialog 和跳转/预填可达。 |
+| 用户通过弹窗指定生成级别后提交蒸馏 | spec.md | 选择默认 Agent 范围并点击 `Start distillation` | `/tmp/feat446-r4-acceptance/f2-prefill-text.txt` | pass | 预填包含 `target_scope: agent`，用户可继续补充意图并发送。 |
+| 用户选 conversation + 意图生成 skill | spec.md | 从真实 transcript-backed conversation 进入新对话 | `/tmp/feat446-r4-acceptance/f2-prefill-text.txt`, `/tmp/feat446-r4-acceptance/source-jsonl-stat.txt` | pass | 本轮验到 agent 可读取的完整 JSONL path 被写入普通消息；未实际要求 agent 创建新 skill，以避免把一次 seed transcript 强行变成稳定模式。 |
+| agent 写入 skill 后在普通对话里展示结果 | spec.md | N/A | N/A | not-applicable | 本轮 assignment 聚焦 F2 到 scope selection 和 `/skill:conversation-skill-distiller` prefill；一次 seed transcript 不构成稳定模式，不强行发送生成。 |
+
+### Requirement: IM 工具调用面板展示 skill_view 审计信息 — 组内结论: pass
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| skill_view 成功调用的折叠态可审计 | spec.md | `/skill:change-spec-author` 与直接 `skill_view` 两条真实路径 | `/tmp/feat446-r4-acceptance/14-slash-expanded-complete.png`, `/tmp/feat446-r4-acceptance/18-fresh-direct-expanded.png` | pass | row 显示真实工具名 `skill_view` 和 `查看 skill：change-spec-author`。 |
+| skill_view 成功调用的展开态展示内容 | spec.md | 展开 slash/direct 完成态 Process row | 同上 | pass | 展开态显示 name、location、content 预览。 |
+
+### Requirement: 使用统计追踪 — 组内结论: pass
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 用户通过 /skill: 斜杠命令触发时也记录使用统计 | spec.md | 发送 `/skill:change-spec-author` 后等待完成并查 usage API | `/tmp/feat446-r4-acceptance/usage-before-slash-r4.json`, `/tmp/feat446-r4-acceptance/usage-after-slash-90s-r4.json`, `/tmp/feat446-r4-acceptance/14-slash-expanded-complete.png` | pass | use_count 3 -> 4，row 完成态可信。 |
+| agent 主动调用 skill_view 记录使用统计 | spec.md | 新 default-agent chat 中直接要求 `skill_view(name="change-spec-author")` | `/tmp/feat446-r4-acceptance/usage-before-fresh-direct-r4.json`, `/tmp/feat446-r4-acceptance/usage-after-fresh-direct-r4.json`, `/tmp/feat446-r4-acceptance/18-fresh-direct-expanded.png` | pass | use_count 5 -> 6。 |
+
+### Requirement: 使用统计面板（IM 前端，初版） — 组内结论: pass
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| Skill 列表视图 | spec.md / prototype.html | Agent detail -> Skills -> List | `/tmp/feat446-r4-acceptance/20-dashboard-skills-usage.png`, `/tmp/feat446-r4-acceptance/usage-final-r4.json` | pass | `change-spec-author` 显示 active/F1/6 uses，和 API 一致。 |
+| Agent 维度视图 | spec.md / prototype.html | Skills -> Agent | `/tmp/feat446-r4-acceptance/21-dashboard-agent-view.png` | pass | 30-day heatmap 可见。 |
+| 自进化健康度视图 | spec.md / prototype.html | Skills -> Health | `/tmp/feat446-r4-acceptance/22-dashboard-health-view.png` | pass | funnel 卡片可见。 |
+
+## Side Findings
+
+- `./scripts/e2e-up.sh` 在本地非持久 shell 中仍会让子进程随 shell 结束而退出；本轮沿用 Round 3 的长驻 shell workaround。验收后已执行 `./scripts/e2e-down.sh` 并停止该 shell。此项为环境/脚本 side finding，不影响 feat-446 产品验收。
+
+## 上层文档同步
+
+- [x] `SPEC.md`（跨包顶点架构）：无需更新。
+- [x] `docs/specs/<包>/spec.md`（长青行为契约层，本 unit 触及 kernel/im/gateway）：需要由 orchestrator 收尾归并本 unit 行为增量。
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新。
+- [x] `docs/SPEC_GUIDE.md`：无需更新。
+
+## Recommended Action
+
+通过本轮验收。Round 3 两个阻塞/主要问题均关闭：真实 conversation 已暴露 `source_jsonl_path` 并可进入 F2 scope/prefill；`/skill:<name>` 的 visible `skill_view` row 会完成且 usage 增量可信。建议进入 unit -> main 提 PR前的收尾归并/代码审查流程。
