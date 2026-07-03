@@ -10,8 +10,8 @@ import pytest
 lark_oapi = pytest.importorskip("lark_oapi")
 
 from personal_assistant.channels.base import InboundMessage
-from personal_assistant.channels.feishu_adapter import FeishuAdapter
-from personal_assistant.channels.feishu_client import (
+from personal_assistant.channels.feishu.adapter import FeishuAdapter
+from personal_assistant.channels.feishu.client import (
     FeishuAPIError,
     FeishuMessageEvent,
     FeishuMention,
@@ -40,7 +40,7 @@ def _make_group_event(
     )
 
 
-@patch("personal_assistant.channels.feishu_adapter.FeishuClient")
+@patch("personal_assistant.channels.feishu.adapter.FeishuClient")
 def test_group_at_bot_catches_up_ordinary_history_before_trigger(
     mock_fc_cls: MagicMock,
 ) -> None:
@@ -78,7 +78,7 @@ def test_group_at_bot_catches_up_ordinary_history_before_trigger(
     assert "sync_only" not in trigger_msg.metadata
 
 
-@patch("personal_assistant.channels.feishu_adapter.FeishuClient")
+@patch("personal_assistant.channels.feishu.adapter.FeishuClient")
 def test_group_history_catchup_skips_bot_self_messages(
     mock_fc_cls: MagicMock,
 ) -> None:
@@ -114,7 +114,7 @@ def test_group_history_catchup_skips_bot_self_messages(
     assert delivered == ["你会数学吗", "@plato"]
 
 
-@patch("personal_assistant.channels.feishu_adapter.FeishuClient")
+@patch("personal_assistant.channels.feishu.adapter.FeishuClient")
 def test_group_history_catchup_only_keeps_messages_after_last_bot_reply(
     mock_fc_cls: MagicMock,
 ) -> None:
@@ -156,7 +156,7 @@ def test_group_history_catchup_only_keeps_messages_after_last_bot_reply(
     assert delivered == ["你会数学吗", "@plato"]
 
 
-@patch("personal_assistant.channels.feishu_adapter.FeishuClient")
+@patch("personal_assistant.channels.feishu.adapter.FeishuClient")
 def test_group_history_permission_failure_warns_but_delivers_current_trigger(
     mock_fc_cls: MagicMock,
     caplog: pytest.LogCaptureFixture,
@@ -186,7 +186,7 @@ def test_group_history_permission_failure_warns_but_delivers_current_trigger(
 
     with caplog.at_level(
         logging.WARNING,
-        logger="personal_assistant.channels.feishu_adapter",
+        logger="personal_assistant.channels.feishu.adapter",
     ):
         adapter._handle_message(current)
 

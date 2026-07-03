@@ -10,8 +10,8 @@ import pytest
 lark_oapi = pytest.importorskip("lark_oapi")
 
 from personal_assistant.channels.base import InboundMessage
-from personal_assistant.channels.feishu_adapter import FeishuAdapter
-from personal_assistant.channels.feishu_client import (
+from personal_assistant.channels.feishu.adapter import FeishuAdapter
+from personal_assistant.channels.feishu.client import (
     FeishuMessageEvent,
     FeishuMention,
     _parse_feishu_event,
@@ -86,7 +86,7 @@ def test_parse_live_at_all_placeholder_keeps_visible_text_without_entity() -> No
     assert result.mention_only is False
 
 
-@patch("personal_assistant.channels.feishu_adapter.FeishuClient")
+@patch("personal_assistant.channels.feishu.adapter.FeishuClient")
 def test_group_mention_only_delivers_non_empty_text_and_metadata(
     mock_fc_cls: MagicMock,
 ) -> None:

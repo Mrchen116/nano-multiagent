@@ -9,11 +9,11 @@ import pytest
 
 pytest.importorskip("lark_oapi")
 
-from personal_assistant.channels.feishu_adapter import FeishuAdapter
+from personal_assistant.channels.feishu.adapter import FeishuAdapter
 from personal_assistant.gateway.group_context_store import GroupContextStore
 
 
-@patch("personal_assistant.channels.feishu_adapter.FeishuClient")
+@patch("personal_assistant.channels.feishu.adapter.FeishuClient")
 def test_start_warns_when_group_message_scope_missing(
     mock_fc_cls: MagicMock, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -28,7 +28,7 @@ def test_start_warns_when_group_message_scope_missing(
     )
 
     with caplog.at_level(
-        logging.WARNING, logger="personal_assistant.channels.feishu_adapter"
+        logging.WARNING, logger="personal_assistant.channels.feishu.adapter"
     ):
         adapter.start(MagicMock())
 
@@ -37,7 +37,7 @@ def test_start_warns_when_group_message_scope_missing(
     assert "receiveAllGroupMessages" not in caplog.text
 
 
-@patch("personal_assistant.channels.feishu_adapter.FeishuClient")
+@patch("personal_assistant.channels.feishu.adapter.FeishuClient")
 def test_start_does_not_warn_when_group_message_scope_present(
     mock_fc_cls: MagicMock, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -52,7 +52,7 @@ def test_start_does_not_warn_when_group_message_scope_present(
     )
 
     with caplog.at_level(
-        logging.WARNING, logger="personal_assistant.channels.feishu_adapter"
+        logging.WARNING, logger="personal_assistant.channels.feishu.adapter"
     ):
         adapter.start(MagicMock())
 

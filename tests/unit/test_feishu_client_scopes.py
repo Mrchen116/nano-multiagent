@@ -8,7 +8,7 @@ import pytest
 
 pytest.importorskip("lark_oapi")
 
-from personal_assistant.channels.feishu_client import FeishuClient
+from personal_assistant.channels.feishu.client import FeishuClient
 
 
 def _mock_scope_response(*, success: bool, scopes: list[object] | None = None):

@@ -18,7 +18,10 @@ from personal_assistant.config.local_store import (
     LocalConfig,
     NodeConfig,
 )
-from personal_assistant.main import _autofill_feishu_bot_open_id
+from personal_assistant.main import (
+    _autofill_feishu_bot_open_id,
+    _build_feishu_owner_open_id_binder,
+)
 
 
 def _local_config(tmp_path: Path, channels: tuple[ChannelConfig, ...]) -> LocalConfig:
@@ -100,6 +103,60 @@ def test_autofill_feishu_bot_open_id_preserves_owner_open_id(
 
     assert updated.channels[0].settings["ownerOpenId"] == "ou_existing_owner"
     assert updated.channels[0].settings["botOpenId"] == "ou_bot"
+
+
+def test_feishu_owner_open_id_binder_persists_first_sender(
+    tmp_path: Path,
+) -> None:
+    config = _local_config(
+        tmp_path,
+        (
+            ChannelConfig(
+                name="feishu:plato",
+                enabled=True,
+                settings={"appId": "cli_a", "appSecret": "s_a"},
+            ),
+        ),
+    )
+    saved: list[LocalConfig] = []
+    binder = _build_feishu_owner_open_id_binder(
+        config,
+        save_config=lambda cfg, _path: saved.append(cfg),
+    )
+
+    bound = binder("feishu:plato", "ou_first")
+
+    assert bound == "ou_first"
+    assert config.channels[0].settings["ownerOpenId"] == "ou_first"
+    assert saved == [config]
+
+
+def test_feishu_owner_open_id_binder_keeps_existing_owner(
+    tmp_path: Path,
+) -> None:
+    config = _local_config(
+        tmp_path,
+        (
+            ChannelConfig(
+                name="feishu:plato",
+                enabled=True,
+                settings={
+                    "appId": "cli_a",
+                    "appSecret": "s_a",
+                    "ownerOpenId": "ou_existing_owner",
+                },
+            ),
+        ),
+    )
+    binder = _build_feishu_owner_open_id_binder(
+        config,
+        save_config=lambda _cfg, _path: pytest.fail("must not persist existing"),
+    )
+
+    bound = binder("feishu:plato", "ou_other")
+
+    assert bound == "ou_existing_owner"
+    assert config.channels[0].settings["ownerOpenId"] == "ou_existing_owner"
 
 
 def test_autofill_feishu_bot_open_id_without_source_path_keeps_memory_update(

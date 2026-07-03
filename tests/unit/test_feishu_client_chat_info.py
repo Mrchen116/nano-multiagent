@@ -8,7 +8,7 @@ import pytest
 
 lark_oapi = pytest.importorskip("lark_oapi")
 
-from personal_assistant.channels.feishu_client import FeishuAPIError, FeishuClient
+from personal_assistant.channels.feishu.client import FeishuAPIError, FeishuClient
 
 
 def test_get_chat_name_returns_group_name() -> None:

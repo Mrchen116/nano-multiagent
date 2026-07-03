@@ -9,8 +9,8 @@ import pytest
 lark_oapi = pytest.importorskip("lark_oapi")
 
 from personal_assistant.channels.base import InboundMessage
-from personal_assistant.channels.feishu_adapter import FeishuAdapter
-from personal_assistant.channels.feishu_client import (
+from personal_assistant.channels.feishu.adapter import FeishuAdapter
+from personal_assistant.channels.feishu.client import (
     FeishuAPIError,
     FeishuMention,
     FeishuMessageEvent,
@@ -30,7 +30,7 @@ def _group_event() -> FeishuMessageEvent:
     )
 
 
-@patch("personal_assistant.channels.feishu_adapter.FeishuClient")
+@patch("personal_assistant.channels.feishu.adapter.FeishuClient")
 def test_group_inbound_metadata_includes_chat_name(mock_fc_cls: MagicMock) -> None:
     mock_fc = MagicMock()
     mock_fc.get_chat_name.return_value = "产品群"
@@ -53,7 +53,7 @@ def test_group_inbound_metadata_includes_chat_name(mock_fc_cls: MagicMock) -> No
     assert msg.metadata["conversation_title"] == "plato · 产品群 · feishu"
 
 
-@patch("personal_assistant.channels.feishu_adapter.FeishuClient")
+@patch("personal_assistant.channels.feishu.adapter.FeishuClient")
 def test_group_chat_name_lookup_failure_still_delivers_inbound(
     mock_fc_cls: MagicMock,
 ) -> None:

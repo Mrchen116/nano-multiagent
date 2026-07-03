@@ -16,8 +16,9 @@ from personal_assistant.main import _build_permission_response_handler
 
 
 class _FakeKernel:
-    def __init__(self) -> None:
+    def __init__(self, *, result: bool = True) -> None:
         self.calls: list[dict[str, Any]] = []
+        self.result = result
 
     def submit_permission_decision(
         self,
@@ -29,7 +30,7 @@ class _FakeKernel:
         self.calls.append(
             {"request_id": request_id, "decision": decision, "reason": reason}
         )
-        return True
+        return self.result
 
 
 def test_handler_routes_to_kernel_submit_permission_decision() -> None:
@@ -37,8 +38,9 @@ def test_handler_routes_to_kernel_submit_permission_decision() -> None:
     kernel = _FakeKernel()
     handler = _build_permission_response_handler(kernel=kernel)
 
-    handler({"request_id": "req-abc", "decision": "allow_once"})
+    accepted = handler({"request_id": "req-abc", "decision": "allow_once"})
 
+    assert accepted is True
     assert kernel.calls == [
         {"request_id": "req-abc", "decision": "allow_once", "reason": ""}
     ]
@@ -49,8 +51,11 @@ def test_handler_passes_reason_field() -> None:
     kernel = _FakeKernel()
     handler = _build_permission_response_handler(kernel=kernel)
 
-    handler({"request_id": "req-1", "decision": "deny", "reason": "user said no"})
+    accepted = handler(
+        {"request_id": "req-1", "decision": "deny", "reason": "user said no"}
+    )
 
+    assert accepted is True
     assert kernel.calls == [
         {"request_id": "req-1", "decision": "deny", "reason": "user said no"}
     ]
@@ -62,13 +67,26 @@ def test_handler_ignores_malformed_frames() -> None:
     handler = _build_permission_response_handler(kernel=kernel)
 
     # Missing request_id
-    handler({"decision": "allow_once"})
+    assert handler({"decision": "allow_once"}) is False
     # Missing decision
-    handler({"request_id": "r-1"})
+    assert handler({"request_id": "r-1"}) is False
     # Empty strings
-    handler({"request_id": "  ", "decision": "  "})
+    assert handler({"request_id": "  ", "decision": "  "}) is False
 
     assert kernel.calls == []
+
+
+def test_handler_returns_kernel_decision_state() -> None:
+    """Handler must expose first-wins state for non-IM approval surfaces."""
+    kernel = _FakeKernel(result=False)
+    handler = _build_permission_response_handler(kernel=kernel)
+
+    accepted = handler({"request_id": "req-old", "decision": "deny"})
+
+    assert accepted is False
+    assert kernel.calls == [
+        {"request_id": "req-old", "decision": "deny", "reason": ""}
+    ]
 
 
 def test_handler_swallows_kernel_errors() -> None:
@@ -81,4 +99,4 @@ def test_handler_swallows_kernel_errors() -> None:
     handler = _build_permission_response_handler(kernel=_ThrowingKernel())
 
     # Must not raise.
-    handler({"request_id": "r-1", "decision": "deny"})
+    assert handler({"request_id": "r-1", "decision": "deny"}) is False

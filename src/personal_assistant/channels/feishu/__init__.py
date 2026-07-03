@@ -1,5 +1,6 @@
-"""Compatibility exports for the Feishu SDK wrapper."""
+"""Feishu/Lark channel package."""
 
+from personal_assistant.channels.feishu.adapter import FeishuAdapter
 from personal_assistant.channels.feishu.client import (
     FeishuAPIError,
     FeishuAuthError,
@@ -7,17 +8,14 @@ from personal_assistant.channels.feishu.client import (
     FeishuClient,
     FeishuMention,
     FeishuMessageEvent,
-    _parse_feishu_event,
-    _parse_feishu_history_message,
 )
 
 __all__ = [
     "FeishuAPIError",
+    "FeishuAdapter",
     "FeishuAuthError",
     "FeishuCardActionEvent",
     "FeishuClient",
     "FeishuMention",
     "FeishuMessageEvent",
-    "_parse_feishu_event",
-    "_parse_feishu_history_message",
 ]

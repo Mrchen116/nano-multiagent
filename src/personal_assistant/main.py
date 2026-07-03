@@ -33,7 +33,7 @@ from personal_assistant.channels.web_relay_adapter import (
     RelayDeduplicationStore,
     WebRelayAdapter,
 )
-from personal_assistant.channels.feishu_adapter import FeishuAdapter
+from personal_assistant.channels.feishu import FeishuAdapter
 
 from personal_assistant.config.local_store import (
     AgentWorkspaceConfig,
@@ -2527,6 +2527,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         agents_by_id={a.agent_id: a for a in config.agents},
         product_default_model=config.llm.default_model,
     )
+    permission_response_handler = _build_permission_response_handler(kernel=kernel)
 
     runtime_dir = config.source_path.parent
     # Shared GroupContextStore for FeishuAdapter (non-mention group message buffer)
@@ -2542,6 +2543,8 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         config.channels,
         dedup_db_path=runtime_dir / "relay_dedup.sqlite3",
         group_context_store=group_context_store,
+        feishu_owner_open_id_binder=_build_feishu_owner_open_id_binder(config),
+        feishu_permission_decision_callback=permission_response_handler,
     )
     outbound_router = OutboundRouter(channel_registry)
     # Use SQLite-backed store so kernel session mappings survive gateway restarts
@@ -2756,9 +2759,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                 channel_name=WebRelayAdapter.name,
             ),
             token_getter=_token_getter,
-            permission_response_handler=_build_permission_response_handler(
-                kernel=kernel
-            ),
+            permission_response_handler=permission_response_handler,
             on_connected=_reconcile_on_connect,
         )
     pipeline._relay_lifecycle_callback = _build_relay_lifecycle_callback(
@@ -2789,10 +2790,41 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                 ),
             )
 
+        def _send_external_permission_request(
+            request: Mapping[str, Any], metadata: Mapping[str, str]
+        ) -> None:
+            channel_name = metadata.get("channel_name") or ""
+            target_chat_id = metadata.get("target_chat_id") or ""
+            if not channel_name or not target_chat_id:
+                return
+            adapter = channel_registry.get(channel_name)
+            sender = getattr(adapter, "send_permission_request", None)
+            if not callable(sender):
+                return
+            sender(
+                target_chat_id=target_chat_id,
+                request=request,
+                run_id=metadata.get("run_id") or "",
+            )
+
+        def _mark_external_permission_resolved(
+            request_id: str, decision: str, metadata: Mapping[str, str]
+        ) -> None:
+            channel_name = metadata.get("channel_name") or ""
+            if not channel_name:
+                return
+            adapter = channel_registry.get(channel_name)
+            resolver = getattr(adapter, "mark_permission_resolved", None)
+            if not callable(resolver):
+                return
+            resolver(request_id=request_id, decision=decision)
+
         _kernel_event_observer = _build_kernel_event_observer(
             im_connection_manager_factory=lambda: im_connection_manager,
             run_context_store=_run_context_store,
             external_reply_sender=_send_external_reply,
+            external_permission_request_sender=_send_external_permission_request,
+            external_permission_resolved_sender=_mark_external_permission_resolved,
         )
         pipeline._kernel_event_observer = _kernel_event_observer
         # feat-393: wire observer into heartbeat_runner now that it's built.
@@ -3251,6 +3283,10 @@ def _build_channel_registry(
     *,
     dedup_db_path: Path | None = None,
     group_context_store: GroupContextStore | None = None,
+    feishu_owner_open_id_binder: Callable[[str, str], str | None] | None = None,
+    feishu_permission_decision_callback: (
+        Callable[[Mapping[str, object]], bool | None] | None
+    ) = None,
 ) -> ChannelRegistry:
     has_feishu = any(ch.enabled and ch.name.startswith("feishu:") for ch in channels)
     if has_feishu and group_context_store is None:
@@ -3277,12 +3313,56 @@ def _build_channel_registry(
                     app_secret=settings["appSecret"],
                     bot_open_id=settings.get("botOpenId"),
                     owner_open_id=settings.get("ownerOpenId"),
+                    owner_open_id_binder=feishu_owner_open_id_binder,
+                    permission_decision_callback=feishu_permission_decision_callback,
                     group_context_store=group_context_store,
                 )
             )
             continue
         raise ValueError(f"unsupported channel adapter: {channel.name}")
     return registry
+
+
+def _build_feishu_owner_open_id_binder(
+    config: LocalConfig,
+    *,
+    save_config: Callable[[LocalConfig, str | Path], None] = save_local_config,
+) -> Callable[[str, str], str | None]:
+    """Bind missing Feishu ownerOpenId to the first real sender for an adapter."""
+    lock = threading.Lock()
+
+    def _bind(channel_name: str, sender_open_id: str) -> str | None:
+        cleaned_sender = sender_open_id.strip() if isinstance(sender_open_id, str) else ""
+        if not cleaned_sender:
+            return None
+        with lock:
+            for channel in config.channels:
+                if channel.name != channel_name or not channel.enabled:
+                    continue
+                if not channel.name.startswith("feishu:"):
+                    return None
+                existing = channel.settings.get("ownerOpenId")
+                if isinstance(existing, str) and existing.strip():
+                    return existing.strip()
+                channel.settings["ownerOpenId"] = cleaned_sender
+                source_path = getattr(config, "source_path", None)
+                if source_path is not None:
+                    try:
+                        save_config(config, source_path)
+                    except Exception:  # noqa: BLE001
+                        _log.warning(
+                            "failed to persist feishu ownerOpenId for channel %s",
+                            channel_name,
+                            exc_info=True,
+                        )
+                _log.info(
+                    "bound feishu ownerOpenId from first inbound sender for channel %s",
+                    channel_name,
+                )
+                return cleaned_sender
+        return None
+
+    return _bind
 
 
 def _make_token_getter(
@@ -3457,7 +3537,7 @@ def _build_im_connection_manager(
     agent_create_handler: AgentCreateHandler | None = None,
     session_fork_handler: SessionForkHandler | None = None,
     token_getter: Callable[[], Awaitable[str | None]] | None = None,
-    permission_response_handler: Callable[[Mapping[str, object]], None] | None = None,
+    permission_response_handler: Callable[[Mapping[str, object]], bool] | None = None,
     on_connected: Callable[[], Awaitable[None]] | None = None,
 ) -> IMConnectionManager:
     im_service = config.im_service
@@ -3485,7 +3565,7 @@ def _build_im_connection_manager(
 def _build_permission_response_handler(
     *,
     kernel: Any,
-) -> Callable[[Mapping[str, object]], None]:
+) -> Callable[[Mapping[str, object]], bool]:
     """Build handler that routes IM permission_response frames to the kernel.
 
     The frame carries ``request_id``, ``decision``, and an optional ``reason``.
@@ -3493,20 +3573,22 @@ def _build_permission_response_handler(
     no session lookup is required — the broker finds the pending future by id.
     """
 
-    def _handler(body: Mapping[str, object]) -> None:
+    def _handler(body: Mapping[str, object]) -> bool:
         request_id = str(body.get("request_id") or "").strip()
         decision = str(body.get("decision") or "").strip()
         if not request_id or not decision:
-            return
+            return False
         reason = str(body.get("reason") or "").strip()
         try:
-            kernel.submit_permission_decision(
-                request_id=request_id,
-                decision=decision,
-                reason=reason,
+            return bool(
+                kernel.submit_permission_decision(
+                    request_id=request_id,
+                    decision=decision,
+                    reason=reason,
+                )
             )
-        except Exception:  # noqa: BLE001 — IM-bound side-effect; failure must not cascade
-            return
+        except Exception:  # noqa: BLE001 — side-effect; failure must not cascade
+            return False
 
     return _handler
 
@@ -3849,6 +3931,12 @@ def _build_kernel_event_observer(
     run_context_store: dict[str, dict[str, str]],
     running_tool_calls: dict[str, dict[str, dict[str, Any]]] | None = None,
     external_reply_sender: Callable[[str, Mapping[str, str]], Any] | None = None,
+    external_permission_request_sender: (
+        Callable[[Mapping[str, Any], Mapping[str, str]], Any] | None
+    ) = None,
+    external_permission_resolved_sender: (
+        Callable[[str, str, Mapping[str, str]], Any] | None
+    ) = None,
 ) -> Callable[[Mapping[str, Any]], "Coroutine[Any, Any, None] | None"]:
     """Build a kernel SSE event observer that forwards streaming events to IM via node.streaming_delta.
 
@@ -3900,15 +3988,28 @@ def _build_kernel_event_observer(
             _log.warning("IM observer send failed for %s: %s", message_type, exc)
 
     def _is_external_reply_context(ctx: Mapping[str, str]) -> bool:
+        return external_reply_sender is not None and _external_context_metadata(ctx) is not None
+
+    def _external_context_metadata(ctx: Mapping[str, str]) -> dict[str, str] | None:
         channel_name = ctx.get("reply_channel_name") or ""
         target_chat_id = ctx.get("reply_target_chat_id") or ""
-        return bool(
-            external_reply_sender is not None
-            and ctx.get("trigger_source") != "im"
-            and channel_name
-            and channel_name != "web_relay"
-            and target_chat_id
-        )
+        if (
+            ctx.get("trigger_source") == "im"
+            or not channel_name
+            or channel_name == "web_relay"
+            or not target_chat_id
+        ):
+            return None
+        metadata: dict[str, str] = {
+            "channel_name": channel_name,
+            "target_chat_id": target_chat_id,
+        }
+        optional_keys = ("reply_thread_id", "feishu_message_id")
+        for key in optional_keys:
+            value = ctx.get(key)
+            if value:
+                metadata[key] = value
+        return metadata
 
     def _mirror_external_reply(
         *, rid: str, ctx: dict[str, str], phase: str, text: str
@@ -3920,25 +4021,45 @@ def _build_kernel_event_observer(
             return
         if InboundPipeline._is_no_reply_token(cleaned_text):
             return
+        external_metadata = _external_context_metadata(ctx)
+        if external_metadata is None:
+            return
         metadata: dict[str, str] = {
             "reply_phase": phase,
             "reply_dedupe_key": f"{rid}:text:{cleaned_text}",
-            "channel_name": ctx["reply_channel_name"],
-            "target_chat_id": ctx["reply_target_chat_id"],
+            **external_metadata,
         }
-        optional_keys = ("reply_thread_id", "feishu_message_id")
-        for key in optional_keys:
-            value = ctx.get(key)
-            if value:
-                metadata[key] = value
         result = external_reply_sender(cleaned_text, metadata)
+        if asyncio.iscoroutine(result):
+            asyncio.get_event_loop().create_task(result)
+
+    def _mirror_external_permission_request(
+        *, rid: str, ctx: Mapping[str, str], request: Mapping[str, Any]
+    ) -> None:
+        if external_permission_request_sender is None:
+            return
+        metadata = _external_context_metadata(ctx)
+        if metadata is None:
+            return
+        metadata["run_id"] = rid
+        result = external_permission_request_sender(request, metadata)
+        if asyncio.iscoroutine(result):
+            asyncio.get_event_loop().create_task(result)
+
+    def _mirror_external_permission_resolved(
+        *, ctx: Mapping[str, str], request_id: str, decision: str
+    ) -> None:
+        if external_permission_resolved_sender is None:
+            return
+        metadata = _external_context_metadata(ctx)
+        if metadata is None:
+            return
+        result = external_permission_resolved_sender(request_id, decision, metadata)
         if asyncio.iscoroutine(result):
             asyncio.get_event_loop().create_task(result)
 
     def observer(event: Mapping[str, Any]) -> "Coroutine[Any, Any, None] | None":
         manager = im_connection_manager_factory()
-        if manager is None or not manager.connected:
-            return None
         run_id = str(event.get("run_id") or "").strip()
         if not run_id:
             return None
@@ -3954,6 +4075,12 @@ def _build_kernel_event_observer(
         to_user_id = ctx.get("to_user_id") or ""
 
         event_name = str(event.get("event") or "").strip()
+        im_connected = manager is not None and manager.connected
+        if not im_connected and event_name not in {
+            "permission_request",
+            "permission_resolved",
+        }:
+            return None
         loop = asyncio.get_event_loop()
 
         if event_name == "run_status" and event.get("status") == "running":
@@ -4496,16 +4623,26 @@ def _build_kernel_event_observer(
 
         elif event_name == "permission_request":
             # Agent auto_mode_gate is awaiting a user decision; forward to IM so the
-            # permission card can be rendered in the chat.  Only forwarded when we have
-            # a message_id (turn_start already acked) so IM can attach the card to the
-            # correct message row.  No message_id → card would be orphaned; skip.
-            if message_id:
-                request_id = str(event.get("request_id") or "").strip()
-                tool_name = str(event.get("tool_name") or "").strip()
-                tool_input = event.get("tool_input")
-                question = str(event.get("question") or "").strip()
-                options_raw = event.get("options")
-                options = list(options_raw) if isinstance(options_raw, list) else []
+            # permission card can be rendered in the chat. External channels receive
+            # the same request payload as a native surface (e.g. Feishu interactive
+            # card) and resolve through the same kernel broker.
+            request_id = str(event.get("request_id") or "").strip()
+            tool_name = str(event.get("tool_name") or "").strip()
+            tool_input = event.get("tool_input")
+            question = str(event.get("question") or "").strip()
+            options_raw = event.get("options")
+            options = list(options_raw) if isinstance(options_raw, list) else []
+            permission_request = {
+                "request_id": request_id,
+                "tool_name": tool_name,
+                "tool_input": dict(tool_input)
+                if isinstance(tool_input, Mapping)
+                else (tool_input or {}),
+                "question": question,
+                "options": options,
+                "status": "pending",
+            }
+            if message_id and im_connected and manager is not None:
                 loop.create_task(
                     _send(
                         manager,
@@ -4513,27 +4650,23 @@ def _build_kernel_event_observer(
                         {
                             "kind": "permission_request",
                             "message_id": message_id,
-                            "permission_request": {
-                                "request_id": request_id,
-                                "tool_name": tool_name,
-                                "tool_input": dict(tool_input)
-                                if isinstance(tool_input, Mapping)
-                                else (tool_input or {}),
-                                "question": question,
-                                "options": options,
-                                "status": "pending",
-                            },
+                            "permission_request": permission_request,
                             "run_id": run_id,
                         },
                     )
                 )
+            _mirror_external_permission_request(
+                rid=run_id,
+                ctx=ctx,
+                request=permission_request,
+            )
 
         elif event_name == "permission_resolved":
             # Agent resolved a permission request (hook resumed); update the IM card
             # so the user sees the final decision.
-            if message_id:
-                request_id = str(event.get("request_id") or "").strip()
-                decision = str(event.get("decision") or "").strip()
+            request_id = str(event.get("request_id") or "").strip()
+            decision = str(event.get("decision") or "").strip()
+            if message_id and im_connected and manager is not None:
                 loop.create_task(
                     _send(
                         manager,
@@ -4547,6 +4680,11 @@ def _build_kernel_event_observer(
                         },
                     )
                 )
+            _mirror_external_permission_resolved(
+                ctx=ctx,
+                request_id=request_id,
+                decision=decision,
+            )
 
         elif event_name == "injection_consumed":
             # bugfix-426-M4 决策6: the kernel just drained a steered (injected) message

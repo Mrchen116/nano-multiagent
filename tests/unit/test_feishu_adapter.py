@@ -10,8 +10,11 @@ import pytest
 lark_oapi = pytest.importorskip("lark_oapi")
 
 from personal_assistant.channels.base import InboundMessage, OutboundMessage
-from personal_assistant.channels.feishu_adapter import FeishuAdapter
-from personal_assistant.channels.feishu_client import FeishuMessageEvent, FeishuMention
+from personal_assistant.channels.feishu.adapter import FeishuAdapter
+from personal_assistant.channels.feishu.client import (
+    FeishuMessageEvent,
+    FeishuMention,
+)
 from personal_assistant.gateway.group_context_store import GroupContextStore
 
 
@@ -54,7 +57,7 @@ class TestFeishuAdapterName:
 class TestFeishuAdapterDM:
     """1:1 private chat scenarios."""
 
-    @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
+    @patch("personal_assistant.channels.feishu.adapter.FeishuClient")
     def test_dm_delivers_inbound_message(self, mock_fc_cls: MagicMock) -> None:
         adapter = FeishuAdapter(
             app_id="cli_a",
@@ -83,7 +86,7 @@ class TestFeishuAdapterDM:
         assert msg.metadata["external_chat_id"] == "feishu:cli_a:dm:ou_user1"
         assert msg.metadata["trigger_source"] == "feishu"
 
-    @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
+    @patch("personal_assistant.channels.feishu.adapter.FeishuClient")
     def test_dm_always_responds_no_mention_needed(self, mock_fc_cls: MagicMock) -> None:
         adapter = FeishuAdapter(
             app_id="cli_a",
@@ -99,7 +102,7 @@ class TestFeishuAdapterDM:
         adapter._handle_message(event)
         on_inbound.assert_called_once()
 
-    @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
+    @patch("personal_assistant.channels.feishu.adapter.FeishuClient")
     def test_dm_adds_ack_reaction(self, mock_fc_cls: MagicMock) -> None:
         mock_fc = MagicMock()
         mock_fc_cls.return_value = mock_fc
@@ -119,7 +122,7 @@ class TestFeishuAdapterDM:
             emoji_type="THINKING",
         )
 
-    @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
+    @patch("personal_assistant.channels.feishu.adapter.FeishuClient")
     def test_ack_message_is_idempotent(self, mock_fc_cls: MagicMock) -> None:
         mock_fc = MagicMock()
         mock_fc.add_reaction.return_value = "reaction_001"
@@ -140,11 +143,11 @@ class TestFeishuAdapterDM:
             emoji_type="THINKING",
         )
 
-    @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
+    @patch("personal_assistant.channels.feishu.adapter.FeishuClient")
     def test_ack_reaction_failure_still_delivers_dm(
         self, mock_fc_cls: MagicMock
     ) -> None:
-        from personal_assistant.channels.feishu_client import FeishuAPIError
+        from personal_assistant.channels.feishu.client import FeishuAPIError
 
         mock_fc = MagicMock()
         mock_fc.add_reaction.side_effect = FeishuAPIError("reaction failed", code=99999)
@@ -168,7 +171,7 @@ class TestFeishuAdapterDM:
 class TestFeishuAdapterGroupMention:
     """Group chat @Bot trigger scenarios."""
 
-    @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
+    @patch("personal_assistant.channels.feishu.adapter.FeishuClient")
     def test_group_at_bot_delivers_inbound(self, mock_fc_cls: MagicMock) -> None:
         mock_fc = MagicMock()
         mock_fc_cls.return_value = mock_fc
@@ -204,7 +207,7 @@ class TestFeishuAdapterGroupMention:
             emoji_type="THINKING",
         )
 
-    @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
+    @patch("personal_assistant.channels.feishu.adapter.FeishuClient")
     def test_group_no_mention_delivers_policy_gated_inbound(
         self, mock_fc_cls: MagicMock
     ) -> None:
@@ -243,27 +246,7 @@ class TestFeishuAdapterGroupMention:
         assert msg.metadata["trigger_source"] == "feishu"
         assert msg.metadata["sender_display_name"] == "Alice"
 
-    @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
-    def test_owner_open_id_maps_sender_display_name_to_you(
-        self, mock_fc_cls: MagicMock
-    ) -> None:
-        adapter = FeishuAdapter(
-            app_id="cli_a",
-            app_secret="s",
-            name="feishu:plato",
-            owner_open_id="ou_owner",
-            group_context_store=MagicMock(spec=GroupContextStore),
-        )
-        on_inbound = MagicMock()
-        adapter.start(on_inbound)
-
-        event = _make_event(sender_open_id="ou_owner", sender_display_name="CZJ")
-        adapter._handle_message(event)
-
-        msg: InboundMessage = on_inbound.call_args[0][0]
-        assert msg.metadata["sender_display_name"] == "你"
-
-    @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
+    @patch("personal_assistant.channels.feishu.adapter.FeishuClient")
     def test_group_at_bot_delivers_mention_for_pipeline_buffer_drain(
         self, mock_fc_cls: MagicMock
     ) -> None:
@@ -296,7 +279,7 @@ class TestFeishuAdapterGroupMention:
         assert "sync_only" not in msg.metadata
         store.drain.assert_not_called()
 
-    @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
+    @patch("personal_assistant.channels.feishu.adapter.FeishuClient")
     def test_group_at_everyone_does_not_trigger(self, mock_fc_cls: MagicMock) -> None:
         store = MagicMock(spec=GroupContextStore)
         adapter = FeishuAdapter(
@@ -326,7 +309,7 @@ class TestFeishuAdapterGroupMention:
         assert msg.text == "@所有人 hey everyone"
         store.append.assert_not_called()
 
-    @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
+    @patch("personal_assistant.channels.feishu.adapter.FeishuClient")
     def test_missing_bot_open_id_does_not_treat_other_mentions_as_bot_trigger(
         self, mock_fc_cls: MagicMock
     ) -> None:
@@ -359,7 +342,7 @@ class TestFeishuAdapterGroupMention:
 class TestFeishuAdapterMultiBot:
     """Multiple bot routing — different agent_id per adapter."""
 
-    @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
+    @patch("personal_assistant.channels.feishu.adapter.FeishuClient")
     def test_different_agents_get_different_channel_names(
         self, mock_fc_cls: MagicMock
     ) -> None:
@@ -378,7 +361,7 @@ class TestFeishuAdapterMultiBot:
         assert adapter_plato.name == "feishu:plato"
         assert adapter_luban.name == "feishu:luban"
 
-    @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
+    @patch("personal_assistant.channels.feishu.adapter.FeishuClient")
     def test_message_routed_to_correct_agent(self, mock_fc_cls: MagicMock) -> None:
         adapter = FeishuAdapter(
             app_id="cli_a",

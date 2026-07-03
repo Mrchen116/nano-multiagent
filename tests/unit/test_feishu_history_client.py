@@ -8,11 +8,11 @@ import pytest
 
 lark_oapi = pytest.importorskip("lark_oapi")
 
-from personal_assistant.channels.feishu_client import FeishuClient
+from personal_assistant.channels.feishu.client import FeishuClient
 
 
 def test_parse_history_message_reads_body_content() -> None:
-    from personal_assistant.channels.feishu_client import (
+    from personal_assistant.channels.feishu.client import (
         _parse_feishu_history_message,
     )
 

@@ -159,6 +159,61 @@ class TestKernelObserverPermissionRequest:
         assert len(delta_payloads) == 0
 
     @pytest.mark.asyncio
+    async def test_external_permission_request_uses_same_payload_without_message_id(
+        self,
+    ) -> None:
+        """External channel approvals still receive the kernel request without IM row id."""
+        from personal_assistant.main import _build_kernel_event_observer
+
+        manager = _FakeManager()
+        external_sender = MagicMock()
+        run_context_store: dict[str, dict[str, str]] = {
+            "run-1": {
+                "conversation_id": "conv-1",
+                "message_id": "",
+                "agent_id": "agent-alpha",
+                "trigger_source": "feishu",
+                "reply_channel_name": "feishu:agent-alpha",
+                "reply_target_chat_id": "feishu:cli_a:group:oc_group",
+                "feishu_message_id": "om_origin",
+            }
+        }
+        observer = _build_kernel_event_observer(
+            im_connection_manager_factory=lambda: manager,
+            run_context_store=run_context_store,
+            external_permission_request_sender=external_sender,
+        )
+
+        event = {
+            "run_id": "run-1",
+            "event": "permission_request",
+            "request_id": "req-ext",
+            "tool_name": "bash",
+            "tool_input": {"command": "pwd"},
+            "question": "Allow?",
+            "options": [{"id": "allow_once", "label": "Allow once"}],
+        }
+        result = observer(event)
+        if asyncio.iscoroutine(result):
+            await result
+        await asyncio.sleep(0)
+
+        assert [
+            p
+            for t, p in manager.sent
+            if t == "node.streaming_delta" and p.get("kind") == "permission_request"
+        ] == []
+        external_sender.assert_called_once()
+        request_payload, metadata = external_sender.call_args.args
+        assert request_payload["request_id"] == "req-ext"
+        assert request_payload["tool_name"] == "bash"
+        assert request_payload["tool_input"] == {"command": "pwd"}
+        assert request_payload["options"] == [{"id": "allow_once", "label": "Allow once"}]
+        assert metadata["channel_name"] == "feishu:agent-alpha"
+        assert metadata["target_chat_id"] == "feishu:cli_a:group:oc_group"
+        assert metadata["run_id"] == "run-1"
+
+    @pytest.mark.asyncio
     async def test_permission_resolved_forwarded_to_im(self) -> None:
         """permission_resolved SSE → node.streaming_delta kind=permission_resolved."""
         observer, manager, _ = _make_observer_with_run_ctx(
@@ -191,6 +246,49 @@ class TestKernelObserverPermissionRequest:
         assert payload["message_id"] == "msg-2"
         assert payload["request_id"] == "req-xyz"
         assert payload["decision"] == "allow_once"
+
+    @pytest.mark.asyncio
+    async def test_external_permission_resolved_updates_channel_surface(self) -> None:
+        from personal_assistant.main import _build_kernel_event_observer
+
+        manager = _FakeManager()
+        external_resolver = MagicMock()
+        run_context_store: dict[str, dict[str, str]] = {
+            "run-2": {
+                "conversation_id": "conv-1",
+                "message_id": "msg-2",
+                "agent_id": "agent-beta",
+                "trigger_source": "feishu",
+                "reply_channel_name": "feishu:agent-beta",
+                "reply_target_chat_id": "feishu:cli_a:group:oc_group",
+            }
+        }
+        observer = _build_kernel_event_observer(
+            im_connection_manager_factory=lambda: manager,
+            run_context_store=run_context_store,
+            external_permission_resolved_sender=external_resolver,
+        )
+
+        result = observer(
+            {
+                "run_id": "run-2",
+                "event": "permission_resolved",
+                "request_id": "req-xyz",
+                "decision": "allow_once",
+            }
+        )
+        if asyncio.iscoroutine(result):
+            await result
+        await asyncio.sleep(0)
+
+        external_resolver.assert_called_once_with(
+            "req-xyz",
+            "allow_once",
+            {
+                "channel_name": "feishu:agent-beta",
+                "target_chat_id": "feishu:cli_a:group:oc_group",
+            },
+        )
 
 
 # ---------------------------------------------------------------------------

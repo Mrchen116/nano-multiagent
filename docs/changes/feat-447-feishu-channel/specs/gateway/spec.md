@@ -125,6 +125,32 @@ agent 回复是否回写外部 channel 取决于触发该 run 的用户消息来
 - **THEN** IM 中该用户消息显示为 `@nano hi` 或等效 mention chip + `hi`
 - **AND** kernel 当前消息包含 @nano 和 hi,而不是只剩 hi
 
+### Requirement: 飞书原生工具权限审批
+
+当飞书触发的 agent run 产生工具权限 `permission_request` 时,Gateway 必须在内部 IM shadow 会话保留现有审批卡,同时在飞书原对话发送原生 interactive approval card。飞书卡片点击产生的审批决策必须回到同一 kernel `request_id`,复用现有 `kernel.submit_permission_decision` 等待/恢复路径。内部 IM 和飞书两端审批 first-wins:任一端先完成决策后,另一端后续重复点击不得再次调用 kernel。
+
+#### Scenario: 飞书触发的工具审批可在飞书中完成
+- **GIVEN** 用户在飞书 1:1 对话中发送一条会触发受控工具的消息
+- **WHEN** kernel 为本 run 发出 `permission_request`
+- **THEN** 飞书原对话出现 interactive approval card
+- **AND** 内部 IM shadow 会话也出现同一 `request_id` 的审批卡
+- **WHEN** 用户在飞书 approval card 中点击允许
+- **THEN** Gateway 将该决策提交给等待中的 kernel
+- **AND** agent run 继续执行并把后续回复发回飞书
+
+#### Scenario: 内部 IM 先审批后飞书卡片不得重复决策
+- **GIVEN** 飞书触发的 run 已同时生成内部 IM 审批卡和飞书 approval card
+- **WHEN** 用户先在内部 IM 中拒绝该 `request_id`
+- **AND** 用户随后点击旧飞书 approval card 的允许按钮
+- **THEN** Gateway 不得第二次调用 kernel permission decision
+- **AND** 飞书卡片显示该请求已处理或已失效
+
+#### Scenario: 非 owner 不能在飞书群里审批工具权限
+- **GIVEN** 飞书群聊中 agent run 产生工具权限审批,且该 agent 已绑定 `ownerOpenId`
+- **WHEN** 非 owner 群成员点击 approval card
+- **THEN** Gateway 不提交该审批决策
+- **AND** 该请求仍保持等待 owner 或内部 IM 审批
+
 ### Requirement: IM 离线时飞书对话不阻塞
 
 Gateway 调用 IM HTTP API 同步外部 channel 用户消息时,必须是非阻塞的 best-effort 调用。IM 不可达不得影响飞书主路径,agent 仍需正常回复用户。

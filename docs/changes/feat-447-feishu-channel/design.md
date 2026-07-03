@@ -11,8 +11,10 @@
 ### 涉及范围
 
 - `src/personal_assistant/channels/base.py` — `ChannelAdapter` Protocol、`InboundMessage` / `OutboundMessage` / `ReplyContext`。飞书 adapter 已实现，只读不改。
-- `src/personal_assistant/channels/feishu_client.py` — 飞书 SDK 封装（WS 接收、REST 发送、reaction、错误分类）。M12 需要保留 mention-only 消息的可见内容，不能在剥离 mention placeholder 后把 `@nano` 变成空文本。
-- `src/personal_assistant/channels/feishu_adapter.py` — 飞书消息收发 adapter（1:1 DM、群聊 @Bot、history buffer、ack reaction）。M12 需要证明飞书群所有消息（含未 @）都能进入 adapter；如果 Lark app 只订阅 @Bot 事件，应启动/验收失败而不是静默降级。
+- `src/personal_assistant/channels/feishu/client.py` — 飞书 SDK 封装（WS 接收、REST 发送、reaction、错误分类、interactive card send/update、card action callback）。M12 需要保留 mention-only 消息的可见内容，不能在剥离 mention placeholder 后把 `@nano` 变成空文本；M13 需要支持发送/更新 `interactive` 消息和注册 Feishu card action 回调。
+- `src/personal_assistant/channels/feishu/adapter.py` — 飞书消息收发 adapter（1:1 DM、群聊 @Bot、history buffer、ack reaction、approval surface 转接）。M12 需要证明飞书群所有消息（含未 @）都能进入 adapter；如果 Lark app 只订阅 @Bot 事件，应启动/验收失败而不是静默降级。M13 需要接入 Feishu approval card action 校验和回调转发，但不得绕过 Gateway/kernel 的既有 permission broker。
+- `src/personal_assistant/channels/feishu/approval.py` — Feishu 原生工具审批卡片、pending state、owner/chat/option/TTL 校验、resolved card update。审批状态属于 channel package，不塞进 FeishuClient，也不在 Gateway 主流程维护飞书卡片细节。
+- `src/personal_assistant/channels/feishu_adapter.py` / `src/personal_assistant/channels/feishu_client.py` — 旧 import 兼容 shim，仅 re-export package 内实现；新代码和新测试应引用 `personal_assistant.channels.feishu.*`。
 - `src/personal_assistant/gateway/inbound_pipeline.py` — 入站消息处理、agent 路由、群聊 mention 门控、GroupContextStore buffer。已有 `_resolve_sender_label` 从 `metadata.sender_display_name` 取发送者名字；M7 需要新增 IM sync hook、`sync_only` 入站语义、影子 group gate 前注入/绕过和跨入口 session key 归一；M11 需要让外部触发 run 的每个用户可见 assistant 气泡按完成边界镜像回外部 channel，而不是只发送 terminal `reply_text`；M12 需要让飞书群未 @ 背景消息复用内部 IM 群聊已有的 group-context 语义。
 - `src/personal_assistant/gateway/outbound_router.py` — 当前只按 `ReplyContext.channel_name` 取 adapter 并发送；M7 需要确认 per-run `reply_context` 是唯一出站锚，避免 IM 触发的 run 复用飞书 reply target；M11 需要支持 `reply_phase`/幂等键等元数据，避免中间回复、最终回复重复发送。
 - `src/personal_assistant/gateway/session_keys.py` — `build_session_key` 当前使用 `channel_name:external_chat_id:agent_id`，而 `web_relay` 的 `external_chat_id` 是 IM conversation_id；M7 需要优先用 relay metadata 回环的外部身份生成 session key。
@@ -26,8 +28,8 @@
 - `src/IM/application/web_im_service.py` — 需要新增外部 channel 会话创建/查找业务方法。
 - `src/IM/frontend/src/features/chat/v2/chat-stream-reducer.ts` / `chat-types.ts` — 当前打开会话只把 `message.created` 当作新气泡插入，`message.sent` 仅驱动侧边栏刷新；M11 需要保证外部 channel 用户消息不刷新也能进入当前消息列表，并带正确 display name。
 - `src/personal_assistant/channels/web_relay_adapter.py` — IM relay 入站转换点；M7 需要从 relay metadata 设置外部身份、`trigger_source=im` 和 `conversation_type`，并避免把 IM conversation_id 当 kernel session identity。
-- `src/personal_assistant/main.py` — Gateway 启动、channel 注册、生命周期 callback、`run_context_store` 注入。M7 需要把 shadow conversation_id 写入 run context，并禁止外部 run 在 shadow 创建失败时懒建普通 direct chat。
-- `src/personal_assistant/config/local_store.py` — 配置解析与校验；M7 需要补充 owner 飞书 open_id 配置（用于 IM 显示「你」）；M10 需要保证飞书绑定 agent 能启用内置 `feishu-doc` skill。
+- `src/personal_assistant/main.py` — Gateway 启动、channel 注册、生命周期 callback、`run_context_store` 注入。M7 需要把 shadow conversation_id 写入 run context，并禁止外部 run 在 shadow 创建失败时懒建普通 direct chat；M13 需要把 kernel `permission_request` 同步到 IM 的同时，按 run 的 `reply_context` 镜像为 Feishu 原生审批卡，并把 Feishu card action 决策回灌到 `kernel.submit_permission_decision`。
+- `src/personal_assistant/config/local_store.py` — 配置解析与校验；M7 需要支持 `ownerOpenId` 作为首次真实入站自动绑定后的缓存（用于 IM 显示「你」）；M10 需要保证飞书绑定 agent 能启用内置 `feishu-doc` skill。
 - `src/personal_assistant/builtin_skills/feishu-doc/SKILL.md` — M10 新内置 skill 源位置。历史 `skills/feishu-doc.md` 是 flat repo 文件，不符合 `SkillRegistry` 的 `*/SKILL.md` 发现模型，也不会随 Python package 稳定安装。
 - `src/personal_assistant/builtin_skills/` package data — M10 需要纳入 `pyproject.toml` 包数据，否则 pip 安装后的 Gateway 找不到内置 skill 源。
 - `~/.nanoassistant/skills/feishu-doc/SKILL.md` — Gateway 启动时安装到用户运行态全局 skill root，供所有 PA agent discovery 使用；缺失才复制，不覆盖用户改过的同名 skill。
@@ -52,6 +54,7 @@
 - **IM user-stream (`conversation_events` -> browser WS)** — agent 气泡通过 EventBridge 写 `message.created` / `message.delta` / `message.completed`，前端当前打开会话能实时追加；普通 `MessageRepository.create_message` 路径主要写 `message.sent` / `message.delivered`，只能驱动侧边栏/状态，不能作为当前会话插入事件。M11 需要补一个 canonical live insert 事件给外部同步用户消息。
 - **Gateway kernel event stream** — 当前 run 的 `assistant_message` 事件经 observer 同步到 IM；`OutboundRouter` 只在 terminal 后发送最后一个 `reply_text`。`_on_other_event` 只处理非当前 run 的后台/跨会话输出。M11 需要新增“用户可见 assistant 气泡完成即镜像外部 channel”的路径。
 - **内部 IM 群聊 group context** — 已有能力是“不 @ agent 的群消息也进入 group buffer，后续 @agent 时作为 `[sender] text` 注入 LLM context”。M12 要求飞书群聊走同一语义，不能另外做一套只看 @Bot 消息的外部群上下文。
+- **内部 IM permission broker** — kernel 发出 `permission_request` 后，Gateway 通过 `node.streaming_delta(kind=permission_request)` 写入 IM，IM 用户决策后经 `permission_response` 回到 Gateway，再调用 `kernel.submit_permission_decision`。M13 复用这条等待/决策通道，不新增第二套工具权限状态机；飞书只增加“同一请求的外部交互卡入口”。
 - **SkillRegistry 目录模型** — 现有发现逻辑扫描每个 skill root 下的 `*/SKILL.md`，并由 PA 注入 `<workspace>/.nanoassistant/skills`、`~/.nanoassistant/skills`、compat roots。M10 沿用这个模型，不新增 repo 根目录 `skills/` 搜索根。
 
 ### 相关历史
@@ -67,6 +70,7 @@
 - **飞书群未 @ 消息没有进入 LLM context**：当前 live DB 和 `group_context_buffer.sqlite3` 都没有未 @ 的“你会数学吗”，说明这类消息没有成功进入“写 IM + append GroupContextStore”的共享路径。设计上必须把“飞书平台是否投递未 @ 群消息”作为启动/验收前置；只收到 @Bot 事件时无法复用内部 IM 群聊上下文能力。
 - **飞书 @ 被从正文和 LLM context 中删掉**：`FeishuClient._parse_feishu_event` 当前把 mention placeholder 从正文中剥离，导致 `@nano hi` 进入 IM / kernel 时只剩 `hi`，纯 `@nano` 甚至变成空串。这把“mention 检测”错误地做成了“内容改写”。内部 IM 群聊的既有语义是保留用户可见 mention 内容（wire `<mention/>` 或渲染为 `@DisplayName`），同时用结构化 metadata 做 gate；飞书应对齐这条语义。
 - **纯 @Bot 消息在 IM 中消失**：因为 mention 被删后 `event.text` 为空，shadow sync 调 IM `create_message` 触发“message must include content or attachments”约束，日志里对应 `400 Bad Request`，所以内部 IM 没有该用户消息。
+- **飞书触发工具权限审批只能在内部 IM 处理**：kernel `permission_request` 目前只被 `_build_kernel_event_observer` 转发给内部 IM，FeishuAdapter 没有 `interactive` approval card，也没有 card action -> `permission_response` 的回灌路径。用户从飞书触发需要审批的工具后，如果不切到内部 IM 点审批，飞书侧看不到可操作请求，run 会停在等待权限状态。
 
 ## 架构总览
 
@@ -243,15 +247,15 @@ graph TD
 
 ### 决策 11: Feishu 身份来源不依赖运行态 CLI
 
-**选了 `botOpenId` 由 Gateway 通过 app 凭证探测并缓存；`ownerOpenId` 不做运行态自动推断**。
+**选了 `botOpenId` 由 Gateway 通过 app 凭证探测并缓存；`ownerOpenId` 由首次真实入站用户自动绑定并缓存**。
 
 - **理由**: Gateway/adapter 是服务运行态，不应调用 `lark-cli` 读取本机用户 OAuth 状态。reviewer 可以用 `lark-cli` 当真实用户制造入站，但运行时代码只使用 Gateway config 中的 app credentials 和 Feishu SDK/OpenAPI。
 - **`botOpenId`**: Gateway 启动时用 `settings.appId/appSecret/domain` 探测 bot identity（优先 `/open-apis/bot/v3/info`，fallback application info，等价 openclaw 的启动 probe 思路），成功后写回本地 config 作为缓存；缺失不阻塞启动，但群聊 @Bot 精确识别会降级。
-- **`ownerOpenId`**: 不再自动推断。它仅是兼容性缓存/可选配置；缺失时 Feishu 入站消息使用 Feishu sender display name，不强制显示为「你」。
+- **`ownerOpenId`**: 不要求用户手填，也不从 `lark-cli` 推断。Feishu channel 首次收到会触发/同步到该 agent 的真实用户入站时，如果 `ownerOpenId` 缺失，则把该 sender open_id 绑定为 owner 并写回 worktree/local Gateway config；后续同一 open_id 在 IM shadow 中显示 `"你"`。已有缓存保持不变，除非后续单独设计 rebind/clear 入口。
 - **拒绝**: 要求用户手填 `botOpenId`——和 openclaw 的启动探测思路不一致，且 reviewer 容易填错 app 对应的身份。
 - **拒绝**: Gateway 调 `lark-cli auth status` 自动填 `ownerOpenId`——把验收工具耦合进产品运行态，且会把 reviewer 机器上的默认 CLI app 状态误当作 Gateway 当前 app。
 - **拒绝**: IM 绑定飞书账号后动态查询——增加 IM 侧账号绑定流程，超出本期范围。
-- **影响**: `sender_display_name` 优先使用 Feishu 事件里的发送者显示名；只有已有 `ownerOpenId` 缓存且匹配 sender open_id 时才显示 `"你"`。
+- **影响**: 首条入站在绑定写回前可显示 Feishu sender display name，也可在 adapter 内用本次 sender 临时显示 `"你"`；绑定完成后，匹配 `ownerOpenId` 的入站统一显示 `"你"`，其他外部用户显示 Feishu sender display name。
 
 ### 决策 12: IM 群聊影子会话自动注入 @agent
 
@@ -320,6 +324,25 @@ graph TD
   - `mentioned_agent_ids` / `feishu_mentions` / `mention_only` 是额外 metadata，只服务 gate、路由和诊断，不改变 `message.text` 的用户可见内容。
   - 纯 `@Bot` 是合法触发消息：规范化正文至少包含该 mention（如 `<mention .../>` 或 `@nano`），用于 IM 持久化、live 展示和 kernel current message。不得把它作为空消息写入 IM 或丢弃。
   - reviewer 必须验证“未 @ 背景消息 -> 纯 @Bot 触发”路径：用户先在飞书群说“你会数学吗”（不 @），然后只发 `@nano`，agent 应能基于前一条背景回应，而不是把 `@nano` 当成无上下文测试消息。
+
+### 决策 17: 飞书原生工具权限审批
+
+**选了“借鉴 hermes 的 adapter interactive card 入口，但复用本仓现有 kernel permission broker 作为唯一审批状态机”**。
+
+- **理由**: hermes 的 Feishu adapter 证明了正确交互形态：agent 等待审批时，channel adapter 发送飞书 interactive card，用户点击按钮后通过 card action 回调解除等待。nano 已有 IM permission broker 和 `kernel.submit_permission_decision`，所以本仓不需要再引入 hermes 的 `resolve_gateway_approval(session_key)` 式全局 resolver；Feishu 只应成为同一 `permission_request.request_id` 的另一个决策入口。
+- **拒绝**: 继续只在内部 IM 出审批卡。飞书用户会停留在飞书中，工具 run 看起来“没响应”，与内部 IM 体验不等价。
+- **拒绝**: 在 FeishuAdapter 内直接 import 内核或维护独立工具审批状态。Gateway 才持有 kernel，adapter 只能通过注入的 callback 上报用户决策；否则会破坏产品包只经 `agent.sdk` 驱动内核的边界。
+- **拒绝**: 用 `lark-cli` 或文本命令作为产品运行态审批兜底。`lark-cli` 是 reviewer/开发者制造真实入站的工具，不属于 Gateway 运行时依赖；飞书审批必须是平台原生 interactive card。
+- **实现要点**:
+  - Feishu channel 采用 package 结构：`channels/feishu/client.py` 只封装 Lark 平台 API，`adapter.py` 只做 ChannelAdapter 语义，`approval.py` 只做原生审批卡片/状态；旧 `feishu_adapter.py` / `feishu_client.py` 保留兼容导出，避免一次性破坏历史 import。
+  - Gateway 现有 `permission_request` 仍同步到内部 IM shadow conversation；当 `run_context_store` / `reply_context.metadata` 表明本 run 由 `trigger_source=feishu` 触发且有 `reply_target_chat_id` 时，同时调用 FeishuAdapter 发送原生 approval card。
+  - Feishu approval card 的按钮从 kernel `permission_request.options` 生成，不硬编码“永久允许”等超出内核支持的选项；按钮 value 只携带不含敏感信息的 `approval_id`/opaque token 和 option id。工具参数展示必须沿用 IM 审批的红action/截断策略，不把密钥、token、完整大 payload 原样发到飞书。
+  - FeishuAdapter 维护短期 pending map：`approval_id -> {request_id, run_id, message_id, chat_id, owner_open_id, created_at, status}`。`request_id` 是和 IM/card/kernal 对齐的唯一审批请求标识；`approval_id` 是飞书卡片防篡改 token。
+  - Feishu card action 回调必须校验：pending 存在且未过期、callback chat id 等于原 chat id、operator open_id 等于该 agent 的 `ownerOpenId`（群聊先不开放任意成员代批）、option id 属于原 request options、该请求尚未 resolved。校验失败只返回“无权/已失效”卡片或 no-op，不调用 kernel。
+  - 校验通过后，FeishuAdapter 通过 Gateway 注入的 `permission_decision_callback` 上报 `{request_id, decision, reason, source="feishu", operator_open_id}`；Gateway 复用 `_build_permission_response_handler` 等价逻辑调用 `kernel.submit_permission_decision`。
+  - IM 和 Feishu 两个审批入口 first-wins：无论用户在内部 IM 还是飞书先点，后续另一个入口的重复点击必须被标记为 already resolved/expired，不得二次调用 kernel。kernel 后续 `permission_resolved` / tool approval event 到达时，Gateway 应 best-effort 更新 Feishu card 为 resolved 状态；如果 Feishu 更新失败，只记录 warning，不阻塞 run。
+  - FeishuClient 需要支持 `msg_type="interactive"` 发送和 `P2CardActionTrigger` 注册。启动时若 SDK/平台未能注册 card action handler，应记录明确 warning；真实审批验收不得只看内部 IM。
+  - 群聊审批默认只允许 ownerOpenId 点击，是本期最小权限模型。后续如果要“群管理员/发起消息用户可审批”，另起设计扩展 allowed approvers，不在本期混入。
 
 ### 外部 shadow session identity 模型
 
@@ -460,6 +483,34 @@ sequenceDiagram
 
 这条路径的核心是不把“当前 run 的最终 `reply_text`”当成唯一外部出口。IM 中用户能看到的每个 assistant 文本气泡，飞书也应按消息边界收到一次；但 token delta、thinking、tool 状态不外发。
 
+### 6. 飞书原生工具权限审批
+
+```mermaid
+sequenceDiagram
+    participant FS as 飞书用户
+    participant FA as FeishuAdapter
+    participant GW as Gateway observer
+    participant IM as IM permission card
+    participant K as Agent Kernel
+
+    FS->>FA: 发起会触发受控工具的消息
+    FA->>GW: InboundMessage(trigger_source=feishu)
+    GW->>K: kernel.submit(run trigger_source=feishu)
+    K-->>GW: permission_request(request_id, options, tool)
+    GW->>IM: node.streaming_delta(kind=permission_request)
+    GW->>FA: send_permission_request(chat_id, request_id, options)
+    FA-->>FS: interactive approval card
+    FS->>FA: 点击 Allow/Deny
+    FA->>FA: 校验 approval_id、chat_id、ownerOpenId、option
+    FA->>GW: permission_decision_callback(request_id, decision, source=feishu)
+    GW->>K: kernel.submit_permission_decision(request_id, decision)
+    K-->>GW: permission_resolved / tool continues
+    GW->>IM: 更新内部 IM 审批状态
+    GW->>FA: best-effort 更新 Feishu card 为 resolved
+```
+
+这条路径借鉴 hermes 的“adapter 发卡 + card action 解除等待”，但 resolver 不放在 adapter 里。Feishu 和 IM 是同一 kernel `request_id` 的两个 UI 表面，谁先审批谁生效，另一个表面只做状态同步。
+
 ### 关键数据结构
 
 **InboundMessage 扩展字段**（Gateway → IM 同步用户消息时）：
@@ -526,10 +577,21 @@ sequenceDiagram
 - `text` — 规范化后的用户可见正文。mention placeholder 被替换为 IM mention wire（优先）或 `@DisplayName` 文本，但不得被删除；mention-only 时正文仍至少包含该 mention，避免 IM `create_message` 400，也让 kernel 当前消息不是空串。
 - `mentions` — 保留结构化 mention 实体，FeishuAdapter 基于它填 `mentioned_agent_ids`；它不能驱动正文删减。
 
-**FeishuClient 扩展**：
+**FeishuClient 扩展（`channels/feishu/client.py`）**：
 - 新增 `get_chat_name(chat_id: str) -> str` 调用飞书 `GET /open-apis/im/v1/chats/{chat_id}` 获取群名。
+- 新增 `send_interactive_message(chat_id: str, card: Mapping[str, object], metadata: Mapping[str, object] | None = None)` 或等效方法，底层使用 `msg_type="interactive"`；错误分类和重试策略复用普通 send。
+- 新增 card action callback 注册：启动 Feishu WS client 时注册 `P2CardActionTrigger` 处理器，把 action payload 交给 FeishuAdapter；handler 必须能同步返回 resolved/expired card，以便飞书客户端立即更新卡片状态。
 - 新增 built-in skill bootstrap helper，输入为包内 `builtin_skills` 资源目录，输出为用户全局 skill root `~/.nanoassistant/skills/<name>/`；复制策略为“缺失复制，存在不覆盖”。
 - `feishu-doc` skill 文件必须使用标准目录形态：`<skill-name>/SKILL.md`。历史 flat 文件 `skills/feishu-doc.md` 迁移后删除或不再作为运行态来源。
+
+**Feishu approval pending state（`channels/feishu/approval.py`）**：
+- `approval_id` — adapter 生成的 opaque token，用于飞书卡片 value；不直接信任客户端传回的 request payload。
+- `request_id` — kernel `permission_request.request_id`，也是 IM permission card 和 kernel decision 的关联键。
+- `run_id` / `message_id` — 用于状态更新、日志和 card update；缺失时不得影响 kernel decision。
+- `chat_id` — 原飞书会话 id；card action 回调必须匹配。
+- `owner_open_id` — 当前 agent 已绑定 owner；M13 默认只有它可审批。
+- `options` — 允许的 decision option id 集合，来自 kernel request。
+- `status` — `pending | resolved | expired`；IM 或 Feishu 任一入口 resolve 后都必须把另一侧 pending 标记为已结束。
 
 ## 契约层增量 (delta-spec)
 
@@ -546,6 +608,7 @@ sequenceDiagram
   - **Requirement: 内置 skills 启动自举** — Gateway 启动时把包内内置 skills 安装到用户全局 skill root，并保证 Feishu 绑定 agent 能发现 `feishu-doc`。
   - **Requirement: 外部 channel 可见回复镜像** — 外部 channel 触发 run 时，IM 中每个用户可见 assistant 文本气泡完成后都镜像回原外部 channel，terminal final send 不重复。
   - **Requirement: 飞书群聊背景上下文等价内部 IM 群聊** — 飞书群未 @ 消息必须进入 shadow IM 和 GroupContextStore，后续 @Bot/纯 @Bot 触发时可被 LLM 引用。
+  - **Requirement: 飞书原生工具权限审批** — 飞书触发的 run 产生 `permission_request` 时，Gateway 同时在飞书原对话发送 interactive approval card；用户在飞书点击的审批决策必须回到同一 kernel `request_id`，并与内部 IM 审批 first-wins 去重。
 - cli: no spec delta
 
 ## 风险与回退
@@ -561,7 +624,7 @@ sequenceDiagram
 | IM shadow schema 出现两个 agent 字段 | 同一外部群多 agent 隔离、RelayService agent snapshot 来源分叉 | 复用现有 `config_agent_id` 作为 shadow 会话 agent 维度，`agent_id` 只作为 API/metadata 名称 |
 | FeishuClient 获取群名需要额外 API 权限 | 群聊会话 title 无法生成 | 权限不足时 fallback 到 `agent名 · 群聊 · channel名` |
 | botOpenId 探测失败 | 群聊 @Bot 精确识别降级，纯 @Bot 可能不触发 | Gateway 启动日志 warning；检查 appId/appSecret/domain 与 bot capability |
-| ownerOpenId 缓存缺失或错误 | owner 自己消息在 IM 不显示「你」 | 不阻塞功能；显示 Feishu sender display name；后续如需强一致需做 IM 账号绑定设计 |
+| ownerOpenId 缓存缺失或错误 | owner 自己消息在 IM 不显示「你」，或错误用户被显示为「你」 | 缺失时由该 agent 的首次真实 Feishu 入站 sender 自动绑定并写回 config；已有错误缓存不自动覆盖，后续另设 rebind/clear 入口 |
 | 内置 `feishu-doc` 只存在于源码仓 | 新安装用户 pip 启动 Gateway 后没有云文档 skill，spec 的“飞书云文档操作”不可用 | 将源文件迁入 `src/personal_assistant/builtin_skills/feishu-doc/SKILL.md` 并纳入 package data；Gateway 启动缺失安装到 `~/.nanoassistant/skills` |
 | Feishu 绑定 agent 显式 skills 列表缺 `feishu-doc` | skill 已安装但 session prompt 不注入，用户从飞书要求云文档操作时 agent 不知道能力 | Gateway 启动对 enabled `feishu:<agent_id>` 自动补 `feishu-doc` 并写回本地 config；能力上报与 prompt preview 走同一 resolver 验证 |
 | 外部 channel 只发 terminal reply_text | IM shadow 中可见的中间 assistant 气泡不会出现在飞书，用户看到两边对话不一致 | M11 增加 ExternalReplyMirror，以 assistant 气泡完成为外发边界，并用 dedupe key 防止 terminal 重复发送 |
@@ -570,6 +633,9 @@ sequenceDiagram
 | 外部同步用户消息只发 message.sent/delivered | IM 打开的 shadow 会话不刷新看不到飞书用户消息，只能看到后续 agent 气泡 | 外部写入后广播带完整消息体和 display name 的 `message.created`；前端按 message_id 去重 |
 | 飞书 app 只投递 @Bot 群消息 | 未 @ 背景永远进不了 Gateway，agent 无法像内部 IM 群聊一样感知背景 | M12 将“普通群消息投递”列为 Feishu channel 必备平台能力；reviewer 必须用真实未 @ nonce 证明 Gateway 收到并写入 IM/GroupContextStore |
 | 纯 @Bot 被解析为空文本 | shadow sync 写 IM 400，IM 中看不到用户的 @ 消息；kernel 当前消息为空，容易忽略 buffered context | FeishuClient 保留 mention-only 的规范化文本/metadata；IM 持久化和 kernel parts 都使用非空 `@<bot>` 或等效结构化内容 |
+| 飞书触发工具审批只出现在内部 IM | 用户停留在飞书时看不到审批入口，run 卡在等待权限状态 | M13 把同一 `permission_request` 镜像成 Feishu interactive card；card action 校验后回灌现有 `kernel.submit_permission_decision` |
+| Feishu card action 被非 owner 或其他群点击 | 外部群成员可能代替 owner 批准危险工具 | M13 默认只允许 `ownerOpenId` 审批，且校验 callback chat id、approval token、option id；失败不调用 kernel |
+| IM 与飞书两端重复审批同一请求 | 同一工具请求可能被二次批准/拒绝，状态不同步 | 用 `request_id` 做全局关联，pending state first-wins；后到点击返回 already resolved/expired，Gateway best-effort 同步两端 resolved 状态 |
 | 三个 Bot 同时连飞书 | 资源占用 | 每个 Bot 独立 WebSocket 连接，飞书 SDK 轻量 |
 | 飞书 SDK 版本兼容 | lark-oapi API 变动 | 锁定 SDK 版本，单测覆盖 |
 
@@ -585,7 +651,7 @@ sequenceDiagram
 **真实飞书入口验收**:
 - 前置条件：以本次启动 Gateway 实际使用的 `<WT_CFG>` 为准确定“要发给哪个 Bot”。查找 `channels[].name == "feishu:<agent_id>"`，该条目的 `settings.appId` 就是 Gateway 正在监听的目标 Bot 所属应用；reviewer 发送消息时必须发给这个 app 对应的 Bot，而不是发给 reviewer 机器上其他默认 Lark CLI app 的 Bot。当前 live 配置示例是 `.gateway-config.yaml` 中 `feishu:default-agent` 绑定 `appId=cli_aac9315ef3f9dbda`。Bot 已安装到同一租户且可被 reviewer 用户私聊或加入测试群。
 - `botOpenId` 启动行为：reviewer 不需要手改 `<WT_CFG>`。Gateway 启动读取 Feishu channel 时用该 channel 的 `settings.appId/appSecret/domain` 探测 bot identity，成功后把 `settings.botOpenId` 写回本次 worktree-local `<WT_CFG>`；失败只 warning，不调用 `lark-cli` 兜底。
-- `ownerOpenId` 启动行为：Gateway 不调用 `lark-cli` 推断 owner。缺失时 IM shadow 中显示 Feishu sender display name，不把“显示为你”作为 live smoke 通过条件。
+- `ownerOpenId` 绑定行为：Gateway 不调用 `lark-cli` 推断 owner，也不要求 reviewer 手填。缺失时，Feishu channel 收到该 agent 的第一条真实用户入站后，把 sender open_id 写回 `<WT_CFG>.channels[].settings.ownerOpenId`；后续该用户消息在 IM shadow 中显示「你」。reviewer 需要验证首次入站后配置被写回，且第二条同用户入站显示「你」。
 - `lark-cli` 用法：`lark-cli` 只扮演真实用户发消息，消息收件人必须是 `<WT_CFG>` 中 `feishu:<agent_id>.settings.appId` 对应的 Bot。先用 `lark-cli auth status --json --verify` 确认输出中的 `appId` 等于该 `settings.appId`，再从同一输出的 `identities.bot.openId` 取得 `<bot_open_id>`。然后用 `lark-cli im +messages-send --as user --user-id <bot_open_id> --text "feat-447-dm-<nonce>"` 发送 1:1。群聊 @Bot 必须用 Feishu text content 的真实 mention 语法 `<at user_id="<bot_open_id>">nano</at>`，不能只发 plain `--text "@nano ..."`；@所有人 用 `<at user_id="all"></at>`。`--as bot` 只能用于辅助查验/建群，不作为验收入站，因为它不能证明普通用户消息经飞书平台触发了目标 Bot。
 - 与当前验证一致的 1:1 smoke test 命令如下；若 `appId mismatch`，reviewer 必须停止并用 `<WT_CFG>` 中该 channel 的 `settings.appId` / `settings.appSecret` 重新配置 `lark-cli`，不得把消息发给当前 CLI 默认 Bot：
   ```bash
@@ -609,9 +675,10 @@ sequenceDiagram
   ALL_MENTION_CONTENT=$(ruby -rjson -e 'nonce = ARGV.fetch(0); puts JSON.generate({text: %(<at user_id="all"></at> #{nonce} all-only should not trigger bot)})' "$NONCE")
   lark-cli im +messages-send --as user --chat-id "$CHAT_ID" --msg-type text --content "$ALL_MENTION_CONTENT"
   ```
-- 必测路径：1:1 发 nonce 消息后，飞书收到 agent 回复，内部 IM 出现 `agent · feishu` 影子会话且用户消息显示 Feishu sender display name（已有 `ownerOpenId` 缓存时可显示「你」）；打开该 IM shadow 会话并保持不刷新，再从飞书发第二条 nonce，用户消息必须实时出现在当前 IM 消息列表中，不能只靠刷新历史出现；群聊先发未 @ nonce 消息不触发飞书回复但同步到 IM，再 @Bot 触发回复；在内部 IM 影子会话回复时只写 IM、不回写飞书；随后回到飞书原对话继续发消息，agent 能引用 IM 中的新上下文；在 IM shadow group 问“总结刚才”时能引用飞书未 @ 群聊背景且不回写飞书。
+- 必测路径：1:1 发 nonce 消息后，飞书收到 agent 回复，Gateway 将该 sender open_id 写回 `ownerOpenId`，内部 IM 出现 `agent · feishu` 影子会话；打开该 IM shadow 会话并保持不刷新，再从同一飞书用户发第二条 nonce，用户消息必须实时出现在当前 IM 消息列表中并显示「你」，不能只靠刷新历史出现；群聊先发未 @ nonce 消息不触发飞书回复但同步到 IM，再 @Bot 触发回复；在内部 IM 影子会话回复时只写 IM、不回写飞书；随后回到飞书原对话继续发消息，agent 能引用 IM 中的新上下文；在 IM shadow group 问“总结刚才”时能引用飞书未 @ 群聊背景且不回写飞书。
 - 飞书群聊上下文等价必测路径：在真实飞书群中先发送不 @Bot 的 nonce 背景消息（例如“feat-447-bg-<nonce> 你会数学吗”），确认 Gateway 收到该事件、内部 IM shadow group 实时出现该用户消息、且 Bot 不回复；再发送只 `@所有人` 但不单独 @Bot 的消息，Bot 仍不得回复且该消息按普通群上下文同步；随后只发送 `@<bot>`，该纯 @ 消息也必须实时出现在内部 IM shadow group，agent 回复必须引用前一条背景问题（例如回答会不会数学），不能回复成“你只是测试/你想问什么”。Gateway 启动时必须 best-effort 查询 Feishu app scopes；若未看到 `im:message.group_msg` 或 scope 查询失败，日志必须 warning 提醒检查平台权限和事件订阅。如果第一条未 @ 消息没有出现在 Gateway 日志、IM shadow 或 GroupContextStore，说明飞书 app 权限/事件订阅不满足本功能，不得验收通过。
 - 外部回复镜像必测路径：从真实飞书 1:1 发送一个会让 agent 先说明“我查一下/我先看一下”再跑工具的 nonce 问题（例如询问当前 worktree Git URL）；内部 IM shadow 中出现的每个用户可见 assistant 文本气泡，飞书中都应收到对应文本消息。不得只验证最后答案；不得把 token streaming delta 当作多条飞书消息；同一最终气泡不得重复发送两次。
+- 飞书原生工具审批必测路径：从真实飞书 1:1 发送一个会触发工具权限请求的 nonce 指令，飞书原对话必须出现 interactive approval card，内部 IM shadow 也出现同一 `request_id` 的审批卡；在飞书卡片点击允许后，agent run 必须继续并把后续回复发回飞书，内部 IM 审批状态同步为 resolved；再触发一次审批并在内部 IM 先拒绝，随后点击旧飞书卡片不得二次调用 kernel，飞书卡片应显示已处理/失效。验收不得用 `lark-cli` 代替产品运行态审批，`lark-cli` 只可用于制造真实用户入站。
 - 内置 skill 必测路径：启动前临时移走或使用干净 HOME，确认 Gateway 启动后生成 `~/.nanoassistant/skills/feishu-doc/SKILL.md`；确认 `GET /im/v1/agents/<agent_id>/capabilities` 或等效 capabilities resolve 返回 `feishu-doc`；确认 `<WT_CFG>` 中绑定 `feishu:<agent_id>` 的 agent skills 含 `feishu-doc`；最后从真实飞书 1:1 发送“请使用 feishu-doc 说明如何创建飞书文档”的 nonce 消息，agent 回复能引用 `feishu-doc` 的授权/创建文档指引。只读源码里的 `SKILL.md` 不算通过。
 - 证据要求：保留 `lark-cli` 命令输出、Gateway 日志中的飞书 receive event / nonce、IM 影子 conversation/message id、飞书回复 message id 或时间戳。
 
@@ -625,9 +692,10 @@ sequenceDiagram
 | feat-447-M4 | fix-critical-param-and-skill | feat-447-M3 | — | main.py, 历史 flat skill `skills/feishu-doc.md`, tests/unit/test_feishu_integration.py | 历史已合并：_build_channel_registry 传入 group_context_store 与 bot_open_id；build_runtime 调用点同步修复；skill 补充 mkdir/move 命令。M10 负责把该 skill 改为内置目录型资源并接入启动自举。 |
 | feat-447-M5 | fix-config-consistency | feat-447-M4 | — | config/local_store.py, main.py, channels/feishu_adapter.py, tests/unit/test_feishu_*.py | 历史已合并：_parse_feishu_accounts 保留 botOpenId；feishu 顶层 enabled=false 跳过 accounts；统一 group buffer key 格式。 |
 | feat-447-M6 | fast-lane-fixes | feat-447-M5 | — | channels/feishu_client.py, channels/feishu_adapter.py, main.py, tests/unit/test_feishu_*.py | 历史已合并：DM 回复使用 receive_id_type=open_id；5xx 与 429 重试计数器分离；registry 必填 group_context_store。 |
-| feat-447-M7 | external-channel-full-sync | feat-447-M6 | A | IM: `src/IM/infra/db.py`, `src/IM/infra/repositories.py`, `src/IM/domain/models.py`, `src/IM/api/routes/web_im.py`, `src/IM/api/routes/messages.py`, `src/IM/application/web_im_service.py`, `src/IM/application/relay_service.py`, `src/IM/ws/gateway_handler.py`; Gateway/channel: `src/personal_assistant/channels/feishu_adapter.py`, `src/personal_assistant/channels/feishu_client.py`, `src/personal_assistant/channels/web_relay_adapter.py`, `src/personal_assistant/gateway/inbound_pipeline.py`, `src/personal_assistant/gateway/session_keys.py`, `src/personal_assistant/gateway/outbound_router.py`, `src/personal_assistant/main.py`, `src/personal_assistant/config/local_store.py`; tests touched by those modules | [reviewer] 必须用 `lark-cli im +messages-send --as user` 发送带 nonce 的飞书消息，证明入站来自真实飞书平台；不得用直调 Gateway/IM API、飞书客户端 UI 或伪造 `InboundMessage` 替代;外部 1:1 会话在内部 IM 有独立会话（覆盖 Scenario: 外部 1:1 会话在内部 IM 有独立会话）;外部 1:1 用户消息同步到内部 IM（覆盖 Scenario: 外部 1:1 用户消息同步到内部 IM）;外部 1:1 agent 回复同步到内部 IM（覆盖 Scenario: 外部 1:1 agent 回复同步到内部 IM）;在内部 IM 回复不会回写飞书但上下文连续（覆盖 Scenario: 在内部 IM 回复不会回写飞书但上下文连续）;在内部 IM 群聊影子会话发消息自动触发 agent 回复（覆盖 Scenario: 在内部 IM 群聊影子会话发消息自动触发 agent 回复）;同一 kernel session 跨入口上下文连续（覆盖 Scenario: 同一 kernel session 跨入口上下文连续）;外部群聊在内部 IM 有独立 group 会话（覆盖 Scenario: 外部群聊在内部 IM 有独立 group 会话）;同一外部群绑定多个 agent 时生成多个独立会话（覆盖 Scenario: 同一外部群绑定多个 agent 时生成多个独立会话）;外部群聊消息显示 Feishu sender display name（已有 `ownerOpenId` 缓存时可显示「你」）;未 @ 的群聊上下文消息同步到内部 IM（覆盖 Scenario: 未 @ 的群聊上下文消息同步到内部 IM）;不 @ 也回的 agent 群聊消息全量同步（覆盖 Scenario: 不 @ 也回的 agent 群聊消息全量同步）;Feishu 群里 Alice 发未 @ 消息后，用户在内部 IM shadow group 问“总结刚才”，agent 能引用 Alice 消息且不回写飞书（覆盖跨入口 group buffer）;IM 离线时飞书对话不中断（覆盖 Scenario: IM 离线时飞书对话不中断）;[worker] IM DB migration 单测覆盖，shadow 会话 agent 维度复用 `config_agent_id`，不新增第二套 agent id 列;`external/find-or-create` API 单测覆盖;sender_display_name 读写单测覆盖;`RelayService` payload 回环 `external_source/external_chat_id/agent_id/trigger_source/conversation_type` 单测覆盖;`WebRelayAdapter` 用 metadata 外部身份生成 `InboundMessage` 且保留 IM conversation_id 作 delivery id 单测覆盖;`session_keys.build_session_key` 外部身份优先、普通 channel 回退现状单测覆盖;`GroupContextStore` key 外部身份优先、Feishu sync_only buffer 可被后续 Feishu @ 和 IM shadow group trigger drain 单测覆盖;`run_context_store` 经 lifecycle accepted 从 message metadata/turn context seed shadow conversation_id，shadow 创建失败时不 lazy direct 单测覆盖;IM 影子 group gate 前注入/标记 mention 单测覆盖;`sync_only` 只同步+buffer、不分配 session/run、不重复 adapter buffer 单测覆盖;per-run `reply_context` 保证 IM 触发不回写飞书单测覆盖;全量非 e2e 测试无回归。 |
+| feat-447-M7 | external-channel-full-sync | feat-447-M6 | A | IM: `src/IM/infra/db.py`, `src/IM/infra/repositories.py`, `src/IM/domain/models.py`, `src/IM/api/routes/web_im.py`, `src/IM/api/routes/messages.py`, `src/IM/application/web_im_service.py`, `src/IM/application/relay_service.py`, `src/IM/ws/gateway_handler.py`; Gateway/channel: `src/personal_assistant/channels/feishu_adapter.py`, `src/personal_assistant/channels/feishu_client.py`, `src/personal_assistant/channels/web_relay_adapter.py`, `src/personal_assistant/gateway/inbound_pipeline.py`, `src/personal_assistant/gateway/session_keys.py`, `src/personal_assistant/gateway/outbound_router.py`, `src/personal_assistant/main.py`, `src/personal_assistant/config/local_store.py`; tests touched by those modules | [reviewer] 必须用 `lark-cli im +messages-send --as user` 发送带 nonce 的飞书消息，证明入站来自真实飞书平台；不得用直调 Gateway/IM API、飞书客户端 UI 或伪造 `InboundMessage` 替代;外部 1:1 会话在内部 IM 有独立会话（覆盖 Scenario: 外部 1:1 会话在内部 IM 有独立会话）;外部 1:1 用户消息同步到内部 IM（覆盖 Scenario: 外部 1:1 用户消息同步到内部 IM）;外部 1:1 agent 回复同步到内部 IM（覆盖 Scenario: 外部 1:1 agent 回复同步到内部 IM）;在内部 IM 回复不会回写飞书但上下文连续（覆盖 Scenario: 在内部 IM 回复不会回写飞书但上下文连续）;在内部 IM 群聊影子会话发消息自动触发 agent 回复（覆盖 Scenario: 在内部 IM 群聊影子会话发消息自动触发 agent 回复）;同一 kernel session 跨入口上下文连续（覆盖 Scenario: 同一 kernel session 跨入口上下文连续）;外部群聊在内部 IM 有独立 group 会话（覆盖 Scenario: 外部群聊在内部 IM 有独立 group 会话）;同一外部群绑定多个 agent 时生成多个独立会话（覆盖 Scenario: 同一外部群绑定多个 agent 时生成多个独立会话）;外部群聊消息显示 Feishu sender display name，首次真实入站自动绑定 `ownerOpenId` 后同一用户显示「你」;未 @ 的群聊上下文消息同步到内部 IM（覆盖 Scenario: 未 @ 的群聊上下文消息同步到内部 IM）;不 @ 也回的 agent 群聊消息全量同步（覆盖 Scenario: 不 @ 也回的 agent 群聊消息全量同步）;Feishu 群里 Alice 发未 @ 消息后，用户在内部 IM shadow group 问“总结刚才”，agent 能引用 Alice 消息且不回写飞书（覆盖跨入口 group buffer）;IM 离线时飞书对话不中断（覆盖 Scenario: IM 离线时飞书对话不中断）;[worker] IM DB migration 单测覆盖，shadow 会话 agent 维度复用 `config_agent_id`，不新增第二套 agent id 列;`external/find-or-create` API 单测覆盖;sender_display_name 读写单测覆盖;`RelayService` payload 回环 `external_source/external_chat_id/agent_id/trigger_source/conversation_type` 单测覆盖;`WebRelayAdapter` 用 metadata 外部身份生成 `InboundMessage` 且保留 IM conversation_id 作 delivery id 单测覆盖;`session_keys.build_session_key` 外部身份优先、普通 channel 回退现状单测覆盖;`GroupContextStore` key 外部身份优先、Feishu sync_only buffer 可被后续 Feishu @ 和 IM shadow group trigger drain 单测覆盖;`run_context_store` 经 lifecycle accepted 从 message metadata/turn context seed shadow conversation_id，shadow 创建失败时不 lazy direct 单测覆盖;IM 影子 group gate 前注入/标记 mention 单测覆盖;`sync_only` 只同步+buffer、不分配 session/run、不重复 adapter buffer 单测覆盖;per-run `reply_context` 保证 IM 触发不回写飞书单测覆盖;全量非 e2e 测试无回归。 |
 | feat-447-M8 | fix-live-startup | feat-447-M7 | A | `src/IM/infra/db.py`, `src/personal_assistant/config/local_store.py`, `src/personal_assistant/main.py`, `src/personal_assistant/channels/feishu_client.py`, `src/personal_assistant/channels/feishu_adapter.py`, tests touched by those modules | 历史已合并：legacy IM DB 自动迁移；缺 `ownerOpenId` 不阻塞 Gateway 启动；Feishu group shadow title 使用真实群名；真实 `lark-cli im +messages-send --as user` smoke 通过。 |
 | feat-447-M9 | fix-gateway-live-run | feat-447-M8 | A | `src/personal_assistant/gateway/external_shadow_sync.py` 或对应 shadow sync owner 身份路径, `src/personal_assistant/main.py`, tests touched by those modules | 历史已合并：真实 Lark 用户消息发送到 Gateway config 对应 Bot 后，Gateway 保持运行；external/find-or-create 使用认证 IM owner 身份，IM shadow conversation/message 可见；相关窄测和全量非 e2e 测试通过。 |
 | feat-447-M10 | builtin-skill-bootstrap | feat-447-M9 | A | `src/personal_assistant/builtin_skills/feishu-doc/SKILL.md`, `src/personal_assistant/builtin_skills/**`, `src/personal_assistant/main.py` 或 startup/bootstrap helper, `src/personal_assistant/product.py`, `src/personal_assistant/config/local_store.py`, `pyproject.toml`, tests for PA startup/capabilities/skill resolution | [reviewer] 干净 HOME 或移走 `~/.nanoassistant/skills/feishu-doc` 后启动 Gateway，会自动生成 `~/.nanoassistant/skills/feishu-doc/SKILL.md`；飞书绑定 agent 的 capabilities 和配置中能看到 `feishu-doc`；真实飞书 1:1 入站可触发 agent 使用 `feishu-doc` 给出云文档授权/创建指引（覆盖 Requirement: 飞书云文档操作（用户身份））。[worker] flat `skills/feishu-doc.md` 迁移为目录型包内资源，package data 覆盖安装包；bootstrap 缺失复制、不覆盖已有用户 skill 的单测覆盖；显式 skills allowlist 的 Feishu-bound agent 自动补 `feishu-doc` 并写回本地 config；prompt preview/list_skills/真实 session skill 注入同源单测覆盖；全量非 e2e 测试无回归。 |
 | feat-447-M11 | external-live-parity | feat-447-M10 | A | Gateway: `src/personal_assistant/gateway/inbound_pipeline.py`, `src/personal_assistant/main.py` kernel event observer wiring, `src/personal_assistant/gateway/outbound_router.py`, `src/personal_assistant/channels/base.py`, `src/personal_assistant/channels/feishu_adapter.py`, tests for external reply mirror/dedupe/reaction lifecycle. IM/frontend: `src/IM/infra/repositories.py`, `src/IM/api/ws/event_types.py`, `src/IM/api/routes/messages.py`, `src/IM/frontend/src/features/chat/v2/chat-stream-reducer.ts`, `src/IM/frontend/src/features/chat/v2/chat-types.ts`, focused tests. | [reviewer] 保持内部 IM shadow 会话打开且不刷新，从真实飞书 1:1 发 nonce，飞书用户消息必须实时出现在当前 IM 消息列表，显示「你」或外部发送者名；发送一个会产生中间 assistant 气泡的问题（例如“查一下当前 worktree 对应的 Git URL”），IM shadow 中看到的每个用户可见 assistant 文本气泡都必须在飞书中收到对应消息，最终气泡不得重复；IM shadow 入口触发的回复仍不得回写飞书。[worker] 根因回归测试覆盖：外部 sync 用户消息写入后产生可被前端 reducer 插入的 `message.created` payload（含 content/attachments/sender display name），`message.sent/delivered` 保持 delivery 语义；前端 reducer 对 `message.created` 去重并正确渲染 sender display name；Gateway external reply mirror 以 assistant 气泡完成为边界发送，跳过 thinking/tool-only/NO_REPLY，按 dedupe key 防 terminal 重复；Feishu THINKING reaction 只在 final/terminal 删除；全量非 e2e 测试无回归。 |
 | feat-447-M12 | external-group-context-parity | feat-447-M11 | A | `src/personal_assistant/channels/feishu_client.py`, `src/personal_assistant/channels/feishu_adapter.py`, `src/personal_assistant/gateway/inbound_pipeline.py`, `src/personal_assistant/gateway/group_context_store.py`, Feishu app scope warning, IM/frontend live paths touched by mention display, focused tests. | [reviewer] 真实飞书群中先发送未 @ nonce 背景消息（如“feat-447-bg-<nonce> 你会数学吗”），默认 `MENTION` policy 下 Bot 不回复但 Gateway/IM shadow/group buffer 均能看到；发送只 `@所有人` 但不单独 @Bot 的消息，默认 `MENTION` policy 下 Bot 不回复且该消息作为普通群上下文可见；随后只发送 `@<bot>`，该纯 @ 消息在 IM shadow group 中实时出现，agent 回复引用前一条背景问题；把 Group Reply Policy 改为 `ALWAYS` 后，真实飞书群未 @ 普通消息必须触发 agent 回复并出现 THINKING reaction（最终回复后可删除）；再发送 `@<bot> hi`，IM 和 LLM context 均保留 @ 与 hi，不能只剩 hi；如果飞书平台/app 只投递 @Bot 事件，验收必须失败并指出权限/订阅缺失。[worker] FeishuClient mention 解析保留用户可见 @ 正文，同时输出 `mentioned_agent_ids`/`mention_only` metadata，且 `@所有人` / `@all` 不进入目标 agent 的 `mentioned_agent_ids`；平台实时投递的未 @ 群消息写 `mentioned_agent_ids=[]` 并交给 Pipeline 根据 `group_reply_policy` 判定，历史补拉消息才使用 `sync_only` 复用 `GroupContextStore` external key；@Bot/纯 @Bot drain 同一 external key；IM shadow sync 对 mention-only 不再 400；启动时 best-effort 查询 Feishu app scopes，缺 `im:message.group_msg` 或查询失败仅 warning 不阻塞；不引入 `receiveAllGroupMessages` 本地配置项；Gateway accepted lifecycle 对 Feishu run 统一 ack；单测覆盖未 @ -> 纯 @ drain、mention-only 非空化、`@bot hi` 不删 @、`@所有人` 不触发 Bot、`ALWAYS` 下飞书未 @ 普通消息触发、`ALWAYS` accepted 时 Feishu ack、平台普通群消息缺失的 scope warning；全量非 e2e 测试无回归。 |
+| feat-447-M13 | feishu-native-tool-approval | feat-447-M12 | A | `src/personal_assistant/channels/feishu/client.py`, `src/personal_assistant/channels/feishu/adapter.py`, `src/personal_assistant/channels/feishu/approval.py`, `src/personal_assistant/main.py`, compatibility shims, permission observer/response wiring tests, Feishu card action unit tests. | [reviewer] 从真实飞书 1:1 触发一个需要工具权限审批的 nonce 指令，飞书原对话出现 interactive approval card，内部 IM shadow 同时出现同一 `request_id` 的审批卡；在飞书点击允许后，agent run 继续并把后续回复发回飞书，内部 IM 审批状态同步为 resolved；再触发一次审批并先在内部 IM 拒绝，随后点击旧飞书卡片不得二次调用 kernel，卡片显示已处理/失效；群聊审批只能由 `ownerOpenId` 点击，非 owner 点击不生效。[worker] FeishuClient 支持 `interactive` card 发送/更新和 card action handler；FeishuAdapter 经 `approval.py` pending state 使用 opaque `approval_id` 关联 kernel `request_id`，校验 chat_id/ownerOpenId/option/TTL；Gateway 在 `permission_request` 仍写内部 IM 的同时按 Feishu trigger 镜像 card，并通过注入 callback 复用 `kernel.submit_permission_decision`；IM/Feishu 两端 first-wins 去重和 resolved 状态 best-effort 同步有单测；运行时代码不依赖 `lark-cli`；全量非 e2e 测试无回归。 |

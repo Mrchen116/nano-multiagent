@@ -134,7 +134,7 @@ class TestBuildChannelRegistryFeishuRealAdapter:
 
     def test_real_feishu_adapter_construction(self) -> None:
         """Real FeishuAdapter must construct without TypeError."""
-        from personal_assistant.channels.feishu_adapter import FeishuAdapter
+        from personal_assistant.channels.feishu.adapter import FeishuAdapter
         from personal_assistant.gateway.group_context_store import GroupContextStore
 
         with TemporaryDirectory() as tmpdir:
@@ -154,7 +154,7 @@ class TestBuildChannelRegistryFeishuRealAdapter:
 
     def test_build_channel_registry_passes_group_context_store(self) -> None:
         """_build_channel_registry must pass group_context_store to FeishuAdapter."""
-        from personal_assistant.channels.feishu_adapter import FeishuAdapter
+        from personal_assistant.channels.feishu.adapter import FeishuAdapter
         from personal_assistant.gateway.group_context_store import GroupContextStore
 
         with TemporaryDirectory() as tmpdir:
@@ -194,7 +194,7 @@ class TestBuildChannelRegistryFeishuRealAdapter:
 
     def test_bootstrap_path_creates_and_passes_group_context_store(self) -> None:
         """Simulate bootstrap path: create GroupContextStore, pass to _build_channel_registry."""
-        from personal_assistant.channels.feishu_adapter import FeishuAdapter
+        from personal_assistant.channels.feishu.adapter import FeishuAdapter
         from personal_assistant.gateway.group_context_store import GroupContextStore
 
         with TemporaryDirectory() as tmpdir:
@@ -220,7 +220,7 @@ class TestBuildChannelRegistryFeishuRealAdapter:
 
     def test_build_channel_registry_passes_bot_open_id(self) -> None:
         """_build_channel_registry passes bot_open_id from settings when present."""
-        from personal_assistant.channels.feishu_adapter import FeishuAdapter
+        from personal_assistant.channels.feishu.adapter import FeishuAdapter
         from personal_assistant.gateway.group_context_store import GroupContextStore
 
         with TemporaryDirectory() as tmpdir:
@@ -246,7 +246,7 @@ class TestBuildChannelRegistryFeishuRealAdapter:
     def test_build_channel_registry_allows_missing_owner_open_id(
         self, mock_fa_cls: MagicMock
     ) -> None:
-        """Runbook configs can start without ownerOpenId; only "你" display is disabled."""
+        """Runbook configs can start without ownerOpenId and bind on first inbound."""
         channels = (
             ChannelConfig(
                 name="feishu:plato",
@@ -265,16 +265,43 @@ class TestBuildChannelRegistryFeishuRealAdapter:
         mock_fa_cls.assert_called_once()
         assert mock_fa_cls.call_args.kwargs["owner_open_id"] is None
 
+    @patch("personal_assistant.main.FeishuAdapter")
+    def test_build_channel_registry_passes_owner_open_id_binder(
+        self, mock_fa_cls: MagicMock
+    ) -> None:
+        binder = MagicMock(return_value="ou_first")
+        channels = (
+            ChannelConfig(
+                name="feishu:plato",
+                enabled=True,
+                settings={
+                    "appId": "cli_a",
+                    "appSecret": "s_a",
+                    "botOpenId": "ou_bot_123",
+                },
+            ),
+        )
+        with TemporaryDirectory() as tmpdir:
+            group_ctx = GroupContextStore(db_path=Path(tmpdir) / "group.sqlite3")
+            _build_channel_registry(
+                channels,
+                group_context_store=group_ctx,
+                feishu_owner_open_id_binder=binder,
+            )
+
+        mock_fa_cls.assert_called_once()
+        assert mock_fa_cls.call_args.kwargs["owner_open_id_binder"] is binder
+
 
 class TestFeishuBufferKeyConsistency:
     """Group buffer key alignment between FeishuAdapter and InboundPipeline."""
 
-    @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
+    @patch("personal_assistant.channels.feishu.adapter.FeishuClient")
     def test_no_mention_inbound_metadata_matches_pipeline_external_buffer_key(
         self, mock_fc_cls: MagicMock
     ) -> None:
         """FeishuAdapter emits external identity metadata consumed by Pipeline buffer keys."""
-        from personal_assistant.channels.feishu_adapter import FeishuAdapter
+        from personal_assistant.channels.feishu.adapter import FeishuAdapter
         from personal_assistant.gateway.inbound_pipeline import InboundPipeline
 
         store = MagicMock(spec=GroupContextStore)
@@ -287,7 +314,7 @@ class TestFeishuBufferKeyConsistency:
         )
         on_inbound = MagicMock()
         adapter.start(on_inbound)
-        from personal_assistant.channels.feishu_client import FeishuMessageEvent
+        from personal_assistant.channels.feishu.client import FeishuMessageEvent
 
         event = FeishuMessageEvent(
             text="just chatting",
@@ -308,12 +335,12 @@ class TestFeishuBufferKeyConsistency:
             "feishu:feishu:cli_a:group:oc_grp1:plato"
         )
 
-    @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
+    @patch("personal_assistant.channels.feishu.adapter.FeishuClient")
     def test_group_mention_does_not_drain_adapter_buffer(
         self, mock_fc_cls: MagicMock
     ) -> None:
         """Group buffer drain is owned by InboundPipeline, not FeishuAdapter."""
-        from personal_assistant.channels.feishu_adapter import FeishuAdapter
+        from personal_assistant.channels.feishu.adapter import FeishuAdapter
 
         store = MagicMock(spec=GroupContextStore)
         adapter = FeishuAdapter(
@@ -327,7 +354,7 @@ class TestFeishuBufferKeyConsistency:
         on_inbound = MagicMock()
         adapter.start(on_inbound)
 
-        from personal_assistant.channels.feishu_client import (
+        from personal_assistant.channels.feishu.client import (
             FeishuMention,
             FeishuMessageEvent,
         )

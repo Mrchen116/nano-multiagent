@@ -2,21 +2,19 @@
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 lark_oapi = pytest.importorskip("lark_oapi")
 
-from personal_assistant.channels.feishu_client import FeishuClient
+from personal_assistant.channels.feishu.client import FeishuClient
 
 
 class TestFeishuClientLifecycle:
     """Verify FeishuClient start/stop wrapping lark-oapi WSClient."""
 
-    @patch("personal_assistant.channels.feishu_client.WSClient")
+    @patch("personal_assistant.channels.feishu.client.WSClient")
     def test_start_creates_ws_client_with_event_handler(
         self, mock_ws_cls: MagicMock
     ) -> None:
@@ -36,13 +34,13 @@ class TestFeishuClientLifecycle:
         assert call_kwargs[1]["event_handler"] is not None
         mock_ws.start.assert_called_once()
 
-    @patch("personal_assistant.channels.feishu_client.WSClient")
+    @patch("personal_assistant.channels.feishu.client.WSClient")
     def test_stop_noop_when_not_started(self, mock_ws_cls: MagicMock) -> None:
         client = FeishuClient(app_id="cli_abc", app_secret="secret")
         # stop before start should not raise
         client.stop()
 
-    @patch("personal_assistant.channels.feishu_client.WSClient")
+    @patch("personal_assistant.channels.feishu.client.WSClient")
     def test_stop_after_start(self, mock_ws_cls: MagicMock) -> None:
         mock_ws = MagicMock()
         mock_ws_cls.return_value = mock_ws
@@ -76,7 +74,7 @@ class TestFeishuClientEventParsing:
         return event
 
     def test_parse_p2p_message(self) -> None:
-        from personal_assistant.channels.feishu_client import _parse_feishu_event
+        from personal_assistant.channels.feishu.client import _parse_feishu_event
 
         ev = self._make_event(chat_type="p2p", content='{"text":"hi there"}')
         result = _parse_feishu_event(ev)
@@ -88,14 +86,14 @@ class TestFeishuClientEventParsing:
         assert result.is_group is False
 
     def test_parse_group_message(self) -> None:
-        from personal_assistant.channels.feishu_client import _parse_feishu_event
+        from personal_assistant.channels.feishu.client import _parse_feishu_event
 
         ev = self._make_event(chat_type="group")
         result = _parse_feishu_event(ev)
         assert result.is_group is True
 
     def test_parse_empty_content(self) -> None:
-        from personal_assistant.channels.feishu_client import _parse_feishu_event
+        from personal_assistant.channels.feishu.client import _parse_feishu_event
 
         ev = self._make_event(content="")
         result = _parse_feishu_event(ev)
@@ -103,14 +101,14 @@ class TestFeishuClientEventParsing:
 
     def test_parse_non_json_content_fallback(self) -> None:
         """Non-JSON content (e.g. image/file) should be kept as-is."""
-        from personal_assistant.channels.feishu_client import _parse_feishu_event
+        from personal_assistant.channels.feishu.client import _parse_feishu_event
 
         ev = self._make_event(content="plain text not json")
         result = _parse_feishu_event(ev)
         assert result.text == "plain text not json"
 
     def test_mentions_extracted(self) -> None:
-        from personal_assistant.channels.feishu_client import _parse_feishu_event
+        from personal_assistant.channels.feishu.client import _parse_feishu_event
 
         mention = MagicMock()
         mention.id.open_id = "ou_bot1"
@@ -130,8 +128,8 @@ class TestFeishuClientEventParsing:
 class TestFeishuClientSendMessage:
     """Verify FeishuClient.send_message calls lark-oapi REST API."""
 
-    @patch("personal_assistant.channels.feishu_client.WSClient")
-    @patch("personal_assistant.channels.feishu_client.lark")
+    @patch("personal_assistant.channels.feishu.client.WSClient")
+    @patch("personal_assistant.channels.feishu.client.lark")
     def test_send_message_calls_api(
         self, mock_lark: MagicMock, mock_ws_cls: MagicMock
     ) -> None:
@@ -181,7 +179,7 @@ class TestFeishuClientSendMessage:
         assert request.request_body.reaction_type.emoji_type == "THINKING"
 
     def test_add_reaction_failure_raises_feishu_api_error(self) -> None:
-        from personal_assistant.channels.feishu_client import FeishuAPIError
+        from personal_assistant.channels.feishu.client import FeishuAPIError
 
         mock_rest = MagicMock()
         mock_resp = MagicMock()
@@ -240,7 +238,7 @@ class TestFeishuClientErrorClassification:
         self, mock_sleep: MagicMock
     ) -> None:
         """429 (rate limit) should retry up to 3 times with exponential backoff."""
-        from personal_assistant.channels.feishu_client import FeishuAPIError
+        from personal_assistant.channels.feishu.client import FeishuAPIError
 
         mock_rest = MagicMock()
         # First 2 calls return 429, 3rd succeeds
@@ -264,7 +262,7 @@ class TestFeishuClientErrorClassification:
         self, mock_sleep: MagicMock
     ) -> None:
         """429 after max retries should raise FeishuAPIError."""
-        from personal_assistant.channels.feishu_client import FeishuAPIError
+        from personal_assistant.channels.feishu.client import FeishuAPIError
 
         mock_rest = MagicMock()
         rate_limit_resp = self._mock_response(success=False, code=429, msg="rate limit")
@@ -279,7 +277,7 @@ class TestFeishuClientErrorClassification:
 
     def test_auth_error_raises_feishu_auth_error(self) -> None:
         """401/403 should raise FeishuAuthError (no retry)."""
-        from personal_assistant.channels.feishu_client import FeishuAuthError
+        from personal_assistant.channels.feishu.client import FeishuAuthError
 
         for code in (401, 403):
             mock_rest = MagicMock()
@@ -296,7 +294,7 @@ class TestFeishuClientErrorClassification:
     @patch("time.sleep")
     def test_server_error_retries_once(self, mock_sleep: MagicMock) -> None:
         """5xx should retry exactly once, then raise FeishuAPIError if still failing."""
-        from personal_assistant.channels.feishu_client import FeishuAPIError
+        from personal_assistant.channels.feishu.client import FeishuAPIError
 
         mock_rest = MagicMock()
         server_resp = self._mock_response(success=False, code=500, msg="internal error")
@@ -354,7 +352,7 @@ class TestFeishuClientErrorClassification:
 
     def test_unknown_error_raises_feishu_api_error(self) -> None:
         """Non-retryable unknown errors should raise FeishuAPIError immediately."""
-        from personal_assistant.channels.feishu_client import FeishuAPIError
+        from personal_assistant.channels.feishu.client import FeishuAPIError
 
         mock_rest = MagicMock()
         err_resp = self._mock_response(success=False, code=99999, msg="unknown")
