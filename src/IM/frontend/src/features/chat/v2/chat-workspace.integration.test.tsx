@@ -339,7 +339,8 @@ describe("ChatWorkspacePage v2 — integration", () => {
     const plannerRow = await screen.findByRole("button", { name: /Planner/ });
     fireEvent.contextMenu(plannerRow);
 
-    await user.click(screen.getByRole("checkbox", { name: /Planner/ }));
+    await user.click(await screen.findByRole("menuitem", { name: "Distill to skill" }));
+    expect(screen.getByRole("checkbox", { name: /Planner/ })).toBeChecked();
     await user.click(screen.getByRole("button", { name: "Distill to skill" }));
     await user.click(screen.getByRole("button", { name: "Start distillation" }));
 
