@@ -203,26 +203,3 @@ class TestParseFeishuChannels:
         ]
         with pytest.raises(ValueError, match="ownerOpenId"):
             _parse_channels(payload)
-
-    def test_receive_all_group_messages_flag_is_preserved(self) -> None:
-        payload = [
-            {
-                "name": "feishu:plato",
-                "settings": _feishu_settings(receiveAllGroupMessages=True),
-            }
-        ]
-
-        channels = _parse_channels(payload)
-
-        assert channels[0].settings["receiveAllGroupMessages"] is True
-
-    def test_non_bool_receive_all_group_messages_raises(self) -> None:
-        payload = [
-            {
-                "name": "feishu:plato",
-                "settings": _feishu_settings(receiveAllGroupMessages="yes"),
-            }
-        ]
-
-        with pytest.raises(ValueError, match="receiveAllGroupMessages"):
-            _parse_channels(payload)

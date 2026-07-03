@@ -1866,14 +1866,13 @@ def _load_runtime_config(
     *,
     load_config: Callable[[str | Path], LocalConfig] = load_local_config,
     save_config: Callable[[LocalConfig, str | Path], None] = save_local_config,
-    command_runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
     im_service_url_override: str | None = None,
 ) -> LocalConfig:
     config = load_config(config_path)
-    config = _autofill_feishu_owner_open_id(
+    config = _autofill_feishu_bot_open_id(
         config,
         save_config=save_config,
-        command_runner=command_runner,
+        bot_identity_fetcher=_infer_feishu_bot_open_id_from_app_credentials,
     )
     if (
         not isinstance(im_service_url_override, str)
@@ -1896,13 +1895,13 @@ def _load_runtime_config(
     )
 
 
-def _autofill_feishu_owner_open_id(
+def _autofill_feishu_bot_open_id(
     config: LocalConfig,
     *,
     save_config: Callable[[LocalConfig, str | Path], None] = save_local_config,
-    command_runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+    bot_identity_fetcher: Callable[[str, str, str], str | None] | None = None,
 ) -> LocalConfig:
-    """Fill missing Feishu owner/bot open IDs from the matching local lark-cli auth."""
+    """Fill missing Feishu bot open IDs from app-credential runtime probes."""
     updated_channels: list[ChannelConfig] = []
     changed = False
     for channel in config.channels:
@@ -1910,34 +1909,35 @@ def _autofill_feishu_owner_open_id(
             updated_channels.append(channel)
             continue
         settings = dict(channel.settings)
-        owner_open_id = settings.get("ownerOpenId")
         bot_open_id = settings.get("botOpenId")
-        needs_owner_open_id = not (
-            isinstance(owner_open_id, str) and owner_open_id.strip()
-        )
         needs_bot_open_id = not (isinstance(bot_open_id, str) and bot_open_id.strip())
-        if not needs_owner_open_id and not needs_bot_open_id:
+        if not needs_bot_open_id:
             updated_channels.append(channel)
             continue
         app_id = settings.get("appId")
         if not isinstance(app_id, str) or not app_id.strip():
             updated_channels.append(channel)
             continue
-        inferred = _infer_feishu_open_ids_from_lark_cli(
-            app_id.strip(), command_runner=command_runner
+        cleaned_app_id = app_id.strip()
+        app_secret = settings.get("appSecret")
+        domain = settings.get("domain")
+        cleaned_domain = (
+            domain.strip()
+            if isinstance(domain, str) and domain.strip()
+            else "https://open.feishu.cn"
         )
-        updated_settings = False
-        inferred_owner_open_id = inferred.get("ownerOpenId")
-        if needs_owner_open_id and inferred_owner_open_id is not None:
-            settings["ownerOpenId"] = inferred_owner_open_id
-            updated_settings = True
-        inferred_bot_open_id = inferred.get("botOpenId")
-        if needs_bot_open_id and inferred_bot_open_id is not None:
-            settings["botOpenId"] = inferred_bot_open_id
-            updated_settings = True
-        if not updated_settings:
+        if bot_identity_fetcher is None or not (
+            isinstance(app_secret, str) and app_secret.strip()
+        ):
             updated_channels.append(channel)
             continue
+        inferred_bot_open_id = bot_identity_fetcher(
+            cleaned_app_id, app_secret.strip(), cleaned_domain
+        )
+        if inferred_bot_open_id is None:
+            updated_channels.append(channel)
+            continue
+        settings["botOpenId"] = inferred_bot_open_id
         updated_channels.append(replace(channel, settings=settings))
         changed = True
     if not changed:
@@ -1949,50 +1949,36 @@ def _autofill_feishu_owner_open_id(
     return updated
 
 
-def _infer_feishu_open_ids_from_lark_cli(
-    app_id: str,
-    *,
-    command_runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
-) -> dict[str, str]:
-    """Return lark-cli open IDs when its verified app matches ``app_id``."""
+def _infer_feishu_bot_open_id_from_app_credentials(
+    app_id: str, app_secret: str, domain: str
+) -> str | None:
+    """Return bot open_id by probing Feishu with app credentials."""
     try:
-        result = command_runner(
-            ["lark-cli", "auth", "status", "--json", "--verify"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-    except (OSError, subprocess.SubprocessError):
-        _log.warning("failed to run lark-cli auth status for Feishu open-id inference")
-        return {}
-    if result.returncode != 0:
-        _log.warning(
-            "lark-cli auth status failed; Feishu open IDs will not be auto-filled"
-        )
-        return {}
+        from lark_oapi.channel.bot_identity import fetch_bot_identity
+        from lark_oapi.core.model import Config
+    except ImportError:
+        _log.warning("lark-oapi bot identity helper unavailable; botOpenId not filled")
+        return None
+
+    sdk_config = Config()
+    sdk_config.app_id = app_id
+    sdk_config.app_secret = app_secret
+    sdk_config.domain = domain
+    sdk_config.timeout = 10
     try:
-        payload = json.loads(result.stdout)
-    except json.JSONDecodeError:
-        _log.warning("lark-cli auth status returned invalid JSON")
-        return {}
-    if payload.get("appId") != app_id:
-        _log.warning(
-            "lark-cli appId does not match feishu channel; Feishu open IDs not filled"
-        )
-        return {}
-    identities = payload.get("identities")
-    user_identity = identities.get("user") if isinstance(identities, dict) else None
-    bot_identity = identities.get("bot") if isinstance(identities, dict) else None
-    owner_open_id = (
-        user_identity.get("openId") if isinstance(user_identity, dict) else None
-    )
-    bot_open_id = bot_identity.get("openId") if isinstance(bot_identity, dict) else None
-    inferred: dict[str, str] = {}
-    if isinstance(owner_open_id, str) and owner_open_id.strip():
-        inferred["ownerOpenId"] = owner_open_id.strip()
-    if isinstance(bot_open_id, str) and bot_open_id.strip():
-        inferred["botOpenId"] = bot_open_id.strip()
-    return inferred
+        identity = asyncio.run(fetch_bot_identity(sdk_config))
+    except RuntimeError:
+        _log.warning("cannot run Feishu bot identity probe from active event loop")
+        return None
+    except Exception:  # noqa: BLE001
+        _log.warning("failed to probe Feishu bot identity", exc_info=True)
+        return None
+
+    open_id = getattr(identity, "open_id", None) if identity is not None else None
+    if isinstance(open_id, str) and open_id.strip():
+        return open_id.strip()
+    _log.warning("Feishu bot identity probe returned no bot open_id")
+    return None
 
 
 def run_gateway(
@@ -2780,6 +2766,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         im_connection_manager_factory=lambda: im_connection_manager,
         run_context_store=_run_context_store,
         owner_user_id=_owner_user_id,
+        channel_registry=channel_registry,
     )
     if config.im_service is not None:
         def _send_external_reply(text: str, metadata: Mapping[str, str]) -> None:
@@ -3283,10 +3270,6 @@ def _build_channel_registry(
         # feat-447: feishu channels are named "feishu:<agent_id>"
         if channel.name.startswith("feishu:"):
             settings = channel.settings
-            _warn_if_feishu_group_message_delivery_not_declared(
-                channel_name=channel.name,
-                settings=settings,
-            )
             registry.register(
                 FeishuAdapter(
                     name=channel.name,
@@ -3300,22 +3283,6 @@ def _build_channel_registry(
             continue
         raise ValueError(f"unsupported channel adapter: {channel.name}")
     return registry
-
-
-def _warn_if_feishu_group_message_delivery_not_declared(
-    *, channel_name: str, settings: Mapping[str, object]
-) -> None:
-    """Warn when M12 live group-context parity cannot be proven from config alone."""
-
-    if settings.get("receiveAllGroupMessages") is True:
-        return
-    _log.warning(
-        "Feishu channel %s does not declare receiveAllGroupMessages=true; "
-        "feat-447-M12 requires the Feishu app to deliver ordinary group messages, "
-        "not only @Bot events. If live validation misses non-mention background "
-        "messages, check Feishu/Lark app event subscriptions and permissions.",
-        channel_name,
-    )
 
 
 def _make_token_getter(
@@ -3550,8 +3517,14 @@ def _build_relay_lifecycle_callback(
     im_connection_manager_factory: Callable[[], IMConnectionManager | None],
     run_context_store: dict[str, dict[str, str]] | None = None,
     owner_user_id: str = "",
+    channel_registry: ChannelRegistry | None = None,
 ):
     async def _callback(message: InboundMessage, update: RelayLifecycleUpdate) -> None:
+        if update.phase == "accepted":
+            _ack_external_message_processing_started(
+                message,
+                channel_registry=channel_registry,
+            )
         # Seed/clean run_context_store for EVERY channel, not only web_relay.
         # kernel_event_observer needs this context to push streaming events to IM;
         # without it, non-relay channels (e.g. feishu) produce replies that never
@@ -3758,6 +3731,24 @@ def _build_relay_lifecycle_callback(
             await manager.send_json("node.delivery_receipt", payload)
 
     return _callback
+
+
+def _ack_external_message_processing_started(
+    message: InboundMessage, *, channel_registry: ChannelRegistry | None
+) -> None:
+    """Notify an external channel that the message has entered a real agent run."""
+    if channel_registry is None:
+        return
+    message_id = _metadata_text(message.metadata, key="feishu_message_id")
+    if message_id is None:
+        return
+    channel = channel_registry.get(message.channel_name)
+    if channel is None:
+        return
+    ack_message = getattr(channel, "ack_message", None)
+    if not callable(ack_message):
+        return
+    ack_message(message_id)
 
 
 def _extract_ack_message_id(ack: Mapping[str, Any] | Any) -> str | None:

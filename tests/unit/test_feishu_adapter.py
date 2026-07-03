@@ -120,6 +120,27 @@ class TestFeishuAdapterDM:
         )
 
     @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
+    def test_ack_message_is_idempotent(self, mock_fc_cls: MagicMock) -> None:
+        mock_fc = MagicMock()
+        mock_fc.add_reaction.return_value = "reaction_001"
+        mock_fc_cls.return_value = mock_fc
+        adapter = FeishuAdapter(
+            app_id="cli_a",
+            app_secret="s",
+            name="feishu:plato",
+            group_context_store=MagicMock(spec=GroupContextStore),
+        )
+        adapter.start(MagicMock())
+
+        adapter.ack_message("om_msg_001")
+        adapter.ack_message("om_msg_001")
+
+        mock_fc.add_reaction.assert_called_once_with(
+            message_id="om_msg_001",
+            emoji_type="THINKING",
+        )
+
+    @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
     def test_ack_reaction_failure_still_delivers_dm(
         self, mock_fc_cls: MagicMock
     ) -> None:
@@ -184,7 +205,7 @@ class TestFeishuAdapterGroupMention:
         )
 
     @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
-    def test_group_no_mention_delivers_sync_only_inbound(
+    def test_group_no_mention_delivers_policy_gated_inbound(
         self, mock_fc_cls: MagicMock
     ) -> None:
         store = MagicMock(spec=GroupContextStore)
@@ -215,7 +236,8 @@ class TestFeishuAdapterGroupMention:
         msg: InboundMessage = on_inbound.call_args[0][0]
         assert msg.is_group is True
         assert msg.external_chat_id == "feishu:cli_a:group:oc_grp1"
-        assert msg.metadata["sync_only"] is True
+        assert msg.metadata["mentioned_agent_ids"] == []
+        assert "sync_only" not in msg.metadata
         assert msg.metadata["external_source"] == "feishu"
         assert msg.metadata["external_chat_id"] == "feishu:cli_a:group:oc_grp1"
         assert msg.metadata["trigger_source"] == "feishu"
@@ -299,8 +321,8 @@ class TestFeishuAdapterGroupMention:
 
         on_inbound.assert_called_once()
         msg: InboundMessage = on_inbound.call_args[0][0]
-        assert msg.metadata["sync_only"] is True
-        assert "mentioned_agent_ids" not in msg.metadata
+        assert msg.metadata["mentioned_agent_ids"] == []
+        assert "sync_only" not in msg.metadata
         assert msg.text == "@所有人 hey everyone"
         store.append.assert_not_called()
 
@@ -329,7 +351,8 @@ class TestFeishuAdapterGroupMention:
 
         on_inbound.assert_called_once()
         msg: InboundMessage = on_inbound.call_args[0][0]
-        assert msg.metadata["sync_only"] is True
+        assert msg.metadata["mentioned_agent_ids"] == []
+        assert "sync_only" not in msg.metadata
         mock_fc_cls.return_value.add_reaction.assert_not_called()
 
 

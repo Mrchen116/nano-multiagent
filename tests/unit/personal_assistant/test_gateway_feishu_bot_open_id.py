@@ -1,9 +1,8 @@
-"""Tests for Gateway Feishu ownerOpenId startup inference."""
+"""Tests for Gateway Feishu botOpenId startup inference."""
 
 from __future__ import annotations
 
 from pathlib import Path
-import subprocess
 
 import pytest
 
@@ -19,7 +18,7 @@ from personal_assistant.config.local_store import (
     LocalConfig,
     NodeConfig,
 )
-from personal_assistant.main import _autofill_feishu_owner_open_id
+from personal_assistant.main import _autofill_feishu_bot_open_id
 
 
 def _local_config(tmp_path: Path, channels: tuple[ChannelConfig, ...]) -> LocalConfig:
@@ -49,7 +48,7 @@ def _local_config(tmp_path: Path, channels: tuple[ChannelConfig, ...]) -> LocalC
     )
 
 
-def test_autofill_feishu_owner_open_id_from_matching_lark_cli_auth(
+def test_autofill_feishu_bot_open_id_from_app_probe(
     tmp_path: Path,
 ) -> None:
     config = _local_config(
@@ -64,29 +63,18 @@ def test_autofill_feishu_owner_open_id_from_matching_lark_cli_auth(
     )
     saved: list[LocalConfig] = []
 
-    def _run(*_args, **_kwargs):  # noqa: ANN001
-        return subprocess.CompletedProcess(
-            args=["lark-cli"],
-            returncode=0,
-            stdout=(
-                '{"appId":"cli_a","identities":'
-                '{"user":{"openId":"ou_owner"},"bot":{"openId":"ou_bot"}}}'
-            ),
-            stderr="",
-        )
-
-    updated = _autofill_feishu_owner_open_id(
+    updated = _autofill_feishu_bot_open_id(
         config,
         save_config=lambda cfg, _path: saved.append(cfg),
-        command_runner=_run,
+        bot_identity_fetcher=lambda app_id, app_secret, domain: "ou_bot",
     )
 
-    assert updated.channels[0].settings["ownerOpenId"] == "ou_owner"
     assert updated.channels[0].settings["botOpenId"] == "ou_bot"
+    assert "ownerOpenId" not in updated.channels[0].settings
     assert saved == [updated]
 
 
-def test_autofill_feishu_bot_open_id_without_overwriting_owner(
+def test_autofill_feishu_bot_open_id_preserves_owner_open_id(
     tmp_path: Path,
 ) -> None:
     config = _local_config(
@@ -104,28 +92,17 @@ def test_autofill_feishu_bot_open_id_without_overwriting_owner(
         ),
     )
 
-    def _run(*_args, **_kwargs):  # noqa: ANN001
-        return subprocess.CompletedProcess(
-            args=["lark-cli"],
-            returncode=0,
-            stdout=(
-                '{"appId":"cli_a","identities":'
-                '{"user":{"openId":"ou_owner"},"bot":{"openId":"ou_bot"}}}'
-            ),
-            stderr="",
-        )
-
-    updated = _autofill_feishu_owner_open_id(
+    updated = _autofill_feishu_bot_open_id(
         config,
         save_config=lambda _cfg, _path: None,
-        command_runner=_run,
+        bot_identity_fetcher=lambda app_id, app_secret, domain: "ou_bot",
     )
 
     assert updated.channels[0].settings["ownerOpenId"] == "ou_existing_owner"
     assert updated.channels[0].settings["botOpenId"] == "ou_bot"
 
 
-def test_autofill_feishu_owner_open_id_without_source_path_keeps_memory_update(
+def test_autofill_feishu_bot_open_id_without_source_path_keeps_memory_update(
     tmp_path: Path,
 ) -> None:
     config = _local_config(
@@ -149,24 +126,48 @@ def test_autofill_feishu_owner_open_id_without_source_path_keeps_memory_update(
         source_path=None,  # type: ignore[arg-type]
     )
 
-    def _run(*_args, **_kwargs):  # noqa: ANN001
-        return subprocess.CompletedProcess(
-            args=["lark-cli"],
-            returncode=0,
-            stdout='{"appId":"cli_a","identities":{"user":{"openId":"ou_owner"}}}',
-            stderr="",
-        )
-
-    updated = _autofill_feishu_owner_open_id(
+    updated = _autofill_feishu_bot_open_id(
         config,
         save_config=lambda _cfg, _path: pytest.fail("source_path is unavailable"),
-        command_runner=_run,
+        bot_identity_fetcher=lambda app_id, app_secret, domain: "ou_bot",
     )
 
-    assert updated.channels[0].settings["ownerOpenId"] == "ou_owner"
+    assert updated.channels[0].settings["botOpenId"] == "ou_bot"
 
 
-def test_autofill_feishu_owner_open_id_ignores_app_id_mismatch(
+def test_autofill_feishu_bot_open_id_uses_configured_domain(
+    tmp_path: Path,
+) -> None:
+    config = _local_config(
+        tmp_path,
+        (
+            ChannelConfig(
+                name="feishu:plato",
+                enabled=True,
+                settings={
+                    "appId": "cli_a",
+                    "appSecret": "s_a",
+                    "domain": "https://open.larksuite.com",
+                },
+            ),
+        ),
+    )
+    seen: list[tuple[str, str, str]] = []
+
+    def _fetch(app_id: str, app_secret: str, domain: str) -> str:
+        seen.append((app_id, app_secret, domain))
+        return "ou_bot"
+
+    _autofill_feishu_bot_open_id(
+        config,
+        save_config=lambda _cfg, _path: None,
+        bot_identity_fetcher=_fetch,
+    )
+
+    assert seen == [("cli_a", "s_a", "https://open.larksuite.com")]
+
+
+def test_autofill_feishu_bot_open_id_degrades_when_probe_fails(
     tmp_path: Path,
 ) -> None:
     config = _local_config(
@@ -180,25 +181,16 @@ def test_autofill_feishu_owner_open_id_ignores_app_id_mismatch(
         ),
     )
 
-    def _run(*_args, **_kwargs):  # noqa: ANN001
-        return subprocess.CompletedProcess(
-            args=["lark-cli"],
-            returncode=0,
-            stdout='{"appId":"cli_other","identities":{"user":{"openId":"ou_owner"}}}',
-            stderr="",
-        )
-
-    updated = _autofill_feishu_owner_open_id(
+    updated = _autofill_feishu_bot_open_id(
         config,
-        save_config=lambda _cfg, _path: pytest.fail("must not persist mismatch"),
-        command_runner=_run,
+        save_config=lambda _cfg, _path: pytest.fail("must not persist on failure"),
+        bot_identity_fetcher=lambda app_id, app_secret, domain: None,
     )
 
-    assert "ownerOpenId" not in updated.channels[0].settings
     assert "botOpenId" not in updated.channels[0].settings
 
 
-def test_autofill_feishu_owner_open_id_degrades_when_lark_cli_missing(
+def test_autofill_feishu_bot_open_id_skips_existing_bot_open_id(
     tmp_path: Path,
 ) -> None:
     config = _local_config(
@@ -207,24 +199,28 @@ def test_autofill_feishu_owner_open_id_degrades_when_lark_cli_missing(
             ChannelConfig(
                 name="feishu:plato",
                 enabled=True,
-                settings={"appId": "cli_a", "appSecret": "s_a"},
+                settings={
+                    "appId": "cli_a",
+                    "appSecret": "s_a",
+                    "botOpenId": "ou_existing_bot",
+                },
             ),
         ),
     )
 
-    def _run(*_args, **_kwargs):  # noqa: ANN001
-        raise FileNotFoundError("lark-cli")
-
-    updated = _autofill_feishu_owner_open_id(
+    updated = _autofill_feishu_bot_open_id(
         config,
-        save_config=lambda _cfg, _path: pytest.fail("must not persist on failure"),
-        command_runner=_run,
+        save_config=lambda _cfg, _path: pytest.fail("must not persist existing"),
+        bot_identity_fetcher=lambda app_id, app_secret, domain: pytest.fail(
+            "probe must not run"
+        ),
     )
 
-    assert "ownerOpenId" not in updated.channels[0].settings
+    assert updated is config
+    assert updated.channels[0].settings["botOpenId"] == "ou_existing_bot"
 
 
-def test_autofill_feishu_owner_open_id_degrades_when_lark_cli_fails(
+def test_autofill_feishu_bot_open_id_skips_missing_app_secret(
     tmp_path: Path,
 ) -> None:
     config = _local_config(
@@ -233,54 +229,17 @@ def test_autofill_feishu_owner_open_id_degrades_when_lark_cli_fails(
             ChannelConfig(
                 name="feishu:plato",
                 enabled=True,
-                settings={"appId": "cli_a", "appSecret": "s_a"},
+                settings={"appId": "cli_a"},
             ),
         ),
     )
 
-    def _run(*_args, **_kwargs):  # noqa: ANN001
-        return subprocess.CompletedProcess(
-            args=["lark-cli"],
-            returncode=1,
-            stdout="",
-            stderr="not logged in",
-        )
-
-    updated = _autofill_feishu_owner_open_id(
+    updated = _autofill_feishu_bot_open_id(
         config,
-        save_config=lambda _cfg, _path: pytest.fail("must not persist on failure"),
-        command_runner=_run,
-    )
-
-    assert "ownerOpenId" not in updated.channels[0].settings
-
-
-def test_autofill_feishu_owner_open_id_degrades_when_identity_shape_is_invalid(
-    tmp_path: Path,
-) -> None:
-    config = _local_config(
-        tmp_path,
-        (
-            ChannelConfig(
-                name="feishu:plato",
-                enabled=True,
-                settings={"appId": "cli_a", "appSecret": "s_a"},
-            ),
+        save_config=lambda _cfg, _path: pytest.fail("must not persist"),
+        bot_identity_fetcher=lambda app_id, app_secret, domain: pytest.fail(
+            "probe must not run"
         ),
     )
 
-    def _run(*_args, **_kwargs):  # noqa: ANN001
-        return subprocess.CompletedProcess(
-            args=["lark-cli"],
-            returncode=0,
-            stdout='{"appId":"cli_a","identities":[]}',
-            stderr="",
-        )
-
-    updated = _autofill_feishu_owner_open_id(
-        config,
-        save_config=lambda _cfg, _path: pytest.fail("must not persist invalid shape"),
-        command_runner=_run,
-    )
-
-    assert "ownerOpenId" not in updated.channels[0].settings
+    assert "botOpenId" not in updated.channels[0].settings

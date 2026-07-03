@@ -54,6 +54,25 @@ _DEFAULT_TEST_LLM = LLMConfigPayload(
 )
 
 
+class _AckChannel:
+    name = "feishu:agent-a"
+
+    def __init__(self) -> None:
+        self.acked: list[str] = []
+
+    def start(self, on_inbound) -> None:
+        pass
+
+    def send(self, outbound) -> None:
+        pass
+
+    def stop(self) -> None:
+        pass
+
+    def ack_message(self, message_id: str) -> None:
+        self.acked.append(message_id)
+
+
 def test_relay_lifecycle_callback_sends_receipts_and_reports_with_real_usage_to_im() -> (
     None
 ):
@@ -119,6 +138,34 @@ def test_relay_lifecycle_callback_sends_receipts_and_reports_with_real_usage_to_
         "total_tokens": 18,
     }
     assert manager.sent_frames[3][1]["detail"] == "hello from agent"
+
+
+def test_relay_lifecycle_accepted_acks_feishu_message_processing_started() -> None:
+    channel = _AckChannel()
+    registry = ChannelRegistry((channel,))
+    callback = _build_relay_lifecycle_callback(
+        reporter=None,
+        im_connection_manager_factory=lambda: None,
+        channel_registry=registry,
+    )
+    message = type("_Message", (), {})()
+    message.channel_name = "feishu:agent-a"
+    message.external_chat_id = "feishu:cli_a:group:oc_1"
+    message.metadata = {"feishu_message_id": "om_msg_1"}
+
+    asyncio.run(
+        callback(
+            message,
+            RelayLifecycleUpdate(
+                phase="accepted",
+                agent_id="agent-a",
+                session_key="feishu:group:agent-a",
+                run_id="run-1",
+            ),
+        )
+    )
+
+    assert channel.acked == ["om_msg_1"]
 
 
 def test_relay_lifecycle_callback_seeds_external_shadow_run_context() -> None:

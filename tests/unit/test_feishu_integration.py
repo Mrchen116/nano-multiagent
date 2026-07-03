@@ -265,58 +265,12 @@ class TestBuildChannelRegistryFeishuRealAdapter:
         mock_fa_cls.assert_called_once()
         assert mock_fa_cls.call_args.kwargs["owner_open_id"] is None
 
-    @patch("personal_assistant.main.FeishuAdapter")
-    def test_build_channel_registry_warns_without_group_message_delivery_flag(
-        self, mock_fa_cls: MagicMock, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """Missing ordinary group-message delivery declaration must be diagnosable."""
-        channels = (
-            ChannelConfig(
-                name="feishu:plato",
-                enabled=True,
-                settings=_feishu_settings(botOpenId="ou_bot_123"),
-            ),
-        )
-
-        with TemporaryDirectory() as tmpdir, caplog.at_level(
-            logging.WARNING, logger="personal_assistant.main"
-        ):
-            group_ctx = GroupContextStore(db_path=Path(tmpdir) / "group.sqlite3")
-            _build_channel_registry(channels, group_context_store=group_ctx)
-
-        assert "receiveAllGroupMessages" in caplog.text
-        assert "ordinary group messages" in caplog.text
-        assert "feat-447-M12" in caplog.text
-
-    @patch("personal_assistant.main.FeishuAdapter")
-    def test_build_channel_registry_does_not_warn_when_group_message_delivery_declared(
-        self, mock_fa_cls: MagicMock, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        channels = (
-            ChannelConfig(
-                name="feishu:plato",
-                enabled=True,
-                settings=_feishu_settings(
-                    botOpenId="ou_bot_123",
-                    receiveAllGroupMessages=True,
-                ),
-            ),
-        )
-
-        with TemporaryDirectory() as tmpdir, caplog.at_level(
-            logging.WARNING, logger="personal_assistant.main"
-        ):
-            group_ctx = GroupContextStore(db_path=Path(tmpdir) / "group.sqlite3")
-            _build_channel_registry(channels, group_context_store=group_ctx)
-
-        assert "receiveAllGroupMessages" not in caplog.text
-
 
 class TestFeishuBufferKeyConsistency:
     """Group buffer key alignment between FeishuAdapter and InboundPipeline."""
 
     @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
-    def test_sync_only_inbound_metadata_matches_pipeline_external_buffer_key(
+    def test_no_mention_inbound_metadata_matches_pipeline_external_buffer_key(
         self, mock_fc_cls: MagicMock
     ) -> None:
         """FeishuAdapter emits external identity metadata consumed by Pipeline buffer keys."""
@@ -348,7 +302,8 @@ class TestFeishuBufferKeyConsistency:
 
         store.append.assert_not_called()
         inbound = on_inbound.call_args[0][0]
-        assert inbound.metadata["sync_only"] is True
+        assert inbound.metadata["mentioned_agent_ids"] == []
+        assert "sync_only" not in inbound.metadata
         assert InboundPipeline._group_buf_key_for_agent(inbound, "plato") == (
             "feishu:feishu:cli_a:group:oc_grp1:plato"
         )

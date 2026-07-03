@@ -82,12 +82,20 @@ class _FakeKernelClient:
 
 
 def _build_pipeline(
-    tmp_path: Path, *, with_store: bool = True
+    tmp_path: Path,
+    *,
+    with_store: bool = True,
+    group_reply_policy: str | None = None,
 ) -> tuple[InboundPipeline, GroupContextStore | None, _FakeKernelClient]:
     dir_a = tmp_path / "agent-a"
     dir_a.mkdir()
     agents = (
-        AgentWorkspaceConfig(agent_id="agent-a", workspace_root=dir_a, title="Agent A"),
+        AgentWorkspaceConfig(
+            agent_id="agent-a",
+            workspace_root=dir_a,
+            title="Agent A",
+            group_reply_policy=group_reply_policy,
+        ),
     )
     store = GroupContextStore(db_path=tmp_path / "ctx.sqlite3") if with_store else None
     kernel = _FakeKernel()
@@ -352,6 +360,37 @@ def test_sync_only_group_message_buffers_without_creating_run(tmp_path: Path) ->
     assert store.drain("feishu:feishu:cli_a:group:oc_grp1:agent-a") == [
         ("Alice", "background from feishu")
     ]
+
+
+def test_feishu_no_mention_group_message_honors_always_policy(
+    tmp_path: Path,
+) -> None:
+    """Feishu 当前群消息无 @ 时，交给 group_reply_policy=ALWAYS 决定触发。"""
+    pipeline, store, kernel = _build_pipeline(tmp_path, group_reply_policy="ALWAYS")
+
+    plain = InboundMessage(
+        channel_name="feishu:agent-a",
+        text="hello from feishu",
+        external_user_id="ou_alice",
+        external_chat_id="feishu:cli_a:group:oc_grp1",
+        is_group=True,
+        agent_id="agent-a",
+        metadata={
+            "mentioned_agent_ids": [],
+            "sender_display_name": "Alice",
+            "external_source": "feishu",
+            "external_chat_id": "feishu:cli_a:group:oc_grp1",
+            "trigger_source": "feishu",
+        },
+    )
+
+    result = asyncio.run(pipeline.handle_inbound(plain))
+
+    assert result is not None
+    assert kernel.create_session_calls
+    assert kernel.send_calls[0]["texts"] == ["[Alice] hello from feishu"]
+    assert store is not None
+    assert store.drain("feishu:feishu:cli_a:group:oc_grp1:agent-a") == []
 
 
 def test_external_group_buffer_key_is_shared_across_feishu_and_shadow_im(

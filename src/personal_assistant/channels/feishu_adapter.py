@@ -1,10 +1,10 @@
 """Feishu channel adapter for the Node Gateway.
 
 Implements the ``ChannelAdapter`` protocol, bridging feishu message events
-(1:1 DM and group @Bot) into the gateway inbound pipeline.  Uses
-``FeishuClient`` for SDK connectivity. Non-mention group messages are delivered
-as ``sync_only`` inbound messages so the gateway pipeline owns buffering and IM
-shadow sync.
+(1:1 DM and group chat) into the gateway inbound pipeline.  Uses
+``FeishuClient`` for SDK connectivity. Current group messages are delivered with
+structured mention metadata so the gateway pipeline owns reply-policy gating,
+buffering, and IM shadow sync.
 """
 
 from __future__ import annotations
@@ -29,6 +29,7 @@ from personal_assistant.gateway.group_context_store import GroupContextStore
 logger = logging.getLogger(__name__)
 
 _ACK_REACTION_EMOJI_TYPE = "THINKING"
+_GROUP_MESSAGE_SCOPE = "im:message.group_msg"
 
 
 class FeishuAdapter:
@@ -41,8 +42,8 @@ class FeishuAdapter:
         app_id: Feishu application ID.
         app_secret: Feishu application secret.
         bot_open_id: Feishu open_id of this bot, used for @mention detection.
-            When ``None``, group messages without explicit mentions will all be
-            buffered (safe default).
+            When ``None``, group messages carry empty mention metadata and the
+            gateway group reply policy remains the final execution gate.
         owner_open_id: Feishu open_id of the IM owner. Messages from this user
             are displayed as "你" in the IM shadow conversation.
         group_context_store: Shared buffer retained for constructor compatibility;
@@ -88,6 +89,7 @@ class FeishuAdapter:
             domain=self._domain,
         )
         self._client.start(self._handle_message)
+        self._warn_if_group_message_scope_missing()
         logger.info("feishu adapter %s started", self.name)
 
     def send(self, outbound: OutboundMessage) -> None:
@@ -157,8 +159,8 @@ class FeishuAdapter:
 
         Decision tree:
         - 1:1 DM → always deliver
-        - Group + @Bot → deliver
-        - Group + no @Bot (or @所有人) → deliver sync_only for pipeline-owned buffer
+        - Group + @Bot → deliver with mentioned_agent_ids
+        - Group + no @Bot (or @所有人) → deliver with empty mentioned_agent_ids
         """
         if self._on_inbound is None:
             return
@@ -173,11 +175,10 @@ class FeishuAdapter:
         self._deliver_group_history_before(event)
         if self._is_self_sender(event):
             return
-        if _is_bot_mentioned(event.mentions, self._bot_open_id):
+        bot_mentioned = _is_bot_mentioned(event.mentions, self._bot_open_id)
+        if bot_mentioned:
             self._ack_received(event)
-            self._deliver_group(event, sync_only=False)
-        else:
-            self._deliver_group(event, sync_only=True)
+        self._deliver_group(event, sync_only=False, bot_mentioned=bot_mentioned)
         self._remember_group_message(event)
 
     def _deliver_group_history_before(self, event: FeishuMessageEvent) -> None:
@@ -234,24 +235,30 @@ class FeishuAdapter:
 
     def _ack_received(self, event: FeishuMessageEvent) -> None:
         """React to a message that is about to enter the agent pipeline."""
-        if self._client is None or not event.message_id:
+        self.ack_message(event.message_id)
+
+    def ack_message(self, message_id: str | None) -> None:
+        """React to a Feishu message when Gateway has accepted it for processing."""
+        if self._client is None or not message_id:
             return
+        with self._ack_reactions_lock:
+            if message_id in self._ack_reactions:
+                return
         try:
             reaction_id = self._client.add_reaction(
-                message_id=event.message_id,
+                message_id=message_id,
                 emoji_type=_ACK_REACTION_EMOJI_TYPE,
             )
             if reaction_id:
                 with self._ack_reactions_lock:
-                    self._ack_reactions[event.message_id] = reaction_id
+                    self._ack_reactions[message_id] = reaction_id
         except (FeishuAuthError, FeishuAPIError, RuntimeError):
             logger.warning(
                 "failed to add feishu ack reaction",
                 exc_info=True,
                 extra={
                     "error_code": "feishu_ack_reaction_failed",
-                    "message_id": event.message_id,
-                    "chat_id": event.chat_id,
+                    "message_id": message_id,
                     "agent_id": self._agent_id,
                     "adapter": self.name,
                 },
@@ -317,6 +324,7 @@ class FeishuAdapter:
         event: FeishuMessageEvent,
         *,
         sync_only: bool,
+        bot_mentioned: bool = False,
         source: str = "event",
     ) -> None:
         """Deliver a group message and let InboundPipeline own buffering/drain."""
@@ -337,7 +345,7 @@ class FeishuAdapter:
         if sync_only:
             metadata["sync_only"] = True
         else:
-            metadata["mentioned_agent_ids"] = [self._agent_id]
+            metadata["mentioned_agent_ids"] = [self._agent_id] if bot_mentioned else []
 
         inbound = InboundMessage(
             channel_name=self.name,
@@ -398,6 +406,44 @@ class FeishuAdapter:
                 },
             )
             return None
+
+    def _warn_if_group_message_scope_missing(self) -> None:
+        """Warn when Feishu ordinary group messages are likely unavailable."""
+        if self._client is None:
+            return
+        try:
+            has_scope = self._client.has_scope(_GROUP_MESSAGE_SCOPE)
+        except (FeishuAuthError, FeishuAPIError, RuntimeError):
+            logger.warning(
+                "failed to verify feishu app scope %s; ordinary group messages "
+                "may not be delivered unless the app has this scope and the "
+                "matching event subscription is enabled",
+                _GROUP_MESSAGE_SCOPE,
+                exc_info=True,
+                extra={
+                    "error_code": "feishu_group_message_scope_check_failed",
+                    "agent_id": self._agent_id,
+                    "adapter": self.name,
+                },
+            )
+            return
+        if has_scope is False:
+            logger.warning(
+                "Feishu app for adapter %s does not appear to have scope %s; "
+                "ordinary group messages will not reach the agent/IM unless "
+                "the Feishu/Lark app enables this permission and subscribes to "
+                "group message events.",
+                self.name,
+                _GROUP_MESSAGE_SCOPE,
+            )
+        elif has_scope is None:
+            logger.warning(
+                "could not verify Feishu app scope %s for adapter %s; if ordinary "
+                "group messages are missing, check Feishu/Lark app permissions "
+                "and event subscriptions",
+                _GROUP_MESSAGE_SCOPE,
+                self.name,
+            )
 
 
 def _is_bot_mentioned(mentions: list[FeishuMention], bot_open_id: str | None) -> bool:

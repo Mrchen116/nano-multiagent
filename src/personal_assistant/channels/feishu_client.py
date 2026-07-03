@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 import lark_oapi as lark
+from lark_oapi.api.application.v6 import ListScopeRequest
 from lark_oapi.api.im.v1 import (
     CreateMessageReactionRequest,
     CreateMessageReactionRequestBody,
@@ -182,6 +183,30 @@ class FeishuClient:
         self._ws_client = None
         self._rest_client = None
         logger.info("feishu ws client stopped for app %s", self._app_id[:8])
+
+    def has_scope(self, scope_name: str) -> bool | None:
+        """Return whether the app has a granted Feishu/Lark scope.
+
+        Returns:
+            ``True`` when present, ``False`` when the scope list is readable but
+            absent, and ``None`` when the check cannot be completed.
+        """
+        if self._rest_client is None:
+            raise RuntimeError("feishu client is not started")
+
+        response = self._rest_client.application.v6.scope.list(
+            ListScopeRequest.builder().build()
+        )
+        if not response.success():
+            logger.warning(
+                "failed to list feishu app scopes: code=%s, msg=%s",
+                response.code,
+                response.msg,
+            )
+            return None
+
+        scopes = _extract_scope_names(getattr(response, "data", None))
+        return scope_name in scopes
 
     def send_message(
         self,
@@ -680,3 +705,21 @@ def _extract_mentions(message: Any) -> list[FeishuMention]:
         if open_id:
             result.append(FeishuMention(open_id=open_id, name=name, key=key))
     return result
+
+
+def _extract_scope_names(data: Any) -> set[str]:
+    """Extract scope names from Feishu SDK response bodies."""
+    raw_scopes = _read_value(data, "scopes") or _read_value(data, "items") or []
+    names: set[str] = set()
+    for item in raw_scopes:
+        for key in ("scope_name", "scopeName", "name"):
+            value = _read_value(item, key)
+            if isinstance(value, str) and value.strip():
+                names.add(value.strip())
+    return names
+
+
+def _read_value(obj: Any, key: str) -> Any:
+    if isinstance(obj, dict):
+        return obj.get(key)
+    return getattr(obj, key, None)

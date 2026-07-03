@@ -970,11 +970,6 @@ def _validate_feishu_settings(settings: dict[str, Any], *, prefix: str) -> None:
     bot_open_id = settings.get("botOpenId")
     if bot_open_id is not None and not isinstance(bot_open_id, str):
         raise ValueError(f"{prefix}.botOpenId must be a string")
-    receive_all_group_messages = settings.get("receiveAllGroupMessages")
-    if receive_all_group_messages is not None and not isinstance(
-        receive_all_group_messages, bool
-    ):
-        raise ValueError(f"{prefix}.receiveAllGroupMessages must be a bool")
 
 
 def _parse_kernel(payload: Any) -> KernelConfig:
