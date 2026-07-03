@@ -130,13 +130,13 @@ def test_resilience_script_prepare_only_works_without_yq(
     assert (Path(workspace_dir) / "default-agent").is_dir()
 
 
-def test_resilience_script_yq_path_sets_each_agent_workspace_independently(
+def test_e2e_up_script_yq_path_sets_each_agent_workspace_independently(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The yq config path must derive workspace_root from each agent's own id."""
+    """The yq config path must derive each workspace_root from its own agent id."""
 
     repo_root = Path(__file__).resolve().parents[3]
-    script = repo_root / "scripts" / "e2e-resilience.sh"
+    script = repo_root / "scripts" / "e2e-up.sh"
     yq_path = which("yq")
     if yq_path is None:
         script_text = script.read_text()
@@ -158,7 +158,9 @@ def test_resilience_script_yq_path_sets_each_agent_workspace_independently(
                 "    workspace_root: /old/alpha",
                 "  - agent_id: beta",
                 "    workspace_root: /old/beta",
-                "channels: []",
+                "channels:",
+                "  - name: web_relay",
+                "    enabled: true",
                 "im_service:",
                 "  url: http://old-im",
                 "  username: nano",
@@ -176,33 +178,43 @@ def test_resilience_script_yq_path_sets_each_agent_workspace_independently(
     )
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
+    (bin_dir / "python").symlink_to(sys.executable)
     (bin_dir / "python3").symlink_to(sys.executable)
     (bin_dir / "yq").symlink_to(yq_path)
     monkeypatch.setenv("PATH", f"{bin_dir}:/usr/bin:/bin")
 
-    result = subprocess.run(
-        [
-            "/bin/bash",
-            str(script),
-            "--prepare-only",
-            "--wt",
-            str(tmp_path),
-            "--main-config",
-            str(main_config),
-        ],
-        cwd=repo_root,
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=20,
-    )
+    try:
+        result = subprocess.run(
+            [
+                "/bin/bash",
+                str(script),
+                "--wt",
+                str(tmp_path),
+                "--main-config",
+                str(main_config),
+            ],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
 
-    assert result.returncode == 0, result.stderr
-    mutated = yaml.safe_load((tmp_path / ".gateway-config.yaml").read_text())
-    workspace_dir = Path(tmp_path / ".gateway-workspace")
-    assert [agent["workspace_root"] for agent in mutated["agents"]] == [
-        str(workspace_dir / "alpha"),
-        str(workspace_dir / "beta"),
-    ]
-    assert (workspace_dir / "alpha").is_dir()
-    assert (workspace_dir / "beta").is_dir()
+        assert result.returncode == 0, result.stderr
+        mutated = yaml.safe_load((tmp_path / ".gateway-config.yaml").read_text())
+        workspace_dir = Path(tmp_path / ".gateway-workspace")
+        assert [agent["workspace_root"] for agent in mutated["agents"]] == [
+            str(workspace_dir / "alpha"),
+            str(workspace_dir / "beta"),
+        ]
+        assert (workspace_dir / "alpha").is_dir()
+        assert (workspace_dir / "beta").is_dir()
+    finally:
+        subprocess.run(
+            ["/bin/bash", str(repo_root / "scripts" / "e2e-down.sh"), "--wt", str(tmp_path)],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=20,
+        )
