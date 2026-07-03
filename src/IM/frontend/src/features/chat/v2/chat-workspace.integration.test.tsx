@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import "../../../i18n";
 import { useAuthStore } from "../../auth/auth-store";
 import { ChatWorkspacePageV2 } from "./chat-workspace-page";
+import type { Conversation } from "./chat-types";
 import type { ParsedImStreamEvent } from "../../chat/im-chat-api";
 
 // ─── Mock attachUserConversationStream ──────────────────────────────────────
@@ -125,7 +126,7 @@ const FIXTURES = {
       source_agent_id: null,
       source_jsonl_path: null
     }
-  ],
+  ] satisfies Conversation[],
   messagesC1: [
     {
       id: "m1",
@@ -148,7 +149,7 @@ function jsonResponse(data: unknown, init: ResponseInit = {}): Response {
 function mockFetch(opts: { distillerVisible?: boolean } = {}): ReturnType<typeof vi.fn> {
   const distillerVisible = opts.distillerVisible ?? true;
   const sent: { url: string; init?: RequestInit }[] = [];
-  const conversations = [...FIXTURES.conversations];
+  const conversations: Conversation[] = [...FIXTURES.conversations];
   const fn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
     sent.push({ url, init });
@@ -159,7 +160,7 @@ function mockFetch(opts: { distillerVisible?: boolean } = {}): ReturnType<typeof
       const body = JSON.parse(String(init.body));
       const agent = (body.participants ?? []).find((p: { type?: string }) => p.type === "agent");
       const agentId = agent?.id ?? "a-planner";
-      const created = {
+      const created: Conversation = {
         id: `c-distill-${conversations.length}`,
         title: body.title,
         participants: [
