@@ -75,14 +75,16 @@ UI 状态矩阵：
 
 ### R1 — usage API and gateway RPC
 
-- 状态: TODO
+- 状态: DONE
 - 步骤:
   - 增加 IM route response model 与 `/im/v1/agents/{agent_id}/skills/usage`。
   - 扩展 `GatewayHandler` request/waiter/response handling。
   - 扩展 PA `IMConnectionManager` 下行 request handler，读取 `<workspace>/.nanoassistant/skills/.usage.json` 并聚合 30 天趋势。
   - 增加后端 unit/integration tests，证明返回真实 `.usage.json`。
 - 验证:
-  - `PYTHONPATH=src pytest tests/im_service/unit/test_gateway_handler.py tests/unit/personal_assistant/test_gateway_im_connection_behavior.py tests/im_service/integration/test_agent_config_api.py -x`
+  - `PYTHONPATH=src pytest -q tests/im_service/unit/test_gateway_handler.py::test_request_node_skills_usage_returns_none_when_node_offline tests/im_service/unit/test_gateway_handler.py::test_handle_skills_usage_resolves_waiter_with_usage_payload tests/unit/personal_assistant/test_gateway_im_connection_behavior.py::test_im_connection_handles_skills_usage_request tests/im_service/integration/test_agent_config_api.py::test_get_skills_usage_calls_rpc_not_direct_file_read tests/im_service/integration/test_agent_config_api.py::test_get_skills_usage_reports_offline_when_rpc_times_out` -> 5 passed.
+  - `PYTHONPATH=src pytest tests/im_service/unit/test_gateway_handler.py tests/unit/personal_assistant/test_gateway_im_connection_behavior.py tests/im_service/integration/test_agent_config_api.py -q` -> 81 passed.
+  - `python -m compileall -q src/IM/ws/gateway_handler.py src/personal_assistant/ws/im_connection.py src/IM/api/routes/agents.py` -> passed.
 
 ### R2 — Agent detail Skills dashboard
 
