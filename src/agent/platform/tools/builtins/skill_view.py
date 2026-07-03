@@ -150,6 +150,7 @@ class SkillViewTool:
                 tool_call_id=getattr(ctx, "tool_call_id", None),
                 source=source_from_metadata(metadata),
                 location=skill.location,
+                transcript_path=metadata.get("transcript_path"),
             )
             if usage_result.trigger is not None and self._enqueue_skill_batch_review(
                 ctx, usage_result.trigger

@@ -25,6 +25,13 @@ from personal_assistant.reporter.upstream_reporter import UpstreamReporter
 _log = logging.getLogger("personal_assistant.ws.im_connection")
 
 
+_PA_SHARED_SKILL_ROOTS: tuple[Path, ...] = (
+    Path("~/.nanoassistant/skills"),
+    Path("~/.claude/skills"),
+    Path("~/.codex/skills"),
+)
+
+
 @dataclass(slots=True)
 class PendingFrame:
     """Track one queued upstream frame plus its optional ack waiter."""
@@ -948,18 +955,34 @@ class IMConnectionManager:
 def _build_skills_usage_payload(
     *, agent_id: str, node_id: str, workspace_root: str
 ) -> dict[str, object]:
-    """Read gateway-local .usage.json and return dashboard-ready usage stats."""
+    """Read agent-local and shared .usage.json files for dashboard-ready stats."""
     empty = _empty_skills_usage_payload(agent_id=agent_id, node_id=node_id)
     if not workspace_root:
         return empty
-    usage_path = Path(workspace_root) / _PA_WORKSPACE_CFG_DIR / "skills" / ".usage.json"
-    if not usage_path.exists():
+    workspace_path = Path(workspace_root).expanduser()
+    workspace_session_ids = _workspace_session_ids(workspace_path)
+    records: list[tuple[str, Mapping[str, object]]] = []
+    for usage_path, shared in _iter_usage_paths(workspace_path):
+        if not usage_path.exists():
+            continue
+        try:
+            raw = json.loads(usage_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        for skill_id, item in _iter_skill_usage_records(raw):
+            filtered = (
+                _filter_shared_usage_for_workspace(
+                    item,
+                    workspace_session_ids=workspace_session_ids,
+                )
+                if shared
+                else item
+            )
+            if filtered is None:
+                continue
+            records.append((skill_id, filtered))
+    if not records:
         return empty
-    try:
-        raw = json.loads(usage_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return empty
-    records = _iter_skill_usage_records(raw)
     today = datetime.now(timezone.utc).date()
     skills: list[dict[str, object]] = []
     heatmap_data = [0] * 30
@@ -1016,6 +1039,57 @@ def _build_skills_usage_payload(
         "heatmap_data": heatmap_data,
         "health": health,
     }
+
+
+def _iter_usage_paths(workspace_root: Path) -> list[tuple[Path, bool]]:
+    paths: list[tuple[Path, bool]] = []
+    seen: set[Path] = set()
+    local = workspace_root / _PA_WORKSPACE_CFG_DIR / "skills" / ".usage.json"
+    paths.append((local, False))
+    seen.add(local.expanduser().resolve())
+    for root in _PA_SHARED_SKILL_ROOTS:
+        shared = root.expanduser() / ".usage.json"
+        try:
+            key = shared.resolve()
+        except OSError:
+            key = shared
+        if key in seen:
+            continue
+        seen.add(key)
+        paths.append((shared, True))
+    return paths
+
+
+def _workspace_session_ids(workspace_root: Path) -> frozenset[str]:
+    sessions_dir = workspace_root / _PA_WORKSPACE_CFG_DIR / "sessions"
+    if not sessions_dir.is_dir():
+        return frozenset()
+    return frozenset(path.stem for path in sessions_dir.rglob("*.jsonl"))
+
+
+def _filter_shared_usage_for_workspace(
+    item: Mapping[str, object], *, workspace_session_ids: frozenset[str]
+) -> Mapping[str, object] | None:
+    if not workspace_session_ids:
+        return None
+    session_refs = [
+        ref
+        for ref in _normalize_session_refs(item.get("session_refs"))
+        if ref.get("session_id") in workspace_session_ids
+    ]
+    if not session_refs:
+        return None
+    filtered = dict(item)
+    filtered["session_refs"] = session_refs
+    filtered["use_count"] = len(session_refs)
+    timestamps = [
+        ref["timestamp"]
+        for ref in session_refs
+        if isinstance(ref.get("timestamp"), str) and ref.get("timestamp")
+    ]
+    if timestamps:
+        filtered["last_used_at"] = max(timestamps)
+    return filtered
 
 
 def _empty_skills_usage_payload(*, agent_id: str, node_id: str) -> dict[str, object]:

@@ -28,6 +28,7 @@ class F4Trigger:
     skill_root: Path
     session_refs: tuple[dict[str, Any], ...]
     call_key: str
+    skill_location: Path | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,6 +89,7 @@ def bump_skill_usage(
     tool_call_id: str | None,
     source: str,
     location: Path | str | None = None,
+    transcript_path: Path | str | None = None,
     now_iso: str | None = None,
     threshold: int = _DEFAULT_F4_THRESHOLD,
 ) -> UsageBumpResult:
@@ -123,6 +125,8 @@ def bump_skill_usage(
     }
     if location is not None:
         ref["location"] = str(Path(location).expanduser().resolve())
+    if transcript_path is not None:
+        ref["transcript_path"] = str(Path(transcript_path).expanduser().resolve())
     refs.append(ref)
     record["session_refs"] = refs[-_MAX_SESSION_REFS:]
     recent_keys.append(call_key)
@@ -137,6 +141,7 @@ def bump_skill_usage(
         skill_root=root,
         call_key=call_key,
         threshold=threshold,
+        location=location,
     )
     _save_usage(root, data)
     return UsageBumpResult(
@@ -220,6 +225,7 @@ def _maybe_build_f4_trigger(
     skill_root: Path,
     call_key: str,
     threshold: int,
+    location: Path | str | None = None,
 ) -> F4Trigger | None:
     if threshold <= 0:
         return None
@@ -232,6 +238,9 @@ def _maybe_build_f4_trigger(
         skill_root=skill_root,
         session_refs=tuple(_list_of_mappings(record.get("session_refs"))),
         call_key=call_key,
+        skill_location=Path(location).expanduser().resolve()
+        if location is not None
+        else None,
     )
 
 

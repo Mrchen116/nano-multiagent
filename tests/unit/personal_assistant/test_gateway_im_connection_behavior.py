@@ -13,6 +13,7 @@ from personal_assistant.channels.web_relay_adapter import WebRelayAdapter
 from personal_assistant.config.local_store import NodeConfig
 from personal_assistant.config.sync_client import ConfigSyncClient
 from personal_assistant.reporter.upstream_reporter import UpstreamReporter
+import personal_assistant.ws.im_connection as im_connection_module
 from personal_assistant.ws.im_connection import IMConnectionConfig, IMConnectionManager
 
 from ._im_connection_helpers import (
@@ -1144,6 +1145,95 @@ def test_im_connection_handles_skills_usage_request(tmp_path: Path) -> None:
         "active_auto_total": 2,
         "used_auto_total": 3,
     }
+
+
+def test_im_connection_skills_usage_includes_shared_root_for_agent_sessions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Shared-root skill_view usage is shown only for sessions owned by this agent."""
+    workspace = tmp_path / "agent-ws"
+    session_dir = workspace / ".nanoassistant" / "sessions"
+    session_dir.mkdir(parents=True)
+    (session_dir / "sess-agent.jsonl").write_text("{}", encoding="utf-8")
+    shared_root = tmp_path / "shared-skills"
+    shared_root.mkdir()
+    monkeypatch.setattr(
+        im_connection_module,
+        "_PA_SHARED_SKILL_ROOTS",
+        (shared_root,),
+    )
+    (shared_root / ".usage.json").write_text(
+        json.dumps(
+            {
+                "change-spec-author": {
+                    "source": "F1",
+                    "state": "active",
+                    "use_count": 2,
+                    "last_used_at": "2026-07-02T10:00:00Z",
+                    "created_at": "2026-06-01T00:00:00Z",
+                    "session_refs": [
+                        {
+                            "session_id": "sess-agent",
+                            "tool_call_id": "tc-agent",
+                            "timestamp": "2026-07-02T10:00:00Z",
+                        },
+                        {
+                            "session_id": "sess-other",
+                            "tool_call_id": "tc-other",
+                            "timestamp": "2026-07-03T10:00:00Z",
+                        },
+                    ],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    socket = _FakeWebSocket(
+        incoming=[
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "node.skills.usage.request",
+                    "payload": {
+                        "request_id": "req-su-shared",
+                        "agent_id": "agent-x",
+                        "workspace_root": str(workspace),
+                    },
+                }
+            ),
+        ]
+    )
+    relay_adapter = WebRelayAdapter()
+    relay_adapter.start(lambda _: None)
+    manager = IMConnectionManager(
+        config=IMConnectionConfig(url="ws://localhost:9999/ws", token="t"),
+        reporter=_minimal_reporter(tmp_path),
+        relay_adapter=relay_adapter,
+        connect=lambda url, headers: _connect_fake(socket, [], url, headers),
+    )
+
+    async def _exercise() -> None:
+        await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001
+        await manager._listen_once()  # noqa: SLF001
+
+    asyncio.run(_exercise())
+
+    sent_frames = [json.loads(f) for f in socket.sent]
+    usage = next(m for m in sent_frames if m.get("type") == "node.skills.usage")[
+        "payload"
+    ]["usage"]
+
+    assert [item["name"] for item in usage["skills"]] == ["change-spec-author"]
+    assert usage["skills"][0]["use_count"] == 1
+    assert usage["skills"][0]["session_refs"] == [
+        {
+            "session_id": "sess-agent",
+            "tool_call_id": "tc-agent",
+            "timestamp": "2026-07-02T10:00:00Z",
+        }
+    ]
 
 
 def test_im_connection_handles_cron_delete_request_job_found(tmp_path: Path) -> None:

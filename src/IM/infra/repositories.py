@@ -819,7 +819,7 @@ class ConversationRepository:
         )
         if not sessions_dir.is_dir():
             return None
-        for path in sorted(sessions_dir.glob("*.jsonl")):
+        for path in sorted(sessions_dir.rglob("*.jsonl")):
             if self._session_jsonl_matches_conversation(
                 path=path,
                 conversation_id=conversation_id,

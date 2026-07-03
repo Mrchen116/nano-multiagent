@@ -166,6 +166,7 @@ def _build_review_prompt(
         "You are running an unattended F4 skill batch review.\n"
         f"Target skill: {trigger.skill_name}\n"
         f"Skill root: {trigger.skill_root.expanduser().resolve()}\n\n"
+        f"Target SKILL.md: {_target_skill_location(trigger)}\n\n"
         "Use at least two session transcripts as evidence before changing anything.\n"
         "Only patch the existing target skill. Do not create, rename, archive, delete, "
         "or modify any other skill.\n"
@@ -176,3 +177,9 @@ def _build_review_prompt(
         "Evidence transcripts:\n"
         + "\n\n".join(blocks)
     )
+
+
+def _target_skill_location(trigger: F4Trigger) -> Path:
+    if trigger.skill_location is not None:
+        return trigger.skill_location.expanduser().resolve()
+    return trigger.skill_root.expanduser().resolve() / trigger.skill_name / "SKILL.md"

@@ -3,9 +3,18 @@ from pathlib import Path
 
 import pytest
 
+from agent.core.agent.runtime import AgentRuntime
+from agent.core.llm.interfaces import LLMGenerateRequest
+from agent.core.session.jsonl_store import JsonlSessionStore
+from agent.core.session.manager import SessionManager
 from agent.core.skills.curator import mark_reviewed_session_ids
 from agent.core.skills.usage import F4Trigger
 from agent.platform.background.skill_batch_review import run_skill_batch_review
+
+
+class _UnusedLLMClient:
+    async def generate(self, request: LLMGenerateRequest):
+        raise AssertionError("LLM should not be called")
 
 
 def test_batch_review_skips_when_less_than_two_transcripts(tmp_path: Path) -> None:
@@ -80,6 +89,7 @@ def test_batch_review_invokes_patch_only_background_fork(tmp_path: Path) -> None
     prompt = call["prompt"]
     assert isinstance(prompt, str)
     assert "auto-skill" in prompt
+    assert f"Target SKILL.md: {skill_dir / 'SKILL.md'}" in prompt
     assert "first transcript uses auto-skill" in prompt
     assert "second transcript also uses auto-skill" in prompt
     assert "skill_manage(action=\"patch\"" in prompt
@@ -88,12 +98,45 @@ def test_batch_review_invokes_patch_only_background_fork(tmp_path: Path) -> None
     assert state["reviewed_session_ids"] == ["s1", "s2"]
 
 
+def test_runtime_skill_batch_queue_dedupes_by_name_and_root(tmp_path: Path) -> None:
+    runtime = AgentRuntime(
+        session_manager=SessionManager(
+            store=JsonlSessionStore(data_dir=tmp_path / "sessions")
+        ),
+        llm_client=_UnusedLLMClient(),
+        model="mock-model",
+    )
+    trigger_a = F4Trigger(
+        skill_name="same-name",
+        skill_root=tmp_path / "root-a",
+        session_refs=(),
+        call_key="call-a",
+    )
+    trigger_b = F4Trigger(
+        skill_name="same-name",
+        skill_root=tmp_path / "root-b",
+        session_refs=(),
+        call_key="call-b",
+    )
+
+    assert runtime.enqueue_skill_batch_review(trigger_a) is True
+    assert runtime.enqueue_skill_batch_review(trigger_b) is True
+    assert runtime.enqueue_skill_batch_review(trigger_a) is False
+
+    queued = runtime.pop_queued_skill_batch_reviews()
+
+    assert queued == (trigger_a, trigger_b)
+    runtime.finish_skill_batch_review(trigger_a)
+    runtime.finish_skill_batch_review(trigger_b)
+
+
 def _trigger(skill_root: Path, session_ids: list[str]) -> F4Trigger:
     return F4Trigger(
         skill_name="auto-skill",
         skill_root=skill_root,
         session_refs=tuple({"session_id": session_id} for session_id in session_ids),
         call_key="call-1",
+        skill_location=skill_root / "auto-skill" / "SKILL.md",
     )
 
 

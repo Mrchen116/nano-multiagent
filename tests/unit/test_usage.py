@@ -168,5 +168,5 @@ def test_runtime_dedupes_running_or_queued_skill_batch_reviews() -> None:
     assert AgentRuntime.enqueue_skill_batch_review(runtime, trigger) is True
     assert AgentRuntime.enqueue_skill_batch_review(runtime, trigger) is False
     runtime._skill_batch_review_queued.clear()
-    runtime._skill_batch_review_running.add("auto-skill")
+    runtime._skill_batch_review_running.add(f"{Path('/tmp/skills').resolve()}:auto-skill")
     assert AgentRuntime.enqueue_skill_batch_review(runtime, trigger) is False

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -14,9 +15,13 @@ class _Kernel:
         self.created_sessions: list[dict[str, object]] = []
         self.submitted_parts: list[dict[str, object]] = []
         self.drained = False
+        self.scheduler = None
 
     def run_skill_maintenance(self, *, workspace_root: Path) -> None:
         self.maintenance_roots.append(workspace_root)
+
+    def set_skill_batch_review_drain_scheduler(self, scheduler):
+        self.scheduler = scheduler
 
     async def run_queued_skill_batch_reviews(self, *, run_background_analysis):
         self.drained = True
@@ -60,5 +65,27 @@ async def test_open_cli_session_drains_queued_skill_batch_reviews(
             "session_id": "session-1",
             "parts": [{"type": "text", "text": "batch prompt"}],
             "workspace_root": tmp_path,
+        }
+    ]
+    assert callable(kernel.scheduler)
+
+
+@pytest.mark.asyncio
+async def test_open_cli_session_drains_live_skill_batch_enqueue(tmp_path: Path) -> None:
+    kernel = _Kernel()
+    await open_cli_session(kernel, workspace_root=tmp_path)
+    kernel.drained = False
+    kernel.created_sessions.clear()
+    kernel.submitted_parts.clear()
+
+    kernel.scheduler(SimpleNamespace(skill_name="auto-skill"))
+    await asyncio.sleep(0)
+
+    assert kernel.drained is True
+    assert kernel.created_sessions == [
+        {
+            "workspace_root": tmp_path,
+            "enabled_tools": ["skill_view", "skill_manage"],
+            "metadata": {"background_task": "skill_batch_review"},
         }
     ]

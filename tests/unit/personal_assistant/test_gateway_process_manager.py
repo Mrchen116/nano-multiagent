@@ -34,9 +34,13 @@ class _SkillReviewKernel:
         self.drained = False
         self.created_sessions: list[dict[str, object]] = []
         self.submitted_parts: list[dict[str, object]] = []
+        self.scheduler = None
 
     def run_skill_maintenance(self, *, workspace_root: Path) -> None:
         self.maintenance_roots.append(workspace_root)
+
+    def set_skill_batch_review_drain_scheduler(self, scheduler):
+        self.scheduler = scheduler
 
     async def run_queued_skill_batch_reviews(self, *, run_background_analysis):
         self.drained = True
@@ -196,6 +200,42 @@ def test_gateway_skill_maintenance_drains_queued_skill_batch_reviews(
             "session_id": "skill-review-session",
             "parts": [{"type": "text", "text": "review prompt"}],
             "workspace_root": workspace_root,
+        }
+    ]
+
+
+def test_gateway_live_skill_batch_enqueue_schedules_drain(tmp_path: Path) -> None:
+    config = make_minimal_config(tmp_path)
+    workspace_root = config.agents[0].workspace_root
+    session_path = workspace_root / ".nanoassistant" / "sessions" / "sess-1.jsonl"
+    session_path.parent.mkdir(parents=True)
+    session_path.write_text("{}", encoding="utf-8")
+    kernel = _SkillReviewKernel()
+    runtime = GatewayRuntime(config, None, kernel=kernel)
+
+    async def _exercise() -> None:
+        runtime._install_skill_batch_review_scheduler()  # noqa: SLF001
+        assert callable(kernel.scheduler)
+        kernel.scheduler(
+            SimpleNamespace(
+                skill_name="auto-skill",
+                skill_root=Path("~/.nanoassistant/skills"),
+                session_refs=({"session_id": "sess-1"},),
+            )
+        )
+        for _ in range(5):
+            await asyncio.sleep(0)
+            if kernel.drained:
+                break
+
+    asyncio.run(_exercise())
+
+    assert kernel.drained is True
+    assert kernel.created_sessions == [
+        {
+            "workspace_root": workspace_root,
+            "enabled_tools": ["skill_view", "skill_manage"],
+            "metadata": {"background_task": "skill_batch_review"},
         }
     ]
 

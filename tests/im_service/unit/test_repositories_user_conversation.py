@@ -238,6 +238,58 @@ def test_conversation_exposes_run_state_and_source_jsonl_path(
     assert listed[0].source_jsonl_path == str(session_path)
 
 
+def test_conversation_finds_nested_source_jsonl_path(tmp_path: Path) -> None:
+    """Subagent/nested runtime transcripts are eligible distill sources."""
+    users, conversations, _, profiles, _, _ = _build_repositories(tmp_path)
+    owner = users.create_user(username="alice", display_name="Alice")
+    agent_user = users.create_user(username="agent:agent-1", display_name="Agent 1")
+    workspace_root = tmp_path / "agent-1-workspace"
+    profiles.upsert_profile(
+        agent_id="agent-1",
+        owner_id=owner.owner_id,
+        display_name="Agent 1",
+        description="",
+        system_prompt="You are Agent 1.",
+        skills=[],
+        tool_allowlist=[],
+        group_reply_policy="manual",
+        default_model=None,
+        workspace_root=str(workspace_root),
+    )
+    created = conversations.create_conversation(
+        title="Alice & Agent",
+        participant_ids=[owner.id, agent_user.id],
+        caller_owner_id=owner.owner_id,
+    )
+    session_path = (
+        workspace_root
+        / ".nanoassistant"
+        / "sessions"
+        / "parent"
+        / "subagents"
+        / "sess-nested.jsonl"
+    )
+    session_path.parent.mkdir(parents=True)
+    session_path.write_text(
+        json.dumps(
+            {
+                "type": "session_created",
+                "session_id": "sess-nested",
+                "metadata": {
+                    "agent_id": "agent-1",
+                    "conversation_id": created.id,
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    listed = conversations.list_conversations_for_owner(owner_id=owner.owner_id)
+
+    assert listed[0].source_jsonl_path == str(session_path.resolve())
+
+
 def test_conversation_run_state_is_running_for_active_agent_message(
     tmp_path: Path,
 ) -> None:

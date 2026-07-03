@@ -1316,8 +1316,15 @@ class Kernel:
                 )
             finally:
                 if isinstance(skill_name, str) and skill_name:
-                    self._c.runtime.finish_skill_batch_review(skill_name)
+                    self._c.runtime.finish_skill_batch_review(trigger)
         return tuple(results)
+
+    def set_skill_batch_review_drain_scheduler(
+        self, scheduler: Callable[[Any], None] | None
+    ) -> None:
+        """Install a product-owned callback fired after a new F4 enqueue."""
+
+        self._c.runtime.set_skill_batch_review_drain_scheduler(scheduler)
 
     def get_llm_config(self) -> LLMConfig:
         """Return the active LLM configuration as an SDK-owned ``LLMConfig`` (决策 5).

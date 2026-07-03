@@ -1518,6 +1518,20 @@ async def _run_kernel_background_analysis(
     raise TimeoutError("skill batch review background run timed out")
 
 
+def _session_ids_from_skill_batch_trigger(trigger: Any) -> tuple[str, ...]:
+    refs = getattr(trigger, "session_refs", ())
+    if not isinstance(refs, (tuple, list)):
+        return ()
+    session_ids: list[str] = []
+    for ref in refs:
+        if not isinstance(ref, Mapping):
+            continue
+        session_id = ref.get("session_id")
+        if isinstance(session_id, str) and session_id:
+            session_ids.append(session_id)
+    return tuple(session_ids)
+
+
 class GatewayRuntime:
     """Run the assembled Node Gateway process until shutdown is requested.
 
@@ -1642,6 +1656,7 @@ class GatewayRuntime:
                 except Exception:  # noqa: BLE001
                     dispatch_runner = None
             await self._run_skill_maintenance()
+            self._install_skill_batch_review_scheduler()
             self._ready_event.set()
             if self._im_connection_manager is not None:
                 # bugfix-446-M1 (decision 1): own the IM connection through a
@@ -1757,6 +1772,80 @@ class GatewayRuntime:
                     workspace_root,
                     exc,
                 )
+
+    def _install_skill_batch_review_scheduler(self) -> None:
+        if self._kernel is None:
+            return
+        setter = getattr(self._kernel, "set_skill_batch_review_drain_scheduler", None)
+        if not callable(setter):
+            return
+
+        def _schedule(trigger: Any) -> None:
+            workspace_root = self._workspace_root_for_skill_batch_trigger(trigger)
+            if workspace_root is None:
+                _log.warning(
+                    "cannot drain skill batch review for skill=%s without a matching workspace",
+                    getattr(trigger, "skill_name", ""),
+                )
+                return
+            asyncio.create_task(
+                self._drain_queued_skill_batch_reviews_for_workspace(
+                    workspace_root=workspace_root
+                ),
+                name="personal-assistant-skill-batch-review",
+            )
+
+        setter(_schedule)
+
+    def _workspace_root_for_skill_batch_trigger(self, trigger: Any) -> Path | None:
+        session_ids = _session_ids_from_skill_batch_trigger(trigger)
+        if session_ids:
+            for agent in self._config.agents:
+                workspace_root = getattr(agent, "workspace_root", None)
+                if workspace_root is None:
+                    continue
+                session_dir = Path(workspace_root) / _WCD / "sessions"
+                for session_id in session_ids:
+                    if any(session_dir.rglob(f"{session_id}.jsonl")):
+                        return Path(workspace_root)
+        skill_root = getattr(trigger, "skill_root", None)
+        if skill_root is not None:
+            try:
+                resolved_skill_root = Path(skill_root).expanduser().resolve()
+            except TypeError:
+                resolved_skill_root = None
+            if resolved_skill_root is not None:
+                for agent in self._config.agents:
+                    workspace_root = getattr(agent, "workspace_root", None)
+                    if workspace_root is None:
+                        continue
+                    local_skill_root = (
+                        Path(workspace_root) / _WCD / "skills"
+                    ).expanduser().resolve()
+                    if resolved_skill_root == local_skill_root:
+                        return Path(workspace_root)
+        if len(self._config.agents) == 1:
+            return Path(self._config.agents[0].workspace_root)
+        return None
+
+    async def _drain_queued_skill_batch_reviews_for_workspace(
+        self, *, workspace_root: Path
+    ) -> None:
+        drain = getattr(self._kernel, "run_queued_skill_batch_reviews", None)
+        if not callable(drain):
+            return
+        try:
+            await drain(
+                run_background_analysis=self._build_skill_batch_analysis_runner(
+                    workspace_root=workspace_root
+                )
+            )
+        except Exception as exc:  # noqa: BLE001
+            _log.warning(
+                "queued skill batch review drain failed for workspace=%s: %s",
+                workspace_root,
+                exc,
+            )
 
     def _build_skill_batch_analysis_runner(
         self, *, workspace_root: Path

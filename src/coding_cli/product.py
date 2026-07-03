@@ -171,12 +171,26 @@ async def open_cli_session(kernel: Any, *, workspace_root: Path) -> Any:
     if hasattr(kernel, "run_skill_maintenance"):
         kernel.run_skill_maintenance(workspace_root=workspace_root)
     await _drain_queued_skill_batch_reviews(kernel, workspace_root=workspace_root)
+    _install_skill_batch_review_scheduler(kernel, workspace_root=workspace_root)
     return await kernel.create_session(
         workspace_root=workspace_root,
         enabled_tools=list(DEFAULT_ENABLED_TOOLS),
         features=dict(DEFAULT_FEATURES),
         prompt=cli_prompt_slots(),
     )
+
+
+def _install_skill_batch_review_scheduler(kernel: Any, *, workspace_root: Path) -> None:
+    setter = getattr(kernel, "set_skill_batch_review_drain_scheduler", None)
+    if not callable(setter):
+        return
+
+    def _schedule(_trigger: Any) -> None:
+        asyncio.create_task(
+            _drain_queued_skill_batch_reviews(kernel, workspace_root=workspace_root)
+        )
+
+    setter(_schedule)
 
 
 async def _drain_queued_skill_batch_reviews(
