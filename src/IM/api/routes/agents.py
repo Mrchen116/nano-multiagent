@@ -457,12 +457,6 @@ def update_agent_config(
     return to_agent_config_response(updated, service=service)
 
 
-def _coerce_string_list(value: object) -> list[str]:
-    if not isinstance(value, list):
-        return []
-    return [item for item in value if isinstance(item, str)]
-
-
 def coerce_model_options(value: object) -> list[ModelOptionResponse]:
     """Coerce Gateway ``models`` into ``{name, provider}`` options (bugfix-429 R5).
 

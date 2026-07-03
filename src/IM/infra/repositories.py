@@ -841,14 +841,15 @@ class ConversationRepository:
                         continue
                     record = json.loads(stripped)
                     if record.get("type") != "session_created":
-                        return False
+                        continue
                     metadata = record.get("metadata")
                     if not isinstance(metadata, dict):
-                        return False
-                    return (
+                        continue
+                    if (
                         metadata.get("conversation_id") == conversation_id
                         and metadata.get("agent_id") == source_agent_id
-                    )
+                    ):
+                        return True
         except (OSError, json.JSONDecodeError, UnicodeDecodeError):
             return False
         return False

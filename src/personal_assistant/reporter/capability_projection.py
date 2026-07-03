@@ -69,6 +69,7 @@ class FeatureProjection(TypedDict):
     help_i18n: str
     default_on: bool
     requires_tool: str | None
+    requires_any_tool: tuple[str, ...] | None
 
 
 # Ported verbatim from FEATURE_REGISTRY (declaration order preserved). The kernel's
@@ -82,13 +83,15 @@ FEATURE_PROJECTIONS: tuple[FeatureProjection, ...] = (
         help_i18n="feature.memory_curation.help",
         default_on=True,
         requires_tool="memory",
+        requires_any_tool=None,
     ),
     FeatureProjection(
         key="skill_creation",
         label_i18n="feature.skill_creation.label",
         help_i18n="feature.skill_creation.help",
         default_on=True,
-        requires_tool="skill_manage",
+        requires_tool=None,
+        requires_any_tool=("skill_manage", "skill_view"),
     ),
     FeatureProjection(
         key="cron_scheduling",
@@ -96,6 +99,7 @@ FEATURE_PROJECTIONS: tuple[FeatureProjection, ...] = (
         help_i18n="feature.cron_scheduling.help",
         default_on=False,
         requires_tool="cron",
+        requires_any_tool=None,
     ),
     FeatureProjection(
         key="heartbeat",
@@ -103,6 +107,7 @@ FEATURE_PROJECTIONS: tuple[FeatureProjection, ...] = (
         help_i18n="feature.heartbeat.help",
         default_on=False,
         requires_tool=None,
+        requires_any_tool=None,
     ),
 )
 
@@ -165,8 +170,11 @@ def project_features(
     projection: list[dict[str, object]] = []
     for entry in FEATURE_PROJECTIONS:
         requires_tool = entry["requires_tool"]
+        requires_any_tool = entry["requires_any_tool"]
         if allowlist_set is None:
             available = True
+        elif requires_any_tool is not None:
+            available = any(tool in allowlist_set for tool in requires_any_tool)
         else:
             available = requires_tool is None or requires_tool in allowlist_set
         projection.append(
@@ -177,6 +185,9 @@ def project_features(
                 "default_on": entry["default_on"],
                 "available": available,
                 "requires_tool": requires_tool,
+                "requires_any_tool": list(requires_any_tool)
+                if requires_any_tool is not None
+                else None,
             }
         )
     return projection

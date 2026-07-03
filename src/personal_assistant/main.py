@@ -1488,6 +1488,36 @@ class _InboundDispatcher:
         future.add_done_callback(_consume_future_exception)
 
 
+async def _run_kernel_background_analysis(
+    kernel: Any,
+    *,
+    workspace_root: Path,
+    prompt: str,
+    tool_allowlist: tuple[str, ...],
+    metadata: dict[str, Any],
+) -> Any:
+    session = await kernel.create_session(
+        workspace_root=workspace_root,
+        enabled_tools=list(tool_allowlist),
+        metadata=metadata,
+    )
+    run = kernel.submit(
+        session_id=session.session_id,
+        parts=[{"type": "text", "text": prompt}],
+        workspace_root=workspace_root,
+    )
+    run_id = getattr(run, "run_id", "")
+    for _ in range(300):
+        current = kernel.get_run(run_id)
+        status = getattr(current, "status", "")
+        if status == "completed":
+            return current
+        if status in {"failed", "cancelled"}:
+            raise RuntimeError(f"skill batch review background run {status}")
+        await asyncio.sleep(0.1)
+    raise TimeoutError("skill batch review background run timed out")
+
+
 class GatewayRuntime:
     """Run the assembled Node Gateway process until shutdown is requested.
 
@@ -1611,7 +1641,7 @@ class GatewayRuntime:
                     await _dispatch_site.start()
                 except Exception:  # noqa: BLE001
                     dispatch_runner = None
-            self._run_skill_maintenance()
+            await self._run_skill_maintenance()
             self._ready_event.set()
             if self._im_connection_manager is not None:
                 # bugfix-446-M1 (decision 1): own the IM connection through a
@@ -1698,18 +1728,28 @@ class GatewayRuntime:
             event.set()
         return event
 
-    def _run_skill_maintenance(self) -> None:
+    async def _run_skill_maintenance(self) -> None:
         """Run best-effort per-agent skill housekeeping at Gateway startup."""
 
-        if self._kernel is None or not hasattr(self._kernel, "run_skill_maintenance"):
+        if self._kernel is None:
             return
-        run_skill_maintenance = getattr(self._kernel, "run_skill_maintenance")
+        run_skill_maintenance = getattr(self._kernel, "run_skill_maintenance", None)
+        drain = getattr(self._kernel, "run_queued_skill_batch_reviews", None)
+        if not callable(run_skill_maintenance) and not callable(drain):
+            return
         for agent in self._config.agents:
             workspace_root = getattr(agent, "workspace_root", None)
             if workspace_root is None:
                 continue
             try:
-                run_skill_maintenance(workspace_root=workspace_root)
+                if callable(run_skill_maintenance):
+                    run_skill_maintenance(workspace_root=workspace_root)
+                if callable(drain):
+                    await drain(
+                        run_background_analysis=self._build_skill_batch_analysis_runner(
+                            workspace_root=workspace_root
+                        )
+                    )
             except Exception as exc:  # noqa: BLE001
                 _log.warning(
                     "skill maintenance failed for agent=%s workspace=%s: %s",
@@ -1717,6 +1757,25 @@ class GatewayRuntime:
                     workspace_root,
                     exc,
                 )
+
+    def _build_skill_batch_analysis_runner(
+        self, *, workspace_root: Path
+    ) -> Callable[..., Awaitable[Any]]:
+        async def _run_background_analysis(
+            prompt: str,
+            *,
+            tool_allowlist: tuple[str, ...],
+            metadata: dict[str, Any],
+        ) -> Any:
+            return await _run_kernel_background_analysis(
+                self._kernel,
+                workspace_root=workspace_root,
+                prompt=prompt,
+                tool_allowlist=tool_allowlist,
+                metadata=metadata,
+            )
+
+        return _run_background_analysis
 
     async def _wait_for_shutdown_request(self, *, timeout: float | None = None) -> bool:
         event = self._shutdown_event_for_loop()

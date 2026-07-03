@@ -233,6 +233,18 @@ def test_node_capabilities_tools_contain_all_feature_required_tools(
             assert rt in names_set, (
                 f"feature 要求工具 '{rt}' 必须在 capabilities.tools 中 (feat-379-M9 决策13)"
             )
+        for tool_id in entry.get("requires_any_tool") or ():
+            assert tool_id in names_set
+
+
+def test_project_features_supports_skill_creation_with_skill_view_only() -> None:
+    from personal_assistant.reporter.capability_projection import project_features
+
+    features = project_features(tool_allowlist=("skill_view",))
+    skill_creation = next(item for item in features if item["key"] == "skill_creation")
+
+    assert skill_creation["available"] is True
+    assert skill_creation["requires_any_tool"] == ["skill_manage", "skill_view"]
 
 
 # ---------------------------------------------------------------------------

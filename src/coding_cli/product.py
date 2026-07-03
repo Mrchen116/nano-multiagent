@@ -16,6 +16,7 @@ text (identity / tools footer / guidelines).
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any
 
@@ -169,9 +170,64 @@ async def open_cli_session(kernel: Any, *, workspace_root: Path) -> Any:
     """
     if hasattr(kernel, "run_skill_maintenance"):
         kernel.run_skill_maintenance(workspace_root=workspace_root)
+    await _drain_queued_skill_batch_reviews(kernel, workspace_root=workspace_root)
     return await kernel.create_session(
         workspace_root=workspace_root,
         enabled_tools=list(DEFAULT_ENABLED_TOOLS),
         features=dict(DEFAULT_FEATURES),
         prompt=cli_prompt_slots(),
     )
+
+
+async def _drain_queued_skill_batch_reviews(
+    kernel: Any, *, workspace_root: Path
+) -> None:
+    drain = getattr(kernel, "run_queued_skill_batch_reviews", None)
+    if not callable(drain):
+        return
+
+    async def _run_background_analysis(
+        prompt: str,
+        *,
+        tool_allowlist: tuple[str, ...],
+        metadata: dict[str, Any],
+    ) -> Any:
+        return await _run_kernel_background_analysis(
+            kernel,
+            workspace_root=workspace_root,
+            prompt=prompt,
+            tool_allowlist=tool_allowlist,
+            metadata=metadata,
+        )
+
+    await drain(run_background_analysis=_run_background_analysis)
+
+
+async def _run_kernel_background_analysis(
+    kernel: Any,
+    *,
+    workspace_root: Path,
+    prompt: str,
+    tool_allowlist: tuple[str, ...],
+    metadata: dict[str, Any],
+) -> Any:
+    session = await kernel.create_session(
+        workspace_root=workspace_root,
+        enabled_tools=list(tool_allowlist),
+        metadata=metadata,
+    )
+    run = kernel.submit(
+        session_id=session.session_id,
+        parts=[{"type": "text", "text": prompt}],
+        workspace_root=workspace_root,
+    )
+    run_id = getattr(run, "run_id", "")
+    for _ in range(300):
+        current = kernel.get_run(run_id)
+        status = getattr(current, "status", "")
+        if status == "completed":
+            return current
+        if status in {"failed", "cancelled"}:
+            raise RuntimeError(f"skill batch review background run {status}")
+        await asyncio.sleep(0.1)
+    raise TimeoutError("skill batch review background run timed out")

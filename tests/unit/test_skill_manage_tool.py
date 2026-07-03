@@ -294,6 +294,40 @@ def test_create_pa_scope_writes_pa_root(tmp_path: Path) -> None:
     assert not (workspace / ".nanoassistant" / "skills" / "pa-skill").exists()
 
 
+def test_patch_pa_scope_updates_pa_root(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    pa_root = tmp_path / "pa-skills"
+    workspace.mkdir()
+    pa_root.mkdir()
+    skill_file = pa_root / "pa-skill" / "SKILL.md"
+    skill_file.parent.mkdir()
+    skill_file.write_text(
+        _VALID_FM.replace("my-skill", "pa-skill") + "\nOld sentence.",
+        encoding="utf-8",
+    )
+    tool = SkillManageTool(
+        workspace_config_dirname=".nanoassistant",
+        extra_roots=(pa_root,),
+        pa_skill_root=pa_root,
+    )
+    ctx = _make_ctx(workspace)
+
+    result = tool.run(
+        {
+            "action": "patch",
+            "scope": "pa",
+            "name": "pa-skill",
+            "old_string": "Old sentence.",
+            "new_string": "New sentence.",
+        },
+        ctx,
+    )
+
+    assert result.get("success") is True
+    assert "New sentence." in skill_file.read_text(encoding="utf-8")
+    assert not (workspace / ".nanoassistant" / "skills" / "pa-skill").exists()
+
+
 def test_create_pa_scope_fails_without_pa_root(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()

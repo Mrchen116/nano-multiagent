@@ -24,6 +24,7 @@ from ._main_helpers import (
     _FakeProcess,
     _FakeProcessManager,
     build_config,
+    make_minimal_config,
 )
 
 
@@ -174,7 +175,7 @@ def test_gateway_runtime_keeps_running_until_shutdown_requested(tmp_path: Path) 
 def test_gateway_skill_maintenance_drains_queued_skill_batch_reviews(
     tmp_path: Path,
 ) -> None:
-    config = build_config(tmp_path)
+    config = make_minimal_config(tmp_path)
     kernel = _SkillReviewKernel()
     runtime = GatewayRuntime(config, None, kernel=kernel)
 

@@ -191,7 +191,7 @@ class SkillManageTool:
             "scope": {
                 "type": "string",
                 "enum": ["agent", "pa"],
-                "description": "Create destination scope; only applies to create. Defaults to agent.",
+                "description": "Destination scope for write actions. Defaults to agent.",
             },
             "old_string": {
                 "type": "string",
@@ -335,16 +335,17 @@ class SkillManageTool:
     ) -> Mapping[str, Any]:
         if action == "create":
             return self._create(args, roots, metadata=metadata)
-        if action == "edit":
-            return self._edit(args, roots.agent_writer)
-        if action == "patch":
-            return self._patch(args, roots.agent_writer)
         if action == "list":
             return self._list(roots.registry)
+        writer = roots.writer_for_scope(str(args.get("scope") or "agent"))
+        if action == "edit":
+            return self._edit(args, writer)
+        if action == "patch":
+            return self._patch(args, writer)
         if action == "write_file":
-            return self._write_file(args, roots.agent_writer)
+            return self._write_file(args, writer)
         if action == "remove_file":
-            return self._remove_file(args, roots.agent_writer)
+            return self._remove_file(args, writer)
         raise ValueError(f"Unhandled action '{action}'")  # unreachable
 
     def _write_file(

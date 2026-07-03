@@ -1005,7 +1005,8 @@ def _build_skills_usage_payload(
             }
         )
     skills.sort(
-        key=lambda skill: _parse_iso_datetime(skill.get("last_used_at")),
+        key=lambda skill: _parse_iso_datetime(skill.get("last_used_at"))
+        or datetime.min.replace(tzinfo=timezone.utc),
         reverse=True,
     )
     return {
