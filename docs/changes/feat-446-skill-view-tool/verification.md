@@ -150,3 +150,140 @@ Recommended fix: either resolve the owning search root from `skill.location` and
 ## Verdict
 
 FAIL. The branch has the visible UI/API/tool surface, but two core promised runtime behaviors are not wired through normal execution: automatic compaction survival and production F4 batch review execution.
+
+---
+
+# Round 2
+
+## Verification Report: feat-446
+
+### Summary
+
+- unit_id: `feat-446`
+- review_round: 2
+- verification_mode: full
+- validated_head: `58160ca0bac194081c0ca1198d8c5a6ebe0b25f6`
+- base_branch: `origin/main`
+- requires_full_verification: false
+- verdict: FAIL
+- issue_counts: critical=2, warning=0, suggestion=0
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | task checkboxes/progress all marked complete, but 2 required runtime/product paths still fail |
+| Correctness | FAIL |
+| Coherence | Mostly followed; no import-boundary violation found in checked paths |
+
+## Scope
+
+Verified the current unit branch against:
+
+- `docs/changes/feat-446-skill-view-tool/spec.md`
+- `docs/changes/feat-446-skill-view-tool/design.md`
+- delta specs under `docs/changes/feat-446-skill-view-tool/specs/`
+- M1/M2/M3/M4 task/progress docs
+- round-1 verifier report and fix-loop docs: `FIX-round-1-product`, `FIX-round-1-runtime`, `FIX-round-1-script`
+- project rules in `SPEC.md`, `docs/TESTING_GUIDE.md`, and `COMMENTING_GUIDE.md`
+
+## Task Status Cross-Check
+
+Marked task/progress status:
+
+- M1 skill-view-core: 9/9 checked complete
+- M2 curator-f4: 11/11 checked complete
+- M3 f2-distill: 15/15 checked complete
+- M4 dashboard: 9/9 checked complete
+- FIX-round-1-product: 6/6 checked complete
+- FIX-round-1-runtime: roadpoints R1/R2/R3 marked DONE
+- FIX-round-1-script: progress records the yq rewrite fix and test coverage
+
+The round-1 compaction, prompt-gating, usage-root, UI reachability, dashboard, and `e2e-up.sh` workspace rewrite fixes are present and covered by focused tests. The branch still fails because two behavior paths called out in the assignment are not actually satisfied.
+
+## Critical Issues
+
+### CRITICAL-1: `/skill:<name>` still bypasses `skill_view`, so slash-triggered skill use is not audited or recorded
+
+The assignment explicitly requires the product handoff fix where `/skill:<name>` goes through the `skill_view` path and records usage/session refs. The unit spec also states the slash path should produce the same usage tracking as agent-initiated `skill_view`:
+
+- `docs/changes/feat-446-skill-view-tool/spec.md`: "用户通过 /skill: 斜杠命令触发时也记录使用统计"
+- `docs/changes/feat-446-skill-view-tool/specs/kernel/spec.md`: `/skill` remains a natural-language trigger, but when `skill_view` is enabled the agent should load through `skill_view`
+
+Current runtime code still only rewrites the slash command to plain text:
+
+- `src/agent/core/agent/skill_commands.py:20` defines `rewrite_skill_command(...)`
+- `src/agent/core/agent/skill_commands.py:39` returns `Use the "<skill>" skill for this request.`
+- `src/agent/core/agent/runtime.py:491` / `src/agent/core/agent/runtime.py:495` apply only that text rewrite to input parts/user text
+
+The tests still lock in this bypassed behavior instead of the required audit path:
+
+- `tests/integration/test_agent_runtime_skill_command_integration.py:40` sends `/skill:doc polish this paragraph`
+- `tests/integration/test_agent_runtime_skill_command_integration.py:49` asserts the LLM receives only the rewritten natural-language text
+- `tests/unit/test_agent_runtime.py:438` and `tests/unit/test_agent_runtime.py:448` assert the same rewrite-only path
+- `tests/contract/test_skill_commands_contract.py:4` keeps the same rewrite contract
+
+There is no code path in `rewrite_skill_command` or `runtime.run` that invokes `SkillViewTool`, writes `.usage.json`, appends `session_refs`, or emits a `skill_view` tool row for a slash-triggered skill. This means a user selecting a skill through the visible `/skill:` UI can still produce no usage stats, no session refs for F4, and no compaction survival registration unless the model independently decides to call `skill_view`.
+
+Required fix: route `/skill:<name>` through the same `skill_view` execution path used by model tool calls, or inject a deterministic pre-run `skill_view` tool call/event before rewriting the remaining user args. Add regression coverage that `/skill:doc ...` creates a `skill_view` tool event, increments `.usage.json`, records the current `session_id`, and registers the skill for compaction survival. Update the existing rewrite-only contract tests to the new behavior or narrow them to the pure parser helper if that helper remains.
+
+### CRITICAL-2: F4 batch review drain is still not reachable after a threshold-crossing `skill_view` in a running product session
+
+Round 1 found F4 triggers were enqueued but never drained by production paths. Round 2 adds product drain calls, but they run only before normal work starts:
+
+- `src/personal_assistant/main.py:1644` calls `_run_skill_maintenance()` once during Gateway startup
+- `src/personal_assistant/main.py:1731` defines `_run_skill_maintenance()`
+- `src/personal_assistant/main.py:1747` drains queued skill batch reviews only inside that startup maintenance loop
+- `src/coding_cli/product.py:171` runs skill maintenance when opening a CLI session
+- `src/coding_cli/product.py:173` drains queued skill batch reviews before creating that CLI session
+
+The threshold enqueue happens later, inside the actual tool call:
+
+- `src/agent/platform/tools/builtins/skill_view.py:154` enqueues when `bump_skill_usage(...)` returns an F4 trigger
+- `src/agent/core/agent/runtime.py:1014` stores the trigger in the runtime's in-memory queued set
+- `src/agent/sdk/kernel.py:1297` can drain via `run_queued_skill_batch_reviews(...)`, but repository search shows production callers only at Gateway startup and CLI session open
+
+In the normal Gateway path, the startup drain runs before any user turn can call `skill_view`, so a threshold-crossing call during the live process remains queued in memory until a restart or some unrelated future maintenance entry. In the CLI path, `open_cli_session()` drains before the session where the threshold-crossing `skill_view` will occur; the current session has no post-enqueue drain. That does not satisfy the spec/design requirement that a successful `skill_view` crossing the threshold triggers the batch review task:
+
+- `docs/changes/feat-446-skill-view-tool/spec.md`: "skill_view 调用完成且计数器越线" triggers batch analysis
+- `docs/changes/feat-446-skill-view-tool/specs/kernel/spec.md`: "不等待 Curator 7 天扫描"
+- `docs/changes/feat-446-skill-view-tool/design.md`: F4 is "skill_view/bump_use 越线即时 enqueue" plus a product drain/runner
+
+The added tests prove only direct/pre-existing drainability, not after-use reachability:
+
+- `tests/unit/test_cli_product.py:43` uses a fake kernel whose queue exists before `open_cli_session(...)`
+- `tests/unit/personal_assistant/test_gateway_process_manager.py:175` calls `_run_skill_maintenance()` directly and proves it drains then
+- No test executes a product turn where `skill_view` crosses the threshold and then proves the queued batch is consumed without restart/new session
+
+Required fix: add a real post-enqueue drain path. Acceptable shapes include an async background task scheduled by `runtime.enqueue_skill_batch_review(...)` through an SDK/product-provided runner, or a real Gateway/CLI housekeeping loop that runs while the product is active and drains queued reviews after normal turns. Add regression coverage where a threshold-crossing `skill_view` in a live Gateway or CLI session is consumed through the production entrypoint, not just a manually prequeued fake.
+
+## Warnings
+
+None.
+
+Round-1 warnings appear resolved:
+
+- Prompt listing now receives `skill_view_enabled=ctx.has_tool("skill_view")` in `src/agent/core/agent/prompt_sections/core_sections.py:204`, and the formatter has a no-tool fallback at `src/agent/core/skills/formatter.py:16`.
+- `skill_view` now writes usage to `resolved.root_for_location(skill.location)` in `src/agent/platform/tools/builtins/skill_view.py:145`, and `src/agent/core/skills/root_resolver.py:39` resolves the owning search root.
+
+## Passed Checks
+
+- Runtime threshold/overflow/manual compaction reinjection is moved into common runtime paths:
+  - threshold path builds live reinjection in `src/agent/core/agent/loop.py:955`
+  - runtime compaction persists summary + reinjection entries in `src/agent/core/agent/runtime.py:2192`
+  - focused integration tests cover threshold and overflow reinjection.
+- `skill_manage` no longer exposes `view`; `skill_view` exposes name-only lookup and presenter data.
+- `skill_view` success writes usage/session refs, failed lookup does not create usage, and duplicate call keys do not double count.
+- Same-name/priority-hit usage is now written to the owning root rather than always the agent root.
+- `e2e-up.sh` no longer cross-wires agent workspace roots in the yq path: `scripts/e2e-up.sh:92` uses `.agents |= map(.workspace_root = "$WORKSPACE_DIR/" + .agent_id)`.
+- IM dashboard/F2/product reachability focused tests pass, including the `skill_view` tool card and distillation entry paths.
+- Checked architecture boundaries through contract tests: product packages continue through `agent.sdk`, IM does not import `agent`, and core does not import platform.
+
+## Verification Commands
+
+- `PYTHONPATH=src pytest tests/integration/test_compaction_runtime_integration.py tests/unit/test_skill_view.py tests/unit/test_agent_prompting.py tests/unit/agent/test_core_sections.py tests/unit/test_skill_batch_review.py tests/unit/test_cli_product.py tests/unit/personal_assistant/test_gateway_process_manager.py tests/unit/personal_assistant/test_gateway_im_connection_behavior.py tests/unit/personal_assistant/test_gateway_im_resilience_e2e_wrapper.py -q` -> 105 passed
+- `PYTHONPATH=src pytest tests/contract/test_core_no_platform_imports.py tests/contract/test_multi_product_architecture.py tests/contract/test_tool_gate_coverage.py tests/contract/test_skill_commands_contract.py -q` -> 11 passed
+- `PYTHONPATH=src pytest tests/im_service/integration/test_agent_config_api.py tests/im_service/unit/test_gateway_handler.py tests/im_service/unit/test_repositories_user_conversation.py tests/unit/personal_assistant/test_gateway_upstream_reporter.py tests/unit/test_skill_manage_tool.py -q` -> 103 passed
+- `cd src/IM/frontend && npm run test -- --run src/features/settings/agents/agent-detail-page.test.tsx src/features/chat/v2/components/conversation-sidebar.test.tsx src/features/chat/v2/chat-workspace.integration.test.tsx src/features/chat/v2/components/tool-calls-panel.test.tsx` -> 143 passed; existing React `act(...)`, localstorage-file, and known test-route warnings observed
+
+## Verdict
+
+FAIL. Two critical runtime/product behaviors remain unresolved: slash-triggered skills still do not deterministically pass through `skill_view`, and F4 queued reviews are still not drained after a threshold-crossing `skill_view` during a running product session. 2 critical issue(s) found. Fix before PR.
