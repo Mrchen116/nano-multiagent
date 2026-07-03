@@ -471,3 +471,70 @@ Several are likely pre-existing literals whose whitelist line numbers drifted af
 ## Verdict
 
 FAIL. The focused round-3 runtime fixes are present and covered, but the branch is not ready for PR because one fix-loop task remains unchecked and two project contract gates fail. 3 critical issue(s) found. Fix before PR.
+
+---
+
+# Round 5
+
+## Verification Report: feat-446
+
+### Summary
+
+- unit_id: `feat-446`
+- review_round: 5
+- verification_mode: targeted-closure
+- fix_delta_range: `8f5090e4..426b6db2`
+- validated_head: `426b6db27a38afe2b5a4311c2d3c030c27db5ca9`
+- base_branch: `origin/unit/feat-446`
+- requires_full_verification: false
+- verdict: PASS
+- issue_counts: critical=0, warning=0, suggestion=0
+
+Focus issues:
+
+- Round 4 CRITICAL: `FIX-round-3-runtime/tasks.md` stale unchecked R3 item.
+- Round 4 CRITICAL: `tests/contract/test_capability_payload_baseline.py` failed because `requires_any_tool: None` leaked into legacy capability payloads.
+- Round 4 CRITICAL: `tests/contract/test_no_hardcoded_workspace_dirname.py` failed on workspace dirname hardcode drift.
+- Focused CLI F4 review closure: `src/coding_cli/product.py` drained queued skill batch reviews against `.nano/skills` instead of CLI `.nanocode/skills`.
+- Focused CLI F4 review closure: CLI drain scheduler captured the last `open_cli_session` workspace instead of using the trigger root, causing workspace A triggers to drain workspace B after reopening.
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | PASS: focused fix task checklist is fully checked |
+| Correctness | PASS: all five focused closure issues are fixed and covered by targeted tests |
+| Coherence | PASS: delta stays within product/contract/reporting boundaries and does not require a new full verification |
+
+## Scope
+
+This round used `targeted-closure` mode. I verified only the Round 4 focused failures and the two focused CLI F4 review closures against the delta `8f5090e4..426b6db2`, plus the directly related tests/contracts. I did not re-run a full spec/design matrix because the delta does not touch new cross-package boundaries, persistent protocol semantics beyond the corrected capability projection, or a new parallel architecture.
+
+## Closure Evidence
+
+- Closed: the stale FIX-round-3 runtime checklist item is now checked at `docs/changes/feat-446-skill-view-tool/FIX-round-3-runtime/tasks.md:5`. The progress note records that Round 4's contract follow-up synced the checklist to the already merged/pushed state at `docs/changes/feat-446-skill-view-tool/FIX-round-3-runtime/progress.md:10`.
+- Closed: capability payload projection no longer emits `requires_any_tool` into the legacy IM/Gateway feature payload. `src/personal_assistant/reporter/capability_projection.py:180` builds the public dict with `key`, i18n fields, `default_on`, `available`, and `requires_tool` only. `skill_creation` keeps legacy `requires_tool="skill_manage"` while internally using `requires_any_tool=("skill_manage", "skill_view")` for availability at `src/personal_assistant/reporter/capability_projection.py:89`.
+- Closed: the hardcoded workspace dirname contract whitelist has been synchronized to current legitimate platform fallback locations with WHY comments: `src/agent/core/agent/runtime.py:251`, `src/agent/sdk/kernel.py:142`, `src/agent/sdk/kernel.py:380`, and `src/agent/sdk/kernel.py:524` are whitelisted in `tests/contract/test_no_hardcoded_workspace_dirname.py:46`, `tests/contract/test_no_hardcoded_workspace_dirname.py:58`, `tests/contract/test_no_hardcoded_workspace_dirname.py:66`, and `tests/contract/test_no_hardcoded_workspace_dirname.py:78`.
+- Closed: CLI F4 drain now uses the CLI workspace config dirname. `src/coding_cli/product.py:224` drains against `Path(workspace_root) / WORKSPACE_CONFIG_DIRNAME / "skills"`, and `WORKSPACE_CONFIG_DIRNAME` is `.nanocode` at `src/coding_cli/product.py:32`.
+- Closed: CLI live scheduler no longer captures only the last opened workspace. `src/coding_cli/product.py:188` derives `trigger_workspace` from the trigger, `src/coding_cli/product.py:228` resolves a trigger `skill_root` shaped as `<workspace>/.nanocode/skills` back to that workspace, and `tests/unit/test_cli_product.py:98` covers reopening workspace B before a workspace A trigger.
+
+## Issues
+
+### CRITICAL
+
+None.
+
+### WARNING
+
+None.
+
+### SUGGESTION
+
+None.
+
+## Verification Commands
+
+- `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src pytest -q -p no:cacheprovider tests/contract/test_capability_payload_baseline.py tests/contract/test_no_hardcoded_workspace_dirname.py tests/unit/test_cli_product.py tests/unit/personal_assistant/test_gateway_upstream_reporter.py` -> 17 passed
+- `rg -n "^- \\[ \\]" docs/changes/feat-446-skill-view-tool -g 'tasks.md'` -> no unchecked task items found
+
+## Verdict
+
+PASS. All focused Round 4 closure issues are closed, no new targeted-closure issues were found, and `requires_full_verification=false`. All checks passed. Ready for PR.
