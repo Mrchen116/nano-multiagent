@@ -87,6 +87,8 @@ class AgentLoop:
         compaction_summarizer: CompactionSummarizer | None = None,
         compaction_settings: CompactionSettings | None = None,
         on_compaction: Callable[[str], None] | None = None,
+        build_skill_reinjection: Callable[[str, Path | None, str], Message | None]
+        | None = None,
     ) -> None:
         self._llm_client = llm_client
         # bugfix-429: per-provider client map for routing a run to the client of
@@ -109,6 +111,7 @@ class AgentLoop:
         self._compaction_summarizer = compaction_summarizer
         self._compaction_settings = compaction_settings
         self._on_compaction_callback = on_compaction
+        self._build_skill_reinjection = build_skill_reinjection
         self._active_session_id: str | None = None
         # Most recent real prompt_tokens reported by the model, keyed by session.
         # Drives compaction's threshold check with the exact tokenizer count
@@ -939,10 +942,6 @@ class AgentLoop:
                 if len(restored_files) >= 5:
                     break
 
-        # Build new llm_messages: summary as user message
-        summary_llm_msg = LLMMessage(role="user", content=summary)
-        llm_messages[:] = [summary_llm_msg]
-
         summary_msg = Message(
             message_id=make_message_id(),
             role="user",
@@ -953,6 +952,24 @@ class AgentLoop:
                 "restored_files": restored_files,
             },
         )
+        reinjection_msg = (
+            self._build_skill_reinjection(
+                session_id,
+                workspace_root,
+                summary_msg.message_id,
+            )
+            if self._build_skill_reinjection is not None
+            else None
+        )
+        if reinjection_msg is not None:
+            summary_msg.metadata["_post_compact_messages"] = (reinjection_msg,)
+
+        # Build new llm_messages before the post-compact model retry/continuation.
+        llm_messages[:] = [LLMMessage(role="user", content=summary)]
+        if reinjection_msg is not None:
+            llm_messages.append(
+                LLMMessage(role=reinjection_msg.role, content=reinjection_msg.content)
+            )
 
         # Notify runtime to invalidate cached memory snapshot so the next turn
         # re-reads from disk (compaction resets the prefix-cache anchor).

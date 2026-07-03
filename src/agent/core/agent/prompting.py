@@ -266,7 +266,11 @@ def build_system_prompt(
         Fully rendered system prompt text.
     """
 
-    skills_section = format_available_skills_section(available_skills)
+    tool_names: frozenset[str] = frozenset(t.name for t in (available_tools or ()))
+    skills_section = format_available_skills_section(
+        available_skills,
+        skill_view_enabled=available_tools is None or "skill_view" in tool_names,
+    )
     with_runtime_fill = _fill_runtime_placeholders(
         system_prompt=system_prompt,
         available_skills_section=skills_section,
@@ -283,7 +287,6 @@ def build_system_prompt(
 
     # Inject self-evolution guidance constants for the stable tier.
     # Only when the matching tool is in the session's active toolset.
-    tool_names: frozenset[str] = frozenset(t.name for t in (available_tools or ()))
     guidance_parts: list[str] = []
     if "memory" in tool_names:
         guidance_parts.append(MEMORY_GUIDANCE)

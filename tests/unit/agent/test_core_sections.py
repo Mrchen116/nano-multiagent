@@ -13,6 +13,8 @@ CC source: claude-code/src/constants/prompts.ts
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from agent.core.agent.prompt_sections.base import PromptContext
@@ -129,7 +131,7 @@ class TestCoreSkillsGuidance:
         assert s.enabled_when(ctx) is False
 
     def test_available_skills_section_omits_skill_view_when_tool_disabled(self):
-        s = _get_section("core.skills")
+        s = _get_section("core.skills_listing")
         ctx = _ctx(
             available_tools=(_tool("read"),),
             available_skills=(

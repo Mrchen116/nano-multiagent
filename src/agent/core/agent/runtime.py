@@ -37,6 +37,7 @@ from agent.core.skills import (
     make_skill_resolver,
     resolve_available_skills,
 )
+from agent.core.skills.usage import SkillSessionRef, skill_refs_for_session
 from agent.core.tools.result_budget import ToolResultCompressor
 from agent.core.tools.session_file_state import SessionFileState, read_file_slice
 from agent.core.utils.time import utc_now_iso as _utc_now_iso
@@ -289,6 +290,7 @@ class AgentRuntime:
             compaction_summarizer=self._compaction_summarizer,
             compaction_settings=self._compaction_settings,
             on_compaction=self._invalidate_memory_snapshot,
+            build_skill_reinjection=self._build_skill_reinjection_message,
         )
 
     def register_session_prompt_slots(self, session_id: str, slots: object) -> None:
@@ -675,6 +677,16 @@ class AgentRuntime:
                             },
                         },
                     )
+                    self._session_manager.writer.enqueue(
+                        path, _message_to_entry(msg, session_id)
+                    )
+                    for post_compact_msg in _post_compact_messages_from(msg):
+                        history.append(post_compact_msg)
+                        all_messages.append(post_compact_msg)
+                        self._session_manager.writer.enqueue(
+                            path, _message_to_entry(post_compact_msg, session_id)
+                        )
+                    continue
                 entry = _message_to_entry(msg, session_id)
                 if msg.role == "tool":
                     self._session_manager.writer.enqueue(path, entry)
@@ -2143,6 +2155,14 @@ class AgentRuntime:
             content=summary,
             metadata={"is_compact_summary": True, "is_meta": True},
         )
+        reinjection_msg = self._build_skill_reinjection_message(
+            session_id,
+            compaction_workspace_root,
+            summary_msg.message_id,
+        )
+        compacted_messages = (
+            [summary_msg, reinjection_msg] if reinjection_msg is not None else [summary_msg]
+        )
 
         # Write compact_boundary + summary directly via JSONL writer and reset the
         # in-process history cache. This is the SINGLE persistence path for
@@ -2152,7 +2172,7 @@ class AgentRuntime:
         # session would keep replaying the full transcript in memory.
         path = self._session_paths.get(session_id)
         if path is not None:
-            self._session_histories[session_id] = [summary_msg]
+            self._session_histories[session_id] = compacted_messages
             # compact_boundary must be written before summary turn so that
             # JsonlSessionStore.load() (which keeps only turns after the latest
             # compact_boundary) includes the summary turn in the replayed history.
@@ -2172,6 +2192,10 @@ class AgentRuntime:
             self._session_manager.writer.enqueue(
                 path, _message_to_entry(summary_msg, session_id)
             )
+            if reinjection_msg is not None:
+                self._session_manager.writer.enqueue(
+                    path, _message_to_entry(reinjection_msg, session_id)
+                )
             await self._session_manager.writer.flush_async()
 
         # Build the result object from the already-persisted direct write (no
@@ -2196,6 +2220,88 @@ class AgentRuntime:
         # Clear file state after extracting restore info.
         self._session_file_states.pop(session_id, None)
         return result
+
+    def _build_skill_reinjection_message(
+        self,
+        session_id: str,
+        workspace_root: Path | None,
+        compact_entry_id: str,
+    ) -> Message | None:
+        """Build the post-compaction skill reminder for viewed skills."""
+
+        payload = self._build_skill_reinjection_payload(
+            session_id=session_id,
+            workspace_root=workspace_root,
+        )
+        if payload is None:
+            return None
+        content, refs = payload
+        return Message(
+            message_id=make_message_id(),
+            role="user",
+            content=content,
+            metadata={
+                "is_meta": True,
+                "is_skill_reinjection": True,
+                "skill_reinjection_refs": refs,
+                "compact_entry_id": compact_entry_id,
+            },
+        )
+
+    def _build_skill_reinjection_payload(
+        self,
+        *,
+        session_id: str,
+        workspace_root: Path | None,
+    ) -> tuple[str, list[dict[str, str]]] | None:
+        roots = self._skill_roots_for_workspace(workspace_root=workspace_root)
+        refs = skill_refs_for_session(skill_roots=roots, session_id=session_id)
+        blocks: list[str] = []
+        metadata_refs: list[dict[str, str]] = []
+        for ref in refs:
+            content = _read_skill_ref(ref)
+            if content is None:
+                continue
+            metadata_refs.append(
+                {
+                    "name": ref.name,
+                    "location": str(ref.location),
+                    "root_id": ref.root_id,
+                }
+            )
+            blocks.append(
+                f"Skill: {ref.name}\nLocation: {ref.location}\n\n{content}"
+            )
+        if not blocks:
+            return None
+        reminder = (
+            "<system-reminder>\n"
+            "The following skill content was reloaded from the current SKILL.md files "
+            "after compaction. Use it as refreshed context for skills already viewed "
+            "in this session.\n\n"
+            + "\n\n---\n\n".join(blocks)
+            + "\n</system-reminder>"
+        )
+        return reminder, metadata_refs
+
+    def _skill_roots_for_workspace(self, *, workspace_root: Path | None) -> tuple[Path, ...]:
+        effective_root = (
+            Path(workspace_root).expanduser().resolve()
+            if workspace_root is not None
+            else self._repo_root
+        )
+        dirname = self._workspace_config_dirname or ".nanoassistant"
+        roots = [effective_root / dirname / "skills", *self._skill_search_roots]
+        deduped: list[Path] = []
+        seen: set[str] = set()
+        for root in roots:
+            resolved = root.expanduser().resolve()
+            key = str(resolved)
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(resolved)
+        return tuple(deduped)
 
     def _history_without_message(
         self,
@@ -2351,6 +2457,19 @@ def build_turn_result(
     )
 
 
+def _read_skill_ref(ref: SkillSessionRef) -> str | None:
+    if not ref.location.is_file():
+        return None
+    return ref.location.read_text(encoding="utf-8")
+
+
+def _post_compact_messages_from(msg: Message) -> tuple[Message, ...]:
+    raw = msg.metadata.pop("_post_compact_messages", ())
+    if not isinstance(raw, (list, tuple)):
+        return ()
+    return tuple(item for item in raw if isinstance(item, Message))
+
+
 def _message_to_entry(msg: Message, session_id: str) -> dict[str, Any]:
     """Convert a Message to a JSONL turn entry."""
     entry: dict[str, Any] = {
@@ -2375,6 +2494,10 @@ def _message_to_entry(msg: Message, session_id: str) -> dict[str, Any]:
         entry["is_meta"] = True
     if meta.get("is_compact_summary"):
         entry["is_compact_summary"] = True
+    if meta.get("is_skill_reinjection"):
+        entry["is_skill_reinjection"] = True
+    if meta.get("skill_reinjection_refs"):
+        entry["skill_reinjection_refs"] = meta["skill_reinjection_refs"]
     if meta.get("is_provider_error"):
         entry["is_provider_error"] = True
     if meta.get("entrypoint"):

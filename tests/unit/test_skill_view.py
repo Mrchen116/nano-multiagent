@@ -250,37 +250,18 @@ def test_skill_view_tool_satisfies_tool_context_protocol() -> None:
 
 
 @pytest.mark.asyncio
-async def test_kernel_compact_reinjects_current_skill_content_from_usage_location(
+async def test_kernel_compact_delegates_reinjection_to_runtime(
     tmp_path: Path,
 ) -> None:
     workspace = tmp_path / "workspace"
-    skill_root = workspace / ".nanoassistant" / "skills"
-    skill_file = _write_skill(skill_root, "compact-skill", "old content")
-    usage = {
-        "compact-skill": {
-            "source": "F1",
-            "state": "active",
-            "use_count": 1,
-            "last_used_at": "2026-01-01T00:00:00Z",
-            "session_refs": [
-                {
-                    "session_id": "sess-1",
-                    "tool_call_id": "call-1",
-                    "timestamp": "2026-01-01T00:00:00Z",
-                    "location": str(skill_file),
-                }
-            ],
-            "recent_call_keys": ["sess-1:call-1"],
-            "uses_since_last_B": 1,
-        }
-    }
-    (skill_root / ".usage.json").write_text(json.dumps(usage), encoding="utf-8")
-    skill_file.write_text("current content", encoding="utf-8")
-
     appended: list[dict[str, Any]] = []
+    compact_calls: list[dict[str, Any]] = []
 
     class _Runtime:
         async def compact(self, session_id: str, *, workspace_root: Path | None = None):
+            compact_calls.append(
+                {"session_id": session_id, "workspace_root": workspace_root}
+            )
             return SimpleNamespace(entry_id="compact-msg-1")
 
         def invalidate_session_cache(self, session_id: str) -> None:
@@ -299,18 +280,5 @@ async def test_kernel_compact_reinjects_current_skill_content_from_usage_locatio
 
     await Kernel.compact(kernel, "sess-1", workspace_root=workspace)
 
-    assert len(appended) == 1
-    message = appended[0]
-    assert message["role"] == "user"
-    assert "<system-reminder>" in message["content"]
-    assert "current content" in message["content"]
-    assert "old content" not in message["content"]
-    assert message["metadata"]["is_skill_reinjection"] is True
-    refs = message["metadata"]["skill_reinjection_refs"]
-    assert refs == [
-        {
-            "name": "compact-skill",
-            "location": str(skill_file),
-            "root_id": str(skill_root.resolve()),
-        }
-    ]
+    assert compact_calls == [{"session_id": "sess-1", "workspace_root": workspace}]
+    assert appended == []

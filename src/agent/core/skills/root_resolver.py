@@ -36,6 +36,19 @@ class ResolvedSkillRoots:
         pa_registry = SkillRegistry(search_roots=(self.pa_skill_root, *self.search_roots))
         return SkillWriter(skill_root=self.pa_skill_root, registry=pa_registry)
 
+    def root_for_location(self, location: Path) -> Path:
+        """Return the configured search root that owns a discovered skill file."""
+
+        resolved_location = location.expanduser().resolve()
+        for root in self.search_roots:
+            resolved_root = root.expanduser().resolve()
+            try:
+                resolved_location.relative_to(resolved_root)
+            except ValueError:
+                continue
+            return resolved_root
+        return self.agent_skill_root
+
 
 def resolve_skill_roots(
     ctx: Any,

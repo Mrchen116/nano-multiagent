@@ -812,7 +812,14 @@ def _extract_message_metadata(entry: dict[str, Any]) -> dict[str, Any]:
     """Extract metadata fields from a JSONL turn entry."""
 
     meta: dict[str, Any] = {}
-    for key in ("is_meta", "is_compact_summary", "is_provider_error", "entrypoint"):
+    for key in (
+        "is_meta",
+        "is_compact_summary",
+        "is_skill_reinjection",
+        "skill_reinjection_refs",
+        "is_provider_error",
+        "entrypoint",
+    ):
         if key in entry:
             meta[key] = entry[key]
     # tool_calls from assistant metadata

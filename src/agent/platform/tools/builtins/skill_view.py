@@ -134,15 +134,17 @@ class SkillViewTool:
         if not name:
             return {"success": False, "error": "skill_view requires 'name'"}
         try:
-            skill_root, registry = self._resolve_skill_root_registry(ctx)
+            resolved = self._resolve_skill_roots(ctx)
+            registry = resolved.registry
             skills = registry.list_skills()
             skill = next((item for item in skills if item.name == name), None)
             if skill is None:
                 return {"success": False, "name": name, "error": f"Skill '{name}' not found"}
             content = skill.location.read_text(encoding="utf-8")
             metadata = dict(getattr(ctx, "session_metadata", {}) or {})
+            owning_root = resolved.root_for_location(skill.location)
             usage_result = bump_skill_usage(
-                skill_root=skill_root,
+                skill_root=owning_root,
                 skill_name=name,
                 session_id=getattr(ctx, "session_id", None),
                 tool_call_id=getattr(ctx, "tool_call_id", None),
@@ -152,8 +154,8 @@ class SkillViewTool:
             if usage_result.trigger is not None and self._enqueue_skill_batch_review(
                 ctx, usage_result.trigger
             ):
-                reset_uses_since_last_batch(skill_root=skill_root, skill_name=name)
-            self._register_invoked_skill(ctx, name=name, location=skill.location, root=skill_root)
+                reset_uses_since_last_batch(skill_root=owning_root, skill_name=name)
+            self._register_invoked_skill(ctx, name=name, location=skill.location, root=owning_root)
             return {
                 "success": True,
                 "name": name,
@@ -176,16 +178,22 @@ class SkillViewTool:
             return json.dumps(display, ensure_ascii=False, indent=2)
         return str(output)
 
-    def _resolve_skill_root_registry(self, ctx: Any) -> tuple[Path, SkillRegistry]:
+    def _resolve_skill_roots(self, ctx: Any) -> Any:
         if self._fixed_skill_root is not None and self._fixed_registry is not None:
-            return self._fixed_skill_root, self._fixed_registry
-        resolved = resolve_skill_roots(
+            from types import SimpleNamespace
+
+            return SimpleNamespace(
+                agent_skill_root=self._fixed_skill_root,
+                search_roots=(self._fixed_skill_root,),
+                registry=self._fixed_registry,
+                root_for_location=lambda location: self._fixed_skill_root,
+            )
+        return resolve_skill_roots(
             ctx,
             workspace_config_dirname=self._workspace_config_dirname,
             extra_roots=self._extra_roots,
             pa_skill_root=self._pa_skill_root,
         )
-        return resolved.agent_skill_root, resolved.registry
 
     def _register_invoked_skill(
         self, ctx: Any, *, name: str, location: Path, root: Path

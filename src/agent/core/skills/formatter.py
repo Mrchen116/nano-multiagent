@@ -13,14 +13,25 @@ SKILLS_GUIDANCE = (
     "When a task matches a listed skill, first call skill_view with its <name> before following its instructions."
 )
 
+SKILLS_CONTEXT_ONLY_GUIDANCE = (
+    "The following skills provide specialized instructions for specific tasks.\n"
+    "Use the listed skills only as task-matching context. Do not call unavailable "
+    "tools to load skill files."
+)
 
-def format_available_skills_section(skills: Sequence[SkillMetadata]) -> str:
+
+def format_available_skills_section(
+    skills: Sequence[SkillMetadata],
+    *,
+    skill_view_enabled: bool = True,
+) -> str:
     """Render available skills into an XML-like block consumed by the prompt."""
 
     if not skills:
         return ""
 
-    lines = [SKILLS_GUIDANCE, "", "<available_skills>"]
+    guidance = SKILLS_GUIDANCE if skill_view_enabled else SKILLS_CONTEXT_ONLY_GUIDANCE
+    lines = [guidance, "", "<available_skills>"]
     for skill in skills:
         lines.extend(
             (

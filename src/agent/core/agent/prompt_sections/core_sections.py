@@ -35,12 +35,15 @@ def _format_tools(tools: Sequence) -> str:
     return "\n".join(f"- {t.name}: {t.description}" for t in tools)
 
 
-def _format_skills(skills: Sequence) -> str:
+def _format_skills(skills: Sequence, *, skill_view_enabled: bool = True) -> str:
     """Render available skills the same way as format_available_skills_section."""
     # Lazily import from core.skills to avoid import-time side-effects.
     from agent.core.skills.formatter import format_available_skills_section  # noqa: PLC0415
 
-    return format_available_skills_section(skills)
+    return format_available_skills_section(
+        skills,
+        skill_view_enabled=skill_view_enabled,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -198,7 +201,10 @@ _CORE_TONE_STYLE = CORE_TONE_STYLE
 def _render_skills_listing(ctx: PromptContext) -> str | None:
     if not ctx.available_skills:
         return None
-    return _format_skills(ctx.available_skills)
+    return _format_skills(
+        ctx.available_skills,
+        skill_view_enabled=ctx.has_tool("skill_view"),
+    )
 
 
 # Provenance: new — migrated from RUNTIME_FILL:SKILLS_SECTION in prompts.py
