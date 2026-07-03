@@ -1048,6 +1048,7 @@ class InboundPipeline:
                 binding=binding,
                 agent_id=agent_id,
                 ack_tag="stop-noop",
+                source_message=message,
             )
             return PipelineResult(
                 agent_id=agent_id,
@@ -1094,6 +1095,7 @@ class InboundPipeline:
             binding=binding,
             agent_id=agent_id,
             ack_tag="stop-ack",
+            source_message=message,
         )
         return PipelineResult(
             agent_id=agent_id,
@@ -1111,6 +1113,7 @@ class InboundPipeline:
         binding: Any,
         agent_id: str,
         ack_tag: str,
+        source_message: InboundMessage | None = None,
     ) -> OutboundMessage | None:
         """Deliver a /stop acknowledgement to the originating IM conversation.
 
@@ -1129,16 +1132,25 @@ class InboundPipeline:
         ``kernel_session_id`` or an unrecognized suffix (e.g. ``|stop-ack``) leaves the
         ack unresolvable, the ack never returns, and the Gateway's single-frame-pending
         websocket queue stalls all subsequent streaming_delta frames.
+
+        feat-447 Round 7: IM deduplicates agent messages by ``from_session_id``.
+        A session-level key such as ``...:stop-noop`` would hide every later /stop
+        acknowledgement in the same Feishu shadow conversation. Include the source
+        inbound event id when present so distinct user-visible control events each
+        render once, while platform retries of the same event remain idempotent.
         """
+        from_session_id = _control_ack_from_session_id(
+            agent_id=agent_id,
+            kernel_session_id=binding.kernel_session_id,
+            ack_tag=ack_tag,
+            source_message=source_message,
+        )
         if self._bg_reply_sender is not None:
             try:
                 await self._bg_reply_sender(
                     text,
                     binding.reply_context,
-                    # Stable idempotency key so repeated /stop acks are deduplicated
-                    # by IM's agent_message_dispatch_log. Format mirrors BACKGROUND_TASK
-                    # relay: agent_id|tool_call:<stable-key>.
-                    f"{agent_id}|tool_call:{binding.kernel_session_id}:{ack_tag}",
+                    from_session_id,
                 )
             except Exception as exc:  # noqa: BLE001
                 logging.getLogger(__name__).warning(
@@ -1230,6 +1242,7 @@ class InboundPipeline:
             binding=binding,
             agent_id=agent_id,
             ack_tag=f"image-error-{failure_kind}",
+            source_message=message,
         )
         await self._emit_relay_lifecycle(
             message,
@@ -1785,6 +1798,41 @@ def _resolve_sender_label(message: "InboundMessage") -> str:
     if isinstance(display_name, str) and display_name.strip():
         return display_name.strip()
     return message.external_user_id
+
+
+def _control_ack_from_session_id(
+    *,
+    agent_id: str,
+    kernel_session_id: str,
+    ack_tag: str,
+    source_message: "InboundMessage" | None,
+) -> str:
+    """Build an IM dispatch key for one user-visible control acknowledgement."""
+
+    base = f"{agent_id}|tool_call:{kernel_session_id}:{ack_tag}"
+    source_id = _control_ack_source_id(source_message)
+    if source_id is None:
+        return base
+    return f"{base}:{source_id}"
+
+
+def _control_ack_source_id(message: "InboundMessage" | None) -> str | None:
+    if message is None:
+        return None
+    metadata = dict(message.metadata)
+    for key in ("feishu_message_id", "relay_task_id", "idempotency_key", "message_id"):
+        value = metadata.get(key)
+        if isinstance(value, str) and value.strip():
+            return _normalize_dispatch_id_part(value)
+    return None
+
+
+def _normalize_dispatch_id_part(value: str) -> str:
+    """Keep dispatch ids parseable while preserving enough platform identity."""
+
+    normalized = "_".join(value.strip().split())
+    normalized = normalized.replace("|", "_")
+    return normalized[:160] if len(normalized) > 160 else normalized
 
 
 def _is_external_channel_inbound(message: "InboundMessage") -> bool:
