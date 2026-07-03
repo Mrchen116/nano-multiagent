@@ -88,15 +88,16 @@ UI 状态矩阵：
 
 ### R2 — Agent detail Skills dashboard
 
-- 状态: TODO
+- 状态: DONE
 - 步骤:
   - 在 `im-agent-config-api.ts` 增加 usage API client 和类型。
   - 在 Agent detail shell 加 `Config / Skills` 分段导航，配置页原内容保持原样。
   - 新增 Skills panel，覆盖 list/agent/health 三视图、archived 过滤、空态、离线态。
   - 扩展前端 API 和 Agent detail tests。
 - 验证:
-  - `cd src/IM/frontend && npm run test -- --run src/features/settings/agents/im-agent-config-api.test.ts src/features/settings/agents/agent-detail-page.test.tsx`
-  - `cd src/IM/frontend && npm run test`
+  - `cd src/IM/frontend && npm run test -- --run src/features/settings/agents/im-agent-config-api.test.ts src/features/settings/agents/agent-detail-page.test.tsx` -> 2 files / 35 tests passed.
+  - `cd src/IM/frontend && npm run test` -> 63 files / 570 tests passed.
+  - `cd src/IM/frontend && npm run build` -> passed; Vite emitted existing dynamic-import/chunk-size warnings.
 
 ### R3 — skill_view tool card and browser QA
 
