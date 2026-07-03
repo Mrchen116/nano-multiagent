@@ -21,8 +21,8 @@
   - Browser QA: N/A
   - E2E/Regression: 后端 unit regression 已落库；真实 Gateway HOME 启动验证留到 R4 真入口验收。
   - Visual/Interaction: N/A
-- Rollback: revert `e08b95b2` and `5b40f6ca` together to remove builtin skill bootstrap implementation/tests.
-- Commits: C1=5b40f6ca, C2=e08b95b2, C3=TODO
+- Rollback: revert `72180e0a` and `f4f5523e` together to remove builtin skill bootstrap implementation/tests.
+- Commits: C1=f4f5523e, C2=72180e0a, C3=5505d7e5
 - Next: R2
 
 ## R2 — conversation distill metadata
@@ -37,8 +37,8 @@
   - Browser QA: N/A
   - E2E/Regression: Backend repository/API tests cover idle default, running active agent message, null path without agent source, and real JSONL path when session metadata matches.
   - Visual/Interaction: N/A
-- Rollback: revert `f0a24c0a` and `6bb1eb33` together to remove response fields and tests.
-- Commits: C1=6bb1eb33, C2=f0a24c0a, C3=TODO
+- Rollback: revert `663ed2c6` and `247fec3e` together to remove response fields and tests.
+- Commits: C1=247fec3e, C2=663ed2c6, C3=bd619c59
 - Next: R3
 
 ## R3 — frontend selection and prefill flow
@@ -53,8 +53,8 @@
   - Browser QA: 留 R4 真入口验收。
   - E2E/Regression: workspace integration 覆盖单来源自动执行 agent、跨来源必须选择执行 agent、scope=pa、skill 不可见不预填不创建 conversation、预填后普通 composer 仍可按现有发送测试路径发送。
   - Visual/Interaction: component/integration 覆盖可访问名称；真实 viewport 截图留 R4。
-- Rollback: revert `16d4a6ce` and `075fdcac` together to remove frontend distill entry and tests.
-- Commits: C1=075fdcac, C2=16d4a6ce, C3=TODO
+- Rollback: revert `270cb33c` and `a580628e` together to remove frontend distill entry and tests.
+- Commits: C1=a580628e, C2=270cb33c, C3=1d2eccec
 - Next: R4
 
 ## R4 — real entry QA and final gates
@@ -73,5 +73,5 @@
   - E2E/Regression: `source_jsonl_paths` 仅预填到 `MessagePane` draft，未修改 `createMessage()`/Gateway parser；普通发送路径由 chat workspace existing send tests回归。`conversation-skill-distiller/SKILL.md` 指导 agent 自行读取 JSONL，任一 source 不可读或证据不足不得创建 skill，并通过 `skill_manage(create, scope=<target_scope>)` 写入目标 root；历史蒸馏产物声明为用户主动创建，不进自动 Curator。
   - Visual/Interaction: 截图检查无明显重叠；desktop selection 展示可选 idle 与 running 禁选标签，desktop prefill 展示执行 agent 新对话和 composer 草稿，mobile selection 展示 checkbox/禁选标签/底部导航不冲突。
 - Rollback: revert R1/R2/R3 implementation commits plus their tests/docs if M3 must be removed; no schema migration added, rollback is code-only.
-- Commits: C3=TODO
+- Commits: C3=7524d409
 - Next: DONE
