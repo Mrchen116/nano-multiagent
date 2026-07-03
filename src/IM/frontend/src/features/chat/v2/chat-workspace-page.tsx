@@ -122,10 +122,35 @@ interface NodeRow {
   status: string;
 }
 
+type DistillTargetScope = "agent" | "pa";
+
+const DISTILL_SKILL_NAME = "conversation-skill-distiller";
+
 async function fetchNodes(): Promise<NodeRow[]> {
   const res = await authFetch("/im/v1/nodes");
   if (!res.ok) throw new Error(`listNodes failed: ${res.status}`);
   return (await res.json()) as NodeRow[];
+}
+
+function buildDistillDraft(input: {
+  sourceJsonlPaths: string[];
+  executionAgentId: string;
+  targetScope: DistillTargetScope;
+}): string {
+  const scopeLabel = input.targetScope === "pa" ? "PA 产品" : "agent";
+  return [
+    `/skill:${DISTILL_SKILL_NAME}`,
+    "source_jsonl_paths:",
+    ...input.sourceJsonlPaths.map((path) => `  ${path}`),
+    `execution_agent_id: ${input.executionAgentId}`,
+    `target_scope: ${input.targetScope}`,
+    "",
+    `请基于上述会话 transcript，总结我反复使用且值得复用的工作方式，直接生成并写入一个 ${scopeLabel} 级 skill。重点关注：`,
+    "- 触发这个 skill 的场景",
+    "- 应遵循的步骤/检查点",
+    "- 失败或边界情况",
+    "如果这些会话不足以形成稳定模式，请说明原因，不要创建 skill。"
+  ].join("\n");
 }
 
 /**
@@ -194,6 +219,14 @@ export function ChatWorkspacePageV2() {
   const [showNewGroup, setShowNewGroup] = useState(false);
   const [showGroupSettings, setShowGroupSettings] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [distillMode, setDistillMode] = useState(false);
+  const [selectedDistillConversationIds, setSelectedDistillConversationIds] = useState<Set<string>>(() => new Set());
+  const [showDistillDialog, setShowDistillDialog] = useState(false);
+  const [distillExecutionAgentId, setDistillExecutionAgentId] = useState("");
+  const [distillTargetScope, setDistillTargetScope] = useState<DistillTargetScope>("agent");
+  const [distillError, setDistillError] = useState<string | null>(null);
+  const [distillSubmitting, setDistillSubmitting] = useState(false);
+  const [draftSeed, setDraftSeed] = useState<{ id: string; text: string } | null>(null);
   // feat-445-M1: fork success toast (top-left, auto-fade); null = hidden.
   const [forkToast, setForkToast] = useState<boolean>(false);
   const selfUserId = useAuthStore((s) => s.user?.id ?? null);
@@ -326,6 +359,30 @@ export function ChatWorkspacePageV2() {
     },
   });
   const slashSkills = slashSkillsQuery.data ?? [];
+
+  const selectedDistillConversations = useMemo(() => {
+    const byId = new Set(selectedDistillConversationIds);
+    return (conversationsQuery.data ?? []).filter(
+      (c) => byId.has(c.id) && c.run_state !== "running" && c.source_agent_id && c.source_jsonl_path
+    );
+  }, [conversationsQuery.data, selectedDistillConversationIds]);
+
+  const distillSourceAgentOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const options: { agentId: string; displayName: string }[] = [];
+    for (const c of selectedDistillConversations) {
+      const agentId = c.source_agent_id;
+      if (!agentId || seen.has(agentId)) continue;
+      seen.add(agentId);
+      const row = (agentsQuery.data ?? []).find((a) => a.agent_id === agentId);
+      const participant = c.participants.find((p) => p.type === "agent" && p.id === agentId);
+      options.push({
+        agentId,
+        displayName: row?.display_name ?? participant?.display_name ?? agentId,
+      });
+    }
+    return options;
+  }, [agentsQuery.data, selectedDistillConversations]);
 
   // For direct-agent conversations, surface the agent's owning node (name +
   // online status) and the agent_id used by the ⚙ Config navigation.
@@ -654,6 +711,88 @@ export function ChatWorkspacePageV2() {
     || removeParticipantMutation.isPending
     || dissolveMutation.isPending;
 
+  function enterDistillMode() {
+    setDistillMode(true);
+    setDistillError(null);
+  }
+
+  function cancelDistillMode() {
+    setDistillMode(false);
+    setSelectedDistillConversationIds(new Set());
+    setShowDistillDialog(false);
+    setDistillError(null);
+  }
+
+  function toggleDistillConversation(conversationId: string) {
+    setSelectedDistillConversationIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(conversationId)) next.delete(conversationId);
+      else next.add(conversationId);
+      return next;
+    });
+  }
+
+  function openDistillDialog() {
+    if (selectedDistillConversations.length === 0) return;
+    const sourceAgentIds = [...new Set(selectedDistillConversations.map((c) => c.source_agent_id).filter(Boolean) as string[])];
+    setDistillExecutionAgentId(sourceAgentIds.length === 1 ? sourceAgentIds[0]! : "");
+    setDistillTargetScope("agent");
+    setDistillError(null);
+    setShowDistillDialog(true);
+  }
+
+  async function executionAgentCanSeeDistiller(agentId: string): Promise<boolean> {
+    const [config, capabilities] = await Promise.all([
+      getAgentConfig(agentId, "live"),
+      getAgentCapabilities(agentId),
+    ]);
+    const capSkills = normalizeAllowlistOptions(capabilities.skills);
+    return resolveEnabledSkills(config.skills ?? [], capSkills).some(
+      (skill) => skill.name === DISTILL_SKILL_NAME
+    );
+  }
+
+  async function startDistillation() {
+    if (!distillExecutionAgentId || selectedDistillConversations.length === 0) return;
+    setDistillSubmitting(true);
+    setDistillError(null);
+    try {
+      const visible = await executionAgentCanSeeDistiller(distillExecutionAgentId);
+      if (!visible) {
+        setDistillError(`Enable ${DISTILL_SKILL_NAME} for the execution agent before starting.`);
+        return;
+      }
+      const agentName =
+        distillSourceAgentOptions.find((a) => a.agentId === distillExecutionAgentId)?.displayName
+        ?? distillExecutionAgentId;
+      const conv = await createConversation({
+        title: `Skill distill · ${agentName}`,
+        agentIds: [distillExecutionAgentId],
+      });
+      queryClient.setQueryData<Conversation[] | undefined>(["chat-v2", "conversations"], (prev) => {
+        const rest = (prev ?? []).filter((c) => c.id !== conv.id);
+        return [conv, ...rest];
+      });
+      setDraftSeed({
+        id: `distill-${conv.id}-${Date.now()}`,
+        text: buildDistillDraft({
+          sourceJsonlPaths: selectedDistillConversations.map((c) => c.source_jsonl_path!).filter(Boolean),
+          executionAgentId: distillExecutionAgentId,
+          targetScope: distillTargetScope,
+        }),
+      });
+      setShowDistillDialog(false);
+      setDistillMode(false);
+      setSelectedDistillConversationIds(new Set());
+      await queryClient.invalidateQueries({ queryKey: ["chat-v2", "conversations"] });
+      navigate(`/chat/${conv.id}`);
+    } catch (err) {
+      setDistillError(err instanceof Error ? err.message : t("chat.distill.startError"));
+    } finally {
+      setDistillSubmitting(false);
+    }
+  }
+
   const showList = !isMobile || !conversationId;
   const showDetail = !isMobile || Boolean(conversationId);
 
@@ -689,6 +828,12 @@ export function ChatWorkspacePageV2() {
           activeConversationId={conversationId ?? null}
           onSelect={(id) => navigate(`/chat/${id}`)}
           onNewGroup={() => setShowNewGroup(true)}
+          distillMode={distillMode}
+          selectedDistillConversationIds={selectedDistillConversationIds}
+          onToggleDistillConversation={toggleDistillConversation}
+          onEnterDistillMode={enterDistillMode}
+          onCancelDistillMode={cancelDistillMode}
+          onStartDistill={openDistillDialog}
           agents={(agentsQuery.data ?? []).map((a) => {
             const nodeRow = (nodesQuery.data ?? []).find((n) => n.node_id === a.node_id);
             return {
@@ -705,6 +850,7 @@ export function ChatWorkspacePageV2() {
             conversation={activeConversation}
             messages={streamState.messages}
             mentionCandidates={mentionCandidates}
+            draftSeed={draftSeed}
             slashSkills={slashSkills}
             nodeName={headerAgentContext.nodeName}
             nodeStatus={headerAgentContext.nodeStatus}
@@ -752,6 +898,88 @@ export function ChatWorkspacePageV2() {
           onCreate={(payload) => createGroupMutation.mutate(payload)}
         />
       )}
+      {showDistillDialog && (
+        <div className="chat-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="distill-dialog-title">
+          <div className="chat-modal">
+            <header className="chat-modal-header">
+              <h2 id="distill-dialog-title">{t("chat.distill.title")}</h2>
+              <p>{t("chat.distill.subtitle")}</p>
+            </header>
+            <div className="chat-modal-body">
+              {distillSourceAgentOptions.length > 1 && (
+                <section className="chat-modal-section">
+                  <p className="chat-modal-section-label">Execution agent</p>
+                  <ul className="chat-modal-agents">
+                    {distillSourceAgentOptions.map((agent) => (
+                      <li key={agent.agentId}>
+                        <label className={`chat-modal-agent${distillExecutionAgentId === agent.agentId ? " chat-modal-agent--on" : ""}`}>
+                          <input
+                            type="radio"
+                            name="distill-execution-agent"
+                            checked={distillExecutionAgentId === agent.agentId}
+                            onChange={() => setDistillExecutionAgentId(agent.agentId)}
+                          />
+                          <span className="chat-modal-agent-body">
+                            <span className="chat-modal-agent-name">{agent.displayName}</span>
+                            <span className="chat-modal-agent-desc">{agent.agentId}</span>
+                          </span>
+                        </label>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+              {distillSourceAgentOptions.length === 1 && (
+                <section className="chat-modal-section">
+                  <p className="chat-modal-section-label">Execution agent</p>
+                  <p className="chat-distill-static-agent">
+                    {distillSourceAgentOptions[0]!.displayName}
+                  </p>
+                </section>
+              )}
+              <section className="chat-modal-section">
+                <p className="chat-modal-section-label">{t("chat.distill.scope")}</p>
+                <div className="chat-distill-scope-options">
+                  <label className={`chat-distill-scope${distillTargetScope === "agent" ? " chat-distill-scope--on" : ""}`}>
+                    <input
+                      type="radio"
+                      name="distill-target-scope"
+                      checked={distillTargetScope === "agent"}
+                      onChange={() => setDistillTargetScope("agent")}
+                    />
+                    <span>Agent</span>
+                  </label>
+                  <label className={`chat-distill-scope${distillTargetScope === "pa" ? " chat-distill-scope--on" : ""}`}>
+                    <input
+                      type="radio"
+                      name="distill-target-scope"
+                      checked={distillTargetScope === "pa"}
+                      onChange={() => setDistillTargetScope("pa")}
+                    />
+                    <span>PA product</span>
+                  </label>
+                </div>
+              </section>
+              {distillError && (
+                <p className="chat-distill-error" role="alert">{distillError}</p>
+              )}
+            </div>
+            <footer className="chat-modal-footer">
+              <button type="button" className="chat-modal-btn-ghost" onClick={() => setShowDistillDialog(false)}>
+                {t("chat.newGroup.cancel")}
+              </button>
+              <button
+                type="button"
+                className="chat-modal-btn-primary"
+                disabled={!distillExecutionAgentId || distillSubmitting}
+                onClick={() => void startDistillation()}
+              >
+                {distillSubmitting ? t("chat.distill.starting") : "Start distillation"}
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
       {showGroupSettings && activeConversation && isGroupKind && (
         <GroupSettings
           title={activeConversation.title}
@@ -770,4 +998,3 @@ export function ChatWorkspacePageV2() {
     </div>
   );
 }
-

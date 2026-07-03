@@ -5,6 +5,7 @@ goes through ``/im/v1/auth/register``. These tests now assert the same conversat
 behaviors via the auth-gated routes.
 """
 
+import json
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -35,16 +36,95 @@ def test_users_and_conversations_roundtrip(tmp_path: Path) -> None:
         assert conversation["unread_count"] == 0
         assert conversation["last_message_preview"] is None
         assert conversation["last_message_at"] is None
+        assert conversation["run_state"] == "idle"
+        assert conversation["source_agent_id"] is None
+        assert conversation["source_jsonl_path"] is None
 
         list_resp = client.get("/im/v1/conversations")
         assert list_resp.status_code == 200
         items = list_resp.json()["items"]
         assert len(items) == 1
         assert items[0]["id"] == conversation["id"]
+        assert items[0]["run_state"] == "idle"
 
         detail_resp = client.get(f"/im/v1/conversations/{conversation['id']}")
         assert detail_resp.status_code == 200
         assert detail_resp.json()["id"] == conversation["id"]
+
+
+def test_agent_conversation_response_includes_source_jsonl_path(
+    tmp_path: Path,
+) -> None:
+    """Conversation API exposes the resolved kernel session JSONL when it exists."""
+    with make_app_client(tmp_path) as client:
+        alice = register_user(client, username="alice", display_name="Alice")
+        authorize(client, alice)
+        connection = client.app.state.connection
+        workspace_root = tmp_path / "agent-1-workspace"
+        connection.execute(
+            """
+            INSERT INTO users(id, username, display_name, owner_id, created_at)
+            VALUES (?, ?, ?, ?, datetime('now'))
+            """,
+            ("agent-user-1", "agent:agent-1", "Agent 1", alice.owner_id),
+        )
+        connection.execute(
+            """
+            INSERT INTO agent_profiles(
+                agent_id, owner_id, node_id, display_name, description, system_prompt,
+                skills_json, tool_allowlist_json, group_reply_policy, default_model,
+                workspace_root, profile_version, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+            """,
+            (
+                "agent-1",
+                alice.owner_id,
+                "node-1",
+                "Agent 1",
+                "",
+                "You are Agent 1.",
+                "[]",
+                "[]",
+                "manual",
+                None,
+                str(workspace_root),
+                1,
+            ),
+        )
+        connection.commit()
+
+        conversation_resp = client.post(
+            "/im/v1/conversations",
+            json={
+                "title": "Alice & Agent",
+                "participant_ids": [alice.id, "agent-user-1"],
+            },
+        )
+        assert conversation_resp.status_code == 201, conversation_resp.text
+        conversation = conversation_resp.json()
+        session_path = workspace_root / ".nanoassistant" / "sessions" / "sess-1.jsonl"
+        session_path.parent.mkdir(parents=True)
+        session_path.write_text(
+            json.dumps(
+                {
+                    "type": "session_created",
+                    "session_id": "sess-1",
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "workspace_root": str(workspace_root),
+                    "metadata": {
+                        "agent_id": "agent-1",
+                        "conversation_id": conversation["id"],
+                    },
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        listed = client.get("/im/v1/conversations").json()["items"]
+
+        assert listed[0]["source_agent_id"] == "agent-1"
+        assert listed[0]["source_jsonl_path"] == str(session_path)
 
 
 def test_patch_conversation_updates_title_pin_and_mute(tmp_path: Path) -> None:

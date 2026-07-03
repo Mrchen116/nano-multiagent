@@ -34,6 +34,7 @@ export interface MessagePaneProps {
   conversation: Conversation;
   messages: Message[];
   mentionCandidates: MentionCandidate[];
+  draftSeed?: { id: string; text: string } | null;
   /** feat-430: enabled skills for this conversation's agent(s), for the slash picker. */
   slashSkills?: SlashSkillCandidate[];
   nodeName?: string | null;
@@ -135,6 +136,7 @@ export function MessagePane({
   conversation,
   messages,
   mentionCandidates,
+  draftSeed = null,
   slashSkills = [],
   nodeName,
   nodeStatus = "offline",
@@ -163,6 +165,19 @@ export function MessagePane({
   const mirrorRef = useRef<HTMLDivElement | null>(null);
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const slashWrapRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!draftSeed) return;
+    setDraft(draftSeed.text);
+    setDraftMentions([]);
+    setSlashDismissed(false);
+    requestAnimationFrame(() => {
+      const el = composerRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(draftSeed.text.length, draftSeed.text.length);
+    });
+  }, [draftSeed?.id]);
 
   const kind = classifyConversationKind(conversation);
   const isGroup = kind === "group" || kind === "agent-network";

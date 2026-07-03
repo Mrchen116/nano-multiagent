@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -7,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import "../../../i18n";
 import { useAuthStore } from "../../auth/auth-store";
 import { ChatWorkspacePageV2 } from "./chat-workspace-page";
+import type { Conversation } from "./chat-types";
 import type { ParsedImStreamEvent } from "../../chat/im-chat-api";
 
 // ─── Mock attachUserConversationStream ──────────────────────────────────────
@@ -75,7 +77,10 @@ const FIXTURES = {
       unread_count: 0,
       last_message_preview: null,
       last_message_at: null,
-      created_at: "2026-05-01T00:00:00Z"
+      created_at: "2026-05-01T00:00:00Z",
+      run_state: "idle",
+      source_agent_id: "a-planner",
+      source_jsonl_path: "/tmp/planner-session.jsonl"
     },
     {
       id: "c2",
@@ -95,7 +100,10 @@ const FIXTURES = {
       unread_count: 0,
       last_message_preview: null,
       last_message_at: null,
-      created_at: "2026-05-01T00:00:00Z"
+      created_at: "2026-05-01T00:00:00Z",
+      run_state: "idle",
+      source_agent_id: "a-writer",
+      source_jsonl_path: "/tmp/writer-session.jsonl"
     },
     {
       id: "c3",
@@ -113,9 +121,12 @@ const FIXTURES = {
       unread_count: 0,
       last_message_preview: null,
       last_message_at: null,
-      created_at: "2026-05-01T00:00:00Z"
+      created_at: "2026-05-01T00:00:00Z",
+      run_state: "idle",
+      source_agent_id: null,
+      source_jsonl_path: null
     }
-  ],
+  ] satisfies Conversation[],
   messagesC1: [
     {
       id: "m1",
@@ -135,13 +146,44 @@ function jsonResponse(data: unknown, init: ResponseInit = {}): Response {
   return new Response(JSON.stringify(data), { status: 200, headers: { "Content-Type": "application/json" }, ...init });
 }
 
-function mockFetch(): ReturnType<typeof vi.fn> {
+function mockFetch(opts: { distillerVisible?: boolean } = {}): ReturnType<typeof vi.fn> {
+  const distillerVisible = opts.distillerVisible ?? true;
   const sent: { url: string; init?: RequestInit }[] = [];
+  const conversations: Conversation[] = [...FIXTURES.conversations];
   const fn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
     sent.push({ url, init });
     if (url.endsWith("/im/v1/conversations") && (!init || init.method === undefined || init.method === "GET")) {
-      return jsonResponse({ items: FIXTURES.conversations });
+      return jsonResponse({ items: conversations });
+    }
+    if (url.endsWith("/im/v1/conversations") && init?.method === "POST") {
+      const body = JSON.parse(String(init.body));
+      const agent = (body.participants ?? []).find((p: { type?: string }) => p.type === "agent");
+      const agentId = agent?.id ?? "a-planner";
+      const created: Conversation = {
+        id: `c-distill-${conversations.length}`,
+        title: body.title,
+        participants: [
+          { type: "user", id: "u-self", display_name: "You", user_id: "u-self" },
+          { type: "agent", id: agentId, display_name: agentId === "a-writer" ? "Writer" : "Planner", user_id: `user-uuid-${agentId}` }
+        ],
+        participant_ids: ["u-self", agentId],
+        type: "direct",
+        direct_kind: "agent",
+        owner_id: "u-self",
+        creator_id: "u-self",
+        is_pinned: false,
+        is_muted: false,
+        unread_count: 0,
+        last_message_preview: null,
+        last_message_at: null,
+        created_at: "2026-05-01T00:02:00Z",
+        run_state: "idle",
+        source_agent_id: agentId,
+        source_jsonl_path: null
+      };
+      conversations.unshift(created);
+      return jsonResponse(created, { status: 201 });
     }
     if (/\/im\/v1\/conversations\/c1\/messages/.test(url) && (!init || init.method === undefined || init.method === "GET")) {
       return jsonResponse({ items: FIXTURES.messagesC1, next_before_message_id: null });
@@ -172,6 +214,38 @@ function mockFetch(): ReturnType<typeof vi.fn> {
           last_error: null
         }
       ]);
+    }
+    if (/\/im\/v1\/agents\/[^/]+\/config\?source=live$/.test(url)) {
+      const agentId = decodeURIComponent(url.match(/\/im\/v1\/agents\/([^/]+)\//)![1]!);
+      return jsonResponse({
+        agent_id: agentId,
+        owner_id: "u-self",
+        display_name: agentId === "a-writer" ? "Writer" : "Planner",
+        description: "",
+        system_prompt: "",
+        skills: [],
+        tool_allowlist: [],
+        group_reply_policy: "manual",
+        default_model: null,
+        workspace_root: `/tmp/${agentId}`,
+        workspace_is_default: false,
+        profile_version: 1,
+        node_id: "node-prod"
+      });
+    }
+    if (/\/im\/v1\/agents\/[^/]+\/capabilities$/.test(url)) {
+      return jsonResponse({
+        node_id: "node-prod",
+        node_name: "laptop-prod",
+        node_status: "online",
+        skills: distillerVisible
+          ? [{ name: "conversation-skill-distiller", description: "Distill conversations", location: "/tmp/distiller/SKILL.md" }]
+          : [],
+        tools: [],
+        model_options: [],
+        platform_default_model: null,
+        default_system_prompt: ""
+      });
     }
     if (/\/im\/v1\/conversations\/c1\/messages$/.test(url) && init?.method === "POST") {
       const body = JSON.parse(String(init.body));
@@ -257,6 +331,65 @@ describe("ChatWorkspacePage v2 — integration", () => {
     expect(await screen.findByText("Hi Planner")).toBeInTheDocument();
     // Header title rendered too:
     expect(screen.getByRole("heading", { name: "Planner" })).toBeInTheDocument();
+  });
+
+  it("prefills the distiller skill prompt for a single-source conversation", async () => {
+    const user = userEvent.setup();
+    renderAtRoute("/chat");
+    const plannerRow = await screen.findByRole("button", { name: /Planner/ });
+    fireEvent.contextMenu(plannerRow);
+
+    await user.click(screen.getByRole("checkbox", { name: /Planner/ }));
+    await user.click(screen.getByRole("button", { name: "Distill to skill" }));
+    await user.click(screen.getByRole("button", { name: "Start distillation" }));
+
+    const composer = await screen.findByRole("textbox") as HTMLTextAreaElement;
+    await waitFor(() => expect(composer.value).toContain("/skill:conversation-skill-distiller"));
+    expect(composer.value).toContain("source_jsonl_paths:");
+    expect(composer.value).toContain("  /tmp/planner-session.jsonl");
+    expect(composer.value).toContain("execution_agent_id: a-planner");
+    expect(composer.value).toContain("target_scope: agent");
+  });
+
+  it("requires an execution agent for cross-agent distillation sources", async () => {
+    const user = userEvent.setup();
+    renderAtRoute("/chat");
+    await screen.findByRole("button", { name: /Planner/ });
+    await user.click(screen.getByRole("button", { name: "Generate skill" }));
+
+    await user.click(screen.getByRole("checkbox", { name: /Planner/ }));
+    await user.click(screen.getByRole("checkbox", { name: /Research Squad/ }));
+    await user.click(screen.getByRole("button", { name: "Distill to skill" }));
+
+    expect(screen.getByText("Execution agent")).toBeInTheDocument();
+    await user.click(screen.getByRole("radio", { name: /Writer/ }));
+    await user.click(screen.getByRole("radio", { name: "PA product" }));
+    await user.click(screen.getByRole("button", { name: "Start distillation" }));
+
+    const composer = await screen.findByRole("textbox") as HTMLTextAreaElement;
+    await waitFor(() => expect(composer.value).toContain("execution_agent_id: a-writer"));
+    expect(composer.value).toContain("target_scope: pa");
+    expect(composer.value).toContain("  /tmp/planner-session.jsonl");
+    expect(composer.value).toContain("  /tmp/writer-session.jsonl");
+  });
+
+  it("does not prefill the distiller command when the execution agent cannot see the skill", async () => {
+    const user = userEvent.setup();
+    fetchSpy = mockFetch({ distillerVisible: false });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    renderAtRoute("/chat");
+    await screen.findByRole("button", { name: /Planner/ });
+    await user.click(screen.getByRole("button", { name: "Generate skill" }));
+    await user.click(screen.getByRole("checkbox", { name: /Planner/ }));
+    await user.click(screen.getByRole("button", { name: "Distill to skill" }));
+    await user.click(screen.getByRole("button", { name: "Start distillation" }));
+
+    expect(await screen.findByText(/Enable conversation-skill-distiller/)).toBeInTheDocument();
+    const postedConversation = (fetchSpy as unknown as { sent: { url: string; init?: RequestInit }[] }).sent.find(
+      (r) => r.url.endsWith("/im/v1/conversations") && r.init?.method === "POST"
+    );
+    expect(postedConversation).toBeUndefined();
   });
 
   // bugfix-442: 侧边栏会话列表必须随实时消息流 + 读消息刷新，否则未读角标 /

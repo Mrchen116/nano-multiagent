@@ -324,6 +324,11 @@
         "group": "Group",
         "network": "Network"
       },
+      "generateSkill": "Generate skill",
+      "distillToSkill": "Distill to skill",
+      "cancel": "Cancel",
+      "running": "Running",
+      "noTranscript": "No transcript",
       "empty": "No conversations"
     },
     "kindBadge": {
@@ -342,6 +347,13 @@
       "cancel": "Cancel",
       "online": "online",
       "offline": "offline"
+    },
+    "distill": {
+      "title": "Distill conversations",
+      "subtitle": "Create a new chat with the execution agent and prefill a normal skill command.",
+      "scope": "Write scope",
+      "starting": "Starting…",
+      "startError": "Failed to start distillation."
     },
     "messagePane": {
       "emptyTitle": "No messages yet",
