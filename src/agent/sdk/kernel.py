@@ -30,6 +30,7 @@ from agent.core.observability.tracing import set_tracer
 from agent.core.runs.registry import RunsRegistry
 from agent.core.runs.origin import RunOrigin
 from agent.core.session.jsonl_store import JsonlSessionStore
+from agent.core.utils.time import utc_now_iso as _utc_now_iso
 from agent.platform.background_tasks.wiring import wire_background_tasks
 from agent.platform.config.auto_mode import AutoModeConfig
 from agent.platform.hooks.loader import build_hook_registry
@@ -1283,14 +1284,21 @@ class Kernel:
         """Run deterministic skill lifecycle housekeeping for one workspace."""
 
         from agent.core.skills.curator import (  # noqa: PLC0415
+            CuratorResult,
             apply_curator_transitions,
             run_curator_scan,
         )
 
         effective_root = Path(workspace_root or self._repo_root).expanduser().resolve()
-        skill_root = (
-            effective_root / (self._workspace_config_dirname or ".nano") / "skills"
-        )
+        if not self._workspace_config_dirname:
+            return CuratorResult(
+                skill_root=effective_root,
+                now_iso=_utc_now_iso(),
+                transitions=(),
+                skipped=True,
+                reason="missing_workspace_config_dirname",
+            )
+        skill_root = effective_root / self._workspace_config_dirname / "skills"
         result = run_curator_scan(skill_root=skill_root, force=force)
         return apply_curator_transitions(result)
 

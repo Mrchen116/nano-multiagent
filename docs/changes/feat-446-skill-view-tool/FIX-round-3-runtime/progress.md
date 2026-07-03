@@ -8,3 +8,4 @@
 - Added regressions and implementation for web relay `conversation_id` metadata, slash `skill_view` realtime start/end events, root-filtered F4 queue draining, and writable-root-checked F4 batch review.
 - Focused backend suite passed: `75 passed in 1.99s`.
 - Medium pass: skills dashboard rows already key by `skill_id`; distill preflight still does not require `skill_manage` and is deferred because this milestone stayed on backend/runtime blocking paths.
+- Round-4 contract follow-up confirmed R3 had already been completed on merged/pushed unit head `0db64232208ddc426752f407ea33cc4d1bd7c076`; this doc sync marks the checklist done so verifier completeness matches the shipped state.

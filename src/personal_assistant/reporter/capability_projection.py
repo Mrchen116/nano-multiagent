@@ -90,7 +90,7 @@ FEATURE_PROJECTIONS: tuple[FeatureProjection, ...] = (
         label_i18n="feature.skill_creation.label",
         help_i18n="feature.skill_creation.help",
         default_on=True,
-        requires_tool=None,
+        requires_tool="skill_manage",
         requires_any_tool=("skill_manage", "skill_view"),
     ),
     FeatureProjection(
@@ -185,9 +185,6 @@ def project_features(
                 "default_on": entry["default_on"],
                 "available": available,
                 "requires_tool": requires_tool,
-                "requires_any_tool": list(requires_any_tool)
-                if requires_any_tool is not None
-                else None,
             }
         )
     return projection

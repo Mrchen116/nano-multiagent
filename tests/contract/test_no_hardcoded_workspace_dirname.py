@@ -42,8 +42,9 @@ _WHITELIST: frozenset[str] = frozenset(
         # bugfix-431-M1 rebase onto bugfix-429: config_resolver→workspace_config_dirname+
         # skill_search_roots params net +2 (197→199); ruff fix/format 后 .nano 字面量净下移到 202
         # bugfix-433-M1 R2: user_msg parts comment+arg added before tool_results_dir; shifted 202→208
-        # feat-430 fix-r2: _rewrite_skill_command_in_parts helper + multi-part rewrite block added above
-        "src/agent/core/agent/runtime.py:236",
+        # feat-430 fix-r2: _rewrite_skill_command_in_parts helper + multi-part rewrite block added above.
+        # feat-446 round-4 contract fix: compaction/F4 helpers added in __init__, shifted 236→251.
+        "src/agent/core/agent/runtime.py:251",
         # kernel.py: build_kernel new-path workspace_config_dirname default — platform
         # default fallback when a consumer omits it (same role as jsonl_store default);
         # consumers always pass their own (.nanocode / .nanoassistant). refactor-406-M1 决策 1.
@@ -52,13 +53,17 @@ _WHITELIST: frozenset[str] = frozenset(
         # refactor-406-M2 added build_kernel skill_search_roots param + docstring (122→131);
         # refactor-406-M3fix #2 added tool_search_roots/hook_search_roots params (131→140).
         # feat-446-M1 R3 added skill reinjection helpers above build_kernel, shifted to 210.
-        "src/agent/sdk/kernel.py:210",
+        # feat-446 round-4 contract fix: helper removals compacted build_kernel back to 141,
+        # then utc_now_iso import shifted the fallback line to 142.
+        "src/agent/sdk/kernel.py:142",
         # kernel.py: M3fix #2 workspace .nano/hooks dir for the _SearchRootsResolver
         # (决策2-style workspace discovery; literal .nano, not workspace_config_dirname);
         # M3fix-r2 dead-code removal shifted 369→370.
         # bugfix-426-M1: RunInfo.injected docstring lines in _to_run_info shifted 370→375.
         # feat-446-M1 R3 helper block shifted 376→448.
-        "src/agent/sdk/kernel.py:448",
+        # feat-446 round-4 contract fix: helper removals compacted the hook root literal to 379,
+        # then utc_now_iso import shifted it to 380.
+        "src/agent/sdk/kernel.py:380",
         # kernel.py: M3fix-r2 R2-1 workspace .nano/tools dir loaded via
         # _load_tools_from_single_dir(replace=True) (决策2 workspace discovery; literal .nano).
         # bugfix-417-M7: foreground_stopper injection comment expanded (decision 12); shifted 480→483.
@@ -68,7 +73,9 @@ _WHITELIST: frozenset[str] = frozenset(
         # (−35 lines) but build_kernel body net grew; bugfix-426 merge keeps RunInfo.injected
         # docstring and foreground stopper shifts; .nano/tools literal now at 515.
         # feat-446-M1 R3 helper block shifted 516→591.
-        "src/agent/sdk/kernel.py:591",
+        # feat-446 round-4 contract fix: helper removals compacted the tools root literal to 523,
+        # then utc_now_iso import shifted it to 524.
+        "src/agent/sdk/kernel.py:524",
         # skills/discovery.py: .nano skill search root — platform default, pre-185
         "src/agent/core/skills/discovery.py:45",
         # jsonl_store.py: .nano default parameter — used as fallback, not per-workspace hardcode

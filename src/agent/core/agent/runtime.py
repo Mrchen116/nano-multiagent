@@ -2455,8 +2455,9 @@ class AgentRuntime:
             if workspace_root is not None
             else self._repo_root
         )
-        dirname = self._workspace_config_dirname or ".nanoassistant"
-        roots = [effective_root / dirname / "skills", *self._skill_search_roots]
+        roots: list[Path] = list(self._skill_search_roots)
+        if self._workspace_config_dirname:
+            roots.insert(0, effective_root / self._workspace_config_dirname / "skills")
         deduped: list[Path] = []
         seen: set[str] = set()
         for root in roots:

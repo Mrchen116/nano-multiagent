@@ -244,7 +244,8 @@ def test_project_features_supports_skill_creation_with_skill_view_only() -> None
     skill_creation = next(item for item in features if item["key"] == "skill_creation")
 
     assert skill_creation["available"] is True
-    assert skill_creation["requires_any_tool"] == ["skill_manage", "skill_view"]
+    assert skill_creation["requires_tool"] == "skill_manage"
+    assert "requires_any_tool" not in skill_creation
 
 
 # ---------------------------------------------------------------------------
