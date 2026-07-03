@@ -146,8 +146,16 @@ function jsonResponse(data: unknown, init: ResponseInit = {}): Response {
   return new Response(JSON.stringify(data), { status: 200, headers: { "Content-Type": "application/json" }, ...init });
 }
 
-function mockFetch(opts: { distillerVisible?: boolean } = {}): ReturnType<typeof vi.fn> {
+function mockFetch(opts: {
+  distillerVisible?: boolean;
+  toolAllowlist?: string[];
+  skillViewToolVisible?: boolean;
+  skillViewDefaultOn?: boolean;
+} = {}): ReturnType<typeof vi.fn> {
   const distillerVisible = opts.distillerVisible ?? true;
+  const toolAllowlist = opts.toolAllowlist ?? [];
+  const skillViewToolVisible = opts.skillViewToolVisible ?? true;
+  const skillViewDefaultOn = opts.skillViewDefaultOn ?? true;
   const sent: { url: string; init?: RequestInit }[] = [];
   const conversations: Conversation[] = [...FIXTURES.conversations];
   const fn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -224,7 +232,7 @@ function mockFetch(opts: { distillerVisible?: boolean } = {}): ReturnType<typeof
         description: "",
         system_prompt: "",
         skills: [],
-        tool_allowlist: [],
+        tool_allowlist: toolAllowlist,
         group_reply_policy: "manual",
         default_model: null,
         workspace_root: `/tmp/${agentId}`,
@@ -241,7 +249,9 @@ function mockFetch(opts: { distillerVisible?: boolean } = {}): ReturnType<typeof
         skills: distillerVisible
           ? [{ name: "conversation-skill-distiller", description: "Distill conversations", location: "/tmp/distiller/SKILL.md" }]
           : [],
-        tools: [],
+        tools: skillViewToolVisible
+          ? [{ name: "skill_view", description: "View skills", default_on: skillViewDefaultOn }]
+          : [],
         model_options: [],
         platform_default_model: null,
         default_system_prompt: ""
@@ -352,6 +362,23 @@ describe("ChatWorkspacePage v2 — integration", () => {
     expect(composer.value).toContain("target_scope: agent");
   });
 
+  it("does not preselect an ineligible no-transcript conversation from the right-click entry and shows a recoverable notice", async () => {
+    const user = userEvent.setup();
+    renderAtRoute("/chat");
+    const missingTranscriptRow = await screen.findByRole("button", { name: /Empty Group/ });
+    fireEvent.contextMenu(missingTranscriptRow);
+
+    await user.click(await screen.findByRole("menuitem", { name: "Distill to skill" }));
+
+    const checkbox = await screen.findByRole("checkbox", { name: /Empty Group/ }) as HTMLInputElement;
+    expect(checkbox).toBeDisabled();
+    expect(checkbox.checked).toBe(false);
+    expect(screen.getByRole("button", { name: "Distill to skill" })).toBeDisabled();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Select at least one finished conversation with a transcript.",
+    );
+  });
+
   it("requires an execution agent for cross-agent distillation sources", async () => {
     const user = userEvent.setup();
     renderAtRoute("/chat");
@@ -387,6 +414,25 @@ describe("ChatWorkspacePage v2 — integration", () => {
     await user.click(screen.getByRole("button", { name: "Start distillation" }));
 
     expect(await screen.findByText(/Enable conversation-skill-distiller/)).toBeInTheDocument();
+    const postedConversation = (fetchSpy as unknown as { sent: { url: string; init?: RequestInit }[] }).sent.find(
+      (r) => r.url.endsWith("/im/v1/conversations") && r.init?.method === "POST"
+    );
+    expect(postedConversation).toBeUndefined();
+  });
+
+  it("does not create the distill conversation when the execution agent lacks skill_view", async () => {
+    const user = userEvent.setup();
+    fetchSpy = mockFetch({ toolAllowlist: ["read"] });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    renderAtRoute("/chat");
+    await screen.findByRole("button", { name: /Planner/ });
+    await user.click(screen.getByRole("button", { name: "Generate skill" }));
+    await user.click(screen.getByRole("checkbox", { name: /Planner/ }));
+    await user.click(screen.getByRole("button", { name: "Distill to skill" }));
+    await user.click(screen.getByRole("button", { name: "Start distillation" }));
+
+    expect(await screen.findByText(/Enable skill_view/)).toBeInTheDocument();
     const postedConversation = (fetchSpy as unknown as { sent: { url: string; init?: RequestInit }[] }).sent.find(
       (r) => r.url.endsWith("/im/v1/conversations") && r.init?.method === "POST"
     );

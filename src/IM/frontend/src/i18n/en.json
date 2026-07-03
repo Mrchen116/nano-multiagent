@@ -352,6 +352,10 @@
       "title": "Distill conversations",
       "subtitle": "Create a new chat with the execution agent and prefill a normal skill command.",
       "scope": "Write scope",
+      "selectionRequired": "Select at least one finished conversation with a transcript.",
+      "requireDistiller": "Enable conversation-skill-distiller for the execution agent before starting.",
+      "requireSkillView": "Enable skill_view for the execution agent before starting.",
+      "requireDistillerAndSkillView": "Enable conversation-skill-distiller and skill_view for the execution agent before starting.",
       "starting": "Starting…",
       "startError": "Failed to start distillation."
     },

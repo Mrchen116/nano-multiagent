@@ -137,6 +137,7 @@ describe("ConversationSidebar", () => {
         onNewGroup={() => {}}
         distillMode
         selectedDistillConversationIds={new Set()}
+        selectedDistillEligibleCount={0}
         onToggleDistillConversation={onToggle}
         onEnterDistillMode={() => {}}
         onCancelDistillMode={() => {}}
@@ -152,6 +153,37 @@ describe("ConversationSidebar", () => {
 
     await user.click(idleCheckbox);
     expect(onToggle).toHaveBeenCalledWith("idle");
+  });
+
+  it("does not render disabled rows as selected even if their ids are present in selection state", () => {
+    render(
+      <ConversationSidebar
+        conversations={[
+          conv({
+            id: "missing-transcript",
+            title: "Missing transcript",
+            run_state: "idle",
+            source_agent_id: null,
+            source_jsonl_path: null
+          })
+        ]}
+        activeConversationId={null}
+        onSelect={() => {}}
+        onNewGroup={() => {}}
+        distillMode
+        selectedDistillConversationIds={new Set(["missing-transcript"])}
+        selectedDistillEligibleCount={0}
+        onToggleDistillConversation={() => {}}
+        onEnterDistillMode={() => {}}
+        onCancelDistillMode={() => {}}
+        onStartDistill={() => {}}
+      />
+    );
+
+    const checkbox = screen.getByRole("checkbox", { name: /Missing transcript/ }) as HTMLInputElement;
+    expect(checkbox).toBeDisabled();
+    expect(checkbox.checked).toBe(false);
+    expect(screen.getByRole("button", { name: "Distill to skill" })).toBeDisabled();
   });
 
   it("opens a right-click menu entry that enters skill distill multi-select", async () => {

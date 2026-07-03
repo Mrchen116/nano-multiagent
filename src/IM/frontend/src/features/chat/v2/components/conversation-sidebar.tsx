@@ -3,6 +3,10 @@ import { useMemo, useState } from "react";
 import { useTranslation } from "../../../../i18n";
 import { classifyConversationKind, type Conversation, type ConversationKind } from "../chat-types";
 import { Avatar, colorForAgent, colorForAgentSeed } from "./avatar";
+import {
+  getDistillConversationUnavailableKey,
+  isDistillConversationEligible,
+} from "./distill-selection";
 
 interface SidebarAgent {
   agent_id: string;
@@ -30,6 +34,8 @@ export interface ConversationSidebarProps {
   agents?: SidebarAgent[];
   distillMode?: boolean;
   selectedDistillConversationIds?: Set<string>;
+  selectedDistillEligibleCount?: number;
+  distillNotice?: string | null;
   onToggleDistillConversation?(conversationId: string): void;
   onEnterDistillMode?(conversationId?: string): void;
   onCancelDistillMode?(): void;
@@ -63,6 +69,8 @@ export function ConversationSidebar({
   agents,
   distillMode = false,
   selectedDistillConversationIds = new Set(),
+  selectedDistillEligibleCount = 0,
+  distillNotice = null,
   onToggleDistillConversation,
   onEnterDistillMode,
   onCancelDistillMode,
@@ -102,7 +110,7 @@ export function ConversationSidebar({
               <button
                 type="button"
                 className="chat-sidebar-action chat-sidebar-action--primary"
-                disabled={selectedDistillConversationIds.size === 0}
+                disabled={selectedDistillEligibleCount === 0}
                 onClick={onStartDistill}
               >
                 {t("chat.list.distillToSkill")}
@@ -114,6 +122,11 @@ export function ConversationSidebar({
             </button>
           )}
         </div>
+        {distillMode && distillNotice ? (
+          <p className="chat-distill-error" role="alert">
+            {distillNotice}
+          </p>
+        ) : null}
         <input
           type="search"
           role="searchbox"
@@ -167,14 +180,13 @@ export function ConversationSidebar({
             const active = c.id === activeConversationId;
             const dateStr = formatDate(c.last_message_at);
             const kind = classifyConversationKind(c);
-            const distillUnavailableReason =
-              c.run_state === "running"
-                ? t("chat.list.running")
-                : !c.source_agent_id || !c.source_jsonl_path
-                  ? t("chat.list.noTranscript")
-                  : null;
+            const distillUnavailableKey = getDistillConversationUnavailableKey(c);
+            const distillUnavailableReason = distillUnavailableKey
+              ? t(`chat.list.${distillUnavailableKey}`)
+              : null;
             const distillDisabled = distillUnavailableReason !== null;
-            const distillSelected = selectedDistillConversationIds.has(c.id);
+            const distillSelected = isDistillConversationEligible(c)
+              && selectedDistillConversationIds.has(c.id);
             const agentParticipant = c.participants.find((p) => p.type === "agent");
             const agentRow = agentParticipant
               ? agents?.find((a) => a.agent_id === agentParticipant.id)

@@ -48,6 +48,7 @@ import {
   type AgentEnabledSkills,
 } from "./components/slash-candidates";
 import { ConversationSidebar } from "./components/conversation-sidebar";
+import { isDistillConversationEligible } from "./components/distill-selection";
 import {
   GroupSettings,
   type GroupSettingsAgentOption,
@@ -153,6 +154,17 @@ function buildDistillDraft(input: {
   ].join("\n");
 }
 
+function resolveEnabledTools(
+  allowlist: string[],
+  capabilityTools: Array<{ name: string; default_on?: boolean }>,
+): string[] {
+  if (allowlist.length === 0) {
+    return capabilityTools.filter((tool) => tool.default_on === true).map((tool) => tool.name);
+  }
+  const allowed = new Set(allowlist);
+  return capabilityTools.filter((tool) => allowed.has(tool.name)).map((tool) => tool.name);
+}
+
 /**
  * REST 历史与 WS 流式状态合并 permission_requests（对齐 token_usage 保留策略）。
  *
@@ -225,6 +237,7 @@ export function ChatWorkspacePageV2() {
   const [distillExecutionAgentId, setDistillExecutionAgentId] = useState("");
   const [distillTargetScope, setDistillTargetScope] = useState<DistillTargetScope>("agent");
   const [distillError, setDistillError] = useState<string | null>(null);
+  const [distillNotice, setDistillNotice] = useState<string | null>(null);
   const [distillSubmitting, setDistillSubmitting] = useState(false);
   const [draftSeed, setDraftSeed] = useState<{ id: string; text: string } | null>(null);
   // feat-445-M1: fork success toast (top-left, auto-fade); null = hidden.
@@ -363,7 +376,7 @@ export function ChatWorkspacePageV2() {
   const selectedDistillConversations = useMemo(() => {
     const byId = new Set(selectedDistillConversationIds);
     return (conversationsQuery.data ?? []).filter(
-      (c) => byId.has(c.id) && c.run_state !== "running" && c.source_agent_id && c.source_jsonl_path
+      (c) => byId.has(c.id) && isDistillConversationEligible(c)
     );
   }, [conversationsQuery.data, selectedDistillConversationIds]);
 
@@ -714,7 +727,13 @@ export function ChatWorkspacePageV2() {
   function enterDistillMode(conversationId?: string) {
     setDistillMode(true);
     setDistillError(null);
+    setDistillNotice(null);
     if (conversationId) {
+      const conversation = (conversationsQuery.data ?? []).find((item) => item.id === conversationId);
+      if (!conversation || !isDistillConversationEligible(conversation)) {
+        setDistillNotice(t("chat.distill.selectionRequired"));
+        return;
+      }
       setSelectedDistillConversationIds((prev) => {
         const next = new Set(prev);
         next.add(conversationId);
@@ -728,9 +747,13 @@ export function ChatWorkspacePageV2() {
     setSelectedDistillConversationIds(new Set());
     setShowDistillDialog(false);
     setDistillError(null);
+    setDistillNotice(null);
   }
 
   function toggleDistillConversation(conversationId: string) {
+    const conversation = (conversationsQuery.data ?? []).find((item) => item.id === conversationId);
+    if (!conversation || !isDistillConversationEligible(conversation)) return;
+    setDistillNotice(null);
     setSelectedDistillConversationIds((prev) => {
       const next = new Set(prev);
       if (next.has(conversationId)) next.delete(conversationId);
@@ -740,7 +763,11 @@ export function ChatWorkspacePageV2() {
   }
 
   function openDistillDialog() {
-    if (selectedDistillConversations.length === 0) return;
+    if (selectedDistillConversations.length === 0) {
+      setDistillNotice(t("chat.distill.selectionRequired"));
+      return;
+    }
+    setDistillNotice(null);
     const sourceAgentIds = [...new Set(selectedDistillConversations.map((c) => c.source_agent_id).filter(Boolean) as string[])];
     setDistillExecutionAgentId(sourceAgentIds.length === 1 ? sourceAgentIds[0]! : "");
     setDistillTargetScope("agent");
@@ -748,25 +775,45 @@ export function ChatWorkspacePageV2() {
     setShowDistillDialog(true);
   }
 
-  async function executionAgentCanSeeDistiller(agentId: string): Promise<boolean> {
+  async function getDistillExecutionReadiness(agentId: string): Promise<{
+    distillerVisible: boolean;
+    skillViewEnabled: boolean;
+  }> {
     const [config, capabilities] = await Promise.all([
       getAgentConfig(agentId, "live"),
       getAgentCapabilities(agentId),
     ]);
     const capSkills = normalizeAllowlistOptions(capabilities.skills);
-    return resolveEnabledSkills(config.skills ?? [], capSkills).some(
-      (skill) => skill.name === DISTILL_SKILL_NAME
-    );
+    const capTools = normalizeAllowlistOptions(capabilities.tools);
+    return {
+      distillerVisible: resolveEnabledSkills(config.skills ?? [], capSkills).some(
+        (skill) => skill.name === DISTILL_SKILL_NAME
+      ),
+      skillViewEnabled: resolveEnabledTools(config.tool_allowlist ?? [], capTools).includes("skill_view"),
+    };
   }
 
   async function startDistillation() {
-    if (!distillExecutionAgentId || selectedDistillConversations.length === 0) return;
+    if (!distillExecutionAgentId) return;
+    if (selectedDistillConversations.length === 0) {
+      setDistillError(t("chat.distill.selectionRequired"));
+      setDistillNotice(t("chat.distill.selectionRequired"));
+      return;
+    }
     setDistillSubmitting(true);
     setDistillError(null);
     try {
-      const visible = await executionAgentCanSeeDistiller(distillExecutionAgentId);
-      if (!visible) {
-        setDistillError(`Enable ${DISTILL_SKILL_NAME} for the execution agent before starting.`);
+      const readiness = await getDistillExecutionReadiness(distillExecutionAgentId);
+      if (!readiness.distillerVisible && !readiness.skillViewEnabled) {
+        setDistillError(t("chat.distill.requireDistillerAndSkillView"));
+        return;
+      }
+      if (!readiness.distillerVisible) {
+        setDistillError(t("chat.distill.requireDistiller"));
+        return;
+      }
+      if (!readiness.skillViewEnabled) {
+        setDistillError(t("chat.distill.requireSkillView"));
         return;
       }
       const agentName =
@@ -837,6 +884,8 @@ export function ChatWorkspacePageV2() {
           onNewGroup={() => setShowNewGroup(true)}
           distillMode={distillMode}
           selectedDistillConversationIds={selectedDistillConversationIds}
+          selectedDistillEligibleCount={selectedDistillConversations.length}
+          distillNotice={distillNotice}
           onToggleDistillConversation={toggleDistillConversation}
           onEnterDistillMode={enterDistillMode}
           onCancelDistillMode={cancelDistillMode}
