@@ -687,6 +687,50 @@ class HeartbeatMdResponse(BaseModel):
     node_online: bool
 
 
+class SkillUsageSessionRef(BaseModel):
+    """One recorded skill invocation reference."""
+
+    session_id: str | None = None
+    tool_call_id: str | None = None
+    timestamp: str | None = None
+
+
+class SkillUsageItem(BaseModel):
+    """One skill row in the usage dashboard."""
+
+    skill_id: str
+    name: str
+    source: str = "unknown"
+    state: str = "active"
+    use_count: int = 0
+    last_used_at: str | None = None
+    created_at: str | None = None
+    archived_at: str | None = None
+    archive_error: str | None = None
+    session_refs: list[SkillUsageSessionRef] = Field(default_factory=list)
+    recent_call_keys: list[str] = Field(default_factory=list)
+    trend_buckets: list[int] = Field(default_factory=lambda: [0] * 30)
+
+
+class SkillUsageHealth(BaseModel):
+    """Funnel numbers for auto-created skills."""
+
+    created_auto_total: int = 0
+    active_auto_total: int = 0
+    used_auto_total: int = 0
+
+
+class SkillsUsageResponse(BaseModel):
+    """Aggregated skill usage payload for one agent."""
+
+    agent_id: str
+    node_id: str | None
+    node_online: bool
+    skills: list[SkillUsageItem] = Field(default_factory=list)
+    heatmap_data: list[int] = Field(default_factory=lambda: [0] * 30)
+    health: SkillUsageHealth = Field(default_factory=SkillUsageHealth)
+
+
 @router.get(
     "/im/v1/agents/{agent_id}/cron/jobs",
     response_model=list[CronJobSummary],
@@ -740,6 +784,49 @@ async def list_agent_cron_jobs(
         except (TypeError, ValueError):
             continue
     return result
+
+
+@router.get(
+    "/im/v1/agents/{agent_id}/skills/usage",
+    response_model=SkillsUsageResponse,
+    summary="Get skill usage stats for an agent",
+)
+async def get_agent_skills_usage(
+    agent_id: str,
+    service: ConfigService = Depends(get_config_service),
+    gateway_handler: GatewayHandler = Depends(get_gateway_handler),
+    user: User = Depends(current_user),
+) -> SkillsUsageResponse:
+    """Return skill usage stats via gateway WS RPC.
+
+    feat-446-M4: usage telemetry is stored as gateway-local
+    ``<workspace>/.nanoassistant/skills/.usage.json``.  IM delegates to the
+    connected node instead of reading workspace files directly.
+    """
+    profile = service.get_profile_for_owner(agent_id=agent_id, owner_id=user.owner_id)
+    if profile is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="agent_id not found"
+        )
+    if not profile.node_id:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="target_node_id is not connected",
+        )
+    workspace_root = service.workspace_root_for_profile(profile)
+    raw = await gateway_handler.request_node_skills_usage(
+        target_node_id=profile.node_id,
+        agent_id=agent_id,
+        workspace_root=workspace_root,
+    )
+    if raw is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="target_node_id is not connected",
+        )
+    return _coerce_skills_usage_response(
+        agent_id=agent_id, node_id=profile.node_id, raw=raw
+    )
 
 
 @router.delete(
@@ -821,3 +908,106 @@ async def get_agent_heartbeat_md(
         # Node offline or timed out.
         return HeartbeatMdResponse(content="", node_online=False)
     return HeartbeatMdResponse(content=content, node_online=True)
+
+
+def _coerce_skills_usage_response(
+    *, agent_id: str, node_id: str | None, raw: dict[str, object]
+) -> SkillsUsageResponse:
+    skills_raw = raw.get("skills")
+    skills: list[SkillUsageItem] = []
+    if isinstance(skills_raw, list):
+        for item in skills_raw:
+            if not isinstance(item, dict):
+                continue
+            skill_id = str(item.get("skill_id") or item.get("name") or "")
+            if not skill_id:
+                continue
+            name = str(item.get("name") or skill_id)
+            session_refs = _coerce_session_refs(item.get("session_refs"))
+            recent_call_keys = _coerce_string_list(item.get("recent_call_keys"))
+            skills.append(
+                SkillUsageItem(
+                    skill_id=skill_id,
+                    name=name,
+                    source=str(item.get("source") or "unknown"),
+                    state=str(item.get("state") or "active"),
+                    use_count=_coerce_nonnegative_int(item.get("use_count")),
+                    last_used_at=_coerce_optional_str(item.get("last_used_at")),
+                    created_at=_coerce_optional_str(item.get("created_at")),
+                    archived_at=_coerce_optional_str(item.get("archived_at")),
+                    archive_error=_coerce_optional_str(item.get("archive_error")),
+                    session_refs=session_refs,
+                    recent_call_keys=recent_call_keys,
+                    trend_buckets=_coerce_int_series(item.get("trend_buckets")),
+                )
+            )
+    health_raw = raw.get("health")
+    health_map = health_raw if isinstance(health_raw, dict) else {}
+    raw_node_id = raw.get("node_id")
+    return SkillsUsageResponse(
+        agent_id=str(raw.get("agent_id") or agent_id),
+        node_id=str(raw_node_id or node_id) if raw_node_id or node_id else None,
+        node_online=True,
+        skills=skills,
+        heatmap_data=_coerce_int_series(raw.get("heatmap_data")),
+        health=SkillUsageHealth(
+            created_auto_total=_coerce_nonnegative_int(
+                health_map.get("created_auto_total")
+            ),
+            active_auto_total=_coerce_nonnegative_int(
+                health_map.get("active_auto_total")
+            ),
+            used_auto_total=_coerce_nonnegative_int(health_map.get("used_auto_total")),
+        ),
+    )
+
+
+def _coerce_session_refs(value: object) -> list[SkillUsageSessionRef]:
+    if not isinstance(value, list):
+        return []
+    refs: list[SkillUsageSessionRef] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        refs.append(
+            SkillUsageSessionRef(
+                session_id=_coerce_optional_str(item.get("session_id")),
+                tool_call_id=_coerce_optional_str(item.get("tool_call_id")),
+                timestamp=_coerce_optional_str(item.get("timestamp")),
+            )
+        )
+    return refs
+
+
+def _coerce_string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str)]
+
+
+def _coerce_int_series(value: object) -> list[int]:
+    if not isinstance(value, list):
+        return [0] * 30
+    result = [_coerce_nonnegative_int(item) for item in value[:30]]
+    if len(result) < 30:
+        result.extend([0] * (30 - len(result)))
+    return result
+
+
+def _coerce_nonnegative_int(value: object) -> int:
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return max(0, value)
+    if isinstance(value, float):
+        return max(0, int(value))
+    if isinstance(value, str):
+        try:
+            return max(0, int(value))
+        except ValueError:
+            return 0
+    return 0
+
+
+def _coerce_optional_str(value: object) -> str | None:
+    return value if isinstance(value, str) and value else None

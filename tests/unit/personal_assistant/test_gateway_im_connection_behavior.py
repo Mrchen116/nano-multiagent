@@ -1043,6 +1043,100 @@ def test_im_connection_handles_cron_jobs_request(tmp_path: Path) -> None:
     assert cj_frame["payload"]["jobs"] == jobs_data
 
 
+def test_im_connection_handles_skills_usage_request(tmp_path: Path) -> None:
+    """node.skills.usage.request reads .usage.json and sends aggregated usage."""
+    workspace = tmp_path / "agent-ws"
+    usage_dir = workspace / ".nanoassistant" / "skills"
+    usage_dir.mkdir(parents=True)
+    usage_data = {
+        "deploy-check": {
+            "source": "F3",
+            "state": "active",
+            "use_count": 3,
+            "last_used_at": "2026-07-02T10:00:00Z",
+            "created_at": "2026-06-01T00:00:00Z",
+            "session_refs": [
+                {
+                    "session_id": "s1",
+                    "tool_call_id": "tc1",
+                    "timestamp": "2026-07-02T10:00:00Z",
+                },
+                {
+                    "session_id": "s2",
+                    "tool_call_id": "tc2",
+                    "timestamp": "2026-07-01T09:00:00Z",
+                },
+            ],
+        },
+        "old-skill": {
+            "source": "F4",
+            "state": "archived",
+            "use_count": 1,
+            "last_used_at": "2026-04-01T00:00:00Z",
+            "created_at": "2026-03-01T00:00:00Z",
+            "archived_at": "2026-06-30T00:00:00Z",
+            "session_refs": [],
+        },
+    }
+    (usage_dir / ".usage.json").write_text(
+        json.dumps(usage_data), encoding="utf-8"
+    )
+
+    socket = _FakeWebSocket(
+        incoming=[
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "node.skills.usage.request",
+                    "payload": {
+                        "request_id": "req-su-1",
+                        "agent_id": "agent-x",
+                        "workspace_root": str(workspace),
+                    },
+                }
+            ),
+        ]
+    )
+
+    relay_adapter = WebRelayAdapter()
+    relay_adapter.start(lambda _: None)
+
+    manager = IMConnectionManager(
+        config=IMConnectionConfig(url="ws://localhost:9999/ws", token="t"),
+        reporter=_minimal_reporter(tmp_path),
+        relay_adapter=relay_adapter,
+        connect=lambda url, headers: _connect_fake(socket, [], url, headers),
+    )
+
+    async def _exercise() -> None:
+        await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001
+        await manager._listen_once()  # noqa: SLF001
+
+    asyncio.run(_exercise())
+
+    sent_frames = [json.loads(f) for f in socket.sent]
+    su_frame = next(m for m in sent_frames if m.get("type") == "node.skills.usage")
+    payload = su_frame["payload"]
+    usage = payload["usage"]
+    assert payload["request_id"] == "req-su-1"
+    assert usage["agent_id"] == "agent-x"
+    assert usage["node_id"] == "n1"
+    assert [item["name"] for item in usage["skills"]] == [
+        "deploy-check",
+        "old-skill",
+    ]
+    assert usage["skills"][0]["use_count"] == 3
+    assert usage["skills"][0]["recent_call_keys"] == ["s1:tc1", "s2:tc2"]
+    assert len(usage["skills"][0]["trend_buckets"]) == 30
+    assert len(usage["heatmap_data"]) == 30
+    assert usage["health"] == {
+        "created_auto_total": 2,
+        "active_auto_total": 1,
+        "used_auto_total": 2,
+    }
+
+
 def test_im_connection_handles_cron_delete_request_job_found(tmp_path: Path) -> None:
     """node.cron.delete.request removes matching job and sends deleted=True."""
     workspace = tmp_path / "agent-ws"

@@ -15,7 +15,8 @@ const apiMocks = vi.hoisted(() => ({
   promptPreviewMock: vi.fn(),
   listAgentCronJobsMock: vi.fn(),
   deleteAgentCronJobMock: vi.fn(),
-  getAgentHeartbeatMdMock: vi.fn()
+  getAgentHeartbeatMdMock: vi.fn(),
+  getAgentSkillsUsageMock: vi.fn()
 }));
 
 vi.mock("react-router-dom", async () => {
@@ -44,7 +45,8 @@ vi.mock("./im-agent-config-api", () => ({
   promptPreview: apiMocks.promptPreviewMock,
   listAgentCronJobs: apiMocks.listAgentCronJobsMock,
   deleteAgentCronJob: apiMocks.deleteAgentCronJobMock,
-  getAgentHeartbeatMd: apiMocks.getAgentHeartbeatMdMock
+  getAgentHeartbeatMd: apiMocks.getAgentHeartbeatMdMock,
+  getAgentSkillsUsage: apiMocks.getAgentSkillsUsageMock
 }));
 
 import { AgentDetailPage } from "./agent-detail-page";
@@ -77,6 +79,7 @@ afterEach(() => {
   apiMocks.listAgentCronJobsMock.mockReset();
   apiMocks.deleteAgentCronJobMock.mockReset();
   apiMocks.getAgentHeartbeatMdMock.mockReset();
+  apiMocks.getAgentSkillsUsageMock.mockReset();
 });
 
 // Default listAgentSummaries so the desktop rail (R12-bis-1) doesn't break tests.
@@ -87,6 +90,162 @@ beforeEach(() => {
 });
 
 describe("agent detail page", () => {
+  function makeDashboardDetailState() {
+    return {
+      config: {
+        agent_id: "agent-core-1",
+        owner_id: "owner-1",
+        display_name: "Core Planner",
+        description: "",
+        system_prompt: "",
+        skills: [],
+        tool_allowlist: [],
+        group_reply_policy: "MENTION",
+        default_model: null,
+        workspace_root: "/tmp/agent-core-1",
+        workspace_is_default: false,
+        profile_version: 1,
+        node_id: "node-1",
+        node_name: "MacBook",
+        node_status: "online",
+        updated_at: "2026-07-02T10:00:00Z"
+      },
+      capabilities: {
+        node_id: "node-1",
+        node_name: "MacBook",
+        node_status: "online",
+        capabilities_updated_at: "2026-07-02T10:00:00Z",
+        skills: [],
+        tools: [],
+        model_options: [],
+        platform_default_model: null,
+        default_system_prompt: ""
+      },
+      owningNode: {
+        node_id: "node-1",
+        node_name: "MacBook",
+        status: "online",
+        last_heartbeat_at: "2026-07-02T10:00:00Z",
+        agent_count: 1,
+        version: "1.0.0"
+      }
+    };
+  }
+
+  function makeSkillsUsage() {
+    return {
+      agent_id: "agent-core-1",
+      node_id: "node-1",
+      node_online: true,
+      skills: [
+        {
+          skill_id: "deploy-check",
+          name: "deploy-check",
+          source: "F3",
+          state: "active",
+          use_count: 3,
+          last_used_at: "2026-07-02T10:00:00Z",
+          session_refs: [],
+          recent_call_keys: ["s1:tc1"],
+          trend_buckets: [0, 0, 1, 2]
+        },
+        {
+          skill_id: "old-skill",
+          name: "old-skill",
+          source: "F4",
+          state: "archived",
+          use_count: 1,
+          last_used_at: "2026-06-01T10:00:00Z",
+          session_refs: [],
+          recent_call_keys: [],
+          trend_buckets: [0, 1, 0, 0]
+        }
+      ],
+      heatmap_data: [0, 1, 2, 0],
+      health: {
+        created_auto_total: 2,
+        active_auto_total: 1,
+        used_auto_total: 2
+      }
+    };
+  }
+
+  it("shows skills usage list with use counts, status, trend, and archived filter", async () => {
+    const user = userEvent.setup();
+    apiMocks.getAgentDetailStateMock.mockResolvedValue(makeDashboardDetailState());
+    apiMocks.listAgentsMock.mockResolvedValue([]);
+    apiMocks.getAgentSkillsUsageMock.mockResolvedValue(makeSkillsUsage());
+
+    renderDetailPage();
+    await screen.findByRole("heading", { name: "Core Planner" });
+    await user.click(screen.getByRole("button", { name: "Skills" }));
+
+    expect(apiMocks.getAgentSkillsUsageMock).toHaveBeenCalledWith("agent-core-1");
+    expect(await screen.findByText("deploy-check")).toBeInTheDocument();
+    expect(screen.getByText("3 uses")).toBeInTheDocument();
+    expect(screen.getByText("active")).toBeInTheDocument();
+    expect(screen.getByTestId("skill-trend-deploy-check")).toBeInTheDocument();
+    expect(screen.queryByText("old-skill")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: /Show archived/i }));
+    expect(await screen.findByText("old-skill")).toBeInTheDocument();
+    expect(screen.getByText("archived")).toBeInTheDocument();
+  });
+
+  it("shows agent heatmap and health funnel views", async () => {
+    const user = userEvent.setup();
+    apiMocks.getAgentDetailStateMock.mockResolvedValue(makeDashboardDetailState());
+    apiMocks.listAgentsMock.mockResolvedValue([]);
+    apiMocks.getAgentSkillsUsageMock.mockResolvedValue(makeSkillsUsage());
+
+    renderDetailPage();
+    await screen.findByRole("heading", { name: "Core Planner" });
+    await user.click(screen.getByRole("button", { name: "Skills" }));
+    await screen.findByText("deploy-check");
+
+    await user.click(screen.getByRole("button", { name: "Agent" }));
+    expect(screen.getByText("30-day heatmap")).toBeInTheDocument();
+    expect(screen.getByTestId("skills-agent-heatmap")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Health" }));
+    expect(screen.getByText("Created")).toBeInTheDocument();
+    expect(screen.getByText("Still active")).toBeInTheDocument();
+    expect(screen.getByText("Used at least once")).toBeInTheDocument();
+    expect(screen.getAllByText("2").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("1")).toBeInTheDocument();
+  });
+
+  it("shows an empty state when usage exists but has no skills", async () => {
+    const user = userEvent.setup();
+    apiMocks.getAgentDetailStateMock.mockResolvedValue(makeDashboardDetailState());
+    apiMocks.listAgentsMock.mockResolvedValue([]);
+    apiMocks.getAgentSkillsUsageMock.mockResolvedValue({
+      ...makeSkillsUsage(),
+      skills: [],
+      heatmap_data: [],
+      health: { created_auto_total: 0, active_auto_total: 0, used_auto_total: 0 }
+    });
+
+    renderDetailPage();
+    await screen.findByRole("heading", { name: "Core Planner" });
+    await user.click(screen.getByRole("button", { name: "Skills" }));
+    expect(await screen.findByText("No skill usage yet")).toBeInTheDocument();
+  });
+
+  it("shows an offline state when skills usage RPC fails", async () => {
+    const user = userEvent.setup();
+    apiMocks.getAgentDetailStateMock.mockResolvedValue(makeDashboardDetailState());
+    apiMocks.listAgentsMock.mockResolvedValue([]);
+    apiMocks.getAgentSkillsUsageMock.mockRejectedValue(
+      new Error("GET /im/v1/agents/agent-core-1/skills/usage failed: 503 (target_node_id is not connected)")
+    );
+
+    renderDetailPage();
+    await screen.findByRole("heading", { name: "Core Planner" });
+    await user.click(screen.getByRole("button", { name: "Skills" }));
+    expect(await screen.findByText(/Gateway offline/i)).toBeInTheDocument();
+  });
+
   it("opens the canonical direct chat for the current agent", async () => {
     const user = userEvent.setup();
 

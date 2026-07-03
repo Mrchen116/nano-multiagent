@@ -750,6 +750,158 @@ def test_list_cron_jobs_returns_empty_when_node_offline(
     assert resp.json() == []
 
 
+def test_get_skills_usage_calls_rpc_not_direct_file_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GET /im/v1/agents/{id}/skills/usage must use gateway WS RPC."""
+    from IM.ws.gateway_handler import GatewayHandler
+
+    rpc_calls: list[dict[str, str]] = []
+
+    async def _fake_skills_usage(
+        self,
+        *,
+        target_node_id: str,
+        agent_id: str,
+        workspace_root: str,
+        timeout_seconds: float = 10.0,
+    ) -> dict[str, object]:
+        rpc_calls.append(
+            {
+                "target_node_id": target_node_id,
+                "agent_id": agent_id,
+                "workspace_root": workspace_root,
+            }
+        )
+        return {
+            "agent_id": agent_id,
+            "node_id": target_node_id,
+            "skills": [
+                {
+                    "skill_id": "deploy-check",
+                    "name": "deploy-check",
+                    "source": "F3",
+                    "state": "active",
+                    "use_count": 3,
+                    "last_used_at": "2026-07-02T10:00:00Z",
+                    "session_refs": [
+                        {
+                            "session_id": "s1",
+                            "tool_call_id": "tc1",
+                            "timestamp": "2026-07-02T10:00:00Z",
+                        }
+                    ],
+                    "recent_call_keys": ["s1:tc1"],
+                    "trend_buckets": [0] * 29 + [1],
+                }
+            ],
+            "heatmap_data": [0] * 29 + [1],
+            "health": {
+                "created_auto_total": 1,
+                "active_auto_total": 1,
+                "used_auto_total": 1,
+            },
+        }
+
+    monkeypatch.setattr(
+        GatewayHandler, "request_node_skills_usage", _fake_skills_usage
+    )
+
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        owner = register_user(client, username="skillowner", display_name="SkillOwner")
+        authorize(client, owner)
+        nodes = NodeRepository(app.state.connection)
+        nodes.upsert_node(
+            node_id="node-skills",
+            node_name="SkillNode",
+            status="online",
+            version="1.0.0",
+            owner_id=owner.owner_id,
+        )
+        profiles = AgentProfileRepository(app.state.connection)
+        profiles.upsert_profile(
+            agent_id="agent-skills",
+            owner_id=owner.owner_id,
+            display_name="SkillAgent",
+            description="",
+            system_prompt="",
+            skills=[],
+            tool_allowlist=[],
+            group_reply_policy="manual",
+            default_model=None,
+            workspace_root=str(tmp_path / "skill-ws"),
+        )
+        app.state.connection.execute(
+            "UPDATE agent_profiles SET node_id = ? WHERE agent_id = ?",
+            ("node-skills", "agent-skills"),
+        )
+        app.state.connection.commit()
+
+        resp = client.get("/im/v1/agents/agent-skills/skills/usage")
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["agent_id"] == "agent-skills"
+    assert body["node_id"] == "node-skills"
+    assert body["skills"][0]["name"] == "deploy-check"
+    assert body["skills"][0]["use_count"] == 3
+    assert body["heatmap_data"][-1] == 1
+    assert body["health"]["created_auto_total"] == 1
+    assert len(rpc_calls) == 1
+    assert rpc_calls[0]["agent_id"] == "agent-skills"
+
+
+def test_get_skills_usage_reports_offline_when_rpc_times_out(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GET /skills/usage returns 503 when the gateway node is offline."""
+    from IM.ws.gateway_handler import GatewayHandler
+
+    async def _offline_rpc(
+        self, *, target_node_id, agent_id, workspace_root, timeout_seconds=10.0
+    ) -> None:
+        return None
+
+    monkeypatch.setattr(GatewayHandler, "request_node_skills_usage", _offline_rpc)
+
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        owner = register_user(client, username="skilloffline", display_name="Offline")
+        authorize(client, owner)
+        nodes = NodeRepository(app.state.connection)
+        nodes.upsert_node(
+            node_id="node-skills-offline",
+            node_name="SkillOffline",
+            status="offline",
+            version="1.0.0",
+            owner_id=owner.owner_id,
+        )
+        profiles = AgentProfileRepository(app.state.connection)
+        profiles.upsert_profile(
+            agent_id="agent-skills-offline",
+            owner_id=owner.owner_id,
+            display_name="SkillOffline",
+            description="",
+            system_prompt="",
+            skills=[],
+            tool_allowlist=[],
+            group_reply_policy="manual",
+            default_model=None,
+            workspace_root=str(tmp_path / "skill-ws-offline"),
+        )
+        app.state.connection.execute(
+            "UPDATE agent_profiles SET node_id = ? WHERE agent_id = ?",
+            ("node-skills-offline", "agent-skills-offline"),
+        )
+        app.state.connection.commit()
+
+        resp = client.get("/im/v1/agents/agent-skills-offline/skills/usage")
+
+    assert resp.status_code == 503
+    assert resp.json()["detail"] == "target_node_id is not connected"
+
+
 def test_delete_cron_job_calls_rpc_not_direct_file_write(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

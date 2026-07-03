@@ -16,8 +16,11 @@ import {
   AgentSummary,
   CronJobSummary,
   ModelOption,
+  SkillUsageItem,
+  SkillsUsageResponse,
   getAgentDetailState,
   getAgentHeartbeatMd,
+  getAgentSkillsUsage,
   listAgentSummaries,
   listAgentCronJobs,
   deleteAgentCronJob,
@@ -677,6 +680,248 @@ function CronCard({ agentId, draft, onToggle, hideEnableToggle = false }: CronCa
   );
 }
 
+type SkillsUsageView = "list" | "agent" | "health";
+
+function normalizedUsageSeries(values: number[] | undefined): number[] {
+  const series = [...(values ?? [])].slice(-30);
+  while (series.length < 30) series.unshift(0);
+  return series;
+}
+
+function formatSkillTimestamp(value?: string | null) {
+  if (!value) return "Never";
+  return new Date(value).toLocaleDateString();
+}
+
+function heatLevel(value: number, max: number) {
+  if (max <= 0 || value <= 0) return "oklch(0.93 0.006 240)";
+  const ratio = Math.min(1, value / max);
+  if (ratio > 0.66) return "oklch(0.55 0.16 155)";
+  if (ratio > 0.33) return "oklch(0.70 0.12 150)";
+  return "oklch(0.83 0.08 145)";
+}
+
+function SkillTrend({ skill }: { skill: SkillUsageItem }) {
+  const buckets = normalizedUsageSeries(skill.trend_buckets);
+  const max = Math.max(1, ...buckets);
+  return (
+    <div
+      className="flex h-8 items-end gap-[2px]"
+      data-testid={`skill-trend-${skill.skill_id}`}
+      aria-label={`${skill.name} 30-day trend`}
+    >
+      {buckets.map((value, index) => (
+        <span
+          key={`${skill.skill_id}-${index}`}
+          className="block w-[4px] rounded-sm"
+          style={{
+            height: `${Math.max(3, Math.round((value / max) * 28))}px`,
+            background: value > 0 ? "oklch(0.55 0.16 155)" : "oklch(0.88 0.006 240)"
+          }}
+          title={`${value} uses`}
+        />
+      ))}
+    </div>
+  );
+}
+
+function SkillsListView({
+  usage,
+  showArchived,
+  onToggleArchived
+}: {
+  usage: SkillsUsageResponse;
+  showArchived: boolean;
+  onToggleArchived: () => void;
+}) {
+  const visibleSkills = usage.skills.filter(
+    (skill) => showArchived || skill.state !== "archived"
+  );
+  return (
+    <section className="im-agent-card" data-testid="skills-usage-list">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="im-agent-card-title">Skill usage</h3>
+          <p className="im-agent-card-sub">Use count, state, and recent 30-day trend from real usage telemetry.</p>
+        </div>
+        <button
+          type="button"
+          className="im-btn im-btn-muted"
+          onClick={onToggleArchived}
+        >
+          {showArchived ? "Hide archived" : "Show archived"}
+        </button>
+      </div>
+      {visibleSkills.length === 0 ? (
+        <p className="text-[13px] text-slate-500">No active skills in this filter</p>
+      ) : (
+        <div className="grid gap-2">
+          {visibleSkills.map((skill) => {
+            const archived = skill.state === "archived";
+            return (
+              <article
+                key={skill.skill_id}
+                className={`grid gap-3 rounded-lg border px-3 py-3 md:grid-cols-[minmax(0,1fr)_auto_auto] md:items-center ${
+                  archived
+                    ? "border-slate-200 bg-slate-50"
+                    : "border-[var(--im-border)] bg-white"
+                }`}
+              >
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h4 className="m-0 truncate text-[13px] font-semibold text-slate-900">{skill.name}</h4>
+                    <span
+                      className={`rounded-full px-2 py-[2px] text-[11px] font-semibold ${
+                        archived
+                          ? "bg-slate-200 text-slate-600"
+                          : "bg-emerald-50 text-emerald-700"
+                      }`}
+                    >
+                      {skill.state}
+                    </span>
+                    <span className="rounded-full bg-slate-100 px-2 py-[2px] text-[11px] text-slate-600">
+                      {skill.source}
+                    </span>
+                  </div>
+                  <p className="m-0 mt-1 text-[11px] text-slate-500">
+                    Last used {formatSkillTimestamp(skill.last_used_at)}
+                  </p>
+                </div>
+                <div className="text-[13px] font-semibold text-slate-900">
+                  {skill.use_count} uses
+                </div>
+                <SkillTrend skill={skill} />
+              </article>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function AgentHeatmapView({ usage }: { usage: SkillsUsageResponse }) {
+  const series = normalizedUsageSeries(usage.heatmap_data);
+  const max = Math.max(0, ...series);
+  return (
+    <section className="im-agent-card">
+      <div>
+        <h3 className="im-agent-card-title">30-day heatmap</h3>
+        <p className="im-agent-card-sub">Agent-level skill usage density across the last 30 days.</p>
+      </div>
+      <div
+        className="grid grid-cols-[repeat(15,minmax(0,1fr))] gap-[4px] md:grid-cols-[repeat(30,1fr)]"
+        data-testid="skills-agent-heatmap"
+        aria-label="Agent skill usage heatmap"
+      >
+        {series.map((value, index) => (
+          <span
+            key={`heat-${index}`}
+            className="aspect-square rounded"
+            style={{ background: heatLevel(value, max) }}
+            title={`${value} uses`}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function HealthFunnelView({ usage }: { usage: SkillsUsageResponse }) {
+  const rows = [
+    { label: "Created", value: usage.health.created_auto_total },
+    { label: "Still active", value: usage.health.active_auto_total },
+    { label: "Used at least once", value: usage.health.used_auto_total },
+  ];
+  return (
+    <section className="im-agent-card">
+      <div>
+        <h3 className="im-agent-card-title">Health funnel</h3>
+        <p className="im-agent-card-sub">F3/F4 skills created, retained active, and actually used.</p>
+      </div>
+      <div className="grid gap-2 md:grid-cols-3">
+        {rows.map((row) => (
+          <div key={row.label} className="rounded-lg border border-[var(--im-border)] bg-white px-3 py-3">
+            <p className="m-0 text-[11px] font-semibold uppercase text-slate-500">{row.label}</p>
+            <p className="m-0 mt-1 text-[24px] font-bold text-slate-900">{row.value}</p>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function AgentSkillsUsagePanel({ agentId }: { agentId: string }) {
+  const [view, setView] = useState<SkillsUsageView>("list");
+  const [showArchived, setShowArchived] = useState(false);
+  const usageQuery = useQuery({
+    queryKey: ["settings", "agents", agentId, "skills-usage"],
+    queryFn: () => getAgentSkillsUsage(agentId),
+    staleTime: 30_000,
+  });
+
+  if (usageQuery.isLoading) {
+    return <p className="text-sm text-slate-500">Loading skill usage...</p>;
+  }
+
+  if (usageQuery.isError) {
+    const detail = usageQuery.error instanceof Error ? usageQuery.error.message : "Skill usage unavailable";
+    return (
+      <section className="im-agent-card border-rose-200 bg-rose-50/80">
+        <div>
+          <h3 className="im-agent-card-title text-rose-700">Gateway offline</h3>
+          <p className="im-agent-card-sub text-rose-600">{detail}</p>
+        </div>
+        <button type="button" className="im-btn im-btn-muted w-fit" onClick={() => void usageQuery.refetch()}>
+          Retry
+        </button>
+      </section>
+    );
+  }
+
+  const usage = usageQuery.data;
+  if (!usage || usage.skills.length === 0) {
+    return (
+      <section className="im-agent-card">
+        <div>
+          <h3 className="im-agent-card-title">No skill usage yet</h3>
+          <p className="im-agent-card-sub">The gateway returned an empty `.usage.json` snapshot for this agent.</p>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <div className="grid gap-3" data-testid="agent-skills-usage-panel">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap gap-2" role="tablist" aria-label="Skill usage views">
+          {(["list", "agent", "health"] as SkillsUsageView[]).map((item) => (
+            <button
+              key={item}
+              type="button"
+              className={`im-btn ${view === item ? "im-btn-primary" : "im-btn-muted"}`}
+              onClick={() => setView(item)}
+              aria-pressed={view === item}
+            >
+              {item === "list" ? "List" : item === "agent" ? "Agent" : "Health"}
+            </button>
+          ))}
+        </div>
+        <span className="text-[12px] text-slate-500">{usage.skills.length} skills</span>
+      </div>
+      {view === "list" && (
+        <SkillsListView
+          usage={usage}
+          showArchived={showArchived}
+          onToggleArchived={() => setShowArchived((value) => !value)}
+        />
+      )}
+      {view === "agent" && <AgentHeatmapView usage={usage} />}
+      {view === "health" && <HealthFunnelView usage={usage} />}
+    </div>
+  );
+}
+
 // M20/R12-bis-1: desktop split layout — left 240px dark agent rail.
 // Prototype `im-settings-page.jsx::AgentListView` desktop: 240px dark sidebar
 // (`oklch(0.24 0.012 240)` bg) with clickable agent rows, active highlight.
@@ -771,6 +1016,7 @@ export function AgentDetailPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [hasAttemptedSave, setHasAttemptedSave] = useState(false);
   const [touched, setTouched] = useState<Record<string, boolean>>({});
+  const [activeSection, setActiveSection] = useState<"config" | "skills">("config");
   // feat-394 M9-C: once the user manually edits tool_allowlist, stop treating empty as
   // "use product defaults" — the empty list becomes a genuine empty whitelist.
   const [allowlistUserTouched, setAllowlistUserTouched] = useState(false);
@@ -794,6 +1040,10 @@ export function AgentDetailPage() {
     () => agentsSummaryQuery.data?.find((item) => item.agent_id === agentId) ?? null,
     [agentsSummaryQuery.data, agentId]
   );
+
+  useEffect(() => {
+    setActiveSection("config");
+  }, [agentId]);
 
   useEffect(() => {
     if (detailQuery.data?.config) {
@@ -1061,9 +1311,31 @@ export function AgentDetailPage() {
             {errorMessage}
           </p>
         ) : null}
+        <nav className="flex flex-wrap gap-2 pt-3" aria-label="Agent detail sections">
+          <button
+            type="button"
+            className={`im-btn ${activeSection === "config" ? "im-btn-primary" : "im-btn-muted"}`}
+            aria-pressed={activeSection === "config"}
+            onClick={() => setActiveSection("config")}
+          >
+            Config
+          </button>
+          <button
+            type="button"
+            className={`im-btn ${activeSection === "skills" ? "im-btn-primary" : "im-btn-muted"}`}
+            aria-pressed={activeSection === "skills"}
+            onClick={() => setActiveSection("skills")}
+          >
+            Skills
+          </button>
+        </nav>
       </header>
 
       <div className="im-agent-panel-body">
+        {activeSection === "skills" ? (
+          <AgentSkillsUsagePanel agentId={agentId} />
+        ) : (
+          <>
         <section className="im-agent-card">
           <div>
             <h3 className="im-agent-card-title">{t("agents.form.identity.title")}</h3>
@@ -1345,6 +1617,8 @@ export function AgentDetailPage() {
             </div>
           </div>
         </section>
+          </>
+        )}
       </div>
 
       <footer

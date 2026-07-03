@@ -286,6 +286,107 @@ describe("ToolCallsPanel · collapsed row (R1)", () => {
   });
 });
 
+// feat-446-M4 R3: skill_view is a read-only inspection tool. Its collapsed row
+// must carry the presenter summary and its expanded card must show the concrete
+// skill identity/location/content without falling back to an opaque key/value dump.
+describe("ToolCallsPanel · skill_view rows (feat-446-M4 R3)", () => {
+  async function openProcessPanel() {
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /过程|process/i }));
+    return user;
+  }
+
+  function longSkillContent(): string {
+    return Array.from({ length: 56 }, (_, i) => `line ${i + 1}: skill body`).join("\n");
+  }
+
+  it("shows the skill_view name, skill icon, and 查看 skill summary in the collapsed row", async () => {
+    const calls: ToolCall[] = [
+      {
+        id: "sv1",
+        name: "skill_view",
+        status: "completed",
+        input: { name: "change-spec-author" },
+        output: "",
+        detail: {
+          success: true,
+          name: "change-spec-author",
+          location: "/repo/.nanoassistant/skills/change-spec-author/SKILL.md",
+          content: "# change-spec-author\nUse this skill when drafting specs."
+        }
+      }
+    ];
+    const { container } = render(<ToolCallsPanel toolCalls={calls} />);
+    await openProcessPanel();
+
+    const row = screen.getByText("skill_view").closest(".chat-tool-call-row");
+    expect(row?.querySelector(".chat-tool-call-name")?.textContent).toContain("📚");
+    expect(container.querySelector(".chat-tool-call-summary")?.textContent).toBe(
+      "查看 skill：change-spec-author"
+    );
+  });
+
+  it("renders a bespoke expanded skill_view card with name, location, and truncated content preview", async () => {
+    const calls: ToolCall[] = [
+      {
+        id: "sv1",
+        name: "skill_view",
+        status: "completed",
+        input: { name: "change-spec-author" },
+        output: "查看 skill：change-spec-author",
+        detail: {
+          success: true,
+          name: "change-spec-author",
+          location: "/repo/.nanoassistant/skills/change-spec-author/SKILL.md",
+          content: longSkillContent()
+        }
+      }
+    ];
+    const user = userEvent.setup();
+    const { container } = render(<ToolCallsPanel toolCalls={calls} />);
+    await user.click(screen.getByRole("button", { name: /过程|process/i }));
+
+    const card = container.querySelector(".chat-tool-detail-skill-view");
+    expect(card).not.toBeNull();
+    expect(card?.textContent).toContain("name");
+    expect(card?.textContent).toContain("change-spec-author");
+    expect(card?.textContent).toContain("location");
+    expect(card?.textContent).toContain("/repo/.nanoassistant/skills/change-spec-author/SKILL.md");
+    expect(card?.textContent).toContain("content");
+    expect(card?.textContent).toContain("line 50: skill body");
+    expect(card?.textContent).not.toContain("line 56: skill body");
+
+    await user.click(screen.getByRole("button", { name: /expand all|展开全部/i }));
+    expect(card?.textContent).toContain("line 56: skill body");
+  });
+
+  it("marks failed skill_view calls red and shows the error reason in the expanded card", async () => {
+    const calls: ToolCall[] = [
+      {
+        id: "sv2",
+        name: "skill_view",
+        status: "completed",
+        input: { name: "missing-skill" },
+        output: "查看 skill：missing-skill",
+        detail: {
+          success: false,
+          name: "missing-skill",
+          error: "skill not found"
+        }
+      }
+    ];
+    const { container } = render(<ToolCallsPanel toolCalls={calls} />);
+    await openProcessPanel();
+
+    const row = screen.getByText("skill_view").closest(".chat-tool-call-row");
+    expect(row?.className).toContain("chat-tool-call-row--failed");
+    const card = container.querySelector(".chat-tool-detail-skill-view");
+    expect(card?.className).toContain("chat-tool-detail-info--failed");
+    expect(card?.textContent).toContain("missing-skill");
+    expect(card?.textContent).toContain("skill not found");
+  });
+});
+
 // feat-409-M2 R2: expanded-body per-tool rendering. Known names get bespoke
 // cards (bash terminal, edit diff, agent prompt-before-result, …); unknown /
 // DIY tools fall back to a generic structured key/value card (NOT raw JSON);

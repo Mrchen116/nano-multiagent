@@ -3027,6 +3027,12 @@ body {
   word-break: break-word;
 }
 
+.chat-tool-detail-skill-view {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
 /* generic key/value card for unknown / DIY / MCP tools */
 .chat-tool-detail-generic {
   display: flex;

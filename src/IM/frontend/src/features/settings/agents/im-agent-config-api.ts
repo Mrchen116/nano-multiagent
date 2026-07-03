@@ -575,3 +575,43 @@ export interface HeartbeatMdResponse {
 export async function getAgentHeartbeatMd(agentId: string): Promise<HeartbeatMdResponse> {
   return requestJson<HeartbeatMdResponse>(`/im/v1/agents/${agentId}/heartbeat-md`);
 }
+
+export interface SkillUsageSessionRef {
+  session_id?: string | null;
+  tool_call_id?: string | null;
+  timestamp?: string | null;
+}
+
+export interface SkillUsageItem {
+  skill_id: string;
+  name: string;
+  source: string;
+  state: string;
+  use_count: number;
+  last_used_at?: string | null;
+  created_at?: string | null;
+  archived_at?: string | null;
+  archive_error?: string | null;
+  session_refs: SkillUsageSessionRef[];
+  recent_call_keys: string[];
+  trend_buckets: number[];
+}
+
+export interface SkillUsageHealth {
+  created_auto_total: number;
+  active_auto_total: number;
+  used_auto_total: number;
+}
+
+export interface SkillsUsageResponse {
+  agent_id: string;
+  node_id: string | null;
+  node_online: boolean;
+  skills: SkillUsageItem[];
+  heatmap_data: number[];
+  health: SkillUsageHealth;
+}
+
+export async function getAgentSkillsUsage(agentId: string): Promise<SkillsUsageResponse> {
+  return requestJson<SkillsUsageResponse>(`/im/v1/agents/${agentId}/skills/usage`);
+}

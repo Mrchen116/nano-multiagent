@@ -10,7 +10,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 import { authFetch } from "../../auth/auth-fetch";
-import { getAgentConfig, normalizeAgentConfigResponse } from "./im-agent-config-api";
+import {
+  getAgentConfig,
+  getAgentSkillsUsage,
+  normalizeAgentConfigResponse,
+} from "./im-agent-config-api";
 
 vi.mock("../../auth/auth-fetch", () => ({
   authFetch: vi.fn(),
@@ -113,5 +117,58 @@ describe("getAgentConfig — source selection", () => {
       "/im/v1/agents/a1/config?source=live",
       expect.anything(),
     );
+  });
+});
+
+describe("getAgentSkillsUsage", () => {
+  const mockedFetch = vi.mocked(authFetch);
+
+  beforeEach(() => {
+    mockedFetch.mockReset();
+  });
+
+  it("requests the agent skills usage endpoint and preserves dashboard fields", async () => {
+    mockedFetch.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          agent_id: "a1",
+          node_id: "node-1",
+          node_online: true,
+          skills: [
+            {
+              skill_id: "deploy-check",
+              name: "deploy-check",
+              source: "F3",
+              state: "active",
+              use_count: 3,
+              last_used_at: "2026-07-02T10:00:00Z",
+              recent_call_keys: ["s1:tc1"],
+              trend_buckets: [0, 0, 1],
+            },
+          ],
+          heatmap_data: [0, 1, 2],
+          health: {
+            created_auto_total: 2,
+            active_auto_total: 1,
+            used_auto_total: 1,
+          },
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+
+    const usage = await getAgentSkillsUsage("a1");
+
+    expect(mockedFetch).toHaveBeenCalledWith(
+      "/im/v1/agents/a1/skills/usage",
+      expect.anything(),
+    );
+    expect(usage.skills[0].name).toBe("deploy-check");
+    expect(usage.skills[0].use_count).toBe(3);
+    expect(usage.heatmap_data).toEqual([0, 1, 2]);
+    expect(usage.health.created_auto_total).toBe(2);
   });
 });
