@@ -59,16 +59,19 @@
 
 ## R4 — real entry QA and final gates
 
-- Context: TODO
-- Decision: TODO
-- Rationale: TODO
+- Context: 收尾需要证明 M3 的后端、前端、Gateway 自举和真实页面入口均可工作，并把每条退出标准落到证据。
+- Decision: 使用窄后端 pytest、完整 chat v2 Vitest、前端生产 build、隔离 HOME Gateway foreground 启动、Vite + Playwright 浏览器脚本完成最终验收。浏览器脚本走真实 Vite bundle，HTTP/WS 在浏览器侧 mock 固定数据，以便稳定覆盖桌面/移动 distill UI，而 Gateway 自举另用真实进程验证。
+- Rationale: Gateway 启动只需验证 product builtin skill bootstrap，不需要真实 LLM 调用；浏览器侧 mock 避免本地 IM/Gateway/LLM 状态影响视觉验收，同时仍覆盖真实 React route、CSS、composer 和可访问交互。
 - Evidence:
-  - Tests: TODO
-  - Entry: TODO
-  - Frontend State Matrix: TODO
-  - Browser QA: TODO
-  - E2E/Regression: TODO
-  - Visual/Interaction: TODO
-- Rollback: TODO
-- Commits: TODO
+  - Tests:
+    - `PYTHONPATH=src pytest tests/unit/personal_assistant/test_builtin_skills_bootstrap.py tests/unit/personal_assistant/test_gateway_launch.py tests/unit/test_skill_manage_tool.py tests/im_service/unit/test_repositories_user_conversation.py tests/im_service/unit/test_message_runtime_state.py -x` -> 49 passed.
+    - `cd src/IM/frontend && npm run test -- --run src/features/chat/v2` -> 18 files / 306 tests passed. Existing warnings: React `act(...)`, `--localstorage-file`, missing test route for `/settings/agents/a-planner`.
+    - `cd src/IM/frontend && npm run build` -> passed. Existing Vite warnings: auth-store mixed static/dynamic import and large chunk.
+  - Entry: 隔离 HOME Gateway foreground 启动验证 `~/.nanoassistant/skills/conversation-skill-distiller/SKILL.md` 自动生成；将同名 `SKILL.md` 写入 `CUSTOM USER SKILL` 后再次启动，文件保持用户内容不被覆盖。
+  - Frontend State Matrix: default/no run-state label、selection checkboxes、running disabled、no transcript disabled、cross-agent execution choice、scope choice、skill-visible prefill、skill-invisible error 均由 Vitest 覆盖；desktop/mobile layout 由 Playwright 截图覆盖。
+  - Browser QA: Playwright against real Vite bundle passed with no console/page errors. Screenshots copied to `/tmp/feat446-m3-browser-qa/desktop-distill-selection.png`, `/tmp/feat446-m3-browser-qa/desktop-distill-prefill.png`, `/tmp/feat446-m3-browser-qa/mobile-distill-selection.png`.
+  - E2E/Regression: `source_jsonl_paths` 仅预填到 `MessagePane` draft，未修改 `createMessage()`/Gateway parser；普通发送路径由 chat workspace existing send tests回归。`conversation-skill-distiller/SKILL.md` 指导 agent 自行读取 JSONL，任一 source 不可读或证据不足不得创建 skill，并通过 `skill_manage(create, scope=<target_scope>)` 写入目标 root；历史蒸馏产物声明为用户主动创建，不进自动 Curator。
+  - Visual/Interaction: 截图检查无明显重叠；desktop selection 展示可选 idle 与 running 禁选标签，desktop prefill 展示执行 agent 新对话和 composer 草稿，mobile selection 展示 checkbox/禁选标签/底部导航不冲突。
+- Rollback: revert R1/R2/R3 implementation commits plus their tests/docs if M3 must be removed; no schema migration added, rollback is code-only.
+- Commits: C3=TODO
 - Next: DONE
