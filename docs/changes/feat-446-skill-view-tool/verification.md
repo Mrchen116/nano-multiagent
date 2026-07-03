@@ -287,3 +287,81 @@ Round-1 warnings appear resolved:
 ## Verdict
 
 FAIL. Two critical runtime/product behaviors remain unresolved: slash-triggered skills still do not deterministically pass through `skill_view`, and F4 queued reviews are still not drained after a threshold-crossing `skill_view` during a running product session. 2 critical issue(s) found. Fix before PR.
+
+---
+
+# Round 3
+
+## Verification Report: feat-446
+
+### Summary
+
+- unit_id: `feat-446`
+- review_round: 3
+- verification_mode: full
+- validated_head: `e35a8508bf84d9c3e611b1a0d8b28a48fa004785`
+- base_branch: `origin/main`
+- requires_full_verification: false
+- verdict: PASS
+- issue_counts: critical=0, warning=0, suggestion=0
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | PASS: all milestone and fix-loop task checklists are marked complete, and the implemented behavior covers the spec/design/delta requirements checked in this round |
+| Correctness | PASS: the prior round-2 critical runtime/product paths are now covered by code and focused regression tests |
+| Coherence | PASS: the implementation follows the root-aware design and preserves checked package import boundaries |
+
+## Scope
+
+Verified the current unit branch against:
+
+- `docs/changes/feat-446-skill-view-tool/spec.md`
+- `docs/changes/feat-446-skill-view-tool/design.md`
+- delta specs under `docs/changes/feat-446-skill-view-tool/specs/`
+- M1/M2/M3/M4 task/progress docs
+- fix-loop docs: `FIX-round-1-product`, `FIX-round-1-runtime`, `FIX-round-1-script`, `FIX-round-2-product`, `FIX-round-2-runtime`
+- prior verifier reports, especially the two Round 2 criticals
+- project rules in `SPEC.md`, `docs/TESTING_GUIDE.md`, and `COMMENTING_GUIDE.md`
+
+## Task Status Cross-Check
+
+Marked task/progress status:
+
+- M1 skill-view-core: 9/9 checked complete
+- M2 curator-f4: 11/11 checked complete
+- M3 f2-distill: 15/15 checked complete
+- M4 dashboard: 9/9 checked complete
+- FIX-round-1-product: 6/6 checked complete
+- FIX-round-1-runtime: R1/R2/R3 marked DONE
+- FIX-round-2-product: 5/5 checked complete
+- FIX-round-2-runtime: R1/R2/R3 marked DONE
+
+## Round 2 Closure Evidence
+
+- R2-CRITICAL-1 is resolved. `/skill:<name>` is parsed as a slash skill command, then deterministically executed through the normal `skill_view` tool path before the model loop. Evidence: `src/agent/core/agent/runtime.py:503` and `src/agent/core/agent/runtime.py:610` detect the command and call `_execute_slash_skill_view(...)`; `src/agent/core/agent/runtime.py:1984` emits persisted assistant/tool messages with a real `skill_view` tool call; `src/agent/core/tools/registry.py:157` passes `tool_call_id`, session metadata, file state, and base context through normal tool execution; `src/agent/platform/tools/builtins/skill_view.py:131` writes usage, session refs, transcript path, F4 enqueue state, and invoked-skill metadata on success. Regression coverage: `tests/integration/test_agent_runtime_skill_command_integration.py:39` and `tests/unit/test_agent_runtime.py:426`.
+- R2-CRITICAL-2 is resolved. F4 no longer drains only at startup/open-session: `src/agent/core/agent/runtime.py:1057` enqueues root-aware reviews and immediately calls the product scheduler after a new enqueue; `src/coding_cli/product.py:183` installs a live scheduler that creates a background drain task; `src/personal_assistant/main.py:1776` installs the Gateway live scheduler and drains reviews for the owning workspace. Regression coverage: `tests/unit/test_cli_product.py:73`, `tests/unit/personal_assistant/test_gateway_process_manager.py:207`, `tests/unit/test_skill_batch_review.py:101`, and `tests/unit/test_skill_view.py:106`.
+- The product reviewer's dashboard shared-root visibility concern is resolved. `src/agent/core/skills/root_resolver.py:39` resolves usage ownership to the concrete loaded root; `src/personal_assistant/product.py:414` passes PA shared skill roots into the kernel; `src/personal_assistant/ws/im_connection.py:955` aggregates local and shared-root usage while `src/personal_assistant/ws/im_connection.py:1070` filters shared-root records to sessions owned by the requested workspace. Regression coverage: `tests/unit/test_skill_view.py:78` and `tests/unit/personal_assistant/test_gateway_im_connection_behavior.py:1150`.
+- The product reviewer's F2 no-transcript UX concern is resolved. `src/IM/frontend/src/features/chat/v2/components/distill-selection.ts:3` marks conversations without transcript metadata ineligible; `src/IM/frontend/src/features/chat/v2/components/conversation-sidebar.tsx:183` prevents disabled rows from being selected; `src/IM/frontend/src/features/chat/v2/chat-workspace-page.tsx:727` surfaces a visible notice instead of silently no-oping; `src/IM/frontend/src/features/chat/v2/chat-workspace-page.tsx:778` preflights distiller skill and `skill_view` availability before creating a conversation. Regression coverage: `src/features/chat/v2/components/conversation-sidebar.test.tsx:158` and `src/features/chat/v2/chat-workspace.integration.test.tsx:365`.
+
+## Passed Checks
+
+- `skill_view` remains the independent name-only read tool and `skill_manage(view)` is removed.
+- Successful `skill_view` calls write idempotent usage, session refs, transcript references, and compaction survival metadata; failed lookups do not create usage.
+- Manual, threshold, and overflow compaction paths re-inject viewed skill content through common runtime paths: `src/agent/core/agent/runtime.py:2290`, `src/agent/core/agent/loop.py:955`, and focused integration coverage in `tests/integration/test_compaction_runtime_integration.py`.
+- Prompt guidance is gated on `skill_view` availability through `src/agent/core/skills/formatter.py:23`, `src/agent/core/agent/prompt_sections/core_sections.py:201`, and legacy prompting coverage in `src/agent/core/agent/prompting.py:269`.
+- Curator/F4 review targets and dedupe keys are root-aware, so same-name skills in different roots do not collapse into one review target.
+- IM dashboard usage payloads are served through Gateway WS RPC and aggregate shared owning roots without exposing unrelated sessions to the selected agent.
+- Checked architecture boundaries through contract tests: product packages continue through `agent.sdk`, IM does not import `agent`, and core does not import platform.
+
+## Verification Commands
+
+- `PYTHONPATH=src pytest -q tests/integration/test_agent_runtime_skill_command_integration.py tests/unit/test_agent_runtime.py::test_runtime_skill_command_rewrite_runs_through_normal_pipeline tests/contract/test_skill_commands_contract.py tests/unit/test_cli_product.py tests/unit/test_skill_batch_review.py tests/unit/personal_assistant/test_gateway_process_manager.py tests/unit/personal_assistant/test_gateway_im_connection_behavior.py tests/im_service/unit/test_repositories_user_conversation.py tests/integration/test_compaction_runtime_integration.py tests/unit/test_skill_view.py tests/unit/test_usage.py tests/unit/test_agent_prompting.py tests/unit/agent/test_core_sections.py tests/unit/agent/test_feature_registry.py tests/unit/test_skill_manage_tool.py tests/contract/test_core_no_platform_imports.py` -> 170 passed
+- `cd src/IM/frontend && npm run test -- --run src/features/chat/v2/components/conversation-sidebar.test.tsx src/features/chat/v2/chat-workspace.integration.test.tsx src/features/chat/v2/components/tool-calls-panel.test.tsx src/features/settings/agents/agent-detail-page.test.tsx src/features/settings/agents/im-agent-config-api.test.ts` -> 155 passed across 5 files; existing React `act(...)`, localstorage-file, route, and query test warnings observed, with exit code 0
+
+## Issues
+
+None.
+
+## Verdict
+
+PASS. No critical, warning, or suggestion issues found in this round. The branch is ready for PR from the verifier's perspective.
