@@ -1822,8 +1822,8 @@ class GatewayRuntime:
                     if workspace_root is None:
                         continue
                     local_skill_root = (
-                        Path(workspace_root) / _WCD / "skills"
-                    ).expanduser().resolve()
+                        (Path(workspace_root) / _WCD / "skills").expanduser().resolve()
+                    )
                     if resolved_skill_root == local_skill_root:
                         return Path(workspace_root)
         if len(self._config.agents) == 1:

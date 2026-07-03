@@ -44,7 +44,9 @@ async def test_runtime_skill_command_rewrite_runs_through_normal_pipeline(
     skill_root = tmp_path / ".nanoassistant" / "skills"
     skill_file = skill_root / "doc" / "SKILL.md"
     skill_file.parent.mkdir(parents=True)
-    skill_file.write_text("---\nname: doc\ndescription: Doc\n---\n\nDoc body", encoding="utf-8")
+    skill_file.write_text(
+        "---\nname: doc\ndescription: Doc\n---\n\nDoc body", encoding="utf-8"
+    )
     session = service.create_session(
         workspace_root=tmp_path,
         metadata={"workspace_config_dirname": ".nanoassistant"},
@@ -78,13 +80,10 @@ async def test_runtime_skill_command_rewrite_runs_through_normal_pipeline(
     usage = json.loads((skill_root / ".usage.json").read_text(encoding="utf-8"))
     assert usage["doc"]["use_count"] == 1
     assert usage["doc"]["session_refs"][0]["session_id"] == session.session_id
-    assert (
-        usage["doc"]["session_refs"][0]["transcript_path"]
-        == str(
-            manager.store.resolve_path(
-                session.session_id,
-                workspace_root=tmp_path,
-            )
+    assert usage["doc"]["session_refs"][0]["transcript_path"] == str(
+        manager.store.resolve_path(
+            session.session_id,
+            workspace_root=tmp_path,
         )
     )
 

@@ -161,7 +161,9 @@ def mark_reviewed_session_ids(
 
     state_path = curator_state_path.expanduser().resolve()
     state = _load_json_object(state_path)
-    existing = [item for item in state.get("reviewed_session_ids", []) if isinstance(item, str)]
+    existing = [
+        item for item in state.get("reviewed_session_ids", []) if isinstance(item, str)
+    ]
     seen = set(existing)
     for session_id in session_ids:
         if session_id in seen:
@@ -247,7 +249,9 @@ def _parse_time(value: str) -> datetime:
 
 
 def _format_time(value: datetime) -> str:
-    return value.astimezone(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return (
+        value.astimezone(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    )
 
 
 def _load_json_object(path: Path) -> dict[str, Any]:

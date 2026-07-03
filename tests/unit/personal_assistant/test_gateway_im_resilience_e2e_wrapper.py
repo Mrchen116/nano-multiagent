@@ -211,7 +211,12 @@ def test_e2e_up_script_yq_path_sets_each_agent_workspace_independently(
         assert (workspace_dir / "beta").is_dir()
     finally:
         subprocess.run(
-            ["/bin/bash", str(repo_root / "scripts" / "e2e-down.sh"), "--wt", str(tmp_path)],
+            [
+                "/bin/bash",
+                str(repo_root / "scripts" / "e2e-down.sh"),
+                "--wt",
+                str(tmp_path),
+            ],
             cwd=repo_root,
             capture_output=True,
             text=True,

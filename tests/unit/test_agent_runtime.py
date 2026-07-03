@@ -441,7 +441,9 @@ async def test_runtime_skill_command_rewrite_runs_through_normal_pipeline(
     skill_root = workspace_root / ".nanoassistant" / "skills"
     skill_file = skill_root / "doc" / "SKILL.md"
     skill_file.parent.mkdir(parents=True)
-    skill_file.write_text("---\nname: doc\ndescription: Doc\n---\n\nDoc body", encoding="utf-8")
+    skill_file.write_text(
+        "---\nname: doc\ndescription: Doc\n---\n\nDoc body", encoding="utf-8"
+    )
     llm_client = FakeLLMClient()
     registry = ToolRegistry(context=ToolContext.create(repo_root=workspace_root))
     registry.register(SkillViewTool(workspace_config_dirname=".nanoassistant"))
@@ -472,7 +474,9 @@ async def test_runtime_skill_command_rewrite_runs_through_normal_pipeline(
     assert usage["doc"]["session_refs"][0]["session_id"] == session.session_id
 
     entries = manager.list_entries(session.session_id)
-    created_event, user_event, tool_call_event, tool_result_event, assistant_event = entries
+    created_event, user_event, tool_call_event, tool_result_event, assistant_event = (
+        entries
+    )
     assert created_event.kind is SessionEntryKind.SESSION_CREATED
     assert user_event.kind is SessionEntryKind.TURN_APPENDED
     assert user_event.data["role"] == "user"
@@ -500,16 +504,20 @@ async def test_runtime_skill_command_emits_completed_tool_event(
     skill_root = session.workspace_root / ".nanoassistant" / "skills"
     skill_file = skill_root / "doc" / "SKILL.md"
     skill_file.parent.mkdir(parents=True)
-    skill_file.write_text("---\nname: doc\ndescription: Doc\n---\n\nDoc body", encoding="utf-8")
-    registry = ToolRegistry(context=ToolContext.create(repo_root=session.workspace_root))
+    skill_file.write_text(
+        "---\nname: doc\ndescription: Doc\n---\n\nDoc body", encoding="utf-8"
+    )
+    registry = ToolRegistry(
+        context=ToolContext.create(repo_root=session.workspace_root)
+    )
     registry.register(SkillViewTool(workspace_config_dirname=".nanoassistant"))
     hooks = HookRegistry()
     setup_realtime_stream(hooks)
     published: list[dict[str, object]] = []
     set_session_event_publisher_factory(
         registry=hooks,
-        factory=lambda _session_id: lambda event, data: published.append(
-            {"event": event, "data": data}
+        factory=lambda _session_id: (
+            lambda event, data: published.append({"event": event, "data": data})
         ),
     )
     runtime = AgentRuntime(
@@ -528,7 +536,9 @@ async def test_runtime_skill_command_emits_completed_tool_event(
         run_id="run-skill-view",
     )
 
-    tool_events = [event for event in published if event["event"] in {"tool_start", "tool_end"}]
+    tool_events = [
+        event for event in published if event["event"] in {"tool_start", "tool_end"}
+    ]
     assert [event["event"] for event in tool_events] == ["tool_start", "tool_end"]
     assert tool_events[0]["data"]["name"] == "skill_view"
     assert tool_events[1]["data"]["name"] == "skill_view"

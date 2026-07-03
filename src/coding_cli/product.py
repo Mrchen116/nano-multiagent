@@ -190,9 +190,7 @@ def _install_skill_batch_review_scheduler(kernel: Any, *, workspace_root: Path) 
             trigger, fallback_workspace_root=workspace_root
         )
         asyncio.create_task(
-            _drain_queued_skill_batch_reviews(
-                kernel, workspace_root=trigger_workspace
-            )
+            _drain_queued_skill_batch_reviews(kernel, workspace_root=trigger_workspace)
         )
 
     setter(_schedule)

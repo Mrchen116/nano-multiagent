@@ -183,12 +183,11 @@ def _build_review_prompt(
         "Only patch the existing target skill. Do not create, rename, archive, delete, "
         "or modify any other skill.\n"
         "Allowed write path: "
-        f"skill_manage(action=\"patch\", name=\"{trigger.skill_name}\", scope=\"agent\", ...). "
-        "Do not call skill_manage with action=\"create\".\n"
+        f'skill_manage(action="patch", name="{trigger.skill_name}", scope="agent", ...). '
+        'Do not call skill_manage with action="create".\n'
         "First inspect the current skill with skill_view, then patch only if the evidence "
         "shows a concrete improvement.\n\n"
-        "Evidence transcripts:\n"
-        + "\n\n".join(blocks)
+        "Evidence transcripts:\n" + "\n\n".join(blocks)
     )
 
 

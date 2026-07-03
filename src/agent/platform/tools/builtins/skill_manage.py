@@ -241,7 +241,9 @@ class SkillManageTool:
         self._workspace_config_dirname = workspace_config_dirname
         self._extra_roots = tuple(extra_roots)
         self._pa_skill_root = pa_skill_root
-        self._fixed_skill_root = skill_root.expanduser().resolve() if skill_root else None
+        self._fixed_skill_root = (
+            skill_root.expanduser().resolve() if skill_root else None
+        )
         if skill_root is not None and registry is not None:
             self._fixed_writer: SkillWriter | None = SkillWriter(
                 skill_root=skill_root, registry=registry

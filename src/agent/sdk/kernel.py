@@ -855,9 +855,7 @@ class Kernel:
             CompactResult or None when compaction is skipped.
         """
         effective_root = workspace_root or self._repo_root
-        return await self._c.runtime.compact(
-            session_id, workspace_root=effective_root
-        )
+        return await self._c.runtime.compact(session_id, workspace_root=effective_root)
 
     def submit(
         self,

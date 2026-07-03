@@ -139,7 +139,11 @@ class SkillViewTool:
             skills = registry.list_skills()
             skill = next((item for item in skills if item.name == name), None)
             if skill is None:
-                return {"success": False, "name": name, "error": f"Skill '{name}' not found"}
+                return {
+                    "success": False,
+                    "name": name,
+                    "error": f"Skill '{name}' not found",
+                }
             content = skill.location.read_text(encoding="utf-8")
             metadata = dict(getattr(ctx, "session_metadata", {}) or {})
             owning_root = resolved.root_for_location(skill.location)
@@ -156,7 +160,9 @@ class SkillViewTool:
                 ctx, usage_result.trigger
             ):
                 reset_uses_since_last_batch(skill_root=owning_root, skill_name=name)
-            self._register_invoked_skill(ctx, name=name, location=skill.location, root=owning_root)
+            self._register_invoked_skill(
+                ctx, name=name, location=skill.location, root=owning_root
+            )
             return {
                 "success": True,
                 "name": name,

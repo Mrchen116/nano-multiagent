@@ -33,7 +33,9 @@ class ResolvedSkillRoots:
             raise ValueError("scope must be 'agent' or 'pa'")
         if self.pa_skill_root is None:
             raise ValueError("pa skill root is not configured")
-        pa_registry = SkillRegistry(search_roots=(self.pa_skill_root, *self.search_roots))
+        pa_registry = SkillRegistry(
+            search_roots=(self.pa_skill_root, *self.search_roots)
+        )
         return SkillWriter(skill_root=self.pa_skill_root, registry=pa_registry)
 
     def root_for_location(self, location: Path) -> Path:
@@ -83,7 +85,9 @@ def resolve_skill_roots(
     ws = Path(str(workspace_root)).expanduser().resolve()
     agent_root = (ws / str(dirname) / "skills").expanduser().resolve()
     resolved_pa = (
-        Path(pa_skill_root).expanduser().resolve() if pa_skill_root is not None else None
+        Path(pa_skill_root).expanduser().resolve()
+        if pa_skill_root is not None
+        else None
     )
     search_roots: list[Path] = [agent_root]
     for root in extra_roots:

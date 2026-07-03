@@ -1028,8 +1028,10 @@ def _build_skills_usage_payload(
             }
         )
     skills.sort(
-        key=lambda skill: _parse_iso_datetime(skill.get("last_used_at"))
-        or datetime.min.replace(tzinfo=timezone.utc),
+        key=lambda skill: (
+            _parse_iso_datetime(skill.get("last_used_at"))
+            or datetime.min.replace(tzinfo=timezone.utc)
+        ),
         reverse=True,
     )
     return {
@@ -1141,9 +1143,7 @@ def _normalize_session_refs(value: object) -> list[dict[str, str]]:
     return refs
 
 
-def _trend_buckets(
-    *, session_refs: list[dict[str, str]], today: date
-) -> list[int]:
+def _trend_buckets(*, session_refs: list[dict[str, str]], today: date) -> list[int]:
     buckets = [0] * 30
     first_day = today - timedelta(days=29)
     for ref in session_refs:

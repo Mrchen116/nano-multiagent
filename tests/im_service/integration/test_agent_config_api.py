@@ -361,7 +361,10 @@ def test_get_agent_config_ignores_mismatched_live_agent_payload(
         body = response.json()
         assert body["agent_id"] == "default-agent"
         assert body["display_name"] == "Default Agent"
-        assert Path(body["workspace_root"]).resolve() == Path("/tmp/default-agent").resolve()
+        assert (
+            Path(body["workspace_root"]).resolve()
+            == Path("/tmp/default-agent").resolve()
+        )
         assert body["skills"] == []
 
 
@@ -906,9 +909,7 @@ def test_get_skills_usage_calls_rpc_not_direct_file_read(
             },
         }
 
-    monkeypatch.setattr(
-        GatewayHandler, "request_node_skills_usage", _fake_skills_usage
-    )
+    monkeypatch.setattr(GatewayHandler, "request_node_skills_usage", _fake_skills_usage)
 
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:

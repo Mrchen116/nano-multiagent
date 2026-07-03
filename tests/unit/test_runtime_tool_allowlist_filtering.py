@@ -68,11 +68,15 @@ def test_unconfigured_pa_defaults_include_skill_view_without_widening_explicit_a
     )
 
     default_session = _make_session(tool_allowlist=None)
-    default_names = {spec.name for spec in runtime._resolve_session_available_tools(default_session)}
+    default_names = {
+        spec.name for spec in runtime._resolve_session_available_tools(default_session)
+    }
     assert "skill_view" in default_names
 
     explicit_session = _make_session(tool_allowlist=["read", "skill_manage"])
-    explicit_names = {spec.name for spec in runtime._resolve_session_available_tools(explicit_session)}
+    explicit_names = {
+        spec.name for spec in runtime._resolve_session_available_tools(explicit_session)
+    }
     assert explicit_names == {"read", "skill_manage"}
     assert "skill_view" not in explicit_names
 

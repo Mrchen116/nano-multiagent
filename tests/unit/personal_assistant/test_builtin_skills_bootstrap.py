@@ -32,4 +32,3 @@ def test_install_builtin_skills_does_not_overwrite_user_skill(tmp_path: Path) ->
 
     assert "conversation-skill-distiller" not in installed
     assert skill_path.read_text(encoding="utf-8") == "user-owned skill"
-

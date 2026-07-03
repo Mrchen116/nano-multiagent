@@ -269,9 +269,7 @@ def _normalize_source(source: str | None) -> SkillSource:
     return value  # type: ignore[return-value]
 
 
-def _call_key(
-    *, session_id: str | None, tool_call_id: str | None, now_iso: str
-) -> str:
+def _call_key(*, session_id: str | None, tool_call_id: str | None, now_iso: str) -> str:
     if session_id and tool_call_id:
         return f"{session_id}:{tool_call_id}"
     if tool_call_id:

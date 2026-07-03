@@ -1087,9 +1087,7 @@ def test_im_connection_handles_skills_usage_request(tmp_path: Path) -> None:
             "session_refs": [],
         },
     }
-    (usage_dir / ".usage.json").write_text(
-        json.dumps(usage_data), encoding="utf-8"
-    )
+    (usage_dir / ".usage.json").write_text(json.dumps(usage_data), encoding="utf-8")
 
     socket = _FakeWebSocket(
         incoming=[

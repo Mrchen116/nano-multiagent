@@ -2326,7 +2326,9 @@ class AgentRuntime:
             summary_msg.message_id,
         )
         compacted_messages = (
-            [summary_msg, reinjection_msg] if reinjection_msg is not None else [summary_msg]
+            [summary_msg, reinjection_msg]
+            if reinjection_msg is not None
+            else [summary_msg]
         )
 
         # Write compact_boundary + summary directly via JSONL writer and reset the
@@ -2434,22 +2436,20 @@ class AgentRuntime:
                     "root_id": ref.root_id,
                 }
             )
-            blocks.append(
-                f"Skill: {ref.name}\nLocation: {ref.location}\n\n{content}"
-            )
+            blocks.append(f"Skill: {ref.name}\nLocation: {ref.location}\n\n{content}")
         if not blocks:
             return None
         reminder = (
             "<system-reminder>\n"
             "The following skill content was reloaded from the current SKILL.md files "
             "after compaction. Use it as refreshed context for skills already viewed "
-            "in this session.\n\n"
-            + "\n\n---\n\n".join(blocks)
-            + "\n</system-reminder>"
+            "in this session.\n\n" + "\n\n---\n\n".join(blocks) + "\n</system-reminder>"
         )
         return reminder, metadata_refs
 
-    def _skill_roots_for_workspace(self, *, workspace_root: Path | None) -> tuple[Path, ...]:
+    def _skill_roots_for_workspace(
+        self, *, workspace_root: Path | None
+    ) -> tuple[Path, ...]:
         effective_root = (
             Path(workspace_root).expanduser().resolve()
             if workspace_root is not None

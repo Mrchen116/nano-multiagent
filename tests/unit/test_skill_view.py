@@ -37,9 +37,7 @@ class _Ctx:
         self.registered: list[dict[str, str]] = []
 
     def register_invoked_skill(self, *, name: str, location: str, root_id: str) -> None:
-        self.registered.append(
-            {"name": name, "location": location, "root_id": root_id}
-        )
+        self.registered.append({"name": name, "location": location, "root_id": root_id})
 
 
 def _write_skill(root: Path, name: str, body: str | None = None) -> Path:

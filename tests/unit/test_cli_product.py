@@ -24,7 +24,9 @@ class _Kernel:
     def set_skill_batch_review_drain_scheduler(self, scheduler):
         self.scheduler = scheduler
 
-    async def run_queued_skill_batch_reviews(self, *, run_background_analysis, skill_root=None):
+    async def run_queued_skill_batch_reviews(
+        self, *, run_background_analysis, skill_root=None
+    ):
         self.drained = True
         self.drain_roots.append(skill_root)
         await run_background_analysis(

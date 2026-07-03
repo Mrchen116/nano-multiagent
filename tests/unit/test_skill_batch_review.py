@@ -92,7 +92,7 @@ def test_batch_review_invokes_patch_only_background_fork(tmp_path: Path) -> None
     assert f"Target SKILL.md: {skill_dir / 'SKILL.md'}" in prompt
     assert "first transcript uses auto-skill" in prompt
     assert "second transcript also uses auto-skill" in prompt
-    assert "skill_manage(action=\"patch\"" in prompt
+    assert 'skill_manage(action="patch"' in prompt
     assert "Do not create" in prompt
     state = json.loads((skill_root / ".curator_state.json").read_text())
     assert state["reviewed_session_ids"] == ["s1", "s2"]
@@ -227,7 +227,9 @@ def _write_session(workspace_root: Path, session_id: str, text: str) -> None:
     path = workspace_root / ".nanoassistant" / "sessions" / f"{session_id}.jsonl"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        json.dumps({"type": "session_created", "session_id": session_id}) + "\n"
-        + json.dumps({"type": "turn", "role": "user", "content": text}) + "\n",
+        json.dumps({"type": "session_created", "session_id": session_id})
+        + "\n"
+        + json.dumps({"type": "turn", "role": "user", "content": text})
+        + "\n",
         encoding="utf-8",
     )
