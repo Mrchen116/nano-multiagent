@@ -150,6 +150,9 @@ class GatewayHandler:
         self._heartbeat_md_waiters: dict[str, asyncio.Future[str | None]] = {}
         self._cron_jobs_waiters: dict[str, asyncio.Future[list | None]] = {}
         self._cron_delete_waiters: dict[str, asyncio.Future[bool | None]] = {}
+        self._skills_usage_waiters: dict[
+            str, asyncio.Future[dict[str, object] | None]
+        ] = {}
         # feat-445-M1: session.fork.request → session.fork.result futures.
         self._session_fork_waiters: dict[
             str, asyncio.Future[dict[str, object] | None]
@@ -218,6 +221,8 @@ class GatewayHandler:
             return await self._handle_cron_jobs(payload=payload)
         if message_type == "node.cron.delete":
             return await self._handle_cron_delete(payload=payload)
+        if message_type == "node.skills.usage":
+            return await self._handle_skills_usage(payload=payload)
         if message_type == "session.fork.result":
             return await self._handle_session_fork_result(payload=payload)
         if message_type == "agent.message":
@@ -736,6 +741,44 @@ class GatewayHandler:
         finally:
             async with self._lock:
                 self._cron_delete_waiters.pop(request_id, None)
+
+    async def request_node_skills_usage(
+        self,
+        *,
+        target_node_id: str,
+        agent_id: str,
+        workspace_root: str,
+        timeout_seconds: float = 10.0,
+    ) -> dict[str, object] | None:
+        """Send a node.skills.usage.request frame and await usage stats.
+
+        feat-446-M4: the authoritative ``.usage.json`` file is stored in the
+        gateway-side workspace.  IM delegates the read/aggregation over WS RPC
+        so IM and gateway can run on different hosts.
+        """
+        request_id = f"skills-usage-{uuid4().hex}"
+        loop = asyncio.get_running_loop()
+        waiter: asyncio.Future[dict[str, object] | None] = loop.create_future()
+        async with self._lock:
+            self._skills_usage_waiters[request_id] = waiter
+        try:
+            pushed = await self._push_downstream(
+                target_node_id=target_node_id,
+                message_type="node.skills.usage.request",
+                payload={
+                    "request_id": request_id,
+                    "agent_id": agent_id,
+                    "workspace_root": workspace_root,
+                },
+            )
+            if not pushed:
+                return None
+            return await asyncio.wait_for(waiter, timeout=timeout_seconds)
+        except asyncio.TimeoutError:
+            return None
+        finally:
+            async with self._lock:
+                self._skills_usage_waiters.pop(request_id, None)
 
     async def disconnect(
         self,
@@ -1716,6 +1759,25 @@ class GatewayHandler:
             "type": "ack",
             "payload": {
                 "message_type": "node.cron.delete",
+                "request_id": request_id,
+            },
+        }
+
+    async def _handle_skills_usage(
+        self, *, payload: dict[str, object]
+    ) -> dict[str, object]:
+        """Resolve skills-usage waiter when gateway returns the dashboard payload."""
+        request_id = _require_text(payload.get("request_id"), field_name="request_id")
+        usage_raw = payload.get("usage")
+        usage: dict[str, object] = usage_raw if isinstance(usage_raw, dict) else {}
+        async with self._lock:
+            waiter = self._skills_usage_waiters.get(request_id)
+        if waiter is not None and not waiter.done():
+            waiter.set_result(dict(usage))
+        return {
+            "type": "ack",
+            "payload": {
+                "message_type": "node.skills.usage",
                 "request_id": request_id,
             },
         }

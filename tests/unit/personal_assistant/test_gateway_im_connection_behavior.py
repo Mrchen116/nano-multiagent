@@ -1121,7 +1121,7 @@ def test_im_connection_handles_skills_usage_request(tmp_path: Path) -> None:
     usage = payload["usage"]
     assert payload["request_id"] == "req-su-1"
     assert usage["agent_id"] == "agent-x"
-    assert usage["node_id"] == "node-1"
+    assert usage["node_id"] == "n1"
     assert [item["name"] for item in usage["skills"]] == [
         "deploy-check",
         "old-skill",

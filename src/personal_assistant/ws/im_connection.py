@@ -9,6 +9,8 @@ import logging
 from collections import deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Mapping, Protocol
 from urllib.parse import urlparse
 
@@ -726,6 +728,27 @@ class IMConnectionManager:
                 },
             )
             return
+        if message_type == "node.skills.usage.request":
+            request_id = _require_text(body.get("request_id"), field_name="request_id")
+            agent_id = _require_text(body.get("agent_id"), field_name="agent_id")
+            workspace_root_raw = body.get("workspace_root")
+            workspace_root = (
+                workspace_root_raw if isinstance(workspace_root_raw, str) else ""
+            )
+            usage = _build_skills_usage_payload(
+                agent_id=agent_id,
+                node_id=self._reporter.node_id,
+                workspace_root=workspace_root,
+            )
+            await self.send_json(
+                "node.skills.usage",
+                {
+                    "request_id": request_id,
+                    "node_id": self._reporter.node_id,
+                    "usage": usage,
+                },
+            )
+            return
         if message_type == "node.cron.delete.request":
             # feat-394-M13 (決策 G): IM asked gateway to remove a specific job from
             # cron/jobs.json.  Gateway performs the file mutation and reports whether
@@ -920,6 +943,187 @@ class IMConnectionManager:
         if websocket is None:
             raise RuntimeError("IM websocket is not connected")
         return websocket
+
+
+def _build_skills_usage_payload(
+    *, agent_id: str, node_id: str, workspace_root: str
+) -> dict[str, object]:
+    """Read gateway-local .usage.json and return dashboard-ready usage stats."""
+    empty = _empty_skills_usage_payload(agent_id=agent_id, node_id=node_id)
+    if not workspace_root:
+        return empty
+    usage_path = Path(workspace_root) / _PA_WORKSPACE_CFG_DIR / "skills" / ".usage.json"
+    if not usage_path.exists():
+        return empty
+    try:
+        raw = json.loads(usage_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return empty
+    records = _iter_skill_usage_records(raw)
+    today = datetime.now(timezone.utc).date()
+    skills: list[dict[str, object]] = []
+    heatmap_data = [0] * 30
+    health = {
+        "created_auto_total": 0,
+        "active_auto_total": 0,
+        "used_auto_total": 0,
+    }
+    for skill_id, item in records:
+        source = _string_or_default(item.get("source"), "unknown")
+        state = _string_or_default(item.get("state"), "active")
+        use_count = _int_or_zero(item.get("use_count"))
+        session_refs = _normalize_session_refs(item.get("session_refs"))
+        trend_buckets = _trend_buckets(session_refs=session_refs, today=today)
+        for index, value in enumerate(trend_buckets):
+            heatmap_data[index] += value
+        if source in {"F3", "F4"}:
+            health["created_auto_total"] += 1
+            if state != "archived":
+                health["active_auto_total"] += 1
+            if use_count > 0:
+                health["used_auto_total"] += 1
+        recent_call_keys = [
+            key
+            for key in (_session_ref_key(ref) for ref in session_refs)
+            if key is not None
+        ][:10]
+        name = _string_or_default(item.get("name"), skill_id)
+        skills.append(
+            {
+                "skill_id": skill_id,
+                "name": name,
+                "source": source,
+                "state": state,
+                "use_count": use_count,
+                "last_used_at": _optional_string(item.get("last_used_at")),
+                "created_at": _optional_string(item.get("created_at")),
+                "archived_at": _optional_string(item.get("archived_at")),
+                "archive_error": _optional_string(item.get("archive_error")),
+                "session_refs": session_refs,
+                "recent_call_keys": recent_call_keys,
+                "trend_buckets": trend_buckets,
+            }
+        )
+    skills.sort(
+        key=lambda skill: _parse_iso_datetime(skill.get("last_used_at")),
+        reverse=True,
+    )
+    return {
+        "agent_id": agent_id,
+        "node_id": node_id,
+        "skills": skills,
+        "heatmap_data": heatmap_data,
+        "health": health,
+    }
+
+
+def _empty_skills_usage_payload(*, agent_id: str, node_id: str) -> dict[str, object]:
+    return {
+        "agent_id": agent_id,
+        "node_id": node_id,
+        "skills": [],
+        "heatmap_data": [0] * 30,
+        "health": {
+            "created_auto_total": 0,
+            "active_auto_total": 0,
+            "used_auto_total": 0,
+        },
+    }
+
+
+def _iter_skill_usage_records(raw: object) -> list[tuple[str, Mapping[str, object]]]:
+    if isinstance(raw, Mapping):
+        records: list[tuple[str, Mapping[str, object]]] = []
+        for skill_id, item in raw.items():
+            if isinstance(item, Mapping):
+                records.append((str(skill_id), item))
+        return records
+    if isinstance(raw, list):
+        records = []
+        for index, item in enumerate(raw):
+            if not isinstance(item, Mapping):
+                continue
+            skill_id = _string_or_default(item.get("skill_id"), f"skill-{index + 1}")
+            records.append((skill_id, item))
+        return records
+    return []
+
+
+def _normalize_session_refs(value: object) -> list[dict[str, str]]:
+    if not isinstance(value, list):
+        return []
+    refs: list[dict[str, str]] = []
+    for item in value:
+        if not isinstance(item, Mapping):
+            continue
+        ref: dict[str, str] = {}
+        for key in ("session_id", "tool_call_id", "timestamp"):
+            item_value = item.get(key)
+            if isinstance(item_value, str) and item_value:
+                ref[key] = item_value
+        if ref:
+            refs.append(ref)
+    return refs
+
+
+def _trend_buckets(
+    *, session_refs: list[dict[str, str]], today: date
+) -> list[int]:
+    buckets = [0] * 30
+    first_day = today - timedelta(days=29)
+    for ref in session_refs:
+        timestamp = _parse_iso_datetime(ref.get("timestamp"))
+        if timestamp is None:
+            continue
+        event_day = timestamp.date()
+        if event_day < first_day or event_day > today:
+            continue
+        buckets[(event_day - first_day).days] += 1
+    return buckets
+
+
+def _session_ref_key(ref: Mapping[str, str]) -> str | None:
+    session_id = ref.get("session_id")
+    tool_call_id = ref.get("tool_call_id")
+    if session_id and tool_call_id:
+        return f"{session_id}:{tool_call_id}"
+    return session_id or tool_call_id
+
+
+def _parse_iso_datetime(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    normalized = value.replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _string_or_default(value: object, default: str) -> str:
+    return value if isinstance(value, str) and value else default
+
+
+def _optional_string(value: object) -> str | None:
+    return value if isinstance(value, str) and value else None
+
+
+def _int_or_zero(value: object) -> int:
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return max(0, value)
+    if isinstance(value, float):
+        return max(0, int(value))
+    if isinstance(value, str):
+        try:
+            return max(0, int(value))
+        except ValueError:
+            return 0
+    return 0
 
 
 async def _maybe_await(
