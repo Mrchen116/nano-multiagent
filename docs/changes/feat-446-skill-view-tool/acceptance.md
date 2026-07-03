@@ -328,3 +328,136 @@ Evidence:
 ## Recommended Action
 
 继续走 fix-implementation。Round 2 已修复部分 reachability（Agent Skills tab、F2 右键菜单、default-agent workspace root），但三条用户主路径仍失败：dashboard 看不到真实 `skill_view` 使用、`/skill:` 不产生 tool row/统计、F2 不能从真实 conversation 继续到 scope 选择和预填。
+
+---
+
+# Round 3 — 2026-07-03
+
+> 对齐: `docs/changes/feat-446-skill-view-tool/spec.md`
+> validated_head: `e35a8508bf84d9c3e611b1a0d8b28a48fa004785`
+
+## Verdict
+
+fail
+
+Highest Required Action: fix-implementation
+
+Issues count: blocking 1, major 1, minor 0
+
+## User Journeys Exercised
+
+1. 真栈启动与登录: `npm run build` 重建 Web IM dist；用主仓 venv 启动 `./scripts/e2e-up.sh` 隔离 IM/Gateway；登录 `nano/nano1234`；确认 node `wt-unit-feat-446-89281` online。IM host serving asset fingerprint `assets/index-BpuZmqF_.js`，与本轮 build 输出一致。
+2. Agent Skills dashboard 空态/非空态: 从真实 Web IM 进入 `Agents -> default-agent -> Skills`，检查非空 `change-spec-author` row、List/Agent/Health 视图；进入 `plato -> Skills` 检查空态。
+3. default-agent workspace: 检查 live config 与 UI，`default-agent` workspace 为 `.gateway-workspace/default-agent`；`luban` 为 `.gateway-workspace/luban`，二者不再显示同一个 workspace。
+4. 直接 `skill_view`: 在真实 default-agent 对话里要求 agent 调用 `skill_view(name="change-spec-author")`，展开 Process 工具行；刷新 dashboard/API 核对 use_count 从 1 增至 2。
+5. `/skill:` 路径: 发送 `/skill:change-spec-author`，观察 Process 中出现 `skill_view` row，并用 dashboard/API 核对 use_count 从 2 增至 3。
+6. `skill_view` 失败路径: 要求 agent 调用 `skill_view(name="nonexistent-skill")`，展开失败工具行；核对 usage API 未新增 `nonexistent-skill`，`change-spec-author.use_count` 保持 3。
+7. F2 历史会话蒸馏入口: 对真实 conversation 右键进入 `Distill to skill`；检查 no-transcript rows 的禁选、反馈和按钮禁用；尝试从真实 agent 对话构造 transcript-backed row。
+
+Evidence:
+- `/tmp/feat446-r3-acceptance/03-default-agent-config.png` — default-agent config shows node `wt-unit-feat-446-89281`, `skill_view` enabled, workspace isolated to `.gateway-workspace/default-agent`.
+- `/tmp/feat446-r3-acceptance/04b-plato-skills.png` — empty Skills state: `No skill usage yet`.
+- `/tmp/feat446-r3-acceptance/08-default-agent-skills-after-direct.png` — default-agent Skills list shows `change-spec-author`, `active`, `F1`, `2 uses`.
+- `/tmp/feat446-r3-acceptance/14-dashboard-agent-view.png` and `/tmp/feat446-r3-acceptance/15-dashboard-health-view.png` — Agent heatmap and Health funnel render from real dashboard.
+- `/tmp/feat446-r3-acceptance/07-direct-skill-view-expanded.png` — direct `skill_view` success row shows `NAME`, `LOCATION`, and `CONTENT`.
+- `/tmp/feat446-r3-acceptance/10-slash-skill-view-after-refresh.png` and `/tmp/feat446-r3-acceptance/11-slash-row-after-wait.png` — `/skill:` path produces visible `skill_view` row, but row remains `1 tool · running` after reply, refresh, and wait.
+- `/tmp/feat446-r3-acceptance/default-agent-usage-after-direct.json` — default-agent usage after direct call: `use_count=2`, new session ref `sess_e92c308d52e5b38c`.
+- `/tmp/feat446-r3-acceptance/default-agent-usage-after-slash.json` — default-agent usage after `/skill:`: `use_count=3`, slash ref `sess_a0bf12d82cc000c3:call_3d515207f242b275`.
+- `/tmp/feat446-r3-acceptance/17-skill-view-failure-second-attempt.png` — nonexistent skill failure row is red/failed and displays `Skill 'nonexistent-skill' not found`.
+- `/tmp/feat446-r3-acceptance/default-agent-usage-after-failure.json` — failed `skill_view` did not add `nonexistent-skill` or increment `change-spec-author`.
+- `/tmp/feat446-r3-acceptance/12-f2-context-menu.png` and `/tmp/feat446-r3-acceptance/13-f2-no-transcript-feedback.png` — F2 context menu reachable; no-transcript rows are disabled/unchecked and the primary action is disabled with `Select at least one finished conversation with a transcript.`
+- `/tmp/feat446-r3-acceptance/conversations.json` and `/tmp/feat446-r3-acceptance/sync.json` — real default-agent conversations are `run_state=idle` but `source_jsonl_path=null`; workspace contains JSONL files under `.gateway-workspace/default-agent/.nanoassistant/sessions/`.
+
+## Issues
+
+### R3-I1 — F2 cannot reach a transcript-backed journey from real Web IM conversations
+
+- Severity: blocking
+- Regression Relation: direct
+- Recommended Action: fix-implementation
+- Action Rationale: 本 unit 要求用户选择 `run_state=idle` conversation 后进入 scope 选择并预填 `source_jsonl_paths`。本轮真实 default-agent 对话已经产生回复，workspace 下也存在 `sess_*.jsonl`，但 `/im/v1/conversations` 与 `/im/v1/sync` 中这些 conversation 的 `source_jsonl_path` 全部为 `null`。因此 UI 只能把所有真实 conversation 显示为 `No transcript`，用户仍无法走到范围选择、跳转新对话和 `/skill:conversation-skill-distiller` 预填。
+- User impact: 用户可以看到入口和清晰的 no-transcript 反馈，但无法用真实历史会话完成 F2 蒸馏主路径。
+
+### R3-I2 — `/skill:<name>` 的 visible `skill_view` row 长时间保持 running
+
+- Severity: major
+- Regression Relation: direct
+- Recommended Action: fix-implementation
+- Action Rationale: Round 2 的“无 visible row / 无统计”已修复：`/skill:change-spec-author` 后 Process 中出现 `skill_view` row，usage API 从 2 增至 3。但该 row 在 assistant 回复完成后、刷新后、额外等待后仍显示 `Process · 1 tool · running`，工具行带 spinner，展开时只稳定显示 `NAME` 而不是像直接 `skill_view` 路径一样显示完整已完成详情。
+- User impact: slash-triggered skill 现在可被统计，但用户在审计面板里会误以为工具仍在执行，且该行的完成态/详情不可信。
+
+## 验收标准覆盖
+
+### Requirement: skill_view 作为独立只读工具可用 — 组内结论: pass
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| agent 调用 skill_view 读取 skill 内容 | spec.md | 真实 IM default-agent 对话请求 `skill_view(name="change-spec-author")` | `/tmp/feat446-r3-acceptance/07-direct-skill-view-expanded.png` | pass | 展开态显示 name/location/content。 |
+| agent 调用不存在的 skill | spec.md | 真实 IM default-agent 对话请求 `skill_view(name="nonexistent-skill")` | `/tmp/feat446-r3-acceptance/17-skill-view-failure-second-attempt.png` | pass | 失败行显示具体错误。 |
+| 同名 skill 按既有优先级读取 | spec.md | 未构造两个同名可见 skill | 未验证 | inconclusive | 需要可控同名 PA/agent skill 状态；本轮未改变该 Round 2 结论。 |
+
+### Requirement: IM 工具调用面板展示 skill_view 审计信息 — 组内结论: mixed
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| skill_view 成功调用的折叠态可审计 | spec.md | 直接 `skill_view` 与 `/skill:` 两条路径观察 Process | `/tmp/feat446-r3-acceptance/07-direct-skill-view-expanded.png`, `/tmp/feat446-r3-acceptance/11-slash-row-after-wait.png` | fail | 直接路径 pass；slash 路径 row 可见但持久显示 running，归 R3-I2。 |
+| skill_view 成功调用的展开态展示内容 | spec.md | 展开成功工具行 | `/tmp/feat446-r3-acceptance/07-direct-skill-view-expanded.png` | pass | 直接路径展示完整 content。 |
+| skill_view 调用失败时展示失败态 | spec.md | 展开失败工具行 | `/tmp/feat446-r3-acceptance/17-skill-view-failure-second-attempt.png` | pass | 失败行标红/failed。 |
+| skill_view 失败原因可见 | spec.md | 展开失败工具行 | `/tmp/feat446-r3-acceptance/17-skill-view-failure-second-attempt.png` | pass | 显示 `Skill 'nonexistent-skill' not found`。 |
+
+### Requirement: 使用统计追踪 — 组内结论: pass
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| agent 主动调用 skill_view 记录使用统计 | spec.md | 直接 `skill_view` 后刷新 dashboard/API | `/tmp/feat446-r3-acceptance/08-default-agent-skills-after-direct.png`, `/tmp/feat446-r3-acceptance/default-agent-usage-after-direct.json` | pass | use_count 从 1 到 2。 |
+| 用户通过 /skill: 斜杠命令触发时也记录使用统计 | spec.md | 发送 `/skill:change-spec-author` 后核对 Process row + usage API | `/tmp/feat446-r3-acceptance/11-slash-row-after-wait.png`, `/tmp/feat446-r3-acceptance/default-agent-usage-after-slash.json` | pass | row 可见且 use_count 从 2 到 3；row 状态问题单列 R3-I2。 |
+| skill_view 失败调用不记录使用统计 | spec.md | 失败调用后核对 usage API | `/tmp/feat446-r3-acceptance/default-agent-usage-after-failure.json` | pass | 未出现 `nonexistent-skill`，use_count 保持 3。 |
+| 重放同一次 skill_view 不重复计数 | spec.md | N/A | N/A | not-applicable | 事件重放/恢复重试是实现层条件，非 reviewer 用户旅程。 |
+
+### Requirement: 从历史 session 蒸馏 skill（F2） — 组内结论: fail
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 用户从 IM 历史 conversation 入口发起蒸馏 | spec.md / prototype-f2.html | 左侧 conversation 右键 | `/tmp/feat446-r3-acceptance/12-f2-context-menu.png`, `/tmp/feat446-r3-acceptance/13-f2-no-transcript-feedback.png` | pass | 入口可达；no-transcript 行 disabled/unchecked，有反馈。 |
+| 默认会话列表不显示运行态标签 | spec.md | 正常浏览 conversation 列表 | `/tmp/feat446-r3-acceptance/12-f2-context-menu.png` | pass | 默认列表无运行态标签。 |
+| 用户选择可蒸馏 conversation 后选择写入范围并跳转 | spec.md / prototype-f2.html | 尝试用真实 default-agent conversations 构造 transcript-backed row | `/tmp/feat446-r3-acceptance/conversations.json`, `/tmp/feat446-r3-acceptance/13-f2-no-transcript-feedback.png` | fail | 全部真实 row 为 `source_jsonl_path=null`，无法选择进入弹窗；R3-I1。 |
+| 用户通过弹窗指定生成级别后提交蒸馏 | spec.md | 需要先有可选 transcript-backed row | 未进入弹窗 | fail | R3-I1 阻塞。 |
+| source JSONL 路径不可用时不部分生成 | spec.md | no-transcript rows 下点击主按钮不可用 | `/tmp/feat446-r3-acceptance/13-f2-no-transcript-feedback.png` | pass | 主按钮 disabled，没有部分生成或静默跳转。 |
+| 用户选 conversation + 意图生成 skill | spec.md | 需要 transcript-backed row | 未进入弹窗/预填 | fail | R3-I1。 |
+| agent 写入 skill 后在普通对话里展示结果 | spec.md | 需要 transcript-backed row | 未进入发送/写入阶段 | fail | R3-I1。 |
+| 本期不新增专门预览确认 UI | spec.md | F2 入口流程观察 | `/tmp/feat446-r3-acceptance/13-f2-no-transcript-feedback.png` | pass | 未出现专门 SKILL.md 草稿预览/确认写入状态机。 |
+| 蒸馏 skill 是一个普通 SKILL.md | spec.md | Agent detail Skills allowlist | `/tmp/feat446-r3-acceptance/03-default-agent-config.png` | pass | `conversation-skill-distiller` 可见。 |
+| 执行 agent 未启用蒸馏 skill | spec.md | 未构造禁用 allowlist agent | 未验证 | inconclusive | 需要可选 transcript-backed row 后复验。 |
+
+### Requirement: 使用统计面板（IM 前端，初版） — 组内结论: pass
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| Skill 列表视图 | spec.md / prototype.html | Agent detail -> Skills，真实 usage 后刷新 | `/tmp/feat446-r3-acceptance/08-default-agent-skills-after-direct.png` | pass | 显示 name/source/state/use_count/recent use。 |
+| 使用统计面板空态 | spec.md / prototype.html | `plato -> Skills` | `/tmp/feat446-r3-acceptance/04b-plato-skills.png` | pass | 显示 `No skill usage yet`。 |
+| 使用统计面板加载失败 | spec.md / prototype.html | 未强制断开 Gateway | 未验证 | inconclusive | 本轮保持真 Gateway 在线，未破坏环境制造失败态。 |
+| Agent 维度视图 | spec.md / prototype.html | Skills -> Agent | `/tmp/feat446-r3-acceptance/14-dashboard-agent-view.png` | pass | 30-day heatmap 视图可见。 |
+| 自进化健康度视图 | spec.md / prototype.html | Skills -> Health | `/tmp/feat446-r3-acceptance/15-dashboard-health-view.png` | pass | Created/Still active/Used at least once 卡片可见。 |
+
+### Requirement: default-agent 详情/统计不串到 luban workspace — 组内结论: pass
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| default-agent detail 显示自己的 workspace | Round 1 I4 / AGENTS worktree isolation | Agent detail Config + `.gateway-config.yaml` | `/tmp/feat446-r3-acceptance/03-default-agent-config.png` | pass | default-agent root 为 `.gateway-workspace/default-agent`，luban 为 `.gateway-workspace/luban`。 |
+| default-agent skill usage 在 default-agent dashboard 可见 | Round 1 I4 + spec dashboard | default-agent 成功 `skill_view` 后刷新 Skills/API | `/tmp/feat446-r3-acceptance/08-default-agent-skills-after-direct.png`, `/tmp/feat446-r3-acceptance/default-agent-usage-after-direct.json` | pass | default-agent use_count 更新到 2；luban API 保留自己的旧 `sess_952...` 记录，未覆盖 default-agent。 |
+
+## Side Findings
+
+- `design.md` Runbook health check `curl "$IM_URL/im/v1/health"` returns 404 in this build, while `/` serves the app and authenticated `/im/v1/nodes` reports the Gateway online. This is runbook drift, not counted as a product issue for feat-446.
+- `./scripts/e2e-up.sh` still needs a shell with project dependencies on `PATH`; system `python3` lacks `yaml` in this environment. Using `/Users/czj/Repos/nano-multiagent/.venv` allowed the isolated stack to start.
+
+## 上层文档同步
+
+- [x] `SPEC.md`（跨包顶点架构）：无需更新。
+- [x] `docs/specs/<包>/spec.md`（长青行为契约层，本 unit 触及 kernel/im/gateway）：需要由 orchestrator 收尾归并；当前仍 fail，不建议先归并为 current。
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新。
+- [x] `docs/SPEC_GUIDE.md`：无需更新。
+
+## Recommended Action
+
+继续走 fix-implementation。Round 3 关闭了 Round 2 的 dashboard 空白、`/skill:` 无 row/无统计、F2 无反馈三项核心症状，但 F2 主路径仍因真实 conversation 无 `source_jsonl_path` 阻塞；`/skill:` 的工具行完成态也仍不可信。
