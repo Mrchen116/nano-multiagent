@@ -138,6 +138,13 @@ agent 回复是否回写外部 channel 取决于触发该 run 的用户消息来
 - **THEN** Gateway 将该决策提交给等待中的 kernel
 - **AND** agent run 继续执行并把后续回复发回飞书
 
+#### Scenario: 飞书中拒绝工具审批时可填写拒绝原因
+- **GIVEN** 用户在飞书 1:1 对话中触发了一个工具权限审批
+- **WHEN** 用户在飞书 approval card 中点击拒绝进入原因输入卡,填写拒绝原因并提交拒绝
+- **THEN** Gateway 将 `decision="deny"` 和该拒绝原因提交给等待中的 kernel
+- **AND** agent run 按现有权限拒绝路径恢复,LLM 可看到该拒绝原因
+- **AND** 飞书 approval card 显示已拒绝、操作者和拒绝原因
+
 #### Scenario: 内部 IM 先审批后飞书卡片不得重复决策
 - **GIVEN** 飞书触发的 run 已同时生成内部 IM 审批卡和飞书 approval card
 - **WHEN** 用户先在内部 IM 中拒绝该 `request_id`

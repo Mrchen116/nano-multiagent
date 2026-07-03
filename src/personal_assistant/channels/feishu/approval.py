@@ -21,8 +21,10 @@ from personal_assistant.channels.feishu.client import (
 logger = logging.getLogger(__name__)
 
 _ACTION_PERMISSION_DECISION = "permission_decision"
+_REASON_FIELD_NAME = "nano_permission_reason"
 _PENDING_TTL_SECONDS = 60 * 60
-_MAX_INPUT_PREVIEW_CHARS = 3000
+_MAX_INPUT_PREVIEW_CHARS = 1200
+_MAX_REASON_CHARS = 1000
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +47,9 @@ class _PendingApproval:
     feishu_message_id: str | None = None
     status: str = "pending"
     decision: str | None = None
+    reason: str = ""
+    operator_open_id: str = ""
+    operator_user_id: str = ""
     created_at: float = field(default_factory=time.monotonic)
 
 
@@ -177,6 +182,9 @@ class FeishuPermissionApprovalSurface:
         decision = str(value.get("decision") or "").strip()
         if not approval_id or not decision:
             return None
+        collect_reason = (
+            value.get("collect_reason") is True and not _decision_allows(decision)
+        )
 
         with self._lock:
             pending = self._pending_by_approval_id.get(approval_id)
@@ -213,8 +221,15 @@ class FeishuPermissionApprovalSurface:
                 and event.open_chat_id != pending.receive_id
             ):
                 return None
+            if collect_reason:
+                return _build_deny_reason_card(pending, decision)
             pending.status = "resolved"
             pending.decision = decision
+            pending.reason = (
+                "" if _decision_allows(decision) else _reason_from_event(event)
+            )
+            pending.operator_open_id = event.operator_open_id
+            pending.operator_user_id = event.operator_user_id
 
         accepted = self._submit_decision(pending, decision)
         if not accepted:
@@ -247,8 +262,10 @@ class FeishuPermissionApprovalSurface:
                 {
                     "request_id": pending.request_id,
                     "decision": decision,
-                    "reason": "",
+                    "reason": pending.reason,
                     "source": "feishu",
+                    "operator_open_id": pending.operator_open_id,
+                    "operator_user_id": pending.operator_user_id,
                     "agent_id": self._agent_id,
                     "run_id": pending.run_id,
                     "target_chat_id": pending.target_chat_id,
@@ -341,19 +358,15 @@ def _build_pending_card(
     tool_name = str(request.get("tool_name") or "tool")
     question = str(request.get("question") or "Approve this tool call?")
     tool_input = request.get("tool_input") or {}
-    input_text = _truncate(_json_preview(tool_input), _MAX_INPUT_PREVIEW_CHARS)
+    input_text = _truncate(_json_preview(tool_input, compact=True), _MAX_INPUT_PREVIEW_CHARS)
     actions = [
-        {
-            "tag": "button",
-            "text": {"tag": "plain_text", "content": option.label},
-            "type": _button_type(option.decision),
-            "value": {
-                "nano_action": _ACTION_PERMISSION_DECISION,
-                "approval_id": approval_id,
-                "request_id": request_id,
-                "decision": option.decision,
-            },
-        }
+        _approval_button(
+            approval_id=approval_id,
+            request_id=request_id,
+            decision=option.decision,
+            label=option.label,
+            collect_reason=not _decision_allows(option.decision),
+        )
         for option in options
     ]
     return {
@@ -366,12 +379,66 @@ def _build_pending_card(
             {
                 "tag": "markdown",
                 "content": (
-                    f"**Tool:** `{tool_name}`\n\n"
-                    f"**Request:** {question}\n\n"
-                    f"**Input**\n```json\n{input_text}\n```"
+                    f"**Tool:** `{tool_name}`\n"
+                    f"**Request:** {question}\n"
+                    f"**Input:** {_inline_code(input_text)}"
                 ),
             },
-            {"tag": "action", "actions": actions},
+            {
+                "tag": "action",
+                "actions": actions,
+            },
+        ],
+    }
+
+
+def _build_deny_reason_card(
+    pending: _PendingApproval, decision: str
+) -> dict[str, Any]:
+    tool_name = str(pending.request.get("tool_name") or "tool")
+    question = str(pending.request.get("question") or "Approve this tool call?")
+    tool_input = pending.request.get("tool_input") or {}
+    input_text = _truncate(_json_preview(tool_input, compact=True), _MAX_INPUT_PREVIEW_CHARS)
+    return {
+        "config": {"wide_screen_mode": True},
+        "header": {
+            "template": "red",
+            "title": {"tag": "plain_text", "content": "Deny tool approval"},
+        },
+        "elements": [
+            {
+                "tag": "markdown",
+                "content": (
+                    f"**Tool:** `{tool_name}`\n"
+                    f"**Request:** {question}\n"
+                    f"**Input:** {_inline_code(input_text)}"
+                ),
+            },
+            {
+                "tag": "form",
+                "name": "nano_permission_deny_form",
+                "elements": [
+                    {
+                        "tag": "input",
+                        "name": _REASON_FIELD_NAME,
+                        "label": {
+                            "tag": "plain_text",
+                            "content": "Reason for denial",
+                        },
+                        "placeholder": {
+                            "tag": "plain_text",
+                            "content": "Optional. Sent only when you deny.",
+                        },
+                    },
+                    _approval_button(
+                        approval_id=pending.approval_id,
+                        request_id=pending.request_id,
+                        decision=decision,
+                        label="Deny",
+                        action_type="form_submit",
+                    ),
+                ],
+            },
         ],
     }
 
@@ -380,9 +447,14 @@ def _build_resolved_card(
     pending: _PendingApproval, decision: str
 ) -> dict[str, Any]:
     tool_name = str(pending.request.get("tool_name") or "tool")
+    lines = [f"`{tool_name}` was resolved with decision `{decision}`."]
+    if pending.operator_open_id:
+        lines.append(f"Operator: `{pending.operator_open_id}`")
+    if pending.reason:
+        lines.append(f"Reason: {_truncate(pending.reason, _MAX_REASON_CHARS)}")
     return _build_status_card(
         title="Tool approval resolved",
-        text=f"`{tool_name}` was resolved with decision `{decision}`.",
+        text="\n\n".join(lines),
         template="green" if _decision_allows(decision) else "red",
     )
 
@@ -398,9 +470,43 @@ def _build_status_card(*, title: str, text: str, template: str) -> dict[str, Any
     }
 
 
-def _json_preview(value: object) -> str:
+def _approval_button(
+    *,
+    approval_id: str,
+    request_id: str,
+    decision: str,
+    label: str,
+    action_type: str | None = None,
+    collect_reason: bool = False,
+) -> dict[str, Any]:
+    value: dict[str, Any] = {
+        "nano_action": _ACTION_PERMISSION_DECISION,
+        "approval_id": approval_id,
+        "request_id": request_id,
+        "decision": decision,
+    }
+    if collect_reason:
+        value["collect_reason"] = True
+    button = {
+        "tag": "button",
+        "name": f"nano_permission_{decision}",
+        "text": {"tag": "plain_text", "content": label},
+        "type": _button_type(decision),
+        "value": value,
+    }
+    if action_type:
+        button["action_type"] = action_type
+    return button
+
+
+def _json_preview(value: object, *, compact: bool = False) -> str:
     try:
-        return json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True)
+        kwargs: dict[str, Any] = {"ensure_ascii": False, "sort_keys": True}
+        if compact:
+            kwargs["separators"] = (",", ":")
+        else:
+            kwargs["indent"] = 2
+        return json.dumps(value, **kwargs)
     except TypeError:
         return str(value)
 
@@ -415,8 +521,35 @@ def _button_type(decision: str) -> str:
     return "primary" if _decision_allows(decision) else "danger"
 
 
+def _inline_code(text: str) -> str:
+    escaped = text.replace("`", "\\`")
+    return "`" + escaped + "`"
+
+
 def _decision_allows(decision: str) -> bool:
     normalized = decision.lower()
     return normalized in {"allow", "allowed", "approve", "approved", "yes"} or (
         normalized.startswith("allow_")
     )
+
+
+def _reason_from_event(event: FeishuCardActionEvent) -> str:
+    for key in (_REASON_FIELD_NAME, "reason", "permission_reason"):
+        reason = _string_value(event.form_value.get(key))
+        if reason:
+            return _truncate(reason, _MAX_REASON_CHARS)
+    reason = _string_value(event.action_value.get("reason"))
+    if reason:
+        return _truncate(reason, _MAX_REASON_CHARS)
+    return _truncate(event.input_value.strip(), _MAX_REASON_CHARS)
+
+
+def _string_value(value: object) -> str:
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, Mapping):
+        for key in ("value", "text", "content"):
+            nested = value.get(key)
+            if isinstance(nested, str) and nested.strip():
+                return nested.strip()
+    return ""

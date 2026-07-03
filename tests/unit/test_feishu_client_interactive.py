@@ -26,12 +26,20 @@ class TestFeishuClientInteractive:
         mock_builder = MagicMock()
         mock_builder.register_p2_im_message_receive_v1.return_value = mock_builder
         mock_builder.register_p2_card_action_trigger.return_value = mock_builder
+        mock_builder.register_p2_im_message_reaction_created_v1.return_value = mock_builder
+        mock_builder.register_p2_im_message_reaction_deleted_v1.return_value = mock_builder
         mock_builder.build.return_value = MagicMock()
         mock_dispatcher.builder.return_value = mock_builder
 
         client = FeishuClient(app_id="cli_abc", app_secret="secret")
         client.start(MagicMock(), on_card_action=MagicMock())
 
+        mock_builder.register_p2_im_message_reaction_created_v1.assert_called_once_with(
+            client._ignore_reaction_event
+        )
+        mock_builder.register_p2_im_message_reaction_deleted_v1.assert_called_once_with(
+            client._ignore_reaction_event
+        )
         mock_builder.register_p2_card_action_trigger.assert_called_once_with(
             client._handle_card_action_event
         )
@@ -88,6 +96,8 @@ class TestFeishuClientInteractive:
         client._on_card_action = on_card_action
         raw_event = MagicMock()
         raw_event.event.action.value = {"approval_id": "appr-1", "decision": "allow"}
+        raw_event.event.action.form_value = {"nano_permission_reason": "not safe"}
+        raw_event.event.action.input_value = "fallback"
         raw_event.event.operator.open_id = "ou_owner"
         raw_event.event.operator.user_id = "u_owner"
         raw_event.event.context.open_chat_id = "oc_group"
@@ -99,4 +109,6 @@ class TestFeishuClientInteractive:
         assert parsed.operator_open_id == "ou_owner"
         assert parsed.operator_user_id == "u_owner"
         assert parsed.open_chat_id == "oc_group"
+        assert parsed.form_value["nano_permission_reason"] == "not safe"
+        assert parsed.input_value == "fallback"
         assert response.card.data["config"]["wide_screen_mode"] is True
