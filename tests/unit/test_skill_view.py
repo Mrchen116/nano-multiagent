@@ -75,6 +75,34 @@ def test_skill_view_returns_skill_content_and_records_usage(tmp_path: Path) -> N
     ]
 
 
+def test_skill_view_records_usage_to_priority_hit_owning_root(tmp_path: Path) -> None:
+    agent_workspace = tmp_path / "agent"
+    agent_skill_root = agent_workspace / ".nanoassistant" / "skills"
+    pa_skill_root = tmp_path / "pa-skills"
+    pa_skill_file = _write_skill(pa_skill_root, "shared-skill")
+    tool = SkillViewTool(
+        workspace_config_dirname=".nanoassistant",
+        extra_roots=(pa_skill_root,),
+    )
+    ctx = _Ctx(workspace_root=agent_workspace)
+
+    result = tool.run({"name": "shared-skill"}, ctx)  # type: ignore[arg-type]
+
+    assert result["success"] is True
+    assert result["location"] == str(pa_skill_file)
+    assert not (agent_skill_root / ".usage.json").exists()
+    usage = json.loads((pa_skill_root / ".usage.json").read_text(encoding="utf-8"))
+    assert usage["shared-skill"]["use_count"] == 1
+    assert usage["shared-skill"]["session_refs"][0]["location"] == str(pa_skill_file)
+    assert ctx.registered == [
+        {
+            "name": "shared-skill",
+            "location": str(pa_skill_file),
+            "root_id": str(pa_skill_root.resolve()),
+        }
+    ]
+
+
 def test_skill_view_enqueues_f4_trigger_and_resets_counter(tmp_path: Path) -> None:
     skill_root = tmp_path / ".nanoassistant" / "skills"
     _write_skill(skill_root, "auto-skill")

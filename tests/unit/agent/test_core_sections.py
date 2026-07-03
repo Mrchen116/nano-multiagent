@@ -128,6 +128,27 @@ class TestCoreSkillsGuidance:
 
         assert s.enabled_when(ctx) is False
 
+    def test_available_skills_section_omits_skill_view_when_tool_disabled(self):
+        s = _get_section("core.skills")
+        ctx = _ctx(
+            available_tools=(_tool("read"),),
+            available_skills=(
+                type(
+                    "Skill",
+                    (),
+                    {
+                        "name": "demo",
+                        "description": "demo skill",
+                        "location": Path("./demo/SKILL.md"),
+                    },
+                )(),
+            ),
+        )
+
+        text = s.render(ctx)
+        assert "<available_skills>" in text
+        assert "skill_view" not in text
+
 
 # ---------------------------------------------------------------------------
 # core.actions_care — M4 must fill (currently render→None stub)

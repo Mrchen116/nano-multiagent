@@ -87,6 +87,33 @@ def test_build_prompt_messages_injects_available_skills_section_with_absolute_lo
     )
 
 
+def test_build_prompt_messages_does_not_advertise_skill_view_when_tool_disabled() -> (
+    None
+):
+    relative_location = Path("./relative/demo/SKILL.md")
+    prompts = build_prompt_messages(
+        history_messages=(),
+        user_text="run this",
+        available_skills=(
+            SkillMetadata(
+                name="demo",
+                description="demo skill",
+                location=relative_location,
+                base_dir=relative_location.parent,
+            ),
+        ),
+        available_tools=(
+            ToolSpec(name="read", description="Read file contents", input_schema={}),
+        ),
+    )
+
+    system_prompt = prompts[0].content
+    assert "<available_skills>" in system_prompt
+    assert "<name>demo</name>" in system_prompt
+    assert "skill_view" not in system_prompt
+    assert "Use the listed skills only as task-matching context." in system_prompt
+
+
 def test_build_prompt_messages_skips_available_skills_section_when_empty() -> None:
     # Use _CODING_FIXTURE explicitly: default is now generic empty string.
     prompts = build_prompt_messages(

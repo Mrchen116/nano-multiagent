@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from agent.core.agent.compaction.types import CompactionReason, CompactionSettings
@@ -126,6 +127,46 @@ def _is_compaction_request(request: LLMGenerateRequest) -> bool:
     return any("Do NOT call any tools" in (m.content or "") for m in request.messages)
 
 
+def _write_viewed_skill_usage(
+    *,
+    workspace: Path,
+    session_id: str,
+    skill_name: str = "compact-skill",
+    content: str = "follow this compact skill",
+    location_exists: bool = True,
+) -> Path:
+    skill_root = workspace / ".nanoassistant" / "skills"
+    skill_dir = skill_root / skill_name
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    skill_file = skill_dir / "SKILL.md"
+    skill_file.write_text(
+        f"---\nname: {skill_name}\ndescription: compact test\n---\n{content}\n",
+        encoding="utf-8",
+    )
+    if not location_exists:
+        skill_file.unlink()
+    usage = {
+        skill_name: {
+            "source": "F1",
+            "state": "active",
+            "use_count": 1,
+            "last_used_at": "2026-07-02T10:00:00Z",
+            "session_refs": [
+                {
+                    "session_id": session_id,
+                    "tool_call_id": "call-1",
+                    "timestamp": "2026-07-02T10:00:00Z",
+                    "location": str(skill_file),
+                }
+            ],
+            "recent_call_keys": [f"{session_id}:call-1"],
+            "uses_since_last_B": 1,
+        }
+    }
+    (skill_root / ".usage.json").write_text(json.dumps(usage), encoding="utf-8")
+    return skill_file
+
+
 async def test_threshold_preflight_compacts_and_rebuilds_context(
     tmp_path: Path,
 ) -> None:
@@ -175,6 +216,96 @@ async def test_threshold_preflight_compacts_and_rebuilds_context(
     assert (
         "summary" in user_messages[0].content.lower()
         or "continue" in user_messages[0].content.lower()
+    )
+
+
+async def test_threshold_compaction_reinjects_viewed_skill_into_live_prompt(
+    tmp_path: Path,
+) -> None:
+    service = SessionService(store=JsonlSessionStore(data_dir=tmp_path / "sessions"))
+    manager = service.manager
+    session = service.create_session(workspace_root=tmp_path)
+    _write_viewed_skill_usage(
+        workspace=tmp_path,
+        session_id=session.session_id,
+        content="threshold reinjection instruction",
+    )
+    llm_client = ThresholdAwareLLMClient()
+    runtime = AgentRuntime(
+        session_manager=manager,
+        llm_client=llm_client,
+        model="main-model",
+        workspace_config_dirname=".nanoassistant",
+        compaction_settings=CompactionSettings(
+            enabled=True,
+            context_window=60,
+            reserve_tokens=10,
+            min_kept_messages=2,
+            summary_model="summary-model",
+        ),
+    )
+
+    await runtime.run(
+        session.session_id, [{"type": "text", "text": "hello " * 20}], stream=False
+    )
+    await runtime.run(
+        session.session_id, [{"type": "text", "text": "follow-up " * 20}], stream=False
+    )
+
+    main_requests = [
+        request for request in llm_client.requests if request.model == "main-model"
+    ]
+    assert any(
+        "<system-reminder>" in (message.content or "")
+        and "threshold reinjection instruction" in (message.content or "")
+        for message in main_requests[-1].messages
+    )
+    replayed = manager.list_turn_messages(session.session_id)
+    assert any(
+        message.metadata.get("is_skill_reinjection") is True
+        and "threshold reinjection instruction" in message.content
+        for message in replayed
+    )
+
+
+async def test_threshold_compaction_skips_deleted_viewed_skill_without_crashing(
+    tmp_path: Path,
+) -> None:
+    service = SessionService(store=JsonlSessionStore(data_dir=tmp_path / "sessions"))
+    manager = service.manager
+    session = service.create_session(workspace_root=tmp_path)
+    _write_viewed_skill_usage(
+        workspace=tmp_path,
+        session_id=session.session_id,
+        content="deleted skill instruction",
+        location_exists=False,
+    )
+    llm_client = ThresholdAwareLLMClient()
+    runtime = AgentRuntime(
+        session_manager=manager,
+        llm_client=llm_client,
+        model="main-model",
+        workspace_config_dirname=".nanoassistant",
+        compaction_settings=CompactionSettings(
+            enabled=True,
+            context_window=60,
+            reserve_tokens=10,
+            min_kept_messages=2,
+            summary_model="summary-model",
+        ),
+    )
+
+    await runtime.run(
+        session.session_id, [{"type": "text", "text": "hello " * 20}], stream=False
+    )
+    result = await runtime.run(
+        session.session_id, [{"type": "text", "text": "follow-up " * 20}], stream=False
+    )
+
+    assert result.messages[-1].content == "ack"
+    assert not any(
+        message.metadata.get("is_skill_reinjection") is True
+        for message in manager.list_turn_messages(session.session_id)
     )
 
 
@@ -308,6 +439,54 @@ async def test_overflow_post_turn_check_compacts_then_retries(tmp_path: Path) ->
     ]
     # 1st turn + 2nd turn (overflow) + retry = 3; summary uses summary-model separately
     assert len(main_calls) == 3
+
+
+async def test_overflow_compaction_reinjects_viewed_skill_before_retry(
+    tmp_path: Path,
+) -> None:
+    service = SessionService(store=JsonlSessionStore(data_dir=tmp_path / "sessions"))
+    manager = service.manager
+    session = service.create_session(workspace_root=tmp_path)
+    _write_viewed_skill_usage(
+        workspace=tmp_path,
+        session_id=session.session_id,
+        content="overflow reinjection instruction",
+    )
+    llm_client = OverflowOnceLLMClient()
+    runtime = AgentRuntime(
+        session_manager=manager,
+        llm_client=llm_client,
+        model="main-model",
+        workspace_config_dirname=".nanoassistant",
+        compaction_settings=CompactionSettings(
+            enabled=True,
+            context_window=200,
+            reserve_tokens=40,
+            min_kept_messages=2,
+            summary_model="summary-model",
+        ),
+    )
+
+    await runtime.run(
+        session.session_id, [{"type": "text", "text": "first turn"}], stream=False
+    )
+    await runtime.run(
+        session.session_id, [{"type": "text", "text": "second turn"}], stream=False
+    )
+
+    main_calls = [
+        request for request in llm_client.requests if request.model == "main-model"
+    ]
+    assert any(
+        "<system-reminder>" in (message.content or "")
+        and "overflow reinjection instruction" in (message.content or "")
+        for message in main_calls[-1].messages
+    )
+    assert any(
+        message.metadata.get("is_skill_reinjection") is True
+        and "overflow reinjection instruction" in message.content
+        for message in manager.list_turn_messages(session.session_id)
+    )
 
 
 def _workspace_aware_service(tmp_path: Path) -> SessionService:
