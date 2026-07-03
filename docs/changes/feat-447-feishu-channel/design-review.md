@@ -9,7 +9,7 @@
 | 原子 | 核实动作 | 结论 + 证据 |
 |---|---|---|
 | 现状: Gateway/IM/agent 依赖边界 | 核顶点架构 | 成立: IM 不调用 agent,Gateway 经 `agent.sdk` 持有内核(`SPEC.md:147`, `SPEC.md:155`) |
-| 现状: FeishuAdapter/FeishuClient 是飞书生产入口 | 从 channel 装配追入站 | 成立: design 指向 `feishu_client.py`/`feishu_adapter.py`;现代码已有 Feishu event -> InboundMessage metadata 路径(`src/personal_assistant/channels/feishu_adapter.py:288`) |
+| 现状: FeishuAdapter/FeishuClient 是飞书生产入口 | 从 channel 装配追入站 | 成立: design 指向 `channels/feishu/client.py`/`channels/feishu/adapter.py`;现代码已有 Feishu event -> InboundMessage metadata 路径(`src/personal_assistant/channels/feishu/adapter.py`) |
 | 现状: Session key 可按 metadata external identity 覆盖 | 核当前实现 | 成立: `build_session_key` 已优先读 `metadata["external_source"]` / `metadata["external_chat_id"]`(`src/personal_assistant/gateway/session_keys.py:422`) |
 | 现状: GroupContextStore key 可复用 external identity | 核当前实现 | 成立: `_group_buf_key_for_agent` 已优先用 `build_external_session_key`(`src/personal_assistant/gateway/inbound_pipeline.py:642`) |
 | 现状: IM conversation schema 复用 `config_agent_id` | 核 DB/repo | 成立: schema 与索引均使用 `config_agent_id`(`src/IM/infra/db.py:46`, `src/IM/infra/db.py:332`) |
