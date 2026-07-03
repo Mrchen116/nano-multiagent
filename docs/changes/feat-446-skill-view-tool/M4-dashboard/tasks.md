@@ -8,15 +8,15 @@
 
 ## 退出标准
 
-- [ ] Skill 列表视图显示真实 `use_count`、状态、最近 30 天趋势，并支持 archived 过滤视图。
-- [ ] Agent 维度视图显示最近 30 天 skill 使用热力图。
-- [ ] 健康度视图显示 F3/F4 创建总数、仍 active 数、`use_count > 0` 数的漏斗数字。
-- [ ] 无 skill 数据显示空态；gateway 离线/超时显示离线提示，不伪装为空数据。
-- [ ] `skill_view` 工具行折叠态显示 `查看 skill：<name>`。
-- [ ] `skill_view` 工具行展开态显示 name、location、content 预览/展开全文。
-- [ ] `skill_view` 失败态标红并展示错误原因。
-- [ ] `cd src/IM/frontend && npm run test` 全绿。
-- [ ] IM API 返回真实 `.usage.json` 数据。
+- [x] Skill 列表视图显示真实 `use_count`、状态、最近 30 天趋势，并支持 archived 过滤视图。
+- [x] Agent 维度视图显示最近 30 天 skill 使用热力图。
+- [x] 健康度视图显示 F3/F4 创建总数、仍 active 数、`use_count > 0` 数的漏斗数字。
+- [x] 无 skill 数据显示空态；gateway 离线/超时显示离线提示，不伪装为空数据。
+- [x] `skill_view` 工具行折叠态显示 `查看 skill：<name>`。
+- [x] `skill_view` 工具行展开态显示 name、location、content 预览/展开全文。
+- [x] `skill_view` 失败态标红并展示错误原因。
+- [x] `cd src/IM/frontend && npm run test` 全绿。
+- [x] IM API 返回真实 `.usage.json` 数据。
 
 ## 测试策略
 
@@ -101,13 +101,15 @@ UI 状态矩阵：
 
 ### R3 — skill_view tool card and browser QA
 
-- 状态: TODO
+- 状态: DONE
 - 步骤:
   - 扩展 tool presenter helpers/detail renderer，给 `skill_view` 专属 emoji、折叠摘要和详情卡。
   - 扩展 `ToolCallsPanel` regression 覆盖成功、长内容、失败态。
   - 启动隔离 IM/Gateway/Vite 或稳定真入口数据，完成真实浏览器 desktop/mobile 验收、console/network 检查和截图。
   - 回填 `progress.md` 每条退出标准证据。
 - 验证:
-  - `cd src/IM/frontend && npm run test -- --run src/features/chat/v2/components/tool-calls-panel.test.tsx`
-  - `cd src/IM/frontend && npm run test`
-  - 真入口浏览器验收截图与 console/network 结论记录到 `progress.md`
+  - `cd src/IM/frontend && npm run test -- --run src/features/chat/v2/components/tool-calls-panel.test.tsx` -> 1 file / 80 tests passed.
+  - `cd src/IM/frontend && npm run test` -> 63 files / 573 tests passed.
+  - `cd src/IM/frontend && npm run build` -> passed.
+  - `PYTHONPATH=src pytest tests/im_service/unit/test_gateway_handler.py tests/unit/personal_assistant/test_gateway_im_connection_behavior.py tests/im_service/integration/test_agent_config_api.py -q` -> 81 passed.
+  - 真入口浏览器验收截图与 console/network 结论记录到 `progress.md`。

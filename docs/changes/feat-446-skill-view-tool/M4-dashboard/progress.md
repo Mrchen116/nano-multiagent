@@ -69,16 +69,55 @@
 
 ## R3 — skill_view tool card and browser QA
 
-- Context: TODO
-- Decision: TODO
-- Rationale: TODO
+- Context: Completed the chat v2 `skill_view` presenter/card connection and the required browser QA pass for both the Skills dashboard and tool-call rows.
+- Decision: `skill_view` now uses the skill-family emoji, has a summary fallback of `查看 skill：<name>` when historical rows do not carry `output`, and renders a bespoke detail card for name/location/content. `detail.success === false` keeps using the existing failed-row mechanism while the card shows the concrete error reason.
+- Rationale: The presenter already emits `查看 skill：<name>` for current rows; the fallback protects persisted/in-flight rows where `output` is empty. Reusing `LongOutput` keeps long skill content behavior consistent with bash/write/tool detail cards, including preview + expand-all.
 - Evidence:
-  - Tests: TODO
-  - Entry: TODO
-  - Frontend State Matrix: TODO
-  - Browser QA: TODO
-  - E2E/Regression: TODO
-  - Visual/Interaction: TODO
-- Rollback: TODO
-- Commits: TODO
+  - Tests:
+    - Red tests before implementation failed as expected: `skill_view` used generic `🔧`, no `.chat-tool-detail-skill-view` card existed, and failure detail fell through generic rendering.
+    - `cd src/IM/frontend && npm run test -- --run src/features/chat/v2/components/tool-calls-panel.test.tsx` -> 1 file / 80 tests passed.
+    - `cd src/IM/frontend && npm run test` -> 63 files / 573 tests passed. Existing warnings observed: `--localstorage-file` without path, React `act(...)`, and pre-existing query-data warnings in older tests.
+    - `cd src/IM/frontend && npm run build` -> passed. Existing Vite warnings: dynamic/static import overlap for `auth-store.ts`, chunk size > 500 kB.
+    - `PYTHONPATH=src pytest tests/im_service/unit/test_gateway_handler.py tests/unit/personal_assistant/test_gateway_im_connection_behavior.py tests/im_service/integration/test_agent_config_api.py -q` -> 81 passed.
+    - `python -m compileall -q src/IM src/personal_assistant` -> passed.
+  - Entry:
+    - `skill_view` collapsed/presenter helpers: `src/IM/frontend/src/features/chat/v2/components/tool-presentation.ts`.
+    - `skill_view` expanded card: `src/IM/frontend/src/features/chat/v2/components/tool-detail-renderers.tsx`.
+    - Browser dashboard entry: `/settings/agents/agent-core-1` -> `Skills`.
+    - Browser tool-card entry: `/chat/c-skill` with real chat v2 process panel fed by WS event envelopes.
+  - Frontend State Matrix:
+    - default/list: screenshot `dashboard-list-1280.png` shows `deploy-check`, `7 uses`, `active`, `F3`, and trend bars.
+    - archived filter: screenshot `dashboard-archived-1280.png` shows archived `old-skill`.
+    - agent heatmap: screenshot `dashboard-heatmap-1280.png` shows `30-day heatmap` with heat cells.
+    - health funnel: screenshot `dashboard-health-1280.png` shows `Created=9`, `Still active=6`, `Used at least once=4`.
+    - empty: screenshot `dashboard-empty-390.png` at 390x844 shows `No skill usage yet`.
+    - offline/error: screenshot `dashboard-offline-390.png` at 390x844 shows `Gateway offline` after `/skills/usage` returns 503.
+    - `skill_view` success: screenshot `chat-skill-view-success-1280.png` shows collapsed `查看 skill：change-spec-author` and expanded name/location/content preview.
+    - `skill_view` failure: screenshot `chat-skill-view-failure-1280.png` shows the failed/red `skill_view` row and `skill not found`.
+  - Browser QA:
+    - Vite served from `http://127.0.0.1:60999/`.
+    - Artifacts: `/tmp/feat446-m4-browser-qa/`.
+    - Screenshots:
+      - `/tmp/feat446-m4-browser-qa/dashboard-list-1280.png`
+      - `/tmp/feat446-m4-browser-qa/dashboard-archived-1280.png`
+      - `/tmp/feat446-m4-browser-qa/dashboard-heatmap-1280.png`
+      - `/tmp/feat446-m4-browser-qa/dashboard-health-1280.png`
+      - `/tmp/feat446-m4-browser-qa/dashboard-empty-390.png`
+      - `/tmp/feat446-m4-browser-qa/dashboard-offline-390.png`
+      - `/tmp/feat446-m4-browser-qa/chat-skill-view-success-1280.png`
+      - `/tmp/feat446-m4-browser-qa/chat-skill-view-failure-1280.png`
+    - Report: `/tmp/feat446-m4-browser-qa/report.json`.
+    - Console/network conclusion: no unknown API calls; no unexpected failed requests. The only console/network error is the intentional `/im/v1/agents/agent-core-1/skills/usage` 503 used to prove the offline state. The same report records successful `/skills/usage` 200 requests for list/heatmap/health/empty states.
+  - E2E/Regression:
+    - `test_im_connection_handles_skills_usage_request` proves the Gateway provider reads a real workspace `.usage.json` fixture and returns active + archived skills with usage counts, trends, heatmap, and health numbers.
+    - `test_get_skills_usage_calls_rpc_not_direct_file_read` proves the IM HTTP API returns the WS RPC payload and does not read workspace files on the IM host.
+    - `test_get_skills_usage_reports_offline_when_rpc_times_out` proves disconnected Gateway returns HTTP 503 rather than empty data.
+  - Visual/Interaction:
+    - Skills dashboard is integrated into the existing Agent detail shell/navigation; no Agent config page rewrite.
+    - Tool cards reuse existing process-panel rows and `LongOutput`; no nested card redesign.
+- Rollback: Revert R3 commits to remove `skill_view` bespoke rendering; R1/R2 API/dashboard remain functional.
+- Commits:
+  - `d743f96c test(feat-446/M4/R3): cover skill view tool card`
+  - `cd49d456 feat(feat-446/M4/R3): render skill view tool card`
+  - `31a11abd fix(feat-446/M4/R3): type skill view summary fallback`
 - Next: DONE
