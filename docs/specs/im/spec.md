@@ -1,6 +1,6 @@
 # IM Specification
 
-> 对齐: feat-445
+> 对齐: feat-446
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本契约层只收 **IM 的消费者真正依赖的对外行为**：
 > 浏览器前端（内置 Web IM）、Node Gateway（`personal_assistant`）、终端用户，以及 `tests/im_service/`
@@ -95,6 +95,11 @@ refresh 轮换或登出后立即失效。错误凭证大声失败(401/拒绝),�
 - **WHEN** 前端对不存在的 `conversation_id` 调 messages / 详情(GET) / 更新(PATCH)
 - **THEN** 全部 404,`detail == "conversation_id not found"`
 
+#### Scenario: conversation 列表与 sync 暴露通用运行态
+- **WHEN** 浏览器前端请求 conversation 列表或 sync 数据
+- **THEN** 每个 conversation item 包含通用字段 `run_state`,取值至少支持 `"idle"` 与 `"running"`
+- **AND** 该字段不带 distill 命名,可被其他功能复用
+
 ### Requirement: Agent 配置中心可读可改,版本乐观锁,IM 自有字段不被 live 快照覆盖
 
 前端经 `/im/v1/agents/*` 读写各 Agent 的展示名/描述/system_prompt/skills/tools 白名单/群聊策略/默认
@@ -121,6 +126,40 @@ refresh 轮换或登出后立即失效。错误凭证大声失败(401/拒绝),�
 - **WHEN** 前端 `GET /im/v1/agents/{id}/config` 读某 Agent 的 heartbeat cadence
 - **THEN** 返回该 Agent 的真实 `heartbeat.every` 配置值;未配置时体现为默认 `30m`(由后端/前端据此渲染,
   cadence 显示值不是前端写死的占位)
+
+### Requirement: Agent 配置页可管理 skill_view 工具
+
+前端在 Agent 配置页把 `skill_view` 作为普通可选工具呈现;未显式配置工具白名单的 Agent 默认启用它,
+显式白名单仍精确表达用户选择。
+
+#### Scenario: 新建 agent 时默认选中 skill_view
+- **WHEN** 用户在 IM 新建 PA agent 并进入工具选择区域
+- **THEN** `skill_view` 出现在可选工具列表中
+- **AND** 默认处于选中状态
+
+#### Scenario: 用户取消 skill_view 后保存配置
+- **WHEN** 用户在 agent 配置页取消选择 `skill_view` 并保存
+- **THEN** IM 持久化该 agent 的显式工具白名单
+- **AND** 白名单不包含 `skill_view`
+
+#### Scenario: 已显式配置工具白名单的 agent 不自动选回 skill_view
+- **GIVEN** agent 已持久化显式工具白名单,且其中不包含 `skill_view`
+- **WHEN** 用户再次打开该 agent 配置页
+- **THEN** `skill_view` 显示为未选中
+
+### Requirement: Skill 使用统计 API
+
+浏览器前端可按 agent 查询 skill 使用统计;IM 通过在线 Gateway 读取对应 agent workspace 的运行态使用数据,
+离线时以前端可处理的方式降级。
+
+#### Scenario: 查询 agent 的 skill 使用统计
+- **WHEN** 浏览器前端请求 `GET /im/v1/agents/:agentId/skills/usage`
+- **THEN** 返回该 agent 的所有 skill 使用数据,包含 name、source、state、use_count、last_used_at、session_refs
+- **AND** source 至少支持用户创建、历史会话蒸馏、自动创建、自动批量优化与 unknown
+
+#### Scenario: agent 离线时查询 skill 统计
+- **WHEN** agent 不在线或 Gateway 无法到达
+- **THEN** API 返回离线/空数据语义,前端显示离线提示而非崩溃
 
 ### Requirement: HEARTBEAT.md 只读预览与 cron 任务管理经 WS RPC 代理到 gateway（feat-394-M13 决策 G）
 
@@ -280,6 +319,52 @@ capabilities` 都把网关返回的 `features` 列表透传给前端。
 #### Scenario: agent 能力的 skills 项携带 location
 - **WHEN** 前端 `GET /im/v1/agents/{id}/capabilities`
 - **THEN** 返回的 `skills` 列表中每项携带 `location`(SKILL.md 路径,可空;网关 payload 无此字段时降级为空),前端据此对同名不同路径的 skill 分开展示
+
+### Requirement: 历史会话蒸馏 conversation 选择入口
+
+用户可从 IM 左侧 conversation 列表选择已完成会话,生成一条普通聊天消息来调用历史会话蒸馏 skill。
+IM 负责选择来源、执行 agent 与写入范围;Gateway 不解析蒸馏路径或注入 transcript 上下文。
+
+#### Scenario: 用户在 IM 左侧面板选择 conversation 发起蒸馏
+- **WHEN** 用户在 conversation 列表中进入"生成 skill"多选模式
+- **THEN** 提供 checkbox 选择入口;`run_state=idle` 的 conversation 可选,`run_state=running` 的 conversation 禁选并显示"运行中"
+
+#### Scenario: 单一来源 agent 时自动确定执行 agent
+- **GIVEN** 用户已选择一个或多个 `run_state=idle` 的 conversation
+- **WHEN** 用户点击"生成 skill"
+- **THEN** 若所选 conversation 都属于同一个 agent,IM 自动把该 agent 作为执行 agent
+- **AND** IM 弹窗让用户选择 agent 级或 PA 产品级写入范围
+- **AND** 用户确认后跳转到执行 agent 的新对话
+
+#### Scenario: 跨 agent 来源时选择执行 agent
+- **GIVEN** 用户已选择多个 `run_state=idle` 的 conversation,且这些 conversation 来自多个 agent
+- **WHEN** 用户点击"生成 skill"
+- **THEN** IM 弹窗让用户选择一个执行 agent
+- **AND** 同一弹窗让用户选择 agent 级或 PA 产品级写入范围
+- **AND** 用户确认后跳转到执行 agent 的新对话
+
+#### Scenario: 执行 agent 未启用历史会话蒸馏 skill
+- **GIVEN** 执行 agent 的可见 skill 集合不包含 `conversation-skill-distiller`
+- **WHEN** 用户点击"生成 skill"
+- **THEN** IM 提示执行 agent 未启用历史会话蒸馏 skill
+- **AND** 不跳转新对话,也不预填 `/skill:conversation-skill-distiller`
+
+#### Scenario: 默认 conversation 列表不显示运行态标签
+- **WHEN** 用户正常浏览 IM 左侧 conversation 列表,且未进入"生成 skill"多选模式
+- **THEN** conversation 行不显示"已结束/运行中"这类运行态标签
+
+#### Scenario: 用户通过范围弹窗指定生成级别后提交蒸馏
+- **GIVEN** 新对话已预填所选 conversation 对应的 `source_jsonl_paths`
+- **WHEN** 用户补充意图说明并提交
+- **THEN** 对话将 `/skill:conversation-skill-distiller`、`source_jsonl_paths`、用户意图、
+  `execution_agent_id` 与 `target_scope` 预填为用户可见消息
+- **AND** 该消息按普通聊天消息发送;Gateway 不解析 `source_jsonl_paths`,不注入 transcript 上下文
+
+#### Scenario: 蒸馏写入结果复用现有对话展示
+- **GIVEN** 用户已发送预填后的蒸馏消息
+- **WHEN** agent 成功调用 `skill_manage(create)` 写入 skill
+- **THEN** IM 通过现有工具调用展示或普通 assistant 消息展示写入结果
+- **AND** 不新增专门的 SKILL.md 草稿预览卡片、确认写入按钮或取消按钮
 
 ### Requirement: Gateway 经 /im/ws/gateway 持久双向连接,协议帧契约稳定
 
@@ -543,10 +628,22 @@ prompt、查询词)在工具执行中即可见;结果(如 stdout、退出码、�
 - **AND** prompt 呈现在子 agent 执行结果之前
 - **AND** 子 agent 失败时仍显示派发 prompt 与错误文本(不退化为空错误卡)
 
-#### Scenario: memory / skill_manage / task_stop 有专属呈现
-- **WHEN** 用户展开 memory、skill_manage 或 task_stop 工具行
-- **THEN** 看到该工具的结果卡片(写入的记忆 / 创建的 skill / 停止的任务),而不是截断的 JSON
-- **AND** memory / skill_manage 返回失败(success=false)时,卡片呈现失败态而非成功态
+#### Scenario: memory / skill_manage / skill_view / task_stop 有专属呈现
+- **WHEN** 用户展开 memory、skill_manage、skill_view 或 task_stop 工具行
+- **THEN** 看到该工具的结果卡片(写入的记忆 / 创建的 skill / 查看到的 skill / 停止的任务),而不是截断的 JSON
+- **AND** memory / skill_manage / skill_view 返回失败(success=false)时,卡片呈现失败态而非成功态
+
+#### Scenario: skill_view 成功调用的折叠态可审计
+- **WHEN** 浏览器前端展示一次成功的 `skill_view` 工具调用
+- **THEN** 工具行显示真实工具名 `skill_view`,折叠态摘要显示"查看 skill：<name>"
+
+#### Scenario: skill_view 成功调用的展开态展示内容
+- **WHEN** 用户展开一次成功的 `skill_view` 工具调用
+- **THEN** 展开态显示 skill name、location、content 预览,并提供展开全文入口
+
+#### Scenario: skill_view 调用失败时展示失败态
+- **WHEN** 浏览器前端展示一次 `success=false` 的 `skill_view` 工具调用
+- **THEN** 工具行标红,展开态展示错误原因
 
 ### Requirement: 长输出可控展开,不撑爆聊天流
 

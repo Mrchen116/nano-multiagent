@@ -1,6 +1,6 @@
 # gateway (personal_assistant) Specification
 
-> 对齐: bugfix-446
+> 对齐: feat-446
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本契约层只收 Gateway **对外可观察的行为**——
 > 消费者 = 在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的
@@ -448,7 +448,7 @@ Agent 身份路由——多 Agent 并存、Agent 在运行期新建、或请求�
 
 Gateway 为某 Agent 构建会话工具集时，以该 Agent 配置的 `tool_allowlist` 为白名单单一来源：非空时
 Agent 工具集**恰为**列出的这些（列表外的默认工具不提供，即默认文件/web 工具可被用户禁用）；为空时取
-产品默认工具集（未配置语义）。能力特性（如 cron）启用时，其 `requires_tool` 工具经"特性→工具"联动
+产品默认工具集（未配置语义,包含 `skill_view`）。能力特性（如 cron）启用时，其 `requires_tool` 工具经"特性→工具"联动
 已落在该 Agent 的 `tool_allowlist` 里，Gateway 不在运行时另行注入——Agent 工具集与配置侧存储的
 `tool_allowlist` 一致，无分裂。
 
@@ -461,11 +461,37 @@ Agent 工具集**恰为**列出的这些（列表外的默认工具不提供，�
 - **GIVEN** 某 Agent 的 `tool_allowlist` 为空
 - **WHEN** Gateway 为该 Agent 构建会话
 - **THEN** 该 Agent 工具集 = 产品默认工具集
+- **AND** 默认工具集合包含 `skill_view`
+
+#### Scenario: 显式工具白名单不被默认集合自动扩宽
+- **GIVEN** PA agent 已持久化非空 `tool_allowlist`
+- **WHEN** Gateway 为该 agent 创建新 session
+- **THEN** session 只启用该白名单列出的工具
+- **AND** 若白名单不含 `skill_view`,session 不启用 `skill_view`
 
 #### Scenario: 启用 cron 能力使 cron 工具进入该 Agent 工具集
 - **GIVEN** 某 Agent 启用了 cron 能力特性（其 `requires_tool="cron"` 已联动进 `tool_allowlist`）
 - **WHEN** Gateway 为该 Agent 构建会话
 - **THEN** 该 Agent 工具集包含 `cron` 工具；停用 cron 能力则 `cron` 工具随之移出
+
+#### Scenario: Gateway 上报能力时标记 skill_view 默认开启
+- **WHEN** Gateway 向 IM 上报当前节点可配置工具
+- **THEN** 工具列表包含 `skill_view`
+- **AND** `skill_view` 的 `default_on` 为 true
+
+### Requirement: PA 内置 skill 启动自举
+
+Gateway 启动时把产品包内置的 PA skills 安装到运行态全局 skill root,只补缺失,不覆盖用户已有文件。
+
+#### Scenario: Gateway 启动时安装缺失的 PA 内置 skill
+- **WHEN** Gateway 启动并发现包内 `builtin_skills/<skill-name>/SKILL.md`
+- **THEN** 若运行态全局 skill root 中不存在同名 `SKILL.md`,复制整个内置 skill 目录
+- **AND** 复制后的 skill 可被 PA agent 的 skill discovery 发现
+
+#### Scenario: 用户已有同名内置 skill 时不覆盖
+- **GIVEN** 运行态全局 skill root 中已存在 `<skill-name>/SKILL.md`
+- **WHEN** Gateway 启动
+- **THEN** 不覆盖该目录中的用户文件
 
 ### Requirement: 内核中的产品工具可把 Agent 产出的消息投递到目标会话
 
@@ -502,6 +528,19 @@ Gateway 纯透传 presenter 字段,不按工具语义增删。
 - **GIVEN** 同一工具调用执行结束
 - **WHEN** Gateway 中继该工具的 `tool_end` 事件给 IM
 - **THEN** `tool_call_completed` 帧携带 presenter 的 `summary`(写入 `output`)与含结果的完整 `detail`
+
+### Requirement: Skills 使用统计 WS RPC
+
+IM 查询某 agent 的 skill 使用统计时,Gateway 经 WS RPC 读取该 agent workspace 的运行态统计文件并回包;
+缺文件或缺 workspace 视为空列表。
+
+#### Scenario: IM 前端通过 gateway 读取 skill 使用统计
+- **WHEN** Gateway 收到 WS RPC `skills_usage_request`(含 agentId)
+- **THEN** 读取该 agent workspace 的 skill 使用统计,聚合后返回 `skills_usage_response`
+
+#### Scenario: workspace 不存在或 usage 缺失
+- **WHEN** agent workspace 不存在或使用统计文件缺失
+- **THEN** Gateway 返回空 skill 列表,不报错
 
 ### Requirement: 通道中继去重并把多媒体附件透传给内核
 
