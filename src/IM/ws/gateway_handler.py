@@ -414,6 +414,8 @@ class GatewayHandler:
         new_conversation_id: str,
         agent_id: str,
         fork_message_id: str,
+        source_external_source: str | None = None,
+        source_external_chat_id: str | None = None,
         timeout_seconds: float = 10.0,
     ) -> dict[str, object] | None:
         """Delegate a session fork to one gateway node and await its result.
@@ -428,17 +430,22 @@ class GatewayHandler:
         waiter: asyncio.Future[dict[str, object] | None] = loop.create_future()
         async with self._lock:
             self._session_fork_waiters[request_id] = waiter
+        payload: dict[str, object] = {
+            "request_id": request_id,
+            "source_conversation_id": source_conversation_id,
+            "new_conversation_id": new_conversation_id,
+            "agent_id": agent_id,
+            "fork_point": {"message_id": fork_message_id},
+        }
+        if source_external_source:
+            payload["source_external_source"] = source_external_source
+        if source_external_chat_id:
+            payload["source_external_chat_id"] = source_external_chat_id
         try:
             pushed = await self._push_downstream(
                 target_node_id=target_node_id,
                 message_type="session.fork.request",
-                payload={
-                    "request_id": request_id,
-                    "source_conversation_id": source_conversation_id,
-                    "new_conversation_id": new_conversation_id,
-                    "agent_id": agent_id,
-                    "fork_point": {"message_id": fork_message_id},
-                },
+                payload=payload,
             )
             if not pushed:
                 return None

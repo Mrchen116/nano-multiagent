@@ -340,12 +340,16 @@ class WebIMService:
         try:
             # The gateway forks by the *kernel* message id (= JSONL turn uuid), not the IM
             # row id. fork_message_id located the bubble above; we hand over its kernel anchor.
-            result = await request_fork(
-                agent_id=agent_id,
-                source_conversation_id=source_conversation_id,
-                new_conversation_id=new_conversation.id,
-                fork_message_id=fork_msg.kernel_message_id,
-            )
+            fork_request: dict[str, object] = {
+                "agent_id": agent_id,
+                "source_conversation_id": source_conversation_id,
+                "new_conversation_id": new_conversation.id,
+                "fork_message_id": fork_msg.kernel_message_id,
+            }
+            if source.external_source and source.external_chat_id:
+                fork_request["source_external_source"] = source.external_source
+                fork_request["source_external_chat_id"] = source.external_chat_id
+            result = await request_fork(**fork_request)
         except BaseException:
             # #6: BaseException (incl. asyncio.CancelledError) so a cancelled RPC task can't
             # leak a ghost conversation; rollback is protected and never masks this error.

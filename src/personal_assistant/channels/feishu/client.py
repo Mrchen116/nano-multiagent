@@ -762,7 +762,7 @@ def _extract_message_sender_display_name(message: Any) -> str | None:
     sender = getattr(message, "sender", None)
     if sender is None:
         return None
-    for attr in ("name", "tenant_key"):
+    for attr in ("sender_name", "name", "tenant_key"):
         value = getattr(sender, attr, None)
         if isinstance(value, str) and value.strip():
             return value.strip()
@@ -852,7 +852,12 @@ def _extract_mentions(message: Any) -> list[FeishuMention]:
     raw_mentions = getattr(message, "mentions", None) or []
     result: list[FeishuMention] = []
     for m in raw_mentions:
-        open_id = getattr(m.id, "open_id", "") if hasattr(m, "id") else ""
+        mention_id = getattr(m, "id", "")
+        if isinstance(mention_id, str):
+            open_id = mention_id.strip()
+        else:
+            value = getattr(mention_id, "open_id", "")
+            open_id = value.strip() if isinstance(value, str) else ""
         name = getattr(m, "name", "") or ""
         key = getattr(m, "key", "") or ""
         if open_id:

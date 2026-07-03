@@ -226,7 +226,13 @@ async def fork_conversation(
         return await gateway_handler.is_connected(node_id=profile.node_id)
 
     async def _request_fork(
-        *, agent_id, source_conversation_id, new_conversation_id, fork_message_id
+        *,
+        agent_id,
+        source_conversation_id,
+        new_conversation_id,
+        fork_message_id,
+        source_external_source=None,
+        source_external_chat_id=None,
     ):
         profile = profiles.get_profile(agent_id=agent_id)
         if profile is None or not profile.node_id:
@@ -237,6 +243,8 @@ async def fork_conversation(
             new_conversation_id=new_conversation_id,
             agent_id=agent_id,
             fork_message_id=fork_message_id,
+            source_external_source=source_external_source,
+            source_external_chat_id=source_external_chat_id,
         )
 
     try:

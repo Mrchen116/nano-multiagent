@@ -935,14 +935,13 @@ def _parse_channels(payload: Any) -> tuple[ChannelConfig, ...]:
         enabled = item.get("enabled", True)
         if not isinstance(enabled, bool):
             raise ValueError(f"channels[{index}].enabled must be a bool")
-        if not enabled:
-            continue
         settings = item.get("settings", {})
         if not isinstance(settings, dict):
             raise ValueError(f"channels[{index}].settings must be a mapping")
         # feat-447: feishu channels are named "feishu:<agent_id>" and require
-        # app credentials in settings.
-        if name.startswith("feishu:"):
+        # app credentials in settings when enabled. Disabled entries are still
+        # persisted so toggling a channel off does not delete credentials.
+        if enabled and name.startswith("feishu:"):
             _validate_feishu_settings(settings, prefix=f"channels[{index}].settings")
         channels.append(
             ChannelConfig(name=name, enabled=enabled, settings=dict(settings))

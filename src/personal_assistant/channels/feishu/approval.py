@@ -194,8 +194,20 @@ class FeishuPermissionApprovalSurface:
                     text="This tool request was already closed or expired.",
                     template="grey",
                 )
+            if pending.status == "resolved" and pending.decision:
+                return _build_resolved_card(pending, pending.decision)
+            if pending.status == "expired":
+                return _build_status_card(
+                    title="Approval request expired",
+                    text="This tool request timed out. Ask the agent to retry if needed.",
+                    template="grey",
+                )
             if pending.status != "pending":
-                return _build_resolved_card(pending, pending.decision or decision)
+                return _build_status_card(
+                    title="Approval request was already handled",
+                    text="The kernel no longer has this request pending.",
+                    template="grey",
+                )
             if time.monotonic() - pending.created_at > _PENDING_TTL_SECONDS:
                 pending.status = "expired"
                 return _build_status_card(
@@ -226,7 +238,7 @@ class FeishuPermissionApprovalSurface:
                 return None
             if collect_reason:
                 return _build_deny_reason_card(pending, decision)
-            pending.status = "resolved"
+            pending.status = "submitting"
             pending.decision = decision
             pending.reason = (
                 "" if _decision_allows(decision) else _reason_from_event(event)
@@ -236,11 +248,17 @@ class FeishuPermissionApprovalSurface:
 
         accepted = self._submit_decision(pending, decision)
         if not accepted:
+            with self._lock:
+                pending.status = "closed"
+                pending.decision = None
             return _build_status_card(
                 title="Approval request was already handled",
                 text="The kernel no longer has this request pending.",
                 template="grey",
             )
+        with self._lock:
+            pending.status = "resolved"
+            pending.decision = decision
         return _build_resolved_card(pending, decision)
 
     def _resolve_pending(

@@ -66,6 +66,7 @@ from personal_assistant.gateway.session_keys import (
     SessionBindingStore,
     bind_conversation_session,
     build_conversation_session_key,
+    build_external_session_key,
 )
 from personal_assistant.reporter.upstream_reporter import (
     UpstreamReporter,
@@ -3496,6 +3497,17 @@ def _build_session_fork_handler(
                 agent_id=agent_id,
             )
         )
+        if source_binding is None:
+            external_source = str(payload.get("source_external_source") or "").strip()
+            external_chat_id = str(payload.get("source_external_chat_id") or "").strip()
+            if external_source and external_chat_id:
+                source_binding = session_store.get(
+                    build_external_session_key(
+                        external_source=external_source,
+                        external_chat_id=external_chat_id,
+                        agent_id=agent_id,
+                    )
+                )
         if source_binding is None:
             return {"ok": False, "error": "source session binding not found"}
 

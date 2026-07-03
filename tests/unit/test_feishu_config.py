@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from personal_assistant.config.local_store import (
-    ChannelConfig,
     _parse_channels,
 )
 
@@ -60,7 +57,7 @@ class TestParseFeishuChannels:
         names = [ch.name for ch in channels]
         assert names == ["feishu:plato", "feishu:luban", "feishu:hume"]
 
-    def test_disabled_feishu_channel_excluded(self) -> None:
+    def test_disabled_feishu_channel_preserved(self) -> None:
         payload = [
             {
                 "name": "feishu:plato",
@@ -73,8 +70,11 @@ class TestParseFeishuChannels:
             },
         ]
         channels = _parse_channels(payload)
-        assert len(channels) == 1
+        assert len(channels) == 2
         assert channels[0].name == "feishu:plato"
+        assert channels[1].name == "feishu:luban"
+        assert channels[1].enabled is False
+        assert channels[1].settings["appId"] == "cli_b"
 
     def test_missing_app_id_raises(self) -> None:
         payload = [
@@ -155,8 +155,8 @@ class TestParseFeishuChannels:
         channels = _parse_channels(payload)
         assert "botOpenId" not in channels[0].settings
 
-    def test_feishu_top_level_enabled_false_skips(self) -> None:
-        """feishu channel with enabled: false should not be returned."""
+    def test_feishu_top_level_enabled_false_preserves_channel(self) -> None:
+        """feishu channel with enabled: false should be saved back unchanged."""
         payload = [
             {
                 "name": "feishu:plato",
@@ -165,7 +165,22 @@ class TestParseFeishuChannels:
             }
         ]
         channels = _parse_channels(payload)
-        assert channels == ()
+        assert len(channels) == 1
+        assert channels[0].enabled is False
+        assert channels[0].settings["appId"] == "cli_abc"
+
+    def test_disabled_feishu_channel_missing_credentials_does_not_raise(self) -> None:
+        payload = [
+            {
+                "name": "feishu:plato",
+                "enabled": False,
+                "settings": {},
+            }
+        ]
+        channels = _parse_channels(payload)
+        assert len(channels) == 1
+        assert channels[0].enabled is False
+        assert channels[0].settings == {}
 
     def test_feishu_top_level_enabled_true_parses(self) -> None:
         """feishu channel with enabled: true (explicit) should parse normally."""

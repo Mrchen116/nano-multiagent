@@ -158,6 +158,54 @@ def test_permission_request_sends_interactive_card_and_click_submits_decision(
 
 
 @patch("personal_assistant.channels.feishu.adapter.FeishuClient")
+def test_permission_click_is_not_resolved_when_kernel_rejects_decision(
+    mock_fc_cls: MagicMock,
+) -> None:
+    mock_fc = MagicMock()
+    mock_fc.send_interactive_message.return_value = "om_card_001"
+    mock_fc_cls.return_value = mock_fc
+    decision_callback = MagicMock(return_value=False)
+    adapter = _adapter(decision_callback)
+    adapter.send_permission_request(
+        target_chat_id="feishu:cli_a:group:oc_group",
+        run_id="run-1",
+        request=_request(options=[{"id": "allow_once", "label": "Allow once"}]),
+    )
+    value = _action_value(
+        mock_fc.send_interactive_message.call_args.kwargs["card"], "allow_once"
+    )
+
+    first_card = adapter._handle_card_action(
+        FeishuCardActionEvent(
+            action_value=value,
+            operator_open_id="ou_owner",
+            operator_user_id="u_owner",
+            open_chat_id="oc_group",
+        )
+    )
+    second_card = adapter._handle_card_action(
+        FeishuCardActionEvent(
+            action_value=value,
+            operator_open_id="ou_owner",
+            operator_user_id="u_owner",
+            open_chat_id="oc_group",
+        )
+    )
+
+    decision_callback.assert_called_once()
+    assert first_card is not None
+    assert first_card["header"]["template"] == "grey"
+    assert first_card["header"]["title"]["content"] == (
+        "Approval request was already handled"
+    )
+    assert second_card is not None
+    assert second_card["header"]["template"] == "grey"
+    assert second_card["header"]["title"]["content"] == (
+        "Approval request was already handled"
+    )
+
+
+@patch("personal_assistant.channels.feishu.adapter.FeishuClient")
 def test_permission_deny_submits_reason_and_resolved_card_shows_it(
     mock_fc_cls: MagicMock,
 ) -> None:
