@@ -11,6 +11,12 @@ import type { ToolCall } from "../chat-types";
 
 const GENERIC_TOOL_EMOJI = "🔧";
 
+function stringField(value: unknown, key: string): string {
+  if (!value || typeof value !== "object") return "";
+  const field = (value as Record<string, unknown>)[key];
+  return typeof field === "string" ? field : "";
+}
+
 /**
  * name → emoji prefix for built-in tools. Mirrors the prototype. Read tool
  * also appears in agent transcripts though it has no detail card; map it too so
@@ -54,10 +60,8 @@ export function toolEmojiFor(call: ToolCall): string {
 export function collapsedSummary(call: ToolCall): string {
   if (typeof call.output === "string" && call.output) return call.output;
   if (call.name === "skill_view") {
-    const detailName = call.detail?.name;
-    const inputName = call.input?.name;
-    const name = typeof detailName === "string" && detailName ? detailName : inputName;
-    if (typeof name === "string" && name) return `查看 skill：${name}`;
+    const name = stringField(call.detail, "name") || stringField(call.input, "name");
+    if (name) return `查看 skill：${name}`;
   }
   return "";
 }
