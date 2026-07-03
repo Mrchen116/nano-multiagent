@@ -355,6 +355,49 @@ def test_stop_command_in_group_chat_with_mention_is_recognized(tmp_path: Path) -
     assert len(kernel_client.interrupt_calls) == 1
 
 
+def test_stop_command_with_structured_feishu_display_mention_is_recognized(
+    tmp_path: Path,
+) -> None:
+    """Feishu display mention may be @nano, not @{agent_id}; metadata owns targeting."""
+    agents = _agents(tmp_path)
+    channel = _FakeChannel("feishu:agent-a")
+    registry = ChannelRegistry((channel,))
+    kernel_client = _FakeKernel()
+    pipeline = InboundPipeline(
+        kernel=kernel_client,
+        agents=agents,
+        outbound_router=OutboundRouter(registry),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+    )
+    session_key = "feishu:agent-a:grp-1:agent-a"
+    kernel_client._session_metadata_by_id["sess-1"] = {
+        "workspace_root": str(agents[0].workspace_root)
+    }
+    pipeline._active_runs[session_key] = "run-active"
+
+    inbound = InboundMessage(
+        channel_name="feishu:agent-a",
+        text="@nano /stop",
+        external_user_id="user-1",
+        external_chat_id="grp-1",
+        is_group=True,
+        metadata={
+            "mentioned_agent_ids": ["agent-a"],
+            "feishu_mentions": [
+                {"open_id": "ou_bot", "name": "nano", "key": "@_user_1"}
+            ],
+        },
+    )
+
+    result = asyncio.run(pipeline.handle_inbound(inbound))
+
+    assert result is not None
+    assert result.reply_text == "已停止当前操作。"
+    assert len(kernel_client.interrupt_calls) == 1
+
+
 def test_stop_command_with_agent_after_slash_is_recognized(tmp_path: Path) -> None:
     agents = _agents(tmp_path)
     channel = _FakeChannel("web_relay")

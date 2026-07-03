@@ -94,6 +94,42 @@ agent 回复是否回写外部 channel 取决于触发该 run 的用户消息来
 - **THEN** 这些回复只出现在内部 IM
 - **AND** 飞书原对话不收到任何对应消息
 
+### Requirement: 外部 channel 用户可见控制与后台文本投递
+
+外部 channel 消息触发或绑定的用户可见事件,必须按触发源投递到对应用户可见界面。Feishu 触发的 assistant 文本、控制确认、预处理失败、后台 agent 文本、权限审批卡片和审批完成状态必须发送到原 Feishu chat,并同步到内部 IM shadow 会话。由内部 IM shadow 触发的同类事件只留在内部 IM,不得回写 Feishu。system notification、tool telemetry、thinking、token usage 和 debug/status 类运行态事件默认只属于内部 IM 或日志,不得推送到 Feishu。
+
+#### Scenario: 飞书 /stop 成功后用户在飞书看到确认
+- **GIVEN** 用户在飞书 1:1 对话中触发了一个正在运行的 agent run
+- **WHEN** 用户随后在同一飞书对话发送 `/stop`
+- **THEN** Gateway 中断对应 run
+- **AND** 飞书原对话收到“已停止当前操作。”或等效停止确认
+- **AND** 内部 IM shadow 会话也出现同一确认消息
+
+#### Scenario: 群聊 @Bot /stop 按控制命令处理
+- **GIVEN** Gateway 配置的飞书 Bot 已加入某飞书群,且该群中存在正在运行的该 agent run
+- **WHEN** 用户在群里发送真实 mention 形式的 `@Bot /stop`
+- **THEN** Gateway 基于结构化 mention/gate 结果识别这是发给该 Bot 的 `/stop` 命令
+- **AND** Gateway 不得因为正文不是 `@<agent_id> /stop` 而把该消息当普通聊天
+- **AND** 停止确认发送回同一飞书群并同步到内部 IM shadow group
+
+#### Scenario: 飞书预处理失败反馈回原对话
+- **GIVEN** 用户在飞书发送 Gateway 当前不支持或处理失败的图片/附件消息
+- **WHEN** Gateway 在提交 agent run 前判定该消息无法处理
+- **THEN** 失败原因发送到飞书原对话
+- **AND** 同一失败原因同步到内部 IM shadow 会话
+
+#### Scenario: 飞书绑定后台 agent 文本回到飞书
+- **GIVEN** 某个后台任务或 delayed run 绑定到 Feishu 触发的 shadow conversation
+- **WHEN** 该后台任务产生 agent 自己的用户可见文本输出
+- **THEN** 该文本发送到原 Feishu chat
+- **AND** 该文本同步到内部 IM shadow 会话
+
+#### Scenario: 内部运行态事件不外发飞书
+- **GIVEN** Feishu 触发的 run 过程中产生 system notification、tool telemetry、thinking、token usage 或 debug/status 事件
+- **WHEN** Gateway 处理这些事件
+- **THEN** 这些事件不得作为普通聊天消息发送到 Feishu
+- **AND** 需要在内部 IM 呈现的 system notification 使用内部 IM 的 system message 样式或等效运行态界面
+
 ### Requirement: 飞书群聊背景上下文等价内部 IM 群聊
 
 飞书群聊必须复用内部 IM 群聊的 group-context 语义:不 @Bot 的群消息也进入该 agent 的群背景上下文,后续 @Bot 或纯 @Bot 触发时,这些背景消息会作为 `[sender] text` 注入 LLM context。`@Bot` 既是用户可见正文的一部分,也是触发 drain 的结构化信号;Gateway 不得为了 mention gate 从 IM 展示或 LLM 输入中删除 @ 内容。
@@ -143,7 +179,7 @@ agent 回复是否回写外部 channel 取决于触发该 run 的用户消息来
 - **WHEN** 用户在飞书 approval card 中点击拒绝进入原因输入卡,填写拒绝原因并提交拒绝
 - **THEN** Gateway 将 `decision="deny"` 和该拒绝原因提交给等待中的 kernel
 - **AND** agent run 按现有权限拒绝路径恢复,LLM 可看到该拒绝原因
-- **AND** 飞书 approval card 显示已拒绝、操作者和拒绝原因
+- **AND** 飞书 approval card 紧凑显示已拒绝和拒绝原因,不得展示 `open_id` 等平台内部操作者标识
 
 #### Scenario: 内部 IM 先审批后飞书卡片不得重复决策
 - **GIVEN** 飞书触发的 run 已同时生成内部 IM 审批卡和飞书 approval card

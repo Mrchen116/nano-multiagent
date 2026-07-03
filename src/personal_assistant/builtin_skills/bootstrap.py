@@ -13,9 +13,7 @@ DEFAULT_BUILTIN_SKILL_TARGET_ROOT = Path("~/.nanoassistant/skills")
 _BUILTIN_SKILLS_PACKAGE = "personal_assistant.builtin_skills"
 
 
-def install_builtin_skills(
-    *, target_root: Path | str | None = None
-) -> dict[str, Path]:
+def install_builtin_skills(*, target_root: Path | str | None = None) -> dict[str, Path]:
     """Install packaged built-in skills that are missing from the user root.
 
     Args:
@@ -32,7 +30,9 @@ def install_builtin_skills(
     """
 
     destination_root = (
-        Path(target_root) if target_root is not None else DEFAULT_BUILTIN_SKILL_TARGET_ROOT
+        Path(target_root)
+        if target_root is not None
+        else DEFAULT_BUILTIN_SKILL_TARGET_ROOT
     ).expanduser()
     destination_root.mkdir(parents=True, exist_ok=True)
 

@@ -223,9 +223,12 @@ def test_permission_deny_submits_reason_and_resolved_card_shows_it(
     )
     assert response_card is not None
     assert response_card["header"]["template"] == "red"
+    assert response_card["header"]["title"]["content"] == "Tool approval denied"
     content = response_card["elements"][0]["content"]
-    assert "Reason: too risky" in content
-    assert "Operator: `ou_owner`" in content
+    assert content == "**Tool:** `bash`\n**Decision:** Denied\n**Reason:** too risky"
+    assert "Operator" not in content
+    assert "ou_owner" not in content
+    assert "\n\n" not in content
 
 
 @patch("personal_assistant.channels.feishu.adapter.FeishuClient")

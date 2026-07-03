@@ -42,9 +42,7 @@ def _make_event(
 
 
 def test_parse_text_content_preserves_visible_mention() -> None:
-    result = _parse_feishu_event(
-        _make_event(content='{"text":"@_user_1 help me"}')
-    )
+    result = _parse_feishu_event(_make_event(content='{"text":"@_user_1 help me"}'))
 
     assert result.text == "@plato-bot help me"
     assert result.raw_text == "@_user_1 help me"

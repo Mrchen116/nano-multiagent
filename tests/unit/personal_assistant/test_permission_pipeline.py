@@ -208,7 +208,9 @@ class TestKernelObserverPermissionRequest:
         assert request_payload["request_id"] == "req-ext"
         assert request_payload["tool_name"] == "bash"
         assert request_payload["tool_input"] == {"command": "pwd"}
-        assert request_payload["options"] == [{"id": "allow_once", "label": "Allow once"}]
+        assert request_payload["options"] == [
+            {"id": "allow_once", "label": "Allow once"}
+        ]
         assert metadata["channel_name"] == "feishu:agent-alpha"
         assert metadata["target_chat_id"] == "feishu:cli_a:group:oc_group"
         assert metadata["run_id"] == "run-1"

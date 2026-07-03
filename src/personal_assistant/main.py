@@ -2496,9 +2496,13 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         installed_builtin_skills = install_builtin_skills()
         if installed_builtin_skills:
             installed_names = ", ".join(sorted(installed_builtin_skills))
-            _log.info("installed built-in personal assistant skills: %s", installed_names)
+            _log.info(
+                "installed built-in personal assistant skills: %s", installed_names
+            )
     except Exception:  # noqa: BLE001
-        _log.warning("failed to install built-in personal assistant skills", exc_info=True)
+        _log.warning(
+            "failed to install built-in personal assistant skills", exc_info=True
+        )
     config, feishu_skill_config_changed = ensure_feishu_doc_skill_for_feishu_agents(
         config
     )
@@ -2770,6 +2774,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         channel_registry=channel_registry,
     )
     if config.im_service is not None:
+
         def _send_external_reply(text: str, metadata: Mapping[str, str]) -> None:
             channel_name = metadata.get("channel_name") or ""
             target_chat_id = metadata.get("target_chat_id") or ""
@@ -2847,6 +2852,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         # a no-op; only send_agent_message() via the live WS connection actually delivers.
         pipeline._bg_reply_sender = _build_bg_reply_sender(
             im_connection_manager_factory=lambda: im_connection_manager,
+            external_reply_sender=_send_external_reply,
         )
         # bugfix-433 决策1: wire the live attachment downloader so inbound image URLs
         # are fetched (with the live IM token) and converted to base64 data URLs before
@@ -3332,7 +3338,9 @@ def _build_feishu_owner_open_id_binder(
     lock = threading.Lock()
 
     def _bind(channel_name: str, sender_open_id: str) -> str | None:
-        cleaned_sender = sender_open_id.strip() if isinstance(sender_open_id, str) else ""
+        cleaned_sender = (
+            sender_open_id.strip() if isinstance(sender_open_id, str) else ""
+        )
         if not cleaned_sender:
             return None
         with lock:
@@ -3685,8 +3693,8 @@ def _build_relay_lifecycle_callback(
                     )
                     thread_id = getattr(message, "thread_id", None)
                     if thread_id:
-                        run_context_store[update.run_id]["reply_thread_id"] = (
-                            str(thread_id)
+                        run_context_store[update.run_id]["reply_thread_id"] = str(
+                            thread_id
                         )
                     feishu_message_id = _metadata_text(
                         message.metadata, key="feishu_message_id"
@@ -3988,7 +3996,10 @@ def _build_kernel_event_observer(
             _log.warning("IM observer send failed for %s: %s", message_type, exc)
 
     def _is_external_reply_context(ctx: Mapping[str, str]) -> bool:
-        return external_reply_sender is not None and _external_context_metadata(ctx) is not None
+        return (
+            external_reply_sender is not None
+            and _external_context_metadata(ctx) is not None
+        )
 
     def _external_context_metadata(ctx: Mapping[str, str]) -> dict[str, str] | None:
         channel_name = ctx.get("reply_channel_name") or ""
@@ -4024,9 +4035,14 @@ def _build_kernel_event_observer(
         external_metadata = _external_context_metadata(ctx)
         if external_metadata is None:
             return
+        bubble_key = (
+            ctx.get("kernel_message_id")
+            or ctx.get("message_id")
+            or f"text:{cleaned_text}"
+        )
         metadata: dict[str, str] = {
             "reply_phase": phase,
-            "reply_dedupe_key": f"{rid}:text:{cleaned_text}",
+            "reply_dedupe_key": f"{rid}:bubble:{bubble_key}",
             **external_metadata,
         }
         result = external_reply_sender(cleaned_text, metadata)
@@ -4858,7 +4874,7 @@ def _build_session_event_callback(
         binding = session_store.find_by_kernel_session_id(kernel_session_id)
         if binding is None:
             return
-        conversation_id = binding.reply_context.target_chat_id
+        conversation_id = _reply_context_im_conversation_id(binding.reply_context)
         if not conversation_id:
             return
 
@@ -4901,16 +4917,19 @@ def _build_session_event_callback(
 def _build_bg_reply_sender(
     *,
     im_connection_manager_factory: "Callable[[], IMConnectionManager | None]",
+    external_reply_sender: Callable[[str, Mapping[str, str]], Any] | None = None,
 ) -> "Callable[[str, Any, str], Awaitable[None]]":
-    """Build an async callable that relays BACKGROUND_TASK run output to IM.
+    """Build an async callable that relays user-visible agent/control text.
 
     Called by InboundPipeline's bg_run_output_callback when a BACKGROUND_TASK-origin
-    run finishes and emits an assistant_message event.  The callable sends an
-    ``agent.message`` WebSocket frame to IM so the reply appears in the originating
-    conversation (bugfix-404-M3).
+    run emits an assistant_message event, and by control paths such as /stop/image
+    failure that are not normal kernel assistant bubbles. Feishu-triggered contexts are
+    sent to the original external channel and shadow IM; IM-triggered contexts stay in
+    IM.
 
     Args:
         im_connection_manager_factory: Returns the live IM connection manager (may be None).
+        external_reply_sender: Optional sender for external-channel visible text.
 
     Returns:
         Async callable ``(text, reply_context, from_session_id) -> None``.
@@ -4920,16 +4939,37 @@ def _build_bg_reply_sender(
     from personal_assistant.channels.base import ReplyContext as _RC  # noqa: PLC0415
 
     async def _sender(text: str, reply_context: _RC, from_session_id: str) -> None:
+        cleaned_text = text.strip()
+        if not from_session_id or not cleaned_text:
+            return
+
+        external_metadata = _reply_context_external_delivery_metadata(
+            reply_context,
+            from_session_id=from_session_id,
+        )
+        if external_metadata is not None and external_reply_sender is not None:
+            try:
+                result = external_reply_sender(cleaned_text, external_metadata)
+                if asyncio.iscoroutine(result):
+                    await result
+            except Exception as exc:  # noqa: BLE001
+                _log.warning(
+                    "visible text external delivery failed (channel=%s target=%s): %s",
+                    external_metadata.get("channel_name", ""),
+                    external_metadata.get("target_chat_id", ""),
+                    exc,
+                )
+
         manager = im_connection_manager_factory()
         if manager is None or not manager.connected:
             return
-        conversation_id = reply_context.target_chat_id
-        if not conversation_id or not from_session_id or not text.strip():
+        conversation_id = _reply_context_im_conversation_id(reply_context)
+        if not conversation_id:
             return
         try:
             await manager.send_agent_message(
                 {
-                    "text": text.strip(),
+                    "text": cleaned_text,
                     "to": conversation_id,
                     # from_session_id carries optional "|tool_call:<key>" suffix so
                     # IM deduplicates replayed bg replies (bugfix-404 F1).
@@ -4945,6 +4985,59 @@ def _build_bg_reply_sender(
             )
 
     return _sender
+
+
+def _reply_context_im_conversation_id(reply_context: ReplyContext) -> str | None:
+    """Return the IM conversation id for a reply context, if one exists."""
+    metadata = dict(reply_context.metadata)
+    shadow_id = _metadata_text(metadata, key="shadow_conversation_id")
+    if shadow_id is not None:
+        return shadow_id
+    conversation_id = _metadata_text(metadata, key="conversation_id")
+    if conversation_id is not None:
+        return conversation_id
+    if reply_context.channel_name == "web_relay":
+        target = reply_context.target_chat_id.strip()
+        return target or None
+    return None
+
+
+def _reply_context_external_delivery_metadata(
+    reply_context: ReplyContext,
+    *,
+    from_session_id: str,
+) -> dict[str, str] | None:
+    """Build external-channel delivery metadata for user-visible control/bg text."""
+    metadata = dict(reply_context.metadata)
+    trigger_source = _metadata_text(metadata, key="trigger_source")
+    external_source = _metadata_text(metadata, key="external_source")
+    if (
+        trigger_source == "im"
+        or reply_context.channel_name == "web_relay"
+        or not reply_context.target_chat_id.strip()
+        or (trigger_source is None and external_source is None)
+    ):
+        return None
+    delivery: dict[str, str] = {
+        "channel_name": reply_context.channel_name,
+        "target_chat_id": reply_context.target_chat_id,
+        "reply_phase": _visible_reply_phase_from_session_id(from_session_id),
+        "reply_dedupe_key": from_session_id,
+    }
+    if reply_context.thread_id:
+        delivery["reply_thread_id"] = reply_context.thread_id
+    feishu_message_id = _metadata_text(metadata, key="feishu_message_id")
+    if feishu_message_id is not None:
+        delivery["feishu_message_id"] = feishu_message_id
+    return delivery
+
+
+def _visible_reply_phase_from_session_id(from_session_id: str) -> str:
+    """Classify non-kernel visible text for adapter lifecycle handling."""
+    lowered = from_session_id.lower()
+    if ":stop-" in lowered or ":image-error-" in lowered or ":permission-" in lowered:
+        return "control"
+    return "intermediate"
 
 
 def _build_attachment_fetcher(

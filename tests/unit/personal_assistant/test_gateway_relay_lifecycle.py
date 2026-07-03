@@ -291,9 +291,7 @@ def test_relay_lifecycle_callback_routes_im_shadow_run_to_shadow_conversation() 
     assert run_context_store["run-1"]["trigger_source"] == "im"
 
 
-def test_kernel_event_observer_mirrors_external_visible_bubbles_on_completion() -> (
-    None
-):
+def test_kernel_event_observer_mirrors_external_visible_bubbles_on_completion() -> None:
     class _Manager:
         connected = True
 
@@ -376,7 +374,7 @@ def test_kernel_event_observer_mirrors_external_visible_bubbles_on_completion() 
             "I will check.",
             {
                 "reply_phase": "intermediate",
-                "reply_dedupe_key": "run-1:text:I will check.",
+                "reply_dedupe_key": "run-1:bubble:kernel-msg-a",
                 "channel_name": "feishu:agent-a",
                 "target_chat_id": "feishu:cli_a:dm:ou_user",
                 "feishu_message_id": "om_msg_1",
@@ -386,7 +384,7 @@ def test_kernel_event_observer_mirrors_external_visible_bubbles_on_completion() 
             "Final answer.",
             {
                 "reply_phase": "final",
-                "reply_dedupe_key": "run-1:text:Final answer.",
+                "reply_dedupe_key": "run-1:bubble:kernel-msg-b",
                 "channel_name": "feishu:agent-a",
                 "target_chat_id": "feishu:cli_a:dm:ou_user",
                 "feishu_message_id": "om_msg_1",

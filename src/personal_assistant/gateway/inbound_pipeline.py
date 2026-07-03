@@ -597,9 +597,7 @@ class InboundPipeline:
                         metadata={
                             **dict(reply_context.metadata),
                             "reply_phase": "final",
-                            "reply_dedupe_key": (
-                                f"{run_id}:text:{reply_text.strip()}"
-                            ),
+                            "reply_dedupe_key": (f"{run_id}:text:{reply_text.strip()}"),
                             **(
                                 {
                                     "feishu_message_id": str(
@@ -978,9 +976,39 @@ class InboundPipeline:
         Supports ``/stop``, ``@agent /stop``, and ``/stop @agent`` forms.
         """
         text = message.text.strip()
-        mention = f"@{agent_id}"
-        text = text.replace(mention, "").strip()
-        return text == "/stop"
+        if text == "/stop":
+            return True
+
+        metadata = dict(message.metadata)
+        mentioned_agent_ids = metadata.get("mentioned_agent_ids")
+        structurally_mentioned = (
+            isinstance(mentioned_agent_ids, list) and agent_id in mentioned_agent_ids
+        )
+        reply_to_agent_id = metadata.get("reply_to_agent_id")
+        structurally_mentioned = structurally_mentioned or (
+            isinstance(reply_to_agent_id, str) and reply_to_agent_id.strip() == agent_id
+        )
+        if not structurally_mentioned:
+            mention = f"@{agent_id}"
+            return text.replace(mention, "").strip() == "/stop"
+
+        candidates = {f"@{agent_id}"}
+        mentions = metadata.get("feishu_mentions")
+        if isinstance(mentions, list):
+            for mention in mentions:
+                if not isinstance(mention, Mapping):
+                    continue
+                for key in ("name", "key"):
+                    value = mention.get(key)
+                    if isinstance(value, str) and value.strip():
+                        raw = value.strip()
+                        candidates.add(raw)
+                        candidates.add(raw if raw.startswith("@") else f"@{raw}")
+
+        normalized = text
+        for mention in sorted(candidates, key=len, reverse=True):
+            normalized = normalized.replace(mention, " ")
+        return " ".join(normalized.split()) == "/stop"
 
     async def _handle_stop_command(
         self,

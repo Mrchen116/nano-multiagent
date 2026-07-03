@@ -279,7 +279,9 @@ class FeishuAdapter:
         seen = self._seen_group_message_ids.setdefault(event.chat_id, {})
         seen[event.message_id] = None
         if len(seen) > 500:
-            self._seen_group_message_ids[event.chat_id] = dict(list(seen.items())[-250:])
+            self._seen_group_message_ids[event.chat_id] = dict(
+                list(seen.items())[-250:]
+            )
 
     def _is_self_sender(self, event: FeishuMessageEvent) -> bool:
         return event.sender_open_id in {self._bot_open_id, self._app_id}
@@ -320,7 +322,7 @@ class FeishuAdapter:
         if self._client is None:
             return
         reply_phase = outbound.metadata.get("reply_phase")
-        if reply_phase not in {"final", "terminal"}:
+        if reply_phase not in {"control", "final", "terminal"}:
             return
         message_id = outbound.metadata.get("feishu_message_id")
         if not isinstance(message_id, str) or not message_id:

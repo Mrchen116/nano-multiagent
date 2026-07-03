@@ -84,9 +84,7 @@ def test_handler_returns_kernel_decision_state() -> None:
     accepted = handler({"request_id": "req-old", "decision": "deny"})
 
     assert accepted is False
-    assert kernel.calls == [
-        {"request_id": "req-old", "decision": "deny", "reason": ""}
-    ]
+    assert kernel.calls == [{"request_id": "req-old", "decision": "deny", "reason": ""}]
 
 
 def test_handler_swallows_kernel_errors() -> None:

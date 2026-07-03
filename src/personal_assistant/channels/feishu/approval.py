@@ -182,8 +182,8 @@ class FeishuPermissionApprovalSurface:
         decision = str(value.get("decision") or "").strip()
         if not approval_id or not decision:
             return None
-        collect_reason = (
-            value.get("collect_reason") is True and not _decision_allows(decision)
+        collect_reason = value.get("collect_reason") is True and not _decision_allows(
+            decision
         )
 
         with self._lock:
@@ -205,7 +205,10 @@ class FeishuPermissionApprovalSurface:
                 )
             if decision not in pending.options:
                 return None
-            if pending.owner_open_id and event.operator_open_id != pending.owner_open_id:
+            if (
+                pending.owner_open_id
+                and event.operator_open_id != pending.owner_open_id
+            ):
                 logger.warning(
                     "reject feishu permission decision from non-owner",
                     extra={
@@ -358,7 +361,9 @@ def _build_pending_card(
     tool_name = str(request.get("tool_name") or "tool")
     question = str(request.get("question") or "Approve this tool call?")
     tool_input = request.get("tool_input") or {}
-    input_text = _truncate(_json_preview(tool_input, compact=True), _MAX_INPUT_PREVIEW_CHARS)
+    input_text = _truncate(
+        _json_preview(tool_input, compact=True), _MAX_INPUT_PREVIEW_CHARS
+    )
     actions = [
         _approval_button(
             approval_id=approval_id,
@@ -392,13 +397,13 @@ def _build_pending_card(
     }
 
 
-def _build_deny_reason_card(
-    pending: _PendingApproval, decision: str
-) -> dict[str, Any]:
+def _build_deny_reason_card(pending: _PendingApproval, decision: str) -> dict[str, Any]:
     tool_name = str(pending.request.get("tool_name") or "tool")
     question = str(pending.request.get("question") or "Approve this tool call?")
     tool_input = pending.request.get("tool_input") or {}
-    input_text = _truncate(_json_preview(tool_input, compact=True), _MAX_INPUT_PREVIEW_CHARS)
+    input_text = _truncate(
+        _json_preview(tool_input, compact=True), _MAX_INPUT_PREVIEW_CHARS
+    )
     return {
         "config": {"wide_screen_mode": True},
         "header": {
@@ -443,18 +448,19 @@ def _build_deny_reason_card(
     }
 
 
-def _build_resolved_card(
-    pending: _PendingApproval, decision: str
-) -> dict[str, Any]:
+def _build_resolved_card(pending: _PendingApproval, decision: str) -> dict[str, Any]:
     tool_name = str(pending.request.get("tool_name") or "tool")
-    lines = [f"`{tool_name}` was resolved with decision `{decision}`."]
-    if pending.operator_open_id:
-        lines.append(f"Operator: `{pending.operator_open_id}`")
+    lines = [
+        f"**Tool:** `{tool_name}`",
+        f"**Decision:** {_decision_display(decision)}",
+    ]
     if pending.reason:
-        lines.append(f"Reason: {_truncate(pending.reason, _MAX_REASON_CHARS)}")
+        lines.append(f"**Reason:** {_truncate(pending.reason, _MAX_REASON_CHARS)}")
     return _build_status_card(
-        title="Tool approval resolved",
-        text="\n\n".join(lines),
+        title="Tool approval approved"
+        if _decision_allows(decision)
+        else "Tool approval denied",
+        text="\n".join(lines),
         template="green" if _decision_allows(decision) else "red",
     )
 
@@ -531,6 +537,19 @@ def _decision_allows(decision: str) -> bool:
     return normalized in {"allow", "allowed", "approve", "approved", "yes"} or (
         normalized.startswith("allow_")
     )
+
+
+def _decision_display(decision: str) -> str:
+    normalized = decision.strip().lower()
+    if normalized in {"deny", "denied", "reject", "rejected", "no"}:
+        return "Denied"
+    if normalized in {"allow_once", "approve_once"}:
+        return "Allowed once"
+    if normalized in {"allow_session", "allow_for_session", "approve_session"}:
+        return "Allowed for session"
+    if _decision_allows(normalized):
+        return "Allowed"
+    return decision.replace("_", " ").strip().capitalize() or "Resolved"
 
 
 def _reason_from_event(event: FeishuCardActionEvent) -> str:

@@ -26,8 +26,12 @@ class TestFeishuClientInteractive:
         mock_builder = MagicMock()
         mock_builder.register_p2_im_message_receive_v1.return_value = mock_builder
         mock_builder.register_p2_card_action_trigger.return_value = mock_builder
-        mock_builder.register_p2_im_message_reaction_created_v1.return_value = mock_builder
-        mock_builder.register_p2_im_message_reaction_deleted_v1.return_value = mock_builder
+        mock_builder.register_p2_im_message_reaction_created_v1.return_value = (
+            mock_builder
+        )
+        mock_builder.register_p2_im_message_reaction_deleted_v1.return_value = (
+            mock_builder
+        )
         mock_builder.build.return_value = MagicMock()
         mock_dispatcher.builder.return_value = mock_builder
 
@@ -66,7 +70,10 @@ class TestFeishuClientInteractive:
         assert request.receive_id_type == "chat_id"
         assert request.request_body.receive_id == "oc_chat123"
         assert request.request_body.msg_type == "interactive"
-        assert json.loads(request.request_body.content)["config"]["wide_screen_mode"] is True
+        assert (
+            json.loads(request.request_body.content)["config"]["wide_screen_mode"]
+            is True
+        )
 
     def test_update_interactive_message_calls_api(self) -> None:
         mock_rest = MagicMock()
@@ -90,9 +97,7 @@ class TestFeishuClientInteractive:
 
     def test_card_action_event_parses_and_returns_card_response(self) -> None:
         client = FeishuClient(app_id="cli_abc", app_secret="secret")
-        on_card_action = MagicMock(
-            return_value={"config": {"wide_screen_mode": True}}
-        )
+        on_card_action = MagicMock(return_value={"config": {"wide_screen_mode": True}})
         client._on_card_action = on_card_action
         raw_event = MagicMock()
         raw_event.event.action.value = {"approval_id": "appr-1", "decision": "allow"}
