@@ -207,6 +207,15 @@ def test_conversation_exposes_run_state_and_source_jsonl_path(
     session_path.write_text(
         json.dumps(
             {
+                "type": "turn",
+                "uuid": "prelude",
+                "role": "user",
+                "content": "legacy prelude before session_created",
+            }
+        )
+        + "\n"
+        + json.dumps(
+            {
                 "type": "session_created",
                 "session_id": "sess-1",
                 "created_at": "2026-01-01T00:00:00Z",

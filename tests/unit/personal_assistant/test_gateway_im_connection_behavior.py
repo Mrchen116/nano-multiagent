@@ -1077,6 +1077,14 @@ def test_im_connection_handles_skills_usage_request(tmp_path: Path) -> None:
             "archived_at": "2026-06-30T00:00:00Z",
             "session_refs": [],
         },
+        "unknown-date": {
+            "source": "F3",
+            "state": "active",
+            "use_count": 1,
+            "last_used_at": "not-a-date",
+            "created_at": "2026-06-01T00:00:00Z",
+            "session_refs": [],
+        },
     }
     (usage_dir / ".usage.json").write_text(
         json.dumps(usage_data), encoding="utf-8"
@@ -1125,15 +1133,16 @@ def test_im_connection_handles_skills_usage_request(tmp_path: Path) -> None:
     assert [item["name"] for item in usage["skills"]] == [
         "deploy-check",
         "old-skill",
+        "unknown-date",
     ]
     assert usage["skills"][0]["use_count"] == 3
     assert usage["skills"][0]["recent_call_keys"] == ["s1:tc1", "s2:tc2"]
     assert len(usage["skills"][0]["trend_buckets"]) == 30
     assert len(usage["heatmap_data"]) == 30
     assert usage["health"] == {
-        "created_auto_total": 2,
-        "active_auto_total": 1,
-        "used_auto_total": 2,
+        "created_auto_total": 3,
+        "active_auto_total": 2,
+        "used_auto_total": 3,
     }
 
 

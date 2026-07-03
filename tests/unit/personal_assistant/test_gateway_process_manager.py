@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -23,6 +25,37 @@ from ._main_helpers import (
     _FakeProcessManager,
     build_config,
 )
+
+
+class _SkillReviewKernel:
+    def __init__(self) -> None:
+        self.maintenance_roots: list[Path] = []
+        self.drained = False
+        self.created_sessions: list[dict[str, object]] = []
+        self.submitted_parts: list[dict[str, object]] = []
+
+    def run_skill_maintenance(self, *, workspace_root: Path) -> None:
+        self.maintenance_roots.append(workspace_root)
+
+    async def run_queued_skill_batch_reviews(self, *, run_background_analysis):
+        self.drained = True
+        await run_background_analysis(
+            "review prompt",
+            tool_allowlist=("skill_view", "skill_manage"),
+            metadata={"background_task": "skill_batch_review"},
+        )
+        return (SimpleNamespace(completed=True),)
+
+    async def create_session(self, **kwargs):
+        self.created_sessions.append(dict(kwargs))
+        return SimpleNamespace(session_id="skill-review-session")
+
+    def submit(self, **kwargs):
+        self.submitted_parts.append(dict(kwargs))
+        return SimpleNamespace(run_id="run-1", status="queued")
+
+    def get_run(self, run_id: str):
+        return SimpleNamespace(run_id=run_id, status="completed")
 
 
 def test_gateway_process_manager_waits_for_kernel_health(tmp_path: Path) -> None:
@@ -135,6 +168,34 @@ def test_gateway_runtime_keeps_running_until_shutdown_requested(tmp_path: Path) 
         "channel.stop:web_relay",
         "im.close",
         "kernel.stop",
+    ]
+
+
+def test_gateway_skill_maintenance_drains_queued_skill_batch_reviews(
+    tmp_path: Path,
+) -> None:
+    config = build_config(tmp_path)
+    kernel = _SkillReviewKernel()
+    runtime = GatewayRuntime(config, None, kernel=kernel)
+
+    asyncio.run(runtime._run_skill_maintenance())  # noqa: SLF001
+
+    workspace_root = config.agents[0].workspace_root
+    assert kernel.maintenance_roots == [workspace_root]
+    assert kernel.drained is True
+    assert kernel.created_sessions == [
+        {
+            "workspace_root": workspace_root,
+            "enabled_tools": ["skill_view", "skill_manage"],
+            "metadata": {"background_task": "skill_batch_review"},
+        }
+    ]
+    assert kernel.submitted_parts == [
+        {
+            "session_id": "skill-review-session",
+            "parts": [{"type": "text", "text": "review prompt"}],
+            "workspace_root": workspace_root,
+        }
     ]
 
 
