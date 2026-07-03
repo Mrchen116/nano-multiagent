@@ -214,7 +214,10 @@ async def _drain_queued_skill_batch_reviews(
             metadata=metadata,
         )
 
-    await drain(run_background_analysis=_run_background_analysis)
+    await drain(
+        run_background_analysis=_run_background_analysis,
+        skill_root=Path(workspace_root) / ".nano" / "skills",
+    )
 
 
 async def _run_kernel_background_analysis(

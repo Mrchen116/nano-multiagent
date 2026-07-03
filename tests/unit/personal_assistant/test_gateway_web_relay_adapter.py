@@ -46,6 +46,7 @@ def test_web_relay_adapter_converts_relay_payload_to_inbound_message() -> None:
     assert inbound.is_group is True
     assert inbound.metadata["relay_task_id"] == "relay-1"
     assert inbound.metadata["message_id"] == "msg-1"
+    assert inbound.metadata["conversation_id"] == "conv-1"
 
     adapter.send(
         OutboundMessage(

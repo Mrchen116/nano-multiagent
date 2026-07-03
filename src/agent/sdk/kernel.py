@@ -1295,7 +1295,10 @@ class Kernel:
         return apply_curator_transitions(result)
 
     async def run_queued_skill_batch_reviews(
-        self, *, run_background_analysis: Callable[..., Awaitable[Any] | Any]
+        self,
+        *,
+        run_background_analysis: Callable[..., Awaitable[Any] | Any],
+        skill_root: Path | None = None,
     ) -> tuple[Any, ...]:
         """Drain queued per-skill batch reviews using an injected background fork."""
 
@@ -1303,7 +1306,7 @@ class Kernel:
             run_skill_batch_review_async,
         )
 
-        triggers = self._c.runtime.pop_queued_skill_batch_reviews()
+        triggers = self._c.runtime.pop_queued_skill_batch_reviews(skill_root=skill_root)
         results: list[Any] = []
         for trigger in triggers:
             skill_name = getattr(trigger, "skill_name", "")
@@ -1312,6 +1315,7 @@ class Kernel:
                     await run_skill_batch_review_async(
                         trigger,
                         run_background_analysis=run_background_analysis,
+                        writable_skill_root=skill_root,
                     )
                 )
             finally:

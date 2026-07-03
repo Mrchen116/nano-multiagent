@@ -35,6 +35,7 @@ class _SkillReviewKernel:
         self.created_sessions: list[dict[str, object]] = []
         self.submitted_parts: list[dict[str, object]] = []
         self.scheduler = None
+        self.drain_roots: list[Path | None] = []
 
     def run_skill_maintenance(self, *, workspace_root: Path) -> None:
         self.maintenance_roots.append(workspace_root)
@@ -42,8 +43,9 @@ class _SkillReviewKernel:
     def set_skill_batch_review_drain_scheduler(self, scheduler):
         self.scheduler = scheduler
 
-    async def run_queued_skill_batch_reviews(self, *, run_background_analysis):
+    async def run_queued_skill_batch_reviews(self, *, run_background_analysis, skill_root=None):
         self.drained = True
+        self.drain_roots.append(skill_root)
         await run_background_analysis(
             "review prompt",
             tool_allowlist=("skill_view", "skill_manage"),
@@ -188,6 +190,7 @@ def test_gateway_skill_maintenance_drains_queued_skill_batch_reviews(
     workspace_root = config.agents[0].workspace_root
     assert kernel.maintenance_roots == [workspace_root]
     assert kernel.drained is True
+    assert kernel.drain_roots == [workspace_root / ".nanoassistant" / "skills"]
     assert kernel.created_sessions == [
         {
             "workspace_root": workspace_root,
@@ -231,6 +234,7 @@ def test_gateway_live_skill_batch_enqueue_schedules_drain(tmp_path: Path) -> Non
     asyncio.run(_exercise())
 
     assert kernel.drained is True
+    assert kernel.drain_roots == [workspace_root / ".nanoassistant" / "skills"]
     assert kernel.created_sessions == [
         {
             "workspace_root": workspace_root,

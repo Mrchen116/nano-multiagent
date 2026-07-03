@@ -8,6 +8,8 @@ from agent.core.agent.runtime import AgentRuntime
 from agent.core.agent.run_control import RunController
 from agent.core.hooks.registry import HookRegistry
 from agent.core.hooks.runner import HookRunner
+from agent.platform.hooks.builtins.realtime_stream import setup as setup_realtime_stream
+from agent.platform.hooks.session_events import set_session_event_publisher_factory
 from agent.core.tools.base import (
     set_tool_safety_config_factory,
     set_tool_safety_factory,
@@ -481,6 +483,58 @@ async def test_runtime_skill_command_rewrite_runs_through_normal_pipeline(
     assert tool_result_event.data["metadata"]["tool_name"] == "skill_view"
     assert assistant_event.kind is SessionEntryKind.TURN_APPENDED
     assert assistant_event.data["role"] == "assistant"
+
+
+async def test_runtime_skill_command_emits_completed_tool_event(
+    tmp_path: Path,
+) -> None:
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
+    manager = SessionManager(store=store)
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir(exist_ok=True)
+    session = manager.create_session(
+        workspace_root=workspace_root.resolve(),
+        metadata={"workspace_config_dirname": ".nanoassistant"},
+        tool_allowlist=("skill_view",),
+    )
+    skill_root = session.workspace_root / ".nanoassistant" / "skills"
+    skill_file = skill_root / "doc" / "SKILL.md"
+    skill_file.parent.mkdir(parents=True)
+    skill_file.write_text("---\nname: doc\ndescription: Doc\n---\n\nDoc body", encoding="utf-8")
+    registry = ToolRegistry(context=ToolContext.create(repo_root=session.workspace_root))
+    registry.register(SkillViewTool(workspace_config_dirname=".nanoassistant"))
+    hooks = HookRegistry()
+    setup_realtime_stream(hooks)
+    published: list[dict[str, object]] = []
+    set_session_event_publisher_factory(
+        registry=hooks,
+        factory=lambda _session_id: lambda event, data: published.append(
+            {"event": event, "data": data}
+        ),
+    )
+    runtime = AgentRuntime(
+        session_manager=manager,
+        llm_client=FakeLLMClient(),
+        model="mock-model",
+        tool_registry=registry,
+        hook_runner=HookRunner(registry=hooks),
+        workspace_config_dirname=".nanoassistant",
+    )
+
+    await runtime.run(
+        session.session_id,
+        [{"type": "text", "text": "/skill:doc polish this paragraph"}],
+        stream=False,
+        run_id="run-skill-view",
+    )
+
+    tool_events = [event for event in published if event["event"] in {"tool_start", "tool_end"}]
+    assert [event["event"] for event in tool_events] == ["tool_start", "tool_end"]
+    assert tool_events[0]["data"]["name"] == "skill_view"
+    assert tool_events[1]["data"]["name"] == "skill_view"
+    assert tool_events[1]["data"]["call_id"] == tool_events[0]["data"]["call_id"]
+    assert tool_events[1]["data"]["run_id"] == "run-skill-view"
+    assert tool_events[1]["data"]["status"] == "completed"
 
 
 async def test_task_tool_is_registered_and_validated_by_registry(

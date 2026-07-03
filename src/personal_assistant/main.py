@@ -1760,10 +1760,12 @@ class GatewayRuntime:
                 if callable(run_skill_maintenance):
                     run_skill_maintenance(workspace_root=workspace_root)
                 if callable(drain):
+                    skill_root = Path(workspace_root) / _WCD / "skills"
                     await drain(
                         run_background_analysis=self._build_skill_batch_analysis_runner(
                             workspace_root=workspace_root
-                        )
+                        ),
+                        skill_root=skill_root,
                     )
             except Exception as exc:  # noqa: BLE001
                 _log.warning(
@@ -1838,7 +1840,8 @@ class GatewayRuntime:
             await drain(
                 run_background_analysis=self._build_skill_batch_analysis_runner(
                     workspace_root=workspace_root
-                )
+                ),
+                skill_root=Path(workspace_root) / _WCD / "skills",
             )
         except Exception as exc:  # noqa: BLE001
             _log.warning(

@@ -16,6 +16,7 @@ class _Kernel:
         self.submitted_parts: list[dict[str, object]] = []
         self.drained = False
         self.scheduler = None
+        self.drain_roots: list[Path | None] = []
 
     def run_skill_maintenance(self, *, workspace_root: Path) -> None:
         self.maintenance_roots.append(workspace_root)
@@ -23,8 +24,9 @@ class _Kernel:
     def set_skill_batch_review_drain_scheduler(self, scheduler):
         self.scheduler = scheduler
 
-    async def run_queued_skill_batch_reviews(self, *, run_background_analysis):
+    async def run_queued_skill_batch_reviews(self, *, run_background_analysis, skill_root=None):
         self.drained = True
+        self.drain_roots.append(skill_root)
         await run_background_analysis(
             "batch prompt",
             tool_allowlist=("skill_view", "skill_manage"),
@@ -55,6 +57,7 @@ async def test_open_cli_session_drains_queued_skill_batch_reviews(
     assert session.session_id == "session-2"
     assert kernel.maintenance_roots == [tmp_path]
     assert kernel.drained is True
+    assert kernel.drain_roots == [tmp_path / ".nano" / "skills"]
     assert kernel.created_sessions[0] == {
         "workspace_root": tmp_path,
         "enabled_tools": ["skill_view", "skill_manage"],
@@ -82,6 +85,7 @@ async def test_open_cli_session_drains_live_skill_batch_enqueue(tmp_path: Path) 
     await asyncio.sleep(0)
 
     assert kernel.drained is True
+    assert kernel.drain_roots[-1] == tmp_path / ".nano" / "skills"
     assert kernel.created_sessions == [
         {
             "workspace_root": tmp_path,

@@ -33,6 +33,7 @@ def run_skill_batch_review(
     *,
     run_background_analysis: BackgroundFork,
     max_transcript_chars: int = _MAX_TRANSCRIPT_CHARS,
+    writable_skill_root: Path | None = None,
 ) -> SkillBatchReviewResult:
     """Run one skill batch review from a synchronous caller."""
 
@@ -44,6 +45,7 @@ def run_skill_batch_review(
                 trigger,
                 run_background_analysis=run_background_analysis,
                 max_transcript_chars=max_transcript_chars,
+                writable_skill_root=writable_skill_root,
             )
         )
     raise RuntimeError(
@@ -57,10 +59,20 @@ async def run_skill_batch_review_async(
     *,
     run_background_analysis: BackgroundFork,
     max_transcript_chars: int = _MAX_TRANSCRIPT_CHARS,
+    writable_skill_root: Path | None = None,
 ) -> SkillBatchReviewResult:
     """Review one F4 trigger with a runtime-injected background fork callable."""
 
     skill_root = trigger.skill_root.expanduser().resolve()
+    if writable_skill_root is not None:
+        writable_root = writable_skill_root.expanduser().resolve()
+        if skill_root != writable_root:
+            return SkillBatchReviewResult(
+                skill_name=trigger.skill_name,
+                completed=False,
+                evidence_session_ids=(),
+                skipped_reason="target_root_not_writable_by_skill_manage",
+            )
     curator_state_path = skill_root / ".curator_state.json"
     already_reviewed = reviewed_session_ids(curator_state_path=curator_state_path)
     evidence = _load_unreviewed_transcripts(
@@ -170,7 +182,8 @@ def _build_review_prompt(
         "Use at least two session transcripts as evidence before changing anything.\n"
         "Only patch the existing target skill. Do not create, rename, archive, delete, "
         "or modify any other skill.\n"
-        f"Allowed write path: skill_manage(action=\"patch\", name=\"{trigger.skill_name}\", ...). "
+        "Allowed write path: "
+        f"skill_manage(action=\"patch\", name=\"{trigger.skill_name}\", scope=\"agent\", ...). "
         "Do not call skill_manage with action=\"create\".\n"
         "First inspect the current skill with skill_view, then patch only if the evidence "
         "shows a concrete improvement.\n\n"

@@ -98,6 +98,49 @@ def test_batch_review_invokes_patch_only_background_fork(tmp_path: Path) -> None
     assert state["reviewed_session_ids"] == ["s1", "s2"]
 
 
+def test_batch_review_skips_roots_current_workspace_cannot_patch(
+    tmp_path: Path,
+) -> None:
+    agent_root = tmp_path / "agent" / ".nanoassistant" / "skills"
+    shared_root = tmp_path / "shared-skills"
+    _write_skill(agent_root, "auto-skill", "# agent copy\n")
+    _write_skill(shared_root, "auto-skill", "# shared copy\n")
+    session_a = tmp_path / "sessions" / "s1.jsonl"
+    session_b = tmp_path / "sessions" / "s2.jsonl"
+    session_a.parent.mkdir(parents=True)
+    session_a.write_text("first shared-root transcript\n", encoding="utf-8")
+    session_b.write_text("second shared-root transcript\n", encoding="utf-8")
+    calls: list[dict[str, object]] = []
+
+    async def fake_fork(prompt: str, **kwargs: object) -> object:
+        calls.append({"prompt": prompt, **kwargs})
+        return object()
+
+    trigger = F4Trigger(
+        skill_name="auto-skill",
+        skill_root=shared_root,
+        session_refs=(
+            {"session_id": "s1", "transcript_path": str(session_a)},
+            {"session_id": "s2", "transcript_path": str(session_b)},
+        ),
+        call_key="call-shared",
+        skill_location=shared_root / "auto-skill" / "SKILL.md",
+    )
+
+    result = run_skill_batch_review(
+        trigger,
+        run_background_analysis=fake_fork,
+        writable_skill_root=agent_root,
+    )
+
+    assert result.completed is False
+    assert result.skipped_reason == "target_root_not_writable_by_skill_manage"
+    assert result.evidence_session_ids == ()
+    assert calls == []
+    assert (agent_root / "auto-skill" / "SKILL.md").read_text() == "# agent copy\n"
+    assert (shared_root / "auto-skill" / "SKILL.md").read_text() == "# shared copy\n"
+
+
 def test_runtime_skill_batch_queue_dedupes_by_name_and_root(tmp_path: Path) -> None:
     runtime = AgentRuntime(
         session_manager=SessionManager(
@@ -130,6 +173,39 @@ def test_runtime_skill_batch_queue_dedupes_by_name_and_root(tmp_path: Path) -> N
     runtime.finish_skill_batch_review(trigger_b)
 
 
+def test_runtime_skill_batch_queue_pop_can_filter_by_exact_root(tmp_path: Path) -> None:
+    runtime = AgentRuntime(
+        session_manager=SessionManager(
+            store=JsonlSessionStore(data_dir=tmp_path / "sessions")
+        ),
+        llm_client=_UnusedLLMClient(),
+        model="mock-model",
+    )
+    root_a = tmp_path / "workspace-a" / ".nanoassistant" / "skills"
+    root_b = tmp_path / "workspace-b" / ".nanoassistant" / "skills"
+    trigger_a = F4Trigger(
+        skill_name="same-name",
+        skill_root=root_a,
+        session_refs=(),
+        call_key="call-a",
+    )
+    trigger_b = F4Trigger(
+        skill_name="same-name",
+        skill_root=root_b,
+        session_refs=(),
+        call_key="call-b",
+    )
+
+    assert runtime.enqueue_skill_batch_review(trigger_a) is True
+    assert runtime.enqueue_skill_batch_review(trigger_b) is True
+
+    assert runtime.pop_queued_skill_batch_reviews(skill_root=root_a) == (trigger_a,)
+    assert runtime.pop_queued_skill_batch_reviews(skill_root=root_a) == ()
+    assert runtime.pop_queued_skill_batch_reviews(skill_root=root_b) == (trigger_b,)
+    runtime.finish_skill_batch_review(trigger_a)
+    runtime.finish_skill_batch_review(trigger_b)
+
+
 def _trigger(skill_root: Path, session_ids: list[str]) -> F4Trigger:
     return F4Trigger(
         skill_name="auto-skill",
@@ -138,6 +214,13 @@ def _trigger(skill_root: Path, session_ids: list[str]) -> F4Trigger:
         call_key="call-1",
         skill_location=skill_root / "auto-skill" / "SKILL.md",
     )
+
+
+def _write_skill(skill_root: Path, name: str, content: str) -> Path:
+    path = skill_root / name / "SKILL.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+    return path
 
 
 def _write_session(workspace_root: Path, session_id: str, text: str) -> None:

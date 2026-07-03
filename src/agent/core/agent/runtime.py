@@ -1080,13 +1080,22 @@ class AgentRuntime:
 
         self._skill_batch_review_drain_scheduler = scheduler
 
-    def pop_queued_skill_batch_reviews(self) -> tuple[Any, ...]:
+    def pop_queued_skill_batch_reviews(
+        self, *, skill_root: Path | None = None
+    ) -> tuple[Any, ...]:
         """Move queued skill batch reviews into running state and return triggers."""
 
         self._ensure_skill_batch_review_state()
+        requested_root = _skill_batch_review_root_key(skill_root)
         triggers: list[Any] = []
         for queue_key in tuple(sorted(self._skill_batch_review_queued)):
             trigger = self._skill_batch_review_triggers.get(queue_key)
+            if requested_root is not None and (
+                trigger is None
+                or _skill_batch_review_root_key(getattr(trigger, "skill_root", None))
+                != requested_root
+            ):
+                continue
             self._skill_batch_review_queued.discard(queue_key)
             if trigger is None:
                 continue
@@ -2016,6 +2025,17 @@ class AgentRuntime:
             hook_ctx,
             metadata={**dict(hook_ctx.metadata), "tool_call_id": call_id},
         )
+        run_id = hook_ctx.metadata.get("run_id")
+        tool_call_payload: dict[str, Any] = {
+            "session_id": session_id,
+            "turn_id": turn_id,
+            "call_id": call_id,
+            "name": "skill_view",
+            "arguments": args,
+        }
+        if isinstance(run_id, str) and run_id.strip():
+            tool_call_payload["run_id"] = run_id.strip()
+        await self._dispatch_observe("tool_call", tool_call_payload, tool_hook_ctx)
         output: Mapping[str, Any] | None = None
         error: str | None = None
         try:
@@ -2029,6 +2049,19 @@ class AgentRuntime:
             )
         except Exception as exc:  # noqa: BLE001
             error = str(exc)
+        tool_result_payload: dict[str, Any] = {
+            "session_id": session_id,
+            "turn_id": turn_id,
+            "call_id": call_id,
+            "name": "skill_view",
+            "arguments": args,
+            "output": output,
+            "error": error,
+            "duration_ms": 0,
+        }
+        if isinstance(run_id, str) and run_id.strip():
+            tool_result_payload["run_id"] = run_id.strip()
+        await self._dispatch_observe("tool_result", tool_result_payload, tool_hook_ctx)
         tool = registry.get("skill_view")
         if tool is not None and hasattr(tool, "serialize_result"):
             content = tool.serialize_result(output or {}, error=error)
@@ -2606,14 +2639,19 @@ def _skill_batch_review_key(trigger: Any) -> str:
     skill_name = getattr(trigger, "skill_name", None)
     if not isinstance(skill_name, str) or not skill_name:
         return ""
-    skill_root = getattr(trigger, "skill_root", None)
-    if skill_root is None:
-        return skill_name
-    try:
-        root = str(Path(skill_root).expanduser().resolve())
-    except TypeError:
+    root = _skill_batch_review_root_key(getattr(trigger, "skill_root", None))
+    if root is None:
         return skill_name
     return f"{root}:{skill_name}"
+
+
+def _skill_batch_review_root_key(skill_root: Any) -> str | None:
+    try:
+        if skill_root is None:
+            return None
+        return str(Path(skill_root).expanduser().resolve())
+    except TypeError:
+        return None
 
 
 def _message_to_entry(msg: Message, session_id: str) -> dict[str, Any]:

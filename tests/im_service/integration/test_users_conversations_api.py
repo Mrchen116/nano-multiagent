@@ -111,9 +111,21 @@ def test_agent_conversation_response_includes_source_jsonl_path(
                     "session_id": "sess-1",
                     "created_at": "2026-01-01T00:00:00Z",
                     "workspace_root": str(workspace_root),
+                    "tool_allowlist": ["memory", "skill_view"],
                     "metadata": {
+                        "workspace_config_dirname": ".nanoassistant",
                         "agent_id": "agent-1",
+                        "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
                         "conversation_id": conversation["id"],
+                        "config_profile_version": 1,
+                        "system_prompt": "You are Agent 1.",
+                        "agent_features": {},
+                        "conversation_type": "direct",
+                        "self_evolution": {
+                            "enabled": False,
+                            "mode": "observe",
+                        },
+                        "title": "Agent 1",
                     },
                 }
             )
@@ -122,9 +134,12 @@ def test_agent_conversation_response_includes_source_jsonl_path(
         )
 
         listed = client.get("/im/v1/conversations").json()["items"]
+        synced = client.get("/im/v1/sync").json()["items"]
 
         assert listed[0]["source_agent_id"] == "agent-1"
         assert listed[0]["source_jsonl_path"] == str(session_path)
+        assert synced[0]["source_agent_id"] == "agent-1"
+        assert synced[0]["source_jsonl_path"] == str(session_path)
 
 
 def test_patch_conversation_updates_title_pin_and_mute(tmp_path: Path) -> None:
