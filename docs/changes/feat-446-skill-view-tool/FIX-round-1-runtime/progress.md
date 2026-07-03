@@ -19,8 +19,8 @@
   - Frontend State Matrix: N/A.
   - Browser QA: N/A.
   - E2E/Regression: permanent backend regression tests in existing unit/integration files.
-- Rollback: revert `767b766e` and `29576e4e`.
-- Commits: C1=`29576e4e`, C2=`767b766e`, C3=pending.
+- Rollback: revert `15bb43ea` and `8a033c07`.
+- Commits: C1=`8a033c07`, C2=`15bb43ea`, C3=`f6690e92`.
 - Next: R2 F4 drain and backend review nits.
 
 ## R2 — F4 drain and backend review nits
@@ -36,10 +36,15 @@
   - Frontend State Matrix: N/A.
   - Browser QA: N/A.
   - E2E/Regression: permanent backend regression tests in existing unit/integration files.
-- Rollback: revert `998df2b6` and `df8dae2a`.
-- Commits: C1=`df8dae2a`, C2=`998df2b6`, C3=pending.
+- Rollback: revert `863d97f6` and `420a1280`.
+- Commits: C1=`420a1280`, C2=`863d97f6`, C3=`534cfb0d`.
 - Next: R3 final gate, docs, merge to `unit/feat-446`.
 
 ## R3 — Final gates and integration
 
-Pending.
+- Evidence:
+  - Final gate: `PYTHONPATH=src pytest tests/unit/test_skill_view.py tests/unit/test_usage.py tests/unit/test_skill_batch_review.py tests/integration/test_compaction_runtime_integration.py tests/unit/test_agent_prompting.py tests/unit/agent/test_core_sections.py tests/unit/agent/test_feature_registry.py tests/unit/test_cli_product.py tests/unit/personal_assistant/test_gateway_process_manager.py tests/unit/personal_assistant/test_gateway_im_connection_behavior.py tests/unit/personal_assistant/test_gateway_upstream_reporter.py tests/unit/test_skill_manage_tool.py tests/im_service/unit/test_repositories_user_conversation.py tests/im_service/integration/test_agent_config_api.py tests/contract/test_core_no_platform_imports.py -x` -> 184 passed after rebasing onto `origin/unit/feat-446` at `2c8307b3`.
+  - Frontend State Matrix: N/A.
+  - Browser QA: N/A.
+  - E2E/Regression: permanent backend regression tests only; no long-lived services started.
+- Merge readiness: backend/runtime slice complete. Frontend acceptance issues remain outside this worker's ownership.
