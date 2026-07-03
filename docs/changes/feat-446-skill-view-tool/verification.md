@@ -365,3 +365,109 @@ None.
 ## Verdict
 
 PASS. No critical, warning, or suggestion issues found in this round. The branch is ready for PR from the verifier's perspective.
+
+---
+
+# Round 4
+
+## Verification Report: feat-446
+
+### Summary
+
+- unit_id: `feat-446`
+- review_round: 4
+- verification_mode: full
+- validated_head: `0db64232208ddc426752f407ea33cc4d1bd7c076`
+- base_branch: `origin/main`
+- requires_full_verification: false
+- verdict: FAIL
+- issue_counts: critical=3, warning=0, suggestion=0
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | FAIL: one FIX-round-3 task remains unchecked |
+| Correctness | PASS for the focused round-3 runtime fixes; FAIL overall because contract gates fail |
+| Coherence | FAIL: project contract gates catch payload-shape drift and hardcoded-dirname whitelist drift |
+
+## Scope
+
+Verified the current unit branch against:
+
+- `docs/changes/feat-446-skill-view-tool/spec.md`
+- `docs/changes/feat-446-skill-view-tool/design.md`
+- delta specs under `docs/changes/feat-446-skill-view-tool/specs/`
+- M1/M2/M3/M4 task docs and all fix-loop task/progress docs
+- prior verification/acceptance reports, especially round-3 reviewer failures and focused code-review F4 concerns
+- project rules in `SPEC.md`, `docs/TESTING_GUIDE.md`, and `COMMENTING_GUIDE.md`
+
+## Task Status Cross-Check
+
+Marked task/progress status:
+
+- M1 skill-view-core: 9/9 checked complete
+- M2 curator-f4: 11/11 checked complete
+- M3 f2-distill: 15/15 checked complete
+- M4 dashboard: 9/9 checked complete
+- FIX-round-1-product: 6/6 checked complete
+- FIX-round-1-runtime: R1/R2/R3 marked DONE
+- FIX-round-2-product: 5/5 checked complete
+- FIX-round-2-runtime: R1/R2/R3 marked DONE
+- FIX-round-3-runtime: 2/3 checked complete; `R3: Run focused tests, merge to unit/feat-446, push, and clean the milestone worktree/branch` remains unchecked in `docs/changes/feat-446-skill-view-tool/FIX-round-3-runtime/tasks.md`
+
+## Focused Round-3 Runtime Checks
+
+- Real web relay session metadata now carries `conversation_id`: `src/personal_assistant/channels/web_relay_adapter.py:253` injects it into inbound metadata, and `src/personal_assistant/gateway/inbound_pipeline.py:768` forwards it into kernel session metadata. Regression coverage: `tests/unit/personal_assistant/test_gateway_web_relay_adapter.py:23` and `tests/unit/personal_assistant/test_inbound_pipeline_session_metadata.py:155`.
+- IM can resolve real `source_jsonl_path`: `src/IM/infra/repositories.py:800` scans the source agent workspace sessions recursively, and `src/IM/infra/repositories.py:832` matches `session_created.metadata.conversation_id` plus `agent_id`. Regression coverage includes nested transcripts at `tests/im_service/unit/test_repositories_user_conversation.py:241` and HTTP response coverage at `tests/im_service/integration/test_users_conversations_api.py:55`.
+- `/skill:<name>` now emits a completed visible `skill_view` lifecycle: `src/agent/core/agent/runtime.py:1993` creates persisted assistant/tool messages, dispatches `tool_call` and `tool_result`, and `tests/unit/test_agent_runtime.py:488` asserts the realtime `tool_start`/`tool_end` pair with `status=completed`.
+- F4 queueing/draining is root-aware: `src/agent/core/agent/runtime.py:1057` keys queued reviews by skill name and root, `src/agent/core/agent/runtime.py:1083` can pop by exact root, and product runners pass the workspace skill root in `src/coding_cli/product.py:196` and `src/personal_assistant/main.py:1833`. Regression coverage: `tests/unit/test_skill_batch_review.py:144` and `tests/unit/test_skill_batch_review.py:176`.
+- F4 cannot patch the wrong same-name/shared root: `src/agent/platform/background/skill_batch_review.py:66` compares trigger root with the writable skill root and skips with `target_root_not_writable_by_skill_manage` on mismatch. Regression coverage: `tests/unit/test_skill_batch_review.py:101`.
+
+## Critical Issues
+
+### CRITICAL-1: FIX-round-3 runtime task checklist still has an unchecked R3 item
+
+`docs/changes/feat-446-skill-view-tool/FIX-round-3-runtime/tasks.md:5` remains `- [ ] R3: Run focused tests, merge to unit/feat-446, push, and clean the milestone worktree/branch.`
+
+The progress doc says the focused suite passed and the current branch is already at pushed merge commit `0db64232208ddc426752f407ea33cc4d1bd7c076`, but the verifier task contract treats unchecked tasks as incomplete. Required fix: either complete the remaining cleanup work if any is still pending, or update the task checklist/progress to reflect the actual completed state.
+
+### CRITICAL-2: Capability payload contract fails because `requires_any_tool: None` leaks into existing feature payloads
+
+The capability payload baseline guard requires byte-for-byte stability for the IM capability payload shape. The current branch changes all feature payloads to include `requires_any_tool`, even when the value is `None`:
+
+- `src/personal_assistant/reporter/capability_projection.py:64` adds `requires_any_tool` to `FeatureProjection`
+- `src/personal_assistant/reporter/capability_projection.py:80` emits `requires_any_tool=None` for `memory_curation`, and the same shape leaks through the reporter payload
+- `tests/contract/test_capability_payload_baseline.py:266` and `tests/contract/test_capability_payload_baseline.py:283` fail because the golden payloads do not include this extra null field
+
+Impact: this is an externally consumed IM/Gateway capability contract drift, not just a test fixture mismatch. Required fix: omit `requires_any_tool` from projected feature dicts when it is `None`, or explicitly revise the canonical capability contract and golden baseline if the API change is intended.
+
+### CRITICAL-3: Hardcoded workspace dirname contract fails after line shifts/new literals
+
+The project contract `tests/contract/test_no_hardcoded_workspace_dirname.py` fails with unwhitelisted `.nano` / `.nanoassistant` literals:
+
+- `src/agent/sdk/kernel.py:141`
+- `src/agent/sdk/kernel.py:379`
+- `src/agent/sdk/kernel.py:523`
+- `src/agent/sdk/kernel.py:1292`
+- `src/agent/core/agent/runtime.py:251`
+- `src/agent/core/agent/runtime.py:2458`
+
+Several are likely pre-existing literals whose whitelist line numbers drifted after feat-446 inserted code, but the contract is still red and must be resolved before PR. Required fix: replace any genuinely new per-workspace hardcodes with product-owned dirname/config plumbing; for pre-existing legitimate literals, update the whitelist entries with current line numbers and WHY comments.
+
+## Passed Checks
+
+- `skill_view` remains independent and name-only; `skill_manage` no longer exposes `view`.
+- Successful `skill_view` records usage/session refs/transcript path and compaction survival; failed reads do not create usage.
+- Prompt guidance is gated by `skill_view` availability.
+- Manual, threshold, and overflow compaction reinjection paths remain covered by focused integration tests from prior rounds.
+- IM dashboard/F2 focused frontend tests pass for conversation selection, no-transcript/running disabled states, prefill, usage panel, and `skill_view` tool card.
+- Product import boundaries checked by contract tests still pass for core/platform/product/package separation.
+
+## Verification Commands
+
+- `PYTHONPATH=src pytest -q tests/unit/personal_assistant/test_gateway_web_relay_adapter.py tests/unit/personal_assistant/test_inbound_pipeline_session_metadata.py tests/im_service/unit/test_repositories_user_conversation.py tests/im_service/integration/test_users_conversations_api.py tests/integration/test_agent_runtime_skill_command_integration.py tests/unit/test_agent_runtime.py::test_runtime_skill_command_rewrite_runs_through_normal_pipeline tests/unit/test_agent_runtime.py::test_runtime_skill_command_emits_completed_tool_event tests/unit/test_skill_view.py tests/unit/test_skill_batch_review.py tests/unit/test_cli_product.py tests/unit/personal_assistant/test_gateway_process_manager.py` -> 52 passed
+- `cd src/IM/frontend && npm run test -- --run src/features/chat/v2/components/conversation-sidebar.test.tsx src/features/chat/v2/chat-workspace.integration.test.tsx src/features/chat/v2/components/tool-calls-panel.test.tsx src/features/settings/agents/agent-detail-page.test.tsx src/features/settings/agents/im-agent-config-api.test.ts` -> 155 passed across 5 files; existing React `act(...)`, route, query, and `--localstorage-file` warnings observed, exit code 0
+- `PYTHONPATH=src pytest -q tests/contract/test_core_no_platform_imports.py tests/contract/test_multi_product_architecture.py tests/contract/test_tool_gate_coverage.py tests/contract/test_skill_commands_contract.py tests/contract/test_capability_payload_baseline.py tests/contract/test_no_hardcoded_workspace_dirname.py` -> 12 passed, 3 failed
+
+## Verdict
+
+FAIL. The focused round-3 runtime fixes are present and covered, but the branch is not ready for PR because one fix-loop task remains unchecked and two project contract gates fail. 3 critical issue(s) found. Fix before PR.
