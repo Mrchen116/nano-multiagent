@@ -57,7 +57,7 @@ async def test_open_cli_session_drains_queued_skill_batch_reviews(
     assert session.session_id == "session-2"
     assert kernel.maintenance_roots == [tmp_path]
     assert kernel.drained is True
-    assert kernel.drain_roots == [tmp_path / ".nano" / "skills"]
+    assert kernel.drain_roots == [tmp_path / ".nanocode" / "skills"]
     assert kernel.created_sessions[0] == {
         "workspace_root": tmp_path,
         "enabled_tools": ["skill_view", "skill_manage"],
@@ -85,10 +85,41 @@ async def test_open_cli_session_drains_live_skill_batch_enqueue(tmp_path: Path) 
     await asyncio.sleep(0)
 
     assert kernel.drained is True
-    assert kernel.drain_roots[-1] == tmp_path / ".nano" / "skills"
+    assert kernel.drain_roots[-1] == tmp_path / ".nanocode" / "skills"
     assert kernel.created_sessions == [
         {
             "workspace_root": tmp_path,
+            "enabled_tools": ["skill_view", "skill_manage"],
+            "metadata": {"background_task": "skill_batch_review"},
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_cli_live_skill_batch_enqueue_uses_trigger_workspace_after_reopen(
+    tmp_path: Path,
+) -> None:
+    kernel = _Kernel()
+    workspace_a = tmp_path / "workspace-a"
+    workspace_b = tmp_path / "workspace-b"
+    await open_cli_session(kernel, workspace_root=workspace_a)
+    await open_cli_session(kernel, workspace_root=workspace_b)
+    kernel.created_sessions.clear()
+    kernel.submitted_parts.clear()
+    kernel.drain_roots.clear()
+
+    kernel.scheduler(
+        SimpleNamespace(
+            skill_name="auto-skill",
+            skill_root=workspace_a / ".nanocode" / "skills",
+        )
+    )
+    await asyncio.sleep(0)
+
+    assert kernel.drain_roots == [workspace_a / ".nanocode" / "skills"]
+    assert kernel.created_sessions == [
+        {
+            "workspace_root": workspace_a.resolve(),
             "enabled_tools": ["skill_view", "skill_manage"],
             "metadata": {"background_task": "skill_batch_review"},
         }

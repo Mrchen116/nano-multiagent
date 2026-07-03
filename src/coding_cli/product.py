@@ -185,9 +185,14 @@ def _install_skill_batch_review_scheduler(kernel: Any, *, workspace_root: Path) 
     if not callable(setter):
         return
 
-    def _schedule(_trigger: Any) -> None:
+    def _schedule(trigger: Any) -> None:
+        trigger_workspace = _workspace_root_for_cli_skill_trigger(
+            trigger, fallback_workspace_root=workspace_root
+        )
         asyncio.create_task(
-            _drain_queued_skill_batch_reviews(kernel, workspace_root=workspace_root)
+            _drain_queued_skill_batch_reviews(
+                kernel, workspace_root=trigger_workspace
+            )
         )
 
     setter(_schedule)
@@ -216,8 +221,21 @@ async def _drain_queued_skill_batch_reviews(
 
     await drain(
         run_background_analysis=_run_background_analysis,
-        skill_root=Path(workspace_root) / ".nano" / "skills",
+        skill_root=Path(workspace_root) / WORKSPACE_CONFIG_DIRNAME / "skills",
     )
+
+
+def _workspace_root_for_cli_skill_trigger(
+    trigger: Any, *, fallback_workspace_root: Path
+) -> Path:
+    skill_root = getattr(trigger, "skill_root", None)
+    try:
+        resolved = Path(skill_root).expanduser().resolve()
+    except TypeError:
+        return fallback_workspace_root
+    if resolved.name != "skills" or resolved.parent.name != WORKSPACE_CONFIG_DIRNAME:
+        return fallback_workspace_root
+    return resolved.parent.parent
 
 
 async def _run_kernel_background_analysis(
