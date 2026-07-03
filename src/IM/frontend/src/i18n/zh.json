@@ -321,6 +321,11 @@
         "group": "群聊",
         "network": "Agent 网络"
       },
+      "generateSkill": "生成 skill",
+      "distillToSkill": "蒸馏为 skill",
+      "cancel": "取消",
+      "running": "运行中",
+      "noTranscript": "无 transcript",
       "empty": "暂无会话"
     },
     "kindBadge": {
@@ -339,6 +344,13 @@
       "cancel": "取消",
       "online": "在线",
       "offline": "离线"
+    },
+    "distill": {
+      "title": "蒸馏会话",
+      "subtitle": "新建执行 agent 单聊，并在普通输入框中预填 skill 命令。",
+      "scope": "写入范围",
+      "starting": "启动中…",
+      "startError": "启动蒸馏失败。"
     },
     "messagePane": {
       "emptyTitle": "暂无消息",
