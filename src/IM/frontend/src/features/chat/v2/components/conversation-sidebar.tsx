@@ -109,7 +109,7 @@ export function ConversationSidebar({
               </button>
             </>
           ) : (
-            <button type="button" className="chat-sidebar-action" onClick={onEnterDistillMode}>
+            <button type="button" className="chat-sidebar-action" onClick={() => onEnterDistillMode?.()}>
               {t("chat.list.generateSkill")}
             </button>
           )}
