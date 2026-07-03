@@ -43,18 +43,18 @@
 
 ## R3 — frontend selection and prefill flow
 
-- Context: TODO
-- Decision: TODO
-- Rationale: TODO
+- Context: F2 入口必须从现有 IM chat v2 列表进入，不能新增后端注入 transcript 的特殊发送路径；用户最终仍编辑并发送一条普通聊天消息。
+- Decision: 扩展 `Conversation` 前端类型，`ConversationSidebar` 增加受控 distill 多选模式；默认列表不显示 `run_state`，进入模式后只允许 `idle + source_agent_id + source_jsonl_path` conversation 勾选，`running` 显示运行态禁选。`ChatWorkspacePageV2` 根据选中来源 agent 集合自动/手动确定执行 agent，在同一 modal 选择 `agent|pa` scope，确认前用现有 live config + capabilities + `resolveEnabledSkills()` 校验执行 agent 可见 `conversation-skill-distiller`。可见时创建执行 agent 单聊并通过 `MessagePane.draftSeed` 预填普通 composer。
+- Rationale: distill skill 可见性与 slash picker 使用同一 enablement 规则，避免 UI 预填一个运行时不可解析的 `/skill:`。预填只写 textarea，不改 `createMessage()` payload 和 Gateway 解析链路，因此 `source_jsonl_paths` 仍由 agent 在 skill 指导下自行读取。
 - Evidence:
-  - Tests: TODO
-  - Entry: TODO
-  - Frontend State Matrix: TODO
-  - Browser QA: TODO
-  - E2E/Regression: TODO
-  - Visual/Interaction: TODO
-- Rollback: TODO
-- Commits: TODO
+  - Tests: C1 红测 `cd src/IM/frontend && npm run test -- --run src/features/chat/v2/components/conversation-sidebar.test.tsx src/features/chat/v2/chat-workspace.integration.test.tsx` -> 4 failed（无 checkbox / Generate skill / Distill to skill 流程）。C2 后同命令 -> 2 files / 35 tests passed；`npm run build` -> passed（仅既有 Vite chunk/dynamic import warning）。
+  - Entry: 侧栏 `Generate skill` 按钮和 conversation row context-menu 进入多选；`Distill to skill` 打开确认弹窗；`Start distillation` 校验技能可见性后跳转 `/chat/<new conversation>`，composer 预填 `/skill:conversation-skill-distiller`、`source_jsonl_paths`、`execution_agent_id`、`target_scope` 和默认意图 prompt。
+  - Frontend State Matrix: default=无运行态标签；disabled=`running` 禁选并显示状态、无 transcript 禁选；empty=无选择时提交按钮 disabled；error=skill 不可见时 modal 内提示且不 POST conversation；submitting=Start distillation 禁用并显示 starting；nullable=缺 `source_agent_id/source_jsonl_path` 不可选；desktop/mobile 视觉验收留 R4。
+  - Browser QA: 留 R4 真入口验收。
+  - E2E/Regression: workspace integration 覆盖单来源自动执行 agent、跨来源必须选择执行 agent、scope=pa、skill 不可见不预填不创建 conversation、预填后普通 composer 仍可按现有发送测试路径发送。
+  - Visual/Interaction: component/integration 覆盖可访问名称；真实 viewport 截图留 R4。
+- Rollback: revert `16d4a6ce` and `075fdcac` together to remove frontend distill entry and tests.
+- Commits: C1=075fdcac, C2=16d4a6ce, C3=TODO
 - Next: R4
 
 ## R4 — real entry QA and final gates

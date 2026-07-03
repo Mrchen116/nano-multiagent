@@ -78,7 +78,7 @@ UI 状态矩阵：
 
 ### R3 — frontend selection and prefill flow
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 在 chat v2 conversation 侧栏接入右键"生成 skill"多选、running 禁选、执行 agent/scope 弹窗、skill 可见性检查、跳转执行 agent 新对话并预填 composer。
 - 验证: `cd src/IM/frontend && npm run test -- --run src/features/chat/v2/components/conversation-sidebar.test.tsx src/features/chat/v2/chat-workspace.integration.test.tsx`
 
