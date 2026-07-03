@@ -154,6 +154,34 @@ describe("ConversationSidebar", () => {
     expect(onToggle).toHaveBeenCalledWith("idle");
   });
 
+  it("opens a right-click menu entry that enters skill distill multi-select", async () => {
+    const user = userEvent.setup();
+    const onEnter = vi.fn();
+    render(
+      <ConversationSidebar
+        conversations={[
+          conv({
+            id: "idle",
+            title: "Idle chat",
+            run_state: "idle",
+            source_agent_id: "a1",
+            source_jsonl_path: "/tmp/idle.jsonl"
+          })
+        ]}
+        activeConversationId={null}
+        onSelect={() => {}}
+        onNewGroup={() => {}}
+        onEnterDistillMode={onEnter}
+      />
+    );
+
+    await user.pointer({ keys: "[MouseRight]", target: screen.getByRole("button", { name: /Idle chat/ }) });
+    const menu = await screen.findByRole("menu", { name: /Conversation actions/i });
+    await user.click(within(menu).getByRole("menuitem", { name: /Distill to skill/i }));
+
+    expect(onEnter).toHaveBeenCalledWith("idle");
+  });
+
   it("shows unread badge on the conversation row when unread_count > 0", () => {
     render(<ConversationSidebar conversations={CONVS} activeConversationId={null} onSelect={() => {}} onNewGroup={() => {}} />);
     const row = screen.getByRole("button", { name: /Assistant/ });

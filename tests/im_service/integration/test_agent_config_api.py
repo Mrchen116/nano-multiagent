@@ -262,6 +262,109 @@ def test_get_agent_config_prefers_live_gateway_snapshot(tmp_path: Path) -> None:
         assert response.json()["profile_version"] == 1
 
 
+def test_get_agent_config_ignores_mismatched_live_agent_payload(
+    tmp_path: Path,
+) -> None:
+    """A live payload for another agent must not overwrite the requested profile view."""
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        owner = register_user(client, username="owner", display_name="Owner")
+        authorize(client, owner)
+        profiles = AgentProfileRepository(app.state.connection)
+        NodeRepository(app.state.connection).upsert_node(
+            node_id="node-1",
+            node_name="MacBook",
+            status="online",
+            version="1.0.0",
+            owner_id=owner.owner_id,
+        )
+        profiles.upsert_profile(
+            agent_id="default-agent",
+            owner_id=owner.owner_id,
+            display_name="Default Agent",
+            description="cached",
+            system_prompt="cached prompt",
+            skills=[],
+            tool_allowlist=[],
+            group_reply_policy="manual",
+            default_model=None,
+            workspace_root="/tmp/default-agent",
+        )
+        profiles.upsert_profile(
+            agent_id="luban",
+            owner_id=owner.owner_id,
+            display_name="Luban",
+            description="cached",
+            system_prompt="cached prompt",
+            skills=[],
+            tool_allowlist=[],
+            group_reply_policy="manual",
+            default_model=None,
+            workspace_root="/tmp/luban",
+        )
+        app.state.connection.execute(
+            "UPDATE agent_profiles SET node_id = ? WHERE agent_id IN (?, ?)",
+            ("node-1", "default-agent", "luban"),
+        )
+        app.state.connection.commit()
+
+        with client.websocket_connect("/im/ws/gateway") as websocket:
+            websocket.send_json(
+                {
+                    "type": "node.register",
+                    "payload": {
+                        "node_id": "node-1",
+                        "node_name": "MacBook",
+                        "version": "1.0.0",
+                        "agents": ["default-agent", "luban"],
+                        "capabilities": {"relay": True},
+                    },
+                }
+            )
+            assert websocket.receive_json()["type"] == "ack"
+
+            result: dict[str, object] = {}
+
+            def _fetch() -> None:
+                result["response"] = client.get("/im/v1/agents/default-agent/config")
+
+            worker = threading.Thread(target=_fetch)
+            worker.start()
+            request_frame = websocket.receive_json()
+            assert request_frame["type"] == "agent.config.get"
+            request_id = request_frame["payload"]["request_id"]
+            assert request_frame["payload"]["agent_id"] == "default-agent"
+            websocket.send_json(
+                {
+                    "type": "agent.config",
+                    "payload": {
+                        "request_id": request_id,
+                        "agent_id": "default-agent",
+                        "agent": {
+                            "agent_id": "luban",
+                            "display_name": "Luban",
+                            "system_prompt": "luban prompt",
+                            "skills": ["wrong"],
+                            "tool_allowlist": ["skill_view"],
+                            "group_reply_policy": "auto",
+                            "default_model": "wrong-model",
+                            "workspace_root": "/tmp/luban",
+                        },
+                    },
+                }
+            )
+            assert websocket.receive_json()["type"] == "ack"
+            worker.join(timeout=5)
+
+        response = result["response"]
+        assert response.status_code == 200
+        body = response.json()
+        assert body["agent_id"] == "default-agent"
+        assert body["display_name"] == "Default Agent"
+        assert Path(body["workspace_root"]).resolve() == Path("/tmp/default-agent").resolve()
+        assert body["skills"] == []
+
+
 def test_agents_list_hides_unbound_and_cross_owner_profiles(tmp_path: Path) -> None:
     """Only bound profiles in the current runtime ownership scope should be selectable."""
     app = create_app(db_path=tmp_path / "im.db")

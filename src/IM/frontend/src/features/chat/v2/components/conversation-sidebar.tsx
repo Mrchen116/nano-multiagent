@@ -31,7 +31,7 @@ export interface ConversationSidebarProps {
   distillMode?: boolean;
   selectedDistillConversationIds?: Set<string>;
   onToggleDistillConversation?(conversationId: string): void;
-  onEnterDistillMode?(): void;
+  onEnterDistillMode?(conversationId?: string): void;
   onCancelDistillMode?(): void;
   onStartDistill?(): void;
 }
@@ -71,6 +71,7 @@ export function ConversationSidebar({
   const { t } = useTranslation();
   const [filter, setFilter] = useState<FilterKey>("all");
   const [search, setSearch] = useState("");
+  const [contextMenu, setContextMenu] = useState<{ conversationId: string; x: number; y: number } | null>(null);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -84,7 +85,7 @@ export function ConversationSidebar({
   }, [conversations, filter, search]);
 
   return (
-    <aside className="chat-sidebar" aria-label={t("chat.list.header")}>
+    <aside className="chat-sidebar" aria-label={t("chat.list.header")} onClick={() => setContextMenu(null)}>
       <header className="chat-sidebar-header">
         <div className="chat-sidebar-header-row">
           <span className="chat-sidebar-title">{t("chat.list.header")}</span>
@@ -136,6 +137,28 @@ export function ConversationSidebar({
           ))}
         </div>
       </header>
+      {contextMenu ? (
+        <div
+          role="menu"
+          aria-label="Conversation actions"
+          className="chat-sidebar-context-menu"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            className="chat-sidebar-context-menu-item"
+            onClick={() => {
+              const { conversationId } = contextMenu;
+              setContextMenu(null);
+              onEnterDistillMode?.(conversationId);
+            }}
+          >
+            {t("chat.list.distillToSkill")}
+          </button>
+        </div>
+      ) : null}
       <ul className="chat-sidebar-list">
         {filtered.length === 0 ? (
           <li className="chat-sidebar-empty">{t("chat.list.empty")}</li>
@@ -210,7 +233,8 @@ export function ConversationSidebar({
                     onClick={() => onSelect(c.id)}
                     onContextMenu={(event) => {
                       event.preventDefault();
-                      onEnterDistillMode?.();
+                      event.stopPropagation();
+                      setContextMenu({ conversationId: c.id, x: event.clientX, y: event.clientY });
                     }}
                     aria-current={active ? "true" : undefined}
                   >

@@ -1496,6 +1496,13 @@ export function AgentDetailPage() {
           <div>
             <h3 className="im-agent-card-title">{t("agents.form.access.title")}</h3>
             <p className="im-agent-card-sub">{t("agents.form.access.sub")}</p>
+            <button
+              type="button"
+              className="im-btn im-btn-muted im-agent-access-skills-link"
+              onClick={() => setActiveSection("skills")}
+            >
+              View skill statistics
+            </button>
           </div>
           <div className="im-agent-card-grid-2">
             <PillSelector

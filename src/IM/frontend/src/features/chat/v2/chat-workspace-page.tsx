@@ -711,9 +711,16 @@ export function ChatWorkspacePageV2() {
     || removeParticipantMutation.isPending
     || dissolveMutation.isPending;
 
-  function enterDistillMode() {
+  function enterDistillMode(conversationId?: string) {
     setDistillMode(true);
     setDistillError(null);
+    if (conversationId) {
+      setSelectedDistillConversationIds((prev) => {
+        const next = new Set(prev);
+        next.add(conversationId);
+        return next;
+      });
+    }
   }
 
   function cancelDistillMode() {

@@ -209,6 +209,13 @@ def _merge_live_agent_profile(
     profile: AgentProfile, payload: dict[str, object]
 ) -> AgentProfile:
     """Overlay one live gateway snapshot onto the persisted IM mirror for read APIs."""
+    payload_agent_id = payload.get("agent_id")
+    if (
+        isinstance(payload_agent_id, str)
+        and payload_agent_id.strip()
+        and payload_agent_id.strip() != profile.agent_id
+    ):
+        return profile
     display_name = payload.get("display_name")
     system_prompt = payload.get("system_prompt")
     skills = payload.get("skills")

@@ -192,6 +192,30 @@ describe("agent detail page", () => {
     expect(screen.getByText("archived")).toBeInTheDocument();
   });
 
+  it("opens skill statistics from the Access card entry in the real config flow", async () => {
+    const user = userEvent.setup();
+    apiMocks.getAgentDetailStateMock.mockResolvedValue({
+      ...makeDashboardDetailState(),
+      capabilities: {
+        ...makeDashboardDetailState().capabilities,
+        skills: [{ name: "conversation-skill-distiller", description: "Distill sessions" }],
+        tools: [{ name: "skill_view", description: "View skills", default_on: true }]
+      }
+    });
+    apiMocks.listAgentsMock.mockResolvedValue([]);
+    apiMocks.getAgentSkillsUsageMock.mockResolvedValue(makeSkillsUsage());
+
+    renderDetailPage();
+    await screen.findByRole("heading", { name: "Core Planner" });
+    expect(screen.getByRole("heading", { name: "Access & Model" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /View skill statistics/i }));
+
+    expect(apiMocks.getAgentSkillsUsageMock).toHaveBeenCalledWith("agent-core-1");
+    expect(await screen.findByTestId("agent-skills-usage-panel")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Skills" })).toHaveAttribute("aria-pressed", "true");
+  });
+
   it("shows agent heatmap and health funnel views", async () => {
     const user = userEvent.setup();
     apiMocks.getAgentDetailStateMock.mockResolvedValue(makeDashboardDetailState());
