@@ -8,21 +8,21 @@
 
 ## 退出标准
 
-- [ ] 干净 HOME 或移走 `~/.nanoassistant/skills/conversation-skill-distiller` 后启动 Gateway，会自动生成 `~/.nanoassistant/skills/conversation-skill-distiller/SKILL.md`，且不覆盖已存在的用户本地同名 skill。
-- [ ] 默认 IM conversation 列表不显示运行态标签。
-- [ ] 用户进入"生成 skill"多选模式后，checkbox 出现，`run_state=idle` 的 conversation 可选，`run_state=running` 的 conversation 禁选并显示"运行中"。
-- [ ] 用户选择一个或多个可选 conversation 后，点击"蒸馏为 skill"会先按来源 agent 集合确定执行 agent：来源全属同一 agent 时自动使用该 agent，来源跨多个 agent 时弹窗要求用户选择一个执行 agent。
-- [ ] 确认执行 agent 可发现 `conversation-skill-distiller`，不可见时提示去配置页启用，不预填无法加载的 `/skill:`。
-- [ ] 可见时同一弹窗选择 agent 级或 PA 产品级写入范围，再跳转到执行 agent 的新对话。
-- [ ] 现有输入框预填 `/skill:conversation-skill-distiller`、`source_jsonl_paths`、`execution_agent_id`、`target_scope` 和默认意图 prompt。
-- [ ] 用户编辑后按普通聊天消息发送，Gateway 不解析 `source_jsonl_paths`、不注入 transcript。
-- [ ] agent 在蒸馏 skill 指导下读取 JSONL path，任一 source 不可读或证据不足时不创建 skill。
-- [ ] agent 通过 `skill_manage(create, scope=<target_scope>)` 写入对应 skill root，并通过现有工具调用展示/普通回复告知结果。
-- [ ] 本期不新增 SKILL.md 草稿预览卡片或确认写入/取消按钮。
-- [ ] 蒸馏 skill 使用标准目录型包内资源并纳入 package data；若 generic built-in skill bootstrap 未合并则实现同一通用 helper，不能写 feishu/distill 专用逻辑。
-- [ ] IM 前端相关测试全绿。
-- [ ] `skill_manage(create)` 在 `target_scope=agent` 时写入执行 agent 的 skill root，在 `target_scope=pa` 时写入 PA skill root。
-- [ ] 历史蒸馏创建的 skill 按用户主动创建处理，不进入自动 Curator。
+- [x] 干净 HOME 或移走 `~/.nanoassistant/skills/conversation-skill-distiller` 后启动 Gateway，会自动生成 `~/.nanoassistant/skills/conversation-skill-distiller/SKILL.md`，且不覆盖已存在的用户本地同名 skill。
+- [x] 默认 IM conversation 列表不显示运行态标签。
+- [x] 用户进入"生成 skill"多选模式后，checkbox 出现，`run_state=idle` 的 conversation 可选，`run_state=running` 的 conversation 禁选并显示"运行中"。
+- [x] 用户选择一个或多个可选 conversation 后，点击"蒸馏为 skill"会先按来源 agent 集合确定执行 agent：来源全属同一 agent 时自动使用该 agent，来源跨多个 agent 时弹窗要求用户选择一个执行 agent。
+- [x] 确认执行 agent 可发现 `conversation-skill-distiller`，不可见时提示去配置页启用，不预填无法加载的 `/skill:`。
+- [x] 可见时同一弹窗选择 agent 级或 PA 产品级写入范围，再跳转到执行 agent 的新对话。
+- [x] 现有输入框预填 `/skill:conversation-skill-distiller`、`source_jsonl_paths`、`execution_agent_id`、`target_scope` 和默认意图 prompt。
+- [x] 用户编辑后按普通聊天消息发送，Gateway 不解析 `source_jsonl_paths`、不注入 transcript。
+- [x] agent 在蒸馏 skill 指导下读取 JSONL path，任一 source 不可读或证据不足时不创建 skill。
+- [x] agent 通过 `skill_manage(create, scope=<target_scope>)` 写入对应 skill root，并通过现有工具调用展示/普通回复告知结果。
+- [x] 本期不新增 SKILL.md 草稿预览卡片或确认写入/取消按钮。
+- [x] 蒸馏 skill 使用标准目录型包内资源并纳入 package data；若 generic built-in skill bootstrap 未合并则实现同一通用 helper，不能写 feishu/distill 专用逻辑。
+- [x] IM 前端相关测试全绿。
+- [x] `skill_manage(create)` 在 `target_scope=agent` 时写入执行 agent 的 skill root，在 `target_scope=pa` 时写入 PA skill root。
+- [x] 历史蒸馏创建的 skill 按用户主动创建处理，不进入自动 Curator。
 
 ## 测试策略
 
@@ -84,6 +84,6 @@ UI 状态矩阵：
 
 ### R4 — real entry QA and final gates
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 起 IM/Vite/Gateway 真入口验收干净 HOME 自举和 F2 浏览器路径；补 progress 证据；跑后端/前端最终门禁。
 - 验证: `PYTHONPATH=src pytest tests/unit/personal_assistant/test_builtin_skills_bootstrap.py tests/unit/personal_assistant/test_gateway_launch.py tests/unit/test_skill_manage_tool.py tests/im_service/unit/test_repositories_user_conversation.py tests/im_service/unit/test_message_runtime_state.py -x`；`cd src/IM/frontend && npm run test -- --run src/features/chat/v2`；浏览器截图/console/network 记录。
