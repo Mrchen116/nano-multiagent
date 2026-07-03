@@ -8,12 +8,12 @@ Make the reviewer-reported IM product paths reachable from the real Web IM flows
 
 ## 退出标准
 
-- [ ] Agent detail exposes a usable Skills/statistics entry from the real detail/config flow.
-- [ ] Conversation list right-click exposes a clear F2 distill entry and enters multi-select.
-- [ ] IM config/usage boundaries do not silently overlay a mismatched live agent payload onto the requested agent.
-- [ ] `/skill:<name>` ownership boundary is identified if runtime changes are required.
-- [ ] Focused frontend/backend regressions pass.
-- [ ] True browser validation records screenshots for Agent detail Skills and F2 distill entry.
+- [x] Agent detail exposes a usable Skills/statistics entry from the real detail/config flow.
+- [x] Conversation list right-click exposes a clear F2 distill entry and enters multi-select.
+- [x] IM config/usage boundaries do not silently overlay a mismatched live agent payload onto the requested agent.
+- [x] `/skill:<name>` ownership boundary is identified if runtime changes are required.
+- [x] Focused frontend/backend regressions pass.
+- [x] True browser validation records screenshots for Agent detail Skills and F2 distill entry.
 
 ## 测试策略
 
