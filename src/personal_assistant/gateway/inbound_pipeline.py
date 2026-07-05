@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from dataclasses import replace
@@ -105,6 +106,7 @@ _DEFAULT_RUN_IDLE_TIMEOUT_SECONDS = 120.0
 # provider limit (Anthropic). An image over this is rejected at inbound rather than
 # sent, independent of which provider this turn's model resolves to.
 _DEFAULT_MAX_IMAGE_BYTES = 5 * 1024 * 1024
+_MAX_SESSION_DRAIN_LOCKS = 4096
 
 # bugfix-433 决策5: fixed user-facing messages for image failure types. Worker MUST
 # NOT paraphrase — these are part of the contract (incident Q6 / design 决策5 表).
@@ -197,6 +199,7 @@ class InboundPipeline:
         attachment_fetcher: Callable[[str], Awaitable[bytes]] | None = None,
         max_image_bytes: int = _DEFAULT_MAX_IMAGE_BYTES,
         shadow_sync: ShadowConversationSync | None = None,
+        max_session_drain_locks: int = _MAX_SESSION_DRAIN_LOCKS,
     ) -> None:
         if run_idle_timeout_seconds <= 0:
             raise ValueError("run_idle_timeout_seconds must be > 0")
@@ -239,7 +242,8 @@ class InboundPipeline:
         # nothing. This lock makes every drain for a session mutually exclusive;
         # it does NOT serialize the whole turn (the active run still receives the
         # injected steer), only the cheap gate+drain decision.
-        self._session_drain_locks: dict[str, asyncio.Lock] = {}
+        self._session_drain_locks: OrderedDict[str, asyncio.Lock] = OrderedDict()
+        self._max_session_drain_locks = max(1, max_session_drain_locks)
         # bugfix-417-M5 (#114): run_ids stopped by an explicit user /stop, so the
         # terminal reconcile can attribute the in-flight tool card's content to the
         # user ("[Request interrupted by user for tool use]") instead of the generic
@@ -692,6 +696,10 @@ class InboundPipeline:
         if lock is None:
             lock = asyncio.Lock()
             self._session_drain_locks[session_key] = lock
+            while len(self._session_drain_locks) > self._max_session_drain_locks:
+                self._session_drain_locks.popitem(last=False)
+        else:
+            self._session_drain_locks.move_to_end(session_key)
         return lock
 
     async def _build_message_parts(

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -21,6 +23,7 @@ from personal_assistant.config.local_store import (
 from personal_assistant.main import (
     _autofill_feishu_bot_open_id,
     _build_feishu_owner_open_id_binder,
+    _infer_feishu_bot_open_id_from_app_credentials,
 )
 
 
@@ -222,6 +225,29 @@ def test_autofill_feishu_bot_open_id_uses_configured_domain(
     )
 
     assert seen == [("cli_a", "s_a", "https://open.larksuite.com")]
+
+
+def test_infer_feishu_bot_open_id_from_inside_running_event_loop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: list[str] = []
+
+    async def _fake_fetch(config: object) -> SimpleNamespace:
+        seen.append(getattr(config, "app_id"))
+        return SimpleNamespace(open_id="ou_bot_thread")
+
+    monkeypatch.setattr(
+        "lark_oapi.channel.bot_identity.fetch_bot_identity",
+        _fake_fetch,
+    )
+
+    async def _exercise() -> str | None:
+        return _infer_feishu_bot_open_id_from_app_credentials(
+            "cli_a", "secret", "https://open.feishu.cn"
+        )
+
+    assert asyncio.run(_exercise()) == "ou_bot_thread"
+    assert seen == ["cli_a"]
 
 
 def test_autofill_feishu_bot_open_id_degrades_when_probe_fails(

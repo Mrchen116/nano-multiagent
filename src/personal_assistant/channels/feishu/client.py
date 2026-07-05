@@ -329,10 +329,13 @@ class FeishuClient:
         """Create a Feishu message with the shared retry/error policy."""
         if self._rest_client is None:
             raise RuntimeError("feishu client is not started")
+        cleaned_receive_id = receive_id.strip()
+        if not cleaned_receive_id:
+            raise ValueError("feishu receive_id must be non-empty")
 
         body = (
             CreateMessageRequestBody.builder()
-            .receive_id(receive_id)
+            .receive_id(cleaned_receive_id)
             .msg_type(msg_type)
             .content(content)
             .build()
@@ -348,8 +351,6 @@ class FeishuClient:
         max_server_error_attempts = _SERVER_ERROR_RETRIES
         rate_limit_attempt = 0
         server_error_attempt = 0
-        rate_limit_exhausted = False
-        server_error_exhausted = False
 
         while True:
             response = self._rest_client.im.v1.message.create(request)
@@ -368,43 +369,37 @@ class FeishuClient:
                 )
 
             if code in _RATE_LIMIT_CODES:
-                if rate_limit_exhausted:
+                rate_limit_attempt += 1
+                if rate_limit_attempt >= max_rate_limit_attempts:
                     raise FeishuAPIError(
                         f"feishu rate limit exceeded after {max_rate_limit_attempts} "
                         f"attempts: code={code}, msg={msg}",
                         code=code,
                     )
-                rate_limit_attempt += 1
-                if rate_limit_attempt < max_rate_limit_attempts:
-                    backoff = _BACKOFF_BASE_SECONDS * (2 ** (rate_limit_attempt - 1))
-                    logger.warning(
-                        "feishu rate limited (code=%d), retrying in %.1fs "
-                        "(attempt %d/%d)",
-                        code,
-                        backoff,
-                        rate_limit_attempt,
-                        max_rate_limit_attempts,
-                    )
-                    time.sleep(backoff)
-                    continue
-                rate_limit_exhausted = True
+                backoff = _BACKOFF_BASE_SECONDS * (2 ** (rate_limit_attempt - 1))
+                logger.warning(
+                    "feishu rate limited (code=%d), retrying in %.1fs (attempt %d/%d)",
+                    code,
+                    backoff,
+                    rate_limit_attempt,
+                    max_rate_limit_attempts,
+                )
+                time.sleep(backoff)
                 continue
 
             if code in _SERVER_ERROR_CODES:
-                if server_error_exhausted:
+                server_error_attempt += 1
+                if server_error_attempt >= max_server_error_attempts:
                     raise FeishuAPIError(
-                        f"feishu server error: code={code}, msg={msg}",
+                        f"feishu server error after {max_server_error_attempts} "
+                        f"attempts: code={code}, msg={msg}",
                         code=code,
                     )
-                server_error_attempt += 1
-                if server_error_attempt < max_server_error_attempts:
-                    logger.warning(
-                        "feishu server error (code=%d), retrying once",
-                        code,
-                    )
-                    time.sleep(_BACKOFF_BASE_SECONDS)
-                    continue
-                server_error_exhausted = True
+                logger.warning(
+                    "feishu server error (code=%d), retrying once",
+                    code,
+                )
+                time.sleep(_BACKOFF_BASE_SECONDS)
                 continue
 
             # Non-retryable error

@@ -128,6 +128,55 @@ def test_outbound_router_dedupes_by_reply_dedupe_key() -> None:
     assert [item.text for item in adapter.sent] == ["Final answer."]
 
 
+def test_outbound_router_bounds_dedupe_key_memory() -> None:
+    class _Adapter:
+        name = "feishu:agent-a"
+
+        def __init__(self) -> None:
+            self.sent: list[OutboundMessage] = []
+
+        def start(self, _on_inbound) -> None:  # noqa: ANN001
+            return None
+
+        def send(self, outbound: OutboundMessage) -> None:
+            self.sent.append(outbound)
+
+        def stop(self) -> None:
+            return None
+
+    adapter = _Adapter()
+    router = OutboundRouter(ChannelRegistry([adapter]), max_dedupe_keys=1)
+
+    router.send_text(
+        text="first",
+        reply_context=ReplyContext(
+            channel_name="feishu:agent-a",
+            target_chat_id="feishu:cli_a:dm:ou_user",
+            metadata={"reply_dedupe_key": "run-1:text:first"},
+        ),
+    )
+    router.send_text(
+        text="second",
+        reply_context=ReplyContext(
+            channel_name="feishu:agent-a",
+            target_chat_id="feishu:cli_a:dm:ou_user",
+            metadata={"reply_dedupe_key": "run-2:text:second"},
+        ),
+    )
+    replay_after_eviction = router.send_text(
+        text="first",
+        reply_context=ReplyContext(
+            channel_name="feishu:agent-a",
+            target_chat_id="feishu:cli_a:dm:ou_user",
+            metadata={"reply_dedupe_key": "run-1:text:first"},
+        ),
+    )
+
+    assert replay_after_eviction is not None
+    assert [item.text for item in adapter.sent] == ["first", "second", "first"]
+    assert len(router._sent_dedupe_keys) == 1  # noqa: SLF001
+
+
 def test_outbound_router_dedupes_external_final_reply_across_paths() -> None:
     class _Adapter:
         name = "feishu:agent-a"

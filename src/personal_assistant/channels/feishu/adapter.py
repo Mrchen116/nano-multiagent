@@ -284,7 +284,7 @@ class FeishuAdapter:
             )
 
     def _is_self_sender(self, event: FeishuMessageEvent) -> bool:
-        return event.sender_open_id in {self._bot_open_id, self._app_id}
+        return bool(self._bot_open_id and event.sender_open_id == self._bot_open_id)
 
     def _ack_received(self, event: FeishuMessageEvent) -> None:
         """React to a message that is about to enter the agent pipeline."""

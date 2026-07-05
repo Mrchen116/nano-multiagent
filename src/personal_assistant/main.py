@@ -1967,10 +1967,15 @@ def _infer_feishu_bot_open_id_from_app_credentials(
     sdk_config.domain = domain
     sdk_config.timeout = 10
     try:
-        identity = asyncio.run(fetch_bot_identity(sdk_config))
-    except RuntimeError:
-        _log.warning("cannot run Feishu bot identity probe from active event loop")
-        return None
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            identity = asyncio.run(fetch_bot_identity(sdk_config))
+        else:
+            identity = _run_sync_in_thread(
+                lambda: asyncio.run(fetch_bot_identity(sdk_config)),
+                name="feishu-bot-id-probe",
+            )
     except Exception:  # noqa: BLE001
         _log.warning("failed to probe Feishu bot identity", exc_info=True)
         return None
@@ -1980,6 +1985,24 @@ def _infer_feishu_bot_open_id_from_app_credentials(
         return open_id.strip()
     _log.warning("Feishu bot identity probe returned no bot open_id")
     return None
+
+
+def _run_sync_in_thread(func: Callable[[], Any], *, name: str) -> Any:
+    result: list[Any] = []
+    errors: list[BaseException] = []
+
+    def _target() -> None:
+        try:
+            result.append(func())
+        except BaseException as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    thread = threading.Thread(target=_target, name=name, daemon=True)
+    thread.start()
+    thread.join()
+    if errors:
+        raise errors[0]
+    return result[0] if result else None
 
 
 def run_gateway(
@@ -2605,6 +2628,56 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         # this when the agent has not selected one (config.llm.default_model).
         product_default_model=config.llm.default_model,
     )
+
+    def _send_external_reply(text: str, metadata: Mapping[str, str]) -> None:
+        channel_name = metadata.get("channel_name") or ""
+        target_chat_id = metadata.get("target_chat_id") or ""
+        if not channel_name or not target_chat_id:
+            return
+        reply_metadata = {
+            key: value
+            for key, value in metadata.items()
+            if key not in {"channel_name", "target_chat_id", "reply_thread_id"}
+        }
+        outbound_router.send_text(
+            text=text,
+            reply_context=ReplyContext(
+                channel_name=channel_name,
+                target_chat_id=target_chat_id,
+                thread_id=metadata.get("reply_thread_id") or None,
+                metadata=reply_metadata,
+            ),
+        )
+
+    def _send_external_permission_request(
+        request: Mapping[str, Any], metadata: Mapping[str, str]
+    ) -> None:
+        channel_name = metadata.get("channel_name") or ""
+        target_chat_id = metadata.get("target_chat_id") or ""
+        if not channel_name or not target_chat_id:
+            return
+        adapter = channel_registry.get(channel_name)
+        sender = getattr(adapter, "send_permission_request", None)
+        if not callable(sender):
+            return
+        sender(
+            target_chat_id=target_chat_id,
+            request=request,
+            run_id=metadata.get("run_id") or "",
+        )
+
+    def _mark_external_permission_resolved(
+        request_id: str, decision: str, metadata: Mapping[str, str]
+    ) -> None:
+        channel_name = metadata.get("channel_name") or ""
+        if not channel_name:
+            return
+        adapter = channel_registry.get(channel_name)
+        resolver = getattr(adapter, "mark_permission_resolved", None)
+        if not callable(resolver):
+            return
+        resolver(request_id=request_id, decision=decision)
+
     if config.im_service is not None:
         relay_adapter = channel_registry.get("web_relay")
         if not isinstance(relay_adapter, WebRelayAdapter):
@@ -2774,86 +2847,33 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         owner_user_id=_owner_user_id,
         channel_registry=channel_registry,
     )
+
+    _kernel_event_observer = _build_kernel_event_observer(
+        im_connection_manager_factory=lambda: im_connection_manager,
+        run_context_store=_run_context_store,
+        external_reply_sender=_send_external_reply,
+        external_permission_request_sender=_send_external_permission_request,
+        external_permission_resolved_sender=_mark_external_permission_resolved,
+    )
+    pipeline._kernel_event_observer = _kernel_event_observer
+    # feat-393: wire observer into heartbeat_runner now that it's built. When IM is
+    # absent, the observer still mirrors external-channel permission/control events.
+    if _owner_user_id:
+        heartbeat_runner._kernel_event_observer = _kernel_event_observer  # noqa: SLF001
+    else:
+        # No owner bound → heartbeat delivery disabled; clear kernel reference.
+        heartbeat_runner._kernel = None  # noqa: SLF001
+        heartbeat_runner._run_context_store = None  # noqa: SLF001
+    pipeline._bg_reply_sender = _build_bg_reply_sender(
+        im_connection_manager_factory=lambda: im_connection_manager,
+        external_reply_sender=_send_external_reply,
+    )
     if config.im_service is not None:
-
-        def _send_external_reply(text: str, metadata: Mapping[str, str]) -> None:
-            channel_name = metadata.get("channel_name") or ""
-            target_chat_id = metadata.get("target_chat_id") or ""
-            if not channel_name or not target_chat_id:
-                return
-            reply_metadata = {
-                key: value
-                for key, value in metadata.items()
-                if key not in {"channel_name", "target_chat_id", "reply_thread_id"}
-            }
-            outbound_router.send_text(
-                text=text,
-                reply_context=ReplyContext(
-                    channel_name=channel_name,
-                    target_chat_id=target_chat_id,
-                    thread_id=metadata.get("reply_thread_id") or None,
-                    metadata=reply_metadata,
-                ),
-            )
-
-        def _send_external_permission_request(
-            request: Mapping[str, Any], metadata: Mapping[str, str]
-        ) -> None:
-            channel_name = metadata.get("channel_name") or ""
-            target_chat_id = metadata.get("target_chat_id") or ""
-            if not channel_name or not target_chat_id:
-                return
-            adapter = channel_registry.get(channel_name)
-            sender = getattr(adapter, "send_permission_request", None)
-            if not callable(sender):
-                return
-            sender(
-                target_chat_id=target_chat_id,
-                request=request,
-                run_id=metadata.get("run_id") or "",
-            )
-
-        def _mark_external_permission_resolved(
-            request_id: str, decision: str, metadata: Mapping[str, str]
-        ) -> None:
-            channel_name = metadata.get("channel_name") or ""
-            if not channel_name:
-                return
-            adapter = channel_registry.get(channel_name)
-            resolver = getattr(adapter, "mark_permission_resolved", None)
-            if not callable(resolver):
-                return
-            resolver(request_id=request_id, decision=decision)
-
-        _kernel_event_observer = _build_kernel_event_observer(
-            im_connection_manager_factory=lambda: im_connection_manager,
-            run_context_store=_run_context_store,
-            external_reply_sender=_send_external_reply,
-            external_permission_request_sender=_send_external_permission_request,
-            external_permission_resolved_sender=_mark_external_permission_resolved,
-        )
-        pipeline._kernel_event_observer = _kernel_event_observer
-        # feat-393: wire observer into heartbeat_runner now that it's built.
-        # When im_service is absent the runner runs fire-and-forget (no observer, no delivery).
-        if _owner_user_id:
-            heartbeat_runner._kernel_event_observer = _kernel_event_observer  # noqa: SLF001
-        else:
-            # No owner bound → heartbeat delivery disabled; clear kernel reference.
-            heartbeat_runner._kernel = None  # noqa: SLF001
-            heartbeat_runner._run_context_store = None  # noqa: SLF001
         # feat-349-M3: wire background session event callback so self_evolution_review
         # events published by background hooks reach IM as system/meta messages.
         pipeline._session_event_callback = _build_session_event_callback(
             im_connection_manager_factory=lambda: im_connection_manager,
             session_store=pipeline._session_store,
-        )
-        # bugfix-404-M3: wire BACKGROUND_TASK run output relay so assistant replies from
-        # notification-triggered background runs are sent back to the originating IM
-        # conversation.  outbound_router.send_text() → WebRelayAdapter.sent.append() is
-        # a no-op; only send_agent_message() via the live WS connection actually delivers.
-        pipeline._bg_reply_sender = _build_bg_reply_sender(
-            im_connection_manager_factory=lambda: im_connection_manager,
-            external_reply_sender=_send_external_reply,
         )
         # bugfix-433 决策1: wire the live attachment downloader so inbound image URLs
         # are fetched (with the live IM token) and converted to base64 data URLs before
@@ -4086,6 +4106,23 @@ def _build_kernel_event_observer(
         if asyncio.iscoroutine(result):
             asyncio.get_event_loop().create_task(result)
 
+    def _mirror_external_current_as_intermediate(
+        *, rid: str, ctx: dict[str, str]
+    ) -> None:
+        current_text = ctx.get("external_current_text") or ""
+        if not current_text.strip():
+            return
+        marker = ctx.get("kernel_message_id") or f"text:{current_text.strip()}"
+        if ctx.get("external_intermediate_sent_marker") == marker:
+            return
+        _mirror_external_reply(
+            rid=rid,
+            ctx=ctx,
+            phase="intermediate",
+            text=current_text,
+        )
+        ctx["external_intermediate_sent_marker"] = marker
+
     def observer(event: Mapping[str, Any]) -> "Coroutine[Any, Any, None] | None":
         manager = im_connection_manager_factory()
         run_id = str(event.get("run_id") or "").strip()
@@ -4104,11 +4141,35 @@ def _build_kernel_event_observer(
 
         event_name = str(event.get("event") or "").strip()
         im_connected = manager is not None and manager.connected
-        if not im_connected and event_name not in {
-            "permission_request",
-            "permission_resolved",
-        }:
+        has_external_context = _external_context_metadata(ctx) is not None
+        if not im_connected and not has_external_context:
             return None
+        if not im_connected:
+            if event_name == "assistant_message":
+                content = str(event.get("content") or "").strip()
+                if not content:
+                    return None
+                kernel_msg_id = str(event.get("message_id") or "").strip()
+                prev_kernel_msg_id = ctx.get("kernel_message_id") or ""
+                if (
+                    kernel_msg_id
+                    and prev_kernel_msg_id
+                    and kernel_msg_id != prev_kernel_msg_id
+                ):
+                    _mirror_external_current_as_intermediate(rid=run_id, ctx=ctx)
+                if kernel_msg_id:
+                    ctx["kernel_message_id"] = kernel_msg_id
+                ctx["external_current_text"] = content
+                return None
+            if event_name in {"tool_start", "permission_request"}:
+                _mirror_external_current_as_intermediate(rid=run_id, ctx=ctx)
+                if event_name == "tool_start":
+                    return None
+            elif event_name == "turn_end":
+                running_tool_calls.pop(run_id, None)
+                return None
+            elif event_name != "permission_resolved":
+                return None
         loop = asyncio.get_event_loop()
 
         if event_name == "run_status" and event.get("status") == "running":

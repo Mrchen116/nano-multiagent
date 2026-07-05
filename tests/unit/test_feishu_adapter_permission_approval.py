@@ -104,6 +104,8 @@ def test_permission_request_sends_interactive_card_and_click_submits_decision(
     card = call_kwargs["card"]
     summary = card["elements"][0]
     assert summary["tag"] == "markdown"
+    assert "1 parameter: command" in summary["content"]
+    assert "pwd" not in summary["content"]
     assert "```" not in summary["content"]
     assert "\n\n" not in summary["content"]
     action_row = card["elements"][1]
@@ -155,6 +157,50 @@ def test_permission_request_sends_interactive_card_and_click_submits_decision(
         )
     )
     decision_callback.assert_called_once()
+
+
+@patch("personal_assistant.channels.feishu.adapter.FeishuClient")
+def test_permission_cards_summarize_tool_input_without_values(
+    mock_fc_cls: MagicMock,
+) -> None:
+    mock_fc = MagicMock()
+    mock_fc.send_interactive_message.return_value = "om_card_001"
+    mock_fc_cls.return_value = mock_fc
+    adapter = _adapter(MagicMock(return_value=True))
+    sensitive_request = _request()
+    sensitive_request["tool_input"] = {
+        "command": "cat ~/.ssh/id_rsa",
+        "path": ".gitconfig",
+        "token": "secret-token-value",
+    }
+
+    adapter.send_permission_request(
+        target_chat_id="feishu:cli_a:group:oc_group",
+        run_id="run-1",
+        request=sensitive_request,
+    )
+
+    card = mock_fc.send_interactive_message.call_args.kwargs["card"]
+    summary = card["elements"][0]["content"]
+    assert "3 parameters: command, path, token" in summary
+    assert "cat ~/.ssh/id_rsa" not in summary
+    assert ".gitconfig" not in summary
+    assert "secret-token-value" not in summary
+
+    reason_card = adapter._handle_card_action(
+        FeishuCardActionEvent(
+            action_value=_action_value(card, "deny"),
+            operator_open_id="ou_owner",
+            operator_user_id="u_owner",
+            open_chat_id="oc_group",
+        )
+    )
+    assert reason_card is not None
+    reason_summary = reason_card["elements"][0]["content"]
+    assert "3 parameters: command, path, token" in reason_summary
+    assert "cat ~/.ssh/id_rsa" not in reason_summary
+    assert ".gitconfig" not in reason_summary
+    assert "secret-token-value" not in reason_summary
 
 
 @patch("personal_assistant.channels.feishu.adapter.FeishuClient")

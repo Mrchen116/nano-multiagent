@@ -88,7 +88,7 @@ def test_group_history_catchup_skips_bot_self_messages(
     bot_reply = _make_group_event(
         text="我在。看到了你的测试消息。",
         message_id="om_bot",
-        sender_open_id="cli_a",
+        sender_open_id="ou_bot1",
     )
     background = _make_group_event(text="你会数学吗", message_id="om_bg")
     current = _make_group_event(
@@ -125,7 +125,7 @@ def test_group_history_catchup_only_keeps_messages_after_last_bot_reply(
     bot_reply = _make_group_event(
         text="旧回复",
         message_id="om_bot",
-        sender_open_id="cli_a",
+        sender_open_id="ou_bot1",
     )
     new_background = _make_group_event(text="你会数学吗", message_id="om_bg")
     current = _make_group_event(

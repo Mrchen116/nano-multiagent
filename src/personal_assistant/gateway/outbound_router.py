@@ -2,18 +2,24 @@
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from collections.abc import Mapping
 
 from personal_assistant.channels.base import OutboundMessage, ReplyContext
 from personal_assistant.gateway.channel_registry import ChannelRegistry
 
+_MAX_DEDUPE_KEYS = 4096
+
 
 class OutboundRouter:
     """Send normalized replies to the adapter captured in reply context."""
 
-    def __init__(self, registry: ChannelRegistry) -> None:
+    def __init__(
+        self, registry: ChannelRegistry, *, max_dedupe_keys: int = _MAX_DEDUPE_KEYS
+    ) -> None:
         self._registry = registry
-        self._sent_dedupe_keys: set[str] = set()
+        self._sent_dedupe_keys: OrderedDict[str, None] = OrderedDict()
+        self._max_dedupe_keys = max(1, max_dedupe_keys)
 
     def send_text(
         self, *, text: str, reply_context: ReplyContext
@@ -46,8 +52,15 @@ class OutboundRouter:
             metadata=dict(reply_context.metadata),
         )
         channel.send(outbound)
-        self._sent_dedupe_keys.update(dedupe_keys)
+        self._remember_dedupe_keys(dedupe_keys)
         return outbound
+
+    def _remember_dedupe_keys(self, dedupe_keys: set[str]) -> None:
+        for key in dedupe_keys:
+            self._sent_dedupe_keys[key] = None
+            self._sent_dedupe_keys.move_to_end(key)
+        while len(self._sent_dedupe_keys) > self._max_dedupe_keys:
+            self._sent_dedupe_keys.popitem(last=False)
 
     @staticmethod
     def _dedupe_keys_for(*, text: str, metadata: object) -> set[str]:
