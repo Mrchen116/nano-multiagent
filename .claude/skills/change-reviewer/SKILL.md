@@ -46,6 +46,9 @@ branch: unit/<unit_id>                        # 验收对象——unit 集成分
 unit_worktree_dir: <repo_root>/.worktrees/unit-<unit_id>   # 你的工作目录,不进主仓
 review_round: 1 | 2 | 3 | ...                 # 第几轮验收
 prior_acceptance_paths: [docs/changes/<unit_dir>/acceptance.md]   # 第 2 轮起,之前的报告
+revalidation_mode: full | targeted             # targeted 进入 §FL Fast-lane
+focus_scenarios_or_issues: [<上一轮 fail/inconclusive issue 或 Scenario>]   # targeted 必传
+fix_delta_range: <pre_fix_head>..<HEAD>         # targeted 必传
 mode: full | lite                             # lite 不应该派 reviewer,详见 §1.1
 ```
 
@@ -181,9 +184,9 @@ git pull --ff-only origin "unit/<unit_id>"
 
 ## §FL Fast-lane: 复用上轮上下文做轻量复验(§3 轻量路径)
 
-**启用**:派发 prompt 含"复用上轮上下文做轻量复验"(或等价自然语言),且你是上轮跑过本 unit 旅程的同一实例。否则走完整 §3。
+**启用**:`review_round > 1` 且派发包 `revalidation_mode=targeted`。若 orchestrator 复用的是上轮同一实例,可直接复用上下文;若是新实例,仍可走 Fast-lane,但必须先读上一轮报告和 `focus_scenarios_or_issues`,确认继承覆盖表成立。`revalidation_mode=full` 或字段缺失时走完整 §3。
 
-**给信号方式**:在上一轮 acceptance.md 用自然语言表达"建议 Fast-lane 处理这批 issue / 范围小可轻量修"等措辞。orchestrator 看到信号才派 Fast-lane 复验。
+**给信号方式**:在上一轮 acceptance.md 可用自然语言表达"建议 Fast-lane 处理这批 issue / 范围小可轻量修"等措辞,供 orchestrator selection 参考;但最终是否 targeted 由 orchestrator 派发包决定。
 
 **目标**:避免复验税(§2.5 无脑重启 + §3.1 全量旅程重做)。
 
@@ -202,7 +205,7 @@ git pull --ff-only origin "unit/<unit_id>"
 
 **保留**:§0.1-§0.5、§3.1 覆盖表继承规则、§3.3、§5 三道闸、§6 out-of-unit 流程。
 
-**升级回完整复验**:fix 没修对 / 引入新副作用 / fix 实际不止小修 / 触及上轮未覆盖旅程——立刻扩回 §3 全旅程:
+**升级回完整复验**:fix 没修对 / 引入新副作用 / fix 实际不止小修 / 触及上轮未覆盖旅程 / 服务或产物有 stale 风险 / 你无法判断继承覆盖表是否仍有效——立刻扩回 §3 全旅程:
 1. `verdict=fail`、`Highest Required Action=fix-implementation`(或按 §5 三闸视情升)
 2. acceptance.md round N 显式注记"Fast-lane 启动后扩回完整复验,原因 <X>"
 3. `review_round` 正常递增(区别于 §0.9 越界场景的作废)

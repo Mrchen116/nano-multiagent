@@ -1351,6 +1351,33 @@ body {
   margin-bottom: 4px;
 }
 
+.chat-history-status {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 28px;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  color: var(--im-text-muted);
+  font-size: 0.76rem;
+}
+
+.chat-history-spinner {
+  width: 13px;
+  height: 13px;
+  border-radius: 999px;
+  border: 2px solid var(--im-border);
+  border-top-color: var(--im-accent);
+  animation: chat-history-spin 0.8s linear infinite;
+}
+
+@keyframes chat-history-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* Composer */
 .chat-pane-composer {
   flex-shrink: 0;
@@ -1427,6 +1454,14 @@ body {
   font-size: 0.9rem;
   color: var(--im-text);
   resize: none;
+  max-height: calc((1.5em * 5) + 1rem);
+  overflow-y: auto;
+}
+
+@media (max-width: 767px) {
+  .chat-pane-composer-input {
+    max-height: calc((1.5em * 4) + 1rem);
+  }
 }
 
 .chat-composer-highlight-input {
@@ -1528,6 +1563,15 @@ body {
   font-size: 0.875rem;
   line-height: 1.5;
   box-shadow: none;
+  -webkit-touch-callout: none;
+}
+
+@media (pointer: coarse) {
+  .chat-bubble-card {
+    -webkit-user-select: none;
+    user-select: none;
+    touch-action: manipulation;
+  }
 }
 
 /* feat-445-M1: message-level fork action. Child of .chat-bubble-card and overlapping
@@ -1578,6 +1622,55 @@ body {
 }
 .chat-bubble--agent.is-offline:hover .fork-tip {
   display: block;
+}
+
+.chat-message-menu {
+  position: fixed;
+  z-index: 80;
+  min-width: 132px;
+  overflow: hidden;
+  background: var(--im-surface);
+  border: 1px solid var(--im-border);
+  border-radius: 8px;
+  box-shadow: 0 14px 36px -22px rgba(0, 0, 0, 0.45);
+  padding: 4px;
+}
+
+.chat-message-menu-item {
+  width: 100%;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--im-text);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  font: inherit;
+  font-size: 0.82rem;
+  padding: 7px 9px;
+  text-align: left;
+}
+
+.chat-message-menu-item:hover,
+.chat-message-menu-item:focus-visible {
+  background: var(--im-surface-2);
+  outline: none;
+}
+
+.chat-message-menu-item:disabled {
+  color: var(--im-text-muted);
+  cursor: not-allowed;
+}
+
+.chat-message-menu-error {
+  border-top: 1px solid var(--im-border);
+  color: var(--im-danger);
+  font-size: 0.72rem;
+  line-height: 1.35;
+  margin-top: 3px;
+  padding: 6px 9px 5px;
+  max-width: 180px;
 }
 
 /* fork success toast — IM in-app-toast form (top-left card, white rounded + border +

@@ -36,6 +36,12 @@ vi.mock("../../chat/im-chat-api", async (importOriginal) => {
   };
 });
 
+function emitSharedChatEvent(event: Record<string, unknown> & { type: string }, eventId = 100) {
+  if (!capturedStatusHandler) throw new Error("shared user stream handler not attached");
+  const { type, ...payload } = event;
+  capturedStatusHandler({ eventType: type, payload, eventId });
+}
+
 // ─── Fake WebSocket ─────────────────────────────────────────────────────────
 class FakeWebSocket {
   static instances: FakeWebSocket[] = [];
@@ -130,6 +136,23 @@ const FIXTURES = {
     }
   ]
 };
+
+function historyMessage(id: string, index: number, content = `history ${id}`) {
+  return {
+    id,
+    conversation_id: "c1",
+    sender: index % 2 === 0
+      ? { type: "user", id: "u-self", display_name: "You" }
+      : { type: "agent", id: "a-planner", display_name: "Planner" },
+    sender_user_id: index % 2 === 0 ? "u-self" : "user-uuid-planner",
+    sender_type: index % 2 === 0 ? "user" : "agent",
+    content,
+    attachments: [],
+    delivery_status: "completed",
+    created_at: new Date(Date.UTC(2026, 4, 1, 0, 0, index)).toISOString(),
+    permission_requests: []
+  };
+}
 
 function jsonResponse(data: unknown, init: ResponseInit = {}): Response {
   return new Response(JSON.stringify(data), { status: 200, headers: { "Content-Type": "application/json" }, ...init });
@@ -318,6 +341,249 @@ describe("ChatWorkspacePage v2 — integration", () => {
     await waitFor(() => expect(conversationGetCount(fetchSpy)).toBeGreaterThan(before));
   });
 
+  it("renders a same-conversation message.created event from the shared user stream in the open chat", async () => {
+    renderAtRoute("/chat/c1");
+    await screen.findByText("Hi Planner");
+    await waitFor(() => expect(capturedStatusHandler).toBeTruthy());
+
+    act(() => {
+      capturedStatusHandler!({
+        eventType: "message.created",
+        payload: {
+          conversation_id: "c1",
+          message_id: "m-shared-live",
+          sender_user_id: "user-uuid-planner",
+          sender_type: "agent",
+          content: "shared stream live reply",
+          tool_calls: [],
+          token_usage: null,
+          delivery_status: "completed",
+          created_at: "2026-05-01T00:01:30Z"
+        },
+        eventId: 44
+      });
+    });
+
+    await waitFor(() => expect(screen.getByText("shared stream live reply")).toBeInTheDocument());
+  });
+
+  it("refreshes the active pane when a same-conversation message.sent event updates the sidebar preview", async () => {
+    let c1Messages = FIXTURES.messagesC1;
+    fetchSpy = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (/\/im\/v1\/conversations\/c1\/messages/.test(url) && (!init || init.method === undefined || init.method === "GET")) {
+        return jsonResponse({ items: c1Messages, next_before_message_id: null });
+      }
+      return mockFetch()(input, init);
+    }) as ReturnType<typeof mockFetch>;
+    vi.stubGlobal("fetch", fetchSpy);
+
+    renderAtRoute("/chat/c1");
+    await screen.findByText("Hi Planner");
+    await waitFor(() => expect(capturedStatusHandler).toBeTruthy());
+
+    c1Messages = [
+      ...FIXTURES.messagesC1,
+      {
+        id: "m-rest-live",
+        conversation_id: "c1",
+        sender: { type: "user", id: "u-other", display_name: "Other User" },
+        sender_user_id: "u-other",
+        sender_type: "user",
+        content: "REST live update that refreshed the sidebar",
+        attachments: [],
+        delivery_status: "completed",
+        created_at: "2026-05-01T00:02:00Z"
+      }
+    ];
+
+    act(() => {
+      capturedStatusHandler!({
+        eventType: "message.sent",
+        payload: {
+          conversation_id: "c1",
+          message_id: "m-rest-live",
+          sender_user_id: "u-other",
+          sender_type: "user",
+          sender: { type: "user", id: "u-other" },
+          attachments: [],
+          delivery_status: "sent",
+          created_at: "2026-05-01T00:02:00Z"
+        },
+        eventId: 45
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("REST live update that refreshed the sidebar")).toBeInTheDocument();
+    });
+  });
+
+  it("removes a same-conversation relay mirror when the refreshed history suppresses it", async () => {
+    const syntheticRelayMirror = {
+      id: "turn-1:relay:relay-dup-1",
+      conversation_id: "c1",
+      sender: { type: "agent", id: "a-planner", display_name: "Planner" },
+      sender_user_id: "user-uuid-planner",
+      sender_type: "agent",
+      content: "synthetic relay mirror that should disappear",
+      attachments: [],
+      delivery_status: "completed",
+      created_at: "2026-05-01T00:00:02Z",
+      permission_requests: []
+    };
+    const realAgentMessage = {
+      id: "real-agent-1",
+      conversation_id: "c1",
+      sender: { type: "agent", id: "a-planner", display_name: "Planner" },
+      sender_user_id: "user-uuid-planner",
+      sender_type: "agent",
+      content: "real agent row returned by refreshed history",
+      attachments: [],
+      delivery_status: "completed",
+      created_at: "2026-05-01T00:00:03Z",
+      permission_requests: []
+    };
+    let c1Messages = [...FIXTURES.messagesC1, syntheticRelayMirror];
+    fetchSpy = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (/\/im\/v1\/conversations\/c1\/messages/.test(url) && (!init || init.method === undefined || init.method === "GET")) {
+        return jsonResponse({ items: c1Messages, next_before_message_id: null });
+      }
+      return mockFetch()(input, init);
+    }) as ReturnType<typeof mockFetch>;
+    vi.stubGlobal("fetch", fetchSpy);
+
+    renderAtRoute("/chat/c1");
+    await screen.findByText("synthetic relay mirror that should disappear");
+    await waitFor(() => expect(capturedStatusHandler).toBeTruthy());
+
+    c1Messages = [...FIXTURES.messagesC1, realAgentMessage];
+    act(() => {
+      capturedStatusHandler!({
+        eventType: "message.sent",
+        payload: {
+          conversation_id: "c1",
+          message_id: "real-agent-1",
+          sender_user_id: "user-uuid-planner",
+          sender_type: "agent",
+          delivery_status: "completed",
+          created_at: "2026-05-01T00:00:03Z"
+        },
+        eventId: 46
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("real agent row returned by refreshed history")).toBeInTheDocument();
+      expect(screen.queryByText("synthetic relay mirror that should disappear")).not.toBeInTheDocument();
+    });
+  });
+
+  it("clears pending live preserve ids after one history reset so later history can converge", async () => {
+    let resolveRefetch!: () => void;
+    let c1MessageRequestCount = 0;
+    const racedHistoryMessages = FIXTURES.messagesC1.map((message) =>
+      message.id === "m1" ? { ...message, content: "Hi Planner after raced reset" } : message
+    );
+    let c1MessagesResponse = () => Promise.resolve(
+      jsonResponse({ items: FIXTURES.messagesC1, next_before_message_id: null })
+    );
+    fetchSpy = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (/\/im\/v1\/conversations\/c1\/messages/.test(url) && (!init || init.method === undefined || init.method === "GET")) {
+        c1MessageRequestCount += 1;
+        return c1MessagesResponse();
+      }
+      return mockFetch()(input, init);
+    }) as ReturnType<typeof mockFetch>;
+    vi.stubGlobal("fetch", fetchSpy);
+
+    renderAtRoute("/chat/c1");
+    await screen.findByText("Hi Planner");
+    await waitFor(() => expect(capturedStatusHandler).toBeTruthy());
+
+    const pendingRefetchResolvers: Array<(response: Response) => void> = [];
+    c1MessagesResponse = () => new Promise<Response>((resolve) => {
+      pendingRefetchResolvers.push(resolve);
+    });
+    resolveRefetch = () => {
+      for (const resolve of pendingRefetchResolvers.splice(0)) {
+        resolve(jsonResponse({ items: racedHistoryMessages, next_before_message_id: null }));
+      }
+    };
+    const requestCountBeforeRacedRefetch = c1MessageRequestCount;
+
+    act(() => {
+      capturedStatusHandler!({
+        eventType: "message.sent",
+        payload: {
+          conversation_id: "c1",
+          message_id: "sidebar-refresh-1",
+          sender_user_id: "u-other",
+          sender_type: "user",
+          sender: { type: "user", id: "u-other" },
+          attachments: [],
+          delivery_status: "sent",
+          created_at: "2026-05-01T00:02:00Z"
+        },
+        eventId: 47
+      });
+    });
+    await waitFor(() => expect(c1MessageRequestCount).toBeGreaterThan(requestCountBeforeRacedRefetch));
+
+    act(() => {
+      emitSharedChatEvent({
+        type: "message.created",
+        conversation_id: "c1",
+        message_id: "m-live-one-reset-only",
+        sender_user_id: "user-uuid-planner",
+        sender_type: "agent",
+        content: "live row gets one reset grace",
+        tool_calls: [],
+        token_usage: null,
+        delivery_status: "completed",
+        created_at: "2026-05-01T00:03:00Z"
+      }, 48);
+    });
+
+    await screen.findByText("live row gets one reset grace");
+
+    act(() => resolveRefetch());
+    await waitFor(() => {
+      expect(screen.getByText("Hi Planner after raced reset")).toBeInTheDocument();
+      expect(screen.getByText("live row gets one reset grace")).toBeInTheDocument();
+    });
+
+    c1MessagesResponse = () => Promise.resolve(
+      jsonResponse({ items: FIXTURES.messagesC1, next_before_message_id: null })
+    );
+    const requestCountBeforeConvergingRefetch = c1MessageRequestCount;
+
+    act(() => {
+      capturedStatusHandler!({
+        eventType: "message.sent",
+        payload: {
+          conversation_id: "c1",
+          message_id: "sidebar-refresh-2",
+          sender_user_id: "u-other",
+          sender_type: "user",
+          sender: { type: "user", id: "u-other" },
+          attachments: [],
+          delivery_status: "sent",
+          created_at: "2026-05-01T00:04:00Z"
+        },
+        eventId: 49
+      });
+    });
+
+    await waitFor(() => expect(c1MessageRequestCount).toBeGreaterThan(requestCountBeforeConvergingRefetch));
+    await waitFor(() => {
+      expect(screen.queryByText("live row gets one reset grace")).not.toBeInTheDocument();
+    });
+    expect(screen.getByText("Hi Planner")).toBeInTheDocument();
+  });
+
   // Fix B: v2 订阅必须注册 onResyncRequired，否则断线重连后 IM 发 resync 命令时
   // v2 侧边栏不强制刷新，可能停在断线期间错过消息的旧状态。
   it("v2 subscription registers onResyncRequired for post-reconnect refresh", async () => {
@@ -340,44 +606,40 @@ describe("ChatWorkspacePage v2 — integration", () => {
     renderAtRoute("/chat/c1");
     await screen.findByText("Hi Planner");
 
-    // The reducer + page wait for `messages` to be hydrated before applying WS
-    // events; once the historical fetch resolves, FakeWebSocket has been created
-    // by the workspace effect. Emit the three-event sequence.
-    await waitFor(() => expect(FakeWebSocket.instances.length).toBeGreaterThan(0));
-    const ws = FakeWebSocket.instances[0]!;
+    await waitFor(() => expect(capturedStatusHandler).toBeTruthy());
 
     act(() => {
-      ws.emit({
-      type: "message.created",
-      conversation_id: "c1",
-      message_id: "m99",
-      sender_user_id: "agent:a-planner",
-      sender_type: "agent",
-      content: "",
-      tool_calls: [],
-      token_usage: null,
-      delivery_status: "running",
-      created_at: "2026-05-01T00:00:10Z"
-    });
-    ws.emit({
-      type: "message.delta",
-      conversation_id: "c1",
-      message_id: "m99",
-      delta_text: "Hello "
-    });
-    ws.emit({
-      type: "message.delta",
-      conversation_id: "c1",
-      message_id: "m99",
-      delta_text: "there"
-    });
-    ws.emit({
-      type: "message.completed",
-      conversation_id: "c1",
-      message_id: "m99",
-      content: "Hello there",
-      token_usage: { output: 12, context_used: 200, context_window: 200_000 }
-    });
+      emitSharedChatEvent({
+        type: "message.created",
+        conversation_id: "c1",
+        message_id: "m99",
+        sender_user_id: "agent:a-planner",
+        sender_type: "agent",
+        content: "",
+        tool_calls: [],
+        token_usage: null,
+        delivery_status: "running",
+        created_at: "2026-05-01T00:00:10Z"
+      });
+      emitSharedChatEvent({
+        type: "message.delta",
+        conversation_id: "c1",
+        message_id: "m99",
+        delta_text: "Hello "
+      });
+      emitSharedChatEvent({
+        type: "message.delta",
+        conversation_id: "c1",
+        message_id: "m99",
+        delta_text: "there"
+      });
+      emitSharedChatEvent({
+        type: "message.completed",
+        conversation_id: "c1",
+        message_id: "m99",
+        content: "Hello there",
+        token_usage: { output: 12, context_used: 200, context_window: 200_000 }
+      });
     });
 
     await waitFor(() => expect(screen.getByText(/Hello there/)).toBeInTheDocument());
@@ -387,29 +649,29 @@ describe("ChatWorkspacePage v2 — integration", () => {
   it("shows elapsed_ms in the bubble status row after message.completed", async () => {
     renderAtRoute("/chat/c1");
     await screen.findByText("Hi Planner");
-    const ws = FakeWebSocket.instances[0]!;
+    await waitFor(() => expect(capturedStatusHandler).toBeTruthy());
 
     act(() => {
-    ws.emit({
-      type: "message.created",
-      conversation_id: "c1",
-      message_id: "m-elapsed",
-      sender_user_id: "agent:a-planner",
-      sender_type: "agent",
-      content: "",
-      tool_calls: [],
-      token_usage: null,
-      delivery_status: "running",
-      created_at: new Date(Date.now() - 5000).toISOString(),
-    });
-    ws.emit({
-      type: "message.completed",
-      conversation_id: "c1",
-      message_id: "m-elapsed",
-      content: "Done answer",
-      token_usage: null,
-      elapsed_ms: 3721,
-    });
+      emitSharedChatEvent({
+        type: "message.created",
+        conversation_id: "c1",
+        message_id: "m-elapsed",
+        sender_user_id: "agent:a-planner",
+        sender_type: "agent",
+        content: "",
+        tool_calls: [],
+        token_usage: null,
+        delivery_status: "running",
+        created_at: new Date(Date.now() - 5000).toISOString(),
+      });
+      emitSharedChatEvent({
+        type: "message.completed",
+        conversation_id: "c1",
+        message_id: "m-elapsed",
+        content: "Done answer",
+        token_usage: null,
+        elapsed_ms: 3721,
+      });
     });
 
     await waitFor(() => {
@@ -496,10 +758,9 @@ describe("ChatWorkspacePage v2 — integration", () => {
     });
 
     // A late echo for the same message id must not produce a duplicate bubble.
-    await waitFor(() => expect(FakeWebSocket.instances.length).toBeGreaterThan(0));
-    const ws = FakeWebSocket.instances[0]!;
+    await waitFor(() => expect(capturedStatusHandler).toBeTruthy());
     act(() => {
-      ws.emit({
+      emitSharedChatEvent({
         type: "message.created",
         conversation_id: "c1",
         message_id: "m2",
@@ -542,11 +803,10 @@ describe("ChatWorkspacePage v2 — integration", () => {
   it("R8-2: WS message.created with sender_user_id UUID renders the agent display_name (Planner), not the UUID", async () => {
     renderAtRoute("/chat/c1");
     await screen.findByText("Hi Planner");
-    await waitFor(() => expect(FakeWebSocket.instances.length).toBeGreaterThan(0));
-    const ws = FakeWebSocket.instances[0]!;
+    await waitFor(() => expect(capturedStatusHandler).toBeTruthy());
 
     act(() => {
-      ws.emit({
+      emitSharedChatEvent({
         type: "message.created",
         conversation_id: "c1",
         message_id: "m-live-1",
@@ -678,8 +938,7 @@ describe("ChatWorkspacePage v2 — integration", () => {
     const user = userEvent.setup();
     renderAtRoute("/chat/c1");
     await screen.findByText("Hi Planner");
-    await waitFor(() => expect(FakeWebSocket.instances.length).toBeGreaterThan(0));
-    const ws = FakeWebSocket.instances[0]!;
+    await waitFor(() => expect(capturedStatusHandler).toBeTruthy());
 
     // Send message → optimistic bubble lands (created_at from POST response = 2026-05-01T00:00:02Z)
     await user.type(screen.getByRole("textbox"), "user question");
@@ -688,7 +947,7 @@ describe("ChatWorkspacePage v2 — integration", () => {
 
     // Agent reply via WS with created_at BEFORE the user message (01Z < 02Z)
     act(() => {
-      ws.emit({
+      emitSharedChatEvent({
         type: "message.created",
         conversation_id: "c1",
         message_id: "m-agent-reply",
@@ -715,6 +974,255 @@ describe("ChatWorkspacePage v2 — integration", () => {
   });
 
   // ─── feat-438-M1 R4: ⚙ entry dispatch by conversation kind ────────────────
+
+  it("loads older messages with a before cursor when the message list enters the upper third", async () => {
+    const newestPage = Array.from({ length: 50 }, (_, idx) => historyMessage(`new-${idx + 1}`, idx + 50));
+    const olderPage = Array.from({ length: 50 }, (_, idx) => historyMessage(`old-${idx + 1}`, idx, `older ${idx + 1}`));
+    fetchSpy = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (/\/im\/v1\/conversations\/c1\/messages/.test(url) && (!init || init.method === undefined || init.method === "GET")) {
+        if (url.includes("before_message_id=new-1")) {
+          return jsonResponse({ items: olderPage, next_before_message_id: null });
+        }
+        return jsonResponse({ items: newestPage, next_before_message_id: "new-1" });
+      }
+      return mockFetch()(input, init);
+    }) as ReturnType<typeof mockFetch>;
+    const sent: { url: string; init?: RequestInit }[] = [];
+    const originalImpl = fetchSpy.getMockImplementation()!;
+    fetchSpy.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      sent.push({ url, init });
+      return originalImpl(input, init);
+    });
+    (fetchSpy as unknown as { sent: typeof sent }).sent = sent;
+    vi.stubGlobal("fetch", fetchSpy);
+
+    renderAtRoute("/chat/c1");
+    expect(await screen.findByText("history new-1")).toBeInTheDocument();
+    const scroller = document.querySelector(".chat-pane-messages") as HTMLElement;
+    const metrics = { scrollTop: 200, scrollHeight: 1200, clientHeight: 300 };
+    Object.defineProperty(scroller, "scrollTop", {
+      configurable: true,
+      get: () => metrics.scrollTop,
+      set: (value) => {
+        metrics.scrollTop = Number(value);
+      }
+    });
+    Object.defineProperty(scroller, "scrollHeight", {
+      configurable: true,
+      get: () => metrics.scrollHeight
+    });
+    Object.defineProperty(scroller, "clientHeight", {
+      configurable: true,
+      get: () => metrics.clientHeight
+    });
+
+    act(() => {
+      scroller.dispatchEvent(new Event("scroll", { bubbles: true }));
+    });
+
+    await screen.findByText("older 1");
+    const messageGets = sent.filter((entry) => /\/im\/v1\/conversations\/c1\/messages/.test(entry.url));
+    expect(messageGets[0]!.url).toContain("limit=50");
+    expect(messageGets[0]!.url).toContain("mark_as_read=true");
+    expect(messageGets[1]!.url).toContain("limit=50");
+    expect(messageGets[1]!.url).toContain("before_message_id=new-1");
+    expect(messageGets[1]!.url).not.toContain("mark_as_read=true");
+  });
+
+  it("does not issue duplicate older-history requests for the same cursor before loading state commits", async () => {
+    const newestPage = Array.from({ length: 50 }, (_, idx) => historyMessage(`guard-new-${idx + 1}`, idx + 50));
+    const olderPage = Array.from({ length: 50 }, (_, idx) => historyMessage(`guard-old-${idx + 1}`, idx, `guard older ${idx + 1}`));
+    let resolveOlder!: () => void;
+    const olderResponse = new Promise<Response>((resolve) => {
+      resolveOlder = () => resolve(jsonResponse({ items: olderPage, next_before_message_id: null }));
+    });
+    const sent: { url: string; init?: RequestInit }[] = [];
+    fetchSpy = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      sent.push({ url, init });
+      if (/\/im\/v1\/conversations\/c1\/messages/.test(url) && (!init || init.method === undefined || init.method === "GET")) {
+        if (url.includes("before_message_id=guard-new-1")) {
+          return olderResponse;
+        }
+        return jsonResponse({ items: newestPage, next_before_message_id: "guard-new-1" });
+      }
+      return mockFetch()(input, init);
+    }) as ReturnType<typeof mockFetch>;
+    (fetchSpy as unknown as { sent: typeof sent }).sent = sent;
+    vi.stubGlobal("fetch", fetchSpy);
+
+    renderAtRoute("/chat/c1");
+    expect(await screen.findByText("history guard-new-1")).toBeInTheDocument();
+    const scroller = document.querySelector(".chat-pane-messages") as HTMLElement;
+    const metrics = { scrollTop: 100, scrollHeight: 1200, clientHeight: 300 };
+    Object.defineProperty(scroller, "scrollTop", {
+      configurable: true,
+      get: () => metrics.scrollTop,
+      set: (value) => {
+        metrics.scrollTop = Number(value);
+      }
+    });
+    Object.defineProperty(scroller, "scrollHeight", {
+      configurable: true,
+      get: () => metrics.scrollHeight
+    });
+    Object.defineProperty(scroller, "clientHeight", {
+      configurable: true,
+      get: () => metrics.clientHeight
+    });
+
+    act(() => {
+      scroller.dispatchEvent(new Event("scroll", { bubbles: true }));
+      scroller.dispatchEvent(new Event("scroll", { bubbles: true }));
+    });
+
+    await waitFor(() => {
+      const olderGets = sent.filter((entry) => entry.url.includes("before_message_id=guard-new-1"));
+      expect(olderGets).toHaveLength(1);
+    });
+    act(() => resolveOlder());
+    await screen.findByText("guard older 1");
+  });
+
+  it("does not show no-more history while a newly selected conversation's history metadata is still unknown", async () => {
+    let resolveC2!: () => void;
+    const c2Messages = new Promise<Response>((resolve) => {
+      resolveC2 = () => resolve(jsonResponse({ items: [], next_before_message_id: null }));
+    });
+    fetchSpy = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (/\/im\/v1\/conversations\/c2\/messages/.test(url) && (!init || init.method === undefined || init.method === "GET")) {
+        return c2Messages;
+      }
+      return mockFetch()(input, init);
+    }) as ReturnType<typeof mockFetch>;
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const user = userEvent.setup();
+    renderAtRoute("/chat/c1");
+    await screen.findByText("Hi Planner");
+    await user.click(screen.getByRole("button", { name: /Research Squad/ }));
+
+    expect(screen.getByRole("heading", { name: "Research Squad" })).toBeInTheDocument();
+    expect(screen.queryByText(/No earlier messages/i)).not.toBeInTheDocument();
+    act(() => resolveC2());
+    await screen.findByText(/No messages yet/i);
+  });
+
+  it("does not render the previous conversation messages while the newly selected conversation history is still loading", async () => {
+    let resolveC2!: () => void;
+    const c2Messages = new Promise<Response>((resolve) => {
+      resolveC2 = () => resolve(jsonResponse({ items: [], next_before_message_id: null }));
+    });
+    fetchSpy = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (/\/im\/v1\/conversations\/c2\/messages/.test(url) && (!init || init.method === undefined || init.method === "GET")) {
+        return c2Messages;
+      }
+      return mockFetch()(input, init);
+    }) as ReturnType<typeof mockFetch>;
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const user = userEvent.setup();
+    renderAtRoute("/chat/c1");
+    await screen.findByText("Hi Planner");
+
+    await user.click(screen.getByRole("button", { name: /Research Squad/ }));
+
+    expect(screen.getByRole("heading", { name: "Research Squad" })).toBeInTheDocument();
+    expect(screen.queryByText("Hi Planner")).not.toBeInTheDocument();
+    act(() => resolveC2());
+    await screen.findByText(/No messages yet/i);
+  });
+
+  it("ignores shared stream chat events for other conversations before the active conversation history seeds the reducer", async () => {
+    let resolveC1!: () => void;
+    const c1Messages = new Promise<Response>((resolve) => {
+      resolveC1 = () => resolve(jsonResponse({ items: FIXTURES.messagesC1, next_before_message_id: null }));
+    });
+    fetchSpy = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (/\/im\/v1\/conversations\/c1\/messages/.test(url) && (!init || init.method === undefined || init.method === "GET")) {
+        return c1Messages;
+      }
+      return mockFetch()(input, init);
+    }) as ReturnType<typeof mockFetch>;
+    vi.stubGlobal("fetch", fetchSpy);
+
+    renderAtRoute("/chat/c1");
+    expect(await screen.findByRole("heading", { name: "Planner" })).toBeInTheDocument();
+    await waitFor(() => expect(capturedStatusHandler).toBeTruthy());
+
+    act(() => {
+      emitSharedChatEvent({
+        type: "message.created",
+        conversation_id: "c2",
+        message_id: "m-c2-before-c1-seed",
+        sender_user_id: "user-uuid-writer",
+        sender_type: "agent",
+        content: "c2 should not seed c1 pane",
+        tool_calls: [],
+        token_usage: null,
+        delivery_status: "completed",
+        created_at: "2026-05-01T00:03:00Z"
+      });
+    });
+
+    expect(screen.queryByText("c2 should not seed c1 pane")).not.toBeInTheDocument();
+    act(() => resolveC1());
+    await screen.findByText("Hi Planner");
+    expect(screen.queryByText("c2 should not seed c1 pane")).not.toBeInTheDocument();
+  });
+
+  it("keeps an active conversation live message that arrives before the switched conversation history resolves", async () => {
+    let resolveC2!: () => void;
+    const c2Messages = new Promise<Response>((resolve) => {
+      resolveC2 = () => resolve(jsonResponse({ items: [], next_before_message_id: null }));
+    });
+    fetchSpy = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (/\/im\/v1\/conversations\/c2\/messages/.test(url) && (!init || init.method === undefined || init.method === "GET")) {
+        return c2Messages;
+      }
+      return mockFetch()(input, init);
+    }) as ReturnType<typeof mockFetch>;
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const user = userEvent.setup();
+    renderAtRoute("/chat/c1");
+    await screen.findByText("Hi Planner");
+    await waitFor(() => expect(capturedStatusHandler).toBeTruthy());
+
+    await user.click(screen.getByRole("button", { name: /Research Squad/ }));
+    expect(screen.getByRole("heading", { name: "Research Squad" })).toBeInTheDocument();
+    expect(screen.queryByText("Hi Planner")).not.toBeInTheDocument();
+
+    act(() => {
+      emitSharedChatEvent({
+        type: "message.created",
+        conversation_id: "c2",
+        message_id: "m-c2-live-before-history",
+        sender_user_id: "user-uuid-writer",
+        sender_type: "agent",
+        content: "c2 live before history",
+        tool_calls: [],
+        token_usage: null,
+        delivery_status: "completed",
+        created_at: "2026-05-01T00:04:00Z"
+      });
+    });
+
+    await screen.findByText("c2 live before history");
+    expect(screen.queryByText("Hi Planner")).not.toBeInTheDocument();
+
+    act(() => resolveC2());
+    await waitFor(() => {
+      expect(screen.getByText("c2 live before history")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Hi Planner")).not.toBeInTheDocument();
+  });
 
   it("feat-438: group ⚙ opens Group settings (does not navigate to an agent config)", async () => {
     const user = userEvent.setup();

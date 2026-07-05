@@ -32,6 +32,9 @@ branch: unit/<unit_id>                        # 验证对象——unit 集成分
 verify_worktree_dir: <repo_root>/.worktrees/verify-<unit_id>   # 你的只读工作目录
 review_round: 1 | 2 | ...
 prior_verification_path: docs/changes/<unit_dir>/verification.md   # 第 2 轮起
+verification_mode: full | targeted-closure | delta
+fix_delta_range: <pre_fix_head>..<HEAD>        # targeted-closure / delta 必传
+focus_issues: [<上一轮 CRITICAL/WARNING 指纹或摘要>]   # targeted-closure 必传
 mode: full
 ```
 
@@ -58,6 +61,23 @@ repo_root=$(git rev-parse --show-toplevel)
 这些文档因项目而异,通常在仓库根或 `docs/` 下;`CLAUDE.md` / `AGENTS.md` 一般是索引入口,从那里找对应的规范文档再读。
 
 **若 tasks 为空 / 不存在**:报告 "No tasks to verify",退出。
+
+### §1.1 Verification Modes
+
+`verification_mode` 决定本轮核对范围:
+
+| Mode | 范围 |
+|---|---|
+| `full` | 跑完整 §2 / §3 / §4,逐 task / requirement / scenario / design 决策核对 |
+| `targeted-closure` | 只验证上一轮 `focus_issues` 是否被 fix 关闭,并核对相关 requirement / scenario / test / design decision |
+| `delta` | 只看 `fix_delta_range` 的改动文件,判断这些改动是否引入新的 spec/design 偏离或架构自洽风险 |
+
+`targeted-closure` 和 `delta` 都是**只读报告**,不是降低判断标准:
+
+- 发现 focus issue 未关闭 → 按原严重度或更高严重度报告。
+- 发现 delta 触及架构边界 / 依赖方向 / 跨机边界 / 平行机制 → 标 CRITICAL,并在报告写 `requires_full_verification: true`。
+- 无法判断旧 full 结论是否仍有效 → 不勉强 pass,报告 `requires_full_verification: true`,让 orchestrator 升级 full。
+- 不重新全量扫所有 requirement,但若 delta 明显改变用户可观察行为或契约映射,必须指出需要 reviewer targeted 或 verifier full。
 
 ---
 
@@ -133,6 +153,11 @@ repo_root=$(git rev-parse --show-toplevel)
 ## Verification Report: <unit_id>
 
 ### Summary
+Mode: <full|targeted-closure|delta>
+Delta range: <range or N/A>
+Focus issues: <ids/summaries or N/A>
+requires_full_verification: <true|false>
+
 | 维度          | 结果      |
 |---------------|-----------|
 | Completeness  | X/Y       |
@@ -175,8 +200,11 @@ git -C "$repo_root" worktree remove "$verify_worktree_dir"
 ```
 unit_id: <id>
 review_round: <N>
+verification_mode: <full|targeted-closure|delta>
 verdict: pass | fail            # 有任一 CRITICAL → fail,否则 pass
 issues: { critical: N, warning: N, suggestion: N }
+validated_issues: [<focus issue ids closed / still open>]
+requires_full_verification: true | false
 report_path: docs/changes/<unit>/verification.md
 top_concern: <一句话>
 ```

@@ -178,17 +178,20 @@ def main_loop(unit_id):
         verify_completed()                     # §3.3
         handle_failures()                      # §3.4
 
-    # 所有实现型 milestone done → 并行派 verifier + reviewer,自己跑 code review
+    # 所有实现型 milestone done → 首轮完整验收;fix 后按 Revalidation Selection 选择复验闸
     review_round = 1
+    selection = initial_full_selection(mode, has_user_observable_scope())
     while review_round <= 7:
-        v_report, r_report = dispatch_verify_and_review(review_round)  # §5,两个后台 agent 并行
-        c_findings = run_code_review()        # §5.0,change-code-review 由你主会话执行
-        if all_pass(v_report, r_report, c_findings):  # verifier pass 且 reviewer 允许 且 code review 无阻塞发现
+        results = run_selected_gates(selection, review_round)  # §5: full / targeted / patch / closure
+        if all_required_gates_pass(results) and no_open_blockers():  # 未重跑的 retained 闸有继承依据
             submit_pr_watch_ci_exit()         # §7：本地 CI 门禁 → 提 PR → 等远端 CI 绿 → 退；红则 §6.2
             return
-        action = decide_action(v_report, r_report, c_findings)   # §6,合并三份结果路由
+        action = decide_action(results)        # §6,合并本轮实际结果 + retained 结论路由
         if action == "fix":
-            create_fix_milestone(v_report, r_report)  # 两份 issues 打包成一个 fix milestone
+            pre_fix_head = current_unit_head()
+            dispatch_fix_worker(results)       # issues 合并去重后派 fix worker
+            signoff_fix_worker()               # §3.3 / live 签收闸,不过不进入复验
+            selection = select_revalidation(pre_fix_head, current_unit_head(), results)  # §6.2.1
         elif action == "escalate":
             notify_human_and_exit()
             return
@@ -328,23 +331,36 @@ design-author 已经按反向门槛拆好 milestone(默认单 M1,拆分要举证
 
 ---
 
-## §5 派发验收阶段(verifier + reviewer + code review,并行)
+## §5 派发验收阶段(selected gates,并行)
 
-所有实现型 milestone DONE 后,**并行**跑三道独立验收闸:
+所有实现型 milestone DONE 后,按本轮 `selection` **并行**跑被选中的验收闸。首轮 selection 固定为完整验收;fix 后由 §6.2.1 选择性复验:
 
 - **verifier** —— 读代码核对实现是否匹配 spec / design / tasks(Completeness / Correctness / Coherence 三维)。`change-verifier` skill。
 - **reviewer** —— 跑产品走旅程,验用户可观察。`change-reviewer` skill。
-- **code review** —— 对 unit 分支的代码 diff 做精确率导向的多角度审查(7 finder 角度 × 1 票验证 → ≤8 findings)。`change-code-review` skill,**由你在主会话内执行**——它要通过 Agent 工具派发 finder / verifier 子 agent,而 subagent 无法再派生 subagent,所以不能像前两者那样派给独立验收 agent。在 `$unit_worktree` 内跑,diff 目标传 `main...unit/<unit_id>`。
+- **code review** —— 对 unit 分支或 fix patch 的代码 diff 做精确率导向审查(full 模式 7 finder 角度 × 1 票验证 → ≤8 findings;patch / closure 模式收窄)。`change-code-review` skill,**由你在主会话内执行**——它要通过 Agent 工具派发 finder / verifier 子 agent,而 subagent 无法再派生 subagent,所以不能像前两者那样派给独立验收 agent。在 `$unit_worktree` 内跑。
 
-两者只读、互不依赖,默认**同时后台派发**(`run_in_background: true`、model sonnet、各带稳定 `name`:`<unit_id>-verifier` / `<unit_id>-reviewer`,见 §0.14)。它们物理隔离(verifier 用 `verify_worktree_dir` 读代码,reviewer 用 `unit_worktree_dir` 跑产品),不抢资源。
+三道闸只读、互不依赖,默认**同时后台派发/执行**(`run_in_background: true`、model sonnet、各带稳定 `name`:`<unit_id>-verifier` / `<unit_id>-reviewer`,见 §0.14)。它们物理隔离(verifier 用 `verify_worktree_dir` 读代码,reviewer 用 `unit_worktree_dir` 跑产品,code review 在主会话只读 diff),不抢资源。
 
 **派 verifier 的情形**:full 模式,或零用户面 unit(spec 无 requirement 但有 design 可核对)。**仅 lite 模式跳过 verifier**(无 spec/design)。
 
 **派 reviewer 的情形**:full 模式且有用户可观察验收项。两种跳过 reviewer:**lite 模式**(worker 自填 fix.md "验证"段)、**零用户面 unit**(无可走旅程——但 verifier 仍派)。
 
-**code review 各模式都跑**——它只看 diff,不依赖 spec/design,lite 模式也是提 PR 前的闸。
+**code review 各模式都跑**,但模式可变:首轮 `full`;fix 后至少对源码 delta 跑 `patch` 或对旧 finding 跑 `closure`;lite 模式也是提 PR 前的闸。
 
 所以:full 普通 unit → 三道闸全跑;零用户面 unit → verifier + code review;lite → 只跑 code review,过了直接 §7。
+
+### §5.0 selection 与 retained 结论
+
+每道闸本轮只能是四种之一:
+
+| 状态 | 含义 |
+|---|---|
+| `full` | 完整重跑该闸 |
+| `targeted` / `targeted-closure` / `patch` / `closure` / `delta` | 按该 skill 的轻量模式复验局部 |
+| `retained` | 上轮结论未被本次 delta invalidate,本轮不派 |
+| `skipped` | 本 unit 类型本就不适用(如 lite 跳过 reviewer/verifier、零用户面跳过 reviewer) |
+
+`retained` 不是"没验":必须记录继承依据,至少包含上一轮 report path、上一轮 validated head、本次 `pre_fix_head..HEAD` 变更摘要、为什么没有触及该闸的验证范围。最终 PR body 也要列出 retained 闸和依据。
 
 **派发包 — verifier**:
 ```
@@ -354,6 +370,9 @@ design-author 已经按反向门槛拆好 milestone(默认单 M1,拆分要举证
   verify_worktree_dir: <repo_root>/.worktrees/verify-<unit_id>   # §2.4 规划路径,verifier 自建自删
   review_round: <N>
   prior_verification_path: docs/changes/<unit_dir>/verification.md   # 第 2 轮起
+  verification_mode: full | targeted-closure | delta
+  fix_delta_range: <pre_fix_head>..<HEAD>        # 非 full 时必传
+  focus_issues: [<上一轮 CRITICAL/WARNING 指纹或摘要>]   # targeted-closure 时必传
   mode: full
 ```
 
@@ -365,12 +384,21 @@ design-author 已经按反向门槛拆好 milestone(默认单 M1,拆分要举证
   unit_worktree_dir: <repo_root>/.worktrees/unit-<unit_id>
   review_round: <N>
   prior_acceptance_paths: [docs/changes/<unit_dir>/<acceptance|regression>.md]   # 第 2 轮起
+  revalidation_mode: full | targeted
+  focus_scenarios_or_issues: [<上一轮 fail/inconclusive issue 或 Scenario>]   # targeted 时必传
+  fix_delta_range: <pre_fix_head>..<HEAD>        # targeted 时必传
   mode: full
 ```
 
-**code review 的执行时机**:派出 verifier + reviewer 后,你立即按 `change-code-review` skill 在主会话内开跑——finder / verifier 子 agent 同样 `run_in_background: true`、model sonnet、各带稳定 `name`,和两个验收 agent 的工作天然并行。零写入:不 commit、不改代码,findings 只进 §6 路由。
+**code review 的执行时机**:派出 verifier + reviewer 后,你立即按 `change-code-review` skill 在主会话内开跑——finder / verifier 子 agent 同样 `run_in_background: true`、model sonnet、各带稳定 `name`,和两个验收 agent 的工作天然并行。零写入:不 commit、不改代码,findings 只进 §6 路由。调用时传:
 
-两个 agent 启动后都会先报开工信、可能来口径澄清,按 §3.1.1 回应。等**两份报告 + code review findings 都齐**再进 §5.2 / §6 路由(谁先回就先收着,等齐再决策)。
+```yaml
+review_mode: full | patch | closure
+diff_range: main...HEAD | <pre_fix_head>..HEAD | <finding_origin_head>..HEAD
+focus_findings: [<上一轮 code review finding>]   # closure 时必传
+```
+
+两个 agent 启动后都会先报开工信、可能来口径澄清,按 §3.1.1 回应。等**本轮 selection 里所有非 retained / skipped 的结果都齐**再进 §5.2 / §6 路由(谁先回就先收着,等齐再决策)。
 
 ### §5.1 派发口径净化(防 reviewer 滑进 engineer 模式)
 
@@ -387,18 +415,18 @@ reviewer 的真值是首文档(spec / motivation / incident)里**用户可观察
 
 ### §5.2 续接 + 越界校验(两个 agent 都查)
 
-两份报告都回后,合并路由见 §6。路由前必须**校验 verifier / reviewer 越界**(§0.9)——两者都是零写入,unit 分支上只该多出各自的报告 commit:
+本轮被派发的 reviewer / verifier 报告都回后,合并路由见 §6。路由前必须**校验 verifier / reviewer 越界**(§0.9)——两者都是零写入,unit 分支上只该多出本轮实际派发闸对应的报告 commit:
 
 ```bash
 # 派发前记下基线(派 verifier+reviewer 之前)
 BEFORE=$(git -C "$unit_worktree" rev-parse HEAD)
 
-# 两份报告都回、都 push 后比对
+# 本轮派出的 reviewer/verifier 报告都回、都 push 后比对
 AFTER=$(git -C "$unit_worktree" rev-parse HEAD)
 NEW_COMMITS=$(git -C "$unit_worktree" log --oneline "$BEFORE..$AFTER")
 ```
 
-预期:`NEW_COMMITS` **只有两个报告 commit**——reviewer 的 `docs(<unit_id>): round <N> acceptance — verdict ...` 和 verifier 的 `docs(<unit_id>): round <N> verification — verdict ...`(commit message 格式详见 AGENTS.md)。出现任何改了源码/测试/配置的 commit → 走 §6.6 处置(verifier 越界同 reviewer:作废本轮该 agent 的 verdict、revert 越界 commit、issues 转 fix worker 重做)。
+预期:`NEW_COMMITS` **只包含本轮 selected gates 的报告 commit**——若派了 reviewer,应有 `docs(<unit_id>): round <N> acceptance — verdict ...`;若派了 verifier,应有 `docs(<unit_id>): round <N> verification — verdict ...`(commit message 格式详见 AGENTS.md)。retained / skipped 的闸不期待新报告 commit。出现任何改了源码/测试/配置的 commit → 走 §6.6 处置(verifier 越界同 reviewer:作废本轮该 agent 的 verdict、revert 越界 commit、issues 转 fix worker 重做)。
 
 ---
 
@@ -406,21 +434,21 @@ NEW_COMMITS=$(git -C "$unit_worktree" log --oneline "$BEFORE..$AFTER")
 
 ### §6.0 合并三份结果
 
-三道闸性质不同:**reviewer** 回报 `Highest Required Action`(fix-implementation / revise-design / out-of-unit / pass);**verifier** 回报 `verdict`(pass/fail)+ 严重度计数(critical / warning / suggestion),无 Required Action 字段;**code review**(你自己跑的)回报 ≤8 条 findings 的 JSON 数组,每条带 CONFIRMED / PLAUSIBLE 验证态。合并规则:
+三道闸性质不同:**reviewer** 回报 `Highest Required Action`(fix-implementation / revise-design / out-of-unit / pass);**verifier** 回报 `verdict`(pass/fail)+ 严重度计数(critical / warning / suggestion),无 Required Action 字段;**code review**(你自己跑的)回报 ≤8 条 findings 的 JSON 数组,每条带 CONFIRMED / PLAUSIBLE 验证态。本轮没有重跑的 retained 闸沿用上一轮有效结论,但必须有 §5.0 的 retained 依据。合并规则:
 
 - **code review findings 的判定**:返回 `[]` → 该闸 pass。非空时由你逐条判:CONFIRMED 的 correctness bug **按 CRITICAL 对待**,必须并入 fix;PLAUSIBLE 及 cleanup / altitude 类发现你用技术领导者判断——值得修的并入同一个 fix milestone,不值得阻塞 PR 的记入 PR body 已知事项(并说明不修理由)。
-- **三份都 pass**(reviewer pass 且 verifier verdict=pass / 无 critical 且 code review 无阻塞发现)→ §6.1(各做完整性检查)→ §7 提 PR。
-- **verifier 有 CRITICAL,或 reviewer 给 fix-implementation,或 code review 有阻塞发现** → §6.2:**把 verifier 的 CRITICAL/WARNING issues + reviewer 的 fix issues + code review 的阻塞 findings 合并打包进同一个 fix milestone**,一个 fix worker 改完,下一轮**三道闸一起复验**(code review 对 fix 后的新 diff 重跑)。verifier 报"缺测试"(WARNING)的,worker 必须补上对应测试。
+- **所有 required gates 都 pass**(派发闸 pass + retained 闸仍有效 + skipped 闸不适用)→ §6.1(各做完整性检查)→ §7 提 PR。
+- **verifier 有 CRITICAL,或 reviewer 给 fix-implementation,或 code review 有阻塞发现** → §6.2:**把 verifier 的 CRITICAL/WARNING issues + reviewer 的 fix issues + code review 的阻塞 findings 合并打包进同一个 fix 任务**,一个 fix worker 改完后先过 worker DONE / live 签收闸,再走 §6.2.1 Revalidation Selection。verifier 报"缺测试"(WARNING)的,worker 必须补上对应测试。
 - **reviewer 给 `revise-design`** → §6.3 三道闸。(verifier 不给 revise-design;它若把某 design 决策违背报成 WARNING,默认走 fix-implementation 让实现去对齐 design;真要改 design 仍由 reviewer 的 revise-design 三道闸驱动。)
 - **reviewer 给 `out-of-unit`** → §6.5。
 
 三份结果里**同一个底层问题**(verifier 说"requirement X 缺实现"、reviewer 说"走 X 旅程没结果"、code review 标了同一处代码)合并去重成一条,别打包成多个 fix。
 
-`review_round` 对两个 agent **同步递增**(同一轮派出去的算同一轮)。
+`review_round` 对本轮 selected gates **同步递增**(同一轮派出去的算同一轮)。retained / skipped 不产生新报告,但计入本轮 routing context。
 
 ### §6.1 `pass`
 
-两份都 pass 时,各做报告完整性检查:
+所有 required gates 都 pass 时,对参与或被继承的报告做完整性检查:
 
 **verifier 报告**:记分卡三维齐全、Correctness 逐 requirement/scenario 有结论、CRITICAL 计数为 0。
 **reviewer 报告**:
@@ -429,27 +457,69 @@ NEW_COMMITS=$(git -C "$unit_worktree" log --oneline "$BEFORE..$AFTER")
 - 第 2 轮起,上一轮所有 `fail` / `inconclusive` 必须继续出现,直到有证据关闭。
 - 若首文档 / design / 验收项涉及前端 UI、视觉、原型、设计稿、reference、截图、响应式、布局样式,覆盖表必须有期望来源和真实产品截图/录屏/对照结论。
 
-不满足则**作废本轮 pass**,要求 reviewer 补验或重跑;不要自己补报告。满足后提 PR(§7),退出。你只检查报告证据完整性,不判断视觉质量。
+不满足则**作废本轮 pass**,要求对应闸补验或重跑;不要自己补报告。满足后提 PR(§7),退出。你只检查报告证据完整性,不判断视觉质量。
 
 ### §6.2 `fix-implementation`
 
 **先以研发视角定义 fix,别转包 reviewer 的最短路径**。reviewer 报告里的「修法 / 最小路径 / 改第 X 行」是**现象线索**(它站用户视角,只关心症状消失),不是修复方案。打包 fix 前你要判断:根因在哪一层、违反了 design 哪条契约、**架构正确的修复位置在哪**,按「架构最合理」而非「改动最少」定义 fix 任务再派 worker。崩溃点常在表层、根因常在更下层(例:消费方崩 → 根因是上游契约泄漏 → 正确修复是在源头一次根治,而非每个消费方各贴本地补丁)。
 
-把两份报告的修复项合并去重后,打包成**一个**新 fix milestone——**verifier** 的 CRITICAL / WARNING issues + **reviewer** 的 `Recommended Action: fix-implementation` issues(沿用 design-author 的反向门槛——除非 issues 跨独立模块且能并行,否则一个就够):
+把本轮所有修复项合并去重后,打包成**一个**新 fix 任务——**verifier** 的 CRITICAL / WARNING issues + **reviewer** 的 `Recommended Action: fix-implementation` issues + **code review** 的阻塞 findings(沿用 design-author 的反向门槛——除非 issues 跨独立模块且能并行,否则一个就够):
 
 ```
 milestone_id = <unit_id>-M<next>
 milestone_dir = M<next>-fix-<short-desc>      # 例: M4-fix-picker-keyboard
 ```
 
-操作:
+完整路径操作(若命中 §6.FL ② 的单点自包含 fix,可不建 milestone 子目录、不动 design.md,但仍要记录 fix 历史和 `pre_fix_head`):
 1. 在 design.md Milestone 表追加新行,标注 `(post-acceptance fix, round <N>)`
 2. mkdir 新 milestone 空目录:`docs/changes/<unit_dir>/M<next>-fix-<short-desc>/`
 3. **维护 issue 指纹表**(orchestrator 内存中):为这一批 issues 生成指纹(Type + 主关键词哈希),记录是第几轮出现。同一指纹累计 ≥ 5 轮没消除 → 强制升级 escalate
-4. 派 worker(prompt 里把**合并后的 issues 列表**——verifier 的 missing/diverged/缺测试 + reviewer 的用户面 issues——+ 该 unit design.md `§Runbook for Reviewer` 段附上;worker 改完代码必须按 runbook 重启相关服务后再回报 DONE,确保 unit 分支上的代码真的"跑了起来"。verifier 报的"缺测试"项,worker 必须补上对应测试)
-5. 回到 §3 派发循环
+4. 记录 `pre_fix_head=$(git -C "$unit_worktree" rev-parse HEAD)`
+5. 派 worker(prompt 里把**合并后的 issues 列表**——verifier 的 missing/diverged/缺测试 + reviewer 的用户面 issues——+ 该 unit design.md `§Runbook for Reviewer` 段附上;worker 改完代码必须按 runbook 重启相关服务后再回报 DONE,确保 unit 分支上的代码真的"跑了起来"。verifier 报的"缺测试"项,worker 必须补上对应测试)
+6. worker DONE 后按 §3.3 / live 签收闸逐条签收;签收不过直接打回 worker,不进入复验
 
-worker 完成后,回到 §5 派下一轮 reviewer。
+worker 完成并签收后,计算 `pre_fix_head..HEAD`,执行 §6.2.1 选择下一轮要跑的闸。不要默认三道全量复验。
+
+### §6.2.1 Revalidation Selection(fix 后选择性复验)
+
+fix 后先看 delta,再决定哪些旧结论失效。运行:
+
+```bash
+git -C "$unit_worktree" diff --name-only <pre_fix_head>..HEAD
+git -C "$unit_worktree" diff --stat <pre_fix_head>..HEAD
+```
+
+对每道闸判定:
+
+| 判定 | 适用 |
+|---|---|
+| `retained` | 本次 delta 未触及该闸验证范围,上一轮结论可继承 |
+| `targeted` / `targeted-closure` / `closure` | 只需验证上一轮失败项是否关闭 |
+| `delta` / `patch` | 需要检查本次 fix delta 是否引入新偏离或代码风险 |
+| `full` | 旧结论被高风险 delta 覆盖,必须完整重跑 |
+
+默认路由:
+
+| 上轮失败来源 / fix 类型 | 默认复验 |
+|---|---|
+| reviewer 用户面 fail | reviewer `targeted`(Fast-lane) + code review `patch`(若有源码 delta) |
+| verifier CRITICAL / WARNING | verifier `targeted-closure` + code review `patch`(若有源码 delta);若 fix 新增用户可观察行为,加 reviewer `targeted` |
+| code review 阻塞 finding | code review `closure`;若修复 patch 改动非平凡,再加 code review `patch` |
+| CI 红 | 先重跑 failed job;若修复产生源码 delta,加 code review `patch`;按 delta 触及范围决定 reviewer/verifier |
+| 纯文档 / 报告修正 | 只跑受影响的文档检查;源码闸 retained |
+
+强制 `full` 三闸的高风险条件:
+
+- 触及 auth / permissions / persistence / migration / schema / protocol / cross-process / shared runtime / event bus / queue / concurrency / build / deployment / runbook
+- fix 改动超过 8 个源码文件,或跨 3 个以上模块
+- fix worker 改变 design 关键决策、接口契约或新增对外行为
+- reviewer targeted 复验发现新副作用,或 fix 触及上轮未覆盖旅程
+- 同一 issue targeted 复验失败 >= 2 次
+- verifier 报的是架构自洽 / Coherence 级问题且 fix 触及架构边界
+- rebase main 后有非平凡冲突解决或大范围 delta
+- orchestrator 无法说明 retained 依据
+
+轻量复验发现新副作用 / 新 CRITICAL / 新阻塞 finding 时,该闸本轮有效失败;下一轮按新 delta 重新 selection。连续 targeted 不收敛时升级 full 三闸或 §6.4 escalate。
 
 ### §6.FL Reviewer 反馈循环里的 fix — 三条正交的轻量化(§6.2 轻量路径)
 
@@ -617,6 +687,8 @@ git -C "$unit_worktree" push --force-with-lease origin "unit/<unit_id>"
 从 unit 文档自动抽,按模式选模板——**full**(从 spec/design/acceptance/verification 抽)、**lite**(只从 fix.md 抽)。两套完整 markdown 模板 + 逐字段抽取来源见 `references/pr-body-templates.md`,提 PR 时读它照填。每个字段都从 unit 文档抽,不手写新内容。
 
 PR body 里附一行 **Spec delta**:列 §7.0 收尾归并改了哪些 `docs/specs/<包>/spec.md`(或 "no spec delta",纯内部 unit)。
+
+PR body 里附一段 **Validation summary**:列每道闸最近一次有效状态(`full` / `targeted` / `targeted-closure` / `delta` / `patch` / `closure` / `retained` / `skipped`)、report path / diff range / validated head。任何 retained 闸都要写继承依据,让 reviewer 看得出是"上轮已验且本次 delta 未失效",不是漏验。
 
 ### §7.4 提 PR + 等 CI
 
