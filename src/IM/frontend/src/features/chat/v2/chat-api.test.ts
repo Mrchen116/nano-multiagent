@@ -74,6 +74,23 @@ describe("chat-api v2", () => {
     expect((f.mock.calls[0]![0] as string)).toContain("mark_as_read=true");
   });
 
+  it("listMessages includes pagination limit and before_message_id when loading older history", async () => {
+    const f = fetch as unknown as ReturnType<typeof vi.fn>;
+    f.mockResolvedValueOnce(jsonResponse({ items: [], next_before_message_id: null }));
+
+    await listMessages("c1", {
+      limit: 50,
+      beforeMessageId: "m-oldest-loaded",
+      markAsRead: false
+    });
+
+    const url = f.mock.calls[0]![0] as string;
+    expect(url).toContain("/im/v1/conversations/c1/messages?");
+    expect(url).toContain("limit=50");
+    expect(url).toContain("before_message_id=m-oldest-loaded");
+    expect(url).not.toContain("mark_as_read=true");
+  });
+
   it("createMessage POSTs actor-first sender payload", async () => {
     const f = fetch as unknown as ReturnType<typeof vi.fn>;
     f.mockResolvedValueOnce(jsonResponse({
