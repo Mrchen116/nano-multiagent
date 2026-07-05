@@ -74,7 +74,7 @@ Web IM 的聊天页在会话历史超过一页时，用户向上滚动消息列�
 #### Scenario: 移动端单聊里长按 agent 回复进行 fork
 - **GIVEN** 当前是直接用户↔agent 的会话，且某条 agent 回复已完成并可 fork
 - **WHEN** 终端用户在移动端长按该 agent 回复，并在菜单中选择 fork
-- **THEN** 触发 fork 流程，并给终端用户明确反馈（如 toast）
+- **THEN** 触发 fork 流程，并给终端用户明确反馈（如进入新分支会话）
 
 ### Requirement: 桌面与移动端在聊天页保持一致的滚动与交互体验
 
