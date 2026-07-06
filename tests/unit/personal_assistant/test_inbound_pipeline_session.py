@@ -60,6 +60,36 @@ def test_inbound_pipeline_bounds_session_drain_locks(tmp_path: Path) -> None:
     assert second is not pipeline._drain_lock_for("session-2")  # noqa: SLF001
 
 
+def test_inbound_pipeline_does_not_evict_locked_drain_lock(
+    tmp_path: Path,
+) -> None:
+    agents = _agents(tmp_path)
+    channel = _FakeChannel("web")
+    registry = ChannelRegistry((channel,))
+    pipeline = InboundPipeline(
+        kernel=_FakeKernel(),
+        agents=agents,
+        outbound_router=OutboundRouter(registry),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+        max_session_drain_locks=2,
+    )
+    first = pipeline._drain_lock_for("session-1")  # noqa: SLF001
+    second = pipeline._drain_lock_for("session-2")  # noqa: SLF001
+    asyncio.run(first.acquire())
+
+    try:
+        third = pipeline._drain_lock_for("session-3")  # noqa: SLF001
+    finally:
+        first.release()
+
+    assert third is not first
+    assert pipeline._drain_lock_for("session-1") is first  # noqa: SLF001
+    assert "session-2" not in pipeline._session_drain_locks  # noqa: SLF001
+    assert second is not pipeline._drain_lock_for("session-2")  # noqa: SLF001
+
+
 def test_inbound_pipeline_runs_four_steps_and_replies_via_origin_channel(
     tmp_path: Path,
 ) -> None:

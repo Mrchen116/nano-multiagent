@@ -696,11 +696,24 @@ class InboundPipeline:
         if lock is None:
             lock = asyncio.Lock()
             self._session_drain_locks[session_key] = lock
-            while len(self._session_drain_locks) > self._max_session_drain_locks:
-                self._session_drain_locks.popitem(last=False)
+            self._trim_session_drain_locks()
         else:
             self._session_drain_locks.move_to_end(session_key)
         return lock
+
+    def _trim_session_drain_locks(self) -> None:
+        """Bound idle drain locks without evicting a lock that is in use."""
+        checked_locked = 0
+        while len(self._session_drain_locks) > self._max_session_drain_locks:
+            session_key, lock = next(iter(self._session_drain_locks.items()))
+            if lock.locked():
+                self._session_drain_locks.move_to_end(session_key)
+                checked_locked += 1
+                if checked_locked >= len(self._session_drain_locks):
+                    break
+                continue
+            self._session_drain_locks.popitem(last=False)
+            checked_locked = 0
 
     async def _build_message_parts(
         self, message: InboundMessage, *, agent_id: str, sender_label: str
