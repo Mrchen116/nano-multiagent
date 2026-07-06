@@ -57,6 +57,37 @@ def test_build_session_key_uses_chat_id_for_groups_and_direct_messages() -> None
     assert build_session_key(direct_message, agent_id="agent-a") == "web:chat-1:agent-a"
 
 
+def test_build_session_key_prefers_external_identity_metadata() -> None:
+    shadow_relay_message = InboundMessage(
+        channel_name="web_relay",
+        text="continue from IM shadow",
+        external_user_id="im-user-1",
+        external_chat_id="im-conv-1",
+        is_group=False,
+        agent_id="agent-a",
+        metadata={
+            "external_source": "feishu",
+            "external_chat_id": "feishu:cli_a:dm:ou_user1",
+        },
+    )
+    feishu_message = InboundMessage(
+        channel_name="feishu:agent-a",
+        text="continue from feishu",
+        external_user_id="ou_user1",
+        external_chat_id="feishu:cli_a:dm:ou_user1",
+        is_group=False,
+        agent_id="agent-a",
+        metadata={
+            "external_source": "feishu",
+            "external_chat_id": "feishu:cli_a:dm:ou_user1",
+        },
+    )
+
+    expected = "feishu:feishu:cli_a:dm:ou_user1:agent-a"
+    assert build_session_key(shadow_relay_message, agent_id="agent-a") == expected
+    assert build_session_key(feishu_message, agent_id="agent-a") == expected
+
+
 def test_drop_agent_sessions_forces_group_mentions_to_create_a_fresh_kernel_session(
     tmp_path: Path,
 ) -> None:

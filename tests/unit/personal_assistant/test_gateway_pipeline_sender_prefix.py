@@ -82,20 +82,29 @@ class _FakeKernelClient:
 
 
 def _build_pipeline(
-    tmp_path: Path, *, with_store: bool = True
+    tmp_path: Path,
+    *,
+    with_store: bool = True,
+    group_reply_policy: str | None = None,
 ) -> tuple[InboundPipeline, GroupContextStore | None, _FakeKernelClient]:
     dir_a = tmp_path / "agent-a"
     dir_a.mkdir()
     agents = (
-        AgentWorkspaceConfig(agent_id="agent-a", workspace_root=dir_a, title="Agent A"),
+        AgentWorkspaceConfig(
+            agent_id="agent-a",
+            workspace_root=dir_a,
+            title="Agent A",
+            group_reply_policy=group_reply_policy,
+        ),
     )
     store = GroupContextStore(db_path=tmp_path / "ctx.sqlite3") if with_store else None
     kernel = _FakeKernel()
     channel = _FakeChannel("web_relay")
+    feishu_channel = _FakeChannel("feishu:agent-a")
     pipeline = InboundPipeline(
         kernel=kernel,
         agents=agents,
-        outbound_router=OutboundRouter(ChannelRegistry((channel,))),
+        outbound_router=OutboundRouter(ChannelRegistry((channel, feishu_channel))),
         run_queue=SessionRunQueue(),
         session_store=SessionBindingStore(),
         group_context_store=store,
@@ -320,3 +329,199 @@ def test_buffered_messages_use_display_name_from_metadata(tmp_path: Path) -> Non
 
     texts = kernel.send_calls[0]["texts"]
     assert texts == ["[Bob Smith] first message", "[Alice Chen] @agent-a respond"]
+
+
+def test_sync_only_group_message_buffers_without_creating_run(tmp_path: Path) -> None:
+    """sync_only 外部群消息只进 buffer，不创建 kernel session/run。"""
+    pipeline, store, kernel = _build_pipeline(tmp_path)
+
+    plain = InboundMessage(
+        channel_name="feishu:agent-a",
+        text="background from feishu",
+        external_user_id="ou_alice",
+        external_chat_id="feishu:cli_a:group:oc_grp1",
+        is_group=True,
+        agent_id="agent-a",
+        metadata={
+            "sync_only": True,
+            "sender_display_name": "Alice",
+            "external_source": "feishu",
+            "external_chat_id": "feishu:cli_a:group:oc_grp1",
+            "trigger_source": "feishu",
+        },
+    )
+
+    result = asyncio.run(pipeline.handle_inbound(plain))
+
+    assert result is None
+    assert kernel.create_session_calls == []
+    assert kernel.send_calls == []
+    assert store is not None
+    assert store.drain("feishu:feishu:cli_a:group:oc_grp1:agent-a") == [
+        ("Alice", "background from feishu")
+    ]
+
+
+def test_feishu_no_mention_group_message_honors_always_policy(
+    tmp_path: Path,
+) -> None:
+    """Feishu 当前群消息无 @ 时，交给 group_reply_policy=ALWAYS 决定触发。"""
+    pipeline, store, kernel = _build_pipeline(tmp_path, group_reply_policy="ALWAYS")
+
+    plain = InboundMessage(
+        channel_name="feishu:agent-a",
+        text="hello from feishu",
+        external_user_id="ou_alice",
+        external_chat_id="feishu:cli_a:group:oc_grp1",
+        is_group=True,
+        agent_id="agent-a",
+        metadata={
+            "mentioned_agent_ids": [],
+            "sender_display_name": "Alice",
+            "external_source": "feishu",
+            "external_chat_id": "feishu:cli_a:group:oc_grp1",
+            "trigger_source": "feishu",
+        },
+    )
+
+    result = asyncio.run(pipeline.handle_inbound(plain))
+
+    assert result is not None
+    assert kernel.create_session_calls
+    assert kernel.send_calls[0]["texts"] == ["[Alice] hello from feishu"]
+    assert store is not None
+    assert store.drain("feishu:feishu:cli_a:group:oc_grp1:agent-a") == []
+
+
+def test_external_group_buffer_key_is_shared_across_feishu_and_shadow_im(
+    tmp_path: Path,
+) -> None:
+    """飞书 sync_only buffer 可被同一 external identity 的 IM shadow group 入口 drain。"""
+    pipeline, store, kernel = _build_pipeline(tmp_path)
+
+    feishu_background = InboundMessage(
+        channel_name="feishu:agent-a",
+        text="release slipped because QA found blockers",
+        external_user_id="ou_alice",
+        external_chat_id="feishu:cli_a:group:oc_grp1",
+        is_group=True,
+        agent_id="agent-a",
+        metadata={
+            "sync_only": True,
+            "sender_display_name": "Alice",
+            "external_source": "feishu",
+            "external_chat_id": "feishu:cli_a:group:oc_grp1",
+        },
+    )
+    shadow_question = InboundMessage(
+        channel_name="web_relay",
+        text="总结刚才",
+        external_user_id="im-owner",
+        external_chat_id="im-shadow-conv-1",
+        is_group=True,
+        agent_id="agent-a",
+        metadata={
+            "mentioned_agent_ids": ["agent-a"],
+            "sender_display_name": "你",
+            "external_source": "feishu",
+            "external_chat_id": "feishu:cli_a:group:oc_grp1",
+            "trigger_source": "im",
+        },
+    )
+
+    asyncio.run(pipeline.handle_inbound(feishu_background))
+    result = asyncio.run(pipeline.handle_inbound(shadow_question))
+
+    assert result is not None
+    assert result.session_key == "feishu:feishu:cli_a:group:oc_grp1:agent-a"
+    assert kernel.send_calls[0]["texts"] == [
+        "[Alice] release slipped because QA found blockers",
+        "[你] 总结刚才",
+    ]
+
+
+def test_feishu_background_is_drained_by_pure_bot_mention(
+    tmp_path: Path,
+) -> None:
+    """未 @ 飞书背景消息与后续纯 @Bot 使用同一 external group buffer key。"""
+    pipeline, store, kernel = _build_pipeline(tmp_path)
+
+    background = InboundMessage(
+        channel_name="feishu:agent-a",
+        text="feat-447-bg-001 你会数学吗",
+        external_user_id="ou_alice",
+        external_chat_id="feishu:cli_a:group:oc_grp1",
+        is_group=True,
+        agent_id="agent-a",
+        metadata={
+            "sync_only": True,
+            "sender_display_name": "Alice",
+            "external_source": "feishu",
+            "external_chat_id": "feishu:cli_a:group:oc_grp1",
+            "trigger_source": "feishu",
+        },
+    )
+    pure_mention = InboundMessage(
+        channel_name="feishu:agent-a",
+        text="@plato",
+        external_user_id="ou_owner",
+        external_chat_id="feishu:cli_a:group:oc_grp1",
+        is_group=True,
+        agent_id="agent-a",
+        metadata={
+            "mentioned_agent_ids": ["agent-a"],
+            "mention_only": True,
+            "sender_display_name": "你",
+            "external_source": "feishu",
+            "external_chat_id": "feishu:cli_a:group:oc_grp1",
+            "trigger_source": "feishu",
+        },
+    )
+
+    asyncio.run(pipeline.handle_inbound(background))
+    result = asyncio.run(pipeline.handle_inbound(pure_mention))
+
+    assert result is not None
+    assert result.session_key == "feishu:feishu:cli_a:group:oc_grp1:agent-a"
+    assert kernel.send_calls[0]["texts"] == [
+        "[Alice] feat-447-bg-001 你会数学吗",
+        "[你] @plato",
+    ]
+    assert store is not None
+    assert store.drain("feishu:feishu:cli_a:group:oc_grp1:agent-a") == []
+
+
+def test_feishu_at_all_message_is_buffered_without_triggering_bot(
+    tmp_path: Path,
+) -> None:
+    """@所有人 不写 mentioned_agent_ids，也不触发 run，只作为普通群上下文。"""
+    pipeline, store, kernel = _build_pipeline(tmp_path)
+
+    at_all = InboundMessage(
+        channel_name="feishu:agent-a",
+        text="@所有人 feat-447 all-only",
+        external_user_id="ou_alice",
+        external_chat_id="feishu:cli_a:group:oc_grp1",
+        is_group=True,
+        agent_id="agent-a",
+        metadata={
+            "sync_only": True,
+            "sender_display_name": "Alice",
+            "external_source": "feishu",
+            "external_chat_id": "feishu:cli_a:group:oc_grp1",
+            "trigger_source": "feishu",
+            "feishu_mentions": [
+                {"open_id": "all", "name": "所有人", "key": "@_user_1"}
+            ],
+        },
+    )
+
+    result = asyncio.run(pipeline.handle_inbound(at_all))
+
+    assert result is None
+    assert kernel.create_session_calls == []
+    assert kernel.send_calls == []
+    assert store is not None
+    assert store.drain("feishu:feishu:cli_a:group:oc_grp1:agent-a") == [
+        ("Alice", "@所有人 feat-447 all-only")
+    ]

@@ -46,6 +46,8 @@ CREATE TABLE IF NOT EXISTS conversations (
     config_agent_id TEXT,
     config_profile_version INTEGER,
     config_system_prompt TEXT,
+    external_source TEXT,
+    external_chat_id TEXT,
     created_at TEXT NOT NULL
 );
 
@@ -127,6 +129,7 @@ CREATE TABLE IF NOT EXISTS messages (
     -- feat-414: 本轮 agent 处理墙钟耗时（毫秒）。turn_start 建行时为 NULL，
     -- on_message_completed 写入 elapsed_ms = round((T1 − T0) * 1000)。
     elapsed_ms INTEGER,
+    sender_display_name TEXT,
     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
     FOREIGN KEY (sender_user_id) REFERENCES users(id) ON DELETE CASCADE
 );
@@ -318,6 +321,27 @@ def _migrate_conversations_metadata(connection: sqlite3.Connection) -> None:
         connection.execute(
             "ALTER TABLE conversations ADD COLUMN config_system_prompt TEXT"
         )
+    if "external_source" not in column_names:
+        connection.execute("ALTER TABLE conversations ADD COLUMN external_source TEXT")
+    if "external_chat_id" not in column_names:
+        connection.execute("ALTER TABLE conversations ADD COLUMN external_chat_id TEXT")
+    _deduplicate_external_conversations(connection)
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_conversations_external_identity
+        ON conversations(external_source, external_chat_id, config_agent_id, owner_id)
+        """
+    )
+    connection.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_conversations_external_identity_unique
+        ON conversations(external_source, external_chat_id, config_agent_id, owner_id)
+        WHERE external_source IS NOT NULL AND external_source <> ''
+          AND external_chat_id IS NOT NULL AND external_chat_id <> ''
+          AND config_agent_id IS NOT NULL AND config_agent_id <> ''
+          AND owner_id IS NOT NULL AND owner_id <> ''
+        """
+    )
     # M234: creator_id records who created the conversation for dissolve-permission checks.
     # Legacy rows are backfilled with the first participant (owner_id fallback).
     if "creator_id" not in column_names:
@@ -341,6 +365,77 @@ def _migrate_conversations_metadata(connection: sqlite3.Connection) -> None:
             WHERE creator_id = ''
             """
         )
+
+
+def _deduplicate_external_conversations(connection: sqlite3.Connection) -> None:
+    """Merge legacy duplicate external shadow conversations before adding uniqueness."""
+    duplicate_groups = connection.execute(
+        """
+        SELECT external_source, external_chat_id, config_agent_id, owner_id
+        FROM conversations
+        WHERE COALESCE(external_source, '') <> ''
+          AND COALESCE(external_chat_id, '') <> ''
+          AND COALESCE(config_agent_id, '') <> ''
+          AND COALESCE(owner_id, '') <> ''
+        GROUP BY external_source, external_chat_id, config_agent_id, owner_id
+        HAVING COUNT(*) > 1
+        """
+    ).fetchall()
+    for group in duplicate_groups:
+        rows = connection.execute(
+            """
+            SELECT id
+            FROM conversations
+            WHERE external_source = ?
+              AND external_chat_id = ?
+              AND config_agent_id = ?
+              AND owner_id = ?
+            ORDER BY rowid
+            """,
+            (
+                group["external_source"],
+                group["external_chat_id"],
+                group["config_agent_id"],
+                group["owner_id"],
+            ),
+        ).fetchall()
+        if len(rows) < 2:
+            continue
+        keeper_id = str(rows[0]["id"])
+        duplicate_ids = [str(row["id"]) for row in rows[1:]]
+        for duplicate_id in duplicate_ids:
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO conversation_participants(conversation_id, user_id)
+                SELECT ?, user_id
+                FROM conversation_participants
+                WHERE conversation_id = ?
+                """,
+                (keeper_id, duplicate_id),
+            )
+            connection.execute(
+                "UPDATE messages SET conversation_id = ? WHERE conversation_id = ?",
+                (keeper_id, duplicate_id),
+            )
+            connection.execute(
+                """
+                UPDATE conversation_events
+                SET conversation_id = ?
+                WHERE conversation_id = ?
+                """,
+                (keeper_id, duplicate_id),
+            )
+            connection.execute(
+                "UPDATE relay_tasks SET conversation_id = ? WHERE conversation_id = ?",
+                (keeper_id, duplicate_id),
+            )
+            connection.execute(
+                "DELETE FROM conversation_participants WHERE conversation_id = ?",
+                (duplicate_id,),
+            )
+            connection.execute(
+                "DELETE FROM conversations WHERE id = ?", (duplicate_id,)
+            )
 
 
 def _migrate_messages_metadata(connection: sqlite3.Connection) -> None:
@@ -368,6 +463,8 @@ def _migrate_messages_metadata(connection: sqlite3.Connection) -> None:
     # feat-439-M2: 整轮多段思考（过程时间线）。Nullable JSON：旧行 / 无思考的轮为 NULL。
     if "thinking_json" not in column_names:
         connection.execute("ALTER TABLE messages ADD COLUMN thinking_json TEXT")
+    if "elapsed_ms" not in column_names:
+        connection.execute("ALTER TABLE messages ADD COLUMN elapsed_ms INTEGER")
     # feat-333-M2: embeds permission_request payload (pending/resolved) alongside tool_calls.
     if "permission_request_json" not in column_names:
         connection.execute(
@@ -390,6 +487,8 @@ def _migrate_messages_metadata(connection: sqlite3.Connection) -> None:
     # have none — fork is disabled on bubbles without it.
     if "kernel_message_id" not in column_names:
         connection.execute("ALTER TABLE messages ADD COLUMN kernel_message_id TEXT")
+    if "sender_display_name" not in column_names:
+        connection.execute("ALTER TABLE messages ADD COLUMN sender_display_name TEXT")
 
 
 def _migrate_agent_profile_tables(connection: sqlite3.Connection) -> None:

@@ -65,6 +65,38 @@ def test_build_runtime_session_store_db_path_is_under_config_dir(
     assert store._db_path == expected_db_path  # noqa: SLF001
 
 
+def test_build_runtime_wires_external_delivery_without_im_service(
+    tmp_path: Path,
+) -> None:
+    base = make_minimal_config(tmp_path)
+    config = LocalConfig(
+        node=base.node,
+        agents=base.agents,
+        channels=(
+            ChannelConfig(
+                name="feishu:agent-a",
+                enabled=True,
+                settings={
+                    "appId": "cli_a",
+                    "appSecret": "secret",
+                    "botOpenId": "ou_bot",
+                },
+            ),
+        ),
+        kernel=base.kernel,
+        heartbeat=base.heartbeat,
+        im_service=None,
+        llm=base.llm,
+        source_path=base.source_path,
+    )
+
+    runtime = build_runtime(config)
+
+    pipeline = runtime._on_inbound._pipeline  # noqa: SLF001
+    assert pipeline._kernel_event_observer is not None  # noqa: SLF001
+    assert pipeline._bg_reply_sender is not None  # noqa: SLF001
+
+
 def test_build_runtime_does_not_call_set_kernel_client(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -1357,6 +1357,30 @@ def test_handle_register_with_agent_workspaces_seeds_first_seen_profile(
     )
 
 
+def test_handle_register_runtime_profile_provisions_agent_user(
+    tmp_path: Path,
+) -> None:
+    """Runtime node.register profiles must be usable as conversation participants."""
+    handler = _build_handler_with_node_repo(tmp_path)
+
+    asyncio.run(
+        handler.handle_message(
+            websocket=StubWebSocket(),
+            message_type="node.register",
+            payload={
+                "node_id": "node-1",
+                "agents": ["default-agent"],
+                "capabilities": {},
+            },
+        )
+    )
+
+    users = UserRepository(handler._node_repository._connection)
+    agent_user = users.get_user_by_username(username="agent:default-agent")
+    assert agent_user is not None
+    assert agent_user.display_name == "default-agent"
+
+
 def test_handle_register_preserves_existing_workspace_on_reregister(
     tmp_path: Path,
 ) -> None:

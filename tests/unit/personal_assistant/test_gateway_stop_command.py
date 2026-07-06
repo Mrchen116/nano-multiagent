@@ -263,6 +263,65 @@ def test_stop_ack_delivered_via_bg_reply_sender_when_wired(tmp_path: Path) -> No
     assert channel.sent == [], "must NOT use the no-op send_text when sender is wired"
 
 
+def test_repeated_feishu_stop_noop_uses_per_message_im_dedupe_key(
+    tmp_path: Path,
+) -> None:
+    """Each real Feishu /stop message needs its own IM shadow acknowledgement.
+
+    The IM side deduplicates agent messages by ``from_session_id``.  If every
+    no-op /stop in the same kernel session uses the same key, only the first
+    acknowledgement is visible in the shadow conversation while Feishu still
+    gets each reply.
+    """
+    agents = _agents(tmp_path)
+    channel = _FakeChannel("feishu:agent-a")
+    registry = ChannelRegistry((channel,))
+    kernel_client = _FakeKernel()
+    pipeline = InboundPipeline(
+        kernel=kernel_client,
+        agents=agents,
+        outbound_router=OutboundRouter(registry),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+    )
+
+    delivered: list[tuple[str, str]] = []
+
+    async def _fake_bg_sender(text, reply_context, from_session_id):
+        delivered.append((text, from_session_id))
+
+    pipeline._bg_reply_sender = _fake_bg_sender
+
+    for message_id in ("om_stop_1", "om_stop_2"):
+        inbound = InboundMessage(
+            channel_name="feishu:agent-a",
+            text="/stop",
+            external_user_id="ou-user",
+            external_chat_id="feishu:app:dm:ou-user",
+            is_group=False,
+            agent_id="agent-a",
+            metadata={
+                "external_source": "feishu",
+                "external_chat_id": "feishu:app:dm:ou-user",
+                "trigger_source": "feishu",
+                "shadow_conversation_id": "conv-shadow",
+                "feishu_message_id": message_id,
+            },
+        )
+        result = asyncio.run(pipeline.handle_inbound(inbound))
+        assert result is not None
+        assert result.reply_text == "当前没有正在执行的操作。"
+
+    assert [text for text, _ in delivered] == [
+        "当前没有正在执行的操作。",
+        "当前没有正在执行的操作。",
+    ]
+    assert delivered[0][1] != delivered[1][1]
+    assert delivered[0][1].endswith(":stop-noop:om_stop_1")
+    assert delivered[1][1].endswith(":stop-noop:om_stop_2")
+
+
 def test_stop_command_interrupts_active_run_and_appends_message(tmp_path: Path) -> None:
     agents = _agents(tmp_path)
     channel = _FakeChannel("web")
@@ -346,6 +405,49 @@ def test_stop_command_in_group_chat_with_mention_is_recognized(tmp_path: Path) -
         external_chat_id="grp-1",
         is_group=True,
         metadata={"mentioned_agent_ids": ["agent-a"]},
+    )
+
+    result = asyncio.run(pipeline.handle_inbound(inbound))
+
+    assert result is not None
+    assert result.reply_text == "已停止当前操作。"
+    assert len(kernel_client.interrupt_calls) == 1
+
+
+def test_stop_command_with_structured_feishu_display_mention_is_recognized(
+    tmp_path: Path,
+) -> None:
+    """Feishu display mention may be @nano, not @{agent_id}; metadata owns targeting."""
+    agents = _agents(tmp_path)
+    channel = _FakeChannel("feishu:agent-a")
+    registry = ChannelRegistry((channel,))
+    kernel_client = _FakeKernel()
+    pipeline = InboundPipeline(
+        kernel=kernel_client,
+        agents=agents,
+        outbound_router=OutboundRouter(registry),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+    )
+    session_key = "feishu:agent-a:grp-1:agent-a"
+    kernel_client._session_metadata_by_id["sess-1"] = {
+        "workspace_root": str(agents[0].workspace_root)
+    }
+    pipeline._active_runs[session_key] = "run-active"
+
+    inbound = InboundMessage(
+        channel_name="feishu:agent-a",
+        text="@nano /stop",
+        external_user_id="user-1",
+        external_chat_id="grp-1",
+        is_group=True,
+        metadata={
+            "mentioned_agent_ids": ["agent-a"],
+            "feishu_mentions": [
+                {"open_id": "ou_bot", "name": "nano", "key": "@_user_1"}
+            ],
+        },
     )
 
     result = asyncio.run(pipeline.handle_inbound(inbound))

@@ -91,16 +91,25 @@ def _offline():
 
 def _ok_fork(calls, id_map=None):
     async def _req(
-        *, agent_id, source_conversation_id, new_conversation_id, fork_message_id
+        *,
+        agent_id,
+        source_conversation_id,
+        new_conversation_id,
+        fork_message_id,
+        source_external_source=None,
+        source_external_chat_id=None,
     ):
-        calls.append(
-            {
-                "agent_id": agent_id,
-                "source_conversation_id": source_conversation_id,
-                "new_conversation_id": new_conversation_id,
-                "fork_message_id": fork_message_id,
-            }
-        )
+        call = {
+            "agent_id": agent_id,
+            "source_conversation_id": source_conversation_id,
+            "new_conversation_id": new_conversation_id,
+            "fork_message_id": fork_message_id,
+        }
+        if source_external_source is not None:
+            call["source_external_source"] = source_external_source
+        if source_external_chat_id is not None:
+            call["source_external_chat_id"] = source_external_chat_id
+        calls.append(call)
         return {
             "ok": True,
             "new_session_id": "ksess-new",
@@ -158,6 +167,44 @@ async def test_fork_copies_history_through_M_and_delegates(tmp_path: Path) -> No
         "a1",
         "u2",
         "a2",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_fork_external_shadow_conversation_forwards_external_identity(
+    tmp_path: Path,
+) -> None:
+    service, conversations, messages, human, agent_user, conv = _setup(tmp_path)
+    conversations._connection.execute(
+        """
+        UPDATE conversations
+        SET external_source = ?, external_chat_id = ?
+        WHERE id = ?
+        """,
+        ("feishu", "oc_group", conv.id),
+    )
+    conversations._connection.commit()
+    a1, _ = _seed_history(messages, conv.id, human, agent_user)
+    calls: list[dict] = []
+
+    await service.fork_conversation(
+        source_conversation_id=conv.id,
+        fork_message_id=a1.id,
+        owner_id=human.owner_id,
+        actor_user_id=human.id,
+        check_agent_online=_online(None),
+        request_fork=_ok_fork(calls, id_map={"kmsg-a1": "branch-kmsg-a1"}),
+    )
+
+    assert calls == [
+        {
+            "agent_id": "planner",
+            "source_conversation_id": conv.id,
+            "new_conversation_id": calls[0]["new_conversation_id"],
+            "fork_message_id": "kmsg-a1",
+            "source_external_source": "feishu",
+            "source_external_chat_id": "oc_group",
+        }
     ]
 
 

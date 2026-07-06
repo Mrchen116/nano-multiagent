@@ -20,7 +20,7 @@ from IM.api.ws.event_types import (
     build_tool_call_completed_payload,
     build_tool_call_upserted_payload,
 )
-from IM.domain.models import Message, ThinkingSegment, TokenUsage, ToolCall
+from IM.domain.models import Attachment, Message, ThinkingSegment, TokenUsage, ToolCall
 from IM.infra.db import connect, initialize_schema
 from IM.infra.repositories import (
     ConversationRepository,
@@ -65,6 +65,45 @@ def test_build_message_created_payload(tmp_path: Path) -> None:
     # Optional fields not yet populated, encode as None or absent.
     assert payload.get("tool_calls") in (None, [])
     assert payload.get("token_usage") is None
+
+
+def test_build_message_created_payload_carries_external_insert_fields(
+    tmp_path: Path,
+) -> None:
+    connection = connect(tmp_path / "im.db")
+    initialize_schema(connection)
+    users = UserRepository(connection)
+    conversations = ConversationRepository(connection)
+    messages = MessageRepository(connection)
+    owner = users.create_user(username="owner", display_name="Owner")
+    conv = conversations.create_conversation(title="shadow", participant_ids=[owner.id])
+
+    msg = messages.create_message(
+        conversation_id=conv.id,
+        sender_user_id=owner.id,
+        content="from feishu",
+        attachments=[
+            Attachment(
+                url="https://example.test/a.png",
+                content_type="image/png",
+                file_name="a.png",
+            )
+        ],
+        sender_display_name="Alice",
+    )
+
+    payload = build_message_created_payload(message=msg)
+
+    assert payload["content"] == "from feishu"
+    assert payload["attachments"] == [
+        {
+            "url": "https://example.test/a.png",
+            "content_type": "image/png",
+            "file_name": "a.png",
+        }
+    ]
+    assert payload["sender"]["display_name"] == "Alice"
+    assert payload["sender_display_name"] == "Alice"
 
 
 def test_event_thinking_segment_constant() -> None:

@@ -46,19 +46,23 @@ channels:
   - name: web_relay
     enabled: true
 
-kernel:
-  command: "python -m uvicorn personal_assistant.kernel_app:app --host 127.0.0.1 --port 8000"
-
 im_service:
   url: http://<im-host>:8011
+
+llm:
+  default_model: kimiCoding:K2.6
+  providers:
+    - name: anthropic
+      base_url: http://127.0.0.1:4000
+      models:
+        - name: kimiCoding:K2.6
 ```
 
 说明：
 - `im_service.url` 应填写 Gateway 实际要连接的 IM 服务地址；可以是本机，也可以是远端内网/公网地址。
 - 临时覆盖某次启动的 IM 地址时，可在命令行追加 `--im-service-url http://<im-host>:8011`。
-- 默认本地路径不需要手工填写 `kernel.token`；Gateway 会补齐本地 kernel bearer token。
 - 省略 `agents[].workspace_root` 时，默认使用 `~/nano-assistant/workspace/<agent_id>/`，并在首次加载配置时自动创建目录。
-- `kernel.base_url` 属于 Gateway 内部默认值，面向用户的最小配置无需填写。
+- `llm` 段为必填；上例假定本机已有 LLM 代理监听在 `127.0.0.1:4000`。
 
 ### 3. 启动 Gateway
 
@@ -72,7 +76,7 @@ PYTHONPATH=src python -m personal_assistant.main --im-service-url http://<im-hos
 默认命令会把 Gateway 放到后台，并立即返回：
 
 ```text
-STARTED pid=<pid> health_url=http://127.0.0.1:8000/v1/health log=<config目录>/gateway.log
+STARTED pid=<pid> health_url=http://<im-host>:8011 log=<config目录>/gateway.log
 ```
 
 启动后的预期行为：
@@ -124,47 +128,28 @@ stop 反馈语义：
 - 看到 `Chat unavailable` + `Next: Open bind flow`：先完成绑定。
 - 看到 `Chat unavailable` + `Next: Bring Gateway online`：先把 Gateway 恢复到在线状态。
 
-更完整的启动、状态说明与调试附录见 `docs/operator-runbook.md`。前端开发模式、Mock/真实 IM 边界见 `src/IM/frontend/README.md`。
+更完整的启动、Feishu channel 配置、状态说明与调试附录见 `docs/operator-runbook.md`。前端开发模式、Mock/真实 IM 边界见 `src/IM/frontend/README.md`。
 
 ## CLI
 
 ### Start CLI (interactive REPL)
 
-Managed mode (CLI starts/stops local API automatically):
+Start the in-process REPL:
 
 ```bash
-PYTHONPATH=src python3 -m coding_cli.main \
-  --mode managed \
-  --base-url http://127.0.0.1:8000
+PYTHONPATH=src python3 -m coding_cli.main
 ```
 
-Managed mode can inject LLM runtime config into the managed API process:
+Or specify a model:
 
 ```bash
-PYTHONPATH=src python3 -m coding_cli.main \
-  --mode managed \
-  --base-url http://127.0.0.1:8000 \
-  --llm-provider anthropic \
-  --llm-model claude-3-5-sonnet-20241022 \
-  --llm-base-url http://127.0.0.1:4100 \
-  --llm-api-key <key> \
-  --llm-timeout-seconds 60
-```
-
-`managed` mode uses a higher default API timeout (`120s`) to reduce false timeouts during real agent turns. Override with `--api-timeout-seconds`.
-
-Remote mode (connect existing API, never starts local process):
-
-```bash
-PYTHONPATH=src python3 -m coding_cli.main \
-  --mode remote \
-  --base-url http://127.0.0.1:8000
+PYTHONPATH=src python3 -m coding_cli.main --model volcanoArk:doubao-seed-2-0-code-preview-260215
 ```
 
 If you are not using editable install, run with `PYTHONPATH=src`:
 
 ```bash
-PYTHONPATH=src python3 -m coding_cli.main --mode remote --base-url http://127.0.0.1:8000
+PYTHONPATH=src python3 -m coding_cli.main
 ```
 
 ### REPL commands
@@ -181,16 +166,16 @@ PYTHONPATH=src python3 -m coding_cli.main --mode remote --base-url http://127.0.
 ### CLI module boundary
 
 - `main.py`: 仅负责 CLI 进程入口（调用 `run_cli`）。
-- `commands.py`: 稳定入口编排层（参数解析、模式决策、REPL 主循环、错误分层）。
-- `repl_input.py`: 可编辑输入与历史回填实现（行内编辑、方向键、草稿恢复）。
-- `repl_commands.py`: REPL 斜杠命令路由与参数校验（`/help /new /use ...`）。
-- `http_client.py`: 唯一 HTTP 边界（CLI 不直接依赖 runtime/tool/session/llm 内核实现）。
+- `commands.py`: 稳定入口编排层（参数解析、进程内 Kernel 装配、REPL 主循环、错误分层）。
+- `repl_input.py` (`coding_cli/input/repl_input.py`): 可编辑输入与历史回填实现（行内编辑、方向键、草稿恢复）。
+- `repl_commands.py` (`coding_cli/input/repl_commands.py`): REPL 斜杠命令路由与参数校验（`/help /new /use ...`）。
+- `text_runner.py`: `--text` 非交互执行路径，输出 NDJSON 事件直到 run 终态。
 
 开发约定（收口门禁）：
 
-- 保持 HTTP-only：CLI 只能通过 `ServerClient` 访问 API。
-- 避免空转发层：不要在 `commands.py` 里重新导出 `repl_input/repl_commands` 的内部实现。
-- 保持脚本机读稳定：非交互子命令 stdout 必须输出 single final JSON object on stdout。
+- CLI 进程内通过 `agent.sdk` 构建 Kernel；不要恢复 `--mode` / `--base-url` / HTTP API 子命令。
+- 避免空转发层：不要在 `commands.py` 里重新导出输入、渲染或 REPL 命令模块的内部实现。
+- 保持脚本机读稳定：`--text` stdout 保持 NDJSON 事件流；不要再把它描述为 single final JSON object on stdout。
 
 Interactive input ergonomics:
 
@@ -238,67 +223,23 @@ print("\n".join(build_guardrail_hints(metrics)))
 PY
 ```
 
-### Release acceptance & rollback playbook
-
-Render release steps without executing them:
-
-```bash
-PYTHONPATH=src python3 -m coding_cli.release_playbook \
-  --base-url http://127.0.0.1:8003 \
-  --token test-token
-```
-
-Execute acceptance steps (CLI gate + managed smoke):
-
-```bash
-PYTHONPATH=src python3 -m coding_cli.release_playbook \
-  --base-url http://127.0.0.1:8003 \
-  --token test-token \
-  --execute
-```
-
-Playbook output is JSON and includes:
-
-- `acceptance_steps`: required pre-release checks.
-- `rollback_steps`: rollback command template list.
-- `status`: `pending` / `passed` / `failed`.
-- `execution`: per-step return code and captured stdout/stderr when `--execute` is set.
-
 ### Non-interactive commands
 
 ```bash
-PYTHONPATH=src python3 -m coding_cli.main --mode remote --base-url http://127.0.0.1:8000 health
-PYTHONPATH=src python3 -m coding_cli.main --mode remote --base-url http://127.0.0.1:8000 create-session --title "demo"
-PYTHONPATH=src python3 -m coding_cli.main --mode remote --base-url http://127.0.0.1:8000 send-message --session-id <session_id> --text "hello"
-PYTHONPATH=src python3 -m coding_cli.main --mode remote --base-url http://127.0.0.1:8000 llm-config get
-PYTHONPATH=src python3 -m coding_cli.main --mode remote --base-url http://127.0.0.1:8000 llm-config set --provider anthropic --model claude-3-5-sonnet-20241022 --base-url http://127.0.0.1:4100 --timeout-seconds 60
+PYTHONPATH=src python3 -m coding_cli.main --text "hello"
+PYTHONPATH=src python3 -m coding_cli.main --resume <session_id> --text "continue"
+PYTHONPATH=src python3 -m coding_cli.main --model kimiCoding:K2.6 --text "hello"
+PYTHONPATH=src python3 -m coding_cli.main llm-config get
 ```
 
 ### Environment variables
 
-- `NANO_MULTIAGENT_CLI_MODE` (`managed` or `remote`, default `remote`)
-- `NANO_MULTIAGENT_API_BASE_URL` (default `http://127.0.0.1:8000`)
 - `NANO_MULTIAGENT_REQUEST_ID` (optional)
-- `NANO_MULTIAGENT_SESSION_ID` (optional default session for `send-message` and REPL startup)
-- `NANO_MULTIAGENT_API_TIMEOUT_SECONDS` (default `30`)
-- `--api-timeout-seconds <float>` (CLI override for current run)
-- managed startup LLM overrides: `--llm-provider`, `--llm-model`, `--llm-base-url`, `--llm-api-key`, `--llm-timeout-seconds`
+- `NANO_MULTIAGENT_SESSION_ID` (optional default session for REPL or `--text` startup)
+- LLM overrides are per process: `--provider`, `--model`, `--llm-base-url`, `--api-key`, `--timeout-seconds`
 
 ### Troubleshooting
 
-If your shell has `http_proxy`/`https_proxy` set, local API calls to `127.0.0.1` may fail via proxy.
-For this CLI, localhost/127.0.0.1 is automatically treated as direct connection.
-If needed, also set:
-
-```bash
-export NO_PROXY=127.0.0.1,localhost
-```
-
-Common mode-specific diagnostics:
-
-- `managed` + `port ... already in use`:
-  - Free the port, use another local `--base-url` port, or switch to `--mode remote`.
-- `managed` + startup timeout / startup failed:
-  - Check local uvicorn/python environment and startup logs, then retry.
-- `remote` + `connection refused`:
-  - Verify `--base-url` points to a running remote API and that the endpoint is reachable from your machine.
+- `unknown argument: --mode` / `--base-url`: these belonged to the removed HTTP API architecture; use the in-process REPL or `--text`.
+- LLM connection failures: verify the configured provider, model, base URL and API key for the current process.
+- `--text` exits non-zero: inspect the emitted NDJSON `run_status` event for the terminal status and reason.

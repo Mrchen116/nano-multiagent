@@ -133,6 +133,7 @@ class IMConnectionConfig:
         reconnect_initial_seconds: Initial reconnect delay after failure.
         reconnect_max_seconds: Maximum reconnect delay cap.
         heartbeat_interval_seconds: Delay between periodic node heartbeats while connected.
+        heartbeat_ack_timeout_seconds: Maximum wait for IM to acknowledge one heartbeat.
     """
 
     url: str
@@ -140,12 +141,19 @@ class IMConnectionConfig:
     reconnect_initial_seconds: float = 1.0
     reconnect_max_seconds: float = 60.0
     heartbeat_interval_seconds: float = 30.0
+    heartbeat_ack_timeout_seconds: float = 10.0
 
     def normalized_heartbeat_interval_seconds(self) -> float | None:
         interval = self.heartbeat_interval_seconds
         if interval <= 0:
             return None
         return interval
+
+    def normalized_heartbeat_ack_timeout_seconds(self) -> float | None:
+        timeout = self.heartbeat_ack_timeout_seconds
+        if timeout <= 0:
+            return None
+        return timeout
 
     def websocket_url(self) -> str:
         """Return the normalized websocket endpoint URL for the IM gateway socket."""
@@ -235,6 +243,7 @@ class IMConnectionManager:
         self._awaiting_ack_type: str | None = None
         self._flush_lock = asyncio.Lock()
         self._heartbeat_task: asyncio.Task[None] | None = None
+        self._heartbeat_ack_future: asyncio.Future[None] | None = None
         self._stop_event: asyncio.Event | None = None
         # bugfix-446-M1 (decision 3 guard): set after the first connect attempt resolves
         # (success OR failure). Heartbeat startup waits on this so the first tick never
@@ -440,6 +449,7 @@ class IMConnectionManager:
         self._events.append({"event": "frame", "type": message_type})
         if message_type == "ack":
             self._ack_pending_frame(body)
+            self._ack_heartbeat_frame(body)
             await self._flush_pending_frames()
             return
         if message_type == "relay.message":
@@ -857,6 +867,15 @@ class IMConnectionManager:
             pending_frame.ack_future.set_result(dict(payload))
         self._events.append({"event": "acked", "type": awaiting})
 
+    def _ack_heartbeat_frame(self, payload: Mapping[str, object]) -> None:
+        ack_type = payload.get("message_type")
+        if not isinstance(ack_type, str) or ack_type.strip() != "node.heartbeat":
+            return
+        future = self._heartbeat_ack_future
+        if future is not None and not future.done():
+            future.set_result(None)
+        self._events.append({"event": "heartbeat_acked"})
+
     def _start_heartbeat_loop(self) -> None:
         interval = self._config.normalized_heartbeat_interval_seconds()
         if interval is None:
@@ -881,22 +900,47 @@ class IMConnectionManager:
                 if not self._connected or self._stop_requested:
                     break
                 try:
-                    await self._send_frame(
-                        "node.heartbeat", self._reporter.send_heartbeat(status="online")
-                    )
+                    await self._send_heartbeat_and_wait_ack()
                 except Exception as exc:  # noqa: BLE001
                     await self._disconnect_current_websocket(exc)
                     return
         except asyncio.CancelledError:
             raise
 
+    async def _send_heartbeat_and_wait_ack(self) -> None:
+        loop = asyncio.get_running_loop()
+        ack_future = loop.create_future()
+        self._heartbeat_ack_future = ack_future
+        try:
+            await self._send_frame(
+                "node.heartbeat", self._reporter.send_heartbeat(status="online")
+            )
+            timeout = self._config.normalized_heartbeat_ack_timeout_seconds()
+            if timeout is not None:
+                try:
+                    await asyncio.wait_for(asyncio.shield(ack_future), timeout=timeout)
+                except asyncio.TimeoutError as exc:
+                    raise TimeoutError(
+                        f"IM heartbeat ack timed out after {timeout:.2f}s"
+                    ) from exc
+        finally:
+            if self._heartbeat_ack_future is ack_future:
+                self._heartbeat_ack_future = None
+
     def _mark_disconnected(self, exc: Exception | None = None) -> None:
         had_connection = self._connected or self._websocket is not None
         pending_frame = self._pending_frames[0] if self._pending_frames else None
+        heartbeat_ack_future = self._heartbeat_ack_future
         self._connected = False
         self._websocket = None
         self._awaiting_ack_type = None
+        self._heartbeat_ack_future = None
         self._stop_heartbeat_loop()
+        if heartbeat_ack_future is not None and not heartbeat_ack_future.done():
+            with contextlib.suppress(asyncio.InvalidStateError):
+                heartbeat_ack_future.set_exception(
+                    RuntimeError("IM websocket disconnected before heartbeat ack")
+                )
         if (
             pending_frame is not None
             and pending_frame.ack_future is not None
