@@ -34,6 +34,7 @@ from personal_assistant.channels.web_relay_adapter import (
     WebRelayAdapter,
 )
 from personal_assistant.channels.feishu import FeishuAdapter
+from personal_assistant.builtin_skills.bootstrap import install_builtin_skills
 
 from personal_assistant.config.local_store import (
     AgentWorkspaceConfig,
@@ -52,7 +53,6 @@ from personal_assistant.config.local_store import (
 )
 from personal_assistant.config.sync_client import ConfigSyncClient
 from personal_assistant.gateway.bootstrap import (
-    install_builtin_skills,
     start_channels,
     stop_channels,
 )
@@ -2673,12 +2673,10 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     refactor-387 M3: kernel is now in-process via agent.sdk.  No kernel child
     process is spawned; GatewayProcessManager is no longer used here.
     """
-    install_builtin_skills()
     # refactor-406-M1 R6: PA assembles its kernel through the 2-layer SDK surface
     # via its own factory (personal_assistant.product).  PA imports only agent.sdk +
     # its own package — no product_profile / host_capabilities.
     from agent.sdk import LLMConfig
-    from personal_assistant.builtin_skills.bootstrap import install_builtin_skills
     from personal_assistant.product import build_pa_kernel
 
     # PA does not supply can_use_tool: permission ask always parks on broker future
