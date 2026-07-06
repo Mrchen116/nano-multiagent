@@ -8,7 +8,7 @@
 - Evidence:
   - Red: `/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest tests/unit/platform/hooks/test_realtime_stream_events.py::test_message_end_assistant_message_carries_group_id tests/unit/test_inbound_pipeline_streaming.py::TestObserverForwardsThinkingSegment::test_same_group_reasoning_is_forwarded_once tests/unit/test_inbound_pipeline_streaming.py::TestObserverForwardsThinkingSegment::test_same_text_different_group_reasoning_is_not_collapsed -q` -> 2 failed, 1 passed. Failures: `KeyError: 'group_id'`; same-group thinking produced 3 `thinking_segment` frames.
 - Rollback: Revert this milestone commit.
-- Commits: 91a91257.
+- Commits: 687643b8.
 - Next: R2。
 
 ## R2 — C2 实现：只展示一次同 response thinking，保留历史 round-trip
@@ -19,7 +19,7 @@
 - Evidence:
   - Green: `/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest tests/unit/platform/hooks/test_realtime_stream_events.py::test_message_end_assistant_message_carries_group_id tests/unit/test_inbound_pipeline_streaming.py::TestObserverForwardsThinkingSegment::test_same_group_reasoning_is_forwarded_once tests/unit/test_inbound_pipeline_streaming.py::TestObserverForwardsThinkingSegment::test_same_text_different_group_reasoning_is_not_collapsed -q` -> 3 passed.
 - Rollback: Revert this milestone commit.
-- Commits: 91a91257.
+- Commits: 687643b8.
 - Next: R3。
 
 ## R3 — C3 验证与文档回填
@@ -37,4 +37,4 @@
   - E2E/Regression: N/A, no service startup required for this isolated observer/event-chain fix.
   - Visual/Interaction: N/A.
 - Rollback: Revert this milestone commit.
-- Commits: 91a91257.
+- Commits: 687643b8.
