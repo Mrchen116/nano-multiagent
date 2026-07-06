@@ -580,6 +580,7 @@ async def test_message_end_observe_event_carries_reasoning_content() -> None:
     with_reasoning = [e for e in captured if e.get("reasoning_content")]
     assert with_reasoning, f"message_end 事件未带 reasoning_content: {captured!r}"
     assert with_reasoning[0]["reasoning_content"] == thinking_text
+    assert with_reasoning[0]["group_id"] == with_reasoning[0]["message_id"]
 
 
 # ---------------------------------------------------------------------------

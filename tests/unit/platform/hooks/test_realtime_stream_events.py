@@ -79,6 +79,34 @@ async def test_message_end_assistant_message_carries_reasoning_content() -> None
     assert pub.events[0]["data"]["reasoning_content"] == "让我先看一下 types.py……"
 
 
+async def test_message_end_assistant_message_carries_group_id() -> None:
+    """A single LLM response may expand to multiple assistant rows that share group_id."""
+
+    hooks = HookRegistry()
+    setup_realtime_stream(hooks)
+    runner = HookRunner(registry=hooks)
+    pub = _FakePublisher()
+    ctx = _make_ctx(publisher=pub)
+
+    await runner.dispatch_observe(
+        "message_end",
+        {
+            "session_id": "sess_1",
+            "turn_id": "turn_1",
+            "message_id": "msg_1",
+            "group_id": "group-llm-response-1",
+            "role": "assistant",
+            "content": "",
+            "reasoning_content": "先看现有链路",
+            "run_id": "run_1",
+        },
+        ctx,
+    )
+
+    assert len(pub.events) == 1
+    assert pub.events[0]["data"]["group_id"] == "group-llm-response-1"
+
+
 async def test_message_end_skips_non_assistant() -> None:
     hooks = HookRegistry()
     setup_realtime_stream(hooks)

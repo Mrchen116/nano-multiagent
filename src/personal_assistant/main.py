@@ -4016,6 +4016,7 @@ def _build_kernel_event_observer(
     # reconcile), so this never grows unbounded on a long-lived Gateway.
     if running_tool_calls is None:
         running_tool_calls = {}
+    visible_reasoning_by_group: dict[str, dict[str, str]] = {}
 
     async def _send(
         manager: IMConnectionManager, message_type: str, payload: Mapping[str, Any]
@@ -4123,6 +4124,21 @@ def _build_kernel_event_observer(
         )
         ctx["external_intermediate_sent_marker"] = marker
 
+    def _visible_reasoning_segment(*, rid: str, group_id: str, reasoning: str) -> str:
+        if not reasoning or not group_id:
+            return reasoning
+        groups = visible_reasoning_by_group.setdefault(rid, {})
+        previous = groups.get(group_id)
+        if previous == reasoning:
+            return ""
+        groups[group_id] = reasoning
+        if previous and reasoning.startswith(previous):
+            return reasoning[len(previous) :].strip()
+        return reasoning
+
+    def _clear_run_visible_reasoning(rid: str) -> None:
+        visible_reasoning_by_group.pop(rid, None)
+
     def observer(event: Mapping[str, Any]) -> "Coroutine[Any, Any, None] | None":
         manager = im_connection_manager_factory()
         run_id = str(event.get("run_id") or "").strip()
@@ -4167,6 +4183,7 @@ def _build_kernel_event_observer(
                     return None
             elif event_name == "turn_end":
                 running_tool_calls.pop(run_id, None)
+                _clear_run_visible_reasoning(run_id)
                 return None
             elif event_name != "permission_resolved":
                 return None
@@ -4222,6 +4239,11 @@ def _build_kernel_event_observer(
             # 由 IM 持久化边界赋予(思考与工具共享一个 per-message 单调递增、按到达序的
             # 唯一序号)，gateway 不算 seq、只负责把 reasoning 转发到正确的目标气泡。
             reasoning = str(event.get("reasoning_content") or "").strip()
+            reasoning = _visible_reasoning_segment(
+                rid=run_id,
+                group_id=str(event.get("group_id") or "").strip(),
+                reasoning=reasoning,
+            )
             if not content and not reasoning:
                 return None
             kernel_msg_id = str(event.get("message_id") or "").strip()
@@ -4492,6 +4514,7 @@ def _build_kernel_event_observer(
             # empty-dict residue and guarantees the map can't grow unbounded on a long
             # Gateway. reconcile owns the abnormal path and pops there.
             running_tool_calls.pop(run_id, None)
+            _clear_run_visible_reasoning(run_id)
 
             # Finalize message with token_usage if present (only on success path).
             usage_raw = event.get("usage") if turn_completed else None
@@ -4840,6 +4863,7 @@ def _build_kernel_event_observer(
                 else None
             )
             inflight = running_tool_calls.pop(run_id, {})
+            _clear_run_visible_reasoning(run_id)
             if message_id and inflight:
                 for stuck_call_id, stuck_call in inflight.items():
                     # bugfix-416 #111: re-emit the original input recorded at tool_start

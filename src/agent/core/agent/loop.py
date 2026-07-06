@@ -651,6 +651,7 @@ class AgentLoop:
                     "session_id": hook_ctx.session_id,
                     "turn_id": hook_ctx.turn_id,
                     "message_id": msg.message_id,
+                    "group_id": msg.group_id,
                     "content": msg.content,
                     # feat-439-M2: 把本回合思考随 message_end 暴露，供 gateway observer
                     # 作为「过程项」转发到气泡（整轮多回合各带一段思考）。
