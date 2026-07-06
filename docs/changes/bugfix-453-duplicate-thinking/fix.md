@@ -101,4 +101,34 @@ tool_calls = [
 
 ## 修复
 
+修复点落在「内核事件 → Gateway observer → IM process timeline」这条用户可见事件链，不改 provider 历史回传策略，也不清洗旧数据。
+
+具体变更：
+
+1. `agent.core.agent.loop` 在 `message_end` observe payload 中透传 `Message.group_id`。
+2. `agent.platform.hooks.builtins.realtime_stream` 将 `group_id` 继续带到 session event 的 `assistant_message` payload。
+3. `personal_assistant.main._build_kernel_event_observer` 用 per-run `visible_reasoning_by_group` 记录每个 LLM response group 已实际转发的 reasoning：
+   - 同一 `run_id + group_id` 下完全相同的 reasoning 只转发第一条 `thinking_segment`。
+   - 不同 `group_id` 的相同文本不合并，保留多轮 LLM request 各自产生相同 thinking 的可见事实。
+   - 同一 group 后续 reasoning 若是前一段的累积前缀扩展，只转发新增后缀，避免真实新增 thinking 被吞掉。
+   - 只在 `thinking_segment` 实际发送后标记 reasoning 为 visible，避免 lazy-bubble / direct-start 路径里未发送的 reasoning 污染同 group 后续展示。
+   - `turn_end` 与 `run_terminal_reconcile` 在 IM connectivity guard 之前清理 per-run 去重状态，避免断连时长驻 Gateway 泄漏 run-scoped reasoning 文本。
+
+本修复保留每条内部 assistant tool-call message 上的 `reasoning_content` / `reasoning_signature`，因此不会破坏 Anthropic/Kimi thinking round-trip。历史上已经写入 `messages.thinking_json` 的重复 thinking 不迁移、不清洗、不补救。
+
 ## 验证
+
+- 红测：新增同组重复 reasoning 回归 case 后，当前实现下失败：
+  - `test_message_end_assistant_message_carries_group_id` -> `KeyError: 'group_id'`
+  - `test_same_group_reasoning_is_forwarded_once` -> 同一 group 的三条 assistant event 产生 3 个 `thinking_segment`
+- 修复后窄测：
+  - `/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest tests/unit/platform/hooks/test_realtime_stream_events.py::test_message_end_assistant_message_carries_group_id tests/unit/test_inbound_pipeline_streaming.py::TestObserverForwardsThinkingSegment::test_same_group_reasoning_is_forwarded_once tests/unit/test_inbound_pipeline_streaming.py::TestObserverForwardsThinkingSegment::test_same_text_different_group_reasoning_is_not_collapsed -q` -> 3 passed
+- 相关链路回归：
+  - `/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest tests/unit/test_agent_loop.py::test_message_end_observe_event_carries_reasoning_content tests/unit/platform/hooks/test_realtime_stream_events.py::test_message_end_assistant_message_carries_reasoning_content tests/unit/platform/hooks/test_realtime_stream_events.py::test_message_end_assistant_message_carries_group_id tests/unit/test_inbound_pipeline_streaming.py::TestObserverForwardsThinkingSegment -q` -> 8 passed
+  - `/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest tests/unit/test_agent_loop.py tests/unit/platform/hooks/test_realtime_stream_events.py tests/unit/test_inbound_pipeline_streaming.py -q` -> 63 passed
+- Code review closure:
+  - 两个 code review candidates 经 verifier 确认为 CONFIRMED：未发送 reasoning 污染 group 去重、断连 terminal cleanup 早退。
+  - 新增回归测试：`test_unsent_reasoning_does_not_poison_group_dedupe`、`test_disconnected_turn_end_clears_reasoning_dedupe_state`。
+  - `/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest tests/unit/test_inbound_pipeline_streaming.py::TestObserverForwardsThinkingSegment::test_unsent_reasoning_does_not_poison_group_dedupe tests/unit/test_inbound_pipeline_streaming.py::TestObserverForwardsThinkingSegment::test_disconnected_turn_end_clears_reasoning_dedupe_state -q` -> 2 passed
+- Lint:
+  - `/Users/czj/Repos/nano-multiagent/.venv/bin/python -m ruff check src/agent/core/agent/loop.py src/agent/platform/hooks/builtins/realtime_stream.py src/personal_assistant/main.py tests/unit/test_agent_loop.py tests/unit/platform/hooks/test_realtime_stream_events.py tests/unit/test_inbound_pipeline_streaming.py` -> All checks passed

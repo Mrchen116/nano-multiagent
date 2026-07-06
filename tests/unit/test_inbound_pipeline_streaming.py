@@ -1263,3 +1263,191 @@ class TestObserverForwardsThinkingSegment:
         assert len(delta) == 1 and delta[0]["delta_text"] == "答案是 4"
         assert thinking[0]["message_id"] == "agent-msg-1"
         assert delta[0]["message_id"] == "agent-msg-1"
+
+    @pytest.mark.asyncio
+    async def test_same_group_reasoning_is_forwarded_once(self):
+        from personal_assistant.main import _build_kernel_event_observer
+
+        send_calls: list[tuple] = []
+        manager = self._manager_with_sink(send_calls)
+        run_context_store = {
+            "run-1": {
+                "conversation_id": "conv-a",
+                "message_id": "agent-msg-1",
+                "agent_id": "Alpha",
+            }
+        }
+        observer = _build_kernel_event_observer(
+            im_connection_manager_factory=lambda: manager,
+            run_context_store=run_context_store,
+        )
+
+        for kernel_id in ("kernel-tool-1", "kernel-tool-2", "kernel-tool-3"):
+            coro = observer(
+                {
+                    "event": "assistant_message",
+                    "content": "",
+                    "reasoning_content": "同一轮先检查 feishu-cli 是否存在",
+                    "message_id": kernel_id,
+                    "group_id": "llm-response-1",
+                    "run_id": "run-1",
+                }
+            )
+            if coro is not None:
+                await coro
+        await asyncio.sleep(0.05)
+
+        thinking = [p for _, p in send_calls if p.get("kind") == "thinking_segment"]
+        assert len(thinking) == 1, (
+            f"同一 group 的同一 thinking 只能转发一次: {send_calls}"
+        )
+        assert thinking[0]["text"] == "同一轮先检查 feishu-cli 是否存在"
+
+    @pytest.mark.asyncio
+    async def test_same_text_different_group_reasoning_is_not_collapsed(self):
+        from personal_assistant.main import _build_kernel_event_observer
+
+        send_calls: list[tuple] = []
+        manager = self._manager_with_sink(send_calls)
+        run_context_store = {
+            "run-1": {
+                "conversation_id": "conv-a",
+                "message_id": "agent-msg-1",
+                "agent_id": "Alpha",
+            }
+        }
+        observer = _build_kernel_event_observer(
+            im_connection_manager_factory=lambda: manager,
+            run_context_store=run_context_store,
+        )
+
+        for group_id in ("llm-response-1", "llm-response-2"):
+            coro = observer(
+                {
+                    "event": "assistant_message",
+                    "content": "",
+                    "reasoning_content": "碰巧相同的思考文本",
+                    "message_id": f"kernel-{group_id}",
+                    "group_id": group_id,
+                    "run_id": "run-1",
+                }
+            )
+            if coro is not None:
+                await coro
+        await asyncio.sleep(0.05)
+
+        thinking = [p for _, p in send_calls if p.get("kind") == "thinking_segment"]
+        assert len(thinking) == 2, (
+            f"不同 LLM response group 不能被文本去重: {send_calls}"
+        )
+        assert [p["text"] for p in thinking] == [
+            "碰巧相同的思考文本",
+            "碰巧相同的思考文本",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_unsent_reasoning_does_not_poison_group_dedupe(self):
+        from personal_assistant.main import _build_kernel_event_observer
+
+        send_calls: list[tuple] = []
+        manager = self._manager_with_sink(send_calls)
+        manager.send_json_await_ack.return_value = {
+            "payload": {"message_id": "agent-msg-1"}
+        }
+        run_context_store = {
+            "run-1": {
+                "conversation_id": "conv-a",
+                "message_id": "",
+                "agent_id": "Alpha",
+            }
+        }
+        observer = _build_kernel_event_observer(
+            im_connection_manager_factory=lambda: manager,
+            run_context_store=run_context_store,
+        )
+
+        dropped = observer(
+            {
+                "event": "assistant_message",
+                "content": "",
+                "reasoning_content": "先规划再回复",
+                "message_id": "kernel-tool-1",
+                "group_id": "llm-response-1",
+                "run_id": "run-1",
+            }
+        )
+        if dropped is not None:
+            await dropped
+        await asyncio.sleep(0.05)
+        assert send_calls == []
+
+        delivered = observer(
+            {
+                "event": "assistant_message",
+                "content": "可以，开始处理",
+                "reasoning_content": "先规划再回复",
+                "message_id": "kernel-tool-2",
+                "group_id": "llm-response-1",
+                "run_id": "run-1",
+            }
+        )
+        if delivered is not None:
+            await delivered
+        await asyncio.sleep(0.05)
+
+        thinking = [p for _, p in send_calls if p.get("kind") == "thinking_segment"]
+        assert len(thinking) == 1, (
+            f"未发送的 reasoning 不应占用 group 去重: {send_calls}"
+        )
+        assert thinking[0]["text"] == "先规划再回复"
+
+    @pytest.mark.asyncio
+    async def test_disconnected_turn_end_clears_reasoning_dedupe_state(self):
+        from personal_assistant.main import _build_kernel_event_observer
+
+        send_calls: list[tuple] = []
+        manager = self._manager_with_sink(send_calls)
+        run_context_store = {
+            "run-1": {
+                "conversation_id": "conv-a",
+                "message_id": "agent-msg-1",
+                "agent_id": "Alpha",
+            }
+        }
+        observer = _build_kernel_event_observer(
+            im_connection_manager_factory=lambda: manager,
+            run_context_store=run_context_store,
+        )
+
+        observer(
+            {
+                "event": "assistant_message",
+                "content": "",
+                "reasoning_content": "需要先查状态",
+                "message_id": "kernel-tool-1",
+                "group_id": "llm-response-1",
+                "run_id": "run-1",
+            }
+        )
+        await asyncio.sleep(0.05)
+
+        manager.connected = False
+        observer({"event": "turn_end", "run_id": "run-1", "completed": True})
+
+        manager.connected = True
+        observer(
+            {
+                "event": "assistant_message",
+                "content": "",
+                "reasoning_content": "需要先查状态",
+                "message_id": "kernel-tool-2",
+                "group_id": "llm-response-1",
+                "run_id": "run-1",
+            }
+        )
+        await asyncio.sleep(0.05)
+
+        thinking = [p for _, p in send_calls if p.get("kind") == "thinking_segment"]
+        assert len(thinking) == 2, (
+            f"断连后的 turn_end 必须清理 group 去重状态: {send_calls}"
+        )
