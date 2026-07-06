@@ -97,6 +97,11 @@ class RelayService:
             "conversation_type": conversation_type,
             "mentioned_agent_ids": mentioned_agent_ids,
         }
+        external_metadata = self._resolve_external_conversation_metadata(
+            conversation_id=message.conversation_id
+        )
+        if external_metadata:
+            metadata.update(external_metadata)
         if conversation_type == "group":
             metadata["participant_agent_ids"] = self._resolve_participant_agent_ids(
                 conversation_id=message.conversation_id,
@@ -139,6 +144,8 @@ class RelayService:
         effective_agent_id = (
             _override_agent_id
             if _override_agent_id is not None
+            else str(external_metadata["agent_id"])
+            if "agent_id" in external_metadata
             else agent_snapshot.agent_id
         )
         if effective_agent_id:
@@ -186,6 +193,33 @@ class RelayService:
         created = self.get_task_by_idempotency_key(idempotency_key=idempotency_key)
         assert created is not None
         return RelayEnqueueResult(relay_task=created, created=True)
+
+    def _resolve_external_conversation_metadata(
+        self, *, conversation_id: str
+    ) -> dict[str, object]:
+        """Return shadow-conversation metadata that must loop back to Gateway."""
+        row = self._connection.execute(
+            """
+            SELECT external_source, external_chat_id, config_agent_id, type
+            FROM conversations
+            WHERE id = ?
+            """,
+            (conversation_id,),
+        ).fetchone()
+        if row is None:
+            return {}
+        external_source = row["external_source"]
+        external_chat_id = row["external_chat_id"]
+        agent_id = row["config_agent_id"]
+        if external_source is None or external_chat_id is None or agent_id is None:
+            return {}
+        return {
+            "trigger_source": "im",
+            "external_source": str(external_source),
+            "external_chat_id": str(external_chat_id),
+            "agent_id": str(agent_id),
+            "conversation_type": str(row["type"]),
+        }
 
     def enqueue_message_relay_all(
         self,

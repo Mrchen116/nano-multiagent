@@ -5,10 +5,13 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 from typing import Literal
+from typing import Protocol
 
 from personal_assistant.channels.base import (
     InboundMessage,
@@ -28,6 +31,7 @@ from personal_assistant.gateway.run_queue import SessionRunQueue
 from personal_assistant.gateway.session_keys import (
     SessionBinding,
     SessionBindingStore,
+    build_external_session_key,
     build_reply_context,
     build_session_key,
     session_binding_store,
@@ -82,6 +86,16 @@ RelayLifecycleCallback = Callable[
     [InboundMessage, RelayLifecycleUpdate], Awaitable[None]
 ]
 
+
+class ShadowConversationSync(Protocol):
+    """Best-effort IM shadow conversation writer for external-channel inbound."""
+
+    async def sync_user_message(
+        self, message: InboundMessage, *, agent_id: str
+    ) -> str | None:
+        """Persist one inbound user message and return the IM shadow conversation id."""
+
+
 _TERMINAL_RUN_STATUSES = TERMINAL_RUN_STATUSES
 # Default port for the Gateway's internal HTTP dispatch endpoint.
 _DEFAULT_GATEWAY_INTERNAL_PORT = 8089
@@ -92,6 +106,7 @@ _DEFAULT_RUN_IDLE_TIMEOUT_SECONDS = 120.0
 # provider limit (Anthropic). An image over this is rejected at inbound rather than
 # sent, independent of which provider this turn's model resolves to.
 _DEFAULT_MAX_IMAGE_BYTES = 5 * 1024 * 1024
+_MAX_SESSION_DRAIN_LOCKS = 4096
 
 # bugfix-433 决策5: fixed user-facing messages for image failure types. Worker MUST
 # NOT paraphrase — these are part of the contract (incident Q6 / design 决策5 表).
@@ -183,6 +198,8 @@ class InboundPipeline:
         product_default_model: str | None = None,
         attachment_fetcher: Callable[[str], Awaitable[bytes]] | None = None,
         max_image_bytes: int = _DEFAULT_MAX_IMAGE_BYTES,
+        shadow_sync: ShadowConversationSync | None = None,
+        max_session_drain_locks: int = _MAX_SESSION_DRAIN_LOCKS,
     ) -> None:
         if run_idle_timeout_seconds <= 0:
             raise ValueError("run_idle_timeout_seconds must be > 0")
@@ -201,6 +218,7 @@ class InboundPipeline:
         # cap (决策5) above which an image is rejected rather than sent.
         self._attachment_fetcher = attachment_fetcher
         self._max_image_bytes = max_image_bytes
+        self._shadow_sync = shadow_sync
         self._outbound_router = outbound_router
         self._run_queue = run_queue
         self._session_store = session_store
@@ -224,7 +242,8 @@ class InboundPipeline:
         # nothing. This lock makes every drain for a session mutually exclusive;
         # it does NOT serialize the whole turn (the active run still receives the
         # injected steer), only the cheap gate+drain decision.
-        self._session_drain_locks: dict[str, asyncio.Lock] = {}
+        self._session_drain_locks: OrderedDict[str, asyncio.Lock] = OrderedDict()
+        self._max_session_drain_locks = max(1, max_session_drain_locks)
         # bugfix-417-M5 (#114): run_ids stopped by an explicit user /stop, so the
         # terminal reconcile can attribute the in-flight tool card's content to the
         # user ("[Request interrupted by user for tool use]") instead of the generic
@@ -263,9 +282,11 @@ class InboundPipeline:
         # Relay metadata supplies display_name when the IM service could resolve it.
         # Fallback to external_user_id ensures pre-M247 payloads still get the UUID prefix.
         sender_label = _resolve_sender_label(message)
+        sync_only = message.metadata.get("sync_only") is True
+        message = await self._sync_external_shadow_message(message, agent_id=agent_id)
 
         if message.is_group and self._group_context_store is not None:
-            if not should_process:
+            if sync_only or not should_process:
                 # This relay's agent is not addressed — buffer message as background context
                 # for this agent's own future turn.  Each agent receives its own relay from IM,
                 # so we only write to this agent's buffer key (no cross-agent fan-out).
@@ -276,6 +297,8 @@ class InboundPipeline:
                     sender=sender_label,
                 )
 
+        if sync_only:
+            return None
         if not should_process:
             return None
         session_key = build_session_key(message, agent_id=agent_id)
@@ -413,6 +436,32 @@ class InboundPipeline:
             parts,
         )
 
+    async def _sync_external_shadow_message(
+        self, message: InboundMessage, *, agent_id: str
+    ) -> InboundMessage:
+        sync = self._shadow_sync
+        if sync is None or not _is_external_channel_inbound(message):
+            return message
+        metadata = dict(message.metadata)
+        try:
+            shadow_conversation_id = await sync.sync_user_message(
+                message, agent_id=agent_id
+            )
+        except Exception as exc:  # noqa: BLE001
+            logging.getLogger(__name__).warning(
+                "external shadow sync failed channel=%s chat=%s agent=%s: %s",
+                message.channel_name,
+                message.external_chat_id,
+                agent_id,
+                exc,
+            )
+            shadow_conversation_id = None
+        if isinstance(shadow_conversation_id, str) and shadow_conversation_id.strip():
+            metadata["shadow_conversation_id"] = shadow_conversation_id.strip()
+        else:
+            metadata.pop("shadow_conversation_id", None)
+        return replace(message, metadata=metadata)
+
     async def _run_turn(
         self,
         message: InboundMessage,
@@ -541,9 +590,34 @@ class InboundPipeline:
                 lifecycle_detail = {"suppressed_by": "cancelled"}
             elif not self._should_suppress_no_reply(
                 reply_text, in_group=message.is_group
+            ) and not (
+                _is_external_channel_inbound(message)
+                and self._is_no_reply_token(reply_text)
             ):
+                reply_context = binding.reply_context
+                if _is_external_channel_inbound(message):
+                    reply_context = replace(
+                        reply_context,
+                        metadata={
+                            **dict(reply_context.metadata),
+                            "reply_phase": "final",
+                            "reply_dedupe_key": (f"{run_id}:text:{reply_text.strip()}"),
+                            **(
+                                {
+                                    "feishu_message_id": str(
+                                        message.metadata["feishu_message_id"]
+                                    )
+                                }
+                                if isinstance(
+                                    message.metadata.get("feishu_message_id"), str
+                                )
+                                and str(message.metadata["feishu_message_id"]).strip()
+                                else {}
+                            ),
+                        },
+                    )
                 outbound = self._outbound_router.send_text(
-                    text=reply_text, reply_context=binding.reply_context
+                    text=reply_text, reply_context=reply_context
                 )
             else:
                 lifecycle_detail = {"suppressed_by": "no_reply_token"}
@@ -595,6 +669,20 @@ class InboundPipeline:
 
     @staticmethod
     def _group_buf_key_for_agent(message: InboundMessage, agent_id: str) -> str:
+        metadata = dict(message.metadata)
+        external_source = metadata.get("external_source")
+        external_chat_id = metadata.get("external_chat_id")
+        if (
+            isinstance(external_source, str)
+            and external_source.strip()
+            and isinstance(external_chat_id, str)
+            and external_chat_id.strip()
+        ):
+            return build_external_session_key(
+                external_source=external_source.strip(),
+                external_chat_id=external_chat_id.strip(),
+                agent_id=agent_id,
+            )
         return f"{agent_id}:{message.channel_name}:{message.external_chat_id}"
 
     def _drain_lock_for(self, session_key: str) -> asyncio.Lock:
@@ -608,7 +696,24 @@ class InboundPipeline:
         if lock is None:
             lock = asyncio.Lock()
             self._session_drain_locks[session_key] = lock
+            self._trim_session_drain_locks()
+        else:
+            self._session_drain_locks.move_to_end(session_key)
         return lock
+
+    def _trim_session_drain_locks(self) -> None:
+        """Bound idle drain locks without evicting a lock that is in use."""
+        checked_locked = 0
+        while len(self._session_drain_locks) > self._max_session_drain_locks:
+            session_key, lock = next(iter(self._session_drain_locks.items()))
+            if lock.locked():
+                self._session_drain_locks.move_to_end(session_key)
+                checked_locked += 1
+                if checked_locked >= len(self._session_drain_locks):
+                    break
+                continue
+            self._session_drain_locks.popitem(last=False)
+            checked_locked = 0
 
     async def _build_message_parts(
         self, message: InboundMessage, *, agent_id: str, sender_label: str
@@ -892,9 +997,39 @@ class InboundPipeline:
         Supports ``/stop``, ``@agent /stop``, and ``/stop @agent`` forms.
         """
         text = message.text.strip()
-        mention = f"@{agent_id}"
-        text = text.replace(mention, "").strip()
-        return text == "/stop"
+        if text == "/stop":
+            return True
+
+        metadata = dict(message.metadata)
+        mentioned_agent_ids = metadata.get("mentioned_agent_ids")
+        structurally_mentioned = (
+            isinstance(mentioned_agent_ids, list) and agent_id in mentioned_agent_ids
+        )
+        reply_to_agent_id = metadata.get("reply_to_agent_id")
+        structurally_mentioned = structurally_mentioned or (
+            isinstance(reply_to_agent_id, str) and reply_to_agent_id.strip() == agent_id
+        )
+        if not structurally_mentioned:
+            mention = f"@{agent_id}"
+            return text.replace(mention, "").strip() == "/stop"
+
+        candidates = {f"@{agent_id}"}
+        mentions = metadata.get("feishu_mentions")
+        if isinstance(mentions, list):
+            for mention in mentions:
+                if not isinstance(mention, Mapping):
+                    continue
+                for key in ("name", "key"):
+                    value = mention.get(key)
+                    if isinstance(value, str) and value.strip():
+                        raw = value.strip()
+                        candidates.add(raw)
+                        candidates.add(raw if raw.startswith("@") else f"@{raw}")
+
+        normalized = text
+        for mention in sorted(candidates, key=len, reverse=True):
+            normalized = normalized.replace(mention, " ")
+        return " ".join(normalized.split()) == "/stop"
 
     async def _handle_stop_command(
         self,
@@ -934,6 +1069,7 @@ class InboundPipeline:
                 binding=binding,
                 agent_id=agent_id,
                 ack_tag="stop-noop",
+                source_message=message,
             )
             return PipelineResult(
                 agent_id=agent_id,
@@ -980,6 +1116,7 @@ class InboundPipeline:
             binding=binding,
             agent_id=agent_id,
             ack_tag="stop-ack",
+            source_message=message,
         )
         return PipelineResult(
             agent_id=agent_id,
@@ -997,6 +1134,7 @@ class InboundPipeline:
         binding: Any,
         agent_id: str,
         ack_tag: str,
+        source_message: InboundMessage | None = None,
     ) -> OutboundMessage | None:
         """Deliver a /stop acknowledgement to the originating IM conversation.
 
@@ -1015,16 +1153,25 @@ class InboundPipeline:
         ``kernel_session_id`` or an unrecognized suffix (e.g. ``|stop-ack``) leaves the
         ack unresolvable, the ack never returns, and the Gateway's single-frame-pending
         websocket queue stalls all subsequent streaming_delta frames.
+
+        feat-447 Round 7: IM deduplicates agent messages by ``from_session_id``.
+        A session-level key such as ``...:stop-noop`` would hide every later /stop
+        acknowledgement in the same Feishu shadow conversation. Include the source
+        inbound event id when present so distinct user-visible control events each
+        render once, while platform retries of the same event remain idempotent.
         """
+        from_session_id = _control_ack_from_session_id(
+            agent_id=agent_id,
+            kernel_session_id=binding.kernel_session_id,
+            ack_tag=ack_tag,
+            source_message=source_message,
+        )
         if self._bg_reply_sender is not None:
             try:
                 await self._bg_reply_sender(
                     text,
                     binding.reply_context,
-                    # Stable idempotency key so repeated /stop acks are deduplicated
-                    # by IM's agent_message_dispatch_log. Format mirrors BACKGROUND_TASK
-                    # relay: agent_id|tool_call:<stable-key>.
-                    f"{agent_id}|tool_call:{binding.kernel_session_id}:{ack_tag}",
+                    from_session_id,
                 )
             except Exception as exc:  # noqa: BLE001
                 logging.getLogger(__name__).warning(
@@ -1116,6 +1263,7 @@ class InboundPipeline:
             binding=binding,
             agent_id=agent_id,
             ack_tag=f"image-error-{failure_kind}",
+            source_message=message,
         )
         await self._emit_relay_lifecycle(
             message,
@@ -1671,6 +1819,56 @@ def _resolve_sender_label(message: "InboundMessage") -> str:
     if isinstance(display_name, str) and display_name.strip():
         return display_name.strip()
     return message.external_user_id
+
+
+def _control_ack_from_session_id(
+    *,
+    agent_id: str,
+    kernel_session_id: str,
+    ack_tag: str,
+    source_message: "InboundMessage" | None,
+) -> str:
+    """Build an IM dispatch key for one user-visible control acknowledgement."""
+
+    base = f"{agent_id}|tool_call:{kernel_session_id}:{ack_tag}"
+    source_id = _control_ack_source_id(source_message)
+    if source_id is None:
+        return base
+    return f"{base}:{source_id}"
+
+
+def _control_ack_source_id(message: "InboundMessage" | None) -> str | None:
+    if message is None:
+        return None
+    metadata = dict(message.metadata)
+    for key in ("feishu_message_id", "relay_task_id", "idempotency_key", "message_id"):
+        value = metadata.get(key)
+        if isinstance(value, str) and value.strip():
+            return _normalize_dispatch_id_part(value)
+    return None
+
+
+def _normalize_dispatch_id_part(value: str) -> str:
+    """Keep dispatch ids parseable while preserving enough platform identity."""
+
+    normalized = "_".join(value.strip().split())
+    normalized = normalized.replace("|", "_")
+    return normalized[:160] if len(normalized) > 160 else normalized
+
+
+def _is_external_channel_inbound(message: "InboundMessage") -> bool:
+    """Return whether this message originated from an external channel, not IM relay."""
+    metadata = dict(message.metadata)
+    trigger_source = metadata.get("trigger_source")
+    external_source = metadata.get("external_source")
+    external_chat_id = metadata.get("external_chat_id")
+    return bool(
+        isinstance(external_source, str)
+        and external_source.strip()
+        and isinstance(external_chat_id, str)
+        and external_chat_id.strip()
+        and trigger_source != "im"
+    )
 
 
 def _normalize_group_participants(raw_participants: object) -> list[dict[str, str]]:

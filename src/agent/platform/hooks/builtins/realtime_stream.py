@@ -52,6 +52,7 @@ def setup(hooks):  # noqa: ANN001, ANN201
             "run_id": run_id,
             "turn_id": event.get("turn_id"),
             "message_id": event.get("message_id"),
+            "group_id": event.get("group_id"),
             "content": event.get("content") or "",
             # feat-439-M2: 透传本回合思考。gateway observer 据此把空正文+有思考的
             # 回合作为过程项转发到气泡（不再整段丢弃）。None/"" 表示该回合无思考。

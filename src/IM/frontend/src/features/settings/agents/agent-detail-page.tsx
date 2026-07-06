@@ -1017,9 +1017,16 @@ export function AgentDetailPage() {
   const [hasAttemptedSave, setHasAttemptedSave] = useState(false);
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [activeSection, setActiveSection] = useState<"config" | "skills">("config");
+  const savedResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // feat-394 M9-C: once the user manually edits tool_allowlist, stop treating empty as
   // "use product defaults" — the empty list becomes a genuine empty whitelist.
   const [allowlistUserTouched, setAllowlistUserTouched] = useState(false);
+
+  useEffect(() => {
+    return () => {
+      if (savedResetTimer.current) clearTimeout(savedResetTimer.current);
+    };
+  }, []);
 
   const detailQuery = useQuery({
     queryKey: ["settings", "agents", agentId, "detail-state"],
@@ -1110,7 +1117,11 @@ export function AgentDetailPage() {
       }
       void queryClient.invalidateQueries({ queryKey: ["settings", "agents"], exact: true });
       void queryClient.invalidateQueries({ queryKey: ["settings", "agents", "summary"], exact: true });
-      setTimeout(() => setSaved(false), 1800);
+      if (savedResetTimer.current) clearTimeout(savedResetTimer.current);
+      savedResetTimer.current = setTimeout(() => {
+        setSaved(false);
+        savedResetTimer.current = null;
+      }, 1800);
     },
     onError: (error) => {
       setSaved(false);

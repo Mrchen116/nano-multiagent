@@ -63,6 +63,28 @@ def test_message_roundtrip_keeps_order(tmp_path: Path) -> None:
     assert listed[0].delivery_status == "completed"
 
 
+def test_message_roundtrip_preserves_external_sender_display_name(
+    tmp_path: Path,
+) -> None:
+    """External channel messages can persist a display name without creating a fake user."""
+    users, conversations, messages, _, _, _ = _build_repositories(tmp_path)
+    owner = users.create_user(username="owner", display_name="Owner")
+    conversation = conversations.create_conversation(
+        title="shadow group", participant_ids=[owner.id], caller_owner_id=owner.owner_id
+    )
+
+    created = messages.create_message(
+        conversation_id=conversation.id,
+        sender_user_id=owner.id,
+        content="来自飞书",
+        sender_display_name="Alice",
+    )
+    listed = messages.list_messages(conversation_id=conversation.id)
+
+    assert created.sender.display_name == "Alice"
+    assert listed[0].sender.display_name == "Alice"
+
+
 def test_create_message_accepts_agent_actor_sender_id(tmp_path: Path) -> None:
     """Accept agent sender ids and expose sender(actor) in returned message model."""
     users, conversations, messages, _, _, _ = _build_repositories(tmp_path)

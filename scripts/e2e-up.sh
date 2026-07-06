@@ -129,6 +129,12 @@ rm -f "$WT_ROOT/data/im_service.sqlite3"
 # feat-393 fix-r2: remove stale heartbeat-state.json so a previous run's last_due_at
 # does not trigger catch-up backlog on restart (that was the root cause of the 4x burst).
 rm -f "$WT_ROOT/heartbeat-state.json"
+# e2e-up.sh starts a fresh IM DB every run; Gateway's local state must be fresh too.
+# Otherwise old external chat bindings and buffered group context can route a new
+# validation run through stale kernel sessions from a previous e2e attempt.
+rm -f "$WT_ROOT/session_bindings.sqlite3"
+rm -f "$WT_ROOT/group_context_buffer.sqlite3"
+rm -f "$WT_ROOT/relay_dedup.sqlite3"
 
 cd "$WT_ROOT"
 IM_JWT_SECRET="$JWT_SECRET" PYTHONPATH="$SRC_DIR" \

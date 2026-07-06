@@ -25,6 +25,8 @@ dependencies = [
   "websockets>=13,<17.0",
   "aiohttp>=3.10,<4.0",
   "ddgs>=9,<11",
+  # feat-447: 飞书 SDK —— FeishuClient WebSocket 长连接 + REST API
+  "lark-oapi>=1.4,<2.0",
 ]
 
 [project.optional-dependencies]
@@ -48,10 +50,7 @@ where = ["src"]
 include = ["agent*", "coding_cli*", "personal_assistant*"]
 
 [tool.setuptools.package-data]
-personal_assistant = [
-  "builtin_skills/*/SKILL.md",
-  "builtin_skills/*/references/*",
-]
+personal_assistant = ["builtin_skills/**"]
 
 [tool.ruff]
 # feat-388: target-version 与 requires-python = ">=3.11" 对齐

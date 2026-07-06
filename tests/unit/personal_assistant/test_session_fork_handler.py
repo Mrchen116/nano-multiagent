@@ -6,10 +6,12 @@ from types import SimpleNamespace
 
 import pytest
 
+from personal_assistant.channels.base import ReplyContext
 from personal_assistant.gateway.session_keys import (
     PersistentSessionBindingStore,
     bind_conversation_session,
     build_conversation_session_key,
+    build_external_session_key,
 )
 
 
@@ -107,6 +109,56 @@ async def test_fork_handler_missing_source_binding_returns_not_ok(
     assert result["ok"] is False
     assert result.get("error")
     assert kernel.fork_calls == []
+
+
+@pytest.mark.asyncio
+async def test_fork_handler_uses_external_source_binding_for_shadow_conversation(
+    tmp_path: Path,
+) -> None:
+    kernel = _FakeKernel()
+    store = _store(tmp_path)
+    store.bind(
+        session_key=build_external_session_key(
+            external_source="feishu",
+            external_chat_id="oc_group",
+            agent_id="alpha",
+        ),
+        kernel_session_id="ksess-src",
+        reply_context=ReplyContext(
+            channel_name="feishu:alpha",
+            target_chat_id="feishu:cli_a:group:oc_group",
+            metadata={"external_source": "feishu", "external_chat_id": "oc_group"},
+        ),
+    )
+    handler = _handler(tmp_path, kernel, store)
+
+    result = await handler(
+        {
+            "source_conversation_id": "shadow-conv",
+            "source_external_source": "feishu",
+            "source_external_chat_id": "oc_group",
+            "new_conversation_id": "conv-new",
+            "agent_id": "alpha",
+            "fork_point": {"message_id": "a3"},
+        }
+    )
+
+    assert result["ok"] is True
+    assert result["new_session_id"] == "ksess-src-fork"
+    assert kernel.fork_calls == [
+        {
+            "session_id": "ksess-src",
+            "workspace_root": tmp_path / "ws-alpha",
+            "up_to": "a3",
+        }
+    ]
+    new_binding = store.get(
+        build_conversation_session_key(
+            channel_name="web_relay", conversation_id="conv-new", agent_id="alpha"
+        )
+    )
+    assert new_binding is not None
+    assert new_binding.kernel_session_id == "ksess-src-fork"
 
 
 @pytest.mark.asyncio

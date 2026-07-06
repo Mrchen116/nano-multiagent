@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import json
+import sqlite3
 
 import pytest
 
@@ -327,3 +328,98 @@ def test_conversation_run_state_is_running_for_active_agent_message(
     listed = conversations.list_conversations_for_owner(owner_id=owner.owner_id)
 
     assert listed[0].run_state == "running"
+
+
+def test_external_conversation_find_or_create_is_agent_scoped_and_updates_title(
+    tmp_path: Path,
+) -> None:
+    """Find or create one shadow conversation per external chat, owner, and agent."""
+    users, conversations, _, profiles, _, _ = _build_repositories(tmp_path)
+    owner = users.create_user(username="owner", display_name="Owner")
+    users.create_user(username="agent:plato", display_name="Plato")
+    users.create_user(username="agent:luban", display_name="Luban")
+    profiles.upsert_profile(
+        agent_id="plato",
+        owner_id=owner.owner_id,
+        display_name="Plato",
+        description="",
+        system_prompt="You are Plato.",
+        skills=[],
+        tool_allowlist=[],
+        group_reply_policy="MENTION",
+        default_model=None,
+        workspace_root=None,
+    )
+    profiles.upsert_profile(
+        agent_id="luban",
+        owner_id=owner.owner_id,
+        display_name="Luban",
+        description="",
+        system_prompt="You are Luban.",
+        skills=[],
+        tool_allowlist=[],
+        group_reply_policy="MENTION",
+        default_model=None,
+        workspace_root=None,
+    )
+
+    first = conversations.find_or_create_external_conversation(
+        external_source="feishu",
+        external_chat_id="oc_product",
+        agent_id="plato",
+        title="Plato · 产品群 · feishu",
+        is_group=True,
+        participant_ids=[f"user:{owner.id}", "agent:plato"],
+        owner_id=owner.owner_id,
+        creator_id=f"user:{owner.id}",
+    )
+    second = conversations.find_or_create_external_conversation(
+        external_source="feishu",
+        external_chat_id="oc_product",
+        agent_id="plato",
+        title="Plato · Renamed · feishu",
+        is_group=True,
+        participant_ids=[f"user:{owner.id}", "agent:plato"],
+        owner_id=owner.owner_id,
+        creator_id=f"user:{owner.id}",
+    )
+    other_agent = conversations.find_or_create_external_conversation(
+        external_source="feishu",
+        external_chat_id="oc_product",
+        agent_id="luban",
+        title="Luban · 产品群 · feishu",
+        is_group=True,
+        participant_ids=[f"user:{owner.id}", "agent:luban"],
+        owner_id=owner.owner_id,
+        creator_id=f"user:{owner.id}",
+    )
+
+    assert second.id == first.id
+    assert second.title == "Plato · Renamed · feishu"
+    assert second.type == "group"
+    assert second.config_agent_id == "plato"
+    assert second.external_source == "feishu"
+    assert second.external_chat_id == "oc_product"
+    assert other_agent.id != first.id
+    assert other_agent.config_agent_id == "luban"
+
+    with pytest.raises(sqlite3.IntegrityError):
+        conversations._connection.execute(  # noqa: SLF001
+            """
+            INSERT INTO conversations(
+                id, title, type, owner_id, creator_id, config_agent_id,
+                external_source, external_chat_id, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "duplicate-shadow",
+                "Duplicate",
+                "group",
+                owner.owner_id,
+                owner.id,
+                "plato",
+                "feishu",
+                "oc_product",
+                "2026-01-01T00:00:00Z",
+            ),
+        )

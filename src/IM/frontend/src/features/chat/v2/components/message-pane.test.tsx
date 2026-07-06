@@ -1,6 +1,6 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, createEvent, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import "../../../../i18n";
 import type { Attachment, Conversation, MentionCandidate, Message, PermissionRequest } from "../chat-types";
@@ -70,6 +70,31 @@ const MENTION_CANDIDATES: MentionCandidate[] = [
 ];
 
 describe("MessagePane", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function setScrollMetrics(
+    el: HTMLElement,
+    metrics: { scrollTop: number; scrollHeight: number; clientHeight: number }
+  ) {
+    Object.defineProperty(el, "scrollTop", {
+      configurable: true,
+      get: () => metrics.scrollTop,
+      set: (value) => {
+        metrics.scrollTop = Number(value);
+      },
+    });
+    Object.defineProperty(el, "scrollHeight", {
+      configurable: true,
+      get: () => metrics.scrollHeight,
+    });
+    Object.defineProperty(el, "clientHeight", {
+      configurable: true,
+      get: () => metrics.clientHeight,
+    });
+  }
+
   it("renders the conversation title and each message content", () => {
     render(
       <MessagePane
@@ -83,6 +108,780 @@ describe("MessagePane", () => {
     expect(screen.getByText("Hello")).toBeInTheDocument();
     expect(screen.getByText("Hi back")).toBeInTheDocument();
   });
+
+  describe("history pagination scroll trigger (feat-451 R1)", () => {
+    const MANY_MESSAGES: Message[] = Array.from({ length: 8 }, (_, idx) => ({
+      id: `hist-${idx + 1}`,
+      conversation_id: "c1",
+      sender: idx % 2 === 0
+        ? { type: "user", id: "u1", display_name: "You" }
+        : { type: "agent", id: "a-planner", display_name: "Planner" },
+      sender_user_id: idx % 2 === 0 ? "u1" : "a-planner",
+      sender_type: idx % 2 === 0 ? "user" : "agent",
+      content: `history message ${idx + 1}`,
+      attachments: [],
+      delivery_status: "completed",
+      created_at: `2026-01-01T00:00:0${idx}Z`,
+      permission_requests: []
+    }));
+
+    it("calls onLoadOlder when scrollTop enters the upper third of scrollable content", () => {
+      const onLoadOlder = vi.fn();
+      const { container } = render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={MANY_MESSAGES}
+          mentionCandidates={[]}
+          hasMoreHistory
+          isLoadingHistory={false}
+          onLoadOlder={onLoadOlder}
+          onSend={() => {}}
+        />
+      );
+      const scroller = container.querySelector(".chat-pane-messages") as HTMLElement;
+      setScrollMetrics(scroller, {
+        scrollTop: 260,
+        scrollHeight: 1200,
+        clientHeight: 300
+      });
+
+      fireEvent.scroll(scroller);
+
+      expect(onLoadOlder).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not call onLoadOlder below the upper-third threshold or while loading", () => {
+      const onLoadOlder = vi.fn();
+      const { container, rerender } = render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={MANY_MESSAGES}
+          mentionCandidates={[]}
+          hasMoreHistory
+          isLoadingHistory={false}
+          onLoadOlder={onLoadOlder}
+          onSend={() => {}}
+        />
+      );
+      const scroller = container.querySelector(".chat-pane-messages") as HTMLElement;
+      setScrollMetrics(scroller, {
+        scrollTop: 400,
+        scrollHeight: 1200,
+        clientHeight: 300
+      });
+      fireEvent.scroll(scroller);
+      expect(onLoadOlder).not.toHaveBeenCalled();
+
+      rerender(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={MANY_MESSAGES}
+          mentionCandidates={[]}
+          hasMoreHistory
+          isLoadingHistory
+          onLoadOlder={onLoadOlder}
+          onSend={() => {}}
+        />
+      );
+      setScrollMetrics(scroller, {
+        scrollTop: 100,
+        scrollHeight: 1200,
+        clientHeight: 300
+      });
+      fireEvent.scroll(scroller);
+      expect(onLoadOlder).not.toHaveBeenCalled();
+    });
+
+    it("keeps the prior anchor message at the same viewport position after older messages prepend", () => {
+      const beforeAnchorOffset = 240;
+      const afterAnchorOffset = 640;
+      let anchorOffset = beforeAnchorOffset;
+      const { container, rerender } = render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={MANY_MESSAGES}
+          mentionCandidates={[]}
+          hasMoreHistory
+          isLoadingHistory={false}
+          onLoadOlder={() => {}}
+          onSend={() => {}}
+        />
+      );
+      const scroller = container.querySelector(".chat-pane-messages") as HTMLElement;
+      setScrollMetrics(scroller, {
+        scrollTop: beforeAnchorOffset,
+        scrollHeight: 900,
+        clientHeight: 300
+      });
+      const anchor = screen.getByTestId("message-bubble-hist-4").closest(".chat-bubble") as HTMLElement;
+      Object.defineProperty(anchor, "offsetTop", {
+        configurable: true,
+        get: () => anchorOffset,
+      });
+
+      rerender(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={MANY_MESSAGES}
+          mentionCandidates={[]}
+          hasMoreHistory
+          isLoadingHistory
+          onLoadOlder={() => {}}
+          onSend={() => {}}
+        />
+      );
+
+      anchorOffset = afterAnchorOffset;
+      rerender(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[
+            {
+              ...MANY_MESSAGES[0]!,
+              id: "older-1",
+              content: "older message",
+              created_at: "2025-12-31T23:59:00Z"
+            },
+            ...MANY_MESSAGES
+          ]}
+          mentionCandidates={[]}
+          hasMoreHistory
+          isLoadingHistory={false}
+          onLoadOlder={() => {}}
+          onSend={() => {}}
+        />
+      );
+
+      expect(scroller.scrollTop).toBe(afterAnchorOffset);
+    });
+
+    it("does not treat the user as near bottom after restoring an older-history anchor away from bottom", () => {
+      let anchorOffset = 600;
+      const { container, rerender } = render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={MANY_MESSAGES}
+          mentionCandidates={[]}
+          hasMoreHistory
+          isLoadingHistory={false}
+          onLoadOlder={() => {}}
+          onSend={() => {}}
+        />
+      );
+      const scroller = container.querySelector(".chat-pane-messages") as HTMLElement;
+      const metrics = { scrollTop: 600, scrollHeight: 900, clientHeight: 300 };
+      setScrollMetrics(scroller, metrics);
+      fireEvent.scroll(scroller);
+      const anchor = screen.getByTestId("message-bubble-hist-1").closest(".chat-bubble") as HTMLElement;
+      Object.defineProperty(anchor, "offsetTop", {
+        configurable: true,
+        get: () => anchorOffset,
+      });
+
+      rerender(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={MANY_MESSAGES}
+          mentionCandidates={[]}
+          hasMoreHistory
+          isLoadingHistory
+          onLoadOlder={() => {}}
+          onSend={() => {}}
+        />
+      );
+
+      anchorOffset = 100;
+      metrics.scrollHeight = 1200;
+      rerender(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[
+            {
+              ...MANY_MESSAGES[0]!,
+              id: "older-near-bottom-1",
+              content: "older near bottom reset",
+              created_at: "2025-12-31T23:59:00Z"
+            },
+            ...MANY_MESSAGES
+          ]}
+          mentionCandidates={[]}
+          hasMoreHistory
+          isLoadingHistory={false}
+          onLoadOlder={() => {}}
+          onSend={() => {}}
+        />
+      );
+      expect(scroller.scrollTop).toBe(100);
+
+      metrics.scrollHeight = 1300;
+      rerender(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[
+            {
+              ...MANY_MESSAGES[0]!,
+              id: "older-near-bottom-1",
+              content: "older near bottom reset",
+              created_at: "2025-12-31T23:59:00Z"
+            },
+            ...MANY_MESSAGES,
+            {
+              ...MANY_MESSAGES[0]!,
+              id: "live-after-anchor-restore",
+              content: "live after anchor restore",
+              created_at: "2026-01-01T00:00:20Z"
+            }
+          ]}
+          mentionCandidates={[]}
+          hasMoreHistory
+          isLoadingHistory={false}
+          onLoadOlder={() => {}}
+          onSend={() => {}}
+        />
+      );
+
+      expect(scroller.scrollTop).toBe(100);
+    });
+
+    it("clears an in-flight history anchor when switching conversations", () => {
+      const beforeAnchorOffset = 240;
+      const afterAnchorOffset = 640;
+      let anchorOffset = beforeAnchorOffset;
+      const { container, rerender } = render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={MANY_MESSAGES}
+          mentionCandidates={[]}
+          hasMoreHistory
+          isLoadingHistory={false}
+          onLoadOlder={() => {}}
+          onSend={() => {}}
+        />
+      );
+      const scroller = container.querySelector(".chat-pane-messages") as HTMLElement;
+      setScrollMetrics(scroller, {
+        scrollTop: beforeAnchorOffset,
+        scrollHeight: 900,
+        clientHeight: 300
+      });
+      const anchor = screen.getByTestId("message-bubble-hist-4").closest(".chat-bubble") as HTMLElement;
+      Object.defineProperty(anchor, "offsetTop", {
+        configurable: true,
+        get: () => anchorOffset,
+      });
+
+      rerender(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={MANY_MESSAGES}
+          mentionCandidates={[]}
+          hasMoreHistory
+          isLoadingHistory
+          onLoadOlder={() => {}}
+          onSend={() => {}}
+        />
+      );
+
+      anchorOffset = afterAnchorOffset;
+      rerender(
+        <MessagePane
+          conversation={{ ...DIRECT_CONV, id: "c-next", title: "Writer" }}
+          messages={[
+            {
+              ...MANY_MESSAGES[3]!,
+              conversation_id: "c-next",
+              content: "next conversation message",
+              created_at: "2026-01-02T00:00:00Z"
+            }
+          ]}
+          mentionCandidates={[]}
+          hasMoreHistory={false}
+          isLoadingHistory={false}
+          onLoadOlder={() => {}}
+          onSend={() => {}}
+        />
+      );
+
+      expect(scroller.scrollTop).not.toBe(afterAnchorOffset);
+    });
+
+    it("renders loading and no-more history status at the top of the message list", () => {
+      const { rerender } = render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={MANY_MESSAGES}
+          mentionCandidates={[]}
+          hasMoreHistory
+          isLoadingHistory
+          onLoadOlder={() => {}}
+          onSend={() => {}}
+        />
+      );
+      expect(screen.getByText(/Loading earlier messages/i)).toBeInTheDocument();
+
+      rerender(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={MANY_MESSAGES}
+          mentionCandidates={[]}
+          hasMoreHistory={false}
+          isLoadingHistory={false}
+          onLoadOlder={() => {}}
+          onSend={() => {}}
+        />
+      );
+      expect(screen.getByText(/No earlier messages/i)).toBeInTheDocument();
+    });
+
+    it("does not render no-more history status while history metadata is unknown", () => {
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={MANY_MESSAGES}
+          mentionCandidates={[]}
+          hasMoreHistory={undefined}
+          isLoadingHistory={false}
+          onLoadOlder={() => {}}
+          onSend={() => {}}
+        />
+      );
+
+      expect(screen.queryByText(/No earlier messages/i)).not.toBeInTheDocument();
+    });
+  });
+
+  describe("smart auto-scroll and composer input behavior (feat-451 R2)", () => {
+    const BASE_MESSAGES: Message[] = Array.from({ length: 3 }, (_, idx) => ({
+      id: `scroll-${idx + 1}`,
+      conversation_id: "c1",
+      sender: idx % 2 === 0
+        ? { type: "user", id: "u1", display_name: "You" }
+        : { type: "agent", id: "a-planner", display_name: "Planner" },
+      sender_user_id: idx % 2 === 0 ? "u1" : "a-planner",
+      sender_type: idx % 2 === 0 ? "user" : "agent",
+      content: `scroll message ${idx + 1}`,
+      attachments: [],
+      delivery_status: "completed",
+      created_at: `2026-01-01T00:00:0${idx}Z`,
+      permission_requests: []
+    }));
+
+    it("does not auto-scroll to bottom when a new message arrives while the user is reading history", () => {
+      const { container, rerender } = render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={BASE_MESSAGES}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+      const scroller = container.querySelector(".chat-pane-messages") as HTMLElement;
+      const metrics = { scrollTop: 120, scrollHeight: 1200, clientHeight: 300 };
+      setScrollMetrics(scroller, metrics);
+      fireEvent.scroll(scroller);
+
+      rerender(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[
+            ...BASE_MESSAGES,
+            {
+              ...BASE_MESSAGES[0]!,
+              id: "scroll-new",
+              content: "new arrival",
+              created_at: "2026-01-01T00:00:10Z"
+            }
+          ]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+
+      expect(scroller.scrollTop).toBe(120);
+    });
+
+    it("auto-scrolls to bottom when a new message arrives and the user is already near bottom", () => {
+      const { container, rerender } = render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={BASE_MESSAGES}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+      const scroller = container.querySelector(".chat-pane-messages") as HTMLElement;
+      const metrics = { scrollTop: 860, scrollHeight: 1200, clientHeight: 300 };
+      setScrollMetrics(scroller, metrics);
+      fireEvent.scroll(scroller);
+      metrics.scrollHeight = 1400;
+
+      rerender(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[
+            ...BASE_MESSAGES,
+            {
+              ...BASE_MESSAGES[0]!,
+              id: "scroll-bottom-new",
+              content: "bottom arrival",
+              created_at: "2026-01-01T00:00:10Z"
+            }
+          ]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+
+      expect(scroller.scrollTop).toBe(1400);
+    });
+
+    it("sends on Enter on mobile and clears the composer", async () => {
+      const user = userEvent.setup();
+      const onSend = vi.fn();
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={BASE_MESSAGES}
+          mentionCandidates={[]}
+          isMobile
+          onSend={onSend}
+        />
+      );
+      const composer = screen.getByRole("textbox") as HTMLTextAreaElement;
+      await user.type(composer, "mobile send");
+      await user.keyboard("{Enter}");
+      expect(onSend).toHaveBeenCalledWith("mobile send", []);
+      expect(composer.value).toBe("");
+    });
+
+    it("sends on desktop Enter without Shift and clears the composer", async () => {
+      const user = userEvent.setup();
+      const onSend = vi.fn();
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={BASE_MESSAGES}
+          mentionCandidates={[]}
+          isMobile={false}
+          onSend={onSend}
+        />
+      );
+      const composer = screen.getByRole("textbox") as HTMLTextAreaElement;
+      await user.type(composer, "desktop send");
+      await user.keyboard("{Enter}");
+      expect(onSend).toHaveBeenCalledWith("desktop send", []);
+      expect(composer.value).toBe("");
+    });
+
+    it("does not keep a force-scroll request when send resolves without appending a message", async () => {
+      const user = userEvent.setup();
+      const onSend = vi.fn();
+      const { container, rerender } = render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={BASE_MESSAGES}
+          mentionCandidates={[]}
+          selfUserId="u1"
+          onSend={onSend}
+        />
+      );
+      const scroller = container.querySelector(".chat-pane-messages") as HTMLElement;
+      const metrics = { scrollTop: 120, scrollHeight: 1200, clientHeight: 300 };
+      setScrollMetrics(scroller, metrics);
+      fireEvent.scroll(scroller);
+
+      const composer = screen.getByRole("textbox") as HTMLTextAreaElement;
+      await user.type(composer, "send but no append");
+      await user.keyboard("{Enter}");
+      expect(onSend).toHaveBeenCalledWith("send but no append", []);
+      expect(scroller.scrollTop).toBe(120);
+
+      metrics.scrollHeight = 1400;
+      rerender(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[
+            ...BASE_MESSAGES,
+            {
+              ...BASE_MESSAGES[1]!,
+              id: "external-after-no-append",
+              content: "external after no append",
+              created_at: "2026-01-01T00:00:10Z"
+            }
+          ]}
+          mentionCandidates={[]}
+          onSend={onSend}
+        />
+      );
+
+      expect(scroller.scrollTop).toBe(120);
+    });
+
+    it("keeps force-scroll for the local user message appended after send", async () => {
+      const user = userEvent.setup();
+      const onSend = vi.fn();
+      const { container, rerender } = render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={BASE_MESSAGES}
+          mentionCandidates={[]}
+          selfUserId="u1"
+          onSend={onSend}
+        />
+      );
+      const scroller = container.querySelector(".chat-pane-messages") as HTMLElement;
+      const metrics = { scrollTop: 120, scrollHeight: 1200, clientHeight: 300 };
+      setScrollMetrics(scroller, metrics);
+      fireEvent.scroll(scroller);
+
+      const composer = screen.getByRole("textbox") as HTMLTextAreaElement;
+      await user.type(composer, "local append");
+      await user.keyboard("{Enter}");
+      metrics.scrollHeight = 1400;
+
+      rerender(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[
+            ...BASE_MESSAGES,
+            {
+              ...BASE_MESSAGES[0]!,
+              id: "local-user-append",
+              content: "local append",
+              created_at: "2026-01-01T00:00:10Z"
+            }
+          ]}
+          mentionCandidates={[]}
+          selfUserId="u1"
+          onSend={onSend}
+        />
+      );
+
+      expect(scroller.scrollTop).toBe(1400);
+    });
+
+    it("keeps desktop Shift+Enter as newline without sending", async () => {
+      const user = userEvent.setup();
+      const onSend = vi.fn();
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={BASE_MESSAGES}
+          mentionCandidates={[]}
+          onSend={onSend}
+        />
+      );
+      const composer = screen.getByRole("textbox") as HTMLTextAreaElement;
+      await user.type(composer, "line one");
+      await user.keyboard("{Shift>}{Enter}{/Shift}");
+      await user.type(composer, "line two");
+      expect(onSend).not.toHaveBeenCalled();
+      expect(composer.value).toBe("line one\nline two");
+    });
+
+    it("lets the slash picker own mobile Enter instead of sending raw slash text", async () => {
+      const user = userEvent.setup();
+      const onSend = vi.fn();
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={BASE_MESSAGES}
+          mentionCandidates={[]}
+          slashSkills={[{ kind: "skill", name: "doc", description: "docs", location: "/skills/doc", fromAgents: ["Planner"] }]}
+          isMobile
+          onSend={onSend}
+        />
+      );
+      const composer = screen.getByRole("textbox") as HTMLTextAreaElement;
+      await user.type(composer, "/");
+      expect(await screen.findByText("/stop")).toBeInTheDocument();
+      await user.keyboard("{Enter}");
+      expect(onSend).not.toHaveBeenCalled();
+      expect(composer.value).toBe("/stop ");
+    });
+
+    it("auto-grows the mobile composer up to four rows", async () => {
+      const user = userEvent.setup();
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={BASE_MESSAGES}
+          mentionCandidates={[]}
+          isMobile
+          onSend={() => {}}
+        />
+      );
+      const composer = screen.getByRole("textbox") as HTMLTextAreaElement;
+      expect(composer.rows).toBe(1);
+      await user.type(composer, "one{Shift>}{Enter}{/Shift}two{Shift>}{Enter}{/Shift}three{Shift>}{Enter}{/Shift}four{Shift>}{Enter}{/Shift}five");
+      expect(composer.rows).toBe(4);
+    });
+  });
+
+  describe("message action menu (feat-451 R3)", () => {
+    function stubClipboard() {
+      const writeText = vi.fn(async () => undefined);
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: { writeText },
+      });
+      return writeText;
+    }
+
+    it("opens a desktop right-click menu and copies the message text", async () => {
+      const user = userEvent.setup();
+      const writeText = stubClipboard();
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={SAMPLE_MESSAGES}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+
+      fireEvent.contextMenu(screen.getByTestId("message-bubble-m2"));
+      expect(screen.getByRole("menu")).toBeInTheDocument();
+      await user.click(screen.getByRole("menuitem", { name: /Copy/i }));
+
+      expect(writeText).toHaveBeenCalledWith("Hi back");
+      expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    });
+
+    it("keeps the mobile long-press copy menu open after touch release and synthetic mouse down", async () => {
+      vi.useFakeTimers();
+      const writeText = stubClipboard();
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={SAMPLE_MESSAGES}
+          mentionCandidates={[]}
+          isMobile
+          onSend={() => {}}
+        />
+      );
+
+      const bubble = screen.getByTestId("message-bubble-m1");
+      fireEvent.touchStart(bubble, {
+        touches: [{ clientX: 24, clientY: 32 }],
+      });
+      act(() => vi.advanceTimersByTime(650));
+      fireEvent.touchEnd(bubble);
+      fireEvent.mouseDown(bubble);
+      expect(screen.getByRole("menu")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("menuitem", { name: /Copy/i }));
+
+      expect(writeText).toHaveBeenCalledWith("Hello");
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+      vi.useRealTimers();
+    });
+
+    it("keeps the mobile long-press fork menu open after touch release and synthetic mouse down", () => {
+      vi.useFakeTimers();
+      const onFork = vi.fn();
+      const forkable: Message = {
+        ...SAMPLE_MESSAGES[1]!,
+        id: "forkable-mobile",
+        kernel_message_id: "kernel-forkable",
+        delivery_status: "completed"
+      };
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[forkable]}
+          mentionCandidates={[]}
+          isMobile
+          isDirectChat
+          agentOnline
+          onFork={onFork}
+          onSend={() => {}}
+        />
+      );
+
+      const bubble = screen.getByTestId("message-bubble-forkable-mobile");
+      fireEvent.touchStart(bubble, {
+        touches: [{ clientX: 48, clientY: 72 }],
+      });
+      act(() => vi.advanceTimersByTime(650));
+      fireEvent.touchEnd(bubble);
+      fireEvent.mouseDown(bubble);
+      expect(screen.getByRole("menu")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("menuitem", { name: /fork/i }));
+
+      expect(onFork).toHaveBeenCalledWith("forkable-mobile");
+      vi.useRealTimers();
+    });
+
+    it("prevents the native mobile context menu after long press", () => {
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={SAMPLE_MESSAGES}
+          mentionCandidates={[]}
+          isMobile
+          onSend={() => {}}
+        />
+      );
+
+      const event = createEvent.contextMenu(screen.getByTestId("message-bubble-m1"));
+      const preventDefault = vi.spyOn(event, "preventDefault");
+      fireEvent(screen.getByTestId("message-bubble-m1"), event);
+
+      expect(preventDefault).toHaveBeenCalled();
+      expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    });
+
+    it("keeps the menu open and reports a clipboard rejection", async () => {
+      const writeText = vi.fn(async () => {
+        throw new Error("denied");
+      });
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: { writeText },
+      });
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={SAMPLE_MESSAGES}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+
+      fireEvent.contextMenu(screen.getByTestId("message-bubble-m2"));
+      fireEvent.click(screen.getByRole("menuitem", { name: /Copy/i }));
+
+      expect(writeText).toHaveBeenCalledWith("Hi back");
+      expect(await screen.findByText(/Copy failed/i)).toBeInTheDocument();
+      expect(screen.getByRole("menu")).toBeInTheDocument();
+    });
+
+    it("keeps the menu open and reports when clipboard is unavailable", async () => {
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: undefined,
+      });
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={SAMPLE_MESSAGES}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+
+      fireEvent.contextMenu(screen.getByTestId("message-bubble-m2"));
+      fireEvent.click(screen.getByRole("menuitem", { name: /Copy/i }));
+
+      expect(await screen.findByText(/Copy failed/i)).toBeInTheDocument();
+      expect(screen.getByRole("menu")).toBeInTheDocument();
+    });
+  });
+
 
   it("renders a GFM markdown table in an agent message as a real <table>", () => {
     const tableMsg: Message = {
