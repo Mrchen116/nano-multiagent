@@ -14,7 +14,7 @@
 ## R2 — C2 实现：只展示一次同 response thinking，保留历史 round-trip
 
 - Context: `agent.core.agent.loop` 的 `Message` 已经保存 `group_id`，但 `message_end` 事件和 `realtime_stream` 没有透传给 Gateway；provider/mapper 的 `reasoning_content` / `reasoning_signature` round-trip 不能删。
-- Decision: `loop.py` 在 `message_end` payload 增加 `group_id`；`realtime_stream.py` 在 `assistant_message` 事件继续透传；Gateway observer 用 per-run `visible_reasoning_by_group` 记录每个 response group 已转发的 reasoning。相同文本重复 suppress；后续文本以前一段为前缀时只转发新增后缀；不同 group 不合并。
+- Decision: `loop.py` 在 `message_end` payload 增加 `group_id`；`realtime_stream.py` 在 `assistant_message` 事件继续透传；Gateway observer 用 per-run `visible_reasoning_by_group` 记录每个 response group 已实际转发的 reasoning。相同文本重复 suppress；后续文本以前一段为前缀时只转发新增后缀；不同 group 不合并。
 - Rationale: 修复点落在用户可见事件边界，不改变 LLM 历史消息和 provider 出站映射，保住 bugfix-373/375 的 thinking round-trip 约束。per-run 状态在 `turn_end` 和 `run_terminal_reconcile` 清理，不落库、不影响历史消息。
 - Evidence:
   - Green: `/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest tests/unit/platform/hooks/test_realtime_stream_events.py::test_message_end_assistant_message_carries_group_id tests/unit/test_inbound_pipeline_streaming.py::TestObserverForwardsThinkingSegment::test_same_group_reasoning_is_forwarded_once tests/unit/test_inbound_pipeline_streaming.py::TestObserverForwardsThinkingSegment::test_same_text_different_group_reasoning_is_not_collapsed -q` -> 3 passed.
@@ -22,14 +22,27 @@
 - Commits: 687643b8.
 - Next: R3。
 
+## CR — code review closure
+
+- Context: `change-code-review` finder + verifier 确认两个阻塞边界：① IM 断连时 `turn_end` / `run_terminal_reconcile` 会在 connectivity guard 处早退，导致 per-run visible reasoning map 不清理；② 旧实现先把 reasoning 标记为 seen，再进入 heartbeat/direct lazy-bubble 分支，若该分支没有实际发送 thinking，后续同 group 正文会丢掉 thinking。
+- Decision: 增加两个回归测试覆盖上述边界；把 helper 拆成 `_next_visible_reasoning` 与 `_mark_visible_reasoning`，只在实际发送 `thinking_segment` 后标记 full reasoning；把 `turn_end` / `run_terminal_reconcile` 的清理提前到 connectivity guard 之前。
+- Rationale: 去重状态必须描述“用户已经看见的 reasoning”，不能描述“observer 曾经计算过的 reasoning”。terminal 清理也应独立于 IM 连接状态，否则长驻 Gateway 会保留 run-scoped 文本。
+- Evidence:
+  - Red: `/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest tests/unit/test_inbound_pipeline_streaming.py::TestObserverForwardsThinkingSegment::test_unsent_reasoning_does_not_poison_group_dedupe tests/unit/test_inbound_pipeline_streaming.py::TestObserverForwardsThinkingSegment::test_disconnected_turn_end_clears_reasoning_dedupe_state -q` -> 2 failed.
+  - Green: same command -> 2 passed.
+  - Code review verifier: both candidates CONFIRMED before fix.
+- Rollback: Revert CR closure commit.
+- Commits: TODO.
+- Next: R3 final checks.
+
 ## R3 — C3 验证与文档回填
 
 - Context: 需要证明源头事件、hook 投影、Gateway observer 三段链路一起成立。
-- Decision: 扩展 `tests/unit/test_agent_loop.py::test_message_end_observe_event_carries_reasoning_content`，断言带 reasoning 的 `message_end` 同时带 `group_id`。运行相关文件级测试和 ruff。
+- Decision: 扩展 `tests/unit/test_agent_loop.py::test_message_end_observe_event_carries_reasoning_content`，断言带 reasoning 的 `message_end` 同时带 `group_id`。运行相关文件级测试和 ruff；code review 修复后相关测试文件总数更新为 63。
 - Rationale: 覆盖用户可见重复 thinking 的最短链路，同时避免跑昂贵 live e2e；本变更不涉及浏览器 UI、数据库 migration 或外部 IM。
 - Evidence:
   - Tests: `/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest tests/unit/test_agent_loop.py::test_message_end_observe_event_carries_reasoning_content tests/unit/platform/hooks/test_realtime_stream_events.py::test_message_end_assistant_message_carries_reasoning_content tests/unit/platform/hooks/test_realtime_stream_events.py::test_message_end_assistant_message_carries_group_id tests/unit/test_inbound_pipeline_streaming.py::TestObserverForwardsThinkingSegment -q` -> 8 passed.
-  - Tests: `/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest tests/unit/test_agent_loop.py tests/unit/platform/hooks/test_realtime_stream_events.py tests/unit/test_inbound_pipeline_streaming.py -q` -> 61 passed.
+  - Tests: `/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest tests/unit/test_agent_loop.py tests/unit/platform/hooks/test_realtime_stream_events.py tests/unit/test_inbound_pipeline_streaming.py -q` -> 63 passed.
   - Lint: `/Users/czj/Repos/nano-multiagent/.venv/bin/python -m ruff check src/agent/core/agent/loop.py src/agent/platform/hooks/builtins/realtime_stream.py src/personal_assistant/main.py tests/unit/test_agent_loop.py tests/unit/platform/hooks/test_realtime_stream_events.py tests/unit/test_inbound_pipeline_streaming.py` -> All checks passed.
   - Entry: Internal Web IM process timeline via Gateway observer.
   - Frontend State Matrix: N/A, no frontend code changed.

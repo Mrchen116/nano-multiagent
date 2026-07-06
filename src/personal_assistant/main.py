@@ -4124,17 +4124,20 @@ def _build_kernel_event_observer(
         )
         ctx["external_intermediate_sent_marker"] = marker
 
-    def _visible_reasoning_segment(*, rid: str, group_id: str, reasoning: str) -> str:
+    def _next_visible_reasoning(*, rid: str, group_id: str, reasoning: str) -> str:
         if not reasoning or not group_id:
             return reasoning
-        groups = visible_reasoning_by_group.setdefault(rid, {})
+        groups = visible_reasoning_by_group.get(rid, {})
         previous = groups.get(group_id)
         if previous == reasoning:
             return ""
-        groups[group_id] = reasoning
         if previous and reasoning.startswith(previous):
             return reasoning[len(previous) :].strip()
         return reasoning
+
+    def _mark_visible_reasoning(*, rid: str, group_id: str, reasoning: str) -> None:
+        if reasoning and group_id:
+            visible_reasoning_by_group.setdefault(rid, {})[group_id] = reasoning
 
     def _clear_run_visible_reasoning(rid: str) -> None:
         visible_reasoning_by_group.pop(rid, None)
@@ -4147,6 +4150,9 @@ def _build_kernel_event_observer(
         ctx = run_context_store.get(run_id)
         if ctx is None:
             return None
+        event_name = str(event.get("event") or "").strip()
+        if event_name in {"turn_end", "run_terminal_reconcile"}:
+            _clear_run_visible_reasoning(run_id)
         conversation_id = ctx.get("conversation_id") or ""
         message_id = ctx.get("message_id") or ""
         agent_id = ctx.get("agent_id") or ""
@@ -4155,7 +4161,6 @@ def _build_kernel_event_observer(
         # The lazy-bubble gate: skip eager turn_start; defer to assistant_message.
         to_user_id = ctx.get("to_user_id") or ""
 
-        event_name = str(event.get("event") or "").strip()
         im_connected = manager is not None and manager.connected
         has_external_context = _external_context_metadata(ctx) is not None
         if not im_connected and not has_external_context:
@@ -4183,7 +4188,6 @@ def _build_kernel_event_observer(
                     return None
             elif event_name == "turn_end":
                 running_tool_calls.pop(run_id, None)
-                _clear_run_visible_reasoning(run_id)
                 return None
             elif event_name != "permission_resolved":
                 return None
@@ -4239,12 +4243,13 @@ def _build_kernel_event_observer(
             # 由 IM 持久化边界赋予(思考与工具共享一个 per-message 单调递增、按到达序的
             # 唯一序号)，gateway 不算 seq、只负责把 reasoning 转发到正确的目标气泡。
             reasoning = str(event.get("reasoning_content") or "").strip()
-            reasoning = _visible_reasoning_segment(
+            group_id = str(event.get("group_id") or "").strip()
+            visible_reasoning = _next_visible_reasoning(
                 rid=run_id,
-                group_id=str(event.get("group_id") or "").strip(),
+                group_id=group_id,
                 reasoning=reasoning,
             )
-            if not content and not reasoning:
+            if not content and not visible_reasoning:
                 return None
             kernel_msg_id = str(event.get("message_id") or "").strip()
             prev_kernel_msg_id = ctx.get("kernel_message_id") or ""
@@ -4273,6 +4278,9 @@ def _build_kernel_event_observer(
                     aid: str = agent_id,
                     uid: str = to_user_id,
                     text: str = content,
+                    reasoning_text: str = visible_reasoning,
+                    reasoning_group_id: str = group_id,
+                    full_reasoning: str = reasoning,
                     new_kernel_id: str = kernel_msg_id,
                 ) -> None:
                     try:
@@ -4327,6 +4335,21 @@ def _build_kernel_event_observer(
                         if new_kernel_id and rid in run_context_store:
                             run_context_store[rid]["kernel_message_id"] = new_kernel_id
                         if returned_msg_id:
+                            if reasoning_text:
+                                await mgr.send_json(
+                                    "node.streaming_delta",
+                                    {
+                                        "kind": "thinking_segment",
+                                        "message_id": str(returned_msg_id),
+                                        "text": reasoning_text,
+                                        "run_id": rid,
+                                    },
+                                )
+                                _mark_visible_reasoning(
+                                    rid=rid,
+                                    group_id=reasoning_group_id,
+                                    reasoning=full_reasoning,
+                                )
                             await mgr.send_json(
                                 "node.streaming_delta",
                                 {
@@ -4362,7 +4385,9 @@ def _build_kernel_event_observer(
                     aid: str = agent_id,
                     old_msg_id: str = message_id,
                     text: str = content,
-                    reasoning_text: str = reasoning,
+                    reasoning_text: str = visible_reasoning,
+                    reasoning_group_id: str = group_id,
+                    full_reasoning: str = reasoning,
                     new_kernel_id: str = kernel_msg_id,
                 ) -> None:
                     try:
@@ -4394,6 +4419,11 @@ def _build_kernel_event_observer(
                                         "run_id": rid,
                                     },
                                 )
+                                _mark_visible_reasoning(
+                                    rid=rid,
+                                    group_id=reasoning_group_id,
+                                    reasoning=full_reasoning,
+                                )
                             await mgr.send_json(
                                 "node.streaming_delta",
                                 {
@@ -4414,7 +4444,7 @@ def _build_kernel_event_observer(
                 # feat-439-M2: 思考过程项先于正文 delta 转发到当前气泡。纯思考回合
                 # (content="") 只发 thinking_segment，不发 delta、不动 kernel_message_id
                 # (保留下一含正文回合的 roll 判定基准)。
-                if reasoning:
+                if visible_reasoning:
                     loop.create_task(
                         _send(
                             manager,
@@ -4422,10 +4452,13 @@ def _build_kernel_event_observer(
                             {
                                 "kind": "thinking_segment",
                                 "message_id": message_id,
-                                "text": reasoning,
+                                "text": visible_reasoning,
                                 "run_id": run_id,
                             },
                         )
+                    )
+                    _mark_visible_reasoning(
+                        rid=run_id, group_id=group_id, reasoning=reasoning
                     )
                 if content:
                     # turn_start already ack'd — send delta directly.
@@ -4453,7 +4486,9 @@ def _build_kernel_event_observer(
                     cid: str = conversation_id,
                     aid: str = agent_id,
                     text: str = content,
-                    reasoning_text: str = reasoning,
+                    reasoning_text: str = visible_reasoning,
+                    reasoning_group_id: str = group_id,
+                    full_reasoning: str = reasoning,
                     new_kernel_id: str = kernel_msg_id,
                 ) -> None:
                     try:
@@ -4485,6 +4520,11 @@ def _build_kernel_event_observer(
                                         "run_id": rid,
                                     },
                                 )
+                                _mark_visible_reasoning(
+                                    rid=rid,
+                                    group_id=reasoning_group_id,
+                                    reasoning=full_reasoning,
+                                )
                             await mgr.send_json(
                                 "node.streaming_delta",
                                 {
@@ -4514,7 +4554,6 @@ def _build_kernel_event_observer(
             # empty-dict residue and guarantees the map can't grow unbounded on a long
             # Gateway. reconcile owns the abnormal path and pops there.
             running_tool_calls.pop(run_id, None)
-            _clear_run_visible_reasoning(run_id)
 
             # Finalize message with token_usage if present (only on success path).
             usage_raw = event.get("usage") if turn_completed else None
@@ -4863,7 +4902,6 @@ def _build_kernel_event_observer(
                 else None
             )
             inflight = running_tool_calls.pop(run_id, {})
-            _clear_run_visible_reasoning(run_id)
             if message_id and inflight:
                 for stuck_call_id, stuck_call in inflight.items():
                     # bugfix-416 #111: re-emit the original input recorded at tool_start
