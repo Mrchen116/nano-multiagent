@@ -66,3 +66,60 @@ Architecture boundaries are intact: selected product/import contract tests passe
 ### SUGGESTION
 
 - None.
+
+# Round 2 - Targeted Closure Verification
+
+## Verification Report: refactor-454
+
+### Summary
+
+Mode: targeted-closure
+Delta range: `2b03986c..30b7d855148712f0b25c727473b09c16ce2aa042`
+Focus issues: round-1 relay lifecycle owner CRITICAL; typed-store fresh accepted receipt blocker; observer typed-store boundary; M3 gate/live Web IM direct relay evidence
+requires_full_verification: false
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 3/4 focus closures verified |
+| Correctness | 3/4 focus closures verified |
+| Coherence | 1 critical deviation remains |
+
+1 critical issue found. Fix before PR.
+
+Full verification is not the useful next step while this blocker remains open. After fixing the observer/context boundary, another targeted closure round should be sufficient unless the fix expands beyond `runtime_delivery/{context,lifecycle,observer}.py` and `main.py` wiring.
+
+## Focus Closure Results
+
+| Focus item | Verdict | Evidence |
+|---|---|---|
+| Round-1 CRITICAL: relay lifecycle owner moved out of `main.py` | closed for lifecycle ownership | `src/personal_assistant/main.py:67` imports `build_relay_lifecycle_callback` from `runtime_delivery.lifecycle`; `src/personal_assistant/main.py:2847` only wires it; `src/personal_assistant/gateway/runtime_delivery/lifecycle.py:21` owns the callback and `lifecycle.py:31` starts accepted/completed/failed/cancelled handling. `main.py` no longer defines `def _build_relay_lifecycle_callback(`. |
+| Code-review blocker: typed store fresh accepted path still sends `sent` receipt | closed | `src/personal_assistant/gateway/runtime_delivery/lifecycle.py:37` seeds context, then continues to `lifecycle.py:58` and sends `node.delivery_receipt` with `delivery_status="sent"` at `lifecycle.py:59-64`; there is no early return after `RunDeliveryContextStore.seed_from_lifecycle()`. Regression: `tests/unit/personal_assistant/test_gateway_relay_lifecycle.py:204`. |
+| Observer typed-store boundary | still open | `src/personal_assistant/gateway/runtime_delivery/observer.py:18-23` converts `RunDeliveryContextStore` to `legacy_contexts`, `observer.py:156` captures that map at builder entry, and runtime event reads/writes use `context_map` (`observer.py:303`, `observer.py:384-385`, `observer.py:482-489`, `observer.py:658-664`). The typed `RunDeliveryContext` has no backfilled `message_id`/`kernel_message_id` fields (`context.py:57-70`), so kernel event delivery is still owned by the mutable legacy dict view. |
+| M3 gate and live Web IM direct relay evidence | sufficient with caveat | I reran the M3 gate in the verifier worktree: 117 passed, 2 warnings. I also reran `ruff check` on touched files: all checks passed. M3 progress records a true worktree-local IM + Gateway direct relay run with completed agent reply, completed relay status/receipt, and relay event rows (`M3-fix-runtime-lifecycle-owner/progress.md:53-60`). Feishu/Lark remains explicitly unverified because no credentialed channel exists and no fake inbound was used (`progress.md:67-69`). |
+
+Commands run in verifier worktree:
+
+```bash
+PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest tests/unit/personal_assistant/test_gateway_relay_lifecycle.py tests/unit/personal_assistant/test_external_visible_delivery.py tests/unit/personal_assistant/test_gateway_im_resilience.py tests/unit/personal_assistant/test_heartbeat_im_delivery.py tests/unit/personal_assistant/test_cron_delivery_chain.py tests/im_service/unit/test_gateway_handler.py tests/im_service/integration/test_gateway_websocket_api.py tests/contract/test_personal_assistant_main_contract.py
+# 117 passed, 2 warnings
+
+/Users/czj/Repos/nano-multiagent/.venv/bin/ruff check src/personal_assistant/main.py src/personal_assistant/gateway/runtime_delivery/lifecycle.py src/personal_assistant/gateway/runtime_delivery/observer.py tests/unit/personal_assistant/test_gateway_relay_lifecycle.py tests/contract/test_personal_assistant_main_contract.py
+# All checks passed
+```
+
+## Issues
+
+### CRITICAL
+
+- `src/personal_assistant/gateway/runtime_delivery/observer.py:156` still makes the observer operate on `RunDeliveryContextStore.legacy_contexts` for every kernel event path, not only heartbeat/cron compatibility boundaries. This is not just a string-test naming issue: `_run_context_map()` returns the mutable legacy dict at `observer.py:18-23`, the observer reads from that dict at `observer.py:303`, and IM ack/runtime backfills write only that dict at `observer.py:384-385`, `observer.py:482-489`, and `observer.py:658-664`. Meanwhile `RunDeliveryContext` remains a frozen typed seed object without `message_id`, resolved `conversation_id`, or `kernel_message_id` fields (`src/personal_assistant/gateway/runtime_delivery/context.py:57-70`). That means the typed context is not the actual runtime event state owner required by the M3 exit criterion in `M3-fix-runtime-lifecycle-owner/tasks.md:14`; the production observer still depends on the same legacy map shape that round 1 called out.
+  - Impact: user behavior may still pass today, but the architecture goal remains unclosed: runtime delivery facts can diverge between typed context and the mutable legacy view, and future changes can read stale typed state while observer delivery, external mirrors, permission cards, and bubble rolling mutate a separate dict. This keeps the exact hidden coupling the refactor was meant to remove. The current regression in `tests/contract/test_personal_assistant_main_contract.py:25-35` only forbids one source string and does not prove typed-store ownership semantics.
+  - Fix: make `RunDeliveryContextStore` expose typed update/read APIs used by `build_kernel_event_observer()` and `roll_bubble()` directly, including ack backfill for `message_id`, resolved `conversation_id`, `kernel_message_id`, rolling state, external current text/markers, and permission/external reply metadata. Keep `legacy_contexts` only at explicit still-dict-shaped heartbeat/cron callers such as `src/personal_assistant/main.py:2616` and `src/personal_assistant/main.py:3032`, or wrap them with a narrow adapter that is not the observer's primary state surface. Replace the string-only contract with a behavioral test that seeds a `RunDeliveryContextStore`, drives a `turn_start` ack through the observer, and asserts the typed store is the state owner/backfill target.
+
+### WARNING
+
+- Feishu/Lark true-platform acceptance remains unverified in M3. The live Web IM direct relay evidence is credible for the Web relay lifecycle closeout, but it cannot close Feishu private/group/shadow/IM-offline platform scenarios from `docs/specs/gateway/spec.md`; M3 progress correctly records the missing credentialed channel and does not fake inbound.
+  - Fix: keep this as a release caveat until a credentialed Feishu/Lark environment can run the true platform journeys.
+
+### SUGGESTION
+
+- None.
