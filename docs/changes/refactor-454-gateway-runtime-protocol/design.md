@@ -9,7 +9,7 @@
 
 ### 涉及范围
 
-- `src/personal_assistant/main.py` 是当前 Gateway composition root，也是本 unit 的核心重构点。`build_runtime()` 负责装配 kernel、channel registry、IM connection、heartbeat、cron、outbound router、config sync、background sender 等对象；同时 `_build_relay_lifecycle_callback()` 和 `_build_kernel_event_observer()` 直接承担 relay lifecycle、run context、Feishu ack、running/tool/permission 状态上报、外部 channel 可见回复镜像、失败清理等运行期语义。
+- `src/personal_assistant/main.py` 是当前 Gateway composition root，也是本 unit 的核心重构点。`build_runtime()` 负责装配 kernel、channel registry、IM connection、heartbeat、cron、outbound router、config sync、background sender 等对象；同时 `_build_relay_lifecycle_callback()` 和 `_build_kernel_event_observer()` 直接承担 relay lifecycle、run context、Feishu ack、running/tool/permission 状态上报、外部 channel 可见回复镜像、失败清理等运行期语义。它还承载 heartbeat/cron 主动投递的 owner lazy-direct 路径：这类 run 没有 shadow conversation id，先保存 `to_user_id=owner_user_id`，等第一段真实 assistant 内容出现后才发 `turn_start{to_user_id}` 创建 canonical owner 直聊气泡。
 - `src/personal_assistant/ws/im_connection.py` 负责 Gateway 到 IM 的 WebSocket 连接、注册、心跳、ack、重连、下行 frame dispatch 和上行 reporter 绑定。本 unit 不改变它的传输职责，但需要保证抽出的 protocol/runtime 模块仍由它驱动，不把业务语义塞回 transport 层。
 - `src/personal_assistant/channels/web_relay_adapter.py` 负责把 IM `relay.message` payload 解析成 `InboundMessage`，并维护 relay dedup、shadow identity 和 metadata 展开。本 unit 会沿用它作为 Gateway inbound 边界，避免让上游 `main.py` 继续散读 relay metadata。
 - `src/personal_assistant/gateway/session_keys.py` 和 `src/personal_assistant/gateway/inbound_pipeline.py` 负责 session key、reply context、agent 选择、群聊 mention gate、session metadata 组装。本 unit 不改变这些用户语义，只把调用点收口到更明确的 runtime context。
@@ -28,7 +28,7 @@
 
 ### 契约层 grounding 结论
 
-- Gateway/IM 现有契约与代码大体一致：`node.register` 上报 agent workspace、IM first-seen agent profile seed、relay/shadow external metadata、external session key、delivery receipt、running placeholder、heartbeat ack timeout 与 reconnect 都有现有实现和相关测试。
+- Gateway/IM 现有契约与代码大体一致：`node.register` 上报 agent workspace、IM first-seen agent profile seed、relay/shadow external metadata、external session key、delivery receipt、running placeholder、heartbeat ack timeout 与 reconnect 都有现有实现和相关测试。heartbeat/cron 有内容时投递到 owner canonical 直聊、无内容时静默跳过，是既有 Gateway 契约，不属于 shadow delivery。
 - 明确发现一处 drift：Gateway 契约要求 runtime `workspace_root` 以 Gateway 本地配置为准。`_IMConfigSyncClient.sync_agent()` 已基本遵守 local-wins，但 `_IMConfigSyncClient.reconcile_all_agents()` 在 profile version 路径上仍可能从 IM payload 读取 `workspace_root` 写回 runtime memory。这会把 IM mirror 字段误当成运行时权威，应纳入本 unit 的协议权威收束。
 - 本 unit 不产生新的用户可观察 Requirement，因此不应创建 delta-spec 文件；但需要在 design 中明确 `no spec delta`，并在实现中用回归测试证明既有 Gateway/IM/Feishu 契约未漂移。
 
@@ -113,14 +113,15 @@ After: `main.py` 只组装对象；Gateway 运行期语义进入 `runtime_delive
 - **拒绝**: 把 delivery 语义塞进 `IMConnectionManager`。transport 层应只负责连接、重连、ack、dispatch，不应理解 agent run 状态。
 - **风险**: 抽取时最容易漏掉 cleanup 分支，造成永久 running、重复 delivery receipt 或外部 channel 重复回复；M2 必须保留现有 lifecycle 单测并补齐失败/取消/后台任务场景。
 
-### 决策 3: 运行期身份和 workspace 权威
+### 决策 3: 运行期身份、投递目标和 workspace 权威
 
-**选了显式类型化 external identity、shadow conversation、per-run reply target 和 workspace authority；raw metadata 只留在边界。**
+**选了显式类型化 external identity、delivery target、per-run reply target 和 workspace authority；raw metadata 只留在边界。**
 
-- **理由**: A 的主要危险来自同一批字段在不同位置有不同隐含含义。`external_chat_id`、IM conversation id、shadow conversation id、kernel session key、reply target、workspace mirror 必须在进入核心逻辑前变成有名字的概念。
+- **理由**: A 的主要危险来自同一批字段在不同位置有不同隐含含义。`external_chat_id`、IM conversation id、shadow conversation id、owner `to_user_id` lazy-direct、kernel session key、reply target、workspace mirror 必须在进入核心逻辑前变成有名字的概念。
 - **拒绝**: 继续在 run context 里传裸 dict。短期 diff 小，但字段权威和生命周期仍不清楚。
+- **拒绝**: 把 owner lazy-direct 塞进 `ShadowConversationRef`。heartbeat/cron 主动冒泡是 agent-owner canonical 直聊，不是外部 channel shadow 会话。
 - **拒绝**: 让 IM profile 的 `workspace_root` 参与 Gateway runtime 决策。canonical 约束是 Gateway local config wins，IM 值只能展示或 first-seen seed。
-- **风险**: 类型化会带来一次调用点集中修改；需要用 `test_gateway_reconcile_on_connect.py` 补上 reconcile 路径的 local-wins 回归，避免只修 `sync_agent()`。
+- **风险**: 类型化会带来一次调用点集中修改；需要用 `test_gateway_reconcile_on_connect.py` 补上 reconcile 路径的 local-wins 回归，并用 heartbeat/cron 测试证明 owner lazy-direct 仍然按现有语义投递或静默。
 
 ### 决策 4: IM 侧 runtime event owner
 
@@ -184,9 +185,9 @@ sequenceDiagram
 
 | 模块 | 职责 | 约束 |
 |---|---|---|
-| `src/personal_assistant/gateway/runtime_protocol.py` | Gateway 本地 runtime protocol 类型：external identity、shadow conversation ref、relay task ref、workspace authority 输入/输出 | 不 import `IM`；只表达 Gateway 消费到的协议事实 |
-| `src/personal_assistant/gateway/runtime_delivery/context.py` | `RunDeliveryContext` 与 `RunDeliveryContextStore`，替代 `build_runtime()` 里的裸 `_run_context_store` dict | context 以 `run_id` 为主键；完成/失败/取消必须 cleanup |
-| `src/personal_assistant/gateway/runtime_delivery/lifecycle.py` | relay accepted/completed/failed callback，负责 seed/pop run context、delivery receipt、Feishu ack、IM report | 不直接解析 relay payload；只消费 adapter 产出的 typed context |
+| `src/personal_assistant/gateway/runtime_protocol.py` | Gateway 本地 runtime protocol 类型：external identity、shadow conversation ref、owner direct target、relay task ref、workspace authority 输入/输出 | 不 import `IM`；只表达 Gateway 消费到的协议事实 |
+| `src/personal_assistant/gateway/runtime_delivery/context.py` | `RunDeliveryTarget`、`RunDeliveryContext` 与 `RunDeliveryContextStore`，替代 `build_runtime()` 里的裸 `_run_context_store` dict | context 以 `run_id` 为主键；完成/失败/取消必须 cleanup；delivery target 不能用裸 `conversation_id/to_user_id` 字符串对表达 |
+| `src/personal_assistant/gateway/runtime_delivery/lifecycle.py` | relay accepted/completed/failed callback，负责 seed/pop run context、delivery receipt、Feishu ack、IM report；heartbeat/cron 等 proactive owner run 由调用点 seed owner-direct target | relay path 不直接解析 relay payload；只消费 `InboundEnvelope.protocol` 产出的 typed context |
 | `src/personal_assistant/gateway/runtime_delivery/observer.py` | kernel event observer，负责把 kernel runtime events 转成 IM `node.streaming_delta` 和 external visible delivery | 不负责 transport reconnect；只调用 reporter/outbound ports |
 | `src/personal_assistant/gateway/workspace_authority.py` | Gateway local-wins workspace resolver，供 `sync_agent()` 和 `reconcile_all_agents()` 共同使用 | IM payload 的 `workspace_root` 不可覆盖 runtime local config |
 
@@ -205,18 +206,22 @@ sequenceDiagram
 | 名称 | 关键字段 | 语义 |
 |---|---|---|
 | `ExternalConversationIdentity` | `external_source`, `external_chat_id`, `agent_id`, `conversation_type`, `trigger_source` | 外部会话身份；`external_chat_id` 是外部 channel chat id，不是 IM conversation id |
-| `ShadowConversationRef` | `conversation_id`, `relay_task_id?`, `im_message_id?`, `to_user_id?` | IM shadow / Web IM 投递目标；只用于 IM 可见事件和 receipt |
+| `ShadowConversationRef` | `conversation_id`, `relay_task_id?`, `im_message_id?` | IM shadow / Web IM 投递目标；只用于 IM 可见事件和 receipt，不承载 owner lazy-direct |
+| `OwnerDirectTarget` | `to_user_id`, `agent_id` | heartbeat/cron/proactive owner run 的 lazy direct 目标；没有现成 `conversation_id`，首个真实 assistant 内容出现时才通过 `turn_start{to_user_id}` 让 IM 创建 canonical owner 直聊 |
+| `RunDeliveryTarget` | `shadow: ShadowConversationRef` 或 `owner_direct: OwnerDirectTarget` 或 `none` | 当前 run 的 IM 可见投递目标；`none` 用于 IM 离线且没有 shadow 的外部主路径，或无法投递到 IM 的 fire-and-forget 场景 |
 | `RunReplyTarget` | `channel_name`, `target_chat_id`, `thread_id?`, `trigger_source` | 当前 run 的外部/IM 回复出口；不参与 kernel session key |
-| `RunDeliveryContext` | `run_id`, `agent_id`, `kernel_session_key`, `external_identity?`, `shadow_ref?`, `reply_target`, `feishu_message_id?` | 一轮 run 的 delivery 上下文；kernel events、receipt、external mirror 都只能读它 |
+| `RunDeliveryContext` | `run_id`, `agent_id`, `kernel_session_key`, `external_identity?`, `delivery_target`, `reply_target`, `feishu_message_id?`, `message_id?`, `kernel_message_id?` | 一轮 run 的 delivery 上下文；kernel events、receipt、external mirror 都只能读它；observer 收到 IM ack 后回填 `message_id` / resolved `conversation_id` |
+| `InboundEnvelope` | `message: InboundMessage`, `protocol: RuntimeProtocolFacts` | Web relay adapter 的具体 handoff；raw relay metadata 在 adapter/protocol 边界转换，后续模块读取 `protocol`，不再散读原始 relay dict |
+| `RuntimeProtocolFacts` | `external_identity?`, `shadow_ref?`, `reply_target`, `relay_task_id?`, `idempotency_key?`, `im_message_id?` | relay payload 中参与 runtime delivery 的 typed facts；保留原 `InboundMessage.metadata` 只用于 session metadata/兼容字段，不作为新 runtime delivery 事实来源 |
 | `WorkspaceAuthority` | `agent_id`, `local_workspace_root?`, `im_profile_workspace_root?`, `factory_default` | 统一产出 Gateway runtime workspace；local config 优先，IM 值只作为 first-seen seed/display |
 
 ### 数据流 1: Web IM relay 入站
 
 1. IM `RelayService` 根据 conversation/message/agent 生产 `relay.message`，metadata 中继续携带 external identity、conversation type、trigger source、relay task id。
 2. Gateway `IMConnectionManager` 只负责收到 frame 后派发给 `WebRelayAdapter`。
-3. `WebRelayAdapter` 解析成 `InboundMessage` 和 typed runtime protocol facts；重复 relay 继续由 idempotency key 去重。
-4. `InboundPipeline` 继续负责 agent 选择、群聊 mention gate、session metadata、`/stop`。
-5. `runtime_delivery.lifecycle` 在 run accepted 时 seed `RunDeliveryContext`；completed/failed/cancelled 时统一 cleanup 并发 receipt/report。
+3. `WebRelayAdapter` 解析成 `InboundEnvelope(message, protocol)`；raw relay metadata 只在 adapter/protocol 边界被读取，重复 relay 继续由 idempotency key 去重。
+4. `InboundPipeline` 继续负责 agent 选择、群聊 mention gate、session metadata、`/stop`；它可以把 `InboundEnvelope.protocol` 随 run request 传给 lifecycle，但不得重新从 raw relay dict 推断 delivery facts。
+5. `runtime_delivery.lifecycle` 在 run accepted 时根据 `InboundEnvelope.protocol` seed `RunDeliveryContext(delivery_target=shadow/none, reply_target=...)`；completed/failed/cancelled 时统一 cleanup 并发 receipt/report。
 
 ### 数据流 2: kernel runtime events 出站
 
@@ -224,9 +229,18 @@ sequenceDiagram
 2. `runtime_delivery.observer` 根据 `run_id` 读取 `RunDeliveryContext`。
 3. IM 可见事件走 reporter 发送 `node.streaming_delta`，由 IM `gateway_protocol` 解析后交给 `EventBridge`。
 4. 外部可见回复只在 `reply_target.trigger_source` 是外部 channel 时发送；IM shadow 入口触发的 run 不回写 Feishu。
-5. run 终态、工具终态、权限 resolved、失败/取消必须调用同一 cleanup/receipt 逻辑，避免永久 running。
+5. 当 `delivery_target=owner_direct` 且尚无 `message_id` 时，observer 跳过 eager `turn_start`；只有第一段非空、非 `NO_REPLY` / `HEARTBEAT_OK` 的 assistant 内容出现，才发送 `node.streaming_delta(kind=turn_start, to_user_id=...)`，并把 ack 返回的 `conversation_id/message_id` 回填到 context 后继续发送 delta。无可投递内容时不创建任何 IM trace。
+6. run 终态、工具终态、权限 resolved、失败/取消必须调用同一 cleanup/receipt 逻辑，避免永久 running。
 
-### 数据流 3: workspace 同步
+### 数据流 3: heartbeat/cron owner lazy-direct
+
+1. heartbeat/cron/proactive owner run 创建时，没有 relay payload，也没有 shadow conversation id。
+2. 调用点用 owner IM 用户 seed `RunDeliveryContext(delivery_target=owner_direct(to_user_id, agent_id), reply_target=web_relay/none)`；如果没有 owner 用户，`delivery_target=none`，observer 静默跳过 IM 可见投递。
+3. observer 收到空内容、纯思考、`NO_REPLY` 或 `HEARTBEAT_OK` 时，不发 `turn_start`，不创建气泡。
+4. observer 收到第一段真实 assistant 内容时，先发 `turn_start{to_user_id, agent_id, run_id}`，由 IM 创建/解析 agent-owner canonical direct chat，ack 后回填 `conversation_id/message_id`。
+5. 后续 `message_delta`、thinking、tool、permission、completed/failed 状态都绑定到 ack 返回的 `message_id`，保持与现有 heartbeat/cron 主动冒泡语义一致。
+
+### 数据流 4: workspace 同步
 
 1. Gateway 启动和 IM reconnect 时仍执行 config sync / reconcile。
 2. `WorkspaceAuthority` 统一处理 `sync_agent()`、`reconcile_all_agents()` 和新建 agent 后的 runtime workspace 选择。
@@ -246,6 +260,8 @@ sequenceDiagram
 - **风险: workspace drift 修复被误判成行为变化。** `reconcile_all_agents()` 当前可能采用 IM payload workspace，这是代码/spec drift。应对：design 明确 canonical 行为是 local-wins，worker 需要新增红测证明修复前 reconcile 路径会错、修复后与 `sync_agent()` 一致。
 - **风险: 两侧 adapter schema 再次分叉。** IM 和 Gateway 不共享实现后，字段语义可能再漂。应对：M1 增加固定 relay/streaming/receipt fixture，分别由 IM/Gateway adapter 测试消费；fixture 变更必须显式 review。
 - **风险: 抽取 `main.py` 时漏掉异常清理。** 当前 cleanup 分布在 lifecycle callback 和 observer 多个分支。应对：M2 退出标准必须覆盖 accepted/completed/failed/cancelled、tool start/end/fail、permission request/resolved、background final reply。
+- **风险: owner lazy-direct 被误归到 shadow。** heartbeat/cron 主动投递是 agent-owner canonical direct chat，不是外部 shadow 会话。应对：`RunDeliveryTarget` 必须显式区分 `owner_direct` 与 `shadow`，M2 必须测有内容主动冒泡、`NO_REPLY` / `HEARTBEAT_OK` 静默、ack 回填后继续 delta 的路径。
+- **风险: typed handoff 只换名不换边界。** 如果 `WebRelayAdapter` 仍只返回 `InboundMessage`，worker 可能继续在下游散读 `metadata`。应对：M1 必须落 `InboundEnvelope(message, protocol)` 或等价 wrapper，并在 tests 中断言 runtime delivery facts 来自 `protocol`，不是后续模块重新 parse raw dict。
 - **回退方案:** 本 unit 不应引入对外 frame 或 DB schema 的强制迁移；若实现只新增内部模块和兼容 helper，回退为 revert unit 分支即可。若 worker 发现必须迁移内部状态，必须在 design Changelog 写明兼容读策略和回退读策略，不能把清空用户状态作为正常回退。
 
 ## Runbook for Reviewer
@@ -279,5 +295,5 @@ graph LR
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| refactor-454-M1 | protocol-boundary | — | A | `src/IM/application/relay_service.py`；`src/IM/ws/gateway_handler.py`；新增/调整 `src/IM/ws/gateway_protocol.py`；`src/personal_assistant/channels/web_relay_adapter.py`；`src/personal_assistant/gateway/session_keys.py`；`src/personal_assistant/gateway/inbound_pipeline.py` 的协议调用点；`src/personal_assistant/main.py` 中 `_IMConfigSyncClient` / workspace resolver 相关段；新增/调整 `src/personal_assistant/gateway/runtime_protocol.py`、`src/personal_assistant/gateway/workspace_authority.py`；对应 unit/integration tests | `[reviewer]` Web IM direct/group relay、重复 relay、shadow metadata、delivery receipt 的用户可见行为与 motivation.md 对应场景一致；`[reviewer]` IM profile workspace 与 Gateway local config 不一致时，runtime 文件读写/heartbeat/cron 仍使用 local workspace；`[worker]` 新增 contract fixture 覆盖 relay/streaming/receipt/external identity 字段；`[worker]` `reconcile_all_agents()` local-wins 红测补齐；`[worker]` `pytest tests/unit/personal_assistant/test_gateway_web_relay_adapter.py tests/unit/personal_assistant/test_gateway_im_config_sync.py tests/unit/personal_assistant/test_gateway_reconcile_on_connect.py tests/unit/personal_assistant/test_gateway_upstream_reporter.py tests/im_service/integration/test_gateway_websocket_api.py` 全绿 |
-| refactor-454-M2 | runtime-delivery | refactor-454-M1 | B | `src/personal_assistant/main.py` 中 `_build_relay_lifecycle_callback()`、`_build_kernel_event_observer()`、`build_runtime()` wiring；新增/调整 `src/personal_assistant/gateway/runtime_delivery/`；`src/personal_assistant/ws/im_connection.py` handler wiring 如需；`src/personal_assistant/gateway/outbound_router.py` external delivery 调用点如需；Feishu/shadow/running/failure/background/permission 相关 tests | `[reviewer]` Feishu 私聊/群聊、未 @ 群消息 shadow、IM 离线时 Feishu 主路径、running 气泡、工具/权限状态、后台任务完成回复均与 motivation.md 对应场景一致；`[reviewer]` Gateway/IM 瞬断和 Gateway 重启后节点/会话恢复语义不变；`[worker]` `main.py` 不再直接持有裸 `_run_context_store` 和 kernel event delivery 大分支，composition root 只 wiring；`[worker]` lifecycle cleanup 覆盖 accepted/completed/failed/cancelled/tool/permission/background；`[worker]` `pytest tests/unit/personal_assistant/test_gateway_relay_lifecycle.py tests/unit/personal_assistant/test_external_visible_delivery.py tests/unit/personal_assistant/test_gateway_im_resilience.py tests/im_service/integration/test_gateway_websocket_api.py` 全绿；`[worker]` unit 集成分支最终跑 `pytest -m "not e2e"` |
+| refactor-454-M1 | protocol-boundary | — | A | `src/IM/application/relay_service.py`；`src/IM/ws/gateway_handler.py`；新增/调整 `src/IM/ws/gateway_protocol.py`；`src/personal_assistant/channels/web_relay_adapter.py`；`src/personal_assistant/gateway/session_keys.py`；`src/personal_assistant/gateway/inbound_pipeline.py` 的协议调用点；`src/personal_assistant/main.py` 中 `_IMConfigSyncClient` / workspace resolver 相关段；新增/调整 `src/personal_assistant/gateway/runtime_protocol.py`、`src/personal_assistant/gateway/workspace_authority.py`；对应 unit/integration tests | `[reviewer]` Web IM direct/group relay、重复 relay、shadow metadata、delivery receipt 的用户可见行为与 motivation.md 对应场景一致；`[reviewer]` IM profile workspace 与 Gateway local config 不一致时，runtime 文件读写/heartbeat/cron 仍使用 local workspace；`[worker]` 新增 contract fixture 覆盖 relay/streaming/receipt/external identity 字段；`[worker]` `WebRelayAdapter` 落 `InboundEnvelope(message, protocol)` 或等价 wrapper，runtime delivery facts 从 `protocol` 读取，raw relay metadata 不再被 lifecycle/observer 重新 parse；`[worker]` `reconcile_all_agents()` local-wins 红测补齐；`[worker]` `pytest tests/unit/personal_assistant/test_gateway_web_relay_adapter.py tests/unit/personal_assistant/test_gateway_im_config_sync.py tests/unit/personal_assistant/test_gateway_reconcile_on_connect.py tests/unit/personal_assistant/test_gateway_upstream_reporter.py tests/im_service/integration/test_gateway_websocket_api.py` 全绿 |
+| refactor-454-M2 | runtime-delivery | refactor-454-M1 | B | `src/personal_assistant/main.py` 中 `_build_relay_lifecycle_callback()`、`_build_kernel_event_observer()`、`build_runtime()` wiring；新增/调整 `src/personal_assistant/gateway/runtime_delivery/`；`src/personal_assistant/ws/im_connection.py` handler wiring 如需；`src/personal_assistant/gateway/outbound_router.py` external delivery 调用点如需；Feishu/shadow/running/failure/background/permission/heartbeat/cron 相关 tests | `[reviewer]` Feishu 私聊/群聊、未 @ 群消息 shadow、IM 离线时 Feishu 主路径、running 气泡、工具/权限状态、后台任务完成回复均与 motivation.md 对应场景一致；`[reviewer]` Gateway/IM 瞬断和 Gateway 重启后节点/会话恢复语义不变；`[reviewer]` heartbeat/cron 有内容时继续主动冒泡到 agent-owner canonical 直聊，无内容或 `NO_REPLY` / `HEARTBEAT_OK` 时不产生用户可见消息；`[worker]` `main.py` 不再直接持有裸 `_run_context_store` 和 kernel event delivery 大分支，composition root 只 wiring；`[worker]` `RunDeliveryTarget` 显式覆盖 `shadow`、`owner_direct`、`none`，且 owner direct 不复用 `ShadowConversationRef`；`[worker]` lifecycle cleanup 覆盖 accepted/completed/failed/cancelled/tool/permission/background/heartbeat/cron；`[worker]` 补 owner lazy-direct 单测：首个真实 content 前不发 `turn_start`，`NO_REPLY` / `HEARTBEAT_OK` 静默，ack 后回填 `conversation_id/message_id` 并继续 delta；`[worker]` `pytest tests/unit/personal_assistant/test_gateway_relay_lifecycle.py tests/unit/personal_assistant/test_external_visible_delivery.py tests/unit/personal_assistant/test_gateway_im_resilience.py tests/unit/personal_assistant/test_heartbeat_im_delivery.py tests/unit/personal_assistant/test_cron_delivery_chain.py tests/im_service/unit/test_gateway_handler.py tests/im_service/integration/test_gateway_websocket_api.py` 全绿；`[worker]` unit 集成分支最终跑 `pytest -m "not e2e"` |
