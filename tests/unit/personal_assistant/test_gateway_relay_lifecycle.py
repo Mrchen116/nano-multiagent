@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 from pathlib import Path
 
 import pytest
@@ -196,6 +197,13 @@ def test_relay_lifecycle_cleanup_removes_typed_and_legacy_context() -> None:
 
     assert context_store.get("run-cleanup") is None
     assert "run-cleanup" not in context_store.legacy_contexts
+
+
+def test_build_runtime_wires_typed_delivery_context_store() -> None:
+    source = inspect.getsource(build_runtime)
+
+    assert "RunDeliveryContextStore()" in source
+    assert "_run_context_store" not in source
 
 
 def test_relay_lifecycle_callback_sends_receipts_and_reports_with_real_usage_to_im() -> (

@@ -64,7 +64,7 @@
 
 ### R3 — Background/session delivery extraction and build wiring
 
-- 状态: TODO
+- 状态: DOING
 - 步骤:
   - 把 `_build_bg_reply_sender()`、`_build_session_event_callback()` 和 reply-context delivery helpers 移入 `runtime_delivery/background.py`。
   - 调整 `build_runtime()` 使用 runtime delivery factory/context store，`main.py` 保留 dependency injection wiring。
