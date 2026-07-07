@@ -1,0 +1,65 @@
+{
+  "relay_message": {
+    "relay_task_id": "relay-task-1",
+    "idempotency_key": "idem-1",
+    "conversation_id": "im-conv-1",
+    "agent_id": "agent-a",
+    "metadata": {
+      "trigger_source": "im",
+      "external_source": "feishu",
+      "external_chat_id": "oc_product",
+      "conversation_type": "group",
+      "mentioned_agent_ids": ["agent-a"]
+    },
+    "message": {
+      "id": "msg-1",
+      "conversation_id": "im-conv-1",
+      "sender_user_id": "user-1",
+      "sender_type": "user",
+      "content": "hello from fixture",
+      "attachments": [],
+      "created_at": "2026-07-07T00:00:00Z"
+    }
+  },
+  "streaming_delta": {
+    "kind": "message_completed",
+    "run_id": "run-1",
+    "agent_id": "agent-a",
+    "conversation_id": "im-conv-1",
+    "message_id": "assistant-msg-1",
+    "final_content": "fixture reply",
+    "delivery_status": "completed",
+    "token_usage": {
+      "input_tokens": 10,
+      "output_tokens": 20,
+      "total_tokens": 30
+    },
+    "kernel_message_id": "kmsg-1"
+  },
+  "delivery_receipt": {
+    "node_id": "node-1",
+    "relay_task_id": "relay-task-1",
+    "delivery_status": "completed",
+    "detail": "fixture reply",
+    "target": "im-conv-1"
+  },
+  "node_report": {
+    "node_id": "node-1",
+    "run_id": "run-1",
+    "status": "completed",
+    "agent_id": "agent-a",
+    "session_key": "feishu:oc_product:agent-a",
+    "conversation_id": "im-conv-1",
+    "message_id": "msg-1",
+    "summary": "fixture reply",
+    "guidance": "none",
+    "detail": {
+      "phase": "final"
+    },
+    "usage": {
+      "input_tokens": 10,
+      "output_tokens": 20,
+      "total_tokens": 30
+    }
+  }
+}
