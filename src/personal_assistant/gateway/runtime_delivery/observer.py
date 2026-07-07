@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Coroutine, Mapping
+from collections.abc import Callable, Coroutine, Mapping, MutableMapping
 import logging
 from typing import Any
 
@@ -15,12 +15,13 @@ from .context import RunDeliveryContextStore
 _log = logging.getLogger("personal_assistant.gateway.runtime_delivery.observer")
 
 
-def _run_context_map(
+def _runtime_context_view(
     run_context_store: dict[str, dict[str, str]] | RunDeliveryContextStore,
-) -> dict[str, dict[str, str]]:
+    run_id: str,
+) -> MutableMapping[str, str] | None:
     if isinstance(run_context_store, RunDeliveryContextStore):
-        return run_context_store.legacy_contexts
-    return run_context_store
+        return run_context_store.runtime_view(run_id)
+    return run_context_store.get(run_id)
 
 
 def extract_ack_message_id(ack: Mapping[str, Any] | Any) -> str | None:
@@ -63,8 +64,7 @@ async def roll_bubble(
     second caller does not re-close an already-closed bubble or open a duplicate B
     (which would leave a zombie running bubble). The flag is cleared in ``finally``.
     """
-    context_map = _run_context_map(run_context_store)
-    ctx = context_map.get(run_id)
+    ctx = _runtime_context_view(run_context_store, run_id)
     if ctx is None:
         return None
     if ctx.get("rolling"):
@@ -101,7 +101,7 @@ async def roll_bubble(
             },
         )
         new_message_id = extract_ack_message_id(ack)
-        live_ctx = context_map.get(run_id)
+        live_ctx = _runtime_context_view(run_context_store, run_id)
         if new_message_id and live_ctx is not None:
             live_ctx["message_id"] = new_message_id
             if new_kernel_message_id:
@@ -111,7 +111,7 @@ async def roll_bubble(
             return new_message_id
         return None
     finally:
-        live_ctx = context_map.get(run_id)
+        live_ctx = _runtime_context_view(run_context_store, run_id)
         if live_ctx is not None:
             live_ctx.pop("rolling", None)
 
@@ -152,8 +152,6 @@ def build_kernel_event_observer(
     - HeartbeatScheduler.tick() calls session_store.find_direct_by_agent() BEFORE each run
       submission to update canonical_session_store — tick-time read, no ack dependency.
     """
-
-    context_map = _run_context_map(run_context_store)
 
     # bugfix-410-M2 R3 (#97): track tool_calls that received tool_start but not yet
     # tool_end, per run. On abnormal run termination the watchdog/terminal path emits
@@ -300,7 +298,7 @@ def build_kernel_event_observer(
         run_id = str(event.get("run_id") or "").strip()
         if not run_id:
             return None
-        ctx = context_map.get(run_id)
+        ctx = _runtime_context_view(run_context_store, run_id)
         if ctx is None:
             return None
         event_name = str(event.get("event") or "").strip()
@@ -381,8 +379,9 @@ def build_kernel_event_observer(
                             if isinstance(ack_payload, dict)
                             else None
                         )
-                        if returned_msg_id and rid in context_map:
-                            context_map[rid]["message_id"] = str(returned_msg_id)
+                        live_ctx = _runtime_context_view(run_context_store, rid)
+                        if returned_msg_id and live_ctx is not None:
+                            live_ctx["message_id"] = str(returned_msg_id)
                     except Exception as exc:  # noqa: BLE001
                         _log.warning("IM observer turn_start send/ack failed: %s", exc)
 
@@ -479,14 +478,13 @@ def build_kernel_event_observer(
                                 skipped_reason,
                             )
                             return
-                        if returned_msg_id and rid in context_map:
-                            context_map[rid]["message_id"] = str(returned_msg_id)
-                        if returned_conv_id and rid in context_map:
-                            context_map[rid]["conversation_id"] = str(
-                                returned_conv_id
-                            )
-                        if new_kernel_id and rid in context_map:
-                            context_map[rid]["kernel_message_id"] = new_kernel_id
+                        live_ctx = _runtime_context_view(run_context_store, rid)
+                        if returned_msg_id and live_ctx is not None:
+                            live_ctx["message_id"] = str(returned_msg_id)
+                        if returned_conv_id and live_ctx is not None:
+                            live_ctx["conversation_id"] = str(returned_conv_id)
+                        if new_kernel_id and live_ctx is not None:
+                            live_ctx["kernel_message_id"] = new_kernel_id
                         if returned_msg_id:
                             if reasoning_text:
                                 await mgr.send_json(
@@ -556,7 +554,7 @@ def build_kernel_event_observer(
                             run_id=rid,
                             conversation_id=cid,
                             agent_id=aid,
-                            run_context_store=context_map,
+                            run_context_store=run_context_store,
                             old_message_id=old_msg_id,
                             new_kernel_message_id=new_kernel_id,
                         )
@@ -655,13 +653,12 @@ def build_kernel_event_observer(
                             },
                         )
                         returned_msg_id = extract_ack_message_id(ack)
-                        if returned_msg_id and rid in context_map:
-                            context_map[rid]["message_id"] = returned_msg_id
+                        live_ctx = _runtime_context_view(run_context_store, rid)
+                        if returned_msg_id and live_ctx is not None:
+                            live_ctx["message_id"] = returned_msg_id
                             if new_kernel_id:
-                                context_map[rid]["kernel_message_id"] = (
-                                    new_kernel_id
-                                )
-                            context_map[rid]["external_current_text"] = text
+                                live_ctx["kernel_message_id"] = new_kernel_id
+                            live_ctx["external_current_text"] = text
                             # feat-439-M2: 思考过程项先于正文 delta 转发到新建气泡。
                             if reasoning_text:
                                 await mgr.send_json(
@@ -1024,7 +1021,7 @@ def build_kernel_event_observer(
                             run_id=rid,
                             conversation_id=cid,
                             agent_id=aid,
-                            run_context_store=context_map,
+                            run_context_store=run_context_store,
                             old_message_id=old_msg_id or None,
                             # Clear kernel_message_id (new_kernel_message_id=None) so the
                             # next assistant_message delta streams straight into bubble B

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator, MutableMapping
 from dataclasses import dataclass
 from typing import Literal
 
@@ -54,7 +55,7 @@ class RunDeliveryTarget:
         return cls(kind="none", reason=reason)
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class RunDeliveryContext:
     """Hold delivery facts for one kernel run."""
 
@@ -67,25 +68,36 @@ class RunDeliveryContext:
     reply_target_chat_id: str = ""
     reply_thread_id: str = ""
     feishu_message_id: str = ""
+    conversation_id: str = ""
+    message_id: str = ""
+    kernel_message_id: str = ""
+    rolling: bool = False
+    external_current_text: str = ""
+    external_intermediate_sent_marker: str = ""
+
+    def ensure_initial_runtime_state(self) -> None:
+        """Initialize runtime delivery ids from the static delivery target."""
+
+        if self.conversation_id:
+            return
+        if self.delivery_target.kind != "shadow":
+            return
+        shadow_ref = self.delivery_target.shadow_ref
+        if shadow_ref is not None:
+            self.conversation_id = shadow_ref.conversation_id
 
     def to_legacy_dict(self) -> dict[str, str]:
         """Return the dict shape consumed by the pre-extraction observer."""
 
-        if self.delivery_target.kind == "shadow":
-            shadow_ref = self.delivery_target.shadow_ref
-            conversation_id = shadow_ref.conversation_id if shadow_ref else ""
-            to_user_id = ""
-        elif self.delivery_target.kind == "owner_direct":
+        if self.delivery_target.kind == "owner_direct":
             owner_direct = self.delivery_target.owner_direct
-            conversation_id = ""
             to_user_id = owner_direct.to_user_id if owner_direct else ""
         else:
-            conversation_id = ""
             to_user_id = ""
 
         fields: dict[str, str] = {
-            "conversation_id": conversation_id,
-            "message_id": "",
+            "conversation_id": self.conversation_id,
+            "message_id": self.message_id,
             "agent_id": self.agent_id,
             "kernel_session_id": self.kernel_session_id,
             "to_user_id": to_user_id,
@@ -96,9 +108,61 @@ class RunDeliveryContext:
             "reply_target_chat_id": self.reply_target_chat_id,
             "reply_thread_id": self.reply_thread_id,
             "feishu_message_id": self.feishu_message_id,
+            "kernel_message_id": self.kernel_message_id,
+            "external_current_text": self.external_current_text,
+            "external_intermediate_sent_marker": self.external_intermediate_sent_marker,
         }
         fields.update({key: value for key, value in optional.items() if value})
+        if self.rolling:
+            fields["rolling"] = "1"
         return fields
+
+
+class RunDeliveryRuntimeView(MutableMapping[str, str]):
+    """Dict-shaped runtime view that writes through to typed context state."""
+
+    _static_keys = (
+        "conversation_id",
+        "message_id",
+        "agent_id",
+        "kernel_session_id",
+        "to_user_id",
+        "trigger_source",
+        "reply_channel_name",
+        "reply_target_chat_id",
+        "reply_thread_id",
+        "feishu_message_id",
+        "kernel_message_id",
+        "external_current_text",
+        "external_intermediate_sent_marker",
+        "rolling",
+    )
+
+    def __init__(self, store: RunDeliveryContextStore, run_id: str) -> None:
+        self._store = store
+        self._run_id = run_id
+
+    def __getitem__(self, key: str) -> str:
+        value = self._store.runtime_value(self._run_id, key)
+        if value is None:
+            raise KeyError(key)
+        return value
+
+    def __setitem__(self, key: str, value: str) -> None:
+        self._store.set_runtime_value(self._run_id, key, value)
+
+    def __delitem__(self, key: str) -> None:
+        removed = self._store.pop_runtime_value(self._run_id, key)
+        if removed is None:
+            raise KeyError(key)
+
+    def __iter__(self) -> Iterator[str]:
+        for key in self._static_keys:
+            if self._store.runtime_value(self._run_id, key) is not None:
+                yield key
+
+    def __len__(self) -> int:
+        return sum(1 for _ in self)
 
 
 class RunDeliveryContextStore:
@@ -119,6 +183,100 @@ class RunDeliveryContextStore:
 
         return self._contexts.get(run_id)
 
+    def runtime_view(self, run_id: str) -> RunDeliveryRuntimeView | None:
+        """Return a dict-shaped runtime view backed by typed state."""
+
+        if run_id not in self._contexts:
+            return None
+        return RunDeliveryRuntimeView(self, run_id)
+
+    def runtime_value(self, run_id: str, key: str) -> str | None:
+        """Read one observer-facing runtime value from typed state."""
+
+        context = self._contexts[run_id]
+        if key == "conversation_id":
+            return context.conversation_id
+        if key == "message_id":
+            return context.message_id
+        if key == "agent_id":
+            return context.agent_id
+        if key == "kernel_session_id":
+            return context.kernel_session_id
+        if key == "to_user_id":
+            owner_direct = context.delivery_target.owner_direct
+            return owner_direct.to_user_id if owner_direct is not None else ""
+        if key == "trigger_source":
+            return context.trigger_source or None
+        if key == "reply_channel_name":
+            return context.reply_channel_name or None
+        if key == "reply_target_chat_id":
+            return context.reply_target_chat_id or None
+        if key == "reply_thread_id":
+            return context.reply_thread_id or None
+        if key == "feishu_message_id":
+            return context.feishu_message_id or None
+        if key == "kernel_message_id":
+            return context.kernel_message_id or None
+        if key == "external_current_text":
+            return context.external_current_text or None
+        if key == "external_intermediate_sent_marker":
+            return context.external_intermediate_sent_marker or None
+        if key == "rolling":
+            return "1" if context.rolling else None
+        raise KeyError(key)
+
+    def set_runtime_value(self, run_id: str, key: str, value: str) -> None:
+        """Write one observer-facing runtime value into typed state."""
+
+        context = self._contexts[run_id]
+        if key == "conversation_id":
+            context.conversation_id = value
+        elif key == "message_id":
+            context.message_id = value
+        elif key == "kernel_message_id":
+            context.kernel_message_id = value
+        elif key == "external_current_text":
+            context.external_current_text = value
+        elif key == "external_intermediate_sent_marker":
+            context.external_intermediate_sent_marker = value
+        elif key == "rolling":
+            context.rolling = bool(value)
+        else:
+            raise KeyError(key)
+        self._sync_legacy(run_id)
+
+    def pop_runtime_value(self, run_id: str, key: str) -> str | None:
+        """Clear one optional observer-facing runtime value from typed state."""
+
+        existing = self.runtime_value(run_id, key)
+        if key == "kernel_message_id":
+            self._contexts[run_id].kernel_message_id = ""
+        elif key == "external_current_text":
+            self._contexts[run_id].external_current_text = ""
+        elif key == "external_intermediate_sent_marker":
+            self._contexts[run_id].external_intermediate_sent_marker = ""
+        elif key == "rolling":
+            self._contexts[run_id].rolling = False
+        else:
+            raise KeyError(key)
+        self._sync_legacy(run_id)
+        return existing
+
+    def set_message_id(self, run_id: str, message_id: str) -> None:
+        """Backfill the IM message id returned by a turn_start ack."""
+
+        self.set_runtime_value(run_id, "message_id", message_id)
+
+    def set_conversation_id(self, run_id: str, conversation_id: str) -> None:
+        """Backfill the resolved IM conversation id returned by a lazy turn_start."""
+
+        self.set_runtime_value(run_id, "conversation_id", conversation_id)
+
+    def set_kernel_message_id(self, run_id: str, kernel_message_id: str) -> None:
+        """Track the kernel assistant message id that owns the current IM bubble."""
+
+        self.set_runtime_value(run_id, "kernel_message_id", kernel_message_id)
+
     def discard(self, run_id: str) -> None:
         """Remove typed and legacy context for one run."""
 
@@ -131,8 +289,9 @@ class RunDeliveryContextStore:
         existing = self._contexts.get(context.run_id)
         if existing is not None:
             return existing
+        context.ensure_initial_runtime_state()
         self._contexts[context.run_id] = context
-        self._legacy_contexts[context.run_id] = context.to_legacy_dict()
+        self._sync_legacy(context.run_id)
         return context
 
     def seed_from_lifecycle(
@@ -208,3 +367,8 @@ class RunDeliveryContextStore:
                 feishu_message_id=feishu_message_id,
             )
         )
+
+    def _sync_legacy(self, run_id: str) -> None:
+        context = self._contexts.get(run_id)
+        if context is not None:
+            self._legacy_contexts[run_id] = context.to_legacy_dict()
