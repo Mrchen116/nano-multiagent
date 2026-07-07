@@ -58,6 +58,9 @@ from personal_assistant.gateway.inbound_pipeline import (
     InboundPipeline,
     RelayLifecycleUpdate,
 )
+from personal_assistant.gateway.runtime_protocol import (
+    runtime_protocol_or_derive,
+)
 from personal_assistant.gateway.internal_dispatch import InternalDispatchHandler
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
@@ -3668,18 +3671,13 @@ def _build_relay_lifecycle_callback(
                 and update.run_id
                 and update.run_id not in run_context_store
             ):
-                shadow_conversation_id = _metadata_text(
-                    message.metadata, key="shadow_conversation_id"
-                )
-                trigger_source = (
-                    _metadata_text(message.metadata, key="trigger_source") or ""
-                )
-                external_source = _metadata_text(
-                    message.metadata, key="external_source"
-                )
-                relay_task_id = _metadata_text(message.metadata, key="relay_task_id")
-                if shadow_conversation_id is not None:
-                    conversation_id = shadow_conversation_id
+                protocol = runtime_protocol_or_derive(message)
+                shadow_ref = protocol.shadow_ref
+                trigger_source = protocol.trigger_source or ""
+                external_identity = protocol.external_identity
+                relay_task_id = protocol.relay_task_id
+                if shadow_ref is not None:
+                    conversation_id = shadow_ref.conversation_id
                     to_user_id = ""
                 elif relay_task_id is not None:
                     # For regular relay messages, external_chat_id is already an IM
@@ -3687,7 +3685,7 @@ def _build_relay_lifecycle_callback(
                     # shadow_conversation_id above.
                     conversation_id = message.external_chat_id
                     to_user_id = ""
-                elif external_source is not None:
+                elif external_identity is not None:
                     # External-channel messages whose shadow sync failed must not use
                     # owner_user_id lazy creation, otherwise IM would create a normal
                     # direct chat and pollute the internal conversation list.
@@ -3700,7 +3698,7 @@ def _build_relay_lifecycle_callback(
                     # leaving to_user_id empty makes the observer skip turn_start cleanly.
                     to_user_id = owner_user_id
                 agent_id_meta = (
-                    _metadata_text(message.metadata, key="agent_id")
+                    (external_identity.agent_id if external_identity else None)
                     or update.agent_id
                     or ""
                 )
@@ -3743,7 +3741,8 @@ def _build_relay_lifecycle_callback(
         # reports go back to the IM service only for messages that originated there.
         if reporter is None:
             return
-        relay_task_id = _metadata_text(message.metadata, key="relay_task_id")
+        protocol = runtime_protocol_or_derive(message)
+        relay_task_id = protocol.relay_task_id
         if relay_task_id is None:
             return
         manager = im_connection_manager_factory()
@@ -3758,34 +3757,36 @@ def _build_relay_lifecycle_callback(
             await manager.send_json("node.delivery_receipt", payload)
             return
         if update.phase == "running":
-            message_id = _metadata_text(message.metadata, key="message_id")
+            message_id = protocol.im_message_id
             if message_id is None or update.run_id is None:
                 return
+            conversation_id = _protocol_conversation_id(message)
             payload = reporter.send_report(
                 run_id=update.run_id,
                 status="running",
                 agent_id=update.agent_id,
                 session_key=update.session_key,
-                conversation_id=message.external_chat_id,
+                conversation_id=conversation_id,
                 message_id=message_id,
                 summary=update.reply_text,
             )
             await manager.send_json("node.report", payload)
             return
         if update.phase == "completed":
-            message_id = _metadata_text(message.metadata, key="message_id")
+            message_id = protocol.im_message_id
             send_report = getattr(reporter, "send_report", None)
             if (
                 callable(send_report)
                 and message_id is not None
                 and update.run_id is not None
             ):
+                conversation_id = _protocol_conversation_id(message)
                 payload = send_report(
                     run_id=update.run_id,
                     status="completed",
                     agent_id=update.agent_id,
                     session_key=update.session_key,
-                    conversation_id=message.external_chat_id,
+                    conversation_id=conversation_id,
                     message_id=message_id,
                     summary=update.reply_text,
                     detail=update.detail,
@@ -3828,19 +3829,20 @@ def _build_relay_lifecycle_callback(
             # param — the cause rides on `summary` (IM's failed-bubble text reads it).
             # The relay-task delivery_receipt below is kept; the 120s idle watchdog
             # is left as the last-resort "node truly dead" net only.
-            message_id = _metadata_text(message.metadata, key="message_id")
+            message_id = protocol.im_message_id
             send_report = getattr(reporter, "send_report", None)
             if (
                 callable(send_report)
                 and message_id is not None
                 and update.run_id is not None
             ):
+                conversation_id = _protocol_conversation_id(message)
                 payload = send_report(
                     run_id=update.run_id,
                     status="failed",
                     agent_id=update.agent_id,
                     session_key=update.session_key,
-                    conversation_id=message.external_chat_id,
+                    conversation_id=conversation_id,
                     message_id=message_id,
                     summary=update.error,
                 )
@@ -3853,6 +3855,13 @@ def _build_relay_lifecycle_callback(
             await manager.send_json("node.delivery_receipt", payload)
 
     return _callback
+
+
+def _protocol_conversation_id(message: InboundMessage) -> str:
+    protocol = runtime_protocol_or_derive(message)
+    if protocol.shadow_ref is not None:
+        return protocol.shadow_ref.conversation_id
+    return message.external_chat_id
 
 
 def _ack_external_message_processing_started(
