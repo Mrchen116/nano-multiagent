@@ -19,6 +19,12 @@ from personal_assistant.config.local_store import (
 )
 from personal_assistant.gateway.channel_registry import ChannelRegistry
 from personal_assistant.gateway.inbound_pipeline import RelayLifecycleUpdate
+from personal_assistant.channels.base import InboundMessage
+from personal_assistant.gateway.runtime_protocol import (
+    RuntimeProtocolFacts,
+    ShadowConversationRef,
+    attach_runtime_protocol,
+)
 from personal_assistant.main import (
     GatewayRuntime,
     GatewayStartupError,
@@ -138,6 +144,62 @@ def test_relay_lifecycle_callback_sends_receipts_and_reports_with_real_usage_to_
         "total_tokens": 18,
     }
     assert manager.sent_frames[3][1]["detail"] == "hello from agent"
+
+
+def test_relay_lifecycle_reads_delivery_facts_from_runtime_protocol() -> None:
+    """Typed protocol facts override stale raw relay metadata for receipts and reports."""
+    reporter = UpstreamReporter(
+        node=NodeConfig(node_id="node-local"), agents=(), send_frame=lambda _t, _p: None
+    )
+    manager = _FakeIMManager([])
+    callback = _build_relay_lifecycle_callback(
+        reporter=reporter,
+        im_connection_manager_factory=lambda: manager,
+    )
+    message = InboundMessage(
+        channel_name="web_relay",
+        text="hello",
+        external_user_id="user-1",
+        external_chat_id="raw-conv",
+        is_group=False,
+        metadata={"relay_task_id": "raw-relay", "message_id": "raw-msg"},
+    )
+    message = attach_runtime_protocol(
+        message,
+        RuntimeProtocolFacts(
+            relay_task_id="typed-relay",
+            idempotency_key="typed-idem",
+            im_message_id="typed-msg",
+            shadow_ref=ShadowConversationRef(conversation_id="typed-conv"),
+        ),
+    )
+
+    async def _exercise() -> None:
+        await callback(
+            message,
+            RelayLifecycleUpdate(
+                phase="accepted",
+                agent_id="agent-a",
+                session_key="web:user:agent-a",
+                run_id="run-1",
+            ),
+        )
+        await callback(
+            message,
+            RelayLifecycleUpdate(
+                phase="running",
+                agent_id="agent-a",
+                session_key="web:user:agent-a",
+                run_id="run-1",
+                reply_text="hello from agent",
+            ),
+        )
+
+    asyncio.run(_exercise())
+
+    assert manager.sent_frames[0][1]["relay_task_id"] == "typed-relay"
+    assert manager.sent_frames[1][1]["conversation_id"] == "typed-conv"
+    assert manager.sent_frames[1][1]["message_id"] == "typed-msg"
 
 
 def test_relay_lifecycle_accepted_acks_feishu_message_processing_started() -> None:

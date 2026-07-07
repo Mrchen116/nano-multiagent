@@ -13,11 +13,13 @@ from personal_assistant.channels.base import (
     ReplyContext,
 )
 from personal_assistant.channels.web_relay_adapter import (
+    InboundEnvelope,
     RelayDeduplicationStore,
     WebRelayAdapter,
 )
 from personal_assistant.gateway.channel_registry import ChannelRegistry
 from personal_assistant.gateway.outbound_router import OutboundRouter
+from personal_assistant.gateway.runtime_protocol import runtime_protocol_from_message
 
 
 def test_web_relay_adapter_converts_relay_payload_to_inbound_message() -> None:
@@ -94,6 +96,47 @@ def test_web_relay_adapter_preserves_shadow_identity_and_group_target_agent() ->
     assert inbound.metadata["external_chat_id"] == "oc_product"
     assert inbound.metadata["agent_id"] == "plato"
     assert inbound.metadata["mentioned_agent_ids"] == ["plato"]
+
+
+def test_web_relay_adapter_returns_inbound_envelope_with_runtime_protocol() -> None:
+    """Runtime delivery facts come from the protocol wrapper, not downstream metadata parsing."""
+    adapter = WebRelayAdapter()
+    seen: list[InboundMessage] = []
+    adapter.start(seen.append)
+
+    envelope = adapter.accept_relay(
+        {
+            "relay_task_id": "relay-shadow",
+            "idempotency_key": "idem-shadow",
+            "agent_id": "plato",
+            "message": {
+                "id": "msg-shadow",
+                "sender_user_id": "owner-user",
+                "conversation_id": "im-conv-shadow",
+                "content": "summarize the feishu background",
+            },
+            "metadata": {
+                "trigger_source": "im",
+                "conversation_type": "group",
+                "external_source": "feishu",
+                "external_chat_id": "oc_product",
+                "agent_id": "plato",
+            },
+        }
+    )
+
+    assert isinstance(envelope, InboundEnvelope)
+    assert seen == [envelope.message]
+    assert envelope.protocol.relay_task_id == "relay-shadow"
+    assert envelope.protocol.idempotency_key == "idem-shadow"
+    assert envelope.protocol.im_message_id == "msg-shadow"
+    assert envelope.protocol.shadow_ref is not None
+    assert envelope.protocol.shadow_ref.conversation_id == "im-conv-shadow"
+    assert envelope.protocol.external_identity is not None
+    assert envelope.protocol.external_identity.external_source == "feishu"
+    assert envelope.protocol.external_identity.external_chat_id == "oc_product"
+    assert envelope.protocol.external_identity.trigger_source == "im"
+    assert runtime_protocol_from_message(envelope.message) == envelope.protocol
 
 
 def test_outbound_router_dedupes_by_reply_dedupe_key() -> None:
