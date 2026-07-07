@@ -8,14 +8,14 @@
 
 ## 退出标准
 
-- [ ] `main.py` 不再定义 `_build_relay_lifecycle_callback()`，只 import/wire runtime delivery lifecycle builder。
-- [ ] `runtime_delivery.lifecycle` owns relay accepted/completed/failed/cancelled、RunDeliveryContext seed/pop、delivery receipt/report、Feishu processing-start ack。
-- [ ] typed `RunDeliveryContextStore` fresh accepted relay 会发送 `node.delivery_receipt(delivery_status="sent")` 并保留 accepted progress。
-- [ ] observer/lifecycle 不在入口无条件把 typed store 降级为 `legacy_contexts`；legacy dict 只保留在 heartbeat/cron 等明确 legacy boundary。
-- [ ] 既有 running/completed/failed/cancelled report/cleanup 行为不回退。
-- [ ] 指定门禁全绿：
+- [x] `main.py` 不再定义 `_build_relay_lifecycle_callback()`，只 import/wire runtime delivery lifecycle builder。
+- [x] `runtime_delivery.lifecycle` owns relay accepted/completed/failed/cancelled、RunDeliveryContext seed/pop、delivery receipt/report、Feishu processing-start ack。
+- [x] typed `RunDeliveryContextStore` fresh accepted relay 会发送 `node.delivery_receipt(delivery_status="sent")` 并保留 accepted progress。
+- [x] observer/lifecycle 不在入口无条件把 typed store 降级为 `legacy_contexts`；legacy dict 只保留在 heartbeat/cron 等明确 legacy boundary。
+- [x] 既有 running/completed/failed/cancelled report/cleanup 行为不回退。
+- [x] 指定门禁全绿：
   `pytest tests/unit/personal_assistant/test_gateway_relay_lifecycle.py tests/unit/personal_assistant/test_external_visible_delivery.py tests/unit/personal_assistant/test_gateway_im_resilience.py tests/unit/personal_assistant/test_heartbeat_im_delivery.py tests/unit/personal_assistant/test_cron_delivery_chain.py tests/im_service/unit/test_gateway_handler.py tests/im_service/integration/test_gateway_websocket_api.py tests/contract/test_personal_assistant_main_contract.py`
-- [ ] worktree-local live isolated check 验证 Web IM direct relay 可见 reply，以及 relay accepted/completed 状态 closeout；Feishu/Lark 真平台凭据若仍缺失，只记录 caveat，不用 fake inbound 顶替。
+- [x] worktree-local live isolated check 验证 Web IM direct relay 可见 reply，以及 relay accepted/completed 状态 closeout；Feishu/Lark 真平台凭据若仍缺失，只记录 caveat，不用 fake inbound 顶替。
 
 ## 测试策略
 
@@ -38,7 +38,7 @@
 
 ### R1 — Red regressions for lifecycle owner and typed accepted receipt
 
-- 状态: TODO
+- 状态: DONE
 - 步骤:
   - 在 relay lifecycle unit tests 中新增 typed store fresh accepted relay receipt 红测。
   - 在 main contract 中新增 `main.py` 不定义 `_build_relay_lifecycle_callback` 的架构红测。
@@ -48,7 +48,7 @@
 
 ### R2 — Move lifecycle owner to runtime_delivery and fix typed-store receipt
 
-- 状态: TODO
+- 状态: DONE
 - 步骤:
   - 新增 `src/personal_assistant/gateway/runtime_delivery/lifecycle.py`，迁入 relay lifecycle builder、protocol conversation id、external processing-start ack。
   - `main.py` 仅 import/wire builder，删除 lifecycle delivery helper 定义和不再需要的 imports。
@@ -59,7 +59,7 @@
 
 ### R3 — Evidence and live isolated check
 
-- 状态: TODO
+- 状态: DONE
 - 步骤:
   - 记录 R1/R2 测试证据和 rollback commits。
   - 用 worktree-local e2e stack 验证 Web IM direct relay 可见 reply、relay accepted/completed 状态 closeout。
