@@ -48,7 +48,7 @@
 
 ### R2 — Gateway relay runtime protocol handoff
 
-- 状态: DOING
+- 状态: DONE
 - 步骤:
   - 新增 Gateway-local `runtime_protocol.py`，表达 external identity、shadow ref、reply target、relay task/runtime facts。
   - 调整 `WebRelayAdapter` 输出 `InboundEnvelope(message, protocol)` 或等价 wrapper，并把 lifecycle delivery facts 从 protocol 读取。
@@ -58,7 +58,7 @@
 
 ### R3 — Gateway workspace authority local-wins
 
-- 状态: TODO
+- 状态: DOING
 - 步骤:
   - 新增 `workspace_authority.py`，统一 `sync_agent()` 与 `reconcile_all_agents()` 的 workspace 解析。
   - 补齐 `reconcile_all_agents()` local-wins 红测，确保 IM mirror workspace 不覆盖 runtime/local config。

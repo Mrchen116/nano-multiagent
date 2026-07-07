@@ -33,19 +33,19 @@
 
 ## R2 — Gateway relay runtime protocol handoff
 
-- Context: TODO
-- Decision: TODO
-- Rationale: TODO
+- Context: Web relay inbound facts (`relay_task_id`, IM message id, shadow conversation id, external identity) were previously only available as raw `InboundMessage.metadata`; lifecycle and session helpers re-read those keys directly.
+- Decision: Added Gateway-local `runtime_protocol.py`, made `WebRelayAdapter.accept_relay()` return `InboundEnvelope(message, protocol)`, attached typed `RuntimeProtocolFacts` to the normalized `InboundMessage`, and moved session key/group/external/lifecycle reads through runtime protocol helpers. The channel callback still receives `InboundMessage`, so non-relay adapters and existing ChannelRegistry wiring remain unchanged.
+- Rationale: This gives runtime delivery a typed source for relay facts without changing the generic channel contract or moving M2 lifecycle extraction into M1. The red lifecycle test proves typed protocol facts override stale raw metadata.
 - Evidence:
-  - Tests: TODO
-  - Entry: TODO
+  - Tests: `source /Users/czj/Repos/nano-multiagent/.venv/bin/activate && pytest tests/unit/personal_assistant/test_gateway_web_relay_adapter.py tests/unit/personal_assistant/test_gateway_relay_lifecycle.py` -> 29 passed, 2 warnings.
+  - Entry: Unit-level runtime boundary tests exercise the Web relay adapter entry and lifecycle callback that feeds IM receipts/reports.
   - Frontend State Matrix: N/A.
   - Browser QA: N/A.
-  - E2E/Regression: TODO
+  - E2E/Regression: `test_web_relay_adapter_returns_inbound_envelope_with_runtime_protocol` and `test_relay_lifecycle_reads_delivery_facts_from_runtime_protocol` are permanent regression tests for the protocol handoff.
   - Visual/Interaction: N/A.
-- Rollback: TODO
-- Commits: TODO
-- Next: R3.
+- Rollback: Revert `920a01a5` and `4f0dd8b8`.
+- Commits: C1=`920a01a5`, C2=`4f0dd8b8`, C3=pending.
+- Next: R3 workspace authority local-wins.
 
 ## R3 — Gateway workspace authority local-wins
 
