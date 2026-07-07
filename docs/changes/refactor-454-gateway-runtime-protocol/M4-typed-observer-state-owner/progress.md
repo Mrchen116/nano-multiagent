@@ -28,6 +28,44 @@
   - Browser QA: N/A.
   - E2E/Regression: Permanent regressions added in `tests/unit/personal_assistant/test_gateway_relay_lifecycle.py`.
   - Visual/Interaction: N/A.
-- Rollback: Revert R1 test commit.
-- Commits: C1=<pending>.
+- Rollback: Revert `50285e1b`.
+- Commits: C1=`50285e1b`.
 - Next: R2 typed store implementation.
+
+## R2 — Make typed store the observer state surface
+
+- Context: `observer.py` previously converted typed stores into `legacy_contexts` at entry and every ack/backfill path mutated that dict. Typed `RunDeliveryContext` only held seed-time facts, so future typed readers could observe stale `message_id`, resolved `conversation_id`, `kernel_message_id`, rolling and external mirror markers.
+- Decision: Made `RunDeliveryContext` own mutable runtime fields and added `RunDeliveryContextStore.runtime_view()` plus typed update/backfill helpers. The runtime view is dict-shaped for the existing observer code, but writes through to typed context and regenerates the legacy projection. `build_kernel_event_observer()` and `roll_bubble()` now fetch per-run runtime views from the original store; nested ack/roll closures also write back through the store instead of closing over a legacy map.
+- Rationale: This closes the semantic owner gap while keeping the large observer change small and behavior-preserving. Legacy dict inputs still use the old dict path, and `legacy_contexts` remains a compatibility projection for heartbeat/cron explicit boundaries and existing tests.
+- Evidence:
+  - Tests: `source /Users/czj/Repos/nano-multiagent/.venv/bin/activate && pytest tests/unit/personal_assistant/test_gateway_relay_lifecycle.py tests/unit/personal_assistant/test_heartbeat_im_delivery.py tests/unit/personal_assistant/test_steer_bubble_roll.py tests/unit/personal_assistant/test_relay_kernel_message_id.py` -> 39 passed, 2 warnings.
+  - Entry: Unit observer/lifecycle tests drive the Gateway observer entry points and `roll_bubble()` directly; no service process needed for this internal state owner fix.
+  - Frontend State Matrix: N/A.
+  - Browser QA: N/A.
+  - E2E/Regression: R1 regressions now pass and legacy dict path tests still pass.
+  - Visual/Interaction: N/A.
+- Rollback: Revert `8651c0d9` after reverting `50285e1b` if the regression tests are no longer wanted.
+- Commits: C2=`8651c0d9`.
+- Next: R3 gate and documentation.
+
+## R3 — Gate, documentation, integration evidence
+
+- Context: M4 touches the observer state owner behind existing user-visible delivery behavior; final evidence must prove both the new regressions and the broader M3/M4 gate remain green.
+- Decision: Ran touched-file lint and the full requested M4/M3 gate. Did not run `pytest -m "not e2e"` because touched code stayed within `runtime_delivery/context.py`, `runtime_delivery/observer.py`, the existing observer/lifecycle tests, and milestone docs.
+- Rationale: The requested gate covers lifecycle, external visible delivery, IM resilience, heartbeat/cron, IM gateway handler/websocket integration and main contract. No frontend frame shape or user entry changed.
+- Evidence:
+  - Tests:
+    - `ruff check src/personal_assistant/gateway/runtime_delivery/context.py src/personal_assistant/gateway/runtime_delivery/observer.py src/personal_assistant/gateway/runtime_delivery/lifecycle.py tests/unit/personal_assistant/test_gateway_relay_lifecycle.py tests/unit/personal_assistant/test_heartbeat_im_delivery.py tests/unit/personal_assistant/test_steer_bubble_roll.py tests/unit/personal_assistant/test_relay_kernel_message_id.py tests/contract/test_personal_assistant_main_contract.py` -> All checks passed.
+    - `pytest tests/unit/personal_assistant/test_gateway_relay_lifecycle.py tests/unit/personal_assistant/test_external_visible_delivery.py tests/unit/personal_assistant/test_gateway_im_resilience.py tests/unit/personal_assistant/test_heartbeat_im_delivery.py tests/unit/personal_assistant/test_cron_delivery_chain.py tests/im_service/unit/test_gateway_handler.py tests/im_service/integration/test_gateway_websocket_api.py tests/contract/test_personal_assistant_main_contract.py` -> 120 passed, 2 warnings.
+  - Entry: The full gate includes IM websocket integration and Gateway observer/lifecycle behavior. No additional live Feishu/Lark entry was run because this worker environment still has no credentialed true-platform channel.
+  - Frontend State Matrix: N/A.
+  - Browser QA: N/A.
+  - E2E/Regression: Permanent regressions live in `tests/unit/personal_assistant/test_gateway_relay_lifecycle.py`; no one-shot e2e artifact was produced.
+  - Visual/Interaction: N/A.
+- Rollback: Revert docs commit, `8651c0d9`, and `50285e1b`.
+- Commits: C3=<this docs commit>.
+- Next: Rebase, merge milestone branch into `unit/refactor-454`, push, then clean worker worktree.
+
+## Caveats
+
+- Feishu/Lark true-platform journeys were not run. No credentialed Feishu/Lark channel was available in this worker environment, and no fake inbound was used.

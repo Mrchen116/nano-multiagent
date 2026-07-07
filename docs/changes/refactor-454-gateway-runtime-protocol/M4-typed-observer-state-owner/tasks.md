@@ -8,17 +8,17 @@
 
 ## 退出标准
 
-- [ ] `RunDeliveryContextStore` 暴露 typed read/update/backfill API，覆盖 observer 当前会读写的运行态字段。
-- [ ] `build_kernel_event_observer()` typed-store path 直接通过 store API 读写状态；legacy dict 只作为兼容边界，不是 observer 主状态。
-- [ ] `roll_bubble()` 接收 typed store 时更新 typed store 的 `message_id` / `kernel_message_id` / rolling state。
-- [ ] typed relay/shadow path：`run_status=running` + IM ack 后，typed context/store 自身持有 backfilled `message_id`。
-- [ ] typed owner-direct/lazy path：assistant content 触发 `turn_start` 后，typed context/store 自身回填 resolved `conversation_id` 和 `message_id`，并继续发送 delta。
-- [ ] 保留 legacy dict path 兼容测试，heartbeat/cron 明确 legacy boundary 和现有测试不回退。
-- [ ] 指定 touched-file `ruff check` 全绿。
-- [ ] 指定 M4/M3 gate 全绿：
+- [x] `RunDeliveryContextStore` 暴露 typed read/update/backfill API，覆盖 observer 当前会读写的运行态字段。
+- [x] `build_kernel_event_observer()` typed-store path 直接通过 store API 读写状态；legacy dict 只作为兼容边界，不是 observer 主状态。
+- [x] `roll_bubble()` 接收 typed store 时更新 typed store 的 `message_id` / `kernel_message_id` / rolling state。
+- [x] typed relay/shadow path：`run_status=running` + IM ack 后，typed context/store 自身持有 backfilled `message_id`。
+- [x] typed owner-direct/lazy path：assistant content 触发 `turn_start` 后，typed context/store 自身回填 resolved `conversation_id` 和 `message_id`，并继续发送 delta。
+- [x] 保留 legacy dict path 兼容测试，heartbeat/cron 明确 legacy boundary 和现有测试不回退。
+- [x] 指定 touched-file `ruff check` 全绿。
+- [x] 指定 M4/M3 gate 全绿：
   `pytest tests/unit/personal_assistant/test_gateway_relay_lifecycle.py tests/unit/personal_assistant/test_external_visible_delivery.py tests/unit/personal_assistant/test_gateway_im_resilience.py tests/unit/personal_assistant/test_heartbeat_im_delivery.py tests/unit/personal_assistant/test_cron_delivery_chain.py tests/im_service/unit/test_gateway_handler.py tests/im_service/integration/test_gateway_websocket_api.py tests/contract/test_personal_assistant_main_contract.py`
-- [ ] 如改动超出 `context.py` / `observer.py` / `lifecycle.py` / 相关 tests，复跑 `pytest -m "not e2e"`。
-- [ ] Feishu/Lark 真平台缺凭据时只记录 caveat，不用 fake inbound 顶替。
+- [x] 如改动超出 `context.py` / `observer.py` / `lifecycle.py` / 相关 tests，复跑 `pytest -m "not e2e"`。（未超出，N/A）
+- [x] Feishu/Lark 真平台缺凭据时只记录 caveat，不用 fake inbound 顶替。
 
 ## 测试策略
 
@@ -50,7 +50,7 @@
 
 ### R2 — Make typed store the observer state surface
 
-- 状态: TODO
+- 状态: DONE
 - 步骤:
   - 扩展 `RunDeliveryContext`/`RunDeliveryContextStore`，新增 runtime state view 和 typed update/backfill API。
   - 调整 observer / `roll_bubble()` typed-store 分支，运行态读写通过 store API；legacy dict 使用窄 adapter。
@@ -61,7 +61,7 @@
 
 ### R3 — Gate, documentation, integration evidence
 
-- 状态: TODO
+- 状态: DONE
 - 步骤:
   - 跑完整 M4/M3 gate。
   - 若 touched scope 超出计划，跑 `pytest -m "not e2e"`。
