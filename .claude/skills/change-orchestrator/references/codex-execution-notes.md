@@ -9,8 +9,8 @@
 | `Agent` 工具 + `run_in_background: true` | `multi_agent_v1.spawn_agent`。Codex subagent 创建后就是后台运行；不要派发后立刻长时间 `wait_agent`，除非下一步必须等它结果。 |
 | 按稳定 `name` 调 `SendMessage` | `multi_agent_v1.send_input(target=<agent_id>)`。Codex 不能自定义稳定 agent name；orchestrator 需要在内存里维护 `milestone_id -> agent_id`、`reviewer_agent_id`、`verifier_agent_id`。 |
 | `subagent_type: general-purpose` | `agent_type: default`。实现 / fix worker 用 `agent_type: worker`；窄范围只读探索用 `agent_type: explorer`。 |
-| `model: sonnet` | 需要显式强模型覆盖时用 `model: gpt-5.5`。否则省略 `model`，让 subagent 继承当前模型。 |
-| 推理强度 | `multi_agent_v1.spawn_agent` 的 `reasoning_effort`。否则省略，继承主会话推理强度。 |
+| `model: sonnet` | `multi_agent_v1.spawn_agent` 派发时必须按下方策略表显式传 `model`，不要省略。 |
+| 推理强度 | `multi_agent_v1.spawn_agent` 派发时必须按下方策略表显式传 `reasoning_effort`，不要省略。 |
 | Agent `isolation=worktree` 参数 | Codex 没有这个参数，不设置。正好符合原 skill “不要设置 `isolation=worktree`” 的要求。 |
 | 用稳定 agent `name` 复用热上下文 | 用 `spawn_agent` 返回的 `agent_id` 复用。fix loop 需要唤醒原 worker 时，调用 `send_input(target=<agent_id>)`。 |
 | 等后台 agent 结果 | `multi_agent_v1.wait_agent(targets=[...])`。只在 orchestrator 需要结果才能继续路由时等待。 |
@@ -18,7 +18,7 @@
 
 ## 模型与推理强度策略
 
-Codex subagent 默认继承主会话模型和推理强度；`change-orchestrator` 在以下角色上显式覆盖 `model` 与 `reasoning_effort`，保证关键实现和验收强度稳定：
+`change-orchestrator` 派发任何 Codex subagent 时，必须按下表显式传 `model` 与 `reasoning_effort`，不要依赖继承或默认配置。主会话模型配置可能与本流程的角色要求不一致，省略参数会造成 worker / reviewer / verifier 强度漂移。
 
 | Subagent | `agent_type` | `model` | `reasoning_effort` |
 |---|---|---|---|
@@ -28,7 +28,7 @@ Codex subagent 默认继承主会话模型和推理强度；`change-orchestrator
 | code-review finder (`change-code-review`) | `explorer` | `gpt-5.3-codex-spark` | `high` |
 | code-review verifier (`change-code-review`) | `default` | `gpt-5.3-codex-spark` | `high` |
 
-预算分配原则：impl / fix worker 有最高自主性，需要在实现路径、边界处理、测试策略和失败修复上做技术判断，默认用 `xhigh`；product reviewer / implementation verifier 的职责是按既定 contract 严格验收，不做方案发散，默认 `medium` 足够；`change-code-review` 关注高并发、窄范围找问题，用 `gpt-5.3-codex-spark` + `high` 控制延迟。
+预算分配原则：impl / fix worker 有最高自主性，需要在实现路径、边界处理、测试策略和失败修复上做技术判断，固定传 `xhigh`；product reviewer / implementation verifier 的职责是按既定 contract 严格验收，不做方案发散，固定传 `medium`；`change-code-review` 关注高并发、窄范围找问题，固定传 `gpt-5.3-codex-spark` + `high` 控制延迟。
 
 ## Code Review
 
