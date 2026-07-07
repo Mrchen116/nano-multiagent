@@ -1,8 +1,9 @@
 # Verification Report: refactor-454
 
-> Current status after R4 (`601ea5fb`): targeted closure passes for the previously
-> open runtime-delivery owner blockers. Earlier failing sections are retained as
-> history; see "Round 3 - Main-Session Targeted Closure Verification" at the end.
+> Current status after independent Round 4 (`ed6e0de8` inspected): targeted
+> closure passes for the previously open runtime-delivery owner blockers. Earlier
+> failing sections are retained as history; see "Round 4 - Independent Targeted
+> Closure Verification" at the end.
 
 ## Summary
 
@@ -176,3 +177,57 @@ pytest -m "not e2e"
 ## Caveats
 
 - Feishu/Lark true-platform journeys remain unverified because this worktree does not have a credentialed Feishu/Lark channel. Existing unit/integration coverage and Web IM live evidence are retained, but they are not a substitute for true-platform Feishu/Lark acceptance.
+
+# Round 4 - Independent Targeted Closure Verification
+
+## Verification Report: refactor-454
+
+### Summary
+
+Mode: targeted-closure
+Delta range: `1d1cec26..ed6e0de83f1b17700179137598c87d17ff112113`
+Focus issues:
+- Round-2 CRITICAL: observer typed-store boundary still open because observer consumed `RunDeliveryContextStore.legacy_contexts` rather than typed runtime state.
+- Production heartbeat/cron wiring gap found after M4: `build_runtime()` passed `run_delivery_contexts.legacy_contexts` into heartbeat/cron `_stream_run_to_completion()` while observer was built with `RunDeliveryContextStore`.
+requires_full_verification: false
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | focus closures verified |
+| Correctness | focus closures verified |
+| Coherence | no critical or warning found in targeted scope |
+
+All targeted closure checks passed. Ready for PR from verifier scope.
+
+## Scope and Method
+
+- Code/docs/tests were read only. No product acceptance journey was run in this verifier pass.
+- `1d1cec26..601ea5fb` changes only the focused runtime delivery code/tests/docs; `601ea5fb..ed6e0de8` changes only this report file.
+- Existing recorded evidence in `M4-typed-observer-state-owner/progress.md` was inspected but not re-executed here.
+
+## Focus Closure Results
+
+| Focus item | Verdict | Evidence |
+|---|---|---|
+| Observer typed-store boundary | closed | `src/personal_assistant/gateway/runtime_delivery/observer.py:18` resolves a typed store through `RunDeliveryContextStore.runtime_view(run_id)` instead of taking `legacy_contexts` at builder entry. `RunDeliveryRuntimeView.__setitem__()` writes through `RunDeliveryContextStore.set_runtime_value()` at `src/personal_assistant/gateway/runtime_delivery/context.py:151`, and that method mutates typed fields plus refreshes the legacy projection at `context.py:228`. Observer ack/backfill paths now write through the runtime view at `observer.py:382`, `observer.py:481`, `observer.py:656`, and `roll_bubble()` at `observer.py:67`/`observer.py:104`. Behavioral regressions assert typed shadow ack, owner-direct lazy ack, and roll-bubble backfill at `tests/unit/personal_assistant/test_gateway_relay_lifecycle.py:279`, `:315`, and `:361`. |
+| Production heartbeat/cron typed-store wiring | closed | `build_runtime()` creates one `RunDeliveryContextStore` at `src/personal_assistant/main.py:2649`, passes that same typed store to heartbeat at `main.py:2660`, to relay lifecycle/observer at `main.py:2892` and `main.py:2899`, and to cron stream delivery at `main.py:3074`. `_stream_run_to_completion()` now accepts `RunDeliveryContextStore` at `main.py:1194`, seeds owner-direct runs via `_seed_owner_direct_stream_context()` at `main.py:1234`, which calls `RunDeliveryContextStore.seed_owner_direct_run()` at `main.py:1285` / `context.py:280`, then returns the discard-before snapshot through `_pop_stream_context()` at `main.py:1302`. Regression coverage verifies the typed stream path at `tests/unit/personal_assistant/test_heartbeat_im_delivery.py:414` and forbids production `.legacy_contexts` wiring at `tests/unit/personal_assistant/test_gateway_relay_lifecycle.py:397`. |
+| Legacy compatibility boundary | closed for target | Remaining production `legacy_contexts` references are confined to the compatibility projection inside `RunDeliveryContextStore` (`context.py:173`, `context.py:176`, `context.py:397`). The focused source search found no remaining `run_context_store=run_delivery_contexts.legacy_contexts` production wiring and no observer entry downgrade. |
+| Need for full verification | not required | The fix delta is limited to `src/personal_assistant/main.py`, `src/personal_assistant/gateway/runtime_delivery/context.py`, and focused tests/docs. It does not introduce new Gateway/IM frame shapes, persistence changes, frontend changes, new cross-package imports, or new product entrypoints. The delta directly closes the targeted state-owner split; existing M4 progress records the focused red/green tests, M4/M3 gate, and full non-e2e regression. |
+
+## Issues
+
+### CRITICAL
+
+- None.
+
+### WARNING
+
+- None in targeted closure scope.
+
+### SUGGESTION
+
+- None.
+
+## Caveats
+
+- Feishu/Lark true-platform journeys remain a reviewer/acceptance caveat from earlier rounds. This verifier pass did not run product acceptance journeys and did not treat synthetic inbound as a substitute for true platform evidence.
