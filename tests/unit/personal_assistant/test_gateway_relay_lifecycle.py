@@ -199,6 +199,53 @@ def test_relay_lifecycle_cleanup_removes_typed_and_legacy_context() -> None:
     assert "run-cleanup" not in context_store.legacy_contexts
 
 
+def test_typed_store_fresh_relay_accepted_still_sends_sent_receipt() -> None:
+    reporter = UpstreamReporter(
+        node=NodeConfig(node_id="node-local"), agents=(), send_frame=lambda _t, _p: None
+    )
+    manager = _FakeIMManager([])
+    context_store = RunDeliveryContextStore()
+    callback = _build_relay_lifecycle_callback(
+        reporter=reporter,
+        im_connection_manager_factory=lambda: manager,
+        run_context_store=context_store,
+    )
+    message = InboundMessage(
+        channel_name="web_relay",
+        text="hello",
+        external_user_id="user-1",
+        external_chat_id="conv-1",
+        is_group=False,
+        metadata={"relay_task_id": "relay-1", "message_id": "msg-1"},
+    )
+
+    asyncio.run(
+        callback(
+            message,
+            RelayLifecycleUpdate(
+                phase="accepted",
+                agent_id="agent-a",
+                session_key="web:user:agent-a",
+                run_id="run-accepted",
+                kernel_session_id="sess-accepted",
+            ),
+        )
+    )
+
+    assert context_store.get("run-accepted") is not None
+    assert manager.sent_frames == [
+        (
+            "node.delivery_receipt",
+            {
+                "relay_task_id": "relay-1",
+                "delivery_status": "sent",
+                "detail": "run_id=run-accepted",
+                "node_id": "node-local",
+            },
+        )
+    ]
+
+
 def test_build_runtime_wires_typed_delivery_context_store() -> None:
     source = inspect.getsource(build_runtime)
 
