@@ -31,3 +31,19 @@
 - Rollback: Revert `f39e47f6` and `562334ae`.
 - Commits: C1=`562334ae`, C2=`f39e47f6`, C3=pending.
 - Next: R2 kernel event observer extraction and owner lazy-direct regression.
+
+## R2 — Kernel event observer extraction
+
+- Context: `main.py` still owned the kernel event delivery branch for running placeholders, assistant deltas, tool/permission states, abnormal reconcile, external visible mirror, and heartbeat lazy direct delivery. M2 requires this behavior to live in `runtime_delivery`.
+- Decision: Moved ack extraction, bubble rolling, and `_build_kernel_event_observer()` into `personal_assistant.gateway.runtime_delivery.observer`. `main.py` now imports the observer builder and compatibility aliases only; the new observer accepts `RunDeliveryContextStore` and internally consumes its legacy view during the transition. Added owner-direct tests that drive `HEARTBEAT_OK` silence and real-content ack backfill through the new module.
+- Rationale: Mechanical movement keeps IM/EventBridge frame semantics unchanged while removing the largest runtime delivery branch from the composition root. The typed-store adapter lets R2 prove owner direct semantics without rewriting every existing observer assertion at once.
+- Evidence:
+  - Tests: `source /Users/czj/Repos/nano-multiagent/.venv/bin/activate && pytest tests/unit/personal_assistant/test_gateway_relay_lifecycle.py tests/unit/personal_assistant/test_external_visible_delivery.py tests/unit/personal_assistant/test_heartbeat_im_delivery.py tests/unit/personal_assistant/test_cron_delivery_chain.py tests/unit/personal_assistant/test_steer_bubble_roll.py` -> 51 passed, 2 warnings. `ruff check src/personal_assistant/gateway/runtime_delivery src/personal_assistant/main.py tests/unit/personal_assistant/test_gateway_relay_lifecycle.py tests/unit/personal_assistant/test_heartbeat_im_delivery.py` -> All checks passed.
+  - Entry: FK-enforced heartbeat IM delivery tests route `turn_start{to_user_id}` through the real IM `GatewayHandler`; external visible delivery tests cover Feishu main-path mirror when IM is absent.
+  - Frontend State Matrix: N/A.
+  - Browser QA: N/A.
+  - E2E/Regression: `test_owner_direct_context_store_suppresses_heartbeat_ok` and `test_owner_direct_context_store_ack_backfills_and_continues_delta` cover owner lazy-direct silence and ack backfill through `runtime_delivery.observer`.
+  - Visual/Interaction: N/A.
+- Rollback: Revert `67bbb7da` and `fe6871d8`.
+- Commits: C1=`fe6871d8`, C2=`67bbb7da`, C3=pending.
+- Next: R3 background/session delivery extraction and build wiring.
