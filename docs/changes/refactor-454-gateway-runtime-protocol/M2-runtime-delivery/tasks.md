@@ -54,7 +54,7 @@
 
 ### R2 — Kernel event observer extraction
 
-- 状态: TODO
+- 状态: DOING
 - 步骤:
   - 把 `_build_kernel_event_observer()`、bubble roll、ack extraction、external mirror helpers 移入 `runtime_delivery/observer.py`。
   - 让 observer 消费 typed context store，同时保留 running/message/tool/permission/reconcile/external mirror 行为。
