@@ -1,5 +1,9 @@
 # Verification Report: refactor-454
 
+> Current status after R4 (`601ea5fb`): targeted closure passes for the previously
+> open runtime-delivery owner blockers. Earlier failing sections are retained as
+> history; see "Round 3 - Main-Session Targeted Closure Verification" at the end.
+
 ## Summary
 
 Mode: full
@@ -123,3 +127,52 @@ PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest tests
 ### SUGGESTION
 
 - None.
+
+# Round 3 - Main-Session Targeted Closure Verification
+
+## Verification Report: refactor-454
+
+### Summary
+
+Mode: targeted-closure
+Delta range: `1d1cec26..601ea5fb803b7030570af0ff7594b41d980d4a2a`
+Focus issues: round-2 observer typed-store boundary; production heartbeat/cron typed-store wiring
+requires_full_verification: false
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | focus closures verified |
+| Correctness | focus closures verified |
+| Coherence | no critical deviation found in focus scope |
+
+No critical issue found in the R4 focus scope. This round was performed in the main session after the R4 fix; it is not an independent verifier-agent report.
+
+## Focus Closure Results
+
+| Focus item | Verdict | Evidence |
+|---|---|---|
+| Observer typed-store boundary | closed | `runtime_delivery/observer.py` now resolves `RunDeliveryContextStore` through `_runtime_context_view(...).runtime_view(run_id)` instead of converting the store to `legacy_contexts` at builder entry. `RunDeliveryContext` owns runtime fields including `conversation_id`, `message_id`, `kernel_message_id`, rolling state, and external markers; `RunDeliveryRuntimeView.__setitem__()` writes through `RunDeliveryContextStore.set_runtime_value()`, which syncs the legacy projection after typed mutation. |
+| Relay lifecycle owner remains outside `main.py` | closed | `main.py` imports `build_relay_lifecycle_callback` from `personal_assistant.gateway.runtime_delivery.lifecycle`; contract coverage asserts `main.py` does not define `def _build_relay_lifecycle_callback(`. |
+| Production heartbeat/cron stream wiring | closed | `_stream_run_to_completion()` accepts `RunDeliveryContextStore`, seeds owner-direct runs through `RunDeliveryContextStore.seed_owner_direct_run()`, and pops a typed snapshot before discard. `build_runtime()` passes `run_delivery_contexts` to both heartbeat runner and cron stream path; regression coverage forbids `run_context_store=run_delivery_contexts.legacy_contexts` in that production wiring. |
+| User-visible behavior preservation | covered in automated scope | M4/M3 gate and full non-e2e regression passed after the fix. No frontend entrypoint, DB schema migration, or user command/protocol entry change was introduced by R4. |
+
+## Commands
+
+```bash
+pytest tests/unit/personal_assistant/test_heartbeat_im_delivery.py::test_stream_run_to_completion_seeds_typed_store_seen_by_observer tests/unit/personal_assistant/test_gateway_relay_lifecycle.py::test_build_runtime_wires_typed_delivery_context_store
+# before fix: expected red, 2 failed
+# after fix: 2 passed, 2 warnings
+
+ruff check src/personal_assistant/main.py src/personal_assistant/gateway/runtime_delivery/context.py src/personal_assistant/gateway/runtime_delivery/observer.py tests/unit/personal_assistant/test_heartbeat_im_delivery.py tests/unit/personal_assistant/test_gateway_relay_lifecycle.py
+# All checks passed
+
+pytest tests/unit/personal_assistant/test_gateway_relay_lifecycle.py tests/unit/personal_assistant/test_external_visible_delivery.py tests/unit/personal_assistant/test_gateway_im_resilience.py tests/unit/personal_assistant/test_heartbeat_im_delivery.py tests/unit/personal_assistant/test_cron_delivery_chain.py tests/im_service/unit/test_gateway_handler.py tests/im_service/integration/test_gateway_websocket_api.py tests/contract/test_personal_assistant_main_contract.py
+# 121 passed, 2 warnings
+
+pytest -m "not e2e"
+# 3332 passed, 2 skipped, 22 deselected, 16 warnings
+```
+
+## Caveats
+
+- Feishu/Lark true-platform journeys remain unverified because this worktree does not have a credentialed Feishu/Lark channel. Existing unit/integration coverage and Web IM live evidence are retained, but they are not a substitute for true-platform Feishu/Lark acceptance.
