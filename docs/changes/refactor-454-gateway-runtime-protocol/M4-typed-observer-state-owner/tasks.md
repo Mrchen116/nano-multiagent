@@ -41,7 +41,7 @@
 
 ### R1 — Red regressions for typed observer state ownership
 
-- 状态: TODO
+- 状态: DONE
 - 步骤:
   - 扩展现有 observer/lifecycle 测试，断言 typed store 自身（不是 `legacy_contexts`）在 shadow ack、owner-direct ack、`roll_bubble()` 后持有运行态 backfill。
   - 运行新增/相关测试，确认当前实现失败。

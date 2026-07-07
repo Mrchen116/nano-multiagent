@@ -28,12 +28,14 @@ from personal_assistant.gateway.runtime_protocol import (
 )
 from personal_assistant.gateway.runtime_delivery.context import (
     OwnerDirectTarget,
+    RunDeliveryContext,
     RunDeliveryContextStore,
     RunDeliveryTarget,
 )
 from personal_assistant.gateway.runtime_delivery.lifecycle import (
     build_relay_lifecycle_callback as _build_relay_lifecycle_callback,
 )
+from personal_assistant.gateway.runtime_delivery.observer import roll_bubble
 from personal_assistant.main import (
     GatewayRuntime,
     GatewayStartupError,
@@ -85,6 +87,32 @@ class _AckChannel:
 
     def ack_message(self, message_id: str) -> None:
         self.acked.append(message_id)
+
+
+class _AckingIMManager:
+    connected = True
+
+    def __init__(
+        self,
+        *,
+        message_id: str = "im-msg-1",
+        conversation_id: str | None = None,
+    ) -> None:
+        self.sent_frames: list[tuple[str, dict[str, object]]] = []
+        self._message_id = message_id
+        self._conversation_id = conversation_id
+
+    async def send_json_await_ack(
+        self, message_type: str, payload: dict[str, object]
+    ) -> dict[str, object]:
+        self.sent_frames.append((message_type, payload))
+        ack_payload: dict[str, object] = {"message_id": self._message_id}
+        if self._conversation_id is not None:
+            ack_payload["conversation_id"] = self._conversation_id
+        return {"payload": ack_payload}
+
+    async def send_json(self, message_type: str, payload: dict[str, object]) -> None:
+        self.sent_frames.append((message_type, payload))
 
 
 def test_run_delivery_target_distinguishes_shadow_owner_direct_and_none() -> None:
@@ -246,6 +274,124 @@ def test_typed_store_fresh_relay_accepted_still_sends_sent_receipt() -> None:
             },
         )
     ]
+
+
+def test_typed_context_store_holds_turn_start_ack_message_id() -> None:
+    context_store = RunDeliveryContextStore()
+    context_store.seed(
+        RunDeliveryContext(
+            run_id="run-shadow-ack",
+            agent_id="agent-a",
+            kernel_session_id="sess-shadow",
+            delivery_target=RunDeliveryTarget.shadow(
+                ShadowConversationRef(conversation_id="conv-shadow")
+            ),
+        )
+    )
+    manager = _AckingIMManager(message_id="im-msg-shadow")
+    observer = _build_kernel_event_observer(
+        im_connection_manager_factory=lambda: manager,
+        run_context_store=context_store,
+    )
+
+    async def _exercise() -> None:
+        result = observer(
+            {
+                "event": "run_status",
+                "run_id": "run-shadow-ack",
+                "status": "running",
+            }
+        )
+        assert asyncio.iscoroutine(result)
+        await result
+
+    asyncio.run(_exercise())
+
+    ctx = context_store.get("run-shadow-ack")
+    assert ctx is not None
+    assert ctx.message_id == "im-msg-shadow"
+
+
+def test_typed_owner_direct_lazy_turn_start_backfills_context_and_sends_delta() -> None:
+    context_store = RunDeliveryContextStore()
+    context_store.seed(
+        RunDeliveryContext(
+            run_id="run-owner-lazy",
+            agent_id="agent-a",
+            kernel_session_id="sess-owner",
+            delivery_target=RunDeliveryTarget.for_owner_direct(
+                OwnerDirectTarget(to_user_id="owner-user", agent_id="agent-a")
+            ),
+        )
+    )
+    manager = _AckingIMManager(
+        message_id="im-msg-owner",
+        conversation_id="conv-owner",
+    )
+    observer = _build_kernel_event_observer(
+        im_connection_manager_factory=lambda: manager,
+        run_context_store=context_store,
+    )
+
+    async def _exercise() -> None:
+        result = observer(
+            {
+                "event": "assistant_message",
+                "run_id": "run-owner-lazy",
+                "content": "Daily summary.",
+                "message_id": "kernel-owner-msg",
+            }
+        )
+        assert asyncio.iscoroutine(result)
+        await result
+
+    asyncio.run(_exercise())
+
+    ctx = context_store.get("run-owner-lazy")
+    assert ctx is not None
+    assert ctx.conversation_id == "conv-owner"
+    assert ctx.message_id == "im-msg-owner"
+    assert ctx.kernel_message_id == "kernel-owner-msg"
+    assert [frame[1]["kind"] for frame in manager.sent_frames] == [
+        "turn_start",
+        "message_delta",
+    ]
+
+
+def test_roll_bubble_updates_typed_context_runtime_state() -> None:
+    context_store = RunDeliveryContextStore()
+    context_store.seed(
+        RunDeliveryContext(
+            run_id="run-roll",
+            agent_id="agent-a",
+            kernel_session_id="sess-roll",
+            delivery_target=RunDeliveryTarget.shadow(
+                ShadowConversationRef(conversation_id="conv-roll")
+            ),
+        )
+    )
+    context_store.set_message_id("run-roll", "im-msg-a")
+    context_store.set_kernel_message_id("run-roll", "kernel-msg-a")
+    manager = _AckingIMManager(message_id="im-msg-b")
+
+    new_message_id = asyncio.run(
+        roll_bubble(
+            manager,
+            run_id="run-roll",
+            conversation_id="conv-roll",
+            agent_id="agent-a",
+            run_context_store=context_store,
+            old_message_id="im-msg-a",
+            new_kernel_message_id="kernel-msg-b",
+        )
+    )
+
+    assert new_message_id == "im-msg-b"
+    ctx = context_store.get("run-roll")
+    assert ctx is not None
+    assert ctx.message_id == "im-msg-b"
+    assert ctx.kernel_message_id == "kernel-msg-b"
+    assert ctx.rolling is False
 
 
 def test_build_runtime_wires_typed_delivery_context_store() -> None:
