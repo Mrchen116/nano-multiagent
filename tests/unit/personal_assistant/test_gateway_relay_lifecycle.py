@@ -88,7 +88,7 @@ def test_run_delivery_target_distinguishes_shadow_owner_direct_and_none() -> Non
     shadow_ref = ShadowConversationRef(conversation_id="shadow-conv-1")
 
     shadow = RunDeliveryTarget.shadow(shadow_ref)
-    owner_direct = RunDeliveryTarget.owner_direct(
+    owner_direct = RunDeliveryTarget.for_owner_direct(
         OwnerDirectTarget(to_user_id="owner-1", agent_id="agent-a")
     )
     none = RunDeliveryTarget.none(reason="external_without_shadow")

@@ -61,6 +61,9 @@ from personal_assistant.gateway.inbound_pipeline import (
 from personal_assistant.gateway.runtime_protocol import (
     runtime_protocol_or_derive,
 )
+from personal_assistant.gateway.runtime_delivery.context import (
+    RunDeliveryContextStore,
+)
 from personal_assistant.gateway.workspace_authority import resolve_runtime_workspace
 from personal_assistant.gateway.internal_dispatch import InternalDispatchHandler
 from personal_assistant.gateway.outbound_router import OutboundRouter
@@ -3628,7 +3631,7 @@ def _build_relay_lifecycle_callback(
     *,
     reporter: UpstreamReporter | None,
     im_connection_manager_factory: Callable[[], IMConnectionManager | None],
-    run_context_store: dict[str, dict[str, str]] | None = None,
+    run_context_store: dict[str, dict[str, str]] | RunDeliveryContextStore | None = None,
     owner_user_id: str = "",
     channel_registry: ChannelRegistry | None = None,
 ):
@@ -3654,11 +3657,26 @@ def _build_relay_lifecycle_callback(
             # orphaning bubble A (the observer then can't finalize it → 120s relay-idle
             # → A stuck running/failed, the #140 black-screen symptom). So only seed a
             # FRESH run; never clobber the context of a run that is already streaming.
+            typed_store = (
+                run_context_store
+                if isinstance(run_context_store, RunDeliveryContextStore)
+                else None
+            )
+            legacy_store = (
+                typed_store.legacy_contexts if typed_store is not None else run_context_store
+            )
             if (
-                run_context_store is not None
+                legacy_store is not None
                 and update.run_id
-                and update.run_id not in run_context_store
+                and update.run_id not in legacy_store
             ):
+                if typed_store is not None:
+                    typed_store.seed_from_lifecycle(
+                        message=message,
+                        update=update,
+                        owner_user_id=owner_user_id,
+                    )
+                    return
                 protocol = runtime_protocol_or_derive(message)
                 shadow_ref = protocol.shadow_ref
                 trigger_source = protocol.trigger_source or ""
@@ -3690,7 +3708,7 @@ def _build_relay_lifecycle_callback(
                     or update.agent_id
                     or ""
                 )
-                run_context_store[update.run_id] = {
+                legacy_store[update.run_id] = {
                     "conversation_id": conversation_id,
                     "message_id": "",  # filled by turn_start ack
                     "agent_id": agent_id_meta,
@@ -3700,30 +3718,33 @@ def _build_relay_lifecycle_callback(
                     "to_user_id": to_user_id,
                 }
                 if trigger_source:
-                    run_context_store[update.run_id]["trigger_source"] = trigger_source
+                    legacy_store[update.run_id]["trigger_source"] = trigger_source
                 if trigger_source and trigger_source != "im":
                     channel_name = str(getattr(message, "channel_name", "") or "")
-                    run_context_store[update.run_id]["reply_channel_name"] = (
+                    legacy_store[update.run_id]["reply_channel_name"] = (
                         channel_name
                     )
-                    run_context_store[update.run_id]["reply_target_chat_id"] = (
+                    legacy_store[update.run_id]["reply_target_chat_id"] = (
                         message.external_chat_id
                     )
                     thread_id = getattr(message, "thread_id", None)
                     if thread_id:
-                        run_context_store[update.run_id]["reply_thread_id"] = str(
+                        legacy_store[update.run_id]["reply_thread_id"] = str(
                             thread_id
                         )
                     feishu_message_id = _metadata_text(
                         message.metadata, key="feishu_message_id"
                     )
                     if feishu_message_id is not None:
-                        run_context_store[update.run_id]["feishu_message_id"] = (
+                        legacy_store[update.run_id]["feishu_message_id"] = (
                             feishu_message_id
                         )
-        elif update.phase in ("completed", "failed"):
+        elif update.phase in ("completed", "failed", "cancelled"):
             if run_context_store is not None and update.run_id:
-                run_context_store.pop(update.run_id, None)
+                if isinstance(run_context_store, RunDeliveryContextStore):
+                    run_context_store.discard(update.run_id)
+                else:
+                    run_context_store.pop(update.run_id, None)
 
         # Everything below is relay-task specific: delivery receipts and progress
         # reports go back to the IM service only for messages that originated there.
