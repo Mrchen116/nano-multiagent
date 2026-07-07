@@ -47,3 +47,19 @@
 - Rollback: Revert `67bbb7da` and `fe6871d8`.
 - Commits: C1=`fe6871d8`, C2=`67bbb7da`, C3=pending.
 - Next: R3 background/session delivery extraction and build wiring.
+
+## R3 — Background/session delivery extraction and build wiring
+
+- Context: After R2, `main.py` still owned background/control visible replies, session-event IM system notifications, reply-context delivery helpers, and the bare runtime context store in `build_runtime()`.
+- Decision: Moved background/control reply sender, session-event callback, and reply-context helper functions into `personal_assistant.gateway.runtime_delivery.background`. `build_runtime()` now creates `run_delivery_contexts = RunDeliveryContextStore()` and wires lifecycle/observer through the typed store; heartbeat/cron streaming helpers receive `run_delivery_contexts.legacy_contexts` only at their still-dict-shaped boundary.
+- Rationale: Background/control replies follow the same external-vs-shadow-vs-IM delivery rules as runtime events, so they belong with runtime delivery instead of composition root. Keeping legacy dict exposure at heartbeat/cron helper boundaries keeps behavior stable while satisfying the composition-root wiring split.
+- Evidence:
+  - Tests: `source /Users/czj/Repos/nano-multiagent/.venv/bin/activate && pytest tests/unit/personal_assistant/test_gateway_relay_lifecycle.py tests/unit/personal_assistant/test_external_visible_delivery.py tests/unit/personal_assistant/test_heartbeat_im_delivery.py tests/unit/personal_assistant/test_cron_delivery_chain.py tests/unit/personal_assistant/test_steer_bubble_roll.py` -> 52 passed, 2 warnings. `ruff check src/personal_assistant/gateway/runtime_delivery src/personal_assistant/main.py tests/unit/personal_assistant/test_gateway_relay_lifecycle.py tests/unit/personal_assistant/test_external_visible_delivery.py tests/unit/personal_assistant/test_heartbeat_im_delivery.py` -> All checks passed.
+  - Entry: External visible delivery tests cover Feishu control/background text to external + shadow IM, IM shadow text staying internal, and session-event notification to shadow IM only.
+  - Frontend State Matrix: N/A.
+  - Browser QA: N/A.
+  - E2E/Regression: `test_build_runtime_wires_typed_delivery_context_store` guards the composition-root wiring; existing external visible tests now import `runtime_delivery.background` directly.
+  - Visual/Interaction: N/A.
+- Rollback: Revert `e81589ea` and `e4f05c3e`.
+- Commits: C1=`e4f05c3e`, C2=`e81589ea`, C3=pending.
+- Next: R4 gates and live-critical verification.
