@@ -44,7 +44,7 @@
 
 ### R1 — Typed run delivery context and lifecycle
 
-- 状态: TODO
+- 状态: DOING
 - 步骤:
   - 新增 `src/personal_assistant/gateway/runtime_delivery/context.py` 与 lifecycle helper，表达 `RunDeliveryTarget(shadow|owner_direct|none)`、`RunDeliveryContext`、`RunDeliveryContextStore`。
   - 调整 relay accepted/completed/failed/cancelled cleanup 走 context store；保留 receipt/report/Feishu ack 行为。

@@ -25,6 +25,11 @@ from personal_assistant.gateway.runtime_protocol import (
     ShadowConversationRef,
     attach_runtime_protocol,
 )
+from personal_assistant.gateway.runtime_delivery.context import (
+    OwnerDirectTarget,
+    RunDeliveryContextStore,
+    RunDeliveryTarget,
+)
 from personal_assistant.main import (
     GatewayRuntime,
     GatewayStartupError,
@@ -77,6 +82,120 @@ class _AckChannel:
 
     def ack_message(self, message_id: str) -> None:
         self.acked.append(message_id)
+
+
+def test_run_delivery_target_distinguishes_shadow_owner_direct_and_none() -> None:
+    shadow_ref = ShadowConversationRef(conversation_id="shadow-conv-1")
+
+    shadow = RunDeliveryTarget.shadow(shadow_ref)
+    owner_direct = RunDeliveryTarget.owner_direct(
+        OwnerDirectTarget(to_user_id="owner-1", agent_id="agent-a")
+    )
+    none = RunDeliveryTarget.none(reason="external_without_shadow")
+
+    assert shadow.kind == "shadow"
+    assert shadow.shadow_ref is shadow_ref
+    assert shadow.owner_direct is None
+    assert owner_direct.kind == "owner_direct"
+    assert owner_direct.shadow_ref is None
+    assert owner_direct.owner_direct == OwnerDirectTarget(
+        to_user_id="owner-1", agent_id="agent-a"
+    )
+    assert none.kind == "none"
+    assert none.shadow_ref is None
+    assert none.owner_direct is None
+
+
+def test_relay_lifecycle_seeds_typed_owner_direct_context_and_legacy_view() -> None:
+    context_store = RunDeliveryContextStore()
+    callback = _build_relay_lifecycle_callback(
+        reporter=None,
+        im_connection_manager_factory=lambda: None,
+        run_context_store=context_store,
+        owner_user_id="owner-1",
+    )
+    message = InboundMessage(
+        channel_name="heartbeat",
+        text="tick",
+        external_user_id="owner-1",
+        external_chat_id="",
+        is_group=False,
+        metadata={},
+    )
+
+    asyncio.run(
+        callback(
+            message,
+            RelayLifecycleUpdate(
+                phase="accepted",
+                agent_id="agent-a",
+                session_key="heartbeat:agent-a",
+                run_id="run-owner-direct",
+                kernel_session_id="sess-owner-direct",
+            ),
+        )
+    )
+
+    ctx = context_store.get("run-owner-direct")
+    assert ctx is not None
+    assert ctx.delivery_target.kind == "owner_direct"
+    assert ctx.delivery_target.owner_direct == OwnerDirectTarget(
+        to_user_id="owner-1",
+        agent_id="agent-a",
+    )
+    assert context_store.legacy_contexts["run-owner-direct"] == {
+        "conversation_id": "",
+        "message_id": "",
+        "agent_id": "agent-a",
+        "kernel_session_id": "sess-owner-direct",
+        "to_user_id": "owner-1",
+    }
+
+
+def test_relay_lifecycle_cleanup_removes_typed_and_legacy_context() -> None:
+    context_store = RunDeliveryContextStore()
+    callback = _build_relay_lifecycle_callback(
+        reporter=None,
+        im_connection_manager_factory=lambda: None,
+        run_context_store=context_store,
+        owner_user_id="owner-1",
+    )
+    message = InboundMessage(
+        channel_name="web_relay",
+        text="hello",
+        external_user_id="user-1",
+        external_chat_id="conv-1",
+        is_group=False,
+        metadata={"relay_task_id": "relay-1", "message_id": "msg-1"},
+    )
+
+    async def _exercise() -> None:
+        await callback(
+            message,
+            RelayLifecycleUpdate(
+                phase="accepted",
+                agent_id="agent-a",
+                session_key="web:user:agent-a",
+                run_id="run-cleanup",
+                kernel_session_id="sess-cleanup",
+            ),
+        )
+        assert context_store.get("run-cleanup") is not None
+        await callback(
+            message,
+            RelayLifecycleUpdate(
+                phase="failed",
+                agent_id="agent-a",
+                session_key="web:user:agent-a",
+                run_id="run-cleanup",
+                error="boom",
+            ),
+        )
+
+    asyncio.run(_exercise())
+
+    assert context_store.get("run-cleanup") is None
+    assert "run-cleanup" not in context_store.legacy_contexts
 
 
 def test_relay_lifecycle_callback_sends_receipts_and_reports_with_real_usage_to_im() -> (
