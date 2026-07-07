@@ -31,6 +31,9 @@ from personal_assistant.gateway.runtime_delivery.context import (
     RunDeliveryContextStore,
     RunDeliveryTarget,
 )
+from personal_assistant.gateway.runtime_delivery.lifecycle import (
+    build_relay_lifecycle_callback as _build_relay_lifecycle_callback,
+)
 from personal_assistant.main import (
     GatewayRuntime,
     GatewayStartupError,
@@ -38,7 +41,6 @@ from personal_assistant.main import (
     _IMBootstrapClient,
     _build_channel_registry,
     _build_kernel_event_observer,
-    _build_relay_lifecycle_callback,
     build_runtime,
     run_gateway,
 )

@@ -15,6 +15,14 @@ from .context import RunDeliveryContextStore
 _log = logging.getLogger("personal_assistant.gateway.runtime_delivery.observer")
 
 
+def _run_context_map(
+    run_context_store: dict[str, dict[str, str]] | RunDeliveryContextStore,
+) -> dict[str, dict[str, str]]:
+    if isinstance(run_context_store, RunDeliveryContextStore):
+        return run_context_store.legacy_contexts
+    return run_context_store
+
+
 def extract_ack_message_id(ack: Mapping[str, Any] | Any) -> str | None:
     """Pull the created bubble's message_id out of a turn_start ack frame.
 
@@ -55,9 +63,8 @@ async def roll_bubble(
     second caller does not re-close an already-closed bubble or open a duplicate B
     (which would leave a zombie running bubble). The flag is cleared in ``finally``.
     """
-    if isinstance(run_context_store, RunDeliveryContextStore):
-        run_context_store = run_context_store.legacy_contexts
-    ctx = run_context_store.get(run_id)
+    context_map = _run_context_map(run_context_store)
+    ctx = context_map.get(run_id)
     if ctx is None:
         return None
     if ctx.get("rolling"):
@@ -94,7 +101,7 @@ async def roll_bubble(
             },
         )
         new_message_id = extract_ack_message_id(ack)
-        live_ctx = run_context_store.get(run_id)
+        live_ctx = context_map.get(run_id)
         if new_message_id and live_ctx is not None:
             live_ctx["message_id"] = new_message_id
             if new_kernel_message_id:
@@ -104,7 +111,7 @@ async def roll_bubble(
             return new_message_id
         return None
     finally:
-        live_ctx = run_context_store.get(run_id)
+        live_ctx = context_map.get(run_id)
         if live_ctx is not None:
             live_ctx.pop("rolling", None)
 
@@ -146,8 +153,7 @@ def build_kernel_event_observer(
       submission to update canonical_session_store — tick-time read, no ack dependency.
     """
 
-    if isinstance(run_context_store, RunDeliveryContextStore):
-        run_context_store = run_context_store.legacy_contexts
+    context_map = _run_context_map(run_context_store)
 
     # bugfix-410-M2 R3 (#97): track tool_calls that received tool_start but not yet
     # tool_end, per run. On abnormal run termination the watchdog/terminal path emits
@@ -294,7 +300,7 @@ def build_kernel_event_observer(
         run_id = str(event.get("run_id") or "").strip()
         if not run_id:
             return None
-        ctx = run_context_store.get(run_id)
+        ctx = context_map.get(run_id)
         if ctx is None:
             return None
         event_name = str(event.get("event") or "").strip()
@@ -375,8 +381,8 @@ def build_kernel_event_observer(
                             if isinstance(ack_payload, dict)
                             else None
                         )
-                        if returned_msg_id and rid in run_context_store:
-                            run_context_store[rid]["message_id"] = str(returned_msg_id)
+                        if returned_msg_id and rid in context_map:
+                            context_map[rid]["message_id"] = str(returned_msg_id)
                     except Exception as exc:  # noqa: BLE001
                         _log.warning("IM observer turn_start send/ack failed: %s", exc)
 
@@ -473,14 +479,14 @@ def build_kernel_event_observer(
                                 skipped_reason,
                             )
                             return
-                        if returned_msg_id and rid in run_context_store:
-                            run_context_store[rid]["message_id"] = str(returned_msg_id)
-                        if returned_conv_id and rid in run_context_store:
-                            run_context_store[rid]["conversation_id"] = str(
+                        if returned_msg_id and rid in context_map:
+                            context_map[rid]["message_id"] = str(returned_msg_id)
+                        if returned_conv_id and rid in context_map:
+                            context_map[rid]["conversation_id"] = str(
                                 returned_conv_id
                             )
-                        if new_kernel_id and rid in run_context_store:
-                            run_context_store[rid]["kernel_message_id"] = new_kernel_id
+                        if new_kernel_id and rid in context_map:
+                            context_map[rid]["kernel_message_id"] = new_kernel_id
                         if returned_msg_id:
                             if reasoning_text:
                                 await mgr.send_json(
@@ -550,7 +556,7 @@ def build_kernel_event_observer(
                             run_id=rid,
                             conversation_id=cid,
                             agent_id=aid,
-                            run_context_store=run_context_store,
+                            run_context_store=context_map,
                             old_message_id=old_msg_id,
                             new_kernel_message_id=new_kernel_id,
                         )
@@ -649,13 +655,13 @@ def build_kernel_event_observer(
                             },
                         )
                         returned_msg_id = extract_ack_message_id(ack)
-                        if returned_msg_id and rid in run_context_store:
-                            run_context_store[rid]["message_id"] = returned_msg_id
+                        if returned_msg_id and rid in context_map:
+                            context_map[rid]["message_id"] = returned_msg_id
                             if new_kernel_id:
-                                run_context_store[rid]["kernel_message_id"] = (
+                                context_map[rid]["kernel_message_id"] = (
                                     new_kernel_id
                                 )
-                            run_context_store[rid]["external_current_text"] = text
+                            context_map[rid]["external_current_text"] = text
                             # feat-439-M2: 思考过程项先于正文 delta 转发到新建气泡。
                             if reasoning_text:
                                 await mgr.send_json(
@@ -1018,7 +1024,7 @@ def build_kernel_event_observer(
                             run_id=rid,
                             conversation_id=cid,
                             agent_id=aid,
-                            run_context_store=run_context_store,
+                            run_context_store=context_map,
                             old_message_id=old_msg_id or None,
                             # Clear kernel_message_id (new_kernel_message_id=None) so the
                             # next assistant_message delta streams straight into bubble B
