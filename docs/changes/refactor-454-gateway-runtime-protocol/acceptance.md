@@ -156,3 +156,142 @@ env PATH=/Users/czj/Repos/nano-multiagent/.venv/bin:$PATH ./scripts/e2e-down.sh
 ## Recommended Next Step
 
 Do not accept `refactor-454` from this round as fully passed. Re-run reviewer acceptance with a real Feishu/Lark channel configured, and close the remaining inconclusive user journeys: true relay redelivery, workspace mirror mismatch local-wins, IM-created agent persistence after Gateway restart, permission approval allow/reject, and user-started background task completion routing.
+
+---
+
+# Round 2 - 2026-07-07
+
+## Verdict
+
+- Verdict: fail
+- Highest Required Action: fix-implementation
+- Review mode: targeted revalidation of Round 1 open items
+- Review worktree: `/Users/czj/Repos/nano-multiagent/.worktrees/unit-refactor-454`
+- Branch reviewed: `unit/refactor-454`
+- Fix delta range: `1d1cec26..9ac488b1`
+- Head reviewed: `9ac488b1`
+- Needs re-review: true
+
+Targeted revalidation closed the Round 1 gaps for workspace local-wins, IM-created agent critical path, permission approval allow/reject, and user-started background completion routing. The worktree isolated IM + Gateway stack was restarted from the design runbook and was online at `IM_URL=http://127.0.0.1:64019`, node `wt-unit-refactor-454-6800`, with `relay_enabled=true` and `last_error=null`.
+
+The unit still cannot be accepted because Feishu/Lark true-platform acceptance remains unverified: both the main local config and worktree Gateway config expose only `web_relay`, with no `feishu:*` or Lark channel. No fake inbound was used. True relay redelivery also remains inconclusive from a product-review standpoint: supporting dedup tests pass, but this round still did not produce a real same-relay-frame reconnect/redelivery journey through the user-visible stack.
+
+## User Journeys Exercised
+
+1. Service takeover and health check
+   - Ran `git fetch origin && git pull --ff-only origin unit/refactor-454` before review; worktree was already at `9ac488b1`.
+   - Ran `./scripts/e2e-down.sh`, then kept a shell alive while running `./scripts/e2e-up.sh`.
+   - Verified `curl "$IM_URL/"` succeeds, logged in as `nano`, and `GET /im/v1/nodes` showed node `wt-unit-refactor-454-6800` online.
+
+2. Feishu/Lark credentialed channel check
+   - Inspected only redacted channel summaries from `~/.nano-assistant/config.yaml` and `.gateway-config.yaml`.
+   - Both configs had exactly one channel: `name=web_relay`, no settings keys. No `feishu:*` or Lark channel was available.
+   - Result: Feishu private chat, group @Bot, non-mention shadow sync, and IM-offline Feishu main path were not run.
+
+3. IM-created agent, permission approval, and background notification critical paths
+   - Ran:
+
+```bash
+env PATH=/Users/czj/Repos/nano-multiagent/.venv/bin:$PATH \
+  NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1 \
+  PYTHONPATH=/Users/czj/Repos/nano-multiagent/.worktrees/unit-refactor-454/src \
+  /Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest \
+  tests/e2e/critical_paths/test_create_agent_via_im_critical_path.py \
+  tests/e2e/critical_paths/test_permission_approval_critical_path.py \
+  tests/e2e/critical_paths/test_bash_background_notify_critical_path.py -ra
+```
+
+   - Result: `4 passed in 78.48s`.
+   - This closes the Round 1 inconclusive items for "user creates new agent in IM, can chat, Gateway restart preserves it", permission approval allow/reject, and user-started background task completion returning to the original conversation.
+
+4. Workspace mirror mismatch local-wins journey
+   - Via public config API, attempted to patch `default-agent` with fake `workspace_root=/tmp/refactor454-im-mirror-should-not-win-1783415777`.
+   - Response was `HTTP 200`, but readback still returned `/Users/czj/Repos/nano-multiagent/.worktrees/unit-refactor-454/.gateway-workspace/default-agent`.
+   - `GET /im/v1/agents/default-agent/heartbeat-md` returned the local worktree `HEARTBEAT.md` content beginning with `# HEARTBEAT`, proving the visible heartbeat preview still reads the Gateway local workspace rather than the fake mirror path.
+   - Supporting regression command: `pytest tests/unit/personal_assistant/test_gateway_im_config_sync.py tests/unit/personal_assistant/test_gateway_reconcile_on_connect.py -q` -> `21 passed, 2 warnings in 2.72s`.
+
+5. Relay duplicate / redelivery check
+   - Supporting regression command: `pytest tests/unit/personal_assistant/test_gateway_relay_dedup.py tests/unit/test_runtime_retry_no_duplicate_user_message.py -q` -> `6 passed in 0.09s`.
+   - This is useful safety net evidence, but it is not a true user-visible same relay frame redelivery/reconnect journey. I did not mark the Scenario pass from this evidence alone.
+
+## Issues
+
+### Issue 1: Feishu/Lark true-platform acceptance path is still not verifiable
+
+- Severity: blocking
+- Regression Relation: unclear
+- Recommended Action: fix-implementation
+- Action Rationale: Feishu private chat, group @Bot, non-mention shadow sync, and IM-offline external-channel continuity remain mandatory acceptance scenarios. The design runbook requires true Feishu/Lark inbound messages. Current main and worktree configs contain only `web_relay`; no credentialed true-platform channel was available, and no fake inbound was used.
+- User-facing impact: Feishu/Lark users still have no acceptance evidence for this refactor round.
+- Evidence: redacted config summaries for both `~/.nano-assistant/config.yaml` and `.gateway-config.yaml` showed only `web_relay`.
+- Re-review requirement: rerun these scenarios with a credentialed Feishu/Lark channel and real private/group inbound messages.
+
+### Issue 2: True relay redelivery remains product-review inconclusive
+
+- Severity: major
+- Regression Relation: unclear
+- Recommended Action: fix-implementation
+- Action Rationale: Unit-level relay dedup tests passed, but this review still did not exercise the user-visible condition "same logical relay frame redelivered after retry/reconnect" through the live IM + Gateway stack. I did not use repeated HTTP user sends as a substitute because Round 1 already showed that is not the same journey.
+- User-facing impact: The review still cannot independently prove that retry/redelivery will never create duplicate visible user or agent messages.
+- Evidence: `test_gateway_relay_dedup.py` and `test_runtime_retry_no_duplicate_user_message.py` passed; no true live redelivery reproduction was available from documented user/API entrypoints.
+- Re-review requirement: provide a reviewer-runbook way to force or observe one unacked `relay.message` being delivered twice through the live stack, or explicitly reclassify this Scenario as non-reviewer-testable and owned by verifier tests.
+
+## Acceptance Criteria Coverage - Round 2 Updates
+
+### Requirement: Web IM 对话与 relay 投递行为不变 - 组内结论: fail
+
+| Scenario | 期望来源 | Round 2 验证方式 | Round 2 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 重复 relay 不产生重复用户消息 | `motivation.md` | Supporting regression tests only; no live same-relay-frame redelivery journey | `test_gateway_relay_dedup.py` + `test_runtime_retry_no_duplicate_user_message.py` -> `6 passed` | inconclusive | Still not closed by product-review evidence. |
+
+### Requirement: workspace_root 相关用户行为不变 - 组内结论: pass
+
+| Scenario | 期望来源 | Round 2 验证方式 | Round 2 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 本地 runtime 工作区不被 IM mirror 改变 | `motivation.md`, `docs/specs/gateway/spec.md` | Public config API attempted fake workspace update, then heartbeat preview readback | Fake `workspace_root` was ignored; heartbeat preview returned local `HEARTBEAT.md` content; local-wins tests -> `21 passed` | pass | No direct DB patch or fake legacy state was used. |
+| 用户在 IM 新建 agent 后可立即使用 | `motivation.md`, `docs/specs/im/spec.md` | Critical path e2e through IM create-agent journey | Included in `4 passed in 78.48s` | pass | Covers create, chat, and Gateway restart preservation. |
+
+### Requirement: 外部 channel 与 shadow 会话行为不变 - 组内结论: fail
+
+| Scenario | 期望来源 | Round 2 验证方式 | Round 2 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| Feishu 私聊同步到内部 IM shadow 会话 | `motivation.md`, `docs/operator-runbook.md` | Required true Feishu/Lark 1:1 message | Main/worktree configs had only `web_relay` | inconclusive | No fake inbound used. |
+| Feishu 群聊 @Bot 触发回复 | `motivation.md`, `docs/operator-runbook.md` | Required true Feishu/Lark group @Bot message | Main/worktree configs had only `web_relay` | inconclusive | No fake inbound used. |
+| Feishu 群聊未 @ 消息只同步上下文 | `motivation.md`, `docs/operator-runbook.md` | Required true Feishu/Lark non-mention group message | Main/worktree configs had only `web_relay` | inconclusive | No fake inbound used. |
+| IM 离线时 Feishu 主路径不受影响 | `motivation.md`, `docs/operator-runbook.md` | Required true Feishu/Lark message while IM unavailable | Main/worktree configs had only `web_relay` | inconclusive | No fake inbound used. |
+
+### Requirement: 运行态、终态和恢复表现不变 - 组内结论: pass for targeted Round 2 rows
+
+| Scenario | 期望来源 | Round 2 验证方式 | Round 2 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 权限等待与审批结果不变 | `motivation.md`, `docs/specs/gateway/spec.md` | Critical path e2e covering permission approval allow/reject | Included in `4 passed in 78.48s` | pass | Covers allow and reject outcomes. |
+| 后台任务完成回复回到原会话 | `motivation.md`, `docs/specs/gateway/spec.md` | Critical path e2e for bash background notify | Included in `4 passed in 78.48s` | pass | Covers user-started background completion notification. |
+
+## Verification Commands
+
+```bash
+git fetch origin
+git pull --ff-only origin unit/refactor-454
+env PATH=/Users/czj/Repos/nano-multiagent/.venv/bin:$PATH ./scripts/e2e-down.sh
+env PATH=/Users/czj/Repos/nano-multiagent/.venv/bin:$PATH ./scripts/e2e-up.sh
+curl -fsS "$IM_URL/" >/dev/null
+curl -fsS -H "Authorization: Bearer $TOKEN" "$IM_URL/im/v1/nodes"
+yq -o=json '.channels[] | {"name": .name, "enabled": .enabled, "setting_keys": ((.settings // {}) | keys)}' ~/.nano-assistant/config.yaml
+yq -o=json '.channels[] | {"name": .name, "enabled": .enabled, "setting_keys": ((.settings // {}) | keys)}' .gateway-config.yaml
+env PATH=/Users/czj/Repos/nano-multiagent/.venv/bin:$PATH NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1 PYTHONPATH=/Users/czj/Repos/nano-multiagent/.worktrees/unit-refactor-454/src /Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest tests/e2e/critical_paths/test_create_agent_via_im_critical_path.py tests/e2e/critical_paths/test_permission_approval_critical_path.py tests/e2e/critical_paths/test_bash_background_notify_critical_path.py -ra
+env PATH=/Users/czj/Repos/nano-multiagent/.venv/bin:$PATH PYTHONPATH=/Users/czj/Repos/nano-multiagent/.worktrees/unit-refactor-454/src /Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest tests/unit/personal_assistant/test_gateway_im_config_sync.py tests/unit/personal_assistant/test_gateway_reconcile_on_connect.py -q
+env PATH=/Users/czj/Repos/nano-multiagent/.venv/bin:$PATH PYTHONPATH=/Users/czj/Repos/nano-multiagent/.worktrees/unit-refactor-454/src /Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest tests/unit/personal_assistant/test_gateway_relay_dedup.py tests/unit/test_runtime_retry_no_duplicate_user_message.py -q
+```
+
+## 上层文档同步
+
+- [x] `SPEC.md`（跨包顶点架构）：无需更新。本轮复验没有发现跨包架构契约新增。
+- [x] `docs/specs/gateway/spec.md`（Gateway 长青行为契约层）：无需更新。Round 2 复验仍按现有 Gateway 契约判断。
+- [x] `docs/specs/im/spec.md`（IM 长青行为契约层）：无需更新。Round 2 复验仍按现有 IM 契约判断。
+- [x] `docs/specs/cli/spec.md`：无需更新。本轮未触及 CLI 用户契约。
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新。现有 worktree e2e/runbook guidance 足够启动隔离栈。
+- [x] `docs/SPEC_GUIDE.md`：无需更新。本 unit 未改变文档体系。
+
+## Recommended Next Step
+
+Do not accept `refactor-454` as fully passed. Close the remaining blocker by running Feishu/Lark true-platform private/group/non-mention/offline-main-path journeys with a credentialed channel. Separately either provide a live-stack relay redelivery harness for reviewer acceptance or explicitly route that Scenario to verifier-owned regression evidence instead of product-review pass/fail.
