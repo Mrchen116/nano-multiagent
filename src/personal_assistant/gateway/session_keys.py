@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from personal_assistant.channels.base import InboundMessage, ReplyContext
+from personal_assistant.gateway.runtime_protocol import strip_runtime_protocol_metadata
 from personal_assistant.gateway.runtime_protocol import external_identity_from_message
 
 # KernelApiClient removed in M3 (refactor-387).
@@ -388,7 +389,7 @@ def _serialize_reply_context(rc: ReplyContext) -> str:
         "channel_name": rc.channel_name,
         "target_chat_id": rc.target_chat_id,
         "thread_id": rc.thread_id,
-        "metadata": dict(rc.metadata),
+        "metadata": strip_runtime_protocol_metadata(rc.metadata),
     }
     return json.dumps(payload)
 
@@ -444,7 +445,7 @@ def build_reply_context(message: InboundMessage) -> ReplyContext:
         channel_name=message.channel_name,
         target_chat_id=message.external_chat_id,
         thread_id=message.thread_id,
-        metadata=dict(message.metadata),
+        metadata=strip_runtime_protocol_metadata(message.metadata),
     )
 
 

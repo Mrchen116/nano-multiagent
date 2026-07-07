@@ -66,6 +66,14 @@ def runtime_protocol_from_message(
     return value if isinstance(value, RuntimeProtocolFacts) else None
 
 
+def strip_runtime_protocol_metadata(metadata: Mapping[str, Any]) -> dict[str, Any]:
+    """Return metadata safe for persisted/public channel contexts."""
+
+    sanitized = dict(metadata)
+    sanitized.pop(_RUNTIME_PROTOCOL_KEY, None)
+    return sanitized
+
+
 def runtime_protocol_or_derive(message: InboundMessage) -> RuntimeProtocolFacts:
     """Return typed facts, deriving legacy-channel facts when no wrapper exists."""
 
