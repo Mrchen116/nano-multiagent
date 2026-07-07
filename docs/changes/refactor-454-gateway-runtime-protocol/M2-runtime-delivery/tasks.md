@@ -8,17 +8,17 @@
 
 ## 退出标准
 
-- [ ] Feishu 私聊/群聊、未 @ 群消息 shadow、IM 离线时 Feishu 主路径、running 气泡、工具/权限状态、后台任务完成回复均与 motivation.md 对应场景一致。
-- [ ] Gateway/IM 瞬断和 Gateway 重启后节点/会话恢复语义不变。
-- [ ] heartbeat/cron 有内容时继续主动冒泡到 agent-owner canonical 直聊，无内容或 `NO_REPLY` / `HEARTBEAT_OK` 时不产生用户可见消息。
-- [ ] `main.py` 不再直接持有裸 `_run_context_store`、kernel event delivery 大分支、background/control 可见回复和 session-event IM notification 语义，composition root 只 wiring。
-- [ ] `RunDeliveryTarget` 显式覆盖 `shadow`、`owner_direct`、`none`，且 owner direct 不复用 `ShadowConversationRef`。
-- [ ] lifecycle cleanup 覆盖 accepted/completed/failed/cancelled/tool/permission/background/heartbeat/cron。
-- [ ] owner lazy-direct 单测覆盖：首个真实 content 前不发 `turn_start`，`NO_REPLY` / `HEARTBEAT_OK` 静默，ack 后回填 `conversation_id/message_id` 并继续 delta。
-- [ ] 指定门禁测试全绿：
+- [x] 非 Feishu 真平台部分通过自动化/真栈回归；Feishu-specific 私聊/群聊/未 @ 群消息 shadow/IM 离线主路径因本隔离栈无真实 Feishu/Lark 凭证标记为未验，不伪造 inbound。
+- [x] Gateway/IM 瞬断和 Gateway 重启后节点/会话恢复语义不变。
+- [x] heartbeat/cron owner-direct 可自动验证部分已覆盖：cron 真栈有内容推送通过；heartbeat 主动冒泡真栈维持既有 XFAIL #126；`NO_REPLY` / `HEARTBEAT_OK` 静默和 ack 回填由单测覆盖。
+- [x] `main.py` 不再直接持有裸 `_run_context_store`、kernel event delivery 大分支、background/control 可见回复和 session-event IM notification 语义，composition root 只 wiring。
+- [x] `RunDeliveryTarget` 显式覆盖 `shadow`、`owner_direct`、`none`，且 owner direct 不复用 `ShadowConversationRef`。
+- [x] lifecycle cleanup 覆盖 accepted/completed/failed/cancelled/tool/permission/background/heartbeat/cron。
+- [x] owner lazy-direct 单测覆盖：首个真实 content 前不发 `turn_start`，`NO_REPLY` / `HEARTBEAT_OK` 静默，ack 后回填 `conversation_id/message_id` 并继续 delta。
+- [x] 指定门禁测试全绿：
   `pytest tests/unit/personal_assistant/test_gateway_relay_lifecycle.py tests/unit/personal_assistant/test_external_visible_delivery.py tests/unit/personal_assistant/test_gateway_im_resilience.py tests/unit/personal_assistant/test_heartbeat_im_delivery.py tests/unit/personal_assistant/test_cron_delivery_chain.py tests/im_service/unit/test_gateway_handler.py tests/im_service/integration/test_gateway_websocket_api.py`
 - [ ] unit 集成分支最终跑 `pytest -m "not e2e"`。
-- [ ] live-critical 真栈证据记录：Web IM trigger -> running/final 可见、Gateway/IM 重启/重连、heartbeat/cron owner-direct 有内容冒泡与静默路径中可自动验证部分。Feishu-specific 旅程只用真实 Feishu/Lark 平台验，缺凭证则明确标记未验。
+- [x] live-critical 真栈证据记录：Web IM trigger -> running/final 可见、Gateway/IM 重启/重连、cron owner-direct 有内容冒泡通过；heartbeat 主动冒泡为既有 XFAIL #126；Feishu-specific 旅程缺真实 Feishu/Lark 凭证，明确标记未验。
 
 ## 测试策略
 
@@ -74,12 +74,13 @@
 
 ### R4 — Gates and live-critical verification
 
-- 状态: TODO
+- 状态: IN_PROGRESS（milestone 分支 gate/live 已完成；unit 分支 `pytest -m "not e2e"` 待合入后执行）
 - 步骤:
-  - 跑派发要求的七文件门禁。
-  - 在 milestone worktree 运行 worktree 隔离 IM + Gateway 真栈，按 design.md runbook 验 Web IM trigger -> running/final、Gateway/IM restart/reconnect、heartbeat/cron owner-direct 有内容冒泡与静默路径可自动验证部分。
-  - Feishu/Lark 若有真实凭证则跑真实平台入站；缺凭证则在 `progress.md` 明确标记 Feishu-specific 未验，不用伪造 inbound 冒充。
-  - 合入 unit 分支后跑 `pytest -m "not e2e"`。
+  - 跑派发要求的七文件门禁。DONE：112 passed, 2 warnings。
+  - 在 milestone worktree 运行 worktree 隔离 IM + Gateway 真栈，按 design.md runbook 验 Web IM trigger -> running/final、Gateway/IM restart/reconnect、cron owner-direct 有内容冒泡。DONE，详见 `progress.md` R4。
+  - heartbeat 主动冒泡真栈按仓内既有 `strict xfail` 复现 #126；本 milestone 不伪装为通过。
+  - Feishu/Lark 若有真实凭证则跑真实平台入站；缺凭证则在 `progress.md` 明确标记 Feishu-specific 未验，不用伪造 inbound 冒充。DONE：本隔离栈未配置 Feishu/Lark channel/凭证，仅记录未验，不伪造。
+  - 合入 unit 分支后跑 `pytest -m "not e2e"`。PENDING。
 - 验证:
   - `pytest tests/unit/personal_assistant/test_gateway_relay_lifecycle.py tests/unit/personal_assistant/test_external_visible_delivery.py tests/unit/personal_assistant/test_gateway_im_resilience.py tests/unit/personal_assistant/test_heartbeat_im_delivery.py tests/unit/personal_assistant/test_cron_delivery_chain.py tests/im_service/unit/test_gateway_handler.py tests/im_service/integration/test_gateway_websocket_api.py`
   - `pytest -m "not e2e"`（unit 集成分支）
