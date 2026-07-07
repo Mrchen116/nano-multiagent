@@ -8,12 +8,12 @@
 
 ## 退出标准
 
-- [ ] Web IM direct/group relay、重复 relay、shadow metadata、delivery receipt 的用户可见行为与 motivation.md 对应场景一致。
-- [ ] IM profile workspace 与 Gateway local config 不一致时，runtime 文件读写/heartbeat/cron 仍使用 local workspace。
-- [ ] 新增 contract fixture 覆盖 relay/streaming/receipt/external identity 字段。
-- [ ] `WebRelayAdapter` 落 `InboundEnvelope(message, protocol)` 或等价 wrapper，runtime delivery facts 从 `protocol` 读取，raw relay metadata 不再被 lifecycle/observer 重新 parse。
-- [ ] `reconcile_all_agents()` local-wins 红测补齐。
-- [ ] 指定门禁测试全绿：
+- [x] Web IM direct/group relay、重复 relay、shadow metadata、delivery receipt 的用户可见行为与 motivation.md 对应场景一致。
+- [x] IM profile workspace 与 Gateway local config 不一致时，runtime 文件读写/heartbeat/cron 仍使用 local workspace。
+- [x] 新增 contract fixture 覆盖 relay/streaming/receipt/external identity 字段。
+- [x] `WebRelayAdapter` 落 `InboundEnvelope(message, protocol)` 或等价 wrapper，runtime delivery facts 从 `protocol` 读取，raw relay metadata 不再被 lifecycle/observer 重新 parse。
+- [x] `reconcile_all_agents()` local-wins 红测补齐。
+- [x] 指定门禁测试全绿：
   `pytest tests/unit/personal_assistant/test_gateway_web_relay_adapter.py tests/unit/personal_assistant/test_gateway_im_config_sync.py tests/unit/personal_assistant/test_gateway_reconcile_on_connect.py tests/unit/personal_assistant/test_gateway_upstream_reporter.py tests/im_service/integration/test_gateway_websocket_api.py`
 
 ## 测试策略
@@ -67,7 +67,7 @@
 
 ### Final Gate
 
-- 状态: DOING
+- 状态: DONE
 - 步骤:
   - 跑派发要求的五文件门禁。
   - 回填本文件状态与 `progress.md` 证据。

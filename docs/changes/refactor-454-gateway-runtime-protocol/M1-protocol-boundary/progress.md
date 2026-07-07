@@ -28,7 +28,7 @@
   - E2E/Regression: Contract fixture covers `relay.message`, `node.streaming_delta`, `node.delivery_receipt`, and `node.report`; WS integration remained green.
   - Visual/Interaction: N/A.
 - Rollback: Revert `e1815d62` and `17913629`.
-- Commits: C1=`e1815d62`, C2=`17913629`, C3=pending.
+- Commits: C1=`e1815d62`, C2=`17913629`, C3=`4b330136`.
 - Next: R2 Gateway relay runtime protocol handoff.
 
 ## R2 — Gateway relay runtime protocol handoff
@@ -44,7 +44,7 @@
   - E2E/Regression: `test_web_relay_adapter_returns_inbound_envelope_with_runtime_protocol` and `test_relay_lifecycle_reads_delivery_facts_from_runtime_protocol` are permanent regression tests for the protocol handoff.
   - Visual/Interaction: N/A.
 - Rollback: Revert `920a01a5` and `4f0dd8b8`.
-- Commits: C1=`920a01a5`, C2=`4f0dd8b8`, C3=pending.
+- Commits: C1=`920a01a5`, C2=`4f0dd8b8`, C3=`6f4bbbc3`.
 - Next: R3 workspace authority local-wins.
 
 ## R3 — Gateway workspace authority local-wins
@@ -60,21 +60,21 @@
   - E2E/Regression: `test_reconcile_ignores_mirror_workspace_root_and_uses_local_config` failed before implementation with runtime workspace equal to the dirty IM path, then passed after resolver centralization.
   - Visual/Interaction: N/A.
 - Rollback: Revert `74c2bd49` and `7c4624ba`.
-- Commits: C1=`74c2bd49`, C2=`7c4624ba`, C3=pending.
+- Commits: C1=`74c2bd49`, C2=`7c4624ba`, C3=`014f66f9`.
 - Next: Final gate.
 
 ## Final Gate
 
-- Context: TODO
-- Decision: TODO
-- Rationale: TODO
+- Context: All roadpoints are implemented; M1 must prove the required relay/config/websocket gate and the新增 contract fixture remain green.
+- Decision: Ran the派发包 five-file gate, the新增 contract/lifecycle regression pair, and `ruff check` on changed source/test files.
+- Rationale: The five-file gate covers the mandated worker exit standard; the additional contract/lifecycle run covers files added outside that exact list; ruff catches import/name issues in the touched modules.
 - Evidence:
-  - Tests: TODO
-  - Entry: TODO
+  - Tests: `source /Users/czj/Repos/nano-multiagent/.venv/bin/activate && pytest tests/unit/personal_assistant/test_gateway_web_relay_adapter.py tests/unit/personal_assistant/test_gateway_im_config_sync.py tests/unit/personal_assistant/test_gateway_reconcile_on_connect.py tests/unit/personal_assistant/test_gateway_upstream_reporter.py tests/im_service/integration/test_gateway_websocket_api.py` -> 49 passed, 2 warnings. Additional: `pytest tests/im_service/contract/test_gateway_protocol_contract.py tests/unit/personal_assistant/test_gateway_relay_lifecycle.py` -> 22 passed, 2 warnings. `ruff check ...` on changed files -> All checks passed.
+  - Entry: `tests/im_service/integration/test_gateway_websocket_api.py` drives the real IM Gateway websocket entry for relay and receipt/report persistence. No long-running local service was started.
   - Frontend State Matrix: N/A.
   - Browser QA: N/A.
-  - E2E/Regression: TODO
+  - E2E/Regression: Permanent regression tests added/updated in `tests/im_service/contract/test_gateway_protocol_contract.py`, `tests/unit/personal_assistant/test_gateway_web_relay_adapter.py`, `tests/unit/personal_assistant/test_gateway_relay_lifecycle.py`, and `tests/unit/personal_assistant/test_gateway_reconcile_on_connect.py`.
   - Visual/Interaction: N/A.
-- Rollback: TODO
-- Commits: TODO
+- Rollback: Revert this milestone branch before merging into `unit/refactor-454`, or revert the eventual merge commit on the unit branch.
+- Commits: final docs commit pending.
 - Next: Merge into unit branch.
