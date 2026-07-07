@@ -17,7 +17,7 @@
 - [x] owner lazy-direct 单测覆盖：首个真实 content 前不发 `turn_start`，`NO_REPLY` / `HEARTBEAT_OK` 静默，ack 后回填 `conversation_id/message_id` 并继续 delta。
 - [x] 指定门禁测试全绿：
   `pytest tests/unit/personal_assistant/test_gateway_relay_lifecycle.py tests/unit/personal_assistant/test_external_visible_delivery.py tests/unit/personal_assistant/test_gateway_im_resilience.py tests/unit/personal_assistant/test_heartbeat_im_delivery.py tests/unit/personal_assistant/test_cron_delivery_chain.py tests/im_service/unit/test_gateway_handler.py tests/im_service/integration/test_gateway_websocket_api.py`
-- [ ] unit 集成分支最终跑 `pytest -m "not e2e"`。
+- [x] unit 集成分支最终跑 `pytest -m "not e2e"`。
 - [x] live-critical 真栈证据记录：Web IM trigger -> running/final 可见、Gateway/IM 重启/重连、cron owner-direct 有内容冒泡通过；heartbeat 主动冒泡为既有 XFAIL #126；Feishu-specific 旅程缺真实 Feishu/Lark 凭证，明确标记未验。
 
 ## 测试策略
@@ -74,13 +74,13 @@
 
 ### R4 — Gates and live-critical verification
 
-- 状态: IN_PROGRESS（milestone 分支 gate/live 已完成；unit 分支 `pytest -m "not e2e"` 待合入后执行）
+- 状态: DONE
 - 步骤:
   - 跑派发要求的七文件门禁。DONE：112 passed, 2 warnings。
   - 在 milestone worktree 运行 worktree 隔离 IM + Gateway 真栈，按 design.md runbook 验 Web IM trigger -> running/final、Gateway/IM restart/reconnect、cron owner-direct 有内容冒泡。DONE，详见 `progress.md` R4。
   - heartbeat 主动冒泡真栈按仓内既有 `strict xfail` 复现 #126；本 milestone 不伪装为通过。
   - Feishu/Lark 若有真实凭证则跑真实平台入站；缺凭证则在 `progress.md` 明确标记 Feishu-specific 未验，不用伪造 inbound 冒充。DONE：本隔离栈未配置 Feishu/Lark channel/凭证，仅记录未验，不伪造。
-  - 合入 unit 分支后跑 `pytest -m "not e2e"`。PENDING。
+  - 合入 unit 分支后跑 `pytest -m "not e2e"`。DONE：3325 passed, 2 skipped, 22 deselected, 16 warnings。
 - 验证:
   - `pytest tests/unit/personal_assistant/test_gateway_relay_lifecycle.py tests/unit/personal_assistant/test_external_visible_delivery.py tests/unit/personal_assistant/test_gateway_im_resilience.py tests/unit/personal_assistant/test_heartbeat_im_delivery.py tests/unit/personal_assistant/test_cron_delivery_chain.py tests/im_service/unit/test_gateway_handler.py tests/im_service/integration/test_gateway_websocket_api.py`
   - `pytest -m "not e2e"`（unit 集成分支）
