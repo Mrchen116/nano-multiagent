@@ -58,7 +58,7 @@
 
 ### R3 — Gateway workspace authority local-wins
 
-- 状态: DOING
+- 状态: DONE
 - 步骤:
   - 新增 `workspace_authority.py`，统一 `sync_agent()` 与 `reconcile_all_agents()` 的 workspace 解析。
   - 补齐 `reconcile_all_agents()` local-wins 红测，确保 IM mirror workspace 不覆盖 runtime/local config。
@@ -67,7 +67,7 @@
 
 ### Final Gate
 
-- 状态: TODO
+- 状态: DOING
 - 步骤:
   - 跑派发要求的五文件门禁。
   - 回填本文件状态与 `progress.md` 证据。

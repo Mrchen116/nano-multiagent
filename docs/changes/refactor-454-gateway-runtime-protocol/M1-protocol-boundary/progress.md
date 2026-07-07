@@ -49,18 +49,18 @@
 
 ## R3 — Gateway workspace authority local-wins
 
-- Context: TODO
-- Decision: TODO
-- Rationale: TODO
+- Context: `sync_agent()` already used local config for existing agents, but `reconcile_all_agents()` still read `payload["workspace_root"]` from the IM mirror when the IM profile version was current. That could move runtime heartbeat/cron/session file access to the wrong workspace.
+- Decision: Added `workspace_authority.py` with `resolve_runtime_workspace()`, used it from both `sync_agent()` and `reconcile_all_agents()`, and added a red/green regression proving reconcile ignores a dirty IM mirror workspace.
+- Rationale: The resolver API intentionally has no IM workspace parameter, so call sites cannot accidentally use mirror/display data as runtime authority. It still calls `ensure_workspace_defaults()` to seed local `HEARTBEAT.md` and memory files in the runtime workspace.
 - Evidence:
-  - Tests: TODO
-  - Entry: TODO
+  - Tests: `source /Users/czj/Repos/nano-multiagent/.venv/bin/activate && pytest tests/unit/personal_assistant/test_gateway_im_config_sync.py tests/unit/personal_assistant/test_gateway_reconcile_on_connect.py` -> 21 passed, 2 warnings.
+  - Entry: Config sync/reconcile tests instantiate `_IMConfigSyncClient` against mocked IM HTTP responses and assert the registered runtime agent workspace.
   - Frontend State Matrix: N/A.
   - Browser QA: N/A.
-  - E2E/Regression: TODO
+  - E2E/Regression: `test_reconcile_ignores_mirror_workspace_root_and_uses_local_config` failed before implementation with runtime workspace equal to the dirty IM path, then passed after resolver centralization.
   - Visual/Interaction: N/A.
-- Rollback: TODO
-- Commits: TODO
+- Rollback: Revert `74c2bd49` and `7c4624ba`.
+- Commits: C1=`74c2bd49`, C2=`7c4624ba`, C3=pending.
 - Next: Final gate.
 
 ## Final Gate
