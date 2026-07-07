@@ -97,6 +97,17 @@ class _NullWebSocket:
         pass
 
 
+class _StreamingKernel:
+    def __init__(self, events: list[dict[str, object]]) -> None:
+        self._events = events
+        self.stream_calls: list[tuple[str, int]] = []
+
+    async def stream(self, session_id: str, after_sequence: int = 0):
+        self.stream_calls.append((session_id, after_sequence))
+        for event in self._events:
+            yield event
+
+
 # ---------------------------------------------------------------------------
 # Helper: build GatewayHandler wired to FK-enforced DB
 # ---------------------------------------------------------------------------
@@ -398,6 +409,76 @@ def test_owner_direct_context_store_ack_backfills_and_continues_delta(
         conversation_id=legacy_ctx["conversation_id"]
     )
     assert len(messages) == 1
+
+
+def test_stream_run_to_completion_seeds_typed_store_seen_by_observer(
+    tmp_path: Path,
+) -> None:
+    """Heartbeat/cron stream helper must seed the same typed store observer reads."""
+
+    from personal_assistant.main import _stream_run_to_completion
+
+    connection, handler = _build_im_db_and_handler(tmp_path)
+    users = UserRepository(connection)
+    owner = users.create_user(username="nano-stream", display_name="Nano Stream")
+    users.create_user(username="agent:theta", display_name="Theta")
+
+    asyncio.run(
+        handler.handle_message(
+            websocket=_NullWebSocket(),
+            message_type="node.register",
+            payload={"node_id": "node-1", "agents": ["theta"], "capabilities": {}},
+        )
+    )
+
+    run_id = "run-hb-stream-typed"
+    session_id = "sess-hb-stream-typed"
+    context_store = RunDeliveryContextStore()
+    fake_manager = _FakeIMManager(handler)
+    observer = build_kernel_event_observer(
+        im_connection_manager_factory=lambda: fake_manager,
+        run_context_store=context_store,
+    )
+    kernel = _StreamingKernel(
+        [
+            {"run_id": run_id, "event": "run_status", "status": "running"},
+            {
+                "run_id": run_id,
+                "event": "assistant_message",
+                "content": "Daily summary from stream.",
+                "message_id": "kernel-stream-msg",
+            },
+            {"run_id": run_id, "event": "turn_end", "completed": True},
+            {"run_id": run_id, "event": "run_status", "status": "completed"},
+        ]
+    )
+
+    final_text, popped_ctx = asyncio.run(
+        _stream_run_to_completion(
+            run_id=run_id,
+            kernel_session_id=session_id,
+            agent_id="theta",
+            owner_user_id=owner.id,
+            kernel=kernel,
+            run_context_store=context_store,
+            observer=observer,
+            stream_anchor=7,
+        )
+    )
+
+    assert final_text == "Daily summary from stream."
+    assert popped_ctx is not None
+    assert popped_ctx["conversation_id"]
+    assert popped_ctx["message_id"]
+    assert popped_ctx["kernel_message_id"] == "kernel-stream-msg"
+    assert context_store.get(run_id) is None
+    assert run_id not in context_store.legacy_contexts
+    assert kernel.stream_calls == [(session_id, 7)]
+    assert [frame[1]["kind"] for frame in fake_manager.sent_frames] == [
+        "turn_start",
+        "message_delta",
+        "message_completed",
+    ]
 
 
 def test_heartbeat_empty_content_produces_zero_message_rows(tmp_path: Path) -> None:

@@ -1198,7 +1198,7 @@ async def _stream_run_to_completion(
     agent_id: str,
     owner_user_id: str,
     kernel: Any,
-    run_context_store: dict,
+    run_context_store: dict[str, dict[str, str]] | RunDeliveryContextStore,
     observer: Callable[..., Any] | None,
     stream_anchor: int = 0,
 ) -> tuple[str, dict | None]:
@@ -1215,7 +1215,10 @@ async def _stream_run_to_completion(
         owner_user_id: IM user_id of the gateway owner; drives lazy direct-chat
             creation via to_user_id in the context entry.
         kernel: In-process kernel; must implement stream(session_id, after_sequence).
-        run_context_store: Shared dict seeded here and popped in finally.
+        run_context_store: Shared delivery context store seeded here and popped in
+            finally. Production passes RunDeliveryContextStore so the observer reads
+            and mutates the same typed runtime owner; legacy dict inputs remain
+            supported for narrow unit compatibility.
         observer: kernel_event_observer callable (sync or async); None skips driving.
         stream_anchor: after_sequence passed to kernel.stream; 0 means replay all.
 
@@ -1228,13 +1231,13 @@ async def _stream_run_to_completion(
     Raises:
         Nothing — stream failures are re-raised to the caller for per-path logging.
     """
-    run_context_store[run_id] = {
-        "conversation_id": "",  # lazy: filled by IM turn_start ack
-        "message_id": "",  # lazy: filled by IM turn_start ack
-        "agent_id": agent_id,
-        "to_user_id": owner_user_id,
-        "kernel_session_id": kernel_session_id,
-    }
+    _seed_owner_direct_stream_context(
+        run_context_store=run_context_store,
+        run_id=run_id,
+        agent_id=agent_id,
+        kernel_session_id=kernel_session_id,
+        owner_user_id=owner_user_id,
+    )
 
     final_result_text = ""
     popped_ctx: dict | None = None
@@ -1261,12 +1264,52 @@ async def _stream_run_to_completion(
                 break
     except Exception:
         # Re-raise so caller can log with per-path context (agent/job/run identifiers).
-        run_context_store.pop(run_id, None)
+        _pop_stream_context(run_context_store=run_context_store, run_id=run_id)
         raise
     finally:
-        popped_ctx = run_context_store.pop(run_id, None)
+        popped_ctx = _pop_stream_context(
+            run_context_store=run_context_store, run_id=run_id
+        )
 
     return final_result_text, popped_ctx
+
+
+def _seed_owner_direct_stream_context(
+    *,
+    run_context_store: dict[str, dict[str, str]] | RunDeliveryContextStore,
+    run_id: str,
+    agent_id: str,
+    kernel_session_id: str,
+    owner_user_id: str,
+) -> None:
+    if isinstance(run_context_store, RunDeliveryContextStore):
+        run_context_store.seed_owner_direct_run(
+            run_id=run_id,
+            agent_id=agent_id,
+            kernel_session_id=kernel_session_id,
+            owner_user_id=owner_user_id,
+        )
+        return
+    run_context_store[run_id] = {
+        "conversation_id": "",  # lazy: filled by IM turn_start ack
+        "message_id": "",  # lazy: filled by IM turn_start ack
+        "agent_id": agent_id,
+        "to_user_id": owner_user_id,
+        "kernel_session_id": kernel_session_id,
+    }
+
+
+def _pop_stream_context(
+    *,
+    run_context_store: dict[str, dict[str, str]] | RunDeliveryContextStore,
+    run_id: str,
+) -> dict[str, str] | None:
+    if isinstance(run_context_store, RunDeliveryContextStore):
+        context = run_context_store.get(run_id)
+        popped = context.to_legacy_dict() if context is not None else None
+        run_context_store.discard(run_id)
+        return popped
+    return run_context_store.pop(run_id, None)
 
 
 class PollingHeartbeatRunner:
@@ -1280,8 +1323,9 @@ class PollingHeartbeatRunner:
             When provided alongside run_context_store and owner_user_id, the runner
             seeds run_context_store and awaits each run to terminal state, driving the
             kernel_event_observer to create the heartbeat IM message if there is content.
-        run_context_store: Shared run-context map seeded with heartbeat run metadata
-            (feat-393).  Observer reads this to route streaming events to IM.
+        run_context_store: Shared delivery context store seeded with heartbeat run
+            metadata (feat-393). Observer reads the same store to route streaming
+            events to IM.
         owner_user_id: IM user_id of the gateway node owner; used as to_user_id in
             turn_start so the heartbeat message lands in the owner's direct conversation
             with the agent (feat-393).
@@ -1299,7 +1343,7 @@ class PollingHeartbeatRunner:
         config: HeartbeatConfig,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         kernel: Any | None = None,
-        run_context_store: "dict[str, dict[str, str]] | None" = None,
+        run_context_store: "dict[str, dict[str, str]] | RunDeliveryContextStore | None" = None,
         owner_user_id: str = "",
         kernel_event_observer: Any | None = None,
         cron_tick_fn: Callable[[str], Awaitable[None]] | None = None,
@@ -2613,9 +2657,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         scheduler=_heartbeat_scheduler,
         config=config.heartbeat,
         kernel=kernel if _owner_user_id else None,
-        run_context_store=run_delivery_contexts.legacy_contexts
-        if _owner_user_id
-        else None,
+        run_context_store=run_delivery_contexts if _owner_user_id else None,
         owner_user_id=_owner_user_id,
         # kernel_event_observer is set below after _build_kernel_event_observer runs.
     )
@@ -3029,7 +3071,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                     agent_id=agent_id,
                     owner_user_id=_owner_user_id,
                     kernel=kernel,
-                    run_context_store=run_delivery_contexts.legacy_contexts,
+                    run_context_store=run_delivery_contexts,
                     observer=_observer,
                     stream_anchor=0,
                 )

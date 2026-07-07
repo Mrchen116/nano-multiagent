@@ -399,6 +399,7 @@ def test_build_runtime_wires_typed_delivery_context_store() -> None:
 
     assert "RunDeliveryContextStore()" in source
     assert "_run_context_store" not in source
+    assert "run_context_store=run_delivery_contexts.legacy_contexts" not in source
 
 
 def test_relay_lifecycle_callback_sends_receipts_and_reports_with_real_usage_to_im() -> (

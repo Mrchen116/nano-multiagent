@@ -277,6 +277,32 @@ class RunDeliveryContextStore:
 
         self.set_runtime_value(run_id, "kernel_message_id", kernel_message_id)
 
+    def seed_owner_direct_run(
+        self,
+        *,
+        run_id: str,
+        agent_id: str,
+        kernel_session_id: str,
+        owner_user_id: str,
+    ) -> RunDeliveryContext:
+        """Seed a heartbeat/cron owner-direct delivery context."""
+
+        delivery_target = (
+            RunDeliveryTarget.for_owner_direct(
+                OwnerDirectTarget(to_user_id=owner_user_id, agent_id=agent_id)
+            )
+            if owner_user_id
+            else RunDeliveryTarget.none(reason="owner_user_missing")
+        )
+        return self.seed(
+            RunDeliveryContext(
+                run_id=run_id,
+                agent_id=agent_id,
+                kernel_session_id=kernel_session_id,
+                delivery_target=delivery_target,
+            )
+        )
+
     def discard(self, run_id: str) -> None:
         """Remove typed and legacy context for one run."""
 

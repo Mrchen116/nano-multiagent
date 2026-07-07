@@ -69,3 +69,16 @@
 ## Caveats
 
 - Feishu/Lark true-platform journeys were not run. No credentialed Feishu/Lark channel was available in this worker environment, and no fake inbound was used.
+
+## R4 — Production heartbeat/cron typed-store wiring gap
+
+- Context: Main-session review after M4 found a production-only gap not covered by the M4 worker gate. `build_runtime()` created the observer with `RunDeliveryContextStore`, but heartbeat/cron still passed `run_delivery_contexts.legacy_contexts` into `_stream_run_to_completion()`. That meant owner-direct heartbeat/cron runs could be seeded into the legacy projection while the typed observer read the typed store and found no run.
+- Decision: Keep observer typed ownership intact and move heartbeat/cron stream seeding onto the same typed store. `_stream_run_to_completion()` now accepts `RunDeliveryContextStore`, seeds an owner-direct typed context, and returns the discard-before snapshot as a legacy-shaped dict for existing silent-tick callers. Legacy dict input remains supported for narrow compatibility tests.
+- Rationale: Reverting observer to legacy would reopen the verifier round-2 blocker. The root cause is production wiring using two state surfaces; the fix is to make heartbeat/cron use the same typed store as observer.
+- Evidence:
+  - Red tests before fix: `pytest tests/unit/personal_assistant/test_heartbeat_im_delivery.py::test_stream_run_to_completion_seeds_typed_store_seen_by_observer tests/unit/personal_assistant/test_gateway_relay_lifecycle.py::test_build_runtime_wires_typed_delivery_context_store` -> expected red: 2 failed. Failures proved typed store could not be seeded by `_stream_run_to_completion()` and `build_runtime()` still passed `.legacy_contexts`.
+  - After fix: same command -> 2 passed, 2 warnings.
+  - Touched-file lint: `ruff check src/personal_assistant/main.py src/personal_assistant/gateway/runtime_delivery/context.py src/personal_assistant/gateway/runtime_delivery/observer.py tests/unit/personal_assistant/test_heartbeat_im_delivery.py tests/unit/personal_assistant/test_gateway_relay_lifecycle.py` -> All checks passed.
+  - Full M4/M3 gate: `pytest tests/unit/personal_assistant/test_gateway_relay_lifecycle.py tests/unit/personal_assistant/test_external_visible_delivery.py tests/unit/personal_assistant/test_gateway_im_resilience.py tests/unit/personal_assistant/test_heartbeat_im_delivery.py tests/unit/personal_assistant/test_cron_delivery_chain.py tests/im_service/unit/test_gateway_handler.py tests/im_service/integration/test_gateway_websocket_api.py tests/contract/test_personal_assistant_main_contract.py` -> 121 passed, 2 warnings.
+  - Full non-e2e regression: `pytest -m "not e2e"` -> 3332 passed, 2 skipped, 22 deselected, 16 warnings.
+- Rollback: Revert the main-session fix commit after `1d1cec26` if this production wiring change needs to be backed out.

@@ -14,6 +14,7 @@
 - [x] typed relay/shadow path：`run_status=running` + IM ack 后，typed context/store 自身持有 backfilled `message_id`。
 - [x] typed owner-direct/lazy path：assistant content 触发 `turn_start` 后，typed context/store 自身回填 resolved `conversation_id` 和 `message_id`，并继续发送 delta。
 - [x] 保留 legacy dict path 兼容测试，heartbeat/cron 明确 legacy boundary 和现有测试不回退。
+- [x] production heartbeat/cron stream helper 与 `build_runtime()` wiring 使用同一个 typed `RunDeliveryContextStore`，不会把 run seed 到 legacy projection 后让 typed observer 读不到。
 - [x] 指定 touched-file `ruff check` 全绿。
 - [x] 指定 M4/M3 gate 全绿：
   `pytest tests/unit/personal_assistant/test_gateway_relay_lifecycle.py tests/unit/personal_assistant/test_external_visible_delivery.py tests/unit/personal_assistant/test_gateway_im_resilience.py tests/unit/personal_assistant/test_heartbeat_im_delivery.py tests/unit/personal_assistant/test_cron_delivery_chain.py tests/im_service/unit/test_gateway_handler.py tests/im_service/integration/test_gateway_websocket_api.py tests/contract/test_personal_assistant_main_contract.py`
@@ -69,3 +70,14 @@
 - 验证:
   - 指定 gate 全绿。
   - progress 记录 commit hashes、rollback 和 caveat。
+
+### R4 — Close production heartbeat/cron typed-store wiring gap
+
+- 状态: DONE
+- 步骤:
+  - 补红测证明 `_stream_run_to_completion()` 必须 seed typed store，且 observer 能读到同一个 run 并完成 owner-direct lazy `turn_start`。
+  - 锁定 `build_runtime()` 不再把 `run_delivery_contexts.legacy_contexts` 传入 heartbeat/cron production stream path。
+  - 让 `_stream_run_to_completion()` 支持 `RunDeliveryContextStore`，并在完成时返回 discard 前的 typed runtime snapshot。
+- 验证:
+  - 新增红测先失败在 typed store 不支持 item assignment、production wiring 仍传 `.legacy_contexts`；修复后通过。
+  - 复跑 touched-file lint、M4/M3 gate、全量非 e2e。
