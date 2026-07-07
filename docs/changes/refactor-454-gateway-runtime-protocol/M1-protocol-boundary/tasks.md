@@ -39,7 +39,7 @@
 
 ### R1 — IM gateway protocol fixture/parser
 
-- 状态: TODO
+- 状态: DONE
 - 步骤:
   - 扩展 gateway protocol contract/integration 测试，先用 fixture 断言 relay/streaming/receipt/report 字段解析。
   - 新增 `src/IM/ws/gateway_protocol.py`，让 `GatewayHandler` 在 `node.report`、`node.streaming_delta`、`node.delivery_receipt` 路径消费 typed event。
@@ -48,7 +48,7 @@
 
 ### R2 — Gateway relay runtime protocol handoff
 
-- 状态: TODO
+- 状态: DOING
 - 步骤:
   - 新增 Gateway-local `runtime_protocol.py`，表达 external identity、shadow ref、reply target、relay task/runtime facts。
   - 调整 `WebRelayAdapter` 输出 `InboundEnvelope(message, protocol)` 或等价 wrapper，并把 lifecycle delivery facts 从 protocol 读取。

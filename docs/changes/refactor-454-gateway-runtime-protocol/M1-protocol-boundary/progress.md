@@ -17,19 +17,19 @@
 
 ## R1 — IM gateway protocol fixture/parser
 
-- Context: TODO
-- Decision: TODO
-- Rationale: TODO
+- Context: IM `GatewayHandler` previously parsed `node.report`, `node.streaming_delta`, and `node.delivery_receipt` directly from raw frame dicts. M1 needs an IM-local protocol boundary plus a fixed contract fixture for relay/streaming/receipt/external identity fields.
+- Decision: Added `tests/fixtures/gateway_runtime_protocol.json`, extended `tests/im_service/contract/test_gateway_protocol_contract.py`, and introduced `src/IM/ws/gateway_protocol.py` with typed parser dataclasses. `GatewayHandler` now consumes typed events on report/streaming/receipt paths while keeping EventBridge and RelayService as the owners of persistence and broadcast behavior.
+- Rationale: Package-local parser keeps IM independent from `personal_assistant`, matches design decision 1, and makes protocol field expectations reviewable without changing user-visible WS ack/error semantics.
 - Evidence:
-  - Tests: TODO
-  - Entry: TODO
+  - Tests: `source /Users/czj/Repos/nano-multiagent/.venv/bin/activate && pytest tests/im_service/contract/test_gateway_protocol_contract.py tests/im_service/integration/test_gateway_websocket_api.py` -> 12 passed.
+  - Entry: `tests/im_service/integration/test_gateway_websocket_api.py` drives the real IM Gateway websocket entry for register, relay receipt, report, streaming-adjacent receipt chain, and existing node behavior.
   - Frontend State Matrix: N/A.
   - Browser QA: N/A.
-  - E2E/Regression: TODO
+  - E2E/Regression: Contract fixture covers `relay.message`, `node.streaming_delta`, `node.delivery_receipt`, and `node.report`; WS integration remained green.
   - Visual/Interaction: N/A.
-- Rollback: TODO
-- Commits: TODO
-- Next: R2.
+- Rollback: Revert `e1815d62` and `17913629`.
+- Commits: C1=`e1815d62`, C2=`17913629`, C3=pending.
+- Next: R2 Gateway relay runtime protocol handoff.
 
 ## R2 — Gateway relay runtime protocol handoff
 
