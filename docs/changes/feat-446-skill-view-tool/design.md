@@ -6,6 +6,8 @@
 
 ## Changelog
 
+- 2026-07-08: Retroactively added current-UX grounding and an explicit prototype alignment contract for the frontend scope, after PR #178 tightened change-design-author / orchestrator prototype handoff rules. This clarifies the existing M4 implementation evidence without changing feat-446 product scope.
+
 ## 现状分析
 
 ### 涉及范围
@@ -410,6 +412,32 @@ IM 工具调用面板
 
 ## 前端原型
 
+### 现有 UX grounding
+
+本 unit 的前端原型不是重新设计 Agent 设置或 Chat 工作台，而是在现有 IM 产品 UX 中增量加入 Skills 使用统计、`skill_view` 工具审计和 F2 蒸馏入口。
+
+| 当前产品入口 / 组件 | 必须继承的 UX 特征 | 本次增量如何嵌入 |
+|---|---|---|
+| Agent detail: `src/IM/frontend/src/features/settings/agents/agent-detail-page.tsx` | 现有页面以 agent header + 配置表单卡片承载 Identity、Behavior、Heartbeat、Cron、Access、Workspace；配置页内容和保存行为是既有用户路径。 | 只在同一 Agent detail shell 中增加 Skills 入口；配置页内容原样保留，不按 prototype 重新绘制一套配置 UI。 |
+| Agent detail 内部导航 | 当前产品没有 Overview / Channels / Sessions 这套完整 Agent 信息架构；本期实现后的真实导航是 `Config / Skills`。 | prototype.html 顶部五个 tab 只表达“Skills 是 Agent detail 的同层页面”这一信息架构意图；Overview / Channels / Sessions 是占位或未来页，不是本期必须实现项。 |
+| Agent 设置卡片视觉 | 已有设置页使用 `im-agent-card`、`im-btn`、紧凑字段和偏表单/运维工具的信息密度。 | Skills dashboard 复用同类卡片、按钮、紧凑列表密度；允许把 prototype 的表格视觉适配为当前产品的卡片行/列表行，但字段和交互语义不能丢。 |
+| Chat v2 Process / tool calls panel | 工具调用以折叠行 + 展开详情呈现，失败态走现有红色 failed 行和错误原因。 | `skill_view` 只新增专属摘要和详情内容，不重做 Process 面板结构。 |
+| Conversation sidebar | 默认 conversation 列表保持普通浏览态，不额外显示运行态标签；上下文菜单承载次级操作。 | F2 只在用户进入 Distill flow 后显示 checkbox、禁用态和运行/无 transcript 提示；默认列表不变。 |
+
+### 原型对齐契约
+
+| 原型区域 / 状态 | 对齐级别 | 产品入口 | 必验 viewport / 状态 | 下游验收投影 |
+|---|---|---|---|---|
+| Agent detail shell 中出现 Skills 入口 | `must-match` | `/settings/agents/:agentId` | desktop + mobile；Config 可返回；Skills 可进入 | M4 `[reviewer]` Agent detail 可进入 Skills dashboard；M4 `[worker]` 保留配置页现有字段和保存行为 |
+| prototype 顶部 Overview / Channels / Sessions tab | `out-of-scope` | `/settings/agents/:agentId` | N/A | N/A。本期真实产品可只显示 `Config / Skills`；不得因此新增空壳页或迁移现有配置页 |
+| 现有 Agent 配置页 | `must-match` | `/settings/agents/:agentId` -> Config | Identity / Behavior / Heartbeat / Cron / Access / Workspace 仍可见、可保存 | M4 `[worker]` 不重写配置页；验收/回归确认新增 Skills 不破坏 Config |
+| Skills 列表视图 | `must-match` for data/interaction; `may-adapt` for visual layout | `/settings/agents/:agentId` -> Skills -> List | non-empty、archived filter、empty | M4 `[reviewer]` 显示 name/source/state/use_count/recent trend，archived 默认隐藏且可显示；`[worker]` 可用当前 card/list 样式替代 prototype table |
+| Agent 维度视图 | `must-match` | `/settings/agents/:agentId` -> Skills -> Agent | non-empty | M4 `[reviewer]` 显示 30-day heatmap，数据来自真实 usage payload |
+| 自进化健康度视图 | `must-match` | `/settings/agents/:agentId` -> Skills -> Health | non-empty | M4 `[reviewer]` 显示 Created / Still active / Used at least once 漏斗数字 |
+| Skills dashboard 空态 / 离线态 | `must-match` | `/settings/agents/:agentId` -> Skills | empty、gateway offline/error | M4 `[reviewer]` 空态不伪装成离线；离线/超时不伪装成空数据 |
+| `skill_view` 工具调用审计 | `must-match` | Chat v2 Process panel | success、failure、long content | M4 `[reviewer]` 折叠态显示 `查看 skill：<name>`；展开态显示 name/location/content；失败态标红并显示原因 |
+| F2 conversation distill flow | `must-match` | Chat v2 conversation sidebar + composer | idle transcript-backed、running/no-transcript disabled、scope dialog、prefill | M3/M4 reviewer 覆盖：右键入口、多选、scope、跳转新对话、预填 `/skill:conversation-skill-distiller` + `source_jsonl_paths` + `execution_agent_id` + `target_scope` |
+
 前端相关 unit: 保留现有 Agent 配置页 + 新增 Skills 使用统计页 + F2 conversation 选择/范围选择/跳转/输入框预填/生成交互。
 - 原型文件 1: [prototype.html](prototype.html) — Agent 详情页壳只表达两个本期范围：现有配置页保留 + 新增 Skills 页。配置页不在原型中重新绘制，按现有 Agent detail 配置内容原样承接：Identity、Behavior（custom instructions、feature checkbox、group_reply_policy、Prompt 预览）、Heartbeat、Cron（job name、schedule、prompt/instruction、删除入口）、Access（default model、skills/tools PillSelector）、Workspace。Skills 页是本 unit 新增设计，含 Skill 列表视图 + Agent 维度视图 + 自进化健康度视图 + skill_view 工具调用审计展示。概览、通道、会话页本期不做，只保留空态，不迁移、不重写、不设计新交互。
 - 原型文件 2: [prototype-f2.html](prototype-f2.html) — F2 conversation 多选 → 选择写入范围 → 跳转新对话 → 预填 `/skill:conversation-skill-distiller` + JSONL 路径 + 意图 → 用户编辑后发送 → agent 调用 `skill_manage(create)` 写入
@@ -610,7 +638,7 @@ synthetic user message 注入到 compact_boundary 之后。如果 resume 逻辑�
 | feat-446-M1 | skill-view-core | — | A | `platform/tools/builtins/skill_view.py`(新)、`skill_manage.py`(删 view + create scope 参数)、`core/skills/usage.py`(新)、`core/skills/root_resolver.py`(新：提取共享 skill_root 解析，含 agent/PA root)、`core/skills/formatter.py`、`sdk/kernel.py`、`core/agent/prompt_sections/core_sections.py`、`core/agent/prompt_sections/feature_registry.py`(requires_any_tool 扩展)、`platform/hooks/builtins/self_improvement.py`、`coding_cli/product.py`、`personal_assistant/product.py`、`personal_assistant/reporter/capability_projection.py` | `[reviewer]` agent 调用 skill_view 返回 SKILL.md 内容; skill_manage 不含 view action; skill_manage(create, scope=agent/pa) 写入指定 root 且不可用 PA root 时失败不回退; PA 默认工具集合和 capability projection 均包含 skill_view 且 default_on=true；未显式配置工具白名单的 PA agent 默认启用 skill_view；已有显式 tool_allowlist 不被自动扩宽，不含 skill_view 时后续 session 不启用 skill_view; 使用统计记录到 .usage.json（含 source=F1/F2/F3/F4）且同一 tool_call_id 重放不重复计数; compaction 时按 location 重读当前 SKILL.md 并以 `<system-reminder>` 注入，resume 后 metadata 可恢复; `[worker]` `pytest tests/unit/test_skill_view.py tests/unit/test_usage.py tests/contract/ -x` 全绿 |
 | feat-446-M2 | curator-f4 | feat-446-M1 | B | `core/skills/curator.py`(新：确定性扫描，返回 CuratorResult 数据，只管 stale/archive)、`platform/background/skill_batch_review.py`(新：per-skill 批量复盘编排，接收 runtime 注入的 background fork callable)、`sdk/kernel.py` / runtime enqueue（内部 skill batch review 入口）、`core/skills/usage.py`(扩展 state 字段 + F4Trigger 返回)、CLI 启动入口、Gateway housekeeping | `[reviewer]` 30 天未用的 F3/F4 skill 标记 stale; stale skill 仍出现在 `<available_skills>` 和 `/skill:` 候选并在统计面板标记 stale; 90 天归档到 .archive/ 后默认退出 `<available_skills>` 和 `/skill:` 候选，但在统计面板 archived 过滤视图可审计; stale skill 被重新读取后复活; F1/F2 skill 不被自动流转; skill_view 成功后 uses_since_last_B 越线即 enqueue per-skill 批量复盘，不等待 7 天 Curator; 同一 skill running/queued 时不并发启动第二个 batch; ≥2 session 证据才采纳; 只 patch 不创建; `[worker]` `pytest tests/unit/test_curator.py tests/unit/test_skill_batch_review.py -x` 全绿; `tests/contract/test_core_no_platform_imports.py` 全绿（core 不 import platform） |
 | feat-446-M3 | f2-distill | feat-446-M1 | B | `src/personal_assistant/builtin_skills/conversation-skill-distiller/SKILL.md` + PA built-in skill bootstrap 复用/补齐 + IM conversation 多选/执行 agent 选择（仅跨 agent 来源）/范围选择弹窗/跳转/输入框预填入口 + conversation `run_state` 派生字段 + `source_jsonl_paths` 预填 + `execution_agent_id` + `target_scope` 解析 + 现有对话内写入结果展示 | `[reviewer]` 干净 HOME 或移走 `~/.nanoassistant/skills/conversation-skill-distiller` 后启动 Gateway，会自动生成 `~/.nanoassistant/skills/conversation-skill-distiller/SKILL.md`，且不覆盖已存在的用户本地同名 skill；默认 IM conversation 列表不显示运行态标签；用户进入"生成 skill"多选模式后，checkbox 出现，`run_state=idle` 的 conversation 可选，`run_state=running` 的 conversation 禁选并显示"运行中"; 用户选择一个或多个可选 conversation 后，点击"蒸馏为 skill"会先按来源 agent 集合确定执行 agent：来源全属同一 agent 时自动使用该 agent，来源跨多个 agent 时弹窗要求用户选择一个执行 agent；随后确认执行 agent 可发现 `conversation-skill-distiller`，不可见时提示去配置页启用，不预填无法加载的 `/skill:`；可见时同一弹窗选择 agent 级或 PA 产品级写入范围，再跳转到执行 agent 的新对话；现有输入框预填 `/skill:conversation-skill-distiller`、`source_jsonl_paths`、`execution_agent_id`、`target_scope` 和默认意图 prompt; 用户编辑后按普通聊天消息发送，Gateway 不解析 source_jsonl_paths、不注入 transcript; agent 在蒸馏 skill 指导下读取 JSONL path，任一 source 不可读或证据不足时不创建 skill; agent 通过 `skill_manage(create, scope=<target_scope>)` 写入对应 skill root，并通过现有工具调用展示/普通回复告知结果; 本期不新增 SKILL.md 草稿预览卡片或确认写入/取消按钮; `[worker]` 蒸馏 skill 使用标准目录型包内资源并纳入 package data；若 feat-447 M10 的 generic built-in skill bootstrap 已合并则复用它，未合并则实现同一通用 helper，不能写 feishu/distill 专用逻辑；IM 前端相关测试全绿; skill_manage(create) 在 `target_scope=agent` 时写入执行 agent 的 skill root，在 `target_scope=pa` 时写入 PA skill root；历史蒸馏创建的 skill 按用户主动创建处理，不进入自动 Curator |
-| feat-446-M4 | dashboard | feat-446-M1, feat-446-M3 | C | IM HTTP API（`/im/v1/agents/:agentId/skills/usage`）+ gateway WS RPC provider + `IM/frontend/src/` 面板组件 + `IM/frontend/src/features/chat/v2/components/tool-*` skill_view 展示 | `[reviewer]` Skill 列表视图显示 use_count + 状态 + 趋势（真实数据），支持查看 archived 过滤视图; Agent 维度视图显示热力图; 健康度视图显示漏斗数字; 空态/离线态正确显示; skill_view 工具行折叠态显示"查看 skill：<name>"，展开态显示 name/location/content 预览，失败态标红并展示错误原因; `[worker]` `cd src/IM/frontend && npm run test` 全绿; IM API 返回真实 .usage.json 数据; M4 串在 M3 后执行以避免同改 IM chat v2/frontend 状态模型造成并行冲突 |
+| feat-446-M4 | dashboard | feat-446-M1, feat-446-M3 | C | IM HTTP API（`/im/v1/agents/:agentId/skills/usage`）+ gateway WS RPC provider + `IM/frontend/src/` 面板组件 + `IM/frontend/src/features/chat/v2/components/tool-*` skill_view 展示 | `[reviewer]` Skill 列表视图显示 use_count + 状态 + 趋势（真实数据），支持查看 archived 过滤视图; Agent 维度视图显示热力图; 健康度视图显示漏斗数字; 空态/离线态正确显示; skill_view 工具行折叠态显示"查看 skill：<name>"，展开态显示 name/location/content 预览，失败态标红并展示错误原因; `[reviewer]` 逐项覆盖 `## 前端原型` 的 M4 相关 `must-match` 行，并说明真实产品截图/行为与 prototype 的一致或允许适配原因; `[worker]` `cd src/IM/frontend && npm run test` 全绿; IM API 返回真实 .usage.json 数据; `[worker]` `progress.md` 留下 Prototype Comparison 表，证据落在 unit 目录内; M4 串在 M3 后执行以避免同改 IM chat v2/frontend 状态模型造成并行冲突 |
 
 ```mermaid
 graph LR
