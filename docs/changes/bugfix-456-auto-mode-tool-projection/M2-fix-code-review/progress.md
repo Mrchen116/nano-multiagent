@@ -22,5 +22,6 @@
   - Visual/Interaction: N/A.
   - Prototype Comparison: N/A.
 - Rollback: revert M2 commits on `milestone/bugfix-456-M2`.
-- Commits: C1=17cb47b8, C2=0ba3cdb9, C3=this docs commit.
-- Next: merge M2 into `unit/bugfix-456`, push unit branch, then remove local/remote milestone branch and worktree.
+- Commits: C1=17cb47b8, C2=0ba3cdb9, C3=92bc399d, merge=98e83f7f.
+- Cleanup: `unit/bugfix-456` pushed to `origin/unit/bugfix-456`; local M2 worktree removed; local `milestone/bugfix-456-M2` branch deleted after ancestor check; remote `milestone/bugfix-456-M2` was absent (`git ls-remote --heads origin milestone/bugfix-456-M2` returned no ref); unit lock removed.
+- Next: M2 complete.
