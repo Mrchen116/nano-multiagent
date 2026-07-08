@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from agent.core.llm.interfaces import LLMMessage, LLMToolCall
 from agent.platform.config.auto_mode import AutoModeConfig
 from agent.platform.hooks.builtins.auto_mode_gate import (
     setup as gate_setup,
@@ -46,6 +47,17 @@ def _make_ctx(
         ctx.metadata["permission_broker"] = broker
 
     return ctx
+
+
+def _make_tool_with_check_permissions(behavior: str) -> MagicMock:
+    """Build a mock tool that reaches the classifier unless explicitly allowed."""
+
+    tool = MagicMock()
+    tool.check_permissions = MagicMock(
+        return_value=PermissionDecision(behavior=behavior)
+    )
+    tool.to_auto_classifier_input = MagicMock(return_value="mock projection")
+    return tool
 
 
 # ---------------------------------------------------------------------------
@@ -187,6 +199,140 @@ class TestGateHookLogic:
             {"name": "write", "args": {"file_path": "/tmp/f", "content": "data"}}, ctx
         )
         assert result is None or result.get("block") is not True
+
+    @pytest.mark.asyncio
+    async def test_historical_tool_use_does_not_require_live_registry(self):
+        """History must preserve past tool_use evidence after a tool is unregistered."""
+
+        captured_prompts: list[str] = []
+
+        async def capturing_model(**kwargs):
+            captured_prompts.append(kwargs.get("user_prompt", ""))
+            return MagicMock(content="<block>no</block>")
+
+        current_tool = _make_tool_with_check_permissions("passthrough")
+        current_tool.to_auto_classifier_input.return_value = "current write"
+
+        class Registry:
+            def get(self, name: str):
+                return current_tool if name == "write" else None
+
+        handler, config = self._get_handler()
+        ctx = self._make_ctx_with_config(config)
+        ctx.call_model = capturing_model
+        ctx.metadata = dict(ctx.metadata)
+        ctx.metadata["tool_registry"] = Registry()
+        ctx.message_history = (
+            LLMMessage(
+                role="assistant",
+                content="",
+                tool_calls=(
+                    LLMToolCall(
+                        call_id="retired-1",
+                        name="retired_dynamic",
+                        arguments={"path": "skills/x", "danger": "tail-risk"},
+                    ),
+                ),
+            ),
+        )
+
+        result = await handler(
+            {"name": "write", "args": {"file_path": "/tmp/f", "content": "data"}},
+            ctx,
+        )
+
+        assert result is None or result.get("block") is not True
+        assert captured_prompts
+        prompt = captured_prompts[0]
+        assert "retired_dynamic" in prompt
+        assert '"tool": "retired_dynamic"' in prompt
+        assert '"danger": "tail-risk"' in prompt
+
+    @pytest.mark.asyncio
+    async def test_historical_tool_use_is_not_rewritten_by_replacement_tool(self):
+        """Same-name replacement must not reinterpret already-recorded history."""
+
+        captured_prompts: list[str] = []
+
+        async def capturing_model(**kwargs):
+            captured_prompts.append(kwargs.get("user_prompt", ""))
+            return MagicMock(content="<block>no</block>")
+
+        current_tool = _make_tool_with_check_permissions("passthrough")
+        current_tool.to_auto_classifier_input.return_value = "current write"
+        replacement_tool = _make_tool_with_check_permissions("passthrough")
+        replacement_tool.to_auto_classifier_input.return_value = "NEW replacement meaning"
+
+        class Registry:
+            def get(self, name: str):
+                if name == "write":
+                    return current_tool
+                if name == "dynamic_tool":
+                    return replacement_tool
+                return None
+
+        handler, config = self._get_handler()
+        ctx = self._make_ctx_with_config(config)
+        ctx.call_model = capturing_model
+        ctx.metadata = dict(ctx.metadata)
+        ctx.metadata["tool_registry"] = Registry()
+        ctx.message_history = (
+            LLMMessage(
+                role="assistant",
+                content="",
+                tool_calls=(
+                    LLMToolCall(
+                        call_id="old-dynamic",
+                        name="dynamic_tool",
+                        arguments={"legacy": "old historical input"},
+                    ),
+                ),
+            ),
+        )
+
+        result = await handler(
+            {"name": "write", "args": {"file_path": "/tmp/f", "content": "data"}},
+            ctx,
+        )
+
+        assert result is None or result.get("block") is not True
+        assert captured_prompts
+        prompt = captured_prompts[0]
+        assert '"legacy": "old historical input"' in prompt
+        assert "NEW replacement meaning" not in prompt
+
+    @pytest.mark.asyncio
+    async def test_current_action_reuses_validated_projection_once(self):
+        """Current action prompt must reuse the already validated projection."""
+
+        captured_prompts: list[str] = []
+
+        async def capturing_model(**kwargs):
+            captured_prompts.append(kwargs.get("user_prompt", ""))
+            return MagicMock(content="<block>no</block>")
+
+        current_tool = _make_tool_with_check_permissions("passthrough")
+        current_tool.to_auto_classifier_input.return_value = "current specialized projection"
+
+        class Registry:
+            def get(self, name: str):
+                return current_tool if name == "write" else None
+
+        handler, config = self._get_handler()
+        ctx = self._make_ctx_with_config(config)
+        ctx.call_model = capturing_model
+        ctx.metadata = dict(ctx.metadata)
+        ctx.metadata["tool_registry"] = Registry()
+
+        result = await handler(
+            {"name": "write", "args": {"file_path": "/tmp/f", "content": "data"}},
+            ctx,
+        )
+
+        assert result is None or result.get("block") is not True
+        assert current_tool.to_auto_classifier_input.call_count == 1
+        assert captured_prompts
+        assert "current specialized projection" in captured_prompts[0]
 
     @pytest.mark.asyncio
     async def test_classifier_deny_blocks(self):

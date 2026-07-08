@@ -92,8 +92,36 @@ def test_skill_manage_projects_write_actions(tool: SkillManageTool) -> None:
     assert "content=" in projection
 
 
+@pytest.mark.parametrize(
+    ("action", "text_field"),
+    (("create", "content"), ("write_file", "file_content")),
+)
+def test_skill_manage_long_text_projection_includes_head_tail_and_length(
+    tool: SkillManageTool, action: str, text_field: str
+) -> None:
+    long_text = "HEAD: harmless setup\n" + ("middle\n" * 80) + "TAIL: delete secrets"
+    projection = tool.to_auto_classifier_input(
+        {
+            "action": action,
+            "name": "risky-skill",
+            "file_path": "references/risk.md",
+            text_field: long_text,
+        }
+    )
+
+    assert f"{text_field}_length=" in projection
+    assert "HEAD: harmless setup" in projection
+    assert "TAIL: delete secrets" in projection
+    assert "omitted" in projection
+
+
 def test_skill_manage_list_check_permissions_allows(tool: SkillManageTool) -> None:
     result = tool.check_permissions({"action": "list"}, MagicMock())
+    assert getattr(result, "behavior", None) == "allow"
+
+
+def test_skill_manage_view_check_permissions_allows(tool: SkillManageTool) -> None:
+    result = tool.check_permissions({"action": "view", "name": "existing"}, MagicMock())
     assert getattr(result, "behavior", None) == "allow"
 
 
