@@ -231,3 +231,56 @@ All targeted closure checks passed. Ready for PR from verifier scope.
 ## Caveats
 
 - Feishu/Lark true-platform journeys remain a reviewer/acceptance caveat from earlier rounds. This verifier pass did not run product acceptance journeys and did not treat synthetic inbound as a substitute for true platform evidence.
+
+# Round 5 - Main-Session Code-Review Compatibility Closure
+
+## Verification Report: refactor-454
+
+### Summary
+
+Mode: code-review-fix-closure
+Delta range: `6e0bf9e1..HEAD`
+Focus issues:
+- Gateway-side `WebRelayAdapter` rejected canonical IM relay frames when `conversation_id` appeared only at top level.
+- IM-side `node.streaming_delta` parser rejected unrelated optional structured fields before dispatching by `kind`.
+- IM-side `node.report` parser rejected legacy non-structured optional `detail` / partially invalid `usage` before the previous persistence-layer downgrade path could ack the report.
+requires_full_verification: false
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | code-review compatibility issues closed |
+| Correctness | red/green regressions and broader suites passed |
+| Coherence | no new protocol entrypoint or user-visible field required |
+
+No critical issue found in this code-review closure scope.
+
+## Focus Closure Results
+
+| Focus item | Verdict | Evidence |
+|---|---|---|
+| Relay payload top-level `conversation_id` | closed | `src/IM/ws/gateway_protocol.py` already accepts `payload.conversation_id` before `message.conversation_id`; `src/personal_assistant/channels/web_relay_adapter.py` now follows the same fallback. Regression: `tests/unit/personal_assistant/test_gateway_web_relay_adapter.py::test_web_relay_adapter_accepts_top_level_conversation_id`. |
+| `node.streaming_delta` unrelated optional structured fields | closed | `parse_streaming_delta_event()` keeps required text fields strict but treats unrelated malformed optional mappings as absent, preserving per-`kind` validation in `GatewayHandler`. Regression: `tests/im_service/contract/test_gateway_protocol_contract.py::test_streaming_delta_parser_ignores_unrelated_bad_structured_fields`. |
+| `node.report` legacy optional payload compatibility | closed | `parse_node_report_event()` still requires `node_id`, `run_id`, and `status`, but ignores non-structured optional `detail` and invalid optional `usage` instead of returning `bad_payload` before handler ack/persistence downgrade. Regression: `tests/im_service/contract/test_gateway_protocol_contract.py::test_node_report_parser_ignores_legacy_unstructured_detail_and_usage`. |
+| Code-review candidate A (`RuntimeProtocolFacts` metadata leak) | refuted | Session metadata is built through the explicit whitelist in `web_relay_adapter._build_session_metadata()` and the persistence boundary in `session_keys.py`, not by serializing all inbound message metadata. No code change was needed for this candidate. |
+
+## Commands
+
+```bash
+/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest tests/unit/personal_assistant/test_gateway_web_relay_adapter.py::test_web_relay_adapter_accepts_top_level_conversation_id tests/im_service/contract/test_gateway_protocol_contract.py::test_streaming_delta_parser_ignores_unrelated_bad_structured_fields tests/im_service/contract/test_gateway_protocol_contract.py::test_node_report_parser_ignores_legacy_unstructured_detail_and_usage
+# before fix: expected red, 3 failed
+# after fix: 3 passed
+
+/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest tests/unit/personal_assistant/test_gateway_web_relay_adapter.py tests/im_service/contract/test_gateway_protocol_contract.py tests/im_service/unit/test_gateway_handler.py tests/im_service/integration/test_gateway_websocket_api.py
+# 69 passed
+
+/Users/czj/Repos/nano-multiagent/.venv/bin/python -m ruff check src/IM/ws/gateway_protocol.py src/personal_assistant/channels/web_relay_adapter.py tests/unit/personal_assistant/test_gateway_web_relay_adapter.py tests/im_service/contract/test_gateway_protocol_contract.py
+# All checks passed
+
+/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -m "not e2e"
+# 3335 passed, 2 skipped, 22 deselected, 16 warnings
+```
+
+## Caveats
+
+- Feishu/Lark true-platform journeys remain unverified because this worktree does not have a credentialed Feishu/Lark channel. This code-review closure does not change the product acceptance verdict in `acceptance.md`.
+- True live same-relay-frame redelivery remains a product-review inconclusive item. The code-review fix adds protocol compatibility coverage, not a new live redelivery harness.

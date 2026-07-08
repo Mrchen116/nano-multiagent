@@ -345,7 +345,8 @@ def _parse_relay_payload(payload: Mapping[str, object]) -> RelayEnvelope:
         message.get("sender_user_id"), field_name="message.sender_user_id"
     )
     conversation_id = _require_text(
-        message.get("conversation_id"), field_name="message.conversation_id"
+        payload.get("conversation_id") or message.get("conversation_id"),
+        field_name="conversation_id",
     )
     content = _require_text(message.get("content"), field_name="message.content")
     metadata = payload.get("metadata")

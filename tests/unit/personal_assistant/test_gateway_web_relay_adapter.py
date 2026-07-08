@@ -59,6 +59,32 @@ def test_web_relay_adapter_converts_relay_payload_to_inbound_message() -> None:
     assert adapter.sent[0].text == "reply"
 
 
+def test_web_relay_adapter_accepts_top_level_conversation_id() -> None:
+    adapter = WebRelayAdapter()
+    seen: list[InboundMessage] = []
+    adapter.start(seen.append)
+
+    inbound = adapter.accept_relay(
+        {
+            "relay_task_id": "relay-top-level-conv",
+            "idempotency_key": "idem-top-level-conv",
+            "conversation_id": "conv-top-level",
+            "agent_id": "agent-a",
+            "message": {
+                "id": "msg-1",
+                "sender_user_id": "user-1",
+                "content": "hello gateway",
+            },
+            "metadata": {},
+        }
+    )
+
+    assert inbound == seen[0]
+    assert inbound.external_chat_id == "conv-top-level"
+    assert inbound.protocol.shadow_ref is not None
+    assert inbound.protocol.shadow_ref.conversation_id == "conv-top-level"
+
+
 def test_web_relay_adapter_preserves_shadow_identity_and_group_target_agent() -> None:
     """Shadow relay metadata drives external session identity while delivery stays on IM id."""
     adapter = WebRelayAdapter()

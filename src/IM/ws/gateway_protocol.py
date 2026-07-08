@@ -34,7 +34,7 @@ class StreamingDeltaEvent:
     delta_text: str | None
     final_content: str | None
     delivery_status: str | None
-    token_usage: Mapping[str, int] | None
+    token_usage: Mapping[str, Any] | None
     kernel_message_id: str | None
     source: str | None
     text: str | None
@@ -113,15 +113,13 @@ def parse_streaming_delta_event(payload: Mapping[str, object]) -> StreamingDelta
         delta_text=_optional_text(payload.get("delta_text")),
         final_content=_optional_text(payload.get("final_content")),
         delivery_status=_optional_text(payload.get("delivery_status")),
-        token_usage=_optional_int_mapping(
-            payload.get("token_usage"), field_name="token_usage"
-        ),
+        token_usage=_optional_mapping_or_none(payload.get("token_usage")),
         kernel_message_id=_optional_text(payload.get("kernel_message_id")),
         source=_optional_text(payload.get("source")),
         text=_optional_text(payload.get("text")),
-        tool_call=_optional_mapping(payload.get("tool_call"), field_name="tool_call"),
-        permission_request=_optional_mapping(
-            payload.get("permission_request"), field_name="permission_request"
+        tool_call=_optional_mapping_or_none(payload.get("tool_call")),
+        permission_request=_optional_mapping_or_none(
+            payload.get("permission_request")
         ),
         request_id=_optional_text(payload.get("request_id")),
         decision=_optional_text(payload.get("decision")),
@@ -160,8 +158,8 @@ def parse_node_report_event(payload: Mapping[str, object]) -> NodeReportEvent:
         message_id=_optional_text(payload.get("message_id")),
         summary=_optional_text(payload.get("summary")),
         guidance=_optional_text(payload.get("guidance")),
-        detail=_optional_mapping(payload.get("detail"), field_name="detail"),
-        usage=_optional_int_mapping(payload.get("usage"), field_name="usage"),
+        detail=_optional_mapping_or_none(payload.get("detail")),
+        usage=_optional_int_mapping_or_none(payload.get("usage")),
     )
 
 
@@ -194,6 +192,23 @@ def _optional_mapping(
     if not isinstance(value, Mapping):
         raise ValueError(f"{field_name} must be an object")
     return value
+
+
+def _optional_mapping_or_none(value: object) -> Mapping[str, Any] | None:
+    if isinstance(value, Mapping):
+        return value
+    return None
+
+
+def _optional_int_mapping_or_none(value: object) -> Mapping[str, int] | None:
+    if not isinstance(value, Mapping):
+        return None
+    parsed: dict[str, int] = {}
+    for key, item in value.items():
+        if not isinstance(key, str) or not isinstance(item, int):
+            return None
+        parsed[key] = item
+    return parsed
 
 
 def _optional_int_mapping(

@@ -67,6 +67,41 @@ def test_gateway_runtime_protocol_fixture_parses_typed_events() -> None:
     }
 
 
+def test_streaming_delta_parser_ignores_unrelated_bad_structured_fields() -> None:
+    event = parse_streaming_delta_event(
+        {
+            "kind": "message_completed",
+            "message_id": "assistant-msg-1",
+            "final_content": "done",
+            "tool_call": "stale-bad-field",
+            "permission_request": [],
+        }
+    )
+
+    assert event.kind == "message_completed"
+    assert event.message_id == "assistant-msg-1"
+    assert event.tool_call is None
+    assert event.permission_request is None
+
+
+def test_node_report_parser_ignores_legacy_unstructured_detail_and_usage() -> None:
+    event = parse_node_report_event(
+        {
+            "node_id": "node-1",
+            "run_id": "run-1",
+            "status": "completed",
+            "detail": "phase=final",
+            "usage": {"prompt_tokens": "10", "completion_tokens": 2},
+        }
+    )
+
+    assert event.node_id == "node-1"
+    assert event.run_id == "run-1"
+    assert event.status == "completed"
+    assert event.detail is None
+    assert event.usage is None
+
+
 def test_gateway_websocket_rejects_invalid_message_shape(tmp_path: Path) -> None:
     """Keep invalid websocket payload errors stable for protocol clients."""
     app = create_app(db_path=tmp_path / "im.db")
