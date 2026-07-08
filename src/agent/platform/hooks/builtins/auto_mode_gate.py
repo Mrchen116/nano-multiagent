@@ -598,9 +598,7 @@ def _project_tool_for_classifier(
     return str(projection)
 
 
-def _project_historical_tool_use_for_classifier(
-    tool_name: str, tool_input: Any
-) -> str:
+def _project_historical_tool_use_for_classifier(tool_name: str, tool_input: Any) -> str:
     """Project recorded history without consulting today's live tool registry."""
 
     if isinstance(tool_input, Mapping):
@@ -936,9 +934,7 @@ def setup(hooks: Any) -> None:  # noqa: ANN001
 
         # Step 8: Classifier (W2: no longer prepends OUTSIDE NOTE — classifier uses system prompt)
         system_prompt = build_yolo_system_prompt(config)
-        user_prompt = _build_transcript_user_message(
-            ctx, tool_name, current_projection
-        )
+        user_prompt = _build_transcript_user_message(ctx, tool_name, current_projection)
 
         try:
             decision = await _classify_action(ctx, system_prompt, user_prompt)

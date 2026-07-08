@@ -127,9 +127,7 @@ class TestGateHookLogic:
         write_tool.check_permissions = MagicMock(
             return_value=PermissionDecision(behavior="passthrough")
         )
-        write_tool.to_auto_classifier_input = MagicMock(
-            return_value="/tmp/f: data"
-        )
+        write_tool.to_auto_classifier_input = MagicMock(return_value="/tmp/f: data")
 
         class FakeRegistry:
             def get(self, name):
@@ -261,7 +259,9 @@ class TestGateHookLogic:
         current_tool = _make_tool_with_check_permissions("passthrough")
         current_tool.to_auto_classifier_input.return_value = "current write"
         replacement_tool = _make_tool_with_check_permissions("passthrough")
-        replacement_tool.to_auto_classifier_input.return_value = "NEW replacement meaning"
+        replacement_tool.to_auto_classifier_input.return_value = (
+            "NEW replacement meaning"
+        )
 
         class Registry:
             def get(self, name: str):
@@ -312,7 +312,9 @@ class TestGateHookLogic:
             return MagicMock(content="<block>no</block>")
 
         current_tool = _make_tool_with_check_permissions("passthrough")
-        current_tool.to_auto_classifier_input.return_value = "current specialized projection"
+        current_tool.to_auto_classifier_input.return_value = (
+            "current specialized projection"
+        )
 
         class Registry:
             def get(self, name: str):

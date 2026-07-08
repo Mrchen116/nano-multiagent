@@ -309,9 +309,7 @@ class TestToolOwnedClassifierProjection:
                 "content": "---\nname: cold-joke-on-insult\n---\n\n# Body",
             }
         )
-        prompt = _build_transcript_user_message(
-            ctx, "skill_manage", current_projection
-        )
+        prompt = _build_transcript_user_message(ctx, "skill_manage", current_projection)
 
         assert '"command": "rm -rf cold-joke-on-insult"' in prompt
         assert "skill_manage" in prompt
