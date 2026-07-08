@@ -122,6 +122,13 @@ class EditTool:
         "additionalProperties": False,
     }
 
+    def to_auto_classifier_input(self, tool_input: Mapping[str, Any]) -> str:
+        """Project edit path and replacement text for auto-mode classification."""
+
+        path = str(tool_input.get("path") or tool_input.get("file_path") or "")
+        new_text = str(tool_input.get("newText") or tool_input.get("new_string") or "")
+        return f"{path}: {new_text[:200]}"
+
     def check_permissions(
         self, tool_input: Mapping[str, Any], ctx: Any
     ) -> PermissionDecision:

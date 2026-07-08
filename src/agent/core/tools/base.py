@@ -122,6 +122,22 @@ class Tool(Protocol):
         """
         ...
 
+    def to_auto_classifier_input(self, tool_input: Mapping[str, Any]) -> str:
+        """Return the current-action projection used by the auto-mode classifier.
+
+        The projection must include the security-relevant action parameters for
+        this tool call. Dynamic tools that do not implement a specialized
+        projection are wrapped at registration time with a structured
+        ``{"tool": name, "input": args}`` projection.
+
+        Args:
+            tool_input: Raw tool arguments from the agent.
+
+        Returns:
+            Classifier-visible current action text.
+        """
+        ...
+
 
 @dataclass(frozen=True, slots=True)
 class ToolContext:

@@ -25,7 +25,7 @@ class TestCronToolCheckPermissions:
         tool = self._get_cron_tool()
         assert hasattr(tool, "check_permissions"), (
             "CronTool must implement check_permissions so auto_mode_gate "
-            "bypasses the classifier for cron tool calls (R3-1 fix)"
+            "can fast-path low-risk queries and classify mutating actions"
         )
         assert callable(getattr(tool, "check_permissions")), (
             "check_permissions must be callable"

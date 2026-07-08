@@ -162,6 +162,11 @@ class ReadTool:
         "additionalProperties": False,
     }
 
+    def to_auto_classifier_input(self, tool_input: Mapping[str, Any]) -> str:
+        """Project the path being read for transcript context."""
+
+        return str(tool_input.get("path") or tool_input.get("file_path") or "")
+
     def run(self, args: Mapping[str, Any], ctx: ToolContext) -> Mapping[str, Any]:
         """Read file content while enforcing sandbox paths and output limits."""
 
