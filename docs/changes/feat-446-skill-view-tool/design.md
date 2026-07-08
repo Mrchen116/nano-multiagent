@@ -6,7 +6,8 @@
 
 ## Changelog
 
-- 2026-07-08: Retroactively added current-UX grounding and an explicit prototype alignment contract for the frontend scope, after PR #178 tightened change-design-author / orchestrator prototype handoff rules. This clarifies the existing M4 implementation evidence without changing feat-446 product scope.
+- 2026-07-08: Retroactively added current-UX grounding and an explicit prototype alignment contract for the frontend scope, after PR #178 tightened change-design-author / orchestrator prototype handoff rules.
+- 2026-07-08: Corrected M4 frontend contract after implementation review: `prototype.html` is the implementation handoff for the Agent Skills dashboard. The shipped frontend must keep the prototype's Agent detail tab shell, Skills list table structure, localized sub-tabs, health funnel, and lifecycle timeline while preserving the existing Config form UX.
 
 ## 现状分析
 
@@ -419,8 +420,8 @@ IM 工具调用面板
 | 当前产品入口 / 组件 | 必须继承的 UX 特征 | 本次增量如何嵌入 |
 |---|---|---|
 | Agent detail: `src/IM/frontend/src/features/settings/agents/agent-detail-page.tsx` | 现有页面以 agent header + 配置表单卡片承载 Identity、Behavior、Heartbeat、Cron、Access、Workspace；配置页内容和保存行为是既有用户路径。 | 只在同一 Agent detail shell 中增加 Skills 入口；配置页内容原样保留，不按 prototype 重新绘制一套配置 UI。 |
-| Agent detail 内部导航 | 当前产品没有 Overview / Channels / Sessions 这套完整 Agent 信息架构；本期实现后的真实导航是 `Config / Skills`。 | prototype.html 顶部五个 tab 只表达“Skills 是 Agent detail 的同层页面”这一信息架构意图；Overview / Channels / Sessions 是占位或未来页，不是本期必须实现项。 |
-| Agent 设置卡片视觉 | 已有设置页使用 `im-agent-card`、`im-btn`、紧凑字段和偏表单/运维工具的信息密度。 | Skills dashboard 复用同类卡片、按钮、紧凑列表密度；允许把 prototype 的表格视觉适配为当前产品的卡片行/列表行，但字段和交互语义不能丢。 |
+| Agent detail 内部导航 | 当前产品以 Agent detail 页面承载配置；prototype.html 给出的顶部 `概览 / 配置 / 通道 / Skills / 会话` 是本次实现的页面壳契约。 | 保留现有 Config 表单内容，但顶部 tab shell 必须按 prototype 落地；概览、通道、会话本期只实现空态占位，不新增真实业务交互。 |
+| Agent 设置卡片视觉 | 已有设置页使用 `im-agent-card`、`im-btn`、紧凑字段和偏表单/运维工具的信息密度。 | Skills dashboard 可复用现有 card chrome、按钮和字体密度，但 prototype 的 Skill 列表表格结构不能被改成卡片列表；表格列、内部 tab 文案、健康度/lifecycle 信息层级必须落地。 |
 | Chat v2 Process / tool calls panel | 工具调用以折叠行 + 展开详情呈现，失败态走现有红色 failed 行和错误原因。 | `skill_view` 只新增专属摘要和详情内容，不重做 Process 面板结构。 |
 | Conversation sidebar | 默认 conversation 列表保持普通浏览态，不额外显示运行态标签；上下文菜单承载次级操作。 | F2 只在用户进入 Distill flow 后显示 checkbox、禁用态和运行/无 transcript 提示；默认列表不变。 |
 
@@ -429,17 +430,17 @@ IM 工具调用面板
 | 原型区域 / 状态 | 对齐级别 | 产品入口 | 必验 viewport / 状态 | 下游验收投影 |
 |---|---|---|---|---|
 | Agent detail shell 中出现 Skills 入口 | `must-match` | `/settings/agents/:agentId` | desktop + mobile；Config 可返回；Skills 可进入 | M4 `[reviewer]` Agent detail 可进入 Skills dashboard；M4 `[worker]` 保留配置页现有字段和保存行为 |
-| prototype 顶部 Overview / Channels / Sessions tab | `out-of-scope` | `/settings/agents/:agentId` | N/A | N/A。本期真实产品可只显示 `Config / Skills`；不得因此新增空壳页或迁移现有配置页 |
+| prototype 顶部 Overview / Channels / Sessions tab | `must-match shell`; functional content out of scope | `/settings/agents/:agentId` | desktop + mobile；tab 可点击；空态文案可见 | M4 `[worker]` 必须显示 `概览 / 配置 / 通道 / Skills / 会话`；概览、通道、会话只做空态占位，不新增真实业务交互、不迁移配置页 |
 | 现有 Agent 配置页 | `must-match` | `/settings/agents/:agentId` -> Config | Identity / Behavior / Heartbeat / Cron / Access / Workspace 仍可见、可保存 | M4 `[worker]` 不重写配置页；验收/回归确认新增 Skills 不破坏 Config |
-| Skills 列表视图 | `must-match` for data/interaction; `may-adapt` for visual layout | `/settings/agents/:agentId` -> Skills -> List | non-empty、archived filter、empty | M4 `[reviewer]` 显示 name/source/state/use_count/recent trend，archived 默认隐藏且可显示；`[worker]` 可用当前 card/list 样式替代 prototype table |
-| Agent 维度视图 | `must-match` | `/settings/agents/:agentId` -> Skills -> Agent | non-empty | M4 `[reviewer]` 显示 30-day heatmap，数据来自真实 usage payload |
-| 自进化健康度视图 | `must-match` | `/settings/agents/:agentId` -> Skills -> Health | non-empty | M4 `[reviewer]` 显示 Created / Still active / Used at least once 漏斗数字 |
+| Skills 列表视图 | `must-match` | `/settings/agents/:agentId` -> Skills -> Skill 列表 | non-empty、archived filter、empty | M4 `[reviewer]` 显示 prototype 表格列 `名字 / 来源 / 状态 / 使用次数 / 最近使用 / 趋势`，archived 默认隐藏且可显示；`[worker]` 不得用 card/list 替代表格结构 |
+| Agent 维度视图 | `must-match` | `/settings/agents/:agentId` -> Skills -> Agent 维度 | non-empty | M4 `[reviewer]` 显示 30-day heatmap，数据来自真实 usage payload |
+| 自进化健康度视图 | `must-match` | `/settings/agents/:agentId` -> Skills -> 自进化健康度 | non-empty | M4 `[reviewer]` 显示 `自动创建总数 / still active / use_count > 0` 漏斗、存活率、生命周期时间线 |
 | Skills dashboard 空态 / 离线态 | `must-match` | `/settings/agents/:agentId` -> Skills | empty、gateway offline/error | M4 `[reviewer]` 空态不伪装成离线；离线/超时不伪装成空数据 |
 | `skill_view` 工具调用审计 | `must-match` | Chat v2 Process panel | success、failure、long content | M4 `[reviewer]` 折叠态显示 `查看 skill：<name>`；展开态显示 name/location/content；失败态标红并显示原因 |
 | F2 conversation distill flow | `must-match` | Chat v2 conversation sidebar + composer | idle transcript-backed、running/no-transcript disabled、scope dialog、prefill | M3/M4 reviewer 覆盖：右键入口、多选、scope、跳转新对话、预填 `/skill:conversation-skill-distiller` + `source_jsonl_paths` + `execution_agent_id` + `target_scope` |
 
 前端相关 unit: 保留现有 Agent 配置页 + 新增 Skills 使用统计页 + F2 conversation 选择/范围选择/跳转/输入框预填/生成交互。
-- 原型文件 1: [prototype.html](prototype.html) — Agent 详情页壳只表达两个本期范围：现有配置页保留 + 新增 Skills 页。配置页不在原型中重新绘制，按现有 Agent detail 配置内容原样承接：Identity、Behavior（custom instructions、feature checkbox、group_reply_policy、Prompt 预览）、Heartbeat、Cron（job name、schedule、prompt/instruction、删除入口）、Access（default model、skills/tools PillSelector）、Workspace。Skills 页是本 unit 新增设计，含 Skill 列表视图 + Agent 维度视图 + 自进化健康度视图 + skill_view 工具调用审计展示。概览、通道、会话页本期不做，只保留空态，不迁移、不重写、不设计新交互。
+- 原型文件 1: [prototype.html](prototype.html) — Agent 详情页壳必须落地：`概览 / 配置 / 通道 / Skills / 会话`。配置页不在原型中重新绘制，按现有 Agent detail 配置内容原样承接：Identity、Behavior（custom instructions、feature checkbox、group_reply_policy、Prompt 预览）、Heartbeat、Cron（job name、schedule、prompt/instruction、删除入口）、Access（default model、skills/tools PillSelector）、Workspace。Skills 页是本 unit 新增设计，含 Skill 列表表格 + Agent 维度视图 + 自进化健康度视图 + skill_view 工具调用审计展示。概览、通道、会话页本期只保留空态，不迁移、不重写、不设计新交互。
 - 原型文件 2: [prototype-f2.html](prototype-f2.html) — F2 conversation 多选 → 选择写入范围 → 跳转新对话 → 预填 `/skill:conversation-skill-distiller` + JSONL 路径 + 意图 → 用户编辑后发送 → agent 调用 `skill_manage(create)` 写入
 - 覆盖范围: 现有 Agent 配置页原样保留 + 新增 Skills 使用统计三视图 + F2 conversation 选择/范围选择/跳转/蒸馏全流程 + skill_view 工具调用审计展示
 

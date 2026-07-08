@@ -124,25 +124,23 @@
 
 ## R4 — retrospective prototype contract repair
 
-- Context: PR #178 tightened the change-design-author / orchestrator / worker contract around frontend prototypes: `prototype.html` must be treated as PM/design handoff, grounded in current UX, with explicit `must-match` / `may-adapt` / `out-of-scope` rows and durable comparison evidence. feat-446 M4 was implemented before that policy existed, and its progress evidence referenced `/tmp/...` screenshot artifacts from the original browser QA.
-- Decision: Updated `design.md` to add current Agent detail / Chat v2 UX grounding and an explicit prototype alignment contract for M4. Added a durable retrospective comparison file under the M4 evidence directory.
-- Rationale: The M4 implementation intentionally used the existing Agent detail shell and card/list UX; the prototype's five top-level tabs were conceptual placement, not an instruction to create new Overview / Channels / Sessions pages. Without an explicit contract, later reviewers can misread the prototype as demanding a different navigation model or a table-only visual layout.
+- Context: PR #178 tightened the change-design-author / orchestrator / worker contract around frontend prototypes: `prototype.html` must be treated as PM/design handoff, grounded in current UX, with explicit alignment rows and durable comparison evidence. feat-446 M4 was implemented before that policy existed.
+- Decision: Added initial design/prototype-comparison documentation, but this roadpoint did not change runtime code.
+- Correction: This docs-only repair was insufficient and is superseded by R5. It incorrectly treated the missing prototype tab shell and table/list mismatch as accepted adaptations. The corrected rule is: `prototype.html` is the M4 implementation handoff; runtime code must match the tab shell, Skills table, localized sub-tabs, health funnel, and lifecycle timeline while preserving existing Config form UX.
+- Rollback: Revert only if R5 implementation alignment is also reverted.
+
+## R5 — prototype implementation alignment
+
+- Context: The documentation-only R4 repair was insufficient because the frontend still diverged from `prototype.html`: the Agent detail shell exposed only `Config / Skills`, the Skill list used card/list rows instead of the prototype table, and the health view did not include the lifecycle timeline.
+- Decision: Updated the M4 frontend implementation to treat `prototype.html` as the direct implementation handoff while preserving the existing Config form UX.
+- Runtime changes:
+  - Agent detail now renders the prototype tab shell: `概览 / 配置 / 通道 / Skills / 会话`.
+  - `概览`, `通道`, and `会话` render explicit empty-state placeholders; functional content remains out of scope.
+  - Skills sub-tabs now match the prototype: `Skill 列表 / Agent 维度 / 自进化健康度`.
+  - Skill list now renders the prototype table columns `名字 / 来源 / 状态 / 使用次数 / 最近使用 / 趋势`, including localized source badges and archived filtering.
+  - Health view now renders `自进化存活率`, survival-rate text, and `生命周期时间线`.
 - Evidence:
-  - Prototype contract: `docs/changes/feat-446-skill-view-tool/design.md` -> `## 前端原型`.
+  - Frontend test: `cd src/IM/frontend && npm run test -- --run src/features/settings/agents/agent-detail-page.test.tsx`
+  - Frontend build: `cd src/IM/frontend && npm run build`
   - Durable comparison: `docs/changes/feat-446-skill-view-tool/M4-dashboard/evidence/prototype-comparison.md`.
-  - Prototype Comparison:
-
-| Reference | Actual evidence | Viewport / state | Match or deviation | Accepted reason |
-|---|---|---|---|---|
-| Agent detail shell contains Skills area | `agent-detail-page.tsx` renders `Config` / `Skills`; Round 4 acceptance records dashboard list/agent/health views | desktop real product; non-empty usage | Match | Skills is in the existing Agent detail context |
-| Existing Config page preserved | `agent-detail-page.tsx` keeps Identity / Behavior / Heartbeat / Cron / Access / Workspace; Round 4 acceptance records config page | desktop real product; default-agent config | Match | Existing UX is the source of truth |
-| Prototype Overview / Channels / Sessions tabs | Not implemented | N/A | Deviation | Marked `out-of-scope`; prototype labels are placement placeholders, not M4 scope |
-| Skills list fields and archived filter | `SkillsListView`; Round 4 acceptance records `change-spec-author`, `active`, `F1`, use count | desktop real product; non-empty usage | Match with visual adaptation | Card/list style follows existing Agent detail UX instead of prototype table chrome |
-| Heatmap and health views | `AgentHeatmapView`, `HealthFunnelView`; Round 4 acceptance records both views | desktop real product; non-empty usage | Match | Data and interaction semantics match prototype |
-| Empty/offline states | `AgentSkillsUsagePanel`; original M4 progress records empty/offline browser states | desktop/mobile states from original QA | Match | Original screenshot files were temporary; this row is a retrospective index, not a rerun |
-| `skill_view` tool row | `tool-presentation.ts`, `tool-detail-renderers.tsx`; Round 4 acceptance records slash/direct completed rows | chat Process panel; success/failure | Match | Uses existing Process panel UX |
-
-- Caveat: This roadpoint does not claim a fresh browser screenshot rerun on 2026-07-08. The original screenshots referenced in earlier progress/acceptance were temporary `/tmp` artifacts and are no longer present. The durable artifact added here is the contract and comparison index needed to prevent future prototype misinterpretation.
-- Rollback: Revert the design/prototype-comparison documentation changes; no runtime code changed.
-- Commits: current documentation repair commit.
-- Next: DONE
+- Next: commit and push implementation alignment, then re-check PR #172 CI.

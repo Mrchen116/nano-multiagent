@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Label from "@radix-ui/react-label";
-import type { FormEvent } from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { FormEvent, ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { useIsMobile } from "../../../hooks/use-is-mobile";
@@ -681,6 +681,7 @@ function CronCard({ agentId, draft, onToggle, hideEnableToggle = false }: CronCa
 }
 
 type SkillsUsageView = "list" | "agent" | "health";
+type AgentDetailSection = "overview" | "config" | "channels" | "skills" | "sessions";
 
 function normalizedUsageSeries(values: number[] | undefined): number[] {
   const series = [...(values ?? [])].slice(-30);
@@ -725,6 +726,43 @@ function SkillTrend({ skill }: { skill: SkillUsageItem }) {
   );
 }
 
+function skillSourceLabel(source: string): string {
+  switch (source) {
+    case "F1":
+      return "手动创建";
+    case "F2":
+      return "历史蒸馏";
+    case "F3":
+      return "自动沉淀";
+    case "F4":
+      return "批量复盘";
+    default:
+      return source || "unknown";
+  }
+}
+
+function skillBadgeClass(kind: "source" | "state", value: string): string {
+  if (kind === "state") {
+    if (value === "active") return "bg-emerald-50 text-emerald-700";
+    if (value === "stale") return "bg-amber-50 text-amber-700";
+    if (value === "archived") return "bg-slate-100 text-slate-600";
+    return "bg-slate-100 text-slate-600";
+  }
+  if (value === "F1") return "bg-fuchsia-50 text-fuchsia-700";
+  if (value === "F2") return "bg-indigo-50 text-indigo-700";
+  if (value === "F3") return "bg-teal-50 text-teal-700";
+  if (value === "F4") return "bg-yellow-50 text-yellow-700";
+  return "bg-slate-100 text-slate-600";
+}
+
+function SkillBadge({ kind, value, children }: { kind: "source" | "state"; value: string; children: ReactNode }) {
+  return (
+    <span className={`inline-flex rounded-full px-2 py-[2px] text-[11px] font-semibold ${skillBadgeClass(kind, value)}`}>
+      {children}
+    </span>
+  );
+}
+
 function SkillsListView({
   usage,
   showArchived,
@@ -741,59 +779,49 @@ function SkillsListView({
     <section className="im-agent-card" data-testid="skills-usage-list">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h3 className="im-agent-card-title">Skill usage</h3>
-          <p className="im-agent-card-sub">Use count, state, and recent 30-day trend from real usage telemetry.</p>
+          <h3 className="im-agent-card-title">全部 Skill</h3>
+          <p className="im-agent-card-sub">按最近使用时间排序</p>
         </div>
         <button
           type="button"
           className="im-btn im-btn-muted"
           onClick={onToggleArchived}
         >
-          {showArchived ? "Hide archived" : "Show archived"}
+          {showArchived ? "隐藏 archived" : "显示 archived"}
         </button>
       </div>
       {visibleSkills.length === 0 ? (
-        <p className="text-[13px] text-slate-500">No active skills in this filter</p>
+        <p className="text-[13px] text-slate-500">当前过滤条件下没有 skill</p>
       ) : (
-        <div className="grid gap-2">
-          {visibleSkills.map((skill) => {
-            const archived = skill.state === "archived";
-            return (
-              <article
-                key={skill.skill_id}
-                className={`grid gap-3 rounded-lg border px-3 py-3 md:grid-cols-[minmax(0,1fr)_auto_auto] md:items-center ${
-                  archived
-                    ? "border-slate-200 bg-slate-50"
-                    : "border-[var(--im-border)] bg-white"
-                }`}
-              >
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h4 className="m-0 truncate text-[13px] font-semibold text-slate-900">{skill.name}</h4>
-                    <span
-                      className={`rounded-full px-2 py-[2px] text-[11px] font-semibold ${
-                        archived
-                          ? "bg-slate-200 text-slate-600"
-                          : "bg-emerald-50 text-emerald-700"
-                      }`}
-                    >
-                      {skill.state}
-                    </span>
-                    <span className="rounded-full bg-slate-100 px-2 py-[2px] text-[11px] text-slate-600">
-                      {skill.source}
-                    </span>
-                  </div>
-                  <p className="m-0 mt-1 text-[11px] text-slate-500">
-                    Last used {formatSkillTimestamp(skill.last_used_at)}
-                  </p>
-                </div>
-                <div className="text-[13px] font-semibold text-slate-900">
-                  {skill.use_count} uses
-                </div>
-                <SkillTrend skill={skill} />
-              </article>
-            );
-          })}
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse text-[13px]">
+            <thead>
+              <tr className="border-b border-[var(--im-border)] text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                <th className="px-2 py-2">名字</th>
+                <th className="px-2 py-2">来源</th>
+                <th className="px-2 py-2">状态</th>
+                <th className="px-2 py-2">使用次数</th>
+                <th className="px-2 py-2">最近使用</th>
+                <th className="px-2 py-2">趋势</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visibleSkills.map((skill) => (
+                <tr key={skill.skill_id} className="border-b border-slate-100 last:border-0">
+                  <td className="px-2 py-3 font-semibold text-slate-900">{skill.name}</td>
+                  <td className="px-2 py-3">
+                    <SkillBadge kind="source" value={skill.source}>{skillSourceLabel(skill.source)}</SkillBadge>
+                  </td>
+                  <td className="px-2 py-3">
+                    <SkillBadge kind="state" value={skill.state}>{skill.state}</SkillBadge>
+                  </td>
+                  <td className="px-2 py-3 font-semibold text-slate-900">{skill.use_count}</td>
+                  <td className="px-2 py-3 font-mono text-[12px] text-slate-500">{formatSkillTimestamp(skill.last_used_at)}</td>
+                  <td className="px-2 py-3"><SkillTrend skill={skill} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </section>
@@ -806,8 +834,8 @@ function AgentHeatmapView({ usage }: { usage: SkillsUsageResponse }) {
   return (
     <section className="im-agent-card">
       <div>
-        <h3 className="im-agent-card-title">30-day heatmap</h3>
-        <p className="im-agent-card-sub">Agent-level skill usage density across the last 30 days.</p>
+        <h3 className="im-agent-card-title">使用热力图</h3>
+        <p className="im-agent-card-sub">该 agent 的 skill 使用密度</p>
       </div>
       <div
         className="grid grid-cols-[repeat(15,minmax(0,1fr))] gap-[4px] md:grid-cols-[repeat(30,1fr)]"
@@ -823,29 +851,90 @@ function AgentHeatmapView({ usage }: { usage: SkillsUsageResponse }) {
           />
         ))}
       </div>
+      <p className="m-0 mt-2 text-[11px] text-slate-500">最近 30 天 · 每格 = 1 天</p>
     </section>
   );
 }
 
 function HealthFunnelView({ usage }: { usage: SkillsUsageResponse }) {
   const rows = [
-    { label: "Created", value: usage.health.created_auto_total },
-    { label: "Still active", value: usage.health.active_auto_total },
-    { label: "Used at least once", value: usage.health.used_auto_total },
+    { label: "自动创建总数", value: usage.health.created_auto_total },
+    { label: "still active", value: usage.health.active_auto_total },
+    { label: "use_count > 0", value: usage.health.used_auto_total },
   ];
+  const survivalRate = usage.health.created_auto_total > 0
+    ? `${usage.health.used_auto_total} / ${usage.health.created_auto_total} = ${Math.round((usage.health.used_auto_total / usage.health.created_auto_total) * 100)}%`
+    : "0 / 0 = 0%";
+  const automatedSkills = usage.skills.filter((skill) => ["F3", "F4"].includes(skill.source));
+  return (
+    <div className="grid gap-3">
+      <section className="im-agent-card">
+        <div>
+          <h3 className="im-agent-card-title">自进化存活率</h3>
+          <p className="im-agent-card-sub">自动创建的 skill 有多少活了下来</p>
+        </div>
+        <div className="flex flex-wrap items-center justify-center gap-4 py-2">
+          {rows.map((row, index) => (
+            <Fragment key={row.label}>
+              {index > 0 ? <span className="text-[18px] text-slate-300">→</span> : null}
+              <div className="min-w-[96px] text-center">
+                <p className="m-0 text-[26px] font-extrabold text-slate-900">{row.value}</p>
+                <p className="m-0 mt-1 text-[11px] text-slate-500">{row.label}</p>
+              </div>
+            </Fragment>
+          ))}
+        </div>
+        <p className="m-0 mt-1 text-center text-[12px] text-slate-500">存活率 <strong>{survivalRate}</strong></p>
+      </section>
+      <section className="im-agent-card">
+        <div>
+          <h3 className="im-agent-card-title">生命周期时间线</h3>
+          <p className="im-agent-card-sub">每个自动 skill 的创建 → 首次使用 → 最后使用</p>
+        </div>
+        {automatedSkills.length === 0 ? (
+          <p className="text-[13px] text-slate-500">暂无自动创建的 skill</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-[13px]">
+              <thead>
+                <tr className="border-b border-[var(--im-border)] text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  <th className="px-2 py-2">名字</th>
+                  <th className="px-2 py-2">来源</th>
+                  <th className="px-2 py-2">创建时间</th>
+                  <th className="px-2 py-2">首次使用</th>
+                  <th className="px-2 py-2">最后使用</th>
+                  <th className="px-2 py-2">状态</th>
+                </tr>
+              </thead>
+              <tbody>
+                {automatedSkills.map((skill) => {
+                  const firstUsed = skill.session_refs?.[0]?.timestamp ?? skill.last_used_at ?? null;
+                  return (
+                    <tr key={skill.skill_id} className="border-b border-slate-100 last:border-0">
+                      <td className="px-2 py-3 font-semibold text-slate-900">{skill.name}</td>
+                      <td className="px-2 py-3"><SkillBadge kind="source" value={skill.source}>{skillSourceLabel(skill.source)}</SkillBadge></td>
+                      <td className="px-2 py-3 font-mono text-[12px] text-slate-500">{formatSkillTimestamp(skill.created_at)}</td>
+                      <td className="px-2 py-3 font-mono text-[12px] text-slate-500">{formatSkillTimestamp(firstUsed)}</td>
+                      <td className="px-2 py-3 font-mono text-[12px] text-slate-500">{formatSkillTimestamp(skill.last_used_at)}</td>
+                      <td className="px-2 py-3"><SkillBadge kind="state" value={skill.state}>{skill.state}</SkillBadge></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function PrototypePlaceholder({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="im-agent-card">
       <div>
-        <h3 className="im-agent-card-title">Health funnel</h3>
-        <p className="im-agent-card-sub">F3/F4 skills created, retained active, and actually used.</p>
-      </div>
-      <div className="grid gap-2 md:grid-cols-3">
-        {rows.map((row) => (
-          <div key={row.label} className="rounded-lg border border-[var(--im-border)] bg-white px-3 py-3">
-            <p className="m-0 text-[11px] font-semibold uppercase text-slate-500">{row.label}</p>
-            <p className="m-0 mt-1 text-[24px] font-bold text-slate-900">{row.value}</p>
-          </div>
-        ))}
+        <h3 className="im-agent-card-title">{title}</h3>
+        <p className="im-agent-card-sub">{children}</p>
       </div>
     </section>
   );
@@ -903,7 +992,7 @@ function AgentSkillsUsagePanel({ agentId }: { agentId: string }) {
               onClick={() => setView(item)}
               aria-pressed={view === item}
             >
-              {item === "list" ? "List" : item === "agent" ? "Agent" : "Health"}
+              {item === "list" ? "Skill 列表" : item === "agent" ? "Agent 维度" : "自进化健康度"}
             </button>
           ))}
         </div>
@@ -1016,7 +1105,7 @@ export function AgentDetailPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [hasAttemptedSave, setHasAttemptedSave] = useState(false);
   const [touched, setTouched] = useState<Record<string, boolean>>({});
-  const [activeSection, setActiveSection] = useState<"config" | "skills">("config");
+  const [activeSection, setActiveSection] = useState<AgentDetailSection>("config");
   const savedResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // feat-394 M9-C: once the user manually edits tool_allowlist, stop treating empty as
   // "use product defaults" — the empty list becomes a genuine empty whitelist.
@@ -1322,29 +1411,49 @@ export function AgentDetailPage() {
             {errorMessage}
           </p>
         ) : null}
-        <nav className="flex flex-wrap gap-2 pt-3" aria-label="Agent detail sections">
-          <button
-            type="button"
-            className={`im-btn ${activeSection === "config" ? "im-btn-primary" : "im-btn-muted"}`}
-            aria-pressed={activeSection === "config"}
-            onClick={() => setActiveSection("config")}
-          >
-            Config
-          </button>
-          <button
-            type="button"
-            className={`im-btn ${activeSection === "skills" ? "im-btn-primary" : "im-btn-muted"}`}
-            aria-pressed={activeSection === "skills"}
-            onClick={() => setActiveSection("skills")}
-          >
-            Skills
-          </button>
+        <nav
+          className="-mx-5 mt-3 flex flex-wrap gap-0 border-t border-[var(--im-border)] px-5"
+          aria-label="Agent detail sections"
+        >
+          {([
+            ["overview", "概览"],
+            ["config", "配置"],
+            ["channels", "通道"],
+            ["skills", "Skills"],
+            ["sessions", "会话"],
+          ] as Array<[AgentDetailSection, string]>).map(([section, label]) => (
+            <button
+              key={section}
+              type="button"
+              className={`border-0 border-b-2 bg-transparent px-4 py-3 text-[13px] font-semibold ${
+                activeSection === section
+                  ? "border-[var(--im-accent)] text-[var(--im-accent)]"
+                  : "border-transparent text-slate-500 hover:text-slate-900"
+              }`}
+              aria-pressed={activeSection === section}
+              onClick={() => setActiveSection(section)}
+            >
+              {label}
+            </button>
+          ))}
         </nav>
       </header>
 
       <div className="im-agent-panel-body">
         {activeSection === "skills" ? (
           <AgentSkillsUsagePanel agentId={agentId} />
+        ) : activeSection === "overview" ? (
+          <PrototypePlaceholder title="概览">
+            本期不设计概览页。保持空态，后续单独设计。
+          </PrototypePlaceholder>
+        ) : activeSection === "channels" ? (
+          <PrototypePlaceholder title="通道">
+            本期不设计通道页。保持空态，后续单独设计。
+          </PrototypePlaceholder>
+        ) : activeSection === "sessions" ? (
+          <PrototypePlaceholder title="会话">
+            本期不设计会话页。保持空态，后续单独设计。
+          </PrototypePlaceholder>
         ) : (
           <>
         <section className="im-agent-card">

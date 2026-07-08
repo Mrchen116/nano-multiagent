@@ -145,7 +145,8 @@ describe("agent detail page", () => {
           state: "active",
           use_count: 3,
           last_used_at: "2026-07-02T10:00:00Z",
-          session_refs: [],
+          created_at: "2026-07-01T10:00:00Z",
+          session_refs: [{ timestamp: "2026-07-01T12:00:00Z" }],
           recent_call_keys: ["s1:tc1"],
           trend_buckets: [0, 0, 1, 2]
         },
@@ -156,7 +157,8 @@ describe("agent detail page", () => {
           state: "archived",
           use_count: 1,
           last_used_at: "2026-06-01T10:00:00Z",
-          session_refs: [],
+          created_at: "2026-06-01T08:00:00Z",
+          session_refs: [{ timestamp: "2026-06-01T09:00:00Z" }],
           recent_call_keys: [],
           trend_buckets: [0, 1, 0, 0]
         }
@@ -178,18 +180,36 @@ describe("agent detail page", () => {
 
     renderDetailPage();
     await screen.findByRole("heading", { name: "Core Planner" });
+    expect(screen.getByRole("button", { name: "概览" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "配置" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "通道" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "会话" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "概览" }));
+    expect(screen.getByRole("heading", { name: "概览" })).toBeInTheDocument();
+    expect(screen.getByText("本期不设计概览页。保持空态，后续单独设计。")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "通道" }));
+    expect(screen.getByRole("heading", { name: "通道" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "会话" }));
+    expect(screen.getByRole("heading", { name: "会话" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Skills" }));
 
     expect(apiMocks.getAgentSkillsUsageMock).toHaveBeenCalledWith("agent-core-1");
+    expect(await screen.findByRole("heading", { name: "全部 Skill" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "名字" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "来源" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "状态" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "使用次数" })).toBeInTheDocument();
     expect(await screen.findByText("deploy-check")).toBeInTheDocument();
-    expect(screen.getByText("3 uses")).toBeInTheDocument();
+    expect(screen.getByText("3")).toBeInTheDocument();
     expect(screen.getByText("active")).toBeInTheDocument();
+    expect(screen.getByText("自动沉淀")).toBeInTheDocument();
     expect(screen.getByTestId("skill-trend-deploy-check")).toBeInTheDocument();
     expect(screen.queryByText("old-skill")).toBeNull();
 
-    await user.click(screen.getByRole("button", { name: /Show archived/i }));
+    await user.click(screen.getByRole("button", { name: /显示 archived/i }));
     expect(await screen.findByText("old-skill")).toBeInTheDocument();
     expect(screen.getByText("archived")).toBeInTheDocument();
+    expect(screen.getByText("批量复盘")).toBeInTheDocument();
   });
 
   it("opens skill statistics from the Access card entry in the real config flow", async () => {
@@ -216,7 +236,7 @@ describe("agent detail page", () => {
     expect(screen.getByRole("button", { name: "Skills" })).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("shows agent heatmap and health funnel views", async () => {
+  it("shows agent heatmap, health funnel, and lifecycle timeline views", async () => {
     const user = userEvent.setup();
     apiMocks.getAgentDetailStateMock.mockResolvedValue(makeDashboardDetailState());
     apiMocks.listAgentsMock.mockResolvedValue([]);
@@ -227,14 +247,19 @@ describe("agent detail page", () => {
     await user.click(screen.getByRole("button", { name: "Skills" }));
     await screen.findByText("deploy-check");
 
-    await user.click(screen.getByRole("button", { name: "Agent" }));
-    expect(screen.getByText("30-day heatmap")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Agent 维度" }));
+    expect(screen.getByText("使用热力图")).toBeInTheDocument();
     expect(screen.getByTestId("skills-agent-heatmap")).toBeInTheDocument();
+    expect(screen.getByText(/最近 30 天/)).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Health" }));
-    expect(screen.getByText("Created")).toBeInTheDocument();
-    expect(screen.getByText("Still active")).toBeInTheDocument();
-    expect(screen.getByText("Used at least once")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "自进化健康度" }));
+    expect(screen.getByText("自进化存活率")).toBeInTheDocument();
+    expect(screen.getByText("自动创建总数")).toBeInTheDocument();
+    expect(screen.getByText("still active")).toBeInTheDocument();
+    expect(screen.getByText("use_count > 0")).toBeInTheDocument();
+    expect(screen.getAllByText(/存活率/).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("生命周期时间线")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "首次使用" })).toBeInTheDocument();
     expect(screen.getAllByText("2").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("1")).toBeInTheDocument();
   });
