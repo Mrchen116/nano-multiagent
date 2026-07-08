@@ -27,6 +27,7 @@ with a security gate.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 import uuid
@@ -597,13 +598,32 @@ def _project_tool_for_classifier(
     return str(projection)
 
 
-def _build_transcript_user_message(ctx: Any, tool_name: str, tool_input: dict) -> str:
+def _project_historical_tool_use_for_classifier(
+    tool_name: str, tool_input: Any
+) -> str:
+    """Project recorded history without consulting today's live tool registry."""
+
+    if isinstance(tool_input, Mapping):
+        stable_input: Any = dict(tool_input)
+    else:
+        stable_input = tool_input
+    return json.dumps(
+        {"tool": tool_name, "input": stable_input},
+        ensure_ascii=False,
+        sort_keys=True,
+        default=str,
+    )
+
+
+def _build_transcript_user_message(
+    ctx: Any, tool_name: str, current_projection: str
+) -> str:
     """Build the classifier user prompt: transcript + current action.
 
     Args:
         ctx: HookContext carrying message_history.
         tool_name: Tool being classified.
-        tool_input: Tool arguments.
+        current_projection: Already validated current tool projection.
 
     Returns:
         Full user prompt wrapped in <transcript> tags.
@@ -618,33 +638,15 @@ def _build_transcript_user_message(ctx: Any, tool_name: str, tool_input: dict) -
         elif entry["role"] == "assistant":
             for block in entry["content"]:
                 history_tool_name = str(block.get("name", "") or "")
-                history_tool = _tool_instance_from_registry(ctx, history_tool_name)
-                if history_tool is None:
-                    continue
-                try:
-                    projected = _project_tool_for_classifier(
-                        history_tool,
-                        history_tool_name,
-                        block.get("input", {}),
-                    )
-                except Exception:
-                    _log.exception(
-                        "historical tool projection failed",
-                        extra={"tool_name": history_tool_name},
-                    )
-                    continue
+                projected = _project_historical_tool_use_for_classifier(
+                    history_tool_name,
+                    block.get("input", {}),
+                )
                 if projected:
                     compact_parts.append(f"{history_tool_name} {projected}\n")
 
     # Current action being classified
-    tool_instance = _tool_instance_from_registry(ctx, tool_name)
-    action_projected = (
-        _project_tool_for_classifier(tool_instance, tool_name, tool_input)
-        if tool_instance is not None
-        else None
-    )
-    if action_projected:
-        compact_parts.append(f"{tool_name} {action_projected}\n")
+    compact_parts.append(f"{tool_name} {current_projection}\n")
 
     transcript_body = "".join(compact_parts)
     return f"<transcript>\n{transcript_body}</transcript>"
@@ -934,7 +936,9 @@ def setup(hooks: Any) -> None:  # noqa: ANN001
 
         # Step 8: Classifier (W2: no longer prepends OUTSIDE NOTE — classifier uses system prompt)
         system_prompt = build_yolo_system_prompt(config)
-        user_prompt = _build_transcript_user_message(ctx, tool_name, tool_input)
+        user_prompt = _build_transcript_user_message(
+            ctx, tool_name, current_projection
+        )
 
         try:
             decision = await _classify_action(ctx, system_prompt, user_prompt)

@@ -301,18 +301,19 @@ class TestToolOwnedClassifierProjection:
             ),
         )
 
-        prompt = _build_transcript_user_message(
-            ctx,
-            "skill_manage",
+        current_projection = skill_tool.to_auto_classifier_input(
             {
                 "action": "create",
                 "name": "cold-joke-on-insult",
                 "scope": "workspace",
                 "content": "---\nname: cold-joke-on-insult\n---\n\n# Body",
-            },
+            }
+        )
+        prompt = _build_transcript_user_message(
+            ctx, "skill_manage", current_projection
         )
 
-        assert "bash rm -rf cold-joke-on-insult" in prompt
+        assert '"command": "rm -rf cold-joke-on-insult"' in prompt
         assert "skill_manage" in prompt
         assert "action=create" in prompt
         assert "name=cold-joke-on-insult" in prompt
