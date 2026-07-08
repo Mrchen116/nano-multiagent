@@ -125,6 +125,16 @@ Claude Code 不是靠一个中央映射表覆盖所有工具。它把每个运�
    - 找不到 tool 或 tool 缺 projection：ask / fail-closed；不得静默 allow，不得继续用空当前 action 调 classifier。
 7. 不保留 `TOOL_PROJECTIONS` fallback，不保留 unknown-tool 空投影兼容路径。
 
+### 实施结果
+
+- `auto_mode_gate` 已删除中央 `TOOL_PROJECTIONS` / `project_tool_input`，classifier prompt 的工具动作只从 tool 实例 `to_auto_classifier_input()` 读取。
+- `ToolRegistry.register()` 会为缺少专用 projection 的已注册 native / dynamic / user tool 包装通用结构化 projection：`{"tool": "<tool_name>", "input": {...}}`。
+- 非 safe 工具在进入 classifier 前必须能解析到 tool 实例和非空 projection；找不到 tool、缺 projection、projection 抛错或返回空时直接 fail-closed，不调用 classifier 处理空 current action。
+- safe allowlist 已收紧为当前约定集合：`read`、`web_search`、`skill_view`、`task_stop`、`agent`、`send_message`、`memory`。
+- `web_fetch` 未加入 safe allowlist，继续保留 `WebFetchTool.check_permissions` 的预批准 host / hostname rule / ask fallback 语义，并补充 URL/prompt projection。
+- `skill_manage list` 由工具级 `check_permissions` 本地 allow；`create` / `edit` / `patch` / `write_file` / `remove_file` 等变更 action 带 action/name/scope/content 等 projection 进入 classifier。
+- `cron list` / `cron runs` 本地 allow；`add` / `update` / `remove` / `run` 由工具级 projection 后进入 classifier。
+
 ### Auto classifier bypass policy
 
 本 bugfix 同时收紧“哪些工具不用 auto classifier 审核”的定义，避免修完 projection 后所有工具都频繁进 LLM classifier。
@@ -187,3 +197,12 @@ Claude Code 不是靠一个中央映射表覆盖所有工具。它把每个运�
 - 单测：safe allowlist 只包含本文列出的当前已注册 safe 工具；`web_fetch`、`skill_manage`、`cron` 不应无条件 safe。
 - 单测：`skill_manage list`、`cron list/runs` 等 action 级低风险路径可由工具级 `check_permissions` 放行，不需要 LLM classifier。
 - 真实验收：在 IM 中触发 `skill_manage create`，权限卡/请求理由必须围绕当前 skill 管理动作，不得出现上一条 `bash rm -rf` 的理由串台。
+
+### 验证结果
+
+- 红测：`/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest tests/unit/test_auto_mode_gate.py tests/unit/test_auto_mode_gate_hook.py tests/unit/test_auto_mode_gate_allowlist.py tests/unit/test_auto_mode_gate_dispatch.py tests/unit/test_skill_manage_tool.py tests/unit/personal_assistant/test_cron_tool_permissions.py tests/unit/agent/platform/tools/builtins/test_web_fetch_permissions.py tests/integration/test_tools_registry_loader_integration.py` -> 20 failed / 127 passed（实现前）。
+- 窄测：同一组相关测试 -> 147 passed。
+- Contract / integration 补充：`/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest tests/contract/test_tool_gate_coverage.py tests/integration/test_hooks_runtime_tools_integration.py` -> 4 passed。
+- Lint：`/Users/czj/Repos/nano-multiagent/.venv/bin/python -m ruff check ...`（本次修改文件）-> All checks passed。
+- 修复后失败回归：`/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest tests/contract/test_no_hardcoded_workspace_dirname.py tests/unit/test_path_sandbox_via_hook.py` -> 7 passed。
+- 广测：`/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -m "not e2e"` -> 3322 passed / 2 skipped / 22 deselected。
