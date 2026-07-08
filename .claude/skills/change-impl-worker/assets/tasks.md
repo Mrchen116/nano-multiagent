@@ -57,6 +57,11 @@ UI 状态矩阵：
 | 风险点 | 验收方式 | 是否落库 |
 |---|---|---|
 |  |  |  |
+
+Prototype / Reference Contract（仅 design.md 含前端原型 / reference 时填写；非前端写 N/A）：
+| Reference | Required contract | Evidence plan | Owner |
+|---|---|---|---|
+| <prototype.html 区域或 reference 名> | <must-match / may-adapt / out-of-scope 结论> | <截图/录屏/对照表计划，证据需落 unit 目录> | worker/reviewer |
 -->
 
 ## Roadpoints
