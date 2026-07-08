@@ -95,8 +95,8 @@ _WHITELIST: frozenset[str] = frozenset(
         # feat-434-M1 approval signal returns in _handle_ask shifted line from 749 to 757
         # feat-440-M2 (F1) deny-reason guard comment shifted line from 757 to 762
         # bugfix-456-M1 removed central projection table above this fallback, shifted to 776;
-        # bugfix-456-M2 added stable historical projection helper, shifted to 778.
-        "src/agent/platform/hooks/builtins/auto_mode_gate.py:778",
+        # bugfix-456-M2 stable historical projection + ruff formatting left it at 776.
+        "src/agent/platform/hooks/builtins/auto_mode_gate.py:776",
         # coding_cli/commands.py: .nanocode global/workspace config — CLI UX, pre-existing
         # refactor-395-M1: logging import + _log added, lines shifted to 1162/1163
         # refactor-395 ruff fix: TERMINAL_RUN_STATUSES dead import removed, lines shifted to 1164/1165
