@@ -8,6 +8,7 @@ Allowlist, tool projection, gate setup, hook logic are in separate files:
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from typing import Any, Mapping
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -19,13 +20,11 @@ from agent.platform.hooks.builtins.auto_mode_gate import (
     BASE_PROMPT,
     EXTERNAL_PERMISSIONS_TEMPLATE,
     SAFE_TOOL_ALLOWLIST,
-    TOOL_PROJECTIONS,
     build_transcript_entries,
     build_yolo_system_prompt,
     is_safe_tool,
     parse_xml_block,
     parse_xml_reason,
-    project_tool_input,
     setup as gate_setup,
     strip_thinking,
     XML_S1_SUFFIX,
@@ -254,6 +253,70 @@ class TestBuildTranscriptEntries:
         assert entries[0]["role"] == "user"
         assert entries[1]["role"] == "assistant"
         assert entries[2]["role"] == "user"
+
+
+# ---------------------------------------------------------------------------
+# bugfix-456: tool-owned classifier projection
+# ---------------------------------------------------------------------------
+
+
+class TestToolOwnedClassifierProjection:
+    """Classifier prompt must use registered tool projection, not a central table."""
+
+    def test_auto_mode_gate_has_no_central_projection_api(self):
+        import agent.platform.hooks.builtins.auto_mode_gate as gate_module
+
+        assert not hasattr(gate_module, "TOOL_PROJECTIONS")
+        assert not hasattr(gate_module, "project_tool_input")
+
+    def test_skill_manage_create_current_action_is_projected(self):
+        from agent.platform.hooks.builtins.auto_mode_gate import (
+            _build_transcript_user_message,
+        )
+        from agent.platform.tools.builtins.bash import BashTool
+        from agent.platform.tools.builtins.skill_manage import SkillManageTool
+
+        bash_tool = BashTool()
+        skill_tool = SkillManageTool(
+            skill_root=Path("/tmp/skills"), registry=MagicMock()
+        )
+
+        class Registry:
+            def get(self, name: str):
+                return {"bash": bash_tool, "skill_manage": skill_tool}.get(name)
+
+        ctx = MagicMock()
+        ctx.metadata = {"tool_registry": Registry()}
+        ctx.message_history = (
+            LLMMessage(
+                role="assistant",
+                content="",
+                tool_calls=(
+                    LLMToolCall(
+                        call_id="old-danger",
+                        name="bash",
+                        arguments={"command": "rm -rf cold-joke-on-insult"},
+                    ),
+                ),
+            ),
+        )
+
+        prompt = _build_transcript_user_message(
+            ctx,
+            "skill_manage",
+            {
+                "action": "create",
+                "name": "cold-joke-on-insult",
+                "scope": "workspace",
+                "content": "---\nname: cold-joke-on-insult\n---\n\n# Body",
+            },
+        )
+
+        assert "bash rm -rf cold-joke-on-insult" in prompt
+        assert "skill_manage" in prompt
+        assert "action=create" in prompt
+        assert "name=cold-joke-on-insult" in prompt
+        assert "scope=workspace" in prompt
 
 
 # ---------------------------------------------------------------------------

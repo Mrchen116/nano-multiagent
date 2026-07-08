@@ -10,7 +10,7 @@ from agent.platform.config.auto_mode import AutoModeConfig
 from agent.platform.hooks.builtins.auto_mode_gate import (
     setup as gate_setup,
 )
-from agent.platform.permissions.broker import PermissionBroker
+from agent.platform.permissions.broker import PermissionBroker, PermissionDecision
 
 
 def _make_ctx(
@@ -109,6 +109,22 @@ class TestGateHookLogic:
 
         return FakeRegistry()
 
+    def _make_write_projection_registry(self):
+        """Return a fake write tool with passthrough check and classifier projection."""
+        write_tool = MagicMock()
+        write_tool.check_permissions = MagicMock(
+            return_value=PermissionDecision(behavior="passthrough")
+        )
+        write_tool.to_auto_classifier_input = MagicMock(
+            return_value="/tmp/f: data"
+        )
+
+        class FakeRegistry:
+            def get(self, name):
+                return write_tool if name == "write" else None
+
+        return FakeRegistry()
+
     @pytest.mark.asyncio
     async def test_bash_allowed_prefix_passes(self):
         """bash commands matching allowed prefixes pass without classifier.
@@ -165,6 +181,8 @@ class TestGateHookLogic:
         model_result.content = "<block>no</block>"
         handler, config = self._get_handler()
         ctx = self._make_ctx_with_config(config, call_model_result=model_result)
+        ctx.metadata = dict(ctx.metadata)
+        ctx.metadata["tool_registry"] = self._make_write_projection_registry()
         result = await handler(
             {"name": "write", "args": {"file_path": "/tmp/f", "content": "data"}}, ctx
         )
@@ -176,6 +194,8 @@ class TestGateHookLogic:
         model_result.content = "<block>yes</block><reason>dangerous action</reason>"
         handler, config = self._get_handler()
         ctx = self._make_ctx_with_config(config, call_model_result=model_result)
+        ctx.metadata = dict(ctx.metadata)
+        ctx.metadata["tool_registry"] = self._make_write_projection_registry()
         result = await handler(
             {"name": "write", "args": {"file_path": "/tmp/f", "content": "data"}}, ctx
         )
@@ -200,6 +220,7 @@ class TestGateHookLogic:
         ctx.request_permission = mock_requester
         ctx.metadata = dict(ctx.metadata)
         ctx.metadata["permission_requester"] = mock_requester
+        ctx.metadata["tool_registry"] = self._make_write_projection_registry()
 
         result = await handler(
             {"name": "write", "args": {"file_path": "/tmp/f", "content": "data"}}, ctx
@@ -219,6 +240,8 @@ class TestGateHookLogic:
             run_origin="heartbeat",
             call_model_result=model_result,
         )
+        ctx.metadata = dict(ctx.metadata)
+        ctx.metadata["tool_registry"] = self._make_write_projection_registry()
 
         # request_permission should NOT be called
         ctx.request_permission = AsyncMock()
@@ -257,6 +280,7 @@ class TestGateHookLogic:
         ctx.metadata = dict(ctx.metadata)
         ctx.metadata["run_id"] = "run-1"
         ctx.metadata["permission_broker"] = broker
+        ctx.metadata["tool_registry"] = self._make_write_projection_registry()
 
         result = await handler(
             {"name": "write", "args": {"file_path": "/tmp/f", "content": "x"}}, ctx

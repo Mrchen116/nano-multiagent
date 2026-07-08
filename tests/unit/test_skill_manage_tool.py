@@ -77,6 +77,33 @@ def test_tool_has_description(tool: SkillManageTool) -> None:
     assert len(tool.description) > 10
 
 
+def test_skill_manage_projects_write_actions(tool: SkillManageTool) -> None:
+    projection = tool.to_auto_classifier_input(
+        {
+            "action": "create",
+            "name": "cold-joke-on-insult",
+            "scope": "workspace",
+            "content": "---\nname: cold-joke-on-insult\n---\n\n# Body",
+        }
+    )
+    assert "action=create" in projection
+    assert "name=cold-joke-on-insult" in projection
+    assert "scope=workspace" in projection
+    assert "content=" in projection
+
+
+def test_skill_manage_list_check_permissions_allows(tool: SkillManageTool) -> None:
+    result = tool.check_permissions({"action": "list"}, MagicMock())
+    assert getattr(result, "behavior", None) == "allow"
+
+
+def test_skill_manage_create_check_permissions_passthrough(
+    tool: SkillManageTool,
+) -> None:
+    result = tool.check_permissions({"action": "create"}, MagicMock())
+    assert getattr(result, "behavior", None) == "passthrough"
+
+
 def test_action_enum_contains_expected_values(tool: SkillManageTool) -> None:
     action_prop = tool.input_schema["properties"]["action"]
     enum_values = action_prop.get("enum", [])
