@@ -28,7 +28,13 @@ phase-locked 不重要，知识同步重要。
   - Browser QA: <打开的 URL / 用户路径 / console error 检查 / network failure 检查;非前端写 N/A>
   - E2E/Regression: <E2E 或 regression 用例路径 + 命令 + 结果;不适用写 N/A 和原因>
   - Visual/Interaction: <截图/录屏路径、viewport、reference 对照结论;非前端写 N/A>
+  - Prototype Comparison: <若 design 有前端原型/reference,填下表;非前端写 N/A>
 - Rollback: <如何回退>
 - Commits: <hash 或 PR>
+
+Prototype Comparison（仅前端原型 / reference milestone 保留；证据必须落在 unit 目录内，不接受只写 `/tmp`）：
+| Reference | Required contract | Actual evidence | Viewport / state | Result | Deviation rationale |
+|---|---|---|---|---|---|
+|  |  |  |  | match / deviation / blocked |  |
 
 ## R2 — ...
