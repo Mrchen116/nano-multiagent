@@ -61,9 +61,27 @@
 
 ## 前端原型
 
-前端相关 unit 必填:说明原型覆盖的关键界面 / 状态 / 交互,并链接 `prototype.html`。
+前端相关 unit 必填:说明原型覆盖的关键界面 / 状态 / 交互,并链接 `prototype.html`。原型必须基于当前产品 UX 做增量设计,不是自由发挥的新界面。每个 `must-match` 行都必须投影到 Milestone 退出标准;没有投影则门禁 2 不通过。
 - 原型文件: [prototype.html](prototype.html)
 - 覆盖范围:
+
+### 现有 UX grounding
+
+| 当前产品入口 / 组件 | 必须继承的 UX 特征 | 本次增量如何嵌入 |
+|---|---|---|
+| <页面 / 组件 / 路由> | <布局 / 信息层级 / 状态 / 文案 / 响应式等> | <原型中的对应设计> |
+
+若本 unit 明确要改变既有 UX,在这里写"改变点",并在关键决策 + Milestone 退出标准中覆盖;否则 prototype 默认必须延续现有 UX。
+
+### 原型对齐契约
+
+| 原型区域 / 状态 | 对齐级别 | 产品入口 | 必验 viewport / 状态 | 下游验收投影 |
+|---|---|---|---|---|
+|  | must-match / may-adapt / out-of-scope |  |  | <Milestone 退出标准编号或 N/A> |
+
+- `must-match`:结构、信息层级、关键交互或状态必须保持。
+- `may-adapt`:可按现有 design system 调整的点,需写清边界。
+- `out-of-scope`:原型里出现但本期不做 / 仅占位的内容,需写清真实产品表现。
 -->
 
 ## 契约层增量 (delta-spec)
@@ -114,6 +132,9 @@ Review 驱动方式(必填一行):reviewer **一律走端到端真栈**,只在"�
 - [reviewer] 用户可观察的能力变化 / 不变性，来自首文档验收标准，reviewer 走旅程验。
 - [worker]   实现层验收标准：单测 / 构建 / 性能 / 保真点，worker 在 milestone 内验，
              并会被 orchestrator 抽进 PR body 供架构师 PR review。
+前端相关 unit 还必须把 `## 前端原型` 的每个 must-match 行投影到退出标准：
+- [reviewer] 真实产品入口呈现同等用户可观察结构 / 交互。
+- [worker] progress.md 留下真实浏览器截图/录屏和原型对照结论，证据落在 unit 目录内。
 -->
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |

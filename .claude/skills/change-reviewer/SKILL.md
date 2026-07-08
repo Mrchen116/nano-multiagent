@@ -143,7 +143,7 @@ git pull --ff-only origin "unit/<unit_id>"
 
 **refactor / perf unit 的镜头不同**:首文档的"用户场景"是**回归基线**(既有行为快照)、Scenario 的 THEN 写的是**不变性**(与变更前一致)。你的旅程就是走这些既有行为,判据是"与变更前一致",不是"新行为好不好"——既有行为本身的瑕疵不要当本 unit 的 issue(归 Side Findings 或 out-of-unit),只判它在本次变更后有没有退化。
 
-如果首文档、design.md 或验收标准引用原型、设计稿、reference screenshot、截图、视觉一致、像素级、响应式、布局/样式等要求,这些 reference artifact 是验收真值的一部分。必须读取/打开对应 reference,并把它们写进覆盖表的"期望来源"。
+如果首文档、design.md 或验收标准引用原型、设计稿、reference screenshot、截图、视觉一致、像素级、响应式、布局/样式等要求,这些 reference artifact 是验收真值的一部分。必须读取/打开对应 reference,并把它们写进覆盖表的"期望来源"。若 design.md 有 `## 前端原型` 的原型对齐契约,把所有相关 `must-match` 行列入报告的 `Reference Artifacts Reviewed` / 覆盖表,不要只验功能存在。
 
 ### §3.2 真实跑
 
@@ -159,7 +159,7 @@ git pull --ff-only origin "unit/<unit_id>"
 
 如果某条验收标准要求用户观察到某个结果,你必须验证这个用户可观察结果本身。单测全绿、API 200、页面元素出现、代码里有实现,都只能作为辅助证据;除非首文档或验收报告明确说明替代验证足以证明该用户结果成立,否则不能把替代验证计为 `pass`。
 
-如果某条验收标准要求对齐 reference,必须用真实产品截图/录屏/可观察输出与 reference 对照,记录 viewport/状态、reference 路径或名称、当前证据路径和结论。页面"能渲染"、布局元素"存在"、组件测试通过,都不能替代 reference 对照。无法完成对照时标 `inconclusive`,不能标 `pass`。
+如果某条验收标准要求对齐 reference,必须用真实产品截图/录屏/可观察输出与 reference 对照,记录 viewport/状态、reference 路径或名称、当前证据路径和结论。页面"能渲染"、布局元素"存在"、按钮能点击、API 200、组件测试通过,都不能替代 reference 对照。无法完成对照时标 `inconclusive`,不能标 `pass`。若接受实现偏离 reference,必须在备注中引用 design 明确授权该偏离的行;找不到授权就按偏离处理。
 
 ### §3.3 判定每条问题的归属(先判可接受性,再判责任边界)
 
@@ -241,7 +241,8 @@ bugfix lite 没有独立 reviewer 阶段,worker 完成后直接合 unit→main(�
 
 - **Highest Required Action**: `fix-implementation | revise-design | out-of-unit | pass`
 - **Verdict**: `pass | fail | pass-with-issues`
-- **验收标准覆盖**:**逐 Scenario** 列出(`### Requirement` 分组表头 + 组下每个 `#### Scenario` 一行),记录期望来源、验证方式、证据、结果(`pass / fail / inconclusive / not-applicable`)和备注。组内全 pass 该 Requirement 才算过。涉及 reference 的项必须写 reference 路径/名称
+- **Reference Artifacts Reviewed**:涉及原型/设计稿/reference 时必填,列出 reference 路径/名称、对应的 must-match 契约、实际产品证据路径、viewport/状态、对照结论。
+- **验收标准覆盖**:**逐 Scenario** 列出(`### Requirement` 分组表头 + 组下每个 `#### Scenario` 一行),记录期望来源、验证方式、证据、结果(`pass / fail / inconclusive / not-applicable`)和备注。组内全 pass 该 Requirement 才算过。涉及 reference 的项必须写 reference 路径/名称、实际产品截图/录屏路径、对照结论
 - **Issues** 段每条:
   - `Severity`: blocking | major | minor
   - `Regression Relation`: direct(直接违反本 unit 验收) | suspected-regression(疑似本次顺带打坏的副作用) | unrelated-existing(明显无关旧问题) | unclear
@@ -257,6 +258,7 @@ bugfix lite 没有独立 reviewer 阶段,worker 完成后直接合 unit→main(�
 | 任意 blocking issue 存在 | `fail` |
 | 任意必验 Scenario 为 `fail` 或 `inconclusive` | `fail` |
 | 必验 Scenario 要求 reference 对齐但缺少真实截图/录屏/对照结论 | `fail` |
+| 原型对齐契约的 `must-match` 行未被覆盖,或只以"页面元素存在/功能可用"替代对照 | `fail` |
 | 无 blocking,有 major issue | `pass-with-issues` 或 `fail`(看 caller 的 acceptance bar,默认 `fail`) |
 | 只有 minor issue | `pass` |
 | 完全无 issue | `pass` |

@@ -219,6 +219,7 @@ prompt 含完整派发包:
   unit_worktree_dir: <repo_root>/.worktrees/unit-<unit_id>
   branch: milestone/<milestone_id>
   mode: full | lite
+  frontend_reference_contract: <若 design.md 有 ## 前端原型,粘贴本 milestone 相关的 must-match / may-adapt / out-of-scope 行;否则 N/A>
 
 请按 skill 指引完成本 milestone。完成后回报状态。
 ```
@@ -282,6 +283,8 @@ worker 回报 DONE 时,逐项验:
 - [ ] `docs/changes/<unit_dir>/<milestone_dir>/tasks.md` 全部 roadpoint 标 DONE
 - [ ] `docs/changes/<unit_dir>/<milestone_dir>/progress.md` 每个 R 有结构化记录(Context/Decision/Rationale/Evidence/Rollback/Commits)
 - [ ] 若 milestone 涉及前端 UI / 视觉 / 原型 / 设计稿 / reference / 截图 / 响应式 / 布局样式要求,`progress.md` 的 Evidence 必须包含真实入口的视觉/交互自测证据(截图/录屏路径、viewport、reference 对照结论或 N/A 理由)
+- [ ] 若 `design.md ## 前端原型` 有原型对齐契约,`progress.md` 必须包含 `Prototype Comparison` 表,逐行覆盖本 milestone 相关的 `must-match` 项:`reference / actual evidence / viewport-state / match-or-deviation / accepted reason`
+- [ ] 前端/原型证据必须是 durable evidence:截图/录屏/报告落在 `docs/changes/<unit_dir>/<milestone_dir>/evidence/` 等 unit 目录内;只给 `/tmp/...`、浏览器临时会话或口头描述不达标
 - [ ] worktree 已清理(`git worktree list` 不应再列出该 milestone 的)
 - [ ] milestone 分支已删除(local + remote)
 - [ ] **lite 模式额外**:`docs/changes/<unit_dir>/fix.md` 的"修复"和"验证"两段已回填
@@ -293,6 +296,7 @@ worker 回报 DONE 时,逐项验:
 - 证据只展示前置态(入口可达、setup 已就绪),不展示退出标准要求的那一步行为本身
 - progress.md 出现"超出本 milestone""留待 reviewer 验证""后续补""未来工作"等回避表达——worker 自承未达,**不接受免责说辞**
 - 证据无法对应到具体某条退出标准
+- 原型/视觉项只写"使用现有组件/现有样式"或"页面能渲染",但没有和 reference 的逐项对照
 
 严格不等于挑剔。视觉质量、功能是否完美仍由 reviewer 判定。你判定的是:design 要观察什么、有没有真的去观察、有没有给出真正对得上的证据。
 
@@ -373,6 +377,7 @@ design-author 已经按反向门槛拆好 milestone(默认单 M1,拆分要举证
   verification_mode: full | targeted-closure | delta
   fix_delta_range: <pre_fix_head>..<HEAD>        # 非 full 时必传
   focus_issues: [<上一轮 CRITICAL/WARNING 指纹或摘要>]   # targeted-closure 时必传
+  frontend_reference_contract: <若 design.md 有 ## 前端原型,粘贴相关 must-match 行供 verifier 做证据链核对;否则 N/A>
   mode: full
 ```
 
@@ -387,6 +392,7 @@ design-author 已经按反向门槛拆好 milestone(默认单 M1,拆分要举证
   revalidation_mode: full | targeted
   focus_scenarios_or_issues: [<上一轮 fail/inconclusive issue 或 Scenario>]   # targeted 时必传
   fix_delta_range: <pre_fix_head>..<HEAD>        # targeted 时必传
+  frontend_reference_contract: <若 design.md 有 ## 前端原型,粘贴相关 must-match 行供 reviewer 做真实产品对照;否则 N/A>
   mode: full
 ```
 
@@ -456,6 +462,7 @@ NEW_COMMITS=$(git -C "$unit_worktree" log --oneline "$BEFORE..$AFTER")
 - acceptance/regression 报告必须有验收标准覆盖表,且没有明显只列 focus fix、漏掉首文档必验项。
 - 第 2 轮起,上一轮所有 `fail` / `inconclusive` 必须继续出现,直到有证据关闭。
 - 若首文档 / design / 验收项涉及前端 UI、视觉、原型、设计稿、reference、截图、响应式、布局样式,覆盖表必须有期望来源和真实产品截图/录屏/对照结论。
+- 若 `design.md ## 前端原型` 有原型对齐契约,reviewer 报告必须逐项覆盖所有相关 `must-match` 行;任何缺少实际产品证据或对照结论的行都使本轮 pass 无效。
 
 不满足则**作废本轮 pass**,要求对应闸补验或重跑;不要自己补报告。满足后提 PR(§7),退出。你只检查报告证据完整性,不判断视觉质量。
 

@@ -118,7 +118,7 @@ repo_root=$(git rev-parse --show-toplevel)
 按顺序读,缺哪个就停下来报告:
 
 1. **`docs/changes/<unit_dir>/<首文档>.md`** —— 用户视角和验收标准(lite 模式下首文档是 fix.md,前两段已写)
-2. **`docs/changes/<unit_dir>/design.md`** —— 架构意图、关键决策、接口、Milestone 表对应行(本 milestone 的"范围 / 退出标准")。如果 design.md 链接了前端原型 `prototype.html`,必须在规划前打开参考,把它作为本 milestone UI 目标的视觉 / 交互参照。**lite 模式跳过这步**(没有 design.md)
+2. **`docs/changes/<unit_dir>/design.md`** —— 架构意图、关键决策、接口、Milestone 表对应行(本 milestone 的"范围 / 退出标准")。如果 design.md 链接了前端原型 `prototype.html`,必须在规划前打开参考,并提取 `## 前端原型` 的原型对齐契约;本 milestone 相关的 `must-match` 行要复制到 `tasks.md` 的 Prototype / Reference Contract。**lite 模式跳过这步**(没有 design.md)
 3. **`CLAUDE.md` / `AGENTS.md`** —— 项目级约定(测试命令、注释规范、模块边界)
 4. **`LOGBOOK.md`(若有)** —— 跨任务经验,提取与本 milestone 相关的注意事项
 5. **现有代码结构** —— 模块划分、命名约定、已有 fixture / helper(避免重复造轮子)
@@ -210,8 +210,9 @@ docs/changes/<unit_dir>/<milestone_dir>/tasks.md
 
 - 用产品真实入口打开相关页面/状态,不要只依赖 jsdom / 组件测试。
 - 覆盖 design / 首文档明确要求的关键 viewport 或形态(例如桌面/移动、空态/加载/完成态)。
-- 截图或录屏,并在 `progress.md` 记录路径或可复查证据。
-- 如果有原型/设计稿/reference,明确写对照对象和结论。页面"能渲染"不等于"符合 reference"。
+- 截图或录屏必须落在 unit 目录内(例如 `docs/changes/<unit_dir>/<milestone_dir>/evidence/`),并在 `progress.md` 记录路径;只给 `/tmp/...` 或临时浏览器状态不算可复查证据。
+- 如果有原型/设计稿/reference,必须在 `progress.md` 写 `Prototype Comparison` 表,逐行记录对照对象、实际证据、viewport/状态、match/deviation、偏离是否被 design 授权。页面"能渲染"不等于"符合 reference"。
+- 如果原型与 design 文字互相冲突,或不清楚某个原型区域是 `must-match` 还是占位,立即问 orchestrator;不要自己取舍后继续报 DONE。
 
 这不是要求每个 CSS 像素都自动化测试。它是 worker 的交付自检:确保真实视觉效果和真实交互效果没有明显偏离任务目标。不能把这一步留到 reviewer 才第一次发现。
 
@@ -352,10 +353,17 @@ docs/changes/<unit_dir>/<milestone_dir>/tasks.md
   - Browser QA: <打开的 URL / 用户路径 / console error 检查 / network failure 检查;非前端写 N/A>
   - E2E/Regression: <E2E 或 regression 用例路径 + 命令 + 结果;不适用写 N/A 和原因>
   - Visual/Interaction: <截图/录屏路径、viewport、reference 对照结论;非前端写 N/A>
+  - Prototype Comparison: <若 design 有前端原型/reference,填逐项对照表;非前端写 N/A>
 - Rollback: <回退到哪个 commit>
 - Commits: C1=<hash>, C2=<hash>, C3=<hash>
 - Next: <下一步,或本 milestone 已完成>
 ```
+
+前端原型 / reference 相关 milestone 的 `Prototype Comparison` 表格式:
+
+| Reference | Required contract | Actual evidence | Viewport / state | Result | Deviation rationale |
+|---|---|---|---|---|---|
+| <prototype.html 区域或 reference 名> | <must-match 内容> | <unit 目录内截图/录屏/报告路径> | <desktop/mobile/empty/error 等> | match / deviation / blocked | <若 deviation,引用 design 授权;否则写 N/A> |
 
 可复用的经验/坑写 `LOGBOOK.md`(跟随 unit 分支,自然合并到 main),实现思路写 progress.md。
 
@@ -448,9 +456,12 @@ status: DONE
 roadpoints_completed: [R1, R2, ...]
 key_design_summary: <一两句>
 live_evidence: <live-critical 工作必填:真端到端跑到用户可见结果的证据(消息/截图/log 路径);非 live-critical 写 N/A>
+prototype_evidence: <前端原型/reference milestone 必填:Prototype Comparison 表位置 + durable evidence 目录;非前端写 N/A>
 env_caveats: <如实写有没有 env 受阻 / 降级 / 没跑通 live 的地方;全部真跑通写 none——绝不留空或掩盖>
 new_logbook_entries: [<title 1>, <title 2>]   # 如果有沉淀
 ```
+
+若本 milestone 涉及前端原型 / reference,但 `prototype_evidence` 缺失、只有 `/tmp` 证据、或没有逐项对照结论,不得回报 `DONE`;改报 `BLOCKED` 或继续补证据。
 
 ### §8.2 需要交棒(未完成)
 
