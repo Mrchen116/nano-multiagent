@@ -13,11 +13,13 @@
   - Tests: `/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -m "not e2e"` -> 3322 passed / 2 skipped / 22 deselected.
   - Lint: `/Users/czj/Repos/nano-multiagent/.venv/bin/python -m ruff check <modified files>` -> All checks passed.
   - Entry: Hook-level regression covers `skill_manage create` after historical `bash rm -rf cold-joke-on-insult`; classifier prompt now includes `skill_manage` action/name/scope projection, so current action is visible.
+  - Entry: This lite backend bugfix validates the user-visible permission-card reason source through the tool-call hook/gate path before the card is emitted. IM live was not run because this change does not touch IM frontend or transport; the observed reason串台 is determined by gate current-action projection.
+  - Cleanup: local milestone worktree/branch removed; remote `origin/milestone/bugfix-456-M1` deleted and `git branch -r --list 'origin/milestone/bugfix-456-M1'` confirmed empty.
   - Frontend State Matrix: N/A
   - Browser QA: N/A
   - E2E/Regression: full non-e2e regression passed; no live IM browser journey was required for this lite backend bugfix.
   - Visual/Interaction: N/A
   - Prototype Comparison: N/A
 - Rollback: revert R1 commits on `milestone/bugfix-456-M1`.
-- Commits: C1=a7cc7a2b, C2=074bc9eb, C3=this docs回填提交
-- Next: merge `milestone/bugfix-456-M1` into `unit/bugfix-456` and push.
+- Commits: C1=a7cc7a2b, C2=074bc9eb, C3=00704ad5, C4=signoff cleanup commit
+- Next: 无，R1 已合并并 push 到 `unit/bugfix-456`，milestone local/remote branch cleanup completed.
