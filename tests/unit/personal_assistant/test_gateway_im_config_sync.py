@@ -738,6 +738,84 @@ def test_handle_agent_create_passes_through_features(tmp_path: Path) -> None:
     assert registered.custom_prompt == "You are a chef."
 
 
+def test_handle_agent_create_defaults_to_pa_global_skills(
+    tmp_path: Path, monkeypatch
+) -> None:
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    skill_dir = home / ".nanoassistant" / "skills" / "global-helper"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: global-helper\ndescription: global helper\n---\n",
+        encoding="utf-8",
+    )
+    workspace_root = tmp_path / "ws"
+    workspace_root.mkdir()
+    pipeline = _NullPipeline()
+    pipeline.registered = []
+    local_config = _make_local_config(tmp_path, workspace_root)
+    sync = _IMConfigSyncClient(
+        base_url="http://im.local",
+        token=None,
+        pipeline=pipeline,
+        local_config=local_config,
+        client=httpx.Client(
+            transport=httpx.MockTransport(lambda _r: httpx.Response(200, json={})),
+            base_url="http://im.local",
+            trust_env=False,
+        ),
+        monotonic=lambda: 0.0,
+        sleep=lambda _: None,
+    )
+
+    result = sync.handle_agent_create(
+        {"agent_id": "beta", "workspace_root": str(workspace_root)}
+    )
+
+    assert result["skills"] == ["global-helper"]
+    registered = next(a for a in pipeline.registered if a.agent_id == "beta")
+    assert registered.skills == ("global-helper",)
+
+
+def test_handle_agent_create_respects_explicit_empty_skills(
+    tmp_path: Path, monkeypatch
+) -> None:
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    skill_dir = home / ".nanoassistant" / "skills" / "global-helper"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: global-helper\ndescription: global helper\n---\n",
+        encoding="utf-8",
+    )
+    workspace_root = tmp_path / "ws"
+    workspace_root.mkdir()
+    pipeline = _NullPipeline()
+    pipeline.registered = []
+    local_config = _make_local_config(tmp_path, workspace_root)
+    sync = _IMConfigSyncClient(
+        base_url="http://im.local",
+        token=None,
+        pipeline=pipeline,
+        local_config=local_config,
+        client=httpx.Client(
+            transport=httpx.MockTransport(lambda _r: httpx.Response(200, json={})),
+            base_url="http://im.local",
+            trust_env=False,
+        ),
+        monotonic=lambda: 0.0,
+        sleep=lambda _: None,
+    )
+
+    result = sync.handle_agent_create(
+        {"agent_id": "beta", "workspace_root": str(workspace_root), "skills": []}
+    )
+
+    assert result["skills"] == []
+    registered = next(a for a in pipeline.registered if a.agent_id == "beta")
+    assert registered.skills == ()
+
+
 def test_handle_agent_create_persists_default_model_to_source_path(
     tmp_path: Path,
 ) -> None:

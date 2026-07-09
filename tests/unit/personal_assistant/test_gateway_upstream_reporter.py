@@ -132,6 +132,22 @@ def test_build_node_capabilities_payload_includes_features(tmp_path: Path) -> No
         )
 
 
+def test_node_capabilities_marks_pa_global_skills_default_on(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / ".codex"))
+    _write_skill(tmp_path / ".nanoassistant" / "skills", "pa-global")
+    _write_skill(tmp_path / ".claude" / "skills", "compat-claude")
+
+    kernel = _build_test_kernel(tmp_path / "kernel-root")
+    payload = build_node_capabilities_payload(kernel)
+    by_name = {item["name"]: item for item in payload["skills"]}
+
+    assert by_name["pa-global"]["default_on"] is True
+    assert by_name["compat-claude"]["default_on"] is False
+
+
 def test_build_node_capabilities_payload_has_required_keys(tmp_path: Path) -> None:
     """node capabilities payload must carry models, skills, tools, features."""
     kernel = _build_test_kernel(tmp_path / "kernel-root")
@@ -267,3 +283,20 @@ def test_agent_capabilities_skills_carry_location(tmp_path: Path) -> None:
     doc = next(s for s in skills if s["name"] == "doc")
     assert "location" in doc, "skill entry must carry a 'location' key (feat-430)"
     assert isinstance(doc["location"], str) and doc["location"].endswith("doc/SKILL.md")
+
+
+def test_agent_capabilities_do_not_mark_workspace_skills_default_on(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "home" / ".codex"))
+    workspace = tmp_path / "agent-ws"
+    _write_skill(workspace / ".nanoassistant" / "skills", "workspace-doc")
+    _write_skill(tmp_path / "home" / ".nanoassistant" / "skills", "pa-global")
+    kernel = _build_test_kernel(tmp_path / "kernel-root")
+
+    payload = build_agent_capabilities_payload(kernel, workspace_root=str(workspace))
+    by_name = {item["name"]: item for item in payload["skills"]}
+
+    assert by_name["workspace-doc"]["default_on"] is False
+    assert by_name["pa-global"]["default_on"] is True

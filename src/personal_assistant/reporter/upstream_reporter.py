@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Mapping
 
 from personal_assistant.config.local_store import AgentWorkspaceConfig, NodeConfig
@@ -16,6 +17,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 
 SendFrame = Callable[[str, dict[str, object]], None]
+PA_GLOBAL_SKILL_ROOT = Path("~/.nanoassistant/skills")
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,7 +39,7 @@ class ReporterCapabilities:
     # bugfix-429 R5: each entry is ``{"name", "provider"}`` so the IM dropdown can
     # label a model's registered format (was a bare model-id tuple).
     models: tuple[dict[str, str], ...] = ()
-    skills: tuple[dict[str, str], ...] = ()
+    skills: tuple[dict[str, object], ...] = ()
     # feat-394 M9 R5: tools changed from bare str tuple to rich dict tuple carrying
     # {name, description, default_on}.  IM frontend uses default_on to render tool
     # pills as "selected by default" when the agent's tool_allowlist is empty.
@@ -104,9 +106,20 @@ def _tools_from_kernel(kernel: "Kernel") -> tuple[dict[str, object], ...]:
     return project_tools(tool_infos)
 
 
+def _is_pa_global_skill(location: str | None) -> bool:
+    if not location:
+        return False
+    root = PA_GLOBAL_SKILL_ROOT.expanduser().resolve()
+    try:
+        Path(location).expanduser().resolve().relative_to(root)
+    except ValueError:
+        return False
+    return True
+
+
 def _skills_from_kernel(
     kernel: "Kernel", workspace_root: str | None
-) -> list[dict[str, str | None]]:
+) -> list[dict[str, object]]:
     """Project ``kernel.list_skills(workspace_root)`` into IM skill entries.
 
     Per-workspace skill discovery is the kernel's job (决策 4); the reporter no
@@ -114,14 +127,13 @@ def _skills_from_kernel(
     kernel's repo_root (node level). ``location`` is forwarded so the IM slash
     picker can distinguish same-named skills at different paths (feat-430).
     """
-    from pathlib import Path  # noqa: PLC0415
-
     ws = Path(workspace_root).expanduser().resolve() if workspace_root else None
     return [
         {
             "name": skill.name,
             "description": skill.description or "",
             "location": skill.location,
+            "default_on": _is_pa_global_skill(skill.location),
         }
         for skill in kernel.list_skills(ws)
     ]

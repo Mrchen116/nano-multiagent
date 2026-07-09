@@ -892,7 +892,24 @@ body {
 }
 
 .im-agent-access-skills-link {
-  margin-top: 10px;
+  margin-top: 0.5rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--im-accent);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.im-agent-access-skills-link:hover {
+  text-decoration: underline;
+}
+
+.im-agent-access-skills-link:focus-visible {
+  outline: 2px solid var(--im-accent);
+  outline-offset: 2px;
 }
 
 .im-agent-card-grid-2 {

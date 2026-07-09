@@ -23,6 +23,7 @@ from typing import Any, Protocol
 from urllib.parse import parse_qs, urlparse
 
 _log = logging.getLogger("personal_assistant.main")
+_PA_GLOBAL_SKILL_ROOT = Path("~/.nanoassistant/skills")
 
 import httpx
 import websockets
@@ -277,6 +278,25 @@ class GatewayRuntimeState:
     log_path: str
 
 
+def _default_pa_global_skill_names() -> tuple[str, ...]:
+    """Resolve the PA global user skills that new IM-created agents inherit."""
+
+    root = _PA_GLOBAL_SKILL_ROOT.expanduser().resolve()
+    if not root.is_dir():
+        return ()
+    try:
+        from agent.core.skills import SkillRegistry  # noqa: PLC0415
+
+        return tuple(
+            skill.name for skill in SkillRegistry(search_roots=(root,)).list_skills()
+        )
+    except Exception:  # noqa: BLE001
+        _log.warning(
+            "failed to resolve PA global skill defaults from %s", root, exc_info=True
+        )
+        return ()
+
+
 class _IMConfigSyncClient:
     """Fetch IM agent config snapshots and extend the live gateway agent registry."""
 
@@ -488,6 +508,8 @@ class _IMConfigSyncClient:
             for item in (raw_skills if isinstance(raw_skills, list) else [])
             if isinstance(item, str) and item.strip()
         )
+        if "skills" not in agent_payload:
+            skills = _default_pa_global_skill_names()
         raw_tools = agent_payload.get("tool_allowlist")
         tool_allowlist = tuple(
             item.strip()

@@ -646,8 +646,9 @@ describe("agent detail page", () => {
         node_status: "online",
         capabilities_updated_at: "2026-03-13T10:00:00Z",
         skills: [
-          { name: "tdd", description: "" },
-          { name: "review", description: "" }
+          { name: "tdd", description: "", location: "/tmp/.nanoassistant/skills/tdd/SKILL.md" },
+          { name: "review", description: "", default_on: true, location: "/Users/test/.nanoassistant/skills/review/SKILL.md" },
+          { name: "compat", description: "", location: "/Users/test/.claude/skills/compat/SKILL.md" }
         ],
         tools: [
           { name: "read", description: "" },
@@ -669,6 +670,9 @@ describe("agent detail page", () => {
     expect(skillsPill, "expected pill selector for skills").not.toBeNull();
     const toolsPill = document.querySelector('[data-testid="pill-selector-tools"]');
     expect(toolsPill, "expected pill selector for tools").not.toBeNull();
+    expect(await screen.findByText(/Local|本地/)).toBeInTheDocument();
+    expect(await screen.findByText(/Global|全局/)).toBeInTheDocument();
+    expect(await screen.findByText(/Compatibility|兼容来源/)).toBeInTheDocument();
 
     // 不应再有 allowlist-selector 的 checkbox + fieldset 结构
     expect(skillsPill?.querySelector('input[type="checkbox"]')).toBeNull();

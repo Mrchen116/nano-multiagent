@@ -546,3 +546,137 @@ None.
 ## Recommended Action
 
 通过本轮验收。Round 3 两个阻塞/主要问题均关闭：真实 conversation 已暴露 `source_jsonl_path` 并可进入 F2 scope/prefill；`/skill:<name>` 的 visible `skill_view` row 会完成且 usage 增量可信。建议进入 unit -> main 提 PR前的收尾归并/代码审查流程。
+
+---
+
+# Round 5 — 2026-07-09
+
+> 对齐: current manual gate after recent in-progress UI/default-skill fixes
+> validated_scope: working tree on `unit/feat-446`, not just `origin/unit/feat-446`
+
+## Verdict
+
+fail
+
+Highest Required Action: fix-implementation
+
+Issues count: blocking 0, major 1, minor 0
+
+## User Journeys Exercised
+
+1. Agent detail Access & Model layout: opened the live temporary service at `http://127.0.0.1:54823/settings/agents/default-agent`, logged in as `nano/nano1234`, and inspected the real `default-agent` configuration page.
+2. Skills source grouping and statistics entry: checked the `Skills` selector source sections, compatibility wording, `Tool Allowlist` placement, and `View skill statistics` entry in the live page.
+3. New agent default skills: opened `+ New` and inspected the default selected skills before saving.
+4. Explicit empty skills preservation: created throwaway agent `review-empty-926029` after clearing every selected skill, then opened its detail page to confirm the saved selection stayed empty.
+
+Evidence:
+- `/tmp/feat446-current-agent-detail.png` — live `default-agent` detail page.
+- `/tmp/feat446-current-agent-new-loaded.png` — new agent page before saving.
+- `/tmp/feat446-current-new-empty-before-create.png` — new agent form with all skills explicitly cleared.
+- `/tmp/feat446-current-empty-agent-detail.png` — created `review-empty-926029` detail page with zero selected skills.
+- Browser DOM checks: on `default-agent`, `Skills` label y=1319.5 and `Tool Allowlist` label y=1856.8, so the controls are vertically stacked; `View skill statistics` is a 111px x 19px text-style secondary button; compatibility heading is `Compatibility (Claude/Codex)`.
+- Create request for `review-empty-926029`: `POST /im/v1/nodes/wt-unit-feat-446-tmux-81475/agents` with `"skills":[]`.
+
+## Issues
+
+### R5-I1 — New agent Skills selector is still not grouped by source
+
+- Severity: major
+- Regression Relation: direct
+- Recommended Action: fix-implementation
+- Action Rationale: The existing agent detail page now groups Skills by `Global`, `Local`, and `Compatibility (Claude/Codex)`, but the new agent form still renders a single mixed Skills pill list. A user creating an agent cannot tell which selected defaults come from `~/.nanoassistant/skills` versus compatibility sources, even though this round explicitly requires Skills to be grouped by source.
+- User impact: The default behavior is correct, but the creation flow does not explain the source boundary at the moment the user chooses or clears skills.
+
+## Focus Scenario Coverage
+
+| Scenario | Expected | Evidence | Result | Notes |
+|---|---|---|---|---|
+| Agent detail Skills and Tool Allowlist are stacked | Skills should be above Tool Allowlist, not side-by-side | `/tmp/feat446-current-agent-detail.png`; DOM y positions 1319.5 vs 1856.8 | pass | The Access & Model section is vertically stacked. |
+| Existing agent Skills are grouped by source | Global, local, and compatibility sources are separated | `default-agent` detail shows `GLOBAL`, `LOCAL`, `COMPATIBILITY (CLAUDE/CODEX)` | pass | Compatibility wording tells users it includes Claude/Codex. |
+| Statistics entry is secondary | `View skill statistics` should not be a giant CTA | Button is text-style, about 111px x 19px | pass | Visual weight is consistent with a secondary link. |
+| New agent defaults enable global skills | New agents should preselect global `~/.nanoassistant/skills` | New page default selected skills: `change-*`, `cold-joke-on-insult`, `conversation-skill-distiller`, `feishu-doc`, `improve-codebase-architecture`, `systematic-debugging` | pass | Compatibility skills are available but not selected by default. |
+| Explicit empty skills stay empty | User clearing all skills must save an empty list | Create payload had `"skills":[]`; `review-empty-926029` detail has 0 selected skills | pass | This preserves the explicit empty allowlist. |
+| New agent Skills are grouped by source | The creation flow should show the same source grouping | `/tmp/feat446-current-agent-new-loaded.png`; DOM has one flat `pill-selector-skills` group | fail | R5-I1. |
+
+## Side Findings
+
+- The live IM health endpoint still returns 404 at `/im/v1/health`, matching prior acceptance side findings. The app itself served correctly and the authenticated product journey was usable.
+- This round created throwaway agent `review-empty-926029` in the temporary service to verify explicit empty skills persistence.
+
+## 上层文档同步
+
+- [x] `SPEC.md`（跨包顶点架构）：无需更新。
+- [x] `docs/specs/<包>/spec.md`（长青行为契约层，本 unit 触及 kernel/im/gateway）：仍由 orchestrator 收尾归并；本轮只发现前端创建页表现缺口。
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新。
+- [x] `docs/SPEC_GUIDE.md`：无需更新。
+
+## Recommended Action
+
+继续走 fix-implementation。当前详情页布局、详情页来源分组、统计入口视觉权重、新建 agent 默认全局 skills、显式空 skills 持久化都可接受；剩余缺口是新建 agent 的 Skills selector 仍未按来源分组，用户在创建时无法辨别 global/local/compatibility 来源。
+
+---
+
+# Round 6 — 2026-07-09
+
+> 对齐: R5-I1 fix plus current code-review concerns around create-page node switching and omitted `skills` fallback
+> validated_scope: working tree on `unit/feat-446`, live temporary service `http://127.0.0.1:54823`
+
+## Verdict
+
+pass
+
+Highest Required Action: pass
+
+Issues count: blocking 0, major 0, minor 0
+
+## User Journeys Exercised
+
+1. New agent source grouping: opened `http://127.0.0.1:54823/settings/agents/new` as `nano/nano1234` and inspected the live create page.
+2. Create-page node selection stability: used the owning-node select on the create page, switching from the online node to the placeholder and back to the online node, then rechecked selected skills and grouping.
+3. Omitted `skills` fallback: used the authenticated live IM API as an older/alternate client would, creating `review-omit-178964` without a `skills` field, then opened its detail page.
+4. Explicit empty `skills` preservation: cleared every selected skill in the create page, created `review-empty6-204595`, and opened its detail page to confirm the saved empty list stayed empty.
+
+Evidence:
+- `/tmp/feat446-r6-new-agent-grouped.png` — new agent create page now shows `GLOBAL` and `COMPATIBILITY (CLAUDE/CODEX)` grouping.
+- `/tmp/feat446-r6-node-switch-roundtrip.png` — after placeholder -> online-node roundtrip, grouping and selected global skills remain stable.
+- `/tmp/feat446-r6-omitted-skills-agent-detail.png` — `review-omit-178964` detail page after creating without a `skills` field.
+- `/tmp/feat446-r6-empty-skills-agent-detail.png` — `review-empty6-204595` detail page after explicitly saving `skills: []`.
+- Create response for omitted skills: `POST /im/v1/nodes/wt-unit-feat-446-tmux-81475/agents` returned 201 and response `skills` contained the 15 global skills: `change-*`, `cold-joke-on-insult`, `conversation-skill-distiller`, `feishu-doc`, `improve-codebase-architecture`, `systematic-debugging`.
+- Create request for explicit empty skills: `POST /im/v1/nodes/wt-unit-feat-446-tmux-81475/agents` with `"skills":[]`; detail page selected skills count stayed 0.
+
+## Issues
+
+None.
+
+## Focus Scenario Coverage
+
+| Scenario | Expected | Evidence | Result | Notes |
+|---|---|---|---|---|
+| R5-I1: New agent Skills are grouped by source | The creation flow should show source grouping like detail page | `/tmp/feat446-r6-new-agent-grouped.png`; DOM text includes `GLOBAL` and `COMPATIBILITY (CLAUDE/CODEX)` | pass | R5-I1 is closed for the live create page. |
+| New agent defaults enable global skills | New agents should preselect global `~/.nanoassistant/skills` | Create page selected 15 global skills; compatibility skills were visible but unselected | pass | Same default set as Round 5 remains selected. |
+| Create-page node switch does not drop/default-mix skills | Switching node should not clear global defaults or select compatibility skills unexpectedly | Placeholder -> `wt-unit-feat-446-tmux-81475` roundtrip kept the same 15 selected global skills | pass | The live service only exposed one online node, so this covers the available node-switch path. |
+| Omitted `skills` fallback | Missing `skills` should mean default global skills, not explicit empty | `review-omit-178964` create response and detail page showed the 15 global skills selected | pass | Authenticated API request intentionally omitted the `skills` field. |
+| Explicit empty `skills` stays empty | `skills: []` must remain an explicit empty allowlist | `review-empty6-204595` create request had `"skills":[]`; detail page selected count stayed 0 | pass | Confirms omitted-field fallback does not override explicit empty selection. |
+
+## Side Findings
+
+- The temporary service has only one online node (`wt-unit-feat-446-tmux-81475`), so this round could not test switching between two different real nodes with different capability sets.
+- On the new-agent desktop create page, `Skills` and `Tool Allowlist` still render in two columns at a 1440px viewport. This was outside the requested R5-I1/node-switch/omitted-fallback focus, but if the original "Skills above Tool Allowlist" requirement is intended to cover the create page as well as agent detail, it should be routed as a separate UI follow-up.
+- This round created temporary agents `review-omit-178964` and `review-empty6-204595` in the live test service.
+
+## 上层文档同步
+
+- [x] `SPEC.md`（跨包顶点架构）：无需更新。
+- [x] `docs/specs/<包>/spec.md`（长青行为契约层，本 unit 触及 kernel/im/gateway）：仍由 orchestrator 收尾归并；本轮只复验前端创建页和 create fallback 行为。
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新。
+- [x] `docs/SPEC_GUIDE.md`：无需更新。
+
+## Recommended Action
+
+通过本轮 targeted 复验。R5-I1 已关闭；create page 的 node select 往返没有破坏默认全局 skills；省略 `skills` 字段会 fallback 到全局 skills；显式空 `skills: []` 仍保持为空。可以继续后续收尾/代码审查流程。
+
+## Post-review Addendum
+
+- Round 6 side finding about the new-agent desktop create page rendering `Skills` and `Tool Allowlist` in two columns has been fixed in the same pass.
+- Live DOM recheck at `http://127.0.0.1:54823/settings/nodes/wt-unit-feat-446-tmux-81475/agents/new` with a 1440px viewport: `Skills` rect `x=45, y=1354.3, width=1350, bottom=1671.3`; `Tool Allowlist` rect `x=45, y=1710.0, width=1350`, so the controls are vertically stacked.
+- The same live check still showed `GLOBAL` and `COMPATIBILITY (CLAUDE/CODEX)` groups and 15 default selected global skills.

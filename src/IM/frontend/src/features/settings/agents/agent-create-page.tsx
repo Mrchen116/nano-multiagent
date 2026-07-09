@@ -6,6 +6,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { useIsMobile } from "../../../hooks/use-is-mobile";
 import { useTranslation } from "../../../i18n";
 import { PillSelector } from "./pill-selector";
+import { SkillSourceSelector } from "./skill-source-selector";
 import {
   AgentFeature,
   AgentSummary,
@@ -20,6 +21,18 @@ type CreateAgentFormState = NodeAgentCreateRequest;
 
 function normalizeAllowlist(values: string[]) {
   return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+}
+
+function sameStringList(left: string[], right: string[]) {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function defaultSkillNames(options: { name: string; default_on?: boolean }[]) {
+  return normalizeAllowlist(
+    options
+      .filter((option) => option.default_on === true)
+      .map((option) => option.name)
+  );
 }
 
 function normalizeText(value: string) {
@@ -306,6 +319,8 @@ export function AgentCreatePage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [touched, setTouched] = useState<Record<string, boolean>>({});
+  const skillsEditedRef = useRef(false);
+  const autoDefaultSkillsRef = useRef<string[]>([]);
 
   const nodesQuery = useQuery({
     queryKey: ["settings", "agents", "create", "nodes"],
@@ -318,6 +333,12 @@ export function AgentCreatePage() {
     const defaultNode = nodesQuery.data.find((node) => node.status !== "offline") ?? nodesQuery.data[0];
     setSelectedNodeId(defaultNode?.node_id ?? "");
   }, [nodesQuery.data, selectedNodeId]);
+
+  useEffect(() => {
+    skillsEditedRef.current = false;
+    autoDefaultSkillsRef.current = [];
+    setDraft((current) => ({ ...current, skills: [] }));
+  }, [selectedNodeId]);
 
   const createStateQuery = useQuery({
     queryKey: ["settings", "nodes", selectedNodeId, "create-state"],
@@ -341,6 +362,19 @@ export function AgentCreatePage() {
     createStateQuery.error instanceof Error
       ? createStateQuery.error.message.split(" failed: ").at(-1) ?? createStateQuery.error.message
       : "Unable to load this node.";
+
+  useEffect(() => {
+    if (!capabilities || skillsEditedRef.current) return;
+    const defaults = defaultSkillNames(capabilities.skills);
+    setDraft((current) => {
+      if (sameStringList(current.skills, defaults)) return current;
+      if (current.skills.length > 0 && !sameStringList(current.skills, autoDefaultSkillsRef.current)) {
+        return current;
+      }
+      autoDefaultSkillsRef.current = defaults;
+      return { ...current, skills: defaults };
+    });
+  }, [capabilities]);
 
   const mutation = useMutation({
     mutationFn: (next: CreateAgentFormState) => createNodeAgent(selectedNodeId, next),
@@ -607,16 +641,19 @@ export function AgentCreatePage() {
             <h3 className="im-agent-card-title">{t("agents.form.access.title")}</h3>
             <p className="im-agent-card-sub">{t("agents.form.access.sub")}</p>
           </div>
-          <div className="im-agent-card-grid-2">
-            <PillSelector
+          <div className="grid gap-4">
+            <SkillSourceSelector
               testId="pill-selector-skills"
               label={t("agents.form.access.skills")}
               selected={draft.skills}
               options={capabilities.skills}
+              workspaceRoot={draft.workspace_root}
               isLoading={createStateQuery.isLoading}
               errorMessage={createStateQuery.isError ? queryErrorDetail : null}
               onRetry={() => void createStateQuery.refetch()}
               onChange={(skills) => {
+                skillsEditedRef.current = true;
+                autoDefaultSkillsRef.current = [];
                 setErrorMessage(null);
                 setDraft({ ...draft, skills });
               }}

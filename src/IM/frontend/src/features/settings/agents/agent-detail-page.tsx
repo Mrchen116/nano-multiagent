@@ -9,6 +9,7 @@ import { useTranslation } from "../../../i18n";
 import { createDirectChatByAgentUserId, listAgents } from "../../chat/chat-api";
 import { Avatar, colorForAgent } from "../../chat/v2/components/avatar";
 import { PillSelector } from "./pill-selector";
+import { SkillSourceSelector } from "./skill-source-selector";
 import { useAgentStatusBroadcastConsumer } from "./agent-status-ws-consumer";
 import {
   AgentConfig,
@@ -1854,18 +1855,19 @@ export function AgentDetailPage() {
             <p className="im-agent-card-sub">{t("agents.form.access.sub")}</p>
             <button
               type="button"
-              className="im-btn im-btn-muted im-agent-access-skills-link"
+              className="im-agent-access-skills-link"
               onClick={() => setActiveSection("skills")}
             >
               View skill statistics
             </button>
           </div>
-          <div className="im-agent-card-grid-2">
-            <PillSelector
+          <div className="grid gap-4">
+            <SkillSourceSelector
               testId="pill-selector-skills"
               label={t("agents.form.access.skills")}
               selected={draft.skills}
               options={capabilities.skills}
+              workspaceRoot={draft.workspace_root}
               isLoading={detailQuery.isLoading}
               errorMessage={detailQuery.isError ? queryErrorDetail : null}
               onRetry={() => void detailQuery.refetch()}
@@ -1875,6 +1877,7 @@ export function AgentDetailPage() {
                 setDraft({ ...draft, skills });
               }}
             />
+            <div className="h-px bg-[var(--im-border)]" aria-hidden="true" />
             <PillSelector
               testId="pill-selector-tools"
               label={t("agents.form.access.tools")}
