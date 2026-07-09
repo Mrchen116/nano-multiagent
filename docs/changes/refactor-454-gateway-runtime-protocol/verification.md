@@ -261,6 +261,7 @@ No critical issue found in this code-review closure scope.
 | Relay payload top-level `conversation_id` | closed | `src/IM/ws/gateway_protocol.py` already accepts `payload.conversation_id` before `message.conversation_id`; `src/personal_assistant/channels/web_relay_adapter.py` now follows the same fallback. Regression: `tests/unit/personal_assistant/test_gateway_web_relay_adapter.py::test_web_relay_adapter_accepts_top_level_conversation_id`. |
 | `node.streaming_delta` unrelated optional structured fields | closed | `parse_streaming_delta_event()` keeps required text fields strict but treats unrelated malformed optional mappings as absent, preserving per-`kind` validation in `GatewayHandler`. Regression: `tests/im_service/contract/test_gateway_protocol_contract.py::test_streaming_delta_parser_ignores_unrelated_bad_structured_fields`. |
 | `node.report` legacy optional payload compatibility | closed | `parse_node_report_event()` still requires `node_id`, `run_id`, and `status`, but ignores non-structured optional `detail` and invalid optional `usage` instead of returning `bad_payload` before handler ack/persistence downgrade. Regression: `tests/im_service/contract/test_gateway_protocol_contract.py::test_node_report_parser_ignores_legacy_unstructured_detail_and_usage`. |
+| Replayed downstream `relay.message` frame | closed as verifier-owned regression | Product users cannot force IM to resend one server-to-client WS frame through public HTTP/WS APIs, so this is not a black-box acceptance journey. Regression coverage now includes `tests/unit/personal_assistant/test_gateway_im_connection_behavior.py::test_im_connection_dedupes_replayed_relay_message_frame`, plus existing adapter/store dedup tests. |
 | Code-review candidate A (`RuntimeProtocolFacts` metadata leak) | refuted | Session metadata is built through the explicit whitelist in `web_relay_adapter._build_session_metadata()` and the persistence boundary in `session_keys.py`, not by serializing all inbound message metadata. No code change was needed for this candidate. |
 
 ## Commands
@@ -273,6 +274,9 @@ No critical issue found in this code-review closure scope.
 /Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest tests/unit/personal_assistant/test_gateway_web_relay_adapter.py tests/im_service/contract/test_gateway_protocol_contract.py tests/im_service/unit/test_gateway_handler.py tests/im_service/integration/test_gateway_websocket_api.py
 # 69 passed
 
+/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest tests/unit/personal_assistant/test_gateway_im_connection_behavior.py::test_im_connection_dedupes_replayed_relay_message_frame tests/unit/personal_assistant/test_gateway_web_relay_adapter.py::test_web_relay_adapter_uses_dedup_store_on_accept tests/unit/personal_assistant/test_gateway_web_relay_adapter.py::test_web_relay_adapter_without_store_uses_in_memory_dedup tests/unit/personal_assistant/test_gateway_relay_dedup.py
+# 8 passed
+
 /Users/czj/Repos/nano-multiagent/.venv/bin/python -m ruff check src/IM/ws/gateway_protocol.py src/personal_assistant/channels/web_relay_adapter.py tests/unit/personal_assistant/test_gateway_web_relay_adapter.py tests/im_service/contract/test_gateway_protocol_contract.py
 # All checks passed
 
@@ -283,4 +287,4 @@ No critical issue found in this code-review closure scope.
 ## Caveats
 
 - Feishu/Lark true-platform journeys remain unverified because this worktree does not have a credentialed Feishu/Lark channel. This code-review closure does not change the product acceptance verdict in `acceptance.md`.
-- True live same-relay-frame redelivery remains a product-review inconclusive item. The code-review fix adds protocol compatibility coverage, not a new live redelivery harness.
+- Same-relay-frame redelivery is now explicitly owned by verifier/regression coverage because no public product journey can force one IM server-to-client frame to be re-sent. It remains outside product-review pass/fail unless a future dedicated resend/debug harness is added.

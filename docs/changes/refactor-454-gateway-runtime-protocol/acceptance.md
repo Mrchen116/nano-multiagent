@@ -295,3 +295,31 @@ env PATH=/Users/czj/Repos/nano-multiagent/.venv/bin:$PATH PYTHONPATH=/Users/czj/
 ## Recommended Next Step
 
 Do not accept `refactor-454` as fully passed. Close the remaining blocker by running Feishu/Lark true-platform private/group/non-mention/offline-main-path journeys with a credentialed channel. Separately either provide a live-stack relay redelivery harness for reviewer acceptance or explicitly route that Scenario to verifier-owned regression evidence instead of product-review pass/fail.
+
+# Round 3 - Main-Session Acceptance Routing Addendum
+
+## Summary
+
+This addendum only resolves the ownership of the relay-redelivery Scenario from Round 2. It does not change the Feishu/Lark true-platform blocker.
+
+| Item | Round 3 result | Evidence |
+|---|---|---|
+| Same logical `relay.message` frame delivered twice | reclassified as verifier-owned regression, not product-review journey | Public IM user APIs can create/send messages, but they cannot force the already-connected IM server to resend one identical server-to-client Gateway WS frame. Regression coverage now explicitly drives the Gateway WS client layer with the same `relay.message` frame twice and asserts one inbound callback: `tests/unit/personal_assistant/test_gateway_im_connection_behavior.py::test_im_connection_dedupes_replayed_relay_message_frame`. Existing adapter/store regressions remain: `test_web_relay_adapter_uses_dedup_store_on_accept`, `test_web_relay_adapter_without_store_uses_in_memory_dedup`, and `test_gateway_relay_dedup.py`. |
+
+## Command
+
+```bash
+/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest tests/unit/personal_assistant/test_gateway_im_connection_behavior.py::test_im_connection_dedupes_replayed_relay_message_frame tests/unit/personal_assistant/test_gateway_web_relay_adapter.py::test_web_relay_adapter_uses_dedup_store_on_accept tests/unit/personal_assistant/test_gateway_web_relay_adapter.py::test_web_relay_adapter_without_store_uses_in_memory_dedup tests/unit/personal_assistant/test_gateway_relay_dedup.py
+# 8 passed
+```
+
+## Updated Acceptance Status
+
+| Requirement group | Status | Reason |
+|---|---|---|
+| Web IM relay duplicate/redelivery behavior | pass for acceptance routing | The behavior is covered by verifier/regression tests at IM WS client + adapter/store layers. It is not a black-box user journey until a future dedicated resend/debug harness exists. |
+| Feishu/Lark true-platform journeys | fail/blocking | Still no credentialed Feishu/Lark channel in `~/.nano-assistant/config.yaml` or worktree `.gateway-config.yaml`; private chat, group @Bot, non-mention shadow sync, and IM-offline Feishu main path remain unverified without fake inbound. |
+
+## Recommended Next Step
+
+Do not accept `refactor-454` as fully passed until Feishu/Lark true-platform journeys are run with a credentialed channel, or the release decision explicitly accepts that external-platform caveat.
