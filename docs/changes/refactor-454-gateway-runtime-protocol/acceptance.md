@@ -323,3 +323,110 @@ This addendum only resolves the ownership of the relay-redelivery Scenario from 
 ## Recommended Next Step
 
 Do not accept `refactor-454` as fully passed until Feishu/Lark true-platform journeys are run with a credentialed channel, or the release decision explicitly accepts that external-platform caveat.
+
+---
+
+# Round 4 - 2026-07-09
+
+## Verdict
+
+- Verdict: fail
+- Highest Required Action: fix-implementation
+- Review mode: targeted true-platform Feishu revalidation
+- Review worktree: `/Users/czj/Repos/nano-multiagent/.worktrees/unit-refactor-454`
+- Branch reviewed: `unit/refactor-454`
+- Head reviewed: `f8e88619`
+- Needs re-review: true
+
+Round 4 removed the previous credential blocker: `~/.nano-assistant/config.yaml` now contains `feishu:default-agent`, `./scripts/e2e-up.sh` copied it into the worktree `.gateway-config.yaml`, Gateway auto-filled `botOpenId`, and the IM node came online with `last_error=null`.
+
+Feishu true-platform main paths were exercised with real Lark/Feishu user messages, not fake inbound events. Private chat, group @Bot, group non-mention no-trigger, and IM-offline Feishu main reply all worked. The remaining failure is in the internal IM shadow group projection: after a later non-mention group message, the previous Bot reply was also mirrored into the shadow group as an extra `sender.type=user` message with display name `150ff7f2421d975d`. That is user-visible shadow drift, so the Feishu/shadow requirement cannot pass.
+
+## User Journeys Exercised
+
+1. Service takeover and Feishu channel bootstrap
+   - Ran `./scripts/e2e-down.sh`, then `./scripts/e2e-up.sh` in the unit worktree.
+   - Worktree IM started at `http://127.0.0.1:51964`; node `wt-unit-refactor-454-78625` was `online`, `relay_enabled=true`, `last_error=null`.
+   - Redacted `.gateway-config.yaml` summary showed `feishu:default-agent` with `appId`, `appSecret`, and auto-filled `botOpenId`.
+
+2. Feishu private chat to internal IM shadow direct
+   - Sent a real Feishu/Lark user DM to the Bot: `refactor-454 acceptance DM 20260709081807. Reply exactly FEISHU-DM-OK-20260709081807`.
+   - Feishu P2P history showed the user message and Bot reply `FEISHU-DM-OK-20260709081807`.
+   - IM public API showed shadow conversation `default-agent · feishu` with the same user message and agent reply, both `delivery_status=completed`.
+
+3. Feishu group @Bot to internal IM shadow group
+   - Created private Feishu group `refactor-454-acceptance-20260709081935` with the current user and Bot.
+   - Sent a real group message with `@Bot`: `refactor-454 acceptance group 20260709081935. Reply exactly FEISHU-GROUP-OK-20260709081935`.
+   - Feishu group history showed the user @ message and Bot reply `FEISHU-GROUP-OK-20260709081935`.
+   - IM public API showed shadow group `default-agent · refactor-454-acceptance-20260709081935 · feishu` with the user @ message and agent reply, both `delivery_status=completed`.
+
+4. Feishu group non-mention context-only sync
+   - Sent a real unmentioned group message: `refactor-454 acceptance nonmention 20260709082031. This should sync as context only.`
+   - After 20 seconds, Feishu group history contained the unmentioned user message and no new Bot reply for that timestamp.
+   - IM public API showed the unmentioned message synced into the same shadow group as a `user` message with display name `你`.
+   - The same IM shadow group also gained an extra message at `2026-07-09T00:20:33.169301Z`: `sender.type=user`, display name `150ff7f2421d975d`, content `FEISHU-GROUP-OK-20260709081935`. This content was the previous Bot reply and should not appear as a separate group-user message.
+
+5. Feishu main path while IM is offline
+   - Stopped the worktree IM process only; Gateway process remained alive.
+   - Sent a real Feishu/Lark user DM: `refactor-454 acceptance IM offline 20260709082233. Reply exactly FEISHU-OFFLINE-OK-20260709082233`.
+   - Feishu P2P history showed Bot reply `FEISHU-OFFLINE-OK-20260709082233` while IM was unreachable.
+   - Cleaned the worktree stack with `./scripts/e2e-down.sh`.
+
+## Issues
+
+### Issue 1: Feishu shadow group mirrors the Bot's own reply as an extra user message
+
+- Severity: major
+- Regression Relation: direct
+- Recommended Action: fix-implementation
+- Action Rationale: `motivation.md` requires Feishu group shadow behavior to keep group member messages and agent replies visible with the same sender semantics as before. In the real Feishu group journey, the Bot reply first appeared correctly as an `agent` message, but after a later unmentioned group message the same Bot reply also appeared in the IM shadow group as a separate `user` message with display name `150ff7f2421d975d`.
+- User-facing impact: A user reading the internal IM shadow group sees a duplicate Bot reply attributed to a user-like sender, which breaks shadow conversation trust and group sender display semantics.
+- Evidence:
+  - Correct agent shadow message: `sender.type=agent`, content `FEISHU-GROUP-OK-20260709081935`, `created_at=2026-07-09T00:19:52.444574Z`.
+  - Erroneous extra shadow message: `sender.type=user`, display name `150ff7f2421d975d`, content `FEISHU-GROUP-OK-20260709081935`, `created_at=2026-07-09T00:20:33.169301Z`.
+- Re-review requirement: after fix, rerun the Feishu group @Bot and non-mention journeys against the real platform and verify the shadow group contains exactly the group member messages plus the canonical agent reply, with no extra user-attributed echo of Bot replies.
+
+## Acceptance Criteria Coverage - Round 4 Updates
+
+### Requirement: 外部 channel 与 shadow 会话行为不变 - 组内结论: fail
+
+| Scenario | 期望来源 | Round 4 验证方式 | Round 4 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| Feishu 私聊同步到内部 IM shadow 会话 | `motivation.md`, `docs/operator-runbook.md` | Real Feishu/Lark user DM to Bot, then IM public API shadow direct readback | Feishu P2P contained user message + Bot reply `FEISHU-DM-OK-20260709081807`; IM shadow direct `default-agent · feishu` contained matching user + agent messages, both completed | pass | Previous credential blocker closed for private chat. |
+| Feishu 群聊 @Bot 触发回复 | `motivation.md`, `docs/operator-runbook.md` | Real Feishu/Lark group with Bot, user @Bot message, then IM public API shadow group readback | Feishu group contained @ message + Bot reply `FEISHU-GROUP-OK-20260709081935`; IM shadow group contained canonical user + agent messages, but later also an erroneous user-attributed echo of the Bot reply | fail | Main Feishu reply worked; shadow projection has duplicate/wrong-sender user-visible drift. |
+| Feishu 群聊未 @ 消息只同步上下文 | `motivation.md`, `docs/operator-runbook.md` | Real Feishu/Lark unmentioned group message, 20-second no-reply observation, then IM public API shadow group readback | Feishu group had no new Bot reply for `20260709082031`; IM shadow group synced the unmentioned message, but also showed the previous Bot reply as an extra `user` message | fail | No-trigger behavior passed on Feishu main path; shadow group content was polluted by an extra user-attributed Bot echo. |
+| IM 离线时 Feishu 主路径不受影响 | `motivation.md`, `docs/operator-runbook.md` | Killed worktree IM only, kept Gateway alive, sent real Feishu/Lark DM and read Feishu P2P history | Feishu P2P contained user message + Bot reply `FEISHU-OFFLINE-OK-20260709082233` while IM was unreachable | pass | Shadow sync during IM outage was not required; main external path remained usable. |
+
+## Verification Commands
+
+```bash
+env PATH=/Users/czj/Repos/nano-multiagent/.venv/bin:$PATH ./scripts/e2e-down.sh
+env PATH=/Users/czj/Repos/nano-multiagent/.venv/bin:$PATH ./scripts/e2e-up.sh
+LARKSUITE_CLI_NO_UPDATE_NOTIFIER=1 LARKSUITE_CLI_NO_SKILLS_NOTIFIER=1 lark-cli im +messages-send --user-id <botOpenId> --text "refactor-454 acceptance DM 20260709081807. Reply exactly FEISHU-DM-OK-20260709081807" --as user --format json
+LARKSUITE_CLI_NO_UPDATE_NOTIFIER=1 LARKSUITE_CLI_NO_SKILLS_NOTIFIER=1 lark-cli im +chat-messages-list --user-id <botOpenId> --as user --page-size 20 --format json
+LARKSUITE_CLI_NO_UPDATE_NOTIFIER=1 LARKSUITE_CLI_NO_SKILLS_NOTIFIER=1 lark-cli im +chat-create --name "refactor-454-acceptance-20260709081935" --bots <appId> --as user --format json
+LARKSUITE_CLI_NO_UPDATE_NOTIFIER=1 LARKSUITE_CLI_NO_SKILLS_NOTIFIER=1 lark-cli im +messages-send --chat-id <groupChatId> --text "<at user_id=\"<botOpenId>\">Bot</at> refactor-454 acceptance group 20260709081935. Reply exactly FEISHU-GROUP-OK-20260709081935" --as user --format json
+LARKSUITE_CLI_NO_UPDATE_NOTIFIER=1 LARKSUITE_CLI_NO_SKILLS_NOTIFIER=1 lark-cli im +messages-send --chat-id <groupChatId> --text "refactor-454 acceptance nonmention 20260709082031. This should sync as context only." --as user --format json
+LARKSUITE_CLI_NO_UPDATE_NOTIFIER=1 LARKSUITE_CLI_NO_SKILLS_NOTIFIER=1 lark-cli im +chat-messages-list --chat-id <groupChatId> --as user --page-size 20 --format json
+python - <<'PY'
+# Login to the worktree IM, list `/im/v1/conversations`, then read
+# `/im/v1/conversations/{shadow_conversation_id}/messages`.
+PY
+kill "$(cat .im.pid)"
+LARKSUITE_CLI_NO_UPDATE_NOTIFIER=1 LARKSUITE_CLI_NO_SKILLS_NOTIFIER=1 lark-cli im +messages-send --user-id <botOpenId> --text "refactor-454 acceptance IM offline 20260709082233. Reply exactly FEISHU-OFFLINE-OK-20260709082233" --as user --format json
+LARKSUITE_CLI_NO_UPDATE_NOTIFIER=1 LARKSUITE_CLI_NO_SKILLS_NOTIFIER=1 lark-cli im +chat-messages-list --user-id <botOpenId> --as user --page-size 30 --format json
+env PATH=/Users/czj/Repos/nano-multiagent/.venv/bin:$PATH ./scripts/e2e-down.sh
+```
+
+## 上层文档同步
+
+- [x] `SPEC.md`（跨包顶点架构）：无需更新。本轮发现的是 Feishu shadow 投影实现回归，不是跨包架构契约新增。
+- [x] `docs/specs/gateway/spec.md`（Gateway 长青行为契约层）：无需更新。现有 Feishu/shadow 契约已经要求外部回复和 shadow sender 语义保持正确。
+- [x] `docs/specs/im/spec.md`（IM 长青行为契约层）：无需更新。现有 IM shadow 可见语义足以覆盖本轮问题。
+- [x] `docs/specs/cli/spec.md`：无需更新。本轮未触及 CLI 用户契约。
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新。现有 worktree e2e/runbook guidance 足够启动隔离栈；Feishu 凭据已在本机持久配置中可用。
+- [x] `docs/SPEC_GUIDE.md`：无需更新。本 unit 未改变文档体系。
+
+## Recommended Next Step
+
+Do not accept `refactor-454` as fully passed. The previous "missing Feishu/Lark credentials" blocker is closed, but Round 4 found a real shadow group correctness issue. Route to `fix-implementation`, then Fast-lane re-review the Feishu group @Bot and non-mention shadow journeys with the same true-platform setup.
