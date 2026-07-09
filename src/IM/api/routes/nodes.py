@@ -352,9 +352,7 @@ def _coerce_string_list(value: object, fallback: list[str] | None = None) -> lis
 
 def _default_on_names(value: object) -> list[str]:
     return [
-        item.name
-        for item in coerce_allowlist_options(value)
-        if item.default_on is True
+        item.name for item in coerce_allowlist_options(value) if item.default_on is True
     ]
 
 
