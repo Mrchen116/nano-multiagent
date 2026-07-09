@@ -38,19 +38,37 @@ from personal_assistant.scheduler.cron_execution_service import CronExecutionSer
 
 
 # ---------------------------------------------------------------------------
-# Lightweight permission-allow result (mirrors auto_mode_gate's duck contract)
+# Lightweight permission result (mirrors auto_mode_gate's duck contract)
 # ---------------------------------------------------------------------------
 # auto_mode_gate only reads getattr(result, "behavior", "passthrough"); "allow"
-# bypasses the classifier so cron calls (authorized at registration time via the
-# cron_enabled gate) are not denied as "Unauthorized Persistence".
+# bypasses the classifier for read-only cron queries, while mutating cron actions
+# fall through with a tool-owned current-action projection.
 
 
 class _AllowDecision:
     behavior: str = "allow"
-    reason: str = "cron tool: authorized at registration time (cron_enabled gate)"
+    reason: str = "cron tool: low-risk read/list action"
 
 
 _CRON_TOOL_ALLOW = _AllowDecision()
+
+
+class _PassthroughDecision:
+    behavior: str = "passthrough"
+    reason: str = "cron tool: mutating action requires auto-mode classification"
+
+
+_CRON_TOOL_PASSTHROUGH = _PassthroughDecision()
+_CRON_LOW_RISK_ACTIONS = frozenset({"list", "runs"})
+_CRON_PROJECTION_TEXT_LIMIT = 240
+
+
+def _projection_value(value: Any) -> str:
+    if isinstance(value, Mapping):
+        text = json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
+    else:
+        text = str(value)
+    return text[:_CRON_PROJECTION_TEXT_LIMIT]
 
 
 _CRON_SUBDIR = ".nanoassistant/cron"
@@ -332,13 +350,24 @@ class CronTool:
 
     def check_permissions(
         self, tool_input: Mapping[str, Any], ctx: Any
-    ) -> _AllowDecision:
-        """Allow all cron calls (authorized at registration time via cron_enabled).
+    ) -> _AllowDecision | _PassthroughDecision:
+        """Allow low-risk cron queries; classify mutating scheduler actions."""
 
-        Without this, auto_mode_gate falls through to the classifier which denies
-        cron calls as "Unauthorized Persistence" (feat-394-M5 R3-1).
-        """
-        return _CRON_TOOL_ALLOW
+        _ = ctx
+        action = str(tool_input.get("action", ""))
+        if action in _CRON_LOW_RISK_ACTIONS:
+            return _CRON_TOOL_ALLOW
+        return _CRON_TOOL_PASSTHROUGH
+
+    def to_auto_classifier_input(self, tool_input: Mapping[str, Any]) -> str:
+        """Project cron action details for the auto-mode classifier."""
+
+        parts = [f"action={_projection_value(tool_input.get('action', ''))}"]
+        for key in ("jobId", "id", "job", "patch"):
+            value = tool_input.get(key)
+            if value is not None:
+                parts.append(f"{key}={_projection_value(value)}")
+        return " ".join(parts)
 
     def run(self, args: Mapping[str, Any], ctx: ToolContext) -> Mapping[str, Any]:
         action = _require_str(args.get("action"), field_name="action")

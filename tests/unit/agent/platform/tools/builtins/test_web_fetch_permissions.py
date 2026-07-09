@@ -179,12 +179,20 @@ class TestSafeToolAllowlistNoWebFetch:
         assert "web_fetch" not in SAFE_TOOL_ALLOWLIST
 
     def test_web_search_not_in_safe_allowlist(self):
-        """web_search also removed (S2)."""
+        """bugfix-456: web_search is read-only search and stays safe."""
         from agent.platform.hooks.builtins.auto_mode_gate import SAFE_TOOL_ALLOWLIST  # noqa: PLC0415
 
-        assert "web_search" not in SAFE_TOOL_ALLOWLIST
+        assert "web_search" in SAFE_TOOL_ALLOWLIST
 
     def test_read_still_in_safe_allowlist(self):
         from agent.platform.hooks.builtins.auto_mode_gate import SAFE_TOOL_ALLOWLIST  # noqa: PLC0415
 
         assert "read" in SAFE_TOOL_ALLOWLIST
+
+    def test_web_fetch_has_classifier_projection(self):
+        tool = _make_tool()
+        projection = tool.to_auto_classifier_input(
+            {"url": "https://example.com/docs", "prompt": "summarize"}
+        )
+        assert "https://example.com/docs" in projection
+        assert "summarize" in projection

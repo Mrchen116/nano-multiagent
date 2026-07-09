@@ -27,11 +27,12 @@ with a security gate.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 import uuid
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any, Mapping
 
 _log = logging.getLogger("agent.platform.hooks.auto_mode_gate")
 
@@ -179,45 +180,20 @@ XML_S2_SUFFIX = (
 )
 
 # ---------------------------------------------------------------------------
-# Safe-tool allowlist — pixel-perfect CC SAFE_YOLO_ALLOWLISTED_TOOLS
+# Safe-tool allowlist
 # ---------------------------------------------------------------------------
 
 SAFE_TOOL_ALLOWLIST: frozenset[str] = frozenset(
     {
-        # Read-only file operations
         "read",
-        # web_fetch and web_search removed (bugfix-355 S1/S2):
-        # web_fetch falls to WebFetchTool.check_permissions (preapproved host table + hostname rules)
-        # web_search falls to classifier via passthrough (no tool-level opinion)
-        # Task management (metadata only)
-        "task_create",
-        "task_get",
-        "task_update",
-        "task_list",
+        "web_search",
+        "skill_view",
         "task_stop",
-        "task_output",
-        # Agent coordination — kept (D2 decision: CC external build behavior is allow-by-default)
         "agent",
         "send_message",
-        # Agent self-management (bugfix-368): writes only to .nano/memory/, no user-code
-        # or system impact; semantically equivalent to task_*. Without this entry the
-        # classifier judges memory as deny → PA self-improvement loop dies on every call.
         "memory",
     }
 )
-
-# ---------------------------------------------------------------------------
-# Tool input projections — pixel-perfect CC toAutoClassifierInput mapping
-# ---------------------------------------------------------------------------
-
-TOOL_PROJECTIONS: dict[str, Callable[[dict], str]] = {
-    "bash": lambda inp: inp.get("command", ""),
-    "read": lambda inp: inp.get("file_path", ""),
-    "write": lambda inp: f"{inp.get('file_path', '')}: {inp.get('content', '')[:200]}",
-    "edit": lambda inp: (
-        f"{inp.get('file_path', '')}: {inp.get('new_string', '')[:200]}"
-    ),
-}
 
 # Unattended run origins (no human present to answer ask prompts).
 # feat-394-M7 R5-1 fix: cron runs are isolated and unattended; tool ask has no human
@@ -251,28 +227,6 @@ def is_safe_tool(tool_name: str, config: AutoModeConfig) -> bool:
         True if the tool is safe and should be auto-allowed.
     """
     return tool_name in SAFE_TOOL_ALLOWLIST or tool_name in config.always_allow_tools
-
-
-def project_tool_input(tool_name: str, tool_input: dict) -> str:
-    """Return security-relevant projection of tool input for the classifier.
-
-    Maps tool inputs to classifier-visible strings. Empty string means
-    the tool has no security-relevant input (classifier skips it).
-
-    Args:
-        tool_name: Name of the tool.
-        tool_input: Raw tool arguments dict.
-
-    Returns:
-        Projection string, or empty string for unknown/no-projection tools.
-    """
-    proj = TOOL_PROJECTIONS.get(tool_name)
-    if proj is None:
-        return ""
-    try:
-        return proj(tool_input) or ""
-    except Exception:
-        return ""
 
 
 def build_yolo_system_prompt(config: AutoModeConfig) -> str:
@@ -604,13 +558,70 @@ async def _classify_action(
 # ---------------------------------------------------------------------------
 
 
-def _build_transcript_user_message(ctx: Any, tool_name: str, tool_input: dict) -> str:
+def _tool_registry_from_ctx(ctx: Any) -> Any | None:
+    """Return the registry injected into HookContext metadata, if present."""
+
+    metadata = getattr(ctx, "metadata", {}) or {}
+    if not isinstance(metadata, Mapping):
+        return None
+    return metadata.get("tool_registry")
+
+
+def _tool_instance_from_registry(ctx: Any, tool_name: str) -> Any | None:
+    """Resolve a tool instance by name from the hook context registry."""
+
+    tool_registry = _tool_registry_from_ctx(ctx)
+    get_tool = getattr(tool_registry, "get", None)
+    if not callable(get_tool):
+        return None
+    return get_tool(tool_name)
+
+
+def _project_tool_for_classifier(
+    tool_instance: Any,
+    tool_name: str,
+    tool_input: Mapping[str, Any],
+) -> str | None:
+    """Return the classifier-visible projection supplied by a tool instance.
+
+    ``None`` means the tool does not implement the projection contract. A returned
+    empty string is an explicit no-action projection and is fail-closed for the
+    current action before classifier dispatch.
+    """
+
+    project = getattr(tool_instance, "to_auto_classifier_input", None)
+    if not callable(project):
+        return None
+    projection = project(dict(tool_input))
+    if projection is None:
+        return ""
+    return str(projection)
+
+
+def _project_historical_tool_use_for_classifier(tool_name: str, tool_input: Any) -> str:
+    """Project recorded history without consulting today's live tool registry."""
+
+    if isinstance(tool_input, Mapping):
+        stable_input: Any = dict(tool_input)
+    else:
+        stable_input = tool_input
+    return json.dumps(
+        {"tool": tool_name, "input": stable_input},
+        ensure_ascii=False,
+        sort_keys=True,
+        default=str,
+    )
+
+
+def _build_transcript_user_message(
+    ctx: Any, tool_name: str, current_projection: str
+) -> str:
     """Build the classifier user prompt: transcript + current action.
 
     Args:
         ctx: HookContext carrying message_history.
         tool_name: Tool being classified.
-        tool_input: Tool arguments.
+        current_projection: Already validated current tool projection.
 
     Returns:
         Full user prompt wrapped in <transcript> tags.
@@ -624,14 +635,16 @@ def _build_transcript_user_message(ctx: Any, tool_name: str, tool_input: dict) -
             compact_parts.append(f"User: {entry['content']}\n")
         elif entry["role"] == "assistant":
             for block in entry["content"]:
-                projected = project_tool_input(block["name"], block.get("input", {}))
+                history_tool_name = str(block.get("name", "") or "")
+                projected = _project_historical_tool_use_for_classifier(
+                    history_tool_name,
+                    block.get("input", {}),
+                )
                 if projected:
-                    compact_parts.append(f"{block['name']} {projected}\n")
+                    compact_parts.append(f"{history_tool_name} {projected}\n")
 
     # Current action being classified
-    action_projected = project_tool_input(tool_name, tool_input)
-    if action_projected:
-        compact_parts.append(f"{tool_name} {action_projected}\n")
+    compact_parts.append(f"{tool_name} {current_projection}\n")
 
     transcript_body = "".join(compact_parts)
     return f"<transcript>\n{transcript_body}</transcript>"
@@ -766,10 +779,7 @@ def setup(hooks: Any) -> None:  # noqa: ANN001
         # Step 1 (bugfix-355 D1+W1): tool.check_permissions — called BEFORE dangerously bypass
         # so safety_check type results can be bypass-immune (W1).
         # Anchor B: getattr fallback — tool without check_permissions → passthrough.
-        tool_registry = metadata.get("tool_registry")
-        tool_instance = (
-            tool_registry.get(tool_name) if tool_registry is not None else None
-        )
+        tool_instance = _tool_instance_from_registry(ctx, tool_name)
         check_fn = getattr(tool_instance, "check_permissions", None)
         tool_result: Any = None
         if check_fn is not None:
@@ -827,8 +837,7 @@ def setup(hooks: Any) -> None:  # noqa: ANN001
         if broker and broker.is_session_allowed(session_id, tool_name):
             return None
 
-        # Step 4: Safe-tool allowlist bypass
-        # (web_fetch / web_search removed in bugfix-355 S1/S2; read/agent/task/send_message remain)
+        # Step 4: Safe-tool allowlist bypass.
         if is_safe_tool(tool_name, config):
             return None  # pass through without classifier
 
@@ -898,9 +907,34 @@ def setup(hooks: Any) -> None:  # noqa: ANN001
                 broker,
             )
 
+        try:
+            current_projection = (
+                _project_tool_for_classifier(tool_instance, tool_name, tool_input)
+                if tool_instance is not None
+                else None
+            )
+        except Exception as exc:
+            return {
+                "block": True,
+                "reason": (
+                    f"classifier projection failed for {tool_name}: "
+                    f"{type(exc).__name__}: {exc}"
+                ),
+            }
+        if current_projection is None:
+            return {
+                "block": True,
+                "reason": f"missing classifier projection for {tool_name}",
+            }
+        if not current_projection.strip():
+            return {
+                "block": True,
+                "reason": f"empty classifier projection for {tool_name}",
+            }
+
         # Step 8: Classifier (W2: no longer prepends OUTSIDE NOTE — classifier uses system prompt)
         system_prompt = build_yolo_system_prompt(config)
-        user_prompt = _build_transcript_user_message(ctx, tool_name, tool_input)
+        user_prompt = _build_transcript_user_message(ctx, tool_name, current_projection)
 
         try:
             decision = await _classify_action(ctx, system_prompt, user_prompt)
