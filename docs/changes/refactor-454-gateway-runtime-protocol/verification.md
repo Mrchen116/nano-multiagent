@@ -288,3 +288,58 @@ No critical issue found in this code-review closure scope.
 
 - Feishu/Lark true-platform journeys remain unverified because this worktree does not have a credentialed Feishu/Lark channel. This code-review closure does not change the product acceptance verdict in `acceptance.md`.
 - Same-relay-frame redelivery is now explicitly owned by verifier/regression coverage because no public product journey can force one IM server-to-client frame to be re-sent. It remains outside product-review pass/fail unless a future dedicated resend/debug harness is added.
+
+# Round 6 - Final Patch Code Review and Local CI Gate
+
+## Verification Report: refactor-454
+
+### Summary
+
+Mode: code-review-patch + PR-local-CI
+Functional delta range: `25c7bd7c..81e133d9`
+Scope:
+- Final Feishu group-history self-sender fix.
+- Mechanical `ruff format` normalization required by the PR-local CI gate.
+
+No code-review blocking finding survived for this final patch scope.
+
+## Code Review Patch Results
+
+| Finder angle | Result | Evidence |
+|---|---|---|
+| Angle A - diff line scan | `[]` | No concrete correctness failure scenario found in `_is_self_sender()` or the new Feishu regression test. |
+| Angle C - cross-file trace | `[]` | No caller or `FeishuMessageEvent.sender_open_id` construction path was found where treating app id plus `botOpenId` as self breaks DM, group current-event handling, group history catch-up, ack, owner binding, or external identity. |
+| Altitude | `[]` | The fix is at the adapter self-sender boundary, where both current events and history catch-up already centralize self filtering. The regression test matches the Round 4 real platform failure shape: Bot echo sender id equals app id. |
+
+## Local CI Gate
+
+```bash
+PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/ruff check .
+# All checks passed
+
+PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/ruff format --check .
+# 757 files already formatted
+
+PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -m "not e2e"
+# 3352 passed, 2 skipped, 22 deselected, 16 warnings in 135.79s
+
+cd src/IM/frontend
+npm ci
+npm run test
+# Test Files 63 passed (63)
+# Tests 594 passed (594)
+```
+
+## Issues
+
+### CRITICAL
+
+- None.
+
+### WARNING
+
+- None.
+
+### SUGGESTION
+
+- None.

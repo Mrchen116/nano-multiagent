@@ -314,7 +314,9 @@ def _build_runtime_protocol(
             external_source=external_source,
             external_chat_id=external_chat_id,
             agent_id=_optional_text(envelope.metadata.get("agent_id")),
-            conversation_type=_optional_text(envelope.metadata.get("conversation_type")),
+            conversation_type=_optional_text(
+                envelope.metadata.get("conversation_type")
+            ),
             trigger_source=_optional_text(envelope.metadata.get("trigger_source")),
         )
     im_message_id = _optional_text(message.metadata.get("message_id"))

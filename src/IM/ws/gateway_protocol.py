@@ -118,9 +118,7 @@ def parse_streaming_delta_event(payload: Mapping[str, object]) -> StreamingDelta
         source=_optional_text(payload.get("source")),
         text=_optional_text(payload.get("text")),
         tool_call=_optional_mapping_or_none(payload.get("tool_call")),
-        permission_request=_optional_mapping_or_none(
-            payload.get("permission_request")
-        ),
+        permission_request=_optional_mapping_or_none(payload.get("permission_request")),
         request_id=_optional_text(payload.get("request_id")),
         decision=_optional_text(payload.get("decision")),
         reason=_optional_text(payload.get("reason")),
@@ -184,9 +182,7 @@ def _require_mapping(value: object, *, field_name: str) -> Mapping[str, Any]:
     return value
 
 
-def _optional_mapping(
-    value: object, *, field_name: str
-) -> Mapping[str, Any] | None:
+def _optional_mapping(value: object, *, field_name: str) -> Mapping[str, Any] | None:
     if value is None:
         return None
     if not isinstance(value, Mapping):

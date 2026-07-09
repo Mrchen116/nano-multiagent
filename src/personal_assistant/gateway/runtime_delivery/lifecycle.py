@@ -22,7 +22,9 @@ def build_relay_lifecycle_callback(
     *,
     reporter: UpstreamReporter | None,
     im_connection_manager_factory: Callable[[], IMConnectionManager | None],
-    run_context_store: dict[str, dict[str, str]] | RunDeliveryContextStore | None = None,
+    run_context_store: dict[str, dict[str, str]]
+    | RunDeliveryContextStore
+    | None = None,
     owner_user_id: str = "",
     channel_registry: ChannelRegistry | None = None,
 ):
@@ -198,9 +200,7 @@ def _seed_run_context(
         thread_id = getattr(message, "thread_id", None)
         if thread_id:
             run_context_store[update.run_id]["reply_thread_id"] = str(thread_id)
-        feishu_message_id = _metadata_text(
-            message.metadata, key="feishu_message_id"
-        )
+        feishu_message_id = _metadata_text(message.metadata, key="feishu_message_id")
         if feishu_message_id is not None:
             run_context_store[update.run_id]["feishu_message_id"] = feishu_message_id
 
@@ -250,10 +250,7 @@ def _completed_receipt_detail(
         return reply_text
     if InboundPipeline._is_no_reply_token(reply_text or ""):
         return suppression_detail
-    return (
-        " | ".join(part for part in [reply_text, suppression_detail] if part)
-        or None
-    )
+    return " | ".join(part for part in [reply_text, suppression_detail] if part) or None
 
 
 def _suppression_detail(detail: Mapping[str, Any] | None) -> str | None:

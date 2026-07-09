@@ -218,4 +218,3 @@ def visible_reply_phase_from_session_id(from_session_id: str) -> str:
     if ":stop-" in lowered or ":image-error-" in lowered or ":permission-" in lowered:
         return "control"
     return "intermediate"
-

@@ -353,9 +353,7 @@ class RunDeliveryContextStore:
                 )
             )
         elif external_identity is not None:
-            delivery_target = RunDeliveryTarget.none(
-                reason="external_without_shadow"
-            )
+            delivery_target = RunDeliveryTarget.none(reason="external_without_shadow")
         elif owner_user_id:
             delivery_target = RunDeliveryTarget.for_owner_direct(
                 OwnerDirectTarget(to_user_id=owner_user_id, agent_id=agent_id)
