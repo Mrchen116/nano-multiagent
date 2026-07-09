@@ -115,6 +115,47 @@ def test_group_history_catchup_skips_bot_self_messages(
 
 
 @patch("personal_assistant.channels.feishu.adapter.FeishuClient")
+def test_group_history_catchup_skips_bot_app_sender_echo_after_seen_trigger(
+    mock_fc_cls: MagicMock,
+) -> None:
+    mock_fc = MagicMock()
+    mock_fc_cls.return_value = mock_fc
+    mention = FeishuMention(open_id="ou_bot1", name="plato", key="@_user_1")
+    previous_trigger = _make_group_event(
+        text="@plato previous",
+        message_id="om_at",
+        mentions=[mention],
+    )
+    bot_echo = _make_group_event(
+        text="previous bot reply",
+        message_id="om_bot",
+        sender_open_id="cli_a",
+    )
+    current = _make_group_event(text="ordinary update", message_id="om_now")
+    mock_fc.fetch_group_messages.return_value = [
+        previous_trigger,
+        bot_echo,
+        current,
+    ]
+
+    adapter = FeishuAdapter(
+        app_id="cli_a",
+        app_secret="s",
+        name="feishu:plato",
+        bot_open_id="ou_bot1",
+        group_context_store=MagicMock(spec=GroupContextStore),
+    )
+    on_inbound = MagicMock()
+    adapter.start(on_inbound)
+    adapter._remember_group_message(previous_trigger)
+
+    adapter._handle_message(current)
+
+    delivered = [call.args[0].text for call in on_inbound.call_args_list]
+    assert delivered == ["ordinary update"]
+
+
+@patch("personal_assistant.channels.feishu.adapter.FeishuClient")
 def test_group_history_catchup_only_keeps_messages_after_last_bot_reply(
     mock_fc_cls: MagicMock,
 ) -> None:

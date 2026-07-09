@@ -430,3 +430,77 @@ env PATH=/Users/czj/Repos/nano-multiagent/.venv/bin:$PATH ./scripts/e2e-down.sh
 ## Recommended Next Step
 
 Do not accept `refactor-454` as fully passed. The previous "missing Feishu/Lark credentials" blocker is closed, but Round 4 found a real shadow group correctness issue. Route to `fix-implementation`, then Fast-lane re-review the Feishu group @Bot and non-mention shadow journeys with the same true-platform setup.
+
+---
+
+# Round 5 - 2026-07-09
+
+## Verdict
+
+- Verdict: pass
+- Highest Required Action: none
+- Review mode: Fast-lane true-platform Feishu revalidation after Issue 1 fix
+- Review worktree: `/Users/czj/Repos/nano-multiagent/.worktrees/unit-refactor-454`
+- Branch reviewed: `unit/refactor-454`
+- Needs re-review: false
+
+Round 5 closes the Round 4 Feishu shadow group blocker. The root cause was that Feishu group history returns the Bot's own messages with sender `id_type=app_id` and sender id equal to the application id, while the adapter only treated `botOpenId` as self. The fix now treats both the configured app id and `botOpenId` as self-sender ids before history catch-up mirrors messages into the IM shadow group.
+
+## Fix Evidence
+
+- Code fix: `src/personal_assistant/channels/feishu/adapter.py::_is_self_sender` now filters both the app id and `botOpenId`.
+- Regression test: `tests/unit/test_feishu_group_history_catchup.py::test_group_history_catchup_skips_bot_app_sender_echo_after_seen_trigger` covers the exact failure shape: a seen prior @ trigger, a Bot echo whose sender id is the app id, and a later ordinary group message.
+- Feishu unit suite: `PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest tests/unit/test_feishu*.py -q` -> `107 passed in 2.85s`.
+- Formatting/static checks:
+  - `git diff --check` -> pass.
+  - `/Users/czj/Repos/nano-multiagent/.venv/bin/ruff check src/personal_assistant/channels/feishu/adapter.py tests/unit/test_feishu_group_history_catchup.py` -> `All checks passed!`.
+
+## True-Platform Fast-Lane Revalidation
+
+1. Created a fresh private Feishu group `refactor-454-fix-20260709083009` with the user and Bot.
+2. Sent a real group @Bot message asking for exact reply `FEISHU-FIX-GROUP-OK-20260709083009`.
+3. Feishu group history showed the user @ message and exactly one Bot app-sender reply with content `FEISHU-FIX-GROUP-OK-20260709083009`.
+4. Sent a real unmentioned group message: `refactor-454 fix nonmention 20260709083009. This should sync as context only.`
+5. After 22 seconds, Feishu group history had:
+   - `message_total=5`
+   - `app_expected_count=1`
+   - `nonmention_count=1`
+   - no additional app/Bot reply after the non-mention message.
+6. IM public API shadow group readback had exactly the expected three user-visible messages:
+   - user @ message
+   - agent reply `FEISHU-FIX-GROUP-OK-20260709083009`
+   - user non-mention context message
+7. IM shadow group regression check:
+   - `agent_expected_count=1`
+   - `nonmention_user_count=1`
+   - `bad_user_bot_echo_count=0`
+
+## Acceptance Criteria Coverage - Round 5 Updates
+
+### Requirement: 外部 channel 与 shadow 会话行为不变 - 组内结论: pass
+
+| Scenario | 期望来源 | Round 5 验证方式 | Round 5 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| Feishu 群聊 @Bot 触发回复 | `motivation.md`, `docs/operator-runbook.md` | Real Feishu/Lark group @Bot message and IM public API shadow group readback | Feishu group contained user @ message + one app-sender Bot reply `FEISHU-FIX-GROUP-OK-20260709083009`; IM shadow group contained canonical user + agent messages | pass | Revalidated on fresh group after fix. |
+| Feishu 群聊未 @ 消息只同步上下文 | `motivation.md`, `docs/operator-runbook.md` | Real Feishu/Lark unmentioned group message, 22-second no-reply observation, and IM public API shadow group readback | Feishu group had no new Bot reply; IM shadow group synced the unmentioned user message and had `bad_user_bot_echo_count=0` | pass | Closes Round 4 Issue 1. |
+
+## Issue Closure
+
+### Round 4 Issue 1: Feishu shadow group mirrors the Bot's own reply as an extra user message
+
+- Status: closed
+- Closure evidence: true-platform group @Bot + non-mention journey on a fresh Feishu group showed `bad_user_bot_echo_count=0` in the IM shadow group.
+- Regression evidence: dedicated unit test covers app-id sender echoes in group history catch-up.
+
+## 上层文档同步
+
+- [x] `SPEC.md`：无需更新。本次是 Feishu adapter 的 sender 识别修复，不改变跨包架构契约。
+- [x] `docs/specs/gateway/spec.md`：无需更新。现有 Feishu/shadow sender 语义契约已覆盖该行为。
+- [x] `docs/specs/im/spec.md`：无需更新。IM shadow 可见语义未新增。
+- [x] `docs/specs/cli/spec.md`：无需更新。本轮未触及 CLI 用户契约。
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新。
+- [x] `docs/SPEC_GUIDE.md`：无需更新。
+
+## Recommended Next Step
+
+`refactor-454` is acceptable from the product/true-platform Feishu shadow perspective after this fix and Fast-lane revalidation.
