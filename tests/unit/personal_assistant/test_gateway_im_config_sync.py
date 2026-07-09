@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import httpx
@@ -422,6 +423,236 @@ class _NullPipeline:
 
     def drop_agent_sessions(self, agent_id: str) -> None:
         pass
+
+
+def test_skill_created_global_enables_explicit_allowlists_and_drops_all_sessions(
+    tmp_path: Path,
+) -> None:
+    global_root = (tmp_path / "global-skills").resolve()
+    ws_a = tmp_path / "agent-a"
+    ws_b = tmp_path / "agent-b"
+    ws_c = tmp_path / "agent-c"
+    config_path = tmp_path / "config.yaml"
+    requests: list[tuple[str, str, dict[str, object] | None]] = []
+
+    def _profile(agent_id: str, version: int, skills: list[str]) -> dict[str, object]:
+        return {
+            "agent_id": agent_id,
+            "display_name": agent_id,
+            "description": "",
+            "system_prompt": "",
+            "skills": skills,
+            "tool_allowlist": ["skill_manage"],
+            "group_reply_policy": "manual",
+            "default_model": None,
+            "workspace_root": str(tmp_path / agent_id),
+            "profile_version": version,
+            "features": {},
+            "custom_prompt": None,
+        }
+
+    versions = {"agent-a": 1, "agent-c": 1}
+    skills_by_agent = {"agent-a": ["old-skill"], "agent-c": ["existing-skill"]}
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        body = (
+            dict(json.loads(request.content.decode("utf-8")))
+            if request.content
+            else None
+        )
+        requests.append((request.method, request.url.path, body))
+        agent_id = request.url.path.split("/")[4]
+        if request.method == "GET":
+            return httpx.Response(
+                200,
+                json=_profile(agent_id, versions[agent_id], skills_by_agent[agent_id]),
+            )
+        if request.method == "PATCH":
+            assert body is not None
+            skills_by_agent[agent_id] = list(body["skills"])
+            versions[agent_id] += 1
+            return httpx.Response(
+                200,
+                json=_profile(agent_id, versions[agent_id], skills_by_agent[agent_id]),
+            )
+        raise AssertionError(f"unexpected request {request.method} {request.url.path}")
+
+    class _Pipeline:
+        def __init__(self) -> None:
+            self.registered: list[AgentWorkspaceConfig] = []
+            self.dropped: list[str] = []
+
+        def register_agent(self, agent: AgentWorkspaceConfig) -> None:
+            self.registered.append(agent)
+
+        def drop_agent_sessions(self, agent_id: str) -> None:
+            self.dropped.append(agent_id)
+
+    pipeline = _Pipeline()
+    local_config = LocalConfig(
+        node=NodeConfig(node_id="node-1"),
+        agents=(
+            AgentWorkspaceConfig(
+                agent_id="agent-a",
+                workspace_root=ws_a,
+                skills=("old-skill",),
+            ),
+            AgentWorkspaceConfig(agent_id="agent-b", workspace_root=ws_b, skills=()),
+            AgentWorkspaceConfig(
+                agent_id="agent-c",
+                workspace_root=ws_c,
+                skills=("existing-skill",),
+            ),
+        ),
+        channels=(),
+        kernel=KernelConfig(),
+        heartbeat=HeartbeatConfig(),
+        im_service=None,
+        llm=_DEFAULT_TEST_LLM,
+        source_path=config_path,
+    )
+    sync = _IMConfigSyncClient(
+        base_url="http://im.local",
+        token=None,
+        pipeline=pipeline,
+        local_config=local_config,
+        client=httpx.Client(
+            transport=httpx.MockTransport(_handler),
+            base_url="http://im.local",
+            trust_env=False,
+        ),
+        global_skill_root=global_root,
+        monotonic=lambda: 0.0,
+        sleep=lambda _: None,
+    )
+
+    sync.handle_skill_created(
+        "agent-a",
+        {
+            "name": "new-skill",
+            "scope": "global",
+            "skill_root": str(global_root),
+        },
+    )
+
+    patch_bodies = [
+        body for method, _path, body in requests if method == "PATCH" and body
+    ]
+    assert [body["skills"] for body in patch_bodies] == [
+        ["old-skill", "new-skill"],
+        ["existing-skill", "new-skill"],
+    ]
+    assert pipeline.dropped == ["agent-a", "agent-b", "agent-c"]
+    assert [agent.agent_id for agent in pipeline.registered] == ["agent-a", "agent-c"]
+
+
+def test_skill_created_agent_scope_only_enables_executing_agent(
+    tmp_path: Path,
+) -> None:
+    ws_a = tmp_path / "agent-a"
+    ws_b = tmp_path / "agent-b"
+    agent_root = (ws_a / ".nanoassistant" / "skills").resolve()
+    requests: list[tuple[str, str, dict[str, object] | None]] = []
+    version = 1
+    skills = ["old-skill"]
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        nonlocal version, skills
+        body = (
+            dict(json.loads(request.content.decode("utf-8")))
+            if request.content
+            else None
+        )
+        requests.append((request.method, request.url.path, body))
+        if request.method == "GET":
+            return httpx.Response(
+                200,
+                json={
+                    "agent_id": "agent-a",
+                    "display_name": "agent-a",
+                    "description": "",
+                    "system_prompt": "",
+                    "skills": skills,
+                    "tool_allowlist": [],
+                    "group_reply_policy": "manual",
+                    "default_model": None,
+                    "workspace_root": str(ws_a),
+                    "profile_version": version,
+                    "features": {},
+                    "custom_prompt": None,
+                },
+            )
+        if request.method == "PATCH":
+            assert body is not None
+            skills = list(body["skills"])
+            version += 1
+            return httpx.Response(
+                200,
+                json={**body, "agent_id": "agent-a", "profile_version": version},
+            )
+        raise AssertionError(f"unexpected request {request.method} {request.url.path}")
+
+    class _Pipeline:
+        def __init__(self) -> None:
+            self.registered: list[AgentWorkspaceConfig] = []
+            self.dropped: list[str] = []
+
+        def register_agent(self, agent: AgentWorkspaceConfig) -> None:
+            self.registered.append(agent)
+
+        def drop_agent_sessions(self, agent_id: str) -> None:
+            self.dropped.append(agent_id)
+
+    pipeline = _Pipeline()
+    sync = _IMConfigSyncClient(
+        base_url="http://im.local",
+        token=None,
+        pipeline=pipeline,
+        local_config=LocalConfig(
+            node=NodeConfig(node_id="node-1"),
+            agents=(
+                AgentWorkspaceConfig(
+                    agent_id="agent-a",
+                    workspace_root=ws_a,
+                    skills=("old-skill",),
+                ),
+                AgentWorkspaceConfig(
+                    agent_id="agent-b",
+                    workspace_root=ws_b,
+                    skills=("old-skill",),
+                ),
+            ),
+            channels=(),
+            kernel=KernelConfig(),
+            heartbeat=HeartbeatConfig(),
+            im_service=None,
+            llm=_DEFAULT_TEST_LLM,
+            source_path=tmp_path / "config.yaml",
+        ),
+        client=httpx.Client(
+            transport=httpx.MockTransport(_handler),
+            base_url="http://im.local",
+            trust_env=False,
+        ),
+        monotonic=lambda: 0.0,
+        sleep=lambda _: None,
+    )
+
+    sync.handle_skill_created(
+        "agent-a",
+        {
+            "name": "agent-skill",
+            "scope": "agent",
+            "skill_root": str(agent_root),
+        },
+    )
+
+    patch_bodies = [
+        body for method, _path, body in requests if method == "PATCH" and body
+    ]
+    assert [body["skills"] for body in patch_bodies] == [["old-skill", "agent-skill"]]
+    assert pipeline.dropped == ["agent-a"]
+    assert [agent.agent_id for agent in pipeline.registered] == ["agent-a"]
 
 
 def test_sync_agent_passes_through_features(tmp_path: Path) -> None:

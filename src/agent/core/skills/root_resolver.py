@@ -22,21 +22,21 @@ class ResolvedSkillRoots:
     search_roots: tuple[Path, ...]
     registry: SkillRegistry
     agent_writer: SkillWriter
-    pa_skill_root: Path | None = None
+    global_skill_root: Path | None = None
 
     def writer_for_scope(self, scope: str) -> SkillWriter:
         """Return the write-side SkillWriter for the requested create scope."""
         normalized = scope or "agent"
         if normalized == "agent":
             return self.agent_writer
-        if normalized != "pa":
-            raise ValueError("scope must be 'agent' or 'pa'")
-        if self.pa_skill_root is None:
-            raise ValueError("pa skill root is not configured")
-        pa_registry = SkillRegistry(
-            search_roots=(self.pa_skill_root, *self.search_roots)
+        if normalized != "global":
+            raise ValueError("scope must be 'agent' or 'global'")
+        if self.global_skill_root is None:
+            raise ValueError("global skill root is not configured")
+        global_registry = SkillRegistry(
+            search_roots=(self.global_skill_root, *self.search_roots)
         )
-        return SkillWriter(skill_root=self.pa_skill_root, registry=pa_registry)
+        return SkillWriter(skill_root=self.global_skill_root, registry=global_registry)
 
     def root_for_location(self, location: Path) -> Path:
         """Return the configured search root that owns a discovered skill file."""
@@ -57,7 +57,7 @@ def resolve_skill_roots(
     *,
     workspace_config_dirname: str | None,
     extra_roots: tuple[Path, ...] = (),
-    pa_skill_root: Path | None = None,
+    global_skill_root: Path | None = None,
 ) -> ResolvedSkillRoots:
     """Resolve per-session skill roots from ToolContext-like metadata.
 
@@ -65,7 +65,7 @@ def resolve_skill_roots(
         ctx: ToolContext-like object carrying ``session_metadata``.
         workspace_config_dirname: Product workspace config dir name.
         extra_roots: Deployment-level read/search roots appended after agent root.
-        pa_skill_root: Optional product-level root eligible for ``scope="pa"`` writes.
+        global_skill_root: Optional product-level root eligible for ``scope="global"`` writes.
 
     Returns:
         Resolved roots plus registry/writer objects.
@@ -84,9 +84,9 @@ def resolve_skill_roots(
 
     ws = Path(str(workspace_root)).expanduser().resolve()
     agent_root = (ws / str(dirname) / "skills").expanduser().resolve()
-    resolved_pa = (
-        Path(pa_skill_root).expanduser().resolve()
-        if pa_skill_root is not None
+    resolved_global = (
+        Path(global_skill_root).expanduser().resolve()
+        if global_skill_root is not None
         else None
     )
     search_roots: list[Path] = [agent_root]
@@ -100,7 +100,7 @@ def resolve_skill_roots(
         search_roots=tuple(search_roots),
         registry=registry,
         agent_writer=SkillWriter(skill_root=agent_root, registry=registry),
-        pa_skill_root=resolved_pa,
+        global_skill_root=resolved_global,
     )
 
 

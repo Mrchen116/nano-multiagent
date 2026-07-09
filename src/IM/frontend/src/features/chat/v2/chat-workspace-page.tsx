@@ -167,7 +167,7 @@ interface NodeRow {
   status: string;
 }
 
-type DistillTargetScope = "agent" | "pa";
+type DistillTargetScope = "agent" | "global";
 
 const DISTILL_SKILL_NAME = "conversation-skill-distiller";
 
@@ -182,7 +182,7 @@ function buildDistillDraft(input: {
   executionAgentId: string;
   targetScope: DistillTargetScope;
 }): string {
-  const scopeLabel = input.targetScope === "pa" ? "PA 产品" : "agent";
+  const scopeLabel = input.targetScope === "global" ? "global" : "agent";
   return [
     `/skill:${DISTILL_SKILL_NAME}`,
     "source_jsonl_paths:",
@@ -567,6 +567,18 @@ export function ChatWorkspacePageV2() {
     ? streamState.messages
     : [];
 
+  useEffect(() => {
+    conversationIdRef.current = conversationId;
+    setHistoryCursor(null);
+    setHasMoreHistory(null);
+    setIsLoadingHistory(false);
+    historyRequestRef.current = null;
+    pendingLiveMessageIdsRef.current.clear();
+    if (conversationId) {
+      dispatch({ type: "reset", conversationId, messages: [] });
+    }
+  }, [conversationId]);
+
   // Seed the reducer with REST history whenever the active conversation or its
   // historical fetch changes.  Prefer the persistent cache, then fallback to
   // the current reducer state.
@@ -593,18 +605,6 @@ export function ChatWorkspacePageV2() {
     dispatch({ type: "reset", conversationId, messages: restored, preserveMessageIds });
     pendingLiveMessageIdsRef.current.clear();
   }, [conversationId, messagesQuery.data]);
-
-  useEffect(() => {
-    conversationIdRef.current = conversationId;
-    setHistoryCursor(null);
-    setHasMoreHistory(null);
-    setIsLoadingHistory(false);
-    historyRequestRef.current = null;
-    pendingLiveMessageIdsRef.current.clear();
-    if (conversationId) {
-      dispatch({ type: "reset", conversationId, messages: [] });
-    }
-  }, [conversationId]);
 
   const loadOlderMessages = useCallback(async () => {
     if (!conversationId || !historyCursor || hasMoreHistory !== true || isLoadingHistory) return;
@@ -1120,14 +1120,14 @@ export function ChatWorkspacePageV2() {
                     />
                     <span>Agent</span>
                   </label>
-                  <label className={`chat-distill-scope${distillTargetScope === "pa" ? " chat-distill-scope--on" : ""}`}>
+                  <label className={`chat-distill-scope${distillTargetScope === "global" ? " chat-distill-scope--on" : ""}`}>
                     <input
                       type="radio"
                       name="distill-target-scope"
-                      checked={distillTargetScope === "pa"}
-                      onChange={() => setDistillTargetScope("pa")}
+                      checked={distillTargetScope === "global"}
+                      onChange={() => setDistillTargetScope("global")}
                     />
-                    <span>PA product</span>
+                    <span>Global</span>
                   </label>
                 </div>
               </section>

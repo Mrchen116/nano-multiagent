@@ -80,6 +80,15 @@ class _SkillViewPresenter:
 _SKILL_VIEW_PRESENTER = _SkillViewPresenter()
 
 
+def _session_skill_allowlist(metadata: Mapping[str, Any]) -> set[str] | None:
+    """Return the current session's enabled skill names, or None for unrestricted."""
+
+    raw = metadata.get("skills")
+    if not isinstance(raw, (list, tuple)):
+        return None
+    return {item.strip() for item in raw if isinstance(item, str) and item.strip()}
+
+
 class SkillViewTool:
     """Load a skill's SKILL.md content by name."""
 
@@ -112,10 +121,11 @@ class SkillViewTool:
         workspace_config_dirname: str | None = None,
         extra_roots: tuple[Path, ...] = (),
         pa_skill_root: Path | None = None,
+        global_skill_root: Path | None = None,
     ) -> None:
         self._workspace_config_dirname = workspace_config_dirname
         self._extra_roots = tuple(extra_roots)
-        self._pa_skill_root = pa_skill_root
+        self._global_skill_root = global_skill_root or pa_skill_root
         if skill_root is not None and registry is not None:
             self._fixed_skill_root = skill_root.expanduser().resolve()
             self._fixed_registry: SkillRegistry | None = registry
@@ -136,6 +146,14 @@ class SkillViewTool:
         try:
             resolved = self._resolve_skill_roots(ctx)
             registry = resolved.registry
+            metadata = dict(getattr(ctx, "session_metadata", {}) or {})
+            allowed = _session_skill_allowlist(metadata)
+            if allowed is not None and name not in allowed:
+                return {
+                    "success": False,
+                    "name": name,
+                    "error": f"Skill '{name}' is not enabled for this session",
+                }
             skills = registry.list_skills()
             skill = next((item for item in skills if item.name == name), None)
             if skill is None:
@@ -145,7 +163,6 @@ class SkillViewTool:
                     "error": f"Skill '{name}' not found",
                 }
             content = skill.location.read_text(encoding="utf-8")
-            metadata = dict(getattr(ctx, "session_metadata", {}) or {})
             owning_root = resolved.root_for_location(skill.location)
             usage_result = bump_skill_usage(
                 skill_root=owning_root,
@@ -199,7 +216,7 @@ class SkillViewTool:
             ctx,
             workspace_config_dirname=self._workspace_config_dirname,
             extra_roots=self._extra_roots,
-            pa_skill_root=self._pa_skill_root,
+            global_skill_root=self._global_skill_root,
         )
 
     def _register_invoked_skill(

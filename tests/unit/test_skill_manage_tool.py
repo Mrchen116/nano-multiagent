@@ -23,10 +23,12 @@ from agent.platform.tools.builtins.skill_manage import SkillManageTool
 _VALID_FM = "---\nname: my-skill\ndescription: A skill\n---\n\n# Body\n\nContent."
 
 
-def _make_ctx(workspace_root: Path) -> ToolContext:
+def _make_ctx(
+    workspace_root: Path, metadata: Mapping[str, Any] | None = None
+) -> ToolContext:
     """Minimal ToolContext for skill_manage (no safety checks needed)."""
     ctx = MagicMock(spec=ToolContext)
-    ctx.session_metadata = {"workspace_root": str(workspace_root)}
+    ctx.session_metadata = {"workspace_root": str(workspace_root), **(metadata or {})}
     ctx.cwd = workspace_root
     return ctx
 
@@ -82,13 +84,13 @@ def test_skill_manage_projects_write_actions(tool: SkillManageTool) -> None:
         {
             "action": "create",
             "name": "cold-joke-on-insult",
-            "scope": "workspace",
+            "scope": "global",
             "content": "---\nname: cold-joke-on-insult\n---\n\n# Body",
         }
     )
     assert "action=create" in projection
     assert "name=cold-joke-on-insult" in projection
-    assert "scope=workspace" in projection
+    assert "scope=global" in projection
     assert "content=" in projection
 
 
@@ -287,6 +289,53 @@ def test_list_action_returns_skills(tool: SkillManageTool, workspace: Path) -> N
     assert "list-skill" in str(result.get("skills", ""))
 
 
+def test_list_action_respects_session_enabled_skills(
+    tool: SkillManageTool, workspace: Path
+) -> None:
+    ctx = _make_ctx(workspace)
+    for name in ("enabled-skill", "disabled-skill"):
+        tool.run(
+            {
+                "action": "create",
+                "name": name,
+                "content": _VALID_FM.replace("my-skill", name),
+            },
+            ctx,
+        )
+
+    result = tool.run(
+        {"action": "list"},
+        _make_ctx(workspace, {"skills": ["enabled-skill"]}),
+    )
+
+    assert result.get("success") is True
+    names = [item["name"] for item in result.get("skills", [])]
+    assert names == ["enabled-skill"]
+
+
+def test_list_action_respects_empty_session_enabled_skills(
+    tool: SkillManageTool, workspace: Path
+) -> None:
+    ctx = _make_ctx(workspace)
+    tool.run(
+        {
+            "action": "create",
+            "name": "disabled-skill",
+            "content": _VALID_FM.replace("my-skill", "disabled-skill"),
+        },
+        ctx,
+    )
+
+    result = tool.run(
+        {"action": "list"},
+        _make_ctx(workspace, {"skills": []}),
+    )
+
+    assert result.get("success") is True
+    assert result.get("count") == 0
+    assert result.get("skills") == []
+
+
 def test_list_empty_returns_empty(tool: SkillManageTool, workspace: Path) -> None:
     ctx = _make_ctx(workspace)
     result = tool.run({"action": "list"}, ctx)
@@ -322,56 +371,59 @@ def test_create_action_accepts_agent_scope_by_default(
     assert (workspace / "agent-skill" / "SKILL.md").exists()
 
 
-def test_create_pa_scope_writes_pa_root(tmp_path: Path) -> None:
+def test_create_global_scope_writes_global_root(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
-    pa_root = tmp_path / "pa-skills"
+    global_root = tmp_path / "global-skills"
     workspace.mkdir()
-    pa_root.mkdir()
+    global_root.mkdir()
     tool = SkillManageTool(
         workspace_config_dirname=".nanoassistant",
-        extra_roots=(pa_root,),
-        pa_skill_root=pa_root,
+        extra_roots=(global_root,),
+        global_skill_root=global_root,
     )
     ctx = _make_ctx(workspace)
 
     result = tool.run(
         {
             "action": "create",
-            "scope": "pa",
-            "name": "pa-skill",
-            "content": _VALID_FM.replace("my-skill", "pa-skill"),
+            "scope": "global",
+            "name": "global-skill",
+            "content": _VALID_FM.replace("my-skill", "global-skill"),
         },
         ctx,
     )
 
     assert result.get("success") is True
-    assert (pa_root / "pa-skill" / "SKILL.md").exists()
-    assert not (workspace / ".nanoassistant" / "skills" / "pa-skill").exists()
+    assert result.get("scope") == "global"
+    assert result.get("name") == "global-skill"
+    assert result.get("skill_root") == str(global_root.resolve())
+    assert (global_root / "global-skill" / "SKILL.md").exists()
+    assert not (workspace / ".nanoassistant" / "skills" / "global-skill").exists()
 
 
-def test_patch_pa_scope_updates_pa_root(tmp_path: Path) -> None:
+def test_patch_global_scope_updates_global_root(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
-    pa_root = tmp_path / "pa-skills"
+    global_root = tmp_path / "global-skills"
     workspace.mkdir()
-    pa_root.mkdir()
-    skill_file = pa_root / "pa-skill" / "SKILL.md"
+    global_root.mkdir()
+    skill_file = global_root / "global-skill" / "SKILL.md"
     skill_file.parent.mkdir()
     skill_file.write_text(
-        _VALID_FM.replace("my-skill", "pa-skill") + "\nOld sentence.",
+        _VALID_FM.replace("my-skill", "global-skill") + "\nOld sentence.",
         encoding="utf-8",
     )
     tool = SkillManageTool(
         workspace_config_dirname=".nanoassistant",
-        extra_roots=(pa_root,),
-        pa_skill_root=pa_root,
+        extra_roots=(global_root,),
+        global_skill_root=global_root,
     )
     ctx = _make_ctx(workspace)
 
     result = tool.run(
         {
             "action": "patch",
-            "scope": "pa",
-            "name": "pa-skill",
+            "scope": "global",
+            "name": "global-skill",
             "old_string": "Old sentence.",
             "new_string": "New sentence.",
         },
@@ -380,10 +432,10 @@ def test_patch_pa_scope_updates_pa_root(tmp_path: Path) -> None:
 
     assert result.get("success") is True
     assert "New sentence." in skill_file.read_text(encoding="utf-8")
-    assert not (workspace / ".nanoassistant" / "skills" / "pa-skill").exists()
+    assert not (workspace / ".nanoassistant" / "skills" / "global-skill").exists()
 
 
-def test_create_pa_scope_fails_without_pa_root(tmp_path: Path) -> None:
+def test_create_global_scope_fails_without_global_root(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     tool = SkillManageTool(workspace_config_dirname=".nanoassistant")
@@ -392,16 +444,16 @@ def test_create_pa_scope_fails_without_pa_root(tmp_path: Path) -> None:
     result = tool.run(
         {
             "action": "create",
-            "scope": "pa",
-            "name": "pa-skill",
-            "content": _VALID_FM.replace("my-skill", "pa-skill"),
+            "scope": "global",
+            "name": "global-skill",
+            "content": _VALID_FM.replace("my-skill", "global-skill"),
         },
         ctx,
     )
 
     assert result.get("success") is False
-    assert "pa skill root is not configured" in result.get("error", "")
-    assert not (workspace / ".nanoassistant" / "skills" / "pa-skill").exists()
+    assert "global skill root is not configured" in result.get("error", "")
+    assert not (workspace / ".nanoassistant" / "skills" / "global-skill").exists()
 
 
 # ---------------------------------------------------------------------------

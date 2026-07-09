@@ -54,16 +54,16 @@ _WHITELIST: frozenset[str] = frozenset(
         # refactor-406-M3fix #2 added tool_search_roots/hook_search_roots params (131→140).
         # feat-446-M1 R3 added skill reinjection helpers above build_kernel, shifted to 210.
         # feat-446 round-4 contract fix: helper removals compacted build_kernel back to 141,
-        # then utc_now_iso import shifted the fallback line to 142.
-        "src/agent/sdk/kernel.py:142",
+        # utc_now_iso import shifted the fallback line to 142; global_skill_root param to 143.
+        "src/agent/sdk/kernel.py:143",
         # kernel.py: M3fix #2 workspace .nano/hooks dir for the _SearchRootsResolver
         # (决策2-style workspace discovery; literal .nano, not workspace_config_dirname);
         # M3fix-r2 dead-code removal shifted 369→370.
         # bugfix-426-M1: RunInfo.injected docstring lines in _to_run_info shifted 370→375.
         # feat-446-M1 R3 helper block shifted 376→448.
         # feat-446 round-4 contract fix: helper removals compacted the hook root literal to 379,
-        # then utc_now_iso import shifted it to 380.
-        "src/agent/sdk/kernel.py:380",
+        # utc_now_iso import shifted it to 380; global_skill_root param to 382.
+        "src/agent/sdk/kernel.py:382",
         # kernel.py: M3fix-r2 R2-1 workspace .nano/tools dir loaded via
         # _load_tools_from_single_dir(replace=True) (决策2 workspace discovery; literal .nano).
         # bugfix-417-M7: foreground_stopper injection comment expanded (decision 12); shifted 480→483.
@@ -74,8 +74,8 @@ _WHITELIST: frozenset[str] = frozenset(
         # docstring and foreground stopper shifts; .nano/tools literal now at 515.
         # feat-446-M1 R3 helper block shifted 516→591.
         # feat-446 round-4 contract fix: helper removals compacted the tools root literal to 523,
-        # then utc_now_iso import shifted it to 524.
-        "src/agent/sdk/kernel.py:524",
+        # utc_now_iso import shifted it to 524; global_skill_root param to 526.
+        "src/agent/sdk/kernel.py:526",
         # skills/discovery.py: .nano skill search root — platform default, pre-185
         "src/agent/core/skills/discovery.py:45",
         # jsonl_store.py: .nano default parameter — used as fallback, not per-workspace hardcode

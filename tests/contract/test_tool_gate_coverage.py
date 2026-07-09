@@ -36,7 +36,7 @@ EXPECTED_GATE_POSITION: dict[str, str] = {
     "write": "check",
     "web_fetch": "check",
     "skill_manage": "check",  # list fast-paths; writes pass through to classifier
-    "skill_view": "classifier",  # new builtin; explicit gate position required
+    "skill_view": "allowlist",  # read-only skill inspection, no classifier needed
 }
 
 

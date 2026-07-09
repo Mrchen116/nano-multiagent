@@ -453,6 +453,8 @@ class AgentRuntime:
         )
         hook_metadata["cwd"] = str(session_workspace_root)
         hook_metadata["transcript_path"] = str(path)
+        if config.skills is not None:
+            hook_metadata["skills"] = list(config.skills)
         # feat-436: 按当前 run 的 model 取上下文窗口（前端 token 显示分母随之 per-model）；
         # 未配 / 未知 / 注册表未初始化时回退全局默认。
         hook_metadata["context_window"] = (

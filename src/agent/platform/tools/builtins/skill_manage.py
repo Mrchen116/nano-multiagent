@@ -154,6 +154,15 @@ class _SkillManagePresenter:
 _SKILL_MANAGE_PRESENTER = _SkillManagePresenter()
 
 
+def _session_skill_allowlist(metadata: Mapping[str, Any]) -> set[str] | None:
+    """Return the current session's enabled skill names, or None for unrestricted."""
+
+    raw = metadata.get("skills")
+    if not isinstance(raw, (list, tuple)):
+        return None
+    return {item.strip() for item in raw if isinstance(item, str) and item.strip()}
+
+
 class SkillManageTool:
     """Manage user skills: create, edit, patch, list, and support files.
 
@@ -179,7 +188,7 @@ class SkillManageTool:
         "Manage persistent skill files that teach you how to do classes of tasks.\n\n"
         "ACTIONS:\n"
         "- create: Create a new skill (name + content with YAML frontmatter). "
-        "Optional scope='agent'|'pa' controls the write root.\n"
+        "Optional scope='agent'|'global' controls the write root.\n"
         "- edit: Fully replace an existing skill's SKILL.md content.\n"
         "- patch: Apply a find-and-replace to an existing skill (old_string → new_string).\n"
         "- list: List all available skill names and descriptions.\n"
@@ -224,7 +233,7 @@ class SkillManageTool:
             },
             "scope": {
                 "type": "string",
-                "enum": ["agent", "pa"],
+                "enum": ["agent", "global"],
                 "description": "Destination scope for write actions. Defaults to agent.",
             },
             "old_string": {
@@ -259,6 +268,7 @@ class SkillManageTool:
         workspace_config_dirname: str | None = None,
         extra_roots: tuple[Path, ...] = (),
         pa_skill_root: Path | None = None,
+        global_skill_root: Path | None = None,
     ) -> None:
         """Construct the skill-manage tool.
 
@@ -274,7 +284,7 @@ class SkillManageTool:
         """
         self._workspace_config_dirname = workspace_config_dirname
         self._extra_roots = tuple(extra_roots)
-        self._pa_skill_root = pa_skill_root
+        self._global_skill_root = global_skill_root or pa_skill_root
         self._fixed_skill_root = (
             skill_root.expanduser().resolve() if skill_root else None
         )
@@ -362,8 +372,8 @@ class SkillManageTool:
                 search_roots=(self._fixed_skill_root,),
                 registry=self._fixed_registry,
                 agent_writer=self._fixed_writer,
-                pa_skill_root=self._pa_skill_root.expanduser().resolve()
-                if self._pa_skill_root is not None
+                global_skill_root=self._global_skill_root.expanduser().resolve()
+                if self._global_skill_root is not None
                 else None,
             )
 
@@ -371,7 +381,7 @@ class SkillManageTool:
             ctx,
             workspace_config_dirname=self._workspace_config_dirname,
             extra_roots=self._extra_roots,
-            pa_skill_root=self._pa_skill_root,
+            global_skill_root=self._global_skill_root,
         )
 
     def serialize_result(self, output: Any, error: str | None = None) -> str:
@@ -401,7 +411,7 @@ class SkillManageTool:
         if action == "create":
             return self._create(args, roots, metadata=metadata)
         if action == "list":
-            return self._list(roots.registry)
+            return self._list(roots.registry, metadata=metadata)
         writer = roots.writer_for_scope(str(args.get("scope") or "agent"))
         if action == "edit":
             return self._edit(args, writer)
@@ -469,12 +479,21 @@ class SkillManageTool:
         scope = str(args.get("scope") or "agent")
         writer = roots.writer_for_scope(scope)
         path = writer.create(str(name), str(content))
+        skill_root = Path(path).parent.parent
         ensure_skill_record(
-            skill_root=Path(path).parent.parent,
+            skill_root=skill_root,
             skill_name=str(name),
             source=source_from_metadata(dict(metadata)),
         )
-        return {"success": True, "message": f"created skill '{name}' at {path}"}
+        return {
+            "success": True,
+            "action": "create",
+            "name": str(name),
+            "scope": scope,
+            "location": str(path),
+            "skill_root": str(skill_root),
+            "message": f"created skill '{name}' at {path}",
+        }
 
     def _edit(self, args: Mapping[str, Any], writer: SkillWriter) -> Mapping[str, Any]:
         name = args.get("name")
@@ -501,7 +520,12 @@ class SkillManageTool:
         )
         return {"success": True, "message": f"patched skill '{name}' at {path}"}
 
-    def _list(self, registry: SkillRegistry) -> Mapping[str, Any]:
+    def _list(
+        self, registry: SkillRegistry, *, metadata: Mapping[str, Any]
+    ) -> Mapping[str, Any]:
         skills = registry.list_skills()
+        allowed = _session_skill_allowlist(metadata)
+        if allowed is not None:
+            skills = tuple(skill for skill in skills if skill.name in allowed)
         skill_list = [{"name": s.name, "description": s.description} for s in skills]
         return {"success": True, "skills": skill_list, "count": len(skill_list)}

@@ -192,6 +192,37 @@ def test_skill_view_failure_does_not_create_usage_file(tmp_path: Path) -> None:
     assert ctx.registered == []
 
 
+def test_skill_view_rejects_skills_not_enabled_for_session(tmp_path: Path) -> None:
+    skill_root = tmp_path / ".nanoassistant" / "skills"
+    _write_skill(skill_root, "enabled-skill")
+    _write_skill(skill_root, "disabled-skill")
+    tool = SkillViewTool(workspace_config_dirname=".nanoassistant")
+    ctx = _Ctx(workspace_root=tmp_path, metadata={"skills": ["enabled-skill"]})
+
+    result = tool.run({"name": "disabled-skill"}, ctx)  # type: ignore[arg-type]
+
+    assert result["success"] is False
+    assert "not enabled" in result["error"]
+    assert not (skill_root / ".usage.json").exists()
+    assert ctx.registered == []
+
+
+def test_skill_view_rejects_all_skills_when_session_enabled_skills_empty(
+    tmp_path: Path,
+) -> None:
+    skill_root = tmp_path / ".nanoassistant" / "skills"
+    _write_skill(skill_root, "disabled-skill")
+    tool = SkillViewTool(workspace_config_dirname=".nanoassistant")
+    ctx = _Ctx(workspace_root=tmp_path, metadata={"skills": []})
+
+    result = tool.run({"name": "disabled-skill"}, ctx)  # type: ignore[arg-type]
+
+    assert result["success"] is False
+    assert "not enabled" in result["error"]
+    assert not (skill_root / ".usage.json").exists()
+    assert ctx.registered == []
+
+
 def test_skill_view_uses_existing_registry_precedence(tmp_path: Path) -> None:
     agent_root = tmp_path / "agent"
     shared_root = tmp_path / "shared"

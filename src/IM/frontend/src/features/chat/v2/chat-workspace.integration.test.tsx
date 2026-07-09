@@ -310,10 +310,10 @@ function mockFetch(opts: {
   return fn;
 }
 
-function renderAtRoute(initial: string) {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+function renderAtRoute(initial: string, queryClient?: QueryClient) {
+  const client = queryClient ?? new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <QueryClientProvider client={queryClient}>
+    <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[initial]}>
         <Routes>
           <Route path="/chat" element={<ChatWorkspacePageV2 />} />
@@ -366,6 +366,21 @@ describe("ChatWorkspacePage v2 — integration", () => {
     expect(screen.getByRole("heading", { name: "Planner" })).toBeInTheDocument();
   });
 
+  it("renders cached route history after client-side navigation without requiring refresh", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Infinity } }
+    });
+    queryClient.setQueryData(["chat-v2", "conversations"], FIXTURES.conversations);
+    queryClient.setQueryData(["chat-v2", "messages", "c1"], {
+      items: FIXTURES.messagesC1,
+      next_before_message_id: null
+    });
+
+    renderAtRoute("/chat/c1", queryClient);
+
+    expect(await screen.findByText("Hi Planner")).toBeInTheDocument();
+  });
+
   it("prefills the distiller skill prompt for a single-source conversation", async () => {
     const user = userEvent.setup();
     renderAtRoute("/chat");
@@ -414,12 +429,12 @@ describe("ChatWorkspacePage v2 — integration", () => {
 
     expect(screen.getByText("Execution agent")).toBeInTheDocument();
     await user.click(screen.getByRole("radio", { name: /Writer/ }));
-    await user.click(screen.getByRole("radio", { name: "PA product" }));
+    await user.click(screen.getByRole("radio", { name: "Global" }));
     await user.click(screen.getByRole("button", { name: "Start distillation" }));
 
     const composer = await screen.findByRole("textbox") as HTMLTextAreaElement;
     await waitFor(() => expect(composer.value).toContain("execution_agent_id: a-writer"));
-    expect(composer.value).toContain("target_scope: pa");
+    expect(composer.value).toContain("target_scope: global");
     expect(composer.value).toContain("  /tmp/planner-session.jsonl");
     expect(composer.value).toContain("  /tmp/writer-session.jsonl");
   });

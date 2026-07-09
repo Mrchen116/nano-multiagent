@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, vi } from "vitest";
 
@@ -203,7 +203,13 @@ describe("agent detail page", () => {
     expect(screen.getByText("3")).toBeInTheDocument();
     expect(screen.getByText("active")).toBeInTheDocument();
     expect(screen.getByText("自动沉淀")).toBeInTheDocument();
-    expect(screen.getByTestId("skill-trend-deploy-check")).toBeInTheDocument();
+    const trend = screen.getByTestId("skill-trend-deploy-check");
+    expect(trend).toBeInTheDocument();
+    const trendBars = within(trend).getAllByLabelText(/skill uses/);
+    await user.hover(trendBars[trendBars.length - 1]);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(/skill uses on/);
+    await user.unhover(trendBars[trendBars.length - 1]);
+    expect(screen.queryByRole("tooltip")).toBeNull();
     expect(screen.queryByText("old-skill")).toBeNull();
 
     await user.click(screen.getByRole("button", { name: /显示 archived/i }));
@@ -249,8 +255,20 @@ describe("agent detail page", () => {
 
     await user.click(screen.getByRole("button", { name: "Agent 维度" }));
     expect(screen.getByText("使用热力图")).toBeInTheDocument();
+    expect(screen.getByText(/次 · 最近 30 天 · 悬停查看/)).toBeInTheDocument();
     expect(screen.getByTestId("skills-agent-heatmap")).toBeInTheDocument();
-    expect(screen.getByText(/最近 30 天/)).toBeInTheDocument();
+    expect(screen.getByText("Less")).toBeInTheDocument();
+    expect(screen.getByText("More")).toBeInTheDocument();
+    expect(screen.getByText("Mon")).toBeInTheDocument();
+    expect(screen.getByText("Wed")).toBeInTheDocument();
+    expect(screen.getByText("Fri")).toBeInTheDocument();
+    expect(screen.getByText("自动创建的 Skill")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "使用次数" })).toBeInTheDocument();
+    const contributionCells = screen.getAllByLabelText(/skill uses/);
+    await user.hover(contributionCells[contributionCells.length - 1]);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(/skill uses on/);
+    await user.unhover(contributionCells[contributionCells.length - 1]);
+    expect(screen.queryByRole("tooltip")).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "自进化健康度" }));
     expect(screen.getByText("自进化存活率")).toBeInTheDocument();

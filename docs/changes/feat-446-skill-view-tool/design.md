@@ -24,6 +24,7 @@
 | `coding_cli/product.py` | DEFAULT_ENABLED_TOOLS 含 skill_manage | 加 skill_view |
 | `personal_assistant/product.py` | DEFAULT_TOOL_IDS 含 skill_manage | 加 skill_view |
 | `personal_assistant/reporter/capability_projection.py` | PA_DEFAULT_TOOL_IDS 含 skill_manage | 加 skill_view |
+| `personal_assistant/main.py` / `gateway/inbound_pipeline.py` | IM config.sync 后更新本地 agent 配置并丢弃旧 session binding；已有 tool_end 事件流只用于展示/relay | 成功创建 agent/global-scope skill 后，由 PA 产品层按写入范围把新 skill 并入对应 agent 的启用列表，并复用现有 config.sync/drop-session 语义让新 session 生效 |
 | `core/agent/compaction/` | compaction 机制，无 skill 内容保留 | 新增 invoked skills 注入 |
 | `platform/tools/builtins/` | 无 skill_view 工具 | 新增 `skill_view.py` |
 | `core/skills/` | 无 usage 追踪 | 新增 `usage.py` |
@@ -33,17 +34,22 @@
 | `sdk/kernel.py` / runtime housekeeping | 已注册 self-evolution builtins，无 skill 维护入口 | 新增 SDK 内部 skill maintenance 入口负责 Curator 扫描；runtime 提供 F4 background fork enqueue 入口 |
 | `src/personal_assistant/builtin_skills/conversation-skill-distiller/SKILL.md` (新增) | 无历史会话蒸馏内置 skill | 作为 PA 包内内置 skill 源，复用 feat-447 的 built-in skill bootstrap 安装到 `~/.nanoassistant/skills` |
 | `IM/frontend/` | 无 skill 使用面板 | 新增面板组件 + 调用新增 API |
+| `IM/frontend/src/features/settings/agents/` | Agent 配置页按 `config.skills` 决定 skill pill 是否选中，capabilities 只提供候选 | 成功创建 agent-scope skill 后，配置页必须显示该 skill 已启用；在线场景读取 live/effective 配置，不能只看 stale mirror |
 | `IM/frontend/src/features/chat/v2/components/tool-*` | memory/skill_manage 已有专属工具卡片，未知工具走通用展示 | 新增 skill_view 工具行专属展示（折叠摘要、展开详情、失败态） |
 | `IM/app/` (routes) | 无 skills usage API | 新增 HTTP route |
 | Gateway | 无 skills usage WS RPC | 新增 WS handler 读 .usage.json |
 
 PA 默认工具语义沿用现状：`personal_assistant/product.py::DEFAULT_TOOL_IDS` 只在 agent 没有非空 `tool_allowlist` 时作为默认启用集合；已有非空 `tool_allowlist` 是用户选择的精确白名单，本 unit 不自动给这些 agent 追加 `skill_view`。配置页保存取消选择后，也通过显式白名单表达“不启用 `skill_view`”。
 
+Skill 启用语义需区分两类用户创建行为：当前 agent 通过 `skill_manage(create, scope="agent")` 新建到 workspace 的 skill，是对该 agent 的显式新增能力，成功后进入该 agent 启用列表；通过 `skill_manage(create, scope="global")` 新建到全局 root 的 skill，是用户选择共享给所有 agent 的能力，成功后默认进入所有 agent 的启用列表。当前代码中 `skill_manage(create)` 只写文件和 usage 记录，`agent.skills` 显式 allowlist 不会变化；配置页因此会把新 skill 显示为未选中，且下一次 Gateway 创建 kernel session 时也不会把它注入 `<available_skills>`。
+
 ### 既有约束
 
 - `coding_cli` / `personal_assistant` 只能 import `agent.sdk`，不能 import `agent.core` / `agent.platform` 内部
 - tool 注册通过 `kernel._register_self_evolution_builtins()` 统一入口
 - session metadata 携带 `workspace_root` + `workspace_config_dirname`，是 per-session skill root 解析的唯一依据
+- `skill_manage` 是 product-neutral 内核/platform 工具，不直接 import PA/IM 配置服务；PA 专属配置同步必须在 Gateway 产品层响应结构化工具结果/事件
+- 已存在 kernel session 的系统提示词不热改；Gateway config.sync 后丢弃 conversation -> kernel session binding，下一条消息创建新 session 时读取最新 `agent.skills`
 - compaction 通过 `compact_boundary` JSONL entry + summary turn 实现，系统提示词每轮重建
 - `core` 层可用 `atomic_write` 做文件 IO（MemoryStore 已有先例），但不依赖环境特定 API
 
@@ -228,11 +234,22 @@ skill_manage（写侧）:
 
 **选了复用 feat-447 M10 的 PA built-in skill bootstrap，`conversation-skill-distiller` 作为包内内置 skill 分发**。
 
-- **理由**: `conversation-skill-distiller` 是 PA 产品级操作入口，不属于某个 agent workspace；新安装用户不能依赖开发仓里手工放置的 skill 文件。feat-447 已经为 `feishu-doc` 设计了通用 built-in skill 分发路径，本 unit 应共享同一套目录、package data 和启动复制逻辑。
+- **理由**: `conversation-skill-distiller` 是 global root 内置操作入口，不属于某个 agent workspace；新安装用户不能依赖开发仓里手工放置的 skill 文件。feat-447 已经为 `feishu-doc` 设计了通用 built-in skill 分发路径，本 unit 应共享同一套目录、package data 和启动复制逻辑。
 - **源位置**: `src/personal_assistant/builtin_skills/conversation-skill-distiller/SKILL.md`；如需参考资料，放同目录 `references/`。
 - **运行态安装**: Gateway 启动时扫描包内 `builtin_skills/*/SKILL.md`，缺失时复制整个目录到 `~/.nanoassistant/skills/<skill-name>/`，已存在时不覆盖用户本地改动。该 helper 若已由 feat-447 M10 落地，本 unit 只新增 `conversation-skill-distiller` 目录；若本 unit 先落地，必须实现同一通用 helper，不能写成 feishu 或 distill 专用逻辑。
 - **agent skills 语义**: 未显式配置 `skills` 的 agent 按全部可发现 skills 解析，会自然看到该内置 skill。已显式配置 `skills` allowlist 的 agent 不自动追加 `conversation-skill-distiller`；IM 历史会话蒸馏入口在生成预填消息前应确认本次执行 agent 可发现该 skill，不可用时提示用户到配置页启用，而不是静默发送一个无法加载的 `/skill:`。
 - **拒绝**: 把蒸馏 skill 放进某个 agent workspace — 其他 agent 不可见；也拒绝新增 repo 根目录 `skills/` 搜索根 — Gateway 运行不应依赖源码 cwd。
+
+### 决策 7.1: 新建 skill 的默认启用语义
+
+**选了按写入范围默认启用：`agent` 只启用给执行 agent，`global` 默认启用给所有 agent**。
+
+- **理由**: 用户/agent 调用 `skill_manage(create)` 是显式新增能力；创建后仍显示灰色、且新 session 不加载，会把“已创建”与“可使用”割裂。`scope="global"` 的用户含义是所有 agent 默认可用，不是“共享候选但仍需逐个启用”。
+- **实现归属**: `skill_manage` 保持 product-neutral，只在 create 成功结果中结构化返回 `name`、`scope`、`location`、`skill_root`。PA Gateway 产品层观察成功的 `skill_manage(create)` 结果；当 `scope=="agent"` 且 `location` 位于执行 agent 的 `<workspace_root>/.nanoassistant/skills/<name>/SKILL.md` 下时，将 `name` 并入执行 agent 的启用列表；当 `scope=="global"` 且 `location` 位于 global skill root 下时，将 `name` 并入所有已显式配置 `skills` allowlist 的 agent。
+- **配置同步**: 若目标 agent 已有非空 `skills` allowlist，则追加新 skill 并通过 IM 配置更新/同步链路持久化；若目标 agent 未显式配置 `skills`（运行时语义为全部可发现），不 materialize 全量列表，新 skill 已自然生效。无论哪种情况，配置页在线读取时必须把该 skill 展示为启用。新建 agent 继承默认“全部可发现”语义，因此天然带上 global skill。
+- **会话语义**: 不热改已有 kernel session，也不改写旧 session JSONL。配置更新后复用现有 `config.sync -> register_agent -> drop_agent_sessions` 语义；受影响 agent 的下一条消息会创建新 kernel session 并用最新 `agent.skills` 组装系统提示词。
+- **拒绝**: 在 `skill_manage` 内直接 import PA/IM 配置服务 — 会破坏内核/platform 的产品中立边界。也拒绝在 Gateway 启动或 capabilities 扫描时把所有 workspace skill 自动塞进 allowlist — 这会让用户手动取消的 workspace skill 被下次扫描重新启用。
+- **非目标**: 历史已存在但未启用的 workspace/global skill 不因扫描自动启用；用户在某个 agent 配置页手动取消的 global skill 不因后续 capabilities 扫描自动恢复。
 
 ### 决策 8: F4 Batch 触发与执行
 
@@ -317,6 +334,45 @@ agent 调用 skill_view(name="change-spec-author")
   │
   └─ 4. if F4Trigger: runtime.enqueue_skill_batch_review(trigger)
 ```
+
+### skill 创建后的自动启用流
+
+```
+agent 调用 skill_manage(action="create", scope="agent", name="tell-joke-when-angry", ...)
+  │
+  ├─ 1. SkillManageTool._create()
+  │     ├─ roots.writer_for_scope("agent") 写入当前 agent workspace skill root
+  │     ├─ ensure_skill_record(..., source=F1/F3/F4/unknown)
+  │     └─ 返回结构化结果:
+  │          {
+  │            success: true,
+  │            name: "tell-joke-when-angry",
+  │            scope: "agent",
+  │            location: "<workspace>/.nanoassistant/skills/tell-joke-when-angry/SKILL.md",
+  │            skill_root: "<workspace>/.nanoassistant/skills",
+  │            message: "created skill ..."
+  │          }
+  │
+  ├─ 2. PA Gateway 观察 tool_end / ToolResult 输出
+  │     ├─ success != true → 忽略
+  │     ├─ action != create → 忽略
+  │     ├─ scope == agent 且 location 在当前 agent workspace skill root 下
+  │     │    └─ 当前 agent.skills 非空且不含 name → skills = old + [name]
+  │     ├─ scope == global 且 location 在 global skill root 下
+  │     │    └─ 所有 agent.skills 非空且不含 name → skills = old + [name]
+  │     └─ 其他 scope / location 不匹配 → 忽略
+  │
+  ├─ 3. Gateway 持久化 + 同步 agent 配置
+  │     ├─ 更新本地 `.gateway-config.yaml` / LocalConfig
+  │     ├─ 更新 IM mirror（PATCH agent config 或等价的配置同步 helper，带 profile_version 冲突处理）
+  │     └─ 复用已有 config.sync 语义，确保 Gateway live config 与 IM profile 收敛
+  │
+  └─ 4. Gateway 丢弃受影响 agent 的 conversation → kernel session binding
+        ├─ 已存在 kernel session 和正在运行的 turn 不热改
+        └─ 下一条消息创建新 kernel session，按最新 skills allowlist 注入 <available_skills>
+```
+
+若 agent 当前 `skills` 为空/未显式配置（运行时等价“全部可发现”），步骤 2 不 materialize 全部可发现 skills，也不把 roots 展开的几十个 skill 写进配置；新建 skill 已经因“全部可发现”自然生效。配置页在线展示有效启用状态时，应把该新 skill 显示为启用，而不是仅按 stale mirror 的空数组渲染为灰色。
 
 ### Curator 扫描流
 
@@ -448,7 +504,7 @@ IM 工具调用面板
 
 ### F2 蒸馏数据流
 
-F2 是端到端用户旅程，不只是一个蒸馏 skill 文件。`conversation-skill-distiller` 本身是 PA built-in skill，源文件放在 `src/personal_assistant/builtin_skills/conversation-skill-distiller/SKILL.md`，通过与 feat-447 `feishu-doc` 相同的 built-in skill bootstrap 安装到 `~/.nanoassistant/skills`。IM 前端仍从 conversation 列表发起，但跳转新对话时预填给 agent 的不是 conversation ID，而是所选 conversation 对应的 JSONL 绝对路径列表。字段名统一为 `source_jsonl_paths`：IM 负责把用户选中的可见 conversation 解析成完整 JSONL 路径；若所选 conversation 都属于同一个 agent，IM 自动把该 agent 作为执行 agent；若所选 conversation 来自多个 agent，IM 在弹窗中让用户选择执行 agent。同一弹窗再让用户选择写入范围（agent 级 / PA 产品级）；确认后跳转到执行 agent 的新对话，并预填现有 `/skill:conversation-skill-distiller` 调用、`source_jsonl_paths`、`execution_agent_id`、`target_scope` 和可编辑意图。用户发送后，这就是一条普通聊天消息，Gateway 不解析 `source_jsonl_paths`、不读取 transcript、也不注入隐藏上下文。蒸馏 skill 负责指导 agent 从消息文本读取 JSONL 路径，按现有工具能力读取这些 JSONL 文件，并根据用户意图生成并写入 SKILL.md。写入结果只走现有工具调用展示/普通 assistant 回复，不新增专门的 SKILL.md 草稿预览/确认 UI。
+F2 是端到端用户旅程，不只是一个蒸馏 skill 文件。`conversation-skill-distiller` 本身是 PA built-in skill，源文件放在 `src/personal_assistant/builtin_skills/conversation-skill-distiller/SKILL.md`，通过与 feat-447 `feishu-doc` 相同的 built-in skill bootstrap 安装到 `~/.nanoassistant/skills`。IM 前端仍从 conversation 列表发起，但跳转新对话时预填给 agent 的不是 conversation ID，而是所选 conversation 对应的 JSONL 绝对路径列表。字段名统一为 `source_jsonl_paths`：IM 负责把用户选中的可见 conversation 解析成完整 JSONL 路径；若所选 conversation 都属于同一个 agent，IM 自动把该 agent 作为执行 agent；若所选 conversation 来自多个 agent，IM 在弹窗中让用户选择执行 agent。同一弹窗再让用户选择写入范围（agent 级 / 全局）；确认后跳转到执行 agent 的新对话，并预填现有 `/skill:conversation-skill-distiller` 调用、`source_jsonl_paths`、`execution_agent_id`、`target_scope` 和可编辑意图。用户发送后，这就是一条普通聊天消息，Gateway 不解析 `source_jsonl_paths`、不读取 transcript、也不注入隐藏上下文。蒸馏 skill 负责指导 agent 从消息文本读取 JSONL 路径，按现有工具能力读取这些 JSONL 文件，并根据用户意图生成并写入 SKILL.md。写入结果只走现有工具调用展示/普通 assistant 回复，不新增专门的 SKILL.md 草稿预览/确认 UI。
 
 Conversation 列表默认不展示运行态标签。只有用户进入"生成 skill"多选模式时，左侧 checkbox 和运行态提示一同出现：`run_state="idle"` 的 conversation 可勾选；`run_state="running"` 的 conversation 禁选并显示"运行中"。`run_state` 是通用会话运行态字段，不带 distill 命名，后续其他功能也可复用。
 
@@ -465,7 +521,7 @@ IM conversation 列表
   │     └─ 弹窗要求用户选择 execution_agent
   ├─ 同一弹窗选择写入范围:
   │     ├─ agent 级（默认）
-  │     └─ PA 产品级
+  │     └─ 全局
   └─ 跳转 execution_agent 的新对话，在现有输入框预填:
        /skill:conversation-skill-distiller
        source_jsonl_paths:
@@ -490,7 +546,7 @@ IM conversation 列表
   ├─ 从消息文本读取 source_jsonl_paths、execution_agent_id 和 target_scope
   ├─ 按现有工具能力读取 JSONL 文件，结合用户 intent 生成 SKILL.md
   ├─ 若证据不足以形成稳定模式 → 普通 assistant 回复说明原因，不调用 skill_manage
-  ├─ 若证据充足 → skill_manage(create) 写入 PA 级或 execution_agent 的 agent 级 skill root
+  ├─ 若证据充足 → skill_manage(create) 写入 global 级或 execution_agent 的 agent 级 skill root
   └─ 通过现有工具调用展示/普通 assistant 回复告知写入结果
 ```
 
@@ -511,7 +567,7 @@ target_scope: agent
 如果这些会话不足以形成稳定模式，请说明原因，不要创建 skill。
 ```
 
-用户选择执行 agent / 写入范围的主路径是弹窗。若来源 conversation 全部属于同一 agent，执行 agent 自动确定，不展示执行 agent 选择；若来源跨多个 agent，弹窗必须要求选择一个执行 agent。弹窗确认后系统把结果写入 `execution_agent_id` 和 `target_scope: agent|pa`。用户仍可在发送前编辑意图文本；这里不设计草稿预览卡片、确认写入/取消按钮。需要先审稿的用户可以直接把意图改成"先展示草稿，不要写入"。
+用户选择执行 agent / 写入范围的主路径是弹窗。若来源 conversation 全部属于同一 agent，执行 agent 自动确定，不展示执行 agent 选择；若来源跨多个 agent，弹窗必须要求选择一个执行 agent。弹窗确认后系统把结果写入 `execution_agent_id` 和 `target_scope: agent|global`。用户仍可在发送前编辑意图文本；这里不设计草稿预览卡片、确认写入/取消按钮。需要先审稿的用户可以直接把意图改成"先展示草稿，不要写入"。
 
 如果执行 agent 因显式 `skills` allowlist 看不到 `conversation-skill-distiller`，IM 不应继续预填 `/skill:conversation-skill-distiller` 并让用户发送失败消息；应在范围确认前提示该 agent 未启用蒸馏内置 skill，并引导用户到配置页启用或取消本次操作。未显式配置 `skills` 的 agent 走全部可发现 skills，正常可看到该 built-in skill。
 
@@ -523,7 +579,7 @@ target_scope: agent
 | IM 前端 → IM 后端 | `selected_conversation_ids: string[]` | 用户在左侧 conversation 列表选择的 IM conversation ID，仅用于换取可审计的 JSONL 路径 |
 | IM 后端 → 输入框预填 | `source_jsonl_paths: string[]` | 所选 conversation 对应的 JSONL 绝对路径；这是 agent 可理解、可读取的蒸馏输入 |
 | IM 弹窗 | `execution_agent_id: string` | 执行本次蒸馏的新对话所属 agent；来源 conversation 全属同一 agent 时自动确定，跨 agent 时用户选择 |
-| IM 弹窗 | `target_scope: "agent" \| "pa"` | 用户显式选择写入执行 agent 级 skill root 或 PA 产品级 skill root |
+| IM 弹窗 | `target_scope: "agent" \| "global"` | 用户显式选择写入执行 agent 级 skill root 或全局 skill root |
 | IM → 普通聊天消息 | 预填文本 | `/skill:conversation-skill-distiller`、`source_jsonl_paths`、`execution_agent_id`、`target_scope` 和用户意图作为普通消息内容发送 |
 | agent / 蒸馏 skill | 消息文本中的 `source_jsonl_paths` | agent 根据蒸馏 skill 指令读取 JSONL 文件；读取失败按普通工具失败/assistant 回复展示 |
 
@@ -537,15 +593,18 @@ target_scope: agent
 
 | 级别 | 用户含义 | 写入位置 | 可见性 |
 |---|---|---|---|
-| PA 产品级 | 给这个个人助手产品下的多个 agent 复用 | PA 产品级 skill root | 后续支持该 root 的 agent 可发现 |
+| 全局 | 给这个个人助手产品下的多个 agent 复用 | 全局 skill root | 后续支持该 root 的 agent 可发现 |
 | agent 级 | 只给执行 agent 使用 | 执行 agent workspace skill root | 执行 agent 的 `<available_skills>` / `/skill:` 候选可发现 |
 
 **`target_scope -> skill_manage(create)` 写入接口**:
-- `skill_manage(action="create")` 新增可选参数 `scope: "agent" | "pa"`，默认 `"agent"`，只对 create 生效；edit/patch/write_file/remove_file 继续按已存在 skill 的 location 操作，不接受任意 root/path。
+- `skill_manage(action="create")` 新增可选参数 `scope: "agent" | "global"`，默认 `"agent"`，只对 create 生效；edit/patch/write_file/remove_file 继续按已存在 skill 的 location 操作，不接受任意 root/path。
+- create 成功结果必须结构化携带 `name`、`scope`、`location`、`skill_root`、`message`，供产品层做审计展示和 agent-scope 自动启用；产品层不得解析自然语言 `message` 来判断写入位置。
 - `scope="agent"` 使用执行 agent 新对话 session metadata 中的 `workspace_root + workspace_config_dirname`，写入执行 agent workspace skill root。来源 conversation 可能来自多个 agent，但不决定 agent 级写入位置。
-- `scope="pa"` 使用产品层注入的 PA skill root resolver（例如 PA product config 暴露的共享 skill root）。若当前产品/agent 未启用 PA root，工具返回 `success=false`，不回退写入 agent root。
+- `scope="global"` 使用产品层注入的 global skill root resolver（例如 PA product config 暴露的共享 skill root）。若当前产品/agent 未启用 global root，工具返回 `success=false`，不回退写入 agent root。
 - F2 弹窗确定出的 `execution_agent_id` 和 `target_scope` 只进入用户可见的首条蒸馏消息 / relay payload，不作为隐藏写入范围存入 metadata。`conversation-skill-distiller` 的 SKILL.md 明确要求读取输入框中的 `target_scope`，并调用 `skill_manage(create, scope=<target_scope>)`。若模型漏传 `scope`，`skill_manage` 按自身默认 `"agent"` 处理；这会在工具调用展示中暴露，用户可以看到写入结果。
 - `source` 仍不由 tool args 控制。`skill_manage(create)` 写入 `.usage.json.source` 时读取受控 `skill_creation_source` metadata；没有该 metadata 时按 F1 处理。
+- `scope="agent"` 创建成功后，Gateway 产品层按“skill 创建后的自动启用流”把新 skill 加入执行 agent 的启用列表；`scope="global"` 创建成功后，把新 skill 默认带给所有 agent。
+- 不考虑用户指令/用户选择时，运行中 agent 不应主动新建 `global` skill；默认 create scope 始终是 `agent`。非用户触发的全局写入只允许产品启动自举复制包内 built-in skills（例如 `conversation-skill-distiller`）到 global root，且不得覆盖已有用户文件。
 
 ### Dashboard 数据通道
 
@@ -598,8 +657,8 @@ Gateway WS handler
 ## 契约层增量 (delta-spec)
 
 - kernel: specs/kernel/spec.md — skill_view 作为新 kernel built-in 工具，skill_manage 移除 view action 并为 create 增加 `scope`，内置工具列表新增 skill_view，stale/archived 可见集合，skill_view 越线触发 F4
-- im: specs/im/spec.md — 新增 dashboard 数据 API（GET /im/v1/agents/:agentId/skills/usage），MODIFIED conversation 列表/sync 通用 `run_state` 字段，F2 conversation 选择入口（左侧面板右键菜单 + 范围选择弹窗 + 预填 `source_jsonl_paths`），skill_view 工具调用面板专属展示
-- gateway: specs/gateway/spec.md — 新增 skills_usage WS RPC provider（读 .usage.json 聚合返回）；新增通用 PA built-in skill 启动自举（复用 feat-447 的 `builtin_skills/*/SKILL.md` → `~/.nanoassistant/skills` 机制）；历史会话蒸馏不新增 Gateway 消息解析契约，`source_jsonl_paths`、`execution_agent_id` 和 `target_scope` 都只是 IM 预填的普通消息内容
+- im: specs/im/spec.md — 新增 dashboard 数据 API（GET /im/v1/agents/:agentId/skills/usage），MODIFIED conversation 列表/sync 通用 `run_state` 字段，F2 conversation 选择入口（左侧面板右键菜单 + 范围选择弹窗 + 预填 `source_jsonl_paths`），skill_view 工具调用面板专属展示；Agent 配置页在成功创建 agent/global-scope skill 后显示该 skill 已启用
+- gateway: specs/gateway/spec.md — 新增 skills_usage WS RPC provider（读 .usage.json 聚合返回）；新增通用 PA built-in skill 启动自举（复用 feat-447 的 `builtin_skills/*/SKILL.md` → `~/.nanoassistant/skills` 机制）；新增 agent/global-scope skill 创建成功后的自动启用和配置同步语义；历史会话蒸馏不新增 Gateway 消息解析契约，`source_jsonl_paths`、`execution_agent_id` 和 `target_scope` 都只是 IM 预填的普通消息内容
 - cli: no spec delta（CLI 只是默认工具列表增加 skill_view，无新增外部命令面契约）
 
 ## 风险与回退
@@ -615,6 +674,14 @@ synthetic user message 注入到 compact_boundary 之后。如果 resume 逻辑�
 **风险 3: .usage.json 并发写入**
 多个 session 同时 bump_use 可能写冲突。单 workspace 内并发低（通常只有一个活跃 session），atomic_write 足够。
 - 应对: usage 更新是 best-effort（失败不阻塞 skill_view）。如未来并发增高，可加 fcntl.flock。
+
+**风险 4: 自动启用与用户手动取消冲突**
+如果用 capabilities 扫描把 workspace 中所有 skill 都自动塞回 allowlist，用户在配置页手动取消的 skill 会被下一次扫描重新启用。
+- 应对: 只响应本次 `skill_manage(create, scope="agent")` 成功事件；不做启动/扫描式自动补全。被用户手动取消的既有 skill 不会因文件仍在 workspace 下而自动复活。
+
+**风险 5: IM mirror 与 Gateway live config 分裂**
+只更新 Gateway 本地 config 会让下一次 IM `config.sync` 用旧 mirror 覆盖新 skill；只更新 IM mirror 又会让当前 Gateway live config 短暂落后。
+- 应对: Gateway 自动启用时同时更新本地配置和 IM profile，并复用现有 `config.sync -> drop_agent_sessions` 收敛链路；配置页在线读取有效/live 配置，避免 stale mirror 把新 skill 渲染成灰色。
 
 **回退方案**:
 - skill_view 工具不可用 → 降级到 read 工具读 SKILL.md（formatter.py 的 location 仍在）
@@ -636,10 +703,11 @@ synthetic user message 注入到 compact_boundary 之后。如果 resume 逻辑�
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| feat-446-M1 | skill-view-core | — | A | `platform/tools/builtins/skill_view.py`(新)、`skill_manage.py`(删 view + create scope 参数)、`core/skills/usage.py`(新)、`core/skills/root_resolver.py`(新：提取共享 skill_root 解析，含 agent/PA root)、`core/skills/formatter.py`、`sdk/kernel.py`、`core/agent/prompt_sections/core_sections.py`、`core/agent/prompt_sections/feature_registry.py`(requires_any_tool 扩展)、`platform/hooks/builtins/self_improvement.py`、`coding_cli/product.py`、`personal_assistant/product.py`、`personal_assistant/reporter/capability_projection.py` | `[reviewer]` agent 调用 skill_view 返回 SKILL.md 内容; skill_manage 不含 view action; skill_manage(create, scope=agent/pa) 写入指定 root 且不可用 PA root 时失败不回退; PA 默认工具集合和 capability projection 均包含 skill_view 且 default_on=true；未显式配置工具白名单的 PA agent 默认启用 skill_view；已有显式 tool_allowlist 不被自动扩宽，不含 skill_view 时后续 session 不启用 skill_view; 使用统计记录到 .usage.json（含 source=F1/F2/F3/F4）且同一 tool_call_id 重放不重复计数; compaction 时按 location 重读当前 SKILL.md 并以 `<system-reminder>` 注入，resume 后 metadata 可恢复; `[worker]` `pytest tests/unit/test_skill_view.py tests/unit/test_usage.py tests/contract/ -x` 全绿 |
+| feat-446-M1 | skill-view-core | — | A | `platform/tools/builtins/skill_view.py`(新)、`skill_manage.py`(删 view + create scope 参数 + create 成功结构化结果)、`core/skills/usage.py`(新)、`core/skills/root_resolver.py`(新：提取共享 skill_root 解析，含 agent/global root)、`core/skills/formatter.py`、`sdk/kernel.py`、`core/agent/prompt_sections/core_sections.py`、`core/agent/prompt_sections/feature_registry.py`(requires_any_tool 扩展)、`platform/hooks/builtins/self_improvement.py`、`coding_cli/product.py`、`personal_assistant/product.py`、`personal_assistant/reporter/capability_projection.py`、`personal_assistant/main.py` / `gateway/inbound_pipeline.py`（skill create 后自动启用 + config sync/drop binding） | `[reviewer]` agent 调用 skill_view 返回 SKILL.md 内容; skill_manage 不含 view action; skill_manage(create, scope=agent/global) 写入指定 root 且不可用 global root 时失败不回退; skill_manage(create) 成功结果结构化携带 name/scope/location/skill_root，产品层不解析自然语言 message; PA 默认工具集合和 capability projection 均包含 skill_view 且 default_on=true；未显式配置工具白名单的 PA agent 默认启用 skill_view；已有显式 tool_allowlist 不被自动扩宽，不含 skill_view 时后续 session 不启用 skill_view; 对已有非空 skills allowlist 的 PA agent，成功 `skill_manage(create, scope=agent)` 后新 skill 自动加入执行 agent 启用列表，并持久化到本地 config + IM profile；成功 `skill_manage(create, scope=global)` 后新 skill 默认加入所有 agent 的非空 skills allowlist，并持久化到本地 config + IM profile；已有 kernel session 不热改，配置同步后丢弃受影响 agent 旧 binding，下一条消息创建的新 session 才包含新 skill; 使用统计记录到 .usage.json（含 source=F1/F2/F3/F4）且同一 tool_call_id 重放不重复计数; compaction 时按 location 重读当前 SKILL.md 并以 `<system-reminder>` 注入，resume 后 metadata 可恢复; `[worker]` `pytest tests/unit/test_skill_view.py tests/unit/test_usage.py tests/unit/personal_assistant/test_gateway_im_config_sync.py tests/unit/personal_assistant/test_inbound_pipeline_agent_sessions.py tests/contract/ -x` 全绿 |
 | feat-446-M2 | curator-f4 | feat-446-M1 | B | `core/skills/curator.py`(新：确定性扫描，返回 CuratorResult 数据，只管 stale/archive)、`platform/background/skill_batch_review.py`(新：per-skill 批量复盘编排，接收 runtime 注入的 background fork callable)、`sdk/kernel.py` / runtime enqueue（内部 skill batch review 入口）、`core/skills/usage.py`(扩展 state 字段 + F4Trigger 返回)、CLI 启动入口、Gateway housekeeping | `[reviewer]` 30 天未用的 F3/F4 skill 标记 stale; stale skill 仍出现在 `<available_skills>` 和 `/skill:` 候选并在统计面板标记 stale; 90 天归档到 .archive/ 后默认退出 `<available_skills>` 和 `/skill:` 候选，但在统计面板 archived 过滤视图可审计; stale skill 被重新读取后复活; F1/F2 skill 不被自动流转; skill_view 成功后 uses_since_last_B 越线即 enqueue per-skill 批量复盘，不等待 7 天 Curator; 同一 skill running/queued 时不并发启动第二个 batch; ≥2 session 证据才采纳; 只 patch 不创建; `[worker]` `pytest tests/unit/test_curator.py tests/unit/test_skill_batch_review.py -x` 全绿; `tests/contract/test_core_no_platform_imports.py` 全绿（core 不 import platform） |
-| feat-446-M3 | f2-distill | feat-446-M1 | B | `src/personal_assistant/builtin_skills/conversation-skill-distiller/SKILL.md` + PA built-in skill bootstrap 复用/补齐 + IM conversation 多选/执行 agent 选择（仅跨 agent 来源）/范围选择弹窗/跳转/输入框预填入口 + conversation `run_state` 派生字段 + `source_jsonl_paths` 预填 + `execution_agent_id` + `target_scope` 解析 + 现有对话内写入结果展示 | `[reviewer]` 干净 HOME 或移走 `~/.nanoassistant/skills/conversation-skill-distiller` 后启动 Gateway，会自动生成 `~/.nanoassistant/skills/conversation-skill-distiller/SKILL.md`，且不覆盖已存在的用户本地同名 skill；默认 IM conversation 列表不显示运行态标签；用户进入"生成 skill"多选模式后，checkbox 出现，`run_state=idle` 的 conversation 可选，`run_state=running` 的 conversation 禁选并显示"运行中"; 用户选择一个或多个可选 conversation 后，点击"蒸馏为 skill"会先按来源 agent 集合确定执行 agent：来源全属同一 agent 时自动使用该 agent，来源跨多个 agent 时弹窗要求用户选择一个执行 agent；随后确认执行 agent 可发现 `conversation-skill-distiller`，不可见时提示去配置页启用，不预填无法加载的 `/skill:`；可见时同一弹窗选择 agent 级或 PA 产品级写入范围，再跳转到执行 agent 的新对话；现有输入框预填 `/skill:conversation-skill-distiller`、`source_jsonl_paths`、`execution_agent_id`、`target_scope` 和默认意图 prompt; 用户编辑后按普通聊天消息发送，Gateway 不解析 source_jsonl_paths、不注入 transcript; agent 在蒸馏 skill 指导下读取 JSONL path，任一 source 不可读或证据不足时不创建 skill; agent 通过 `skill_manage(create, scope=<target_scope>)` 写入对应 skill root，并通过现有工具调用展示/普通回复告知结果; 本期不新增 SKILL.md 草稿预览卡片或确认写入/取消按钮; `[worker]` 蒸馏 skill 使用标准目录型包内资源并纳入 package data；若 feat-447 M10 的 generic built-in skill bootstrap 已合并则复用它，未合并则实现同一通用 helper，不能写 feishu/distill 专用逻辑；IM 前端相关测试全绿; skill_manage(create) 在 `target_scope=agent` 时写入执行 agent 的 skill root，在 `target_scope=pa` 时写入 PA skill root；历史蒸馏创建的 skill 按用户主动创建处理，不进入自动 Curator |
-| feat-446-M4 | dashboard | feat-446-M1, feat-446-M3 | C | IM HTTP API（`/im/v1/agents/:agentId/skills/usage`）+ gateway WS RPC provider + `IM/frontend/src/` 面板组件 + `IM/frontend/src/features/chat/v2/components/tool-*` skill_view 展示 | `[reviewer]` Skill 列表视图显示 use_count + 状态 + 趋势（真实数据），支持查看 archived 过滤视图; Agent 维度视图显示热力图; 健康度视图显示漏斗数字; 空态/离线态正确显示; skill_view 工具行折叠态显示"查看 skill：<name>"，展开态显示 name/location/content 预览，失败态标红并展示错误原因; `[reviewer]` 逐项覆盖 `## 前端原型` 的 M4 相关 `must-match` 行，并说明真实产品截图/行为与 prototype 的一致或允许适配原因; `[worker]` `cd src/IM/frontend && npm run test` 全绿; IM API 返回真实 .usage.json 数据; `[worker]` `progress.md` 留下 Prototype Comparison 表，证据落在 unit 目录内; M4 串在 M3 后执行以避免同改 IM chat v2/frontend 状态模型造成并行冲突 |
+| feat-446-M3 | f2-distill | feat-446-M1 | B | `src/personal_assistant/builtin_skills/conversation-skill-distiller/SKILL.md` + PA built-in skill bootstrap 复用/补齐 + IM conversation 多选/执行 agent 选择（仅跨 agent 来源）/范围选择弹窗/跳转/输入框预填入口 + conversation `run_state` 派生字段 + `source_jsonl_paths` 预填 + `execution_agent_id` + `target_scope` 解析 + 现有对话内写入结果展示 | `[reviewer]` 干净 HOME 或移走 `~/.nanoassistant/skills/conversation-skill-distiller` 后启动 Gateway，会自动生成 `~/.nanoassistant/skills/conversation-skill-distiller/SKILL.md`，且不覆盖已存在的用户本地同名 skill；默认 IM conversation 列表不显示运行态标签；用户进入"生成 skill"多选模式后，checkbox 出现，`run_state=idle` 的 conversation 可选，`run_state=running` 的 conversation 禁选并显示"运行中"; 用户选择一个或多个可选 conversation 后，点击"蒸馏为 skill"会先按来源 agent 集合确定执行 agent：来源全属同一 agent 时自动使用该 agent，来源跨多个 agent 时弹窗要求用户选择一个执行 agent；随后确认执行 agent 可发现 `conversation-skill-distiller`，不可见时提示去配置页启用，不预填无法加载的 `/skill:`；可见时同一弹窗选择 agent 级或全局写入范围，再跳转到执行 agent 的新对话；现有输入框预填 `/skill:conversation-skill-distiller`、`source_jsonl_paths`、`execution_agent_id`、`target_scope` 和默认意图 prompt; 用户编辑后按普通聊天消息发送，Gateway 不解析 source_jsonl_paths、不注入 transcript; agent 在蒸馏 skill 指导下读取 JSONL path，任一 source 不可读或证据不足时不创建 skill; agent 通过 `skill_manage(create, scope=<target_scope>)` 写入对应 skill root，并通过现有工具调用展示/普通回复告知结果; 本期不新增 SKILL.md 草稿预览卡片或确认写入/取消按钮; `[worker]` 蒸馏 skill 使用标准目录型包内资源并纳入 package data；若 feat-447 M10 的 generic built-in skill bootstrap 已合并则复用它，未合并则实现同一通用 helper，不能写 feishu/distill 专用逻辑；IM 前端相关测试全绿; skill_manage(create) 在 `target_scope=agent` 时写入执行 agent 的 skill root，在 `target_scope=global` 时写入 global skill root；历史蒸馏创建的 skill 按用户主动创建处理，不进入自动 Curator |
+| feat-446-M4 | dashboard | feat-446-M1, feat-446-M3 | C | IM HTTP API（`/im/v1/agents/:agentId/skills/usage`）+ gateway WS RPC provider + `IM/frontend/src/` 面板组件 + `IM/frontend/src/features/settings/agents/` live/effective config 展示 + `IM/frontend/src/features/chat/v2/components/tool-*` skill_view 展示 | `[reviewer]` Skill 列表视图显示 use_count + 状态 + 趋势（真实数据），支持查看 archived 过滤视图; Agent 维度视图显示热力图; 健康度视图显示漏斗数字; 空态/离线态正确显示; agent-scope skill 创建成功并配置同步后，执行 Agent 配置页 skills pill 显示该新 skill 为已启用，且刷新页面后仍保持；scope=global 创建成功并配置同步后，所有 agent 的配置页 skills pill 显示该新 skill 为已启用，且刷新页面后仍保持；skill_view 工具行折叠态显示"查看 skill：<name>"，展开态显示 name/location/content 预览，失败态标红并展示错误原因; `[reviewer]` 逐项覆盖 `## 前端原型` 的 M4 相关 `must-match` 行，并说明真实产品截图/行为与 prototype 的一致或允许适配原因; `[worker]` `cd src/IM/frontend && npm run test` 全绿; IM API 返回真实 .usage.json 数据; `[worker]` `progress.md` 留下 Prototype Comparison 表，证据落在 unit 目录内; M4 串在 M3 后执行以避免同改 IM chat v2/frontend 状态模型造成并行冲突 |
+| FIX-round-4-global-skill-enable | create-scope default enable follow-up | feat-446-M1, feat-446-M3, feat-446-M4 | fix | `skill_manage` / `skill_view` scope 命名、Gateway `skill_created` 事件观察与 config sync、session enabled-skill 过滤、F2 scope 预填与 Agent 配置页刷新语义 | `scope="pa"` 对外改为 `scope="global"`；成功 `skill_manage(create, scope=agent)` 后仅执行 agent 默认启用，成功 `scope=global` 后所有 agent 默认启用；未显式配置 `skills` 的 agent 不 materialize 全量 allowlist，只丢弃旧 session 让下一次 session 使用最新发现集合；显式空 `skills=[]` 仍表示禁用全部 skills；已有 session 的系统提示词不热改；前端 F2 预填、配置页已启用显示、skill_view/list 可见性与后端行为一致；聚焦单测、前端集成测试、ruff、frontend build、`git diff --check` 全绿 |
 
 ```mermaid
 graph LR

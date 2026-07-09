@@ -105,7 +105,7 @@ A(原话): 我觉得不是给id，而是应该给完整的对应jsonl的路径�
 Agent 解读: F2 输入改为 `source_jsonl_paths`。IM 仍从可见 conversation 列表发起，但跳转新对话时预填对应 transcript JSONL 的完整路径列表，而不是 conversation ID。这样跨 agent 蒸馏时 agent 不需要再猜 ID 到文件路径的映射。提交后这是一条普通聊天消息；Gateway/运行时不做专门解析、校验或 transcript 注入。agent 在 `conversation-skill-distiller` 指导下读取这些路径，读取失败按普通工具失败/assistant 回复处理。
 - Q21: F2 的生成范围 scope 怎么让用户选择?
 A(原话): 还有scope还是在勾选完会话之后，弹个窗让用户选择一下会好点。否则用户不明所以。
-Agent 解读: 用户选完 conversation 并点击"生成 skill"后，先确定执行 agent：单一来源 agent 时自动确定，跨 agent 来源时在弹窗中让用户选择。随后在同一弹窗让用户在 agent 级 / PA 产品级之间二选一。确认后再跳转执行 agent 的新对话，系统把选择结果写入预填 prompt 的 `execution_agent_id` 与 `target_scope` 字段。不要只把 `scope` 藏在输入框里让用户猜。
+Agent 解读: 用户选完 conversation 并点击"生成 skill"后，先确定执行 agent：单一来源 agent 时自动确定，跨 agent 来源时在弹窗中让用户选择。随后在同一弹窗让用户在 agent 级 / global 之间二选一。确认后再跳转执行 agent 的新对话，系统把选择结果写入预填 prompt 的 `execution_agent_id` 与 `target_scope` 字段。不要只把 `scope` 藏在输入框里让用户猜。
 - Q22: F2 蒸馏 skill 的触发文案应该是什么形式?
 A(原话): 而且skill调用是/skill:xxx吧，你预填的prompt不对
 Agent 解读: 预填 prompt 必须使用现有 `/skill:<name>` 触发形式。本期新增的蒸馏 skill 名称固定为 `conversation-skill-distiller`，预填首行是 `/skill:conversation-skill-distiller`，后面追加 `source_jsonl_paths`、`execution_agent_id`、`target_scope` 和用户可编辑意图。
@@ -126,7 +126,7 @@ Agent 解读: 预填 prompt 必须使用现有 `/skill:<name>` 触发形式。�
 **skill_view 名称解析与失败语义**：
 `skill_view` 不提供 `file_path` 参数。它只允许按当前会话可见的 skill 名称读取，并且必须与 `<available_skills>` 和 `/skill:` 候选使用同一套可见集合：用户/agent 在候选里看到哪个 skill，`skill_view` 就只能读取这个可见集合里的 skill。
 
-若 PA 产品级、agent 级或 workspace 级存在同名可见 skill，`skill_view(name=...)` 按当前既有 skill discovery / search root 优先级静默命中第一项，不返回名称不唯一失败。这个行为必须与 `<available_skills>` 和 `/skill:` 候选保持一致；返回结果中的 `location` 用于审计实际读取的是哪一个 skill，使用统计、session_refs、compaction 存活也都记录到这个被优先级命中的具体 skill。`stale` skill 仍属于可见集合，可以被读取；读取成功后恢复为 `active`。`archived` skill 默认不属于日常可见集合，不会出现在 `<available_skills>` 或 `/skill:` 候选里；若 agent 仍按名称请求一个已归档 skill，用户可见结果按找不到处理，不能通过日常读取路径复活。
+若 global、agent 级或 workspace 级存在同名可见 skill，`skill_view(name=...)` 按当前既有 skill discovery / search root 优先级静默命中第一项，不返回名称不唯一失败。这个行为必须与 `<available_skills>` 和 `/skill:` 候选保持一致；返回结果中的 `location` 用于审计实际读取的是哪一个 skill，使用统计、session_refs、compaction 存活也都记录到这个被优先级命中的具体 skill。`stale` skill 仍属于可见集合，可以被读取；读取成功后恢复为 `active`。`archived` skill 默认不属于日常可见集合，不会出现在 `<available_skills>` 或 `/skill:` 候选里；若 agent 仍按名称请求一个已归档 skill，用户可见结果按找不到处理，不能通过日常读取路径复活。
 
 `skill_view` 的用户可见失败原因主要是找不到。失败调用不会增加 use_count，不会更新 last_used_at，也不会注册压缩存活。IM 工具调用面板需要展示失败原因，避免用户只能看到一个泛化红色失败。
 
@@ -168,7 +168,7 @@ F4 只 patch 不创建。分析的是"这个 skill 哪里有问题"，不是"要
 同一个 skill 同一时间只允许有一个 F4 batch 在运行。若已有 batch 运行中，后续 skill_view 继续增加使用次数也不能启动第二个并发 batch。F4 使用该 skill 的 session 引用去收集已结束 session 的 JSONL transcript；session 尚未结束或 transcript 缺失时，该 session 不作为分析证据。具体分析流程（W: map-reduce 多 agent 并行 vs A: 单 agent 单轮）留 design 阶段选型。
 
 **F2 手动蒸馏 skill**：
-用户在 IM 左边栏右键进入"生成 skill"多选模式 → checkbox 出现；默认 conversation 列表不显示运行态标签，多选模式下 `run_state=idle` 的会话可选，`run_state="running"` 的会话禁选并显示"运行中" → 用户选择若干可选会话后点击"生成 skill" → 若所选会话都属于同一个 agent，IM 自动把该 agent 作为本次执行 agent；若所选会话来自多个 agent，IM 在弹窗中让用户选择执行 agent → 同一弹窗让用户选择写入范围（agent 级或 PA 产品级）→ 用户确认后跳转到执行 agent 的新对话 → 系统把 `/skill:conversation-skill-distiller`、所选 conversation 对应的 `source_jsonl_paths` 完整路径列表、`execution_agent_id`、`target_scope` 和可编辑意图预填到现有输入框 → 用户编辑后按普通消息发送 → 执行 agent 在蒸馏 skill 指导下读取 JSONL、提取模式并调用 `skill_manage(create)` 写入对应 skill root → 对话里通过现有工具调用展示/普通回复展示写入结果。
+用户在 IM 左边栏右键进入"生成 skill"多选模式 → checkbox 出现；默认 conversation 列表不显示运行态标签，多选模式下 `run_state=idle` 的会话可选，`run_state="running"` 的会话禁选并显示"运行中" → 用户选择若干可选会话后点击"生成 skill" → 若所选会话都属于同一个 agent，IM 自动把该 agent 作为本次执行 agent；若所选会话来自多个 agent，IM 在弹窗中让用户选择执行 agent → 同一弹窗让用户选择写入范围（agent 级或 global）→ 用户确认后跳转到执行 agent 的新对话 → 系统把 `/skill:conversation-skill-distiller`、所选 conversation 对应的 `source_jsonl_paths` 完整路径列表、`execution_agent_id`、`target_scope` 和可编辑意图预填到现有输入框 → 用户编辑后按普通消息发送 → 执行 agent 在蒸馏 skill 指导下读取 JSONL、提取模式并调用 `skill_manage(create)` 写入对应 skill root → 对话里通过现有工具调用展示/普通回复展示写入结果。
 
 F2 正常入口只允许用户从当前可见的 conversation 列表中选择 `run_state=idle` 的 conversation。用户也可以复制或手动调整预填命令里的 `source_jsonl_paths`。提交后，agent 按蒸馏 skill 的指令读取这些路径；若任一路径不存在、不是 JSONL 或不可读，蒸馏流程必须在用户可见错误处停止，不得部分读取、不得部分生成、不得写入新 skill。
 
@@ -215,7 +215,7 @@ F2 正常入口只允许用户从当前可见的 conversation 列表中选择 `r
 
 #### Scenario: 同名 skill 按既有优先级读取
 
-- **GIVEN** 当前会话可见集合中存在两个同名 skill（例如 PA 产品级和 agent 级各一个）
+- **GIVEN** 当前会话可见集合中存在两个同名 skill（例如 global 和 agent 级各一个）
 - **WHEN** agent 调用 `skill_view(name="same-name")`
 - **THEN** 系统按当前 skill discovery / search root 优先级读取第一项
 - **AND** 返回结果中的 `location` 指向实际命中的 skill
@@ -415,7 +415,7 @@ F2 正常入口只允许用户从当前可见的 conversation 列表中选择 `r
 - **WHEN** 用户点击"蒸馏为 skill"
 - **THEN** 若所选 conversation 都属于同一个 agent，IM 自动把该 agent 作为执行 agent
 - **AND** 若所选 conversation 来自多个 agent，IM 在弹窗中让用户选择一个执行 agent
-- **AND** IM 在同一弹窗中让用户选择 agent 级或 PA 产品级写入范围
+- **AND** IM 在同一弹窗中让用户选择 agent 级或 global 写入范围
 - **AND** 用户确认后跳转到执行 agent 的新对话，并预填 `/skill:conversation-skill-distiller`、所选 conversation 对应的 `source_jsonl_paths` 完整路径列表、`execution_agent_id` 与 `target_scope`
 - **AND** 用户可以继续补充意图说明
 
@@ -450,7 +450,7 @@ F2 正常入口只允许用户从当前可见的 conversation 列表中选择 `r
 
 - **GIVEN** 用户已发送预填后的蒸馏消息，且 source conversation 均可读取
 - **WHEN** agent 从 transcript 中提取出稳定工作模式
-- **THEN** 新 skill 写入用户选择的 PA 产品级 skill root 或 agent 级 skill root
+- **THEN** 新 skill 写入用户选择的 global skill root 或 agent 级 skill root
 - **AND** 对话里通过现有 `skill_manage(create)` 工具调用展示或普通 assistant 回复告知写入结果
 
 
