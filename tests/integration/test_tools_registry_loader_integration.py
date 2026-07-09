@@ -1,4 +1,5 @@
 import asyncio
+import json
 from pathlib import Path
 
 import pytest
@@ -76,3 +77,10 @@ TOOL = ReverseTool()
     assert files[0].name == "reverse_tool.py"
     assert "reverse" in loaded_names
     assert asyncio.run(registry.execute("reverse", {"text": "abc"}))["text"] == "cba"
+    loaded_tool = registry.get("reverse")
+    assert loaded_tool is not None
+    projection = loaded_tool.to_auto_classifier_input({"text": "abc"})
+    assert json.loads(projection) == {
+        "tool": "reverse",
+        "input": {"text": "abc"},
+    }

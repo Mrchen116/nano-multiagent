@@ -63,6 +63,18 @@ def _register_gate() -> Any:
     return hooks.registered[0][1]
 
 
+def _write_tool_registry() -> Any:
+    from agent.platform.tools.builtins.write import WriteTool
+
+    write_tool = WriteTool()
+
+    class _Registry:
+        def get(self, name: str) -> Any:
+            return write_tool if name == "write" else None
+
+    return _Registry()
+
+
 # ---------------------------------------------------------------------------
 # 1. End-to-end gate branches
 # ---------------------------------------------------------------------------
@@ -103,7 +115,13 @@ class TestGatePathSandboxBranches:
         """
         handler = _register_gate()
         config = AutoModeConfig()  # auto mode, deny_limit default
-        ctx = _FakeCtx(tmp_path, metadata={"_auto_mode_config_loader": lambda: config})
+        ctx = _FakeCtx(
+            tmp_path,
+            metadata={
+                "_auto_mode_config_loader": lambda: config,
+                "tool_registry": _write_tool_registry(),
+            },
+        )
 
         from agent.platform.permissions.broker import PermissionDecision
 
@@ -149,6 +167,7 @@ class TestGatePathSandboxBranches:
                 "_auto_mode_config_loader": lambda: config,
                 "run_id": "run-x",
                 "permission_broker": broker,
+                "tool_registry": _write_tool_registry(),
             },
         )
 

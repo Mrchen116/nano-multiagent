@@ -19,6 +19,7 @@ from agent.core.skills.registry import SkillRegistry
 from agent.core.skills.root_resolver import ResolvedSkillRoots, resolve_skill_roots
 from agent.core.skills.usage import ensure_skill_record, source_from_metadata
 from agent.core.skills.writer import SkillWriter
+from agent.platform.permissions.broker import PermissionDecision
 from agent.platform.tools.presentation import (
     ToolPresentationEvent,
     _enforce_cap,
@@ -29,6 +30,39 @@ from agent.platform.tools.presentation import (
 _SUPPORTED_ACTIONS = frozenset(
     {"create", "edit", "patch", "list", "write_file", "remove_file"}
 )
+_LOW_RISK_ACTIONS = frozenset({"list", "view"})
+_PROJECTION_TEXT_LIMIT = 200
+_PROJECTION_TEXT_EDGE_LIMIT = 120
+
+
+def _projection_part(key: str, value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value)
+    if not text:
+        return None
+    return f"{key}={text[:_PROJECTION_TEXT_LIMIT]}"
+
+
+def _projection_text_summary(key: str, value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value)
+    if not text:
+        return None
+    if len(text) <= _PROJECTION_TEXT_LIMIT:
+        return f"{key}={text}"
+    head = text[:_PROJECTION_TEXT_EDGE_LIMIT]
+    tail = text[-_PROJECTION_TEXT_EDGE_LIMIT:]
+    omitted = len(text) - (len(head) + len(tail))
+    return " ".join(
+        (
+            f"{key}_length={len(text)}",
+            f"{key}_head={head}",
+            f"{key}_omitted_chars={omitted}",
+            f"{key}_tail={tail}",
+        )
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -260,6 +294,35 @@ class SkillManageTool:
                 "SkillManageTool requires either (skill_root + registry) or "
                 "workspace_config_dirname for per-session resolution"
             )
+
+    def check_permissions(
+        self, tool_input: Mapping[str, Any], ctx: Any
+    ) -> PermissionDecision:
+        """Allow only low-risk read/list actions; route writes to classifier."""
+
+        _ = ctx
+        action = str(tool_input.get("action", ""))
+        if action in _LOW_RISK_ACTIONS:
+            return PermissionDecision(
+                behavior="allow",
+                reason=f"skill_manage {action}: low-risk read action",
+            )
+        return PermissionDecision(behavior="passthrough")
+
+    def to_auto_classifier_input(self, tool_input: Mapping[str, Any]) -> str:
+        """Project action-specific skill mutation details for auto mode."""
+
+        parts = [
+            _projection_part("action", tool_input.get("action")),
+            _projection_part("name", tool_input.get("name")),
+            _projection_part("scope", tool_input.get("scope")),
+            _projection_part("file_path", tool_input.get("file_path")),
+            _projection_text_summary("content", tool_input.get("content")),
+            _projection_part("old_string", tool_input.get("old_string")),
+            _projection_part("new_string", tool_input.get("new_string")),
+            _projection_text_summary("file_content", tool_input.get("file_content")),
+        ]
+        return " ".join(part for part in parts if part)
 
     def run(self, args: Mapping[str, Any], ctx: Any) -> Mapping[str, Any]:
         """Dispatch the requested action; return structured success/error dict."""

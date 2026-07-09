@@ -209,6 +209,11 @@ class BashTool(WiringMixin):
     def __init__(self, *, wiring: Any | None = None) -> None:
         self._wiring = wiring
 
+    def to_auto_classifier_input(self, tool_input: Mapping[str, Any]) -> str:
+        """Project the shell command being reviewed by the auto-mode classifier."""
+
+        return str(tool_input.get("command", ""))
+
     def check_permissions(
         self,
         tool_input: Mapping[str, Any],
