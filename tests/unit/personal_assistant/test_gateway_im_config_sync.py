@@ -19,6 +19,7 @@ from personal_assistant.config.local_store import (
 from personal_assistant.gateway.session_keys import SessionBindingStore
 from personal_assistant.main import (
     _IMConfigSyncClient,
+    _read_skill_name,
     _make_workspace_root_factory,
 )
 
@@ -40,6 +41,18 @@ _DEFAULT_TEST_LLM = LLMConfigPayload(
         ),
     ),
 )
+
+
+def test_read_skill_name_prefers_frontmatter_name(tmp_path: Path) -> None:
+    skill_dir = tmp_path / "directory-name"
+    skill_dir.mkdir()
+    skill_file = skill_dir / "SKILL.md"
+    skill_file.write_text(
+        "---\nname: declared-name\ndescription: Test skill\n---\n\nBody\n",
+        encoding="utf-8",
+    )
+
+    assert _read_skill_name(skill_file) == "declared-name"
 
 
 def test_im_config_sync_client_retries_until_live_agent_config_reaches_target_version(

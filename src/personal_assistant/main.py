@@ -285,16 +285,33 @@ def _default_pa_global_skill_names() -> tuple[str, ...]:
     if not root.is_dir():
         return ()
     try:
-        from agent.core.skills import SkillRegistry  # noqa: PLC0415
-
-        return tuple(
-            skill.name for skill in SkillRegistry(search_roots=(root,)).list_skills()
-        )
+        names: set[str] = set()
+        for skill_file in sorted(root.rglob("SKILL.md")):
+            if ".archive" in skill_file.parts:
+                continue
+            names.add(_read_skill_name(skill_file))
+        return tuple(sorted(names))
     except Exception:  # noqa: BLE001
         _log.warning(
             "failed to resolve PA global skill defaults from %s", root, exc_info=True
         )
         return ()
+
+
+def _read_skill_name(skill_file: Path) -> str:
+    """Return the skill's declared name, falling back to its directory name."""
+
+    for line in skill_file.read_text(encoding="utf-8", errors="replace").splitlines():
+        stripped = line.strip()
+        if stripped == "---" or not stripped:
+            continue
+        if stripped.startswith("name:"):
+            return (
+                stripped.split(":", 1)[1].strip().strip("\"'") or skill_file.parent.name
+            )
+        if not stripped.startswith("#"):
+            break
+    return skill_file.parent.name
 
 
 class _IMConfigSyncClient:
