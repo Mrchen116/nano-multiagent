@@ -72,13 +72,23 @@ def test_post_pr_design_milestones_reenter_implementation_loop() -> None:
     design_author = _read(".claude/skills/change-design-author/SKILL.md")
     worker = _read(".claude/skills/change-impl-worker/SKILL.md")
 
-    pending_call = orchestrator.index("pending_post_pr_milestones.py")
+    state_call = orchestrator.index("post_pr_revision_state.py inspect")
     feedback_call = orchestrator.index("address_pr_feedback_or_ci()")
-    assert pending_call < feedback_call
-    assert "milestones = pending_post_pr_milestones()" in orchestrator
-    assert 'if resume_mode == "post-pr" and not milestones' in orchestrator
+    assert state_call < feedback_call
+    assert "inspect_post_pr_revision_state()" in orchestrator
+    assert 'revision.action in ("feedback", "validated")' in orchestrator
+    assert "persist_full_gates_pending()" in orchestrator
+    assert "persist_validated_state()" in orchestrator
+    assert "post_pr_revision_state.py mark" in orchestrator
+    assert "--status in_progress" in orchestrator
+    assert "--status implemented" in orchestrator
+    assert "persist_signed_off_milestones()" in orchestrator
+    assert "--phase full_gates_pending" in orchestrator
+    assert "--phase validated" in orchestrator
     assert "full_selection()" in orchestrator
     assert "update_existing_pr_watch_ci_exit()" in orchestrator
     assert "Added milestones:" in design_author
+    assert "post_pr_revision_state.py create" in design_author
+    assert "post-pr-revision.json" in design_author
     assert "touch <unit_path>/M1-<title>/.gitkeep" in design_author
     assert 'rm -f "<unit_path>/<milestone_dir>/.gitkeep"' in worker

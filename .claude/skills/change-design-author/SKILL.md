@@ -151,6 +151,20 @@ fi
 <ID 列表或 none>”。已完成 milestone 及其 tasks/progress/evidence 原样保留；若需要后续实现，只新增
 milestone 表行及对应仅含 `.gitkeep` 的目录。orchestrator 会把这些目录识别为 pending 并重新进入实施循环。
 
+提交前创建 durable revision state；`--milestone` 按本轮 Added milestones 每项重复传入，若为 none 则不传：
+
+```bash
+python3 .claude/skills/change-orchestrator/scripts/post_pr_revision_state.py create \
+  --unit-doc-root "$unit_path" \
+  --unit-id "<unit_id>" \
+  --revision-base-head "$pr_head_oid" \
+  --milestone "M<next>-<title>"
+```
+
+该文件把每个新增 milestone 的 `unstarted → in_progress → implemented` 和整个 revision 的
+`implementation_pending → full_gates_pending → validated` 跨进程持久化；design、`.gitkeep` 骨架和
+`post-pr-revision.json` 必须在同一 revision commit 中 push。
+
 ---
 
 ## §3 关键决策对齐(交互式)
@@ -604,6 +618,7 @@ mkdir -p <unit_path>/specs/<包>/   # 仅为有对外行为变化的包建
 - [ ] `§Runbook for Reviewer` 段已填(列出本 unit 涉及的常驻服务 + 停止/启动/健康检查命令,或显式"无常驻服务")
 - [ ] Milestone 表完整(每行字段都填),数量 = `<unit_path>/M*/` 子目录数
 - [ ] 初始模式所有 milestone 子目录仅含 `.gitkeep`；revision 模式只要求本轮新增目录仅含 `.gitkeep`，既有 tasks/progress/evidence 未被改写或删除
+- [ ] revision 模式已创建 `post-pr-revision.json`，其中 `added_milestones` 与 Changelog 的 Added milestones 一致，`milestone_states` 均为 `unstarted`，phase 为 `implementation_pending`
 - [ ] 对外行为有变化的包都按最窄 canonical 落点产了 delta-spec `<unit_path>/specs/<包>/<target>.md`(§4.8);纯内部 unit 在 design.md 注 "no spec delta"
 - [ ] 初始模式已 commit 到 `main`；revision 模式已 commit + push 到既有 `unit/<unit_id>` PR 分支
 
@@ -640,6 +655,7 @@ revision 模式则告诉用户：
   - 初始模式为空的 Changelog；revision 模式含本轮原因、摘要和 Added milestones
 - `<unit_path>/prototype.html`(仅前端相关 unit 必须产出;非前端 unit 不产)
 - `<unit_path>/M*/` 目录(初始模式仅含 `.gitkeep`；revision 模式仅新增 milestone 仅含 `.gitkeep`)
+- `<unit_path>/post-pr-revision.json`(revision 模式必有；orchestrator 据此跨中断恢复 implementation/full-gates/validated 阶段)
 - `<unit_path>/specs/<包>/<target>.md` delta-spec(§4.8,仅有对外行为变化的包,可有多个 target;orchestrator §7.0 据此校正 + 软对账 + 合并进对应 canonical area。纯内部 unit 无此文件,design.md 注 "no spec delta")
 
 下游(orchestrator + worker + reviewer)对你的依赖:

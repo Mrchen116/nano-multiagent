@@ -86,7 +86,7 @@
 
 #### Scenario: 设计修订新增实现工作
 - **WHEN** post-PR design revision 新增 milestone 并提交可跟踪的空骨架目录
-- **THEN** change-orchestrator 先校验 design 表与目录一一对应，只派发新增的 pending milestone，完成后强制重跑完整验收闸，再更新同一 PR
+- **THEN** change-orchestrator 先校验 design 表与目录一一对应，只派发新增的 pending milestone，并显式持久化每个 milestone 的 unstarted、in-progress、implemented 状态以及 full-gates、validated 阶段，任何阶段中断后都从同一阶段恢复；完整验收通过后才更新同一 PR
 
 #### Scenario: worktree 带有本地漂移
 - **WHEN** 恢复或修订 PR 时，目标 worktree 有 staged、unstaged 或 untracked 内容，或 HEAD 与 PR 不同
