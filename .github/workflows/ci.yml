@@ -18,6 +18,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
 
       - name: Install dependencies
         run: pip install -e ".[dev]"
@@ -29,7 +31,7 @@ jobs:
         run: ruff format --check .
 
       - name: pytest (not e2e)
-        run: pytest -m "not e2e"
+        run: pytest -m "not e2e" -n 4 --dist worksteal --durations=20 --durations-min=0.5
 
   frontend:
     name: Frontend checks
