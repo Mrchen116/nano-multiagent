@@ -290,17 +290,6 @@ def test_shell_runner_stop_terminates_process() -> None:
         assert True
 
 
-def _wait_for_monitor_to_consume_stop(
-    runner: ShellRunner, task_id: str, *, timeout: float = 5.0
-) -> None:
-    deadline = time.monotonic() + timeout
-    while task_id in runner._stopped and time.monotonic() < deadline:
-        time.sleep(0.01)
-    assert task_id not in runner._stopped, (
-        f"monitor did not consume stopped marker for task_id={task_id}"
-    )
-
-
 def test_shell_runner_stop_does_not_fire_on_fail() -> None:
     """A stopped task must NOT report failure via on_fail (bugfix-417-M4 fix-r1).
 
@@ -335,7 +324,7 @@ def test_shell_runner_stop_does_not_fire_on_fail() -> None:
         )
         time.sleep(0.3)
         stopper.stop()
-        _wait_for_monitor_to_consume_stop(runner, "b1")
+        assert stopper.wait(timeout=5.0), "shell monitor did not finish after stop"
         assert not any(e.startswith("fail") for e in events), (
             f"on_fail must not fire for a stop-induced exit; got events={events}"
         )
@@ -380,7 +369,9 @@ def test_shell_runner_stop_during_timeout_window_stays_silent_and_clears_flag() 
         )
         time.sleep(0.2)
         stopper.stop()
-        _wait_for_monitor_to_consume_stop(runner, "b_to")
+        assert stopper.wait(timeout=5.0), (
+            "shell monitor did not finish after stop+timeout"
+        )
         assert not any(e.startswith("fail") for e in events), (
             f"stopped task must stay silent on the timeout path too; events={events}"
         )
