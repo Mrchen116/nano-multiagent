@@ -13,8 +13,16 @@
 
 ## R1 — 引入 deep-module 设计技法
 
-- Status: TODO
-- Next: C1 固化引入完整性与最小兼容差异的验证点。
+- Status: DOING
+- Verify/Red: 一次性完整性校验要求 `SKILL.md`、`DEEPENING.md`、
+  `DESIGN-IT-TWICE.md` 与 `LICENSE` 全部存在；当前失败并精确报出四个缺失路径，
+  证明未把主仓用户副本当作实现基线。
+- Verification contract:
+  - 四份文件来自锁定上游 commit，文档主体可逐文件 diff。
+  - frontmatter `name` 等于目录名 `codebase-design`。
+  - `SKILL.md` 指向 `DEEPENING.md` 和 `DESIGN-IT-TWICE.md` 的相对链接存在。
+  - 兼容文案只限正式术语优先级、普通设计不机械触发，以及重要 interface 存在实质多方案且用户需比较时才执行 Design It Twice。
+- Next: C2 引入锁定上游文档并施加最小兼容补丁。
 
 ## R2 — 修正架构巡检的通用流程接点
 

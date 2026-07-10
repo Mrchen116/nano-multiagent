@@ -33,7 +33,7 @@ exploration 与 HTML 表达，只修复其与现有通用 skill 流程的三个�
 
 ### R1 — 引入 deep-module 设计技法
 
-- 状态：TODO
+- 状态：DOING
 - 步骤：从锁定上游 commit 引入 `codebase-design` 三份方法文档与许可证；只补正式术语优先级、按需 Design It Twice 兼容说明。
 - 验证：逐文件对比上游；校验 frontmatter 名称、三份内部相对链接、MIT notice 和术语优先级/二级门槛文案。
 
