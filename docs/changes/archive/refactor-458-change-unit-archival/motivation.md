@@ -80,6 +80,10 @@
 - **WHEN** unit 已归档并创建开放 PR，之后收到 review feedback 或远端 CI 失败
 - **THEN** change-orchestrator 可从开放 PR 恢复既有 unit 分支和 worktree，继续在 archive 中读写交付文档，不把 unit 移回活动区
 
+#### Scenario: 归档后的修复需要修订设计
+- **WHEN** 开放 PR 的修复循环合法升级为 revise-design
+- **THEN** change-design-author 可在 orchestrator 保留的 unit worktree 中修订 archive 内既有 design，并把 Changelog 与新增 milestone 提交回同一 PR 分支
+
 ### Requirement: 新 unit 编号覆盖活动区与历史区
 
 #### Scenario: change-spec-author 分配编号
