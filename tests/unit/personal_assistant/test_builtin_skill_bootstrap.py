@@ -36,7 +36,7 @@ def test_install_builtin_skills_does_not_overwrite_existing_user_skill(
     installed = install_builtin_skills(target_root=target.parent)
 
     assert skill_file.read_text(encoding="utf-8") == "user customized skill\n"
-    assert installed == {}
+    assert "feishu-doc" not in installed
 
 
 def test_builtin_skills_are_included_as_package_data() -> None:

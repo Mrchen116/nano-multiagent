@@ -23,10 +23,12 @@ from agent.platform.tools.builtins.skill_manage import SkillManageTool
 _VALID_FM = "---\nname: my-skill\ndescription: A skill\n---\n\n# Body\n\nContent."
 
 
-def _make_ctx(workspace_root: Path) -> ToolContext:
+def _make_ctx(
+    workspace_root: Path, metadata: Mapping[str, Any] | None = None
+) -> ToolContext:
     """Minimal ToolContext for skill_manage (no safety checks needed)."""
     ctx = MagicMock(spec=ToolContext)
-    ctx.session_metadata = {"workspace_root": str(workspace_root)}
+    ctx.session_metadata = {"workspace_root": str(workspace_root), **(metadata or {})}
     ctx.cwd = workspace_root
     return ctx
 
@@ -82,13 +84,13 @@ def test_skill_manage_projects_write_actions(tool: SkillManageTool) -> None:
         {
             "action": "create",
             "name": "cold-joke-on-insult",
-            "scope": "workspace",
+            "scope": "global",
             "content": "---\nname: cold-joke-on-insult\n---\n\n# Body",
         }
     )
     assert "action=create" in projection
     assert "name=cold-joke-on-insult" in projection
-    assert "scope=workspace" in projection
+    assert "scope=global" in projection
     assert "content=" in projection
 
 
@@ -138,8 +140,10 @@ def test_action_enum_contains_expected_values(tool: SkillManageTool) -> None:
     assert "create" in enum_values
     assert "edit" in enum_values
     assert "patch" in enum_values
-    assert "view" in enum_values
     assert "list" in enum_values
+    assert "write_file" in enum_values
+    assert "remove_file" in enum_values
+    assert "view" not in enum_values
 
 
 # ---------------------------------------------------------------------------
@@ -285,6 +289,53 @@ def test_list_action_returns_skills(tool: SkillManageTool, workspace: Path) -> N
     assert "list-skill" in str(result.get("skills", ""))
 
 
+def test_list_action_respects_session_enabled_skills(
+    tool: SkillManageTool, workspace: Path
+) -> None:
+    ctx = _make_ctx(workspace)
+    for name in ("enabled-skill", "disabled-skill"):
+        tool.run(
+            {
+                "action": "create",
+                "name": name,
+                "content": _VALID_FM.replace("my-skill", name),
+            },
+            ctx,
+        )
+
+    result = tool.run(
+        {"action": "list"},
+        _make_ctx(workspace, {"skills": ["enabled-skill"]}),
+    )
+
+    assert result.get("success") is True
+    names = [item["name"] for item in result.get("skills", [])]
+    assert names == ["enabled-skill"]
+
+
+def test_list_action_respects_empty_session_enabled_skills(
+    tool: SkillManageTool, workspace: Path
+) -> None:
+    ctx = _make_ctx(workspace)
+    tool.run(
+        {
+            "action": "create",
+            "name": "disabled-skill",
+            "content": _VALID_FM.replace("my-skill", "disabled-skill"),
+        },
+        ctx,
+    )
+
+    result = tool.run(
+        {"action": "list"},
+        _make_ctx(workspace, {"skills": []}),
+    )
+
+    assert result.get("success") is True
+    assert result.get("count") == 0
+    assert result.get("skills") == []
+
+
 def test_list_empty_returns_empty(tool: SkillManageTool, workspace: Path) -> None:
     ctx = _make_ctx(workspace)
     result = tool.run({"action": "list"}, ctx)
@@ -292,29 +343,117 @@ def test_list_empty_returns_empty(tool: SkillManageTool, workspace: Path) -> Non
 
 
 # ---------------------------------------------------------------------------
-# R4.6  view action
+# R4.6  view action removed
 # ---------------------------------------------------------------------------
 
 
-def test_view_action_returns_content(tool: SkillManageTool, workspace: Path) -> None:
-    ctx = _make_ctx(workspace)
-    tool.run(
-        {
-            "action": "create",
-            "name": "view-skill",
-            "content": _VALID_FM.replace("my-skill", "view-skill"),
-        },
-        ctx,
-    )
-    result = tool.run({"action": "view", "name": "view-skill"}, ctx)
-    assert result.get("success") is True
-    assert "view-skill" in result.get("content", "")
-
-
-def test_view_nonexistent_returns_error(tool: SkillManageTool, workspace: Path) -> None:
+def test_view_action_is_not_supported(tool: SkillManageTool, workspace: Path) -> None:
     ctx = _make_ctx(workspace)
     result = tool.run({"action": "view", "name": "ghost"}, ctx)
     assert result.get("success") is False
+    assert "unknown action" in result.get("error", "").lower()
+
+
+def test_create_action_accepts_agent_scope_by_default(
+    tool: SkillManageTool, workspace: Path
+) -> None:
+    ctx = _make_ctx(workspace)
+    result = tool.run(
+        {
+            "action": "create",
+            "scope": "agent",
+            "name": "agent-skill",
+            "content": _VALID_FM.replace("my-skill", "agent-skill"),
+        },
+        ctx,
+    )
+    assert result.get("success") is True
+    assert (workspace / "agent-skill" / "SKILL.md").exists()
+
+
+def test_create_global_scope_writes_global_root(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    global_root = tmp_path / "global-skills"
+    workspace.mkdir()
+    global_root.mkdir()
+    tool = SkillManageTool(
+        workspace_config_dirname=".nanoassistant",
+        extra_roots=(global_root,),
+        global_skill_root=global_root,
+    )
+    ctx = _make_ctx(workspace)
+
+    result = tool.run(
+        {
+            "action": "create",
+            "scope": "global",
+            "name": "global-skill",
+            "content": _VALID_FM.replace("my-skill", "global-skill"),
+        },
+        ctx,
+    )
+
+    assert result.get("success") is True
+    assert result.get("scope") == "global"
+    assert result.get("name") == "global-skill"
+    assert result.get("skill_root") == str(global_root.resolve())
+    assert (global_root / "global-skill" / "SKILL.md").exists()
+    assert not (workspace / ".nanoassistant" / "skills" / "global-skill").exists()
+
+
+def test_patch_global_scope_updates_global_root(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    global_root = tmp_path / "global-skills"
+    workspace.mkdir()
+    global_root.mkdir()
+    skill_file = global_root / "global-skill" / "SKILL.md"
+    skill_file.parent.mkdir()
+    skill_file.write_text(
+        _VALID_FM.replace("my-skill", "global-skill") + "\nOld sentence.",
+        encoding="utf-8",
+    )
+    tool = SkillManageTool(
+        workspace_config_dirname=".nanoassistant",
+        extra_roots=(global_root,),
+        global_skill_root=global_root,
+    )
+    ctx = _make_ctx(workspace)
+
+    result = tool.run(
+        {
+            "action": "patch",
+            "scope": "global",
+            "name": "global-skill",
+            "old_string": "Old sentence.",
+            "new_string": "New sentence.",
+        },
+        ctx,
+    )
+
+    assert result.get("success") is True
+    assert "New sentence." in skill_file.read_text(encoding="utf-8")
+    assert not (workspace / ".nanoassistant" / "skills" / "global-skill").exists()
+
+
+def test_create_global_scope_fails_without_global_root(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    tool = SkillManageTool(workspace_config_dirname=".nanoassistant")
+    ctx = _make_ctx(workspace)
+
+    result = tool.run(
+        {
+            "action": "create",
+            "scope": "global",
+            "name": "global-skill",
+            "content": _VALID_FM.replace("my-skill", "global-skill"),
+        },
+        ctx,
+    )
+
+    assert result.get("success") is False
+    assert "global skill root is not configured" in result.get("error", "")
+    assert not (workspace / ".nanoassistant" / "skills" / "global-skill").exists()
 
 
 # ---------------------------------------------------------------------------
@@ -366,8 +505,8 @@ def test_tool_write_file_then_view_lists_it(tool: SkillManageTool) -> None:
         ctx=None,
     )
     assert r["success"], r
-    v = tool.run({"action": "view", "name": "umb"}, ctx=None)
-    assert "references/n.md" in v.get("support_files", [])
+    listed = tool.run({"action": "list"}, ctx=None)
+    assert "umb" in str(listed.get("skills", []))
 
 
 def test_tool_write_file_rejects_bad_path(tool: SkillManageTool) -> None:
@@ -399,5 +538,4 @@ def test_tool_remove_file(tool: SkillManageTool) -> None:
         {"action": "remove_file", "name": "umb", "file_path": "scripts/p.sh"}, ctx=None
     )
     assert r["success"], r
-    v = tool.run({"action": "view", "name": "umb"}, ctx=None)
-    assert "scripts/p.sh" not in v.get("support_files", [])
+    assert r["path"].endswith("scripts/p.sh")

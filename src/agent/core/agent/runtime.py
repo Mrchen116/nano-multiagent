@@ -2,6 +2,7 @@
 
 import asyncio
 import contextlib
+import json
 import logging
 from dataclasses import replace
 from pathlib import Path
@@ -12,7 +13,7 @@ from agent.core.agent.liveness import (
     _emit_liveness_heartbeats,
 )
 from agent.core.errors import ModelError
-from agent.core.ids import make_message_id, make_turn_id
+from agent.core.ids import make_message_id, make_tool_call_id, make_turn_id
 from agent.core.types import (
     Message,
     TokenUsage,
@@ -37,6 +38,7 @@ from agent.core.skills import (
     make_skill_resolver,
     resolve_available_skills,
 )
+from agent.core.skills.usage import SkillSessionRef, skill_refs_for_session
 from agent.core.tools.result_budget import ToolResultCompressor
 from agent.core.tools.session_file_state import SessionFileState, read_file_slice
 from agent.core.utils.time import utc_now_iso as _utc_now_iso
@@ -50,7 +52,7 @@ from .loop import AgentLoop, ToolRegistryLike
 from .policies import AgentPolicies
 from .run_control import RunController
 from .prompting import build_system_prompt
-from .skill_commands import rewrite_skill_command
+from .skill_commands import SkillCommand, parse_skill_command, rewrite_skill_command
 from .state import (
     AgentState,
     InputPart,
@@ -84,6 +86,15 @@ def _rewrite_skill_command_in_parts(
                 rewritten = True
         out.append(part)
     return tuple(out)
+
+
+def _parse_skill_command_in_parts(parts: Sequence[InputPart]) -> SkillCommand | None:
+    for part in parts:
+        if part.type == "text" and part.text is not None:
+            command = parse_skill_command(part.text)
+            if command is not None:
+                return command
+    return None
 
 
 from agent.core.session.entries import message_from_turn_entry
@@ -233,6 +244,10 @@ class AgentRuntime:
         # (no core→sdk import); not persisted to JSONL (it can't round-trip JSON
         # and is rebuilt per process by the consumer factory on session open).
         self._session_prompt_slots: dict[str, object] = {}
+        self._skill_batch_review_queued: set[str] = set()
+        self._skill_batch_review_running: set[str] = set()
+        self._skill_batch_review_triggers: dict[str, Any] = {}
+        self._skill_batch_review_drain_scheduler: Callable[[Any], None] | None = None
         tool_results_dir = self._repo_root / ".nano" / "tool-results"
         self._tool_result_compressor = ToolResultCompressor(tool_results_dir)
         self._context_fork = AgentContextFork(
@@ -286,6 +301,7 @@ class AgentRuntime:
             compaction_summarizer=self._compaction_summarizer,
             compaction_settings=self._compaction_settings,
             on_compaction=self._invalidate_memory_snapshot,
+            build_skill_reinjection=self._build_skill_reinjection_message,
         )
 
     def register_session_prompt_slots(self, session_id: str, slots: object) -> None:
@@ -436,6 +452,9 @@ class AgentRuntime:
             dict(config.metadata) if isinstance(config.metadata, Mapping) else {}
         )
         hook_metadata["cwd"] = str(session_workspace_root)
+        hook_metadata["transcript_path"] = str(path)
+        if config.skills is not None:
+            hook_metadata["skills"] = list(config.skills)
         # feat-436: 按当前 run 的 model 取上下文窗口（前端 token 显示分母随之 per-model）；
         # 未配 / 未知 / 注册表未初始化时回退全局默认。
         hook_metadata["context_window"] = (
@@ -483,6 +502,11 @@ class AgentRuntime:
         # user_text from the rewritten parts, so the transformation survives the later
         # last-part split (group buffered context OR text + trailing image) and never
         # corrupts the joined/persisted text by mis-reading an image placeholder line.
+        slash_skill_command = (
+            _parse_skill_command_in_parts(input_parts)
+            if len(input_parts) > 1
+            else parse_skill_command(user_text)
+        )
         if len(input_parts) > 1:
             input_parts = _rewrite_skill_command_in_parts(input_parts)
             user_text = render_user_text(input_parts)
@@ -585,9 +609,35 @@ class AgentRuntime:
             path, _message_to_entry(user_msg, session_id)
         )
         await self._session_manager.writer.flush_async()
+        preloop_messages: list[Message] = []
+        if (
+            slash_skill_command is not None
+            and self._tool_registry is not None
+            and any(tool.name == "skill_view" for tool in session_available_tools)
+        ):
+            preloop_messages = await self._execute_slash_skill_view(
+                command=slash_skill_command,
+                session_id=session_id,
+                turn_id=turn_id,
+                hook_ctx=hook_ctx,
+                parent_message_id=user_msg.message_id,
+            )
+            for preloop_msg in preloop_messages:
+                history.append(preloop_msg)
+                self._session_manager.writer.enqueue(
+                    path, _message_to_entry(preloop_msg, session_id)
+                )
+                if preloop_msg.role == "tool":
+                    await self._session_manager.writer.flush_async()
+            if preloop_messages:
+                await self._session_manager.writer.flush_async()
 
         # Remove the user message we just added from history passed to loop.
         loop_history = tuple(history[:-1])
+        if preloop_messages:
+            loop_history = tuple(history[: -1 - len(preloop_messages)]) + tuple(
+                preloop_messages
+            )
 
         # Multi-part expansion (M246)
         effective_user_text = user_text
@@ -622,7 +672,7 @@ class AgentRuntime:
             effective_user_text = render_user_text(last_part)
             effective_input_parts = last_part
 
-        all_messages: list[Message] = [user_msg]
+        all_messages: list[Message] = [user_msg, *preloop_messages]
         _overflow_retried = False
         _run_cancelled = False
         try:
@@ -672,6 +722,16 @@ class AgentRuntime:
                             },
                         },
                     )
+                    self._session_manager.writer.enqueue(
+                        path, _message_to_entry(msg, session_id)
+                    )
+                    for post_compact_msg in _post_compact_messages_from(msg):
+                        history.append(post_compact_msg)
+                        all_messages.append(post_compact_msg)
+                        self._session_manager.writer.enqueue(
+                            path, _message_to_entry(post_compact_msg, session_id)
+                        )
+                    continue
                 entry = _message_to_entry(msg, session_id)
                 if msg.role == "tool":
                     self._session_manager.writer.enqueue(path, entry)
@@ -995,6 +1055,77 @@ class AgentRuntime:
         self._tool_registry = tool_registry
         self._loop.bind_tool_registry(tool_registry)
         self._context_fork.bind_tool_registry(tool_registry)
+
+    def enqueue_skill_batch_review(self, trigger: Any) -> bool:
+        """Record one per-skill batch review enqueue request with per-skill dedupe."""
+
+        self._ensure_skill_batch_review_state()
+        queue_key = _skill_batch_review_key(trigger)
+        if not queue_key:
+            return False
+        if (
+            queue_key in self._skill_batch_review_queued
+            or queue_key in self._skill_batch_review_running
+        ):
+            return False
+        self._skill_batch_review_queued.add(queue_key)
+        self._skill_batch_review_triggers[queue_key] = trigger
+        scheduler = self._skill_batch_review_drain_scheduler
+        if scheduler is not None:
+            scheduler(trigger)
+        return True
+
+    def set_skill_batch_review_drain_scheduler(
+        self, scheduler: Callable[[Any], None] | None
+    ) -> None:
+        """Install a product-owned callback fired after a new F4 enqueue."""
+
+        self._skill_batch_review_drain_scheduler = scheduler
+
+    def pop_queued_skill_batch_reviews(
+        self, *, skill_root: Path | None = None
+    ) -> tuple[Any, ...]:
+        """Move queued skill batch reviews into running state and return triggers."""
+
+        self._ensure_skill_batch_review_state()
+        requested_root = _skill_batch_review_root_key(skill_root)
+        triggers: list[Any] = []
+        for queue_key in tuple(sorted(self._skill_batch_review_queued)):
+            trigger = self._skill_batch_review_triggers.get(queue_key)
+            if requested_root is not None and (
+                trigger is None
+                or _skill_batch_review_root_key(getattr(trigger, "skill_root", None))
+                != requested_root
+            ):
+                continue
+            self._skill_batch_review_queued.discard(queue_key)
+            if trigger is None:
+                continue
+            self._skill_batch_review_running.add(queue_key)
+            triggers.append(trigger)
+        return tuple(triggers)
+
+    def finish_skill_batch_review(self, trigger_or_skill_name: Any) -> None:
+        """Release per-skill running state after a batch review finishes."""
+
+        self._ensure_skill_batch_review_state()
+        queue_key = _skill_batch_review_key(trigger_or_skill_name)
+        if not queue_key and isinstance(trigger_or_skill_name, str):
+            queue_key = trigger_or_skill_name
+        if not queue_key:
+            return
+        self._skill_batch_review_running.discard(queue_key)
+        self._skill_batch_review_triggers.pop(queue_key, None)
+
+    def _ensure_skill_batch_review_state(self) -> None:
+        if not hasattr(self, "_skill_batch_review_queued"):
+            self._skill_batch_review_queued = set()
+        if not hasattr(self, "_skill_batch_review_running"):
+            self._skill_batch_review_running = set()
+        if not hasattr(self, "_skill_batch_review_triggers"):
+            self._skill_batch_review_triggers = {}
+        if not hasattr(self, "_skill_batch_review_drain_scheduler"):
+            self._skill_batch_review_drain_scheduler = None
 
     @property
     def hook_runner(self) -> HookRunner | None:
@@ -1861,6 +1992,102 @@ class AgentRuntime:
             raw=raw,
         )
 
+    async def _execute_slash_skill_view(
+        self,
+        *,
+        command: SkillCommand,
+        session_id: str,
+        turn_id: str,
+        hook_ctx: HookContext,
+        parent_message_id: str,
+    ) -> list[Message]:
+        """Execute `/skill:<name>` through the normal `skill_view` tool pipeline."""
+
+        registry = self._tool_registry
+        if registry is None or registry.get("skill_view") is None:
+            return []
+        call_id = make_tool_call_id()
+        args = {"name": command.name}
+        assistant_msg = Message(
+            message_id=make_message_id(),
+            parent_message_id=parent_message_id,
+            role="assistant",
+            content="",
+            metadata={
+                "tool_calls": [
+                    {
+                        "call_id": call_id,
+                        "name": "skill_view",
+                        "arguments": args,
+                    }
+                ]
+            },
+        )
+        tool_hook_ctx = replace(
+            hook_ctx,
+            metadata={**dict(hook_ctx.metadata), "tool_call_id": call_id},
+        )
+        run_id = hook_ctx.metadata.get("run_id")
+        tool_call_payload: dict[str, Any] = {
+            "session_id": session_id,
+            "turn_id": turn_id,
+            "call_id": call_id,
+            "name": "skill_view",
+            "arguments": args,
+        }
+        if isinstance(run_id, str) and run_id.strip():
+            tool_call_payload["run_id"] = run_id.strip()
+        await self._dispatch_observe("tool_call", tool_call_payload, tool_hook_ctx)
+        output: Mapping[str, Any] | None = None
+        error: str | None = None
+        try:
+            output = await registry.execute(
+                "skill_view",
+                args,
+                hook_context=tool_hook_ctx,
+                session_file_state=self._session_file_states.setdefault(
+                    session_id, SessionFileState()
+                ),
+            )
+        except Exception as exc:  # noqa: BLE001
+            error = str(exc)
+        tool_result_payload: dict[str, Any] = {
+            "session_id": session_id,
+            "turn_id": turn_id,
+            "call_id": call_id,
+            "name": "skill_view",
+            "arguments": args,
+            "output": output,
+            "error": error,
+            "duration_ms": 0,
+        }
+        if isinstance(run_id, str) and run_id.strip():
+            tool_result_payload["run_id"] = run_id.strip()
+        await self._dispatch_observe("tool_result", tool_result_payload, tool_hook_ctx)
+        tool = registry.get("skill_view")
+        if tool is not None and hasattr(tool, "serialize_result"):
+            content = tool.serialize_result(output or {}, error=error)
+        elif error is not None:
+            content = error
+        else:
+            content = json.dumps(output or {}, ensure_ascii=False)
+        if not isinstance(content, str):
+            content = json.dumps(content, ensure_ascii=False)
+        tool_msg = Message(
+            message_id=make_message_id(),
+            parent_message_id=assistant_msg.message_id,
+            role="tool",
+            content=content,
+            tool_call_id=call_id,
+            metadata={
+                "tool_name": "skill_view",
+                "tool_call_id": call_id,
+                "tool_output": output,
+                "tool_error": error,
+            },
+        )
+        return [assistant_msg, tool_msg]
+
     async def _execute_loop(
         self,
         *,
@@ -2095,6 +2322,16 @@ class AgentRuntime:
             content=summary,
             metadata={"is_compact_summary": True, "is_meta": True},
         )
+        reinjection_msg = self._build_skill_reinjection_message(
+            session_id,
+            compaction_workspace_root,
+            summary_msg.message_id,
+        )
+        compacted_messages = (
+            [summary_msg, reinjection_msg]
+            if reinjection_msg is not None
+            else [summary_msg]
+        )
 
         # Write compact_boundary + summary directly via JSONL writer and reset the
         # in-process history cache. This is the SINGLE persistence path for
@@ -2104,7 +2341,7 @@ class AgentRuntime:
         # session would keep replaying the full transcript in memory.
         path = self._session_paths.get(session_id)
         if path is not None:
-            self._session_histories[session_id] = [summary_msg]
+            self._session_histories[session_id] = compacted_messages
             # compact_boundary must be written before summary turn so that
             # JsonlSessionStore.load() (which keeps only turns after the latest
             # compact_boundary) includes the summary turn in the replayed history.
@@ -2124,6 +2361,10 @@ class AgentRuntime:
             self._session_manager.writer.enqueue(
                 path, _message_to_entry(summary_msg, session_id)
             )
+            if reinjection_msg is not None:
+                self._session_manager.writer.enqueue(
+                    path, _message_to_entry(reinjection_msg, session_id)
+                )
             await self._session_manager.writer.flush_async()
 
         # Build the result object from the already-persisted direct write (no
@@ -2148,6 +2389,87 @@ class AgentRuntime:
         # Clear file state after extracting restore info.
         self._session_file_states.pop(session_id, None)
         return result
+
+    def _build_skill_reinjection_message(
+        self,
+        session_id: str,
+        workspace_root: Path | None,
+        compact_entry_id: str,
+    ) -> Message | None:
+        """Build the post-compaction skill reminder for viewed skills."""
+
+        payload = self._build_skill_reinjection_payload(
+            session_id=session_id,
+            workspace_root=workspace_root,
+        )
+        if payload is None:
+            return None
+        content, refs = payload
+        return Message(
+            message_id=make_message_id(),
+            role="user",
+            content=content,
+            metadata={
+                "is_meta": True,
+                "is_skill_reinjection": True,
+                "skill_reinjection_refs": refs,
+                "compact_entry_id": compact_entry_id,
+            },
+        )
+
+    def _build_skill_reinjection_payload(
+        self,
+        *,
+        session_id: str,
+        workspace_root: Path | None,
+    ) -> tuple[str, list[dict[str, str]]] | None:
+        roots = self._skill_roots_for_workspace(workspace_root=workspace_root)
+        refs = skill_refs_for_session(skill_roots=roots, session_id=session_id)
+        blocks: list[str] = []
+        metadata_refs: list[dict[str, str]] = []
+        for ref in refs:
+            content = _read_skill_ref(ref)
+            if content is None:
+                continue
+            metadata_refs.append(
+                {
+                    "name": ref.name,
+                    "location": str(ref.location),
+                    "root_id": ref.root_id,
+                }
+            )
+            blocks.append(f"Skill: {ref.name}\nLocation: {ref.location}\n\n{content}")
+        if not blocks:
+            return None
+        reminder = (
+            "<system-reminder>\n"
+            "The following skill content was reloaded from the current SKILL.md files "
+            "after compaction. Use it as refreshed context for skills already viewed "
+            "in this session.\n\n" + "\n\n---\n\n".join(blocks) + "\n</system-reminder>"
+        )
+        return reminder, metadata_refs
+
+    def _skill_roots_for_workspace(
+        self, *, workspace_root: Path | None
+    ) -> tuple[Path, ...]:
+        effective_root = (
+            Path(workspace_root).expanduser().resolve()
+            if workspace_root is not None
+            else self._repo_root
+        )
+        roots: list[Path] = list(self._skill_search_roots)
+        if self._workspace_config_dirname:
+            roots.insert(0, effective_root / self._workspace_config_dirname / "skills")
+        deduped: list[Path] = []
+        seen: set[str] = set()
+        for root in roots:
+            resolved = root.expanduser().resolve()
+            key = str(resolved)
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(resolved)
+        return tuple(deduped)
 
     def _history_without_message(
         self,
@@ -2303,6 +2625,38 @@ def build_turn_result(
     )
 
 
+def _read_skill_ref(ref: SkillSessionRef) -> str | None:
+    if not ref.location.is_file():
+        return None
+    return ref.location.read_text(encoding="utf-8")
+
+
+def _post_compact_messages_from(msg: Message) -> tuple[Message, ...]:
+    raw = msg.metadata.pop("_post_compact_messages", ())
+    if not isinstance(raw, (list, tuple)):
+        return ()
+    return tuple(item for item in raw if isinstance(item, Message))
+
+
+def _skill_batch_review_key(trigger: Any) -> str:
+    skill_name = getattr(trigger, "skill_name", None)
+    if not isinstance(skill_name, str) or not skill_name:
+        return ""
+    root = _skill_batch_review_root_key(getattr(trigger, "skill_root", None))
+    if root is None:
+        return skill_name
+    return f"{root}:{skill_name}"
+
+
+def _skill_batch_review_root_key(skill_root: Any) -> str | None:
+    try:
+        if skill_root is None:
+            return None
+        return str(Path(skill_root).expanduser().resolve())
+    except TypeError:
+        return None
+
+
 def _message_to_entry(msg: Message, session_id: str) -> dict[str, Any]:
     """Convert a Message to a JSONL turn entry."""
     entry: dict[str, Any] = {
@@ -2327,6 +2681,10 @@ def _message_to_entry(msg: Message, session_id: str) -> dict[str, Any]:
         entry["is_meta"] = True
     if meta.get("is_compact_summary"):
         entry["is_compact_summary"] = True
+    if meta.get("is_skill_reinjection"):
+        entry["is_skill_reinjection"] = True
+    if meta.get("skill_reinjection_refs"):
+        entry["skill_reinjection_refs"] = meta["skill_reinjection_refs"]
     if meta.get("is_provider_error"):
         entry["is_provider_error"] = True
     if meta.get("entrypoint"):

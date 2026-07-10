@@ -265,6 +265,7 @@ def _build_inbound(
             "idempotency_key": envelope.idempotency_key,
             "message_id": message_id,
             **metadata,
+            "conversation_id": envelope.conversation_id,
             **extra,
         },
     )

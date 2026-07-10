@@ -23,14 +23,14 @@
 - **GIVEN** 用户已选择一个或多个 `run_state=idle` 的 conversation
 - **WHEN** 用户点击"生成 skill"
 - **THEN** 若所选 conversation 都属于同一个 agent，IM 自动把该 agent 作为执行 agent
-- **AND** IM 弹窗让用户选择 agent 级或 PA 产品级写入范围
+- **AND** IM 弹窗让用户选择 agent 级或 global 写入范围
 - **AND** 用户确认后跳转到执行 agent 的新对话
 
 #### Scenario: 跨 agent 来源时选择执行 agent
 - **GIVEN** 用户已选择多个 `run_state=idle` 的 conversation，且这些 conversation 来自多个 agent
 - **WHEN** 用户点击"生成 skill"
 - **THEN** IM 弹窗让用户选择一个执行 agent
-- **AND** 同一弹窗让用户选择 agent 级或 PA 产品级写入范围
+- **AND** 同一弹窗让用户选择 agent 级或 global 写入范围
 - **AND** 用户确认后跳转到执行 agent 的新对话
 
 #### Scenario: 执行 agent 未启用历史会话蒸馏 skill
@@ -86,6 +86,18 @@
 - **GIVEN** agent 已持久化显式工具白名单，且其中不包含 `skill_view`
 - **WHEN** 用户再次打开该 agent 配置页
 - **THEN** `skill_view` 显示为未选中
+
+### Requirement: Agent 配置页反映 skill 创建后的启用状态
+
+#### Scenario: 新建 agent-scope skill 后配置页显示已启用
+- **GIVEN** agent A 已显式启用若干 skills，且不包含 `new-skill`
+- **WHEN** A 成功调用 `skill_manage(action="create", scope="agent", name="new-skill", ...)` 并完成配置同步
+- **THEN** 用户打开或刷新 A 的配置页时，`new-skill` 出现在 skills 候选中并显示为已启用
+
+#### Scenario: 新建 global skill 后所有配置页显示已启用
+- **GIVEN** agent A 与 B 已显式启用若干 skills，且都不包含 `shared-skill`
+- **WHEN** 任一会话成功调用 `skill_manage(action="create", scope="global", name="shared-skill", ...)` 并完成配置同步
+- **THEN** 用户打开或刷新 A 与 B 的配置页时，`shared-skill` 出现在 skills 候选中并显示为已启用
 
 ## MODIFIED Requirements
 

@@ -30,6 +30,7 @@ from agent.core.observability.tracing import set_tracer
 from agent.core.runs.registry import RunsRegistry
 from agent.core.runs.origin import RunOrigin
 from agent.core.session.jsonl_store import JsonlSessionStore
+from agent.core.utils.time import utc_now_iso as _utc_now_iso
 from agent.platform.background_tasks.wiring import wire_background_tasks
 from agent.platform.config.auto_mode import AutoModeConfig
 from agent.platform.hooks.loader import build_hook_registry
@@ -84,6 +85,8 @@ def build_kernel(
     can_use_tool: CanUseToolFn | None = None,
     repo_root: Path | None = None,
     skill_search_roots: Sequence[Path] = (),
+    global_skill_root: Path | None = None,
+    pa_skill_root: Path | None = None,
     tool_search_roots: Sequence[Path] = (),
     hook_search_roots: Sequence[Path] = (),
     # Internal escape hatch for tests: skip LLM client construction and use
@@ -141,6 +144,7 @@ def build_kernel(
         can_use_tool=can_use_tool,
         repo_root=repo_root,
         skill_search_roots=tuple(skill_search_roots),
+        global_skill_root=global_skill_root or pa_skill_root,
         tool_search_roots=tuple(tool_search_roots),
         hook_search_roots=tuple(hook_search_roots),
         _llm_client_override=_llm_client_override,
@@ -308,6 +312,8 @@ def _build_kernel_base(
     can_use_tool: CanUseToolFn | None,
     repo_root: Path | None,
     skill_search_roots: tuple[Path, ...] = (),
+    global_skill_root: Path | None = None,
+    pa_skill_root: Path | None = None,
     tool_search_roots: tuple[Path, ...] = (),
     hook_search_roots: tuple[Path, ...] = (),
     _llm_client_override: LLMClient | None,
@@ -476,6 +482,7 @@ def _build_kernel_base(
         repo_root=resolved_repo_root,
         safety_config=load_tool_safety_config(repo_root=resolved_repo_root),
         llm_client=getattr(runtime, "_llm_client", None),
+        skill_batch_review_enqueue=runtime.enqueue_skill_batch_review,
     )
     tool_registry = ToolRegistry(context=base_context, hook_runner=hook_runner)
     register_builtin_tools(
@@ -496,6 +503,9 @@ def _build_kernel_base(
         skill_search_roots=tuple(
             Path(r).expanduser().resolve() for r in skill_search_roots
         ),
+        global_skill_root=(global_skill_root or pa_skill_root).expanduser().resolve()
+        if (global_skill_root or pa_skill_root) is not None
+        else None,
     )
     for tool in tools:
         tool_registry.register(tool, replace=True)
@@ -567,6 +577,7 @@ def _register_self_evolution_builtins(
     repo_root: Path,
     workspace_config_dirname: str,
     skill_search_roots: tuple[Path, ...] = (),
+    global_skill_root: Path | None = None,
 ) -> None:
     """Register the kernel built-in memory / skill_manage tools (决策 3).
 
@@ -585,12 +596,22 @@ def _register_self_evolution_builtins(
     from agent.platform.tools.builtins import (  # noqa: PLC0415
         MemoryTool,
         SkillManageTool,
+        SkillViewTool,
     )
 
     tool_registry.register(
         SkillManageTool(
             workspace_config_dirname=workspace_config_dirname,
             extra_roots=skill_search_roots,
+            global_skill_root=global_skill_root,
+        ),
+        replace=True,
+    )
+    tool_registry.register(
+        SkillViewTool(
+            workspace_config_dirname=workspace_config_dirname,
+            extra_roots=skill_search_roots,
+            global_skill_root=global_skill_root,
         ),
         replace=True,
     )
@@ -1256,6 +1277,66 @@ class Kernel:
             )
             for s in skills
         ]
+
+    def run_skill_maintenance(
+        self, *, workspace_root: Path | None = None, force: bool = False
+    ) -> Any:
+        """Run deterministic skill lifecycle housekeeping for one workspace."""
+
+        from agent.core.skills.curator import (  # noqa: PLC0415
+            CuratorResult,
+            apply_curator_transitions,
+            run_curator_scan,
+        )
+
+        effective_root = Path(workspace_root or self._repo_root).expanduser().resolve()
+        if not self._workspace_config_dirname:
+            return CuratorResult(
+                skill_root=effective_root,
+                now_iso=_utc_now_iso(),
+                transitions=(),
+                skipped=True,
+                reason="missing_workspace_config_dirname",
+            )
+        skill_root = effective_root / self._workspace_config_dirname / "skills"
+        result = run_curator_scan(skill_root=skill_root, force=force)
+        return apply_curator_transitions(result)
+
+    async def run_queued_skill_batch_reviews(
+        self,
+        *,
+        run_background_analysis: Callable[..., Awaitable[Any] | Any],
+        skill_root: Path | None = None,
+    ) -> tuple[Any, ...]:
+        """Drain queued per-skill batch reviews using an injected background fork."""
+
+        from agent.platform.background.skill_batch_review import (  # noqa: PLC0415
+            run_skill_batch_review_async,
+        )
+
+        triggers = self._c.runtime.pop_queued_skill_batch_reviews(skill_root=skill_root)
+        results: list[Any] = []
+        for trigger in triggers:
+            skill_name = getattr(trigger, "skill_name", "")
+            try:
+                results.append(
+                    await run_skill_batch_review_async(
+                        trigger,
+                        run_background_analysis=run_background_analysis,
+                        writable_skill_root=skill_root,
+                    )
+                )
+            finally:
+                if isinstance(skill_name, str) and skill_name:
+                    self._c.runtime.finish_skill_batch_review(trigger)
+        return tuple(results)
+
+    def set_skill_batch_review_drain_scheduler(
+        self, scheduler: Callable[[Any], None] | None
+    ) -> None:
+        """Install a product-owned callback fired after a new F4 enqueue."""
+
+        self._c.runtime.set_skill_batch_review_drain_scheduler(scheduler)
 
     def get_llm_config(self) -> LLMConfig:
         """Return the active LLM configuration as an SDK-owned ``LLMConfig`` (决策 5).

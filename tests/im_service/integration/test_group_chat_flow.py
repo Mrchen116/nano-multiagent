@@ -249,6 +249,7 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(
         {
             "agent_id": "agent-a",
             "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
+            "conversation_id": conversation_id,
             "agent_features": {},
             "config_profile_version": 1,
             "conversation_type": "group",
@@ -263,6 +264,7 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(
         {
             "agent_id": "agent-b",
             "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
+            "conversation_id": conversation_id,
             "agent_features": {},
             "config_profile_version": 1,
             "conversation_type": "group",
@@ -307,6 +309,7 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(
                 "mentioned_agent_ids": ["agent-a"],
                 "participant_agent_ids": ["agent-a", "agent-b"],
                 "config_profile_version": 1,
+                "conversation_id": conversation_id,
                 "sender_display_name": "Alice",
                 "participants": [
                     {"user_id": user_id, "display_name": "Alice", "type": "user"},
@@ -328,6 +331,7 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(
                 "mentioned_agent_ids": ["agent-b"],
                 "participant_agent_ids": ["agent-a", "agent-b"],
                 "config_profile_version": 1,
+                "conversation_id": conversation_id,
                 "sender_display_name": "Alice",
                 "participants": [
                     {"user_id": user_id, "display_name": "Alice", "type": "user"},

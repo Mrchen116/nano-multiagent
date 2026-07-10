@@ -225,6 +225,7 @@ def test_group_chat_uses_live_updated_profile_after_config_sync_in_same_conversa
         {
             "agent_id": "agent-a",
             "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
+            "conversation_id": conversation_id,
             "agent_features": {},
             "config_profile_version": 1,
             "system_prompt": "You are agent-a.",
@@ -240,6 +241,7 @@ def test_group_chat_uses_live_updated_profile_after_config_sync_in_same_conversa
         {
             "agent_id": "agent-a",
             "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
+            "conversation_id": conversation_id,
             "agent_features": {},
             "config_profile_version": 2,
             "system_prompt": "When mentioned in a group chat, reply exactly with NO_REPLY.",
@@ -428,6 +430,7 @@ def test_group_chat_keeps_no_reply_when_completed_snapshot_and_late_stream_delta
             "metadata": {
                 "agent_id": "agent-a",
                 "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
+                "conversation_id": conversation_id,
                 "agent_features": {},
                 "config_profile_version": 2,
                 "system_prompt": "When mentioned in a group chat, reply exactly with NO_REPLY.",

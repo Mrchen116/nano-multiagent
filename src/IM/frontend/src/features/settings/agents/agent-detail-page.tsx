@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Label from "@radix-ui/react-label";
-import type { FormEvent } from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { FocusEvent, FormEvent, MouseEvent, ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { useIsMobile } from "../../../hooks/use-is-mobile";
@@ -9,6 +9,7 @@ import { useTranslation } from "../../../i18n";
 import { createDirectChatByAgentUserId, listAgents } from "../../chat/chat-api";
 import { Avatar, colorForAgent } from "../../chat/v2/components/avatar";
 import { PillSelector } from "./pill-selector";
+import { SkillSourceSelector } from "./skill-source-selector";
 import { useAgentStatusBroadcastConsumer } from "./agent-status-ws-consumer";
 import {
   AgentConfig,
@@ -16,8 +17,11 @@ import {
   AgentSummary,
   CronJobSummary,
   ModelOption,
+  SkillUsageItem,
+  SkillsUsageResponse,
   getAgentDetailState,
   getAgentHeartbeatMd,
+  getAgentSkillsUsage,
   listAgentSummaries,
   listAgentCronJobs,
   deleteAgentCronJob,
@@ -677,6 +681,569 @@ function CronCard({ agentId, draft, onToggle, hideEnableToggle = false }: CronCa
   );
 }
 
+type SkillsUsageView = "list" | "agent" | "health";
+type AgentDetailSection = "overview" | "config" | "channels" | "skills" | "sessions";
+
+const CONTRIBUTION_DAYS = 365;
+const HEATMAP_DATA_DAYS = 30;
+const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+interface ContributionCell {
+  key: string;
+  date: Date;
+  inWindow: boolean;
+  value: number;
+}
+
+interface FloatingTooltipState {
+  left: number;
+  top: number;
+  text: string;
+}
+
+function normalizedUsageSeries(values: number[] | undefined): number[] {
+  const series = [...(values ?? [])].slice(-HEATMAP_DATA_DAYS);
+  while (series.length < HEATMAP_DATA_DAYS) series.unshift(0);
+  return series;
+}
+
+function normalizedContributionSeries(values: number[] | undefined): number[] {
+  const recent = normalizedUsageSeries(values);
+  const series = recent.slice(-CONTRIBUTION_DAYS);
+  while (series.length < CONTRIBUTION_DAYS) series.unshift(0);
+  return series;
+}
+
+function formatSkillTimestamp(value?: string | null) {
+  if (!value) return "Never";
+  return new Date(value).toLocaleDateString();
+}
+
+function formatTooltipDate(date: Date) {
+  const day = date.getDate();
+  const suffix = day % 10 === 1 && day !== 11
+    ? "st"
+    : day % 10 === 2 && day !== 12
+      ? "nd"
+      : day % 10 === 3 && day !== 13
+        ? "rd"
+        : "th";
+  return `${date.toLocaleDateString("en-US", { month: "long" })} ${day}${suffix}`;
+}
+
+function FloatingTooltip({ tooltip }: { tooltip: FloatingTooltipState | null }) {
+  if (!tooltip) return null;
+  return (
+    <div
+      className="pointer-events-none fixed z-50 rounded-md bg-slate-900 px-3 py-2 text-[13px] font-semibold text-white shadow-lg"
+      style={{
+        left: tooltip.left,
+        top: tooltip.top,
+        transform: "translate(-50%, -100%)"
+      }}
+      role="tooltip"
+    >
+      {tooltip.text}
+      <span
+        className="absolute left-1/2 top-full h-2 w-2 -translate-x-1/2 -translate-y-1 rotate-45 bg-slate-900"
+        aria-hidden="true"
+      />
+    </div>
+  );
+}
+
+function heatLevel(value: number, max: number) {
+  if (max <= 0 || value <= 0) return "#ebedf0";
+  const ratio = Math.min(1, value / max);
+  if (ratio > 0.75) return "#216e39";
+  if (ratio > 0.5) return "#30a14e";
+  if (ratio > 0.25) return "#40c463";
+  return "#9be9a8";
+}
+
+function SkillTrend({ skill }: { skill: SkillUsageItem }) {
+  const [hoveredBar, setHoveredBar] = useState<FloatingTooltipState | null>(null);
+  const buckets = normalizedUsageSeries(skill.trend_buckets);
+  const max = Math.max(1, ...buckets);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const trendStart = new Date(today);
+  trendStart.setDate(today.getDate() - (buckets.length - 1));
+  const showTrendTooltip = (
+    event: MouseEvent<HTMLSpanElement> | FocusEvent<HTMLSpanElement>,
+    value: number,
+    index: number
+  ) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const date = new Date(trendStart);
+    date.setDate(trendStart.getDate() + index);
+    setHoveredBar({
+      left: rect.left + rect.width / 2,
+      top: rect.top - 8,
+      text: `${value.toLocaleString()} skill uses on ${formatTooltipDate(date)}.`
+    });
+  };
+  return (
+    <div
+      className="relative flex h-8 items-end gap-[2px]"
+      data-testid={`skill-trend-${skill.skill_id}`}
+      aria-label={`${skill.name} 30-day trend`}
+    >
+      {buckets.map((value, index) => (
+        <span
+          key={`${skill.skill_id}-${index}`}
+          tabIndex={0}
+          className="block w-[4px] rounded-sm"
+          style={{
+            height: `${Math.max(3, Math.round((value / max) * 28))}px`,
+            background: value > 0 ? "oklch(0.55 0.16 155)" : "oklch(0.88 0.006 240)"
+          }}
+          aria-label={`${formatTooltipDate(new Date(trendStart.getFullYear(), trendStart.getMonth(), trendStart.getDate() + index))}: ${value} skill uses`}
+          onMouseEnter={(event) => showTrendTooltip(event, value, index)}
+          onMouseLeave={() => setHoveredBar(null)}
+          onFocus={(event) => showTrendTooltip(event, value, index)}
+          onBlur={() => setHoveredBar(null)}
+        />
+      ))}
+      <FloatingTooltip tooltip={hoveredBar} />
+    </div>
+  );
+}
+
+function skillSourceLabel(source: string): string {
+  switch (source) {
+    case "F1":
+      return "手动创建";
+    case "F2":
+      return "历史蒸馏";
+    case "F3":
+      return "自动沉淀";
+    case "F4":
+      return "批量复盘";
+    default:
+      return source || "unknown";
+  }
+}
+
+function skillBadgeClass(kind: "source" | "state", value: string): string {
+  if (kind === "state") {
+    if (value === "active") return "bg-emerald-50 text-emerald-700";
+    if (value === "stale") return "bg-amber-50 text-amber-700";
+    if (value === "archived") return "bg-slate-100 text-slate-600";
+    return "bg-slate-100 text-slate-600";
+  }
+  if (value === "F1") return "bg-fuchsia-50 text-fuchsia-700";
+  if (value === "F2") return "bg-indigo-50 text-indigo-700";
+  if (value === "F3") return "bg-teal-50 text-teal-700";
+  if (value === "F4") return "bg-yellow-50 text-yellow-700";
+  return "bg-slate-100 text-slate-600";
+}
+
+function SkillBadge({ kind, value, children }: { kind: "source" | "state"; value: string; children: ReactNode }) {
+  return (
+    <span className={`inline-flex rounded-full px-2 py-[2px] text-[0.65rem] font-semibold ${skillBadgeClass(kind, value)}`}>
+      {children}
+    </span>
+  );
+}
+
+function SkillsListView({
+  usage,
+  showArchived,
+  onToggleArchived
+}: {
+  usage: SkillsUsageResponse;
+  showArchived: boolean;
+  onToggleArchived: () => void;
+}) {
+  const visibleSkills = usage.skills.filter(
+    (skill) => showArchived || skill.state !== "archived"
+  );
+  return (
+    <section className="im-agent-card" data-testid="skills-usage-list">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="im-agent-card-title">全部 Skill</h3>
+          <p className="im-agent-card-sub">按最近使用时间排序</p>
+        </div>
+        <button
+          type="button"
+          className="rounded-lg border border-[var(--im-border)] bg-transparent px-[10px] py-[5px] text-[0.72rem] font-semibold text-slate-500 hover:bg-[var(--im-surface-2)]"
+          onClick={onToggleArchived}
+        >
+          {showArchived ? "隐藏 archived" : "显示 archived"}
+        </button>
+      </div>
+      {visibleSkills.length === 0 ? (
+        <p className="text-[13px] text-slate-500">当前过滤条件下没有 skill</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse text-[0.78rem]">
+            <thead>
+              <tr className="border-b border-[var(--im-border)] text-left text-[0.68rem] font-semibold uppercase tracking-[0.04em] text-slate-500">
+                <th className="px-2 py-[6px]">名字</th>
+                <th className="px-2 py-[6px]">来源</th>
+                <th className="px-2 py-[6px]">状态</th>
+                <th className="px-2 py-[6px]">使用次数</th>
+                <th className="px-2 py-[6px]">最近使用</th>
+                <th className="px-2 py-[6px]">趋势</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visibleSkills.map((skill) => (
+                <tr key={skill.skill_id} className="border-b border-slate-100 last:border-0">
+                  <td className="px-2 py-3 font-semibold text-slate-900">{skill.name}</td>
+                  <td className="px-2 py-3">
+                    <SkillBadge kind="source" value={skill.source}>{skillSourceLabel(skill.source)}</SkillBadge>
+                  </td>
+                  <td className="px-2 py-3">
+                    <SkillBadge kind="state" value={skill.state}>{skill.state}</SkillBadge>
+                  </td>
+                  <td className="px-2 py-3 font-semibold text-slate-900">{skill.use_count}</td>
+                  <td className="px-2 py-3 font-mono text-[12px] text-slate-500">{formatSkillTimestamp(skill.last_used_at)}</td>
+                  <td className="px-2 py-3"><SkillTrend skill={skill} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function AgentHeatmapCard({ usage }: { usage: SkillsUsageResponse }) {
+  const [hoveredCell, setHoveredCell] = useState<FloatingTooltipState | null>(null);
+  const series = normalizedContributionSeries(usage.heatmap_data);
+  const max = Math.max(0, ...series);
+  const total = normalizedUsageSeries(usage.heatmap_data).reduce((sum, value) => sum + value, 0);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const start = new Date(today);
+  start.setDate(today.getDate() - (CONTRIBUTION_DAYS - 1));
+  const gridStart = new Date(start);
+  gridStart.setDate(start.getDate() - start.getDay());
+  const cells: ContributionCell[] = [];
+  for (let cursor = new Date(gridStart), index = 0; cursor <= today; cursor.setDate(cursor.getDate() + 1), index += 1) {
+    const inWindow = cursor >= start;
+    const valueIndex = Math.floor((cursor.getTime() - start.getTime()) / 86_400_000);
+    cells.push({
+      key: `heat-${index}`,
+      date: new Date(cursor),
+      inWindow,
+      value: inWindow ? series[valueIndex] ?? 0 : 0
+    });
+  }
+  const weeks: ContributionCell[][] = [];
+  for (let index = 0; index < cells.length; index += 7) {
+    weeks.push(cells.slice(index, index + 7));
+  }
+  const monthLabels = weeks.map((week, index) => {
+    const month = week.find((cell) => cell.inWindow)?.date.getMonth();
+    const prevMonth = index > 0 ? weeks[index - 1]?.find((cell) => cell.inWindow)?.date.getMonth() : undefined;
+    return month !== undefined && month !== prevMonth ? MONTH_LABELS[month] : "";
+  });
+  const formatCellDate = (date: Date) =>
+    date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  const showCellTooltip = (
+    event: MouseEvent<HTMLSpanElement> | FocusEvent<HTMLSpanElement>,
+    cell: ContributionCell
+  ) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    setHoveredCell({
+      left: rect.left + rect.width / 2,
+      top: rect.top - 8,
+      text: `${cell.value.toLocaleString()} skill uses on ${formatTooltipDate(cell.date)}.`
+    });
+  };
+  return (
+    <section className="im-agent-card">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="im-agent-card-title">使用热力图</h3>
+          <p className="im-agent-card-sub">该 agent 的 skill 使用密度</p>
+        </div>
+      </div>
+      <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white px-5 py-4">
+        <div className="min-w-max">
+          <div
+            className="ml-[34px] grid h-5 gap-[4px]"
+            style={{ gridTemplateColumns: `repeat(${weeks.length}, 12px)` }}
+            aria-hidden="true"
+          >
+            {monthLabels.map((label, index) => (
+              <span key={`month-${index}`} className="text-[11px] leading-4 text-slate-600">
+                {label}
+              </span>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <div className="grid grid-rows-7 gap-[4px] pr-1 text-right text-[12px] leading-3 text-slate-600">
+              {["", "Mon", "", "Wed", "", "Fri", ""].map((label, index) => (
+                <span key={`weekday-${index}`} className="h-3">{label}</span>
+              ))}
+            </div>
+            <div
+              className="flex gap-[4px]"
+              data-testid="skills-agent-heatmap"
+              aria-label="Agent skill usage contribution calendar"
+            >
+              {weeks.map((week, weekIndex) => (
+                <div key={`week-${weekIndex}`} className="grid grid-rows-7 gap-[4px]">
+                  {week.map((cell) => (
+                    cell.inWindow ? (
+                      <span
+                        key={cell.key}
+                        tabIndex={0}
+                        className="h-3 w-3 rounded-[3px] border border-slate-200"
+                        style={{ backgroundColor: heatLevel(cell.value, max) }}
+                        aria-label={`${formatCellDate(cell.date)}: ${cell.value} skill uses`}
+                        onMouseEnter={(event) => showCellTooltip(event, cell)}
+                        onMouseLeave={() => setHoveredCell(null)}
+                        onFocus={(event) => showCellTooltip(event, cell)}
+                        onBlur={() => setHoveredCell(null)}
+                      />
+                    ) : (
+                      <span
+                        key={cell.key}
+                        className="invisible h-3 w-3 rounded-[3px] border border-slate-200"
+                        aria-hidden="true"
+                      />
+                    )
+                  ))}
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="mt-4 flex items-center justify-end gap-2 text-[12px] text-slate-600">
+            <span className="mr-auto text-[0.65rem] text-slate-500">{total.toLocaleString()} 次 · 最近 30 天 · 悬停查看</span>
+            <span>Less</span>
+            {[0, 1, 2, 3, 4].map((level) => (
+              <span
+                key={`legend-${level}`}
+                className="h-3 w-3 rounded-[3px] border border-slate-200"
+                style={{ backgroundColor: heatLevel(level, 4) }}
+              />
+            ))}
+            <span>More</span>
+          </div>
+        </div>
+      </div>
+      <FloatingTooltip tooltip={hoveredCell} />
+    </section>
+  );
+}
+
+function AgentAutoSkillsCard({ usage }: { usage: SkillsUsageResponse }) {
+  const automatedSkills = usage.skills.filter((skill) => ["F3", "F4"].includes(skill.source));
+  return (
+    <section className="im-agent-card">
+      <div>
+        <h3 className="im-agent-card-title">自动创建的 Skill</h3>
+        <p className="im-agent-card-sub">自动沉淀与批量复盘输出</p>
+      </div>
+      {automatedSkills.length === 0 ? (
+        <p className="text-[0.8rem] text-slate-500">暂无自动创建的 skill</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse text-[0.78rem]">
+            <thead>
+              <tr className="border-b border-[var(--im-border)] text-left text-[0.68rem] font-semibold uppercase tracking-[0.04em] text-slate-500">
+                <th className="px-2 py-[6px]">名字</th>
+                <th className="px-2 py-[6px]">来源</th>
+                <th className="px-2 py-[6px]">使用次数</th>
+                <th className="px-2 py-[6px]">状态</th>
+              </tr>
+            </thead>
+            <tbody>
+              {automatedSkills.map((skill) => (
+                <tr key={skill.skill_id} className="border-b border-slate-100 last:border-0">
+                  <td className="px-2 py-[7px] font-semibold text-slate-900">{skill.name}</td>
+                  <td className="px-2 py-[7px]"><SkillBadge kind="source" value={skill.source}>{skillSourceLabel(skill.source)}</SkillBadge></td>
+                  <td className="px-2 py-[7px]">{skill.use_count}</td>
+                  <td className="px-2 py-[7px]"><SkillBadge kind="state" value={skill.state}>{skill.state}</SkillBadge></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function AgentDimensionView({ usage }: { usage: SkillsUsageResponse }) {
+  return (
+    <div className="grid gap-3 lg:grid-cols-2">
+      <AgentHeatmapCard usage={usage} />
+      <AgentAutoSkillsCard usage={usage} />
+    </div>
+  );
+}
+
+function HealthFunnelView({ usage }: { usage: SkillsUsageResponse }) {
+  const rows = [
+    { label: "自动创建总数", value: usage.health.created_auto_total },
+    { label: "still active", value: usage.health.active_auto_total },
+    { label: "use_count > 0", value: usage.health.used_auto_total },
+  ];
+  const survivalRate = usage.health.created_auto_total > 0
+    ? `${usage.health.used_auto_total} / ${usage.health.created_auto_total} = ${Math.round((usage.health.used_auto_total / usage.health.created_auto_total) * 100)}%`
+    : "0 / 0 = 0%";
+  const automatedSkills = usage.skills.filter((skill) => ["F3", "F4"].includes(skill.source));
+  return (
+    <div className="grid gap-3">
+      <section className="im-agent-card">
+        <div>
+          <h3 className="im-agent-card-title">自进化存活率</h3>
+          <p className="im-agent-card-sub">自动创建的 skill 有多少活了下来</p>
+        </div>
+        <div className="flex flex-wrap items-center justify-center gap-4 py-2">
+          {rows.map((row, index) => (
+            <Fragment key={row.label}>
+              {index > 0 ? <span className="text-[18px] text-slate-300">→</span> : null}
+              <div className="min-w-[96px] text-center">
+                <p className="m-0 text-[26px] font-extrabold text-slate-900">{row.value}</p>
+                <p className="m-0 mt-1 text-[11px] text-slate-500">{row.label}</p>
+              </div>
+            </Fragment>
+          ))}
+        </div>
+        <p className="m-0 mt-1 text-center text-[12px] text-slate-500">存活率 <strong>{survivalRate}</strong></p>
+      </section>
+      <section className="im-agent-card">
+        <div>
+          <h3 className="im-agent-card-title">生命周期时间线</h3>
+          <p className="im-agent-card-sub">每个自动 skill 的创建 → 首次使用 → 最后使用</p>
+        </div>
+        {automatedSkills.length === 0 ? (
+          <p className="text-[13px] text-slate-500">暂无自动创建的 skill</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-[13px]">
+              <thead>
+                <tr className="border-b border-[var(--im-border)] text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  <th className="px-2 py-2">名字</th>
+                  <th className="px-2 py-2">来源</th>
+                  <th className="px-2 py-2">创建时间</th>
+                  <th className="px-2 py-2">首次使用</th>
+                  <th className="px-2 py-2">最后使用</th>
+                  <th className="px-2 py-2">状态</th>
+                </tr>
+              </thead>
+              <tbody>
+                {automatedSkills.map((skill) => {
+                  const firstUsed = skill.session_refs?.[0]?.timestamp ?? skill.last_used_at ?? null;
+                  return (
+                    <tr key={skill.skill_id} className="border-b border-slate-100 last:border-0">
+                      <td className="px-2 py-3 font-semibold text-slate-900">{skill.name}</td>
+                      <td className="px-2 py-3"><SkillBadge kind="source" value={skill.source}>{skillSourceLabel(skill.source)}</SkillBadge></td>
+                      <td className="px-2 py-3 font-mono text-[12px] text-slate-500">{formatSkillTimestamp(skill.created_at)}</td>
+                      <td className="px-2 py-3 font-mono text-[12px] text-slate-500">{formatSkillTimestamp(firstUsed)}</td>
+                      <td className="px-2 py-3 font-mono text-[12px] text-slate-500">{formatSkillTimestamp(skill.last_used_at)}</td>
+                      <td className="px-2 py-3"><SkillBadge kind="state" value={skill.state}>{skill.state}</SkillBadge></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function PrototypePlaceholder({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="im-agent-card">
+      <div>
+        <h3 className="im-agent-card-title">{title}</h3>
+        <p className="im-agent-card-sub">{children}</p>
+      </div>
+    </section>
+  );
+}
+
+function AgentSkillsUsagePanel({ agentId }: { agentId: string }) {
+  const [view, setView] = useState<SkillsUsageView>("list");
+  const [showArchived, setShowArchived] = useState(false);
+  const usageQuery = useQuery({
+    queryKey: ["settings", "agents", agentId, "skills-usage"],
+    queryFn: () => getAgentSkillsUsage(agentId),
+    staleTime: 30_000,
+  });
+
+  if (usageQuery.isLoading) {
+    return <p className="text-sm text-slate-500">Loading skill usage...</p>;
+  }
+
+  if (usageQuery.isError) {
+    const detail = usageQuery.error instanceof Error ? usageQuery.error.message : "Skill usage unavailable";
+    return (
+      <section className="im-agent-card border-rose-200 bg-rose-50/80">
+        <div>
+          <h3 className="im-agent-card-title text-rose-700">Gateway offline</h3>
+          <p className="im-agent-card-sub text-rose-600">{detail}</p>
+        </div>
+        <button type="button" className="im-btn im-btn-muted w-fit" onClick={() => void usageQuery.refetch()}>
+          Retry
+        </button>
+      </section>
+    );
+  }
+
+  const usage = usageQuery.data;
+  if (!usage || usage.skills.length === 0) {
+    return (
+      <section className="im-agent-card">
+        <div>
+          <h3 className="im-agent-card-title">No skill usage yet</h3>
+          <p className="im-agent-card-sub">The gateway returned an empty `.usage.json` snapshot for this agent.</p>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <div className="grid gap-3" data-testid="agent-skills-usage-panel">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="mb-3 flex flex-wrap gap-0" role="tablist" aria-label="Skill usage views">
+          {(["list", "agent", "health"] as SkillsUsageView[]).map((item, index) => (
+            <button
+              key={item}
+              type="button"
+              className={`relative border px-[10px] py-[5px] text-[0.72rem] font-semibold transition-colors ${
+                index === 0 ? "rounded-l-md" : "-ml-px"
+              } ${
+                index === 2 ? "rounded-r-md" : ""
+              } ${
+                view === item
+                  ? "z-10 border-slate-900 bg-slate-900 text-white"
+                  : "border-[var(--im-border)] bg-transparent text-slate-500 hover:bg-[var(--im-surface-2)]"
+              }`}
+              onClick={() => setView(item)}
+              aria-pressed={view === item}
+            >
+              {item === "list" ? "Skill 列表" : item === "agent" ? "Agent 维度" : "自进化健康度"}
+            </button>
+          ))}
+        </div>
+        <span className="text-[12px] text-slate-500">{usage.skills.length} skills</span>
+      </div>
+      {view === "list" && (
+        <SkillsListView
+          usage={usage}
+          showArchived={showArchived}
+          onToggleArchived={() => setShowArchived((value) => !value)}
+        />
+      )}
+      {view === "agent" && <AgentDimensionView usage={usage} />}
+      {view === "health" && <HealthFunnelView usage={usage} />}
+    </div>
+  );
+}
+
 // M20/R12-bis-1: desktop split layout — left 240px dark agent rail.
 // Prototype `im-settings-page.jsx::AgentListView` desktop: 240px dark sidebar
 // (`oklch(0.24 0.012 240)` bg) with clickable agent rows, active highlight.
@@ -771,6 +1338,7 @@ export function AgentDetailPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [hasAttemptedSave, setHasAttemptedSave] = useState(false);
   const [touched, setTouched] = useState<Record<string, boolean>>({});
+  const [activeSection, setActiveSection] = useState<AgentDetailSection>("config");
   const savedResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // feat-394 M9-C: once the user manually edits tool_allowlist, stop treating empty as
   // "use product defaults" — the empty list becomes a genuine empty whitelist.
@@ -801,6 +1369,10 @@ export function AgentDetailPage() {
     () => agentsSummaryQuery.data?.find((item) => item.agent_id === agentId) ?? null,
     [agentsSummaryQuery.data, agentId]
   );
+
+  useEffect(() => {
+    setActiveSection("config");
+  }, [agentId]);
 
   useEffect(() => {
     if (detailQuery.data?.config) {
@@ -1050,13 +1622,17 @@ export function AgentDetailPage() {
             <div className="im-agent-header-actions">
               <button
                 type="button"
-                className="im-btn im-btn-muted"
+                className="rounded-lg border border-[var(--im-accent)] bg-[var(--im-accent)] px-3 py-[5px] text-[0.75rem] font-semibold text-[var(--im-accent-fg)] disabled:cursor-not-allowed disabled:opacity-60"
                 disabled={openDirectChatMutation.isPending}
                 onClick={() => openDirectChatMutation.mutate()}
               >
                 {openDirectChatMutation.isPending ? t("agents.detail.openChatPending") : t("agents.detail.openChat")}
               </button>
-              <button className="im-btn im-btn-primary" type="submit" disabled={mutation.isPending || !isDirty}>
+              <button
+                className="rounded-lg border border-[var(--im-border)] bg-[var(--im-surface)] px-3 py-[5px] text-[0.75rem] font-semibold text-[var(--im-text)] hover:bg-[var(--im-surface-2)] disabled:cursor-not-allowed disabled:opacity-60"
+                type="submit"
+                disabled={mutation.isPending || !isDirty}
+              >
                 {headerSaveText}
               </button>
             </div>
@@ -1072,9 +1648,51 @@ export function AgentDetailPage() {
             {errorMessage}
           </p>
         ) : null}
+        <nav
+          className="-mx-5 mt-3 flex flex-wrap gap-0 border-t border-[var(--im-border)] px-5"
+          aria-label="Agent detail sections"
+        >
+          {([
+            ["overview", "概览"],
+            ["config", "配置"],
+            ["channels", "通道"],
+            ["skills", "Skills"],
+            ["sessions", "会话"],
+          ] as Array<[AgentDetailSection, string]>).map(([section, label]) => (
+            <button
+              key={section}
+              type="button"
+              className={`border-0 border-b-2 bg-transparent px-4 py-3 text-[13px] font-semibold ${
+                activeSection === section
+                  ? "border-[var(--im-accent)] text-[var(--im-accent)]"
+                  : "border-transparent text-slate-500 hover:text-slate-900"
+              }`}
+              aria-pressed={activeSection === section}
+              onClick={() => setActiveSection(section)}
+            >
+              {label}
+            </button>
+          ))}
+        </nav>
       </header>
 
       <div className="im-agent-panel-body">
+        {activeSection === "skills" ? (
+          <AgentSkillsUsagePanel agentId={agentId} />
+        ) : activeSection === "overview" ? (
+          <PrototypePlaceholder title="概览">
+            本期不设计概览页。保持空态，后续单独设计。
+          </PrototypePlaceholder>
+        ) : activeSection === "channels" ? (
+          <PrototypePlaceholder title="通道">
+            本期不设计通道页。保持空态，后续单独设计。
+          </PrototypePlaceholder>
+        ) : activeSection === "sessions" ? (
+          <PrototypePlaceholder title="会话">
+            本期不设计会话页。保持空态，后续单独设计。
+          </PrototypePlaceholder>
+        ) : (
+          <>
         <section className="im-agent-card">
           <div>
             <h3 className="im-agent-card-title">{t("agents.form.identity.title")}</h3>
@@ -1235,13 +1853,21 @@ export function AgentDetailPage() {
           <div>
             <h3 className="im-agent-card-title">{t("agents.form.access.title")}</h3>
             <p className="im-agent-card-sub">{t("agents.form.access.sub")}</p>
+            <button
+              type="button"
+              className="im-agent-access-skills-link"
+              onClick={() => setActiveSection("skills")}
+            >
+              View skill statistics
+            </button>
           </div>
-          <div className="im-agent-card-grid-2">
-            <PillSelector
+          <div className="grid gap-4">
+            <SkillSourceSelector
               testId="pill-selector-skills"
               label={t("agents.form.access.skills")}
               selected={draft.skills}
               options={capabilities.skills}
+              workspaceRoot={draft.workspace_root}
               isLoading={detailQuery.isLoading}
               errorMessage={detailQuery.isError ? queryErrorDetail : null}
               onRetry={() => void detailQuery.refetch()}
@@ -1251,6 +1877,7 @@ export function AgentDetailPage() {
                 setDraft({ ...draft, skills });
               }}
             />
+            <div className="h-px bg-[var(--im-border)]" aria-hidden="true" />
             <PillSelector
               testId="pill-selector-tools"
               label={t("agents.form.access.tools")}
@@ -1356,42 +1983,46 @@ export function AgentDetailPage() {
             </div>
           </div>
         </section>
+          </>
+        )}
       </div>
 
-      <footer
-        className="im-agent-footer im-agent-detail-footer"
-        aria-live="polite"
-        style={{
-          paddingBottom: isMobile ? "calc(14px + env(safe-area-inset-bottom, 0px))" : "14px"
-        }}
-      >
-        <p className={footerStatusClass}>{footerStatusText}</p>
-        <div className="im-agent-footer-actions">
-          {isMobile && (
-            <button
-              type="button"
-              className="im-btn im-btn-muted"
-              disabled={openDirectChatMutation.isPending}
-              onClick={() => openDirectChatMutation.mutate()}
-            >
-              {openDirectChatMutation.isPending ? t("agents.detail.openChatPending") : t("agents.detail.openChat")}
+      {activeSection === "config" ? (
+        <footer
+          className="im-agent-footer im-agent-detail-footer"
+          aria-live="polite"
+          style={{
+            paddingBottom: isMobile ? "calc(14px + env(safe-area-inset-bottom, 0px))" : "14px"
+          }}
+        >
+          <p className={footerStatusClass}>{footerStatusText}</p>
+          <div className="im-agent-footer-actions">
+            {isMobile && (
+              <button
+                type="button"
+                className="im-btn im-btn-muted"
+                disabled={openDirectChatMutation.isPending}
+                onClick={() => openDirectChatMutation.mutate()}
+              >
+                {openDirectChatMutation.isPending ? t("agents.detail.openChatPending") : t("agents.detail.openChat")}
+              </button>
+            )}
+            {isDirty && (
+              <button
+                className="im-btn im-btn-muted"
+                type="button"
+                disabled={mutation.isPending}
+                onClick={handleDiscard}
+              >
+                {t("agents.detail.discard")}
+              </button>
+            )}
+            <button className="im-btn im-btn-primary" type="submit" disabled={mutation.isPending || !isDirty}>
+              {mutation.isPending ? t("agents.detail.saving") : t("agents.detail.saveAgent")}
             </button>
-          )}
-          {isDirty && (
-            <button
-              className="im-btn im-btn-muted"
-              type="button"
-              disabled={mutation.isPending}
-              onClick={handleDiscard}
-            >
-              {t("agents.detail.discard")}
-            </button>
-          )}
-          <button className="im-btn im-btn-primary" type="submit" disabled={mutation.isPending || !isDirty}>
-            {mutation.isPending ? t("agents.detail.saving") : t("agents.detail.saveAgent")}
-          </button>
-        </div>
-      </footer>
+          </div>
+        </footer>
+      ) : null}
     </form>
   );
 

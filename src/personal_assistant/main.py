@@ -23,6 +23,7 @@ from typing import Any, Protocol
 from urllib.parse import parse_qs, urlparse
 
 _log = logging.getLogger("personal_assistant.main")
+_PA_GLOBAL_SKILL_ROOT = Path("~/.nanoassistant/skills")
 
 import httpx
 import websockets
@@ -34,6 +35,7 @@ from personal_assistant.channels.web_relay_adapter import (
     WebRelayAdapter,
 )
 from personal_assistant.channels.feishu import FeishuAdapter
+from personal_assistant.builtin_skills.bootstrap import install_builtin_skills
 
 from personal_assistant.config.local_store import (
     AgentWorkspaceConfig,
@@ -51,7 +53,10 @@ from personal_assistant.config.local_store import (
     save_local_config,
 )
 from personal_assistant.config.sync_client import ConfigSyncClient
-from personal_assistant.gateway.bootstrap import start_channels, stop_channels
+from personal_assistant.gateway.bootstrap import (
+    start_channels,
+    stop_channels,
+)
 from personal_assistant.gateway.channel_registry import ChannelRegistry
 from personal_assistant.gateway.group_context_store import GroupContextStore
 from personal_assistant.gateway.inbound_pipeline import (
@@ -273,6 +278,42 @@ class GatewayRuntimeState:
     log_path: str
 
 
+def _default_pa_global_skill_names() -> tuple[str, ...]:
+    """Resolve the PA global user skills that new IM-created agents inherit."""
+
+    root = _PA_GLOBAL_SKILL_ROOT.expanduser().resolve()
+    if not root.is_dir():
+        return ()
+    try:
+        names: set[str] = set()
+        for skill_file in sorted(root.rglob("SKILL.md")):
+            if ".archive" in skill_file.parts:
+                continue
+            names.add(_read_skill_name(skill_file))
+        return tuple(sorted(names))
+    except Exception:  # noqa: BLE001
+        _log.warning(
+            "failed to resolve PA global skill defaults from %s", root, exc_info=True
+        )
+        return ()
+
+
+def _read_skill_name(skill_file: Path) -> str:
+    """Return the skill's declared name, falling back to its directory name."""
+
+    for line in skill_file.read_text(encoding="utf-8", errors="replace").splitlines():
+        stripped = line.strip()
+        if stripped == "---" or not stripped:
+            continue
+        if stripped.startswith("name:"):
+            return (
+                stripped.split(":", 1)[1].strip().strip("\"'") or skill_file.parent.name
+            )
+        if not stripped.startswith("#"):
+            break
+    return skill_file.parent.name
+
+
 class _IMConfigSyncClient:
     """Fetch IM agent config snapshots and extend the live gateway agent registry."""
 
@@ -292,6 +333,7 @@ class _IMConfigSyncClient:
         reporter: UpstreamReporter | None = None,
         client: httpx.Client | None = None,
         client_factory: BootstrapClientFactory | None = None,
+        global_skill_root: Path | None = None,
         timeout_seconds: float = 5.0,
         retry_interval_seconds: float = 0.1,
         max_attempts: int = 50,
@@ -312,6 +354,11 @@ class _IMConfigSyncClient:
         self._reporter = reporter
         self._client_factory = client_factory
         self._client = client
+        self._global_skill_root = (
+            global_skill_root.expanduser().resolve()
+            if global_skill_root is not None
+            else None
+        )
         self._monotonic = monotonic
         self._sleep = sleep
         # feat-394-M3 fix: accept token_getter so auto-bind token refresh propagates
@@ -478,6 +525,8 @@ class _IMConfigSyncClient:
             for item in (raw_skills if isinstance(raw_skills, list) else [])
             if isinstance(item, str) and item.strip()
         )
+        if "skills" not in agent_payload:
+            skills = _default_pa_global_skill_names()
         raw_tools = agent_payload.get("tool_allowlist")
         tool_allowlist = tuple(
             item.strip()
@@ -546,6 +595,135 @@ class _IMConfigSyncClient:
             "features": features,
             "custom_prompt": custom_prompt,
         }
+
+    def handle_skill_created(self, agent_id: str, event: Mapping[str, object]) -> None:
+        """Enable a successfully created skill for the affected live agents."""
+
+        skill_name = event.get("name")
+        scope = event.get("scope")
+        raw_skill_root = event.get("skill_root")
+        if not (
+            isinstance(skill_name, str)
+            and skill_name.strip()
+            and isinstance(scope, str)
+            and isinstance(raw_skill_root, str)
+            and raw_skill_root.strip()
+        ):
+            return
+        skill_name = skill_name.strip()
+        skill_root = Path(raw_skill_root).expanduser().resolve()
+        if scope == "agent":
+            agent = self._local_agent(agent_id)
+            if agent is None:
+                return
+            if skill_root != self._agent_skill_root(agent):
+                _log.warning(
+                    "ignoring agent-scoped skill_created for %s: root %s is not the agent skill root",
+                    agent_id,
+                    skill_root,
+                )
+                return
+            self._enable_created_skill_for_agent(agent, skill_name)
+            return
+        if scope == "global":
+            if self._global_skill_root is None or skill_root != self._global_skill_root:
+                _log.warning(
+                    "ignoring global skill_created for %s: root %s is not configured global root",
+                    agent_id,
+                    skill_root,
+                )
+                return
+            for agent in tuple(self._local_config.agents):
+                self._enable_created_skill_for_agent(agent, skill_name)
+
+    def _enable_created_skill_for_agent(
+        self, agent: AgentWorkspaceConfig, skill_name: str
+    ) -> None:
+        if not agent.skills:
+            self._pipeline.drop_agent_sessions(agent.agent_id)
+            return
+        if skill_name in agent.skills:
+            self._pipeline.drop_agent_sessions(agent.agent_id)
+            return
+        try:
+            payload = self._fetch_agent_config(agent_id=agent.agent_id)
+            next_skills = [
+                item.strip()
+                for item in payload.get("skills", [])
+                if isinstance(item, str) and item.strip()
+            ]
+            if skill_name not in next_skills:
+                next_skills.append(skill_name)
+                updated = self._patch_agent_skills(agent.agent_id, payload, next_skills)
+                profile_version = int(updated.get("profile_version", 0))
+                self.sync_agent(
+                    agent_id=agent.agent_id,
+                    profile_version=profile_version,
+                )
+            else:
+                self._pipeline.drop_agent_sessions(agent.agent_id)
+        except (httpx.HTTPError, ValueError, RuntimeError):
+            _log.warning(
+                "failed to enable created skill %s for agent %s",
+                skill_name,
+                agent.agent_id,
+                exc_info=True,
+            )
+
+    def _patch_agent_skills(
+        self,
+        agent_id: str,
+        payload: Mapping[str, object],
+        skills: list[str],
+    ) -> dict[str, object]:
+        raw_tools = payload.get("tool_allowlist")
+        raw_features = payload.get("features")
+        patch_payload: dict[str, object] = {
+            "profile_version": int(payload.get("profile_version", 1)),
+            "display_name": str(payload.get("display_name") or agent_id),
+            "description": str(payload.get("description") or ""),
+            "system_prompt": str(payload.get("system_prompt") or ""),
+            "skills": skills,
+            "tool_allowlist": [
+                item.strip()
+                for item in (raw_tools if isinstance(raw_tools, list) else [])
+                if isinstance(item, str) and item.strip()
+            ],
+            "group_reply_policy": str(payload.get("group_reply_policy") or "manual"),
+            "default_model": payload.get("default_model")
+            if isinstance(payload.get("default_model"), str)
+            else None,
+            "features": raw_features if isinstance(raw_features, dict) else {},
+            "custom_prompt": payload.get("custom_prompt")
+            if isinstance(payload.get("custom_prompt"), str)
+            else None,
+            "heartbeat_json": payload.get("heartbeat_json")
+            if isinstance(payload.get("heartbeat_json"), str)
+            else None,
+        }
+        response = self._get_client().patch(
+            f"/im/v1/agents/{agent_id}/config",
+            json=patch_payload,
+        )
+        response.raise_for_status()
+        updated = response.json()
+        if not isinstance(updated, dict):
+            raise ValueError("agent config patch response must be an object")
+        return updated
+
+    def _local_agent(self, agent_id: str) -> AgentWorkspaceConfig | None:
+        return next(
+            (
+                agent
+                for agent in self._local_config.agents
+                if agent.agent_id == agent_id
+            ),
+            None,
+        )
+
+    @staticmethod
+    def _agent_skill_root(agent: AgentWorkspaceConfig) -> Path:
+        return (agent.workspace_root / _WCD / "skills").expanduser().resolve()
 
     def close(self) -> None:
         client = self._client
@@ -675,6 +853,7 @@ class _IMConfigSyncClient:
                 heartbeat_active_hours_timezone=synced_hb_tz,
             )
             self._pipeline.register_agent(agent_config)
+            self._persist_agent_config(agent_config)
             _log.debug(
                 "reconcile_all_agents: updated agent %s to IM version %d",
                 agent_id,
@@ -1591,6 +1770,50 @@ class _InboundDispatcher:
         future.add_done_callback(_consume_future_exception)
 
 
+async def _run_kernel_background_analysis(
+    kernel: Any,
+    *,
+    workspace_root: Path,
+    prompt: str,
+    tool_allowlist: tuple[str, ...],
+    metadata: dict[str, Any],
+) -> Any:
+    session = await kernel.create_session(
+        workspace_root=workspace_root,
+        enabled_tools=list(tool_allowlist),
+        metadata=metadata,
+    )
+    run = kernel.submit(
+        session_id=session.session_id,
+        parts=[{"type": "text", "text": prompt}],
+        workspace_root=workspace_root,
+    )
+    run_id = getattr(run, "run_id", "")
+    for _ in range(300):
+        current = kernel.get_run(run_id)
+        status = getattr(current, "status", "")
+        if status == "completed":
+            return current
+        if status in {"failed", "cancelled"}:
+            raise RuntimeError(f"skill batch review background run {status}")
+        await asyncio.sleep(0.1)
+    raise TimeoutError("skill batch review background run timed out")
+
+
+def _session_ids_from_skill_batch_trigger(trigger: Any) -> tuple[str, ...]:
+    refs = getattr(trigger, "session_refs", ())
+    if not isinstance(refs, (tuple, list)):
+        return ()
+    session_ids: list[str] = []
+    for ref in refs:
+        if not isinstance(ref, Mapping):
+            continue
+        session_id = ref.get("session_id")
+        if isinstance(session_id, str) and session_id:
+            session_ids.append(session_id)
+    return tuple(session_ids)
+
+
 class GatewayRuntime:
     """Run the assembled Node Gateway process until shutdown is requested.
 
@@ -1714,6 +1937,8 @@ class GatewayRuntime:
                     await _dispatch_site.start()
                 except Exception:  # noqa: BLE001
                     dispatch_runner = None
+            await self._run_skill_maintenance()
+            self._install_skill_batch_review_scheduler()
             self._ready_event.set()
             if self._im_connection_manager is not None:
                 # bugfix-446-M1 (decision 1): own the IM connection through a
@@ -1799,6 +2024,132 @@ class GatewayRuntime:
         if self._shutdown_requested.is_set():
             event.set()
         return event
+
+    async def _run_skill_maintenance(self) -> None:
+        """Run best-effort per-agent skill housekeeping at Gateway startup."""
+
+        if self._kernel is None:
+            return
+        run_skill_maintenance = getattr(self._kernel, "run_skill_maintenance", None)
+        drain = getattr(self._kernel, "run_queued_skill_batch_reviews", None)
+        if not callable(run_skill_maintenance) and not callable(drain):
+            return
+        for agent in self._config.agents:
+            workspace_root = getattr(agent, "workspace_root", None)
+            if workspace_root is None:
+                continue
+            try:
+                if callable(run_skill_maintenance):
+                    run_skill_maintenance(workspace_root=workspace_root)
+                if callable(drain):
+                    skill_root = Path(workspace_root) / _WCD / "skills"
+                    await drain(
+                        run_background_analysis=self._build_skill_batch_analysis_runner(
+                            workspace_root=workspace_root
+                        ),
+                        skill_root=skill_root,
+                    )
+            except Exception as exc:  # noqa: BLE001
+                _log.warning(
+                    "skill maintenance failed for agent=%s workspace=%s: %s",
+                    getattr(agent, "agent_id", ""),
+                    workspace_root,
+                    exc,
+                )
+
+    def _install_skill_batch_review_scheduler(self) -> None:
+        if self._kernel is None:
+            return
+        setter = getattr(self._kernel, "set_skill_batch_review_drain_scheduler", None)
+        if not callable(setter):
+            return
+
+        def _schedule(trigger: Any) -> None:
+            workspace_root = self._workspace_root_for_skill_batch_trigger(trigger)
+            if workspace_root is None:
+                _log.warning(
+                    "cannot drain skill batch review for skill=%s without a matching workspace",
+                    getattr(trigger, "skill_name", ""),
+                )
+                return
+            asyncio.create_task(
+                self._drain_queued_skill_batch_reviews_for_workspace(
+                    workspace_root=workspace_root
+                ),
+                name="personal-assistant-skill-batch-review",
+            )
+
+        setter(_schedule)
+
+    def _workspace_root_for_skill_batch_trigger(self, trigger: Any) -> Path | None:
+        session_ids = _session_ids_from_skill_batch_trigger(trigger)
+        if session_ids:
+            for agent in self._config.agents:
+                workspace_root = getattr(agent, "workspace_root", None)
+                if workspace_root is None:
+                    continue
+                session_dir = Path(workspace_root) / _WCD / "sessions"
+                for session_id in session_ids:
+                    if any(session_dir.rglob(f"{session_id}.jsonl")):
+                        return Path(workspace_root)
+        skill_root = getattr(trigger, "skill_root", None)
+        if skill_root is not None:
+            try:
+                resolved_skill_root = Path(skill_root).expanduser().resolve()
+            except TypeError:
+                resolved_skill_root = None
+            if resolved_skill_root is not None:
+                for agent in self._config.agents:
+                    workspace_root = getattr(agent, "workspace_root", None)
+                    if workspace_root is None:
+                        continue
+                    local_skill_root = (
+                        (Path(workspace_root) / _WCD / "skills").expanduser().resolve()
+                    )
+                    if resolved_skill_root == local_skill_root:
+                        return Path(workspace_root)
+        if len(self._config.agents) == 1:
+            return Path(self._config.agents[0].workspace_root)
+        return None
+
+    async def _drain_queued_skill_batch_reviews_for_workspace(
+        self, *, workspace_root: Path
+    ) -> None:
+        drain = getattr(self._kernel, "run_queued_skill_batch_reviews", None)
+        if not callable(drain):
+            return
+        try:
+            await drain(
+                run_background_analysis=self._build_skill_batch_analysis_runner(
+                    workspace_root=workspace_root
+                ),
+                skill_root=Path(workspace_root) / _WCD / "skills",
+            )
+        except Exception as exc:  # noqa: BLE001
+            _log.warning(
+                "queued skill batch review drain failed for workspace=%s: %s",
+                workspace_root,
+                exc,
+            )
+
+    def _build_skill_batch_analysis_runner(
+        self, *, workspace_root: Path
+    ) -> Callable[..., Awaitable[Any]]:
+        async def _run_background_analysis(
+            prompt: str,
+            *,
+            tool_allowlist: tuple[str, ...],
+            metadata: dict[str, Any],
+        ) -> Any:
+            return await _run_kernel_background_analysis(
+                self._kernel,
+                workspace_root=workspace_root,
+                prompt=prompt,
+                tool_allowlist=tool_allowlist,
+                metadata=metadata,
+            )
+
+        return _run_background_analysis
 
     async def _wait_for_shutdown_request(self, *, timeout: float | None = None) -> bool:
         event = self._shutdown_event_for_loop()
@@ -2501,8 +2852,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     # via its own factory (personal_assistant.product).  PA imports only agent.sdk +
     # its own package — no product_profile / host_capabilities.
     from agent.sdk import LLMConfig
-    from personal_assistant.builtin_skills.bootstrap import install_builtin_skills
-    from personal_assistant.product import build_pa_kernel
+    from personal_assistant.product import PA_SKILL_SEARCH_ROOTS, build_pa_kernel
 
     # PA does not supply can_use_tool: permission ask always parks on broker future
     # and is resolved by the user clicking Allow/Deny on the IM card via
@@ -2704,6 +3054,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             local_config=config,
             reporter=reporter,
             workspace_root_factory=workspace_root_factory,
+            global_skill_root=PA_SKILL_SEARCH_ROOTS[0],
         )
         # Build a token_getter closure that auto-refreshes the access token on reconnect.
         # The auth client uses the IM HTTP base URL so it can reach /im/v1/auth/* endpoints.
@@ -2854,6 +3205,9 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         external_reply_sender=_send_external_reply,
         external_permission_request_sender=_send_external_permission_request,
         external_permission_resolved_sender=_mark_external_permission_resolved,
+        skill_created_handler=getattr(
+            im_config_sync_client, "handle_skill_created", None
+        ),
     )
     pipeline._kernel_event_observer = _kernel_event_observer
     # feat-393: wire observer into heartbeat_runner now that it's built. When IM is
@@ -3977,6 +4331,7 @@ def _build_kernel_event_observer(
     external_permission_resolved_sender: (
         Callable[[str, str, Mapping[str, str]], Any] | None
     ) = None,
+    skill_created_handler: Callable[[str, Mapping[str, object]], Any] | None = None,
 ) -> Callable[[Mapping[str, Any]], "Coroutine[Any, Any, None] | None"]:
     """Build a kernel SSE event observer that forwards streaming events to IM via node.streaming_delta.
 
@@ -4156,6 +4511,11 @@ def _build_kernel_event_observer(
         conversation_id = ctx.get("conversation_id") or ""
         message_id = ctx.get("message_id") or ""
         agent_id = ctx.get("agent_id") or ""
+        if event_name == "skill_created" and agent_id and skill_created_handler:
+            asyncio.get_event_loop().create_task(
+                asyncio.to_thread(skill_created_handler, agent_id, event)
+            )
+            return None
 
         # feat-393: heartbeat runs carry to_user_id instead of conversation_id.
         # The lazy-bubble gate: skip eager turn_start; defer to assistant_message.
