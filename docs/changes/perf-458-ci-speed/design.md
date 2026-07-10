@@ -6,6 +6,7 @@
 
 ## Changelog
 
+- 2026-07-11 (R4): code review 通过 base/head mutation 证实 timeout fallback 与 ShellRunner callback 两处测试假绿；增加零等待 timeout unit 回归，并以 stopper monitor `wait()` 建立严格完成信号，不改变生产 timeout/stop 语义
 - 2026-07-10 (M1): 最终采用最简单且远端三轮全绿的 4 worker；完整 required checks 为 91–96 秒，相比约 3分34秒基线大幅提速，用户明确接受未达到 90 秒的结果并停止继续调参 — 详见 `M1-ci-fast-path/progress.md`
 
 ## 现状分析
@@ -16,7 +17,7 @@
 - `pyproject.toml`：Python 运行时与 dev 依赖、pytest 全局配置的单一入口；当前没有 pytest 并行执行依赖。
 - `tests/im_service/integration/test_agent_create_flow.py`、`test_gateway_im_direct_chat.py`、`test_gateway_im_group_chat.py`、`test_heartbeat_config_sync_pipeline.py`、`test_gateway_im_roundtrip.py`：各自目标是 Agent 创建、配置同步、会话配置版本或 heartbeat 同步，但都在在线 Gateway 场景同步读取默认 `source=live` 配置，主测试线程无法同时回复 WS RPC，因而每次吃满 5 秒 fallback timeout 后才继续。
 - `tests/unit/agent/background_tasks/test_platform_adapters.py`：两条 ShellRunner 负断言用 `Event.wait(5.0)` 证明“回调没有发生”，另一条输出上限测试以 1 KiB 小块累计写满 256 MiB；三条合计约 17.8 秒。
-- `src/IM/api/routes/agents.py`、`src/IM/ws/gateway_handler.py`、`src/agent/platform/background_tasks/file_output.py`：只读 grounding。它们当前分别定义 `source=live|mirror`、live RPC 5 秒 fallback、后台 bash 256 MiB 输出上限；本 unit 不改这些产品行为或实现。
+- `src/IM/api/routes/agents.py`、`src/IM/ws/gateway_handler.py`、`src/agent/platform/background_tasks/file_output.py`：只读 grounding，生产 live RPC timeout 与输出上限不变。`src/agent/platform/background_tasks/shell_runner.py` 仅为返回的内部 stopper 增加 monitor `wait()`，供测试等待真实终态，不改变 `stop()` 或 callback 语义。
 - `src/IM/frontend/`：CI job 当前 62–71 秒，已经满足 90 秒目标；本 unit 只做回归验证，不改前端源码、配置或测试命令。
 
 ### 既有约束
@@ -24,7 +25,7 @@
 - `feat-388` 建立的远端兜底契约必须保留：Python 与 Frontend 两个 job 任一失败都阻止合并；Python 仍覆盖 ruff、format 与完整非 e2e pytest，Frontend 仍覆盖完整 vitest。
 - `docs/TESTING_GUIDE.md` 要求测试证明行为、按最低有效层覆盖且不重复；提速不能靠删掉仍有价值的行为断言、skip/xfail 或降低门禁范围。
 - `pytest -m "not e2e"` 必须继续排除需要真实服务、浏览器或 LLM 的 e2e；本 unit 不把 e2e 引入常规 CI。
-- 产品包依赖边界由 `tests/contract/` 把守，本 unit 不改 `src/`，也不改变 `agent.sdk`、IM、Gateway 或 CLI 对外契约。
+- 产品包依赖边界由 `tests/contract/` 把守；本 unit 不改变 `agent.sdk`、IM、Gateway 或 CLI 对外契约。唯一 `src/` delta 是 ShellRunner 内部 stopper 的 testability seam。
 - 用户已明确优先简单、合理、显著提速；不引入 self-hosted runner、付费大 runner、动态测试选择平台或跨机器复杂调度。
 
 ### 可复用能力
@@ -72,9 +73,9 @@ graph LR
 
 ## 关键决策
 
-### 决策 1: 先消除测试中的确定性等待，不修改生产 timeout
+### 决策 1: 先消除测试中的确定性等待，不修改生产 timeout/stop 语义
 
-**只重写测试驱动方式，产品代码与生产超时保持不变。**
+**生产超时与 stop/callback 行为保持不变；允许最小内部完成信号支撑严格负断言。**
 
 - **理由**：五条 IM 测试并不以 live-config fallback 为被测行为，ShellRunner 测试也只需等待实际终态；直接缩短生产 timeout 会改变用户行为且掩盖测试结构问题。
 - **拒绝**：全局降低 `request_agent_config` 的 5 秒 timeout——会改变在线 Gateway 慢响应时的产品容错；给慢测简单加 skip——会丢失回归信号。
@@ -132,7 +133,7 @@ graph LR
 | 测试组 | 现状 | 设计后 |
 |---|---|---|
 | 五条 IM 创建/配置同步旅程 | 同步 `GET source=live` 后才处理 WS 回包，稳定等待 5 秒；随后消费的 WS 帧不属于该测试主目标 | 读取持久化版本时显式用 `source=mirror`，删除与主目标无关的 stale `agent.config.get/agent.config` 往返；创建、PATCH、config.sync、relay 等原断言保留 |
-| ShellRunner stop 负断言 | `done.wait(5.0)` 以睡满超时证明没有失败回调 | 轮询 `_stopped` 标记被 monitor 清理这一真实完成条件，完成后立即执行原有“不出现 fail”断言；保留短 deadline 只作失败兜底，不扩大原测试语义 |
+| ShellRunner stop 负断言 | `done.wait(5.0)` 以睡满超时证明没有失败回调 | stopper `wait()` join monitor 线程；monitor 完成后再执行“不出现 fail”与清理断言，timeout 仅作失败兜底 |
 | 256 MiB 输出上限 | 1 KiB 小块执行约 26 万次文件打开/追加 | 先断言生产常量仍为 256 MiB，再在测试进程内 monkeypatch 为小上限，以少量写入覆盖“上限内保留、越界只写一次截断提示”的同一行为 |
 
 ### 主流程时序
@@ -176,7 +177,7 @@ sequenceDiagram
 ## 风险与回退
 
 - **并行测试暴露共享状态**：最终采用已完成本地全量和远端三轮 success 验证的 `-n 4 --dist worksteal`；8-worker 探索已证明会触发两条并发敏感测试，故不采用，问题单独登记 #185。本 unit 不扩 scope 修历史测试，也不引入测试分组或额外调度机制。
-- **慢测试改写造成覆盖缩水**：每条改写前后对照原测试 docstring/断言；live-config 协议继续由专门集成/contract 测试覆盖；产品 `src/` 零修改是硬边界。
+- **慢测试改写造成覆盖缩水**：每条改写用 mutation 证明对应生产回归会使测试转红；live 成功与 connected-silent timeout 分开守护；ShellRunner 以 monitor join 建立严格完成信号。
 - **pip cache 首次未命中**：允许冷启动较慢，不额外引入环境管理器；缓存恢复失败时 setup-python 自动退化为正常安装，不影响正确性。
 - **GitHub runner 性能抖动**：90 秒只衡量 runner 开始后的常规成功 run，不含排队；验收保留至少三次 run 的 job/step 时间戳，避免用单次最好结果下结论。
 - **达不到 90 秒**：若完成本设计全部简单优化后仍未达标，不在本 unit 追加 matrix、自建 runner 或动态选测；如实记录结果并由后续新 unit 决定是否值得增加复杂度。
@@ -184,7 +185,7 @@ sequenceDiagram
 
 ## Runbook for Reviewer
 
-**无常驻服务。** 本 unit 只改 CI、dev 依赖与测试代码，不需要启动 IM、Gateway、CLI 或浏览器。
+**无常驻服务。** 本 unit 只改 CI、dev 依赖、测试代码与 ShellRunner 内部完成信号，不需要启动 IM、Gateway、CLI 或浏览器。
 
 **Review 驱动方式**：以真实 GitHub Actions PR workflow 作为端到端真栈；本 unit 不改产品客户端面。本地命令用于预检，最终性能证据必须来自普通 GitHub 托管 runner：
 
@@ -208,4 +209,4 @@ cd src/IM/frontend && npm run test
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| perf-458-M1 | ci-fast-path | — | A | `.github/workflows/ci.yml`；`pyproject.toml`；`tests/im_service/integration/test_agent_create_flow.py`；`tests/im_service/integration/test_gateway_im_direct_chat.py`；`tests/im_service/integration/test_gateway_im_group_chat.py`；`tests/im_service/integration/test_heartbeat_config_sync_pipeline.py`；`tests/im_service/integration/test_gateway_im_roundtrip.py`；`tests/unit/agent/background_tasks/test_platform_adapters.py` | `[reviewer]` 覆盖 motivation 全部 Scenario：现有 Python/Frontend 失败仍使 CI 红，普通托管 runner 重跑无需人工环境；90 秒目标按用户最终决策接受 4-worker 三次 success 94/91/96 秒的验收例外，相比约 3分34秒基线仍大幅缩短。<br>`[reviewer]` IM、Gateway、Coding CLI 与 agent 内核的既有用户行为不变。<br>`[worker]` 五条 IM 慢测不再等待 live-config 5 秒 fallback，专门 live-config 测试继续通过；两条 ShellRunner 负断言改为条件等待且语义不变；输出上限测试不再写满 256 MiB。<br>`[worker]` `.venv/bin/pytest -m "not e2e" -n 4 --dist worksteal` 全绿，完整串行非 e2e 套件也至少复跑一次全绿；ruff 两门与前端 vitest 全绿。<br>`[worker]` 真实 GitHub Actions 三次 success 留下 job/step 时间戳；Python/Frontend check 名称与失败阻断语义不变。<br>`[worker]` 产品 `src/` 零修改、四包均 no spec delta；性能证据、验收例外与回滚结论写入 `M1-ci-fast-path/progress.md`。 |
+| perf-458-M1 | ci-fast-path | — | A | `.github/workflows/ci.yml`；`pyproject.toml`；`src/agent/platform/background_tasks/shell_runner.py`；`tests/im_service/unit/test_gateway_handler.py`；`tests/im_service/integration/test_agent_create_flow.py`；`tests/im_service/integration/test_gateway_im_direct_chat.py`；`tests/im_service/integration/test_gateway_im_group_chat.py`；`tests/im_service/integration/test_heartbeat_config_sync_pipeline.py`；`tests/im_service/integration/test_gateway_im_roundtrip.py`；`tests/unit/agent/background_tasks/test_platform_adapters.py` | `[reviewer]` 覆盖 motivation 全部 Scenario：现有 Python/Frontend 失败仍使 CI 红，普通托管 runner 重跑无需人工环境；90 秒目标按用户最终决策接受 4-worker 三次 success 94/91/96 秒的验收例外，相比约 3分34秒基线仍大幅缩短。<br>`[reviewer]` IM、Gateway、Coding CLI 与 agent 内核的既有用户行为不变。<br>`[worker]` 五条 IM 慢测不再等待 live-config 5 秒 fallback；connected-silent timeout 由零等待 unit test 守护；两条 ShellRunner 负断言等待 monitor 真正完成；输出上限测试不再写满 256 MiB。<br>`[worker]` 两处回归均有 mutation red 证据；完整 n4、串行 non-e2e、ruff 两门与 frontend vitest 全绿。<br>`[worker]` 真实 GitHub Actions 三次 success 留下 job/step 时间戳；Python/Frontend check 名称与失败阻断语义不变。<br>`[worker]` 仅新增 ShellRunner 内部完成信号，生产 timeout/stop 行为不变，四包 no spec delta；性能与 closure 证据写入 `M1-ci-fast-path/progress.md`。 |

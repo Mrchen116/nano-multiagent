@@ -7,7 +7,7 @@
   - Python: `/Users/czj/Repos/nano-multiagent/.venv/bin/pytest -m "not e2e"` → 3444 passed, 2 skipped, 22 deselected in 149.34s（wall 151.14s）。
   - Lint: `/Users/czj/Repos/nano-multiagent/.venv/bin/ruff check .` 与 `ruff format --check .` → 全绿，769 files already formatted。
   - Frontend: `npm ci && npm run test` → 63 files / 615 tests passed，vitest 13.63s（wall 15.19s）。
-- Scope guard: 仅修改 design Milestone 表列出的 workflow、pyproject 和七个测试文件；`src/`、`docs/specs/`、前端源码均不修改。
+- Initial scope guard: 原计划仅修改 workflow、pyproject 和测试；R4 code-review closure 额外在内部 ShellRunner stopper 增加 monitor `wait()` testability seam。生产 stop/timeout 行为、`docs/specs/` 与前端源码仍不改变。
 
 ## R1 — 移除 IM integration 的 live-config 固定等待
 
@@ -59,7 +59,7 @@
   - E2E/Regression: 完整并行、串行、ruff、format 与 frontend vitest 均全绿；PR #184 的普通 GitHub runner 三次 success 作为真栈性能证据。
   - Visual/Interaction: N/A（非前端）。
   - Prototype Comparison: N/A（无原型/reference）。
-- Rollback: 最小回滚是把 workflow pytest 命令恢复为串行并删除 `pytest-xdist` 依赖；测试慢点清理可独立保留。完整回滚可逐个 revert R1/R2/R3 的 C2 commits，不触碰产品 `src/`。
+- Rollback: 最小回滚是把 workflow pytest 命令恢复为串行并删除 `pytest-xdist` 依赖；测试慢点清理可独立保留。R4 的 ShellRunner `wait()` 与两条回归测试可作为一个独立 closure commit 回滚，不改变生产 stop/timeout 语义。
 - Commits: C1=`c833720f`，4-worker C2=`6236644b`，最终收口=`9f51fa1c`，C3=`c6ea6865`；本次纯文档去噪为独立可回滚提交。
 - Next: milestone 已合入 `unit/perf-458`；临时 PR #184 与 milestone worktree/分支均已清理。
 
@@ -75,15 +75,16 @@
 - Lint: `ruff check .` 全绿；`ruff format --check .` → 769 files already formatted。
 - Workflow: `.github/workflows/ci.yml` 精确命令为 `pytest -m "not e2e" -n 4 --dist worksteal --durations=20 --durations-min=0.5`；job 名仍为 `Python checks` / `Frontend checks`。
 - Frontend: 63 files / 615 tests passed in 12.02s（wall 13.09s）；本 unit 未改前端源码或命令。
-- Product scope: `src/` 零修改，四包 no spec delta；浏览器/UI/原型验收 N/A。
+- Product scope: 唯一 `src/` delta 是 ShellRunner 内部 stopper 的 monitor `wait()`；生产 stop/timeout 与四包消费者可观察行为不变，no spec delta；浏览器/UI/原型验收 N/A。
 - Remote success: run 29097094967 attempts 1/2/3 的 Python 为 94/91/96s，Frontend 为 57/67/71s，三次 workflow 均 success。
 - Failure blocking: run 29097895298 attempt 2 的 Python 2 tests failed 后 workflow failure，证明 required check 失败仍阻断；并发问题登记 #185。
 - Rollback: workflow 可一行恢复串行 pytest，删除 `pytest-xdist` dev 依赖；慢测改写可独立 revert，不影响产品运行时。
 - Next: milestone 已合入并推送 `unit/perf-458@50144245`；临时 PR #184 与 milestone worktree/分支均已清理。
 
-## Code Review Fixes
+## R4 — Code Review Closure
 
-- Coverage regression: `test_create_agent_lists_details_and_uses_new_node_binding_for_relay` 以并发 live GET 恢复 `agent.config.get → agent.config {agent:null} → ack → mirror fallback → relay.message` 连续帧覆盖，不再等待 5 秒 fallback timeout。
-- False-red margin: stop/timeout 条件轮询上限由 3 秒放宽到 5 秒；条件满足即返回，正常耗时不增加，同时为 0.5 秒 timeout + 2 秒 TERM grace 保留调度余量。
-- Evidence: 三条最窄相关测试 3 passed in 2.88s（live fallback 旅程 0.22s，stop 两条 0.33s/2.25s）；两份测试文件的 ruff/format 全绿。`src/`、CI、`acceptance.md`、`verification.md` 均未修改。
-- Process: reviewer 小修快车道，省略三提交；两项均为测试覆盖/测试稳定性修复，无产品行为实现可先写红测。
+- Root cause 1: 并发 `agent:null` 只覆盖及时空响应，不覆盖 connected-but-silent Gateway 的 `asyncio.wait_for` timeout fallback。新增 `test_request_agent_config_timeout_returns_none_for_connected_gateway`，用 `timeout_seconds=0` 确定性进入同一超时分支，不恢复 5 秒成本。
+- Root cause 2: `_stopped` 被清理发生在 monitor 的 return/callback 决策之前，轮询 marker 不等于 monitor 完成。`_ProcessStopper.wait()` 现在 join monitor 线程；`stop()` 仍立即返回，保留 registry 先写 KILLED 的竞态约束。
+- Mutation proof: 将 timeout handler 改为重新抛错时，新 unit test 0.24 秒稳定失败；在 marker 清理后延迟错误调用 `on_fail` 时，ShellRunner stop 测试 0.52 秒稳定失败。恢复生产实现后，定向 3 tests passed、相关两文件串行/n4 均 70 passed。
+- Full evidence: ruff check/format 全绿；完整 n4 为 3445 passed, 2 skipped in 37.82s；完整串行为 3445 passed, 2 skipped, 22 deselected in 101.17s。
+- Product boundary: 生产 timeout、stop 异步返回、callback 决策与用户可见终态均未改变；新增 wait 只暴露已有 monitor 的完成信号，四包 no spec delta。

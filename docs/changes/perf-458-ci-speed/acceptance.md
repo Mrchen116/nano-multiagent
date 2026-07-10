@@ -1,5 +1,7 @@
 # perf-458 — 验收报告
 
+> **Post-review closure (2026-07-11):** 本报告原始验收对应 `31c41576`。后续内部 code review 发现并修复两处测试信号缺口：新增 connected-silent live timeout unit 回归，并为 ShellRunner stopper 增加 monitor 完成等待。当前 head 因此包含一处内部 `src/agent/.../shell_runner.py` testability seam，原验收的“`src/` 零修改”描述已不再成立；生产 timeout、stop 异步返回、用户可见终态与四包契约均未改变。完整串行/n4 non-e2e 已分别以 3445 passed / 2 skipped 复验。
+
 > 对齐: `motivation.md` 用户侧验收标准与最终 `design.md`
 >
 > Review round: 1（2026-07-10）
@@ -33,7 +35,7 @@ Attempt 1 的用户可见输出显示 Python 仍执行完整 `pytest -m "not e2e
 
 ### 旅程 3：产品既有行为与最终提交范围回归
 
-本 unit 的 Reviewer Runbook 明确以真实 Actions 为端到端入口、无需启动产品常驻服务。三次成功 run 均完成完整 non-e2e Python 套件和完整 Frontend vitest；unit 相对 `origin/main` 没有任何 `src/` 或前端源码改动，只有 workflow、dev dependency、测试驱动方式和 unit 文档变化。Actions 验证过的 n4 提交 `6236644b` 到当前 unit head 的差异也只有 unit 文档，最终实现行为没有在验后漂移。
+本 unit 的 Reviewer Runbook 明确以真实 Actions 为端到端入口、无需启动产品常驻服务。三次成功 run 均完成完整 non-e2e Python 套件和完整 Frontend vitest；post-review closure 只在 ShellRunner 内部 stopper 增加 monitor 完成等待，并新增对应回归测试。该 seam 不进入 `agent.sdk`，也不改变 stop/timeout、前端或任何用户可见行为。
 
 因此本轮没有观察到 IM、Gateway、Coding CLI、agent 内核或前端用户行为被本次 CI 提速改变；该 Scenario 按 design 明确授权的替代验证口径通过。
 
@@ -58,7 +60,7 @@ N/A。本 unit 不涉及原型、视觉稿、reference screenshot 或前端 must
 | Scenario | 期望来源 | 验证方式（覆盖它的旅程） | 证据 | 结果 | 备注 |
 |---|---|---|---|---|---|
 | 代码违反现有检查要求 | `motivation.md` 该 Scenario；`design.md` CI 执行契约与 Reviewer Runbook step 4 | 旅程 2：查看真实失败 workflow 的 job/step/summary | [run 29097895298 attempt 2](https://github.com/Mrchen116/nano-multiagent/actions/runs/29097895298/attempts/2)：Python checks / `pytest (not e2e)` failure；workflow failure；Frontend success | pass | 门禁失败未被吞掉，失败类别可由 job 与 step 直接识别。 |
-| 产品既有行为回归 | `motivation.md` 不变性 Scenario；`design.md` Reviewer Runbook、delta-spec、Milestone 退出标准 | 旅程 3：真实 Actions 全套回归 + 变更范围核对 + 验证提交到当前 head 漂移核对 | n4 success output：3444 passed / 2 skipped；Frontend 63 files passed；`origin/main...HEAD` 无 `src/`/前端源码；`6236644b..HEAD` 仅 unit 文档 | pass | Runbook 明确本 unit 无产品服务、Actions 是端到端入口；以其授权的替代验证判断无产品行为回归。 |
+| 产品既有行为回归 | `motivation.md` 不变性 Scenario；`design.md` Reviewer Runbook、delta-spec、Milestone 退出标准 | 旅程 3：真实 Actions 全套回归 + post-review mutation/串行/n4 复验 | n4/串行均 3445 passed / 2 skipped；Frontend 63 files passed；唯一产品源码 delta 是内部 monitor wait seam | pass | seam 不进入 SDK、不改变 stop/timeout 或用户可见终态；两处回归信号均由 mutation 证明。 |
 
 ### Requirement: 优化后的门禁不增加日常运维负担 — 组内结论: pass
 
@@ -68,7 +70,7 @@ N/A。本 unit 不涉及原型、视觉稿、reference screenshot 或前端 must
 
 ## 问题清单
 
-无。本轮未发现影响最终 n4 方案可接受性的 blocking、major 或 minor issue。
+原始验收轮未发现问题；后续 code review 发现的两处测试信号缺口已由 `894cf2f9` 关闭，并有 mutation red 与完整串行/n4 green 证据。
 
 ## Side Findings
 
