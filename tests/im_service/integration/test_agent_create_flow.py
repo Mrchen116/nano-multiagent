@@ -167,9 +167,7 @@ def test_create_agent_lists_details_and_uses_new_node_binding_for_relay(
                 "user_id": agent_user.id,
             }
 
-            detail = client.get(
-                f"/im/v1/agents/{agent_user.id}/config?source=mirror"
-            )
+            detail = client.get(f"/im/v1/agents/{agent_user.id}/config?source=mirror")
             assert detail.status_code == 200
             assert detail.json()["node_id"] == "node-1"
             assert detail.json()["group_reply_policy"] == "MENTION"

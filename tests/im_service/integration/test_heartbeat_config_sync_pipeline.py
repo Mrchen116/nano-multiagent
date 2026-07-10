@@ -200,9 +200,7 @@ def test_patch_heartbeat_disabled_reaches_scheduler(tmp_path: Path) -> None:
             )
             websocket.receive_json()  # ack
 
-            current = client.get(
-                f"/im/v1/agents/{agent_id}/config?source=mirror"
-            )
+            current = client.get(f"/im/v1/agents/{agent_id}/config?source=mirror")
             assert current.status_code == 200
             current_version = current.json()["profile_version"]
 
