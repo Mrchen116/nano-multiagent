@@ -183,6 +183,12 @@ orchestrator 是这个 unit 的技术领导者,手里有全局(用户意图、�
 
 (这个目录由 design-author 已经创建为空,或 lite 模式下由 orchestrator 创建)
 
+design-author 用 `.gitkeep` 让空目录能跨 commit/worktree 保留。首次规划前删除它：
+
+```bash
+rm -f "<unit_path>/<milestone_dir>/.gitkeep"
+```
+
 填写:
 
 - **目标**:抄 design.md Milestone 表对应行的"退出标准"(lite 模式抄 fix.md "现象/根因"段)

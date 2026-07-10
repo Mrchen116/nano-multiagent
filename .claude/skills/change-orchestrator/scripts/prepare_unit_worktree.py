@@ -71,6 +71,34 @@ def validate_existing_worktree(
             f"expected {expected_branch}"
         )
 
+    dirty_entries = git_output(
+        worktree_dir,
+        "status",
+        "--porcelain=v1",
+        "--untracked-files=all",
+    )
+    if dirty_entries:
+        raise WorktreeError(
+            "worktree has staged, unstaged, or untracked changes; "
+            "commit, stash, or remove them before recovery"
+        )
+
+
+def validate_prepared_worktree(
+    repo_root: Path,
+    worktree_dir: Path,
+    unit_id: str,
+    expected_head: str,
+) -> None:
+    """Validate an existing clean unit worktree at an exact PR head."""
+    branch = f"unit/{unit_id}"
+    validate_existing_worktree(repo_root.resolve(), worktree_dir.resolve(), branch)
+    actual_head = git_output(worktree_dir, "rev-parse", "HEAD")
+    if actual_head != expected_head:
+        raise WorktreeError(
+            f"worktree HEAD {actual_head} does not match PR head {expected_head}"
+        )
+
 
 def branch_worktree(repo_root: Path, branch: str) -> Path | None:
     """Return the path already holding a branch, if any."""
@@ -204,11 +232,7 @@ def prepare_worktree(
 
     validate_existing_worktree(repo_root, worktree_dir, branch)
     if expected_head is not None:
-        actual_head = git_output(worktree_dir, "rev-parse", "HEAD")
-        if actual_head != expected_head:
-            raise WorktreeError(
-                f"restored HEAD {actual_head} does not match PR head {expected_head}"
-            )
+        validate_prepared_worktree(repo_root, worktree_dir, unit_id, expected_head)
 
 
 def main() -> int:
@@ -219,17 +243,32 @@ def main() -> int:
     parser.add_argument("--expected-head")
     parser.add_argument("--create-from", default="main")
     parser.add_argument("--remote", default="origin")
+    parser.add_argument(
+        "--validate-only",
+        action="store_true",
+        help="validate an existing clean unit worktree without fetching or mutating it",
+    )
     args = parser.parse_args()
 
     try:
-        prepare_worktree(
-            args.repo_root,
-            args.unit_id,
-            args.worktree_dir,
-            args.expected_head,
-            args.create_from,
-            args.remote,
-        )
+        if args.validate_only:
+            if args.expected_head is None:
+                parser.error("--validate-only requires --expected-head")
+            validate_prepared_worktree(
+                args.repo_root,
+                args.worktree_dir,
+                args.unit_id,
+                args.expected_head,
+            )
+        else:
+            prepare_worktree(
+                args.repo_root,
+                args.unit_id,
+                args.worktree_dir,
+                args.expected_head,
+                args.create_from,
+                args.remote,
+            )
     except WorktreeError as error:
         parser.error(str(error))
     print(args.worktree_dir.resolve())

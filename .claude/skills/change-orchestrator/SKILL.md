@@ -17,7 +17,7 @@ Codex 执行本 skill 时,工具映射差异见 `references/codex-execution-note
 
 ## §0 不可越界的硬规则
 
-1. **门禁 2 没过不能启动**。检查 `docs/changes/<unit>/design.md`:无 `<!-- 模板说明 -->`、Milestone 表完整、空目录数量 = 表行数。任一不满足,**拒绝启动**,提示用户回 `change-design-author` 收口。
+1. **门禁 2 没过不能启动**。检查 `docs/changes/<unit>/design.md`:无 `<!-- 模板说明 -->`、Milestone 表完整、仅含 `.gitkeep` 的骨架目录数量 = 表行数。任一不满足,**拒绝启动**,提示用户回 `change-design-author` 收口。
 2. **Sync Gate 不通过不动作**。启动第一件事是 main 同步检查(§2),分叉直接停下让人介入,不要强制 reset。
 3. **不写代码、不改 design / 变更稿 spec**。escalation 时通知人介入,由 design-author / spec-author 修订。**两个例外**:(a) 在 PR body / Changelog 这类调度产物里写文字;(b) §7.0 收尾归并:据本 unit delta-spec 把行为增量合并进**长青行为契约层** `docs/specs/<包>/<target>.md`(顶层 canonical,你是单一 owner),并可校正 delta 文件 `<unit_path>/specs/<包>/<target>.md`——注意这与 `<unit_path>/spec.md`(变更稿,禁改)是两回事。
 4. **Agent 工具派发时不设置 isolation 参数**。worktree 由本 skill 分配路径并指示 worker 自建。设了 `isolation=worktree` 会在 `.claude/worktrees/` 创建冲突 worktree,破坏整个流程。
@@ -126,8 +126,8 @@ unit 的所有信息从 `$unit_path/` 读出来——design.md Milestone 表是 
 ### §2.1 模式判定 + 门禁 2 检查
 
 `resume_mode=post-pr` 时只根据首文档判定 full / lite，跳过初始门禁和 lite `M1-fix` 创建；这些门禁在创建
-PR 前已通过，归档目录中的 milestone 也已完成，不再要求为空。完成模式判定后走 §2.3 重建已有 worktree，
-再直接进入 §2.5。
+PR 前已通过。完成模式判定后走 §2.3 重建已有 worktree，再进入 §2.5 判断 design revision 是否新增了
+待实施 milestone；有则恢复实施循环，没有才走普通 review/CI feedback 快车道。
 
 先判 full / lite 模式:
 
@@ -148,7 +148,7 @@ fi
 - [ ] 顶部 `Unit branch:` 声明存在
 - [ ] Milestone 表完整(每行字段都填:ID / 标题 / 依赖 / 并行组 / 范围 / 退出标准)
 - [ ] `<unit_path>/M*/` 子目录数量 = Milestone 表行数
-- [ ] 子目录全空(没有预填 tasks.md / progress.md——那是 worker 的事)
+- [ ] 子目录仅含 `.gitkeep`(没有预填 tasks.md / progress.md——那是 worker 的事)
 
 任一不通过,**立即退出**:
 
@@ -242,14 +242,33 @@ verify_worktree_dir = <repo_root>/.worktrees/verify-<unit_id>
 
 ### §2.5 Post-PR resume
 
-仅 `resume_mode=post-pr` 进入。不要执行 §3 的首次 milestone 循环，也不要再次归档：
+仅 `resume_mode=post-pr` 进入。先确定是否有 post-PR design revision 新增的未实施 milestone：
 
 1. §1 的 helper 已验证 worktree 属于 `unit/<unit_id>`、HEAD 等于 PR head，并在该 checkout 唯一解析出 archive 中的 `$unit_path`。
-2. `gh pr view "$pr_url" --json comments,reviews` 和 `gh pr checks "$pr_url"` 读取待处理 review / CI 失败。
-3. review finding 按 §6.2 独立判断根因后派 fix；CI 红先取失败日志再按 §6.2。修复后的闸按 §6.2.1 选择，
-   至少对原 finding 做 closure，源码 patch 另跑 code review patch。
-4. push 后更新 PR body 的 head SHA 文档链接与 Validation Summary，等待 CI 全绿，再按 §7.6 清理退出。
-5. 若没有未关闭反馈且 CI 已绿，不产生空修复，直接按 §7.6 退出。
+2. 运行可执行判定，不靠 Changelog 文本猜状态：
+
+   ```bash
+   pending_post_pr_milestones=""
+   if [[ "$mode" == full ]]; then
+     pending_post_pr_milestones=$(python3 \
+       .claude/skills/change-orchestrator/scripts/pending_post_pr_milestones.py \
+       --unit-doc-root "$unit_doc_root" \
+       --unit-id "<unit_id>")
+   fi
+   ```
+
+   脚本先要求 design 表与 `M*` 目录按编号一一对应，否则 fail closed；仅含 `.gitkeep` 的 milestone 目录
+   视为 pending，含 worker 产出的 tasks/progress/evidence 的既有目录视为已实施。design-author 必须把新增
+   目录连同 `.gitkeep` commit + push，不能只在本地 mkdir。lite 没有 design revision，pending 固定为空。
+3. 若 pending 非空：只把这些 milestone 按 design 表中的依赖和顺序送入 §3.1-§3.4，既有 milestone 不重跑。
+   全部签收后，design 与实现均已变化，旧闸结论全部失效，强制以 `full` selection 重跑 verifier、reviewer
+   和 code review；原 review finding 必须在新报告中 closure。通过后更新**现有** PR 并等 CI，全程不再归档、
+   不创建第二个 PR。
+4. 若 pending 为空：`gh pr view "$pr_url" --json comments,reviews` 和 `gh pr checks "$pr_url"` 读取待处理
+   review / CI 失败。review finding 按 §6.2 独立判断根因后派 fix；CI 红先取失败日志再按 §6.2。修复后的闸
+   按 §6.2.1 选择，至少对原 finding 做 closure，源码 patch 另跑 code review patch。
+5. push 后更新 PR body 的 head SHA 文档链接与 Validation Summary，等待 CI 全绿，再按 §7.6 清理退出。
+6. pending 为空、没有未关闭反馈且 CI 已绿时，不产生空修复，直接按 §7.6 退出。
 
 ---
 
@@ -259,12 +278,15 @@ verify_worktree_dir = <repo_root>/.worktrees/verify-<unit_id>
 def main_loop(unit_id):
     setup(unit_id)                            # §2
 
+    milestones = all_design_milestones()
     if resume_mode == "post-pr":
+        milestones = pending_post_pr_milestones()  # §2.5 的可执行判定
+    if resume_mode == "post-pr" and not milestones:
         address_pr_feedback_or_ci()           # §2.5 → §6.2 / §6.2.1 → §7.6
         return
 
-    while not all_milestones_done():
-        ready = milestones_with_no_pending_deps()
+    while not all_milestones_done(milestones):
+        ready = milestones_with_no_pending_deps(milestones)
         parallel, serial = classify_by_conflict(ready)
         for m in parallel:
             dispatch_worker(m)                # §3.1
@@ -276,11 +298,18 @@ def main_loop(unit_id):
 
     # 所有实现型 milestone done → 首轮完整验收;fix 后按 Revalidation Selection 选择复验闸
     review_round = 1
-    selection = initial_full_selection(mode, has_user_observable_scope())
+    selection = (
+        full_selection()
+        if resume_mode == "post-pr"
+        else initial_full_selection(mode, has_user_observable_scope())
+    )
     while review_round <= 7:
         results = run_selected_gates(selection, review_round)  # §5: full / targeted / patch / closure
         if all_required_gates_pass(results) and no_open_blockers():  # 未重跑的 retained 闸有继承依据
-            submit_pr_watch_ci_exit()         # §7：本地 CI → 归档 → 提 PR → 等远端 CI 绿 → 退；红则 §6.2
+            if resume_mode == "post-pr":
+                update_existing_pr_watch_ci_exit()  # 不重归档、不新建 PR
+            else:
+                submit_pr_watch_ci_exit()     # §7：本地 CI → 归档 → 提 PR → 等远端 CI 绿 → 退；红则 §6.2
             return
         action = decide_action(results)        # §6,合并本轮实际结果 + retained 结论路由
         if action == "fix":
@@ -575,11 +604,13 @@ milestone_dir = M<next>-fix-<short-desc>      # 例: M4-fix-picker-keyboard
 
 完整路径操作(若命中 §6.FL ② 的单点自包含 fix,可不建 milestone 子目录、不动 design.md,但仍要记录 fix 历史和 `pre_fix_head`):
 1. 在 design.md Milestone 表追加新行,标注 `(post-acceptance fix, round <N>)`
-2. mkdir 新 milestone 空目录:`$unit_worktree/$unit_path/M<next>-fix-<short-desc>/`
-3. **维护 issue 指纹表**(orchestrator 内存中):为这一批 issues 生成指纹(Type + 主关键词哈希),记录是第几轮出现。同一指纹累计 ≥ 5 轮没消除 → 强制升级 escalate
-4. 记录 `pre_fix_head=$(git -C "$unit_worktree" rev-parse HEAD)`
-5. 派 worker(prompt 里把**合并后的 issues 列表**——verifier 的 missing/diverged/缺测试 + reviewer 的用户面 issues——+ 该 unit design.md `§Runbook for Reviewer` 段附上;worker 改完代码必须按 runbook 重启相关服务后再回报 DONE,确保 unit 分支上的代码真的"跑了起来"。verifier 报的"缺测试"项,worker 必须补上对应测试)
-6. worker DONE 后按 §3.3 / live 签收闸逐条签收;签收不过直接打回 worker,不进入复验
+2. 新建可跟踪骨架：`mkdir -p "$unit_worktree/$unit_path/M<next>-fix-<short-desc>" && touch "$unit_worktree/$unit_path/M<next>-fix-<short-desc>/.gitkeep"`
+3. 先 commit + push design 表和骨架目录，再派 worker；worker 分支必须从包含该 milestone 的最新
+   `origin/unit/<unit_id>` 创建
+4. **维护 issue 指纹表**(orchestrator 内存中):为这一批 issues 生成指纹(Type + 主关键词哈希),记录是第几轮出现。同一指纹累计 ≥ 5 轮没消除 → 强制升级 escalate
+5. 记录 `pre_fix_head=$(git -C "$unit_worktree" rev-parse HEAD)`
+6. 派 worker(prompt 里把**合并后的 issues 列表**——verifier 的 missing/diverged/缺测试 + reviewer 的用户面 issues——+ 该 unit design.md `§Runbook for Reviewer` 段附上;worker 改完代码必须按 runbook 重启相关服务后再回报 DONE,确保 unit 分支上的代码真的"跑了起来"。verifier 报的"缺测试"项,worker 必须补上对应测试)
+7. worker DONE 后按 §3.3 / live 签收闸逐条签收;签收不过直接打回 worker,不进入复验
 
 worker 完成并签收后,计算 `pre_fix_head..HEAD`,执行 §6.2.1 选择下一轮要跑的闸。不要默认三道全量复验。
 

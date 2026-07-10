@@ -82,7 +82,15 @@
 
 #### Scenario: 归档后的修复需要修订设计
 - **WHEN** 开放 PR 的修复循环合法升级为 revise-design
-- **THEN** change-design-author 可在 orchestrator 保留的 unit worktree 中修订 archive 内既有 design，并把 Changelog 与新增 milestone 提交回同一 PR 分支
+- **THEN** change-design-author 仅在当前仓库、分支、clean worktree 和 HEAD 与开放 PR 精确一致时修订 archive 内既有 design，并把 Changelog 与新增 milestone 提交回同一 PR 分支
+
+#### Scenario: 设计修订新增实现工作
+- **WHEN** post-PR design revision 新增 milestone 并提交可跟踪的空骨架目录
+- **THEN** change-orchestrator 先校验 design 表与目录一一对应，只派发新增的 pending milestone，完成后强制重跑完整验收闸，再更新同一 PR
+
+#### Scenario: worktree 带有本地漂移
+- **WHEN** 恢复或修订 PR 时，目标 worktree 有 staged、unstaged 或 untracked 内容，或 HEAD 与 PR 不同
+- **THEN** 工作流在 fetch、merge 或文档修改前失败，不把本地漂移混入 PR
 
 ### Requirement: 新 unit 编号覆盖活动区与历史区
 
