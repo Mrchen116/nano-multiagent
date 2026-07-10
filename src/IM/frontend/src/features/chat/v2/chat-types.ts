@@ -176,6 +176,12 @@ export interface Conversation {
   last_message_preview: string | null;
   last_message_at: string | null;
   created_at: string;
+  /** feat-446-M3: derived from active agent delivery rows; hidden unless distill selection mode is active. */
+  run_state?: "idle" | "running";
+  /** feat-446-M3: canonical source agent that owns the JSONL transcript, when derivable. */
+  source_agent_id?: string | null;
+  /** feat-446-M3: readable kernel session JSONL path for conversation distillation. */
+  source_jsonl_path?: string | null;
 }
 
 /**
@@ -205,7 +211,7 @@ export function classifyConversationKind(c: Pick<Conversation, "type" | "direct_
 // it as optional here — useful when reducing but never required to parse.
 
 export type WsEvent =
-  | { type: "message.created"; seq?: number; conversation_id: string; message_id: string; sender_user_id: string; sender_type: string; content: string; tool_calls: ToolCall[]; thinking?: ThinkingSegment[]; token_usage: TokenUsage | null; delivery_status: DeliveryStatus; created_at: string }
+  | { type: "message.created"; seq?: number; conversation_id: string; message_id: string; sender_user_id: string; sender_type: string; sender?: Actor | null; sender_display_name?: string | null; content: string; attachments?: Attachment[]; tool_calls: ToolCall[]; thinking?: ThinkingSegment[]; token_usage: TokenUsage | null; delivery_status: DeliveryStatus; created_at: string }
   | { type: "message.delta"; seq?: number; conversation_id: string; message_id: string; delta_text: string }
   | { type: "message.completed"; seq?: number; conversation_id: string; message_id: string; content: string; token_usage: TokenUsage | null; elapsed_ms?: number | null; kernel_message_id?: string | null }
   | { type: "tool_call.upserted"; seq?: number; conversation_id: string; message_id: string; tool_call: ToolCall }

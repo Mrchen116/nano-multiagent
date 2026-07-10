@@ -121,3 +121,133 @@ def test_agent_create_contract_shape_and_validation(tmp_path: Path) -> None:
         # reaching the gateway dispatch.
         assert missing_node.status_code == 404
         assert missing_node.json() == {"detail": "node_id not found"}
+
+
+def test_agent_create_defaults_omitted_skills_from_node_capabilities(
+    tmp_path: Path,
+) -> None:
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        owner = register_user(client, username="owner", display_name="Owner")
+        authorize(client, owner)
+        NodeRepository(app.state.connection).upsert_node(
+            node_id="node-1", node_name="MacBook"
+        )
+
+        async def fake_request_node_capabilities(
+            *, target_node_id: str, timeout_seconds: float = 5.0
+        ):
+            del timeout_seconds
+            assert target_node_id == "node-1"
+            return {
+                "skills": [
+                    {"name": "pa-global", "description": "", "default_on": True},
+                    {"name": "compat-claude", "description": "", "default_on": False},
+                ]
+            }
+
+        async def fake_request_agent_create(
+            *,
+            target_node_id: str,
+            payload: dict[str, object],
+            timeout_seconds: float = 5.0,
+        ):
+            del timeout_seconds
+            assert target_node_id == "node-1"
+            return {
+                "agent_id": payload["agent_id"],
+                "display_name": payload["display_name"],
+                "description": payload["description"],
+                "system_prompt": payload["system_prompt"],
+                "skills": payload["skills"],
+                "tool_allowlist": payload["tool_allowlist"],
+                "group_reply_policy": payload["group_reply_policy"],
+                "default_model": payload["default_model"],
+                "workspace_root": "/srv/agents/agent-1",
+            }
+
+        app.state.gateway_handler.request_node_capabilities = (
+            fake_request_node_capabilities
+        )
+        app.state.gateway_handler.request_agent_create = fake_request_agent_create
+
+        created = client.post(
+            "/im/v1/nodes/node-1/agents",
+            json={
+                "agent_id": "agent-1",
+                "owner_id": owner.owner_id,
+                "display_name": "Alpha",
+                "description": "first runtime agent",
+                "system_prompt": "You are Alpha.",
+                "tool_allowlist": ["read"],
+                "group_reply_policy": "MENTION",
+                "default_model": "claude-sonnet-4",
+            },
+        )
+
+        assert created.status_code == 201
+        assert created.json()["skills"] == ["pa-global"]
+
+
+def test_agent_create_omits_skills_when_capabilities_unavailable(
+    tmp_path: Path,
+) -> None:
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        owner = register_user(client, username="owner", display_name="Owner")
+        authorize(client, owner)
+        NodeRepository(app.state.connection).upsert_node(
+            node_id="node-1", node_name="MacBook"
+        )
+        seen_payloads: list[dict[str, object]] = []
+
+        async def fake_request_node_capabilities(
+            *, target_node_id: str, timeout_seconds: float = 5.0
+        ):
+            del target_node_id, timeout_seconds
+            return None
+
+        async def fake_request_agent_create(
+            *,
+            target_node_id: str,
+            payload: dict[str, object],
+            timeout_seconds: float = 5.0,
+        ):
+            del timeout_seconds
+            assert target_node_id == "node-1"
+            seen_payloads.append(payload)
+            assert "skills" not in payload
+            return {
+                "agent_id": payload["agent_id"],
+                "display_name": payload["display_name"],
+                "description": payload["description"],
+                "system_prompt": payload["system_prompt"],
+                "skills": ["gateway-default"],
+                "tool_allowlist": payload["tool_allowlist"],
+                "group_reply_policy": payload["group_reply_policy"],
+                "default_model": payload["default_model"],
+                "workspace_root": "/srv/agents/agent-1",
+            }
+
+        app.state.gateway_handler.request_node_capabilities = (
+            fake_request_node_capabilities
+        )
+        app.state.gateway_handler.request_agent_create = fake_request_agent_create
+
+        created = client.post(
+            "/im/v1/nodes/node-1/agents",
+            json={
+                "agent_id": "agent-1",
+                "owner_id": owner.owner_id,
+                "display_name": "Alpha",
+                "description": "first runtime agent",
+                "system_prompt": "You are Alpha.",
+                "tool_allowlist": ["read"],
+                "group_reply_policy": "MENTION",
+                "default_model": "claude-sonnet-4",
+            },
+        )
+
+        assert created.status_code == 201
+        assert seen_payloads
+        assert created.json()["skills"] == ["gateway-default"]

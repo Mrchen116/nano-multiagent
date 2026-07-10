@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -34,6 +34,7 @@ export interface MessagePaneProps {
   conversation: Conversation;
   messages: Message[];
   mentionCandidates: MentionCandidate[];
+  draftSeed?: { id: string; text: string } | null;
   /** feat-430: enabled skills for this conversation's agent(s), for the slash picker. */
   slashSkills?: SlashSkillCandidate[];
   nodeName?: string | null;
@@ -49,6 +50,8 @@ export interface MessagePaneProps {
   onOpenConfig?(): void;
   /** Send mutation error message, shown as an in-app toast. */
   sendError?: string | null;
+  /** Current logged-in user id; used to distinguish local send appends from external user messages. */
+  selfUserId?: string | null;
   /** Whether a message is currently being sent. */
   isSending?: boolean;
   /** feat-445-M1: this is a direct user↔agent chat (fork is only offered here). */
@@ -59,11 +62,18 @@ export interface MessagePaneProps {
   onFork?(messageId: string): void;
   /** feat-445-M2 #7: a fork is in flight — disable fork buttons to block double-submit. */
   forkPending?: boolean;
+  /** Older history page exists above the currently loaded messages. */
+  hasMoreHistory?: boolean | null;
+  /** Older history request is in flight. */
+  isLoadingHistory?: boolean;
+  /** Trigger loading the next older history page. */
+  onLoadOlder?(): void;
   /** Test seam: overrides the real upload helper so vitest can stub uploads. */
   uploadAttachment?(file: File): Promise<Attachment>;
 }
 
 const MENTION_RE = /@([^@\s]*)$/;
+const NEAR_BOTTOM_PX = 80;
 
 /**
  * Build the overlay mirror nodes for the composer textarea.
@@ -135,6 +145,7 @@ export function MessagePane({
   conversation,
   messages,
   mentionCandidates,
+  draftSeed = null,
   slashSkills = [],
   nodeName,
   nodeStatus = "offline",
@@ -145,11 +156,15 @@ export function MessagePane({
   onBack,
   onOpenConfig,
   sendError,
+  selfUserId = null,
   isSending,
   isDirectChat = false,
   agentOnline = false,
   onFork,
   forkPending = false,
+  hasMoreHistory = null,
+  isLoadingHistory = false,
+  onLoadOlder,
   uploadAttachment = uploadOneAttachment
 }: MessagePaneProps) {
   const { t } = useTranslation();
@@ -163,6 +178,29 @@ export function MessagePane({
   const mirrorRef = useRef<HTMLDivElement | null>(null);
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const slashWrapRef = useRef<HTMLDivElement | null>(null);
+  const historyWasLoadingRef = useRef(false);
+  const historyAnchorRef = useRef<{
+    messageId: string;
+    scrollTop: number;
+    scrollHeight: number;
+  } | null>(null);
+  const skipNextMessageAutoScrollRef = useRef(false);
+  const lastMessageIdRef = useRef<string | null>(null);
+  const nearBottomRef = useRef(true);
+  const forceScrollToBottomRef = useRef(false);
+
+  useEffect(() => {
+    if (!draftSeed) return;
+    setDraft(draftSeed.text);
+    setDraftMentions([]);
+    setSlashDismissed(false);
+    requestAnimationFrame(() => {
+      const el = composerRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(draftSeed.text.length, draftSeed.text.length);
+    });
+  }, [draftSeed?.id]);
 
   const kind = classifyConversationKind(conversation);
   const isGroup = kind === "group" || kind === "agent-network";
@@ -173,6 +211,12 @@ export function MessagePane({
   // never simultaneously with the @ mention picker. Available in single and group chats.
   const slashMatch =
     mentionQuery === null && !slashDismissed ? matchSlashTrigger(draft) : null;
+  const minComposerRows = isMobile ? 1 : 2;
+  const maxComposerRows = isMobile ? 4 : 5;
+  const composerRows = Math.min(
+    maxComposerRows,
+    Math.max(minComposerRows, draft.split("\n").length)
+  );
 
   function changeDraft(next: string) {
     setSlashDismissed(false);
@@ -188,7 +232,13 @@ export function MessagePane({
     if (!trimmed && pending.length === 0) return;
     // bugfix-358 (composer): textarea 装可见 `@DisplayName`, wire XML 在此处重建。
     const wireContent = reconstructWireContent(trimmed, draftMentions);
-    onSend(wireContent, pending);
+    forceScrollToBottomRef.current = true;
+    try {
+      onSend(wireContent, pending);
+    } catch (err) {
+      forceScrollToBottomRef.current = false;
+      throw err;
+    }
     setDraft("");
     setDraftMentions([]);
     setPending([]);
@@ -208,12 +258,12 @@ export function MessagePane({
     // feat-430: while the slash picker is open it owns Arrow/Enter/Tab/Esc (its own
     // window keydown handler). Here we only stop Enter from sending the raw `/...` text.
     if (slashMatch !== null) {
-      if (!isMobile && e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+      if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
         e.preventDefault();
       }
       return;
     }
-    if (!isMobile && e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       if (mentionQuery !== null) return;
       e.preventDefault();
       commit(draft);
@@ -260,14 +310,119 @@ export function MessagePane({
     }
   }
 
-  // Auto-scroll: when messages change, scroll the internal message container to
-  // the bottom (not the whole page).  Uses scrollTop instead of scrollIntoView so
-  // only the pane scrolls.
+  function messageRows(): HTMLElement[] {
+    const el = messagesContainerRef.current;
+    if (!el) return [];
+    return Array.from(el.querySelectorAll<HTMLElement>("[data-message-id]"));
+  }
+
+  function captureHistoryAnchor() {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    const rows = messageRows();
+    const anchor = rows.find((row) => row.offsetTop >= el.scrollTop) ?? rows[0] ?? null;
+    historyAnchorRef.current = anchor
+      ? {
+        messageId: anchor.dataset.messageId ?? "",
+        scrollTop: el.scrollTop,
+        scrollHeight: el.scrollHeight
+      }
+      : null;
+  }
+
+  function restoreHistoryAnchor() {
+    const el = messagesContainerRef.current;
+    const anchor = historyAnchorRef.current;
+    if (!el || !anchor) return;
+    const row = messageRows().find((candidate) => candidate.dataset.messageId === anchor.messageId);
+    if (row) {
+      el.scrollTop = row.offsetTop;
+    } else {
+      el.scrollTop = anchor.scrollTop + (el.scrollHeight - anchor.scrollHeight);
+    }
+    updateNearBottom();
+    skipNextMessageAutoScrollRef.current = true;
+    historyAnchorRef.current = null;
+  }
+
+  function maybeLoadOlderFromScroll() {
+    const el = messagesContainerRef.current;
+    if (!el || hasMoreHistory !== true || isLoadingHistory || !onLoadOlder) return;
+    const scrollable = el.scrollHeight - el.clientHeight;
+    if (scrollable <= 0) return;
+    if (el.scrollTop <= scrollable / 3) onLoadOlder();
+  }
+
+  function updateNearBottom() {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    nearBottomRef.current = el.scrollHeight - el.clientHeight - el.scrollTop <= NEAR_BOTTOM_PX;
+  }
+
+  function handleMessagesScroll() {
+    updateNearBottom();
+    maybeLoadOlderFromScroll();
+  }
+
+  useEffect(() => {
+    lastMessageIdRef.current = null;
+    nearBottomRef.current = true;
+    forceScrollToBottomRef.current = false;
+    historyWasLoadingRef.current = false;
+    historyAnchorRef.current = null;
+    skipNextMessageAutoScrollRef.current = false;
+  }, [conversation.id]);
+
+  useEffect(() => {
+    if (sendError) forceScrollToBottomRef.current = false;
+  }, [sendError]);
+
+  // Auto-scroll only when the user is already following the bottom, or when the
+  // local user just sent a message. Prepending history and off-bottom arrivals
+  // must not steal the reading position.
   useEffect(() => {
     const el = messagesContainerRef.current;
     if (!el) return;
-    el.scrollTop = el.scrollHeight;
+    if (skipNextMessageAutoScrollRef.current) {
+      skipNextMessageAutoScrollRef.current = false;
+      return;
+    }
+    if (historyAnchorRef.current) return;
+    const lastMessage = messages[messages.length - 1] ?? null;
+    const lastMessageId = lastMessage?.id ?? null;
+    const lastMessageChanged = lastMessageIdRef.current !== lastMessageId;
+    const lastMessageIsSelfAuthored =
+      lastMessage?.sender.type === "user" &&
+      selfUserId !== null &&
+      (lastMessage.sender_user_id === selfUserId || lastMessage.sender.id === selfUserId);
+    const isInitialHydration = lastMessageIdRef.current === null;
+    const shouldFollowBottom =
+      isInitialHydration
+      || (forceScrollToBottomRef.current && lastMessageChanged && lastMessageIsSelfAuthored)
+      || nearBottomRef.current;
+    lastMessageIdRef.current = lastMessageId;
+    if (shouldFollowBottom) {
+      el.scrollTop = el.scrollHeight;
+      updateNearBottom();
+    }
+    forceScrollToBottomRef.current = false;
   }, [messages]);
+
+  useLayoutEffect(() => {
+    if (isLoadingHistory && !historyWasLoadingRef.current) {
+      captureHistoryAnchor();
+    }
+    if (!isLoadingHistory && historyWasLoadingRef.current) {
+      restoreHistoryAnchor();
+    }
+    historyWasLoadingRef.current = isLoadingHistory;
+  }, [isLoadingHistory, messages]);
+
+  useEffect(() => {
+    const el = messagesContainerRef.current;
+    if (!el || hasMoreHistory !== true || isLoadingHistory || !onLoadOlder) return;
+    if (el.scrollHeight > 0 && el.scrollHeight <= el.clientHeight) onLoadOlder();
+  }, [hasMoreHistory, isLoadingHistory, messages.length, onLoadOlder]);
 
   // feat-430: clicking outside the slash picker and composer dismisses it while
   // preserving the typed `/` text (spec: Esc / 点面板外关闭).
@@ -337,7 +492,7 @@ export function MessagePane({
         )}
       </header>
 
-      <div ref={messagesContainerRef} className="chat-pane-messages">
+      <div ref={messagesContainerRef} className="chat-pane-messages" onScroll={handleMessagesScroll}>
         {messages.length === 0 ? (
           <div className="chat-pane-empty">
             <div className="chat-pane-empty-icon" aria-hidden="true">✨</div>
@@ -345,18 +500,28 @@ export function MessagePane({
             <p className="chat-pane-empty-sub">{t("chat.messagePane.emptySubtitle")}</p>
           </div>
         ) : (
-          messages.map((m) => (
-            <MessageBubble
-              key={m.id}
-              message={m}
-              isMobile={isMobile}
-              participants={conversation.participants}
-              isDirectChat={isDirectChat}
-              agentOnline={agentOnline}
-              onFork={onFork}
-              forkPending={forkPending}
-            />
-          ))
+          <>
+            {(isLoadingHistory || hasMoreHistory === false) && (
+              <div className="chat-history-status" role="status">
+                {isLoadingHistory && <span className="chat-history-spinner" aria-hidden="true" />}
+                {isLoadingHistory
+                  ? t("chat.messagePane.historyLoading")
+                  : t("chat.messagePane.historyEnd")}
+              </div>
+            )}
+            {messages.map((m) => (
+              <MessageBubble
+                key={m.id}
+                message={m}
+                isMobile={isMobile}
+                participants={conversation.participants}
+                isDirectChat={isDirectChat}
+                agentOnline={agentOnline}
+                onFork={onFork}
+                forkPending={forkPending}
+              />
+            ))}
+          </>
         )}
       </div>
 
@@ -413,7 +578,7 @@ export function MessagePane({
                   }
                 }}
                 placeholder={placeholder}
-                rows={isMobile ? 1 : 2}
+                rows={composerRows}
                 className="chat-pane-composer-input chat-composer-highlight-input"
               />
             </div>
@@ -476,6 +641,113 @@ function MessageBubble({
     isDirectChat &&
     Boolean(message.kernel_message_id);
   const forkClass = forkEligible ? (agentOnline ? " is-forkable" : " is-offline") : "";
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const [copyError, setCopyError] = useState<string | null>(null);
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const longPressRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const ignoreNextCardMouseDownRef = useRef(false);
+
+  function clearLongPress() {
+    if (longPressRef.current !== null) {
+      window.clearTimeout(longPressRef.current);
+      longPressRef.current = null;
+    }
+  }
+
+  function openMenu(x: number, y: number) {
+    const menuWidth = 148;
+    const menuHeight = isMobile && forkEligible ? 92 : 52;
+    setCopyError(null);
+    setMenu({
+      x: Math.min(Math.max(8, x), Math.max(8, window.innerWidth - menuWidth)),
+      y: Math.min(Math.max(8, y), Math.max(8, window.innerHeight - menuHeight)),
+    });
+  }
+
+  function handleContextMenu(e: React.MouseEvent) {
+    e.preventDefault();
+    if (isMobile) return;
+    openMenu(e.clientX, e.clientY);
+  }
+
+  function handleTouchStart(e: React.TouchEvent) {
+    if (!isMobile || e.touches.length === 0) return;
+    const touch = e.touches[0]!;
+    touchStartRef.current = { x: touch.clientX, y: touch.clientY };
+    clearLongPress();
+    longPressRef.current = window.setTimeout(() => {
+      openMenu(touch.clientX, touch.clientY);
+      ignoreNextCardMouseDownRef.current = true;
+      longPressRef.current = null;
+    }, 600);
+  }
+
+  function handleTouchMove(e: React.TouchEvent) {
+    const start = touchStartRef.current;
+    if (!start || e.touches.length === 0) return;
+    const touch = e.touches[0]!;
+    if (Math.abs(touch.clientX - start.x) > 10 || Math.abs(touch.clientY - start.y) > 10) {
+      clearLongPress();
+    }
+  }
+
+  function handleTouchEnd(e: React.TouchEvent) {
+    if (menu) e.preventDefault();
+    clearLongPress();
+    touchStartRef.current = null;
+  }
+
+  function handleTouchCancel() {
+    clearLongPress();
+    touchStartRef.current = null;
+  }
+
+  async function handleCopy() {
+    setCopyError(null);
+    const writeText = navigator.clipboard?.writeText;
+    if (!writeText) {
+      setCopyError(t("chat.messagePane.copyError"));
+      return;
+    }
+    try {
+      await writeText.call(navigator.clipboard, message.content ?? "");
+      setMenu(null);
+    } catch {
+      setCopyError(t("chat.messagePane.copyError"));
+    }
+  }
+
+  function handleMenuFork() {
+    if (agentOnline && !forkPending) onFork?.(message.id);
+    setMenu(null);
+  }
+
+  useEffect(() => clearLongPress, []);
+
+  useEffect(() => {
+    if (!menu) return;
+    function onDocumentMouseDown(e: MouseEvent) {
+      const target = e.target as Node;
+      if (menuRef.current?.contains(target)) return;
+      if (ignoreNextCardMouseDownRef.current && cardRef.current?.contains(target)) {
+        ignoreNextCardMouseDownRef.current = false;
+        return;
+      }
+      ignoreNextCardMouseDownRef.current = false;
+      setMenu(null);
+    }
+    function onDocumentKeyDown(e: globalThis.KeyboardEvent) {
+      if (e.key === "Escape") setMenu(null);
+    }
+    document.addEventListener("mousedown", onDocumentMouseDown);
+    document.addEventListener("keydown", onDocumentKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onDocumentMouseDown);
+      document.removeEventListener("keydown", onDocumentKeyDown);
+    };
+  }, [menu]);
 
   // feat-414 决策 2: running 时前端本地 tick（锚 message.created_at），
   // completed 后用后端权威 elapsed_ms 定格，不再 tick。
@@ -508,7 +780,10 @@ function MessageBubble({
   }
 
   return (
-    <div className={`chat-bubble chat-bubble--${isUser ? "user" : "agent"}${forkClass} flex ${rowFlex} gap-2 items-end`}>
+    <div
+      data-message-id={message.id}
+      className={`chat-bubble chat-bubble--${isUser ? "user" : "agent"}${forkClass} flex ${rowFlex} gap-2 items-end`}
+    >
       {!isUser && (
         <span
           data-testid={`message-avatar-${message.id}`}
@@ -527,7 +802,16 @@ function MessageBubble({
             </span>
           </div>
         )}
-        <div data-testid={`message-bubble-${message.id}`} className="chat-bubble-card">
+        <div
+          ref={cardRef}
+          data-testid={`message-bubble-${message.id}`}
+          className="chat-bubble-card"
+          onContextMenu={handleContextMenu}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          onTouchCancel={handleTouchCancel}
+        >
           {message.content && (
             isUser
               ? <div className="chat-bubble-content">{renderInlineContent(message.content, participants)}</div>
@@ -568,7 +852,7 @@ function MessageBubble({
             ))}
           {/* feat-445-M1: fork from this completed agent reply. Child of the bubble
               card (zero hover gap), revealed on hover via CSS .is-forkable/.is-offline. */}
-          {forkEligible && (
+          {forkEligible && !isMobile && (
             <>
               <button
                 type="button"
@@ -587,6 +871,34 @@ function MessageBubble({
                 <div className="fork-tip">{t("chat.messagePane.forkOffline")}</div>
               )}
             </>
+          )}
+          {menu && (
+            <div
+              ref={menuRef}
+              role="menu"
+              className="chat-message-menu"
+              style={{ left: menu.x, top: menu.y }}
+            >
+              <button type="button" role="menuitem" className="chat-message-menu-item" onClick={handleCopy}>
+                {t("chat.messagePane.copy")}
+              </button>
+              {isMobile && forkEligible && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="chat-message-menu-item"
+                  disabled={!agentOnline || forkPending}
+                  onClick={handleMenuFork}
+                >
+                  {t("chat.messagePane.fork")}
+                </button>
+              )}
+              {copyError && (
+                <div className="chat-message-menu-error" role="status">
+                  {copyError}
+                </div>
+              )}
+            </div>
           )}
         </div>
         <div className={`chat-bubble-status mt-[2px] flex items-center gap-2 text-[11px] text-[oklch(0.55 0.01 240)] ${statusAlign}`}>

@@ -4,6 +4,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import json
+from pathlib import Path
 import sqlite3
 from uuid import uuid4
 
@@ -36,6 +37,10 @@ class UserAlreadyExistsError(ValueError):
 
 class RepositoryConstraintError(ValueError):
     """Raise when SQLite integrity constraints need API-safe translation."""
+
+
+_PA_WORKSPACE_CONFIG_DIRNAME = ".nanoassistant"
+_ACTIVE_AGENT_DELIVERY_STATUSES = frozenset({"sent", "running"})
 
 
 def _raise_constraint_error(error: sqlite3.IntegrityError) -> None:
@@ -455,8 +460,10 @@ class ConversationRepository:
                     config_agent_id,
                     config_profile_version,
                     config_system_prompt,
+                    external_source,
+                    external_chat_id,
                     created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     conversation_id,
@@ -472,6 +479,8 @@ class ConversationRepository:
                     config_snapshot.agent_id,
                     config_snapshot.profile_version,
                     config_snapshot.system_prompt,
+                    None,
+                    None,
                     created_at,
                 ),
             )
@@ -492,15 +501,197 @@ class ConversationRepository:
             last_message_preview=None,
             last_message_at=None,
             config_profile_version=config_snapshot.profile_version,
+            config_agent_id=config_snapshot.agent_id,
             created_at=created_at,
             participants=[self._actor_from_user_row(row) for row in ordered_rows],
+            source_agent_id=config_snapshot.agent_id,
         )
+
+    def find_or_create_external_conversation(
+        self,
+        *,
+        external_source: str,
+        external_chat_id: str,
+        agent_id: str,
+        title: str,
+        is_group: bool,
+        participant_ids: list[str],
+        owner_id: str,
+        creator_id: str,
+    ) -> Conversation:
+        """Idempotently create or update one external-channel shadow conversation."""
+        normalized_source = external_source.strip()
+        normalized_chat_id = external_chat_id.strip()
+        normalized_agent_id = agent_id.strip()
+        normalized_owner_id = owner_id.strip()
+        if not normalized_source:
+            raise ValueError("external_source must be non-empty")
+        if not normalized_chat_id:
+            raise ValueError("external_chat_id must be non-empty")
+        if not normalized_agent_id:
+            raise ValueError("agent_id must be non-empty")
+        if not normalized_owner_id:
+            raise ValueError("owner_id must be non-empty")
+        if not title.strip():
+            raise ValueError("title must be non-empty")
+
+        existing = self._connection.execute(
+            """
+            SELECT id
+            FROM conversations
+            WHERE external_source = ?
+              AND external_chat_id = ?
+              AND config_agent_id = ?
+              AND owner_id = ?
+            """,
+            (
+                normalized_source,
+                normalized_chat_id,
+                normalized_agent_id,
+                normalized_owner_id,
+            ),
+        ).fetchone()
+        if existing is not None:
+            with self._connection:
+                self._connection.execute(
+                    "UPDATE conversations SET title = ?, type = ? WHERE id = ?",
+                    (
+                        " ".join(title.split()),
+                        "group" if is_group else "direct",
+                        existing["id"],
+                    ),
+                )
+            found = self.get_conversation(conversation_id=str(existing["id"]))
+            assert found is not None
+            return found
+
+        normalized_references = list(
+            dict.fromkeys(
+                participant_id.strip()
+                for participant_id in participant_ids
+                if participant_id.strip()
+            )
+        )
+        if not normalized_references:
+            raise ValueError("participant_ids must not be empty")
+        ordered_rows: list[sqlite3.Row] = []
+        normalized_participants: list[str] = []
+        for reference in normalized_references:
+            resolved_user = self._resolve_participant_user_row(reference=reference)
+            if resolved_user is None:
+                raise ValueError("participant_ids contains unknown users")
+            resolved_user_id = str(resolved_user["id"])
+            if resolved_user_id in normalized_participants:
+                continue
+            normalized_participants.append(resolved_user_id)
+            ordered_rows.append(resolved_user)
+        creator_row = self._resolve_participant_user_row(reference=creator_id)
+        if creator_row is None:
+            raise ValueError("creator_id not found")
+        resolved_creator_id = str(creator_row["id"])
+        if resolved_creator_id not in normalized_participants:
+            raise ValueError("creator_id must be one of participant_ids")
+        profile_row = self._connection.execute(
+            "SELECT profile_version, system_prompt FROM agent_profiles WHERE agent_id = ?",
+            (normalized_agent_id,),
+        ).fetchone()
+        profile_version = (
+            int(profile_row["profile_version"]) if profile_row is not None else None
+        )
+        system_prompt = (
+            str(profile_row["system_prompt"]) if profile_row is not None else None
+        )
+        conversation_id = uuid4().hex
+        created_at = _utc_now()
+        conversation_type = "group" if is_group else "direct"
+        try:
+            with self._connection:
+                self._connection.execute(
+                    """
+                    INSERT INTO conversations(
+                        id,
+                        title,
+                        type,
+                        owner_id,
+                        creator_id,
+                        is_pinned,
+                        is_muted,
+                        unread_count,
+                        last_message_preview,
+                        last_message_at,
+                        config_agent_id,
+                        config_profile_version,
+                        config_system_prompt,
+                        external_source,
+                        external_chat_id,
+                        created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        conversation_id,
+                        " ".join(title.split()),
+                        conversation_type,
+                        normalized_owner_id,
+                        resolved_creator_id,
+                        0,
+                        0,
+                        0,
+                        None,
+                        None,
+                        normalized_agent_id,
+                        profile_version,
+                        system_prompt,
+                        normalized_source,
+                        normalized_chat_id,
+                        created_at,
+                    ),
+                )
+                self._connection.executemany(
+                    "INSERT INTO conversation_participants(conversation_id, user_id) VALUES (?, ?)",
+                    [(conversation_id, user_id) for user_id in normalized_participants],
+                )
+        except sqlite3.IntegrityError:
+            existing_after_race = self._connection.execute(
+                """
+                SELECT id
+                FROM conversations
+                WHERE external_source = ?
+                  AND external_chat_id = ?
+                  AND config_agent_id = ?
+                  AND owner_id = ?
+                """,
+                (
+                    normalized_source,
+                    normalized_chat_id,
+                    normalized_agent_id,
+                    normalized_owner_id,
+                ),
+            ).fetchone()
+            if existing_after_race is None:
+                raise
+            with self._connection:
+                self._connection.execute(
+                    "UPDATE conversations SET title = ?, type = ? WHERE id = ?",
+                    (
+                        " ".join(title.split()),
+                        conversation_type,
+                        existing_after_race["id"],
+                    ),
+                )
+            found_after_race = self.get_conversation(
+                conversation_id=str(existing_after_race["id"])
+            )
+            assert found_after_race is not None
+            return found_after_race
+        created = self.get_conversation(conversation_id=conversation_id)
+        assert created is not None
+        return created
 
     def get_conversation(self, *, conversation_id: str) -> Conversation | None:
         """Load one conversation with participants."""
         row = self._connection.execute(
             """
-            SELECT id, title, type, owner_id, creator_id, is_pinned, is_muted, unread_count, last_message_preview, last_message_at, config_profile_version, created_at
+            SELECT id, title, type, owner_id, creator_id, is_pinned, is_muted, unread_count, last_message_preview, last_message_at, config_agent_id, config_profile_version, external_source, external_chat_id, created_at
             FROM conversations
             WHERE id = ?
             """,
@@ -548,7 +739,7 @@ class ConversationRepository:
         """
         conversation_rows = self._connection.execute(
             """
-            SELECT id, title, type, owner_id, creator_id, is_pinned, is_muted, unread_count, last_message_preview, last_message_at, config_profile_version, created_at
+            SELECT id, title, type, owner_id, creator_id, is_pinned, is_muted, unread_count, last_message_preview, last_message_at, config_agent_id, config_profile_version, external_source, external_chat_id, created_at
             FROM conversations
             ORDER BY is_pinned DESC, COALESCE(last_message_at, created_at) DESC, rowid DESC
             """
@@ -559,7 +750,7 @@ class ConversationRepository:
         """Owner-scoped list — filters at the SQL layer to prevent cross-tenant leakage."""
         conversation_rows = self._connection.execute(
             """
-            SELECT id, title, type, owner_id, creator_id, is_pinned, is_muted, unread_count, last_message_preview, last_message_at, config_profile_version, created_at
+            SELECT id, title, type, owner_id, creator_id, is_pinned, is_muted, unread_count, last_message_preview, last_message_at, config_agent_id, config_profile_version, external_source, external_chat_id, created_at
             FROM conversations
             WHERE owner_id = ?
             ORDER BY is_pinned DESC, COALESCE(last_message_at, created_at) DESC, rowid DESC
@@ -720,13 +911,27 @@ class ConversationRepository:
             if "config_profile_version" in row.keys()
             else None
         )
+        config_agent_id = (
+            row["config_agent_id"] if "config_agent_id" in row.keys() else None
+        )
         row_keys = row.keys()
+        configured_agent_id = (
+            str(row["config_agent_id"])
+            if "config_agent_id" in row_keys and row["config_agent_id"] is not None
+            else None
+        )
         # creator_id was added by M234 migration; fall back to owner_id for legacy rows.
         creator_id = (
             str(row["creator_id"]) if "creator_id" in row_keys else str(row["owner_id"])
         )
+        participants = [self._actor_from_user_row(item) for item in participant_rows]
+        source_agent_id = self._resolve_source_agent_id(
+            configured_agent_id=configured_agent_id,
+            participants=participants,
+        )
+        conversation_id = str(row["id"])
         return Conversation(
-            id=row["id"],
+            id=conversation_id,
             title=row["title"],
             participant_ids=[str(item["id"]) for item in participant_rows],
             type=row["type"],
@@ -739,10 +944,110 @@ class ConversationRepository:
             if "last_message_preview" in row_keys
             else None,
             last_message_at=row["last_message_at"],
+            config_agent_id=config_agent_id,
             config_profile_version=profile_version,
+            external_source=row["external_source"]
+            if "external_source" in row_keys
+            else None,
+            external_chat_id=row["external_chat_id"]
+            if "external_chat_id" in row_keys
+            else None,
             created_at=row["created_at"],
-            participants=[self._actor_from_user_row(item) for item in participant_rows],
+            participants=participants,
+            run_state=self._resolve_run_state(conversation_id=conversation_id),
+            source_agent_id=source_agent_id,
+            source_jsonl_path=self._resolve_source_jsonl_path(
+                conversation_id=conversation_id,
+                source_agent_id=source_agent_id,
+            ),
         )
+
+    @staticmethod
+    def _resolve_source_agent_id(
+        *, configured_agent_id: str | None, participants: list[Actor]
+    ) -> str | None:
+        """Return the single agent that owns the conversation transcript, if knowable."""
+        if configured_agent_id:
+            return configured_agent_id
+        participant_agent_ids = sorted(
+            {item.id for item in participants if item.type == "agent"}
+        )
+        if len(participant_agent_ids) == 1:
+            return participant_agent_ids[0]
+        return None
+
+    def _resolve_run_state(self, *, conversation_id: str) -> str:
+        """Derive conversation running state from live agent message rows."""
+        placeholders = ", ".join("?" for _ in _ACTIVE_AGENT_DELIVERY_STATUSES)
+        row = self._connection.execute(
+            f"""
+            SELECT 1
+            FROM messages
+            WHERE conversation_id = ?
+              AND sender_type = 'agent'
+              AND delivery_status IN ({placeholders})
+            LIMIT 1
+            """,
+            (conversation_id, *_ACTIVE_AGENT_DELIVERY_STATUSES),
+        ).fetchone()
+        return "running" if row is not None else "idle"
+
+    def _resolve_source_jsonl_path(
+        self, *, conversation_id: str, source_agent_id: str | None
+    ) -> str | None:
+        """Find the actual PA session JSONL whose metadata points at this conversation."""
+        if not source_agent_id:
+            return None
+        profile_row = self._connection.execute(
+            "SELECT workspace_root FROM agent_profiles WHERE agent_id = ?",
+            (source_agent_id,),
+        ).fetchone()
+        if profile_row is None or profile_row["workspace_root"] is None:
+            return None
+        workspace_root = str(profile_row["workspace_root"]).strip()
+        if not workspace_root:
+            return None
+        sessions_dir = (
+            Path(workspace_root).expanduser()
+            / _PA_WORKSPACE_CONFIG_DIRNAME
+            / "sessions"
+        )
+        if not sessions_dir.is_dir():
+            return None
+        for path in sorted(sessions_dir.rglob("*.jsonl")):
+            if self._session_jsonl_matches_conversation(
+                path=path,
+                conversation_id=conversation_id,
+                source_agent_id=source_agent_id,
+            ):
+                return str(path.resolve())
+        return None
+
+    @staticmethod
+    def _session_jsonl_matches_conversation(
+        *, path: Path, conversation_id: str, source_agent_id: str
+    ) -> bool:
+        """Return whether one kernel session file was created for this IM conversation."""
+        try:
+            with path.open("r", encoding="utf-8") as fh:
+                for line in fh:
+                    stripped = line.strip()
+                    if not stripped:
+                        continue
+                    record = json.loads(stripped)
+                    if record.get("type") != "session_created":
+                        continue
+                    metadata = record.get("metadata")
+                    if not isinstance(metadata, dict):
+                        continue
+                    if (
+                        metadata.get("conversation_id") == conversation_id
+                        and metadata.get("agent_id") == source_agent_id
+                    ):
+                        return True
+        except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+            return False
+        return False
 
     def _resolve_participant_user_row(self, *, reference: str) -> sqlite3.Row | None:
         """Resolve one participant reference into a concrete IM user row."""
@@ -908,6 +1213,8 @@ class MessageRepository:
         allow_empty: bool = False,
         kernel_message_id: str | None = None,
         delivery_status: str | None = None,
+        sender_display_name: str | None = None,
+        emit_created_event: bool = False,
     ) -> Message:
         """Create a message in a conversation.
 
@@ -949,13 +1256,21 @@ class MessageRepository:
         if sender_user is None:
             raise ValueError("sender_user_id not found")
         resolved_sender_user_id = str(sender_user["id"])
+        display_name_override = (
+            sender_display_name.strip() if sender_display_name is not None else None
+        )
+        if display_name_override == "":
+            display_name_override = None
         sender_actor = self._actor_from_sender_row(
             sender_type=sender_type,
             sender_user_id=resolved_sender_user_id,
             sender_username=str(sender_user["username"]),
-            sender_display_name=str(sender_user["display_name"])
-            if sender_user["display_name"] is not None
-            else None,
+            sender_display_name=display_name_override
+            or (
+                str(sender_user["display_name"])
+                if sender_user["display_name"] is not None
+                else None
+            ),
         )
         participant_exists = self._connection.execute(
             """
@@ -1008,6 +1323,22 @@ class MessageRepository:
             else None
         )
         token_usage_json = _encode_token_usage(token_usage)
+        created_message = Message(
+            id=message_id,
+            conversation_id=conversation_id,
+            sender_user_id=resolved_sender_user_id,
+            sender_type=sender_type,
+            sender=sender_actor,
+            content=content,
+            attachments=normalized_attachments,
+            delivery_status=final_status,
+            created_at=created_at,
+            tool_calls=normalized_tool_calls,
+            token_usage=token_usage,
+            # feat-414: 建行时始终为 None，由 on_message_completed 写入。
+            elapsed_ms=None,
+            kernel_message_id=kernel_message_id,
+        )
         with self._connection:
             self._connection.execute(
                 """
@@ -1022,8 +1353,9 @@ class MessageRepository:
                     created_at,
                     tool_calls_json,
                     token_usage_json,
-                    kernel_message_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    kernel_message_id,
+                    sender_display_name
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     message_id,
@@ -1037,6 +1369,7 @@ class MessageRepository:
                     tool_calls_json,
                     token_usage_json,
                     kernel_message_id,
+                    display_name_override,
                 ),
             )
             pending_live_events.append(
@@ -1048,6 +1381,16 @@ class MessageRepository:
                     payload=sent_payload,
                 )
             )
+            if emit_created_event:
+                pending_live_events.append(
+                    self._insert_event(
+                        conversation_id=conversation_id,
+                        message_id=message_id,
+                        event_type="message.created",
+                        delivery_status=final_status,
+                        payload=_message_created_payload(created_message),
+                    )
+                )
             if auto_complete_delivery:
                 # feat-445-M3 清理-1: the delivered event must carry the message's actual
                 # terminal status (final_status), not a hardcoded "completed". fork copies a
@@ -1100,22 +1443,7 @@ class MessageRepository:
         if self._notify is not None:
             for live_event in pending_live_events:
                 self._notify(live_event)
-        return Message(
-            id=message_id,
-            conversation_id=conversation_id,
-            sender_user_id=resolved_sender_user_id,
-            sender_type=sender_type,
-            sender=sender_actor,
-            content=content,
-            attachments=normalized_attachments,
-            delivery_status=final_status,
-            created_at=created_at,
-            tool_calls=normalized_tool_calls,
-            token_usage=token_usage,
-            # feat-414: 建行时始终为 None，由 on_message_completed 写入。
-            elapsed_ms=None,
-            kernel_message_id=kernel_message_id,
-        )
+        return created_message
 
     def update_runtime_state(
         self,
@@ -1259,7 +1587,7 @@ class MessageRepository:
                 messages.permission_request_json,
                 messages.kernel_message_id,
                 users.username AS sender_username,
-                users.display_name AS sender_display_name
+                COALESCE(messages.sender_display_name, users.display_name) AS sender_display_name
             FROM messages
             LEFT JOIN users ON users.id = messages.sender_user_id
             WHERE messages.id = ?
@@ -1311,7 +1639,7 @@ class MessageRepository:
                 messages.permission_request_json,
                 messages.kernel_message_id,
                 users.username AS sender_username,
-                users.display_name AS sender_display_name
+                COALESCE(messages.sender_display_name, users.display_name) AS sender_display_name
             FROM messages
             LEFT JOIN users ON users.id = messages.sender_user_id
             WHERE messages.id = ?
@@ -1408,7 +1736,7 @@ class MessageRepository:
                 messages.permission_request_json,
                 messages.kernel_message_id,
                 users.username AS sender_username,
-                users.display_name AS sender_display_name
+                COALESCE(messages.sender_display_name, users.display_name) AS sender_display_name
             FROM messages
             LEFT JOIN users ON users.id = messages.sender_user_id
             WHERE conversation_id = ?
@@ -2925,6 +3253,60 @@ def _attachment_to_dict(attachment: Attachment) -> dict[str, object]:
     if attachment.file_name is not None:
         payload["file_name"] = attachment.file_name
     return payload
+
+
+def _actor_to_event_dict(
+    actor: Actor | None, *, fallback_type: str, fallback_id: str
+) -> dict[str, str | None]:
+    """Serialize an actor for live events without depending on API modules."""
+    return {
+        "type": actor.type if actor is not None else fallback_type,
+        "id": actor.id if actor is not None else fallback_id,
+        "display_name": actor.display_name if actor is not None else None,
+    }
+
+
+def _token_usage_to_event_dict(usage: TokenUsage | None) -> dict[str, int] | None:
+    """Serialize token usage using the same shape as websocket payloads."""
+    if usage is None:
+        return None
+    return {
+        "output": int(usage.output),
+        "context_used": int(usage.context_used),
+        "context_window": int(usage.context_window),
+        "total": int(usage.total)
+        if usage.total is not None
+        else int(usage.context_used) + int(usage.output),
+        "cache_read_tokens": int(usage.cache_read_tokens),
+        "cache_total_input_tokens": int(usage.cache_total_input_tokens),
+    }
+
+
+def _message_created_payload(message: Message) -> dict[str, object]:
+    """Build the canonical live insert payload for a persisted message."""
+    sender = _actor_to_event_dict(
+        message.sender,
+        fallback_type=message.sender_type,
+        fallback_id=message.sender_user_id,
+    )
+    return {
+        "conversation_id": message.conversation_id,
+        "message_id": message.id,
+        "sender_user_id": message.sender_user_id,
+        "sender_type": message.sender_type,
+        "sender": sender,
+        "sender_display_name": sender.get("display_name"),
+        "content": message.content,
+        "attachments": [_attachment_to_dict(item) for item in message.attachments],
+        "tool_calls": [_tool_call_to_dict(tc) for tc in (message.tool_calls or [])],
+        "thinking": [
+            {"seq": int(segment.seq), "text": segment.text}
+            for segment in (message.thinking or [])
+        ],
+        "token_usage": _token_usage_to_event_dict(message.token_usage),
+        "delivery_status": message.delivery_status,
+        "created_at": message.created_at,
+    }
 
 
 def _normalize_attachments(attachments: list[Attachment] | None) -> list[Attachment]:

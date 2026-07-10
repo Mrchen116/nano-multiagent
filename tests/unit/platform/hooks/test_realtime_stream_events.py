@@ -79,6 +79,34 @@ async def test_message_end_assistant_message_carries_reasoning_content() -> None
     assert pub.events[0]["data"]["reasoning_content"] == "让我先看一下 types.py……"
 
 
+async def test_message_end_assistant_message_carries_group_id() -> None:
+    """A single LLM response may expand to multiple assistant rows that share group_id."""
+
+    hooks = HookRegistry()
+    setup_realtime_stream(hooks)
+    runner = HookRunner(registry=hooks)
+    pub = _FakePublisher()
+    ctx = _make_ctx(publisher=pub)
+
+    await runner.dispatch_observe(
+        "message_end",
+        {
+            "session_id": "sess_1",
+            "turn_id": "turn_1",
+            "message_id": "msg_1",
+            "group_id": "group-llm-response-1",
+            "role": "assistant",
+            "content": "",
+            "reasoning_content": "先看现有链路",
+            "run_id": "run_1",
+        },
+        ctx,
+    )
+
+    assert len(pub.events) == 1
+    assert pub.events[0]["data"]["group_id"] == "group-llm-response-1"
+
+
 async def test_message_end_skips_non_assistant() -> None:
     hooks = HookRegistry()
     setup_realtime_stream(hooks)
@@ -166,6 +194,78 @@ async def test_tool_result_emits_tool_end_with_presentation() -> None:
     assert evt["data"]["arguments"] == {"path": "src/app.py"}
     assert "presentation" in evt["data"]
     assert evt["data"]["presentation"]["visible"] is True
+
+
+async def test_skill_manage_create_success_emits_skill_created() -> None:
+    hooks = HookRegistry()
+    setup_realtime_stream(hooks)
+    runner = HookRunner(registry=hooks)
+    pub = _FakePublisher()
+    ctx = _make_ctx(publisher=pub)
+
+    await runner.dispatch_observe(
+        "tool_result",
+        {
+            "session_id": "sess_1",
+            "turn_id": "turn_1",
+            "call_id": "call_1",
+            "name": "skill_manage",
+            "arguments": {"action": "create", "scope": "global"},
+            "output": {
+                "success": True,
+                "name": "new-skill",
+                "scope": "global",
+                "location": "/tmp/global-skills/new-skill/SKILL.md",
+                "skill_root": "/tmp/global-skills",
+            },
+            "duration_ms": 12,
+            "run_id": "run_1",
+        },
+        ctx,
+    )
+
+    assert [evt["event"] for evt in pub.events] == ["tool_end", "skill_created"]
+    assert pub.events[1]["data"] == {
+        "event": "skill_created",
+        "run_id": "run_1",
+        "turn_id": "turn_1",
+        "call_id": "call_1",
+        "name": "new-skill",
+        "scope": "global",
+        "location": "/tmp/global-skills/new-skill/SKILL.md",
+        "skill_root": "/tmp/global-skills",
+    }
+
+
+async def test_skill_manage_non_create_does_not_emit_skill_created() -> None:
+    hooks = HookRegistry()
+    setup_realtime_stream(hooks)
+    runner = HookRunner(registry=hooks)
+    pub = _FakePublisher()
+    ctx = _make_ctx(publisher=pub)
+
+    await runner.dispatch_observe(
+        "tool_result",
+        {
+            "session_id": "sess_1",
+            "turn_id": "turn_1",
+            "call_id": "call_1",
+            "name": "skill_manage",
+            "arguments": {"action": "patch", "scope": "global"},
+            "output": {
+                "success": True,
+                "name": "new-skill",
+                "scope": "global",
+                "location": "/tmp/global-skills/new-skill/SKILL.md",
+                "skill_root": "/tmp/global-skills",
+            },
+            "duration_ms": 12,
+            "run_id": "run_1",
+        },
+        ctx,
+    )
+
+    assert [evt["event"] for evt in pub.events] == ["tool_end"]
 
 
 async def test_tool_result_failed_emits_tool_end_failed() -> None:

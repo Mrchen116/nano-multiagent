@@ -62,7 +62,7 @@ BASIC_PA_TOOLS = (
     _tool("send_message"),
 )
 MEMORY_TOOLS = (*BASIC_PA_TOOLS, _tool("memory"))
-SKILL_TOOLS = (*MEMORY_TOOLS, _tool("skill_manage"))
+SKILL_TOOLS = (*MEMORY_TOOLS, _tool("skill_view"), _tool("skill_manage"))
 AGENT_TOOLS = (*BASIC_PA_TOOLS, _tool("agent"))
 FULL_TOOLS = (*SKILL_TOOLS, _tool("agent"))
 
@@ -73,7 +73,12 @@ BASIC_LC_TOOLS = (
     _tool("bash"),
     _tool("agent"),
 )
-LC_FULL_TOOLS = (*BASIC_LC_TOOLS, _tool("memory"), _tool("skill_manage"))
+LC_FULL_TOOLS = (
+    *BASIC_LC_TOOLS,
+    _tool("memory"),
+    _tool("skill_view"),
+    _tool("skill_manage"),
+)
 
 
 # ---------------------------------------------------------------------------

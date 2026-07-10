@@ -12,6 +12,7 @@ from personal_assistant.gateway.inbound_pipeline import InboundPipeline
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
 from personal_assistant.gateway.session_keys import SessionBindingStore
+from personal_assistant.channels.web_relay_adapter import WebRelayAdapter
 
 from ._pipeline_helpers import _FakeChannel, _FakeKernel, _agents
 
@@ -194,6 +195,63 @@ def test_build_session_metadata_still_reads_conversation_id_from_message_metadat
     assert created_metadata["agent_id"] == "agent-w"
     assert created_metadata["conversation_id"] == "conv-42"
     assert created_metadata["config_profile_version"] == 7
+    assert created_metadata["system_prompt"] == "Local prompt."
+
+
+def test_web_relay_conversation_id_reaches_session_metadata(
+    tmp_path: Path,
+) -> None:
+    """Real web relay payloads must carry conversation_id into session_created metadata."""
+
+    agent_dir = tmp_path / "agent-web"
+    agent_dir.mkdir()
+    agents = (
+        AgentWorkspaceConfig(
+            agent_id="agent-web",
+            workspace_root=agent_dir,
+            title="Agent Web",
+            system_prompt="Local prompt.",
+        ),
+    )
+    relay = WebRelayAdapter()
+    registry = ChannelRegistry((relay,))
+    kernel_client = _FakeKernel()
+    pipeline = InboundPipeline(
+        kernel=kernel_client,
+        agents=agents,
+        outbound_router=OutboundRouter(registry),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-web",
+    )
+    seen: list[InboundMessage] = []
+    relay.start(seen.append)
+    inbound = relay.accept_relay(
+        {
+            "relay_task_id": "relay-real-1",
+            "idempotency_key": "idem-real-1",
+            "agent_id": "agent-web",
+            "message": {
+                "id": "msg-real-1",
+                "sender_user_id": "user-real",
+                "conversation_id": "conv-real-1",
+                "content": "hello from Web IM",
+            },
+            "metadata": {
+                "conversation_type": "direct",
+                "config_profile_version": 12,
+            },
+        }
+    )
+
+    asyncio.run(pipeline.handle_inbound(inbound))
+
+    assert inbound == seen[0]
+    created_metadata = kernel_client.create_session_calls[0]["metadata"]
+    assert created_metadata["agent_id"] == "agent-web"
+    assert created_metadata["conversation_id"] == "conv-real-1"
+    assert created_metadata["config_profile_version"] == 12
+    assert created_metadata["conversation_type"] == "direct"
     assert created_metadata["system_prompt"] == "Local prompt."
 
 

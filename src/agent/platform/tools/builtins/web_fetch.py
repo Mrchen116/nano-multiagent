@@ -307,6 +307,15 @@ class WebFetchTool:
         # Injected by platform assembler or tests; None → empty/default config
         self._auto_mode_config: Any = None
 
+    def to_auto_classifier_input(self, tool_input: Mapping[str, Any]) -> str:
+        """Project URL and optional processing prompt for auto-mode classification."""
+
+        url = str(tool_input.get("url", ""))
+        prompt = str(tool_input.get("prompt", ""))
+        if prompt:
+            return f"url={url} prompt={prompt[:200]}"
+        return f"url={url}"
+
     # ------------------------------------------------------------------
     # Tool-level permission check (bugfix-355 D1/D4, design.md 接口与数据流段)
     # ------------------------------------------------------------------

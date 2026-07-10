@@ -23,16 +23,19 @@ from typing import Any, Protocol
 from urllib.parse import parse_qs, urlparse
 
 _log = logging.getLogger("personal_assistant.main")
+_PA_GLOBAL_SKILL_ROOT = Path("~/.nanoassistant/skills")
 
 import httpx
 import websockets
 from websockets.asyncio.client import ClientConnection
 
-from personal_assistant.channels.base import InboundMessage
+from personal_assistant.channels.base import InboundMessage, ReplyContext
 from personal_assistant.channels.web_relay_adapter import (
     RelayDeduplicationStore,
     WebRelayAdapter,
 )
+from personal_assistant.channels.feishu import FeishuAdapter
+from personal_assistant.builtin_skills.bootstrap import install_builtin_skills
 
 from personal_assistant.config.local_store import (
     AgentWorkspaceConfig,
@@ -44,12 +47,16 @@ from personal_assistant.config.local_store import (
     WORKSPACE_CONFIG_DIRNAME as _WCD,
     default_local_config_path,
     ensure_workspace_defaults,
+    ensure_feishu_doc_skill_for_feishu_agents,
     load_local_config,
     resolve_run_model,
     save_local_config,
 )
 from personal_assistant.config.sync_client import ConfigSyncClient
-from personal_assistant.gateway.bootstrap import start_channels, stop_channels
+from personal_assistant.gateway.bootstrap import (
+    start_channels,
+    stop_channels,
+)
 from personal_assistant.gateway.channel_registry import ChannelRegistry
 from personal_assistant.gateway.group_context_store import GroupContextStore
 from personal_assistant.gateway.inbound_pipeline import (
@@ -64,6 +71,7 @@ from personal_assistant.gateway.session_keys import (
     SessionBindingStore,
     bind_conversation_session,
     build_conversation_session_key,
+    build_external_session_key,
 )
 from personal_assistant.reporter.upstream_reporter import (
     UpstreamReporter,
@@ -270,6 +278,42 @@ class GatewayRuntimeState:
     log_path: str
 
 
+def _default_pa_global_skill_names() -> tuple[str, ...]:
+    """Resolve the PA global user skills that new IM-created agents inherit."""
+
+    root = _PA_GLOBAL_SKILL_ROOT.expanduser().resolve()
+    if not root.is_dir():
+        return ()
+    try:
+        names: set[str] = set()
+        for skill_file in sorted(root.rglob("SKILL.md")):
+            if ".archive" in skill_file.parts:
+                continue
+            names.add(_read_skill_name(skill_file))
+        return tuple(sorted(names))
+    except Exception:  # noqa: BLE001
+        _log.warning(
+            "failed to resolve PA global skill defaults from %s", root, exc_info=True
+        )
+        return ()
+
+
+def _read_skill_name(skill_file: Path) -> str:
+    """Return the skill's declared name, falling back to its directory name."""
+
+    for line in skill_file.read_text(encoding="utf-8", errors="replace").splitlines():
+        stripped = line.strip()
+        if stripped == "---" or not stripped:
+            continue
+        if stripped.startswith("name:"):
+            return (
+                stripped.split(":", 1)[1].strip().strip("\"'") or skill_file.parent.name
+            )
+        if not stripped.startswith("#"):
+            break
+    return skill_file.parent.name
+
+
 class _IMConfigSyncClient:
     """Fetch IM agent config snapshots and extend the live gateway agent registry."""
 
@@ -289,6 +333,7 @@ class _IMConfigSyncClient:
         reporter: UpstreamReporter | None = None,
         client: httpx.Client | None = None,
         client_factory: BootstrapClientFactory | None = None,
+        global_skill_root: Path | None = None,
         timeout_seconds: float = 5.0,
         retry_interval_seconds: float = 0.1,
         max_attempts: int = 50,
@@ -309,6 +354,11 @@ class _IMConfigSyncClient:
         self._reporter = reporter
         self._client_factory = client_factory
         self._client = client
+        self._global_skill_root = (
+            global_skill_root.expanduser().resolve()
+            if global_skill_root is not None
+            else None
+        )
         self._monotonic = monotonic
         self._sleep = sleep
         # feat-394-M3 fix: accept token_getter so auto-bind token refresh propagates
@@ -475,6 +525,8 @@ class _IMConfigSyncClient:
             for item in (raw_skills if isinstance(raw_skills, list) else [])
             if isinstance(item, str) and item.strip()
         )
+        if "skills" not in agent_payload:
+            skills = _default_pa_global_skill_names()
         raw_tools = agent_payload.get("tool_allowlist")
         tool_allowlist = tuple(
             item.strip()
@@ -543,6 +595,135 @@ class _IMConfigSyncClient:
             "features": features,
             "custom_prompt": custom_prompt,
         }
+
+    def handle_skill_created(self, agent_id: str, event: Mapping[str, object]) -> None:
+        """Enable a successfully created skill for the affected live agents."""
+
+        skill_name = event.get("name")
+        scope = event.get("scope")
+        raw_skill_root = event.get("skill_root")
+        if not (
+            isinstance(skill_name, str)
+            and skill_name.strip()
+            and isinstance(scope, str)
+            and isinstance(raw_skill_root, str)
+            and raw_skill_root.strip()
+        ):
+            return
+        skill_name = skill_name.strip()
+        skill_root = Path(raw_skill_root).expanduser().resolve()
+        if scope == "agent":
+            agent = self._local_agent(agent_id)
+            if agent is None:
+                return
+            if skill_root != self._agent_skill_root(agent):
+                _log.warning(
+                    "ignoring agent-scoped skill_created for %s: root %s is not the agent skill root",
+                    agent_id,
+                    skill_root,
+                )
+                return
+            self._enable_created_skill_for_agent(agent, skill_name)
+            return
+        if scope == "global":
+            if self._global_skill_root is None or skill_root != self._global_skill_root:
+                _log.warning(
+                    "ignoring global skill_created for %s: root %s is not configured global root",
+                    agent_id,
+                    skill_root,
+                )
+                return
+            for agent in tuple(self._local_config.agents):
+                self._enable_created_skill_for_agent(agent, skill_name)
+
+    def _enable_created_skill_for_agent(
+        self, agent: AgentWorkspaceConfig, skill_name: str
+    ) -> None:
+        if not agent.skills:
+            self._pipeline.drop_agent_sessions(agent.agent_id)
+            return
+        if skill_name in agent.skills:
+            self._pipeline.drop_agent_sessions(agent.agent_id)
+            return
+        try:
+            payload = self._fetch_agent_config(agent_id=agent.agent_id)
+            next_skills = [
+                item.strip()
+                for item in payload.get("skills", [])
+                if isinstance(item, str) and item.strip()
+            ]
+            if skill_name not in next_skills:
+                next_skills.append(skill_name)
+                updated = self._patch_agent_skills(agent.agent_id, payload, next_skills)
+                profile_version = int(updated.get("profile_version", 0))
+                self.sync_agent(
+                    agent_id=agent.agent_id,
+                    profile_version=profile_version,
+                )
+            else:
+                self._pipeline.drop_agent_sessions(agent.agent_id)
+        except (httpx.HTTPError, ValueError, RuntimeError):
+            _log.warning(
+                "failed to enable created skill %s for agent %s",
+                skill_name,
+                agent.agent_id,
+                exc_info=True,
+            )
+
+    def _patch_agent_skills(
+        self,
+        agent_id: str,
+        payload: Mapping[str, object],
+        skills: list[str],
+    ) -> dict[str, object]:
+        raw_tools = payload.get("tool_allowlist")
+        raw_features = payload.get("features")
+        patch_payload: dict[str, object] = {
+            "profile_version": int(payload.get("profile_version", 1)),
+            "display_name": str(payload.get("display_name") or agent_id),
+            "description": str(payload.get("description") or ""),
+            "system_prompt": str(payload.get("system_prompt") or ""),
+            "skills": skills,
+            "tool_allowlist": [
+                item.strip()
+                for item in (raw_tools if isinstance(raw_tools, list) else [])
+                if isinstance(item, str) and item.strip()
+            ],
+            "group_reply_policy": str(payload.get("group_reply_policy") or "manual"),
+            "default_model": payload.get("default_model")
+            if isinstance(payload.get("default_model"), str)
+            else None,
+            "features": raw_features if isinstance(raw_features, dict) else {},
+            "custom_prompt": payload.get("custom_prompt")
+            if isinstance(payload.get("custom_prompt"), str)
+            else None,
+            "heartbeat_json": payload.get("heartbeat_json")
+            if isinstance(payload.get("heartbeat_json"), str)
+            else None,
+        }
+        response = self._get_client().patch(
+            f"/im/v1/agents/{agent_id}/config",
+            json=patch_payload,
+        )
+        response.raise_for_status()
+        updated = response.json()
+        if not isinstance(updated, dict):
+            raise ValueError("agent config patch response must be an object")
+        return updated
+
+    def _local_agent(self, agent_id: str) -> AgentWorkspaceConfig | None:
+        return next(
+            (
+                agent
+                for agent in self._local_config.agents
+                if agent.agent_id == agent_id
+            ),
+            None,
+        )
+
+    @staticmethod
+    def _agent_skill_root(agent: AgentWorkspaceConfig) -> Path:
+        return (agent.workspace_root / _WCD / "skills").expanduser().resolve()
 
     def close(self) -> None:
         client = self._client
@@ -672,6 +853,7 @@ class _IMConfigSyncClient:
                 heartbeat_active_hours_timezone=synced_hb_tz,
             )
             self._pipeline.register_agent(agent_config)
+            self._persist_agent_config(agent_config)
             _log.debug(
                 "reconcile_all_agents: updated agent %s to IM version %d",
                 agent_id,
@@ -796,6 +978,110 @@ def _make_workspace_root_factory(
         return _base / agent_id
 
     return _factory
+
+
+class _IMShadowConversationSyncClient:
+    """Best-effort HTTP writer for external-channel shadow conversations."""
+
+    def __init__(
+        self,
+        *,
+        base_url: str,
+        token_getter: Callable[[], Awaitable[str | None]],
+        owner_user_id: str,
+        timeout_seconds: float = 3.0,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
+        self._base_url = _im_http_base_url(base_url)
+        self._token_getter = token_getter
+        self._owner_user_id = owner_user_id.strip()
+        self._timeout_seconds = timeout_seconds
+        self._transport = transport
+        self._resolved_owner_user_id: str | None = None
+
+    async def sync_user_message(
+        self, message: InboundMessage, *, agent_id: str
+    ) -> str | None:
+        metadata = dict(message.metadata)
+        external_source = _metadata_text(metadata, key="external_source")
+        external_chat_id = _metadata_text(metadata, key="external_chat_id")
+        if external_source is None or external_chat_id is None:
+            return None
+        token = await self._token_getter()
+        headers = _im_http_headers(token)
+        async with httpx.AsyncClient(
+            base_url=self._base_url,
+            headers=headers,
+            timeout=self._timeout_seconds,
+            trust_env=False,
+            transport=self._transport,
+        ) as client:
+            owner_user_id = await self._resolve_owner_user_id(client)
+            conversation_response = await client.post(
+                "/im/v1/conversations/external/find-or-create",
+                json={
+                    "external_source": external_source,
+                    "external_chat_id": external_chat_id,
+                    "agent_id": agent_id,
+                    "title": _external_shadow_title(
+                        metadata, agent_id=agent_id, external_source=external_source
+                    ),
+                    "is_group": bool(message.is_group),
+                    "participant_ids": [
+                        f"user:{owner_user_id}",
+                        f"agent:{agent_id}",
+                    ],
+                    "metadata": {
+                        key: value
+                        for key, value in metadata.items()
+                        if isinstance(key, str)
+                    },
+                },
+            )
+            conversation_response.raise_for_status()
+            conversation_payload = conversation_response.json()
+            conversation_id = str(conversation_payload.get("id") or "").strip()
+            if not conversation_id:
+                raise ValueError("external shadow conversation response missing id")
+            message_response = await client.post(
+                f"/im/v1/conversations/{conversation_id}/messages",
+                json={
+                    "sender_user_id": owner_user_id,
+                    "sender_type": "user",
+                    "content": message.text,
+                    "sender_display_name": _metadata_text(
+                        metadata, key="sender_display_name"
+                    ),
+                    "suppress_relay": True,
+                },
+            )
+            message_response.raise_for_status()
+            return conversation_id
+
+    async def _resolve_owner_user_id(self, client: httpx.AsyncClient) -> str:
+        if self._resolved_owner_user_id:
+            return self._resolved_owner_user_id
+        response = await client.get("/im/v1/me")
+        response.raise_for_status()
+        payload = response.json()
+        user_id = payload.get("id") or payload.get("user_id")
+        if not isinstance(user_id, str) or not user_id.strip():
+            raise ValueError("IM /me response missing user id")
+        self._resolved_owner_user_id = user_id.strip()
+        return self._resolved_owner_user_id
+
+
+def _external_shadow_title(
+    metadata: Mapping[str, object], *, agent_id: str, external_source: str
+) -> str:
+    title = _metadata_text(metadata, key="conversation_title")
+    if title is not None:
+        return title
+    chat_name = _metadata_text(metadata, key="chat_name")
+    conversation_type = _metadata_text(metadata, key="conversation_type")
+    if conversation_type == "group":
+        return f"{agent_id} · {chat_name or '群聊'} · {external_source}"
+    return f"{agent_id} · {external_source}"
 
 
 class _IMBootstrapClient:
@@ -1484,6 +1770,50 @@ class _InboundDispatcher:
         future.add_done_callback(_consume_future_exception)
 
 
+async def _run_kernel_background_analysis(
+    kernel: Any,
+    *,
+    workspace_root: Path,
+    prompt: str,
+    tool_allowlist: tuple[str, ...],
+    metadata: dict[str, Any],
+) -> Any:
+    session = await kernel.create_session(
+        workspace_root=workspace_root,
+        enabled_tools=list(tool_allowlist),
+        metadata=metadata,
+    )
+    run = kernel.submit(
+        session_id=session.session_id,
+        parts=[{"type": "text", "text": prompt}],
+        workspace_root=workspace_root,
+    )
+    run_id = getattr(run, "run_id", "")
+    for _ in range(300):
+        current = kernel.get_run(run_id)
+        status = getattr(current, "status", "")
+        if status == "completed":
+            return current
+        if status in {"failed", "cancelled"}:
+            raise RuntimeError(f"skill batch review background run {status}")
+        await asyncio.sleep(0.1)
+    raise TimeoutError("skill batch review background run timed out")
+
+
+def _session_ids_from_skill_batch_trigger(trigger: Any) -> tuple[str, ...]:
+    refs = getattr(trigger, "session_refs", ())
+    if not isinstance(refs, (tuple, list)):
+        return ()
+    session_ids: list[str] = []
+    for ref in refs:
+        if not isinstance(ref, Mapping):
+            continue
+        session_id = ref.get("session_id")
+        if isinstance(session_id, str) and session_id:
+            session_ids.append(session_id)
+    return tuple(session_ids)
+
+
 class GatewayRuntime:
     """Run the assembled Node Gateway process until shutdown is requested.
 
@@ -1607,6 +1937,8 @@ class GatewayRuntime:
                     await _dispatch_site.start()
                 except Exception:  # noqa: BLE001
                     dispatch_runner = None
+            await self._run_skill_maintenance()
+            self._install_skill_batch_review_scheduler()
             self._ready_event.set()
             if self._im_connection_manager is not None:
                 # bugfix-446-M1 (decision 1): own the IM connection through a
@@ -1693,6 +2025,132 @@ class GatewayRuntime:
             event.set()
         return event
 
+    async def _run_skill_maintenance(self) -> None:
+        """Run best-effort per-agent skill housekeeping at Gateway startup."""
+
+        if self._kernel is None:
+            return
+        run_skill_maintenance = getattr(self._kernel, "run_skill_maintenance", None)
+        drain = getattr(self._kernel, "run_queued_skill_batch_reviews", None)
+        if not callable(run_skill_maintenance) and not callable(drain):
+            return
+        for agent in self._config.agents:
+            workspace_root = getattr(agent, "workspace_root", None)
+            if workspace_root is None:
+                continue
+            try:
+                if callable(run_skill_maintenance):
+                    run_skill_maintenance(workspace_root=workspace_root)
+                if callable(drain):
+                    skill_root = Path(workspace_root) / _WCD / "skills"
+                    await drain(
+                        run_background_analysis=self._build_skill_batch_analysis_runner(
+                            workspace_root=workspace_root
+                        ),
+                        skill_root=skill_root,
+                    )
+            except Exception as exc:  # noqa: BLE001
+                _log.warning(
+                    "skill maintenance failed for agent=%s workspace=%s: %s",
+                    getattr(agent, "agent_id", ""),
+                    workspace_root,
+                    exc,
+                )
+
+    def _install_skill_batch_review_scheduler(self) -> None:
+        if self._kernel is None:
+            return
+        setter = getattr(self._kernel, "set_skill_batch_review_drain_scheduler", None)
+        if not callable(setter):
+            return
+
+        def _schedule(trigger: Any) -> None:
+            workspace_root = self._workspace_root_for_skill_batch_trigger(trigger)
+            if workspace_root is None:
+                _log.warning(
+                    "cannot drain skill batch review for skill=%s without a matching workspace",
+                    getattr(trigger, "skill_name", ""),
+                )
+                return
+            asyncio.create_task(
+                self._drain_queued_skill_batch_reviews_for_workspace(
+                    workspace_root=workspace_root
+                ),
+                name="personal-assistant-skill-batch-review",
+            )
+
+        setter(_schedule)
+
+    def _workspace_root_for_skill_batch_trigger(self, trigger: Any) -> Path | None:
+        session_ids = _session_ids_from_skill_batch_trigger(trigger)
+        if session_ids:
+            for agent in self._config.agents:
+                workspace_root = getattr(agent, "workspace_root", None)
+                if workspace_root is None:
+                    continue
+                session_dir = Path(workspace_root) / _WCD / "sessions"
+                for session_id in session_ids:
+                    if any(session_dir.rglob(f"{session_id}.jsonl")):
+                        return Path(workspace_root)
+        skill_root = getattr(trigger, "skill_root", None)
+        if skill_root is not None:
+            try:
+                resolved_skill_root = Path(skill_root).expanduser().resolve()
+            except TypeError:
+                resolved_skill_root = None
+            if resolved_skill_root is not None:
+                for agent in self._config.agents:
+                    workspace_root = getattr(agent, "workspace_root", None)
+                    if workspace_root is None:
+                        continue
+                    local_skill_root = (
+                        (Path(workspace_root) / _WCD / "skills").expanduser().resolve()
+                    )
+                    if resolved_skill_root == local_skill_root:
+                        return Path(workspace_root)
+        if len(self._config.agents) == 1:
+            return Path(self._config.agents[0].workspace_root)
+        return None
+
+    async def _drain_queued_skill_batch_reviews_for_workspace(
+        self, *, workspace_root: Path
+    ) -> None:
+        drain = getattr(self._kernel, "run_queued_skill_batch_reviews", None)
+        if not callable(drain):
+            return
+        try:
+            await drain(
+                run_background_analysis=self._build_skill_batch_analysis_runner(
+                    workspace_root=workspace_root
+                ),
+                skill_root=Path(workspace_root) / _WCD / "skills",
+            )
+        except Exception as exc:  # noqa: BLE001
+            _log.warning(
+                "queued skill batch review drain failed for workspace=%s: %s",
+                workspace_root,
+                exc,
+            )
+
+    def _build_skill_batch_analysis_runner(
+        self, *, workspace_root: Path
+    ) -> Callable[..., Awaitable[Any]]:
+        async def _run_background_analysis(
+            prompt: str,
+            *,
+            tool_allowlist: tuple[str, ...],
+            metadata: dict[str, Any],
+        ) -> Any:
+            return await _run_kernel_background_analysis(
+                self._kernel,
+                workspace_root=workspace_root,
+                prompt=prompt,
+                tool_allowlist=tool_allowlist,
+                metadata=metadata,
+            )
+
+        return _run_background_analysis
+
     async def _wait_for_shutdown_request(self, *, timeout: float | None = None) -> bool:
         event = self._shutdown_event_for_loop()
         if self._shutdown_requested.is_set():
@@ -1759,9 +2217,15 @@ def _load_runtime_config(
     config_path: str | Path,
     *,
     load_config: Callable[[str | Path], LocalConfig] = load_local_config,
+    save_config: Callable[[LocalConfig, str | Path], None] = save_local_config,
     im_service_url_override: str | None = None,
 ) -> LocalConfig:
     config = load_config(config_path)
+    config = _autofill_feishu_bot_open_id(
+        config,
+        save_config=save_config,
+        bot_identity_fetcher=_infer_feishu_bot_open_id_from_app_credentials,
+    )
     if (
         not isinstance(im_service_url_override, str)
         or not im_service_url_override.strip()
@@ -1781,6 +2245,115 @@ def _load_runtime_config(
             password=old_im.password,
         ),
     )
+
+
+def _autofill_feishu_bot_open_id(
+    config: LocalConfig,
+    *,
+    save_config: Callable[[LocalConfig, str | Path], None] = save_local_config,
+    bot_identity_fetcher: Callable[[str, str, str], str | None] | None = None,
+) -> LocalConfig:
+    """Fill missing Feishu bot open IDs from app-credential runtime probes."""
+    updated_channels: list[ChannelConfig] = []
+    changed = False
+    for channel in config.channels:
+        if not channel.enabled or not channel.name.startswith("feishu:"):
+            updated_channels.append(channel)
+            continue
+        settings = dict(channel.settings)
+        bot_open_id = settings.get("botOpenId")
+        needs_bot_open_id = not (isinstance(bot_open_id, str) and bot_open_id.strip())
+        if not needs_bot_open_id:
+            updated_channels.append(channel)
+            continue
+        app_id = settings.get("appId")
+        if not isinstance(app_id, str) or not app_id.strip():
+            updated_channels.append(channel)
+            continue
+        cleaned_app_id = app_id.strip()
+        app_secret = settings.get("appSecret")
+        domain = settings.get("domain")
+        cleaned_domain = (
+            domain.strip()
+            if isinstance(domain, str) and domain.strip()
+            else "https://open.feishu.cn"
+        )
+        if bot_identity_fetcher is None or not (
+            isinstance(app_secret, str) and app_secret.strip()
+        ):
+            updated_channels.append(channel)
+            continue
+        inferred_bot_open_id = bot_identity_fetcher(
+            cleaned_app_id, app_secret.strip(), cleaned_domain
+        )
+        if inferred_bot_open_id is None:
+            updated_channels.append(channel)
+            continue
+        settings["botOpenId"] = inferred_bot_open_id
+        updated_channels.append(replace(channel, settings=settings))
+        changed = True
+    if not changed:
+        return config
+    updated = replace(config, channels=tuple(updated_channels))
+    source_path = getattr(updated, "source_path", None)
+    if source_path is not None:
+        save_config(updated, source_path)
+    return updated
+
+
+def _infer_feishu_bot_open_id_from_app_credentials(
+    app_id: str, app_secret: str, domain: str
+) -> str | None:
+    """Return bot open_id by probing Feishu with app credentials."""
+    try:
+        from lark_oapi.channel.bot_identity import fetch_bot_identity
+        from lark_oapi.core.model import Config
+    except ImportError:
+        _log.warning("lark-oapi bot identity helper unavailable; botOpenId not filled")
+        return None
+
+    sdk_config = Config()
+    sdk_config.app_id = app_id
+    sdk_config.app_secret = app_secret
+    sdk_config.domain = domain
+    sdk_config.timeout = 10
+    try:
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            identity = asyncio.run(fetch_bot_identity(sdk_config))
+        else:
+            identity = _run_sync_in_thread(
+                lambda: asyncio.run(fetch_bot_identity(sdk_config)),
+                name="feishu-bot-id-probe",
+            )
+    except Exception:  # noqa: BLE001
+        _log.warning("failed to probe Feishu bot identity", exc_info=True)
+        return None
+
+    open_id = getattr(identity, "open_id", None) if identity is not None else None
+    if isinstance(open_id, str) and open_id.strip():
+        return open_id.strip()
+    _log.warning("Feishu bot identity probe returned no bot open_id")
+    return None
+
+
+def _run_sync_in_thread(func: Callable[[], Any], *, name: str) -> Any:
+    result: list[Any] = []
+    errors: list[BaseException] = []
+
+    def _target() -> None:
+        try:
+            result.append(func())
+        except BaseException as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    thread = threading.Thread(target=_target, name=name, daemon=True)
+    thread.start()
+    thread.join()
+    if errors:
+        raise errors[0]
+    return result[0] if result else None
 
 
 def run_gateway(
@@ -2279,7 +2852,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     # via its own factory (personal_assistant.product).  PA imports only agent.sdk +
     # its own package — no product_profile / host_capabilities.
     from agent.sdk import LLMConfig
-    from personal_assistant.product import build_pa_kernel
+    from personal_assistant.product import PA_SKILL_SEARCH_ROOTS, build_pa_kernel
 
     # PA does not supply can_use_tool: permission ask always parks on broker future
     # and is resolved by the user clicking Allow/Deny on the IM card via
@@ -2292,6 +2865,23 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     # K2.6 thinking config) flow into build_kernel and the model registry.  decision 5:
     # build_kernel owns registry init internally from this LLMConfig.
     llm = LLMConfig.from_payload(config.llm)
+
+    try:
+        installed_builtin_skills = install_builtin_skills()
+        if installed_builtin_skills:
+            installed_names = ", ".join(sorted(installed_builtin_skills))
+            _log.info(
+                "installed built-in personal assistant skills: %s", installed_names
+            )
+    except Exception:  # noqa: BLE001
+        _log.warning(
+            "failed to install built-in personal assistant skills", exc_info=True
+        )
+    config, feishu_skill_config_changed = ensure_feishu_doc_skill_for_feishu_agents(
+        config
+    )
+    if feishu_skill_config_changed:
+        save_local_config(config, config.source_path)
 
     # CronServiceRegistry holds the per-agent CronExecutionService map + lifecycle
     # (set_gateway_loop / drain_all / register).  refactor-406 决策 9: the cron *tool*
@@ -2315,8 +2905,14 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         agents_by_id={a.agent_id: a for a in config.agents},
         product_default_model=config.llm.default_model,
     )
+    permission_response_handler = _build_permission_response_handler(kernel=kernel)
 
     runtime_dir = config.source_path.parent
+    # Shared GroupContextStore for FeishuAdapter (non-mention group message buffer)
+    # and InboundPipeline (context retrieval). Must be a single instance.
+    group_context_store = GroupContextStore(
+        db_path=runtime_dir / "group_context_buffer.sqlite3"
+    )
     # The shim builds per-session PromptSlots/enabled_tools/features from agent config
     # (决策 8).  Point it at the live pipeline._agents dict (set after the pipeline is
     # built below) so config-sync register_agent updates — e.g. enabling heartbeat/cron —
@@ -2324,6 +2920,9 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     channel_registry = _build_channel_registry(
         config.channels,
         dedup_db_path=runtime_dir / "relay_dedup.sqlite3",
+        group_context_store=group_context_store,
+        feishu_owner_open_id_binder=_build_feishu_owner_open_id_binder(config),
+        feishu_permission_decision_callback=permission_response_handler,
     )
     outbound_router = OutboundRouter(channel_registry)
     # Use SQLite-backed store so kernel session mappings survive gateway restarts
@@ -2373,14 +2972,62 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         outbound_router=outbound_router,
         run_queue=SessionRunQueue(),
         session_store=session_store,
-        group_context_store=GroupContextStore(
-            db_path=runtime_dir / "group_context_buffer.sqlite3"
-        ),
+        group_context_store=group_context_store,
         gateway_internal_port=_gateway_internal_port,
         # bugfix-429 决策2: product owns the default model; each turn falls back to
         # this when the agent has not selected one (config.llm.default_model).
         product_default_model=config.llm.default_model,
     )
+
+    def _send_external_reply(text: str, metadata: Mapping[str, str]) -> None:
+        channel_name = metadata.get("channel_name") or ""
+        target_chat_id = metadata.get("target_chat_id") or ""
+        if not channel_name or not target_chat_id:
+            return
+        reply_metadata = {
+            key: value
+            for key, value in metadata.items()
+            if key not in {"channel_name", "target_chat_id", "reply_thread_id"}
+        }
+        outbound_router.send_text(
+            text=text,
+            reply_context=ReplyContext(
+                channel_name=channel_name,
+                target_chat_id=target_chat_id,
+                thread_id=metadata.get("reply_thread_id") or None,
+                metadata=reply_metadata,
+            ),
+        )
+
+    def _send_external_permission_request(
+        request: Mapping[str, Any], metadata: Mapping[str, str]
+    ) -> None:
+        channel_name = metadata.get("channel_name") or ""
+        target_chat_id = metadata.get("target_chat_id") or ""
+        if not channel_name or not target_chat_id:
+            return
+        adapter = channel_registry.get(channel_name)
+        sender = getattr(adapter, "send_permission_request", None)
+        if not callable(sender):
+            return
+        sender(
+            target_chat_id=target_chat_id,
+            request=request,
+            run_id=metadata.get("run_id") or "",
+        )
+
+    def _mark_external_permission_resolved(
+        request_id: str, decision: str, metadata: Mapping[str, str]
+    ) -> None:
+        channel_name = metadata.get("channel_name") or ""
+        if not channel_name:
+            return
+        adapter = channel_registry.get(channel_name)
+        resolver = getattr(adapter, "mark_permission_resolved", None)
+        if not callable(resolver):
+            return
+        resolver(request_id=request_id, decision=decision)
+
     if config.im_service is not None:
         relay_adapter = channel_registry.get("web_relay")
         if not isinstance(relay_adapter, WebRelayAdapter):
@@ -2407,6 +3054,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             local_config=config,
             reporter=reporter,
             workspace_root_factory=workspace_root_factory,
+            global_skill_root=PA_SKILL_SEARCH_ROOTS[0],
         )
         # Build a token_getter closure that auto-refreshes the access token on reconnect.
         # The auth client uses the IM HTTP base URL so it can reach /im/v1/auth/* endpoints.
@@ -2427,6 +3075,12 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             if token is not None:
                 _sync_client_ref.update_token(token)
             return token
+
+        pipeline._shadow_sync = _IMShadowConversationSyncClient(  # noqa: SLF001
+            base_url=config.im_service.url,
+            token_getter=_token_getter,
+            owner_user_id=_owner_user_id,
+        )
 
         # M3: permission response handler is no longer wired — the SDK's can_use_tool
         # callback handles all permission decisions in-process (design decision 3).
@@ -2534,42 +3188,46 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                 channel_name=WebRelayAdapter.name,
             ),
             token_getter=_token_getter,
-            permission_response_handler=_build_permission_response_handler(
-                kernel=kernel
-            ),
+            permission_response_handler=permission_response_handler,
             on_connected=_reconcile_on_connect,
         )
     pipeline._relay_lifecycle_callback = _build_relay_lifecycle_callback(
         reporter=reporter,
         im_connection_manager_factory=lambda: im_connection_manager,
         run_context_store=_run_context_store,
+        owner_user_id=_owner_user_id,
+        channel_registry=channel_registry,
+    )
+
+    _kernel_event_observer = _build_kernel_event_observer(
+        im_connection_manager_factory=lambda: im_connection_manager,
+        run_context_store=_run_context_store,
+        external_reply_sender=_send_external_reply,
+        external_permission_request_sender=_send_external_permission_request,
+        external_permission_resolved_sender=_mark_external_permission_resolved,
+        skill_created_handler=getattr(
+            im_config_sync_client, "handle_skill_created", None
+        ),
+    )
+    pipeline._kernel_event_observer = _kernel_event_observer
+    # feat-393: wire observer into heartbeat_runner now that it's built. When IM is
+    # absent, the observer still mirrors external-channel permission/control events.
+    if _owner_user_id:
+        heartbeat_runner._kernel_event_observer = _kernel_event_observer  # noqa: SLF001
+    else:
+        # No owner bound → heartbeat delivery disabled; clear kernel reference.
+        heartbeat_runner._kernel = None  # noqa: SLF001
+        heartbeat_runner._run_context_store = None  # noqa: SLF001
+    pipeline._bg_reply_sender = _build_bg_reply_sender(
+        im_connection_manager_factory=lambda: im_connection_manager,
+        external_reply_sender=_send_external_reply,
     )
     if config.im_service is not None:
-        _kernel_event_observer = _build_kernel_event_observer(
-            im_connection_manager_factory=lambda: im_connection_manager,
-            run_context_store=_run_context_store,
-        )
-        pipeline._kernel_event_observer = _kernel_event_observer
-        # feat-393: wire observer into heartbeat_runner now that it's built.
-        # When im_service is absent the runner runs fire-and-forget (no observer, no delivery).
-        if _owner_user_id:
-            heartbeat_runner._kernel_event_observer = _kernel_event_observer  # noqa: SLF001
-        else:
-            # No owner bound → heartbeat delivery disabled; clear kernel reference.
-            heartbeat_runner._kernel = None  # noqa: SLF001
-            heartbeat_runner._run_context_store = None  # noqa: SLF001
         # feat-349-M3: wire background session event callback so self_evolution_review
         # events published by background hooks reach IM as system/meta messages.
         pipeline._session_event_callback = _build_session_event_callback(
             im_connection_manager_factory=lambda: im_connection_manager,
             session_store=pipeline._session_store,
-        )
-        # bugfix-404-M3: wire BACKGROUND_TASK run output relay so assistant replies from
-        # notification-triggered background runs are sent back to the originating IM
-        # conversation.  outbound_router.send_text() → WebRelayAdapter.sent.append() is
-        # a no-op; only send_agent_message() via the live WS connection actually delivers.
-        pipeline._bg_reply_sender = _build_bg_reply_sender(
-            im_connection_manager_factory=lambda: im_connection_manager,
         )
         # bugfix-433 决策1: wire the live attachment downloader so inbound image URLs
         # are fetched (with the live IM token) and converted to base64 data URLs before
@@ -3005,7 +3663,17 @@ def _build_channel_registry(
     channels: tuple[ChannelConfig, ...],
     *,
     dedup_db_path: Path | None = None,
+    group_context_store: GroupContextStore | None = None,
+    feishu_owner_open_id_binder: Callable[[str, str], str | None] | None = None,
+    feishu_permission_decision_callback: (
+        Callable[[Mapping[str, object]], bool | None] | None
+    ) = None,
 ) -> ChannelRegistry:
+    has_feishu = any(ch.enabled and ch.name.startswith("feishu:") for ch in channels)
+    if has_feishu and group_context_store is None:
+        raise ValueError(
+            "group_context_store is required when feishu channels are enabled"
+        )
     registry = ChannelRegistry()
     for channel in channels:
         if not channel.enabled:
@@ -3016,8 +3684,68 @@ def _build_channel_registry(
                 dedup_store = RelayDeduplicationStore(db_path=dedup_db_path)
             registry.register(WebRelayAdapter(dedup_store=dedup_store))
             continue
+        # feat-447: feishu channels are named "feishu:<agent_id>"
+        if channel.name.startswith("feishu:"):
+            settings = channel.settings
+            registry.register(
+                FeishuAdapter(
+                    name=channel.name,
+                    app_id=settings["appId"],
+                    app_secret=settings["appSecret"],
+                    bot_open_id=settings.get("botOpenId"),
+                    owner_open_id=settings.get("ownerOpenId"),
+                    owner_open_id_binder=feishu_owner_open_id_binder,
+                    permission_decision_callback=feishu_permission_decision_callback,
+                    group_context_store=group_context_store,
+                )
+            )
+            continue
         raise ValueError(f"unsupported channel adapter: {channel.name}")
     return registry
+
+
+def _build_feishu_owner_open_id_binder(
+    config: LocalConfig,
+    *,
+    save_config: Callable[[LocalConfig, str | Path], None] = save_local_config,
+) -> Callable[[str, str], str | None]:
+    """Bind missing Feishu ownerOpenId to the first real sender for an adapter."""
+    lock = threading.Lock()
+
+    def _bind(channel_name: str, sender_open_id: str) -> str | None:
+        cleaned_sender = (
+            sender_open_id.strip() if isinstance(sender_open_id, str) else ""
+        )
+        if not cleaned_sender:
+            return None
+        with lock:
+            for channel in config.channels:
+                if channel.name != channel_name or not channel.enabled:
+                    continue
+                if not channel.name.startswith("feishu:"):
+                    return None
+                existing = channel.settings.get("ownerOpenId")
+                if isinstance(existing, str) and existing.strip():
+                    return existing.strip()
+                channel.settings["ownerOpenId"] = cleaned_sender
+                source_path = getattr(config, "source_path", None)
+                if source_path is not None:
+                    try:
+                        save_config(config, source_path)
+                    except Exception:  # noqa: BLE001
+                        _log.warning(
+                            "failed to persist feishu ownerOpenId for channel %s",
+                            channel_name,
+                            exc_info=True,
+                        )
+                _log.info(
+                    "bound feishu ownerOpenId from first inbound sender for channel %s",
+                    channel_name,
+                )
+                return cleaned_sender
+        return None
+
+    return _bind
 
 
 def _make_token_getter(
@@ -3144,6 +3872,17 @@ def _build_session_fork_handler(
             )
         )
         if source_binding is None:
+            external_source = str(payload.get("source_external_source") or "").strip()
+            external_chat_id = str(payload.get("source_external_chat_id") or "").strip()
+            if external_source and external_chat_id:
+                source_binding = session_store.get(
+                    build_external_session_key(
+                        external_source=external_source,
+                        external_chat_id=external_chat_id,
+                        agent_id=agent_id,
+                    )
+                )
+        if source_binding is None:
             return {"ok": False, "error": "source session binding not found"}
 
         agent_cfg = agents_getter().get(agent_id)
@@ -3192,7 +3931,7 @@ def _build_im_connection_manager(
     agent_create_handler: AgentCreateHandler | None = None,
     session_fork_handler: SessionForkHandler | None = None,
     token_getter: Callable[[], Awaitable[str | None]] | None = None,
-    permission_response_handler: Callable[[Mapping[str, object]], None] | None = None,
+    permission_response_handler: Callable[[Mapping[str, object]], bool] | None = None,
     on_connected: Callable[[], Awaitable[None]] | None = None,
 ) -> IMConnectionManager:
     im_service = config.im_service
@@ -3220,7 +3959,7 @@ def _build_im_connection_manager(
 def _build_permission_response_handler(
     *,
     kernel: Any,
-) -> Callable[[Mapping[str, object]], None]:
+) -> Callable[[Mapping[str, object]], bool]:
     """Build handler that routes IM permission_response frames to the kernel.
 
     The frame carries ``request_id``, ``decision``, and an optional ``reason``.
@@ -3228,20 +3967,22 @@ def _build_permission_response_handler(
     no session lookup is required — the broker finds the pending future by id.
     """
 
-    def _handler(body: Mapping[str, object]) -> None:
+    def _handler(body: Mapping[str, object]) -> bool:
         request_id = str(body.get("request_id") or "").strip()
         decision = str(body.get("decision") or "").strip()
         if not request_id or not decision:
-            return
+            return False
         reason = str(body.get("reason") or "").strip()
         try:
-            kernel.submit_permission_decision(
-                request_id=request_id,
-                decision=decision,
-                reason=reason,
+            return bool(
+                kernel.submit_permission_decision(
+                    request_id=request_id,
+                    decision=decision,
+                    reason=reason,
+                )
             )
-        except Exception:  # noqa: BLE001 — IM-bound side-effect; failure must not cascade
-            return
+        except Exception:  # noqa: BLE001 — side-effect; failure must not cascade
+            return False
 
     return _handler
 
@@ -3251,16 +3992,19 @@ def _build_relay_lifecycle_callback(
     reporter: UpstreamReporter | None,
     im_connection_manager_factory: Callable[[], IMConnectionManager | None],
     run_context_store: dict[str, dict[str, str]] | None = None,
+    owner_user_id: str = "",
+    channel_registry: ChannelRegistry | None = None,
 ):
     async def _callback(message: InboundMessage, update: RelayLifecycleUpdate) -> None:
-        if reporter is None:
-            return
-        relay_task_id = _metadata_text(message.metadata, key="relay_task_id")
-        if relay_task_id is None:
-            return
-        manager = im_connection_manager_factory()
-        if manager is None:
-            return
+        if update.phase == "accepted":
+            _ack_external_message_processing_started(
+                message,
+                channel_registry=channel_registry,
+            )
+        # Seed/clean run_context_store for EVERY channel, not only web_relay.
+        # kernel_event_observer needs this context to push streaming events to IM;
+        # without it, non-relay channels (e.g. feishu) produce replies that never
+        # appear in the internal IM.
         if update.phase == "accepted":
             # Seed run_context_store with conversation/agent meta so kernel_event_observer
             # can send the turn_start frame.  message_id starts empty; it is filled
@@ -3278,7 +4022,37 @@ def _build_relay_lifecycle_callback(
                 and update.run_id
                 and update.run_id not in run_context_store
             ):
-                conversation_id = message.external_chat_id or ""
+                shadow_conversation_id = _metadata_text(
+                    message.metadata, key="shadow_conversation_id"
+                )
+                trigger_source = (
+                    _metadata_text(message.metadata, key="trigger_source") or ""
+                )
+                external_source = _metadata_text(
+                    message.metadata, key="external_source"
+                )
+                relay_task_id = _metadata_text(message.metadata, key="relay_task_id")
+                if shadow_conversation_id is not None:
+                    conversation_id = shadow_conversation_id
+                    to_user_id = ""
+                elif relay_task_id is not None:
+                    # For regular relay messages, external_chat_id is already an IM
+                    # conversation id. External shadow relay messages are handled by
+                    # shadow_conversation_id above.
+                    conversation_id = message.external_chat_id
+                    to_user_id = ""
+                elif external_source is not None:
+                    # External-channel messages whose shadow sync failed must not use
+                    # owner_user_id lazy creation, otherwise IM would create a normal
+                    # direct chat and pollute the internal conversation list.
+                    conversation_id = ""
+                    to_user_id = ""
+                else:
+                    conversation_id = ""
+                    # Lazy direct-chat creation needs the owning IM user. When no owner
+                    # is configured (fire-and-forget mode) streaming to IM is impossible;
+                    # leaving to_user_id empty makes the observer skip turn_start cleanly.
+                    to_user_id = owner_user_id
                 agent_id_meta = (
                     _metadata_text(message.metadata, key="agent_id")
                     or update.agent_id
@@ -3291,7 +4065,45 @@ def _build_relay_lifecycle_callback(
                     # Stored so permission_response_handler can route the user's
                     # decision back to the correct kernel session via reverse lookup.
                     "kernel_session_id": update.kernel_session_id or "",
+                    "to_user_id": to_user_id,
                 }
+                if trigger_source:
+                    run_context_store[update.run_id]["trigger_source"] = trigger_source
+                if trigger_source and trigger_source != "im":
+                    channel_name = str(getattr(message, "channel_name", "") or "")
+                    run_context_store[update.run_id]["reply_channel_name"] = (
+                        channel_name
+                    )
+                    run_context_store[update.run_id]["reply_target_chat_id"] = (
+                        message.external_chat_id
+                    )
+                    thread_id = getattr(message, "thread_id", None)
+                    if thread_id:
+                        run_context_store[update.run_id]["reply_thread_id"] = str(
+                            thread_id
+                        )
+                    feishu_message_id = _metadata_text(
+                        message.metadata, key="feishu_message_id"
+                    )
+                    if feishu_message_id is not None:
+                        run_context_store[update.run_id]["feishu_message_id"] = (
+                            feishu_message_id
+                        )
+        elif update.phase in ("completed", "failed"):
+            if run_context_store is not None and update.run_id:
+                run_context_store.pop(update.run_id, None)
+
+        # Everything below is relay-task specific: delivery receipts and progress
+        # reports go back to the IM service only for messages that originated there.
+        if reporter is None:
+            return
+        relay_task_id = _metadata_text(message.metadata, key="relay_task_id")
+        if relay_task_id is None:
+            return
+        manager = im_connection_manager_factory()
+        if manager is None:
+            return
+        if update.phase == "accepted":
             payload = reporter.send_delivery_receipt(
                 relay_task_id=relay_task_id,
                 delivery_status="sent",
@@ -3315,8 +4127,6 @@ def _build_relay_lifecycle_callback(
             await manager.send_json("node.report", payload)
             return
         if update.phase == "completed":
-            if run_context_store is not None and update.run_id:
-                run_context_store.pop(update.run_id, None)
             message_id = _metadata_text(message.metadata, key="message_id")
             send_report = getattr(reporter, "send_report", None)
             if (
@@ -3366,8 +4176,6 @@ def _build_relay_lifecycle_callback(
             await manager.send_json("node.delivery_receipt", payload)
             return
         if update.phase == "failed":
-            if run_context_store is not None and update.run_id:
-                run_context_store.pop(update.run_id, None)
             # bugfix-437 decision 3: mirror the completed branch with a message-level
             # node.report(status=failed) so the placeholder bubble flips to failed
             # within seconds carrying the real cause. send_report has no `error`
@@ -3399,6 +4207,24 @@ def _build_relay_lifecycle_callback(
             await manager.send_json("node.delivery_receipt", payload)
 
     return _callback
+
+
+def _ack_external_message_processing_started(
+    message: InboundMessage, *, channel_registry: ChannelRegistry | None
+) -> None:
+    """Notify an external channel that the message has entered a real agent run."""
+    if channel_registry is None:
+        return
+    message_id = _metadata_text(message.metadata, key="feishu_message_id")
+    if message_id is None:
+        return
+    channel = channel_registry.get(message.channel_name)
+    if channel is None:
+        return
+    ack_message = getattr(channel, "ack_message", None)
+    if not callable(ack_message):
+        return
+    ack_message(message_id)
 
 
 def _extract_ack_message_id(ack: Mapping[str, Any] | Any) -> str | None:
@@ -3498,6 +4324,14 @@ def _build_kernel_event_observer(
     im_connection_manager_factory: Callable[[], IMConnectionManager | None],
     run_context_store: dict[str, dict[str, str]],
     running_tool_calls: dict[str, dict[str, dict[str, Any]]] | None = None,
+    external_reply_sender: Callable[[str, Mapping[str, str]], Any] | None = None,
+    external_permission_request_sender: (
+        Callable[[Mapping[str, Any], Mapping[str, str]], Any] | None
+    ) = None,
+    external_permission_resolved_sender: (
+        Callable[[str, str, Mapping[str, str]], Any] | None
+    ) = None,
+    skill_created_handler: Callable[[str, Mapping[str, object]], Any] | None = None,
 ) -> Callable[[Mapping[str, Any]], "Coroutine[Any, Any, None] | None"]:
     """Build a kernel SSE event observer that forwards streaming events to IM via node.streaming_delta.
 
@@ -3537,6 +4371,7 @@ def _build_kernel_event_observer(
     # reconcile), so this never grows unbounded on a long-lived Gateway.
     if running_tool_calls is None:
         running_tool_calls = {}
+    visible_reasoning_by_group: dict[str, dict[str, str]] = {}
 
     async def _send(
         manager: IMConnectionManager, message_type: str, payload: Mapping[str, Any]
@@ -3548,25 +4383,174 @@ def _build_kernel_event_observer(
             # drop is observable (refactor-395-M1).
             _log.warning("IM observer send failed for %s: %s", message_type, exc)
 
+    def _is_external_reply_context(ctx: Mapping[str, str]) -> bool:
+        return (
+            external_reply_sender is not None
+            and _external_context_metadata(ctx) is not None
+        )
+
+    def _external_context_metadata(ctx: Mapping[str, str]) -> dict[str, str] | None:
+        channel_name = ctx.get("reply_channel_name") or ""
+        target_chat_id = ctx.get("reply_target_chat_id") or ""
+        if (
+            ctx.get("trigger_source") == "im"
+            or not channel_name
+            or channel_name == "web_relay"
+            or not target_chat_id
+        ):
+            return None
+        metadata: dict[str, str] = {
+            "channel_name": channel_name,
+            "target_chat_id": target_chat_id,
+        }
+        optional_keys = ("reply_thread_id", "feishu_message_id")
+        for key in optional_keys:
+            value = ctx.get(key)
+            if value:
+                metadata[key] = value
+        return metadata
+
+    def _mirror_external_reply(
+        *, rid: str, ctx: dict[str, str], phase: str, text: str
+    ) -> None:
+        if not _is_external_reply_context(ctx):
+            return
+        cleaned_text = text.strip()
+        if not cleaned_text:
+            return
+        if InboundPipeline._is_no_reply_token(cleaned_text):
+            return
+        external_metadata = _external_context_metadata(ctx)
+        if external_metadata is None:
+            return
+        bubble_key = (
+            ctx.get("kernel_message_id")
+            or ctx.get("message_id")
+            or f"text:{cleaned_text}"
+        )
+        metadata: dict[str, str] = {
+            "reply_phase": phase,
+            "reply_dedupe_key": f"{rid}:bubble:{bubble_key}",
+            **external_metadata,
+        }
+        result = external_reply_sender(cleaned_text, metadata)
+        if asyncio.iscoroutine(result):
+            asyncio.get_event_loop().create_task(result)
+
+    def _mirror_external_permission_request(
+        *, rid: str, ctx: Mapping[str, str], request: Mapping[str, Any]
+    ) -> None:
+        if external_permission_request_sender is None:
+            return
+        metadata = _external_context_metadata(ctx)
+        if metadata is None:
+            return
+        metadata["run_id"] = rid
+        result = external_permission_request_sender(request, metadata)
+        if asyncio.iscoroutine(result):
+            asyncio.get_event_loop().create_task(result)
+
+    def _mirror_external_permission_resolved(
+        *, ctx: Mapping[str, str], request_id: str, decision: str
+    ) -> None:
+        if external_permission_resolved_sender is None:
+            return
+        metadata = _external_context_metadata(ctx)
+        if metadata is None:
+            return
+        result = external_permission_resolved_sender(request_id, decision, metadata)
+        if asyncio.iscoroutine(result):
+            asyncio.get_event_loop().create_task(result)
+
+    def _mirror_external_current_as_intermediate(
+        *, rid: str, ctx: dict[str, str]
+    ) -> None:
+        current_text = ctx.get("external_current_text") or ""
+        if not current_text.strip():
+            return
+        marker = ctx.get("kernel_message_id") or f"text:{current_text.strip()}"
+        if ctx.get("external_intermediate_sent_marker") == marker:
+            return
+        _mirror_external_reply(
+            rid=rid,
+            ctx=ctx,
+            phase="intermediate",
+            text=current_text,
+        )
+        ctx["external_intermediate_sent_marker"] = marker
+
+    def _next_visible_reasoning(*, rid: str, group_id: str, reasoning: str) -> str:
+        if not reasoning or not group_id:
+            return reasoning
+        groups = visible_reasoning_by_group.get(rid, {})
+        previous = groups.get(group_id)
+        if previous == reasoning:
+            return ""
+        if previous and reasoning.startswith(previous):
+            return reasoning[len(previous) :].strip()
+        return reasoning
+
+    def _mark_visible_reasoning(*, rid: str, group_id: str, reasoning: str) -> None:
+        if reasoning and group_id:
+            visible_reasoning_by_group.setdefault(rid, {})[group_id] = reasoning
+
+    def _clear_run_visible_reasoning(rid: str) -> None:
+        visible_reasoning_by_group.pop(rid, None)
+
     def observer(event: Mapping[str, Any]) -> "Coroutine[Any, Any, None] | None":
         manager = im_connection_manager_factory()
-        if manager is None or not manager.connected:
-            return None
         run_id = str(event.get("run_id") or "").strip()
         if not run_id:
             return None
         ctx = run_context_store.get(run_id)
         if ctx is None:
             return None
+        event_name = str(event.get("event") or "").strip()
+        if event_name in {"turn_end", "run_terminal_reconcile"}:
+            _clear_run_visible_reasoning(run_id)
         conversation_id = ctx.get("conversation_id") or ""
         message_id = ctx.get("message_id") or ""
         agent_id = ctx.get("agent_id") or ""
+        if event_name == "skill_created" and agent_id and skill_created_handler:
+            asyncio.get_event_loop().create_task(
+                asyncio.to_thread(skill_created_handler, agent_id, event)
+            )
+            return None
 
         # feat-393: heartbeat runs carry to_user_id instead of conversation_id.
         # The lazy-bubble gate: skip eager turn_start; defer to assistant_message.
         to_user_id = ctx.get("to_user_id") or ""
 
-        event_name = str(event.get("event") or "").strip()
+        im_connected = manager is not None and manager.connected
+        has_external_context = _external_context_metadata(ctx) is not None
+        if not im_connected and not has_external_context:
+            return None
+        if not im_connected:
+            if event_name == "assistant_message":
+                content = str(event.get("content") or "").strip()
+                if not content:
+                    return None
+                kernel_msg_id = str(event.get("message_id") or "").strip()
+                prev_kernel_msg_id = ctx.get("kernel_message_id") or ""
+                if (
+                    kernel_msg_id
+                    and prev_kernel_msg_id
+                    and kernel_msg_id != prev_kernel_msg_id
+                ):
+                    _mirror_external_current_as_intermediate(rid=run_id, ctx=ctx)
+                if kernel_msg_id:
+                    ctx["kernel_message_id"] = kernel_msg_id
+                ctx["external_current_text"] = content
+                return None
+            if event_name in {"tool_start", "permission_request"}:
+                _mirror_external_current_as_intermediate(rid=run_id, ctx=ctx)
+                if event_name == "tool_start":
+                    return None
+            elif event_name == "turn_end":
+                running_tool_calls.pop(run_id, None)
+                return None
+            elif event_name != "permission_resolved":
+                return None
         loop = asyncio.get_event_loop()
 
         if event_name == "run_status" and event.get("status") == "running":
@@ -3619,7 +4603,13 @@ def _build_kernel_event_observer(
             # 由 IM 持久化边界赋予(思考与工具共享一个 per-message 单调递增、按到达序的
             # 唯一序号)，gateway 不算 seq、只负责把 reasoning 转发到正确的目标气泡。
             reasoning = str(event.get("reasoning_content") or "").strip()
-            if not content and not reasoning:
+            group_id = str(event.get("group_id") or "").strip()
+            visible_reasoning = _next_visible_reasoning(
+                rid=run_id,
+                group_id=group_id,
+                reasoning=reasoning,
+            )
+            if not content and not visible_reasoning:
                 return None
             kernel_msg_id = str(event.get("message_id") or "").strip()
             prev_kernel_msg_id = ctx.get("kernel_message_id") or ""
@@ -3648,6 +4638,9 @@ def _build_kernel_event_observer(
                     aid: str = agent_id,
                     uid: str = to_user_id,
                     text: str = content,
+                    reasoning_text: str = visible_reasoning,
+                    reasoning_group_id: str = group_id,
+                    full_reasoning: str = reasoning,
                     new_kernel_id: str = kernel_msg_id,
                 ) -> None:
                     try:
@@ -3702,6 +4695,21 @@ def _build_kernel_event_observer(
                         if new_kernel_id and rid in run_context_store:
                             run_context_store[rid]["kernel_message_id"] = new_kernel_id
                         if returned_msg_id:
+                            if reasoning_text:
+                                await mgr.send_json(
+                                    "node.streaming_delta",
+                                    {
+                                        "kind": "thinking_segment",
+                                        "message_id": str(returned_msg_id),
+                                        "text": reasoning_text,
+                                        "run_id": rid,
+                                    },
+                                )
+                                _mark_visible_reasoning(
+                                    rid=rid,
+                                    group_id=reasoning_group_id,
+                                    reasoning=full_reasoning,
+                                )
                             await mgr.send_json(
                                 "node.streaming_delta",
                                 {
@@ -3737,10 +4745,19 @@ def _build_kernel_event_observer(
                     aid: str = agent_id,
                     old_msg_id: str = message_id,
                     text: str = content,
-                    reasoning_text: str = reasoning,
+                    reasoning_text: str = visible_reasoning,
+                    reasoning_group_id: str = group_id,
+                    full_reasoning: str = reasoning,
                     new_kernel_id: str = kernel_msg_id,
                 ) -> None:
                     try:
+                        old_text = ctx.get("external_current_text") or ""
+                        _mirror_external_reply(
+                            rid=rid,
+                            ctx=ctx,
+                            phase="intermediate",
+                            text=old_text,
+                        )
                         new_msg_id = await _roll_bubble(
                             mgr,
                             run_id=rid,
@@ -3751,6 +4768,7 @@ def _build_kernel_event_observer(
                             new_kernel_message_id=new_kernel_id,
                         )
                         if new_msg_id:
+                            ctx["external_current_text"] = text
                             if reasoning_text:
                                 await mgr.send_json(
                                     "node.streaming_delta",
@@ -3760,6 +4778,11 @@ def _build_kernel_event_observer(
                                         "text": reasoning_text,
                                         "run_id": rid,
                                     },
+                                )
+                                _mark_visible_reasoning(
+                                    rid=rid,
+                                    group_id=reasoning_group_id,
+                                    reasoning=full_reasoning,
                                 )
                             await mgr.send_json(
                                 "node.streaming_delta",
@@ -3781,7 +4804,7 @@ def _build_kernel_event_observer(
                 # feat-439-M2: 思考过程项先于正文 delta 转发到当前气泡。纯思考回合
                 # (content="") 只发 thinking_segment，不发 delta、不动 kernel_message_id
                 # (保留下一含正文回合的 roll 判定基准)。
-                if reasoning:
+                if visible_reasoning:
                     loop.create_task(
                         _send(
                             manager,
@@ -3789,15 +4812,19 @@ def _build_kernel_event_observer(
                             {
                                 "kind": "thinking_segment",
                                 "message_id": message_id,
-                                "text": reasoning,
+                                "text": visible_reasoning,
                                 "run_id": run_id,
                             },
                         )
+                    )
+                    _mark_visible_reasoning(
+                        rid=run_id, group_id=group_id, reasoning=reasoning
                     )
                 if content:
                     # turn_start already ack'd — send delta directly.
                     if kernel_msg_id:
                         ctx["kernel_message_id"] = kernel_msg_id
+                    ctx["external_current_text"] = content
                     loop.create_task(
                         _send(
                             manager,
@@ -3819,7 +4846,9 @@ def _build_kernel_event_observer(
                     cid: str = conversation_id,
                     aid: str = agent_id,
                     text: str = content,
-                    reasoning_text: str = reasoning,
+                    reasoning_text: str = visible_reasoning,
+                    reasoning_group_id: str = group_id,
+                    full_reasoning: str = reasoning,
                     new_kernel_id: str = kernel_msg_id,
                 ) -> None:
                     try:
@@ -3839,6 +4868,7 @@ def _build_kernel_event_observer(
                                 run_context_store[rid]["kernel_message_id"] = (
                                     new_kernel_id
                                 )
+                            run_context_store[rid]["external_current_text"] = text
                             # feat-439-M2: 思考过程项先于正文 delta 转发到新建气泡。
                             if reasoning_text:
                                 await mgr.send_json(
@@ -3849,6 +4879,11 @@ def _build_kernel_event_observer(
                                         "text": reasoning_text,
                                         "run_id": rid,
                                     },
+                                )
+                                _mark_visible_reasoning(
+                                    rid=rid,
+                                    group_id=reasoning_group_id,
+                                    reasoning=full_reasoning,
                                 )
                             await mgr.send_json(
                                 "node.streaming_delta",
@@ -3908,6 +4943,12 @@ def _build_kernel_event_observer(
                         cache_total_input if isinstance(cache_total_input, int) else 0
                     )
             if message_id:
+                _mirror_external_reply(
+                    rid=run_id,
+                    ctx=ctx,
+                    phase="final",
+                    text=ctx.get("external_current_text") or "",
+                )
                 loop.create_task(
                     _send(
                         manager,
@@ -4093,16 +5134,26 @@ def _build_kernel_event_observer(
 
         elif event_name == "permission_request":
             # Agent auto_mode_gate is awaiting a user decision; forward to IM so the
-            # permission card can be rendered in the chat.  Only forwarded when we have
-            # a message_id (turn_start already acked) so IM can attach the card to the
-            # correct message row.  No message_id → card would be orphaned; skip.
-            if message_id:
-                request_id = str(event.get("request_id") or "").strip()
-                tool_name = str(event.get("tool_name") or "").strip()
-                tool_input = event.get("tool_input")
-                question = str(event.get("question") or "").strip()
-                options_raw = event.get("options")
-                options = list(options_raw) if isinstance(options_raw, list) else []
+            # permission card can be rendered in the chat. External channels receive
+            # the same request payload as a native surface (e.g. Feishu interactive
+            # card) and resolve through the same kernel broker.
+            request_id = str(event.get("request_id") or "").strip()
+            tool_name = str(event.get("tool_name") or "").strip()
+            tool_input = event.get("tool_input")
+            question = str(event.get("question") or "").strip()
+            options_raw = event.get("options")
+            options = list(options_raw) if isinstance(options_raw, list) else []
+            permission_request = {
+                "request_id": request_id,
+                "tool_name": tool_name,
+                "tool_input": dict(tool_input)
+                if isinstance(tool_input, Mapping)
+                else (tool_input or {}),
+                "question": question,
+                "options": options,
+                "status": "pending",
+            }
+            if message_id and im_connected and manager is not None:
                 loop.create_task(
                     _send(
                         manager,
@@ -4110,27 +5161,23 @@ def _build_kernel_event_observer(
                         {
                             "kind": "permission_request",
                             "message_id": message_id,
-                            "permission_request": {
-                                "request_id": request_id,
-                                "tool_name": tool_name,
-                                "tool_input": dict(tool_input)
-                                if isinstance(tool_input, Mapping)
-                                else (tool_input or {}),
-                                "question": question,
-                                "options": options,
-                                "status": "pending",
-                            },
+                            "permission_request": permission_request,
                             "run_id": run_id,
                         },
                     )
                 )
+            _mirror_external_permission_request(
+                rid=run_id,
+                ctx=ctx,
+                request=permission_request,
+            )
 
         elif event_name == "permission_resolved":
             # Agent resolved a permission request (hook resumed); update the IM card
             # so the user sees the final decision.
-            if message_id:
-                request_id = str(event.get("request_id") or "").strip()
-                decision = str(event.get("decision") or "").strip()
+            request_id = str(event.get("request_id") or "").strip()
+            decision = str(event.get("decision") or "").strip()
+            if message_id and im_connected and manager is not None:
                 loop.create_task(
                     _send(
                         manager,
@@ -4144,6 +5191,11 @@ def _build_kernel_event_observer(
                         },
                     )
                 )
+            _mirror_external_permission_resolved(
+                ctx=ctx,
+                request_id=request_id,
+                decision=decision,
+            )
 
         elif event_name == "injection_consumed":
             # bugfix-426-M4 决策6: the kernel just drained a steered (injected) message
@@ -4317,7 +5369,7 @@ def _build_session_event_callback(
         binding = session_store.find_by_kernel_session_id(kernel_session_id)
         if binding is None:
             return
-        conversation_id = binding.reply_context.target_chat_id
+        conversation_id = _reply_context_im_conversation_id(binding.reply_context)
         if not conversation_id:
             return
 
@@ -4360,16 +5412,19 @@ def _build_session_event_callback(
 def _build_bg_reply_sender(
     *,
     im_connection_manager_factory: "Callable[[], IMConnectionManager | None]",
+    external_reply_sender: Callable[[str, Mapping[str, str]], Any] | None = None,
 ) -> "Callable[[str, Any, str], Awaitable[None]]":
-    """Build an async callable that relays BACKGROUND_TASK run output to IM.
+    """Build an async callable that relays user-visible agent/control text.
 
     Called by InboundPipeline's bg_run_output_callback when a BACKGROUND_TASK-origin
-    run finishes and emits an assistant_message event.  The callable sends an
-    ``agent.message`` WebSocket frame to IM so the reply appears in the originating
-    conversation (bugfix-404-M3).
+    run emits an assistant_message event, and by control paths such as /stop/image
+    failure that are not normal kernel assistant bubbles. Feishu-triggered contexts are
+    sent to the original external channel and shadow IM; IM-triggered contexts stay in
+    IM.
 
     Args:
         im_connection_manager_factory: Returns the live IM connection manager (may be None).
+        external_reply_sender: Optional sender for external-channel visible text.
 
     Returns:
         Async callable ``(text, reply_context, from_session_id) -> None``.
@@ -4379,16 +5434,37 @@ def _build_bg_reply_sender(
     from personal_assistant.channels.base import ReplyContext as _RC  # noqa: PLC0415
 
     async def _sender(text: str, reply_context: _RC, from_session_id: str) -> None:
+        cleaned_text = text.strip()
+        if not from_session_id or not cleaned_text:
+            return
+
+        external_metadata = _reply_context_external_delivery_metadata(
+            reply_context,
+            from_session_id=from_session_id,
+        )
+        if external_metadata is not None and external_reply_sender is not None:
+            try:
+                result = external_reply_sender(cleaned_text, external_metadata)
+                if asyncio.iscoroutine(result):
+                    await result
+            except Exception as exc:  # noqa: BLE001
+                _log.warning(
+                    "visible text external delivery failed (channel=%s target=%s): %s",
+                    external_metadata.get("channel_name", ""),
+                    external_metadata.get("target_chat_id", ""),
+                    exc,
+                )
+
         manager = im_connection_manager_factory()
         if manager is None or not manager.connected:
             return
-        conversation_id = reply_context.target_chat_id
-        if not conversation_id or not from_session_id or not text.strip():
+        conversation_id = _reply_context_im_conversation_id(reply_context)
+        if not conversation_id:
             return
         try:
             await manager.send_agent_message(
                 {
-                    "text": text.strip(),
+                    "text": cleaned_text,
                     "to": conversation_id,
                     # from_session_id carries optional "|tool_call:<key>" suffix so
                     # IM deduplicates replayed bg replies (bugfix-404 F1).
@@ -4404,6 +5480,59 @@ def _build_bg_reply_sender(
             )
 
     return _sender
+
+
+def _reply_context_im_conversation_id(reply_context: ReplyContext) -> str | None:
+    """Return the IM conversation id for a reply context, if one exists."""
+    metadata = dict(reply_context.metadata)
+    shadow_id = _metadata_text(metadata, key="shadow_conversation_id")
+    if shadow_id is not None:
+        return shadow_id
+    conversation_id = _metadata_text(metadata, key="conversation_id")
+    if conversation_id is not None:
+        return conversation_id
+    if reply_context.channel_name == "web_relay":
+        target = reply_context.target_chat_id.strip()
+        return target or None
+    return None
+
+
+def _reply_context_external_delivery_metadata(
+    reply_context: ReplyContext,
+    *,
+    from_session_id: str,
+) -> dict[str, str] | None:
+    """Build external-channel delivery metadata for user-visible control/bg text."""
+    metadata = dict(reply_context.metadata)
+    trigger_source = _metadata_text(metadata, key="trigger_source")
+    external_source = _metadata_text(metadata, key="external_source")
+    if (
+        trigger_source == "im"
+        or reply_context.channel_name == "web_relay"
+        or not reply_context.target_chat_id.strip()
+        or (trigger_source is None and external_source is None)
+    ):
+        return None
+    delivery: dict[str, str] = {
+        "channel_name": reply_context.channel_name,
+        "target_chat_id": reply_context.target_chat_id,
+        "reply_phase": _visible_reply_phase_from_session_id(from_session_id),
+        "reply_dedupe_key": from_session_id,
+    }
+    if reply_context.thread_id:
+        delivery["reply_thread_id"] = reply_context.thread_id
+    feishu_message_id = _metadata_text(metadata, key="feishu_message_id")
+    if feishu_message_id is not None:
+        delivery["feishu_message_id"] = feishu_message_id
+    return delivery
+
+
+def _visible_reply_phase_from_session_id(from_session_id: str) -> str:
+    """Classify non-kernel visible text for adapter lifecycle handling."""
+    lowered = from_session_id.lower()
+    if ":stop-" in lowered or ":image-error-" in lowered or ":permission-" in lowered:
+        return "control"
+    return "intermediate"
 
 
 def _build_attachment_fetcher(

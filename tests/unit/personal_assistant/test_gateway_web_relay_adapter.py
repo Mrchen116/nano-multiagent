@@ -46,6 +46,7 @@ def test_web_relay_adapter_converts_relay_payload_to_inbound_message() -> None:
     assert inbound.is_group is True
     assert inbound.metadata["relay_task_id"] == "relay-1"
     assert inbound.metadata["message_id"] == "msg-1"
+    assert inbound.metadata["conversation_id"] == "conv-1"
 
     adapter.send(
         OutboundMessage(
@@ -55,6 +56,173 @@ def test_web_relay_adapter_converts_relay_payload_to_inbound_message() -> None:
         )
     )
     assert adapter.sent[0].text == "reply"
+
+
+def test_web_relay_adapter_preserves_shadow_identity_and_group_target_agent() -> None:
+    """Shadow relay metadata drives external session identity while delivery stays on IM id."""
+    adapter = WebRelayAdapter()
+    seen: list[InboundMessage] = []
+    adapter.start(seen.append)
+
+    inbound = adapter.accept_relay(
+        {
+            "relay_task_id": "relay-shadow",
+            "idempotency_key": "idem-shadow",
+            "agent_id": "plato",
+            "message": {
+                "id": "msg-shadow",
+                "sender_user_id": "owner-user",
+                "conversation_id": "im-conv-shadow",
+                "content": "summarize the feishu background",
+            },
+            "metadata": {
+                "trigger_source": "im",
+                "conversation_type": "group",
+                "external_source": "feishu",
+                "external_chat_id": "oc_product",
+                "agent_id": "plato",
+            },
+        }
+    )
+
+    assert inbound == seen[0]
+    assert inbound.channel_name == "web_relay"
+    assert inbound.external_chat_id == "im-conv-shadow"
+    assert inbound.is_group is True
+    assert inbound.agent_id == "plato"
+    assert inbound.metadata["trigger_source"] == "im"
+    assert inbound.metadata["external_source"] == "feishu"
+    assert inbound.metadata["external_chat_id"] == "oc_product"
+    assert inbound.metadata["agent_id"] == "plato"
+    assert inbound.metadata["mentioned_agent_ids"] == ["plato"]
+
+
+def test_outbound_router_dedupes_by_reply_dedupe_key() -> None:
+    class _Adapter:
+        name = "feishu:agent-a"
+
+        def __init__(self) -> None:
+            self.sent: list[OutboundMessage] = []
+
+        def start(self, _on_inbound) -> None:  # noqa: ANN001
+            return None
+
+        def send(self, outbound: OutboundMessage) -> None:
+            self.sent.append(outbound)
+
+        def stop(self) -> None:
+            return None
+
+    adapter = _Adapter()
+    router = OutboundRouter(ChannelRegistry([adapter]))
+    context = ReplyContext(
+        channel_name="feishu:agent-a",
+        target_chat_id="feishu:cli_a:dm:ou_user",
+        metadata={"reply_dedupe_key": "run-1:text:Final answer."},
+    )
+
+    first = router.send_text(text="Final answer.", reply_context=context)
+    second = router.send_text(text="Final answer.", reply_context=context)
+
+    assert first is not None
+    assert second is None
+    assert [item.text for item in adapter.sent] == ["Final answer."]
+
+
+def test_outbound_router_bounds_dedupe_key_memory() -> None:
+    class _Adapter:
+        name = "feishu:agent-a"
+
+        def __init__(self) -> None:
+            self.sent: list[OutboundMessage] = []
+
+        def start(self, _on_inbound) -> None:  # noqa: ANN001
+            return None
+
+        def send(self, outbound: OutboundMessage) -> None:
+            self.sent.append(outbound)
+
+        def stop(self) -> None:
+            return None
+
+    adapter = _Adapter()
+    router = OutboundRouter(ChannelRegistry([adapter]), max_dedupe_keys=1)
+
+    router.send_text(
+        text="first",
+        reply_context=ReplyContext(
+            channel_name="feishu:agent-a",
+            target_chat_id="feishu:cli_a:dm:ou_user",
+            metadata={"reply_dedupe_key": "run-1:text:first"},
+        ),
+    )
+    router.send_text(
+        text="second",
+        reply_context=ReplyContext(
+            channel_name="feishu:agent-a",
+            target_chat_id="feishu:cli_a:dm:ou_user",
+            metadata={"reply_dedupe_key": "run-2:text:second"},
+        ),
+    )
+    replay_after_eviction = router.send_text(
+        text="first",
+        reply_context=ReplyContext(
+            channel_name="feishu:agent-a",
+            target_chat_id="feishu:cli_a:dm:ou_user",
+            metadata={"reply_dedupe_key": "run-1:text:first"},
+        ),
+    )
+
+    assert replay_after_eviction is not None
+    assert [item.text for item in adapter.sent] == ["first", "second", "first"]
+    assert len(router._sent_dedupe_keys) == 1  # noqa: SLF001
+
+
+def test_outbound_router_dedupes_external_final_reply_across_paths() -> None:
+    class _Adapter:
+        name = "feishu:agent-a"
+
+        def __init__(self) -> None:
+            self.sent: list[OutboundMessage] = []
+
+        def start(self, _on_inbound) -> None:  # noqa: ANN001
+            return None
+
+        def send(self, outbound: OutboundMessage) -> None:
+            self.sent.append(outbound)
+
+        def stop(self) -> None:
+            return None
+
+    adapter = _Adapter()
+    router = OutboundRouter(ChannelRegistry([adapter]))
+
+    mirrored = router.send_text(
+        text="Final answer.",
+        reply_context=ReplyContext(
+            channel_name="feishu:agent-a",
+            target_chat_id="feishu:cli_a:dm:ou_user",
+            metadata={
+                "reply_phase": "final",
+                "reply_dedupe_key": "run-1:bubble:kmsg-1",
+            },
+        ),
+    )
+    terminal = router.send_text(
+        text="Final answer.",
+        reply_context=ReplyContext(
+            channel_name="feishu:agent-a",
+            target_chat_id="feishu:cli_a:dm:ou_user",
+            metadata={
+                "reply_phase": "final",
+                "reply_dedupe_key": "run-1:text:Final answer.",
+            },
+        ),
+    )
+
+    assert mirrored is not None
+    assert terminal is None
+    assert [item.text for item in adapter.sent] == ["Final answer."]
 
 
 def test_web_relay_adapter_uses_dedup_store_on_accept(tmp_path: Path) -> None:

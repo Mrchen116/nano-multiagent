@@ -114,7 +114,29 @@ def build_message_created_payload(*, message: Message) -> dict[str, Any]:
         "message_id": message.id,
         "sender_user_id": message.sender_user_id,
         "sender_type": message.sender_type,
+        "sender": {
+            "type": message.sender.type
+            if message.sender is not None
+            else message.sender_type,
+            "id": message.sender.id
+            if message.sender is not None
+            else message.sender_user_id,
+            "display_name": message.sender.display_name
+            if message.sender is not None
+            else None,
+        },
+        "sender_display_name": message.sender.display_name
+        if message.sender is not None
+        else None,
         "content": message.content,
+        "attachments": [
+            {
+                "url": item.url,
+                "content_type": item.content_type,
+                "file_name": item.file_name,
+            }
+            for item in (message.attachments or [])
+        ],
         "tool_calls": [tool_call_to_dict(tc) for tc in (message.tool_calls or [])],
         # feat-439-M2: 整轮多段思考随气泡创建一并下发，历史回放还原过程盘。
         "thinking": [thinking_segment_to_dict(s) for s in (message.thinking or [])],

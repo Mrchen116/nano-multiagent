@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import logging
 from pathlib import Path
 
@@ -38,6 +39,22 @@ class _BlockingRecvWebSocket(_FakeWebSocket):
     async def recv(self) -> str:
         await asyncio.Event().wait()
         raise AssertionError("unreachable")  # pragma: no cover
+
+
+class _HalfOpenWebSocket(_FakeWebSocket):
+    """send succeeds, but recv never yields until close() unblocks it."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._closed = asyncio.Event()
+
+    async def recv(self) -> str:
+        await self._closed.wait()
+        raise RuntimeError("socket closed")
+
+    async def close(self) -> None:
+        await super().close()
+        self._closed.set()
 
 
 def _manager(
@@ -263,6 +280,66 @@ def test_close_interrupts_reconnect_backoff_sleep(tmp_path: Path) -> None:
                     await task
 
     asyncio.run(_exercise())
+
+
+def test_heartbeat_ack_timeout_reconnects_half_open_socket(tmp_path: Path) -> None:
+    """A local TCP connection can stay established while IM stops acknowledging app
+    frames, e.g. after overnight sleep. Heartbeat must be an application-level liveness
+    probe, not just a best-effort write, otherwise IM flips the node offline while the
+    Gateway process keeps a stale websocket forever."""
+
+    first_socket = _HalfOpenWebSocket()
+    second_socket = _HalfOpenWebSocket()
+    sockets = [first_socket, second_socket]
+    connect_calls: list[tuple[str, dict[str, str]]] = []
+
+    async def _connect(url: str, headers: dict[str, str]) -> _FakeWebSocket:
+        socket = sockets.pop(0)
+        connect_calls.append((url, headers))
+        return socket
+
+    manager = _manager(tmp_path, _connect)
+    manager._config = IMConnectionConfig(  # noqa: SLF001
+        url="http://im.local:9000",
+        reconnect_initial_seconds=0.01,
+        reconnect_max_seconds=0.01,
+        heartbeat_interval_seconds=0.01,
+        heartbeat_ack_timeout_seconds=0.01,
+    )
+
+    async def _exercise() -> None:
+        task = asyncio.create_task(manager.run_forever())
+        try:
+            await asyncio.wait_for(
+                manager.wait_first_connect_attempt(timeout=1.0), timeout=1.0
+            )
+            deadline = asyncio.get_running_loop().time() + 1.0
+            while (
+                len(connect_calls) < 2 and asyncio.get_running_loop().time() < deadline
+            ):
+                await asyncio.sleep(0.01)
+            assert len(connect_calls) >= 2, manager.event_log()
+        finally:
+            await manager.close()
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+    asyncio.run(_exercise())
+
+    assert first_socket.closed == 1
+    assert [json.loads(frame)["type"] for frame in first_socket.sent] == [
+        "node.register",
+        "node.heartbeat",
+    ]
+    assert [json.loads(frame)["type"] for frame in second_socket.sent][:1] == [
+        "node.register"
+    ]
+    assert any(
+        event.get("event") == "disconnected"
+        and "heartbeat ack timed out" in str(event.get("error"))
+        for event in manager.event_log()
+    )
 
 
 def test_on_connected_failure_does_not_tear_down_connection(tmp_path: Path) -> None:

@@ -257,6 +257,9 @@
         "title": "访问与模型",
         "sub": "允许列表保持最小。",
         "skills": "技能",
+        "skillsGlobal": "全局",
+        "skillsLocal": "本地",
+        "skillsCompatibility": "兼容来源（Claude/Codex）",
         "tools": "工具允许列表",
         "model": "默认模型",
         "modelPlatformDefault": "平台默认 ({{model}})",
@@ -321,6 +324,11 @@
         "group": "群聊",
         "network": "Agent 网络"
       },
+      "generateSkill": "生成 skill",
+      "distillToSkill": "蒸馏为 skill",
+      "cancel": "取消",
+      "running": "运行中",
+      "noTranscript": "无 transcript",
       "empty": "暂无会话"
     },
     "kindBadge": {
@@ -339,6 +347,17 @@
       "cancel": "取消",
       "online": "在线",
       "offline": "离线"
+    },
+    "distill": {
+      "title": "蒸馏会话",
+      "subtitle": "新建执行 agent 单聊，并在普通输入框中预填 skill 命令。",
+      "scope": "写入范围",
+      "selectionRequired": "请选择至少一个已结束且带 transcript 的会话。",
+      "requireDistiller": "开始前请先为执行 agent 启用 conversation-skill-distiller。",
+      "requireSkillView": "开始前请先为执行 agent 启用 skill_view。",
+      "requireDistillerAndSkillView": "开始前请先为执行 agent 同时启用 conversation-skill-distiller 和 skill_view。",
+      "starting": "启动中…",
+      "startError": "启动蒸馏失败。"
     },
     "messagePane": {
       "emptyTitle": "暂无消息",
@@ -359,11 +378,15 @@
       "tokenWarnCritical": "⚠ 上下文即将满 — 考虑 /compact",
       "sendErrorTitle": "发送失败",
       "sendError": "消息发送失败,请重试。",
+      "copy": "复制",
+      "copyError": "复制失败，请重试。",
       "fork": "fork",
       "forkOffline": "该 agent 当前不可用，暂时无法 fork",
       "forkError": "fork 失败，请重试。",
       "forkToastTitle": "已 fork 出分支单聊",
       "forkToastSub": "已带入起点 → fork 点的完整历史，agent 记得这段对话。",
+      "historyLoading": "正在加载更早消息…",
+      "historyEnd": "没有更早消息了",
       "toolCall": "次工具调用",
       "toolCalls": "次工具调用",
       "process": "过程",

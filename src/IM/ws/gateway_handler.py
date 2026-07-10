@@ -150,6 +150,9 @@ class GatewayHandler:
         self._heartbeat_md_waiters: dict[str, asyncio.Future[str | None]] = {}
         self._cron_jobs_waiters: dict[str, asyncio.Future[list | None]] = {}
         self._cron_delete_waiters: dict[str, asyncio.Future[bool | None]] = {}
+        self._skills_usage_waiters: dict[
+            str, asyncio.Future[dict[str, object] | None]
+        ] = {}
         # feat-445-M1: session.fork.request → session.fork.result futures.
         self._session_fork_waiters: dict[
             str, asyncio.Future[dict[str, object] | None]
@@ -218,6 +221,8 @@ class GatewayHandler:
             return await self._handle_cron_jobs(payload=payload)
         if message_type == "node.cron.delete":
             return await self._handle_cron_delete(payload=payload)
+        if message_type == "node.skills.usage":
+            return await self._handle_skills_usage(payload=payload)
         if message_type == "session.fork.result":
             return await self._handle_session_fork_result(payload=payload)
         if message_type == "agent.message":
@@ -414,6 +419,8 @@ class GatewayHandler:
         new_conversation_id: str,
         agent_id: str,
         fork_message_id: str,
+        source_external_source: str | None = None,
+        source_external_chat_id: str | None = None,
         timeout_seconds: float = 10.0,
     ) -> dict[str, object] | None:
         """Delegate a session fork to one gateway node and await its result.
@@ -428,17 +435,22 @@ class GatewayHandler:
         waiter: asyncio.Future[dict[str, object] | None] = loop.create_future()
         async with self._lock:
             self._session_fork_waiters[request_id] = waiter
+        payload: dict[str, object] = {
+            "request_id": request_id,
+            "source_conversation_id": source_conversation_id,
+            "new_conversation_id": new_conversation_id,
+            "agent_id": agent_id,
+            "fork_point": {"message_id": fork_message_id},
+        }
+        if source_external_source:
+            payload["source_external_source"] = source_external_source
+        if source_external_chat_id:
+            payload["source_external_chat_id"] = source_external_chat_id
         try:
             pushed = await self._push_downstream(
                 target_node_id=target_node_id,
                 message_type="session.fork.request",
-                payload={
-                    "request_id": request_id,
-                    "source_conversation_id": source_conversation_id,
-                    "new_conversation_id": new_conversation_id,
-                    "agent_id": agent_id,
-                    "fork_point": {"message_id": fork_message_id},
-                },
+                payload=payload,
             )
             if not pushed:
                 return None
@@ -737,6 +749,44 @@ class GatewayHandler:
             async with self._lock:
                 self._cron_delete_waiters.pop(request_id, None)
 
+    async def request_node_skills_usage(
+        self,
+        *,
+        target_node_id: str,
+        agent_id: str,
+        workspace_root: str,
+        timeout_seconds: float = 10.0,
+    ) -> dict[str, object] | None:
+        """Send a node.skills.usage.request frame and await usage stats.
+
+        feat-446-M4: the authoritative ``.usage.json`` file is stored in the
+        gateway-side workspace.  IM delegates the read/aggregation over WS RPC
+        so IM and gateway can run on different hosts.
+        """
+        request_id = f"skills-usage-{uuid4().hex}"
+        loop = asyncio.get_running_loop()
+        waiter: asyncio.Future[dict[str, object] | None] = loop.create_future()
+        async with self._lock:
+            self._skills_usage_waiters[request_id] = waiter
+        try:
+            pushed = await self._push_downstream(
+                target_node_id=target_node_id,
+                message_type="node.skills.usage.request",
+                payload={
+                    "request_id": request_id,
+                    "agent_id": agent_id,
+                    "workspace_root": workspace_root,
+                },
+            )
+            if not pushed:
+                return None
+            return await asyncio.wait_for(waiter, timeout=timeout_seconds)
+        except asyncio.TimeoutError:
+            return None
+        finally:
+            async with self._lock:
+                self._skills_usage_waiters.pop(request_id, None)
+
     async def disconnect(
         self,
         *,
@@ -929,6 +979,7 @@ class GatewayHandler:
             profile_repository = AgentProfileRepository(
                 self._node_repository._connection
             )
+            user_repository = UserRepository(self._node_repository._connection)
             for agent_id in agents:
                 existing = profile_repository.get_profile(agent_id=agent_id)
                 owner_id = (
@@ -986,6 +1037,14 @@ class GatewayHandler:
                     features=runtime_features,
                     custom_prompt=runtime_custom_prompt,
                 )
+                if (
+                    user_repository.get_user_by_username(username=f"agent:{agent_id}")
+                    is None
+                ):
+                    user_repository.create_user(
+                        username=f"agent:{agent_id}",
+                        display_name=runtime_display_name,
+                    )
                 self._node_repository._connection.execute(
                     "UPDATE agent_profiles SET node_id = ? WHERE agent_id = ?",
                     (node_id, agent_id),
@@ -1716,6 +1775,25 @@ class GatewayHandler:
             "type": "ack",
             "payload": {
                 "message_type": "node.cron.delete",
+                "request_id": request_id,
+            },
+        }
+
+    async def _handle_skills_usage(
+        self, *, payload: dict[str, object]
+    ) -> dict[str, object]:
+        """Resolve skills-usage waiter when gateway returns the dashboard payload."""
+        request_id = _require_text(payload.get("request_id"), field_name="request_id")
+        usage_raw = payload.get("usage")
+        usage: dict[str, object] = usage_raw if isinstance(usage_raw, dict) else {}
+        async with self._lock:
+            waiter = self._skills_usage_waiters.get(request_id)
+        if waiter is not None and not waiter.done():
+            waiter.set_result(dict(usage))
+        return {
+            "type": "ack",
+            "payload": {
+                "message_type": "node.skills.usage",
                 "request_id": request_id,
             },
         }

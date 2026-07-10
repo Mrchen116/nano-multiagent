@@ -132,6 +132,22 @@ def test_build_node_capabilities_payload_includes_features(tmp_path: Path) -> No
         )
 
 
+def test_node_capabilities_marks_pa_global_skills_default_on(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / ".codex"))
+    _write_skill(tmp_path / ".nanoassistant" / "skills", "pa-global")
+    _write_skill(tmp_path / ".claude" / "skills", "compat-claude")
+
+    kernel = _build_test_kernel(tmp_path / "kernel-root")
+    payload = build_node_capabilities_payload(kernel)
+    by_name = {item["name"]: item for item in payload["skills"]}
+
+    assert by_name["pa-global"]["default_on"] is True
+    assert by_name["compat-claude"]["default_on"] is False
+
+
 def test_build_node_capabilities_payload_has_required_keys(tmp_path: Path) -> None:
     """node capabilities payload must carry models, skills, tools, features."""
     kernel = _build_test_kernel(tmp_path / "kernel-root")
@@ -159,13 +175,13 @@ def test_node_capabilities_models_carry_provider(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_node_capabilities_tools_include_memory_and_skill_manage(
+def test_node_capabilities_tools_include_memory_skill_manage_and_skill_view(
     tmp_path: Path,
 ) -> None:
-    """capabilities.tools 必须含 memory 和 skill_manage。
+    """capabilities.tools 必须含 memory、skill_manage 和 skill_view。
 
     前端联动（决策13）依赖前端从 capabilities.tools 取 feature 要求的工具名把它们
-    变绿；memory/skill_manage 在 PA 默认工具集中，投影必须把它们 advertise 出来。
+    变绿；默认 skill 工具在 PA 默认工具集中，投影必须把它们 advertise 出来。
     """
     kernel = _build_test_kernel(tmp_path / "kernel-root")
     payload = build_node_capabilities_payload(kernel)
@@ -175,6 +191,9 @@ def test_node_capabilities_tools_include_memory_and_skill_manage(
     )
     assert "skill_manage" in names, (
         "skill_manage 必须在 capabilities.tools 中 — 否则前端联动无法把 skill_manage 变绿 (feat-379-M9 决策13)"
+    )
+    assert "skill_view" in names, (
+        "skill_view 必须在 capabilities.tools 中 — 否则默认 PA agent 无法查看 skill 内容"
     )
 
 
@@ -230,6 +249,19 @@ def test_node_capabilities_tools_contain_all_feature_required_tools(
             assert rt in names_set, (
                 f"feature 要求工具 '{rt}' 必须在 capabilities.tools 中 (feat-379-M9 决策13)"
             )
+        for tool_id in entry.get("requires_any_tool") or ():
+            assert tool_id in names_set
+
+
+def test_project_features_supports_skill_creation_with_skill_view_only() -> None:
+    from personal_assistant.reporter.capability_projection import project_features
+
+    features = project_features(tool_allowlist=("skill_view",))
+    skill_creation = next(item for item in features if item["key"] == "skill_creation")
+
+    assert skill_creation["available"] is True
+    assert skill_creation["requires_tool"] == "skill_manage"
+    assert "requires_any_tool" not in skill_creation
 
 
 # ---------------------------------------------------------------------------
@@ -251,3 +283,20 @@ def test_agent_capabilities_skills_carry_location(tmp_path: Path) -> None:
     doc = next(s for s in skills if s["name"] == "doc")
     assert "location" in doc, "skill entry must carry a 'location' key (feat-430)"
     assert isinstance(doc["location"], str) and doc["location"].endswith("doc/SKILL.md")
+
+
+def test_agent_capabilities_do_not_mark_workspace_skills_default_on(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "home" / ".codex"))
+    workspace = tmp_path / "agent-ws"
+    _write_skill(workspace / ".nanoassistant" / "skills", "workspace-doc")
+    _write_skill(tmp_path / "home" / ".nanoassistant" / "skills", "pa-global")
+    kernel = _build_test_kernel(tmp_path / "kernel-root")
+
+    payload = build_agent_capabilities_payload(kernel, workspace_root=str(workspace))
+    by_name = {item["name"]: item for item in payload["skills"]}
+
+    assert by_name["workspace-doc"]["default_on"] is False
+    assert by_name["pa-global"]["default_on"] is True

@@ -119,6 +119,13 @@ class WriteTool:
         "additionalProperties": False,
     }
 
+    def to_auto_classifier_input(self, tool_input: Mapping[str, Any]) -> str:
+        """Project write path and leading content for auto-mode classification."""
+
+        path = str(tool_input.get("path") or tool_input.get("file_path") or "")
+        content = str(tool_input.get("content", ""))
+        return f"{path}: {content[:200]}"
+
     def check_permissions(
         self, tool_input: Mapping[str, Any], ctx: Any
     ) -> PermissionDecision:

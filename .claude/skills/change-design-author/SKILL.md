@@ -241,7 +241,16 @@ design.md 读起来像文字墙,根源是该画的地方在用散文描述。人
 
 ### §3.3.1 前端原型 HTML(前端相关必做)
 
-如果本 unit 涉及用户可见的前端 UI / 富 GUI / 交互状态,在设计阶段必须产出本地可打开的原型文件。它的作用是在门禁 2 前把"前端最终长什么样、用户怎么操作、关键状态如何呈现"变成可评审的视觉交互方案,让用户、design-author、worker、reviewer 对 UI 目标有同一个参照物。
+如果本 unit 涉及用户可见的前端 UI / 富 GUI / 交互状态,在设计阶段必须产出本地可打开的原型文件。它的作用是在门禁 2 前把"前端最终长什么样、用户怎么操作、关键状态如何呈现"变成可评审、可实现、可验收的视觉交互契约,让用户、design-author、worker、reviewer 对 UI 目标有同一个参照物。
+
+原型不是灵感稿、moodboard 或"大概方向";它等价于 PM / 设计师交给开发的交互原型,直接指导实现。默认要求是**在当前产品 UX 上做增量设计**:先看现有页面 / 组件 / 信息层级 / 交互状态,再把本次变更嵌进去。除非本 unit 明确要重做既有 UX,否则不要凭空重画一套和当前产品不匹配的界面。
+
+产出原型前必须做**现有 UX grounding**,并把结论写进 `design.md ## 前端原型`:
+
+- 打开或阅读当前真实产品入口(页面、组件、截图、已有 E2E/acceptance 证据均可),定位本次要改的具体 UI 单元。
+- 记录现有 UX 的承重特征,不记录取证流水:布局位置、信息密度、组件风格、文案语气、状态表达、hover/focus/disabled/loading/error、移动端/桌面差异。
+- 原型必须复用这些承重特征,只突出本次增量。比如"IM 消息气泡加已读"必须先对齐当前消息气泡的结构、元信息位置、间距和状态,再设计已读入口;不能画一个全新的聊天气泡体系。
+- 如果确实需要改变既有 UX,必须在 design.md 写成关键决策 + 风险,并让 milestone 退出标准覆盖这个 UX 迁移;不能让 worker 在实现时临场调和。
 
 - 对用户 / 审核者:提前看 UI 方向是否对,避免 design.md 文字写完了但实际界面理解偏了。
 - 对 worker:提供视觉和交互目标,减少"按文字自由发挥"导致的 UI 偏差。
@@ -249,6 +258,18 @@ design.md 读起来像文字墙,根源是该画的地方在用散文描述。人
 - 路径固定:`docs/changes/<unit_dir>/prototype.html`。
 - 可用少量演示 JS 表达关键交互 / 状态切换,但不接真实后端、不复用项目源码,不作为产品实现或验收替代品。
 - 覆盖首文档验收标准里的关键界面、关键状态、关键交互即可;design.md 的 `## 前端原型` 段链接原型文件并简述覆盖范围。
+
+同时必须把原型拆成**原型对齐契约**,写进 `design.md ## 前端原型`。不要只写"见 prototype.html"。契约表最少包含:
+
+| 原型区域 / 状态 | 对齐级别 | 产品入口 | 必验 viewport / 状态 | 下游验收投影 |
+|---|---|---|---|---|
+| <导航 / 列表 / 空态 / 异常态等> | `must-match` / `may-adapt` / `out-of-scope` | <真实页面 / 路由> | <desktop/mobile/empty/error 等> | <Milestone 退出标准编号或 N/A> |
+
+- `must-match`:结构、信息层级、关键交互或状态必须和原型一致;样式仍可按项目现有 design system 落地,但不能改掉用户感知到的布局/流程语义。
+- `may-adapt`:可按现有组件、文案语言、间距风格调整;必须写清哪些点可调,避免 worker 自由发挥。
+- `out-of-scope`:原型里出现但本期不做 / 仅占位的内容;必须写清用户在真实产品里会看到什么,不要留给 worker 猜。
+- 每一行 `must-match` 都必须投影到 Milestone 表的退出标准:用户可见结构/交互写 `[reviewer]`,实现层保真证据写 `[worker]`。
+- 若原型对齐契约与现有 UX grounding 冲突,以现有 UX grounding 为默认约束;想改变既有 UX 必须升级为显式关键决策。
 
 如果本 unit 不涉及前端 UI,不要创建 `prototype.html`,也不要在 design.md 里写 `## 前端原型` 段。
 
@@ -362,6 +383,11 @@ design.md 是**实现层验收标准的家**。退出标准列分两轨,每条**
 - `[reviewer]` —— **用户可观察**的能力变化 / 不变性。来自首文档的【用户场景】+【验收标准】(Requirement / Scenario 结构);可直接引用具体 Scenario(例:`Req-群聊@成员候选 / Scenario-群里无匹配成员`),让退出标准和 reviewer 覆盖表对齐。reviewer 走旅程验。
 - `[worker]` —— **实现层**验收标准:单测通过、构建产物正确、性能指标达标、"复刻 X 实现"的保真点等。来自技术决策本身,以及 spec-author 交接过来的实现保真要求 / 实现约束(§1.1)。worker 在 milestone 内用单测 / 构建验。
 
+若存在 `## 前端原型`,Milestone 表还必须覆盖原型对齐契约:
+
+- `[reviewer]` <原型区域> 在真实产品入口中呈现同等用户可观察结构/交互,覆盖 `<prototype.html#...>` 的 `must-match` 行。
+- `[worker]` `progress.md` 留下真实浏览器截图/录屏和原型对照结论,证据落在 unit 目录内,不能只给 `/tmp` 临时路径。
+
 两轨都要写实、可验,不要空喊"实现 X 功能"。`[worker]` 轨的条目还会被 `change-orchestrator` 抽进 PR body,作为人(架构师)review PR 时的清单。
 
 示例(两轨混合):
@@ -438,6 +464,8 @@ mkdir -p docs/changes/<unit_dir>/specs/<包>/   # 仅为有对外行为变化的
 - [ ] spec 每个验收 Scenario 都能在 design + Milestone 表里找到对应实现路径——任何"无人认领"的 Scenario 是漏
 - [ ] design 的关键决策都有对应的 spec 用户场景驱动——找不到驱动的决策可能是过度设计
 - [ ] 范围与非目标:design 没有偷偷扩到 spec 写的"非目标"里去
+- [ ] 若有 `## 前端原型`,已完成现有 UX grounding,并说明 prototype 如何继承当前产品 UX;没有 grounding 的原型 = 门禁 2 不通过
+- [ ] 若有 `## 前端原型`,原型对齐契约每个 `must-match` 行都投影到了 Milestone 退出标准;没有投影的 must-match = 门禁 2 不通过
 - [ ] **delta-spec 覆盖对外行为增量**(§4.8):每个有对外行为变化的包都产了 `docs/changes/<unit_dir>/specs/<包>/spec.md`,纯内部包显式注 "no spec delta";delta 每条能追溯到某条验收标准或关键决策(kernel 已做用户→消费者视角翻译)
 
 **design 内部自洽**:
@@ -505,6 +533,7 @@ mkdir -p docs/changes/<unit_dir>/specs/<包>/   # 仅为有对外行为变化的
 - [ ] 标题、对齐行、Unit branch 声明、Changelog 段(空)都齐
 - [ ] `§现状分析` 段已填(列出涉及模块、既有约束、可复用能力、相关历史变更),且已和用户对齐
 - [ ] 架构总览(配图)、关键决策、接口与数据流、风险与回退 都写了实质内容
+- [ ] 前端相关 unit 已产出 `prototype.html`,且 `design.md ## 前端原型` 含现有 UX grounding + 原型对齐契约;非前端 unit 没有该段和原型文件
 - [ ] `§Runbook for Reviewer` 段已填(列出本 unit 涉及的常驻服务 + 停止/启动/健康检查命令,或显式"无常驻服务")
 - [ ] Milestone 表完整(每行字段都填),数量 = mkdir 出的子目录数
 - [ ] 子目录全空(没有预填 tasks.md / progress.md)

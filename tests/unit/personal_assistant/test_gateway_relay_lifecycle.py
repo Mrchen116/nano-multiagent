@@ -25,6 +25,7 @@ from personal_assistant.main import (
     RuntimeFactories,
     _IMBootstrapClient,
     _build_channel_registry,
+    _build_kernel_event_observer,
     _build_relay_lifecycle_callback,
     build_runtime,
     run_gateway,
@@ -51,6 +52,25 @@ _DEFAULT_TEST_LLM = LLMConfigPayload(
         ),
     ),
 )
+
+
+class _AckChannel:
+    name = "feishu:agent-a"
+
+    def __init__(self) -> None:
+        self.acked: list[str] = []
+
+    def start(self, on_inbound) -> None:
+        pass
+
+    def send(self, outbound) -> None:
+        pass
+
+    def stop(self) -> None:
+        pass
+
+    def ack_message(self, message_id: str) -> None:
+        self.acked.append(message_id)
 
 
 def test_relay_lifecycle_callback_sends_receipts_and_reports_with_real_usage_to_im() -> (
@@ -118,6 +138,315 @@ def test_relay_lifecycle_callback_sends_receipts_and_reports_with_real_usage_to_
         "total_tokens": 18,
     }
     assert manager.sent_frames[3][1]["detail"] == "hello from agent"
+
+
+def test_relay_lifecycle_accepted_acks_feishu_message_processing_started() -> None:
+    channel = _AckChannel()
+    registry = ChannelRegistry((channel,))
+    callback = _build_relay_lifecycle_callback(
+        reporter=None,
+        im_connection_manager_factory=lambda: None,
+        channel_registry=registry,
+    )
+    message = type("_Message", (), {})()
+    message.channel_name = "feishu:agent-a"
+    message.external_chat_id = "feishu:cli_a:group:oc_1"
+    message.metadata = {"feishu_message_id": "om_msg_1"}
+
+    asyncio.run(
+        callback(
+            message,
+            RelayLifecycleUpdate(
+                phase="accepted",
+                agent_id="agent-a",
+                session_key="feishu:group:agent-a",
+                run_id="run-1",
+            ),
+        )
+    )
+
+    assert channel.acked == ["om_msg_1"]
+
+
+def test_relay_lifecycle_callback_seeds_external_shadow_run_context() -> None:
+    run_context_store: dict[str, dict[str, str]] = {}
+    callback = _build_relay_lifecycle_callback(
+        reporter=None,
+        im_connection_manager_factory=lambda: None,
+        run_context_store=run_context_store,
+        owner_user_id="owner-1",
+    )
+    message = type("_Message", (), {})()
+    message.channel_name = "feishu:agent-a"
+    message.external_chat_id = "oc_feishu_chat"
+    message.metadata = {
+        "external_source": "feishu",
+        "external_chat_id": "oc_feishu_chat",
+        "shadow_conversation_id": "shadow-conv-1",
+        "trigger_source": "feishu",
+        "agent_id": "agent-a",
+        "feishu_message_id": "om_msg_1",
+    }
+
+    async def _exercise() -> None:
+        await callback(
+            message,
+            RelayLifecycleUpdate(
+                phase="accepted",
+                agent_id="agent-a",
+                session_key="feishu:oc_feishu_chat:agent-a",
+                run_id="run-1",
+                kernel_session_id="sess-1",
+            ),
+        )
+
+    asyncio.run(_exercise())
+
+    assert run_context_store["run-1"] == {
+        "conversation_id": "shadow-conv-1",
+        "message_id": "",
+        "agent_id": "agent-a",
+        "kernel_session_id": "sess-1",
+        "to_user_id": "",
+        "trigger_source": "feishu",
+        "reply_channel_name": "feishu:agent-a",
+        "reply_target_chat_id": "oc_feishu_chat",
+        "feishu_message_id": "om_msg_1",
+    }
+
+
+def test_relay_lifecycle_callback_skips_lazy_direct_when_external_shadow_missing() -> (
+    None
+):
+    run_context_store: dict[str, dict[str, str]] = {}
+    callback = _build_relay_lifecycle_callback(
+        reporter=None,
+        im_connection_manager_factory=lambda: None,
+        run_context_store=run_context_store,
+        owner_user_id="owner-1",
+    )
+    message = type("_Message", (), {})()
+    message.external_chat_id = "oc_feishu_chat"
+    message.metadata = {
+        "external_source": "feishu",
+        "external_chat_id": "oc_feishu_chat",
+        "trigger_source": "feishu",
+        "agent_id": "agent-a",
+    }
+
+    async def _exercise() -> None:
+        await callback(
+            message,
+            RelayLifecycleUpdate(
+                phase="accepted",
+                agent_id="agent-a",
+                session_key="feishu:oc_feishu_chat:agent-a",
+                run_id="run-1",
+                kernel_session_id="sess-1",
+            ),
+        )
+
+    asyncio.run(_exercise())
+
+    assert run_context_store["run-1"]["conversation_id"] == ""
+    assert run_context_store["run-1"]["to_user_id"] == ""
+    assert run_context_store["run-1"]["trigger_source"] == "feishu"
+
+
+def test_relay_lifecycle_callback_routes_im_shadow_run_to_shadow_conversation() -> None:
+    run_context_store: dict[str, dict[str, str]] = {}
+    callback = _build_relay_lifecycle_callback(
+        reporter=None,
+        im_connection_manager_factory=lambda: None,
+        run_context_store=run_context_store,
+    )
+    message = type("_Message", (), {})()
+    message.external_chat_id = "shadow-conv-1"
+    message.metadata = {
+        "relay_task_id": "relay-1",
+        "message_id": "msg-1",
+        "trigger_source": "im",
+        "external_source": "feishu",
+        "external_chat_id": "oc_feishu_chat",
+        "shadow_conversation_id": "shadow-conv-1",
+        "agent_id": "agent-a",
+    }
+
+    async def _exercise() -> None:
+        await callback(
+            message,
+            RelayLifecycleUpdate(
+                phase="accepted",
+                agent_id="agent-a",
+                session_key="feishu:oc_feishu_chat:agent-a",
+                run_id="run-1",
+                kernel_session_id="sess-1",
+            ),
+        )
+
+    asyncio.run(_exercise())
+
+    assert run_context_store["run-1"]["conversation_id"] == "shadow-conv-1"
+    assert run_context_store["run-1"]["to_user_id"] == ""
+    assert run_context_store["run-1"]["trigger_source"] == "im"
+
+
+def test_kernel_event_observer_mirrors_external_visible_bubbles_on_completion() -> None:
+    class _Manager:
+        connected = True
+
+        def __init__(self) -> None:
+            self.sent_frames: list[tuple[str, dict[str, object]]] = []
+            self._counter = 0
+
+        async def send_json_await_ack(
+            self, message_type: str, payload: dict[str, object]
+        ) -> dict[str, object]:
+            self.sent_frames.append((message_type, payload))
+            self._counter += 1
+            return {
+                "payload": {
+                    "message_id": f"im-msg-{self._counter}",
+                    "conversation_id": payload.get("conversation_id"),
+                }
+            }
+
+        async def send_json(
+            self, message_type: str, payload: dict[str, object]
+        ) -> None:
+            self.sent_frames.append((message_type, payload))
+
+    manager = _Manager()
+    mirrored: list[tuple[str, dict[str, str]]] = []
+    run_context_store = {
+        "run-1": {
+            "conversation_id": "shadow-conv",
+            "message_id": "",
+            "agent_id": "agent-a",
+            "kernel_session_id": "sess-1",
+            "to_user_id": "",
+            "trigger_source": "feishu",
+            "reply_channel_name": "feishu:agent-a",
+            "reply_target_chat_id": "feishu:cli_a:dm:ou_user",
+            "feishu_message_id": "om_msg_1",
+        }
+    }
+    observer = _build_kernel_event_observer(
+        im_connection_manager_factory=lambda: manager,
+        run_context_store=run_context_store,
+        external_reply_sender=lambda text, metadata: mirrored.append(
+            (text, dict(metadata))
+        ),
+    )
+
+    async def _exercise() -> None:
+        result = observer(
+            {"event": "run_status", "run_id": "run-1", "status": "running"}
+        )
+        assert asyncio.iscoroutine(result)
+        await result
+        observer(
+            {
+                "event": "assistant_message",
+                "run_id": "run-1",
+                "message_id": "kernel-msg-a",
+                "content": "I will check.",
+            }
+        )
+        await asyncio.sleep(0)
+        roll = observer(
+            {
+                "event": "assistant_message",
+                "run_id": "run-1",
+                "message_id": "kernel-msg-b",
+                "content": "Final answer.",
+            }
+        )
+        assert asyncio.iscoroutine(roll)
+        await roll
+        observer({"event": "turn_end", "run_id": "run-1", "completed": True})
+        await asyncio.sleep(0)
+
+    asyncio.run(_exercise())
+
+    assert mirrored == [
+        (
+            "I will check.",
+            {
+                "reply_phase": "intermediate",
+                "reply_dedupe_key": "run-1:bubble:kernel-msg-a",
+                "channel_name": "feishu:agent-a",
+                "target_chat_id": "feishu:cli_a:dm:ou_user",
+                "feishu_message_id": "om_msg_1",
+            },
+        ),
+        (
+            "Final answer.",
+            {
+                "reply_phase": "final",
+                "reply_dedupe_key": "run-1:bubble:kernel-msg-b",
+                "channel_name": "feishu:agent-a",
+                "target_chat_id": "feishu:cli_a:dm:ou_user",
+                "feishu_message_id": "om_msg_1",
+            },
+        ),
+    ]
+
+
+def test_kernel_event_observer_does_not_mirror_im_triggered_shadow_runs() -> None:
+    class _Manager:
+        connected = True
+
+        async def send_json_await_ack(
+            self, _message_type: str, _payload: dict[str, object]
+        ) -> dict[str, object]:
+            return {"payload": {"message_id": "im-msg-1"}}
+
+        async def send_json(
+            self, _message_type: str, _payload: dict[str, object]
+        ) -> None:
+            return None
+
+    mirrored: list[tuple[str, dict[str, str]]] = []
+    observer = _build_kernel_event_observer(
+        im_connection_manager_factory=lambda: _Manager(),
+        run_context_store={
+            "run-1": {
+                "conversation_id": "shadow-conv",
+                "message_id": "",
+                "agent_id": "agent-a",
+                "kernel_session_id": "sess-1",
+                "to_user_id": "",
+                "trigger_source": "im",
+                "reply_channel_name": "web_relay",
+                "reply_target_chat_id": "shadow-conv",
+            }
+        },
+        external_reply_sender=lambda text, metadata: mirrored.append(
+            (text, dict(metadata))
+        ),
+    )
+
+    async def _exercise() -> None:
+        result = observer(
+            {"event": "run_status", "run_id": "run-1", "status": "running"}
+        )
+        assert asyncio.iscoroutine(result)
+        await result
+        observer(
+            {
+                "event": "assistant_message",
+                "run_id": "run-1",
+                "message_id": "kernel-msg-a",
+                "content": "Internal only.",
+            }
+        )
+        observer({"event": "turn_end", "run_id": "run-1", "completed": True})
+        await asyncio.sleep(0)
+
+    asyncio.run(_exercise())
+
+    assert mirrored == []
 
 
 def test_relay_lifecycle_callback_failed_sends_message_level_report_with_real_cause() -> (

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import { InAppToast } from "../../chat/components/in-app-toast";
@@ -19,7 +19,6 @@ import {
   updateConversation,
   type AgentRow
 } from "./chat-api";
-import { openChatStream } from "./chat-stream";
 import {
   applyWsEvent,
   compareMessages,
@@ -48,6 +47,7 @@ import {
   type AgentEnabledSkills,
 } from "./components/slash-candidates";
 import { ConversationSidebar } from "./components/conversation-sidebar";
+import { isDistillConversationEligible } from "./components/distill-selection";
 import {
   GroupSettings,
   type GroupSettingsAgentOption,
@@ -56,10 +56,55 @@ import {
 import { MessagePane } from "./components/message-pane";
 import { NewGroupModal } from "./components/new-group-modal";
 
+const HISTORY_PAGE_SIZE = 50;
+const CHAT_STREAM_EVENT_TYPES = new Set([
+  "message.created",
+  "message.delta",
+  "message.completed",
+  "tool_call.upserted",
+  "tool_call.completed",
+  "thinking.segment",
+  "permission.request",
+  "permission.resolved",
+]);
+
+function toChatWsEvent(eventType: string, payload: Record<string, unknown>, eventId?: number): WsEvent | null {
+  if (!CHAT_STREAM_EVENT_TYPES.has(eventType)) return null;
+  return {
+    ...payload,
+    type: eventType,
+    seq: eventId,
+  } as WsEvent;
+}
+
+function mergeMessageWithExisting(message: Message, existing?: Message): Message {
+  let out = message;
+  if (!message.token_usage && existing?.token_usage) {
+    out = {
+      ...out,
+      token_usage: existing.token_usage,
+      delivery_status: existing.delivery_status
+    };
+  }
+  const permission_requests = mergePermissionRequests(
+    message.permission_requests,
+    existing?.permission_requests
+  );
+  if (
+    permission_requests.length > 0
+    || (message.permission_requests?.length ?? 0) > 0
+    || (existing?.permission_requests?.length ?? 0) > 0
+  ) {
+    out = { ...out, permission_requests };
+  }
+  return out;
+}
+
 function streamReducer(
   state: ConversationState,
   action:
-    | { type: "reset"; conversationId: string; messages: Message[] }
+    | { type: "reset"; conversationId: string; messages: Message[]; preserveMessageIds?: ReadonlySet<string> }
+    | { type: "prepend_history"; messages: Message[] }
     | { type: "event"; event: WsEvent; sendersById?: Record<string, string | undefined> }
     | { type: "append_optimistic"; message: Message }
 ): ConversationState {
@@ -69,32 +114,32 @@ function streamReducer(
     const existingById = state.conversation_id === action.conversationId
       ? new Map(state.messages.map((m) => [m.id, m]))
       : new Map();
-    const merged = action.messages.map((m) => {
-      const existing = existingById.get(m.id);
-      let out = m;
-      if (!m.token_usage && existing?.token_usage) {
-        out = {
-          ...out,
-          token_usage: existing.token_usage,
-          delivery_status: existing.delivery_status
-        };
-      }
-      const permission_requests = mergePermissionRequests(
-        m.permission_requests,
-        existing?.permission_requests
-      );
+    const merged = action.messages.map((m) => mergeMessageWithExisting(m, existingById.get(m.id)));
+    const byId = new Map<string, Message>();
+    for (const m of merged) byId.set(m.id, m);
+    for (const m of state.messages) {
       if (
-        permission_requests.length > 0
-        || (m.permission_requests?.length ?? 0) > 0
-        || (existing?.permission_requests?.length ?? 0) > 0
+        state.conversation_id === action.conversationId
+        && !byId.has(m.id)
+        && action.preserveMessageIds?.has(m.id)
       ) {
-        out = { ...out, permission_requests };
+        byId.set(m.id, m);
       }
-      return out;
-    });
+    }
     // bugfix-419: REST history may already be sorted, but sort explicitly so
     // any WS messages merged in via existingById keep the ordering invariant.
-    return { conversation_id: action.conversationId, messages: [...merged].sort(compareMessages) };
+    return { conversation_id: action.conversationId, messages: Array.from(byId.values()).sort(compareMessages) };
+  }
+  if (action.type === "prepend_history") {
+    if (state.conversation_id === null) return state;
+    const existingById = new Map(state.messages.map((m) => [m.id, m]));
+    const mergedOlder = action.messages.map((m) => mergeMessageWithExisting(m, existingById.get(m.id)));
+    const byId = new Map<string, Message>();
+    for (const m of mergedOlder) byId.set(m.id, m);
+    for (const m of state.messages) {
+      if (!byId.has(m.id)) byId.set(m.id, m);
+    }
+    return { ...state, messages: Array.from(byId.values()).sort(compareMessages) };
   }
   if (action.type === "append_optimistic") {
     // feat-340-M18 R9-3: insert the user-authored bubble the moment the POST
@@ -122,10 +167,46 @@ interface NodeRow {
   status: string;
 }
 
+type DistillTargetScope = "agent" | "global";
+
+const DISTILL_SKILL_NAME = "conversation-skill-distiller";
+
 async function fetchNodes(): Promise<NodeRow[]> {
   const res = await authFetch("/im/v1/nodes");
   if (!res.ok) throw new Error(`listNodes failed: ${res.status}`);
   return (await res.json()) as NodeRow[];
+}
+
+function buildDistillDraft(input: {
+  sourceJsonlPaths: string[];
+  executionAgentId: string;
+  targetScope: DistillTargetScope;
+}): string {
+  const scopeLabel = input.targetScope === "global" ? "global" : "agent";
+  return [
+    `/skill:${DISTILL_SKILL_NAME}`,
+    "source_jsonl_paths:",
+    ...input.sourceJsonlPaths.map((path) => `  ${path}`),
+    `execution_agent_id: ${input.executionAgentId}`,
+    `target_scope: ${input.targetScope}`,
+    "",
+    `请基于上述会话 transcript，总结我反复使用且值得复用的工作方式，直接生成并写入一个 ${scopeLabel} 级 skill。重点关注：`,
+    "- 触发这个 skill 的场景",
+    "- 应遵循的步骤/检查点",
+    "- 失败或边界情况",
+    "如果这些会话不足以形成稳定模式，请说明原因，不要创建 skill。"
+  ].join("\n");
+}
+
+function resolveEnabledTools(
+  allowlist: string[],
+  capabilityTools: Array<{ name: string; default_on?: boolean }>,
+): string[] {
+  if (allowlist.length === 0) {
+    return capabilityTools.filter((tool) => tool.default_on === true).map((tool) => tool.name);
+  }
+  const allowed = new Set(allowlist);
+  return capabilityTools.filter((tool) => allowed.has(tool.name)).map((tool) => tool.name);
 }
 
 /**
@@ -177,7 +258,7 @@ function mergePermissionRequests(
  * Data flow:
  *  - `listConversations` / `listMessages` via react-query for the historical
  *    backbone.
- *  - `openChatStream` for the live WS feed; events are pushed through
+ *  - owner-scoped user stream for the live WS feed; events are pushed through
  *    `applyWsEvent` (pure reducer from R2) into a local conversation state
  *    keyed by active conversation. When the user switches conversations we
  *    `reset` the reducer with the freshly fetched history.
@@ -194,6 +275,15 @@ export function ChatWorkspacePageV2() {
   const [showNewGroup, setShowNewGroup] = useState(false);
   const [showGroupSettings, setShowGroupSettings] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [distillMode, setDistillMode] = useState(false);
+  const [selectedDistillConversationIds, setSelectedDistillConversationIds] = useState<Set<string>>(() => new Set());
+  const [showDistillDialog, setShowDistillDialog] = useState(false);
+  const [distillExecutionAgentId, setDistillExecutionAgentId] = useState("");
+  const [distillTargetScope, setDistillTargetScope] = useState<DistillTargetScope>("agent");
+  const [distillError, setDistillError] = useState<string | null>(null);
+  const [distillNotice, setDistillNotice] = useState<string | null>(null);
+  const [distillSubmitting, setDistillSubmitting] = useState(false);
+  const [draftSeed, setDraftSeed] = useState<{ id: string; text: string } | null>(null);
   // feat-445-M1: fork success toast (top-left, auto-fade); null = hidden.
   const [forkToast, setForkToast] = useState<boolean>(false);
   const selfUserId = useAuthStore((s) => s.user?.id ?? null);
@@ -212,9 +302,18 @@ export function ChatWorkspacePageV2() {
   const messagesQuery = useQuery({
     enabled: Boolean(conversationId),
     queryKey: ["chat-v2", "messages", conversationId],
-    queryFn: () => listMessages(conversationId!, { markAsRead: true }),
+    queryFn: () => listMessages(conversationId!, { limit: HISTORY_PAGE_SIZE, markAsRead: true }),
     refetchOnWindowFocus: false
   });
+  const [historyCursor, setHistoryCursor] = useState<string | null>(null);
+  const [hasMoreHistory, setHasMoreHistory] = useState<boolean | null>(null);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const conversationIdRef = useRef(conversationId);
+  const historyRequestRef = useRef<{ conversationId: string; cursor: string } | null>(null);
+  const messagesQueryFetchingRef = useRef(false);
+  // M5: reset should converge to REST history, except for live rows accepted
+  // while that same history request is still in flight.
+  const pendingLiveMessageIdsRef = useRef(new Set<string>());
 
   // bugfix-442: 实时消息流驱动侧边栏会话列表刷新时去抖，避免群聊多 agent 同回合
   // 连续重拉。timer 跨渲染稳定，组件卸载时清理。
@@ -327,6 +426,30 @@ export function ChatWorkspacePageV2() {
   });
   const slashSkills = slashSkillsQuery.data ?? [];
 
+  const selectedDistillConversations = useMemo(() => {
+    const byId = new Set(selectedDistillConversationIds);
+    return (conversationsQuery.data ?? []).filter(
+      (c) => byId.has(c.id) && isDistillConversationEligible(c)
+    );
+  }, [conversationsQuery.data, selectedDistillConversationIds]);
+
+  const distillSourceAgentOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const options: { agentId: string; displayName: string }[] = [];
+    for (const c of selectedDistillConversations) {
+      const agentId = c.source_agent_id;
+      if (!agentId || seen.has(agentId)) continue;
+      seen.add(agentId);
+      const row = (agentsQuery.data ?? []).find((a) => a.agent_id === agentId);
+      const participant = c.participants.find((p) => p.type === "agent" && p.id === agentId);
+      options.push({
+        agentId,
+        displayName: row?.display_name ?? participant?.display_name ?? agentId,
+      });
+    }
+    return options;
+  }, [agentsQuery.data, selectedDistillConversations]);
+
   // For direct-agent conversations, surface the agent's owning node (name +
   // online status) and the agent_id used by the ⚙ Config navigation.
   const headerAgentContext = useMemo<{
@@ -422,6 +545,8 @@ export function ChatWorkspacePageV2() {
 
   const [streamState, dispatch] = useReducer(streamReducer, emptyConversationState);
 
+  messagesQueryFetchingRef.current = messagesQuery.isFetching;
+
   // Persistent cache for token_usage (and delivery_status) so that switching
   // browser tabs — which triggers React Query refetchOnWindowFocus — does not
   // wipe token chips.  REST history never carries token_usage; only WS
@@ -438,11 +563,29 @@ export function ChatWorkspacePageV2() {
     }
   }, [streamState.messages]);
 
+  const visibleMessages = streamState.conversation_id === conversationId
+    ? streamState.messages
+    : [];
+
+  useEffect(() => {
+    conversationIdRef.current = conversationId;
+    setHistoryCursor(null);
+    setHasMoreHistory(null);
+    setIsLoadingHistory(false);
+    historyRequestRef.current = null;
+    pendingLiveMessageIdsRef.current.clear();
+    if (conversationId) {
+      dispatch({ type: "reset", conversationId, messages: [] });
+    }
+  }, [conversationId]);
+
   // Seed the reducer with REST history whenever the active conversation or its
   // historical fetch changes.  Prefer the persistent cache, then fallback to
   // the current reducer state.
   useEffect(() => {
     if (!conversationId || !messagesQuery.data) return;
+    setHistoryCursor(messagesQuery.data.next_before_message_id);
+    setHasMoreHistory(messagesQuery.data.next_before_message_id !== null);
     const restored = messagesQuery.data.items.map((m) => {
       const cached = tokenUsageCache.current.get(m.id);
       if (cached) {
@@ -458,21 +601,44 @@ export function ChatWorkspacePageV2() {
       }
       return m;
     });
-    dispatch({ type: "reset", conversationId, messages: restored });
+    const preserveMessageIds = new Set(pendingLiveMessageIdsRef.current);
+    dispatch({ type: "reset", conversationId, messages: restored, preserveMessageIds });
+    pendingLiveMessageIdsRef.current.clear();
   }, [conversationId, messagesQuery.data]);
 
-  // Open the WS stream once for the workspace lifetime; events flow into the
-  // reducer which ignores any not matching the active conversation.
+  const loadOlderMessages = useCallback(async () => {
+    if (!conversationId || !historyCursor || hasMoreHistory !== true || isLoadingHistory) return;
+    const request = historyRequestRef.current;
+    if (request?.conversationId === conversationId && request.cursor === historyCursor) return;
+    historyRequestRef.current = { conversationId, cursor: historyCursor };
+    setIsLoadingHistory(true);
+    try {
+      const page = await listMessages(conversationId, {
+        limit: HISTORY_PAGE_SIZE,
+        beforeMessageId: historyCursor,
+        markAsRead: false
+      });
+      if (conversationIdRef.current !== conversationId) return;
+      dispatch({ type: "prepend_history", messages: page.items });
+      setHistoryCursor(page.next_before_message_id);
+      setHasMoreHistory(page.next_before_message_id !== null);
+    } finally {
+      if (
+        historyRequestRef.current?.conversationId === conversationId
+        && historyRequestRef.current.cursor === historyCursor
+      ) {
+        historyRequestRef.current = null;
+      }
+      if (conversationIdRef.current === conversationId) {
+        setIsLoadingHistory(false);
+      }
+    }
+  }, [conversationId, hasMoreHistory, historyCursor, isLoadingHistory]);
+
   // Captures the latest sendersById via a ref so a fresh agents fetch becomes
-  // visible to in-flight reducer dispatches without recreating the WS handle.
+  // visible to in-flight reducer dispatches without recreating the user stream.
   const sendersByIdRef = useRef(sendersById);
   sendersByIdRef.current = sendersById;
-  useEffect(() => {
-    const handle = openChatStream({
-      onEvent: (ev) => dispatch({ type: "event", event: ev, sendersById: sendersByIdRef.current })
-    });
-    return () => handle.close();
-  }, []);
 
   // Subscribe to owner-scoped status events so all node/agent status indicators
   // in the Chat workspace (Node chip, sidebar status dot, mention candidate
@@ -489,6 +655,13 @@ export function ChatWorkspacePageV2() {
         await queryClient.invalidateQueries({ queryKey: ["chat-v2", "conversations"] });
       },
       onEvent: (event) => {
+        const chatEvent = toChatWsEvent(event.eventType, event.payload, event.eventId);
+        if (chatEvent && chatEvent.conversation_id === conversationIdRef.current) {
+          if (chatEvent.type === "message.created" && messagesQueryFetchingRef.current) {
+            pendingLiveMessageIdsRef.current.add(chatEvent.message_id);
+          }
+          dispatch({ type: "event", event: chatEvent, sendersById: sendersByIdRef.current });
+        }
         if (event.eventType === "node.status_changed") {
           const payload = event.payload as { node_id?: unknown; status?: unknown };
           const nodeId = typeof payload.node_id === "string" ? payload.node_id : null;
@@ -543,6 +716,12 @@ export function ChatWorkspacePageV2() {
           // 后端不再 emit，不应出现在 onEvent 分支里。
           // 这条用户维流覆盖所有会话，是驱动侧边栏的正确通道；与会话内
           // openChatStream（只更新当前打开会话的气泡）正交。
+          const payload = event.payload as { conversation_id?: unknown };
+          if (payload.conversation_id === conversationIdRef.current) {
+            void queryClient.invalidateQueries({
+              queryKey: ["chat-v2", "messages", conversationIdRef.current]
+            });
+          }
           if (conversationsRefreshTimer.current) clearTimeout(conversationsRefreshTimer.current);
           conversationsRefreshTimer.current = setTimeout(() => {
             void queryClient.invalidateQueries({ queryKey: ["chat-v2", "conversations"] });
@@ -654,6 +833,129 @@ export function ChatWorkspacePageV2() {
     || removeParticipantMutation.isPending
     || dissolveMutation.isPending;
 
+  function enterDistillMode(conversationId?: string) {
+    setDistillMode(true);
+    setDistillError(null);
+    setDistillNotice(null);
+    if (conversationId) {
+      const conversation = (conversationsQuery.data ?? []).find((item) => item.id === conversationId);
+      if (!conversation || !isDistillConversationEligible(conversation)) {
+        setDistillNotice(t("chat.distill.selectionRequired"));
+        return;
+      }
+      setSelectedDistillConversationIds((prev) => {
+        const next = new Set(prev);
+        next.add(conversationId);
+        return next;
+      });
+    }
+  }
+
+  function cancelDistillMode() {
+    setDistillMode(false);
+    setSelectedDistillConversationIds(new Set());
+    setShowDistillDialog(false);
+    setDistillError(null);
+    setDistillNotice(null);
+  }
+
+  function toggleDistillConversation(conversationId: string) {
+    const conversation = (conversationsQuery.data ?? []).find((item) => item.id === conversationId);
+    if (!conversation || !isDistillConversationEligible(conversation)) return;
+    setDistillNotice(null);
+    setSelectedDistillConversationIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(conversationId)) next.delete(conversationId);
+      else next.add(conversationId);
+      return next;
+    });
+  }
+
+  function openDistillDialog() {
+    if (selectedDistillConversations.length === 0) {
+      setDistillNotice(t("chat.distill.selectionRequired"));
+      return;
+    }
+    setDistillNotice(null);
+    const sourceAgentIds = [...new Set(selectedDistillConversations.map((c) => c.source_agent_id).filter(Boolean) as string[])];
+    setDistillExecutionAgentId(sourceAgentIds.length === 1 ? sourceAgentIds[0]! : "");
+    setDistillTargetScope("agent");
+    setDistillError(null);
+    setShowDistillDialog(true);
+  }
+
+  async function getDistillExecutionReadiness(agentId: string): Promise<{
+    distillerVisible: boolean;
+    skillViewEnabled: boolean;
+  }> {
+    const [config, capabilities] = await Promise.all([
+      getAgentConfig(agentId, "live"),
+      getAgentCapabilities(agentId),
+    ]);
+    const capSkills = normalizeAllowlistOptions(capabilities.skills);
+    const capTools = normalizeAllowlistOptions(capabilities.tools);
+    return {
+      distillerVisible: resolveEnabledSkills(config.skills ?? [], capSkills).some(
+        (skill) => skill.name === DISTILL_SKILL_NAME
+      ),
+      skillViewEnabled: resolveEnabledTools(config.tool_allowlist ?? [], capTools).includes("skill_view"),
+    };
+  }
+
+  async function startDistillation() {
+    if (!distillExecutionAgentId) return;
+    if (selectedDistillConversations.length === 0) {
+      setDistillError(t("chat.distill.selectionRequired"));
+      setDistillNotice(t("chat.distill.selectionRequired"));
+      return;
+    }
+    setDistillSubmitting(true);
+    setDistillError(null);
+    try {
+      const readiness = await getDistillExecutionReadiness(distillExecutionAgentId);
+      if (!readiness.distillerVisible && !readiness.skillViewEnabled) {
+        setDistillError(t("chat.distill.requireDistillerAndSkillView"));
+        return;
+      }
+      if (!readiness.distillerVisible) {
+        setDistillError(t("chat.distill.requireDistiller"));
+        return;
+      }
+      if (!readiness.skillViewEnabled) {
+        setDistillError(t("chat.distill.requireSkillView"));
+        return;
+      }
+      const agentName =
+        distillSourceAgentOptions.find((a) => a.agentId === distillExecutionAgentId)?.displayName
+        ?? distillExecutionAgentId;
+      const conv = await createConversation({
+        title: `Skill distill · ${agentName}`,
+        agentIds: [distillExecutionAgentId],
+      });
+      queryClient.setQueryData<Conversation[] | undefined>(["chat-v2", "conversations"], (prev) => {
+        const rest = (prev ?? []).filter((c) => c.id !== conv.id);
+        return [conv, ...rest];
+      });
+      setDraftSeed({
+        id: `distill-${conv.id}-${Date.now()}`,
+        text: buildDistillDraft({
+          sourceJsonlPaths: selectedDistillConversations.map((c) => c.source_jsonl_path!).filter(Boolean),
+          executionAgentId: distillExecutionAgentId,
+          targetScope: distillTargetScope,
+        }),
+      });
+      setShowDistillDialog(false);
+      setDistillMode(false);
+      setSelectedDistillConversationIds(new Set());
+      await queryClient.invalidateQueries({ queryKey: ["chat-v2", "conversations"] });
+      navigate(`/chat/${conv.id}`);
+    } catch (err) {
+      setDistillError(err instanceof Error ? err.message : t("chat.distill.startError"));
+    } finally {
+      setDistillSubmitting(false);
+    }
+  }
+
   const showList = !isMobile || !conversationId;
   const showDetail = !isMobile || Boolean(conversationId);
 
@@ -689,6 +991,14 @@ export function ChatWorkspacePageV2() {
           activeConversationId={conversationId ?? null}
           onSelect={(id) => navigate(`/chat/${id}`)}
           onNewGroup={() => setShowNewGroup(true)}
+          distillMode={distillMode}
+          selectedDistillConversationIds={selectedDistillConversationIds}
+          selectedDistillEligibleCount={selectedDistillConversations.length}
+          distillNotice={distillNotice}
+          onToggleDistillConversation={toggleDistillConversation}
+          onEnterDistillMode={enterDistillMode}
+          onCancelDistillMode={cancelDistillMode}
+          onStartDistill={openDistillDialog}
           agents={(agentsQuery.data ?? []).map((a) => {
             const nodeRow = (nodesQuery.data ?? []).find((n) => n.node_id === a.node_id);
             return {
@@ -703,8 +1013,9 @@ export function ChatWorkspacePageV2() {
         activeConversation ? (
           <MessagePane
             conversation={activeConversation}
-            messages={streamState.messages}
+            messages={visibleMessages}
             mentionCandidates={mentionCandidates}
+            draftSeed={draftSeed}
             slashSkills={slashSkills}
             nodeName={headerAgentContext.nodeName}
             nodeStatus={headerAgentContext.nodeStatus}
@@ -712,11 +1023,17 @@ export function ChatWorkspacePageV2() {
             agentInitials={headerAgentContext.agentInitials}
             onSend={(text, attachments) => sendMutation.mutate({ text, attachments })}
             sendError={sendError}
+            selfUserId={selfUserId}
             isSending={sendMutation.isPending}
             isDirectChat={conversationKind === "direct-agent"}
             agentOnline={headerAgentContext.nodeStatus === "online"}
             onFork={(messageId) => forkMutation.mutate(messageId)}
             forkPending={forkMutation.isPending}
+            hasMoreHistory={hasMoreHistory}
+            isLoadingHistory={isLoadingHistory}
+            onLoadOlder={() => {
+              void loadOlderMessages();
+            }}
             onBack={isMobile ? () => navigate("/chat") : undefined}
             isMobile={isMobile}
             onOpenConfig={
@@ -752,6 +1069,88 @@ export function ChatWorkspacePageV2() {
           onCreate={(payload) => createGroupMutation.mutate(payload)}
         />
       )}
+      {showDistillDialog && (
+        <div className="chat-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="distill-dialog-title">
+          <div className="chat-modal">
+            <header className="chat-modal-header">
+              <h2 id="distill-dialog-title">{t("chat.distill.title")}</h2>
+              <p>{t("chat.distill.subtitle")}</p>
+            </header>
+            <div className="chat-modal-body">
+              {distillSourceAgentOptions.length > 1 && (
+                <section className="chat-modal-section">
+                  <p className="chat-modal-section-label">Execution agent</p>
+                  <ul className="chat-modal-agents">
+                    {distillSourceAgentOptions.map((agent) => (
+                      <li key={agent.agentId}>
+                        <label className={`chat-modal-agent${distillExecutionAgentId === agent.agentId ? " chat-modal-agent--on" : ""}`}>
+                          <input
+                            type="radio"
+                            name="distill-execution-agent"
+                            checked={distillExecutionAgentId === agent.agentId}
+                            onChange={() => setDistillExecutionAgentId(agent.agentId)}
+                          />
+                          <span className="chat-modal-agent-body">
+                            <span className="chat-modal-agent-name">{agent.displayName}</span>
+                            <span className="chat-modal-agent-desc">{agent.agentId}</span>
+                          </span>
+                        </label>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+              {distillSourceAgentOptions.length === 1 && (
+                <section className="chat-modal-section">
+                  <p className="chat-modal-section-label">Execution agent</p>
+                  <p className="chat-distill-static-agent">
+                    {distillSourceAgentOptions[0]!.displayName}
+                  </p>
+                </section>
+              )}
+              <section className="chat-modal-section">
+                <p className="chat-modal-section-label">{t("chat.distill.scope")}</p>
+                <div className="chat-distill-scope-options">
+                  <label className={`chat-distill-scope${distillTargetScope === "agent" ? " chat-distill-scope--on" : ""}`}>
+                    <input
+                      type="radio"
+                      name="distill-target-scope"
+                      checked={distillTargetScope === "agent"}
+                      onChange={() => setDistillTargetScope("agent")}
+                    />
+                    <span>Agent</span>
+                  </label>
+                  <label className={`chat-distill-scope${distillTargetScope === "global" ? " chat-distill-scope--on" : ""}`}>
+                    <input
+                      type="radio"
+                      name="distill-target-scope"
+                      checked={distillTargetScope === "global"}
+                      onChange={() => setDistillTargetScope("global")}
+                    />
+                    <span>Global</span>
+                  </label>
+                </div>
+              </section>
+              {distillError && (
+                <p className="chat-distill-error" role="alert">{distillError}</p>
+              )}
+            </div>
+            <footer className="chat-modal-footer">
+              <button type="button" className="chat-modal-btn-ghost" onClick={() => setShowDistillDialog(false)}>
+                {t("chat.newGroup.cancel")}
+              </button>
+              <button
+                type="button"
+                className="chat-modal-btn-primary"
+                disabled={!distillExecutionAgentId || distillSubmitting}
+                onClick={() => void startDistillation()}
+              >
+                {distillSubmitting ? t("chat.distill.starting") : "Start distillation"}
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
       {showGroupSettings && activeConversation && isGroupKind && (
         <GroupSettings
           title={activeConversation.title}
@@ -770,4 +1169,3 @@ export function ChatWorkspacePageV2() {
     </div>
   );
 }
-

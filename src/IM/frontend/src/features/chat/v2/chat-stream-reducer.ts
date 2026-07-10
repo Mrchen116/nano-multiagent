@@ -106,19 +106,24 @@ export function applyWsEvent(
       // passes the agents-by-user-id map so the bubble can show the right
       // display_name immediately, instead of rendering the raw UUID until the
       // next history refetch.
-      const resolvedDisplayName = opts?.sendersById?.[ev.sender_user_id] ?? null;
+      const resolvedDisplayName =
+        ev.sender?.display_name ??
+        ev.sender_display_name ??
+        opts?.sendersById?.[ev.sender_user_id] ??
+        null;
+      const senderId = ev.sender?.id ?? ev.sender_user_id.replace(/^(agent|user):/, "");
       const created: Message = {
         id: ev.message_id,
         conversation_id: ev.conversation_id,
         sender: {
           type: ev.sender_type === "agent" ? "agent" : ev.sender_type === "system" ? "system" : "user",
-          id: ev.sender_user_id.replace(/^(agent|user):/, ""),
+          id: senderId,
           display_name: resolvedDisplayName
         },
         sender_user_id: ev.sender_user_id,
         sender_type: ev.sender_type,
         content: ev.content,
-        attachments: [],
+        attachments: ev.attachments ?? [],
         delivery_status: ev.delivery_status,
         created_at: ev.created_at,
         tool_calls: ev.tool_calls,

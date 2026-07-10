@@ -131,6 +131,7 @@ GOLDEN_TOOLS: list[dict[str, object]] = [
     {"name": "web_fetch", "description": "", "default_on": True},
     {"name": "web_search", "description": "", "default_on": True},
     {"name": "skill_manage", "description": "", "default_on": True},
+    {"name": "skill_view", "description": "", "default_on": True},
     {"name": "memory", "description": "", "default_on": True},
     {"name": "send_message", "description": "", "default_on": False},
     {"name": "cron", "description": "", "default_on": False},

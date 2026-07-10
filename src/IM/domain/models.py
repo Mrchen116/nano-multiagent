@@ -146,11 +146,19 @@ class Conversation:
     unread_count: int
     last_message_preview: str | None
     last_message_at: str | None
+    config_agent_id: str | None
     config_profile_version: int | None
     created_at: str
+    external_source: str | None = None
+    external_chat_id: str | None = None
     participants: list[Actor] = field(default_factory=list)
+    run_state: str = "idle"
+    source_agent_id: str | None = None
+    source_jsonl_path: str | None = None
 
     def __post_init__(self) -> None:
+        if self.run_state not in {"idle", "running"}:
+            raise ValueError("conversation.run_state must be idle or running")
         if self.participants:
             return
         object.__setattr__(
