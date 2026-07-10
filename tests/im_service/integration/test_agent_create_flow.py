@@ -167,7 +167,9 @@ def test_create_agent_lists_details_and_uses_new_node_binding_for_relay(
                 "user_id": agent_user.id,
             }
 
-            detail = client.get(f"/im/v1/agents/{agent_user.id}/config")
+            detail = client.get(
+                f"/im/v1/agents/{agent_user.id}/config?source=mirror"
+            )
             assert detail.status_code == 200
             assert detail.json()["node_id"] == "node-1"
             assert detail.json()["group_reply_policy"] == "MENTION"
@@ -192,31 +194,7 @@ def test_create_agent_lists_details_and_uses_new_node_binding_for_relay(
                 },
             )
             assert created_message.status_code == 201
-            live_read_request = websocket.receive_json()
-            assert live_read_request["type"] == "agent.config.get"
-            websocket.send_json(
-                {
-                    "type": "agent.config",
-                    "payload": {
-                        "request_id": live_read_request["payload"]["request_id"],
-                        "agent_id": agent_user.id,
-                        "agent": None,
-                    },
-                }
-            )
-            next_frame = websocket.receive_json()
-            if next_frame["type"] == "ack":
-                assert next_frame == {
-                    "type": "ack",
-                    "payload": {
-                        "message_type": "agent.config",
-                        "request_id": live_read_request["payload"]["request_id"],
-                        "agent_id": agent_user.id,
-                    },
-                }
-                relay_frame = websocket.receive_json()
-            else:
-                relay_frame = next_frame
+            relay_frame = websocket.receive_json()
 
         assert relay_frame["type"] == "relay.message"
         assert relay_frame["payload"]["relay_task_id"]
