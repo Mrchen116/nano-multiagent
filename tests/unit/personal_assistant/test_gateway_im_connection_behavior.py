@@ -105,6 +105,54 @@ def test_im_connection_connects_registers_and_handles_downstream_frames(
     assert heartbeat_seen == [("agent-a", "manual")]
 
 
+def test_im_connection_dedupes_replayed_relay_message_frame(tmp_path: Path) -> None:
+    inbound_seen: list[InboundMessage] = []
+    relay_adapter = WebRelayAdapter()
+    relay_adapter.start(inbound_seen.append)
+    relay_frame = {
+        "type": "relay.message",
+        "payload": {
+            "relay_task_id": "relay-1",
+            "idempotency_key": "idem-1",
+            "message": {
+                "id": "msg-1",
+                "sender_user_id": "user-1",
+                "conversation_id": "conv-1",
+                "content": "hello once",
+            },
+            "metadata": {"conversation_type": "direct"},
+        },
+    }
+    socket = _FakeWebSocket(
+        incoming=[
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(relay_frame),
+            json.dumps(relay_frame),
+        ]
+    )
+    reporter = UpstreamReporter(
+        node=NodeConfig(node_id="node-1"),
+        agents=_agents(tmp_path),
+        send_frame=lambda _message_type, _payload: None,
+    )
+    manager = IMConnectionManager(
+        config=IMConnectionConfig(url="http://im.local:9000", token="secret"),
+        reporter=reporter,
+        relay_adapter=relay_adapter,
+        connect=lambda url, headers: _connect_fake(socket, [], url, headers),
+    )
+
+    async def _exercise() -> None:
+        await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001 - node.register ack
+        await manager._listen_once()  # noqa: SLF001 - first relay.message
+        await manager._listen_once()  # noqa: SLF001 - replayed relay.message
+
+    asyncio.run(_exercise())
+
+    assert [item.text for item in inbound_seen] == ["hello once"]
+
+
 def test_im_connection_replies_with_live_agent_config_snapshot(tmp_path: Path) -> None:
     relay_adapter = WebRelayAdapter()
     relay_adapter.start(lambda _message: None)

@@ -42,6 +42,11 @@ from IM.infra.repositories import (
     UserRepository,
 )
 from IM.ws.user_stream import UserStreamRegistry
+from IM.ws.gateway_protocol import (
+    parse_delivery_receipt_event,
+    parse_node_report_event,
+    parse_streaming_delta_event,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1105,7 +1110,8 @@ class GatewayHandler:
         # invalid and we cannot even look up the connection. Return an error frame so the Gateway
         # knows the frame was rejected, but keep the WS connection alive.
         try:
-            node_id = _require_text(payload.get("node_id"), field_name="node_id")
+            event = parse_node_report_event(payload)
+            node_id = event.node_id
         except (RuntimeError, ValueError) as exc:
             return {
                 "type": "error",
@@ -1155,12 +1161,13 @@ class GatewayHandler:
         if self._event_bridge is None:
             return {"type": "ack", "payload": {"message_type": "node.streaming_delta"}}
 
-        kind = _optional_text(payload.get("kind")) or ""
+        event = parse_streaming_delta_event(payload)
+        kind = event.kind
 
         if kind == "turn_start":
-            agent_id = _require_text(payload.get("agent_id"), field_name="agent_id")
-            to_user_id = _optional_text(payload.get("to_user_id"))
-            raw_conversation_id = _optional_text(payload.get("conversation_id"))
+            agent_id = _require_text(event.agent_id, field_name="agent_id")
+            to_user_id = event.to_user_id
+            raw_conversation_id = event.conversation_id
 
             if to_user_id is not None and raw_conversation_id is None:
                 # feat-393: heartbeat/cron lazy-resolution mode.  Gateway sends to_user_id
@@ -1183,7 +1190,7 @@ class GatewayHandler:
                             "skipped": "repositories_not_configured",
                         },
                     }
-                agent_user_id = _optional_text(payload.get("agent_user_id"))
+                agent_user_id = event.agent_user_id
                 if agent_user_id is None:
                     row = self._user_repository._connection.execute(  # noqa: SLF001
                         "SELECT id FROM users WHERE username = ?",
@@ -1254,7 +1261,7 @@ class GatewayHandler:
             )
             # Resolve IM user ID from agent_id; gateway sends agent_id (e.g. "alpha"),
             # IM stores the agent as username="agent:<agent_id>" in the users table.
-            agent_user_id = _optional_text(payload.get("agent_user_id"))
+            agent_user_id = event.agent_user_id
             if agent_user_id is None and self._user_repository is not None:
                 row = self._user_repository._connection.execute(  # noqa: SLF001
                     "SELECT id FROM users WHERE username = ?",
@@ -1288,21 +1295,17 @@ class GatewayHandler:
             }
 
         elif kind == "message_delta":
-            message_id = _require_text(
-                payload.get("message_id"), field_name="message_id"
-            )
-            delta_text = _optional_text(payload.get("delta_text")) or ""
+            message_id = _require_text(event.message_id, field_name="message_id")
+            delta_text = event.delta_text or ""
             self._event_bridge.on_message_delta(
                 message_id=message_id, delta_text=delta_text
             )
 
         elif kind == "message_completed":
-            message_id = _require_text(
-                payload.get("message_id"), field_name="message_id"
-            )
-            final_content = _optional_text(payload.get("final_content"))
-            token_usage = _parse_token_usage(payload.get("token_usage"))
-            raw_ds = _optional_text(payload.get("delivery_status"))
+            message_id = _require_text(event.message_id, field_name="message_id")
+            final_content = event.final_content
+            token_usage = _parse_token_usage(event.token_usage)
+            raw_ds = event.delivery_status
             # bugfix-380: delivery_status is optional (back-compat: absent → "completed");
             # if provided it must be a known terminal value. Silent fallback was a
             # regression trap — any new failure semantic added upstream (e.g. "cancelled"
@@ -1318,7 +1321,7 @@ class GatewayHandler:
                 )
             # feat-445-M1: per-bubble kernel message_id forwarded by the gateway relay so
             # this bubble row is stamped with the assistant message that produced it.
-            kernel_message_id = _optional_text(payload.get("kernel_message_id"))
+            kernel_message_id = event.kernel_message_id
             self._event_bridge.on_message_completed(
                 message_id=message_id,
                 final_content=final_content,
@@ -1332,35 +1335,27 @@ class GatewayHandler:
             # parked-permission). EventBridge appends a conversation_events row so the
             # message's last_evt advances and the relay watchdog sees the run as alive —
             # the single uniform liveness signal that replaces the permission marker.
-            message_id = _require_text(
-                payload.get("message_id"), field_name="message_id"
-            )
-            source = _optional_text(payload.get("source")) or ""
+            message_id = _require_text(event.message_id, field_name="message_id")
+            source = event.source or ""
             self._event_bridge.on_run_heartbeat(message_id=message_id, source=source)
 
         elif kind == "thinking_segment":
             # feat-439-M2: 一段思考过程项。EventBridge 持久化进 thinking_json 并广播
             # thinking.segment。seq 在 repo 持久化边界赋予(= 当前 tool_calls 数)。
-            message_id = _require_text(
-                payload.get("message_id"), field_name="message_id"
-            )
-            text = _optional_text(payload.get("text")) or ""
+            message_id = _require_text(event.message_id, field_name="message_id")
+            text = event.text or ""
             self._event_bridge.on_thinking_segment(message_id=message_id, text=text)
 
         elif kind == "tool_call_upserted":
-            message_id = _require_text(
-                payload.get("message_id"), field_name="message_id"
-            )
-            tc = _parse_tool_call(payload.get("tool_call"))
+            message_id = _require_text(event.message_id, field_name="message_id")
+            tc = _parse_tool_call(event.tool_call)
             self._event_bridge.on_tool_call_upserted(
                 message_id=message_id, tool_call=tc
             )
 
         elif kind == "tool_call_completed":
-            message_id = _require_text(
-                payload.get("message_id"), field_name="message_id"
-            )
-            tc = _parse_tool_call(payload.get("tool_call"))
+            message_id = _require_text(event.message_id, field_name="message_id")
+            tc = _parse_tool_call(event.tool_call)
             self._event_bridge.on_tool_call_completed(
                 message_id=message_id, tool_call=tc
             )
@@ -1368,10 +1363,8 @@ class GatewayHandler:
         elif kind == "permission_request":
             # PA → IM: agent is awaiting a user decision; EventBridge persists the pending
             # request and fans out permission.request to connected browser clients.
-            message_id = _require_text(
-                payload.get("message_id"), field_name="message_id"
-            )
-            permission_request = payload.get("permission_request")
+            message_id = _require_text(event.message_id, field_name="message_id")
+            permission_request = event.permission_request
             if not isinstance(permission_request, dict):
                 raise ValueError("permission_request must be a dict")
             self._event_bridge.on_permission_request(
@@ -1382,13 +1375,9 @@ class GatewayHandler:
         elif kind == "permission_resolved":
             # PA → IM: user's decision has been forwarded to the agent; update persisted
             # status and notify browser clients so the card can settle.
-            message_id = _require_text(
-                payload.get("message_id"), field_name="message_id"
-            )
-            request_id = _require_text(
-                payload.get("request_id"), field_name="request_id"
-            )
-            decision = _require_text(payload.get("decision"), field_name="decision")
+            message_id = _require_text(event.message_id, field_name="message_id")
+            request_id = _require_text(event.request_id, field_name="request_id")
+            decision = _require_text(event.decision, field_name="decision")
             self._event_bridge.on_permission_resolved(
                 message_id=message_id,
                 request_id=request_id,
@@ -1409,16 +1398,11 @@ class GatewayHandler:
     async def _handle_delivery_receipt(
         self, *, payload: dict[str, object]
     ) -> dict[str, object]:
-        node_id = _require_text(payload.get("node_id"), field_name="node_id")
-        relay_task_id = _require_text(
-            payload.get("relay_task_id"), field_name="relay_task_id"
-        )
-        delivery_status = _require_text(
-            payload.get("delivery_status"), field_name="delivery_status"
-        )
-        detail = payload.get("detail")
-        if detail is not None and not isinstance(detail, str):
-            raise ValueError("detail must be a string when provided")
+        event = parse_delivery_receipt_event(payload)
+        node_id = event.node_id
+        relay_task_id = event.relay_task_id
+        delivery_status = event.delivery_status
+        detail = event.detail
         async with self._lock:
             if node_id not in self._connections:
                 return _not_registered_error(node_id=node_id)

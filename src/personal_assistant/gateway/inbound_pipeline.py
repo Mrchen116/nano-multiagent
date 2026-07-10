@@ -28,6 +28,7 @@ from personal_assistant.gateway.background_session_events import (
 from personal_assistant.gateway.group_context_store import GroupContextStore
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
+from personal_assistant.gateway.runtime_protocol import external_identity_from_message
 from personal_assistant.gateway.session_keys import (
     SessionBinding,
     SessionBindingStore,
@@ -669,18 +670,11 @@ class InboundPipeline:
 
     @staticmethod
     def _group_buf_key_for_agent(message: InboundMessage, agent_id: str) -> str:
-        metadata = dict(message.metadata)
-        external_source = metadata.get("external_source")
-        external_chat_id = metadata.get("external_chat_id")
-        if (
-            isinstance(external_source, str)
-            and external_source.strip()
-            and isinstance(external_chat_id, str)
-            and external_chat_id.strip()
-        ):
+        external_identity = external_identity_from_message(message)
+        if external_identity is not None:
             return build_external_session_key(
-                external_source=external_source.strip(),
-                external_chat_id=external_chat_id.strip(),
+                external_source=external_identity.external_source,
+                external_chat_id=external_identity.external_chat_id,
                 agent_id=agent_id,
             )
         return f"{agent_id}:{message.channel_name}:{message.external_chat_id}"
@@ -1858,16 +1852,9 @@ def _normalize_dispatch_id_part(value: str) -> str:
 
 def _is_external_channel_inbound(message: "InboundMessage") -> bool:
     """Return whether this message originated from an external channel, not IM relay."""
-    metadata = dict(message.metadata)
-    trigger_source = metadata.get("trigger_source")
-    external_source = metadata.get("external_source")
-    external_chat_id = metadata.get("external_chat_id")
+    external_identity = external_identity_from_message(message)
     return bool(
-        isinstance(external_source, str)
-        and external_source.strip()
-        and isinstance(external_chat_id, str)
-        and external_chat_id.strip()
-        and trigger_source != "im"
+        external_identity is not None and external_identity.trigger_source != "im"
     )
 
 

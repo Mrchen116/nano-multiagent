@@ -6,12 +6,12 @@ import asyncio
 from typing import Any
 
 from personal_assistant.channels.base import ReplyContext
-from personal_assistant.gateway.session_keys import SessionBindingStore
-from personal_assistant.main import (
-    _build_bg_reply_sender,
-    _build_kernel_event_observer,
-    _build_session_event_callback,
+from personal_assistant.gateway.runtime_delivery.background import (
+    build_bg_reply_sender,
+    build_session_event_callback,
 )
+from personal_assistant.gateway.session_keys import SessionBindingStore
+from personal_assistant.main import _build_kernel_event_observer
 
 
 class _FakeIMManager:
@@ -35,7 +35,7 @@ def test_feishu_visible_control_text_goes_to_external_and_shadow_im() -> None:
     def _external_sender(text: str, metadata: dict[str, str]) -> None:
         external.append((text, dict(metadata)))
 
-    sender = _build_bg_reply_sender(
+    sender = build_bg_reply_sender(
         im_connection_manager_factory=lambda: manager,
         external_reply_sender=_external_sender,
     )
@@ -82,7 +82,7 @@ def test_feishu_visible_control_text_goes_to_external_and_shadow_im() -> None:
 
 def test_feishu_visible_control_text_goes_to_external_without_im_manager() -> None:
     external: list[tuple[str, dict[str, str]]] = []
-    sender = _build_bg_reply_sender(
+    sender = build_bg_reply_sender(
         im_connection_manager_factory=lambda: None,
         external_reply_sender=lambda text, metadata: external.append(
             (text, dict(metadata))
@@ -182,7 +182,7 @@ def test_feishu_intermediate_reply_goes_to_external_without_im_manager() -> None
 def test_im_shadow_visible_text_does_not_go_back_to_feishu() -> None:
     manager = _FakeIMManager()
     external: list[tuple[str, dict[str, str]]] = []
-    sender = _build_bg_reply_sender(
+    sender = build_bg_reply_sender(
         im_connection_manager_factory=lambda: manager,
         external_reply_sender=lambda text, metadata: external.append(
             (text, dict(metadata))
@@ -233,7 +233,7 @@ def test_system_notification_for_feishu_binding_targets_shadow_im_only() -> None
             },
         ),
     )
-    callback = _build_session_event_callback(
+    callback = build_session_event_callback(
         im_connection_manager_factory=lambda: manager,
         session_store=store,
     )
