@@ -31,7 +31,7 @@ jobs:
         run: ruff format --check .
 
       - name: pytest (not e2e)
-        run: pytest -m "not e2e" -n 6 --dist worksteal --durations=20 --durations-min=0.5
+        run: pytest -m "not e2e" -n 4 --dist worksteal --durations=20 --durations-min=0.5
 
   frontend:
     name: Frontend checks
