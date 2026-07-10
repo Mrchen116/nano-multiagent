@@ -5,7 +5,7 @@
 # subprocess-calls scripts/e2e-up.sh into a pytest tmp dir) and drives 真正的用户
 # 旅程 black-box through IM's public HTTP + WebSocket interface against a real LLM.
 #
-# feat-421-M1. Design: docs/changes/feat-421-critical-path-e2e-suite/design.md
+# feat-421-M1. Design: docs/changes/archive/feat-421-critical-path-e2e-suite/design.md
 # Catalog:      docs/e2e-critical-paths.md
 #
 # Prerequisites (else the suite cleanly SKIPS, never errors):

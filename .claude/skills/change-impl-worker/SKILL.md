@@ -27,7 +27,7 @@ description: 用于作为 subagent 执行单个 milestone 的编码实现,或处
 10. **前端 UI 变更必须真实浏览器验收**。任何影响用户界面的改动,不能只依赖 jsdom、组件测试、类型检查或截图脑补。必须用真实浏览器打开相关页面/状态,完成关键交互,检查 console error / network failure,并在 progress.md 记录证据。核心业务路径和历史 bug 必须留下可重复的 regression 保护;若项目已有浏览器 E2E 体系,核心路径优先沉淀为 E2E 用例;没有则补适合现有测试体系的交互/回归测试,不为单个 milestone 强行引入新基础设施。视觉/样式细节以截图证据和状态覆盖为主,不强行用 E2E 测样式。
 11. **假设主机被并发使用,自取并回收运行时资源**。任何占端口 / 绑 socket / 起长驻服务的动作:**之前**分配空闲端口(项目 AGENTS.md 应有端口 helper 和服务参数化清单),**之后**退出/HANDOFF 前 kill 自己起的进程。资源被占且无法切换 → 阻塞,按 §8.2 HANDOFF,不准改写 evidence 标准回避。**live 环境跑不通(proxy / WS / 绑定 / 服务起不来)同样算阻塞**:不许自己降级成"API 层验证 / 集成测试也行"凑 DONE,而是 `SendMessage` 找 orchestrator(§2.5.1,它会修 env 或调整),并在回报里**如实披露 env 受阻**——别报一个干净的 DONE 把"其实没跑通 live"吞掉(这会让 orchestrator 误签收、把 live 验证甩进往返轮)。
 12. **撞到 bug 先找根因再修**。遇到非平凡 bug / 测试失败 / 意外行为 → **动手修之前先 invoke `systematic-debugging` skill 走根因纪律**,禁止「猜一个改一下试试」。与 §0.2(禁兜底)同源:都要求修根因、不修症状、不让错误静默蔓延。根因定位后回 §5 三提交(C1 写复现测试再修)。展开见 §7.2。
-13. **契约层永不由你写**。`docs/specs/`(canonical,归 orchestrator)、`docs/changes/<unit>/specs/`(delta,归 design-author)都不归你——你只写 milestone 内 `progress.md` / `tasks.md`。对外行为有变就在 progress.md 记一句给 orchestrator,别顺手写:实现视角写出的契约必带实现细节。
+13. **契约层永不由你写**。`docs/specs/`(canonical,归 orchestrator)、`<unit_path>/specs/`(delta,归 design-author)都不归你——你只写 milestone 内 `progress.md` / `tasks.md`。对外行为有变就在 progress.md 记一句给 orchestrator,别顺手写:实现视角写出的契约必带实现细节。
 
 ---
 
@@ -76,9 +76,24 @@ branch: milestone/<milestone_id>
 mode: full | lite                            # lite 时还需写 fix.md 修复/验证两段
 ```
 
-其他配置(`test_command` / `forbidden_scope` / `prevention_rules`)**不在派发包里**——你自己从 `docs/changes/<unit_dir>/design.md`(lite 模式下读 fix.md)和项目级文档(`CLAUDE.md` / `AGENTS.md` / `LOGBOOK.md`)读出来。设计期省派发包字段,实施期 worker 自取上下文。
+进入 milestone worktree 后先解析 unit 文档根路径;PR 前为活动区,归档后的 CI/fix 轮为历史区：
 
-**完整路径推导**:`docs/changes/<unit_dir>/<milestone_dir>/`,例 `docs/changes/feat-104-chat-mention-picker/M1-domain-model/`。
+```bash
+unit_matches=$(find docs/changes docs/changes/archive -mindepth 1 -maxdepth 1 -type d \
+  -name "$unit_dir" -print 2>/dev/null)
+match_count=$(printf '%s\n' "$unit_matches" | sed '/^$/d' | wc -l | tr -d ' ')
+if [[ "$match_count" -eq 0 ]]; then echo "unit path not found: $unit_dir" >&2; exit 1; fi
+if [[ "$match_count" -ne 1 ]]; then
+  echo "unit path is ambiguous: $unit_dir" >&2
+  printf '%s\n' "$unit_matches" >&2
+  exit 1
+fi
+unit_path=$unit_matches
+```
+
+其他配置(`test_command` / `forbidden_scope` / `prevention_rules`)**不在派发包里**——你自己从 `<unit_path>/design.md`(lite 模式下读 fix.md)和项目级文档(`CLAUDE.md` / `AGENTS.md` / `LOGBOOK.md`)读出来。设计期省派发包字段,实施期 worker 自取上下文。
+
+**完整路径推导**:`<unit_path>/<milestone_dir>/`;`unit_path` 可能位于活动区或 archive。
 
 ---
 
@@ -117,8 +132,8 @@ repo_root=$(git rev-parse --show-toplevel)
 
 按顺序读,缺哪个就停下来报告:
 
-1. **`docs/changes/<unit_dir>/<首文档>.md`** —— 用户视角和验收标准(lite 模式下首文档是 fix.md,前两段已写)
-2. **`docs/changes/<unit_dir>/design.md`** —— 架构意图、关键决策、接口、Milestone 表对应行(本 milestone 的"范围 / 退出标准")。如果 design.md 链接了前端原型 `prototype.html`,必须在规划前打开参考,并提取 `## 前端原型` 的原型对齐契约;本 milestone 相关的 `must-match` 行要复制到 `tasks.md` 的 Prototype / Reference Contract。**lite 模式跳过这步**(没有 design.md)
+1. **`<unit_path>/<首文档>.md`** —— 用户视角和验收标准(lite 模式下首文档是 fix.md,前两段已写)
+2. **`<unit_path>/design.md`** —— 架构意图、关键决策、接口、Milestone 表对应行(本 milestone 的"范围 / 退出标准")。如果 design.md 链接了前端原型 `prototype.html`,必须在规划前打开参考,并提取 `## 前端原型` 的原型对齐契约;本 milestone 相关的 `must-match` 行要复制到 `tasks.md` 的 Prototype / Reference Contract。**lite 模式跳过这步**(没有 design.md)
 3. **`CLAUDE.md` / `AGENTS.md`** —— 项目级约定(测试命令、注释规范、模块边界)
 4. **`LOGBOOK.md`(若有)** —— 跨任务经验,提取与本 milestone 相关的注意事项
 5. **现有代码结构** —— 模块划分、命名约定、已有 fixture / helper(避免重复造轮子)
@@ -163,10 +178,16 @@ orchestrator 是这个 unit 的技术领导者,手里有全局(用户意图、�
 复制本 skill `assets/tasks.md` 模板到:
 
 ```
-docs/changes/<unit_dir>/<milestone_dir>/tasks.md
+<unit_path>/<milestone_dir>/tasks.md
 ```
 
 (这个目录由 design-author 已经创建为空,或 lite 模式下由 orchestrator 创建)
+
+design-author 用 `.gitkeep` 让空目录能跨 commit/worktree 保留。首次规划前删除它：
+
+```bash
+rm -f "<unit_path>/<milestone_dir>/.gitkeep"
+```
 
 填写:
 
@@ -175,7 +196,7 @@ docs/changes/<unit_dir>/<milestone_dir>/tasks.md
 - **测试策略**:见 §3.1
 - **Roadpoints**:把 milestone 拆成 3-7 个 roadpoint(R1/R2/...),每个能独立 C1+C2+C3 提交完成。tasks.md 里每个 roadpoint 状态字段用 `TODO / DOING / DONE / BLOCKED` 四档之一
 
-复制 `assets/progress.md` 模板到 `docs/changes/<unit_dir>/<milestone_dir>/progress.md`(空骨架,后续每个 R 完成补齐)。
+复制 `assets/progress.md` 模板到 `<unit_path>/<milestone_dir>/progress.md`(空骨架,后续每个 R 完成补齐)。
 
 提交一次"plan" commit + `git push -u origin <branch>`。
 
@@ -210,7 +231,7 @@ docs/changes/<unit_dir>/<milestone_dir>/tasks.md
 
 - 用产品真实入口打开相关页面/状态,不要只依赖 jsdom / 组件测试。
 - 覆盖 design / 首文档明确要求的关键 viewport 或形态(例如桌面/移动、空态/加载/完成态)。
-- 截图或录屏必须落在 unit 目录内(例如 `docs/changes/<unit_dir>/<milestone_dir>/evidence/`),并在 `progress.md` 记录路径;只给 `/tmp/...` 或临时浏览器状态不算可复查证据。
+- 截图或录屏必须落在 unit 目录内(例如 `<unit_path>/<milestone_dir>/evidence/`),并在 `progress.md` 记录路径;只给 `/tmp/...` 或临时浏览器状态不算可复查证据。
 - 如果有原型/设计稿/reference,必须在 `progress.md` 写 `Prototype Comparison` 表,逐行记录对照对象、实际证据、viewport/状态、match/deviation、偏离是否被 design 授权。页面"能渲染"不等于"符合 reference"。
 - 如果原型与 design 文字互相冲突,或不清楚某个原型区域是 `must-match` 还是占位,立即问 orchestrator;不要自己取舍后继续报 DONE。
 
@@ -301,7 +322,7 @@ docs/changes/<unit_dir>/<milestone_dir>/tasks.md
 - design.md 是否同步改: <是 / 是,且加了 Changelog>
 ```
 
-3. 同步改 `docs/changes/<unit_dir>/design.md` 正文
+3. 同步改 `<unit_path>/design.md` 正文
 4. **如果影响后续 milestone**,在 `design.md` 顶部 Changelog 段追加一行:
 
 ```markdown
@@ -504,16 +525,16 @@ orchestrator 会派新 worker 接同一个 worktree 续跑。新 worker 启动�
 
 ## §10 输入输出契约
 
-**输入**:派发包 4 字段 + `docs/changes/<unit_id>/` 已通过门禁 2(design.md 存在,Milestone 表完整,本 milestone 子目录已建空)。
+**输入**:派发包 4 字段 + `<unit_path>/` 已通过门禁 2(design.md 存在,Milestone 表完整,本 milestone 子目录已建空)。
 
 **输出**:
 
-- `docs/changes/<unit_dir>/<milestone_dir>/tasks.md` —— roadpoint 列表,全部 DONE
-- `docs/changes/<unit_dir>/<milestone_dir>/progress.md` —— 每个 roadpoint 的 Context/Decision/Rationale/Evidence/Rollback/Commits 段
+- `<unit_path>/<milestone_dir>/tasks.md` —— roadpoint 列表,全部 DONE
+- `<unit_path>/<milestone_dir>/progress.md` —— 每个 roadpoint 的 Context/Decision/Rationale/Evidence/Rollback/Commits 段
 - 代码 + 测试/验收清单/验收证据,合到 `unit/<unit_id>` 分支
 - `LOGBOOK.md`(若有沉淀)
 - design.md 的 Changelog(若实施期有偏差修订)
-- lite 模式还需:`docs/changes/<unit_dir>/fix.md` 的"修复"和"验证"段已回填
+- lite 模式还需:`<unit_path>/fix.md` 的"修复"和"验证"段已回填
 - `gh issue create` 立的 out-of-unit issue(若有)
 - 回报字符串(§8.1 / §8.2 格式)给 orchestrator
 

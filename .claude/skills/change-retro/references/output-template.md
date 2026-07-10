@@ -1,6 +1,6 @@
 # 复盘文档输出模板
 
-照这个骨架写 `docs/changes/<unit_dir>/retro-pipeline-rootcause.md`。这是结构,不是要逐字照填;
+照这个骨架写 `<unit_path>/retro-pipeline-rootcause.md`。这是结构,不是要逐字照填;
 每个 unit 的问题数量(P0…Pn)按实际挖到的来。
 
 ---

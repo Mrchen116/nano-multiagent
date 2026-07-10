@@ -3371,7 +3371,7 @@ body {
  *
  * Visual scheme: 方案 B — 深色卡，对齐 chat-tool-calls-list 体系。
  * 权限请求与工具调用同属"agent 技术动作"，共用深色视觉基调。
- * Reference: docs/changes/feat-333-auto-mode-classifier/permission-card-mockup.html .pcB* 系列
+ * Reference: docs/changes/archive/feat-333-auto-mode-classifier/permission-card-mockup.html .pcB* 系列
  *
  * Class prefix: chat-permission-* (follows chat-tool-calls-* / chat-bubble-* convention).
  * All styles live here; no inline Tailwind utilities in the component.
@@ -3632,7 +3632,7 @@ body {
 }
 
 /* ════════════════ feat-438: Group settings (drawer + mobile) ════════════════ */
-/* Provenance: docs/changes/feat-438-im-group-settings/prototype.html — PC right
+/* Provenance: docs/changes/archive/feat-438-im-group-settings/prototype.html — PC right
    drawer + mobile full-screen forms. Tokens reuse --im-* from :root above. */
 
 .group-settings-scrim {

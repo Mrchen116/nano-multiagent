@@ -1433,7 +1433,7 @@ describe("MessagePane", () => {
   });
 
   // R8.5 — R11-7 MessageBubble visual rewrite on v2 production path.
-  // Prototype source: docs/changes/feat-340-agent-native-im/attachments/prototype/project/im-components.jsx::MessageBubble
+  // Prototype source: docs/changes/archive/feat-340-agent-native-im/attachments/prototype/project/im-components.jsx::MessageBubble
   //   avatar 30×30 outside bubble (row-reverse for user) + timestamp + per-bubble TokenChip in status row below bubble
   describe("R11-7 v2 MessageBubble visual", () => {
     const TS_USER: Message = {

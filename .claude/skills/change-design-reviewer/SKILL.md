@@ -73,7 +73,7 @@ design 的每个决策都建在「现状是什么」之上。现状错了,上面
 > 典型陷阱:design 说要改 `FooRunner`,现状分析逐行引用 `FooRunner` 的行号——全对。但生产经组装层 wire 的其实是 `BarRunner`,`FooRunner` 只在测试桩里被调用。design 引用的每一行都成立,**整个前提却是错的**,改完单测全绿、线上全挂。逐行核对叶子永远撞不出这个,只有从入口追路径才会暴露。
 
 记台账:**成立 / 不成立(生产实际走 X,证据 `文件:行`)**。不成立 → CRITICAL(整层决策失去事实基础)。
-附带核:涉及的包,design 有没有和 `docs/specs/<包>/spec.md` 契约层 + 真实代码核对?前提和你查到的现状对不上,报 WARNING;作者发现契约层声明与代码不符却没在现状分析里 drift 上报的,提示补。
+附带核:涉及的包,design 有没有和 `docs/specs/<包>/spec.md` 入口指向的相关 area 契约 + 真实代码核对?前提和你查到的现状对不上,报 WARNING;作者发现契约层声明与代码不符却没在现状分析里 drift 上报的,提示补。
 
 ### 决策 → 四问(完整、拍死、自洽、有据)
 
@@ -95,9 +95,9 @@ design 是 spec 的下游,必须**落在 spec 框定的范围里、做 spec 要�
 
 ### delta-spec 条目 → 锚 canonical / 用法 / THEN 可观察
 
-delta-spec(`docs/changes/<unit_dir>/specs/<包>/spec.md`)是收尾归并进长青契约层的依据。逐条核:
+delta-spec(`docs/changes/<unit_dir>/specs/<包>/<target>.md`)是收尾归并进对应 canonical area 的依据。逐条核:
 
-- **覆盖**:有对外行为变化的包,delta-spec 在不在?纯内部重构有没有显式注明 "no spec delta"?缺 → CRITICAL。
+- **覆盖**:有对外行为变化的包,delta-spec 在不在,且是否指向语义最窄的 canonical target?纯内部重构有没有显式注明 "no spec delta"?缺 → CRITICAL。
 - **ADDED / MODIFIED / REMOVED 用法**:这条 delta 是**改/顶替**了某条既有 canonical requirement(那必须 MODIFIED 或 REMOVED + ADDED,并**精确锚定**被改的既有标题、忠实保留其原 Scenario),还是真·平行新增(ADDED)?改既有契约却只写 ADDED → CRITICAL(收尾并入后 canonical 同一行为新旧两条并存、自相矛盾)。MODIFIED 借机静默删掉原条目的 Scenario → CRITICAL。
 - **实现层红线**:Scenario 的 THEN 只能写消费者可观察的结果。出现内部函数名 / 类名 / 日志串 / `<符号> 被调用` 断言 → CRITICAL(和 spec 用户可观察红线同源)。
 - **消费者视角对准**:消费者不是终端用户而是另一段代码(库 / SDK)的包,delta-spec 主语应是那个代码消费者,不是照抄用户视角。错位 → WARNING。

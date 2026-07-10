@@ -2,6 +2,18 @@
 
 变更单元的所有相关文档统一放在 `docs/changes/` 下，按变更单元聚合，方便查找和追溯。
 
+目录分为活动区与历史区：
+
+```text
+docs/changes/
+├── <unit-dir>/              # 未完成、暂停或完成证据不足
+└── archive/
+    └── <unit-dir>/          # 已完成，随实现 PR 一起归档
+```
+
+归档是 `git mv` 整个 unit 目录，不删除、压缩或拆散其中的首文档、design、milestone、报告、delta-spec
+与 evidence。现有 `docs/archive/` 存放退役系统文档，不用于 change unit。
+
 ---
 
 ## 什么时候不需要建 unit
@@ -117,6 +129,43 @@ worker 不许悄悄绕过设计；必须：
 
 由 `change-reviewer`（独立视角，不能是写代码的同一 agent）写 `acceptance.md` / `regression.md`。验收必须包含**上层文档同步检查**：本 unit 是否需要更新 `SPEC.md` / `内核设计SPEC.md` / `AGENTS.md` / 各产品 SPEC？需要就在验收报告里列出并改掉。
 
+验收、verifier、长青契约归并和本地 CI 门禁全部通过后，`change-orchestrator` 在创建 PR 前执行：
+
+```bash
+mkdir -p docs/changes/archive
+git mv "docs/changes/<unit_dir>" "docs/changes/archive/<unit_dir>"
+```
+
+PR body 和同一交付会话内的 CI/review 小修使用归档路径。会话退出后，只允许在 branch、PR head、clean
+三项校验通过时恢复自包含小修；需要修改 design 或新增 milestone 的反馈交人决定，不为归档态建立第二套
+实施生命周期。PR 尚未 merge 时 main 不受影响；PR merge 后实现与归档同时进入 main。
+
+### 完成判据与历史迁移
+
+- **新 unit**：以 orchestrator 全部门禁通过、已达到可创建 PR 状态为完成；归档是提 PR 流程的强制步骤。
+- **历史 unit**：只有已合并 PR 明确引用该 unit_id，或存在明确通过的最终验收/回归报告，才可批量归档。
+- 有开放 PR、活动 worktree、失败报告，或完成证据不足时，保守留在活动区，不按编号或目录年龄推断完成。
+
+按 `unit_id` 查找时必须同时检查两层，并要求结果唯一：
+
+```bash
+unit_matches=$(find docs/changes docs/changes/archive -mindepth 1 -maxdepth 1 -type d \
+  \( -name "<unit_id>" -o -name "<unit_id>-*" \) -print 2>/dev/null)
+match_count=$(printf '%s\n' "$unit_matches" | sed '/^$/d' | wc -l | tr -d ' ')
+if [[ "$match_count" -ne 1 ]]; then echo "expected one unit, found $match_count" >&2; exit 1; fi
+unit_path=$unit_matches
+```
+
+change-spec-author 分配新编号不得手写扫描命令，统一执行：
+
+```bash
+python3 .claude/skills/change-spec-author/scripts/next_unit_id.py <type>
+```
+
+脚本同时扫描活动区和 archive，并在 Git common dir 中原子记录最后一次 reservation；所有 type、并发进程和
+同一 clone 的 worktree 共用递增序列。目录与 reservation 两者的最大编号共同决定下一号，已保留但尚未建目录
+的编号也不回收或复用。
+
 ---
 
 ## Agent 协作分工
@@ -147,6 +196,9 @@ worker 不许悄悄绕过设计；必须：
 | `short-desc` | 2-5 个 kebab 词，可选 | `chat-mention-picker` |
 
 全小写，连字符分隔，不超过 60 字符。
+
+数字 id 在所有 type 间共享全局序列，由 change-spec-author 的 `scripts/next_unit_id.py` 原子保留并分配；归档
+或并发 worktree 不重置序列。
 
 示例：`feat-104-chat-mention-picker`, `bugfix-123-session-leak`, `refactor-150-session-manager`
 

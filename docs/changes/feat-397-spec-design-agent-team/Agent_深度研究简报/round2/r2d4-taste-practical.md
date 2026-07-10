@@ -311,7 +311,7 @@ SOUL.md 共享基础（vibe/identity），role-specific 部分用 systemPromptOv
 
 1. **openclaw `docs/reference/templates/SOUL.md`** — 最工程化的 "agent identity as character, not rules" 模板，可直接作为本项目 SOUL.md 写法参考
 2. **hermes-agent `agent/system_prompt.py:60-290`** — 三段式 stable/context/volatile 系统 prompt 架构，是 "cache-friendly + taste injection" 的最完整实现
-3. **本项目 `docs/changes/feat-393-heartbeat-cron-im-delivery/spec.md`** — 最好的自有"原话语料"样本，澄清记录格式已是未来 decisions.md 的天然格式
+3. **本项目 `docs/changes/archive/feat-393-heartbeat-cron-im-delivery/spec.md`** — 最好的自有"原话语料"样本，澄清记录格式已是未来 decisions.md 的天然格式
 4. **openclaw `src/agents/workspace.ts:602-672` `loadWorkspaceBootstrapFiles()`** — 工程上如何加载多个 bootstrap 文件、如何做安全边界校验，可作为本项目 agent context 加载实现参考
 5. **hermes-agent `cli.py:7231-7310` `_handle_personality_command()`** — personality overlay 的最轻量实现，spec/design agent 不同 phase 可直接复用这个模式
 

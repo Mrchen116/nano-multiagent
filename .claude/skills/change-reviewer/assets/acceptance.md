@@ -64,7 +64,7 @@ Requirement 作分组表头,组内所有 Scenario 全 pass,该 Requirement 才�
 -->
 
 - [ ] `SPEC.md`（跨包顶点架构）：__需要更新 / 无需更新__
-- [ ] `docs/specs/<包>/spec.md`（长青行为契约层，本 unit 触及的包；通常由 orchestrator §7.0 收尾归并写入）：__需要更新 / 无需更新__
+- [ ] `docs/specs/<包>/`（长青行为契约层，本 unit 触及的 area；通常由 orchestrator §7.0 收尾归并写入）：__需要更新 / 无需更新__
 - [ ] `AGENTS.md` / `CLAUDE.md`：__需要更新 / 无需更新__
 - [ ] `docs/SPEC_GUIDE.md`（文档规范，仅当本 unit 改了文档体系本身时）：__需要更新 / 无需更新__
 

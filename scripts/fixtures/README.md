@@ -36,7 +36,7 @@ PYTHONPATH=src python -m uvicorn agent.platform.http_api.app:app --port 8000
 
 ## Why this exists
 
-bugfix-380 retro(`docs/changes/bugfix-380-llm-upstream-error-visible/retro.md`)
+bugfix-380 retro(`docs/changes/archive/bugfix-380-llm-upstream-error-visible/retro.md`)
 showed worker/reviewer wasted ~30% of fix-worker-r3 wall-clock试错 anthropic
 SSE error frame format. Specifically, naive stubs would emit `data: {"error": ...}`
 without the leading `event: error` line, and the kernel client treats the

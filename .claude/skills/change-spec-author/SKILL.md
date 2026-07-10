@@ -37,7 +37,11 @@ bugfix lite vs full 的判据(参考 `docs/changes/readme.md`):**默认 lite**;�
 
 ### §1.2 决定 unit_id 和目录名
 
-- **id**:扫 `docs/changes/` 下已有 `<type>-<N>-*` 目录,取最大 `<N>` + 1。每种 type 共享一个递增序列吗?**不**——所有 type 共享同一个全局递增序列(看 `docs/changes/readme.md` 命名规范),避免冲突。
+- **id**:在仓库根目录执行 `python3 <skill_dir>/scripts/next_unit_id.py <type>`，只执行一次并直接使用输出的
+  `unit_id`。脚本同时扫描 `docs/changes/` 活动区与 `docs/changes/archive/`，并在 Git common dir 中原子保留
+  新编号；同一 clone 的并发进程和 worktree 不会拿到重复编号。已保留但尚未建目录的编号不复用，禁止为
+  “看一下下个编号”重复执行，也禁止临时拼 `find`/`sed` 只扫活动区。例：
+  `python3 .claude/skills/change-spec-author/scripts/next_unit_id.py feat` → `feat-<next-number>`。
 - **short-desc**:2-5 个 kebab 词,从用户原话里提关键名词。可以省略,但**强烈建议加**——一年后扫目录靠它认。
 - 完整目录名:`<type>-<id>[-short-desc]`,全小写,`-` 连接,不超过 60 字符。
 
@@ -94,7 +98,7 @@ Read <skill_dir>/assets/<template>.md → 替换 <type-id> 占位符 + 标题 �
 
 澄清问题的质量,取决于你对"现状 + 参考"的产品理解。**没 ground 就开问,会问出建在错前提上的问题,甚至把多个机制糊成一个——整单白做。** 所以澄清前先做这一步(**只读,不下钻实现**):
 
-1. **当前系统的对应功能**:这个需求要碰的能力,现在(若已有)作为**产品行为**是什么?用户怎么碰到它、什么语义?——`Grep`/读相关代码 + 读 `docs/specs/<包>/spec.md`(契约层 current 权威)定位。目的是"现在长什么样",不是"该怎么实现"。
+1. **当前系统的对应功能**:这个需求要碰的能力,现在(若已有)作为**产品行为**是什么?用户怎么碰到它、什么语义?——`Grep`/读相关代码 + 先读 `docs/specs/<包>/spec.md` 入口、再读相关 area 文档(包目录整体是契约层 current 权威)定位。目的是"现在长什么样",不是"该怎么实现"。
 2. **用户点名的参考**:用户若说"参考 X(openclaw / 某产品 / 某 issue)",**把 X 的对应特性读清楚**——它是一个机制还是拆成多个?各自什么体验 / motivation?参考不是粘进【原始需求】就完事,要当调研任务**真去做**(读参考常常正好暴露"这需求其实是几件独立的事",别糊成一个)。
 
 两个坑(真实教训):
@@ -277,7 +281,7 @@ Q1: <一句话问题>
 
 后果很硬:**Scenario 里只要混进实现 / 协议 / 接口 / 内部状态条目,会让整轮 reviewer 验收作废**——reviewer 拿到协议级标准就会去翻源码 / 抓帧 / 加日志定位,滑进 engineer 模式,这轮证据全部失效。
 
-还有一个下游:`change-design-author` 会把【验收标准】**投影**成本 unit 的 canonical **delta-spec**(对长青契约层 `docs/specs/<包>/spec.md` 的增量),收尾由 orchestrator 并进 canonical。所以你的验收标准写得准、Scenario 拆得全,长青契约层最终才准——这是它进入"系统 current 权威"的源头之一。
+还有一个下游:`change-design-author` 会把【验收标准】**投影**成本 unit 的 canonical **delta-spec**(对长青契约层 `docs/specs/<包>/<target>.md` 的增量),收尾由 orchestrator 并进 canonical。所以你的验收标准写得准、Scenario 拆得全,长青契约层最终才准——这是它进入"系统 current 权威"的源头之一。
 
 所以 §4 说的"实现层标准不进 spec"不是风格建议,是**流程硬约束**。实现层的东西归 `design.md`,那里有 worker 单测和架构师 PR review 来验——各有各的 verifier,不要挤进同一段。
 

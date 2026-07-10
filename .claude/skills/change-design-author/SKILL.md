@@ -31,7 +31,7 @@ description: 用于在首文档(spec/incident/motivation)定稿后,和人交互�
 2. **不回头改用户场景 / 验收标准**。对齐中发现用户视角有疏漏,**停下来**让用户回 `change-spec-author` 修订首文档——混着改,门禁 1 就形同虚设。首文档被修订 / 中途加新需求后,变更的那部分必须重走 §3.0 grounding + §5 自检,不能直接打补丁塞进 design。
 3. **交互式,一次一个问题**。每个关键决策、每条 milestone 拆分理由,逐个问用户确认 + 给推荐。不要一次性出完整 design.md 让用户"看一下行不行"——这种是给自己签字,不是对齐。
 4. **不创建 git 分支**。`unit/<unit-id>` 由 `change-orchestrator` 在接手时创建。design.md 顶部只写"Unit branch: `unit/<unit-id>` (will be created by orchestrator)"作为意图声明。
-5. **只 mkdir milestone 空目录,不预填 tasks.md / progress.md**。这两个文件由 worker 自己 explore 代码后写,你预填的会被推翻,纯浪费。
+5. **milestone 骨架只放 `.gitkeep`,不预填 tasks.md / progress.md**。这两个文件由 worker 自己 explore 代码后写,你预填的会被推翻,纯浪费。
 6. **默认单 milestone**。颗粒度规则是反向门槛——拆分要举证,不拆是默认(详见 §3)。
 7. **不调研代码仓不动笔**。design.md 的每一句话都要建立在"现状是什么"之上——不读现有代码就出方案,等于闭着眼画图。§3.0 是强制前置步骤,跳过 = 设计失效。
 
@@ -106,7 +106,7 @@ design.md 的核心段落:**架构总览、关键决策、接口与数据流、�
 | 类别 | 要找什么 | 怎么找 |
 |---|---|---|
 | **架构总图** | 项目分层、模块依赖方向、包边界 | 读 `AGENTS.md` / `CLAUDE.md` / `SPEC.md`(跨包顶点) |
-| **长青行为契约层（current）** | 本 unit 涉及的包"现在对外怎么表现" | 读 `docs/specs/<包>/spec.md`（包 ∈ {kernel, im, gateway, cli}）—— 这是 current 行为契约的单一权威，取词汇 / 对齐既有行为 |
+| **长青行为契约层（current）** | 本 unit 涉及的包"现在对外怎么表现" | 先读 `docs/specs/<包>/spec.md` 入口，再读其索引指向的相关 area 文档（包 ∈ {kernel, im, gateway, cli}）—— 包目录整体是 current 行为契约的单一权威，取词汇 / 对齐既有行为 |
 | **本 unit 涉及的现有模块** | 改动会落在哪些目录/文件、它们当前职责是什么 | `Grep` 首文档里出现的关键名词 / 实体 / 接口名 |
 | **相邻已有能力** | 类似功能是否已存在,能复用 / 改写 / 还是必须新建 | `SemanticSearch` 问"X 是怎么实现的""哪里处理 Y" |
 | **该沿用的既有模式** | 我要加的东西,项目里**同类的事**(service / repo / 组件 / 状态 / 校验 / 配置 / 权限 / 调度 / 持久化…)按什么模式做的?默认**扩展那套模式**,而非另造一套局部实现 | 别只问"有没有类似功能",要问"别的功能怎么做**同一类事**":找 1-2 个定义该模式的现有文件照着走 |
@@ -118,7 +118,7 @@ design.md 的核心段落:**架构总览、关键决策、接口与数据流、�
 
 **bugfix 专属**:出错的功能往往是某个既有 unit 实现的。先 grep `docs/changes/` 找到它的原始 spec/design,读出"这功能本来要达成什么",把这条意图当成修复方案的**硬约束**带进 §3.2 关键决策——否则最省事的修法就是把触发出错的那条路径砍掉,症状是消了,但功能被阉割。incident.md 的 RCA 若已写下"原意图 + 不变量",直接沿用,别重挖。
 
-**契约层 grounding(design 阶段强制)**:读 `docs/specs/<包>/spec.md` 不是当二手叙事看,而是**拿它与当前代码核对**——本 unit 涉及的每条相关 Requirement/Scenario,对照 `src/<包>/` 实际代码确认仍成立。契约层是收尾归并维护的 current 权威,但仍可能 drift。**发现契约层声明的行为与代码实际行为不一致,在 §3.0.2 现状摘要里显式报出**(本 unit 不一定负责修这个 drift,但要让人看见,并据真实代码而非过期契约出方案)。
+**契约层 grounding(design 阶段强制)**:读 `docs/specs/<包>/spec.md` 入口及相关 area 文档不是当二手叙事看,而是**拿它与当前代码核对**——本 unit 涉及的每条相关 Requirement/Scenario,对照 `src/<包>/` 实际代码确认仍成立。契约层是收尾归并维护的 current 权威,但仍可能 drift。**发现契约层声明的行为与代码实际行为不一致,在 §3.0.2 现状摘要里显式报出**(本 unit 不一定负责修这个 drift,但要让人看见,并据真实代码而非过期契约出方案)。
 
 #### §3.0.2 产出"现状摘要",和用户对一次
 
@@ -320,7 +320,7 @@ design.md 读起来像文字墙,根源是该画的地方在用散文描述。人
 |---|---|---|---|---|---|
 | feat-104-M1 | impl | — | A | <unit 涉及的全部范围> | <整个 unit 的退出标准> |
 
-然后 `mkdir docs/changes/<unit_dir>/M1-impl/` 完事。
+然后 `mkdir docs/changes/<unit_dir>/M1-impl/ && touch docs/changes/<unit_dir>/M1-impl/.gitkeep` 完事。
 
 **目录命名约定**:
 
@@ -434,28 +434,31 @@ milestone 表敲定后:
 ```bash
 mkdir -p docs/changes/<unit_dir>/M1-<title>/
 mkdir -p docs/changes/<unit_dir>/M2-<title>/
+touch docs/changes/<unit_dir>/M1-<title>/.gitkeep docs/changes/<unit_dir>/M2-<title>/.gitkeep
 ...
 ```
 
-每个目录创建为**空**,不放任何文件。worker 启动时会自己填 `tasks.md` / `progress.md`。
+`.gitkeep` 是唯一允许的占位文件，确保 milestone 骨架能进入 Git 并到达后续 worktree。worker 启动时删除
+`.gitkeep`，再创建 `tasks.md` / `progress.md`。
 
 ---
 
 ## §4.8 产出 canonical delta-spec(本 unit 对长青契约层的增量)
 
 关键决策 + Milestone 定了之后,产出本 unit 对长青行为契约层的 **delta-spec**——声明"本 unit 要给
-`docs/specs/<包>/spec.md` 加 / 改 / 删哪些 Requirement"。它是收尾(orchestrator §7.0)据以**软对账 +
+`docs/specs/<包>/<target>.md` 加 / 改 / 删哪些 Requirement"。它是收尾(orchestrator §7.0)据以**软对账 +
 合并进 canonical** 的依据;**不写它,收尾就只能全量重扫 canonical**(每单元全量不现实)。
 
 **判定**:对本 unit 触及的每个包(kernel / im / gateway / cli),问"经 `agent.sdk` / 产品入口的消费者,
 可观察行为变了吗":
 
-- **变了** → 产出 `docs/changes/<unit_dir>/specs/<包>/spec.md`。
+- **变了** → 按最窄 canonical 落点产出一个或多个 `docs/changes/<unit_dir>/specs/<包>/<target>.md`。
 - **没变**(纯内部重构) → 不产该包文件,在 design.md 对应决策处显式注明 "no spec delta"。
 
 **怎么写**(完整规范见 [`docs/SPEC_GUIDE.md`](../../../docs/SPEC_GUIDE.md)「契约层增量(delta-spec)」节):
 
-- 镜像 canonical 目录:`docs/changes/<unit_dir>/specs/<包>/spec.md`。
+- 镜像 canonical target:`docs/changes/<unit_dir>/specs/<包>/<target>.md` → `docs/specs/<包>/<target>.md`;
+  只有包级职责、边界或 area 索引变化才以入口 `spec.md` 为 target。
 - 一份"迷你 canonical":`## ADDED / MODIFIED / REMOVED Requirements`,只写**变更的** Requirement
   (改的写改后完整条目、删的只写名)。
 - **从【验收标准】+ 关键决策投影**——终端产品(im/gateway/cli)多是验收标准 Scenario 的契约层镜像;
@@ -487,7 +490,7 @@ mkdir -p docs/changes/<unit_dir>/specs/<包>/   # 仅为有对外行为变化的
 - [ ] 范围与非目标:design 没有偷偷扩到 spec 写的"非目标"里去
 - [ ] 若有 `## 前端原型`,已完成现有 UX grounding,并说明 prototype 如何继承当前产品 UX;没有 grounding 的原型 = 门禁 2 不通过
 - [ ] 若有 `## 前端原型`,原型对齐契约每个 `must-match` 行都投影到了 Milestone 退出标准;没有投影的 must-match = 门禁 2 不通过
-- [ ] **delta-spec 覆盖对外行为增量**(§4.8):每个有对外行为变化的包都产了 `docs/changes/<unit_dir>/specs/<包>/spec.md`,纯内部包显式注 "no spec delta";delta 每条能追溯到某条验收标准或关键决策(kernel 已做用户→消费者视角翻译)
+- [ ] **delta-spec 覆盖对外行为增量**(§4.8):每个有对外行为变化的包都按最窄落点产了 `docs/changes/<unit_dir>/specs/<包>/<target>.md`,纯内部包显式注 "no spec delta";delta 每条能追溯到某条验收标准或关键决策(kernel 已做用户→消费者视角翻译)
 
 **design 内部自洽**:
 
@@ -556,9 +559,9 @@ mkdir -p docs/changes/<unit_dir>/specs/<包>/   # 仅为有对外行为变化的
 - [ ] 架构总览(配图)、关键决策、接口与数据流、风险与回退 都写了实质内容
 - [ ] 前端相关 unit 已产出 `prototype.html`,且 `design.md ## 前端原型` 含现有 UX grounding + 原型对齐契约;非前端 unit 没有该段和原型文件
 - [ ] `§Runbook for Reviewer` 段已填(列出本 unit 涉及的常驻服务 + 停止/启动/健康检查命令,或显式"无常驻服务")
-- [ ] Milestone 表完整(每行字段都填),数量 = mkdir 出的子目录数
-- [ ] 子目录全空(没有预填 tasks.md / progress.md)
-- [ ] 对外行为有变化的包都产了 delta-spec `docs/changes/<unit_dir>/specs/<包>/spec.md`(§4.8);纯内部 unit 在 design.md 注 "no spec delta"
+- [ ] Milestone 表完整(每行字段都填),数量 = `docs/changes/<unit_dir>/M*/` 子目录数
+- [ ] milestone 子目录仅含 `.gitkeep`，没有预填 tasks.md / progress.md
+- [ ] 对外行为有变化的包都按最窄 canonical 落点产了 delta-spec `docs/changes/<unit_dir>/specs/<包>/<target>.md`(§4.8);纯内部 unit 在 design.md 注 "no spec delta"
 - [ ] 已 commit 到 `main`(`docs/changes/<unit_dir>/` 含 design.md 与 milestone 空目录)
 
 通过后,在主仓 `main` 上 commit + push `docs/changes/<unit_dir>/`(勿建 `unit/*` 分支)。
@@ -583,8 +586,8 @@ mkdir -p docs/changes/<unit_dir>/specs/<包>/   # 仅为有对外行为变化的
   - Milestone 表(orchestrator 据此派发 worker;每行 → 一个派发包)
   - 空 Changelog(orchestrator 在实施期偏差时由 worker 维护)
 - `docs/changes/<unit_dir>/prototype.html`(仅前端相关 unit 必须产出;非前端 unit 不产)
-- `docs/changes/<unit_dir>/M*/` 空目录(orchestrator 据此校验 milestone 数量一致)
-- `docs/changes/<unit_dir>/specs/<包>/spec.md` delta-spec(§4.8,仅有对外行为变化的包;orchestrator §7.0 据此校正 + 软对账 + 合并进 canonical。纯内部 unit 无此文件,design.md 注 "no spec delta")
+- `docs/changes/<unit_dir>/M*/` 目录，仅含 `.gitkeep`(orchestrator 据此校验 milestone 数量一致)
+- `docs/changes/<unit_dir>/specs/<包>/<target>.md` delta-spec(§4.8,仅有对外行为变化的包,可有多个 target;orchestrator §7.0 据此校正 + 软对账 + 合并进对应 canonical area。纯内部 unit 无此文件,design.md 注 "no spec delta")
 
 下游(orchestrator + worker + reviewer)对你的依赖:
 

@@ -45,6 +45,15 @@ reviewer / verifier)跑出来的变更单元。产物不是感想,是**一份带
 
 ### 1. 建标尺 + 摊证据
 - 锚定 `unit_id` / unit_dir / PR;问清复盘范围(整单 / 某阶段 / 某个具体反馈)。
+- 在当前 checkout 同时搜索活动区与 archive,得到唯一 `unit_path`;已完成 unit 通常只存在于 archive：
+  ```bash
+  unit_matches=$(find docs/changes docs/changes/archive -mindepth 1 -maxdepth 1 -type d \
+    \( -name "<unit_id>" -o -name "<unit_id>-*" \) -print 2>/dev/null)
+  match_count=$(printf '%s\n' "$unit_matches" | sed '/^$/d' | wc -l | tr -d ' ')
+  if [[ "$match_count" -ne 1 ]]; then echo "expected one unit, found $match_count" >&2; exit 1; fi
+  unit_path=$unit_matches
+  unit_dir=$(basename "$unit_path")
+  ```
 - **读 `.claude/skills/change-*/SKILL.md`**——建立"这套流程每步本该怎样"的标尺。没标尺就看不出实际哪里偏
   (不知道 impl-worker 要求"真实入口验证",就发现不了 worker 用 stub 顶替算违规)。
 - 定位 session(主 + subagent)和沉淀文档:
@@ -53,8 +62,10 @@ reviewer / verifier)跑出来的变更单元。产物不是感想,是**一份带
 S=.claude/skills/change-retro/scripts/mine_jsonl.py
 PROJ=~/.claude/projects/<proj-slug>                 # cwd 路径转 -Users-... 的那个目录
 python3 $S sessions "$PROJ" <unit_id>               # 哪些主 session 涉及该 unit(按命中排)
-git show origin/unit/<unit_id>:docs/changes/<unit_dir>/design.md     # 尤其 ## Changelog 段——金矿
-git ls-tree -r --name-only origin/unit/<unit_id> | grep <unit_dir>  # 列全部 M*/acceptance/verification
+unit_tree_path=$(git ls-tree -r --name-only origin/unit/<unit_id> | \
+  rg "(^|/)<unit_dir>/design.md$" | head -1)
+git show origin/unit/<unit_id>:"$unit_tree_path"         # 尤其 ## Changelog 段——金矿
+git ls-tree -r --name-only origin/unit/<unit_id> | rg "(^|/)<unit_dir>/"  # 列全部 M*/acceptance/verification
 ```
 
 > 沉淀文档一定从 **unit 集成分支**读(主仓 main 常看不到 fix 轮 M3-M13)。`design.md` 的 `## Changelog`
@@ -90,7 +101,7 @@ session → subagent agentType`)。阶段边界:`humans` 里的 `/change-*` 命�
 **每条标来源问题编号**。这是最终交付物——用户拿它去改 skill。
 
 ### 6. 落盘
-写进 `docs/changes/<unit_dir>/` 下一个新 md(如 `retro-pipeline-rootcause.md`),结构照
+写进 `<unit_path>/` 下一个新 md(如 `retro-pipeline-rootcause.md`),结构照
 `references/output-template.md`。按用户指示 commit/push 到 PR 分支(commit 格式见 AGENTS.md,别擅自合并)。
 不覆盖已有 retro.md;必要时在文中指出当事人 retro 的盲区/误判并给 jsonl 证据。
 

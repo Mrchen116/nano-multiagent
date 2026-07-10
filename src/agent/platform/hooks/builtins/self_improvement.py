@@ -1,6 +1,6 @@
 """Background hook that triggers self-evolution review forks after a nudge threshold.
 
-Design ref: docs/changes/feat-349-self-evolving-skills-memory/design.md §5
+Design ref: docs/changes/archive/feat-349-self-evolving-skills-memory/design.md §5
 
 Counter semantics (decision 2 in design.md):
 - ``tool_iterations`` payload field is the session-lifetime tool iteration count.

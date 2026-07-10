@@ -8,7 +8,7 @@
         通过后才发同一事件。gate park 期间 observe handler 不会运行;gate deny 时
         observe 也不会运行,前端只在 tool_result 阶段看到 ✕。
 
-这是开发态修复,不做兼容(参见 docs/changes/bugfix-367-permission-history-list/fix.md)。
+这是开发态修复,不做兼容(参见 docs/changes/archive/bugfix-367-permission-history-list/fix.md)。
 """
 
 import asyncio
