@@ -128,6 +128,7 @@ def build_kernel_event_observer(
     external_permission_resolved_sender: (
         Callable[[str, str, Mapping[str, str]], Any] | None
     ) = None,
+    skill_created_handler: Callable[[str, Mapping[str, object]], Any] | None = None,
 ) -> Callable[[Mapping[str, Any]], "Coroutine[Any, Any, None] | None"]:
     """Build a kernel SSE event observer that forwards streaming events to IM via node.streaming_delta.
 
@@ -307,6 +308,11 @@ def build_kernel_event_observer(
         conversation_id = ctx.get("conversation_id") or ""
         message_id = ctx.get("message_id") or ""
         agent_id = ctx.get("agent_id") or ""
+        if event_name == "skill_created" and agent_id and skill_created_handler:
+            asyncio.get_event_loop().create_task(
+                asyncio.to_thread(skill_created_handler, agent_id, event)
+            )
+            return None
 
         # feat-393: heartbeat runs carry to_user_id instead of conversation_id.
         # The lazy-bubble gate: skip eager turn_start; defer to assistant_message.

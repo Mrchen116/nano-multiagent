@@ -183,6 +183,43 @@ def test_relay_lifecycle_seeds_typed_owner_direct_context_and_legacy_view() -> N
     }
 
 
+def test_relay_lifecycle_partial_external_metadata_never_targets_owner_direct() -> None:
+    context_store = RunDeliveryContextStore()
+    callback = _build_relay_lifecycle_callback(
+        reporter=None,
+        im_connection_manager_factory=lambda: None,
+        run_context_store=context_store,
+        owner_user_id="owner-1",
+    )
+    message = InboundMessage(
+        channel_name="feishu",
+        text="hello",
+        external_user_id="ou-user",
+        external_chat_id="",
+        is_group=False,
+        metadata={"external_source": "feishu", "agent_id": "agent-a"},
+    )
+
+    asyncio.run(
+        callback(
+            message,
+            RelayLifecycleUpdate(
+                phase="accepted",
+                agent_id="agent-a",
+                session_key="feishu:legacy:agent-a",
+                run_id="run-partial-external",
+                kernel_session_id="sess-partial-external",
+            ),
+        )
+    )
+
+    context = context_store.get("run-partial-external")
+    assert context is not None
+    assert context.delivery_target.kind == "none"
+    assert context.delivery_target.reason == "external_without_shadow"
+    assert context_store.legacy_contexts["run-partial-external"]["to_user_id"] == ""
+
+
 def test_relay_lifecycle_cleanup_removes_typed_and_legacy_context() -> None:
     context_store = RunDeliveryContextStore()
     callback = _build_relay_lifecycle_callback(

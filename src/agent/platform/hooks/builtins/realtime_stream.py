@@ -113,6 +113,9 @@ def setup(hooks):  # noqa: ANN001, ANN201
             "presentation": _presentation_dict(presentation),
         }
         ctx.publish_session_event(event="tool_end", data=payload)
+        skill_created = _skill_created_payload(event, run_id)
+        if skill_created is not None:
+            ctx.publish_session_event(event="skill_created", data=skill_created)
 
     async def on_tool_execution_update(event, ctx):  # noqa: ANN001
         # bugfix-417-M3 R2: project the real-time tool-execution heartbeat (R1
@@ -210,6 +213,42 @@ def _as_mapping_or_none(value: Any) -> dict[str, Any] | None:
     if isinstance(value, Mapping):
         return dict(value)
     return None
+
+
+def _skill_created_payload(
+    event: Mapping[str, Any], run_id: str
+) -> dict[str, Any] | None:
+    """Project successful skill_manage(create) results into a narrow machine event."""
+
+    if event.get("name") != "skill_manage" or event.get("error"):
+        return None
+    arguments = event.get("arguments")
+    if not isinstance(arguments, Mapping) or arguments.get("action") != "create":
+        return None
+    output = event.get("output")
+    if not isinstance(output, Mapping) or output.get("success") is not True:
+        return None
+    name = output.get("name")
+    scope = output.get("scope")
+    location = output.get("location")
+    skill_root = output.get("skill_root")
+    if not all(
+        isinstance(value, str) and value
+        for value in (name, scope, location, skill_root)
+    ):
+        return None
+    if scope not in {"agent", "global"}:
+        return None
+    return {
+        "event": "skill_created",
+        "run_id": run_id,
+        "turn_id": event.get("turn_id"),
+        "call_id": event.get("call_id"),
+        "name": name,
+        "scope": scope,
+        "location": location,
+        "skill_root": skill_root,
+    }
 
 
 def _presentation_dict(presentation: Any) -> dict[str, Any]:

@@ -37,6 +37,7 @@ class RuntimeProtocolFacts:
     relay_task_id: str | None = None
     idempotency_key: str | None = None
     im_message_id: str | None = None
+    external_source: str | None = None
     external_identity: ExternalConversationIdentity | None = None
     shadow_ref: ShadowConversationRef | None = None
 
@@ -107,6 +108,7 @@ def derive_runtime_protocol(message: InboundMessage) -> RuntimeProtocolFacts:
         relay_task_id=relay_task_id,
         idempotency_key=_metadata_text(metadata, "idempotency_key"),
         im_message_id=im_message_id,
+        external_source=_metadata_text(metadata, "external_source"),
         external_identity=external_identity,
         shadow_ref=shadow_ref,
     )

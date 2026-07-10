@@ -22,6 +22,9 @@ function conv(over: Partial<Conversation>): Conversation {
     last_message_preview: null,
     last_message_at: null,
     created_at: "2026-01-01T00:00:00Z",
+    run_state: "idle",
+    source_agent_id: null,
+    source_jsonl_path: null,
     ...over
   };
 }
@@ -91,6 +94,124 @@ describe("ConversationSidebar", () => {
     render(<ConversationSidebar conversations={CONVS} activeConversationId={null} onSelect={() => {}} onNewGroup={onNewGroup} />);
     await user.click(screen.getByRole("button", { name: /\+ Group/ }));
     expect(onNewGroup).toHaveBeenCalled();
+  });
+
+  it("does not show run-state labels before skill distill mode", () => {
+    render(
+      <ConversationSidebar
+        conversations={[
+          conv({ id: "running", title: "Running chat", run_state: "running" })
+        ]}
+        activeConversationId={null}
+        onSelect={() => {}}
+        onNewGroup={() => {}}
+      />
+    );
+
+    expect(screen.queryByText("Running")).not.toBeInTheDocument();
+  });
+
+  it("shows checkboxes in skill distill mode and disables running conversations", async () => {
+    const user = userEvent.setup();
+    const onToggle = vi.fn();
+    render(
+      <ConversationSidebar
+        conversations={[
+          conv({
+            id: "idle",
+            title: "Idle chat",
+            run_state: "idle",
+            source_agent_id: "a1",
+            source_jsonl_path: "/tmp/idle.jsonl"
+          }),
+          conv({
+            id: "running",
+            title: "Running chat",
+            run_state: "running",
+            source_agent_id: "a1",
+            source_jsonl_path: "/tmp/running.jsonl"
+          })
+        ]}
+        activeConversationId={null}
+        onSelect={() => {}}
+        onNewGroup={() => {}}
+        distillMode
+        selectedDistillConversationIds={new Set()}
+        selectedDistillEligibleCount={0}
+        onToggleDistillConversation={onToggle}
+        onEnterDistillMode={() => {}}
+        onCancelDistillMode={() => {}}
+        onStartDistill={() => {}}
+      />
+    );
+
+    const idleCheckbox = screen.getByRole("checkbox", { name: /Idle chat/ });
+    const runningCheckbox = screen.getByRole("checkbox", { name: /Running chat/ });
+    expect(idleCheckbox).toBeEnabled();
+    expect(runningCheckbox).toBeDisabled();
+    expect(screen.getByText("Running")).toBeInTheDocument();
+
+    await user.click(idleCheckbox);
+    expect(onToggle).toHaveBeenCalledWith("idle");
+  });
+
+  it("does not render disabled rows as selected even if their ids are present in selection state", () => {
+    render(
+      <ConversationSidebar
+        conversations={[
+          conv({
+            id: "missing-transcript",
+            title: "Missing transcript",
+            run_state: "idle",
+            source_agent_id: null,
+            source_jsonl_path: null
+          })
+        ]}
+        activeConversationId={null}
+        onSelect={() => {}}
+        onNewGroup={() => {}}
+        distillMode
+        selectedDistillConversationIds={new Set(["missing-transcript"])}
+        selectedDistillEligibleCount={0}
+        onToggleDistillConversation={() => {}}
+        onEnterDistillMode={() => {}}
+        onCancelDistillMode={() => {}}
+        onStartDistill={() => {}}
+      />
+    );
+
+    const checkbox = screen.getByRole("checkbox", { name: /Missing transcript/ }) as HTMLInputElement;
+    expect(checkbox).toBeDisabled();
+    expect(checkbox.checked).toBe(false);
+    expect(screen.getByRole("button", { name: "Distill to skill" })).toBeDisabled();
+  });
+
+  it("opens a right-click menu entry that enters skill distill multi-select", async () => {
+    const user = userEvent.setup();
+    const onEnter = vi.fn();
+    render(
+      <ConversationSidebar
+        conversations={[
+          conv({
+            id: "idle",
+            title: "Idle chat",
+            run_state: "idle",
+            source_agent_id: "a1",
+            source_jsonl_path: "/tmp/idle.jsonl"
+          })
+        ]}
+        activeConversationId={null}
+        onSelect={() => {}}
+        onNewGroup={() => {}}
+        onEnterDistillMode={onEnter}
+      />
+    );
+
+    await user.pointer({ keys: "[MouseRight]", target: screen.getByRole("button", { name: /Idle chat/ }) });
+    const menu = await screen.findByRole("menu", { name: /Conversation actions/i });
+    await user.click(within(menu).getByRole("menuitem", { name: /Distill to skill/i }));
+
+    expect(onEnter).toHaveBeenCalledWith("idle");
   });
 
   it("shows unread badge on the conversation row when unread_count > 0", () => {

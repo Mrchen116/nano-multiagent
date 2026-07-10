@@ -102,26 +102,55 @@ def parse_relay_message_frame(payload: Mapping[str, object]) -> RelayMessageFram
 def parse_streaming_delta_event(payload: Mapping[str, object]) -> StreamingDeltaEvent:
     """Parse a Gateway ``node.streaming_delta`` payload."""
 
+    kind = _optional_text(payload.get("kind")) or ""
+
+    def text_for(*kinds: str, field_name: str) -> str | None:
+        if kind not in kinds:
+            return None
+        return _optional_text(payload.get(field_name))
+
     return StreamingDeltaEvent(
-        kind=_optional_text(payload.get("kind")) or "",
-        run_id=_optional_text(payload.get("run_id")),
-        agent_id=_optional_text(payload.get("agent_id")),
-        conversation_id=_optional_text(payload.get("conversation_id")),
-        message_id=_optional_text(payload.get("message_id")),
-        to_user_id=_optional_text(payload.get("to_user_id")),
-        agent_user_id=_optional_text(payload.get("agent_user_id")),
-        delta_text=_optional_text(payload.get("delta_text")),
-        final_content=_optional_text(payload.get("final_content")),
-        delivery_status=_optional_text(payload.get("delivery_status")),
-        token_usage=_optional_mapping_or_none(payload.get("token_usage")),
-        kernel_message_id=_optional_text(payload.get("kernel_message_id")),
-        source=_optional_text(payload.get("source")),
-        text=_optional_text(payload.get("text")),
-        tool_call=_optional_mapping_or_none(payload.get("tool_call")),
-        permission_request=_optional_mapping_or_none(payload.get("permission_request")),
-        request_id=_optional_text(payload.get("request_id")),
-        decision=_optional_text(payload.get("decision")),
-        reason=_optional_text(payload.get("reason")),
+        kind=kind,
+        run_id=_optional_text_or_none(payload.get("run_id")),
+        agent_id=text_for("turn_start", field_name="agent_id"),
+        conversation_id=text_for("turn_start", field_name="conversation_id"),
+        message_id=text_for(
+            "message_delta",
+            "message_completed",
+            "run_heartbeat",
+            "thinking_segment",
+            "tool_call_upserted",
+            "tool_call_completed",
+            "permission_request",
+            "permission_resolved",
+            field_name="message_id",
+        ),
+        to_user_id=text_for("turn_start", field_name="to_user_id"),
+        agent_user_id=text_for("turn_start", field_name="agent_user_id"),
+        delta_text=text_for("message_delta", field_name="delta_text"),
+        final_content=text_for("message_completed", field_name="final_content"),
+        delivery_status=text_for("message_completed", field_name="delivery_status"),
+        token_usage=(
+            _optional_mapping_or_none(payload.get("token_usage"))
+            if kind == "message_completed"
+            else None
+        ),
+        kernel_message_id=text_for("message_completed", field_name="kernel_message_id"),
+        source=text_for("run_heartbeat", field_name="source"),
+        text=text_for("thinking_segment", field_name="text"),
+        tool_call=(
+            _optional_mapping_or_none(payload.get("tool_call"))
+            if kind in {"tool_call_upserted", "tool_call_completed"}
+            else None
+        ),
+        permission_request=(
+            _optional_mapping_or_none(payload.get("permission_request"))
+            if kind == "permission_request"
+            else None
+        ),
+        request_id=text_for("permission_resolved", field_name="request_id"),
+        decision=text_for("permission_resolved", field_name="decision"),
+        reason=text_for("run_terminal_reconcile", field_name="reason"),
     )
 
 
@@ -174,6 +203,12 @@ def _optional_text(value: object) -> str | None:
         raise ValueError("optional text fields must be strings when provided")
     stripped = value.strip()
     return stripped or None
+
+
+def _optional_text_or_none(value: object) -> str | None:
+    """Return a normalized text value without validating an unused protocol field."""
+
+    return _optional_text(value) if isinstance(value, str) else None
 
 
 def _require_mapping(value: object, *, field_name: str) -> Mapping[str, Any]:

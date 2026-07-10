@@ -229,6 +229,191 @@ describe("agent create page (three-card)", () => {
     expect(apiMocks.navigateMock).not.toHaveBeenCalled();
   });
 
+  it("materializes default-on global skills into the create payload", async () => {
+    const user = userEvent.setup();
+    mockNodes();
+    apiMocks.getNodeCreateStateMock.mockResolvedValue({
+      node: {
+        node_id: "node-1",
+        owner_id: "owner-1",
+        node_name: "MacBook",
+        status: "online",
+        last_heartbeat_at: "2026-03-13T10:00:00Z",
+        agent_count: 0,
+        version: "1.0.0"
+      },
+      capabilities: {
+        node_id: "node-1",
+        node_name: "MacBook",
+        node_status: "online",
+        capabilities_updated_at: "2026-03-13T10:00:00Z",
+        skills: [
+          {
+            name: "pa-global",
+            description: "PA global",
+            default_on: true,
+            location: "/Users/test/.nanoassistant/skills/pa-global/SKILL.md"
+          },
+          {
+            name: "compat-claude",
+            description: "Compat",
+            default_on: false,
+            location: "/Users/test/.claude/skills/compat-claude/SKILL.md"
+          }
+        ],
+        tools: [],
+        model_options: [{ name: "codex_oauth:gpt-5.5", provider: "openai_compat" }],
+        platform_default_model: "codex_oauth:gpt-5.5",
+        default_system_prompt: ""
+      }
+    });
+    apiMocks.createNodeAgentMock.mockResolvedValue({
+      agent_id: "agent-default-skills",
+      owner_id: "",
+      display_name: "Agent Default Skills",
+      description: "",
+      system_prompt: "",
+      skills: ["pa-global"],
+      tool_allowlist: [],
+      group_reply_policy: "MENTION",
+      default_model: null,
+      workspace_root: "/tmp/agent-default-skills",
+      workspace_is_default: false,
+      profile_version: 1,
+      node_id: "node-1",
+      node_name: "MacBook",
+      node_status: "online",
+      bound_nodes: ["node-1"],
+      updated_at: "2026-03-13T10:00:00Z"
+    });
+
+    renderCreatePage();
+
+    await screen.findByRole("heading", { name: /New agent/i });
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "pa-global" })).toHaveAttribute("aria-pressed", "true");
+    });
+    expect(screen.getByText(/Global|全局/)).toBeInTheDocument();
+    expect(screen.getByText(/Compatibility|兼容来源/)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/^Agent ID/), { target: { value: "agent-default-skills" } });
+    fireEvent.change(screen.getByLabelText(/^Display Name/), { target: { value: "Agent Default Skills" } });
+    await user.click(screen.getByRole("button", { name: /^Create agent$/i }));
+
+    await waitFor(() => {
+      expect(apiMocks.createNodeAgentMock).toHaveBeenCalledWith(
+        "node-1",
+        expect.objectContaining({
+          agent_id: "agent-default-skills",
+          skills: ["pa-global"]
+        })
+      );
+    });
+  });
+
+  it("resets auto default skills when switching nodes", async () => {
+    const user = userEvent.setup();
+    apiMocks.listNodesMock.mockResolvedValue([
+      {
+        node_id: "node-1",
+        owner_id: "owner-1",
+        node_name: "MacBook",
+        alias: "MacBook",
+        status: "online",
+        last_heartbeat_at: "2026-03-13T10:00:00Z",
+        agent_count: 0,
+        version: "1.0.0"
+      },
+      {
+        node_id: "node-2",
+        owner_id: "owner-1",
+        node_name: "Linux Box",
+        alias: "Linux Box",
+        status: "online",
+        last_heartbeat_at: "2026-03-13T10:00:00Z",
+        agent_count: 0,
+        version: "1.0.0"
+      }
+    ]);
+    apiMocks.getNodeCreateStateMock.mockImplementation(async (nodeId: string) => ({
+      node: {
+        node_id: nodeId,
+        owner_id: "owner-1",
+        node_name: nodeId === "node-1" ? "MacBook" : "Linux Box",
+        status: "online",
+        last_heartbeat_at: "2026-03-13T10:00:00Z",
+        agent_count: 0,
+        version: "1.0.0"
+      },
+      capabilities: {
+        node_id: nodeId,
+        node_name: nodeId === "node-1" ? "MacBook" : "Linux Box",
+        node_status: "online",
+        capabilities_updated_at: "2026-03-13T10:00:00Z",
+        skills:
+          nodeId === "node-1"
+            ? [
+                { name: "node-one-global", description: "", default_on: true, location: "/Users/test/.nanoassistant/skills/node-one-global/SKILL.md" },
+                { name: "node-one-compat", description: "", location: "/Users/test/.claude/skills/node-one-compat/SKILL.md" }
+              ]
+            : [
+                { name: "node-two-global", description: "", default_on: true, location: "/Users/test/.nanoassistant/skills/node-two-global/SKILL.md" }
+              ],
+        tools: [],
+        model_options: [{ name: "codex_oauth:gpt-5.5", provider: "openai_compat" }],
+        platform_default_model: "codex_oauth:gpt-5.5",
+        default_system_prompt: ""
+      }
+    }));
+    apiMocks.createNodeAgentMock.mockResolvedValue({
+      agent_id: "agent-node-two",
+      owner_id: "",
+      display_name: "Agent Node Two",
+      description: "",
+      system_prompt: "",
+      skills: ["node-two-global"],
+      tool_allowlist: [],
+      group_reply_policy: "MENTION",
+      default_model: null,
+      workspace_root: "/tmp/agent-node-two",
+      workspace_is_default: false,
+      profile_version: 1,
+      node_id: "node-2",
+      node_name: "Linux Box",
+      node_status: "online",
+      bound_nodes: ["node-2"],
+      updated_at: "2026-03-13T10:00:00Z"
+    });
+
+    renderCreatePage();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "node-one-global" })).toHaveAttribute("aria-pressed", "true");
+    });
+    await user.click(screen.getByRole("button", { name: "node-one-compat" }));
+    expect(screen.getByRole("button", { name: "node-one-compat" })).toHaveAttribute("aria-pressed", "true");
+
+    await user.selectOptions(screen.getByLabelText(/^Owning Node/), "node-2");
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "node-two-global" })).toHaveAttribute("aria-pressed", "true");
+    });
+    expect(screen.queryByRole("button", { name: "node-one-compat" })).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/^Agent ID/), { target: { value: "agent-node-two" } });
+    fireEvent.change(screen.getByLabelText(/^Display Name/), { target: { value: "Agent Node Two" } });
+    await user.click(screen.getByRole("button", { name: /^Create agent$/i }));
+
+    await waitFor(() => {
+      expect(apiMocks.createNodeAgentMock).toHaveBeenCalledWith(
+        "node-2",
+        expect.objectContaining({
+          agent_id: "agent-node-two",
+          skills: ["node-two-global"]
+        })
+      );
+    });
+  });
+
   it("surfaces API errors without leaving the form", async () => {
     const user = userEvent.setup();
     mockNodes();

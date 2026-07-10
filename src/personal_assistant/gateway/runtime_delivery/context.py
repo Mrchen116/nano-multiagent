@@ -352,7 +352,7 @@ class RunDeliveryContextStore:
                     im_message_id=protocol.im_message_id,
                 )
             )
-        elif external_identity is not None:
+        elif protocol.external_source is not None:
             delivery_target = RunDeliveryTarget.none(reason="external_without_shadow")
         elif owner_user_id:
             delivery_target = RunDeliveryTarget.for_owner_direct(

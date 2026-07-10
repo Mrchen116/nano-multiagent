@@ -84,6 +84,24 @@ def test_streaming_delta_parser_ignores_unrelated_bad_structured_fields() -> Non
     assert event.permission_request is None
 
 
+def test_streaming_delta_parser_ignores_unrelated_bad_text_fields() -> None:
+    event = parse_streaming_delta_event(
+        {
+            "kind": "message_delta",
+            "message_id": "assistant-msg-1",
+            "delta_text": "next",
+            "agent_id": 1,
+            "reason": [],
+        }
+    )
+
+    assert event.kind == "message_delta"
+    assert event.message_id == "assistant-msg-1"
+    assert event.delta_text == "next"
+    assert event.agent_id is None
+    assert event.reason is None
+
+
 def test_node_report_parser_ignores_legacy_unstructured_detail_and_usage() -> None:
     event = parse_node_report_event(
         {

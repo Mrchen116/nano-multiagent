@@ -1110,6 +1110,28 @@ def test_request_node_cron_jobs_returns_none_when_node_offline(
     assert result is None
 
 
+def test_request_node_skills_usage_returns_none_when_node_offline(
+    tmp_path: Path,
+) -> None:
+    """Skills usage RPC returns None when target node is not connected.
+
+    feat-446-M4: IM asks the gateway node for skill usage stats because the
+    source .usage.json lives in the gateway workspace, not on the IM host.
+    """
+    handler = _build_handler(tmp_path)
+
+    result = asyncio.run(
+        handler.request_node_skills_usage(
+            target_node_id="offline-node",
+            agent_id="agent-x",
+            workspace_root="/fake/workspace",
+            timeout_seconds=0.1,
+        )
+    )
+
+    assert result is None
+
+
 def test_handle_cron_jobs_resolves_waiter_with_job_list(tmp_path: Path) -> None:
     """_handle_cron_jobs resolves the matching future with the job list payload.
 
@@ -1141,6 +1163,57 @@ def test_handle_cron_jobs_resolves_waiter_with_job_list(tmp_path: Path) -> None:
         "payload": {"message_type": "node.cron.jobs", "request_id": "req-cj-1"},
     }
     assert future.result() == jobs_payload
+
+
+def test_handle_skills_usage_resolves_waiter_with_usage_payload(
+    tmp_path: Path,
+) -> None:
+    """_handle_skills_usage resolves the matching future with the usage payload."""
+    handler = _build_handler(tmp_path)
+    loop = asyncio.new_event_loop()
+    usage_payload = {
+        "agent_id": "agent-x",
+        "node_id": "node-1",
+        "skills": [
+            {
+                "skill_id": "deploy-check",
+                "name": "deploy-check",
+                "source": "F3",
+                "state": "active",
+                "use_count": 3,
+                "trend_buckets": [0] * 30,
+            }
+        ],
+        "heatmap_data": [0] * 30,
+        "health": {
+            "created_auto_total": 1,
+            "active_auto_total": 1,
+            "used_auto_total": 1,
+        },
+    }
+    try:
+        future: asyncio.Future[dict[str, object] | None] = loop.create_future()
+
+        async def _run() -> dict[str, object]:
+            async with handler._lock:  # noqa: SLF001
+                handler._skills_usage_waiters["req-su-1"] = future  # noqa: SLF001
+            return await handler._handle_skills_usage(  # noqa: SLF001
+                payload={
+                    "request_id": "req-su-1",
+                    "node_id": "node-1",
+                    "usage": usage_payload,
+                }
+            )
+
+        ack = loop.run_until_complete(_run())
+    finally:
+        loop.close()
+
+    assert ack == {
+        "type": "ack",
+        "payload": {"message_type": "node.skills.usage", "request_id": "req-su-1"},
+    }
+    assert future.result() == usage_payload
 
 
 def test_request_node_cron_delete_returns_none_when_node_offline(

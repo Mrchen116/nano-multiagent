@@ -95,6 +95,9 @@ class ConversationResponse(BaseModel):
     external_source: str | None = None
     external_chat_id: str | None = None
     created_at: str
+    run_state: str
+    source_agent_id: str | None = None
+    source_jsonl_path: str | None = None
 
 
 class ExternalFindOrCreateConversationRequest(BaseModel):
@@ -154,6 +157,9 @@ def to_conversation_response(conversation: Conversation) -> ConversationResponse
         external_source=conversation.external_source,
         external_chat_id=conversation.external_chat_id,
         created_at=conversation.created_at,
+        run_state=conversation.run_state,
+        source_agent_id=conversation.source_agent_id,
+        source_jsonl_path=conversation.source_jsonl_path,
     )
 
 

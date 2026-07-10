@@ -358,6 +358,7 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
         {
             "agent_id": "agent-a",
             "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
+            "conversation_id": old_conversation_id,
             "agent_features": {},
             "config_profile_version": 1,
             "system_prompt": "You are agent-a.",
@@ -366,6 +367,7 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
         {
             "agent_id": "agent-a",
             "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
+            "conversation_id": old_conversation_id,
             "agent_features": {},
             "config_profile_version": 1,
             "system_prompt": "You are upgraded.",
@@ -376,6 +378,7 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
         {
             "agent_id": "agent-a",
             "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
+            "conversation_id": new_conversation_id,
             "agent_features": {},
             "config_profile_version": 2,
             "system_prompt": "You are upgraded.",
@@ -440,6 +443,7 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
         "conversation_type": "direct",
         "mentioned_agent_ids": [],
         "config_profile_version": 1,
+        "conversation_id": old_conversation_id,
     }
     assert relay_adapter.sent[1].metadata == {
         "relay_task_id": old_after_relay["payload"]["relay_task_id"],
@@ -448,6 +452,7 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
         "conversation_type": "direct",
         "mentioned_agent_ids": [],
         "config_profile_version": 1,
+        "conversation_id": old_conversation_id,
     }
     assert relay_adapter.sent[2].metadata == {
         "relay_task_id": new_after_relay["payload"]["relay_task_id"],
@@ -456,6 +461,7 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
         "conversation_type": "direct",
         "mentioned_agent_ids": [],
         "config_profile_version": 2,
+        "conversation_id": new_conversation_id,
     }
     assert relay_adapter.sent[1].text == "gateway-reply:hello after sync old"
     assert relay_adapter.sent[2].text == "gateway-reply:hello after sync new"

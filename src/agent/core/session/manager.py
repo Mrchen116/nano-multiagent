@@ -473,6 +473,8 @@ def _build_turn_metadata(raw: dict[str, Any]) -> dict[str, Any]:
     for key in (
         "is_meta",
         "is_compact_summary",
+        "is_skill_reinjection",
+        "skill_reinjection_refs",
         "is_provider_error",
         "entrypoint",
         "tool_calls",

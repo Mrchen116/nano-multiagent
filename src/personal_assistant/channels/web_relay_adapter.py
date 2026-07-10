@@ -287,6 +287,7 @@ def _build_inbound(
             "idempotency_key": envelope.idempotency_key,
             "message_id": message_id,
             **metadata,
+            "conversation_id": envelope.conversation_id,
             **extra,
         },
     )
@@ -324,6 +325,7 @@ def _build_runtime_protocol(
         relay_task_id=envelope.relay_task_id,
         idempotency_key=envelope.idempotency_key,
         im_message_id=im_message_id,
+        external_source=external_source,
         external_identity=external_identity,
         shadow_ref=ShadowConversationRef(
             conversation_id=envelope.conversation_id,

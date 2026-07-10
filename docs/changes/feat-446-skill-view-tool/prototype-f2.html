@@ -385,9 +385,9 @@
         <strong>执行 agent 级</strong>
         <span>只给本次执行 agent 使用，默认选择。</span>
       </button>
-      <button class="scope-option" id="scope-pa" onclick="selectScope('pa')">
-        <strong>PA 产品级</strong>
-        <span>给支持该产品级 skill root 的多个 agent 复用。</span>
+      <button class="scope-option" id="scope-global" onclick="selectScope('global')">
+        <strong>Global</strong>
+        <span>写入全局 skill root，默认给所有 agent 复用。</span>
       </button>
     </div>
     </div>
@@ -610,7 +610,7 @@ function closeScopeModal() {
 function selectScope(scope) {
   targetScope = scope;
   document.getElementById('scope-agent').classList.toggle('selected', scope === 'agent');
-  document.getElementById('scope-pa').classList.toggle('selected', scope === 'pa');
+  document.getElementById('scope-global').classList.toggle('selected', scope === 'global');
 }
 
 function selectedSessions() {
@@ -675,7 +675,7 @@ function goToStep2() {
   const paths = selectedSessions()
     .map(s => `  ${s.jsonl}`)
     .join('\n');
-  const scopeLabel = targetScope === 'pa' ? 'PA 产品级' : '执行 agent 级';
+  const scopeLabel = targetScope === 'global' ? 'Global' : '执行 agent 级';
   composer.value = `/skill:conversation-skill-distiller\nsource_jsonl_paths:\n${paths}\nexecution_agent_id: ${executionAgentId}\ntarget_scope: ${targetScope}\n\n请基于上述会话 transcript，总结我反复使用且值得复用的工作方式，直接生成并写入一个 ${scopeLabel} skill。重点关注：\n- 触发这个 skill 的场景\n- 应遵循的步骤/检查点\n- 失败或边界情况\n如果这些会话不足以形成稳定模式，请说明原因，不要创建 skill。`;
   composer.focus();
   // Move cursor to the intent line (after the source JSONL paths)
