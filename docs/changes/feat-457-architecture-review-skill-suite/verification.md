@@ -19,8 +19,8 @@ requires_full_verification: false
 
 - Tasks: 6/6 complete。`M1-skill-suite/tasks.md:15-20` 的六条退出标准均标记完成，代码树和本轮独立校验均能找到对应产物。
 - Spec 覆盖: 4/4 requirements、11/11 scenarios 均有实现映射；详见 Correctness 表。
-- 范围覆盖: `origin/main...HEAD` 仅包含 8 个允许的 skill 文件和 2 个 milestone 记录文件；没有 `src/`、canonical spec 或其他 change-* 角色改动，符合 `design.md:220-236`。
-- 上游完整性: 以 `mattpocock-skills@d574778f94cf620fcc8ce741584093bc650a61d3` 独立对比：`DEEPENING.md` 与两份 `LICENSE` 逐字一致；`codebase-design` 的其余差异仅为正式术语优先和 Design It Twice 门槛；`improve-codebase-architecture` 的差异仅落在可选 grounding、版本化报告、handoff continuation 和正式术语优先。
+- 范围覆盖: `origin/main...HEAD` 仅包含 6 个 skill 文档和 2 个 milestone 记录文件；没有 `src/`、canonical spec 或其他 change-* 角色改动，符合 `design.md:220-236`。
+- 上游完整性: 以 `mattpocock-skills@d574778f94cf620fcc8ce741584093bc650a61d3` 独立对比：`DEEPENING.md` 逐字一致；`codebase-design` 的其余差异仅为正式术语优先和 Design It Twice 门槛；`improve-codebase-architecture` 的差异仅落在可选 grounding、版本化报告、handoff continuation 和正式术语优先。
 - Prototype / Reference: N/A。design 没有 `## 前端原型` 或 reference contract，`tasks.md:29-30` 也明确为 N/A。
 
 ## Correctness
@@ -50,7 +50,7 @@ requires_full_verification: false
 
 | design 决策 | 遵守? | 代码证据（file:line） |
 |---|---|---|
-| D1 `codebase-design` 最小引入 | 是 | `.claude/skills/codebase-design/SKILL.md:1-114`、`DEEPENING.md:1-37`、`DESIGN-IT-TWICE.md:1-44` 与 `LICENSE:1-21`；相对锁定上游仅有 design 允许的兼容差异 |
+| D1 `codebase-design` 最小引入 | 是 | `.claude/skills/codebase-design/SKILL.md:1-114`、`DEEPENING.md:1-37` 与 `DESIGN-IT-TWICE.md:1-44`；相对锁定上游仅有 design 允许的兼容差异 |
 | D2 保留巡检主体，只替换通用兼容接点 | 是 | `.claude/skills/improve-codebase-architecture/SKILL.md:11-85` 与 `HTML-REPORT.md:1-123` 保留 organic exploration、deletion test、候选卡、before/after、强度和 top recommendation |
 | D3 报告为带版本语境的独立快照 | 是 | `.claude/skills/improve-codebase-architecture/SKILL.md:36-64` 明确 root、目录创建、时间+SHA/no-git、碰撞后缀、完整 Git 元数据、dirty 警示、绝对路径和打开失败行为 |
 | D4 候选只产生 handoff | 是 | `.claude/skills/improve-codebase-architecture/SKILL.md:66-85` 固定八字段 handoff，并禁止设计 interface、改代码和启动平行流程 |

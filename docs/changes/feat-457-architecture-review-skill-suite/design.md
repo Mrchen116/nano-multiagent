@@ -22,7 +22,6 @@
 - `improve-codebase-architecture` 是通用 skill，不绑定 nano-multiagent 的目录、扫描过滤规则、架构检查清单或领域词汇。
 - 项目已经定义的正式名称优先。`module/interface/seam/...` 是分析架构关系时的共享词汇，不能把真实产品名、类型名或项目正式术语机械改名。
 - 报告是用户要求保留的历史审视产物，不按普通临时生成物处理；但每份报告独立，不衍生状态文件。
-- 上游 `mattpocock-skills` 采用 MIT License。引入的两个 skill 目录各保留一份上游许可证，满足复制和修改时的 notice 要求。
 
 ### 可复用能力
 
@@ -229,8 +228,8 @@ flowchart TD
 - `[reviewer]` 在非 Git 目录运行后，报告仍进入当前目录的 `docs/architecture-reviews/`，Git 元数据明确为 `unavailable`。
 - `[reviewer]` 选择候选后，得到字段完整的 handoff；有 `change-spec-author` 时进入 refactor 首文档流程，无该 skill 时 handoff 独立可用；巡检不直接设计 interface、不改代码。
 - `[reviewer]` deep-module 设计样例会触发 `codebase-design` 并保留项目正式术语，普通设计样例不触发；只有重要 interface 的实质多方案比较才进入 Design It Twice。
-- `[worker]` `.claude/skills/codebase-design/` 含上游 `SKILL.md`、`DEEPENING.md`、`DESIGN-IT-TWICE.md` 与 MIT `LICENSE`；除术语优先级、按需触发兼容说明外保持上游方法完整，来源基线为 `d574778f94cf620fcc8ce741584093bc650a61d3`。
-- `[worker]` `.claude/skills/improve-codebase-architecture/` 含 `SKILL.md`、`HTML-REPORT.md` 与 MIT `LICENSE`；与上游的差异只覆盖可选 grounding、仓库报告路径/Git 元数据、handoff continuation、正式术语优先级，未加入固定扫描过滤、候选账本或仓库专项规则。
+- `[worker]` `.claude/skills/codebase-design/` 含上游 `SKILL.md`、`DEEPENING.md` 与 `DESIGN-IT-TWICE.md`；除术语优先级、按需触发兼容说明外保持上游方法完整，来源基线为 `d574778f94cf620fcc8ce741584093bc650a61d3`。
+- `[worker]` `.claude/skills/improve-codebase-architecture/` 含 `SKILL.md` 与 `HTML-REPORT.md`；与上游的差异只覆盖可选 grounding、仓库报告路径/Git 元数据、handoff continuation、正式术语优先级，未加入固定扫描过滤、候选账本或仓库专项规则。
 - `[worker]` `.claude/skills/change-design-author/SKILL.md` 明确四类正向触发、普通设计反向条件、现有章节投影和 Design It Twice 二级门槛；不修改 design 模板、门禁、Milestone 或下游角色职责。
 - `[worker]` 四包均无 delta-spec；`src/`、`change-orchestrator`、worker、verifier、reviewer 和 code-review 未被修改。
 - `[worker]` 所有 Markdown frontmatter 可解析，skill 名与目录一致，内部相对链接可解析，`git diff --check` 通过。

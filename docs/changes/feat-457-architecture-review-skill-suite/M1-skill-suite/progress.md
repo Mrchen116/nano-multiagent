@@ -14,19 +14,19 @@
 ## R1 — 引入 deep-module 设计技法
 
 - Status: DONE
-- Verify/Red: 一次性完整性校验要求 `SKILL.md`、`DEEPENING.md`、
-  `DESIGN-IT-TWICE.md` 与 `LICENSE` 全部存在；当前失败并精确报出四个缺失路径，
+- Verify/Red: 一次性完整性校验要求 `SKILL.md`、`DEEPENING.md` 与
+  `DESIGN-IT-TWICE.md` 全部存在；当前失败并精确报出三个缺失路径，
   证明未把主仓用户副本当作实现基线。
 - Verification contract:
-  - 四份文件来自锁定上游 commit，文档主体可逐文件 diff。
+  - 三份文件来自锁定上游 commit，文档主体可逐文件 diff。
   - frontmatter `name` 等于目录名 `codebase-design`。
   - `SKILL.md` 指向 `DEEPENING.md` 和 `DESIGN-IT-TWICE.md` 的相对链接存在。
   - 兼容文案只限正式术语优先级、普通设计不机械触发，以及重要 interface 存在实质多方案且用户需比较时才执行 Design It Twice。
 - Context: 巡检与 design-author 需要共用 deep-module 设计语言，但不应引入 Matt 的整套工程流程。
-- Decision: 从锁定上游 commit 引入三份方法文档与 MIT notice；`SKILL.md` 只补项目正式术语优先级和非机械 Design It Twice 触发，`DESIGN-IT-TWICE.md` 只补实质方案门槛与可选 `CONTEXT.md`。
+- Decision: 从锁定上游 commit 引入三份方法文档；`SKILL.md` 只补项目正式术语优先级和非机械 Design It Twice 触发，`DESIGN-IT-TWICE.md` 只补实质方案门槛与可选 `CONTEXT.md`。
 - Rationale: 保留上游 glossary、deepening 依赖分类、seam discipline、interface-as-test-surface 和并行多方案比较的完整方法，同时避免共享词汇覆盖项目命名或普通设计自动 fan-out。
 - Evidence:
-  - Tests: 一次性 Python 校验确认四文件集合、frontmatter、相对链接、LICENSE 逐字相同、`DEEPENING.md` 逐字相同；`pytest -q tests/unit/test_skill_registry_frontmatter.py` → `3 passed`；`git diff --check` 通过。
+  - Tests: 一次性 Python 校验确认三文件集合、frontmatter、相对链接及 `DEEPENING.md` 逐字相同；`pytest -q tests/unit/test_skill_registry_frontmatter.py` → `3 passed`；`git diff --check` 通过。
   - Entry: 真实 skill 入口文档 `.claude/skills/codebase-design/SKILL.md` 可被 frontmatter 发现，且从该入口指向的两份按需参考均可解析。
   - Frontend State Matrix: N/A（纯 skill Markdown）。
   - Browser QA: N/A（无前端）。
@@ -40,7 +40,7 @@
 ## R2 — 修正架构巡检的通用流程接点
 
 - Status: DONE
-- Verify/Red: 一次性完整性校验要求 `SKILL.md`、`HTML-REPORT.md` 和 `LICENSE` 全部存在；当前失败并精确报出三个缺失路径。
+- Verify/Red: 一次性完整性校验要求 `SKILL.md` 和 `HTML-REPORT.md` 全部存在；当前失败并精确报出两个缺失路径。
 - Verification contract:
   - 保留上游 organic exploration、deletion test、候选卡、before/after、推荐强度和 top recommendation。
   - grounding 读取项目实际存在的 instructions/架构文档/领域词汇/决策记录，`CONTEXT.md`、`CONTEXT-MAP.md` 与 ADR 均可缺失且不创建。
@@ -51,7 +51,7 @@
 - Decision: 保留 Explore 问题集、deletion test、候选卡与视觉指南；将 grounding 改为读取实际存在的项目文档，将报告改为仓库内带 Git 语境的独立快照，将选中候选后的流程改为固定 handoff。
 - Rationale: 只替换 design 指定的通用流程接点，既不把 skill 改成 nano-multiagent 专用扫描器，也不引入候选状态系统或另一套 interface 设计流程。
 - Evidence:
-  - Tests: 一次性 Python 校验确认三文件集合、frontmatter、相对链接、LICENSE，覆盖上游主体保留点、报告路径/Git 元数据/不覆盖/无 Git、handoff 字段和禁止范围；`pytest -q tests/unit/test_skill_registry_frontmatter.py` → `3 passed`；`git diff --check` 通过。
+  - Tests: 一次性 Python 校验确认两文件集合、frontmatter与相对链接，覆盖上游主体保留点、报告路径/Git 元数据/不覆盖/无 Git、handoff 字段和禁止范围；`pytest -q tests/unit/test_skill_registry_frontmatter.py` → `3 passed`；`git diff --check` 通过。
   - Entry: 真实 skill 入口 `.claude/skills/improve-codebase-architecture/SKILL.md` 现在从 Explore 到 report 再到 handoff 形成完整用户路径；主文档链接的 `HTML-REPORT.md` 可解析。
   - Frontend State Matrix: N/A（输出为架构报告文件，本 milestone 无产品前端）。
   - Browser QA: N/A；真调用生成/打开 HTML 属于 reviewer 轨退出标准，已在 design Runbook 指定。
@@ -76,7 +76,7 @@
 - Decision: 在 §3.0 grounding 之后增加单一决策触发段，写清四类正向触发、普通设计反向条件、正式术语优先级、既有章节投影与 Design It Twice 二级门槛。
 - Rationale: 该位置保证判定基于真实仓库现状且早于方案对齐；结论回填既有 design 章节，因此不改模板、门禁、Milestone 拆分或下游角色职责。
 - Evidence:
-  - Tests: 一次性 Python 校验确认正向触发恰为四类，反向条件、术语优先级、四个现有章节投影和“实质多方案 + 用户需比较”二级门槛存在；全套收尾校验确认仅 10 个允许路径变更、上游基线/metadata/链接/报告/handoff/call-in 合约全部通过；`pytest -q tests/unit/test_skill_registry_frontmatter.py` → `3 passed`；`git diff --check` 通过。
+  - Tests: 一次性 Python 校验确认正向触发恰为四类，反向条件、术语优先级、四个现有章节投影和“实质多方案 + 用户需比较”二级门槛存在；全套收尾校验确认仅 8 个允许路径变更、上游基线/metadata/链接/报告/handoff/call-in 合约全部通过；`pytest -q tests/unit/test_skill_registry_frontmatter.py` → `3 passed`；`git diff --check` 通过。
   - Entry: 真实设计 skill 入口 `.claude/skills/change-design-author/SKILL.md` 在 grounding 后直接包含判定与调用指令，无需模板或 orchestrator 额外接线。
   - Frontend State Matrix: N/A（纯 skill Markdown）。
   - Browser QA: N/A（无前端）。
@@ -93,7 +93,7 @@
 
 | 设计退出标准 | 结果 | 可复核证据 |
 |---|---|---|
-| `codebase-design` 三文档 + LICENSE，最小兼容差异 | PASS | R1 的上游逐文件 diff 与结构校验；`DEEPENING.md`/LICENSE 逐字相同 |
+| `codebase-design` 三份方法文档，最小兼容差异 | PASS | R1 的上游逐文件 diff 与结构校验；`DEEPENING.md` 逐字相同 |
 | `improve-codebase-architecture` 主体保留，差异限定为四类兼容点 | PASS | R2 上游 diff + 主体保留/禁止词结构校验 |
 | design-author 四正向、一反向、章节投影、二级门槛 | PASS | R3 计数与字段校验 |
 | 无其他产品/角色/契约层改动 | PASS | `git diff --name-only origin/unit/feat-457...HEAD` 严格等于 8 个范围文件 + 2 个 milestone 记录 |
