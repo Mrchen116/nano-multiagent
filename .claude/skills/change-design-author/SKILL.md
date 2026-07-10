@@ -1,14 +1,13 @@
 ---
 name: change-design-author
-description: 用于在首文档(spec/incident/motivation)定稿后,和人交互式对齐"怎么做",产出或修订 design.md + Milestone 拆分表 + 空目录骨架。触发条件:用户在某 unit 已有 spec/incident/motivation 的前提下提到"出方案 / 写设计 / 拆 milestone / 该怎么做 / 准备开搞"等任何"开始落地"的信号;`change-spec-author` 完成时给出"门禁 1 通过"提示后用户继续推进;或 change-orchestrator 对开放 PR 升级 `revise-design` 并要求修订 archive 中的既有设计。不要用于:写代码、创建实现分支、预填 milestone 内的 tasks.md(那是 worker 的事)、回头改用户场景(那要回 change-spec-author)。
+description: 用于在首文档(spec/incident/motivation)定稿后,和人交互式对齐"怎么做",产出 design.md + Milestone 拆分表 + 空目录骨架。触发条件:用户在某 unit 已有 spec/incident/motivation 的前提下提到"出方案 / 写设计 / 拆 milestone / 该怎么做 / 准备开搞"等任何"开始落地"的信号;或 `change-spec-author` 完成时给出"门禁 1 通过"提示后用户继续推进。这是门禁 2 之前唯一允许动笔的阶段,定稿后由 `change-orchestrator` 接手实施。不要用于:写代码、立 git 分支、预填 milestone 内的 tasks.md(那是 worker 的事)、回头改用户场景(那要回 change-spec-author)。
 ---
 
 # Change Design Author
 
 你是一个**架构对齐者**。你的产物是 `design.md`。
 
-你不写代码,也不创建实现 git 分支。你只动解析出的 `<unit_path>/` 下的 `design.md` 和子目录；post-PR
-修订模式在 orchestrator 已恢复的既有 unit 分支中工作。
+你不写代码,也不打开实现 git 分支。你只动 `docs/changes/<unit>/` 下的 `design.md` 和子目录。
 
 ## design.md 的双目的(贯穿全 skill 的第一性原则)
 
@@ -28,7 +27,7 @@ description: 用于在首文档(spec/incident/motivation)定稿后,和人交互�
 
 ## §0 不可越界的硬规则
 
-1. **首文档没定稿,不能启动**。检查 `<unit_path>/<首文档>.md` 是否还有 `<!-- 模板说明 -->` 注释块、TBD、空 Q/A——任一存在,提示用户先回 `change-spec-author` 收口,**本 skill 退出**。
+1. **首文档没定稿,不能启动**。检查 `docs/changes/<unit>/<首文档>.md` 是否还有 `<!-- 模板说明 -->` 注释块、TBD、空 Q/A——任一存在,提示用户先回 `change-spec-author` 收口,**本 skill 退出**。
 2. **不回头改用户场景 / 验收标准**。对齐中发现用户视角有疏漏,**停下来**让用户回 `change-spec-author` 修订首文档——混着改,门禁 1 就形同虚设。首文档被修订 / 中途加新需求后,变更的那部分必须重走 §3.0 grounding + §5 自检,不能直接打补丁塞进 design。
 3. **交互式,一次一个问题**。每个关键决策、每条 milestone 拆分理由,逐个问用户确认 + 给推荐。不要一次性出完整 design.md 让用户"看一下行不行"——这种是给自己签字,不是对齐。
 4. **不创建 git 分支**。`unit/<unit-id>` 由 `change-orchestrator` 在接手时创建。design.md 顶部只写"Unit branch: `unit/<unit-id>` (will be created by orchestrator)"作为意图声明。
@@ -38,71 +37,15 @@ description: 用于在首文档(spec/incident/motivation)定稿后,和人交互�
 
 ---
 
-## §1 启动:解析 unit,读首文档,验证门禁 1
-
-输入模式：
-
-```yaml
-unit_id: <type>-<id>
-revision_mode: post-pr   # 可选；仅 orchestrator 对开放 PR 合法升级 revise-design 时传
-pr_url: <url>            # revision_mode=post-pr 必传
-```
+## §1 启动:读首文档,验证门禁 1
 
 **命名约定**(沿用 spec-author):
 
 - `unit_id` = `<type>-<id>`,例 `feat-104`
 - `unit_dir` = 实际目录,可能含 short-desc,例 `feat-104-chat-mention-picker`
-- 启动时按 `unit_id` 同时查 active/archive，并要求唯一：
+- 启动时如果用户只给 `unit_id`,**自查 unit_dir**:`ls -d docs/changes/<unit_id> docs/changes/<unit_id>-* 2>/dev/null | head -1`
 
-```bash
-unit_matches=$(find docs/changes docs/changes/archive -mindepth 1 -maxdepth 1 -type d \
-  \( -name "<unit_id>" -o -name "<unit_id>-*" \) -print 2>/dev/null)
-match_count=$(printf '%s\n' "$unit_matches" | sed '/^$/d' | wc -l | tr -d ' ')
-if [[ "$match_count" -eq 0 ]]; then echo "unit path not found: <unit_id>" >&2; exit 1; fi
-if [[ "$match_count" -ne 1 ]]; then
-  echo "unit path is ambiguous: <unit_id>" >&2
-  printf '%s\n' "$unit_matches" >&2
-  exit 1
-fi
-unit_path=$unit_matches
-unit_dir=$(basename "$unit_path")
-```
-
-普通设计模式只接受 active。archive 只允许 `revision_mode=post-pr`，且调用者必须已在 orchestrator 保留的
-clean unit worktree 中。必须验证当前仓库、`unit/<unit_id>` 分支和 HEAD 与开放 PR 精确一致。任一不符立即
-退出，不 fetch、不 checkout、不创建分支、不把 unit 移回 active。
-
-```bash
-if [[ "$unit_path" == docs/changes/archive/* ]]; then
-  if [[ "${revision_mode:-}" != post-pr || -z "${pr_url:-}" ]]; then
-    echo "archived design requires revision_mode=post-pr and pr_url" >&2
-    exit 1
-  fi
-  worktree_root=$(git rev-parse --show-toplevel)
-  current_branch=$(git branch --show-current)
-  current_repo=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
-  read -r pr_state pr_head pr_head_oid pr_head_repo < <(
-    gh pr view "$pr_url" --json state,headRefName,headRefOid,headRepository \
-      --jq '[.state, .headRefName, .headRefOid, .headRepository.nameWithOwner] | @tsv'
-  )
-  if [[ "$current_branch" != "unit/<unit_id>" || "$pr_state" != OPEN || \
-        "$pr_head" != "$current_branch" || "$pr_head_repo" != "$current_repo" ]]; then
-    echo "archived design revision requires its open unit/<unit_id> PR worktree" >&2
-    exit 1
-  fi
-  python3 .claude/skills/change-orchestrator/scripts/prepare_unit_worktree.py \
-    --repo-root "$worktree_root" \
-    --unit-id "<unit_id>" \
-    --worktree-dir "$worktree_root" \
-    --expected-head "$pr_head_oid" \
-    --validate-only
-elif [[ -n "${revision_mode:-}" ]]; then
-  echo "revision_mode=post-pr requires the archived unit on the PR head" >&2
-  exit 1
-fi
-```
-
-启动第一件事——读 `<unit_path>/` 下的首文档(`spec.md` / `incident.md` / `motivation.md` / `fix.md`)。
+启动第一件事——读 `docs/changes/<unit_dir>/` 下的首文档(`spec.md` / `incident.md` / `motivation.md` / `fix.md`)。
 
 ### §1.1 门禁 1 检查清单
 
@@ -134,7 +77,7 @@ fi
 
 ## §2 复制 design.md 模板,写头部信息
 
-普通设计模式：模板在本 skill 目录的 `assets/design.md`。Read 模板 → Write 到 `<unit_path>/design.md`,然后填写:
+模板在本 skill 目录的 `assets/design.md`。Read 模板 → Write 到 `docs/changes/<unit_dir>/design.md`,然后填写:
 
 - 标题行:`# <type-id>: <短描述> — 技术方案`
 - "对齐"行:`> 对齐: spec.md / incident.md / motivation.md v<n>`(选首文档实际名)
@@ -144,26 +87,7 @@ fi
 > Unit branch: `unit/<unit-id>` (will be created by orchestrator)
 ```
 
-- 保留空的 `## Changelog` 段,**整个初始 design 阶段都留空**。对齐期推翻重来直接在对应段落原地重写,别往 Changelog 记流水账;它只给 orchestrator 接手后的实施期偏差用。
-
-`revision_mode=post-pr`：禁止复制模板或重置既有设计。读取 archive 中现有 `design.md`，只修订 escalation
-涉及的决策/接口/风险/Milestone，并在 `## Changelog` 追加一行“日期 + 原因 + 变更摘要 + Added milestones:
-<ID 列表或 none>”。已完成 milestone 及其 tasks/progress/evidence 原样保留；若需要后续实现，只新增
-milestone 表行及对应仅含 `.gitkeep` 的目录。orchestrator 会把这些目录识别为 pending 并重新进入实施循环。
-
-提交前创建 durable revision state；`--milestone` 按本轮 Added milestones 每项重复传入，若为 none 则不传：
-
-```bash
-python3 .claude/skills/change-orchestrator/scripts/post_pr_revision_state.py create \
-  --unit-doc-root "$unit_path" \
-  --unit-id "<unit_id>" \
-  --revision-base-head "$pr_head_oid" \
-  --milestone "M<next>-<title>"
-```
-
-该文件把每个新增 milestone 的 `unstarted → in_progress → implemented` 和整个 revision 的
-`implementation_pending → full_gates_pending → validated` 跨进程持久化；design、`.gitkeep` 骨架和
-`post-pr-revision.json` 必须在同一 revision commit 中 push。
+- 保留空的 `## Changelog` 段,**整个 design 阶段都留空**。对齐期推翻重来直接在对应段落原地重写,别往 Changelog 记流水账;它只给 orchestrator 接手后的实施期偏差用。
 
 ---
 
@@ -331,7 +255,7 @@ design.md 读起来像文字墙,根源是该画的地方在用散文描述。人
 - 对用户 / 审核者:提前看 UI 方向是否对,避免 design.md 文字写完了但实际界面理解偏了。
 - 对 worker:提供视觉和交互目标,减少"按文字自由发挥"导致的 UI 偏差。
 - 对 reviewer:作为验收时理解设计意图的参照,但最终仍验真实前端实现。
-- 路径固定:`<unit_path>/prototype.html`。
+- 路径固定:`docs/changes/<unit_dir>/prototype.html`。
 - 可用少量演示 JS 表达关键交互 / 状态切换,但不接真实后端、不复用项目源码,不作为产品实现或验收替代品。
 - 覆盖首文档验收标准里的关键界面、关键状态、关键交互即可;design.md 的 `## 前端原型` 段链接原型文件并简述覆盖范围。
 
@@ -375,13 +299,13 @@ design.md 读起来像文字墙,根源是该画的地方在用散文描述。人
 |---|---|---|---|---|---|
 | feat-104-M1 | impl | — | A | <unit 涉及的全部范围> | <整个 unit 的退出标准> |
 
-然后 `mkdir <unit_path>/M1-impl/ && touch <unit_path>/M1-impl/.gitkeep` 完事。
+然后 `mkdir docs/changes/<unit_dir>/M1-impl/ && touch docs/changes/<unit_dir>/M1-impl/.gitkeep` 完事。
 
 **目录命名约定**:
 
 - milestone_id = `<unit_id>-M<N>`,例 `feat-104-M1`
 - milestone_dir(在 unit_dir 下)= `M<N>-<title>`,例 `M1-impl`、`M2-ui-picker`、`M3-presentation-layer`
-- 完整路径 = `<unit_path>/M<N>-<title>/`
+- 完整路径 = `docs/changes/<unit_dir>/M<N>-<title>/`
 
 **不要**因为感觉"这个 unit 看起来不止一步"就拆 milestone——unit 内部分步用 worker 的 roadpoint(`tasks.md` 里的 R1/R2)就够了,milestone 是更粗的颗粒度。
 
@@ -487,16 +411,14 @@ graph LR
 milestone 表敲定后:
 
 ```bash
-mkdir -p <unit_path>/M1-<title>/
-mkdir -p <unit_path>/M2-<title>/
-touch <unit_path>/M1-<title>/.gitkeep <unit_path>/M2-<title>/.gitkeep
+mkdir -p docs/changes/<unit_dir>/M1-<title>/
+mkdir -p docs/changes/<unit_dir>/M2-<title>/
+touch docs/changes/<unit_dir>/M1-<title>/.gitkeep docs/changes/<unit_dir>/M2-<title>/.gitkeep
 ...
 ```
 
-`.gitkeep` 是唯一允许的占位文件，确保空 milestone 目录能随 commit/push 到达后续 worktree。worker 开工后
-删除 `.gitkeep`，再创建 tasks.md / progress.md。
-
-除 `.gitkeep` 外不放任何文件。worker 启动时会自己填 `tasks.md` / `progress.md`。
+`.gitkeep` 是唯一允许的占位文件，确保 milestone 骨架能进入 Git 并到达后续 worktree。worker 启动时删除
+`.gitkeep`，再创建 `tasks.md` / `progress.md`。
 
 ---
 
@@ -509,12 +431,12 @@ touch <unit_path>/M1-<title>/.gitkeep <unit_path>/M2-<title>/.gitkeep
 **判定**:对本 unit 触及的每个包(kernel / im / gateway / cli),问"经 `agent.sdk` / 产品入口的消费者,
 可观察行为变了吗":
 
-- **变了** → 按最窄 canonical 落点产出一个或多个 `<unit_path>/specs/<包>/<target>.md`。
+- **变了** → 按最窄 canonical 落点产出一个或多个 `docs/changes/<unit_dir>/specs/<包>/<target>.md`。
 - **没变**(纯内部重构) → 不产该包文件,在 design.md 对应决策处显式注明 "no spec delta"。
 
 **怎么写**(完整规范见 [`docs/SPEC_GUIDE.md`](../../../docs/SPEC_GUIDE.md)「契约层增量(delta-spec)」节):
 
-- 镜像 canonical target:`<unit_path>/specs/<包>/<target>.md` → `docs/specs/<包>/<target>.md`;
+- 镜像 canonical target:`docs/changes/<unit_dir>/specs/<包>/<target>.md` → `docs/specs/<包>/<target>.md`;
   只有包级职责、边界或 area 索引变化才以入口 `spec.md` 为 target。
 - 一份"迷你 canonical":`## ADDED / MODIFIED / REMOVED Requirements`,只写**变更的** Requirement
   (改的写改后完整条目、删的只写名)。
@@ -527,7 +449,7 @@ touch <unit_path>/M1-<title>/.gitkeep <unit_path>/M2-<title>/.gitkeep
 > 不必追求和最终代码逐字一致,**把对外行为增量说全**即可。
 
 ```bash
-mkdir -p <unit_path>/specs/<包>/   # 仅为有对外行为变化的包建
+mkdir -p docs/changes/<unit_dir>/specs/<包>/   # 仅为有对外行为变化的包建
 ```
 
 ---
@@ -547,7 +469,7 @@ mkdir -p <unit_path>/specs/<包>/   # 仅为有对外行为变化的包建
 - [ ] 范围与非目标:design 没有偷偷扩到 spec 写的"非目标"里去
 - [ ] 若有 `## 前端原型`,已完成现有 UX grounding,并说明 prototype 如何继承当前产品 UX;没有 grounding 的原型 = 门禁 2 不通过
 - [ ] 若有 `## 前端原型`,原型对齐契约每个 `must-match` 行都投影到了 Milestone 退出标准;没有投影的 must-match = 门禁 2 不通过
-- [ ] **delta-spec 覆盖对外行为增量**(§4.8):每个有对外行为变化的包都按最窄落点产了 `<unit_path>/specs/<包>/<target>.md`,纯内部包显式注 "no spec delta";delta 每条能追溯到某条验收标准或关键决策(kernel 已做用户→消费者视角翻译)
+- [ ] **delta-spec 覆盖对外行为增量**(§4.8):每个有对外行为变化的包都按最窄落点产了 `docs/changes/<unit_dir>/specs/<包>/<target>.md`,纯内部包显式注 "no spec delta";delta 每条能追溯到某条验收标准或关键决策(kernel 已做用户→消费者视角翻译)
 
 **design 内部自洽**:
 
@@ -611,32 +533,22 @@ mkdir -p <unit_path>/specs/<包>/   # 仅为有对外行为变化的包建
 完成判据:
 
 - [ ] design.md 无 `<!-- 模板说明 -->` 注释块
-- [ ] 标题、对齐行、Unit branch 声明、Changelog 段都齐；初始模式 Changelog 为空，revision 模式有本轮条目
+- [ ] 标题、对齐行、Unit branch 声明、Changelog 段(空)都齐
 - [ ] `§现状分析` 段已填(列出涉及模块、既有约束、可复用能力、相关历史变更),且已和用户对齐
 - [ ] 架构总览(配图)、关键决策、接口与数据流、风险与回退 都写了实质内容
 - [ ] 前端相关 unit 已产出 `prototype.html`,且 `design.md ## 前端原型` 含现有 UX grounding + 原型对齐契约;非前端 unit 没有该段和原型文件
 - [ ] `§Runbook for Reviewer` 段已填(列出本 unit 涉及的常驻服务 + 停止/启动/健康检查命令,或显式"无常驻服务")
-- [ ] Milestone 表完整(每行字段都填),数量 = `<unit_path>/M*/` 子目录数
-- [ ] 初始模式所有 milestone 子目录仅含 `.gitkeep`；revision 模式只要求本轮新增目录仅含 `.gitkeep`，既有 tasks/progress/evidence 未被改写或删除
-- [ ] revision 模式已创建 `post-pr-revision.json`，其中 `added_milestones` 与 Changelog 的 Added milestones 一致，`milestone_states` 均为 `unstarted`，phase 为 `implementation_pending`
-- [ ] 对外行为有变化的包都按最窄 canonical 落点产了 delta-spec `<unit_path>/specs/<包>/<target>.md`(§4.8);纯内部 unit 在 design.md 注 "no spec delta"
-- [ ] 初始模式已 commit 到 `main`；revision 模式已 commit + push 到既有 `unit/<unit_id>` PR 分支
+- [ ] Milestone 表完整(每行字段都填),数量 = `docs/changes/<unit_dir>/M*/` 子目录数
+- [ ] milestone 子目录仅含 `.gitkeep`，没有预填 tasks.md / progress.md
+- [ ] 对外行为有变化的包都按最窄 canonical 落点产了 delta-spec `docs/changes/<unit_dir>/specs/<包>/<target>.md`(§4.8);纯内部 unit 在 design.md 注 "no spec delta"
+- [ ] 已 commit 到 `main`(`docs/changes/<unit_dir>/` 含 design.md 与 milestone 空目录)
 
-通过后按模式提交：
-
-- 初始模式：在主仓 `main` 上 commit + push `<unit_path>/`，勿建 `unit/*` 分支。
-- `revision_mode=post-pr`：在 orchestrator 保留的 unit worktree 中 commit `<unit_path>/` 并 push
-  `unit/<unit_id>`；不得 checkout main，不得移动 archive。回报 Changelog 条目、新增 milestone 和新 HEAD，
-  让 orchestrator 按 §2.5 恢复复验。
+通过后,在主仓 `main` 上 commit + push `docs/changes/<unit_dir>/`(勿建 `unit/*` 分支)。
 
 然后告诉用户:
 
 > Design 定稿,门禁 2 通过。可以按照 `change-orchestrator` skill实施。
 > 按照 Orchestrator skill 会做 sync gate、创建 unit 分支 `unit/<unit-id>`、按 Milestone 表派发 worker。
-
-revision 模式则告诉用户：
-
-> Design 修订已推送到现有开放 PR。请恢复 change-orchestrator；它会从新增 milestone / 修订范围继续实现和复验。
 
 ---
 
@@ -644,19 +556,17 @@ revision 模式则告诉用户：
 
 **输入**(本 skill 启动时必须存在):
 
-- `<unit_path>/<首文档>.md` 通过门禁 1 检查
-- revision 模式另需：`revision_mode: post-pr`、开放 `pr_url`、当前 checkout 为该 PR 的 `unit/<unit_id>` worktree
+- `docs/changes/<unit>/<首文档>.md` 通过门禁 1 检查
 
 **输出**(下游 `change-orchestrator` 会读):
 
-- `<unit_path>/design.md`,含:
+- `docs/changes/<unit_dir>/design.md`,含:
   - Unit branch 声明(意图,orchestrator 据此创建分支)
   - Milestone 表(orchestrator 据此派发 worker;每行 → 一个派发包)
-  - 初始模式为空的 Changelog；revision 模式含本轮原因、摘要和 Added milestones
-- `<unit_path>/prototype.html`(仅前端相关 unit 必须产出;非前端 unit 不产)
-- `<unit_path>/M*/` 目录(初始模式仅含 `.gitkeep`；revision 模式仅新增 milestone 仅含 `.gitkeep`)
-- `<unit_path>/post-pr-revision.json`(revision 模式必有；orchestrator 据此跨中断恢复 implementation/full-gates/validated 阶段)
-- `<unit_path>/specs/<包>/<target>.md` delta-spec(§4.8,仅有对外行为变化的包,可有多个 target;orchestrator §7.0 据此校正 + 软对账 + 合并进对应 canonical area。纯内部 unit 无此文件,design.md 注 "no spec delta")
+  - 空 Changelog(orchestrator 在实施期偏差时由 worker 维护)
+- `docs/changes/<unit_dir>/prototype.html`(仅前端相关 unit 必须产出;非前端 unit 不产)
+- `docs/changes/<unit_dir>/M*/` 目录，仅含 `.gitkeep`(orchestrator 据此校验 milestone 数量一致)
+- `docs/changes/<unit_dir>/specs/<包>/<target>.md` delta-spec(§4.8,仅有对外行为变化的包,可有多个 target;orchestrator §7.0 据此校正 + 软对账 + 合并进对应 canonical area。纯内部 unit 无此文件,design.md 注 "no spec delta")
 
 下游(orchestrator + worker + reviewer)对你的依赖:
 

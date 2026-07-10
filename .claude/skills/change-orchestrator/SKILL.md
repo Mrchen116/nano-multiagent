@@ -17,7 +17,7 @@ Codex 执行本 skill 时,工具映射差异见 `references/codex-execution-note
 
 ## §0 不可越界的硬规则
 
-1. **门禁 2 没过不能启动**。检查 `docs/changes/<unit>/design.md`:无 `<!-- 模板说明 -->`、Milestone 表完整、仅含 `.gitkeep` 的骨架目录数量 = 表行数。任一不满足,**拒绝启动**,提示用户回 `change-design-author` 收口。
+1. **门禁 2 没过不能启动**。检查 `docs/changes/<unit>/design.md`:无 `<!-- 模板说明 -->`、Milestone 表完整、空目录数量 = 表行数。任一不满足,**拒绝启动**,提示用户回 `change-design-author` 收口。
 2. **Sync Gate 不通过不动作**。启动第一件事是 main 同步检查(§2),分叉直接停下让人介入,不要强制 reset。
 3. **不写代码、不改 design / 变更稿 spec**。escalation 时通知人介入,由 design-author / spec-author 修订。**两个例外**:(a) 在 PR body / Changelog 这类调度产物里写文字;(b) §7.0 收尾归并:据本 unit delta-spec 把行为增量合并进**长青行为契约层** `docs/specs/<包>/<target>.md`(顶层 canonical,你是单一 owner),并可校正 delta 文件 `<unit_path>/specs/<包>/<target>.md`——注意这与 `<unit_path>/spec.md`(变更稿,禁改)是两回事。
 4. **Agent 工具派发时不设置 isolation 参数**。worktree 由本 skill 分配路径并指示 worker 自建。设了 `isolation=worktree` 会在 `.claude/worktrees/` 创建冲突 worktree,破坏整个流程。
@@ -35,7 +35,8 @@ Codex 执行本 skill 时,工具映射差异见 `references/codex-execution-note
 16. **任何退出路径必须先 sweep 服务 PID,再处置 worktree**(§7.6 / §6.4 escalate / §0.7 cap 都过这条)。reviewer/worker 正常退出会自 kill,但崩溃时不会,孤儿进程会让用户误把分支代码当主仓在跑。sweep snippet 见项目 AGENTS.md;§7.6 sweep 完后 `git worktree remove`,§6.4 / §0.7 只 sweep 进程、保留 worktree 与日志 / DB 给人排查。
 17. **提 PR 前必须归档 unit**。§7.3 把整个 `docs/changes/<unit_dir>/` 移到
     `docs/changes/archive/<unit_dir>/`;不删除历史、不只搬报告。归档后 PR body、CI fix 和复验都使用
-    `unit_path` 解析后的路径。未归档不得创建 PR。
+    `unit_path` 解析后的路径。未归档不得创建 PR。已退出的 orchestrator 只自动恢复自包含的 review/CI
+    小修；需要改 design 或新增 milestone 时停止并交人决定，不建立归档态的第二套实施生命周期。
 
 ---
 
@@ -50,49 +51,10 @@ pr_url: <url>            # 可选；address PR / 恢复远端 CI fix 时使用
 
 可以从用户消息推断(用户说 "把 feat-104 跑完")或从当前对话上下文判定。歧义时**问用户**,不要猜。
 
-**先判定是否恢复开放 PR，再解析 unit 目录。顺序不可反转**：archive 可能只存在于 PR head，main checkout
-仍是归档前状态或完全没有该目录。
+**自查 unit_dir**(可能含 short-desc 后缀;orchestrator 只启动活动区 unit):
 
 ```bash
-repo_root=$(git rev-parse --show-toplevel)
-unit_worktree="$repo_root/.worktrees/unit-<unit_id>"
-resume_mode=fresh
-
-if [[ -n "${pr_url:-}" ]]; then
-  pr_ref=$pr_url
-else
-  pr_candidates=$(gh pr list --state open --head "unit/<unit_id>" --json url --jq '.[].url')
-  pr_count=$(printf '%s\n' "$pr_candidates" | sed '/^$/d' | wc -l | tr -d ' ')
-  if [[ "$pr_count" -gt 1 ]]; then
-    echo "open PR is ambiguous for unit/<unit_id>" >&2
-    printf '%s\n' "$pr_candidates" >&2
-    exit 1
-  fi
-  [[ "$pr_count" -eq 1 ]] && pr_ref=$pr_candidates
-fi
-
-if [[ -n "${pr_ref:-}" ]]; then
-  read -r pr_state pr_head pr_head_oid < <(
-    gh pr view "$pr_ref" --json state,headRefName,headRefOid \
-      --jq '[.state, .headRefName, .headRefOid] | @tsv'
-  )
-  if [[ "$pr_state" != OPEN || "$pr_head" != "unit/<unit_id>" ]]; then
-    echo "post-PR resume requires the open unit/<unit_id> PR: $pr_ref" >&2
-    exit 1
-  fi
-  pr_url=$pr_ref
-  resume_mode=post-pr
-  python3 <skill_dir>/scripts/prepare_unit_worktree.py \
-    --repo-root "$repo_root" \
-    --unit-id "<unit_id>" \
-    --worktree-dir "$unit_worktree" \
-    --expected-head "$pr_head_oid"
-  search_root=$unit_worktree
-else
-  search_root=$repo_root
-fi
-
-unit_matches=$(cd "$search_root" && find docs/changes docs/changes/archive -mindepth 1 -maxdepth 1 -type d \
+unit_matches=$(find docs/changes docs/changes/archive -mindepth 1 -maxdepth 1 -type d \
   \( -name "<unit_id>" -o -name "<unit_id>-*" \) -print 2>/dev/null)
 match_count=$(printf '%s\n' "$unit_matches" | sed '/^$/d' | wc -l | tr -d ' ')
 if [[ "$match_count" -eq 0 ]]; then echo "unit path not found: <unit_id>" >&2; exit 1; fi
@@ -103,19 +65,26 @@ if [[ "$match_count" -ne 1 ]]; then
 fi
 unit_path=$unit_matches
 unit_dir=$(basename "$unit_path")
-if [[ "$resume_mode" == post-pr && "$unit_path" != docs/changes/archive/* ]]; then
-  echo "open PR head must contain the archived unit: $unit_path" >&2
-  exit 1
-fi
-if [[ "$resume_mode" == fresh && "$unit_path" == docs/changes/archive/* ]]; then
-  echo "unit already completed and archived: $unit_path" >&2
-  exit 1
+if [[ "$unit_path" == docs/changes/archive/* ]]; then
+  if [[ -z "${pr_url:-}" ]]; then
+    echo "archived unit is complete; provide its open PR URL to address feedback" >&2
+    exit 1
+  fi
+  read -r pr_state pr_head pr_head_oid < <(
+    gh pr view "$pr_url" --json state,headRefName,headRefOid \
+      --jq '[.state, .headRefName, .headRefOid] | @tsv'
+  )
+  if [[ "$pr_state" != OPEN || "$pr_head" != "unit/<unit_id>" ]]; then
+    echo "archived unit can resume only through its open unit PR: $pr_url" >&2
+    exit 1
+  fi
+  resume_mode=post-pr
 fi
 ```
 
 如 `feat-104` → `feat-104-chat-mention-picker`。active 与 archive 同时命中或任一层存在多个同 id 目录时
-必须报歧义并退出，禁止 `head -1` 随机选。`fresh` 只接受 active；`post-pr` 先恢复并校验 PR worktree，
-再只接受该 PR head 中的 archive。
+必须报歧义并退出，禁止 `head -1` 随机选。只命中 archive 且没有对应开放 PR 说明 unit 已完成，拒绝重复启动；
+只命中 archive 且显式给出对应开放 PR 时进入受限的 `post-pr` 小修模式。
 
 unit 的所有信息从 `$unit_path/` 读出来——design.md Milestone 表是 full 模式的派发依据;lite 模式读 fix.md。
 
@@ -125,17 +94,15 @@ unit 的所有信息从 `$unit_path/` 读出来——design.md Milestone 表是 
 
 ### §2.1 模式判定 + 门禁 2 检查
 
-`resume_mode=post-pr` 时只根据首文档判定 full / lite，跳过初始门禁和 lite `M1-fix` 创建；这些门禁在创建
-PR 前已通过。完成模式判定后走 §2.3 重建已有 worktree，再进入 §2.5 判断 design revision 是否新增了
-待实施 milestone；有则恢复实施循环，没有才走普通 review/CI feedback 快车道。
+`resume_mode=post-pr` 跳过本节门禁和 lite `M1-fix` 创建；归档前这些门禁已经通过。直接走 §2.3
+恢复并校验既有 unit worktree，再进入 §2.5 的受限小修流程。
 
 先判 full / lite 模式:
 
 ```bash
-unit_doc_root="$search_root/$unit_path"
-if [[ -f "$unit_doc_root/design.md" ]]; then
+if [[ -f "$unit_path/design.md" ]]; then
    mode=full
-elif [[ -f "$unit_doc_root/fix.md" ]]; then
+elif [[ -f "$unit_path/fix.md" ]]; then
    mode=lite
 else
    exit "首文档缺失,回 change-spec-author 收口"
@@ -160,11 +127,10 @@ fi
 - [ ] "现象 / 复现"段已填
 - [ ] "根因"段已填(后续"修复"和"验证"段由 worker 回填)
 
-通过后记录 `needs_lite_m1=1`。orchestrator **必须等 §2.3 unit worktree 建好后**才创建 lite 默认
-milestone，不能在 main checkout 提前 mkdir：
+通过后,orchestrator **自己创建** lite 默认 milestone(design-author 没参与):
 
 ```bash
-needs_lite_m1=1
+mkdir -p "$unit_path/M1-fix/"
 ```
 
 milestone_id = `<unit_id>-M1`、milestone_dir = `M1-fix`、单个 milestone、无依赖、并行组 A、范围 = TBD(worker explore 后写入 tasks.md)。
@@ -173,7 +139,7 @@ lite 模式后续流程:派 worker(mode: lite,提示回填 fix.md 后两段)→ 
 
 ### §2.2 Sync Gate(main 同步)
 
-仅首次启动执行本节。`post-pr` 恢复不 checkout / push main，只 `git fetch origin` 后恢复 PR 的既有 unit 分支。
+仅首次启动执行本节。`post-pr` 小修不 checkout / push main，只 fetch PR 的既有 unit 分支。
 
 ```bash
 git fetch origin
@@ -197,27 +163,40 @@ fi
 
 ### §2.3 创建 unit worktree + 集成分支
 
-统一调用本 skill 的确定性 helper。它会验证现有路径属于同一 Git common-dir 且 checkout 的分支正是
-`unit/<unit-id>`；错误分支/仓库直接失败，不得先 pull。已有本地或远端 unit 分支时安全恢复并只做 fast-forward，
-都不存在时才从 main 创建。`post-pr` 已在 §1 带 PR head SHA 调过一次，本节不重复：
+design.md 顶部声明的 `unit/<unit-id>` 还不存在(design-author 不建分支)。orchestrator 接手时在 unit 专属 worktree 内建,**绝不在主仓 checkout**(§0.15):
 
 ```bash
 unit_worktree="<repo_root>/.worktrees/unit-<unit_id>"
 
-if [[ "$resume_mode" != post-pr ]]; then
-  python3 <skill_dir>/scripts/prepare_unit_worktree.py \
-    --repo-root "<repo_root>" \
-    --unit-id "<unit_id>" \
-    --worktree-dir "$unit_worktree" \
-    --create-from main
+if [[ "$resume_mode" == post-pr ]]; then
+  git fetch origin "unit/<unit-id>"
+  if [[ ! -d "$unit_worktree" ]]; then
+    if git show-ref --verify --quiet "refs/heads/unit/<unit-id>"; then
+      git worktree add "$unit_worktree" "unit/<unit-id>"
+    else
+      git branch --track "unit/<unit-id>" "origin/unit/<unit-id>"
+      git worktree add "$unit_worktree" "unit/<unit-id>"
+    fi
+  fi
+  actual_branch=$(git -C "$unit_worktree" branch --show-current)
+  actual_head=$(git -C "$unit_worktree" rev-parse HEAD)
+  dirty=$(git -C "$unit_worktree" status --porcelain=v1 --untracked-files=all)
+  if [[ "$actual_branch" != "unit/<unit-id>" || "$actual_head" != "$pr_head_oid" || -n "$dirty" ]]; then
+    echo "post-PR preflight failed: require unit branch, exact PR head, and clean worktree" >&2
+    exit 1
+  fi
+elif [[ -d "$unit_worktree" ]]; then
+  git -C "$unit_worktree" pull --ff-only origin "unit/<unit-id>"   # 续跑
+elif git show-ref --verify --quiet "refs/heads/unit/<unit-id>"; then
+  git worktree add "$unit_worktree" "unit/<unit-id>"               # 退出清理过 worktree,本地分支仍在
+  git -C "$unit_worktree" pull --ff-only origin "unit/<unit-id>"
+elif git ls-remote --exit-code --heads origin "unit/<unit-id>" >/dev/null; then
+  git fetch origin "unit/<unit-id>:unit/<unit-id>"
+  git worktree add "$unit_worktree" "unit/<unit-id>"               # 仅远端分支仍在
+else
+  git worktree add "$unit_worktree" -b "unit/<unit-id>" main       # 首次
+  git -C "$unit_worktree" push -u origin "unit/<unit-id>"
 fi
-search_root=$unit_worktree
-unit_doc_root="$search_root/$unit_path"
-if [[ ! -d "$unit_doc_root" ]]; then
-  echo "unit path missing from prepared unit branch: $unit_path" >&2
-  exit 1
-fi
-if [[ "${needs_lite_m1:-0}" -eq 1 ]]; then mkdir -p "$unit_doc_root/M1-fix/"; fi
 ```
 
 后续所有针对 unit 分支的操作(派发包字段、rebase、merge、push、PR、teardown)一律以 `$unit_worktree` 为工作目录,主仓 HEAD 不动。
@@ -240,84 +219,17 @@ verifier 需要**单独的 worktree**(读代码核对,和 reviewer 物理隔开,
 verify_worktree_dir = <repo_root>/.worktrees/verify-<unit_id>
 ```
 
-### §2.5 Post-PR resume
+### §2.5 Post-PR 小修
 
-仅 `resume_mode=post-pr` 进入。先确定是否有 post-PR design revision 新增的未实施 milestone：
+仅 `resume_mode=post-pr` 进入，不执行首次 milestone 循环，也不再次归档：
 
-1. §1 的 helper 已验证 worktree 属于 `unit/<unit_id>`、HEAD 等于 PR head，并在该 checkout 唯一解析出 archive 中的 `$unit_path`。
-2. 读取 durable revision state，不靠目录内容单点推断整个生命周期：
-
-   ```bash
-   revision_state='{"phase":"none","action":"feedback","milestones":[]}'
-   if [[ "$mode" == full ]]; then
-     revision_state=$(python3 \
-       .claude/skills/change-orchestrator/scripts/post_pr_revision_state.py inspect \
-       --unit-doc-root "$unit_doc_root" --unit-id "<unit_id>")
-   fi
-   ```
-
-   state 的 action 是唯一恢复依据：`implement` 会给出 unstarted/in-progress milestones；
-   `ready_for_full_gates` 表示 worker 已完成但 gates 尚未开始；`full_gates` 表示必须恢复 full gates；
-   `validated` 才表示本 revision 已验收。脚本同时要求 design 表与目录一一对应；milestone 状态只接受
-   orchestrator 的显式持久化，不从 `tasks.md` 排版或目录内容猜测。lite 没有 design revision，state 固定走 feedback。
-3. action=`implement`：只把 state 中未完成 milestone 按 design 依赖送入 §3.1-§3.4。对 `unstarted`
-   milestone，**派发前**先 mark `in_progress` 并 commit + push state；中断后据此恢复同一 worker/worktree：
-
-   ```bash
-   dispatch_head=$(git -C "$unit_worktree" rev-parse HEAD)
-   python3 .claude/skills/change-orchestrator/scripts/post_pr_revision_state.py mark \
-     --unit-doc-root "$unit_doc_root" --unit-id "<unit_id>" \
-     --milestone "<milestone_dir>" --status in_progress --head "$dispatch_head"
-   git -C "$unit_worktree" add "$unit_path/post-pr-revision.json"
-   git -C "$unit_worktree" commit -m "docs(<unit_id>): mark <milestone_id> in progress"
-   git -C "$unit_worktree" push origin "unit/<unit_id>"
-   ```
-
-   §3.3 签收通过后 mark `implemented` 并同样 commit + push；只有 state 中全部 milestone 都是
-   `implemented` 才能进入 `ready_for_full_gates`。worker 已 push、orchestrator 尚未签收/落状态时发生中断，
-   恢复动作仍是 `implement`，绝不会绕到反馈/CI 快车道。全部签收后，或 action 本来就是
-   `ready_for_full_gates`，先持久化下一阶段：
-
-   ```bash
-   signed_off_head=$(git -C "$unit_worktree" rev-parse HEAD)
-   python3 .claude/skills/change-orchestrator/scripts/post_pr_revision_state.py mark \
-     --unit-doc-root "$unit_doc_root" --unit-id "<unit_id>" \
-     --milestone "<milestone_dir>" --status implemented --head "$signed_off_head"
-   git -C "$unit_worktree" add "$unit_path/post-pr-revision.json"
-   git -C "$unit_worktree" commit -m "docs(<unit_id>): mark <milestone_id> implemented"
-   git -C "$unit_worktree" push origin "unit/<unit_id>"
-   ```
-
-   ```bash
-   implemented_head=$(git -C "$unit_worktree" rev-parse HEAD)
-   python3 .claude/skills/change-orchestrator/scripts/post_pr_revision_state.py transition \
-     --unit-doc-root "$unit_doc_root" --unit-id "<unit_id>" \
-     --phase full_gates_pending --head "$implemented_head"
-   git -C "$unit_worktree" add "$unit_path/post-pr-revision.json"
-   git -C "$unit_worktree" commit -m "docs(<unit_id>): mark post-PR full gates pending"
-   git -C "$unit_worktree" push origin "unit/<unit_id>"
-   ```
-
-   这一步必须在启动 gates 前完成；中断后 action=`full_gates`，不得退到 feedback 快车道。
-4. action=`full_gates`（含上一步刚转换）：design 与实现都可能变化，旧闸结论全部失效，强制以 `full`
-   selection 重跑 verifier、reviewer 和 code review；原 finding 必须 closure。通过后先 transition 到 `validated`
-   并 commit + push state marker，再更新**现有** PR 并等 CI；不再归档、不创建第二个 PR：
-
-   ```bash
-   validated_head=$(git -C "$unit_worktree" rev-parse HEAD)
-   python3 .claude/skills/change-orchestrator/scripts/post_pr_revision_state.py transition \
-     --unit-doc-root "$unit_doc_root" --unit-id "<unit_id>" \
-     --phase validated --head "$validated_head"
-   git -C "$unit_worktree" add "$unit_path/post-pr-revision.json"
-   git -C "$unit_worktree" commit -m "docs(<unit_id>): mark post-PR revision validated"
-   git -C "$unit_worktree" push origin "unit/<unit_id>"
-   ```
-5. action=`feedback` 或 `validated`：`gh pr view "$pr_url" --json comments,reviews` 和
-   `gh pr checks "$pr_url"` 读取待处理
-   review / CI 失败。review finding 按 §6.2 独立判断根因后派 fix；CI 红先取失败日志再按 §6.2。修复后的闸
-   按 §6.2.1 选择，至少对原 finding 做 closure，源码 patch 另跑 code review patch。
-6. push 后更新 PR body 的 head SHA 文档链接与 Validation Summary，等待 CI 全绿，再按 §7.6 清理退出。
-7. action=`feedback|validated`、没有未关闭反馈且 CI 已绿时，不产生空修复，直接按 §7.6 退出。
+1. `gh pr view "$pr_url" --json comments,reviews` 和 `gh pr checks "$pr_url"` 读取待处理 review / CI 失败。
+2. 只自动处理满足 §6.FL 的自包含 fix：不改 design、不新增 milestone，复用原 worker 或派一个 fix worker，
+   修复后至少跑原 finding closure；有源码 delta 另跑 code review patch。
+3. finding 若需要改 design、新增 milestone，或实施中触发 §6.FL 的升级条件，立即停止并交人决定是否将 unit
+   移回 active 后重走正常流程。本 skill 不为归档态建立第二套 design/implementation 生命周期。
+4. push 后更新 PR body 的 head SHA 链接和 Validation Summary，等待 CI 全绿，再按 §7.6 清理退出。
+5. 没有未关闭反馈且 CI 已绿时不产生空修复，直接按 §7.6 退出。
 
 ---
 
@@ -328,50 +240,27 @@ def main_loop(unit_id):
     setup(unit_id)                            # §2
 
     if resume_mode == "post-pr":
-        revision = inspect_post_pr_revision_state()  # durable §2.5 state
-        if revision.action in ("feedback", "validated"):
-            address_pr_feedback_or_ci()       # §2.5 → §6.2 / §6.2.1 → §7.6
-            return
-        milestones = revision.milestones
-    else:
-        revision = None
-        milestones = all_design_milestones()
+        address_self_contained_pr_fixes()     # §2.5；超出小修边界即停止交人
+        return
 
-    if resume_mode != "post-pr" or revision.action == "implement":
-        while not all_milestones_done(milestones):
-            ready = milestones_with_no_pending_deps(milestones)
-            parallel, serial = classify_by_conflict(ready)
-            for m in parallel:
-                persist_milestone_in_progress(m)  # post-PR unstarted only；commit + push
-                dispatch_or_resume_worker(m)  # §3.1; post-PR status 决定新派/恢复
-            for m in serial:
-                persist_milestone_in_progress(m)
-                dispatch_or_resume_worker(m)
-            monitor_until_progress()           # §3.2
-            verify_completed()                 # §3.3
-            persist_signed_off_milestones()    # post-PR mark implemented；commit + push
-            handle_failures()                  # §3.4
-
-    if resume_mode == "post-pr" and revision.action in (
-        "implement", "ready_for_full_gates"
-    ):
-        persist_full_gates_pending()           # §2.5，commit + push 后才能跑 gates
+    while not all_milestones_done():
+        ready = milestones_with_no_pending_deps()
+        parallel, serial = classify_by_conflict(ready)
+        for m in parallel:
+            dispatch_worker(m)                # §3.1
+        for m in serial:
+            dispatch_worker(m)
+        monitor_until_progress()               # §3.2
+        verify_completed()                     # §3.3
+        handle_failures()                      # §3.4
 
     # 所有实现型 milestone done → 首轮完整验收;fix 后按 Revalidation Selection 选择复验闸
     review_round = 1
-    selection = (
-        full_selection()
-        if resume_mode == "post-pr"
-        else initial_full_selection(mode, has_user_observable_scope())
-    )
+    selection = initial_full_selection(mode, has_user_observable_scope())
     while review_round <= 7:
         results = run_selected_gates(selection, review_round)  # §5: full / targeted / patch / closure
         if all_required_gates_pass(results) and no_open_blockers():  # 未重跑的 retained 闸有继承依据
-            if resume_mode == "post-pr":
-                persist_validated_state()      # 记录 validated_head，commit + push
-                update_existing_pr_watch_ci_exit()  # 不重归档、不新建 PR
-            else:
-                submit_pr_watch_ci_exit()     # §7：本地 CI → 归档 → 提 PR → 等远端 CI 绿 → 退；红则 §6.2
+            submit_pr_watch_ci_exit()         # §7：本地 CI → 归档 → 提 PR → 等远端 CI 绿 → 退；红则 §6.2
             return
         action = decide_action(results)        # §6,合并本轮实际结果 + retained 结论路由
         if action == "fix":
@@ -445,7 +334,7 @@ worker / reviewer 读完上下文后会先报一个信(见 worker §2.5 / review
 cd "<worktree_dir>" && git log --oneline -5
 
 # 看进度文档
-cat "$unit_worktree/$unit_path/<mid>/progress.md"
+cat <unit_path>/<mid>/progress.md
 
 # 看 worker 是否还活着(harness 提供)
 ```
@@ -666,14 +555,11 @@ milestone_dir = M<next>-fix-<short-desc>      # 例: M4-fix-picker-keyboard
 
 完整路径操作(若命中 §6.FL ② 的单点自包含 fix,可不建 milestone 子目录、不动 design.md,但仍要记录 fix 历史和 `pre_fix_head`):
 1. 在 design.md Milestone 表追加新行,标注 `(post-acceptance fix, round <N>)`
-2. 新建可跟踪骨架：`mkdir -p "$unit_worktree/$unit_path/M<next>-fix-<short-desc>" && touch "$unit_worktree/$unit_path/M<next>-fix-<short-desc>/.gitkeep"`
-3. `resume_mode=post-pr` 时先调用 `post_pr_revision_state.py add --revision-base-head <当前 HEAD> --milestone <新目录名>`，把 state 退回 `implementation_pending`；首次 PR 前不调用
-4. 先 commit + push design 表、骨架目录和 state，再派 worker；worker 分支必须从包含该 milestone 的最新
-   `origin/unit/<unit_id>` 创建
-5. **维护 issue 指纹表**(orchestrator 内存中):为这一批 issues 生成指纹(Type + 主关键词哈希),记录是第几轮出现。同一指纹累计 ≥ 5 轮没消除 → 强制升级 escalate
-6. 记录 `pre_fix_head=$(git -C "$unit_worktree" rev-parse HEAD)`
-7. 派 worker(prompt 里把**合并后的 issues 列表**——verifier 的 missing/diverged/缺测试 + reviewer 的用户面 issues——+ 该 unit design.md `§Runbook for Reviewer` 段附上;worker 改完代码必须按 runbook 重启相关服务后再回报 DONE,确保 unit 分支上的代码真的"跑了起来"。verifier 报的"缺测试"项,worker 必须补上对应测试)
-8. worker DONE 后按 §3.3 / live 签收闸逐条签收;签收不过直接打回 worker,不进入复验
+2. mkdir 新 milestone 空目录:`$unit_path/M<next>-fix-<short-desc>/`
+3. **维护 issue 指纹表**(orchestrator 内存中):为这一批 issues 生成指纹(Type + 主关键词哈希),记录是第几轮出现。同一指纹累计 ≥ 5 轮没消除 → 强制升级 escalate
+4. 记录 `pre_fix_head=$(git -C "$unit_worktree" rev-parse HEAD)`
+5. 派 worker(prompt 里把**合并后的 issues 列表**——verifier 的 missing/diverged/缺测试 + reviewer 的用户面 issues——+ 该 unit design.md `§Runbook for Reviewer` 段附上;worker 改完代码必须按 runbook 重启相关服务后再回报 DONE,确保 unit 分支上的代码真的"跑了起来"。verifier 报的"缺测试"项,worker 必须补上对应测试)
+6. worker DONE 后按 §3.3 / live 签收闸逐条签收;签收不过直接打回 worker,不进入复验
 
 worker 完成并签收后,计算 `pre_fix_head..HEAD`,执行 §6.2.1 选择下一轮要跑的闸。不要默认三道全量复验。
 
@@ -785,12 +671,11 @@ reviewer 给 `revise-design` 时,先验三道闸:
 Unit <unit_id> escalated to human.
 Reason: <revise-design with 3 gates passed | same-issue-fingerprint 5-round cap | unit 7-round cap>
 Last reviewer report: <unit_path>/acceptance.md
-Recommended next action: 在 <unit_worktree_dir> 启动 change-design-author，传 unit_id、revision_mode: post-pr、pr_url，修订 archive 中 design.md(必须 Changelog 一行)
-Resume: 修订 commit + push 到 unit/<unit_id> 后调 orchestrator，带 unit_id + pr_url 续跑
+Recommended next action: 启动 change-design-author 修订 design.md(必须 Changelog 一行)
+Resume: 修订完成后调 orchestrator,带 unit_id 即可续跑
 ```
 
-4. **sweep 服务 PID**(§0.16,见 AGENTS.md snippet),保留 unit worktree 与日志 / DB，供 design-author 在同一
-   PR branch 上执行 post-PR 修订。
+4. **sweep 服务 PID**(§0.16,见 AGENTS.md snippet),保留 worktree 与日志 / DB。
 5. orchestrator **退出**。等人完成 design 修订并主动重启。
 
 ### §6.5 `out-of-unit`(reviewer 已立 issue)
@@ -893,17 +778,16 @@ if [[ -e "$unit_worktree/$archive_path" ]]; then echo "archive target already ex
 mkdir -p "$unit_worktree/$archive_root"
 git -C "$unit_worktree" mv "$unit_path" "$archive_path"
 unit_path="$archive_path"
-unit_doc_root="$unit_worktree/$unit_path"
 git -C "$unit_worktree" add -A -- docs/changes
 git -C "$unit_worktree" commit -m "docs(<unit_id>): archive completed change unit"
 ```
 
 必须移动整个目录,包括首文档、design、M*/、acceptance/regression、verification、delta-spec 和 evidence。
-不得复制后留下活动区副本。归档后用 `unit_path` 作为唯一文档根路径;若远端 CI 触发 fix/reviewer/verifier
-循环,派发角色按各自 skill 的 active/archive 解析规则读取同一目录,不把 unit 移回活动区。
+不得复制后留下活动区副本。归档后用 `unit_path` 作为唯一文档根路径；本会话内的 CI/fix/reviewer/verifier
+循环继续按各角色的 active/archive 解析规则读取同一目录。会话退出后的恢复仅限 §2.5 自包含小修。
 
 归档提交后至少运行 `git -C "$unit_worktree" diff --check origin/main...HEAD`,并检查 PR 要引用的文档都存在于
-`$unit_doc_root`。
+`$unit_worktree/$unit_path`。
 任一步失败都不得进入 §7.4。
 
 ### §7.4 组装 PR body
@@ -966,8 +850,8 @@ PID sweep 兜底(§0.16):reviewer / worker 自 kill 通常已干净,但崩溃残
 
 orchestrator 等 CI 绿后退出,不等 merge。
 
-如果 PR 被人 request changes / comment,用户调 orchestrator 时带 prompt "address PR <url>"，按 §1 识别
-`post-pr` 并走 §2.5；不要因 unit 已归档而拒绝，也不要重新运行首次交付流程。
+如果 PR 被人 request changes / comment，用户调 orchestrator 时带 prompt "address PR <url>"，按 §1 识别
+`post-pr` 并走 §2.5。仅自包含小修可自动恢复；需要 design 或 milestone 的反馈停止交人处理。
 
 ---
 
@@ -987,8 +871,9 @@ orchestrator 等 CI 绿后退出,不等 merge。
 **输入**:
 
 - `unit_id`(用户消息或对话上下文给)
-- `pr_url`(可选，处理已归档 unit 的开放 PR 时给；省略时按 `unit/<unit_id>` 唯一开放 PR 推导)
-- 首次启动前置:`docs/changes/<unit_id>/design.md` 通过门禁 2；post-PR 恢复前置：archive 中 unit 与开放 PR 唯一匹配
+- `pr_url`(处理已归档 unit 的开放 PR 时必填)
+- 首次启动前置:`docs/changes/<unit_id>/design.md` 通过门禁 2；post-PR 小修前置：archive 中 unit 与开放 PR
+  匹配，且 unit worktree 的 branch/head/clean 三项 preflight 通过
 
 **输出**:
 

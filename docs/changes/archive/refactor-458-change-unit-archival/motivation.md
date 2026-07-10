@@ -76,21 +76,9 @@
 - **WHEN** change-orchestrator 组装 PR body 或等待远端 CI 后继续处理该 unit
 - **THEN** 文档链接和后续读取均使用可解析的归档路径，不因目录移动失效
 
-#### Scenario: 已退出的 orchestrator 重新处理开放 PR
+#### Scenario: 已退出的 orchestrator 重新处理开放 PR 小修
 - **WHEN** unit 已归档并创建开放 PR，之后收到 review feedback 或远端 CI 失败
-- **THEN** change-orchestrator 可从开放 PR 恢复既有 unit 分支和 worktree，继续在 archive 中读写交付文档，不把 unit 移回活动区
-
-#### Scenario: 归档后的修复需要修订设计
-- **WHEN** 开放 PR 的修复循环合法升级为 revise-design
-- **THEN** change-design-author 仅在当前仓库、分支、clean worktree 和 HEAD 与开放 PR 精确一致时修订 archive 内既有 design，并把 Changelog 与新增 milestone 提交回同一 PR 分支
-
-#### Scenario: 设计修订新增实现工作
-- **WHEN** post-PR design revision 新增 milestone 并提交可跟踪的空骨架目录
-- **THEN** change-orchestrator 先校验 design 表与目录一一对应，只派发新增的 pending milestone，并显式持久化每个 milestone 的 unstarted、in-progress、implemented 状态以及 full-gates、validated 阶段，任何阶段中断后都从同一阶段恢复；完整验收通过后才更新同一 PR
-
-#### Scenario: worktree 带有本地漂移
-- **WHEN** 恢复或修订 PR 时，目标 worktree 有 staged、unstaged 或 untracked 内容，或 HEAD 与 PR 不同
-- **THEN** 工作流在 fetch、merge 或文档修改前失败，不把本地漂移混入 PR
+- **THEN** change-orchestrator 仅在 branch、PR head、clean 三项校验通过后恢复自包含小修并继续使用归档路径；需要修改 design 或新增 milestone 时停止并交人决定
 
 ### Requirement: 新 unit 编号覆盖活动区与历史区
 
@@ -130,6 +118,7 @@
 - 不按年份或类型继续分片 archive；全局 unit_id 已提供稳定检索键。
 - 不改变既有 unit_id，也不修复历史上已经存在的重复数字编号。
 - 不引入数据库、外部归档服务或 GitHub Action；归档仍是 PR 内可 review 的 git move。
+- 不为已归档开放 PR 建立 design revision、milestone 状态机或任意中断点自动恢复协议。
 
 ## 影响范围
 

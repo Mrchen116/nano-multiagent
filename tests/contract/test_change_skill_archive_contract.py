@@ -15,9 +15,7 @@ def test_orchestrator_uses_resolved_unit_path_after_startup() -> None:
     operational_workflow = skill.split("## §2 启动序列", maxsplit=1)[1]
 
     assert "docs/changes/<unit_dir>" not in operational_workflow
-    assert "$unit_worktree/$unit_path/M<next>-fix-<short-desc>/.gitkeep" in (
-        operational_workflow
-    )
+    assert "`$unit_path/M<next>-fix-<short-desc>/`" in operational_workflow
 
 
 def test_archive_aware_roles_reject_ambiguous_unit_paths() -> None:
@@ -42,53 +40,30 @@ def test_pr_templates_use_stable_absolute_blob_links() -> None:
     assert template.count("/blob/<pr_head_sha>/docs/changes/archive/") == 5
 
 
-def test_archived_unit_with_open_pr_can_resume_orchestration() -> None:
+def test_archived_unit_with_open_pr_only_resumes_self_contained_fixes() -> None:
     skill = _read(".claude/skills/change-orchestrator/SKILL.md")
 
     assert "resume_mode=post-pr" in skill
-    assert "### §2.5 Post-PR resume" in skill
-    assert skill.index("pr_candidates=$(gh pr list") < skill.index(
-        'unit_matches=$(cd "$search_root" && find'
-    )
-    assert "scripts/prepare_unit_worktree.py" in skill
+    assert "### §2.5 Post-PR 小修" in skill
+    assert 'git worktree add "$unit_worktree" "unit/<unit-id>"' in skill
+    assert "exact PR head, and clean worktree" in skill
+    assert "不改 design、不新增 milestone" in skill
+    assert "第二套 design/implementation 生命周期" in skill
 
 
-def test_design_revision_can_use_an_archived_unit_path() -> None:
-    skill = _read(".claude/skills/change-design-author/SKILL.md")
-    operational_workflow = skill.split("## §1 启动", maxsplit=1)[1]
+def test_archive_workflow_has_no_transactional_recovery_helpers() -> None:
+    scripts = REPO_ROOT / ".claude/skills/change-orchestrator/scripts"
 
-    assert "revision_mode: post-pr" in skill
-    assert "docs/changes/<unit_dir>" not in operational_workflow
-    assert "unit path is ambiguous" in skill
-    assert "current_branch=$(git branch --show-current)" in skill
-    assert "state,headRefName,headRefOid,headRepository" in skill
-    assert "current_repo=$(gh repo view --json nameWithOwner" in skill
-    assert '"$pr_head_repo" != "$current_repo"' in skill
-    assert "--validate-only" in skill
+    assert not (scripts / "prepare_unit_worktree.py").exists()
+    assert not (scripts / "post_pr_revision_state.py").exists()
 
 
-def test_post_pr_design_milestones_reenter_implementation_loop() -> None:
-    orchestrator = _read(".claude/skills/change-orchestrator/SKILL.md")
+def test_design_skeletons_are_trackable_without_recovery_state() -> None:
     design_author = _read(".claude/skills/change-design-author/SKILL.md")
     worker = _read(".claude/skills/change-impl-worker/SKILL.md")
+    orchestrator = _read(".claude/skills/change-orchestrator/SKILL.md")
 
-    state_call = orchestrator.index("post_pr_revision_state.py inspect")
-    feedback_call = orchestrator.index("address_pr_feedback_or_ci()")
-    assert state_call < feedback_call
-    assert "inspect_post_pr_revision_state()" in orchestrator
-    assert 'revision.action in ("feedback", "validated")' in orchestrator
-    assert "persist_full_gates_pending()" in orchestrator
-    assert "persist_validated_state()" in orchestrator
-    assert "post_pr_revision_state.py mark" in orchestrator
-    assert "--status in_progress" in orchestrator
-    assert "--status implemented" in orchestrator
-    assert "persist_signed_off_milestones()" in orchestrator
-    assert "--phase full_gates_pending" in orchestrator
-    assert "--phase validated" in orchestrator
-    assert "full_selection()" in orchestrator
-    assert "update_existing_pr_watch_ci_exit()" in orchestrator
-    assert "Added milestones:" in design_author
-    assert "post_pr_revision_state.py create" in design_author
-    assert "post-pr-revision.json" in design_author
-    assert "touch <unit_path>/M1-<title>/.gitkeep" in design_author
+    assert "M1-<title>/.gitkeep" in design_author
     assert 'rm -f "<unit_path>/<milestone_dir>/.gitkeep"' in worker
+    assert "子目录仅含 `.gitkeep`" in orchestrator
+    assert 'git -C "$unit_worktree" mv "$unit_path" "$archive_path"' in orchestrator

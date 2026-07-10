@@ -136,7 +136,9 @@ mkdir -p docs/changes/archive
 git mv "docs/changes/<unit_dir>" "docs/changes/archive/<unit_dir>"
 ```
 
-PR body 和此后的修订使用归档路径。PR 尚未 merge 时 main 不受影响；PR merge 后实现与归档同时进入 main。
+PR body 和同一交付会话内的 CI/review 小修使用归档路径。会话退出后，只允许在 branch、PR head、clean
+三项校验通过时恢复自包含小修；需要修改 design 或新增 milestone 的反馈交人决定，不为归档态建立第二套
+实施生命周期。PR 尚未 merge 时 main 不受影响；PR merge 后实现与归档同时进入 main。
 
 ### 完成判据与历史迁移
 
