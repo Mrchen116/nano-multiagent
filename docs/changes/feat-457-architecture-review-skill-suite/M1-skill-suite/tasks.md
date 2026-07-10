@@ -45,6 +45,6 @@ exploration 与 HTML 表达，只修复其与现有通用 skill 流程的三个�
 
 ### R3 — 把 deep-module 技法条件接入设计作者
 
-- 状态：TODO
+- 状态：DOING
 - 步骤：在 `change-design-author` 的 grounding 后增加按需 call-in，结果只投影到既有现状/决策/接口与风险段。
 - 验证：检查四类正向触发、普通设计反向条件、正式术语优先级、既有章节投影、两种以上实质方案 + 用户需比较的二级门槛；全套目标文件结构校验与 `git diff --check`。

@@ -64,5 +64,12 @@
 
 ## R3 — 把 deep-module 技法条件接入设计作者
 
-- Status: TODO
-- Next: 等待 R2。
+- Status: DOING
+- Verify/Red: 一次性文案校验要求 `change-design-author/SKILL.md` 同时包含 `codebase-design`、模块深化、interface/seam、职责归属、测试面、普通设计反向条件和 Design It Twice 二级门槛；当前全部缺失并精确失败。
+- Verification contract:
+  - 触发判定在 §3.0 grounding 后、关键决策对齐前执行。
+  - 四类正向触发是模块深化、重要 interface/seam、职责重新归属、测试面选择；普通配置/文案/局部实现且不涉及这些决策时不调用。
+  - 调用时按 module/interface/depth/seam/adapter/leverage/locality 判定，但项目正式术语优先。
+  - 结果只投影到既有“现状分析 / 关键决策 / 接口与数据流 / 风险与回退”，不新增产物或改门禁。
+  - Design It Twice 只在重要 interface 存在两种以上在 interface 形状、seam 位置或依赖策略上实质不同的方案，且用户需比较取舍时启动。
+- Next: C2 在 design-author 内增加该决策触发器与现有章节投影约束。
