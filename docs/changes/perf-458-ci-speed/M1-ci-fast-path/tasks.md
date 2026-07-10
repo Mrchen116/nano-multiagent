@@ -8,11 +8,11 @@
 
 ## 退出标准
 
-- [ ] 五条 IM 慢测改用 `source=mirror` 读取持久化配置，不再等待 live-config 5 秒 fallback；专门 live-config 测试继续通过。
-- [ ] 两条 ShellRunner stop 负断言改为等待 monitor 清理 `_stopped` 的完成条件，保留“不触发失败回调”的行为断言。
-- [ ] 输出上限测试保留生产常量为 256 MiB 的断言，并以测试内小上限覆盖保留/截断行为，不再写满 256 MiB。
-- [ ] Python job 保留 ruff、format 与完整 non-e2e pytest，改为 8 worker worksteal，输出慢用例摘要，并启用 setup-python pip cache。
-- [ ] `.venv/bin/pytest -m "not e2e" -n 8 --dist worksteal`、完整串行 non-e2e、ruff 两门和 frontend vitest 全绿。
+- [x] 五条 IM 慢测改用 `source=mirror` 读取持久化配置，不再等待 live-config 5 秒 fallback；专门 live-config 测试继续通过。
+- [x] 两条 ShellRunner stop 负断言改为等待 monitor 清理 `_stopped` 的完成条件，保留“不触发失败回调”的行为断言。
+- [x] 输出上限测试保留生产常量为 256 MiB 的断言，并以测试内小上限覆盖保留/截断行为，不再写满 256 MiB。
+- [x] Python job 保留 ruff、format 与完整 non-e2e pytest，改为 8 worker worksteal，输出慢用例摘要，并启用 setup-python pip cache。
+- [x] `.venv/bin/pytest -m "not e2e" -n 8 --dist worksteal`、完整串行 non-e2e、ruff 两门和 frontend vitest 全绿。
 - [ ] 真实 GitHub Actions 至少三次成功 run 的 required checks 执行时间均不超过 90 秒；check 名称和失败阻断语义不变。
 - [ ] `src/` 零修改，四包 no spec delta；性能证据和回滚结论记录在 `progress.md`。
 

@@ -49,19 +49,19 @@
 
 - 状态: DOING
 - Context: Python job 的质量门禁完整但仍串行执行；`setup-python` 没有 pip cache，pytest 命令也没有并行调度或慢用例摘要。串行本地基线为 149.34s，已无法满足 90 秒远端目标。
-- Decision: 保留单一 `Python checks` job 和原 lint 顺序；仅在 dev 依赖增加 `pytest-xdist>=3,<4`，在 setup-python 启用以 `pyproject.toml` 为键来源的 pip cache，并把同一完整 non-e2e 命令接为固定 4 worker worksteal + durations。
-- Rationale: 单 job 不改变 branch protection check 名称或覆盖范围；固定 4 worker 已由 design 基准证明全绿，避免 matrix/shard/专用 runner 的额外复杂度。
+- Decision: 保留单一 `Python checks` job 和原 lint 顺序；仅在 dev 依赖增加 `pytest-xdist>=3,<4`，在 setup-python 启用以 `pyproject.toml` 为键来源的 pip cache，并把同一完整 non-e2e 命令接为固定 8 worker worksteal + durations。
+- Rationale: 单 job 不改变 branch protection check 名称或覆盖范围；4-worker 远端三轮未达标后，采用 design 已有本地全绿且更快的 8-worker 参数，仍避免 matrix/shard/专用 runner 的额外复杂度。
 - Evidence:
-  - Tests: C1 `rg` 只找到 `pytest -m "not e2e"`；Python setup 段没有 `cache`，`pyproject.toml` 没有 `pytest-xdist`，pytest 命令没有 `--dist`/`--durations`。
-  - Entry: GitHub Actions `.github/workflows/ci.yml` 是贡献者唯一 CI 入口；C2 将保持 job 名 `Python checks` / `Frontend checks` 不变。
+  - Tests: 8-worker 完整 non-e2e 为 3444 passed, 2 skipped in 22.51s（wall 22.85s），比同机 4-worker 的 30.88s 再降 8.37s；完整串行为 3444 passed, 2 skipped in 104.81s；ruff 两门全绿；frontend 63 files / 615 tests passed in 12.02s（wall 13.09s）。
+  - Entry: GitHub Actions `.github/workflows/ci.yml` 是贡献者唯一 CI 入口；job 名保持 `Python checks` / `Frontend checks`。4-worker draft PR #184 三轮均 success，证明完整门禁语义未被并行化破坏，但 91–96s 未达到性能门槛；8-worker 远端复验待收集。
   - Frontend State Matrix: N/A（非前端）。
   - Browser QA: N/A（非前端）。
   - E2E/Regression: C2 后运行完整并行、串行、ruff、format 与 frontend vitest；远端 PR run 作为真栈性能验收。
   - Visual/Interaction: N/A（非前端）。
   - Prototype Comparison: N/A（无原型/reference）。
-- Rollback: 回退本 C1 只移除接线前证据，不改变 CI。
-- Commits: C1=`c833720f`，初始 C2=`6236644b`，8-worker 调优 C2=待完成，C3=待完成。
-- Next: 初始 4-worker C2 已完成本地门禁；远端三轮未达标，按下方 Design 修订继续调优。
+- Rollback: 回退 `0d6ab276` 可恢复已全绿但未达到 90 秒的 4-worker 命令；整体回退 `6236644b` 及前序测试改写可恢复原串行 CI。
+- Commits: C1=`c833720f`，初始 C2=`6236644b`，调优 Verify=`2a2f3aa1`，8-worker 调优 C2=`0d6ab276`，C3=待远端证据完成。
+- Next: 8-worker 本地全量门禁已绿并将推送；等待新的三次 GitHub Actions 成功 run 与失败阻断证据，在此之前 R3 保持 DOING。
 
 ## [Design 修订] R3: 固定 4 worker → 固定 8 worker
 
@@ -70,7 +70,7 @@
 - 原因: 远端稳定成本为 install 20s + pytest 61–64s，4 worker 已证明不足；design 现有本地基准已验证 8 worker 全绿且比 4 worker 更快（42.35s vs 52.73s），这是满足既定门槛的最小参数调优。
 - 影响范围: 仅本 milestone；不影响后续 milestone（本 unit 只有 M1）。
 - design.md 是否同步改: 是，已更新决策 2、命令、图示、风险、runbook 与 Milestone 退出命令，并追加 Changelog。
-- Commits: 调优 Verify=本提交，调优 C2=待完成。
+- Commits: 调优 Verify=`2a2f3aa1`，调优 C2=`0d6ab276`。
 - 远端未达标证据:
 
 | Run | Attempt | Python | Frontend | Required completion | 结论 |
@@ -79,4 +79,4 @@
 | 29097094967 | 2 | 91s | 67s | 91s | success，但超过目标 1s |
 | 29097094967 | 3 | 96s | 71s | 96s | success，但超过目标 6s |
 
-- Next: C2 将 workflow 从 `-n 4` 调为 `-n 8`，复跑完整本地并行门禁并推送，等待新的三次远端证据；在此之前 R3 保持 DOING。
+- Next: workflow 已调为 `-n 8`，本地完整并行门禁 22.51s 全绿；推送后等待新的三次远端证据，在此之前 R3 保持 DOING。
