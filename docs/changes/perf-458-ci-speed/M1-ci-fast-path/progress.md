@@ -52,16 +52,16 @@
 - Decision: 保留单一 `Python checks` job 和原 lint 顺序；仅在 dev 依赖增加 `pytest-xdist>=3,<4`，在 setup-python 启用以 `pyproject.toml` 为键来源的 pip cache，并把同一完整 non-e2e 命令接为固定 6 worker worksteal + durations。
 - Rationale: 单 job 不改变 branch protection check 名称或覆盖范围；4-worker 远端稳定但慢，8-worker 远端触发并发敏感测试，6-worker 是不修历史测试、不引入复杂分组的最小折中。
 - Evidence:
-  - Tests: 8-worker 完整 non-e2e 为 3444 passed, 2 skipped in 22.51s（wall 22.85s），比同机 4-worker 的 30.88s 再降 8.37s；完整串行为 3444 passed, 2 skipped in 104.81s；ruff 两门全绿；frontend 63 files / 615 tests passed in 12.02s（wall 13.09s）。
+  - Tests: 6-worker 完整 non-e2e 连续两轮均为 3444 passed, 2 skipped，分别 22.95s（wall 23.76s）与 22.15s（wall 22.78s）；上述两条 n=8 失败测试以 n=6 定向复跑 2 passed in 1.66s。完整串行为 3444 passed, 2 skipped in 104.81s；ruff 两门全绿；frontend 63 files / 615 tests passed in 12.02s（wall 13.09s）。
   - Entry: GitHub Actions `.github/workflows/ci.yml` 是贡献者唯一 CI 入口；job 名保持 `Python checks` / `Frontend checks`。4-worker draft PR #184 三轮均 success 但 91–96s 未达标；8-worker attempt 2 真实失败并使 workflow 红；6-worker 远端复验待收集。
   - Frontend State Matrix: N/A（非前端）。
   - Browser QA: N/A（非前端）。
   - E2E/Regression: C2 后运行完整并行、串行、ruff、format 与 frontend vitest；远端 PR run 作为真栈性能验收。
   - Visual/Interaction: N/A（非前端）。
   - Prototype Comparison: N/A（无原型/reference）。
-- Rollback: 回退本次 6-worker 调优可恢复 8-worker（快但远端不稳定）；回退 `0d6ab276` 可恢复 4-worker（远端稳定但 91–96s 未达标）；整体回退 `6236644b` 及前序测试改写可恢复原串行 CI。
-- Commits: C1=`c833720f`，初始 C2=`6236644b`，4→8 Verify=`2a2f3aa1`，8-worker C2=`0d6ab276`，8→6 Verify=待本提交，6-worker C2=待完成，C3=待远端证据完成。
-- Next: 先提交 8-worker 远端失败证据与 design 修订，再将 workflow 调为 6 worker，连续跑两轮完整本地并行门禁。
+- Rollback: 回退 `47d65d3a` 可恢复 8-worker（快但远端不稳定）；回退 `0d6ab276` 可恢复 4-worker（远端稳定但 91–96s 未达标）；整体回退 `6236644b` 及前序测试改写可恢复原串行 CI。
+- Commits: C1=`c833720f`，初始 C2=`6236644b`，4→8 Verify=`2a2f3aa1`，8-worker C2=`0d6ab276`，8→6 Verify=`d60e7b1e`，6-worker C2=`47d65d3a`，C3=待远端证据完成。
+- Next: 6-worker 本地连续两轮完整门禁已绿并将推送；等待三次 GitHub Actions success，在此之前 R3 保持 DOING。
 
 ## [Design 修订] R3: 固定 4 worker → 固定 8 worker
 
@@ -95,5 +95,6 @@
 | 29097895298 | 1 | 约 70s 后 canceled | 66s success | 运行到 91%，无断言失败 | workflow failure；证明非 success required check 会阻断 |
 | 29097895298 | 2 | 95s failure | success | 68s；3442 passed / 2 failed / 2 skipped | 两条并发敏感测试真实失败，8-worker 不可采用 |
 
-- Commits: 调优 Verify=本提交，6-worker C2=待完成。
-- Next: workflow 改为 `-n 6`，本地完整全量连续两轮并确认上述两条均通过；ruff 全绿后推送，等待远端三次 success。
+- Commits: 调优 Verify=`d60e7b1e`，6-worker C2=`47d65d3a`。
+- Out-of-unit: 两条历史并发测试的跨 run 串扰已登记 [GitHub issue #185](https://github.com/Mrchen116/nano-multiagent/issues/185)；本 unit 不修改它们。
+- Next: n=6 完整全量连续两轮分别 22.95s / 22.15s 全绿，上述两条定向复跑也全绿；推送后等待远端三次 success。
