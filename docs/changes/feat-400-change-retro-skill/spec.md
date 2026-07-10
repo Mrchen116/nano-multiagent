@@ -7,7 +7,7 @@
 
 - Related: change-spec-author / change-design-author / change-orchestrator / change-impl-worker /
   change-reviewer / change-verifier —— 既是本 skill 的**复盘对象**,也是它产出"改进清单"的**落点**。
-- Refs: `docs/changes/feat-394-heartbeat-cron-redesign/retro-pipeline-rootcause.md` —— 本 skill 的
+- Refs: `docs/changes/archive/feat-394-heartbeat-cron-redesign/retro-pipeline-rootcause.md` —— 本 skill 的
   方法论原型(那次 feat-394 灾难复盘的全过程被提炼成了这个 skill)。
 
 ## 原始需求

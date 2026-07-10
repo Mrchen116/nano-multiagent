@@ -1,7 +1,7 @@
 # feat-407: SDD 流程防「实现视角泄漏进契约层与测试」
 
 > 备注：本 unit 是 bugfix-404 PR 评审期暴露问题后的**流程改进立项**。根因取证见
-> `docs/changes/bugfix-404-bg-notify-workspace-isolation/retro-impl-view-leak.md`。
+> `docs/changes/archive/bugfix-404-bg-notify-workspace-isolation/retro-impl-view-leak.md`。
 > 实现（change-* skill + TESTING_GUIDE 的条款修订）已随讨论落地，本 spec 是对该需求的事后存档与验收基线。
 
 ## Relations

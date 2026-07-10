@@ -45,7 +45,7 @@ unit_dir: <type>-<id>[-<short-desc>]          # 例: feat-104-chat-mention-picke
 branch: unit/<unit_id>                        # 验收对象——unit 集成分支
 unit_worktree_dir: <repo_root>/.worktrees/unit-<unit_id>   # 你的工作目录,不进主仓
 review_round: 1 | 2 | 3 | ...                 # 第几轮验收
-prior_acceptance_paths: [docs/changes/<unit_dir>/acceptance.md]   # 第 2 轮起,之前的报告
+prior_acceptance_paths: [<unit_path>/acceptance.md]   # 第 2 轮起,之前的报告
 revalidation_mode: full | targeted             # targeted 进入 §FL Fast-lane
 focus_scenarios_or_issues: [<上一轮 fail/inconclusive issue 或 Scenario>]   # targeted 必传
 fix_delta_range: <pre_fix_head>..<HEAD>         # targeted 必传
@@ -53,6 +53,14 @@ mode: full | lite                             # lite 不应该派 reviewer,详�
 ```
 
 所有 git 与文件操作都在 `unit_worktree_dir` 内进行——**严禁**在主仓 `git checkout unit/<id>`(orchestrator §0.15),多 orchestrator / 用户并发时主仓 HEAD 会被互相踩翻。
+
+进入 worktree 后先解析 unit 文档根路径,兼容提 PR 前已归档的 unit：
+
+```bash
+unit_path=$(find docs/changes docs/changes/archive -mindepth 1 -maxdepth 1 -type d \
+  -name "$unit_dir" -print 2>/dev/null | head -1)
+if [[ -z "$unit_path" ]]; then echo "unit path not found: $unit_dir" >&2; exit 1; fi
+```
 
 `review_round = 1` 时**严禁**给 `revise-design`(三道闸第一道)。
 
@@ -72,12 +80,12 @@ git pull --ff-only origin "unit/<unit_id>"
 
 按顺序读(只读):
 
-1. **`docs/changes/<unit_dir>/<首文档>.md`** —— 用户场景、验收标准(这是你的真值)。验收标准是 **Requirement / Scenario 结构**(`### Requirement` 下挂 `#### Scenario`,每个 scenario 有 WHEN/THEN)——每个 **Scenario** 就是你覆盖表的一行,也是旅程脚本(见 §3.1)
-2. **`docs/changes/<unit_dir>/design.md`** —— 大概架构(只看 §架构总览 + §关键决策),为可能的 revise-design 引用准备
+1. **`<unit_path>/<首文档>.md`** —— 用户场景、验收标准(这是你的真值)。验收标准是 **Requirement / Scenario 结构**(`### Requirement` 下挂 `#### Scenario`,每个 scenario 有 WHEN/THEN)——每个 **Scenario** 就是你覆盖表的一行,也是旅程脚本(见 §3.1)
+2. **`<unit_path>/design.md`** —— 大概架构(只看 §架构总览 + §关键决策),为可能的 revise-design 引用准备
 3. **`README.md` / `docs/operator-runbook.md`** —— 怎么启动、怎么用
 4. **`CLAUDE.md` / `AGENTS.md`** —— 项目级约定,怎么跑产品
 5. **历轮验收报告**(若 `review_round > 1`)—— 上一轮的 issues、Recommended Action、修复路径
-6. **每个 milestone 的 `docs/changes/<unit_dir>/M<N>-*/progress.md`** —— **简短扫一眼**,知道大概实现了什么、有没有"[Design 修订]"段。**不要**深读代码意图——你不是 code reviewer。
+6. **每个 milestone 的 `<unit_path>/M<N>-*/progress.md`** —— **简短扫一眼**,知道大概实现了什么、有没有"[Design 修订]"段。**不要**深读代码意图——你不是 code reviewer。
 
 读完后心里要清晰:
 - 这个 unit 的验收标准有哪些条
@@ -219,9 +227,9 @@ git pull --ff-only origin "unit/<unit_id>"
 
 | 变更类型 | 报告文件 | 模板(本 skill `assets/`) |
 |---|---|---|
-| feat | `docs/changes/<unit_dir>/acceptance.md` | `acceptance.md` |
-| refactor / perf | `docs/changes/<unit_dir>/acceptance.md` | `acceptance.md` |
-| bugfix full | `docs/changes/<unit_dir>/regression.md` | `regression.md` |
+| feat | `<unit_path>/acceptance.md` | `acceptance.md` |
+| refactor / perf | `<unit_path>/acceptance.md` | `acceptance.md` |
+| bugfix full | `<unit_path>/regression.md` | `regression.md` |
 
 bugfix lite 没有独立 reviewer 阶段,worker 完成后直接合 unit→main(由 orchestrator)。lite 的"验证"段由 worker 在 fix.md 里自填。
 
@@ -328,7 +336,7 @@ gh issue create \
   --body "$(cat <<EOF
 ## Surfaced During
 
-Acceptance review of \`<unit-id>\` (round <N>) — see \`docs/changes/<unit-id>/<acceptance|regression>.md\`
+Acceptance review of \`<unit-id>\` (round <N>) — see \`<unit_path>/<acceptance|regression>.md\`
 
 ## Symptom
 
@@ -378,7 +386,7 @@ acceptance / regression 模板都有"上层文档同步"段。逐项核对:
 
 ```bash
 cd "$unit_worktree_dir"
-git add docs/changes/<unit_dir>/<acceptance|regression>.md
+git add <unit_path>/<acceptance|regression>.md
 git commit -m "docs(<unit_id>): round <N> acceptance — verdict <pass|fail|pass-with-issues>"
 git push origin "unit/<unit_id>"
 ```
@@ -394,7 +402,7 @@ verdict: pass | fail | pass-with-issues
 highest_required_action: pass | fix-implementation | revise-design | out-of-unit
 issues_count: { blocking: N, major: N, minor: N }
 gh_issues_filed: [#142, #143]
-report_path: docs/changes/<unit>/<acceptance|regression>.md
+report_path: <unit_path>/<acceptance|regression>.md
 top_concern: <一句话>   # 最严重的问题摘要
 needs_re_review: true | false   # fail 时为 true
 ```
@@ -429,7 +437,7 @@ orchestrator 据此决定:
 
 **输出**:
 
-- `docs/changes/<unit_dir>/acceptance.md` 或 `regression.md`(模板见本 skill `assets/`)
+- `<unit_path>/acceptance.md` 或 `regression.md`(模板见本 skill `assets/`)
 - 必要时 `gh issue create` 立的 out-of-unit issue 号
 - 回报字符串(§8.2)给 orchestrator
 

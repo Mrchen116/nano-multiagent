@@ -221,7 +221,7 @@ describe("ConversationSidebar", () => {
   });
 
   // R8.5 — R11-10 ConvItem visual rewrite on v2 production path.
-  // Prototype source: docs/changes/feat-340-agent-native-im/attachments/prototype/project/im-chat-page.jsx::ConvItem
+  // Prototype source: docs/changes/archive/feat-340-agent-native-im/attachments/prototype/project/im-chat-page.jsx::ConvItem
   //   no KindBadge uppercase chip in the row; avatar carries data-testid for visual audits.
   describe("R11-10 v2 ConvItem visual", () => {
     it("does NOT render a KindBadge / kind_label chip in each row", () => {

@@ -7,7 +7,7 @@
 #
 # refactor-381: replaces the ~12-step manual setup ritual that worker /
 # reviewer / contributor each had to re-invent (see
-# docs/changes/bugfix-380-llm-upstream-error-visible/retro.md §2).
+# docs/changes/archive/bugfix-380-llm-upstream-error-visible/retro.md §2).
 #
 # Usage:
 #   ./scripts/e2e-up.sh                                  # use defaults

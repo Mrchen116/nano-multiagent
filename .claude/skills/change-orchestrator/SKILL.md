@@ -32,7 +32,10 @@ Codex 执行本 skill 时,工具映射差异见 `references/codex-execution-note
 13. **派发必须后台运行**。Agent 工具派发 worker / reviewer / verifier 一律 `run_in_background: true`。前台(阻塞)派发会让本 skill 卡死在单个子 agent 上——无法并行(§0.6)、无法监控(§3.2),也无法回应开工报信 / 澄清(§3.1.1):前台子 agent 在返回最终结果前,orchestrator 不执行回合,收不到也回不了 `SendMessage`。
 14. **派发时给每个子 agent 稳定 `name`**。Agent 工具派发 worker / reviewer / verifier 时一律传一个稳定可寻址的 `name`(worker 用 `<milestone_id>`、reviewer 用 `<unit_id>-reviewer`、verifier 用 `<unit_id>-verifier`),之后失败循环 / Fast-lane 复验 / PR 反馈处理(§6.FL / §7.5)用 `SendMessage` 按该 `name`(或派发返回的 agent ID)唤醒续跑,保上下文。不给 `name` 则只能新开实例丢上下文。
 15. **主仓 HEAD 不动**。整个 unit 生命周期内,所有针对 `unit/<unit_id>` 分支的 checkout / pull / merge / push / rebase / PR 一律在专属 `unit_worktree_dir`(§2.3)里跑,**严禁**在主仓 `git checkout unit/<id>`——多 orchestrator 并发时主仓 HEAD 会被互相踩翻,用户也可能正在主仓做别的事。Sync Gate(§2.2)操作的是主仓的 main,不在此限。
-16. **任何退出路径必须先 sweep 服务 PID,再处置 worktree**(§7.5 / §6.4 escalate / §0.7 cap 都过这条)。reviewer/worker 正常退出会自 kill,但崩溃时不会,孤儿进程会让用户误把分支代码当主仓在跑。sweep snippet 见项目 AGENTS.md;§7.5 sweep 完后 `git worktree remove`,§6.4 / §0.7 只 sweep 进程、保留 worktree 与日志 / DB 给人排查。
+16. **任何退出路径必须先 sweep 服务 PID,再处置 worktree**(§7.6 / §6.4 escalate / §0.7 cap 都过这条)。reviewer/worker 正常退出会自 kill,但崩溃时不会,孤儿进程会让用户误把分支代码当主仓在跑。sweep snippet 见项目 AGENTS.md;§7.6 sweep 完后 `git worktree remove`,§6.4 / §0.7 只 sweep 进程、保留 worktree 与日志 / DB 给人排查。
+17. **提 PR 前必须归档 unit**。§7.3 把整个 `docs/changes/<unit_dir>/` 移到
+    `docs/changes/archive/<unit_dir>/`;不删除历史、不只搬报告。归档后 PR body、CI fix 和复验都使用
+    `unit_path` 解析后的路径。未归档不得创建 PR。
 
 ---
 
@@ -46,15 +49,18 @@ unit_id: <type>-<id>     # 例: feat-104, bugfix-200(逻辑标识)
 
 可以从用户消息推断(用户说 "把 feat-104 跑完")或从当前对话上下文判定。歧义时**问用户**,不要猜。
 
-**自查 unit_dir**(可能含 short-desc 后缀):
+**自查 unit_dir**(可能含 short-desc 后缀;orchestrator 只启动活动区 unit):
 
 ```bash
-unit_dir=$(ls -d docs/changes/<unit_id> docs/changes/<unit_id>-* 2>/dev/null | head -1 | xargs basename)
+unit_path=$(find docs/changes -mindepth 1 -maxdepth 1 -type d \
+  \( -name "<unit_id>" -o -name "<unit_id>-*" \) -print | head -1)
+unit_dir=$(basename "$unit_path")
 ```
 
-如 `feat-104` → `feat-104-chat-mention-picker`。找不到 → 退出报错。
+如 `feat-104` → `feat-104-chat-mention-picker`。找不到时再检查
+`docs/changes/archive/<unit_id>-*`:若已归档,说明该 unit 已完成,拒绝重复启动;两处都找不到则退出报错。
 
-unit 的所有信息从 `docs/changes/<unit_dir>/` 读出来——design.md Milestone 表是 full 模式的派发依据;lite 模式读 fix.md。
+unit 的所有信息从 `$unit_path/` 读出来——design.md Milestone 表是 full 模式的派发依据;lite 模式读 fix.md。
 
 ---
 
@@ -184,7 +190,7 @@ def main_loop(unit_id):
     while review_round <= 7:
         results = run_selected_gates(selection, review_round)  # §5: full / targeted / patch / closure
         if all_required_gates_pass(results) and no_open_blockers():  # 未重跑的 retained 闸有继承依据
-            submit_pr_watch_ci_exit()         # §7：本地 CI 门禁 → 提 PR → 等远端 CI 绿 → 退；红则 §6.2
+            submit_pr_watch_ci_exit()         # §7：本地 CI → 归档 → 提 PR → 等远端 CI 绿 → 退；红则 §6.2
             return
         action = decide_action(results)        # §6,合并本轮实际结果 + retained 结论路由
         if action == "fix":
@@ -548,7 +554,7 @@ in-unit fix 默认**优先 `SendMessage` 唤醒已有热上下文的 worker**,�
 
 **硬边界**(破任一即退回 §6.2 完整路径):
 1. reviewer 仍独立验收
-2. PR body 仍列本 unit 所有 fix 历史(数量、轮次、复用还是新派;§7.3 不放松)
+2. PR body 仍列本 unit 所有 fix 历史(数量、轮次、复用还是新派;§7.4 不放松)
 3. reviewer 复用实例零写入(reviewer §0.1)
 4. 集成路径不变
 5. 失败可回退
@@ -689,15 +695,41 @@ git -C "$unit_worktree" push --force-with-lease origin "unit/<unit_id>"
 
 提 PR 前在 `$unit_worktree` 把项目 CI 等价跑一遍。从 CI 配置(`.github/workflows/` 或同类**照搬**每个 job 的命令逐条复现,别凭记忆——format 用「只验不改」版、依赖按锁文件装,否则本地绿、CI 红。任一 job 红当 bug 走 §6.2,修到全绿才进 §7.3。
 
-### §7.3 组装 PR body
+### §7.3 归档完成 unit
+
+本地门禁全绿说明 unit 已达到可提 PR 状态。把完整 unit 目录移入历史区并单独提交：
+
+```bash
+archive_root="docs/changes/archive"
+archive_path="$archive_root/$unit_dir"
+
+if [[ ! -d "$unit_path" ]]; then echo "active unit path missing: $unit_path" >&2; exit 1; fi
+if [[ -e "$archive_path" ]]; then echo "archive target already exists: $archive_path" >&2; exit 1; fi
+mkdir -p "$archive_root"
+git mv "$unit_path" "$archive_path"
+unit_path="$archive_path"
+git add -A -- docs/changes
+git commit -m "docs(<unit_id>): archive completed change unit"
+```
+
+必须移动整个目录,包括首文档、design、M*/、acceptance/regression、verification、delta-spec 和 evidence。
+不得复制后留下活动区副本。归档后用 `unit_path` 作为唯一文档根路径;若远端 CI 触发 fix/reviewer/verifier
+循环,派发角色按各自 skill 的 active/archive 解析规则读取同一目录,不把 unit 移回活动区。
+
+归档提交后至少运行 `git diff --check origin/main...HEAD`,并检查 PR 要引用的文档都存在于 `$unit_path`。
+任一步失败都不得进入 §7.4。
+
+### §7.4 组装 PR body
 
 从 unit 文档自动抽,按模式选模板——**full**(从 spec/design/acceptance/verification 抽)、**lite**(只从 fix.md 抽)。两套完整 markdown 模板 + 逐字段抽取来源见 `references/pr-body-templates.md`,提 PR 时读它照填。每个字段都从 unit 文档抽,不手写新内容。
+
+此时 unit 已归档,模板中的文档链接必须使用 `docs/changes/archive/<unit_dir>/...`;禁止继续生成活动区路径。
 
 PR body 里附一行 **Spec delta**:列 §7.0 收尾归并实际改了哪些 `docs/specs/<包>/<target>.md`(或 "no spec delta",纯内部 unit)。
 
 PR body 里附一段 **Validation summary**:列每道闸最近一次有效状态(`full` / `targeted` / `targeted-closure` / `delta` / `patch` / `closure` / `retained` / `skipped`)、report path / diff range / validated head。任何 retained 闸都要写继承依据,让 reviewer 看得出是"上轮已验且本次 delta 未失效",不是漏验。
 
-### §7.4 提 PR + 等 CI
+### §7.5 提 PR + 等 CI
 
 ```bash
 gh pr create \
@@ -712,9 +744,9 @@ EOF
 
 PR title 格式:`[<type>] <短描述> (<unit_id>)`,例:`[feat] chat mention picker (feat-104)`、`[bugfix] session leak on restart (bugfix-200)`。
 
-提 PR 后等远端 CI 跑完(`gh pr checks --watch`)——本地门禁只防低级红,环境差异 / 并发 main 推进仍可能红。全绿 → §7.5。有红当 bug 走 §6.2(`gh run view --log-failed` 取失败详情作线索,派 worker 修;push 后 CI 自动重跑,再 watch),修到绿才退。
+提 PR 后等远端 CI 跑完(`gh pr checks --watch`)——本地门禁只防低级红,环境差异 / 并发 main 推进仍可能红。全绿 → §7.6。有红当 bug 走 §6.2(`gh run view --log-failed` 取失败详情作线索,派 worker 修;push 后 CI 自动重跑,再 watch),修到绿才退。此时 unit 已在 archive;所有派发包仍传原 `unit_dir`,接收角色必须解析到归档路径。
 
-### §7.5 退出
+### §7.6 退出
 
 输出 PR URL,告诉用户:
 

@@ -1,6 +1,6 @@
 # feat-430 delta-spec: kernel
 
-> 对齐 canonical: [`docs/specs/kernel/spec.md`](../../../../specs/kernel/spec.md)
+> 对齐 canonical: [`docs/specs/kernel/spec.md`](../../../../../specs/kernel/spec.md)
 > 本文件只列 feat-430 对内核（经 `agent.sdk`）对外可观察行为的增量。草案——收尾由 orchestrator 据实际 diff 校正并软对账并入 canonical。
 
 ## MODIFIED Requirements

@@ -17,9 +17,11 @@
                                                —— 经 delta-spec 归并保持 current,本指南管这一层
 契约层增量    docs/changes/<unit>/specs/<包>/*.md   (delta-spec,镜像 canonical 目录)
                                                per-unit 对 canonical 的 ADDED/MODIFIED/REMOVED Requirements;
-                                               design 阶段产,收尾据实际 diff 校正后合并进长青层,随变更稿归档
+                                               design 阶段产,收尾据实际 diff 校正后合并进长青层;
+                                               完成后随 unit 移到 docs/changes/archive/<unit>/
 变更稿        docs/changes/<unit>/{spec,design,tasks}.md
-                                               per-unit,易逝,ship 后归档;架构决策记在 design.md §关键决策
+                                               per-unit,易逝,提 PR 时归档到 docs/changes/archive/<unit>/;
+                                               架构决策记在 design.md §关键决策
 ```
 
 长青层是 **current 状态的单一权威**:打开对应包目录就知道"系统现在怎么表现",不必脑内合并 N 个历史单元。
@@ -132,7 +134,8 @@ design,也不建独立 ADR 层(`docs/decisions/`);决策的家是 per-unit `desi
 
 **放哪**:`docs/changes/<unit>/specs/<包>/<target>.md` —— **镜像** canonical `docs/specs/<包>/<target>.md`
 的目录结构。`<target>` 可以是入口 `spec.md`,也可以是具体 area(如 `external-channels.md`)。与变更稿
-`spec.md`/`design.md` 同处 unit 目录、随其归档。本单元没碰的包/area 不建对应文件。
+`spec.md`/`design.md` 同处 unit 目录;提 PR 时整个 unit 移到
+`docs/changes/archive/<unit>/`。本单元没碰的包/area 不建对应文件。
 
 **怎么写**:一份"迷你 canonical",同骨架(可选 `## Purpose`)+ 三个 delta 段,只写**变更的** Requirement:
 

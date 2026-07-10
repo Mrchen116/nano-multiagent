@@ -29,10 +29,10 @@ Refs #<n>              # Relations Refs 字段 + reviewer 立的 out-of-unit maj
 
 ## Spec / Design / Acceptance
 
-- [<首文档>](docs/changes/<unit_dir>/<首文档>.md)
-- [design.md](docs/changes/<unit_dir>/design.md) — milestone 拆分见此
-- [acceptance.md / regression.md](docs/changes/<unit_dir>/<file>.md) — reviewer Verdict: <pass | pass-with-issues>
-- [verification.md](docs/changes/<unit_dir>/verification.md) — verifier Verdict: <pass>;Completeness / Correctness / Coherence 三维通过
+- [<首文档>](docs/changes/archive/<unit_dir>/<首文档>.md)
+- [design.md](docs/changes/archive/<unit_dir>/design.md) — milestone 拆分见此
+- [acceptance.md / regression.md](docs/changes/archive/<unit_dir>/<file>.md) — reviewer Verdict: <pass | pass-with-issues>
+- [verification.md](docs/changes/archive/<unit_dir>/verification.md) — verifier Verdict: <pass>;Completeness / Correctness / Coherence 三维通过
 
 ## Milestones
 
@@ -79,7 +79,7 @@ Refs #<n>
 
 ## Fix Document
 
-- [fix.md](docs/changes/<unit_dir>/fix.md) — 现象 / 根因 / 修复 / 验证 四段
+- [fix.md](docs/changes/archive/<unit_dir>/fix.md) — 现象 / 根因 / 修复 / 验证 四段
 
 ## Spec Delta
 

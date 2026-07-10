@@ -8,7 +8,7 @@
 - Depends on: feat-400(change-retro skill)—— 本 unit 的改进项全部来自用 change-retro 方法对 feat-394 做的复盘。
 - Related: change-spec-author / change-design-author / change-orchestrator / change-impl-worker /
   change-reviewer / change-verifier —— 被改进的对象。
-- Refs: `docs/changes/feat-394-heartbeat-cron-redesign/retro-pipeline-rootcause.md`(P0–P8 根因 + 按 skill 改进清单,本 unit 据此实施)。
+- Refs: `docs/changes/archive/feat-394-heartbeat-cron-redesign/retro-pipeline-rootcause.md`(P0–P8 根因 + 按 skill 改进清单,本 unit 据此实施)。
 
 ## 原始需求
 

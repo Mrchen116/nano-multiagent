@@ -37,7 +37,10 @@ bugfix lite vs full 的判据(参考 `docs/changes/readme.md`):**默认 lite**;�
 
 ### §1.2 决定 unit_id 和目录名
 
-- **id**:扫 `docs/changes/` 下已有 `<type>-<N>-*` 目录,取最大 `<N>` + 1。每种 type 共享一个递增序列吗?**不**——所有 type 共享同一个全局递增序列(看 `docs/changes/readme.md` 命名规范),避免冲突。
+- **id**:在仓库根目录执行 `python3 <skill_dir>/scripts/next_unit_id.py <type>`，直接使用输出的
+  `unit_id`。脚本同时扫描 `docs/changes/` 活动区与 `docs/changes/archive/`，按所有 type 的全局最大
+  `<N>` + 1 分配，禁止临时拼 `find`/`sed` 只扫活动区。例：
+  `python3 .claude/skills/change-spec-author/scripts/next_unit_id.py feat` → `feat-<next-number>`。
 - **short-desc**:2-5 个 kebab 词,从用户原话里提关键名词。可以省略,但**强烈建议加**——一年后扫目录靠它认。
 - 完整目录名:`<type>-<id>[-short-desc]`,全小写,`-` 连接,不超过 60 字符。
 

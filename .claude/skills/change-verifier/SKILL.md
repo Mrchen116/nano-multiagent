@@ -31,7 +31,7 @@ unit_dir: <type>-<id>[-<short-desc>]
 branch: unit/<unit_id>                        # 验证对象——unit 集成分支
 verify_worktree_dir: <repo_root>/.worktrees/verify-<unit_id>   # 你的只读工作目录
 review_round: 1 | 2 | ...
-prior_verification_path: docs/changes/<unit_dir>/verification.md   # 第 2 轮起
+prior_verification_path: <unit_path>/verification.md   # 第 2 轮起
 verification_mode: full | targeted-closure | delta
 fix_delta_range: <pre_fix_head>..<HEAD>        # targeted-closure / delta 必传
 focus_issues: [<上一轮 CRITICAL/WARNING 指纹或摘要>]   # targeted-closure 必传
@@ -39,6 +39,14 @@ mode: full
 ```
 
 所有操作在 `verify_worktree_dir` 内。**bugfix lite 不派 verifier**(无 spec/design);若被错派,立即退出并提示 orchestrator。
+
+进入 worktree 后先解析 unit 文档根路径,兼容提 PR 前已归档的 unit：
+
+```bash
+unit_path=$(find docs/changes docs/changes/archive -mindepth 1 -maxdepth 1 -type d \
+  -name "$unit_dir" -print 2>/dev/null | head -1)
+if [[ -z "$unit_path" ]]; then echo "unit path not found: $unit_dir" >&2; exit 1; fi
+```
 
 启动:自建 worktree(orchestrator 只给路径,不创建),只读签出 unit 分支:
 ```bash
@@ -189,7 +197,7 @@ requires_full_verification: <true|false>
 ### §5.2 写完报告 + commit
 ```bash
 cd "$verify_worktree_dir"
-git add docs/changes/<unit_dir>/verification.md
+git add <unit_path>/verification.md
 git commit -m "docs(<unit_id>): round <N> verification — verdict <pass|fail>"
 # §1 是 detached 签出,报告 commit 在 detached HEAD:推 HEAD,别用 `push origin unit/<id>`
 # (后者推本地同名分支、不含本 commit,会静默 "up-to-date" 致报告丢失)
@@ -214,7 +222,7 @@ verdict: pass | fail            # 有任一 CRITICAL → fail,否则 pass
 issues: { critical: N, warning: N, suggestion: N }
 validated_issues: [<focus issue ids closed / still open>]
 requires_full_verification: true | false
-report_path: docs/changes/<unit>/verification.md
+report_path: <unit_path>/verification.md
 top_concern: <一句话>
 ```
 
@@ -245,7 +253,7 @@ top_concern: <一句话>
 **输入**:派发包(§1)+ unit 集成分支当前状态 + 历轮报告(若有)。
 
 **输出**:
-- `docs/changes/<unit_dir>/verification.md`(模板见 `assets/`)
+- `<unit_path>/verification.md`(模板见 `assets/`)
 - 回报字符串(§5.3)给 orchestrator
 
 下游(orchestrator):据 verdict + 严重度计数路由,把 CRITICAL/WARNING issues 打包成 fix milestone(见 orchestrator §6)。

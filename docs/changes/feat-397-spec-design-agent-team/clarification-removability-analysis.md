@@ -30,7 +30,7 @@
 **例 1 — bugfix-348**（旧位置 session 文件是否迁移）
 > 答复原话："不迁移。修复只改「今后新建/写入的落点」，旧文件留在原地（feat-330 已定调「开发态不兼容旧数据」）"
 
-判据：`docs/changes/feat-330-session-context-storage/design.md` 第 7 行明确写"不考虑兼容旧数据，当前为开发态"，可直接读取。
+判据：`docs/changes/archive/feat-330-session-context-storage/design.md` 第 7 行明确写"不考虑兼容旧数据，当前为开发态"，可直接读取。
 
 **例 2 — refactor-345**（compact 发生时是否保留前端/REPL 提示）
 > 答复原话："保留 compact boundary 提示信息。"
@@ -49,7 +49,7 @@
 **例 1 — feat-385**（memory 闭环修复范围、USER.md 是否注入）
 > 答复原话："这个之前引入hermes agent的自进化的时候对过了吧"
 
-判据：`docs/changes/feat-349-self-evolving-skills-memory/spec.md` 的 Q1/Q3/Q5 澄清记录有完整记录，检索历史首文档即可。
+判据：`docs/changes/archive/feat-349-self-evolving-skills-memory/spec.md` 的 Q1/Q3/Q5 澄清记录有完整记录，检索历史首文档即可。
 
 **例 2 — refactor-360**（73 处测试迁移策略）
 > 答复原话："按用途分流"

@@ -94,7 +94,7 @@ describe("AppShell", () => {
   });
 
   // R11-9 — shell polish (minor)
-  // Prototype source: docs/changes/feat-340-agent-native-im/attachments/prototype/IM Prototype.html
+  // Prototype source: docs/changes/archive/feat-340-agent-native-im/attachments/prototype/IM Prototype.html
   //   L297  internal badge next to brand
   //   L168  UserMenu trigger ▾ chevron
   //   L103-109  MobileTabBar emoji 💬🤖👤 + unread badge on chat
