@@ -29,7 +29,7 @@
 
 ### R1 — 移除 IM integration 的 live-config 固定等待
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 先量取五个目标测试的耗时并记录 Verify 证据；把仅需持久化版本的 GET 改为 `source=mirror`，删除无关的 `agent.config.get/agent.config` 往返；保留原创建、PATCH、同步与 relay 行为断言。
 - 验证: 五个目标测试全绿且耗时显著下降；`tests/im_service/integration/test_agent_config_api.py` 全绿，证明专门 live-config 协议覆盖未丢失。
 
