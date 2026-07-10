@@ -6,6 +6,7 @@
 
 ## Changelog
 
+- 2026-07-10 (M1): 8-worker 远端复验暴露两条并发敏感测试失败，将固定并行度收敛为 6 worker，在不修历史测试或引入分组机制的前提下平衡稳定性与速度 — 详见 `M1-ci-fast-path/progress.md`
 - 2026-07-10 (M1): 普通 GitHub runner 的 4-worker 三轮实测均超过 90 秒，将固定并行度调为已完成本地隔离验证的 8 worker；拓扑、覆盖范围与 check 名称不变 — 详见 `M1-ci-fast-path/progress.md`
 
 ## 现状分析
@@ -46,7 +47,7 @@
 
 ## 架构总览
 
-本 unit 不重构 CI 拓扑，仍保留两个并行 job。变化只发生在 Python job 内部：复用现有安装和检查顺序，增加依赖缓存，把 pytest 的单进程执行改成固定 8 worker，并先移除测试套件中最明显的固定等待。
+本 unit 不重构 CI 拓扑，仍保留两个并行 job。变化只发生在 Python job 内部：复用现有安装和检查顺序，增加依赖缓存，把 pytest 的单进程执行改成固定 6 worker，并先移除测试套件中最明显的固定等待。
 
 ```mermaid
 graph LR
@@ -61,14 +62,14 @@ graph LR
     XDist --> W1["worker 1"]
     XDist --> W2["worker 2"]
     XDist --> W3["worker 3"]
-    XDist --> WX["worker 4–8"]
+    XDist --> WX["worker 4–6"]
 
     FE --> Vitest["npm ci + vitest run"]
 ```
 
 **Before**：Python job 每次重新安装依赖后，由一个 pytest 进程串行执行约 3,445 条用例，少数固定等待占据显著墙钟时间。
 
-**After**：Python job 缓存下载产物、以 8 worker 动态均衡完整测试集；测试断言等待真实完成条件，不再把无关的生产 timeout 当作测试步骤。Frontend job 和所有门禁结果保持原样。
+**After**：Python job 缓存下载产物、以 6 worker 动态均衡完整测试集；测试断言等待真实完成条件，不再把无关的生产 timeout 当作测试步骤。Frontend job 和所有门禁结果保持原样。
 
 ## 关键决策
 
@@ -80,11 +81,11 @@ graph LR
 - **拒绝**：全局降低 `request_agent_config` 的 5 秒 timeout——会改变在线 Gateway 慢响应时的产品容错；给慢测简单加 skip——会丢失回归信号。
 - **风险**：删掉重复的 WS 帧断言时可能误删 live-config 唯一覆盖；由专门的 `test_agent_config_api.py` live-config 用例继续把守该协议。
 
-### 决策 2: Python job 内使用 8 个 xdist worker，不拆 GitHub Actions matrix
+### 决策 2: Python job 内使用 6 个 xdist worker，不拆 GitHub Actions matrix
 
-**保留单个 `Python checks` job，以 `pytest -n 8 --dist worksteal` 并行完整非 e2e 套件。**
+**保留单个 `Python checks` job，以 `pytest -n 6 --dist worksteal` 并行完整非 e2e 套件。**
 
-- **理由**：本地完整套件已证明 4/8 worker 可用且 8 worker 更快；普通 GitHub runner 的 4-worker 三轮实测为 91–96 秒，未满足既定 90 秒门槛。单 job 不改变 branch protection check 名称，不复制 checkout/install，也不引入 shard 清单和聚合 job。
+- **理由**：普通 GitHub runner 的 4-worker 三轮实测为 91–96 秒，未满足既定 90 秒门槛；8-worker 虽本地更快，但远端真实触发两条并发敏感测试失败。固定 6 worker 是两者间的最小参数折中；单 job 不改变 branch protection check 名称，不复制 checkout/install，也不引入 shard 清单和聚合 job。
 - **拒绝**：多 runner matrix 分片——会增加 workflow、聚合、排队和资源成本；动态选测——会改变覆盖语义；self-hosted/大 runner——超出首文档非目标。
 - **风险**：隐藏的跨测试共享状态可能在 CI 并行时暴露；完整本地并行基线已通过，实施仍需在真实 GitHub runner 上验证，出现 flaky 时可一行退回串行命令。
 
@@ -123,7 +124,7 @@ graph LR
 | `pyproject.toml` dev dependencies | 增加 `pytest-xdist>=3,<4`，其余 pytest/ruff 约束不变 |
 | `actions/setup-python@v5` | 保持 Python 3.12；增加 `cache: pip` 与以 `pyproject.toml` 为依赖缓存键来源 |
 | Python lint | `ruff check .`、`ruff format --check .` 原样保留 |
-| Python tests | `pytest -m "not e2e" -n 8 --dist worksteal --durations=20 --durations-min=0.5` |
+| Python tests | `pytest -m "not e2e" -n 6 --dist worksteal --durations=20 --durations-min=0.5` |
 | Frontend tests | `npm ci`、`npm run test` 原样保留 |
 | 成败语义 | 两个 job 任一失败则 workflow 失败；check 名称不变 |
 
@@ -152,7 +153,7 @@ sequenceDiagram
         Py->>Cache: restore cached wheels/downloads
         Py->>Py: install + ruff + format check
         Py->>XD: collect 完整 non-e2e suite
-        par 8 workers worksteal
+        par 6 workers worksteal
             XD->>XD: execute isolated test items
         end
         XD-->>Py: aggregate pass/fail + slow durations
@@ -175,7 +176,7 @@ sequenceDiagram
 
 ## 风险与回退
 
-- **并行测试暴露共享状态**：以完整 `-n 8 --dist worksteal` 本地与远端验证把守；若出现不可在本 unit 内简单消除的 flaky，先回退到串行 pytest，保留慢测试清理与缓存收益。
+- **并行测试暴露共享状态**：以完整 `-n 6 --dist worksteal` 本地至少连续两轮、远端至少三轮验证把守；8-worker 已证明会触发两条并发敏感测试，故不采用。若 6-worker 仍出现不可在本 unit 内简单消除的 flaky，回退到已远端三轮稳定的 4-worker，并如实报告 90 秒目标未达标，不扩 scope 修历史测试或引入复杂分组。
 - **慢测试改写造成覆盖缩水**：每条改写前后对照原测试 docstring/断言；live-config 协议继续由专门集成/contract 测试覆盖；产品 `src/` 零修改是硬边界。
 - **pip cache 首次未命中**：允许冷启动较慢，不额外引入环境管理器；缓存恢复失败时 setup-python 自动退化为正常安装，不影响正确性。
 - **GitHub runner 性能抖动**：90 秒只衡量 runner 开始后的常规成功 run，不含排队；验收保留至少三次 run 的 job/step 时间戳，避免用单次最好结果下结论。
@@ -198,7 +199,7 @@ sequenceDiagram
 ```bash
 .venv/bin/ruff check .
 .venv/bin/ruff format --check .
-.venv/bin/pytest -m "not e2e" -n 8 --dist worksteal --durations=20 --durations-min=0.5
+.venv/bin/pytest -m "not e2e" -n 6 --dist worksteal --durations=20 --durations-min=0.5
 cd src/IM/frontend && npm run test
 ```
 
@@ -208,4 +209,4 @@ cd src/IM/frontend && npm run test
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| perf-458-M1 | ci-fast-path | — | A | `.github/workflows/ci.yml`；`pyproject.toml`；`tests/im_service/integration/test_agent_create_flow.py`；`tests/im_service/integration/test_gateway_im_direct_chat.py`；`tests/im_service/integration/test_gateway_im_group_chat.py`；`tests/im_service/integration/test_heartbeat_config_sync_pipeline.py`；`tests/im_service/integration/test_gateway_im_roundtrip.py`；`tests/unit/agent/background_tasks/test_platform_adapters.py` | `[reviewer]` 覆盖 motivation 全部 Scenario：合法代码 PR 的完整 required checks 在 runner 开始后 90 秒内结束；现有 Python/Frontend 失败仍使 CI 红；普通托管 runner 重跑无需人工环境。<br>`[reviewer]` IM、Gateway、Coding CLI 与 agent 内核的既有用户行为不变。<br>`[worker]` 五条 IM 慢测不再等待 live-config 5 秒 fallback，专门 live-config 测试继续通过；两条 ShellRunner 负断言改为条件等待且语义不变；输出上限测试不再写满 256 MiB。<br>`[worker]` `.venv/bin/pytest -m "not e2e" -n 8 --dist worksteal` 全绿，完整串行非 e2e 套件也至少复跑一次全绿；ruff 两门与前端 vitest 全绿。<br>`[worker]` 真实 GitHub Actions 至少三次成功 run 留下 job/step 时间戳，全部 required checks 的执行时间均 ≤90 秒；Python/Frontend check 名称与失败阻断语义不变。<br>`[worker]` 产品 `src/` 零修改、四包均 no spec delta；性能证据与回滚结论写入 `M1-ci-fast-path/progress.md`。 |
+| perf-458-M1 | ci-fast-path | — | A | `.github/workflows/ci.yml`；`pyproject.toml`；`tests/im_service/integration/test_agent_create_flow.py`；`tests/im_service/integration/test_gateway_im_direct_chat.py`；`tests/im_service/integration/test_gateway_im_group_chat.py`；`tests/im_service/integration/test_heartbeat_config_sync_pipeline.py`；`tests/im_service/integration/test_gateway_im_roundtrip.py`；`tests/unit/agent/background_tasks/test_platform_adapters.py` | `[reviewer]` 覆盖 motivation 全部 Scenario：合法代码 PR 的完整 required checks 在 runner 开始后 90 秒内结束；现有 Python/Frontend 失败仍使 CI 红；普通托管 runner 重跑无需人工环境。<br>`[reviewer]` IM、Gateway、Coding CLI 与 agent 内核的既有用户行为不变。<br>`[worker]` 五条 IM 慢测不再等待 live-config 5 秒 fallback，专门 live-config 测试继续通过；两条 ShellRunner 负断言改为条件等待且语义不变；输出上限测试不再写满 256 MiB。<br>`[worker]` `.venv/bin/pytest -m "not e2e" -n 6 --dist worksteal` 连续两轮全绿，完整串行非 e2e 套件也至少复跑一次全绿；ruff 两门与前端 vitest 全绿。<br>`[worker]` 真实 GitHub Actions 至少三次成功 run 留下 job/step 时间戳，全部 required checks 的执行时间均 ≤90 秒；Python/Frontend check 名称与失败阻断语义不变。<br>`[worker]` 产品 `src/` 零修改、四包均 no spec delta；性能证据与回滚结论写入 `M1-ci-fast-path/progress.md`。 |

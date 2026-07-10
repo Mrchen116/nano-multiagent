@@ -49,19 +49,19 @@
 
 - 状态: DOING
 - Context: Python job 的质量门禁完整但仍串行执行；`setup-python` 没有 pip cache，pytest 命令也没有并行调度或慢用例摘要。串行本地基线为 149.34s，已无法满足 90 秒远端目标。
-- Decision: 保留单一 `Python checks` job 和原 lint 顺序；仅在 dev 依赖增加 `pytest-xdist>=3,<4`，在 setup-python 启用以 `pyproject.toml` 为键来源的 pip cache，并把同一完整 non-e2e 命令接为固定 8 worker worksteal + durations。
-- Rationale: 单 job 不改变 branch protection check 名称或覆盖范围；4-worker 远端三轮未达标后，采用 design 已有本地全绿且更快的 8-worker 参数，仍避免 matrix/shard/专用 runner 的额外复杂度。
+- Decision: 保留单一 `Python checks` job 和原 lint 顺序；仅在 dev 依赖增加 `pytest-xdist>=3,<4`，在 setup-python 启用以 `pyproject.toml` 为键来源的 pip cache，并把同一完整 non-e2e 命令接为固定 6 worker worksteal + durations。
+- Rationale: 单 job 不改变 branch protection check 名称或覆盖范围；4-worker 远端稳定但慢，8-worker 远端触发并发敏感测试，6-worker 是不修历史测试、不引入复杂分组的最小折中。
 - Evidence:
   - Tests: 8-worker 完整 non-e2e 为 3444 passed, 2 skipped in 22.51s（wall 22.85s），比同机 4-worker 的 30.88s 再降 8.37s；完整串行为 3444 passed, 2 skipped in 104.81s；ruff 两门全绿；frontend 63 files / 615 tests passed in 12.02s（wall 13.09s）。
-  - Entry: GitHub Actions `.github/workflows/ci.yml` 是贡献者唯一 CI 入口；job 名保持 `Python checks` / `Frontend checks`。4-worker draft PR #184 三轮均 success，证明完整门禁语义未被并行化破坏，但 91–96s 未达到性能门槛；8-worker 远端复验待收集。
+  - Entry: GitHub Actions `.github/workflows/ci.yml` 是贡献者唯一 CI 入口；job 名保持 `Python checks` / `Frontend checks`。4-worker draft PR #184 三轮均 success 但 91–96s 未达标；8-worker attempt 2 真实失败并使 workflow 红；6-worker 远端复验待收集。
   - Frontend State Matrix: N/A（非前端）。
   - Browser QA: N/A（非前端）。
   - E2E/Regression: C2 后运行完整并行、串行、ruff、format 与 frontend vitest；远端 PR run 作为真栈性能验收。
   - Visual/Interaction: N/A（非前端）。
   - Prototype Comparison: N/A（无原型/reference）。
-- Rollback: 回退 `0d6ab276` 可恢复已全绿但未达到 90 秒的 4-worker 命令；整体回退 `6236644b` 及前序测试改写可恢复原串行 CI。
-- Commits: C1=`c833720f`，初始 C2=`6236644b`，调优 Verify=`2a2f3aa1`，8-worker 调优 C2=`0d6ab276`，C3=待远端证据完成。
-- Next: 8-worker 本地全量门禁已绿并将推送；等待新的三次 GitHub Actions 成功 run 与失败阻断证据，在此之前 R3 保持 DOING。
+- Rollback: 回退本次 6-worker 调优可恢复 8-worker（快但远端不稳定）；回退 `0d6ab276` 可恢复 4-worker（远端稳定但 91–96s 未达标）；整体回退 `6236644b` 及前序测试改写可恢复原串行 CI。
+- Commits: C1=`c833720f`，初始 C2=`6236644b`，4→8 Verify=`2a2f3aa1`，8-worker C2=`0d6ab276`，8→6 Verify=待本提交，6-worker C2=待完成，C3=待远端证据完成。
+- Next: 先提交 8-worker 远端失败证据与 design 修订，再将 workflow 调为 6 worker，连续跑两轮完整本地并行门禁。
 
 ## [Design 修订] R3: 固定 4 worker → 固定 8 worker
 
@@ -80,3 +80,20 @@
 | 29097094967 | 3 | 96s | 71s | 96s | success，但超过目标 6s |
 
 - Next: workflow 已调为 `-n 8`，本地完整并行门禁 22.51s 全绿；推送后等待新的三次远端证据，在此之前 R3 保持 DOING。
+
+## [Design 修订] R3: 固定 8 worker → 固定 6 worker
+
+- 现状方案: 固定 8 worker；本地全量 22.51s 全绿，但远端 attempt 1 在 91% 被 GitHub 取消，attempt 2 出现两条真实并发敏感测试失败。
+- 新方案: 固定 6 worker；保持 worksteal、完整 non-e2e、lint/cache/check 名称不变，不按测试分组，不修改两条历史测试。
+- 原因: attempt 2 的 `test_interrupt_reaps_foreground_subprocess_and_self_heals` 缺 `tool_call_recovery`，`test_interrupt_with_inflight_foreground_tool_force_cancels_carrier_task` 的 interrupt 命中第二个 run 且耗时 30.05s；这证明 8-worker 不是可签收的稳定配置。6 worker 是 4 与 8 之间唯一仍属简单参数调优的候选。
+- 影响范围: 仅本 milestone；两个并发敏感测试属于 out-of-unit 发现，本 unit 不修。
+- design.md 是否同步改: 是，已更新 Changelog、决策 2、命令、图示、风险、runbook 与 Milestone 退出命令。
+- 远端失败证据:
+
+| Run | Attempt | Python | Frontend | pytest | 结论 |
+|---|---:|---:|---:|---:|---|
+| 29097895298 | 1 | 约 70s 后 canceled | 66s success | 运行到 91%，无断言失败 | workflow failure；证明非 success required check 会阻断 |
+| 29097895298 | 2 | 95s failure | success | 68s；3442 passed / 2 failed / 2 skipped | 两条并发敏感测试真实失败，8-worker 不可采用 |
+
+- Commits: 调优 Verify=本提交，6-worker C2=待完成。
+- Next: workflow 改为 `-n 6`，本地完整全量连续两轮并确认上述两条均通过；ruff 全绿后推送，等待远端三次 success。
