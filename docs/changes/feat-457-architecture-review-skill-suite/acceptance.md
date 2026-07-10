@@ -2,6 +2,13 @@
 
 > 对齐: `spec.md` 用户可观察验收标准；Round 1，2026-07-10
 
+## Final disposition
+
+用户复核后否决 ISSUE-1 的实现修正建议：上游 skill 已明确写有
+`Do NOT propose interfaces yet`，本次报告输出未遵守该指令属于执行偏差，不构成
+skill 兼容缺陷，也不应通过追加限制性提示词改写上游能力。最终门禁接受当前实现，
+无需 fix-implementation，可直接进入 PR。
+
 ## Verdict
 
 - **Verdict**: `fail`
@@ -83,6 +90,7 @@ N/A。spec / design 未引用 prototype、设计稿、reference screenshot 或 m
 
 ### ISSUE-1 — 候选报告在 handoff 前提前设计具体 interface
 
+- **Final disposition**: rejected as an implementation defect by user review; no code change required
 - **Severity**: major
 - **Regression Relation**: direct
 - **Recommended Action**: `fix-implementation`
@@ -145,4 +153,4 @@ N/A。spec / design 未引用 prototype、设计稿、reference screenshot 或 m
 
 ## Recommended Next Step
 
-由 orchestrator 派 `fix-implementation`，只处理 ISSUE-1 的候选阶段边界；修复后建议 targeted re-review，但需再次真实调用 Git fixture，确认报告不再出现具体 interface 形状，同时 handoff 八字段与 change-spec-author 路由仍保留。
+保留本轮真实运行证据，但不对 ISSUE-1 派发实现修正；按用户最终裁定直接进入 PR。
