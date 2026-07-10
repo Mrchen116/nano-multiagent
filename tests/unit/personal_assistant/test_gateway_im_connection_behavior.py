@@ -13,6 +13,7 @@ from personal_assistant.channels.web_relay_adapter import WebRelayAdapter
 from personal_assistant.config.local_store import NodeConfig
 from personal_assistant.config.sync_client import ConfigSyncClient
 from personal_assistant.reporter.upstream_reporter import UpstreamReporter
+import personal_assistant.ws.im_connection as im_connection_module
 from personal_assistant.ws.im_connection import IMConnectionConfig, IMConnectionManager
 
 from ._im_connection_helpers import (
@@ -102,6 +103,54 @@ def test_im_connection_connects_registers_and_handles_downstream_frames(
     assert inbound_seen[0].metadata["message_id"] == "msg-1"
     assert sync_client.latest_profile_version("agent-a") == 5
     assert heartbeat_seen == [("agent-a", "manual")]
+
+
+def test_im_connection_dedupes_replayed_relay_message_frame(tmp_path: Path) -> None:
+    inbound_seen: list[InboundMessage] = []
+    relay_adapter = WebRelayAdapter()
+    relay_adapter.start(inbound_seen.append)
+    relay_frame = {
+        "type": "relay.message",
+        "payload": {
+            "relay_task_id": "relay-1",
+            "idempotency_key": "idem-1",
+            "message": {
+                "id": "msg-1",
+                "sender_user_id": "user-1",
+                "conversation_id": "conv-1",
+                "content": "hello once",
+            },
+            "metadata": {"conversation_type": "direct"},
+        },
+    }
+    socket = _FakeWebSocket(
+        incoming=[
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(relay_frame),
+            json.dumps(relay_frame),
+        ]
+    )
+    reporter = UpstreamReporter(
+        node=NodeConfig(node_id="node-1"),
+        agents=_agents(tmp_path),
+        send_frame=lambda _message_type, _payload: None,
+    )
+    manager = IMConnectionManager(
+        config=IMConnectionConfig(url="http://im.local:9000", token="secret"),
+        reporter=reporter,
+        relay_adapter=relay_adapter,
+        connect=lambda url, headers: _connect_fake(socket, [], url, headers),
+    )
+
+    async def _exercise() -> None:
+        await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001 - node.register ack
+        await manager._listen_once()  # noqa: SLF001 - first relay.message
+        await manager._listen_once()  # noqa: SLF001 - replayed relay.message
+
+    asyncio.run(_exercise())
+
+    assert [item.text for item in inbound_seen] == ["hello once"]
 
 
 def test_im_connection_replies_with_live_agent_config_snapshot(tmp_path: Path) -> None:
@@ -1041,6 +1090,196 @@ def test_im_connection_handles_cron_jobs_request(tmp_path: Path) -> None:
     cj_frame = next(m for m in sent_frames if m.get("type") == "node.cron.jobs")
     assert cj_frame["payload"]["request_id"] == "req-cj-1"
     assert cj_frame["payload"]["jobs"] == jobs_data
+
+
+def test_im_connection_handles_skills_usage_request(tmp_path: Path) -> None:
+    """node.skills.usage.request reads .usage.json and sends aggregated usage."""
+    workspace = tmp_path / "agent-ws"
+    usage_dir = workspace / ".nanoassistant" / "skills"
+    usage_dir.mkdir(parents=True)
+    usage_data = {
+        "deploy-check": {
+            "source": "F3",
+            "state": "active",
+            "use_count": 3,
+            "last_used_at": "2026-07-02T10:00:00Z",
+            "created_at": "2026-06-01T00:00:00Z",
+            "session_refs": [
+                {
+                    "session_id": "s1",
+                    "tool_call_id": "tc1",
+                    "timestamp": "2026-07-02T10:00:00Z",
+                },
+                {
+                    "session_id": "s2",
+                    "tool_call_id": "tc2",
+                    "timestamp": "2026-07-01T09:00:00Z",
+                },
+            ],
+        },
+        "old-skill": {
+            "source": "F4",
+            "state": "archived",
+            "use_count": 1,
+            "last_used_at": "2026-04-01T00:00:00Z",
+            "created_at": "2026-03-01T00:00:00Z",
+            "archived_at": "2026-06-30T00:00:00Z",
+            "session_refs": [],
+        },
+        "unknown-date": {
+            "source": "F3",
+            "state": "active",
+            "use_count": 1,
+            "last_used_at": "not-a-date",
+            "created_at": "2026-06-01T00:00:00Z",
+            "session_refs": [],
+        },
+    }
+    (usage_dir / ".usage.json").write_text(json.dumps(usage_data), encoding="utf-8")
+
+    socket = _FakeWebSocket(
+        incoming=[
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "node.skills.usage.request",
+                    "payload": {
+                        "request_id": "req-su-1",
+                        "agent_id": "agent-x",
+                        "workspace_root": str(workspace),
+                    },
+                }
+            ),
+        ]
+    )
+
+    relay_adapter = WebRelayAdapter()
+    relay_adapter.start(lambda _: None)
+
+    manager = IMConnectionManager(
+        config=IMConnectionConfig(url="ws://localhost:9999/ws", token="t"),
+        reporter=_minimal_reporter(tmp_path),
+        relay_adapter=relay_adapter,
+        connect=lambda url, headers: _connect_fake(socket, [], url, headers),
+    )
+
+    async def _exercise() -> None:
+        await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001
+        await manager._listen_once()  # noqa: SLF001
+
+    asyncio.run(_exercise())
+
+    sent_frames = [json.loads(f) for f in socket.sent]
+    su_frame = next(m for m in sent_frames if m.get("type") == "node.skills.usage")
+    payload = su_frame["payload"]
+    usage = payload["usage"]
+    assert payload["request_id"] == "req-su-1"
+    assert usage["agent_id"] == "agent-x"
+    assert usage["node_id"] == "n1"
+    assert [item["name"] for item in usage["skills"]] == [
+        "deploy-check",
+        "old-skill",
+        "unknown-date",
+    ]
+    assert usage["skills"][0]["use_count"] == 3
+    assert usage["skills"][0]["recent_call_keys"] == ["s1:tc1", "s2:tc2"]
+    assert len(usage["skills"][0]["trend_buckets"]) == 30
+    assert len(usage["heatmap_data"]) == 30
+    assert usage["health"] == {
+        "created_auto_total": 3,
+        "active_auto_total": 2,
+        "used_auto_total": 3,
+    }
+
+
+def test_im_connection_skills_usage_includes_shared_root_for_agent_sessions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Shared-root skill_view usage is shown only for sessions owned by this agent."""
+    workspace = tmp_path / "agent-ws"
+    session_dir = workspace / ".nanoassistant" / "sessions"
+    session_dir.mkdir(parents=True)
+    (session_dir / "sess-agent.jsonl").write_text("{}", encoding="utf-8")
+    shared_root = tmp_path / "shared-skills"
+    shared_root.mkdir()
+    monkeypatch.setattr(
+        im_connection_module,
+        "_PA_SHARED_SKILL_ROOTS",
+        (shared_root,),
+    )
+    (shared_root / ".usage.json").write_text(
+        json.dumps(
+            {
+                "change-spec-author": {
+                    "source": "F1",
+                    "state": "active",
+                    "use_count": 2,
+                    "last_used_at": "2026-07-02T10:00:00Z",
+                    "created_at": "2026-06-01T00:00:00Z",
+                    "session_refs": [
+                        {
+                            "session_id": "sess-agent",
+                            "tool_call_id": "tc-agent",
+                            "timestamp": "2026-07-02T10:00:00Z",
+                        },
+                        {
+                            "session_id": "sess-other",
+                            "tool_call_id": "tc-other",
+                            "timestamp": "2026-07-03T10:00:00Z",
+                        },
+                    ],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    socket = _FakeWebSocket(
+        incoming=[
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "node.skills.usage.request",
+                    "payload": {
+                        "request_id": "req-su-shared",
+                        "agent_id": "agent-x",
+                        "workspace_root": str(workspace),
+                    },
+                }
+            ),
+        ]
+    )
+    relay_adapter = WebRelayAdapter()
+    relay_adapter.start(lambda _: None)
+    manager = IMConnectionManager(
+        config=IMConnectionConfig(url="ws://localhost:9999/ws", token="t"),
+        reporter=_minimal_reporter(tmp_path),
+        relay_adapter=relay_adapter,
+        connect=lambda url, headers: _connect_fake(socket, [], url, headers),
+    )
+
+    async def _exercise() -> None:
+        await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001
+        await manager._listen_once()  # noqa: SLF001
+
+    asyncio.run(_exercise())
+
+    sent_frames = [json.loads(f) for f in socket.sent]
+    usage = next(m for m in sent_frames if m.get("type") == "node.skills.usage")[
+        "payload"
+    ]["usage"]
+
+    assert [item["name"] for item in usage["skills"]] == ["change-spec-author"]
+    assert usage["skills"][0]["use_count"] == 1
+    assert usage["skills"][0]["session_refs"] == [
+        {
+            "session_id": "sess-agent",
+            "tool_call_id": "tc-agent",
+            "timestamp": "2026-07-02T10:00:00Z",
+        }
+    ]
 
 
 def test_im_connection_handles_cron_delete_request_job_found(tmp_path: Path) -> None:

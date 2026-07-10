@@ -22,6 +22,7 @@ from personal_assistant.config.local_store import (
     KernelConfig,
     LocalConfig,
     NodeConfig,
+    load_local_config,
 )
 from personal_assistant.main import _IMConfigSyncClient
 
@@ -140,6 +141,65 @@ def test_reconcile_updates_disabled_heartbeat_when_missed_incremental_push(
     registered = pipeline.registered[0]
     assert registered.agent_id == "agent-x"
     assert registered.features.get("heartbeat") is False
+    persisted = load_local_config(local_config.source_path)
+    assert persisted.agents[0].features.get("heartbeat") is False
+
+
+def test_reconcile_persists_enabled_skills_for_live_config_after_restart(
+    tmp_path: Path,
+) -> None:
+    """Reconnect reconcile must update the config backing ``agent.config.get``.
+
+    Without the persist step, ``pipeline._agents`` used the IM mirror skills but
+    ``current_agent_payload()`` still reported the stale local empty skills list.
+    """
+
+    pipeline = _FakePipeline()
+    local_config = _make_local_config(tmp_path, [("agent-skills", {"skills": ()})])
+    ws = tmp_path / "agent-skills"
+    responses = iter(
+        [
+            httpx.Response(
+                200,
+                json={
+                    "agent_id": "agent-skills",
+                    "display_name": "Agent Skills",
+                    "profile_version": 7,
+                    "workspace_root": str(ws),
+                    "skills": [
+                        "skill-creator",
+                        "systematic-debugging",
+                        "tdd-execution-worker",
+                    ],
+                },
+            )
+        ]
+    )
+    client = httpx.Client(
+        base_url="http://im.local:9000",
+        transport=httpx.MockTransport(lambda req: next(responses)),
+    )
+    sync_client = _IMConfigSyncClient(
+        base_url="http://im.local:9000",
+        token="tok",
+        pipeline=pipeline,
+        local_config=local_config,
+        client=client,
+    )
+
+    sync_client.reconcile_all_agents()
+
+    expected = (
+        "skill-creator",
+        "systematic-debugging",
+        "tdd-execution-worker",
+    )
+    assert pipeline.registered[0].skills == expected
+    assert sync_client.current_agent_payload(agent_id="agent-skills")["skills"] == [
+        *expected
+    ]
+    persisted = load_local_config(local_config.source_path)
+    assert persisted.agents[0].skills == expected
 
 
 # ---------------------------------------------------------------------------
@@ -247,3 +307,51 @@ def test_reconcile_updates_when_im_profile_version_is_equal_or_newer(
     registered = pipeline.registered[0]
     assert registered.features.get("heartbeat") is False
     assert registered.features.get("cron_scheduling") is True
+
+
+def test_reconcile_ignores_mirror_workspace_root_and_uses_local_config(
+    tmp_path: Path,
+) -> None:
+    """reconcile_all_agents must not let IM mirror workspace override local runtime."""
+    pipeline = _FakePipeline()
+    local_config = _make_local_config(
+        tmp_path,
+        [("agent-local", {"features": {"heartbeat": True}})],
+    )
+    local_ws = local_config.agents[0].workspace_root
+    dirty_im_ws = tmp_path / "dirty-im-mirror"
+
+    responses = iter(
+        [
+            httpx.Response(
+                200,
+                json={
+                    "agent_id": "agent-local",
+                    "display_name": "Agent Local",
+                    "profile_version": 8,
+                    "workspace_root": str(dirty_im_ws),
+                    "features": {"heartbeat": False, "cron_scheduling": True},
+                },
+            )
+        ]
+    )
+    client = httpx.Client(
+        base_url="http://im.local:9000",
+        transport=httpx.MockTransport(lambda req: next(responses)),
+    )
+    sync_client = _IMConfigSyncClient(
+        base_url="http://im.local:9000",
+        token="tok",
+        pipeline=pipeline,
+        local_config=local_config,
+        client=client,
+        workspace_root_factory=lambda agent_id: tmp_path / "factory" / agent_id,
+    )
+
+    sync_client.reconcile_all_agents(memory_versions={"agent-local": 7})
+
+    assert len(pipeline.registered) == 1
+    registered = pipeline.registered[0]
+    assert registered.workspace_root == local_ws
+    assert (local_ws / "HEARTBEAT.md").is_file()
+    assert not dirty_im_ws.exists()

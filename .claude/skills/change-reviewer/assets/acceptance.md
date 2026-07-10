@@ -19,6 +19,17 @@
 
 <!-- 主路径 + 边界路径，截图/录屏/对话粘贴。 -->
 
+## Reference Artifacts Reviewed
+
+<!--
+仅当 spec/design/验收标准引用原型、设计稿、reference screenshot、视觉一致性时填写；否则写 N/A。
+必须覆盖 design.md `## 前端原型` 原型对齐契约中相关的 must-match 行。
+-->
+
+| Reference | Required contract | Actual product evidence | Viewport / state | Comparison conclusion |
+|---|---|---|---|---|
+| <prototype.html 区域或 reference 名> | <must-match 内容> | <真实产品截图/录屏/输出路径> | <desktop/mobile/empty/error 等> | match / deviation / inconclusive |
+
 ## 问题清单
 
 | # | 严重度 | 现象 | 处置 |
@@ -33,7 +44,7 @@ Requirement 作分组表头,组内所有 Scenario 全 pass,该 Requirement 才�
 必须逐 Scenario 有结论,不允许"挑主要的验"。
 第 2 轮起必须继承上一轮所有 fail / inconclusive 行,直到有证据关闭。
 任一必验 Scenario fail 或 inconclusive 时,Verdict 不能是 pass。
-若 Scenario 引用原型/设计稿/reference/screenshot/视觉一致性,期望来源必须写对应路径或名称,证据必须包含真实产品截图/录屏/对照结论。
+若 Scenario 引用原型/设计稿/reference/screenshot/视觉一致性,期望来源必须写对应路径或名称,证据必须包含真实产品截图/录屏/对照结论；元素存在、页面可渲染、API 成功不能替代 reference 对照。
 - refactor / perf:Scenario 的 THEN 是"不变性",验证方式写"走既有行为,与变更前比对"。
 - 若某 Scenario 不是用户可观察的(协议/参数/内部函数等实现层),标 not-applicable,
   备注"疑似实现层 Scenario,应属 design.md",不要试图验证(详见 SKILL §3.1)。
@@ -53,7 +64,7 @@ Requirement 作分组表头,组内所有 Scenario 全 pass,该 Requirement 才�
 -->
 
 - [ ] `SPEC.md`（跨包顶点架构）：__需要更新 / 无需更新__
-- [ ] `docs/specs/<包>/spec.md`（长青行为契约层，本 unit 触及的包；通常由 orchestrator §7.0 收尾归并写入）：__需要更新 / 无需更新__
+- [ ] `docs/specs/<包>/`（长青行为契约层，本 unit 触及的 area；通常由 orchestrator §7.0 收尾归并写入）：__需要更新 / 无需更新__
 - [ ] `AGENTS.md` / `CLAUDE.md`：__需要更新 / 无需更新__
 - [ ] `docs/SPEC_GUIDE.md`（文档规范，仅当本 unit 改了文档体系本身时）：__需要更新 / 无需更新__
 

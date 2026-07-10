@@ -1,13 +1,13 @@
-# kernel (agent) - Tools, Hooks, and Skills Specification
+# kernel (agent) - Tools and Hooks Specification
 
-> 对齐: feat-445
+> 对齐: feat-446
 > 上级: [kernel (agent) Specification](spec.md)
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)「给库/内核写契约的额外纪律」。本目录只收 **消费者经 `agent.sdk` 真正依赖的对外行为**(CDC 裁剪);内部如何装配/实现不在此层(那在代码 + 归档 design)。
 
 ## Purpose
 
-内置工具、Hook、Skill、工具展示、技能预览、授权可观测性、缓存/思考事件和拒绝语义的对外契约。
+内置工具、Hook、工具展示、授权可观测性、缓存/思考事件和拒绝语义的对外契约。
 
 ## Requirements
 
@@ -44,24 +44,6 @@ observe 事件只观察;单个 hook 异常/超时不中断主流程(fail-open)�
 - **WHEN** 对应事件触发
 - **THEN** 主运行流程继续(fail-open),其它 hook 仍按 priority 顺序执行
 
-### Requirement: Skill 自动发现走 prompt 列表,显式调用改写为自然语言
-
-存在可见 skill 时,内核在 system prompt 注入 `<available_skills>` 列表(名称 + 描述 + 路径),模型按需
-用 `read` 工具读取 SKILL.md,而非注入全文;消费者输入的 `/skill:<name>` 被改写为自然语言指令;命令前可选的 `[..]` 标注段被原样保留(内核不解析其内容),多 part 输入中改写作用于命令所在的那个 part。
-
-#### Scenario: 显式 skill 命令被改写
-- **WHEN** 消费者输入 `/skill:doc`(或带参数 `/skill:doc fix heading spacing`)
-- **THEN** 内核将其改写为 `Use the "doc" skill for this request.`(带参数时追加 `User input:` 段),
-  然后走常规推理,不展开 SKILL.md 原文
-
-#### Scenario: 命令前带标注段时改写保留该标注
-- **WHEN** 消费者提交 `[Alice] /skill:doc fix spacing`(命令前有一个 `[..]` 标注段,如 IM 群聊的发送者标注)
-- **THEN** 内核改写为 `[Alice] Use the "doc" skill for this request.`(带参数追加 `User input:` 段),原标注段原样保留、内核不解析其内容
-
-#### Scenario: 多 part 输入中命令所在 part 被改写
-- **WHEN** 消费者提交多 part 输入(如群聊缓冲上下文,或文本命令 + 末尾图片),其中一个 text part 是 `/skill:doc`
-- **THEN** 改写作用于该命令 part(不因命令不在首行或末位而漏改),其余 part 原样保留
-
 ### Requirement: 工具展示由工具自带的 presenter 决定
 
 工具在流式事件上的展示(`tool_start`/`tool_end` 携带的 presentation:`visible`/`label`/`summary`/
@@ -70,6 +52,7 @@ observe 事件只观察;单个 hook 异常/超时不中断主流程(fail-open)�
 `ToolPresenter` / `ToolPresentationEvent` 在公共表面。`emoji` 随工具/presenter 走(feat-425):presenter
 可在 `ToolPresentationEvent.emoji` 声明工具的折叠行图标,经事件透传给消费者;未声明则为空串,由消费者自行
 兜底。内置工具 `read` / `write` / `edit` / `bash` / `web_fetch` / `agent` / `memory` / `skill_manage` /
+`skill_view` /
 `task_stop` 均自带 presenter,其 `tool_end` 事件携带结构化 `detail`(而非默认的截断参数);`detail` 中的大
 字段(stdout/stderr/diff/content)受硬上限尾截断,截断时 `detail.truncated` 为真。自带 presenter 的工具在
 `tool_start` 事件中也可携带从入参得出的参数侧 `summary` / `detail`(如命令、prompt、查询词),而
@@ -116,45 +99,21 @@ observe 事件只观察;单个 hook 异常/超时不中断主流程(fail-open)�
 - **THEN** 其 `tool_end` 事件的 `detail` 含完整(不截断)的派发 `prompt`,以及子 agent 的执行结果
   (前台完成时为结果文本、后台/续传时为产物文件位置)与状态
 
-#### Scenario: memory / skill_manage / task_stop 产结构化 detail
-- **WHEN** `memory` / `skill_manage` / `task_stop` 任一被调用
+#### Scenario: memory / skill_manage / skill_view / task_stop 产结构化 detail
+- **WHEN** `memory` / `skill_manage` / `skill_view` / `task_stop` 任一被调用
 - **THEN** 其 `tool_end` 事件的 `detail` 为该工具的结构化结果(写入的记忆 / 操作的 skill /
-  停止的任务),而非默认的截断参数串
+  查看到的 skill / 停止的任务),而非默认的截断参数串
+
+#### Scenario: skill_view 产出结构化展示数据
+- **WHEN** `skill_view` 调用完成
+- **THEN** tool result 事件包含可透传给消费者的 summary/detail,summary 表达查看了哪个 skill,
+  detail 包含 name / location / content preview / success 或 error 信息
 
 #### Scenario: 内置工具 summary 为人话而非裸状态码
 - **GIVEN** 消费者订阅会话事件流
 - **WHEN** `bash` 工具被调用且其参数含 `description`
 - **THEN** 该工具的 `tool_start` 与 `tool_end` 事件的 `summary` 均为 `description` 文案
   (`description` 为空时降级为命令首段),而非仅 `exit=… elapsed=…ms` 这类裸状态串或开始态显示原始命令
-
-### Requirement: 同一 workspace 下 preview、list_skills 与运行时注入的技能集合一致
-
-`assemble_prompt_preview` 预览展示的技能、`list_skills(workspace_root)` 查询返回的技能、以及一次真实
-session turn 注入 system prompt `<available_skills>` 的技能,对同一 `(workspace_root, skills)` 配置解析
-出**同一集合**——搜索根均为 `<workspace_root>/<workspace_config_dirname>/skills` 叠加
-`build_kernel(skill_search_roots=…)`,不存在「预览看得到、运行时看不到」的分歧。
-
-#### Scenario: 预览与运行时技能一致
-- **GIVEN** `build_kernel(skill_search_roots=…, workspace_config_dirname=…)` 装配的 Kernel,某 session
-  的 `skills` 含若干在 workspace 配置目录或 `skill_search_roots` 下暴露的技能名
-- **WHEN** 取 `assemble_prompt_preview(skill_ids=…, workspace_root=…)` 展示的技能,与该 session 真实
-  执行一轮后 LLM 请求中 `<available_skills>` 列出的技能
-- **THEN** 两者为同一集合(同名 + 同路径),不会出现预览齐全而运行时缩水成单个共享根技能的情形
-
-#### Scenario: 子 agent 的 load_skills 校验与 list_skills 同口径
-- **GIVEN** 某 session 的 agent 经 `agent` 工具创建子 agent 并传入 `load_skills`
-- **WHEN** 工具校验 `load_skills`
-- **THEN** 在该 workspace 配置目录或 `skill_search_roots` 下暴露的技能名通过校验,不存在的技能名报错;
-  通过的集合与 `list_skills(workspace_root)` 对同一名集合的结果一致
-
-#### Scenario: 未提供 workspace_config_dirname 时技能集合为空
-- **GIVEN** 经 `build_kernel()` 未传入 `workspace_config_dirname`
-- **WHEN** 取 preview / `list_skills` / 运行时注入的技能
-- **THEN** 三者均为空,不隐式回退到 `~/.codex/skills` 等 legacy 默认路径
-
-#### Scenario: list_skills 返回项携带 SKILL.md 路径
-- **WHEN** 消费者调用 `list_skills(workspace_root)`
-- **THEN** 返回的每个 `SkillInfo` 携带 `location`(该技能 SKILL.md 路径,可空),消费者据此区分同名但不同路径的技能
 
 ### Requirement: 工具执行事件携带用户授权决策标识
 

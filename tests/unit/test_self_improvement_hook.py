@@ -173,6 +173,7 @@ class TestNudgeCounter:
         # Tool allowlist must include skill_manage
         call_kwargs = fork_fn.call_args[1]
         assert "skill_manage" in call_kwargs.get("tool_allowlist", ())
+        assert "skill_view" in call_kwargs.get("tool_allowlist", ())
 
     @pytest.mark.asyncio
     async def test_memory_threshold_triggers_fork(self):
@@ -215,6 +216,7 @@ class TestNudgeCounter:
         call_kwargs = fork_fn.call_args[1]
         allowlist = call_kwargs.get("tool_allowlist", ())
         assert "skill_manage" in allowlist
+        assert "skill_view" in allowlist
         assert "memory" in allowlist
 
     @pytest.mark.asyncio

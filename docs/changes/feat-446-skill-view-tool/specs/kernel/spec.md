@@ -64,16 +64,21 @@ agent 通过 `skill_view` 工具按名字加载 skill 的完整内容。
 
 #### Scenario: skill_manage create 支持受控写入范围
 - **WHEN** 查看 skill_manage 的 input_schema
-- **THEN** create action 支持可选 `scope: "agent" | "pa"`，默认 `"agent"`
+- **THEN** create action 支持可选 `scope: "agent" | "global"`，默认 `"agent"`
 
-#### Scenario: skill_manage create 写入 PA root
-- **GIVEN** 当前产品启用了 PA 产品级 skill root
-- **WHEN** agent 调用 `skill_manage(action="create", scope="pa", ...)`
-- **THEN** 新 skill 写入 PA 产品级 skill root，而不是当前 agent workspace skill root
+#### Scenario: skill_manage create 返回结构化写入位置
+- **WHEN** agent 调用 `skill_manage(action="create", scope="agent", name="new-skill", ...)` 成功
+- **THEN** 工具结果包含 `success=true`、`name="new-skill"`、`scope="agent"`、`location`、`skill_root` 与人类可读 `message`
+- **AND** 消费者可根据结构化字段判断写入位置，不需要解析 `message`
 
-#### Scenario: PA root 不可用时不回退
-- **GIVEN** 当前产品未启用 PA 产品级 skill root
-- **WHEN** agent 调用 `skill_manage(action="create", scope="pa", ...)`
+#### Scenario: skill_manage create 写入 global root
+- **GIVEN** 当前产品启用了 global skill root
+- **WHEN** agent 调用 `skill_manage(action="create", scope="global", ...)`
+- **THEN** 新 skill 写入 global skill root，而不是当前 agent workspace skill root
+
+#### Scenario: global root 不可用时不回退
+- **GIVEN** 当前产品未启用 global skill root
+- **WHEN** agent 调用 `skill_manage(action="create", scope="global", ...)`
 - **THEN** 工具返回 success=false，不写入 agent root
 
 ### Requirement: 内置工具列表包含 skill_view

@@ -81,6 +81,10 @@ class TestProjectToolsStructure:
         names = {t["name"] for t in _projected_tools()}
         assert "memory" in names
 
+    def test_skill_view_is_default_on(self) -> None:
+        tool_map = {t["name"]: t for t in _projected_tools()}
+        assert tool_map["skill_view"]["default_on"] is True
+
 
 class TestNodeCapabilitiesToolsFormat:
     """build_node_capabilities_payload tools must use the rich dict format."""

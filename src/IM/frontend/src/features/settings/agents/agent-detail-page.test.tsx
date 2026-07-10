@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, vi } from "vitest";
 
@@ -15,7 +15,8 @@ const apiMocks = vi.hoisted(() => ({
   promptPreviewMock: vi.fn(),
   listAgentCronJobsMock: vi.fn(),
   deleteAgentCronJobMock: vi.fn(),
-  getAgentHeartbeatMdMock: vi.fn()
+  getAgentHeartbeatMdMock: vi.fn(),
+  getAgentSkillsUsageMock: vi.fn()
 }));
 
 vi.mock("react-router-dom", async () => {
@@ -44,7 +45,8 @@ vi.mock("./im-agent-config-api", () => ({
   promptPreview: apiMocks.promptPreviewMock,
   listAgentCronJobs: apiMocks.listAgentCronJobsMock,
   deleteAgentCronJob: apiMocks.deleteAgentCronJobMock,
-  getAgentHeartbeatMd: apiMocks.getAgentHeartbeatMdMock
+  getAgentHeartbeatMd: apiMocks.getAgentHeartbeatMdMock,
+  getAgentSkillsUsage: apiMocks.getAgentSkillsUsageMock
 }));
 
 import { AgentDetailPage } from "./agent-detail-page";
@@ -77,6 +79,7 @@ afterEach(() => {
   apiMocks.listAgentCronJobsMock.mockReset();
   apiMocks.deleteAgentCronJobMock.mockReset();
   apiMocks.getAgentHeartbeatMdMock.mockReset();
+  apiMocks.getAgentSkillsUsageMock.mockReset();
 });
 
 // Default listAgentSummaries so the desktop rail (R12-bis-1) doesn't break tests.
@@ -87,6 +90,229 @@ beforeEach(() => {
 });
 
 describe("agent detail page", () => {
+  function makeDashboardDetailState() {
+    return {
+      config: {
+        agent_id: "agent-core-1",
+        owner_id: "owner-1",
+        display_name: "Core Planner",
+        description: "",
+        system_prompt: "",
+        skills: [],
+        tool_allowlist: [],
+        group_reply_policy: "MENTION",
+        default_model: null,
+        workspace_root: "/tmp/agent-core-1",
+        workspace_is_default: false,
+        profile_version: 1,
+        node_id: "node-1",
+        node_name: "MacBook",
+        node_status: "online",
+        updated_at: "2026-07-02T10:00:00Z"
+      },
+      capabilities: {
+        node_id: "node-1",
+        node_name: "MacBook",
+        node_status: "online",
+        capabilities_updated_at: "2026-07-02T10:00:00Z",
+        skills: [],
+        tools: [],
+        model_options: [],
+        platform_default_model: null,
+        default_system_prompt: ""
+      },
+      owningNode: {
+        node_id: "node-1",
+        node_name: "MacBook",
+        status: "online",
+        last_heartbeat_at: "2026-07-02T10:00:00Z",
+        agent_count: 1,
+        version: "1.0.0"
+      }
+    };
+  }
+
+  function makeSkillsUsage() {
+    return {
+      agent_id: "agent-core-1",
+      node_id: "node-1",
+      node_online: true,
+      skills: [
+        {
+          skill_id: "deploy-check",
+          name: "deploy-check",
+          source: "F3",
+          state: "active",
+          use_count: 3,
+          last_used_at: "2026-07-02T10:00:00Z",
+          created_at: "2026-07-01T10:00:00Z",
+          session_refs: [{ timestamp: "2026-07-01T12:00:00Z" }],
+          recent_call_keys: ["s1:tc1"],
+          trend_buckets: [0, 0, 1, 2]
+        },
+        {
+          skill_id: "old-skill",
+          name: "old-skill",
+          source: "F4",
+          state: "archived",
+          use_count: 1,
+          last_used_at: "2026-06-01T10:00:00Z",
+          created_at: "2026-06-01T08:00:00Z",
+          session_refs: [{ timestamp: "2026-06-01T09:00:00Z" }],
+          recent_call_keys: [],
+          trend_buckets: [0, 1, 0, 0]
+        }
+      ],
+      heatmap_data: [0, 1, 2, 0],
+      health: {
+        created_auto_total: 2,
+        active_auto_total: 1,
+        used_auto_total: 2
+      }
+    };
+  }
+
+  it("shows skills usage list with use counts, status, trend, and archived filter", async () => {
+    const user = userEvent.setup();
+    apiMocks.getAgentDetailStateMock.mockResolvedValue(makeDashboardDetailState());
+    apiMocks.listAgentsMock.mockResolvedValue([]);
+    apiMocks.getAgentSkillsUsageMock.mockResolvedValue(makeSkillsUsage());
+
+    renderDetailPage();
+    await screen.findByRole("heading", { name: "Core Planner" });
+    expect(screen.getByRole("button", { name: "概览" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "配置" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "通道" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "会话" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "概览" }));
+    expect(screen.getByRole("heading", { name: "概览" })).toBeInTheDocument();
+    expect(screen.getByText("本期不设计概览页。保持空态，后续单独设计。")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "通道" }));
+    expect(screen.getByRole("heading", { name: "通道" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "会话" }));
+    expect(screen.getByRole("heading", { name: "会话" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Skills" }));
+
+    expect(apiMocks.getAgentSkillsUsageMock).toHaveBeenCalledWith("agent-core-1");
+    expect(await screen.findByRole("heading", { name: "全部 Skill" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "名字" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "来源" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "状态" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "使用次数" })).toBeInTheDocument();
+    expect(await screen.findByText("deploy-check")).toBeInTheDocument();
+    expect(screen.getByText("3")).toBeInTheDocument();
+    expect(screen.getByText("active")).toBeInTheDocument();
+    expect(screen.getByText("自动沉淀")).toBeInTheDocument();
+    const trend = screen.getByTestId("skill-trend-deploy-check");
+    expect(trend).toBeInTheDocument();
+    const trendBars = within(trend).getAllByLabelText(/skill uses/);
+    await user.hover(trendBars[trendBars.length - 1]);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(/skill uses on/);
+    await user.unhover(trendBars[trendBars.length - 1]);
+    expect(screen.queryByRole("tooltip")).toBeNull();
+    expect(screen.queryByText("old-skill")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: /显示 archived/i }));
+    expect(await screen.findByText("old-skill")).toBeInTheDocument();
+    expect(screen.getByText("archived")).toBeInTheDocument();
+    expect(screen.getByText("批量复盘")).toBeInTheDocument();
+  });
+
+  it("opens skill statistics from the Access card entry in the real config flow", async () => {
+    const user = userEvent.setup();
+    apiMocks.getAgentDetailStateMock.mockResolvedValue({
+      ...makeDashboardDetailState(),
+      capabilities: {
+        ...makeDashboardDetailState().capabilities,
+        skills: [{ name: "conversation-skill-distiller", description: "Distill sessions" }],
+        tools: [{ name: "skill_view", description: "View skills", default_on: true }]
+      }
+    });
+    apiMocks.listAgentsMock.mockResolvedValue([]);
+    apiMocks.getAgentSkillsUsageMock.mockResolvedValue(makeSkillsUsage());
+
+    renderDetailPage();
+    await screen.findByRole("heading", { name: "Core Planner" });
+    expect(screen.getByRole("heading", { name: "Access & Model" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /View skill statistics/i }));
+
+    expect(apiMocks.getAgentSkillsUsageMock).toHaveBeenCalledWith("agent-core-1");
+    expect(await screen.findByTestId("agent-skills-usage-panel")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Skills" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("shows agent heatmap, health funnel, and lifecycle timeline views", async () => {
+    const user = userEvent.setup();
+    apiMocks.getAgentDetailStateMock.mockResolvedValue(makeDashboardDetailState());
+    apiMocks.listAgentsMock.mockResolvedValue([]);
+    apiMocks.getAgentSkillsUsageMock.mockResolvedValue(makeSkillsUsage());
+
+    renderDetailPage();
+    await screen.findByRole("heading", { name: "Core Planner" });
+    await user.click(screen.getByRole("button", { name: "Skills" }));
+    await screen.findByText("deploy-check");
+
+    await user.click(screen.getByRole("button", { name: "Agent 维度" }));
+    expect(screen.getByText("使用热力图")).toBeInTheDocument();
+    expect(screen.getByText(/次 · 最近 30 天 · 悬停查看/)).toBeInTheDocument();
+    expect(screen.getByTestId("skills-agent-heatmap")).toBeInTheDocument();
+    expect(screen.getByText("Less")).toBeInTheDocument();
+    expect(screen.getByText("More")).toBeInTheDocument();
+    expect(screen.getByText("Mon")).toBeInTheDocument();
+    expect(screen.getByText("Wed")).toBeInTheDocument();
+    expect(screen.getByText("Fri")).toBeInTheDocument();
+    expect(screen.getByText("自动创建的 Skill")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "使用次数" })).toBeInTheDocument();
+    const contributionCells = screen.getAllByLabelText(/skill uses/);
+    await user.hover(contributionCells[contributionCells.length - 1]);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(/skill uses on/);
+    await user.unhover(contributionCells[contributionCells.length - 1]);
+    expect(screen.queryByRole("tooltip")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "自进化健康度" }));
+    expect(screen.getByText("自进化存活率")).toBeInTheDocument();
+    expect(screen.getByText("自动创建总数")).toBeInTheDocument();
+    expect(screen.getByText("still active")).toBeInTheDocument();
+    expect(screen.getByText("use_count > 0")).toBeInTheDocument();
+    expect(screen.getAllByText(/存活率/).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("生命周期时间线")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "首次使用" })).toBeInTheDocument();
+    expect(screen.getAllByText("2").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("1")).toBeInTheDocument();
+  });
+
+  it("shows an empty state when usage exists but has no skills", async () => {
+    const user = userEvent.setup();
+    apiMocks.getAgentDetailStateMock.mockResolvedValue(makeDashboardDetailState());
+    apiMocks.listAgentsMock.mockResolvedValue([]);
+    apiMocks.getAgentSkillsUsageMock.mockResolvedValue({
+      ...makeSkillsUsage(),
+      skills: [],
+      heatmap_data: [],
+      health: { created_auto_total: 0, active_auto_total: 0, used_auto_total: 0 }
+    });
+
+    renderDetailPage();
+    await screen.findByRole("heading", { name: "Core Planner" });
+    await user.click(screen.getByRole("button", { name: "Skills" }));
+    expect(await screen.findByText("No skill usage yet")).toBeInTheDocument();
+  });
+
+  it("shows an offline state when skills usage RPC fails", async () => {
+    const user = userEvent.setup();
+    apiMocks.getAgentDetailStateMock.mockResolvedValue(makeDashboardDetailState());
+    apiMocks.listAgentsMock.mockResolvedValue([]);
+    apiMocks.getAgentSkillsUsageMock.mockRejectedValue(
+      new Error("GET /im/v1/agents/agent-core-1/skills/usage failed: 503 (target_node_id is not connected)")
+    );
+
+    renderDetailPage();
+    await screen.findByRole("heading", { name: "Core Planner" });
+    await user.click(screen.getByRole("button", { name: "Skills" }));
+    expect(await screen.findByText(/Gateway offline/i)).toBeInTheDocument();
+  });
+
   it("opens the canonical direct chat for the current agent", async () => {
     const user = userEvent.setup();
 
@@ -420,8 +646,9 @@ describe("agent detail page", () => {
         node_status: "online",
         capabilities_updated_at: "2026-03-13T10:00:00Z",
         skills: [
-          { name: "tdd", description: "" },
-          { name: "review", description: "" }
+          { name: "tdd", description: "", location: "/tmp/.nanoassistant/skills/tdd/SKILL.md" },
+          { name: "review", description: "", default_on: true, location: "/Users/test/.nanoassistant/skills/review/SKILL.md" },
+          { name: "compat", description: "", location: "/Users/test/.claude/skills/compat/SKILL.md" }
         ],
         tools: [
           { name: "read", description: "" },
@@ -443,6 +670,9 @@ describe("agent detail page", () => {
     expect(skillsPill, "expected pill selector for skills").not.toBeNull();
     const toolsPill = document.querySelector('[data-testid="pill-selector-tools"]');
     expect(toolsPill, "expected pill selector for tools").not.toBeNull();
+    expect(await screen.findByText(/Local|本地/)).toBeInTheDocument();
+    expect(await screen.findByText(/Global|全局/)).toBeInTheDocument();
+    expect(await screen.findByText(/Compatibility|兼容来源/)).toBeInTheDocument();
 
     // 不应再有 allowlist-selector 的 checkbox + fieldset 结构
     expect(skillsPill?.querySelector('input[type="checkbox"]')).toBeNull();

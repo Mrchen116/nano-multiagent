@@ -1,6 +1,6 @@
 # gateway (personal_assistant) Specification
 
-> 对齐: feat-447
+> 对齐: feat-446 + feat-447
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
 
@@ -27,9 +27,9 @@ import 内核内部(由 `tests/contract/` 把守)。
 |---|---|---|
 | [Routing and Delivery](routing-delivery.md) | 入站路由、群聊触发、/stop、mid-run steering、回复线程、会话映射、产品投递、失败反馈 | 9 |
 | [Service Lifecycle](service-lifecycle.md) | 启停、IM WS、reconnect/ack、auto-bind | 4 |
-| [Agent Capabilities](agent-capabilities.md) | 模型配置、tool_allowlist、context window、skills bootstrap | 5 |
+| [Agent Capabilities](agent-capabilities.md) | 模型配置、tool_allowlist、context window、skills bootstrap | 6 |
 | [Heartbeat and Cron](heartbeat-cron.md) | per-agent heartbeat / cron 开关、调度、错过周期语义 | 1 |
-| [Relay Protocol](relay-protocol.md) | tool relay、附件透传、tool terminal events、图片、授权决策、cache/thinking、fork | 8 |
+| [Relay Protocol](relay-protocol.md) | tool relay、skill usage RPC、附件透传、tool terminal events、图片、授权决策、cache/thinking、fork | 9 |
 | [External Channels](external-channels.md) | Feishu channel、多 Bot、trigger source、reply mirror、控制文本、群聊上下文、原生权限、shadow sync、offline autonomy、隔离 | 10 |
 
 ## Maintenance Rule

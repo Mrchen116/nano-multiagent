@@ -1,6 +1,6 @@
 # IM - Agents and Nodes Specification
 
-> 对齐: feat-447
+> 对齐: feat-446
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
@@ -37,6 +37,40 @@ Agent 配置中心、节点绑定、节点状态、runtime 能力解析、用户
 - **WHEN** 前端 `GET /im/v1/agents/{id}/config` 读某 Agent 的 heartbeat cadence
 - **THEN** 返回该 Agent 的真实 `heartbeat.every` 配置值;未配置时体现为默认 `30m`(由后端/前端据此渲染,
   cadence 显示值不是前端写死的占位)
+
+### Requirement: Agent 配置页可管理 skill_view 工具
+
+前端在 Agent 配置页把 `skill_view` 作为普通可选工具呈现;未显式配置工具白名单的 Agent 默认启用它,
+显式白名单仍精确表达用户选择。
+
+#### Scenario: 新建 agent 时默认选中 skill_view
+- **WHEN** 用户在 IM 新建 PA agent 并进入工具选择区域
+- **THEN** `skill_view` 出现在可选工具列表中
+- **AND** 默认处于选中状态
+
+#### Scenario: 用户取消 skill_view 后保存配置
+- **WHEN** 用户在 agent 配置页取消选择 `skill_view` 并保存
+- **THEN** IM 持久化该 agent 的显式工具白名单
+- **AND** 白名单不包含 `skill_view`
+
+#### Scenario: 已显式配置工具白名单的 agent 不自动选回 skill_view
+- **GIVEN** agent 已持久化显式工具白名单,且其中不包含 `skill_view`
+- **WHEN** 用户再次打开该 agent 配置页
+- **THEN** `skill_view` 显示为未选中
+
+### Requirement: Skill 使用统计 API
+
+浏览器前端可按 agent 查询 skill 使用统计;IM 通过在线 Gateway 读取对应 agent workspace 的运行态使用数据,
+离线时以前端可处理的方式降级。
+
+#### Scenario: 查询 agent 的 skill 使用统计
+- **WHEN** 浏览器前端请求 `GET /im/v1/agents/:agentId/skills/usage`
+- **THEN** 返回该 agent 的所有 skill 使用数据,包含 name、source、state、use_count、last_used_at、session_refs
+- **AND** source 至少支持用户创建、历史会话蒸馏、自动创建、自动批量优化与 unknown
+
+#### Scenario: agent 离线时查询 skill 统计
+- **WHEN** agent 不在线或 Gateway 无法到达
+- **THEN** API 返回离线/空数据语义,前端显示离线提示而非崩溃
 
 ### Requirement: HEARTBEAT.md 只读预览与 cron 任务管理经 WS RPC 代理到 gateway（feat-394-M13 决策 G）
 

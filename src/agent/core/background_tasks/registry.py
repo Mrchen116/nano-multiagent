@@ -6,7 +6,12 @@ import threading
 from dataclasses import replace
 from typing import Any, Mapping
 
-from agent.core.background_tasks.interfaces import BackgroundTaskStore, Clock
+from agent.core.background_tasks.interfaces import (
+    BackgroundSubagentMessageHandle,
+    BackgroundTaskStopper,
+    BackgroundTaskStore,
+    Clock,
+)
 from agent.core.background_tasks.models import (
     BackgroundTaskRecord,
     BackgroundTaskStatus,
@@ -33,8 +38,8 @@ class BackgroundTaskRegistry:
         self._clock = clock
         self._lock = threading.Lock()
         self._records: dict[str, BackgroundTaskRecord] = {}
-        self._stop_handles: dict[str, "_StopHandle"] = {}
-        self._pending_messages: dict[str, list[str]] = {}
+        self._stop_handles: dict[str, BackgroundTaskStopper] = {}
+        self._message_handles: dict[str, BackgroundSubagentMessageHandle] = {}
 
     # ------------------------------------------------------------------
     # Registration
@@ -137,6 +142,7 @@ class BackgroundTaskRegistry:
                 notified=notified,
             )
             self._records[task_id] = new
+            self._clear_live_handles_locked(task_id)
         self._persist(new)
         return new
 
@@ -152,6 +158,7 @@ class BackgroundTaskRegistry:
                 error=error,
             )
             self._records[task_id] = new
+            self._clear_live_handles_locked(task_id)
         self._persist(new)
         return new
 
@@ -181,6 +188,7 @@ class BackgroundTaskRegistry:
                 result_text=result_text,
             )
             self._records[task_id] = new
+            self._clear_live_handles_locked(task_id)
         self._persist(new)
         return new
 
@@ -208,7 +216,7 @@ class BackgroundTaskRegistry:
     # ------------------------------------------------------------------
     # Stop handles
     # ------------------------------------------------------------------
-    def set_stop_handle(self, task_id: str, handle: "_StopHandle") -> None:
+    def set_stop_handle(self, task_id: str, handle: BackgroundTaskStopper) -> bool:
         """Register a background task's stop handle (killpg via the runner stopper).
 
         bugfix-417-M7 (decision 12): foreground bash no longer registers here — its
@@ -218,7 +226,11 @@ class BackgroundTaskRegistry:
         ``_foreground_task_ids`` set are gone.
         """
         with self._lock:
+            record = self._records.get(task_id)
+            if record is None or self._guard_terminal(record):
+                return False
             self._stop_handles[task_id] = handle
+            return True
 
     def request_stop(self, task_id: str) -> bool:
         with self._lock:
@@ -236,16 +248,41 @@ class BackgroundTaskRegistry:
         return True
 
     # ------------------------------------------------------------------
-    # Pending messages (agent continuation)
+    # Live subagent follow-up delivery
     # ------------------------------------------------------------------
-    def enqueue_agent_message(self, agent_id: str, prompt: str) -> None:
+    def set_message_handle(
+        self,
+        task_id: str,
+        handle: BackgroundSubagentMessageHandle,
+    ) -> bool:
+        """Register the live delivery handle for a running subagent."""
         with self._lock:
-            self._pending_messages.setdefault(agent_id, []).append(prompt)
+            record = self._records.get(task_id)
+            if record is None or self._guard_terminal(record):
+                return False
+            self._message_handles[task_id] = handle
+            return True
 
-    def drain_agent_messages(self, agent_id: str) -> tuple[str, ...]:
+    def send_agent_message(self, agent_id: str, prompt: str) -> bool:
+        """Deliver a follow-up prompt to a running subagent's live controller.
+
+        Returns:
+            True if the live subagent run accepted the message for safe-point
+            injection; False if no running subagent handle can currently accept
+            the message.
+        """
         with self._lock:
-            queue = self._pending_messages.pop(agent_id, [])
-            return tuple(queue)
+            record = self._records.get(agent_id)
+            if (
+                record is None
+                or record.task_type != BackgroundTaskType.SUBAGENT
+                or record.status != BackgroundTaskStatus.RUNNING
+            ):
+                return False
+            handle = self._message_handles.get(record.task_id)
+        if handle is None:
+            return False
+        return handle.send_message(prompt)
 
     # ------------------------------------------------------------------
     # Internal
@@ -253,6 +290,10 @@ class BackgroundTaskRegistry:
     def _guard_terminal(self, record: BackgroundTaskRecord) -> bool:
         """Return True if the record is already terminal (transition should be skipped)."""
         return record.status in _TERMINAL_STATUSES
+
+    def _clear_live_handles_locked(self, task_id: str) -> None:
+        self._stop_handles.pop(task_id, None)
+        self._message_handles.pop(task_id, None)
 
     def _persist(self, record: BackgroundTaskRecord) -> None:
         if self._store is None:

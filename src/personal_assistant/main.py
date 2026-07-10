@@ -23,6 +23,7 @@ from typing import Any, Protocol
 from urllib.parse import parse_qs, urlparse
 
 _log = logging.getLogger("personal_assistant.main")
+_PA_GLOBAL_SKILL_ROOT = Path("~/.nanoassistant/skills")
 
 import httpx
 import websockets
@@ -56,8 +57,23 @@ from personal_assistant.gateway.channel_registry import ChannelRegistry
 from personal_assistant.gateway.group_context_store import GroupContextStore
 from personal_assistant.gateway.inbound_pipeline import (
     InboundPipeline,
-    RelayLifecycleUpdate,
 )
+from personal_assistant.gateway.runtime_delivery.context import (
+    RunDeliveryContextStore,
+)
+from personal_assistant.gateway.runtime_delivery.background import (
+    build_bg_reply_sender as _build_bg_reply_sender,
+    build_session_event_callback as _build_session_event_callback,
+)
+from personal_assistant.gateway.runtime_delivery.lifecycle import (
+    build_relay_lifecycle_callback as _build_relay_lifecycle_callback,
+)
+from personal_assistant.gateway.runtime_delivery.observer import (
+    build_kernel_event_observer as _build_kernel_event_observer,
+    extract_ack_message_id as _extract_ack_message_id,  # noqa: F401
+    roll_bubble as _roll_bubble,  # noqa: F401
+)
+from personal_assistant.gateway.workspace_authority import resolve_runtime_workspace
 from personal_assistant.gateway.internal_dispatch import InternalDispatchHandler
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
@@ -273,6 +289,42 @@ class GatewayRuntimeState:
     log_path: str
 
 
+def _default_pa_global_skill_names() -> tuple[str, ...]:
+    """Resolve the PA global user skills that new IM-created agents inherit."""
+
+    root = _PA_GLOBAL_SKILL_ROOT.expanduser().resolve()
+    if not root.is_dir():
+        return ()
+    try:
+        names: set[str] = set()
+        for skill_file in sorted(root.rglob("SKILL.md")):
+            if ".archive" in skill_file.parts:
+                continue
+            names.add(_read_skill_name(skill_file))
+        return tuple(sorted(names))
+    except Exception:  # noqa: BLE001
+        _log.warning(
+            "failed to resolve PA global skill defaults from %s", root, exc_info=True
+        )
+        return ()
+
+
+def _read_skill_name(skill_file: Path) -> str:
+    """Return the skill's declared name, falling back to its directory name."""
+
+    for line in skill_file.read_text(encoding="utf-8", errors="replace").splitlines():
+        stripped = line.strip()
+        if stripped == "---" or not stripped:
+            continue
+        if stripped.startswith("name:"):
+            return (
+                stripped.split(":", 1)[1].strip().strip("\"'") or skill_file.parent.name
+            )
+        if not stripped.startswith("#"):
+            break
+    return skill_file.parent.name
+
+
 class _IMConfigSyncClient:
     """Fetch IM agent config snapshots and extend the live gateway agent registry."""
 
@@ -292,6 +344,7 @@ class _IMConfigSyncClient:
         reporter: UpstreamReporter | None = None,
         client: httpx.Client | None = None,
         client_factory: BootstrapClientFactory | None = None,
+        global_skill_root: Path | None = None,
         timeout_seconds: float = 5.0,
         retry_interval_seconds: float = 0.1,
         max_attempts: int = 50,
@@ -312,6 +365,11 @@ class _IMConfigSyncClient:
         self._reporter = reporter
         self._client_factory = client_factory
         self._client = client
+        self._global_skill_root = (
+            global_skill_root.expanduser().resolve()
+            if global_skill_root is not None
+            else None
+        )
         self._monotonic = monotonic
         self._sleep = sleep
         # feat-394-M3 fix: accept token_getter so auto-bind token refresh propagates
@@ -332,24 +390,11 @@ class _IMConfigSyncClient:
                     raise RuntimeError(
                         f"agent {agent_id} config stale: expected >= {profile_version}, got {resolved_profile_version}"
                     )
-                # bugfix-404-M2 decision 4: workspace_root is immutable after agent creation
-                # and must come exclusively from the local config for agents that exist
-                # there (the single source of truth per Q4 product decision).  The IM
-                # mirror value is display-only and must NOT override the local config —
-                # an incorrect IM value (e.g., a legacy managed-default in a dirty DB)
-                # would otherwise override the correct worktree-scoped path.
-                # For agents created via IM UI (not yet in local config), fall through
-                # to the factory — their workspace_root will be written back into
-                # local config by handle_agent_create (AGENTS.md "Gateway 自动写回").
-                local_agent = next(
-                    (a for a in self._local_config.agents if a.agent_id == agent_id),
-                    None,
+                workspace_root = resolve_runtime_workspace(
+                    agent_id=agent_id,
+                    local_agents=self._local_config.agents,
+                    workspace_root_factory=self._workspace_root_factory,
                 )
-                if local_agent is not None and local_agent.workspace_root is not None:
-                    workspace_root = local_agent.workspace_root
-                else:
-                    workspace_root = self._workspace_root_factory(agent_id)
-                workspace_root = ensure_workspace_defaults(workspace_root)
                 # feat-379-M2: parse per-agent features/custom_prompt from IM mirror payload
                 raw_features = payload.get("features")
                 synced_features = (
@@ -478,6 +523,8 @@ class _IMConfigSyncClient:
             for item in (raw_skills if isinstance(raw_skills, list) else [])
             if isinstance(item, str) and item.strip()
         )
+        if "skills" not in agent_payload:
+            skills = _default_pa_global_skill_names()
         raw_tools = agent_payload.get("tool_allowlist")
         tool_allowlist = tuple(
             item.strip()
@@ -547,6 +594,135 @@ class _IMConfigSyncClient:
             "custom_prompt": custom_prompt,
         }
 
+    def handle_skill_created(self, agent_id: str, event: Mapping[str, object]) -> None:
+        """Enable a successfully created skill for the affected live agents."""
+
+        skill_name = event.get("name")
+        scope = event.get("scope")
+        raw_skill_root = event.get("skill_root")
+        if not (
+            isinstance(skill_name, str)
+            and skill_name.strip()
+            and isinstance(scope, str)
+            and isinstance(raw_skill_root, str)
+            and raw_skill_root.strip()
+        ):
+            return
+        skill_name = skill_name.strip()
+        skill_root = Path(raw_skill_root).expanduser().resolve()
+        if scope == "agent":
+            agent = self._local_agent(agent_id)
+            if agent is None:
+                return
+            if skill_root != self._agent_skill_root(agent):
+                _log.warning(
+                    "ignoring agent-scoped skill_created for %s: root %s is not the agent skill root",
+                    agent_id,
+                    skill_root,
+                )
+                return
+            self._enable_created_skill_for_agent(agent, skill_name)
+            return
+        if scope == "global":
+            if self._global_skill_root is None or skill_root != self._global_skill_root:
+                _log.warning(
+                    "ignoring global skill_created for %s: root %s is not configured global root",
+                    agent_id,
+                    skill_root,
+                )
+                return
+            for agent in tuple(self._local_config.agents):
+                self._enable_created_skill_for_agent(agent, skill_name)
+
+    def _enable_created_skill_for_agent(
+        self, agent: AgentWorkspaceConfig, skill_name: str
+    ) -> None:
+        if not agent.skills:
+            self._pipeline.drop_agent_sessions(agent.agent_id)
+            return
+        if skill_name in agent.skills:
+            self._pipeline.drop_agent_sessions(agent.agent_id)
+            return
+        try:
+            payload = self._fetch_agent_config(agent_id=agent.agent_id)
+            next_skills = [
+                item.strip()
+                for item in payload.get("skills", [])
+                if isinstance(item, str) and item.strip()
+            ]
+            if skill_name not in next_skills:
+                next_skills.append(skill_name)
+                updated = self._patch_agent_skills(agent.agent_id, payload, next_skills)
+                profile_version = int(updated.get("profile_version", 0))
+                self.sync_agent(
+                    agent_id=agent.agent_id,
+                    profile_version=profile_version,
+                )
+            else:
+                self._pipeline.drop_agent_sessions(agent.agent_id)
+        except (httpx.HTTPError, ValueError, RuntimeError):
+            _log.warning(
+                "failed to enable created skill %s for agent %s",
+                skill_name,
+                agent.agent_id,
+                exc_info=True,
+            )
+
+    def _patch_agent_skills(
+        self,
+        agent_id: str,
+        payload: Mapping[str, object],
+        skills: list[str],
+    ) -> dict[str, object]:
+        raw_tools = payload.get("tool_allowlist")
+        raw_features = payload.get("features")
+        patch_payload: dict[str, object] = {
+            "profile_version": int(payload.get("profile_version", 1)),
+            "display_name": str(payload.get("display_name") or agent_id),
+            "description": str(payload.get("description") or ""),
+            "system_prompt": str(payload.get("system_prompt") or ""),
+            "skills": skills,
+            "tool_allowlist": [
+                item.strip()
+                for item in (raw_tools if isinstance(raw_tools, list) else [])
+                if isinstance(item, str) and item.strip()
+            ],
+            "group_reply_policy": str(payload.get("group_reply_policy") or "manual"),
+            "default_model": payload.get("default_model")
+            if isinstance(payload.get("default_model"), str)
+            else None,
+            "features": raw_features if isinstance(raw_features, dict) else {},
+            "custom_prompt": payload.get("custom_prompt")
+            if isinstance(payload.get("custom_prompt"), str)
+            else None,
+            "heartbeat_json": payload.get("heartbeat_json")
+            if isinstance(payload.get("heartbeat_json"), str)
+            else None,
+        }
+        response = self._get_client().patch(
+            f"/im/v1/agents/{agent_id}/config",
+            json=patch_payload,
+        )
+        response.raise_for_status()
+        updated = response.json()
+        if not isinstance(updated, dict):
+            raise ValueError("agent config patch response must be an object")
+        return updated
+
+    def _local_agent(self, agent_id: str) -> AgentWorkspaceConfig | None:
+        return next(
+            (
+                agent
+                for agent in self._local_config.agents
+                if agent.agent_id == agent_id
+            ),
+            None,
+        )
+
+    @staticmethod
+    def _agent_skill_root(agent: AgentWorkspaceConfig) -> Path:
+        return (agent.workspace_root / _WCD / "skills").expanduser().resolve()
+
     def close(self) -> None:
         client = self._client
         if client is not None:
@@ -594,13 +770,13 @@ class _IMConfigSyncClient:
                     mem_ver,
                 )
                 continue
-            # IM 版本 >= 内存版本：覆盖内存 config 使其收敛到 IM 真值
-            workspace_root_text = payload.get("workspace_root")
-            if isinstance(workspace_root_text, str) and workspace_root_text.strip():
-                workspace_root = Path(workspace_root_text).expanduser().resolve()
-            else:
-                workspace_root = self._workspace_root_factory(agent_id)
-            workspace_root = ensure_workspace_defaults(workspace_root)
+            # IM 版本 >= 内存版本：覆盖内存 config 使其收敛到 IM 真值。
+            # Runtime workspace remains local-wins; IM workspace_root is mirror/display data.
+            workspace_root = resolve_runtime_workspace(
+                agent_id=agent_id,
+                local_agents=self._local_config.agents,
+                workspace_root_factory=self._workspace_root_factory,
+            )
             raw_features = payload.get("features")
             synced_features = (
                 {
@@ -675,6 +851,7 @@ class _IMConfigSyncClient:
                 heartbeat_active_hours_timezone=synced_hb_tz,
             )
             self._pipeline.register_agent(agent_config)
+            self._persist_agent_config(agent_config)
             _log.debug(
                 "reconcile_all_agents: updated agent %s to IM version %d",
                 agent_id,
@@ -1196,7 +1373,7 @@ async def _stream_run_to_completion(
     agent_id: str,
     owner_user_id: str,
     kernel: Any,
-    run_context_store: dict,
+    run_context_store: dict[str, dict[str, str]] | RunDeliveryContextStore,
     observer: Callable[..., Any] | None,
     stream_anchor: int = 0,
 ) -> tuple[str, dict | None]:
@@ -1213,7 +1390,10 @@ async def _stream_run_to_completion(
         owner_user_id: IM user_id of the gateway owner; drives lazy direct-chat
             creation via to_user_id in the context entry.
         kernel: In-process kernel; must implement stream(session_id, after_sequence).
-        run_context_store: Shared dict seeded here and popped in finally.
+        run_context_store: Shared delivery context store seeded here and popped in
+            finally. Production passes RunDeliveryContextStore so the observer reads
+            and mutates the same typed runtime owner; legacy dict inputs remain
+            supported for narrow unit compatibility.
         observer: kernel_event_observer callable (sync or async); None skips driving.
         stream_anchor: after_sequence passed to kernel.stream; 0 means replay all.
 
@@ -1226,13 +1406,13 @@ async def _stream_run_to_completion(
     Raises:
         Nothing — stream failures are re-raised to the caller for per-path logging.
     """
-    run_context_store[run_id] = {
-        "conversation_id": "",  # lazy: filled by IM turn_start ack
-        "message_id": "",  # lazy: filled by IM turn_start ack
-        "agent_id": agent_id,
-        "to_user_id": owner_user_id,
-        "kernel_session_id": kernel_session_id,
-    }
+    _seed_owner_direct_stream_context(
+        run_context_store=run_context_store,
+        run_id=run_id,
+        agent_id=agent_id,
+        kernel_session_id=kernel_session_id,
+        owner_user_id=owner_user_id,
+    )
 
     final_result_text = ""
     popped_ctx: dict | None = None
@@ -1259,12 +1439,52 @@ async def _stream_run_to_completion(
                 break
     except Exception:
         # Re-raise so caller can log with per-path context (agent/job/run identifiers).
-        run_context_store.pop(run_id, None)
+        _pop_stream_context(run_context_store=run_context_store, run_id=run_id)
         raise
     finally:
-        popped_ctx = run_context_store.pop(run_id, None)
+        popped_ctx = _pop_stream_context(
+            run_context_store=run_context_store, run_id=run_id
+        )
 
     return final_result_text, popped_ctx
+
+
+def _seed_owner_direct_stream_context(
+    *,
+    run_context_store: dict[str, dict[str, str]] | RunDeliveryContextStore,
+    run_id: str,
+    agent_id: str,
+    kernel_session_id: str,
+    owner_user_id: str,
+) -> None:
+    if isinstance(run_context_store, RunDeliveryContextStore):
+        run_context_store.seed_owner_direct_run(
+            run_id=run_id,
+            agent_id=agent_id,
+            kernel_session_id=kernel_session_id,
+            owner_user_id=owner_user_id,
+        )
+        return
+    run_context_store[run_id] = {
+        "conversation_id": "",  # lazy: filled by IM turn_start ack
+        "message_id": "",  # lazy: filled by IM turn_start ack
+        "agent_id": agent_id,
+        "to_user_id": owner_user_id,
+        "kernel_session_id": kernel_session_id,
+    }
+
+
+def _pop_stream_context(
+    *,
+    run_context_store: dict[str, dict[str, str]] | RunDeliveryContextStore,
+    run_id: str,
+) -> dict[str, str] | None:
+    if isinstance(run_context_store, RunDeliveryContextStore):
+        context = run_context_store.get(run_id)
+        popped = context.to_legacy_dict() if context is not None else None
+        run_context_store.discard(run_id)
+        return popped
+    return run_context_store.pop(run_id, None)
 
 
 class PollingHeartbeatRunner:
@@ -1278,8 +1498,9 @@ class PollingHeartbeatRunner:
             When provided alongside run_context_store and owner_user_id, the runner
             seeds run_context_store and awaits each run to terminal state, driving the
             kernel_event_observer to create the heartbeat IM message if there is content.
-        run_context_store: Shared run-context map seeded with heartbeat run metadata
-            (feat-393).  Observer reads this to route streaming events to IM.
+        run_context_store: Shared delivery context store seeded with heartbeat run
+            metadata (feat-393). Observer reads the same store to route streaming
+            events to IM.
         owner_user_id: IM user_id of the gateway node owner; used as to_user_id in
             turn_start so the heartbeat message lands in the owner's direct conversation
             with the agent (feat-393).
@@ -1297,7 +1518,7 @@ class PollingHeartbeatRunner:
         config: HeartbeatConfig,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         kernel: Any | None = None,
-        run_context_store: "dict[str, dict[str, str]] | None" = None,
+        run_context_store: "dict[str, dict[str, str]] | RunDeliveryContextStore | None" = None,
         owner_user_id: str = "",
         kernel_event_observer: Any | None = None,
         cron_tick_fn: Callable[[str], Awaitable[None]] | None = None,
@@ -1591,6 +1812,50 @@ class _InboundDispatcher:
         future.add_done_callback(_consume_future_exception)
 
 
+async def _run_kernel_background_analysis(
+    kernel: Any,
+    *,
+    workspace_root: Path,
+    prompt: str,
+    tool_allowlist: tuple[str, ...],
+    metadata: dict[str, Any],
+) -> Any:
+    session = await kernel.create_session(
+        workspace_root=workspace_root,
+        enabled_tools=list(tool_allowlist),
+        metadata=metadata,
+    )
+    run = kernel.submit(
+        session_id=session.session_id,
+        parts=[{"type": "text", "text": prompt}],
+        workspace_root=workspace_root,
+    )
+    run_id = getattr(run, "run_id", "")
+    for _ in range(300):
+        current = kernel.get_run(run_id)
+        status = getattr(current, "status", "")
+        if status == "completed":
+            return current
+        if status in {"failed", "cancelled"}:
+            raise RuntimeError(f"skill batch review background run {status}")
+        await asyncio.sleep(0.1)
+    raise TimeoutError("skill batch review background run timed out")
+
+
+def _session_ids_from_skill_batch_trigger(trigger: Any) -> tuple[str, ...]:
+    refs = getattr(trigger, "session_refs", ())
+    if not isinstance(refs, (tuple, list)):
+        return ()
+    session_ids: list[str] = []
+    for ref in refs:
+        if not isinstance(ref, Mapping):
+            continue
+        session_id = ref.get("session_id")
+        if isinstance(session_id, str) and session_id:
+            session_ids.append(session_id)
+    return tuple(session_ids)
+
+
 class GatewayRuntime:
     """Run the assembled Node Gateway process until shutdown is requested.
 
@@ -1714,6 +1979,8 @@ class GatewayRuntime:
                     await _dispatch_site.start()
                 except Exception:  # noqa: BLE001
                     dispatch_runner = None
+            await self._run_skill_maintenance()
+            self._install_skill_batch_review_scheduler()
             self._ready_event.set()
             if self._im_connection_manager is not None:
                 # bugfix-446-M1 (decision 1): own the IM connection through a
@@ -1799,6 +2066,132 @@ class GatewayRuntime:
         if self._shutdown_requested.is_set():
             event.set()
         return event
+
+    async def _run_skill_maintenance(self) -> None:
+        """Run best-effort per-agent skill housekeeping at Gateway startup."""
+
+        if self._kernel is None:
+            return
+        run_skill_maintenance = getattr(self._kernel, "run_skill_maintenance", None)
+        drain = getattr(self._kernel, "run_queued_skill_batch_reviews", None)
+        if not callable(run_skill_maintenance) and not callable(drain):
+            return
+        for agent in self._config.agents:
+            workspace_root = getattr(agent, "workspace_root", None)
+            if workspace_root is None:
+                continue
+            try:
+                if callable(run_skill_maintenance):
+                    run_skill_maintenance(workspace_root=workspace_root)
+                if callable(drain):
+                    skill_root = Path(workspace_root) / _WCD / "skills"
+                    await drain(
+                        run_background_analysis=self._build_skill_batch_analysis_runner(
+                            workspace_root=workspace_root
+                        ),
+                        skill_root=skill_root,
+                    )
+            except Exception as exc:  # noqa: BLE001
+                _log.warning(
+                    "skill maintenance failed for agent=%s workspace=%s: %s",
+                    getattr(agent, "agent_id", ""),
+                    workspace_root,
+                    exc,
+                )
+
+    def _install_skill_batch_review_scheduler(self) -> None:
+        if self._kernel is None:
+            return
+        setter = getattr(self._kernel, "set_skill_batch_review_drain_scheduler", None)
+        if not callable(setter):
+            return
+
+        def _schedule(trigger: Any) -> None:
+            workspace_root = self._workspace_root_for_skill_batch_trigger(trigger)
+            if workspace_root is None:
+                _log.warning(
+                    "cannot drain skill batch review for skill=%s without a matching workspace",
+                    getattr(trigger, "skill_name", ""),
+                )
+                return
+            asyncio.create_task(
+                self._drain_queued_skill_batch_reviews_for_workspace(
+                    workspace_root=workspace_root
+                ),
+                name="personal-assistant-skill-batch-review",
+            )
+
+        setter(_schedule)
+
+    def _workspace_root_for_skill_batch_trigger(self, trigger: Any) -> Path | None:
+        session_ids = _session_ids_from_skill_batch_trigger(trigger)
+        if session_ids:
+            for agent in self._config.agents:
+                workspace_root = getattr(agent, "workspace_root", None)
+                if workspace_root is None:
+                    continue
+                session_dir = Path(workspace_root) / _WCD / "sessions"
+                for session_id in session_ids:
+                    if any(session_dir.rglob(f"{session_id}.jsonl")):
+                        return Path(workspace_root)
+        skill_root = getattr(trigger, "skill_root", None)
+        if skill_root is not None:
+            try:
+                resolved_skill_root = Path(skill_root).expanduser().resolve()
+            except TypeError:
+                resolved_skill_root = None
+            if resolved_skill_root is not None:
+                for agent in self._config.agents:
+                    workspace_root = getattr(agent, "workspace_root", None)
+                    if workspace_root is None:
+                        continue
+                    local_skill_root = (
+                        (Path(workspace_root) / _WCD / "skills").expanduser().resolve()
+                    )
+                    if resolved_skill_root == local_skill_root:
+                        return Path(workspace_root)
+        if len(self._config.agents) == 1:
+            return Path(self._config.agents[0].workspace_root)
+        return None
+
+    async def _drain_queued_skill_batch_reviews_for_workspace(
+        self, *, workspace_root: Path
+    ) -> None:
+        drain = getattr(self._kernel, "run_queued_skill_batch_reviews", None)
+        if not callable(drain):
+            return
+        try:
+            await drain(
+                run_background_analysis=self._build_skill_batch_analysis_runner(
+                    workspace_root=workspace_root
+                ),
+                skill_root=Path(workspace_root) / _WCD / "skills",
+            )
+        except Exception as exc:  # noqa: BLE001
+            _log.warning(
+                "queued skill batch review drain failed for workspace=%s: %s",
+                workspace_root,
+                exc,
+            )
+
+    def _build_skill_batch_analysis_runner(
+        self, *, workspace_root: Path
+    ) -> Callable[..., Awaitable[Any]]:
+        async def _run_background_analysis(
+            prompt: str,
+            *,
+            tool_allowlist: tuple[str, ...],
+            metadata: dict[str, Any],
+        ) -> Any:
+            return await _run_kernel_background_analysis(
+                self._kernel,
+                workspace_root=workspace_root,
+                prompt=prompt,
+                tool_allowlist=tool_allowlist,
+                metadata=metadata,
+            )
+
+        return _run_background_analysis
 
     async def _wait_for_shutdown_request(self, *, timeout: float | None = None) -> bool:
         event = self._shutdown_event_for_loop()
@@ -2502,7 +2895,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     # its own package — no product_profile / host_capabilities.
     from agent.sdk import LLMConfig
     from personal_assistant.builtin_skills.bootstrap import install_builtin_skills
-    from personal_assistant.product import build_pa_kernel
+    from personal_assistant.product import PA_SKILL_SEARCH_ROOTS, build_pa_kernel
 
     # PA does not supply can_use_tool: permission ask always parks on broker future
     # and is resolved by the user clicking Allow/Deny on the IM card via
@@ -2600,7 +2993,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     im_connection_manager: IMConnectionManager | None = None
     im_bootstrap_client: _IMBootstrapClient | None = None
     im_config_sync_client: _IMConfigSyncClient | None = None
-    _run_context_store: dict[str, dict[str, str]] = {}
+    run_delivery_contexts = RunDeliveryContextStore()
     # feat-393: heartbeat_runner is built here (before im_connection_manager which references it),
     # but the kernel_event_observer is wired after im_service block via attribute set below.
     # NOTE: session_store + _heartbeat_scheduler are constructed earlier (feat-394 moved
@@ -2611,7 +3004,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         scheduler=_heartbeat_scheduler,
         config=config.heartbeat,
         kernel=kernel if _owner_user_id else None,
-        run_context_store=_run_context_store if _owner_user_id else None,
+        run_context_store=run_delivery_contexts if _owner_user_id else None,
         owner_user_id=_owner_user_id,
         # kernel_event_observer is set below after _build_kernel_event_observer runs.
     )
@@ -2704,6 +3097,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             local_config=config,
             reporter=reporter,
             workspace_root_factory=workspace_root_factory,
+            global_skill_root=PA_SKILL_SEARCH_ROOTS[0],
         )
         # Build a token_getter closure that auto-refreshes the access token on reconnect.
         # The auth client uses the IM HTTP base URL so it can reach /im/v1/auth/* endpoints.
@@ -2843,17 +3237,20 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     pipeline._relay_lifecycle_callback = _build_relay_lifecycle_callback(
         reporter=reporter,
         im_connection_manager_factory=lambda: im_connection_manager,
-        run_context_store=_run_context_store,
+        run_context_store=run_delivery_contexts,
         owner_user_id=_owner_user_id,
         channel_registry=channel_registry,
     )
 
     _kernel_event_observer = _build_kernel_event_observer(
         im_connection_manager_factory=lambda: im_connection_manager,
-        run_context_store=_run_context_store,
+        run_context_store=run_delivery_contexts,
         external_reply_sender=_send_external_reply,
         external_permission_request_sender=_send_external_permission_request,
         external_permission_resolved_sender=_mark_external_permission_resolved,
+        skill_created_handler=getattr(
+            im_config_sync_client, "handle_skill_created", None
+        ),
     )
     pipeline._kernel_event_observer = _kernel_event_observer
     # feat-393: wire observer into heartbeat_runner now that it's built. When IM is
@@ -2863,7 +3260,6 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     else:
         # No owner bound → heartbeat delivery disabled; clear kernel reference.
         heartbeat_runner._kernel = None  # noqa: SLF001
-        heartbeat_runner._run_context_store = None  # noqa: SLF001
     pipeline._bg_reply_sender = _build_bg_reply_sender(
         im_connection_manager_factory=lambda: im_connection_manager,
         external_reply_sender=_send_external_reply,
@@ -3026,7 +3422,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                     agent_id=agent_id,
                     owner_user_id=_owner_user_id,
                     kernel=kernel,
-                    run_context_store=_run_context_store,
+                    run_context_store=run_delivery_contexts,
                     observer=_observer,
                     stream_anchor=0,
                 )
@@ -3631,1548 +4027,6 @@ def _build_permission_response_handler(
             return False
 
     return _handler
-
-
-def _build_relay_lifecycle_callback(
-    *,
-    reporter: UpstreamReporter | None,
-    im_connection_manager_factory: Callable[[], IMConnectionManager | None],
-    run_context_store: dict[str, dict[str, str]] | None = None,
-    owner_user_id: str = "",
-    channel_registry: ChannelRegistry | None = None,
-):
-    async def _callback(message: InboundMessage, update: RelayLifecycleUpdate) -> None:
-        if update.phase == "accepted":
-            _ack_external_message_processing_started(
-                message,
-                channel_registry=channel_registry,
-            )
-        # Seed/clean run_context_store for EVERY channel, not only web_relay.
-        # kernel_event_observer needs this context to push streaming events to IM;
-        # without it, non-relay channels (e.g. feishu) produce replies that never
-        # appear in the internal IM.
-        if update.phase == "accepted":
-            # Seed run_context_store with conversation/agent meta so kernel_event_observer
-            # can send the turn_start frame.  message_id starts empty; it is filled
-            # by the turn_start ack (gateway returns the created placeholder message_id).
-            #
-            # bugfix-426-M4 (#140): a steer that INJECTS into an active run emits this
-            # accepted lifecycle with that run's EXISTING run_id (it reuses the run —
-            # 决策5). The run already has a live context here (bubble A's message_id, its
-            # streaming kernel_message_id). Re-seeding would wipe message_id to "",
-            # orphaning bubble A (the observer then can't finalize it → 120s relay-idle
-            # → A stuck running/failed, the #140 black-screen symptom). So only seed a
-            # FRESH run; never clobber the context of a run that is already streaming.
-            if (
-                run_context_store is not None
-                and update.run_id
-                and update.run_id not in run_context_store
-            ):
-                shadow_conversation_id = _metadata_text(
-                    message.metadata, key="shadow_conversation_id"
-                )
-                trigger_source = (
-                    _metadata_text(message.metadata, key="trigger_source") or ""
-                )
-                external_source = _metadata_text(
-                    message.metadata, key="external_source"
-                )
-                relay_task_id = _metadata_text(message.metadata, key="relay_task_id")
-                if shadow_conversation_id is not None:
-                    conversation_id = shadow_conversation_id
-                    to_user_id = ""
-                elif relay_task_id is not None:
-                    # For regular relay messages, external_chat_id is already an IM
-                    # conversation id. External shadow relay messages are handled by
-                    # shadow_conversation_id above.
-                    conversation_id = message.external_chat_id
-                    to_user_id = ""
-                elif external_source is not None:
-                    # External-channel messages whose shadow sync failed must not use
-                    # owner_user_id lazy creation, otherwise IM would create a normal
-                    # direct chat and pollute the internal conversation list.
-                    conversation_id = ""
-                    to_user_id = ""
-                else:
-                    conversation_id = ""
-                    # Lazy direct-chat creation needs the owning IM user. When no owner
-                    # is configured (fire-and-forget mode) streaming to IM is impossible;
-                    # leaving to_user_id empty makes the observer skip turn_start cleanly.
-                    to_user_id = owner_user_id
-                agent_id_meta = (
-                    _metadata_text(message.metadata, key="agent_id")
-                    or update.agent_id
-                    or ""
-                )
-                run_context_store[update.run_id] = {
-                    "conversation_id": conversation_id,
-                    "message_id": "",  # filled by turn_start ack
-                    "agent_id": agent_id_meta,
-                    # Stored so permission_response_handler can route the user's
-                    # decision back to the correct kernel session via reverse lookup.
-                    "kernel_session_id": update.kernel_session_id or "",
-                    "to_user_id": to_user_id,
-                }
-                if trigger_source:
-                    run_context_store[update.run_id]["trigger_source"] = trigger_source
-                if trigger_source and trigger_source != "im":
-                    channel_name = str(getattr(message, "channel_name", "") or "")
-                    run_context_store[update.run_id]["reply_channel_name"] = (
-                        channel_name
-                    )
-                    run_context_store[update.run_id]["reply_target_chat_id"] = (
-                        message.external_chat_id
-                    )
-                    thread_id = getattr(message, "thread_id", None)
-                    if thread_id:
-                        run_context_store[update.run_id]["reply_thread_id"] = str(
-                            thread_id
-                        )
-                    feishu_message_id = _metadata_text(
-                        message.metadata, key="feishu_message_id"
-                    )
-                    if feishu_message_id is not None:
-                        run_context_store[update.run_id]["feishu_message_id"] = (
-                            feishu_message_id
-                        )
-        elif update.phase in ("completed", "failed"):
-            if run_context_store is not None and update.run_id:
-                run_context_store.pop(update.run_id, None)
-
-        # Everything below is relay-task specific: delivery receipts and progress
-        # reports go back to the IM service only for messages that originated there.
-        if reporter is None:
-            return
-        relay_task_id = _metadata_text(message.metadata, key="relay_task_id")
-        if relay_task_id is None:
-            return
-        manager = im_connection_manager_factory()
-        if manager is None:
-            return
-        if update.phase == "accepted":
-            payload = reporter.send_delivery_receipt(
-                relay_task_id=relay_task_id,
-                delivery_status="sent",
-                detail=f"run_id={update.run_id}" if update.run_id is not None else None,
-            )
-            await manager.send_json("node.delivery_receipt", payload)
-            return
-        if update.phase == "running":
-            message_id = _metadata_text(message.metadata, key="message_id")
-            if message_id is None or update.run_id is None:
-                return
-            payload = reporter.send_report(
-                run_id=update.run_id,
-                status="running",
-                agent_id=update.agent_id,
-                session_key=update.session_key,
-                conversation_id=message.external_chat_id,
-                message_id=message_id,
-                summary=update.reply_text,
-            )
-            await manager.send_json("node.report", payload)
-            return
-        if update.phase == "completed":
-            message_id = _metadata_text(message.metadata, key="message_id")
-            send_report = getattr(reporter, "send_report", None)
-            if (
-                callable(send_report)
-                and message_id is not None
-                and update.run_id is not None
-            ):
-                payload = send_report(
-                    run_id=update.run_id,
-                    status="completed",
-                    agent_id=update.agent_id,
-                    session_key=update.session_key,
-                    conversation_id=message.external_chat_id,
-                    message_id=message_id,
-                    summary=update.reply_text,
-                    detail=update.detail,
-                    usage=update.usage,
-                )
-                await manager.send_json("node.report", payload)
-            suppression_detail = None
-            if update.detail is not None:
-                detail_parts = [
-                    f"{key}={value}" for key, value in update.detail.items()
-                ]
-                suppression_detail = " | ".join(detail_parts) if detail_parts else None
-            receipt_detail = update.reply_text
-            if suppression_detail is not None:
-                receipt_detail = (
-                    suppression_detail
-                    if InboundPipeline._is_no_reply_token(update.reply_text or "")
-                    else (
-                        " | ".join(
-                            [
-                                part
-                                for part in [receipt_detail, suppression_detail]
-                                if part
-                            ]
-                        )
-                        or None
-                    )
-                )
-            payload = reporter.send_delivery_receipt(
-                relay_task_id=relay_task_id,
-                delivery_status="completed",
-                detail=receipt_detail,
-            )
-            await manager.send_json("node.delivery_receipt", payload)
-            return
-        if update.phase == "failed":
-            # bugfix-437 decision 3: mirror the completed branch with a message-level
-            # node.report(status=failed) so the placeholder bubble flips to failed
-            # within seconds carrying the real cause. send_report has no `error`
-            # param — the cause rides on `summary` (IM's failed-bubble text reads it).
-            # The relay-task delivery_receipt below is kept; the 120s idle watchdog
-            # is left as the last-resort "node truly dead" net only.
-            message_id = _metadata_text(message.metadata, key="message_id")
-            send_report = getattr(reporter, "send_report", None)
-            if (
-                callable(send_report)
-                and message_id is not None
-                and update.run_id is not None
-            ):
-                payload = send_report(
-                    run_id=update.run_id,
-                    status="failed",
-                    agent_id=update.agent_id,
-                    session_key=update.session_key,
-                    conversation_id=message.external_chat_id,
-                    message_id=message_id,
-                    summary=update.error,
-                )
-                await manager.send_json("node.report", payload)
-            payload = reporter.send_delivery_receipt(
-                relay_task_id=relay_task_id,
-                delivery_status="failed",
-                detail=update.error,
-            )
-            await manager.send_json("node.delivery_receipt", payload)
-
-    return _callback
-
-
-def _ack_external_message_processing_started(
-    message: InboundMessage, *, channel_registry: ChannelRegistry | None
-) -> None:
-    """Notify an external channel that the message has entered a real agent run."""
-    if channel_registry is None:
-        return
-    message_id = _metadata_text(message.metadata, key="feishu_message_id")
-    if message_id is None:
-        return
-    channel = channel_registry.get(message.channel_name)
-    if channel is None:
-        return
-    ack_message = getattr(channel, "ack_message", None)
-    if not callable(ack_message):
-        return
-    ack_message(message_id)
-
-
-def _extract_ack_message_id(ack: Mapping[str, Any] | Any) -> str | None:
-    """Pull the created bubble's message_id out of a turn_start ack frame.
-
-    IM answers ``turn_start`` with either ``{"payload": {"message_id": ...}}`` or a
-    flat ``{"message_id": ...}``. This single unwrap is the source of truth for that
-    shape so the three bubble-opening paths (close-restart, steer roll, inline
-    turn_start) don't each re-implement (and drift on) the isinstance dance
-    (bugfix-426-M4 V2). Returns ``None`` when no message_id is present.
-    """
-    payload = ack.get("payload") if isinstance(ack, Mapping) else None
-    source = payload if isinstance(payload, Mapping) else ack
-    if not isinstance(source, Mapping):
-        return None
-    message_id = source.get("message_id")
-    return str(message_id) if message_id else None
-
-
-async def _roll_bubble(
-    manager: IMConnectionManager,
-    *,
-    run_id: str,
-    conversation_id: str,
-    agent_id: str,
-    run_context_store: dict[str, dict[str, str]],
-    old_message_id: str | None,
-    new_kernel_message_id: str | None = None,
-) -> str | None:
-    """Finalize the current IM bubble and open a fresh one for the same run.
-
-    Single primitive for "close bubble A (completed), open bubble B, repoint the run
-    to B" — shared by the textA→textB multi-bubble path and the steer-consume bubble
-    roll (bugfix-426-M4 V2). Returns the new bubble's message_id (already stored into
-    ``run_context_store[run_id]``), or ``None`` if the run context vanished or IM
-    returned no message_id.
-
-    bugfix-426-M4 V3 reentrancy guard: two steers in quick succession produce two
-    ``injection_consumed`` signals. A per-run ``rolling`` flag serializes them so the
-    second caller does not re-close an already-closed bubble or open a duplicate B
-    (which would leave a zombie running bubble). The flag is cleared in ``finally``.
-    """
-    ctx = run_context_store.get(run_id)
-    if ctx is None:
-        return None
-    if ctx.get("rolling"):
-        # A roll is already in flight for this run; the in-flight one owns the
-        # transition. Dropping this duplicate is safe — the steer's content still
-        # streams into whatever bubble the in-flight roll lands on.
-        return None
-    ctx["rolling"] = "1"
-    # feat-445-M1: the bubble being closed was produced by the kernel message tracked in
-    # ctx["kernel_message_id"]; stamp it onto the closing frame so IM persists the
-    # per-bubble id BEFORE the new bubble's id overwrites ctx (decision 4 fork anchor).
-    old_kernel_message_id = ctx.get("kernel_message_id")
-    try:
-        if old_message_id:
-            await manager.send_json(
-                "node.streaming_delta",
-                {
-                    "kind": "message_completed",
-                    "message_id": old_message_id,
-                    "final_content": None,
-                    "token_usage": None,
-                    "delivery_status": "completed",
-                    "kernel_message_id": old_kernel_message_id,
-                    "run_id": run_id,
-                },
-            )
-        ack = await manager.send_json_await_ack(
-            "node.streaming_delta",
-            {
-                "kind": "turn_start",
-                "conversation_id": conversation_id,
-                "agent_id": agent_id,
-                "run_id": run_id,
-            },
-        )
-        new_message_id = _extract_ack_message_id(ack)
-        live_ctx = run_context_store.get(run_id)
-        if new_message_id and live_ctx is not None:
-            live_ctx["message_id"] = new_message_id
-            if new_kernel_message_id:
-                live_ctx["kernel_message_id"] = new_kernel_message_id
-            else:
-                live_ctx.pop("kernel_message_id", None)
-            return new_message_id
-        return None
-    finally:
-        live_ctx = run_context_store.get(run_id)
-        if live_ctx is not None:
-            live_ctx.pop("rolling", None)
-
-
-def _build_kernel_event_observer(
-    *,
-    im_connection_manager_factory: Callable[[], IMConnectionManager | None],
-    run_context_store: dict[str, dict[str, str]],
-    running_tool_calls: dict[str, dict[str, dict[str, Any]]] | None = None,
-    external_reply_sender: Callable[[str, Mapping[str, str]], Any] | None = None,
-    external_permission_request_sender: (
-        Callable[[Mapping[str, Any], Mapping[str, str]], Any] | None
-    ) = None,
-    external_permission_resolved_sender: (
-        Callable[[str, str, Mapping[str, str]], Any] | None
-    ) = None,
-) -> Callable[[Mapping[str, Any]], "Coroutine[Any, Any, None] | None"]:
-    """Build a kernel SSE event observer that forwards streaming events to IM via node.streaming_delta.
-
-    The observer returns a coroutine for run_status=running so the pipeline can
-    await the turn_start ack before processing the following assistant_message event.
-    For all other events the observer schedules tasks and returns None.
-
-    Kernel SSE events translated:
-    - run_status=running  → node.streaming_delta kind=turn_start (creates placeholder message)
-    - assistant_message   → node.streaming_delta kind=message_delta
-    - tool_start          → node.streaming_delta kind=tool_call_upserted
-    - tool_end            → node.streaming_delta kind=tool_call_completed
-    - turn_end            → node.streaming_delta kind=message_completed (with token_usage if available)
-
-    Heartbeat lazy-bubble path (feat-393):
-    - run_context_store entries with ``to_user_id`` (no ``conversation_id``) are heartbeat runs.
-    - turn_start is deferred until the first non-empty, non-NO_REPLY assistant_message arrives.
-    - NO_REPLY/empty content → no turn_start is ever sent → zero IM trace (silent tick).
-    - Normal chat (conversation_id present) is unchanged (eager placeholder on run_status=running).
-
-    Canonical session (feat-394 decision 3):
-    - HeartbeatScheduler.tick() calls session_store.find_direct_by_agent() BEFORE each run
-      submission to update canonical_session_store — tick-time read, no ack dependency.
-    """
-
-    # bugfix-410-M2 R3 (#97): track tool_calls that received tool_start but not yet
-    # tool_end, per run. On abnormal run termination the watchdog/terminal path emits
-    # a synthetic ``run_terminal_reconcile`` event; we then close every still-running
-    # tool_call with a reason so the IM badge stops spinning forever. Keyed by run_id
-    # → {call_id: {"name": ..., "input": ..., "output": ..., "detail": ..., "emoji": ...}}.
-    # bugfix-416 #111 retained input; bugfix-441-M2 also retains the start-side
-    # presentation so abnormal reconcile does not erase the running row's parameter
-    # display from refreshed/historical IM payloads.
-    # bugfix-410-fix-r1: the map is injectable purely so a test can observe that the
-    # per-run entry is reaped on the normal-completion path (no production caller passes
-    # it). Entries are dropped as calls close (tool_end) and as runs end (turn_end /
-    # reconcile), so this never grows unbounded on a long-lived Gateway.
-    if running_tool_calls is None:
-        running_tool_calls = {}
-    visible_reasoning_by_group: dict[str, dict[str, str]] = {}
-
-    async def _send(
-        manager: IMConnectionManager, message_type: str, payload: Mapping[str, Any]
-    ) -> None:
-        try:
-            await manager.send_json(message_type, payload)
-        except Exception as exc:  # noqa: BLE001
-            # IM send failure must not propagate into the event stream; log so the
-            # drop is observable (refactor-395-M1).
-            _log.warning("IM observer send failed for %s: %s", message_type, exc)
-
-    def _is_external_reply_context(ctx: Mapping[str, str]) -> bool:
-        return (
-            external_reply_sender is not None
-            and _external_context_metadata(ctx) is not None
-        )
-
-    def _external_context_metadata(ctx: Mapping[str, str]) -> dict[str, str] | None:
-        channel_name = ctx.get("reply_channel_name") or ""
-        target_chat_id = ctx.get("reply_target_chat_id") or ""
-        if (
-            ctx.get("trigger_source") == "im"
-            or not channel_name
-            or channel_name == "web_relay"
-            or not target_chat_id
-        ):
-            return None
-        metadata: dict[str, str] = {
-            "channel_name": channel_name,
-            "target_chat_id": target_chat_id,
-        }
-        optional_keys = ("reply_thread_id", "feishu_message_id")
-        for key in optional_keys:
-            value = ctx.get(key)
-            if value:
-                metadata[key] = value
-        return metadata
-
-    def _mirror_external_reply(
-        *, rid: str, ctx: dict[str, str], phase: str, text: str
-    ) -> None:
-        if not _is_external_reply_context(ctx):
-            return
-        cleaned_text = text.strip()
-        if not cleaned_text:
-            return
-        if InboundPipeline._is_no_reply_token(cleaned_text):
-            return
-        external_metadata = _external_context_metadata(ctx)
-        if external_metadata is None:
-            return
-        bubble_key = (
-            ctx.get("kernel_message_id")
-            or ctx.get("message_id")
-            or f"text:{cleaned_text}"
-        )
-        metadata: dict[str, str] = {
-            "reply_phase": phase,
-            "reply_dedupe_key": f"{rid}:bubble:{bubble_key}",
-            **external_metadata,
-        }
-        result = external_reply_sender(cleaned_text, metadata)
-        if asyncio.iscoroutine(result):
-            asyncio.get_event_loop().create_task(result)
-
-    def _mirror_external_permission_request(
-        *, rid: str, ctx: Mapping[str, str], request: Mapping[str, Any]
-    ) -> None:
-        if external_permission_request_sender is None:
-            return
-        metadata = _external_context_metadata(ctx)
-        if metadata is None:
-            return
-        metadata["run_id"] = rid
-        result = external_permission_request_sender(request, metadata)
-        if asyncio.iscoroutine(result):
-            asyncio.get_event_loop().create_task(result)
-
-    def _mirror_external_permission_resolved(
-        *, ctx: Mapping[str, str], request_id: str, decision: str
-    ) -> None:
-        if external_permission_resolved_sender is None:
-            return
-        metadata = _external_context_metadata(ctx)
-        if metadata is None:
-            return
-        result = external_permission_resolved_sender(request_id, decision, metadata)
-        if asyncio.iscoroutine(result):
-            asyncio.get_event_loop().create_task(result)
-
-    def _mirror_external_current_as_intermediate(
-        *, rid: str, ctx: dict[str, str]
-    ) -> None:
-        current_text = ctx.get("external_current_text") or ""
-        if not current_text.strip():
-            return
-        marker = ctx.get("kernel_message_id") or f"text:{current_text.strip()}"
-        if ctx.get("external_intermediate_sent_marker") == marker:
-            return
-        _mirror_external_reply(
-            rid=rid,
-            ctx=ctx,
-            phase="intermediate",
-            text=current_text,
-        )
-        ctx["external_intermediate_sent_marker"] = marker
-
-    def _next_visible_reasoning(*, rid: str, group_id: str, reasoning: str) -> str:
-        if not reasoning or not group_id:
-            return reasoning
-        groups = visible_reasoning_by_group.get(rid, {})
-        previous = groups.get(group_id)
-        if previous == reasoning:
-            return ""
-        if previous and reasoning.startswith(previous):
-            return reasoning[len(previous) :].strip()
-        return reasoning
-
-    def _mark_visible_reasoning(*, rid: str, group_id: str, reasoning: str) -> None:
-        if reasoning and group_id:
-            visible_reasoning_by_group.setdefault(rid, {})[group_id] = reasoning
-
-    def _clear_run_visible_reasoning(rid: str) -> None:
-        visible_reasoning_by_group.pop(rid, None)
-
-    def observer(event: Mapping[str, Any]) -> "Coroutine[Any, Any, None] | None":
-        manager = im_connection_manager_factory()
-        run_id = str(event.get("run_id") or "").strip()
-        if not run_id:
-            return None
-        ctx = run_context_store.get(run_id)
-        if ctx is None:
-            return None
-        event_name = str(event.get("event") or "").strip()
-        if event_name in {"turn_end", "run_terminal_reconcile"}:
-            _clear_run_visible_reasoning(run_id)
-        conversation_id = ctx.get("conversation_id") or ""
-        message_id = ctx.get("message_id") or ""
-        agent_id = ctx.get("agent_id") or ""
-
-        # feat-393: heartbeat runs carry to_user_id instead of conversation_id.
-        # The lazy-bubble gate: skip eager turn_start; defer to assistant_message.
-        to_user_id = ctx.get("to_user_id") or ""
-
-        im_connected = manager is not None and manager.connected
-        has_external_context = _external_context_metadata(ctx) is not None
-        if not im_connected and not has_external_context:
-            return None
-        if not im_connected:
-            if event_name == "assistant_message":
-                content = str(event.get("content") or "").strip()
-                if not content:
-                    return None
-                kernel_msg_id = str(event.get("message_id") or "").strip()
-                prev_kernel_msg_id = ctx.get("kernel_message_id") or ""
-                if (
-                    kernel_msg_id
-                    and prev_kernel_msg_id
-                    and kernel_msg_id != prev_kernel_msg_id
-                ):
-                    _mirror_external_current_as_intermediate(rid=run_id, ctx=ctx)
-                if kernel_msg_id:
-                    ctx["kernel_message_id"] = kernel_msg_id
-                ctx["external_current_text"] = content
-                return None
-            if event_name in {"tool_start", "permission_request"}:
-                _mirror_external_current_as_intermediate(rid=run_id, ctx=ctx)
-                if event_name == "tool_start":
-                    return None
-            elif event_name == "turn_end":
-                running_tool_calls.pop(run_id, None)
-                return None
-            elif event_name != "permission_resolved":
-                return None
-        loop = asyncio.get_event_loop()
-
-        if event_name == "run_status" and event.get("status") == "running":
-            if to_user_id:
-                # Heartbeat: skip eager turn_start; bubble is created lazily on first
-                # real content (see assistant_message branch below).
-                return None
-            if conversation_id and agent_id:
-                # Return a coroutine so the pipeline awaits turn_start ack before processing
-                # the following assistant_message; without awaiting, message_id would still be
-                # empty when assistant_message fires and the delta would be silently dropped.
-                async def _send_turn_start_and_store(
-                    mgr: IMConnectionManager = manager,
-                    rid: str = run_id,
-                    cid: str = conversation_id,
-                    aid: str = agent_id,
-                ) -> None:
-                    try:
-                        ack = await mgr.send_json_await_ack(
-                            "node.streaming_delta",
-                            {
-                                "kind": "turn_start",
-                                "conversation_id": cid,
-                                "agent_id": aid,
-                                "run_id": rid,
-                            },
-                        )
-                        ack_payload = (
-                            ack.get("payload")
-                            if isinstance(ack.get("payload"), dict)
-                            else ack
-                        )
-                        returned_msg_id = (
-                            ack_payload.get("message_id")
-                            if isinstance(ack_payload, dict)
-                            else None
-                        )
-                        if returned_msg_id and rid in run_context_store:
-                            run_context_store[rid]["message_id"] = str(returned_msg_id)
-                    except Exception as exc:  # noqa: BLE001
-                        _log.warning("IM observer turn_start send/ack failed: %s", exc)
-
-                return _send_turn_start_and_store()
-
-        elif event_name == "assistant_message":
-            content = str(event.get("content") or "").strip()
-            # feat-439-M2: 整轮每回合各带一段思考(决策 4 / §1 事实 A)。空正文「且无
-            # 思考」的回合仍整段丢弃(避免空气泡)；空正文「但有思考」的回合不再丢，作为
-            # 「过程项」转发到当前气泡(不 roll 新气泡、不发空 delta)。思考段的时序序号
-            # 由 IM 持久化边界赋予(思考与工具共享一个 per-message 单调递增、按到达序的
-            # 唯一序号)，gateway 不算 seq、只负责把 reasoning 转发到正确的目标气泡。
-            reasoning = str(event.get("reasoning_content") or "").strip()
-            group_id = str(event.get("group_id") or "").strip()
-            visible_reasoning = _next_visible_reasoning(
-                rid=run_id,
-                group_id=group_id,
-                reasoning=reasoning,
-            )
-            if not content and not visible_reasoning:
-                return None
-            kernel_msg_id = str(event.get("message_id") or "").strip()
-            prev_kernel_msg_id = ctx.get("kernel_message_id") or ""
-
-            # feat-393 heartbeat lazy-bubble path:
-            # When to_user_id is set and no bubble exists yet, this is the first real
-            # content event.  Gate on NO_REPLY: if agent chose to be quiet → stay silent.
-            # Otherwise fire turn_start{to_user_id}, get back the resolved conversation_id
-            # and message_id, store them, then emit the delta so streaming starts.
-            if to_user_id and not message_id:
-                # feat-439-M2: heartbeat 仅由正文驱动建泡；纯思考回合对 heartbeat 无
-                # 可投递内容(也无气泡可挂)，直接跳过。
-                if not content:
-                    return None
-                from personal_assistant.gateway.inbound_pipeline import (
-                    InboundPipeline as _IP,
-                )
-
-                if _IP._is_no_reply_token(content):
-                    # NO_REPLY: heartbeat has nothing to report; do not create any IM trace.
-                    return None
-
-                async def _heartbeat_lazy_turn_start(
-                    mgr: IMConnectionManager = manager,
-                    rid: str = run_id,
-                    aid: str = agent_id,
-                    uid: str = to_user_id,
-                    text: str = content,
-                    reasoning_text: str = visible_reasoning,
-                    reasoning_group_id: str = group_id,
-                    full_reasoning: str = reasoning,
-                    new_kernel_id: str = kernel_msg_id,
-                ) -> None:
-                    try:
-                        ack = await mgr.send_json_await_ack(
-                            "node.streaming_delta",
-                            {
-                                "kind": "turn_start",
-                                "to_user_id": uid,
-                                "agent_id": aid,
-                                "run_id": rid,
-                            },
-                        )
-                        ack_payload = (
-                            ack.get("payload")
-                            if isinstance(ack.get("payload"), dict)
-                            else ack
-                        )
-                        returned_msg_id = (
-                            ack_payload.get("message_id")
-                            if isinstance(ack_payload, dict)
-                            else None
-                        )
-                        returned_conv_id = (
-                            ack_payload.get("conversation_id")
-                            if isinstance(ack_payload, dict)
-                            else None
-                        )
-                        skipped_reason = (
-                            ack_payload.get("skipped")
-                            if isinstance(ack_payload, dict)
-                            else None
-                        )
-                        if skipped_reason:
-                            # feat-393 fix-r1: IM skipped delivery (e.g. owner_unresolved).
-                            # Per design decision-6: delivery failure ≠ run failure; log and
-                            # let this heartbeat run finish normally — no exception, no retry.
-                            import logging as _obs_logging  # noqa: PLC0415
-
-                            _obs_logging.getLogger(__name__).warning(
-                                "heartbeat delivery skipped for run_id=%s agent=%s: %s",
-                                rid,
-                                aid,
-                                skipped_reason,
-                            )
-                            return
-                        if returned_msg_id and rid in run_context_store:
-                            run_context_store[rid]["message_id"] = str(returned_msg_id)
-                        if returned_conv_id and rid in run_context_store:
-                            run_context_store[rid]["conversation_id"] = str(
-                                returned_conv_id
-                            )
-                        if new_kernel_id and rid in run_context_store:
-                            run_context_store[rid]["kernel_message_id"] = new_kernel_id
-                        if returned_msg_id:
-                            if reasoning_text:
-                                await mgr.send_json(
-                                    "node.streaming_delta",
-                                    {
-                                        "kind": "thinking_segment",
-                                        "message_id": str(returned_msg_id),
-                                        "text": reasoning_text,
-                                        "run_id": rid,
-                                    },
-                                )
-                                _mark_visible_reasoning(
-                                    rid=rid,
-                                    group_id=reasoning_group_id,
-                                    reasoning=full_reasoning,
-                                )
-                            await mgr.send_json(
-                                "node.streaming_delta",
-                                {
-                                    "kind": "message_delta",
-                                    "message_id": str(returned_msg_id),
-                                    "delta_text": text,
-                                    "run_id": rid,
-                                },
-                            )
-                    except Exception:  # noqa: BLE001
-                        pass
-
-                return _heartbeat_lazy_turn_start()
-
-            # Detect a new assistant message within the same run (e.g. textA → tool_calls → textB).
-            # The kernel's while-loop generates a fresh assistant_msg_id per iteration; when it
-            # differs from the previous one we must close the old IM message and start a new one
-            # so the frontend renders textA and textB as separate bubbles.
-            # feat-439-M2: 多气泡 roll 只由「正文」触发——纯思考回合(content="")绝不 roll
-            # 新气泡(否则会冒出空正文气泡)；它的思考随当前气泡走(见下方 if message_id)。
-            # 本回合的 reasoning 随 roll 后的新气泡一起转发(它属于产出 textB 的那一回合)。
-            if (
-                content
-                and kernel_msg_id
-                and prev_kernel_msg_id
-                and kernel_msg_id != prev_kernel_msg_id
-            ):
-
-                async def _close_old_and_restart(
-                    mgr: IMConnectionManager = manager,
-                    rid: str = run_id,
-                    cid: str = conversation_id,
-                    aid: str = agent_id,
-                    old_msg_id: str = message_id,
-                    text: str = content,
-                    reasoning_text: str = visible_reasoning,
-                    reasoning_group_id: str = group_id,
-                    full_reasoning: str = reasoning,
-                    new_kernel_id: str = kernel_msg_id,
-                ) -> None:
-                    try:
-                        old_text = ctx.get("external_current_text") or ""
-                        _mirror_external_reply(
-                            rid=rid,
-                            ctx=ctx,
-                            phase="intermediate",
-                            text=old_text,
-                        )
-                        new_msg_id = await _roll_bubble(
-                            mgr,
-                            run_id=rid,
-                            conversation_id=cid,
-                            agent_id=aid,
-                            run_context_store=run_context_store,
-                            old_message_id=old_msg_id,
-                            new_kernel_message_id=new_kernel_id,
-                        )
-                        if new_msg_id:
-                            ctx["external_current_text"] = text
-                            if reasoning_text:
-                                await mgr.send_json(
-                                    "node.streaming_delta",
-                                    {
-                                        "kind": "thinking_segment",
-                                        "message_id": new_msg_id,
-                                        "text": reasoning_text,
-                                        "run_id": rid,
-                                    },
-                                )
-                                _mark_visible_reasoning(
-                                    rid=rid,
-                                    group_id=reasoning_group_id,
-                                    reasoning=full_reasoning,
-                                )
-                            await mgr.send_json(
-                                "node.streaming_delta",
-                                {
-                                    "kind": "message_delta",
-                                    "message_id": new_msg_id,
-                                    "delta_text": text,
-                                    "run_id": rid,
-                                },
-                            )
-                    except Exception as exc:  # noqa: BLE001
-                        _log.warning(
-                            "IM observer close/restart delta send failed: %s", exc
-                        )
-
-                return _close_old_and_restart()
-
-            if message_id:
-                # feat-439-M2: 思考过程项先于正文 delta 转发到当前气泡。纯思考回合
-                # (content="") 只发 thinking_segment，不发 delta、不动 kernel_message_id
-                # (保留下一含正文回合的 roll 判定基准)。
-                if visible_reasoning:
-                    loop.create_task(
-                        _send(
-                            manager,
-                            "node.streaming_delta",
-                            {
-                                "kind": "thinking_segment",
-                                "message_id": message_id,
-                                "text": visible_reasoning,
-                                "run_id": run_id,
-                            },
-                        )
-                    )
-                    _mark_visible_reasoning(
-                        rid=run_id, group_id=group_id, reasoning=reasoning
-                    )
-                if content:
-                    # turn_start already ack'd — send delta directly.
-                    if kernel_msg_id:
-                        ctx["kernel_message_id"] = kernel_msg_id
-                    ctx["external_current_text"] = content
-                    loop.create_task(
-                        _send(
-                            manager,
-                            "node.streaming_delta",
-                            {
-                                "kind": "message_delta",
-                                "message_id": message_id,
-                                "delta_text": content,
-                                "run_id": run_id,
-                            },
-                        )
-                    )
-            elif content and conversation_id and agent_id:
-                # Kernel skipped run_status=running; send turn_start inline and await ack
-                # so we have message_id before the delta frame is dispatched.
-                async def _turn_start_then_delta(
-                    mgr: IMConnectionManager = manager,
-                    rid: str = run_id,
-                    cid: str = conversation_id,
-                    aid: str = agent_id,
-                    text: str = content,
-                    reasoning_text: str = visible_reasoning,
-                    reasoning_group_id: str = group_id,
-                    full_reasoning: str = reasoning,
-                    new_kernel_id: str = kernel_msg_id,
-                ) -> None:
-                    try:
-                        ack = await mgr.send_json_await_ack(
-                            "node.streaming_delta",
-                            {
-                                "kind": "turn_start",
-                                "conversation_id": cid,
-                                "agent_id": aid,
-                                "run_id": rid,
-                            },
-                        )
-                        returned_msg_id = _extract_ack_message_id(ack)
-                        if returned_msg_id and rid in run_context_store:
-                            run_context_store[rid]["message_id"] = returned_msg_id
-                            if new_kernel_id:
-                                run_context_store[rid]["kernel_message_id"] = (
-                                    new_kernel_id
-                                )
-                            run_context_store[rid]["external_current_text"] = text
-                            # feat-439-M2: 思考过程项先于正文 delta 转发到新建气泡。
-                            if reasoning_text:
-                                await mgr.send_json(
-                                    "node.streaming_delta",
-                                    {
-                                        "kind": "thinking_segment",
-                                        "message_id": returned_msg_id,
-                                        "text": reasoning_text,
-                                        "run_id": rid,
-                                    },
-                                )
-                                _mark_visible_reasoning(
-                                    rid=rid,
-                                    group_id=reasoning_group_id,
-                                    reasoning=full_reasoning,
-                                )
-                            await mgr.send_json(
-                                "node.streaming_delta",
-                                {
-                                    "kind": "message_delta",
-                                    "message_id": returned_msg_id,
-                                    "delta_text": text,
-                                    "run_id": rid,
-                                },
-                            )
-                    except Exception as exc:  # noqa: BLE001
-                        _log.warning(
-                            "IM observer turn_start_then_delta send failed: %s", exc
-                        )
-
-                return _turn_start_then_delta()
-
-        elif event_name == "turn_end":
-            # bugfix-380 R3: completed=False = ModelError path.
-            # Send message_completed with delivery_status="failed" to finalize the bubble
-            # (error content was already sent via message_delta; final_content=None preserves it).
-            # completed=True = normal success path, delivery_status defaults to "completed".
-            turn_completed = event.get("completed") is not False
-
-            # bugfix-410-fix-r1: turn_end is the normal-completion terminus (no reconcile
-            # runs on this path), so reap any leftover per-run in-flight entry here as a
-            # backstop. tool_end already drops entries as calls close; this catches the
-            # empty-dict residue and guarantees the map can't grow unbounded on a long
-            # Gateway. reconcile owns the abnormal path and pops there.
-            running_tool_calls.pop(run_id, None)
-
-            # Finalize message with token_usage if present (only on success path).
-            usage_raw = event.get("usage") if turn_completed else None
-            token_usage_payload: dict[str, object] | None = None
-            if isinstance(usage_raw, Mapping):
-                prompt = usage_raw.get("prompt_tokens") or usage_raw.get("input_tokens")
-                completion = usage_raw.get("completion_tokens") or usage_raw.get(
-                    "output_tokens"
-                )
-                if isinstance(prompt, int) and isinstance(completion, int):
-                    token_usage_payload = {
-                        "prompt": prompt,
-                        "completion": completion,
-                        "total": prompt + completion,
-                    }
-                    cw = event.get("context_window")
-                    if isinstance(cw, int) and cw > 0:
-                        token_usage_payload["context_window"] = cw
-                    # feat-439-M1: token_usage_payload 是白名单(只挑 prompt/completion)，
-                    # 缓存命中两字段必须在此显式补带，否则永远到不了 IM、命中率恒 0%。
-                    cache_read = usage_raw.get("cache_read_tokens")
-                    cache_total_input = usage_raw.get("cache_total_input_tokens")
-                    token_usage_payload["cache_read"] = (
-                        cache_read if isinstance(cache_read, int) else 0
-                    )
-                    token_usage_payload["cache_total_input"] = (
-                        cache_total_input if isinstance(cache_total_input, int) else 0
-                    )
-            if message_id:
-                _mirror_external_reply(
-                    rid=run_id,
-                    ctx=ctx,
-                    phase="final",
-                    text=ctx.get("external_current_text") or "",
-                )
-                loop.create_task(
-                    _send(
-                        manager,
-                        "node.streaming_delta",
-                        {
-                            "kind": "message_completed",
-                            "message_id": message_id,
-                            "final_content": None,
-                            "token_usage": token_usage_payload,
-                            "delivery_status": "completed"
-                            if turn_completed
-                            else "failed",
-                            # feat-445-M1: stamp the final bubble with the kernel message
-                            # id that produced it (decision 4 fork anchor).
-                            "kernel_message_id": ctx.get("kernel_message_id"),
-                            "run_id": run_id,
-                        },
-                    )
-                )
-
-        elif event_name == "run_heartbeat":
-            # bugfix-417-M3 R4: forward the kernel liveness heartbeat (tool / LLM-await /
-            # parked-permission) to IM as a lightweight `run_heartbeat` delta. IM's
-            # EventBridge appends a conversation_events row, advancing the message's
-            # last_evt timestamp so the relay watchdog sees the run as alive — no
-            # permission-specific marker needed (decision 4). Pure liveness: it does not
-            # mutate message content or tool_calls and is not rendered by the frontend.
-            if message_id:
-                loop.create_task(
-                    _send(
-                        manager,
-                        "node.streaming_delta",
-                        {
-                            "kind": "run_heartbeat",
-                            "message_id": message_id,
-                            "run_id": run_id,
-                            "source": str(event.get("source") or ""),
-                        },
-                    )
-                )
-
-        elif event_name == "tool_start":
-            call_id = str(event.get("call_id") or "").strip() or run_id
-            tool_name = str(event.get("name") or "")
-            arguments = event.get("arguments") or {}
-            # feat-425 C1: tool_start SSE 已带 presentation.emoji(realtime_stream
-            # on_tool_call)。透传到 running 行,自定义工具在执行阶段折叠行就显自带 emoji,
-            # 不再回退 🔧、等完成才跳变。空串则省略(沿用 detail 的省略未设约定)。
-            start_pres = event.get("presentation")
-            start_emoji: str | None = None
-            start_output: str | None = None
-            start_detail: Any = None
-            if isinstance(start_pres, Mapping) and start_pres.get("emoji"):
-                start_emoji = str(start_pres["emoji"])
-            if isinstance(start_pres, Mapping):
-                if start_pres.get("summary"):
-                    start_output = str(start_pres["summary"])
-                start_detail = start_pres.get("detail")
-            # bugfix-410-M2 R3: remember this call as in-flight until tool_end.
-            # bugfix-416 #111 stores the original input; bugfix-441-M2 stores the
-            # parameter-side presentation too, so abnormal reconcile can re-emit the
-            # same refresh/historical payload the running row already showed.
-            running_call: dict[str, Any] = {
-                "name": tool_name,
-                "input": arguments if isinstance(arguments, dict) else {},
-            }
-            if start_output is not None:
-                running_call["output"] = start_output
-            if start_detail is not None:
-                running_call["detail"] = start_detail
-            if start_emoji is not None:
-                running_call["emoji"] = start_emoji
-            running_tool_calls.setdefault(run_id, {})[call_id] = running_call
-            if message_id:
-                start_tool_call: dict[str, Any] = {
-                    "id": call_id,
-                    "name": tool_name,
-                    "status": "running",
-                    "input": arguments if isinstance(arguments, dict) else {},
-                }
-                if start_output is not None:
-                    start_tool_call["output"] = start_output
-                if start_detail is not None:
-                    start_tool_call["detail"] = start_detail
-                if start_emoji is not None:
-                    start_tool_call["emoji"] = start_emoji
-                loop.create_task(
-                    _send(
-                        manager,
-                        "node.streaming_delta",
-                        {
-                            "kind": "tool_call_upserted",
-                            "message_id": message_id,
-                            "tool_call": start_tool_call,
-                            "run_id": run_id,
-                        },
-                    )
-                )
-
-        elif event_name == "tool_end":
-            call_id = str(event.get("call_id") or "").strip() or run_id
-            tool_name = str(event.get("name") or "")
-            arguments = event.get("arguments") or {}
-            # bugfix-410-M2 R3: this call closed normally — drop it from in-flight.
-            # bugfix-410-fix-r1: also drop the run_id entry once its last in-flight call
-            # closes, so the per-run dict can't accumulate empty leftovers on a long-lived
-            # Gateway (turn_end finalizes the bubble but never re-touches this map).
-            inner = running_tool_calls.get(run_id)
-            if inner is not None:
-                inner.pop(call_id, None)
-                if not inner:
-                    running_tool_calls.pop(run_id, None)
-            duration_ms = event.get("duration_ms")
-            status = "failed" if event.get("error") else "completed"
-            # bugfix-410-M2 R4 (#97): forward the badge classification (e.g. "denied"
-            # for a hook-blocked tool) so the IM badge can render the right label.
-            reason_code = event.get("reason_code")
-            reason = str(reason_code).strip() if isinstance(reason_code, str) else None
-            # feat-434-M1: forward the user-decision verdict (user_allow/user_deny)
-            # the same way as reason — top-level kernel field, pure passthrough. None
-            # for auto-allowed /普通工具 (gate region stays hidden downstream).
-            approval_raw = event.get("approval")
-            approval = (
-                str(approval_raw).strip()
-                if isinstance(approval_raw, str) and approval_raw
-                else None
-            )
-            # feat-409 failalign: output(折叠行文案)只放 presenter 的干净 summary。
-            # 不再前缀原始 event.error——presenter 失败态 summary 已是干净主参数,error
-            # 只透传在 detail 里供展开卡渲染一次。早先把 error 也 append 进 output_parts
-            # 并 `|` 拼接,导致折叠行重复出现 error(用户实测:read 失败 error 现两次)。
-            pres = event.get("presentation")
-            output: str | None = None
-            detail: Any = None
-            emoji: str | None = None
-            if isinstance(pres, Mapping):
-                if pres.get("summary"):
-                    output = str(pres["summary"])
-                # feat-409 决策 1: forward the presenter-produced structured detail
-                # verbatim (already bounded by the kernel 256KB cap). The Gateway is a
-                # pure passthrough pipe — no re-truncation, no per-tool restructuring.
-                detail = pres.get("detail")
-                # feat-425 决策 1/2: 原样转发 presenter 自带的 emoji(纯透传,不加工)。
-                # 空串 = 工具未声明,沿用 detail 的省略未设约定,前端按名表兜底。
-                if pres.get("emoji"):
-                    emoji = str(pres["emoji"])
-            tool_call_payload: dict[str, Any] = {
-                "id": call_id,
-                "name": tool_name,
-                "status": status,
-                # bugfix-410-M2 R4 (#97): forward the badge classification alongside
-                # feat-409's structured detail — both ride the same tool_call payload.
-                "reason": reason,
-                "input": arguments if isinstance(arguments, dict) else {},
-                "output": output,
-                "duration_ms": int(duration_ms)
-                if isinstance(duration_ms, (int, float))
-                else None,
-            }
-            if detail is not None:
-                tool_call_payload["detail"] = detail
-            if emoji is not None:
-                tool_call_payload["emoji"] = emoji
-            # feat-434-M1 (F3): conditional write mirroring the emoji template —
-            # only user-decided calls carry approval, so普通工具的 WS delta 不再带
-            # `"approval": null`. Keeps both ends (Gateway forward / IM serialize)
-            # consistent on the `if approval is not None` convention.
-            if approval is not None:
-                tool_call_payload["approval"] = approval
-            if message_id:
-                loop.create_task(
-                    _send(
-                        manager,
-                        "node.streaming_delta",
-                        {
-                            "kind": "tool_call_completed",
-                            "message_id": message_id,
-                            "tool_call": tool_call_payload,
-                            "run_id": run_id,
-                        },
-                    )
-                )
-
-        elif event_name == "permission_request":
-            # Agent auto_mode_gate is awaiting a user decision; forward to IM so the
-            # permission card can be rendered in the chat. External channels receive
-            # the same request payload as a native surface (e.g. Feishu interactive
-            # card) and resolve through the same kernel broker.
-            request_id = str(event.get("request_id") or "").strip()
-            tool_name = str(event.get("tool_name") or "").strip()
-            tool_input = event.get("tool_input")
-            question = str(event.get("question") or "").strip()
-            options_raw = event.get("options")
-            options = list(options_raw) if isinstance(options_raw, list) else []
-            permission_request = {
-                "request_id": request_id,
-                "tool_name": tool_name,
-                "tool_input": dict(tool_input)
-                if isinstance(tool_input, Mapping)
-                else (tool_input or {}),
-                "question": question,
-                "options": options,
-                "status": "pending",
-            }
-            if message_id and im_connected and manager is not None:
-                loop.create_task(
-                    _send(
-                        manager,
-                        "node.streaming_delta",
-                        {
-                            "kind": "permission_request",
-                            "message_id": message_id,
-                            "permission_request": permission_request,
-                            "run_id": run_id,
-                        },
-                    )
-                )
-            _mirror_external_permission_request(
-                rid=run_id,
-                ctx=ctx,
-                request=permission_request,
-            )
-
-        elif event_name == "permission_resolved":
-            # Agent resolved a permission request (hook resumed); update the IM card
-            # so the user sees the final decision.
-            request_id = str(event.get("request_id") or "").strip()
-            decision = str(event.get("decision") or "").strip()
-            if message_id and im_connected and manager is not None:
-                loop.create_task(
-                    _send(
-                        manager,
-                        "node.streaming_delta",
-                        {
-                            "kind": "permission_resolved",
-                            "message_id": message_id,
-                            "request_id": request_id,
-                            "decision": decision,
-                            "run_id": run_id,
-                        },
-                    )
-                )
-            _mirror_external_permission_resolved(
-                ctx=ctx,
-                request_id=request_id,
-                decision=decision,
-            )
-
-        elif event_name == "injection_consumed":
-            # bugfix-426-M4 决策6: the kernel just drained a steered (injected) message
-            # into the model context on THIS run (run_id unchanged under 决策5). IM is a
-            # time-ordered bubble chat: the steer user message already sits in the
-            # conversation, so the reply to it must land in a NEW bubble that sorts
-            # AFTER the steer — not appended to the bubble that was answering the prior
-            # message. Finalize the current bubble A cleanly (completed, NOT failed —
-            # the prior reply genuinely ended), then open bubble B at this consume
-            # moment (so it sorts after the steer) and route subsequent deltas to it.
-            # This is the same close+turn_start+restart sequence as the textA→textB
-            # multi-bubble path (_close_old_and_restart), but anchored to the explicit
-            # consume signal instead of inferring it from a changed kernel_message_id.
-            # V3: do NOT gate on message_id. With V1's fix the active run's bubble
-            # context survives, so message_id is normally present; but in the narrow
-            # window where a turn_start ack has not returned yet, message_id can be ""
-            # transiently. Still roll: _roll_bubble closes bubble A only if there is one
-            # (old_message_id truthy) and always opens B, so the steer reply never gets
-            # stranded without a bubble. _roll_bubble's per-run guard makes back-to-back
-            # steers (two injection_consumed) safe (no double-open / zombie bubble).
-            if conversation_id and agent_id:
-
-                async def _roll_bubble_on_steer(
-                    mgr: IMConnectionManager = manager,
-                    rid: str = run_id,
-                    cid: str = conversation_id,
-                    aid: str = agent_id,
-                    old_msg_id: str = message_id,
-                ) -> None:
-                    try:
-                        await _roll_bubble(
-                            mgr,
-                            run_id=rid,
-                            conversation_id=cid,
-                            agent_id=aid,
-                            run_context_store=run_context_store,
-                            old_message_id=old_msg_id or None,
-                            # Clear kernel_message_id (new_kernel_message_id=None) so the
-                            # next assistant_message delta streams straight into bubble B
-                            # rather than tripping _close_old_and_restart again.
-                            new_kernel_message_id=None,
-                        )
-                    except Exception as exc:  # noqa: BLE001
-                        _log.warning("IM observer steer bubble roll failed: %s", exc)
-
-                return _roll_bubble_on_steer()
-
-        elif event_name == "run_terminal_reconcile":
-            # bugfix-410-M2 R3 (#97): a run terminated abnormally (watchdog timeout /
-            # crash / interrupt) and any tool_call still in flight never received a
-            # tool_end, so its IM badge would spin forever. Close each remaining
-            # in-flight call with status=failed + a reason. Already-completed calls
-            # were popped on tool_end, so they are untouched. reason ∈ {stalled
-            # (watchdog liveness reap → 已中断), interrupted (other abnormal
-            # termination → 已中断), tool_timeout (tool's own deadline → 执行超时)}.
-            reason = str(event.get("reason") or "interrupted").strip() or "interrupted"
-            # bugfix-417-M5 (#114): a user /stop attaches the CC-identical
-            # user-attribution content so the in-flight tool card displays the same
-            # body the model sees in the transcript. Absent (system reap) → no body.
-            reconcile_content = event.get("content")
-            reconcile_output = (
-                str(reconcile_content)
-                if isinstance(reconcile_content, str) and reconcile_content
-                else None
-            )
-            inflight = running_tool_calls.pop(run_id, {})
-            if message_id and inflight:
-                for stuck_call_id, stuck_call in inflight.items():
-                    # bugfix-416 #111: re-emit the original input recorded at tool_start
-                    # so command/description survive the reconcile; only status + reason
-                    # change. (Entries pre-bugfix-416 stored a bare name string — tolerate
-                    # that shape so an in-flight call across a deploy still closes cleanly.)
-                    if isinstance(stuck_call, Mapping):
-                        stuck_name = str(stuck_call.get("name") or "")
-                        stuck_input = stuck_call.get("input") or {}
-                        stuck_output = stuck_call.get("output")
-                        stuck_detail = stuck_call.get("detail")
-                        stuck_emoji = stuck_call.get("emoji")
-                    else:
-                        stuck_name = str(stuck_call)
-                        stuck_input = {}
-                        stuck_output = None
-                        stuck_detail = None
-                        stuck_emoji = None
-                    stuck_tool_call: dict[str, Any] = {
-                        "id": stuck_call_id,
-                        "name": stuck_name,
-                        "status": "failed",
-                        "reason": reason,
-                        # stuck_input is already a dict: the Mapping branch
-                        # uses `or {}`, and the bare-name branch sets {}.
-                        "input": stuck_input,
-                    }
-                    if stuck_output is not None:
-                        stuck_tool_call["output"] = stuck_output
-                    if stuck_detail is not None:
-                        stuck_tool_call["detail"] = stuck_detail
-                    if stuck_emoji is not None:
-                        stuck_tool_call["emoji"] = stuck_emoji
-                    if reconcile_output is not None:
-                        stuck_tool_call["output"] = reconcile_output
-                    loop.create_task(
-                        _send(
-                            manager,
-                            "node.streaming_delta",
-                            {
-                                "kind": "tool_call_completed",
-                                "message_id": message_id,
-                                "tool_call": stuck_tool_call,
-                                "run_id": run_id,
-                            },
-                        )
-                    )
-
-            # bugfix-417-fix2 (#114, Issue 1): a user /stop cancels the run, but the
-            # kernel emits NO turn_end on the cancel path (turn_end fires only on
-            # success / ModelError), so the agent bubble would stay stuck on the
-            # "running" spinner. When the Gateway marks this reconcile finalize_bubble
-            # (set ONLY for a user-/stop cancel, never for a watchdog/crash reap which
-            # must stay failed — Req B), finalize the bubble with delivery_status=
-            # completed (a user stop is a clean termination, not a failure).
-            if event.get("finalize_bubble") and message_id:
-                loop.create_task(
-                    _send(
-                        manager,
-                        "node.streaming_delta",
-                        {
-                            "kind": "message_completed",
-                            "message_id": message_id,
-                            "final_content": None,
-                            "token_usage": None,
-                            "delivery_status": "completed",
-                            "run_id": run_id,
-                        },
-                    )
-                )
-
-    return observer
-
-
-def _build_session_event_callback(
-    *,
-    im_connection_manager_factory: Callable[[], "IMConnectionManager | None"],
-    session_store: "SessionBindingStore",
-) -> Callable[[str, Mapping[str, Any]], Awaitable[None]]:
-    """Build a session event callback that sends self_evolution_review as IM system messages.
-
-    When the background hook publishes ``self_evolution_review`` after a turn, this
-    callback is invoked with the kernel_session_id and the raw event payload.  It
-    resolves the conversation_id via the session binding store and sends a
-    ``node.system_message`` frame to IM so users see a non-first-person notification.
-
-    Args:
-        im_connection_manager_factory: Returns the live IM connection manager (may be None).
-        session_store: Gateway session binding store used to reverse-resolve conversation_id.
-
-    Returns:
-        Async callable ``(kernel_session_id, event) -> None``.
-    """
-
-    async def _callback(kernel_session_id: str, event: Mapping[str, Any]) -> None:
-        manager = im_connection_manager_factory()
-        if manager is None or not manager.connected:
-            return
-
-        event_name = event.get("event")
-        if event_name != "self_evolution_review":
-            return
-
-        # Resolve conversation_id from the session binding.
-        binding = session_store.find_by_kernel_session_id(kernel_session_id)
-        if binding is None:
-            return
-        conversation_id = _reply_context_im_conversation_id(binding.reply_context)
-        if not conversation_id:
-            return
-
-        # Format a human-readable system notification matching the CLI style.
-        # The SSE event dict is flat: the hook's payload fields (reviewed_skills,
-        # reviewed_memory) are merged to the top level by the kernel stream, not
-        # nested under "data".  Reading event["data"] here always missed them and
-        # degraded every notification to the generic "self-evolution" subject.
-        reviewed_skills: bool = bool(event.get("reviewed_skills", False))
-        reviewed_memory: bool = bool(event.get("reviewed_memory", False))
-        if reviewed_skills and reviewed_memory:
-            subject = "skills + memory"
-        elif reviewed_skills:
-            subject = "skills"
-        elif reviewed_memory:
-            subject = "memory"
-        else:
-            subject = "self-evolution"
-        text = f"· background self-evolution review: {subject} updated"
-
-        try:
-            await manager.send_json(
-                "node.system_message",
-                {
-                    "conversation_id": conversation_id,
-                    "text": text,
-                },
-            )
-        except Exception as exc:  # noqa: BLE001
-            # Background notification delivery must never crash the gateway.
-            _log.warning(
-                "session event notification delivery failed (conversation_id=%s): %s",
-                conversation_id,
-                exc,
-            )
-
-    return _callback
-
-
-def _build_bg_reply_sender(
-    *,
-    im_connection_manager_factory: "Callable[[], IMConnectionManager | None]",
-    external_reply_sender: Callable[[str, Mapping[str, str]], Any] | None = None,
-) -> "Callable[[str, Any, str], Awaitable[None]]":
-    """Build an async callable that relays user-visible agent/control text.
-
-    Called by InboundPipeline's bg_run_output_callback when a BACKGROUND_TASK-origin
-    run emits an assistant_message event, and by control paths such as /stop/image
-    failure that are not normal kernel assistant bubbles. Feishu-triggered contexts are
-    sent to the original external channel and shadow IM; IM-triggered contexts stay in
-    IM.
-
-    Args:
-        im_connection_manager_factory: Returns the live IM connection manager (may be None).
-        external_reply_sender: Optional sender for external-channel visible text.
-
-    Returns:
-        Async callable ``(text, reply_context, from_session_id) -> None``.
-        ``from_session_id`` should carry the ``|tool_call:<key>`` suffix built
-        by the caller (inbound_pipeline) for IM-side deduplication (bugfix-404 F1).
-    """
-    from personal_assistant.channels.base import ReplyContext as _RC  # noqa: PLC0415
-
-    async def _sender(text: str, reply_context: _RC, from_session_id: str) -> None:
-        cleaned_text = text.strip()
-        if not from_session_id or not cleaned_text:
-            return
-
-        external_metadata = _reply_context_external_delivery_metadata(
-            reply_context,
-            from_session_id=from_session_id,
-        )
-        if external_metadata is not None and external_reply_sender is not None:
-            try:
-                result = external_reply_sender(cleaned_text, external_metadata)
-                if asyncio.iscoroutine(result):
-                    await result
-            except Exception as exc:  # noqa: BLE001
-                _log.warning(
-                    "visible text external delivery failed (channel=%s target=%s): %s",
-                    external_metadata.get("channel_name", ""),
-                    external_metadata.get("target_chat_id", ""),
-                    exc,
-                )
-
-        manager = im_connection_manager_factory()
-        if manager is None or not manager.connected:
-            return
-        conversation_id = _reply_context_im_conversation_id(reply_context)
-        if not conversation_id:
-            return
-        try:
-            await manager.send_agent_message(
-                {
-                    "text": cleaned_text,
-                    "to": conversation_id,
-                    # from_session_id carries optional "|tool_call:<key>" suffix so
-                    # IM deduplicates replayed bg replies (bugfix-404 F1).
-                    "from_session_id": from_session_id,
-                }
-            )
-        except Exception as exc:  # noqa: BLE001
-            _log.warning(
-                "bg_reply_sender send_agent_message failed (conv=%s from=%s): %s",
-                conversation_id,
-                from_session_id,
-                exc,
-            )
-
-    return _sender
-
-
-def _reply_context_im_conversation_id(reply_context: ReplyContext) -> str | None:
-    """Return the IM conversation id for a reply context, if one exists."""
-    metadata = dict(reply_context.metadata)
-    shadow_id = _metadata_text(metadata, key="shadow_conversation_id")
-    if shadow_id is not None:
-        return shadow_id
-    conversation_id = _metadata_text(metadata, key="conversation_id")
-    if conversation_id is not None:
-        return conversation_id
-    if reply_context.channel_name == "web_relay":
-        target = reply_context.target_chat_id.strip()
-        return target or None
-    return None
-
-
-def _reply_context_external_delivery_metadata(
-    reply_context: ReplyContext,
-    *,
-    from_session_id: str,
-) -> dict[str, str] | None:
-    """Build external-channel delivery metadata for user-visible control/bg text."""
-    metadata = dict(reply_context.metadata)
-    trigger_source = _metadata_text(metadata, key="trigger_source")
-    external_source = _metadata_text(metadata, key="external_source")
-    if (
-        trigger_source == "im"
-        or reply_context.channel_name == "web_relay"
-        or not reply_context.target_chat_id.strip()
-        or (trigger_source is None and external_source is None)
-    ):
-        return None
-    delivery: dict[str, str] = {
-        "channel_name": reply_context.channel_name,
-        "target_chat_id": reply_context.target_chat_id,
-        "reply_phase": _visible_reply_phase_from_session_id(from_session_id),
-        "reply_dedupe_key": from_session_id,
-    }
-    if reply_context.thread_id:
-        delivery["reply_thread_id"] = reply_context.thread_id
-    feishu_message_id = _metadata_text(metadata, key="feishu_message_id")
-    if feishu_message_id is not None:
-        delivery["feishu_message_id"] = feishu_message_id
-    return delivery
-
-
-def _visible_reply_phase_from_session_id(from_session_id: str) -> str:
-    """Classify non-kernel visible text for adapter lifecycle handling."""
-    lowered = from_session_id.lower()
-    if ":stop-" in lowered or ":image-error-" in lowered or ":permission-" in lowered:
-        return "control"
-    return "intermediate"
 
 
 def _build_attachment_fetcher(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 from pathlib import Path
 
 import pytest
@@ -19,6 +20,22 @@ from personal_assistant.config.local_store import (
 )
 from personal_assistant.gateway.channel_registry import ChannelRegistry
 from personal_assistant.gateway.inbound_pipeline import RelayLifecycleUpdate
+from personal_assistant.channels.base import InboundMessage
+from personal_assistant.gateway.runtime_protocol import (
+    RuntimeProtocolFacts,
+    ShadowConversationRef,
+    attach_runtime_protocol,
+)
+from personal_assistant.gateway.runtime_delivery.context import (
+    OwnerDirectTarget,
+    RunDeliveryContext,
+    RunDeliveryContextStore,
+    RunDeliveryTarget,
+)
+from personal_assistant.gateway.runtime_delivery.lifecycle import (
+    build_relay_lifecycle_callback as _build_relay_lifecycle_callback,
+)
+from personal_assistant.gateway.runtime_delivery.observer import roll_bubble
 from personal_assistant.main import (
     GatewayRuntime,
     GatewayStartupError,
@@ -26,7 +43,6 @@ from personal_assistant.main import (
     _IMBootstrapClient,
     _build_channel_registry,
     _build_kernel_event_observer,
-    _build_relay_lifecycle_callback,
     build_runtime,
     run_gateway,
 )
@@ -71,6 +87,356 @@ class _AckChannel:
 
     def ack_message(self, message_id: str) -> None:
         self.acked.append(message_id)
+
+
+class _AckingIMManager:
+    connected = True
+
+    def __init__(
+        self,
+        *,
+        message_id: str = "im-msg-1",
+        conversation_id: str | None = None,
+    ) -> None:
+        self.sent_frames: list[tuple[str, dict[str, object]]] = []
+        self._message_id = message_id
+        self._conversation_id = conversation_id
+
+    async def send_json_await_ack(
+        self, message_type: str, payload: dict[str, object]
+    ) -> dict[str, object]:
+        self.sent_frames.append((message_type, payload))
+        ack_payload: dict[str, object] = {"message_id": self._message_id}
+        if self._conversation_id is not None:
+            ack_payload["conversation_id"] = self._conversation_id
+        return {"payload": ack_payload}
+
+    async def send_json(self, message_type: str, payload: dict[str, object]) -> None:
+        self.sent_frames.append((message_type, payload))
+
+
+def test_run_delivery_target_distinguishes_shadow_owner_direct_and_none() -> None:
+    shadow_ref = ShadowConversationRef(conversation_id="shadow-conv-1")
+
+    shadow = RunDeliveryTarget.shadow(shadow_ref)
+    owner_direct = RunDeliveryTarget.for_owner_direct(
+        OwnerDirectTarget(to_user_id="owner-1", agent_id="agent-a")
+    )
+    none = RunDeliveryTarget.none(reason="external_without_shadow")
+
+    assert shadow.kind == "shadow"
+    assert shadow.shadow_ref is shadow_ref
+    assert shadow.owner_direct is None
+    assert owner_direct.kind == "owner_direct"
+    assert owner_direct.shadow_ref is None
+    assert owner_direct.owner_direct == OwnerDirectTarget(
+        to_user_id="owner-1", agent_id="agent-a"
+    )
+    assert none.kind == "none"
+    assert none.shadow_ref is None
+    assert none.owner_direct is None
+
+
+def test_relay_lifecycle_seeds_typed_owner_direct_context_and_legacy_view() -> None:
+    context_store = RunDeliveryContextStore()
+    callback = _build_relay_lifecycle_callback(
+        reporter=None,
+        im_connection_manager_factory=lambda: None,
+        run_context_store=context_store,
+        owner_user_id="owner-1",
+    )
+    message = InboundMessage(
+        channel_name="heartbeat",
+        text="tick",
+        external_user_id="owner-1",
+        external_chat_id="",
+        is_group=False,
+        metadata={},
+    )
+
+    asyncio.run(
+        callback(
+            message,
+            RelayLifecycleUpdate(
+                phase="accepted",
+                agent_id="agent-a",
+                session_key="heartbeat:agent-a",
+                run_id="run-owner-direct",
+                kernel_session_id="sess-owner-direct",
+            ),
+        )
+    )
+
+    ctx = context_store.get("run-owner-direct")
+    assert ctx is not None
+    assert ctx.delivery_target.kind == "owner_direct"
+    assert ctx.delivery_target.owner_direct == OwnerDirectTarget(
+        to_user_id="owner-1",
+        agent_id="agent-a",
+    )
+    assert context_store.legacy_contexts["run-owner-direct"] == {
+        "conversation_id": "",
+        "message_id": "",
+        "agent_id": "agent-a",
+        "kernel_session_id": "sess-owner-direct",
+        "to_user_id": "owner-1",
+    }
+
+
+def test_relay_lifecycle_partial_external_metadata_never_targets_owner_direct() -> None:
+    context_store = RunDeliveryContextStore()
+    callback = _build_relay_lifecycle_callback(
+        reporter=None,
+        im_connection_manager_factory=lambda: None,
+        run_context_store=context_store,
+        owner_user_id="owner-1",
+    )
+    message = InboundMessage(
+        channel_name="feishu",
+        text="hello",
+        external_user_id="ou-user",
+        external_chat_id="",
+        is_group=False,
+        metadata={"external_source": "feishu", "agent_id": "agent-a"},
+    )
+
+    asyncio.run(
+        callback(
+            message,
+            RelayLifecycleUpdate(
+                phase="accepted",
+                agent_id="agent-a",
+                session_key="feishu:legacy:agent-a",
+                run_id="run-partial-external",
+                kernel_session_id="sess-partial-external",
+            ),
+        )
+    )
+
+    context = context_store.get("run-partial-external")
+    assert context is not None
+    assert context.delivery_target.kind == "none"
+    assert context.delivery_target.reason == "external_without_shadow"
+    assert context_store.legacy_contexts["run-partial-external"]["to_user_id"] == ""
+
+
+def test_relay_lifecycle_cleanup_removes_typed_and_legacy_context() -> None:
+    context_store = RunDeliveryContextStore()
+    callback = _build_relay_lifecycle_callback(
+        reporter=None,
+        im_connection_manager_factory=lambda: None,
+        run_context_store=context_store,
+        owner_user_id="owner-1",
+    )
+    message = InboundMessage(
+        channel_name="web_relay",
+        text="hello",
+        external_user_id="user-1",
+        external_chat_id="conv-1",
+        is_group=False,
+        metadata={"relay_task_id": "relay-1", "message_id": "msg-1"},
+    )
+
+    async def _exercise() -> None:
+        await callback(
+            message,
+            RelayLifecycleUpdate(
+                phase="accepted",
+                agent_id="agent-a",
+                session_key="web:user:agent-a",
+                run_id="run-cleanup",
+                kernel_session_id="sess-cleanup",
+            ),
+        )
+        assert context_store.get("run-cleanup") is not None
+        await callback(
+            message,
+            RelayLifecycleUpdate(
+                phase="failed",
+                agent_id="agent-a",
+                session_key="web:user:agent-a",
+                run_id="run-cleanup",
+                error="boom",
+            ),
+        )
+
+    asyncio.run(_exercise())
+
+    assert context_store.get("run-cleanup") is None
+    assert "run-cleanup" not in context_store.legacy_contexts
+
+
+def test_typed_store_fresh_relay_accepted_still_sends_sent_receipt() -> None:
+    reporter = UpstreamReporter(
+        node=NodeConfig(node_id="node-local"), agents=(), send_frame=lambda _t, _p: None
+    )
+    manager = _FakeIMManager([])
+    context_store = RunDeliveryContextStore()
+    callback = _build_relay_lifecycle_callback(
+        reporter=reporter,
+        im_connection_manager_factory=lambda: manager,
+        run_context_store=context_store,
+    )
+    message = InboundMessage(
+        channel_name="web_relay",
+        text="hello",
+        external_user_id="user-1",
+        external_chat_id="conv-1",
+        is_group=False,
+        metadata={"relay_task_id": "relay-1", "message_id": "msg-1"},
+    )
+
+    asyncio.run(
+        callback(
+            message,
+            RelayLifecycleUpdate(
+                phase="accepted",
+                agent_id="agent-a",
+                session_key="web:user:agent-a",
+                run_id="run-accepted",
+                kernel_session_id="sess-accepted",
+            ),
+        )
+    )
+
+    assert context_store.get("run-accepted") is not None
+    assert manager.sent_frames == [
+        (
+            "node.delivery_receipt",
+            {
+                "relay_task_id": "relay-1",
+                "delivery_status": "sent",
+                "detail": "run_id=run-accepted",
+                "node_id": "node-local",
+            },
+        )
+    ]
+
+
+def test_typed_context_store_holds_turn_start_ack_message_id() -> None:
+    context_store = RunDeliveryContextStore()
+    context_store.seed(
+        RunDeliveryContext(
+            run_id="run-shadow-ack",
+            agent_id="agent-a",
+            kernel_session_id="sess-shadow",
+            delivery_target=RunDeliveryTarget.shadow(
+                ShadowConversationRef(conversation_id="conv-shadow")
+            ),
+        )
+    )
+    manager = _AckingIMManager(message_id="im-msg-shadow")
+    observer = _build_kernel_event_observer(
+        im_connection_manager_factory=lambda: manager,
+        run_context_store=context_store,
+    )
+
+    async def _exercise() -> None:
+        result = observer(
+            {
+                "event": "run_status",
+                "run_id": "run-shadow-ack",
+                "status": "running",
+            }
+        )
+        assert asyncio.iscoroutine(result)
+        await result
+
+    asyncio.run(_exercise())
+
+    ctx = context_store.get("run-shadow-ack")
+    assert ctx is not None
+    assert ctx.message_id == "im-msg-shadow"
+
+
+def test_typed_owner_direct_lazy_turn_start_backfills_context_and_sends_delta() -> None:
+    context_store = RunDeliveryContextStore()
+    context_store.seed(
+        RunDeliveryContext(
+            run_id="run-owner-lazy",
+            agent_id="agent-a",
+            kernel_session_id="sess-owner",
+            delivery_target=RunDeliveryTarget.for_owner_direct(
+                OwnerDirectTarget(to_user_id="owner-user", agent_id="agent-a")
+            ),
+        )
+    )
+    manager = _AckingIMManager(
+        message_id="im-msg-owner",
+        conversation_id="conv-owner",
+    )
+    observer = _build_kernel_event_observer(
+        im_connection_manager_factory=lambda: manager,
+        run_context_store=context_store,
+    )
+
+    async def _exercise() -> None:
+        result = observer(
+            {
+                "event": "assistant_message",
+                "run_id": "run-owner-lazy",
+                "content": "Daily summary.",
+                "message_id": "kernel-owner-msg",
+            }
+        )
+        assert asyncio.iscoroutine(result)
+        await result
+
+    asyncio.run(_exercise())
+
+    ctx = context_store.get("run-owner-lazy")
+    assert ctx is not None
+    assert ctx.conversation_id == "conv-owner"
+    assert ctx.message_id == "im-msg-owner"
+    assert ctx.kernel_message_id == "kernel-owner-msg"
+    assert [frame[1]["kind"] for frame in manager.sent_frames] == [
+        "turn_start",
+        "message_delta",
+    ]
+
+
+def test_roll_bubble_updates_typed_context_runtime_state() -> None:
+    context_store = RunDeliveryContextStore()
+    context_store.seed(
+        RunDeliveryContext(
+            run_id="run-roll",
+            agent_id="agent-a",
+            kernel_session_id="sess-roll",
+            delivery_target=RunDeliveryTarget.shadow(
+                ShadowConversationRef(conversation_id="conv-roll")
+            ),
+        )
+    )
+    context_store.set_message_id("run-roll", "im-msg-a")
+    context_store.set_kernel_message_id("run-roll", "kernel-msg-a")
+    manager = _AckingIMManager(message_id="im-msg-b")
+
+    new_message_id = asyncio.run(
+        roll_bubble(
+            manager,
+            run_id="run-roll",
+            conversation_id="conv-roll",
+            agent_id="agent-a",
+            run_context_store=context_store,
+            old_message_id="im-msg-a",
+            new_kernel_message_id="kernel-msg-b",
+        )
+    )
+
+    assert new_message_id == "im-msg-b"
+    ctx = context_store.get("run-roll")
+    assert ctx is not None
+    assert ctx.message_id == "im-msg-b"
+    assert ctx.kernel_message_id == "kernel-msg-b"
+    assert ctx.rolling is False
+
+
+def test_build_runtime_wires_typed_delivery_context_store() -> None:
+    source = inspect.getsource(build_runtime)
+
+    assert "RunDeliveryContextStore()" in source
+    assert "_run_context_store" not in source
+    assert "run_context_store=run_delivery_contexts.legacy_contexts" not in source
 
 
 def test_relay_lifecycle_callback_sends_receipts_and_reports_with_real_usage_to_im() -> (
@@ -138,6 +504,62 @@ def test_relay_lifecycle_callback_sends_receipts_and_reports_with_real_usage_to_
         "total_tokens": 18,
     }
     assert manager.sent_frames[3][1]["detail"] == "hello from agent"
+
+
+def test_relay_lifecycle_reads_delivery_facts_from_runtime_protocol() -> None:
+    """Typed protocol facts override stale raw relay metadata for receipts and reports."""
+    reporter = UpstreamReporter(
+        node=NodeConfig(node_id="node-local"), agents=(), send_frame=lambda _t, _p: None
+    )
+    manager = _FakeIMManager([])
+    callback = _build_relay_lifecycle_callback(
+        reporter=reporter,
+        im_connection_manager_factory=lambda: manager,
+    )
+    message = InboundMessage(
+        channel_name="web_relay",
+        text="hello",
+        external_user_id="user-1",
+        external_chat_id="raw-conv",
+        is_group=False,
+        metadata={"relay_task_id": "raw-relay", "message_id": "raw-msg"},
+    )
+    message = attach_runtime_protocol(
+        message,
+        RuntimeProtocolFacts(
+            relay_task_id="typed-relay",
+            idempotency_key="typed-idem",
+            im_message_id="typed-msg",
+            shadow_ref=ShadowConversationRef(conversation_id="typed-conv"),
+        ),
+    )
+
+    async def _exercise() -> None:
+        await callback(
+            message,
+            RelayLifecycleUpdate(
+                phase="accepted",
+                agent_id="agent-a",
+                session_key="web:user:agent-a",
+                run_id="run-1",
+            ),
+        )
+        await callback(
+            message,
+            RelayLifecycleUpdate(
+                phase="running",
+                agent_id="agent-a",
+                session_key="web:user:agent-a",
+                run_id="run-1",
+                reply_text="hello from agent",
+            ),
+        )
+
+    asyncio.run(_exercise())
+
+    assert manager.sent_frames[0][1]["relay_task_id"] == "typed-relay"
+    assert manager.sent_frames[1][1]["conversation_id"] == "typed-conv"
+    assert manager.sent_frames[1][1]["message_id"] == "typed-msg"
 
 
 def test_relay_lifecycle_accepted_acks_feishu_message_processing_started() -> None:

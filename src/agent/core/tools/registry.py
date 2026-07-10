@@ -2,6 +2,7 @@
 
 import asyncio
 import contextlib
+import json
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -34,6 +35,36 @@ from .session_file_state import SessionFileState
 _GENERIC_EXECUTION_HEARTBEAT_INTERVAL = DEFAULT_LIVENESS_HEARTBEAT_INTERVAL_SECONDS
 
 
+class _AutoClassifierProjectionTool:
+    """Delegate wrapper that supplies generic classifier projection for tools."""
+
+    def __init__(self, tool: Tool) -> None:
+        self._tool = tool
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._tool, name)
+
+    def to_auto_classifier_input(self, tool_input: Mapping[str, Any]) -> str:
+        """Project un-specialized tools as structured JSON for the classifier."""
+
+        return json.dumps(
+            {
+                "tool": str(getattr(self._tool, "name", "")),
+                "input": dict(tool_input),
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            default=str,
+        )
+
+
+def _ensure_auto_classifier_projection(tool: Tool) -> Tool:
+    project = getattr(tool, "to_auto_classifier_input", None)
+    if callable(project):
+        return tool
+    return _AutoClassifierProjectionTool(tool)
+
+
 class ToolRegistry:
     """Store tool definitions and execute them with hook-aware lifecycle events."""
 
@@ -60,6 +91,7 @@ class ToolRegistry:
                 are rejected to preserve legacy strictness for direct callers.
         """
 
+        tool = _ensure_auto_classifier_projection(tool)
         name = str(getattr(tool, "name", "")).strip()
         if not name:
             raise ValueError("tool name is required")
@@ -624,6 +656,7 @@ def _resolve_execution_context(
         tool_call_id=base_context.tool_call_id,
         safety_overrides=base_context.safety_overrides,
         execution_event_callback=base_context.execution_event_callback,
+        skill_batch_review_enqueue=base_context.skill_batch_review_enqueue,
         llm_client=base_context.llm_client,
     )
 

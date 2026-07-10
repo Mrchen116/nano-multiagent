@@ -196,6 +196,78 @@ async def test_tool_result_emits_tool_end_with_presentation() -> None:
     assert evt["data"]["presentation"]["visible"] is True
 
 
+async def test_skill_manage_create_success_emits_skill_created() -> None:
+    hooks = HookRegistry()
+    setup_realtime_stream(hooks)
+    runner = HookRunner(registry=hooks)
+    pub = _FakePublisher()
+    ctx = _make_ctx(publisher=pub)
+
+    await runner.dispatch_observe(
+        "tool_result",
+        {
+            "session_id": "sess_1",
+            "turn_id": "turn_1",
+            "call_id": "call_1",
+            "name": "skill_manage",
+            "arguments": {"action": "create", "scope": "global"},
+            "output": {
+                "success": True,
+                "name": "new-skill",
+                "scope": "global",
+                "location": "/tmp/global-skills/new-skill/SKILL.md",
+                "skill_root": "/tmp/global-skills",
+            },
+            "duration_ms": 12,
+            "run_id": "run_1",
+        },
+        ctx,
+    )
+
+    assert [evt["event"] for evt in pub.events] == ["tool_end", "skill_created"]
+    assert pub.events[1]["data"] == {
+        "event": "skill_created",
+        "run_id": "run_1",
+        "turn_id": "turn_1",
+        "call_id": "call_1",
+        "name": "new-skill",
+        "scope": "global",
+        "location": "/tmp/global-skills/new-skill/SKILL.md",
+        "skill_root": "/tmp/global-skills",
+    }
+
+
+async def test_skill_manage_non_create_does_not_emit_skill_created() -> None:
+    hooks = HookRegistry()
+    setup_realtime_stream(hooks)
+    runner = HookRunner(registry=hooks)
+    pub = _FakePublisher()
+    ctx = _make_ctx(publisher=pub)
+
+    await runner.dispatch_observe(
+        "tool_result",
+        {
+            "session_id": "sess_1",
+            "turn_id": "turn_1",
+            "call_id": "call_1",
+            "name": "skill_manage",
+            "arguments": {"action": "patch", "scope": "global"},
+            "output": {
+                "success": True,
+                "name": "new-skill",
+                "scope": "global",
+                "location": "/tmp/global-skills/new-skill/SKILL.md",
+                "skill_root": "/tmp/global-skills",
+            },
+            "duration_ms": 12,
+            "run_id": "run_1",
+        },
+        ctx,
+    )
+
+    assert [evt["event"] for evt in pub.events] == ["tool_end"]
+
+
 async def test_tool_result_failed_emits_tool_end_failed() -> None:
     hooks = HookRegistry()
     setup_realtime_stream(hooks)

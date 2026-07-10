@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Relay Protocol Specification
 
-> 对齐: feat-447
+> 对齐: feat-446
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -27,6 +27,19 @@ Gateway 纯透传 presenter 字段,不按工具语义增删。
 - **GIVEN** 同一工具调用执行结束
 - **WHEN** Gateway 中继该工具的 `tool_end` 事件给 IM
 - **THEN** `tool_call_completed` 帧携带 presenter 的 `summary`(写入 `output`)与含结果的完整 `detail`
+
+### Requirement: Skills 使用统计 WS RPC
+
+IM 查询某 agent 的 skill 使用统计时,Gateway 经 WS RPC 读取该 agent workspace 的运行态统计文件并回包;
+缺文件或缺 workspace 视为空列表。
+
+#### Scenario: IM 前端通过 gateway 读取 skill 使用统计
+- **WHEN** Gateway 收到 WS RPC `skills_usage_request`(含 agentId)
+- **THEN** 读取该 agent workspace 的 skill 使用统计,聚合后返回 `skills_usage_response`
+
+#### Scenario: workspace 不存在或 usage 缺失
+- **WHEN** agent workspace 不存在或使用统计文件缺失
+- **THEN** Gateway 返回空 skill 列表,不报错
 
 ### Requirement: 通道中继去重并把多媒体附件透传给内核
 

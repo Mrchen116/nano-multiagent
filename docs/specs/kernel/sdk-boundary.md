@@ -1,6 +1,6 @@
 # kernel (agent) - SDK Boundary Specification
 
-> 对齐: feat-445
+> 对齐: feat-446
 > 上级: [kernel (agent) Specification](spec.md)
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)「给库/内核写契约的额外纪律」。本目录只收 **消费者经 `agent.sdk` 真正依赖的对外行为**(CDC 裁剪);内部如何装配/实现不在此层(那在代码 + 归档 design)。
@@ -125,6 +125,10 @@ SDK-owned 不可变数据,与已装配 Kernel 实际能力一致;内核不做产
 - **WHEN** 调四个 list_* 查询
 - **THEN** models 含目录模型 + 默认、tools 含工具目录事实、features 为内核通用项投影、
   skills 为指定 workspace 解析结果
+
+#### Scenario: 消费者可在工具目录中启用 skill_view
+- **WHEN** 消费者通过 `Kernel.list_tools()` 或 `Kernel.list_session_tools(...)` 查看包含默认自进化工具的工具目录
+- **THEN** 返回的工具目录中包含真实工具名 `skill_view`
 
 #### Scenario: 部署级共享 skill 根叠加在每 workspace 根之上
 - **GIVEN** `build_kernel(skill_search_roots=(R1, R2))` 装配的 Kernel,某 workspace 自有 skill

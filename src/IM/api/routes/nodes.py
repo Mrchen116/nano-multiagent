@@ -240,19 +240,29 @@ async def create_node_agent(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="node_id not found"
         )
+    requested_skills: list[str] | None = payload.skills
+    if "skills" not in payload.model_fields_set:
+        requested_skills = None
+        live_capabilities = await gateway_handler.request_node_capabilities(
+            target_node_id=node_id
+        )
+        if live_capabilities is not None:
+            requested_skills = _default_on_names(live_capabilities.get("skills"))
+    create_payload: dict[str, object] = {
+        "agent_id": payload.agent_id,
+        "display_name": payload.display_name,
+        "description": payload.description,
+        "system_prompt": payload.system_prompt,
+        "tool_allowlist": payload.tool_allowlist,
+        "group_reply_policy": payload.group_reply_policy,
+        "default_model": payload.default_model,
+        "workspace_root": payload.workspace_root,
+    }
+    if requested_skills is not None:
+        create_payload["skills"] = requested_skills
     created_payload = await gateway_handler.request_agent_create(
         target_node_id=node_id,
-        payload={
-            "agent_id": payload.agent_id,
-            "display_name": payload.display_name,
-            "description": payload.description,
-            "system_prompt": payload.system_prompt,
-            "skills": payload.skills,
-            "tool_allowlist": payload.tool_allowlist,
-            "group_reply_policy": payload.group_reply_policy,
-            "default_model": payload.default_model,
-            "workspace_root": payload.workspace_root,
-        },
+        payload=create_payload,
     )
     if created_payload is None:
         raise HTTPException(
@@ -280,7 +290,7 @@ async def create_node_agent(
                 created_payload.get("system_prompt"), fallback=payload.system_prompt
             ),
             skills=_coerce_string_list(
-                created_payload.get("skills"), fallback=payload.skills
+                created_payload.get("skills"), fallback=requested_skills
             ),
             tool_allowlist=_coerce_string_list(
                 created_payload.get("tool_allowlist"), fallback=payload.tool_allowlist
@@ -338,6 +348,12 @@ def _coerce_string_list(value: object, fallback: list[str] | None = None) -> lis
     if isinstance(value, list):
         return [item for item in value if isinstance(item, str)]
     return list(fallback or [])
+
+
+def _default_on_names(value: object) -> list[str]:
+    return [
+        item.name for item in coerce_allowlist_options(value) if item.default_on is True
+    ]
 
 
 def _coerce_text(value: object, *, fallback: str) -> str:

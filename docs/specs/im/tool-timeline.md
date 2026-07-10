@@ -1,6 +1,6 @@
 # IM - Tool Timeline Specification
 
-> 对齐: feat-447
+> 对齐: feat-446
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
@@ -148,10 +148,22 @@ prompt、查询词)在工具执行中即可见;结果(如 stdout、退出码、�
 - **AND** prompt 呈现在子 agent 执行结果之前
 - **AND** 子 agent 失败时仍显示派发 prompt 与错误文本(不退化为空错误卡)
 
-#### Scenario: memory / skill_manage / task_stop 有专属呈现
-- **WHEN** 用户展开 memory、skill_manage 或 task_stop 工具行
-- **THEN** 看到该工具的结果卡片(写入的记忆 / 创建的 skill / 停止的任务),而不是截断的 JSON
-- **AND** memory / skill_manage 返回失败(success=false)时,卡片呈现失败态而非成功态
+#### Scenario: memory / skill_manage / skill_view / task_stop 有专属呈现
+- **WHEN** 用户展开 memory、skill_manage、skill_view 或 task_stop 工具行
+- **THEN** 看到该工具的结果卡片(写入的记忆 / 创建的 skill / 查看到的 skill / 停止的任务),而不是截断的 JSON
+- **AND** memory / skill_manage / skill_view 返回失败(success=false)时,卡片呈现失败态而非成功态
+
+#### Scenario: skill_view 成功调用的折叠态可审计
+- **WHEN** 浏览器前端展示一次成功的 `skill_view` 工具调用
+- **THEN** 工具行显示真实工具名 `skill_view`,折叠态摘要显示"查看 skill：<name>"
+
+#### Scenario: skill_view 成功调用的展开态展示内容
+- **WHEN** 用户展开一次成功的 `skill_view` 工具调用
+- **THEN** 展开态显示 skill name、location、content 预览,并提供展开全文入口
+
+#### Scenario: skill_view 调用失败时展示失败态
+- **WHEN** 浏览器前端展示一次 `success=false` 的 `skill_view` 工具调用
+- **THEN** 工具行标红,展开态展示错误原因
 
 ### Requirement: 长输出可控展开,不撑爆聊天流
 

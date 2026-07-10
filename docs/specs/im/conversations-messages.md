@@ -1,6 +1,6 @@
 # IM - Conversations and Messages Specification
 
-> 对齐: feat-447
+> 对齐: feat-446 + feat-447
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
@@ -34,6 +34,11 @@
 #### Scenario: 未知会话相关读写返回稳定 404
 - **WHEN** 前端对不存在的 `conversation_id` 调 messages / 详情(GET) / 更新(PATCH)
 - **THEN** 全部 404,`detail == "conversation_id not found"`
+
+#### Scenario: conversation 列表与 sync 暴露通用运行态
+- **WHEN** 浏览器前端请求 conversation 列表或 sync 数据
+- **THEN** 每个 conversation item 包含通用字段 `run_state`,取值至少支持 `"idle"` 与 `"running"`
+- **AND** 该字段不带 distill 命名,可被其他功能复用
 
 ### Requirement: 外部 channel 影子会话按外部身份幂等创建
 

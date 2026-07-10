@@ -1,7 +1,7 @@
 """Tests for auto_mode_gate new dispatch order (bugfix-355 M1 R4).
 
 Verifies:
-- web_fetch and web_search removed from SAFE_TOOL_ALLOWLIST
+- web_fetch removed from SAFE_TOOL_ALLOWLIST
 - _detect_outside_workspace_path function is gone
 - _WRITE_TOOLS_WITH_PATH_INPUT constant is gone
 - OUTSIDE NOTE no longer prepended to classifier prompt
@@ -12,7 +12,7 @@ Verifies:
 - check_permissions allow → directly allowed without classifier
 - check_permissions deny → directly denied without classifier
 - check_permissions passthrough → falls through to bash/classifier
-- tool registry None → passthrough (fail-open)
+- unknown non-safe tool or missing projection → ask/fail-closed
 """
 
 from __future__ import annotations
@@ -47,6 +47,7 @@ def _make_tool_with_check_permissions(
             behavior=behavior, decision_reason=decision_reason
         )
     )
+    tool.to_auto_classifier_input = MagicMock(return_value="mock projection")
     return tool
 
 
@@ -128,11 +129,9 @@ class TestSafeToolAllowlistChanges:
             "web_fetch must be removed from SAFE_TOOL_ALLOWLIST (falls to check_permissions)"
         )
 
-    def test_web_search_removed_from_safe_allowlist(self):
-        """web_search must NOT be in SAFE_TOOL_ALLOWLIST after M1 (S2 gap)."""
-        assert "web_search" not in SAFE_TOOL_ALLOWLIST, (
-            "web_search must be removed from SAFE_TOOL_ALLOWLIST (falls to classifier)"
-        )
+    def test_web_search_in_safe_allowlist(self):
+        """bugfix-456: web_search is read-only search and bypasses classifier."""
+        assert "web_search" in SAFE_TOOL_ALLOWLIST
 
     def test_read_still_in_safe_allowlist(self):
         """read must remain in SAFE_TOOL_ALLOWLIST."""
@@ -142,16 +141,18 @@ class TestSafeToolAllowlistChanges:
         """agent must remain in SAFE_TOOL_ALLOWLIST (D2 decision)."""
         assert "agent" in SAFE_TOOL_ALLOWLIST
 
-    def test_task_tools_still_in_safe_allowlist(self):
+    def test_task_stop_still_in_safe_allowlist(self):
+        assert "task_stop" in SAFE_TOOL_ALLOWLIST
+
+    def test_other_task_tools_not_preapproved(self):
         for tool in (
             "task_create",
             "task_get",
             "task_update",
             "task_list",
-            "task_stop",
             "task_output",
         ):
-            assert tool in SAFE_TOOL_ALLOWLIST
+            assert tool not in SAFE_TOOL_ALLOWLIST
 
     def test_send_message_still_in_safe_allowlist(self):
         assert "send_message" in SAFE_TOOL_ALLOWLIST
@@ -160,9 +161,8 @@ class TestSafeToolAllowlistChanges:
         """is_safe_tool must return False for web_fetch after removal."""
         assert is_safe_tool("web_fetch", AutoModeConfig()) is False
 
-    def test_is_safe_tool_web_search_false(self):
-        """is_safe_tool must return False for web_search after removal."""
-        assert is_safe_tool("web_search", AutoModeConfig()) is False
+    def test_is_safe_tool_web_search_true(self):
+        assert is_safe_tool("web_search", AutoModeConfig()) is True
 
 
 # ---------------------------------------------------------------------------
@@ -205,7 +205,10 @@ class TestOutsideNoteRemoved:
 
         config = AutoModeConfig()
         handler, _ = _get_handler(config)
-        ctx = _make_ctx(config=config)
+        ctx = _make_ctx(
+            config=config,
+            tool_instance=_make_tool_with_check_permissions("passthrough"),
+        )
         ctx.call_model = capturing_model
 
         # write to out-of-workspace path (previously would add OUTSIDE NOTE)
@@ -291,8 +294,8 @@ class TestCheckPermissionsDispatch:
         assert result is None or result.get("block") is not True
 
     @pytest.mark.asyncio
-    async def test_no_tool_registry_falls_to_passthrough(self):
-        """When tool_registry is absent in metadata, gate treats as passthrough (fail-open)."""
+    async def test_no_tool_registry_fails_closed_without_classifier(self):
+        """Unknown non-safe tools must fail closed instead of classifying empty action."""
         config = AutoModeConfig()
         model_result = MagicMock()
         model_result.content = "<block>no</block>"
@@ -307,8 +310,25 @@ class TestCheckPermissionsDispatch:
             {"name": "web_fetch", "args": {"url": "https://example.com"}},
             ctx,
         )
-        # Gate should not crash; falls to classifier → allow
-        assert result is None or result.get("block") is not True
+        assert result is not None
+        assert result.get("block") is True
+        assert "projection" in result.get("reason", "").lower()
+
+    @pytest.mark.asyncio
+    async def test_missing_projection_fails_closed_without_classifier(self):
+        """A registered non-safe tool without projection must not reach classifier."""
+        tool = _make_tool_without_check_permissions()
+        config = AutoModeConfig()
+        handler, _ = _get_handler(config)
+        ctx = _make_ctx(config=config, tool_instance=tool)
+        ctx.call_model = AsyncMock()
+
+        result = await handler({"name": "no_perm_tool", "args": {"x": 1}}, ctx)
+
+        assert result is not None
+        assert result.get("block") is True
+        assert "projection" in result.get("reason", "").lower()
+        ctx.call_model.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

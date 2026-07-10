@@ -7,15 +7,43 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from personal_assistant.channels.base import ReplyContext
+from personal_assistant.channels.base import InboundMessage, ReplyContext
+from personal_assistant.gateway.runtime_protocol import (
+    RuntimeProtocolFacts,
+    ShadowConversationRef,
+    attach_runtime_protocol,
+)
 from personal_assistant.gateway.session_keys import (
     PersistentSessionBindingStore,
     SessionBinding,
+    build_reply_context,
 )
 
 
 def _make_reply_context(chat_id: str = "chat-1") -> ReplyContext:
     return ReplyContext(channel_name="web_relay", target_chat_id=chat_id)
+
+
+def _make_message_with_runtime_protocol() -> InboundMessage:
+    return attach_runtime_protocol(
+        InboundMessage(
+            channel_name="web_relay",
+            text="hello",
+            external_user_id="user-1",
+            external_chat_id="conv-1",
+            is_group=False,
+            metadata={"message_id": "msg-1"},
+        ),
+        RuntimeProtocolFacts(
+            relay_task_id="relay-1",
+            im_message_id="msg-1",
+            shadow_ref=ShadowConversationRef(
+                conversation_id="conv-1",
+                relay_task_id="relay-1",
+                im_message_id="msg-1",
+            ),
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -123,6 +151,36 @@ class TestR1PersistAndRecover:
         db_path = tmp_path / "subdir" / "sb.sqlite3"
         PersistentSessionBindingStore(db_path=db_path)
         assert db_path.exists()
+
+    def test_build_reply_context_strips_private_runtime_protocol_metadata(
+        self,
+    ) -> None:
+        """Typed delivery facts are private and excluded from channel contexts."""
+        reply_context = build_reply_context(_make_message_with_runtime_protocol())
+
+        assert reply_context.metadata == {"message_id": "msg-1"}
+
+    def test_bind_strips_existing_private_runtime_protocol_metadata(
+        self, tmp_path: Path
+    ) -> None:
+        """Typed delivery facts stay in memory and do not leak into persisted context."""
+        store = PersistentSessionBindingStore(db_path=tmp_path / "sb.sqlite3")
+        message = _make_message_with_runtime_protocol()
+        reply_context = ReplyContext(
+            channel_name=message.channel_name,
+            target_chat_id=message.external_chat_id,
+            metadata=dict(message.metadata),
+        )
+
+        store.bind(
+            session_key="web_relay:conv-1:agent-a",
+            kernel_session_id="ksess-1",
+            reply_context=reply_context,
+        )
+
+        binding = store.get("web_relay:conv-1:agent-a")
+        assert binding is not None
+        assert binding.reply_context.metadata == {"message_id": "msg-1"}
 
 
 # ---------------------------------------------------------------------------

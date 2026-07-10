@@ -28,6 +28,7 @@
 <!-- §2 -->
 - Tasks: N/N complete（或 X/N，逐条列未完成项）
 - Spec 覆盖：哪些 requirement 有实现 / 哪些缺失
+- Prototype / Reference 覆盖：若 design.md 有前端原型，逐项说明 must-match 行是否有 milestone 投影、progress/acceptance 证据和 durable evidence；无原型写 N/A
 
 ## Correctness
 
@@ -44,6 +45,14 @@
 | design 决策 | 遵守? | 代码证据（file:line） |
 |---|---|---|
 | <从 design 复制> | 是 / 否 |  |
+
+### Prototype / Reference Contract
+
+<!-- 仅 design.md 有前端原型 / reference 时填写；否则写 N/A。verifier 只核 explicit contract 与证据链，不做主观视觉评分。 -->
+
+| Reference contract | Milestone projection | Implementation evidence | Durable evidence | Status |
+|---|---|---|---|---|
+| <must-match 行> | <退出标准 / tasks.md> | <file:line 或 missing> | <progress/acceptance 证据路径> | covered / warning / critical |
 
 ## Issues
 

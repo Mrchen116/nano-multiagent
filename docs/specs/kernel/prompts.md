@@ -1,6 +1,6 @@
 # kernel (agent) - Prompts Specification
 
-> 对齐: feat-445
+> 对齐: feat-446
 > 上级: [kernel (agent) Specification](spec.md)
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)「给库/内核写契约的额外纪律」。本目录只收 **消费者经 `agent.sdk` 真正依赖的对外行为**(CDC 裁剪);内部如何装配/实现不在此层(那在代码 + 归档 design)。
@@ -14,8 +14,8 @@
 ### Requirement: feature 内核只留通用项,产品专属条件 prompt 全 per-session 经 PromptSlots
 
 内核 feature 目录只含配内核内置工具的通用项:`memory_curation`(`memory` 工具)、`skill_creation`
-(`skill_manage` 工具),其开关在 `create_session(features=…)`,gate 内核统一模板对应段(flag 开 +
-requires_tool 在场)。内核不含任何产品专属 feature。产品专属条件 prompt(cron 指引 / heartbeat 指引 /
+(`skill_manage` 或 `skill_view` 工具),其开关在 `create_session(features=…)`,gate 内核统一模板对应段
+(flag 开 + 所需工具在场)。内核不含任何产品专属 feature。产品专属条件 prompt(cron 指引 / heartbeat 指引 /
 群聊上下文)**全是 per-session**(由 agent 配置在 create_session 时定、整会话不变),经
 `create_session(prompt=PromptSlots)` 注入;产品**不向系统提示做 per-turn 注入**。
 

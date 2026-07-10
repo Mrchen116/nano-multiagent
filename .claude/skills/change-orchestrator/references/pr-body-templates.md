@@ -44,7 +44,7 @@ Refs #<n>              # Relations Refs 字段 + reviewer 立的 out-of-unit maj
 
 ## Spec Delta
 
-<列 §7.0 收尾归并改了哪些 docs/specs/<包>/spec.md;无则写 "no spec delta">
+<列 §7.0 收尾归并改了哪些 docs/specs/<包>/<target>.md;无则写 "no spec delta">
 
 ## Validation Summary
 
@@ -83,7 +83,7 @@ Refs #<n>
 
 ## Spec Delta
 
-<列 §7.0 收尾归并改了哪些 docs/specs/<包>/spec.md;无则写 "no spec delta">
+<列 §7.0 收尾归并改了哪些 docs/specs/<包>/<target>.md;无则写 "no spec delta">
 
 ## Validation Summary
 

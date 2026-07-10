@@ -15,6 +15,7 @@ from .edit import EditTool
 from .memory import MemoryTool
 from .read import ReadTool
 from .skill_manage import SkillManageTool
+from .skill_view import SkillViewTool
 from .task_stop import TaskStopTool
 from .web_fetch import WebFetchTool
 from .write import WriteTool
@@ -28,6 +29,7 @@ __all__ = [
     "MemoryTool",
     "ReadTool",
     "SkillManageTool",
+    "SkillViewTool",
     "TaskStopTool",
     "WebFetchTool",
     "WriteTool",

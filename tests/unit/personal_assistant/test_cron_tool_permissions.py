@@ -1,16 +1,9 @@
-"""Tests for feat-394-M5 R1: cron tool check_permissions gates auto_mode_gate.
+"""Tests for cron tool action-level check_permissions gates auto_mode_gate.
 
-R3-1 fix: CronTool must implement check_permissions returning allow so that
-auto_mode_gate bypasses the classifier for cron tool calls.
-Without this, auto_mode_gate falls through to the classifier which denies
-cron tool calls as "Unauthorized Persistence" (modifying cron jobs/schedules).
-
-Design: cron tool is only injected into the agent's tool table when cron_enabled=True
-(enforced by toolsets.py gate), which constitutes the user's authorization.
-check_permissions therefore unconditionally allows the call — the gate for
-"is this agent allowed to use cron" is at tool registration time, not at call time.
-
-See acceptance.md Round 3 Issue R3-1.
+bugfix-456 tightens cron from unconditional allow to action-level fast path:
+list/runs are local read-only queries, while add/update/remove/run change
+long-lived automation state or trigger execution and must fall through to the
+classifier with a current action projection.
 """
 
 from __future__ import annotations
@@ -20,7 +13,7 @@ from unittest.mock import MagicMock
 
 
 class TestCronToolCheckPermissions:
-    """CronTool.check_permissions must return allow to bypass auto_mode_gate classifier."""
+    """CronTool.check_permissions must allow only read-only query actions."""
 
     def _get_cron_tool(self):
         from personal_assistant.tools.cron import make_cron_tool
@@ -32,43 +25,55 @@ class TestCronToolCheckPermissions:
         tool = self._get_cron_tool()
         assert hasattr(tool, "check_permissions"), (
             "CronTool must implement check_permissions so auto_mode_gate "
-            "bypasses the classifier for cron tool calls (R3-1 fix)"
+            "can fast-path low-risk queries and classify mutating actions"
         )
         assert callable(getattr(tool, "check_permissions")), (
             "check_permissions must be callable"
         )
 
-    def test_check_permissions_returns_allow_for_any_input(self) -> None:
-        """check_permissions must return allow for any cron tool call.
-
-        Authorization is at tool registration time (cron_enabled=True gate in toolsets.py).
-        At call time, any registered cron invocation is pre-authorized.
-        """
+    def test_check_permissions_allows_list_and_runs(self) -> None:
         tool = self._get_cron_tool()
         ctx = MagicMock()
         ctx.session_metadata = {}
 
-        for action in ("list", "add", "update", "remove", "run", "runs"):
+        for action in ("list", "runs"):
             result = tool.check_permissions({"action": action}, ctx)
-            assert result is not None, (
-                f"check_permissions returned None for action={action}"
-            )
             behavior = getattr(result, "behavior", None)
-            assert behavior == "allow", (
-                f"check_permissions must return allow for action={action}, got {behavior!r}. "
-                "The cron tool must not fall through to the classifier which would "
-                "deny the call as 'Unauthorized Persistence'."
-            )
+            assert behavior == "allow"
+
+    def test_check_permissions_passthrough_for_mutating_actions(self) -> None:
+        tool = self._get_cron_tool()
+        ctx = MagicMock()
+        ctx.session_metadata = {}
+
+        for action in ("add", "update", "remove", "run"):
+            result = tool.check_permissions({"action": action}, ctx)
+            assert getattr(result, "behavior", None) == "passthrough"
+
+    def test_cron_projects_mutating_actions(self) -> None:
+        tool = self._get_cron_tool()
+        projection = tool.to_auto_classifier_input(
+            {
+                "action": "add",
+                "job": {
+                    "name": "daily summary",
+                    "schedule": {"kind": "cron", "expr": "0 9 * * *"},
+                    "payload": {"kind": "agentTurn", "message": "summarize"},
+                },
+            }
+        )
+        assert "action=add" in projection
+        assert "daily summary" in projection
 
     def test_check_permissions_allows_empty_input(self) -> None:
-        """check_permissions must handle any input shape (including empty dict)."""
+        """Empty input is not a query action, so it falls through to classifier."""
         tool = self._get_cron_tool()
         ctx = MagicMock()
         ctx.session_metadata = {}
 
         result = tool.check_permissions({}, ctx)
         behavior = getattr(result, "behavior", None)
-        assert behavior == "allow"
+        assert behavior == "passthrough"
 
     def test_check_permissions_result_has_behavior_attribute(self) -> None:
         """auto_mode_gate reads result.behavior — must be present."""

@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Any
 
 from personal_assistant.channels.base import InboundMessage, ReplyContext
+from personal_assistant.gateway.runtime_protocol import strip_runtime_protocol_metadata
+from personal_assistant.gateway.runtime_protocol import external_identity_from_message
 
 # KernelApiClient removed in M3 (refactor-387).
 
@@ -387,7 +389,7 @@ def _serialize_reply_context(rc: ReplyContext) -> str:
         "channel_name": rc.channel_name,
         "target_chat_id": rc.target_chat_id,
         "thread_id": rc.thread_id,
-        "metadata": dict(rc.metadata),
+        "metadata": strip_runtime_protocol_metadata(rc.metadata),
     }
     return json.dumps(payload)
 
@@ -418,18 +420,11 @@ def build_session_key(message: InboundMessage, *, agent_id: str) -> str:
         ``{channel}:{external_chat_id}:{agent_id}`` key.
     """
 
-    metadata = dict(message.metadata)
-    external_source = metadata.get("external_source")
-    external_chat_id = metadata.get("external_chat_id")
-    if (
-        isinstance(external_source, str)
-        and external_source.strip()
-        and isinstance(external_chat_id, str)
-        and external_chat_id.strip()
-    ):
+    external_identity = external_identity_from_message(message)
+    if external_identity is not None:
         return build_external_session_key(
-            external_source=external_source.strip(),
-            external_chat_id=external_chat_id.strip(),
+            external_source=external_identity.external_source,
+            external_chat_id=external_identity.external_chat_id,
             agent_id=agent_id,
         )
     return f"{message.channel_name}:{message.external_chat_id}:{agent_id}"
@@ -450,7 +445,7 @@ def build_reply_context(message: InboundMessage) -> ReplyContext:
         channel_name=message.channel_name,
         target_chat_id=message.external_chat_id,
         thread_id=message.thread_id,
-        metadata=dict(message.metadata),
+        metadata=strip_runtime_protocol_metadata(message.metadata),
     )
 
 

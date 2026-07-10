@@ -11,6 +11,7 @@ from typing import Any, Coroutine
 from agent.core.agent.runtime import AgentRuntime
 from agent.core.background_tasks.interfaces import (
     BackgroundBashRunner,
+    BackgroundSubagentHandle,
     BackgroundSubagentRunner,
     BackgroundTaskOutput,
     BackgroundTaskStore,
@@ -227,7 +228,7 @@ class _NoOpSubagentRunner(BackgroundSubagentRunner):
         workspace_root: "Path | None" = None,
         llm_session_id: str | None = None,
         model: str | None = None,
-    ) -> BackgroundTaskStopper:
+    ) -> BackgroundSubagentHandle:
         # bugfix-443: AgentTool threads model= to every subagent dispatch; accept
         # and ignore it here so the fallback still fails gracefully via on_fail
         # instead of raising TypeError that would strand the task in RUNNING.
@@ -244,3 +245,7 @@ class _NoOpSubagentRunner(BackgroundSubagentRunner):
 class _NoOpStopper:
     def stop(self) -> None:
         pass
+
+    def send_message(self, prompt: str) -> bool:
+        del prompt
+        return False

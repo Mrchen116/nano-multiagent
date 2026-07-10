@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Agent Capabilities Specification
 
-> 对齐: feat-447
+> 对齐: feat-446
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -46,7 +46,7 @@ Gateway 在每个新 run(用户消息、heartbeat、cron 触发)按 agent 当前
 
 Gateway 为某 Agent 构建会话工具集时，以该 Agent 配置的 `tool_allowlist` 为白名单单一来源：非空时
 Agent 工具集**恰为**列出的这些（列表外的默认工具不提供，即默认文件/web 工具可被用户禁用）；为空时取
-产品默认工具集（未配置语义）。能力特性（如 cron）启用时，其 `requires_tool` 工具经"特性→工具"联动
+产品默认工具集（未配置语义,包含 `skill_view`）。能力特性（如 cron）启用时，其 `requires_tool` 工具经"特性→工具"联动
 已落在该 Agent 的 `tool_allowlist` 里，Gateway 不在运行时另行注入——Agent 工具集与配置侧存储的
 `tool_allowlist` 一致，无分裂。
 
@@ -59,11 +59,37 @@ Agent 工具集**恰为**列出的这些（列表外的默认工具不提供，�
 - **GIVEN** 某 Agent 的 `tool_allowlist` 为空
 - **WHEN** Gateway 为该 Agent 构建会话
 - **THEN** 该 Agent 工具集 = 产品默认工具集
+- **AND** 默认工具集合包含 `skill_view`
+
+#### Scenario: 显式工具白名单不被默认集合自动扩宽
+- **GIVEN** PA agent 已持久化非空 `tool_allowlist`
+- **WHEN** Gateway 为该 agent 创建新 session
+- **THEN** session 只启用该白名单列出的工具
+- **AND** 若白名单不含 `skill_view`,session 不启用 `skill_view`
 
 #### Scenario: 启用 cron 能力使 cron 工具进入该 Agent 工具集
 - **GIVEN** 某 Agent 启用了 cron 能力特性（其 `requires_tool="cron"` 已联动进 `tool_allowlist`）
 - **WHEN** Gateway 为该 Agent 构建会话
 - **THEN** 该 Agent 工具集包含 `cron` 工具；停用 cron 能力则 `cron` 工具随之移出
+
+#### Scenario: Gateway 上报能力时标记 skill_view 默认开启
+- **WHEN** Gateway 向 IM 上报当前节点可配置工具
+- **THEN** 工具列表包含 `skill_view`
+- **AND** `skill_view` 的 `default_on` 为 true
+
+### Requirement: PA 内置 skill 启动自举
+
+Gateway 启动时把产品包内置的 PA skills 安装到运行态全局 skill root,只补缺失,不覆盖用户已有文件。
+
+#### Scenario: Gateway 启动时安装缺失的 PA 内置 skill
+- **WHEN** Gateway 启动并发现包内 `builtin_skills/<skill-name>/SKILL.md`
+- **THEN** 若运行态全局 skill root 中不存在同名 `SKILL.md`,复制整个内置 skill 目录
+- **AND** 复制后的 skill 可被 PA agent 的 skill discovery 发现
+
+#### Scenario: 用户已有同名内置 skill 时不覆盖
+- **GIVEN** 运行态全局 skill root 中已存在 `<skill-name>/SKILL.md`
+- **WHEN** Gateway 启动
+- **THEN** 不覆盖该目录中的用户文件
 
 ### Requirement: 模型可在配置中声明各自的上下文窗口
 

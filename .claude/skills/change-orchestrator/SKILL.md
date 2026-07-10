@@ -19,7 +19,7 @@ Codex 执行本 skill 时,工具映射差异见 `references/codex-execution-note
 
 1. **门禁 2 没过不能启动**。检查 `docs/changes/<unit>/design.md`:无 `<!-- 模板说明 -->`、Milestone 表完整、空目录数量 = 表行数。任一不满足,**拒绝启动**,提示用户回 `change-design-author` 收口。
 2. **Sync Gate 不通过不动作**。启动第一件事是 main 同步检查(§2),分叉直接停下让人介入,不要强制 reset。
-3. **不写代码、不改 design / 变更稿 spec**。escalation 时通知人介入,由 design-author / spec-author 修订。**两个例外**:(a) 在 PR body / Changelog 这类调度产物里写文字;(b) §7.0 收尾归并:据本 unit delta-spec 把行为增量合并进**长青行为契约层** `docs/specs/<包>/spec.md`(顶层 canonical,你是单一 owner),并可校正 delta 文件 `docs/changes/<unit>/specs/<包>/spec.md`——注意这两者与 `docs/changes/<unit>/spec.md`(变更稿,禁改)是两回事。
+3. **不写代码、不改 design / 变更稿 spec**。escalation 时通知人介入,由 design-author / spec-author 修订。**两个例外**:(a) 在 PR body / Changelog 这类调度产物里写文字;(b) §7.0 收尾归并:据本 unit delta-spec 把行为增量合并进**长青行为契约层** `docs/specs/<包>/<target>.md`(顶层 canonical,你是单一 owner),并可校正 delta 文件 `docs/changes/<unit>/specs/<包>/<target>.md`——注意这两者与 `docs/changes/<unit>/spec.md`(变更稿,禁改)是两回事。
 4. **Agent 工具派发时不设置 isolation 参数**。worktree 由本 skill 分配路径并指示 worker 自建。设了 `isolation=worktree` 会在 `.claude/worktrees/` 创建冲突 worktree,破坏整个流程。
 5. **一个 milestone 一个 worker**。不让同一个 worker 串跑多个 milestone(上下文窗口风险 + 失败定位难)。
 6. **默认并行**。无依赖、无文件冲突的 milestone 必须并行派发;不并行才需要理由。
@@ -219,6 +219,7 @@ prompt 含完整派发包:
   unit_worktree_dir: <repo_root>/.worktrees/unit-<unit_id>
   branch: milestone/<milestone_id>
   mode: full | lite
+  frontend_reference_contract: <若 design.md 有 ## 前端原型,粘贴本 milestone 相关的 must-match / may-adapt / out-of-scope 行;否则 N/A>
 
 请按 skill 指引完成本 milestone。完成后回报状态。
 ```
@@ -282,6 +283,8 @@ worker 回报 DONE 时,逐项验:
 - [ ] `docs/changes/<unit_dir>/<milestone_dir>/tasks.md` 全部 roadpoint 标 DONE
 - [ ] `docs/changes/<unit_dir>/<milestone_dir>/progress.md` 每个 R 有结构化记录(Context/Decision/Rationale/Evidence/Rollback/Commits)
 - [ ] 若 milestone 涉及前端 UI / 视觉 / 原型 / 设计稿 / reference / 截图 / 响应式 / 布局样式要求,`progress.md` 的 Evidence 必须包含真实入口的视觉/交互自测证据(截图/录屏路径、viewport、reference 对照结论或 N/A 理由)
+- [ ] 若 `design.md ## 前端原型` 有原型对齐契约,`progress.md` 必须包含 `Prototype Comparison` 表,逐行覆盖本 milestone 相关的 `must-match` 项:`reference / actual evidence / viewport-state / match-or-deviation / accepted reason`
+- [ ] 前端/原型证据必须是 durable evidence:截图/录屏/报告落在 `docs/changes/<unit_dir>/<milestone_dir>/evidence/` 等 unit 目录内;只给 `/tmp/...`、浏览器临时会话或口头描述不达标
 - [ ] worktree 已清理(`git worktree list` 不应再列出该 milestone 的)
 - [ ] milestone 分支已删除(local + remote)
 - [ ] **lite 模式额外**:`docs/changes/<unit_dir>/fix.md` 的"修复"和"验证"两段已回填
@@ -293,6 +296,7 @@ worker 回报 DONE 时,逐项验:
 - 证据只展示前置态(入口可达、setup 已就绪),不展示退出标准要求的那一步行为本身
 - progress.md 出现"超出本 milestone""留待 reviewer 验证""后续补""未来工作"等回避表达——worker 自承未达,**不接受免责说辞**
 - 证据无法对应到具体某条退出标准
+- 原型/视觉项只写"使用现有组件/现有样式"或"页面能渲染",但没有和 reference 的逐项对照
 
 严格不等于挑剔。视觉质量、功能是否完美仍由 reviewer 判定。你判定的是:design 要观察什么、有没有真的去观察、有没有给出真正对得上的证据。
 
@@ -373,6 +377,7 @@ design-author 已经按反向门槛拆好 milestone(默认单 M1,拆分要举证
   verification_mode: full | targeted-closure | delta
   fix_delta_range: <pre_fix_head>..<HEAD>        # 非 full 时必传
   focus_issues: [<上一轮 CRITICAL/WARNING 指纹或摘要>]   # targeted-closure 时必传
+  frontend_reference_contract: <若 design.md 有 ## 前端原型,粘贴相关 must-match 行供 verifier 做证据链核对;否则 N/A>
   mode: full
 ```
 
@@ -387,6 +392,7 @@ design-author 已经按反向门槛拆好 milestone(默认单 M1,拆分要举证
   revalidation_mode: full | targeted
   focus_scenarios_or_issues: [<上一轮 fail/inconclusive issue 或 Scenario>]   # targeted 时必传
   fix_delta_range: <pre_fix_head>..<HEAD>        # targeted 时必传
+  frontend_reference_contract: <若 design.md 有 ## 前端原型,粘贴相关 must-match 行供 reviewer 做真实产品对照;否则 N/A>
   mode: full
 ```
 
@@ -456,6 +462,7 @@ NEW_COMMITS=$(git -C "$unit_worktree" log --oneline "$BEFORE..$AFTER")
 - acceptance/regression 报告必须有验收标准覆盖表,且没有明显只列 focus fix、漏掉首文档必验项。
 - 第 2 轮起,上一轮所有 `fail` / `inconclusive` 必须继续出现,直到有证据关闭。
 - 若首文档 / design / 验收项涉及前端 UI、视觉、原型、设计稿、reference、截图、响应式、布局样式,覆盖表必须有期望来源和真实产品截图/录屏/对照结论。
+- 若 `design.md ## 前端原型` 有原型对齐契约,reviewer 报告必须逐项覆盖所有相关 `must-match` 行;任何缺少实际产品证据或对照结论的行都使本轮 pass 无效。
 
 不满足则**作废本轮 pass**,要求对应闸补验或重跑;不要自己补报告。满足后提 PR(§7),退出。你只检查报告证据完整性,不判断视觉质量。
 
@@ -629,9 +636,9 @@ unit 内所有 issues 解决,reviewer 给 `pass`(或 `pass-with-issues` 且 acce
 
 ### §7.0 收尾归并:据 delta-spec 把行为增量并进长青契约层
 
-提 PR 前的最后一道实质动作——把本 unit 的对外行为增量并进长青行为契约层 `docs/specs/<包>/spec.md`,
+提 PR 前的最后一道实质动作——把本 unit 的对外行为增量并进长青行为契约层 `docs/specs/<包>/<target>.md`,
 让它保持 current。**不全量重扫 canonical**,而是据 design 阶段产的 **delta-spec**
-(`docs/changes/<unit_dir>/specs/<包>/spec.md`)合并。规范见 `docs/SPEC_GUIDE.md`「契约层增量」+
+(`docs/changes/<unit_dir>/specs/<包>/<target>.md`)合并。规范见 `docs/SPEC_GUIDE.md`「契约层增量」+
 「收尾归并 checklist」。
 
 > **fix 路径无 delta 的兜底**:lite 模式 / post-PR fix(§6.FL)没走 design-author,没有 delta 文件。若这类
@@ -642,7 +649,7 @@ unit 内所有 issues 解决,reviewer 给 `pass`(或 `pass-with-issues` 且 acce
 > `unit/<unit_id>` 分支上**,和源码 diff 同处一棵树——在 `$unit_worktree` 里编辑 + commit,随 PR 一起
 > 进 main。不动主仓 HEAD(§0.15)。
 
-对本 unit **有 delta 文件的每个包**(kernel / im / gateway / cli),按下面三步走:
+对本 unit **每个 delta 文件**(可在同一包下有多个 target),按下面三步走:
 
 **① 校正 delta(design 草案 → 实际代码)**:delta 是 design 期的预测,worker 实现可能偏。拿实际代码 diff
 核对 delta 每条 ADDED/MODIFIED/REMOVED——实现期新增的对外行为补进 delta、design 写了但没落地的删掉。
@@ -654,13 +661,13 @@ reviewer / verifier 时(或本步现派一轮)让其对**校正后 delta 的每�
 行为。背离与缺口**显式列在报告里**(advisory,不出红测、不机械硬卡)。范围 = 本 unit delta,**不是
 canonical 全量**。靠 agent 尽责对账,不靠机械绑定。
 
-**③ 合并 delta 进 canonical**:把校正后 delta 机械合并进对应 `docs/specs/<包>/spec.md`——ADDED 追加、
+**③ 合并 delta 进 canonical**:按相对路径把校正后 delta 机械合并进对应 `docs/specs/<包>/<target>.md`——ADDED 追加、
 MODIFIED 替换对应条目、REMOVED 删对应条目(delta 与 canonical 同骨架,对应是机械的)。每条进 canonical
 前再过 SPEC_GUIDE 的「两问判据」+「库契约四纪律」(WHEN/THEN 主语=消费者、CDC 裁剪、纯
 `Purpose + Requirement/Scenario`,**无** `覆盖:` 行 / `[可执行]` 标签 / freshness 测试),并守**实现层红线**:
 Scenario 的 THEN / 正文不得出现内部函数名、类名、日志字符串、`<符号> 被调用 / 不被调用` 断言(那是单测的事;
-delta 若混入也在此滤掉)。然后 bump 该
-文件头部 `> 对齐:` 行到本 unit-id。commit:`docs(<unit_id>): 收尾归并契约层 docs/specs/<包>`
+delta 若混入也在此滤掉)。只有包级职责、边界或 area 索引变化才写入口 `spec.md`;否则必须选择语义最窄的 area。
+然后 bump 实际 target 文件头部 `> 对齐:` 行到本 unit-id。commit:`docs(<unit_id>): 收尾归并契约层 docs/specs/<包>`
 (或多包分别 commit)。
 
 > 你是单一 owner、串行收尾,无并行写冲突。delta 把"该验 / 该合并什么"限定到本 unit 增量,不必全量
@@ -686,7 +693,7 @@ git -C "$unit_worktree" push --force-with-lease origin "unit/<unit_id>"
 
 从 unit 文档自动抽,按模式选模板——**full**(从 spec/design/acceptance/verification 抽)、**lite**(只从 fix.md 抽)。两套完整 markdown 模板 + 逐字段抽取来源见 `references/pr-body-templates.md`,提 PR 时读它照填。每个字段都从 unit 文档抽,不手写新内容。
 
-PR body 里附一行 **Spec delta**:列 §7.0 收尾归并改了哪些 `docs/specs/<包>/spec.md`(或 "no spec delta",纯内部 unit)。
+PR body 里附一行 **Spec delta**:列 §7.0 收尾归并实际改了哪些 `docs/specs/<包>/<target>.md`(或 "no spec delta",纯内部 unit)。
 
 PR body 里附一段 **Validation summary**:列每道闸最近一次有效状态(`full` / `targeted` / `targeted-closure` / `delta` / `patch` / `closure` / `retained` / `skipped`)、report path / diff range / validated head。任何 retained 闸都要写继承依据,让 reviewer 看得出是"上轮已验且本次 delta 未失效",不是漏验。
 
