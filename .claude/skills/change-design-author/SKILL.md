@@ -167,6 +167,27 @@ design.md 的核心段落:**架构总览、关键决策、接口与数据流、�
 - 调研结果有矛盾 / 看不懂时,问用户或问 `change-impl-worker` 之前的 progress.md / 历史 design.md,**不要靠猜**。
 - 如果调研发现首文档里某个用户场景在现有架构下完全跑不通(不是难,是逻辑上不可能),回 §1 退出本 skill 让用户回 `change-spec-author` 修首文档——这是门禁 1 的延后暴露,不能在 design 阶段硬塞。
 
+#### §3.0.5 按决策需要 call-in `codebase-design`
+
+完成 §3.0 grounding 后、进入架构图和关键决策之前,先判断本 unit 是否真的涉及 deep-module 设计。这是**按需设计技法**,不是新门禁或每个 design 的固定步骤。
+
+**任一正向触发命中才 call-in**:
+
+1. **模块深化**:要把一簇浅模块合并成更小 interface 背后的深模块,或删除传递式抽象。
+2. **重要 interface/seam 调整**:要改调用者必须理解的 interface,或重新选择 seam 的位置。
+3. **职责重新归属**:要决定行为 / 状态 / 错误模式应当收敛到哪个模块,以提高 locality 或 leverage。
+4. **测试面选择**:要决定测试应跨哪个 interface,是否需要 adapter,或如何替换旧的浅模块测试。
+
+**反向条件**:普通配置改动、文案 / 文档设计、局部实现调整,或不涉及上述模块 / interface / seam / 职责 / 测试面决策的 design,**不调用** `codebase-design`,按原流程继续。
+
+把判定用一句话告诉用户:`本 unit <命中 / 未命中> codebase-design,因为 <具体决策>`。命中时,明确告知用户为什么使用该 skill,然后调用 `codebase-design`:
+
+- 使用 module、interface、depth、seam、adapter、leverage、locality 分析架构关系,并按 `DEEPENING.md` 分类依赖与测试策略。
+- **项目正式术语优先**:保留项目已有的领域名、产品名、类型名和正式架构术语;上述词汇只描述架构关系,不机械重命名项目概念。
+- `codebase-design` 不新增独立产物。事实与现存问题写入既有 `## 现状分析`;选定的 module/interface/seam 和取舍写入 `## 关键决策`;调用顺序、依赖策略和测试面写入 `## 接口与数据流`;仍未决定的约束写入 `## 风险与回退`。
+
+**Design It Twice 是二级可选门槛**:只有当一个重要 interface 确实存在两种以上实质不同的方案,**且用户需要比较取舍**时,才读取并执行 `codebase-design` 的 `DESIGN-IT-TWICE.md`。“实质不同”指 interface 形状、seam 位置或依赖策略不同;只改命名、参数顺序或局部实现不算。未过此门槛时,不开并行方案设计。
+
 ### §3.1 先画图,但先定位难点再决定画哪几张
 
 design.md 读起来像文字墙,根源是该画的地方在用散文描述。人脑理解"结构 / 流程 / 状态"靠空间感,不靠句子。但**也不能每类图都画**——堆一堆无关图同样是噪音。判据只有一句:
