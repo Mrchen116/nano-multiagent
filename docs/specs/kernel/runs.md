@@ -1,0 +1,187 @@
+# kernel (agent) - Runs Specification
+
+> 对齐: feat-445
+> 上级: [kernel (agent) Specification](spec.md)
+>
+> 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)「给库/内核写契约的额外纪律」。本目录只收 **消费者经 `agent.sdk` 真正依赖的对外行为**(CDC 裁剪);内部如何装配/实现不在此层(那在代码 + 归档 design)。
+
+## Purpose
+
+会话创建、run 调度、steering、工具许可、中断、liveness 和 Kernel 关闭的对外契约。
+
+## Requirements
+
+### Requirement: 创建会话必须绑定 workspace_root
+
+消费者创建会话时绑定一个 `workspace_root`;该路径绑定到会话生命周期,后续该会话内工具执行的
+`cwd` / 安全沙箱边界、以及工具/hook/skill 的工作区层扫描均以此为根。
+
+#### Scenario: 创建会话返回绑定工作区的 Session
+- **WHEN** 消费者 `await kernel.create_session(workspace_root=<path>)`
+- **THEN** 返回一个 `Session`,其工作区根固定为该 `workspace_root`,会话内后续工具执行均在此根下进行
+
+### Requirement: submit 非阻塞调度一轮运行,事件经 stream 异步消费
+
+`submit()` 把一轮(turn)调度到内核后台事件循环并立即返回一个 `RunRecord`(初始状态 QUEUED);消费者
+经 `stream()` 异步迭代该会话的事件,跨自己的事件循环也能收到。
+
+#### Scenario: 提交后从 stream 收到运行状态事件
+- **GIVEN** 一个已创建的会话
+- **WHEN** 消费者 `kernel.submit(session_id, parts=[{type:text,...}], workspace_root=...)` 后
+  `async for ev in kernel.stream(session_id, after_sequence=0)`
+- **THEN** 收到扁平化事件 dict(含 `event` / `session_id` / `sequence_num` + payload 字段),
+  其中出现 `run_status` 事件,运行完成时其 `status` 为 `completed`(或失败时 `failed`)
+
+#### Scenario: 同步提交完成后运行记录可查
+- **WHEN** 提交一轮并轮询 `kernel.get_run(run_id)`
+- **THEN** 运行到达终态后记录 `status == "completed"` 且 `turn_id` 非空
+
+### Requirement: 经 submit 投递的消息可 steer 进活跃 run 的下一轮
+
+消费者经 `Kernel.submit(steer=True)` 投递用户消息时，内核按会话当前是否有活跃 run 决定注入或新建，结果由返回的 `RunInfo.injected` 标识；`steer=False`（默认）保持"总是新建 run"的既有语义。
+
+#### Scenario: 有活跃 run 时注入其下一轮
+- **GIVEN** 某会话有一个正在执行的 run
+- **WHEN** 消费者对该会话 `submit(steer=True)`
+- **THEN** 消息进入该活跃 run 的待注入队列，于其下一次模型调用前被带入上下文
+- **AND** 返回 `RunInfo.injected=True` 且 `run_id` 等于该活跃 run 的 id（不新建 run）
+
+#### Scenario: 无活跃 run 时退化为新建 run
+- **GIVEN** 某会话当前没有活跃 run
+- **WHEN** 消费者对该会话 `submit(steer=True)`
+- **THEN** 照常新建一个 run，返回 `RunInfo.injected=False`
+
+#### Scenario: 默认 steer=False 维持新建语义
+- **WHEN** 消费者 `submit()` 不传 steer（或 steer=False）
+- **THEN** 无论是否有活跃 run，都新建 run、`injected=False`（与既有调用方行为一致）
+
+#### Scenario: 注入消息携带多模态 parts
+- **GIVEN** 某会话有活跃 run
+- **WHEN** 消费者 `submit(steer=True)` 投递含文本与图片附件的 parts
+- **THEN** 注入上下文的消息完整保留文本与图片，与一次普通 turn 的用户消息无差别
+
+#### Scenario: 多条 steer 消息按序全部注入
+- **GIVEN** 某会话有活跃 run
+- **WHEN** 消费者在该 run 结束前连续多次 `submit(steer=True)`
+- **THEN** 这些消息按提交顺序全部进入上下文，无丢失、无乱序
+
+#### Scenario: 活跃 run 异常终止时注入的消息不丢
+- **GIVEN** 一条 steer 消息注入了一个活跃 run，而该 run 随后因非用户原因异常终止（消息尚未被消费）
+- **WHEN** 内核处理这次终止
+- **THEN** 该消息不丢失，由一个后续 run 接着消费，其 origin 跟随注入来源（用户消息为 USER）、内容（含图片）完整保留
+
+### Requirement: steer 进活跃 run 的消息，其后续事件始终归属同一个 run
+
+消费者经 `submit(steer=True)` 注入活跃 run 的消息，由该 run 接着消费、`injected=True` 且 `run_id` 不变；该消息触发的后续事件（工具调用、回复直到完成）始终出现在**这同一个 run** 的事件流上，事件归属不会静默转移到另一个 run——无论注入时该 run 离结束有多近。只有当该 run 在消费前已确实结束、无法再接续时，才退化为新建 run。
+
+#### Scenario: steer 的后续事件都出现在该 run 的事件流上
+- **GIVEN** 某会话有一个正在执行的 run，消费者已按其 `run_id` 订阅事件流
+- **WHEN** 消费者对该会话 `submit(steer=True)`，返回 `injected=True`、`run_id` 为该 run
+- **THEN** 该消息触发的后续事件（工具调用、回复、完成）都出现在这同一个 `run_id` 的事件流上
+- **AND** 按该 `run_id` 订阅即可完整收到这条 steer 引发的全部事件直到该 run 结束
+
+#### Scenario: 活跃 run 已结束无法接续时退化为新建
+- **GIVEN** 某会话的活跃 run 在 steer 到达时已经结束
+- **WHEN** 消费者 `submit(steer=True)`
+- **THEN** 退化为新建 run、`RunInfo.injected=False`（消息不丢，作为新 run 处理）
+
+#### Scenario: 事件流标出 steer 消息进入上下文的位置
+- **GIVEN** 某会话有活跃 run、有 steer 消息待注入
+- **WHEN** 该消息被带入模型上下文
+- **THEN** 该 run 的事件流上出现一个可观察标记，携带该 `run_id`，使消费者能把"对这条 steer 的回应"与此前的输出区分开
+
+### Requirement: 工具使用权限经注入的 can_use_tool 回调裁决
+
+内核不内置权限策略;消费者在 `build_kernel` 时注入 `can_use_tool` 异步回调。当某轮需要工具使用许可
+时,内核调该回调并据其 `PermissionDecision` 放行或拒绝。
+
+#### Scenario: 需要许可时 can_use_tool 被调用并采纳其决定
+- **GIVEN** 一个注入了 `can_use_tool` 的 Kernel
+- **WHEN** 运行中触发一次工具许可请求
+- **THEN** `can_use_tool(tool_name, tool_input, ...)` 被调用;它返回 `allow` 则该次工具被放行,
+  返回 `deny` 则被拒绝
+
+#### Scenario: 等待许可期间 interrupt 解除挂起
+- **GIVEN** 一次许可请求正阻塞在 `can_use_tool`(模拟用户迟迟未决)
+- **WHEN** 消费者对该会话调 `kernel.interrupt(session_id)`
+- **THEN** 挂起的许可请求被解除为拒绝(deny),等待者立即返回而不会无限挂起
+
+### Requirement: 运行可被中断与取消
+
+消费者可中断某会话当前活动运行(`interrupt`),或按 `run_id` 取消排队/运行中的运行(`cancel`);两者对
+不存在的目标安全无害。`cancel` 必须**强制终止**承载该 run 的执行(不依赖被取消代码合作式自查),使该
+run 即使 parked 在工具执行、LLM 等待或权限决策上也能终止;终止后该 run 占用的 session 串行锁必须释放,
+同一 session 后续 `submit` 不被此前 run 永久阻塞。取消同时取消该 run 仍在等待的权限请求(resolve 为拒绝)。
+
+#### Scenario: 取消运行中的运行,二次取消幂等
+- **GIVEN** 一个运行中的运行
+- **WHEN** 消费者 `kernel.cancel(run_id)`
+- **THEN** 返回的记录 `status == "cancelled"`;再次 `cancel(同一 run_id)` 仍返回 `cancelled`(幂等)
+
+#### Scenario: 取消未知运行返回 None 而非抛错
+- **WHEN** 消费者 `kernel.cancel("<不存在的 run_id>")`
+- **THEN** 返回 `None`(不抛异常)
+
+#### Scenario: interrupt 无活动运行的会话不抛错
+- **WHEN** 消费者对一个无活动运行的会话调 `kernel.interrupt(session_id)`
+- **THEN** 返回 `None` 或被中断的 run_id,均不抛异常
+
+#### Scenario: 取消一条 parked 的 run 后同 session 可继续
+- **GIVEN** 某 session 有一条 run 卡在工具执行 / LLM 等待 / 等待权限决策且不再前进
+- **WHEN** 消费者对该 run 调 `kernel.cancel(run_id)`,随后对同一 session `submit` 一条新 run
+- **THEN** 被取消的 run 到达取消终态(`get_run` 可见 `status == "cancelled"`)
+- **AND** 新 run 正常开始执行并能到达终态,无需重建内核(此前的 parked run 不会永久阻塞同 session)
+
+#### Scenario: 取消会连带取消该 run 待决的权限请求
+- **GIVEN** 某 run parked 在等待用户权限决策(broker 有该 run 的待决请求)
+- **WHEN** 消费者 `kernel.cancel(run_id)`
+- **THEN** 该 run 的待决权限请求被取消(resolve 为拒绝),不残留 pending 请求
+
+### Requirement: alive-but-quiet 窗口经 stream 持续发出 liveness 事件
+
+当一条 run 处于"活着但暂无业务输出"的窗口(执行静默长工具、等待 LLM 返回、parked 等待用户权限决策)时,
+内核必须经 `kernel.stream` 周期性发出 liveness 事件(携带 run_id),间隔显著小于消费者侧的存活判定窗口。
+该事件仅表征"该 run 仍存活",消费者可据其判定存活而不误判为卡死。三类窗口走同一事件通路,消费者无需按
+窗口类型分别豁免。
+
+#### Scenario: 执行静默长工具期间 stream 仍有事件
+- **GIVEN** 某 run 正在执行一个长时间无标准输出的工具(如长命令)
+- **WHEN** 消费者消费 `kernel.stream(session_id)`
+- **THEN** 在工具执行全程内,stream 周期性产出携带该 run_id 的 liveness 事件(不必等工具结束才出现)
+
+#### Scenario: 等待 LLM 返回期间 stream 仍有事件
+- **GIVEN** 某 run 正在等待 LLM 返回且长时间未产出业务事件
+- **WHEN** 消费者消费 `kernel.stream(session_id)`
+- **THEN** 等待期间 stream 周期性产出携带该 run_id 的 liveness 事件
+
+#### Scenario: parked 等待权限决策期间 stream 仍有事件
+- **GIVEN** 某 run parked 在等待用户权限决策、长时间未产出业务事件
+- **WHEN** 消费者消费 `kernel.stream(session_id)`
+- **THEN** 等待期间 stream 周期性产出携带该 run_id 的 liveness 事件(与工具/LLM 等待同一事件通路),消费者据此判存活,无需 permission 专用豁免
+
+### Requirement: Kernel 关闭会收拢所有 owned runs
+
+`Kernel.aclose()` 与同步兼容接口 `Kernel.close()` 必须共享幂等关闭状态,停止接受新运行,
+解除权限等待,中断或取消仍在执行/排队的 run,等待 RunsRegistry 自己创建的 Task 在所属
+event loop 与 Context 中进入终态,再停止并关闭 loop。关闭开始后不得创建新的 queued run;
+异步消费者使用 `aclose()` 时不得阻塞其 event loop。
+
+#### Scenario: 有活动运行时关闭
+- **GIVEN** Kernel 存在 running run 或权限等待
+- **WHEN** 异步消费者 await `kernel.aclose()` 或同步消费者调用 `kernel.close()`
+- **THEN** 相关 run 在有限 grace period 内进入 completed/failed/cancelled 之一,Registry 不遗留
+  Task,tracing scope 在原 Task Context 中退出
+
+#### Scenario: 异步关闭不阻塞消费者 loop
+- **GIVEN** 消费者的 event loop 还有 heartbeat、IM 或 UI 状态任务
+- **WHEN** 消费者 await `kernel.aclose()`
+- **THEN** Registry 在自己的 loop/thread 中 drain,消费者 loop 在等待期间仍可调度其他任务
+
+#### Scenario: 关闭期间拒绝新提交
+- **GIVEN** Kernel 已进入 draining 或 closed 状态
+- **WHEN** 消费者调用 `submit`
+- **THEN** 返回稳定的 closed error,不创建 queued run 或后台 Task
+
+#### Scenario: 重复关闭
+- **WHEN** 消费者多次调用或混用 `kernel.aclose()` 与 `kernel.close()`
+- **THEN** 后续调用安全返回,不重复停止 loop、不抛 secondary exception

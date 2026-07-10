@@ -2,12 +2,12 @@
 
 > **版本** v1.4 | **日期** 2026-06-01 | **对齐** feat-392
 > 本文档是 nano-multiagent 的**跨包顶点**架构权威文件（包 / 依赖方向 / 部署拓扑）。
-> 单包"现在怎么表现"看长青行为契约层 `docs/specs/<包>/spec.md`（§6）；文档体系怎么分层见
+> 单包"现在怎么表现"看长青行为契约层 `docs/specs/<包>/`（§6）；文档体系怎么分层见
 > `docs/SPEC_GUIDE.md`。若与其他设计文档冲突，以本文档为准。
 >
 > **v1.4 变更（feat-392）**：§6 文档索引重定位到长青行为契约层 `docs/specs/`；四份混合高度子系统
 > 设计 SPEC（内核设计 / IM / NodeGateway / CodingCLI）蒸馏进契约层后**全部退役**移入 `docs/archive/`，
-> 对应契约改看 `docs/specs/<包>/spec.md`。
+> 对应契约改看 `docs/specs/<包>/`。
 >
 > **v1.3 变更（refactor-387）**：内核移除内置 HTTP API，改为纯库形态——对外只暴露
 > `agent.sdk`（进程内 `build_kernel()` → `Kernel`）。两个产品由「spawn 内核 uvicorn 子进程
@@ -129,7 +129,7 @@ IM 无关、产品无关的 Agent 运行时。只负责"单 Agent 可运行 + �
 
 > refactor-406（决策 1）：原 `products` 层（产品 profile / 默认工具 / hook / prompt / skill 策略）已解散——产品默认值下沉到各消费者包的工厂（`coding_cli.product` / `personal_assistant.product`），经 `build_kernel(tools=…, hooks=…, prompt=…)` 传入；内核眼里没有"产品"对象，两个一方产品与任意外部应用对 SDK 完全对等。
 
-内核对外行为契约详见 [`docs/specs/kernel/spec.md`](docs/specs/kernel/spec.md)。
+内核对外行为契约详见 [`docs/specs/kernel/`](docs/specs/kernel/spec.md)。
 
 ### coding_cli — 本地编码助手
 
@@ -170,17 +170,19 @@ IM 无关、产品无关的 Agent 运行时。只负责"单 Agent 可运行 + �
 
 ## 6. 文档索引
 
-本节是顶点索引。**单包的"系统现在怎么表现"看长青行为契约层** `docs/specs/<包>/spec.md`(收尾归并保持
-current);本 `SPEC.md` 只讲跨包架构,不与契约层重复。文档体系怎么分层、契约层怎么写,见
+本节是顶点索引。**单包的"系统现在怎么表现"看长青行为契约层** `docs/specs/<包>/`(收尾归并保持
+current);每个包的 `spec.md` 是短入口,同目录 area 文档承载具体 Requirement/Scenario。本 `SPEC.md`
+只讲跨包架构,不与契约层重复。文档体系怎么分层、契约层怎么写,见
 [`docs/SPEC_GUIDE.md`](docs/SPEC_GUIDE.md)。
 
 ### 长青行为契约层（current，单一权威）
 
 | 包 | 路径 | 内容 |
 |---|---|---|
-| **kernel (agent)** | [`docs/specs/kernel/spec.md`](docs/specs/kernel/spec.md) | 内核经 `agent.sdk` 暴露的对外行为契约：装配/会话/运行/许可/压缩/工具/Hook/Skill/持久化 |
-| **im** | [`docs/specs/im/spec.md`](docs/specs/im/spec.md) | IM 服务对外行为契约：account/auth、会话消息、Agent 配置中心、节点管理、device binding、用户维/gateway WebSocket、relay 幂等、多租 owner 隔离 |
-| **gateway** | `docs/specs/gateway/spec.md` | Node Gateway 对外行为契约（feat-392-M3 建立） |
+| **index** | [`docs/specs/README.md`](docs/specs/README.md) | 长青行为契约层目录索引 |
+| **kernel (agent)** | [`docs/specs/kernel/`](docs/specs/kernel/spec.md) | 内核经 `agent.sdk` 暴露的对外行为契约：SDK 边界、run、模型、后台任务、上下文/持久化、工具/Hook/Skill、prompt |
+| **im** | [`docs/specs/im/`](docs/specs/im/spec.md) | IM 服务对外行为契约：auth/tenancy、会话消息、Web Chat UX、工具时间线、Agent/节点、Gateway relay |
+| **gateway** | [`docs/specs/gateway/`](docs/specs/gateway/spec.md) | Node Gateway 对外行为契约：路由投递、服务生命周期、agent 能力、heartbeat/cron、relay、外部 channel |
 | **cli** | [`docs/specs/cli/spec.md`](docs/specs/cli/spec.md) | Coding CLI 对外行为契约：REPL 运行模式/会话懒创建与 resume/斜杠命令/事件流与预算/错误分层/单命令与 --text/边界 |
 
 ### 文档规范与约定
@@ -195,7 +197,7 @@ current);本 `SPEC.md` 只讲跨包架构,不与契约层重复。文档体系�
 
 ### 内核实现细化（实现叙事，非契约层）
 
-> 这些是实现层细化文档，不是对外契约。"内核现在怎么表现"以 `docs/specs/kernel/spec.md` 为准；下面几份
+> 这些是实现层细化文档，不是对外契约。"内核现在怎么表现"以 `docs/specs/kernel/` 为准；下面几份
 > 描述内部参数/事件清单等实现细节，作实现参考。
 
 | 文档 | 路径 | 内容 |
@@ -209,7 +211,7 @@ current);本 `SPEC.md` 只讲跨包架构,不与契约层重复。文档体系�
 
 > 四份混合高度子系统设计 SPEC（`内核设计SPEC` feat-392-M1、`IM-SPEC` feat-392-M2、
 > `NodeGateway-SPEC` feat-392-M3、`CodingCLI-SPEC` feat-392-M4）已**全部退役**，蒸馏进长青契约层
-> 后移入 `docs/archive/`，对应契约改看 `docs/specs/<包>/spec.md`。下表两份不是子系统契约，
+> 后移入 `docs/archive/`，对应契约改看 `docs/specs/<包>/`。下表两份不是子系统契约，
 > 不在退役范围内：
 
 | 文档 | 路径 | 内容 |
