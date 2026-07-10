@@ -43,9 +43,16 @@ mode: full
 进入 worktree 后先解析 unit 文档根路径,兼容提 PR 前已归档的 unit：
 
 ```bash
-unit_path=$(find docs/changes docs/changes/archive -mindepth 1 -maxdepth 1 -type d \
-  -name "$unit_dir" -print 2>/dev/null | head -1)
-if [[ -z "$unit_path" ]]; then echo "unit path not found: $unit_dir" >&2; exit 1; fi
+unit_matches=$(find docs/changes docs/changes/archive -mindepth 1 -maxdepth 1 -type d \
+  -name "$unit_dir" -print 2>/dev/null)
+match_count=$(printf '%s\n' "$unit_matches" | sed '/^$/d' | wc -l | tr -d ' ')
+if [[ "$match_count" -eq 0 ]]; then echo "unit path not found: $unit_dir" >&2; exit 1; fi
+if [[ "$match_count" -ne 1 ]]; then
+  echo "unit path is ambiguous: $unit_dir" >&2
+  printf '%s\n' "$unit_matches" >&2
+  exit 1
+fi
+unit_path=$unit_matches
 ```
 
 启动:自建 worktree(orchestrator 只给路径,不创建),只读签出 unit 分支:

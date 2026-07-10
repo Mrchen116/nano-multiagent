@@ -1,6 +1,10 @@
 # PR body 组装模板
 
-orchestrator §7.3 提 PR 时按本文件组装 body。两套模板按 unit 模式选:**full**(有 spec/design/acceptance/verification)、**lite**(只有 fix.md)。每个字段都从 unit 文档 / 验证状态表自动抽,不要手写新内容。
+orchestrator §7.4 提 PR 时按本文件组装 body。两套模板按 unit 模式选:**full**(有 spec/design/acceptance/verification)、**lite**(只有 fix.md)。每个字段都从 unit 文档 / 验证状态表自动抽,不要手写新内容。
+
+组装前取 `repo_url=$(gh repo view --json url --jq .url)` 与
+`pr_head_sha=$(git -C "$unit_worktree" rev-parse HEAD)`。下面每个 `<repo_url>` 和 `<pr_head_sha>` 都必须替换为
+实际值；文档链接固定到 PR head commit，禁止输出相对 `docs/...` 链接。
 
 ## full 模式
 
@@ -29,10 +33,10 @@ Refs #<n>              # Relations Refs 字段 + reviewer 立的 out-of-unit maj
 
 ## Spec / Design / Acceptance
 
-- [<首文档>](docs/changes/archive/<unit_dir>/<首文档>.md)
-- [design.md](docs/changes/archive/<unit_dir>/design.md) — milestone 拆分见此
-- [acceptance.md / regression.md](docs/changes/archive/<unit_dir>/<file>.md) — reviewer Verdict: <pass | pass-with-issues>
-- [verification.md](docs/changes/archive/<unit_dir>/verification.md) — verifier Verdict: <pass>;Completeness / Correctness / Coherence 三维通过
+- [<首文档>](<repo_url>/blob/<pr_head_sha>/docs/changes/archive/<unit_dir>/<首文档>.md)
+- [design.md](<repo_url>/blob/<pr_head_sha>/docs/changes/archive/<unit_dir>/design.md) — milestone 拆分见此
+- [acceptance.md / regression.md](<repo_url>/blob/<pr_head_sha>/docs/changes/archive/<unit_dir>/<file>.md) — reviewer Verdict: <pass | pass-with-issues>
+- [verification.md](<repo_url>/blob/<pr_head_sha>/docs/changes/archive/<unit_dir>/verification.md) — verifier Verdict: <pass>;Completeness / Correctness / Coherence 三维通过
 
 ## Milestones
 
@@ -79,7 +83,7 @@ Refs #<n>
 
 ## Fix Document
 
-- [fix.md](docs/changes/archive/<unit_dir>/fix.md) — 现象 / 根因 / 修复 / 验证 四段
+- [fix.md](<repo_url>/blob/<pr_head_sha>/docs/changes/archive/<unit_dir>/fix.md) — 现象 / 根因 / 修复 / 验证 四段
 
 ## Spec Delta
 

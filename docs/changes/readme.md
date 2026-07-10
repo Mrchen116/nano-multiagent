@@ -160,8 +160,9 @@ change-spec-author 分配新编号不得手写扫描命令，统一执行：
 python3 .claude/skills/change-spec-author/scripts/next_unit_id.py <type>
 ```
 
-脚本同时扫描活动区和 archive，并在所有 type 的全局最大数字编号上加一；历史目录即使存在重复数字，也不
-回收或复用旧编号。
+脚本同时扫描活动区和 archive，并在 Git common dir 中原子记录最后一次 reservation；所有 type、并发进程和
+同一 clone 的 worktree 共用递增序列。目录与 reservation 两者的最大编号共同决定下一号，已保留但尚未建目录
+的编号也不回收或复用。
 
 ---
 
@@ -194,7 +195,8 @@ python3 .claude/skills/change-spec-author/scripts/next_unit_id.py <type>
 
 全小写，连字符分隔，不超过 60 字符。
 
-数字 id 在所有 type 间共享全局序列，由 change-spec-author 的 `scripts/next_unit_id.py` 分配；归档不重置序列。
+数字 id 在所有 type 间共享全局序列，由 change-spec-author 的 `scripts/next_unit_id.py` 原子保留并分配；归档
+或并发 worktree 不重置序列。
 
 示例：`feat-104-chat-mention-picker`, `bugfix-123-session-leak`, `refactor-150-session-manager`
 

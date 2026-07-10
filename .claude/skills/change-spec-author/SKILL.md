@@ -37,9 +37,10 @@ bugfix lite vs full 的判据(参考 `docs/changes/readme.md`):**默认 lite**;�
 
 ### §1.2 决定 unit_id 和目录名
 
-- **id**:在仓库根目录执行 `python3 <skill_dir>/scripts/next_unit_id.py <type>`，直接使用输出的
-  `unit_id`。脚本同时扫描 `docs/changes/` 活动区与 `docs/changes/archive/`，按所有 type 的全局最大
-  `<N>` + 1 分配，禁止临时拼 `find`/`sed` 只扫活动区。例：
+- **id**:在仓库根目录执行 `python3 <skill_dir>/scripts/next_unit_id.py <type>`，只执行一次并直接使用输出的
+  `unit_id`。脚本同时扫描 `docs/changes/` 活动区与 `docs/changes/archive/`，并在 Git common dir 中原子保留
+  新编号；同一 clone 的并发进程和 worktree 不会拿到重复编号。已保留但尚未建目录的编号不复用，禁止为
+  “看一下下个编号”重复执行，也禁止临时拼 `find`/`sed` 只扫活动区。例：
   `python3 .claude/skills/change-spec-author/scripts/next_unit_id.py feat` → `feat-<next-number>`。
 - **short-desc**:2-5 个 kebab 词,从用户原话里提关键名词。可以省略,但**强烈建议加**——一年后扫目录靠它认。
 - 完整目录名:`<type>-<id>[-short-desc]`,全小写,`-` 连接,不超过 60 字符。

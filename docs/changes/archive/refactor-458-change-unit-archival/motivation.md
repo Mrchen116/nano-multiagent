@@ -38,7 +38,8 @@
 - 后续 unit 在实现、验收、验证、长青契约归并和本地门禁完成后，作为提交 PR 流程的一部分归档；PR 合并后
   main 同时获得实现与归档结果。
 - change-* 中需要读取已完成 unit 的角色可同时解析活动区和 archive；PR body 使用归档后的稳定路径。
-- change-spec-author 通过 skill 自带脚本扫描活动区与 archive，按所有变更类型的全局最大编号加一分配新 id。
+- change-spec-author 通过 skill 自带脚本扫描活动区与 archive，并在同一 Git clone 的共享状态中原子保留新 id；
+  所有变更类型和本地 worktree 共用一条递增序列。
 
 ## 用户侧验收标准（不变性）
 
@@ -75,15 +76,23 @@
 - **WHEN** change-orchestrator 组装 PR body 或等待远端 CI 后继续处理该 unit
 - **THEN** 文档链接和后续读取均使用可解析的归档路径，不因目录移动失效
 
+#### Scenario: 已退出的 orchestrator 重新处理开放 PR
+- **WHEN** unit 已归档并创建开放 PR，之后收到 review feedback 或远端 CI 失败
+- **THEN** change-orchestrator 可从开放 PR 恢复既有 unit 分支和 worktree，继续在 archive 中读写交付文档，不把 unit 移回活动区
+
 ### Requirement: 新 unit 编号覆盖活动区与历史区
 
 #### Scenario: change-spec-author 分配编号
 - **WHEN** change-spec-author 确定新变更类型并申请 unit_id
-- **THEN** skill 自带脚本扫描活动区与 archive，返回所有变更类型全局最大编号加一后的完整 unit_id
+- **THEN** skill 自带脚本扫描活动区与 archive，并结合尚未落目录的 reservation，原子返回全局最大编号加一后的完整 unit_id
 
 #### Scenario: 历史目录存在重复编号
 - **WHEN** 旧数据中不同类型曾使用相同数字编号
 - **THEN** 编号脚本仍按最大数字继续递增，不复用任何既有数字，也不因历史重复而阻塞新 unit
+
+#### Scenario: 多个本地 worktree 并发申请编号
+- **WHEN** 同一 Git clone 中两个 change-spec-author 进程同时申请 unit_id
+- **THEN** 脚本在所有 worktree 共享的 Git common dir 中依次保留编号，两个进程得到不同的完整 unit_id
 
 ### Requirement: 归档不改变产品行为
 
@@ -126,8 +135,8 @@
 worktree、报告失败或证据不足的 unit 保留在顶层。迁移使用 `git mv` 保留完整历史，并在移动后统一检查仓内
 引用、Markdown 链接和 change-* 路径假设。
 
-未来每个 unit 由 change-orchestrator 在提 PR 前执行同样的单目录移动；编号脚本始终同时扫描两层，因此迁移
-过程中和迁移后都不会回收编号。
+未来每个 unit 由 change-orchestrator 在提 PR 前执行同样的单目录移动；编号脚本始终同时扫描两层并保留已
+分配编号，因此迁移过程中、迁移后和并发申请时都不会回收编号。
 
 若归档规则或批量分类在 review 中不被接受，可整体回退目录移动和 skill 规则；若单个 unit 被误分类，只需将
 其完整目录移回 `docs/changes/` 并修复对应引用，不涉及运行时或数据回滚。

@@ -79,9 +79,16 @@ mode: full | lite                            # lite 时还需写 fix.md 修复/�
 进入 milestone worktree 后先解析 unit 文档根路径;PR 前为活动区,归档后的 CI/fix 轮为历史区：
 
 ```bash
-unit_path=$(find docs/changes docs/changes/archive -mindepth 1 -maxdepth 1 -type d \
-  -name "$unit_dir" -print 2>/dev/null | head -1)
-if [[ -z "$unit_path" ]]; then echo "unit path not found: $unit_dir" >&2; exit 1; fi
+unit_matches=$(find docs/changes docs/changes/archive -mindepth 1 -maxdepth 1 -type d \
+  -name "$unit_dir" -print 2>/dev/null)
+match_count=$(printf '%s\n' "$unit_matches" | sed '/^$/d' | wc -l | tr -d ' ')
+if [[ "$match_count" -eq 0 ]]; then echo "unit path not found: $unit_dir" >&2; exit 1; fi
+if [[ "$match_count" -ne 1 ]]; then
+  echo "unit path is ambiguous: $unit_dir" >&2
+  printf '%s\n' "$unit_matches" >&2
+  exit 1
+fi
+unit_path=$unit_matches
 ```
 
 其他配置(`test_command` / `forbidden_scope` / `prevention_rules`)**不在派发包里**——你自己从 `<unit_path>/design.md`(lite 模式下读 fix.md)和项目级文档(`CLAUDE.md` / `AGENTS.md` / `LOGBOOK.md`)读出来。设计期省派发包字段,实施期 worker 自取上下文。

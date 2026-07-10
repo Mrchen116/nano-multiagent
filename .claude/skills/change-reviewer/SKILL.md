@@ -57,9 +57,16 @@ mode: full | lite                             # lite 不应该派 reviewer,详�
 进入 worktree 后先解析 unit 文档根路径,兼容提 PR 前已归档的 unit：
 
 ```bash
-unit_path=$(find docs/changes docs/changes/archive -mindepth 1 -maxdepth 1 -type d \
-  -name "$unit_dir" -print 2>/dev/null | head -1)
-if [[ -z "$unit_path" ]]; then echo "unit path not found: $unit_dir" >&2; exit 1; fi
+unit_matches=$(find docs/changes docs/changes/archive -mindepth 1 -maxdepth 1 -type d \
+  -name "$unit_dir" -print 2>/dev/null)
+match_count=$(printf '%s\n' "$unit_matches" | sed '/^$/d' | wc -l | tr -d ' ')
+if [[ "$match_count" -eq 0 ]]; then echo "unit path not found: $unit_dir" >&2; exit 1; fi
+if [[ "$match_count" -ne 1 ]]; then
+  echo "unit path is ambiguous: $unit_dir" >&2
+  printf '%s\n' "$unit_matches" >&2
+  exit 1
+fi
+unit_path=$unit_matches
 ```
 
 `review_round = 1` 时**严禁**给 `revise-design`(三道闸第一道)。
