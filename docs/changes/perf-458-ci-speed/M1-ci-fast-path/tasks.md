@@ -35,7 +35,7 @@
 
 ### R2 — 消除 ShellRunner 与输出上限测试的确定性成本
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 先量取三条目标测试的耗时并记录 Verify 证据；stop 测试改为条件轮询 monitor 完成；输出上限测试断言 256 MiB 生产常量并 monkeypatch 小上限覆盖边界。
 - 验证: `test_platform_adapters.py` 全绿；目标三条耗时显著下降；stop 失败回调/清理语义和截断行为保持。
 

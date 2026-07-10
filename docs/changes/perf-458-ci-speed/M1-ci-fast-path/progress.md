@@ -29,21 +29,21 @@
 
 ## R2 — 消除 ShellRunner 与输出上限测试的确定性成本
 
-- 状态: DOING
+- 状态: DONE
 - Context: 两条 stop 负断言用 `Event.wait(5.0)` 睡满窗口证明“没有失败回调”，实际 monitor 通常更早完成；输出上限测试以 1 KiB 块反复打开文件约 26 万次才越过 256 MiB，测试成本远大于被测行为所需。
 - Decision: C1 保留未优化测试并独立 profile 三条目标用例；C2 将 stop 测试等待 monitor 清理 `_stopped` 的完成条件，并在输出测试中先断言生产常量、再 monkeypatch 小上限覆盖边界。
 - Rationale: 真实完成条件能同时证明 monitor 已走完所有终态分支；小上限不改变生产常量，仍在同一个 `BashFileOutput.append` 行为边界验证上限内保留与越界截断。
 - Evidence:
-  - Tests: 三条目标测试 3 passed in 17.40s（wall 17.59s）。
+  - Tests: 未优化三条目标测试 3 passed in 17.40s（wall 17.59s）；改写后 3 passed in 2.64s（wall 2.82s），完整 `test_platform_adapters.py` 23 passed in 7.86s。
   - Entry: N/A（本 roadpoint 只重写内部测试同步方式，不改变产品入口或 `src/`）。
   - Frontend State Matrix: N/A（非前端）。
   - Browser QA: N/A（非前端）。
-  - E2E/Regression: 输出上限用例 6.79s；stop 静默用例 5.33s；stop+timeout 清理用例 5.22s。
+  - E2E/Regression: 输出上限用例由 6.79s 降到 <0.005s；stop 静默用例由 5.33s 降到 0.33s；stop+timeout 清理由 5.22s 降到 2.23s（保留生产 SIGTERM 2 秒宽限路径）。ruff/format 对该文件全绿。
   - Visual/Interaction: N/A（非前端）。
   - Prototype Comparison: N/A（无原型/reference）。
-- Rollback: 回退本 C1 只删除 timing 记录，不影响测试或产品代码。
-- Commits: C1=待本提交落定，C2=待完成，C3=待完成。
-- Next: 在 `test_platform_adapters.py` 内完成条件等待和小上限测试改写，先跑目标三条再跑全文件。
+- Rollback: 回退 `e82edf42` 恢复原有 `Event.wait(5.0)` 和 256 MiB 实写测试；生产代码不受影响。
+- Commits: C1=`5a25350a`，C2=`e82edf42`，C3=本提交。
+- Next: R2 已完成；进入 R3，记录当前 workflow 缺少 xdist/cache/durations 的 Verify 证据并完成 CI 接线。
 
 ## R3 — 接入 xdist、pip cache 与完整门禁
 
