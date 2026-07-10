@@ -13,7 +13,7 @@ exploration 与 HTML 表达，只修复其与现有通用 skill 流程的三个�
 ## 退出标准
 
 - [x] `codebase-design/` 含上游三份方法文档与 MIT `LICENSE`，只增加项目正式术语优先级和 Design It Twice 按需触发说明。
-- [ ] `improve-codebase-architecture/` 含上游主文档、HTML 指南与 MIT `LICENSE`，差异仅覆盖可选 grounding、仓库内版本化报告、handoff continuation 与正式术语优先级。
+- [x] `improve-codebase-architecture/` 含上游主文档、HTML 指南与 MIT `LICENSE`，差异仅覆盖可选 grounding、仓库内版本化报告、handoff continuation 与正式术语优先级。
 - [ ] `change-design-author/SKILL.md` 明确四类正向触发、普通设计反向条件、既有章节投影和 Design It Twice 二级门槛。
 - [ ] 无固定扫描过滤、候选台账、仓库专项检查清单，无 `src/`、canonical spec 或其他 change-* 角色改动。
 - [ ] 目标 Markdown frontmatter 可解析且 skill 名与目录一致，内部相对链接可解析，`git diff --check` 通过。
@@ -39,7 +39,7 @@ exploration 与 HTML 表达，只修复其与现有通用 skill 流程的三个�
 
 ### R2 — 修正架构巡检的通用流程接点
 
-- 状态：DOING
+- 状态：DONE
 - 步骤：引入并最小修改 `improve-codebase-architecture`，实现可选 grounding、仓库内独立 HTML 快照、Git/非 Git 元数据、固定 handoff 与现有流程 continuation。
 - 验证：对比上游确认 organic exploration/候选卡/before-after/强度/top recommendation 保留；逐条检查报告路径、Git 语境、不覆盖、无 Git、handoff 与无候选台账。
 
