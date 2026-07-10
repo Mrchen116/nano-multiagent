@@ -49,19 +49,19 @@
 
 - 状态: DOING
 - Context: Python job 的质量门禁完整但仍串行执行；`setup-python` 没有 pip cache，pytest 命令也没有并行调度或慢用例摘要。串行本地基线为 149.34s，已无法满足 90 秒远端目标。
-- Decision: 保留单一 `Python checks` job 和原 lint 顺序；仅在 dev 依赖增加 `pytest-xdist>=3,<4`，在 setup-python 启用以 `pyproject.toml` 为键来源的 pip cache，并把同一完整 non-e2e 命令接为固定 6 worker worksteal + durations。
-- Rationale: 单 job 不改变 branch protection check 名称或覆盖范围；4-worker 远端稳定但慢，8-worker 远端触发并发敏感测试，6-worker 是不修历史测试、不引入复杂分组的最小折中。
+- Decision: 保留单一 `Python checks` job 和原 lint 顺序；仅在 dev 依赖增加 `pytest-xdist>=3,<4`，在 setup-python 启用以 `pyproject.toml` 为键来源的 pip cache，并把同一完整 non-e2e 命令接为固定 7 worker worksteal + durations。
+- Rationale: 单 job 不改变 branch protection check 名称或覆盖范围；6-worker 三次 success 仍有一次 95s，8-worker 会触发并发敏感测试，7-worker 是两者间唯一不引入额外机制的候选。
 - Evidence:
   - Tests: 6-worker 完整 non-e2e 连续两轮均为 3444 passed, 2 skipped，分别 22.95s（wall 23.76s）与 22.15s（wall 22.78s）；上述两条 n=8 失败测试以 n=6 定向复跑 2 passed in 1.66s。完整串行为 3444 passed, 2 skipped in 104.81s；ruff 两门全绿；frontend 63 files / 615 tests passed in 12.02s（wall 13.09s）。
-  - Entry: GitHub Actions `.github/workflows/ci.yml` 是贡献者唯一 CI 入口；job 名保持 `Python checks` / `Frontend checks`。4-worker draft PR #184 三轮均 success 但 91–96s 未达标；8-worker attempt 2 真实失败并使 workflow 红；6-worker 远端复验待收集。
+  - Entry: GitHub Actions `.github/workflows/ci.yml` 是贡献者唯一 CI 入口；job 名保持 `Python checks` / `Frontend checks`。4-worker 三轮均 success 但 91–96s 未达标；8-worker attempt 2 真实失败并使 workflow 红；6-worker 三轮 success 为 82/86/95s，仍未满足三次全部 ≤90s；7-worker 远端复验待收集。
   - Frontend State Matrix: N/A（非前端）。
   - Browser QA: N/A（非前端）。
   - E2E/Regression: C2 后运行完整并行、串行、ruff、format 与 frontend vitest；远端 PR run 作为真栈性能验收。
   - Visual/Interaction: N/A（非前端）。
   - Prototype Comparison: N/A（无原型/reference）。
-- Rollback: 回退 `47d65d3a` 可恢复 8-worker（快但远端不稳定）；回退 `0d6ab276` 可恢复 4-worker（远端稳定但 91–96s 未达标）；整体回退 `6236644b` 及前序测试改写可恢复原串行 CI。
-- Commits: C1=`c833720f`，初始 C2=`6236644b`，4→8 Verify=`2a2f3aa1`，8-worker C2=`0d6ab276`，8→6 Verify=`d60e7b1e`，6-worker C2=`47d65d3a`，C3=待远端证据完成。
-- Next: 6-worker 本地连续两轮完整门禁已绿并将推送；等待三次 GitHub Actions success，在此之前 R3 保持 DOING。
+- Rollback: 回退本次 7-worker 调优可恢复 6-worker（稳定但一轮 95s）；回退 `47d65d3a` 可恢复 8-worker（快但远端不稳定）；回退 `0d6ab276` 可恢复 4-worker（远端稳定但 91–96s 未达标）。
+- Commits: C1=`c833720f`，初始 C2=`6236644b`，4→8 Verify=`2a2f3aa1`，8-worker C2=`0d6ab276`，8→6 Verify=`d60e7b1e`，6-worker C2=`47d65d3a`，6→7 Verify=待本提交，7-worker C2=待完成，C3=待远端证据完成。
+- Next: 提交 6-worker 三轮远端计时与 design 修订，再将 workflow 调为 7 worker，连续跑两轮完整本地并行门禁。
 
 ## [Design 修订] R3: 固定 4 worker → 固定 8 worker
 
@@ -98,3 +98,21 @@
 - Commits: 调优 Verify=`d60e7b1e`，6-worker C2=`47d65d3a`。
 - Out-of-unit: 两条历史并发测试的跨 run 串扰已登记 [GitHub issue #185](https://github.com/Mrchen116/nano-multiagent/issues/185)；本 unit 不修改它们。
 - Next: n=6 完整全量连续两轮分别 22.95s / 22.15s 全绿，上述两条定向复跑也全绿；推送后等待远端三次 success。
+
+## [Design 修订] R3: 固定 6 worker → 固定 7 worker
+
+- 现状方案: 固定 6 worker；本地连续两轮全绿，远端三次也全部 success，但 Python required completion 分别为 82s、86s、95s，第三次超过门槛 5 秒。
+- 新方案: 固定 7 worker；保持 worksteal、完整 non-e2e、lint/cache/check 名称不变，不引入分组、拆命令或额外 cache。
+- 原因: 6 worker 已证明稳定但没有足够最坏情况余量，8 worker 已证明会触发并发敏感失败；7 是二者之间唯一简单整数候选。
+- 影响范围: 仅本 milestone；不修改产品或历史并发测试。
+- design.md 是否同步改: 是，已更新 Changelog、决策 2、命令、图示、风险、runbook 与 Milestone 退出命令。
+- 远端未达标证据:
+
+| Run | Attempt | Python | Frontend | pytest | 结论 |
+|---|---:|---:|---:|---:|---|
+| 29098825446 | 1 | 82s success | 71s success | 49s | ≤90s |
+| 29098825446 | 2 | 86s success | 70s success | 58s | ≤90s |
+| 29098825446 | 3 | 95s success | 66s success | 61s | 超过目标 5s |
+
+- Commits: 调优 Verify=本提交，7-worker C2=待完成。
+- Next: workflow 改为 `-n 7`，本地完整全量连续两轮并确认 n=8 失败两条均通过；ruff 全绿后推送，等待远端三次 success。
