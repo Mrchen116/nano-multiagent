@@ -8,9 +8,7 @@ import re
 from pathlib import Path
 
 
-UNIT_DIR_PATTERN = re.compile(
-    r"^(?:feat|bugfix|refactor|perf|docs|chore)-(\d+)(?:-|$)"
-)
+UNIT_DIR_PATTERN = re.compile(r"^(?:feat|bugfix|refactor|perf|docs|chore)-(\d+)(?:-|$)")
 CHANGE_TYPES = ("feat", "bugfix", "refactor", "perf", "docs", "chore")
 
 
