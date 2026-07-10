@@ -60,5 +60,23 @@
   - Visual/Interaction: N/A（非前端）。
   - Prototype Comparison: N/A（无原型/reference）。
 - Rollback: 回退本 C1 只移除接线前证据，不改变 CI。
-- Commits: C1=待本提交落定，C2=待完成，C3=待完成。
-- Next: 修改 `pyproject.toml` 与 `.github/workflows/ci.yml`，安装更新后的 dev extra，并先跑完整 4-worker 门禁。
+- Commits: C1=`c833720f`，初始 C2=`6236644b`，8-worker 调优 C2=待完成，C3=待完成。
+- Next: 初始 4-worker C2 已完成本地门禁；远端三轮未达标，按下方 Design 修订继续调优。
+
+## [Design 修订] R3: 固定 4 worker → 固定 8 worker
+
+- 现状方案: Python job 使用固定 4 worker；本地全量已绿，但 GitHub 普通托管 runner 的三次成功 attempt 总 required 时间分别为 94s、91s、96s，均未达到 ≤90s 退出标准。
+- 新方案: 保持单 job、worksteal、完整 non-e2e、lint 顺序、check 名称和 pip cache 不变，只把固定并行度调为 8 worker。
+- 原因: 远端稳定成本为 install 20s + pytest 61–64s，4 worker 已证明不足；design 现有本地基准已验证 8 worker 全绿且比 4 worker 更快（42.35s vs 52.73s），这是满足既定门槛的最小参数调优。
+- 影响范围: 仅本 milestone；不影响后续 milestone（本 unit 只有 M1）。
+- design.md 是否同步改: 是，已更新决策 2、命令、图示、风险、runbook 与 Milestone 退出命令，并追加 Changelog。
+- Commits: 调优 Verify=本提交，调优 C2=待完成。
+- 远端未达标证据:
+
+| Run | Attempt | Python | Frontend | Required completion | 结论 |
+|---|---:|---:|---:|---:|---|
+| 29097094967 | 1 | 94s | 57s | 94s | success，但超过目标 4s（冷 cache） |
+| 29097094967 | 2 | 91s | 67s | 91s | success，但超过目标 1s |
+| 29097094967 | 3 | 96s | 71s | 96s | success，但超过目标 6s |
+
+- Next: C2 将 workflow 从 `-n 4` 调为 `-n 8`，复跑完整本地并行门禁并推送，等待新的三次远端证据；在此之前 R3 保持 DOING。
