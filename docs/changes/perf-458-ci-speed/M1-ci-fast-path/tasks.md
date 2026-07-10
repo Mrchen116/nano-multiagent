@@ -43,4 +43,4 @@
 
 - 状态: DONE
 - 步骤: 记录当前 workflow 缺少 cache/并行/slow-duration 输出的 Verify 证据；增加 dev 依赖和最小 workflow 配置；运行完整并行、串行、lint 与 frontend 门禁。
-- 验证: 本地全部门禁全绿；unit PR 上至少三次常规成功 Actions run 的 required checks 执行时间均不超过 90 秒，Python/Frontend check 名称不变；通过一次真实失败 run 确认失败阻断语义。
+- 验证: 本地全部门禁全绿；4-worker 远端三次 Actions run 均 success，required checks 为 94/91/96 秒，Python/Frontend check 名称不变；n8 探索中的真实失败 run 确认失败阻断语义。用户接受未达到 90 秒的最终结果。

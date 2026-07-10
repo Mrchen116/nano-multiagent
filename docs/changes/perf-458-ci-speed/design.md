@@ -6,10 +6,7 @@
 
 ## Changelog
 
-- 2026-07-10 (M1): 用户明确停止 worker-count 调参；最终采用最初、最简单且远端三轮全绿的 4 worker，接受 94/91/96 秒未达到 90 秒的验收例外，相比约 3分34秒基线仍大幅提速 — 详见 `M1-ci-fast-path/progress.md`
-- 2026-07-10 (M1): 6-worker 三次远端 success 为 82/86/95 秒，仍未满足三次全部 ≤90 秒；固定并行度调为 7 worker，作为 6 的稳定边界与 8 的并发失败边界之间唯一简单候选 — 详见 `M1-ci-fast-path/progress.md`
-- 2026-07-10 (M1): 8-worker 远端复验暴露两条并发敏感测试失败，将固定并行度收敛为 6 worker，在不修历史测试或引入分组机制的前提下平衡稳定性与速度 — 详见 `M1-ci-fast-path/progress.md`
-- 2026-07-10 (M1): 普通 GitHub runner 的 4-worker 三轮实测均超过 90 秒，将固定并行度调为已完成本地隔离验证的 8 worker；拓扑、覆盖范围与 check 名称不变 — 详见 `M1-ci-fast-path/progress.md`
+- 2026-07-10 (M1): 最终采用最简单且远端三轮全绿的 4 worker；完整 required checks 为 91–96 秒，相比约 3分34秒基线大幅提速，用户明确接受未达到 90 秒的结果并停止继续调参 — 详见 `M1-ci-fast-path/progress.md`
 
 ## 现状分析
 
@@ -192,8 +189,8 @@ sequenceDiagram
 **Review 驱动方式**：以真实 GitHub Actions PR workflow 作为端到端真栈；本 unit 不改产品客户端面。本地命令用于预检，最终性能证据必须来自普通 GitHub 托管 runner：
 
 1. 在 unit PR 上运行完整 CI，记录 run 创建时间、两个 job 的 started/completed 时间及 Python 各 step 时间。
-2. 确认 Python 与 Frontend 两门均绿，runner 开始后到全部 required checks 完成不超过 90 秒；排队时间单列、不混入执行耗时。
-3. 对至少三次常规成功 run 重复记录；不得只用 rerun 的最佳一次。
+2. 确认 Python 与 Frontend 两门均绿，记录 runner 开始后到全部 required checks 完成的时间；排队时间单列、不混入执行耗时。最终 4-worker 三次为 94/91/96 秒，按用户决策接受。
+3. 对至少三次常规成功 run 重复记录，不得只用 rerun 的最佳一次；本次三次均 success。
 4. 检查一次真实失败 run 或在临时提交中引入可恢复的测试失败，确认对应 job 仍红且修复后恢复绿色。
 
 本地预检命令：
@@ -207,7 +204,7 @@ cd src/IM/frontend && npm run test
 
 ## Milestones
 
-采用单 M1。全部改动围绕同一个可独立验收的结果“现有完整 CI 在 90 秒内给出同等质量信号”，范围约 8 个文件且无必须跨环境分阶段的依赖；拆成“测试清理 / CI 并行 / 缓存”会形成横切 milestone，增加协调而不能独立交付用户价值。
+采用单 M1。全部改动围绕同一个可独立验收的结果“现有完整 CI 以同等质量信号大幅缩短反馈时间”，范围约 8 个文件且无必须跨环境分阶段的依赖；拆成“测试清理 / CI 并行 / 缓存”会形成横切 milestone，增加协调而不能独立交付用户价值。
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
