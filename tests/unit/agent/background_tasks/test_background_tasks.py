@@ -259,19 +259,6 @@ def test_terminal_state_is_idempotent() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Pending messages
-# ---------------------------------------------------------------------------
-
-
-def test_enqueue_and_drain_agent_messages() -> None:
-    reg = BackgroundTaskRegistry()
-    reg.enqueue_agent_message("a1", "hello")
-    reg.enqueue_agent_message("a1", "world")
-    assert reg.drain_agent_messages("a1") == ("hello", "world")
-    assert reg.drain_agent_messages("a1") == ()
-
-
-# ---------------------------------------------------------------------------
 # Stop handles
 # ---------------------------------------------------------------------------
 
@@ -315,6 +302,43 @@ def test_request_stop_on_terminal_returns_false() -> None:
 def test_request_stop_on_missing_task_returns_false() -> None:
     reg = BackgroundTaskRegistry()
     assert reg.request_stop("b-missing") is False
+
+
+def test_terminal_record_rejects_late_handle_reinsertion() -> None:
+    reg = BackgroundTaskRegistry()
+    reg.register_subagent(
+        task_id="a1",
+        parent_session_id="s1",
+        agent_id="a1",
+        agent_session_id="sess_1",
+        description="research",
+        prompt="p",
+        agent_type="explore",
+        output_file="o",
+    )
+    reg.mark_running("a1")
+    reg.complete("a1", result_text="done")
+
+    class _LateHandle:
+        def __init__(self) -> None:
+            self.stopped = False
+            self.messages: list[str] = []
+
+        def stop(self) -> None:
+            self.stopped = True
+
+        def send_message(self, prompt: str) -> bool:
+            self.messages.append(prompt)
+            return True
+
+    handle = _LateHandle()
+
+    assert reg.set_stop_handle("a1", handle) is False
+    assert reg.set_message_handle("a1", handle) is False
+    assert reg.request_stop("a1") is False
+    assert reg.send_agent_message("a1", "late follow-up") is False
+    assert handle.stopped is False
+    assert handle.messages == []
 
 
 # ---------------------------------------------------------------------------
@@ -506,6 +530,10 @@ def _make_fake_wiring(registry: BackgroundTaskRegistry) -> Any:
     class _FakeStopper:
         def stop(self) -> None:
             pass
+
+        def send_message(self, prompt: str) -> bool:
+            del prompt
+            return False
 
     runner_stub.start.return_value = _FakeStopper()
 
@@ -701,6 +729,10 @@ def test_agent_tool_run_background_passes_workspace_root_to_registry() -> None:
     class _FakeStopper:
         def stop(self) -> None:
             pass
+
+        def send_message(self, prompt: str) -> bool:
+            del prompt
+            return False
 
     wiring.subagent_runner.start.return_value = _FakeStopper()
 

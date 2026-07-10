@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from agent.core.background_tasks.interfaces import (
     BackgroundBashRunner,
+    BackgroundSubagentHandle,
     BackgroundSubagentRunner,
     BackgroundTaskOutput,
     BackgroundTaskStopper,
@@ -27,7 +28,7 @@ def run_subagent_lifecycle(
     on_fail: TaskFailureCallback,
     on_kill: TaskKillCallback,
     llm_session_id: str | None = None,
-) -> BackgroundTaskStopper:
+) -> BackgroundSubagentHandle:
     """Start a subagent worker and wire completion/failure/kill callbacks.
 
     The caller (platform adapter) is responsible for:
