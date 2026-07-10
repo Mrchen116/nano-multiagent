@@ -41,6 +41,6 @@
 
 ### R3 — 接入 xdist、pip cache 与完整门禁
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 记录当前 workflow 缺少 cache/并行/slow-duration 输出的 Verify 证据；增加 dev 依赖和最小 workflow 配置；运行完整并行、串行、lint 与 frontend 门禁。
 - 验证: 本地全部门禁全绿；unit PR 上至少三次常规成功 Actions run 的 required checks 执行时间均不超过 90 秒，Python/Frontend check 名称不变；通过一次真实失败 run 确认失败阻断语义。

@@ -47,5 +47,18 @@
 
 ## R3 — 接入 xdist、pip cache 与完整门禁
 
-- 状态: TODO
-- Next: R2 完成后记录 workflow 缺失能力并接线。
+- 状态: DOING
+- Context: Python job 的质量门禁完整但仍串行执行；`setup-python` 没有 pip cache，pytest 命令也没有并行调度或慢用例摘要。串行本地基线为 149.34s，已无法满足 90 秒远端目标。
+- Decision: 保留单一 `Python checks` job 和原 lint 顺序；仅在 dev 依赖增加 `pytest-xdist>=3,<4`，在 setup-python 启用以 `pyproject.toml` 为键来源的 pip cache，并把同一完整 non-e2e 命令接为固定 4 worker worksteal + durations。
+- Rationale: 单 job 不改变 branch protection check 名称或覆盖范围；固定 4 worker 已由 design 基准证明全绿，避免 matrix/shard/专用 runner 的额外复杂度。
+- Evidence:
+  - Tests: C1 `rg` 只找到 `pytest -m "not e2e"`；Python setup 段没有 `cache`，`pyproject.toml` 没有 `pytest-xdist`，pytest 命令没有 `--dist`/`--durations`。
+  - Entry: GitHub Actions `.github/workflows/ci.yml` 是贡献者唯一 CI 入口；C2 将保持 job 名 `Python checks` / `Frontend checks` 不变。
+  - Frontend State Matrix: N/A（非前端）。
+  - Browser QA: N/A（非前端）。
+  - E2E/Regression: C2 后运行完整并行、串行、ruff、format 与 frontend vitest；远端 PR run 作为真栈性能验收。
+  - Visual/Interaction: N/A（非前端）。
+  - Prototype Comparison: N/A（无原型/reference）。
+- Rollback: 回退本 C1 只移除接线前证据，不改变 CI。
+- Commits: C1=待本提交落定，C2=待完成，C3=待完成。
+- Next: 修改 `pyproject.toml` 与 `.github/workflows/ci.yml`，安装更新后的 dev extra，并先跑完整 4-worker 门禁。
