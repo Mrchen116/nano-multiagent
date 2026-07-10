@@ -47,21 +47,21 @@
 
 ## R3 — 接入 xdist、pip cache 与完整门禁
 
-- 状态: DOING
+- 状态: DONE（90 秒目标按用户最终决策接受例外）
 - Context: Python job 的质量门禁完整但仍串行执行；`setup-python` 没有 pip cache，pytest 命令也没有并行调度或慢用例摘要。串行本地基线为 149.34s，已无法满足 90 秒远端目标。
-- Decision: 保留单一 `Python checks` job 和原 lint 顺序；仅在 dev 依赖增加 `pytest-xdist>=3,<4`，在 setup-python 启用以 `pyproject.toml` 为键来源的 pip cache，并把同一完整 non-e2e 命令接为固定 7 worker worksteal + durations。
-- Rationale: 单 job 不改变 branch protection check 名称或覆盖范围；6-worker 三次 success 仍有一次 95s，8-worker 会触发并发敏感测试，7-worker 是两者间唯一不引入额外机制的候选。
+- Decision: 最终保留单一 `Python checks` job、原 lint 顺序、pip cache 和固定 4-worker worksteal 完整 non-e2e；停止所有 worker-count 调参。
+- Rationale: 4-worker 是最初、最简单且远端三轮全绿的配置，94/91/96 秒相较约 3分34秒基线已大幅缩短；用户明确选择稳定简单方案并接受未达 90 秒，不再为数字增加调参或复杂度。
 - Evidence:
-  - Tests: 6-worker 完整 non-e2e 连续两轮均为 3444 passed, 2 skipped，分别 22.95s（wall 23.76s）与 22.15s（wall 22.78s）；上述两条 n=8 失败测试以 n=6 定向复跑 2 passed in 1.66s。完整串行为 3444 passed, 2 skipped in 104.81s；ruff 两门全绿；frontend 63 files / 615 tests passed in 12.02s（wall 13.09s）。
-  - Entry: GitHub Actions `.github/workflows/ci.yml` 是贡献者唯一 CI 入口；job 名保持 `Python checks` / `Frontend checks`。4-worker 三轮均 success 但 91–96s 未达标；8-worker attempt 2 真实失败并使 workflow 红；6-worker 三轮 success 为 82/86/95s，仍未满足三次全部 ≤90s；7-worker 远端复验待收集。
+  - Tests: 4-worker 完整 non-e2e 为 3444 passed, 2 skipped in 30.88s（wall 31.69s）；完整串行为 3444 passed, 2 skipped in 104.81s；ruff 两门全绿；frontend 63 files / 615 tests passed in 12.02s（wall 13.09s）。最终收口另跑最窄目标测试与 ruff，结果见下方 Final Verification。
+  - Entry: GitHub Actions `.github/workflows/ci.yml` 是贡献者唯一 CI 入口；job 名保持 `Python checks` / `Frontend checks`。4-worker 三轮均 success，required completion 为 94/91/96 秒；8-worker attempt 2 真实失败并使 workflow 红，证明失败阻断语义保持。
   - Frontend State Matrix: N/A（非前端）。
   - Browser QA: N/A（非前端）。
   - E2E/Regression: C2 后运行完整并行、串行、ruff、format 与 frontend vitest；远端 PR run 作为真栈性能验收。
   - Visual/Interaction: N/A（非前端）。
   - Prototype Comparison: N/A（无原型/reference）。
-- Rollback: 回退本次 7-worker 调优可恢复 6-worker（稳定但一轮 95s）；回退 `47d65d3a` 可恢复 8-worker（快但远端不稳定）；回退 `0d6ab276` 可恢复 4-worker（远端稳定但 91–96s 未达标）。
-- Commits: C1=`c833720f`，初始 C2=`6236644b`，4→8 Verify=`2a2f3aa1`，8-worker C2=`0d6ab276`，8→6 Verify=`d60e7b1e`，6-worker C2=`47d65d3a`，6→7 Verify=待本提交，7-worker C2=待完成，C3=待远端证据完成。
-- Next: 提交 6-worker 三轮远端计时与 design 修订，再将 workflow 调为 7 worker，连续跑两轮完整本地并行门禁。
+- Rollback: 最小回滚是把 workflow pytest 命令恢复为串行并删除 `pytest-xdist` 依赖；测试慢点清理可独立保留。完整回滚可逐个 revert R1/R2/R3 的 C2 commits，不触碰产品 `src/`。
+- Commits: C1=`c833720f`，初始 4-worker C2=`6236644b`，最终 4-worker 收口=`9f51fa1c`，探索证据与中间参数提交保留在分支历史，C3=本提交。
+- Next: 最窄验证通过后合入 `unit/perf-458`，关闭临时 validation PR #184，清理 milestone worktree/分支。
 
 ## [Design 修订] R3: 固定 4 worker → 固定 8 worker
 
@@ -114,5 +114,28 @@
 | 29098825446 | 2 | 86s success | 70s success | 58s | ≤90s |
 | 29098825446 | 3 | 95s success | 66s success | 61s | 超过目标 5s |
 
-- Commits: 调优 Verify=本提交，7-worker C2=待完成。
-- Next: workflow 改为 `-n 7`，本地完整全量连续两轮并确认 n=8 失败两条均通过；ruff 全绿后推送，等待远端三次 success。
+- Commits: 调优 Verify=`39fd0ed4`，7-worker C2=N/A（用户在实验开始时明确停止调参）。
+- Next: 候选已放弃；以下方最终 4-worker 收口决策为准。
+
+## [Design 修订] R3: 停止调参，最终恢复固定 4 worker
+
+- 现状方案: 7 worker 仅形成候选设计，完整实验在启动时被用户决策中止，没有形成可用证据；此前 4 worker 三次远端全绿但为 94/91/96s，6 worker 三次全绿但为 82/86/95s，8 worker 触发并发敏感失败。
+- 新方案: 最终采用最初的 `-n 4 --dist worksteal` + pip cache + 慢测清理；停止所有 worker-count 调参。
+- 原因: 用户明确选择最简单稳定方案，并接受未达到 90 秒的验收例外。4 worker 相比约 3分34秒基线已把 required completion 缩短到约 1分31–1分36，且三轮均 success；这也符合 design“达不到 90 秒不追加复杂方案”的既定停止条件。
+- 影响范围: 仅本 milestone；不改变产品行为、测试范围、check 名称或失败阻断语义。
+- design.md 是否同步改: 是，最终决策、命令、风险、runbook、Milestone 退出标准和 Changelog 均已恢复/更新为 4 worker。
+- 验收例外: motivation 的“三次全部 ≤90 秒”未满足；经用户明确授权，以三次 success 94/91/96 秒和相对基线的大幅改善作为本 unit 最终性能结果。
+- 探索保留: 8-worker 失败仍作为失败阻断证据和 out-of-unit issue #185 的依据；最终 workflow 不采用 n6/n7/n8。
+- Commits: 最终 workflow=`9f51fa1c`，最终文档=本提交。
+
+## Final Verification
+
+- Tests: 最终 `-n 4 --dist worksteal` 对本 milestone 涉及的五个 IM 旅程、专门 live-config 文件及 platform adapters 共 51 tests passed in 8.15s；此前完整 n4 non-e2e 为 3444 passed, 2 skipped in 30.88s，完整串行为 3444 passed, 2 skipped in 104.81s。
+- Lint: `ruff check .` 全绿；`ruff format --check .` → 769 files already formatted。
+- Workflow: `.github/workflows/ci.yml` 精确命令为 `pytest -m "not e2e" -n 4 --dist worksteal --durations=20 --durations-min=0.5`；job 名仍为 `Python checks` / `Frontend checks`。
+- Frontend: 63 files / 615 tests passed in 12.02s（wall 13.09s）；本 unit 未改前端源码或命令。
+- Product scope: `src/` 零修改，四包 no spec delta；浏览器/UI/原型验收 N/A。
+- Remote success: run 29097094967 attempts 1/2/3 的 Python 为 94/91/96s，Frontend 为 57/67/71s，三次 workflow 均 success。
+- Failure blocking: run 29097895298 attempt 2 的 Python 2 tests failed 后 workflow failure，证明 required check 失败仍阻断；并发问题登记 #185。
+- Rollback: workflow 可一行恢复串行 pytest，删除 `pytest-xdist` dev 依赖；慢测改写可独立 revert，不影响产品运行时。
+- Next: 合入并推送 `unit/perf-458`，关闭临时 validation PR #184，清理 milestone worktree/本地远端分支。

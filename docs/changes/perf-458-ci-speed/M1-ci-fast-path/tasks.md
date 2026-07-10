@@ -4,17 +4,17 @@
 
 ## 目标
 
-在不改变 Python/Frontend 门禁范围和产品行为的前提下，移除非 e2e Python 测试中的确定性等待，并让 GitHub Actions 以 7 个 xdist worker 和 setup-python pip cache 执行完整门禁，使常规成功 CI 的 required checks 在 runner 开始后 90 秒内完成。
+在不改变 Python/Frontend 门禁范围和产品行为的前提下，移除非 e2e Python 测试中的确定性等待，并让 GitHub Actions 以稳定的 4 个 xdist worker 和 setup-python pip cache 执行完整门禁，大幅缩短反馈时间；90 秒目标按用户最终决策接受验收例外。
 
 ## 退出标准
 
 - [x] 五条 IM 慢测改用 `source=mirror` 读取持久化配置，不再等待 live-config 5 秒 fallback；专门 live-config 测试继续通过。
 - [x] 两条 ShellRunner stop 负断言改为等待 monitor 清理 `_stopped` 的完成条件，保留“不触发失败回调”的行为断言。
 - [x] 输出上限测试保留生产常量为 256 MiB 的断言，并以测试内小上限覆盖保留/截断行为，不再写满 256 MiB。
-- [ ] Python job 保留 ruff、format 与完整 non-e2e pytest，改为 7 worker worksteal，输出慢用例摘要，并启用 setup-python pip cache。
-- [ ] `.venv/bin/pytest -m "not e2e" -n 7 --dist worksteal` 连续两轮、完整串行 non-e2e、ruff 两门和 frontend vitest 全绿。
-- [ ] 真实 GitHub Actions 至少三次成功 run 的 required checks 执行时间均不超过 90 秒；check 名称和失败阻断语义不变。
-- [ ] `src/` 零修改，四包 no spec delta；性能证据和回滚结论记录在 `progress.md`。
+- [x] Python job 保留 ruff、format 与完整 non-e2e pytest，改为 4 worker worksteal，输出慢用例摘要，并启用 setup-python pip cache。
+- [x] `.venv/bin/pytest -m "not e2e" -n 4 --dist worksteal`、完整串行 non-e2e、ruff 两门和 frontend vitest 全绿。
+- [x] 真实 GitHub Actions 三次 success 为 94/91/96 秒，check 名称不变；n8 真实失败证明 Python check 红会阻断。三次全部 ≤90 秒未满足，按用户明确决策停止调参并接受验收例外。
+- [x] `src/` 零修改，四包 no spec delta；性能证据、验收例外和回滚结论记录在 `progress.md`。
 
 ## 测试策略
 
@@ -41,6 +41,6 @@
 
 ### R3 — 接入 xdist、pip cache 与完整门禁
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 记录当前 workflow 缺少 cache/并行/slow-duration 输出的 Verify 证据；增加 dev 依赖和最小 workflow 配置；运行完整并行、串行、lint 与 frontend 门禁。
 - 验证: 本地全部门禁全绿；unit PR 上至少三次常规成功 Actions run 的 required checks 执行时间均不超过 90 秒，Python/Frontend check 名称不变；通过一次真实失败 run 确认失败阻断语义。
