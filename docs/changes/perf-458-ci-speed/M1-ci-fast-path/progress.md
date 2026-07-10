@@ -80,3 +80,10 @@
 - Failure blocking: run 29097895298 attempt 2 的 Python 2 tests failed 后 workflow failure，证明 required check 失败仍阻断；并发问题登记 #185。
 - Rollback: workflow 可一行恢复串行 pytest，删除 `pytest-xdist` dev 依赖；慢测改写可独立 revert，不影响产品运行时。
 - Next: milestone 已合入并推送 `unit/perf-458@50144245`；临时 PR #184 与 milestone worktree/分支均已清理。
+
+## Code Review Fixes
+
+- Coverage regression: `test_create_agent_lists_details_and_uses_new_node_binding_for_relay` 以并发 live GET 恢复 `agent.config.get → agent.config {agent:null} → ack → mirror fallback → relay.message` 连续帧覆盖，不再等待 5 秒 fallback timeout。
+- False-red margin: stop/timeout 条件轮询上限由 3 秒放宽到 5 秒；条件满足即返回，正常耗时不增加，同时为 0.5 秒 timeout + 2 秒 TERM grace 保留调度余量。
+- Evidence: 三条最窄相关测试 3 passed in 2.88s（live fallback 旅程 0.22s，stop 两条 0.33s/2.25s）；两份测试文件的 ruff/format 全绿。`src/`、CI、`acceptance.md`、`verification.md` 均未修改。
+- Process: reviewer 小修快车道，省略三提交；两项均为测试覆盖/测试稳定性修复，无产品行为实现可先写红测。

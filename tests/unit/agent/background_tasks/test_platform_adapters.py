@@ -291,7 +291,7 @@ def test_shell_runner_stop_terminates_process() -> None:
 
 
 def _wait_for_monitor_to_consume_stop(
-    runner: ShellRunner, task_id: str, *, timeout: float = 3.0
+    runner: ShellRunner, task_id: str, *, timeout: float = 5.0
 ) -> None:
     deadline = time.monotonic() + timeout
     while task_id in runner._stopped and time.monotonic() < deadline:
