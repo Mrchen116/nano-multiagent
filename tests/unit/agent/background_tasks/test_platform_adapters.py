@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from agent.platform.background_tasks import file_output as file_output_module
 from agent.core.background_tasks.models import (
     BackgroundTaskRecord,
     BackgroundTaskStatus,
@@ -167,22 +168,26 @@ def test_file_output_stderr_prefix() -> None:
         assert "[stderr] error" in content
 
 
-def test_file_output_256mib_cap() -> None:
+def test_file_output_256mib_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+    assert BACKGROUND_BASH_MAX_OUTPUT_BYTES == 256 * 1024 * 1024
+    test_limit = 1024
+    monkeypatch.setattr(
+        file_output_module, "BACKGROUND_BASH_MAX_OUTPUT_BYTES", test_limit
+    )
+
     with tempfile.TemporaryDirectory() as tmpdir:
         output = BashFileOutput(workspace_root=Path(tmpdir))
         output.open("sess-1", "b1")
-        big = "x" * 1024
-        written = 0
-        while written < BACKGROUND_BASH_MAX_OUTPUT_BYTES + 1024:
-            output.append("b1", big, stream="stdout")
-            written += len(big.encode("utf-8"))
+        retained = "x" * test_limit
+        output.append("b1", retained, stream="stdout")
+        output.append("b1", "overflow", stream="stdout")
+        output.append("b1", "overflow-again", stream="stdout")
+
         path = output._resolve_path("sess-1", "b1")
-        size = path.stat().st_size
-        assert (
-            size <= BACKGROUND_BASH_MAX_OUTPUT_BYTES + 200
-        )  # truncation notice overhead
         content = path.read_text(encoding="utf-8")
-        assert "exceeded 256 MiB limit" in content
+        assert retained in content
+        assert "overflow" not in content
+        assert content.count("exceeded 256 MiB limit") == 1
 
 
 # ---------------------------------------------------------------------------
@@ -285,6 +290,17 @@ def test_shell_runner_stop_terminates_process() -> None:
         assert True
 
 
+def _wait_for_monitor_to_consume_stop(
+    runner: ShellRunner, task_id: str, *, timeout: float = 3.0
+) -> None:
+    deadline = time.monotonic() + timeout
+    while task_id in runner._stopped and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert task_id not in runner._stopped, (
+        f"monitor did not consume stopped marker for task_id={task_id}"
+    )
+
+
 def test_shell_runner_stop_does_not_fire_on_fail() -> None:
     """A stopped task must NOT report failure via on_fail (bugfix-417-M4 fix-r1).
 
@@ -299,17 +315,14 @@ def test_shell_runner_stop_does_not_fire_on_fail() -> None:
         output = BashFileOutput(workspace_root=Path(tmpdir))
         runner = ShellRunner()
         events: list[str] = []
-        done = threading.Event()
 
         def on_complete(
             *, task_id, result_text, usage, duration_ms, tool_use_count
         ) -> None:
             events.append("complete")
-            done.set()
 
         def on_fail(*, task_id: str, error: str) -> None:
             events.append(f"fail:{error}")
-            done.set()
 
         stopper = runner.start(
             command="sleep 30",
@@ -322,12 +335,7 @@ def test_shell_runner_stop_does_not_fire_on_fail() -> None:
         )
         time.sleep(0.3)
         stopper.stop()
-        # Give the monitor thread ample time to observe the killed process and run its
-        # terminal branch; if it (wrongly) calls on_fail, ``events`` will capture it.
-        fired = done.wait(5.0)
-        assert not fired or "complete" in events, (
-            f"stop must not surface a failure terminal; got events={events}"
-        )
+        _wait_for_monitor_to_consume_stop(runner, "b1")
         assert not any(e.startswith("fail") for e in events), (
             f"on_fail must not fire for a stop-induced exit; got events={events}"
         )
@@ -348,17 +356,14 @@ def test_shell_runner_stop_during_timeout_window_stays_silent_and_clears_flag() 
         output = BashFileOutput(workspace_root=Path(tmpdir))
         runner = ShellRunner()
         events: list[str] = []
-        done = threading.Event()
 
         def on_complete(
             *, task_id, result_text, usage, duration_ms, tool_use_count
         ) -> None:
             events.append("complete")
-            done.set()
 
         def on_fail(*, task_id: str, error: str) -> None:
             events.append(f"fail:{error}")
-            done.set()
 
         # Command ignores SIGTERM, so _stop_task's killpg SIGTERM (grace 2s) cannot reap
         # it; the monitor's process.wait(timeout=0.5) fires the timeout branch first,
@@ -375,7 +380,7 @@ def test_shell_runner_stop_during_timeout_window_stays_silent_and_clears_flag() 
         )
         time.sleep(0.2)
         stopper.stop()
-        fired = done.wait(5.0)
+        _wait_for_monitor_to_consume_stop(runner, "b_to")
         assert not any(e.startswith("fail") for e in events), (
             f"stopped task must stay silent on the timeout path too; events={events}"
         )
@@ -383,7 +388,6 @@ def test_shell_runner_stop_during_timeout_window_stays_silent_and_clears_flag() 
         assert "b_to" not in runner._stopped, (
             "_stopped entry leaked after stop+timeout exit"
         )
-        del fired
 
 
 class _SlowAppendOutput:
