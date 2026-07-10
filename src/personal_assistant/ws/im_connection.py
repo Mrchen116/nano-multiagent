@@ -142,7 +142,8 @@ class IMConnectionConfig:
         reconnect_initial_seconds: Initial reconnect delay after failure.
         reconnect_max_seconds: Maximum reconnect delay cap.
         heartbeat_interval_seconds: Delay between periodic node heartbeats while connected.
-        heartbeat_ack_timeout_seconds: Maximum wait for IM to acknowledge one heartbeat.
+        heartbeat_ack_timeout_seconds: Maximum total wait to send one heartbeat and
+            receive its IM acknowledgment.
     """
 
     url: str
@@ -941,21 +942,33 @@ class IMConnectionManager:
         loop = asyncio.get_running_loop()
         ack_future = loop.create_future()
         self._heartbeat_ack_future = ack_future
+        timeout = self._config.normalized_heartbeat_ack_timeout_seconds()
+        heartbeat_sent = False
         try:
-            await self._send_frame(
-                "node.heartbeat", self._reporter.send_heartbeat(status="online")
-            )
-            timeout = self._config.normalized_heartbeat_ack_timeout_seconds()
-            if timeout is not None:
-                try:
-                    await asyncio.wait_for(asyncio.shield(ack_future), timeout=timeout)
-                except asyncio.TimeoutError as exc:
-                    raise TimeoutError(
-                        f"IM heartbeat ack timed out after {timeout:.2f}s"
-                    ) from exc
+            if timeout is None:
+                await self._send_frame(
+                    "node.heartbeat",
+                    self._reporter.send_heartbeat(status="online"),
+                )
+                return
+            try:
+                async with asyncio.timeout(timeout):
+                    await self._send_frame(
+                        "node.heartbeat",
+                        self._reporter.send_heartbeat(status="online"),
+                    )
+                    heartbeat_sent = True
+                    await asyncio.shield(ack_future)
+            except TimeoutError as exc:
+                phase = "ack" if heartbeat_sent else "send"
+                raise TimeoutError(
+                    f"IM heartbeat {phase} timed out after {timeout:.2f}s"
+                ) from exc
         finally:
             if self._heartbeat_ack_future is ack_future:
                 self._heartbeat_ack_future = None
+            if not ack_future.done():
+                ack_future.cancel()
 
     def _mark_disconnected(self, exc: Exception | None = None) -> None:
         had_connection = self._connected or self._websocket is not None

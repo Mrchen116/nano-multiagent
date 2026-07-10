@@ -57,6 +57,20 @@ class _HalfOpenWebSocket(_FakeWebSocket):
         self._closed.set()
 
 
+class _HangingHeartbeatSendWebSocket(_HalfOpenWebSocket):
+    """Registration succeeds, but the heartbeat send never completes."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.heartbeat_send_started = asyncio.Event()
+
+    async def send(self, data: str) -> None:
+        if json.loads(data)["type"] == "node.heartbeat":
+            self.heartbeat_send_started.set()
+            await asyncio.Event().wait()
+        await super().send(data)
+
+
 def _manager(
     tmp_path: Path,
     connect,
@@ -338,6 +352,64 @@ def test_heartbeat_ack_timeout_reconnects_half_open_socket(tmp_path: Path) -> No
     assert any(
         event.get("event") == "disconnected"
         and "heartbeat ack timed out" in str(event.get("error"))
+        for event in manager.event_log()
+    )
+
+
+def test_heartbeat_send_timeout_reconnects_half_open_socket(tmp_path: Path) -> None:
+    """A heartbeat write must share the liveness deadline with its ack wait.
+
+    Otherwise backpressure can suspend ``websocket.send`` before the ack timer starts,
+    leaving the Gateway process alive on a connection that IM has already marked stale.
+    """
+
+    first_socket = _HangingHeartbeatSendWebSocket()
+    second_socket = _HalfOpenWebSocket()
+    sockets = [first_socket, second_socket]
+    connect_calls: list[tuple[str, dict[str, str]]] = []
+    second_connect = asyncio.Event()
+
+    async def _connect(url: str, headers: dict[str, str]) -> _FakeWebSocket:
+        socket = sockets.pop(0)
+        connect_calls.append((url, headers))
+        if len(connect_calls) == 2:
+            second_connect.set()
+        return socket
+
+    manager = _manager(tmp_path, _connect)
+    manager._config = IMConnectionConfig(  # noqa: SLF001
+        url="http://im.local:9000",
+        reconnect_initial_seconds=0.01,
+        reconnect_max_seconds=0.01,
+        heartbeat_interval_seconds=0.01,
+        heartbeat_ack_timeout_seconds=0.01,
+    )
+
+    async def _exercise() -> None:
+        task = asyncio.create_task(manager.run_forever())
+        try:
+            await asyncio.wait_for(
+                first_socket.heartbeat_send_started.wait(), timeout=1.0
+            )
+            await asyncio.wait_for(second_connect.wait(), timeout=1.0)
+        finally:
+            await manager.close()
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+    asyncio.run(_exercise())
+
+    assert first_socket.closed == 1
+    assert [json.loads(frame)["type"] for frame in first_socket.sent] == [
+        "node.register"
+    ]
+    assert [json.loads(frame)["type"] for frame in second_socket.sent][:1] == [
+        "node.register"
+    ]
+    assert any(
+        event.get("event") == "disconnected"
+        and "heartbeat send timed out" in str(event.get("error"))
         for event in manager.event_log()
     )
 
