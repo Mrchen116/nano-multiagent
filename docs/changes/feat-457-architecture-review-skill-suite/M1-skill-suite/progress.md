@@ -64,7 +64,7 @@
 
 ## R3 — 把 deep-module 技法条件接入设计作者
 
-- Status: DOING
+- Status: DONE
 - Verify/Red: 一次性文案校验要求 `change-design-author/SKILL.md` 同时包含 `codebase-design`、模块深化、interface/seam、职责归属、测试面、普通设计反向条件和 Design It Twice 二级门槛；当前全部缺失并精确失败。
 - Verification contract:
   - 触发判定在 §3.0 grounding 后、关键决策对齐前执行。
@@ -72,4 +72,40 @@
   - 调用时按 module/interface/depth/seam/adapter/leverage/locality 判定，但项目正式术语优先。
   - 结果只投影到既有“现状分析 / 关键决策 / 接口与数据流 / 风险与回退”，不新增产物或改门禁。
   - Design It Twice 只在重要 interface 存在两种以上在 interface 形状、seam 位置或依赖策略上实质不同的方案，且用户需比较取舍时启动。
-- Next: C2 在 design-author 内增加该决策触发器与现有章节投影约束。
+- Context: `change-design-author` 已拥有 grounding、关键决策、接口数据流和风险段，新技法应作为内部 call-in 而不是新流程所有者。
+- Decision: 在 §3.0 grounding 之后增加单一决策触发段，写清四类正向触发、普通设计反向条件、正式术语优先级、既有章节投影与 Design It Twice 二级门槛。
+- Rationale: 该位置保证判定基于真实仓库现状且早于方案对齐；结论回填既有 design 章节，因此不改模板、门禁、Milestone 拆分或下游角色职责。
+- Evidence:
+  - Tests: 一次性 Python 校验确认正向触发恰为四类，反向条件、术语优先级、四个现有章节投影和“实质多方案 + 用户需比较”二级门槛存在；全套收尾校验确认仅 10 个允许路径变更、上游基线/metadata/链接/报告/handoff/call-in 合约全部通过；`pytest -q tests/unit/test_skill_registry_frontmatter.py` → `3 passed`；`git diff --check` 通过。
+  - Entry: 真实设计 skill 入口 `.claude/skills/change-design-author/SKILL.md` 在 grounding 后直接包含判定与调用指令，无需模板或 orchestrator 额外接线。
+  - Frontend State Matrix: N/A（纯 skill Markdown）。
+  - Browser QA: N/A（无前端）。
+  - E2E/Regression: N/A；deep-module / 普通设计两个真调用样例由 reviewer 按 design Runbook 独立验收。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: revert C2 `3069653b` 只删除 design-author 新增的 §3.0.5，原流程其余文本未改；C1 只是验证记录。
+- Commits: C1=`7c6bd845`, C2=`3069653b`, C3=本提交。
+- Next: 本 milestone 已完成，进入 rebase + 最终门禁 + unit 集成。
+
+## Validation Summary
+
+### Worker 退出标准
+
+| 设计退出标准 | 结果 | 可复核证据 |
+|---|---|---|
+| `codebase-design` 三文档 + LICENSE，最小兼容差异 | PASS | R1 的上游逐文件 diff 与结构校验；`DEEPENING.md`/LICENSE 逐字相同 |
+| `improve-codebase-architecture` 主体保留，差异限定为四类兼容点 | PASS | R2 上游 diff + 主体保留/禁止词结构校验 |
+| design-author 四正向、一反向、章节投影、二级门槛 | PASS | R3 计数与字段校验 |
+| 无其他产品/角色/契约层改动 | PASS | `git diff --name-only origin/unit/feat-457...HEAD` 严格等于 8 个范围文件 + 2 个 milestone 记录 |
+| frontmatter、目录名、相对链接、diff 格式 | PASS | 全套 Python 结构校验；frontmatter 单测 `3 passed`；`git diff --check` 通过 |
+
+### Reviewer 退出标准投影
+
+| Reviewer 旅程 | 已实现合约 | 独立验收点 |
+|---|---|---|
+| 任意仓库通用 organic 巡检 | Explore 问题集、deletion test、候选卡、before/after、强度和 top recommendation 保留，无专用扫描规则 | 真调用检查 HTML 候选质量 |
+| 缺少 CONTEXT/CONTEXT-MAP/ADR | 存在则读、不存在继续且不创建 | 无这些文档的临时 Git 仓 |
+| Git 报告独立快照 | 固定目录、时间 + 短 SHA、完整 SHA/branch/clean-dirty、dirty 警示、碰撞后缀 | 连续运行两次，检查不覆盖且无台账 |
+| 非 Git 报告 | cwd 为根、`no-git`、Git 字段 `unavailable` | 非 Git 临时目录真运行 |
+| 选中候选后 handoff | 八字段 handoff；有 `change-spec-author` 走 refactor 立项，无则交还用户/项目流程；不设计 interface/不改代码 | 分别在有/无该 skill 的宿主中选候选 |
+| design-author 条件 call-in | 四类正向触发 + 普通设计反向 + 正式术语优先 + 二级 Design It Twice | deep-module 与普通 design 各一个，再用多实质方案样例检查二级门槛 |
