@@ -39,8 +39,15 @@
 
 ## R2 — 修正架构巡检的通用流程接点
 
-- Status: TODO
-- Next: 等待 R1。
+- Status: DOING
+- Verify/Red: 一次性完整性校验要求 `SKILL.md`、`HTML-REPORT.md` 和 `LICENSE` 全部存在；当前失败并精确报出三个缺失路径。
+- Verification contract:
+  - 保留上游 organic exploration、deletion test、候选卡、before/after、推荐强度和 top recommendation。
+  - grounding 读取项目实际存在的 instructions/架构文档/领域词汇/决策记录，`CONTEXT.md`、`CONTEXT-MAP.md` 与 ADR 均可缺失且不创建。
+  - 报告根目录、`docs/architecture-reviews/`、时间 + 短 SHA/`no-git`、递增后缀、完整 Git 元数据和 dirty 警示全部显式。
+  - 候选选择后只输出固定 handoff；有 `change-spec-author` 则作为 refactor 需求转交，无则交还项目流程/用户，不设计 interface 或改代码。
+  - 无固定扫描集合、排除规则、候选台账或仓库专项检查清单。
+- Next: C2 引入锁定上游文档并替换三个不兼容流程接点。
 
 ## R3 — 把 deep-module 技法条件接入设计作者
 

@@ -39,7 +39,7 @@ exploration 与 HTML 表达，只修复其与现有通用 skill 流程的三个�
 
 ### R2 — 修正架构巡检的通用流程接点
 
-- 状态：TODO
+- 状态：DOING
 - 步骤：引入并最小修改 `improve-codebase-architecture`，实现可选 grounding、仓库内独立 HTML 快照、Git/非 Git 元数据、固定 handoff 与现有流程 continuation。
 - 验证：对比上游确认 organic exploration/候选卡/before-after/强度/top recommendation 保留；逐条检查报告路径、Git 语境、不覆盖、无 Git、handoff 与无候选台账。
 
