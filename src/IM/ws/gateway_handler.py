@@ -1724,19 +1724,28 @@ class GatewayHandler:
                                 sender_type="agent",
                                 content=text,
                             )
+                        # The asyncio lock is process-local. The durable first write is
+                        # the authority when another handler/process races this message.
+                        owns_durable_dispatch = True
                         if dispatch_request_key is not None:
-                            self._conversation_persistence.record_dispatch(
-                                AgentDispatchRecord(
-                                    dispatch_request_key=dispatch_request_key,
-                                    source_agent_id=source_agent_id,
-                                    target_kind=resolved_target.kind,
-                                    target_id=resolved_target.id,
-                                    conversation_id=conversation_id,
-                                    message_id=message.id,
+                            durable_dispatch = (
+                                self._conversation_persistence.record_dispatch(
+                                    AgentDispatchRecord(
+                                        dispatch_request_key=dispatch_request_key,
+                                        source_agent_id=source_agent_id,
+                                        target_kind=resolved_target.kind,
+                                        target_id=resolved_target.id,
+                                        conversation_id=conversation_id,
+                                        message_id=message.id,
+                                    )
                                 )
                             )
+                            owns_durable_dispatch = (
+                                durable_dispatch.message_id == message.id
+                            )
                         if (
-                            resolved_target.kind == "agent_id"
+                            owns_durable_dispatch
+                            and resolved_target.kind == "agent_id"
                             and self._relay_service is not None
                         ):
                             if resolution.target_node_id is not None:
@@ -1754,6 +1763,14 @@ class GatewayHandler:
                                         target_node_id=resolution.target_node_id,
                                         payload=_relay_result.relay_task.payload,
                                     )
+                        if not owns_durable_dispatch:
+                            existing = durable_dispatch
+                            conversation_id = durable_dispatch.conversation_id
+                            resolved_target = DispatchTarget(
+                                kind=durable_dispatch.target_kind,
+                                id=durable_dispatch.target_id,
+                            )
+                            message_id = durable_dispatch.message_id
                     else:
                         conversation_id = existing.conversation_id
                         resolved_target = DispatchTarget(
