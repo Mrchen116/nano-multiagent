@@ -114,7 +114,8 @@ class GatewayNodePersistence:
             agent_workspaces: Optional runtime workspace seed keyed by agent id.
 
         Returns:
-            Previous/current node snapshots and agent ids in stable lexical order.
+            Previous/current node snapshots and agent ids in protocol advertisement
+            order. Later heartbeat/disconnect lookups retain their stable DB order.
 
         Raises:
             sqlite3.DatabaseError: When any durable step fails. Earlier commits are
@@ -201,7 +202,7 @@ class GatewayNodePersistence:
         return GatewayRegistrationResult(
             previous_node=previous_node,
             current_node=node,
-            agent_ids=tuple(sorted(agent_ids)),
+            agent_ids=tuple(agent_ids),
         )
 
     def heartbeat(
