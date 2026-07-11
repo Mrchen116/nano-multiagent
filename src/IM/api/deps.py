@@ -49,6 +49,11 @@ def _build_profile_repository(request: Request) -> AgentProfileRepository:
     return AgentProfileRepository(request.app.state.connection)
 
 
+def get_profile_repository(request: Request) -> AgentProfileRepository:
+    """Provide agent profile reads to HTTP route composition."""
+    return _build_profile_repository(request)
+
+
 def _build_node_repository(request: Request) -> NodeRepository:
     """Return the canonical node repository for the running IM app."""
     return NodeRepository(request.app.state.connection)

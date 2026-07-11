@@ -1,12 +1,13 @@
 """Conversation routes for IM HTTP APIs."""
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field, model_validator
 
 from IM.api.deps import (
     current_user,
     get_event_service,
     get_gateway_handler,
+    get_profile_repository,
     get_web_im_service,
 )
 from IM.application.event_service import EventService
@@ -218,17 +219,16 @@ def create_conversation(
 async def fork_conversation(
     conversation_id: str,
     payload: ForkConversationRequest,
-    request: Request,
     user: User = Depends(current_user),
     service: WebIMService = Depends(get_web_im_service),
     gateway_handler: GatewayHandler = Depends(get_gateway_handler),
+    profiles: AgentProfileRepository = Depends(get_profile_repository),
 ) -> ConversationResponse:
     """Fork a direct agent chat at one completed agent reply into a new branch chat.
 
     The online check and the kernel session fork both reach the agent's owning node over
     the gateway WS — wired here as delegates so WebIMService stays WS-agnostic.
     """
-    profiles = AgentProfileRepository(request.app.state.connection)
 
     async def _check_agent_online(agent_id: str) -> bool:
         profile = profiles.get_profile(agent_id=agent_id)
