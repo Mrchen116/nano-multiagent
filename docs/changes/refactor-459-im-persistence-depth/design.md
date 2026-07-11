@@ -5,6 +5,10 @@
 
 ## Changelog
 
+- 2026-07-11 / acceptance round 1：实现期发现 `GatewayRegistrationResult.agent_ids` 的“稳定排序”与严格
+  behavior-preserving 目标冲突；修正为保留 Gateway advertisement 顺序。另补 dispatch first-write-wins 竞争
+  closure，并先对 reviewer 的 HTTP `Idempotency-Key` 发现做 main/unit 差分基线，禁止把既有行为混入本 refactor。
+
 ## 现状分析
 
 ### 涉及范围
@@ -396,3 +400,4 @@ reviewer 证据。覆盖 motivation.md 的 8 个 Scenario；重启恢复场景�
 | refactor-459-M1 | web-im-persistence | — | A | `src/IM/infra/repositories.py`; `src/IM/application/{event_service,web_im_service}.py`; `src/IM/ws/user_stream.py`; `src/IM/api/{deps.py,routes/web_im.py}`; `src/IM/app.py`; seam contract 与对应 unit/integration tests | `[reviewer]` owner 隔离、direct/group、shadow conversation、过程事件与 user-stream resume/sync 对外结果不变（覆盖 Scenario 1–3、7）；`[worker]` Conversation/Event interface 测试覆盖 created race、recipient、cursor gap/window、enrichment；`EventReplayResult` 唯一定义在 infra 且无 infra→WS import；目标调用方无 private connection/SQL；最窄 IM tests + `ruff check/format --check` 通过 |
 | refactor-459-M2 | gateway-node-persistence | refactor-459-M1 | B | `src/IM/infra/gateway_persistence.py`; `src/IM/infra/repositories.py`; `src/IM/ws/{gateway_handler,user_stream}.py`; `src/IM/app.py`; seam contract；node/register/status/offline tests | `[reviewer]` Gateway register、heartbeat、disconnect、timeout 后 Node/Agent 状态与广播不变（覆盖 Scenario 4）；`[worker]` GatewayNodePersistence 真实 SQLite 测试覆盖 first register、re-register、empty advertise、stale reconcile、offline no-op/error，以及第 N 个 agent 失败时 earlier node/profile/user durable state 与重构前基线一致；不得增加 operation-level transaction/lock；handler 不再读 node/profile/user connection；相关 unit/integration tests 通过 |
 | refactor-459-M3 | gateway-delivery-persistence | refactor-459-M2 | C | `src/IM/infra/{gateway_persistence.py,db.py}`; `src/IM/ws/gateway_handler.py`; `src/IM/app.py`; seam contract；gateway relay/group/direct/dispatch/message tests；unit 文档 | `[reviewer]` relay 回执、group fanout、agent/user/conversation target、过程事件、重启恢复均不变（覆盖 Scenario 5–8，并重跑 Scenario 1–4）；`[worker]` dispatch DDL 归 schema init且 shape 不变；GatewayConversationPersistence 真实 SQLite 测试覆盖 target classification、caller-supplied owner input、canonical direct、fanout、first-write-wins、missing node，但不新增 orphan-owner 产品断言或 owner repair；删除被替代的 private-state 测试；`pytest -m "not e2e"`、`scripts/e2e-critical.sh -m "not slow"`、ruff 全绿 |
+| refactor-459-M4 | fix-dispatch-order | refactor-459-M3 | D | `src/IM/infra/gateway_persistence.py`; `src/IM/ws/gateway_handler.py`; node/dispatch concurrency tests；M4 unit 文档 | `(post-acceptance fix, round 1)` `[reviewer]` Node/Agent 状态广播顺序、relay 重复抑制与回执仍与重构前一致；`[worker]` register 保留非字典序 advertisement 顺序；跨 connection 同 dispatch key 竞争时 loser 不 relay/ack 自己的 message，而复用 durable winner；reviewer HTTP duplicate finding 先做 main/unit 同入口基线，若 main 同样复现则不在 refactor 中修；聚焦测试、真栈重复投递、完整 non-e2e/e2e-critical/ruff 全绿 |
