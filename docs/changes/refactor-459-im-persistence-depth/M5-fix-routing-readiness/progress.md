@@ -61,7 +61,20 @@
 
 ## R4 — offline failure sequencing 与 stale order
 
-- Status: TODO
+- Context: seam migration 把 `mark_offline()` 调到 connection pop 前；SQLite UPDATE failure 会留下可被 relay 的 stale connection。同时 stale scan 新增 `ORDER BY node_id`，改变 origin/main 无排序 concrete query iteration。
+- Decision: force path 在 persistence call 前移除 connection；stale SQL 移除 `ORDER BY node_id`，保留 filter 与 commit semantics。
+- Rationale: stale in-memory route 必须先失效，即使 durable transition 大声失败；顺序不应由 refactor 新增 policy。
+- Evidence:
+  - Tests: failure trigger 红测得到 connection 仍 connected；多 node 红测得到 `node-a,node-b`。修复后 status/node/offline/integration 共 20 passed。
+  - Entry: 注入 `BEFORE UPDATE` failure 后异常仍上抛、DB 仍 online/无 last_error，但 handler connection 已 pop；stale interface 对插入 `node-b,node-a` 返回同序。
+  - Frontend State Matrix: N/A。
+  - Browser QA: N/A。
+  - E2E/Regression: `test_force_offline_removes_connection_before_persistence_failure` 与 `test_stale_online_node_ids_preserves_legacy_query_iteration_order`。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: revert `ef1f4f8c` 恢复 stale route 与新增字典序。
+- Commits: C1=`58900908`，C2=`ef1f4f8c`，C3=本 documentation commit。
+- Next: R5 真栈与完整门禁。
 
 ## R5 — 真栈与完整门禁
 

@@ -46,7 +46,7 @@
 
 ### R4 — offline failure sequencing 与 stale order
 
-- 状态：TODO
+- 状态：DONE
 - 步骤：force-offline 恢复 connection pop-before-persistence；stale scan SQL 移除新增 `ORDER BY node_id`。
 - 验证：注入 SQLite failure 后 connection 已移除、DB 保持失败态；多 stale node 按旧 query iteration order处理。
 
