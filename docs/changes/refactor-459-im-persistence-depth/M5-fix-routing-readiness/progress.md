@@ -78,4 +78,9 @@
 
 ## R5 — 真栈与完整门禁
 
-- Status: TODO
+- Status: VERIFY
+- Acceptance checklist:
+  1. `e2e-up.sh` 真 IM/Gateway health ready；在原 conversation 完成首轮后重启 Gateway，readiness heartbeat 必须晚于旧进程终止下限，续发返回 201 并完成。
+  2. 真实 `/im/ws/gateway` direct/group dispatch 窗口中重绑 target profile，relay frame/row 必须落最新 node；group fanout 保留非 agent 字典序。
+  3. 真 handler force-offline failure 与多 stale node scan 证明 connection-first、DB failure loud、旧 query iteration order。
+  4. 运行 focused、完整 non-e2e、完整 e2e-critical、ruff check/format 与 diff check；清理全部资源。
