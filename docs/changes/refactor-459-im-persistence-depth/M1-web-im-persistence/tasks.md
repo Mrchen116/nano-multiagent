@@ -17,7 +17,7 @@
 ## 测试策略
 
 - 被测行为（来自退出标准）：external find-or-create 首次 `created=True`、重复及竞态恢复 `created=False`；conversation exists；recipient 顺序；global cursor；resume gap/window；relay run identity 与 agent display-name enrichment；HTTP shadow status、sync cursor 与 user WS resume 行为不变；静态 seam 约束。
-- 已有测试在：`tests/im_service/unit/test_repositories_user_conversation.py`（扩展；该文件已超过软上限，仅把原 external behavior 的结果断言改为新 interface，不继续堆新场景）；`tests/im_service/unit/test_event_repository.py`（扩展）；`tests/im_service/integration/test_messages_api.py`、`test_group_chat_events.py`、`test_user_stream_auth.py`、`tests/im_service/contract/test_events_contract.py`（复用/扩展）。新建 `tests/contract/test_im_persistence_seam_contract.py`，理由：跨模块 import/SQL/private-state 边界属于静态架构契约，现有 contract 文件无对应 seam。
+- 已有测试在：`tests/im_service/unit/test_repositories_user_conversation.py`（只迁移既有结果断言；文件已超过软上限）；新建 `tests/im_service/unit/test_conversation_repository_intents.py`，理由：created/race/exists 是新的 intent interface，旧文件已超 400 行；`tests/im_service/unit/test_event_repository.py`（扩展）；`tests/im_service/integration/test_messages_api.py`、`test_group_chat_events.py`、`test_user_stream_auth.py`、`tests/im_service/contract/test_events_contract.py`（复用/扩展）。新建 `tests/contract/test_im_persistence_seam_contract.py`，理由：跨模块 import/SQL/private-state 边界属于静态架构契约，现有 contract 文件无对应 seam。
 - 落层/目录/marker：`tests/im_service/unit/`、`tests/im_service/integration/`、`tests/im_service/contract/`、`tests/contract/`，marker：无。
 - 可选依赖 importorskip：无。
 - 本 milestone 产生的一次性验收证据（收尾删除，不进套件）：真实 FastAPI HTTP + user WebSocket integration 命令输出记录在 progress；无临时脚本。
@@ -28,7 +28,7 @@
 
 ### R1 — Conversation intent interface
 
-- 状态：TODO
+- 状态：DONE
 - 步骤：为 external find-or-create 引入 typed `ExternalConversationWriteResult`，让 repository 单次调用返回 conversation/created（含竞态恢复）；增加 `exists`；WebIMService 只委托；deps 删除重复子类并改用 base repository。
 - 验证：repository created/duplicate/race/exists 红转绿；shadow HTTP 201→200 行为保持；最窄 conversation/API tests 通过。
 
