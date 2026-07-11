@@ -11,6 +11,7 @@ import os
 import signal
 import subprocess
 import time
+from datetime import datetime, timezone
 
 
 def _terminate_process_group(pid: int, *, grace: float = 10.0) -> None:
@@ -53,7 +54,7 @@ def _terminate_process_group(pid: int, *, grace: float = 10.0) -> None:
         pass
 
 
-def restart_gateway(wt_dir: str, im_port: str) -> None:
+def restart_gateway(wt_dir: str, im_port: str) -> str:
     """重启 worktree 内的 Gateway 进程,复用同 config(保 node_id / workspace → 验续接)。
 
     e2e-up.sh 用 ``--foreground`` 起 Gateway(范式 B),pid 落在 ``$wt_dir/.gateway.pid``。
@@ -71,6 +72,12 @@ def restart_gateway(wt_dir: str, im_port: str) -> None:
         with open(pid_file) as f:
             old_pid = int(f.read().strip())
         _terminate_process_group(old_pid)
+
+    # Old-process shutdown may persist one final heartbeat. Readiness must use a
+    # generation floor sampled only after termination has completed.
+    replacement_started_after = (
+        datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    )
 
     # 2) 重起(复用同 config 同 node_id → 工作区/会话续接)。
     # repo_root 从本测试文件位置反推(tests/e2e/critical_paths → repo),
@@ -106,3 +113,4 @@ def restart_gateway(wt_dir: str, im_port: str) -> None:
         f.write(str(proc.pid))
     if proc.poll() is not None:
         raise AssertionError(f"gateway died during restart; see {log}")
+    return replacement_started_after

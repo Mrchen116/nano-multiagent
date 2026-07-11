@@ -82,9 +82,7 @@ def test_context_survives_gateway_restart(
         ws.close()
 
     # 阶段 2:重启 Gateway 进程(同 config → node_id / workspace / 会话历史不变)。
-    replacement_started_after = restart_gateway(
-        e2e_stack.wt_dir, e2e_stack.im_port
-    )
+    replacement_started_after = restart_gateway(e2e_stack.wt_dir, e2e_stack.im_port)
     # 仅有 durable online 不足以证明 replacement WS 已注册；必须观察到旧
     # Gateway 完全终止后产生的新 heartbeat generation 才发后续消息。
     im_user.wait_for_node_reconnect(

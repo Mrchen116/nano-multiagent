@@ -107,14 +107,14 @@ class IMClient:
         self,
         *,
         node_id: str,
-        previous_last_heartbeat_at: str,
+        replacement_started_after: str,
         timeout: float = 40.0,
     ) -> dict[str, Any]:
         """Wait until the same node proves a post-restart online generation.
 
-        A persisted ``online`` row can outlive the old Gateway websocket briefly.
-        Readiness therefore requires both the expected node id and a strictly newer
-        heartbeat timestamp, so the old durable snapshot cannot satisfy the wait.
+        The old Gateway may persist a final heartbeat during shutdown. Readiness
+        therefore requires a timestamp strictly after termination completed and the
+        replacement process was about to start.
         """
 
         def _reconnected(nodes: list[dict[str, Any]]) -> bool:
@@ -122,7 +122,7 @@ class IMClient:
                 node.get("node_id") == node_id
                 and node.get("status") == "online"
                 and isinstance(node.get("last_heartbeat_at"), str)
-                and node["last_heartbeat_at"] > previous_last_heartbeat_at
+                and node["last_heartbeat_at"] > replacement_started_after
                 for node in nodes
             )
 
@@ -137,7 +137,7 @@ class IMClient:
             for node in nodes
             if node.get("node_id") == node_id
             and node.get("status") == "online"
-            and node.get("last_heartbeat_at") > previous_last_heartbeat_at
+            and node.get("last_heartbeat_at") > replacement_started_after
         )
 
     def list_agents(self) -> list[dict[str, Any]]:
