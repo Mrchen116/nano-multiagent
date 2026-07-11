@@ -34,12 +34,12 @@
 
 ### R2 — Gateway handler node lifecycle 接线与广播不变
 
-- 状态：DOING
+- 状态：DONE
 - 步骤：GatewayHandler 显式接收 `GatewayNodePersistence`，register/heartbeat/disconnect/force-offline 只消费 typed outcome；保留 websocket connection 与广播编排；app composition 显式构造注入。
 - 验证：handler/status broadcast 与 Gateway WS/registration integration 红转绿；ack、status、last_error、agent ids、owner 隔离和广播时机不变。
 
 ### R3 — Timeout scan 与 seam contract 收口
 
-- 状态：TODO
+- 状态：DOING
 - 步骤：user-stream offline guard 通过 `stale_online_node_ids` 查询；删除 M1 stale-node 临时例外，contract 升级为 handler/user-stream 整文件无 private connection/SQL；完成真入口与全量门禁。
 - 验证：offline guard 与 seam contract 红转绿；真 Gateway/WS register、heartbeat、disconnect、timeout 状态和广播验证；完整 IM non-e2e、ruff check/format 全绿。

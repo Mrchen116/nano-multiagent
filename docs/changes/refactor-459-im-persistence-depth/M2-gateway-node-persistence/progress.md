@@ -27,8 +27,22 @@
 
 ## R2 — Gateway handler node lifecycle 接线与广播不变
 
-- 状态：DOING
+- 状态：DONE
+- Context: handler 的 register/heartbeat/disconnect/timeout 既维护 websocket state 与广播，又直接构造 repositories 和执行跨表 SQL；相关旧测试还从 handler private repository 反查 connection。
+- Decision: `GatewayHandler` 改为显式接收 `GatewayNodePersistence`，四条 lifecycle 路径只消费 `GatewayRegistrationResult` / `NodeTransition`；connection map、ack 与 status broadcast 仍由 handler 编排。app composition 直接构造 concrete module，旧测试改从 fixture connection 做 black-box storage assertion，不再读取 handler private persistence state。
+- Rationale: typed outcome 只携带广播需要的 node snapshots 与 agent ids，protocol owner 不再知道 node/profile/user schema 或 commit placement；M3 conversation-delivery persistence leakage 不在本 roadpoint 范围。
+- Evidence:
+  - Tests: `pytest -q tests/im_service/unit/test_gateway_node_persistence.py tests/im_service/unit/test_gateway_handler.py tests/im_service/unit/test_gateway_status_broadcast.py tests/im_service/integration/test_gateway_im_registration.py tests/im_service/integration/test_gateway_websocket_api.py` → `73 passed`；目标 ruff check/format 全绿。
+  - Entry: 真实 FastAPI Gateway WebSocket integration 覆盖 register/heartbeat ack 与 app composition；owner-scoped broadcast unit/integration 覆盖 online/degraded/offline frame shape、seq、agent ids 与跨 owner 隔离。真进程证据在 R3 收口。
+  - Frontend State Matrix: N/A（无前端变化）。
+  - Browser QA: N/A（无前端变化）。
+  - E2E/Regression: handler/status/integration 测试保持旧断言不变，仅接线改为 concrete module；`73 passed`。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: 回退到 C1 `e5e94bf3` 可移除 handler 实现并保留失败接线测试。
+- Commits: C1=`e5e94bf3`；C2=`d0776a13`；C3=本次 docs commit。
+- Next: R3 把 timeout stale scan 收进 module、删除 M1 临时 seam 例外，并完成真入口/全量门禁。
 
 ## R3 — Timeout scan 与 seam contract 收口
 
-- 状态：TODO
+- 状态：DOING
