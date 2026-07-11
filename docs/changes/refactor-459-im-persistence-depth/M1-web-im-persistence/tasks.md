@@ -34,7 +34,7 @@
 
 ### R2 — Event query interface
 
-- 状态：TODO
+- 状态：DONE
 - 步骤：把 `EventReplayResult`、recipient、resume/window/gap、global cursor、relay identities 与 display-name 查询收进 EventRepository；EventService 与 user_stream 改为纯 interface 调用。
 - 验证：真实 SQLite event interface tests 红转绿；event enrichment、user WS resume 与 sync integration tests 通过。
 

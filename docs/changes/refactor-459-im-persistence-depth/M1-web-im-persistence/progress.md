@@ -25,7 +25,21 @@
 
 ## R2 — Event query interface
 
-- 状态：TODO
+- 状态：DONE
+- Context: user-stream 自己持有 recipient、global cursor、gap/window replay SQL；EventService 通过 `EventRepository._connection` 查询 relay identity 与 display name，导致 WS/application 同时知道 event schema。
+- Decision: 在 infra 唯一定义 `EventReplayResult` 与 typed `RelayRunIdentity`；EventRepository 提供 recipient、global cursor、user resume、relay identity、agent display-name 五个 intent query。EventService 只做 payload enrichment，user-stream 只做 frame/connection lifecycle，`/sync` 通过 EventService 获取 cursor。
+- Rationale: 每个 operation 都隐藏一条完整 query/invariant（owner-visible conversation、cursor resync reason、历史 identity mapping），没有新增假 adapter 或 pass-through facade。
+- Evidence:
+  - Tests: `pytest -q tests/im_service/unit/test_event_repository_queries.py tests/im_service/unit/test_event_repository.py tests/im_service/integration/test_group_chat_events.py tests/im_service/integration/test_user_stream_auth.py tests/im_service/contract/test_events_contract.py` → `17 passed`。
+  - Entry: 真实 FastAPI user WebSocket resume、`GET /im/v1/sync` 与 group relay event enrichment integration 均通过，wire payload/status 不变。
+  - Frontend State Matrix: N/A（无前端变化）。
+  - Browser QA: N/A（无前端变化）。
+  - E2E/Regression: 真实 SQLite interface 覆盖 recipient、global cursor、owner visibility、顺序、gap/window resync 与 typed enrichment maps；HTTP/WS integration 覆盖接线。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: 回退到 C1 `5540ec88` 可移除实现并保留失败测试。
+- Commits: C1=`5540ec88`；C2=`07689ba2`；C3=本次 docs commit。
+- Next: R3 完成 profile dependency、静态 seam contract 与纵向门禁。按 orchestrator 明确的纵向迁移口径，`user_stream.py` 的 stale-node private SQL 是唯一精确临时例外，由 M2 的 `GatewayNodePersistence.stale_online_node_ids` 退出标准关闭；M1 不新增 NodeRepository pass-through，也不提前实现 M2 seam。
 
 ## R3 — Composition、routes 与 seam contract
 
