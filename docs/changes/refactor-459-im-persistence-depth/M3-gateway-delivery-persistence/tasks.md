@@ -30,12 +30,12 @@
 
 ### R1 — 建立 Gateway conversation persistence interface
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 先用真 SQLite 红测锁定 DDL shape、target/canonical direct、caller owner input、fanout/missing node、dispatch first-write-wins；再实现 typed results 与 concrete module。
 - 验证: 新 module/schema 测试、ruff，并审计不冻结 issue #128 的 orphan-owner 行为。
 
 ### R2 — 收口 handler 并完成真栈恢复验收
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 用 contract/handler 红测驱动 composition 注入，删除 handler 内 private connection/SQL/persistence helpers；清理被 module interface 替代的 private-state 测试。
 - 验证: 相关 unit/integration/contract、真 IM+Gateway 进程 relay/group/target/过程事件/同 DB 重启重复抑制，最终全量 non-e2e、e2e-critical not-slow、ruff。
