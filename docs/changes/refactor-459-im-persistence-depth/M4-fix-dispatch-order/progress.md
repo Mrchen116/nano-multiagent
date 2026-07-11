@@ -56,4 +56,9 @@
 
 ## R3 — 真栈与完整门禁收口
 
-- Status: TODO
+- Status: VERIFY
+- Acceptance checklist:
+  1. 以持久 tmux 承载 `PATH=.venv/bin:$PATH ./scripts/e2e-up.sh`，健康检查 `$IM_URL/openapi.json` 与 Gateway WS accepted。
+  2. 公开 auth + `/im/ws/user`、`/im/ws/gateway` 注册一个已绑定测试 node，发送非字典序 advertisement；在线 broadcast 必须按输入顺序且 seq 递增。
+  3. 两个真实 Gateway WS 连接提交同一 `agent.message` dispatch key；两个 ack 必须复用同一 message id，公开/DB relay 只能引用 winner。
+  4. 运行聚焦 regression、完整 non-e2e、`scripts/e2e-critical.sh -m "not slow"`、ruff check/format 与 diff check。
