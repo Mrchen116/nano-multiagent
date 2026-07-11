@@ -110,6 +110,27 @@ def test_resolve_send_target_reports_missing_agent_node_without_repair(
     assert result.target.kind == "agent_id"
 
 
+def test_resolve_user_agent_conversation_preserves_human_creator(
+    tmp_path: Path,
+) -> None:
+    """Heartbeat-style delivery keeps the owner user as direct-chat creator."""
+    connection, persistence = _build(tmp_path)
+    users = UserRepository(connection)
+    owner = users.create_user(username="owner", display_name="Owner")
+    users.create_user(username="agent:A", display_name="Agent A")
+
+    conversation_id = persistence.resolve_user_agent_conversation(
+        agent_id="A", user_id=owner.id, caller_owner_id=owner.owner_id
+    )
+
+    conversation = ConversationRepository(connection).get_conversation(
+        conversation_id=conversation_id
+    )
+    assert conversation is not None
+    assert conversation.creator_id == owner.id
+    assert conversation.owner_id == owner.owner_id
+
+
 @pytest.mark.parametrize("target", ["", "agent:", "missing-target"])
 def test_resolve_send_target_rejects_invalid_or_unknown_target(
     tmp_path: Path, target: str
