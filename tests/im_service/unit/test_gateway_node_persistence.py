@@ -191,9 +191,7 @@ def test_disconnect_and_timeout_offline_are_idempotent(tmp_path: Path) -> None:
     assert missing.agent_ids == ()
 
     _register(persistence, agents=["agent-a"])
-    timeout = persistence.mark_offline(
-        node_id="node-1", last_error="heartbeat_timeout"
-    )
+    timeout = persistence.mark_offline(node_id="node-1", last_error="heartbeat_timeout")
     assert timeout.previous_node.status == "online"
     assert timeout.current_node.status == "offline"
     assert timeout.current_node.last_error == "heartbeat_timeout"
