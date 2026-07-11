@@ -93,10 +93,10 @@ def test_resolve_send_target_classifies_all_target_forms_and_reuses_direct(
     assert conversation.conversation_id == group.id
 
 
-def test_resolve_send_target_reports_missing_agent_node_without_repair(
+def test_resolve_send_target_keeps_missing_agent_node_out_of_stable_result(
     tmp_path: Path,
 ) -> None:
-    """An existing target agent without a node still resolves and exposes no relay node."""
+    """An existing target resolves while volatile node state stays separately queried."""
     connection, persistence = _build(tmp_path)
     users = UserRepository(connection)
     users.create_user(username="agent:A", display_name="Agent A")
@@ -106,8 +106,8 @@ def test_resolve_send_target_reports_missing_agent_node_without_repair(
         source_agent_id="A", target="agent:B", caller_owner_id=None
     )
 
-    assert result.target_node_id is None
     assert result.target.kind == "agent_id"
+    assert persistence.agent_node_id(agent_id="B") is None
 
 
 def test_resolve_user_agent_conversation_preserves_human_creator(

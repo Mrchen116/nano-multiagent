@@ -1748,10 +1748,15 @@ class GatewayHandler:
                             and resolved_target.kind == "agent_id"
                             and self._relay_service is not None
                         ):
-                            if resolution.target_node_id is not None:
+                            target_node_id = (
+                                self._conversation_persistence.agent_node_id(
+                                    agent_id=resolved_target.id
+                                )
+                            )
+                            if target_node_id is not None:
                                 _relay_result = self._relay_service.enqueue_message_relay(
                                     message=message,
-                                    target_node_id=resolution.target_node_id,
+                                    target_node_id=target_node_id,
                                     idempotency_key=f"agent-dm:{message.id}:{resolved_target.id}",
                                     sender_user_id=sender_user_id,
                                     conversation_type="direct",
@@ -1760,7 +1765,7 @@ class GatewayHandler:
                                 if _relay_result.created:
                                     await self.push_relay_message(
                                         relay_task_id=_relay_result.relay_task.relay_task_id,
-                                        target_node_id=resolution.target_node_id,
+                                        target_node_id=target_node_id,
                                         payload=_relay_result.relay_task.payload,
                                     )
                         if not owns_durable_dispatch:

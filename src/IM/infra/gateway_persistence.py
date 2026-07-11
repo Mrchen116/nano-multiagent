@@ -59,11 +59,10 @@ class DispatchTarget:
 
 @dataclass(frozen=True, slots=True)
 class DispatchResolution:
-    """Describe where an agent message lands and whether it has a relay node."""
+    """Describe the stable target identity and conversation for an agent message."""
 
     target: DispatchTarget
     conversation_id: str
-    target_node_id: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -378,7 +377,7 @@ class GatewayConversationPersistence:
             )
             if conversation is None:
                 raise ValueError("conversation_id not found")
-            return DispatchResolution(resolved_target, conversation.id, None)
+            return DispatchResolution(resolved_target, conversation.id)
         if resolved_target.kind == "agent_id":
             target_user_id = self._require_user_id_by_username(
                 username=f"agent:{resolved_target.id}"
@@ -389,11 +388,7 @@ class GatewayConversationPersistence:
                 expected_direct_kind="agent-agent",
                 caller_owner_id=caller_owner_id,
             )
-            return DispatchResolution(
-                resolved_target,
-                landed.id,
-                self.agent_node_id(agent_id=resolved_target.id),
-            )
+            return DispatchResolution(resolved_target, landed.id)
         target_user = self._users.get_user(user_id=resolved_target.id)
         if target_user is None:
             raise ValueError("user_id not found")
@@ -403,7 +398,7 @@ class GatewayConversationPersistence:
             expected_direct_kind="user-agent",
             caller_owner_id=caller_owner_id,
         )
-        return DispatchResolution(resolved_target, landed.id, None)
+        return DispatchResolution(resolved_target, landed.id)
 
     def resolve_user_agent_conversation(
         self,
