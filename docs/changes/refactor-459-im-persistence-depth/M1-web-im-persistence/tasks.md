@@ -8,11 +8,11 @@
 
 ## 退出标准
 
-- [ ] Conversation interface 覆盖 created/竞态恢复/exists，Event interface 覆盖 recipient、cursor gap/window、relay identity 与 agent display-name enrichment。
-- [ ] `EventReplayResult` 唯一定义在 `IM.infra.repositories`，infra 不 import WS。
-- [ ] M1 目标 application/WS/route 无 repository private connection、直接业务 SQL 或 commit；deps 不定义 ConversationRepository 子类。
-- [ ] owner 隔离、direct/group、shadow conversation、过程事件与 user-stream resume/sync 对外结果不变。
-- [ ] 最窄 IM tests 与 `ruff check` / `ruff format --check` 全绿。
+- [x] Conversation interface 覆盖 created/竞态恢复/exists，Event interface 覆盖 recipient、cursor gap/window、relay identity 与 agent display-name enrichment。
+- [x] `EventReplayResult` 唯一定义在 `IM.infra.repositories`，infra 不 import WS。
+- [x] M1 event/application/route 路径无 repository private connection、直接业务 SQL 或 commit；deps 不定义 ConversationRepository 子类。`user_stream.py` 仅枚举保留 M2 stale-node SQL 这一处精确临时例外。
+- [x] owner 隔离、direct/group、shadow conversation、过程事件与 user-stream resume/sync 对外结果不变。
+- [x] 最窄 IM tests、完整 IM non-e2e 与 `ruff check` / `ruff format --check` 全绿。
 
 ## 测试策略
 
@@ -40,6 +40,6 @@
 
 ### R3 — Composition、routes 与 seam contract
 
-- 状态：TODO
+- 状态：DONE
 - 步骤：app 显式注入 EventRepository 到 user-stream；route 通过公开 dependencies/service 获取 profile 与 cursor；新增静态 persistence seam contract，清除目标调用方 private connection/SQL。
 - 验证：seam contract 红转绿；M1 最窄测试、相关 IM suite、ruff check/format 全绿；真实 FastAPI HTTP/WS 入口覆盖 Scenario 1–3、7 的既有结果。

@@ -43,4 +43,24 @@
 
 ## R3 — Composition、routes 与 seam contract
 
-- 状态：TODO
+- 状态：DONE
+- Context: app 仍把 raw connection 传给 user-stream；fork route 直接从 `request.app.state.connection` 构造 profile repository；缺少可机械阻止 private connection/SQL 回流的架构门禁。
+- Decision: app 显式注入 singleton EventRepository；fork route 通过 `Depends(get_profile_repository)` 获取公开 repository；新增 AST seam contract，约束 M1 application/route/deps/event paths，并精确枚举 M2 stale-node 的唯一临时例外。
+- Rationale: composition root 可以拥有 raw connection，但业务 route/WS/application 只应消费 caller-oriented interface；静态 contract 把这条边界变为后续改动的持续门禁。
+- Evidence:
+  - Tests: 最窄纵向集合（seam contract + conversation/event repository + messages/group/user-stream/users integration + events contract）→ `47 passed, 1 skipped`；完整 `pytest -q tests/im_service -m 'not e2e'` → `414 passed, 1 skipped`。
+  - Entry: 真实 FastAPI HTTP route 覆盖 owner-scoped direct/group、shadow conversation 201→200、`/sync` cursor；真实 FastAPI user WebSocket 覆盖 token auth、owner-visible resume；group event integration 覆盖过程事件 enrichment。对外 HTTP/WS shape 与状态不变。
+  - Frontend State Matrix: N/A（无前端变化）。
+  - Browser QA: N/A（无前端变化）。
+  - E2E/Regression: `tests/contract/test_im_persistence_seam_contract.py` 5 passed；完整 IM non-e2e 414 passed, 1 skipped。M2 临时例外只允许 `node_repository._connection.execute` 一处 stale-node SELECT，M2 必须删除该枚举并升级为整文件无例外。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: 回退到 C1 `73238209` 可移除 route dependency 实现并保留失败 seam contract。
+- Commits: C1=`73238209`；C2=`4b67f3d9`；C3=本次 docs commit。
+- Next: M1 已完成，等待 rebase 后重复门禁并合入 unit 分支。
+
+## Milestone 收口
+
+- `ruff check .`：全绿。
+- `ruff format --check .`：775 files already formatted。
+- 环境 caveat：none；本 milestone 不涉及前端、外部 LLM 或长驻服务。
