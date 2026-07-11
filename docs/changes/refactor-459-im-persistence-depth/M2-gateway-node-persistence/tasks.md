@@ -28,13 +28,13 @@
 
 ### R1 — GatewayNodePersistence interface 与 durable failure compatibility
 
-- 状态：DOING
+- 状态：DONE
 - 步骤：用真实 SQLite 行为测试锁定 register/heartbeat/offline/stale interface；以 trigger 注入第 N 个 agent 失败并记录重构前 durable rows；实现 typed result 与 caller-oriented concrete module，复用既有 repository commit boundaries，不新增外层 transaction/lock。
 - 验证：module interface 红转绿；first/re-register/empty/stale/no-op/error/failure injection 全部通过，逐表 durable rows 与 baseline 一致。
 
 ### R2 — Gateway handler node lifecycle 接线与广播不变
 
-- 状态：TODO
+- 状态：DOING
 - 步骤：GatewayHandler 显式接收 `GatewayNodePersistence`，register/heartbeat/disconnect/force-offline 只消费 typed outcome；保留 websocket connection 与广播编排；app composition 显式构造注入。
 - 验证：handler/status broadcast 与 Gateway WS/registration integration 红转绿；ack、status、last_error、agent ids、owner 隔离和广播时机不变。
 
