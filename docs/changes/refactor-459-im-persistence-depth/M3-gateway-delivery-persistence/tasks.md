@@ -9,11 +9,11 @@
 
 ## 退出标准
 
-- [ ] dispatch DDL 在 schema initialization 中幂等创建，列 shape 与已有数据不变。
-- [ ] `GatewayConversationPersistence` 集中 target classification、canonical direct、group fanout、dispatch first-write-wins、missing-node、system user 和 usage scope 查询。
-- [ ] `GatewayHandler` 不再访问 repository private connection 或执行 SQL；agent-message 显式向 `resolve_send_target` 传 `caller_owner_id=None`，不推断/修复 owner。
-- [ ] 真进程证据覆盖 relay/group/agent-user-conversation target、过程事件和重启后 dispatch 重复抑制/恢复。
-- [ ] `pytest -m "not e2e"`、`scripts/e2e-critical.sh -m "not slow"` 与 ruff 全绿。
+- [x] dispatch DDL 在 schema initialization 中幂等创建，列 shape 与已有数据不变。
+- [x] `GatewayConversationPersistence` 集中 target classification、canonical direct、group fanout、dispatch first-write-wins、missing-node、system user 和 usage scope 查询。
+- [x] `GatewayHandler` 不再访问 repository private connection 或执行 SQL；agent-message 显式向 `resolve_send_target` 传 `caller_owner_id=None`，不推断/修复 owner。
+- [x] 真进程证据覆盖 relay/group/agent-user-conversation target、过程事件和重启后 dispatch 重复抑制/恢复。
+- [x] `pytest -m "not e2e"`、`scripts/e2e-critical.sh -m "not slow"` 与 ruff 全绿。
 
 ## 测试策略
 
@@ -36,6 +36,12 @@
 
 ### R2 — 收口 handler 并完成真栈恢复验收
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 用 contract/handler 红测驱动 composition 注入，删除 handler 内 private connection/SQL/persistence helpers；清理被 module interface 替代的 private-state 测试。
 - 验证: 相关 unit/integration/contract、真 IM+Gateway 进程 relay/group/target/过程事件/同 DB 重启重复抑制，最终全量 non-e2e、e2e-critical not-slow、ruff。
+
+### R3 — 根治 Gateway 重启验收的 stale-online readiness
+
+- 状态: DONE
+- 步骤: 用确定性红测复现旧 durable `online` row 提前命中；restart journey 捕获同 node 重启前 `last_heartbeat_at`，只在重启后同 node `online` 且 heartbeat generation 严格前进后继续。
+- 验证: 不依赖旧 log marker、不加 sleep；restart journey 连跑 3 次，再跑完整 e2e-critical。
