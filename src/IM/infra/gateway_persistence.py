@@ -274,7 +274,6 @@ class GatewayNodePersistence:
             WHERE status = 'online'
               AND last_heartbeat_at IS NOT NULL
               AND last_heartbeat_at < ?
-            ORDER BY node_id
             """,
             (cutoff,),
         ).fetchall()

@@ -821,14 +821,14 @@ class GatewayHandler:
         """
         if self._node_persistence is None:
             return
+        async with self._lock:
+            self._connections.pop(node_id, None)
         transition = self._node_persistence.mark_offline(
             node_id=node_id, last_error=reason
         )
         prior = transition.previous_node
         if prior is None or prior.status == "offline":
             return
-        async with self._lock:
-            self._connections.pop(node_id, None)
         next_node = transition.current_node
         if next_node is not None and prior.status != next_node.status:
             await self._broadcast_status_change(
