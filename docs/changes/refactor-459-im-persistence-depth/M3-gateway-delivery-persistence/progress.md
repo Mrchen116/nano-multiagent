@@ -44,6 +44,7 @@
 - Context: 完整 e2e 在 Gateway restart 后连续复现 503；时间线为旧 node `GET /nodes` 200 先命中、消息 POST 503，之后 replacement Gateway WS 才 accepted/config sync。旧 log marker 也会让 restart helper 提前返回。
 - Decision: 新增确定性 regression，restart journey 记住同 node 重启前 heartbeat，等公开 `/nodes` 显示同 node `online` 且 heartbeat 严格前进。`restart_gateway` 只负责拉起/fail-fast，不再从 append-only 日志判定 ready。
 - Rationale: generation 条件无法被旧 durable row 满足，且使公开状态成为唯一 readiness 真源；没有加 sleep 或放宽产品断言。
+- Tracking: 根因取证期间建立 #187；经 orchestrator 确认为 M3 必跑门禁的 test-only 基础设施修复后，治本实现已落在 R3。
 - Evidence:
   - Tests: 确定性 stale-online regression 1 passed；restart journey 连跑 3 次均通过（31.82s / 19.16s / 24.79s）。
   - Entry: 真 IM + Gateway 重启后会话上下文哨兵原样复述；最终完整 e2e-critical 15/15 selected 通过。
@@ -53,5 +54,5 @@
   - Visual/Interaction: N/A。
   - Prototype Comparison: N/A。
 - Rollback: revert `b2ecd02f` + `5c1e30f0`，revert `5428a2ce` 回退红测。
-- Commits: C1=`5428a2ce`, C2=`5c1e30f0` + `b2ecd02f`, C3=本文档提交。
+- Commits: C1=`5428a2ce`, C2=`5c1e30f0` + `b2ecd02f`, C3=本 R3 文档提交。
 - Next: milestone 已完成。
