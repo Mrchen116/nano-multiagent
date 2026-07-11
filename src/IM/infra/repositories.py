@@ -356,6 +356,14 @@ class _ConversationConfigSnapshot:
     system_prompt: str | None
 
 
+@dataclass(frozen=True, slots=True)
+class ExternalConversationWriteResult:
+    """Result of an idempotent external conversation write."""
+
+    conversation: Conversation
+    created: bool
+
+
 class ConversationRepository:
     """Persist and query conversations and participants."""
 
@@ -518,8 +526,12 @@ class ConversationRepository:
         participant_ids: list[str],
         owner_id: str,
         creator_id: str,
-    ) -> Conversation:
-        """Idempotently create or update one external-channel shadow conversation."""
+    ) -> ExternalConversationWriteResult:
+        """Idempotently write one external-channel shadow conversation.
+
+        Returns:
+            The durable conversation and whether this call created it.
+        """
         normalized_source = external_source.strip()
         normalized_chat_id = external_chat_id.strip()
         normalized_agent_id = agent_id.strip()
@@ -563,7 +575,7 @@ class ConversationRepository:
                 )
             found = self.get_conversation(conversation_id=str(existing["id"]))
             assert found is not None
-            return found
+            return ExternalConversationWriteResult(conversation=found, created=False)
 
         normalized_references = list(
             dict.fromkeys(
@@ -682,10 +694,21 @@ class ConversationRepository:
                 conversation_id=str(existing_after_race["id"])
             )
             assert found_after_race is not None
-            return found_after_race
+            return ExternalConversationWriteResult(
+                conversation=found_after_race,
+                created=False,
+            )
         created = self.get_conversation(conversation_id=conversation_id)
         assert created is not None
-        return created
+        return ExternalConversationWriteResult(conversation=created, created=True)
+
+    def exists(self, conversation_id: str) -> bool:
+        """Return whether a conversation row exists."""
+        row = self._connection.execute(
+            "SELECT 1 FROM conversations WHERE id = ?",
+            (conversation_id,),
+        ).fetchone()
+        return row is not None
 
     def get_conversation(self, *, conversation_id: str) -> Conversation | None:
         """Load one conversation with participants."""

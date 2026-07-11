@@ -6,7 +6,11 @@ from collections.abc import Awaitable, Callable, Mapping
 from IM.application.metrics_service import MetricsService
 from IM.application.relay_service import RelayEnqueueResult, RelayService
 from IM.domain.models import Attachment, Conversation, Message
-from IM.infra.repositories import ConversationRepository, MessageRepository
+from IM.infra.repositories import (
+    ConversationRepository,
+    ExternalConversationWriteResult,
+    MessageRepository,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -80,20 +84,9 @@ class WebIMService:
         participant_ids: list[str],
         owner_id: str,
         creator_id: str,
-    ) -> tuple[Conversation, bool]:
+    ) -> ExternalConversationWriteResult:
         """Find or create an owner-scoped external-channel shadow conversation."""
-        before = self._conversations._connection.execute(  # noqa: SLF001
-            """
-            SELECT id
-            FROM conversations
-            WHERE external_source = ?
-              AND external_chat_id = ?
-              AND config_agent_id = ?
-              AND owner_id = ?
-            """,
-            (external_source, external_chat_id, agent_id, owner_id),
-        ).fetchone()
-        conversation = self._conversations.find_or_create_external_conversation(
+        return self._conversations.find_or_create_external_conversation(
             external_source=external_source,
             external_chat_id=external_chat_id,
             agent_id=agent_id,
@@ -103,7 +96,6 @@ class WebIMService:
             owner_id=owner_id,
             creator_id=creator_id,
         )
-        return conversation, before is None
 
     def get_conversation(self, *, conversation_id: str) -> Conversation | None:
         """Load one conversation snapshot by identifier."""

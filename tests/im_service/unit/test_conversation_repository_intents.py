@@ -128,8 +128,11 @@ def test_external_find_or_create_reports_competing_insert_as_existing(
     )
 
     assert result.created is False
-    assert result.conversation.id == _external_write(
-        competing_repository,
-        owner_id=owner_id,
-        owner_user_id=owner_user_id,
-    ).conversation.id
+    assert (
+        result.conversation.id
+        == _external_write(
+            competing_repository,
+            owner_id=owner_id,
+            owner_user_id=owner_user_id,
+        ).conversation.id
+    )

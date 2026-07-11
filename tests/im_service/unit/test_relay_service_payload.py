@@ -274,7 +274,7 @@ def test_external_shadow_relay_payload_loops_back_external_identity(
         creator_id=f"user:{owner.id}",
     )
     message = messages.create_message(
-        conversation_id=conversation.id,
+        conversation_id=conversation.conversation.id,
         sender_user_id=owner.id,
         content="shadow group prompt",
     )
@@ -284,12 +284,12 @@ def test_external_shadow_relay_payload_loops_back_external_identity(
         target_node_id="node-1",
         idempotency_key="idem-shadow",
         sender_user_id=owner.id,
-        conversation_type=conversation.type,
+        conversation_type=conversation.conversation.type,
     )
 
     payload = result.relay_task.payload
     assert payload["agent_id"] == "plato"
-    assert payload["conversation_id"] == conversation.id
+    assert payload["conversation_id"] == conversation.conversation.id
     assert payload["metadata"]["trigger_source"] == "im"
     assert payload["metadata"]["conversation_type"] == "group"
     assert payload["metadata"]["external_source"] == "feishu"

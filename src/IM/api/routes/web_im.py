@@ -312,7 +312,7 @@ def find_or_create_external_conversation(
         f"agent:{payload.agent_id}",
     ]
     try:
-        conversation, created = service.find_or_create_external_conversation(
+        result = service.find_or_create_external_conversation(
             external_source=payload.external_source,
             external_chat_id=payload.external_chat_id,
             agent_id=payload.agent_id,
@@ -326,9 +326,9 @@ def find_or_create_external_conversation(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
         ) from exc
-    if not created:
+    if not result.created:
         response.status_code = status.HTTP_200_OK
-    persisted = service.get_conversation(conversation_id=conversation.id)
+    persisted = service.get_conversation(conversation_id=result.conversation.id)
     assert persisted is not None
     return to_conversation_response(persisted).model_copy(
         update={

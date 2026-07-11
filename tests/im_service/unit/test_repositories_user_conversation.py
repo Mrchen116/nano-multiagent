@@ -394,14 +394,14 @@ def test_external_conversation_find_or_create_is_agent_scoped_and_updates_title(
         creator_id=f"user:{owner.id}",
     )
 
-    assert second.id == first.id
-    assert second.title == "Plato · Renamed · feishu"
-    assert second.type == "group"
-    assert second.config_agent_id == "plato"
-    assert second.external_source == "feishu"
-    assert second.external_chat_id == "oc_product"
-    assert other_agent.id != first.id
-    assert other_agent.config_agent_id == "luban"
+    assert second.conversation.id == first.conversation.id
+    assert second.conversation.title == "Plato · Renamed · feishu"
+    assert second.conversation.type == "group"
+    assert second.conversation.config_agent_id == "plato"
+    assert second.conversation.external_source == "feishu"
+    assert second.conversation.external_chat_id == "oc_product"
+    assert other_agent.conversation.id != first.conversation.id
+    assert other_agent.conversation.config_agent_id == "luban"
 
     with pytest.raises(sqlite3.IntegrityError):
         conversations._connection.execute(  # noqa: SLF001
