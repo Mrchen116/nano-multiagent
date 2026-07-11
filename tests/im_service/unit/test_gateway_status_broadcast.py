@@ -5,6 +5,9 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+import sqlite3
+
+import pytest
 
 from IM.application.metrics_service import MetricsService
 from IM.application.relay_service import RelayService
@@ -220,6 +223,41 @@ def test_disconnect_broadcasts_node_and_agents_offline(tmp_path: Path) -> None:
     assert node_frame["data"]["status"] == "offline"
     assert agent_frame["data"]["status"] == "offline"
     assert agent_frame["data"]["agent_id"] == "agent-a"
+
+
+def test_force_offline_removes_connection_before_persistence_failure(
+    tmp_path: Path,
+) -> None:
+    """A failed SQLite transition cannot leave a stale routable connection."""
+    handler, nodes, _registry, connection, users = _build(tmp_path)
+    owner = users.create_user(username="owner-a", display_name="Owner A")
+    nodes.upsert_node(node_id="node-1", node_name="N1", owner_id=owner.owner_id)
+    asyncio.run(
+        handler.handle_message(
+            websocket=_StubGatewayWebSocket(),
+            message_type="node.register",
+            payload={"node_id": "node-1", "agents": [], "capabilities": {}},
+        )
+    )
+    connection.execute(
+        """
+        CREATE TRIGGER fail_forced_offline BEFORE UPDATE ON nodes
+        WHEN NEW.last_error = 'heartbeat_timeout'
+        BEGIN SELECT RAISE(FAIL, 'injected forced-offline failure'); END
+        """
+    )
+    connection.commit()
+
+    with pytest.raises(sqlite3.IntegrityError, match="forced-offline failure"):
+        asyncio.run(
+            handler.force_mark_offline(node_id="node-1", reason="heartbeat_timeout")
+        )
+
+    assert asyncio.run(handler.is_connected(node_id="node-1")) is False
+    snapshot = nodes.get_node(node_id="node-1")
+    assert snapshot is not None
+    assert snapshot.status == "online"
+    assert snapshot.last_error is None
 
 
 def test_cross_owner_isolation_no_leak(tmp_path: Path) -> None:

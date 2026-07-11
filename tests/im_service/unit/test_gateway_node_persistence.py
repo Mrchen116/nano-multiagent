@@ -202,10 +202,10 @@ def test_disconnect_and_timeout_offline_are_idempotent(tmp_path: Path) -> None:
     assert repeated.current_node.last_error == "heartbeat_timeout"
 
 
-def test_stale_online_node_ids_filters_by_cutoff_in_stable_order(
+def test_stale_online_node_ids_preserves_legacy_query_iteration_order(
     tmp_path: Path,
 ) -> None:
-    """Stale scan returns only online nodes older than the supplied cutoff."""
+    """Stale scan filters by cutoff without imposing a new lexical order."""
     connection, persistence = _build(tmp_path)
     nodes = NodeRepository(connection)
     for node_id in ("node-b", "node-a", "node-fresh"):
@@ -229,4 +229,4 @@ def test_stale_online_node_ids_filters_by_cutoff_in_stable_order(
     connection.commit()
 
     cutoff = (now - timedelta(minutes=1)).isoformat().replace("+00:00", "Z")
-    assert persistence.stale_online_node_ids(cutoff=cutoff) == ("node-a", "node-b")
+    assert persistence.stale_online_node_ids(cutoff=cutoff) == ("node-b", "node-a")
