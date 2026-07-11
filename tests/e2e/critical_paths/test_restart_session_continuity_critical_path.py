@@ -21,8 +21,8 @@ from ._im_client import IMClient, restart_gateway
 
 
 @pytest.mark.e2e
-def test_restart_readiness_rejects_pre_restart_online_snapshot(monkeypatch) -> None:
-    """A durable old online row must not satisfy replacement-Gateway readiness."""
+def test_restart_readiness_rejects_old_process_shutdown_heartbeat(monkeypatch) -> None:
+    """Only a heartbeat after old-process termination proves replacement readiness."""
     client = IMClient("http://unused")
     snapshots = iter(
         [
@@ -30,21 +30,21 @@ def test_restart_readiness_rejects_pre_restart_online_snapshot(monkeypatch) -> N
                 {
                     "node_id": "node-1",
                     "status": "online",
-                    "last_heartbeat_at": "2026-07-11T11:00:00Z",
+                    "last_heartbeat_at": "2026-07-11T11:00:01Z",
                 }
             ],
             [
                 {
                     "node_id": "node-1",
                     "status": "offline",
-                    "last_heartbeat_at": "2026-07-11T11:00:00Z",
+                    "last_heartbeat_at": "2026-07-11T11:00:01Z",
                 }
             ],
             [
                 {
                     "node_id": "node-1",
                     "status": "online",
-                    "last_heartbeat_at": "2026-07-11T11:00:01Z",
+                    "last_heartbeat_at": "2026-07-11T11:00:03Z",
                 }
             ],
         ]
@@ -53,11 +53,11 @@ def test_restart_readiness_rejects_pre_restart_online_snapshot(monkeypatch) -> N
 
     reconnected = client.wait_for_node_reconnect(
         node_id="node-1",
-        previous_last_heartbeat_at="2026-07-11T11:00:00Z",
+        replacement_started_after="2026-07-11T11:00:02Z",
         timeout=2.0,
     )
 
-    assert reconnected["last_heartbeat_at"] == "2026-07-11T11:00:01Z"
+    assert reconnected["last_heartbeat_at"] == "2026-07-11T11:00:03Z"
     client.close()
 
 
@@ -82,19 +82,14 @@ def test_context_survives_gateway_restart(
         ws.close()
 
     # 阶段 2:重启 Gateway 进程(同 config → node_id / workspace / 会话历史不变)。
-    before_restart = next(
-        node
-        for node in im_user.list_nodes()
-        if node.get("node_id") == e2e_stack.node_id
+    replacement_started_after = restart_gateway(
+        e2e_stack.wt_dir, e2e_stack.im_port
     )
-    previous_last_heartbeat_at = before_restart.get("last_heartbeat_at")
-    assert isinstance(previous_last_heartbeat_at, str) and previous_last_heartbeat_at
-    restart_gateway(e2e_stack.wt_dir, e2e_stack.im_port)
-    # 仅有 durable online 不足以证明 replacement WS 已注册；必须观察到
-    # 同 node 的 heartbeat generation 严格前进后才发后续消息。
+    # 仅有 durable online 不足以证明 replacement WS 已注册；必须观察到旧
+    # Gateway 完全终止后产生的新 heartbeat generation 才发后续消息。
     im_user.wait_for_node_reconnect(
         node_id=e2e_stack.node_id,
-        previous_last_heartbeat_at=previous_last_heartbeat_at,
+        replacement_started_after=replacement_started_after,
         timeout=40,
     )
 
