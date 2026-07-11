@@ -8,10 +8,10 @@
 
 ## 退出标准
 
-- [ ] register 的首次 online 广播按非字典序 advertisement 输入顺序产生 `agent.status_changed` 与递增 seq；heartbeat/disconnect 仍使用数据库稳定排序。
-- [ ] 两个独立 SQLite connection/handler 竞争同一 dispatch key 时，只有 durable winner 被 relay，两个 ack 均引用 winner message。
-- [ ] reviewer 的 shadow conversation HTTP duplicate finding 已用相同公开入口与 headers 在 `origin/main`、unit 分支完成差分；若两边相同则仅记录 baseline-equivalent，不改变产品行为。
-- [ ] 真栈重复 dispatch、完整 non-e2e、e2e-critical 与 ruff 全绿。
+- [x] register 的首次 online 广播按非字典序 advertisement 输入顺序产生 `agent.status_changed` 与递增 seq；heartbeat/disconnect 仍使用数据库稳定排序。
+- [x] 两个独立 SQLite connection/handler 竞争同一 dispatch key 时，只有 durable winner 被 relay，两个 ack 均引用 winner message。
+- [x] reviewer 的 shadow conversation HTTP duplicate finding 已用相同公开入口与 headers 在 `origin/main`、unit 分支完成差分；两边相同，仅记录 baseline-equivalent，未改变产品行为。
+- [x] 真栈重复 dispatch、完整 non-e2e、e2e-critical 与 ruff 全绿。
 
 ## 测试策略
 
@@ -39,6 +39,6 @@
 
 ### R3 — 真栈与完整门禁收口
 
-- 状态：TODO
+- 状态：DONE
 - 步骤：按 reviewer Runbook 启动真 IM + Gateway；验证非字典序 register 广播和重复 dispatch winner ack/relay；运行完整门禁并记录 durable evidence。
 - 验证：真实入口结果符合 R1/R2，`pytest -m "not e2e"`、`scripts/e2e-critical.sh -m "not slow"`、ruff check/format 全绿。

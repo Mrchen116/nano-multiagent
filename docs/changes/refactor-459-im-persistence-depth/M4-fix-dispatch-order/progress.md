@@ -56,7 +56,7 @@
 
 ## R3 — 真栈与完整门禁收口
 
-- Status: VERIFY
+- Status: DONE
 - Acceptance checklist:
   1. 以持久 tmux 承载 `PATH=.venv/bin:$PATH ./scripts/e2e-up.sh`，健康检查 `$IM_URL/openapi.json` 与 Gateway WS accepted。
   2. 公开 auth + `/im/ws/user`、`/im/ws/gateway` 注册一个已绑定测试 node，发送非字典序 advertisement；在线 broadcast 必须按输入顺序且 seq 递增。
@@ -67,4 +67,12 @@
   - `node.register` advertisement 为 `agent-z, agent-a, A, B`；owner `/im/ws/user` online frames 保持相同顺序，seq 为 `2,3,4,5`。
   - 两个真实 Gateway WS 提交 `A|tool_call:live-winner-key`；两个 ack 均引用 conversation `657b1581670f42149f919d1a8150ec80`、message `9c91242e601946fd82fa991356a036c3`。
   - 目标 Gateway WS 在 heartbeat ack 屏障前仅收到 1 个 `relay.message`，其 message id 等于 ack winner；SQLite 补充核对为 1 dispatch row、1 dispatched relay row、1 live replay message。
-- Remaining: 完整门禁与清理。
+- Gate evidence:
+  - Focused: register/dispatch/handler/node/conversation/status/seam 共 78 passed（1.35s）。
+  - Non-e2e: 3484 passed，2 skipped，23 deselected（97.47s）。
+  - Critical e2e: 15 passed，2 deselected（240.98s），含 resilience、group mention、restart continuity、permission、stop、subagent 与 tool-call reply。
+  - Static: `ruff check .` passed；`ruff format --check .` → 779 files already formatted；`git diff --check` clean。
+- Environment: `e2e-up.sh` 的后台子进程在短生命周期 exec 返回后会被宿主回收，因此 live evidence 使用持久 tmux 承载同一 Runbook；所有 M4 tmux/service/PID 已回收，仅保留用户既有 `LLM` session。
+- Rollback: R3 仅验收证据；产品回滚分别 revert R1 `03c82281` 与 R2 `34342be8`。
+- Commits: C1=`1a510641`，C2=`afae5af6`，C3=本 documentation commit。
+- Next: rebase unit、复验、合并推送并清理 milestone。
