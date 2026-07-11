@@ -25,6 +25,7 @@ from IM.application.relay_service import RelayService
 from IM.application.relay_watchdog import run_relay_watchdog
 from IM.domain.models import ConversationEvent
 from IM.infra.db import connect, initialize_schema
+from IM.infra.gateway_persistence import GatewayNodePersistence
 from IM.infra.repositories import (
     ConversationRepository,
     EventRepository,
@@ -315,7 +316,7 @@ def create_app(
         node_repository = NodeRepository(connection)
         app_instance.state.gateway_handler = GatewayHandler(
             relay_service=RelayService(connection),
-            node_repository=node_repository,
+            node_persistence=GatewayNodePersistence(connection),
             event_repository=event_repository,
             metrics_service=MetricsService(metrics=UsageMetricsRepository(connection)),
             conversation_repository=ConversationRepository(connection),

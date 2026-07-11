@@ -42,16 +42,21 @@ def _build_handler(tmp_path: Path) -> GatewayHandler:
     )
 
 
-def _build_handler_with_node_repo(tmp_path: Path) -> GatewayHandler:
+def _build_handler_with_node_persistence(
+    tmp_path: Path,
+) -> tuple[GatewayHandler, object]:
     """构建带 node persistence seam 的 handler，用于验证 profile 落库行为。"""
 
     connection = connect(tmp_path / "im.db")
     initialize_schema(connection)
-    return GatewayHandler(
-        relay_service=RelayService(connection),
-        metrics_service=MetricsService(metrics=UsageMetricsRepository(connection)),
-        conversation_repository=ConversationRepository(connection),
-        node_persistence=GatewayNodePersistence(connection),
+    return (
+        GatewayHandler(
+            relay_service=RelayService(connection),
+            metrics_service=MetricsService(metrics=UsageMetricsRepository(connection)),
+            conversation_repository=ConversationRepository(connection),
+            node_persistence=GatewayNodePersistence(connection),
+        ),
+        connection,
     )
 
 
@@ -1432,7 +1437,7 @@ def test_handle_register_with_agent_workspaces_seeds_first_seen_profile(
 
     bugfix-404-M2 决策 3：种子链路修复——IM 首次见到 agent 时用上报值，不再凭空填默认路径。
     """
-    handler = _build_handler_with_node_repo(tmp_path)
+    handler, connection = _build_handler_with_node_persistence(tmp_path)
     ws_path = "/worktrees/bugfix-404-M2/.gateway-workspace/Arch"
     asyncio.run(
         handler.handle_message(
@@ -1446,8 +1451,7 @@ def test_handle_register_with_agent_workspaces_seeds_first_seen_profile(
             },
         )
     )
-    conn = handler._node_repository._connection
-    row = conn.execute(
+    row = connection.execute(
         "SELECT workspace_root FROM agent_profiles WHERE agent_id = ?", ("Arch",)
     ).fetchone()
     assert row is not None
@@ -1460,7 +1464,7 @@ def test_handle_register_runtime_profile_provisions_agent_user(
     tmp_path: Path,
 ) -> None:
     """Runtime node.register profiles must be usable as conversation participants."""
-    handler = _build_handler_with_node_repo(tmp_path)
+    handler, connection = _build_handler_with_node_persistence(tmp_path)
 
     asyncio.run(
         handler.handle_message(
@@ -1474,7 +1478,7 @@ def test_handle_register_runtime_profile_provisions_agent_user(
         )
     )
 
-    users = UserRepository(handler._node_repository._connection)
+    users = UserRepository(connection)
     agent_user = users.get_user_by_username(username="agent:default-agent")
     assert agent_user is not None
     assert agent_user.display_name == "default-agent"
@@ -1487,7 +1491,7 @@ def test_handle_register_preserves_existing_workspace_on_reregister(
 
     bugfix-404-M2 决策 3：首见才写种子，已存在则不动（与 feat-379-M6 同模式）。
     """
-    handler = _build_handler_with_node_repo(tmp_path)
+    handler, connection = _build_handler_with_node_persistence(tmp_path)
     original_ws = "/original/workspace/Arch"
     new_ws = "/different/workspace/Arch"
     # 首次注册，确立原始值
@@ -1516,8 +1520,7 @@ def test_handle_register_preserves_existing_workspace_on_reregister(
             },
         )
     )
-    conn = handler._node_repository._connection
-    row = conn.execute(
+    row = connection.execute(
         "SELECT workspace_root FROM agent_profiles WHERE agent_id = ?", ("Arch",)
     ).fetchone()
     assert row is not None
@@ -1533,7 +1536,7 @@ def test_handle_register_without_agent_workspaces_falls_back_to_managed_default(
 
     向后兼容性：老版本 gateway 发的帧无 agent_workspaces，IM 应走原路逻辑不报错。
     """
-    handler = _build_handler_with_node_repo(tmp_path)
+    handler, connection = _build_handler_with_node_persistence(tmp_path)
     asyncio.run(
         handler.handle_message(
             websocket=StubWebSocket(),
@@ -1546,8 +1549,7 @@ def test_handle_register_without_agent_workspaces_falls_back_to_managed_default(
             },
         )
     )
-    conn = handler._node_repository._connection
-    row = conn.execute(
+    row = connection.execute(
         "SELECT workspace_root FROM agent_profiles WHERE agent_id = ?",
         ("LegacyAgent",),
     ).fetchone()

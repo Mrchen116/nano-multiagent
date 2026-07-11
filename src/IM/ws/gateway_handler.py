@@ -31,14 +31,12 @@ from IM.domain.models import (
     NodeStatus,
     TokenUsage,
     ToolCall,
-    managed_workspace_root,
 )
+from IM.infra.gateway_persistence import GatewayNodePersistence
 from IM.infra.repositories import (
-    AgentProfileRepository,
     ConversationRepository,
     EventRepository,
     MessageRepository,
-    NodeRepository,
     UserRepository,
 )
 from IM.ws.user_stream import UserStreamRegistry
@@ -85,7 +83,7 @@ class GatewayHandler:
         self,
         *,
         relay_service: RelayService,
-        node_repository: NodeRepository | None = None,
+        node_persistence: GatewayNodePersistence | None = None,
         event_repository: EventRepository | None = None,
         metrics_service: MetricsService | None = None,
         conversation_repository: ConversationRepository | None = None,
@@ -94,7 +92,7 @@ class GatewayHandler:
         event_bridge: EventBridge | None = None,
     ) -> None:
         self._relay_service = relay_service
-        self._node_repository = node_repository
+        self._node_persistence = node_persistence
         self._event_repository = event_repository
         self._metrics_service = metrics_service
         self._conversation_repository = conversation_repository
@@ -813,12 +811,11 @@ class GatewayHandler:
             ):
                 return
             self._connections.pop(node_id, None)
-        if self._node_repository is None:
+        if self._node_persistence is None:
             return
-        prior = self._node_repository.get_node(node_id=node_id)
-        agent_ids = self._list_node_agent_ids(node_id=node_id)
-        self._node_repository.mark_disconnected(node_id=node_id)
-        next_node = self._node_repository.get_node(node_id=node_id)
+        transition = self._node_persistence.mark_offline(node_id=node_id)
+        prior = transition.previous_node
+        next_node = transition.current_node
         if (
             prior is not None
             and next_node is not None
@@ -827,7 +824,7 @@ class GatewayHandler:
             await self._broadcast_status_change(
                 owner_id=next_node.owner_id,
                 node=next_node,
-                agent_ids=agent_ids,
+                agent_ids=list(transition.agent_ids),
             )
 
     async def force_mark_offline(self, *, node_id: str, reason: str) -> None:
@@ -842,39 +839,23 @@ class GatewayHandler:
             persisting ``last_error``. The active in-memory ``self._connections``
             entry is also dropped, matching the WS-disconnect path semantics.
         """
-        if self._node_repository is None:
+        if self._node_persistence is None:
             return
-        prior = self._node_repository.get_node(node_id=node_id)
+        transition = self._node_persistence.mark_offline(
+            node_id=node_id, last_error=reason
+        )
+        prior = transition.previous_node
         if prior is None or prior.status == "offline":
             return
-        agent_ids = self._list_node_agent_ids(node_id=node_id)
         async with self._lock:
             self._connections.pop(node_id, None)
-        # Record last_error then flip to offline. mark_disconnected handles status flip;
-        # write last_error via a heartbeat-style update so it surfaces in /im/v1/nodes.
-        self._node_repository._connection.execute(  # noqa: SLF001
-            "UPDATE nodes SET last_error = ? WHERE node_id = ?",
-            (reason, node_id),
-        )
-        self._node_repository._connection.commit()  # noqa: SLF001
-        self._node_repository.mark_disconnected(node_id=node_id)
-        next_node = self._node_repository.get_node(node_id=node_id)
+        next_node = transition.current_node
         if next_node is not None and prior.status != next_node.status:
             await self._broadcast_status_change(
                 owner_id=next_node.owner_id,
                 node=next_node,
-                agent_ids=agent_ids,
+                agent_ids=list(transition.agent_ids),
             )
-
-    def _list_node_agent_ids(self, *, node_id: str) -> list[str]:
-        """Return agent ids currently advertised by the given node, in stable order."""
-        if self._node_repository is None:
-            return []
-        rows = self._node_repository._connection.execute(  # noqa: SLF001
-            "SELECT agent_id FROM agent_profiles WHERE node_id = ? ORDER BY agent_id",
-            (node_id,),
-        ).fetchall()
-        return [str(row["agent_id"]) for row in rows]
 
     async def _next_status_seq(self, *, owner_id: str) -> int:
         """Allocate one monotonically increasing seq number per owner."""
@@ -972,99 +953,24 @@ class GatewayHandler:
         )
         async with self._lock:
             self._connections[node_id] = connection
-        prior_node: NodeStatus | None = None
-        if self._node_repository is not None:
-            prior_node = self._node_repository.get_node(node_id=node_id)
-            node = self._node_repository.record_gateway_registration(
+        if self._node_persistence is not None:
+            result = self._node_persistence.register(
                 node_id=node_id,
                 node_name=node_name,
                 version=version,
-                agent_count=len(agents),
+                agent_ids=agents,
+                agent_workspaces=agent_workspaces,
             )
-            profile_repository = AgentProfileRepository(
-                self._node_repository._connection
+            prior_status = (
+                result.previous_node.status
+                if result.previous_node is not None
+                else None
             )
-            user_repository = UserRepository(self._node_repository._connection)
-            for agent_id in agents:
-                existing = profile_repository.get_profile(agent_id=agent_id)
-                owner_id = (
-                    existing.owner_id
-                    if existing is not None and existing.owner_id.strip()
-                    else (node.owner_id or "")
-                )
-                if existing is None:
-                    runtime_display_name = agent_id
-                    runtime_description = f"Runtime agent advertised by {node_name}."
-                    runtime_system_prompt = f"You are {agent_id}."
-                    runtime_skills: list[str] = []
-                    runtime_tool_allowlist: list[str] = []
-                    runtime_group_reply_policy = "MENTION"
-                    runtime_default_model: str | None = None
-                    # bugfix-404-M2 decision 3: use the gateway-supplied workspace seed
-                    # on first registration; fall back to managed default only when the
-                    # frame does not carry agent_workspaces (old gateway compatibility).
-                    runtime_workspace_root = agent_workspaces.get(
-                        agent_id
-                    ) or managed_workspace_root(agent_id)
-                else:
-                    runtime_display_name = existing.display_name
-                    runtime_description = existing.description
-                    runtime_system_prompt = existing.system_prompt
-                    runtime_skills = existing.skills
-                    runtime_tool_allowlist = existing.tool_allowlist
-                    runtime_group_reply_policy = existing.group_reply_policy
-                    runtime_default_model = existing.default_model
-                    runtime_workspace_root = (
-                        existing.workspace_root or managed_workspace_root(agent_id)
-                    )
-                if runtime_display_name == agent_id and agent_id.startswith("agent-"):
-                    runtime_display_name = (
-                        agent_id.replace("agent-", "", 1).replace("-", " ").title()
-                    )
-                # feat-379-M6 (ISSUE-2): preserve features/custom_prompt from the existing
-                # DB row when re-registering. node.register only carries agent_ids, not
-                # per-agent config, so passing None would overwrite user edits with defaults.
-                runtime_features = existing.features if existing is not None else None
-                runtime_custom_prompt = (
-                    existing.custom_prompt if existing is not None else None
-                )
-                profile_repository.upsert_profile(
-                    agent_id=agent_id,
-                    owner_id=owner_id,
-                    display_name=runtime_display_name,
-                    description=runtime_description,
-                    system_prompt=runtime_system_prompt,
-                    skills=runtime_skills,
-                    tool_allowlist=runtime_tool_allowlist,
-                    group_reply_policy=runtime_group_reply_policy,
-                    default_model=runtime_default_model,
-                    workspace_root=runtime_workspace_root,
-                    features=runtime_features,
-                    custom_prompt=runtime_custom_prompt,
-                )
-                if (
-                    user_repository.get_user_by_username(username=f"agent:{agent_id}")
-                    is None
-                ):
-                    user_repository.create_user(
-                        username=f"agent:{agent_id}",
-                        display_name=runtime_display_name,
-                    )
-                self._node_repository._connection.execute(
-                    "UPDATE agent_profiles SET node_id = ? WHERE agent_id = ?",
-                    (node_id, agent_id),
-                )
-            profile_repository.mark_stale_for_node(
-                node_id=node_id,
-                advertised_agent_ids=list(agents),
-            )
-            self._node_repository._connection.commit()
-            prior_status = prior_node.status if prior_node is not None else None
-            if prior_status != node.status:
+            if prior_status != result.current_node.status:
                 await self._broadcast_status_change(
-                    owner_id=node.owner_id,
-                    node=node,
-                    agent_ids=list(agents),
+                    owner_id=result.current_node.owner_id,
+                    node=result.current_node,
+                    agent_ids=list(result.agent_ids),
                 )
         return {
             "type": "ack",
@@ -1084,21 +990,25 @@ class GatewayHandler:
         # liveness marker. Permission waits now stay alive via the kernel run_heartbeat
         # that EventBridge persists as a conversation_events row (advancing last_evt), so
         # the relay watchdog needs no per-window exemption — one uniform liveness signal.
-        if self._node_repository is not None:
-            prior_node = self._node_repository.get_node(node_id=node_id)
-            next_node = self._node_repository.record_heartbeat(
+        if self._node_persistence is not None:
+            transition = self._node_persistence.heartbeat(
                 node_id=node_id,
                 reported_status=_optional_text(payload.get("status")),
                 agent_count=_optional_int(payload.get("agent_count")),
                 last_error=_optional_text(payload.get("last_error")),
                 version=_optional_text(payload.get("version")),
             )
-            prior_status = prior_node.status if prior_node is not None else None
-            if prior_status != next_node.status:
+            prior_status = (
+                transition.previous_node.status
+                if transition.previous_node is not None
+                else None
+            )
+            next_node = transition.current_node
+            if next_node is not None and prior_status != next_node.status:
                 await self._broadcast_status_change(
                     owner_id=next_node.owner_id,
                     node=next_node,
-                    agent_ids=self._list_node_agent_ids(node_id=node_id),
+                    agent_ids=list(transition.agent_ids),
                 )
         return {
             "type": "ack",
