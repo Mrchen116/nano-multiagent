@@ -81,25 +81,29 @@ def restart_gateway(wt_dir: str, im_port: str) -> None:
     )
     env = dict(os.environ)
     env["PYTHONPATH"] = os.path.join(repo_root, "src")
+    log_offset = os.path.getsize(log) if os.path.exists(log) else 0
     log_handle = open(log, "a")
-    proc = subprocess.Popen(
-        [
-            "python",
-            "-m",
-            "personal_assistant.main",
-            "--config",
-            cfg,
-            "--im-service-url",
-            f"http://127.0.0.1:{im_port}",
-            "--foreground",
-            "--auto-bind",
-        ],
-        cwd=repo_root,
-        env=env,
-        stdout=log_handle,
-        stderr=subprocess.STDOUT,
-        start_new_session=True,  # 新进程组 → 后续可整组 killpg,worker 不成孤儿。
-    )
+    try:
+        proc = subprocess.Popen(
+            [
+                "python",
+                "-m",
+                "personal_assistant.main",
+                "--config",
+                cfg,
+                "--im-service-url",
+                f"http://127.0.0.1:{im_port}",
+                "--foreground",
+                "--auto-bind",
+            ],
+            cwd=repo_root,
+            env=env,
+            stdout=log_handle,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,  # 新进程组 → 后续可整组 killpg,worker 不成孤儿。
+        )
+    finally:
+        log_handle.close()
     with open(pid_file, "w") as f:
         f.write(str(proc.pid))
 
@@ -116,6 +120,7 @@ def restart_gateway(wt_dir: str, im_port: str) -> None:
             raise AssertionError(f"gateway died during restart; see {log}")
         try:
             with open(log) as f:
+                f.seek(log_offset)
                 tail = f.read()
         except FileNotFoundError:
             return False
