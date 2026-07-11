@@ -2,7 +2,7 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
 import sqlite3
@@ -3076,6 +3076,23 @@ class UsageMetricsRepository:
         return metrics
 
 
+@dataclass(frozen=True, slots=True)
+class EventReplayResult:
+    """Result of a browser user-stream resume query."""
+
+    events: list[ConversationEvent]
+    resync_required: bool
+    reason: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class RelayRunIdentity:
+    """Persisted agent identity attached to one relay run."""
+
+    relay_task_id: str | None
+    agent_id: str | None
+
+
 class EventRepository:
     """Persist and query conversation events."""
 
@@ -3219,6 +3236,137 @@ class EventRepository:
             )
             for row in rows
         ]
+
+    def recipient_user_ids(self, conversation_id: str) -> tuple[str, ...]:
+        """Return users that should receive events for one conversation."""
+        rows = self._connection.execute(
+            "SELECT user_id FROM conversation_participants WHERE conversation_id = ? ORDER BY rowid",
+            (conversation_id,),
+        ).fetchall()
+        return tuple(str(row["user_id"]) for row in rows)
+
+    def global_max_event_id(self) -> int:
+        """Return the highest event id across all conversations."""
+        row = self._connection.execute(
+            "SELECT MAX(event_id) AS m FROM conversation_events"
+        ).fetchone()
+        if row is None or row["m"] is None:
+            return 0
+        return int(row["m"])
+
+    def list_events_for_user_resume(
+        self,
+        *,
+        user_id: str,
+        after_event_id: int,
+        max_batch: int = 500,
+        max_gap: int = 2000,
+        replay_window_minutes: int = 15,
+    ) -> EventReplayResult:
+        """List owner-visible events after a browser resume cursor."""
+        max_id = self.global_max_event_id()
+        if after_event_id > 0 and max_id - after_event_id > max_gap:
+            return EventReplayResult(
+                events=[],
+                resync_required=True,
+                reason="event_gap_exceeded",
+            )
+
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=replay_window_minutes)
+        cutoff_iso = cutoff.isoformat().replace("+00:00", "Z")
+        rows = self._connection.execute(
+            """
+            SELECT event_id, conversation_id, message_id, event_type, delivery_status, payload_json, created_at
+            FROM conversation_events
+            WHERE event_id > ?
+              AND created_at >= ?
+              AND conversation_id IN (
+                SELECT conversation_id FROM conversation_participants WHERE user_id = ?
+              )
+            ORDER BY event_id
+            LIMIT ?
+            """,
+            (after_event_id, cutoff_iso, user_id, max_batch),
+        ).fetchall()
+        if after_event_id > 0 and not rows and max_id > after_event_id:
+            return EventReplayResult(
+                events=[],
+                resync_required=True,
+                reason="cursor_stale_or_outside_replay_window",
+            )
+        return EventReplayResult(
+            events=[self._row_to_event(row) for row in rows],
+            resync_required=False,
+            reason=None,
+        )
+
+    def relay_run_identities(
+        self,
+        *,
+        conversation_id: str,
+        up_to_event_id: int,
+    ) -> dict[str, RelayRunIdentity]:
+        """Resolve the latest persisted relay identity for each run."""
+        rows = self._connection.execute(
+            """
+            SELECT payload_json
+            FROM conversation_events
+            WHERE conversation_id = ? AND event_type = ? AND event_id <= ?
+            ORDER BY event_id
+            """,
+            (conversation_id, "relay.accepted", up_to_event_id),
+        ).fetchall()
+        identities: dict[str, RelayRunIdentity] = {}
+        for row in rows:
+            try:
+                payload = json.loads(row["payload_json"])
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(payload, dict):
+                continue
+            run_id = _optional_text(payload.get("run_id"))
+            if run_id is None:
+                detail = _optional_text(payload.get("detail"))
+                if detail is not None and detail.startswith("run_id="):
+                    run_id = _optional_text(detail[len("run_id=") :])
+            if run_id is None:
+                continue
+            identities[run_id] = RelayRunIdentity(
+                relay_task_id=_optional_text(payload.get("relay_task_id")),
+                agent_id=_optional_text(payload.get("agent_id")),
+            )
+        return identities
+
+    def agent_display_names(self, agent_ids: set[str]) -> dict[str, str]:
+        """Return non-empty display names for the requested agents."""
+        if not agent_ids:
+            return {}
+        placeholders = ",".join("?" for _ in agent_ids)
+        rows = self._connection.execute(
+            f"SELECT agent_id, display_name FROM agent_profiles WHERE agent_id IN ({placeholders})",  # noqa: S608
+            tuple(agent_ids),
+        ).fetchall()
+        return {
+            str(row["agent_id"]): str(row["display_name"])
+            for row in rows
+            if row["agent_id"] is not None
+            and row["display_name"] is not None
+            and str(row["display_name"]).strip()
+        }
+
+    @staticmethod
+    def _row_to_event(row: sqlite3.Row) -> ConversationEvent:
+        return ConversationEvent(
+            event_id=int(row["event_id"]),
+            conversation_id=str(row["conversation_id"]),
+            message_id=str(row["message_id"])
+            if row["message_id"] is not None
+            else None,
+            event_type=str(row["event_type"]),
+            delivery_status=str(row["delivery_status"]),
+            payload_json=str(row["payload_json"]),
+            created_at=str(row["created_at"]),
+        )
 
 
 def _encode_json_list(values: list[str]) -> str:

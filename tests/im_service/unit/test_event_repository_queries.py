@@ -120,8 +120,10 @@ def test_user_resume_reports_gap_and_window_miss(tmp_path: Path) -> None:
     assert gap.resync_required is True
     assert gap.reason == "event_gap_exceeded"
 
-    old = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat().replace(
-        "+00:00", "Z"
+    old = (
+        (datetime.now(timezone.utc) - timedelta(hours=1))
+        .isoformat()
+        .replace("+00:00", "Z")
     )
     with connection:
         connection.execute(

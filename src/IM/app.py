@@ -299,7 +299,7 @@ def create_app(
         message_repository = MessageRepository(connection, notify=user_event_notify)
         event_service = EventService(events=event_repository)
         _user_notify_impl[0] = build_notify_enqueue(
-            connection=connection,
+            event_repository=event_repository,
             outbound_queue=outbound_queue,
             loop=loop,
             event_service=event_service,
@@ -419,7 +419,7 @@ def create_app(
             return
         await serve_user_websocket(
             websocket=websocket,
-            connection=app.state.connection,
+            event_repository=app.state.event_repository,
             registry=app.state.user_stream_registry,
             user_id=user_id,
         )

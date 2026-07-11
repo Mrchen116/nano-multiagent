@@ -3,7 +3,13 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field, model_validator
 
-from IM.api.deps import current_user, get_gateway_handler, get_web_im_service
+from IM.api.deps import (
+    current_user,
+    get_event_service,
+    get_gateway_handler,
+    get_web_im_service,
+)
+from IM.application.event_service import EventService
 from IM.application.web_im_service import (
     AgentOfflineError,
     ForkDelegationError,
@@ -14,7 +20,6 @@ from IM.application.web_im_service import (
 from IM.domain.models import Conversation, User
 from IM.infra.repositories import AgentProfileRepository
 from IM.ws.gateway_handler import GatewayHandler
-from IM.ws.user_stream import global_max_event_id
 
 router = APIRouter(tags=["web-im"])
 
@@ -341,16 +346,16 @@ def find_or_create_external_conversation(
 
 @router.get("/im/v1/sync", response_model=ImSyncResponse)
 def sync_im_state(
-    request: Request,
     user: User = Depends(current_user),
     service: WebIMService = Depends(get_web_im_service),
+    event_service: EventService = Depends(get_event_service),
 ) -> ImSyncResponse:
     """返回会话列表与全局 max(event_id)，供用户 WebSocket resync_required 后对齐客户端游标。"""
     items = [
         to_conversation_response(item)
         for item in service.list_conversations_for_owner(owner_id=user.owner_id)
     ]
-    max_event_id = global_max_event_id(request.app.state.connection)
+    max_event_id = event_service.global_max_event_id()
     return ImSyncResponse(items=items, max_event_id=max_event_id)
 
 
