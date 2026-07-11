@@ -78,7 +78,7 @@
 
 ## R5 — 真栈与完整门禁
 
-- Status: VERIFY
+- Status: DONE
 - Acceptance checklist:
   1. `e2e-up.sh` 真 IM/Gateway health ready；在原 conversation 完成首轮后重启 Gateway，readiness heartbeat 必须晚于旧进程终止下限，续发返回 201 并完成。
   2. 真实 `/im/ws/gateway` direct/group dispatch 窗口中重绑 target profile，relay frame/row 必须落最新 node；group fanout 保留非 agent 字典序。
@@ -89,4 +89,12 @@
   - direct: `M5DT` 从 `m5-direct-old` rebind 到 `m5-direct-new` 后，真实 `agent.message` ack message `36baf7dc6c7340ae83620301adf1a626`；新 node 收到唯一 relay，旧 node heartbeat 屏障前无 relay。
   - group: explicit user PK 让 legacy bulk order 为 `M5Z,M5A`；receipt fanout row/frame 同序，A rebind 后 targets 为 `m5-group-z,m5-group-a-new`，old A 无 frame。
   - stale/offline: 插入 `m5-stale-b,m5-stale-a` 后公开 owner WS offline event 同序；failure trigger 下原 Gateway WS heartbeat 返回 `node_not_registered`，DB 保持 `online,NULL` 且异常在服务日志大声暴露。
-- Remaining: 完整门禁与资源清理。
+- Gate evidence:
+  - Focused: 90 passed（3.49s）。
+  - Non-e2e: 3488 passed，2 skipped，23 deselected（96.53s）。
+  - Critical e2e: 15 passed，2 deselected（247.72s）；完整套件中的 restart continuity 通过，无 503。
+  - Static: `ruff check .` passed；`ruff format --check .` → 780 files already formatted；`git diff --check` clean。
+- Environment: live 手工栈用持久 tmux 承载同一 Runbook，已由 `e2e-down.sh` 回收；仅保留用户既有 `LLM` tmux session。
+- Rollback: R5 仅验收证据；产品/测试修正按 R1–R4 各自 C2 commit 可独立 revert。
+- Commits: C1=`2262d693`，C2=`e9b74f39`，C3=本 documentation commit。
+- Next: rebase unit、复验、合并推送并清理 milestone。

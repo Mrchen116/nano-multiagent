@@ -8,11 +8,11 @@
 
 ## 退出标准
 
-- [ ] restart readiness 的时间下限在旧 Gateway 完全终止后采样，原 conversation 随后可立即继续收发。
-- [ ] direct message/dispatch 写入窗口发生 rebind 时投递到最新 node。
-- [ ] group fanout 保留旧 concrete participant query iteration order；后一 peer 在前一 peer await 期间 rebind 时投递到最新 node；participant/user resolution 无逐 participant N+1。
-- [ ] force-offline 在 persistence 失败前已移除 stale connection；stale-node scan 保留旧无排序 query iteration order。
-- [ ] 真栈 restart/rebind/offline/order 通过，完整 non-e2e、e2e-critical、ruff/diff 全绿。
+- [x] restart readiness 的时间下限在旧 Gateway 完全终止后采样，原 conversation 随后可立即继续收发。
+- [x] direct message/dispatch 写入窗口发生 rebind 时投递到最新 node。
+- [x] group fanout 保留旧 concrete participant query iteration order；后一 peer 在前一 peer await 期间 rebind 时投递到最新 node；participant/user resolution 无逐 participant N+1。
+- [x] force-offline 在 persistence 失败前已移除 stale connection；stale-node scan 保留旧无排序 query iteration order。
+- [x] 真栈 restart/rebind/offline/order 通过，完整 non-e2e、e2e-critical、ruff/diff 全绿。
 
 ## 测试策略
 
@@ -52,6 +52,6 @@
 
 ### R5 — 真栈与完整门禁
 
-- 状态：TODO
+- 状态：DONE
 - 步骤：按 Runbook 真栈验证 restart 原会话续发、direct/group rebind、force-offline 与顺序；运行所有门禁并清理资源。
 - 验证：聚焦、non-e2e、完整 e2e-critical、ruff check/format、diff check 全绿。
