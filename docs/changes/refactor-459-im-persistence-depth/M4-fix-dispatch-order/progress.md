@@ -62,3 +62,9 @@
   2. 公开 auth + `/im/ws/user`、`/im/ws/gateway` 注册一个已绑定测试 node，发送非字典序 advertisement；在线 broadcast 必须按输入顺序且 seq 递增。
   3. 两个真实 Gateway WS 连接提交同一 `agent.message` dispatch key；两个 ack 必须复用同一 message id，公开/DB relay 只能引用 winner。
   4. 运行聚焦 regression、完整 non-e2e、`scripts/e2e-critical.sh -m "not slow"`、ruff check/format 与 diff check。
+- Live evidence（worktree 真 IM + Gateway，ephemeral `IM_URL`，公开 auth/bind + 真实 WS）：
+  - `/openapi.json` ready，`.im.log` 记录真实 Gateway WS accepted；测试 node 经公开 `/im/v1/bind` 绑定 owner。
+  - `node.register` advertisement 为 `agent-z, agent-a, A, B`；owner `/im/ws/user` online frames 保持相同顺序，seq 为 `2,3,4,5`。
+  - 两个真实 Gateway WS 提交 `A|tool_call:live-winner-key`；两个 ack 均引用 conversation `657b1581670f42149f919d1a8150ec80`、message `9c91242e601946fd82fa991356a036c3`。
+  - 目标 Gateway WS 在 heartbeat ack 屏障前仅收到 1 个 `relay.message`，其 message id 等于 ack winner；SQLite 补充核对为 1 dispatch row、1 dispatched relay row、1 live replay message。
+- Remaining: 完整门禁与清理。
