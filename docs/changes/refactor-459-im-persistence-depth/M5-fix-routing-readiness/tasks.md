@@ -34,7 +34,7 @@
 
 ### R2 — direct enqueue-time route
 
-- 状态：TODO
+- 状态：DONE
 - 步骤：`DispatchResolution` 仅保留稳定 target/conversation identity；在 message/dispatch 写后、relay enqueue 前通过 persistence public interface 解析 node。
 - 验证：确定性写入窗口 rebind 后 relay task 与 push 均指向新 node；missing node 仍不 enqueue。
 

@@ -26,7 +26,20 @@
 
 ## R2 — direct enqueue-time route
 
-- Status: TODO
+- Context: `resolve_send_target()` 在 message/dispatch durable writes 前快照 `target_node_id`；期间 agent rebind 后 handler 仍向旧 node enqueue/push。
+- Decision: `DispatchResolution` 仅携带 stable `target + conversation_id`；durable winner 确认后、relay enqueue 紧前调用 `agent_node_id()`。
+- Rationale: conversation landing 与 target identity 稳定，node binding 易变；后者只能在副作用发生点读取。
+- Evidence:
+  - Tests: real SQLite hook 在 `record_dispatch()` 后把 B 从 `node-old` rebind 到 `node-new`；红测 relay 指向 old，修复后 63 个 routing/handler/persistence/concurrency/seam tests passed。
+  - Entry: 公开 `agent.message` handler frame 产生的 relay task 与实际 `relay.message` push 均落 `node-new`，old websocket 无 frame。
+  - Frontend State Matrix: N/A。
+  - Browser QA: N/A。
+  - E2E/Regression: `tests/im_service/unit/test_gateway_routing_freshness.py::test_direct_dispatch_rebinds_to_latest_node_before_enqueue`。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: revert `d4e70b52` 恢复易变 node snapshot。
+- Commits: C1=`16b51c44`，C2=`d4e70b52`，C3=本 documentation commit。
+- Next: R3 group bulk hydration 与即时 route。
 
 ## R3 — group bulk hydration 与 enqueue-time route
 
