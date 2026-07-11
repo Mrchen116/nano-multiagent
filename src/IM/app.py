@@ -19,15 +19,18 @@ from IM.api.routes.nodes import router as nodes_router
 from IM.api.routes.policies import router as policies_router
 from IM.api.routes.web_im import router as web_im_router
 from IM.application.auth_service import AuthService, resolve_jwt_secret
+from IM.application.event_bridge import EventBridge
 from IM.application.event_service import EventService
 from IM.application.metrics_service import MetricsService
 from IM.application.relay_service import RelayService
 from IM.application.relay_watchdog import run_relay_watchdog
 from IM.domain.models import ConversationEvent
 from IM.infra.db import connect, initialize_schema
-from IM.infra.gateway_persistence import GatewayNodePersistence
+from IM.infra.gateway_persistence import (
+    GatewayConversationPersistence,
+    GatewayNodePersistence,
+)
 from IM.infra.repositories import (
-    ConversationRepository,
     EventRepository,
     MessageRepository,
     UsageMetricsRepository,
@@ -313,14 +316,19 @@ def create_app(
         app_instance.state.user_stream_pump_task = pump_task
 
         node_persistence = GatewayNodePersistence(connection)
+        conversation_persistence = GatewayConversationPersistence(connection)
         app_instance.state.gateway_handler = GatewayHandler(
             relay_service=RelayService(connection),
             node_persistence=node_persistence,
+            conversation_persistence=conversation_persistence,
+            message_repository=message_repository,
             event_repository=event_repository,
             metrics_service=MetricsService(metrics=UsageMetricsRepository(connection)),
-            conversation_repository=ConversationRepository(connection),
-            user_event_notify=user_event_notify,
             user_stream_registry=registry,
+            event_bridge=EventBridge(
+                message_repository=message_repository,
+                event_repository=event_repository,
+            ),
         )
         offline_guard_task = asyncio.create_task(
             run_offline_guard(

@@ -27,6 +27,15 @@ def _attribute_calls(relative_path: str, attribute: str) -> list[ast.Call]:
     ]
 
 
+def _attribute_references(relative_path: str, attribute: str) -> list[ast.Attribute]:
+    tree = ast.parse(_source(relative_path))
+    return [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute) and node.attr == attribute
+    ]
+
+
 def test_web_im_callers_do_not_execute_persistence_operations() -> None:
     """Keep application and HTTP callers behind repository/service interfaces."""
     for relative_path in _CALLERS:
@@ -57,8 +66,7 @@ def test_api_dependencies_only_construct_conversation_repository() -> None:
 def test_user_stream_does_not_execute_persistence_operations() -> None:
     """Keep user-stream lifecycle behind event and Gateway persistence interfaces."""
     relative_path = "src/IM/ws/user_stream.py"
-    source = _source(relative_path)
-    assert "._connection" not in source
+    assert not _attribute_references(relative_path, "_connection")
     assert not _attribute_calls(relative_path, "execute")
     assert not _attribute_calls(relative_path, "commit")
 
@@ -76,7 +84,7 @@ def test_gateway_handler_delivery_uses_only_gateway_persistence() -> None:
     relative_path = "src/IM/ws/gateway_handler.py"
     source = _source(relative_path)
     assert "GatewayConversationPersistence" in source
-    assert "._connection" not in source
+    assert not _attribute_references(relative_path, "_connection")
     assert not _attribute_calls(relative_path, "execute")
     assert not _attribute_calls(relative_path, "commit")
     assert "caller_owner_id=None" in source

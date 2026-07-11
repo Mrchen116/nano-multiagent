@@ -217,7 +217,12 @@ async def test_gateway_handler_node_system_message_creates_system_message() -> N
     """``node.system_message`` must persist a system-type message in the conversation."""
     import sqlite3
     from IM.infra.db import initialize_schema
-    from IM.infra.repositories import ConversationRepository, UserRepository
+    from IM.infra.gateway_persistence import GatewayConversationPersistence
+    from IM.infra.repositories import (
+        ConversationRepository,
+        MessageRepository,
+        UserRepository,
+    )
     from IM.ws.gateway_handler import GatewayHandler
 
     # Use the real IM schema so all column names are correct.
@@ -239,7 +244,8 @@ async def test_gateway_handler_node_system_message_creates_system_message() -> N
     relay_service = MagicMock()
     handler = GatewayHandler(
         relay_service=relay_service,
-        conversation_repository=conversation_repo,
+        conversation_persistence=GatewayConversationPersistence(conn),
+        message_repository=MessageRepository(conn),
     )
 
     result = await handler.handle_message(

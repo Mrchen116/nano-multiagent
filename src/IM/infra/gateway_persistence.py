@@ -404,6 +404,40 @@ class GatewayConversationPersistence:
         )
         return DispatchResolution(resolved_target, landed.id, None)
 
+    def resolve_user_agent_conversation(
+        self,
+        *,
+        agent_id: str,
+        user_id: str,
+        caller_owner_id: str,
+    ) -> str:
+        """Create/reuse the canonical owner-to-agent direct conversation.
+
+        Args:
+            agent_id: Agent receiving or producing the background delivery.
+            user_id: Owner user retained as the conversation creator.
+            caller_owner_id: Explicit owner policy supplied by the caller.
+
+        Returns:
+            Canonical conversation id for the user/agent pair.
+
+        Raises:
+            ValueError: When either participant is missing.
+
+        Side Effects:
+            May create one direct conversation with the owner user as creator.
+        """
+        if self._users.get_user(user_id=user_id) is None:
+            raise ValueError("user_id not found")
+        agent_user_id = self._require_user_id_by_username(username=f"agent:{agent_id}")
+        landed = self._find_or_create_direct_conversation(
+            left_user_id=user_id,
+            right_user_id=agent_user_id,
+            expected_direct_kind="user-agent",
+            caller_owner_id=caller_owner_id,
+        )
+        return landed.id
+
     def find_dispatch(
         self, *, dispatch_request_key: str | None
     ) -> AgentDispatchRecord | None:

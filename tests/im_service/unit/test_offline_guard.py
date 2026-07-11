@@ -10,9 +10,12 @@ from pathlib import Path
 from IM.application.metrics_service import MetricsService
 from IM.application.relay_service import RelayService
 from IM.infra.db import connect, initialize_schema
-from IM.infra.gateway_persistence import GatewayNodePersistence
+from IM.infra.gateway_persistence import (
+    GatewayConversationPersistence,
+    GatewayNodePersistence,
+)
 from IM.infra.repositories import (
-    ConversationRepository,
+    MessageRepository,
     NodeRepository,
     UsageMetricsRepository,
     UserRepository,
@@ -38,7 +41,8 @@ def _build(tmp_path: Path):  # noqa: ANN202
         relay_service=RelayService(connection),
         node_persistence=GatewayNodePersistence(connection),
         metrics_service=MetricsService(metrics=UsageMetricsRepository(connection)),
-        conversation_repository=ConversationRepository(connection),
+        conversation_persistence=GatewayConversationPersistence(connection),
+        message_repository=MessageRepository(connection),
         user_stream_registry=registry,
     )
     users = UserRepository(connection)
