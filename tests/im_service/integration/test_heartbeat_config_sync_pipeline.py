@@ -200,24 +200,8 @@ def test_patch_heartbeat_disabled_reaches_scheduler(tmp_path: Path) -> None:
             )
             websocket.receive_json()  # ack
 
-            # Read current config (triggers agent.config.get WS frame from IM)
-            current = client.get(f"/im/v1/agents/{agent_id}/config")
+            current = client.get(f"/im/v1/agents/{agent_id}/config?source=mirror")
             assert current.status_code == 200
-            # Drain the agent.config.get WS frame and send reply
-            live_frame = websocket.receive_json()
-            assert live_frame["type"] == "agent.config.get"
-            websocket.send_json(
-                {
-                    "type": "agent.config",
-                    "payload": {
-                        "request_id": live_frame["payload"]["request_id"],
-                        "agent_id": agent_id,
-                        "agent": None,
-                    },
-                }
-            )
-            websocket.receive_json()  # ack for agent.config
-
             current_version = current.json()["profile_version"]
 
             # PATCH: disable heartbeat (the action under test)

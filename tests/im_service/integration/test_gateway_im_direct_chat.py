@@ -233,28 +233,8 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
             relay_adapter.accept_relay(first_relay["payload"])
             _complete_relay(first_relay, detail="old-before-complete")
 
-            current = client.get("/im/v1/agents/agent-a/config")
+            current = client.get("/im/v1/agents/agent-a/config?source=mirror")
             assert current.status_code == 200
-            live_read_request = websocket.receive_json()
-            assert live_read_request["type"] == "agent.config.get"
-            websocket.send_json(
-                {
-                    "type": "agent.config",
-                    "payload": {
-                        "request_id": live_read_request["payload"]["request_id"],
-                        "agent_id": "agent-a",
-                        "agent": None,
-                    },
-                }
-            )
-            assert websocket.receive_json() == {
-                "type": "ack",
-                "payload": {
-                    "message_type": "agent.config",
-                    "request_id": live_read_request["payload"]["request_id"],
-                    "agent_id": "agent-a",
-                },
-            }
             patched = client.patch(
                 "/im/v1/agents/agent-a/config",
                 json={

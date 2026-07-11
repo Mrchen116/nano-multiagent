@@ -146,6 +146,32 @@ def test_disconnect_removes_active_connection(tmp_path: Path) -> None:
     assert asyncio.run(handler.is_connected(node_id="node-1")) is False
 
 
+def test_request_agent_config_timeout_returns_none_for_connected_gateway(
+    tmp_path: Path,
+) -> None:
+    """Fall back when a connected gateway does not answer a live config request."""
+    handler = _build_handler(tmp_path)
+    websocket = StubWebSocket()
+
+    async def _request_without_reply() -> dict[str, object] | None:
+        await handler.handle_message(
+            websocket=websocket,
+            message_type="node.register",
+            payload={"node_id": "node-1", "agents": ["agent-a"], "capabilities": {}},
+        )
+        return await handler.request_agent_config(
+            target_node_id="node-1",
+            agent_id="agent-a",
+            timeout_seconds=0,
+        )
+
+    result = asyncio.run(_request_without_reply())
+
+    assert result is None
+    assert websocket.sent_json[-1]["type"] == "agent.config.get"
+    assert websocket.sent_json[-1]["payload"]["agent_id"] == "agent-a"
+
+
 def test_stale_disconnect_preserves_replacement_connection(tmp_path: Path) -> None:
     """Keep a newer websocket when delayed cleanup arrives from the replaced socket."""
     handler = _build_handler(tmp_path)

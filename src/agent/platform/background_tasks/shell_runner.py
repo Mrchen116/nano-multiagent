@@ -32,7 +32,6 @@ from typing import Any
 from agent.core.background_tasks.interfaces import (
     BackgroundBashRunner,
     BackgroundTaskOutput,
-    BackgroundTaskStopper,
     TaskCompletionCallback,
     TaskFailureCallback,
 )
@@ -79,7 +78,7 @@ class ShellRunner(BackgroundBashRunner):
         timeout: float | None,
         on_complete: TaskCompletionCallback,
         on_fail: TaskFailureCallback,
-    ) -> BackgroundTaskStopper:
+    ) -> _ProcessStopper:
         # M6 D10: Policy single-point — already checked in BashTool.check_permissions
         # via the auto_mode_gate hook. shell_runner trusts that decision.
         # Any caller bypassing ToolRegistry must call bash_policy.check_command_policy
@@ -177,9 +176,10 @@ class ShellRunner(BackgroundBashRunner):
             else:
                 on_fail(task_id=task_id, error=f"exit code {exit_code}")
 
-        threading.Thread(target=_monitor, daemon=True).start()
+        monitor_thread = threading.Thread(target=_monitor, daemon=True)
+        monitor_thread.start()
 
-        return _ProcessStopper(self, task_id)
+        return _ProcessStopper(self, task_id, monitor_thread=monitor_thread)
 
     def _start_pump(
         self,
@@ -267,9 +267,32 @@ def _kill_process_group(process: subprocess.Popen) -> None:
 
 
 class _ProcessStopper:
-    def __init__(self, runner: ShellRunner, task_id: str) -> None:
+    def __init__(
+        self,
+        runner: ShellRunner,
+        task_id: str,
+        *,
+        monitor_thread: threading.Thread,
+    ) -> None:
         self._runner = runner
         self._task_id = task_id
+        self._monitor_thread = monitor_thread
 
     def stop(self) -> None:
         self._runner._stop_task(self._task_id)
+
+    def wait(self, timeout: float | None = None) -> bool:
+        """Wait until the monitor has finished all terminal callbacks.
+
+        Args:
+            timeout: Maximum seconds to wait, or ``None`` to wait indefinitely.
+
+        Returns:
+            ``True`` when the monitor finished before the timeout.
+
+        Notes:
+            This is separate from :meth:`stop` because stop must return immediately so
+            the registry can persist the KILLED terminal before process reaping ends.
+        """
+        self._monitor_thread.join(timeout=timeout)
+        return not self._monitor_thread.is_alive()

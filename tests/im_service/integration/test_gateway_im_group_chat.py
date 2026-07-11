@@ -121,28 +121,8 @@ def test_group_chat_uses_live_updated_profile_after_config_sync_in_same_conversa
                 "expected at least one peer agent-reply relay frame"
             )
 
-            current = client.get("/im/v1/agents/agent-a/config")
+            current = client.get("/im/v1/agents/agent-a/config?source=mirror")
             assert current.status_code == 200
-            live_read_request = websocket.receive_json()
-            assert live_read_request["type"] == "agent.config.get"
-            websocket.send_json(
-                {
-                    "type": "agent.config",
-                    "payload": {
-                        "request_id": live_read_request["payload"]["request_id"],
-                        "agent_id": "agent-a",
-                        "agent": None,
-                    },
-                }
-            )
-            assert websocket.receive_json() == {
-                "type": "ack",
-                "payload": {
-                    "message_type": "agent.config",
-                    "request_id": live_read_request["payload"]["request_id"],
-                    "agent_id": "agent-a",
-                },
-            }
             patched = client.patch(
                 "/im/v1/agents/agent-a/config",
                 json={
