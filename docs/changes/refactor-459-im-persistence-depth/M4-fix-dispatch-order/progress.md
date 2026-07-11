@@ -39,7 +39,20 @@
 
 ## R2 — 收口跨 connection dispatch winner
 
-- Status: TODO
+- Context: `_agent_message_lock` 仅保护单个 handler；两个 connection/process 都可能先创建 message，再由同 key `INSERT OR IGNORE` 竞争。`record_dispatch()` 已返回 durable winner，但 handler 忽略返回值，loser 继续 relay 并 ack 自己的 message。
+- Decision: message 创建与 dispatch insert 的既有非原子顺序不变；handler 比较 `record_dispatch()` 返回的 winner message id，只有匹配本地 message 才 enqueue/push relay，否则将 conversation/target/message ack 全部切换到 durable winner。
+- Rationale: SQLite first-write-wins 是跨 process 唯一共享 authority；不能用 process-local lock 扩展成假想全局互斥，也不能顺手收紧事务边界。
+- Evidence:
+  - Tests: 两个独立 SQLite connection/handler 在各自 commit 后由 barrier 确定性交汇；红测出现两个 ack message id，修复后两个 ack 均等于 durable winner，且 71 个 handler/persistence/seam 聚焦测试通过。
+  - Entry: handler 的公开 `agent.message` frame 返回 canonical winner ack；两个本地 message 仍落盘，证明既有非原子 side-effect boundary 未被收紧；`relay_tasks` 仅一行且 message id 为 winner。
+  - Frontend State Matrix: N/A。
+  - Browser QA: N/A。
+  - E2E/Regression: `tests/im_service/unit/test_gateway_dispatch_concurrency.py::test_competing_handlers_relay_and_ack_only_the_durable_winner`；真进程证据在 R3 补齐。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: revert `34342be8` 恢复 loser relay/ack 漏洞。
+- Commits: C1=`99f6acf9`，C2=`34342be8`，C3=本 documentation commit。
+- Next: R3 真栈与全门禁。
 
 ## R3 — 真栈与完整门禁收口
 
