@@ -8,6 +8,7 @@ import sqlite3
 from IM.domain.models import NodeStatus, managed_workspace_root
 from IM.infra.repositories import (
     AgentProfileRepository,
+    ConversationRepository,
     NodeRepository,
     UserRepository,
 )
@@ -29,6 +30,52 @@ class NodeTransition:
     previous_node: NodeStatus | None
     current_node: NodeStatus | None
     agent_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class AgentRelayTarget:
+    """Identify one peer agent and the node that can receive its relay."""
+
+    agent_id: str
+    node_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class GroupReplyRoute:
+    """Describe the persisted identities needed for a group-reply fanout."""
+
+    sender_user_id: str
+    sender_display_name: str
+    targets: tuple[AgentRelayTarget, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class DispatchTarget:
+    """Represent one normalized outbound dispatch target."""
+
+    kind: str
+    id: str
+
+
+@dataclass(frozen=True, slots=True)
+class DispatchResolution:
+    """Describe where an agent message lands and whether it has a relay node."""
+
+    target: DispatchTarget
+    conversation_id: str
+    target_node_id: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class AgentDispatchRecord:
+    """Represent the durable first result for an idempotent agent dispatch."""
+
+    dispatch_request_key: str
+    source_agent_id: str
+    target_kind: str
+    target_id: str
+    conversation_id: str
+    message_id: str
 
 
 class GatewayNodePersistence:
@@ -240,3 +287,301 @@ class GatewayNodePersistence:
             (node_id,),
         ).fetchall()
         return tuple(str(row["agent_id"]) for row in rows)
+
+
+class GatewayConversationPersistence:
+    """Persist Gateway conversation routing and dispatch knowledge on SQLite."""
+
+    def __init__(self, connection: sqlite3.Connection) -> None:
+        """Bind delivery operations to the app-scoped SQLite connection."""
+        self._connection = connection
+        self._conversations = ConversationRepository(connection)
+        self._profiles = AgentProfileRepository(connection)
+        self._users = UserRepository(connection)
+
+    def agent_user_id(self, *, agent_id: str) -> str | None:
+        """Return the synthetic IM user id for an agent, or None when absent."""
+        user = self._users.get_user_by_username(username=f"agent:{agent_id}")
+        return user.id if user is not None else None
+
+    def group_reply_route(
+        self, *, conversation_id: str, source_agent_id: str
+    ) -> GroupReplyRoute | None:
+        """Resolve a group reply sender and its stably ordered deliverable peers.
+
+        Returns:
+            Sender identity and peers that currently have a node. Returns None when
+            the conversation, sender, or any deliverable peer is absent.
+        """
+        conversation = self._conversations.get_conversation(
+            conversation_id=conversation_id
+        )
+        source_user = self._users.get_user_by_username(
+            username=f"agent:{source_agent_id}"
+        )
+        if conversation is None or source_user is None:
+            return None
+        targets: list[AgentRelayTarget] = []
+        for participant_id in conversation.participant_ids:
+            participant = self._users.get_user(user_id=participant_id)
+            if participant is None or not participant.username.startswith("agent:"):
+                continue
+            peer_agent_id = participant.username[len("agent:") :].strip()
+            if not peer_agent_id or peer_agent_id == source_agent_id:
+                continue
+            node_id = self.agent_node_id(agent_id=peer_agent_id)
+            if node_id is not None:
+                targets.append(
+                    AgentRelayTarget(agent_id=peer_agent_id, node_id=node_id)
+                )
+        if not targets:
+            return None
+        return GroupReplyRoute(
+            sender_user_id=source_user.id,
+            sender_display_name=source_user.display_name,
+            targets=tuple(sorted(targets, key=lambda item: item.agent_id)),
+        )
+
+    def resolve_send_target(
+        self,
+        *,
+        source_agent_id: str,
+        target: str,
+        caller_owner_id: str | None,
+    ) -> DispatchResolution:
+        """Resolve a send target and create/reuse its canonical direct conversation.
+
+        Args:
+            source_agent_id: Agent sending the message.
+            target: Explicit or implicit conversation, agent, or user reference.
+            caller_owner_id: Owner policy supplied by the caller. None deliberately
+                preserves the current agent-message behavior; this module never
+                infers or repairs owner policy.
+
+        Returns:
+            Normalized target, landed conversation, and optional target node.
+
+        Raises:
+            ValueError: When source or target identity cannot be resolved.
+
+        Side Effects:
+            May create one direct conversation using the caller-supplied owner input.
+        """
+        source_user_id = self._require_user_id_by_username(
+            username=f"agent:{source_agent_id}"
+        )
+        resolved_target = self._classify_dispatch_target(target=target)
+        if resolved_target.kind == "conversation_id":
+            conversation = self._conversations.get_conversation(
+                conversation_id=resolved_target.id
+            )
+            if conversation is None:
+                raise ValueError("conversation_id not found")
+            return DispatchResolution(resolved_target, conversation.id, None)
+        if resolved_target.kind == "agent_id":
+            target_user_id = self._require_user_id_by_username(
+                username=f"agent:{resolved_target.id}"
+            )
+            landed = self._find_or_create_direct_conversation(
+                left_user_id=source_user_id,
+                right_user_id=target_user_id,
+                expected_direct_kind="agent-agent",
+                caller_owner_id=caller_owner_id,
+            )
+            return DispatchResolution(
+                resolved_target,
+                landed.id,
+                self.agent_node_id(agent_id=resolved_target.id),
+            )
+        target_user = self._users.get_user(user_id=resolved_target.id)
+        if target_user is None:
+            raise ValueError("user_id not found")
+        landed = self._find_or_create_direct_conversation(
+            left_user_id=source_user_id,
+            right_user_id=target_user.id,
+            expected_direct_kind="user-agent",
+            caller_owner_id=caller_owner_id,
+        )
+        return DispatchResolution(resolved_target, landed.id, None)
+
+    def find_dispatch(
+        self, *, dispatch_request_key: str | None
+    ) -> AgentDispatchRecord | None:
+        """Return the first durable dispatch result for a request key, if any."""
+        if dispatch_request_key is None:
+            return None
+        row = self._connection.execute(
+            """
+            SELECT dispatch_request_key, source_agent_id, target_kind, target_id,
+                   conversation_id, message_id
+            FROM agent_message_dispatch_log
+            WHERE dispatch_request_key = ?
+            """,
+            (dispatch_request_key,),
+        ).fetchone()
+        if row is None:
+            return None
+        return AgentDispatchRecord(
+            dispatch_request_key=str(row["dispatch_request_key"]),
+            source_agent_id=str(row["source_agent_id"]),
+            target_kind=str(row["target_kind"]),
+            target_id=str(row["target_id"]),
+            conversation_id=str(row["conversation_id"]),
+            message_id=str(row["message_id"]),
+        )
+
+    def record_dispatch(self, record: AgentDispatchRecord) -> AgentDispatchRecord:
+        """Persist a dispatch result with first-write-wins idempotency.
+
+        Side Effects:
+            Commits the first record for a request key. A competing replay keeps and
+            returns the existing record without overwriting it.
+        """
+        self._connection.execute(
+            """
+            INSERT OR IGNORE INTO agent_message_dispatch_log(
+                dispatch_request_key, source_agent_id, target_kind, target_id,
+                conversation_id, message_id, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+            """,
+            (
+                record.dispatch_request_key,
+                record.source_agent_id,
+                record.target_kind,
+                record.target_id,
+                record.conversation_id,
+                record.message_id,
+            ),
+        )
+        self._connection.commit()
+        stored = self.find_dispatch(dispatch_request_key=record.dispatch_request_key)
+        assert stored is not None
+        return stored
+
+    def system_user_id(self) -> str:
+        """Return the well-known system user id, creating it when absent."""
+        system_user = self._users.get_user_by_username(username="system")
+        if system_user is None:
+            system_user = self._users.create_user(
+                username="system", display_name="System"
+            )
+        return system_user.id
+
+    def agent_node_id(self, *, agent_id: str) -> str | None:
+        """Return an agent's target node id, or None when unbound/missing."""
+        profile = self._profiles.get_profile(agent_id=agent_id)
+        if profile is None:
+            return None
+        return profile.node_id
+
+    def conversation_usage_scope(self, *, conversation_id: str) -> str | None:
+        """Return the owner scope used to aggregate conversation usage."""
+        conversation = self._conversations.get_conversation(
+            conversation_id=conversation_id
+        )
+        return conversation.owner_id if conversation is not None else None
+
+    def _classify_dispatch_target(self, *, target: str) -> DispatchTarget:
+        normalized = target.strip()
+        if not normalized:
+            raise ValueError("target must be non-empty")
+        for prefix, kind in (
+            ("conversation:", "conversation_id"),
+            ("conversation_id:", "conversation_id"),
+            ("agent:", "agent_id"),
+            ("agent_id:", "agent_id"),
+            ("user:", "user_id"),
+            ("user_id:", "user_id"),
+        ):
+            if normalized.startswith(prefix):
+                resolved_id = normalized[len(prefix) :].strip()
+                if not resolved_id:
+                    raise ValueError("target id must be non-empty")
+                return DispatchTarget(kind=kind, id=resolved_id)
+        if self._conversations.exists(normalized):
+            return DispatchTarget(kind="conversation_id", id=normalized)
+        by_id = self._users.get_user(user_id=normalized)
+        if by_id is not None:
+            if by_id.username.startswith("agent:"):
+                agent_id = by_id.username[len("agent:") :].strip()
+                return DispatchTarget(kind="agent_id", id=agent_id or by_id.id)
+            return DispatchTarget(kind="user_id", id=by_id.id)
+        if self._users.get_user_by_username(username=f"agent:{normalized}") is not None:
+            return DispatchTarget(kind="agent_id", id=normalized)
+        raise ValueError("target not found")
+
+    def _find_or_create_direct_conversation(
+        self,
+        *,
+        left_user_id: str,
+        right_user_id: str,
+        expected_direct_kind: str,
+        caller_owner_id: str | None,
+    ):  # noqa: ANN202
+        existing = self._find_canonical_direct_conversation(
+            left_user_id=left_user_id,
+            right_user_id=right_user_id,
+            expected_direct_kind=expected_direct_kind,
+        )
+        if existing is not None:
+            return existing
+        return self._conversations.create_conversation(
+            title=self._build_default_direct_conversation_title(
+                left_user_id=left_user_id,
+                right_user_id=right_user_id,
+                expected_direct_kind=expected_direct_kind,
+            ),
+            participant_ids=[left_user_id, right_user_id],
+            creator_id=left_user_id,
+            caller_owner_id=caller_owner_id,
+        )
+
+    def _find_canonical_direct_conversation(
+        self,
+        *,
+        left_user_id: str,
+        right_user_id: str,
+        expected_direct_kind: str,
+    ):  # noqa: ANN202
+        pair = {left_user_id, right_user_id}
+        direct_candidates = [
+            item
+            for item in self._conversations.list_conversations()
+            if item.type == "direct"
+            and len(item.participant_ids) == 2
+            and set(item.participant_ids) == pair
+        ]
+        kind_matches = [
+            item
+            for item in direct_candidates
+            if item.direct_kind == expected_direct_kind
+        ]
+        candidates = kind_matches or direct_candidates
+        if not candidates:
+            return None
+        return sorted(candidates, key=lambda item: (item.created_at, item.id))[0]
+
+    def _build_default_direct_conversation_title(
+        self,
+        *,
+        left_user_id: str,
+        right_user_id: str,
+        expected_direct_kind: str,
+    ) -> str:
+        left_user = self._users.get_user(user_id=left_user_id)
+        right_user = self._users.get_user(user_id=right_user_id)
+        if expected_direct_kind == "user-agent":
+            for user in (left_user, right_user):
+                if user is not None and user.username.startswith("agent:"):
+                    return user.display_name or user.username[len("agent:") :]
+        if right_user is not None:
+            return right_user.display_name or right_user.username
+        if left_user is not None:
+            return left_user.display_name or left_user.username
+        return "Direct conversation"
+
+    def _require_user_id_by_username(self, *, username: str) -> str:
+        user = self._users.get_user_by_username(username=username)
+        if user is None:
+            raise ValueError(f"username not found: {username}")
+        return user.id

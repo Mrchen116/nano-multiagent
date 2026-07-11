@@ -85,9 +85,10 @@ def test_resolve_send_target_classifies_all_target_forms_and_reuses_direct(
     assert agent.target.id == "B"
     assert repeated.conversation_id == agent.conversation_id
     assert user.target.kind == "user_id"
-    assert conversations.get_conversation(
-        conversation_id=user.conversation_id
-    ).owner_id == owner.owner_id
+    assert (
+        conversations.get_conversation(conversation_id=user.conversation_id).owner_id
+        == owner.owner_id
+    )
     assert conversation.target.kind == "conversation_id"
     assert conversation.conversation_id == group.id
 
@@ -137,12 +138,8 @@ def test_group_reply_route_returns_stable_deliverable_peers(tmp_path: Path) -> N
         participant_ids=[owner.id, source.id, peer_c.id, peer_b.id],
         caller_owner_id=owner.owner_id,
     )
-    _upsert_profile(
-        connection, agent_id="A", owner_id=owner.owner_id, node_id="node-a"
-    )
-    _upsert_profile(
-        connection, agent_id="B", owner_id=owner.owner_id, node_id="node-b"
-    )
+    _upsert_profile(connection, agent_id="A", owner_id=owner.owner_id, node_id="node-a")
+    _upsert_profile(connection, agent_id="B", owner_id=owner.owner_id, node_id="node-b")
     _upsert_profile(connection, agent_id="C", owner_id=owner.owner_id, node_id=None)
 
     route = persistence.group_reply_route(
@@ -200,7 +197,8 @@ def test_system_user_and_usage_scope_are_persistence_owned(tmp_path: Path) -> No
 
     assert first_system_id == second_system_id
     assert users.get_user_by_username(username="system").id == first_system_id
-    assert persistence.conversation_usage_scope(
-        conversation_id=conversation.id
-    ) == owner.owner_id
+    assert (
+        persistence.conversation_usage_scope(conversation_id=conversation.id)
+        == owner.owner_id
+    )
     assert persistence.conversation_usage_scope(conversation_id="missing") is None

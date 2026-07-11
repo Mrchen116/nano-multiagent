@@ -161,6 +161,16 @@ CREATE TABLE IF NOT EXISTS relay_tasks (
     FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS agent_message_dispatch_log (
+    dispatch_request_key TEXT PRIMARY KEY,
+    source_agent_id TEXT NOT NULL,
+    target_kind TEXT NOT NULL,
+    target_id TEXT NOT NULL,
+    conversation_id TEXT NOT NULL,
+    message_id TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
 """
 
 
