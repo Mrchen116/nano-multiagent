@@ -21,6 +21,47 @@ from ._im_client import IMClient, restart_gateway
 
 
 @pytest.mark.e2e
+def test_restart_readiness_rejects_pre_restart_online_snapshot(monkeypatch) -> None:
+    """A durable old online row must not satisfy replacement-Gateway readiness."""
+    client = IMClient("http://unused")
+    snapshots = iter(
+        [
+            [
+                {
+                    "node_id": "node-1",
+                    "status": "online",
+                    "last_heartbeat_at": "2026-07-11T11:00:00Z",
+                }
+            ],
+            [
+                {
+                    "node_id": "node-1",
+                    "status": "offline",
+                    "last_heartbeat_at": "2026-07-11T11:00:00Z",
+                }
+            ],
+            [
+                {
+                    "node_id": "node-1",
+                    "status": "online",
+                    "last_heartbeat_at": "2026-07-11T11:00:01Z",
+                }
+            ],
+        ]
+    )
+    monkeypatch.setattr(client, "list_nodes", lambda: next(snapshots))
+
+    reconnected = client.wait_for_node_reconnect(
+        node_id="node-1",
+        previous_last_heartbeat_at="2026-07-11T11:00:00Z",
+        timeout=1.0,
+    )
+
+    assert reconnected["last_heartbeat_at"] == "2026-07-11T11:00:01Z"
+    client.close()
+
+
+@pytest.mark.e2e
 def test_context_survives_gateway_restart(
     im_user: IMClient, e2e_stack: E2EStack
 ) -> None:
