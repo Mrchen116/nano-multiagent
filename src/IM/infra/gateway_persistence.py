@@ -34,10 +34,9 @@ class NodeTransition:
 
 @dataclass(frozen=True, slots=True)
 class AgentRelayTarget:
-    """Identify one peer agent and the node that can receive its relay."""
+    """Identify one stable peer agent for group relay routing."""
 
     agent_id: str
-    node_id: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -307,11 +306,11 @@ class GatewayConversationPersistence:
     def group_reply_route(
         self, *, conversation_id: str, source_agent_id: str
     ) -> GroupReplyRoute | None:
-        """Resolve a group reply sender and its stably ordered deliverable peers.
+        """Resolve a group reply sender and peers in legacy bulk-query order.
 
         Returns:
-            Sender identity and peers that currently have a node. Returns None when
-            the conversation, sender, or any deliverable peer is absent.
+            Stable sender/peer identities. Volatile node bindings are intentionally
+            resolved by the caller immediately before each relay enqueue.
         """
         conversation = self._conversations.get_conversation(
             conversation_id=conversation_id
@@ -321,25 +320,29 @@ class GatewayConversationPersistence:
         )
         if conversation is None or source_user is None:
             return None
+        participant_ids = conversation.participant_ids
+        if not participant_ids:
+            return None
+        placeholders = ",".join("?" for _ in participant_ids)
+        participant_rows = self._connection.execute(
+            f"SELECT id, username, display_name FROM users WHERE id IN ({placeholders})",  # noqa: S608
+            tuple(participant_ids),
+        ).fetchall()
         targets: list[AgentRelayTarget] = []
-        for participant_id in conversation.participant_ids:
-            participant = self._users.get_user(user_id=participant_id)
-            if participant is None or not participant.username.startswith("agent:"):
+        for participant in participant_rows:
+            username = str(participant["username"])
+            if not username.startswith("agent:"):
                 continue
-            peer_agent_id = participant.username[len("agent:") :].strip()
+            peer_agent_id = username[len("agent:") :].strip()
             if not peer_agent_id or peer_agent_id == source_agent_id:
                 continue
-            node_id = self.agent_node_id(agent_id=peer_agent_id)
-            if node_id is not None:
-                targets.append(
-                    AgentRelayTarget(agent_id=peer_agent_id, node_id=node_id)
-                )
+            targets.append(AgentRelayTarget(agent_id=peer_agent_id))
         if not targets:
             return None
         return GroupReplyRoute(
             sender_user_id=source_user.id,
             sender_display_name=source_user.display_name,
-            targets=tuple(sorted(targets, key=lambda item: item.agent_id)),
+            targets=tuple(targets),
         )
 
     def resolve_send_target(

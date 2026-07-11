@@ -145,8 +145,8 @@ def test_resolve_send_target_rejects_invalid_or_unknown_target(
         )
 
 
-def test_group_reply_route_returns_stable_deliverable_peers(tmp_path: Path) -> None:
-    """Group fanout returns peer agents with nodes and omits source/missing-node agents."""
+def test_group_reply_route_returns_stable_peer_identities(tmp_path: Path) -> None:
+    """Group route returns peer identities while node availability stays volatile."""
     connection, persistence = _build(tmp_path)
     users = UserRepository(connection)
     conversations = ConversationRepository(connection)
@@ -170,9 +170,7 @@ def test_group_reply_route_returns_stable_deliverable_peers(tmp_path: Path) -> N
     assert route is not None
     assert route.sender_user_id == source.id
     assert route.sender_display_name == "Agent A"
-    assert [(target.agent_id, target.node_id) for target in route.targets] == [
-        ("B", "node-b")
-    ]
+    assert {target.agent_id for target in route.targets} == {"B", "C"}
 
 
 def test_dispatch_record_is_first_write_wins(tmp_path: Path) -> None:

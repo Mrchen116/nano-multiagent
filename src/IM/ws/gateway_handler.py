@@ -1358,9 +1358,14 @@ class GatewayHandler:
             created_at=task.updated_at,
         )
         for target in route.targets:
+            target_node_id = self._conversation_persistence.agent_node_id(
+                agent_id=target.agent_id
+            )
+            if target_node_id is None:
+                continue
             result = self._relay_service.enqueue_message_relay(
                 message=synthetic_message,
-                target_node_id=target.node_id,
+                target_node_id=target_node_id,
                 idempotency_key=f"agent-reply:{task.relay_task_id}:{target.agent_id}",
                 sender_user_id=route.sender_user_id,
                 conversation_type="group",
@@ -1373,7 +1378,7 @@ class GatewayHandler:
             if result.created:
                 await self.push_relay_message(
                     relay_task_id=result.relay_task.relay_task_id,
-                    target_node_id=target.node_id,
+                    target_node_id=target_node_id,
                     payload=result.relay_task.payload,
                 )
 
