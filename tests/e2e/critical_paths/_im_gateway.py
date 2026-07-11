@@ -12,8 +12,6 @@ import signal
 import subprocess
 import time
 
-from ._im_polling import poll_until
-
 
 def _terminate_process_group(pid: int, *, grace: float = 10.0) -> None:
     """优雅杀 Gateway(SIGTERM → 等 → SIGKILL),对齐 e2e-down.sh / stop_pidfile。
@@ -61,7 +59,8 @@ def restart_gateway(wt_dir: str, im_port: str) -> None:
     e2e-up.sh 用 ``--foreground`` 起 Gateway(范式 B),pid 落在 ``$wt_dir/.gateway.pid``。
     先优雅杀**整个进程组**(避免 relay/heartbeat worker 成孤儿),再用同一份
     ``.gateway-config.yaml`` 以 ``start_new_session`` 重起(让新 Gateway 成进程组长,
-    便于本函数下次/teardown 整组清理),等就绪标志出现。
+    便于本函数下次/teardown 整组清理)。调用 journey 通过 IM 公开
+    node generation 判定就绪，本函数不重复解读私有日志 marker。
     """
     pid_file = os.path.join(wt_dir, ".gateway.pid")
     cfg = os.path.join(wt_dir, ".gateway-config.yaml")
@@ -81,7 +80,6 @@ def restart_gateway(wt_dir: str, im_port: str) -> None:
     )
     env = dict(os.environ)
     env["PYTHONPATH"] = os.path.join(repo_root, "src")
-    log_offset = os.path.getsize(log) if os.path.exists(log) else 0
     log_handle = open(log, "a")
     try:
         proc = subprocess.Popen(
@@ -106,26 +104,5 @@ def restart_gateway(wt_dir: str, im_port: str) -> None:
         log_handle.close()
     with open(pid_file, "w") as f:
         f.write(str(proc.pid))
-
-    # 3) 等就绪标志(沿用 e2e-up.sh 的探测口径)。
-    ready_markers = (
-        "auto-bound to IM",
-        "Gateway started",
-        "node_id=",
-        "im_connection",
-    )
-
-    def _ready() -> bool:
-        if proc.poll() is not None:
-            raise AssertionError(f"gateway died during restart; see {log}")
-        try:
-            with open(log) as f:
-                f.seek(log_offset)
-                tail = f.read()
-        except FileNotFoundError:
-            return False
-        return any(marker in tail for marker in ready_markers)
-
-    poll_until(
-        _ready, lambda r: r, timeout=40.0, interval=0.5, desc="gateway readiness"
-    )
+    if proc.poll() is not None:
+        raise AssertionError(f"gateway died during restart; see {log}")
