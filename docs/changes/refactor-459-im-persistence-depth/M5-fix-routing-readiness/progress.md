@@ -84,3 +84,9 @@
   2. 真实 `/im/ws/gateway` direct/group dispatch 窗口中重绑 target profile，relay frame/row 必须落最新 node；group fanout 保留非 agent 字典序。
   3. 真 handler force-offline failure 与多 stale node scan 证明 connection-first、DB failure loud、旧 query iteration order。
   4. 运行 focused、完整 non-e2e、完整 e2e-critical、ruff check/format 与 diff check；清理全部资源。
+- Live evidence（真 IM + Gateway，公开 auth/bind/HTTP/WS；SQLite 仅构造 rebind/stale/failure 窗口与补充核对）：
+  - restart: termination-floor critical journey 1 passed；replacement ready 后原 conversation POST/回复成功，暗号上下文保留。
+  - direct: `M5DT` 从 `m5-direct-old` rebind 到 `m5-direct-new` 后，真实 `agent.message` ack message `36baf7dc6c7340ae83620301adf1a626`；新 node 收到唯一 relay，旧 node heartbeat 屏障前无 relay。
+  - group: explicit user PK 让 legacy bulk order 为 `M5Z,M5A`；receipt fanout row/frame 同序，A rebind 后 targets 为 `m5-group-z,m5-group-a-new`，old A 无 frame。
+  - stale/offline: 插入 `m5-stale-b,m5-stale-a` 后公开 owner WS offline event 同序；failure trigger 下原 Gateway WS heartbeat 返回 `node_not_registered`，DB 保持 `online,NULL` 且异常在服务日志大声暴露。
+- Remaining: 完整门禁与资源清理。
