@@ -28,7 +28,7 @@
 
 ### R1 — replacement Gateway readiness
 
-- 状态：TODO
+- 状态：DONE
 - 步骤：用 reviewer 失败日志与确定性 snapshot 时间线锁定旧进程收尾 heartbeat 越过 pre-restart baseline；由 restart helper 返回旧进程终止后的 replacement generation 下限，公开 node wait 只接受更晚 heartbeat。
 - 验证：旧收尾 heartbeat 不能满足 wait；replacement register/heartbeat 可以；原 conversation 真栈续发不再 503。
 

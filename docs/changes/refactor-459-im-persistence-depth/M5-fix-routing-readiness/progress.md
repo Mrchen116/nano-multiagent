@@ -9,7 +9,20 @@
 
 ## R1 — replacement Gateway readiness
 
-- Status: TODO
+- Context: 原 helper 在发 SIGTERM 前读取公开 heartbeat baseline；旧 Gateway 可在终止收尾阶段写入更晚 heartbeat，于是 wait 返回时 replacement WS 尚未注册。留存失败日志的顺序为 GET nodes（183）→ user WS reopen/close（184–186）→ message POST 503（187）→ replacement Gateway WS accepted（190–191）。
+- Decision: `_terminate_process_group` 完成后、`Popen` replacement 前采样 UTC generation floor；`restart_gateway()` 返回该值，公开 node readiness 只接受严格晚于它的 online heartbeat。
+- Rationale: termination completion 是旧进程再也不能写 heartbeat 的最早可靠边界；无需 sleep，也不放宽原 conversation 续发与上下文断言。
+- Evidence:
+  - Tests: deterministic snapshot 红测先因旧 API 失败；实现后 1 passed。
+  - Entry: `e2e-critical.sh -k context_survives_gateway_restart` 真 IM/Gateway/LLM 旅程 1 passed（22.13s），原 conversation 续发成功且暗号上下文保留。
+  - Frontend State Matrix: N/A。
+  - Browser QA: N/A。
+  - E2E/Regression: `tests/e2e/critical_paths/test_restart_session_continuity_critical_path.py`。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: revert `35bfe524` 恢复 pre-termination baseline（会重新打开错误 readiness window）。
+- Commits: C1=`ead00d8b`，C2=`35bfe524`，C3=本 documentation commit。
+- Next: R2 direct enqueue-time route。
 
 ## R2 — direct enqueue-time route
 
