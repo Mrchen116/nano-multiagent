@@ -9,6 +9,7 @@ from IM.application.metrics_service import MetricsService
 from IM.application.relay_service import RelayService
 from IM.domain.models import Message
 from IM.infra.db import connect, initialize_schema
+from IM.infra.gateway_persistence import GatewayNodePersistence
 from IM.infra.repositories import (
     ConversationRepository,
     MessageRepository,
@@ -42,8 +43,7 @@ def _build_handler(tmp_path: Path) -> GatewayHandler:
 
 
 def _build_handler_with_node_repo(tmp_path: Path) -> GatewayHandler:
-    """构建带 NodeRepository 的 handler，用于验证 agent profile 落库行为。"""
-    from IM.infra.repositories import NodeRepository
+    """构建带 node persistence seam 的 handler，用于验证 profile 落库行为。"""
 
     connection = connect(tmp_path / "im.db")
     initialize_schema(connection)
@@ -51,7 +51,7 @@ def _build_handler_with_node_repo(tmp_path: Path) -> GatewayHandler:
         relay_service=RelayService(connection),
         metrics_service=MetricsService(metrics=UsageMetricsRepository(connection)),
         conversation_repository=ConversationRepository(connection),
-        node_repository=NodeRepository(connection),
+        node_persistence=GatewayNodePersistence(connection),
     )
 
 
