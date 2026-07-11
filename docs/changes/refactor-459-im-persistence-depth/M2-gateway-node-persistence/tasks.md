@@ -8,11 +8,11 @@
 
 ## 退出标准
 
-- [ ] `GatewayNodePersistence` 的真实 SQLite interface 覆盖 first register、re-register、empty advertise、stale reconcile、heartbeat、disconnect/offline no-op/error 与 stale scan。
-- [ ] register 不增加 operation-level transaction/lock；第 N 个 agent 失败时 node/profile/user/binding durable rows 与重构前基线逐表一致。
-- [ ] Gateway handler 不再读取 node/profile/user raw connection，user-stream 整文件无 private connection/直接 SQL，M1 seam contract 临时例外删除。
-- [ ] Gateway register、heartbeat、disconnect、timeout 后 Node/Agent 状态、错误与 owner-scoped 广播时机/shape 不变。
-- [ ] 相关 unit/integration、完整 IM non-e2e 与 `ruff check` / `ruff format --check` 全绿。
+- [x] `GatewayNodePersistence` 的真实 SQLite interface 覆盖 first register、re-register、empty advertise、stale reconcile、heartbeat、disconnect/offline no-op/error 与 stale scan。
+- [x] register 不增加 operation-level transaction/lock；第 N 个 agent 失败时 node/profile/user/binding durable rows 与重构前基线逐表一致。
+- [x] Gateway handler 的 node lifecycle 不再读取 node/profile/user raw connection，user-stream 整文件无 private connection/直接 SQL，M1 seam contract 临时例外删除；M3-owned delivery SQL 不在本 milestone 改动。
+- [x] Gateway register、heartbeat、disconnect、timeout 后 Node/Agent 状态、错误与 owner-scoped 广播时机/shape 不变。
+- [x] 相关 unit/integration、完整 IM non-e2e 与 `ruff check` / `ruff format --check` 全绿。
 
 ## 测试策略
 
@@ -40,6 +40,6 @@
 
 ### R3 — Timeout scan 与 seam contract 收口
 
-- 状态：DOING
+- 状态：DONE
 - 步骤：user-stream offline guard 通过 `stale_online_node_ids` 查询；删除 M1 stale-node 临时例外，contract 升级为 handler/user-stream 整文件无 private connection/SQL；完成真入口与全量门禁。
 - 验证：offline guard 与 seam contract 红转绿；真 Gateway/WS register、heartbeat、disconnect、timeout 状态和广播验证；完整 IM non-e2e、ruff check/format 全绿。
