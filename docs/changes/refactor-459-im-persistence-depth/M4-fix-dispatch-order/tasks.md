@@ -27,15 +27,18 @@
 
 ### R1 — 恢复 advertisement 广播顺序
 
+- 状态：DONE
 - 步骤：先完成 main/unit shadow HTTP baseline；再用真实 FastAPI user/gateway WS 写非字典序 register 红测，修正 typed result 仅保留 protocol 输入顺序。
 - 验证：公开 HTTP 两分支差分已记录；register online agent frames 与 seq 按 advertisement 顺序，disconnect DB 排序不变。
 
 ### R2 — 收口跨 connection dispatch winner
 
+- 状态：TODO
 - 步骤：用两个独立 SQLite connection、两个 handler 与确定性竞争屏障复现 loser relay/ack；handler 消费 `record_dispatch()` durable winner，loser 跳过自身 relay并复用 winner ack。
 - 验证：两个 ack message id 相同且等于 durable winner；仅一个 relay task 指向 winner message；schema 与消息落盘副作用边界不变。
 
 ### R3 — 真栈与完整门禁收口
 
+- 状态：TODO
 - 步骤：按 reviewer Runbook 启动真 IM + Gateway；验证非字典序 register 广播和重复 dispatch winner ack/relay；运行完整门禁并记录 durable evidence。
 - 验证：真实入口结果符合 R1/R2，`pytest -m "not e2e"`、`scripts/e2e-critical.sh -m "not slow"`、ruff check/format 全绿。
