@@ -71,6 +71,26 @@ def test_gateway_handler_node_lifecycle_uses_only_gateway_persistence() -> None:
     assert "GatewayNodePersistence" in source
 
 
+def test_gateway_handler_delivery_uses_only_gateway_persistence() -> None:
+    """Keep delivery SQL and owner policy behind the conversation persistence seam."""
+    relative_path = "src/IM/ws/gateway_handler.py"
+    source = _source(relative_path)
+    assert "GatewayConversationPersistence" in source
+    assert "._connection" not in source
+    assert not _attribute_calls(relative_path, "execute")
+    assert not _attribute_calls(relative_path, "commit")
+    assert "caller_owner_id=None" in source
+    assert "UserRepository" not in source
+
+
+def test_app_wires_gateway_delivery_collaborators_explicitly() -> None:
+    """Require the composition root to inject persistence and message collaborators."""
+    source = _source("src/IM/app.py")
+    assert "GatewayConversationPersistence(connection)" in source
+    assert "conversation_persistence=conversation_persistence" in source
+    assert "message_repository=message_repository" in source
+
+
 def test_event_replay_result_is_owned_only_by_infra() -> None:
     """Keep replay result ownership one-way from WS into infra."""
     definitions: list[str] = []
