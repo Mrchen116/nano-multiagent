@@ -43,7 +43,21 @@
 
 ## R3 — group bulk hydration 与 enqueue-time route
 
-- Status: TODO
+- Context: M3 route 对每个 hydrated participant 执行 `get_user + agent_node_id`，并按 agent id 重排且快照 node；这同时引入 2N SQL、改变旧 bulk query iteration，并让后一 peer rebind 后仍投旧 node。
+- Decision: persistence 用 origin/main 同形 `users WHERE id IN (...)` bulk query 返回 peer stable identity，不排序、不快照 node；handler 每个 peer enqueue 紧前调用 `agent_node_id()`。
+- Rationale: participant hydration 与遍历顺序属于 stable route construction；node binding 属于 enqueue-time volatile fact。
+- Evidence:
+  - Tests: 显式 user PK 使旧 concrete query 顺序为 Z→A、与 agent 字典序相反；红测得到 A→Z。修复后 group routing/handler/integration 共 17 passed。
+  - Entry: 前一 peer Z push await 时把后一 peer A 从 `node-a-old` rebind 到 `node-a-new`；fanout task 顺序 Z→A，targets 为 `node-z-old,node-a-new`，旧 A socket 无 frame。
+  - Query count: participant users 仅 1 条 bulk `IN` query，逐 participant `WHERE id =` 为 0；每 peer node lookup 保留在 enqueue seam。
+  - Frontend State Matrix: N/A。
+  - Browser QA: N/A。
+  - E2E/Regression: `tests/im_service/unit/test_gateway_routing_freshness.py` 两条 group tests。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: revert `2a02bc01` 恢复字典序/node snapshot/N+1。
+- Commits: C1=`e1947742`，C2=`2a02bc01`，C3=本 documentation commit。
+- Next: R4 offline failure sequencing 与 stale order。
 
 ## R4 — offline failure sequencing 与 stale order
 

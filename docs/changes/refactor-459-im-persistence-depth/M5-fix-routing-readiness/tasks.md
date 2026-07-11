@@ -40,7 +40,7 @@
 
 ### R3 — group bulk hydration 与 enqueue-time route
 
-- 状态：TODO
+- 状态：DONE
 - 步骤：group route 用旧 concrete bulk users query 构造稳定 peer identity，取消字典序与 node snapshot；handler 在每个 peer enqueue 前即时查 node。
 - 验证：非字典序 peer fanout 与 origin/main query iteration 一致；前一 peer await 时后一 peer rebind 后投新 node；participant/user SQL 为 O(1) bulk query，无逐 participant get_user。
 
