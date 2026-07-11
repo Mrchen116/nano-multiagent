@@ -11,6 +11,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 from IM.application.event_service import EventService
 from IM.domain.models import ConversationEvent
+from IM.infra.gateway_persistence import GatewayNodePersistence
 from IM.infra.repositories import EventRepository
 
 # 与迁移计划对齐；可用环境变量覆盖（后续可加）
@@ -135,7 +136,7 @@ def build_notify_enqueue(
 async def scan_and_flip_stale_nodes(
     *,
     handler,  # type: GatewayHandler — late-imported to avoid circular ref
-    node_repository,  # type: NodeRepository
+    node_persistence: GatewayNodePersistence,
     timeout_seconds: int = 60,
 ) -> int:
     """Scan the nodes table once and flip any stale online node to offline.
@@ -148,20 +149,9 @@ async def scan_and_flip_stale_nodes(
         .isoformat()
         .replace("+00:00", "Z")
     )
-    rows = node_repository._connection.execute(  # noqa: SLF001
-        """
-        SELECT node_id FROM nodes
-        WHERE status = 'online'
-          AND last_heartbeat_at IS NOT NULL
-          AND last_heartbeat_at < ?
-        """,
-        (cutoff,),
-    ).fetchall()
     flipped = 0
-    for row in rows:
-        await handler.force_mark_offline(
-            node_id=str(row["node_id"]), reason="heartbeat_timeout"
-        )
+    for node_id in node_persistence.stale_online_node_ids(cutoff=cutoff):
+        await handler.force_mark_offline(node_id=node_id, reason="heartbeat_timeout")
         flipped += 1
     return flipped
 
@@ -169,7 +159,7 @@ async def scan_and_flip_stale_nodes(
 async def run_offline_guard(
     *,
     handler,  # type: GatewayHandler
-    node_repository,  # type: NodeRepository
+    node_persistence: GatewayNodePersistence,
     interval_seconds: int = 10,
     timeout_seconds: int = 60,
 ) -> None:
@@ -181,7 +171,7 @@ async def run_offline_guard(
     while True:
         await scan_and_flip_stale_nodes(
             handler=handler,
-            node_repository=node_repository,
+            node_persistence=node_persistence,
             timeout_seconds=timeout_seconds,
         )
         await asyncio.sleep(interval_seconds)
