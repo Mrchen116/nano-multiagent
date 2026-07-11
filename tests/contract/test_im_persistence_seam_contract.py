@@ -54,15 +54,21 @@ def test_api_dependencies_only_construct_conversation_repository() -> None:
     assert not _attribute_calls(relative_path, "commit")
 
 
-def test_user_stream_has_only_the_m2_stale_node_sql_exception() -> None:
-    """Keep M1 event paths clean while enumerating the one M2-owned legacy query."""
+def test_user_stream_does_not_execute_persistence_operations() -> None:
+    """Keep user-stream lifecycle behind event and Gateway persistence interfaces."""
     relative_path = "src/IM/ws/user_stream.py"
     source = _source(relative_path)
-    assert source.count("node_repository._connection.execute") == 1
-    assert source.count("._connection") == 1
-    assert len(_attribute_calls(relative_path, "execute")) == 1
+    assert "._connection" not in source
+    assert not _attribute_calls(relative_path, "execute")
     assert not _attribute_calls(relative_path, "commit")
-    assert "SELECT node_id FROM nodes" in source
+
+
+def test_gateway_handler_node_lifecycle_uses_only_gateway_persistence() -> None:
+    """Prevent node/profile/user registration SQL from returning to the handler."""
+    source = _source("src/IM/ws/gateway_handler.py")
+    assert "_node_repository" not in source
+    assert "AgentProfileRepository" not in source
+    assert "GatewayNodePersistence" in source
 
 
 def test_event_replay_result_is_owned_only_by_infra() -> None:
