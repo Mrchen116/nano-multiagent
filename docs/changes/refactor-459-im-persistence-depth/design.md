@@ -38,6 +38,9 @@
 - IM 生产 persistence 只有 SQLite 一个 adapter；`connect()` 创建 app-scoped shared connection，并允许
   FastAPI worker thread 共享。按 codebase-design 的“一 adapter = 假想 seam”，不得新增 Port/Protocol 或
   in-memory fake adapter。
+- app-scoped connection 上的 transaction state 由所有 repository/module 共享，现状没有 connection-level
+  coordinator 或写互斥。本 unit 不宣称 module operation 具备独立 transaction isolation，不新增 lock/连接池，
+  并保持现有 commit boundaries 与 failure 后 durable state。
 - 本 unit 不改变公开 HTTP / WebSocket frame、domain response、SQLite schema shape 或用户数据语义。
   `agent_message_dispatch_log` 的既有 DDL 可以从 handler 移到 schema initialization，但表结构不得改变。
 - composition root、测试 fixture、以及本身即为 deep module 的 `RelayService` / relay watchdog 可以持有 raw
@@ -66,7 +69,7 @@
 - **改** `AgentProfileRepository` / `NodeRepository`：复用 profile/node mapping 与 owner scope；简单单实体查询
   继续放在现有 repository，不塞进新的 gateway module。
 - **新增** `src/IM/infra/gateway_persistence.py`：Gateway 注册与投递是跨 users/nodes/profiles/conversations/
-  messages/dispatch-log 的真实事务 seam，现有 entity repository 无法在不泄漏事务顺序的情况下表达；用两个
+  messages/dispatch-log 的真实 persistence seam，现有 entity repository 无法在不泄漏持久化步骤的情况下表达；用两个
   caller-oriented concrete module（node / conversation）承接。
 - **删除** `_ConfigEnabledConversationRepository`：base `ConversationRepository` 已具备 config snapshot 与完整
  字段查询；删除它会让重复 complexity 消失而不是散到调用方，属于 shallow module。
@@ -154,37 +157,55 @@ interface，分别集中 node lifecycle 与 conversation delivery。它们不是
 - **拒绝**：为每个 repository 定义 Protocol + fake——interface 增倍，fake 与真实 schema 漂移。
 - **风险**：SQLite 测试比纯 fake 慢；通过 module interface 的聚焦测试与共享 fixture 控制成本。
 
-### 决策 3: GatewayHandler 只拥有协议、连接与投递编排，不拥有 schema/事务
+### 决策 3: GatewayHandler 只拥有协议、连接与投递编排，不拥有 schema/commit placement
 
 **GatewayHandler 的 node/conversation 路径通过两个 persistence interface 获取 typed outcome，禁止再构造 repository 或访问 connection。**
 
 - **理由**：handler 应解释 frame、维护 websocket/waiter/connection state、调用 RelayService/EventBridge 并回 ack；
-  node/profile/user/conversation/dispatch-log 的跨表查询与事务由 persistence implementation 集中。现有
+  node/profile/user/conversation/dispatch-log 的跨表查询、写入顺序与 commit placement 由 persistence implementation
+  集中。现有
   MessageRepository / EventRepository / MetricsService 仍可通过其公开、高 leverage interface 使用，不必重复包一层。
 - **拒绝**：仅给现有 repository 增加零散 getter——handler 仍要理解跨表顺序，locality 没有改善。
 - **风险**：typed outcome 若携带过多表字段会泄漏 implementation；只返回 handler 作下一步投递所需的 domain facts。
 
 ### 决策 4: Web IM 与 user-stream 深化现有 repository，不新增平行 read model
 
-**ConversationRepository 返回 external find-or-create 的 created 结果；EventRepository 承担 replay/recipient/cursor/enrichment 查询。**
+**ConversationRepository 返回 external find-or-create 的 created 结果；EventRepository 承担 replay/recipient/cursor/enrichment 查询，并拥有 `EventReplayResult`。**
 
 - **理由**：这些行为本来就是对应 repository 的 implementation，调用方 pre-query 是 interface 缺口，而非需要
   新 module。补齐一个高 leverage operation 后可删除 application/WS 中重复 SQL。
 - **拒绝**：新增 `WebIMPersistence` / `UserStreamPersistence` 仅转发 Event/Conversation repository——deletion test
   失败，删除后 complexity 不会散开。
 - **风险**：EventRepository interface 变宽；仅接受“一个调用能隐藏完整 query/invariant”的 operation，不导出 row。
+  `EventReplayResult` 定义在 `IM.infra.repositories`，`user_stream.py` 单向 import；infra 禁止反向 import WS，旧
+  WS-owned `ReplayOutcome` 删除而不复制。
 
-### 决策 5: 每个 persistence operation 自己拥有 transaction，跨 module side effect 不伪装成原子写
+### 决策 5: module 拥有 persistence sequencing，但不改变既有 transaction boundaries
 
-**Gateway register、offline transition、dispatch-log 写入各自在 concrete module 内提交；EventBridge/RelayService 仍由 handler 编排。**
+**Gateway register、offline transition、dispatch-log 写入的 SQL 与 commit placement 收回 concrete module；一次 interface call 不等于一个原子 transaction。**
 
-- **理由**：调用方不再知道单个 persistence operation 的 commit 顺序；读-only fanout/resolve operation 返回
-  immutable result，connection 在返回前不逃逸。当前 agent message 的 message/event/relay side effect 跨
-  MessageRepository、EventBridge、RelayService，强行宣称一个数据库事务会改变既有错误语义，不属于本 refactor。
-- **拒绝**：handler 调多个 auto-commit repository 后手工 commit——当前 leakage 的原形。
-- **风险**：register transaction 收紧可能暴露既有隐式依赖；按 milestone 用真实 SQLite 锁定 success/error outcome。
+- **理由**：depth 来自调用方不再掌握 schema、写入顺序和 commit placement，不来自新增原子性。当前 register
+  的 node upsert、逐 agent profile/user upsert、node bind/stale reconcile 是多段 durable write；shared connection
+  也不能给 Python module 提供独立 transaction isolation。M2 必须保持成功和第 N 个 agent 失败后的 durable state。
+- **拒绝**：把 `register()` 包成单一 transaction——会改变 failure 后已提交数据，违反 behavior-preserving scope。
+- **拒绝**：为本 refactor 新增 app-scoped transaction coordinator/lock——扩大并发架构范围并改变现有时序。
+- **拒绝**：handler 继续执行 SQL 或手工 commit——保留当前 persistence leakage。
+- **风险**：多段提交仍不是原子的；这是明确保留的既有语义，不是新 interface 的原子性承诺。若未来要收紧，
+  另立 change 定义 failure/concurrency contract。
 
-### 决策 6: dispatch-log DDL 归 schema initialization，表形状保持不变
+### 决策 6: Gateway target owner policy 由 caller 提供，persistence module 不推断或修复
+
+**`resolve_send_target(...)` 显式接收 caller 给出的 `caller_owner_id`，只按该值完成 canonical direct lookup/create。**
+
+- **理由**：target classification 与 direct conversation persistence 应具有 locality，但 owner 归属是业务政策。
+  当前 agent→agent 路径未提供 `caller_owner_id`，属于本 unit 已知但不修复的问题；module 不得从 source agent/profile
+  自行推断 owner，也不得修复或迁移既有 orphan conversation。
+- **拒绝**：把“owner semantics”隐藏成 module 内部推断——worker 会在 refactor 中无意修复已知 bug。
+- **拒绝**：为了证明重构而新增断言 orphan owner 的测试——会冻结错误产品行为；M3 只验证 target classification、
+  conversation/message landing、relay outcome 与既有用户旅程不变。
+- **风险**：caller 暂时仍需传递 owner policy input；issue #128 独立修复后可在新 change 中改变该输入及历史数据。
+
+### 决策 7: dispatch-log DDL 归 schema initialization，表形状保持不变
 
 **把 `agent_message_dispatch_log` 的既有 `CREATE TABLE IF NOT EXISTS` 原样移到 `infra/db.py`。**
 
@@ -193,7 +214,7 @@ interface，分别集中 node lifecycle 与 conversation delivery。它们不是
 - **拒绝**：保留 handler lazy DDL——测试/运行时构造顺序继续影响 persistence。
 - **风险**：遗漏初始化测试会让空库路径失败；schema test 与 Gateway dispatch integration 同时覆盖。
 
-### 决策 7: replace-don't-layer，interface 是 test surface
+### 决策 8: replace-don't-layer，interface 是 test surface
 
 **新增 interface 行为测试后删除依赖 repository private connection / handler private persistence state 的旧测试。**
 
@@ -202,7 +223,7 @@ interface，分别集中 node lifecycle 与 conversation delivery。它们不是
 - **拒绝**：保留全部旧测试再新增一层——测试数增加但 architecture 仍被 private state 锁死。
 - **风险**：机械删测试可能丢边界；先建立 old→new coverage 对账表，再逐条替换。
 
-### 决策 8: 三个纵向 milestone 串行迁移，不维护双实现
+### 决策 9: 三个纵向 milestone 串行迁移，不维护双实现
 
 **按 Web IM/event、Gateway node lifecycle、Gateway conversation delivery 三个可独立验证 slice 迁移。**
 
@@ -220,28 +241,37 @@ interface，分别集中 node lifecycle 与 conversation delivery。它们不是
 |---|---|---|---|
 | `ConversationRepository` | `find_or_create_external_conversation(...) -> ExternalConversationWriteResult` | owner-scoped lookup、竞态恢复、create/update、created 判定 | `conversation`, `created` |
 | `ConversationRepository` | `exists(conversation_id)` | conversations lookup | `bool` |
-| `EventRepository` | `list_events_for_user_resume(user_id, after_event_id, ...)` | global gap、time window、owner-visible conversations、batch cap | `ReplayOutcome` |
+| `EventRepository` | `list_events_for_user_resume(user_id, after_event_id, ...)` | global gap、time window、owner-visible conversations、batch cap | `EventReplayResult` |
 | `EventRepository` | `recipient_user_ids(conversation_id)` / `global_max_event_id()` | participants/global cursor SQL | immutable ids / int |
 | `EventRepository` | `relay_run_identities(...)` / `agent_display_names(...)` | historical relay lookup、profile join | typed mappings |
 | `EventService` | `global_max_event_id()` | global cursor query delegation | int |
-| `GatewayNodePersistence` | `register(...)` | node upsert、profile preserve/upsert、agent-user ensure、node bind、stale reconcile、transaction | `GatewayRegistrationResult` |
-| `GatewayNodePersistence` | `heartbeat(...)` / `disconnect(...)` | status transition、last_error、agent ids、transaction | `NodeTransition` |
+| `GatewayNodePersistence` | `register(...)` | node upsert、profile preserve/upsert、agent-user ensure、node bind、stale reconcile、既有 commit boundaries | `GatewayRegistrationResult` |
+| `GatewayNodePersistence` | `heartbeat(...)` / `disconnect(...)` | status transition、last_error、agent ids、既有 commit semantics | `NodeTransition` |
 | `GatewayNodePersistence` | `stale_online_node_ids(cutoff)` | stale scan SQL | tuple of ids |
 | `GatewayConversationPersistence` | `agent_user_id(agent_id)` | username mapping | id or None |
 | `GatewayConversationPersistence` | `group_reply_route(...)` | participants、sender identity、peer agent node lookup | `GroupReplyRoute` or None |
-| `GatewayConversationPersistence` | `resolve_send_target(...)` | target classification、canonical direct lookup/create、title、owner semantics | `DispatchResolution` |
-| `GatewayConversationPersistence` | `find_dispatch(...)` / `record_dispatch(...)` | idempotency table与其 transaction | typed record / None |
+| `GatewayConversationPersistence` | `resolve_send_target(source_agent_id, target, caller_owner_id: str \| None)` | target classification、canonical direct lookup/create、title；不推断/修复 owner | `DispatchResolution` |
+| `GatewayConversationPersistence` | `find_dispatch(...)` / `record_dispatch(...)` | idempotency table与既有 commit semantics | typed record / None |
 | `GatewayConversationPersistence` | `system_user_id()` | system-user lookup / ensure | user id |
 | `GatewayConversationPersistence` | `agent_node_id(...)` / `conversation_usage_scope(...)` | profile lookup、conversation owner/config lookup | typed ids |
 
 这些是 package-internal Python interface，不进入 `docs/specs/im/`，也不作为跨包 import 面。
+
+`GatewayNodePersistence.register()` 的 compatibility sequence 固定为：先调用既有 node registration write；随后按
+advertised agent 顺序逐个执行 profile preserve/upsert、agent-user ensure、profile node bind；最后执行 stale reconcile
+和现有 final commit。实现不得在外层增加 `with connection` / `BEGIN`，既有 repository 方法内部的 commit 行为不改；
+failure injection 以重构前同一调用序号的 durable rows 为基线，而不是假设整次 register 回滚。
+
+当前 agent-message target 路径向 `resolve_send_target` 显式传 `caller_owner_id=None`。该参数存在是为了让 owner policy
+留在 caller seam，而不是授权 M3 推导正确 owner；issue #128 处理前，不改变这个输入，也不修复历史 conversation。
 
 ### 关键 typed result
 
 | Type | 必需字段 | 约束 |
 |---|---|---|
 | `ExternalConversationWriteResult` | `conversation`, `created` | 同一 owner/source/chat/agent 重复调用时 `created=False` |
-| `GatewayRegistrationResult` | `previous_node`, `current_node`, `agent_ids` | transaction 完成后才返回；agent_ids 稳定排序 |
+| `EventReplayResult` | `events`, `resync_required`, `reason` | 定义在 `IM.infra.repositories`；不依赖 WS type；events 按 event_id 排序 |
+| `GatewayRegistrationResult` | `previous_node`, `current_node`, `agent_ids` | 仅成功完成全部既有 durable steps 后返回；不承诺 operation 原子性；agent_ids 稳定排序 |
 | `NodeTransition` | `previous_node`, `current_node`, `agent_ids` | no-op 也返回可比较 snapshot；不返回 row/connection |
 | `AgentRelayTarget` | `agent_id`, `node_id` | 只含可投递且非 source 的 peer |
 | `GroupReplyRoute` | `sender_user_id`, `sender_display_name`, `targets` | targets immutable、稳定排序 |
@@ -262,7 +292,7 @@ sequenceDiagram
     Browser->>Route: create shadow / resume / sync
     Route->>Service: domain request
     Service->>Repo: one intent-level operation
-    Repo->>DB: query + transaction
+    Repo->>DB: query + existing commit semantics
     DB-->>Repo: rows
     Repo-->>Service: typed result
     Service-->>Route: domain outcome
@@ -284,8 +314,8 @@ sequenceDiagram
 
     GW->>Handler: existing WebSocket frame
     Handler->>Persist: parsed intent
-    Persist->>DB: cross-table query / transaction
-    DB-->>Persist: committed rows
+    Persist->>DB: cross-table query / preserved commit sequence
+    DB-->>Persist: rows / durable steps
     Persist-->>Handler: typed outcome
     Handler->>Relay: enqueue / emit using outcome
     Handler-->>GW: unchanged ack/error frame
@@ -301,6 +331,8 @@ Handler 继续拥有 WebSocket connection、RPC waiter、frame validation 与发
 - `GatewayHandler` 必须显式接收两个 Gateway persistence module、MessageRepository 与 EventBridge；删除“从
   conversation repository 私有 connection 自动构造 User/Message repository”的 fallback。MessageRepository、
   EventRepository 与 MetricsService 保留为已有公开 collaborator，只能调用其 interface，不能获取 connection。
+- `GatewayHandler` 继续决定 `resolve_send_target` 的 `caller_owner_id` 输入；Gateway persistence module 只消费该值，
+  不从 profile/conversation rows 推导替代值。agent→agent 路径在本 unit 中保持当前输入，不修复 issue #128。
 - `api/deps.py` 可以在 composition 层从 app connection 构造 concrete repository，但不得执行业务 SQL；删除
   `_ConfigEnabledConversationRepository`，统一返回 base `ConversationRepository`。fork route 需要 profile 时通过
   dependency 获取 `AgentProfileRepository` 的公开 interface；sync global cursor 通过 EventService interface 获取。
@@ -331,12 +363,12 @@ Handler 继续拥有 WebSocket connection、RPC waiter、frame validation 与发
 
 | 风险 | 具体后果 | 缓解 |
 |---|---|---|
-| transaction 收紧改变隐式时序 | register 的中间状态或错误路径与现状不同 | register 用真实 SQLite 覆盖 success、no-op、failure；从真实 WS 入口核对 ack/广播；不改变跨 module side-effect 顺序 |
+| 意外收紧 transaction 改变隐式时序 | register 第 N 个 agent 失败后，earlier node/profile/user writes 被回滚或额外提交 | 真实 SQLite failure injection 记录重构前基线并在新 interface 复现；不增加 operation-level transaction |
 | typed result 夹带表结构 | 新 module 只是 row wrapper，caller 仍依赖 schema | result 只保留下一步投递所需 domain facts；contract test 禁 row/connection 逃逸 |
 | Gateway module 变成 god module | interface 继续增长，depth 下降 | node/conversation 两个 interface 分治；新增 operation 必须通过 deletion test |
 | 测试迁移误删边界 | private-state 测试删除后丢覆盖 | 建 old→new coverage 对账；先补 interface test，再删旧断言；全 IM suite + non-e2e 收口 |
-| 已知产品 bug 被顺手改变 | refactor 混入行为修复，review 无法归因 | 不新增冻结 bug 的测试，也不修复；记录复现并另立 bugfix 候选 |
-| shared SQLite 并发 | FastAPI worker thread 下出现锁/陈旧读 | 保持 app-scoped connection 配置；不新增连接池/多连接；真实 integration 与 e2e 驱动 |
+| 已知 owner bug 被顺手改变 | `resolve_send_target` 自行推断 owner 后混入 issue #128 修复 | owner policy 保持 caller input；module 禁止推断/repair；不新增 orphan-owner 产品断言 |
+| shared SQLite 并发 | module 被误解为拥有独立 transaction，实际被同 connection 的其他 commit/rollback 截断 | 明示 interface 不承诺 isolation；保持 app-scoped connection 与既有 commit boundaries；不新增 lock/连接池；真实 integration/e2e 驱动 |
 
 **降级路径**：每个 milestone 合入后都是完整可运行的纵向 slice；若后续 slice 失败，保留前一 slice，不启用
 双实现或 feature flag。未迁移的路径继续走原 implementation。
@@ -361,6 +393,6 @@ reviewer 证据。覆盖 motivation.md 的 8 个 Scenario；重启恢复场景�
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| refactor-459-M1 | web-im-persistence | — | A | `src/IM/infra/repositories.py`; `src/IM/application/{event_service,web_im_service}.py`; `src/IM/ws/user_stream.py`; `src/IM/api/{deps.py,routes/web_im.py}`; `src/IM/app.py`; seam contract 与对应 unit/integration tests | `[reviewer]` owner 隔离、direct/group、shadow conversation、过程事件与 user-stream resume/sync 对外结果不变（覆盖 Scenario 1–3、7）；`[worker]` Conversation/Event interface 测试覆盖 created race、recipient、cursor gap/window、enrichment；目标调用方无 private connection/SQL；最窄 IM tests + `ruff check/format --check` 通过 |
-| refactor-459-M2 | gateway-node-persistence | refactor-459-M1 | B | `src/IM/infra/gateway_persistence.py`; `src/IM/infra/repositories.py`; `src/IM/ws/{gateway_handler,user_stream}.py`; `src/IM/app.py`; seam contract；node/register/status/offline tests | `[reviewer]` Gateway register、heartbeat、disconnect、timeout 后 Node/Agent 状态与广播不变（覆盖 Scenario 4）；`[worker]` GatewayNodePersistence 真实 SQLite 测试覆盖 first register、re-register、empty advertise、stale reconcile、offline no-op/error；handler 不再读 node/profile/user connection；相关 unit/integration tests 通过 |
-| refactor-459-M3 | gateway-delivery-persistence | refactor-459-M2 | C | `src/IM/infra/{gateway_persistence.py,db.py}`; `src/IM/ws/gateway_handler.py`; `src/IM/app.py`; seam contract；gateway relay/group/direct/dispatch/message tests；unit 文档 | `[reviewer]` relay 回执、group fanout、agent/user/conversation target、过程事件、重启恢复均不变（覆盖 Scenario 5–8，并重跑 Scenario 1–4）；`[worker]` dispatch DDL 归 schema init且 shape 不变；GatewayConversationPersistence 真实 SQLite 测试覆盖 target resolution、canonical direct、fanout、first-write-wins、missing node；删除被替代的 private-state 测试；`pytest -m "not e2e"`、`scripts/e2e-critical.sh -m "not slow"`、ruff 全绿 |
+| refactor-459-M1 | web-im-persistence | — | A | `src/IM/infra/repositories.py`; `src/IM/application/{event_service,web_im_service}.py`; `src/IM/ws/user_stream.py`; `src/IM/api/{deps.py,routes/web_im.py}`; `src/IM/app.py`; seam contract 与对应 unit/integration tests | `[reviewer]` owner 隔离、direct/group、shadow conversation、过程事件与 user-stream resume/sync 对外结果不变（覆盖 Scenario 1–3、7）；`[worker]` Conversation/Event interface 测试覆盖 created race、recipient、cursor gap/window、enrichment；`EventReplayResult` 唯一定义在 infra 且无 infra→WS import；目标调用方无 private connection/SQL；最窄 IM tests + `ruff check/format --check` 通过 |
+| refactor-459-M2 | gateway-node-persistence | refactor-459-M1 | B | `src/IM/infra/gateway_persistence.py`; `src/IM/infra/repositories.py`; `src/IM/ws/{gateway_handler,user_stream}.py`; `src/IM/app.py`; seam contract；node/register/status/offline tests | `[reviewer]` Gateway register、heartbeat、disconnect、timeout 后 Node/Agent 状态与广播不变（覆盖 Scenario 4）；`[worker]` GatewayNodePersistence 真实 SQLite 测试覆盖 first register、re-register、empty advertise、stale reconcile、offline no-op/error，以及第 N 个 agent 失败时 earlier node/profile/user durable state 与重构前基线一致；不得增加 operation-level transaction/lock；handler 不再读 node/profile/user connection；相关 unit/integration tests 通过 |
+| refactor-459-M3 | gateway-delivery-persistence | refactor-459-M2 | C | `src/IM/infra/{gateway_persistence.py,db.py}`; `src/IM/ws/gateway_handler.py`; `src/IM/app.py`; seam contract；gateway relay/group/direct/dispatch/message tests；unit 文档 | `[reviewer]` relay 回执、group fanout、agent/user/conversation target、过程事件、重启恢复均不变（覆盖 Scenario 5–8，并重跑 Scenario 1–4）；`[worker]` dispatch DDL 归 schema init且 shape 不变；GatewayConversationPersistence 真实 SQLite 测试覆盖 target classification、caller-supplied owner input、canonical direct、fanout、first-write-wins、missing node，但不新增 orphan-owner 产品断言或 owner repair；删除被替代的 private-state 测试；`pytest -m "not e2e"`、`scripts/e2e-critical.sh -m "not slow"`、ruff 全绿 |
