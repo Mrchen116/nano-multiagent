@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
+import fcntl
 import math
 import os
 from pathlib import Path
@@ -455,6 +457,39 @@ class _ConfigSnapshot:
     content: bytes
 
 
+@dataclass(frozen=True, slots=True)
+class _MigrationBackupGuard:
+    """Keep one verified deterministic backup inode open through commit."""
+
+    path: Path
+    fd: int
+    identity: tuple[int, int]
+
+
+class ConfigCommitRollbackError(RuntimeError):
+    """Report that commit durability failed and source rollback also failed.
+
+    Args:
+        config_path: Config path whose post-replace rollback could not complete.
+        commit_error: Original directory durability failure after atomic replace.
+        rollback_error: Error raised while restoring or persisting the old source.
+    """
+
+    def __init__(
+        self,
+        config_path: Path,
+        commit_error: BaseException,
+        rollback_error: BaseException,
+    ) -> None:
+        super().__init__(
+            f"config commit durability failed and rollback failed for "
+            f"{config_path}: {rollback_error}"
+        )
+        self.config_path = config_path
+        self.commit_error = commit_error
+        self.rollback_error = rollback_error
+
+
 _CONFIG_LOCKS_GUARD = threading.Lock()
 _CONFIG_LOCKS: dict[Path, threading.Lock] = {}
 
@@ -463,6 +498,42 @@ def _config_lock(path: Path) -> threading.Lock:
     """Return the in-process coordinator for one resolved config path."""
     with _CONFIG_LOCKS_GUARD:
         return _CONFIG_LOCKS.setdefault(path, threading.Lock())
+
+
+@contextmanager
+def _config_transaction_lock(path: Path):
+    """Serialize the complete save transaction across threads and processes."""
+    lock_path = Path(f"{path}.lock")
+    with _config_lock(path):
+        flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
+        fd = os.open(lock_path, flags, 0o600)
+        try:
+            opened = os.fstat(fd)
+            current = lock_path.lstat()
+            if (
+                not stat.S_ISREG(opened.st_mode)
+                or opened.st_nlink != 1
+                or not stat.S_ISREG(current.st_mode)
+                or current.st_nlink != 1
+                or (opened.st_dev, opened.st_ino) != (current.st_dev, current.st_ino)
+            ):
+                raise OSError(f"config transaction lock is not stable: {lock_path}")
+            os.fchmod(fd, 0o600)
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            locked = os.fstat(fd)
+            current = lock_path.lstat()
+            if (
+                locked.st_nlink != 1
+                or current.st_nlink != 1
+                or (locked.st_dev, locked.st_ino) != (current.st_dev, current.st_ino)
+            ):
+                raise OSError(
+                    f"config transaction lock changed while waiting: {lock_path}"
+                )
+            yield
+        finally:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+            os.close(fd)
 
 
 def _read_config_snapshot(path: Path) -> _ConfigSnapshot | None:
@@ -504,6 +575,7 @@ def _assert_snapshot_current(path: Path, snapshot: _ConfigSnapshot | None) -> No
         current is None
         or snapshot is None
         or current.identity != snapshot.identity
+        or current.mode != snapshot.mode
         or current.content != snapshot.content
     ):
         raise RuntimeError(f"config changed during save: {path}")
@@ -582,8 +654,8 @@ def _read_and_secure_existing_migration_backup(
     source_stat: os.stat_result,
     source_mode: int,
     original: bytes,
-) -> None:
-    """Validate and durably flush an existing matching migration backup."""
+) -> _MigrationBackupGuard:
+    """Validate an existing backup and hold its fd through the commit gate."""
     try:
         path_stat = backup_path.lstat()
     except FileNotFoundError:
@@ -635,9 +707,15 @@ def _read_and_secure_existing_migration_backup(
         if tightened_mode != backup_mode:
             os.fchmod(fd, tightened_mode)
         os.fsync(fd)
-    finally:
+        _fsync_parent_directory(backup_path)
+        return _MigrationBackupGuard(
+            path=backup_path,
+            fd=fd,
+            identity=(backup_stat.st_dev, backup_stat.st_ino),
+        )
+    except BaseException:
         os.close(fd)
-    _fsync_parent_directory(backup_path)
+        raise
 
 
 def _unlink_owned_backup(path: Path, identity: tuple[int, int] | None) -> None:
@@ -652,7 +730,9 @@ def _unlink_owned_backup(path: Path, identity: tuple[int, int] | None) -> None:
         path.unlink()
 
 
-def _backup_legacy_kernel_config(dest: Path, snapshot: _ConfigSnapshot | None) -> None:
+def _backup_legacy_kernel_config(
+    dest: Path, snapshot: _ConfigSnapshot | None
+) -> _MigrationBackupGuard | None:
     """Preserve a config before canonical save removes its legacy kernel block.
 
     Args:
@@ -666,11 +746,11 @@ def _backup_legacy_kernel_config(dest: Path, snapshot: _ConfigSnapshot | None) -
         Creates ``<dest>.pre-refactor-461.bak`` once with the source bytes and mode.
     """
     if snapshot is None:
-        return
+        return None
     original = snapshot.content
     raw = yaml.safe_load(original)
     if not isinstance(raw, dict) or "kernel" not in raw:
-        return
+        return None
 
     backup_path = Path(f"{dest}.pre-refactor-461.bak")
     source_stat = os.stat_result(
@@ -695,13 +775,12 @@ def _backup_legacy_kernel_config(dest: Path, snapshot: _ConfigSnapshot | None) -
     else:
         backup_exists = True
     if backup_exists:
-        _read_and_secure_existing_migration_backup(
+        return _read_and_secure_existing_migration_backup(
             backup_path=backup_path,
             source_stat=source_stat,
             source_mode=source_mode,
             original=original,
         )
-        return
 
     fd: int | None = None
     owned_identity: tuple[int, int] | None = None
@@ -727,9 +806,14 @@ def _backup_legacy_kernel_config(dest: Path, snapshot: _ConfigSnapshot | None) -
             raise FileExistsError(
                 f"migration backup must be a single-link file: {backup_path}"
             )
-        os.close(fd)
-        fd = None
         _fsync_parent_directory(backup_path)
+        guard = _MigrationBackupGuard(
+            path=backup_path,
+            fd=fd,
+            identity=owned_identity,
+        )
+        fd = None
+        return guard
     except BaseException:
         if fd is not None:
             os.close(fd)
@@ -737,32 +821,117 @@ def _backup_legacy_kernel_config(dest: Path, snapshot: _ConfigSnapshot | None) -
         raise
 
 
-def _atomic_commit_config(
-    dest: Path, new_text: str, snapshot: _ConfigSnapshot | None
-) -> None:
-    """Durably stage bytes, CAS the source revision, then atomically replace it."""
-    fd, temp_name = tempfile.mkstemp(prefix=f".{dest.name}.", dir=dest.parent)
+def _assert_migration_backup_current(guard: _MigrationBackupGuard) -> None:
+    """Require the backup path to retain the held single-link inode."""
+    held = os.fstat(guard.fd)
+    try:
+        current = guard.path.lstat()
+    except FileNotFoundError as exc:
+        raise FileExistsError(
+            f"migration backup changed before config commit: {guard.path}"
+        ) from exc
+    if (
+        not stat.S_ISREG(held.st_mode)
+        or held.st_nlink != 1
+        or not stat.S_ISREG(current.st_mode)
+        or current.st_nlink != 1
+        or (held.st_dev, held.st_ino) != guard.identity
+        or (current.st_dev, current.st_ino) != guard.identity
+    ):
+        raise FileExistsError(
+            f"migration backup changed before config commit: {guard.path}"
+        )
+
+
+def _stage_config_bytes(dest: Path, payload: bytes, mode: int, *, label: str) -> Path:
+    """Create and durably flush one same-directory transaction inode."""
+    fd, temp_name = tempfile.mkstemp(prefix=f".{dest.name}.{label}.", dir=dest.parent)
     temp_path = Path(temp_name)
     try:
-        os.fchmod(fd, snapshot.mode if snapshot is not None else 0o600)
-        payload = memoryview(new_text.encode("utf-8"))
-        while payload:
-            written = os.write(fd, payload)
+        os.fchmod(fd, mode)
+        remaining = memoryview(payload)
+        while remaining:
+            written = os.write(fd, remaining)
             if written <= 0:
                 raise OSError("config write made no progress")
-            payload = payload[written:]
+            remaining = remaining[written:]
         os.fsync(fd)
         os.close(fd)
-        fd = -1
+        return temp_path
+    except BaseException:
+        os.close(fd)
+        temp_path.unlink(missing_ok=True)
+        raise
+
+
+def _rollback_replaced_config(
+    *,
+    dest: Path,
+    snapshot: _ConfigSnapshot | None,
+    rollback_path: Path | None,
+    committed: _ConfigSnapshot,
+) -> None:
+    """Restore the old source only while dest is still our committed revision."""
+    current = _read_config_snapshot(dest)
+    if current != committed:
+        raise RuntimeError(f"config changed after replace; rollback refused: {dest}")
+    if snapshot is None:
+        dest.unlink()
+    else:
+        if rollback_path is None:
+            raise RuntimeError("config rollback inode is unavailable")
+        os.replace(rollback_path, dest)
+    _fsync_parent_directory(dest)
+
+
+def _atomic_commit_config(
+    dest: Path,
+    new_text: str,
+    snapshot: _ConfigSnapshot | None,
+    backup_guard: _MigrationBackupGuard | None,
+) -> None:
+    """Durably stage bytes, CAS the source revision, then atomically replace it."""
+    payload = new_text.encode("utf-8")
+    mode = snapshot.mode if snapshot is not None else 0o600
+    temp_path = _stage_config_bytes(dest, payload, mode, label="commit")
+    rollback_path = (
+        _stage_config_bytes(dest, snapshot.content, snapshot.mode, label="rollback")
+        if snapshot is not None
+        else None
+    )
+    try:
+        if backup_guard is not None:
+            _assert_migration_backup_current(backup_guard)
         _assert_snapshot_current(dest, snapshot)
+        staged = temp_path.stat()
+        committed = _ConfigSnapshot(
+            identity=(staged.st_dev, staged.st_ino),
+            mode=stat.S_IMODE(staged.st_mode),
+            content=payload,
+        )
         os.replace(temp_path, dest)
-        temp_path = Path()
-        _fsync_parent_directory(dest)
+        temp_path = None
+        try:
+            _fsync_parent_directory(dest)
+        except BaseException as commit_error:
+            try:
+                _rollback_replaced_config(
+                    dest=dest,
+                    snapshot=snapshot,
+                    rollback_path=rollback_path,
+                    committed=committed,
+                )
+                rollback_path = None
+            except BaseException as rollback_error:
+                raise ConfigCommitRollbackError(
+                    dest, commit_error, rollback_error
+                ) from rollback_error
+            raise
     finally:
-        if fd >= 0:
-            os.close(fd)
-        if temp_path != Path():
+        if temp_path is not None:
             temp_path.unlink(missing_ok=True)
+        if rollback_path is not None:
+            rollback_path.unlink(missing_ok=True)
 
 
 def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
@@ -917,14 +1086,18 @@ def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
     )
     dest = Path(config_path).expanduser().resolve()
     dest.parent.mkdir(parents=True, exist_ok=True)
-    with _config_lock(dest):
+    with _config_transaction_lock(dest):
         snapshot = _read_config_snapshot(dest)
-        _backup_legacy_kernel_config(dest, snapshot)
-        # Both backup kinds are derived from the same transaction-start snapshot.
-        # The CAS immediately before replace protects them from an external writer
-        # that does not participate in this process-local coordination lock.
-        _backup_existing_config(dest, new_text, snapshot)
-        _atomic_commit_config(dest, new_text, snapshot)
+        backup_guard = _backup_legacy_kernel_config(dest, snapshot)
+        try:
+            # Both backup kinds are derived from one transaction-start snapshot.
+            # Uncoordinated writers remain detectable at the pre-replace gate;
+            # POSIX cannot close the final check-to-replace syscall window.
+            _backup_existing_config(dest, new_text, snapshot)
+            _atomic_commit_config(dest, new_text, snapshot, backup_guard)
+        finally:
+            if backup_guard is not None:
+                os.close(backup_guard.fd)
 
 
 def _parse_node_config(payload: Any) -> NodeConfig:
