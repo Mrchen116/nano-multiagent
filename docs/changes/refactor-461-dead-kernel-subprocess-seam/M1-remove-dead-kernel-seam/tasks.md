@@ -43,3 +43,9 @@ Gateway 只保留自身后台进程与进程内 Kernel 的真实拓扑；旧 Ker
 - 状态：DONE
 - 步骤：先新增 active-scope zero-residue contract guard 并确认红；再清理 AGENTS、e2e/acceptance/fixture scripts、sample configs、e2e finalizer 与 provider error 说明；不扫描/改写历史 change/archive。
 - 验证：guard、helper/integration tests、ruff、non-e2e 全绿；`e2e-up/down` 真栈只有 IM + Gateway，消息与 heartbeat/cron 到用户可观察结果，无 `.api.pid`/Kernel app 泄漏。
+
+### R4 — 全量门禁补齐跨套件 config fixture
+
+- 状态：DONE
+- 步骤：按 systematic-debugging 稳定复现全量门禁中的 `KernelConfig` ImportError，反查为 R1 机械迁移仅覆盖 PA unit fixtures、漏掉 IM integration 构造点；先扩展 zero-residue guard 验红，再把该 fixture 改为 `GatewayLifecycleConfig` / `gateway=`。
+- 验证：原失败用例与 contract guard 5 passed；全量 non-e2e `3496 passed, 1 skipped, 23 deselected`。
