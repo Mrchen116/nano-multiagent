@@ -1,4 +1,4 @@
-import type { Attachment } from "../v2/chat-types";
+import type { Attachment } from "../chat-types";
 
 export interface AttachmentChipProps {
   attachment: Attachment;

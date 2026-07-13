@@ -1,50 +1,215 @@
-import * as imApi from "./im-chat-api";
-import * as mockApi from "./mock-chat-api";
+// Canonical REST client for the Chat surface. All calls share authFetch so
+// token refresh and retry semantics stay owned by the auth transport.
 
-export function resolveChatApiMode(input: {
-  runtimeMode: string;
-  explicitMode?: string;
-}): "mock" | "im" {
-  if (input.explicitMode === "im") {
-    return "im";
+import { authFetch } from "../auth/auth-fetch";
+import { useAuthStore } from "../auth/auth-store";
+import type {
+  Actor,
+  Attachment,
+  Conversation,
+  MentionCandidate,
+  Message
+} from "./chat-types";
+
+async function jsonOrThrow<T>(res: Response, label: string): Promise<T> {
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`${label} failed: ${res.status} ${body}`);
   }
-  if (input.explicitMode === "mock") {
-    return "mock";
-  }
-  return input.runtimeMode === "test" ? "mock" : "im";
+  return (await res.json()) as T;
 }
 
-const chatApiMode = resolveChatApiMode({
-  runtimeMode: import.meta.env.MODE,
-  explicitMode: import.meta.env.VITE_CHAT_API_MODE
-});
-const useMockApi = chatApiMode === "mock";
+export async function listConversations(): Promise<Conversation[]> {
+  const res = await authFetch("/im/v1/conversations");
+  const payload = await jsonOrThrow<{ items: Conversation[] }>(res, "listConversations");
+  return payload.items;
+}
 
-export const getChatBootstrapState = useMockApi ? mockApi.getChatBootstrapState : imApi.getChatBootstrapState;
-export const confirmBindToken = useMockApi ? mockApi.confirmBindToken : imApi.confirmBindToken;
-export const getChatStarter = useMockApi ? mockApi.getChatStarter : imApi.getChatStarter;
-export const listConversations = useMockApi ? mockApi.listConversations : imApi.listConversations;
-export const listDiscoverableAgents = useMockApi ? mockApi.listDiscoverableAgents : imApi.listDiscoverableAgents;
-export const listDiscoverableGroupParticipants = useMockApi
-  ? mockApi.listDiscoverableGroupParticipants
-  : imApi.listDiscoverableGroupParticipants;
-export const createDirectConversation = useMockApi ? mockApi.createDirectConversation : imApi.createDirectConversation;
-export const createDirectChatByAgentUserId = useMockApi
-  ? (input: { agentId: string; agentUserId: string; agentDisplayName: string }) =>
-      mockApi.createDirectConversation({ agentId: input.agentId })
-  : imApi.createDirectChatByAgentUserId;
-export const listAgents = useMockApi ? async () => [] : imApi.listAgents;
-export const createFreshDirectConversation = useMockApi ? mockApi.createDirectConversation : imApi.createFreshDirectConversation;
-export const createGroupConversation = useMockApi ? mockApi.createGroupConversation : imApi.createGroupConversation;
-export const getConversation = useMockApi ? mockApi.getConversation : imApi.getConversation;
-export const sendMessage = useMockApi ? mockApi.sendMessage : imApi.sendMessage;
-export const uploadAttachment = useMockApi ? mockApi.uploadAttachment : imApi.uploadAttachment;
-export const getUsageMetrics = useMockApi ? mockApi.getUsageMetrics : imApi.getUsageMetrics;
-export const resolveSendAvailability = imApi.resolveSendAvailability;
-export const resolveConversationSendNodeState = useMockApi
-  ? mockApi.resolveConversationSendNodeState
-  : imApi.resolveConversationSendNodeState;
-export const resetChatBootstrapState = useMockApi ? mockApi.resetChatBootstrapState : imApi.resetChatBootstrapState;
-export const deleteConversation = useMockApi ? mockApi.deleteConversation : imApi.deleteConversation;
-export const leaveConversation = useMockApi ? mockApi.leaveConversation : imApi.leaveConversation;
-export const renameConversation = useMockApi ? mockApi.renameConversation : imApi.renameConversation;
+export interface ListMessagesOptions {
+  limit?: number;
+  beforeMessageId?: string;
+  markAsRead?: boolean;
+}
+
+export interface ListMessagesResult {
+  items: Message[];
+  next_before_message_id: string | null;
+}
+
+export async function listMessages(
+  conversationId: string,
+  opts: ListMessagesOptions = {}
+): Promise<ListMessagesResult> {
+  const params = new URLSearchParams();
+  if (opts.limit) params.set("limit", String(opts.limit));
+  if (opts.beforeMessageId) params.set("before_message_id", opts.beforeMessageId);
+  if (opts.markAsRead) params.set("mark_as_read", "true");
+  const qs = params.toString();
+  const url = `/im/v1/conversations/${encodeURIComponent(conversationId)}/messages${qs ? `?${qs}` : ""}`;
+  const res = await authFetch(url);
+  return jsonOrThrow<ListMessagesResult>(res, "listMessages");
+}
+
+export interface CreateMessageRequest {
+  conversationId: string;
+  content: string;
+  attachments?: Attachment[];
+}
+
+function requireSelfUser(): { id: string } {
+  const user = useAuthStore.getState().user;
+  if (!user) throw new Error("createMessage: not authenticated");
+  return { id: user.id };
+}
+
+export async function createMessage(req: CreateMessageRequest): Promise<Message> {
+  const self = requireSelfUser();
+  const body = {
+    sender: { type: "user", id: self.id } as Actor,
+    content: req.content,
+    attachments: req.attachments ?? []
+  };
+  const res = await authFetch(`/im/v1/conversations/${encodeURIComponent(req.conversationId)}/messages`, {
+    method: "POST",
+    body: JSON.stringify(body)
+  });
+  return jsonOrThrow<Message>(res, "createMessage");
+}
+
+export interface CreateConversationRequest {
+  title: string;
+  /** Agent IDs to include alongside the current user. */
+  agentIds: string[];
+}
+
+export async function createConversation(req: CreateConversationRequest): Promise<Conversation> {
+  const self = requireSelfUser();
+  const participants: Actor[] = [
+    { type: "user", id: self.id },
+    ...req.agentIds.map((id): Actor => ({ type: "agent", id }))
+  ];
+  const res = await authFetch("/im/v1/conversations", {
+    method: "POST",
+    body: JSON.stringify({ title: req.title, participants })
+  });
+  return jsonOrThrow<Conversation>(res, "createConversation");
+}
+
+/**
+ * feat-445-M1: fork a direct agent chat at one completed agent reply. Returns the new
+ * branch conversation (same agent, history copied through the fork point). Throws on
+ * non-ok (e.g. 409 agent offline, 502 fork delegation failure) so callers surface it.
+ */
+export async function forkConversation(
+  conversationId: string,
+  forkMessageId: string
+): Promise<Conversation> {
+  const res = await authFetch(`/im/v1/conversations/${encodeURIComponent(conversationId)}/fork`, {
+    method: "POST",
+    body: JSON.stringify({ fork_message_id: forkMessageId })
+  });
+  return jsonOrThrow<Conversation>(res, "forkConversation");
+}
+
+// ─── Group settings (feat-438): rename / add / remove / dissolve ─────────────
+
+/** Update mutable conversation metadata (currently just the group title). */
+export async function updateConversation(
+  conversationId: string,
+  patch: { title: string }
+): Promise<Conversation> {
+  const res = await authFetch(`/im/v1/conversations/${encodeURIComponent(conversationId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch)
+  });
+  return jsonOrThrow<Conversation>(res, "updateConversation");
+}
+
+/** Add agent participants to an existing group; returns the refreshed snapshot. */
+export async function addParticipants(
+  conversationId: string,
+  agentIds: string[]
+): Promise<Conversation> {
+  const participants: Actor[] = agentIds.map((id): Actor => ({ type: "agent", id }));
+  const res = await authFetch(
+    `/im/v1/conversations/${encodeURIComponent(conversationId)}/participants`,
+    { method: "POST", body: JSON.stringify({ participants }) }
+  );
+  return jsonOrThrow<Conversation>(res, "addParticipants");
+}
+
+/**
+ * Remove one participant from a group. ``userId`` MUST be the participant's
+ * ``user_id`` (UUID) — for agents that is distinct from ``id`` (agent_id); the
+ * backend keys the delete on conversation_participants.user_id (决策 5).
+ */
+export async function removeParticipant(
+  conversationId: string,
+  userId: string
+): Promise<void> {
+  const res = await authFetch(
+    `/im/v1/conversations/${encodeURIComponent(conversationId)}/participants/${encodeURIComponent(userId)}`,
+    { method: "DELETE" }
+  );
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`removeParticipant failed: ${res.status} ${body}`);
+  }
+}
+
+/** Dissolve a group conversation (creator only; backend enforces 403 otherwise). */
+export async function deleteConversation(conversationId: string): Promise<void> {
+  const res = await authFetch(`/im/v1/conversations/${encodeURIComponent(conversationId)}`, {
+    method: "DELETE"
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`deleteConversation failed: ${res.status} ${body}`);
+  }
+}
+
+/**
+ * Mention candidates = the agents that participate in this conversation (per
+ * spec Q8: candidates only come from the current user's own agents and the
+ * conversation already restricts to those). The agent list endpoint returns
+ * every agent the user owns; we intersect with the conversation participants
+ * so the picker shows exactly the agents the message can actually mention.
+ */
+export interface AgentRow {
+  agent_id: string;
+  display_name: string;
+  node_id?: string;
+  description?: string;
+  /** IM user UUID for ``agent:<agent_id>`` — used to map WS sender_user_id → display_name. */
+  user_id?: string | null;
+}
+
+function initialsFrom(name: string): string {
+  const cleaned = name.trim();
+  if (!cleaned) return "?";
+  const parts = cleaned.split(/\s+/);
+  if (parts.length >= 2) return (parts[0]!.charAt(0) + parts[1]!.charAt(0)).toUpperCase();
+  return cleaned.slice(0, 2).toUpperCase();
+}
+
+export async function listMentionCandidates(opts: {
+  conversation: { participants: { type: string; id: string; is_stale?: boolean | null }[] };
+}): Promise<MentionCandidate[]> {
+  const res = await authFetch("/im/v1/agents");
+  const rows = await jsonOrThrow<AgentRow[]>(res, "listMentionCandidates");
+  const allowed = new Set(
+    opts.conversation.participants
+      .filter((p) => p.type === "agent" && !p.is_stale)
+      .map((p) => p.id.replace(/^agent:/, ""))
+  );
+  return rows
+    .filter((r) => allowed.has(r.agent_id.replace(/^agent:/, "")))
+    .map((r) => ({
+      agent_id: r.agent_id,
+      display_name: r.display_name,
+      initials: initialsFrom(r.display_name),
+      // Backend agent list does not yet carry online/offline; surface "offline"
+      // by default and let WS `agent.status_changed` patch it in once live.
+      status: "offline" as const
+    }));
+}

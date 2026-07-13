@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useAuthStore } from "../../auth/auth-store";
-import type { Conversation } from "../v2/chat-types";
+import type { Conversation } from "../chat-types";
 
 let streamHandler: ((event: { eventType: string; payload: Record<string, unknown>; eventId?: number }) => void) | null = null;
 
@@ -214,7 +214,7 @@ describe("useGlobalMessageToast", () => {
 
   it("still refreshes the cached sidebar preview for self-authored user messages", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    queryClient.setQueryData(["chat-v2", "conversations"], [
+    queryClient.setQueryData(["chat", "conversations"], [
       conversation("conv-1", {
         last_message_preview: "older",
         last_message_at: "2026-03-26T00:00:00Z"
@@ -237,7 +237,7 @@ describe("useGlobalMessageToast", () => {
     });
 
     expect(result.current.toast).toBeNull();
-    expect(queryClient.getQueryData(["chat-v2", "conversations"])).toEqual([
+    expect(queryClient.getQueryData(["chat", "conversations"])).toEqual([
       conversation("conv-1", {
         last_message_preview: "my own message",
         last_message_at: "2026-03-26T00:01:00Z"
@@ -247,7 +247,7 @@ describe("useGlobalMessageToast", () => {
 
   it("refreshes the cached sidebar preview when an unopened conversation finishes a relay turn", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    queryClient.setQueryData(["chat-v2", "conversations"], [
+    queryClient.setQueryData(["chat", "conversations"], [
       conversation("conv-2", {
         title: "Agent chat",
         last_message_preview: "11",
@@ -275,7 +275,7 @@ describe("useGlobalMessageToast", () => {
       conversationId: "conv-2",
       preview: "A\n\nGot it. What would you like to do?"
     });
-    expect(queryClient.getQueryData(["chat-v2", "conversations"])).toEqual([
+    expect(queryClient.getQueryData(["chat", "conversations"])).toEqual([
       conversation("conv-2", {
         title: "Agent chat",
         last_message_preview: "A\n\nGot it. What would you like to do?",

@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import "../../../../i18n";
+import "../../../i18n";
 import type { MentionCandidate } from "../chat-types";
 import { colorForAgent } from "./avatar";
 import { MentionPicker } from "./mention-picker";

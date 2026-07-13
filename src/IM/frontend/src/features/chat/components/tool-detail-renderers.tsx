@@ -14,7 +14,7 @@
 
 import { useState, type ReactNode } from "react";
 
-import { useTranslation } from "../../../../i18n";
+import { useTranslation } from "../../../i18n";
 import type { ToolCall, ToolDetail } from "../chat-types";
 
 function str(v: unknown): string {

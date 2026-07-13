@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "react-router-dom";
 
-import type { Conversation } from "../v2/chat-types";
+import type { Conversation } from "../chat-types";
 import { useAuthStore } from "../../auth/auth-store";
 import { subscribeUserStream, type UserStreamEvent } from "../../../realtime/user-stream";
 
@@ -196,7 +196,7 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
   useEffect(() => {
     return subscribeUserStream({
       onRecovery: async () => {
-        await queryClient.invalidateQueries({ queryKey: ["chat-v2", "conversations"] });
+        await queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
       },
       onEvent: (event) => {
             if (typeof event.eventId !== "number") {
@@ -220,7 +220,7 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
 
             const candidate = buildNotificationCandidate(event);
             if (candidate) {
-              queryClient.setQueryData<Conversation[] | undefined>(["chat-v2", "conversations"], (previous) =>
+              queryClient.setQueryData<Conversation[] | undefined>(["chat", "conversations"], (previous) =>
                 patchConversationPreview(previous, conversationId, candidate.preview, candidate.createdAt)
               );
             }

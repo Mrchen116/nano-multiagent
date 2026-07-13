@@ -14,13 +14,13 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../../../../features/auth/auth-fetch", () => ({
+vi.mock("../../auth/auth-fetch", () => ({
   authFetch: vi.fn(),
 }));
 
-import "../../../../i18n";
-import { setLanguage } from "../../../../i18n";
-import * as authFetchModule from "../../../../features/auth/auth-fetch";
+import "../../../i18n";
+import { setLanguage } from "../../../i18n";
+import * as authFetchModule from "../../auth/auth-fetch";
 import type { PermissionOption, PermissionRequest } from "../chat-types";
 import { PermissionCard } from "./permission-card";
 

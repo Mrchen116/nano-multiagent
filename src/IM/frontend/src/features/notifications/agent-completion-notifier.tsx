@@ -11,8 +11,8 @@ import { useEffect, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 
-import type { Conversation, WsEvent } from "../chat/v2/chat-types";
-import { toChatWsEvent } from "../chat/v2/chat-stream-reducer";
+import type { Conversation, WsEvent } from "../chat/chat-types";
+import { toChatWsEvent } from "../chat/chat-stream-reducer";
 import { subscribeUserStream } from "../../realtime/user-stream";
 import { ensureNotificationPermission, isNotificationSupported, showAgentNotification } from "./notification-api";
 import { isDocumentHidden, subscribeDocumentVisibility } from "./document-visibility";
@@ -121,7 +121,7 @@ export function AgentCompletionNotifier(): null {
 
   const resolveConversationTitle = useMemo(
     () => (cid: string) => {
-      const list = queryClient.getQueryData<Conversation[]>(["chat-v2", "conversations"]);
+      const list = queryClient.getQueryData<Conversation[]>(["chat", "conversations"]);
       return list?.find((c) => c.id === cid)?.title ?? cid;
     },
     [queryClient]
@@ -129,7 +129,7 @@ export function AgentCompletionNotifier(): null {
 
   const resolveAgentName = useMemo(
     () => (senderUserId: string) => {
-      const list = queryClient.getQueryData<Conversation[]>(["chat-v2", "conversations"]);
+      const list = queryClient.getQueryData<Conversation[]>(["chat", "conversations"]);
       if (!list) return senderUserId;
       const rawId = senderUserId.replace(/^agent:/, "");
       for (const c of list) {

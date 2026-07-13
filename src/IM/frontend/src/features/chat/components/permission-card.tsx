@@ -14,8 +14,8 @@
  */
 import { useState } from "react";
 
-import { authFetch } from "../../../auth/auth-fetch";
-import { useTranslation } from "../../../../i18n";
+import { authFetch } from "../../auth/auth-fetch";
+import { useTranslation } from "../../../i18n";
 
 import type { PermissionOption, PermissionRequest } from "../chat-types";
 

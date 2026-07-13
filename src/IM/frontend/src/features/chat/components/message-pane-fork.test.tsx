@@ -9,7 +9,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import "../../../../i18n";
+import "../../../i18n";
 import type { Conversation, Message } from "../chat-types";
 import { MessagePane } from "./message-pane";
 

@@ -5,11 +5,11 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import "../../../i18n";
-import { useAuthStore } from "../../auth/auth-store";
-import { ChatWorkspacePageV2 } from "./chat-workspace-page";
+import "../../i18n";
+import { useAuthStore } from "../auth/auth-store";
+import { ChatWorkspacePage } from "./chat-workspace-page";
 import type { Conversation } from "./chat-types";
-import type { UserStreamEvent } from "../../../realtime/user-stream";
+import type { UserStreamEvent } from "../../realtime/user-stream";
 
 // ─── Mock attachUserConversationStream ──────────────────────────────────────
 // chat-workspace-page 订阅 user-scoped SSE/WS 流（node.status_changed /
@@ -18,7 +18,7 @@ import type { UserStreamEvent } from "../../../realtime/user-stream";
 let capturedStatusHandler: ((ev: UserStreamEvent) => void) | null = null;
 let capturedResyncHandler: (() => Promise<void>) | null = null;
 
-vi.mock("../../../realtime/user-stream", () => ({
+vi.mock("../../realtime/user-stream", () => ({
     subscribeUserStream: (input: {
       onEvent: (ev: UserStreamEvent) => void;
       onRecovery?: () => Promise<void>;
@@ -310,15 +310,15 @@ function renderAtRoute(initial: string, queryClient?: QueryClient) {
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[initial]}>
         <Routes>
-          <Route path="/chat" element={<ChatWorkspacePageV2 />} />
-          <Route path="/chat/:conversationId" element={<ChatWorkspacePageV2 />} />
+          <Route path="/chat" element={<ChatWorkspacePage />} />
+          <Route path="/chat/:conversationId" element={<ChatWorkspacePage />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>
   );
 }
 
-describe("ChatWorkspacePage v2 — integration", () => {
+describe("ChatWorkspacePage — integration", () => {
   let originalWS: typeof WebSocket;
   let fetchSpy: ReturnType<typeof mockFetch>;
 
@@ -364,8 +364,8 @@ describe("ChatWorkspacePage v2 — integration", () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false, staleTime: Infinity } }
     });
-    queryClient.setQueryData(["chat-v2", "conversations"], FIXTURES.conversations);
-    queryClient.setQueryData(["chat-v2", "messages", "c1"], {
+    queryClient.setQueryData(["chat", "conversations"], FIXTURES.conversations);
+    queryClient.setQueryData(["chat", "messages", "c1"], {
       items: FIXTURES.messagesC1,
       next_before_message_id: null
     });

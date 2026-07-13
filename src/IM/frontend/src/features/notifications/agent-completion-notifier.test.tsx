@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { WsEvent } from "../chat/v2/chat-types";
+import type { WsEvent } from "../chat/chat-types";
 import {
   type NotifierState,
   emptyNotifierState,
@@ -177,7 +177,7 @@ function LocationCapture({ onChange }: { onChange: (path: string) => void }) {
 
 function renderHarness() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  client.setQueryData(["chat-v2", "conversations"], [
+  client.setQueryData(["chat", "conversations"], [
     {
       id: "conv-1",
       title: "Assistant chat",

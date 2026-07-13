@@ -8,7 +8,7 @@ const apiMocks = vi.hoisted(() => ({
   getAgentDetailStateMock: vi.fn(),
   updateAgentConfigMock: vi.fn(),
   createDirectConversationMock: vi.fn(),
-  createDirectChatByAgentUserIdMock: vi.fn(),
+  createConversationMock: vi.fn(),
   listAgentsMock: vi.fn(),
   listAgentSummariesMock: vi.fn(),
   navigateMock: vi.fn(),
@@ -30,7 +30,7 @@ vi.mock("react-router-dom", async () => {
 
 vi.mock("../../chat/chat-api", () => ({
   createDirectConversation: apiMocks.createDirectConversationMock,
-  createDirectChatByAgentUserId: apiMocks.createDirectChatByAgentUserIdMock,
+  createConversation: apiMocks.createConversationMock,
   listAgents: apiMocks.listAgentsMock
 }));
 
@@ -71,7 +71,7 @@ afterEach(() => {
   apiMocks.getAgentDetailStateMock.mockReset();
   apiMocks.updateAgentConfigMock.mockReset();
   apiMocks.createDirectConversationMock.mockReset();
-  apiMocks.createDirectChatByAgentUserIdMock.mockReset();
+  apiMocks.createConversationMock.mockReset();
   apiMocks.listAgentsMock.mockReset();
   apiMocks.listAgentSummariesMock.mockReset();
   apiMocks.navigateMock.mockReset();
@@ -360,7 +360,7 @@ describe("agent detail page", () => {
     apiMocks.listAgentsMock.mockResolvedValue([
       { agent_id: "agent-core-1", display_name: "Core Planner", user_id: "user-agent-core-1" }
     ]);
-    apiMocks.createDirectChatByAgentUserIdMock.mockResolvedValue({ conversation_id: "conv-agent-core-1" });
+    apiMocks.createConversationMock.mockResolvedValue({ id: "conv-agent-core-1" });
 
     renderDetailPage();
 
@@ -378,17 +378,14 @@ describe("agent detail page", () => {
     await user.click(screen.getByRole("button", { name: /Open chat/i }));
 
     await waitFor(() => {
-      expect(apiMocks.createDirectChatByAgentUserIdMock).toHaveBeenCalledWith({
-        agentId: "agent-core-1",
-        agentUserId: "user-agent-core-1",
-        agentDisplayName: "Core Planner"
+      expect(apiMocks.createConversationMock).toHaveBeenCalledWith({
+        title: "Core Planner",
+        agentIds: ["agent-core-1"]
       });
     });
     await waitFor(() => {
       expect(apiMocks.navigateMock).toHaveBeenCalledWith("/chat/conv-agent-core-1");
     });
-    // M18 R9-2: the legacy bootstrap-based path must not be invoked anymore.
-    expect(apiMocks.createDirectConversationMock).not.toHaveBeenCalled();
   });
 
   it("bugfix-429 R5: model dropdown labels each option with its provider/format", async () => {
@@ -448,7 +445,7 @@ describe("agent detail page", () => {
     expect(optionText.some((txt) => txt.includes("kimiCoding:K2.6") && txt.includes("anthropic"))).toBe(true);
   });
 
-  it("R7-4: invalidates the v2 chat conversations cache so the freshly created conv is visible after navigation", async () => {
+  it("invalidates the canonical chat conversations cache before navigating to a new direct chat", async () => {
     const user = userEvent.setup();
 
     apiMocks.getAgentDetailStateMock.mockResolvedValue({
@@ -488,7 +485,7 @@ describe("agent detail page", () => {
     apiMocks.listAgentsMock.mockResolvedValue([
       { agent_id: "agent-core-1", display_name: "Core Planner", user_id: "user-agent-core-1" }
     ]);
-    apiMocks.createDirectChatByAgentUserIdMock.mockResolvedValue({ conversation_id: "conv-x" });
+    apiMocks.createConversationMock.mockResolvedValue({ id: "conv-x" });
 
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
@@ -505,8 +502,8 @@ describe("agent detail page", () => {
 
     await waitFor(() => {
       const calls = invalidateSpy.mock.calls.map((c) => JSON.stringify(c[0]));
-      const hitV2 = calls.some((s) => s.includes(`"chat-v2"`) && s.includes(`"conversations"`));
-      expect(hitV2, `Expected chat-v2/conversations invalidation; got ${calls.join(" | ")}`).toBe(true);
+      const hitCanonical = calls.some((s) => s.includes(`"chat"`) && s.includes(`"conversations"`));
+      expect(hitCanonical, `Expected chat/conversations invalidation; got ${calls.join(" | ")}`).toBe(true);
     });
   });
 
@@ -549,7 +546,7 @@ describe("agent detail page", () => {
     apiMocks.listAgentsMock.mockResolvedValue([
       { agent_id: "agent-core-1", display_name: "Core Planner", user_id: "user-agent-core-1" }
     ]);
-    apiMocks.createDirectChatByAgentUserIdMock.mockRejectedValue(
+    apiMocks.createConversationMock.mockRejectedValue(
       new Error("POST /im/v1/conversations failed: participant_ids contains unknown users")
     );
 

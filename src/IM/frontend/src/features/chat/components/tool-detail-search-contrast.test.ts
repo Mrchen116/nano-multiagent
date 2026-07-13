@@ -3,7 +3,7 @@
 import { readFileSync } from "node:fs";
 import { expect, it } from "vitest";
 
-const globalCss = readFileSync(new URL("../../../../styles/global.css", import.meta.url), "utf8");
+const globalCss = readFileSync(new URL("../../../styles/global.css", import.meta.url), "utf8");
 
 it("defines explicit dark-card contrast for web search results", () => {
   expect(globalCss).toMatch(

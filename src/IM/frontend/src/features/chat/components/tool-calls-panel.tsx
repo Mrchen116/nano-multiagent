@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 
-import { useTranslation } from "../../../../i18n";
+import { useTranslation } from "../../../i18n";
 import type { ThinkingSegment, ToolCall } from "../chat-types";
 import { ToolDetailBody } from "./tool-detail-renderers";
 import {

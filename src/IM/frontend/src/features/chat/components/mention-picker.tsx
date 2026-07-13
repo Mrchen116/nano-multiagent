@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { useTranslation } from "../../../../i18n";
+import { useTranslation } from "../../../i18n";
 import type { MentionCandidate } from "../chat-types";
 import { Avatar, colorForAgent } from "./avatar";
 

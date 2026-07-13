@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useState } from "react";
 
-import { useTranslation } from "../../../../i18n";
+import { useTranslation } from "../../../i18n";
 import type {
   SlashCandidate,
   SlashCommandCandidate,

@@ -2,7 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import "../../../../i18n";
+import "../../../i18n";
 import type { Conversation } from "../chat-types";
 import { ConversationSidebar } from "./conversation-sidebar";
 

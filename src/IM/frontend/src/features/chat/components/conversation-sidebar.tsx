@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 
-import { useTranslation } from "../../../../i18n";
+import { useTranslation } from "../../../i18n";
 import { classifyConversationKind, type Conversation, type ConversationKind } from "../chat-types";
 import { Avatar, colorForAgent, colorForAgentSeed } from "./avatar";
 import {

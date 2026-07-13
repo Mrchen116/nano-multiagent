@@ -1,7 +1,7 @@
 import { useId, useState } from "react";
 
-import { useTranslation } from "../../../../i18n";
-import { useIsMobile } from "../../../../hooks/use-is-mobile";
+import { useTranslation } from "../../../i18n";
+import { useIsMobile } from "../../../hooks/use-is-mobile";
 import { Avatar, colorForAgent } from "./avatar";
 
 interface AgentRow {

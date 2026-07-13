@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { useIsMobile } from "../../hooks/use-is-mobile";
 import { useTranslation } from "../../i18n";
-import { listConversations } from "../../features/chat/v2/chat-api";
+import { listConversations } from "../../features/chat/chat-api";
 import { useAuthStore } from "../../features/auth/auth-store";
 import { UserMenu } from "./user-menu";
 
@@ -21,7 +21,7 @@ export function AppShell({ children }: PropsWithChildren) {
   const authed = useAuthStore((s) => Boolean(s.user));
 
   const { data: conversations } = useQuery({
-    queryKey: ["chat-v2", "conversations"],
+    queryKey: ["chat", "conversations"],
     queryFn: listConversations,
     enabled: authed && isMobile,
     staleTime: 10_000

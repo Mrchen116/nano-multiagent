@@ -1,5 +1,8 @@
 import { authFetch } from "../../auth/auth-fetch";
-import { normalizeItemsEnvelope } from "../../chat/im-chat-api";
+
+function normalizeItemsEnvelope<T>(payload: { items: T[] } | T[]): T[] {
+  return Array.isArray(payload) ? payload : payload.items;
+}
 
 export interface AgentSummary {
   agent_id: string;

@@ -2,10 +2,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
-import { InAppToast } from "../../chat/components/in-app-toast";
+import { InAppToast } from "./components/in-app-toast";
 
-import { useIsMobile } from "../../../hooks/use-is-mobile";
-import { useTranslation } from "../../../i18n";
+import { useIsMobile } from "../../hooks/use-is-mobile";
+import { useTranslation } from "../../i18n";
 import { colorForAgent } from "./components/avatar";
 import {
   addParticipants,
@@ -26,9 +26,9 @@ import {
   toChatWsEvent,
   type ConversationState
 } from "./chat-stream-reducer";
-import { authFetch } from "../../auth/auth-fetch";
-import { useAuthStore } from "../../auth/auth-store";
-import { subscribeUserStream } from "../../../realtime/user-stream";
+import { authFetch } from "../auth/auth-fetch";
+import { useAuthStore } from "../auth/auth-store";
+import { subscribeUserStream } from "../../realtime/user-stream";
 import {
   classifyConversationKind,
   type Attachment,
@@ -41,7 +41,7 @@ import {
   getAgentCapabilities,
   getAgentConfig,
   normalizeAllowlistOptions,
-} from "../../settings/agents/im-agent-config-api";
+} from "../settings/agents/im-agent-config-api";
 import {
   buildSlashSkills,
   resolveEnabledSkills,
@@ -247,7 +247,7 @@ function mergePermissionRequests(
  *    WS `message.created`; reducer dedupes the echo, so no optimistic insert
  *    is required here.
  */
-export function ChatWorkspacePageV2() {
+export function ChatWorkspacePage() {
   const { conversationId } = useParams();
   const navigate = useNavigate();
   const isMobile = useIsMobile();
@@ -270,7 +270,7 @@ export function ChatWorkspacePageV2() {
   const selfUserId = useAuthStore((s) => s.user?.id ?? null);
 
   const conversationsQuery = useQuery({
-    queryKey: ["chat-v2", "conversations"],
+    queryKey: ["chat", "conversations"],
     queryFn: listConversations
   });
 
@@ -281,7 +281,7 @@ export function ChatWorkspacePageV2() {
 
   const messagesQuery = useQuery({
     enabled: Boolean(conversationId),
-    queryKey: ["chat-v2", "messages", conversationId],
+    queryKey: ["chat", "messages", conversationId],
     queryFn: () => listMessages(conversationId!, { limit: HISTORY_PAGE_SIZE, markAsRead: true }),
     refetchOnWindowFocus: false
   });
@@ -309,17 +309,17 @@ export function ChatWorkspacePageV2() {
   // onSuccess，用 effect 监听每次成功取数(dataUpdatedAt 变化)后刷新会话列表。
   useEffect(() => {
     if (messagesQuery.isSuccess) {
-      void queryClient.invalidateQueries({ queryKey: ["chat-v2", "conversations"] });
+      void queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
     }
   }, [messagesQuery.isSuccess, messagesQuery.dataUpdatedAt, queryClient]);
 
   const agentsQuery = useQuery({
-    queryKey: ["chat-v2", "agents"],
+    queryKey: ["chat", "agents"],
     queryFn: fetchAgents
   });
 
   const nodesQuery = useQuery({
-    queryKey: ["chat-v2", "nodes"],
+    queryKey: ["chat", "nodes"],
     queryFn: fetchNodes
   });
 
@@ -371,7 +371,7 @@ export function ChatWorkspacePageV2() {
   const slashSkillsQuery = useQuery({
     enabled: conversationAgents.length > 0,
     queryKey: [
-      "chat-v2",
+      "chat",
       "slash-skills",
       conversationAgents.map((a) => a.agent_id).sort(),
     ],
@@ -629,7 +629,7 @@ export function ChatWorkspacePageV2() {
       // Fix B: 断线重连后 IM 发 resync 命令时，强制刷新会话列表，防止侧边栏
       // 停在断线期间错过消息的旧快照（对齐 use-global-message-toast 的同路径）。
       onRecovery: async () => {
-        await queryClient.invalidateQueries({ queryKey: ["chat-v2", "conversations"] });
+        await queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
       },
       onEvent: (event) => {
         const chatEvent = toChatWsEvent(event.eventType, event.payload, event.eventId);
@@ -644,7 +644,7 @@ export function ChatWorkspacePageV2() {
           const nodeId = typeof payload.node_id === "string" ? payload.node_id : null;
           const status = typeof payload.status === "string" ? payload.status : null;
           if (!nodeId || !status) return;
-          queryClient.setQueryData<NodeRow[] | undefined>(["chat-v2", "nodes"], (prev) => {
+          queryClient.setQueryData<NodeRow[] | undefined>(["chat", "nodes"], (prev) => {
             if (!prev) return prev;
             let changed = false;
             const next = prev.map((n) => {
@@ -664,11 +664,11 @@ export function ChatWorkspacePageV2() {
           // in Chat are derived from the nodes cache. Find the agent's owning node
           // and patch the nodes cache so sidebar dot, Node chip, and mention
           // candidate status all flip without a network round-trip.
-          const agents = queryClient.getQueryData<AgentRow[]>(["chat-v2", "agents"]);
+          const agents = queryClient.getQueryData<AgentRow[]>(["chat", "agents"]);
           const agentRow = agents?.find((a) => a.agent_id === agentId);
           const nodeId = agentRow?.node_id;
           if (!nodeId) return;
-          queryClient.setQueryData<NodeRow[] | undefined>(["chat-v2", "nodes"], (prev) => {
+          queryClient.setQueryData<NodeRow[] | undefined>(["chat", "nodes"], (prev) => {
             if (!prev) return prev;
             let changed = false;
             const next = prev.map((n) => {
@@ -695,12 +695,12 @@ export function ChatWorkspacePageV2() {
           const payload = event.payload as { conversation_id?: unknown };
           if (payload.conversation_id === conversationIdRef.current) {
             void queryClient.invalidateQueries({
-              queryKey: ["chat-v2", "messages", conversationIdRef.current]
+              queryKey: ["chat", "messages", conversationIdRef.current]
             });
           }
           if (conversationsRefreshTimer.current) clearTimeout(conversationsRefreshTimer.current);
           conversationsRefreshTimer.current = setTimeout(() => {
-            void queryClient.invalidateQueries({ queryKey: ["chat-v2", "conversations"] });
+            void queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
           }, 250);
         }
       }
@@ -724,7 +724,7 @@ export function ChatWorkspacePageV2() {
       // by id so the later WS event (if any) does not double-print.
       dispatch({ type: "append_optimistic", message: created });
       // Bump conversation list ordering on next refetch.
-      void queryClient.invalidateQueries({ queryKey: ["chat-v2", "conversations"] });
+      void queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
     },
     onError: (err) => {
       setSendError(err instanceof Error ? err.message : t("chat.messagePane.sendError"));
@@ -738,7 +738,7 @@ export function ChatWorkspacePageV2() {
       createConversation({ title: payload.name, agentIds: payload.agentIds }),
     onSuccess: (conv) => {
       setShowNewGroup(false);
-      void queryClient.invalidateQueries({ queryKey: ["chat-v2", "conversations"] });
+      void queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
       navigate(`/chat/${conv.id}`);
     }
   });
@@ -751,7 +751,7 @@ export function ChatWorkspacePageV2() {
       forkConversation(conversationId!, messageId),
     onSuccess: async (conv) => {
       setSendError(null);
-      await queryClient.invalidateQueries({ queryKey: ["chat-v2", "conversations"] });
+      await queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
       navigate(`/chat/${conv.id}`);
       setForkToast(true);
     },
@@ -771,7 +771,7 @@ export function ChatWorkspacePageV2() {
   // (the backend emits no conversation-metadata WS events). Dissolve additionally
   // leaves the now-deleted conversation for the list empty state.
   const invalidateConversations = () =>
-    void queryClient.invalidateQueries({ queryKey: ["chat-v2", "conversations"] });
+    void queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
 
   // These four feed GroupSettings via mutateAsync so a rejection propagates to the
   // panel, which renders the error inline (the global sendError toast sits below
@@ -905,7 +905,7 @@ export function ChatWorkspacePageV2() {
         title: `Skill distill · ${agentName}`,
         agentIds: [distillExecutionAgentId],
       });
-      queryClient.setQueryData<Conversation[] | undefined>(["chat-v2", "conversations"], (prev) => {
+      queryClient.setQueryData<Conversation[] | undefined>(["chat", "conversations"], (prev) => {
         const rest = (prev ?? []).filter((c) => c.id !== conv.id);
         return [conv, ...rest];
       });
@@ -920,7 +920,7 @@ export function ChatWorkspacePageV2() {
       setShowDistillDialog(false);
       setDistillMode(false);
       setSelectedDistillConversationIds(new Set());
-      await queryClient.invalidateQueries({ queryKey: ["chat-v2", "conversations"] });
+      await queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
       navigate(`/chat/${conv.id}`);
     } catch (err) {
       setDistillError(err instanceof Error ? err.message : t("chat.distill.startError"));

@@ -5,7 +5,7 @@
 // + typed error mapping so the caller can render i18n'd toasts.
 
 import { authFetch } from "../../auth/auth-fetch";
-import type { Attachment } from "../v2/chat-types";
+import type { Attachment } from "../chat-types";
 
 export type AttachmentUploadErrorCode = "unsupportedType" | "tooLarge" | "network";
 

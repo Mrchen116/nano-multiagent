@@ -1,4 +1,4 @@
-import type { AgentAllowlistOption } from "../../../settings/agents/im-agent-config-api";
+import type { AgentAllowlistOption } from "../../settings/agents/im-agent-config-api";
 
 /**
  * feat-430: slash picker candidate model + pure assembly helpers.

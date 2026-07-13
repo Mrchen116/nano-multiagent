@@ -1,4 +1,4 @@
-import { useTranslation } from "../../../../i18n";
+import { useTranslation } from "../../../i18n";
 import type { ConversationKind } from "../chat-types";
 
 const VARIANT: Record<ConversationKind, string> = {

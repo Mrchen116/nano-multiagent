@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 
-import { useTranslation } from "../../../../i18n";
+import { useTranslation } from "../../../i18n";
 import { Avatar, colorForAgent } from "./avatar";
 
 // Fixed (non-agent) avatar colour for the human "you" member — agents derive

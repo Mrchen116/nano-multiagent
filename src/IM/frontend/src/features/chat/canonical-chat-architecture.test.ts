@@ -13,9 +13,7 @@ const LEGACY_FILES = [
   "im-chat-api.test.ts",
   "mock-chat-api.ts",
   "types.ts",
-  "components/conversation-list.tsx",
-  "components/message-pane.tsx",
-  "components/message-pane.test.tsx"
+  "components/conversation-list.tsx"
 ];
 
 function walk(dir: string, out: string[] = []): string[] {

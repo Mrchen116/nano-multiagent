@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 
-import "../../../../i18n";
+import "../../../i18n";
 import type { ThinkingSegment, ToolCall } from "../chat-types";
 import { ToolCallsPanel } from "./tool-calls-panel";
 
@@ -1195,7 +1195,7 @@ describe("feat-414-M1 · collapsed toggle has no total duration (W3)", () => {
 // feat-434-M1: inline gate region (是否授权) vs result region (执行结果), denied dedup,
 // failTag i18n, collapsed-state approval count suffix. Default test locale is "en";
 // the gate/result/count assertions run in zh and en where the文案随语言.
-import { setLanguage } from "../../../../i18n";
+import { setLanguage } from "../../../i18n";
 
 describe("ToolCallsPanel · approval gate region (feat-434-M1)", () => {
   // locale-robust: the toggle button text is localized, so query it by class
