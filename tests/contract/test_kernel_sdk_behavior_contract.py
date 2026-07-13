@@ -214,6 +214,55 @@ async def test_session_interrupt_returns_run_id(tmp_path: Path) -> None:
         kernel.close()
 
 
+async def test_session_interrupt_cancels_run_and_unblocks_next_turn(
+    tmp_path: Path,
+) -> None:
+    """interrupt() must terminalize the run before the session can continue."""
+    started = threading.Event()
+
+    class _InterruptibleFirstClient:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def generate(self, request: Any):  # noqa: ANN001, ANN201
+            self.calls += 1
+            if self.calls == 1:
+                return self._block_forever()
+            return _async_stub_messages("continued-after-interrupt")
+
+        async def _block_forever(self):  # noqa: ANN202
+            started.set()
+            await asyncio.Future()
+            yield  # pragma: no cover - makes this an async generator
+
+    kernel = _build_kernel(
+        tmp_path,
+        _llm_client_override=_InterruptibleFirstClient(),
+    )
+    try:
+        session = await kernel.create_session(workspace_root=tmp_path)
+        interrupted_run = kernel.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "block forever"}],
+            workspace_root=tmp_path,
+        )
+        assert await asyncio.to_thread(started.wait, 1.0)
+
+        assert kernel.interrupt(session.session_id) == interrupted_run.run_id
+        terminal = await _wait_for_terminal_run(kernel, interrupted_run.run_id)
+        assert terminal.status == "cancelled"
+
+        continued_run = kernel.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "continue"}],
+            workspace_root=tmp_path,
+        )
+        continued = await _wait_for_terminal_run(kernel, continued_run.run_id)
+        assert continued.status == "completed"
+    finally:
+        kernel.close()
+
+
 # ---------------------------------------------------------------------------
 # LLM config
 # ---------------------------------------------------------------------------
