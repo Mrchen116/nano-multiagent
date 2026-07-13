@@ -20,7 +20,7 @@ WT_ROOT="${PWD}"
 GATEWAY_GRACE_SECONDS=5
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --wt) WT_ROOT="$(cd "$2" && pwd)"; shift 2 ;;
+    --wt) WT_ROOT="$(cd "$2" && pwd -P)"; shift 2 ;;
     -h|--help) sed -n '1,/^set -e/p' "$0" | sed -n '2,/^$/p'; exit 0 ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
@@ -74,6 +74,7 @@ PY
   live_command="$(ps -p "$gw_pid" -o command= 2>/dev/null)"
   live_start="$(ps -p "$gw_pid" -o lstart= 2>/dev/null | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
   "$PYTHON_BIN" - "$live_command" "$identity_config" "$live_start" "$identity_start" <<'PY'
+from pathlib import Path
 import shlex
 import sys
 
@@ -90,7 +91,7 @@ config_indexes = [index for index, value in enumerate(argv) if value == "--confi
 config_ok = (
     len(config_indexes) == 1
     and config_indexes[0] + 1 < len(argv)
-    and argv[config_indexes[0] + 1] == expected_config
+    and Path(argv[config_indexes[0] + 1]).resolve() == Path(expected_config).resolve()
 )
 foreground_ok = argv.count("--foreground") == 1
 auto_bind_ok = argv.count("--auto-bind") == 1
