@@ -204,6 +204,39 @@ describe("user stream runtime", () => {
     expect(errors).toHaveLength(3);
   });
 
+  it("keeps resume, event dispatch, ping, and in-tab cursor continuity when storage throws", async () => {
+    const received = vi.fn();
+    const storageError = new DOMException("blocked", "SecurityError");
+    const { runtime, errors } = setup({
+      readCursor: () => {
+        throw storageError;
+      },
+      writeCursor: () => {
+        throw storageError;
+      }
+    });
+    runtime.subscribe({ onEvent: received });
+    await settle();
+
+    const first = FakeSocket.instances[0]!;
+    expect(() => first.open()).not.toThrow();
+    expect(first.sent).toContain(JSON.stringify({ op: "resume", after_event_id: 0 }));
+    expect(() =>
+      first.message({ op: "event", event_type: "message.created", data: { event_id: 7, content: "visible" } })
+    ).not.toThrow();
+    expect(received).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(25_000);
+    expect(first.sent).toContain(JSON.stringify({ op: "ping" }));
+    first.disconnect();
+    await vi.advanceTimersByTimeAsync(1000);
+    await settle();
+    const second = FakeSocket.instances[1]!;
+    expect(() => second.open()).not.toThrow();
+    expect(second.sent).toContain(JSON.stringify({ op: "resume", after_event_id: 7 }));
+    expect(errors.length).toBeGreaterThan(0);
+  });
+
   it("aligns resync with max cursor and settles isolated recovery callbacks once per generation", async () => {
     sessionStorage.setItem("cursor:user-a", "12");
     let releaseSync!: (value: { maxEventId: number }) => void;
