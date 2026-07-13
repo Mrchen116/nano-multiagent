@@ -626,10 +626,19 @@ export function ChatWorkspacePage() {
   // Mirrors the pattern used by nodes-page.tsx and agent-status-ws-consumer.ts.
   useEffect(() => {
     const dispose = subscribeUserStream({
-      // Fix B: 断线重连后 IM 发 resync 命令时，强制刷新会话列表，防止侧边栏
-      // 停在断线期间错过消息的旧快照（对齐 use-global-message-toast 的同路径）。
       onRecovery: async () => {
-        await queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
+        const activeConversationId = conversationIdRef.current;
+        const queryKeys = [
+          ["chat", "conversations"],
+          ["chat", "agents"],
+          ["chat", "nodes"],
+          ...(activeConversationId ? [["chat", "messages", activeConversationId]] : [])
+        ];
+        const results = await Promise.allSettled(
+          queryKeys.map((queryKey) => queryClient.invalidateQueries({ queryKey }))
+        );
+        const failure = results.find((result) => result.status === "rejected");
+        if (failure?.status === "rejected") throw failure.reason;
       },
       onEvent: (event) => {
         const chatEvent = toChatWsEvent(event.eventType, event.payload, event.eventId);

@@ -79,6 +79,14 @@ export async function ensureFreshSession(): Promise<SessionReadiness> {
   if (!userId || !accessToken) return { status: "signed_out" };
   if (isFresh(accessToken)) return { status: "ready", userId, accessToken };
 
+  return forceRefreshSession();
+}
+
+/** Refreshes the active session even when its access-token expiry is still distant. */
+export async function forceRefreshSession(): Promise<SessionReadiness> {
+  const current = useAuthStore.getState();
+  const userId = current.user?.id;
+  if (!userId || !current.accessToken) return { status: "signed_out" };
   const refreshToken = current.refreshToken;
   if (!refreshToken) {
     useAuthStore.getState().clear();

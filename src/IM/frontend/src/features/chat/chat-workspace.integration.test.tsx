@@ -836,10 +836,10 @@ describe("ChatWorkspacePage — integration", () => {
 
     expect(await screen.findByText("message restored from REST after recovery")).toBeInTheDocument();
     expect(screen.queryByText("Hi Planner")).not.toBeInTheDocument();
-    expect(await screen.findByText("Recovered Planner")).toBeInTheDocument();
+    expect((await screen.findAllByText("Recovered Planner")).length).toBeGreaterThanOrEqual(2);
     const recoveredChip = await screen.findByText("recovered-node");
     expect(recoveredChip.closest(".chat-node-chip")).not.toHaveClass("chat-node-chip--online");
-    expect(screen.getByText("RE")).toBeInTheDocument();
+    expect(screen.getAllByText("RE").length).toBeGreaterThanOrEqual(1);
   });
 
   it("re-fetches conversations after reading so the unread badge can clear", async () => {

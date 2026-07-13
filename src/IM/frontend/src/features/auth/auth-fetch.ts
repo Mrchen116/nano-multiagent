@@ -1,6 +1,6 @@
 import { useAuthStore } from "./auth-store";
 import { withBase } from "./auth-api";
-import { ensureFreshSession } from "./auth-session";
+import { forceRefreshSession } from "./auth-session";
 
 function buildHeaders(init: RequestInit | undefined, token: string | null): Headers {
   const headers = new Headers(init?.headers ?? {});
@@ -29,7 +29,7 @@ export async function authFetch(path: string, init?: RequestInit): Promise<Respo
   const firstHeaders = buildHeaders(init, initialToken);
   const first = await fetch(url, { ...init, headers: firstHeaders });
   if (first.status !== 401) return first;
-  const readiness = await ensureFreshSession();
+  const readiness = await forceRefreshSession();
   if (readiness.status !== "ready" || readiness.userId !== initialUserId) return first;
   const retryHeaders = buildHeaders(init, readiness.accessToken);
   return fetch(url, { ...init, headers: retryHeaders });
