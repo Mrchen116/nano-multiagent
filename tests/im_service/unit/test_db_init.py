@@ -47,6 +47,65 @@ def test_initialize_schema_is_idempotent(tmp_path: Path) -> None:
     assert "idx_conversations_external_identity_unique" in conversation_indexes
 
 
+def test_initialize_schema_owns_dispatch_log_without_changing_legacy_rows(
+    tmp_path: Path,
+) -> None:
+    """Schema bootstrap preserves the handler-era dispatch table shape and data."""
+    connection = connect(tmp_path / "legacy-dispatch.db")
+    connection.execute(
+        """
+        CREATE TABLE agent_message_dispatch_log (
+            dispatch_request_key TEXT PRIMARY KEY,
+            source_agent_id TEXT NOT NULL,
+            target_kind TEXT NOT NULL,
+            target_id TEXT NOT NULL,
+            conversation_id TEXT NOT NULL,
+            message_id TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        """
+        INSERT INTO agent_message_dispatch_log(
+            dispatch_request_key, source_agent_id, target_kind, target_id,
+            conversation_id, message_id, created_at
+        ) VALUES ('A:call-1', 'A', 'agent_id', 'B', 'conv-1', 'msg-1', '2026-01-01T00:00:00Z')
+        """
+    )
+    connection.commit()
+
+    initialize_schema(connection)
+
+    columns = [
+        (row["name"], row["type"], row["notnull"], row["pk"])
+        for row in connection.execute(
+            "PRAGMA table_info(agent_message_dispatch_log)"
+        ).fetchall()
+    ]
+    row = connection.execute(
+        "SELECT * FROM agent_message_dispatch_log WHERE dispatch_request_key = 'A:call-1'"
+    ).fetchone()
+    assert columns == [
+        ("dispatch_request_key", "TEXT", 0, 1),
+        ("source_agent_id", "TEXT", 1, 0),
+        ("target_kind", "TEXT", 1, 0),
+        ("target_id", "TEXT", 1, 0),
+        ("conversation_id", "TEXT", 1, 0),
+        ("message_id", "TEXT", 1, 0),
+        ("created_at", "TEXT", 1, 0),
+    ]
+    assert tuple(row) == (
+        "A:call-1",
+        "A",
+        "agent_id",
+        "B",
+        "conv-1",
+        "msg-1",
+        "2026-01-01T00:00:00Z",
+    )
+
+
 def test_initialize_schema_migrates_legacy_conversations_before_external_index(
     tmp_path: Path,
 ) -> None:

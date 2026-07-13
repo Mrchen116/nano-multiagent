@@ -1,9 +1,16 @@
 """Conversation routes for IM HTTP APIs."""
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field, model_validator
 
-from IM.api.deps import current_user, get_gateway_handler, get_web_im_service
+from IM.api.deps import (
+    current_user,
+    get_event_service,
+    get_gateway_handler,
+    get_profile_repository,
+    get_web_im_service,
+)
+from IM.application.event_service import EventService
 from IM.application.web_im_service import (
     AgentOfflineError,
     ForkDelegationError,
@@ -14,7 +21,6 @@ from IM.application.web_im_service import (
 from IM.domain.models import Conversation, User
 from IM.infra.repositories import AgentProfileRepository
 from IM.ws.gateway_handler import GatewayHandler
-from IM.ws.user_stream import global_max_event_id
 
 router = APIRouter(tags=["web-im"])
 
@@ -213,17 +219,16 @@ def create_conversation(
 async def fork_conversation(
     conversation_id: str,
     payload: ForkConversationRequest,
-    request: Request,
     user: User = Depends(current_user),
     service: WebIMService = Depends(get_web_im_service),
     gateway_handler: GatewayHandler = Depends(get_gateway_handler),
+    profiles: AgentProfileRepository = Depends(get_profile_repository),
 ) -> ConversationResponse:
     """Fork a direct agent chat at one completed agent reply into a new branch chat.
 
     The online check and the kernel session fork both reach the agent's owning node over
     the gateway WS — wired here as delegates so WebIMService stays WS-agnostic.
     """
-    profiles = AgentProfileRepository(request.app.state.connection)
 
     async def _check_agent_online(agent_id: str) -> bool:
         profile = profiles.get_profile(agent_id=agent_id)
@@ -312,7 +317,7 @@ def find_or_create_external_conversation(
         f"agent:{payload.agent_id}",
     ]
     try:
-        conversation, created = service.find_or_create_external_conversation(
+        result = service.find_or_create_external_conversation(
             external_source=payload.external_source,
             external_chat_id=payload.external_chat_id,
             agent_id=payload.agent_id,
@@ -326,9 +331,9 @@ def find_or_create_external_conversation(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
         ) from exc
-    if not created:
+    if not result.created:
         response.status_code = status.HTTP_200_OK
-    persisted = service.get_conversation(conversation_id=conversation.id)
+    persisted = service.get_conversation(conversation_id=result.conversation.id)
     assert persisted is not None
     return to_conversation_response(persisted).model_copy(
         update={
@@ -341,16 +346,16 @@ def find_or_create_external_conversation(
 
 @router.get("/im/v1/sync", response_model=ImSyncResponse)
 def sync_im_state(
-    request: Request,
     user: User = Depends(current_user),
     service: WebIMService = Depends(get_web_im_service),
+    event_service: EventService = Depends(get_event_service),
 ) -> ImSyncResponse:
     """返回会话列表与全局 max(event_id)，供用户 WebSocket resync_required 后对齐客户端游标。"""
     items = [
         to_conversation_response(item)
         for item in service.list_conversations_for_owner(owner_id=user.owner_id)
     ]
-    max_event_id = global_max_event_id(request.app.state.connection)
+    max_event_id = event_service.global_max_event_id()
     return ImSyncResponse(items=items, max_event_id=max_event_id)
 
 

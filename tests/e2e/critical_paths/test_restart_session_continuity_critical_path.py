@@ -21,6 +21,47 @@ from ._im_client import IMClient, restart_gateway
 
 
 @pytest.mark.e2e
+def test_restart_readiness_rejects_old_process_shutdown_heartbeat(monkeypatch) -> None:
+    """Only a heartbeat after old-process termination proves replacement readiness."""
+    client = IMClient("http://unused")
+    snapshots = iter(
+        [
+            [
+                {
+                    "node_id": "node-1",
+                    "status": "online",
+                    "last_heartbeat_at": "2026-07-11T11:00:01Z",
+                }
+            ],
+            [
+                {
+                    "node_id": "node-1",
+                    "status": "offline",
+                    "last_heartbeat_at": "2026-07-11T11:00:01Z",
+                }
+            ],
+            [
+                {
+                    "node_id": "node-1",
+                    "status": "online",
+                    "last_heartbeat_at": "2026-07-11T11:00:03Z",
+                }
+            ],
+        ]
+    )
+    monkeypatch.setattr(client, "list_nodes", lambda: next(snapshots))
+
+    reconnected = client.wait_for_node_reconnect(
+        node_id="node-1",
+        replacement_started_after="2026-07-11T11:00:02Z",
+        timeout=2.0,
+    )
+
+    assert reconnected["last_heartbeat_at"] == "2026-07-11T11:00:03Z"
+    client.close()
+
+
+@pytest.mark.e2e
 def test_context_survives_gateway_restart(
     im_user: IMClient, e2e_stack: E2EStack
 ) -> None:
@@ -41,9 +82,14 @@ def test_context_survives_gateway_restart(
         ws.close()
 
     # 阶段 2:重启 Gateway 进程(同 config → node_id / workspace / 会话历史不变)。
-    restart_gateway(e2e_stack.wt_dir, e2e_stack.im_port)
-    # 重启后等节点重新上线再发后续消息。
-    im_user.wait_for_online_node(timeout=40)
+    replacement_started_after = restart_gateway(e2e_stack.wt_dir, e2e_stack.im_port)
+    # 仅有 durable online 不足以证明 replacement WS 已注册；必须观察到旧
+    # Gateway 完全终止后产生的新 heartbeat generation 才发后续消息。
+    im_user.wait_for_node_reconnect(
+        node_id=e2e_stack.node_id,
+        replacement_started_after=replacement_started_after,
+        timeout=40,
+    )
 
     # 阶段 3:重连 WS,让 agent 复述哨兵,断言回复仍含它 → 上下文确实续接。
     ws2 = im_user.connect_ws()

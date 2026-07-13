@@ -32,11 +32,6 @@ def _make_minimal_handler(
     relay_service = MagicMock()
     relay_service.get_relay_task = MagicMock(return_value=None)
 
-    conv_repo = MagicMock()
-    conn = MagicMock()
-    conn.execute.return_value.fetchone.return_value = None
-    conv_repo._connection = conn
-
     event_repo = MagicMock()
     event_repo.append_event.return_value = ConversationEvent(
         event_id=1,
@@ -50,7 +45,6 @@ def _make_minimal_handler(
 
     handler = GatewayHandler(
         relay_service=relay_service,
-        conversation_repository=conv_repo,
         event_repository=event_repo,
         user_stream_registry=user_stream_registry or UserStreamRegistry(),
         event_bridge=event_bridge,
@@ -313,15 +307,9 @@ class TestRelayReportTokenUsage:
         event_repo.update_message_delivery_status = MagicMock()
 
         relay_service = MagicMock()
-        conv_repo = MagicMock()
-        conn = MagicMock()
-        conn.execute.return_value.fetchone.return_value = None
-        conv_repo._connection = conn
-
         handler = GatewayHandler(
             relay_service=relay_service,
             event_repository=event_repo,
-            conversation_repository=conv_repo,
         )
         payload = {
             "node_id": "node-1",

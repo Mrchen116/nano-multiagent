@@ -11,8 +11,7 @@ import os
 import signal
 import subprocess
 import time
-
-from ._im_polling import poll_until
+from datetime import datetime, timezone
 
 
 def _terminate_process_group(pid: int, *, grace: float = 10.0) -> None:
@@ -55,13 +54,14 @@ def _terminate_process_group(pid: int, *, grace: float = 10.0) -> None:
         pass
 
 
-def restart_gateway(wt_dir: str, im_port: str) -> None:
+def restart_gateway(wt_dir: str, im_port: str) -> str:
     """重启 worktree 内的 Gateway 进程,复用同 config(保 node_id / workspace → 验续接)。
 
     e2e-up.sh 用 ``--foreground`` 起 Gateway(范式 B),pid 落在 ``$wt_dir/.gateway.pid``。
     先优雅杀**整个进程组**(避免 relay/heartbeat worker 成孤儿),再用同一份
     ``.gateway-config.yaml`` 以 ``start_new_session`` 重起(让新 Gateway 成进程组长,
-    便于本函数下次/teardown 整组清理),等就绪标志出现。
+    便于本函数下次/teardown 整组清理)。调用 journey 通过 IM 公开
+    node generation 判定就绪，本函数不重复解读私有日志 marker。
     """
     pid_file = os.path.join(wt_dir, ".gateway.pid")
     cfg = os.path.join(wt_dir, ".gateway-config.yaml")
@@ -73,6 +73,12 @@ def restart_gateway(wt_dir: str, im_port: str) -> None:
             old_pid = int(f.read().strip())
         _terminate_process_group(old_pid)
 
+    # Old-process shutdown may persist one final heartbeat. Readiness must use a
+    # generation floor sampled only after termination has completed.
+    replacement_started_after = (
+        datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    )
+
     # 2) 重起(复用同 config 同 node_id → 工作区/会话续接)。
     # repo_root 从本测试文件位置反推(tests/e2e/critical_paths → repo),
     # 不依赖 wt_dir 是 git 仓(它是 pytest tmp,非 checkout)。
@@ -82,45 +88,29 @@ def restart_gateway(wt_dir: str, im_port: str) -> None:
     env = dict(os.environ)
     env["PYTHONPATH"] = os.path.join(repo_root, "src")
     log_handle = open(log, "a")
-    proc = subprocess.Popen(
-        [
-            "python",
-            "-m",
-            "personal_assistant.main",
-            "--config",
-            cfg,
-            "--im-service-url",
-            f"http://127.0.0.1:{im_port}",
-            "--foreground",
-            "--auto-bind",
-        ],
-        cwd=repo_root,
-        env=env,
-        stdout=log_handle,
-        stderr=subprocess.STDOUT,
-        start_new_session=True,  # 新进程组 → 后续可整组 killpg,worker 不成孤儿。
-    )
+    try:
+        proc = subprocess.Popen(
+            [
+                "python",
+                "-m",
+                "personal_assistant.main",
+                "--config",
+                cfg,
+                "--im-service-url",
+                f"http://127.0.0.1:{im_port}",
+                "--foreground",
+                "--auto-bind",
+            ],
+            cwd=repo_root,
+            env=env,
+            stdout=log_handle,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,  # 新进程组 → 后续可整组 killpg,worker 不成孤儿。
+        )
+    finally:
+        log_handle.close()
     with open(pid_file, "w") as f:
         f.write(str(proc.pid))
-
-    # 3) 等就绪标志(沿用 e2e-up.sh 的探测口径)。
-    ready_markers = (
-        "auto-bound to IM",
-        "Gateway started",
-        "node_id=",
-        "im_connection",
-    )
-
-    def _ready() -> bool:
-        if proc.poll() is not None:
-            raise AssertionError(f"gateway died during restart; see {log}")
-        try:
-            with open(log) as f:
-                tail = f.read()
-        except FileNotFoundError:
-            return False
-        return any(marker in tail for marker in ready_markers)
-
-    poll_until(
-        _ready, lambda r: r, timeout=40.0, interval=0.5, desc="gateway readiness"
-    )
+    if proc.poll() is not None:
+        raise AssertionError(f"gateway died during restart; see {log}")
+    return replacement_started_after

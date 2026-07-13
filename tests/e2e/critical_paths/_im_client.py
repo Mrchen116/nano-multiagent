@@ -103,6 +103,43 @@ class IMClient:
         )
         return next(n["node_id"] for n in nodes if n.get("status") == "online")
 
+    def wait_for_node_reconnect(
+        self,
+        *,
+        node_id: str,
+        replacement_started_after: str,
+        timeout: float = 40.0,
+    ) -> dict[str, Any]:
+        """Wait until the same node proves a post-restart online generation.
+
+        The old Gateway may persist a final heartbeat during shutdown. Readiness
+        therefore requires a timestamp strictly after termination completed and the
+        replacement process was about to start.
+        """
+
+        def _reconnected(nodes: list[dict[str, Any]]) -> bool:
+            return any(
+                node.get("node_id") == node_id
+                and node.get("status") == "online"
+                and isinstance(node.get("last_heartbeat_at"), str)
+                and node["last_heartbeat_at"] > replacement_started_after
+                for node in nodes
+            )
+
+        nodes = poll_until(
+            self.list_nodes,
+            _reconnected,
+            timeout=timeout,
+            desc=f"node {node_id!r} post-restart online generation",
+        )
+        return next(
+            node
+            for node in nodes
+            if node.get("node_id") == node_id
+            and node.get("status") == "online"
+            and node.get("last_heartbeat_at") > replacement_started_after
+        )
+
     def list_agents(self) -> list[dict[str, Any]]:
         resp = self._http.get("/im/v1/agents", headers=self._auth_headers)
         resp.raise_for_status()
