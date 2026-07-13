@@ -7,6 +7,7 @@
 - 基线：全量 Vitest 62 files / 574 tests passed；`npm run build` passed；ownership contract 3 passed。
 - 根因摘要：Chat recovery 仅刷新 conversations；HTTP 401 调 freshness-aware entry 会复用仍 fresh 的旧 token；production cursor 直接调用 sessionStorage，异常可中断 open/dispatch；TanStack 默认吞 refetch error；bind confirm ref 未按 token 分区；toast 仍识别 legacy `message_created` 且未聚合 canonical completion；direct Web IM visibility policy 把 NO_REPLY 当 literal；Agent detail 对同一 summary endpoint 建第二 key；Chat 保留未调用 mention API 和私有 JSON parser；ownership guard 禁止所有非 runtime WebSocket。
 - 范围扩展：orchestrator 确认 direct Web IM NO_REPLY 必须在 Gateway canonical responsibility 修复，授权最窄 runtime-delivery policy/tests；不改变外部 channel/其他 delivery context，不由 worker 修改 design。
+- 第二次范围扩展：修复 Gateway policy 后，真 WS 取证发现 repository 直接插入 tombstone 未触发 live notify，且 replay wire 把 nullable FK 覆盖到 payload 的 provisional id。orchestrator 授权仅修这两处 IM seam，并要求 ordinary/external delivery 回归与真实 UI 撤泡证明。
 
 ## R1 — auth/runtime 与 Chat recovery 连续性
 
@@ -51,11 +52,16 @@
 
 ## R4 — Agent 详情去重与全量验收
 
-- Status: TODO
-- Context: 详情页为仅需 display name 的直聊操作重复拉 Agent summary；M3 完成必须重新跑全部门禁和真栈旅程。
-- Decision: pending C1 red tests.
-- Rationale: pending.
-- Evidence: pending.
-- Rollback: pending.
-- Commits: pending.
-- Next: R3 完成后进入。
+- Status: DONE
+- Context: 详情页为仅需 display name 的直聊操作重复拉 Agent summary；Gateway policy 修复后的真实 WS 又暴露 tombstone live publish/replay identity 两个 IM 缺口。
+- Decision: Agent detail 只保留编辑 draft，以 `draft.display_name || agentId` 创建 direct chat；`MessageRepository.discard_running_agent_message()` 在事务提交后调用已有 `_notify` 一次；wire data 仅在 event FK 非空时以 FK 覆盖 payload，nullable tombstone FK 保留 payload provisional id。
+- Rationale: Open chat 不应维护第二份 summary cache；app 为普通事件由 `EventRepository` notify，而 discard 路径绕过该 repository 直接插入 event，故必须在消息事务完成后显式发布且不能事务内重复；tombstone 删除消息行后 FK 必然为空，provisional id 的唯一权威来源是 payload，普通事件仍以 FK 防御 stale payload。
+- Evidence:
+  - C1 Agent detail 红测：首次详情加载仍发生第二次 summary fetch；修复后 27/27 tests passed，production build passed。
+  - C1 IM 红测：EventBridge 未配置 notify 的真实装配下，discard 后 repository callback 为 0 次；wire replay 把 payload provisional id 覆盖成 `None`。修复后 event bridge/user stream/Gateway focused selection 15 passed，ordinary/external/heartbeat 集中回归 66 passed。
+  - 全量：frontend 62 files / 581 tests passed，production build passed；`ruff check src tests` passed；`pytest -m "not e2e"` 3505 passed / 1 skipped / 23 deselected。
+  - 真栈：`e2e-critical.sh -m "not slow"` 15 passed / 2 deselected；真实 Gateway/IM/LLM/WS 与 Playwright 验证 NO_REPLY provisional bubble 在线撤销且 reload 后无 Agent row，非当前 Agent reply 同步 toast + unread + preview + 置顶，Agent 详情 Open chat 进入新 direct conversation。完整记录与截图见 `evidence/acceptance.md`。
+  - 全量 e2e 首次运行已先通过 7 条路径，随后既有 slow heartbeat wait 命中 pytest 全局 timeout；按脚本支持的 `not slow` profile 重跑后所有 15 条非 time-driven 路径通过。
+- Rollback: 回退 Agent detail C2 `85f58218` 与 IM tombstone C2 `f662b8f2`；C1 `9bfac678` / `e854260b` 保留缺口回归。
+- Commits: Agent detail C1=`9bfac678`, C2=`85f58218`; tombstone feedback C1=`e854260b`, C2=`f662b8f2`; C3=本提交。
+- Next: milestone 合入 `unit/refactor-460`，由 orchestrator 进入 unit-level verification/review。

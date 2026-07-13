@@ -8,20 +8,21 @@
 
 ## 退出标准
 
-- [ ] Chat recovery 实际重读当前 messages、conversations、agents、nodes 四类权威快照并让页面收敛。
-- [ ] 本地仍 fresh 但被服务端 401 拒绝的 access token 经同一 module-level single-flight 强制 refresh；网络/5xx、refresh 401 与 A→B guard 语义不回退。
-- [ ] `sessionStorage` 读写失败时 user stream 仍可 resume/ping/分发，且标签页内 cursor 保持单调连续。
-- [ ] bind reconciliation 使用真实 QueryClient 传播 refetch 失败，不失败导航；同 token 重试不二次 confirm，token A/B 的成功结果隔离。
-- [ ] direct Web IM 的协议静默 token 在 Gateway 源头产生 `message_discarded`，在线撤销 provisional bubble 且刷新历史无消息；外部 channel/其他 delivery context 语义不变。
-- [ ] 在线非当前会话 Agent reply 同步触发 toast、权威会话 refetch（未读/preview/排序）；当前会话与 self-authored user message 不误报。
-- [ ] 删除未调用 mention API/私有 initials、Agent 详情重复 summary query；直聊继续使用 draft display name。
-- [ ] canonical Chat JSON 调用复用 auth transport/error seam，保持既有用户可见错误文本；ownership contract 只约束 `/im/ws/user` 的唯一 owner。
-- [ ] 定向测试、全量 Vitest/build、ownership contract、`pytest -m "not e2e"` 与受影响真栈旅程通过，证据持久化在 `evidence/`。
+- [x] Chat recovery 实际重读当前 messages、conversations、agents、nodes 四类权威快照并让页面收敛。
+- [x] 本地仍 fresh 但被服务端 401 拒绝的 access token 经同一 module-level single-flight 强制 refresh；网络/5xx、refresh 401 与 A→B guard 语义不回退。
+- [x] `sessionStorage` 读写失败时 user stream 仍可 resume/ping/分发，且标签页内 cursor 保持单调连续。
+- [x] bind reconciliation 使用真实 QueryClient 传播 refetch 失败，不失败导航；同 token 重试不二次 confirm，token A/B 的成功结果隔离。
+- [x] direct Web IM 的协议静默 token 在 Gateway 源头产生 `message_discarded`，在线撤销 provisional bubble 且刷新历史无消息；外部 channel/其他 delivery context 语义不变。
+- [x] 在线非当前会话 Agent reply 同步触发 toast、权威会话 refetch（未读/preview/排序）；当前会话与 self-authored user message 不误报。
+- [x] 删除未调用 mention API/私有 initials、Agent 详情重复 summary query；直聊继续使用 draft display name。
+- [x] canonical Chat JSON 调用复用 auth transport/error seam，保持既有用户可见错误文本；ownership contract 只约束 `/im/ws/user` 的唯一 owner。
+- [x] 定向测试、全量 Vitest/build、ownership contract、`pytest -m "not e2e"` 与受影响真栈旅程通过，证据持久化在 `evidence/`。
 
 ## 范围扩展记录
 
 - Round 1 真栈证明 direct Web IM 的 `NO_REPLY` 被持久化。取证定位到 Gateway `RunDeliveryContext.visibility_policy` 将 direct Web IM 设为 `literal_text`；前端已正确消费 `message.discarded`，在 UI 过滤会掩盖历史错误。
 - orchestrator 已明确授权 M3 做最窄 Gateway runtime-delivery policy + 测试修复，仅改变 direct Web IM 协议静默语义；不修改 `design.md`，由 orchestrator 合入后校正 M3 范围表。
+- 修复 Gateway policy 后的真 WS 验收进一步证明 tombstone 未在线发布，且 replay 的 nullable event FK 会覆盖 payload 中被删除消息的 provisional id。orchestrator 再次授权最窄 IM 修复：`MessageRepository` 在事务提交后通过既有 `_notify` 回调发布一次 tombstone；wire serialization 仅在 FK `message_id` 非空时覆盖 payload。普通事件仍以 FK 为权威，外部 channel 语义不变。
 
 ## 测试策略
 
@@ -85,7 +86,7 @@ N/A：design 明确不改变 UI/交互/视觉，不产 prototype；以当前真�
 - 步骤：红测锁定 direct Web IM NO_REPLY discard、canonical agent created→completed toast/refetch、dead mention API 删除与共享 JSON error seam；Gateway 仅为 `web_relay` run 启用协议静默，按 message id 聚合 canonical 完成事件，删除重复 helper/API。
 - 验证：Gateway runtime delivery unit + FK-enforced real handler、toast/chat API/reducer/workspace 定向测试、frontend build；真进程/浏览器验收并入 R4。
 
-### R4 — Agent 详情去重与全量验收
+### R4 — Agent 详情去重与全量验收（DONE）
 
-- 步骤：红测证明详情页不为 Open chat 创建第二个 Agent summary query，并以 draft display name 创建直聊；删除重复 query/state/stale 叙事，完成全量门禁与桌面/移动真栈回归。
-- 验证：Agent detail 定向测试；全量 Vitest/build/contract/non-e2e/e2e-critical；持久化 evidence。
+- 步骤：红测证明详情页不为 Open chat 创建第二个 Agent summary query，并以 draft display name 创建直聊；删除重复 query/state/stale 叙事。真 WS 验收发现并修复 tombstone commit 后未 notify 与 nullable FK 覆盖 payload id 两个窄缺口，完成全量门禁与真栈浏览器回归。
+- 验证：Agent detail 定向测试；IM repository/wire/replay 与普通/外部 delivery 回归；全量 Vitest/build/contract/non-e2e；e2e-critical 非 slow；真实浏览器 NO_REPLY 撤泡/刷新、非当前会话 toast/unread/preview/排序、Agent 详情 Open chat。证据见 `evidence/acceptance.md`。
