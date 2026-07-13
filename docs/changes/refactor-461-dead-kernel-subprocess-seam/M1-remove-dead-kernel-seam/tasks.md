@@ -28,15 +28,18 @@ Gateway 只保留自身后台进程与进程内 Kernel 的真实拓扑；旧 Ker
 
 ### R1 — 收口 Gateway lifecycle 配置与迁移备份
 
+- 状态：DONE
 - 步骤：先补 default/legacy/new+legacy/save/backup 红测；再以 `GatewayLifecycleConfig` / `LocalConfig.gateway` 替代 `KernelConfig`，实现 parser-edge 逐字段迁移、canonical save 与所有 config 的一次性原字节 migration backup；机械迁移受影响 fixtures。
 - 验证：`test_local_store.py` 覆盖退出标准；最窄受影响 PA tests 全绿；死 Kernel 连接字段不再验证或进入 runtime。
 
 ### R2 — 删除 runtime subprocess/health seam 并保持 lifecycle 行为
 
+- 状态：DOING
 - 步骤：先把 launch/state/stop/runtime lifecycle 测试改写为 PID/start confirmation 与真实 shutdown 顺序并验红；再删除 manager、optional interface、health state/probe 和 ready 命名，保留 Gateway background process factory、PID/process-group、shim 与关闭顺序。
 - 验证：launch/main/pid/runtime/shutdown/build-runtime/reconcile tests 全绿；真实 operator 默认 start/stop/restart 证据满足 Runbook。
 
 ### R3 — 清理 active 入口残留并完成真栈验收
 
+- 状态：TODO
 - 步骤：先新增 active-scope zero-residue contract guard 并确认红；再清理 AGENTS、e2e/acceptance/fixture scripts、sample configs、e2e finalizer 与 provider error 说明；不扫描/改写历史 change/archive。
 - 验证：guard、helper/integration tests、ruff、non-e2e 全绿；`e2e-up/down` 真栈只有 IM + Gateway，消息与 heartbeat/cron 到用户可观察结果，无 `.api.pid`/Kernel app 泄漏。
