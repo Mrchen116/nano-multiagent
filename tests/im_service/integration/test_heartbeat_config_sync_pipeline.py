@@ -141,7 +141,7 @@ def test_patch_heartbeat_disabled_reaches_scheduler(tmp_path: Path) -> None:
             NodeConfig,
             HeartbeatConfig,
             IMServiceConfig,
-            KernelConfig,
+            GatewayLifecycleConfig,
         )
 
         _llm = LLMConfigPayload(
@@ -158,7 +158,7 @@ def test_patch_heartbeat_disabled_reaches_scheduler(tmp_path: Path) -> None:
             node=NodeConfig(node_id="node-1", user_id=None),
             agents=(agent_with_hb,),
             channels=(),
-            kernel=KernelConfig(),
+            gateway=GatewayLifecycleConfig(),
             heartbeat=HeartbeatConfig(),
             im_service=IMServiceConfig(url="http://testserver"),
             llm=_llm,
