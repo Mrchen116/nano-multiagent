@@ -12,7 +12,7 @@ import time
 
 import pytest
 
-from personal_assistant.main import launch_gateway_in_background, stop_gateway
+from personal_assistant.main import launch_gateway_in_background, main, stop_gateway
 
 
 def _wait_for_path(path: Path, process: subprocess.Popen[bytes]) -> None:
@@ -78,6 +78,38 @@ def test_background_start_and_stop_support_quoted_config_path(
             os.killpg(result.pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
+
+
+def test_command_start_restart_stop_supports_quoted_config_path(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    monkeypatch.setenv("PYTHONPATH", str(repo_root / "src"))
+    runtime_root = tmp_path / "command runtime dir 'quoted'"
+    runtime_root.mkdir()
+    config_path = _write_minimal_config(runtime_root)
+    state_path = runtime_root / ".gateway-state.json"
+
+    assert main(["--config", str(config_path)]) == 0
+    first_pid = json.loads(state_path.read_text(encoding="utf-8"))["pid"]
+    try:
+        assert main(["restart", "--config", str(config_path)]) == 0
+        second_pid = json.loads(state_path.read_text(encoding="utf-8"))["pid"]
+        assert second_pid != first_pid
+        assert main(["stop", "--config", str(config_path)]) == 0
+        for residue in (
+            "gateway.pid",
+            "gateway.identity.json",
+            ".gateway-state.json",
+        ):
+            assert not (runtime_root / residue).exists(), residue
+    finally:
+        if state_path.exists():
+            try:
+                current_pid = json.loads(state_path.read_text(encoding="utf-8"))["pid"]
+                os.killpg(current_pid, signal.SIGKILL)
+            except (OSError, ValueError, KeyError):
+                pass
 
 
 def test_public_stop_upgrades_legacy_state_across_timezone_and_quoted_path(
