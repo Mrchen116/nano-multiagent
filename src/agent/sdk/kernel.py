@@ -850,7 +850,7 @@ class Kernel:
         self,
         *,
         title: str | None = None,
-        workspace_root: Path | None = None,
+        workspace_root: str | Path | None = None,
         # --- new (refactor-406 决策 1/6/8) per-agent config ---
         enabled_tools: list[str] | None = None,
         features: dict[str, bool] | None = None,
@@ -888,7 +888,7 @@ class Kernel:
         # config_path (effective_root/<dirname>/config.yaml) does not depend on the
         # process cwd when workspace_root is relative — otherwise is_file() silently
         # misses the file and falls back to defaults. Mirrors resolved_repo_root.
-        effective_root = (workspace_root or self._repo_root).expanduser().resolve()
+        effective_root = Path(workspace_root or self._repo_root).expanduser().resolve()
 
         effective_allowlist = (
             enabled_tools if enabled_tools is not None else tool_allowlist
@@ -958,7 +958,7 @@ class Kernel:
         self,
         session_id: str,
         *,
-        workspace_root: Path | None = None,
+        workspace_root: str | Path | None = None,
         up_to: str | None = None,
     ) -> SessionInfo:
         """Fork an existing session into an independent new session.
@@ -979,7 +979,7 @@ class Kernel:
         Returns:
             SessionInfo for the new forked session.
         """
-        effective_root = (workspace_root or self._repo_root).expanduser().resolve()
+        effective_root = Path(workspace_root or self._repo_root).expanduser().resolve()
         ref = SessionRef(session_id=session_id, workspace_root=effective_root)
         if self._c.directory.get(ref) is None:
             raise ValueError(f"session does not exist: {session_id}")
@@ -992,7 +992,7 @@ class Kernel:
         self,
         session_id: str,
         *,
-        workspace_root: Path | None = None,
+        workspace_root: str | Path | None = None,
     ) -> Any:
         """Compact session context (summarise old turns to save tokens).
 
@@ -1003,7 +1003,7 @@ class Kernel:
         Returns:
             CompactResult or None when compaction is skipped.
         """
-        effective_root = (workspace_root or self._repo_root).expanduser().resolve()
+        effective_root = Path(workspace_root or self._repo_root).expanduser().resolve()
         ref = SessionRef(session_id=session_id, workspace_root=effective_root)
         if self._c.directory.get(ref) is None:
             raise ValueError(f"session does not exist: {session_id}")
@@ -1015,7 +1015,7 @@ class Kernel:
         session_id: str,
         parts: list[dict],
         origin: RunOrigin = RunOrigin.USER,
-        workspace_root: Path | None = None,
+        workspace_root: str | Path | None = None,
         trace_id: str | None = None,
         steer: bool = False,
         flush_held: bool = True,
@@ -1510,7 +1510,7 @@ class Kernel:
         parts: list[dict[str, Any]] | None = None,
         metadata: dict[str, Any] | None = None,
         idempotency_key: str | None = None,
-        workspace_root: Path | None = None,
+        workspace_root: str | Path | None = None,
     ) -> Any:
         """Append a message to session history without triggering a model run.
 
@@ -1533,7 +1533,7 @@ class Kernel:
         normalized_role = role.strip().lower()
         if normalized_role not in {"user", "assistant"}:
             raise ValueError("role must be one of: user, assistant")
-        effective_root = (workspace_root or self._repo_root).expanduser().resolve()
+        effective_root = Path(workspace_root or self._repo_root).expanduser().resolve()
         ref = SessionRef(session_id=session_id, workspace_root=effective_root)
         if self._c.directory.get(ref) is None:
             raise ValueError(f"session does not exist: {session_id}")
@@ -1553,7 +1553,7 @@ class Kernel:
         self,
         session_id: str,
         *,
-        workspace_root: Path | None = None,
+        workspace_root: str | Path | None = None,
     ) -> Any:
         """Return session metadata for one session.
 
@@ -1567,7 +1567,7 @@ class Kernel:
         Returns:
             Session detail dict, or raises RuntimeError when not found.
         """
-        effective_root = (workspace_root or self._repo_root).expanduser().resolve()
+        effective_root = Path(workspace_root or self._repo_root).expanduser().resolve()
         session = self._c.directory.get(
             SessionRef(session_id=session_id, workspace_root=effective_root)
         )
