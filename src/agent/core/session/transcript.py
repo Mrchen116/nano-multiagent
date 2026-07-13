@@ -124,6 +124,30 @@ class JsonlTranscript:
             raw = list(self._files.read_raw_entries(self._ref))
             return _materialize(self._ref, raw, up_to=up_to)
 
+    def load_config(self) -> SessionConfig:
+        """Project config entries without constructing conversation messages."""
+
+        with self._mutex:
+            self._writer.durable_barrier(self._path)
+            config: dict[str, Any] = {}
+            for entry in self._files.read_raw_entries(self._ref):
+                entry_type = entry.get("type")
+                if entry_type == "session_created":
+                    config = _extract_config(entry)
+                elif entry_type == "config_update":
+                    config = _merge_config(config, entry)
+            return _to_config(self._ref, config)
+
+    def initial_metadata(self) -> dict[str, Any]:
+        """Read immutable creation metadata without scanning turn history."""
+
+        with self._mutex:
+            self._writer.durable_barrier(self._path)
+            for entry in self._files.read_raw_entries(self._ref):
+                if entry.get("type") == "session_created":
+                    return dict(_extract_config(entry).get("metadata") or {})
+            raise SessionNotFoundError(f"session not found: {self._ref.session_id}")
+
     def list_event_entries(self) -> tuple[SessionEntry | CompactionEntry, ...]:
         """Project raw JSONL into the existing compaction planner event vocabulary."""
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+from collections import OrderedDict
 from collections.abc import Callable, Mapping
 from dataclasses import replace
 from typing import Any, Protocol
@@ -13,10 +14,11 @@ from agent.core.types import Message
 from .jsonl_files import JsonlSessionFiles
 from .jsonl_writer import JsonlWriter
 from .models import Session
-from .transcript import JsonlTranscript, TranscriptLoad
+from .transcript import JsonlTranscript
 from .types import (
     NewSession,
     SessionAddressMismatch,
+    SessionConfig,
     SessionNotFoundError,
     SessionRef,
     strip_internal_metadata,
@@ -26,7 +28,11 @@ from .types import (
 class ConversationLike(Protocol):
     """Describe the lifecycle surface owned by the directory."""
 
+    ref: SessionRef
+
     async def close(self) -> None: ...
+
+    def try_evict_payload(self) -> bool: ...
 
 
 ConversationFactory = Callable[[SessionRef, JsonlTranscript], ConversationLike]
@@ -42,6 +48,7 @@ class SessionDirectory:
         writer: JsonlWriter,
         conversation_factory: ConversationFactory,
         default_metadata: Mapping[str, Any] | None = None,
+        max_loaded_conversations: int = 32,
     ) -> None:
         self._files = files
         self._writer = writer
@@ -50,6 +57,8 @@ class SessionDirectory:
         self._guard = threading.Lock()
         self._conversations: dict[str, ConversationLike] = {}
         self._refs: dict[str, SessionRef] = {}
+        self._max_loaded_conversations = max(1, max_loaded_conversations)
+        self._loaded_lru: OrderedDict[str, None] = OrderedDict()
 
     def create(self, spec: NewSession) -> ConversationLike:
         """Create, persist, and intern one new conversation."""
@@ -111,14 +120,14 @@ class SessionDirectory:
         """Read one immutable session snapshot without creating live state."""
 
         try:
-            loaded = JsonlTranscript(
+            config = JsonlTranscript(
                 ref=ref,
                 files=self._files,
                 writer=self._writer,
-            ).load()
+            ).load_config()
         except SessionNotFoundError:
             return None
-        return _session_from_load(loaded)
+        return _session_from_config(config)
 
     def list(
         self,
@@ -153,18 +162,36 @@ class SessionDirectory:
             if ref.parent_session_id != parent_session_id:
                 continue
             try:
-                loaded = JsonlTranscript(
+                metadata = JsonlTranscript(
                     ref=ref,
                     files=self._files,
                     writer=self._writer,
-                ).load()
+                ).initial_metadata()
             except SessionNotFoundError:
                 continue
-            if all(
-                loaded.config.metadata.get(key) == value for key, value in query.items()
-            ):
+            if all(metadata.get(key) == value for key, value in query.items()):
                 return ref
         return None
+
+    def note_quiescent(self, conversation: ConversationLike) -> None:
+        """Keep only a bounded LRU set of loaded conversation payloads."""
+
+        session_id = conversation.ref.session_id
+        evictions: list[ConversationLike] = []
+        with self._guard:
+            self._loaded_lru.pop(session_id, None)
+            self._loaded_lru[session_id] = None
+            while len(self._loaded_lru) > self._max_loaded_conversations:
+                evicted_id, _ = self._loaded_lru.popitem(last=False)
+                candidate = self._conversations.get(evicted_id)
+                if candidate is not None:
+                    evictions.append(candidate)
+        for candidate in evictions:
+            if candidate.try_evict_payload():
+                continue
+            candidate_id = candidate.ref.session_id
+            with self._guard:
+                self._loaded_lru[candidate_id] = None
 
     async def close_all(self) -> None:
         """Close every interned conversation after taking a stable snapshot."""
@@ -229,8 +256,7 @@ class SessionDirectory:
             return self._refs.get(session_id)
 
 
-def _session_from_load(loaded: TranscriptLoad) -> Session:
-    config = loaded.config
+def _session_from_config(config: SessionConfig) -> Session:
     return Session(
         session_id=config.session_id,
         status="active",

@@ -36,6 +36,7 @@ class ConversationState:
     transcript: JsonlTranscript
     file_state: SessionFileState
     memory_snapshot: MemorySnapshot | None = None
+    last_prompt_tokens: int | None = None
     active_model: str | None = None
     subagent_control: object | None = None
 
@@ -56,6 +57,9 @@ class ForkDirectory(Protocol):
         self, source: ConversationSession, *, up_to: str | None
     ) -> tuple[Session, dict[str, str]]:
         """Create and return a fork plus source-to-target message ids."""
+
+    def note_quiescent(self, conversation: ConversationSession) -> None:
+        """Record an idle loaded payload and evict older payloads as needed."""
 
 
 class ConversationEngine(Protocol):
@@ -191,18 +195,28 @@ class ConversationSession:
 
         return self._transcript.external_epoch
 
+    @property
+    def is_payload_loaded(self) -> bool:
+        """Return whether this stable identity currently retains heavy state."""
+
+        with self._state_guard:
+            return self._state is not None
+
     async def submit_turn(self, request: TurnRequest) -> TurnResult:
         """Execute one turn under lifecycle admission and per-session serialization."""
 
         self._bind_owner_loop()
         with self._lifecycle.begin_operation():
-            async with self._turn_gate:
-                state = await self._ensure_loaded()
-                state.active_model = request.model
-                try:
-                    return await self._engine.execute_turn(state, request)
-                finally:
-                    state.active_model = None
+            try:
+                async with self._turn_gate:
+                    state = await self._ensure_loaded()
+                    state.active_model = request.model
+                    try:
+                        return await self._engine.execute_turn(state, request)
+                    finally:
+                        state.active_model = None
+            finally:
+                self._note_quiescent()
 
     def append_external(self, request: ExternalMessage) -> AppendMessageResult:
         """Durably append a message without holding the long-lived turn gate."""
@@ -233,9 +247,12 @@ class ConversationSession:
 
         self._bind_owner_loop()
         with self._lifecycle.begin_operation():
-            async with self._turn_gate:
-                state = await self._ensure_loaded()
-                return await self._engine.compact(state)
+            try:
+                async with self._turn_gate:
+                    state = await self._ensure_loaded()
+                    return await self._engine.compact(state)
+            finally:
+                self._note_quiescent()
 
     async def fork(self, *, up_to: str | None = None) -> tuple[Session, dict[str, str]]:
         """Fork this conversation through its identity-owning directory."""
@@ -257,14 +274,17 @@ class ConversationSession:
                 messages=tuple(loaded.messages),
                 prompt_seed=loaded.prompt_seed,
             )
-        async with self._turn_gate:
-            await self._ensure_loaded()
-            loaded = await asyncio.to_thread(self._transcript.load)
-            return ForkSnapshot(
-                config=loaded.config,
-                messages=tuple(loaded.messages),
-                prompt_seed=loaded.prompt_seed,
-            )
+        try:
+            async with self._turn_gate:
+                await self._ensure_loaded()
+                loaded = await asyncio.to_thread(self._transcript.load)
+                return ForkSnapshot(
+                    config=loaded.config,
+                    messages=tuple(loaded.messages),
+                    prompt_seed=loaded.prompt_seed,
+                )
+        finally:
+            self._note_quiescent()
 
     async def close(self) -> None:
         """Stop admission, drain admitted work, flush, and close deterministically."""
@@ -301,6 +321,20 @@ class ConversationSession:
             with self._state_guard:
                 self._state = state
             return state
+
+    def try_evict_payload(self) -> bool:
+        """Unload heavy state unless a serialized stateful operation is active."""
+
+        if self._turn_gate.locked():
+            return False
+        with self._state_guard:
+            self._state = None
+        return True
+
+    def _note_quiescent(self) -> None:
+        directory = self._fork_directory
+        if directory is not None and self.is_payload_loaded:
+            directory.note_quiescent(self)
 
     def _bind_owner_loop(self) -> None:
         loop = asyncio.get_running_loop()
