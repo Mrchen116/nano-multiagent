@@ -773,9 +773,9 @@ describe("ChatWorkspacePage — integration", () => {
     expect(screen.getByText("Hi Planner")).toBeInTheDocument();
   });
 
-  // Fix B: v2 订阅必须注册 onResyncRequired，否则断线重连后 IM 发 resync 命令时
-  // v2 侧边栏不强制刷新，可能停在断线期间错过消息的旧状态。
-  it("v2 subscription registers onResyncRequired for post-reconnect refresh", async () => {
+  // Chat 订阅必须注册 onResyncRequired，否则断线重连后 IM 发 resync 命令时，
+  // 侧边栏可能停在断线期间错过消息的旧状态。
+  it("registers onResyncRequired for post-reconnect refresh", async () => {
     renderAtRoute("/chat/c1");
     await screen.findByText("Hi Planner");
     await waitFor(() => expect(capturedStatusHandler).toBeTruthy());

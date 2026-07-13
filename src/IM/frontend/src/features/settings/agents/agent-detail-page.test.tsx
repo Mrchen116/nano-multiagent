@@ -7,7 +7,6 @@ import { afterEach, vi } from "vitest";
 const apiMocks = vi.hoisted(() => ({
   getAgentDetailStateMock: vi.fn(),
   updateAgentConfigMock: vi.fn(),
-  createDirectConversationMock: vi.fn(),
   createConversationMock: vi.fn(),
   listAgentsMock: vi.fn(),
   listAgentSummariesMock: vi.fn(),
@@ -29,7 +28,6 @@ vi.mock("react-router-dom", async () => {
 });
 
 vi.mock("../../chat/chat-api", () => ({
-  createDirectConversation: apiMocks.createDirectConversationMock,
   createConversation: apiMocks.createConversationMock,
   listAgents: apiMocks.listAgentsMock
 }));
@@ -70,7 +68,6 @@ function renderDetailPage() {
 afterEach(() => {
   apiMocks.getAgentDetailStateMock.mockReset();
   apiMocks.updateAgentConfigMock.mockReset();
-  apiMocks.createDirectConversationMock.mockReset();
   apiMocks.createConversationMock.mockReset();
   apiMocks.listAgentsMock.mockReset();
   apiMocks.listAgentSummariesMock.mockReset();
@@ -481,7 +478,6 @@ describe("agent detail page", () => {
       },
       owningNode: null
     });
-    apiMocks.createDirectConversationMock.mockResolvedValue({ conversation_id: "conv-x" });
     apiMocks.listAgentsMock.mockResolvedValue([
       { agent_id: "agent-core-1", display_name: "Core Planner", user_id: "user-agent-core-1" }
     ]);

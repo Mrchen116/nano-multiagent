@@ -1,5 +1,5 @@
 /**
- * feat-445-M1 R5: fork button visibility gates on the v2 MessageBubble.
+ * feat-445-M1 R5: fork button visibility gates on the canonical MessageBubble.
  *
  * The button element is rendered into the DOM only when the message is a *completed
  * agent reply in a direct chat that carries a kernel_message_id*; CSS :hover (not

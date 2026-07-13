@@ -243,7 +243,7 @@ function mergePermissionRequests(
  *    `applyWsEvent` (pure reducer from R2) into a local conversation state
  *    keyed by active conversation. When the user switches conversations we
  *    `reset` the reducer with the freshly fetched history.
- *  - Send / create-group go through the v2 chat-api → backend → echoes back as
+ *  - Send / create-group go through the canonical chat-api → backend → echoes back as
  *    WS `message.created`; reducer dedupes the echo, so no optimistic insert
  *    is required here.
  */

@@ -22,7 +22,6 @@ const apiMocks = vi.hoisted(() => ({
   navigateMock: vi.fn(),
   promptPreviewMock: vi.fn(),
   createConversationMock: vi.fn(),
-  createDirectConversationMock: vi.fn(),
 }));
 
 vi.mock("react-router-dom", async () => {
@@ -35,7 +34,6 @@ vi.mock("react-router-dom", async () => {
 });
 
 vi.mock("../../chat/chat-api", () => ({
-  createDirectConversation: apiMocks.createDirectConversationMock,
   createConversation: apiMocks.createConversationMock,
   listAgents: apiMocks.listAgentsMock,
 }));
@@ -292,4 +290,3 @@ describe("cron controlled by Features list", () => {
     });
   });
 });
-

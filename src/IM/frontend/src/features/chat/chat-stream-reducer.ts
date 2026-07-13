@@ -45,7 +45,7 @@ export const emptyConversationState: ConversationState = {
  * Compare two messages by created_at ascending, with message id as a tie-break
  * for deterministic ordering when timestamps are equal (e.g. optimistic insert
  * races a WS echo with the same second). Mirrors the compareMessageRecency
- * semantics used in im-chat-api.ts for conversation previews.
+ * semantics used by canonical conversation previews.
  *
  * Exported so streamReducer (chat-workspace-page.tsx) can apply the same
  * ordering to reset and append_optimistic paths — all three insertion paths
