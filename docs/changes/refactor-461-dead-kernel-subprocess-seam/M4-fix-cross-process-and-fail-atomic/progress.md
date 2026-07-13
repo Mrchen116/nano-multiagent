@@ -42,10 +42,18 @@
   - Red: down 9 failed/3 passed；up 4 failed，分别命中 public schema 未消费、incomplete evidence bypass、fixed 6s、无 rollback、stale child-visible evidence、logical symlink root。
   - Green: `pytest -q tests/integration/test_e2e_down_script.py tests/integration/test_e2e_up_script.py` → 17 passed；覆盖 delayed identity tick 70、identity timeout rollback、identity 后 readiness rollback、stale internal sentinel 未被 signal、default symlink cwd、missing/nonregular/all-absent、mismatch/zombie/unexited。
   - Gates: `bash -n scripts/e2e-up.sh scripts/e2e-down.sh`、affected ruff/format/diff check passed。
-- Live evidence: pending R4 cold real stack and negative lifecycle probes。
+- Live evidence: R4 已完成 cold real stack、negative lifecycle 与 timeout rollback 探针。
 - Rollback: 先用本版 down 或精确 PID 确认无 live stack，再回退 C2；C1/C3 保留 round-3 evidence contract。
 - Commits: `8254878b9` (C1), `2d3ec18eb` (C2)。
 
 ## R4 — 全链路验收收口
 
-- Status: pending。
+- Status: DONE。
+- Automated evidence:
+  - Selective affected：config transaction/local store、Gateway identity/launch/forced-stop/PID/main command、legacy upgrade 与 e2e up/down 共 `134 passed, 2 warnings in 12.21s`。
+  - Static gates：`ruff check .` passed；`ruff format --check .` → `786 files already formatted`；`bash -n scripts/e2e-up.sh scripts/e2e-down.sh` 与 `git diff --check` passed。
+  - Full gate：确认共享 runner 空闲后唯一一次 `/Users/czj/Repos/nano-multiagent/.venv/bin/pytest -m "not e2e" -q` → `3558 passed, 1 skipped, 23 deselected, 16 warnings in 118.83s`，exit 0。
+- Real operator lifecycle：隔离 config 的默认后台 start → restart → stop，foreground PID `49327 → 49374`；stop 输出 `STOPPED pid=49374`，随后 `gateway.pid`、`gateway.identity.json`、state 均不存在。
+- Real cold e2e：持久 tmux 内 cold up 成功，IM `pid=50917, port=50251`、Gateway `pid=50938` 均 live 且节点 online。篡改 internal `gateway.pid=999999` 时 down rc=1，Gateway/IM 均保持 live；移走 external `.gateway.pid` 而保留 internal evidence 时 down rc=1，Gateway/IM 仍保持 live。恢复证据后正常 down 输出 `e2e stack stopped`，两进程退出，external/internal PID、identity、state、IM PID、隔离 config/ports env 全清。
+- Real timeout rollback：把 config `gateway.startup_timeout_seconds` 设为 `0.1` 后执行真实 `e2e-up.sh`，rc=1 并报告 identity 未建立；本次 Gateway `pid=54042` 与 IM `pid=54012` 均先 TERM 后确认退出。external Gateway/IM PID、internal PID、identity、state 全部不存在，Gateway/IM 日志保留，分配端口 `50426` 无 listener。
+- Outcome：round-3 十一个 symptom 已由稳定 config transaction lock、公共 process-instance identity 与 e2e fail-closed evidence state machine 收口；R1-R4 全部完成，满足 milestone 退出标准。

@@ -20,7 +20,7 @@
 - [x] e2e-down 对 missing/non-regular external PID + 任一内部 evidence fail closed，零 Gateway/IM signal；只有 Gateway evidence 全无才可继续停 IM。
 - [x] e2e-up 无 live external owner 时只无信号清理 stale internal evidence；spawn 后 identity/readiness 失败回滚本次精确 PID，确认退出，只清匹配 lifecycle 文件并保留日志。
 - [x] e2e identity wait 使用 config startup timeout/full-stack budget；default symlink cwd 在参数解析后统一物理 canonicalize；脚本与 public runtime 共享 identity schema/clear primitive。
-- [ ] affected、ruff、format、bash syntax、唯一 full non-e2e、真实 cold e2e 正常与 timeout rollback、default start/stop/restart 全部通过。
+- [x] affected、ruff、format、bash syntax、唯一 full non-e2e、真实 cold e2e 正常与 timeout rollback、default start/stop/restart 全部通过。
 
 ## 测试策略
 
@@ -53,5 +53,5 @@
 
 ### R4 — 全链路验收收口
 
-- 执行 selective affected、`ruff check .`、`ruff format --check .`、`bash -n`；共享 runner 空闲后只跑一次完整 `pytest -m "not e2e"`。
-- 真实入口覆盖 cold e2e 正常起停、negative mismatch/missing evidence/timeout rollback 和 default start/stop/restart；不改 canonical spec/acceptance/verification。
+- [x] 执行 selective affected、`ruff check .`、`ruff format --check .`、`bash -n`；共享 runner 空闲后只跑一次完整 `pytest -m "not e2e"`。
+- [x] 真实入口覆盖 cold e2e 正常起停、negative mismatch/missing evidence/timeout rollback 和 default start/stop/restart；不改 canonical spec/acceptance/verification。
