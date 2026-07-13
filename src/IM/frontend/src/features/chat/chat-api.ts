@@ -24,9 +24,6 @@ export const getChatBootstrapState = useMockApi ? mockApi.getChatBootstrapState 
 export const confirmBindToken = useMockApi ? mockApi.confirmBindToken : imApi.confirmBindToken;
 export const getChatStarter = useMockApi ? mockApi.getChatStarter : imApi.getChatStarter;
 export const listConversations = useMockApi ? mockApi.listConversations : imApi.listConversations;
-export const getConversationLatestEventId = useMockApi
-  ? mockApi.getConversationLatestEventId
-  : imApi.getConversationLatestEventId;
 export const listDiscoverableAgents = useMockApi ? mockApi.listDiscoverableAgents : imApi.listDiscoverableAgents;
 export const listDiscoverableGroupParticipants = useMockApi
   ? mockApi.listDiscoverableGroupParticipants
@@ -47,12 +44,6 @@ export const resolveSendAvailability = imApi.resolveSendAvailability;
 export const resolveConversationSendNodeState = useMockApi
   ? mockApi.resolveConversationSendNodeState
   : imApi.resolveConversationSendNodeState;
-export const streamConversationEvents = useMockApi
-  ? mockApi.streamConversationEvents
-  : imApi.streamConversationEvents;
-export const attachUserConversationStream = useMockApi
-  ? mockApi.attachUserConversationStream
-  : imApi.attachUserConversationStream;
 export const resetChatBootstrapState = useMockApi ? mockApi.resetChatBootstrapState : imApi.resetChatBootstrapState;
 export const deleteConversation = useMockApi ? mockApi.deleteConversation : imApi.deleteConversation;
 export const leaveConversation = useMockApi ? mockApi.leaveConversation : imApi.leaveConversation;

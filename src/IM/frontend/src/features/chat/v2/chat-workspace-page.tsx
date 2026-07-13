@@ -23,11 +23,12 @@ import {
   applyWsEvent,
   compareMessages,
   emptyConversationState,
+  toChatWsEvent,
   type ConversationState
 } from "./chat-stream-reducer";
 import { authFetch } from "../../auth/auth-fetch";
-import { attachUserConversationStream } from "../../chat/im-chat-api";
 import { useAuthStore } from "../../auth/auth-store";
+import { subscribeUserStream } from "../../../realtime/user-stream";
 import {
   classifyConversationKind,
   type Attachment,
@@ -57,27 +58,6 @@ import { MessagePane } from "./components/message-pane";
 import { NewGroupModal } from "./components/new-group-modal";
 
 const HISTORY_PAGE_SIZE = 50;
-const CHAT_STREAM_EVENT_TYPES = new Set([
-  "message.created",
-  "message.delta",
-  "message.completed",
-  "message.discarded",
-  "tool_call.upserted",
-  "tool_call.completed",
-  "thinking.segment",
-  "permission.request",
-  "permission.resolved",
-]);
-
-function toChatWsEvent(eventType: string, payload: Record<string, unknown>, eventId?: number): WsEvent | null {
-  if (!CHAT_STREAM_EVENT_TYPES.has(eventType)) return null;
-  return {
-    ...payload,
-    type: eventType,
-    seq: eventId,
-  } as WsEvent;
-}
-
 function mergeMessageWithExisting(message: Message, existing?: Message): Message {
   let out = message;
   if (!message.token_usage && existing?.token_usage) {
@@ -288,7 +268,6 @@ export function ChatWorkspacePageV2() {
   // feat-445-M1: fork success toast (top-left, auto-fade); null = hidden.
   const [forkToast, setForkToast] = useState<boolean>(false);
   const selfUserId = useAuthStore((s) => s.user?.id ?? null);
-  const accessToken = useAuthStore((s) => s.accessToken ?? "");
 
   const conversationsQuery = useQuery({
     queryKey: ["chat-v2", "conversations"],
@@ -646,13 +625,10 @@ export function ChatWorkspacePageV2() {
   // status) update in real time when a Gateway connects or disconnects.
   // Mirrors the pattern used by nodes-page.tsx and agent-status-ws-consumer.ts.
   useEffect(() => {
-    if (!selfUserId || !accessToken) return;
-    const dispose = attachUserConversationStream({
-      selfUserId,
-      token: accessToken,
+    const dispose = subscribeUserStream({
       // Fix B: 断线重连后 IM 发 resync 命令时，强制刷新会话列表，防止侧边栏
       // 停在断线期间错过消息的旧快照（对齐 use-global-message-toast 的同路径）。
-      onResyncRequired: async () => {
+      onRecovery: async () => {
         await queryClient.invalidateQueries({ queryKey: ["chat-v2", "conversations"] });
       },
       onEvent: (event) => {
@@ -715,8 +691,7 @@ export function ChatWorkspacePageV2() {
           // 前端不归一化 event_type，必须用点号 canonical 名（event_types.py）。
           // 注：message_created（下划线）是 _helpers.py 内的历史 DB 行识别 alias，
           // 后端不再 emit，不应出现在 onEvent 分支里。
-          // 这条用户维流覆盖所有会话，是驱动侧边栏的正确通道；与会话内
-          // openChatStream（只更新当前打开会话的气泡）正交。
+          // 这条用户维流覆盖所有会话，同时驱动当前气泡和侧边栏权威缓存。
           const payload = event.payload as { conversation_id?: unknown };
           if (payload.conversation_id === conversationIdRef.current) {
             void queryClient.invalidateQueries({
@@ -731,7 +706,7 @@ export function ChatWorkspacePageV2() {
       }
     });
     return dispose;
-  }, [selfUserId, accessToken, queryClient]);
+  }, [queryClient]);
 
   const sendMutation = useMutation({
     mutationFn: (payload: { text: string; attachments: Attachment[] }) =>
@@ -769,17 +744,14 @@ export function ChatWorkspacePageV2() {
   });
 
   // feat-445-M1: fork from one completed agent reply → new branch chat with history
-  // copied to that point. Mirror the create-direct pattern: invalidate both legacy and
-  // v2 conversation caches, jump into the branch, and surface a brief success toast.
+  // copied to that point. Refresh the canonical conversation cache, jump into the
+  // branch, and surface a brief success toast.
   const forkMutation = useMutation({
     mutationFn: (messageId: string) =>
       forkConversation(conversationId!, messageId),
     onSuccess: async (conv) => {
       setSendError(null);
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] }),
-        queryClient.invalidateQueries({ queryKey: ["chat-v2", "conversations"] })
-      ]);
+      await queryClient.invalidateQueries({ queryKey: ["chat-v2", "conversations"] });
       navigate(`/chat/${conv.id}`);
       setForkToast(true);
     },

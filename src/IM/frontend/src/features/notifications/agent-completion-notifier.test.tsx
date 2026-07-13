@@ -131,9 +131,11 @@ import { MemoryRouter, Routes, Route, useLocation } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect } from "react";
 
-import * as streamModule from "../chat/v2/chat-stream";
+import * as streamModule from "../../realtime/user-stream";
+import type { UserStreamEvent } from "../../realtime/user-stream";
 import { setNotificationPreference, NOTIFICATION_PREFERENCE_STORAGE_KEY } from "./notification-preference";
 import { AgentCompletionNotifier } from "./agent-completion-notifier";
+import { useAuthStore } from "../auth/auth-store";
 
 let installedNotificationCalls: { title: string; options?: NotificationOptions; instance: { onclick: ((this: unknown) => void) | null; close: () => void } }[] = [];
 
@@ -158,7 +160,12 @@ function setHidden(hidden: boolean) {
   document.dispatchEvent(new Event("visibilitychange"));
 }
 
-let capturedOnEvent: ((ev: WsEvent) => void) | null = null;
+let capturedOnEvent: ((ev: UserStreamEvent) => void) | null = null;
+
+function emitNotifierEvent(event: WsEvent): void {
+  const { type, ...payload } = event;
+  capturedOnEvent?.({ eventType: type, payload });
+}
 
 function LocationCapture({ onChange }: { onChange: (path: string) => void }) {
   const loc = useLocation();
@@ -201,10 +208,18 @@ function renderHarness() {
 
 beforeEach(() => {
   localStorage.clear();
+  useAuthStore.getState().setSession({
+    access_token: "token-a",
+    refresh_token: "refresh-a",
+    user: {
+      id: "user-a", username: "alice", display_name: "Alice", owner_id: "user-a", locale: "en",
+      default_entry_node_id: null, owned_node_ids: [], created_at: ""
+    }
+  });
   capturedOnEvent = null;
-  vi.spyOn(streamModule, "openChatStream").mockImplementation((opts) => {
-    capturedOnEvent = opts.onEvent;
-    return { close: () => {} };
+  vi.spyOn(streamModule, "subscribeUserStream").mockImplementation((subscriber) => {
+    capturedOnEvent = subscriber.onEvent;
+    return () => undefined;
   });
 });
 
@@ -222,8 +237,8 @@ describe("AgentCompletionNotifier integration", () => {
     const { getPath } = renderHarness();
     setHidden(true);
     act(() => {
-      capturedOnEvent!(createdAgent);
-      capturedOnEvent!(completedAgent);
+      emitNotifierEvent(createdAgent);
+      emitNotifierEvent(completedAgent);
     });
     expect(installedNotificationCalls.length).toBe(1);
     expect(installedNotificationCalls[0].title).toBe("Assistant");
@@ -244,8 +259,8 @@ describe("AgentCompletionNotifier integration", () => {
     renderHarness();
     setHidden(true);
     act(() => {
-      capturedOnEvent!(createdAgent);
-      capturedOnEvent!(completedAgent);
+      emitNotifierEvent(createdAgent);
+      emitNotifierEvent(completedAgent);
     });
     expect(installedNotificationCalls.length).toBe(0);
   });
@@ -256,8 +271,8 @@ describe("AgentCompletionNotifier integration", () => {
     renderHarness();
     setHidden(false);
     act(() => {
-      capturedOnEvent!(createdAgent);
-      capturedOnEvent!(completedAgent);
+      emitNotifierEvent(createdAgent);
+      emitNotifierEvent(completedAgent);
     });
     expect(installedNotificationCalls.length).toBe(0);
   });
@@ -268,9 +283,29 @@ describe("AgentCompletionNotifier integration", () => {
     renderHarness();
     setHidden(true);
     act(() => {
-      capturedOnEvent!(createdUser);
-      capturedOnEvent!({ ...completedAgent, message_id: "msg-user-1" });
+      emitNotifierEvent(createdUser);
+      emitNotifierEvent({ ...completedAgent, message_id: "msg-user-1" });
     });
     expect(installedNotificationCalls.length).toBe(0);
+  });
+
+  it("does not carry an in-flight notification candidate across an account switch", () => {
+    installFakeNotification("granted");
+    setNotificationPreference(true);
+    renderHarness();
+    setHidden(true);
+    act(() => emitNotifierEvent(createdAgent));
+
+    act(() => useAuthStore.getState().setSession({
+      access_token: "token-b",
+      refresh_token: "refresh-b",
+      user: {
+        id: "user-b", username: "bob", display_name: "Bob", owner_id: "user-b", locale: "en",
+        default_entry_node_id: null, owned_node_ids: [], created_at: ""
+      }
+    }));
+    act(() => emitNotifierEvent(completedAgent));
+
+    expect(installedNotificationCalls).toHaveLength(0);
   });
 });

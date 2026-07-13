@@ -15,7 +15,7 @@ vi.mock("react-router-dom", async () => {
 });
 
 import { appRoutes } from "../../../app/router";
-import { renderRouter } from "../../../test/render-router";
+import { renderRouter, TEST_ACCESS_TOKEN } from "../../../test/render-router";
 import { setLanguage } from "../../../i18n";
 
 const fetchMock = vi.fn();
@@ -219,7 +219,7 @@ describe("agents list page (M5 rewrite)", () => {
     expect(call).toBeDefined();
     const init = call![1] as RequestInit;
     const headers = new Headers(init.headers);
-    expect(headers.get("Authorization")).toBe("Bearer test-token");
+    expect(headers.get("Authorization")).toBe(`Bearer ${TEST_ACCESS_TOKEN}`);
   });
 
   it("translates list empty state to Chinese when locale switches", async () => {

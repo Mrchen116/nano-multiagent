@@ -15,6 +15,11 @@ export const TEST_AUTH_USER: AuthUser = {
   created_at: ""
 };
 
+// Structurally valid test JWT with only an exp claim (2100-01-01). Runtime
+// freshness tests own expiry behavior; route fixtures should stay authenticated.
+export const TEST_ACCESS_TOKEN =
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjQxMDI0NDQ4MDB9.test-signature";
+
 /**
  * Test helper that wraps RouterProvider with QueryClient and seeds the auth store
  * with a default authenticated session, so RequireAuth-protected routes render
@@ -29,7 +34,7 @@ export function renderRouter(options: {
   const auth = options.auth === undefined ? TEST_AUTH_USER : options.auth;
   if (auth) {
     useAuthStore.getState().setSession({
-      access_token: "test-token",
+      access_token: TEST_ACCESS_TOKEN,
       refresh_token: "test-refresh",
       user: auth
     });

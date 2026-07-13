@@ -9,34 +9,28 @@ import "../../../i18n";
 import { useAuthStore } from "../../auth/auth-store";
 import { ChatWorkspacePageV2 } from "./chat-workspace-page";
 import type { Conversation } from "./chat-types";
-import type { ParsedImStreamEvent } from "../../chat/im-chat-api";
+import type { UserStreamEvent } from "../../../realtime/user-stream";
 
 // ─── Mock attachUserConversationStream ──────────────────────────────────────
 // chat-workspace-page 订阅 user-scoped SSE/WS 流（node.status_changed /
 // agent.status_changed / message.*）时会调用此函数。测试通过 capturedStatusHandler
 // 直接注入事件，通过 capturedResyncHandler 断言 onResyncRequired 已注册。
-let capturedStatusHandler: ((ev: ParsedImStreamEvent) => void) | null = null;
+let capturedStatusHandler: ((ev: UserStreamEvent) => void) | null = null;
 let capturedResyncHandler: (() => Promise<void>) | null = null;
 
-vi.mock("../../chat/im-chat-api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../chat/im-chat-api")>();
-  return {
-    ...actual,
-    attachUserConversationStream: (input: {
-      selfUserId: string;
-      token: string;
-      onEvent: (ev: ParsedImStreamEvent) => void;
-      onResyncRequired?: () => Promise<void>;
+vi.mock("../../../realtime/user-stream", () => ({
+    subscribeUserStream: (input: {
+      onEvent: (ev: UserStreamEvent) => void;
+      onRecovery?: () => Promise<void>;
     }) => {
       capturedStatusHandler = input.onEvent;
-      capturedResyncHandler = input.onResyncRequired ?? null;
+      capturedResyncHandler = input.onRecovery ?? null;
       return () => {
         capturedStatusHandler = null;
         capturedResyncHandler = null;
       };
     }
-  };
-});
+}));
 
 function emitSharedChatEvent(event: Record<string, unknown> & { type: string }, eventId = 100) {
   if (!capturedStatusHandler) throw new Error("shared user stream handler not attached");

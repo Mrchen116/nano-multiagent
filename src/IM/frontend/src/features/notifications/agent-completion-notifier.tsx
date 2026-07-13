@@ -3,7 +3,7 @@
 // 设计要点:
 // - 纯归约 + 纯 spec 函数(`reduceNotifierEvent` / `buildNotificationSpec`)便于单测覆盖
 //   各 gating 条件,React glue 只负责副作用(订阅 WS / 订阅 visibility / 调 Notification)。
-// - 单独开一条 `openChatStream` 而非寄生在 chat workspace,因为通知需要在用户离开 /chat 路由
+// - 订阅全局 user stream 而非寄生在 chat workspace,因为通知需要在用户离开 /chat 路由
 //   时也持续工作(spec 场景 D:用户在 Me 页时 agent 完成,也要弹)。
 // - 跟踪 agent 发出的消息 id,排除"用户自己发出的消息回声"误弹。
 
@@ -12,10 +12,12 @@ import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 
 import type { Conversation, WsEvent } from "../chat/v2/chat-types";
-import { openChatStream } from "../chat/v2/chat-stream";
+import { toChatWsEvent } from "../chat/v2/chat-stream-reducer";
+import { subscribeUserStream } from "../../realtime/user-stream";
 import { ensureNotificationPermission, isNotificationSupported, showAgentNotification } from "./notification-api";
 import { isDocumentHidden, subscribeDocumentVisibility } from "./document-visibility";
 import { useNotificationPreference } from "./notification-preference";
+import { useAuthStore } from "../auth/auth-store";
 
 const NOTIFICATION_BODY_MAX = 140;
 
@@ -91,12 +93,17 @@ export function AgentCompletionNotifier(): null {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [preferenceEnabled] = useNotificationPreference();
+  const userId = useAuthStore((state) => state.user?.id ?? null);
   const stateRef = useRef<NotifierState>(emptyNotifierState);
   const hiddenRef = useRef<boolean>(isDocumentHidden());
   const preferenceRef = useRef<boolean>(preferenceEnabled);
   preferenceRef.current = preferenceEnabled;
   const navigateRef = useRef(navigate);
   navigateRef.current = navigate;
+
+  useEffect(() => {
+    stateRef.current = emptyNotifierState;
+  }, [userId]);
 
   // 用户打开通知时,确保浏览器权限就位(default → 弹一次系统授权框)。
   useEffect(() => {
@@ -136,8 +143,10 @@ export function AgentCompletionNotifier(): null {
 
   useEffect(() => {
     if (!isNotificationSupported()) return;
-    const handle = openChatStream({
-      onEvent: (ev) => {
+    return subscribeUserStream({
+      onEvent: (event) => {
+        const ev = toChatWsEvent(event.eventType, event.payload, event.eventId);
+        if (!ev) return;
         const prior = stateRef.current;
         stateRef.current = reduceNotifierEvent(prior, ev);
         const spec = buildNotificationSpec(prior, ev, {
@@ -168,7 +177,6 @@ export function AgentCompletionNotifier(): null {
         });
       }
     });
-    return () => handle.close();
   }, [resolveAgentName, resolveConversationTitle]);
 
   return null;

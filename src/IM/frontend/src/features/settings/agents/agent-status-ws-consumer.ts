@@ -2,8 +2,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 
-import { attachUserConversationStream, type ParsedImStreamEvent } from "../../chat/im-chat-api";
-import { useAuthStore } from "../../auth/auth-store";
+import { subscribeUserStream, type UserStreamEvent } from "../../../realtime/user-stream";
 import type { AgentSummary, AgentConfig } from "./im-agent-config-api";
 
 type AgentStatus = "online" | "offline";
@@ -22,7 +21,7 @@ interface AgentDetailStateCacheShape {
  *
  * 暴露成纯函数是为了让单元测试不依赖真实 WS,直接喂事件断言 cache 变化。
  */
-export function applyAgentStatusEvent(client: QueryClient, event: ParsedImStreamEvent): void {
+export function applyAgentStatusEvent(client: QueryClient, event: UserStreamEvent): void {
   if (event.eventType !== "agent.status_changed") return;
   const payload = event.payload;
   const agentId = typeof payload.agent_id === "string" ? payload.agent_id : null;
@@ -62,16 +61,13 @@ export function applyAgentStatusEvent(client: QueryClient, event: ParsedImStream
  */
 export function useAgentStatusBroadcastConsumer(): void {
   const queryClient = useQueryClient();
-  const selfUserId = useAuthStore((s) => s.user?.id ?? null);
-  const accessToken = useAuthStore((s) => s.accessToken ?? "");
-
   useEffect(() => {
-    if (!selfUserId || !accessToken) return;
-    const dispose = attachUserConversationStream({
-      selfUserId,
-      token: accessToken,
-      onEvent: (event) => applyAgentStatusEvent(queryClient, event)
+    const dispose = subscribeUserStream({
+      onEvent: (event) => applyAgentStatusEvent(queryClient, event),
+      onRecovery: async () => {
+        await queryClient.invalidateQueries({ queryKey: ["settings", "agents"] });
+      }
     });
     return dispose;
-  }, [queryClient, selfUserId, accessToken]);
+  }, [queryClient]);
 }
