@@ -2,10 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "react-router-dom";
 
-import { attachUserConversationStream, getChatBootstrapState, listConversations } from "../chat-api";
-import { ParsedImStreamEvent, setConversationPreviewSnapshot } from "../im-chat-api";
-import { ConversationSummary } from "../types";
+import type { Conversation } from "../v2/chat-types";
 import { useAuthStore } from "../../auth/auth-store";
+import { subscribeUserStream, type UserStreamEvent } from "../../../realtime/user-stream";
 
 /** 应用内 toast 通知的载荷。 */
 export interface ToastPayload {
@@ -82,7 +81,7 @@ function extractSenderName(payload: Record<string, unknown>): string {
 }
 
 function patchConversationPreview(
-  items: ConversationSummary[] | undefined,
+  items: Conversation[] | undefined,
   conversationId: string,
   preview: string,
   createdAt?: string
@@ -91,7 +90,7 @@ function patchConversationPreview(
     return items;
   }
   return items.map((item) =>
-    item.conversation_id === conversationId
+    item.id === conversationId
       ? {
           ...item,
           last_message_preview: preview,
@@ -135,7 +134,7 @@ function toRelayMessageKey(payload: Record<string, unknown>): string | null {
   return `relay:${messageId}:${relayIdentity}`;
 }
 
-export function buildNotificationCandidate(event: ParsedImStreamEvent): NotificationCandidate | null {
+export function buildNotificationCandidate(event: UserStreamEvent): NotificationCandidate | null {
   const payload = event.payload as Record<string, unknown>;
   const preview = extractPreview(event.eventType, payload);
   if (!preview) {
@@ -179,8 +178,8 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
   const queryClient = useQueryClient();
   const location = useLocation();
   const pathnameRef = useRef(location.pathname);
-  const selfUserIdRef = useRef<string | null>(null);
-  const accessToken = useAuthStore((s) => s.accessToken ?? "");
+  const selfUserId = useAuthStore((s) => s.user?.id ?? null);
+  const selfUserIdRef = useRef<string | null>(selfUserId);
   /** 按会话记录已处理 event_id，避免重复 toast。 */
   const conversationStateRef = useRef(new Map<string, ConversationNotificationState>());
 
@@ -189,26 +188,17 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
   }, [location.pathname]);
 
   useEffect(() => {
-    let cancelled = false;
-    let detach: (() => void) | undefined;
+    selfUserIdRef.current = selfUserId;
+    conversationStateRef.current.clear();
+    setToast(null);
+  }, [selfUserId]);
 
-    void (async () => {
-      try {
-        const [bootstrap] = await Promise.all([getChatBootstrapState(), listConversations()]);
-        if (cancelled || !bootstrap.selfUserId) {
-          return;
-        }
-        selfUserIdRef.current = bootstrap.selfUserId;
-        // 预热侧边栏缓存（与用户流解耦）
-        void queryClient.ensureQueryData({ queryKey: ["chat", "conversations"], queryFn: listConversations });
-
-        detach = attachUserConversationStream({
-          selfUserId: bootstrap.selfUserId,
-          token: accessToken,
-          onResyncRequired: async () => {
-            await queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
-          },
-          onEvent: (event) => {
+  useEffect(() => {
+    return subscribeUserStream({
+      onRecovery: async () => {
+        await queryClient.invalidateQueries({ queryKey: ["chat-v2", "conversations"] });
+      },
+      onEvent: (event) => {
             if (typeof event.eventId !== "number") {
               return;
             }
@@ -230,14 +220,9 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
 
             const candidate = buildNotificationCandidate(event);
             if (candidate) {
-              queryClient.setQueryData<ConversationSummary[] | undefined>(["chat", "conversations"], (previous) =>
+              queryClient.setQueryData<Conversation[] | undefined>(["chat-v2", "conversations"], (previous) =>
                 patchConversationPreview(previous, conversationId, candidate.preview, candidate.createdAt)
               );
-              setConversationPreviewSnapshot({
-                conversationId,
-                preview: candidate.preview,
-                lastMessageAt: candidate.createdAt
-              });
             }
             if (isViewingConversation(pathnameRef.current, conversationId)) {
               return;
@@ -255,17 +240,8 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
               senderName: candidate.senderName,
               preview: candidate.preview
             });
-          }
-        });
-      } catch {
-        /* bootstrap 失败时静默跳过 toast 流 */
       }
-    })();
-
-    return () => {
-      cancelled = true;
-      detach?.();
-    };
+    });
   }, [queryClient]);
 
   const dismiss = useCallback(() => setToast(null), []);

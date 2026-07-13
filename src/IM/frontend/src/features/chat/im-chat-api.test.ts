@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
-  attachUserConversationStream,
   buildCreateMessageRequest,
   buildGroupConversationTitle,
   buildStarterConversationTitle,
@@ -11,15 +10,13 @@ import {
   listConversations,
   listDiscoverableGroupParticipants,
   normalizeItemsEnvelope,
-  parseImStreamEvent,
   pickCanonicalDirectConversation,
   pickDefaultNodeForSend,
   pickPrimaryOwnedNodeId,
   resetChatBootstrapState,
   resolveConversationSendNodeState,
   resolveGroupConversationTitle,
-  resolveSendAvailability,
-  streamConversationEvents
+  resolveSendAvailability
 } from "./im-chat-api";
 
 // Inject a fake authenticated session so ensureSelfUser() resolves from the
@@ -476,89 +473,6 @@ describe("im chat api helpers", () => {
   });
 });
 
-describe("im chat stream parser", () => {
-  it("opens user stream WebSocket with ?token= for filtered conversation subscription", () => {
-    class FakeWebSocket {
-      static instances: Array<{ url: string; close: () => void }> = [];
-      url: string;
-      close = vi.fn();
-      send = vi.fn();
-      onopen: (() => void) | null = null;
-      constructor(url: string) {
-        this.url = url;
-        FakeWebSocket.instances.push(this);
-      }
-    }
-
-    vi.stubGlobal("WebSocket", FakeWebSocket as unknown as typeof WebSocket);
-    vi.spyOn(Object.getPrototypeOf(window.sessionStorage), "getItem").mockReturnValue("5");
-
-    const teardown = streamConversationEvents({
-      conversationId: "conv-9",
-      selfUserId: "user-1",
-      token: "test-jwt-token",
-      afterEventId: 17,
-      onEvent: () => undefined
-    });
-
-    expect(FakeWebSocket.instances[0]?.url).toContain("/im/ws/user");
-    expect(FakeWebSocket.instances[0]?.url).toContain("token=test-jwt-token");
-    expect(FakeWebSocket.instances[0]?.url).not.toContain("user_id=");
-    teardown();
-  });
-
-  it("parses text_delta payload for incremental rendering", () => {
-    const parsed = parseImStreamEvent({
-      eventType: "text_delta",
-      data: JSON.stringify({
-        conversation_id: "conv-1",
-        message_id: "m-2",
-        sender_user_id: "u-peer",
-        delta: "hello"
-      })
-    });
-
-    expect(parsed).toEqual({
-      eventType: "text_delta",
-      payload: {
-        conversation_id: "conv-1",
-        message_id: "m-2",
-        sender_user_id: "u-peer",
-        delta: "hello"
-      }
-    });
-  });
-
-  it("parses relay completion payload for real gateway round-trips", () => {
-    const parsed = parseImStreamEvent({
-      eventType: "relay.completed",
-      data: JSON.stringify({
-        conversation_id: "conv-1",
-        message_id: "m-1",
-        detail: "agent reply"
-      })
-    });
-
-    expect(parsed).toEqual({
-      eventType: "relay.completed",
-      payload: {
-        conversation_id: "conv-1",
-        message_id: "m-1",
-        detail: "agent reply"
-      }
-    });
-  });
-
-  it("returns null when payload is not valid json", () => {
-    const parsed = parseImStreamEvent({
-      eventType: "turn_end",
-      data: "{broken"
-    });
-
-    expect(parsed).toBeNull();
-  });
-});
-
 describe("requestJson Authorization (issue #2)", () => {
   it("getUsageMetrics sends Authorization: Bearer header derived from auth store", async () => {
     const { useAuthStore } = await import("../auth/auth-store");
@@ -614,36 +528,5 @@ describe("deleteConversation / leaveConversation", () => {
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toMatch(/\/im\/v1\/conversations\/conv-abc\/participants\/user-456$/);
     expect(init.method).toBe("DELETE");
-  });
-});
-
-describe("user stream websocket — R6-1 token auth", () => {
-  it("connects with ?token= not ?user_id= to avoid 403 from backend", () => {
-    const captured: string[] = [];
-    const mockWs = {
-      onopen: null as unknown,
-      onmessage: null as unknown,
-      onerror: null as unknown,
-      onclose: null as unknown,
-      readyState: 0,
-      send: vi.fn(),
-      close: vi.fn(),
-    };
-    vi.stubGlobal("WebSocket", vi.fn((url: string) => {
-      captured.push(url);
-      return mockWs;
-    }));
-
-    const detach = attachUserConversationStream({
-      selfUserId: "user-abc",
-      token: "jwt-token-xyz",
-      onEvent: vi.fn(),
-    });
-    detach();
-
-    expect(captured.length).toBeGreaterThanOrEqual(1);
-    const wsUrl = captured[0];
-    expect(wsUrl).toContain("token=jwt-token-xyz");
-    expect(wsUrl).not.toContain("user_id=");
   });
 });

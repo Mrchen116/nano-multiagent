@@ -8,10 +8,6 @@ import type { Conversation } from "../v2/chat-types";
 
 let streamHandler: ((event: { eventType: string; payload: Record<string, unknown>; eventId?: number }) => void) | null = null;
 
-vi.mock("../v2/chat-api", () => ({
-  listConversations: vi.fn(),
-}));
-
 vi.mock("../../../realtime/user-stream", () => ({
   subscribeUserStream: vi.fn(
     (input: {
@@ -26,11 +22,9 @@ vi.mock("../../../realtime/user-stream", () => ({
   )
 }));
 
-import * as chatApi from "../v2/chat-api";
 import * as userStream from "../../../realtime/user-stream";
 import { useGlobalMessageToast } from "./use-global-message-toast";
 
-const listConversationsMock = vi.mocked(chatApi.listConversations);
 const subscribeUserStreamMock = vi.mocked(userStream.subscribeUserStream);
 
 function conversation(id: string, overrides: Partial<Conversation> = {}): Conversation {
@@ -91,7 +85,6 @@ describe("useGlobalMessageToast", () => {
         default_entry_node_id: null, owned_node_ids: [], created_at: ""
       }
     });
-    listConversationsMock.mockResolvedValue([conversation("conv-1")]);
   });
 
   it("只建立一条用户流订阅", async () => {
@@ -253,13 +246,6 @@ describe("useGlobalMessageToast", () => {
   });
 
   it("refreshes the cached sidebar preview when an unopened conversation finishes a relay turn", async () => {
-    listConversationsMock.mockResolvedValue([
-      conversation("conv-2", {
-        title: "Agent chat",
-        last_message_preview: "11",
-        last_message_at: "2026-03-26T00:00:00Z"
-      })
-    ]);
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     queryClient.setQueryData(["chat-v2", "conversations"], [
       conversation("conv-2", {

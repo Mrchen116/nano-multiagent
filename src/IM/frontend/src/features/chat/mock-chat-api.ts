@@ -245,11 +245,6 @@ export async function listConversations() {
   return [...conversations].sort((a, b) => Number(Boolean(b.is_pinned)) - Number(Boolean(a.is_pinned)));
 }
 
-export async function getConversationLatestEventId(_: string) {
-  await wait();
-  return 0;
-}
-
 export async function resolveConversationSendNodeState(input: {
   conversationId?: string;
   conversations?: ConversationSummary[];
@@ -435,26 +430,6 @@ export async function sendMessage(input: { conversationId: string; content: stri
   }
 
   return userMessage;
-}
-
-export function streamConversationEvents(_: {
-  conversationId: string;
-  selfUserId?: string | null;
-  token: string;
-  afterEventId?: number;
-  onEvent: (event: { eventType: string; payload: Record<string, unknown>; eventId?: number }) => void;
-  onError?: (error: Error) => void;
-}) {
-  return () => undefined;
-}
-
-export function attachUserConversationStream(_: {
-  selfUserId: string;
-  token: string;
-  onEvent: (event: { eventType: string; payload: Record<string, unknown>; eventId?: number }) => void;
-  onResyncRequired?: () => Promise<void>;
-}) {
-  return () => undefined;
 }
 
 export async function deleteConversation(input: { conversationId: string; requesterId: string }): Promise<void> {

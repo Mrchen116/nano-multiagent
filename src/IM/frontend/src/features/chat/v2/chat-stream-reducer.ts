@@ -10,6 +10,27 @@
 
 import type { Message, ToolCall, WsEvent } from "./chat-types";
 
+const CHAT_STREAM_EVENT_TYPES = new Set([
+  "message.created",
+  "message.delta",
+  "message.completed",
+  "message.discarded",
+  "tool_call.upserted",
+  "tool_call.completed",
+  "thinking.segment",
+  "permission.request",
+  "permission.resolved"
+]);
+
+export function toChatWsEvent(
+  eventType: string,
+  payload: Record<string, unknown>,
+  eventId?: number
+): WsEvent | null {
+  if (!CHAT_STREAM_EVENT_TYPES.has(eventType)) return null;
+  return { ...payload, type: eventType, seq: eventId } as WsEvent;
+}
+
 export interface ConversationState {
   conversation_id: string | null;
   messages: Message[];
