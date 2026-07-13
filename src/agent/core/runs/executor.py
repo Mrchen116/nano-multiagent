@@ -97,10 +97,10 @@ class AuxiliaryHandle:
         self._result_future = result_future
         self.cleanup_ack = cleanup_ack
 
-    def cancel(self) -> bool:
-        """Request cancellation of this auxiliary carrier."""
+    def cancel(self, *, force: bool = False) -> bool:
+        """Request cancellation, optionally bypassing cooperative grace."""
 
-        return self._executor.request_cancel(self.token)
+        return self._executor.request_cancel(self.token, force=force)
 
     def result(self, timeout: float | None = None) -> TurnResult:
         """Wait for and return the auxiliary turn result."""

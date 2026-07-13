@@ -166,6 +166,8 @@ class AgentLoop:
         is_fork_sidechain: bool = False,
         model_override: str | None = None,
         prior_prompt_tokens: int | None = None,
+        on_progress: Callable[[TokenUsage | None, tuple[ToolCall, ...]], None]
+        | None = None,
     ) -> AsyncIterator[Message]:
         """Stream one user turn until completion or terminal stop reason.
 
@@ -466,6 +468,12 @@ class AgentLoop:
                                 # 让前端误显示 "运行中"。gate 拒绝时整条 dispatch 链 break，
                                 # tool_start 也不发，前端只在 tool_result 阶段渲染 ✕。
 
+                            if on_progress is not None:
+                                on_progress(
+                                    _accumulate_usage(turn_usage, latest_usage),
+                                    tuple(all_tool_calls),
+                                )
+
                             # Collect early-completed results for UI but defer LLM
                             # history appending until after the stream ends.
                             # Appending tool_result messages mid-stream would split
@@ -521,6 +529,8 @@ class AgentLoop:
                     turn_usage = _accumulate_usage(turn_usage, latest_usage)
                     if turn_usage is not None and turn_usage.prompt_tokens > 0:
                         last_real_prompt_tokens = turn_usage.prompt_tokens
+                    if on_progress is not None:
+                        on_progress(turn_usage, tuple(all_tool_calls))
 
                     if not iteration_tool_calls:
                         # bugfix-426-M4 决策5: before finishing, atomically re-check for a

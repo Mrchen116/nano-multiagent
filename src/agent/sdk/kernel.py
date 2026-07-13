@@ -85,6 +85,7 @@ class _KernelComponents:
     permission_broker: PermissionBroker
     hook_registry: HookRegistry
     hook_runner: HookRunner
+    stop_all_foreground: Callable[[], None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -685,6 +686,7 @@ def _build_kernel_base(
         permission_broker=permission_broker,
         hook_registry=hook_registry,
         hook_runner=hook_runner,
+        stop_all_foreground=background_task_wiring.foreground_registry.stop_all,
     )
 
     return Kernel(
@@ -1617,6 +1619,7 @@ class Kernel:
 
         registry = self._c.runs_registry
         registry.begin_shutdown()
+        self._c.stop_all_foreground()
         await _asyncio.to_thread(
             registry.shutdown, finalize=self._c.directory.close_all
         )
@@ -1630,6 +1633,7 @@ class Kernel:
         if getattr(self, "_closed", False):
             return
         self._closed = True
+        self._c.stop_all_foreground()
         self._c.runs_registry.shutdown(finalize=self._c.directory.close_all)
 
     def assemble_prompt_preview(

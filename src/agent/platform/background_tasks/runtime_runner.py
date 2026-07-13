@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 import time
+from collections.abc import Callable
 from concurrent.futures import CancelledError
 from pathlib import Path
 from typing import Any, Mapping
@@ -32,9 +33,11 @@ class RuntimeRunner(BackgroundSubagentRunner):
         *,
         directory: SessionDirectory,
         executor: KernelExecutor,
+        foreground_stopper: Callable[[str], bool] | None = None,
     ) -> None:
         self._directory = directory
         self._executor = executor
+        self._foreground_stopper = foreground_stopper
 
     def start(
         self,
@@ -53,7 +56,7 @@ class RuntimeRunner(BackgroundSubagentRunner):
 
         root = _require_workspace_root(workspace_root)
         controller = RunController()
-        auxiliary = self._start_auxiliary(
+        auxiliary, session = self._start_auxiliary(
             agent_session_id=agent_session_id,
             parent_session_id=parent_session_id,
             prompt=prompt,
@@ -62,19 +65,31 @@ class RuntimeRunner(BackgroundSubagentRunner):
             model=model,
             controller=controller,
         )
-        handle = _ControllerHandle(controller=controller, auxiliary=auxiliary)
+        handle = _ControllerHandle(
+            controller=controller,
+            auxiliary=auxiliary,
+            session_id=agent_session_id,
+            foreground_stopper=self._foreground_stopper,
+        )
 
         def _watch() -> None:
             started_at = time.monotonic()
             try:
                 result = auxiliary.result()
             except CancelledError:
+                partial = session.partial_turn_result()
                 on_kill(
                     task_id=agent_session_id,
-                    result_text=None,
-                    usage=None,
+                    result_text=_extract_assistant_text(partial) if partial else None,
+                    usage=(
+                        _usage_to_dict(partial.usage)
+                        if partial is not None and partial.usage is not None
+                        else None
+                    ),
                     duration_ms=int((time.monotonic() - started_at) * 1000),
-                    tool_use_count=0,
+                    tool_use_count=(
+                        len(partial.tool_calls) if partial is not None else 0
+                    ),
                 )
                 return
             except Exception as exc:  # noqa: BLE001
@@ -106,7 +121,7 @@ class RuntimeRunner(BackgroundSubagentRunner):
         """Start a result-bearing auxiliary target for foreground budgeting."""
 
         controller = RunController()
-        auxiliary = self._start_auxiliary(
+        auxiliary, _session = self._start_auxiliary(
             agent_session_id=agent_session_id,
             parent_session_id=parent_session_id,
             prompt=prompt,
@@ -115,7 +130,12 @@ class RuntimeRunner(BackgroundSubagentRunner):
             model=model,
             controller=controller,
         )
-        return _ControllerHandle(controller=controller, auxiliary=auxiliary)
+        return _ControllerHandle(
+            controller=controller,
+            auxiliary=auxiliary,
+            session_id=agent_session_id,
+            foreground_stopper=self._foreground_stopper,
+        )
 
     def _start_auxiliary(
         self,
@@ -127,7 +147,7 @@ class RuntimeRunner(BackgroundSubagentRunner):
         llm_session_id: str | None,
         model: str | None,
         controller: RunController,
-    ) -> AuxiliaryHandle:
+    ) -> tuple[AuxiliaryHandle, Any]:
         ref = SessionRef(
             session_id=agent_session_id,
             workspace_root=workspace_root,
@@ -136,16 +156,19 @@ class RuntimeRunner(BackgroundSubagentRunner):
         if self._directory.get(ref) is None:
             raise ValueError(f"subagent session does not exist: {agent_session_id}")
         session = self._directory.open(ref)
-        return self._executor.start_auxiliary(
-            agent_session_id,
-            session,
-            TurnRequest(
-                parts=({"type": "text", "text": prompt},),
-                llm_session_id=llm_session_id,
-                controller=controller,
-                origin=RunOrigin.BACKGROUND_TASK,
-                model=model,
+        return (
+            self._executor.start_auxiliary(
+                agent_session_id,
+                session,
+                TurnRequest(
+                    parts=({"type": "text", "text": prompt},),
+                    llm_session_id=llm_session_id,
+                    controller=controller,
+                    origin=RunOrigin.BACKGROUND_TASK,
+                    model=model,
+                ),
             ),
+            session,
         )
 
 
@@ -155,13 +178,22 @@ class _ControllerHandle(ForegroundSubagentHandle):
         *,
         controller: RunController,
         auxiliary: AuxiliaryHandle,
+        session_id: str,
+        foreground_stopper: Callable[[str], bool] | None,
     ) -> None:
         self._controller = controller
         self._auxiliary = auxiliary
+        self._session_id = session_id
+        self._foreground_stopper = foreground_stopper
 
     def stop(self) -> None:
         self._controller.abort()
-        self._auxiliary.cancel()
+        foreground_stopped = (
+            self._foreground_stopper(self._session_id)
+            if self._foreground_stopper is not None
+            else False
+        )
+        self._auxiliary.cancel(force=foreground_stopped)
 
     def send_message(self, prompt: str) -> bool:
         return self._controller.enqueue_message(
