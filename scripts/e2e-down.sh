@@ -33,10 +33,28 @@ if [[ -z "$PYTHON_BIN" ]]; then
   echo "python is required to validate Gateway teardown identity" >&2
   exit 1
 fi
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SRC_DIR="$(cd "$SCRIPT_DIR/../src" && pwd)"
+
+gateway_process_snapshot() {
+  local pid=$1
+  PYTHONPATH="$SRC_DIR${PYTHONPATH:+:$PYTHONPATH}" "$PYTHON_BIN" - "$pid" <<'PY'
+from dataclasses import asdict
+import json
+import sys
+
+from personal_assistant.main import read_gateway_process_snapshot
+
+snapshot = read_gateway_process_snapshot(int(sys.argv[1]))
+if snapshot is None:
+    raise SystemExit(1)
+print(json.dumps(asdict(snapshot), sort_keys=True))
+PY
+}
 
 gateway_process_status() {
   local pid=$1 process_stat
-  process_stat="$(ps -p "$pid" -o stat= 2>/dev/null | tr -d '[:space:]')"
+  process_stat="$(LC_ALL=C LANG=C TZ=UTC ps -p "$pid" -o stat= 2>/dev/null | tr -d '[:space:]')"
   if [[ -z "$process_stat" || "$process_stat" == Z* ]]; then
     echo exited
   else
@@ -45,7 +63,7 @@ gateway_process_status() {
 }
 
 validate_gateway_identity() {
-  local gw_pid=$1 require_live=$2 identity_file internal_pid live_command live_start
+  local gw_pid=$1 require_live=$2 identity_file internal_pid snapshot_json
   identity_file="$WT_ROOT/gateway.identity.json"
   if [[ ! -f "$identity_file" || -L "$identity_file" \
     || ! -f "$WT_ROOT/gateway.pid" || -L "$WT_ROOT/gateway.pid" ]]; then
@@ -96,74 +114,97 @@ PY
   fi
   [[ "$require_live" == 1 ]] || return 0
 
-  live_command="$(ps -p "$gw_pid" -o command= 2>/dev/null)"
-  live_start="$(ps -p "$gw_pid" -o lstart= 2>/dev/null | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-  "$PYTHON_BIN" - "$live_command" "$live_start" "$identity_file" <<'PY'
+  snapshot_json="$(gateway_process_snapshot "$gw_pid")" || return 1
+  "$PYTHON_BIN" - "$snapshot_json" "$identity_file" <<'PY'
 import json
 from pathlib import Path
-import shlex
 import sys
 
-command, live_start, identity_path = sys.argv[1:]
+snapshot_json, identity_path = sys.argv[1:]
+snapshot = json.loads(snapshot_json)
 payload = json.loads(Path(identity_path).read_text(encoding="utf-8"))
-try:
-    argv = shlex.split(command)
-except ValueError:
-    raise SystemExit(1)
-module_indexes = [
-    index
-    for index in range(max(0, len(argv) - 1))
-    if argv[index : index + 2] == ["-m", payload["entry_module"]]
-]
-argv_matches = (
-    len(module_indexes) == 1
-    and argv[module_indexes[0] + 2 :] == payload["argv"]
-)
-normalized_start = " ".join(live_start.split())
+normalized_start = " ".join(snapshot["process_start"].split())
 expected_start = " ".join(payload["process_start"].split())
 raise SystemExit(
-    0 if argv_matches and normalized_start == expected_start else 1
+    0
+    if snapshot.get("pid") == payload.get("pid")
+    and normalized_start == expected_start
+    else 1
 )
 PY
 }
 
-clear_matching_gateway_lifecycle() {
+capture_gateway_lifecycle_snapshot() {
   local gw_pid=$1
-  "$PYTHON_BIN" - "$WT_ROOT" "$gw_pid" <<'PY'
+  PYTHONPATH="$SRC_DIR${PYTHONPATH:+:$PYTHONPATH}" "$PYTHON_BIN" - \
+    "$WT_ROOT" "$gw_pid" <<'PY'
+from dataclasses import asdict
 import json
 from pathlib import Path
 import sys
 
-root = Path(sys.argv[1])
-pid = int(sys.argv[2])
-valid = True
-for name in (".gateway.pid", "gateway.pid"):
-    path = root / name
-    if not path.exists():
-        continue
-    try:
-        current = int(path.read_text(encoding="utf-8").strip())
-    except (ValueError, OSError):
-        valid = False
-        continue
-    if current == pid:
-        path.unlink(missing_ok=True)
-    else:
-        valid = False
-for name in ("gateway.identity.json", ".gateway-state.json"):
-    path = root / name
-    if not path.exists():
-        continue
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (ValueError, OSError):
-        valid = False
-        continue
-    if payload.get("pid") == pid:
-        path.unlink(missing_ok=True)
-    else:
-        valid = False
-raise SystemExit(0 if valid else 1)
+from personal_assistant.main import capture_gateway_lifecycle_evidence
+
+snapshot = capture_gateway_lifecycle_evidence(Path(sys.argv[1]), int(sys.argv[2]))
+print(json.dumps(asdict(snapshot), sort_keys=True))
+PY
+}
+
+gateway_lifecycle_snapshot_matches() {
+  local expected_json=$1 gw_pid=$2 current_json
+  current_json="$(capture_gateway_lifecycle_snapshot "$gw_pid")" || return 1
+  [[ "$current_json" == "$expected_json" ]]
+}
+
+clear_gateway_lifecycle_snapshot() {
+  local expected_json=$1
+  PYTHONPATH="$SRC_DIR${PYTHONPATH:+:$PYTHONPATH}" "$PYTHON_BIN" - \
+    "$WT_ROOT" "$expected_json" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+from personal_assistant.main import (
+    GatewayLifecycleEvidenceFile,
+    GatewayLifecycleEvidenceSnapshot,
+    clear_gateway_lifecycle_evidence,
+)
+
+payload = json.loads(sys.argv[2])
+expected = GatewayLifecycleEvidenceSnapshot(
+    pid=payload["pid"],
+    files=tuple(GatewayLifecycleEvidenceFile(**item) for item in payload["files"]),
+)
+clear_gateway_lifecycle_evidence(
+    Path(sys.argv[1]), expected, allow_runtime_cleared=True
+)
+PY
+}
+
+clear_ephemeral_config_lock() {
+  local lock_path="$WT_ROOT/.gateway-config.yaml.lock"
+  [[ -e "$lock_path" || -L "$lock_path" ]] || return 0
+  "$PYTHON_BIN" - "$lock_path" <<'PY'
+import fcntl
+import os
+from pathlib import Path
+import stat
+import sys
+
+path = Path(sys.argv[1])
+before = path.lstat()
+if stat.S_ISLNK(before.st_mode) or not stat.S_ISREG(before.st_mode):
+    raise SystemExit(1)
+fd = os.open(path, os.O_RDWR)
+try:
+    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    held = os.fstat(fd)
+    current = path.lstat()
+    if (held.st_dev, held.st_ino) != (current.st_dev, current.st_ino):
+        raise SystemExit(1)
+    path.unlink()
+finally:
+    os.close(fd)
 PY
 }
 
@@ -177,13 +218,15 @@ for evidence in \
   "$WT_ROOT/gateway.identity.json" \
   "$WT_ROOT/.gateway-state.json" \
   "$WT_ROOT/.gateway-identity.json"; do
-  [[ -e "$evidence" ]] && gateway_internal_evidence=1
+  [[ -e "$evidence" || -L "$evidence" ]] && gateway_internal_evidence=1
 done
-if [[ -e "$gateway_pid_file" && ( ! -f "$gateway_pid_file" || -L "$gateway_pid_file" ) ]]; then
+if [[ ( -e "$gateway_pid_file" || -L "$gateway_pid_file" ) \
+  && ( ! -f "$gateway_pid_file" || -L "$gateway_pid_file" ) ]]; then
   echo "Gateway lifecycle evidence has no regular external PID owner; retaining stack" >&2
   exit 1
 fi
-if [[ ! -e "$gateway_pid_file" && $gateway_internal_evidence -eq 1 ]]; then
+if [[ ! -e "$gateway_pid_file" && ! -L "$gateway_pid_file" \
+  && $gateway_internal_evidence -eq 1 ]]; then
   echo "Gateway lifecycle evidence exists without external PID owner; retaining stack" >&2
   exit 1
 fi
@@ -201,8 +244,13 @@ if [[ -f "$gateway_pid_file" ]]; then
     echo "gateway identity mismatch for pid=$gw_pid; refusing to signal or tear down stack" >&2
     exit 1
   fi
+  gateway_lifecycle_snapshot="$(capture_gateway_lifecycle_snapshot "$gw_pid")" || {
+    echo "gateway lifecycle evidence is incomplete or malformed; retaining stack" >&2
+    exit 1
+  }
   if [[ "$gateway_status" == "alive" ]]; then
-    if ! validate_gateway_identity "$gw_pid" 1; then
+    if ! validate_gateway_identity "$gw_pid" 1 \
+      || ! gateway_lifecycle_snapshot_matches "$gateway_lifecycle_snapshot" "$gw_pid"; then
       echo "gateway identity changed before SIGTERM; retaining stack" >&2
       exit 1
     fi
@@ -222,7 +270,8 @@ if [[ -f "$gateway_pid_file" ]]; then
     while [[ "$(gateway_process_status "$gw_pid")" != "exited" ]]; do
       if [[ $elapsed_ticks -ge $max_ticks ]]; then
         echo "gateway pid=$gw_pid did not exit within ${GATEWAY_GRACE_SECONDS}s — force-killing" >&2
-        if ! validate_gateway_identity "$gw_pid" 1; then
+        if ! validate_gateway_identity "$gw_pid" 1 \
+          || ! gateway_lifecycle_snapshot_matches "$gateway_lifecycle_snapshot" "$gw_pid"; then
           echo "gateway identity changed before SIGKILL; retaining stack" >&2
           exit 1
         fi
@@ -254,7 +303,7 @@ if [[ -f "$gateway_pid_file" ]]; then
   if [[ $gateway_exit_confirmed -eq 1 ]]; then
     # Never signal internal evidence; clear it only while every file still
     # names the externally validated process instance.
-    if ! clear_matching_gateway_lifecycle "$gw_pid"; then
+    if ! clear_gateway_lifecycle_snapshot "$gateway_lifecycle_snapshot"; then
       echo "gateway lifecycle evidence changed during cleanup; retaining stack" >&2
       exit 1
     fi
@@ -264,25 +313,51 @@ if [[ -f "$gateway_pid_file" ]]; then
   fi
 fi
 
-# Step 2: Now that Gateway is gone, stop IM.
-stopped_pids=()
-for pidfile in "$WT_ROOT/.im.pid"; do
-  if [[ -f "$pidfile" ]]; then
-    pid=$(cat "$pidfile")
-    if kill -0 "$pid" 2>/dev/null; then
-      kill "$pid" 2>/dev/null || true
-      stopped_pids+=("$pid")
-    fi
-    rm -f "$pidfile"
+# Step 2: Now that Gateway is gone, stop and confirm IM before cleanup commit.
+im_pid_file="$WT_ROOT/.im.pid"
+if [[ ( -e "$im_pid_file" || -L "$im_pid_file" ) \
+  && ( ! -f "$im_pid_file" || -L "$im_pid_file" ) ]]; then
+  echo "non-regular IM PID evidence; retaining generated state" >&2
+  exit 1
+fi
+if [[ -f "$im_pid_file" ]]; then
+  im_pid="$(tr -d '[:space:]' < "$im_pid_file")"
+  if [[ ! "$im_pid" =~ ^[1-9][0-9]*$ ]]; then
+    echo "IM PID evidence is malformed; retaining generated state" >&2
+    exit 1
   fi
-done
+  if kill -0 "$im_pid" 2>/dev/null; then
+    if ! kill "$im_pid" 2>/dev/null && kill -0 "$im_pid" 2>/dev/null; then
+      echo "IM pid=$im_pid cannot be signalled; retaining generated state" >&2
+      exit 1
+    fi
+    sleep 0.5
+    if kill -0 "$im_pid" 2>/dev/null; then
+      kill -9 "$im_pid" 2>/dev/null || true
+      for _ in $(seq 1 10); do
+        kill -0 "$im_pid" 2>/dev/null || break
+        sleep 0.05
+      done
+    fi
+  fi
+  if kill -0 "$im_pid" 2>/dev/null; then
+    echo "IM pid=$im_pid still appears alive; retaining generated state" >&2
+    exit 1
+  fi
+  current_im_pid="$(tr -d '[:space:]' < "$im_pid_file")"
+  if [[ "$current_im_pid" != "$im_pid" ]]; then
+    echo "IM PID evidence changed during teardown; retaining generated state" >&2
+    exit 1
+  fi
+  rm -f "$im_pid_file"
+fi
 
-# Give remaining services a moment, then force-kill stragglers.
-if [[ ${#stopped_pids[@]} -gt 0 ]]; then
-  sleep 0.5
-  for pid in "${stopped_pids[@]}"; do
-    kill -0 "$pid" 2>/dev/null && kill -9 "$pid" 2>/dev/null || true
-  done
+# The sidecar inode coordinates every project config writer. Remove this
+# worktree-ephemeral lock only after both services exited and an exclusive,
+# non-blocking advisory lock proves that no cooperative writer remains.
+if ! clear_ephemeral_config_lock; then
+  echo "ephemeral config lock is busy or non-regular; retaining generated state" >&2
+  exit 1
 fi
 
 # Remove generated state. .gateway-workspace/ is preserved for post-mortem.

@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 
 import pytest
 
@@ -51,40 +52,62 @@ def _run_down(
     kill_body: str,
     command: str | None = None,
     process_stat: str | None = None,
+    im_survives: bool = False,
     wt_argument: Path | None = None,
     check: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     repo_root = Path(__file__).resolve().parents[2]
     script = repo_root / "scripts" / "e2e-down.sh"
     calls_file = tmp_path / "calls.log"
+    fake_bin = tmp_path / "fake-down-bin"
+    fake_bin.mkdir(exist_ok=True)
+    fake_ps = fake_bin / "ps"
+    fake_ps.write_text(
+        """#!/bin/bash
+case "$*" in
+  *"command="*) printf '%s\\n' "$GATEWAY_COMMAND" ;;
+  *"lstart="*) printf '%s\\n' "$PROCESS_START" ;;
+  *"stat="*) printf '%s\\n' "${PROCESS_STAT-S}" ;;
+esac
+""",
+        encoding="utf-8",
+    )
+    fake_ps.chmod(0o755)
     command = command or (
         f"python -m personal_assistant.main --config "
         f"{tmp_path / '.gateway-config.yaml'} --foreground --auto-bind"
     )
     shell = f"""
+IM_ALIVE=1
+export IM_ALIVE
 kill() {{
   printf 'kill %s\\n' "$*" >> "$CALLS_FILE"
+  if [[ "$*" == "-0 434343" ]]; then
+    [[ "$IM_ALIVE" == 1 ]]
+    return
+  fi
+  if [[ "$*" == "434343" || "$*" == "-9 434343" ]]; then
+    [[ "${{IM_SURVIVES-0}}" == 1 ]] || IM_ALIVE=0
+    return 0
+  fi
   {kill_body}
-}}
-ps() {{
-  case "$*" in
-    *"command="*) printf '%s\\n' "$GATEWAY_COMMAND" ;;
-    *"lstart="*) printf '%s\\n' "$PROCESS_START" ;;
-    *"stat="*) printf '%s\\n' "${{PROCESS_STAT-S}}" ;;
-  esac
 }}
 sleep() {{
   printf 'sleep %s\\n' "$*" >> "$CALLS_FILE"
   return 0
 }}
-export -f kill ps sleep
+export -f kill sleep
 exec bash "{script}" --wt "{wt_argument or tmp_path}"
 """
     env = dict(
         os.environ,
         CALLS_FILE=str(calls_file),
         GATEWAY_COMMAND=command,
+        PATH=f"{fake_bin}:{os.environ['PATH']}",
         PROCESS_START=_PROCESS_START,
+        REAL_PYTHON=sys.executable,
+        E2E_WT=str(tmp_path),
+        IM_SURVIVES="1" if im_survives else "0",
     )
     if process_stat is not None:
         env["PROCESS_STAT"] = process_stat
@@ -123,7 +146,7 @@ def test_gateway_that_survives_sigkill_fails_without_tearing_down_stack(
     assert "e2e stack stopped" not in result.stdout
 
 
-@pytest.mark.parametrize("mismatch", ["internal_pid", "argv"])
+@pytest.mark.parametrize("mismatch", ["internal_pid", "persisted_argv"])
 def test_gateway_identity_mismatch_sends_no_signal_and_retains_stack(
     mismatch: str,
     tmp_path: Path,
@@ -131,13 +154,13 @@ def test_gateway_identity_mismatch_sends_no_signal_and_retains_stack(
     _write_stack_files(
         tmp_path, internal_pid=999999 if mismatch == "internal_pid" else _GATEWAY_PID
     )
-    command = None
-    if mismatch == "argv":
-        command = (
-            "python -m personal_assistant.main --config /tmp/other.yaml --foreground"
-        )
+    if mismatch == "persisted_argv":
+        identity_path = tmp_path / "gateway.identity.json"
+        identity = json.loads(identity_path.read_text(encoding="utf-8"))
+        identity["argv"][1] = "/tmp/other.yaml"
+        identity_path.write_text(json.dumps(identity), encoding="utf-8")
 
-    result = _run_down(tmp_path, kill_body="return 0", command=command)
+    result = _run_down(tmp_path, kill_body="return 0")
 
     assert result.returncode != 0
     calls_file = tmp_path / "calls.log"
@@ -150,10 +173,11 @@ def test_gateway_identity_mismatch_sends_no_signal_and_retains_stack(
     assert (tmp_path / ".im.pid").exists()
 
 
-def test_confirmed_gateway_exit_cleans_lifecycle_then_stops_im(
+def test_live_command_rendering_is_audit_only_when_instance_matches(
     tmp_path: Path,
 ) -> None:
     _write_stack_files(tmp_path)
+    (tmp_path / ".gateway-config.yaml.lock").write_text("", encoding="utf-8")
     term_marker = tmp_path / "term-sent"
     kill_body = f"""
 if [[ "$*" == "-0 {_GATEWAY_PID}" ]]; then
@@ -167,7 +191,12 @@ fi
 return 0
 """
 
-    result = _run_down(tmp_path, kill_body=kill_body, check=True)
+    result = _run_down(
+        tmp_path,
+        kill_body=kill_body,
+        command="rendering deliberately differs from persisted audit metadata",
+        check=True,
+    )
 
     assert result.returncode == 0
     for residue in (
@@ -177,6 +206,7 @@ return 0
         "gateway.identity.json",
         ".im.pid",
         ".gateway-config.yaml",
+        ".gateway-config.yaml.lock",
         ".e2e-ports.env",
     ):
         assert not (tmp_path / residue).exists(), residue
@@ -292,6 +322,162 @@ def test_nonregular_external_pid_with_internal_evidence_fails_before_any_signal(
     assert (tmp_path / ".im.pid").exists()
 
 
+def test_dangling_external_pid_symlink_retains_whole_stack(tmp_path: Path) -> None:
+    _write_stack_files(tmp_path)
+    (tmp_path / ".gateway.pid").unlink()
+    (tmp_path / ".gateway.pid").symlink_to(tmp_path / "missing-external-pid")
+
+    result = _run_down(tmp_path, kill_body="return 0")
+
+    assert result.returncode == 1
+    calls_path = tmp_path / "calls.log"
+    assert not calls_path.exists() or "kill " not in calls_path.read_text(
+        encoding="utf-8"
+    )
+    assert (tmp_path / ".gateway.pid").is_symlink()
+    assert (tmp_path / "gateway.pid").exists()
+    assert (tmp_path / ".im.pid").exists()
+    assert (tmp_path / ".gateway-config.yaml").exists()
+
+
+@pytest.mark.parametrize(
+    "internal_evidence",
+    ["gateway.pid", "gateway.identity.json", ".gateway-state.json"],
+)
+def test_dangling_internal_evidence_without_external_owner_retains_stack(
+    internal_evidence: str,
+    tmp_path: Path,
+) -> None:
+    _write_stack_files(tmp_path)
+    (tmp_path / ".gateway.pid").unlink()
+    for evidence in ("gateway.pid", "gateway.identity.json", ".gateway-state.json"):
+        path = tmp_path / evidence
+        path.unlink()
+        if evidence == internal_evidence:
+            path.symlink_to(tmp_path / f"missing-{evidence}")
+
+    result = _run_down(tmp_path, kill_body="return 0")
+
+    assert result.returncode == 1
+    calls_path = tmp_path / "calls.log"
+    assert not calls_path.exists() or "kill " not in calls_path.read_text(
+        encoding="utf-8"
+    )
+    assert (tmp_path / internal_evidence).is_symlink()
+    assert (tmp_path / ".im.pid").exists()
+
+
+@pytest.mark.parametrize("state_mode", ["malformed", "different_pid"])
+def test_invalid_state_evidence_is_never_partially_deleted(
+    state_mode: str,
+    tmp_path: Path,
+) -> None:
+    _write_stack_files(tmp_path)
+    state_path = tmp_path / ".gateway-state.json"
+    state_path.write_text(
+        "{" if state_mode == "malformed" else json.dumps({"pid": 999999}),
+        encoding="utf-8",
+    )
+
+    result = _run_down(tmp_path, kill_body="return 0")
+
+    assert result.returncode == 1
+    for evidence in (
+        ".gateway.pid",
+        "gateway.pid",
+        "gateway.identity.json",
+        ".gateway-state.json",
+        ".im.pid",
+        ".gateway-config.yaml",
+    ):
+        assert (tmp_path / evidence).exists(), evidence
+
+
+def test_same_pid_new_birth_before_cleanup_causes_zero_deletion(
+    tmp_path: Path,
+) -> None:
+    _write_stack_files(tmp_path)
+    kill_body = f"""
+if [[ "$*" == "{_GATEWAY_PID}" ]]; then
+  "$REAL_PYTHON" - "$E2E_WT/gateway.identity.json" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+payload = json.loads(path.read_text(encoding="utf-8"))
+payload["process_start"] = "Tue Jul 14 12:34:56 2026"
+path.write_text(json.dumps(payload), encoding="utf-8")
+PY
+  export PROCESS_STAT=""
+fi
+return 0
+"""
+
+    result = _run_down(tmp_path, kill_body=kill_body)
+
+    assert result.returncode == 1
+    assert "evidence changed during cleanup" in result.stderr
+    for evidence in (
+        ".gateway.pid",
+        "gateway.pid",
+        "gateway.identity.json",
+        ".gateway-state.json",
+        ".im.pid",
+        ".gateway-config.yaml",
+    ):
+        assert (tmp_path / evidence).exists(), evidence
+
+
+def test_same_content_inode_drift_before_cleanup_causes_zero_deletion(
+    tmp_path: Path,
+) -> None:
+    _write_stack_files(tmp_path)
+    kill_body = f"""
+if [[ "$*" == "{_GATEWAY_PID}" ]]; then
+  cp "$E2E_WT/.gateway-state.json" "$E2E_WT/.gateway-state.json.replacement"
+  mv "$E2E_WT/.gateway-state.json.replacement" "$E2E_WT/.gateway-state.json"
+  export PROCESS_STAT=""
+fi
+return 0
+"""
+
+    result = _run_down(tmp_path, kill_body=kill_body)
+
+    assert result.returncode == 1
+    for evidence in (
+        ".gateway.pid",
+        "gateway.pid",
+        "gateway.identity.json",
+        ".gateway-state.json",
+        ".im.pid",
+        ".gateway-config.yaml",
+    ):
+        assert (tmp_path / evidence).exists(), evidence
+
+
+def test_runtime_owned_internal_evidence_may_self_clear_on_exit(
+    tmp_path: Path,
+) -> None:
+    _write_stack_files(tmp_path)
+    kill_body = f"""
+if [[ "$*" == "{_GATEWAY_PID}" ]]; then
+  rm -f "$E2E_WT/gateway.pid"
+  rm -f "$E2E_WT/gateway.identity.json"
+  rm -f "$E2E_WT/.gateway-state.json"
+  export PROCESS_STAT=""
+fi
+return 0
+"""
+
+    result = _run_down(tmp_path, kill_body=kill_body)
+
+    assert result.returncode == 0, result.stderr
+    assert not (tmp_path / ".gateway.pid").exists()
+    assert not (tmp_path / ".im.pid").exists()
+    assert not (tmp_path / ".gateway-config.yaml").exists()
+
+
 def test_all_gateway_evidence_absent_allows_im_stop(tmp_path: Path) -> None:
     (tmp_path / ".im.pid").write_text("434343\n", encoding="utf-8")
 
@@ -302,3 +488,61 @@ def test_all_gateway_evidence_absent_allows_im_stop(tmp_path: Path) -> None:
     assert "kill -0 434343" in calls
     assert "kill 434343" in calls
     assert not (tmp_path / ".im.pid").exists()
+
+
+def test_im_survivor_retains_config_and_sidecar(tmp_path: Path) -> None:
+    (tmp_path / ".im.pid").write_text("434343\n", encoding="utf-8")
+    (tmp_path / ".gateway-config.yaml").write_text("node: {}\n", encoding="utf-8")
+    (tmp_path / ".gateway-config.yaml.lock").write_text("", encoding="utf-8")
+
+    result = _run_down(
+        tmp_path,
+        kill_body="return 0",
+        im_survives=True,
+    )
+
+    assert result.returncode == 1
+    assert "IM pid=434343 still appears alive" in result.stderr
+    assert (tmp_path / ".im.pid").exists()
+    assert (tmp_path / ".gateway-config.yaml").exists()
+    assert (tmp_path / ".gateway-config.yaml.lock").exists()
+
+
+def test_busy_config_sidecar_is_not_unlinked_after_service_exit(
+    tmp_path: Path,
+) -> None:
+    _write_stack_files(tmp_path)
+    lock_path = tmp_path / ".gateway-config.yaml.lock"
+    lock_path.write_text("", encoding="utf-8")
+    holder = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            "import fcntl,sys,time; "
+            "f=open(sys.argv[1], 'r+'); "
+            "fcntl.flock(f, fcntl.LOCK_EX); "
+            "print('ready', flush=True); time.sleep(30)",
+            str(lock_path),
+        ],
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    assert holder.stdout is not None
+    assert holder.stdout.readline().strip() == "ready"
+    kill_body = f"""
+if [[ "$*" == "{_GATEWAY_PID}" ]]; then
+  export PROCESS_STAT=""
+fi
+return 0
+"""
+
+    try:
+        result = _run_down(tmp_path, kill_body=kill_body)
+
+        assert result.returncode == 1
+        assert "config lock is busy" in result.stderr
+        assert lock_path.exists()
+        assert (tmp_path / ".gateway-config.yaml").exists()
+    finally:
+        holder.terminate()
+        holder.wait(timeout=3)

@@ -5,11 +5,13 @@ from __future__ import annotations
 import argparse
 import asyncio
 from datetime import datetime, timezone
+import hashlib
 import json
 import logging
 import os
-import shlex
+import re
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -141,6 +143,20 @@ class GatewayStartupError(RuntimeError):
         super().__init__(cleaned_summary)
         self.summary = cleaned_summary
         self.next_step = cleaned_next_step
+
+
+class GatewayProcessCleanupError(RuntimeError):
+    """Report that a failed background launch could not confirm child exit.
+
+    Args:
+        pid: Spawned Gateway process whose exit could not be confirmed.
+    """
+
+    def __init__(self, pid: int) -> None:
+        super().__init__(
+            f"gateway pid={pid} did not exit after SIGKILL; lifecycle evidence retained"
+        )
+        self.pid = pid
 
 
 def _read_log_last_error(
@@ -305,11 +321,40 @@ class GatewayProcessIdentity:
 
 
 @dataclass(frozen=True, slots=True)
-class _ObservedGatewayProcess:
-    """One read-only OS process observation used for ownership checks."""
+class GatewayProcessSnapshot:
+    """Describe one stable, read-only OS process observation.
 
+    Args:
+        pid: Observed process id.
+        process_start: Locale- and timezone-stable OS birth identity.
+        command: Raw OS audit rendering; never parsed to grant signal authority.
+    """
+
+    pid: int
     process_start: str
-    argv: tuple[str, ...]
+    command: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class GatewayLifecycleEvidenceFile:
+    """Describe one lifecycle evidence path at a stable filesystem revision."""
+
+    name: str
+    exists: bool
+    device: int | None = None
+    inode: int | None = None
+    size: int | None = None
+    modified_ns: int | None = None
+    sha256: str | None = None
+    content: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class GatewayLifecycleEvidenceSnapshot:
+    """Capture all evidence that one Gateway teardown transaction may delete."""
+
+    pid: int
+    files: tuple[GatewayLifecycleEvidenceFile, ...]
 
 
 def _default_pa_global_skill_names() -> tuple[str, ...]:
@@ -1865,7 +1910,6 @@ class GatewayRuntime:
         """
 
         self._ready_event.clear()
-        self._shutdown_requested.clear()
         return asyncio.run(self._run_until_shutdown())
 
     async def _run_until_shutdown(self) -> int:
@@ -2352,18 +2396,22 @@ def run_gateway(
         or _install_default_signal_handlers(runtime)
     )
     restore = restore_signal_handlers()
-    identity = _build_gateway_process_identity(
-        config, im_service_url_override=im_service_url_override
-    )
-    # Identity is durable before PID becomes the launcher's readiness marker.
-    _write_gateway_process_identity(config, identity)
-    _write_gateway_pid(config, expected_pid=identity.pid)
+    identity: GatewayProcessIdentity | None = None
     try:
+        identity = _build_gateway_process_identity(
+            config, im_service_url_override=im_service_url_override
+        )
+        # Identity is durable before PID becomes the launcher's readiness marker.
+        _write_gateway_process_identity(config, identity)
+        _write_gateway_pid(config, expected_pid=identity.pid)
         return runtime.run_forever()
     finally:
-        restore()
-        _remove_gateway_pid(config, expected_pid=identity.pid)
-        _remove_gateway_process_identity(config, expected=identity)
+        try:
+            restore()
+        finally:
+            if identity is not None:
+                _remove_gateway_pid(config, expected_pid=identity.pid)
+                _remove_gateway_process_identity(config, expected=identity)
 
 
 def launch_gateway_in_background(
@@ -2416,24 +2464,39 @@ def launch_gateway_in_background(
     launcher = spawn_process or _spawn_background_gateway_process
     start_waiter = wait_for_start or _wait_for_gateway_start
     process = launcher(argv, log_path)
+    result = BackgroundLaunchResult(
+        pid=process.pid,
+        log_path=log_path,
+        im_service_url=config.im_service.url if config.im_service is not None else None,
+    )
+    expected_state = _gateway_runtime_state(config, result)
     try:
         start_waiter(process, config, config.gateway.startup_timeout_seconds)
+        _write_gateway_state(config, result)
     except Exception as exc:
-        _stop_background_process(
-            process, timeout_seconds=config.gateway.shutdown_grace_seconds
-        )
+        try:
+            _stop_background_process(
+                process, timeout_seconds=config.gateway.shutdown_grace_seconds
+            )
+        except GatewayProcessCleanupError as cleanup_error:
+            hint = _read_log_last_error(log_path, offset=log_offset)
+            startup_summary = hint if hint else str(exc)
+            raise GatewayStartupError(
+                summary=f"{startup_summary}; cleanup failed for pid={process.pid}",
+                next_step=(
+                    "Process exit was not confirmed; lifecycle evidence was retained. "
+                    f"Inspect pid={process.pid} and {log_path} before retrying."
+                ),
+            ) from ExceptionGroup(
+                "Gateway startup and rollback both failed", [exc, cleanup_error]
+            )
+        _clear_failed_gateway_startup(config, expected_state)
         hint = _read_log_last_error(log_path, offset=log_offset)
         summary = hint if hint else str(exc)
         raise GatewayStartupError(
             summary=summary,
             next_step=f"Check the log for details: tail -20 {log_path}",
         ) from exc
-    result = BackgroundLaunchResult(
-        pid=process.pid,
-        log_path=log_path,
-        im_service_url=config.im_service.url if config.im_service is not None else None,
-    )
-    _write_gateway_state(config, result)
     return result
 
 
@@ -2516,28 +2579,12 @@ def _stop_owned_gateway(
     success_target: str,
 ) -> str:
     """Signal one owned Gateway and clear evidence only after confirmed exit."""
-    try:
-        os.kill(pid, signal.SIGTERM)
-    except ProcessLookupError:
-        _clear_gateway_lifecycle(config, state_path, identity)
-        return f"STALE pid={pid} {success_target}"
     # The process group is the owned Gateway lifecycle boundary.
-    if not _assert_gateway_process_instance(identity):
-        _clear_gateway_lifecycle(config, state_path, identity)
-        return f"STOPPED pid={pid} {success_target}"
     _kill_process_tree(pid, signal.SIGTERM)
     if _wait_for_pid_exit(config, pid):
         _clear_gateway_lifecycle(config, state_path, identity)
         return f"STOPPED pid={pid} {success_target}"
     _require_gateway_process_instance(identity)
-    try:
-        os.kill(pid, signal.SIGKILL)
-    except ProcessLookupError:
-        _clear_gateway_lifecycle(config, state_path, identity)
-        return f"STOPPED pid={pid} {success_target} forced=true"
-    if not _assert_gateway_process_instance(identity):
-        _clear_gateway_lifecycle(config, state_path, identity)
-        return f"STOPPED pid={pid} {success_target} forced=true"
     _kill_process_tree(pid, signal.SIGKILL)
     if _wait_for_pid_exit(config, pid):
         _clear_gateway_lifecycle(config, state_path, identity)
@@ -4043,13 +4090,13 @@ def _gateway_pid_path(config: LocalConfig) -> Path:
 
 
 def _write_gateway_pid(config: LocalConfig, *, expected_pid: int | None = None) -> None:
-    """Write the owned foreground process PID to ``gateway.pid``.
+    """Atomically and durably publish the owned PID to ``gateway.pid``.
 
     Side Effects:
         Creates or overwrites ``gateway.pid`` in the runtime directory.
     """
     pid = os.getpid() if expected_pid is None else expected_pid
-    _gateway_pid_path(config).write_text(str(pid), encoding="utf-8")
+    _atomic_write_gateway_file(_gateway_pid_path(config), str(pid).encode())
 
 
 def _remove_gateway_pid(
@@ -4087,13 +4134,19 @@ def _gateway_process_identity_path(config: LocalConfig) -> Path:
     return config.source_path.parent / "gateway.identity.json"
 
 
-def _process_start_identity(pid: int) -> str | None:
-    """Read one process birth identity without sending it a signal."""
+def _process_snapshot_environment() -> dict[str, str]:
+    """Return the fixed environment used by every process identity query."""
+    return {**os.environ, "LC_ALL": "C", "LANG": "C", "TZ": "UTC"}
+
+
+def _read_process_start(pid: int) -> str | None:
+    """Read one normalized process birth value under the fixed environment."""
     result = subprocess.run(
         ["ps", "-p", str(pid), "-o", "lstart="],
         capture_output=True,
         text=True,
         check=False,
+        env=_process_snapshot_environment(),
     )
     value = result.stdout.strip()
     if result.returncode != 0 or not value:
@@ -4101,28 +4154,218 @@ def _process_start_identity(pid: int) -> str | None:
     return " ".join(value.split())
 
 
-def _observe_gateway_process(pid: int) -> _ObservedGatewayProcess | None:
-    """Read one stable process start + argv observation without any signal."""
-    before = _process_start_identity(pid)
+def read_gateway_process_snapshot(pid: int) -> GatewayProcessSnapshot | None:
+    """Read one non-zombie process snapshot without sending it a signal.
+
+    Args:
+        pid: Positive process id to observe.
+
+    Returns:
+        A stable snapshot, or ``None`` when the process is absent or a zombie.
+
+    Raises:
+        RuntimeError: When the PID changes birth identity during observation.
+    """
+    before = _read_process_start(pid)
     if before is None:
         return None
-    result = subprocess.run(
+    status_result = subprocess.run(
+        ["ps", "-p", str(pid), "-o", "stat="],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=_process_snapshot_environment(),
+    )
+    status = status_result.stdout.strip()
+    if status_result.returncode != 0 or not status or status.startswith("Z"):
+        return None
+    command_result = subprocess.run(
         ["ps", "-ww", "-p", str(pid), "-o", "command="],
         capture_output=True,
         text=True,
         check=False,
+        env=_process_snapshot_environment(),
     )
-    command = result.stdout.strip()
-    after = _process_start_identity(pid)
-    if result.returncode != 0 or not command or after is None:
+    command = command_result.stdout.strip() or None
+    after = _read_process_start(pid)
+    if after is None:
         return None
     if before != after:
         raise RuntimeError(f"gateway pid={pid} changed during identity observation")
+    return GatewayProcessSnapshot(pid=pid, process_start=after, command=command)
+
+
+_GATEWAY_LIFECYCLE_EVIDENCE_NAMES = (
+    ".gateway.pid",
+    "gateway.pid",
+    "gateway.identity.json",
+    ".gateway-state.json",
+)
+
+
+def _snapshot_gateway_evidence_file(
+    root: Path, name: str
+) -> GatewayLifecycleEvidenceFile:
+    """Read one evidence file without following links or accepting drift."""
+    path = root / name
     try:
-        argv = tuple(shlex.split(command))
-    except ValueError as exc:
-        raise RuntimeError(f"gateway pid={pid} has unparseable argv") from exc
-    return _ObservedGatewayProcess(process_start=after, argv=argv)
+        before = path.lstat()
+    except FileNotFoundError:
+        return GatewayLifecycleEvidenceFile(name=name, exists=False)
+    if stat.S_ISLNK(before.st_mode) or not stat.S_ISREG(before.st_mode):
+        raise RuntimeError(f"non-regular Gateway lifecycle evidence: {path}")
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(path, flags)
+    try:
+        held = os.fstat(fd)
+        chunks: list[bytes] = []
+        while chunk := os.read(fd, 65536):
+            chunks.append(chunk)
+    finally:
+        os.close(fd)
+    after = path.lstat()
+    before_identity = (
+        before.st_dev,
+        before.st_ino,
+        before.st_size,
+        before.st_mtime_ns,
+    )
+    after_identity = (
+        after.st_dev,
+        after.st_ino,
+        after.st_size,
+        after.st_mtime_ns,
+    )
+    held_identity = (
+        held.st_dev,
+        held.st_ino,
+        held.st_size,
+        held.st_mtime_ns,
+    )
+    if before_identity != held_identity or held_identity != after_identity:
+        raise RuntimeError(f"Gateway lifecycle evidence changed while read: {path}")
+    content = b"".join(chunks)
+    try:
+        text = content.decode("utf-8")
+    except UnicodeError as exc:
+        raise RuntimeError(f"Gateway lifecycle evidence is not UTF-8: {path}") from exc
+    return GatewayLifecycleEvidenceFile(
+        name=name,
+        exists=True,
+        device=held.st_dev,
+        inode=held.st_ino,
+        size=held.st_size,
+        modified_ns=held.st_mtime_ns,
+        sha256=hashlib.sha256(content).hexdigest(),
+        content=text,
+    )
+
+
+def capture_gateway_lifecycle_evidence(
+    root: Path, pid: int
+) -> GatewayLifecycleEvidenceSnapshot:
+    """Capture the complete evidence revision owned by one Gateway PID.
+
+    Args:
+        root: Directory containing worktree Gateway lifecycle evidence.
+        pid: Externally owned Gateway process id.
+
+    Returns:
+        An immutable filesystem snapshot suitable for a later conditional clear.
+
+    Raises:
+        RuntimeError: When evidence is missing, malformed, non-regular, or does
+            not consistently name ``pid``.
+    """
+    root = root.resolve()
+    legacy_path = root / ".gateway-identity.json"
+    if legacy_path.exists() or legacy_path.is_symlink():
+        raise RuntimeError(
+            f"unsupported Gateway lifecycle evidence retained: {legacy_path}"
+        )
+    files = tuple(
+        _snapshot_gateway_evidence_file(root, name)
+        for name in _GATEWAY_LIFECYCLE_EVIDENCE_NAMES
+    )
+    by_name = {item.name: item for item in files}
+    required = (".gateway.pid", "gateway.pid", "gateway.identity.json")
+    if any(not by_name[name].exists for name in required):
+        raise RuntimeError("Gateway lifecycle evidence is incomplete")
+    try:
+        external_pid = int(by_name[".gateway.pid"].content or "")
+        internal_pid = int(by_name["gateway.pid"].content or "")
+        identity = json.loads(by_name["gateway.identity.json"].content or "")
+        state = (
+            json.loads(by_name[".gateway-state.json"].content or "")
+            if by_name[".gateway-state.json"].exists
+            else None
+        )
+    except (OSError, UnicodeError, ValueError, TypeError) as exc:
+        raise RuntimeError("Gateway lifecycle evidence is malformed") from exc
+    if (
+        external_pid != pid
+        or internal_pid != pid
+        or identity.get("pid") != pid
+        or (state is not None and state.get("pid") != pid)
+    ):
+        raise RuntimeError("Gateway lifecycle evidence PID mismatch")
+    # Re-capture after semantic reads so callers never receive a mixed revision.
+    confirmed = tuple(
+        _snapshot_gateway_evidence_file(root, name)
+        for name in _GATEWAY_LIFECYCLE_EVIDENCE_NAMES
+    )
+    if confirmed != files:
+        raise RuntimeError("Gateway lifecycle evidence changed during capture")
+    return GatewayLifecycleEvidenceSnapshot(pid=pid, files=files)
+
+
+def clear_gateway_lifecycle_evidence(
+    root: Path,
+    expected: GatewayLifecycleEvidenceSnapshot,
+    *,
+    allow_runtime_cleared: bool = False,
+) -> None:
+    """Conditionally clear one complete, unchanged Gateway evidence revision.
+
+    Args:
+        root: Directory containing worktree Gateway lifecycle evidence.
+        expected: Exact revision previously returned by
+            :func:`capture_gateway_lifecycle_evidence`.
+        allow_runtime_cleared: Accept the foreground runtime's normal exit
+            state where the unchanged external PID remains but every
+            runtime-owned internal evidence file has already been removed.
+
+    Raises:
+        RuntimeError: When any evidence path changed before the commit point.
+    """
+    root = root.resolve()
+    current_files = tuple(
+        _snapshot_gateway_evidence_file(root, item.name) for item in expected.files
+    )
+    if current_files != expected.files:
+        expected_by_name = {item.name: item for item in expected.files}
+        current_by_name = {item.name: item for item in current_files}
+        external_unchanged = (
+            current_by_name[".gateway.pid"] == expected_by_name[".gateway.pid"]
+        )
+        internal_cleared = all(
+            not current_by_name[name].exists
+            for name in (
+                "gateway.pid",
+                "gateway.identity.json",
+                ".gateway-state.json",
+            )
+        )
+        if not (allow_runtime_cleared and external_unchanged and internal_cleared):
+            raise RuntimeError("Gateway lifecycle evidence changed before cleanup")
+        (root / ".gateway.pid").unlink()
+        return
+    current = capture_gateway_lifecycle_evidence(root, expected.pid)
+    if current != expected:
+        raise RuntimeError("Gateway lifecycle evidence changed before cleanup")
+    for item in expected.files:
+        if item.exists:
+            (root / item.name).unlink()
 
 
 def _runtime_gateway_argv(
@@ -4143,15 +4386,15 @@ def _build_gateway_process_identity(
 ) -> GatewayProcessIdentity:
     """Build the durable identity for the current foreground process."""
     pid = os.getpid()
-    process_start = _process_start_identity(pid)
-    if process_start is None:
+    snapshot = read_gateway_process_snapshot(pid)
+    if snapshot is None:
         raise RuntimeError(
             f"cannot observe Gateway process start identity for pid={pid}"
         )
     return GatewayProcessIdentity(
         schema_version=1,
         pid=pid,
-        process_start=process_start,
+        process_start=snapshot.process_start,
         config_path=str(config.source_path.resolve()),
         entry_module="personal_assistant.main",
         argv=_runtime_gateway_argv(
@@ -4164,13 +4407,18 @@ def _write_gateway_process_identity(
     config: LocalConfig, identity: GatewayProcessIdentity
 ) -> None:
     """Atomically and durably publish the process-instance identity."""
-    path = _gateway_process_identity_path(config)
+    _atomic_write_gateway_file(
+        _gateway_process_identity_path(config),
+        json.dumps(asdict(identity), indent=2, sort_keys=True).encode(),
+    )
+
+
+def _atomic_write_gateway_file(path: Path, payload: bytes) -> None:
+    """Atomically replace one lifecycle file and persist its directory entry."""
     fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     temp_path = Path(temp_name)
     try:
-        remaining = memoryview(
-            json.dumps(asdict(identity), indent=2, sort_keys=True).encode()
-        )
+        remaining = memoryview(payload)
         os.fchmod(fd, 0o600)
         while remaining:
             written = os.write(fd, remaining)
@@ -4259,47 +4507,37 @@ def _upgrade_legacy_gateway_identity(
     The live process must expose the exact supported Gateway module/config argv
     before the current OS birth identity is durably adopted.
     """
-    observed = _observe_gateway_process(pid)
-    if observed is None:
+    snapshot = read_gateway_process_snapshot(pid)
+    if snapshot is None:
         return None
-    module_indexes = [
-        index
-        for index in range(max(0, len(observed.argv) - 1))
-        if observed.argv[index : index + 2] == ("-m", "personal_assistant.main")
-    ]
-    if len(module_indexes) != 1:
+    command = snapshot.command
+    if command is None:
         raise RuntimeError("legacy Gateway identity mismatch; evidence retained")
-    argv = observed.argv[module_indexes[0] + 2 :]
     config_path = str(config.source_path.resolve())
-    expected_prefix = ("--config",)
-    if not argv[:1] == expected_prefix or len(argv) < 3:
+    pattern = re.compile(
+        r"^.+ -m personal_assistant\.main --config "
+        + re.escape(config_path)
+        + r"(?: --im-service-url (?P<im_url>\S+))?"
+        + r" --foreground(?P<auto_bind> --auto-bind)?$"
+    )
+    match = pattern.fullmatch(command)
+    if match is None:
         raise RuntimeError("legacy Gateway identity mismatch; evidence retained")
-    try:
-        argv_config = Path(argv[1]).resolve()
-    except (OSError, RuntimeError):
-        raise RuntimeError(
-            "legacy Gateway identity mismatch; evidence retained"
-        ) from None
-    cursor = 2
-    if argv[cursor : cursor + 1] == ("--im-service-url",):
-        if cursor + 1 >= len(argv) or not argv[cursor + 1].strip():
-            raise RuntimeError("legacy Gateway identity mismatch; evidence retained")
-        cursor += 2
-    if argv[cursor : cursor + 1] != ("--foreground",):
-        raise RuntimeError("legacy Gateway identity mismatch; evidence retained")
-    cursor += 1
-    if argv[cursor : cursor + 1] == ("--auto-bind",):
-        cursor += 1
-    if cursor != len(argv) or argv_config != config.source_path.resolve():
-        raise RuntimeError("legacy Gateway identity mismatch; evidence retained")
+    argv = ["--config", config_path]
+    im_url = match.group("im_url")
+    if im_url is not None:
+        argv.extend(["--im-service-url", im_url])
+    argv.append("--foreground")
+    if match.group("auto_bind") is not None:
+        argv.append("--auto-bind")
 
     identity = GatewayProcessIdentity(
         schema_version=1,
         pid=pid,
-        process_start=observed.process_start,
+        process_start=snapshot.process_start,
         config_path=config_path,
         entry_module="personal_assistant.main",
-        argv=argv,
+        argv=tuple(argv),
     )
     _write_gateway_process_identity(config, identity)
     return identity
@@ -4307,20 +4545,10 @@ def _upgrade_legacy_gateway_identity(
 
 def _assert_gateway_process_instance(identity: GatewayProcessIdentity) -> bool:
     """Return False for exit; raise when a live PID no longer matches identity."""
-    observed = _observe_gateway_process(identity.pid)
-    if observed is None:
+    snapshot = read_gateway_process_snapshot(identity.pid)
+    if snapshot is None:
         return False
-    try:
-        module_index = observed.argv.index("-m")
-    except ValueError:
-        module_matches = False
-    else:
-        module_matches = (
-            module_index + 1 < len(observed.argv)
-            and observed.argv[module_index + 1] == identity.entry_module
-            and observed.argv[module_index + 2 :] == identity.argv
-        )
-    if observed.process_start != identity.process_start or not module_matches:
+    if snapshot.process_start != identity.process_start:
         raise RuntimeError("gateway process identity mismatch; evidence retained")
     return True
 
@@ -4338,13 +4566,22 @@ def _gateway_state_path(config: LocalConfig) -> Path:
 
 
 def _write_gateway_state(config: LocalConfig, result: BackgroundLaunchResult) -> None:
-    state = GatewayRuntimeState(
+    """Atomically and durably publish background launcher state."""
+    state = _gateway_runtime_state(config, result)
+    _atomic_write_gateway_file(
+        _gateway_state_path(config),
+        json.dumps(asdict(state), indent=2, sort_keys=True).encode(),
+    )
+
+
+def _gateway_runtime_state(
+    config: LocalConfig, result: BackgroundLaunchResult
+) -> GatewayRuntimeState:
+    """Build the exact state payload owned by one background launch."""
+    return GatewayRuntimeState(
         pid=result.pid,
         config_path=str(Path(config.source_path).resolve()),
         log_path=str(result.log_path),
-    )
-    _gateway_state_path(config).write_text(
-        json.dumps(asdict(state), indent=2, sort_keys=True), encoding="utf-8"
     )
 
 
@@ -4359,25 +4596,34 @@ def _read_gateway_state(state_path: Path) -> GatewayRuntimeState | None:
     )
 
 
-def _remove_gateway_state(state_path: Path) -> None:
+def _remove_gateway_state(
+    state_path: Path, *, expected: GatewayRuntimeState | None = None
+) -> None:
+    """Remove state only when it still belongs to the expected launch."""
+    if expected is not None:
+        try:
+            if _read_gateway_state(state_path) != expected:
+                return
+        except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+            return
     with suppress(FileNotFoundError):
         state_path.unlink()
 
 
+def _clear_failed_gateway_startup(
+    config: LocalConfig, expected_state: GatewayRuntimeState
+) -> None:
+    """Clear only lifecycle files still naming a confirmed-exited launch."""
+    _remove_gateway_state(_gateway_state_path(config), expected=expected_state)
+    _remove_gateway_pid(config, expected_pid=expected_state.pid)
+    identity = _read_gateway_process_identity(config)
+    if identity is not None and identity.pid == expected_state.pid:
+        _remove_gateway_process_identity(config, expected=identity)
+
+
 def _pid_is_running(pid: int) -> bool:
     """Return whether PID names a non-zombie process, without sending a signal."""
-    result = subprocess.run(
-        ["ps", "-p", str(pid), "-o", "stat="],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    process_stat = result.stdout.strip()
-    return (
-        result.returncode == 0
-        and bool(process_stat)
-        and not process_stat.startswith("Z")
-    )
+    return read_gateway_process_snapshot(pid) is not None
 
 
 def _resolve_agent_tool_allowlist(
@@ -4506,6 +4752,7 @@ def _wait_for_gateway_start(
 
 
 def _stop_background_process(process: ProcessLike, *, timeout_seconds: float) -> None:
+    """Stop a spawned Gateway or raise while retaining ownership evidence."""
     if process.poll() is not None:
         return
     process.terminate()
@@ -4517,8 +4764,10 @@ def _stop_background_process(process: ProcessLike, *, timeout_seconds: float) ->
     except (TimeoutError, subprocess.TimeoutExpired):
         process.kill()
         _kill_process_tree(process.pid, signal.SIGKILL)
-        with suppress(TimeoutError, subprocess.TimeoutExpired):
+        try:
             process.wait(timeout=timeout_seconds)
+        except (TimeoutError, subprocess.TimeoutExpired) as exc:
+            raise GatewayProcessCleanupError(process.pid) from exc
 
 
 def _kill_process_tree(pid: int, sig: int) -> None:
