@@ -47,6 +47,7 @@ const MAX_BACKOFF_EXPONENT = 5;
 
 export function createUserStreamRuntime(dependencies: UserStreamRuntimeDependencies): UserStreamRuntime {
   const subscribers = new Set<UserStreamSubscriber>();
+  const memoryCursors = new Map<string, number>();
   let socket: UserStreamSocket | null = null;
   let sessionUnsubscribe: (() => void) | null = null;
   let retryTimer: number | null = null;
@@ -88,6 +89,32 @@ export function createUserStreamRuntime(dependencies: UserStreamRuntimeDependenc
     dependencies.reportError(error);
   }
 
+  function readCursor(userId: string): number {
+    const memoryCursor = memoryCursors.get(userId) ?? 0;
+    try {
+      const storedCursor = dependencies.readCursor(userId);
+      const cursor = Number.isFinite(storedCursor) && storedCursor >= 0
+        ? Math.max(memoryCursor, storedCursor)
+        : memoryCursor;
+      memoryCursors.set(userId, cursor);
+      return cursor;
+    } catch (error) {
+      dependencies.reportError(error);
+      return memoryCursor;
+    }
+  }
+
+  function writeCursor(userId: string, cursor: number): void {
+    const current = memoryCursors.get(userId) ?? 0;
+    if (!Number.isFinite(cursor) || cursor <= current) return;
+    memoryCursors.set(userId, cursor);
+    try {
+      dependencies.writeCursor(userId, cursor);
+    } catch (error) {
+      dependencies.reportError(error);
+    }
+  }
+
   async function signalRecovery(currentGeneration: number): Promise<void> {
     if (currentGeneration !== generation || recoverySignaledGeneration === currentGeneration) return;
     recoverySignaledGeneration = currentGeneration;
@@ -109,9 +136,9 @@ export function createUserStreamRuntime(dependencies: UserStreamRuntimeDependenc
     try {
       const result = await dependencies.sync();
       if (currentGeneration !== generation) return;
-      const current = dependencies.readCursor(userId);
+      const current = readCursor(userId);
       if (Number.isFinite(result.maxEventId) && result.maxEventId > current) {
-        dependencies.writeCursor(userId, result.maxEventId);
+        writeCursor(userId, result.maxEventId);
       }
     } catch (error) {
       if (currentGeneration !== generation) return;
@@ -150,8 +177,8 @@ export function createUserStreamRuntime(dependencies: UserStreamRuntimeDependenc
     const event = parseEvent(record);
     if (!event) return;
     if (event.eventId !== undefined) {
-      const current = dependencies.readCursor(userId);
-      if (event.eventId > current) dependencies.writeCursor(userId, event.eventId);
+      const current = readCursor(userId);
+      if (event.eventId > current) writeCursor(userId, event.eventId);
     }
     for (const subscriber of [...subscribers]) {
       try {
@@ -213,7 +240,7 @@ export function createUserStreamRuntime(dependencies: UserStreamRuntimeDependenc
       if (currentGeneration !== generation || socket !== nextSocket) return;
       reconnectAttempt = 0;
       nextSocket.send(
-        JSON.stringify({ op: "resume", after_event_id: dependencies.readCursor(readiness.userId) })
+        JSON.stringify({ op: "resume", after_event_id: readCursor(readiness.userId) })
       );
       const recovering = lastOpenedUserId === readiness.userId;
       lastOpenedUserId = readiness.userId;

@@ -1551,6 +1551,10 @@ class MessageRepository:
                     "reason": reason,
                 },
             )
+        # Publish only after the delete + tombstone transaction commits. Repeated
+        # discard calls return above, so connected clients receive exactly one rollback.
+        if self._notify is not None:
+            self._notify(tombstone)
         return tombstone
 
     def update_runtime_state(

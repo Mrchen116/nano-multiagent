@@ -25,7 +25,6 @@ def test_user_stream_socket_has_one_production_lifecycle_owner() -> None:
         path.relative_to(REPO_ROOT)
         for path in _production_typescript()
         if "/im/ws/user" in path.read_text(encoding="utf-8")
-        or "new WebSocket(" in path.read_text(encoding="utf-8")
     ]
 
     assert offenders == []

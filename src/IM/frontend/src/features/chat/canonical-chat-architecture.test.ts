@@ -53,4 +53,13 @@ describe("canonical Chat architecture", () => {
     });
     expect(offenders).toEqual([]);
   });
+
+  it("keeps mention derivation and authenticated JSON errors on their canonical owners", () => {
+    const apiSource = stripComments(readFileSync(join(CHAT_DIR, "chat-api.ts"), "utf8"));
+    expect(
+      ["listMentionCandidates", "initialsFrom", "jsonOrThrow"].filter((marker) =>
+        apiSource.includes(marker)
+      )
+    ).toEqual([]);
+  });
 });

@@ -18,6 +18,12 @@ function makeResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 }
 
+function accessToken(expiresInSeconds: number): string {
+  const header = btoa(JSON.stringify({ alg: "HS256", typ: "JWT" }));
+  const payload = btoa(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + expiresInSeconds }));
+  return `${header}.${payload}.signature`;
+}
+
 describe("authFetch", () => {
   beforeEach(() => {
     localStorage.clear();
@@ -75,6 +81,35 @@ describe("authFetch", () => {
     expect(retryHeaders.get("Authorization")).toBe("Bearer fresh");
     expect(useAuthStore.getState().accessToken).toBe("fresh");
     expect(useAuthStore.getState().refreshToken).toBe("r-2");
+  });
+
+  it("force-refreshes a locally fresh access token after the server rejects it", async () => {
+    const rejected = accessToken(300);
+    const fresh = accessToken(600);
+    useAuthStore.getState().setSession({
+      access_token: rejected,
+      refresh_token: "r-1",
+      user: SAMPLE_USER
+    });
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(makeResponse(401, { detail: "revoked" }))
+      .mockResolvedValueOnce(
+        makeResponse(200, {
+          access_token: fresh,
+          refresh_token: "r-2",
+          user: SAMPLE_USER
+        })
+      )
+      .mockResolvedValueOnce(makeResponse(200, { ok: true }));
+
+    const res = await authFetch("/im/v1/agents");
+
+    expect(res.ok).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    const retryHeaders = new Headers((fetchMock.mock.calls[2]![1] as RequestInit).headers);
+    expect(retryHeaders.get("Authorization")).toBe(`Bearer ${fresh}`);
+    expect(retryHeaders.get("Authorization")).not.toBe(`Bearer ${rejected}`);
   });
 
   it("clears the session if refresh fails", async () => {

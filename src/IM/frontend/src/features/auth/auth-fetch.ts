@@ -1,6 +1,6 @@
 import { useAuthStore } from "./auth-store";
 import { withBase } from "./auth-api";
-import { ensureFreshSession } from "./auth-session";
+import { forceRefreshSession } from "./auth-session";
 
 function buildHeaders(init: RequestInit | undefined, token: string | null): Headers {
   const headers = new Headers(init?.headers ?? {});
@@ -29,17 +29,25 @@ export async function authFetch(path: string, init?: RequestInit): Promise<Respo
   const firstHeaders = buildHeaders(init, initialToken);
   const first = await fetch(url, { ...init, headers: firstHeaders });
   if (first.status !== 401) return first;
-  const readiness = await ensureFreshSession();
+  const readiness = await forceRefreshSession();
   if (readiness.status !== "ready" || readiness.userId !== initialUserId) return first;
   const retryHeaders = buildHeaders(init, readiness.accessToken);
   return fetch(url, { ...init, headers: retryHeaders });
 }
 
-export async function authFetchJson<T>(path: string, init?: RequestInit): Promise<T> {
+export async function authFetchJson<T>(
+  path: string,
+  init?: RequestInit,
+  operationLabel?: string
+): Promise<T> {
   const res = await authFetch(path, init);
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`${init?.method ?? "GET"} ${path} failed: ${res.status} (${text || res.statusText})`);
+    const text = await res.text().catch(() => "");
+    if (operationLabel) {
+      throw new Error(`${operationLabel} failed: ${res.status} ${text}`);
+    }
+    const detail = text || res.statusText;
+    throw new Error(`${init?.method ?? "GET"} ${path} failed: ${res.status} (${detail})`);
   }
   return (await res.json()) as T;
 }

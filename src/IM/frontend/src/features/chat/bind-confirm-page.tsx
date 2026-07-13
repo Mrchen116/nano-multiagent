@@ -36,11 +36,11 @@ export function BindConfirmPage() {
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
   const bindToken = useMemo(() => searchParams.get("token")?.trim() ?? "", [searchParams]);
-  const confirmedBind = useRef<{ node_id: string } | null>(null);
+  const confirmedBind = useRef<{ token: string; result: { node_id: string } } | null>(null);
   const confirmMutation = useMutation({
     mutationFn: async () => {
-      if (confirmedBind.current === null) {
-        confirmedBind.current = await confirmBindToken(bindToken);
+      if (confirmedBind.current?.token !== bindToken) {
+        confirmedBind.current = { token: bindToken, result: await confirmBindToken(bindToken) };
       }
 
       const account = await getAccount();
@@ -52,7 +52,7 @@ export function BindConfirmPage() {
 
       const results = await Promise.allSettled(
         OWNER_DERIVED_QUERY_KEYS.map((queryKey) =>
-          queryClient.invalidateQueries({ queryKey, refetchType: "all" })
+          queryClient.invalidateQueries({ queryKey, refetchType: "all" }, { throwOnError: true })
         )
       );
       const failure = results.find((result) => result.status === "rejected");
@@ -61,7 +61,7 @@ export function BindConfirmPage() {
           ? failure.reason
           : new Error("Binding succeeded, but refreshing owner data failed.");
       }
-      return confirmedBind.current;
+      return confirmedBind.current.result;
     },
     onSuccess: () => {
       navigate("/chat", { replace: true });

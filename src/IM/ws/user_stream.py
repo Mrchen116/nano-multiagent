@@ -28,11 +28,18 @@ def conversation_event_to_wire_data(event: ConversationEvent) -> dict[str, objec
             raw_payload = {}
     except json.JSONDecodeError:
         raw_payload = {}
+    # Tombstones intentionally have no message FK because the provisional row was
+    # deleted. Their payload still owns the identity the client must remove.
+    message_id = (
+        event.message_id
+        if event.message_id is not None
+        else raw_payload.get("message_id")
+    )
     return {
         **raw_payload,
         "event_id": event.event_id,
         "conversation_id": event.conversation_id,
-        "message_id": event.message_id,
+        "message_id": message_id,
         "delivery_status": event.delivery_status,
         "created_at": event.created_at,
     }

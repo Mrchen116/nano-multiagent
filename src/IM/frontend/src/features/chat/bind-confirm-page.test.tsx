@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
+import { Link, MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useAuthStore, type AuthUser } from "../auth/auth-store";
@@ -9,12 +9,19 @@ import { useAuthStore, type AuthUser } from "../auth/auth-store";
 const mocks = vi.hoisted(() => ({
   confirmBindToken: vi.fn(),
   getAccount: vi.fn(),
-  navigate: vi.fn()
+  navigate: vi.fn(),
+  useRealNavigate: false
 }));
 
 vi.mock("react-router-dom", async () => {
   const actual = await vi.importActual<typeof import("react-router-dom")>("react-router-dom");
-  return { ...actual, useNavigate: () => mocks.navigate };
+  return {
+    ...actual,
+    useNavigate: () => {
+      const realNavigate = actual.useNavigate();
+      return mocks.useRealNavigate ? realNavigate : mocks.navigate;
+    }
+  };
 });
 
 vi.mock("../settings/im-settings-api", async () => {
@@ -83,6 +90,7 @@ describe("BindConfirmPage reconciliation", () => {
     mocks.confirmBindToken.mockReset();
     mocks.getAccount.mockReset();
     mocks.navigate.mockReset();
+    mocks.useRealNavigate = false;
     useAuthStore.getState().clear();
     useAuthStore.getState().setSession({
       access_token: "access-current",
@@ -145,5 +153,67 @@ describe("BindConfirmPage reconciliation", () => {
     await waitFor(() => expect(mocks.navigate).toHaveBeenCalledWith("/chat", { replace: true }));
     expect(mocks.confirmBindToken).toHaveBeenCalledTimes(1);
     expect(mocks.getAccount).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not navigate when a real hot-cache refetch fails and retries without reconfirming", async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    let shouldFail = true;
+    OWNER_DERIVED_KEYS.forEach((queryKey, index) => {
+      queryClient.setQueryDefaults(queryKey, {
+        retry: false,
+        queryFn: async () => {
+          if (index === 0 && shouldFail) throw new Error("conversation cache unavailable");
+          return { fresh: true };
+        }
+      });
+      queryClient.setQueryData(queryKey, { stale: true });
+    });
+    mocks.confirmBindToken.mockResolvedValue({ node_id: "node-new" });
+    mocks.getAccount.mockResolvedValue(NEXT_ACCOUNT);
+    renderPage(queryClient);
+
+    await user.click(screen.getByRole("button", { name: "Continue to chat" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("conversation cache unavailable");
+    expect(mocks.navigate).not.toHaveBeenCalled();
+    expect(mocks.confirmBindToken).toHaveBeenCalledTimes(1);
+
+    shouldFail = false;
+    await user.click(screen.getByRole("button", { name: "Continue to chat" }));
+    await waitFor(() => expect(mocks.navigate).toHaveBeenCalledWith("/chat", { replace: true }));
+    expect(mocks.confirmBindToken).toHaveBeenCalledTimes(1);
+  });
+
+  it("confirms a new token after token A succeeded but its reconciliation failed", async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    mocks.useRealNavigate = true;
+    mocks.confirmBindToken
+      .mockResolvedValueOnce({ node_id: "node-a" })
+      .mockResolvedValueOnce({ node_id: "node-b" });
+    mocks.getAccount
+      .mockRejectedValueOnce(new Error("GET /im/v1/me failed: 503 (temporarily unavailable)"))
+      .mockResolvedValueOnce(NEXT_ACCOUNT);
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/bind/confirm?token=bind-a"]}>
+          <Link to="/bind/confirm?token=bind-b">Use token B</Link>
+          <Routes>
+            <Route path="/bind/confirm" element={<BindConfirmPage />} />
+            <Route path="/chat" element={<div>Chat reached</div>} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+
+    await user.click(screen.getByRole("button", { name: "Continue to chat" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("temporarily unavailable");
+    await user.click(screen.getByRole("link", { name: "Use token B" }));
+    await user.click(screen.getByRole("button", { name: "Continue to chat" }));
+
+    expect(await screen.findByText("Chat reached")).toBeInTheDocument();
+    expect(mocks.confirmBindToken.mock.calls.map(([token]) => token)).toEqual(["bind-a", "bind-b"]);
   });
 });

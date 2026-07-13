@@ -8,7 +8,6 @@ import {
   deleteConversation,
   forkConversation,
   listConversations,
-  listMentionCandidates,
   listMessages,
   removeParticipant,
   updateConversation
@@ -199,27 +198,6 @@ describe("chat-api", () => {
     await expect(removeParticipant("g1", "uuid-a")).rejects.toThrow();
   });
 
-  it("listMentionCandidates filters agent list to the conversation's agent participants", async () => {
-    const f = fetch as unknown as ReturnType<typeof vi.fn>;
-    f.mockResolvedValueOnce(jsonResponse([
-      { agent_id: "agent-a", display_name: "Assistant", node_id: "n1", description: "" },
-      { agent_id: "agent-b", display_name: "Planner", node_id: "n1", description: "" },
-      { agent_id: "agent-c", display_name: "Reviewer", node_id: "n1", description: "" }
-    ]));
-
-    const out = await listMentionCandidates({
-      conversation: {
-        participants: [
-          { type: "user", id: "user-1" },
-          { type: "agent", id: "agent-a" },
-          { type: "agent", id: "agent-c" }
-        ]
-      }
-    });
-    expect(out.map((m) => m.agent_id)).toEqual(["agent-a", "agent-c"]);
-    expect(out[0]!.initials).toBe("AS");
-  });
-
   it("forkConversation POSTs fork_message_id and returns the new conversation", async () => {
     const f = fetch as unknown as ReturnType<typeof vi.fn>;
     f.mockResolvedValueOnce(jsonResponse({
@@ -242,5 +220,14 @@ describe("chat-api", () => {
     const f = fetch as unknown as ReturnType<typeof vi.fn>;
     f.mockResolvedValueOnce(new Response("agent offline", { status: 409 }));
     await expect(forkConversation("c-src", "msg-7")).rejects.toThrow();
+  });
+
+  it("preserves the visible Chat operation label and response body on JSON errors", async () => {
+    const f = fetch as unknown as ReturnType<typeof vi.fn>;
+    f.mockResolvedValueOnce(new Response("temporarily unavailable", { status: 503 }));
+
+    await expect(listConversations()).rejects.toThrow(
+      "listConversations failed: 503 temporarily unavailable"
+    );
   });
 });

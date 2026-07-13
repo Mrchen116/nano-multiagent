@@ -773,14 +773,73 @@ describe("ChatWorkspacePage — integration", () => {
     expect(screen.getByText("Hi Planner")).toBeInTheDocument();
   });
 
-  // Chat 订阅必须注册 onResyncRequired，否则断线重连后 IM 发 resync 命令时，
-  // 侧边栏可能停在断线期间错过消息的旧状态。
-  it("registers onResyncRequired for post-reconnect refresh", async () => {
+  it("converges active messages, conversations, agents, and nodes after recovery", async () => {
+    let recovered = false;
+    const baseFetch = mockFetch();
+    fetchSpy = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.endsWith("/im/v1/conversations") && (!init || init.method === undefined || init.method === "GET")) {
+        return jsonResponse({
+          items: recovered
+            ? FIXTURES.conversations.map((item) => (item.id === "c1" ? { ...item, title: "Recovered Planner" } : item))
+            : FIXTURES.conversations
+        });
+      }
+      if (/\/im\/v1\/conversations\/c1\/messages/.test(url) && (!init || init.method === undefined || init.method === "GET")) {
+        return jsonResponse({
+          items: recovered
+            ? [historyMessage("m-recovered", 1, "message restored from REST after recovery")]
+            : FIXTURES.messagesC1,
+          next_before_message_id: null
+        });
+      }
+      if (url.endsWith("/im/v1/agents")) {
+        return jsonResponse([
+          {
+            agent_id: "a-planner",
+            display_name: recovered ? "Recovered Agent" : "Planner",
+            node_id: recovered ? "node-recovered" : "node-prod",
+            user_id: "user-uuid-planner"
+          }
+        ]);
+      }
+      if (url.endsWith("/im/v1/nodes")) {
+        return jsonResponse([
+          {
+            node_id: recovered ? "node-recovered" : "node-prod",
+            owner_id: "u-self",
+            node_name: recovered ? "recovered-node" : "laptop-prod",
+            status: recovered ? "offline" : "online",
+            last_heartbeat_at: null,
+            agent_count: 1,
+            version: "1.0",
+            relay_enabled: true,
+            reporting_enabled: true,
+            alias: null,
+            last_error: null
+          }
+        ]);
+      }
+      return baseFetch(input, init);
+    }) as ReturnType<typeof mockFetch>;
+    vi.stubGlobal("fetch", fetchSpy);
+
     renderAtRoute("/chat/c1");
     await screen.findByText("Hi Planner");
-    await waitFor(() => expect(capturedStatusHandler).toBeTruthy());
-    // onResyncRequired must be registered so the shared resync path invokes it.
-    expect(capturedResyncHandler).not.toBeNull();
+    await waitFor(() => expect(capturedResyncHandler).not.toBeNull());
+    expect(screen.getByText("laptop-prod").closest(".chat-node-chip")).toHaveClass("chat-node-chip--online");
+
+    recovered = true;
+    await act(async () => {
+      await capturedResyncHandler!();
+    });
+
+    expect(await screen.findByText("message restored from REST after recovery")).toBeInTheDocument();
+    expect(screen.queryByText("Hi Planner")).not.toBeInTheDocument();
+    expect((await screen.findAllByText("Recovered Planner")).length).toBeGreaterThanOrEqual(2);
+    const recoveredChip = await screen.findByText("recovered-node");
+    expect(recoveredChip.closest(".chat-node-chip")).not.toHaveClass("chat-node-chip--online");
+    expect(screen.getAllByText("RE").length).toBeGreaterThanOrEqual(1);
   });
 
   it("re-fetches conversations after reading so the unread badge can clear", async () => {
