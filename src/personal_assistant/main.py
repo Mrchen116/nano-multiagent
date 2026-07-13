@@ -2729,8 +2729,8 @@ def _parse_heartbeat_from_im_payload(
 def build_runtime(config: LocalConfig) -> GatewayRuntime:
     """Construct the default long-running gateway runtime from parsed local config.
 
-    refactor-387 M3: kernel is now in-process via agent.sdk.  No kernel child
-    no independent Kernel process is spawned.
+    refactor-387 M3: kernel is now in-process via agent.sdk; no independent
+    Kernel process is spawned.
     """
     # refactor-406-M1 R6: PA assembles its kernel through the 2-layer SDK surface
     # via its own factory (personal_assistant.product).  PA imports only agent.sdk +

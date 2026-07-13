@@ -104,7 +104,8 @@ def test_rebuild_runtime_writes_canonical_node_config(
         "Agent M170 Beta",
     ]
     assert payload["im_service"] == {"url": "http://127.0.0.1:18031"}
-    assert "18070" in payload["kernel"]["command"]
+    assert "kernel" not in payload
+    assert payload["llm"]["default_model"] == "kimiCoding:K2.6"
 
 
 def test_rebuild_runtime_seeds_canonical_agent_profiles_into_fresh_db(
@@ -184,7 +185,7 @@ def test_resolve_canonical_repo_root_collapses_worktree_checkout_to_main_repo() 
     )
 
 
-def test_stop_runtime_terminates_duplicate_gateway_and_kernel_processes(
+def test_stop_runtime_terminates_duplicate_gateway_processes(
     monkeypatch, tmp_path: Path
 ) -> None:
     runtime_root = tmp_path / "m170-runtime"
@@ -208,7 +209,6 @@ def test_stop_runtime_terminates_duplicate_gateway_and_kernel_processes(
     monkeypatch.setattr(
         m170_runtime, "_list_gateway_pids_for_config", lambda config_path: {111, 200}
     )
-    monkeypatch.setattr(m170_runtime, "_list_listener_pids", lambda port: {222, 300})
     terminated: list[tuple[int, float]] = []
     monkeypatch.setattr(
         m170_runtime,
@@ -228,7 +228,7 @@ def test_stop_runtime_terminates_duplicate_gateway_and_kernel_processes(
 
     assert result["gateway"] == f"STOPPED config={runtime_root / 'node-config.yaml'}"
     assert result["im_url_stopped"] == "true"
-    assert terminated == [(111, 3.5), (222, 3.5)]
+    assert terminated == [(111, 3.5)]
     assert kill_calls == [(200, 0), (300, m170_runtime.signal.SIGTERM)]
     assert (runtime_root / ".im-state.json").exists() is False
 

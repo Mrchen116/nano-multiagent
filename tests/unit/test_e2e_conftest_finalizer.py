@@ -80,18 +80,6 @@ def test_scan_finds_personal_assistant_main_in_pytest_tmpdir() -> None:
         _terminate(proc)
 
 
-def test_scan_finds_kernel_app_in_pytest_tmpdir() -> None:
-    marker = "uvicorn personal_assistant.kernel_app:app --host 127.0.0.1 --port 11111 (pytest-of-tester/pytest-99/test_x/)"
-    proc = _spawn_fake_leak(marker)
-    try:
-        _await_in_ps(proc.pid)
-        leaked = _MOD._scan_leaked_pids()
-        pids = {p for p, _ in leaked}
-        assert proc.pid in pids
-    finally:
-        _terminate(proc)
-
-
 def test_scan_skips_non_pytest_paths() -> None:
     """personal_assistant.main 路径不含 pytest-of-/pytest-NN/ 的不该被扫到。"""
     marker = "personal_assistant.main --config /Users/dev/.nano-assistant/config.yaml"
@@ -108,7 +96,7 @@ def test_scan_skips_non_pytest_paths() -> None:
 
 
 def test_scan_skips_pytest_path_without_target_needle() -> None:
-    """命中 pytest tmpdir 但不是 personal_assistant.main / kernel_app 的不追。"""
+    """命中 pytest tmpdir 但不是 personal_assistant.main 的不追。"""
     marker = "some-other-tool --config /tmp/pytest-of-tester/pytest-99/test_x/data.json"
     proc = _spawn_fake_leak(marker)
     try:
