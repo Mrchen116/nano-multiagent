@@ -61,7 +61,7 @@ ps() {{
   case "$*" in
     *"command="*) printf '%s\\n' "$GATEWAY_COMMAND" ;;
     *"lstart="*) printf '%s\\n' "$PROCESS_START" ;;
-    *"stat="*) printf '%s\\n' "${{PROCESS_STAT:-S}}" ;;
+    *"stat="*) printf '%s\\n' "${{PROCESS_STAT-S}}" ;;
   esac
 }}
 sleep() {{
@@ -122,7 +122,9 @@ def test_gateway_identity_mismatch_sends_no_signal_and_retains_stack(
     )
     command = None
     if mismatch == "argv":
-        command = "python -m personal_assistant.main --config /tmp/other.yaml --foreground"
+        command = (
+            "python -m personal_assistant.main --config /tmp/other.yaml --foreground"
+        )
 
     result = _run_down(tmp_path, kill_body="return 0", command=command)
 
