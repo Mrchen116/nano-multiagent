@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import json
 from pathlib import Path
 
 import pytest
@@ -178,3 +179,56 @@ def test_launch_gateway_in_background_stops_child_when_start_confirmation_fails(
         )
 
     assert process.terminate_called == 1
+
+
+def test_launch_gateway_in_background_default_waiter_reports_child_early_exit(
+    tmp_path: Path,
+) -> None:
+    config = build_config(tmp_path)
+    process = _FakeProcess(wait_result=7, poll_result=7)
+
+    with pytest.raises(GatewayStartupError, match="return code 7"):
+        launch_gateway_in_background(
+            config_path=config.source_path,
+            load_config=lambda _path: config,
+            spawn_process=lambda _argv, _log_path: process,
+        )
+
+
+def test_launch_gateway_in_background_default_waiter_times_out_without_pid(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    config = build_config(tmp_path)
+    process = _FakeProcess(wait_result=0)
+    monkeypatch.setattr(main_module.time, "monotonic", iter([0.0, 1.0]).__next__)
+    monkeypatch.setattr(main_module, "_kill_process_tree", lambda _pid, _sig: None)
+
+    with pytest.raises(GatewayStartupError, match="pid file never appeared"):
+        launch_gateway_in_background(
+            config_path=config.source_path,
+            load_config=lambda _path: config,
+            spawn_process=lambda _argv, _log_path: process,
+        )
+
+    assert process.terminate_called == 1
+
+
+def test_launch_gateway_in_background_default_waiter_accepts_child_pid(
+    tmp_path: Path,
+) -> None:
+    config = build_config(tmp_path)
+    process = _FakeProcess(wait_result=0, pid=2468)
+
+    def _spawn(_argv: list[str], _log_path: Path) -> _FakeProcess:
+        (tmp_path / "gateway.pid").write_text("2468", encoding="utf-8")
+        return process
+
+    result = launch_gateway_in_background(
+        config_path=config.source_path,
+        load_config=lambda _path: config,
+        spawn_process=_spawn,
+    )
+
+    assert result.pid == 2468
+    assert json.loads((tmp_path / ".gateway-state.json").read_text())["pid"] == 2468

@@ -83,8 +83,14 @@ PYTHONPATH=src python -m personal_assistant.main --config ./node-config.yaml
 默认命令会后台启动 Gateway，并立即返回：
 
 ```text
-STARTED pid=<pid> health_url=http://127.0.0.1:8011 log=<config目录>/gateway.log
+Gateway started (pid=<pid>)
+IM service:      http://127.0.0.1:8011  [connected|unavailable (running offline, will retry)]
+Log:             <config目录>/gateway.log
 ```
+
+这只确认后台子进程已存活并写出 PID，不代表 runtime/channel ready。IM 连接、节点绑定和 channel
+启动结果仍需从 `gateway.log` 或 Web IM 节点状态确认；`IM service` 的 unavailable 状态不会阻止
+Gateway 离线启动并继续重试。
 
 Gateway 默认启动顺序：
 1. 读取本地配置。
@@ -107,7 +113,8 @@ Gateway stop 反馈语义：
 - `STALE pid=... state=...`：运行态文件存在，但 pid 已失效；CLI 会自动清理陈旧状态，然后你可以直接重新 start。
 
 Gateway ready 信号：
-- 默认路径下，终端会先返回 `STARTED ...`；后续 readiness/绑定反馈写入 `gateway.log`，并可能自动打开绑定页。
+- 默认路径下，终端会先返回 `Gateway started (pid=...)`；这是 PID + child liveness
+  确认，不代表 runtime/channel ready。后续 readiness/绑定反馈写入 `gateway.log`，并可能自动打开绑定页。
 - 若你改用 `--foreground` 调试路径，终端会保持常驻，并直接看到 `ACTION ...` / `NEXT ...`。
 - 验证 Gateway 生命周期闭环，推荐用 `./scripts/e2e-up.sh` 一键起停后轮询 `/im/v1/nodes` 看到 `online` 即可（详见 §7）。
 

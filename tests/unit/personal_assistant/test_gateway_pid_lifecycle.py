@@ -349,3 +349,50 @@ def test_stop_gateway_stops_foreground_pid_without_runtime_state(
     assert result == f"STOPPED pid=2468 pid_file={pid_path}"
     assert kills == [(2468, signal.SIGTERM)]
     assert not pid_path.exists()
+
+
+def test_stop_gateway_force_kills_owned_process_group_and_cleans_state(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    config = build_config(tmp_path)
+    pid_path = tmp_path / "gateway.pid"
+    state_path = tmp_path / ".gateway-state.json"
+    pid_path.write_text("2468", encoding="utf-8")
+    state_path.write_text(
+        json.dumps(
+            {
+                "pid": 2468,
+                "config_path": str(config.source_path),
+                "log_path": str(tmp_path / "gateway.log"),
+            }
+        ),
+        encoding="utf-8",
+    )
+    signals: list[tuple[str, int, int]] = []
+    monkeypatch.setattr(main_module, "_pid_is_running", lambda _pid: True)
+    monkeypatch.setattr(
+        main_module.os,
+        "kill",
+        lambda pid, sig: signals.append(("pid", pid, sig)),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_kill_process_tree",
+        lambda pid, sig: signals.append(("group", pid, sig)),
+    )
+    monkeypatch.setattr(main_module.time, "monotonic", iter([0.0, 1.0]).__next__)
+
+    result = stop_gateway(
+        config_path=config.source_path, load_config=lambda _path: config
+    )
+
+    assert result == f"STOPPED pid=2468 state={state_path} forced=true"
+    assert signals == [
+        ("pid", 2468, signal.SIGTERM),
+        ("group", 2468, signal.SIGTERM),
+        ("pid", 2468, signal.SIGKILL),
+        ("group", 2468, signal.SIGKILL),
+    ]
+    assert not pid_path.exists()
+    assert not state_path.exists()
