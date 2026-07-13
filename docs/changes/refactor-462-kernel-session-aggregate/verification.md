@@ -252,3 +252,65 @@ N/A（限本轮 targeted scope）。
 N/A。
 
 All checks passed. Ready for PR.
+
+# Round 5
+
+## Summary
+
+- **Mode:** targeted-closure
+- **Delta range:** `f89f9bed91b0360ec5a4d0b1af734685ca2c5e97..e951b64335d1a4a0d4bf885d86b2ca14d6f54a26`
+- **Focus issues:** fix-r4 assistant publication 线性化；Round 2 WARNING-2 经 orchestrator 收窄后的最低 final-interface 永久矩阵。
+- **Verdict:** **PASS**
+- **requires_full_verification:** `false`
+- **Issues:** 0 CRITICAL，0 WARNING，0 SUGGESTION（限本轮 targeted scope）。
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 7/7 focus behaviors covered（publication + 6 类最低永久矩阵） |
+| Correctness | 8/8 新 scenario cases passed；Round 4 scope regression preserved |
+| Coherence | Followed（publication 与 interrupt 共用线性化锁；测试落在最低可覆盖层，内部观察仅用于 SDK 必须隐藏的 legacy seed） |
+
+Acceptance Round 2 可保留：`acc0c4721..e951b6433` 只有永久测试变更，没有新的产品实现 delta。
+
+## Verification Evidence
+
+- 新增场景逐项运行：queued publication、active append late tool/recovery（2 参数）、whole fork、PromptSlots restart、legacy empty fallback、overflow retry/restart replay、memory/USER + read window reset → **8 passed in 0.61s**。
+- 完整受影响回归：上述 final-interface 文件 + Round 4 的 aggregate/writer/executor/runtime-runner/architecture 范围 + test governance contract → **82 passed in 3.39s**。
+- 独立 publication stress：同一 queued-wakeup public-stream probe 新进程重复 20 次 → **20/20 passed**；correctness reviewer 的同排队 probe 结论与本轮一致。
+- 测试治理：`tests/contract/test_test_naming_and_size_contract.py` → **2 passed**；唯一新增文件 `tests/integration/test_conversation_context_window_integration.py` 为 145 行，低于 400 行上限；新增命名无 milestone 流水号，delta 无 skip/xfail。
+- `ruff check .` → passed；`ruff format --check .` → **761 files already formatted**；`git diff --check origin/main...HEAD` → passed。
+
+## Test Quality Audit
+
+- publication、overflow、fork、seeded PromptSlots、context window 与 active append 均从 `build_kernel` 后的公开 `Kernel.submit` / `append_message` / `interrupt` / `compact` / `fork_session` / `aclose` 驱动；没有直接调用 Transcript/Executor 私有事务方法。
+- Fake LLM/tool 只控制外部边界的确定性输入；断言读取真实模型请求、公开 RunInfo / stream event 与 Kernel 重启后的 JSONL replay，不是 mock 调用次数自证。
+- legacy no-seed 用 raw JSONL 仅构造当前版本无法经公开 API 生成的旧档案 fixture；K2 先经公开 `submit` 强制 materialize，再通过 final aggregate 的稳定 `prompt_seed` 属性断言 `PromptSlotSeed()`，并保留 actual system request 与公开 metadata 证据。这里经 `_c.directory` 取得 aggregate 是有意的 architecture-contract 观察，因为 SDK 按契约必须隐藏 reserved seed；它不是该用例的唯一证据，也没有读取 state/transcript 私有字段。
+- 新文件按 context-window 跨模块行为落在 `tests/integration/`；其余扩展已有 Kernel contract/integration 文件，没有按 milestone 新建重复文件，也没有与低层单测重复断言实现细节。
+
+## Targeted Closure
+
+| Focus behavior | Round 5 result | Production / contract evidence | Permanent regression evidence |
+|---|---|---|---|
+| assistant publication 与 accepted interrupt 线性化 | **closed** | `src/agent/core/agent/run_control.py:61-94` 让 abort/cancel 与 `publish_if_active` 共用 `_terminal_lock`；`src/agent/core/agent/runtime.py:1152-1178` 仅对 assistant content 使用 guarded publisher，tool/lifecycle closure event 不被误抑制 | `tests/contract/test_kernel_sdk_behavior_contract.py:390-468` 精确构造“hook wakeup 已排队、owner loop 被阻塞、随后 interrupt”的旧竞态，并从公开 stream 断言被中断 run 无 assistant event；本轮 20 次 stress 全过 |
+| overflow compact → retry，并在新 Kernel replay compact 结果 | **closed** | 真实 Kernel overflow/compaction/replay path | `tests/integration/test_conversation_compaction_integration.py:244-325` 注入真实 `ModelError` overflow，断言 summary 一次、normal retry 三次、run completed；K2 model request 含 durable `OVERFLOW-REPLAY` |
+| whole fork (`up_to=None`) 复制完整历史并独立演进 | **closed** | 公开 `Kernel.fork_session` whole-session path | `tests/contract/test_kernel_sdk_behavior_contract.py:798-856` 断言 4 条 source message 被 restamp/copy，branch model context 含两轮 source 历史，branch-only 写入不回流 source |
+| PromptSlots K1 → K2 进入 actual system prompt | **closed** | reserved metadata seed 经 JSONL 重启恢复 | `tests/contract/test_sdk_kernel_wiring.py:463-497` 在 K1 create、K1 close、K2 submit 后直接断言 K2 LLM request 的 system message 含 marker |
+| legacy archive 无 seed 使用 empty fallback | **closed** | legacy `session_created` fixture 无 reserved key；真实 K2 submit 后 loaded final aggregate seed 为空，SDK metadata 不暴露内部键 | `tests/contract/test_sdk_kernel_wiring.py:500-543` 断言 `reopened.prompt_seed == PromptSlotSeed()`、actual request 首条为 system message、公开 metadata 保持 `{legacy: true}` |
+| compact 刷新 memory/USER 并重置 read file window | **closed** | public compact transaction 统一 reset memory/file state | `tests/integration/test_conversation_context_window_integration.py:44-145` 先证明同窗冻结与 read dedupe，再 manual compact，断言新 MEMORY/USER 进入 model request、read 返回实际文件且旧-window placeholder 消失 |
+| active external append 与 late tool result / interrupt recovery 同时可达 | **closed** | public append + live tool + interrupt/recovery path | `tests/contract/test_kernel_sdk_behavior_contract.py:704-795` 两参数分别断言 external + `LATE-TOOL-RESULT`、external + `USER_INTERRUPT_RECOVERY_CONTENT` 同时进入下一轮真实 model context |
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+N/A。
+
+### WARNING（应该修）
+
+N/A（Round 2 WARNING-2 的 orchestrator-scoped 最低永久矩阵已关闭）。
+
+### SUGGESTION（可以修）
+
+N/A。
+
+All checks passed. Ready for PR.
