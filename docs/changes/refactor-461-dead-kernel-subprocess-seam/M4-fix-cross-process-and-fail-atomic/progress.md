@@ -35,7 +35,16 @@
 
 ## R3 — e2e evidence state machine 与 spawn rollback
 
-- Status: pending。
+- Context: M3 down 仅在 regular `.gateway.pid` 存在时处理 Gateway，missing/nonregular external owner 会直接越过内部 PID/identity/state 并停 IM；up 忽略 stale internal evidence，固定 60×0.1s 等 PID 后自行写第二套 identity，任何 post-spawn failure 都不回收 IM/Gateway。
+- Decision: 参数解析后 up/down 都无条件 `pwd -P` canonicalize。公共 identity 唯一文件为 `gateway.identity.json`，schema 与 runtime 的 `schema_version/pid/process_start/config_path/entry_module/argv` 相同。up 在无 live external owner 时只删除 stale internal evidence、不读取或 signal 其中 PID；spawn 前安装 EXIT rollback，分别记住精确 `$IM_PID/$GW_PID`，identity/readiness 任一失败时 TERM→bounded confirm→KILL→confirm，只条件删除内容仍匹配本次 PID 的 lifecycle 文件，保留日志。identity wait ticks 从 config `startup_timeout_seconds`（兼容 legacy fallback/default 15）计算，不再固定 6 秒。
+- Evidence matrix: down 对 missing external + `gateway.pid`/identity/state 任一项、nonregular external + internal evidence 均在 signal 前 rc=1；只有全部 Gateway evidence 缺失可继续停 IM。external/identity/internal/state 与 live start/exact argv 全对账后才 signal；TERM/KILL 前重复验证，confirmed exit 后条件清理，清理期 evidence 漂移仍停止 teardown。
+- Evidence:
+  - Red: down 9 failed/3 passed；up 4 failed，分别命中 public schema 未消费、incomplete evidence bypass、fixed 6s、无 rollback、stale child-visible evidence、logical symlink root。
+  - Green: `pytest -q tests/integration/test_e2e_down_script.py tests/integration/test_e2e_up_script.py` → 17 passed；覆盖 delayed identity tick 70、identity timeout rollback、identity 后 readiness rollback、stale internal sentinel 未被 signal、default symlink cwd、missing/nonregular/all-absent、mismatch/zombie/unexited。
+  - Gates: `bash -n scripts/e2e-up.sh scripts/e2e-down.sh`、affected ruff/format/diff check passed。
+- Live evidence: pending R4 cold real stack and negative lifecycle probes。
+- Rollback: 先用本版 down 或精确 PID 确认无 live stack，再回退 C2；C1/C3 保留 round-3 evidence contract。
+- Commits: `8254878b9` (C1), `2d3ec18eb` (C2)。
 
 ## R4 — 全链路验收收口
 

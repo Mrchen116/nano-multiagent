@@ -17,9 +17,9 @@
 - [x] replace 后 directory fsync 失败时 best-effort 恢复原 source 并再次持久化；恢复失败返回明确、不可误判为普通 CAS 的 outcome。
 - [x] foreground Gateway 持久化 PID、OS start identity、resolved config、entry/argv；state 与 PID-only stop 都先只读验证 identity，mismatch 零信号且保留证据；matching legacy state 可无信号安全升级以维持 forward-read stop。
 - [x] stop 的 TERM/KILL 两阶段都以 `min(poll_interval, remaining)` bounded sleep，长 poll 不越过 grace deadline。
-- [ ] e2e-down 对 missing/non-regular external PID + 任一内部 evidence fail closed，零 Gateway/IM signal；只有 Gateway evidence 全无才可继续停 IM。
-- [ ] e2e-up 无 live external owner 时只无信号清理 stale internal evidence；spawn 后 identity/readiness 失败回滚本次精确 PID，确认退出，只清匹配 lifecycle 文件并保留日志。
-- [ ] e2e identity wait 使用 config startup timeout/full-stack budget；default symlink cwd 在参数解析后统一物理 canonicalize；脚本与 public runtime 共享 identity schema/clear primitive。
+- [x] e2e-down 对 missing/non-regular external PID + 任一内部 evidence fail closed，零 Gateway/IM signal；只有 Gateway evidence 全无才可继续停 IM。
+- [x] e2e-up 无 live external owner 时只无信号清理 stale internal evidence；spawn 后 identity/readiness 失败回滚本次精确 PID，确认退出，只清匹配 lifecycle 文件并保留日志。
+- [x] e2e identity wait 使用 config startup timeout/full-stack budget；default symlink cwd 在参数解析后统一物理 canonicalize；脚本与 public runtime 共享 identity schema/clear primitive。
 - [ ] affected、ruff、format、bash syntax、唯一 full non-e2e、真实 cold e2e 正常与 timeout rollback、default start/stop/restart 全部通过。
 
 ## 测试策略
@@ -47,9 +47,9 @@
 
 ### R3 — e2e evidence state machine 与 spawn rollback
 
-- C1 Red：补 external PID missing/nonregular + internal evidence、all-absent、stale preflight、delayed identity、timeout rollback、default symlink cwd 的 shell integration。
-- C2 Green：up/down 共享 public identity schema；up preflight 无信号清 stale，spawn 后 trap 回滚精确 PID；down 对 incomplete evidence fail closed；identity wait 使用 startup/full-stack budget。
-- C3 Docs：记录 evidence matrix、rollback ownership、真实 cold-stack 证据与回退点。
+- [x] C1 Red：补 external PID missing/nonregular + internal evidence、all-absent、stale preflight、delayed identity、timeout rollback、default symlink cwd 的 shell integration。
+- [x] C2 Green：up/down 共享 public identity schema；up preflight 无信号清 stale，spawn 后 trap 回滚精确 PID；down 对 incomplete evidence fail closed；identity wait 使用 startup/full-stack budget。
+- [x] C3 Docs：记录 evidence matrix、rollback ownership 与回退点；真实 cold-stack 证据在 R4 signoff 补齐。
 
 ### R4 — 全链路验收收口
 
