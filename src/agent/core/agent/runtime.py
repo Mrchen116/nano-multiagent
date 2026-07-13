@@ -731,6 +731,8 @@ class AgentEngine:
             )
 
         turn_result = build_turn_result(session_id, turn_id, all_messages)
+        if turn_result.usage is not None and turn_result.usage.prompt_tokens > 0:
+            state.last_prompt_tokens = turn_result.usage.prompt_tokens
 
         # Extract tool_iterations from turn_meta for nudge counter signal flow.
         # turn_meta is the last message in all_messages when present.
@@ -1593,6 +1595,7 @@ class AgentEngine:
             workspace_root=workspace_root,
             session_file_state=session_file_state,
             model_override=model_override,
+            prior_prompt_tokens=self._state().last_prompt_tokens,
         ):
             yield msg
 

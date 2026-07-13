@@ -118,13 +118,6 @@ class AgentLoop:
         self._capture_compaction_epoch = capture_compaction_epoch
         self._commit_compaction = commit_compaction
         self._build_skill_reinjection = build_skill_reinjection
-        self._active_session_id: str | None = None
-        # Most recent real prompt_tokens reported by the model for this conversation.
-        # Drives compaction's threshold check with the exact tokenizer count
-        # instead of the char-based estimate, which undershoots on CJK/code and
-        # tool_call args (bugfix-412 #103). Each ConversationSession owns its loop,
-        # so this is scalar and survives turns without a session-id keyed map.
-        self._last_real_prompt_tokens: int | None = None
 
     @property
     def available_skills(self) -> tuple[SkillMetadata, ...]:
@@ -172,6 +165,7 @@ class AgentLoop:
         tool_execution_allowlist: tuple[str, ...] | None = None,
         is_fork_sidechain: bool = False,
         model_override: str | None = None,
+        prior_prompt_tokens: int | None = None,
     ) -> AsyncIterator[Message]:
         """Stream one user turn until completion or terminal stop reason.
 
@@ -203,7 +197,6 @@ class AgentLoop:
             - role="turn_meta": final turn metadata (stop_reason, usage)
         """
 
-        self._active_session_id = state.session_id
         # bugfix-429: the model is a per-run property — production callers (runtime
         # threading kernel.submit(model=...)) always pass model_override. self._model
         # is the build-time default used only by the single-client path (unit tests
@@ -264,6 +257,7 @@ class AgentLoop:
         all_tool_results: list[ToolResult] = []
         call_id_to_arguments: dict[str, Mapping[str, Any]] = {}
         turn_usage: TokenUsage | None = None
+        last_real_prompt_tokens = prior_prompt_tokens
         last_parent_id = state.user_message_id or (
             state.history_messages[-1].message_id if state.history_messages else None
         )
@@ -307,7 +301,7 @@ class AgentLoop:
                     real_prompt_tokens = (
                         turn_usage.prompt_tokens
                         if turn_usage is not None
-                        else self._last_real_prompt_tokens
+                        else last_real_prompt_tokens
                     )
                     compacted_msg = await self._maybe_compact(
                         llm_messages=llm_messages,
@@ -485,6 +479,7 @@ class AgentLoop:
                                         result,
                                         parent_message_id=last_assistant_msg_id,
                                         group_id=last_assistant_msg_id,
+                                        session_id=state.session_id,
                                     )
                                     last_parent_id = tool_msg.message_id
                                     yield tool_msg
@@ -498,7 +493,9 @@ class AgentLoop:
                     for result in early_tool_results:
                         _append_llm_message(
                             llm_messages,
-                            self._build_llm_tool_result_message(result),
+                            self._build_llm_tool_result_message(
+                                result, session_id=state.session_id
+                            ),
                         )
                     if executor is not None:
                         async for result in executor.get_remaining_results():
@@ -507,12 +504,15 @@ class AgentLoop:
                                 result,
                                 parent_message_id=last_assistant_msg_id,
                                 group_id=last_assistant_msg_id,
+                                session_id=state.session_id,
                             )
                             last_parent_id = tool_msg.message_id
                             yield tool_msg
                             _append_llm_message(
                                 llm_messages,
-                                self._build_llm_tool_result_message(result),
+                                self._build_llm_tool_result_message(
+                                    result, session_id=state.session_id
+                                ),
                             )
                             await self._dispatch_tool_result_hook(
                                 result, active_hook_ctx, run_id
@@ -520,7 +520,7 @@ class AgentLoop:
 
                     turn_usage = _accumulate_usage(turn_usage, latest_usage)
                     if turn_usage is not None and turn_usage.prompt_tokens > 0:
-                        self._last_real_prompt_tokens = turn_usage.prompt_tokens
+                        last_real_prompt_tokens = turn_usage.prompt_tokens
 
                     if not iteration_tool_calls:
                         # bugfix-426-M4 决策5: before finishing, atomically re-check for a
@@ -767,7 +767,7 @@ class AgentLoop:
             return self._available_tools
         return ()
 
-    def _serialize_tool_result(self, result: ToolResult) -> str:
+    def _serialize_tool_result(self, result: ToolResult, *, session_id: str) -> str:
         """Serialize tool result via tool adapter, then apply budget compression."""
 
         tool = (
@@ -784,11 +784,7 @@ class AgentLoop:
             raw_content = _serialize_tool_result_content(result)
 
         compressor = self._tool_result_compressor
-        if (
-            compressor is not None
-            and result.call_id
-            and self._active_session_id is not None
-        ):
+        if compressor is not None and result.call_id:
             max_size = getattr(
                 tool, "max_result_size_chars", DEFAULT_MAX_RESULT_SIZE_CHARS
             )
@@ -796,18 +792,20 @@ class AgentLoop:
                 raw_content,
                 tool_name=result.name,
                 tool_call_id=result.call_id,
-                session_id=self._active_session_id,
+                session_id=session_id,
                 max_size_chars=max_size,
             )
 
         return raw_content
 
-    def _build_llm_tool_result_message(self, result: ToolResult) -> LLMMessage:
+    def _build_llm_tool_result_message(
+        self, result: ToolResult, *, session_id: str
+    ) -> LLMMessage:
         """Build an LLMMessage for appending to the live prompt."""
 
         return LLMMessage(
             role="tool",
-            content=self._serialize_tool_result(result),
+            content=self._serialize_tool_result(result, session_id=session_id),
             tool_call_id=result.call_id,
         )
 
@@ -817,6 +815,7 @@ class AgentLoop:
         *,
         parent_message_id: str | None = None,
         group_id: str | None = None,
+        session_id: str,
     ) -> Message:
         """Build a Message for yielding a completed tool result."""
 
@@ -825,7 +824,7 @@ class AgentLoop:
             parent_message_id=parent_message_id,
             group_id=group_id,
             role="tool",
-            content=self._serialize_tool_result(result),
+            content=self._serialize_tool_result(result, session_id=session_id),
             tool_call_id=result.call_id,
             metadata={
                 "tool_phase": "result",

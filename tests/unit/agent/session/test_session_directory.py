@@ -151,13 +151,18 @@ def test_find_by_metadata_does_not_materialize_message_history(
     def _unexpected_load(*_args, **_kwargs):  # noqa: ANN002, ANN003, ANN202
         raise AssertionError("metadata lookup must not materialize transcript history")
 
-    monkeypatch.setattr("agent.core.session.transcript.JsonlTranscript.load", _unexpected_load)
+    monkeypatch.setattr(
+        "agent.core.session.transcript.JsonlTranscript.load", _unexpected_load
+    )
 
-    assert directory.find_by_metadata(
-        workspace_root=tmp_path,
-        parent_session_id=None,
-        query={"agent_id": "target"},
-    ) == expected.ref
+    assert (
+        directory.find_by_metadata(
+            workspace_root=tmp_path,
+            parent_session_id=None,
+            query={"agent_id": "target"},
+        )
+        == expected.ref
+    )
 
 
 @pytest.mark.asyncio
