@@ -133,3 +133,27 @@ def test_repair_is_idempotent_and_materializes_one_synthetic_result(
         if message.role == "tool" and message.tool_call_id == "call_orphan"
     ]
     assert len(recovered) == 1
+
+
+def test_compaction_commit_rejects_a_stale_external_epoch(tmp_path: Path) -> None:
+    transcript, files, _writer, ref = _build_transcript(tmp_path)
+    captured_epoch = transcript.external_epoch
+    transcript.append_external(
+        ExternalMessage(role="user", content="raced", message_id="msg_raced")
+    )
+
+    committed = transcript.append_compaction(
+        summary={
+            "type": "turn",
+            "uuid": "msg_summary",
+            "role": "user",
+            "content": "summary",
+        },
+        reason="manual",
+        expected_external_epoch=captured_epoch,
+    )
+
+    assert committed is False
+    assert not any(
+        entry["type"] == "compact_boundary" for entry in _raw_entries(files, ref)
+    )

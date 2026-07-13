@@ -3,7 +3,10 @@ from pathlib import Path
 
 import pytest
 
+from agent.core.agent.runtime import AgentEngine
+from agent.core.llm.interfaces import LLMGenerateRequest, LLMMessage
 from agent.core.session.conversation import ConversationSession
+from agent.core.session.directory import SessionDirectory
 from agent.core.session.jsonl_files import JsonlSessionFiles
 from agent.core.session.jsonl_writer import JsonlWriter
 from agent.core.session.transcript import JsonlTranscript
@@ -38,6 +41,16 @@ class _BlockingEngine:
             completed=True,
             stop_reason="end_turn",
         )
+
+
+class _EchoLLM:
+    def __init__(self) -> None:
+        self.requests: list[LLMGenerateRequest] = []
+
+    async def generate(self, request: LLMGenerateRequest):  # noqa: ANN201
+        self.requests.append(request)
+        yield LLMMessage(role="assistant", content="pong")
+        yield LLMMessage(role="assistant", content="", finish_reason="stop")
 
 
 def _conversation(
@@ -146,3 +159,86 @@ async def test_close_drains_admitted_turn_then_rejects_new_operations(
         await session.submit_turn(
             TurnRequest(parts=({"type": "text", "text": "closed"},))
         )
+
+
+@pytest.mark.asyncio
+async def test_real_engine_turn_persists_and_replays_followup_context(
+    tmp_path: Path,
+) -> None:
+    files = JsonlSessionFiles(data_dir=tmp_path / "data")
+    writer = JsonlWriter()
+    ref = SessionRef(session_id="sess_engine", workspace_root=tmp_path)
+    transcript = JsonlTranscript.create(
+        ref=ref,
+        spec=NewSession(workspace_root=tmp_path),
+        files=files,
+        writer=writer,
+    )
+    llm = _EchoLLM()
+    session = ConversationSession(
+        ref=ref,
+        transcript=transcript,
+        engine=AgentEngine(llm_client=llm, model="mock-model"),
+    )
+
+    first = await session.submit_turn(
+        TurnRequest(parts=({"type": "text", "text": "first"},))
+    )
+    second = await session.submit_turn(
+        TurnRequest(parts=({"type": "text", "text": "second"},))
+    )
+
+    assert first.messages[-1].content == "pong"
+    assert second.messages[-1].content == "pong"
+    assert [message.role for message in llm.requests[-1].messages] == [
+        "system",
+        "user",
+        "assistant",
+        "user",
+    ]
+    assert [message.content for message in transcript.load().messages] == [
+        "first",
+        "pong",
+        "second",
+        "pong",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_fork_restamps_history_and_preserves_internal_prompt_seed(
+    tmp_path: Path,
+) -> None:
+    files = JsonlSessionFiles(data_dir=tmp_path / "data")
+    writer = JsonlWriter()
+    seed = PromptSlotSeed(
+        body=(PromptSlotText(name="pa.guidance", text="Keep helping."),)
+    )
+    directory = SessionDirectory(
+        files=files,
+        writer=writer,
+        conversation_factory=lambda ref, transcript: ConversationSession(
+            ref=ref,
+            transcript=transcript,
+            engine=_BlockingEngine(),
+        ),
+    )
+    source = directory.create(NewSession(workspace_root=tmp_path, prompt_seed=seed))
+    source.append_external(
+        ExternalMessage(role="user", content="question", message_id="msg_user")
+    )
+    source.append_external(
+        ExternalMessage(role="assistant", content="answer", message_id="msg_assistant")
+    )
+
+    forked, mapping = await source.fork(up_to="msg_assistant")
+    target = directory.open(
+        SessionRef(session_id=forked.session_id, workspace_root=tmp_path)
+    )
+    loaded = await target.capture_fork(up_to=None)
+
+    assert mapping.keys() == {"msg_user", "msg_assistant"}
+    assert [message.content for message in loaded.messages] == ["question", "answer"]
+    assert loaded.messages[0].message_id == mapping["msg_user"]
+    assert loaded.messages[1].message_id == mapping["msg_assistant"]
+    assert loaded.prompt_seed == seed
+    assert all(not key.startswith("__nano_internal_") for key in forked.metadata)

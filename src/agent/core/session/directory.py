@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable, Mapping
+from dataclasses import replace
 from typing import Any, Protocol
 
 from agent.core import ids
+from agent.core.types import Message
 
 from .jsonl_files import JsonlSessionFiles
 from .jsonl_writer import JsonlWriter
@@ -77,6 +79,7 @@ class SessionDirectory:
             writer=self._writer,
         )
         conversation = self._conversation_factory(ref, transcript)
+        _bind_directory(conversation, self)
         with self._guard:
             self._refs[session_id] = ref
             self._conversations[session_id] = conversation
@@ -99,6 +102,7 @@ class SessionDirectory:
                 writer=self._writer,
             )
             conversation = self._conversation_factory(ref, transcript)
+            _bind_directory(conversation, self)
             self._refs[ref.session_id] = ref
             self._conversations[ref.session_id] = conversation
             return conversation
@@ -170,6 +174,48 @@ class SessionDirectory:
         for conversation in conversations:
             await conversation.close()
 
+    async def fork_from(
+        self, source, *, up_to: str | None
+    ) -> tuple[Session, dict[str, str]]:
+        """Capture, re-stamp, persist, and intern one independent fork target."""
+
+        snapshot = await source.capture_fork(up_to=up_to)
+        metadata = strip_internal_metadata(snapshot.config.metadata)
+        metadata["forked_from"] = source.ref.session_id
+        target = self.create(
+            NewSession(
+                workspace_root=snapshot.config.workspace_root,
+                system_prompt=snapshot.config.system_prompt,
+                skills=snapshot.config.skills,
+                tool_allowlist=snapshot.config.tool_allowlist,
+                metadata=metadata,
+                prompt_seed=snapshot.prompt_seed,
+            )
+        )
+        mapping: dict[str, str] = {}
+        restamped: list[Message] = []
+        for message in snapshot.messages:
+            new_id = ids.make_message_id()
+            mapping[message.message_id] = new_id
+            restamped.append(
+                replace(
+                    message,
+                    message_id=new_id,
+                    parent_message_id=mapping.get(message.parent_message_id)
+                    if message.parent_message_id
+                    else None,
+                    group_id=mapping.get(message.group_id)
+                    if message.group_id
+                    else None,
+                    metadata=dict(message.metadata),
+                )
+            )
+        target._install_fork_snapshot(tuple(restamped))
+        target_snapshot = self.get(target.ref)
+        if target_snapshot is None:  # pragma: no cover - durable create invariant.
+            raise RuntimeError("fork target disappeared after durable creation")
+        return target_snapshot, mapping
+
     def active_session_ids(self) -> tuple[str, ...]:
         """Return ids whose stable objects are interned in this process."""
 
@@ -195,3 +241,11 @@ def _session_from_load(loaded: TranscriptLoad) -> Session:
         tool_allowlist=config.tool_allowlist,
         metadata=strip_internal_metadata(config.metadata),
     )
+
+
+def _bind_directory(
+    conversation: ConversationLike, directory: SessionDirectory
+) -> None:
+    binder = getattr(conversation, "_bind_fork_directory", None)
+    if callable(binder):
+        binder(directory)

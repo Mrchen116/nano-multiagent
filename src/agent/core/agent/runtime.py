@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import json
 import logging
+from contextvars import ContextVar
 from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Mapping, Sequence
@@ -27,12 +28,9 @@ from agent.core.hooks.runner import HookRunner, log_hook_diagnostics
 from agent.core.llm.factory import LLMFactoryConfig
 from agent.core.llm.interfaces import LLMClient, LLMGenerateRequest, LLMMessage
 from agent.core.llm.model_registry import context_window_for_model, provider_of
-from agent.core.session.jsonl_store import (
-    USER_INTERRUPT_RECOVERY_CONTENT,
-    SessionConfig,
-)
-from agent.core.session.manager import SessionManager
-from agent.core.session.models import Session
+from agent.core.session.conversation import ConversationState
+from agent.core.session.transcript import USER_INTERRUPT_RECOVERY_CONTENT
+from agent.core.session.types import SessionConfig, TurnRequest
 from agent.core.skills import (
     SkillMetadata,
     make_skill_resolver,
@@ -121,13 +119,12 @@ if TYPE_CHECKING:
     from agent.core.hooks.registry import HookRegistry
 
 
-class AgentRuntime:
-    """Coordinate one runtime instance for session-based agent execution."""
+class AgentEngine:
+    """Execute agent algorithms against caller-owned conversation state."""
 
     def __init__(
         self,
         *,
-        session_manager: SessionManager,
         llm_client: LLMClient | None = None,
         llm_client_factory: Callable[[LLMFactoryConfig], LLMClient] | None = None,
         llm_clients: dict[str, LLMClient] | None = None,
@@ -166,7 +163,7 @@ class AgentRuntime:
             active_llm_client = llm_client_factory(self._llm_config)
         else:
             raise ValueError(
-                "AgentRuntime requires either llm_client or llm_client_factory; "
+                "AgentEngine requires either llm_client or llm_client_factory; "
                 "pass llm_client for unit tests, llm_client_factory for production wiring"
             )
         # bugfix-429 fix-r1 #3: removed dead self._llm_client_factory field — its only
@@ -186,7 +183,6 @@ class AgentRuntime:
         resolved_skills = (
             tuple(available_skills) if available_skills is not None else ()
         )
-        self._session_manager = session_manager
         # PermissionBroker wired by platform layer (create_app). None in contexts that
         # don't support the ask flow (unit tests, CI without interactive terminal).
         # Stored here so _build_hook_context can inject permission_requester per call.
@@ -201,30 +197,13 @@ class AgentRuntime:
         # None means "all tools in registry" (platform default behavior).
         self._default_tool_ids = default_tool_ids
         self._tool_registry = tool_registry
-        # bugfix-429 fix-r1 #2: model of the run currently executing per session.
-        # Side-chain LLM calls (hook model_caller / compaction summarizer) read this
-        # so they follow the agent's per-run selected model, not the build-time
-        # default. Set at run start, popped at run end (see _run_locked).
-        self._active_run_models: dict[str, str] = {}
-        self._session_file_states: dict[str, SessionFileState] = {}
-        # In-memory session state: primary data source during normal operation.
-        self._session_histories: dict[str, list[Message]] = {}
-        self._session_configs: dict[str, SessionConfig] = {}
-        self._session_paths: dict[str, Path] = {}
-        self._session_locks: dict[str, asyncio.Lock] = {}
-        # Per-session memory snapshot cache: lazy freeze on first turn, invalidated on compaction.
-        self._memory_snapshots: dict[str, MemorySnapshot] = {}
+        self._active_state: ContextVar[ConversationState | None] = ContextVar(
+            "agent_engine_active_conversation", default=None
+        )
         # Prompt sections for segment-based assembly; empty list = no sections registered (legacy path).
         self._prompt_sections: list[PromptSection] = (
             list(prompt_sections) if prompt_sections else []
         )
-        # Per-session product PromptSlots (refactor-406 决策 8): the consumer's
-        # create_session(prompt=PromptSlots) registers slots here; _run_locked
-        # threads them into the PromptContext so the kernel skeleton places the
-        # product's head/body/custom/tail text. SDK-owned object read structurally
-        # (no core→sdk import); not persisted to JSONL (it can't round-trip JSON
-        # and is rebuilt per process by the consumer factory on session open).
-        self._session_prompt_slots: dict[str, object] = {}
         self._skill_batch_review_queued: set[str] = set()
         self._skill_batch_review_running: set[str] = set()
         self._skill_batch_review_triggers: dict[str, Any] = {}
@@ -277,7 +256,7 @@ class AgentRuntime:
             current_working_directory=self._repo_root,
             system_prompt=system_prompt,
             tool_result_compressor=self._tool_result_compressor,
-            session_manager=session_manager,
+            compaction_entries=lambda: self._state().transcript.list_event_entries(),
             compaction_planner=self._compaction_planner,
             compaction_summarizer=self._compaction_summarizer,
             compaction_settings=self._compaction_settings,
@@ -285,78 +264,44 @@ class AgentRuntime:
             build_skill_reinjection=self._build_skill_reinjection_message,
         )
 
-    def register_session_prompt_slots(self, session_id: str, slots: object) -> None:
-        """Register per-session product PromptSlots (refactor-406 决策 8).
-
-        Called by the kernel on create_session(prompt=PromptSlots). The slots are
-        threaded into the PromptContext at turn time so the kernel skeleton places
-        the product's head/body/custom/tail text. Storing None or omitting a session
-        leaves the slots empty (skeleton renders kernel segments only).
-
-        Args:
-            session_id: Session the slots apply to.
-            slots: SDK-owned PromptSlots (read structurally; no import here).
-        """
-        if slots is not None:
-            self._session_prompt_slots[session_id] = slots
-
-    async def run(
-        self,
-        session_id: str,
-        parts: Sequence[Mapping[str, Any]],
-        *,
-        stream: bool = True,
-        llm_session_id: str | None = None,
-        run_id: str | None = None,
-        controller: RunController | None = None,
-        parent_session_id: str | None = None,
-        workspace_root: Path | None = None,
-        origin: Any = None,
-        model: str | None = None,
+    async def execute_turn(
+        self, state: ConversationState, request: TurnRequest
     ) -> TurnResult:
-        """Execute one turn for an existing session.
+        """Execute one turn while the owning ConversationSession holds its gate."""
 
-        Args:
-            session_id: Target session id.
-            parts: Structured input parts (`text` or `image`).
-            stream: Reserved compatibility flag (currently ignored).
-            llm_session_id: Optional provider session id override.
-            parent_session_id: Optional parent session id for subagent path resolution.
-            workspace_root: Session's workspace root. Required (in production) to
-                locate the session JSONL on the first load of this process
-                lifetime; once the session is cached its config carries the
-                workspace_root for subsequent writes.
-            origin: RunOrigin enum value (or None) passed from RunsRegistry;
-                written into hook_metadata["run_origin"] so auto_mode_gate can
-                detect unattended contexts (heartbeat/cron) without re-importing
-                RunOrigin in core hooks.
-
-        Returns:
-            Turn result containing assistant output, tool calls/results, and stop reason.
-
-        Raises:
-            ValueError: If session is missing or resolved user text is empty.
-            ModelError: If provider call fails and overflow recovery cannot recover.
-
-        Side Effects:
-            Persists turn events/messages and dispatches hook events.
-        """
-
-        del stream  # M4 minimal runtime only supports non-stream flow.
-
-        lock = self._session_locks.setdefault(session_id, asyncio.Lock())
-        async with lock:
+        token = self._active_state.set(state)
+        try:
             return await self._run_locked(
-                session_id=session_id,
-                parts=parts,
-                llm_session_id=llm_session_id,
-                run_id=run_id,
-                controller=controller,
-                parent_session_id=parent_session_id,
-                workspace_root=workspace_root,
-                origin=origin,
-                model=model,
+                session_id=state.ref.session_id,
+                parts=request.parts,
+                llm_session_id=request.llm_session_id,
+                run_id=request.run_id,
+                controller=request.controller,
+                parent_session_id=state.ref.parent_session_id,
+                workspace_root=state.ref.workspace_root,
+                origin=request.origin,
+                model=request.model,
             )
+        finally:
+            self._active_state.reset(token)
+
+    def _state(self) -> ConversationState:
+        state = self._active_state.get()
+        if state is None:
+            raise RuntimeError("agent engine method requires an active conversation")
+        return state
+
+    async def compact(self, state: ConversationState) -> CompactionResult | None:
+        """Run manual compaction against one caller-owned conversation state."""
+
+        token = self._active_state.set(state)
+        try:
+            return await self._compact_session(
+                session_id=state.ref.session_id,
+                reason=CompactionReason.MANUAL,
+            )
+        finally:
+            self._active_state.reset(token)
 
     async def _run_locked(
         self,
@@ -373,45 +318,10 @@ class AgentRuntime:
     ) -> TurnResult:
         """Internal run implementation (assumes session lock is held)."""
 
-        # bugfix-429 fix-r1 #2: publish this run's model BEFORE any hook dispatch
-        # (the input hook can call ctx.call_model) so side-chain LLM calls follow
-        # the per-run model. Popped in the run's finally.
-        if model:
-            self._active_run_models[session_id] = model
-
-        # --- Cache-first load: miss reads JSONL once, hit uses memory ---
-        if session_id not in self._session_histories:
-            path = self._session_manager.store.resolve_path(
-                session_id,
-                workspace_root=workspace_root,
-                parent_session_id=parent_session_id,
-            )
-            # Repair any orphaned tool_calls from a previous interrupted run before
-            # loading history into the in-process cache.  This ensures the LLM never
-            # sees a transcript with unclosed tool_calls (which most providers reject).
-            # Only necessary on the first load of this session in this process; on
-            # cache-hit the history is already known-good in memory.
-            self._session_manager.prepare_transcript_for_run(
-                session_id,
-                reason="orphaned",
-                workspace_root=workspace_root,
-                parent_session_id=parent_session_id,
-            )
-            try:
-                result = self._session_manager.load(
-                    session_id,
-                    workspace_root=workspace_root,
-                    parent_session_id=parent_session_id,
-                )
-            except Exception as exc:
-                raise ValueError(f"session does not exist: {session_id}") from exc
-            self._session_histories[session_id] = list(result.messages)
-            self._session_configs[session_id] = result.config
-            self._session_paths[session_id] = path
-
-        history = self._session_histories[session_id]
-        config = self._session_configs[session_id]
-        path = self._session_paths[session_id]
+        state = self._state()
+        history = state.history
+        config = state.config
+        path = state.transcript.path
 
         session_created_at = config.created_at
         session_workspace_root = config.workspace_root
@@ -554,7 +464,7 @@ class AgentRuntime:
                 },
                 # refactor-406 决策 8: thread the consumer's per-session PromptSlots
                 # so the kernel skeleton's slot sections render product text.
-                prompt_slots=self._session_prompt_slots.get(session_id),
+                prompt_slots=state.prompt_seed,
             )
             pre_rendered_system_prompt = resolve_effective_prompt(
                 sections=self._prompt_sections,
@@ -586,10 +496,9 @@ class AgentRuntime:
             parts=tuple(user_content_parts) if user_content_parts else None,
         )
         history.append(user_msg)
-        self._session_manager.writer.enqueue(
-            path, _message_to_entry(user_msg, session_id)
+        state.transcript.append_turn_entries(
+            [_message_to_entry(user_msg, session_id)], durable=True
         )
-        await self._session_manager.writer.flush_async()
         preloop_messages: list[Message] = []
         if (
             slash_skill_command is not None
@@ -605,13 +514,12 @@ class AgentRuntime:
             )
             for preloop_msg in preloop_messages:
                 history.append(preloop_msg)
-                self._session_manager.writer.enqueue(
-                    path, _message_to_entry(preloop_msg, session_id)
+                state.transcript.append_turn_entries(
+                    [_message_to_entry(preloop_msg, session_id)],
+                    durable=preloop_msg.role == "tool",
                 )
-                if preloop_msg.role == "tool":
-                    await self._session_manager.writer.flush_async()
             if preloop_messages:
-                await self._session_manager.writer.flush_async()
+                await state.transcript.flush_async()
 
         # Remove the user message we just added from history passed to loop.
         loop_history = tuple(history[:-1])
@@ -686,40 +594,25 @@ class AgentRuntime:
                 all_messages.append(msg)
                 # Detect compact summary: write compact_boundary before the summary turn
                 if msg.metadata.get("is_compact_summary"):
-                    self._session_manager.writer.enqueue(
-                        path,
-                        {
-                            "type": "compact_boundary",
-                            "session_id": session_id,
-                            "timestamp": _utc_now_iso(),
-                            "summary_uuid": msg.message_id,
-                            "data": {
-                                "reason": msg.metadata.get(
-                                    "compact_reason", "threshold"
-                                ),
-                                "restored_files": msg.metadata.get(
-                                    "restored_files", []
-                                ),
-                            },
-                        },
+                    post_compact_messages = _post_compact_messages_from(msg)
+                    state.transcript.append_compaction(
+                        summary=_message_to_entry(msg, session_id),
+                        reinjections=[
+                            _message_to_entry(item, session_id)
+                            for item in post_compact_messages
+                        ],
+                        reason=str(msg.metadata.get("compact_reason", "threshold")),
+                        restored_files=tuple(msg.metadata.get("restored_files", ())),
                     )
-                    self._session_manager.writer.enqueue(
-                        path, _message_to_entry(msg, session_id)
-                    )
-                    for post_compact_msg in _post_compact_messages_from(msg):
+                    for post_compact_msg in post_compact_messages:
                         history.append(post_compact_msg)
                         all_messages.append(post_compact_msg)
-                        self._session_manager.writer.enqueue(
-                            path, _message_to_entry(post_compact_msg, session_id)
-                        )
                     continue
                 entry = _message_to_entry(msg, session_id)
-                if msg.role == "tool":
-                    self._session_manager.writer.enqueue(path, entry)
-                    await self._session_manager.writer.flush_async()
-                else:
-                    self._session_manager.writer.enqueue(path, entry)
-            await self._session_manager.writer.flush_async()
+                state.transcript.append_turn_entries(
+                    [entry], durable=msg.role == "tool"
+                )
+            await state.transcript.flush_async()
             # bugfix-410-M2 R1: orphaned tool_call recovery moved to the run
             # `finally` below (see _recover_orphaned_tool_calls). The bugfix-402
             # eager-recovery that lived here keyed on turn_meta stop_reason, so a
@@ -735,7 +628,7 @@ class AgentRuntime:
             _run_cancelled = True
             raise
         except ModelError as exc:
-            await self._session_manager.writer.flush_async()
+            await state.transcript.flush_async()
             # Attempt overflow recovery: compact then retry once.
             if (
                 not _overflow_retried
@@ -748,9 +641,7 @@ class AgentRuntime:
                 )
                 if compact_result is not None:
                     # Rebuild history from session store after compaction.
-                    reloaded = self._session_manager.list_turn_messages(
-                        session_id, workspace_root=session_workspace_root
-                    )
+                    reloaded = state.transcript.load().messages
                     history.clear()
                     history.extend(reloaded)
                     # user_msg was written before the overflow; it's in the reloaded history.
@@ -787,30 +678,21 @@ class AgentRuntime:
                         history.append(msg)
                         all_messages.append(msg)
                         if msg.metadata.get("is_compact_summary"):
-                            self._session_manager.writer.enqueue(
-                                path,
-                                {
-                                    "type": "compact_boundary",
-                                    "session_id": session_id,
-                                    "timestamp": _utc_now_iso(),
-                                    "summary_uuid": msg.message_id,
-                                    "data": {
-                                        "reason": msg.metadata.get(
-                                            "compact_reason", "threshold"
-                                        ),
-                                        "restored_files": msg.metadata.get(
-                                            "restored_files", []
-                                        ),
-                                    },
-                                },
+                            state.transcript.append_compaction(
+                                summary=_message_to_entry(msg, session_id),
+                                reason=str(
+                                    msg.metadata.get("compact_reason", "threshold")
+                                ),
+                                restored_files=tuple(
+                                    msg.metadata.get("restored_files", ())
+                                ),
                             )
+                            continue
                         entry = _message_to_entry(msg, session_id)
-                        if msg.role == "tool":
-                            self._session_manager.writer.enqueue(path, entry)
-                            await self._session_manager.writer.flush_async()
-                        else:
-                            self._session_manager.writer.enqueue(path, entry)
-                    await self._session_manager.writer.flush_async()
+                        state.transcript.append_turn_entries(
+                            [entry], durable=msg.role == "tool"
+                        )
+                    await state.transcript.flush_async()
                 else:
                     raise
             else:
@@ -823,10 +705,9 @@ class AgentRuntime:
                     parent_message_id=user_msg.message_id,
                 )
                 history.append(error_msg)
-                self._session_manager.writer.enqueue(
-                    path, _message_to_entry(error_msg, session_id)
+                state.transcript.append_turn_entries(
+                    [_message_to_entry(error_msg, session_id)], durable=True
                 )
-                await self._session_manager.writer.flush_async()
                 # bugfix-380: run_id must be in message_end payload so realtime_stream hook
                 # can publish assistant_message SSE before run_status=failed arrives.
                 _error_run_id = hook_ctx.metadata.get("run_id") if hook_ctx else None
@@ -860,7 +741,7 @@ class AgentRuntime:
         finally:
             # bugfix-429 fix-r1 #2: this run is done — stop publishing its model.
             if model:
-                self._active_run_models.pop(session_id, None)
+                state.active_model = None
             # bugfix-410-M2 R1: close any orphaned tool_call on EVERY exit path
             # (normal completion = no-op empty orphan set; cooperative abort/
             # cancel; raw CancelledError pass-through; ModelError re-raise). Must
@@ -913,8 +794,8 @@ class AgentRuntime:
                 # We resolve the fork tools and system prompt from the session config.
                 fork_system_prompt: str | None = None
                 fork_active_tools: tuple[ToolSpec, ...] = ()
-                if session_id in self._session_configs:
-                    fork_config = self._session_configs[session_id]
+                if state.config is not None:
+                    fork_config = state.config
                     fork_active_skills = (
                         self._resolve_session_available_skills_from_config(fork_config)
                     )
@@ -954,68 +835,6 @@ class AgentRuntime:
                 )
 
         return turn_result
-
-    async def compact(
-        self, session_id: str, *, workspace_root: Path | None = None
-    ) -> CompactionResult | None:
-        """Run manual session compaction.
-
-        Args:
-            session_id: Target session id.
-            workspace_root: Session's workspace root, used to locate the JSONL
-                when the session is not already cached in this runtime.
-
-        Returns:
-            Compaction result, or `None` when planner decides compaction is unnecessary.
-
-        Raises:
-            ValueError: If session does not exist.
-        """
-
-        if self.get_session(session_id, workspace_root=workspace_root) is None:
-            raise ValueError(f"session does not exist: {session_id}")
-        lock = self._session_locks.setdefault(session_id, asyncio.Lock())
-        async with lock:
-            return await self._compact_session(
-                session_id=session_id, reason=CompactionReason.MANUAL
-            )
-
-    async def continue_turn(
-        self,
-        session_id: str,
-        *,
-        stream: bool = True,
-        llm_session_id: str | None = None,
-        workspace_root: Path | None = None,
-    ) -> TurnResult:
-        """Request another assistant step by submitting synthetic `continue` input."""
-
-        return await self.run(
-            session_id,
-            [{"type": "text", "text": "continue"}],
-            stream=stream,
-            llm_session_id=llm_session_id,
-            workspace_root=workspace_root,
-        )
-
-    def get_session(
-        self, session_id: str, *, workspace_root: Path | None = None
-    ) -> Session | None:
-        """Return session model by id, or `None` when absent.
-
-        When the session is already cached in this runtime, its known
-        workspace_root is used so callers need not re-supply it; otherwise the
-        caller-provided ``workspace_root`` locates the JSONL.
-        """
-
-        cached_config = self._session_configs.get(session_id)
-        if cached_config is not None:
-            return self._session_manager.get_session(
-                session_id, workspace_root=cached_config.workspace_root
-            )
-        return self._session_manager.get_session(
-            session_id, workspace_root=workspace_root
-        )
 
     def get_llm_config(self) -> LLMFactoryConfig:
         """Return active LLM configuration used by the runtime."""
@@ -1157,96 +976,22 @@ class AgentRuntime:
             return None
         return self._hook_runner.registry
 
-    def active_session_ids(self) -> tuple[str, ...]:
-        """Return ids of sessions currently loaded in this runtime's memory.
-
-        These are the sessions this process actually ran (loaded via ``run``);
-        the stateless kernel has no global on-disk registry, and firing
-        ``session_shutdown`` only for sessions this process touched is also the
-        semantically correct scope.
-        """
-
-        return tuple(self._session_configs.keys())
-
-    def session_workspace_root(self, session_id: str) -> Path | None:
-        """Return the cached workspace_root of a loaded session, or ``None``.
-
-        Tools running inside a turn (e.g. the ``agent`` tool resolving a
-        subagent) use this to obtain the parent session's workspace_root —
-        which the parent turn already loaded — so the stateless store can
-        locate subagent JSONL files under the parent's workspace.
-        """
-
-        config = self._session_configs.get(session_id)
-        return config.workspace_root if config is not None else None
-
     def resolve_run_model(self, session_id: str | None) -> str | None:
         """Return the model registered for an active run's session, or ``None``.
 
         bugfix-443: the platform layer (the ``agent`` tool) reads this so a
         subagent it dispatches mid-run inherits the parent run's model — the same
-        ``_active_run_models`` table the hook/compaction side-chains already read,
+        same conversation-owned scalar that hook/compaction side-chains read,
         keeping a single source of truth. Returns a bare value: ``None`` means no
-        active run is registered for ``session_id`` (or it is ``None``); the
+        matching active conversation is registered; the
         degenerate fallback to the build-time default is handled once, in
         ``run`` (``model_override or self._model``), not duplicated here.
         """
 
-        return self._active_run_models.get(session_id) if session_id else None
-
-    async def create_session(
-        self,
-        *,
-        workspace_root: Path,
-        title: str | None = None,
-        system_prompt: str | None = None,
-        skills: tuple[str, ...] | None = None,
-        tool_allowlist: tuple[str, ...] | None = None,
-        metadata: Mapping[str, Any] | None = None,
-        parent_session_id: str | None = None,
-    ) -> Session:
-        """Create a session and emit `session_start` observe hook."""
-
-        session = self._session_manager.create_session(
-            workspace_root=workspace_root,
-            title=title,
-            system_prompt=system_prompt,
-            skills=skills,
-            tool_allowlist=tool_allowlist,
-            metadata=metadata,
-            parent_session_id=parent_session_id,
-        )
-        hook_ctx = self._build_hook_context(session_id=session.session_id)
-        await self._dispatch_observe(
-            "session_start",
-            {"session_id": session.session_id},
-            hook_ctx,
-        )
-        return session
-
-    async def close_session(self, session_id: str) -> None:
-        """Close a session: cancel active run, flush JSONL, evict memory."""
-
-        # Cancel active run if any (runs registry handles this externally).
-        # Flush + evict under lock.
-        lock = self._session_locks.get(session_id)
-        if lock:
-            async with lock:
-                await self._session_manager.writer.flush_async()
-                self._session_histories.pop(session_id, None)
-                self._session_configs.pop(session_id, None)
-                self._session_paths.pop(session_id, None)
-        else:
-            await self._session_manager.writer.flush_async()
-
-        self._session_file_states.pop(session_id, None)
-        self._session_locks.pop(session_id, None)
-        self._memory_snapshots.pop(session_id, None)
-        # refactor-406-M3fix #7: drop per-session PromptSlots registered via
-        # register_session_prompt_slots (refactor-406 新增 per-session 系统提示槽).
-        # Without this, _session_prompt_slots grows unboundedly across a long-running
-        # gateway's session churn (memory leak introduced by this unit's PromptSlots).
-        self._session_prompt_slots.pop(session_id, None)
+        state = self._active_state.get()
+        if state is None or session_id != state.ref.session_id:
+            return None
+        return state.active_model
 
     async def _recover_orphaned_tool_calls(
         self,
@@ -1333,22 +1078,19 @@ class AgentRuntime:
         # the user. The badge stays "已中断" in both cases (reason unchanged).
         content = USER_INTERRUPT_RECOVERY_CONTENT if user_interrupt else None
 
-        # Step 1 — load-bearing, synchronous, must run before any await.
-        self.invalidate_session_cache(session_id)
+        state = self._state()
 
-        # Step 2 — best-effort out-of-band write; shielded against re-cancel.
+        # Persist recovery before releasing the conversation operation permit.
         async def _write_recovery() -> None:
             for cid, name in orphans:
-                self._session_manager.append_tool_call_recovery(
-                    session_id,
+                state.transcript.append_tool_call_recovery(
                     tool_call_id=cid,
                     tool_name=name,
                     reason=reason,
                     content=content,
-                    workspace_root=workspace_root,
-                    parent_session_id=parent_session_id,
                 )
-            await self._session_manager.writer.flush_async()
+            await state.transcript.flush_async()
+            state.history[:] = state.transcript.load().messages
 
         if cancelled:
             try:
@@ -1359,215 +1101,6 @@ class AgentRuntime:
                 raise
         else:
             await _write_recovery()
-
-    def invalidate_session_cache(self, session_id: str) -> None:
-        """Drop cached in-memory history/config/path for one session.
-
-        Called after an out-of-band JSONL append (see ``Kernel.append_message``)
-        so the next turn re-reads the transcript instead of serving the stale
-        cache populated by an earlier run. Without this, a message appended
-        between turns (e.g. cron awareness injection) is written to JSONL but
-        never seen by the model, which reads ``_session_histories`` cache-first.
-
-        Plain dict pops: atomic in CPython and therefore safe to call from sync
-        code without the asyncio session lock. An in-flight turn holds its own
-        local reference to the history list, so dropping the cache key cannot
-        corrupt it — the turn finishes and persists normally, and the following
-        turn reloads from JSONL (which by then contains both sets of messages).
-        """
-
-        self._session_histories.pop(session_id, None)
-        self._session_configs.pop(session_id, None)
-        self._session_paths.pop(session_id, None)
-
-    async def fork_session(
-        self,
-        source_session_id: str,
-        *,
-        workspace_root: Path | None = None,
-        up_to: str | None = None,
-    ) -> tuple[Session, dict[str, str]]:
-        """Fork a session: create a new session with an independent copy of source history.
-
-        Returns ``(new_session, old_to_new_uuid)`` — the re-stamp map lets the caller
-        rewrite display-side anchors (feat-445-M2 #5); see ``_fork_locked``.
-
-        The fork copies the linear conversation chain from the source session,
-        re-stamping all message UUIDs and recalculating parent_uuid links.
-        The new session has its own JSONL file and in-memory history.
-
-        ``workspace_root`` locates the source session JSONL when it is not
-        already cached in this runtime; the fork inherits the source's
-        workspace_root.
-
-        ``up_to`` (feat-445-M1): when set, the fork inherits the source's context view
-        **as of the message ``up_to``** rather than the whole conversation. The view is
-        re-materialized from the current JSONL (boundary-aware, truncated to ``up_to``)
-        — deliberately NOT from the in-memory ``_session_histories`` cache, which after
-        a compaction holds only the latest summarised tail and cannot reconstruct an
-        older fork point. The resulting as-of-M Message list is then copied by the
-        existing ``_fork_locked`` (same re-stamp path as a whole-session fork), so the
-        branch is byte-for-byte the source's view at M, including the compaction state
-        that was in effect then.
-        """
-
-        if up_to is not None:
-            # Fork to a specific point: always read the truncated, boundary-aware view
-            # from JSONL (the cache can't serve a historical/older fork point). Flush
-            # any enqueued writes first so a just-completed turn at the fork point is on
-            # disk before we slice.
-            #
-            # feat-445-M2 #1: use flush_async, not the blocking sync flush() — the sync
-            # version waits on a threading.Event (up to 10s) and would stall the whole
-            # event loop; this is the only fork path that had drifted from the async flush
-            # the other 13 call sites use.
-            await self._session_manager.store.writer.flush_async()
-            result = self._session_manager.load(
-                source_session_id, workspace_root=workspace_root, up_to=up_to
-            )
-            # feat-445-M2 #2: do NOT acquire source_lock on this path. Everything it needs
-            # is already materialized from disk above (lock-free), and _fork_locked only
-            # writes the NEW session — it never reads the source's in-memory history. The
-            # non-up_to path keeps the lock because it copies the live in-memory cache and
-            # must serialize against a concurrent compaction; this path does not.
-            # Safety vs a concurrent run on the source (argument verified, see progress
-            # R1): source JSONL is append-only and any concurrent run only appends AFTER
-            # the current tail (i.e. after M); up_to truncates at M so those later entries
-            # are discarded regardless; line writes are atomic and we flushed first, so the
-            # as-of-M slice is consistent without the lock. feat-445-M3 清理-6: the same
-            # holds for a concurrent compaction — it too only appends (a compact_boundary +
-            # summary turn) AFTER M, and store.load applies up_to truncation BEFORE the
-            # boundary scan, so a boundary appended past M is sliced off and never affects
-            # the as-of-M view → no compact race either. Holding the lock here instead made
-            # fork block for minutes whenever the source agent had an active run → gateway
-            # 10s timeout → 502 (#2 root cause).
-            return await self._fork_locked(
-                source_session_id, result.config, list(result.messages)
-            )
-
-        # Ensure source is loaded into memory
-        if source_session_id not in self._session_histories:
-            result = self._session_manager.load(
-                source_session_id, workspace_root=workspace_root
-            )
-            self._session_histories[source_session_id] = list(result.messages)
-            self._session_configs[source_session_id] = result.config
-            self._session_paths[source_session_id] = (
-                self._session_manager.store.resolve_path(
-                    source_session_id, workspace_root=result.config.workspace_root
-                )
-            )
-
-        source_config = self._session_configs[source_session_id]
-        source_history = self._session_histories[source_session_id]
-
-        # Acquire source lock to prevent concurrent modification during fork
-        source_lock = self._session_locks.get(source_session_id)
-        if source_lock:
-            async with source_lock:
-                return await self._fork_locked(
-                    source_session_id, source_config, list(source_history)
-                )
-        return await self._fork_locked(
-            source_session_id, source_config, list(source_history)
-        )
-
-    async def _fork_locked(
-        self,
-        source_session_id: str,
-        source_config: SessionConfig,
-        source_history: list[Message],
-    ) -> tuple[Session, dict[str, str]]:
-        """Internal fork implementation (source lock held if applicable).
-
-        Returns the new ``Session`` and the ``old_to_new_uuid`` re-stamp map (source
-        message_id → branch message_id). feat-445-M2 #5: a fork from M is copied into the
-        branch with re-stamped uuids, so the branch IM display rows must rewrite their
-        ``kernel_message_id`` via this map to match the branch JSONL uuids — otherwise a
-        recursive fork from a copied bubble searches the branch session for the *source*
-        uuid and fails (502). The map is empty for an empty source history.
-        """
-
-        new_metadata = dict(source_config.metadata)
-        new_metadata["forked_from"] = source_session_id
-
-        new_session = self._session_manager.create_session(
-            workspace_root=source_config.workspace_root,
-            system_prompt=source_config.system_prompt,
-            skills=source_config.skills,
-            tool_allowlist=source_config.tool_allowlist,
-            metadata=new_metadata,
-        )
-        new_session_id = new_session.session_id
-        new_path = self._session_manager.store.resolve_path(
-            new_session_id, workspace_root=source_config.workspace_root
-        )
-
-        # Re-stamp messages: new UUIDs, recalculated parent chain
-        old_to_new_uuid: dict[str, str] = {}
-        if source_history:
-            new_history: list[Message] = []
-
-            for msg in source_history:
-                new_uuid = make_message_id()
-                old_to_new_uuid[msg.message_id] = new_uuid
-
-                old_parent = msg.parent_message_id
-                new_parent = old_to_new_uuid.get(old_parent) if old_parent else None
-
-                # replace() re-stamps only the fork-specific fields (new ids /
-                # parent chain / metadata) and preserves every other field —
-                # notably reasoning_content / reasoning_signature. A hand-listed
-                # Message(...) rebuild had been dropping the reasoning fields, so a
-                # forked thinking-enabled session lost its <thinking> blocks and the
-                # next turn was rejected upstream with "reasoning_content is missing"
-                # (same brittle pattern fixed in _strip_fork_conversation).
-                new_msg = replace(
-                    msg,
-                    message_id=new_uuid,
-                    parent_message_id=new_parent,
-                    group_id=old_to_new_uuid.get(msg.group_id)
-                    if msg.group_id
-                    else None,
-                    metadata=dict(msg.metadata),
-                )
-                new_history.append(new_msg)
-
-                entry = _message_to_entry(new_msg, new_session_id)
-                self._session_manager.store.writer.enqueue(new_path, entry)
-
-            await self._session_manager.store.writer.flush_async()
-            self._session_histories[new_session_id] = new_history
-        else:
-            self._session_histories[new_session_id] = []
-
-        self._session_configs[new_session_id] = SessionConfig(
-            session_id=new_session_id,
-            created_at=new_session.created_at,
-            workspace_root=source_config.workspace_root,
-            system_prompt=source_config.system_prompt,
-            skills=source_config.skills,
-            tool_allowlist=source_config.tool_allowlist,
-            metadata=new_metadata,
-        )
-        self._session_paths[new_session_id] = new_path
-        self._session_locks[new_session_id] = asyncio.Lock()
-
-        return new_session, old_to_new_uuid
-
-    def _resolve_session_available_skills(
-        self, session: Session
-    ) -> tuple[SkillMetadata, ...]:
-        if session.skills is None:
-            return self._loop.available_skills
-        if not session.skills:
-            return ()
-        # bugfix-431: use resolve_available_skills via self.resolve_available_skills so
-        # runtime and preview both use the make_skill_resolver helper (决策 1/3).
-        return self.resolve_available_skills(
-            session.workspace_root,
-            include_names=session.skills,
-        )
 
     def _resolve_session_available_skills_from_config(
         self, config: SessionConfig
@@ -1581,21 +1114,6 @@ class AgentRuntime:
         return self.resolve_available_skills(
             config.workspace_root,
             include_names=config.skills,
-        )
-
-    def _resolve_session_available_tools(
-        self, session: Session
-    ) -> tuple[ToolSpec, ...]:
-        if session.tool_allowlist is None:
-            all_specs = self._loop.active_tool_specs()
-            default_ids = self._default_tool_ids
-            if default_ids is None:
-                return all_specs
-            allowed_set = set(default_ids)
-            return tuple(spec for spec in all_specs if spec.name in allowed_set)
-        requested = set(session.tool_allowlist)
-        return tuple(
-            tool for tool in self._loop.active_tool_specs() if tool.name in requested
         )
 
     def _resolve_session_available_tools_from_config(
@@ -2026,9 +1544,7 @@ class AgentRuntime:
                 "skill_view",
                 args,
                 hook_context=tool_hook_ctx,
-                session_file_state=self._session_file_states.setdefault(
-                    session_id, SessionFileState()
-                ),
+                session_file_state=self._state().file_state,
             )
         except Exception as exc:  # noqa: BLE001
             error = str(exc)
@@ -2091,9 +1607,7 @@ class AgentRuntime:
         controller: RunController | None = None,
         model_override: str | None = None,
     ):
-        session_file_state = self._session_file_states.setdefault(
-            session_id, SessionFileState()
-        )
+        session_file_state = self._state().file_state
         async for msg in self._loop.run(
             AgentState(
                 session_id=session_id,
@@ -2131,8 +1645,9 @@ class AgentRuntime:
         so provider prefix-cache hits are maximised.  Compaction invalidates the
         cache via _invalidate_memory_snapshot so the next turn reflects updated memory.
         """
-        if session_id in self._memory_snapshots:
-            return self._memory_snapshots[session_id]
+        conversation = self._state()
+        if conversation.memory_snapshot is not None:
+            return conversation.memory_snapshot
 
         # feat-428 机制 A: workspace-root AGENTS.md is read here regardless of the
         # memory_curation flag or workspace_config_dirname — it depends only on
@@ -2150,7 +1665,7 @@ class AgentRuntime:
                 "user_pct": 0,
                 "agents_md_content": agents_md_content,
             }
-            self._memory_snapshots[session_id] = snapshot
+            conversation.memory_snapshot = snapshot
             return snapshot
 
         workspace_root_raw = metadata.get("workspace_root")
@@ -2163,7 +1678,7 @@ class AgentRuntime:
                 "user_pct": 0,
                 "agents_md_content": agents_md_content,
             }
-            self._memory_snapshots[session_id] = snapshot
+            conversation.memory_snapshot = snapshot
             return snapshot
 
         memory_root = derive_memory_root(Path(str(workspace_root_raw)), str(dirname))
@@ -2179,7 +1694,7 @@ class AgentRuntime:
             "user_pct": user_pct,
             "agents_md_content": agents_md_content,
         }
-        self._memory_snapshots[session_id] = snapshot
+        conversation.memory_snapshot = snapshot
         return snapshot
 
     def _read_workspace_agents_md(
@@ -2206,8 +1721,7 @@ class AgentRuntime:
         content = agents_md_loader.load_agents_md(root_md)
         if content is None:
             return None
-        state = self._session_file_states.setdefault(session_id, SessionFileState())
-        state.loaded_agents_md.add(str(root_md.resolve()))
+        self._state().file_state.loaded_agents_md.add(str(root_md.resolve()))
         return content
 
     def _invalidate_memory_snapshot(self, session_id: str) -> None:
@@ -2218,10 +1732,9 @@ class AgentRuntime:
         summarised away). _ensure_memory_snapshot then re-preseeds the workspace
         root on the next turn, preserving 机制 B's "don't double-inject the root".
         """
-        self._memory_snapshots.pop(session_id, None)
-        state = self._session_file_states.get(session_id)
-        if state is not None:
-            state.loaded_agents_md.clear()
+        state = self._state()
+        state.memory_snapshot = None
+        state.file_state.loaded_agents_md.clear()
 
     async def _compact_session(
         self,
@@ -2231,13 +1744,11 @@ class AgentRuntime:
     ) -> CompactionResult | None:
         # Compaction always runs on a session that has been loaded by a prior
         # run(), so its config (and thus workspace_root) is cached here.
-        config = self._session_configs.get(session_id)
-        compaction_workspace_root = (
-            config.workspace_root if config is not None else None
-        )
-        entries = self._session_manager.list_entries(
-            session_id, workspace_root=compaction_workspace_root
-        )
+        conversation = self._state()
+        captured_external_epoch = conversation.transcript.external_epoch
+        config = conversation.config
+        compaction_workspace_root = config.workspace_root
+        entries = conversation.transcript.list_event_entries()
         plan = self._compaction_planner.plan(events=entries, reason=reason)
         if plan is None:
             return None
@@ -2267,7 +1778,7 @@ class AgentRuntime:
         )
 
         # Post-compact file restore: read up to 5 most recently accessed files.
-        file_state = self._session_file_states.get(session_id)
+        file_state = conversation.file_state
         restored_files: list[str] = []
         if file_state is not None:
             for state in reversed(file_state._states.values()):
@@ -2292,7 +1803,7 @@ class AgentRuntime:
         # truth for both the on-disk compact_boundary and the observed result
         # entry_id (bugfix-437 decision 2: no drift between write and observe).
         last_preserved_id = None
-        history = self._session_histories.get(session_id, [])
+        history = conversation.history
         if history:
             last_preserved_id = history[-1].message_id
 
@@ -2318,35 +1829,22 @@ class AgentRuntime:
         # in-process history cache. This is the SINGLE persistence path for
         # compaction (bugfix-437 decision 2): the redundant apply()->append_compaction
         # second write is removed. The memory reset is load-bearing — the next run's
-        # cache-first path reads _session_histories, so without it the compacted
-        # session would keep replaying the full transcript in memory.
-        path = self._session_paths.get(session_id)
-        if path is not None:
-            self._session_histories[session_id] = compacted_messages
-            # compact_boundary must be written before summary turn so that
-            # JsonlSessionStore.load() (which keeps only turns after the latest
-            # compact_boundary) includes the summary turn in the replayed history.
-            self._session_manager.writer.enqueue(
-                path,
-                {
-                    "type": "compact_boundary",
-                    "session_id": session_id,
-                    "timestamp": _utc_now_iso(),
-                    "summary_uuid": summary_msg.message_id,
-                    "data": {
-                        "reason": reason.value,
-                        "restored_files": list(restored_files),
-                    },
-                },
-            )
-            self._session_manager.writer.enqueue(
-                path, _message_to_entry(summary_msg, session_id)
-            )
-            if reinjection_msg is not None:
-                self._session_manager.writer.enqueue(
-                    path, _message_to_entry(reinjection_msg, session_id)
-                )
-            await self._session_manager.writer.flush_async()
+        # conversation state is the cache-first source, so replace it only after
+        # the boundary and summary are durably committed.
+        committed = conversation.transcript.append_compaction(
+            summary=_message_to_entry(summary_msg, session_id),
+            reinjections=(
+                [_message_to_entry(reinjection_msg, session_id)]
+                if reinjection_msg is not None
+                else []
+            ),
+            reason=reason.value,
+            restored_files=restored_files,
+            expected_external_epoch=captured_external_epoch,
+        )
+        if not committed:
+            return None
+        conversation.history[:] = compacted_messages
 
         # Build the result object from the already-persisted direct write (no
         # second persistence): entry_id aligns with the on-disk summary_uuid.
@@ -2368,7 +1866,7 @@ class AgentRuntime:
             self._build_hook_context(session_id=session_id),
         )
         # Clear file state after extracting restore info.
-        self._session_file_states.pop(session_id, None)
+        conversation.file_state = SessionFileState()
         return result
 
     def _build_skill_reinjection_message(
@@ -2458,7 +1956,7 @@ class AgentRuntime:
         session_id: str,
         message_id: str,
     ) -> tuple[Message, ...]:
-        history = self._session_histories.get(session_id, [])
+        history = self._state().history
         messages = list(history)
         if messages and messages[-1].message_id == message_id:
             messages.pop()

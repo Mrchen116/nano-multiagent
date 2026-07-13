@@ -11,7 +11,14 @@ from agent.core import ids
 from agent.core.types import Message
 from agent.core.utils.time import utc_now_iso
 
-from .entries import new_turn_appended_entry, parse_parts
+from .entries import (
+    CompactionEntry,
+    SessionEntry,
+    new_compaction_entry,
+    new_session_created_entry,
+    new_turn_appended_entry,
+    parse_parts,
+)
 from .jsonl_files import JsonlSessionFiles
 from .jsonl_writer import JsonlWriter
 from .types import (
@@ -117,6 +124,60 @@ class JsonlTranscript:
             raw = list(self._files.read_raw_entries(self._ref))
             return _materialize(self._ref, raw, up_to=up_to)
 
+    def list_event_entries(self) -> tuple[SessionEntry | CompactionEntry, ...]:
+        """Project raw JSONL into the existing compaction planner event vocabulary."""
+
+        with self._mutex:
+            self._writer.durable_barrier(self._path)
+            raw_lines = list(self._files.read_raw_entries(self._ref))
+        turns = {
+            raw["uuid"]: raw
+            for raw in raw_lines
+            if raw.get("type") == "turn" and isinstance(raw.get("uuid"), str)
+        }
+        entries: list[SessionEntry | CompactionEntry] = []
+        for raw in raw_lines:
+            entry_type = raw.get("type")
+            created_at = str(
+                raw.get("created_at") or raw.get("timestamp") or utc_now_iso()
+            )
+            if entry_type in {"session_created", "config_update"}:
+                entries.append(
+                    new_session_created_entry(
+                        session_id=self._ref.session_id,
+                        created_at=created_at,
+                        data=raw,
+                    )
+                )
+            elif entry_type == "turn":
+                entries.append(
+                    new_turn_appended_entry(
+                        session_id=self._ref.session_id,
+                        turn_id=str(raw.get("turn_id") or ""),
+                        role=str(raw.get("role") or ""),
+                        content=str(raw.get("content") or ""),
+                        message_id=str(raw.get("uuid") or ""),
+                        parts=raw.get("parts"),
+                        metadata=_turn_metadata(raw),
+                        created_at=created_at,
+                    )
+                )
+            elif entry_type == "compact_boundary":
+                summary_uuid = raw.get("summary_uuid")
+                summary = turns.get(summary_uuid, {}).get("content", "")
+                entries.append(
+                    new_compaction_entry(
+                        session_id=self._ref.session_id,
+                        first_kept_event_id="",
+                        summary=str(summary),
+                        data=raw.get("data")
+                        if isinstance(raw.get("data"), Mapping)
+                        else {},
+                        created_at=created_at,
+                    )
+                )
+        return tuple(entries)
+
     def append_turn_entries(
         self,
         entries: Sequence[Mapping[str, Any]],
@@ -143,6 +204,24 @@ class JsonlTranscript:
                 self._tail_known = True
             if durable:
                 self._writer.durable_barrier(self._path)
+
+    def append_messages_snapshot(self, messages: Sequence[Message]) -> None:
+        """Append a re-stamped fork snapshot while preserving its internal graph."""
+
+        entries = [
+            _message_to_raw(message, self._ref.session_id) for message in messages
+        ]
+        batch_ids = {entry["uuid"] for entry in entries}
+        with self._mutex:
+            self._ensure_tail_locked()
+            for entry in entries:
+                if entry.get("parent_uuid") not in batch_ids:
+                    entry["parent_uuid"] = self._tail_uuid
+                self._writer.enqueue_raw(self._path, entry)
+            if entries:
+                self._tail_uuid = str(entries[-1]["uuid"])
+                self._tail_known = True
+            self._writer.durable_barrier(self._path)
 
     def append_external(self, request: ExternalMessage) -> AppendMessageResult:
         """Append one idempotent external turn and return only after durability."""
@@ -225,6 +304,46 @@ class JsonlTranscript:
             self._writer.enqueue_raw(self._path, entry)
             if durable:
                 self._writer.durable_barrier(self._path)
+
+    def append_compaction(
+        self,
+        *,
+        summary: Mapping[str, Any],
+        reinjections: Sequence[Mapping[str, Any]] = (),
+        reason: str,
+        restored_files: Sequence[str] = (),
+        expected_external_epoch: int | None = None,
+    ) -> bool:
+        """Atomically append a boundary and replacement messages when capture is fresh."""
+
+        with self._mutex:
+            if (
+                expected_external_epoch is not None
+                and expected_external_epoch != self._external_epoch
+            ):
+                return False
+            summary_entry = dict(summary)
+            summary_uuid = summary_entry.get("uuid")
+            if not isinstance(summary_uuid, str) or not summary_uuid:
+                raise ValueError("compaction summary requires uuid")
+            self._writer.enqueue_raw(
+                self._path,
+                {
+                    "type": "compact_boundary",
+                    "session_id": self._ref.session_id,
+                    "timestamp": utc_now_iso(),
+                    "summary_uuid": summary_uuid,
+                    "data": {
+                        "reason": reason,
+                        "restored_files": list(restored_files),
+                    },
+                },
+            )
+            self.append_turn_entries(
+                [summary_entry, *reinjections],
+                durable=True,
+            )
+            return True
 
     def prepare_for_run(self, *, reason: str = "orphaned") -> None:
         """Repair every persisted orphaned tool call exactly once."""
@@ -559,3 +678,28 @@ def _tool_name(entry: Mapping[str, Any], call_id: str) -> str | None:
             name = tool_call.get("name")
             return name if isinstance(name, str) else None
     return None
+
+
+def _message_to_raw(message: Message, session_id: str) -> dict[str, Any]:
+    entry: dict[str, Any] = {
+        "type": "turn",
+        "uuid": message.message_id,
+        "parent_uuid": message.parent_message_id,
+        "session_id": session_id,
+        "role": message.role,
+        "content": message.content,
+        "timestamp": utc_now_iso(),
+    }
+    if message.parts:
+        entry["parts"] = [dict(part) for part in message.parts]
+    metadata = dict(message.metadata)
+    if message.tool_call_id:
+        metadata["tool_call_id"] = message.tool_call_id
+    if message.group_id:
+        metadata["group_id"] = message.group_id
+    if message.reasoning_content:
+        metadata["reasoning_content"] = message.reasoning_content
+    if message.reasoning_signature:
+        metadata["reasoning_signature"] = message.reasoning_signature
+    _copy_turn_metadata(entry, metadata)
+    return entry
