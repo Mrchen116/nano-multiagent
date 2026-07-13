@@ -1,8 +1,8 @@
 # refactor-462 — 验收报告
 
-> 对齐：`motivation.md` 的用户侧验收标准（不变性）  
-> Round: 1  
-> Date: 2026-07-13  
+> 对齐：`motivation.md` 的用户侧验收标准（不变性）
+> Round: 1
+> Date: 2026-07-13
 > Review mode: full
 
 ## Verdict

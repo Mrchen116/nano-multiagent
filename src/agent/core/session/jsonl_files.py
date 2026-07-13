@@ -41,8 +41,10 @@ class JsonlSessionFiles:
             )
         return base / "sessions" / f"{ref.session_id}.jsonl"
 
-    def read_raw_entries(self, ref: SessionRef) -> tuple[dict[str, Any], ...]:
-        """Read all valid JSON objects at ``ref`` in append order."""
+    def read_raw_entries(
+        self, ref: SessionRef, *, limit: int | None = None
+    ) -> tuple[dict[str, Any], ...]:
+        """Read a bounded prefix of valid JSON objects in append order."""
 
         path = self.resolve_path(ref)
         if not path.exists():
@@ -59,6 +61,8 @@ class JsonlSessionFiles:
                     continue
                 if isinstance(raw, dict):
                     entries.append(raw)
+                    if limit is not None and len(entries) >= limit:
+                        break
         return tuple(entries)
 
     def enumerate_addresses(self, *, workspace_root: Path) -> tuple[SessionRef, ...]:
