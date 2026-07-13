@@ -82,4 +82,42 @@ describe("auth-store", () => {
     useAuthStore.getState().hydrate();
     expect(useAuthStore.getState().user).toBeNull();
   });
+
+  it("replaces only the current user's snapshot while preserving tokens", () => {
+    useAuthStore.getState().setSession({
+      access_token: "access-current",
+      refresh_token: "refresh-current",
+      user: SAMPLE_USER
+    });
+
+    expect(
+      useAuthStore.getState().replaceUser({
+        ...SAMPLE_USER,
+        owned_node_ids: ["node-new"],
+        default_entry_node_id: "node-new"
+      })
+    ).toBe(true);
+
+    const state = useAuthStore.getState();
+    expect(state.accessToken).toBe("access-current");
+    expect(state.refreshToken).toBe("refresh-current");
+    expect(state.user?.owned_node_ids).toEqual(["node-new"]);
+    expect(JSON.parse(localStorage.getItem(AUTH_STORAGE_KEY) ?? "{}")).toMatchObject({
+      access_token: "access-current",
+      refresh_token: "refresh-current",
+      user: { id: "user-1", default_entry_node_id: "node-new" }
+    });
+  });
+
+  it("discards a delayed snapshot after the session switches users", () => {
+    useAuthStore.getState().setSession({
+      access_token: "access-b",
+      refresh_token: "refresh-b",
+      user: { ...SAMPLE_USER, id: "user-b", username: "bob", owner_id: "user-b" }
+    });
+
+    expect(useAuthStore.getState().replaceUser(SAMPLE_USER)).toBe(false);
+    expect(useAuthStore.getState().user?.id).toBe("user-b");
+    expect(useAuthStore.getState().accessToken).toBe("access-b");
+  });
 });

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useAuthStore } from "../auth/auth-store";
-import { getAccount, updateAccount } from "./im-settings-api";
+import { confirmBindToken, getAccount, updateAccount } from "./im-settings-api";
 
 const SAMPLE_USER = {
   id: "user-1",
@@ -57,6 +57,22 @@ describe("im-settings-api", () => {
     expect(urlStr).not.toContain("user_id=");
     const headers = new Headers((init as RequestInit | undefined)?.headers);
     expect(headers.get("Authorization")).toBe("Bearer tok-1");
+  });
+
+  it("confirms a bind token using bearer ownership without a user_id payload", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      jsonResponse(201, { node_id: "node-new" })
+    );
+
+    await expect(confirmBindToken("bind-once")).resolves.toEqual({ node_id: "node-new" });
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain("/im/v1/bind");
+    expect((init as RequestInit).method).toBe("POST");
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({
+      action: "confirm",
+      bind_token: "bind-once"
+    });
   });
 
   it("getAccount never calls /im/v1/users (was used by resolveCurrentUserId — removed)", async () => {
