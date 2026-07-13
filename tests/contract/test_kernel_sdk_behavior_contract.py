@@ -263,6 +263,60 @@ async def test_session_interrupt_cancels_run_and_unblocks_next_turn(
         kernel.close()
 
 
+async def test_session_interrupt_wins_when_provider_finishes_during_grace(
+    tmp_path: Path,
+) -> None:
+    """A provider returning after interrupt must not commit a completed run."""
+    started = threading.Event()
+    release = threading.Event()
+
+    class _GraceRaceClient:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def generate(self, request: Any):  # noqa: ANN001, ANN201
+            self.calls += 1
+            if self.calls == 1:
+                return self._finish_when_released()
+            return _async_stub_messages("continued-after-race")
+
+        async def _finish_when_released(self):  # noqa: ANN202
+            started.set()
+            while not release.is_set():
+                await asyncio.sleep(0.001)
+            yield LLMMessage(
+                role="assistant",
+                content="late-provider-result",
+                finish_reason="stop",
+                tool_calls=(),
+            )
+
+    kernel = _build_kernel(tmp_path, _llm_client_override=_GraceRaceClient())
+    try:
+        session = await kernel.create_session(workspace_root=tmp_path)
+        interrupted_run = kernel.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "race interrupt"}],
+            workspace_root=tmp_path,
+        )
+        assert await asyncio.to_thread(started.wait, 1.0)
+
+        assert kernel.interrupt(session.session_id) == interrupted_run.run_id
+        release.set()
+        terminal = await _wait_for_terminal_run(kernel, interrupted_run.run_id)
+        assert terminal.status == "cancelled"
+
+        continued_run = kernel.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "continue"}],
+            workspace_root=tmp_path,
+        )
+        continued = await _wait_for_terminal_run(kernel, continued_run.run_id)
+        assert continued.status == "completed"
+    finally:
+        kernel.close()
+
+
 # ---------------------------------------------------------------------------
 # LLM config
 # ---------------------------------------------------------------------------

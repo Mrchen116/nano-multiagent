@@ -19,7 +19,7 @@ from agent.core.session.types import (
     SessionRef,
     TurnRequest,
 )
-from agent.core.types import TurnResult
+from agent.core.types import Message, TokenUsage, ToolCall, TurnResult
 
 
 class _BlockingEngine:
@@ -51,6 +51,23 @@ class _EchoLLM:
         self.requests.append(request)
         yield LLMMessage(role="assistant", content="pong")
         yield LLMMessage(role="assistant", content="", finish_reason="stop")
+
+
+class _PartialBlockingEngine(_BlockingEngine):
+    async def execute_turn(self, state, request: TurnRequest) -> TurnResult:
+        state.partial_turn_id = "turn_partial"
+        state.partial_messages = [
+            Message(message_id="msg_partial", role="assistant", content="partial")
+        ]
+        state.partial_tool_calls = (
+            ToolCall(call_id="call_partial", name="read", arguments={}),
+        )
+        state.partial_usage = TokenUsage(
+            prompt_tokens=11,
+            completion_tokens=7,
+            total_tokens=18,
+        )
+        return await super().execute_turn(state, request)
 
 
 def _conversation(
@@ -134,6 +151,33 @@ async def test_external_append_can_commit_while_model_turn_is_active(
     assert [message.content for message in session.history_snapshot()] == [
         "scheduled awareness"
     ]
+
+
+@pytest.mark.asyncio
+async def test_active_external_append_preserves_partial_turn_snapshot(
+    tmp_path: Path,
+) -> None:
+    engine = _PartialBlockingEngine()
+    session, _files, _engine = _conversation(tmp_path, engine=engine)
+    active = asyncio.create_task(
+        session.submit_turn(TurnRequest(parts=({"type": "text", "text": "run"},)))
+    )
+    await engine.started.wait()
+    before = session.partial_turn_result()
+    assert before is not None
+
+    await asyncio.to_thread(
+        session.append_external,
+        ExternalMessage(role="user", content="external", message_id="msg_external"),
+    )
+
+    after = session.partial_turn_result()
+    assert after is not None
+    assert [message.content for message in after.messages] == ["partial"]
+    assert after.usage == TokenUsage(11, 7, 18)
+    assert [tool.name for tool in after.tool_calls] == ["read"]
+    engine.release.set()
+    await active
 
 
 @pytest.mark.asyncio

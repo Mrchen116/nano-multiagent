@@ -243,6 +243,16 @@ def test_kernel_close_closes_owned_provider_clients(
     assert all(client.closed for client in clients)
 
 
+def test_kernel_close_stops_owned_jsonl_writer_thread(tmp_path: Path) -> None:
+    kernel = _build(tmp_path)
+    writer_thread = kernel._c.directory._writer._thread  # type: ignore[attr-defined]
+    assert writer_thread.is_alive()
+
+    kernel.close()
+
+    assert not writer_thread.is_alive()
+
+
 # ---------------------------------------------------------------------------
 # 决策 1/6: create_session per-agent → SessionInfo; submit → RunInfo
 # ---------------------------------------------------------------------------
