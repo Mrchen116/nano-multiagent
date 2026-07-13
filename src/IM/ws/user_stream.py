@@ -6,6 +6,7 @@ import asyncio
 import json
 from collections import defaultdict
 from collections.abc import Callable, Iterable
+from contextlib import AsyncExitStack, asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from fastapi import WebSocket, WebSocketDisconnect
 
@@ -63,6 +64,14 @@ class UserStreamRegistry:
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
         self._by_user: dict[str, set[WebSocket]] = defaultdict(set)
+        self._handoff_by_user: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
+
+    @asynccontextmanager
+    async def replay_handoff(self, user_id: str):  # noqa: ANN202
+        """Serialize replay/registration with live broadcasts for one user."""
+
+        async with self._handoff_by_user[user_id]:
+            yield
 
     async def add(self, user_id: str, websocket: WebSocket) -> None:
         async with self._lock:
@@ -91,25 +100,30 @@ class UserStreamRegistry:
         id_set = frozenset(user_ids)
         if not id_set:
             return
-        async with self._lock:
-            targets: list[tuple[str, WebSocket]] = []
-            for uid in id_set:
-                for ws in list(self._by_user.get(uid, ())):
-                    targets.append((uid, ws))
-        dead: list[tuple[str, WebSocket]] = []
-        for uid, ws in targets:
-            try:
-                await ws.send_text(text)
-            except Exception:
-                dead.append((uid, ws))
-        if dead:
+        # Stable ordering avoids deadlocks for multi-participant fan-out while each
+        # user's replay/register handoff remains atomic relative to live events.
+        async with AsyncExitStack() as stack:
+            for uid in sorted(id_set):
+                await stack.enter_async_context(self.replay_handoff(uid))
             async with self._lock:
-                for uid, ws in dead:
-                    bucket = self._by_user.get(uid)
-                    if bucket is not None:
-                        bucket.discard(ws)
-                        if not bucket:
-                            del self._by_user[uid]
+                targets: list[tuple[str, WebSocket]] = []
+                for uid in id_set:
+                    for ws in list(self._by_user.get(uid, ())):
+                        targets.append((uid, ws))
+            dead: list[tuple[str, WebSocket]] = []
+            for uid, ws in targets:
+                try:
+                    await ws.send_text(text)
+                except Exception:
+                    dead.append((uid, ws))
+            if dead:
+                async with self._lock:
+                    for uid, ws in dead:
+                        bucket = self._by_user.get(uid)
+                        if bucket is not None:
+                            bucket.discard(ws)
+                            if not bucket:
+                                del self._by_user[uid]
 
 
 def build_notify_enqueue(
@@ -204,8 +218,38 @@ async def serve_user_websocket(
 ) -> None:
     """接受浏览器用户 WebSocket：握手后处理 resume 与心跳。"""
     await websocket.accept()
-    await registry.add(user_id, websocket)
     after_event_id = 0
+    registered = False
+
+    async def _send_replay(cursor: int) -> None:
+        """Drain every recoverable page or send one explicit resync control frame."""
+
+        next_after = cursor
+        while True:
+            outcome = event_repository.list_events_for_user_resume(
+                user_id=user_id,
+                after_event_id=next_after,
+                max_batch=REPLAY_MAX_BATCH,
+                max_gap=REPLAY_MAX_GAP,
+                replay_window_minutes=REPLAY_WINDOW_MINUTES,
+            )
+            if outcome.resync_required:
+                await websocket.send_text(
+                    json.dumps(
+                        {"op": "resync_required", "reason": outcome.reason},
+                        ensure_ascii=True,
+                        separators=(",", ":"),
+                    )
+                )
+                return
+            if not outcome.events:
+                return
+            for event in outcome.events:
+                await websocket.send_text(encode_user_stream_event_frame(event))
+            next_after = outcome.events[-1].event_id
+            if len(outcome.events) < REPLAY_MAX_BATCH:
+                return
+
     try:
         try:
             first = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
@@ -219,23 +263,10 @@ async def serve_user_websocket(
         except json.JSONDecodeError:
             after_event_id = 0
 
-        outcome = event_repository.list_events_for_user_resume(
-            user_id=user_id,
-            after_event_id=after_event_id,
-            max_batch=REPLAY_MAX_BATCH,
-            max_gap=REPLAY_MAX_GAP,
-            replay_window_minutes=REPLAY_WINDOW_MINUTES,
-        )
-        if outcome.resync_required:
-            await websocket.send_text(
-                json.dumps(
-                    {"op": "resync_required", "reason": outcome.reason},
-                    ensure_ascii=True,
-                    separators=(",", ":"),
-                )
-            )
-        for event in outcome.events:
-            await websocket.send_text(encode_user_stream_event_frame(event))
+        async with registry.replay_handoff(user_id):
+            await _send_replay(after_event_id)
+            await registry.add(user_id, websocket)
+            registered = True
 
         while True:
             raw = await websocket.receive_text()
@@ -257,24 +288,10 @@ async def serve_user_websocket(
                     if isinstance(raw_after, int) and raw_after >= 0
                     else 0
                 )
-                again = event_repository.list_events_for_user_resume(
-                    user_id=user_id,
-                    after_event_id=next_after,
-                    max_batch=REPLAY_MAX_BATCH,
-                    max_gap=REPLAY_MAX_GAP,
-                    replay_window_minutes=REPLAY_WINDOW_MINUTES,
-                )
-                if again.resync_required:
-                    await websocket.send_text(
-                        json.dumps(
-                            {"op": "resync_required", "reason": again.reason},
-                            ensure_ascii=True,
-                            separators=(",", ":"),
-                        )
-                    )
-                for event in again.events:
-                    await websocket.send_text(encode_user_stream_event_frame(event))
+                async with registry.replay_handoff(user_id):
+                    await _send_replay(next_after)
     except WebSocketDisconnect:
         pass
     finally:
-        await registry.remove(user_id, websocket)
+        if registered:
+            await registry.remove(user_id, websocket)

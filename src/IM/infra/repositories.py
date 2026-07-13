@@ -3354,6 +3354,12 @@ class EventRepository:
     ) -> EventReplayResult:
         """List owner-visible events after a browser resume cursor."""
         max_id = self.global_max_event_id()
+        if after_event_id > max_id:
+            return EventReplayResult(
+                events=[],
+                resync_required=True,
+                reason="cursor_ahead_of_event_store",
+            )
         if after_event_id > 0 and max_id - after_event_id > max_gap:
             return EventReplayResult(
                 events=[],
@@ -3377,7 +3383,22 @@ class EventRepository:
             """,
             (after_event_id, cutoff_iso, user_id, max_batch),
         ).fetchall()
-        if after_event_id > 0 and not rows and max_id > after_event_id:
+        user_max_row = self._connection.execute(
+            """
+            SELECT MAX(event_id) AS max_event_id
+            FROM conversation_events
+            WHERE conversation_id IN (
+                SELECT conversation_id FROM conversation_participants WHERE user_id = ?
+            )
+            """,
+            (user_id,),
+        ).fetchone()
+        user_max_id = (
+            int(user_max_row["max_event_id"])
+            if user_max_row is not None and user_max_row["max_event_id"] is not None
+            else 0
+        )
+        if after_event_id > 0 and not rows and user_max_id > after_event_id:
             return EventReplayResult(
                 events=[],
                 resync_required=True,

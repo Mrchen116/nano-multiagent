@@ -77,12 +77,11 @@ class TestEventBridgePermissionRequest:
         def notify(event):
             emitted.append(event)
 
-        msg_repo = MessageRepository(conn, notify=None)
-        evt_repo = EventRepository(conn)
+        msg_repo = MessageRepository(conn, notify=notify)
+        evt_repo = EventRepository(conn, notify=notify)
         bridge = EventBridge(
             message_repository=msg_repo,
             event_repository=evt_repo,
-            notify=notify,
         )
         return bridge, emitted
 

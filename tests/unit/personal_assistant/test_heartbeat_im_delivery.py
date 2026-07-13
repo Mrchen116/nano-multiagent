@@ -123,9 +123,7 @@ def _build_im_db_and_handler(tmp_path: Path):  # noqa: ANN202
     initialize_schema(connection)
     msg_repo = MessageRepository(connection)
     evt_repo = EventRepository(connection)
-    bridge = EventBridge(
-        message_repository=msg_repo, event_repository=evt_repo, notify=None
-    )
+    bridge = EventBridge(message_repository=msg_repo, event_repository=evt_repo)
     handler = GatewayHandler(
         relay_service=RelayService(connection),
         metrics_service=MetricsService(metrics=UsageMetricsRepository(connection)),

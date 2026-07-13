@@ -27,12 +27,11 @@ def _make_bridge(tmp_path: Path):
     def notify(event: ConversationEvent) -> None:
         captured.append(event)
 
-    messages = MessageRepository(connection)
-    events = EventRepository(connection)
+    messages = MessageRepository(connection, notify=notify)
+    events = EventRepository(connection, notify=notify)
     bridge = EventBridge(
         message_repository=messages,
         event_repository=events,
-        notify=notify,
     )
     alice = users.create_user(username="alice", display_name="Alice")
     # Register a synthetic agent user under alice's owner scope so the bridge can address it as sender.
@@ -163,11 +162,10 @@ def test_on_message_discarded_removes_placeholder_and_keeps_tombstone(
 def test_on_message_discarded_notifies_once_through_message_repository(
     tmp_path: Path,
 ) -> None:
-    """Production wiring must publish the tombstone without EventBridge.notify."""
+    """Production wiring publishes the tombstone through MessageRepository once."""
     bridge, conv_id, agent_uid, messages, _captured = _make_bridge(tmp_path)
     repository_events: list[ConversationEvent] = []
     messages._notify = repository_events.append  # noqa: SLF001
-    bridge.notify = None
     msg = bridge.on_turn_start(
         conversation_id=conv_id, agent_user_id=agent_uid, agent_id="planner"
     )
