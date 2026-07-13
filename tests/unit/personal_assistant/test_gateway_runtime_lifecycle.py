@@ -80,7 +80,7 @@ def test_gateway_survives_unreachable_im_at_startup(tmp_path: Path) -> None:
         relay_adapter=relay_adapter,
         connect=_connect,
     )
-    runtime = GatewayRuntime(config, None, im_connection_manager=manager)
+    runtime = GatewayRuntime(config, im_connection_manager=manager)
 
     thread, outcome = run_in_thread(runtime)
     try:
@@ -105,7 +105,6 @@ def test_heartbeat_start_waits_for_first_connect_attempt(tmp_path: Path) -> None
     heartbeat = _RecordingHeartbeatRunner(events)
     runtime = GatewayRuntime(
         make_config(tmp_path),
-        None,
         im_connection_manager=manager,
         heartbeat_runner=heartbeat,
     )
@@ -136,13 +135,6 @@ def test_shutdown_cleanup_continues_when_im_task_await_raises_base_exception(
 
     events: list[str] = []
 
-    class _FakeProcessManager:
-        def start_kernel_process(self) -> None:
-            events.append("kernel.start")
-
-        def stop_kernel_process(self) -> None:
-            events.append("kernel.stop")
-
     async def _raise_cancelled(_task: asyncio.Task[None]) -> None:
         events.append("await.im_task")
         raise asyncio.CancelledError()
@@ -152,7 +144,6 @@ def test_shutdown_cleanup_continues_when_im_task_await_raises_base_exception(
     manager = _GateFakeIM(events)
     runtime = GatewayRuntime(
         make_config(tmp_path),
-        _FakeProcessManager(),
         im_connection_manager=manager,
         resource_closers=(lambda: events.append("resource.close"),),
     )
@@ -166,12 +157,11 @@ def test_shutdown_cleanup_continues_when_im_task_await_raises_base_exception(
 
     assert outcome.get("exit_code") == 0
     assert "error" not in outcome
-    assert "kernel.stop" in events
     assert "resource.close" in events
 
 
 def test_shutdown_cleanup_continues_when_im_close_raises(tmp_path: Path) -> None:
-    """An IM close failure must not skip process stop, resource closers, or exit 0."""
+    """An IM close failure must not skip resource closers or successful exit."""
 
     events: list[str] = []
 
@@ -181,17 +171,9 @@ def test_shutdown_cleanup_continues_when_im_close_raises(tmp_path: Path) -> None
             self._closed.set()
             raise RuntimeError("close failed")
 
-    class _FakeProcessManager:
-        def start_kernel_process(self) -> None:
-            events.append("kernel.start")
-
-        def stop_kernel_process(self) -> None:
-            events.append("kernel.stop")
-
     manager = _CloseRaisesIM(events)
     runtime = GatewayRuntime(
         make_config(tmp_path),
-        _FakeProcessManager(),
         im_connection_manager=manager,
         resource_closers=(lambda: events.append("resource.close"),),
     )
@@ -206,5 +188,4 @@ def test_shutdown_cleanup_continues_when_im_close_raises(tmp_path: Path) -> None
     assert outcome.get("exit_code") == 0
     assert "error" not in outcome
     assert "im.close" in events
-    assert "kernel.stop" in events
     assert "resource.close" in events

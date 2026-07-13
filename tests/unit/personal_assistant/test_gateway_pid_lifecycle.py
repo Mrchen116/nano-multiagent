@@ -59,12 +59,14 @@ def test_launch_gateway_in_background_writes_runtime_state_file(tmp_path: Path) 
     )
 
     state_path = tmp_path / ".gateway-state.json"
-    assert state_path.exists() is True
-    assert "2468" in state_path.read_text(encoding="utf-8")
-    assert str(config.source_path) in state_path.read_text(encoding="utf-8")
+    assert json.loads(state_path.read_text(encoding="utf-8")) == {
+        "config_path": str(config.source_path),
+        "log_path": str(tmp_path / "gateway.log"),
+        "pid": 2468,
+    }
 
 
-def test_stop_gateway_reports_still_healthy_when_pid_is_stale_but_health_url_is_alive(
+def test_stop_gateway_ignores_legacy_health_url_when_pid_is_stale(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -83,21 +85,19 @@ def test_stop_gateway_reports_still_healthy_when_pid_is_stale_but_health_url_is_
     )
     monkeypatch.setattr("personal_assistant.main._pid_is_running", lambda _pid: False)
     monkeypatch.setattr(
-        "personal_assistant.main._healthcheck_reports_healthy", lambda _url: True
+        "personal_assistant.main.httpx.get",
+        lambda *_args, **_kwargs: pytest.fail("stop must not probe legacy health_url"),
     )
 
     result = main_module.stop_gateway(
         config_path=config.source_path, load_config=lambda _path: config
     )
 
-    assert result == (
-        "STALE pid=2468 state="
-        f"{state_path} health_url=http://127.0.0.1:8100/v1/health still_healthy=true"
-    )
+    assert result == f"STALE pid=2468 state={state_path}"
     assert state_path.exists() is False
 
 
-def test_stop_gateway_only_reports_stopped_after_health_url_goes_down(
+def test_stop_gateway_uses_pid_liveness_and_ignores_legacy_health_url(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -140,25 +140,16 @@ def test_stop_gateway_only_reports_stopped_after_health_url_goes_down(
     monkeypatch.setattr(
         "personal_assistant.main.time.monotonic", iter([0.0, 0.01]).__next__
     )
-    verify_calls: list[tuple[str, float, float]] = []
-
-    def _verify(
-        health_url: str, *, timeout_seconds: float, sleep_seconds: float
-    ) -> bool:
-        verify_calls.append((health_url, timeout_seconds, sleep_seconds))
-        return False
-
-    monkeypatch.setattr("personal_assistant.main._verify_stopped_health_url", _verify)
+    monkeypatch.setattr(
+        "personal_assistant.main.httpx.get",
+        lambda *_args, **_kwargs: pytest.fail("stop must not probe legacy health_url"),
+    )
 
     result = main_module.stop_gateway(
         config_path=config.source_path, load_config=lambda _path: config
     )
 
-    assert result == (
-        "STOPPED pid=2468 state="
-        f"{state_path} health_url=http://127.0.0.1:8100/v1/health still_healthy=true"
-    )
-    assert verify_calls == [("http://127.0.0.1:8100/v1/health", 0.1, 0.01)]
+    assert result == f"STOPPED pid=2468 state={state_path}"
     assert state_path.exists() is False
 
 
@@ -315,10 +306,6 @@ def test_stop_gateway_removes_pid_file_on_successful_stop(
     monkeypatch.setattr(
         "personal_assistant.main.time.monotonic", iter([0.0, 0.01]).__next__
     )
-    monkeypatch.setattr(
-        "personal_assistant.main._verify_stopped_health_url", lambda *a, **kw: True
-    )
-
     result = stop_gateway(
         config_path=config.source_path, load_config=lambda _path: config
     )
