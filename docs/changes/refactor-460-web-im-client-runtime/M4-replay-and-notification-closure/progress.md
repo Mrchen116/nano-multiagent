@@ -23,7 +23,7 @@
 
 - Status: DONE
 - Context: 确定性 blocked replay 证明旧实现先注册 live 再 replay 会让新事件超车；单页 `LIMIT 500` 会静默截断 650 条 owner backlog。
-- Decision: registry 以 per-user handoff lock 原子衔接全量分页 replay 与 live 注册；broadcast 按 user id 排序加锁。Repository 只以用户可见 max 判定 epoch，返回 `cursor_ahead_of_event_store`。EventBridge 不再接受 notify，repository post-commit 是唯一发布 owner。
+- Decision: registry 以 per-user handoff lock 原子衔接全量分页 replay 与 live 注册；broadcast 按 user id 排序加锁。Repository 以 global event-store max 判定 cursor 是否来自旧 epoch，返回 `cursor_ahead_of_event_store`；owner-filtered replay 仍只返回当前用户可见事件。EventBridge 不再接受 notify，repository post-commit 是唯一发布 owner。
 - Rationale: 把顺序边界放在 server registry，不依赖客户端去重补救；不扩展 wire payload。
 - Evidence: 100 个 focused IM user-stream/repository/EventBridge tests passed；覆盖 overtaking、650 drain、cursor-ahead 与 constructor reject notify。
 - Rollback: 回退 C2 `648b8b3e`；C1 `a11cd56f` 保留缺口回归。

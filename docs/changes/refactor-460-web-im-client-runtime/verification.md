@@ -262,3 +262,62 @@ requires_full_verification: `false`
 - **W1 — design/progress 仍描述旧范围与旧 cursor 规则，和 M4 的正确实现互相矛盾。** `design.md:27-30` 仍声明只改 frontend、后端协议不变，但 M3/M4 已授权并实现 Gateway/IM 改动；`design.md:312-313,367-368` 仍规定 resync 只取 `max(current,max_event_id)`，没有记录 `cursor_ahead_of_event_store` 的 epoch replace；`M4.../progress.md:26` 又写“只以用户可见 max 判定 epoch”，而生产代码 `src/IM/infra/repositories.py:3356-3362` 正确使用 global event-store max（cold baseline 本身也可能是 global max）。修完 C1 后同步校正 design 的范围、state machine/risk 与 progress 措辞，明确正常原因单调、仅 epoch-ahead 允许 replace，以及 epoch 判定使用 global store max，避免后续按错误文档回退实现。
 
 1 critical issue found. Fix before PR.
+
+# Round 4
+
+## Verification Report: refactor-460
+
+### Summary
+
+Mode: `full` on `origin/unit/refactor-460@3fc051d1`
+
+Verdict: `fail`
+
+独立 verifier 复现新 external conversation 首帧在 fresh conversations cache 下不产生 authority HTTP，因而被误判为 self-authored 并永久漏提醒。其余 focused backend/Gateway/contracts 52 passed、frontend 6 files / 70 passed、ruff passed。文档同时发现 M4 epoch 判定误写为“用户可见 max”、design 未同步 pre-fanout canonical validation / 单一 accumulator owner / M5 演进。
+
+M6 首轮以 `staleTime:0`、失败 pending recovery 与文档校正关闭这些问题；随后 full-diff code review 继续进入 Round 5。
+
+# Round 5
+
+## Verification Report: refactor-460
+
+### Summary
+
+Mode: `full + M6 delta focus`
+
+Delta: `3fc051d1..eb722cd4`
+
+Verdict: `fail`
+
+| Issue | 结论 |
+|---|---|
+| external authority 仍复用同 key 旧在途 query | confirmed critical |
+| stale history 删除 optimistic POST bubble | confirmed critical |
+| stale history 复活 live `message.discarded` tombstone | confirmed critical |
+| async send 期间附件仍可增删 | confirmed warning |
+
+Verifier 另确认跨账号 refresh flight、failed completion、multi-bubble visibility、accumulator persistence 与文档漂移已关闭。修复由 orchestrator 本人完成，没有派 impl worker。
+
+# Round 6
+
+## Verification Report: refactor-460
+
+### Summary
+
+Mode: `targeted closure`
+
+Final implementation HEAD: `5dbf63db`
+
+Verdict: `pass`
+
+Round 5 四项均关闭；后续 targeted review 又逐层攻击 external authority 的 cache 回写和请求乱序，最终形成以下稳定边界：
+
+- 候选到达时只取消当时已存在的旧 canonical query，direct authority 返回后不取消更新 refetch。
+- authority 只补 cache 缺失的 candidate conversation，不覆盖同 id 的更新行。
+- preview 按 `last_message_at` 单调前进；pending authority 与 cached external fast path 共用 per-conversation 最新 event-id 时钟，旧 authority 不得回退 preview/toast。
+- history 请求窗口显式区分 preserve row 与 preserve tombstone，optimistic POST 同样进入一次性保护。
+- composer 发送期冻结 attachment add/remove，成功只清本次提交快照，失败保留。
+
+独立 targeted verifier 最终 `pass`，code review `no findings`；toast focused 19/19、production build、`git diff --check` passed。`requires_full_verification=false`。此前最终自动化基线为 frontend 64 files / 600 tests、backend non-e2e 3513 passed / 1 skipped / 23 deselected、ruff passed。
+
+All targeted checks passed. Ready for the remaining orchestration gates.

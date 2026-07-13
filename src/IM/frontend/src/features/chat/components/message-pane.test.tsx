@@ -1,4 +1,4 @@
-import { act, createEvent, fireEvent, render, screen } from "@testing-library/react";
+import { act, createEvent, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -571,6 +571,80 @@ describe("MessagePane", () => {
       await user.keyboard("{Enter}");
       expect(onSend).toHaveBeenCalledWith("desktop send", []);
       expect(composer.value).toBe("");
+    });
+
+    it("keeps the draft when the asynchronous send fails", async () => {
+      const user = userEvent.setup();
+      const onSend = vi.fn().mockRejectedValue(new Error("send failed"));
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={BASE_MESSAGES}
+          mentionCandidates={[]}
+          onSend={onSend}
+        />
+      );
+      const composer = screen.getByRole("textbox") as HTMLTextAreaElement;
+      await user.type(composer, "retry this draft");
+      await user.keyboard("{Enter}");
+
+      await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
+      expect(composer.value).toBe("retry this draft");
+    });
+
+    it("does not submit the retained draft twice while its send is pending", async () => {
+      const user = userEvent.setup();
+      const onSend = vi.fn(() => new Promise<void>(() => {}));
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={BASE_MESSAGES}
+          mentionCandidates={[]}
+          onSend={onSend}
+        />
+      );
+      const composer = screen.getByRole("textbox") as HTMLTextAreaElement;
+      await user.type(composer, "one pending send");
+      fireEvent.keyDown(composer, { key: "Enter", shiftKey: false });
+      fireEvent.keyDown(composer, { key: "Enter", shiftKey: false });
+
+      expect(onSend).toHaveBeenCalledTimes(1);
+      expect(composer.value).toBe("one pending send");
+    });
+
+    it("freezes attachment add and remove while an asynchronous send is pending", async () => {
+      const user = userEvent.setup();
+      const uploadAttachment = vi.fn().mockResolvedValue({
+        url: "http://im.local/im/uploads/first.png",
+        content_type: "image/png",
+        file_name: "first.png"
+      });
+      const onSend = vi.fn(() => new Promise<void>(() => {}));
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={BASE_MESSAGES}
+          mentionCandidates={[]}
+          onSend={onSend}
+          uploadAttachment={uploadAttachment}
+        />
+      );
+      const composer = screen.getByRole("textbox") as HTMLTextAreaElement;
+      const dropZone = composer.closest("[data-dragging]") as HTMLElement;
+      fireEvent.drop(dropZone, {
+        dataTransfer: { files: [new File(["first"], "first.png", { type: "image/png" })], types: ["Files"] }
+      });
+      const remove = await screen.findByRole("button", { name: "Remove first.png" });
+      await user.type(composer, "send with first attachment");
+      fireEvent.keyDown(composer, { key: "Enter", shiftKey: false });
+
+      await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
+      expect(remove).toBeDisabled();
+      fireEvent.drop(dropZone, {
+        dataTransfer: { files: [new File(["second"], "second.png", { type: "image/png" })], types: ["Files"] }
+      });
+      expect(uploadAttachment).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole("button", { name: "Remove first.png" })).toBeInTheDocument();
     });
 
     it("does not keep a force-scroll request when send resolves without appending a message", async () => {

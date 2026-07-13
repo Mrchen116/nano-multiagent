@@ -598,6 +598,11 @@ def build_kernel_event_observer(
                             new_kernel_message_id=new_kernel_id,
                         )
                         if new_msg_id:
+                            # roll_bubble intentionally clears bubble-local visibility.
+                            # This branch already has real text for the newly opened
+                            # bubble, so restore the marker before the run terminal
+                            # decides whether that bubble should be discarded.
+                            ctx["visible_reply_committed"] = "1"
                             ctx["external_current_text"] = text
                             if reasoning_text:
                                 await mgr.send_json(

@@ -137,4 +137,36 @@ describe("auth session readiness", () => {
     expect(useAuthStore.getState().user?.id).toBe("user-b");
     expect(useAuthStore.getState().refreshToken).toBe("refresh-b");
   });
+
+  it("does not share user A's rejected refresh flight with user B", async () => {
+    session(USER_A, accessToken(-1), "refresh-a");
+    let releaseA!: () => void;
+    const gateA = new Promise<void>((resolve) => {
+      releaseA = resolve;
+    });
+    const freshB = accessToken(120);
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      const refreshToken = JSON.parse(String(init?.body)) as { refresh_token: string };
+      if (refreshToken.refresh_token === "refresh-a") {
+        await gateA;
+        return response(401, { detail: "invalid refresh" });
+      }
+      return response(200, {
+        access_token: freshB,
+        refresh_token: "refresh-b2",
+        user: USER_B
+      });
+    });
+
+    const pendingA = ensureFreshSession();
+    session(USER_B, accessToken(-1), "refresh-b");
+    const pendingB = ensureFreshSession();
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    releaseA();
+
+    await expect(pendingA).resolves.toEqual({ status: "signed_out" });
+    await expect(pendingB).resolves.toEqual({ status: "ready", userId: "user-b", accessToken: freshB });
+    expect(useAuthStore.getState().user?.id).toBe("user-b");
+    expect(useAuthStore.getState().refreshToken).toBe("refresh-b2");
+  });
 });

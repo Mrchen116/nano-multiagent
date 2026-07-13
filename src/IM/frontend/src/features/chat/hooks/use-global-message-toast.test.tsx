@@ -20,6 +20,7 @@ vi.mock("../chat-api", () => ({
 }));
 
 let streamHandler: ((event: { eventType: string; payload: Record<string, unknown>; eventId?: number }) => void) | null = null;
+let recoveryHandler: (() => Promise<void>) | null = null;
 
 vi.mock("../../../realtime/user-stream", () => ({
   subscribeUserStream: vi.fn(
@@ -28,8 +29,10 @@ vi.mock("../../../realtime/user-stream", () => ({
       onRecovery?: () => Promise<void>;
     }) => {
       streamHandler = input.onEvent;
+      recoveryHandler = input.onRecovery ?? null;
       return () => {
         streamHandler = null;
+        recoveryHandler = null;
       };
     }
   )
@@ -106,10 +109,12 @@ function emit(conversationId: string, event: { eventType: string; payload: Recor
 describe("useGlobalMessageToast", () => {
   afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllGlobals();
   });
 
   beforeEach(() => {
     streamHandler = null;
+    recoveryHandler = null;
     vi.clearAllMocks();
     sessionStorage.clear();
     resetLocalUnreadFeedback();
@@ -222,8 +227,11 @@ describe("useGlobalMessageToast", () => {
     expect(hasLocalUnreadFeedback("conv-external")).toBe(true);
   });
 
-  it("resolves a newly created external conversation before classifying its first message as self-authored", async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  it("forces an authoritative lookup for a new external conversation even while the list cache is fresh", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: 60_000 } }
+    });
+    queryClient.setQueryData(["chat", "conversations"], [conversation("conv-existing")]);
     listConversationsMock.mockResolvedValue([
       conversation("conv-new-external", {
         title: "New Feishu chat",
@@ -256,6 +264,304 @@ describe("useGlobalMessageToast", () => {
       });
       expect(hasLocalUnreadFeedback("conv-new-external")).toBe(true);
     });
+  });
+
+  it("does not reuse an older in-flight conversations request for external classification", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    let resolveOldRequest!: (value: Conversation[]) => void;
+    const oldRequest = queryClient.fetchQuery({
+      queryKey: ["chat", "conversations"],
+      queryFn: () => new Promise<Conversation[]>((resolve) => { resolveOldRequest = resolve; })
+    }).catch(() => undefined);
+    listConversationsMock.mockResolvedValue([
+      conversation("conv-new-external", { external_source: "feishu", external_chat_id: "oc_new" })
+    ]);
+    const { result } = renderHook(() => useGlobalMessageToast(), { wrapper: buildWrapper(queryClient, "/") });
+    await waitFor(() => expect(subscribeUserStreamMock).toHaveBeenCalled());
+
+    emit("conv-new-external", {
+      eventType: "message.created",
+      eventId: 1,
+      payload: {
+        message_id: "external-inflight-1",
+        sender_type: "user",
+        sender_user_id: "self-user",
+        sender_display_name: "In-flight External Sender",
+        content: "classify after candidate arrival"
+      }
+    });
+    await waitFor(() => expect(listConversationsMock).toHaveBeenCalledTimes(1));
+    resolveOldRequest([conversation("conv-existing")]);
+    await oldRequest;
+
+    await waitFor(() => {
+      expect(result.current.toast).toMatchObject({ id: "message:external-inflight-1" });
+      expect(queryClient.getQueryData<Conversation[]>(["chat", "conversations"]))
+        .toEqual(expect.arrayContaining([
+          expect.objectContaining({
+            id: "conv-new-external",
+            external_source: "feishu",
+            last_message_preview: "classify after candidate arrival",
+            unread_count: 1
+          })
+        ]));
+    });
+  });
+
+  it("does not cancel or overwrite a newer conversations refetch when authority returns later", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    let resolveAuthority!: (value: Conversation[]) => void;
+    listConversationsMock.mockReturnValue(
+      new Promise<Conversation[]>((resolve) => { resolveAuthority = resolve; })
+    );
+    const { result } = renderHook(() => useGlobalMessageToast(), { wrapper: buildWrapper(queryClient, "/") });
+    await waitFor(() => expect(subscribeUserStreamMock).toHaveBeenCalled());
+
+    emit("conv-new-external", {
+      eventType: "message.created",
+      eventId: 1,
+      payload: {
+        message_id: "external-newer-cache-1",
+        sender_type: "user",
+        sender_user_id: "self-user",
+        sender_display_name: "External Sender",
+        content: "new external content",
+        created_at: "2026-07-13T00:00:00Z"
+      }
+    });
+    await waitFor(() => expect(listConversationsMock).toHaveBeenCalledTimes(1));
+
+    const newerConversation = conversation("conv-new-external", {
+      title: "Newer refetch title",
+      external_source: "feishu",
+      external_chat_id: "oc_new",
+      last_message_preview: "newer refetch preview",
+      last_message_at: "2026-07-13T00:02:00Z"
+    });
+    await queryClient.fetchQuery({
+      queryKey: ["chat", "conversations"],
+      queryFn: async () => [newerConversation]
+    });
+    resolveAuthority([
+      conversation("conv-new-external", {
+        title: "Older authority title",
+        external_source: "feishu",
+        external_chat_id: "oc_new",
+        last_message_preview: "older authority preview",
+        last_message_at: "2026-07-13T00:00:00Z"
+      })
+    ]);
+
+    await waitFor(() => {
+      expect(result.current.toast).toMatchObject({ id: "message:external-newer-cache-1" });
+      expect(queryClient.getQueryData<Conversation[]>(["chat", "conversations"]))
+        .toEqual(expect.arrayContaining([
+          expect.objectContaining({ id: "conv-new-external", title: "Newer refetch title" })
+        ]));
+      expect(queryClient.getQueryData<Conversation[]>(["chat", "conversations"])?.[0])
+        .toMatchObject({
+          last_message_preview: "newer refetch preview",
+          last_message_at: "2026-07-13T00:02:00Z"
+        });
+    });
+  });
+
+  it("does not let an older external authority completion replace a newer candidate", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const resolvers: Array<(value: Conversation[]) => void> = [];
+    listConversationsMock.mockImplementation(() =>
+      new Promise<Conversation[]>((resolve) => { resolvers.push(resolve); })
+    );
+    const { result } = renderHook(() => useGlobalMessageToast(), { wrapper: buildWrapper(queryClient, "/") });
+    await waitFor(() => expect(subscribeUserStreamMock).toHaveBeenCalled());
+
+    emit("conv-new-external", {
+      eventType: "message.created",
+      eventId: 1,
+      payload: {
+        message_id: "external-old",
+        sender_type: "user",
+        sender_user_id: "self-user",
+        sender_display_name: "External Sender",
+        content: "older external content",
+        created_at: "2026-07-13T00:00:00Z"
+      }
+    });
+    emit("conv-new-external", {
+      eventType: "message.created",
+      eventId: 2,
+      payload: {
+        message_id: "external-new",
+        sender_type: "user",
+        sender_user_id: "self-user",
+        sender_display_name: "External Sender",
+        content: "newer external content",
+        created_at: "2026-07-13T00:01:00Z"
+      }
+    });
+    await waitFor(() => expect(resolvers).toHaveLength(2));
+    const authority = [conversation("conv-new-external", {
+      external_source: "feishu",
+      external_chat_id: "oc_new"
+    })];
+    resolvers[1]!(authority);
+    await waitFor(() => expect(result.current.toast).toMatchObject({
+      id: "message:external-new",
+      preview: "newer external content"
+    }));
+    resolvers[0]!(authority);
+
+    await waitFor(() => {
+      expect(result.current.toast).toMatchObject({
+        id: "message:external-new",
+        preview: "newer external content"
+      });
+      expect(queryClient.getQueryData<Conversation[]>(["chat", "conversations"])?.[0])
+        .toMatchObject({
+          last_message_preview: "newer external content",
+          last_message_at: "2026-07-13T00:01:00Z"
+        });
+    });
+  });
+
+  it("lets a cached external fast-path candidate invalidate an older pending authority", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    let resolveAuthority!: (value: Conversation[]) => void;
+    listConversationsMock.mockReturnValue(
+      new Promise<Conversation[]>((resolve) => { resolveAuthority = resolve; })
+    );
+    const { result } = renderHook(() => useGlobalMessageToast(), { wrapper: buildWrapper(queryClient, "/") });
+    await waitFor(() => expect(subscribeUserStreamMock).toHaveBeenCalled());
+
+    emit("conv-new-external", {
+      eventType: "message.created",
+      eventId: 1,
+      payload: {
+        message_id: "external-pending-old",
+        sender_type: "user",
+        sender_user_id: "self-user",
+        sender_display_name: "External Sender",
+        content: "older pending content",
+        created_at: "2026-07-13T00:00:00Z"
+      }
+    });
+    await waitFor(() => expect(listConversationsMock).toHaveBeenCalledTimes(1));
+
+    queryClient.setQueryData(["chat", "conversations"], [
+      conversation("conv-new-external", {
+        external_source: "feishu",
+        external_chat_id: "oc_new"
+      })
+    ]);
+    emit("conv-new-external", {
+      eventType: "message.created",
+      eventId: 2,
+      payload: {
+        message_id: "external-fast-new",
+        sender_type: "user",
+        sender_user_id: "self-user",
+        sender_display_name: "External Sender",
+        content: "newer fast-path content",
+        created_at: "2026-07-13T00:00:00Z"
+      }
+    });
+    expect(result.current.toast).toMatchObject({
+      id: "message:external-fast-new",
+      preview: "newer fast-path content"
+    });
+
+    resolveAuthority([conversation("conv-new-external", {
+      external_source: "feishu",
+      external_chat_id: "oc_new"
+    })]);
+    await waitFor(() => {
+      expect(result.current.toast).toMatchObject({
+        id: "message:external-fast-new",
+        preview: "newer fast-path content"
+      });
+      expect(queryClient.getQueryData<Conversation[]>(["chat", "conversations"])?.[0])
+        .toMatchObject({ last_message_preview: "newer fast-path content" });
+    });
+  });
+
+  it("retries an unresolved external classification during stream recovery", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: 60_000 } }
+    });
+    queryClient.setQueryData(["chat", "conversations"], [conversation("conv-existing")]);
+    listConversationsMock
+      .mockRejectedValueOnce(new Error("temporary conversations failure"))
+      .mockResolvedValue([
+        conversation("conv-new-external", {
+          external_source: "feishu",
+          external_chat_id: "oc_new"
+        })
+      ]);
+    const { result } = renderHook(() => useGlobalMessageToast(), { wrapper: buildWrapper(queryClient, "/") });
+    await waitFor(() => expect(subscribeUserStreamMock).toHaveBeenCalled());
+
+    emit("conv-new-external", {
+      eventType: "message.created",
+      eventId: 1,
+      payload: {
+        message_id: "external-retry-1",
+        sender_type: "user",
+        sender_user_id: "self-user",
+        sender_display_name: "Recovered External Sender",
+        content: "recover this notification"
+      }
+    });
+
+    await waitFor(() => expect(listConversationsMock).toHaveBeenCalledTimes(1));
+    expect(result.current.toast).toBeNull();
+    await act(async () => {
+      await recoveryHandler?.();
+    });
+
+    await waitFor(() => {
+      expect(listConversationsMock).toHaveBeenCalledTimes(2);
+      expect(result.current.toast).toMatchObject({
+        id: "message:external-retry-1",
+        senderName: "Recovered External Sender",
+        preview: "recover this notification"
+      });
+      expect(hasLocalUnreadFeedback("conv-new-external")).toBe(true);
+    });
+  });
+
+  it("does not persist an unchanged completion accumulator for streaming deltas", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const storage = {
+      getItem: vi.fn(() => null),
+      setItem: vi.fn(),
+      removeItem: vi.fn()
+    };
+    vi.stubGlobal("sessionStorage", storage);
+    renderHook(() => useGlobalMessageToast(), { wrapper: buildWrapper(queryClient, "/") });
+    await waitFor(() => expect(subscribeUserStreamMock).toHaveBeenCalled());
+
+    emit("conv-1", {
+      eventType: "message.created",
+      eventId: 1,
+      payload: {
+        message_id: "agent-stream-1",
+        sender_type: "agent",
+        sender_user_id: "agent:a",
+        content: "",
+        tool_calls: [],
+        token_usage: null,
+        delivery_status: "running",
+        created_at: "2026-07-13T00:00:00Z"
+      }
+    });
+    storage.setItem.mockClear();
+    emit("conv-1", {
+      eventType: "message.delta",
+      eventId: 2,
+      payload: { message_id: "agent-stream-1", delta_text: "token" }
+    });
+
+    expect(storage.setItem).not.toHaveBeenCalled();
   });
 
   it("treats relay.report and relay.completed as non-notifying receipts", async () => {

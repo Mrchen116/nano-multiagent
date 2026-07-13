@@ -13,7 +13,15 @@ interface RefreshSnapshot {
   refreshToken: string;
 }
 
-let refreshPromise: Promise<SessionReadiness> | null = null;
+interface RefreshFlight {
+  promise: Promise<SessionReadiness> | null;
+}
+
+const refreshFlights = new Map<string, RefreshFlight>();
+
+function refreshFlightKey(snapshot: RefreshSnapshot): string {
+  return `${snapshot.userId}\0${snapshot.refreshToken}`;
+}
 
 function decodeJwtExpiry(token: string): number | null {
   const payload = token.split(".")[1];
@@ -43,8 +51,11 @@ function clearMatchingSession(snapshot: RefreshSnapshot): void {
 }
 
 function startRefresh(snapshot: RefreshSnapshot): Promise<SessionReadiness> {
-  if (refreshPromise) return refreshPromise;
-  refreshPromise = (async () => {
+  const key = refreshFlightKey(snapshot);
+  const existing = refreshFlights.get(key);
+  if (existing?.promise) return existing.promise;
+  const flight: RefreshFlight = { promise: null };
+  flight.promise = (async () => {
     try {
       const pair = await refreshTokens(snapshot.refreshToken);
       if (pair.user.id !== snapshot.userId) {
@@ -62,10 +73,11 @@ function startRefresh(snapshot: RefreshSnapshot): Promise<SessionReadiness> {
       if (error instanceof TypeError) return { status: "retry" } as const;
       throw error;
     } finally {
-      refreshPromise = null;
+      if (refreshFlights.get(key) === flight) refreshFlights.delete(key);
     }
   })();
-  return refreshPromise;
+  refreshFlights.set(key, flight);
+  return flight.promise;
 }
 
 /**

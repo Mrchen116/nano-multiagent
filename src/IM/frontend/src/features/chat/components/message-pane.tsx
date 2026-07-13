@@ -45,7 +45,7 @@ export interface MessagePaneProps {
   agentInitials?: string | null;
   /** Compact mobile chat header (< 768px). Desktop layout (R7-5 Node chip + ⚙ + KindBadge + participants) is preserved when false/undefined. */
   isMobile?: boolean;
-  onSend(text: string, attachments: Attachment[]): void;
+  onSend(text: string, attachments: Attachment[]): void | Promise<void>;
   onBack?(): void;
   onOpenConfig?(): void;
   /** Send mutation error message, shown as an in-app toast. */
@@ -136,7 +136,8 @@ function reconstructWireContent(draftText: string, mentions: DraftMention[]): st
  * The component is fully controlled by the caller for `messages` and the
  * `onSend` callback fires when the user hits Send / Enter. The composer holds
  * draft text + pending attachments locally; on send it returns the trimmed
- * string + attachment list and clears both.
+ * string + attachment snapshot, clearing those values only after async success.
+ * A failed send keeps the draft and attachments available for retry.
  * Mention picker activates only when `classifyConversationKind` resolves to
  * `group` or `agent-network` (matches spec Q5 — mention only meaningful when
  * there are 2+ agents to disambiguate).
@@ -171,6 +172,7 @@ export function MessagePane({
   const [draft, setDraft] = useState("");
   const [draftMentions, setDraftMentions] = useState<DraftMention[]>([]);
   const [pending, setPending] = useState<Attachment[]>([]);
+  const [composerSending, setComposerSending] = useState(false);
   // feat-430: Esc / click-outside hides the slash picker but keeps the `/` text;
   // any further typing re-opens it (reset on draft change).
   const [slashDismissed, setSlashDismissed] = useState(false);
@@ -188,6 +190,8 @@ export function MessagePane({
   const lastMessageIdRef = useRef<string | null>(null);
   const nearBottomRef = useRef(true);
   const forceScrollToBottomRef = useRef(false);
+  const sendInFlightRef = useRef(false);
+  const composerBusy = Boolean(isSending || composerSending);
 
   useEffect(() => {
     if (!draftSeed) return;
@@ -227,26 +231,34 @@ export function MessagePane({
     ? t("chat.messagePane.placeholderGroup")
     : t("chat.messagePane.placeholderDirect", { title: conversation.title });
 
-  function commit(text: string) {
+  async function commit(text: string) {
+    if (isSending || sendInFlightRef.current) return;
     const trimmed = text.trim();
     if (!trimmed && pending.length === 0) return;
     // bugfix-358 (composer): textarea 装可见 `@DisplayName`, wire XML 在此处重建。
     const wireContent = reconstructWireContent(trimmed, draftMentions);
+    const submittedAttachments = pending;
+    const submittedAttachmentUrls = new Set(submittedAttachments.map((attachment) => attachment.url));
     forceScrollToBottomRef.current = true;
+    sendInFlightRef.current = true;
+    setComposerSending(true);
     try {
-      onSend(wireContent, pending);
-    } catch (err) {
+      await onSend(wireContent, submittedAttachments);
+    } catch {
       forceScrollToBottomRef.current = false;
-      throw err;
+      return;
+    } finally {
+      sendInFlightRef.current = false;
+      setComposerSending(false);
     }
     setDraft("");
     setDraftMentions([]);
-    setPending([]);
+    setPending((current) => current.filter((attachment) => !submittedAttachmentUrls.has(attachment.url)));
   }
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    commit(draft);
+    void commit(draft);
   }
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
@@ -266,7 +278,7 @@ export function MessagePane({
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       if (mentionQuery !== null) return;
       e.preventDefault();
-      commit(draft);
+      void commit(draft);
     }
   }
 
@@ -297,6 +309,7 @@ export function MessagePane({
   }
 
   async function handleAdd(files: File[]) {
+    if (sendInFlightRef.current) return;
     for (const file of files) {
       try {
         // Sequential uploads keep the chip ordering deterministic and avoid
@@ -526,14 +539,18 @@ export function MessagePane({
       </div>
 
       <form className="chat-pane-composer" onSubmit={handleSubmit}>
-        <AttachmentDropzone className="chat-pane-composer-dropzone" onAdd={handleAdd}>
+        <AttachmentDropzone className="chat-pane-composer-dropzone" onAdd={handleAdd} disabled={composerBusy}>
           {pending.length > 0 && (
             <div className="chat-pane-composer-chips">
               {pending.map((att) => (
                 <AttachmentChip
                   key={att.url}
                   attachment={att}
-                  onRemove={() => setPending((prev) => prev.filter((p) => p.url !== att.url))}
+                  onRemove={() => {
+                    if (sendInFlightRef.current) return;
+                    setPending((prev) => prev.filter((p) => p.url !== att.url));
+                  }}
+                  removeDisabled={composerBusy}
                 />
               ))}
             </div>
@@ -572,6 +589,7 @@ export function MessagePane({
                 value={draft}
                 onChange={(e) => changeDraft(e.target.value)}
                 onKeyDown={handleKeyDown}
+                disabled={composerBusy}
                 onScroll={() => {
                   if (mirrorRef.current && composerRef.current) {
                     mirrorRef.current.scrollTop = composerRef.current.scrollTop;
@@ -585,7 +603,7 @@ export function MessagePane({
             <button
               type="submit"
               className="chat-pane-composer-send"
-              disabled={!draft.trim() && pending.length === 0}
+              disabled={composerBusy || (!draft.trim() && pending.length === 0)}
               aria-label="Send"
             >
               ↑

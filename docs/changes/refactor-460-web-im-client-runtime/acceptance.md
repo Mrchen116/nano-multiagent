@@ -358,3 +358,20 @@ N/A。`motivation.md` / `design.md` 明确本 unit 不改 UI 设计，未引用 
 继续按 `fix-implementation` 处理两个直接回归：静默 completion 必须删除包含过程事件的整个 Agent 行；在线非当前
 会话完成必须触发与 recovery 路径一致的 toast/未读反馈。修复后至少 targeted 复验这两条失败 Scenario；最终给
 `pass` 前仍需在具备安全真实 Lark 入口和可观察 OS notification 的环境补齐两个 inconclusive 旅程。
+
+---
+
+## Round 3 — 2026-07-13
+
+- **Verdict**: `inconclusive`
+- **Highest Required Action**: `manual-review`
+- **Review mode**: isolated product revalidation
+
+Reviewer 在独立 worktree 启动了 ephemeral IM/Gateway/Vite，服务与构建产物指纹均匹配待验分支；但该 reviewer
+执行环境没有可用的 Codex 内置浏览器会话，无法进入用户旅程。按本 unit 的安全边界，它没有回退到用户 Chrome、
+Computer Use、外部 Playwright、浏览器配置或 macOS 系统设置，也没有用内部 HTTP/DOM mock 冒充产品验收。
+
+本轮因此没有形成新的产品 pass/fail 结论，也没有覆盖 Round 2 尚未独立闭合的 external channel 与 OS notification
+旅程。Reviewer 已清理自己启动的服务、端口、tmux 与临时 worktree；没有修改产品代码、用户浏览器或系统配置。
+M5 由 orchestrator 在 Codex 隔离浏览器取得的 external sender/toast/unread 证据仍有效，但不冒充本轮独立 reviewer
+证据。

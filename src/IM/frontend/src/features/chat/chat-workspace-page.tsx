@@ -85,7 +85,7 @@ function mergeMessageWithExisting(message: Message, existing?: Message): Message
 function streamReducer(
   state: ConversationState,
   action:
-    | { type: "reset"; conversationId: string; messages: Message[]; preserveMessageIds?: ReadonlySet<string> }
+    | { type: "reset"; conversationId: string; messages: Message[]; preserveMessageIds?: ReadonlySet<string>; discardedMessageIds?: ReadonlySet<string> }
     | { type: "prepend_history"; messages: Message[] }
     | { type: "event"; event: WsEvent; sendersById?: Record<string, string | undefined> }
     | { type: "append_optimistic"; message: Message }
@@ -96,7 +96,14 @@ function streamReducer(
     const existingById = state.conversation_id === action.conversationId
       ? new Map(state.messages.map((m) => [m.id, m]))
       : new Map();
-    const merged = action.messages.map((m) => mergeMessageWithExisting(m, existingById.get(m.id)));
+    const merged = action.messages.flatMap((m) => {
+      if (action.discardedMessageIds?.has(m.id)) return [];
+      const existing = existingById.get(m.id);
+      const message = existing && action.preserveMessageIds?.has(m.id)
+        ? existing
+        : mergeMessageWithExisting(m, existing);
+      return [message];
+    });
     const byId = new Map<string, Message>();
     for (const m of merged) byId.set(m.id, m);
     for (const m of state.messages) {
@@ -296,6 +303,7 @@ export function ChatWorkspacePage() {
   // M5: reset should converge to REST history, except for live rows accepted
   // while that same history request is still in flight.
   const pendingLiveMessageIdsRef = useRef(new Set<string>());
+  const pendingDiscardedMessageIdsRef = useRef(new Set<string>());
 
   // bugfix-442: 实时消息流驱动侧边栏会话列表刷新时去抖，避免群聊多 agent 同回合
   // 连续重拉。timer 跨渲染稳定，组件卸载时清理。
@@ -556,6 +564,7 @@ export function ChatWorkspacePage() {
     setIsLoadingHistory(false);
     historyRequestRef.current = null;
     pendingLiveMessageIdsRef.current.clear();
+    pendingDiscardedMessageIdsRef.current.clear();
     if (conversationId) {
       dispatch({ type: "reset", conversationId, messages: [] });
     }
@@ -584,8 +593,10 @@ export function ChatWorkspacePage() {
       return m;
     });
     const preserveMessageIds = new Set(pendingLiveMessageIdsRef.current);
-    dispatch({ type: "reset", conversationId, messages: restored, preserveMessageIds });
+    const discardedMessageIds = new Set(pendingDiscardedMessageIdsRef.current);
+    dispatch({ type: "reset", conversationId, messages: restored, preserveMessageIds, discardedMessageIds });
     pendingLiveMessageIdsRef.current.clear();
+    pendingDiscardedMessageIdsRef.current.clear();
   }, [conversationId, messagesQuery.data]);
 
   const loadOlderMessages = useCallback(async () => {
@@ -643,8 +654,14 @@ export function ChatWorkspacePage() {
       onEvent: (event) => {
         const chatEvent = toChatWsEvent(event.eventType, event.payload, event.eventId);
         if (chatEvent && chatEvent.conversation_id === conversationIdRef.current) {
-          if (chatEvent.type === "message.created" && messagesQueryFetchingRef.current) {
-            pendingLiveMessageIdsRef.current.add(chatEvent.message_id);
+          if (messagesQueryFetchingRef.current) {
+            if (chatEvent.type === "message.discarded") {
+              pendingLiveMessageIdsRef.current.delete(chatEvent.message_id);
+              pendingDiscardedMessageIdsRef.current.add(chatEvent.message_id);
+            } else {
+              pendingDiscardedMessageIdsRef.current.delete(chatEvent.message_id);
+              pendingLiveMessageIdsRef.current.add(chatEvent.message_id);
+            }
           }
           dispatch({ type: "event", event: chatEvent, sendersById: sendersByIdRef.current });
         }
@@ -731,6 +748,10 @@ export function ChatWorkspacePage() {
       // agent replies but not always for self-authored bubbles, so previously the
       // user saw their text vanish into the void until a refetch. Reducer dedupes
       // by id so the later WS event (if any) does not double-print.
+      if (messagesQueryFetchingRef.current) {
+        pendingDiscardedMessageIdsRef.current.delete(created.id);
+        pendingLiveMessageIdsRef.current.add(created.id);
+      }
       dispatch({ type: "append_optimistic", message: created });
       // Bump conversation list ordering on next refetch.
       void queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
@@ -1003,7 +1024,7 @@ export function ChatWorkspacePage() {
             nodeStatus={headerAgentContext.nodeStatus}
             agentColor={headerAgentContext.agentColor}
             agentInitials={headerAgentContext.agentInitials}
-            onSend={(text, attachments) => sendMutation.mutate({ text, attachments })}
+            onSend={(text, attachments) => sendMutation.mutateAsync({ text, attachments }).then(() => undefined)}
             sendError={sendError}
             selfUserId={selfUserId}
             isSending={sendMutation.isPending}

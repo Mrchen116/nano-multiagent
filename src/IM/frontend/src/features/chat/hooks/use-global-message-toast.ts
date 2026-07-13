@@ -40,6 +40,21 @@ interface ConversationNotificationState {
   notifiedMessageKeys: Set<string>;
 }
 
+interface PendingExternalClassification {
+  inFlight: boolean;
+  retry(): void;
+}
+
+function mergeAuthorityConversation(
+  previous: Conversation[] | undefined,
+  authoritative: Conversation[],
+  candidate: Conversation
+): Conversation[] {
+  if (!previous) return authoritative;
+  if (previous.some((conversation) => conversation.id === candidate.id)) return previous;
+  return [candidate, ...previous];
+}
+
 function normalizeText(value: unknown): string | null {
   if (typeof value !== "string") {
     return null;
@@ -100,16 +115,22 @@ function patchConversationPreview(
   if (!items) {
     return items;
   }
-  const patched = items.map((item) =>
-    item.id === conversationId
-      ? {
-          ...item,
-          last_message_preview: preview,
-          last_message_at: createdAt ?? item.last_message_at,
-          unread_count: markUnread ? Math.max(1, item.unread_count) : item.unread_count
-        }
-      : item
-  );
+  const patched = items.map((item) => {
+    if (item.id !== conversationId) return item;
+    const currentTime = Date.parse(item.last_message_at ?? "");
+    const candidateTime = Date.parse(createdAt ?? "");
+    if (Number.isFinite(currentTime) && Number.isFinite(candidateTime) && currentTime > candidateTime) {
+      return markUnread
+        ? { ...item, unread_count: Math.max(1, item.unread_count) }
+        : item;
+    }
+    return {
+      ...item,
+      last_message_preview: preview,
+      last_message_at: createdAt ?? item.last_message_at,
+      unread_count: markUnread ? Math.max(1, item.unread_count) : item.unread_count
+    };
+  });
   return patched.sort((left, right) => {
     const leftTime = Date.parse(left.last_message_at ?? "");
     const rightTime = Date.parse(right.last_message_at ?? "");
@@ -178,6 +199,8 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
   const selfUserIdRef = useRef<string | null>(selfUserId);
   /** 按会话记录已处理 event_id，避免重复 toast。 */
   const conversationStateRef = useRef(new Map<string, ConversationNotificationState>());
+  const pendingExternalClassificationsRef = useRef(new Map<string, PendingExternalClassification>());
+  const latestExternalClassificationEventIdRef = useRef(new Map<string, number>());
   const agentCompletionRef = useRef<AgentCompletionState>(emptyAgentCompletionState);
 
   useEffect(() => {
@@ -191,6 +214,8 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
   useEffect(() => {
     selfUserIdRef.current = selfUserId;
     conversationStateRef.current.clear();
+    pendingExternalClassificationsRef.current.clear();
+    latestExternalClassificationEventIdRef.current.clear();
     agentCompletionRef.current = hydrateAgentCompletionState(selfUserId);
     resetLocalUnreadFeedback();
     setToast(null);
@@ -201,6 +226,9 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
     return subscribeUserStream({
       onRecovery: async () => {
         await queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
+        for (const pending of pendingExternalClassificationsRef.current.values()) {
+          pending.retry();
+        }
       },
       onEvent: (event) => {
         if (typeof event.eventId !== "number") return;
@@ -216,9 +244,12 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
         if (event.eventId <= state.lastSeenEventId) return;
         state.lastSeenEventId = event.eventId;
 
-        const completion = reduceAgentCompletionEvent(agentCompletionRef.current, event);
+        const previousCompletionState = agentCompletionRef.current;
+        const completion = reduceAgentCompletionEvent(previousCompletionState, event);
         agentCompletionRef.current = completion.state;
-        persistAgentCompletionState(selfUserIdRef.current, completion.state);
+        if (completion.state !== previousCompletionState) {
+          persistAgentCompletionState(selfUserIdRef.current, completion.state);
+        }
         if (completion.candidate) setAgentCompletionCandidate(completion.candidate);
         let candidate = buildNotificationCandidate(event);
         if (completion.candidate) {
@@ -255,6 +286,17 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
         };
 
         const externalConversation = Boolean(cachedConversation?.external_source);
+        if (
+          externalConversation
+          && candidate
+          && event.eventType === "message.created"
+          && payload.sender_type === "user"
+        ) {
+          // Cached and unresolved external candidates share one per-conversation
+          // clock. A fast-path newer message must invalidate any older authority
+          // request that is still waiting to classify the same conversation.
+          latestExternalClassificationEventIdRef.current.set(conversationId, event.eventId);
+        }
         // External shadow writes intentionally persist under the account owner so
         // they stay inside the owner's conversation scope. The conversation's
         // existing external identity, not that storage identity, decides whether
@@ -270,19 +312,53 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
           && authoredByAccountUser
           && cachedConversation === undefined
         );
-        if (unresolvedExternalOwnerMirror) {
+        if (unresolvedExternalOwnerMirror && candidate) {
           const eventUserId = selfUserIdRef.current;
-          void queryClient.fetchQuery({
-            queryKey: ["chat", "conversations"],
-            queryFn: listConversations
-          }).then((freshConversations) => {
-            if (
-              selfUserIdRef.current !== eventUserId
-              || conversationStateRef.current.get(conversationId) !== state
-            ) return;
-            const freshConversation = freshConversations.find((item) => item.id === conversationId);
-            surfaceCandidate(!freshConversation?.external_source);
-          }).catch(() => undefined);
+          const candidateKey = candidate.messageKey;
+          const candidateEventId = event.eventId;
+          latestExternalClassificationEventIdRef.current.set(conversationId, candidateEventId);
+          const pending: PendingExternalClassification = {
+            inFlight: false,
+            retry: () => undefined
+          };
+          pending.retry = () => {
+            if (pending.inFlight) return;
+            pending.inFlight = true;
+            // Do not use fetchQuery here: an older request for the same cache key
+            // may still be in flight and TanStack would reuse its pre-external
+            // snapshot even with staleTime=0. Classification needs a read that is
+            // guaranteed to start after this candidate arrived. Cancel only the
+            // cache request that already existed at candidate time; any refetch
+            // started after this point is newer and must remain untouched.
+            void queryClient.cancelQueries({
+              queryKey: ["chat", "conversations"],
+              exact: true
+            }).then(() => listConversations()).then((freshConversations) => {
+              if (
+                pendingExternalClassificationsRef.current.get(candidateKey) !== pending
+                || selfUserIdRef.current !== eventUserId
+                || conversationStateRef.current.get(conversationId) !== state
+              ) return;
+              if (latestExternalClassificationEventIdRef.current.get(conversationId) !== candidateEventId) {
+                pendingExternalClassificationsRef.current.delete(candidateKey);
+                return;
+              }
+              pendingExternalClassificationsRef.current.delete(candidateKey);
+              latestExternalClassificationEventIdRef.current.delete(conversationId);
+              const freshConversation = freshConversations.find((item) => item.id === conversationId);
+              if (freshConversation) {
+                queryClient.setQueryData<Conversation[] | undefined>(
+                  ["chat", "conversations"],
+                  (previous) => mergeAuthorityConversation(previous, freshConversations, freshConversation)
+                );
+              }
+              surfaceCandidate(!freshConversation?.external_source);
+            }).catch(() => undefined).finally(() => {
+              pending.inFlight = false;
+            });
+          };
+          pendingExternalClassificationsRef.current.set(candidateKey, pending);
+          pending.retry();
           return;
         }
         surfaceCandidate(authoredByAccountUser && !externalConversation);

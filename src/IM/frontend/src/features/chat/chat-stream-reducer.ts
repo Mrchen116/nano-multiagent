@@ -158,7 +158,7 @@ export function applyWsEvent(
       return patchMessage(state, ev.message_id, (m) => ({
         ...m,
         content: ev.content,
-        delivery_status: "completed",
+        delivery_status: ev.delivery_status === "failed" ? "failed" : "completed",
         token_usage: ev.token_usage,
         // feat-414: 权威耗时来自后端，覆盖前端本地 tick。
         elapsed_ms: ev.elapsed_ms,
