@@ -280,7 +280,7 @@ def log_hook_diagnostics(
 ) -> None:
     """Log a warning for each hook execution that did not finish with status 'ok'.
 
-    Previously duplicated as a private static method in AgentRuntime, AgentLoop,
+    Previously duplicated as a private static method in AgentEngine, AgentLoop,
     ToolRegistry, and RunsRegistry — consolidated here as refactor-395-M1.
 
     Args:

@@ -5,7 +5,7 @@ from agent.core.agent.compaction.types import (
     CompactionResult,
     CompactionSettings,
 )
-from agent.core.agent.runtime import AgentRuntime
+from agent.core.session.conversation import ConversationSession
 
 
 def test_compaction_reason_values_contract() -> None:
@@ -37,5 +37,5 @@ def test_compaction_result_fields_contract() -> None:
     ]
 
 
-def test_runtime_exposes_manual_compact_api_contract() -> None:
-    assert callable(getattr(AgentRuntime, "compact", None))
+def test_conversation_exposes_manual_compact_api_contract() -> None:
+    assert callable(getattr(ConversationSession, "compact", None))

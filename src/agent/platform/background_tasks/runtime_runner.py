@@ -1,47 +1,40 @@
-"""Adapter connecting AgentRuntime to BackgroundSubagentRunner."""
+"""Typed SessionDirectory/KernelExecutor adapter for subagent work."""
 
 from __future__ import annotations
 
-import asyncio
 import threading
 import time
-from concurrent.futures import Future
+from concurrent.futures import CancelledError
 from pathlib import Path
-from typing import Any, Coroutine, Mapping
+from typing import Any, Mapping
 
 from agent.core.agent.run_control import RunController
-from agent.core.agent.runtime import AgentRuntime
 from agent.core.background_tasks.interfaces import (
     BackgroundSubagentHandle,
-    BackgroundSubagentMessageHandle,
     BackgroundSubagentRunner,
-    BackgroundTaskStopper,
+    ForegroundSubagentHandle,
     TaskCompletionCallback,
     TaskFailureCallback,
     TaskKillCallback,
 )
 from agent.core.llm.interfaces import LLMMessage
+from agent.core.runs.executor import AuxiliaryHandle, KernelExecutor
 from agent.core.runs.origin import RunOrigin
+from agent.core.session.directory import SessionDirectory
+from agent.core.session.types import SessionRef, TurnRequest
 
 
 class RuntimeRunner(BackgroundSubagentRunner):
-    """Run subagent turns via AgentRuntime in a dedicated event loop.
-
-    When an *event_loop* is provided (e.g. ``RunsRegistry``'s dedicated loop),
-    subagent work is submitted to that loop so that shared ``AgentRuntime``
-    async primitives (``asyncio.Lock``, ``asyncio.Event``) are bound to the
-    correct loop.  Without an explicit loop the runner falls back to spawning
-    a new daemon thread + ``asyncio.run()``.
-    """
+    """Resolve subagent conversations and submit only typed auxiliary targets."""
 
     def __init__(
         self,
         *,
-        runtime: AgentRuntime,
-        event_loop: asyncio.AbstractEventLoop | None = None,
+        directory: SessionDirectory,
+        executor: KernelExecutor,
     ) -> None:
-        self._runtime = runtime
-        self._event_loop = event_loop
+        self._directory = directory
+        self._executor = executor
 
     def start(
         self,
@@ -56,116 +49,119 @@ class RuntimeRunner(BackgroundSubagentRunner):
         llm_session_id: str | None = None,
         model: str | None = None,
     ) -> BackgroundSubagentHandle:
-        controller = RunController()
+        """Start a callback-driven background auxiliary target."""
 
-        async def _worker() -> None:
-            start = time.monotonic()
+        root = _require_workspace_root(workspace_root)
+        controller = RunController()
+        auxiliary = self._start_auxiliary(
+            agent_session_id=agent_session_id,
+            parent_session_id=parent_session_id,
+            prompt=prompt,
+            workspace_root=root,
+            llm_session_id=llm_session_id,
+            model=model,
+            controller=controller,
+        )
+        handle = _ControllerHandle(controller=controller, auxiliary=auxiliary)
+
+        def _watch() -> None:
+            started_at = time.monotonic()
             try:
-                turn_result = await self._runtime.run(
-                    agent_session_id,
-                    [{"type": "text", "text": prompt}],
-                    stream=False,
-                    controller=controller,
-                    parent_session_id=parent_session_id,
-                    workspace_root=workspace_root,
-                    llm_session_id=llm_session_id,
-                    model=model,
+                result = auxiliary.result()
+            except CancelledError:
+                on_kill(
+                    task_id=agent_session_id,
+                    result_text=None,
+                    usage=None,
+                    duration_ms=int((time.monotonic() - started_at) * 1000),
+                    tool_use_count=0,
                 )
-            except Exception as exc:
+                return
+            except Exception as exc:  # noqa: BLE001
                 on_fail(task_id=agent_session_id, error=str(exc))
                 return
-
-            duration_ms = int((time.monotonic() - start) * 1000)
-            result_text = _extract_assistant_text(turn_result)
-            usage = _usage_to_dict(turn_result.usage) if turn_result.usage else None
-            tool_use_count = (
-                len(turn_result.tool_calls) if turn_result.tool_calls else 0
+            duration_ms = int((time.monotonic() - started_at) * 1000)
+            callback = on_kill if controller.is_aborted else on_complete
+            callback(
+                task_id=agent_session_id,
+                result_text=_extract_assistant_text(result),
+                usage=_usage_to_dict(result.usage) if result.usage else None,
+                duration_ms=duration_ms,
+                tool_use_count=len(result.tool_calls) if result.tool_calls else 0,
             )
 
-            try:
-                # bugfix-420 decisions 2 & 3: a cooperative abort (task_stop on a
-                # subagent) lets runtime.run *return* a TurnResult carrying the
-                # messages accumulated up to the abort. Route to on_kill so the
-                # killed <task-notification> carries the partial result, instead
-                # of on_complete (which would mislabel the terminal as completed).
-                if controller.is_aborted:
-                    on_kill(
-                        task_id=agent_session_id,
-                        result_text=result_text,
-                        usage=usage,
-                        duration_ms=duration_ms,
-                        tool_use_count=tool_use_count,
-                    )
-                else:
-                    on_complete(
-                        task_id=agent_session_id,
-                        result_text=result_text,
-                        usage=usage,
-                        duration_ms=duration_ms,
-                        tool_use_count=tool_use_count,
-                    )
-            except Exception:
-                pass
+        threading.Thread(target=_watch, daemon=True).start()
+        return handle
 
-        if self._event_loop is not None:
-            asyncio.run_coroutine_threadsafe(_worker(), self._event_loop)
-        else:
+    def start_foreground(
+        self,
+        *,
+        agent_session_id: str,
+        parent_session_id: str,
+        prompt: str,
+        workspace_root: Path,
+        llm_session_id: str | None = None,
+        model: str | None = None,
+    ) -> ForegroundSubagentHandle:
+        """Start a result-bearing auxiliary target for foreground budgeting."""
 
-            def _thread_worker() -> None:
-                asyncio.run(_worker())
+        controller = RunController()
+        auxiliary = self._start_auxiliary(
+            agent_session_id=agent_session_id,
+            parent_session_id=parent_session_id,
+            prompt=prompt,
+            workspace_root=workspace_root,
+            llm_session_id=llm_session_id,
+            model=model,
+            controller=controller,
+        )
+        return _ControllerHandle(controller=controller, auxiliary=auxiliary)
 
-            threading.Thread(target=_thread_worker, daemon=True).start()
-
-        return _ControllerHandle(controller)
-
-    def submit_foreground(self, coro: Coroutine[Any, Any, Any]) -> Future:
-        """Submit a foreground subagent coroutine onto the dedicated loop.
-
-        bugfix-418: the foreground ``agent`` tool path used to run a *shared*
-        AgentRuntime via bare ``asyncio.run`` in a private ThreadPoolExecutor,
-        which spun up a transient loop. Awaiting an AgentRuntime primitive bound
-        to the dedicated loop (per-session ``asyncio.Lock``, shared httpx client)
-        then raised ``... is bound to a different event loop`` and the transient
-        loop polluted the shared singleton, silently killing the consumer's
-        resident heartbeat/relay coroutines.
-
-        Submitting onto ``RunsRegistry``'s dedicated loop (the same loop that
-        created those primitives) eliminates the cross-loop fault, and running as
-        an independent Task on that loop isolates the subagent's failure to the
-        returned ``Future`` — it cannot kill the loop or sibling runs.
-
-        The caller blocks on the returned ``concurrent.futures.Future`` with a
-        timeout to implement the foreground budget; this blocks the tool *thread*
-        (spawned by ``asyncio.to_thread``), not the dedicated loop, which keeps
-        servicing this and other Tasks. Unlike :meth:`start`, this submits the
-        *bare* coroutine (returns its value, no completion callback), so an
-        in-budget result is never re-delivered as a ``<task-notification>``.
-
-        When no dedicated loop is wired (defensive: pure-library assembly without
-        a RunsRegistry), the coroutine runs on its own isolated loop in a daemon
-        thread — never sharing the caller's loop.
-        """
-        if self._event_loop is not None:
-            return asyncio.run_coroutine_threadsafe(coro, self._event_loop)
-
-        future: Future = Future()
-
-        def _thread_worker() -> None:
-            try:
-                future.set_result(asyncio.run(coro))
-            except BaseException as exc:  # noqa: BLE001
-                future.set_exception(exc)
-
-        threading.Thread(target=_thread_worker, daemon=True).start()
-        return future
+    def _start_auxiliary(
+        self,
+        *,
+        agent_session_id: str,
+        parent_session_id: str,
+        prompt: str,
+        workspace_root: Path,
+        llm_session_id: str | None,
+        model: str | None,
+        controller: RunController,
+    ) -> AuxiliaryHandle:
+        ref = SessionRef(
+            session_id=agent_session_id,
+            workspace_root=workspace_root,
+            parent_session_id=parent_session_id,
+        )
+        if self._directory.get(ref) is None:
+            raise ValueError(f"subagent session does not exist: {agent_session_id}")
+        session = self._directory.open(ref)
+        return self._executor.start_auxiliary(
+            agent_session_id,
+            session,
+            TurnRequest(
+                parts=({"type": "text", "text": prompt},),
+                llm_session_id=llm_session_id,
+                controller=controller,
+                origin=RunOrigin.BACKGROUND_TASK,
+                model=model,
+            ),
+        )
 
 
-class _ControllerHandle(BackgroundTaskStopper, BackgroundSubagentMessageHandle):
-    def __init__(self, controller: RunController) -> None:
+class _ControllerHandle(ForegroundSubagentHandle):
+    def __init__(
+        self,
+        *,
+        controller: RunController,
+        auxiliary: AuxiliaryHandle,
+    ) -> None:
         self._controller = controller
+        self._auxiliary = auxiliary
 
     def stop(self) -> None:
         self._controller.abort()
+        self._auxiliary.cancel()
 
     def send_message(self, prompt: str) -> bool:
         return self._controller.enqueue_message(
@@ -173,14 +169,23 @@ class _ControllerHandle(BackgroundTaskStopper, BackgroundSubagentMessageHandle):
             origin=RunOrigin.USER,
         )
 
+    def result(self, timeout: float | None = None):  # noqa: ANN201
+        return self._auxiliary.result(timeout=timeout)
+
+
+def _require_workspace_root(workspace_root: Path | None) -> Path:
+    if workspace_root is None:
+        raise ValueError("workspace_root is required for subagent execution")
+    return workspace_root
+
 
 def _extract_assistant_text(turn_result: Any) -> str | None:
-    messages = getattr(turn_result, "messages", ())
-    for message in reversed(messages):
-        if getattr(message, "role", None) == "assistant":
-            content = getattr(message, "content", "")
-            if isinstance(content, str) and content.strip():
-                return content.strip()
+    for message in reversed(getattr(turn_result, "messages", ())):
+        if getattr(message, "role", None) != "assistant":
+            continue
+        content = getattr(message, "content", "")
+        if isinstance(content, str) and content.strip():
+            return content.strip()
     return None
 
 

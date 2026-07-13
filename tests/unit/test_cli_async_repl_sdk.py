@@ -632,6 +632,7 @@ def test_kernel_aclose_idempotent(tmp_path: Path) -> None:
     class _FakeComponents:
         runs_registry = fake_reg
         permission_broker = None
+        directory = MagicMock(close_all=AsyncMock())
 
     k = Kernel.__new__(Kernel)
     object.__setattr__(k, "_c", _FakeComponents())
@@ -685,6 +686,7 @@ def test_kernel_aclose_uses_registry_shutdown_state_machine(tmp_path: Path) -> N
     class _FakeComponents:
         runs_registry = reg
         permission_broker = None
+        directory = MagicMock(close_all=AsyncMock())
 
     k = Kernel.__new__(Kernel)
     object.__setattr__(k, "_c", _FakeComponents())

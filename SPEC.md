@@ -68,9 +68,10 @@ nano-multiagent 是一个 Python 多模型 Agent 框架，由四个独立可部�
 │  │  sdk      build_kernel() → Kernel  ← 唯一对外面（进程内）    │ │
 │  │           create_session│submit│stream│interrupt│cancel│... │ │
 │  │           权限 = 注入的 can_use_tool 回调                    │ │
-│  │  core     AgentRuntime→AgentLoop·RunsRegistry·EventStreamHub │ │
-│  │           ToolRegistry│HookRunner│SkillRegistry│Compaction  │──→ LLM API
-│  │           SessionManager│LLMClient (port，仅接口)           │ │
+│  │  core     SessionDirectory│ConversationSession × N          │ │
+│  │           AgentEngine→AgentLoop│KernelExecutor│RunsRegistry │──→ LLM API
+│  │           EventStreamHub│Tools│Hooks│Skills│Compaction      │ │
+│  │           LLMClient (port，仅接口)                           │ │
 │  │  platform LLMClientFactory(OpenAI-compat/Anthropic 具体实现)│ │
 │  │           Built-in tools│Persistence(SQLite)│Safety          │ │
 │  │  (refactor-406 决策1：products 层解散→消费者工厂)            │ │

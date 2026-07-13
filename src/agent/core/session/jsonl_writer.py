@@ -28,11 +28,15 @@ class JsonlWriter:
         self._thread.start()
         self._last_error: Exception | None = None
 
-    def enqueue(self, path: Path, entry: dict) -> None:
+    def enqueue_raw(self, path: Path, entry: dict) -> None:
+        """Queue one raw JSONL object for ordered append."""
+
         self._queue.put((path, entry))
 
-    def flush(self, timeout: float = 10.0) -> None:
-        """Block until all queued writes are done. Raise on timeout or background error."""
+    def durable_barrier(self, path: Path, timeout: float = 10.0) -> None:
+        """Block until all writes ordered before this path barrier are durable."""
+
+        del path  # The shared FIFO makes a global flush a stronger path barrier.
         if self._last_error is not None:
             raise self._last_error
         event = threading.Event()
@@ -42,10 +46,11 @@ class JsonlWriter:
         if self._last_error is not None:
             raise self._last_error
 
-    async def flush_async(self) -> None:
-        """Async-safe flush — never blocks the asyncio event loop."""
+    async def durable_barrier_async(self, path: Path) -> None:
+        """Await a path durability barrier without blocking the event loop."""
+
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, self.flush)
+        await loop.run_in_executor(None, self.durable_barrier, path)
 
     def _run(self) -> None:
         buffer: list[tuple[Path, dict]] = []

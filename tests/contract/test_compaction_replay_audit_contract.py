@@ -1,53 +1,49 @@
 from pathlib import Path
 
 from agent.core.session.entries import CompactionEntry
-from agent.core.session.jsonl_store import JsonlSessionStore
-from agent.core.session.manager import SessionManager
-from agent.platform.persistence.session.service import SessionService
+from agent.core.session.jsonl_files import JsonlSessionFiles
+from agent.core.session.jsonl_writer import JsonlWriter
+from agent.core.session.transcript import JsonlTranscript
+from agent.core.session.types import NewSession, SessionRef
 
 
 def test_compaction_replay_audit_contract(tmp_path: Path) -> None:
-    service = SessionService(store=JsonlSessionStore(data_dir=tmp_path / "sessions"))
-    manager = service.manager
-    session = service.create_session(workspace_root=tmp_path)
-
-    first = manager.append_turn_message(
-        session.session_id,
-        turn_id="turn_1",
-        role="user",
-        content="legacy question",
-        message_id="msg_1",
+    files = JsonlSessionFiles(data_dir=tmp_path / "sessions")
+    writer = JsonlWriter()
+    ref = SessionRef(session_id="sess-audit", workspace_root=tmp_path)
+    transcript = JsonlTranscript.create(
+        ref=ref,
+        spec=NewSession(workspace_root=tmp_path),
+        files=files,
+        writer=writer,
     )
-    second = manager.append_turn_message(
-        session.session_id,
-        turn_id="turn_1",
-        role="assistant",
-        content="legacy answer",
-        message_id="msg_2",
+    transcript.append_turn_entries(
+        [
+            {"uuid": "msg-1", "role": "user", "content": "legacy question"},
+            {"uuid": "msg-2", "role": "assistant", "content": "legacy answer"},
+        ],
+        durable=True,
     )
 
-    manager.append_compaction(
-        session.session_id,
-        first_kept_event_id="",
-        summary="summary: replay anchor",
-        data={"reason": "threshold"},
+    assert transcript.append_compaction(
+        summary={
+            "uuid": "msg-summary",
+            "role": "user",
+            "content": "summary: replay anchor",
+            "is_compact_summary": True,
+        },
+        reason="threshold",
     )
 
-    # Flush the async writer before reading back from disk.
-    manager.writer.flush()
-
-    all_entries = manager.list_entries(session.session_id)
-    compactions = [e for e in all_entries if isinstance(e, CompactionEntry)]
+    compactions = [
+        entry
+        for entry in transcript.list_event_entries()
+        if isinstance(entry, CompactionEntry)
+    ]
     assert len(compactions) == 1
-    # (A) compact_boundary does not persist the caller-supplied entry_id; only content is auditable.
     assert compactions[0].data["reason"] == "threshold"
 
-    replayed = manager.list_turn_messages(session.session_id)
-    # In the full-compact design, old history is replaced by a summary user message.
-    # No original messages are kept (kept_events is empty).
+    replayed = transcript.load().messages
     assert len(replayed) == 1
     assert replayed[0].role == "user"
     assert "summary: replay anchor" in replayed[0].content
-    # (A) stores the summary text verbatim; the resume instruction prefix is added by the
-    # compaction layer when constructing the LLM prompt, not at persistence time.
-    assert first.entry_id != second.entry_id

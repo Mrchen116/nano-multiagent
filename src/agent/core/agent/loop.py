@@ -5,7 +5,7 @@ import time
 from collections.abc import AsyncIterator, Callable
 from dataclasses import replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Mapping, Protocol
+from typing import Any, Mapping, Protocol
 
 from agent.core.ids import make_message_id, make_tool_call_id
 from agent.core.types import (
@@ -29,7 +29,8 @@ from agent.core.skills.registry import SkillMetadata
 from agent.core.tools.result_budget import (
     DEFAULT_MAX_RESULT_SIZE_CHARS,
 )
-from agent.core.tools.session_file_state import SessionFileState, read_file_slice
+from agent.core.session.context_state import SessionFileState, read_file_slice
+from agent.core.session.entries import CompactionEntry, SessionEntry
 
 from .liveness import _with_liveness_heartbeat, session_event_publisher
 from .compaction.planner import CompactionPlanner
@@ -45,9 +46,6 @@ from .prompting import (
 from .run_control import RunController
 from .state import AgentState, render_user_content_parts
 from .tool_executor import StreamingToolExecutor
-
-if TYPE_CHECKING:
-    from agent.core.session.manager import SessionManager
 
 
 class ToolRegistryLike(Protocol):
@@ -82,7 +80,8 @@ class AgentLoop:
         tool_registry: ToolRegistryLike | None = None,
         current_working_directory: Path | None = None,
         tool_result_compressor: Any | None = None,
-        session_manager: "SessionManager | None" = None,
+        compaction_entries: Callable[[], tuple[SessionEntry | CompactionEntry, ...]]
+        | None = None,
         compaction_planner: CompactionPlanner | None = None,
         compaction_summarizer: CompactionSummarizer | None = None,
         compaction_settings: CompactionSettings | None = None,
@@ -106,20 +105,19 @@ class AgentLoop:
         self._tool_registry = tool_registry
         self._current_working_directory = current_working_directory
         self._tool_result_compressor = tool_result_compressor
-        self._session_manager = session_manager
+        self._compaction_entries = compaction_entries
         self._compaction_planner = compaction_planner
         self._compaction_summarizer = compaction_summarizer
         self._compaction_settings = compaction_settings
         self._on_compaction_callback = on_compaction
         self._build_skill_reinjection = build_skill_reinjection
         self._active_session_id: str | None = None
-        # Most recent real prompt_tokens reported by the model, keyed by session.
+        # Most recent real prompt_tokens reported by the model for this conversation.
         # Drives compaction's threshold check with the exact tokenizer count
         # instead of the char-based estimate, which undershoots on CJK/code and
-        # tool_call args (bugfix-412 #103). Per-session because one loop instance
-        # serves multiple sessions; survives across turns so a long session's
-        # first iteration still compacts on the prior turn's true footprint.
-        self._last_real_prompt_tokens: dict[str, int] = {}
+        # tool_call args (bugfix-412 #103). Each ConversationSession owns its loop,
+        # so this is scalar and survives turns without a session-id keyed map.
+        self._last_real_prompt_tokens: int | None = None
 
     @property
     def available_skills(self) -> tuple[SkillMetadata, ...]:
@@ -302,7 +300,7 @@ class AgentLoop:
                     real_prompt_tokens = (
                         turn_usage.prompt_tokens
                         if turn_usage is not None
-                        else self._last_real_prompt_tokens.get(state.session_id)
+                        else self._last_real_prompt_tokens
                     )
                     compacted_msg = await self._maybe_compact(
                         llm_messages=llm_messages,
@@ -515,9 +513,7 @@ class AgentLoop:
 
                     turn_usage = _accumulate_usage(turn_usage, latest_usage)
                     if turn_usage is not None and turn_usage.prompt_tokens > 0:
-                        self._last_real_prompt_tokens[state.session_id] = (
-                            turn_usage.prompt_tokens
-                        )
+                        self._last_real_prompt_tokens = turn_usage.prompt_tokens
 
                     if not iteration_tool_calls:
                         # bugfix-426-M4 决策5: before finishing, atomically re-check for a
@@ -891,15 +887,13 @@ class AgentLoop:
         ):
             return None
         if (
-            self._session_manager is None
+            self._compaction_entries is None
             or self._compaction_planner is None
             or self._compaction_summarizer is None
         ):
             return None
 
-        entries = self._session_manager.list_entries(
-            session_id, workspace_root=workspace_root
-        )
+        entries = self._compaction_entries()
         plan = self._compaction_planner.plan(
             events=entries, reason=CompactionReason.THRESHOLD
         )

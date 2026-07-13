@@ -1,6 +1,6 @@
 """UTC timestamp utility shared across agent.core.
 
-Five modules (runtime, events.hub, runs.registry, session.jsonl_store,
+Five modules (runtime, events.hub, runs.registry, session.transcript,
 session.entries) each carried a private _utc_now_iso copy — consolidated here
 as refactor-395-M1.
 """

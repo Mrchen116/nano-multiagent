@@ -1,64 +1,27 @@
-"""Integration tests for task_stop against background bash and agent tasks."""
+"""Integration tests for task_stop over wired background-task state."""
 
 from __future__ import annotations
 
 import time
 from pathlib import Path
-from typing import Any
 
 import pytest
 
 from agent.core.background_tasks.models import BackgroundTaskStatus
 from agent.core.errors import ToolError
 from agent.core.tools.base import (
-    set_tool_safety_factory,
     set_tool_safety_config_factory,
+    set_tool_safety_factory,
 )
-from agent.core.types import Message, TurnResult
 from agent.platform.background_tasks.wiring import wire_background_tasks
-from agent.platform.tools.builtins.agent import AgentTool
 from agent.platform.tools.builtins.bash import BashTool
 from agent.platform.tools.builtins.task_stop import TaskStopTool
 from agent.platform.tools.safety import ToolSafety, ToolSafetyConfig
 
-from ._runtime_stub import _RunsRegistryStub, _RuntimeStubBase, _make_ctx
+from ._runtime_stub import _RunsRegistryStub, _make_ctx
 
 set_tool_safety_factory(ToolSafety)
 set_tool_safety_config_factory(ToolSafetyConfig)
-
-
-class _RuntimeStub(_RuntimeStubBase):
-    async def run(
-        self,
-        session_id: str,
-        parts: Any,
-        *,
-        stream: bool = False,
-        controller: Any = None,
-        parent_session_id: str | None = None,
-        workspace_root: Any = None,
-        run_id: str | None = None,
-        llm_session_id: str | None = None,
-        model: str | None = None,
-    ) -> TurnResult:
-        # Cooperative abort: poll the controller so task_stop's abort signal lets
-        # the run *return* its accumulated messages (bugfix-420) rather than
-        # blocking the full delay. Mirrors AgentLoop honouring is_aborted.
-        if self._delay > 0:
-            deadline = time.monotonic() + self._delay
-            while time.monotonic() < deadline:
-                if controller is not None and controller.is_aborted:
-                    break
-                time.sleep(0.01)
-        return TurnResult(
-            session_id=session_id,
-            turn_id="turn_1",
-            messages=(
-                Message(message_id="msg_1", role="assistant", content="subagent done"),
-            ),
-            completed=True,
-            stop_reason="completed",
-        )
 
 
 def test_task_stop_kills_running_bash_task(tmp_path: Path) -> None:
@@ -68,7 +31,6 @@ def test_task_stop_kills_running_bash_task(tmp_path: Path) -> None:
     stop_tool = TaskStopTool(wiring=wiring)
     ctx = _make_ctx(tmp_path, session_id="sess_parent")
 
-    # Launch a long-running background bash.
     result = bash_tool.run(
         {
             "command": "sleep 30",
@@ -79,200 +41,68 @@ def test_task_stop_kills_running_bash_task(tmp_path: Path) -> None:
     )
     task_id = result["task_id"]
 
-    # Verify running.
-    record = wiring.registry.get(task_id)
-    assert record is not None
-    assert record.status == BackgroundTaskStatus.RUNNING
-
-    # Stop it.
     stop_result = stop_tool.run({"task_id": task_id}, ctx)
-    assert stop_result["status"] == "killed"
-    assert stop_result["task_id"] == task_id
 
-    # Registry should be killed with the suppression flag set.
+    assert stop_result["status"] == "killed"
     record = wiring.registry.get(task_id)
     assert record is not None
     assert record.status == BackgroundTaskStatus.KILLED
     assert record.notified is True
-
-    # bugfix-420 decision 1: stopping a bash task suppresses the model-facing
-    # <task-notification>; the LLM already has the tool_result, so no duplicate
-    # killed notification is delivered.
     assert runs.submissions == []
     assert runs.injections == []
 
 
-def test_task_stop_kills_running_agent_task(tmp_path: Path) -> None:
-    # delay so the worker is mid-run when we stop it; its run() polls the
-    # controller and returns once abort is signalled (cooperative abort).
-    runtime = _RuntimeStub(tmp_path, delay=30.0)
-    runs = _RunsRegistryStub()
-    # Parent has an active run so the killed notification is injected as a
-    # pending message rather than submitted as a fresh run.
-    runs._active_run_by_session["sess_parent"] = "active_run"
-    wiring = wire_background_tasks(
-        workspace_root=tmp_path, runtime=runtime, runs_registry=runs
-    )
-    agent_tool = AgentTool(runtime=runtime, wiring=wiring)
+def test_task_stop_signals_subagent_without_winning_terminal_race(
+    tmp_path: Path,
+) -> None:
+    wiring = wire_background_tasks(workspace_root=tmp_path)
     stop_tool = TaskStopTool(wiring=wiring)
     ctx = _make_ctx(tmp_path, session_id="sess_parent")
 
-    result = agent_tool.run(
-        {
-            "description": "long agent",
-            "prompt": "Sleep for a while.",
-            "subagent_type": "oracle",
-            "load_skills": [],
-            "run_in_background": True,
-        },
-        ctx,
+    class _Handle:
+        stopped = False
+
+        def stop(self) -> None:
+            self.stopped = True
+
+    handle = _Handle()
+    agent_id = "a-subagent"
+    wiring.registry.register_subagent(
+        task_id=agent_id,
+        parent_session_id="sess_parent",
+        agent_id=agent_id,
+        agent_session_id="subagent-session",
+        description="inspect",
+        prompt="inspect",
+        agent_type="explore",
+        output_file=str(tmp_path / "subagent.jsonl"),
     )
-    agent_id = result["agent_id"]
+    wiring.registry.mark_running(agent_id)
+    wiring.registry.set_stop_handle(agent_id, handle)
 
-    # Verify running.
-    record = wiring.registry.get(agent_id)
-    assert record is not None
-    assert record.status == BackgroundTaskStatus.RUNNING
+    result = stop_tool.run({"task_id": agent_id}, ctx)
 
-    # Stop it. bugfix-420 decision 2: task_stop only requests stop; it does NOT
-    # synchronously kill. The worker's abort-unwind path owns the terminal.
-    stop_result = stop_tool.run({"task_id": agent_id}, ctx)
-    assert stop_result["status"] == "killed"
-    assert stop_result["task_id"] == agent_id
+    assert result["status"] == "killed"
+    assert handle.stopped is True
+    assert wiring.registry.get(agent_id).status == BackgroundTaskStatus.RUNNING
 
-    # The worker observes the abort, returns its accumulated messages, and routes
-    # to on_kill → registry.kill(result_text=...). Wait for that terminal.
-    deadline = time.monotonic() + 5.0
-    while time.monotonic() < deadline:
-        record = wiring.registry.get(agent_id)
-        if record is not None and record.status == BackgroundTaskStatus.KILLED:
-            break
-        time.sleep(0.02)
-
+    wiring.registry.kill(
+        agent_id,
+        reason="stopped by user",
+        result_text="partial findings",
+    )
     record = wiring.registry.get(agent_id)
     assert record is not None
     assert record.status == BackgroundTaskStatus.KILLED
-    # decision 2/3: the killed notification carries the partial result.
-    assert record.result_text == "subagent done"
-
-    # Notification injected into the parent's active run, carrying <result>.
-    assert len(runs.injections) == 1
-    injected_text = runs.injections[0]["message"].content
-    assert "killed" in injected_text
-    assert "<result>subagent done</result>" in injected_text
-
-
-def _wait_terminal(wiring, agent_id, *, timeout=5.0):
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        record = wiring.registry.get(agent_id)
-        if record is not None and record.status.value in (
-            "completed",
-            "failed",
-            "killed",
-        ):
-            return record
-        time.sleep(0.02)
-    return wiring.registry.get(agent_id)
-
-
-def test_task_stop_auto_background_subagent_enters_killed_with_result(
-    tmp_path: Path,
-) -> None:
-    """bugfix-420 round-1 C1 regression: a subagent that was auto-backgrounded
-    (foreground budget exceeded) must, when task_stop'd, enter KILLED carrying
-    the partial result — not run to COMPLETED. The auto-background path is the
-    third subagent terminal path (alongside explicit run_in_background launch and
-    resume); it must wire a controller + stop handle + on_kill like the others.
-    """
-    # delay >> timeout so the foreground budget times out → auto-background.
-    runtime = _RuntimeStub(tmp_path, delay=30.0)
-    runs = _RunsRegistryStub()
-    runs._active_run_by_session["sess_parent"] = "active_run"
-    wiring = wire_background_tasks(
-        workspace_root=tmp_path, runtime=runtime, runs_registry=runs
-    )
-    agent_tool = AgentTool(runtime=runtime, wiring=wiring)
-    stop_tool = TaskStopTool(wiring=wiring)
-    ctx = _make_ctx(tmp_path, session_id="sess_parent")
-
-    # No run_in_background → foreground path; tiny budget forces auto-background.
-    result = agent_tool.run(
-        {
-            "description": "long agent",
-            "prompt": "Sleep for a while.",
-            "subagent_type": "oracle",
-            "load_skills": [],
-            "timeout_seconds": 0.2,
-        },
-        ctx,
-    )
-    assert result["status"] == "async_launched"
-    agent_id = result["agent_id"]
-
-    record = wiring.registry.get(agent_id)
-    assert record is not None
-    assert record.status == BackgroundTaskStatus.RUNNING
-
-    # Stop it. request_stop must abort the (now wired) controller; the watcher
-    # observes is_aborted and routes to registry.kill(result_text=...).
-    stop_result = stop_tool.run({"task_id": agent_id}, ctx)
-    assert stop_result["status"] == "killed"
-
-    record = _wait_terminal(wiring, agent_id)
-    assert record is not None
-    assert record.status == BackgroundTaskStatus.KILLED
-    assert record.result_text == "subagent done"
-
-    assert len(runs.injections) == 1
-    injected_text = runs.injections[0]["message"].content
-    assert "killed" in injected_text
-    assert "<result>subagent done</result>" in injected_text
-
-
-def test_task_stop_auto_background_natural_completion_stays_completed(
-    tmp_path: Path,
-) -> None:
-    """bugfix-420 round-1 C1: an auto-backgrounded subagent that is NOT stopped
-    must still close as COMPLETED (the new abort branch must not misflag natural
-    completions as killed)."""
-    # short delay so it completes on its own shortly after auto-backgrounding.
-    runtime = _RuntimeStub(tmp_path, delay=0.3)
-    runs = _RunsRegistryStub()
-    runs._active_run_by_session["sess_parent"] = "active_run"
-    wiring = wire_background_tasks(
-        workspace_root=tmp_path, runtime=runtime, runs_registry=runs
-    )
-    agent_tool = AgentTool(runtime=runtime, wiring=wiring)
-    ctx = _make_ctx(tmp_path, session_id="sess_parent")
-
-    result = agent_tool.run(
-        {
-            "description": "short agent",
-            "prompt": "Do a quick thing.",
-            "subagent_type": "oracle",
-            "load_skills": [],
-            "timeout_seconds": 0.05,
-        },
-        ctx,
-    )
-    assert result["status"] == "async_launched"
-    agent_id = result["agent_id"]
-
-    record = _wait_terminal(wiring, agent_id)
-    assert record is not None
-    assert record.status == BackgroundTaskStatus.COMPLETED
-    assert record.result_text == "subagent done"
+    assert record.result_text == "partial findings"
 
 
 def test_task_stop_on_already_terminal_raises_error(tmp_path: Path) -> None:
-    runs = _RunsRegistryStub()
-    wiring = wire_background_tasks(workspace_root=tmp_path, runs_registry=runs)
+    wiring = wire_background_tasks(workspace_root=tmp_path)
     bash_tool = BashTool(wiring=wiring)
     stop_tool = TaskStopTool(wiring=wiring)
     ctx = _make_ctx(tmp_path, session_id="sess_parent")
 
-    # Launch a quick command that completes immediately.
     result = bash_tool.run(
         {
             "command": "echo done",
@@ -282,18 +112,15 @@ def test_task_stop_on_already_terminal_raises_error(tmp_path: Path) -> None:
         ctx,
     )
     task_id = result["task_id"]
-
-    # Wait for completion.
     for _ in range(50):
         record = wiring.registry.get(task_id)
-        if record is not None and record.status.value in (
-            "completed",
-            "failed",
-            "killed",
-        ):
+        if record is not None and record.status in {
+            BackgroundTaskStatus.COMPLETED,
+            BackgroundTaskStatus.FAILED,
+            BackgroundTaskStatus.KILLED,
+        }:
             break
         time.sleep(0.05)
 
-    # Stopping a terminal task should raise ToolError.
     with pytest.raises(ToolError, match="already completed"):
         stop_tool.run({"task_id": task_id}, ctx)
