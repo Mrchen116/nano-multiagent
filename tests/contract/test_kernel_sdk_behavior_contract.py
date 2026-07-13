@@ -17,6 +17,7 @@ Behaviors covered:
 from __future__ import annotations
 
 import asyncio
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -282,6 +283,23 @@ async def test_message_sync_completes_and_updates_run(tmp_path: Path) -> None:
         kernel.close()
 
 
+async def test_submit_accepts_string_workspace_root(tmp_path: Path) -> None:
+    """The SDK path boundary must normalize the documented string form."""
+
+    kernel = _build_kernel(tmp_path)
+    try:
+        session = await kernel.create_session(workspace_root=str(tmp_path))
+        run = kernel.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "string workspace"}],
+            workspace_root=str(tmp_path),
+        )
+
+        assert (await _wait_for_terminal_run(kernel, run.run_id)).status == "completed"
+    finally:
+        kernel.close()
+
+
 # ---------------------------------------------------------------------------
 # append_message cache coherence (feat-394 cron awareness regression)
 # ---------------------------------------------------------------------------
@@ -360,6 +378,68 @@ async def test_append_message_visible_to_next_turn(tmp_path: Path) -> None:
             "prompt; stale _session_histories cache hid the cron awareness entry"
         )
     finally:
+        kernel.close()
+
+
+async def test_append_message_during_active_turn_reloads_residual_output(
+    tmp_path: Path,
+) -> None:
+    """A concurrent append must not detach the active turn from live history."""
+
+    started = threading.Event()
+    release = threading.Event()
+    captured_requests: list[Any] = []
+
+    class _BlockingFirstClient:
+        async def generate(self, request: Any):  # noqa: ANN001, ANN201
+            captured_requests.append(request)
+            if len(captured_requests) == 1:
+                started.set()
+                await asyncio.to_thread(release.wait)
+                content = "reply-after-external"
+            else:
+                content = "follow-up-reply"
+            yield LLMMessage(
+                role="assistant",
+                content=content,
+                finish_reason="stop",
+                tool_calls=(),
+            )
+
+    kernel = _build_kernel(tmp_path, _llm_client_override=_BlockingFirstClient())
+    try:
+        session = await kernel.create_session(workspace_root=tmp_path)
+        first = kernel.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "first"}],
+            workspace_root=tmp_path,
+        )
+        assert await asyncio.to_thread(started.wait, 2)
+
+        kernel.append_message(
+            session.session_id,
+            role="user",
+            content="external-while-active",
+            workspace_root=tmp_path,
+        )
+        release.set()
+        assert (await _wait_for_terminal_run(kernel, first.run_id)).status == "completed"
+
+        second = kernel.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "second"}],
+            workspace_root=tmp_path,
+        )
+        assert (await _wait_for_terminal_run(kernel, second.run_id)).status == "completed"
+
+        second_context = [
+            (message.role, _flatten_msg_text(message))
+            for message in captured_requests[-1].messages
+        ]
+        assert ("user", "external-while-active") in second_context
+        assert ("assistant", "reply-after-external") in second_context
+    finally:
+        release.set()
         kernel.close()
 
 
