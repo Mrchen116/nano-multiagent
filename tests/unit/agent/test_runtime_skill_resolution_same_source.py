@@ -1,6 +1,6 @@
 """Regression: runtime skill resolution == preview/list_skills (bugfix-431 决策 2/3).
 
-Root cause of the original bug: AgentRuntime had no resolver injected at build
+Root cause of the original bug: AgentEngine had no resolver injected at build
 time, so runtime skill resolution fell through to default_skill_search_roots
 (Codex-only roots), while Kernel.list_skills / assemble_prompt_preview used a
 per-workspace _WorkspaceDirnameSkillResolver.  A PA agent with 12 skills in
@@ -117,7 +117,7 @@ def test_runtime_resolves_workspace_skills_not_empty(tmp_path: Path) -> None:
 
         assert "ws_only_skill" in runtime_names, (
             "bugfix-431 regression: runtime must resolve workspace-dirname skills; "
-            "got empty — likely no resolver was injected into AgentRuntime"
+            "got empty — likely no resolver was injected into AgentEngine"
         )
     finally:
         kernel.close()

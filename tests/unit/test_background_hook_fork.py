@@ -729,7 +729,7 @@ async def test_background_hook_receives_fork_conversation_in_context():
 def test_bind_tool_registry_propagates_to_context_fork(tmp_path):
     """bind_tool_registry must also update _context_fork._loop._tool_registry.
 
-    In app.py, AgentRuntime is constructed before the tool_registry is built,
+    AgentEngine is constructed before the tool_registry is built,
     so tool_registry=None at construction time. bind_tool_registry is called
     later to attach the registry. If it only updates self._loop and not
     self._context_fork._loop, the fork side-chain executes with tool_registry=None
@@ -770,7 +770,7 @@ def test_bind_tool_registry_propagates_to_context_fork(tmp_path):
 async def test_fork_loop_executes_tools_after_bind_tool_registry(tmp_path):
     """Fork side-chain must execute tools when bind_tool_registry was called post-construction.
 
-    Reproduces the production bug: app.py constructs AgentRuntime without tool_registry,
+    Reproduces the production bug: composition constructs AgentEngine without tool_registry,
     then calls bind_tool_registry. The fork must execute tool calls, not exit early
     with stop_reason='tool_registry_unavailable'.
     """

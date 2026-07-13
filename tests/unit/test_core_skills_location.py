@@ -43,7 +43,7 @@ def test_core_skills_is_canonical_home() -> None:
 def test_make_skill_resolver_lives_in_core() -> None:
     """make_skill_resolver must be in agent.core, not agent.sdk (bugfix-431).
 
-    This prevents the core→sdk reverse dependency: AgentRuntime (core) must
+    This prevents the core→sdk reverse dependency: AgentEngine (core) must
     call make_skill_resolver at the same layer (core→core), not import it from sdk.
     """
     assert make_skill_resolver is CoreMakeSkillResolver

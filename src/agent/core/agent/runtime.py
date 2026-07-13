@@ -1012,23 +1012,10 @@ class AgentEngine:
         set is non-empty and each open call is closed so the next request the LLM
         sees is well-formed (most providers reject an unanswered tool_call).
 
-        Two steps with **unequal protection levels** (do not reorder):
-
-        1. ``invalidate_session_cache`` is the load-bearing self-heal: dropping
-           the dirty in-memory history forces the next turn to re-read JSONL
-           (cache-miss → ``prepare_transcript_for_run`` rebuilds). It is a
-           synchronous atomic dict pop with no ``await`` point, so we run it
-           *first*, before any I/O — it always completes even while a
-           ``CancelledError`` is propagating, no shield needed. If it were
-           skipped, a cache-hit next turn would reuse the orphan and brick the
-           session until process restart (#82 reopen).
-        2. ``append_tool_call_recovery`` + flush is out-of-band acceleration
-           (lets the LLM side close immediately rather than waiting for the next
-           ``prepare``). It performs I/O, so during cancel-driven unwinding it is
-           wrapped in ``asyncio.shield`` and treated best-effort; failure here
-           still self-heals via the next ``prepare`` (the synthetic result is
-           reconstructed from the orphaned assistant turn already on disk). Its
-           UI badge terminal state is independently reconciled by M4.
+        Recovery is one conversation-owned transaction: append the synthetic tool
+        result, flush it durably, then refresh this conversation's scalar history
+        from its transcript. During cancellation the transaction is shielded so a
+        second cancellation cannot expose a durable orphan through stale live state.
 
         The recovery reason does not depend on turn_meta: a cooperative
         abort/cancel carries ``stop_reason`` we honour; a raw ``CancelledError``
@@ -1096,8 +1083,8 @@ class AgentEngine:
             try:
                 await asyncio.shield(_write_recovery())
             except asyncio.CancelledError:
-                # Re-cancel during the shielded write: the cache is already
-                # invalidated (step 1), so the next prepare() still self-heals.
+                # The shielded conversation transaction continues to durable flush
+                # and refresh its scalar history before the operation permit drains.
                 raise
         else:
             await _write_recovery()
