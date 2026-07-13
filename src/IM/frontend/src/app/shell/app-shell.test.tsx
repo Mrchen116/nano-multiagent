@@ -8,14 +8,14 @@ import { useAuthStore } from "../../features/auth/auth-store";
 import { setLanguage } from "../../i18n";
 import { AppShell } from "./app-shell";
 
-vi.mock("../../features/chat/v2/chat-api", async () => {
-  const actual = await vi.importActual<typeof import("../../features/chat/v2/chat-api")>(
-    "../../features/chat/v2/chat-api"
+vi.mock("../../features/chat/chat-api", async () => {
+  const actual = await vi.importActual<typeof import("../../features/chat/chat-api")>(
+    "../../features/chat/chat-api"
   );
   return { ...actual, listConversations: vi.fn() };
 });
 
-import { listConversations } from "../../features/chat/v2/chat-api";
+import { listConversations } from "../../features/chat/chat-api";
 
 const SAMPLE_USER = {
   id: "user-1",

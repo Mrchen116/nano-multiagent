@@ -34,6 +34,8 @@ interface AuthState {
   isAuthenticated(): boolean;
   setSession(pair: TokenPair): void;
   setTokens(tokens: { access_token: string; refresh_token: string }): void;
+  /** Replace the current user's server snapshot without changing session tokens. */
+  replaceUser(user: AuthUser): boolean;
   clear(): void;
   hydrate(): void;
 }
@@ -103,6 +105,24 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       accessToken: tokens.access_token,
       refreshToken: tokens.refresh_token
     });
+  },
+
+  replaceUser(user) {
+    const current = get();
+    if (
+      current.user?.id !== user.id ||
+      current.accessToken === null ||
+      current.refreshToken === null
+    ) {
+      return false;
+    }
+    writePersisted({
+      access_token: current.accessToken,
+      refresh_token: current.refreshToken,
+      user
+    });
+    set({ user });
+    return true;
   },
 
   clear() {
