@@ -351,9 +351,7 @@ def test_runtime_status_uses_login_token_for_nodes_query(
     def _get(url: str, **kwargs: object) -> _HTTPResponse:
         if url == m170_runtime.IM_NODES_URL:
             node_headers.update(kwargs.get("headers", {}))  # type: ignore[arg-type]
-            return _HTTPResponse(
-                200, [{"node_id": "m170-node", "status": "online"}]
-            )
+            return _HTTPResponse(200, [{"node_id": "m170-node", "status": "online"}])
         return _HTTPResponse(200, {})
 
     monkeypatch.setattr(m170_runtime.httpx, "get", _get)
