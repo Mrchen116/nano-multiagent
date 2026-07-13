@@ -15,8 +15,8 @@
 
 - [x] 两个独立进程的 public config saves 在稳定 sidecar lock 上串行；backup fd/identity 一直守到 commit gate，mode drift 也拒绝覆盖。
 - [x] replace 后 directory fsync 失败时 best-effort 恢复原 source 并再次持久化；恢复失败返回明确、不可误判为普通 CAS 的 outcome。
-- [ ] foreground Gateway 持久化 PID、OS start identity、resolved config、entry/argv；state 与 PID-only stop 都先只读验证 identity，mismatch 零信号且保留证据。
-- [ ] stop 的 TERM/KILL 两阶段都以 `min(poll_interval, remaining)` bounded sleep，长 poll 不越过 grace deadline。
+- [x] foreground Gateway 持久化 PID、OS start identity、resolved config、entry/argv；state 与 PID-only stop 都先只读验证 identity，mismatch 零信号且保留证据。
+- [x] stop 的 TERM/KILL 两阶段都以 `min(poll_interval, remaining)` bounded sleep，长 poll 不越过 grace deadline。
 - [ ] e2e-down 对 missing/non-regular external PID + 任一内部 evidence fail closed，零 Gateway/IM signal；只有 Gateway evidence 全无才可继续停 IM。
 - [ ] e2e-up 无 live external owner 时只无信号清理 stale internal evidence；spawn 后 identity/readiness 失败回滚本次精确 PID，确认退出，只清匹配 lifecycle 文件并保留日志。
 - [ ] e2e identity wait 使用 config startup timeout/full-stack budget；default symlink cwd 在参数解析后统一物理 canonicalize；脚本与 public runtime 共享 identity schema/clear primitive。
@@ -41,9 +41,9 @@
 
 ### R2 — 公共 Gateway process-instance identity
 
-- C1 Red：补 foreground identity persistence、state/PID-only mismatch 零信号、identity absent/stale 证据保留和 fake-clock grace1/poll10 两阶段 deadline 回归。
-- C2 Green：新增单一 identity schema/read/write/verify/conditional-clear primitive；launch/stop 统一使用，所有 direct/group signal 前完成只读 ownership 验证。
-- C3 Docs：记录 identity 字段、fail-closed 判据、时间上界和兼容边界。
+- [x] C1 Red：补 foreground identity persistence、state/PID-only mismatch 零信号、identity absent/stale 证据保留和 fake-clock grace1/poll10 两阶段 deadline 回归。
+- [x] C2 Green：新增单一 identity schema/read/write/verify/conditional-clear primitive；launch/stop 统一使用，所有 direct/group signal 前完成只读 ownership 验证。
+- [x] C3 Docs：记录 identity 字段、fail-closed 判据、时间上界和兼容边界。
 
 ### R3 — e2e evidence state machine 与 spawn rollback
 
