@@ -427,9 +427,9 @@ async def test_session_interrupt_suppresses_message_end_wakeup_queued_before_can
 
         assert kernel.interrupt(session.session_id) == interrupted_run.run_id
         release_loop.set()
-        assert (await _wait_for_terminal_run(kernel, interrupted_run.run_id)).status == (
-            "cancelled"
-        )
+        assert (
+            await _wait_for_terminal_run(kernel, interrupted_run.run_id)
+        ).status == ("cancelled")
 
         continued_run = kernel.submit(
             session_id=session.session_id,
