@@ -60,9 +60,15 @@
   - Visual/Interaction: N/A。
   - Prototype Comparison: N/A。
 - Rollback: 回退 `856108cbc` 恢复原 rollback/cleanup；保留 C1 `766e34e8e` 可稳定复现八个失败分支。
-- Commits: C1=`766e34e8e`；C2=`856108cbc`；C3=本提交。
+- Live correction: 第一次真实 live-down 发现 foreground `finally` 在进程退出前会正常自清 internal PID/identity，原 cleanup 把这一提交态误判为 drift。条件提交现仅额外接受“external snapshot 未变，且所有 runtime-owned internal evidence 同时消失”；任一仍存在但内容/inode 漂移继续零删除。补 regression 后 down + legacy 真实进程套件 `27 passed`，第二次 live-down 成功。
+- Commits: C1=`766e34e8e`；C2=`856108cbc`,`c4750efcf`；C3=本提交。
 - Next: R4 full validation and live signoff。
 
 ## R4 — Full validation and live signoff
 
-- Status: TODO。
+- Status: DONE。
+- Automated: `ruff check .` → pass；`ruff format --check .` → `787 files already formatted`；`bash -n scripts/e2e-up.sh scripts/e2e-down.sh` 与 `git diff --check` → pass；唯一 post-change full `/Users/czj/Repos/nano-multiagent/.venv/bin/pytest -m "not e2e" -q` → `3575 passed, 1 skipped, 23 deselected, 16 warnings in 187.91s`，日志 `/tmp/refactor-461-m5-final-full.log`。
+- Real default lifecycle: 新增并执行真实 command start → restart → stop；连同 quoted path background stop 与跨 `Pacific/Honolulu` → `UTC` legacy `health_url` upgrade 共 `4 passed, 2 warnings in 9.42s`，PID/identity/state 零 residue。
+- Real e2e lifecycle: 在含空格隔离目录同一 shell 内执行真实 `e2e-up.sh`，确认 Gateway `pid=64207` 与 IM PID 均 live 后执行真实 `e2e-down.sh`；正常停止，external/internal PID、identity/state、IM PID、config、sidecar、ports env 全部不存在。timeout/survivor/missing/dangling/malformed/same-PID-new-birth/same-content-new-inode/IM-survivor/busy-lock 由真实 shell entry harness 覆盖；up/down 收口套件 29 cases，相关最终 down + legacy 套件 `27 passed`。
+- Residue: 本 milestone 创建的 live/debug 临时目录已删除；验证端口无 listener；未修改 canonical/acceptance/verification，未发送 P2P。
+- Outcome: R1-R4 与全部退出标准完成，可进入 rebase、unit merge、push 与 worktree cleanup。
