@@ -1052,7 +1052,7 @@ class Kernel:
             message was steered into an active run (``run_id`` is that run, no new
             run created); otherwise ``injected=False`` for a freshly created run.
         """
-        effective_root = workspace_root or self._repo_root
+        effective_root = Path(workspace_root or self._repo_root).expanduser().resolve()
         if steer:
             injected = self._try_inject_active_run(
                 session_id=session_id, parts=parts, origin=origin

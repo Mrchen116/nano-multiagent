@@ -210,10 +210,14 @@ class ConversationSession:
         with self._lifecycle.begin_operation():
             result = self._transcript.append_external(request)
             if result.created:
-                loaded = self._transcript.load()
+                # The active engine may still hold the list that backs the loaded
+                # state. Rebinding that list from this synchronous foreign-thread
+                # path would detach the rest of the turn from the live aggregate.
+                # Mark the payload stale instead; the active turn can finish its
+                # durable writes and the next serialized operation reloads the
+                # complete reachable chain, including this external append.
                 with self._state_guard:
-                    if self._state is not None:
-                        self._state.history = loaded.messages
+                    self._state = None
             return result
 
     def history_snapshot(self) -> tuple[Message, ...]:
