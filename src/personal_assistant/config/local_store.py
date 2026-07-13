@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
+import math
 import os
 from pathlib import Path
 import shutil
@@ -498,6 +499,73 @@ def _backup_existing_config(dest: Path, new_text: str) -> None:
         old_bak.unlink(missing_ok=True)
 
 
+def _fsync_parent_directory(path: Path) -> None:
+    """Persist a newly created directory entry before its source may be replaced."""
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    directory_fd = os.open(path.parent, flags)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
+
+
+def _read_and_secure_existing_migration_backup(
+    *,
+    backup_path: Path,
+    source_stat: os.stat_result,
+    source_mode: int,
+    original: bytes,
+) -> None:
+    """Validate and durably flush an existing matching migration backup."""
+    if backup_path.is_symlink():
+        raise FileExistsError(f"migration backup aliases current config: {backup_path}")
+
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(backup_path, flags)
+    try:
+        backup_stat = os.fstat(fd)
+        if not stat.S_ISREG(backup_stat.st_mode):
+            raise FileExistsError(
+                f"migration backup is not a regular file: {backup_path}"
+            )
+        if (backup_stat.st_dev, backup_stat.st_ino) == (
+            source_stat.st_dev,
+            source_stat.st_ino,
+        ):
+            raise FileExistsError(
+                f"migration backup aliases current config: {backup_path}"
+            )
+
+        chunks: list[bytes] = []
+        while chunk := os.read(fd, 1024 * 64):
+            chunks.append(chunk)
+        if b"".join(chunks) != original:
+            raise FileExistsError(
+                f"migration backup conflicts with current config: {backup_path}"
+            )
+
+        backup_mode = stat.S_IMODE(backup_stat.st_mode)
+        tightened_mode = backup_mode & source_mode
+        if tightened_mode != backup_mode:
+            os.fchmod(fd, tightened_mode)
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    _fsync_parent_directory(backup_path)
+
+
+def _unlink_owned_backup(path: Path, identity: tuple[int, int] | None) -> None:
+    """Delete a failed partial only while the path still names our inode."""
+    if identity is None:
+        return
+    try:
+        current = path.lstat()
+    except FileNotFoundError:
+        return
+    if (current.st_dev, current.st_ino) == identity:
+        path.unlink()
+
+
 def _backup_legacy_kernel_config(dest: Path) -> None:
     """Preserve a config before canonical save removes its legacy kernel block.
 
@@ -519,27 +587,39 @@ def _backup_legacy_kernel_config(dest: Path) -> None:
         return
 
     backup_path = Path(f"{dest}.pre-refactor-461.bak")
-    source_mode = stat.S_IMODE(dest.stat().st_mode)
+    source_stat = dest.stat()
+    source_mode = stat.S_IMODE(source_stat.st_mode)
     if backup_path.exists():
-        if not backup_path.is_file() or backup_path.read_bytes() != original:
-            raise FileExistsError(
-                f"migration backup conflicts with current config: {backup_path}"
-            )
+        _read_and_secure_existing_migration_backup(
+            backup_path=backup_path,
+            source_stat=source_stat,
+            source_mode=source_mode,
+            original=original,
+        )
         return
 
     fd: int | None = None
+    owned_identity: tuple[int, int] | None = None
     try:
-        fd = os.open(backup_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, source_mode)
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+        fd = os.open(backup_path, flags, source_mode)
+        created_stat = os.fstat(fd)
+        owned_identity = (created_stat.st_dev, created_stat.st_ino)
         os.fchmod(fd, source_mode)
-        with os.fdopen(fd, "wb") as stream:
-            fd = None
-            stream.write(original)
-            stream.flush()
-            os.fsync(stream.fileno())
+        remaining = memoryview(original)
+        while remaining:
+            written = os.write(fd, remaining)
+            if written <= 0:
+                raise OSError("migration backup write made no progress")
+            remaining = remaining[written:]
+        os.fsync(fd)
+        os.close(fd)
+        fd = None
+        _fsync_parent_directory(backup_path)
     except BaseException:
         if fd is not None:
             os.close(fd)
-        backup_path.unlink(missing_ok=True)
+        _unlink_owned_backup(backup_path, owned_identity)
         raise
 
 
@@ -1074,7 +1154,7 @@ def _positive_number(value: Any, *, field_name: str) -> float:
     if isinstance(value, bool) or not isinstance(value, int | float):
         raise ValueError(f"{field_name} must be a positive number")
     resolved = float(value)
-    if resolved <= 0:
+    if not math.isfinite(resolved) or resolved <= 0:
         raise ValueError(f"{field_name} must be a positive number")
     return resolved
 
