@@ -22,15 +22,16 @@
 ## R2 — 公共 Gateway process-instance identity
 
 - Context: M3 只持久化整数 PID，state/PID-only stop 在验证 OS process instance 前就会 `kill(pid, 0)`/TERM/group；grace waiter 固定 sleep poll interval，poll 大于 grace 时两阶段均越界。
-- Decision: foreground runtime 先 atomic write + file fsync + replace + parent fsync `gateway.identity.json`，再写 `gateway.pid` readiness marker。schema 固定为 `schema_version/pid/process_start/config_path/entry_module/argv`；cleanup 只在文件仍等于本实例时删除。Stop 将 state/PID 与 identity 静态字段对账，再以无信号 `ps` 读取 start + command；TERM、TERM group、KILL、KILL group 每次之前都重新核对同一 birth/entry/exact argv suffix。identity 缺失/格式错误/mismatch 一律 fail closed 保留证据。
+- Decision: foreground runtime 先 atomic write + file fsync + replace + parent fsync `gateway.identity.json`，再写 `gateway.pid` readiness marker。schema 固定为 `schema_version/pid/process_start/config_path/entry_module/argv`；cleanup 只在文件仍等于本实例时删除。Stop 将 state/PID 与 identity 静态字段对账，再以无信号 `ps` 读取 start + command；TERM、TERM group、KILL、KILL group 每次之前都重新核对同一 birth/entry/exact argv suffix。malformed identity/mismatch 与 PID-only 缺 identity fail closed；identity 文件尚不存在但 legacy state + PID + resolved config 完整时，只有 live command 精确匹配唯一 `-m personal_assistant.main --config <resolved> [--im-service-url <url>] --foreground [--auto-bind]` 才采纳当前 OS start 并 durable upgrade identity。
 - Timing: `_wait_for_pid_exit` 每轮 sleep `min(poll_interval, deadline-now)`；fake clock `grace=1,poll=10` 证明 TERM 与 KILL 阶段各只等待 1 秒。
-- Compatibility: 旧 state-only/PID-only residue 不再获得 signal authority；只有完整 identity 且与 resolved config、foreground entry、OS birth/argv 同时匹配才可 stop。完整 identity 对应的已退出进程仍作为 STALE 安全清理。
+- Compatibility: 保留 M1 的旧 state forward-read 硬契约：额外 `health_url` 仍忽略，PID/config/log state 可经上述无信号 live-process upgrade 后 stop；伪装 sleeper、argv/config mismatch、state/PID 不一致均零信号保留。PID-only 缺 config 无法安全推断，继续 fail closed。完整 identity 对应的已退出进程作为 STALE 安全清理。
 - Evidence:
   - Red: 新 identity suite 7 failed，分别命中 foreground 无 identity、state/PID-only identity absent/reused、PID-only startup acceptance、两阶段 10 秒 oversleep。
-  - Green: identity + launch + forced-stop + PID lifecycle → 32 passed；旧成功路径夹具升级为完整 identity，旧 state-only stale 断言升级为 fail-closed retain。
+  - Green: identity + launch + forced-stop + PID lifecycle + real legacy foreground integration → 34 passed；真实子进程删除新 identity、注入旧 `health_url` 后由 public `stop_gateway` 安全升级并退出，PID/state/identity 全清。
   - Gates: affected `ruff check`、`ruff format --check`、`git diff --check` passed。
 - Rollback: 回退 C2 恢复整数 PID ownership；C1/C3 保留为 round-3 safety contract 与证据。
-- Commits: `65211e97f` (C1), `13693799b` (C2)。
+- Debug note: 首版 R2 将 legacy state 与 PID-only 一并拒绝，违背 motivation/design/M1 的 forward-read stop 契约。systematic-debugging 反向追到 state source 后补 public/真实进程红测，只对 legacy state 增加 exact argv adoption；真实测试又证明 `kill(pid, 0)` 会把未 wait 的 zombie 当 live，故公共 liveness 改为无信号 `ps stat`，与 e2e 已有 zombie 语义对齐。
+- Commits: `65211e97f`, `6c64208e7` (C1); `13693799b`, `b8ea91fbf` (C2)。
 
 ## R3 — e2e evidence state machine 与 spawn rollback
 
