@@ -9,7 +9,12 @@
 
 ## R1 — Config/start publication final gates
 
-- Status: TODO。
+- Status: DONE。
+- C1 Red: `1dc69c221` 增加 backup held-fd content/mode drift、durable state 后 child/identity 漂移、group-only rollback 与 quoted-path owned `Popen` 回归。
+- C2 Green: `dd7d881ec` 让 existing/new backup 都通过 held fd 重读 content 并复核 mode/inode/link revision；background launch 在 durable state 后重验 poll、PID、identity PID+birth；rollback 每阶段仅向 owned process group 发一次信号，并由测试持有/回收真实 `Popen`。
+- Validation: 三个 affected 文件 `15 passed, 2 warnings`；affected Ruff、format 与 `git diff --check` 全通过。
+- Commit boundary: migration source replacement 仅在 backup held inode 的 content、mode 与 revision 仍等于 pre-commit snapshot 时发生；background start 仅在 state、PID、identity 与 child birth 同时稳定后返回成功。
+- Rollback: 可整体回退 R1 两个提交；失败路径保留 startup failure 与 cleanup failure 双 cause，无法确认退出时保留 lifecycle evidence。
 
 ## R2 — Public lifecycle generation
 
