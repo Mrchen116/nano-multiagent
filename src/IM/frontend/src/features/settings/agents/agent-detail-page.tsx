@@ -14,7 +14,6 @@ import { useAgentStatusBroadcastConsumer } from "./agent-status-ws-consumer";
 import {
   AgentConfig,
   AgentFeature,
-  AgentSummary,
   CronJobSummary,
   ModelOption,
   SkillUsageItem,
@@ -1356,20 +1355,6 @@ export function AgentDetailPage() {
     staleTime: 30_000
   });
 
-  // feat-340-M18 R9-2: fetch the agent summary list to obtain ``user_id``.
-  // ``getAgentDetailState`` only returns the AgentConfig shape (no user_id), so we
-  // pair it with the list endpoint. Using a separate query keeps cache invalidation
-  // simple and lets the Open chat button re-attempt after a transient miss.
-  const agentsSummaryQuery = useQuery({
-    queryKey: ["settings", "agents", "summary"],
-    queryFn: () => listAgentSummaries(),
-    staleTime: 30_000
-  });
-  const currentAgentSummary = useMemo(
-    () => agentsSummaryQuery.data?.find((item) => item.agent_id === agentId) ?? null,
-    [agentsSummaryQuery.data, agentId]
-  );
-
   useEffect(() => {
     setActiveSection("config");
   }, [agentId]);
@@ -1438,7 +1423,6 @@ export function AgentDetailPage() {
         });
       }
       void queryClient.invalidateQueries({ queryKey: ["settings", "agents"], exact: true });
-      void queryClient.invalidateQueries({ queryKey: ["settings", "agents", "summary"], exact: true });
       if (savedResetTimer.current) clearTimeout(savedResetTimer.current);
       savedResetTimer.current = setTimeout(() => {
         setSaved(false);
@@ -1456,7 +1440,7 @@ export function AgentDetailPage() {
   const openDirectChatMutation = useMutation({
     mutationFn: async () => {
       return createConversation({
-        title: currentAgentSummary?.display_name || draft?.display_name || agentId,
+        title: draft?.display_name || agentId,
         agentIds: [agentId]
       });
     },
