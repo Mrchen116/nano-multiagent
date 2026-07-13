@@ -45,16 +45,14 @@ interface PendingExternalClassification {
   retry(): void;
 }
 
-function mergeAuthoritativeConversations(
+function mergeAuthorityConversation(
   previous: Conversation[] | undefined,
-  authoritative: Conversation[]
+  authoritative: Conversation[],
+  candidate: Conversation
 ): Conversation[] {
   if (!previous) return authoritative;
-  const authoritativeIds = new Set(authoritative.map((conversation) => conversation.id));
-  return [
-    ...authoritative,
-    ...previous.filter((conversation) => !authoritativeIds.has(conversation.id))
-  ];
+  if (previous.some((conversation) => conversation.id === candidate.id)) return previous;
+  return [candidate, ...previous];
 }
 
 function normalizeText(value: unknown): string | null {
@@ -308,31 +306,26 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
             // Do not use fetchQuery here: an older request for the same cache key
             // may still be in flight and TanStack would reuse its pre-external
             // snapshot even with staleTime=0. Classification needs a read that is
-            // guaranteed to start after this candidate arrived.
-            void listConversations().then(async (freshConversations) => {
-              if (
-                pendingExternalClassificationsRef.current.get(candidateKey) !== pending
-                || selfUserIdRef.current !== eventUserId
-                || conversationStateRef.current.get(conversationId) !== state
-              ) return;
-              // If the older cache request is still pending, cancel it before
-              // publishing this newer authority result. If it already completed,
-              // the setQueryData below overwrites its stale snapshot.
-              await queryClient.cancelQueries({
-                queryKey: ["chat", "conversations"],
-                exact: true
-              });
+            // guaranteed to start after this candidate arrived. Cancel only the
+            // cache request that already existed at candidate time; any refetch
+            // started after this point is newer and must remain untouched.
+            void queryClient.cancelQueries({
+              queryKey: ["chat", "conversations"],
+              exact: true
+            }).then(() => listConversations()).then((freshConversations) => {
               if (
                 pendingExternalClassificationsRef.current.get(candidateKey) !== pending
                 || selfUserIdRef.current !== eventUserId
                 || conversationStateRef.current.get(conversationId) !== state
               ) return;
               pendingExternalClassificationsRef.current.delete(candidateKey);
-              queryClient.setQueryData<Conversation[] | undefined>(
-                ["chat", "conversations"],
-                (previous) => mergeAuthoritativeConversations(previous, freshConversations)
-              );
               const freshConversation = freshConversations.find((item) => item.id === conversationId);
+              if (freshConversation) {
+                queryClient.setQueryData<Conversation[] | undefined>(
+                  ["chat", "conversations"],
+                  (previous) => mergeAuthorityConversation(previous, freshConversations, freshConversation)
+                );
+              }
               surfaceCandidate(!freshConversation?.external_source);
             }).catch(() => undefined).finally(() => {
               pending.inFlight = false;
