@@ -1,6 +1,7 @@
 """Retry wrapper for LLM clients that handles transient failures transparently."""
 
 import asyncio
+import inspect
 from collections.abc import AsyncIterator
 
 from agent.core.errors import ModelError
@@ -80,3 +81,13 @@ class RetryingLLMClient:
     async def _sleep(self, seconds: float) -> None:
         """Extracted for test monkeypatching."""
         await asyncio.sleep(seconds)
+
+    async def close(self) -> None:
+        """Release the wrapped provider transport when it owns one."""
+
+        close = getattr(self._client, "close", None)
+        if not callable(close):
+            return
+        result = close()
+        if inspect.isawaitable(result):
+            await result

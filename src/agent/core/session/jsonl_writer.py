@@ -16,7 +16,6 @@ class JsonlWriter:
     - flush:   强制刷盘，asyncio-safe（内部用 run_in_executor）
 
     > NOTE: JSONL 文件只追加不删，长期运行会无限增长。清理由 product 层决定。
-    > NOTE: _session_histories 内存无上限，product 层需控制并发 session 数。
     """
 
     _BATCH_SIZE = 50
