@@ -10,7 +10,7 @@ import pytest
 from personal_assistant.config.local_store import (
     HeartbeatConfig,
     IMServiceConfig,
-    KernelConfig,
+    GatewayLifecycleConfig,
     LocalConfig,
     NodeConfig,
 )
@@ -83,7 +83,7 @@ def test_launch_gateway_in_background_spawns_foreground_child_and_waits_for_read
         ],
         config.source_path.parent / "gateway.log",
     )
-    assert seen["wait"] == (process, config, config.kernel.startup_timeout_seconds)
+    assert seen["wait"] == (process, config, config.gateway.startup_timeout_seconds)
 
 
 def test_launch_gateway_in_background_passes_im_service_override_to_child_and_runtime_config(
@@ -136,7 +136,7 @@ def test_load_runtime_config_preserves_im_credentials_when_overriding_url(
         node=NodeConfig(node_id="node-local"),
         agents=(),
         channels=(),
-        kernel=KernelConfig(),
+        gateway=GatewayLifecycleConfig(),
         heartbeat=HeartbeatConfig(),
         im_service=IMServiceConfig(
             url="http://im.old:8011",

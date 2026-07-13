@@ -41,7 +41,7 @@ from personal_assistant.config.local_store import (
     ChannelConfig,
     HeartbeatConfig,
     IMServiceConfig,
-    KernelConfig,
+    GatewayLifecycleConfig,
     LocalConfig,
     WORKSPACE_CONFIG_DIRNAME as _WCD,
     default_local_config_path,
@@ -875,7 +875,7 @@ class _IMConfigSyncClient:
             node=self._local_config.node,
             agents=tuple(agents),
             channels=self._local_config.channels,
-            kernel=self._local_config.kernel,
+            gateway=self._local_config.gateway,
             heartbeat=self._local_config.heartbeat,
             im_service=self._local_config.im_service,
             llm=self._local_config.llm,
@@ -1285,7 +1285,7 @@ class GatewayProcessManager:
     in a follow-up unit that trims the dead config+process management layer.
 
     Args:
-        config: Legacy KernelConfig (unused at runtime).
+        config: Legacy GatewayLifecycleConfig (unused at runtime).
         kernel_client: Unused (was: HTTP client for readiness probes).
         process_factory: Unused (was: factory to spawn the kernel subprocess).
         monotonic: Monotonic clock source for timeout accounting.
@@ -1295,7 +1295,7 @@ class GatewayProcessManager:
     def __init__(
         self,
         *,
-        config: KernelConfig,
+        config: GatewayLifecycleConfig,
         kernel_client: Any,  # KernelApiClient removed in M3; GatewayProcessManager is dead code until M4
         process_factory: ProcessFactory | None = None,
         monotonic: Monotonic = time.monotonic,
@@ -1359,7 +1359,7 @@ class GatewayProcessManager:
                 last_error = RuntimeError(
                     f"kernel reported unhealthy payload: {payload}"
                 )
-            self._sleep(self._config.health_poll_interval_seconds)
+            self._sleep(self._config.poll_interval_seconds)
         message = "kernel health check timed out"
         if last_error is not None:
             raise RuntimeError(message) from last_error
@@ -2485,10 +2485,10 @@ def launch_gateway_in_background(
     ready_waiter = wait_for_ready or _wait_for_gateway_ready
     process = launcher(argv, log_path)
     try:
-        ready_waiter(process, config, config.kernel.startup_timeout_seconds)
+        ready_waiter(process, config, config.gateway.startup_timeout_seconds)
     except Exception as exc:
         _stop_background_process(
-            process, timeout_seconds=config.kernel.shutdown_grace_seconds
+            process, timeout_seconds=config.gateway.shutdown_grace_seconds
         )
         hint = _read_log_last_error(log_path, offset=log_offset)
         summary = hint if hint else str(exc)
@@ -2547,12 +2547,12 @@ def stop_gateway(
         # bugfix-359: 顺手 killpg 把 kernel uvicorn 子进程一起带走;leader 进程已收过 SIGTERM,
         # 多发一次无副作用,pgid 拿不到时静默吞掉。
         _kill_process_tree(pid, signal.SIGTERM)
-        deadline = time.monotonic() + config.kernel.shutdown_grace_seconds
+        deadline = time.monotonic() + config.gateway.shutdown_grace_seconds
         while time.monotonic() <= deadline:
             if not _pid_is_running(pid):
                 _remove_gateway_pid(config)
                 return f"STOPPED pid={pid} pid_file={_gateway_pid_path(config)}"
-            time.sleep(config.kernel.health_poll_interval_seconds)
+            time.sleep(config.gateway.poll_interval_seconds)
         os.kill(pid, signal.SIGKILL)
         _kill_process_tree(pid, signal.SIGKILL)
         _remove_gateway_pid(config)
@@ -2573,22 +2573,22 @@ def stop_gateway(
         return f"STALE pid={state.pid} state={state_path}"
     # bugfix-359: 顺手 killpg 把 kernel uvicorn 子进程一起带走。
     _kill_process_tree(state.pid, signal.SIGTERM)
-    deadline = time.monotonic() + config.kernel.shutdown_grace_seconds
+    deadline = time.monotonic() + config.gateway.shutdown_grace_seconds
     while time.monotonic() <= deadline:
         if not _pid_is_running(state.pid):
             _remove_gateway_state(state_path)
             _remove_gateway_pid(config)
             if _verify_stopped_health_url(
                 state.health_url,
-                timeout_seconds=config.kernel.shutdown_grace_seconds,
-                sleep_seconds=config.kernel.health_poll_interval_seconds,
+                timeout_seconds=config.gateway.shutdown_grace_seconds,
+                sleep_seconds=config.gateway.poll_interval_seconds,
             ):
                 return f"STOPPED pid={state.pid} state={state_path}"
             return (
                 f"STOPPED pid={state.pid} state={state_path} "
                 f"health_url={state.health_url} still_healthy=true"
             )
-        time.sleep(config.kernel.health_poll_interval_seconds)
+        time.sleep(config.gateway.poll_interval_seconds)
     os.kill(state.pid, signal.SIGKILL)
     _kill_process_tree(state.pid, signal.SIGKILL)
     _remove_gateway_state(state_path)
@@ -2596,8 +2596,8 @@ def stop_gateway(
     forced = f"STOPPED pid={state.pid} state={state_path} forced=true"
     if _verify_stopped_health_url(
         state.health_url,
-        timeout_seconds=config.kernel.shutdown_grace_seconds,
-        sleep_seconds=config.kernel.health_poll_interval_seconds,
+        timeout_seconds=config.gateway.shutdown_grace_seconds,
+        sleep_seconds=config.gateway.poll_interval_seconds,
     ):
         return forced
     return f"{forced} health_url={state.health_url} still_healthy=true"
@@ -4267,7 +4267,7 @@ def _wait_for_gateway_ready(
             )
         if pid_path.exists():
             return
-        time.sleep(config.kernel.health_poll_interval_seconds or 0.2)
+        time.sleep(config.gateway.poll_interval_seconds or 0.2)
     raise RuntimeError(
         "timed out waiting for gateway readiness (pid file never appeared)"
     )

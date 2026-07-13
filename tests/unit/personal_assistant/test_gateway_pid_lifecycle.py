@@ -11,7 +11,7 @@ import pytest
 
 from personal_assistant.config.local_store import (
     HeartbeatConfig,
-    KernelConfig,
+    GatewayLifecycleConfig,
     LocalConfig,
     NodeConfig,
 )
@@ -105,10 +105,9 @@ def test_stop_gateway_only_reports_stopped_after_health_url_goes_down(
         node=NodeConfig(node_id="node-local"),
         agents=(),
         channels=(),
-        kernel=KernelConfig(
-            # command removed: kernel now in-process (refactor-387-M4)
+        gateway=GatewayLifecycleConfig(
             startup_timeout_seconds=0.2,
-            health_poll_interval_seconds=0.01,
+            poll_interval_seconds=0.01,
             shutdown_grace_seconds=0.1,
         ),
         heartbeat=HeartbeatConfig(),
