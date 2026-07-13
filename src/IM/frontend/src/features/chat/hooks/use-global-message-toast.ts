@@ -274,7 +274,11 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
           const eventUserId = selfUserIdRef.current;
           void queryClient.fetchQuery({
             queryKey: ["chat", "conversations"],
-            queryFn: listConversations
+            queryFn: listConversations,
+            // The cached list can still be fresh when the server creates an
+            // external conversation and immediately emits its first message.
+            // Force this classification read through to the authoritative API.
+            staleTime: 0
           }).then((freshConversations) => {
             if (
               selfUserIdRef.current !== eventUserId
