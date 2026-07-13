@@ -410,6 +410,7 @@ def test_roll_bubble_updates_typed_context_runtime_state() -> None:
     )
     context_store.set_message_id("run-roll", "im-msg-a")
     context_store.set_kernel_message_id("run-roll", "kernel-msg-a")
+    context_store.get("run-roll").visible_reply_committed = True  # type: ignore[union-attr]
     manager = _AckingIMManager(message_id="im-msg-b")
 
     new_message_id = asyncio.run(
@@ -429,6 +430,7 @@ def test_roll_bubble_updates_typed_context_runtime_state() -> None:
     assert ctx is not None
     assert ctx.message_id == "im-msg-b"
     assert ctx.kernel_message_id == "kernel-msg-b"
+    assert ctx.visible_reply_committed is False
     assert ctx.rolling is False
 
 

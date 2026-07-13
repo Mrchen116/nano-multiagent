@@ -184,6 +184,46 @@ async def test_resume_handoff_blocks_live_delivery_until_replay_is_registered() 
             await serving
 
 
+async def test_resume_does_not_redeliver_same_persisted_event_as_live() -> None:
+    """An event covered by replay must not be sent again by its queued broadcast."""
+    registry = UserStreamRegistry()
+    repository = _PagedEventRepository(501)
+    websocket = _ResumeWebSocket(expected_events=501, block_first_replay=True)
+    serving = asyncio.create_task(
+        serve_user_websocket(
+            websocket=websocket,
+            event_repository=repository,  # type: ignore[arg-type]
+            registry=registry,
+            user_id="user-a",
+        )
+    )
+    broadcast: asyncio.Task[None] | None = None
+    try:
+        await asyncio.wait_for(websocket.replay_started.wait(), timeout=1)
+        broadcast = asyncio.create_task(
+            registry.broadcast_to_user(
+                "user-a",
+                encode_user_stream_event_frame(repository.events[-1]),
+            )
+        )
+        await asyncio.sleep(0)
+        assert not broadcast.done()
+
+        websocket.release_replay.set()
+        await asyncio.wait_for(broadcast, timeout=1)
+        frames = [json.loads(text) for text in websocket.sent]
+        assert [frame["event_id"] for frame in frames] == list(range(1, 502))
+    finally:
+        websocket.release_replay.set()
+        if broadcast is not None and not broadcast.done():
+            broadcast.cancel()
+            with suppress(asyncio.CancelledError):
+                await broadcast
+        serving.cancel()
+        with suppress(asyncio.CancelledError):
+            await serving
+
+
 async def test_resume_drains_every_page_beyond_single_replay_batch() -> None:
     """A recoverable backlog larger than 500 is replayed completely before live mode."""
     registry = UserStreamRegistry()
