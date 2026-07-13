@@ -634,11 +634,9 @@ export function ChatWorkspacePage() {
           ["chat", "nodes"],
           ...(activeConversationId ? [["chat", "messages", activeConversationId]] : [])
         ];
-        const results = await Promise.allSettled(
+        await Promise.allSettled(
           queryKeys.map((queryKey) => queryClient.invalidateQueries({ queryKey }))
         );
-        const failure = results.find((result) => result.status === "rejected");
-        if (failure?.status === "rejected") throw failure.reason;
       },
       onEvent: (event) => {
         const chatEvent = toChatWsEvent(event.eventType, event.payload, event.eventId);

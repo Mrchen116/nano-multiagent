@@ -204,8 +204,10 @@ describe("user stream runtime", () => {
     socket.message({ op: "event", event_type: 42, data: { event_id: 100 } });
 
     expect(sessionStorage.getItem("cursor:user-a")).toBe("7");
-    expect(healthy).toHaveBeenCalledTimes(3);
-    expect(errors).toHaveLength(3);
+    // event_id=5 is older than the persisted cursor=7 and must not reach any
+    // subscriber. The unsequenced status event remains deliverable.
+    expect(healthy).toHaveBeenCalledTimes(2);
+    expect(errors).toHaveLength(2);
   });
 
   it("keeps resume, event dispatch, ping, and in-tab cursor continuity when storage throws", async () => {
@@ -276,9 +278,13 @@ describe("user stream runtime", () => {
   it("does not let stale resync completion mutate a new user's cursor", async () => {
     sessionStorage.setItem("cursor:user-a", "1");
     let releaseSync!: (value: { maxEventId: number }) => void;
-    const sync = vi.fn(() => new Promise<{ maxEventId: number }>((resolve) => {
-      releaseSync = resolve;
-    }));
+    const sync = vi
+      .fn<() => Promise<{ maxEventId: number }>>()
+      .mockImplementationOnce(() => new Promise<{ maxEventId: number }>((resolve) => {
+        releaseSync = resolve;
+      }))
+      // The new user's own cold-start baseline is a separate, legitimate sync.
+      .mockResolvedValueOnce({ maxEventId: 0 });
     const { runtime, updateSession } = setup({ sync });
     runtime.subscribe({ onEvent: vi.fn(), onRecovery: vi.fn() });
     await settle();
