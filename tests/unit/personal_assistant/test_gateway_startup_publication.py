@@ -29,7 +29,16 @@ def test_background_state_publication_failure_reaps_child_and_clears_partial_sta
     state_path = tmp_path / ".gateway-state.json"
 
     def _fail_state_publication(_config, _result) -> None:  # noqa: ANN001
-        state_path.write_text('{"pid": 2468', encoding="utf-8")
+        state_path.write_text(
+            json.dumps(
+                {
+                    "pid": 2468,
+                    "config_path": str(config.source_path.resolve()),
+                    "log_path": str(tmp_path / "gateway.log"),
+                }
+            ),
+            encoding="utf-8",
+        )
         raise OSError("state disk full")
 
     monkeypatch.setattr(main_module, "_write_gateway_state", _fail_state_publication)
