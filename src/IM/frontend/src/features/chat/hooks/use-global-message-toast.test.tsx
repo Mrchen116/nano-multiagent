@@ -424,6 +424,66 @@ describe("useGlobalMessageToast", () => {
     });
   });
 
+  it("lets a cached external fast-path candidate invalidate an older pending authority", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    let resolveAuthority!: (value: Conversation[]) => void;
+    listConversationsMock.mockReturnValue(
+      new Promise<Conversation[]>((resolve) => { resolveAuthority = resolve; })
+    );
+    const { result } = renderHook(() => useGlobalMessageToast(), { wrapper: buildWrapper(queryClient, "/") });
+    await waitFor(() => expect(subscribeUserStreamMock).toHaveBeenCalled());
+
+    emit("conv-new-external", {
+      eventType: "message.created",
+      eventId: 1,
+      payload: {
+        message_id: "external-pending-old",
+        sender_type: "user",
+        sender_user_id: "self-user",
+        sender_display_name: "External Sender",
+        content: "older pending content",
+        created_at: "2026-07-13T00:00:00Z"
+      }
+    });
+    await waitFor(() => expect(listConversationsMock).toHaveBeenCalledTimes(1));
+
+    queryClient.setQueryData(["chat", "conversations"], [
+      conversation("conv-new-external", {
+        external_source: "feishu",
+        external_chat_id: "oc_new"
+      })
+    ]);
+    emit("conv-new-external", {
+      eventType: "message.created",
+      eventId: 2,
+      payload: {
+        message_id: "external-fast-new",
+        sender_type: "user",
+        sender_user_id: "self-user",
+        sender_display_name: "External Sender",
+        content: "newer fast-path content",
+        created_at: "2026-07-13T00:00:00Z"
+      }
+    });
+    expect(result.current.toast).toMatchObject({
+      id: "message:external-fast-new",
+      preview: "newer fast-path content"
+    });
+
+    resolveAuthority([conversation("conv-new-external", {
+      external_source: "feishu",
+      external_chat_id: "oc_new"
+    })]);
+    await waitFor(() => {
+      expect(result.current.toast).toMatchObject({
+        id: "message:external-fast-new",
+        preview: "newer fast-path content"
+      });
+      expect(queryClient.getQueryData<Conversation[]>(["chat", "conversations"])?.[0])
+        .toMatchObject({ last_message_preview: "newer fast-path content" });
+    });
+  });
+
   it("retries an unresolved external classification during stream recovery", async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false, staleTime: 60_000 } }
