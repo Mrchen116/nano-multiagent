@@ -20,7 +20,7 @@
 #   .gateway-config.yaml      (isolated copy of main config)
 #   .gateway-workspace/       (per-agent workspaces, replacing ~/nano-assistant/workspace)
 #   .im.pid / .gateway.pid
-#   .gateway-identity.json  (PID/config/argv start identity for safe teardown)
+#   gateway.identity.json  (public PID/config/argv start identity for safe teardown)
 #   .im.log / .gateway.log
 
 set -euo pipefail
@@ -39,6 +39,10 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Bash preserves a logical symlink PWD. Lifecycle identity and argv comparisons
+# use one physical root regardless of whether --wt was explicit or defaulted.
+WT_ROOT="$(cd "$WT_ROOT" && pwd -P)"
+
 if [[ ! -f "$MAIN_CFG" ]]; then
   echo "main config not found: $MAIN_CFG" >&2
   echo "create ~/.nano-assistant/config.yaml first (see AGENTS.md) or pass --main-config" >&2
@@ -47,13 +51,34 @@ fi
 
 # ─── liveness check (refuse to clobber) ──────────────────────────────────────
 
-for pidfile in "$WT_ROOT/.im.pid" "$WT_ROOT/.gateway.pid"; do
-  if [[ -f "$pidfile" ]] && kill -0 "$(cat "$pidfile")" 2>/dev/null; then
-    echo "service still running: $pidfile (pid=$(cat "$pidfile"))" >&2
+external_gateway_pid="$WT_ROOT/.gateway.pid"
+if [[ -e "$external_gateway_pid" && ( ! -f "$external_gateway_pid" || -L "$external_gateway_pid" ) ]]; then
+  echo "non-regular external Gateway PID evidence: $external_gateway_pid" >&2
+  exit 1
+fi
+if [[ -f "$external_gateway_pid" ]]; then
+  existing_gateway_pid="$(tr -d '[:space:]' < "$external_gateway_pid")"
+  if [[ "$existing_gateway_pid" =~ ^[1-9][0-9]*$ ]] \
+    && kill -0 "$existing_gateway_pid" 2>/dev/null; then
+    echo "service still running: $external_gateway_pid (pid=$existing_gateway_pid)" >&2
     echo "run ./scripts/e2e-down.sh first" >&2
     exit 1
   fi
-done
+fi
+if [[ -f "$WT_ROOT/.im.pid" ]] && kill -0 "$(cat "$WT_ROOT/.im.pid")" 2>/dev/null; then
+  echo "service still running: $WT_ROOT/.im.pid (pid=$(cat "$WT_ROOT/.im.pid"))" >&2
+  echo "run ./scripts/e2e-down.sh first" >&2
+  exit 1
+fi
+
+# Without a live external owner, internal PID/identity/state are stale evidence,
+# never signal authority. Clear them before a new child can observe or reuse them.
+rm -f "$external_gateway_pid"
+rm -f "$WT_ROOT/gateway.pid"
+rm -f "$WT_ROOT/gateway.identity.json"
+rm -f "$WT_ROOT/.gateway-state.json"
+rm -f "$WT_ROOT/.gateway-identity.json"
+rm -f "$WT_ROOT/.im.pid"
 
 # ─── port allocation ─────────────────────────────────────────────────────────
 
@@ -73,6 +98,84 @@ if [[ -z "$PYTHON_BIN" ]] || ! "$PYTHON_BIN" -c "import yaml" 2>/dev/null; then
   echo "python with project dependencies (including PyYAML) not found on PATH" >&2
   exit 1
 fi
+
+IM_PID=""
+GW_PID=""
+ROLLBACK_ACTIVE=1
+
+process_status() {
+  local pid=$1 process_stat
+  process_stat="$(ps -p "$pid" -o stat= 2>/dev/null | tr -d '[:space:]')"
+  if [[ -z "$process_stat" || "$process_stat" == Z* ]]; then
+    echo exited
+  else
+    echo alive
+  fi
+}
+
+stop_spawned_pid() {
+  local pid=$1
+  [[ -n "$pid" ]] || return 0
+  if [[ "$(process_status "$pid")" == exited ]]; then
+    return 0
+  fi
+  kill "$pid" 2>/dev/null || true
+  for _ in $(seq 1 20); do
+    [[ "$(process_status "$pid")" == exited ]] && return 0
+    sleep 0.05
+  done
+  kill -9 "$pid" 2>/dev/null || true
+  for _ in $(seq 1 20); do
+    [[ "$(process_status "$pid")" == exited ]] && return 0
+    sleep 0.05
+  done
+  return 1
+}
+
+clear_matching_pid_file() {
+  local path=$1 expected_pid=$2 actual
+  [[ -f "$path" && ! -L "$path" ]] || return 0
+  actual="$(tr -d '[:space:]' < "$path")"
+  [[ "$actual" == "$expected_pid" ]] && rm -f "$path"
+}
+
+clear_matching_json_pid_file() {
+  local path=$1 expected_pid=$2
+  [[ -f "$path" && ! -L "$path" ]] || return 0
+  "$PYTHON_BIN" - "$path" "$expected_pid" <<'PY' || true
+import json
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+expected = int(sys.argv[2])
+try:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+except (OSError, ValueError):
+    raise SystemExit(0)
+if payload.get("pid") == expected:
+    path.unlink(missing_ok=True)
+PY
+}
+
+rollback_spawned_stack() {
+  local exit_code=$?
+  [[ $ROLLBACK_ACTIVE -eq 1 && $exit_code -ne 0 ]] || return "$exit_code"
+  trap - EXIT
+  set +e
+  if [[ -n "$GW_PID" ]] && stop_spawned_pid "$GW_PID"; then
+    clear_matching_pid_file "$WT_ROOT/.gateway.pid" "$GW_PID"
+    clear_matching_pid_file "$WT_ROOT/gateway.pid" "$GW_PID"
+    clear_matching_json_pid_file "$WT_ROOT/gateway.identity.json" "$GW_PID"
+    clear_matching_json_pid_file "$WT_ROOT/.gateway-state.json" "$GW_PID"
+  fi
+  if [[ -n "$IM_PID" ]] && stop_spawned_pid "$IM_PID"; then
+    clear_matching_pid_file "$WT_ROOT/.im.pid" "$IM_PID"
+  fi
+  exit "$exit_code"
+}
+
+trap rollback_spawned_stack EXIT
 # The agent runtime is in-process; only the IM service needs a port.
 read -r IM_PORT < <("$FREE_PORTS_SH" 1)
 
@@ -145,7 +248,8 @@ cd "$WT_ROOT"
 IM_JWT_SECRET="$JWT_SECRET" PYTHONPATH="$SRC_DIR" \
   "$PYTHON_BIN" -m uvicorn IM.app:app --host 127.0.0.1 --port "$IM_PORT" \
   > "$WT_ROOT/.im.log" 2>&1 &
-echo $! > "$WT_ROOT/.im.pid"
+IM_PID=$!
+echo "$IM_PID" > "$WT_ROOT/.im.pid"
 
 # Wait for IM ready. IM has no dedicated /health endpoint, so we probe
 # /openapi.json — present on every FastAPI app once startup completes.
@@ -225,45 +329,68 @@ PYTHONPATH="$SRC_DIR" "$PYTHON_BIN" -m personal_assistant.main \
 GW_PID=$!
 echo "$GW_PID" > "$WT_ROOT/.gateway.pid"
 
-# The external shell PID alone is not sufficient signal ownership: it can be
-# reused after an unclean run. Wait for the Gateway's own PID file, then bind
-# both claims to the exact config argv and OS process start identity.
+# The external shell PID alone is not sufficient signal ownership. Foreground
+# runtime publishes the same public identity used by operator stop; wait within
+# the configured launcher budget and require both PID claims + exact argv schema.
+GW_IDENTITY_TICKS="$($PYTHON_BIN - "$WT_CFG" <<'PY'
+import math
+import sys
+import yaml
+
+payload = yaml.safe_load(open(sys.argv[1])) or {}
+gateway = payload.get("gateway") if isinstance(payload.get("gateway"), dict) else {}
+legacy = payload.get("kernel") if isinstance(payload.get("kernel"), dict) else {}
+timeout = gateway.get("startup_timeout_seconds", legacy.get("startup_timeout_seconds", 15))
+print(max(1, math.ceil(float(timeout) / 0.1)))
+PY
+)"
 GW_IDENTITY_READY=0
-for _ in $(seq 1 60); do
+for _ in $(seq 1 "$GW_IDENTITY_TICKS"); do
   if [[ -f "$WT_ROOT/gateway.pid" ]]; then
     INTERNAL_GW_PID=$(tr -d '[:space:]' < "$WT_ROOT/gateway.pid")
     if [[ "$INTERNAL_GW_PID" != "$GW_PID" ]]; then
       echo "Gateway identity mismatch: external=$GW_PID internal=$INTERNAL_GW_PID" >&2
       exit 1
     fi
-    GW_START=$(ps -p "$GW_PID" -o lstart= 2>/dev/null | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-    if [[ -n "$GW_START" ]]; then
-      "$PYTHON_BIN" - \
-        "$WT_ROOT/.gateway-identity.json" "$GW_PID" "$INTERNAL_GW_PID" "$WT_CFG" "$GW_START" <<'PY'
+    if [[ -f "$WT_ROOT/gateway.identity.json" ]]; then
+      if ! "$PYTHON_BIN" - \
+        "$WT_ROOT/gateway.identity.json" "$GW_PID" "$WT_CFG" \
+        "http://127.0.0.1:$IM_PORT" <<'PY'
 import json
-import pathlib
+from pathlib import Path
 import sys
 
-identity_path, pid, internal_pid, config_path, process_start = sys.argv[1:]
-pathlib.Path(identity_path).write_text(
-    json.dumps(
-        {
-            "pid": int(pid),
-            "internal_pid": int(internal_pid),
-            "config_path": str(pathlib.Path(config_path).resolve()),
-            "process_start": process_start,
-        },
-        indent=2,
-        sort_keys=True,
-    ),
-    encoding="utf-8",
+identity_path, pid, config_path, im_url = sys.argv[1:]
+payload = json.loads(Path(identity_path).read_text(encoding="utf-8"))
+expected_config = str(Path(config_path).resolve())
+expected_argv = [
+    "--config",
+    expected_config,
+    "--im-service-url",
+    im_url,
+    "--foreground",
+    "--auto-bind",
+]
+raise SystemExit(
+    0
+    if payload.get("schema_version") == 1
+    and payload.get("pid") == int(pid)
+    and payload.get("config_path") == expected_config
+    and payload.get("entry_module") == "personal_assistant.main"
+    and payload.get("argv") == expected_argv
+    and isinstance(payload.get("process_start"), str)
+    and payload["process_start"].strip()
+    else 1
 )
 PY
-      GW_IDENTITY_READY=1
-      break
+      then
+        echo "Gateway public process identity mismatch for pid=$GW_PID" >&2
+        exit 1
+      fi
+      GW_IDENTITY_READY=1; break
     fi
   fi
-  if ! kill -0 "$GW_PID" 2>/dev/null; then
+  if [[ "$(process_status "$GW_PID")" == exited ]]; then
     echo "Gateway process died before identity confirmation; see $WT_ROOT/.gateway.log" >&2
     exit 1
   fi
@@ -322,3 +449,6 @@ echo "e2e stack ready in $WT_ROOT"
 echo "  IM   $IM_PORT  ($WT_ROOT/.im.log)"
 echo "  GW   pid=$(cat "$WT_ROOT/.gateway.pid")  ($WT_ROOT/.gateway.log)"
 echo "source $WT_ROOT/.e2e-ports.env to expose ports"
+
+ROLLBACK_ACTIVE=0
+trap - EXIT
