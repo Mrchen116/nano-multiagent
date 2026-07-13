@@ -135,3 +135,88 @@ N/A — 本 unit 不包含原型、设计稿、reference screenshot 或 must-mat
 ## Recommended Next Step
 
 派一个小范围 `fix-implementation`：只同步 `README.md`、`docs/operator-runbook.md` 与 `docs/specs/gateway/service-lifecycle.md` 到本 unit 已验证的真实输出和迁移契约；修复后针对 issue #1 做 targeted re-review，并复跑默认 start 输出对照即可。产品代码旅程本轮已全部通过。
+
+---
+
+# Round 3 — 2026-07-13
+
+## Verdict
+
+- **Verdict:** fail
+- **Highest Recommended Action:** fix-implementation
+- **Needs Re-review:** true
+- **Review Mode:** full（M3 高风险修复后全量产品复验）
+- **Implementation Head:** `8cb3a12c5eab56914af8b1409d2bffb35e2288d6`
+- **Issue Count:** critical 0 / major 1 / minor 0
+
+Round 1 的 README / operator runbook 启动输出漂移已修复，真实默认 start 与文档均只承诺 PID + child liveness，不再输出 `health_url` 或宣称 runtime/channel ready。但 M3 新增的 e2e ownership 建立窗口在真实冷启动下过早超时，并且失败后不回滚本次刚创建的 IM/Gateway，因此本轮仍不可放行。
+
+## Issue #1 — e2e 冷启动在 Gateway 建立 PID 前超时，失败后留下无 identity 的活栈
+
+- **Severity:** major
+- **Regression Relation:** direct（M3 R3 新增 ownership identity / fail-atomic teardown）
+- **Recommended Action:** fix-implementation
+- **Action Rationale:** 一键真栈是本 unit 的明确用户入口。首次冷启动会误报失败、遗留监听进程，而 down 因缺少 identity 又会 fail closed；运维者只能越过安全门禁手工核对 PID/argv 后清理。
+- **Expected:** `e2e-up.sh` 在 Gateway 允许的启动预算内等待 internal PID 与本轮 spawned PID 收敛；任何 identity/readiness 失败都只根据本 shell 刚获得的 PID 停止并确认退出，不留半栈。
+- **Actual:**
+  - 首次完全干净的冷启动在固定 `60 × 0.1s` identity 窗口后返回 `Gateway did not establish teardown identity` / rc=1。
+  - 失败后真实 IM PID 58399 与 Gateway PID 59165 仍存活，`.gateway.pid == gateway.pid == 59165`，Gateway argv 精确指向本 worktree config，但 `.gateway-identity.json` 不存在。
+  - 因 down 必须先验 identity，该现场无法由正常 `e2e-down.sh` 关闭；本轮只在精确核对内外 PID、argv 和 config 后手工 TERM/KILL 并清理。
+  - 再次从干净状态暖启动用时 10.722s，成功生成 identity（Gateway PID 67483），说明这是冷启动时序/可恢复性缺陷，不是真实 PID ownership 冲突。
+- **Minimal Reproduction:** 清空 worktree lifecycle 产物后，在持久 shell/tmux 中直接执行 `./scripts/e2e-up.sh`；观察上述超时后的两个活 PID、一致内外 PID 和缺失 identity。
+
+## Product Journey Evidence
+
+### Journey 1 — 用户消息与 Cron 真栈
+
+- 在新 HEAD 的工作树 IM + Gateway + 真 LLM proxy 上，Web IM tool-call reply 与 cron auto-push 两条 critical path 同进程复跑：`2 passed in 46.23s`。
+- 终端用户回复仍由进程内 Kernel 处理；Cron 按既有会话/投递语义完成。
+
+### Journey 2 — 真实 operator start / stop / restart
+
+- 预置 malformed `gateway.pid` 后默认 start 仍正确清除 residue 并启动 PID 82124；输出为文档所述三行，state 仅含 `config_path/log_path/pid`。
+- 重复 start rc=1 且不替换已有 PID；restart 从 82124 切换到 83823，旧 PID 退出、新 PID 存活。
+- 对新 Gateway 进程组发 `SIGSTOP` 后 stop 返回 `forced=true`，并且只在确认 PID 消失后清理 state/PID。
+
+### Journey 3 — 配置迁移与失败原子性
+
+- 95 个受影响 targeted tests 全部通过，覆盖 FIFO hard-timeout、existing/new hardlink、source drift、atomic replace failure、launch identity、state/PID-only forced stop 和 e2e fail-atomic。
+- 真实 legacy-only config 从 `kernel 9 / 4 / 0.4` 迁移到 `gateway 9 / 4 / 0.4`；backup 与原文 byte-identical、`nlink=1`、mode 0600，canonical config 不再含 `kernel:`。
+- 真实第三方 hardlink backup（backup/third-party 同 inode，nlink=2）与 FIFO backup 都拒绝覆盖 source；Gateway 本地运行不被配置保存失败拖垮。
+- mixed config 逐字段新值优先的 Round 2 真实证据（`12 / 4 / 0.3`）仍有效；M3 targeted 回归未改变该映射。
+
+### Journey 4 — e2e ownership 正负路径
+
+- 暖启动成功后篡改 internal `gateway.pid`，真实 down rc=1，Gateway/IM 均保持存活，identity/config/env/PID 证据全保留；恢复 PID 后 down rc=0，Gateway/IM 均退出，identity/state/config/env/PID 全清。
+- 未确认退出的 fail-atomic 路径由 shell integration 覆盖；真实正常 down 证明只管理 IM + Gateway，始终无 `.api.pid` / `personal_assistant.kernel_app`。
+- 冷启动负路径触发 issue #1，因此该 Scenario 整体为 fail。
+
+### Journey 5 — M170 鲜活 runtime
+
+- `stop → rebuild → start` 从空 runtime 注册/登录用户、Bearer 查询并 auto-bind；start 输出真实三行，`node_online=true` / `node_status=online`。
+- stop 后 `im_http_ok=false`、`gateway_pid=null`、`gateway_running=false`、`node_online=false`、`node_status=null`，无运行态残留。
+
+## Scenario Coverage Matrix
+
+| Scenario | Round 3 证据 | 结果 | 备注 |
+|---|---|---|---|
+| Web IM 或外部通道消息正常回复 | 真 Web IM tool-call reply | pass | 按 Scenario 的“或”由 Web IM 覆盖。 |
+| Heartbeat 与 Cron 活路径不受影响 | 真 cron auto-push | pass | 与 tool-call 同栈复跑。 |
+| 默认启动确认 | malformed residue + 真后台 start | pass | 文档与三行输出一致，无 health/readiness。 |
+| stop 与 restart 保持现有结果 | duplicate/restart/SIGSTOP forced stop | pass | 确认退出后才清证据。 |
+| IM 离线时 Gateway 本地自治不变 | 未发送外部 P2P | not-run | 未获得本轮单次发送授权；严格未执行，不影响已存在的 blocker。 |
+| 旧自定义 timing 继续生效 | 真 legacy migration `9 / 4 / 0.4` | pass | 启停与 canonical save 均完成。 |
+| 新配置优先于旧值 | Round 2 真 mixed + M3 targeted regression | pass | 逐字段 `12 / 4 / 0.3`。 |
+| 保存后只保留 Gateway 所有权 | 真 migration + hardlink/FIFO 失败原子性 | pass | source/backup 约束满足可执行路径。 |
+| 旧连接与 HTTP 字段不再形成运行时输入 | legacy 假 URL/token/request/command/health 后真实启动 | pass | 仍只构建进程内 Kernel。 |
+| e2e 起停无 Kernel API 产物 | 真冷/暖启动、identity mismatch、normal down | **fail** | 冷启动 identity timeout 留活半栈；见 issue #1。 |
+
+## Upper-level Documentation Sync
+
+- [x] `README.md` / `docs/operator-runbook.md`：Round 1 issue 已修复，与真实三行 start 及“非 readiness”语义一致。
+- [x] `SPEC.md`：无需更新，仍正确规定 Kernel 为 Gateway 进程内库。
+- [ ] `docs/specs/gateway/service-lifecycle.md`：按 orchestrator §7.0 在验收通过后归并；本轮因实现 blocker 未进入该步，不单独列为 blocker。
+
+## Recommended Next Step
+
+修复 `e2e-up.sh` 的 identity deadline 与 pre-identity 失败回滚：等待预算对齐 Gateway lifecycle startup timeout，且任何 up 失败都必须使用本轮刚 spawn 的 PID 停止并确认 Gateway/IM 退出。修复后做 targeted re-review：至少覆盖延迟超过 6 秒的 cold child、identity 建立前失败的自动回滚，以及随后真实 up/down 全清。
