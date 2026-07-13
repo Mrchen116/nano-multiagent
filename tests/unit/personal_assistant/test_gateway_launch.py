@@ -43,7 +43,7 @@ _DEFAULT_TEST_LLM = LLMConfigPayload(
 )
 
 
-def test_launch_gateway_in_background_spawns_foreground_child_and_waits_for_ready(
+def test_launch_gateway_in_background_spawns_foreground_child_and_waits_for_start(
     tmp_path: Path,
 ) -> None:
     config = build_config(tmp_path)
@@ -54,7 +54,7 @@ def test_launch_gateway_in_background_spawns_foreground_child_and_waits_for_read
         seen["spawn"] = (argv, log_path)
         return process
 
-    def _wait_for_ready(
+    def _wait_for_start(
         child: _FakeProcess, loaded_config: LocalConfig, timeout_seconds: float
     ) -> None:
         seen["wait"] = (child, loaded_config, timeout_seconds)
@@ -63,13 +63,11 @@ def test_launch_gateway_in_background_spawns_foreground_child_and_waits_for_read
         config_path=config.source_path,
         load_config=lambda path: config if path == config.source_path else None,
         spawn_process=_spawn_process,
-        wait_for_ready=_wait_for_ready,
+        wait_for_start=_wait_for_start,
     )
 
     assert result == BackgroundLaunchResult(
         pid=2468,
-        # refactor-387 M3: kernel is in-process; health_url shows pid= when no IM service configured.
-        health_url="pid=2468",
         log_path=config.source_path.parent / "gateway.log",
     )
     assert seen["spawn"] == (
@@ -97,7 +95,7 @@ def test_launch_gateway_in_background_passes_im_service_override_to_child_and_ru
         seen["spawn"] = (argv, log_path)
         return process
 
-    def _wait_for_ready(
+    def _wait_for_start(
         child: _FakeProcess, loaded_config: LocalConfig, timeout_seconds: float
     ) -> None:
         seen["wait"] = (child, loaded_config, timeout_seconds)
@@ -106,7 +104,7 @@ def test_launch_gateway_in_background_passes_im_service_override_to_child_and_ru
         config_path=config.source_path,
         load_config=lambda _path: config,
         spawn_process=_spawn_process,
-        wait_for_ready=_wait_for_ready,
+        wait_for_start=_wait_for_start,
         im_service_url_override="http://im.remote:9011",
     )
 
@@ -163,19 +161,19 @@ def test_load_runtime_config_preserves_im_credentials_when_overriding_url(
     assert loaded.im_service.password == "nano1234"
 
 
-def test_launch_gateway_in_background_stops_child_when_ready_wait_fails(
+def test_launch_gateway_in_background_stops_child_when_start_confirmation_fails(
     tmp_path: Path,
 ) -> None:
     config = build_config(tmp_path)
     process = _FakeProcess(wait_result=0)
 
-    with pytest.raises(RuntimeError, match="not ready"):
+    with pytest.raises(RuntimeError, match="not started"):
         launch_gateway_in_background(
             config_path=config.source_path,
             load_config=lambda _path: config,
             spawn_process=lambda _argv, _log_path: process,
-            wait_for_ready=lambda _child, _config, _timeout: (_ for _ in ()).throw(
-                RuntimeError("not ready")
+            wait_for_start=lambda _child, _config, _timeout: (_ for _ in ()).throw(
+                RuntimeError("not started")
             ),
         )
 
