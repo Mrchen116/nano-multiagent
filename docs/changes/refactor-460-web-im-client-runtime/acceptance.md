@@ -375,3 +375,102 @@ Computer Use、外部 Playwright、浏览器配置或 macOS 系统设置，也�
 旅程。Reviewer 已清理自己启动的服务、端口、tmux 与临时 worktree；没有修改产品代码、用户浏览器或系统配置。
 M5 由 orchestrator 在 Codex 隔离浏览器取得的 external sender/toast/unread 证据仍有效，但不冒充本轮独立 reviewer
 证据。
+
+---
+
+## Round 4 — 2026-07-14
+
+- **Verdict**: `inconclusive`
+- **Highest Required Action**: `manual-review`
+- **Review mode**: full
+- **Acceptance bar**: final independent product revalidation
+
+### 服务接管与浏览器前置条件
+
+按 `design.md` 的 Runbook 重建了前端并重启 worktree 隔离真栈。served Web IM 的入口指向本轮刚构建的
+`assets/index-B_fyQsrf.js`，且 Gateway 已 auto-bind 到同一 ephemeral IM 实例。未读取实现代码、未使用
+内部 HTTP/DOM mock 或其他浏览器自动化替代产品入口。
+
+但在开始任何用户旅程前，Codex 内置隔离浏览器本身不可用：显式请求隔离浏览器返回
+`Browser is not available: iab`，按连接故障指引检查后可用浏览器列表为空。故本轮没有可操作的真实 Web IM
+客户端，不能产生对用户可见行为的独立证据。没有回退到用户 Chrome、Computer Use、外部 Playwright、浏览器/系统
+设置或内部协议调用。
+
+### User Journeys Exercised
+
+无。服务前置条件通过，但浏览器可用性失败发生在登录和任何 UI 操作之前。
+
+### Reference Artifacts Reviewed
+
+N/A。`motivation.md` / `design.md` 未规定 prototype、设计稿或 reference screenshot；本轮的阻断发生在建立
+真实浏览器会话之前。
+
+### 验收标准覆盖
+
+本轮要求 full revalidation。下表逐条继承此前未闭合项，但**不把历轮或实现方浏览器证据冒充为本轮独立证据**；所有
+必验 Scenario 均因没有隔离浏览器而为 `inconclusive`。
+
+### Requirement: 当前会话继续实时呈现完整消息过程 — 组内结论: inconclusive
+
+| Scenario | 期望来源 | 验证方式（本轮） | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| Agent 回复实时更新 | `motivation.md` | 计划以真实 Gateway/LLM 在当前会话观察生成态、完成态与 reload | 无可操作隔离浏览器 | inconclusive | 未开始登录/UI 旅程 |
+| 静默回复撤销临时气泡 | `motivation.md` | 计划以真实静默回复观察临时态、完成态与 reload | 无可操作隔离浏览器 | inconclusive | Round 1/2 的失败不以本轮未执行替代验证关闭 |
+| 外部 channel 消息实时进入已打开会话 | `motivation.md` | 计划从真实 external channel 写入已打开影子会话 | 无可操作隔离浏览器 | inconclusive | 此前尚未由独立 reviewer 完整闭合 |
+
+### Requirement: 会话列表、未读状态和应用内提醒保持一致 — 组内结论: inconclusive
+
+| Scenario | 期望来源 | 验证方式（本轮） | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 未打开会话收到新消息 | `motivation.md` | 计划在另一真实会话收可见消息后检查 toast、预览、排序与未读 | 无可操作隔离浏览器 | inconclusive | Round 1/2 的失败不以本轮未执行替代验证关闭 |
+| 当前会话和自己的消息不产生多余提醒 | `motivation.md` | 计划在当前会话/自己发送两种条件下观察提醒 | 无可操作隔离浏览器 | inconclusive | 无 UI 观察证据 |
+
+### Requirement: 桌面系统通知保持一次且可导航 — 组内结论: inconclusive
+
+| Scenario | 期望来源 | 验证方式（本轮） | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 后台标签页收到 Agent 完成通知 | `motivation.md` | 计划用已授权隔离浏览器让标签页后台化、观察一次系统通知并点击导航 | 无可操作隔离浏览器 | inconclusive | 此前尚未独立闭合 |
+| 不满足通知条件时不弹通知 | `motivation.md` | 计划覆盖前台、关闭开关与未授权条件 | 无可操作隔离浏览器 | inconclusive | 不能从服务状态推断系统通知结果 |
+| 恢复连接不重放历史通知 | `motivation.md` | 计划断网恢复后观察新旧应用内/系统通知 | 无可操作隔离浏览器 | inconclusive | 不能以历史报告替代本轮用户面证据 |
+
+### Requirement: Node 与 Agent 状态继续实时变化 — 组内结论: inconclusive
+
+| Scenario | 期望来源 | 验证方式（本轮） | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| Gateway 断连与重连 | `motivation.md` | 计划在 Chat、Nodes、Agents 页面观察 offline→online | 无可操作隔离浏览器 | inconclusive | Gateway 服务健康不等于用户页面已更新 |
+
+### Requirement: 长时间登录与账号切换后实时体验仍然正确 — 组内结论: inconclusive
+
+| Scenario | 期望来源 | 验证方式（本轮） | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 长时间保持登录后发生网络重连 | `motivation.md`、`design.md` Runbook | 计划写入真实 expired access + valid refresh 后离线/恢复 | 无可操作隔离浏览器 | inconclusive | 无法建立或修改真实浏览器 session |
+| 退出后切换为另一用户 | `motivation.md` | 计划在同一浏览器 logout→另一账号登录后触发前账号事件 | 无可操作隔离浏览器 | inconclusive | 无 UI 隔离证据 |
+
+### Requirement: 非实时入口保持原有可用性 — 组内结论: inconclusive
+
+| Scenario | 期望来源 | 验证方式（本轮） | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 确认 Gateway 绑定 | `motivation.md`、`design.md` Runbook | 计划预热 Chat/Settings cache 后通过有效/错误 token 绑定 | 无可操作隔离浏览器 | inconclusive | 无法验证 hot-cache 收敛或失败反馈 |
+| 从 Agent 详情打开单聊 | `motivation.md` | 计划从有效 Agent 详情点击 Open chat，并观察成功与错误反馈 | 无可操作隔离浏览器 | inconclusive | 无 UI 观察证据 |
+
+### 问题清单
+
+没有发现可归因于产品的用户面问题：本轮在任何 UI 交互发生之前即被隔离浏览器不可用阻断。此环境问题不是
+`fix-implementation` 结论，也不能关闭 Round 1/2 的历史问题。
+
+### Side Findings
+
+- 隔离真栈与本轮构建产物的健康检查、入口 asset 指纹和 Gateway auto-bind 均通过；它们仅证明验收环境已接管，
+  不能替代浏览器用户旅程。
+
+### 上层文档同步
+
+- [x] `SPEC.md`：未见本轮新增的跨包职责变化；本轮未形成产品行为结论。
+- [x] `docs/specs/im/`：本轮未修改或验明新的长期契约增量。
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新；本轮只确认既有隔离服务接管步骤。
+- [x] `docs/SPEC_GUIDE.md`：无需更新；本轮未涉及文档体系。
+
+### Recommended Next Step
+
+为独立 reviewer 提供可用的 Codex 内置隔离浏览器后，重新执行一次 `full` Round 5：必须真实登录同一隔离栈，逐条
+重跑本表所有 Scenario，尤其补齐 external-channel live message 与可观察系统通知/点击导航；在此之前不能给 `pass`。
