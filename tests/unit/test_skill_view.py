@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
 import json
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from agent.sdk.kernel import Kernel
 from agent.core.skills.registry import SkillRegistry
 from agent.core.tools.base import ToolContext
 from agent.platform.tools.builtins.skill_view import SkillViewTool
@@ -276,38 +274,3 @@ def test_skill_view_output_presenter_summarizes_auditable_details(
 
 def test_skill_view_tool_satisfies_tool_context_protocol() -> None:
     assert ToolContext.__name__ == "ToolContext"
-
-
-@pytest.mark.asyncio
-async def test_kernel_compact_delegates_reinjection_to_runtime(
-    tmp_path: Path,
-) -> None:
-    workspace = tmp_path / "workspace"
-    appended: list[dict[str, Any]] = []
-    compact_calls: list[dict[str, Any]] = []
-
-    class _Runtime:
-        async def compact(self, session_id: str, *, workspace_root: Path | None = None):
-            compact_calls.append(
-                {"session_id": session_id, "workspace_root": workspace_root}
-            )
-            return SimpleNamespace(entry_id="compact-msg-1")
-
-        def invalidate_session_cache(self, session_id: str) -> None:
-            pass
-
-    class _SessionService:
-        def append_message(self, *args: Any, **kwargs: Any) -> SimpleNamespace:
-            appended.append({"args": args, **kwargs})
-            return SimpleNamespace(entry={"metadata": kwargs.get("metadata")})
-
-    kernel = Kernel.__new__(Kernel)
-    kernel._repo_root = workspace
-    kernel._workspace_config_dirname = ".nanoassistant"
-    kernel._skill_search_roots = ()
-    kernel._c = SimpleNamespace(runtime=_Runtime(), session_service=_SessionService())
-
-    await Kernel.compact(kernel, "sess-1", workspace_root=workspace)
-
-    assert compact_calls == [{"session_id": "sess-1", "workspace_root": workspace}]
-    assert appended == []

@@ -212,15 +212,9 @@ class AgentTool(WiringMixin):
     def __init__(
         self,
         *,
-        runtime: Any | None = None,
         wiring: Any | None = None,
     ) -> None:
-        self._runtime = runtime
         self._wiring = wiring
-
-    def bind_runtime(self, runtime: Any | None) -> None:
-        """Bind runtime after bootstrap."""
-        self._runtime = runtime
 
     # ------------------------------------------------------------------
     # Entry point
@@ -247,7 +241,7 @@ class AgentTool(WiringMixin):
     def _run_background(
         self, args: Mapping[str, Any], ctx: ToolContext
     ) -> dict[str, Any]:
-        runtime = self._require_runtime()
+        control = self._require_control(ctx)
         wiring = self._require_wiring()
         registry = wiring.registry
 
@@ -258,7 +252,7 @@ class AgentTool(WiringMixin):
 
         # Create subagent session with metadata
         agent_session_id = self._create_subagent_session(
-            runtime=runtime,
+            control=control,
             ctx=ctx,
             agent_id=agent_id,
             agent_type=agent_type,
@@ -270,7 +264,7 @@ class AgentTool(WiringMixin):
         # lives under {ctx.cwd}/.nano/sessions/{parent}/subagents/. Thread ctx.cwd
         # so the stateless store can locate it.
         output_file = self._resolve_output_file(
-            runtime, agent_session_id, ctx.session_id, ctx.cwd
+            control, agent_session_id, ctx.session_id, ctx.cwd
         )
 
         # Register background task
@@ -304,7 +298,7 @@ class AgentTool(WiringMixin):
             on_kill=_make_on_kill(registry, agent_id),
             workspace_root=ctx.cwd,
             llm_session_id=ctx.session_id or None,
-            model=runtime.resolve_run_model(ctx.session_id),
+            model=control.resolve_run_model(),
         )
         registry.set_stop_handle(agent_id, stopper)
         registry.set_message_handle(agent_id, stopper)
@@ -323,7 +317,7 @@ class AgentTool(WiringMixin):
     def _run_foreground(
         self, args: Mapping[str, Any], ctx: ToolContext
     ) -> dict[str, Any]:
-        runtime = self._require_runtime()
+        control = self._require_control(ctx)
         wiring = self._require_wiring()
 
         agent_id = generate_agent_id()
@@ -333,7 +327,7 @@ class AgentTool(WiringMixin):
         timeout_seconds = _resolve_timeout_seconds(args)
 
         agent_session_id = self._create_subagent_session(
-            runtime=runtime,
+            control=control,
             ctx=ctx,
             agent_id=agent_id,
             agent_type=agent_type,
@@ -344,7 +338,7 @@ class AgentTool(WiringMixin):
         # Subagent sessions are created with workspace_root=ctx.cwd; thread it so
         # the stateless store can locate the subagent JSONL.
         output_file = self._resolve_output_file(
-            runtime, agent_session_id, ctx.session_id, ctx.cwd
+            control, agent_session_id, ctx.session_id, ctx.cwd
         )
 
         handle = wiring.subagent_runner.start_foreground(
@@ -353,7 +347,7 @@ class AgentTool(WiringMixin):
             prompt=prompt,
             workspace_root=ctx.cwd,
             llm_session_id=ctx.session_id or None,
-            model=runtime.resolve_run_model(ctx.session_id),
+            model=control.resolve_run_model(),
         )
 
         try:
@@ -418,8 +412,8 @@ class AgentTool(WiringMixin):
         # Subagent JSONL lives under the parent session's workspace_root; the
         # parent turn (ctx.session_id) is what invoked this tool, so the runtime
         # holds the parent's workspace_root in memory.
-        runtime = self._require_runtime()
-        parent_workspace_root = runtime.session_workspace_root(ctx.session_id or "")
+        control = self._require_control(ctx)
+        parent_workspace_root = control.workspace_root
 
         # 1. Check in-memory registry
         record = registry.get(agent_id)
@@ -448,6 +442,7 @@ class AgentTool(WiringMixin):
                         output_file=current.output_file,
                         agent_type=current.agent_type,
                         workspace_root=parent_workspace_root,
+                        control=control,
                     )
                 raise ToolError(
                     (
@@ -468,50 +463,26 @@ class AgentTool(WiringMixin):
                 output_file=record.output_file,
                 agent_type=record.agent_type,
                 workspace_root=parent_workspace_root,
+                control=control,
             )
 
         # 2. Try JSONL rehydrate. The stateless store needs the parent's
         # workspace_root (resolved above) to locate both the index scan and the
         # subagent file.
-        store = runtime._session_manager.store
         parent_session_id = ctx.session_id or ""
-        found_session_id = store.find_session_by_metadata(
-            parent_session_id=parent_session_id,
-            match={"agent_id": agent_id},
-            workspace_root=parent_workspace_root,
-        )
-        if found_session_id is None:
+        found = control.find_subagent(agent_id)
+        if found is None:
             raise ToolError(
                 f'No subagent with agent_id="{agent_id}" found in session history.',
                 tool_name=self.name,
                 details={"code": "agent_not_found"},
             )
 
-        # Load session config to get metadata
-        try:
-            load_result = runtime._session_manager.load(
-                found_session_id,
-                workspace_root=parent_workspace_root,
-                parent_session_id=parent_session_id,
-            )
-        except Exception as exc:  # noqa: BLE001
-            raise ToolError(
-                f"Failed to load subagent session: {exc}",
-                tool_name=self.name,
-                details={"code": "agent_not_found"},
-            ) from exc
-
-        config = load_result.config
-        metadata = dict(config.metadata) if config.metadata else {}
+        found_session_id = str(found["session_id"])
+        metadata = dict(found.get("metadata") or {})
         description = metadata.get("description", "")
         agent_type = metadata.get("agent_type")
-        output_file = str(
-            store.resolve_path(
-                found_session_id,
-                workspace_root=parent_workspace_root,
-                parent_session_id=parent_session_id,
-            )
-        )
+        output_file = str(found["output_path"])
 
         return self._resume_subagent(
             agent_id=agent_id,
@@ -523,6 +494,7 @@ class AgentTool(WiringMixin):
             output_file=output_file,
             agent_type=agent_type,
             workspace_root=parent_workspace_root,
+            control=control,
         )
 
     def _resume_subagent(
@@ -537,6 +509,7 @@ class AgentTool(WiringMixin):
         output_file: str,
         agent_type: str | None,
         workspace_root: Path | None = None,
+        control: Any,
     ) -> dict[str, Any]:
         if agent_session_id is None:
             raise ToolError(
@@ -546,7 +519,6 @@ class AgentTool(WiringMixin):
 
         wiring = self._require_wiring()
         registry = wiring.registry
-        runtime = self._require_runtime()
 
         # Register/resume task in registry
         registry.register_subagent(
@@ -582,7 +554,7 @@ class AgentTool(WiringMixin):
             on_kill=_make_on_kill(registry, agent_id),
             workspace_root=workspace_root,
             llm_session_id=parent_session_id or None,
-            model=runtime.resolve_run_model(resuming_session_id),
+            model=control.resolve_run_model(),
         )
         registry.set_stop_handle(agent_id, stopper)
         registry.set_message_handle(agent_id, stopper)
@@ -601,7 +573,7 @@ class AgentTool(WiringMixin):
     def _create_subagent_session(
         self,
         *,
-        runtime: Any,
+        control: Any,
         ctx: ToolContext,
         agent_id: str,
         agent_type: str,
@@ -621,26 +593,17 @@ class AgentTool(WiringMixin):
             if effective_workspace
             else None,
         }
-        # bugfix-418 (decision 1, applied to the creation path): like the turn
-        # path, run create_session on the kernel's dedicated loop via the runner —
-        # never on a transient loop via bare asyncio.run. Submit directly (no
-        # capability probe, no fallback): when no real runner is wired, the
-        # turn step would raise anyway, so a create that silently "succeeds" via
-        # asyncio.run would only re-open the cross-loop back door. Letting
-        # _NoOpSubagentRunner.submit_foreground raise keeps the failure loud.
-        wiring = self._require_wiring()
-        create_coro = runtime.create_session(
+        session = control.create_subagent(
             workspace_root=effective_workspace,
             skills=load_skills if load_skills else None,
             metadata=metadata,
             parent_session_id=ctx.session_id,
         )
-        session = wiring.subagent_runner.submit_foreground(create_coro).result()
         return str(session.session_id)
 
     def _resolve_output_file(
         self,
-        runtime: Any,
+        control: Any,
         agent_session_id: str,
         parent_session_id: str | None,
         workspace_root: Path,
@@ -648,18 +611,17 @@ class AgentTool(WiringMixin):
         # Subagent JSONL lives under the parent session's workspace_root, which
         # is the spawning turn's ctx.cwd (also used as the subagent's own
         # workspace_root at create_session time).
-        store = runtime._session_manager.store
-        return store.resolve_path(
+        return control.output_path(
             agent_session_id,
             workspace_root=workspace_root,
             parent_session_id=parent_session_id or "",
         )
 
-    def _require_runtime(self) -> Any:
-        runtime = self._runtime
-        if runtime is None:
-            raise ToolError("agent runtime is not configured", tool_name=self.name)
-        return runtime
+    def _require_control(self, ctx: ToolContext) -> Any:
+        control = ctx.subagent_control
+        if control is None:
+            raise ToolError("subagent control is not configured", tool_name=self.name)
+        return control
 
     def _validate_new_agent_args(
         self, args: Mapping[str, Any], *, ctx: ToolContext
@@ -676,7 +638,7 @@ class AgentTool(WiringMixin):
         )
         # bugfix-431 决策 3: use runtime.resolve_available_skills so subagent skill
         # validation uses the same resolver as runtime and preview (同源).
-        available = self._runtime.resolve_available_skills(
+        available = self._require_control(ctx).resolve_available_skills(
             ctx.repo_root,
             include_names=load_skills,
         )

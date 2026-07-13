@@ -576,9 +576,9 @@ def _make_runs_registry_stub(
     else:
         session = None
 
-    session_manager = MagicMock()
-    session_manager.get_session.return_value = session
-    registry_stub._session_manager = session_manager
+    directory = MagicMock()
+    directory.get.return_value = session
+    registry_stub._directory = directory
 
     if submit_raises:
         registry_stub.submit.side_effect = submit_raises
@@ -613,7 +613,7 @@ def test_deliver_notification_skips_subagent_parent_session() -> None:
         workspace_root="/custom/workspace",
     )
 
-    _deliver_notification(record, runs_registry, runs_registry._session_manager)
+    _deliver_notification(record, runs_registry, runs_registry._directory)
 
     runs_registry.submit.assert_not_called()
 
@@ -653,7 +653,7 @@ def test_deliver_notification_logs_error_on_submit_failure() -> None:
     import unittest.mock
 
     with unittest.mock.patch.object(logger_module, "log_error", _capture_log_error):
-        _deliver_notification(record, runs_registry, runs_registry._session_manager)
+        _deliver_notification(record, runs_registry, runs_registry._directory)
 
     assert any(
         "notify" in event or "deliver" in event or "background" in event
@@ -680,7 +680,7 @@ def test_notifying_store_skips_deliver_when_notified_true() -> None:
 
     store = InMemoryTaskStore()
     reg = BackgroundTaskRegistry(store=store)
-    _wire_notification_callbacks(reg, runs_registry)
+    _wire_notification_callbacks(reg, runs_registry, None)
 
     record = BackgroundTaskRecord(
         task_id="b1",
@@ -708,78 +708,3 @@ def test_notifying_store_skips_deliver_when_notified_true() -> None:
     with patch.object(wiring_mod, "_deliver_notification") as mock_deliver:
         reg._store.update(completed_record)  # type: ignore[attr-defined]
         mock_deliver.assert_not_called()
-
-
-def test_agent_tool_run_background_passes_workspace_root_to_registry() -> None:
-    """AgentTool._run_background 调用 register_subagent 时必须传 workspace_root。"""
-    import tempfile
-    from pathlib import Path
-    from unittest.mock import MagicMock
-
-    from agent.platform.tools.builtins.agent import AgentTool
-
-    reg = BackgroundTaskRegistry()
-
-    workspace = Path(tempfile.mkdtemp())
-
-    # 构造 wiring stub
-    wiring = MagicMock()
-    wiring.registry = reg
-
-    class _FakeStopper:
-        def stop(self) -> None:
-            pass
-
-        def send_message(self, prompt: str) -> bool:
-            del prompt
-            return False
-
-    wiring.subagent_runner.start.return_value = _FakeStopper()
-
-    # bugfix-418: _create_subagent_session now routes create_session onto the
-    # dedicated loop via submit_foreground; the stub must actually run the coro
-    # and return its result (a bare MagicMock would leak the coroutine).
-    import asyncio
-    from concurrent.futures import Future
-
-    def _submit_foreground(coro: Any) -> Any:
-        fut: Future = Future()
-        fut.set_result(asyncio.run(coro))
-        return fut
-
-    wiring.subagent_runner.submit_foreground = _submit_foreground
-
-    # runtime stub：create_session 返回带 session_id 的对象
-    runtime_stub = MagicMock()
-    session_stub = MagicMock()
-    session_stub.session_id = "sub-sess-1"
-
-    async def _create_session(**kwargs: Any) -> Any:
-        return session_stub
-
-    runtime_stub.create_session = _create_session
-
-    store_stub = MagicMock()
-    store_stub.resolve_path.return_value = workspace / "out.jsonl"
-    runtime_stub._session_manager.store = store_stub
-
-    tool = AgentTool(runtime=runtime_stub, wiring=wiring)
-
-    ctx = MagicMock()
-    ctx.session_id = "parent-sess"
-    ctx.repo_root = workspace
-    ctx.cwd = workspace
-
-    args = {
-        "description": "test agent",
-        "prompt": "do something",
-        "subagent_type": "explore",
-        "load_skills": [],
-    }
-
-    tool._run_background(args=args, ctx=ctx)
-
-    # 取到注册的 record，断言 workspace_root 传入
-    records = list(reg._records.values())
-    assert len(records) == 1
-    assert records[0].workspace_root == str(workspace)

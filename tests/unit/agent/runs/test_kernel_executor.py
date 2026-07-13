@@ -110,6 +110,29 @@ def test_cancel_has_separate_cleanup_ack_and_same_executor_remains_usable() -> N
     executor.shutdown()
 
 
+def test_force_cancel_bypasses_cooperative_grace() -> None:
+    """A foreground stopper must not let the stopped tool close as success."""
+
+    executor = KernelExecutor(cancel_grace_seconds=30)
+    events: list[str] = []
+    session = _Session(events, block=True)
+    sink = _Sink(events)
+    token = executor.start_top_level(
+        "run-force",
+        session,
+        TurnRequest(parts=({"type": "text", "text": "hello"},)),
+        sink,
+    )
+    assert session.started.wait(timeout=1)
+
+    assert executor.request_cancel(token, force=True) is True
+
+    assert sink.completed.wait(timeout=1)
+    assert sink.completion is not None
+    assert sink.completion.cancelled is True
+    executor.shutdown()
+
+
 def test_auxiliary_is_owned_through_shutdown_and_new_targets_are_rejected() -> None:
     executor = KernelExecutor(cancel_grace_seconds=0)
     session = _Session([], block=True)

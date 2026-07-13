@@ -15,9 +15,9 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock
-
 from agent.sdk import Kernel, LLMConfig, build_kernel
+from agent.core.llm.interfaces import LLMMessage
+from agent.core.session.types import SessionRef
 
 
 # ---------------------------------------------------------------------------
@@ -58,13 +58,28 @@ def _fake_llm_client() -> Any:
 
 async def _async_stub_messages():
     """Async generator yielding one assistant message then finishing."""
-    msg = MagicMock()
-    msg.role = "assistant"
-    msg.content = "stub-response"
-    msg.finish_reason = "stop"
-    msg.tool_calls = ()
-    msg.usage = None
-    yield msg
+    yield LLMMessage(
+        role="assistant",
+        content="stub-response",
+        finish_reason="stop",
+        tool_calls=(),
+        usage=None,
+    )
+
+
+async def _session_hook_context(kernel: Kernel, session_id: str, root: Path):
+    """Build a hook context from the final per-conversation owner for contracts."""
+
+    conversation = kernel._c.directory.open(  # noqa: SLF001
+        SessionRef(session_id=session_id, workspace_root=root)
+    )
+    state = await conversation._ensure_loaded()  # noqa: SLF001
+    engine = conversation._engine  # noqa: SLF001
+    token = engine._active_state.set(state)  # noqa: SLF001
+    try:
+        return engine._build_hook_context(session_id=session_id)  # noqa: SLF001
+    finally:
+        engine._active_state.reset(token)  # noqa: SLF001
 
 
 # ---------------------------------------------------------------------------
@@ -190,15 +205,11 @@ async def test_can_use_tool_callback_is_invoked_via_permission_requester(
         _llm_client_override=_fake_llm_client(),
     )
     try:
-        # Simulate a permission request through the runtime's hook context.
-        # The SDK wires _can_use_tool into runtime; _build_hook_context builds a
-        # per-call permission_requester closure that races can_use_tool.
+        # Simulate a permission request through the conversation engine hook context.
         from agent.platform.permissions.broker import PermissionRequest
 
         session = await kernel.create_session(workspace_root=tmp_path)
-        hook_ctx = kernel._c.runtime._build_hook_context(  # noqa: SLF001
-            session_id=session.session_id
-        )
+        hook_ctx = await _session_hook_context(kernel, session.session_id, tmp_path)
         assert hook_ctx.permission_requester is not None, (
             "SDK must wire a permission_requester into the hook context when "
             "_can_use_tool is set"
@@ -248,17 +259,9 @@ async def test_interrupt_while_waiting_for_permission_cancels_turn(
     )
     try:
         session = await kernel.create_session(workspace_root=tmp_path)
-        run = kernel.submit(
-            session_id=session.session_id,
-            parts=[{"type": "text", "text": "use a tool"}],
-            workspace_root=tmp_path,
-        )
-
         from agent.platform.permissions.broker import PermissionRequest
 
-        hook_ctx = kernel._c.runtime._build_hook_context(  # noqa: SLF001
-            session_id=session.session_id
-        )
+        hook_ctx = await _session_hook_context(kernel, session.session_id, tmp_path)
         assert hook_ctx.permission_requester is not None
 
         req = PermissionRequest(

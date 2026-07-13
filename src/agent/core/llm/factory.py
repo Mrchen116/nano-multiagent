@@ -5,7 +5,7 @@ implementations live in agent.platform.llm.factory so that core never depends
 on platform (rule: core does not import platform/products/apps).
 
 The composition root (agent.sdk.build_kernel) is responsible for wiring the
-platform factory into AgentRuntime via llm_client_factory injection.
+platform factory into AgentEngine via llm_client_factory injection.
 """
 
 import os

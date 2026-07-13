@@ -212,7 +212,7 @@ class _SystemClock:
 
 
 class _NoOpSubagentRunner(BackgroundSubagentRunner):
-    """Placeholder when no AgentRuntime is available (e.g. unit tests)."""
+    """Placeholder when no conversation executor is available."""
 
     def start(
         self,

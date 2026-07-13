@@ -52,21 +52,6 @@ class JsonlWriter:
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self.durable_barrier, path)
 
-    def enqueue(self, path: Path, entry: dict) -> None:
-        """Queue one entry through the legacy API during the cutover."""
-
-        self.enqueue_raw(path, entry)
-
-    def flush(self, timeout: float = 10.0) -> None:
-        """Flush the legacy global writer API during the cutover."""
-
-        self.durable_barrier(Path("."), timeout=timeout)
-
-    async def flush_async(self) -> None:
-        """Await the legacy global writer API during the cutover."""
-
-        await self.durable_barrier_async(Path("."))
-
     def _run(self) -> None:
         buffer: list[tuple[Path, dict]] = []
         last_flush = time.monotonic()

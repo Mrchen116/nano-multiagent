@@ -5,6 +5,7 @@ from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
 from threading import Lock
+from collections.abc import Awaitable, Callable
 from typing import Any, Mapping, Protocol, Sequence
 
 from agent.core.ids import make_run_id
@@ -151,11 +152,16 @@ class RunsRegistry:
             self._state = _RegistryState.DRAINING
             return True
 
-    def shutdown(self, *, grace_timeout_seconds: float | None = None) -> None:
-        """Close run admission and delegate carrier cleanup to KernelExecutor."""
+    def shutdown(
+        self,
+        *,
+        grace_timeout_seconds: float | None = None,
+        finalize: Callable[[], Awaitable[None]] | None = None,
+    ) -> None:
+        """Close run admission, drain carriers, then run owner-loop finalization."""
 
         self.begin_shutdown()
-        self._executor.shutdown(timeout=grace_timeout_seconds)
+        self._executor.shutdown(timeout=grace_timeout_seconds, finalize=finalize)
         with self._lock:
             self._state = _RegistryState.CLOSED
 
@@ -314,7 +320,7 @@ class RunsRegistry:
                 stop_reason="cancelled",
                 only_if={RunStatus.QUEUED, RunStatus.RUNNING},
             )
-            self._request_target_cancel(run_id)
+            self._request_target_cancel(run_id, force=True)
         return run_id
 
     def inject_pending_message(
@@ -387,11 +393,11 @@ class RunsRegistry:
         self._request_target_cancel(run_id)
         return updated
 
-    def _request_target_cancel(self, run_id: str) -> None:
+    def _request_target_cancel(self, run_id: str, *, force: bool = False) -> None:
         with self._lock:
             token = self._target_tokens.get(run_id)
         if token is not None:
-            self._executor.request_cancel(token)
+            self._executor.request_cancel(token, force=force)
 
     def _bind_target(
         self,

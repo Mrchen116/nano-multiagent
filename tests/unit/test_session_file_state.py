@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from agent.core.tools.session_file_state import FileReadState, SessionFileState
+from agent.core.session.context_state import FileReadState, SessionFileState
 
 
 class TestCheckUnchanged:

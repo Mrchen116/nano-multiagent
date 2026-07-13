@@ -11,7 +11,7 @@ class CompactionPlanner:
     """Plan compaction ranges while preserving critical tool-call/result integrity."""
 
     def __init__(self, *, min_kept_messages: int = 8) -> None:
-        # min_kept_messages is retained for API compatibility with AgentRuntime
+        # min_kept_messages is retained for compatibility with existing policies
         # but is unused in the full-compact design (kept_events is always empty).
         del min_kept_messages
 

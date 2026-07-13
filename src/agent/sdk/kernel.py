@@ -3,14 +3,13 @@
 build_kernel() is the composition root: it assembles platform components into
 a ready-to-use Kernel without exposing any HTTP/FastAPI surface.
 
-Design (refactor-387 M1):
+Design (refactor-387 M1, refactor-462):
 - Mirrors create_app() assembly logic with FastAPI/routes/middleware removed.
-- LLMClientFactory injected into AgentRuntime (decision 4, #40).
-- Permission flow: runtime._build_hook_context races optional can_use_tool
+- LLMClientFactory injected into per-conversation AgentEngine instances.
+- Permission flow: AgentEngine hook context races optional can_use_tool
   callback against a PermissionBroker future; gateway resolves the future
   externally via Kernel.submit_permission_decision (feat-394-M14).
-- All methods async-native; RunsRegistry runs in its own background loop
-  (decision 2 — pre-condition for M2 async-native CLI).
+- KernelExecutor owns one background loop for every typed target.
 """
 
 from __future__ import annotations
@@ -20,28 +19,39 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncIterator, Awaitable, Callable, Sequence
 
-from agent.core.agent.runtime import AgentRuntime
+from agent.core.agent.runtime import AgentEngine
+from agent.core.events.hub import EventStreamHub
 from agent.core.hooks.registry import HookRegistry
-from agent.core.hooks.runner import HookRunner
+from agent.core.hooks.context import HookContext
+from agent.core.hooks.runner import HookRunner, log_hook_diagnostics
 from agent.core.llm.factory import LLMFactoryConfig
 from agent.core.llm.interfaces import LLMClient
 from agent.core.observability.exporters.console import ConsoleTracer
 from agent.core.observability.tracing import set_tracer
 from agent.core.runs.registry import RunsRegistry
+from agent.core.runs.executor import KernelExecutor
 from agent.core.runs.origin import RunOrigin
-from agent.core.session.jsonl_store import JsonlSessionStore
+from agent.core.session.conversation import ConversationSession
+from agent.core.session.directory import SessionDirectory
+from agent.core.session.jsonl_files import JsonlSessionFiles
+from agent.core.session.jsonl_writer import JsonlWriter
+from agent.core.session.types import (
+    ExternalMessage,
+    NewSession,
+    PromptSlotSeed,
+    PromptSlotText,
+    SessionRef,
+)
 from agent.core.utils.time import utc_now_iso as _utc_now_iso
 from agent.platform.background_tasks.wiring import wire_background_tasks
 from agent.platform.config.auto_mode import AutoModeConfig
 from agent.platform.hooks.loader import build_hook_registry
 from agent.platform.hooks.session_events import set_session_event_publisher_factory
-from agent.core.events.hub import EventStreamHub
 from agent.platform.llm.factory import create_llm_client as _platform_create_llm_client
 from agent.platform.permissions.broker import (
     PermissionBroker,
     PermissionDecision,
 )
-from agent.platform.persistence.session.service import SessionService
 
 from agent.sdk.dto import (
     FeatureInfo,
@@ -66,13 +76,94 @@ CanUseToolFn = Callable[[str, Any, Any], Awaitable[PermissionDecision]]
 class _KernelComponents:
     """Hold all assembled platform components for a Kernel instance."""
 
-    runtime: AgentRuntime
+    engine_services: AgentEngine
+    directory: SessionDirectory
+    executor: KernelExecutor
+    tool_registry: Any
     runs_registry: RunsRegistry
     event_hub: EventStreamHub
     permission_broker: PermissionBroker
-    session_service: SessionService
     hook_registry: HookRegistry
     hook_runner: HookRunner
+
+
+@dataclass(frozen=True, slots=True)
+class _SessionSubagentControl:
+    """Expose only the current conversation's subagent capabilities to AgentTool."""
+
+    ref: SessionRef
+    directory: SessionDirectory
+    files: JsonlSessionFiles
+    engine: AgentEngine
+
+    @property
+    def workspace_root(self) -> Path:
+        return self.ref.workspace_root
+
+    def resolve_run_model(self) -> str | None:
+        return self.engine.resolve_run_model(self.ref.session_id)
+
+    def resolve_available_skills(
+        self,
+        workspace_root: Path,
+        *,
+        include_names: Sequence[str] | None = None,
+    ) -> tuple[Any, ...]:
+        return self.engine.resolve_available_skills(
+            workspace_root, include_names=include_names
+        )
+
+    def create_subagent(
+        self,
+        *,
+        workspace_root: Path,
+        skills: Sequence[str] | None,
+        metadata: dict[str, Any],
+        parent_session_id: str | None,
+    ) -> SessionRef:
+        if parent_session_id != self.ref.session_id:
+            raise ValueError("subagent parent must be the active conversation")
+        conversation = self.directory.create(
+            NewSession(
+                workspace_root=workspace_root,
+                skills=tuple(skills) if skills else None,
+                metadata=metadata,
+                parent_session_id=self.ref.session_id,
+            )
+        )
+        return conversation.ref
+
+    def output_path(
+        self,
+        session_id: str,
+        *,
+        workspace_root: Path,
+        parent_session_id: str,
+    ) -> Path:
+        return self.files.resolve_path(
+            SessionRef(
+                session_id=session_id,
+                workspace_root=workspace_root,
+                parent_session_id=parent_session_id,
+            )
+        )
+
+    def find_subagent(self, agent_id: str) -> dict[str, Any] | None:
+        found = self.directory.find_by_metadata(
+            workspace_root=self.ref.workspace_root,
+            parent_session_id=self.ref.session_id,
+            query={"kind": "subagent", "agent_id": agent_id},
+        )
+        if found is None:
+            return None
+        snapshot = self.directory.get(found)
+        if snapshot is None:
+            return None
+        return {
+            "session_id": found.session_id,
+            "metadata": dict(snapshot.metadata),
+            "output_path": self.files.resolve_path(found),
+        }
 
 
 def build_kernel(
@@ -231,9 +322,29 @@ def _to_session_info(session: Any) -> SessionInfo:
     metadata = getattr(session, "metadata", None) or {}
     return SessionInfo(
         session_id=session.session_id,
-        title=getattr(session, "title", None),
+        title=getattr(session, "title", None) or metadata.get("title"),
         workspace_root=str(workspace_root) if workspace_root is not None else None,
         metadata=dict(metadata),
+    )
+
+
+def _to_prompt_seed(prompt: PromptSlots | None) -> PromptSlotSeed:
+    """Copy SDK PromptSlots into the core-owned persistent seed structure."""
+
+    if prompt is None:
+        return PromptSlotSeed()
+
+    def _items(name: str) -> tuple[PromptSlotText, ...]:
+        return tuple(
+            PromptSlotText(name=item.name, text=item.text)
+            for item in getattr(prompt, name)
+        )
+
+    return PromptSlotSeed(
+        head=_items("head"),
+        body=_items("body"),
+        custom=_items("custom"),
+        tail=_items("tail"),
     )
 
 
@@ -353,21 +464,11 @@ def _build_kernel_base(
 
     factory_config = _llm_config_to_factory_config(llm)
 
-    session_store = JsonlSessionStore(
+    files = JsonlSessionFiles(
         data_dir=None,
         workspace_config_dirname=workspace_config_dirname,
     )
-    # Thread workspace_config_dirname into the session-metadata baseline so the
-    # kernel built-in MemoryTool derives memory_root per-session via
-    # derive_memory_root(workspace_root, workspace_config_dirname) — the same path the
-    # runtime's memory snapshot reads from. workspace_config_dirname is a deployment
-    # constant (build_kernel scope); workspace_root is injected per-session by the
-    # runtime. Mirrors the legacy bootstrap default_session_metadata threading and
-    # decision 10's "store is stateless, location comes from workspace_root" pattern.
-    session_service = SessionService(
-        store=session_store,
-        default_session_metadata={"workspace_config_dirname": workspace_config_dirname},
-    )
+    writer = JsonlWriter()
 
     permission_broker = PermissionBroker(config=AutoModeConfig())
 
@@ -418,44 +519,74 @@ def _build_kernel_base(
             if p.models
         } or None
 
-    runtime = AgentRuntime(
-        session_manager=session_service.manager,
-        hook_runner=hook_runner,
-        repo_root=resolved_repo_root,
-        permission_broker=permission_broker,
-        llm_client=direct_llm_client,
-        llm_client_factory=llm_client_factory,
-        llm_clients=llm_clients,
-        model=factory_config.model,
-        # Product-neutral kernel skeleton; product text enters per-session via
-        # create_session(prompt=PromptSlots) (决策 8).
-        prompt_sections=build_kernel_prompt_skeleton(),
-        # bugfix-431 决策 1: inject resolver inputs so AgentRuntime.resolve_available_skills
-        # uses the same make_skill_resolver path as Kernel.list_skills / assemble_prompt_preview.
-        workspace_config_dirname=workspace_config_dirname,
-        skill_search_roots=tuple(
-            Path(r).expanduser().resolve() for r in skill_search_roots
-        ),
-    )
-    # Inject the env-resolved active connection so get_llm_config reflects llm=.
-    runtime._llm_config = factory_config  # type: ignore[attr-defined]
-
     event_hub = EventStreamHub()
     set_session_event_publisher_factory(
         registry=hook_registry,
         factory=_build_session_event_publisher_factory(event_hub=event_hub),
     )
 
+    prompt_sections = build_kernel_prompt_skeleton()
+    resolved_skill_roots = tuple(
+        Path(root).expanduser().resolve() for root in skill_search_roots
+    )
+    tool_registry_holder: list[Any] = []
+
+    def _make_engine() -> AgentEngine:
+        engine = AgentEngine(
+            hook_runner=hook_runner,
+            repo_root=resolved_repo_root,
+            permission_broker=permission_broker,
+            llm_client=direct_llm_client,
+            llm_client_factory=llm_client_factory,
+            llm_clients=llm_clients,
+            model=factory_config.model,
+            prompt_sections=prompt_sections,
+            workspace_config_dirname=workspace_config_dirname,
+            skill_search_roots=resolved_skill_roots,
+        )
+        engine._llm_config = factory_config  # type: ignore[attr-defined]
+        engine._can_use_tool = can_use_tool  # type: ignore[attr-defined]
+        if tool_registry_holder:
+            engine.bind_tool_registry(tool_registry_holder[0])
+        return engine
+
+    # Kernel-level catalog/preview and skill-review services have no conversation
+    # state. Every live conversation receives its own engine instance below.
+    engine_services = _make_engine()
+    executor = KernelExecutor()
+
+    def _conversation_factory(ref: SessionRef, transcript: Any) -> ConversationSession:
+        engine = _make_engine()
+        control = _SessionSubagentControl(
+            ref=ref,
+            directory=directory,
+            files=files,
+            engine=engine,
+        )
+        return ConversationSession(
+            ref=ref,
+            transcript=transcript,
+            engine=engine,
+            subagent_control=control,
+        )
+
+    directory = SessionDirectory(
+        files=files,
+        writer=writer,
+        conversation_factory=_conversation_factory,
+        default_metadata={"workspace_config_dirname": workspace_config_dirname},
+    )
     runs_registry = RunsRegistry(
-        runtime=runtime,
-        session_manager=session_service.manager,
+        directory=directory,
+        executor=executor,
         event_hub=event_hub,
         hook_runner=hook_runner,
     )
 
     background_task_wiring = wire_background_tasks(
         workspace_root=resolved_repo_root,
-        runtime=runtime,
+        directory=directory,
+        executor=executor,
         runs_registry=runs_registry,
     )
 
@@ -481,13 +612,11 @@ def _build_kernel_base(
     base_context = CoreToolContext.create(
         repo_root=resolved_repo_root,
         safety_config=load_tool_safety_config(repo_root=resolved_repo_root),
-        llm_client=getattr(runtime, "_llm_client", None),
-        skill_batch_review_enqueue=runtime.enqueue_skill_batch_review,
+        llm_client=getattr(engine_services, "_llm_client", None),
+        skill_batch_review_enqueue=engine_services.enqueue_skill_batch_review,
     )
     tool_registry = ToolRegistry(context=base_context, hook_runner=hook_runner)
-    register_builtin_tools(
-        tool_registry, runtime=runtime, wiring=background_task_wiring
-    )
+    register_builtin_tools(tool_registry, wiring=background_task_wiring)
     # Self-evolution built-ins (决策 3): memory / skill_manage are kernel built-ins
     # ("any app has them → stays in kernel"), not consumer tools. They need
     # constructor-time path args so register_builtin_tools() omits them; the kernel
@@ -539,22 +668,22 @@ def _build_kernel_base(
                 tool_root=resolved_tool_root, registry=tool_registry, replace=True
             )
 
-    _bind_runtime_to_tool_registry(
+    _bind_wiring_to_tool_registry(
         tool_registry=tool_registry,
-        runtime=runtime,
         hook_runner=hook_runner,
         wiring=background_task_wiring,
     )
-    bind_tool_registry = getattr(runtime, "bind_tool_registry", None)
-    if callable(bind_tool_registry):
-        bind_tool_registry(tool_registry)
+    tool_registry_holder.append(tool_registry)
+    engine_services.bind_tool_registry(tool_registry)
 
     components = _KernelComponents(
-        runtime=runtime,
+        engine_services=engine_services,
+        directory=directory,
+        executor=executor,
+        tool_registry=tool_registry,
         runs_registry=runs_registry,
         event_hub=event_hub,
         permission_broker=permission_broker,
-        session_service=session_service,
         hook_registry=hook_registry,
         hook_runner=hook_runner,
     )
@@ -709,12 +838,9 @@ class Kernel:
         # consumer factory owns these product paths; the kernel stays neutral.
         self._skill_search_roots = skill_search_roots
 
-        # Inject can_use_tool into runtime so _build_hook_context can race it
-        # against the broker future when building _permission_requester closures.
-        # None = no consumer callback; permission gates rely solely on broker futures
-        # (resolved externally via submit_permission_decision).
-        if can_use_tool is not None:
-            self._c.runtime._can_use_tool = can_use_tool  # type: ignore[attr-defined]
+        # Per-conversation engines receive this callback from the composition root.
+        # Keep the argument on Kernel for the public constructor shape only.
+        del can_use_tool
 
     # ------------------------------------------------------------------
     # Public API — mirrors design.md §接口与数据流
@@ -792,20 +918,40 @@ class Kernel:
                 config_path
             )
 
-        session = self._c.session_service.create_session(
-            workspace_root=effective_root,
-            title=title,
-            skills=tuple(skills) if skills else None,
-            tool_allowlist=tuple(effective_allowlist) if effective_allowlist else None,
-            metadata=effective_metadata or None,
+        conversation = self._c.directory.create(
+            NewSession(
+                workspace_root=effective_root,
+                title=title,
+                skills=tuple(skills) if skills else None,
+                tool_allowlist=tuple(effective_allowlist)
+                if effective_allowlist
+                else None,
+                metadata=effective_metadata,
+                prompt_seed=_to_prompt_seed(prompt),
+            )
         )
-
-        # Register per-session PromptSlots on the runtime (决策 8). The slots are
-        # read structurally at turn time; not persisted (rebuilt per process by
-        # the consumer factory on session open).
-        if prompt is not None:
-            self._c.runtime.register_session_prompt_slots(session.session_id, prompt)
-
+        session = self._c.directory.get(conversation.ref)
+        if session is None:  # pragma: no cover - durable create invariant.
+            raise RuntimeError("session disappeared after durable creation")
+        hook_ctx = HookContext(
+            session_id=session.session_id,
+            repo_root=effective_root,
+            session_event_publisher=_build_session_event_publisher_factory(
+                event_hub=self._c.event_hub
+            )(session.session_id),
+        )
+        try:
+            diagnostics = await self._c.hook_runner.dispatch_observe(
+                "session_start", {"session_id": session.session_id}, hook_ctx
+            )
+        except Exception as exc:  # pragma: no cover - defensive fail-open fallback.
+            hook_ctx.logger.warning(
+                "hook observe dispatch failed", event="session_start", error=str(exc)
+            )
+        else:
+            log_hook_diagnostics(
+                hook_ctx, event="session_start", diagnostics=diagnostics
+            )
         return _to_session_info(session)
 
     async def fork_session(
@@ -833,11 +979,12 @@ class Kernel:
         Returns:
             SessionInfo for the new forked session.
         """
-        effective_root = workspace_root or self._repo_root
-        session, id_map = await self._c.runtime.fork_session(
-            session_id,
-            workspace_root=effective_root,
-            up_to=up_to,
+        effective_root = (workspace_root or self._repo_root).expanduser().resolve()
+        ref = SessionRef(session_id=session_id, workspace_root=effective_root)
+        if self._c.directory.get(ref) is None:
+            raise ValueError(f"session does not exist: {session_id}")
+        session, id_map = await self._c.executor.fork(
+            self._c.directory.open(ref), up_to=up_to
         )
         return replace(_to_session_info(session), fork_id_map=id_map)
 
@@ -856,8 +1003,11 @@ class Kernel:
         Returns:
             CompactResult or None when compaction is skipped.
         """
-        effective_root = workspace_root or self._repo_root
-        return await self._c.runtime.compact(session_id, workspace_root=effective_root)
+        effective_root = (workspace_root or self._repo_root).expanduser().resolve()
+        ref = SessionRef(session_id=session_id, workspace_root=effective_root)
+        if self._c.directory.get(ref) is None:
+            raise ValueError(f"session does not exist: {session_id}")
+        return await self._c.executor.compact(self._c.directory.open(ref))
 
     def submit(
         self,
@@ -1120,7 +1270,7 @@ class Kernel:
         Returns:
             ToolsInfo describing available tools.
         """
-        tool_registry = getattr(self._c.runtime, "_tool_registry", None)
+        tool_registry = self._c.tool_registry
         if tool_registry is None:
             return {}
         list_tools = getattr(tool_registry, "list_tools", None)
@@ -1148,7 +1298,7 @@ class Kernel:
             List of ModelInfo(name, provider, is_default).
         """
 
-        active = self._c.runtime.get_llm_config()
+        active = self._c.engine_services.get_llm_config()
         active_model = getattr(active, "model", None)
 
         try:
@@ -1198,7 +1348,7 @@ class Kernel:
             List of ToolInfo(name, description).
         """
 
-        tool_registry = getattr(self._c.runtime, "_tool_registry", None)
+        tool_registry = self._c.tool_registry
         if tool_registry is None:
             return []
         list_specs = getattr(tool_registry, "list_specs", None)
@@ -1256,7 +1406,7 @@ class Kernel:
         effective_root = Path(workspace_root or self._repo_root).expanduser().resolve()
 
         # Per-workspace skill discovery: use make_skill_resolver (core helper, bugfix-431)
-        # so list_skills, assemble_prompt_preview, and AgentRuntime all share the same
+        # so list_skills, preview, and per-conversation engines share the same
         # resolver construction logic (决策 2/4).
         per_call_resolver = make_skill_resolver(
             effective_root,
@@ -1314,7 +1464,9 @@ class Kernel:
             run_skill_batch_review_async,
         )
 
-        triggers = self._c.runtime.pop_queued_skill_batch_reviews(skill_root=skill_root)
+        triggers = self._c.engine_services.pop_queued_skill_batch_reviews(
+            skill_root=skill_root
+        )
         results: list[Any] = []
         for trigger in triggers:
             skill_name = getattr(trigger, "skill_name", "")
@@ -1328,7 +1480,7 @@ class Kernel:
                 )
             finally:
                 if isinstance(skill_name, str) and skill_name:
-                    self._c.runtime.finish_skill_batch_review(trigger)
+                    self._c.engine_services.finish_skill_batch_review(trigger)
         return tuple(results)
 
     def set_skill_batch_review_drain_scheduler(
@@ -1336,7 +1488,7 @@ class Kernel:
     ) -> None:
         """Install a product-owned callback fired after a new F4 enqueue."""
 
-        self._c.runtime.set_skill_batch_review_drain_scheduler(scheduler)
+        self._c.engine_services.set_skill_batch_review_drain_scheduler(scheduler)
 
     def get_llm_config(self) -> LLMConfig:
         """Return the active LLM configuration as an SDK-owned ``LLMConfig`` (决策 5).
@@ -1345,7 +1497,7 @@ class Kernel:
             LLMConfig with current provider/model/endpoint + build-time catalog.
         """
         return _factory_config_to_llm_config(
-            self._c.runtime.get_llm_config(), catalog=self._llm_catalog
+            self._c.engine_services.get_llm_config(), catalog=self._llm_catalog
         )
 
     def append_message(
@@ -1378,23 +1530,23 @@ class Kernel:
         Returns:
             AppendMessageResult with the persisted entry.
         """
-        effective_root = workspace_root or self._repo_root
-        result = self._c.session_service.append_message(
-            session_id,
-            role=role,
-            content=content,
-            message_id=message_id,
-            parts=parts,
-            metadata=metadata,
-            idempotency_key=idempotency_key,
-            workspace_root=effective_root,
+        normalized_role = role.strip().lower()
+        if normalized_role not in {"user", "assistant"}:
+            raise ValueError("role must be one of: user, assistant")
+        effective_root = (workspace_root or self._repo_root).expanduser().resolve()
+        ref = SessionRef(session_id=session_id, workspace_root=effective_root)
+        if self._c.directory.get(ref) is None:
+            raise ValueError(f"session does not exist: {session_id}")
+        result = self._c.directory.open(ref).append_external(
+            ExternalMessage(
+                role=normalized_role,
+                content=content,
+                message_id=message_id,
+                parts=tuple(parts) if parts is not None else None,
+                metadata=dict(metadata or {}),
+                idempotency_key=idempotency_key,
+            )
         )
-        # Keep the runtime's cache-first history coherent with this out-of-band
-        # JSONL write. The runtime serves _session_histories cache-first, so a
-        # message appended between turns is invisible to the next run unless the
-        # stale entry is dropped and the transcript re-read (feat-394: cron
-        # awareness injection was written but never seen by the model).
-        self._c.runtime.invalidate_session_cache(session_id)
         return result
 
     def get_session(
@@ -1415,9 +1567,9 @@ class Kernel:
         Returns:
             Session detail dict, or raises RuntimeError when not found.
         """
-        effective_root = workspace_root or self._repo_root
-        session = self._c.session_service.manager.get_session(
-            session_id, workspace_root=effective_root
+        effective_root = (workspace_root or self._repo_root).expanduser().resolve()
+        session = self._c.directory.get(
+            SessionRef(session_id=session_id, workspace_root=effective_root)
         )
         if session is None:
             raise RuntimeError(f"session not found: {session_id}")
@@ -1466,14 +1618,9 @@ class Kernel:
 
         registry = self._c.runs_registry
         registry.begin_shutdown()
-        loop = registry.get_event_loop()
-        if loop is not None and loop.is_running():
-            # Run shutdown() in a thread so the Registry's blocking drain_future.result()
-            # does not block this event loop.  shutdown() itself handles DRAINING→CLOSED
-            # and awaiting owned tasks before stopping the Registry loop.
-            await _asyncio.to_thread(registry.shutdown)
-        else:
-            registry.shutdown()
+        await _asyncio.to_thread(
+            registry.shutdown, finalize=self._c.directory.close_all
+        )
 
     def close(self) -> None:
         """Shut down background loops (sync-compat wrapper for non-async consumers).
@@ -1484,7 +1631,7 @@ class Kernel:
         if getattr(self, "_closed", False):
             return
         self._closed = True
-        self._c.runs_registry.shutdown()
+        self._c.runs_registry.shutdown(finalize=self._c.directory.close_all)
 
     def assemble_prompt_preview(
         self,
@@ -1570,7 +1717,7 @@ class Kernel:
                 )
 
                 # bugfix-431 决策 2: use make_skill_resolver (core helper) so preview,
-                # list_skills, and AgentRuntime all share the same resolver construction
+                # list_skills and per-conversation engines share the same resolver
                 # logic — eliminating the structural source of runtime/preview divergence.
                 preview_resolver = make_skill_resolver(
                     effective_root,
@@ -1607,7 +1754,7 @@ class Kernel:
             prompt_slots=prompt,
         )
 
-        sections = getattr(self._c.runtime, "_prompt_sections", [])
+        sections = getattr(self._c.engine_services, "_prompt_sections", [])
         assembled = assemble_system_prompt(sections, ctx)
 
         # Count active sections — segments that pass enabled_when and produce
@@ -1624,14 +1771,13 @@ class Kernel:
         return self._c.permission_broker
 
 
-def _bind_runtime_to_tool_registry(
+def _bind_wiring_to_tool_registry(
     *,
     tool_registry: Any,
-    runtime: AgentRuntime,
     hook_runner: HookRunner | None,
     wiring: Any | None = None,
 ) -> None:
-    """Backfill runtime/hook wiring onto pre-bootstrapped tool registries.
+    """Backfill hook and platform wiring onto pre-bootstrapped tool registries.
 
     Mirrors the identical helper in platform/http_api/app.py to avoid a
     cross-module dependency on the HTTP layer from sdk.
@@ -1640,9 +1786,6 @@ def _bind_runtime_to_tool_registry(
     tools = getattr(tool_registry, "_tools", {})
     for tool_name in ("agent", "bash", "task_stop"):
         tool = tools.get(tool_name)
-        bind_runtime = getattr(tool, "bind_runtime", None)
-        if callable(bind_runtime):
-            bind_runtime(runtime)
         bind_wiring = getattr(tool, "bind_wiring", None)
         if callable(bind_wiring):
             bind_wiring(wiring)

@@ -8,7 +8,8 @@ import contextvars
 import threading
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Protocol
+from collections.abc import Awaitable, Callable
+from typing import Any, Protocol
 
 from agent.core import ids
 from agent.core.session.types import TurnRequest
@@ -73,6 +74,12 @@ class ConversationTarget(Protocol):
     async def submit_turn(self, request: TurnRequest) -> TurnResult:
         """Run one fully-owned conversation turn."""
 
+    async def compact(self) -> Any:
+        """Run one manual compaction transaction."""
+
+    async def fork(self, *, up_to: str | None = None) -> Any:
+        """Create an independent fork through the owning directory."""
+
 
 class AuxiliaryHandle:
     """Expose typed auxiliary cancellation/result without a raw coroutine seam."""
@@ -119,6 +126,16 @@ class _Target:
     cancel_requested: bool = False
 
 
+@dataclass(slots=True)
+class _LifecycleTarget:
+    token: TargetToken
+    operation: Callable[[], Awaitable[Any]]
+    result_future: concurrent.futures.Future[Any]
+    cleanup_ack: threading.Event
+    task: asyncio.Task[None] | None = None
+    cancel_requested: bool = False
+
+
 class KernelExecutor:
     """Own one event loop and every top-level, auxiliary, and lifecycle Task."""
 
@@ -132,7 +149,7 @@ class KernelExecutor:
         self._drain_timeout_seconds = max(0.1, drain_timeout_seconds)
         self._guard = threading.Condition()
         self._state = _ExecutorState.OPEN
-        self._targets: dict[str, _Target] = {}
+        self._targets: dict[str, _Target | _LifecycleTarget] = {}
         self._loop = asyncio.new_event_loop()
         self._loop_ready = threading.Event()
         self._thread = threading.Thread(
@@ -186,8 +203,27 @@ class KernelExecutor:
             cleanup_ack=target.cleanup_ack,
         )
 
-    def request_cancel(self, token: TargetToken) -> bool:
-        """Request cooperative grace followed by force cancellation of a carrier."""
+    async def compact(self, session: ConversationTarget) -> Any:
+        """Run manual compaction as a tracked lifecycle target on the owner loop."""
+
+        return await asyncio.wrap_future(
+            self._admit_lifecycle("compact", session.compact)
+        )
+
+    async def fork(
+        self,
+        session: ConversationTarget,
+        *,
+        up_to: str | None = None,
+    ) -> Any:
+        """Run fork capture/persist as a tracked lifecycle target on the owner loop."""
+
+        return await asyncio.wrap_future(
+            self._admit_lifecycle("fork", lambda: session.fork(up_to=up_to))
+        )
+
+    def request_cancel(self, token: TargetToken, *, force: bool = False) -> bool:
+        """Request carrier cancellation, optionally bypassing cooperative grace."""
 
         with self._guard:
             target = self._targets.get(token.token_id)
@@ -196,7 +232,11 @@ class KernelExecutor:
             target.cancel_requested = True
             task = target.task
         if task is not None:
-            self._loop.call_soon_threadsafe(self._schedule_cancel, target)
+            self._loop.call_soon_threadsafe(
+                self._schedule_cancel,
+                target,
+                force,
+            )
         return True
 
     def begin_shutdown(self) -> AcceptedTargetSnapshot:
@@ -212,8 +252,13 @@ class KernelExecutor:
             lifecycle=tuple(token for token in targets if token.kind == "lifecycle"),
         )
 
-    def shutdown(self, *, timeout: float | None = None) -> None:
-        """Cancel accepted targets, await cleanup acks, then stop the owner loop."""
+    def shutdown(
+        self,
+        *,
+        timeout: float | None = None,
+        finalize: Callable[[], Awaitable[None]] | None = None,
+    ) -> None:
+        """Cancel targets, run the final owner-loop cleanup, then stop the loop."""
 
         snapshot = self.begin_shutdown()
         for token in (*snapshot.top_level, *snapshot.auxiliary, *snapshot.lifecycle):
@@ -229,6 +274,9 @@ class KernelExecutor:
         if remaining:
             with self._guard:
                 self._guard.wait_for(lambda: not self._targets, timeout=2)
+        if finalize is not None and self._loop.is_running():
+            future = asyncio.run_coroutine_threadsafe(finalize(), self._loop)
+            future.result(timeout=wait_timeout)
         with self._guard:
             if self._state is _ExecutorState.CLOSED:
                 return
@@ -279,6 +327,35 @@ class KernelExecutor:
             self._loop.call_soon_threadsafe(self._schedule_target, target, context)
         return target
 
+    def _admit_lifecycle(
+        self,
+        owner_id: str,
+        operation: Callable[[], Awaitable[Any]],
+    ) -> concurrent.futures.Future[Any]:
+        context = contextvars.copy_context()
+        token = TargetToken(
+            token_id=ids.make_event_id(),
+            kind="lifecycle",
+            owner_id=owner_id,
+        )
+        future: concurrent.futures.Future[Any] = concurrent.futures.Future()
+        target = _LifecycleTarget(
+            token=token,
+            operation=operation,
+            result_future=future,
+            cleanup_ack=threading.Event(),
+        )
+        with self._guard:
+            if self._state is not _ExecutorState.OPEN:
+                raise ExecutorClosedError(
+                    "executor is shutting down; no new targets are accepted"
+                )
+            self._targets[token.token_id] = target
+            self._loop.call_soon_threadsafe(
+                self._schedule_lifecycle, target, context
+            )
+        return future
+
     def _schedule_target(self, target: _Target, context: contextvars.Context) -> None:
         task = self._loop.create_task(
             self._run_target(target),
@@ -291,16 +368,38 @@ class KernelExecutor:
         if cancel_requested:
             self._schedule_cancel(target)
 
-    def _schedule_cancel(self, target: _Target) -> None:
+    def _schedule_lifecycle(
+        self,
+        target: _LifecycleTarget,
+        context: contextvars.Context,
+    ) -> None:
+        task = self._loop.create_task(
+            self._run_lifecycle(target),
+            context=context,
+            name=f"lifecycle-{target.token.owner_id}",
+        )
+        with self._guard:
+            target.task = task
+            cancel_requested = target.cancel_requested
+        if cancel_requested:
+            self._schedule_cancel(target)
+
+    def _schedule_cancel(
+        self,
+        target: _Target | _LifecycleTarget,
+        force: bool = False,
+    ) -> None:
         task = target.task
         if task is None or task.done():
             return
-        if self._cancel_grace_seconds == 0:
+        if force or self._cancel_grace_seconds == 0:
             task.cancel()
             return
         self._loop.create_task(self._cancel_after_grace(target))
 
-    async def _cancel_after_grace(self, target: _Target) -> None:
+    async def _cancel_after_grace(
+        self, target: _Target | _LifecycleTarget
+    ) -> None:
         await asyncio.sleep(self._cancel_grace_seconds)
         task = target.task
         if task is not None and not task.done():
@@ -345,6 +444,23 @@ class KernelExecutor:
                     target.sink.complete(completion)
                 except Exception:
                     pass
+
+    async def _run_lifecycle(self, target: _LifecycleTarget) -> None:
+        try:
+            result = await target.operation()
+            if not target.result_future.done():
+                target.result_future.set_result(result)
+        except asyncio.CancelledError:
+            if not target.result_future.done():
+                target.result_future.cancel()
+        except BaseException as exc:  # noqa: BLE001
+            if not target.result_future.done():
+                target.result_future.set_exception(exc)
+        finally:
+            with self._guard:
+                self._targets.pop(target.token.token_id, None)
+                target.cleanup_ack.set()
+                self._guard.notify_all()
 
     def _run_loop(self) -> None:
         asyncio.set_event_loop(self._loop)

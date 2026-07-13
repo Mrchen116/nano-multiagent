@@ -1,10 +1,31 @@
-"""Tests for jsonl_store.load() DAG recovery with group_id."""
+"""Tests for JsonlTranscript DAG recovery with group_id."""
 
 from pathlib import Path
 
 import pytest
 
-from agent.core.session.jsonl_store import JsonlSessionStore
+from agent.core.session.jsonl_files import JsonlSessionFiles
+from agent.core.session.jsonl_writer import JsonlWriter
+from agent.core.session.transcript import JsonlTranscript
+from agent.core.session.types import SessionRef
+
+
+class _TranscriptFilesHarness:
+    def __init__(self, *, data_dir: Path) -> None:
+        self._root = data_dir
+        self._files = JsonlSessionFiles(data_dir=data_dir)
+        self._writer = JsonlWriter()
+
+    def _ref(self, session_id: str) -> SessionRef:
+        return SessionRef(session_id=session_id, workspace_root=self._root)
+
+    def resolve_path(self, session_id: str) -> Path:
+        return self._files.resolve_path(self._ref(session_id))
+
+    def load(self, session_id: str):  # noqa: ANN201
+        return JsonlTranscript(
+            ref=self._ref(session_id), files=self._files, writer=self._writer
+        ).load()
 
 
 def _write_turn(path: Path, **fields: object) -> None:
@@ -16,7 +37,7 @@ def _write_turn(path: Path, **fields: object) -> None:
 
 async def test_load_recovers_orphaned_parallel_tool_results(tmp_path: Path) -> None:
     """Parallel tool results (same group_id) orphaned by linked-list backtrack are recovered."""
-    store = JsonlSessionStore(data_dir=tmp_path / "data")
+    store = _TranscriptFilesHarness(data_dir=tmp_path / "data")
     path = store.resolve_path("sess_1")
     path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -113,7 +134,7 @@ async def test_load_recovers_orphaned_parallel_tool_results(tmp_path: Path) -> N
 
 async def test_load_excludes_dead_branches_from_rewind(tmp_path: Path) -> None:
     """Rewound dead branches (different group_id) must NOT be recovered."""
-    store = JsonlSessionStore(data_dir=tmp_path / "data")
+    store = _TranscriptFilesHarness(data_dir=tmp_path / "data")
     path = store.resolve_path("sess_2")
     path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -206,7 +227,7 @@ async def test_load_without_parent_links_uses_chronological_order(
     tmp_path: Path,
 ) -> None:
     """Backward-compatible flat turns (no parent_uuid) fall back to chronological order."""
-    store = JsonlSessionStore(data_dir=tmp_path / "data")
+    store = _TranscriptFilesHarness(data_dir=tmp_path / "data")
     path = store.resolve_path("sess_3")
     path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -263,7 +284,7 @@ async def test_load_with_compact_boundary_skips_pre_boundary_orphans(
     tmp_path: Path,
 ) -> None:
     """Orphans before compact_boundary are ignored even if group_id matches."""
-    store = JsonlSessionStore(data_dir=tmp_path / "data")
+    store = _TranscriptFilesHarness(data_dir=tmp_path / "data")
     path = store.resolve_path("sess_4")
     path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -353,7 +374,7 @@ async def test_load_with_compact_boundary_skips_pre_boundary_orphans(
 
 async def test_reasoning_fields_survive_jsonl_roundtrip(tmp_path: Path) -> None:
     """reasoning_content + reasoning_signature written to JSONL and restored as Message fields."""
-    store = JsonlSessionStore(data_dir=tmp_path / "data")
+    store = _TranscriptFilesHarness(data_dir=tmp_path / "data")
     path = store.resolve_path("sess_rc")
     path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -399,7 +420,7 @@ async def test_reasoning_fields_survive_jsonl_roundtrip(tmp_path: Path) -> None:
 
 async def test_tool_call_id_survives_jsonl_roundtrip(tmp_path: Path) -> None:
     """tool_call_id on tool messages is written and restored via jsonl_store.load()."""
-    store = JsonlSessionStore(data_dir=tmp_path / "data")
+    store = _TranscriptFilesHarness(data_dir=tmp_path / "data")
     path = store.resolve_path("sess_tc")
     path.parent.mkdir(parents=True, exist_ok=True)
 

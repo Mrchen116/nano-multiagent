@@ -160,6 +160,7 @@ class ToolContext:
     session_file_state: Optional["SessionFileState"] = None
     # Optional LLM client for tools that need on-the-fly model calls (e.g. web_fetch prompt processing).
     llm_client: Optional["LLMClient"] = None
+    subagent_control: Any | None = None
 
     @classmethod
     def create(
@@ -201,6 +202,7 @@ class ToolContext:
         skill_batch_review_enqueue: Callable[[Any], bool] | None = None,
         session_metadata: Mapping[str, Any] | None = None,
         session_file_state: Optional["SessionFileState"] = None,
+        subagent_control: Any | None = None,
     ) -> "ToolContext":
         """Clone context with session/call metadata and per-call safety overrides."""
 
@@ -220,6 +222,7 @@ class ToolContext:
             else dict(self.session_metadata),
             session_file_state=session_file_state,
             llm_client=self.llm_client,
+            subagent_control=subagent_control,
         )
 
     def emit_execution_event(self, payload: Mapping[str, Any]) -> None:

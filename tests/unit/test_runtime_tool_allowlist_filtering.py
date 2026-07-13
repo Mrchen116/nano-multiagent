@@ -1,11 +1,11 @@
-"""Unit tests: AgentRuntime._resolve_session_available_tools dual-path filtering (M250)."""
+"""Unit tests for AgentEngine's conversation tool filtering."""
 
 from __future__ import annotations
 
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from agent.core.session.models import Session
+from agent.core.session.types import SessionConfig
 from agent.core.types import ToolSpec
 
 
@@ -16,10 +16,9 @@ def _make_spec(name: str) -> ToolSpec:
 def _make_session(
     tool_allowlist: list[str] | None = None,
     workspace_root: str = "/tmp",
-) -> Session:
-    return Session(
+) -> SessionConfig:
+    return SessionConfig(
         session_id="test-session",
-        status="active",
         created_at="2024-01-01T00:00:00Z",
         workspace_root=Path(workspace_root),
         system_prompt=None,
@@ -31,16 +30,16 @@ def _make_session(
 def _make_runtime_with_specs(
     tool_names: list[str], default_tool_ids: list[str] | None = None
 ):
-    """Build a minimal AgentRuntime-like object with a mock loop returning fixed specs."""
-    from agent.core.agent.runtime import AgentRuntime
+    """Build a minimal AgentEngine with a mock loop returning fixed specs."""
+    from agent.core.agent.runtime import AgentEngine
 
-    runtime = AgentRuntime.__new__(AgentRuntime)
+    engine = AgentEngine.__new__(AgentEngine)
     mock_loop = MagicMock()
     all_specs = tuple(_make_spec(n) for n in tool_names)
     mock_loop.active_tool_specs.return_value = all_specs
-    runtime._loop = mock_loop
-    runtime._default_tool_ids = default_tool_ids
-    return runtime
+    engine._loop = mock_loop
+    engine._default_tool_ids = default_tool_ids
+    return engine
 
 
 def test_resolve_session_tools_no_allowlist_filters_by_default_tool_ids() -> None:
@@ -50,7 +49,7 @@ def test_resolve_session_tools_no_allowlist_filters_by_default_tool_ids() -> Non
         default_tool_ids=["read", "write"],
     )
     session = _make_session(tool_allowlist=None)
-    result = runtime._resolve_session_available_tools(session)
+    result = runtime._resolve_session_available_tools_from_config(session)
     names = {spec.name for spec in result}
     assert names == {"read", "write"}, f"expected {{read, write}}, got {names}"
     assert "send_message" not in names
@@ -69,13 +68,19 @@ def test_unconfigured_pa_defaults_include_skill_view_without_widening_explicit_a
 
     default_session = _make_session(tool_allowlist=None)
     default_names = {
-        spec.name for spec in runtime._resolve_session_available_tools(default_session)
+        spec.name
+        for spec in runtime._resolve_session_available_tools_from_config(
+            default_session
+        )
     }
     assert "skill_view" in default_names
 
     explicit_session = _make_session(tool_allowlist=["read", "skill_manage"])
     explicit_names = {
-        spec.name for spec in runtime._resolve_session_available_tools(explicit_session)
+        spec.name
+        for spec in runtime._resolve_session_available_tools_from_config(
+            explicit_session
+        )
     }
     assert explicit_names == {"read", "skill_manage"}
     assert "skill_view" not in explicit_names
@@ -88,7 +93,7 @@ def test_resolve_session_tools_with_allowlist_includes_send_message() -> None:
         default_tool_ids=["read", "write"],
     )
     session = _make_session(tool_allowlist=["read", "send_message"])
-    result = runtime._resolve_session_available_tools(session)
+    result = runtime._resolve_session_available_tools_from_config(session)
     names = {spec.name for spec in result}
     assert names == {"read", "send_message"}, (
         f"expected {{read, send_message}}, got {names}"
@@ -102,7 +107,7 @@ def test_resolve_session_tools_no_allowlist_no_default_returns_all() -> None:
         default_tool_ids=None,
     )
     session = _make_session(tool_allowlist=None)
-    result = runtime._resolve_session_available_tools(session)
+    result = runtime._resolve_session_available_tools_from_config(session)
     names = {spec.name for spec in result}
     assert "read" in names
     assert "write" in names

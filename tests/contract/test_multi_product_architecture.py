@@ -52,10 +52,16 @@ EXPECTED_EXISTING_PATHS = (
     "core/observability/logger.py",
     "core/observability/tracing.py",
     "core/runs/__init__.py",
+    "core/runs/executor.py",
     "core/runs/registry.py",
+    "core/session/conversation.py",
+    "core/session/directory.py",
     "core/session/entries.py",
-    "core/session/manager.py",
+    "core/session/jsonl_files.py",
+    "core/session/jsonl_writer.py",
     "core/session/models.py",
+    "core/session/transcript.py",
+    "core/session/types.py",
     "core/skills/discovery.py",
     "core/skills/formatter.py",
     "core/skills/registry.py",
@@ -79,7 +85,6 @@ EXPECTED_EXISTING_PATHS = (
     "platform/llm/providers/openai_compat/client.py",
     "platform/llm/providers/openai_compat/mapper.py",
     "platform/llm/providers/translator.py",
-    "platform/persistence/session/service.py",
     # platform/product.py + platform/products/ removed in refactor-406-M2 (products/ dissolved)
     # platform/sdk/client.py deleted in refactor-387-M1 (legacy HTTP client removed;
     # products now use agent.sdk.build_kernel in-process instead of HTTP)
@@ -107,6 +112,13 @@ EXPECTED_TOP_LEVEL_CODING_CLI_PATHS = (
 )
 
 REMOVED_LEGACY_ROOTS = ("apps",)
+
+REMOVED_LEGACY_PATHS = (
+    "core/session/jsonl_store.py",
+    "core/session/manager.py",
+    "core/tools/session_file_state.py",
+    "platform/persistence/session/service.py",
+)
 
 LEGACY_MODULE_ROOTS = ("nano_multiagent",)
 LEGACY_DOC_SNIPPETS = (
@@ -187,6 +199,11 @@ def test_final_target_tree_paths_exist_and_legacy_roots_are_removed() -> None:
     for root_name in REMOVED_LEGACY_ROOTS:
         assert not (SRC_ROOT / root_name).exists(), (
             f"legacy nested root should be removed in M90: {root_name}"
+        )
+
+    for relative_path in REMOVED_LEGACY_PATHS:
+        assert not (SRC_ROOT / relative_path).exists(), (
+            f"retired session owner should be removed: {relative_path}"
         )
 
 

@@ -3,10 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from agent.core.agent.runtime import AgentRuntime
+from agent.core.agent.runtime import AgentEngine
 from agent.core.llm.interfaces import LLMGenerateRequest
-from agent.core.session.jsonl_store import JsonlSessionStore
-from agent.core.session.manager import SessionManager
 from agent.core.skills.curator import mark_reviewed_session_ids
 from agent.core.skills.usage import F4Trigger
 from agent.platform.background.skill_batch_review import run_skill_batch_review
@@ -142,10 +140,7 @@ def test_batch_review_skips_roots_current_workspace_cannot_patch(
 
 
 def test_runtime_skill_batch_queue_dedupes_by_name_and_root(tmp_path: Path) -> None:
-    runtime = AgentRuntime(
-        session_manager=SessionManager(
-            store=JsonlSessionStore(data_dir=tmp_path / "sessions")
-        ),
+    runtime = AgentEngine(
         llm_client=_UnusedLLMClient(),
         model="mock-model",
     )
@@ -174,10 +169,7 @@ def test_runtime_skill_batch_queue_dedupes_by_name_and_root(tmp_path: Path) -> N
 
 
 def test_runtime_skill_batch_queue_pop_can_filter_by_exact_root(tmp_path: Path) -> None:
-    runtime = AgentRuntime(
-        session_manager=SessionManager(
-            store=JsonlSessionStore(data_dir=tmp_path / "sessions")
-        ),
+    runtime = AgentEngine(
         llm_client=_UnusedLLMClient(),
         model="mock-model",
     )

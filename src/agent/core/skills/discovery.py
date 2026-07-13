@@ -24,7 +24,7 @@ class _WorkspaceDirnameSkillResolver:
     by directory while preserving order.
 
     Moved from agent.sdk.kernel to agent.core.skills (bugfix-431) so that
-    AgentRuntime (core) can call make_skill_resolver at the same layer without
+    AgentEngine (core) can call make_skill_resolver at the same layer without
     creating a core→sdk reverse dependency.
     """
 
@@ -58,7 +58,7 @@ def make_skill_resolver(
     """Build a per-workspace skill resolver from the same inputs used by preview/list_skills.
 
     This is the single source of truth for skill resolver construction (bugfix-431).
-    AgentRuntime (core) calls this at the same layer (core→core); Kernel (sdk) imports
+    AgentEngine (core) calls this at the same layer (core→core); Kernel (sdk) imports
     it downward (sdk→core), which is the legal direction. Placing it here avoids the
     core→sdk reverse dependency that would arise if it lived in agent.sdk.kernel.
 

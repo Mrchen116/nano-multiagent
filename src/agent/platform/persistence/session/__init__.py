@@ -1,5 +1,3 @@
-"""Platform session service wiring."""
+"""Reserved package for platform session persistence adapters."""
 
-from .service import SessionService
-
-__all__ = ["SessionService"]
+__all__: list[str] = []

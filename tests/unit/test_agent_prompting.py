@@ -1,4 +1,3 @@
-from collections.abc import AsyncIterator
 from pathlib import Path
 
 from agent.core.agent.prompting import (
@@ -8,14 +7,6 @@ from agent.core.agent.prompting import (
     build_prompt_messages,
     build_system_prompt,
 )
-from agent.core.agent.runtime import AgentRuntime
-from agent.core.llm.interfaces import (
-    LLMGenerateRequest,
-    LLMGenerateResponse,
-    LLMMessage,
-)
-from agent.core.session.jsonl_store import JsonlSessionStore
-from agent.core.session.manager import SessionManager
 from agent.core.types import Message
 from agent.core.types import ToolSpec
 from agent.core.skills.registry import SkillMetadata
@@ -148,56 +139,6 @@ def test_build_prompt_messages_only_displays_tool_name_and_description() -> None
     system_prompt = prompts[0].content
     assert "Available tools:" in system_prompt
     assert "- read: Read file contents" in system_prompt
-    assert "input_schema" not in system_prompt
-
-
-async def test_runtime_fills_system_prompt_placeholders_before_llm_call(
-    tmp_path: Path,
-) -> None:
-    """AgentRuntime fills system prompt placeholders with runtime context before LLM call."""
-
-    class CapturePromptLLM:
-        def __init__(self) -> None:
-            self.requests: list[LLMGenerateRequest] = []
-
-        async def generate(
-            self, request: LLMGenerateRequest
-        ) -> AsyncIterator[LLMMessage]:
-            self.requests.append(request)
-            response = LLMGenerateResponse(
-                model=request.model,
-                message=LLMMessage(role="assistant", content="ok"),
-                finish_reason="stop",
-            )
-            yield response.message
-            yield LLMMessage(
-                role="assistant",
-                content="",
-                finish_reason=response.finish_reason,
-                usage=response.usage,
-            )
-
-    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
-    manager = SessionManager(store=store)
-    session = manager.create_session(workspace_root=tmp_path)
-    llm = CapturePromptLLM()
-    runtime = AgentRuntime(
-        session_manager=manager,
-        llm_client=llm,
-        model="mock-model",
-        repo_root=tmp_path,
-        system_prompt=_CODING_FIXTURE,
-    )
-
-    await runtime.run(
-        session.session_id, [{"type": "text", "text": "hello"}], stream=False
-    )
-
-    system_prompt = llm.requests[-1].messages[0].content
-    assert "Current date and time:" in system_prompt
-    assert f"Current working directory: {tmp_path}" in system_prompt
-    assert "<RUNTIME_FILL:" not in system_prompt
-    assert "Available tools:" in system_prompt
     assert "input_schema" not in system_prompt
 
 

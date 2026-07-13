@@ -1,12 +1,9 @@
-"""Verify platform session support modules are the canonical home for wiring helpers."""
+"""Verify retired session façades cannot reappear as alternate owners."""
 
 from importlib.util import find_spec
 
-from agent.platform.persistence.session.service import SessionService
-
-
-def test_platform_session_service_is_canonical_home() -> None:
-    assert SessionService.__module__ == "agent.platform.persistence.session.service"
+def test_platform_session_service_is_retired() -> None:
+    assert find_spec("agent.platform.persistence.session.service") is None
 
 
 def test_legacy_session_root_is_removed() -> None:

@@ -1410,6 +1410,7 @@ class AgentEngine:
             model_caller=self._call_hook_model,
             session_event_publisher=session_event_publisher,
             permission_requester=permission_requester,
+            subagent_control=self._state().subagent_control,
         )
 
     def _client_for_model(self, model: str) -> LLMClient:

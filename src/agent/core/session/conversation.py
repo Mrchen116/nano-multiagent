@@ -37,6 +37,7 @@ class ConversationState:
     file_state: SessionFileState
     memory_snapshot: MemorySnapshot | None = None
     active_model: str | None = None
+    subagent_control: object | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,12 +153,14 @@ class ConversationSession:
         ref: SessionRef,
         transcript: JsonlTranscript,
         engine: ConversationEngine,
+        subagent_control: object | None = None,
     ) -> None:
         if transcript.ref != ref:
             raise ValueError("conversation and transcript must share one SessionRef")
         self._ref = ref
         self._transcript = transcript
         self._engine = engine
+        self._subagent_control = subagent_control
         self._lifecycle = _LifecyclePermitGate()
         self._turn_gate = asyncio.Lock()
         self._load_gate = asyncio.Lock()
@@ -289,6 +292,7 @@ class ConversationSession:
                 prompt_seed=loaded.prompt_seed,
                 transcript=self._transcript,
                 file_state=SessionFileState(),
+                subagent_control=self._subagent_control,
             )
             with self._state_guard:
                 self._state = state

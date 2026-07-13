@@ -304,6 +304,7 @@ class ToolRegistry:
                 if active_hook_context.metadata
                 else {},
                 session_file_state=session_file_state,
+                subagent_control=active_hook_context.subagent_control,
             )
             log_info("tool_execution_start", tool_name=name)
             await self._dispatch_observe(

@@ -1,86 +1,142 @@
-"""Tests for RuntimeRunner.submit_foreground (bugfix-418).
-
-The foreground subagent path must reuse the kernel's dedicated event loop via
-``run_coroutine_threadsafe`` instead of spawning a transient loop with bare
-``asyncio.run`` — otherwise a coroutine awaiting a primitive bound to the
-dedicated loop (e.g. AgentRuntime's per-session ``asyncio.Lock``) raises
-``... is bound to a different event loop``.
-"""
+"""Tests for the typed subagent adapter over Directory and KernelExecutor."""
 
 from __future__ import annotations
 
-import asyncio
 import threading
 from concurrent.futures import Future
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 
+from agent.core.types import Message, TurnResult
 from agent.platform.background_tasks.runtime_runner import RuntimeRunner
 
 
-class _StubRuntime:
-    """Minimal stand-in; submit_foreground takes a coroutine, not the runtime."""
+class _Auxiliary:
+    def __init__(self, future: Future[TurnResult]) -> None:
+        self.future = future
+        self.cancelled = False
+
+    def result(self, timeout: float | None = None) -> TurnResult:
+        return self.future.result(timeout=timeout)
+
+    def cancel(self) -> bool:
+        self.cancelled = self.future.cancel()
+        return self.cancelled
 
 
-def _dedicated_loop() -> tuple[asyncio.AbstractEventLoop, threading.Thread]:
-    loop = asyncio.new_event_loop()
-    thread = threading.Thread(target=loop.run_forever, daemon=True)
-    thread.start()
-    return loop, thread
+class _Executor:
+    def __init__(self, future: Future[TurnResult]) -> None:
+        self.future = future
+        self.calls: list[tuple[str, Any, Any]] = []
+        self.auxiliary = _Auxiliary(future)
+
+    def start_auxiliary(self, agent_id: str, session: Any, request: Any) -> _Auxiliary:
+        self.calls.append((agent_id, session, request))
+        return self.auxiliary
 
 
-def test_submit_foreground_runs_coro_on_injected_loop() -> None:
-    loop, _ = _dedicated_loop()
-    try:
-        runner = RuntimeRunner(runtime=_StubRuntime(), event_loop=loop)
+class _Directory:
+    def __init__(self) -> None:
+        self.session = SimpleNamespace(ref="subagent")
+        self.refs: list[Any] = []
 
-        observed_loop: list[asyncio.AbstractEventLoop] = []
+    def get(self, ref: Any) -> object:
+        self.refs.append(ref)
+        return object()
 
-        async def _coro() -> str:
-            observed_loop.append(asyncio.get_running_loop())
-            return "ok"
-
-        future = runner.submit_foreground(_coro())
-        assert isinstance(future, Future)
-        assert future.result(timeout=5.0) == "ok"
-        # The coroutine ran on the injected dedicated loop, not a transient one.
-        assert observed_loop == [loop]
-    finally:
-        loop.call_soon_threadsafe(loop.stop)
+    def open(self, ref: Any) -> object:
+        self.refs.append(ref)
+        return self.session
 
 
-def test_submit_foreground_propagates_exception_through_future() -> None:
-    loop, _ = _dedicated_loop()
-    try:
-        runner = RuntimeRunner(runtime=_StubRuntime(), event_loop=loop)
-
-        async def _boom() -> None:
-            raise ValueError("subagent blew up")
-
-        future = runner.submit_foreground(_boom())
-        try:
-            future.result(timeout=5.0)
-            raise AssertionError("expected ValueError to propagate")
-        except ValueError as exc:
-            assert "subagent blew up" in str(exc)
-
-        # Failure is isolated: the dedicated loop survives and accepts more work.
-        async def _again() -> str:
-            return "still alive"
-
-        assert runner.submit_foreground(_again()).result(timeout=5.0) == "still alive"
-    finally:
-        loop.call_soon_threadsafe(loop.stop)
+def _result(text: str = "done") -> TurnResult:
+    return TurnResult(
+        session_id="subagent",
+        turn_id="turn-1",
+        messages=(Message(message_id="m1", role="assistant", content=text),),
+    )
 
 
-def test_submit_foreground_without_loop_runs_in_isolated_thread() -> None:
-    """Defensive fallback when no dedicated loop is wired (pure-library use).
+def test_foreground_submits_typed_request_to_executor(tmp_path: Path) -> None:
+    future: Future[TurnResult] = Future()
+    future.set_result(_result())
+    executor = _Executor(future)
+    runner = RuntimeRunner(directory=_Directory(), executor=executor)  # type: ignore[arg-type]
 
-    Must NOT share the caller's loop; runs the coroutine on its own loop.
-    """
-    runner = RuntimeRunner(runtime=_StubRuntime(), event_loop=None)
+    handle = runner.start_foreground(
+        agent_session_id="subagent",
+        parent_session_id="parent",
+        prompt="inspect",
+        workspace_root=tmp_path,
+        llm_session_id="parent",
+        model="test:model",
+    )
 
-    async def _coro() -> str:
-        return "fallback ok"
+    assert handle.result(timeout=1).messages[-1].content == "done"
+    _agent_id, _session, request = executor.calls[0]
+    assert request.parts == ({"type": "text", "text": "inspect"},)
+    assert request.llm_session_id == "parent"
+    assert request.model == "test:model"
 
-    future = runner.submit_foreground(_coro())
-    assert isinstance(future, Future)
-    assert future.result(timeout=5.0) == "fallback ok"
+
+def test_background_completion_uses_callback(tmp_path: Path) -> None:
+    future: Future[TurnResult] = Future()
+    executor = _Executor(future)
+    runner = RuntimeRunner(directory=_Directory(), executor=executor)  # type: ignore[arg-type]
+    done = threading.Event()
+    observed: dict[str, Any] = {}
+
+    runner.start(
+        agent_session_id="subagent",
+        parent_session_id="parent",
+        prompt="inspect",
+        workspace_root=tmp_path,
+        on_complete=lambda **kwargs: (observed.update(kwargs), done.set()),
+        on_fail=lambda **kwargs: None,
+        on_kill=lambda **kwargs: None,
+    )
+    future.set_result(_result("findings"))
+
+    assert done.wait(timeout=1)
+    assert observed["result_text"] == "findings"
+
+
+def test_stop_cancels_typed_auxiliary_and_reports_kill(tmp_path: Path) -> None:
+    future: Future[TurnResult] = Future()
+    executor = _Executor(future)
+    runner = RuntimeRunner(directory=_Directory(), executor=executor)  # type: ignore[arg-type]
+    killed = threading.Event()
+
+    handle = runner.start(
+        agent_session_id="subagent",
+        parent_session_id="parent",
+        prompt="inspect",
+        workspace_root=tmp_path,
+        on_complete=lambda **kwargs: None,
+        on_fail=lambda **kwargs: None,
+        on_kill=lambda **kwargs: killed.set(),
+    )
+    handle.stop()
+
+    assert executor.auxiliary.cancelled is True
+    assert killed.wait(timeout=1)
+
+
+def test_live_follow_up_is_queued_on_turn_controller(tmp_path: Path) -> None:
+    future: Future[TurnResult] = Future()
+    executor = _Executor(future)
+    runner = RuntimeRunner(directory=_Directory(), executor=executor)  # type: ignore[arg-type]
+    handle = runner.start_foreground(
+        agent_session_id="subagent",
+        parent_session_id="parent",
+        prompt="inspect",
+        workspace_root=tmp_path,
+    )
+
+    assert handle.send_message("also inspect tests") is True
+    request = executor.calls[0][2]
+    assert [item.message.content for item in request.controller.drain_pending()] == [
+        "also inspect tests"
+    ]
+    future.cancel()

@@ -613,61 +613,55 @@ async def test_agent_loop_turn_meta_includes_tool_iterations():
 
 @pytest.mark.asyncio
 async def test_runtime_agent_end_payload_includes_tool_iterations(tmp_path):
-    """AgentRuntime must include tool_iterations in agent_end hook payload."""
-    from agent.core.hooks.registry import HookRegistry
-    from agent.core.hooks.runner import HookRunner
-    from agent.core.hooks.context import HookContext
-    from agent.core.agent.runtime import AgentRuntime
-    from agent.core.session.jsonl_store import JsonlSessionStore
-    from agent.core.session.manager import SessionManager
-    from agent.core.llm.interfaces import LLMClient, LLMGenerateRequest, LLMMessage
+    """The SDK turn path includes tool_iterations in agent_end payloads."""
+    from agent.sdk import LLMConfig, build_kernel
 
     agent_end_payloads = []
 
     async def capture_agent_end(payload, ctx):
         agent_end_payloads.append(dict(payload))
 
-    registry = HookRegistry()
-    registry.on("agent_end", capture_agent_end, mode="observe")
-    runner = HookRunner(registry=registry)
-
-    class FakeLLMResponse:
-        role = "assistant"
-        content = "Hello"
-        tool_calls = []
-        finish_reason = None
-        usage = None
-        reasoning_content = None
-        reasoning_signature = None
-
-    class FakeLLMTerminal:
-        role = "assistant"
-        content = ""
-        tool_calls = []
-        finish_reason = "stop"
-        usage = None
-        reasoning_content = None
-        reasoning_signature = None
-
     class FakeLLMClient:
         def generate(self, request):
             async def _stream():
-                yield FakeLLMResponse()
-                yield FakeLLMTerminal()
+                from agent.core.llm.interfaces import LLMMessage
+
+                yield LLMMessage(role="assistant", content="Hello")
+                yield LLMMessage(
+                    role="assistant", content="", finish_reason="stop"
+                )
 
             return _stream()
 
-    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
-    sm = SessionManager(store=store)
-    runtime = AgentRuntime(
-        session_manager=sm,
-        llm_client=FakeLLMClient(),
-        hook_runner=runner,
+    kernel = build_kernel(
+        llm=LLMConfig(
+            provider="openai_compat",
+            model="test:model",
+            base_url="http://127.0.0.1:4000",
+            default_model="test:model",
+        ),
         repo_root=tmp_path,
+        hooks=[lambda target: target.on("agent_end", capture_agent_end, mode="observe")],
+        _llm_client_override=FakeLLMClient(),
     )
-
-    session = await runtime.create_session(workspace_root=tmp_path)
-    await runtime.run(session.session_id, [{"type": "text", "text": "hello"}])
+    try:
+        session = await kernel.create_session(workspace_root=tmp_path)
+        run = kernel.submit(
+            session_id=session.session_id,
+            workspace_root=tmp_path,
+            parts=[{"type": "text", "text": "hello"}],
+        )
+        for _ in range(100):
+            record = kernel.get_run(run.run_id)
+            if record is not None and record.status in {
+                "completed",
+                "failed",
+                "cancelled",
+            }:
+                break
+            await asyncio.sleep(0.01)
+    finally:
+        kernel.close()
 
     assert len(agent_end_payloads) >= 1
     last = agent_end_payloads[-1]
@@ -741,12 +735,7 @@ def test_bind_tool_registry_propagates_to_context_fork(tmp_path):
     self._context_fork._loop, the fork side-chain executes with tool_registry=None
     and exits with stop_reason='tool_registry_unavailable' after round 1.
     """
-    from agent.core.agent.runtime import AgentRuntime
-    from agent.core.session.jsonl_store import JsonlSessionStore
-    from agent.core.session.manager import SessionManager
-
-    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
-    sm = SessionManager(store=store)
+    from agent.core.agent.runtime import AgentEngine
 
     class _FakeLLMClient:
         async def generate(self, request):
@@ -755,12 +744,11 @@ def test_bind_tool_registry_propagates_to_context_fork(tmp_path):
             yield  # makes generate() an async generator (protocol requirement)
 
     # Construct with tool_registry=None (mirrors app.py construction order)
-    runtime = AgentRuntime(
-        session_manager=sm,
+    engine = AgentEngine(
         llm_client=_FakeLLMClient(),
         repo_root=tmp_path,
     )
-    assert runtime._context_fork._loop._tool_registry is None
+    assert engine._context_fork._loop._tool_registry is None
 
     # Build a minimal tool registry stub
     class _StubRegistry:
@@ -768,10 +756,10 @@ def test_bind_tool_registry_propagates_to_context_fork(tmp_path):
             return ()
 
     stub = _StubRegistry()
-    runtime.bind_tool_registry(stub)
+    engine.bind_tool_registry(stub)
 
     # After binding, _context_fork._loop must also have the registry
-    assert runtime._context_fork._loop._tool_registry is stub, (
+    assert engine._context_fork._loop._tool_registry is stub, (
         "bind_tool_registry must propagate to _context_fork._loop._tool_registry; "
         "otherwise fork side-chains run with tool_registry=None and exit after round 1 "
         "with stop_reason='tool_registry_unavailable'"
@@ -790,7 +778,7 @@ async def test_fork_loop_executes_tools_after_bind_tool_registry(tmp_path):
     from agent.core.agent.context_fork import AgentContextFork
     from agent.core.llm.interfaces import LLMGenerateRequest, LLMMessage, LLMToolCall
     from agent.core.agent.state import AgentState
-    from agent.core.tools.session_file_state import SessionFileState
+    from agent.core.session.context_state import SessionFileState
 
     executed_tools: list[str] = []
 

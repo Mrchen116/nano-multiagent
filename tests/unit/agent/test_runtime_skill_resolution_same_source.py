@@ -81,9 +81,8 @@ def test_runtime_sees_same_skills_as_list_skills(tmp_path: Path) -> None:
     kernel = _kernel(tmp_path, workspace_config_dirname=".testconfig")
     try:
         list_names = {s.name for s in kernel.list_skills(workspace_root=workspace)}
-        # Access runtime via the internal components — same runtime that runs turns.
-        runtime = kernel._c.runtime  # type: ignore[attr-defined]
-        runtime_skills = runtime.resolve_available_skills(workspace)
+        engine = kernel._c.engine_services  # type: ignore[attr-defined]
+        runtime_skills = engine.resolve_available_skills(workspace)
         runtime_names = {s.name for s in runtime_skills}
 
         assert "alpha_skill" in list_names, (
@@ -112,8 +111,8 @@ def test_runtime_resolves_workspace_skills_not_empty(tmp_path: Path) -> None:
 
     kernel = _kernel(tmp_path, workspace_config_dirname=".testconfig")
     try:
-        runtime = kernel._c.runtime  # type: ignore[attr-defined]
-        runtime_skills = runtime.resolve_available_skills(workspace)
+        engine = kernel._c.engine_services  # type: ignore[attr-defined]
+        runtime_skills = engine.resolve_available_skills(workspace)
         runtime_names = {s.name for s in runtime_skills}
 
         assert "ws_only_skill" in runtime_names, (
@@ -137,8 +136,8 @@ def test_extra_deployment_root_visible_through_both_paths(tmp_path: Path) -> Non
     )
     try:
         list_names = {s.name for s in kernel.list_skills(workspace_root=workspace)}
-        runtime = kernel._c.runtime  # type: ignore[attr-defined]
-        runtime_names = {s.name for s in runtime.resolve_available_skills(workspace)}
+        engine = kernel._c.engine_services  # type: ignore[attr-defined]
+        runtime_names = {s.name for s in engine.resolve_available_skills(workspace)}
 
         assert "shared_skill" in list_names, (
             "list_skills must see extra deployment root"
@@ -162,8 +161,10 @@ def test_include_names_filter_consistent_across_paths(tmp_path: Path) -> None:
         # list_skills has no include_names filter — it always returns all skills.
         # resolve_available_skills with include_names should be a subset of list_skills.
         all_names = {s.name for s in kernel.list_skills(workspace_root=workspace)}
-        runtime = kernel._c.runtime  # type: ignore[attr-defined]
-        filtered = runtime.resolve_available_skills(workspace, include_names=["wanted"])
+        engine = kernel._c.engine_services  # type: ignore[attr-defined]
+        filtered = engine.resolve_available_skills(
+            workspace, include_names=["wanted"]
+        )
         filtered_names = {s.name for s in filtered}
 
         assert "wanted" in all_names

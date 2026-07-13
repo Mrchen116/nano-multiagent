@@ -35,7 +35,7 @@ from .prompt import PromptSlots, PromptText
 from agent.core.tools.presentation import ToolPresentationEvent, ToolPresenter
 from agent.core.runs.origin import RunOrigin
 from agent.core.runs.registry import TERMINAL_RUN_STATUSES
-from agent.core.session.jsonl_store import USER_INTERRUPT_RECOVERY_CONTENT
+from agent.core.session.transcript import USER_INTERRUPT_RECOVERY_CONTENT
 from agent.platform.permissions.broker import PermissionDecision
 
 __all__ = [
