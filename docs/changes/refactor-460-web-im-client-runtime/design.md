@@ -396,13 +396,14 @@ subscriber 代替客户端旅程。
 
 ## Milestones
 
-拆成两个串行 Milestone，命中“>10 文件 / >4 小时”与“必须分阶段验证”两条硬触发：M1 约涉及 14-18 个
+原计划拆成两个串行 Milestone，命中“>10 文件 / >4 小时”与“必须分阶段验证”两条硬触发：M1 约涉及 14-18 个
 实现/测试文件并新增完整连接生命周期；M2 要迁移/移动 40+ current v2 文件并删除 4200+ 行 legacy。先证明 M1
-恢复语义，再删除旧表面，能把 correctness 风险与机械迁移风险分开。
+恢复语义，再删除旧表面，能把 correctness 风险与机械迁移风险分开。Round 1 验收后追加 M3，集中修复验收与代码审查
+发现的恢复、提醒、绑定和残余重复表面，不改变前两阶段的架构决策。
 
 ```mermaid
 graph LR
-    M1["M1 realtime-runtime"] --> M2["M2 legacy-retirement"]
+    M1["M1 realtime-runtime"] --> M2["M2 legacy-retirement"] --> M3["M3 post-acceptance fixes"]
 ```
 
 ### Scenario coverage
@@ -427,3 +428,4 @@ graph LR
 |---|---|---|---|---|---|
 | refactor-460-M1 | realtime-runtime | — | A | `src/IM/frontend/src/realtime/`; `src/IM/frontend/src/features/auth/{auth-fetch*,auth-session*}`; `src/IM/frontend/src/app/{providers*,App.test.tsx}`; `features/chat/{im-chat-api.ts,im-chat-api.test.ts,chat-api.ts,mock-chat-api.ts,hooks/use-global-message-toast*}`; `features/chat/v2/{chat-api.ts,chat-stream*,chat-types.ts,chat-workspace-page*,chat-workspace.integration.test.tsx}`; `features/notifications/agent-completion-notifier*`; `features/settings/nodes/nodes-page*`; `features/settings/agents/agent-status-ws-consumer*`; `tests/contract/test_im_frontend_user_stream_ownership.py` | **[reviewer]** 覆盖 motivation 中“当前会话实时过程”“会话列表/未读/toast”“桌面通知”“Node/Agent 状态”“长时间登录与账号切换”的全部 Scenario，特别验证 access token 已过期后断网恢复仍能自动 refresh/重连，且不重放已处理通知。<br>**[worker]** auth session interface 测试覆盖 fresh token 不 refresh、剩余 <=30s/过期 token 单飞 refresh、HTTP 与 WS 共用 in-tab promise、网络/5xx 返回 retry 且不 clear、refresh 401 才 clear、A->B 期间 A 的延迟结果不覆盖 B；runtime interface 测试覆盖单 socket/多 subscriber、resume/ping/backoff、readiness 三分支、token/user generation、cursor 单调性、resync/recovery、subscriber isolation、last-unsubscribe；provider/auth 集成测试覆盖 token refresh 不清 cache、logout/account switch 清 cache；architecture contract 证明 `/im/ws/user` 只有 runtime 一个 lifecycle owner。<br>**[worker]** 相关 Vitest + `npm run build` 通过；M1 后生产实时调用方对 legacy stream 和 `v2/chat-stream.ts` 为零，旧 stream 实现/测试删除而非 wrapper 保留。 |
 | refactor-460-M2 | legacy-retirement | refactor-460-M1 | B | `src/IM/frontend/src/features/chat/` 全目录 canonicalization/deletion；`app/{router*,shell/app-shell*}`；`features/auth/{auth-store*,auth-store.test*}`; `features/chat/bind-confirm-page*`; `features/settings/im-settings-api*`; `features/settings/agents/{agent-detail-page*,im-agent-config-api*}`；所有受路径移动影响的 frontend imports/tests；`src/IM/frontend/README.md`; 本 unit delta-spec | **[reviewer]** 覆盖 motivation 中“确认 Gateway 绑定”“从 Agent 详情打开单聊”，其中绑定必须在 Chat/Settings 已有 hot cache 时操作，返回 Chat 后刚绑定的 Node/Agent/默认入口立即可见；并回归 M1 全部实时旅程、Chat 桌面/移动核心交互。<br>**[worker]** bind 集成测试预填充 final canonical Chat/Settings caches，证明 confirm 成功后 `/me` 覆盖 auth user snapshot、六组 owner-derived prefix 以 `refetchType:'all'` 收敛后才导航，且 reconciliation 失败重试不再提交 bind token。<br>**[worker]** `im-chat-api.ts`、legacy `chat-api.ts`/`mock-chat-api.ts`/`types.ts`、旧 ConversationList/MessagePane 及只服务旧路径的测试删除；原 `v2/` current 文件通过 `git mv` 成为无版本后缀 canonical Chat；生产源码无 `VITE_CHAT_API_MODE`、`chat-v2` query key、legacy import 或第二处 user-stream socket。<br>**[worker]** `npm run test`、`npm run build`、相关 Python contract、`pytest -m "not e2e"` 与 `scripts/e2e-critical.sh` 通过；README 与真实入口一致。 |
+| refactor-460-M3 | post-acceptance-fixes | refactor-460-M2 | C | `features/auth/{auth-fetch*,auth-session*}`；`realtime/user-stream/*`；`features/chat/{chat-workspace-page*,chat-workspace.integration.test*,bind-confirm-page*,chat-api*,hooks/use-global-message-toast*}`；`features/settings/agents/agent-detail-page*`；frontend architecture contract | **[reviewer]** 关闭 Round 1 的静默回复残留与在线非当前会话 toast/未读问题，并补齐恢复、绑定和凭证失效的可观察回归；不改变既有桌面/移动 Chat 交互。<br>**[worker]** Chat recovery 对当前消息、会话、Agent、Node 四类权威状态完成收敛；服务端拒绝但本地仍 fresh 的 token 通过同一 single-flight coordinator 强制 refresh；storage 不可用不击穿共享实时流；绑定 refetch 真实失败不导航且一次性 confirm 结果按 token 隔离。<br>**[worker]** 删除无调用 mention API、详情页重复 Agent summary 请求与过宽 WebSocket ownership guard；复用统一 JSON transport/error seam 且保持用户错误展示；相关定向测试、全量 Vitest/build、contract、non-e2e 与受影响真栈旅程通过。 |
