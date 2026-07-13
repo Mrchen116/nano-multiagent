@@ -226,9 +226,12 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
         if (event.eventId <= state.lastSeenEventId) return;
         state.lastSeenEventId = event.eventId;
 
-        const completion = reduceAgentCompletionEvent(agentCompletionRef.current, event);
+        const previousCompletionState = agentCompletionRef.current;
+        const completion = reduceAgentCompletionEvent(previousCompletionState, event);
         agentCompletionRef.current = completion.state;
-        persistAgentCompletionState(selfUserIdRef.current, completion.state);
+        if (completion.state !== previousCompletionState) {
+          persistAgentCompletionState(selfUserIdRef.current, completion.state);
+        }
         if (completion.candidate) setAgentCompletionCandidate(completion.candidate);
         let candidate = buildNotificationCandidate(event);
         if (completion.candidate) {

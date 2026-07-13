@@ -45,7 +45,7 @@ export interface MessagePaneProps {
   agentInitials?: string | null;
   /** Compact mobile chat header (< 768px). Desktop layout (R7-5 Node chip + ⚙ + KindBadge + participants) is preserved when false/undefined. */
   isMobile?: boolean;
-  onSend(text: string, attachments: Attachment[]): void;
+  onSend(text: string, attachments: Attachment[]): void | Promise<void>;
   onBack?(): void;
   onOpenConfig?(): void;
   /** Send mutation error message, shown as an in-app toast. */
@@ -188,6 +188,7 @@ export function MessagePane({
   const lastMessageIdRef = useRef<string | null>(null);
   const nearBottomRef = useRef(true);
   const forceScrollToBottomRef = useRef(false);
+  const sendInFlightRef = useRef(false);
 
   useEffect(() => {
     if (!draftSeed) return;
@@ -227,17 +228,21 @@ export function MessagePane({
     ? t("chat.messagePane.placeholderGroup")
     : t("chat.messagePane.placeholderDirect", { title: conversation.title });
 
-  function commit(text: string) {
+  async function commit(text: string) {
+    if (isSending || sendInFlightRef.current) return;
     const trimmed = text.trim();
     if (!trimmed && pending.length === 0) return;
     // bugfix-358 (composer): textarea 装可见 `@DisplayName`, wire XML 在此处重建。
     const wireContent = reconstructWireContent(trimmed, draftMentions);
     forceScrollToBottomRef.current = true;
+    sendInFlightRef.current = true;
     try {
-      onSend(wireContent, pending);
-    } catch (err) {
+      await onSend(wireContent, pending);
+    } catch {
       forceScrollToBottomRef.current = false;
-      throw err;
+      return;
+    } finally {
+      sendInFlightRef.current = false;
     }
     setDraft("");
     setDraftMentions([]);
@@ -246,7 +251,7 @@ export function MessagePane({
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    commit(draft);
+    void commit(draft);
   }
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
@@ -266,7 +271,7 @@ export function MessagePane({
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       if (mentionQuery !== null) return;
       e.preventDefault();
-      commit(draft);
+      void commit(draft);
     }
   }
 
@@ -572,6 +577,7 @@ export function MessagePane({
                 value={draft}
                 onChange={(e) => changeDraft(e.target.value)}
                 onKeyDown={handleKeyDown}
+                disabled={isSending}
                 onScroll={() => {
                   if (mirrorRef.current && composerRef.current) {
                     mirrorRef.current.scrollTop = composerRef.current.scrollTop;
@@ -585,7 +591,7 @@ export function MessagePane({
             <button
               type="submit"
               className="chat-pane-composer-send"
-              disabled={!draft.trim() && pending.length === 0}
+              disabled={isSending || (!draft.trim() && pending.length === 0)}
               aria-label="Send"
             >
               ↑

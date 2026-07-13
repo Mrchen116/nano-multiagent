@@ -592,6 +592,26 @@ describe("MessagePane", () => {
       expect(composer.value).toBe("retry this draft");
     });
 
+    it("does not submit the retained draft twice while its send is pending", async () => {
+      const user = userEvent.setup();
+      const onSend = vi.fn(() => new Promise<void>(() => {}));
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={BASE_MESSAGES}
+          mentionCandidates={[]}
+          onSend={onSend}
+        />
+      );
+      const composer = screen.getByRole("textbox") as HTMLTextAreaElement;
+      await user.type(composer, "one pending send");
+      fireEvent.keyDown(composer, { key: "Enter", shiftKey: false });
+      fireEvent.keyDown(composer, { key: "Enter", shiftKey: false });
+
+      expect(onSend).toHaveBeenCalledTimes(1);
+      expect(composer.value).toBe("one pending send");
+    });
+
     it("does not keep a force-scroll request when send resolves without appending a message", async () => {
       const user = userEvent.setup();
       const onSend = vi.fn();

@@ -96,7 +96,12 @@ function streamReducer(
     const existingById = state.conversation_id === action.conversationId
       ? new Map(state.messages.map((m) => [m.id, m]))
       : new Map();
-    const merged = action.messages.map((m) => mergeMessageWithExisting(m, existingById.get(m.id)));
+    const merged = action.messages.map((m) => {
+      const existing = existingById.get(m.id);
+      return existing && action.preserveMessageIds?.has(m.id)
+        ? existing
+        : mergeMessageWithExisting(m, existing);
+    });
     const byId = new Map<string, Message>();
     for (const m of merged) byId.set(m.id, m);
     for (const m of state.messages) {
@@ -643,7 +648,7 @@ export function ChatWorkspacePage() {
       onEvent: (event) => {
         const chatEvent = toChatWsEvent(event.eventType, event.payload, event.eventId);
         if (chatEvent && chatEvent.conversation_id === conversationIdRef.current) {
-          if (chatEvent.type === "message.created" && messagesQueryFetchingRef.current) {
+          if (messagesQueryFetchingRef.current) {
             pendingLiveMessageIdsRef.current.add(chatEvent.message_id);
           }
           dispatch({ type: "event", event: chatEvent, sendersById: sendersByIdRef.current });
@@ -1003,7 +1008,7 @@ export function ChatWorkspacePage() {
             nodeStatus={headerAgentContext.nodeStatus}
             agentColor={headerAgentContext.agentColor}
             agentInitials={headerAgentContext.agentInitials}
-            onSend={(text, attachments) => sendMutation.mutate({ text, attachments })}
+            onSend={(text, attachments) => sendMutation.mutateAsync({ text, attachments }).then(() => undefined)}
             sendError={sendError}
             selfUserId={selfUserId}
             isSending={sendMutation.isPending}

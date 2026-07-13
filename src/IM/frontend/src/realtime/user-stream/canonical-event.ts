@@ -80,7 +80,13 @@ export function validateCanonicalUserStreamEvent(
       if (typeof payload.delta_text !== "string") malformed(eventType);
       return;
     case "message.completed":
-      if (typeof payload.content !== "string" || !isNullableRecord(payload.token_usage)) malformed(eventType);
+      if (
+        typeof payload.content !== "string"
+        || !isNullableRecord(payload.token_usage)
+        || (payload.delivery_status !== undefined
+          && payload.delivery_status !== "completed"
+          && payload.delivery_status !== "failed")
+      ) malformed(eventType);
       return;
     case "message.discarded":
       if (!isText(payload.reason)) malformed(eventType);
