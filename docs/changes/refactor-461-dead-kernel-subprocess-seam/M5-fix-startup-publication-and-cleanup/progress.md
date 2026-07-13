@@ -21,9 +21,9 @@
   - E2E/Regression: `tests/unit/personal_assistant/test_gateway_startup_publication.py`；非长驻 public lifecycle regression，marker 无。
   - Visual/Interaction: N/A。
   - Prototype Comparison: N/A。
-- Debug note: 首轮 Green 的 cleanup-failure case 传入 `subprocess.TimeoutExpired`，但共享 `_FakeProcess` 只对 `TimeoutError` 执行 raise，导致 timeout 被当普通 wait 返回值。逐字追栈后确认是 C1 夹具未进入预期边界，不是 cleanup 实现；改为 fixture 支持的 `TimeoutError`，并把 child evidence 移到 spawn 时写入，避免 launch preflight 把预置 stale PID 清掉。
+- Debug note: 首轮 Green 的 cleanup-failure case 传入 `subprocess.TimeoutExpired`，但共享 `_FakeProcess` 只对 `TimeoutError` 执行 raise，导致 timeout 被当普通 wait 返回值。逐字追栈后确认是 C1 夹具未进入预期边界，不是 cleanup 实现；改为 fixture 支持的 `TimeoutError`，并把 child evidence 移到 spawn 时写入，避免 launch preflight 把预置 stale PID 清掉。随后真实 legacy stop 暴露 publication-window 竞态：handler 已安装并收到 SIGTERM 后，`run_forever()` 才清 `_shutdown_requested`，把关闭请求抹掉并最终强杀；根因修复为 fresh runtime 不再在入口重置已发布的 shutdown 请求，真实回归与 shutdown suites 共 `11 passed`。
 - Rollback: 回退 `704f770ce` 恢复非原子 PID/state publication 和 suppress cleanup；C1 两提交保留失败契约。
-- Commits: C1=`87e730077`,`e53c6e431`；C2=`704f770ce`；C3=本提交。
+- Commits: C1=`87e730077`,`e53c6e431`；C2=`704f770ce`,`d19183bf0`；C3=`6d2962b74`,本提交。
 - Next: R2 shared process snapshot and birth identity。
 
 ## R2 — Shared process snapshot and birth identity
