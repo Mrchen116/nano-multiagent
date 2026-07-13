@@ -28,14 +28,15 @@ import pytest
 # ---------------------------------------------------------------------------
 
 
-def test_kernel_get_session_exposes_workspace_root_as_top_level_key(
+def test_kernel_get_session_accepts_gateway_string_workspace_root(
     tmp_path: Path,
 ) -> None:
-    """SDK Kernel.get_session must include 'workspace_root' at the top level.
+    """SDK Kernel.get_session accepts the string path supplied by Gateway.
 
     This is the source-of-truth contract: _binding_matches_workspace_root relies
-    on this key to decide whether an existing binding is valid.  Without it, the
-    check always fails and every message creates a fresh kernel session.
+    on this key to decide whether an existing binding is valid. Gateway retains
+    workspace roots as strings, so rejecting that representation makes every
+    inbound message fail before the binding can be reused.
     """
     from agent.sdk import LLMConfig, build_kernel
 
@@ -64,7 +65,7 @@ def test_kernel_get_session_exposes_workspace_root_as_top_level_key(
         session = asyncio.run(kernel.create_session(workspace_root=workspace_root))
         session_id = session.session_id
 
-        payload = kernel.get_session(session_id, workspace_root=workspace_root)
+        payload = kernel.get_session(session_id, workspace_root=str(workspace_root))
 
         # Top-level "workspace_root" must be present and match
         assert "workspace_root" in payload, (
