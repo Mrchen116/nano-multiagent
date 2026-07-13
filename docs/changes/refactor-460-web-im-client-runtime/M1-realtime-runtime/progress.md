@@ -27,8 +27,21 @@
 
 ## R2 — 单一 user-stream lifecycle
 
-- 状态：DOING
+- Context: legacy Chat 与 desktop notifier 分别持有 socket，且 token、cursor、reconnect、resync 语义不一致。
+- Decision: 在 `src/realtime/user-stream` 建立 transport-neutral runtime 与 production adapter；外部只暴露 `subscribeUserStream({onEvent,onRecovery})`，内部注入 session/socket/cursor/scheduler/sync ports。
+- Rationale: 单一 lifecycle owner 隐藏 token、generation、resume、ping、backoff、cursor 与 sync，领域消费者只解释 raw event。
+- Evidence:
+  - Tests: `npm run test -- src/realtime/user-stream/user-stream.test.ts src/features/auth/auth-session.test.ts src/features/auth/auth-fetch.test.ts`，3 files / 21 tests passed。
+  - Entry: production adapter 连接真实 `/im/ws/user`、发送 `resume`/`ping` 并用 authenticated `/im/v1/sync`；R3 在真浏览器签收。
+  - Frontend State Matrix: first connect、retry/signed_out、reconnect、token/user generation、status 无 cursor、resync、last unsubscribe 已覆盖。
+  - Browser QA: R3 统一执行。
+  - E2E/Regression: `src/realtime/user-stream/user-stream.test.ts` 从公开 subscribe interface 驱动 fake socket/storage/session，覆盖单 socket、多 subscriber、bounded backoff、recovery 与 stale callback。
+  - Visual/Interaction: N/A（无 UI/视觉变化）。
+  - Prototype Comparison: N/A。
+- Rollback: 回退 C2 `e5c10806` 删除新 runtime；C1 保留 lifecycle 红测。
+- Commits: C1=`f4c2f7d5`, C2=`e5c10806`, C3=本提交。
+- Next: R3 迁移所有生产消费者、删除旧 stream、补 cache/ownership contract 并真栈签收。
 
 ## R3 — 消费者迁移与真栈签收
 
-- 状态：TODO
+- 状态：DOING

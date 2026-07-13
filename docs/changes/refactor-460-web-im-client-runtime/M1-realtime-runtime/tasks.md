@@ -64,12 +64,12 @@ Prototype / Reference Contract：N/A（design 明确不改变 UI/交互/视觉�
 
 ### R2 — 单一 user-stream lifecycle
 
-- 状态：DOING
+- 状态：DONE
 - 步骤：先写 runtime interface 红测；实现单 socket/多 subscriber、generation、resume/ping/backoff、cursor、resync/recovery、readiness 与隔离。
 - 验证：runtime Vitest 覆盖 design M1 worker 退出标准全部 lifecycle 分支。
 
 ### R3 — 消费者迁移与真栈签收
 
-- 状态：TODO
+- 状态：DOING
 - 步骤：迁移 Chat/toast/notifier/Nodes/Agents；AppProviders session cache reset；删除两套旧 stream；补 ownership contract；完成相关回归、build 与真栈浏览器签收。
 - 验证：相关/全量 Vitest、production build、Python contract；`evidence/` 中逐条映射用户可见 Chat/toast/notification/status/reconnect/account isolation，含 expired access + valid refresh。
