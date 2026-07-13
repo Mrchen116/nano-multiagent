@@ -339,6 +339,10 @@ class AgentEngine:
             raise ValueError("empty input parts are not allowed")
 
         turn_id = make_turn_id()
+        state.partial_turn_id = turn_id
+        state.partial_messages = []
+        state.partial_tool_calls = ()
+        state.partial_usage = None
         hook_metadata: dict[str, Any] = (
             dict(config.metadata) if isinstance(config.metadata, Mapping) else {}
         )
@@ -559,6 +563,7 @@ class AgentEngine:
             effective_input_parts = last_part
 
         all_messages: list[Message] = [user_msg, *preloop_messages]
+        state.partial_messages = all_messages
         _overflow_retried = False
         _run_cancelled = False
         try:
@@ -634,6 +639,7 @@ class AgentEngine:
                         m for m in history if m.message_id != user_msg.message_id
                     )
                     all_messages = [user_msg]
+                    state.partial_messages = all_messages
                     async for msg in self._execute_loop(
                         session_id=session_id,
                         turn_id=turn_id,
@@ -1596,8 +1602,16 @@ class AgentEngine:
             session_file_state=session_file_state,
             model_override=model_override,
             prior_prompt_tokens=self._state().last_prompt_tokens,
+            on_progress=self._record_turn_progress,
         ):
             yield msg
+
+    def _record_turn_progress(
+        self, usage: TokenUsage | None, tool_calls: tuple[ToolCall, ...]
+    ) -> None:
+        state = self._state()
+        state.partial_usage = usage
+        state.partial_tool_calls = tool_calls
 
     def _ensure_memory_snapshot(
         self,

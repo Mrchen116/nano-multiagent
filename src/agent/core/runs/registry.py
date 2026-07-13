@@ -273,8 +273,10 @@ class RunsRegistry:
         force-cancels the carrier Task so the parked await unwinds, the
         per-session lock is released, and the runtime's CancelledError finally
         recovers the orphaned tool_call as "interrupted" (bugfix-417-M5, #114).
-        With no in-flight foreground tool, behaviour degrades to the pre-existing
-        cooperative abort (decision 10).
+        With no in-flight foreground tool, the executor still requests carrier
+        cancellation after its cooperative grace period. Otherwise a run parked
+        in an LLM/provider await can retain the session lock indefinitely even
+        though the user-visible /stop path already reported success.
 
         Returns the run_id if an active run was found and signalled, None otherwise.
         """
@@ -304,9 +306,10 @@ class RunsRegistry:
         # cooperative abort cannot unwind the parked carrier Task, so force-cancel
         # it (its `async with lock` then exits via CancelledError, releasing the
         # session lock; the runtime finally closes the orphan as "interrupted").
-        if self._foreground_stopper is not None and self._foreground_stopper(
-            session_id
-        ):
+        foreground_stopped = self._foreground_stopper is not None and (
+            self._foreground_stopper(session_id)
+        )
+        if foreground_stopped:
             # A force-cancel kills the carrier Task via a raw CancelledError that
             # propagates out of _run_worker_async WITHOUT hitting its terminal
             # markers (CancelledError is BaseException, not caught by `except
@@ -321,6 +324,12 @@ class RunsRegistry:
                 only_if={RunStatus.QUEUED, RunStatus.RUNNING},
             )
             self._request_target_cancel(run_id, force=True)
+        else:
+            # Aborting the loop is cooperative, but providers and other awaits do
+            # not have to return promptly. The executor owns the carrier and gives
+            # it a short grace period before cancellation, which releases the
+            # per-session lock and lets the next user turn start.
+            self._request_target_cancel(run_id)
         return run_id
 
     def inject_pending_message(

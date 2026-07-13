@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Protocol
 
-from agent.core.types import Message, TurnResult
+from agent.core.types import Message, TokenUsage, ToolCall, TurnResult
 from agent.core.agent.compaction.types import CompactionResult
 
 from .context_state import MemorySnapshot, SessionFileState
@@ -37,6 +37,10 @@ class ConversationState:
     file_state: SessionFileState
     memory_snapshot: MemorySnapshot | None = None
     last_prompt_tokens: int | None = None
+    partial_turn_id: str | None = None
+    partial_messages: list[Message] = field(default_factory=list)
+    partial_tool_calls: tuple[ToolCall, ...] = ()
+    partial_usage: TokenUsage | None = None
     active_model: str | None = None
     subagent_control: object | None = None
 
@@ -241,6 +245,26 @@ class ConversationSession:
             if self._state is not None:
                 return tuple(self._state.history)
         return tuple(self._transcript.load().messages)
+
+    def partial_turn_result(self) -> TurnResult | None:
+        """Snapshot durable progress when raw cancellation prevents a result."""
+
+        with self._state_guard:
+            state = self._state
+            if state is None or state.partial_turn_id is None:
+                return None
+            assistant_messages = tuple(
+                message for message in state.partial_messages if message.role == "assistant"
+            )
+            return TurnResult(
+                session_id=self._ref.session_id,
+                turn_id=state.partial_turn_id,
+                messages=assistant_messages,
+                tool_calls=state.partial_tool_calls,
+                completed=False,
+                stop_reason="cancelled",
+                usage=state.partial_usage,
+            )
 
     async def compact(self) -> CompactionResult | None:
         """Run manual compaction in the same transaction domain as turns."""

@@ -89,3 +89,11 @@ class ForegroundExecutionRegistry:
                     error=str(exc),
                 )
         return bool(handles)
+
+    def stop_all(self) -> None:
+        """Stop every foreground execution before kernel target draining."""
+
+        with self._lock:
+            session_ids = tuple(self._stoppers)
+        for session_id in session_ids:
+            self.stop_for_session(session_id)
