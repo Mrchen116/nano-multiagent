@@ -166,3 +166,99 @@ requires_full_verification: `false`
 - **S2 — 简化 Chat recovery 中实际上不会命中的 rejection 扫描。** `src/IM/frontend/src/features/chat/chat-workspace-page.tsx:637-641` 使用默认 `throwOnError:false` 的 `invalidateQueries`，query fetch error 会落进 Query 状态而不会令 Promise reject，因此后续 `results.find(rejected)` 在常规 fetch failure 下没有作用。当前实现已满足“四类 query 同次 settled 尝试”的 requirement，不影响本轮 verdict；后续可删除该 failure scan，或若确实需要把 refetch failure 上报给 runtime，则像 bind 一样显式传 `{ throwOnError: true }` 并补相应回归。
 
 All checks passed. Ready for PR.
+
+# Round 3
+
+## Verification Report: refactor-460
+
+### Summary
+
+Mode: `full`
+
+Delta range: `2158cc871d1ddecdbef90721289562d687798d13..f7b0f0e437afeabccc10b02152a3388ab518c8cb`
+
+Focus issues: Round 2 natural-silence process-only row、在线非当前会话 toast/unread、replay/live race、500 batch、cold replay、reload gap、dual completion、cursor epoch、unique publisher、payload validation、accumulator/storage cleanup
+
+requires_full_verification: `false`
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | Tasks 33/34；Requirement groups 8/8 |
+| Correctness | 原 22/22 用户 Scenario covered；M4 退出标准 11/12 |
+| Coherence | 8/9 fully documented；实现未引入平行机制，但 decision 4 / 范围正文未随 M4 校正 |
+
+1 critical issue found. Fix before PR.
+
+### Focus issue closure
+
+| M4 检查项 | 结论 | 代码与回归证据 |
+|---|---|---|
+| natural silence 含 tool/thinking 时整泡回滚 | closed | `src/personal_assistant/gateway/runtime_delivery/observer.py:428-432,742-760` 只以可见正文提交 bubble，成功空终态发 `empty_visible_reply` tombstone；Gateway/IM focused lifecycle tests 通过，`M4-replay-and-notification-closure/evidence/README.md` 有 live/reload durable evidence |
+| replay/live 原子交接，同一持久事件不双投 | **open（C1）** | `src/IM/ws/user_stream.py:98-116,138-152,224-269` 只序列化 replay 与实际 broadcast，未把已提交且已排队的 live 帧纳入 cutover；独立复现得到 `wire_event_ids=[1,2,2]` |
+| 501–2000 backlog 完整 drain | closed | `src/IM/ws/user_stream.py:224-251` 分页直到尾页；`tests/im_service/unit/test_user_stream.py:187-208` 覆盖 650 条、两次 cursor 查询 |
+| cursor ahead epoch recovery | closed | `src/IM/infra/repositories.py:3356-3362` 以 global event-store max 返回专用 reason；`user-stream-runtime.ts:158-169` 只对此 reason 允许 cursor replace 并触发 recovery |
+| cold cursor=0 不重放提醒；reload gap 保留身份 | closed | runtime 首连先 `/sync` 建 baseline；`agent-completion-accumulator.ts:63-117,135-166` 只持久化 pending created identity；accumulator/toast/notifier tests 与 clean-browser evidence 覆盖 |
+| canonical completion / relay receipt 单一提醒身份 | closed | `agent-completion-accumulator.ts:63-117` 仅 `message.completed` 产 candidate，`relay.completed` 只是 receipt，`message_created` alias 不再匹配 |
+| app/desktop 共用纯 accumulator | closed | toast 与 notifier 均调用 `reduceAgentCompletionEvent`，各自只保留 current/self 与 visibility/preference/permission 展示 gate |
+| repository-owned unique post-commit publish | closed | `EventBridge` 不再接受 notify；`MessageRepository` tombstone 与 `EventRepository.append_event` 各自在事务提交后从唯一 repository owner 发布；constructor reject / exactly-once tests 通过 |
+| canonical payload validation + recovery | closed | `src/IM/frontend/src/features/chat/chat-stream-reducer.ts:14-116` 对已知 Chat payload 窄验证并抛 `UserStreamRecoveryError`；runtime 合并 recovery，reducer/workspace tests 通过 |
+| cursor memory hot path + storage fuse | closed | `user-stream-runtime.ts:103-140` 每 user 一次 hydrate、内存读写、写失败熔断；runtime tests 覆盖重复帧、storage failure、epoch replace |
+| Chat recovery 不再做不可达 rejection scan | closed | workspace 对 messages/conversations/agents/nodes 做同次 settled invalidation，Round 2 S2 的 dead scan 已删除；integration test 实际驱动四类收敛 |
+| full gates / durable evidence | closed | 独立 focused backend/Gateway 73 tests、focused frontend 97 tests、full frontend、build、ruff 通过；non-e2e 两个高负载时序失败隔离复跑通过；worker 的 e2e-critical / 真双浏览器证据已落 unit 目录 |
+
+### Completeness
+
+- M1 6/6、M2 7/7、M3 9/9；M4 的 12 项中 11 项有实现与证据。虽然 `M4.../tasks.md:12` 已勾选，服务端“同一持久事件不双投”被生产类复现推翻，因此实际总计 33/34。
+- `motivation.md` 的 6 个用户 requirement group 与两份 IM delta-spec 的 2 个 requirement group 仍都有生产实现；M4 新增的是连续性收口，不删减原需求。
+- Prototype / Reference：N/A。design 明确不改 UI/交互/视觉；现有桌面、移动、静默、双浏览器 toast/unread 与 cold cursor evidence 均在 unit 目录内。
+
+### Correctness
+
+| Requirement / Scenario group | 实现与测试证据 | 状态 |
+|---|---|---|
+| 当前会话实时过程、静默回滚、外部 channel live insert（3） | shared runtime + canonical mapper/reducer；Gateway natural-silence terminal policy；lifecycle/repository/integration 与真栈 reload evidence | covered |
+| 会话 preview、未读、app toast 与 current/self 过滤（2） | `use-global-message-toast.ts` + local unread overlay + shared completion accumulator；hook/integration/双浏览器 evidence | covered |
+| desktop completion、gate、恢复不重放（3） | notifier 展示 gate + shared accumulator + per-user cursor/cold baseline；notifier/runtime tests | covered |
+| Node/Agent 状态实时与 recovery（1） | shared status subscribers + REST recovery refetch；consumer/workspace tests | covered |
+| 长登录、token refresh、账号切换隔离（2） | auth single-flight、connection generation、per-user cursor、QueryClient user boundary；auth/runtime/App tests | covered |
+| bind 与 Agent detail 单聊（2） | one-shot bind reconciliation + canonical Chat create conversation；Round 2 fixes/tests 保持 | covered |
+| JWT user stream、resume/sync、租户隔离（5） | JWT endpoint、owner-filtered repository replay、sync cursor、single runtime owner；Python/frontend/contract tests | covered，但新增 server same-event handoff contract 偏离 C1 |
+| recovery 收敛与通知去重（4） | transport cursor + domain recovery + shared completion identity；workspace/toast/notifier tests | covered；客户端可屏蔽 C1 的重复帧，但不能替代服务端退出标准 |
+
+### Coherence
+
+| design 决策 | 遵守? | 代码证据 |
+|---|---|---|
+| 1. user-stream seam 位于 Chat/Settings 外 | 是 | `src/IM/frontend/src/realtime/user-stream/index.ts` |
+| 2. auth 拥有 freshness，HTTP/WS 共享 single-flight | 是 | `auth-session.ts`、`auth-fetch.ts` |
+| 3. 每标签页单连接、多 subscriber，领域语义留在 caller | 是 | `user-stream-runtime.ts` + 领域 mapper/accumulator |
+| 4. transport cursor 与 subscriber isolation | **部分** | 正常帧仍单调推进且故障隔离；M4 正确增加 epoch replace，但 `design.md:312-313` 仍写永不回落，文档未表达例外（W1） |
+| 5. reconnect/resync 统一 recovery | 是 | runtime generation-level recovery + 四类 Chat refetch |
+| 6. QueryClient 跟随 user id | 是 | `src/IM/frontend/src/app/providers.tsx` |
+| 7. bind 是一次 session + server-state 收敛 | 是 | `bind-confirm-page.tsx` |
+| 8. 只保留 canonical Chat | 是 | canonical architecture / Python ownership contracts |
+| 9. replace, don't layer | 是 | 生产 `/im/ws/user` 只有 shared runtime owner；通知共用单一 lifecycle reducer |
+
+跨包依赖方向仍符合 `SPEC.md`：IM 不 import agent；Gateway 消费 `agent.sdk` 并经既有 IM 协议投递；没有第二套 WebSocket runtime、持久化或通知协议。
+
+### Independent validation
+
+- Focused backend/Gateway：73 passed。
+- Focused frontend：6 files / 97 passed。
+- Full frontend：`npm run test` passed；`npm run build` passed。
+- `ruff check src tests`：passed。
+- `pytest -q -m "not e2e"`：首轮 3510 passed / 1 skipped / 23 deselected，另有 2 个与 M4 delta 无关的高负载时序失败（e2e wrapper 30s timeout、20ms ticker emit 次数）；两项原入口隔离复跑 2 passed。M4 progress 另记录干净 full run 3512 passed / 1 skipped / 23 deselected。
+- M4 `evidence/README.md`、五张归档截图与 progress 中 e2e-critical / 真 Gateway+IM+LLM 双浏览器记录已复查。
+- 额外只读并发诊断：沿用生产 `UserStreamRegistry` / `serve_user_websocket`，repository replay 已含 event 2、同 event 2 的 live broadcast 在 replay 发送期间排队，实际收到 `[1, 2, 2]`。
+
+### Issues
+
+#### CRITICAL（提 PR 前必须修）
+
+- **C1 — per-user handoff 仍会把同一持久事件 replay 后再 live 广播一次。** Repository notify 在 `src/IM/ws/user_stream.py:138-152` 只把已提交事件排入 outbound queue；replay 在 `:224-251` 可从 DB 读到该事件，而注册边界 `:266-269` 只和 pump 最终调用的 broadcast lock（`:98-116`）互斥。若 live frame 已排队但 pump 尚未拿锁，replay 会先发送 event 2 并注册 socket，随后 pump 再向新 socket 发送 event 2。现有回归 `tests/im_service/unit/test_user_stream.py:146-175` 的 repository 只有 event 1、live 帧是 event 2，只证明“不超车”，没有覆盖“同一事件已在 replay snapshot 与 outbound queue 两边”。客户端 `event_id <= cursor` drop 能避免 UI 二次 reducer，但 M4 明确要求服务端同一持久事件不双投，且 progress 明确声明不依赖客户端补救。修复时应让 replay cutover high-water 与 queued live frame 进入同一排序域（例如按 socket 记录 replayed high-water 并过滤不新的 queued frame，或让 enqueue/cutover 原子决定 replay/live 归属），并新增确定性回归：repository 已含 event 2，同时排队 event 2 broadcast，最终 wire ids 必须严格为 `[1,2]`；另保留现有 `[1,2]` 新 live 不超车与 650 pagination 覆盖。
+
+#### WARNING（应该修）
+
+- **W1 — design/progress 仍描述旧范围与旧 cursor 规则，和 M4 的正确实现互相矛盾。** `design.md:27-30` 仍声明只改 frontend、后端协议不变，但 M3/M4 已授权并实现 Gateway/IM 改动；`design.md:312-313,367-368` 仍规定 resync 只取 `max(current,max_event_id)`，没有记录 `cursor_ahead_of_event_store` 的 epoch replace；`M4.../progress.md:26` 又写“只以用户可见 max 判定 epoch”，而生产代码 `src/IM/infra/repositories.py:3356-3362` 正确使用 global event-store max（cold baseline 本身也可能是 global max）。修完 C1 后同步校正 design 的范围、state machine/risk 与 progress 措辞，明确正常原因单调、仅 epoch-ahead 允许 replace，以及 epoch 判定使用 global store max，避免后续按错误文档回退实现。
+
+1 critical issue found. Fix before PR.
