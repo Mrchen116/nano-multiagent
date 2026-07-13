@@ -32,7 +32,7 @@ MAIN_CFG="${HOME}/.nano-assistant/config.yaml"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --wt) WT_ROOT="$(cd "$2" && pwd)"; shift 2 ;;
+    --wt) WT_ROOT="$(cd "$2" && pwd -P)"; shift 2 ;;
     --main-config) MAIN_CFG="$2"; shift 2 ;;
     -h|--help) sed -n '1,/^set -e/p' "$0" | sed -n '2,/^$/p'; exit 0 ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
