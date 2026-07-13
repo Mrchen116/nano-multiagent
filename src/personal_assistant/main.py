@@ -143,6 +143,20 @@ class GatewayStartupError(RuntimeError):
         self.next_step = cleaned_next_step
 
 
+class GatewayProcessCleanupError(RuntimeError):
+    """Report that a failed background launch could not confirm child exit.
+
+    Args:
+        pid: Spawned Gateway process whose exit could not be confirmed.
+    """
+
+    def __init__(self, pid: int) -> None:
+        super().__init__(
+            f"gateway pid={pid} did not exit after SIGKILL; lifecycle evidence retained"
+        )
+        self.pid = pid
+
+
 def _read_log_last_error(
     log_path: Path, *, offset: int = 0, lines: int = 20
 ) -> str | None:
@@ -2352,18 +2366,22 @@ def run_gateway(
         or _install_default_signal_handlers(runtime)
     )
     restore = restore_signal_handlers()
-    identity = _build_gateway_process_identity(
-        config, im_service_url_override=im_service_url_override
-    )
-    # Identity is durable before PID becomes the launcher's readiness marker.
-    _write_gateway_process_identity(config, identity)
-    _write_gateway_pid(config, expected_pid=identity.pid)
+    identity: GatewayProcessIdentity | None = None
     try:
+        identity = _build_gateway_process_identity(
+            config, im_service_url_override=im_service_url_override
+        )
+        # Identity is durable before PID becomes the launcher's readiness marker.
+        _write_gateway_process_identity(config, identity)
+        _write_gateway_pid(config, expected_pid=identity.pid)
         return runtime.run_forever()
     finally:
-        restore()
-        _remove_gateway_pid(config, expected_pid=identity.pid)
-        _remove_gateway_process_identity(config, expected=identity)
+        try:
+            restore()
+        finally:
+            if identity is not None:
+                _remove_gateway_pid(config, expected_pid=identity.pid)
+                _remove_gateway_process_identity(config, expected=identity)
 
 
 def launch_gateway_in_background(
@@ -2416,24 +2434,39 @@ def launch_gateway_in_background(
     launcher = spawn_process or _spawn_background_gateway_process
     start_waiter = wait_for_start or _wait_for_gateway_start
     process = launcher(argv, log_path)
+    result = BackgroundLaunchResult(
+        pid=process.pid,
+        log_path=log_path,
+        im_service_url=config.im_service.url if config.im_service is not None else None,
+    )
+    expected_state = _gateway_runtime_state(config, result)
     try:
         start_waiter(process, config, config.gateway.startup_timeout_seconds)
+        _write_gateway_state(config, result)
     except Exception as exc:
-        _stop_background_process(
-            process, timeout_seconds=config.gateway.shutdown_grace_seconds
-        )
+        try:
+            _stop_background_process(
+                process, timeout_seconds=config.gateway.shutdown_grace_seconds
+            )
+        except GatewayProcessCleanupError as cleanup_error:
+            hint = _read_log_last_error(log_path, offset=log_offset)
+            startup_summary = hint if hint else str(exc)
+            raise GatewayStartupError(
+                summary=f"{startup_summary}; cleanup failed for pid={process.pid}",
+                next_step=(
+                    "Process exit was not confirmed; lifecycle evidence was retained. "
+                    f"Inspect pid={process.pid} and {log_path} before retrying."
+                ),
+            ) from ExceptionGroup(
+                "Gateway startup and rollback both failed", [exc, cleanup_error]
+            )
+        _clear_failed_gateway_startup(config, expected_state)
         hint = _read_log_last_error(log_path, offset=log_offset)
         summary = hint if hint else str(exc)
         raise GatewayStartupError(
             summary=summary,
             next_step=f"Check the log for details: tail -20 {log_path}",
         ) from exc
-    result = BackgroundLaunchResult(
-        pid=process.pid,
-        log_path=log_path,
-        im_service_url=config.im_service.url if config.im_service is not None else None,
-    )
-    _write_gateway_state(config, result)
     return result
 
 
@@ -4043,13 +4076,13 @@ def _gateway_pid_path(config: LocalConfig) -> Path:
 
 
 def _write_gateway_pid(config: LocalConfig, *, expected_pid: int | None = None) -> None:
-    """Write the owned foreground process PID to ``gateway.pid``.
+    """Atomically and durably publish the owned PID to ``gateway.pid``.
 
     Side Effects:
         Creates or overwrites ``gateway.pid`` in the runtime directory.
     """
     pid = os.getpid() if expected_pid is None else expected_pid
-    _gateway_pid_path(config).write_text(str(pid), encoding="utf-8")
+    _atomic_write_gateway_file(_gateway_pid_path(config), str(pid).encode())
 
 
 def _remove_gateway_pid(
@@ -4164,13 +4197,18 @@ def _write_gateway_process_identity(
     config: LocalConfig, identity: GatewayProcessIdentity
 ) -> None:
     """Atomically and durably publish the process-instance identity."""
-    path = _gateway_process_identity_path(config)
+    _atomic_write_gateway_file(
+        _gateway_process_identity_path(config),
+        json.dumps(asdict(identity), indent=2, sort_keys=True).encode(),
+    )
+
+
+def _atomic_write_gateway_file(path: Path, payload: bytes) -> None:
+    """Atomically replace one lifecycle file and persist its directory entry."""
     fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     temp_path = Path(temp_name)
     try:
-        remaining = memoryview(
-            json.dumps(asdict(identity), indent=2, sort_keys=True).encode()
-        )
+        remaining = memoryview(payload)
         os.fchmod(fd, 0o600)
         while remaining:
             written = os.write(fd, remaining)
@@ -4338,13 +4376,22 @@ def _gateway_state_path(config: LocalConfig) -> Path:
 
 
 def _write_gateway_state(config: LocalConfig, result: BackgroundLaunchResult) -> None:
-    state = GatewayRuntimeState(
+    """Atomically and durably publish background launcher state."""
+    state = _gateway_runtime_state(config, result)
+    _atomic_write_gateway_file(
+        _gateway_state_path(config),
+        json.dumps(asdict(state), indent=2, sort_keys=True).encode(),
+    )
+
+
+def _gateway_runtime_state(
+    config: LocalConfig, result: BackgroundLaunchResult
+) -> GatewayRuntimeState:
+    """Build the exact state payload owned by one background launch."""
+    return GatewayRuntimeState(
         pid=result.pid,
         config_path=str(Path(config.source_path).resolve()),
         log_path=str(result.log_path),
-    )
-    _gateway_state_path(config).write_text(
-        json.dumps(asdict(state), indent=2, sort_keys=True), encoding="utf-8"
     )
 
 
@@ -4359,9 +4406,29 @@ def _read_gateway_state(state_path: Path) -> GatewayRuntimeState | None:
     )
 
 
-def _remove_gateway_state(state_path: Path) -> None:
+def _remove_gateway_state(
+    state_path: Path, *, expected: GatewayRuntimeState | None = None
+) -> None:
+    """Remove state only when it still belongs to the expected launch."""
+    if expected is not None:
+        try:
+            if _read_gateway_state(state_path) != expected:
+                return
+        except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+            return
     with suppress(FileNotFoundError):
         state_path.unlink()
+
+
+def _clear_failed_gateway_startup(
+    config: LocalConfig, expected_state: GatewayRuntimeState
+) -> None:
+    """Clear only lifecycle files still naming a confirmed-exited launch."""
+    _remove_gateway_state(_gateway_state_path(config), expected=expected_state)
+    _remove_gateway_pid(config, expected_pid=expected_state.pid)
+    identity = _read_gateway_process_identity(config)
+    if identity is not None and identity.pid == expected_state.pid:
+        _remove_gateway_process_identity(config, expected=identity)
 
 
 def _pid_is_running(pid: int) -> bool:
@@ -4506,6 +4573,7 @@ def _wait_for_gateway_start(
 
 
 def _stop_background_process(process: ProcessLike, *, timeout_seconds: float) -> None:
+    """Stop a spawned Gateway or raise while retaining ownership evidence."""
     if process.poll() is not None:
         return
     process.terminate()
@@ -4517,8 +4585,10 @@ def _stop_background_process(process: ProcessLike, *, timeout_seconds: float) ->
     except (TimeoutError, subprocess.TimeoutExpired):
         process.kill()
         _kill_process_tree(process.pid, signal.SIGKILL)
-        with suppress(TimeoutError, subprocess.TimeoutExpired):
+        try:
             process.wait(timeout=timeout_seconds)
+        except (TimeoutError, subprocess.TimeoutExpired) as exc:
+            raise GatewayProcessCleanupError(process.pid) from exc
 
 
 def _kill_process_tree(pid: int, sig: int) -> None:
