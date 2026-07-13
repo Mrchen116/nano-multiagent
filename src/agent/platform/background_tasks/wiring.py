@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-from concurrent.futures import Future
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Coroutine
+from typing import Any
 
-from agent.core.agent.runtime import AgentRuntime
 from agent.core.background_tasks.interfaces import (
     BackgroundBashRunner,
     BackgroundSubagentHandle,
@@ -16,12 +14,19 @@ from agent.core.background_tasks.interfaces import (
     BackgroundTaskOutput,
     BackgroundTaskStore,
     Clock,
+    ForegroundSubagentHandle,
+    TaskCompletionCallback,
+    TaskFailureCallback,
+    TaskKillCallback,
 )
 from agent.core.background_tasks.foreground_registry import ForegroundExecutionRegistry
 from agent.core.background_tasks.models import BackgroundTaskRecord
 from agent.core.background_tasks.registry import BackgroundTaskRegistry
 from agent.core.runs.origin import RunOrigin
 from agent.core.runs.registry import RunsRegistry
+from agent.core.runs.executor import KernelExecutor
+from agent.core.session.directory import SessionDirectory
+from agent.core.session.types import SessionRef
 
 from .file_output import BashFileOutput
 from .runtime_runner import RuntimeRunner
@@ -45,7 +50,8 @@ class BackgroundTaskWiring:
 def wire_background_tasks(
     *,
     workspace_root: Path,
-    runtime: AgentRuntime | None = None,
+    directory: SessionDirectory | None = None,
+    executor: KernelExecutor | None = None,
     runs_registry: RunsRegistry | None = None,
     manifest_path: Path | None = None,
     safety: Any | None = None,
@@ -54,7 +60,8 @@ def wire_background_tasks(
 
     Args:
         workspace_root: Root directory for bash task output files.
-        runtime: AgentRuntime instance for subagent runner.
+        directory: Stable conversation identity owner for subagent sessions.
+        executor: Typed owner-loop target executor.
         runs_registry: RunsRegistry for completion notification delivery.
         manifest_path: Optional path for task manifest JSONL append.
         safety: Optional ToolSafety instance for command policy enforcement.
@@ -64,13 +71,8 @@ def wire_background_tasks(
     output = BashFileOutput(workspace_root=workspace_root)
     bash_runner = ShellRunner(safety=safety)
     subagent_runner = (
-        RuntimeRunner(
-            runtime=runtime,
-            event_loop=runs_registry.get_event_loop()
-            if runs_registry is not None
-            else None,
-        )
-        if runtime is not None
+        RuntimeRunner(directory=directory, executor=executor)
+        if directory is not None and executor is not None
         else _NoOpSubagentRunner()
     )
 
@@ -83,7 +85,7 @@ def wire_background_tasks(
 
     # Wire notification delivery if RunsRegistry is available.
     if runs_registry is not None:
-        _wire_notification_callbacks(registry, runs_registry)
+        _wire_notification_callbacks(registry, runs_registry, directory)
 
     return BackgroundTaskWiring(
         registry=registry,
@@ -99,6 +101,7 @@ def wire_background_tasks(
 def _wire_notification_callbacks(
     registry: BackgroundTaskRegistry,
     runs_registry: RunsRegistry,
+    directory: SessionDirectory | None,
 ) -> None:
     """Inject a store wrapper that delivers notifications on terminal transitions.
 
@@ -108,11 +111,6 @@ def _wire_notification_callbacks(
     raw_store = registry._store  # type: ignore[attr-defined]
     if raw_store is None:
         return
-
-    # Extract session_manager once at wire time so _deliver_notification does not
-    # need to poke the private attribute at each call (testability + avoids coupling).
-    # bugfix-404 F3: use the public property instead of reflecting on _session_manager.
-    session_manager = runs_registry.session_manager
 
     class _NotifyingStore:
         def __init__(self, delegate: BackgroundTaskStore) -> None:
@@ -127,7 +125,7 @@ def _wire_notification_callbacks(
                 record.status in {"completed", "failed", "killed"}
                 and not record.notified
             ):
-                _deliver_notification(record, runs_registry, session_manager)
+                _deliver_notification(record, runs_registry, directory)
 
         def get(self, task_id: str) -> BackgroundTaskRecord | None:
             return self._delegate.get(task_id)
@@ -141,7 +139,7 @@ def _wire_notification_callbacks(
 def _deliver_notification(
     record: BackgroundTaskRecord,
     runs_registry: RunsRegistry,
-    session_manager: Any = None,
+    directory: SessionDirectory | None = None,
 ) -> None:
     """Deliver a <task-notification> to the parent session.
 
@@ -172,9 +170,9 @@ def _deliver_notification(
     workspace_root = (
         Path(record.workspace_root) if record.workspace_root is not None else None
     )
-    if session_manager is not None:
-        parent_session = session_manager.get_session(
-            parent, workspace_root=workspace_root
+    if directory is not None and workspace_root is not None:
+        parent_session = directory.get(
+            SessionRef(session_id=parent, workspace_root=workspace_root)
         )
         if (
             parent_session is not None
@@ -235,11 +233,25 @@ class _NoOpSubagentRunner(BackgroundSubagentRunner):
         on_fail(task_id=agent_session_id, error="subagent runner is not configured")
         return _NoOpStopper()
 
-    def submit_foreground(self, coro: "Coroutine[Any, Any, Any]") -> "Future":
-        coro.close()
-        future: "Future" = Future()
-        future.set_exception(RuntimeError("subagent runner is not configured"))
-        return future
+    def start_foreground(
+        self,
+        *,
+        agent_session_id: str,
+        parent_session_id: str,
+        prompt: str,
+        workspace_root: Path,
+        llm_session_id: str | None = None,
+        model: str | None = None,
+    ) -> ForegroundSubagentHandle:
+        del (
+            agent_session_id,
+            parent_session_id,
+            prompt,
+            workspace_root,
+            llm_session_id,
+            model,
+        )
+        return _NoOpForegroundHandle()
 
 
 class _NoOpStopper:
@@ -249,3 +261,9 @@ class _NoOpStopper:
     def send_message(self, prompt: str) -> bool:
         del prompt
         return False
+
+
+class _NoOpForegroundHandle(_NoOpStopper):
+    def result(self, timeout: float | None = None) -> Any:
+        del timeout
+        raise RuntimeError("subagent runner is not configured")

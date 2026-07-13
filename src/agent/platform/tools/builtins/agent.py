@@ -4,21 +4,14 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Mapping
-from concurrent.futures import TimeoutError as FutureTimeoutError
+from concurrent.futures import CancelledError, TimeoutError as FutureTimeoutError
 from pathlib import Path
 from typing import Any
 
-from agent.core.agent.run_control import RunController
 from agent.core.background_tasks.ids import generate_agent_id
-from agent.core.background_tasks.interfaces import (
-    BackgroundSubagentMessageHandle,
-    BackgroundTaskStopper,
-)
 from agent.core.background_tasks.models import BackgroundTaskStatus
 from agent.core.background_tasks.registry import BackgroundTaskRegistry
 from agent.core.errors import ToolError
-from agent.core.llm.interfaces import LLMMessage
-from agent.core.runs.origin import RunOrigin
 from agent.core.tools.base import ToolContext
 from agent.core.tools.serialization import json_serialize
 from agent.core.types import TurnResult
@@ -354,42 +347,17 @@ class AgentTool(WiringMixin):
             runtime, agent_session_id, ctx.session_id, ctx.cwd
         )
 
-        # bugfix-418: submit the bare runtime.run(...) coroutine onto the kernel's
-        # dedicated event loop (the same loop that created AgentRuntime's per-session
-        # locks and the shared httpx client) instead of a private ThreadPoolExecutor
-        # running asyncio.run on a transient loop. This eliminates the cross-loop
-        # fault and isolates the subagent as an independent Task — its failure stays
-        # in the returned future and cannot kill the loop or sibling runs. Bare coro
-        # (no completion callback) means an in-budget result is never re-delivered as
-        # a <task-notification> (bugfix-417 invariant; see decision 2).
-        #
-        # bugfix-420 (round-1 C1): thread a RunController so that if this run gets
-        # auto-backgrounded and then task_stop'd, the worker can be cooperatively
-        # aborted (returning its accumulated messages) — the same mechanism the
-        # explicit run_in_background / resume paths use. Without it this third
-        # terminal path could not abort and would close as COMPLETED, violating
-        # decision 2's "stopped task enters killed terminal".
-        controller = RunController()
-        # bugfix-422 (#129): pass llm_session_id=parent so the subagent's LLM
-        # requests group under the parent in the proxy session-inspector; the
-        # subagent's own agent_session_id still drives JSONL storage/resumption.
-        # bugfix-443: model=parent run's model so the foreground subagent inherits
-        # it instead of falling back to the build-time global default.
-        future = wiring.subagent_runner.submit_foreground(
-            runtime.run(
-                agent_session_id,
-                [{"type": "text", "text": prompt}],
-                stream=False,
-                controller=controller,
-                parent_session_id=ctx.session_id or "",
-                workspace_root=ctx.cwd,
-                llm_session_id=ctx.session_id or None,
-                model=runtime.resolve_run_model(ctx.session_id),
-            )
+        handle = wiring.subagent_runner.start_foreground(
+            agent_session_id=agent_session_id,
+            parent_session_id=ctx.session_id or "",
+            prompt=prompt,
+            workspace_root=ctx.cwd,
+            llm_session_id=ctx.session_id or None,
+            model=runtime.resolve_run_model(ctx.session_id),
         )
 
         try:
-            turn = future.result(timeout=timeout_seconds)
+            turn = handle.result(timeout=timeout_seconds)
         except FutureTimeoutError:
             # Auto-background: register task and let worker continue
             registry = wiring.registry
@@ -406,17 +374,10 @@ class AgentTool(WiringMixin):
             )
             registry.mark_running(agent_id)
 
-            # bugfix-420 (round-1 C1): register a stop handle that aborts the
-            # controller so task_stop's request_stop actually triggers the
-            # cooperative abort (request_stop returns True even with no handle, so
-            # without this the stop was a silent no-op).
-            handle = _ControllerHandle(controller)
             registry.set_stop_handle(agent_id, handle)
             registry.set_message_handle(agent_id, handle)
 
-            # Watcher thread updates registry when future completes; on abort it
-            # routes to registry.kill(result_text=...) instead of complete().
-            _start_registry_watcher(registry, agent_id, future, controller)
+            _start_registry_watcher(registry, agent_id, handle)
 
             return {
                 "status": "async_launched",
@@ -814,8 +775,7 @@ class AgentTool(WiringMixin):
 def _start_registry_watcher(
     registry: BackgroundTaskRegistry,
     task_id: str,
-    future: Any,
-    controller: RunController,
+    handle: Any,
 ) -> None:
     """Start a daemon thread that waits for ``future`` and updates registry.
 
@@ -828,44 +788,15 @@ def _start_registry_watcher(
 
     def _watch() -> None:
         try:
-            turn = future.result()
+            turn = handle.result()
             result_text = _extract_assistant_text(turn)
-            if controller.is_aborted:
-                registry.kill(
-                    task_id,
-                    reason="stopped by user",
-                    result_text=result_text,
-                )
-            else:
-                registry.complete(
-                    task_id,
-                    result_text=result_text,
-                )
+            registry.complete(task_id, result_text=result_text)
+        except CancelledError:
+            registry.kill(task_id, reason="stopped by user", result_text=None)
         except Exception as exc:  # noqa: BLE001
             registry.fail(task_id, error=str(exc))
 
     threading.Thread(target=_watch, daemon=True).start()
-
-
-class _ControllerHandle(BackgroundTaskStopper, BackgroundSubagentMessageHandle):
-    """Control handle for an auto-backgrounded foreground subagent.
-
-    bugfix-420 (round-1 C1): mirrors runtime_runner._ControllerHandle so the
-    registry's request_stop → handle.stop() path triggers a cooperative abort on
-    the auto-backgrounded foreground run.
-    """
-
-    def __init__(self, controller: RunController) -> None:
-        self._controller = controller
-
-    def stop(self) -> None:
-        self._controller.abort()
-
-    def send_message(self, prompt: str) -> bool:
-        return self._controller.enqueue_message(
-            LLMMessage(role="user", content=prompt),
-            origin=RunOrigin.USER,
-        )
 
 
 def _make_on_complete(registry: BackgroundTaskRegistry, agent_id: str) -> Any:

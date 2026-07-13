@@ -1,9 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import concurrent.futures
-import contextvars
-import threading
 from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
@@ -18,8 +15,10 @@ from agent.core.types import TokenUsage, TurnResult
 from agent.core.hooks.context import HookContext
 from agent.core.hooks.runner import HookRunner, log_hook_diagnostics
 from agent.core.observability.logger import log_error, log_info
-from agent.core.observability.tracing import bind_correlation, current_trace_id, span
-from agent.core.session.manager import SessionManager
+from agent.core.observability.tracing import current_trace_id
+from agent.core.runs.executor import KernelExecutor, TargetCompletion, TargetToken
+from agent.core.session.directory import SessionDirectory
+from agent.core.session.types import SessionRef, TurnRequest
 from agent.core.agent.run_control import PendingMessage, RunController
 
 
@@ -85,21 +84,6 @@ class RunRecord:
     start_sequence: int = 0
 
 
-class RuntimeRunner(Protocol):
-    async def run(
-        self,
-        session_id: str,
-        parts,
-        *,
-        stream: bool = True,
-        run_id: str | None = None,
-        controller: RunController | None = None,
-        workspace_root: Path | None = None,
-        model: str | None = None,
-    ):  # noqa: ANN001, ANN201
-        ...
-
-
 class EventHubLike(Protocol):
     def publish(
         self, *, event: str, session_id: str, data: dict[str, Any]
@@ -124,15 +108,15 @@ class RunsRegistry:
     def __init__(
         self,
         *,
-        runtime: RuntimeRunner,
-        session_manager: SessionManager,
+        directory: SessionDirectory,
+        executor: KernelExecutor,
         event_hub: EventHubLike | None = None,
         hook_runner: HookRunner | None = None,
         foreground_stopper: "ForegroundStopper | None" = None,
         drain_timeout_seconds: float = 30.0,
     ) -> None:
-        self._runtime = runtime
-        self._session_manager = session_manager
+        self._directory = directory
+        self._executor = executor
         self._event_hub = event_hub
         self._hook_runner = hook_runner
         # Injected port (core stays platform-free): kills the in-flight foreground
@@ -152,37 +136,15 @@ class RunsRegistry:
         # later intent); they are parked here per session and prepended to the NEXT
         # submit() for that session. In-memory, lost on restart (same as pending).
         self._held_pending: dict[str, list[PendingMessage]] = {}
-        # bugfix-402-M3: owned Task handles so drain_async() can await each to
-        # terminal state before stopping the loop.  Keyed by run_id; cleared in
-        # the Task done-callback so the dict never outlives a completed Task.
-        self._owned_tasks: dict[str, asyncio.Task] = {}
+        self._target_tokens: dict[str, TargetToken] = {}
+        self._cleanup_acks: set[str] = set()
         # Lifecycle state: OPEN → DRAINING → CLOSED (see _RegistryState).
         self._state: _RegistryState = _RegistryState.OPEN
-        # Signal that fires once all owned Tasks have completed (set inside loop).
-        self._drain_done: asyncio.Future | None = None
         self._drain_timeout_seconds = drain_timeout_seconds
-        # Dedicated async event-loop thread so that httpx.AsyncClient transport
-        # is not torn down by per-call asyncio.run() (feat-335).
-        self._async_loop: asyncio.AbstractEventLoop | None = None
-        self._async_thread: threading.Thread | None = None
-        self._start_async_loop()
-
-    def _start_async_loop(self) -> None:
-        self._async_loop = asyncio.new_event_loop()
-        self._async_thread = threading.Thread(target=self._run_async_loop, daemon=True)
-        self._async_thread.start()
-
-    def _run_async_loop(self) -> None:
-        asyncio.set_event_loop(self._async_loop)
-        self._async_loop.run_forever()
 
     def begin_shutdown(self) -> bool:
-        """Atomically stop accepting new runs before the blocking drain starts.
+        """Stop semantic run admission before executor draining begins."""
 
-        Returns:
-            True while the registry still requires draining, or False when it
-            was already fully closed.
-        """
         with self._lock:
             if self._state is _RegistryState.CLOSED:
                 return False
@@ -190,143 +152,12 @@ class RunsRegistry:
             return True
 
     def shutdown(self, *, grace_timeout_seconds: float | None = None) -> None:
-        """Drain owned Tasks then stop the dedicated async loop.
+        """Close run admission and delegate carrier cleanup to KernelExecutor."""
 
-        Transitions the registry OPEN → DRAINING → CLOSED.  All queued/running
-        Tasks are waited (up to drain_timeout_seconds) before the loop stops.
-        Calling shutdown() on an already-closed registry is a no-op.
-        """
-        if not self.begin_shutdown():
-            return
-        loop = self._async_loop
-        if loop is None or not loop.is_running():
-            with self._lock:
-                self._state = _RegistryState.CLOSED
-            return
-        timeout = (
-            grace_timeout_seconds
-            if grace_timeout_seconds is not None
-            else self._drain_timeout_seconds
-        )
-        drain_future: concurrent.futures.Future = concurrent.futures.Future()
-        loop.call_soon_threadsafe(
-            lambda: loop.create_task(
-                self._drain_and_stop(drain_future, timeout), name="registry-drain"
-            )
-        )
-        try:
-            drain_future.result(timeout=timeout + 5.0)
-        except concurrent.futures.TimeoutError:
-            # Force-stop the loop if drain exceeded total wait budget.
-            if loop.is_running():
-                loop.call_soon_threadsafe(loop.stop)
-        if self._async_thread is not None:
-            self._async_thread.join(timeout=2.0)
+        self.begin_shutdown()
+        self._executor.shutdown(timeout=grace_timeout_seconds)
         with self._lock:
             self._state = _RegistryState.CLOSED
-
-    async def _drain_and_stop(
-        self,
-        done_future: "concurrent.futures.Future[None]",
-        timeout_seconds: float,
-    ) -> None:
-        """Await owned Tasks then stop the event loop.
-
-        Runs inside the registry's dedicated loop so Task awaits happen in the
-        correct Context.  Cancels tasks that exceed the grace timeout.
-        """
-        try:
-            with self._lock:
-                owned = list(self._owned_tasks.items())
-                controllers = dict(self._controllers)
-                statuses = {
-                    run_id: record.status for run_id, record in self._runs.items()
-                }
-
-            # Give each run a chance to exit in its own Task Context before the
-            # hard timeout. Queued runs can become terminal immediately; active
-            # runs observe abort at the next loop boundary.
-            for run_id, _task in owned:
-                controller = controllers.get(run_id)
-                status = statuses.get(run_id)
-                if controller is None:
-                    continue
-                if status is RunStatus.QUEUED:
-                    controller.cancel()
-                    controller.abort()
-                    self._set_status(
-                        run_id,
-                        status=RunStatus.CANCELLED,
-                        stop_reason="shutdown",
-                        only_if={RunStatus.QUEUED, RunStatus.RUNNING},
-                    )
-                elif status is RunStatus.RUNNING:
-                    controller.abort()
-
-            if owned:
-                tasks = [task for _run_id, task in owned]
-                _done, pending = await asyncio.wait(
-                    tasks,
-                    timeout=timeout_seconds,
-                )
-                if pending:
-                    forced = [
-                        (run_id, task) for run_id, task in owned if task in pending
-                    ]
-                    for _run_id, task in forced:
-                        task.cancel()
-                    await asyncio.gather(
-                        *(task for _run_id, task in forced),
-                        return_exceptions=True,
-                    )
-                    for run_id, _task in forced:
-                        self._mark_shutdown_cancelled(run_id)
-                        self._recover_shutdown_cancelled_session(run_id)
-        finally:
-            self._async_loop.stop()
-            if not done_future.done():
-                done_future.set_result(None)
-
-    def _mark_shutdown_cancelled(self, run_id: str) -> RunRecord | None:
-        """Persist a terminal state for a Task force-cancelled during shutdown."""
-        return self._set_status(
-            run_id,
-            status=RunStatus.CANCELLED,
-            stop_reason="shutdown",
-            error={
-                "code": "run_cancelled_on_shutdown",
-                "message": "run was cancelled while the kernel was shutting down",
-                "retryable": False,
-            },
-            only_if={RunStatus.QUEUED, RunStatus.RUNNING},
-        )
-
-    def _recover_shutdown_cancelled_session(self, run_id: str) -> None:
-        """Close orphaned tool calls left by a force-cancelled run."""
-        record = self.get(run_id)
-        if record is None:
-            return
-        try:
-            self._session_manager.prepare_transcript_for_run(
-                record.session_id,
-                reason="shutdown",
-                workspace_root=record.workspace_root,
-            )
-            invalidate = getattr(self._runtime, "invalidate_session_cache", None)
-            if callable(invalidate):
-                invalidate(record.session_id)
-        except Exception as exc:  # noqa: BLE001
-            log_error(
-                "run_shutdown_recovery_failed",
-                run_id=run_id,
-                session_id=record.session_id,
-                error=str(exc),
-            )
-
-    def _on_task_done(self, run_id: str) -> None:
-        """Remove a completed Task from the owned-tasks map (done-callback)."""
-        with self._lock:
-            self._owned_tasks.pop(run_id, None)
 
     def submit(
         self,
@@ -340,50 +171,35 @@ class RunsRegistry:
         flush_held: bool = True,
         model: str | None = None,
     ) -> RunRecord:
-        """Submit a turn for execution.
+        """Prepare semantic state, bind an executor token, then publish the run."""
 
-        ``workspace_root`` is threaded from the request so the stateless kernel
-        can locate the session JSONL; it is required (in production) for the
-        existence check below and for the runtime's first load of the session.
-
-        ``flush_held`` (default True) prepends any messages parked by a prior user
-        /stop for this session (bugfix-426 决策3). The gateway /stop handler's own
-        synthetic "/stop 命令" submit passes False so the held messages are NOT
-        consumed by that bookkeeping turn but ride the user's next real message.
-        """
-        # Fast rejection avoids session I/O once shutdown has begun. The state is
-        # checked again at record insertion because shutdown may race this work.
+        if workspace_root is None:
+            raise ValueError("workspace_root is required to submit a session")
+        if not parts:
+            raise ValueError("empty input parts are not allowed")
         with self._lock:
             if self._state is not _RegistryState.OPEN:
                 raise RegistryClosedError(
                     "registry is shutting down; no new runs will be accepted"
                 )
-        if (
-            self._session_manager.get_session(session_id, workspace_root=workspace_root)
-            is None
-        ):
-            raise ValueError(f"session does not exist: {session_id}")
-        if not parts:
-            raise ValueError("empty input parts are not allowed")
-
-        # bugfix-426 决策3 (held-pending flush): messages parked by a prior user /stop
-        # for this session ride along on its next run. Prepend them (FIFO: held first,
-        # then this turn's parts) and clear the buffer. Transparent to every caller
-        # (gateway / cli / continuation) since they all funnel through submit(); does
-        # not depend on the steer flag. Skipped (flush_held=False) for the /stop
-        # handler's own synthetic turn so held rides the user's next real message.
-        with self._lock:
             held = self._held_pending.pop(session_id, None) if flush_held else None
+        normalized_parts: list[Mapping[str, Any]] = []
         if held:
-            parts = [{"type": "text", "text": p.message.content} for p in held] + list(
-                parts
+            normalized_parts.extend(
+                {"type": "text", "text": pending.message.content} for pending in held
             )
+        normalized_parts.extend(dict(part) for part in parts)
 
+        ref = SessionRef(session_id=session_id, workspace_root=workspace_root)
+        if self._directory.get(ref) is None:
+            if held:
+                with self._lock:
+                    self._held_pending.setdefault(session_id, [])[:0] = held
+            raise ValueError(f"session does not exist: {session_id}")
+        session = self._directory.open(ref)
         run_id = make_run_id()
         now = _utc_now_iso()
         resolved_trace_id = trace_id or current_trace_id()
-        # Snapshot the hub position before publishing this run's first event, so
-        # the run carries its own stream origin (see RunRecord.start_sequence).
         start_sequence = (
             self._event_hub.current_sequence() if self._event_hub is not None else 0
         )
@@ -396,93 +212,43 @@ class RunsRegistry:
             trace_id=resolved_trace_id,
             origin=origin,
             source_task_id=source_task_id,
-            workspace_root=workspace_root,
+            workspace_root=ref.workspace_root,
             start_sequence=start_sequence,
             model=model,
         )
-        with self._lock:
-            if self._state is not _RegistryState.OPEN:
-                raise RegistryClosedError(
-                    "registry is shutting down; no new runs will be accepted"
-                )
-            self._runs[run_id] = record
-            self._controllers[run_id] = RunController()
-        self._persist_run_status_entry(record)
-        self._publish_run_status_event(record)
-        log_info(
-            "run_submitted",
-            run_id=run_id,
-            session_id=session_id,
-            trace_id=resolved_trace_id,
+        controller = RunController()
+        sink = _RegistryCompletionSink(
+            registry=self,
+            record=record,
+            controller=controller,
         )
-
-        normalized_parts = [dict(part) for part in parts]
-        # Capture the caller's Context now (at submit() time) and pass it to the
-        # Task so that bind_correlation's ContextVar set/reset both happen inside
-        # the same copied Context.  Without this, ensure_future schedules the
-        # coroutine in the background thread's default Context, and
-        # _context.reset(token) raises "token was created in a different Context"
-        # (Issue #3, refactor-387 sdk-fix-r3).
-        ctx = contextvars.copy_context()
-
-        # bugfix-402-M3: register Task handle so drain_async() can await it.
-        # The done-callback removes the Task from _owned_tasks when it finishes.
-        def _schedule_and_register() -> None:
-            with self._lock:
-                if self._state is not _RegistryState.OPEN:
-                    task = None
-                else:
-                    task = self._async_loop.create_task(
-                        self._run_worker_async(
-                            run_id,
-                            session_id,
-                            normalized_parts,
-                            resolved_trace_id,
-                            workspace_root=workspace_root,
-                            origin=origin,
-                        ),
-                        context=ctx,
-                        name=f"run-{run_id}",
-                    )
-                    self._owned_tasks[run_id] = task
-            if task is None:
-                self._mark_shutdown_cancelled(run_id)
-                return
-            task.add_done_callback(lambda _t: self._on_task_done(run_id))
-
-        with self._lock:
-            if self._state is _RegistryState.OPEN:
-                self._async_loop.call_soon_threadsafe(_schedule_and_register)
-                scheduled = True
-            else:
-                scheduled = False
-        if not scheduled:
-            self._mark_shutdown_cancelled(run_id)
+        try:
+            self._executor.start_top_level(
+                run_id,
+                session,
+                TurnRequest(
+                    parts=tuple(normalized_parts),
+                    run_id=run_id,
+                    controller=controller,
+                    origin=origin,
+                    model=model,
+                ),
+                sink,
+            )
+        except Exception:
+            if held:
+                with self._lock:
+                    self._held_pending.setdefault(session_id, [])[:0] = held
+            raise
         return record
-
-    def get_event_loop(self) -> asyncio.AbstractEventLoop | None:
-        """Return the dedicated async event loop used by this registry."""
-        return self._async_loop
 
     def set_foreground_stopper(self, stopper: "ForegroundStopper | None") -> None:
         """Inject the foreground-tool subprocess reaper after construction.
 
-        The kernel wires the ForegroundExecutionRegistry-backed stopper here because
-        the background-task wiring is built after this registry (it needs this
-        registry's event loop), so the dependency is injected post-hoc rather than
-        through __init__ (bugfix-417-M5, #114 / M7 decision 12).
+        The platform-owned foreground registry is composed after this core object,
+        so the narrow stopper port remains late-bound without exposing executor state.
         """
         self._foreground_stopper = stopper
-
-    @property
-    def session_manager(self) -> SessionManager:
-        """Return the SessionManager held by this registry.
-
-        Exposed as a public property so platform-layer callers (e.g. background_tasks
-        wiring) can access it without reflecting on the private _session_manager
-        attribute (bugfix-404 F3).
-        """
-        return self._session_manager
 
     def get_active_run_id(self, session_id: str) -> str | None:
         """Return the run_id of the currently-executing run for a session, or None."""
@@ -548,7 +314,7 @@ class RunsRegistry:
                 stop_reason="cancelled",
                 only_if={RunStatus.QUEUED, RunStatus.RUNNING},
             )
-            self._force_cancel_owned_task(run_id)
+            self._request_target_cancel(run_id)
         return run_id
 
     def inject_pending_message(
@@ -618,121 +384,97 @@ class RunsRegistry:
         # forever (#110). Force-cancel the carrier Task on the registry's own loop
         # so `async with lock` exits via CancelledError and releases the lock; the
         # runtime's CancelledError path recovers orphaned tool_calls under shield.
-        self._force_cancel_owned_task(run_id)
+        self._request_target_cancel(run_id)
         return updated
 
-    def _force_cancel_owned_task(self, run_id: str) -> None:
-        """Force-cancel the asyncio Task carrying a run, if one is still live.
-
-        Idempotent: a run that already reached a terminal state has no entry in
-        _owned_tasks (the done-callback cleared it), so this is a no-op for
-        terminal/unknown runs. Scheduled on the dedicated loop because Task
-        cancellation must run in the loop that owns the Task.
-        """
-        loop = self._async_loop
+    def _request_target_cancel(self, run_id: str) -> None:
         with self._lock:
-            task = self._owned_tasks.get(run_id)
-        if task is None or task.done() or loop is None or not loop.is_running():
-            return
-        loop.call_soon_threadsafe(task.cancel)
+            token = self._target_tokens.get(run_id)
+        if token is not None:
+            self._executor.request_cancel(token)
 
-    async def _run_worker_async(
+    def _bind_target(
         self,
-        run_id: str,
-        session_id: str,
-        parts: Sequence[Mapping[str, Any]],
-        trace_id: str | None,
         *,
-        workspace_root: Path | None = None,
-        origin: RunOrigin = RunOrigin.USER,
+        record: RunRecord,
+        controller: RunController,
+        token: TargetToken,
     ) -> None:
-        # Transient LLM retry is handled inside AgentLoop._generate_with_retry().
-        # _run_worker executes the turn exactly once; any ModelError that reaches
-        # this layer (including retryable=True exhausted by the loop) is terminal.
-        with bind_correlation(session_id=session_id, trace_id=trace_id):
-            started = self._set_status(
-                run_id,
-                status=RunStatus.RUNNING,
-                only_if={RunStatus.QUEUED},
-            )
-            if started is None or started.status is not RunStatus.RUNNING:
-                return
-            log_info("run_started", run_id=run_id)
-
-            with self._lock:
-                controller = self._controllers.get(run_id)
-                if controller is not None and not controller.is_cancelled:
-                    self._active_run_by_session[session_id] = run_id
-
-            if self._is_cancelled(run_id):
-                with self._lock:
-                    self._active_run_by_session.pop(session_id, None)
-                    early_model = (
-                        self._runs[run_id].model if run_id in self._runs else None
-                    )
-                # Early-cancel still reached RUNNING, so a steer may already have
-                # enqueued into this controller — drain+continue via the single
-                # terminal chokepoint below rather than dropping it. Carry the run's
-                # model (bugfix-429) so a continuation keeps it.
-                self._settle_terminal_pending(
-                    controller,
-                    session_id=session_id,
-                    workspace_root=workspace_root,
-                    model=early_model,
+        with self._lock:
+            if self._state is not _RegistryState.OPEN:
+                raise RegistryClosedError(
+                    "registry is shutting down; no new runs will be accepted"
                 )
-                return
-            # bugfix-426 决策3 (扩展): stranded-pending handling is centralised in ONE
-            # terminal chokepoint (this finally) so it covers EVERY way a run can end —
-            # normal completion, timeout, failure, watchdog idle-reap, crash, and the
-            # force-cancel path (carrier Task .cancel() raises CancelledError, a
-            # BaseException that skips `except Exception` but still runs `finally`).
-            # A message injected mid-run that the loop never drained at a round boundary
-            # must survive any of these (incident「消息不丢失」). Three-tier semantics:
-            #   - non-user terminal (watchdog/crash/timeout) → auto-continuation run;
-            #   - user /stop (abort user_initiated) → park pending to the session-level
-            #     held buffer (neither auto-continue nor discard) for the NEXT submit;
-            # routed inside _settle_terminal_pending via controller.is_user_interrupt.
-            # bugfix-429: recover this run's model from its record so the background
-            # worker (and any continuation) executes on the product-supplied model
-            # rather than the kernel default.
-            with self._lock:
-                run_model = self._runs[run_id].model if run_id in self._runs else None
+            self._runs[record.run_id] = record
+            self._controllers[record.run_id] = controller
+            self._target_tokens[record.run_id] = token
+            self._persist_run_status_entry(record)
+        self._publish_run_status_event(record)
+        log_info(
+            "run_submitted",
+            run_id=record.run_id,
+            session_id=record.session_id,
+            trace_id=record.trace_id,
+        )
+
+    def _target_started(self, run_id: str) -> None:
+        started = self._set_status(
+            run_id,
+            status=RunStatus.RUNNING,
+            only_if={RunStatus.QUEUED},
+        )
+        if started is None or started.status is not RunStatus.RUNNING:
+            return
+        with self._lock:
+            controller = self._controllers.get(run_id)
+            if controller is not None and not controller.is_cancelled:
+                self._active_run_by_session[started.session_id] = run_id
+        log_info("run_started", run_id=run_id)
+
+    def _target_completed(self, run_id: str, completion: TargetCompletion) -> None:
+        with self._lock:
+            record = self._runs.get(run_id)
+            controller = self._controllers.get(run_id)
+            if (
+                record is not None
+                and self._active_run_by_session.get(record.session_id) == run_id
+            ):
+                self._active_run_by_session.pop(record.session_id, None)
+            self._target_tokens.pop(run_id, None)
+            self._cleanup_acks.add(run_id)
+        if record is None:
+            return
+
+        async def _finish() -> None:
             try:
-                try:
-                    with span(
-                        "RunsRegistry.run_worker", run_id=run_id, session_id=session_id
-                    ):
-                        result = await self._runtime.run(
-                            session_id,
-                            parts,
-                            stream=False,
-                            run_id=run_id,
-                            controller=controller,
-                            workspace_root=workspace_root,
-                            origin=origin,
-                            model=run_model,
+                current = self.get(run_id)
+                if current is None:
+                    return
+                if current.status not in _TERMINAL_STATUSES:
+                    if completion.cancelled:
+                        await self._mark_aborted_async(run_id, source="cancel")
+                    elif isinstance(completion.error, TimeoutError):
+                        await self._mark_timed_out_async(
+                            run_id, message=str(completion.error)
                         )
-                except TimeoutError as exc:
-                    await self._mark_timed_out_async(run_id, message=str(exc))
-                    return
-                except Exception as exc:  # noqa: BLE001
-                    await self._mark_failed_async(run_id, message=str(exc))
-                    return
-                finally:
-                    with self._lock:
-                        if self._active_run_by_session.get(session_id) == run_id:
-                            self._active_run_by_session.pop(session_id, None)
-                if getattr(result, "stop_reason", None) == "aborted":
-                    await self._mark_aborted_async(run_id, source="priority_now")
-                else:
-                    self._mark_completed(run_id, turn_result=result)
+                    elif completion.error is not None:
+                        await self._mark_failed_async(
+                            run_id, message=str(completion.error)
+                        )
+                    elif completion.result is not None:
+                        if completion.result.stop_reason == "aborted":
+                            await self._mark_aborted_async(run_id)
+                        else:
+                            self._mark_completed(run_id, turn_result=completion.result)
             finally:
                 self._settle_terminal_pending(
                     controller,
-                    session_id=session_id,
-                    workspace_root=workspace_root,
-                    model=run_model,
+                    session_id=record.session_id,
+                    workspace_root=record.workspace_root,
+                    model=record.model,
                 )
+
+        asyncio.get_running_loop().create_task(_finish())
 
     def _settle_terminal_pending(
         self,
@@ -996,16 +738,9 @@ class RunsRegistry:
         log_hook_diagnostics(hook_ctx, event=event, diagnostics=diagnostics)
 
     def _persist_run_status_entry(self, record: RunRecord) -> None:
-        status_data = _run_status_data(record)
-        self._session_manager.append_run_status(
-            record.session_id,
-            run_id=record.run_id,
-            status=record.status.value,
-            turn_id=record.turn_id,
-            stop_reason=record.stop_reason,
-            error=record.error,
-            data=status_data,
-        )
+        # JSONL architecture keeps run status in the event hub; this remains a
+        # named hook so the semantic writer has one stable call site.
+        del record
 
     def _publish_run_status_event(self, record: RunRecord) -> None:
         status_data = _run_status_data(record)
@@ -1034,6 +769,28 @@ class RunsRegistry:
             session_id=record.session_id,
             data=payload,
         )
+
+
+@dataclass(slots=True)
+class _RegistryCompletionSink:
+    registry: RunsRegistry
+    record: RunRecord
+    controller: RunController
+
+    def bind_target(self, token: TargetToken) -> None:
+        self.registry._bind_target(
+            record=self.record,
+            controller=self.controller,
+            token=token,
+        )
+
+    def started(self, token: TargetToken) -> None:
+        if token.owner_id != self.record.run_id:
+            raise RuntimeError("executor bound a token to the wrong run")
+        self.registry._target_started(self.record.run_id)
+
+    def complete(self, completion: TargetCompletion) -> None:
+        self.registry._target_completed(self.record.run_id, completion)
 
 
 _TERMINAL_STATUSES = {RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED}
