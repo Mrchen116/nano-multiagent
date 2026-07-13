@@ -33,10 +33,28 @@ if [[ -z "$PYTHON_BIN" ]]; then
   echo "python is required to validate Gateway teardown identity" >&2
   exit 1
 fi
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SRC_DIR="$(cd "$SCRIPT_DIR/../src" && pwd)"
+
+gateway_process_snapshot() {
+  local pid=$1
+  PYTHONPATH="$SRC_DIR${PYTHONPATH:+:$PYTHONPATH}" "$PYTHON_BIN" - "$pid" <<'PY'
+from dataclasses import asdict
+import json
+import sys
+
+from personal_assistant.main import read_gateway_process_snapshot
+
+snapshot = read_gateway_process_snapshot(int(sys.argv[1]))
+if snapshot is None:
+    raise SystemExit(1)
+print(json.dumps(asdict(snapshot), sort_keys=True))
+PY
+}
 
 gateway_process_status() {
   local pid=$1 process_stat
-  process_stat="$(ps -p "$pid" -o stat= 2>/dev/null | tr -d '[:space:]')"
+  process_stat="$(LC_ALL=C LANG=C TZ=UTC ps -p "$pid" -o stat= 2>/dev/null | tr -d '[:space:]')"
   if [[ -z "$process_stat" || "$process_stat" == Z* ]]; then
     echo exited
   else
@@ -45,7 +63,7 @@ gateway_process_status() {
 }
 
 validate_gateway_identity() {
-  local gw_pid=$1 require_live=$2 identity_file internal_pid live_command live_start
+  local gw_pid=$1 require_live=$2 identity_file internal_pid snapshot_json
   identity_file="$WT_ROOT/gateway.identity.json"
   if [[ ! -f "$identity_file" || -L "$identity_file" \
     || ! -f "$WT_ROOT/gateway.pid" || -L "$WT_ROOT/gateway.pid" ]]; then
@@ -96,33 +114,22 @@ PY
   fi
   [[ "$require_live" == 1 ]] || return 0
 
-  live_command="$(ps -p "$gw_pid" -o command= 2>/dev/null)"
-  live_start="$(ps -p "$gw_pid" -o lstart= 2>/dev/null | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-  "$PYTHON_BIN" - "$live_command" "$live_start" "$identity_file" <<'PY'
+  snapshot_json="$(gateway_process_snapshot "$gw_pid")" || return 1
+  "$PYTHON_BIN" - "$snapshot_json" "$identity_file" <<'PY'
 import json
 from pathlib import Path
-import shlex
 import sys
 
-command, live_start, identity_path = sys.argv[1:]
+snapshot_json, identity_path = sys.argv[1:]
+snapshot = json.loads(snapshot_json)
 payload = json.loads(Path(identity_path).read_text(encoding="utf-8"))
-try:
-    argv = shlex.split(command)
-except ValueError:
-    raise SystemExit(1)
-module_indexes = [
-    index
-    for index in range(max(0, len(argv) - 1))
-    if argv[index : index + 2] == ["-m", payload["entry_module"]]
-]
-argv_matches = (
-    len(module_indexes) == 1
-    and argv[module_indexes[0] + 2 :] == payload["argv"]
-)
-normalized_start = " ".join(live_start.split())
+normalized_start = " ".join(snapshot["process_start"].split())
 expected_start = " ".join(payload["process_start"].split())
 raise SystemExit(
-    0 if argv_matches and normalized_start == expected_start else 1
+    0
+    if snapshot.get("pid") == payload.get("pid")
+    and normalized_start == expected_start
+    else 1
 )
 PY
 }

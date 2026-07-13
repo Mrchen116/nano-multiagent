@@ -13,7 +13,7 @@ from personal_assistant.main import stop_gateway
 
 from ._main_helpers import (
     build_config,
-    observed_gateway_process,
+    gateway_process_snapshot,
     write_gateway_identity,
 )
 
@@ -37,7 +37,7 @@ def _write_lifecycle_files(tmp_path: Path, *, with_state: bool) -> tuple[Path, P
 
 
 @pytest.mark.parametrize("with_state", [False, True])
-def test_force_stop_treats_sigkill_esrch_as_confirmed_exit(
+def test_force_stop_treats_disappearance_after_group_sigkill_as_confirmed_exit(
     with_state: bool,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -46,25 +46,22 @@ def test_force_stop_treats_sigkill_esrch_as_confirmed_exit(
     pid_path, state_path = _write_lifecycle_files(tmp_path, with_state=with_state)
     write_gateway_identity(config)
     signals: list[tuple[str, int]] = []
+    killed = False
 
-    monkeypatch.setattr(main_module, "_pid_is_running", lambda _pid: True)
+    monkeypatch.setattr(main_module, "_pid_is_running", lambda _pid: not killed)
     monkeypatch.setattr(
         main_module,
-        "_observe_gateway_process",
-        lambda _pid: observed_gateway_process(config),
+        "read_gateway_process_snapshot",
+        lambda _pid: gateway_process_snapshot(config),
     )
 
-    def _kill(_pid: int, sig: int) -> None:
-        signals.append(("pid", sig))
+    def _kill_group(_pid: int, sig: int) -> None:
+        nonlocal killed
+        signals.append(("group", sig))
         if sig == signal.SIGKILL:
-            raise ProcessLookupError
+            killed = True
 
-    monkeypatch.setattr(main_module.os, "kill", _kill)
-    monkeypatch.setattr(
-        main_module,
-        "_kill_process_tree",
-        lambda _pid, sig: signals.append(("group", sig)),
-    )
+    monkeypatch.setattr(main_module, "_kill_process_tree", _kill_group)
     monkeypatch.setattr(main_module.time, "monotonic", iter([0.0, 1.0]).__next__)
 
     result = stop_gateway(
@@ -73,9 +70,8 @@ def test_force_stop_treats_sigkill_esrch_as_confirmed_exit(
 
     assert "forced=true" in result
     assert signals == [
-        ("pid", signal.SIGTERM),
         ("group", signal.SIGTERM),
-        ("pid", signal.SIGKILL),
+        ("group", signal.SIGKILL),
     ]
     assert not pid_path.exists()
     assert not state_path.exists()
@@ -96,8 +92,8 @@ def test_force_stop_retains_lifecycle_state_when_process_survives_sigkill(
     monkeypatch.setattr(main_module, "_pid_is_running", lambda _pid: True)
     monkeypatch.setattr(
         main_module,
-        "_observe_gateway_process",
-        lambda _pid: observed_gateway_process(config),
+        "read_gateway_process_snapshot",
+        lambda _pid: gateway_process_snapshot(config),
     )
     monkeypatch.setattr(
         main_module.os,
@@ -116,9 +112,7 @@ def test_force_stop_retains_lifecycle_state_when_process_survives_sigkill(
         stop_gateway(config_path=config.source_path, load_config=lambda _path: config)
 
     assert signals == [
-        ("pid", signal.SIGTERM),
         ("group", signal.SIGTERM),
-        ("pid", signal.SIGKILL),
         ("group", signal.SIGKILL),
     ]
     assert pid_path.exists()
