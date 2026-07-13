@@ -62,6 +62,9 @@ IM_HEALTH_URL = f"{IM_BASE_URL}/chat"
 IM_NODES_URL = f"{IM_BASE_URL}/im/v1/nodes"
 DEFAULT_READY_TIMEOUT_SECONDS = 20.0
 DEFAULT_STOP_TIMEOUT_SECONDS = 10.0
+RUNTIME_USERNAME = "m170-test-user"
+RUNTIME_PASSWORD = "m170-test-password"
+RUNTIME_DISPLAY_NAME = "M170 Test User"
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,7 +174,11 @@ def _write_runtime_config() -> None:
                 }
             ],
         },
-        "im_service": {"url": IM_BASE_URL},
+        "im_service": {
+            "url": IM_BASE_URL,
+            "username": RUNTIME_USERNAME,
+            "password": RUNTIME_PASSWORD,
+        },
     }
     _write_yaml(RUNTIME_CONFIG, payload)
 
@@ -370,6 +377,7 @@ def _start_gateway() -> str:
             "personal_assistant.main",
             "--config",
             str(RUNTIME_CONFIG),
+            "--auto-bind",
         ],
         cwd=str(REPO_ROOT),
         env=env,
@@ -385,11 +393,59 @@ def _start_gateway() -> str:
     return completed.stdout.strip()
 
 
-def _wait_for_node_online(*, timeout_seconds: float) -> RuntimeStatus:
+def _register_and_login_runtime_user() -> tuple[str, str]:
+    register_response = httpx.post(
+        f"{IM_BASE_URL}/im/v1/auth/register",
+        json={
+            "username": RUNTIME_USERNAME,
+            "password": RUNTIME_PASSWORD,
+            "display_name": RUNTIME_DISPLAY_NAME,
+        },
+        timeout=3.0,
+        trust_env=False,
+    )
+    if register_response.status_code not in {201, 409}:
+        register_response.raise_for_status()
+    return _login_runtime_user()
+
+
+def _login_runtime_user() -> tuple[str, str]:
+    response = httpx.post(
+        f"{IM_BASE_URL}/im/v1/auth/login",
+        json={"username": RUNTIME_USERNAME, "password": RUNTIME_PASSWORD},
+        timeout=3.0,
+        trust_env=False,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if not isinstance(payload, dict):
+        raise RuntimeError("M170 login response must be a mapping")
+    token = payload.get("access_token")
+    user = payload.get("user")
+    user_id = user.get("id") if isinstance(user, dict) else None
+    if not isinstance(token, str) or not token:
+        raise RuntimeError("M170 login response is missing access_token")
+    if not isinstance(user_id, str) or not user_id:
+        raise RuntimeError("M170 login response is missing user.id")
+    return token, user_id
+
+
+def _sync_runtime_user_id(user_id: str) -> None:
+    payload = _read_yaml(RUNTIME_CONFIG)
+    node = payload.setdefault("node", {})
+    if not isinstance(node, dict):
+        raise ValueError(f"node must be a mapping: {RUNTIME_CONFIG}")
+    node["user_id"] = user_id
+    _write_yaml(RUNTIME_CONFIG, payload)
+
+
+def _wait_for_node_online(
+    *, timeout_seconds: float, access_token: str
+) -> RuntimeStatus:
     deadline = time.monotonic() + timeout_seconds
-    last_status = runtime_status()
+    last_status = runtime_status(access_token=access_token)
     while time.monotonic() <= deadline:
-        last_status = runtime_status()
+        last_status = runtime_status(access_token=access_token)
         if last_status.node_online:
             return last_status
         time.sleep(0.25)
@@ -403,8 +459,12 @@ def start_runtime(
     im_pid = _spawn_im()
     if not _wait_for_url(IM_HEALTH_URL, timeout_seconds=timeout_seconds):
         raise RuntimeError(f"IM did not become ready on {IM_HEALTH_URL}; pid={im_pid}")
+    access_token, user_id = _register_and_login_runtime_user()
+    _sync_runtime_user_id(user_id)
     gateway_started = _start_gateway()
-    status = _wait_for_node_online(timeout_seconds=timeout_seconds)
+    status = _wait_for_node_online(
+        timeout_seconds=timeout_seconds, access_token=access_token
+    )
     result = {
         "im_pid": str(im_pid),
         "gateway": gateway_started,
@@ -418,7 +478,7 @@ def start_runtime(
     return result
 
 
-def runtime_status() -> RuntimeStatus:
+def runtime_status(*, access_token: str | None = None) -> RuntimeStatus:
     im_http_ok = False
     gateway_pid = None
     gateway_running = False
@@ -439,8 +499,20 @@ def runtime_status() -> RuntimeStatus:
             gateway_running = False
         except Exception:
             gateway_running = False
+    if access_token is None and im_http_ok:
+        try:
+            access_token, _user_id = _login_runtime_user()
+        except Exception:
+            access_token = None
     try:
-        response = httpx.get(IM_NODES_URL, timeout=1.0, trust_env=False)
+        if access_token is None:
+            raise RuntimeError("M170 node status requires an authenticated user")
+        response = httpx.get(
+            IM_NODES_URL,
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=1.0,
+            trust_env=False,
+        )
         if response.status_code == 200:
             payload = response.json()
             if isinstance(payload, list):
