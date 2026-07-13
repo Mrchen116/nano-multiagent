@@ -108,6 +108,11 @@ async def roll_bubble(
         live_ctx = _runtime_context_view(run_context_store, run_id)
         if new_message_id and live_ctx is not None:
             live_ctx["message_id"] = new_message_id
+            # These flags describe the bubble that was just closed, not the whole
+            # run. Carrying either across a steer makes the new bubble inherit the
+            # old bubble's visible/silence terminal decision.
+            live_ctx.pop("visible_reply_committed", None)
+            live_ctx.pop("discard_current_bubble", None)
             if new_kernel_message_id:
                 live_ctx["kernel_message_id"] = new_kernel_message_id
             else:

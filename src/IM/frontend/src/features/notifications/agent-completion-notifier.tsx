@@ -1,26 +1,15 @@
-// 桌面通知触发器:订阅 IM WS 流,在 agent 回复完成 + tab 非前台时弹出系统通知。
+// 桌面通知展示器:消费顶层协调器产出的 completion candidate。
 //
 // 设计要点:
-// - app toast 与桌面通知复用同一纯 lifecycle accumulator；本组件只保留
-//   visibility/preference/permission 展示策略与 Notification 副作用。
-// - 订阅全局 user stream 而非寄生在 chat workspace,因为通知需要在用户离开 /chat 路由
-//   时也持续工作(spec 场景 D:用户在 Me 页时 agent 完成,也要弹)。
-// - 跟踪 agent 发出的消息 id,排除"用户自己发出的消息回声"误弹。
+// - user stream 订阅、hydrate/reduce/persist 只有 useGlobalMessageToast 一个 owner。
+// - 本组件只保留 visibility/preference/permission 与 Notification 副作用。
 
 import { useEffect, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 
 import type { Conversation } from "../chat/chat-types";
-import { subscribeUserStream } from "../../realtime/user-stream";
-import {
-  type AgentCompletionCandidate,
-  type AgentCompletionState,
-  emptyAgentCompletionState,
-  hydrateAgentCompletionState,
-  persistAgentCompletionState,
-  reduceAgentCompletionEvent
-} from "./agent-completion-accumulator";
+import { type AgentCompletionCandidate } from "./agent-completion-accumulator";
 import { ensureNotificationPermission, isNotificationSupported, showAgentNotification } from "./notification-api";
 import { isDocumentHidden, subscribeDocumentVisibility } from "./document-visibility";
 import { useNotificationPreference } from "./notification-preference";
@@ -65,21 +54,21 @@ function buildCandidateSpec(
  * 顶层挂载组件:开 WS、监听 visibility/preference、按 spec 弹通知。
  * 必须放在登录 RequireAuth 之内,确保 access_token 已就绪。
  */
-export function AgentCompletionNotifier(): null {
+export function AgentCompletionNotifier({
+  candidate
+}: {
+  candidate: AgentCompletionCandidate | null;
+}): null {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [preferenceEnabled] = useNotificationPreference();
   const userId = useAuthStore((state) => state.user?.id ?? null);
-  const stateRef = useRef<AgentCompletionState>(emptyAgentCompletionState);
+  const seenCandidateRef = useRef<string | null>(null);
   const hiddenRef = useRef<boolean>(isDocumentHidden());
   const preferenceRef = useRef<boolean>(preferenceEnabled);
   preferenceRef.current = preferenceEnabled;
   const navigateRef = useRef(navigate);
   navigateRef.current = navigate;
-
-  useEffect(() => {
-    stateRef.current = hydrateAgentCompletionState(userId);
-  }, [userId]);
 
   // 用户打开通知时,确保浏览器权限就位(default → 弹一次系统授权框)。
   useEffect(() => {
@@ -110,41 +99,36 @@ export function AgentCompletionNotifier(): null {
   );
 
   useEffect(() => {
-    if (!isNotificationSupported()) return;
-    return subscribeUserStream({
-      onEvent: (event) => {
-        const reduced = reduceAgentCompletionEvent(stateRef.current, event);
-        stateRef.current = reduced.state;
-        persistAgentCompletionState(userId, reduced.state);
-        if (!reduced.candidate) return;
-        const spec = buildCandidateSpec(reduced.candidate, {
-          hidden: hiddenRef.current,
-          enabled: preferenceRef.current,
-          permissionGranted:
-            typeof globalThis !== "undefined" &&
-            typeof (globalThis as { Notification?: { permission: NotificationPermission } }).Notification?.permission ===
-              "string" &&
-            (globalThis as { Notification: { permission: NotificationPermission } }).Notification.permission ===
-              "granted",
-          resolveAgentName
-        });
-        if (!spec) return;
-        showAgentNotification({
-          title: spec.title,
-          body: spec.body,
-          tag: spec.tag,
-          onClick: () => {
-            try {
-              window.focus();
-            } catch {
-              /* focus 可能在某些浏览器被阻挡,通知点击的导航仍然要发生 */
-            }
-            navigateRef.current(`/chat/${spec.conversationId}`);
-          }
-        });
+    if (!candidate || !userId || !isNotificationSupported()) return;
+    const candidateIdentity = `${userId}:${candidate.messageKey}`;
+    if (seenCandidateRef.current === candidateIdentity) return;
+    seenCandidateRef.current = candidateIdentity;
+    const spec = buildCandidateSpec(candidate, {
+      hidden: hiddenRef.current,
+      enabled: preferenceRef.current,
+      permissionGranted:
+        typeof globalThis !== "undefined" &&
+        typeof (globalThis as { Notification?: { permission: NotificationPermission } }).Notification?.permission ===
+          "string" &&
+        (globalThis as { Notification: { permission: NotificationPermission } }).Notification.permission ===
+          "granted",
+      resolveAgentName
+    });
+    if (!spec) return;
+    showAgentNotification({
+      title: spec.title,
+      body: spec.body,
+      tag: spec.tag,
+      onClick: () => {
+        try {
+          window.focus();
+        } catch {
+          /* focus 可能在某些浏览器被阻挡,通知点击的导航仍然要发生 */
+        }
+        navigateRef.current(`/chat/${spec.conversationId}`);
       }
     });
-  }, [resolveAgentName, userId]);
+  }, [candidate, resolveAgentName, userId]);
 
   return null;
 }

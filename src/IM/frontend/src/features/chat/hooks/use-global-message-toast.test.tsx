@@ -11,6 +11,14 @@ import {
   resetLocalUnreadFeedback
 } from "../../notifications/local-unread-feedback";
 
+const { listConversationsMock } = vi.hoisted(() => ({
+  listConversationsMock: vi.fn()
+}));
+
+vi.mock("../chat-api", () => ({
+  listConversations: listConversationsMock
+}));
+
 let streamHandler: ((event: { eventType: string; payload: Record<string, unknown>; eventId?: number }) => void) | null = null;
 
 vi.mock("../../../realtime/user-stream", () => ({
@@ -105,6 +113,8 @@ describe("useGlobalMessageToast", () => {
     vi.clearAllMocks();
     sessionStorage.clear();
     resetLocalUnreadFeedback();
+    listConversationsMock.mockReset();
+    listConversationsMock.mockResolvedValue([]);
     useAuthStore.getState().setSession({
       access_token: "token",
       refresh_token: "refresh",
@@ -170,6 +180,82 @@ describe("useGlobalMessageToast", () => {
     });
 
     expect(result.current.toast?.id).toBe("message:m-1");
+  });
+
+  it("toasts an external shadow user message from its canonical created event", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["chat", "conversations"], [
+      conversation("conv-external", {
+        title: "Feishu chat",
+        external_source: "feishu",
+        external_chat_id: "oc_external"
+      })
+    ]);
+    const { result } = renderHook(() => useGlobalMessageToast(), { wrapper: buildWrapper(queryClient, "/") });
+    await waitFor(() => expect(subscribeUserStreamMock).toHaveBeenCalled());
+
+    // This is the actual repository sequence: message.sent is only a receipt;
+    // message.created carries the external sender name and visible content.
+    emit("conv-external", {
+      eventType: "message.sent",
+      eventId: 1,
+      payload: { message_id: "external-1", semantic: "persisted_to_im" }
+    });
+    emit("conv-external", {
+      eventType: "message.created",
+      eventId: 2,
+      payload: {
+        message_id: "external-1",
+        sender_type: "user",
+        sender_user_id: "user-a",
+        sender_display_name: "Alice from Feishu",
+        content: "hello from feishu",
+        created_at: "2026-07-13T00:00:00Z"
+      }
+    });
+
+    expect(result.current.toast).toMatchObject({
+      id: "message:external-1",
+      senderName: "Alice from Feishu",
+      preview: "hello from feishu"
+    });
+    expect(hasLocalUnreadFeedback("conv-external")).toBe(true);
+  });
+
+  it("resolves a newly created external conversation before classifying its first message as self-authored", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    listConversationsMock.mockResolvedValue([
+      conversation("conv-new-external", {
+        title: "New Feishu chat",
+        external_source: "feishu",
+        external_chat_id: "oc_new"
+      })
+    ]);
+    const { result } = renderHook(() => useGlobalMessageToast(), { wrapper: buildWrapper(queryClient, "/") });
+    await waitFor(() => expect(subscribeUserStreamMock).toHaveBeenCalled());
+
+    emit("conv-new-external", {
+      eventType: "message.created",
+      eventId: 1,
+      payload: {
+        message_id: "external-new-1",
+        sender_type: "user",
+        sender_user_id: "self-user",
+        sender_display_name: "New Feishu Sender",
+        content: "first external message",
+        created_at: "2026-07-13T00:00:00Z"
+      }
+    });
+
+    await waitFor(() => {
+      expect(listConversationsMock).toHaveBeenCalledTimes(1);
+      expect(result.current.toast).toMatchObject({
+        id: "message:external-new-1",
+        senderName: "New Feishu Sender",
+        preview: "first external message"
+      });
+      expect(hasLocalUnreadFeedback("conv-new-external")).toBe(true);
+    });
   });
 
   it("treats relay.report and relay.completed as non-notifying receipts", async () => {

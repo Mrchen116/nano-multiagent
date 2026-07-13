@@ -3,9 +3,11 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "react-router-dom";
 
 import type { Conversation } from "../chat-types";
+import { listConversations } from "../chat-api";
 import { useAuthStore } from "../../auth/auth-store";
 import { subscribeUserStream, type UserStreamEvent } from "../../../realtime/user-stream";
 import {
+  type AgentCompletionCandidate,
   type AgentCompletionState,
   emptyAgentCompletionState,
   hydrateAgentCompletionState,
@@ -144,7 +146,10 @@ export function buildNotificationCandidate(event: UserStreamEvent): Notification
     return null;
   }
 
-  if (event.eventType === "message.sent") {
+  if (
+    event.eventType === "message.sent"
+    || (event.eventType === "message.created" && payload.sender_type === "user")
+  ) {
     const messageId = normalizeText(payload.message_id);
     if (!messageId) {
       return null;
@@ -165,6 +170,7 @@ export function buildNotificationCandidate(event: UserStreamEvent): Notification
  */
 export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
   const [toast, setToast] = useState<ToastPayload | null>(null);
+  const [agentCompletionCandidate, setAgentCompletionCandidate] = useState<AgentCompletionCandidate | null>(null);
   const queryClient = useQueryClient();
   const location = useLocation();
   const pathnameRef = useRef(location.pathname);
@@ -188,6 +194,7 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
     agentCompletionRef.current = hydrateAgentCompletionState(selfUserId);
     resetLocalUnreadFeedback();
     setToast(null);
+    setAgentCompletionCandidate(null);
   }, [selfUserId]);
 
   useEffect(() => {
@@ -212,6 +219,7 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
         const completion = reduceAgentCompletionEvent(agentCompletionRef.current, event);
         agentCompletionRef.current = completion.state;
         persistAgentCompletionState(selfUserIdRef.current, completion.state);
+        if (completion.candidate) setAgentCompletionCandidate(completion.candidate);
         let candidate = buildNotificationCandidate(event);
         if (completion.candidate) {
           candidate = {
@@ -222,32 +230,67 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
           };
         }
         const viewingConversation = isViewingConversation(pathnameRef.current, conversationId);
-        const selfAuthored = isSelfAuthoredUserMessage(payload, selfUserIdRef.current);
-        const shouldMarkUnread = Boolean(candidate && !viewingConversation && !selfAuthored);
-        if (shouldMarkUnread) markLocalUnreadFeedback(conversationId);
-        if (candidate) {
+        const conversations = queryClient.getQueryData<Conversation[]>(["chat", "conversations"]);
+        const cachedConversation = conversations?.find((conversation) => conversation.id === conversationId);
+        const authoredByAccountUser = isSelfAuthoredUserMessage(payload, selfUserIdRef.current);
+        const surfaceCandidate = (resolvedSelfAuthored: boolean): void => {
+          if (!candidate) return;
+          const shouldMarkUnread = !viewingConversation && !resolvedSelfAuthored;
+          if (shouldMarkUnread) markLocalUnreadFeedback(conversationId);
           queryClient.setQueryData<Conversation[] | undefined>(["chat", "conversations"], (previous) =>
             patchConversationPreview(previous, conversationId, candidate.preview, candidate.createdAt, shouldMarkUnread)
           );
-        }
+          if (
+            viewingConversation
+            || resolvedSelfAuthored
+            || state.notifiedMessageKeys.has(candidate.messageKey)
+          ) return;
+          state.notifiedMessageKeys.add(candidate.messageKey);
+          setToast({
+            id: candidate.messageKey,
+            conversationId,
+            senderName: candidate.senderName,
+            preview: candidate.preview
+          });
+        };
+
+        const externalConversation = Boolean(cachedConversation?.external_source);
+        // External shadow writes intentionally persist under the account owner so
+        // they stay inside the owner's conversation scope. The conversation's
+        // existing external identity, not that storage identity, decides whether
+        // this tab should surface the inbound peer message.
         if (event.eventType === "message.completed") {
           void queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] }).catch(() => undefined);
         }
-        if (viewingConversation || selfAuthored || !candidate || state.notifiedMessageKeys.has(candidate.messageKey)) {
+
+        const unresolvedExternalOwnerMirror = Boolean(
+          candidate
+          && event.eventType === "message.created"
+          && payload.sender_type === "user"
+          && authoredByAccountUser
+          && cachedConversation === undefined
+        );
+        if (unresolvedExternalOwnerMirror) {
+          const eventUserId = selfUserIdRef.current;
+          void queryClient.fetchQuery({
+            queryKey: ["chat", "conversations"],
+            queryFn: listConversations
+          }).then((freshConversations) => {
+            if (
+              selfUserIdRef.current !== eventUserId
+              || conversationStateRef.current.get(conversationId) !== state
+            ) return;
+            const freshConversation = freshConversations.find((item) => item.id === conversationId);
+            surfaceCandidate(!freshConversation?.external_source);
+          }).catch(() => undefined);
           return;
         }
-        state.notifiedMessageKeys.add(candidate.messageKey);
-        setToast({
-          id: candidate.messageKey,
-          conversationId,
-          senderName: candidate.senderName,
-          preview: candidate.preview
-        });
+        surfaceCandidate(authoredByAccountUser && !externalConversation);
       }
     });
   }, [queryClient]);
 
   const dismiss = useCallback(() => setToast(null), []);
 
-  return { toast, dismiss };
+  return { toast, dismiss, agentCompletionCandidate };
 }

@@ -63,7 +63,11 @@ class UserStreamRegistry:
 
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
-        self._by_user: dict[str, set[WebSocket]] = defaultdict(set)
+        # Per-connection high-water is the ordering contract between replay and
+        # queued live delivery. A broadcast persisted before the replay cutoff may
+        # still be waiting on the handoff lock; skipping ids already covered by
+        # that connection's replay prevents the same row from crossing both paths.
+        self._by_user: dict[str, dict[WebSocket, int]] = defaultdict(dict)
         self._handoff_by_user: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
     @asynccontextmanager
@@ -73,16 +77,36 @@ class UserStreamRegistry:
         async with self._handoff_by_user[user_id]:
             yield
 
-    async def add(self, user_id: str, websocket: WebSocket) -> None:
+    async def add(
+        self,
+        user_id: str,
+        websocket: WebSocket,
+        *,
+        delivered_through: int = 0,
+    ) -> None:
         async with self._lock:
-            self._by_user[user_id].add(websocket)
+            self._by_user[user_id][websocket] = delivered_through
+
+    async def advance_delivered_through(
+        self,
+        user_id: str,
+        websocket: WebSocket,
+        event_id: int,
+    ) -> None:
+        """Advance one registered connection's replay/live coverage."""
+
+        async with self._lock:
+            sockets = self._by_user.get(user_id)
+            if sockets is None or websocket not in sockets:
+                return
+            sockets[websocket] = max(sockets[websocket], event_id)
 
     async def remove(self, user_id: str, websocket: WebSocket) -> None:
         async with self._lock:
             sockets = self._by_user.get(user_id)
             if not sockets:
                 return
-            sockets.discard(websocket)
+            sockets.pop(websocket, None)
             if not sockets:
                 del self._by_user[user_id]
 
@@ -100,6 +124,7 @@ class UserStreamRegistry:
         id_set = frozenset(user_ids)
         if not id_set:
             return
+        event_id = _event_id_from_wire_frame(text)
         # Stable ordering avoids deadlocks for multi-participant fan-out while each
         # user's replay/register handoff remains atomic relative to live events.
         async with AsyncExitStack() as stack:
@@ -108,12 +133,18 @@ class UserStreamRegistry:
             async with self._lock:
                 targets: list[tuple[str, WebSocket]] = []
                 for uid in id_set:
-                    for ws in list(self._by_user.get(uid, ())):
+                    for ws, delivered_through in list(
+                        self._by_user.get(uid, {}).items()
+                    ):
+                        if event_id is not None and event_id <= delivered_through:
+                            continue
                         targets.append((uid, ws))
             dead: list[tuple[str, WebSocket]] = []
             for uid, ws in targets:
                 try:
                     await ws.send_text(text)
+                    if event_id is not None:
+                        await self.advance_delivered_through(uid, ws, event_id)
                 except Exception:
                     dead.append((uid, ws))
             if dead:
@@ -121,9 +152,24 @@ class UserStreamRegistry:
                     for uid, ws in dead:
                         bucket = self._by_user.get(uid)
                         if bucket is not None:
-                            bucket.discard(ws)
+                            bucket.pop(ws, None)
                             if not bucket:
                                 del self._by_user[uid]
+
+
+def _event_id_from_wire_frame(text: str) -> int | None:
+    """Return a persisted event id when ``text`` is a canonical event frame."""
+
+    try:
+        frame = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(frame, dict) or frame.get("op") != "event":
+        return None
+    event_id = frame.get("event_id")
+    if not isinstance(event_id, int) or isinstance(event_id, bool) or event_id <= 0:
+        return None
+    return event_id
 
 
 def build_notify_enqueue(
@@ -221,7 +267,7 @@ async def serve_user_websocket(
     after_event_id = 0
     registered = False
 
-    async def _send_replay(cursor: int) -> None:
+    async def _send_replay(cursor: int, *, replay_through: int) -> None:
         """Drain every recoverable page or send one explicit resync control frame."""
 
         next_after = cursor
@@ -232,6 +278,7 @@ async def serve_user_websocket(
                 max_batch=REPLAY_MAX_BATCH,
                 max_gap=REPLAY_MAX_GAP,
                 replay_window_minutes=REPLAY_WINDOW_MINUTES,
+                up_to_event_id=replay_through,
             )
             if outcome.resync_required:
                 await websocket.send_text(
@@ -264,8 +311,13 @@ async def serve_user_websocket(
             after_event_id = 0
 
         async with registry.replay_handoff(user_id):
-            await _send_replay(after_event_id)
-            await registry.add(user_id, websocket)
+            replay_through = event_repository.global_max_event_id()
+            await _send_replay(after_event_id, replay_through=replay_through)
+            await registry.add(
+                user_id,
+                websocket,
+                delivered_through=replay_through,
+            )
             registered = True
 
         while True:
@@ -289,7 +341,13 @@ async def serve_user_websocket(
                     else 0
                 )
                 async with registry.replay_handoff(user_id):
-                    await _send_replay(next_after)
+                    replay_through = event_repository.global_max_event_id()
+                    await _send_replay(next_after, replay_through=replay_through)
+                    await registry.advance_delivered_through(
+                        user_id,
+                        websocket,
+                        replay_through,
+                    )
     except WebSocketDisconnect:
         pass
     finally:

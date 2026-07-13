@@ -1,4 +1,10 @@
 import type { SessionReadiness } from "../../features/auth/auth-session";
+import {
+  UserStreamRecoveryError,
+  validateCanonicalUserStreamEvent
+} from "./canonical-event";
+
+export { UserStreamRecoveryError } from "./canonical-event";
 
 export interface UserStreamEvent {
   eventType: string;
@@ -42,14 +48,6 @@ export interface UserStreamRuntime {
   subscribe(subscriber: UserStreamSubscriber): () => void;
 }
 
-/** Domain subscribers throw this after recognizing a malformed canonical frame. */
-export class UserStreamRecoveryError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "UserStreamRecoveryError";
-  }
-}
-
 const SOCKET_OPEN = 1;
 const MAX_BACKOFF_EXPONENT = 5;
 
@@ -68,7 +66,8 @@ export function createUserStreamRuntime(dependencies: UserStreamRuntimeDependenc
   let activeUserId: string | null = null;
   let activeToken: string | null = null;
   let lastOpenedUserId: string | null = null;
-  let recoverySignaledGeneration: number | null = null;
+  let recoveryInFlight: Promise<void> | null = null;
+  let resyncInFlightGeneration: number | null = null;
   let resyncHandledGeneration: number | null = null;
 
   function clearTimers(): void {
@@ -91,7 +90,8 @@ export function createUserStreamRuntime(dependencies: UserStreamRuntimeDependenc
     activeUserId = null;
     activeToken = null;
     reconnectAttempt = 0;
-    recoverySignaledGeneration = null;
+    recoveryInFlight = null;
+    resyncInFlightGeneration = null;
     resyncHandledGeneration = null;
     if (resetContinuity) lastOpenedUserId = null;
   }
@@ -141,23 +141,37 @@ export function createUserStreamRuntime(dependencies: UserStreamRuntimeDependenc
   }
 
   async function signalRecovery(currentGeneration: number): Promise<void> {
-    if (currentGeneration !== generation || recoverySignaledGeneration === currentGeneration) return;
-    recoverySignaledGeneration = currentGeneration;
-    await Promise.all(
-      [...subscribers].map(async (subscriber) => {
-        if (!subscriber.onRecovery) return;
-        try {
-          await subscriber.onRecovery();
-        } catch (error) {
-          reportSubscriberError(error);
-        }
-      })
-    );
+    if (currentGeneration !== generation) return;
+    if (recoveryInFlight) return recoveryInFlight;
+    const task = (async () => {
+      await Promise.all(
+        [...subscribers].map(async (subscriber) => {
+          if (!subscriber.onRecovery) return;
+          try {
+            await subscriber.onRecovery();
+          } catch (error) {
+            reportSubscriberError(error);
+          }
+        })
+      );
+    })();
+    recoveryInFlight = task;
+    try {
+      await task;
+    } finally {
+      if (recoveryInFlight === task) {
+        recoveryInFlight = null;
+      }
+    }
   }
 
   async function handleResync(currentGeneration: number, userId: string, reason?: string): Promise<void> {
-    if (currentGeneration !== generation || resyncHandledGeneration === currentGeneration) return;
-    resyncHandledGeneration = currentGeneration;
+    if (
+      currentGeneration !== generation
+      || resyncHandledGeneration === currentGeneration
+      || resyncInFlightGeneration === currentGeneration
+    ) return;
+    resyncInFlightGeneration = currentGeneration;
     try {
       const result = await dependencies.sync();
       if (currentGeneration !== generation) return;
@@ -167,9 +181,17 @@ export function createUserStreamRuntime(dependencies: UserStreamRuntimeDependenc
       } else if (Number.isFinite(result.maxEventId) && result.maxEventId > current) {
         writeCursor(userId, result.maxEventId);
       }
+      resyncHandledGeneration = currentGeneration;
     } catch (error) {
       if (currentGeneration !== generation) return;
       dependencies.reportError(error);
+      invalidateConnection(false);
+      scheduleReconnect();
+      return;
+    } finally {
+      if (resyncInFlightGeneration === currentGeneration) {
+        resyncInFlightGeneration = null;
+      }
     }
     await signalRecovery(currentGeneration);
   }
@@ -204,6 +226,15 @@ export function createUserStreamRuntime(dependencies: UserStreamRuntimeDependenc
     }
     const event = parseEvent(record);
     if (!event) return;
+    try {
+      validateCanonicalUserStreamEvent(event.eventType, event.payload);
+    } catch (error) {
+      reportSubscriberError(error);
+      if (error instanceof UserStreamRecoveryError) {
+        void signalRecovery(currentGeneration);
+      }
+      return;
+    }
     if (event.eventId !== undefined) {
       const current = readCursor(userId);
       if (event.eventId <= current) return;
@@ -248,7 +279,8 @@ export function createUserStreamRuntime(dependencies: UserStreamRuntimeDependenc
     previous?.close();
     activeUserId = snapshot.userId;
     activeToken = snapshot.accessToken;
-    recoverySignaledGeneration = null;
+    recoveryInFlight = null;
+    resyncInFlightGeneration = null;
     resyncHandledGeneration = null;
 
     const readiness = await dependencies.ensureSession();
@@ -265,12 +297,14 @@ export function createUserStreamRuntime(dependencies: UserStreamRuntimeDependenc
     if (latest.userId !== readiness.userId || latest.accessToken !== readiness.accessToken) return;
 
     const initialCursor = readCursor(readiness.userId);
+    let establishedColdBaseline = false;
     if (!baselinedCursorUsers.has(readiness.userId) && initialCursor === 0) {
       try {
         const baseline = await dependencies.sync();
         if (currentGeneration !== generation || subscribers.size === 0) return;
         replaceCursor(readiness.userId, baseline.maxEventId);
         baselinedCursorUsers.add(readiness.userId);
+        establishedColdBaseline = true;
       } catch (error) {
         if (currentGeneration !== generation) return;
         dependencies.reportError(error);
@@ -298,7 +332,7 @@ export function createUserStreamRuntime(dependencies: UserStreamRuntimeDependenc
           nextSocket.send(JSON.stringify({ op: "ping" }));
         }
       }, 25_000);
-      if (recovering) void signalRecovery(currentGeneration);
+      if (recovering || establishedColdBaseline) void signalRecovery(currentGeneration);
     };
     nextSocket.onmessage = (event) => dispatchFrame(event.data, currentGeneration, readiness.userId);
     nextSocket.onerror = () => dependencies.reportError(new Error("user stream socket error"));

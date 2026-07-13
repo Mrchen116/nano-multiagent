@@ -59,7 +59,7 @@ describe("App shell", () => {
     expect(screen.getByRole("link", { name: /agents/i })).toBeInTheDocument();
   });
 
-  it("mounts AgentCompletionNotifier so it can fire desktop notifications even off the chat route", () => {
+  it("uses one notification stream coordinator even off the chat route", () => {
     const fake = vi.fn(() => ({ onclick: null, close: vi.fn() })) as unknown as typeof Notification & {
       permission: NotificationPermission;
       requestPermission: () => Promise<NotificationPermission>;
@@ -75,7 +75,7 @@ describe("App shell", () => {
         </MemoryRouter>
       </AppProviders>
     );
-    expect(spy).toHaveBeenCalled();
+    expect(spy).toHaveBeenCalledTimes(1);
     spy.mockRestore();
     delete (globalThis as unknown as { Notification?: unknown }).Notification;
   });
