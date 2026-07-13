@@ -61,3 +61,13 @@
 - Rollback: 回退到 C1 `02766572` 可恢复 R3 Green 前的 active entrypoint 内容；配置回退按 design 先恢复对应 migration backup。
 - Commits: C1=`02766572`, C2=`d3399998`, C3=本 docs commit。
 - Next: milestone 全量 non-e2e、rebase/锁校验与 unit branch 集成。
+
+## R4 — 全量门禁补齐跨套件 config fixture
+
+- Status: DONE
+- Context: rebase 后首次全量 non-e2e 为 `1 failed, 3494 passed, 1 skipped, 23 deselected`；唯一失败是 heartbeat config sync integration 在运行中 import 已删除的 `KernelConfig`。
+- Root cause: R1 的 fixture 机械迁移按 `tests/unit/personal_assistant/**` 范围执行，漏掉 `tests/im_service/integration/test_heartbeat_config_sync_pipeline.py` 里同样构造 `LocalConfig` 的跨套件入口；生产 parser/runtime 无新失败。
+- Decision: 扩展 zero-residue contract guard，扫描所有 active Python test fixtures，禁止再构造 removed `KernelConfig`；该 integration fixture 仅替换为当前 `GatewayLifecycleConfig` / `gateway=`，不改其 heartbeat PATCH → WS sync → scheduler 行为。
+- Evidence: 原失败用例可稳定单独复现；C1 guard 精确红在该文件。Green 后 guard + 原 integration 共 5 passed，ruff check/format 通过；全量复跑 `3496 passed, 1 skipped, 23 deselected`（119.67s）。
+- Commits: C1=`8579baf6`, C2=`b519e94b`, C3=本 docs commit。
+- Next: 获取 unit lock，合并并推送 unit branch，清理 milestone worktree/branch。
