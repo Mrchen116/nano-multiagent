@@ -24,8 +24,8 @@
 
 ### 既有约束
 
-- 本 unit 只改 `src/IM/frontend` 与其测试/文档；不改变 IM 后端 `/im/ws/user`、`/im/v1/sync`、REST schema、
-  Gateway 协议或持久化数据。
+- M1/M2 原计划只改 `src/IM/frontend` 与其测试/文档；验收后 M3-M5 允许在不扩展 wire/REST schema 的前提下，
+  修正 Gateway runtime delivery 与 IM user-stream/repository 的既有连续性语义。持久化 schema 与跨包职责仍不改变。
 - 后端 user stream 的 current 契约是：JWT 握手、客户端立即 `resume(after_event_id)`、持久事件按 cursor 回放、
   gap/window miss 返回 `resync_required`、客户端以 `/im/v1/sync.max_event_id` 对齐。
 - `node.status_changed` / `agent.status_changed` 是同一 envelope 的非持久状态帧，payload 有 owner-scoped `seq`，
@@ -295,7 +295,8 @@ stateDiagram-v2
     Live --> Backoff: unexpected close
     Backoff --> EnsuringSession: retry timer + subscribers + session
     Live --> Reconciling: resync_required
-    Reconciling --> Live: sync attempted / recovery signaled
+    Reconciling --> Live: sync succeeded / recovery settled
+    Reconciling --> Backoff: sync failed / retry generation
     Live --> EnsuringSession: user or token changed / new generation
     Backoff --> Dormant: logout or last unsubscribe
     EnsuringSession --> Dormant: logout or last unsubscribe
@@ -309,8 +310,11 @@ stateDiagram-v2
 - 每次初始 connect 和 backoff retry 都经 `EnsuringSession`；`retry` 沿用同一 bounded backoff，`signed_out` 停止重连并由
   现有 auth route guard 转登录页。已建立的 socket 不因 JWT 自然到期强制换代；只在下次 connect 或 store token 已
   rotation 时进入新 generation。
-- `resync_required` 调 `/im/v1/sync`；cursor 更新为 `max(current, max_event_id)`，sync 失败不回退 cursor，仍发
-  `onRecovery` 让领域自行重读。后续 reconnect 继续按现有 cursor 恢复。
+- `resync_required` 调 `/im/v1/sync`；普通 gap/window miss 以 `max(current, max_event_id)` 前进，
+  `cursor_ahead_of_event_store` 则以当前 event store 的 `max_event_id` 替换旧 epoch cursor。sync 失败不得把该
+  generation 永久标成已处理，必须进入可重试的新 generation；只有 sync 成功后才发 `onRecovery` 让领域重读。
+- 新标签页 cursor 为 0 时，先以 `/im/v1/sync.max_event_id` 建立“历史不提醒”的 baseline，再触发一次领域 recovery，
+  消除初始 REST snapshot 与 baseline 之间的竞态。recovery 只合并同时在途的请求，不得限制为每 generation 一次。
 
 ### Domain ownership
 
@@ -431,3 +435,4 @@ graph LR
 | refactor-460-M2 | legacy-retirement | refactor-460-M1 | B | `src/IM/frontend/src/features/chat/` 全目录 canonicalization/deletion；`app/{router*,shell/app-shell*}`；`features/auth/{auth-store*,auth-store.test*}`; `features/chat/bind-confirm-page*`; `features/settings/im-settings-api*`; `features/settings/agents/{agent-detail-page*,im-agent-config-api*}`；所有受路径移动影响的 frontend imports/tests；`src/IM/frontend/README.md`; 本 unit delta-spec | **[reviewer]** 覆盖 motivation 中“确认 Gateway 绑定”“从 Agent 详情打开单聊”，其中绑定必须在 Chat/Settings 已有 hot cache 时操作，返回 Chat 后刚绑定的 Node/Agent/默认入口立即可见；并回归 M1 全部实时旅程、Chat 桌面/移动核心交互。<br>**[worker]** bind 集成测试预填充 final canonical Chat/Settings caches，证明 confirm 成功后 `/me` 覆盖 auth user snapshot、六组 owner-derived prefix 以 `refetchType:'all'` 收敛后才导航，且 reconciliation 失败重试不再提交 bind token。<br>**[worker]** `im-chat-api.ts`、legacy `chat-api.ts`/`mock-chat-api.ts`/`types.ts`、旧 ConversationList/MessagePane 及只服务旧路径的测试删除；原 `v2/` current 文件通过 `git mv` 成为无版本后缀 canonical Chat；生产源码无 `VITE_CHAT_API_MODE`、`chat-v2` query key、legacy import 或第二处 user-stream socket。<br>**[worker]** `npm run test`、`npm run build`、相关 Python contract、`pytest -m "not e2e"` 与 `scripts/e2e-critical.sh` 通过；README 与真实入口一致。 |
 | refactor-460-M3 | post-acceptance-fixes | refactor-460-M2 | C | `features/auth/{auth-fetch*,auth-session*}`；`realtime/user-stream/*`；`features/chat/{chat-workspace-page*,chat-workspace.integration.test*,bind-confirm-page*,chat-api*,hooks/use-global-message-toast*}`；`features/settings/agents/agent-detail-page*`；frontend architecture contract；`personal_assistant/gateway/runtime_delivery/context.py` 与 Gateway delivery tests；`IM/infra/repositories.py`、`IM/ws/user_stream.py` 与 IM repository/wire tests | **[reviewer]** 关闭 Round 1 的静默回复残留与在线非当前会话 toast/未读问题，并补齐恢复、绑定和凭证失效的可观察回归；不改变既有桌面/移动 Chat 交互。<br>**[worker]** Chat recovery 对当前消息、会话、Agent、Node 四类权威状态完成收敛；服务端拒绝但本地仍 fresh 的 token 通过同一 single-flight coordinator 强制 refresh；storage 不可用不击穿共享实时流；绑定 refetch 真实失败不导航且一次性 confirm 结果按 token 隔离。<br>**[worker]** direct Web IM 在 Gateway 源头采用既有协议静默语义；IM tombstone 在事务提交后 exactly-once 发布，nullable event FK 不覆盖 payload 中的 provisional message id，在线撤泡与 reload 历史一致且外部 channel/普通事件不变。<br>**[worker]** 删除无调用 mention API、详情页重复 Agent summary 请求与过宽 WebSocket ownership guard；复用统一 JSON transport/error seam且保持用户错误展示；相关定向测试、全量 Vitest/build、contract、non-e2e 与受影响真栈旅程通过。 |
 | refactor-460-M4 | replay-and-notification-closure | refactor-460-M3 | D | `IM/infra/repositories.py`、`IM/ws/user_stream.py`、`IM/application/event_bridge.py` 及 replay/stream tests；`personal_assistant/gateway/runtime_delivery/{observer.py,context.py}` 与 direct Web lifecycle/repository tests；`frontend/src/realtime/user-stream/*`；`features/chat/chat-stream-reducer*`、`features/chat/hooks/use-global-message-toast*`、`features/notifications/agent-completion-notifier*` 与相关 integration tests | **[reviewer]** 关闭 Round 2 的“带 tool/thinking 的静默回复 reload 后残留空 Agent 行”和“在线非当前会话无 toast/可见未读”，并验证同一回复只提醒一次、冷启动/恢复不重放历史提醒、刷新跨越 created/completed 不漏提醒；回归桌面/移动 Chat、绑定、状态、账号隔离。<br>**[worker]** replay 与 live 交接不双投、不乱序；短期 backlog 超过单批上限不会截断丢失；客户端 cursor 高于当前事件库 max 时触发权威 resync；新标签页 cursor=0 的历史 replay 不表现为新通知。<br>**[worker]** direct Web lifecycle 以可见正文是否提交决定 completed/discarded，tool/thinking 过程不阻止自然静默整泡回滚；普通可见回复与非 Web delivery 不变。<br>**[worker]** canonical completion 与 relay receipt 对同一回复只产生一次提醒；通知生命周期在页面 reload 前后保持正确，应用内与桌面通知复用一个纯生命周期 accumulator；退役非 canonical `message_created` alias。<br>**[worker]** repository/bridge 只保留一个 post-commit event notify owner；domain mapper 对异常持久 payload 安全降级；内存 cursor hydrate 后不在事件热路径重复读 storage，storage 不可用不洪泛日志。<br>**[worker]** 定向并发/分页/epoch/通知测试、全量 frontend/backend/contract/critical-path 与真实双浏览器旅程通过，证据持久化。 |
+| refactor-460-M5 | continuity-source-fixes | refactor-460-M4 | E | `IM/ws/user_stream.py`、`IM/infra/repositories.py` 与 handoff/replay tests；`frontend/src/realtime/user-stream/*`、canonical event validator、Chat recovery tests；`personal_assistant/gateway/runtime_delivery/observer.py` 与 steer lifecycle tests；notification coordinator/toast/notifier/local unread；external shadow message mapping 与相关 Gateway/IM tests | **[reviewer]** 真实隔离浏览器验证冷启动 baseline 不漏消息、epoch sync 失败可恢复、同一连接多次独立 recovery 均收敛、steer 后自然静默不留空泡、外部 channel 消息实时进入已打开会话并在非当前会话产生正确提醒；不得使用用户 Chrome、Computer Use 或 macOS 系统设置。<br>**[implementation]** replay handoff 给每条连接建立明确 high-water/cutoff，同一持久事件不因 replay 与 queued live 双投；分页期间新事件只从一个路径进入。<br>**[implementation]** cold baseline 后必做领域 recovery；epoch sync 失败重连重试；recovery 仅合并同时在途调用；canonical payload 在 fan-out 前统一验证，异常帧不污染任一 subscriber。<br>**[implementation]** `visible_reply_committed` 按 bubble 生命周期重置；外部参与者消息沿用既有 canonical created payload/metadata，不能被误判为 owner 自己消息；通知生命周期由单一 coordinator 归约一次后 fan-out，持久化仅在状态变化时发生。<br>**[implementation]** 定向并发/竞态/steer/external-message 回归、全量 frontend/backend/contract/e2e-critical 与隔离真栈通过，证据持久化。 |
