@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
-from IM.ws.user_stream import UserStreamRegistry
+import json
+
+from IM.domain.models import ConversationEvent
+from IM.ws.user_stream import (
+    UserStreamRegistry,
+    conversation_event_to_wire_data,
+    encode_user_stream_event_frame,
+)
 
 
 class _StubWebSocket:
@@ -64,3 +71,44 @@ async def test_broadcast_to_user_silent_when_user_absent() -> None:
     registry = UserStreamRegistry()
     # No add. Should not raise.
     await registry.broadcast_to_user("ghost", '{"x":1}')
+
+
+def test_replayed_tombstone_preserves_discarded_message_identity() -> None:
+    event = ConversationEvent(
+        event_id=5,
+        conversation_id="conv-1",
+        message_id=None,
+        event_type="message.discarded",
+        delivery_status="completed",
+        payload_json=json.dumps(
+            {
+                "conversation_id": "conv-1",
+                "message_id": "provisional-msg-1",
+                "reason": "no_reply_token",
+            }
+        ),
+        created_at="2026-07-13T00:00:00Z",
+    )
+
+    frame = json.loads(encode_user_stream_event_frame(event))
+
+    assert frame["data"]["message_id"] == "provisional-msg-1"
+    assert frame["data"]["reason"] == "no_reply_token"
+
+
+def test_regular_event_fk_message_identity_still_overrides_payload() -> None:
+    event = ConversationEvent(
+        event_id=6,
+        conversation_id="conv-1",
+        message_id="canonical-msg-1",
+        event_type="message.completed",
+        delivery_status="completed",
+        payload_json=json.dumps(
+            {"conversation_id": "conv-1", "message_id": "stale-payload-msg"}
+        ),
+        created_at="2026-07-13T00:00:01Z",
+    )
+
+    data = conversation_event_to_wire_data(event)
+
+    assert data["message_id"] == "canonical-msg-1"
