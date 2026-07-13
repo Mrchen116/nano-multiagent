@@ -120,6 +120,7 @@ def test_background_state_publication_failure_reaps_child_and_clears_partial_sta
     config = build_config(tmp_path)
     process = _FakeProcess(wait_result=0, pid=2468)
     state_path = tmp_path / ".gateway-state.json"
+    group_signals: list[int] = []
 
     def _fail_state_publication(_config, _result) -> None:  # noqa: ANN001
         state_path.write_text(
@@ -135,7 +136,11 @@ def test_background_state_publication_failure_reaps_child_and_clears_partial_sta
         raise OSError("state disk full")
 
     monkeypatch.setattr(main_module, "_write_gateway_state", _fail_state_publication)
-    monkeypatch.setattr(main_module, "_kill_process_tree", lambda _pid, _sig: None)
+    monkeypatch.setattr(
+        main_module,
+        "_kill_process_tree",
+        lambda _pid, sent_signal: group_signals.append(sent_signal),
+    )
 
     with pytest.raises(GatewayStartupError, match="state disk full") as raised:
         launch_gateway_in_background(
@@ -146,7 +151,9 @@ def test_background_state_publication_failure_reaps_child_and_clears_partial_sta
         )
 
     assert isinstance(raised.value.__cause__, OSError)
-    assert process.terminate_called == 1
+    assert group_signals == [signal.SIGTERM]
+    assert process.terminate_called == 0
+    assert process.kill_called == 0
     assert not state_path.exists()
 
 
@@ -156,7 +163,12 @@ def test_background_cleanup_failure_preserves_startup_and_cleanup_causes(
 ) -> None:
     config = build_config(tmp_path)
     process = _FakeProcess(wait_result=TimeoutError("wait timed out"), pid=2468)
-    monkeypatch.setattr(main_module, "_kill_process_tree", lambda _pid, _sig: None)
+    group_signals: list[int] = []
+    monkeypatch.setattr(
+        main_module,
+        "_kill_process_tree",
+        lambda _pid, sent_signal: group_signals.append(sent_signal),
+    )
 
     def _spawn(_argv: list[str], _log_path: Path) -> _FakeProcess:
         (tmp_path / "gateway.pid").write_text("2468", encoding="utf-8")
@@ -182,8 +194,9 @@ def test_background_cleanup_failure_preserves_startup_and_cleanup_causes(
         "startup confirmation failed",
         "gateway pid=2468 did not exit after SIGKILL; lifecycle evidence retained",
     ]
-    assert process.terminate_called == 1
-    assert process.kill_called == 1
+    assert group_signals == [signal.SIGTERM, signal.SIGKILL]
+    assert process.terminate_called == 0
+    assert process.kill_called == 0
     assert (tmp_path / "gateway.pid").exists()
     assert (tmp_path / "gateway.identity.json").exists()
 
