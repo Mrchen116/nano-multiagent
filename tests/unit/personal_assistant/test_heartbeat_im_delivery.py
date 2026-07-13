@@ -746,4 +746,103 @@ def test_direct_web_no_reply_leaves_zero_agent_rows_in_fk_enforced_db(
     ]
 
 
+def test_direct_web_empty_completion_after_process_leaves_zero_agent_rows(
+    tmp_path: Path,
+) -> None:
+    """Process events do not commit a Web bubble whose successful final text is empty."""
+    connection, handler = _build_im_db_and_handler(tmp_path)
+    users = UserRepository(connection)
+    owner = users.create_user(username="direct-empty-user", display_name="Direct User")
+    agent_user = users.create_user(username="agent:quiet-empty", display_name="Quiet")
+    conv = ConversationRepository(connection).create_conversation(
+        title="quiet direct", participant_ids=[owner.id, agent_user.id]
+    )
+    asyncio.run(
+        handler.handle_message(
+            websocket=_NullWebSocket(),
+            message_type="node.register",
+            payload={
+                "node_id": "node-1",
+                "agents": ["quiet-empty"],
+                "capabilities": {},
+            },
+        )
+    )
+
+    run_id = "run-direct-web-empty-1"
+    run_context_store = RunDeliveryContextStore()
+    context = run_context_store.seed_from_lifecycle(
+        message=InboundMessage(
+            channel_name="web_relay",
+            text="run a tool, then stay quiet",
+            external_user_id=owner.id,
+            external_chat_id=conv.id,
+            is_group=False,
+            agent_id="quiet-empty",
+            metadata={"relay_task_id": "relay-1", "message_id": "user-msg-1"},
+        ),
+        update=RelayLifecycleUpdate(
+            phase="accepted",
+            agent_id="quiet-empty",
+            session_key=f"web:{owner.id}:{conv.id}:quiet-empty",
+            run_id=run_id,
+            kernel_session_id="sess-direct-empty-1",
+        ),
+        owner_user_id=owner.id,
+    )
+    assert context is not None
+    fake_manager = _FakeIMManager(handler)
+    observer = build_kernel_event_observer(
+        im_connection_manager_factory=lambda: fake_manager,
+        run_context_store=run_context_store,
+    )
+
+    async def _run() -> None:
+        started = observer(
+            {"run_id": run_id, "event": "run_status", "status": "running"}
+        )
+        assert asyncio.iscoroutine(started)
+        await started
+        observer(
+            {
+                "run_id": run_id,
+                "event": "tool_start",
+                "call_id": "tool-1",
+                "name": "bash",
+                "arguments": {"command": "printf OK"},
+            }
+        )
+        observer(
+            {
+                "run_id": run_id,
+                "event": "tool_end",
+                "call_id": "tool-1",
+                "name": "bash",
+                "status": "completed",
+                "result": "OK",
+            }
+        )
+        observer(
+            {
+                "run_id": run_id,
+                "event": "assistant_message",
+                "message_id": "kernel-msg-quiet-empty",
+                "content": "",
+                "reasoning_content": "The tool completed; remain silent.",
+                "group_id": "kernel-msg-quiet-empty",
+            }
+        )
+        await asyncio.sleep(0)
+        ended = observer({"run_id": run_id, "event": "turn_end", "completed": True})
+        if asyncio.iscoroutine(ended):
+            await ended
+        await asyncio.sleep(0)
+
+    asyncio.run(_run())
+
+    assert MessageRepository(connection).list_messages(conversation_id=conv.id) == []
+    kinds = [payload["kind"] for _, payload in fake_manager.sent_frames]
+    assert kinds[-1] == "message_discarded"
+
+
 # ---------------------------------------------------------------------------
