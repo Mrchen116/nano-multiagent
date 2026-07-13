@@ -2368,6 +2368,10 @@ def launch_gateway_in_background(
             )
         # Stale PID file from a crashed process — clean it up and continue.
         _remove_gateway_pid(config)
+    elif _gateway_pid_path(config).exists():
+        # A malformed residue is not an ownership claim. Remove it before the
+        # child starts so the start waiter can only observe this launch's PID.
+        _remove_gateway_pid(config)
     log_path = _default_gateway_log_path(config)
     log_offset = log_path.stat().st_size if log_path.exists() else 0
     argv = _background_gateway_argv(
@@ -2425,48 +2429,74 @@ def stop_gateway(
         if not _pid_is_running(pid):
             _remove_gateway_pid(config)
             return f"STALE pid={pid} pid_file={_gateway_pid_path(config)}"
-        try:
-            os.kill(pid, signal.SIGTERM)
-        except ProcessLookupError:
-            _remove_gateway_pid(config)
-            return f"STALE pid={pid} pid_file={_gateway_pid_path(config)}"
-        # The Gateway owns its process group, including channel/tool descendants.
-        # Sending SIGTERM to the group prevents those descendants from leaking.
-        _kill_process_tree(pid, signal.SIGTERM)
-        deadline = time.monotonic() + config.gateway.shutdown_grace_seconds
-        while time.monotonic() <= deadline:
-            if not _pid_is_running(pid):
-                _remove_gateway_pid(config)
-                return f"STOPPED pid={pid} pid_file={_gateway_pid_path(config)}"
-            time.sleep(config.gateway.poll_interval_seconds)
-        os.kill(pid, signal.SIGKILL)
-        _kill_process_tree(pid, signal.SIGKILL)
-        _remove_gateway_pid(config)
-        return f"STOPPED pid={pid} pid_file={_gateway_pid_path(config)} forced=true"
+        return _stop_owned_gateway(
+            config=config,
+            pid=pid,
+            state_path=None,
+            success_target=f"pid_file={_gateway_pid_path(config)}",
+        )
     if not _pid_is_running(state.pid):
         _remove_gateway_state(state_path)
         _remove_gateway_pid(config)
         return f"STALE pid={state.pid} state={state_path}"
+    return _stop_owned_gateway(
+        config=config,
+        pid=state.pid,
+        state_path=state_path,
+        success_target=f"state={state_path}",
+    )
+
+
+def _stop_owned_gateway(
+    *,
+    config: LocalConfig,
+    pid: int,
+    state_path: Path | None,
+    success_target: str,
+) -> str:
+    """Signal one owned Gateway and clear evidence only after confirmed exit."""
     try:
-        os.kill(state.pid, signal.SIGTERM)
+        os.kill(pid, signal.SIGTERM)
     except ProcessLookupError:
-        _remove_gateway_state(state_path)
-        _remove_gateway_pid(config)
-        return f"STALE pid={state.pid} state={state_path}"
+        _clear_gateway_lifecycle(config, state_path)
+        return f"STALE pid={pid} {success_target}"
     # The process group is the owned Gateway lifecycle boundary.
-    _kill_process_tree(state.pid, signal.SIGTERM)
+    _kill_process_tree(pid, signal.SIGTERM)
+    if _wait_for_pid_exit(config, pid):
+        _clear_gateway_lifecycle(config, state_path)
+        return f"STOPPED pid={pid} {success_target}"
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        _clear_gateway_lifecycle(config, state_path)
+        return f"STOPPED pid={pid} {success_target} forced=true"
+    _kill_process_tree(pid, signal.SIGKILL)
+    if _wait_for_pid_exit(config, pid):
+        _clear_gateway_lifecycle(config, state_path)
+        return f"STOPPED pid={pid} {success_target} forced=true"
+    raise RuntimeError(
+        f"gateway pid={pid} did not exit after SIGKILL; lifecycle state retained"
+    )
+
+
+def _wait_for_pid_exit(config: LocalConfig, pid: int) -> bool:
+    """Poll for one bounded shutdown interval and report confirmed disappearance."""
+    if not _pid_is_running(pid):
+        return True
     deadline = time.monotonic() + config.gateway.shutdown_grace_seconds
-    while time.monotonic() <= deadline:
-        if not _pid_is_running(state.pid):
-            _remove_gateway_state(state_path)
-            _remove_gateway_pid(config)
-            return f"STOPPED pid={state.pid} state={state_path}"
+    while True:
+        if time.monotonic() >= deadline:
+            return False
         time.sleep(config.gateway.poll_interval_seconds)
-    os.kill(state.pid, signal.SIGKILL)
-    _kill_process_tree(state.pid, signal.SIGKILL)
-    _remove_gateway_state(state_path)
+        if not _pid_is_running(pid):
+            return True
+
+
+def _clear_gateway_lifecycle(config: LocalConfig, state_path: Path | None) -> None:
+    """Remove lifecycle evidence after the owning process is confirmed gone."""
+    if state_path is not None:
+        _remove_gateway_state(state_path)
     _remove_gateway_pid(config)
-    return f"STOPPED pid={state.pid} state={state_path} forced=true"
 
 
 class _KernelClientShim:
@@ -4099,11 +4129,28 @@ def _wait_for_gateway_start(
     pid_path = _gateway_pid_path(config)
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() <= deadline:
-        if process.poll() is not None:
+        return_code = process.poll()
+        if return_code is not None:
             raise RuntimeError(
-                f"gateway exited before startup confirmation with return code {process.poll()}"
+                f"gateway exited before startup confirmation with return code {return_code}"
             )
         if pid_path.exists():
+            child_pid = _read_gateway_pid(config)
+            if child_pid is None:
+                raise RuntimeError(
+                    f"gateway startup confirmation has invalid PID file: {pid_path}"
+                )
+            if child_pid != process.pid:
+                raise RuntimeError(
+                    "gateway startup confirmation PID mismatch: "
+                    f"spawned={process.pid} file={child_pid}"
+                )
+            return_code = process.poll()
+            if return_code is not None:
+                raise RuntimeError(
+                    "gateway exited before startup confirmation with return code "
+                    f"{return_code}"
+                )
             return
         time.sleep(config.gateway.poll_interval_seconds or 0.2)
     raise RuntimeError(
