@@ -26,10 +26,23 @@
 
 ## R2 — 绑定确认 session/cache 收敛
 
-- Status: DOING
-- Context: 待完成。
+- Status: DONE
+- Context: 旧绑定页把 confirm 成功与后续 cache 刷新放在一次普通 mutation 中；`/me` 失败或 owner cache 失败后的重试会再次消费同一 token，并且只 invalidate 不等待 active/inactive hot cache refetch 完成就导航。
+- Decision: auth store 增加只允许当前同 user、且不改 token 的 `replaceUser`；绑定页以 ref 保存首次成功的 confirm 结果，随后独立执行 `/me`、snapshot replace、六组 owner-derived prefix 的 `refetchType: 'all'`，并等待 `Promise.allSettled` 全部成功后才导航。reconciliation 失败保留成功结果，用户重试从 `/me` 开始，不再 POST bind。
+- Rationale: bind token 是一次性资源，不能把已成功的不可逆步骤重放；`invalidateQueries` 返回值只有在明确包含 inactive hot cache 且被 await 时，才能形成“下一页第一次 render 已一致”的可验证边界。`replaceUser` 额外校验当前 session user，防止延迟 `/me` 覆盖已经切换的账号。
+- Evidence:
+  - Tests: `auth-store.test.ts`、`im-settings-api.test.ts`、`bind-confirm-page.test.tsx` 定向 13 tests passed；全量 `npm run test -- --reporter=dot`，62 files / 574 tests passed；`npm run build` passed。
+  - Entry: 真栈先在同一 SPA document 依次访问 Agents、Nodes、Account、Chat 预热六组 query，再进入外部 bind confirm 路由；单击一次后成功进入 Chat。
+  - Frontend State Matrix: default/submitting/disabled 由集成测试覆盖；`/me` 首次失败后 retry 由测试证明不会再次 confirm；真实成功态在 Agents/Account/Nodes 三页立即一致。
+  - Browser QA: `evidence/r2-bind-report.md`；POST bind 一次为 201，随后 `/me` 与六组 owner refetch 均 200；console 0 error/0 warning。
+  - E2E/Regression: 绑定后 auth snapshot 当场出现 default/owned node；Agents 立即出现 4 个 online agent，Account 立即显示默认入口与 Owned nodes=1，Nodes 立即显示 1 online/4 agents。
+  - Visual/Interaction: `evidence/r2-bind-agents-immediate.png`、`evidence/r2-bind-account-immediate.png`、`evidence/r2-bind-nodes-immediate.png`。
+  - Prototype Comparison: N/A（design 明确无 prototype/视觉变化）。
+- Rollback: 回退 C2 `57632320` 恢复旧绑定编排；C1 保留不可重复 confirm 与 settled-cache 契约红测。
+- Commits: C1=`725ac203`, C2=`57632320`, C3=本提交。
+- Next: R3 清理 README/测试版本叙事与 repository-wide 残留，并完成全量 Python/e2e-critical/真栈 Chat 回归。
 
 ## R3 — 零残留收尾与全量真栈验收
 
-- Status: TODO
-- Context: 待完成。
+- Status: DOING
+- Context: 待以 repository-wide guard 锁定 README、测试命名与 legacy symbol 零残留，然后完成交付门禁及 M1 真栈旅程。

@@ -67,12 +67,12 @@ N/A：design 明确不改变 UI/交互/视觉，不产 prototype；以当前真�
 - 步骤：先把 architecture/isolation guard 改为最终 canonical/零残留契约并验红；删除同名 legacy 表面，使用 `git mv` 提升 current Chat；迁移所有 imports 与 `chat-v2` query key，删除失效旧测试。
 - 验证：canonical Chat 相关 Vitest、router/shell/notification/toast 测试、Python user-stream ownership/前端架构 contract、production build。
 
-### R2 — 绑定确认 session/cache 收敛（DOING）
+### R2 — 绑定确认 session/cache 收敛（DONE）
 
 - 步骤：先补 auth replaceUser 与 BindConfirmPage 集成红测；在 settings client 增加窄 bind 请求，页面持有不可重复 confirm result 与可重试 reconciliation，严格执行 `/me`、同用户 snapshot replace、六组 cache refetch settled、导航。
 - 验证：auth-store、settings API、bind 页面集成测试；失败重试断言 confirm 只调用一次且导航在全部 refetch settled 后发生。
 
-### R3 — 零残留收尾与全量真栈验收（TODO）
+### R3 — 零残留收尾与全量真栈验收（DOING）
 
 - 步骤：以 repository-wide guard 验红 README/测试残留，清理过期 mock 与版本叙事；完成全量门禁及持久化真栈证据，并复验已迁移的 Agent 详情 canonical 单聊与 Agent envelope normalization。
 - 验证：Agent detail/config 测试、全量 Vitest/build/Python contract/non-e2e/e2e-critical；预热 cache 后真实绑定、Agent 单聊、M1 实时旅程、桌面/移动 Chat 与 console/network 检查。
