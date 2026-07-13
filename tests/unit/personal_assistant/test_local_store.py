@@ -1,4 +1,6 @@
+import os
 from pathlib import Path
+import stat
 
 import pytest
 
@@ -1160,6 +1162,208 @@ def test_save_local_config_aborts_when_migration_backup_conflicts(
         save_local_config(config, config_path)
 
     assert config_path.read_bytes() == original
+
+
+def _legacy_config_for_backup(
+    tmp_path: Path, *, mode: int = 0o600
+) -> tuple[Path, bytes, object]:
+    config_path = tmp_path / "legacy-config.yaml"
+    workspace_root = tmp_path / "workspace" / "agent-a"
+    workspace_root.mkdir(parents=True)
+    original = (
+        "\n".join(
+            [
+                "node:",
+                "  node_id: n-test",
+                "agents:",
+                "  - agent_id: agent-a",
+                f"    workspace_root: {workspace_root}",
+                "kernel:",
+                "  startup_timeout_seconds: 22",
+            ]
+        )
+        + "\n"
+        + _LLM_YAML
+    ).encode()
+    config_path.write_bytes(original)
+    config_path.chmod(mode)
+    return config_path, original, load_local_config(config_path)
+
+
+def test_save_local_config_keeps_race_winner_when_exclusive_backup_open_loses(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import personal_assistant.config.local_store as ls
+
+    config_path, original, config = _legacy_config_for_backup(tmp_path)
+    backup_path = Path(f"{config_path}.pre-refactor-461.bak")
+    real_open = ls.os.open
+
+    def _race_open(path: str | bytes | os.PathLike[str], flags: int, *args: int) -> int:
+        if Path(path) == backup_path:
+            backup_path.write_bytes(original)
+            raise FileExistsError(backup_path)
+        return real_open(path, flags, *args)
+
+    monkeypatch.setattr(ls.os, "open", _race_open)
+
+    with pytest.raises(FileExistsError):
+        save_local_config(config, config_path)
+
+    assert config_path.read_bytes() == original
+    assert backup_path.read_bytes() == original
+
+
+@pytest.mark.parametrize("alias_kind", ["symlink", "hardlink"])
+def test_save_local_config_rejects_migration_backup_alias_to_source(
+    alias_kind: str,
+    tmp_path: Path,
+) -> None:
+    config_path, original, config = _legacy_config_for_backup(tmp_path)
+    backup_path = Path(f"{config_path}.pre-refactor-461.bak")
+    if alias_kind == "symlink":
+        backup_path.symlink_to(config_path)
+    else:
+        os.link(config_path, backup_path)
+
+    with pytest.raises(FileExistsError, match="alias"):
+        save_local_config(config, config_path)
+
+    assert config_path.read_bytes() == original
+
+
+def test_save_local_config_tightens_matching_migration_backup_permissions(
+    tmp_path: Path,
+) -> None:
+    config_path, original, config = _legacy_config_for_backup(tmp_path, mode=0o600)
+    backup_path = Path(f"{config_path}.pre-refactor-461.bak")
+    backup_path.write_bytes(original)
+    backup_path.chmod(0o644)
+
+    save_local_config(config, config_path)
+
+    assert stat.S_IMODE(backup_path.stat().st_mode) == 0o600
+
+
+def test_save_local_config_backup_open_failure_preserves_source(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import personal_assistant.config.local_store as ls
+
+    config_path, original, config = _legacy_config_for_backup(tmp_path)
+    backup_path = Path(f"{config_path}.pre-refactor-461.bak")
+    real_open = ls.os.open
+
+    def _fail_open(path: str | bytes | os.PathLike[str], flags: int, *args: int) -> int:
+        if Path(path) == backup_path:
+            raise OSError("backup open failed")
+        return real_open(path, flags, *args)
+
+    monkeypatch.setattr(ls.os, "open", _fail_open)
+
+    with pytest.raises(OSError, match="backup open failed"):
+        save_local_config(config, config_path)
+
+    assert config_path.read_bytes() == original
+    assert not backup_path.exists()
+
+
+def test_save_local_config_backup_write_failure_removes_only_owned_partial(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import personal_assistant.config.local_store as ls
+
+    config_path, original, config = _legacy_config_for_backup(tmp_path)
+    backup_path = Path(f"{config_path}.pre-refactor-461.bak")
+    monkeypatch.setattr(
+        ls.os,
+        "write",
+        lambda _fd, _data: (_ for _ in ()).throw(OSError("backup write failed")),
+    )
+
+    with pytest.raises(OSError, match="backup write failed"):
+        save_local_config(config, config_path)
+
+    assert config_path.read_bytes() == original
+    assert not backup_path.exists()
+
+
+def test_save_local_config_backup_file_fsync_failure_preserves_source(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import personal_assistant.config.local_store as ls
+
+    config_path, original, config = _legacy_config_for_backup(tmp_path)
+    backup_path = Path(f"{config_path}.pre-refactor-461.bak")
+    monkeypatch.setattr(
+        ls.os,
+        "fsync",
+        lambda _fd: (_ for _ in ()).throw(OSError("backup fsync failed")),
+    )
+
+    with pytest.raises(OSError, match="backup fsync failed"):
+        save_local_config(config, config_path)
+
+    assert config_path.read_bytes() == original
+    assert not backup_path.exists()
+
+
+def test_save_local_config_backup_directory_fsync_failure_preserves_source(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import personal_assistant.config.local_store as ls
+
+    config_path, original, config = _legacy_config_for_backup(tmp_path)
+    backup_path = Path(f"{config_path}.pre-refactor-461.bak")
+    fsync_calls = 0
+
+    def _fail_directory_fsync(_fd: int) -> None:
+        nonlocal fsync_calls
+        fsync_calls += 1
+        if fsync_calls == 2:
+            raise OSError("backup directory fsync failed")
+
+    monkeypatch.setattr(ls.os, "fsync", _fail_directory_fsync)
+
+    with pytest.raises(OSError, match="backup directory fsync failed"):
+        save_local_config(config, config_path)
+
+    assert config_path.read_bytes() == original
+    assert not backup_path.exists()
+
+
+@pytest.mark.parametrize("non_finite", [".nan", ".inf", "-.inf"])
+def test_load_local_config_rejects_non_finite_gateway_lifecycle_number(
+    non_finite: str,
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "node-config.yaml"
+    workspace_root = tmp_path / "workspace" / "assistant"
+    workspace_root.mkdir(parents=True)
+    config_path.write_text(
+        "\n".join(
+            [
+                "node:",
+                "  node_id: node-local",
+                "agents:",
+                "  - agent_id: assistant",
+                f"    workspace_root: {workspace_root}",
+                "gateway:",
+                f"  startup_timeout_seconds: {non_finite}",
+            ]
+        )
+        + "\n"
+        + _LLM_YAML,
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="positive number"):
+        load_local_config(config_path)
 
 
 def test_save_local_config_skips_backup_when_content_identical(
