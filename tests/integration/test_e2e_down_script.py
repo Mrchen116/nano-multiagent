@@ -456,6 +456,28 @@ return 0
         assert (tmp_path / evidence).exists(), evidence
 
 
+def test_runtime_owned_internal_evidence_may_self_clear_on_exit(
+    tmp_path: Path,
+) -> None:
+    _write_stack_files(tmp_path)
+    kill_body = f"""
+if [[ "$*" == "{_GATEWAY_PID}" ]]; then
+  rm -f "$E2E_WT/gateway.pid"
+  rm -f "$E2E_WT/gateway.identity.json"
+  rm -f "$E2E_WT/.gateway-state.json"
+  export PROCESS_STAT=""
+fi
+return 0
+"""
+
+    result = _run_down(tmp_path, kill_body=kill_body)
+
+    assert result.returncode == 0, result.stderr
+    assert not (tmp_path / ".gateway.pid").exists()
+    assert not (tmp_path / ".im.pid").exists()
+    assert not (tmp_path / ".gateway-config.yaml").exists()
+
+
 def test_all_gateway_evidence_absent_allows_im_stop(tmp_path: Path) -> None:
     (tmp_path / ".im.pid").write_text("434343\n", encoding="utf-8")
 
