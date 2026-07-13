@@ -8,7 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from agent.core.types import Message, TurnResult
+from agent.core.types import Message, TokenUsage, ToolCall, TurnResult
 from agent.platform.background_tasks.runtime_runner import RuntimeRunner
 
 
@@ -16,11 +16,13 @@ class _Auxiliary:
     def __init__(self, future: Future[TurnResult]) -> None:
         self.future = future
         self.cancelled = False
+        self.force = False
 
     def result(self, timeout: float | None = None) -> TurnResult:
         return self.future.result(timeout=timeout)
 
-    def cancel(self) -> bool:
+    def cancel(self, *, force: bool = False) -> bool:
+        self.force = force
         self.cancelled = self.future.cancel()
         return self.cancelled
 
@@ -38,7 +40,10 @@ class _Executor:
 
 class _Directory:
     def __init__(self) -> None:
-        self.session = SimpleNamespace(ref="subagent")
+        self.session = SimpleNamespace(
+            ref="subagent",
+            partial_turn_result=lambda: None,
+        )
         self.refs: list[Any] = []
 
     def get(self, ref: Any) -> object:
@@ -121,6 +126,72 @@ def test_stop_cancels_typed_auxiliary_and_reports_kill(tmp_path: Path) -> None:
 
     assert executor.auxiliary.cancelled is True
     assert killed.wait(timeout=1)
+
+
+def test_stop_reaps_child_foreground_execution_before_force_cancel(
+    tmp_path: Path,
+) -> None:
+    future: Future[TurnResult] = Future()
+    executor = _Executor(future)
+    stopped_sessions: list[str] = []
+    runner = RuntimeRunner(
+        directory=_Directory(),  # type: ignore[arg-type]
+        executor=executor,  # type: ignore[arg-type]
+        foreground_stopper=lambda session_id: (
+            stopped_sessions.append(session_id) or True
+        ),
+    )
+
+    handle = runner.start_foreground(
+        agent_session_id="subagent",
+        parent_session_id="parent",
+        prompt="inspect",
+        workspace_root=tmp_path,
+    )
+    handle.stop()
+
+    assert stopped_sessions == ["subagent"]
+    assert executor.auxiliary.force is True
+
+
+def test_raw_cancel_reports_conversation_partial_result(tmp_path: Path) -> None:
+    future: Future[TurnResult] = Future()
+    executor = _Executor(future)
+    directory = _Directory()
+    directory.session.partial_turn_result = lambda: TurnResult(
+        session_id="subagent",
+        turn_id="turn-partial",
+        messages=(
+            Message(message_id="m-partial", role="assistant", content="findings"),
+        ),
+        tool_calls=(ToolCall(call_id="call-1", name="read", arguments={}),),
+        usage=TokenUsage(prompt_tokens=11, completion_tokens=7, total_tokens=18),
+        completed=False,
+        stop_reason="cancelled",
+    )
+    runner = RuntimeRunner(directory=directory, executor=executor)  # type: ignore[arg-type]
+    killed = threading.Event()
+    observed: dict[str, Any] = {}
+
+    handle = runner.start(
+        agent_session_id="subagent",
+        parent_session_id="parent",
+        prompt="inspect",
+        workspace_root=tmp_path,
+        on_complete=lambda **kwargs: None,
+        on_fail=lambda **kwargs: None,
+        on_kill=lambda **kwargs: (observed.update(kwargs), killed.set()),
+    )
+    handle.stop()
+
+    assert killed.wait(timeout=1)
+    assert observed["result_text"] == "findings"
+    assert observed["usage"] == {
+        "prompt_tokens": 11,
+        "completion_tokens": 7,
+        "total_tokens": 18,
+    }
+    assert observed["tool_use_count"] == 1
 
 
 def test_live_follow_up_is_queued_on_turn_controller(tmp_path: Path) -> None:
