@@ -16,7 +16,7 @@ from personal_assistant.config.local_store import (
     AgentWorkspaceConfig,
     HeartbeatConfig,
     IMServiceConfig,
-    KernelConfig,
+    GatewayLifecycleConfig,
     LocalConfig,
     NodeConfig,
 )
@@ -43,7 +43,7 @@ def _make_local_config(tmp_path: Path, workspace_root: Path) -> LocalConfig:
             AgentWorkspaceConfig(agent_id="test-agent", workspace_root=workspace_root),
         ),
         channels=(),
-        kernel=KernelConfig(),
+        gateway=GatewayLifecycleConfig(),
         heartbeat=HeartbeatConfig(),
         im_service=None,
         llm=_DEFAULT_TEST_LLM,

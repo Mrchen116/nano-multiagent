@@ -14,7 +14,7 @@ from personal_assistant.config.local_store import (
     ChannelConfig,
     HeartbeatConfig,
     IMServiceConfig,
-    KernelConfig,
+    GatewayLifecycleConfig,
     LocalConfig,
     NodeConfig,
 )
@@ -1547,11 +1547,9 @@ def test_build_runtime_returns_gateway_runtime_with_no_process_manager(
             AgentWorkspaceConfig(agent_id="agent-a", workspace_root=workspace_root),
         ),
         channels=(),
-        kernel=KernelConfig(
-            token=None,
-            # command removed: kernel now in-process (refactor-387-M4)
+        gateway=GatewayLifecycleConfig(
             startup_timeout_seconds=0.2,
-            health_poll_interval_seconds=0.0,
+            poll_interval_seconds=0.0,
             shutdown_grace_seconds=0.1,
         ),
         heartbeat=HeartbeatConfig(),
@@ -1591,11 +1589,9 @@ def test_build_runtime_wires_web_relay_dedup_db_under_config_dir(
             AgentWorkspaceConfig(agent_id="agent-a", workspace_root=workspace_root),
         ),
         channels=(ChannelConfig(name="web_relay", enabled=True),),
-        kernel=KernelConfig(
-            token=None,
-            # command removed: kernel now in-process (refactor-387-M4)
+        gateway=GatewayLifecycleConfig(
             startup_timeout_seconds=0.2,
-            health_poll_interval_seconds=0.0,
+            poll_interval_seconds=0.0,
             shutdown_grace_seconds=0.1,
         ),
         heartbeat=HeartbeatConfig(),
@@ -1748,10 +1744,9 @@ def test_build_runtime_wires_prompt_preview_provider_when_im_service_configured(
             AgentWorkspaceConfig(agent_id="agent-a", workspace_root=workspace_root),
         ),
         channels=(ChannelConfig(name="web_relay", enabled=True),),
-        kernel=KernelConfig(
-            token=None,
+        gateway=GatewayLifecycleConfig(
             startup_timeout_seconds=0.2,
-            health_poll_interval_seconds=0.0,
+            poll_interval_seconds=0.0,
             shutdown_grace_seconds=0.1,
         ),
         heartbeat=HeartbeatConfig(),

@@ -9,7 +9,7 @@ from agent.core.llm.config import LLMConfigPayload, LLMModelPayload, LLMProvider
 from personal_assistant.config.local_store import (
     AgentWorkspaceConfig,
     HeartbeatConfig,
-    KernelConfig,
+    GatewayLifecycleConfig,
     LocalConfig,
     NodeConfig,
 )
@@ -160,10 +160,9 @@ def build_config(tmp_path: Path) -> LocalConfig:
         node=NodeConfig(node_id="node-local"),
         agents=(),
         channels=(),
-        kernel=KernelConfig(
-            # command removed: kernel now in-process (refactor-387-M4)
+        gateway=GatewayLifecycleConfig(
             startup_timeout_seconds=0.2,
-            health_poll_interval_seconds=0.0,
+            poll_interval_seconds=0.0,
             shutdown_grace_seconds=0.1,
         ),
         heartbeat=HeartbeatConfig(),
@@ -183,11 +182,9 @@ def make_minimal_config(tmp_path: Path) -> LocalConfig:
             AgentWorkspaceConfig(agent_id="agent-a", workspace_root=workspace_root),
         ),
         channels=(),
-        kernel=KernelConfig(
-            token=None,
-            command="python -m dummy",
+        gateway=GatewayLifecycleConfig(
             startup_timeout_seconds=0.1,
-            health_poll_interval_seconds=0.0,
+            poll_interval_seconds=0.0,
             shutdown_grace_seconds=0.1,
         ),
         heartbeat=HeartbeatConfig(),
