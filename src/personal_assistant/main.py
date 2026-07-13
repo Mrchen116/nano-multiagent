@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 import json
 import logging
 import os
-import shlex
+import re
 import signal
 import subprocess
 import sys
@@ -319,11 +319,18 @@ class GatewayProcessIdentity:
 
 
 @dataclass(frozen=True, slots=True)
-class _ObservedGatewayProcess:
-    """One read-only OS process observation used for ownership checks."""
+class GatewayProcessSnapshot:
+    """Describe one stable, read-only OS process observation.
 
+    Args:
+        pid: Observed process id.
+        process_start: Locale- and timezone-stable OS birth identity.
+        command: Raw OS audit rendering; never parsed to grant signal authority.
+    """
+
+    pid: int
     process_start: str
-    argv: tuple[str, ...]
+    command: str | None
 
 
 def _default_pa_global_skill_names() -> tuple[str, ...]:
@@ -2548,28 +2555,12 @@ def _stop_owned_gateway(
     success_target: str,
 ) -> str:
     """Signal one owned Gateway and clear evidence only after confirmed exit."""
-    try:
-        os.kill(pid, signal.SIGTERM)
-    except ProcessLookupError:
-        _clear_gateway_lifecycle(config, state_path, identity)
-        return f"STALE pid={pid} {success_target}"
     # The process group is the owned Gateway lifecycle boundary.
-    if not _assert_gateway_process_instance(identity):
-        _clear_gateway_lifecycle(config, state_path, identity)
-        return f"STOPPED pid={pid} {success_target}"
     _kill_process_tree(pid, signal.SIGTERM)
     if _wait_for_pid_exit(config, pid):
         _clear_gateway_lifecycle(config, state_path, identity)
         return f"STOPPED pid={pid} {success_target}"
     _require_gateway_process_instance(identity)
-    try:
-        os.kill(pid, signal.SIGKILL)
-    except ProcessLookupError:
-        _clear_gateway_lifecycle(config, state_path, identity)
-        return f"STOPPED pid={pid} {success_target} forced=true"
-    if not _assert_gateway_process_instance(identity):
-        _clear_gateway_lifecycle(config, state_path, identity)
-        return f"STOPPED pid={pid} {success_target} forced=true"
     _kill_process_tree(pid, signal.SIGKILL)
     if _wait_for_pid_exit(config, pid):
         _clear_gateway_lifecycle(config, state_path, identity)
@@ -4119,13 +4110,19 @@ def _gateway_process_identity_path(config: LocalConfig) -> Path:
     return config.source_path.parent / "gateway.identity.json"
 
 
-def _process_start_identity(pid: int) -> str | None:
-    """Read one process birth identity without sending it a signal."""
+def _process_snapshot_environment() -> dict[str, str]:
+    """Return the fixed environment used by every process identity query."""
+    return {**os.environ, "LC_ALL": "C", "LANG": "C", "TZ": "UTC"}
+
+
+def _read_process_start(pid: int) -> str | None:
+    """Read one normalized process birth value under the fixed environment."""
     result = subprocess.run(
         ["ps", "-p", str(pid), "-o", "lstart="],
         capture_output=True,
         text=True,
         check=False,
+        env=_process_snapshot_environment(),
     )
     value = result.stdout.strip()
     if result.returncode != 0 or not value:
@@ -4133,28 +4130,45 @@ def _process_start_identity(pid: int) -> str | None:
     return " ".join(value.split())
 
 
-def _observe_gateway_process(pid: int) -> _ObservedGatewayProcess | None:
-    """Read one stable process start + argv observation without any signal."""
-    before = _process_start_identity(pid)
+def read_gateway_process_snapshot(pid: int) -> GatewayProcessSnapshot | None:
+    """Read one non-zombie process snapshot without sending it a signal.
+
+    Args:
+        pid: Positive process id to observe.
+
+    Returns:
+        A stable snapshot, or ``None`` when the process is absent or a zombie.
+
+    Raises:
+        RuntimeError: When the PID changes birth identity during observation.
+    """
+    before = _read_process_start(pid)
     if before is None:
         return None
-    result = subprocess.run(
+    status_result = subprocess.run(
+        ["ps", "-p", str(pid), "-o", "stat="],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=_process_snapshot_environment(),
+    )
+    status = status_result.stdout.strip()
+    if status_result.returncode != 0 or not status or status.startswith("Z"):
+        return None
+    command_result = subprocess.run(
         ["ps", "-ww", "-p", str(pid), "-o", "command="],
         capture_output=True,
         text=True,
         check=False,
+        env=_process_snapshot_environment(),
     )
-    command = result.stdout.strip()
-    after = _process_start_identity(pid)
-    if result.returncode != 0 or not command or after is None:
+    command = command_result.stdout.strip() or None
+    after = _read_process_start(pid)
+    if after is None:
         return None
     if before != after:
         raise RuntimeError(f"gateway pid={pid} changed during identity observation")
-    try:
-        argv = tuple(shlex.split(command))
-    except ValueError as exc:
-        raise RuntimeError(f"gateway pid={pid} has unparseable argv") from exc
-    return _ObservedGatewayProcess(process_start=after, argv=argv)
+    return GatewayProcessSnapshot(pid=pid, process_start=after, command=command)
 
 
 def _runtime_gateway_argv(
@@ -4175,15 +4189,15 @@ def _build_gateway_process_identity(
 ) -> GatewayProcessIdentity:
     """Build the durable identity for the current foreground process."""
     pid = os.getpid()
-    process_start = _process_start_identity(pid)
-    if process_start is None:
+    snapshot = read_gateway_process_snapshot(pid)
+    if snapshot is None:
         raise RuntimeError(
             f"cannot observe Gateway process start identity for pid={pid}"
         )
     return GatewayProcessIdentity(
         schema_version=1,
         pid=pid,
-        process_start=process_start,
+        process_start=snapshot.process_start,
         config_path=str(config.source_path.resolve()),
         entry_module="personal_assistant.main",
         argv=_runtime_gateway_argv(
@@ -4296,47 +4310,37 @@ def _upgrade_legacy_gateway_identity(
     The live process must expose the exact supported Gateway module/config argv
     before the current OS birth identity is durably adopted.
     """
-    observed = _observe_gateway_process(pid)
-    if observed is None:
+    snapshot = read_gateway_process_snapshot(pid)
+    if snapshot is None:
         return None
-    module_indexes = [
-        index
-        for index in range(max(0, len(observed.argv) - 1))
-        if observed.argv[index : index + 2] == ("-m", "personal_assistant.main")
-    ]
-    if len(module_indexes) != 1:
+    command = snapshot.command
+    if command is None:
         raise RuntimeError("legacy Gateway identity mismatch; evidence retained")
-    argv = observed.argv[module_indexes[0] + 2 :]
     config_path = str(config.source_path.resolve())
-    expected_prefix = ("--config",)
-    if not argv[:1] == expected_prefix or len(argv) < 3:
+    pattern = re.compile(
+        r"^.+ -m personal_assistant\.main --config "
+        + re.escape(config_path)
+        + r"(?: --im-service-url (?P<im_url>\S+))?"
+        + r" --foreground(?P<auto_bind> --auto-bind)?$"
+    )
+    match = pattern.fullmatch(command)
+    if match is None:
         raise RuntimeError("legacy Gateway identity mismatch; evidence retained")
-    try:
-        argv_config = Path(argv[1]).resolve()
-    except (OSError, RuntimeError):
-        raise RuntimeError(
-            "legacy Gateway identity mismatch; evidence retained"
-        ) from None
-    cursor = 2
-    if argv[cursor : cursor + 1] == ("--im-service-url",):
-        if cursor + 1 >= len(argv) or not argv[cursor + 1].strip():
-            raise RuntimeError("legacy Gateway identity mismatch; evidence retained")
-        cursor += 2
-    if argv[cursor : cursor + 1] != ("--foreground",):
-        raise RuntimeError("legacy Gateway identity mismatch; evidence retained")
-    cursor += 1
-    if argv[cursor : cursor + 1] == ("--auto-bind",):
-        cursor += 1
-    if cursor != len(argv) or argv_config != config.source_path.resolve():
-        raise RuntimeError("legacy Gateway identity mismatch; evidence retained")
+    argv = ["--config", config_path]
+    im_url = match.group("im_url")
+    if im_url is not None:
+        argv.extend(["--im-service-url", im_url])
+    argv.append("--foreground")
+    if match.group("auto_bind") is not None:
+        argv.append("--auto-bind")
 
     identity = GatewayProcessIdentity(
         schema_version=1,
         pid=pid,
-        process_start=observed.process_start,
+        process_start=snapshot.process_start,
         config_path=config_path,
         entry_module="personal_assistant.main",
-        argv=argv,
+        argv=tuple(argv),
     )
     _write_gateway_process_identity(config, identity)
     return identity
@@ -4344,20 +4348,10 @@ def _upgrade_legacy_gateway_identity(
 
 def _assert_gateway_process_instance(identity: GatewayProcessIdentity) -> bool:
     """Return False for exit; raise when a live PID no longer matches identity."""
-    observed = _observe_gateway_process(identity.pid)
-    if observed is None:
+    snapshot = read_gateway_process_snapshot(identity.pid)
+    if snapshot is None:
         return False
-    try:
-        module_index = observed.argv.index("-m")
-    except ValueError:
-        module_matches = False
-    else:
-        module_matches = (
-            module_index + 1 < len(observed.argv)
-            and observed.argv[module_index + 1] == identity.entry_module
-            and observed.argv[module_index + 2 :] == identity.argv
-        )
-    if observed.process_start != identity.process_start or not module_matches:
+    if snapshot.process_start != identity.process_start:
         raise RuntimeError("gateway process identity mismatch; evidence retained")
     return True
 
@@ -4432,18 +4426,7 @@ def _clear_failed_gateway_startup(
 
 def _pid_is_running(pid: int) -> bool:
     """Return whether PID names a non-zombie process, without sending a signal."""
-    result = subprocess.run(
-        ["ps", "-p", str(pid), "-o", "stat="],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    process_stat = result.stdout.strip()
-    return (
-        result.returncode == 0
-        and bool(process_stat)
-        and not process_stat.startswith("Z")
-    )
+    return read_gateway_process_snapshot(pid) is not None
 
 
 def _resolve_agent_tool_allowlist(

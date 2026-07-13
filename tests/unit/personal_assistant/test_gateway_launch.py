@@ -26,7 +26,7 @@ import personal_assistant.main as main_module
 from ._main_helpers import (
     _FakeProcess,
     build_config,
-    observed_gateway_process,
+    gateway_process_snapshot,
     write_gateway_identity,
 )
 
@@ -233,8 +233,8 @@ def test_launch_gateway_in_background_default_waiter_accepts_child_pid(
 
     monkeypatch.setattr(
         main_module,
-        "_observe_gateway_process",
-        lambda _pid: observed_gateway_process(config),
+        "read_gateway_process_snapshot",
+        lambda _pid: gateway_process_snapshot(config),
     )
 
     result = launch_gateway_in_background(
@@ -264,8 +264,8 @@ def test_launch_gateway_in_background_removes_malformed_pid_before_spawn(
 
     monkeypatch.setattr(
         main_module,
-        "_observe_gateway_process",
-        lambda _pid: observed_gateway_process(config),
+        "read_gateway_process_snapshot",
+        lambda _pid: gateway_process_snapshot(config),
     )
 
     result = launch_gateway_in_background(

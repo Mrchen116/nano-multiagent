@@ -191,21 +191,18 @@ def write_gateway_identity(
     return identity_path
 
 
-def observed_gateway_process(
+def gateway_process_snapshot(
     config: LocalConfig,
     *,
     process_start: str = "Mon Jul 13 12:34:56 2026",
 ):
     """Build one matching read-only OS process observation test double."""
     return SimpleNamespace(
+        pid=2468,
         process_start=process_start,
-        argv=(
-            "python",
-            "-m",
-            "personal_assistant.main",
-            "--config",
-            str(config.source_path.resolve()),
-            "--foreground",
+        command=(
+            "python -m personal_assistant.main --config "
+            f"{config.source_path.resolve()} --foreground"
         ),
     )
 

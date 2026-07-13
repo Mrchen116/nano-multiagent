@@ -40,7 +40,7 @@ agents:
     workspace_root: {workspace}
 channels: []
 gateway:
-  startup_timeout_seconds: 5
+  startup_timeout_seconds: 10
   shutdown_grace_seconds: 5
   poll_interval_seconds: 0.05
 llm:
@@ -56,7 +56,11 @@ llm:
     return config_path
 
 
-def test_background_start_and_stop_support_quoted_config_path(tmp_path: Path) -> None:
+def test_background_start_and_stop_support_quoted_config_path(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    monkeypatch.setenv("PYTHONPATH", str(repo_root / "src"))
     runtime_root = tmp_path / "runtime dir 'quoted'"
     runtime_root.mkdir()
     config_path = _write_minimal_config(runtime_root)

@@ -67,14 +67,11 @@ def _write_lifecycle(
 
 def _observed_gateway(config_path: Path, *, process_start: str = _PROCESS_START):
     return SimpleNamespace(
+        pid=2468,
         process_start=process_start,
-        argv=(
-            "python",
-            "-m",
-            "personal_assistant.main",
-            "--config",
-            str(config_path.resolve()),
-            "--foreground",
+        command=(
+            "python -m personal_assistant.main --config "
+            f"{config_path.resolve()} --foreground"
         ),
     )
 
@@ -89,8 +86,10 @@ def test_foreground_runtime_persists_identity_before_entering_runtime(
     observed: list[dict[str, object]] = []
     monkeypatch.setattr(
         main_module,
-        "_process_start_identity",
-        lambda _pid: _PROCESS_START,
+        "read_gateway_process_snapshot",
+        lambda pid: SimpleNamespace(
+            pid=pid, process_start=_PROCESS_START, command="python"
+        ),
         raising=False,
     )
 
@@ -161,7 +160,7 @@ def test_stop_rejects_reused_pid_birth_identity_before_any_signal(
     signals: list[tuple[int, int]] = []
     monkeypatch.setattr(
         main_module,
-        "_observe_gateway_process",
+        "read_gateway_process_snapshot",
         lambda _pid: _observed_gateway(config.source_path, process_start="new birth"),
         raising=False,
     )
@@ -225,7 +224,7 @@ def test_public_stop_bounds_both_wait_phases_to_remaining_grace(
 
     monkeypatch.setattr(
         main_module,
-        "_observe_gateway_process",
+        "read_gateway_process_snapshot",
         lambda _pid: _observed_gateway(config.source_path),
         raising=False,
     )
@@ -248,9 +247,7 @@ def test_public_stop_bounds_both_wait_phases_to_remaining_grace(
 
     assert sleeps == [1, 1]
     assert signals == [
-        ("pid", signal.SIGTERM),
         ("group", signal.SIGTERM),
-        ("pid", signal.SIGKILL),
         ("group", signal.SIGKILL),
     ]
 
@@ -269,7 +266,7 @@ def test_legacy_state_matching_gateway_is_upgraded_before_public_stop(
     pid_checks = iter([True, False])
     monkeypatch.setattr(
         main_module,
-        "_observe_gateway_process",
+        "read_gateway_process_snapshot",
         lambda _pid: _observed_gateway(config.source_path),
     )
     monkeypatch.setattr(main_module, "_pid_is_running", lambda _pid: next(pid_checks))
@@ -291,10 +288,7 @@ def test_legacy_state_matching_gateway_is_upgraded_before_public_stop(
     )
 
     assert result == f"STOPPED pid=2468 state={state_path}"
-    assert signals == [
-        ("pid", signal.SIGTERM),
-        ("group", signal.SIGTERM),
-    ]
+    assert signals == [("group", signal.SIGTERM)]
     assert not (tmp_path / "gateway.pid").exists()
     assert not (tmp_path / "gateway.identity.json").exists()
     assert not state_path.exists()
@@ -309,10 +303,11 @@ def test_legacy_state_sleeper_pid_is_rejected_without_signal(
     signals: list[tuple[int, int]] = []
     monkeypatch.setattr(
         main_module,
-        "_observe_gateway_process",
+        "read_gateway_process_snapshot",
         lambda _pid: SimpleNamespace(
+            pid=2468,
             process_start=_PROCESS_START,
-            argv=("/bin/sleep", "100"),
+            command="/bin/sleep 100",
         ),
     )
     monkeypatch.setattr(

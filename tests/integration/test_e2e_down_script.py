@@ -57,6 +57,20 @@ def _run_down(
     repo_root = Path(__file__).resolve().parents[2]
     script = repo_root / "scripts" / "e2e-down.sh"
     calls_file = tmp_path / "calls.log"
+    fake_bin = tmp_path / "fake-down-bin"
+    fake_bin.mkdir(exist_ok=True)
+    fake_ps = fake_bin / "ps"
+    fake_ps.write_text(
+        """#!/bin/bash
+case "$*" in
+  *"command="*) printf '%s\\n' "$GATEWAY_COMMAND" ;;
+  *"lstart="*) printf '%s\\n' "$PROCESS_START" ;;
+  *"stat="*) printf '%s\\n' "${PROCESS_STAT-S}" ;;
+esac
+""",
+        encoding="utf-8",
+    )
+    fake_ps.chmod(0o755)
     command = command or (
         f"python -m personal_assistant.main --config "
         f"{tmp_path / '.gateway-config.yaml'} --foreground --auto-bind"
@@ -66,24 +80,18 @@ kill() {{
   printf 'kill %s\\n' "$*" >> "$CALLS_FILE"
   {kill_body}
 }}
-ps() {{
-  case "$*" in
-    *"command="*) printf '%s\\n' "$GATEWAY_COMMAND" ;;
-    *"lstart="*) printf '%s\\n' "$PROCESS_START" ;;
-    *"stat="*) printf '%s\\n' "${{PROCESS_STAT-S}}" ;;
-  esac
-}}
 sleep() {{
   printf 'sleep %s\\n' "$*" >> "$CALLS_FILE"
   return 0
 }}
-export -f kill ps sleep
+export -f kill sleep
 exec bash "{script}" --wt "{wt_argument or tmp_path}"
 """
     env = dict(
         os.environ,
         CALLS_FILE=str(calls_file),
         GATEWAY_COMMAND=command,
+        PATH=f"{fake_bin}:{os.environ['PATH']}",
         PROCESS_START=_PROCESS_START,
     )
     if process_stat is not None:
@@ -123,7 +131,7 @@ def test_gateway_that_survives_sigkill_fails_without_tearing_down_stack(
     assert "e2e stack stopped" not in result.stdout
 
 
-@pytest.mark.parametrize("mismatch", ["internal_pid", "argv"])
+@pytest.mark.parametrize("mismatch", ["internal_pid", "persisted_argv"])
 def test_gateway_identity_mismatch_sends_no_signal_and_retains_stack(
     mismatch: str,
     tmp_path: Path,
@@ -131,13 +139,13 @@ def test_gateway_identity_mismatch_sends_no_signal_and_retains_stack(
     _write_stack_files(
         tmp_path, internal_pid=999999 if mismatch == "internal_pid" else _GATEWAY_PID
     )
-    command = None
-    if mismatch == "argv":
-        command = (
-            "python -m personal_assistant.main --config /tmp/other.yaml --foreground"
-        )
+    if mismatch == "persisted_argv":
+        identity_path = tmp_path / "gateway.identity.json"
+        identity = json.loads(identity_path.read_text(encoding="utf-8"))
+        identity["argv"][1] = "/tmp/other.yaml"
+        identity_path.write_text(json.dumps(identity), encoding="utf-8")
 
-    result = _run_down(tmp_path, kill_body="return 0", command=command)
+    result = _run_down(tmp_path, kill_body="return 0")
 
     assert result.returncode != 0
     calls_file = tmp_path / "calls.log"
@@ -150,7 +158,7 @@ def test_gateway_identity_mismatch_sends_no_signal_and_retains_stack(
     assert (tmp_path / ".im.pid").exists()
 
 
-def test_confirmed_gateway_exit_cleans_lifecycle_then_stops_im(
+def test_live_command_rendering_is_audit_only_when_instance_matches(
     tmp_path: Path,
 ) -> None:
     _write_stack_files(tmp_path)
@@ -167,7 +175,12 @@ fi
 return 0
 """
 
-    result = _run_down(tmp_path, kill_body=kill_body, check=True)
+    result = _run_down(
+        tmp_path,
+        kill_body=kill_body,
+        command="rendering deliberately differs from persisted audit metadata",
+        check=True,
+    )
 
     assert result.returncode == 0
     for residue in (
