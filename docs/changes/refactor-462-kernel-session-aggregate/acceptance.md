@@ -136,3 +136,104 @@ N/A。本 unit 无前端原型、视觉设计稿或 must-match reference contrac
 ## Recommended Next Step
 
 按 ISSUE-1 → ISSUE-4 进入 `fix-implementation`，其中先修 `/stop` 假成功与 session 阻塞，再修 active append live-history、manual compact prompt refresh、字符串 workspace 参数。修复后进行 targeted re-review，但由于 ISSUE-1 涉及真栈终止恢复，复验必须重新启动隔离 Gateway/IM 并真实走 `/stop` → 下一条消息。
+
+---
+
+# Round 2 — 2026-07-13
+
+> Validated unit head: `e135d89949d34aa556db0bd810bdf979de1acc48`
+> Review mode: targeted（Fast-lane；中断链路在最终 head 上重建隔离真栈）
+
+## Verdict
+
+- **Verdict: pass**
+- **Highest Required Action: pass**
+- Issues: blocking 0 / major 0 / minor 0
+- Round 1 的 4 个 issue 均由公开入口证据关闭；未发现新问题。
+
+## Selective Revalidation Basis
+
+- 派发包将本轮 focus 固定为 Round 1 的 4 个 issue，并说明最终增量 `f89f9bed9..e135d8994` 只收口 interrupt 后 assistant publication 与对应契约守卫；reviewer 未读取实现代码。
+- active append、cold-first append、manual compact/prompt、PromptSlots restart、fork、字符串 workspace 与 CLI 进程恢复均在 `f89f9bed9` 上由本 reviewer 用真实 LLM 和公开入口重跑。它们不属于最后一轮 interrupt-only 增量，因此按 Fast-lane 继承；最终 head 的 `/stop` 后续正常 turn 也再次覆盖了普通 Gateway→Kernel→LLM→IM 回复链。
+- `/stop` 旅程没有复用任何旧服务或旧证据：在 `e135d8994` 上执行 `e2e-down` 后，以 worktree 本地 config、ephemeral 高位 IM 端口 `49304`、独立 node `wt-unit-refactor-462-11890` 与固定本轮 IM secret 重启真实 IM+Gateway；健康检查和 auto-bind 均通过。未触碰默认端口或 `~/.nano-assistant/config.yaml`。
+- Round 1 已通过且最后增量未触及的 Gateway restart 证据继续继承；Round 2 另以真实 Coding CLI 两个独立进程重复验证了 multi-turn + resume 控制。
+
+## User Journeys Exercised
+
+1. **隔离真 IM + Gateway `/stop` → 静默窗 → 下一轮**（最终 head）
+   - conversation `3601a299fabd412da4be74b97ff3c9aa` 中，长任务 agent 气泡先进入 `running`；发送 `/stop` 后 138ms 收到 `已停止当前操作。`。
+   - 原气泡在 8 秒静默窗结束时为空内容 `completed`，静默窗内无 late assistant；禁用 marker `LATE-SHOULD-NOT-APPEAR-462-R2` 在后续完整消息列表中出现 0 次。
+   - 下一条消息 3.245 秒内完成，精确回复 `STOP-CONTINUE-OK-462-R2`。
+2. **公开 SDK active append + 字符串 workspace**
+   - session `sess_322b4c3682572596` 在 run 状态为 `running` 时同步 append，调用 0.2ms 返回；首轮真实 assistant 输出 `2fwDTJ8WhMSe`，下一轮精确回复 `2fwDTJ8WhMSe|ACTIVE-OOB-462-R2`。
+   - session `sess_de19171c9f0608d5` 的 `create_session` 与 `submit` 均传 `str` workspace，run `completed` 并输出 `STR-WORKSPACE-462-R2`。
+3. **cold-first append + restart replay**
+   - session `sess_088e5a7a461a3021`：K1 建立 `COLD-BASE-462-R2` 后关闭；K2 的首个 stateful 操作就是公开 `append_message`，随后关闭；K3 精确回复 `COLD-BASE-462-R2|COLD-OOB-462-R2`。
+4. **manual compact、AGENTS.md 窗口刷新与 PromptSlots restart**
+   - session `sess_223948f9ef1e29f6`：文件从 `COMPACT-OLD-462-R2` 改为 `COMPACT-NEW-462-R2` 后，同一窗口仍返回 OLD；manual compact 后返回 NEW，Kernel 重启 replay 后仍返回 NEW。
+   - session `sess_4eb8f4314da3b1d9`：`PromptSlots` marker 在 Kernel 重启前后都精确为 `PROMPT-SEED-462-R2`。
+5. **CLI 进程恢复 + as-of fork 独立演进**
+   - CLI session `sess_140a01b61a3fa8d6`：首进程输出 `CLI462-R2-READY`；第二个真实 CLI 进程用 `--resume` 后仍精确回复该 token。
+   - source `sess_dbd60e97d5c274c7` 从 A 演进到 B；以 `msg_6d1d68f3e601f69c` fork 后，branch `sess_284ff1403f752422` 只看到 A；branch 演进到 C 后 source 仍为 B。
+
+## Round 1 Issue Closure
+
+| Round 1 issue | Round 2 public evidence | 结果 |
+|---|---|---|
+| ISSUE-1 `/stop` 假成功、原任务继续且下一轮阻塞 | 最终 head 真栈中原气泡 `running → completed(empty)`；stop ack 后 8 秒无 late assistant；下一轮 3.245 秒完成 | closed / pass |
+| ISSUE-2 active append 后丢 residual assistant | append 发生时 run=`running`；下一轮精确复述真实随机 assistant token 与 external marker | closed / pass |
+| ISSUE-3 manual compact 不刷新项目提示 | 同窗 OLD 保持；manual compact 后 NEW；重启 replay 后仍 NEW | closed / pass |
+| ISSUE-4 `str workspace_root` 在 submit 崩溃 | 同一 `str` 路径贯穿 create + submit，run completed | closed / pass |
+
+## Reference Artifacts Reviewed
+
+N/A。本 unit 无前端原型、视觉设计稿或 must-match reference contract；本轮客户端面无视觉变更。
+
+## 验收标准覆盖
+
+### Requirement: 正常会话连续性保持不变 — 组内结论：pass
+
+| Scenario | 期望来源 | 验证方式（覆盖它的旅程） | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| CLI 多轮对话与恢复 | `motivation.md` | Journey 5：真实 CLI 两个独立进程，第二进程 `--resume` | `sess_140a01b61a3fa8d6`；两次均为 `CLI462-R2-READY` | pass | Round 2 重新验证进程级恢复。 |
+| IM/Gateway 多轮对话与重启恢复 | `motivation.md` + design Runbook | Round 1 Gateway restart 证据按未触及旅程继承；Journey 1 在最终 head 重建真栈并完成 stop 后下一轮 | Round 1 conversation `e5f1fd6f04044045ab61d2940096327c`；Round 2 conversation `3601a299fabd412da4be74b97ff3c9aa` | pass | 最终 head 的新一轮正常回复再次证明真 Gateway 链可继续；restart 不变性由 selective control 继承。 |
+
+### Requirement: 带外消息与终止恢复语义保持不变 — 组内结论：pass
+
+| Scenario | 期望来源 | 验证方式（覆盖它的旅程） | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 带外追加进入下一轮上下文 | `motivation.md` | Journey 2：active run 中公开 `append_message`，等待首轮完成后提交下一轮 | `sess_322b4c3682572596`；`2fwDTJ8WhMSe|ACTIVE-OOB-462-R2` | pass | residual assistant 与 external message 同时可见，ISSUE-2 关闭。 |
+| 重启后首次操作就是带外追加 | `motivation.md` | Journey 3：K1 close→K2 首操作 append→close→K3 resume | `sess_088e5a7a461a3021`；`COLD-BASE-462-R2|COLD-OOB-462-R2` | pass | 旧历史和 cold append 均可达。 |
+| 中断或取消后继续会话 | `motivation.md` | Journey 1：隔离真栈 `/stop`，观察原气泡、8 秒 late-output 静默窗，再发下一条 | 原气泡 `completed(empty)`；stop ack；静默窗 0 late；下一轮 `STOP-CONTINUE-OK-462-R2` | pass | ISSUE-1 关闭；没有把 stop ack 当作唯一成功判据。 |
+
+### Requirement: 长会话与分支语义保持不变 — 组内结论：pass
+
+| Scenario | 期望来源 | 验证方式（覆盖它的旅程） | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 上下文压缩后透明继续 | `motivation.md` | Journey 4：manual compact 后继续；Kernel close/rebuild 后 replay | `sess_223948f9ef1e29f6`；compact 后/重启后均 `COMPACT-NEW-462-R2` | pass | 压缩、继续与持久化 replay 均成立。 |
+| 从指定消息 fork 会话 | `motivation.md` | Journey 5：以指定 assistant message as-of fork，再分别推进 source/branch | fork point `msg_6d1d68f3e601f69c`；branch A→C，source B→B | pass | 指定点继承与独立演进均成立。 |
+
+### Requirement: 会话级提示与文件上下文语义保持不变 — 组内结论：pass
+
+| Scenario | 期望来源 | 验证方式（覆盖它的旅程） | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 会话内提示稳定且在压缩边界刷新 | `motivation.md` | Journey 4：修改 `AGENTS.md` 后同窗、manual compact 后、restart 后依次询问；独立 PromptSlots restart 控制 | AGENTS `OLD → 同窗 OLD → compact NEW → restart NEW`；PromptSlots `PROMPT-SEED-462-R2 → restart 同值` | pass | ISSUE-3 关闭；窗口冻结、边界刷新和 seed 恢复全部可观察成立。 |
+
+## Issues
+
+N/A。Round 2 未发现 blocking / major / minor issue。
+
+## Side Findings
+
+N/A。未发现需要另立 issue 的 out-of-unit 问题。
+
+## 上层文档同步
+
+- [x] `SPEC.md`（跨包顶点架构）：本 unit 已更新；最终收尾仍由 orchestrator 按最终 diff 对账。
+- [x] `docs/specs/kernel/`（长青行为契约层）：`context-persistence.md` 已更新；本轮可观察行为无额外 delta-spec。
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新；启动和协作入口未改变。
+- [x] `docs/SPEC_GUIDE.md`：无需更新；文档体系未改变。
+
+## Recommended Next Step
+
+产品验收闸已通过；可由 orchestrator 继续最终 code-review / canonical grounding / PR 流程，无需再次 product re-review。
