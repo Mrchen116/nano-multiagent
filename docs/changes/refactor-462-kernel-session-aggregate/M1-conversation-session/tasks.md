@@ -47,7 +47,7 @@ N/A：本 milestone 不修改 UI、前端状态或视觉资源。
 
 ### R2 — ConversationSession 接管 turn/compact/fork transaction
 
-- 状态: TODO
+- 状态: DONE
 - 步骤:
   - 将 `AgentRuntime` 的单会话算法迁入长期存活的 `ConversationSession` 字段，移除所有 session-id keyed live-state maps。
   - 每个 session 持有自己的 `AgentLoop` / state / prompt seed / transcript / lifecycle permit；normal turn、sync append、manual/threshold/overflow compact、whole/as-of fork、recovery、close 均经高层事务。

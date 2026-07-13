@@ -37,7 +37,21 @@
 
 ## R2 — ConversationSession 接管 turn/compact/fork transaction
 
-- Status: TODO
+- Status: DONE
+- Context: 旧 `AgentRuntime` 以多张 session-id map 同时管理 history/config/path/lock/file/memory/prompt/model，turn、append、compact 与 fork 分别操作不同 owner。
+- Decision: 将 runtime 收敛为无 session live-state 的 `AgentEngine`，每个 `ConversationSession` 持有稳定 state、private Transcript、单 turn gate 与统一 lifecycle permit；AgentLoop 的 prompt-token 状态改成 per-conversation scalar，compact/fork 经 session 高层事务。
+- Rationale: async turn/compact/fork 和同步 append 共用 admission，只有短 Transcript mutex 保护 JSONL mutation；close 能线性化拒绝新操作并 drain 已接纳 worker，带外 append 不需要失效全局 cache。
+- Evidence:
+  - Tests: `python -m pytest -q tests/unit/agent/session/test_conversation_session.py tests/unit/agent/session/test_jsonl_transcript.py tests/unit/agent/session/test_session_directory.py tests/unit/test_session_file_state.py` → `27 passed`。
+  - Entry: 真实 `AgentEngine + ConversationSession + JsonlTranscript` 两轮 replay；active turn 并发 durable append；close drain；as-of fork re-stamp/PromptSlotSeed；stale external epoch 拒绝 compaction commit。
+  - Frontend State Matrix: N/A（纯内核重构）。
+  - Browser QA: N/A（纯内核重构）。
+  - E2E/Regression: SDK composition 尚待 R4 切换；最终从 CLI/Gateway 入口签收。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: 回退 `8072fd47` 与红测 `67da031d` 可恢复旧 multi-session runtime；R4 前 unit 分支不作为可运行交付。
+- Commits: `67da031d`（C1），`8072fd47`（C2）。
+- Next: R3 将 owner loop/task/token/cleanup 从 RunsRegistry 与 RuntimeRunner 收进 typed KernelExecutor，并把 `/stop` park 与 cleanup ack 分域。
 
 ## R3 — KernelExecutor、RunsRegistry 与 subagent 控制面
 
