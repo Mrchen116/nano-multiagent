@@ -129,6 +129,7 @@ describe("user stream runtime", () => {
   });
 
   it("pings while live and reconnects with bounded backoff plus one recovery signal", async () => {
+    sessionStorage.setItem("cursor:user-a", "1");
     const recovered = vi.fn(async () => undefined);
     const { runtime, ensureSession } = setup();
     runtime.subscribe({ onEvent: vi.fn(), onRecovery: recovered });
@@ -198,8 +199,8 @@ describe("user stream runtime", () => {
     const socket = FakeSocket.instances[0]!;
     socket.open();
 
-    socket.message({ op: "event", event_type: "message.created", data: { event_id: 7, content: "hello" } });
-    socket.message({ op: "event", event_type: "message.delta", data: { event_id: 5 } });
+    socket.message({ op: "event", event_type: "future.persisted", data: { event_id: 7, content: "hello" } });
+    socket.message({ op: "event", event_type: "future.persisted", data: { event_id: 5 } });
     socket.message({ op: "event", event_type: "node.status_changed", data: { node_id: "n-1" } });
     socket.message({ op: "event", event_type: 42, data: { event_id: 100 } });
 
@@ -228,7 +229,7 @@ describe("user stream runtime", () => {
     expect(() => first.open()).not.toThrow();
     expect(first.sent).toContain(JSON.stringify({ op: "resume", after_event_id: 0 }));
     expect(() =>
-      first.message({ op: "event", event_type: "message.created", data: { event_id: 7, content: "visible" } })
+      first.message({ op: "event", event_type: "future.persisted", data: { event_id: 7, content: "visible" } })
     ).not.toThrow();
     expect(received).toHaveBeenCalledTimes(1);
 
@@ -323,8 +324,9 @@ describe("user stream runtime", () => {
     const syncError = new Error("sync unavailable");
     const sync = vi.fn().mockRejectedValueOnce(syncError).mockResolvedValueOnce({ maxEventId: 3 });
     const recovered = vi.fn();
+    const received = vi.fn();
     const { runtime, errors } = setup({ sync });
-    runtime.subscribe({ onEvent: vi.fn(), onRecovery: recovered });
+    runtime.subscribe({ onEvent: received, onRecovery: recovered });
     await settle();
     const first = FakeSocket.instances[0]!;
     first.open();
@@ -337,12 +339,16 @@ describe("user stream runtime", () => {
     expect(recovered).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1000);
     await settle();
-    expect(sync).toHaveBeenCalledTimes(2);
     const second = FakeSocket.instances[1]!;
     second.open();
+    expect(second.sent).toContain(JSON.stringify({ op: "resume", after_event_id: 50 }));
+    second.message({ op: "resync_required", reason: "cursor_ahead_of_event_store" });
     await settle();
-    expect(second.sent).toContain(JSON.stringify({ op: "resume", after_event_id: 3 }));
+    expect(sync).toHaveBeenCalledTimes(2);
+    expect(sessionStorage.getItem("cursor:user-a")).toBe("3");
     expect(recovered).toHaveBeenCalledTimes(1);
+    second.message({ op: "event", event_type: "future.persisted", event_id: 4, data: { content: "new epoch" } });
+    expect(received).toHaveBeenCalledWith(expect.objectContaining({ eventId: 4 }));
   });
 
   it("drops persisted duplicate or stale event ids before any subscriber sees them", async () => {
@@ -354,12 +360,12 @@ describe("user stream runtime", () => {
     const socket = FakeSocket.instances[0]!;
     socket.open();
 
-    socket.message({ op: "event", event_type: "message.created", event_id: 7, data: { content: "duplicate" } });
-    socket.message({ op: "event", event_type: "message.delta", event_id: 6, data: { delta_text: "stale" } });
-    socket.message({ op: "event", event_type: "message.completed", event_id: 8, data: { content: "fresh" } });
+    socket.message({ op: "event", event_type: "future.persisted", event_id: 7, data: { content: "duplicate" } });
+    socket.message({ op: "event", event_type: "future.persisted", event_id: 6, data: { content: "stale" } });
+    socket.message({ op: "event", event_type: "future.persisted", event_id: 8, data: { content: "fresh" } });
 
     expect(received).toHaveBeenCalledTimes(1);
-    expect(received.mock.calls[0]![0]).toMatchObject({ eventType: "message.completed", eventId: 8 });
+    expect(received.mock.calls[0]![0]).toMatchObject({ eventType: "future.persisted", eventId: 8 });
   });
 
   it("hydrates cursor storage once and fuses read/write failures for the tab", async () => {
@@ -371,9 +377,9 @@ describe("user stream runtime", () => {
     await settle();
     const first = FakeSocket.instances[0]!;
     first.open();
-    first.message({ op: "event", event_type: "message.created", event_id: 1, data: { content: "one" } });
-    first.message({ op: "event", event_type: "message.delta", event_id: 2, data: { delta_text: "two" } });
-    first.message({ op: "event", event_type: "message.completed", event_id: 3, data: { content: "three" } });
+    first.message({ op: "event", event_type: "future.persisted", event_id: 1, data: { content: "one" } });
+    first.message({ op: "event", event_type: "future.persisted", event_id: 2, data: { content: "two" } });
+    first.message({ op: "event", event_type: "future.persisted", event_id: 3, data: { content: "three" } });
     first.disconnect();
     await vi.advanceTimersByTimeAsync(1000);
     await settle();
@@ -402,6 +408,7 @@ describe("user stream runtime", () => {
   });
 
   it("coalesces authoritative recovery when a domain rejects a malformed canonical event", async () => {
+    sessionStorage.setItem("cursor:user-a", "1");
     const recovered = vi.fn();
     const { runtime, errors } = setup();
     runtime.subscribe({
@@ -418,11 +425,18 @@ describe("user stream runtime", () => {
 
     expect(errors).toHaveLength(2);
     expect(recovered).toHaveBeenCalledTimes(1);
-    expect(sessionStorage.getItem("cursor:user-a")).toBe("2");
+    expect(sessionStorage.getItem("cursor:user-a")).toBe("1");
   });
 
   it("allows a later corruption to trigger recovery after reconnect recovery settled", async () => {
-    const recovered = vi.fn(async () => undefined);
+    sessionStorage.setItem("cursor:user-a", "1");
+    let releaseRecovery!: () => void;
+    const recovered = vi
+      .fn<() => Promise<void>>()
+      .mockImplementationOnce(() => new Promise<void>((resolve) => {
+        releaseRecovery = resolve;
+      }))
+      .mockResolvedValue(undefined);
     const { runtime } = setup();
     runtime.subscribe({
       onEvent: () => { throw new UserStreamRecoveryError("invalid message.created payload"); },
@@ -436,8 +450,10 @@ describe("user stream runtime", () => {
     await settle();
     const second = FakeSocket.instances[1]!;
     second.open();
-    await settle();
     expect(recovered).toHaveBeenCalledTimes(1);
+    releaseRecovery();
+    await settle();
+    await settle();
 
     second.message({ op: "event", event_type: "message.created", event_id: 1, data: { message_id: null } });
     await settle();
@@ -445,6 +461,7 @@ describe("user stream runtime", () => {
   });
 
   it("rejects malformed canonical events before cursor advance or subscriber fan-out", async () => {
+    sessionStorage.setItem("cursor:user-a", "5");
     const received = vi.fn();
     const recovered = vi.fn();
     const { runtime, errors } = setup();
@@ -457,7 +474,7 @@ describe("user stream runtime", () => {
     await settle();
 
     expect(received).not.toHaveBeenCalled();
-    expect(sessionStorage.getItem("cursor:user-a")).toBeNull();
+    expect(sessionStorage.getItem("cursor:user-a")).toBe("5");
     expect(recovered).toHaveBeenCalledTimes(1);
     expect(errors).toHaveLength(1);
     expect(errors[0]).toBeInstanceOf(UserStreamRecoveryError);

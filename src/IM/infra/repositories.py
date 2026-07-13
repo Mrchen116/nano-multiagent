@@ -3351,9 +3351,14 @@ class EventRepository:
         max_batch: int = 500,
         max_gap: int = 2000,
         replay_window_minutes: int = 15,
+        up_to_event_id: int | None = None,
     ) -> EventReplayResult:
-        """List owner-visible events after a browser resume cursor."""
-        max_id = self.global_max_event_id()
+        """List owner-visible events inside one stable resume snapshot."""
+        max_id = (
+            self.global_max_event_id()
+            if up_to_event_id is None
+            else max(0, up_to_event_id)
+        )
         if after_event_id > max_id:
             return EventReplayResult(
                 events=[],
@@ -3374,6 +3379,7 @@ class EventRepository:
             SELECT event_id, conversation_id, message_id, event_type, delivery_status, payload_json, created_at
             FROM conversation_events
             WHERE event_id > ?
+              AND event_id <= ?
               AND created_at >= ?
               AND conversation_id IN (
                 SELECT conversation_id FROM conversation_participants WHERE user_id = ?
@@ -3381,17 +3387,18 @@ class EventRepository:
             ORDER BY event_id
             LIMIT ?
             """,
-            (after_event_id, cutoff_iso, user_id, max_batch),
+            (after_event_id, max_id, cutoff_iso, user_id, max_batch),
         ).fetchall()
         user_max_row = self._connection.execute(
             """
             SELECT MAX(event_id) AS max_event_id
             FROM conversation_events
-            WHERE conversation_id IN (
+            WHERE event_id <= ?
+              AND conversation_id IN (
                 SELECT conversation_id FROM conversation_participants WHERE user_id = ?
             )
             """,
-            (user_id,),
+            (max_id, user_id),
         ).fetchone()
         user_max_id = (
             int(user_max_row["max_event_id"])

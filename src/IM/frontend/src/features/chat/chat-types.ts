@@ -182,6 +182,9 @@ export interface Conversation {
   source_agent_id?: string | null;
   /** feat-446-M3: readable kernel session JSONL path for conversation distillation. */
   source_jsonl_path?: string | null;
+  /** Existing REST identity for a conversation mirrored from an external channel. */
+  external_source?: string | null;
+  external_chat_id?: string | null;
 }
 
 /**

@@ -6,6 +6,7 @@ import type { Conversation } from "../chat-types";
 import { useAuthStore } from "../../auth/auth-store";
 import { subscribeUserStream, type UserStreamEvent } from "../../../realtime/user-stream";
 import {
+  type AgentCompletionCandidate,
   type AgentCompletionState,
   emptyAgentCompletionState,
   hydrateAgentCompletionState,
@@ -144,7 +145,10 @@ export function buildNotificationCandidate(event: UserStreamEvent): Notification
     return null;
   }
 
-  if (event.eventType === "message.sent") {
+  if (
+    event.eventType === "message.sent"
+    || (event.eventType === "message.created" && payload.sender_type === "user")
+  ) {
     const messageId = normalizeText(payload.message_id);
     if (!messageId) {
       return null;
@@ -165,6 +169,7 @@ export function buildNotificationCandidate(event: UserStreamEvent): Notification
  */
 export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
   const [toast, setToast] = useState<ToastPayload | null>(null);
+  const [agentCompletionCandidate, setAgentCompletionCandidate] = useState<AgentCompletionCandidate | null>(null);
   const queryClient = useQueryClient();
   const location = useLocation();
   const pathnameRef = useRef(location.pathname);
@@ -188,6 +193,7 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
     agentCompletionRef.current = hydrateAgentCompletionState(selfUserId);
     resetLocalUnreadFeedback();
     setToast(null);
+    setAgentCompletionCandidate(null);
   }, [selfUserId]);
 
   useEffect(() => {
@@ -212,6 +218,7 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
         const completion = reduceAgentCompletionEvent(agentCompletionRef.current, event);
         agentCompletionRef.current = completion.state;
         persistAgentCompletionState(selfUserIdRef.current, completion.state);
+        if (completion.candidate) setAgentCompletionCandidate(completion.candidate);
         let candidate = buildNotificationCandidate(event);
         if (completion.candidate) {
           candidate = {
@@ -222,7 +229,16 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
           };
         }
         const viewingConversation = isViewingConversation(pathnameRef.current, conversationId);
-        const selfAuthored = isSelfAuthoredUserMessage(payload, selfUserIdRef.current);
+        const conversations = queryClient.getQueryData<Conversation[]>(["chat", "conversations"]);
+        const externalConversation = conversations?.some(
+          (conversation) => conversation.id === conversationId && Boolean(conversation.external_source)
+        ) ?? false;
+        // External shadow writes intentionally persist under the account owner so
+        // they stay inside the owner's conversation scope. The conversation's
+        // existing external identity, not that storage identity, decides whether
+        // this tab should surface the inbound peer message.
+        const selfAuthored = !externalConversation
+          && isSelfAuthoredUserMessage(payload, selfUserIdRef.current);
         const shouldMarkUnread = Boolean(candidate && !viewingConversation && !selfAuthored);
         if (shouldMarkUnread) markLocalUnreadFeedback(conversationId);
         if (candidate) {
@@ -249,5 +265,5 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
 
   const dismiss = useCallback(() => setToast(null), []);
 
-  return { toast, dismiss };
+  return { toast, dismiss, agentCompletionCandidate };
 }
