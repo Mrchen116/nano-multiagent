@@ -25,7 +25,22 @@
 
 ## R2 — 删除 runtime subprocess/health seam 并保持 lifecycle 行为
 
-- Status: TODO
+- Status: DONE
+- Context: `GatewayRuntime` 仍接受无生产构造点的 manager，background result/state/stop 又把 PID 或 IM URL 伪装成 Kernel health/readiness，测试因此能维持不存在的部署形态。
+- Decision: 删除 manager/factory/optional constructor 与 start/stop 死调用；background parent 只等待 PID file + child liveness，并将 waiter 命名收口为 start confirmation。result/state 只保留 PID/config/log/独立 IM URL，stop 只按 PID/process-group 终止；读取旧 state 时自然忽略额外 `health_url`。保留的 skill-maintenance cases 迁入 runtime lifecycle 测试。
+- Rationale: Gateway 后台 supervisor 与进程内 Kernel 各自只有一个真实所有者；不新增 readiness IPC，也不把 child 内 `_ready_event` 暴露给 parent。process-group 仍用于回收 Gateway 拥有的 channel/tool descendants。
+- Evidence:
+  - Tests: C1 targeted suite 17 failed/14 passed，失败点命中旧 waiter/health/result/constructor；Green 后 targeted lifecycle 82 passed，`tests/unit/personal_assistant` 770 passed；narrow ruff check/format 全绿。
+  - Entry: 用 worktree `.operator-config.yaml` 实际执行默认 start → restart → stop：start 输出 `Gateway started (pid=47289)` + Log，新 state 仅含 config/log/pid；restart 得到新 PID 48131；stop 输出 `STOPPED pid=48131 state=...`，PID/state 均清理。隔离 config/workspace/log 已删除。
+  - Frontend State Matrix: N/A。
+  - Browser QA: N/A。
+  - E2E/Regression: `test_gateway_launch.py`、`test_gateway_pid_lifecycle.py`、`test_gateway_main_command.py`、`test_gateway_runtime_lifecycle.py`、`test_gateway_shutdown_order.py`；operator 子进程真入口补充验证 start/restart/stop。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: 回退到 C1 `7dec9880` 可恢复 R2 Green 前接口。
+- Commits: C1=`7dec9880`, C2=`7052b33f`, C3=本 docs commit。
+- Next: R3 清理 active scripts/docs/config residue、落 contract guard，并按 Runbook 真栈完成消息与主动任务证据。
+- Env caveat: 主机已有其他 Gateway 占用固定 internal-dispatch 端口 8089（PID 80740）；R2 隔离实例沿用既有“dispatch bind 失败不阻断 Gateway”策略。因此本段 live 证据只证明 operator lifecycle，不计作消息/heartbeat/cron 主路径证据；R3 必须另用 worktree 真栈跑通用户可观察结果。
 
 ## R3 — 清理 active 入口残留并完成真栈验收
 
