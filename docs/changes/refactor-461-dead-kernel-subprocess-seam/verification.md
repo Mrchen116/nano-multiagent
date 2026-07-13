@@ -212,3 +212,133 @@ N/A。
 无。
 
 No critical issues. 1 warning(s) to consider. Ready for PR (with noted improvements).
+
+# Round 3
+
+## Verification Report: refactor-461
+
+### Summary
+
+Mode: full
+Delta range: N/A
+Focus issues: M3 seven confirmed transaction/process findings；Round 2 W5 format gate；`/tmp` path canonicalization follow-up
+requires_full_verification: false
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | Tasks 17/17 marked complete；Requirements 4/4 implemented |
+| Correctness | Scenarios 10/10 covered；M3 hardening has 4 warning-level edge gaps |
+| Coherence | D1-D5 followed；M3 transaction/e2e fail-atomic claims only partially hold |
+
+本轮基于 integration head `8cb3a12c`，重新完整核对 motivation 的 4 条 Requirement / 10 个 Scenario、design D1-D5、M1-M3 tasks/progress、历轮 verification 与 `049867bd..8cb3a12c` 实现。主产品行为与架构边界未回归；受影响套件、lint、format 和完整 non-e2e 均通过。M3 已关闭 FIFO、backup hardlink、start PID match、stop ESRCH/post-KILL confirmation 与 Round 2 W5，但 source CAS/commit 和 e2e fail-atomic/canonical path 仍有 4 个可复现 WARNING。
+
+## Prior Issue Closure
+
+| Round 3 focus | 结论 | 证据 |
+|---|---|---|
+| Legacy backup FIFO fail-fast | closed | existing backup 先 `lstat` 拒绝非 regular，再 nonblocking/no-follow open：`src/personal_assistant/config/local_store.py:579-640`；硬超时公共入口回归 `tests/unit/personal_assistant/test_config_migration_transaction.py:52-76` |
+| Existing/new third-party hardlink | closed | open 前后与 durable gate 均要求 `st_nlink == 1`：`local_store.py:600-616,709-729`；回归 `test_config_migration_transaction.py:79-120` |
+| Source drift CAS + atomic commit | partially closed | backup-gate 后、CAS 前 drift 可拒绝，但 CAS 与 replace 并非同一原子操作，见 W6；replace 后 durability error 也不满足失败原子性，见 W7 |
+| Start PID match + child liveness | closed | waiter 校验 PID parse、`process.pid` equality 与二次 poll：`src/personal_assistant/main.py:4129-4157`；回归 `tests/unit/personal_assistant/test_gateway_launch.py:237-307` |
+| Stop SIGKILL ESRCH + post-KILL confirmation | closed | state/PID-only 共用 `_stop_owned_gateway`，ESRCH 清证据，成功 KILL 后 bounded confirm，存活则保留：`main.py:2404-2499`；回归 `test_gateway_forced_stop.py:35-109` |
+| e2e PID/argv/start identity | closed for complete evidence | up 记录 external/internal PID、resolved config、process start；down 在 signal 前核对：`scripts/e2e-up.sh:225-275`、`scripts/e2e-down.sh:45-120` |
+| Unconfirmed exit fail-atomic teardown | partially closed | identity mismatch、signal failure、KILL 后存活已保留整栈；但 external PID 文件缺失会绕过整个 Gateway gate 并继续 teardown，见 W8 |
+| `/tmp` / symlink canonicalization | partially closed | 显式 `--wt` 使用 `pwd -P`，但默认 `$PWD` 不 canonicalize，见 W9 |
+| Round 2 W5 formatter gate | closed | `ruff format --check .` → 783 files already formatted；`tests/unit/test_runtime_helpers.py` 已机械格式化 |
+| Canonical spec 归并 | deferred as designed | 仍按 orchestrator §7.0 在最终验收后归并，不作为当前 blocker |
+
+## Completeness
+
+- Tasks: 17/17 marked complete（M1 5/5，M2 6/6，M3 6/6）；M3 的 source transaction 与 e2e fail-atomic 两条退出标准存在 W6-W9 所述边缘偏差。
+- Requirement 覆盖: 4/4。
+  - 消息与主动任务仍由进程内 Kernel 执行：`src/personal_assistant/main.py:2760-2823,3451-3461`。
+  - Gateway 后台服务仍以 PID/liveness/process-group 管理：`main.py:2333-2499,4121-4158`。
+  - timing ownership、legacy migration 与 canonical save：`src/personal_assistant/config/local_store.py:272-318,468-509,579-760,918-927,1193-1234`。
+  - e2e 只管理 IM + Gateway：`scripts/e2e-up.sh`、`scripts/e2e-down.sh`；无独立 Kernel API 产物。
+- Prototype / Reference: N/A；本 unit 无前端或 reference contract。
+
+## Correctness
+
+| Requirement / Scenario | 实现与回归证据 | 状态 |
+|---|---|---|
+| 消息 / Web IM 或外部通道回复 | in-process wiring `main.py:2760-2823,3451-3461`；关键路径与 M1 live evidence | covered |
+| 主动任务 / Heartbeat 与 Cron | `_KernelClientShim` 与 heartbeat/cron wiring 保留；critical-path cron 与 M1 live evidence | covered |
+| 后台服务 / 默认启动确认 | `main.py:2333-2401,4121-4158`；public launch early-exit/timeout/PID match tests | covered |
+| 后台服务 / stop 与 restart | `main.py:2404-2499`；state/PID-only graceful/forced/ESRCH/survivor tests | covered |
+| 后台服务 / IM 离线本地自治 | Gateway runtime/channel wiring未改；M1 Feishu offline live evidence | covered |
+| timing / 旧自定义值继续生效 | parser fallback 与消费者未回归；local-store regression + M1 migration live | covered |
+| timing / 新配置逐字段优先 | `_parse_gateway_lifecycle` 与既有 regression | covered |
+| timing / canonical save + migration backup | snapshot、durable backup、atomic replace 已实现；普通/backup-gate drift覆盖，但 W6-W7 表明并发/后提交失败语义仍不完整 | covered with warnings |
+| timing / 旧连接与 HTTP 字段不生效 | runtime schema/生产 wiring 未恢复旧字段；active-scope contract passed | covered |
+| e2e / 只管理 IM + Gateway 且干净停止 | 正常 identity 完整路径与 mismatch/survivor tests 通过；W8-W9 是异常证据与默认别名入口缺口 | covered with warnings |
+
+### Test Evidence
+
+- affected suites: `103 passed, 2 warnings in 9.31s`。
+- full non-e2e: `3533 passed, 1 skipped, 23 deselected, 16 warnings in 183.04s`，exit 0；运行前共享 runner 无其他 pytest。
+- `ruff check .`: passed。
+- `ruff format --check .`: 783 files already formatted。
+- `bash -n scripts/e2e-up.sh scripts/e2e-down.sh`: passed。
+- `git diff --check 049867bd..HEAD`: passed。
+- verifier diagnostics（临时目录、未改仓库）：CAS 后注入 external writer 会被 replace 静默覆盖；replace 后 parent-dir fsync 失败会抛错但 config 已 canonicalized；缺 `.gateway.pid` 时 down rc=0 并删除 IM/config/env；默认 symlink cwd 复现 identity mismatch。
+
+## Coherence
+
+| design / M3 决策 | 遵守? | 证据 |
+|---|---|---|
+| D1 删除 dead manager，不建替代 seam | 是 | zero-residue contract 与 production symbols 未回流 |
+| D2 timing 归 Gateway、legacy 只在 parser edge | 是 | `local_store.py:272-318,1193-1234` |
+| D3 PID/start confirmation 与 PID-only stop | 是 | `main.py:2333-2499,4121-4158` |
+| D4 保持真实 runtime shutdown 顺序 | 是 | runtime shutdown wiring未被 M3 diff 修改 |
+| D5 只清 active scope | 是 | M3 diff 仅 source/scripts/tests/unit docs，无 archive 改动 |
+| M3 config 连续事务 | 部分 | snapshot/backup/stage/CAS/replace 顺序存在，但 W6 的 CAS→replace TOCTOU 与 W7 的 post-replace failure 语义偏离“外部 drift 不覆盖 / 失败保留原 config” |
+| M3 e2e ownership + fail-atomic teardown | 部分 | 完整 identity 时遵守；缺 external claim 与默认 logical cwd 时分别触发 W8/W9 |
+
+### Architecture Coherence
+
+- 依赖方向保持：产品包仍只经 `agent.sdk`，没有新增 `agent.core` / `agent.platform` import。
+- M3 没有引入 Kernel subprocess/readiness seam；Gateway launcher、PID lock、process-group 与 `_KernelClientShim` 均保留。
+- config lock 目前仅为进程内协调；它不能关闭跨进程/不协作 writer 在 CAS 与 replace 之间的窗口，这是 W6 的机制边界。
+- e2e identity 将 signal ownership 绑定到 PID + internal PID + argv + start time；但 teardown 必须在任何 lifecycle 证据不完整时 fail closed，W8 表明入口条件尚未统一。
+
+### Prototype / Reference Contract
+
+N/A。
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+无。
+
+### WARNING（应该修）
+
+#### W6 — source CAS 与 `os.replace` 之间仍可静默覆盖外部 revision
+
+`_atomic_commit_config()` 在 `src/personal_assistant/config/local_store.py:757-758` 先独立执行 `_assert_snapshot_current()`，随后才 `os.replace()`；二者不是 atomic compare-and-swap。外部 writer 若恰在这两步之间更新 `dest`，replace 会静默覆盖它。当前 drift regression（`tests/unit/personal_assistant/test_config_migration_transaction.py:123-162`）只在 backup directory fsync 后、CAS 前注入 writer，因此没有覆盖这个窗口。verifier 在 public `save_local_config()` 路径让 `os.replace` wrapper 先写 external revision 再调用真实 replace，save 成功且 external revision 被覆盖，migration backup 仍只含旧 snapshot。
+
+修复：先明确跨进程 writer 协议。若只保证本产品 writer，使用同目录 sidecar lock + OS advisory lock，让所有 `save_local_config` 进程共享锁，并保留 CAS；若契约要覆盖任意不协作 writer，则需要平台支持的 conditional/exchange commit 或修订 design，不能把普通 check-then-rename 描述成 CAS。增加一个把 writer 精确放在 compare/replace 边界的跨进程 regression。
+
+#### W7 — replace 后目录 fsync 失败会“抛异常但配置已改变”
+
+`_atomic_commit_config()` 在 `local_store.py:758-760` 先 replace，再 fsync parent directory。若第二步失败，函数抛出 `OSError`，但 `dest` 已是 canonical 新内容；这与 M3 tasks 的“所有失败路径保留原配置”及 transaction failure-atomic 叙事不一致。verifier 让 legacy backup 的 directory fsync 成功、commit 后 directory fsync 失败，观察到 exception 上抛、backup 正确，但 source 已移除 `kernel:`。现有 replace-failure regression（`test_config_migration_transaction.py:165-183`）只覆盖 replace 自身失败。
+
+修复：定义并实现清晰 commit point。可在 design/tasks 中明确 replace 成功后属于“已提交但 durability 未确认”的专用结果，不再承诺 exception 即原文件不变；若仍要求失败回滚，则保留旧 inode/temp 并以带 revision check 的 rollback 恢复。无论选哪种，都补 post-replace directory-fsync failure 的 public regression，断言调用者可判定最终文件状态。
+
+#### W8 — 缺 external `.gateway.pid` 时 e2e-down 绕过 Gateway exit gate并拆除整栈
+
+`scripts/e2e-down.sh:113-176` 仅在 `.gateway.pid` 存在时验证 identity/确认退出；文件缺失时直接落到 `:178-205` 停 IM、删除 config/env 并打印成功。若 `gateway.pid` / `.gateway-identity.json` 仍表明本轮 Gateway 可能存在，这是“unconfirmed exit”而不是“已退出”。verifier 构造 internal PID + identity + IM/config/env、删除 external PID claim 后执行真实 down：rc=0、打印 `e2e stack stopped`，IM/config/env 被删，只留下内部 PID/identity 残片。
+
+修复：在任何 teardown 前对 `.gateway.pid`、`gateway.pid`、`.gateway-identity.json`、state 做一致性 preflight。只要存在 Gateway lifecycle residue 却无法建立 confirmed-exit，就非零退出并保留整栈；补“external PID file missing but internal/identity remain”的 integration regression。
+
+#### W9 — `/tmp`/symlink canonicalization 只覆盖 `--wt`，默认 `$PWD` 入口仍 mismatch
+
+`scripts/e2e-up.sh:30-35` 与 `scripts/e2e-down.sh:19-23` 都仅在显式 `--wt` 分支使用 `pwd -P`；默认入口仍保留 logical `$PWD`。up 写 identity 时又对 config 做 `Path.resolve()`（`e2e-up.sh:247-254`），down 随后在 Python argv 校验前先做 textual equality（`e2e-down.sh:67-72`）。因此从 `/tmp` 或目录 symlink 中直接运行无参数 up/down 时，identity 记录 `/private/tmp/...`，`WT_ROOT` 仍是 `/tmp/...`，正常 down 被误判 identity mismatch。现有 symlink regression（`tests/integration/test_e2e_down_script.py:218-240`）总是传 `--wt`，未覆盖默认入口。
+
+修复：参数解析后无条件将 `WT_ROOT` canonicalize（例如 `WT_ROOT="$(cd "$WT_ROOT" && pwd -P)"`），up/down 共用同一规则；新增从 symlink cwd、不传 `--wt` 的回归，覆盖 macOS `/tmp → /private/tmp` 形态。
+
+### SUGGESTION（可以修）
+
+无。
+
+No critical issues. 4 warning(s) to consider. Ready for PR (with noted improvements).
