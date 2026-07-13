@@ -342,3 +342,115 @@ N/A。
 无。
 
 No critical issues. 4 warning(s) to consider. Ready for PR (with noted improvements).
+
+# Round 4
+
+## Verification Report: refactor-461
+
+### Summary
+
+Mode: full
+Delta range: N/A
+Focus issues: M4 cross-process transaction；public process-instance identity；legacy state upgrade；bounded stop；e2e fail-closed/cold-start rollback
+requires_full_verification: false
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | Tasks 25/25 marked complete；Requirements 4/4 implemented；M4 两条 e2e 退出标准有 3 个 warning 级边缘缺口 |
+| Correctness | Scenarios 10/10 covered；Round 3 config/public lifecycle findings closed；e2e evidence/rollback 仍部分偏离 |
+| Coherence | D1-D5、M4 R1/R2 followed；M4 R3 fail-closed cleanup only partially holds |
+
+本轮基于 integration head `34a9de384`，完整读取 M4 tasks/progress、历轮 verification、motivation 的 4 条 Requirement / 10 个 Scenario、design D1-D5 与 `4f36f071..34a9de384` 实现。M4 已关闭 Round 3 的 sidecar/backup/mode/rollback、public identity、legacy `health_url` forward-read、bounded stop、missing evidence、default symlink 与 reviewer 冷启动 blocker；affected、lint、format、shell syntax 和完整 non-e2e 均通过。新增 3 个可复现 WARNING，均位于 e2e fail-closed 状态机的异常收尾分支。
+
+## Prior Issue Closure
+
+| Round 4 focus | 结论 | 证据 |
+|---|---|---|
+| Stable sidecar `flock` boundary | closed within documented cooperative-writer boundary | `save_local_config()` 在 resolved `<config>.lock` 的进程内 mutex + stable single-link inode `flock` 内完成 snapshot→backup→commit→durability：`src/personal_assistant/config/local_store.py:493-536,1089-1102`；跨解释器 public save 回归 `tests/unit/personal_assistant/test_config_migration_transaction.py:188-244` |
+| Backup held identity | closed | existing/new backup 都返回持有 fd，commit gate 重核 held/path inode、regular 与 `st_nlink==1`：`local_store.py:651-718,735-821,824-846,903-905`；existing/new path-swap 回归 `test_config_migration_transaction.py:247-291` |
+| Source mode CAS | closed | transaction snapshot 包含 mode，commit gate 比较 identity/content/mode：`local_store.py:451-457,539-581`；chmod drift 回归 `test_config_migration_transaction.py:294-321` |
+| Post-replace fsync rollback / typed outcome | closed | commit durability error 时只对本次 committed revision 回滚并再次 fsync；rollback 失败抛 `ConfigCommitRollbackError` 且保留两层错误：`local_store.py:469-490,866-934`；回归 `test_config_migration_transaction.py:324-380` |
+| Public Gateway process identity | closed | foreground 先 durable publish `schema_version/pid/process_start/config/entry/argv` 再写 PID；state/PID-only stop 在 signal 前核对静态字段、OS birth 与 exact argv：`src/personal_assistant/main.py:2347-2365,2437-2547,4085-4333`；`test_gateway_process_identity.py:82-201` |
+| Legacy state with extra `health_url` | closed | `_read_gateway_state()` 只 forward-read `pid/config_path/log_path`，缺 identity 的 matching live legacy Gateway 经无信号 observation durable upgrade 后再走公共 stop：`main.py:2485-2495,4253-4305,4336-4364`；真实子进程回归 `tests/integration/test_gateway_legacy_state_upgrade.py:25-124` |
+| TERM/KILL bounded stop | closed | `_wait_for_pid_exit()` 每轮 sleep `min(poll_interval, remaining)`，两个阶段各自受 grace deadline 限制：`main.py:2510-2562`；fake-clock `grace=1,poll=10` 回归 `test_gateway_process_identity.py:203-255` |
+| e2e missing/nonregular evidence | mostly closed | regular missing + 任一 internal evidence、directory external evidence均在 signal 前 fail closed：`scripts/e2e-down.sh:173-203`；回归 `test_e2e_down_script.py:250-292`。dangling external symlink仍被当作 evidence 全无，见 W11 |
+| e2e stale preflight | closed for specified stale-internal case | 无 live external owner 时只删除 internal residue，不 signal 其中 PID：`scripts/e2e-up.sh:54-80`；sentinel 回归 `test_e2e_up_script.py:295-314` |
+| Default symlink cwd | closed | up/down 参数解析后无条件 `pwd -P`：`scripts/e2e-up.sh:30-44`、`scripts/e2e-down.sh:18-29`；默认无 `--wt` 回归 `test_e2e_up_script.py:317-336` |
+| Startup budget / reviewer cold-start blocker | closed | identity wait ticks 来自 `gateway.startup_timeout_seconds`（legacy/default fallback），延迟 70 ticks 仍成功；identity/readiness failure 的正常可终止进程会自动回滚并保留日志：`scripts/e2e-up.sh:332-403`；`test_e2e_up_script.py:232-292`；M4 progress 记录真实 cold/timeout rollback |
+| Owned rollback | partially closed | exact spawned PID 正常响应 TERM/KILL 时 Gateway/IM 均退出并条件清理；Gateway 在 KILL 后仍存活时却继续停 IM，见 W10 |
+| Conditional evidence cleanup | partially closed | PID 不同会阻止 teardown，但同 PID 的 process-start/argv/state 漂移仍被删除，见 W12 |
+| Canonical spec 归并 | deferred as designed | 仍由 orchestrator 按 §7.0 在最终验收后校正 delta 并归并；不是本轮 blocker |
+
+## Completeness
+
+- Tasks: 25/25 marked complete（M1 5/5，M2 6/6，M3 6/6，M4 8/8）。M4 line 20 的“只有 Gateway evidence 全无才停 IM”和 line 21 的“回滚确认退出”在 W10-W12 的异常分支只部分成立。
+- Requirement 覆盖: 4/4；M4 未恢复 dead Kernel subprocess/HTTP seam，也未改变消息、heartbeat/cron、IM 离线自治或 Gateway timing ownership。
+- Scenario 覆盖: 10/10；原产品旅程的实现/回归仍在，M4 增量主要强化配置事务与运维生命周期异常路径。
+- Prototype / Reference: N/A；本 unit 无前端或 reference contract。
+
+## Correctness
+
+| Requirement / Scenario group | M4 实现与回归证据 | 状态 |
+|---|---|---|
+| 消息、Heartbeat/Cron、IM 离线自治 | M4 delta 未改 runtime message/channel/kernel wiring；原 critical-path/live evidence保留，完整 non-e2e 通过 | covered |
+| 默认 start / stop / restart | public identity durable publish、PID/identity waiter、legacy state upgrade、两阶段 bounded stop均有 public/真实子进程回归 | covered |
+| timing 迁移 / canonical save | cooperative writers sidecar 串行；backup held identity；mode CAS；post-replace fsync rollback与 typed failure均有 public regression | covered |
+| 旧连接/HTTP 字段不形成输入 | M4 仅 forward-read legacy state extra field，不恢复 runtime `kernel:` dead fields或 health probe | covered |
+| e2e 只管理 IM + Gateway且失败收口 | cold/default path、missing evidence、正常 rollback与 confirmed down均覆盖；W10-W12 表明 survivor、dangling evidence和同-PID cleanup drift尚未完全 fail closed | covered with warnings |
+
+### Test Evidence
+
+- affected suites: `134 passed, 2 warnings in 15.85s`。
+- full non-e2e（共享 runner 空闲后唯一单实例）: `3558 passed, 1 skipped, 23 deselected, 16 warnings in 139.13s`，exit 0。
+- `ruff check .`: passed。
+- `ruff format --check .`: `786 files already formatted`。
+- `bash -n scripts/e2e-up.sh scripts/e2e-down.sh`: passed。
+- `git diff --check 4f36f071..HEAD`: passed。
+- verifier diagnostics（隔离临时目录、未改仓库）：(1) identity timeout + Gateway TERM/KILL no-op 后 rc=1，但 Gateway 仍 live、IM 已退出；(2) 只有 dangling external `.gateway.pid` 时 down rc=0，删除 IM/config 并打印 stopped；(3) TERM 后把 identity 的 `process_start` 改为不同值但保留同 PID，down rc=0 并删除新 identity/全部栈证据。
+
+## Coherence
+
+| design / M4 决策 | 遵守? | 证据 |
+|---|---|---|
+| D1-D5 原始 seam/timing/lifecycle/active-scope 决策 | 是 | M4 只改 config save、public Gateway lifecycle、e2e scripts与对应测试；无 Kernel subprocess/HTTP接口回流 |
+| M4 R1 cooperative config transaction | 是 | stable sidecar lock + snapshot/mode CAS + held backup identity + best-effort durable rollback；诚实声明不协作 writer 的 POSIX CAS→replace窗口 |
+| M4 R2 public process-instance identity | 是 | 单一 public identity file/schema；state/PID-only/legacy路径在 signal 前验证；stop deadline bounded |
+| M4 R3 e2e fail-closed state machine | 部分 | 正常、missing internal、directory nonregular、stale、symlink cwd与cold timeout路径符合；W10-W12 的 survivor/dangling/same-PID drift分支仍会拆半栈或删新证据 |
+
+### Architecture Coherence
+
+- 依赖方向保持；M4 production delta 只在 `personal_assistant` 与 shell scripts 内，没有产品包新增 `agent.core` / `agent.platform` import。
+- config 协作边界在 tasks/progress 中已诚实写明；不再把普通 check-then-replace描述为可防任意外部 writer 的原子 CAS。
+- public runtime 与 e2e 使用同一 `gateway.identity.json` schema，但 cleanup 实现仍各自维护；W12 是这处 primitive 未真正共享带来的可观察 drift。
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+无。
+
+### WARNING（应该修）
+
+#### W10 — e2e-up 无法确认 Gateway 退出时仍继续停止 IM
+
+`stop_spawned_pid()` 在 TERM/KILL 后仍观测到 live 会返回 1（`scripts/e2e-up.sh:116-133`），但 EXIT trap 的 Gateway 分支只是跳过 lifecycle 清理，随后无条件进入 IM stop（`:161-175`）。verifier 在现有 fake runtime 上让 identity timeout，并让本轮 Gateway 对 TERM/KILL 保持存活：脚本 rc=1，但结果是 `gateway_alive=True`、`im_alive=False`、external Gateway PID仍在、IM PID已删除。这违反 M4 “确认退出”的 rollback 约束，也把失败现场从完整栈变成半栈；现有 timeout/readiness tests（`tests/integration/test_e2e_up_script.py:248-292`）只覆盖两个进程都会响应 signal 的路径。
+
+修复：rollback 必须先确认 Gateway exit；若 `stop_spawned_pid "$GW_PID"` 失败，明确报告 rollback failure，保留 Gateway/IM PID与其余栈证据，并禁止继续 stop IM。补一个 Gateway survivor regression，断言 IM 未收到 signal、所有 evidence保留且无 success/complete rollback叙事。
+
+#### W11 — dangling external PID symlink 被误判为“Gateway evidence 全无”
+
+e2e-down 的 evidence preflight 用 `[[ -e ... ]]` 判断 external/internal residue（`scripts/e2e-down.sh:173-190`）；Bash 对 dangling symlink 的 `-e` 为 false，因此只存在 dangling `.gateway.pid` 时，nonregular guard与“有 evidence 无 owner”guard都被绕过。verifier 构造 dangling external PID + IM/config：down rc=0、打印 `e2e stack stopped`，删除 IM PID/config，却保留 dangling PID symlink。现有 nonregular regression只用 directory（`tests/integration/test_e2e_down_script.py:276-292`），没有覆盖 symlink。
+
+修复：所有 lifecycle residue 检测使用“entry存在或为 symlink”（例如 `[[ -e "$path" || -L "$path" ]]`），external symlink无论 target 是否存在都按 nonregular evidence fail closed；up 的同类 preflight也使用一致判据。新增 dangling external symlink、dangling internal evidence 两个 shell integration 分支。
+
+#### W12 — e2e-down cleanup 只按 PID 条件删除，无法识别同 PID identity drift
+
+signal 前 `validate_gateway_identity()` 会核对 process start + exact argv，但 confirmed exit 后 `clear_matching_gateway_lifecycle()` 对两个 JSON 只比较 `payload.pid`（`scripts/e2e-down.sh:130-167`），随后调用点宣称“every file still names the externally validated process instance”（`:254-260`）。verifier 在 TERM 后、cleanup 前把 `gateway.identity.json.process_start` 改成不同 birth、PID保持不变：down rc=0，并删除了改变后的 identity、PID/state、IM/config。这样 PID reuse或并发新 lifecycle写入会被旧 teardown误删；现有 mismatch tests只覆盖 signal 前 PID/argv变化（`tests/integration/test_e2e_down_script.py:126-150`）。
+
+修复：在第一次验证时保存完整 expected identity/state snapshot，cleanup先只读核对所有文件仍与该 snapshot一致，再统一删除；任一字段或 inode漂移都零删除、停止 IM teardown并保留证据。优先让 shell入口复用 public runtime 的 conditional-clear primitive，至少不能只比较整数 PID；补 same-PID/different-start 与 cleanup中途漂移回归。
+
+### SUGGESTION（可以修）
+
+无。
+
+No critical issues. 3 warning(s) to consider. Ready for PR (with noted improvements).
