@@ -21,33 +21,33 @@
 
 ## R2 — IM replay/live 无缝交接与唯一发布
 
-- Status: TODO
-- Context: R1 已关闭；进入 replay/live server owner。
-- Decision: pending.
-- Rationale: pending.
-- Evidence: pending.
-- Rollback: pending.
-- Commits: pending.
-- Next: C1 锁定注册竞态、500 截断、cursor-ahead epoch 与 repository/bridge 双 notify。
+- Status: DONE
+- Context: 确定性 blocked replay 证明旧实现先注册 live 再 replay 会让新事件超车；单页 `LIMIT 500` 会静默截断 650 条 owner backlog。
+- Decision: registry 以 per-user handoff lock 原子衔接全量分页 replay 与 live 注册；broadcast 按 user id 排序加锁。Repository 只以用户可见 max 判定 epoch，返回 `cursor_ahead_of_event_store`。EventBridge 不再接受 notify，repository post-commit 是唯一发布 owner。
+- Rationale: 把顺序边界放在 server registry，不依赖客户端去重补救；不扩展 wire payload。
+- Evidence: 100 个 focused IM user-stream/repository/EventBridge tests passed；覆盖 overtaking、650 drain、cursor-ahead 与 constructor reject notify。
+- Rollback: 回退 C2 `648b8b3e`；C1 `a11cd56f` 保留缺口回归。
+- Commits: C1=`a11cd56f`, C2=`648b8b3e`, C3=最终文档提交。
+- Next: R3 关闭浏览器 cursor/storage/domain recovery。
 
 ## R3 — 浏览器 cursor 与 domain recovery 连续性
 
-- Status: TODO
-- Context: pending R2.
-- Decision: pending.
-- Rationale: pending.
-- Evidence: pending.
-- Rollback: pending.
-- Commits: pending.
-- Next: pending.
+- Status: DONE
+- Context: runtime 旧路径每帧读写 sessionStorage、`event_id <= cursor` 仍 dispatch，cursor 高于新 DB max 不允许回落；Chat mapper 对已知 canonical type 直接 cast。
+- Decision: cursor 每 user 仅 hydrate 一次，memory 热路径单调；storage read/write 失败分别熔断。冷 cursor=0 先 `/sync` 建 baseline 再开 socket；epoch reason 允许 replace。已知 Chat payload 窄验证，domain error 合并触发权威 recovery。
+- Rationale: cursor 在 dispatch 前接管 exactly-once 语义；异常 canonical frame 必须恢复权威数据，不得让 reducer 以错误 shape 继续。
+- Evidence: runtime/reducer/workspace 76 tests passed；production build passed。Full frontend 门禁 64 files / 584 tests passed。
+- Rollback: 回退 C2 `39290a5c`；C1 `570fe592` 保留缺口回归。
+- Commits: C1=`570fe592`, C2=`39290a5c`, C3=最终文档提交。
+- Next: R4 统一 app/desktop 提醒与真双浏览器收口。
 
 ## R4 — 共享通知生命周期与全量真栈收口
 
-- Status: TODO
-- Context: pending R3.
-- Decision: pending.
-- Rationale: pending.
-- Evidence: pending.
-- Rollback: pending.
-- Commits: pending.
-- Next: pending.
+- Status: DONE
+- Context: 真同账号 A/B 基线稳定复现 preview/order 更新但 A 未读消失；app toast 不是每次缺失，证明根因是 lifecycle/cache race 而非单一渲染分支。
+- Decision: 抽取共享 canonical completion accumulator；`message.completed` 以 message identity 唯一产生 Agent candidate，`relay.completed` 仅 receipt，`message_created` alias 退役。Pending sender 最小元数据按 user 存 sessionStorage 跨 reload。同账号 server unread 仍权威，本 tab 亲眼看到的未打开 completion 在视图层 overlay 最小未读 1，进入会话即清除。
+- Rationale: app/desktop 不再拥有两套分叉 accumulator；不给 wire 添 run_id，不把 direct-Web relay receipt 当第二个回复 owner。未读 overlay 不写回权威 query cache，避免 sibling refetch 竞态和订阅回路。
+- Evidence: focused 通知/workspace 60 tests + build passed。真 B completion `M4_FINAL_NOTIFY_0713` 后，A 同时有且仅有一个 toast、preview/time 置顶、unread=1；clean cursor=0 浏览器 toast=0/unread overlay=0。完整证据见 `evidence/README.md`。
+- Rollback: 回退 C2 `c8db7c1c`；C1 `63bfae21` 保留缺口回归。
+- Commits: C1=`63bfae21`, C2=`c8db7c1c`, C3=最终文档提交。
+- Next: milestone 经 rebase 后复验，并入 `unit/refactor-460`。

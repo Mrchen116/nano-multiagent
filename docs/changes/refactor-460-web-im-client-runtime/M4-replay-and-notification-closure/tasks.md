@@ -8,18 +8,18 @@
 
 ## 退出标准
 
-- [ ] direct Web 成功 run 没有任何可见正文时，不论此前是否产生 tool/thinking，都发 tombstone 并在线/刷新后删除整条 Agent row/parts；bare `NO_REPLY`、普通 tool+可见正文、非 Web delivery 不回退。
-- [ ] WebSocket replay 与 live 注册无缝交接，同一持久事件不双投、不乱序；客户端不再 dispatch `event_id <= cursor` 的重复帧。
-- [ ] 501–2000 条可恢复 backlog 完整 drain 或明确 resync，不被 500 batch 静默截断。
-- [ ] cursor 高于当前 event store max 时服务端明确 epoch resync，客户端允许该原因下的 cursor 回落并触发权威 recovery。
-- [ ] 新标签页 cursor=0 的历史 replay 更新 timeline/cache 但不产生新 app/desktop 提醒；reload 跨越 created/completed 后，后续 live completion 仍有完整通知身份。
-- [ ] canonical completion 与 relay receipt 共享稳定 run identity，同一回复一次提醒；非 canonical `message_created` 通知 alias 退役。
-- [ ] app toast 与 desktop notifier 复用一个纯消息生命周期 accumulator，但各自保留 current/self、visibility/preference/permission 展示策略。
-- [ ] repository/bridge 只有一个 post-commit notify owner；合法普通/tombstone event exactly-once，构造 API 不允许同一事件双发布。
-- [ ] Chat wire→domain mapper 窄验证 canonical payload；异常/旧 payload 不击穿 reducer，且触发权威 recovery。
-- [ ] cursor 首次/user 切换 hydrate 后热路径只读 memory；storage 失败熔断，后续事件不重复抛异常/洪泛日志。
-- [ ] Chat recovery 去除不可达 rejection 扫描或显式传播失败，不掩盖四类权威 refetch。
-- [ ] 定向并发/分页/epoch/通知/lifecycle 回归、全量 Vitest/build、ruff、`pytest -m "not e2e"`、e2e-critical 与真实 Gateway/IM/LLM 双浏览器旅程通过，证据落在 `evidence/`。
+- [x] direct Web 成功 run 没有任何可见正文时，不论此前是否产生 tool/thinking，都发 tombstone 并在线/刷新后删除整条 Agent row/parts；bare `NO_REPLY`、普通 tool+可见正文、非 Web delivery 不回退。
+- [x] WebSocket replay 与 live 注册无缝交接，同一持久事件不双投、不乱序；客户端不再 dispatch `event_id <= cursor` 的重复帧。
+- [x] 501–2000 条可恢复 backlog 完整 drain 或明确 resync，不被 500 batch 静默截断。
+- [x] cursor 高于当前 event store max 时服务端明确 epoch resync，客户端允许该原因下的 cursor 回落并触发权威 recovery。
+- [x] 新标签页 cursor=0 的历史 replay 更新 timeline/cache 但不产生新 app/desktop 提醒；reload 跨越 created/completed 后，后续 live completion 仍有完整通知身份。
+- [x] canonical completion 与 relay receipt 使用稳定 canonical message identity，同一回复一次提醒；非 canonical `message_created` 通知 alias 退役。
+- [x] app toast 与 desktop notifier 复用一个纯消息生命周期 accumulator，但各自保留 current/self、visibility/preference/permission 展示策略。
+- [x] repository/bridge 只有一个 post-commit notify owner；合法普通/tombstone event exactly-once，构造 API 不允许同一事件双发布。
+- [x] Chat wire→domain mapper 窄验证 canonical payload；异常/旧 payload 不击穿 reducer，且触发权威 recovery。
+- [x] cursor 首次/user 切换 hydrate 后热路径只读 memory；storage 失败熔断，后续事件不重复抛异常/洪泛日志。
+- [x] Chat recovery 去除不可达 rejection 扫描或显式传播失败，不掩盖四类权威 refetch。
+- [x] 定向并发/分页/epoch/通知/lifecycle 回归、全量 Vitest/build、ruff、`pytest -m "not e2e"`、e2e-critical 与真实 Gateway/IM/LLM 双浏览器旅程通过，证据落在 `evidence/`。
 
 ## 范围扩展记录
 
@@ -78,17 +78,17 @@ N/A：design 明确不改变 UI/交互/视觉，未提供 prototype/reference；
 - 验证：Gateway observer/context + real IM handler/repository focused tests；真 Gateway/LLM/UI/reload 静默旅程并入 R4。
 - 结果：direct Web context 独立声明 `discard_empty_completion`；只有完整可见 assistant text 才提交 provisional bubble，tool/thinking 不提交；成功空终态在 terminal chokepoint 发 `message_discarded(reason=empty_visible_reply)`。真栈受控 prompt 的 `1 tool + 1 thinking + empty final` 在线撤泡，reload/REST 均仅保留用户行。
 
-### R2 — IM replay/live 无缝交接与唯一发布（TODO）
+### R2 — IM replay/live 无缝交接与唯一发布（DONE）
 
 - 步骤：确定性复现 live 进入 registry 与 replay 的竞态、500 截断、cursor-ahead epoch、bridge/repository 双 notify；实现 per-user handoff、完整 drain/明确 resync、replay provenance、self-contained completion/run identity 与 repository-owned post-commit publish。
 - 验证：IM user stream/repository/event bridge/gateway handler focused tests，普通/tombstone/relay/external exactly-once 回归。
 
-### R3 — 浏览器 cursor 与 domain recovery 连续性（TODO）
+### R3 — 浏览器 cursor 与 domain recovery 连续性（DONE）
 
 - 步骤：红测重复 event id、epoch reset、storage 热路径洪泛、malformed canonical payload；实现一次 hydrate + memory hot path + storage failure fuse、重复帧丢弃、epoch cursor replace、domain recovery signal，并清理 Chat recovery 不可达 rejection 扫描。
 - 验证：runtime/reducer/workspace 定向 Vitest 与 production build。
 
-### R4 — 共享通知生命周期与全量真栈收口（TODO）
+### R4 — 共享通知生命周期与全量真栈收口（DONE）
 
 - 步骤：用两个 clean browser 先确定性复现 Round 2 在线缺口；红测 cold replay、reload gap、canonical+relay、current/self/account switch；抽取共享纯 accumulator，toast/notifier 仅保留展示策略，删除 alias，并在非当前 tab 维护可见未读反馈。
 - 验证：accumulator/toast/notifier/App/Chat integration；全量 frontend/backend/contracts/e2e-critical；真 Gateway/IM/LLM + 双浏览器证明两项 Round 2 问题、历史不重放、reload/reconnect 与 ordinary/external/heartbeat 回归。
