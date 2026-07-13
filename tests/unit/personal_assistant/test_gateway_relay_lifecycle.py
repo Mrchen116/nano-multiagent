@@ -973,6 +973,112 @@ def test_group_relay_context_enables_protocol_token_suppression() -> None:
     assert context.visibility_policy is ReplyVisibilityPolicy.SUPPRESS_PROTOCOL_TOKENS
 
 
+def test_direct_web_relay_no_reply_discards_provisional_im_message() -> None:
+    """A direct Web IM silence token must roll back its eager IM placeholder."""
+
+    class _Manager:
+        connected = True
+
+        def __init__(self) -> None:
+            self.sent_frames: list[tuple[str, dict[str, object]]] = []
+
+        async def send_json_await_ack(
+            self, message_type: str, payload: dict[str, object]
+        ) -> dict[str, object]:
+            self.sent_frames.append((message_type, payload))
+            return {"payload": {"message_id": "im-msg-direct"}}
+
+        async def send_json(
+            self, message_type: str, payload: dict[str, object]
+        ) -> None:
+            self.sent_frames.append((message_type, payload))
+
+    store = RunDeliveryContextStore()
+    context = store.seed_from_lifecycle(
+        message=InboundMessage(
+            channel_name="web_relay",
+            text="stay quiet",
+            external_user_id="user-1",
+            external_chat_id="direct-conv",
+            is_group=False,
+            agent_id="agent-a",
+            metadata={"relay_task_id": "relay-1", "message_id": "user-msg-1"},
+        ),
+        update=RelayLifecycleUpdate(
+            phase="accepted",
+            agent_id="agent-a",
+            session_key="web:user-1:direct-conv:agent-a",
+            run_id="run-direct",
+            kernel_session_id="sess-1",
+        ),
+        owner_user_id="owner-1",
+    )
+    assert context is not None
+
+    manager = _Manager()
+    observer = _build_kernel_event_observer(
+        im_connection_manager_factory=lambda: manager,
+        run_context_store=store,
+    )
+
+    async def _exercise() -> None:
+        started = observer(
+            {"event": "run_status", "run_id": "run-direct", "status": "running"}
+        )
+        assert asyncio.iscoroutine(started)
+        await started
+        observer(
+            {
+                "event": "assistant_message",
+                "run_id": "run-direct",
+                "message_id": "kernel-msg-direct",
+                "content": "NO_REPLY",
+            }
+        )
+        ended = observer(
+            {"event": "turn_end", "run_id": "run-direct", "completed": True}
+        )
+        if asyncio.iscoroutine(ended):
+            await ended
+        await asyncio.sleep(0)
+
+    asyncio.run(_exercise())
+
+    assert context.visibility_policy is ReplyVisibilityPolicy.SUPPRESS_PROTOCOL_TOKENS
+    assert [payload["kind"] for _, payload in manager.sent_frames] == [
+        "turn_start",
+        "message_discarded",
+    ]
+    assert manager.sent_frames[-1][1]["reason"] == "no_reply_token"
+
+
+def test_non_web_shadow_context_keeps_literal_reply_visibility() -> None:
+    """The direct Web fix must not broaden to arbitrary shadow transports."""
+    store = RunDeliveryContextStore()
+    context = store.seed_from_lifecycle(
+        message=InboundMessage(
+            channel_name="custom_relay",
+            text="literal protocol text",
+            external_user_id="user-1",
+            external_chat_id="custom-conv",
+            is_group=False,
+            agent_id="agent-a",
+            metadata={"relay_task_id": "relay-1", "message_id": "msg-1"},
+        ),
+        update=RelayLifecycleUpdate(
+            phase="accepted",
+            agent_id="agent-a",
+            session_key="custom:user-1:agent-a",
+            run_id="run-custom",
+            kernel_session_id="sess-1",
+        ),
+        owner_user_id="owner-1",
+    )
+
+    assert context is not None
+    assert context.visibility_policy is ReplyVisibilityPolicy.LITERAL_TEXT
+
+
 def test_later_no_reply_preserves_preceding_real_bubble() -> None:
     """A final silence token must not discard an earlier visible assistant message."""
 

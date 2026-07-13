@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
@@ -52,6 +53,27 @@ function buildWrapper(queryClient: QueryClient, route = "/") {
     return (
       <QueryClientProvider client={queryClient}>
         <MemoryRouter initialEntries={[route]}>{props.children}</MemoryRouter>
+      </QueryClientProvider>
+    );
+  };
+}
+
+function buildRefetchingWrapper(
+  queryClient: QueryClient,
+  queryFn: () => Promise<Conversation[]>,
+  route = "/"
+) {
+  function ConversationObserver() {
+    useQuery({ queryKey: ["chat", "conversations"], queryFn });
+    return null;
+  }
+  return function Wrapper(props: { children: ReactNode }) {
+    return (
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={[route]}>
+          <ConversationObserver />
+          {props.children}
+        </MemoryRouter>
       </QueryClientProvider>
     );
   };
@@ -282,5 +304,85 @@ describe("useGlobalMessageToast", () => {
         last_message_at: "2026-03-26T00:02:00Z"
       })
     ]);
+  });
+
+  it("toasts a canonical agent completion and refetches authoritative unread, preview, and order", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const initial = [
+      conversation("conv-current", { title: "Current", last_message_at: "2026-03-26T00:02:00Z" }),
+      conversation("conv-agent", { title: "Agent", last_message_preview: "old", unread_count: 0 })
+    ];
+    const refreshed = [
+      conversation("conv-agent", {
+        title: "Agent",
+        last_message_preview: "Finished in the background",
+        last_message_at: "2026-03-26T00:03:00Z",
+        unread_count: 1
+      }),
+      initial[0]!
+    ];
+    const queryFn = vi.fn().mockResolvedValueOnce(initial).mockResolvedValueOnce(refreshed);
+    const { result } = renderHook(() => useGlobalMessageToast(), {
+      wrapper: buildRefetchingWrapper(queryClient, queryFn, "/chat/conv-current")
+    });
+    await waitFor(() => expect(queryClient.getQueryData(["chat", "conversations"])).toEqual(initial));
+
+    emit("conv-agent", {
+      eventType: "message.created",
+      eventId: 1,
+      payload: {
+        message_id: "agent-msg-1",
+        sender_type: "agent",
+        sender_user_id: "agent:planner",
+        sender_display_name: "Planner",
+        content: "",
+        created_at: "2026-03-26T00:03:00Z"
+      }
+    });
+    expect(result.current.toast).toBeNull();
+
+    emit("conv-agent", {
+      eventType: "message.completed",
+      eventId: 2,
+      payload: { message_id: "agent-msg-1", content: "Finished in the background" }
+    });
+
+    await waitFor(() => {
+      expect(result.current.toast).toMatchObject({
+        id: "message:agent-msg-1",
+        conversationId: "conv-agent",
+        senderName: "Planner",
+        preview: "Finished in the background"
+      });
+      expect(queryFn).toHaveBeenCalledTimes(2);
+      expect(queryClient.getQueryData(["chat", "conversations"])).toEqual(refreshed);
+    });
+  });
+
+  it("does not toast a canonical agent completion for the currently open conversation", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { result } = renderHook(() => useGlobalMessageToast(), {
+      wrapper: buildWrapper(queryClient, "/chat/conv-1")
+    });
+    await waitFor(() => expect(subscribeUserStreamMock).toHaveBeenCalled());
+
+    emit("conv-1", {
+      eventType: "message.created",
+      eventId: 1,
+      payload: {
+        message_id: "agent-msg-1",
+        sender_type: "agent",
+        sender_user_id: "agent:planner",
+        sender_display_name: "Planner",
+        content: ""
+      }
+    });
+    emit("conv-1", {
+      eventType: "message.completed",
+      eventId: 2,
+      payload: { message_id: "agent-msg-1", content: "Done" }
+    });
+
+    expect(result.current.toast).toBeNull();
   });
 });
