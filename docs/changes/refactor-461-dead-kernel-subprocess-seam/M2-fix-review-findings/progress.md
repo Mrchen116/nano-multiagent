@@ -23,7 +23,20 @@
 
 ## R2 — legacy migration backup 事务边界
 
-- Status: pending
+- Context: 原实现把 deterministic backup 当成普通文件写入；`O_EXCL` race loser 会无条件 unlink winner，已有 symlink/hardlink alias 可伪装成匹配备份，且缺少目录 fsync、权限收紧和 finite-number 校验。
+- Decision: 备份创建改为独占 fd + `os.write` 完整写入 + file fsync + parent-directory fsync；记录新 inode，只在失败路径仍指向该 inode时删除。已有备份经 no-follow open、regular-file/源 inode/content 校验，权限只收紧不放宽，并重新 fsync file + directory。数值解析增加 `math.isfinite`。
+- Rationale: config overwrite 只能发生在独立备份及其目录项均达到 durability gate 后；失败清理以 inode ownership 为界，不能误删并发 winner 或路径替换者。
+- Evidence:
+  - Tests: `pytest -q tests/unit/personal_assistant/test_local_store.py` → 58 passed；新增 open/write/file-fsync/directory-fsync、race、alias、mode、nan/inf 回归。
+  - Entry: `save_local_config` / `load_local_config` 公共入口驱动全部断言。
+  - Frontend State Matrix: N/A，非前端。
+  - Browser QA: N/A，非前端。
+  - E2E/Regression: `ruff check src/personal_assistant/config/local_store.py tests/unit/personal_assistant/test_local_store.py` → passed；完整套件在 milestone 收尾执行。
+  - Visual/Interaction: N/A，非前端。
+  - Prototype Comparison: N/A，design 无前端 prototype/reference。
+- Debug note: 初次 non-finite 夹具先被 `agents must contain at least one entry` 截断；按 systematic-debugging 从栈回溯数据流，改为合法单 agent 配置后稳定复现 `.nan` / `.inf` 被误接收，未把夹具错误计为产品红测。
+- Rollback: 回退 C2 恢复原 backup helper；回退 C1 删除对应行为门禁。
+- Commits: `a8ecd5fb` (C1), `7d830467` (C2)
 
 ## R3 — M170 authenticated auto-bind 真实入口
 
