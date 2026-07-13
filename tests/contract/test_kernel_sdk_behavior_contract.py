@@ -317,6 +317,69 @@ async def test_session_interrupt_wins_when_provider_finishes_during_grace(
         kernel.close()
 
 
+async def test_session_interrupt_suppresses_chunk_blocked_in_message_hook(
+    tmp_path: Path,
+) -> None:
+    """An accepted interrupt must prevent a hook-paused chunk from becoming history."""
+    hook_started = threading.Event()
+    release_hook = threading.Event()
+    captured_requests: list[Any] = []
+
+    class _HookRaceClient:
+        def generate(self, request: Any):  # noqa: ANN001, ANN201
+            captured_requests.append(request)
+            content = (
+                "racy-late-output"
+                if len(captured_requests) == 1
+                else "continued-after-hook-race"
+            )
+            return _async_stub_messages(content)
+
+    async def _block_message_start(event: Any, _ctx: Any) -> None:
+        if event.get("role") != "assistant" or hook_started.is_set():
+            return
+        hook_started.set()
+        await asyncio.to_thread(release_hook.wait)
+
+    def _setup_hooks(hooks: Any) -> None:
+        hooks.on("message_start", _block_message_start, timeout_ms=None)
+
+    kernel = _build_kernel(
+        tmp_path,
+        hooks=[_setup_hooks],
+        _llm_client_override=_HookRaceClient(),
+    )
+    try:
+        session = await kernel.create_session(workspace_root=tmp_path)
+        interrupted_run = kernel.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "pause in hook"}],
+            workspace_root=tmp_path,
+        )
+        assert await asyncio.to_thread(hook_started.wait, 1.0)
+
+        assert kernel.interrupt(session.session_id) == interrupted_run.run_id
+        release_hook.set()
+        terminal = await _wait_for_terminal_run(kernel, interrupted_run.run_id)
+        assert terminal.status == "cancelled"
+
+        continued_run = kernel.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "continue"}],
+            workspace_root=tmp_path,
+        )
+        assert (await _wait_for_terminal_run(kernel, continued_run.run_id)).status == (
+            "completed"
+        )
+        continued_context = " ".join(
+            _flatten_msg_text(message) for message in captured_requests[-1].messages
+        )
+        assert "racy-late-output" not in continued_context
+    finally:
+        release_hook.set()
+        kernel.close()
+
+
 # ---------------------------------------------------------------------------
 # LLM config
 # ---------------------------------------------------------------------------

@@ -428,9 +428,14 @@ class AgentLoop:
                         last_assistant_msg_id = assistant_msg.message_id
                         last_parent_id = assistant_msg.message_id
 
-                        await self._dispatch_message_hooks(
-                            assistant_msg, active_hook_ctx, run_id
+                        published = await self._dispatch_message_hooks(
+                            assistant_msg,
+                            active_hook_ctx,
+                            run_id,
+                            controller=controller,
                         )
+                        if not published:
+                            break
                         yield assistant_msg
 
                         _append_llm_message(
@@ -649,7 +654,11 @@ class AgentLoop:
         msg: Message,
         hook_ctx: HookContext,
         run_id: str | None,
-    ) -> None:
+        *,
+        controller: RunController | None = None,
+    ) -> bool:
+        if controller is not None and controller.is_aborted:
+            return False
         await self._dispatch_observe_async(
             "message_start",
             _with_optional_run_id(
@@ -663,6 +672,8 @@ class AgentLoop:
             ),
             hook_ctx,
         )
+        if controller is not None and controller.is_aborted:
+            return False
         await self._dispatch_observe_async(
             "message_update",
             _with_optional_run_id(
@@ -676,6 +687,8 @@ class AgentLoop:
             ),
             hook_ctx,
         )
+        if controller is not None and controller.is_aborted:
+            return False
         await self._dispatch_observe_async(
             "message_end",
             _with_optional_run_id(
@@ -694,6 +707,7 @@ class AgentLoop:
             ),
             hook_ctx,
         )
+        return controller is None or not controller.is_aborted
 
     async def _dispatch_pending_consumed(
         self,

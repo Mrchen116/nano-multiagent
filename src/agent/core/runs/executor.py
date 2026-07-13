@@ -274,16 +274,25 @@ class KernelExecutor:
         if remaining:
             with self._guard:
                 self._guard.wait_for(lambda: not self._targets, timeout=2)
+        finalize_error: BaseException | None = None
         if finalize is not None and self._loop.is_running():
-            future = asyncio.run_coroutine_threadsafe(finalize(), self._loop)
-            future.result(timeout=wait_timeout)
+            try:
+                future = asyncio.run_coroutine_threadsafe(finalize(), self._loop)
+                future.result(timeout=wait_timeout)
+            except BaseException as exc:
+                finalize_error = exc
         with self._guard:
             if self._state is _ExecutorState.CLOSED:
-                return
-            self._state = _ExecutorState.CLOSED
-        if self._loop.is_running():
-            self._loop.call_soon_threadsafe(self._loop.stop)
-        self._thread.join(timeout=2)
+                already_closed = True
+            else:
+                self._state = _ExecutorState.CLOSED
+                already_closed = False
+        if not already_closed:
+            if self._loop.is_running():
+                self._loop.call_soon_threadsafe(self._loop.stop)
+            self._thread.join(timeout=2)
+        if finalize_error is not None:
+            raise finalize_error
 
     @property
     def active_target_count(self) -> int:

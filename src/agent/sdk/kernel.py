@@ -587,8 +587,15 @@ def _build_kernel_base(
     )
 
     async def _finalize_resources() -> None:
-        await directory.close_all()
-        await asyncio.to_thread(writer.close)
+        errors: list[BaseException] = []
+        try:
+            await directory.close_all()
+        except BaseException as exc:  # cleanup must continue after flush failure
+            errors.append(exc)
+        try:
+            await asyncio.to_thread(writer.close)
+        except BaseException as exc:  # writer.close joins before surfacing I/O errors
+            errors.append(exc)
         seen: set[int] = set()
         for client in owned_llm_clients:
             identity = id(client)
@@ -598,9 +605,14 @@ def _build_kernel_base(
             close = getattr(client, "close", None)
             if not callable(close):
                 continue
-            result = close()
-            if inspect.isawaitable(result):
-                await result
+            try:
+                result = close()
+                if inspect.isawaitable(result):
+                    await result
+            except BaseException as exc:
+                errors.append(exc)
+        if errors:
+            raise errors[0]
 
     runs_registry = RunsRegistry(
         directory=directory,
