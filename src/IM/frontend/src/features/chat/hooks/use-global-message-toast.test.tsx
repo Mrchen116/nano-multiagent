@@ -308,6 +308,54 @@ describe("useGlobalMessageToast", () => {
     });
   });
 
+  it("does not cancel or overwrite a newer conversations refetch when authority returns later", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    let resolveAuthority!: (value: Conversation[]) => void;
+    listConversationsMock.mockReturnValue(
+      new Promise<Conversation[]>((resolve) => { resolveAuthority = resolve; })
+    );
+    const { result } = renderHook(() => useGlobalMessageToast(), { wrapper: buildWrapper(queryClient, "/") });
+    await waitFor(() => expect(subscribeUserStreamMock).toHaveBeenCalled());
+
+    emit("conv-new-external", {
+      eventType: "message.created",
+      eventId: 1,
+      payload: {
+        message_id: "external-newer-cache-1",
+        sender_type: "user",
+        sender_user_id: "self-user",
+        sender_display_name: "External Sender",
+        content: "new external content"
+      }
+    });
+    await waitFor(() => expect(listConversationsMock).toHaveBeenCalledTimes(1));
+
+    const newerConversation = conversation("conv-new-external", {
+      title: "Newer refetch title",
+      external_source: "feishu",
+      external_chat_id: "oc_new"
+    });
+    await queryClient.fetchQuery({
+      queryKey: ["chat", "conversations"],
+      queryFn: async () => [newerConversation]
+    });
+    resolveAuthority([
+      conversation("conv-new-external", {
+        title: "Older authority title",
+        external_source: "feishu",
+        external_chat_id: "oc_new"
+      })
+    ]);
+
+    await waitFor(() => {
+      expect(result.current.toast).toMatchObject({ id: "message:external-newer-cache-1" });
+      expect(queryClient.getQueryData<Conversation[]>(["chat", "conversations"]))
+        .toEqual(expect.arrayContaining([
+          expect.objectContaining({ id: "conv-new-external", title: "Newer refetch title" })
+        ]));
+    });
+  });
+
   it("retries an unresolved external classification during stream recovery", async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false, staleTime: 60_000 } }
