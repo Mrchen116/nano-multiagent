@@ -73,4 +73,19 @@
 
 ## R4 — SDK composition cutover、旧 seam 删除与真实入口签收
 
-- Status: TODO
+- Status: DONE
+- Context: SDK、Gateway、CLI、AgentTool 与后台任务仍经旧 manager/runtime seam 装配；最终切换还必须证明 interrupt recovery、字符串 workspace binding、重启与 fork 在真 Gateway 进程中保持兼容。
+- Decision: `build_kernel` 最终装配 `SessionDirectory + ConversationSession × N + AgentEngine + KernelExecutor + RunsRegistry`；删除 SessionManager/SessionService/高层 JsonlSessionStore 与 session file adapter，SDK 的 create/get/append/compact/fork/close 直接经最终 aggregate；foreground interrupt 对 carrier 使用强制取消，普通 cancel/auxiliary 保留 cooperative grace；所有 SDK 会话入口将 `str | Path` workspace binding 归一化成绝对 `Path`。
+- Rationale: 真栈第一次 interrupt 验收显示 100ms cooperative grace 会让已收到 SIGTERM 的 Bash 正常返回“interrupted”工具结果，因而不会写 orphan recovery；强制 interrupt 必须绕过 grace。第二次 Gateway 验收显示 inbound pipeline 传入字符串 workspace root，而新 SDK 直接调用 `.expanduser()`；统一在 SDK 边界归一化可保持既有消费者契约且覆盖全部同源入口。
+- Evidence:
+  - Tests: `pytest -q` 覆盖最终接口/SDK/Gateway/后台任务的窄测 → `62 passed`；`pytest -m 'not e2e'` → `3305 passed, 1 skipped, 20 deselected`（143.05s）。
+  - Entry: 真实 `build_kernel` 两轮、同步 append、compact/fork、interrupt recovery、string workspace binding；architecture contract 证明 production 无 `SessionManager` / `SessionService` / `JsonlSessionStore` / `AgentRuntime` 及旧 writer/store 穿透。
+  - Frontend State Matrix: N/A（无前端状态或 UI 改动）。
+  - Browser QA: N/A（产品验收走 IM HTTP/WebSocket + 真 Gateway 进程，不涉及视觉变更）。
+  - E2E/Regression: `PATH=/Users/czj/Repos/nano-multiagent/.venv/bin:$PATH ./scripts/e2e-critical.sh -q -m 'not slow' -k '<selected>'` 在隔离端口/config 的真 IM + Gateway + LLM 栈通过工具调用回复、foreground subagent、subagent failure isolation、`/stop`、Gateway restart continuity、message fork → `6 passed, 11 deselected`（104.69s）；`tests/integration/test_foreground_interrupt_reap.py` 单独证明 interrupt 后 recovery 闭合。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+  - Quality: `ruff check src tests` → all checks passed；`ruff format --check src tests` → `742 files already formatted`；`git diff --check` 通过。
+- Rollback: 回退 R4 的 composition/contract/normalization commits 可恢复旧装配，但不能只回退 manager 文件删除的一部分；R1-R3 与 R4 是一次性 cutover，需整体回退 milestone。
+- Commits: `1c9a32bf`（C1 contract），`c50f9293`（C2 cutover），`bf984c91`（format），`613467b7`（string binding 红测），`691c2294`（binding fix）；本节 C3 文档提交待生成。
+- Next: 合并 milestone 到 unit 集成分支，派发独立 verifier、产品 reviewer 与 code review 三道验收闸。

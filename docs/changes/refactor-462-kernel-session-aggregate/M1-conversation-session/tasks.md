@@ -65,7 +65,7 @@ N/A：本 milestone 不修改 UI、前端状态或视觉资源。
 
 ### R4 — SDK composition cutover、旧 seam 删除与真实入口签收
 
-- 状态: TODO
+- 状态: DONE
 - 步骤:
   - `build_kernel`/Kernel façade 全量切到 Engine + Directory + Executor + Registry；create/submit/append/compact/fork/get/close 公共形态不变。
   - 删除 SessionManager/SessionService/多 session AgentRuntime/高层 JsonlSessionStore 以及旧 private-map/manager tests；添加 contract 守卫防回流。
