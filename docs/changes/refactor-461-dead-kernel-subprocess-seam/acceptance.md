@@ -220,3 +220,95 @@ Round 1 的 README / operator runbook 启动输出漂移已修复，真实默认
 ## Recommended Next Step
 
 修复 `e2e-up.sh` 的 identity deadline 与 pre-identity 失败回滚：等待预算对齐 Gateway lifecycle startup timeout，且任何 up 失败都必须使用本轮刚 spawn 的 PID 停止并确认 Gateway/IM 退出。修复后做 targeted re-review：至少覆盖延迟超过 6 秒的 cold child、identity 建立前失败的自动回滚，以及随后真实 up/down 全清。
+
+---
+
+# Round 4 — 2026-07-13
+
+## Verdict
+
+- **Verdict:** pass
+- **Highest Required Action:** pass
+- **Needs Re-review:** false
+- **Review Mode:** full（M4 高风险修复后全量产品复验）
+- **Implementation Head:** `34a9de3840422ebbc34a5a0a22ab8e7e4b776b1e`
+- **Issue Count:** blocking 0 / major 0 / minor 0
+
+Round 3 的冷启动 identity timeout / 失败留活半栈已关闭。本轮从完全干净状态启动真实 e2e 栈成功，并在真实短 timeout 下观察到本轮 IM/Gateway 均自动退出。missing/mismatch evidence 均 fail closed，恢复证据后 normal down 完成全栈停止。默认 operator 生命周期、旧 `health_url` state 安全升级、配置 sidecar/backup/mode/failure rollback、Web IM 消息与 Cron、M170 均通过。
+
+## Round 3 Issue Closure
+
+### Issue #1 — closed
+
+- 完全干净冷启动：`e2e-up.sh` rc=0，总用时 6.131s；IM/Gateway 存活且节点 online，`gateway.identity.json` 含 PID/process-start/resolved-config/entry/argv，无 `.api.pid` / `personal_assistant.kernel_app`。
+- 真实短 timeout：将 `gateway.startup_timeout_seconds=0.1` 后 up rc=1，报 identity 尚未建立；本轮 Gateway PID 12916 与 IM PID 11912 均自动 TERM 并确认退出，分配端口 51543 无 listener。external/internal PID、identity、state、ports env 均不存在，日志保留用于排查。
+- 结论：等待预算已能承载真实 cold child，pre-identity 失败也不再留活半栈。
+
+## User Journeys Exercised
+
+### Journey 1 — 冷启动真栈、用户消息与 Cron
+
+- 按 reviewer Runbook 在持久 tmux 中从无 lifecycle 产物状态执行 `./scripts/e2e-up.sh`，冷启动 rc=0，IM/Gateway 健康检查通过。
+- 在该真 IM + Gateway + LLM proxy 上复跑 Web IM tool-call reply 与 cron auto-push：`2 passed in 62.24s`。回复仍由进程内 Kernel 完成，Cron 仍按原会话/投递语义产生用户可见推送。
+
+### Journey 2 — public operator 生命周期与旧 state 向前读
+
+- 隔离 config 默认 start 返回文档所述三行，PID 93057 存活，state 不含 health/readiness，process identity 完整持久化。
+- restart 从 PID 93057 切换到 94377：旧 PID 退出、新 PID 存活。
+- 为模拟真实旧实例，移除新 identity 并向 state 注入多余 `health_url`。public stop 通过 resolved config + exact argv 无信号安全升级 identity，返回 `STOPPED pid=94377`；PID/state/identity 全清，同一 IM 仍返回 HTTP 200，未把 IM health 当停止判据。
+
+### Journey 3 — config sidecar transaction、迁移与失败回滚
+
+- M4 高风险组合的 119 个 affected tests 全通过；另定向复跑 6 个 public transaction case，覆盖两个独立进程在稳定 sidecar lock 上串行、existing/new backup path swap、mode drift、post-replace directory fsync 回滚与 distinct rollback-failure outcome，全部通过。
+- 真实 legacy-only config 以 mode 0600 启动并触发 save；稳定 `config.yaml.lock` 存在，migration backup 与原文 byte-identical，config/backup 均保持 0600，canonical config 无 `kernel:` 且 timing 精确为 `9 / 4 / 0.4`。
+- mixed config 的 `12 / 4 / 0.3` 逐字段优先与 dead connection/command/HTTP 字段忽略已有 Round 2/3 真实证据；M4 改动只加固 save transaction，本轮的真实 legacy 与 affected regression 继续证明该映射未退化。
+
+### Journey 4 — e2e evidence fail-closed、恢复与 normal down
+
+- 篡改 internal PID 后 down rc=1，明确拒绝 signal/teardown；Gateway/IM 均存活，config/env/PID/identity 证据全保留。
+- 恢复 internal PID，再移走 external `.gateway.pid` 模拟 incomplete evidence；down rc=1，再次零 teardown，两个进程与全套证据仍保留。
+- 恢复 external owner 后 normal down rc=0，Gateway/IM 均退出，external/internal PID、identity、state、IM PID、config/ports env 全清，始终无 Kernel API 产物。
+
+### Journey 5 — M170 鲜活 runtime
+
+- 从空 runtime `rebuild → start`，真实注册/登录、Bearer 查询和 auto-bind 完成；Gateway PID 18587，`node_online=true` / `node_status=online`。
+- stop 后 `im_http_ok=false`、`gateway_pid=null`、`gateway_running=false`、`node_online=false`、`node_status=null`，无运行态残留。
+
+## Scenario Coverage Matrix
+
+| Scenario | Round 4 证据 | 本轮执行 | 累计结论 | 备注 |
+|---|---|---|---|---|
+| Web IM 或外部通道消息正常回复 | 真 Web IM tool-call reply | pass | pass | 按 Scenario 的“或”由 Web IM 覆盖。 |
+| Heartbeat 与 Cron 活路径不受影响 | 真 cron auto-push | pass | pass | 与消息同栈复跑。 |
+| 默认启动确认 | 真 public background start + identity | pass | pass | 只承诺 PID/liveness，无 health/readiness。 |
+| stop 与 restart 保持现有结果 | restart + legacy health_url state stop | pass | pass | 旧 state 无信号安全升级后停止。 |
+| IM 离线时 Gateway 本地自治不变 | 本轮未发送飞书 P2P | not-run (authorization) | pass | Round 1 真实 offline Feishu user/app P2P 已 pass；M2-M4 未改 channel/runtime 路径；本轮无单次授权，禁止发送。 |
+| 旧自定义 timing 继续生效 | 真 legacy migration `9 / 4 / 0.4` | pass | pass | timing 与 mode/backup 同时核验。 |
+| 新配置优先于旧值 | 前轮真 mixed + M4 affected regression | reused | pass | 逐字段 `12 / 4 / 0.3`。 |
+| 保存后只保留 Gateway 所有权 | 真 migration + sidecar/mode/rollback 定向验证 | pass | pass | backup 与 source 失败语义均完整。 |
+| 旧连接与 HTTP 字段不再形成运行时输入 | 前轮真 legacy dead-fields + 本轮 legacy 启动 | reused | pass | 仍只构建进程内 Kernel。 |
+| e2e 起停无 Kernel API 产物 | 真 cold up、timeout rollback、missing/mismatch、normal down | pass | pass | Round 3 blocker 已关闭。 |
+
+## Reference Artifacts Reviewed
+
+N/A — 本 unit 无原型、设计稿、reference screenshot 或视觉 must-match 契约。
+
+## Issues
+
+无 blocking / major / minor 产品可接受性 issue。
+
+## Side Findings
+
+- e2e 的 ephemeral `.gateway-config.yaml` 已被 down 删除后，M4 新增的零字节 `.gateway-config.yaml.lock` 仍留在 worktree，重复 down 也不删除。它不影响再次启动、进程安全或 Scenario 的服务停止语义，属于 non-blocking cleanup polish；本 reviewer 收尾时已清理自己产生的 lock。
+
+## Upper-level Documentation Sync
+
+- [x] `README.md` / `docs/operator-runbook.md`：与真实三行 start 及“非 readiness”语义一致。
+- [x] `SPEC.md`：无需更新，仍正确规定 Kernel 为 Gateway 进程内库。
+- [x] `AGENTS.md` / `CLAUDE.md`：无新增产品运维漂移。
+- [x] `docs/SPEC_GUIDE.md`：本 unit 未修改文档体系，无需更新。
+- [ ] `docs/specs/gateway/service-lifecycle.md`：由 orchestrator 按 §7.0 在验收通过后归并；当前未归并不是 blocker。
+
+## Recommended Next Step
+
+产品验收通过，可进入 orchestrator §7.0 长青契约归并和后续 PR/CI 门禁。`.gateway-config.yaml.lock` 的 ephemeral cleanup 可作为非阻断 polish 后续处理。
