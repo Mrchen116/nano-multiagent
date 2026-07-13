@@ -234,9 +234,9 @@ async def test_loop_compact_does_not_modify_session_history() -> None:
         ),
         compaction_planner=_FakeCompactionPlanner(),
         compaction_summarizer=_FakeCompactionSummarizer(),
-        compaction_entries=lambda: _FakeSessionManager(
-            original_history
-        ).list_entries("sess-compact"),
+        compaction_entries=lambda: _FakeSessionManager(original_history).list_entries(
+            "sess-compact"
+        ),
     )
     state = _make_state(history_messages=original_history, user_text="trigger")
 

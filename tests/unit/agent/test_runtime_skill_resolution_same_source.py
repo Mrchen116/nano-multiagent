@@ -162,9 +162,7 @@ def test_include_names_filter_consistent_across_paths(tmp_path: Path) -> None:
         # resolve_available_skills with include_names should be a subset of list_skills.
         all_names = {s.name for s in kernel.list_skills(workspace_root=workspace)}
         engine = kernel._c.engine_services  # type: ignore[attr-defined]
-        filtered = engine.resolve_available_skills(
-            workspace, include_names=["wanted"]
-        )
+        filtered = engine.resolve_available_skills(workspace, include_names=["wanted"])
         filtered_names = {s.name for s in filtered}
 
         assert "wanted" in all_names

@@ -60,12 +60,8 @@ def test_engine_has_no_session_id_keyed_live_state() -> None:
 def test_raw_jsonl_dependencies_do_not_expose_session_semantics() -> None:
     """Only JsonlTranscript may own materialize, recovery, and parent-chain logic."""
 
-    files = (SRC / "core" / "session" / "jsonl_files.py").read_text(
-        encoding="utf-8"
-    )
-    writer = (SRC / "core" / "session" / "jsonl_writer.py").read_text(
-        encoding="utf-8"
-    )
+    files = (SRC / "core" / "session" / "jsonl_files.py").read_text(encoding="utf-8")
+    writer = (SRC / "core" / "session" / "jsonl_writer.py").read_text(encoding="utf-8")
 
     for forbidden in ("materialize", "repair", "append_message", "fork_session"):
         assert forbidden not in files

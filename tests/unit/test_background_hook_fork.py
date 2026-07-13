@@ -627,9 +627,7 @@ async def test_runtime_agent_end_payload_includes_tool_iterations(tmp_path):
                 from agent.core.llm.interfaces import LLMMessage
 
                 yield LLMMessage(role="assistant", content="Hello")
-                yield LLMMessage(
-                    role="assistant", content="", finish_reason="stop"
-                )
+                yield LLMMessage(role="assistant", content="", finish_reason="stop")
 
             return _stream()
 
@@ -641,7 +639,9 @@ async def test_runtime_agent_end_payload_includes_tool_iterations(tmp_path):
             default_model="test:model",
         ),
         repo_root=tmp_path,
-        hooks=[lambda target: target.on("agent_end", capture_agent_end, mode="observe")],
+        hooks=[
+            lambda target: target.on("agent_end", capture_agent_end, mode="observe")
+        ],
         _llm_client_override=FakeLLMClient(),
     )
     try:

@@ -351,9 +351,7 @@ class KernelExecutor:
                     "executor is shutting down; no new targets are accepted"
                 )
             self._targets[token.token_id] = target
-            self._loop.call_soon_threadsafe(
-                self._schedule_lifecycle, target, context
-            )
+            self._loop.call_soon_threadsafe(self._schedule_lifecycle, target, context)
         return future
 
     def _schedule_target(self, target: _Target, context: contextvars.Context) -> None:
@@ -397,9 +395,7 @@ class KernelExecutor:
             return
         self._loop.create_task(self._cancel_after_grace(target))
 
-    async def _cancel_after_grace(
-        self, target: _Target | _LifecycleTarget
-    ) -> None:
+    async def _cancel_after_grace(self, target: _Target | _LifecycleTarget) -> None:
         await asyncio.sleep(self._cancel_grace_seconds)
         task = target.task
         if task is not None and not task.done():

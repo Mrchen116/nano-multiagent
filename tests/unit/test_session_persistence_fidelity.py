@@ -108,7 +108,9 @@ def _roundtrip(msg: Message) -> Message:
     return _entry_to_message(entry)
 
 
-def _make_transcript(tmp_path: Path, session_id: str = "test-session") -> JsonlTranscript:
+def _make_transcript(
+    tmp_path: Path, session_id: str = "test-session"
+) -> JsonlTranscript:
     ref = SessionRef(session_id=session_id, workspace_root=tmp_path)
     return JsonlTranscript.create(
         ref=ref,
@@ -313,6 +315,7 @@ class TestToolResultPairingFidelity:
 
 def test_message_jsonl_roundtrip_field_conservation_guard():
     import dataclasses
+
     # Top-level scalar fields that MUST survive Message -> entry -> Message.
     PERSISTED = {
         "message_id",
@@ -506,9 +509,7 @@ def _make_session_with_orphaned_tool_call(
                 "uuid": "msg-r3-asst",
                 "role": "assistant",
                 "content": "",
-                "tool_calls": [
-                    {"call_id": call_id, "name": "bash", "arguments": {}}
-                ],
+                "tool_calls": [{"call_id": call_id, "name": "bash", "arguments": {}}],
             }
         ],
         durable=True,
