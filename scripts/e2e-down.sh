@@ -53,9 +53,9 @@ if [[ -f "$gateway_pid_file" ]]; then
   rm -f "$gateway_pid_file"
 fi
 
-# Step 2: Now that Gateway is gone, stop IM and Kernel API.
+# Step 2: Now that Gateway is gone, stop IM.
 stopped_pids=()
-for pidfile in "$WT_ROOT/.api.pid" "$WT_ROOT/.im.pid"; do
+for pidfile in "$WT_ROOT/.im.pid"; do
   if [[ -f "$pidfile" ]]; then
     pid=$(cat "$pidfile")
     if kill -0 "$pid" 2>/dev/null; then
@@ -78,5 +78,6 @@ fi
 rm -f "$WT_ROOT/.e2e-ports.env"
 rm -f "$WT_ROOT/.e2e-jwt-secret"
 rm -f "$WT_ROOT/.gateway-config.yaml"
+rm -f "$WT_ROOT/.gateway-config.yaml.pre-refactor-461.bak"
 
 echo "e2e stack stopped (wt=$WT_ROOT)"

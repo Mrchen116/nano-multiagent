@@ -3,7 +3,6 @@ from pathlib import Path
 import pytest
 
 from personal_assistant.config.local_store import (
-    DEFAULT_LOCAL_KERNEL_TOKEN,
     AgentWorkspaceConfig,
     default_local_config_path,
     load_local_config,
@@ -197,8 +196,6 @@ def test_load_local_config_reads_yaml_and_applies_defaults(tmp_path: Path) -> No
                 f"    workspace_root: {workspace_root}",
                 "channels:",
                 "  - name: web_relay",
-                "kernel:",
-                "  base_url: http://127.0.0.1:8100",
             ]
         )
         + "\n"
@@ -209,9 +206,9 @@ def test_load_local_config_reads_yaml_and_applies_defaults(tmp_path: Path) -> No
     config = load_local_config(config_path)
 
     assert config.node.node_id == "node-local"
-    assert config.kernel.base_url == "http://127.0.0.1:8100"
-    assert config.kernel.health_path == "/v1/health"
-    assert config.kernel.startup_timeout_seconds == 15.0
+    assert config.gateway.startup_timeout_seconds == 15.0
+    assert config.gateway.shutdown_grace_seconds == 5.0
+    assert config.gateway.poll_interval_seconds == 0.25
     assert config.agents[0].workspace_root == workspace_root
     assert config.channels[0].enabled is True
     assert config.im_service is None
@@ -251,92 +248,7 @@ def test_load_local_config_preserves_multiple_seed_agents_in_order(
     assert [agent.workspace_root for agent in config.agents] == [alpha_root, beta_root]
 
 
-def test_load_local_config_uses_internal_kernel_base_url_default(
-    tmp_path: Path,
-) -> None:
-    # refactor-387-M4: kernel is in-process; kernel.command is empty (no subprocess).
-    config_path = tmp_path / "node-config.yaml"
-    workspace_root = tmp_path / "agents" / "assistant-a"
-    workspace_root.mkdir(parents=True)
-    config_path.write_text(
-        "\n".join(
-            [
-                "node:",
-                "  node_id: node-local",
-                "agents:",
-                "  - agent_id: assistant-a",
-                f"    workspace_root: {workspace_root}",
-            ]
-        )
-        + "\n"
-        + _LLM_YAML,
-        encoding="utf-8",
-    )
-
-    config = load_local_config(config_path)
-
-    assert config.kernel.base_url == "http://127.0.0.1:8000"
-    assert config.kernel.command == ""  # in-process: no subprocess command needed
-    assert config.agents[0].workspace_root == workspace_root
-
-
-def test_load_local_config_defaults_kernel_command_to_real_http_app_entrypoint(
-    tmp_path: Path,
-) -> None:
-    config_path = tmp_path / "node-config.yaml"
-    workspace_root = tmp_path / "agents" / "assistant-a"
-    workspace_root.mkdir(parents=True)
-    config_path.write_text(
-        "\n".join(
-            [
-                "node:",
-                "  node_id: node-local",
-                "agents:",
-                "  - agent_id: assistant-a",
-                f"    workspace_root: {workspace_root}",
-            ]
-        )
-        + "\n"
-        + _LLM_YAML,
-        encoding="utf-8",
-    )
-
-    config = load_local_config(config_path)
-
-    # refactor-387 M3: kernel_app.py deleted; default command is now empty string
-    assert config.kernel.command == ""
-    assert config.kernel.base_url == "http://127.0.0.1:8000"
-    assert config.agents[0].workspace_root == workspace_root
-
-
-def test_load_local_config_defaults_kernel_token_for_local_gateway(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    config_path = tmp_path / "node-config.yaml"
-    workspace_root = tmp_path / "agents" / "assistant-a"
-    workspace_root.mkdir(parents=True)
-    monkeypatch.delenv("NANO_MULTIAGENT_API_TOKEN", raising=False)
-    config_path.write_text(
-        "\n".join(
-            [
-                "node:",
-                "  node_id: node-local",
-                "agents:",
-                "  - agent_id: assistant-a",
-                f"    workspace_root: {workspace_root}",
-            ]
-        )
-        + "\n"
-        + _LLM_YAML,
-        encoding="utf-8",
-    )
-
-    config = load_local_config(config_path)
-
-    assert config.kernel.token == DEFAULT_LOCAL_KERNEL_TOKEN
-
-
-def test_load_local_config_derives_kernel_base_url_from_local_command_port(
+def test_load_local_config_defaults_gateway_lifecycle_timing_and_ignores_dead_kernel_fields(
     tmp_path: Path,
 ) -> None:
     config_path = tmp_path / "node-config.yaml"
@@ -351,7 +263,11 @@ def test_load_local_config_derives_kernel_base_url_from_local_command_port(
                 "  - agent_id: assistant-a",
                 f"    workspace_root: {workspace_root}",
                 "kernel:",
-                "  command: python -m uvicorn personal_assistant.kernel_app:app --host 127.0.0.1 --port 8123",
+                "  base_url: [not, a, string]",
+                "  token: {dead: field}",
+                "  command: 17",
+                "  health_path: false",
+                "  timeout_seconds: invalid",
             ]
         )
         + "\n"
@@ -361,9 +277,77 @@ def test_load_local_config_derives_kernel_base_url_from_local_command_port(
 
     config = load_local_config(config_path)
 
-    assert config.kernel.base_url == "http://127.0.0.1:8123"
-    assert config.kernel.command.endswith("--host 127.0.0.1 --port 8123")
-    assert config.agents[0].workspace_root == workspace_root
+    assert config.gateway.startup_timeout_seconds == 15.0
+    assert config.gateway.shutdown_grace_seconds == 5.0
+    assert config.gateway.poll_interval_seconds == 0.25
+    assert not hasattr(config, "kernel")
+
+
+def test_load_local_config_migrates_legacy_kernel_timing_to_gateway(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "node-config.yaml"
+    workspace_root = tmp_path / "agents" / "assistant-a"
+    workspace_root.mkdir(parents=True)
+    config_path.write_text(
+        "\n".join(
+            [
+                "node:",
+                "  node_id: node-local",
+                "agents:",
+                "  - agent_id: assistant-a",
+                f"    workspace_root: {workspace_root}",
+                "kernel:",
+                "  startup_timeout_seconds: 21",
+                "  shutdown_grace_seconds: 8",
+                "  health_poll_interval_seconds: 0.4",
+            ]
+        )
+        + "\n"
+        + _LLM_YAML,
+        encoding="utf-8",
+    )
+
+    config = load_local_config(config_path)
+
+    assert config.gateway.startup_timeout_seconds == 21.0
+    assert config.gateway.shutdown_grace_seconds == 8.0
+    assert config.gateway.poll_interval_seconds == 0.4
+
+
+def test_load_local_config_prefers_gateway_timing_per_field(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "node-config.yaml"
+    workspace_root = tmp_path / "agents" / "assistant-a"
+    workspace_root.mkdir(parents=True)
+    config_path.write_text(
+        "\n".join(
+            [
+                "node:",
+                "  node_id: node-local",
+                "agents:",
+                "  - agent_id: assistant-a",
+                f"    workspace_root: {workspace_root}",
+                "gateway:",
+                "  startup_timeout_seconds: 31",
+                "  poll_interval_seconds: 0.6",
+                "kernel:",
+                "  startup_timeout_seconds: 21",
+                "  shutdown_grace_seconds: 8",
+                "  health_poll_interval_seconds: 0.4",
+            ]
+        )
+        + "\n"
+        + _LLM_YAML,
+        encoding="utf-8",
+    )
+
+    config = load_local_config(config_path)
+
+    assert config.gateway.startup_timeout_seconds == 31.0
+    assert config.gateway.shutdown_grace_seconds == 8.0
+    assert config.gateway.poll_interval_seconds == 0.6
 
 
 def test_load_local_config_rejects_missing_agents(tmp_path: Path) -> None:
@@ -1068,6 +1052,114 @@ def test_save_local_config_no_backup_for_non_main_path(
         list(backups_dir.glob("config.*.yaml.bak")) if backups_dir.exists() else []
     )
     assert len(bak_files) == 0, "非主配置路径不应产生备份"
+
+
+def test_save_local_config_migrates_legacy_kernel_with_per_file_backup(
+    tmp_path: Path,
+) -> None:
+    import stat
+    import yaml as _yaml
+
+    config_path = tmp_path / "custom-config.yaml"
+    workspace_root = tmp_path / "workspace" / "agent-a"
+    workspace_root.mkdir(parents=True)
+    original = (
+        "\n".join(
+            [
+                "node:",
+                "  node_id: n-test",
+                "agents:",
+                "  - agent_id: agent-a",
+                f"    workspace_root: {workspace_root}",
+                "kernel:",
+                "  command: python -m removed.kernel_app",
+                "  startup_timeout_seconds: 22",
+                "  shutdown_grace_seconds: 9",
+                "  health_poll_interval_seconds: 0.7",
+            ]
+        )
+        + "\n"
+        + _LLM_YAML
+    ).encode()
+    config_path.write_bytes(original)
+    config_path.chmod(0o640)
+    config = load_local_config(config_path)
+
+    save_local_config(config, config_path)
+
+    backup_path = Path(f"{config_path}.pre-refactor-461.bak")
+    assert backup_path.read_bytes() == original
+    assert stat.S_IMODE(backup_path.stat().st_mode) == 0o640
+    saved = _yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    assert "kernel" not in saved
+    assert saved["gateway"] == {
+        "startup_timeout_seconds": 22.0,
+        "shutdown_grace_seconds": 9.0,
+        "poll_interval_seconds": 0.7,
+    }
+
+
+def test_save_local_config_reuses_matching_migration_backup(tmp_path: Path) -> None:
+    config_path = tmp_path / "custom-config.yaml"
+    workspace_root = tmp_path / "workspace" / "agent-a"
+    workspace_root.mkdir(parents=True)
+    original = (
+        "\n".join(
+            [
+                "node:",
+                "  node_id: n-test",
+                "agents:",
+                "  - agent_id: agent-a",
+                f"    workspace_root: {workspace_root}",
+                "kernel:",
+                "  startup_timeout_seconds: 22",
+            ]
+        )
+        + "\n"
+        + _LLM_YAML
+    ).encode()
+    config_path.write_bytes(original)
+    config = load_local_config(config_path)
+    save_local_config(config, config_path)
+    backup_path = Path(f"{config_path}.pre-refactor-461.bak")
+
+    config_path.write_bytes(original)
+    save_local_config(config, config_path)
+
+    assert backup_path.read_bytes() == original
+    assert b"kernel:" not in config_path.read_bytes()
+
+
+def test_save_local_config_aborts_when_migration_backup_conflicts(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "custom-config.yaml"
+    workspace_root = tmp_path / "workspace" / "agent-a"
+    workspace_root.mkdir(parents=True)
+    original = (
+        "\n".join(
+            [
+                "node:",
+                "  node_id: n-test",
+                "agents:",
+                "  - agent_id: agent-a",
+                f"    workspace_root: {workspace_root}",
+                "kernel:",
+                "  shutdown_grace_seconds: 9",
+            ]
+        )
+        + "\n"
+        + _LLM_YAML
+    ).encode()
+    config_path.write_bytes(original)
+    config = load_local_config(config_path)
+    backup_path = Path(f"{config_path}.pre-refactor-461.bak")
+    backup_path.write_bytes(b"different legacy config\n")
+
+    with pytest.raises(FileExistsError, match="migration backup"):
+        save_local_config(config, config_path)
+
+    assert config_path.read_bytes() == original
 
 
 def test_save_local_config_skips_backup_when_content_identical(

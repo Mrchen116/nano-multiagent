@@ -11,7 +11,7 @@ from personal_assistant.config.local_store import (
     ChannelConfig,
     HeartbeatConfig,
     IMServiceConfig,
-    KernelConfig,
+    GatewayLifecycleConfig,
     LocalConfig,
     NodeConfig,
 )
@@ -83,7 +83,7 @@ def test_build_runtime_wires_external_delivery_without_im_service(
                 },
             ),
         ),
-        kernel=base.kernel,
+        gateway=base.gateway,
         heartbeat=base.heartbeat,
         im_service=None,
         llm=base.llm,
@@ -139,7 +139,7 @@ async def test_make_token_getter_uses_refresh_token_first(tmp_path: Path) -> Non
         IMServiceConfig,
         LocalConfig,
         NodeConfig,
-        KernelConfig,
+        GatewayLifecycleConfig,
         HeartbeatConfig,
     )
 
@@ -166,7 +166,7 @@ async def test_make_token_getter_uses_refresh_token_first(tmp_path: Path) -> Non
         node=NodeConfig(node_id="n1"),
         agents=(AgentWorkspaceConfig(agent_id="a1", workspace_root=workspace),),
         channels=(),
-        kernel=KernelConfig(),
+        gateway=GatewayLifecycleConfig(),
         heartbeat=HeartbeatConfig(),
         im_service=im_service,
         llm=_DEFAULT_TEST_LLM,
@@ -207,7 +207,7 @@ async def test_make_token_getter_falls_back_to_login_when_refresh_fails(
         IMServiceConfig,
         LocalConfig,
         NodeConfig,
-        KernelConfig,
+        GatewayLifecycleConfig,
         HeartbeatConfig,
     )
 
@@ -233,7 +233,7 @@ async def test_make_token_getter_falls_back_to_login_when_refresh_fails(
         node=NodeConfig(node_id="n1"),
         agents=(AgentWorkspaceConfig(agent_id="a1", workspace_root=workspace),),
         channels=(),
-        kernel=KernelConfig(),
+        gateway=GatewayLifecycleConfig(),
         heartbeat=HeartbeatConfig(),
         im_service=im_service,
         llm=_DEFAULT_TEST_LLM,
@@ -272,7 +272,7 @@ async def test_make_token_getter_returns_static_token_when_no_refresh_or_credent
         IMServiceConfig,
         LocalConfig,
         NodeConfig,
-        KernelConfig,
+        GatewayLifecycleConfig,
         HeartbeatConfig,
     )
 
@@ -293,7 +293,7 @@ async def test_make_token_getter_returns_static_token_when_no_refresh_or_credent
         node=NodeConfig(node_id="n1"),
         agents=(AgentWorkspaceConfig(agent_id="a1", workspace_root=workspace),),
         channels=(),
-        kernel=KernelConfig(),
+        gateway=GatewayLifecycleConfig(),
         heartbeat=HeartbeatConfig(),
         im_service=im_service,
         llm=_DEFAULT_TEST_LLM,
@@ -327,7 +327,7 @@ async def test_reconcile_on_connect_continues_after_binding_failure_and_reports_
         node=NodeConfig(node_id="node-local"),
         agents=(AgentWorkspaceConfig(agent_id="agent-a", workspace_root=workspace),),
         channels=(ChannelConfig(name="web_relay", enabled=True),),
-        kernel=KernelConfig(),
+        gateway=GatewayLifecycleConfig(),
         heartbeat=HeartbeatConfig(),
         im_service=IMServiceConfig(url="http://im.local:9000", token="tok"),
         llm=_DEFAULT_TEST_LLM,

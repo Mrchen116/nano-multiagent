@@ -180,19 +180,15 @@ agent 内核三层（refactor-406 决策1：原 `products` 装配层解散，方
 
 ## 运行时服务并行启动
 
-> **refactor-387 过渡说明**：内核已改为进程内库（无独立 HTTP API）。本节下文出现的「Kernel API
-> (uvicorn)」「Coding CLI managed API」「gateway spawn kernel uvicorn」均为**旧架构遗留**——
-> 内核不再单独起进程，Gateway 进程内持有内核，CLI 进程内直跑。`scripts/e2e-up.sh`、端口分配、
-> 启停范式等 e2e 运维细节随脚本改写在本 unit 内（M3/M4）一并更新；在那之前，下面带「Kernel API」
-> 的条目按历史内容理解，不要据其新起独立内核进程。
+内核是进程内库：Gateway 进程内持有内核，CLI 进程内直跑，不单独监听端口。
 
 **在 worktree 内起任何监听端口的服务,都必须分配空闲端口,并 kill 自己起的进程**——主仓默认端口(8011 / 8000 / 5173)保留给用户手起的"主"实例,worktree 走 ephemeral 高位口,这样 `lsof -i :8011` 看到的永远是主实例,不会误把分支代码当成主仓。
 
 ### 推荐:一键起停
 
 ```bash
-./scripts/e2e-up.sh        # 起 IM + Kernel API + Gateway,自动分配端口、改 config、auto-bind
-source .e2e-ports.env      # 拿到 $IM_URL / $API_URL / $NODE_ID
+./scripts/e2e-up.sh        # 起 IM + Gateway,自动分配端口、改 config、auto-bind
+source .e2e-ports.env      # 拿到 $IM_URL / $NODE_ID
 # ...做你的事...
 ./scripts/e2e-down.sh      # 干净停掉
 ```
@@ -212,10 +208,8 @@ read IM_PORT VITE_PORT < <(scripts/free-ports.sh 2)
 | 服务 | 指定端口/URL 方式 | 关键 env |
 |---|---|---|
 | IM (uvicorn) | `--port <N>`(uvicorn 原生) | `IM_JWT_SECRET=<unit 专属随机串>` 必须设,否则 token 跨重启失效;`IM_DB_PATH` 已支持,默认 `data/im_service.sqlite3`(cwd-relative),worktree 内起服务时天然隔离,无需显式传 |
-| Kernel API (uvicorn) | `--port <N>` | `NANO_MULTIAGENT_LLM_BASE_URL` 指向 LLM provider(本地代理或 fixture);**注意是这个名字,不是 LLM_BASE_URL**——bugfix-380 fix-worker-r2 一度被此卡 30 分钟,见 retro |
 | Gateway | 不监听端口(只连出);**config 必须用 worktree 本地副本** `--config <worktree>/.gateway-config.yaml`;指 IM 用 `--im-service-url http://127.0.0.1:<IM_PORT>` | `NANO_MULTIAGENT_AUTO_BIND=1` 或 `--auto-bind` 在 worktree e2e **必传**(否则会停在交互式 binding URL) |
 | Vite | `npm run dev -- --port <N> --strictPort` | — |
-| Coding CLI managed API | `--base-url http://127.0.0.1:<N>`(managed 模式 host/port 都从 base-url 解析) | — |
 
 ### 启动 / 关闭范式(两种,**不要混用**)
 
@@ -241,7 +235,7 @@ stop_pidfile() {
 }
 ```
 
-**A. 裸 ASGI 服务**(IM、Kernel API、Vite,本质就是 uvicorn + ASGI app):
+**A. 裸 ASGI 服务**(IM、Vite,本质就是 uvicorn + ASGI app):
 通用 `& echo $! > .pid` 范式,外部脚本完全说了算。
 
 ```bash
@@ -253,7 +247,7 @@ stop_pidfile .im.pid
 ```
 
 **B. wrapper 启动器**(Gateway, `python -m personal_assistant.main`):
-它**不是** ASGI app —— 是个 supervisor,自己 spawn 多个 worker(channel relay / kernel uvicorn / heartbeat / run_queue 等),**自带内部 PID 单例锁**(写在 `<config 同目录>/gateway.pid`,**不带点**)+ `stop` / `restart` 子命令。
+它**不是** ASGI app —— 后台启动器会 spawn 一个前台 Gateway 子进程；该进程内持有 channel relay、agent runtime、heartbeat 与 cron，**自带内部 PID 单例锁**(写在 `<config 同目录>/gateway.pid`,**不带点**)+ `stop` / `restart` 子命令。
 
 > **不要套用 A 类范式杀它**(`kill $(cat .gateway.pid)` 杀的是 shell job pid,启动器内部 pid 文件还在,下次 restart 撞单例锁报 `gateway is already running pid=...`,循环若干次才能逃出来,bugfix-380 fix-worker-r3 撞 4-5 次)。
 
@@ -284,7 +278,7 @@ PYTHONPATH=src python -m personal_assistant.main restart   # 重启
 worktree 退出 / unit 完成时一律:
 
 ```bash
-for f in .im.pid .api.pid .gateway.pid .vite.pid .coding-cli.pid; do
+for f in .im.pid .gateway.pid .vite.pid; do
   stop_pidfile "$f"
 done
 ```

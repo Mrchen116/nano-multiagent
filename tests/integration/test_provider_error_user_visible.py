@@ -2,7 +2,7 @@
 
 bugfix-380: 验收路径
 1. fixture provider 强制返回 SSE error 帧
-2. 通过 HTTP kernel API 发消息
+2. 通过进程内 AgentRuntime 发消息
 3. 断言 GET /im/v1/conversations/.../messages 能看到错误内容
 4. 断言 delivery_status=failed
 
