@@ -64,20 +64,38 @@ def test_background_start_and_stop_support_quoted_config_path(
     runtime_root = tmp_path / "runtime dir 'quoted'"
     runtime_root.mkdir()
     config_path = _write_minimal_config(runtime_root)
+    owned_process: subprocess.Popen[bytes] | None = None
 
-    result = launch_gateway_in_background(config_path=config_path)
+    def _spawn(argv: list[str], log_path: Path) -> subprocess.Popen[bytes]:
+        nonlocal owned_process
+        with log_path.open("ab") as log_file:
+            owned_process = subprocess.Popen(
+                argv,
+                cwd=repo_root,
+                env={**os.environ, "PYTHONPATH": str(repo_root / "src")},
+                stdout=log_file,
+                stderr=log_file,
+                start_new_session=True,
+                close_fds=True,
+            )
+        return owned_process
+
+    result = launch_gateway_in_background(
+        config_path=config_path,
+        spawn_process=_spawn,
+    )
     try:
         stopped = stop_gateway(config_path=config_path)
 
         assert stopped.startswith(f"STOPPED pid={result.pid}")
+        assert owned_process.wait(timeout=3) == 0
         assert not (runtime_root / "gateway.pid").exists()
         assert not (runtime_root / "gateway.identity.json").exists()
         assert not (runtime_root / ".gateway-state.json").exists()
     finally:
-        try:
-            os.killpg(result.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
+        if owned_process is not None and owned_process.poll() is None:
+            os.killpg(owned_process.pid, signal.SIGKILL)
+            owned_process.wait(timeout=3)
 
 
 def test_command_start_restart_stop_supports_quoted_config_path(
