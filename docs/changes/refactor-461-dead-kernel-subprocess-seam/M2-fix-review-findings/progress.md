@@ -56,4 +56,16 @@
 
 ## R4 — e2e-down owned Gateway residue cleanup
 
-- Status: pending
+- Context: `e2e-up.sh` 同时产生外部 owned `.gateway.pid` 与 Gateway 内部 `gateway.pid`；旧 down 脚本只删前者，且 force-kill 后未确认退出就丢失追踪。
+- Decision: 只有 `.gateway.pid` 建立 signal ownership；TERM/必要时 KILL 后轮询确认该 PID 消失，再删除 `.gateway.pid`、`gateway.pid`、`.gateway-state.json`。内部文件中的 PID 从不用于 kill。
+- Rationale: 文件清理必须晚于可观测退出，进程信号必须早于并独立于 stale state 清理，避免既丢追踪又误杀无关进程。
+- Evidence:
+  - Tests: `pytest -q tests/integration/test_e2e_down_script.py` → 2 passed；其中回归明确放入 internal PID 999999/state PID 888888，并断言 signal log 不含二者。
+  - Entry: 本 worktree `./scripts/e2e-up.sh` 使用 ephemeral IM port 56804，启动 Gateway pid 76319；up 后 `.gateway.pid` 与 `gateway.pid` 均存在。
+  - Frontend State Matrix: N/A，非前端。
+  - Browser QA: N/A，非前端。
+  - E2E/Regression: `./scripts/e2e-down.sh` 成功；退出后 `.gateway.pid`、`gateway.pid`、`.gateway-state.json`、`.im.pid` 全部 absent。
+  - Visual/Interaction: N/A，非前端。
+  - Prototype Comparison: N/A，design 无前端 prototype/reference。
+- Rollback: 回退 C2 恢复旧 cleanup；C1 会立即暴露 internal residue。
+- Commits: `b9e98b22` (C1), `326141b7` (C2)
