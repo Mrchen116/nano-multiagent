@@ -41,6 +41,7 @@ from agent.sdk import (
 )
 from agent.sdk.dto import FeatureInfo, ModelInfo, RunInfo, ToolInfo
 from agent.core.llm.interfaces import LLMMessage, LLMToolCall
+from agent.core.session.types import PromptSlotSeed, SessionRef
 
 
 # ---------------------------------------------------------------------------
@@ -530,7 +531,11 @@ async def test_legacy_session_without_prompt_seed_uses_empty_fallback(
             workspace_root=tmp_path,
         )
         assert (await _wait_terminal(kernel, run.run_id)).status == "completed"
-        assert "PROMPT-SLOTS-RESTART" not in str(captured[-1].messages[0].content)
+        reopened = kernel._c.directory.open(  # type: ignore[attr-defined]
+            SessionRef(session_id=session_id, workspace_root=tmp_path)
+        )
+        assert reopened.prompt_seed == PromptSlotSeed()
+        assert captured[-1].messages[0].role == "system"
         assert kernel.get_session(session_id, workspace_root=tmp_path)["metadata"] == {
             "legacy": True
         }
