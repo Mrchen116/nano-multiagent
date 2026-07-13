@@ -5,13 +5,14 @@ export interface AttachmentChipProps {
   /** When provided, renders a remove (×) button — used in the composer.
    *  Omitted in MessageBubble where the chip is read-only. */
   onRemove?(): void;
+  removeDisabled?: boolean;
 }
 
 function isImage(contentType: string | null | undefined): boolean {
   return !!contentType && contentType.startsWith("image/");
 }
 
-export function AttachmentChip({ attachment, onRemove }: AttachmentChipProps) {
+export function AttachmentChip({ attachment, onRemove, removeDisabled = false }: AttachmentChipProps) {
   const name = attachment.file_name ?? attachment.url.split("/").pop() ?? "file";
   if (isImage(attachment.content_type)) {
     return (
@@ -22,6 +23,7 @@ export function AttachmentChip({ attachment, onRemove }: AttachmentChipProps) {
             type="button"
             className="chat-attachment-remove"
             onClick={onRemove}
+            disabled={removeDisabled}
             aria-label={`Remove ${name}`}
           >
             ×
@@ -41,6 +43,7 @@ export function AttachmentChip({ attachment, onRemove }: AttachmentChipProps) {
           type="button"
           className="chat-attachment-remove"
           onClick={onRemove}
+          disabled={removeDisabled}
           aria-label={`Remove ${name}`}
         >
           ×

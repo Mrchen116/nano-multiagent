@@ -293,14 +293,11 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
           pending.retry = () => {
             if (pending.inFlight) return;
             pending.inFlight = true;
-            void queryClient.fetchQuery({
-              queryKey: ["chat", "conversations"],
-              queryFn: listConversations,
-              // The cached list can still be fresh when the server creates an
-              // external conversation and immediately emits its first message.
-              // Force this classification read through to the authoritative API.
-              staleTime: 0
-            }).then((freshConversations) => {
+            // Do not use fetchQuery here: an older request for the same cache key
+            // may still be in flight and TanStack would reuse its pre-external
+            // snapshot even with staleTime=0. Classification needs a read that is
+            // guaranteed to start after this candidate arrived.
+            void listConversations().then((freshConversations) => {
               if (
                 pendingExternalClassificationsRef.current.get(candidateKey) !== pending
                 || selfUserIdRef.current !== eventUserId
