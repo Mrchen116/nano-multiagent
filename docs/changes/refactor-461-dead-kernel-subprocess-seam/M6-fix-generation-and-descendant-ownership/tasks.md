@@ -29,7 +29,7 @@
 
 ### R1 — Config/start publication final gates
 
-- 状态：TODO
+- 状态：DONE
 - C1 Red：扩展 backup held-fd content/mode drift、post-state child exit/self-clean、group-only signal sequence与 owned Popen reap regression。
 - C2 Green：补 migration fd read gate、return 前 liveness/identity gate、single group signal与 test ownership cleanup。
 - C3 Docs：记录 pre-commit 边界、startup commit point、Darwin reap 与回退点。
