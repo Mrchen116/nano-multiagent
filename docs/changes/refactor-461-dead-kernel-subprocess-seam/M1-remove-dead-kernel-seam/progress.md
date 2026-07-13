@@ -71,3 +71,24 @@
 - Evidence: 原失败用例可稳定单独复现；C1 guard 精确红在该文件。Green 后 guard + 原 integration 共 5 passed，ruff check/format 通过；全量复跑 `3496 passed, 1 skipped, 23 deselected`（119.67s）。
 - Commits: C1=`8579baf6`, C2=`b519e94b`, C3=本 docs commit。
 - Next: 获取 unit lock，合并并推送 unit branch，清理 milestone worktree/branch。
+
+## R5 — 严格 reviewer live signoff 补证
+
+- Status: DONE
+- Scope: 本轮只补真实入口签收证据；未修改 production、design、canonical spec 或 delta spec。所有 config/workspace/DB/state/log 均使用 milestone worktree 隔离副本，`~/.nano-assistant/config.yaml` 只读。
+- External channel while IM offline:
+  - 由隔离 config 启动真实 Gateway PID `40814`，只把 `im_service.url` 指向 `127.0.0.1:63001`；启动前、消息期间该端口均无 listener，Gateway 仍与配置的 `feishu:default-agent` 建立外部连接。
+  - 通过配置 app credentials 反查 bot identity，并与当前用户可见的唯一 P2P target 匹配为 `nano`。使用真实飞书 user identity 向该 P2P 发送 `OFFLINE_ACK_R461_1783936095`：用户消息 ID `om_x100b6a7f08cb34f8b3c73de274286a5`；随后同一 chat 收到 sender type=`app` 的精确 token 回复，消息 ID `om_x100b6a7f08ab6488b16fcadb823a811`。
+  - Evidence boundary: 这证明 IM service 完全不可达时，真实 Feishu inbound 仍由该 Gateway 的进程内 Kernel 处理，并通过同一 Feishu adapter 回发原 P2P 目标；没有使用 fake event、stub channel、单测或内部直接调用。两条消息仍可按上述 ID 在飞书历史中复查。
+- Same-config single-instance rejection:
+  - 隔离 IM `127.0.0.1:63386` 在线且 node online 后，第一次真实默认 start 返回 `Gateway started (pid=51124)`、`IM service ... [connected]` 与 log path；新 `.gateway-state.json` keys 精确为 `config_path,log_path,pid`。
+  - 进程 `51124` 仍存活时，对同一 config 再次执行默认 start，CLI exit code=`1`，用户可见输出为 `Gateway failed to start`、`gateway is already running (pid=51124)`、`Run 'stop' to shut it down first, or 'restart' to replace it.`；原 PID 仍存活，没有替换现有实例。
+- Legacy state extra field with IM continuously online:
+  - 在上述新 state 已确认无 `health_url` 后，手工仅向隔离 state 注入旧字段，使 keys 为 `config_path,health_url,log_path,pid`，其中 URL 指向仍在线 IM 的 `/openapi.json`。
+  - 真实 `personal_assistant.main stop --config ...` 返回 `STOPPED pid=51124 state=.../.gateway-state.json`；随后 PID 不存在、state 已删除，同时 IM `63386/openapi.json` 持续返回 200。stop 因而没有把“IM 仍在线”误判为 Gateway 未停止，也没有探测/依赖旧 URL。
+- Graceful-timeout escalation to forced kill:
+  - 同一隔离 config 设置 `shutdown_grace_seconds=1`、`poll_interval_seconds=0.1`，再次真实默认 start 得到 PID `53748`；新 state 仍只有 `config_path,log_path,pid`。
+  - 对该独立 process group 发送 `SIGSTOP`，`ps` 确认 state=`Ts`，以受控制造“进程无法处理 SIGTERM/执行 graceful drain”。随后真实 stop 输出 `STOPPED pid=53748 state=.../.gateway-state.json forced=true`；PID、state 与 `gateway.pid` 均消失，而 IM 仍返回 200。
+  - Evidence boundary: `SIGSTOP` 只模拟整个 Gateway 不响应，证明 CLI 在 grace deadline 后确实升级 SIGKILL 并清理 ownership state；它不声称覆盖自然卡死原因，也不证明被停止进程执行了 graceful shutdown hooks。
+- Cleanup: 两个测试 Gateway、隔离 IM、tmux sessions、离线/CLI config、workspace、DB、state、PID 与 logs 均已删除；端口 `63001`/`63386` 无 listener，无 `refactor461-*` 测试进程残留。
+- Next: 跑最窄 lifecycle/contract 回归，提交 evidence-only commit，重新合并并推送 unit branch。
