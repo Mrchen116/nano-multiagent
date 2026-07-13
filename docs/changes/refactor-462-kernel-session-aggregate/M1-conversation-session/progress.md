@@ -89,3 +89,21 @@
 - Rollback: 回退 R4 的 composition/contract/normalization commits 可恢复旧装配，但不能只回退 manager 文件删除的一部分；R1-R3 与 R4 是一次性 cutover，需整体回退 milestone。
 - Commits: `1c9a32bf`（C1 contract），`c50f9293`（C2 cutover），`bf984c91`（format），`613467b7`（string binding 红测），`691c2294`（binding fix）；本节 C3 文档提交待生成。
 - Next: 合并 milestone 到 unit 集成分支，派发独立 verifier、产品 reviewer 与 code review 三道验收闸。
+
+## Unit gate closure
+
+- Status: DONE
+- Context: milestone 合入后，独立 verifier、产品验收与代码审查先后暴露 active append reconciliation、compaction window、interrupt terminal、writer/client shutdown、cold-load publication 与 hook event publication 的边界问题；Round 2 还保留了最终接口永久回归矩阵缺口。
+- Decision: 所有 implementation fix 由 orchestrator 亲自按 impl-worker 的 C1/C2/C3 纪律完成；每轮先提交可复现测试，再修实现并复验。Verifier、产品 reviewer 与两路 code review 均由独立 agent 执行，旧 PASS 在后续 blocker 出现后不继承。
+- Rationale: `interrupt()` 的用户可见终态、assistant event 发布、JSONL durable history 与资源清理是不同线性化边界；分别以确定性排队 probe、失败注入与 final-interface 行为测试守住，避免依赖时序运气。测试矩阵按合约原子行为收口，不扩张成未约定的笛卡尔组合。
+- Evidence:
+  - Fix rounds: fix-r1 修复 string workspace、active append residual、manual compaction refresh、bounded ownership、interrupt/client lifecycle；fix-r2 修复 fast-provider interrupt、writer close、partial state、cold raw read/header-only；fix-r3 修复 hook-await late persistence、cleanup failure drain 与 cold-load publish race；fix-r4 将 assistant 发布与 `/stop` 放入同一短锁线性化边界；fix-r5 补齐 overflow/restart、whole fork、PromptSlots/legacy、memory/file window、late tool/recovery 永久回归。
+  - Full Python: `pytest -m 'not e2e' -n 4 --dist worksteal` → `3336 passed, 1 skipped`（fix-r5 final shape）。
+  - Targeted verification Round 5: 新场景 `8 passed`、受影响回归 `82 passed`、queued-wakeup stress `20/20 passed`；0 CRITICAL / 0 WARNING / 0 SUGGESTION。
+  - Product acceptance Round 2: CLI resume、Gateway restart、cold/active append、manual compact + restart、PromptSlots restart、as-of fork、string workspace 与真 IM/Gateway `/stop` 全部通过；`/stop` 后 8 秒无 late assistant，下一轮 3.245 秒完成。
+  - Code review closure: finalizer failure、cold-load epoch、hook wakeup-before-cancel 与历史 WARNING-2 全部关闭；legacy fallback mutation probe 输出 `MUTATION_KILLED`。
+  - Quality: `ruff check .`、`ruff format --check .`、test naming/size contract、`git diff --check` 全绿。
+  - Frontend State Matrix / Browser QA / Visual / Prototype: N/A（无前端产品代码变化）；产品验收使用真实 CLI 与隔离 IM/Gateway 公共入口。
+- Rollback: fix commits 与 milestone 属于同一 session-owner cutover；若需回退，应整体回退 refactor-462 unit，JSONL schema 未迁移，旧代码仍可读取既有档案。
+- Commits: `956c59b8`..`fbd2a9f8`（fix-r1），`cf30691e`..`7444060a`（fix-r2），`12ad3215` / `ca72d9d4`（fix-r3），`2d52613f` / `d37c711f`（fix-r4），`55b2cb85` / `3c53b9f1` / `4fa748af`（fix-r5）。
+- Next: rebase `origin/main`，运行精确 CI 等价命令，归档 unit 并创建 PR。
