@@ -302,12 +302,13 @@ sequenceDiagram
 
 ## Milestones
 
-**为什么最初只有一个 milestone**：这条 seam 横跨 runtime、schema、state 和测试，但每一部分单独合入都会暂时丢配置、留下假 interface 或让当前运维入口撒谎。按垂直行为切分后，最小可交付单位就是“旧配置可迁移、Gateway 可启停、关键路径不变、旧 seam 不可复活”的一次原子收敛；按文件横切成多个 milestone 反而制造不一致中间态。M2 是第一轮独立验收后追加的返工 milestone，不改变原始实现切分。
+**为什么最初只有一个 milestone**：这条 seam 横跨 runtime、schema、state 和测试，但每一部分单独合入都会暂时丢配置、留下假 interface 或让当前运维入口撒谎。按垂直行为切分后，最小可交付单位就是“旧配置可迁移、Gateway 可启停、关键路径不变、旧 seam 不可复活”的一次原子收敛；按文件横切成多个 milestone 反而制造不一致中间态。M2/M3 是独立验收后追加的返工 milestone，不改变原始实现切分。
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
 | refactor-461-M1 | remove-dead-kernel-seam | — | A | `src/personal_assistant/{main.py,config/local_store.py}`；`AGENTS.md`；`scripts/{e2e-up.sh,e2e-down.sh,acceptance/m170_runtime.py,fixtures/README.md,fixtures/anthropic_sse_error.py}`；`node-config.yaml`；`ACCEPTANCE/{M171-node-config.yaml,M224-runtime-node-config.yaml}`；受影响的 `tests/unit/personal_assistant/**` fixtures/语义测试；`tests/e2e/conftest.py`；`tests/integration/test_provider_error_user_visible.py`；`tests/unit/{test_e2e_conftest_finalizer.py,test_runtime_helpers.py}`；新 active-scope contract guard；本 unit gateway delta-spec 与长青 spec 归并 | 见下方两轨退出标准 |
 | refactor-461-M2 | fix-round-1-review-findings | refactor-461-M1 | B | `src/personal_assistant/{main.py,config/local_store.py}`；`scripts/{e2e-down.sh,acceptance/m170_runtime.py}`；`README.md`；`docs/operator-runbook.md`；相关 lifecycle/config/runtime-helper 回归测试 | 修复第一轮 reviewer/verifier/code-review 确认的问题；补齐 default start waiter、强杀清理、migration backup I/O/并发/别名/权限/目录持久化、非有限 timing、M170 鉴权绑定与 e2e residue 的持久回归；长青 spec 仍由 orchestrator 在最终验收通过后归并 |
+| refactor-461-M3 | fix-round-2-transaction-and-process-identity-findings | refactor-461-M2 | C | `src/personal_assistant/{main.py,config/local_store.py}`；`scripts/{e2e-up.sh,e2e-down.sh}`；相关 lifecycle/config/e2e-down 回归测试与格式修复 | 修复第二轮 code-review 确认的 7 个问题：配置备份 FIFO/第三方 hardlink/source drift，启动 PID 匹配，强杀 ESRCH/退出确认，e2e 进程身份与原子停栈；补齐持久回归并通过完整 CI 格式、lint、non-e2e 与真实起停验证（post-acceptance fix, round 2） |
 
 ### refactor-461-M1 两轨退出标准
 
