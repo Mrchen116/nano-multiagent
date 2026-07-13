@@ -8,12 +8,12 @@
 
 ## 退出标准
 
-- [ ] README 与 operator runbook 使用真实 `Gateway started (pid=...)` / `Log:` / `IM service:` 输出，并明确启动确认不等于 runtime/channel ready。
-- [ ] 公共 `launch_gateway_in_background` 默认 waiter 对 child early exit、PID 缺失超时、PID 成功都有耐久回归；公共 `stop_gateway` 对强制 SIGKILL、进程组回收、`forced=true` 与 PID/state 清理有回归。
-- [ ] legacy config 迁移备份在 open/write/fsync/目录 fsync 失败时不覆盖原配置，只删除自己创建的半成品；并发 loser 不删 winner；拒绝 symlink/hardlink alias；匹配备份权限不宽于 source；`nan`/`inf` 生命周期数值被拒绝。
-- [ ] M170 helper 从真实入口注册/登录测试用户、配置 credentials、以 `--auto-bind` 启 Gateway，并用 Bearer token 查询 `/im/v1/nodes`；fresh rebuild + live start 可观测 `m170-node=online`。
-- [ ] `scripts/e2e-down.sh` 在确认 Gateway 已退出后清理 `$WT_ROOT/gateway.pid` 与 `.gateway-state.json`，不杀无关进程，并有集成回归。
-- [ ] 相关窄测、受影响测试集、ruff、完整 `pytest -m "not e2e"` 与真实入口验收通过。
+- [x] README 与 operator runbook 使用真实 `Gateway started (pid=...)` / `Log:` / `IM service:` 输出，并明确启动确认不等于 runtime/channel ready。
+- [x] 公共 `launch_gateway_in_background` 默认 waiter 对 child early exit、PID 缺失超时、PID 成功都有耐久回归；公共 `stop_gateway` 对强制 SIGKILL、进程组回收、`forced=true` 与 PID/state 清理有回归。
+- [x] legacy config 迁移备份在 open/write/fsync/目录 fsync 失败时不覆盖原配置，只删除自己创建的半成品；并发 loser 不删 winner；拒绝 symlink/hardlink alias；匹配备份权限不宽于 source；`nan`/`inf` 生命周期数值被拒绝。
+- [x] M170 helper 从真实入口注册/登录测试用户、配置 credentials、以 `--auto-bind` 启 Gateway，并用 Bearer token 查询 `/im/v1/nodes`；fresh rebuild + live start 可观测 `m170-node=online`。
+- [x] `scripts/e2e-down.sh` 在确认 Gateway 已退出后清理 `$WT_ROOT/gateway.pid` 与 `.gateway-state.json`，不杀无关进程，并有集成回归。
+- [x] 相关窄测、受影响测试集、ruff、完整 `pytest -m "not e2e"` 与真实入口验收通过。
 
 ## 测试策略
 
