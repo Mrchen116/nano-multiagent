@@ -143,7 +143,7 @@ class JsonlTranscript:
 
         with self._mutex:
             self._writer.durable_barrier(self._path)
-            for entry in self._files.read_raw_entries(self._ref):
+            for entry in self._files.read_raw_entries(self._ref, limit=1):
                 if entry.get("type") == "session_created":
                     return dict(_extract_config(entry).get("metadata") or {})
             raise SessionNotFoundError(f"session not found: {self._ref.session_id}")
@@ -432,20 +432,21 @@ class JsonlTranscript:
         if self._tail_known:
             return
         self._writer.durable_barrier(self._path)
-        loaded = self._files.read_raw_entries(self._ref)
-        materialized = _materialize(self._ref, list(loaded))
-        persisted_ids = {
-            entry.get("uuid")
-            for entry in loaded
-            if entry.get("type") == "turn" and isinstance(entry.get("uuid"), str)
-        }
-        self._tail_uuid = next(
+        raw = self._files.read_raw_entries(self._ref)
+        boundary = max(
             (
-                message.message_id
-                for message in reversed(materialized.messages)
-                if message.message_id in persisted_ids
+                index
+                for index, entry in enumerate(raw)
+                if entry.get("type") == "compact_boundary"
             ),
-            None,
+            default=-1,
+        )
+        turns = [entry for entry in raw[boundary + 1 :] if entry.get("type") == "turn"]
+        reachable = _reachable_turn_entries(turns)
+        self._tail_uuid = (
+            str(reachable[-1]["uuid"])
+            if reachable and isinstance(reachable[-1].get("uuid"), str)
+            else None
         )
         self._tail_known = True
 
@@ -520,6 +521,14 @@ def _materialize(
 
 
 def _materialize_turns(turns: list[dict[str, Any]]) -> list[Message]:
+    return [_to_message(entry) for entry in _reachable_turn_entries(turns)]
+
+
+def _reachable_turn_entries(
+    turns: Sequence[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Resolve the active branch without allocating domain Messages."""
+
     if not turns:
         return []
     by_uuid = {entry["uuid"]: entry for entry in turns if "uuid" in entry}
@@ -537,8 +546,7 @@ def _materialize_turns(turns: list[dict[str, Any]]) -> list[Message]:
         parent = current.get("parent_uuid")
         current = by_uuid.get(parent) if parent else None
     if not any(entry.get("parent_uuid") in by_uuid for entry in turns):
-        ordered = sorted(turns, key=lambda entry: entry.get("timestamp", ""))
-        return [_to_message(entry) for entry in ordered]
+        return sorted(turns, key=lambda entry: entry.get("timestamp", ""))
     chain.reverse()
     active_groups = {entry["group_id"] for entry in chain if entry.get("group_id")}
     while True:
@@ -562,7 +570,7 @@ def _materialize_turns(turns: list[dict[str, Any]]) -> list[Message]:
         if entry.get("uuid") in seen and entry.get("uuid") not in chain_ids
     ]
     ordered.sort(key=lambda entry: entry.get("timestamp", ""))
-    return [_to_message(entry) for entry in ordered]
+    return ordered
 
 
 def _inject_recovery_messages(

@@ -309,20 +309,20 @@ class RunsRegistry:
         foreground_stopped = self._foreground_stopper is not None and (
             self._foreground_stopper(session_id)
         )
+        # User-visible interrupt is a synchronous semantic terminal. Linearize
+        # CANCELLED before returning so a provider completing inside the executor's
+        # cooperative grace cannot publish COMPLETED over an accepted /stop.
+        controller.cancel()
+        self._set_status(
+            run_id,
+            status=RunStatus.CANCELLED,
+            stop_reason="cancelled",
+            only_if={RunStatus.QUEUED, RunStatus.RUNNING},
+        )
         if foreground_stopped:
-            # A force-cancel kills the carrier Task via a raw CancelledError that
-            # propagates out of _run_worker_async WITHOUT hitting its terminal
-            # markers (CancelledError is BaseException, not caught by `except
-            # Exception`). So, exactly like cancel(), record the terminal state
-            # and flag the controller cancelled before force-cancelling — otherwise
-            # the run would stay RUNNING forever (M1 cancel() does the same).
-            controller.cancel()
-            self._set_status(
-                run_id,
-                status=RunStatus.CANCELLED,
-                stop_reason="cancelled",
-                only_if={RunStatus.QUEUED, RunStatus.RUNNING},
-            )
+            # The foreground process has already been reaped, so bypass the grace
+            # period and unwind the carrier immediately. Semantic terminal state
+            # was committed above and is independent from this cleanup timing.
             self._request_target_cancel(run_id, force=True)
         else:
             # Aborting the loop is cooperative, but providers and other awaits do

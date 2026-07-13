@@ -526,14 +526,18 @@ async def test_append_message_during_active_turn_reloads_residual_output(
             workspace_root=tmp_path,
         )
         release.set()
-        assert (await _wait_for_terminal_run(kernel, first.run_id)).status == "completed"
+        assert (
+            await _wait_for_terminal_run(kernel, first.run_id)
+        ).status == "completed"
 
         second = kernel.submit(
             session_id=session.session_id,
             parts=[{"type": "text", "text": "second"}],
             workspace_root=tmp_path,
         )
-        assert (await _wait_for_terminal_run(kernel, second.run_id)).status == "completed"
+        assert (
+            await _wait_for_terminal_run(kernel, second.run_id)
+        ).status == "completed"
 
         second_context = [
             (message.role, _flatten_msg_text(message))
