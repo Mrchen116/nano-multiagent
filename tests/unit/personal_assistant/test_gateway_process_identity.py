@@ -255,3 +255,76 @@ def test_public_stop_bounds_both_wait_phases_to_remaining_grace(
         ("pid", signal.SIGKILL),
         ("group", signal.SIGKILL),
     ]
+
+
+def test_legacy_state_matching_gateway_is_upgraded_before_public_stop(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    config = build_config(tmp_path)
+    _write_lifecycle(tmp_path, with_state=True, with_identity=False)
+    state_path = tmp_path / ".gateway-state.json"
+    state_payload = json.loads(state_path.read_text(encoding="utf-8"))
+    state_payload["health_url"] = "http://127.0.0.1:8011/openapi.json"
+    state_path.write_text(json.dumps(state_payload), encoding="utf-8")
+    signals: list[tuple[str, int]] = []
+    pid_checks = iter([True, False])
+    monkeypatch.setattr(
+        main_module,
+        "_observe_gateway_process",
+        lambda _pid: _observed_gateway(config.source_path),
+    )
+    monkeypatch.setattr(main_module, "_pid_is_running", lambda _pid: next(pid_checks))
+    monkeypatch.setattr(
+        main_module.os,
+        "kill",
+        lambda _pid, sig: signals.append(("pid", sig)),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_kill_process_tree",
+        lambda _pid, sig: signals.append(("group", sig)),
+    )
+    monkeypatch.setattr(main_module.time, "monotonic", iter([0.0, 0.0]).__next__)
+    monkeypatch.setattr(main_module.time, "sleep", lambda _seconds: None)
+
+    result = stop_gateway(
+        config_path=config.source_path, load_config=lambda _path: config
+    )
+
+    assert result == f"STOPPED pid=2468 state={state_path}"
+    assert signals == [
+        ("pid", signal.SIGTERM),
+        ("group", signal.SIGTERM),
+    ]
+    assert not (tmp_path / "gateway.pid").exists()
+    assert not (tmp_path / "gateway.identity.json").exists()
+    assert not state_path.exists()
+
+
+def test_legacy_state_sleeper_pid_is_rejected_without_signal(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    config = build_config(tmp_path)
+    _write_lifecycle(tmp_path, with_state=True, with_identity=False)
+    signals: list[tuple[int, int]] = []
+    monkeypatch.setattr(
+        main_module,
+        "_observe_gateway_process",
+        lambda _pid: SimpleNamespace(
+            process_start=_PROCESS_START,
+            argv=("/bin/sleep", "100"),
+        ),
+    )
+    monkeypatch.setattr(
+        main_module.os, "kill", lambda pid, sig: signals.append((pid, sig))
+    )
+
+    with pytest.raises(RuntimeError, match="legacy Gateway identity mismatch"):
+        stop_gateway(config_path=config.source_path, load_config=lambda _path: config)
+
+    assert signals == []
+    assert (tmp_path / "gateway.pid").exists()
+    assert (tmp_path / ".gateway-state.json").exists()
+    assert not (tmp_path / "gateway.identity.json").exists()
