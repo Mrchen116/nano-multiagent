@@ -30,8 +30,11 @@
   gap/window miss 返回 `resync_required`、客户端以 `/im/v1/sync.max_event_id` 对齐。
 - `node.status_changed` / `agent.status_changed` 是同一 envelope 的非持久状态帧，payload 有 owner-scoped `seq`，
   但没有持久事件 `event_id`；断线后不能只依赖 replay，消费方必须刷新权威 REST 快照。
-- `authFetch` 已是共享的 authenticated HTTP transport，负责 base URL、Bearer token 和 401 refresh；本 unit 不再
-  新造通用 REST client。
+- `authFetch` 已是共享的 authenticated HTTP transport，但 refresh single-flight 目前是其私有实现，只有 HTTP
+  401 会触发；WebSocket 重连时没有主动取得 fresh access token 的路径。本 unit 会把这个能力收口到
+  auth module，但不新造通用 REST client。
+- auth store 同时持有 token 和 user snapshot；绑定会改变 `owned_node_ids` / `default_entry_node_id`，仅刷新
+  React Query cache 不会更新这份 session user snapshot。
 - current Chat 使用 React Query；user-stream transport 不得反向持有 QueryClient，否则 transport 会知道 Chat、
   Settings 和通知的领域语义。
 - 测试遵循 `docs/TESTING_GUIDE.md`：新接口通过其 observable interface 测，废弃路径的旧测试随路径删除；
@@ -50,8 +53,8 @@
 
 - **改造使用** legacy shared stream 的 cursor、resume、ping、backoff 和 sync 语义；这些行为正确但归属错误，且
   token rotation、stale callback、subscriber isolation 未收口，不能原样复制后继续保留旧实现。
-- **直接使用** `useAuthStore` 的当前 session 与 subscribe 能力；runtime 从 session 获取 user/token，调用方不再
-  传易过期凭证。
+- **改造使用** `useAuthStore` 的当前 session 与 subscribe 能力；在 auth module 内从 `authFetch` 抽出共享
+  refresh coordinator，让 HTTP 401 和 user-stream connect 复用同一个 single-flight，调用方不再传易过期凭证。
 - **直接使用** `authFetchJson` 访问 `/im/v1/sync`，让 sync 与普通 HTTP 共享 refresh 语义。
 - **保留使用** v2 `chat-types.ts`、`chat-stream-reducer.ts` 与各领域现有纯事件处理函数；transport 只提供 raw event，
   不吞并 Chat/Settings/Notification 的展示规则。
@@ -60,8 +63,8 @@
 
 ### 本变更沿用的既有模式
 
-- 沿用 `authFetch` 的“共享 transport 隐藏鉴权、领域 client 解释响应”模式：user-stream runtime 隐藏连接生命周期，
-  各领域 subscriber 解释事件并更新自己的 state/cache。
+- 沿用 `authFetch` 的“共享 transport 隐藏鉴权、领域 client 解释响应”模式：auth module 统一隐藏 token
+  freshness/refresh，user-stream runtime 隐藏连接生命周期，各领域 subscriber 解释事件并更新自己的 state/cache。
 - 沿用 React `useEffect -> subscribe -> dispose` 的消费方式，但所有 effect 跨同一个 seam；不新增全局 React context。
 - 沿用 v2 reducer 作为 active conversation 的 timeline 权威，不把 timeline 状态搬入 React Query。
 
@@ -81,7 +84,9 @@ token、cursor、socket、timer、resume、sync 和重连顺序。
 
 ```mermaid
 graph TD
-    Auth["auth store"] --> Runtime["realtime/user-stream<br/>deep module"]
+    Auth["auth store"] --> AuthSession["auth session coordinator<br/>freshness + single-flight refresh"]
+    AuthSession --> Runtime["realtime/user-stream<br/>deep module"]
+    AuthSession --> Http["authFetch"]
     Runtime -->|"authenticated WebSocket"| IM["IM /im/ws/user"]
     Runtime -->|"sync snapshot cursor"| Sync["IM /im/v1/sync"]
     Auth --> CacheReset["session-scoped query cache reset"]
@@ -112,15 +117,17 @@ Before 是“两条 socket + legacy/v2 两套 Chat 数据面”；After 是“�
 - **拒绝**: 继续放在 `im-chat-api.ts`；补强 `v2/chat-stream.ts`；让 App 组件直接持有 socket。
 - **风险**: 新顶层目录必须靠 architecture contract 守住，防止未来第二处直接 `new WebSocket('/im/ws/user')`。
 
-### 决策 2: runtime 自己跟随 auth session
+### 决策 2: auth module 拥有 token freshness，runtime 跟随它连接
 
-**subscriber 不传 `selfUserId` 或 token；runtime 监听 auth store，并在 user/token 变化时切换 connection generation。**
+**subscriber 不传 `selfUserId` 或 token；auth module 提供 single-flight `ensureFreshSession`，runtime 每次 connect 前先取得可用 session。**
 
-- **理由**: access token 会被 `authFetch` 自动轮换，调用方捕获 token 会在后续重连使用过期凭证。session 是连接身份
-  的唯一权威。
-- **拒绝**: 保留每个 effect 传 token；等 socket 自然断开后再读取 token；让调用方手工通知 refresh。
-- **风险**: 主动换 socket 产生短窗口，必须先保留 per-user cursor，再由新 generation resume；旧 socket callback
-  必须因 generation 不匹配而失效。
+- **理由**: auth 而非 WebSocket transport 拥有 refresh token 及失效语义。`ensureFreshSession` 与 `authFetch` 共用一个
+  refresh coordinator，使“HTTP 401”和“过期 token 下的 WS 重连”不再是两套鉴权恢复。
+- **拒绝**: 保留每个 effect 传 token；只观察 store 变化却不主动 refresh；让 runtime 直接读 refresh token；依赖
+  其他页面碰巧发出 HTTP 请求。
+- **风险**: refresh 期间可能发生 logout/account switch 或暂时网络失败；coordinator 必须对发起 refresh 时的
+  user/refresh-token snapshot 做 stale-result guard，且只在 refresh 凭证确认失效时 clear session，网络/5xx 保留 session 并交给
+  runtime backoff。
 
 ### 决策 3: 每标签页单连接、多 subscriber，领域语义留在调用方
 
@@ -160,7 +167,18 @@ Before 是“两条 socket + legacy/v2 两套 Chat 数据面”；After 是“�
 - **拒绝**: 给所有 query key 追加 user id；让每个页面分别监听 logout；依赖 stale/refetch 最终覆盖旧数据。
 - **风险**: logout 时所有 server cache 清空是预期副作用；UI-only preference/Zustand state 不在 QueryClient 内，不受影响。
 
-### 决策 7: 完成迁移后只保留 canonical Chat
+### 决策 7: 绑定成功是一次 session 与 server-state 收敛
+
+**绑定页在 confirm 成功后刷新 `/im/v1/me`、替换同一用户的 auth snapshot、refetch owner-derived cache，最后导航 Chat。**
+
+- **理由**: bind 同时改变 node/agent owner 与用户的 `owned_node_ids` / `default_entry_node_id`；既有 hot cache 和
+  auth store 都不会因 POST 自动变更。页面已拥有 QueryClient 和导航语义，应当编排这次收敛，settings client 只保留
+  typed REST 请求。
+- **拒绝**: 只机械迁移 `confirmBindToken`；只失效 legacy/Chat cache；让 settings client 持有 QueryClient 或负责导航。
+- **风险**: confirm POST 已成功而后续 `/me`/refetch 失败时，不得重复提交一次性 bind token；页面保留已成功的
+  bind result，重试时只重跑 reconciliation。
+
+### 决策 8: 完成迁移后只保留 canonical Chat
 
 **删除 legacy client/mock/types/旧组件，把当前 `v2/` 提升为无版本后缀的 `features/chat/` current surface。**
 
@@ -170,7 +188,7 @@ Before 是“两条 socket + legacy/v2 两套 Chat 数据面”；After 是“�
 - **风险**: 42 个 current v2 文件的机械移动会产生大 diff；必须使用 `git mv`、先删同名 legacy 文件、再靠 build 和
   route/integration tests 证明只改路径，不趁机拆 workspace。
 
-### 决策 8: replace, don't layer
+### 决策 9: replace, don't layer
 
 **先把全部实时消费者切到新 interface 并删除旧 stream，再迁移最后的非实时调用方并删除整个 legacy cluster。**
 
@@ -197,12 +215,13 @@ Before 是“两条 socket + legacy/v2 两套 Chat 数据面”；After 是“�
 ### Internal seams
 
 IM 是 remote-but-owned 依赖。runtime 内部定义 socket/environment port，production 使用 Browser WebSocket +
-sessionStorage + auth store + `authFetchJson` adapter，Vitest 使用 fake socket/storage/scheduler adapter。内部 seam 不从
+sessionStorage + auth session coordinator + `authFetchJson` adapter，Vitest 使用 fake socket/storage/scheduler/session adapter。内部 seam 不从
 external interface 暴露。
 
 | 内部依赖 | Production adapter | 测试用途 |
 |---|---|---|
 | session source | `useAuthStore.getState/subscribe` | 驱动 login、token rotate、account switch、logout |
+| session readiness | auth module `ensureFreshSession()` | 驱动 fresh/refresh/retry/signed-out 及 concurrent single-flight |
 | socket factory | browser `WebSocket` | 精确驱动 open/message/close/stale callback |
 | cursor store | `sessionStorage`, key 按 user id | 验证 resume、单调推进、账号隔离 |
 | scheduler | `window.setTimeout/setInterval` | fake timers 验证 backoff/ping/取消 |
@@ -215,12 +234,16 @@ sequenceDiagram
     participant C as Domain subscriber
     participant R as UserStream runtime
     participant A as Auth store
+    participant S as Auth session coordinator
     participant IM as IM user stream
     participant Q as Domain REST/cache
 
     C->>R: subscribe(onEvent, onRecovery)
-    R->>A: read current user + token
-    R->>IM: connect ?token=current
+    R->>S: ensureFreshSession()
+    S->>A: read current session / refresh if near expiry
+    S-->>R: ready(userId, accessToken)
+    R->>A: verify returned session is still current
+    R->>IM: connect ?token=fresh
     IM-->>R: open
     R->>IM: resume(after_event_id=cursor[user])
     IM-->>R: op=event
@@ -230,26 +253,52 @@ sequenceDiagram
 
     IM--xR: unexpected close
     R->>R: bounded exponential backoff
-    R->>A: re-read latest session
-    R->>IM: reconnect with latest token + resume
-    R-->>C: onRecovery()
-    C->>Q: invalidate/refetch owned state
+    R->>S: ensureFreshSession()
+    alt readiness=ready (refresh only when required)
+        S->>S: reuse fresh token or shared single-flight refresh
+        S->>A: commit refreshed pair only if session snapshot still current
+        S-->>R: ready(userId, accessToken)
+        R->>IM: reconnect with fresh token + resume
+        R-->>C: onRecovery()
+        C->>Q: invalidate/refetch owned state
+    else network/5xx while refresh required
+        S-->>R: retry (keep session)
+        R->>R: remain in bounded backoff
+    else refresh credential invalid
+        S->>A: clear matching session
+        S-->>R: signed_out
+    end
 ```
+
+auth module 对 user-stream 暴露的内部 interface 是：
+
+| 名称 | 形状 | 契约 |
+|---|---|---|
+| `ensureFreshSession` | `() => Promise<SessionReadiness>` | access JWT 剩余有效期 >30s 时直接 ready；无法解析/已过期/剩余 <=30s 时进入共享 refresh single-flight |
+| `SessionReadiness` | `{status:'ready', userId, accessToken} \| {status:'retry'} \| {status:'signed_out'}` | `retry` 只表示网络/5xx 等暂时失败且不 clear store；`refresh` 401/无 refresh token 才 clear 当时仍匹配的 session |
+
+`authFetch` 的 401 retry 与 `ensureFreshSession` 复用同一个 module-level refresh promise。refresh 完成时若
+`{userId, refreshToken}` 已与发起时 snapshot 不同，结果必须丢弃，不得覆盖新登录用户。runtime 只使用
+`ready` 返回值，且建 socket 前再确认 store 仍是同一 user/token；否则废弃本次 connect。
 
 ### Connection state machine
 
 ```mermaid
 stateDiagram-v2
     [*] --> Dormant
-    Dormant --> Connecting: first subscriber + authenticated session
+    Dormant --> EnsuringSession: first subscriber + authenticated session
+    EnsuringSession --> Connecting: readiness=ready
+    EnsuringSession --> Backoff: readiness=retry
+    EnsuringSession --> Dormant: readiness=signed_out
     Connecting --> Live: socket open / resume sent
     Connecting --> Backoff: unexpected close
     Live --> Backoff: unexpected close
-    Backoff --> Connecting: retry timer + subscribers + session
+    Backoff --> EnsuringSession: retry timer + subscribers + session
     Live --> Reconciling: resync_required
     Reconciling --> Live: sync attempted / recovery signaled
-    Live --> Connecting: user or token changed / new generation
+    Live --> EnsuringSession: user or token changed / new generation
     Backoff --> Dormant: logout or last unsubscribe
+    EnsuringSession --> Dormant: logout or last unsubscribe
     Connecting --> Dormant: logout or last unsubscribe
     Live --> Dormant: logout or last unsubscribe
 ```
@@ -257,6 +306,9 @@ stateDiagram-v2
 - 每次 connect 递增 generation；旧 generation 的 `open/message/close/timer` callback 以及 sync async completion 不得
   改变当前状态、cursor 或安排重连。
 - backoff 从 1 秒指数增长并封顶 30 秒，成功 open 后归零；Live 每 25 秒 ping，离开 generation 时清 timer。
+- 每次初始 connect 和 backoff retry 都经 `EnsuringSession`；`retry` 沿用同一 bounded backoff，`signed_out` 停止重连并由
+  现有 auth route guard 转登录页。已建立的 socket 不因 JWT 自然到期强制换代；只在下次 connect 或 store token 已
+  rotation 时进入新 generation。
 - `resync_required` 调 `/im/v1/sync`；cursor 更新为 `max(current, max_event_id)`，sync 失败不回退 cursor，仍发
   `onRecovery` 让领域自行重读。后续 reconnect 继续按现有 cursor 恢复。
 
@@ -274,7 +326,7 @@ stateDiagram-v2
 
 | 现有 legacy 调用 | canonical 归属 |
 |---|---|
-| `confirmBindToken` | `features/settings/im-settings-api.ts` 的窄 bind 请求；身份直接来自 Bearer session |
+| `confirmBindToken` | `features/settings/im-settings-api.ts` 的窄 bind 请求；身份直接来自 Bearer session；成功后由绑定页执行下述 reconciliation |
 | Agent detail `createDirectChatByAgentUserId` | canonical Chat `createConversation({title, agentIds})`，只失效 canonical conversation key |
 | `normalizeItemsEnvelope` | Agent config client 内部 normalization，不为一个调用方暴露跨 feature helper |
 | legacy preview snapshot/cache | 删除；canonical React Query conversations 是唯一列表状态 |
@@ -284,7 +336,20 @@ stateDiagram-v2
 
 `AppProviders` 持有 QueryClient，因此由它订阅 auth store 的 user id：从 A 变为 `null`、从 A 变为 B 时执行
 `queryClient.clear()`；`null -> B` 时保持空 cache 让各页面按 B 重新取数；A 的 token refresh（user id 不变）不清理。
-user-stream runtime 独立监听完整 `{userId, accessToken}`，负责 socket generation，不接触 QueryClient。
+user-stream runtime 独立监听完整 `{userId, accessToken}`，并在 connect 前通过 auth session coordinator 取得
+fresh session，负责 socket generation，不接触 QueryClient。
+
+`BindConfirmPage` 的成功路径按以下顺序收敛：
+
+1. 只提交一次 `POST /im/v1/bind {action:'confirm', bind_token}`，记住返回的 bind result。
+2. 调用 `GET /im/v1/me`，通过 auth store 的 `replaceUser(nextUser)` 替换并持久化同一 user id 的 snapshot，
+   保留现有 access/refresh token。`replaceUser` 只接受与当前 session 相同的 user id，若期间已 logout/switch
+   则丢弃延迟响应；同 user 替换不触发 QueryClient account-switch clear。
+3. 对 final canonical keys `['chat','conversations']`、`['chat','agents']`、`['chat','nodes']`、
+   `['settings','account']`、`['settings','nodes']`、`['settings','agents']` 执行 prefix invalidation，对已有 active/inactive
+   hot cache 使用 `refetchType:'all'` 并等待 reconciliation settled。
+4. 完成上述收敛后再 `navigate('/chat', {replace:true})`。若第 2/3 步暂时失败，保留第 1 步已成功状态；
+   后续重试只执行 reconciliation，不再消费 bind token。
 
 ## 契约层增量 (delta-spec)
 
@@ -297,6 +362,8 @@ user-stream runtime 独立监听完整 `{userId, accessToken}`，负责 socket g
 
 - **token rotate 与 close 竞态**：旧 socket 的延迟 close 可能误关/重连新 session。以 generation guard + fake socket
   顺序测试兜底；失败时回退 M1，不保留双 runtime 降级。
+- **refresh 与断网/account switch 竞态**：过期 access token 重连时必须主动 refresh，但断网不应被误判为退出，
+  A 的延迟 refresh 也不得覆盖 B。以共享 single-flight、snapshot guard 和 `ready/retry/signed_out` 分类测试兜底。
 - **cursor 与通知重复/丢失**：cursor 提前或回退都影响 replay。测试覆盖非法帧不推进、持久帧单调推进、status 无
   event id 不推进、subscriber 抛错仍推进且其他人继续、resync 使用 max 对齐。
 - **非持久状态断线漏帧**：每次 continuity recovery 通知 Nodes/Agents/Chat 刷 REST；不能只依赖 replay。
@@ -306,6 +373,8 @@ user-stream runtime 独立监听完整 `{userId, accessToken}`，负责 socket g
   Chat integration、完整 Vitest 和 production build 对账。若 M2 失败，可整体回退 M2，M1 runtime 仍可独立工作。
 - **快速账号切换复用旧 server cache**：M1 在 AppProviders 统一按 user id 清 QueryClient，并用 provider/auth 集成测试
   证明 token refresh 不误清、logout/account switch 必清；不把安全性寄托在 query stale time。
+- **绑定后 hot cache 与 auth snapshot 不一致**：M2 把 confirm 与 reconciliation 分成不可重复/可重试两段，真栈
+  验证预先加载 Chat/Settings cache 后绑定，Node/Agent 与默认入口仍立即可见，且重试不二次提交 token。
 - **旧测试虚假安全感**：新 interface 测试覆盖 lifecycle 后删除 `im-chat-api`/`chat-stream` 的重叠测试；保留或迁移
   current UI/reducer tests，不以测试数下降作为完成证据。
 
@@ -320,11 +389,14 @@ Web IM 为视觉与交互基线。
 
 **Review 驱动方式**: 端到端真栈并真驱动浏览器客户端。登录 `$IM_URL` 后依次走 Chat 实时回复/NO_REPLY、切到
 Me 页验证应用内与系统通知、Gateway 断连/重连时观察 Chat/Nodes/Agents 状态、浏览器短暂离线后恢复、绑定确认、
-Agent 详情打开单聊；桌面与移动 viewport 各抽检一次。不得用直接调用内部 reducer 或伪造 subscriber 代替客户端旅程。
+Agent 详情打开单聊；桌面与移动 viewport 各抽检一次。长登录恢复必须使用已过期 access token +
+仍有效 refresh token 的真实浏览器 session（可用 `.e2e-jwt-secret` 签发 expired access JWT 写入 `im_auth_v1` 后 reload），
+不能只模拟 store 被外部换成 fresh token。绑定前先访问 Chat/Settings 预热 cache。不得用直接调用内部 reducer 或伪造
+subscriber 代替客户端旅程。
 
 ## Milestones
 
-拆成两个串行 Milestone，命中“>10 文件 / >4 小时”与“必须分阶段验证”两条硬触发：M1 约涉及 12-16 个
+拆成两个串行 Milestone，命中“>10 文件 / >4 小时”与“必须分阶段验证”两条硬触发：M1 约涉及 14-18 个
 实现/测试文件并新增完整连接生命周期；M2 要迁移/移动 40+ current v2 文件并删除 4200+ 行 legacy。先证明 M1
 恢复语义，再删除旧表面，能把 correctness 风险与机械迁移风险分开。
 
@@ -346,12 +418,12 @@ graph LR
 | 不满足通知条件时不弹通知 | notifier visibility/preference/permission gate | M1 |
 | 恢复连接不重放历史通知 | per-user cursor + notifier state + recovery | M1 |
 | Gateway 断连与重连 | status subscriber + recovery refetch | M1 |
-| 长时间保持登录后发生网络重连 | auth-following connection generation | M1 |
+| 长时间保持登录后发生网络重连 | auth `ensureFreshSession` -> fresh-token connection generation | M1 |
 | 退出后切换为另一用户 | socket generation + session-scoped QueryClient reset | M1 |
-| 确认 Gateway 绑定 | narrow settings bind client | M2 |
+| 确认 Gateway 绑定 | narrow settings bind client -> `/me`/auth snapshot -> owner-derived cache refetch -> navigate | M2 |
 | 从 Agent 详情打开单聊 | canonical Chat create-conversation client | M2 |
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| refactor-460-M1 | realtime-runtime | — | A | `src/IM/frontend/src/realtime/`; `src/IM/frontend/src/app/{providers*,App.test.tsx}`; `features/chat/{im-chat-api.ts,im-chat-api.test.ts,chat-api.ts,mock-chat-api.ts,hooks/use-global-message-toast*}`; `features/chat/v2/{chat-api.ts,chat-stream*,chat-types.ts,chat-workspace-page*,chat-workspace.integration.test.tsx}`; `features/notifications/agent-completion-notifier*`; `features/settings/nodes/nodes-page*`; `features/settings/agents/agent-status-ws-consumer*`; `tests/contract/test_im_frontend_user_stream_ownership.py` | **[reviewer]** 覆盖 motivation 中“当前会话实时过程”“会话列表/未读/toast”“桌面通知”“Node/Agent 状态”“长时间登录与账号切换”的全部 Scenario，特别验证断线恢复后不重放已处理通知。<br>**[worker]** runtime interface 测试覆盖单 socket/多 subscriber、resume/ping/backoff、token/user generation、cursor 单调性、resync/recovery、subscriber isolation、last-unsubscribe；provider/auth 集成测试覆盖 token refresh 不清 cache、logout/account switch 清 cache；architecture contract 证明 `/im/ws/user` 只有 runtime 一个 lifecycle owner。<br>**[worker]** 相关 Vitest + `npm run build` 通过；M1 后生产实时调用方对 legacy stream 和 `v2/chat-stream.ts` 为零，旧 stream 实现/测试删除而非 wrapper 保留。 |
-| refactor-460-M2 | legacy-retirement | refactor-460-M1 | B | `src/IM/frontend/src/features/chat/` 全目录 canonicalization/deletion；`app/{router*,shell/app-shell*}`；`features/chat/bind-confirm-page*`; `features/settings/im-settings-api*`; `features/settings/agents/{agent-detail-page*,im-agent-config-api*}`；所有受路径移动影响的 frontend imports/tests；`src/IM/frontend/README.md`; 本 unit delta-spec | **[reviewer]** 覆盖 motivation 中“确认 Gateway 绑定”“从 Agent 详情打开单聊”，并回归 M1 全部实时旅程、Chat 桌面/移动核心交互。<br>**[worker]** `im-chat-api.ts`、legacy `chat-api.ts`/`mock-chat-api.ts`/`types.ts`、旧 ConversationList/MessagePane 及只服务旧路径的测试删除；原 `v2/` current 文件通过 `git mv` 成为无版本后缀 canonical Chat；生产源码无 `VITE_CHAT_API_MODE`、`chat-v2` query key、legacy import 或第二处 user-stream socket。<br>**[worker]** `npm run test`、`npm run build`、相关 Python contract、`pytest -m "not e2e"` 与 `scripts/e2e-critical.sh` 通过；README 与真实入口一致。 |
+| refactor-460-M1 | realtime-runtime | — | A | `src/IM/frontend/src/realtime/`; `src/IM/frontend/src/features/auth/{auth-fetch*,auth-session*}`; `src/IM/frontend/src/app/{providers*,App.test.tsx}`; `features/chat/{im-chat-api.ts,im-chat-api.test.ts,chat-api.ts,mock-chat-api.ts,hooks/use-global-message-toast*}`; `features/chat/v2/{chat-api.ts,chat-stream*,chat-types.ts,chat-workspace-page*,chat-workspace.integration.test.tsx}`; `features/notifications/agent-completion-notifier*`; `features/settings/nodes/nodes-page*`; `features/settings/agents/agent-status-ws-consumer*`; `tests/contract/test_im_frontend_user_stream_ownership.py` | **[reviewer]** 覆盖 motivation 中“当前会话实时过程”“会话列表/未读/toast”“桌面通知”“Node/Agent 状态”“长时间登录与账号切换”的全部 Scenario，特别验证 access token 已过期后断网恢复仍能自动 refresh/重连，且不重放已处理通知。<br>**[worker]** auth session interface 测试覆盖 fresh token 不 refresh、剩余 <=30s/过期 token 单飞 refresh、HTTP 与 WS 共用 in-tab promise、网络/5xx 返回 retry 且不 clear、refresh 401 才 clear、A->B 期间 A 的延迟结果不覆盖 B；runtime interface 测试覆盖单 socket/多 subscriber、resume/ping/backoff、readiness 三分支、token/user generation、cursor 单调性、resync/recovery、subscriber isolation、last-unsubscribe；provider/auth 集成测试覆盖 token refresh 不清 cache、logout/account switch 清 cache；architecture contract 证明 `/im/ws/user` 只有 runtime 一个 lifecycle owner。<br>**[worker]** 相关 Vitest + `npm run build` 通过；M1 后生产实时调用方对 legacy stream 和 `v2/chat-stream.ts` 为零，旧 stream 实现/测试删除而非 wrapper 保留。 |
+| refactor-460-M2 | legacy-retirement | refactor-460-M1 | B | `src/IM/frontend/src/features/chat/` 全目录 canonicalization/deletion；`app/{router*,shell/app-shell*}`；`features/auth/{auth-store*,auth-store.test*}`; `features/chat/bind-confirm-page*`; `features/settings/im-settings-api*`; `features/settings/agents/{agent-detail-page*,im-agent-config-api*}`；所有受路径移动影响的 frontend imports/tests；`src/IM/frontend/README.md`; 本 unit delta-spec | **[reviewer]** 覆盖 motivation 中“确认 Gateway 绑定”“从 Agent 详情打开单聊”，其中绑定必须在 Chat/Settings 已有 hot cache 时操作，返回 Chat 后刚绑定的 Node/Agent/默认入口立即可见；并回归 M1 全部实时旅程、Chat 桌面/移动核心交互。<br>**[worker]** bind 集成测试预填充 final canonical Chat/Settings caches，证明 confirm 成功后 `/me` 覆盖 auth user snapshot、六组 owner-derived prefix 以 `refetchType:'all'` 收敛后才导航，且 reconciliation 失败重试不再提交 bind token。<br>**[worker]** `im-chat-api.ts`、legacy `chat-api.ts`/`mock-chat-api.ts`/`types.ts`、旧 ConversationList/MessagePane 及只服务旧路径的测试删除；原 `v2/` current 文件通过 `git mv` 成为无版本后缀 canonical Chat；生产源码无 `VITE_CHAT_API_MODE`、`chat-v2` query key、legacy import 或第二处 user-stream socket。<br>**[worker]** `npm run test`、`npm run build`、相关 Python contract、`pytest -m "not e2e"` 与 `scripts/e2e-critical.sh` 通过；README 与真实入口一致。 |
