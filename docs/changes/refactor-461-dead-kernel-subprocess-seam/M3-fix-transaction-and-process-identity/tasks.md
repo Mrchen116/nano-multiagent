@@ -8,12 +8,12 @@
 
 ## 退出标准
 
-- [ ] legacy backup 对 FIFO/非 regular file fail-fast，existing/new backup 都要求单链接独立文件；子进程硬超时回归证明不会阻塞。
-- [ ] `save_local_config` 对同路径串行协调，基于事务起点 snapshot 完成 durable backup，并在原子提交前执行 identity/content CAS；外部写入漂移时拒绝覆盖，保留第三方内容和原始备份。
-- [ ] 默认后台启动只在 PID 文件可解析、等于 spawned PID 且 child 存活时成功；malformed/mismatch/dead child 均不写成功状态。
-- [ ] state 与 PID-only 两条 stop 路径共享强制退出语义：SIGKILL ESRCH 视为已退出，成功发 KILL 后仍要 bounded confirm；未确认退出时保留状态并明确失败。
-- [ ] e2e-up 持久化 Gateway ownership identity；e2e-down 在发任何信号前验证内部 PID、精确 config/foreground argv 与启动身份，mismatch 或未确认退出均非零退出且保留整栈证据。
-- [ ] `test_runtime_helpers.py` 格式化，`ruff check .`、`ruff format --check .`、受影响套件与完整非 e2e 套件通过；真实默认 start/stop/restart、配置迁移/drift、e2e 正负路径验收通过。
+- [x] legacy backup 对 FIFO/非 regular file fail-fast，existing/new backup 都要求单链接独立文件；子进程硬超时回归证明不会阻塞。
+- [x] `save_local_config` 对同路径串行协调，基于事务起点 snapshot 完成 durable backup，并在原子提交前执行 identity/content CAS；外部写入漂移时拒绝覆盖，保留第三方内容和原始备份。
+- [x] 默认后台启动只在 PID 文件可解析、等于 spawned PID 且 child 存活时成功；malformed/mismatch/dead child 均不写成功状态。
+- [x] state 与 PID-only 两条 stop 路径共享强制退出语义：SIGKILL ESRCH 视为已退出，成功发 KILL 后仍要 bounded confirm；未确认退出时保留状态并明确失败。
+- [x] e2e-up 持久化 Gateway ownership identity；e2e-down 在发任何信号前验证内部 PID、精确 config/foreground argv 与启动身份，mismatch 或未确认退出均非零退出且保留整栈证据。
+- [x] `test_runtime_helpers.py` 格式化，`ruff check .`、`ruff format --check .`、受影响套件与完整非 e2e 套件通过；真实默认 start/stop/restart、配置迁移/drift、e2e 正负路径验收通过。
 
 ## 测试策略
 
