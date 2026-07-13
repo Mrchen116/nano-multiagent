@@ -20,6 +20,7 @@ vi.mock("../chat-api", () => ({
 }));
 
 let streamHandler: ((event: { eventType: string; payload: Record<string, unknown>; eventId?: number }) => void) | null = null;
+let recoveryHandler: (() => Promise<void>) | null = null;
 
 vi.mock("../../../realtime/user-stream", () => ({
   subscribeUserStream: vi.fn(
@@ -28,8 +29,10 @@ vi.mock("../../../realtime/user-stream", () => ({
       onRecovery?: () => Promise<void>;
     }) => {
       streamHandler = input.onEvent;
+      recoveryHandler = input.onRecovery ?? null;
       return () => {
         streamHandler = null;
+        recoveryHandler = null;
       };
     }
   )
@@ -110,6 +113,7 @@ describe("useGlobalMessageToast", () => {
 
   beforeEach(() => {
     streamHandler = null;
+    recoveryHandler = null;
     vi.clearAllMocks();
     sessionStorage.clear();
     resetLocalUnreadFeedback();
@@ -256,6 +260,51 @@ describe("useGlobalMessageToast", () => {
         id: "message:external-new-1",
         senderName: "New Feishu Sender",
         preview: "first external message"
+      });
+      expect(hasLocalUnreadFeedback("conv-new-external")).toBe(true);
+    });
+  });
+
+  it("retries an unresolved external classification during stream recovery", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: 60_000 } }
+    });
+    queryClient.setQueryData(["chat", "conversations"], [conversation("conv-existing")]);
+    listConversationsMock
+      .mockRejectedValueOnce(new Error("temporary conversations failure"))
+      .mockResolvedValue([
+        conversation("conv-new-external", {
+          external_source: "feishu",
+          external_chat_id: "oc_new"
+        })
+      ]);
+    const { result } = renderHook(() => useGlobalMessageToast(), { wrapper: buildWrapper(queryClient, "/") });
+    await waitFor(() => expect(subscribeUserStreamMock).toHaveBeenCalled());
+
+    emit("conv-new-external", {
+      eventType: "message.created",
+      eventId: 1,
+      payload: {
+        message_id: "external-retry-1",
+        sender_type: "user",
+        sender_user_id: "self-user",
+        sender_display_name: "Recovered External Sender",
+        content: "recover this notification"
+      }
+    });
+
+    await waitFor(() => expect(listConversationsMock).toHaveBeenCalledTimes(1));
+    expect(result.current.toast).toBeNull();
+    await act(async () => {
+      await recoveryHandler?.();
+    });
+
+    await waitFor(() => {
+      expect(listConversationsMock).toHaveBeenCalledTimes(2);
+      expect(result.current.toast).toMatchObject({
+        id: "message:external-retry-1",
+        senderName: "Recovered External Sender",
+        preview: "recover this notification"
       });
       expect(hasLocalUnreadFeedback("conv-new-external")).toBe(true);
     });
