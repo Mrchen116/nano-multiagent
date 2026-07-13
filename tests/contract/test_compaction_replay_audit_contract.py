@@ -5,6 +5,7 @@ from agent.core.session.jsonl_files import JsonlSessionFiles
 from agent.core.session.jsonl_writer import JsonlWriter
 from agent.core.session.transcript import JsonlTranscript
 from agent.core.session.types import NewSession, SessionRef
+from agent.core.types import Message
 
 
 def test_compaction_replay_audit_contract(tmp_path: Path) -> None:
@@ -17,21 +18,21 @@ def test_compaction_replay_audit_contract(tmp_path: Path) -> None:
         files=files,
         writer=writer,
     )
-    transcript.append_turn_entries(
+    transcript.append_messages(
         [
-            {"uuid": "msg-1", "role": "user", "content": "legacy question"},
-            {"uuid": "msg-2", "role": "assistant", "content": "legacy answer"},
+            Message(message_id="msg-1", role="user", content="legacy question"),
+            Message(message_id="msg-2", role="assistant", content="legacy answer"),
         ],
         durable=True,
     )
 
     assert transcript.append_compaction(
-        summary={
-            "uuid": "msg-summary",
-            "role": "user",
-            "content": "summary: replay anchor",
-            "is_compact_summary": True,
-        },
+        summary=Message(
+            message_id="msg-summary",
+            role="user",
+            content="summary: replay anchor",
+            metadata={"is_compact_summary": True},
+        ),
         reason="threshold",
     )
 

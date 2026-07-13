@@ -70,6 +70,19 @@ def test_concurrent_foreground_tools_in_same_session_all_stopped() -> None:
     assert b.stopped is True
 
 
+def test_stop_all_reaps_foreground_tools_across_sessions() -> None:
+    reg = ForegroundExecutionRegistry()
+    first = _RecordingStopper()
+    second = _RecordingStopper()
+    reg.register(session_id="s1", stopper=first)
+    reg.register(session_id="s2", stopper=second)
+
+    reg.stop_all()
+
+    assert first.stopped is True
+    assert second.stopped is True
+
+
 def test_unregister_one_of_several_leaves_others_targetable() -> None:
     reg = ForegroundExecutionRegistry()
     a = _RecordingStopper()

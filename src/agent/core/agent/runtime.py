@@ -43,8 +43,6 @@ from agent.core.session.context_state import (
     SessionFileState,
     read_file_slice,
 )
-from agent.core.utils.time import utc_now_iso as _utc_now_iso
-
 from .compaction.applier import CompactionApplier
 from .compaction.planner import CompactionPlanner
 from .compaction.summarizer import CompactionSummarizer
@@ -261,6 +259,8 @@ class AgentEngine:
             compaction_summarizer=self._compaction_summarizer,
             compaction_settings=self._compaction_settings,
             on_compaction=self._invalidate_memory_snapshot,
+            capture_compaction_epoch=lambda: self._state().transcript.external_epoch,
+            commit_compaction=self._commit_threshold_compaction,
             build_skill_reinjection=self._build_skill_reinjection_message,
         )
 
@@ -339,6 +339,10 @@ class AgentEngine:
             raise ValueError("empty input parts are not allowed")
 
         turn_id = make_turn_id()
+        state.partial_turn_id = turn_id
+        state.partial_messages = []
+        state.partial_tool_calls = ()
+        state.partial_usage = None
         hook_metadata: dict[str, Any] = (
             dict(config.metadata) if isinstance(config.metadata, Mapping) else {}
         )
@@ -496,9 +500,7 @@ class AgentEngine:
             parts=tuple(user_content_parts) if user_content_parts else None,
         )
         history.append(user_msg)
-        state.transcript.append_turn_entries(
-            [_message_to_entry(user_msg, session_id)], durable=True
-        )
+        state.transcript.append_messages([user_msg], durable=True)
         preloop_messages: list[Message] = []
         if (
             slash_skill_command is not None
@@ -514,9 +516,8 @@ class AgentEngine:
             )
             for preloop_msg in preloop_messages:
                 history.append(preloop_msg)
-                state.transcript.append_turn_entries(
-                    [_message_to_entry(preloop_msg, session_id)],
-                    durable=preloop_msg.role == "tool",
+                state.transcript.append_messages(
+                    [preloop_msg], durable=preloop_msg.role == "tool"
                 )
             if preloop_messages:
                 await state.transcript.flush_async()
@@ -562,6 +563,7 @@ class AgentEngine:
             effective_input_parts = last_part
 
         all_messages: list[Message] = [user_msg, *preloop_messages]
+        state.partial_messages = all_messages
         _overflow_retried = False
         _run_cancelled = False
         try:
@@ -590,28 +592,15 @@ class AgentEngine:
                 if msg.role == "turn_meta":
                     all_messages.append(msg)
                     continue
-                history.append(msg)
                 all_messages.append(msg)
-                # Detect compact summary: write compact_boundary before the summary turn
                 if msg.metadata.get("is_compact_summary"):
                     post_compact_messages = _post_compact_messages_from(msg)
-                    state.transcript.append_compaction(
-                        summary=_message_to_entry(msg, session_id),
-                        reinjections=[
-                            _message_to_entry(item, session_id)
-                            for item in post_compact_messages
-                        ],
-                        reason=str(msg.metadata.get("compact_reason", "threshold")),
-                        restored_files=tuple(msg.metadata.get("restored_files", ())),
-                    )
+                    history[:] = [msg, *post_compact_messages]
                     for post_compact_msg in post_compact_messages:
-                        history.append(post_compact_msg)
                         all_messages.append(post_compact_msg)
                     continue
-                entry = _message_to_entry(msg, session_id)
-                state.transcript.append_turn_entries(
-                    [entry], durable=msg.role == "tool"
-                )
+                history.append(msg)
+                state.transcript.append_messages([msg], durable=msg.role == "tool")
             await state.transcript.flush_async()
             # bugfix-410-M2 R1: orphaned tool_call recovery moved to the run
             # `finally` below (see _recover_orphaned_tool_calls). The bugfix-402
@@ -650,6 +639,7 @@ class AgentEngine:
                         m for m in history if m.message_id != user_msg.message_id
                     )
                     all_messages = [user_msg]
+                    state.partial_messages = all_messages
                     async for msg in self._execute_loop(
                         session_id=session_id,
                         turn_id=turn_id,
@@ -675,22 +665,15 @@ class AgentEngine:
                         if msg.role == "turn_meta":
                             all_messages.append(msg)
                             continue
-                        history.append(msg)
                         all_messages.append(msg)
                         if msg.metadata.get("is_compact_summary"):
-                            state.transcript.append_compaction(
-                                summary=_message_to_entry(msg, session_id),
-                                reason=str(
-                                    msg.metadata.get("compact_reason", "threshold")
-                                ),
-                                restored_files=tuple(
-                                    msg.metadata.get("restored_files", ())
-                                ),
-                            )
+                            post_compact_messages = _post_compact_messages_from(msg)
+                            history[:] = [msg, *post_compact_messages]
+                            all_messages.extend(post_compact_messages)
                             continue
-                        entry = _message_to_entry(msg, session_id)
-                        state.transcript.append_turn_entries(
-                            [entry], durable=msg.role == "tool"
+                        history.append(msg)
+                        state.transcript.append_messages(
+                            [msg], durable=msg.role == "tool"
                         )
                     await state.transcript.flush_async()
                 else:
@@ -705,9 +688,7 @@ class AgentEngine:
                     parent_message_id=user_msg.message_id,
                 )
                 history.append(error_msg)
-                state.transcript.append_turn_entries(
-                    [_message_to_entry(error_msg, session_id)], durable=True
-                )
+                state.transcript.append_messages([error_msg], durable=True)
                 # bugfix-380: run_id must be in message_end payload so realtime_stream hook
                 # can publish assistant_message SSE before run_status=failed arrives.
                 _error_run_id = hook_ctx.metadata.get("run_id") if hook_ctx else None
@@ -756,6 +737,8 @@ class AgentEngine:
             )
 
         turn_result = build_turn_result(session_id, turn_id, all_messages)
+        if turn_result.usage is not None and turn_result.usage.prompt_tokens > 0:
+            state.last_prompt_tokens = turn_result.usage.prompt_tokens
 
         # Extract tool_iterations from turn_meta for nudge counter signal flow.
         # turn_meta is the last message in all_messages when present.
@@ -1618,8 +1601,17 @@ class AgentEngine:
             workspace_root=workspace_root,
             session_file_state=session_file_state,
             model_override=model_override,
+            prior_prompt_tokens=self._state().last_prompt_tokens,
+            on_progress=self._record_turn_progress,
         ):
             yield msg
+
+    def _record_turn_progress(
+        self, usage: TokenUsage | None, tool_calls: tuple[ToolCall, ...]
+    ) -> None:
+        state = self._state()
+        state.partial_usage = usage
+        state.partial_tool_calls = tool_calls
 
     def _ensure_memory_snapshot(
         self,
@@ -1713,16 +1705,34 @@ class AgentEngine:
         return content
 
     def _invalidate_memory_snapshot(self, session_id: str) -> None:
-        """Remove cached snapshot + clear AGENTS.md dedup set (called after compaction).
+        """Reset prompt and file-window state after a durable compaction.
 
-        feat-428 决策 4: loaded_agents_md is cleared at the compaction boundary so
-        post-compaction reads can re-inject AGENTS.md (whose prior tool_result was
-        summarised away). _ensure_memory_snapshot then re-preseeds the workspace
-        root on the next turn, preserving 机制 B's "don't double-inject the root".
+        The summary has already captured the old window. Replacing the complete
+        SessionFileState makes threshold, overflow, and manual compaction share
+        one refresh boundary: AGENTS.md, memory, and read-window dedup are rebuilt
+        on the next turn rather than leaking state from the compacted prefix.
         """
         state = self._state()
         state.memory_snapshot = None
-        state.file_state.loaded_agents_md.clear()
+        state.file_state = SessionFileState()
+
+    def _commit_threshold_compaction(
+        self,
+        summary: Message,
+        reinjections: tuple[Message, ...],
+        reason: str,
+        restored_files: tuple[str, ...],
+        expected_external_epoch: int,
+    ) -> bool:
+        """Commit a loop-produced summary only while its capture is current."""
+
+        return self._state().transcript.append_compaction(
+            summary=summary,
+            reinjections=reinjections,
+            reason=reason,
+            restored_files=restored_files,
+            expected_external_epoch=expected_external_epoch,
+        )
 
     async def _compact_session(
         self,
@@ -1820,12 +1830,8 @@ class AgentEngine:
         # conversation state is the cache-first source, so replace it only after
         # the boundary and summary are durably committed.
         committed = conversation.transcript.append_compaction(
-            summary=_message_to_entry(summary_msg, session_id),
-            reinjections=(
-                [_message_to_entry(reinjection_msg, session_id)]
-                if reinjection_msg is not None
-                else []
-            ),
+            summary=summary_msg,
+            reinjections=(reinjection_msg,) if reinjection_msg is not None else (),
             reason=reason.value,
             restored_files=restored_files,
             expected_external_epoch=captured_external_epoch,
@@ -1833,6 +1839,7 @@ class AgentEngine:
         if not committed:
             return None
         conversation.history[:] = compacted_messages
+        self._invalidate_memory_snapshot(session_id)
 
         # Build the result object from the already-persisted direct write (no
         # second persistence): entry_id aligns with the on-disk summary_uuid.
@@ -1853,8 +1860,6 @@ class AgentEngine:
             },
             self._build_hook_context(session_id=session_id),
         )
-        # Clear file state after extracting restore info.
-        conversation.file_state = SessionFileState()
         return result
 
     def _build_skill_reinjection_message(
@@ -2122,53 +2127,6 @@ def _skill_batch_review_root_key(skill_root: Any) -> str | None:
         return str(Path(skill_root).expanduser().resolve())
     except TypeError:
         return None
-
-
-def _message_to_entry(msg: Message, session_id: str) -> dict[str, Any]:
-    """Convert a Message to a JSONL turn entry."""
-    entry: dict[str, Any] = {
-        "type": "turn",
-        "uuid": msg.message_id,
-        "parent_uuid": msg.parent_message_id,
-        "session_id": session_id,
-        "role": msg.role,
-        "content": msg.content,
-        "timestamp": _utc_now_iso(),
-    }
-    if msg.tool_call_id is not None:
-        entry["tool_call_id"] = msg.tool_call_id
-    if msg.group_id is not None:
-        entry["group_id"] = msg.group_id
-    # bugfix-433 决策4: persist structured parts only when present so pure-text
-    # entries stay byte-identical (no `parts` key) — guards the text golden.
-    if msg.parts:
-        entry["parts"] = [dict(p) for p in msg.parts]
-    meta = dict(msg.metadata)
-    if meta.get("is_meta"):
-        entry["is_meta"] = True
-    if meta.get("is_compact_summary"):
-        entry["is_compact_summary"] = True
-    if meta.get("is_skill_reinjection"):
-        entry["is_skill_reinjection"] = True
-    if meta.get("skill_reinjection_refs"):
-        entry["skill_reinjection_refs"] = meta["skill_reinjection_refs"]
-    if meta.get("is_provider_error"):
-        entry["is_provider_error"] = True
-    if meta.get("entrypoint"):
-        entry["entrypoint"] = meta["entrypoint"]
-    if meta.get("tool_calls"):
-        entry["tool_calls"] = meta["tool_calls"]
-    if meta.get("tool_name"):
-        entry["tool_name"] = meta["tool_name"]
-    if meta.get("tool_error"):
-        entry["tool_error"] = meta["tool_error"]
-    if meta.get("tool_output") is not None:
-        entry["tool_output"] = meta["tool_output"]
-    if msg.reasoning_content is not None:
-        entry["reasoning_content"] = msg.reasoning_content
-    if msg.reasoning_signature is not None:
-        entry["reasoning_signature"] = msg.reasoning_signature
-    return entry
 
 
 # bugfix-380: maximum length for provider error text embedded in the assistant message content.

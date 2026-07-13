@@ -5,7 +5,8 @@ a ready-to-use Kernel without exposing any HTTP/FastAPI surface.
 
 Design (refactor-387 M1, refactor-462):
 - Mirrors create_app() assembly logic with FastAPI/routes/middleware removed.
-- LLMClientFactory injected into per-conversation AgentEngine instances.
+- One shared AgentEngine and provider-client graph serves stable conversations;
+  per-conversation mutable state remains in ConversationState.
 - Permission flow: AgentEngine hook context races optional can_use_tool
   callback against a PermissionBroker future; gateway resolves the future
   externally via Kernel.submit_permission_decision (feat-394-M14).
@@ -14,6 +15,7 @@ Design (refactor-387 M1, refactor-462):
 
 from __future__ import annotations
 
+import inspect
 import os
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -85,6 +87,8 @@ class _KernelComponents:
     permission_broker: PermissionBroker
     hook_registry: HookRegistry
     hook_runner: HookRunner
+    stop_all_foreground: Callable[[], None]
+    finalize_resources: Callable[[], Awaitable[None]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -492,13 +496,11 @@ def _build_kernel_base(
         setup(hook_registry)
     hook_runner = HookRunner(registry=hook_registry)
 
+    owned_llm_clients: list[LLMClient] = []
     if _llm_client_override is not None:
-        llm_client_factory = None
         direct_llm_client: LLMClient | None = _llm_client_override
         llm_clients: dict[str, LLMClient] | None = None
     else:
-        llm_client_factory = lambda cfg: _platform_create_llm_client(config=cfg)  # noqa: E731
-        direct_llm_client = None
         # bugfix-429 决策3: build one client per declared provider so a run is
         # routed to the client of its model's registered provider. Within a
         # provider all models share base_url (set here); only request.model
@@ -518,6 +520,16 @@ def _build_kernel_base(
             for p in llm.providers
             if p.models
         } or None
+        if llm_clients is not None:
+            owned_llm_clients.extend(llm_clients.values())
+        direct_llm_client = (
+            llm_clients.get(factory_config.provider)
+            if llm_clients is not None
+            else None
+        )
+        if direct_llm_client is None:
+            direct_llm_client = _platform_create_llm_client(config=factory_config)
+            owned_llm_clients.append(direct_llm_client)
 
     event_hub = EventStreamHub()
     set_session_event_publisher_factory(
@@ -529,7 +541,6 @@ def _build_kernel_base(
     resolved_skill_roots = tuple(
         Path(root).expanduser().resolve() for root in skill_search_roots
     )
-    tool_registry_holder: list[Any] = []
 
     def _make_engine() -> AgentEngine:
         engine = AgentEngine(
@@ -537,7 +548,6 @@ def _build_kernel_base(
             repo_root=resolved_repo_root,
             permission_broker=permission_broker,
             llm_client=direct_llm_client,
-            llm_client_factory=llm_client_factory,
             llm_clients=llm_clients,
             model=factory_config.model,
             prompt_sections=prompt_sections,
@@ -546,27 +556,25 @@ def _build_kernel_base(
         )
         engine._llm_config = factory_config  # type: ignore[attr-defined]
         engine._can_use_tool = can_use_tool  # type: ignore[attr-defined]
-        if tool_registry_holder:
-            engine.bind_tool_registry(tool_registry_holder[0])
         return engine
 
-    # Kernel-level catalog/preview and skill-review services have no conversation
-    # state. Every live conversation receives its own engine instance below.
+    # AgentEngine is task-local through ConversationState/TurnContext and owns no
+    # session-id keyed state, so every stable conversation shares this dependency
+    # graph and the provider clients it holds.
     engine_services = _make_engine()
     executor = KernelExecutor()
 
     def _conversation_factory(ref: SessionRef, transcript: Any) -> ConversationSession:
-        engine = _make_engine()
         control = _SessionSubagentControl(
             ref=ref,
             directory=directory,
             files=files,
-            engine=engine,
+            engine=engine_services,
         )
         return ConversationSession(
             ref=ref,
             transcript=transcript,
-            engine=engine,
+            engine=engine_services,
             subagent_control=control,
         )
 
@@ -576,6 +584,22 @@ def _build_kernel_base(
         conversation_factory=_conversation_factory,
         default_metadata={"workspace_config_dirname": workspace_config_dirname},
     )
+
+    async def _finalize_resources() -> None:
+        await directory.close_all()
+        seen: set[int] = set()
+        for client in owned_llm_clients:
+            identity = id(client)
+            if identity in seen:
+                continue
+            seen.add(identity)
+            close = getattr(client, "close", None)
+            if not callable(close):
+                continue
+            result = close()
+            if inspect.isawaitable(result):
+                await result
+
     runs_registry = RunsRegistry(
         directory=directory,
         executor=executor,
@@ -673,7 +697,6 @@ def _build_kernel_base(
         hook_runner=hook_runner,
         wiring=background_task_wiring,
     )
-    tool_registry_holder.append(tool_registry)
     engine_services.bind_tool_registry(tool_registry)
 
     components = _KernelComponents(
@@ -686,6 +709,8 @@ def _build_kernel_base(
         permission_broker=permission_broker,
         hook_registry=hook_registry,
         hook_runner=hook_runner,
+        stop_all_foreground=background_task_wiring.foreground_registry.stop_all,
+        finalize_resources=_finalize_resources,
     )
 
     return Kernel(
@@ -1052,7 +1077,7 @@ class Kernel:
             message was steered into an active run (``run_id`` is that run, no new
             run created); otherwise ``injected=False`` for a freshly created run.
         """
-        effective_root = workspace_root or self._repo_root
+        effective_root = Path(workspace_root or self._repo_root).expanduser().resolve()
         if steer:
             injected = self._try_inject_active_run(
                 session_id=session_id, parts=parts, origin=origin
@@ -1618,8 +1643,14 @@ class Kernel:
 
         registry = self._c.runs_registry
         registry.begin_shutdown()
+        stop_all_foreground = getattr(self._c, "stop_all_foreground", None)
+        if callable(stop_all_foreground):
+            stop_all_foreground()
+        finalize_resources = getattr(
+            self._c, "finalize_resources", self._c.directory.close_all
+        )
         await _asyncio.to_thread(
-            registry.shutdown, finalize=self._c.directory.close_all
+            registry.shutdown, finalize=finalize_resources
         )
 
     def close(self) -> None:
@@ -1631,7 +1662,13 @@ class Kernel:
         if getattr(self, "_closed", False):
             return
         self._closed = True
-        self._c.runs_registry.shutdown(finalize=self._c.directory.close_all)
+        stop_all_foreground = getattr(self._c, "stop_all_foreground", None)
+        if callable(stop_all_foreground):
+            stop_all_foreground()
+        finalize_resources = getattr(
+            self._c, "finalize_resources", self._c.directory.close_all
+        )
+        self._c.runs_registry.shutdown(finalize=finalize_resources)
 
     def assemble_prompt_preview(
         self,

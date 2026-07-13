@@ -110,7 +110,8 @@ def new_turn_appended_entry(
         "content": content,
         "metadata": dict(metadata or {}),
     }
-    # bugfix-433-fix1 #4: only write `parts` when non-empty, matching _message_to_entry.
+    # Keep the event projection aligned with Transcript's Message serializer: only
+    # non-empty structured parts are persisted for an otherwise plain-text turn.
     # A text-only turn must not carry `parts: []` — that asymmetry made the two write
     # paths produce structurally different entries for the same turn (golden drift).
     if parts:

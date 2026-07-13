@@ -70,8 +70,15 @@ def wire_background_tasks(
     store = InMemoryTaskStore(manifest_path=manifest_path)
     output = BashFileOutput(workspace_root=workspace_root)
     bash_runner = ShellRunner(safety=safety)
+    # The same narrow registry reaps both top-level and auxiliary foreground
+    # subprocesses; RuntimeRunner needs it before auxiliary handles are built.
+    foreground_registry = ForegroundExecutionRegistry()
     subagent_runner = (
-        RuntimeRunner(directory=directory, executor=executor)
+        RuntimeRunner(
+            directory=directory,
+            executor=executor,
+            foreground_stopper=foreground_registry.stop_for_session,
+        )
         if directory is not None and executor is not None
         else _NoOpSubagentRunner()
     )
@@ -81,8 +88,6 @@ def wire_background_tasks(
     # not in BackgroundTaskRegistry — so it never becomes a background task and never
     # emits a <task-notification>. The kernel injects foreground_registry.stop_for_session
     # into RunsRegistry as the foreground stopper port.
-    foreground_registry = ForegroundExecutionRegistry()
-
     # Wire notification delivery if RunsRegistry is available.
     if runs_registry is not None:
         _wire_notification_callbacks(registry, runs_registry, directory)

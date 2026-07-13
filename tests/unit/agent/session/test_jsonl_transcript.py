@@ -5,6 +5,7 @@ from agent.core.session.jsonl_files import JsonlSessionFiles
 from agent.core.session.jsonl_writer import JsonlWriter
 from agent.core.session.transcript import JsonlTranscript
 from agent.core.session.types import ExternalMessage, NewSession, SessionRef
+from agent.core.types import Message
 
 
 def _build_transcript(tmp_path: Path, *, session_id: str = "sess_transcript"):
@@ -51,15 +52,18 @@ def test_reopened_transcript_first_append_extends_persisted_tail(
 
 def test_recovery_control_entry_never_becomes_persisted_tail(tmp_path: Path) -> None:
     transcript, files, _writer, ref = _build_transcript(tmp_path)
-    transcript.append_turn_entries(
+    transcript.append_messages(
         [
-            {
-                "type": "turn",
-                "uuid": "msg_tool_call",
-                "role": "assistant",
-                "content": "",
-                "tool_calls": [{"call_id": "call_1", "name": "read", "arguments": {}}],
-            }
+            Message(
+                message_id="msg_tool_call",
+                role="assistant",
+                content="",
+                metadata={
+                    "tool_calls": [
+                        {"call_id": "call_1", "name": "read", "arguments": {}}
+                    ]
+                },
+            )
         ],
         durable=True,
     )
@@ -106,17 +110,18 @@ def test_repair_is_idempotent_and_materializes_one_synthetic_result(
     tmp_path: Path,
 ) -> None:
     transcript, files, _writer, ref = _build_transcript(tmp_path)
-    transcript.append_turn_entries(
+    transcript.append_messages(
         [
-            {
-                "type": "turn",
-                "uuid": "msg_orphan",
-                "role": "assistant",
-                "content": "",
-                "tool_calls": [
-                    {"call_id": "call_orphan", "name": "bash", "arguments": {}}
-                ],
-            }
+            Message(
+                message_id="msg_orphan",
+                role="assistant",
+                content="",
+                metadata={
+                    "tool_calls": [
+                        {"call_id": "call_orphan", "name": "bash", "arguments": {}}
+                    ]
+                },
+            )
         ],
         durable=True,
     )
@@ -143,12 +148,7 @@ def test_compaction_commit_rejects_a_stale_external_epoch(tmp_path: Path) -> Non
     )
 
     committed = transcript.append_compaction(
-        summary={
-            "type": "turn",
-            "uuid": "msg_summary",
-            "role": "user",
-            "content": "summary",
-        },
+        summary=Message(message_id="msg_summary", role="user", content="summary"),
         reason="manual",
         expected_external_epoch=captured_epoch,
     )

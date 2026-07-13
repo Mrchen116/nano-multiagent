@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Protocol
 
-from agent.core.types import Message, TurnResult
+from agent.core.types import Message, TokenUsage, ToolCall, TurnResult
 from agent.core.agent.compaction.types import CompactionResult
 
 from .context_state import MemorySnapshot, SessionFileState
@@ -36,6 +36,11 @@ class ConversationState:
     transcript: JsonlTranscript
     file_state: SessionFileState
     memory_snapshot: MemorySnapshot | None = None
+    last_prompt_tokens: int | None = None
+    partial_turn_id: str | None = None
+    partial_messages: list[Message] = field(default_factory=list)
+    partial_tool_calls: tuple[ToolCall, ...] = ()
+    partial_usage: TokenUsage | None = None
     active_model: str | None = None
     subagent_control: object | None = None
 
@@ -56,6 +61,9 @@ class ForkDirectory(Protocol):
         self, source: ConversationSession, *, up_to: str | None
     ) -> tuple[Session, dict[str, str]]:
         """Create and return a fork plus source-to-target message ids."""
+
+    def note_quiescent(self, conversation: ConversationSession) -> None:
+        """Record an idle loaded payload and evict older payloads as needed."""
 
 
 class ConversationEngine(Protocol):
@@ -191,18 +199,28 @@ class ConversationSession:
 
         return self._transcript.external_epoch
 
+    @property
+    def is_payload_loaded(self) -> bool:
+        """Return whether this stable identity currently retains heavy state."""
+
+        with self._state_guard:
+            return self._state is not None
+
     async def submit_turn(self, request: TurnRequest) -> TurnResult:
         """Execute one turn under lifecycle admission and per-session serialization."""
 
         self._bind_owner_loop()
         with self._lifecycle.begin_operation():
-            async with self._turn_gate:
-                state = await self._ensure_loaded()
-                state.active_model = request.model
-                try:
-                    return await self._engine.execute_turn(state, request)
-                finally:
-                    state.active_model = None
+            try:
+                async with self._turn_gate:
+                    state = await self._ensure_loaded()
+                    state.active_model = request.model
+                    try:
+                        return await self._engine.execute_turn(state, request)
+                    finally:
+                        state.active_model = None
+            finally:
+                self._note_quiescent()
 
     def append_external(self, request: ExternalMessage) -> AppendMessageResult:
         """Durably append a message without holding the long-lived turn gate."""
@@ -210,10 +228,14 @@ class ConversationSession:
         with self._lifecycle.begin_operation():
             result = self._transcript.append_external(request)
             if result.created:
-                loaded = self._transcript.load()
+                # The active engine may still hold the list that backs the loaded
+                # state. Rebinding that list from this synchronous foreign-thread
+                # path would detach the rest of the turn from the live aggregate.
+                # Mark the payload stale instead; the active turn can finish its
+                # durable writes and the next serialized operation reloads the
+                # complete reachable chain, including this external append.
                 with self._state_guard:
-                    if self._state is not None:
-                        self._state.history = loaded.messages
+                    self._state = None
             return result
 
     def history_snapshot(self) -> tuple[Message, ...]:
@@ -224,14 +246,37 @@ class ConversationSession:
                 return tuple(self._state.history)
         return tuple(self._transcript.load().messages)
 
+    def partial_turn_result(self) -> TurnResult | None:
+        """Snapshot durable progress when raw cancellation prevents a result."""
+
+        with self._state_guard:
+            state = self._state
+            if state is None or state.partial_turn_id is None:
+                return None
+            assistant_messages = tuple(
+                message for message in state.partial_messages if message.role == "assistant"
+            )
+            return TurnResult(
+                session_id=self._ref.session_id,
+                turn_id=state.partial_turn_id,
+                messages=assistant_messages,
+                tool_calls=state.partial_tool_calls,
+                completed=False,
+                stop_reason="cancelled",
+                usage=state.partial_usage,
+            )
+
     async def compact(self) -> CompactionResult | None:
         """Run manual compaction in the same transaction domain as turns."""
 
         self._bind_owner_loop()
         with self._lifecycle.begin_operation():
-            async with self._turn_gate:
-                state = await self._ensure_loaded()
-                return await self._engine.compact(state)
+            try:
+                async with self._turn_gate:
+                    state = await self._ensure_loaded()
+                    return await self._engine.compact(state)
+            finally:
+                self._note_quiescent()
 
     async def fork(self, *, up_to: str | None = None) -> tuple[Session, dict[str, str]]:
         """Fork this conversation through its identity-owning directory."""
@@ -253,14 +298,17 @@ class ConversationSession:
                 messages=tuple(loaded.messages),
                 prompt_seed=loaded.prompt_seed,
             )
-        async with self._turn_gate:
-            await self._ensure_loaded()
-            loaded = await asyncio.to_thread(self._transcript.load)
-            return ForkSnapshot(
-                config=loaded.config,
-                messages=tuple(loaded.messages),
-                prompt_seed=loaded.prompt_seed,
-            )
+        try:
+            async with self._turn_gate:
+                await self._ensure_loaded()
+                loaded = await asyncio.to_thread(self._transcript.load)
+                return ForkSnapshot(
+                    config=loaded.config,
+                    messages=tuple(loaded.messages),
+                    prompt_seed=loaded.prompt_seed,
+                )
+        finally:
+            self._note_quiescent()
 
     async def close(self) -> None:
         """Stop admission, drain admitted work, flush, and close deterministically."""
@@ -297,6 +345,20 @@ class ConversationSession:
             with self._state_guard:
                 self._state = state
             return state
+
+    def try_evict_payload(self) -> bool:
+        """Unload heavy state unless a serialized stateful operation is active."""
+
+        if self._turn_gate.locked():
+            return False
+        with self._state_guard:
+            self._state = None
+        return True
+
+    def _note_quiescent(self) -> None:
+        directory = self._fork_directory
+        if directory is not None and self.is_payload_loaded:
+            directory.note_quiescent(self)
 
     def _bind_owner_loop(self) -> None:
         loop = asyncio.get_running_loop()
