@@ -325,7 +325,8 @@ describe("useGlobalMessageToast", () => {
         sender_type: "user",
         sender_user_id: "self-user",
         sender_display_name: "External Sender",
-        content: "new external content"
+        content: "new external content",
+        created_at: "2026-07-13T00:00:00Z"
       }
     });
     await waitFor(() => expect(listConversationsMock).toHaveBeenCalledTimes(1));
@@ -333,7 +334,9 @@ describe("useGlobalMessageToast", () => {
     const newerConversation = conversation("conv-new-external", {
       title: "Newer refetch title",
       external_source: "feishu",
-      external_chat_id: "oc_new"
+      external_chat_id: "oc_new",
+      last_message_preview: "newer refetch preview",
+      last_message_at: "2026-07-13T00:02:00Z"
     });
     await queryClient.fetchQuery({
       queryKey: ["chat", "conversations"],
@@ -343,7 +346,9 @@ describe("useGlobalMessageToast", () => {
       conversation("conv-new-external", {
         title: "Older authority title",
         external_source: "feishu",
-        external_chat_id: "oc_new"
+        external_chat_id: "oc_new",
+        last_message_preview: "older authority preview",
+        last_message_at: "2026-07-13T00:00:00Z"
       })
     ]);
 
@@ -353,6 +358,69 @@ describe("useGlobalMessageToast", () => {
         .toEqual(expect.arrayContaining([
           expect.objectContaining({ id: "conv-new-external", title: "Newer refetch title" })
         ]));
+      expect(queryClient.getQueryData<Conversation[]>(["chat", "conversations"])?.[0])
+        .toMatchObject({
+          last_message_preview: "newer refetch preview",
+          last_message_at: "2026-07-13T00:02:00Z"
+        });
+    });
+  });
+
+  it("does not let an older external authority completion replace a newer candidate", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const resolvers: Array<(value: Conversation[]) => void> = [];
+    listConversationsMock.mockImplementation(() =>
+      new Promise<Conversation[]>((resolve) => { resolvers.push(resolve); })
+    );
+    const { result } = renderHook(() => useGlobalMessageToast(), { wrapper: buildWrapper(queryClient, "/") });
+    await waitFor(() => expect(subscribeUserStreamMock).toHaveBeenCalled());
+
+    emit("conv-new-external", {
+      eventType: "message.created",
+      eventId: 1,
+      payload: {
+        message_id: "external-old",
+        sender_type: "user",
+        sender_user_id: "self-user",
+        sender_display_name: "External Sender",
+        content: "older external content",
+        created_at: "2026-07-13T00:00:00Z"
+      }
+    });
+    emit("conv-new-external", {
+      eventType: "message.created",
+      eventId: 2,
+      payload: {
+        message_id: "external-new",
+        sender_type: "user",
+        sender_user_id: "self-user",
+        sender_display_name: "External Sender",
+        content: "newer external content",
+        created_at: "2026-07-13T00:01:00Z"
+      }
+    });
+    await waitFor(() => expect(resolvers).toHaveLength(2));
+    const authority = [conversation("conv-new-external", {
+      external_source: "feishu",
+      external_chat_id: "oc_new"
+    })];
+    resolvers[1]!(authority);
+    await waitFor(() => expect(result.current.toast).toMatchObject({
+      id: "message:external-new",
+      preview: "newer external content"
+    }));
+    resolvers[0]!(authority);
+
+    await waitFor(() => {
+      expect(result.current.toast).toMatchObject({
+        id: "message:external-new",
+        preview: "newer external content"
+      });
+      expect(queryClient.getQueryData<Conversation[]>(["chat", "conversations"])?.[0])
+        .toMatchObject({
+          last_message_preview: "newer external content",
+          last_message_at: "2026-07-13T00:01:00Z"
+        });
     });
   });
 
