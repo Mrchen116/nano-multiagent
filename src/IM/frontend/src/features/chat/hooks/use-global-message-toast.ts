@@ -286,6 +286,17 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
         };
 
         const externalConversation = Boolean(cachedConversation?.external_source);
+        if (
+          externalConversation
+          && candidate
+          && event.eventType === "message.created"
+          && payload.sender_type === "user"
+        ) {
+          // Cached and unresolved external candidates share one per-conversation
+          // clock. A fast-path newer message must invalidate any older authority
+          // request that is still waiting to classify the same conversation.
+          latestExternalClassificationEventIdRef.current.set(conversationId, event.eventId);
+        }
         // External shadow writes intentionally persist under the account owner so
         // they stay inside the owner's conversation scope. The conversation's
         // existing external identity, not that storage identity, decides whether
