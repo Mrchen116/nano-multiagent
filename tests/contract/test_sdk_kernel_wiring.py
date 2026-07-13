@@ -21,6 +21,7 @@ This is the design.md M1 「外部产品最小证明」exit-criterion in test fo
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -457,3 +458,81 @@ async def test_prompt_slots_reach_preview(tmp_path: Path) -> None:
         scenario="direct",
     )
     assert "UNIQUE-IDENTITY-MARKER" in result["prompt"]
+
+
+async def test_prompt_slots_rehydrate_into_system_prompt_after_kernel_restart(
+    tmp_path: Path,
+) -> None:
+    slots = PromptSlots(
+        head=(PromptText(name="app.identity", text="PROMPT-SLOTS-RESTART"),)
+    )
+    first = _build(tmp_path)
+    try:
+        session = await first.create_session(
+            workspace_root=tmp_path,
+            prompt=slots,
+        )
+    finally:
+        await first.aclose()
+
+    captured: list[Any] = []
+
+    class _CapturingClient:
+        def generate(self, request: Any):  # noqa: ANN001, ANN201
+            captured.append(request)
+            return _stub("reopened")
+
+    second = _build(tmp_path, _llm_client_override=_CapturingClient())
+    try:
+        run = second.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "after restart"}],
+            workspace_root=tmp_path,
+        )
+        assert (await _wait_terminal(second, run.run_id)).status == "completed"
+        system_prompt = str(captured[-1].messages[0].content)
+        assert "PROMPT-SLOTS-RESTART" in system_prompt
+    finally:
+        await second.aclose()
+
+
+async def test_legacy_session_without_prompt_seed_uses_empty_fallback(
+    tmp_path: Path,
+) -> None:
+    session_id = "sess_legacy_prompt_slots"
+    transcript = tmp_path / ".nanotest" / "sessions" / f"{session_id}.jsonl"
+    transcript.parent.mkdir(parents=True)
+    transcript.write_text(
+        json.dumps(
+            {
+                "type": "session_created",
+                "session_id": session_id,
+                "created_at": "2026-01-01T00:00:00Z",
+                "workspace_root": str(tmp_path),
+                "metadata": {"legacy": True},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    captured: list[Any] = []
+
+    class _CapturingClient:
+        def generate(self, request: Any):  # noqa: ANN001, ANN201
+            captured.append(request)
+            return _stub("legacy-opened")
+
+    kernel = _build(tmp_path, _llm_client_override=_CapturingClient())
+    try:
+        run = kernel.submit(
+            session_id=session_id,
+            parts=[{"type": "text", "text": "open legacy"}],
+            workspace_root=tmp_path,
+        )
+        assert (await _wait_terminal(kernel, run.run_id)).status == "completed"
+        assert "PROMPT-SLOTS-RESTART" not in str(captured[-1].messages[0].content)
+        assert kernel.get_session(session_id, workspace_root=tmp_path)["metadata"] == {
+            "legacy": True
+        }
+    finally:
+        await kernel.aclose()

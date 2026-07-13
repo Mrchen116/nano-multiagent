@@ -23,8 +23,15 @@ from typing import Any
 
 import pytest
 
-from agent.sdk import Kernel, LLMConfig, LLMModel, LLMProvider, build_kernel
-from agent.core.llm.interfaces import LLMMessage
+from agent.sdk import (
+    USER_INTERRUPT_RECOVERY_CONTENT,
+    Kernel,
+    LLMConfig,
+    LLMModel,
+    LLMProvider,
+    build_kernel,
+)
+from agent.core.llm.interfaces import LLMMessage, LLMToolCall
 
 
 def _lc_llm() -> LLMConfig:
@@ -691,6 +698,161 @@ async def test_append_message_during_active_turn_reloads_residual_output(
         assert ("assistant", "reply-after-external") in second_context
     finally:
         release.set()
+        kernel.close()
+
+
+@pytest.mark.parametrize("interrupt", [False, True], ids=["tool-result", "recovery"])
+async def test_active_append_preserves_late_tool_or_recovery_for_next_turn(
+    tmp_path: Path,
+    interrupt: bool,
+) -> None:
+    tool_started = threading.Event()
+    release_tool = threading.Event()
+    captured_requests: list[Any] = []
+    tool_requested = False
+
+    class _BlockingTool:
+        name = "blocking_tool"
+        description = "Block until the test releases the tool."
+        input_schema = {"type": "object", "properties": {}}
+
+        def run(self, _args: Any, _ctx: Any) -> dict[str, str]:
+            tool_started.set()
+            release_tool.wait()
+            return {"result": "LATE-TOOL-RESULT"}
+
+    class _ToolClient:
+        async def generate(self, request: Any):  # noqa: ANN201
+            nonlocal tool_requested
+            captured_requests.append(request)
+            if not tool_requested:
+                tool_requested = True
+                yield LLMMessage(
+                    role="assistant",
+                    content="calling blocking tool",
+                    tool_calls=(
+                        LLMToolCall(
+                            call_id="call_active_append",
+                            name="blocking_tool",
+                            arguments={},
+                        ),
+                    ),
+                )
+                return
+            yield LLMMessage(
+                role="assistant", content="after-tool", finish_reason="stop"
+            )
+
+    kernel = _build_kernel(
+        tmp_path,
+        tools=[_BlockingTool()],
+        _llm_client_override=_ToolClient(),
+    )
+    try:
+        session = await kernel.create_session(
+            workspace_root=tmp_path,
+            enabled_tools=["blocking_tool"],
+        )
+        first = kernel.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "run blocking tool"}],
+            workspace_root=tmp_path,
+        )
+        assert await asyncio.to_thread(tool_started.wait, 2)
+
+        kernel.append_message(
+            session.session_id,
+            role="user",
+            content="external-during-tool",
+            workspace_root=tmp_path,
+        )
+        if interrupt:
+            assert kernel.interrupt(session.session_id) == first.run_id
+        release_tool.set()
+        expected_status = "cancelled" if interrupt else "completed"
+        assert (await _wait_for_terminal_run(kernel, first.run_id)).status == (
+            expected_status
+        )
+
+        followup = kernel.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "after active append"}],
+            workspace_root=tmp_path,
+        )
+        assert (await _wait_for_terminal_run(kernel, followup.run_id)).status == (
+            "completed"
+        )
+        followup_context = " ".join(
+            _flatten_msg_text(message) for message in captured_requests[-1].messages
+        )
+        assert "external-during-tool" in followup_context
+        expected_residual = (
+            USER_INTERRUPT_RECOVERY_CONTENT if interrupt else "LATE-TOOL-RESULT"
+        )
+        assert expected_residual in followup_context
+    finally:
+        release_tool.set()
+        kernel.close()
+
+
+async def test_whole_session_fork_copies_history_and_evolves_independently(
+    tmp_path: Path,
+) -> None:
+    captured_requests: list[Any] = []
+
+    class _CapturingClient:
+        def generate(self, request: Any):  # noqa: ANN001, ANN201
+            captured_requests.append(request)
+            return _async_stub_messages(f"ack-{len(captured_requests)}")
+
+    kernel = _build_kernel(tmp_path, _llm_client_override=_CapturingClient())
+    try:
+        source = await kernel.create_session(workspace_root=tmp_path)
+        for text in ("source-first", "source-second"):
+            run = kernel.submit(
+                session_id=source.session_id,
+                parts=[{"type": "text", "text": text}],
+                workspace_root=tmp_path,
+            )
+            assert (await _wait_for_terminal_run(kernel, run.run_id)).status == (
+                "completed"
+            )
+
+        forked = await kernel.fork_session(
+            source.session_id,
+            workspace_root=tmp_path,
+            up_to=None,
+        )
+        assert forked.fork_id_map is not None
+        assert len(forked.fork_id_map) == 4
+
+        branch_run = kernel.submit(
+            session_id=forked.session_id,
+            parts=[{"type": "text", "text": "fork-only"}],
+            workspace_root=tmp_path,
+        )
+        assert (await _wait_for_terminal_run(kernel, branch_run.run_id)).status == (
+            "completed"
+        )
+        branch_context = " ".join(
+            _flatten_msg_text(message) for message in captured_requests[-1].messages
+        )
+        assert "source-first" in branch_context
+        assert "source-second" in branch_context
+
+        source_run = kernel.submit(
+            session_id=source.session_id,
+            parts=[{"type": "text", "text": "source-after-fork"}],
+            workspace_root=tmp_path,
+        )
+        assert (await _wait_for_terminal_run(kernel, source_run.run_id)).status == (
+            "completed"
+        )
+        source_context = " ".join(
+            _flatten_msg_text(message) for message in captured_requests[-1].messages
+        )
+        assert "fork-only" not in source_context
+    finally:
         kernel.close()
 
 
