@@ -109,6 +109,7 @@ function emit(conversationId: string, event: { eventType: string; payload: Recor
 describe("useGlobalMessageToast", () => {
   afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllGlobals();
   });
 
   beforeEach(() => {
@@ -308,6 +309,41 @@ describe("useGlobalMessageToast", () => {
       });
       expect(hasLocalUnreadFeedback("conv-new-external")).toBe(true);
     });
+  });
+
+  it("does not persist an unchanged completion accumulator for streaming deltas", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const storage = {
+      getItem: vi.fn(() => null),
+      setItem: vi.fn(),
+      removeItem: vi.fn()
+    };
+    vi.stubGlobal("sessionStorage", storage);
+    renderHook(() => useGlobalMessageToast(), { wrapper: buildWrapper(queryClient, "/") });
+    await waitFor(() => expect(subscribeUserStreamMock).toHaveBeenCalled());
+
+    emit("conv-1", {
+      eventType: "message.created",
+      eventId: 1,
+      payload: {
+        message_id: "agent-stream-1",
+        sender_type: "agent",
+        sender_user_id: "agent:a",
+        content: "",
+        tool_calls: [],
+        token_usage: null,
+        delivery_status: "running",
+        created_at: "2026-07-13T00:00:00Z"
+      }
+    });
+    storage.setItem.mockClear();
+    emit("conv-1", {
+      eventType: "message.delta",
+      eventId: 2,
+      payload: { message_id: "agent-stream-1", delta_text: "token" }
+    });
+
+    expect(storage.setItem).not.toHaveBeenCalled();
   });
 
   it("treats relay.report and relay.completed as non-notifying receipts", async () => {

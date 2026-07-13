@@ -93,6 +93,20 @@ describe("chat-stream-reducer", () => {
     expect(next.messages[0]!.token_usage).toEqual({ output: 312, context_used: 14800, context_window: 200000 });
   });
 
+  it("preserves a failed terminal status from message.completed", () => {
+    const seed: Message = { ...userMessage("m-failed", "partial"), sender: { type: "agent", id: "agent-a" }, sender_type: "agent", delivery_status: "running" };
+    const state: ConversationState = { ...emptyConversationState, messages: [seed] };
+    const next = applyWsEvent(state, {
+      type: "message.completed",
+      conversation_id: "c1",
+      message_id: "m-failed",
+      content: "upstream failed",
+      token_usage: null,
+      delivery_status: "failed"
+    });
+    expect(next.messages[0]!.delivery_status).toBe("failed");
+  });
+
   // feat-414-M1: message.completed 带出 elapsed_ms，reducer 写入 Message
   it("writes elapsed_ms from message.completed event onto the message", () => {
     const seed: Message = { ...userMessage("m3", ""), sender: { type: "agent", id: "agent-a" }, sender_type: "agent", delivery_status: "running" };

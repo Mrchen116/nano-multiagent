@@ -1,4 +1,4 @@
-import { act, createEvent, fireEvent, render, screen } from "@testing-library/react";
+import { act, createEvent, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -571,6 +571,25 @@ describe("MessagePane", () => {
       await user.keyboard("{Enter}");
       expect(onSend).toHaveBeenCalledWith("desktop send", []);
       expect(composer.value).toBe("");
+    });
+
+    it("keeps the draft when the asynchronous send fails", async () => {
+      const user = userEvent.setup();
+      const onSend = vi.fn().mockRejectedValue(new Error("send failed"));
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={BASE_MESSAGES}
+          mentionCandidates={[]}
+          onSend={onSend}
+        />
+      );
+      const composer = screen.getByRole("textbox") as HTMLTextAreaElement;
+      await user.type(composer, "retry this draft");
+      await user.keyboard("{Enter}");
+
+      await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
+      expect(composer.value).toBe("retry this draft");
     });
 
     it("does not keep a force-scroll request when send resolves without appending a message", async () => {
