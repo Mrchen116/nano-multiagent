@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/e2e-up.sh — start the full IM + Kernel API + Gateway stack inside the
+# scripts/e2e-up.sh — start the full IM + Gateway stack inside the
 # current worktree, with ephemeral ports and an isolated Gateway config.
 #
 # Idempotent within one worktree: if any .pid file is live, refuses to start to
@@ -19,8 +19,8 @@
 #   .e2e-jwt-secret           (random IM JWT secret for this run)
 #   .gateway-config.yaml      (isolated copy of main config)
 #   .gateway-workspace/       (per-agent workspaces, replacing ~/nano-assistant/workspace)
-#   .im.pid / .api.pid / .gateway.pid
-#   .im.log / .api.log / .gateway.log
+#   .im.pid / .gateway.pid
+#   .im.log / .gateway.log
 
 set -euo pipefail
 
@@ -67,7 +67,12 @@ REPO_ROOT="${REPO_ROOT:-$(git -C "$WT_ROOT" rev-parse --show-toplevel 2>/dev/nul
 SRC_DIR="$REPO_ROOT/src"
 FREE_PORTS_SH="$REPO_ROOT/scripts/free-ports.sh"
 [[ -x "$FREE_PORTS_SH" ]] || FREE_PORTS_SH="$SCRIPT_DIR/free-ports.sh"
-# refactor-387 M3: kernel runs in-process; only 1 port needed (IM).
+PYTHON_BIN="$(command -v python || true)"
+if [[ -z "$PYTHON_BIN" ]] || ! "$PYTHON_BIN" -c "import yaml" 2>/dev/null; then
+  echo "python with project dependencies (including PyYAML) not found on PATH" >&2
+  exit 1
+fi
+# The agent runtime is in-process; only the IM service needs a port.
 read -r IM_PORT < <("$FREE_PORTS_SH" 1)
 
 JWT_SECRET="$(LC_ALL=C tr -dc 'a-zA-Z0-9' < /dev/urandom 2>/dev/null | head -c 32 || echo "e2e-$$-$(date +%s)")"
@@ -93,9 +98,8 @@ if command -v yq >/dev/null 2>&1; then
   " "$WT_CFG"
 else
   # Fallback when yq is absent: use python.
-  # refactor-387 M3: kernel.base_url no longer needed (kernel runs in-process).
   WT_CFG_PY="$WT_CFG" NODE_ID="$NODE_ID" IM_PORT="$IM_PORT" WORKSPACE_DIR="$WORKSPACE_DIR" \
-    python3 - <<'PY'
+    "$PYTHON_BIN" - <<'PY'
 import os, sys, yaml
 path = os.environ["WT_CFG_PY"]
 with open(path) as f: cfg = yaml.safe_load(f)
@@ -111,7 +115,7 @@ PY
 fi
 
 # Pre-create each agent's workspace dir; Gateway refuses to start otherwise.
-python3 - "$WT_CFG" "$WORKSPACE_DIR" <<'PY'
+"$PYTHON_BIN" - "$WT_CFG" "$WORKSPACE_DIR" <<'PY'
 import os, sys, yaml
 cfg_path, wsd = sys.argv[1], sys.argv[2]
 with open(cfg_path) as f: cfg = yaml.safe_load(f)
@@ -138,7 +142,7 @@ rm -f "$WT_ROOT/relay_dedup.sqlite3"
 
 cd "$WT_ROOT"
 IM_JWT_SECRET="$JWT_SECRET" PYTHONPATH="$SRC_DIR" \
-  python -m uvicorn IM.app:app --host 127.0.0.1 --port "$IM_PORT" \
+  "$PYTHON_BIN" -m uvicorn IM.app:app --host 127.0.0.1 --port "$IM_PORT" \
   > "$WT_ROOT/.im.log" 2>&1 &
 echo $! > "$WT_ROOT/.im.pid"
 
@@ -165,17 +169,24 @@ curl -sf -X POST "http://127.0.0.1:$IM_PORT/im/v1/auth/register" \
 # heartbeat to pass a nonexistent to_user_id and never deliver messages to the owner.
 # We login to obtain the authenticated profile which includes the real id, then update
 # the worktree config copy so Gateway uses the correct owner for heartbeat delivery.
-NANO_USER_ID="$(
+LOGIN_JSON="$(
   curl -sf -X POST "http://127.0.0.1:$IM_PORT/im/v1/auth/login" \
     -H "Content-Type: application/json" \
-    -d '{"username":"nano","password":"nano1234"}' 2>/dev/null \
-  | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('user',{}).get('id') or d.get('id',''))" 2>/dev/null
+    -d '{"username":"nano","password":"nano1234"}' 2>/dev/null
+)" || true
+NANO_USER_ID="$(
+  printf '%s' "$LOGIN_JSON" \
+    | "$PYTHON_BIN" -c "import sys,json; d=json.load(sys.stdin); print(d.get('user',{}).get('id') or d.get('id',''))" 2>/dev/null
+)" || true
+NANO_ACCESS_TOKEN="$(
+  printf '%s' "$LOGIN_JSON" \
+    | "$PYTHON_BIN" -c "import sys,json; print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null
 )" || true
 if [[ -n "$NANO_USER_ID" ]]; then
   if command -v yq >/dev/null 2>&1; then
     yq -i ".node.user_id = \"$NANO_USER_ID\"" "$WT_CFG"
   else
-    NANO_USER_ID="$NANO_USER_ID" WT_CFG_PY="$WT_CFG" python3 - <<'PY'
+    NANO_USER_ID="$NANO_USER_ID" WT_CFG_PY="$WT_CFG" "$PYTHON_BIN" - <<'PY'
 import os, yaml
 path = os.environ["WT_CFG_PY"]
 with open(path) as f: cfg = yaml.safe_load(f)
@@ -189,9 +200,8 @@ else
 fi
 
 # ─── validate llm config before starting Gateway ─────────────────────────────
-# refactor-387 M3: kernel runs in-process inside Gateway; no separate Kernel API.
 
-if ! python3 -c "import yaml; cfg=yaml.safe_load(open('$WT_CFG')); exit(0 if 'llm' in cfg else 1)" 2>/dev/null; then
+if ! "$PYTHON_BIN" -c "import yaml; cfg=yaml.safe_load(open('$WT_CFG')); exit(0 if 'llm' in cfg else 1)" 2>/dev/null; then
   echo "ERROR: '$WT_CFG' is missing the 'llm:' section." >&2
   echo "Add the llm: block to ~/.nano-assistant/config.yaml first (see AGENTS.md 'minimum config example')." >&2
   exit 1
@@ -205,7 +215,7 @@ fi
 # replaces the interactive "click this URL" step that breaks worktree e2e.
 # refactor-381.
 
-PYTHONPATH="$SRC_DIR" python -m personal_assistant.main \
+PYTHONPATH="$SRC_DIR" "$PYTHON_BIN" -m personal_assistant.main \
   --config "$WT_CFG" \
   --im-service-url "http://127.0.0.1:$IM_PORT" \
   --foreground \
@@ -213,11 +223,22 @@ PYTHONPATH="$SRC_DIR" python -m personal_assistant.main \
   > "$WT_ROOT/.gateway.log" 2>&1 &
 echo $! > "$WT_ROOT/.gateway.pid"
 
-# Wait for Gateway readiness. Probe the internal health port written into the
-# log; absent a health line within 20s, abort.
+# Wait for the Gateway process to stay alive and its node to become online in IM.
+# This is transport-level startup evidence only; user-visible journeys remain the
+# end-to-end readiness evidence.
 GW_READY=0
 for _ in $(seq 1 60); do
-  if grep -q "INFO node .* auto-bound to IM\|Gateway started\|node_id=\|INFO im_connection" "$WT_ROOT/.gateway.log" 2>/dev/null; then
+  if [[ -n "$NANO_ACCESS_TOKEN" ]] \
+    && curl -sf "http://127.0.0.1:$IM_PORT/im/v1/nodes" \
+      -H "Authorization: Bearer $NANO_ACCESS_TOKEN" 2>/dev/null \
+      | NODE_ID="$NODE_ID" "$PYTHON_BIN" -c '
+import json, os, sys
+nodes = json.load(sys.stdin)
+raise SystemExit(0 if any(
+    item.get("node_id") == os.environ["NODE_ID"] and item.get("status") == "online"
+    for item in nodes
+) else 1)
+'; then
     GW_READY=1; break
   fi
   if ! kill -0 "$(cat "$WT_ROOT/.gateway.pid")" 2>/dev/null; then
@@ -228,7 +249,7 @@ for _ in $(seq 1 60); do
   sleep 0.5
 done
 if [[ $GW_READY -eq 0 ]]; then
-  echo "Gateway did not signal readiness within 30s; see $WT_ROOT/.gateway.log" >&2
+  echo "Gateway node did not become online within 30s; see $WT_ROOT/.gateway.log" >&2
   tail -30 "$WT_ROOT/.gateway.log" >&2 || true
   exit 1
 fi
@@ -237,7 +258,7 @@ fi
 
 cat > "$WT_ROOT/.e2e-ports.env" <<EOF
 # Generated by scripts/e2e-up.sh on $(date -u +%Y-%m-%dT%H:%M:%SZ)
-# refactor-387 M3: kernel is in-process; no API_PORT needed.
+# The agent runtime is in-process; no separate service port is exported.
 # source this file in your shell, then curl with \$IM_URL.
 export IM_PORT=$IM_PORT
 export IM_URL=http://127.0.0.1:$IM_PORT

@@ -11,7 +11,7 @@ Wire-protocol detail this stub gets right (and why ad-hoc桩 typically don't):
     data: {"type":"error","error":{"type":"overloaded_error","message":"..."}}
 
 Both the `event:` line and the `data:` JSON `"type":"error"` field are required;
-the kernel's AnthropicClient._stream_response keys on event_type=="error".
+the AnthropicClient._stream_response implementation keys on event_type=="error".
 Omit either and you fall through to "stream ended without terminal event"
 (retryable=True) — that path triggers a 20-retry storm and you'll think the
 fix is broken when really the桩 is wrong.
@@ -20,11 +20,14 @@ Run::
 
     python3 scripts/fixtures/anthropic_sse_error.py 19998
 
-Then point the kernel at it::
+Then point an Anthropic provider in an isolated Gateway config at it and start
+the real product entry::
 
-    NANO_MULTIAGENT_LLM_PROVIDER=anthropic \
-    NANO_MULTIAGENT_LLM_BASE_URL=http://127.0.0.1:19998 \
-    PYTHONPATH=src python -m uvicorn agent.platform.http_api.app:app --port 8000
+    cp ~/.nano-assistant/config.yaml .fixture-gateway-config.yaml
+    yq -i '(.llm.providers[] | select(.name == "anthropic") | .base_url) = "http://127.0.0.1:19998"' \
+      .fixture-gateway-config.yaml
+    PYTHONPATH=src python -m personal_assistant.main \
+      --config .fixture-gateway-config.yaml --foreground
 
 Triggering a request gets you a `retryable=False` ModelError within ~1 second.
 """
