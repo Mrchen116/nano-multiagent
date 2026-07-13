@@ -244,3 +244,128 @@ N/A。本 unit 无前端原型、视觉 reference 或 must-match 契约。
 - [x] `docs/specs/im/`：无需更新；本 unit `no spec delta`，既有行为契约未变。
 - [x] `AGENTS.md` / `CLAUDE.md`：无需更新；无新增用户操作。
 - [x] `docs/SPEC_GUIDE.md`：无需更新；未改变文档体系。
+
+---
+
+# Round 3 — 2026-07-13
+
+- **Verdict**: `pass`
+- **Highest Required Action**: `pass`
+- **Review mode**: full
+- **Fix delta**: `7ede49f8..8bbba707`
+- **必验 Scenario**: 8；`pass` 8，`fail` 0，`inconclusive` 0
+- **Issues**: blocking 0，major 0，minor 0
+
+## Round 2 问题继承与关闭
+
+Round 2 唯一 issue 是 Gateway 已公开恢复 online、heartbeat generation 已前进后，原 conversation 首次续发仍
+返回 503。本轮从全新 Runbook 真栈独立执行完整关键旅程：先在 direct conversation 发送随机暗号并等待
+`completed`，终止旧 Gateway，replacement Gateway 仅在旧进程退出后产生新 heartbeat 才判 ready；随后向同一
+conversation 发“复述暗号”，POST 成功、agent 回复 `completed` 且正确复述重启前上下文。
+
+对应真实旅程 `test_context_survives_gateway_restart` 本轮通过，Round 2 Issue 1 **已关闭**。
+
+## 用户旅程体验
+
+### Journey 1：双 owner、direct/group 与历史分页
+
+通过公开 auth、conversation、message HTTP 入口创建两个 owner。owner A 创建 direct（本人 +
+`default-agent`）与 group（本人 + `default-agent` + `plato`），各写入三条消息；owner B 创建自己的会话。
+
+- 双方列表互不可见；B 读取 A 的 direct conversation 与 messages 均为 404。
+- direct 返回 `type=direct`，参与者为本人、`default-agent`；group 返回 `type=group`，参与者为本人、
+  `default-agent`、`plato`。
+- direct 分页为 `direct-2, direct-3` → `direct-1`；group 历史为 `group-1, group-2, group-3`，顺序稳定。
+
+### Journey 2：shadow、实时事件、relay 与 group/agent 投递
+
+- 同一 external 四元组经公开 find-or-create 返回 `201 → 200`，复用同一 shadow conversation；发送者显示为
+  `Review A`。
+- owner 的真实 `/im/ws/user` 从当前 cursor 续接后，shadow 新消息按 `message.sent → message.created →
+  message.delivered` 实时出现，conversation id 保持一致。
+- 完整真栈 group directed mention、未 mention agent 静默、普通 relay、工具回复和 Gateway resilience 旅程通过；
+  agent 间投递未出现重复消息或错误落点。
+- 多 node / group 顺序另作加严检查：真实 Gateway WS 非字典序 advertisement `agent-z, agent-a` 在 owner
+  user-stream 中保持相同 online 顺序，seq 连续递增；group peer legacy bulk 顺序与后一 peer enqueue 前即时
+  route 的确定性用例通过。人工构造但缺少真实当前群回复上下文的探针不作为验收证据。
+
+### Journey 3：Node/Gateway 生命周期与 Round 2 重启恢复
+
+- Runbook 无条件 `e2e-down.sh` → `e2e-up.sh` 后，openapi ready、真实 Gateway auto-bind 并注册 online。
+- 真实非字典序 Gateway 注册广播为 node online → `agent-z` online → `agent-a` online，seq 严格递增；公开
+  heartbeat 时间前进，连接关闭后 owner 收到 offline 事件。
+- 完整 resilience 旅程覆盖 Gateway 断开、重连和后续收发；Round 2 的 replacement readiness / 原会话续发
+  场景独立通过，不再出现 503。
+- heartbeat-timeout 的 durable transition / owner broadcast 守护用例与真实 WS owner 隔离、advertisement
+  顺序用例均通过；本轮没有把缺少完整绑定生命周期的临时探针计入结论。
+
+### Journey 4：过程事件、完整关键路径与同库 IM 重启
+
+完整真栈命令：
+
+```text
+PATH=/Users/czj/Repos/nano-multiagent/.venv/bin:$PATH \
+  ./scripts/e2e-critical.sh -m "not slow"
+15 passed, 2 deselected in 221.60s
+```
+
+其中覆盖 bash 后台通知、前台超时、创建 Agent、Gateway 韧性、group mention/静默、fork、权限批准/拒绝、
+Gateway restart continuity、停止 run、subagent 失败隔离/前台回传与工具调用后回复；过程和终态均从真实
+Gateway/IM/LLM 路径收口。
+
+同 SQLite IM restart 另作直接验收：重启前公开状态为 8 个 conversation、`max_event_id=35`、12 个 Agent，
+选定 direct 历史为 `direct-1, direct-2, direct-3`。仅停止 IM，并以相同端口、JWT secret 和
+`data/im_service.sqlite3` 重启；Gateway 自动重新连接 online。重启后 conversation/事件游标/Agent 数不变，
+direct 与 shadow 均返回 200，三条旧消息原序保留；向原 direct conversation 继续发送返回 201，agent 最终
+`completed` 回复本轮随机 marker，无额外迁移动作。
+
+## Reference Artifacts Reviewed
+
+N/A。本 unit 无前端原型、视觉 reference 或 must-match 契约。
+
+## 问题清单
+
+无。
+
+## 验收标准覆盖
+
+### Requirement: 账号隔离与会话消息行为保持不变 — 组内结论：pass
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| owner 只能访问自己的会话与消息 | `motivation.md` | Journey 1：双账号公开 HTTP 列表/get/messages | 双方列表互不可见；B 读 A conversation/messages 均 404 | pass | Round 3 独立重跑 |
+| direct 与 group 会话继续稳定持久化 | `motivation.md` | Journey 1 + Journey 4：创建、发送、分页、同库重启重读 | 类型/参与者正确；分页与历史原序；重启后继续发送并 completed | pass | 真实 HTTP + 真 Gateway |
+| 外部 channel shadow conversation 保持幂等 | `motivation.md` + M4 main/unit baseline | Journey 2：find-or-create、在线 user-stream、既有差分基线 | `201→200` 同 id；发送者显示保留；实时 sent/created/delivered 顺序可见 | pass | HTTP duplicate 的 baseline-equivalent 结论沿用已证明差分 |
+
+### Requirement: Gateway 注册、状态与 relay 行为保持不变 — 组内结论：pass
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| Node 注册和状态变化继续实时可见 | `motivation.md` + design Changelog 的 advertisement 顺序约束 | Journey 3：真 Gateway 注册/重连；真实 WS 非字典序 advertisement；liveness 守护 | online 广播保持 `agent-z→agent-a`，seq 递增；heartbeat 前进；disconnect/offline 与 timeout 守护通过 | pass | 公开 user-stream + `/nodes`，确定性 timeout 辅证 |
+| relay 投递与回执继续收口 | `motivation.md` | Journey 2 + Journey 3 + Journey 4：普通 relay、完整 critical、replacement Gateway 续发 | 完整真栈 15/15；replacement ready 后原 conversation POST 成功、回复 completed 且上下文保留 | pass | Round 2 Issue 1 已关闭 |
+| group reply context 与 agent 间投递保持不变 | `motivation.md` + M5 顺序约束 | Journey 2 + Journey 4：group directed mention/静默、agent 投递、多 node 顺序加严 | group/agent 真栈旅程通过；非字典序状态广播保持；group peer legacy 顺序与 enqueue-time route 用例通过 | pass | 无效人工探针未计证据 |
+
+### Requirement: 过程事件与重启恢复保持不变 — 组内结论：pass
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 工具、思考、权限与终态事件实时展示并可回放 | `motivation.md` | Journey 4：完整真栈工具/权限/停止/subagent/回复旅程 | `e2e-critical` 15/15；对应公开历史/终态关键旅程全部通过 | pass | 真 Gateway/IM/LLM |
+| 使用既有数据库重启 IM | `motivation.md` | Journey 4：相同 DB/JWT/端口只重启 IM，重新登录、读历史并继续原会话 | 8 conversation、event 35、12 Agent 不变；direct/shadow 200；旧消息原序；新消息 201→agent completed | pass | 无额外迁移 |
+
+## Side Findings
+
+- HTTP 重复 `Idempotency-Key` 产生两条消息仍是 main/unit baseline-equivalent 的既有行为，不属于本 refactor
+  回归；本轮未借 refactor 改变该结论。
+
+## 澄清记录
+
+- 无新增口径澄清。严格按 `motivation.md` 的 behavior-preserving 不变性判断；自动化或人工探针只有在完整真实
+  前置成立时才计作证据。
+
+## 上层文档同步
+
+- [x] `SPEC.md`（跨包顶点架构）：无需更新；无跨包职责或部署变化。
+- [x] `docs/specs/im/`：无需更新；本 unit `no spec delta`，auth/conversation/node/relay/tool timeline 契约未变。
+- [x] `docs/specs/gateway/`：无需更新；Gateway routing/session continuity 的长青行为未变。
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新；无新增用户操作或运行配置。
+- [x] `docs/SPEC_GUIDE.md`：无需更新；未改变文档体系。
