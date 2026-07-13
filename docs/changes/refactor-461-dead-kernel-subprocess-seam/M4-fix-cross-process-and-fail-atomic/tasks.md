@@ -13,8 +13,8 @@
 
 ## 退出标准
 
-- [ ] 两个独立进程的 public config saves 在稳定 sidecar lock 上串行；backup fd/identity 一直守到 commit gate，mode drift 也拒绝覆盖。
-- [ ] replace 后 directory fsync 失败时 best-effort 恢复原 source 并再次持久化；恢复失败返回明确、不可误判为普通 CAS 的 outcome。
+- [x] 两个独立进程的 public config saves 在稳定 sidecar lock 上串行；backup fd/identity 一直守到 commit gate，mode drift 也拒绝覆盖。
+- [x] replace 后 directory fsync 失败时 best-effort 恢复原 source 并再次持久化；恢复失败返回明确、不可误判为普通 CAS 的 outcome。
 - [ ] foreground Gateway 持久化 PID、OS start identity、resolved config、entry/argv；state 与 PID-only stop 都先只读验证 identity，mismatch 零信号且保留证据。
 - [ ] stop 的 TERM/KILL 两阶段都以 `min(poll_interval, remaining)` bounded sleep，长 poll 不越过 grace deadline。
 - [ ] e2e-down 对 missing/non-regular external PID + 任一内部 evidence fail closed，零 Gateway/IM signal；只有 Gateway evidence 全无才可继续停 IM。
@@ -35,9 +35,9 @@
 
 ### R1 — 跨进程 config transaction 与失败回滚
 
-- C1 Red：补两个独立 public save、existing/new backup path-swap barrier、chmod drift、post-replace directory fsync failure 与 rollback-failure regression。
-- C2 Green：引入稳定 sidecar advisory lock；将 backup verified fd 守到 commit gate；CAS 纳入 mode；为 replace 后 durability failure 实施精确 best-effort rollback 和 typed failure outcome。
-- C3 Docs：记录协作/非协作 writer 边界、failure outcome、证据与回退点。
+- [x] C1 Red：补两个独立 public save、existing/new backup path-swap barrier、chmod drift、post-replace directory fsync failure 与 rollback-failure regression。
+- [x] C2 Green：引入稳定 sidecar advisory lock；将 backup verified fd 守到 commit gate；CAS 纳入 mode；为 replace 后 durability failure 实施精确 best-effort rollback 和 typed failure outcome。
+- [x] C3 Docs：记录协作/非协作 writer 边界、failure outcome、证据与回退点。
 
 ### R2 — 公共 Gateway process-instance identity
 
