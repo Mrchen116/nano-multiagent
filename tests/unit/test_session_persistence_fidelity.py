@@ -18,7 +18,6 @@ import pytest
 
 from agent.core.ids import make_message_id
 from agent.core.types import Message
-from agent.core.agent.runtime import _message_to_entry
 from agent.core.agent.prompting import build_chat_messages
 from agent.core.session.entries import (
     message_from_turn_entry,
@@ -27,7 +26,7 @@ from agent.core.session.entries import (
 )
 from agent.core.session.jsonl_files import JsonlSessionFiles
 from agent.core.session.jsonl_writer import JsonlWriter
-from agent.core.session.transcript import JsonlTranscript, _to_message
+from agent.core.session.transcript import JsonlTranscript, _message_to_raw, _to_message
 from agent.core.session.types import NewSession, SessionRef
 
 
@@ -104,7 +103,7 @@ def _entry_to_message(entry: dict) -> Message:
 
 def _roundtrip(msg: Message) -> Message:
     """Persist msg → JSONL entry → restore as Message."""
-    entry = _message_to_entry(msg, session_id="test-session")
+    entry = _message_to_raw(msg, session_id="test-session")
     return _entry_to_message(entry)
 
 
@@ -131,12 +130,12 @@ class TestReasoningPersistence:
             reasoning_content="let me think step by step",
             reasoning_signature="sig-abc123",
         )
-        entry = _message_to_entry(msg, session_id="s1")
+        entry = _message_to_raw(msg, session_id="s1")
         assert entry.get("reasoning_content") == "let me think step by step", (
-            "_message_to_entry must write reasoning_content to JSONL"
+            "_message_to_raw must write reasoning_content to JSONL"
         )
         assert entry.get("reasoning_signature") == "sig-abc123", (
-            "_message_to_entry must write reasoning_signature to JSONL"
+            "_message_to_raw must write reasoning_signature to JSONL"
         )
 
     def test_reasoning_fields_on_message_type(self):
@@ -192,7 +191,7 @@ class TestReasoningPersistence:
 
     def test_reasoning_none_when_absent(self):
         msg = _make_assistant_msg(content="no thinking here")
-        entry = _message_to_entry(msg, session_id="s1")
+        entry = _message_to_raw(msg, session_id="s1")
         assert "reasoning_content" not in entry
         assert "reasoning_signature" not in entry
         restored = _roundtrip(msg)
@@ -208,9 +207,9 @@ class TestReasoningPersistence:
 class TestToolResultPairingFidelity:
     def test_tool_call_id_written_to_jsonl_entry(self):
         msg = _make_tool_msg(call_id="call-A", tool_name="read", result="file contents")
-        entry = _message_to_entry(msg, session_id="s1")
+        entry = _message_to_raw(msg, session_id="s1")
         assert entry.get("tool_call_id") == "call-A", (
-            "_message_to_entry must write tool_call_id to JSONL"
+            "_message_to_raw must write tool_call_id to JSONL"
         )
 
     def test_tool_call_id_restored_on_message(self):
@@ -307,7 +306,7 @@ class TestToolResultPairingFidelity:
 # ---------------------------------------------------------------------------
 # Guard (bugfix-375/M2): Message↔JSONL round-trip field-conservation.
 # Forces any newly-added Message field to be classified as persisted (and
-# handled in _message_to_entry/_to_message) or explicitly not-persisted — so a
+# handled in _message_to_raw/_to_message) or explicitly not-persisted — so a
 # future field can't silently vanish on persist→restore the way reasoning_*
 # once did.
 # ---------------------------------------------------------------------------
@@ -339,7 +338,7 @@ def test_message_jsonl_roundtrip_field_conservation_guard():
     all_fields = {f.name for f in dataclasses.fields(Message)}
     assert all_fields == PERSISTED | NOT_PERSISTED, (
         "Message gained/lost a field. Classify each field: add it to PERSISTED "
-        "(and handle it in _message_to_entry + _to_message) or to NOT_PERSISTED "
+        "(and handle it in _message_to_raw + _to_message) or to NOT_PERSISTED "
         "with a reason — never let a new field silently skip JSONL round-trip."
     )
 
@@ -353,7 +352,7 @@ def test_message_jsonl_roundtrip_field_conservation_guard():
         reasoning_content="chain of thought",
         reasoning_signature="sig-xyz-4340",
     )
-    restored = _to_message(_message_to_entry(msg, "sess-guard"))
+    restored = _to_message(_message_to_raw(msg, "sess-guard"))
     for fname in PERSISTED:
         assert getattr(restored, fname) == getattr(msg, fname), (
             f"field '{fname}' dropped in Message↔JSONL round-trip"
@@ -393,7 +392,7 @@ class TestImagePartsRoundTrip:
                 {"type": "image", "image_url": _IMAGE_DATA_URL},
             ),
         )
-        transcript.append_turn_entries([_message_to_entry(user_msg, sid)], durable=True)
+        transcript.append_messages([user_msg], durable=True)
 
         # Reload through the real load path (used to rebuild runtime history).
         result = transcript.load()
@@ -415,7 +414,7 @@ class TestImagePartsRoundTrip:
     def test_pure_text_user_turn_has_no_parts_key_in_jsonl(self) -> None:
         """A text-only user turn must not write a `parts` key (text golden 不漂移)."""
         msg = Message(message_id="m1", role="user", content="just text")
-        entry = _message_to_entry(msg, session_id="s1")
+        entry = _message_to_raw(msg, session_id="s1")
         assert "parts" not in entry
 
     def test_message_from_turn_entry_restores_parts(self) -> None:
@@ -451,7 +450,7 @@ class TestImagePartsRoundTrip:
     def test_new_turn_appended_entry_omits_empty_parts_key(self) -> None:
         """bugfix-433-fix1 #4: text-only turn must NOT write `parts: []`.
 
-        ``_message_to_entry`` only writes ``parts`` when non-empty; ``new_turn_appended_entry``
+        ``_message_to_raw`` only writes ``parts`` when non-empty; ``new_turn_appended_entry``
         previously always wrote ``"parts": []`` — an asymmetry that makes the two write paths
         produce structurally different entries for the same text-only turn (golden drift).
         """
@@ -471,7 +470,7 @@ class TestImagePartsRoundTrip:
 
         The field-conservation guard only exercised parts=None→None; a regression that
         dropped non-empty parts on round-trip would slip through. Assert image parts
-        survive _message_to_entry → _to_message intact.
+        survive _message_to_raw → _to_message intact.
         """
         msg = Message(
             message_id="m-parts",
@@ -482,7 +481,7 @@ class TestImagePartsRoundTrip:
                 {"type": "image", "image_url": _IMAGE_DATA_URL},
             ),
         )
-        restored = _to_message(_message_to_entry(msg, "sess-parts"))
+        restored = _to_message(_message_to_raw(msg, "sess-parts"))
         assert restored.parts is not None
         assert [dict(p) for p in restored.parts] == [
             {"type": "text", "text": "look"},
@@ -503,14 +502,18 @@ def _make_session_with_orphaned_tool_call(
     transcript = _make_transcript(tmp_path, sid)
     call_id = "call-orphan-r3"
 
-    transcript.append_turn_entries(
+    transcript.append_messages(
         [
-            {
-                "uuid": "msg-r3-asst",
-                "role": "assistant",
-                "content": "",
-                "tool_calls": [{"call_id": call_id, "name": "bash", "arguments": {}}],
-            }
+            Message(
+                message_id="msg-r3-asst",
+                role="assistant",
+                content="",
+                metadata={
+                    "tool_calls": [
+                        {"call_id": call_id, "name": "bash", "arguments": {}}
+                    ]
+                },
+            )
         ],
         durable=True,
     )

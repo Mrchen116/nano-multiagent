@@ -86,6 +86,11 @@ class AgentLoop:
         compaction_summarizer: CompactionSummarizer | None = None,
         compaction_settings: CompactionSettings | None = None,
         on_compaction: Callable[[str], None] | None = None,
+        capture_compaction_epoch: Callable[[], int] | None = None,
+        commit_compaction: Callable[
+            [Message, tuple[Message, ...], str, tuple[str, ...], int], bool
+        ]
+        | None = None,
         build_skill_reinjection: Callable[[str, Path | None, str], Message | None]
         | None = None,
     ) -> None:
@@ -110,6 +115,8 @@ class AgentLoop:
         self._compaction_summarizer = compaction_summarizer
         self._compaction_settings = compaction_settings
         self._on_compaction_callback = on_compaction
+        self._capture_compaction_epoch = capture_compaction_epoch
+        self._commit_compaction = commit_compaction
         self._build_skill_reinjection = build_skill_reinjection
         self._active_session_id: str | None = None
         # Most recent real prompt_tokens reported by the model for this conversation.
@@ -893,6 +900,11 @@ class AgentLoop:
         ):
             return None
 
+        captured_epoch = (
+            self._capture_compaction_epoch()
+            if self._capture_compaction_epoch is not None
+            else 0
+        )
         entries = self._compaction_entries()
         plan = self._compaction_planner.plan(
             events=entries, reason=CompactionReason.THRESHOLD
@@ -958,6 +970,19 @@ class AgentLoop:
         )
         if reinjection_msg is not None:
             summary_msg.metadata["_post_compact_messages"] = (reinjection_msg,)
+
+        reinjections = (reinjection_msg,) if reinjection_msg is not None else ()
+        if self._commit_compaction is not None and not self._commit_compaction(
+            summary_msg,
+            reinjections,
+            plan.reason.value,
+            tuple(restored_files),
+            captured_epoch,
+        ):
+            # An external append landed while the summary was being generated.
+            # Keep the current prompt intact; the next transaction reloads the
+            # durable append instead of hiding it behind a stale boundary.
+            return None
 
         # Build new llm_messages before the post-compact model retry/continuation.
         llm_messages[:] = [LLMMessage(role="user", content=summary)]
