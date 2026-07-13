@@ -52,7 +52,8 @@ fi
 # ─── liveness check (refuse to clobber) ──────────────────────────────────────
 
 external_gateway_pid="$WT_ROOT/.gateway.pid"
-if [[ -e "$external_gateway_pid" && ( ! -f "$external_gateway_pid" || -L "$external_gateway_pid" ) ]]; then
+if [[ ( -e "$external_gateway_pid" || -L "$external_gateway_pid" ) \
+  && ( ! -f "$external_gateway_pid" || -L "$external_gateway_pid" ) ]]; then
   echo "non-regular external Gateway PID evidence: $external_gateway_pid" >&2
   exit 1
 fi
@@ -158,19 +159,57 @@ if payload.get("pid") == expected:
 PY
 }
 
+clear_ephemeral_config_lock() {
+  local lock_path="$WT_ROOT/.gateway-config.yaml.lock"
+  [[ -e "$lock_path" || -L "$lock_path" ]] || return 0
+  "$PYTHON_BIN" - "$lock_path" <<'PY'
+import fcntl
+import os
+from pathlib import Path
+import stat
+import sys
+
+path = Path(sys.argv[1])
+before = path.lstat()
+if stat.S_ISLNK(before.st_mode) or not stat.S_ISREG(before.st_mode):
+    raise SystemExit(1)
+fd = os.open(path, os.O_RDWR)
+try:
+    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    held = os.fstat(fd)
+    current = path.lstat()
+    if (held.st_dev, held.st_ino) != (current.st_dev, current.st_ino):
+        raise SystemExit(1)
+    path.unlink()
+finally:
+    os.close(fd)
+PY
+}
+
 rollback_spawned_stack() {
   local exit_code=$?
   [[ $ROLLBACK_ACTIVE -eq 1 && $exit_code -ne 0 ]] || return "$exit_code"
   trap - EXIT
   set +e
-  if [[ -n "$GW_PID" ]] && stop_spawned_pid "$GW_PID"; then
+  if [[ -n "$GW_PID" ]]; then
+    if ! stop_spawned_pid "$GW_PID"; then
+      echo "rollback could not stop Gateway pid=$GW_PID; retaining complete stack evidence" >&2
+      exit "$exit_code"
+    fi
     clear_matching_pid_file "$WT_ROOT/.gateway.pid" "$GW_PID"
     clear_matching_pid_file "$WT_ROOT/gateway.pid" "$GW_PID"
     clear_matching_json_pid_file "$WT_ROOT/gateway.identity.json" "$GW_PID"
     clear_matching_json_pid_file "$WT_ROOT/.gateway-state.json" "$GW_PID"
   fi
-  if [[ -n "$IM_PID" ]] && stop_spawned_pid "$IM_PID"; then
+  if [[ -n "$IM_PID" ]]; then
+    if ! stop_spawned_pid "$IM_PID"; then
+      echo "rollback could not stop IM pid=$IM_PID; retaining remaining evidence" >&2
+      exit "$exit_code"
+    fi
     clear_matching_pid_file "$WT_ROOT/.im.pid" "$IM_PID"
+  fi
+  if ! clear_ephemeral_config_lock; then
+    echo "rollback could not exclusively remove ephemeral config lock; retaining it" >&2
   fi
   exit "$exit_code"
 }

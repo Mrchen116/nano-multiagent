@@ -52,6 +52,7 @@ def _run_down(
     kill_body: str,
     command: str | None = None,
     process_stat: str | None = None,
+    im_survives: bool = False,
     wt_argument: Path | None = None,
     check: bool = False,
 ) -> subprocess.CompletedProcess[str]:
@@ -77,8 +78,18 @@ esac
         f"{tmp_path / '.gateway-config.yaml'} --foreground --auto-bind"
     )
     shell = f"""
+IM_ALIVE=1
+export IM_ALIVE
 kill() {{
   printf 'kill %s\\n' "$*" >> "$CALLS_FILE"
+  if [[ "$*" == "-0 434343" ]]; then
+    [[ "$IM_ALIVE" == 1 ]]
+    return
+  fi
+  if [[ "$*" == "434343" || "$*" == "-9 434343" ]]; then
+    [[ "${{IM_SURVIVES-0}}" == 1 ]] || IM_ALIVE=0
+    return 0
+  fi
   {kill_body}
 }}
 sleep() {{
@@ -96,6 +107,7 @@ exec bash "{script}" --wt "{wt_argument or tmp_path}"
         PROCESS_START=_PROCESS_START,
         REAL_PYTHON=sys.executable,
         E2E_WT=str(tmp_path),
+        IM_SURVIVES="1" if im_survives else "0",
     )
     if process_stat is not None:
         env["PROCESS_STAT"] = process_stat
@@ -454,3 +466,61 @@ def test_all_gateway_evidence_absent_allows_im_stop(tmp_path: Path) -> None:
     assert "kill -0 434343" in calls
     assert "kill 434343" in calls
     assert not (tmp_path / ".im.pid").exists()
+
+
+def test_im_survivor_retains_config_and_sidecar(tmp_path: Path) -> None:
+    (tmp_path / ".im.pid").write_text("434343\n", encoding="utf-8")
+    (tmp_path / ".gateway-config.yaml").write_text("node: {}\n", encoding="utf-8")
+    (tmp_path / ".gateway-config.yaml.lock").write_text("", encoding="utf-8")
+
+    result = _run_down(
+        tmp_path,
+        kill_body="return 0",
+        im_survives=True,
+    )
+
+    assert result.returncode == 1
+    assert "IM pid=434343 still appears alive" in result.stderr
+    assert (tmp_path / ".im.pid").exists()
+    assert (tmp_path / ".gateway-config.yaml").exists()
+    assert (tmp_path / ".gateway-config.yaml.lock").exists()
+
+
+def test_busy_config_sidecar_is_not_unlinked_after_service_exit(
+    tmp_path: Path,
+) -> None:
+    _write_stack_files(tmp_path)
+    lock_path = tmp_path / ".gateway-config.yaml.lock"
+    lock_path.write_text("", encoding="utf-8")
+    holder = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            "import fcntl,sys,time; "
+            "f=open(sys.argv[1], 'r+'); "
+            "fcntl.flock(f, fcntl.LOCK_EX); "
+            "print('ready', flush=True); time.sleep(30)",
+            str(lock_path),
+        ],
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    assert holder.stdout is not None
+    assert holder.stdout.readline().strip() == "ready"
+    kill_body = f"""
+if [[ "$*" == "{_GATEWAY_PID}" ]]; then
+  export PROCESS_STAT=""
+fi
+return 0
+"""
+
+    try:
+        result = _run_down(tmp_path, kill_body=kill_body)
+
+        assert result.returncode == 1
+        assert "config lock is busy" in result.stderr
+        assert lock_path.exists()
+        assert (tmp_path / ".gateway-config.yaml").exists()
+    finally:
+        holder.terminate()
+        holder.wait(timeout=3)

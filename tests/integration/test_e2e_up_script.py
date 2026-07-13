@@ -178,7 +178,7 @@ kill() {{
   builtin kill "$@"
 }}
 export -f kill
-exec bash "{script}" --wt "{tmp_path}" --main-config "{env['MAIN_CONFIG']}"
+exec bash "{script}" --wt "{tmp_path}" --main-config "{env["MAIN_CONFIG"]}"
 """,
         ]
         cwd = repo_root
@@ -302,9 +302,7 @@ def test_identity_timeout_gateway_survivor_retains_whole_stack(
     try:
         result = _run_up(tmp_path, env, preserve_gateway_signals=True)
         gateway_pid, im_pid = _spawned_pids(tmp_path)[1], _spawned_pids(tmp_path)[0]
-        calls = (tmp_path / "signal-calls.log").read_text(
-            encoding="utf-8"
-        ).splitlines()
+        calls = (tmp_path / "signal-calls.log").read_text(encoding="utf-8").splitlines()
 
         assert result.returncode == 1
         assert "rollback could not stop Gateway" in result.stderr

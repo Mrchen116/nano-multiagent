@@ -5,11 +5,13 @@ from __future__ import annotations
 import argparse
 import asyncio
 from datetime import datetime, timezone
+import hashlib
 import json
 import logging
 import os
 import re
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -331,6 +333,28 @@ class GatewayProcessSnapshot:
     pid: int
     process_start: str
     command: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class GatewayLifecycleEvidenceFile:
+    """Describe one lifecycle evidence path at a stable filesystem revision."""
+
+    name: str
+    exists: bool
+    device: int | None = None
+    inode: int | None = None
+    size: int | None = None
+    modified_ns: int | None = None
+    sha256: str | None = None
+    content: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class GatewayLifecycleEvidenceSnapshot:
+    """Capture all evidence that one Gateway teardown transaction may delete."""
+
+    pid: int
+    files: tuple[GatewayLifecycleEvidenceFile, ...]
 
 
 def _default_pa_global_skill_names() -> tuple[str, ...]:
@@ -4169,6 +4193,151 @@ def read_gateway_process_snapshot(pid: int) -> GatewayProcessSnapshot | None:
     if before != after:
         raise RuntimeError(f"gateway pid={pid} changed during identity observation")
     return GatewayProcessSnapshot(pid=pid, process_start=after, command=command)
+
+
+_GATEWAY_LIFECYCLE_EVIDENCE_NAMES = (
+    ".gateway.pid",
+    "gateway.pid",
+    "gateway.identity.json",
+    ".gateway-state.json",
+)
+
+
+def _snapshot_gateway_evidence_file(
+    root: Path, name: str
+) -> GatewayLifecycleEvidenceFile:
+    """Read one evidence file without following links or accepting drift."""
+    path = root / name
+    try:
+        before = path.lstat()
+    except FileNotFoundError:
+        return GatewayLifecycleEvidenceFile(name=name, exists=False)
+    if stat.S_ISLNK(before.st_mode) or not stat.S_ISREG(before.st_mode):
+        raise RuntimeError(f"non-regular Gateway lifecycle evidence: {path}")
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(path, flags)
+    try:
+        held = os.fstat(fd)
+        chunks: list[bytes] = []
+        while chunk := os.read(fd, 65536):
+            chunks.append(chunk)
+    finally:
+        os.close(fd)
+    after = path.lstat()
+    before_identity = (
+        before.st_dev,
+        before.st_ino,
+        before.st_size,
+        before.st_mtime_ns,
+    )
+    after_identity = (
+        after.st_dev,
+        after.st_ino,
+        after.st_size,
+        after.st_mtime_ns,
+    )
+    held_identity = (
+        held.st_dev,
+        held.st_ino,
+        held.st_size,
+        held.st_mtime_ns,
+    )
+    if before_identity != held_identity or held_identity != after_identity:
+        raise RuntimeError(f"Gateway lifecycle evidence changed while read: {path}")
+    content = b"".join(chunks)
+    try:
+        text = content.decode("utf-8")
+    except UnicodeError as exc:
+        raise RuntimeError(f"Gateway lifecycle evidence is not UTF-8: {path}") from exc
+    return GatewayLifecycleEvidenceFile(
+        name=name,
+        exists=True,
+        device=held.st_dev,
+        inode=held.st_ino,
+        size=held.st_size,
+        modified_ns=held.st_mtime_ns,
+        sha256=hashlib.sha256(content).hexdigest(),
+        content=text,
+    )
+
+
+def capture_gateway_lifecycle_evidence(
+    root: Path, pid: int
+) -> GatewayLifecycleEvidenceSnapshot:
+    """Capture the complete evidence revision owned by one Gateway PID.
+
+    Args:
+        root: Directory containing worktree Gateway lifecycle evidence.
+        pid: Externally owned Gateway process id.
+
+    Returns:
+        An immutable filesystem snapshot suitable for a later conditional clear.
+
+    Raises:
+        RuntimeError: When evidence is missing, malformed, non-regular, or does
+            not consistently name ``pid``.
+    """
+    root = root.resolve()
+    legacy_path = root / ".gateway-identity.json"
+    if legacy_path.exists() or legacy_path.is_symlink():
+        raise RuntimeError(
+            f"unsupported Gateway lifecycle evidence retained: {legacy_path}"
+        )
+    files = tuple(
+        _snapshot_gateway_evidence_file(root, name)
+        for name in _GATEWAY_LIFECYCLE_EVIDENCE_NAMES
+    )
+    by_name = {item.name: item for item in files}
+    required = (".gateway.pid", "gateway.pid", "gateway.identity.json")
+    if any(not by_name[name].exists for name in required):
+        raise RuntimeError("Gateway lifecycle evidence is incomplete")
+    try:
+        external_pid = int(by_name[".gateway.pid"].content or "")
+        internal_pid = int(by_name["gateway.pid"].content or "")
+        identity = json.loads(by_name["gateway.identity.json"].content or "")
+        state = (
+            json.loads(by_name[".gateway-state.json"].content or "")
+            if by_name[".gateway-state.json"].exists
+            else None
+        )
+    except (OSError, UnicodeError, ValueError, TypeError) as exc:
+        raise RuntimeError("Gateway lifecycle evidence is malformed") from exc
+    if (
+        external_pid != pid
+        or internal_pid != pid
+        or identity.get("pid") != pid
+        or (state is not None and state.get("pid") != pid)
+    ):
+        raise RuntimeError("Gateway lifecycle evidence PID mismatch")
+    # Re-capture after semantic reads so callers never receive a mixed revision.
+    confirmed = tuple(
+        _snapshot_gateway_evidence_file(root, name)
+        for name in _GATEWAY_LIFECYCLE_EVIDENCE_NAMES
+    )
+    if confirmed != files:
+        raise RuntimeError("Gateway lifecycle evidence changed during capture")
+    return GatewayLifecycleEvidenceSnapshot(pid=pid, files=files)
+
+
+def clear_gateway_lifecycle_evidence(
+    root: Path, expected: GatewayLifecycleEvidenceSnapshot
+) -> None:
+    """Conditionally clear one complete, unchanged Gateway evidence revision.
+
+    Args:
+        root: Directory containing worktree Gateway lifecycle evidence.
+        expected: Exact revision previously returned by
+            :func:`capture_gateway_lifecycle_evidence`.
+
+    Raises:
+        RuntimeError: When any evidence path changed before the commit point.
+    """
+    current = capture_gateway_lifecycle_evidence(root, expected.pid)
+    if current != expected:
+        raise RuntimeError("Gateway lifecycle evidence changed before cleanup")
+    for item in expected.files:
+        if item.exists:
+            (root / item.name).unlink()
 
 
 def _runtime_gateway_argv(
