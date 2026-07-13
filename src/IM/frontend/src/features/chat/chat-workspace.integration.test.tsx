@@ -850,6 +850,124 @@ describe("ChatWorkspacePage — integration", () => {
     expect(screen.getByText("live final content")).toBeInTheDocument();
   });
 
+  it("does not let stale history resurrect a message discarded while the request was in flight", async () => {
+    const discardedMessage = historyMessage("m-raced-discarded", 3, "discard this live bubble");
+    const initialItems = [...FIXTURES.messagesC1, discardedMessage];
+    const staleItems = [
+      ...FIXTURES.messagesC1.map((message) =>
+        message.id === "m1" ? { ...message, content: "discard race reset marker" } : message
+      ),
+      discardedMessage
+    ];
+    let requestCount = 0;
+    let resolveRaced!: (response: Response) => void;
+    let deferHistory = false;
+    fetchSpy = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (/\/im\/v1\/conversations\/c1\/messages/.test(url) && (!init || init.method === undefined || init.method === "GET")) {
+        requestCount += 1;
+        if (deferHistory) return new Promise<Response>((resolve) => { resolveRaced = resolve; });
+        return jsonResponse({ items: initialItems, next_before_message_id: null });
+      }
+      return mockFetch()(input, init);
+    }) as ReturnType<typeof mockFetch>;
+    vi.stubGlobal("fetch", fetchSpy);
+
+    renderAtRoute("/chat/c1");
+    await screen.findByText("discard this live bubble");
+    await waitFor(() => expect(capturedStatusHandler).toBeTruthy());
+    deferHistory = true;
+    const before = requestCount;
+    act(() => {
+      capturedStatusHandler!({
+        eventType: "message.sent",
+        payload: {
+          conversation_id: "c1",
+          message_id: "trigger-discard-refetch",
+          sender_user_id: "u-other",
+          sender_type: "user",
+          attachments: [],
+          delivery_status: "sent",
+          created_at: "2026-05-01T00:06:00Z"
+        },
+        eventId: 63
+      });
+    });
+    await waitFor(() => expect(requestCount).toBeGreaterThan(before));
+
+    act(() => {
+      emitSharedChatEvent({
+        type: "message.discarded",
+        conversation_id: "c1",
+        message_id: "m-raced-discarded",
+        reason: "empty_visible_reply"
+      }, 64);
+    });
+    expect(screen.queryByText("discard this live bubble")).not.toBeInTheDocument();
+
+    await act(async () => {
+      resolveRaced(jsonResponse({ items: staleItems, next_before_message_id: null }));
+      await Promise.resolve();
+    });
+    await screen.findByText("discard race reset marker");
+    expect(screen.queryByText("discard this live bubble")).not.toBeInTheDocument();
+  });
+
+  it("keeps a successful optimistic send across an older in-flight history response", async () => {
+    const staleItems = FIXTURES.messagesC1.map((message) =>
+      message.id === "m1" ? { ...message, content: "optimistic race reset marker" } : message
+    );
+    const baseFetch = mockFetch();
+    let requestCount = 0;
+    let resolveRaced!: (response: Response) => void;
+    let deferHistory = false;
+    fetchSpy = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (/\/im\/v1\/conversations\/c1\/messages/.test(url) && (!init || init.method === undefined || init.method === "GET")) {
+        requestCount += 1;
+        if (deferHistory) return new Promise<Response>((resolve) => { resolveRaced = resolve; });
+        return jsonResponse({ items: FIXTURES.messagesC1, next_before_message_id: null });
+      }
+      return baseFetch(input, init);
+    }) as ReturnType<typeof mockFetch>;
+    vi.stubGlobal("fetch", fetchSpy);
+
+    renderAtRoute("/chat/c1");
+    await screen.findByText("Hi Planner");
+    await waitFor(() => expect(capturedStatusHandler).toBeTruthy());
+    deferHistory = true;
+    const before = requestCount;
+    act(() => {
+      capturedStatusHandler!({
+        eventType: "message.sent",
+        payload: {
+          conversation_id: "c1",
+          message_id: "trigger-optimistic-refetch",
+          sender_user_id: "u-other",
+          sender_type: "user",
+          attachments: [],
+          delivery_status: "sent",
+          created_at: "2026-05-01T00:07:00Z"
+        },
+        eventId: 65
+      });
+    });
+    await waitFor(() => expect(requestCount).toBeGreaterThan(before));
+
+    const user = userEvent.setup();
+    const composer = screen.getByRole("textbox") as HTMLTextAreaElement;
+    await user.type(composer, "optimistic survives stale history");
+    await user.click(screen.getByRole("button", { name: /Send/i }));
+    expect(await screen.findByText("optimistic survives stale history")).toBeInTheDocument();
+
+    await act(async () => {
+      resolveRaced(jsonResponse({ items: staleItems, next_before_message_id: null }));
+      await Promise.resolve();
+    });
+    await screen.findByText("optimistic race reset marker");
+    expect(screen.getByText("optimistic survives stale history")).toBeInTheDocument();
+  });
+
   it("converges active messages, conversations, agents, and nodes after recovery", async () => {
     let recovered = false;
     const baseFetch = mockFetch();

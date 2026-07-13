@@ -266,6 +266,39 @@ describe("useGlobalMessageToast", () => {
     });
   });
 
+  it("does not reuse an older in-flight conversations request for external classification", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    let resolveOldRequest!: (value: Conversation[]) => void;
+    const oldRequest = queryClient.fetchQuery({
+      queryKey: ["chat", "conversations"],
+      queryFn: () => new Promise<Conversation[]>((resolve) => { resolveOldRequest = resolve; })
+    });
+    listConversationsMock.mockResolvedValue([
+      conversation("conv-new-external", { external_source: "feishu", external_chat_id: "oc_new" })
+    ]);
+    const { result } = renderHook(() => useGlobalMessageToast(), { wrapper: buildWrapper(queryClient, "/") });
+    await waitFor(() => expect(subscribeUserStreamMock).toHaveBeenCalled());
+
+    emit("conv-new-external", {
+      eventType: "message.created",
+      eventId: 1,
+      payload: {
+        message_id: "external-inflight-1",
+        sender_type: "user",
+        sender_user_id: "self-user",
+        sender_display_name: "In-flight External Sender",
+        content: "classify after candidate arrival"
+      }
+    });
+    resolveOldRequest([conversation("conv-existing")]);
+    await oldRequest;
+
+    await waitFor(() => {
+      expect(listConversationsMock).toHaveBeenCalledTimes(1);
+      expect(result.current.toast).toMatchObject({ id: "message:external-inflight-1" });
+    });
+  });
+
   it("retries an unresolved external classification during stream recovery", async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false, staleTime: 60_000 } }
