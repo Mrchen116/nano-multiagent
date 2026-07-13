@@ -200,3 +200,55 @@ N/A（限本轮 targeted scope）。
 N/A。
 
 All checks passed. Ready for PR.
+
+# Round 4
+
+## Summary
+
+- **Mode:** targeted-closure
+- **Delta range:** `aa6f7ee0fd5ebdec46f2471e8006d329449fb5ca..99b4a71ca77f7fe6eab8e2a21ca02909e03ac3e2`
+- **Focus issues:** fix-r3 的 hook-await interrupt publication race、cleanup failure resource drain、cold-load/external-append publication race；并回归 Round 3 已通过范围。
+- **Verdict:** **PASS**
+- **requires_full_verification:** `false`
+- **Issues:** 0 CRITICAL，0 WARNING，0 SUGGESTION（限本轮 targeted scope）。
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 3/3 fix-r3 focus issues closed；Round 3 scope regression preserved |
+| Correctness | 3/3 race/failure behaviors independently reproduced as fixed |
+| Coherence | Followed（hard interrupt boundary、best-effort cleanup with error propagation、epoch-gated cache publication 均符合 design） |
+
+Round 2 WARNING-2 仍不在本轮 targeted focus 中，本轮没有重新判定或计入 issue 数；其历史记录继续保留。
+
+## Verification Evidence
+
+- 受影响回归：`pytest -q` 覆盖 Kernel interrupt/active append、Kernel wiring、ConversationSession、JsonlWriter、JsonlTranscript、SessionDirectory、RuntimeRunner、KernelExecutor、RunsRegistry 与 architecture contract → **69 passed in 2.19s**。这包含 Round 3 的全部受影响测试文件及 fix-r3 新增回归。
+- 独立 hook-await interrupt probe：连续 30 次在 assistant `message_start` hook 内暂停，`interrupt()` 返回后释放 hook；30/30 run 保持 `cancelled`，首 run 的 public `assistant_message` 为 0，late content 写入 JSONL 为 0，下一轮 model context 污染为 0。
+- 独立 cleanup failure probe：分别注入 conversation flush failure 与 `Directory.close_all()` failure，各 10 次；20/20 原始 `OSError` 向 `aclose()` 调用方传播，同时 writer thread、owned provider client 与 executor thread 全部关闭，close 前 pending JSONL entry 全部 durable。
+- 独立 cold-load publication probe：连续 50 次在 Transcript materialize 完成、ConversationState 发布前同步 append external；50/50 下一 serialized turn 重新加载并看到该消息，0 次被刚发布的旧缓存吞掉。
+- `ruff check .` → passed；`ruff format --check .` → **760 files already formatted**；`git diff --check origin/main...HEAD` → passed。
+
+## Targeted Closure
+
+| Focus issue | Round 4 result | Implementation evidence | Permanent regression evidence |
+|---|---|---|---|
+| message hook await 中 interrupt 后 late publication / persistence / context contamination | **closed** | `src/agent/core/runs/registry.py:273-322` 将每次 accepted interrupt 变成 hard carrier cancel；`src/agent/core/agent/loop.py:428-440,652-710` 在 hook dispatch 前后检查 controller，未完整发布的 assistant 不再 yield 给 runtime | `tests/contract/test_kernel_sdk_behavior_contract.py:320-380`；另有 30 次独立 public-event + JSONL + next-context probe |
+| directory/flush failure 仍须关闭 writer/client/executor 并传播错误 | **closed** | `src/agent/sdk/kernel.py:589-615` 逐阶段收集错误并继续 writer/client cleanup，最终抛首个错误；`src/agent/core/runs/executor.py:255-295` 即使 finalizer 抛错也先停止 owner loop、join executor，再传播异常 | `tests/contract/test_sdk_kernel_wiring.py:256-274` 联同 `:211-253` 的 owned-client/writer 生命周期测试；另有 20 次两类 failure injection probe |
+| cold load 与 external append 交错时旧缓存发布吞消息 | **closed** | `src/agent/core/session/transcript.py:39-46,120-132` 把 mutex 内捕获的 `external_epoch` 随 load 返回；`src/agent/core/session/conversation.py:226-234,325-352` 只在 loaded epoch 等于 current epoch 时复用 state，竞态发布的旧 state 下一次必 reload | `tests/unit/agent/session/test_conversation_session.py:183-216`；另有 50 次 materialize→append→publish 精确窗口 probe |
+| Round 3 interrupt/writer/partial/cold-read/header-only closure | **preserved** | fix-r3 没有恢复旧 manager/runtime seam；新的 hard interrupt、finalizer 与 epoch token 沿用同一 owner 边界 | 本轮 69 项受影响回归全绿，Round 3 的 66 项测试范围全部包含在内 |
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+N/A。
+
+### WARNING（应该修）
+
+N/A（限本轮 targeted scope）。
+
+### SUGGESTION（可以修）
+
+N/A。
+
+All checks passed. Ready for PR.
