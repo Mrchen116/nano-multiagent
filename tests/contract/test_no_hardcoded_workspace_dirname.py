@@ -80,8 +80,8 @@ _WHITELIST: frozenset[str] = frozenset(
         # feat-446 round-4 contract fix: helper removals compacted the tools root literal to 523,
         # utc_now_iso import shifted it to 524; global_skill_root param to 526.
         # refactor-462 shared resource finalizer shifted the tool root literal.
-        # refactor-462 fix-r2 writer finalization shifted this root by one more line.
-        "src/agent/sdk/kernel.py:681",
+        # refactor-462 fix-r3 best-effort finalization shifted this root again.
+        "src/agent/sdk/kernel.py:693",
         # skills/discovery.py: .nano skill search root — platform default, pre-185
         "src/agent/core/skills/discovery.py:45",
         # jsonl_files.py: transcript address fallback when no product dirname is supplied.

@@ -273,10 +273,9 @@ class RunsRegistry:
         force-cancels the carrier Task so the parked await unwinds, the
         per-session lock is released, and the runtime's CancelledError finally
         recovers the orphaned tool_call as "interrupted" (bugfix-417-M5, #114).
-        With no in-flight foreground tool, the executor still requests carrier
-        cancellation after its cooperative grace period. Otherwise a run parked
-        in an LLM/provider await can retain the session lock indefinitely even
-        though the user-visible /stop path already reported success.
+        Every accepted user interrupt force-cancels its carrier after foreground
+        reaping. This prevents provider or hook awaits from resuming after /stop
+        returned and releases the session lock without a grace-window race.
 
         Returns the run_id if an active run was found and signalled, None otherwise.
         """
@@ -306,9 +305,8 @@ class RunsRegistry:
         # cooperative abort cannot unwind the parked carrier Task, so force-cancel
         # it (its `async with lock` then exits via CancelledError, releasing the
         # session lock; the runtime finally closes the orphan as "interrupted").
-        foreground_stopped = self._foreground_stopper is not None and (
+        if self._foreground_stopper is not None:
             self._foreground_stopper(session_id)
-        )
         # User-visible interrupt is a synchronous semantic terminal. Linearize
         # CANCELLED before returning so a provider completing inside the executor's
         # cooperative grace cannot publish COMPLETED over an accepted /stop.
@@ -319,17 +317,10 @@ class RunsRegistry:
             stop_reason="cancelled",
             only_if={RunStatus.QUEUED, RunStatus.RUNNING},
         )
-        if foreground_stopped:
-            # The foreground process has already been reaped, so bypass the grace
-            # period and unwind the carrier immediately. Semantic terminal state
-            # was committed above and is independent from this cleanup timing.
-            self._request_target_cancel(run_id, force=True)
-        else:
-            # Aborting the loop is cooperative, but providers and other awaits do
-            # not have to return promptly. The executor owns the carrier and gives
-            # it a short grace period before cancellation, which releases the
-            # per-session lock and lets the next user turn start.
-            self._request_target_cancel(run_id)
+        # /stop is a hard user boundary. Force-cancel every carrier after reaping
+        # any foreground subprocess so a provider, permission wait, or observe hook
+        # cannot resume and publish output after interrupt() has returned.
+        self._request_target_cancel(run_id, force=True)
         return run_id
 
     def inject_pending_message(

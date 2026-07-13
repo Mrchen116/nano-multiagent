@@ -175,7 +175,7 @@ class ConversationSession:
         self._close_gate = asyncio.Lock()
         self._owner_loop: asyncio.AbstractEventLoop | None = None
         self._state: ConversationState | None = None
-        self._payload_stale = False
+        self._loaded_external_epoch: int | None = None
         self._state_guard = threading.Lock()
         self._fork_directory: ForkDirectory | None = None
 
@@ -228,23 +228,17 @@ class ConversationSession:
 
         with self._lifecycle.begin_operation():
             result = self._transcript.append_external(request)
-            if result.created:
-                # The active engine may still hold the list that backs the loaded
-                # state. Rebinding that list from this synchronous foreign-thread
-                # path would detach the rest of the turn from the live aggregate.
-                # Mark the payload stale without dropping it: the active turn can
-                # finish durable writes and cancellation observers can still read
-                # partial progress. The next serialized operation reloads the
-                # complete reachable chain, including this external append.
-                with self._state_guard:
-                    self._payload_stale = True
+            # The transcript epoch is the invalidation token. Keep active state
+            # attached for residual writes and cancellation progress; the next
+            # serialized operation reloads whenever its captured epoch differs.
             return result
 
     def history_snapshot(self) -> tuple[Message, ...]:
         """Return an immutable diagnostic snapshot of the loaded reachable history."""
 
+        current_epoch = self._transcript.external_epoch
         with self._state_guard:
-            if self._state is not None and not self._payload_stale:
+            if self._state is not None and self._loaded_external_epoch == current_epoch:
                 return tuple(self._state.history)
         return tuple(self._transcript.load().messages)
 
@@ -325,16 +319,21 @@ class ConversationSession:
             await asyncio.shield(self._transcript.flush_async())
             with self._state_guard:
                 self._state = None
-                self._payload_stale = False
+                self._loaded_external_epoch = None
             self._lifecycle.mark_closed()
 
     async def _ensure_loaded(self) -> ConversationState:
+        current_epoch = self._transcript.external_epoch
         with self._state_guard:
-            if self._state is not None and not self._payload_stale:
+            if self._state is not None and self._loaded_external_epoch == current_epoch:
                 return self._state
         async with self._load_gate:
+            current_epoch = self._transcript.external_epoch
             with self._state_guard:
-                if self._state is not None and not self._payload_stale:
+                if (
+                    self._state is not None
+                    and self._loaded_external_epoch == current_epoch
+                ):
                     return self._state
             await asyncio.to_thread(self._transcript.prepare_for_run)
             loaded = await asyncio.to_thread(self._transcript.load)
@@ -349,7 +348,7 @@ class ConversationSession:
             )
             with self._state_guard:
                 self._state = state
-                self._payload_stale = False
+                self._loaded_external_epoch = loaded.external_epoch
             return state
 
     def try_evict_payload(self) -> bool:
@@ -359,7 +358,7 @@ class ConversationSession:
             return False
         with self._state_guard:
             self._state = None
-            self._payload_stale = False
+            self._loaded_external_epoch = None
         return True
 
     def _note_quiescent(self) -> None:

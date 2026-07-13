@@ -211,9 +211,7 @@ async def test_external_append_between_cold_load_and_publish_stays_visible(
     await engine.started.wait()
     engine.release.set()
     await first
-    await session.submit_turn(
-        TurnRequest(parts=({"type": "text", "text": "second"},))
-    )
+    await session.submit_turn(TurnRequest(parts=({"type": "text", "text": "second"},)))
 
     assert "during-cold-load" in engine.histories[-1]
 

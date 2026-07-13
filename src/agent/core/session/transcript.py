@@ -43,6 +43,7 @@ class TranscriptLoad:
     config: SessionConfig
     messages: list[Message]
     prompt_seed: PromptSlotSeed
+    external_epoch: int = 0
 
 
 class JsonlTranscript:
@@ -122,7 +123,13 @@ class JsonlTranscript:
         with self._mutex:
             self._writer.durable_barrier(self._path)
             raw = list(self._files.read_raw_entries(self._ref))
-            return _materialize(self._ref, raw, up_to=up_to)
+            loaded = _materialize(self._ref, raw, up_to=up_to)
+            return TranscriptLoad(
+                config=loaded.config,
+                messages=loaded.messages,
+                prompt_seed=loaded.prompt_seed,
+                external_epoch=self._external_epoch,
+            )
 
     def load_config(self) -> SessionConfig:
         """Project config entries without constructing conversation messages."""
