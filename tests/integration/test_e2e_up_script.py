@@ -74,7 +74,7 @@ import sys, yaml
 print(yaml.safe_load(open(sys.argv[1]))["node"]["node_id"])
 PY
 )"
-    printf '[{"node_id":"%s","status":"online"}]\n' "$node_id"
+    printf '[{"node_id":"%s","status":"%s"}]\n' "$node_id" "${NODES_STATUS-online}"
     ;;
   *) printf '%s\n' '{}' ;;
 esac
@@ -85,10 +85,12 @@ esac
         """#!/bin/bash
 set -e
 if [[ "${1-}" == "-m" && "${2-}" == "uvicorn" ]]; then
+  printf 'im %s\n' "$$" >> "$E2E_WT/spawned-pids.log"
   trap 'exit 0' TERM INT
   while true; do /bin/sleep 1; done
 fi
 if [[ "${1-}" == "-m" && "${2-}" == "personal_assistant.main" ]]; then
+  printf 'gateway %s\n' "$$" >> "$E2E_WT/spawned-pids.log"
   config_path=""
   args=("${@:3}")
   for ((index=0; index<${#args[@]}; index++)); do
@@ -196,8 +198,16 @@ def _owned_pids(tmp_path: Path) -> list[int]:
     return pids
 
 
+def _spawned_pids(tmp_path: Path) -> list[int]:
+    try:
+        lines = (tmp_path / "spawned-pids.log").read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        return []
+    return [int(line.split()[1]) for line in lines]
+
+
 def _cleanup_owned(tmp_path: Path) -> None:
-    for pid in _owned_pids(tmp_path):
+    for pid in {*_owned_pids(tmp_path), *_spawned_pids(tmp_path)}:
         try:
             os.kill(pid, signal.SIGKILL)
         except ProcessLookupError:
@@ -205,11 +215,18 @@ def _cleanup_owned(tmp_path: Path) -> None:
 
 
 def _pid_alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    return True
+    result = subprocess.run(
+        ["ps", "-p", str(pid), "-o", "stat="],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    process_stat = result.stdout.strip()
+    return (
+        result.returncode == 0
+        and bool(process_stat)
+        and not process_stat.startswith("Z")
+    )
 
 
 def test_delayed_runtime_identity_uses_configured_startup_budget(
@@ -236,9 +253,33 @@ def test_identity_timeout_rolls_back_exact_spawned_stack_and_preserves_logs(
 
     try:
         result = _run_up(tmp_path, env)
-        spawned_pids = _owned_pids(tmp_path)
+        spawned_pids = _spawned_pids(tmp_path)
 
         assert result.returncode == 1
+        assert spawned_pids
+        assert all(not _pid_alive(pid) for pid in spawned_pids)
+        assert not (tmp_path / ".gateway.pid").exists()
+        assert not (tmp_path / ".im.pid").exists()
+        assert not (tmp_path / "gateway.pid").exists()
+        assert not (tmp_path / "gateway.identity.json").exists()
+        assert (tmp_path / ".gateway.log").exists()
+        assert (tmp_path / ".im.log").exists()
+    finally:
+        _cleanup_owned(tmp_path)
+
+
+def test_readiness_failure_after_identity_rolls_back_spawned_stack(
+    tmp_path: Path,
+) -> None:
+    env = _prepare_harness(tmp_path)
+    env["NODES_STATUS"] = "offline"
+
+    try:
+        result = _run_up(tmp_path, env)
+        spawned_pids = _spawned_pids(tmp_path)
+
+        assert result.returncode == 1
+        assert "did not become online" in result.stderr
         assert spawned_pids
         assert all(not _pid_alive(pid) for pid in spawned_pids)
         assert not (tmp_path / ".gateway.pid").exists()
