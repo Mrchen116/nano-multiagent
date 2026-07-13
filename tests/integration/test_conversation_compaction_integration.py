@@ -3,8 +3,10 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from agent.core.llm.interfaces import LLMGenerateRequest, LLMMessage
+from agent.core.errors import ModelError
+from agent.core.llm.interfaces import LLMGenerateRequest, LLMMessage, LLMToolCall
 from agent.core.types import TokenUsage
+from agent.platform.permissions.broker import PermissionDecision
 from agent.sdk import LLMConfig, LLMModel, LLMProvider, build_kernel
 
 
@@ -236,5 +238,193 @@ async def test_manual_compaction_refreshes_agents_md_prompt(tmp_path: Path) -> N
         refreshed = _request_text(normal_requests[-1])
         assert "PROMPT-MARKER-NEW" in refreshed
         assert "PROMPT-MARKER-OLD" not in refreshed
+    finally:
+        kernel.close()
+
+
+async def test_overflow_compaction_retries_and_reopens_from_jsonl(
+    tmp_path: Path,
+) -> None:
+    class _OverflowClient:
+        def __init__(self) -> None:
+            self.normal_calls = 0
+            self.summary_calls = 0
+            self.overflow_raised = False
+
+        async def generate(self, request: LLMGenerateRequest):  # noqa: ANN201
+            if _is_summary_request(request):
+                self.summary_calls += 1
+                yield LLMMessage(
+                    role="assistant", content="<summary>OVERFLOW-REPLAY</summary>"
+                )
+                yield LLMMessage(role="assistant", content="", finish_reason="stop")
+                return
+            self.normal_calls += 1
+            if self.normal_calls == 2:
+                self.overflow_raised = True
+                raise ModelError(
+                    "context overflow",
+                    details={
+                        "status_code": 400,
+                        "response": "maximum context length exceeded",
+                    },
+                )
+            yield LLMMessage(
+                role="assistant",
+                content="retry-ok",
+                finish_reason="stop",
+            )
+
+    first_client = _OverflowClient()
+    first_kernel = build_kernel(
+        llm=_compaction_llm(),
+        repo_root=tmp_path,
+        _llm_client_override=first_client,
+    )
+    session_id = ""
+    try:
+        session = await first_kernel.create_session(workspace_root=tmp_path)
+        session_id = session.session_id
+        for text in ("first", "overflow-now"):
+            run = first_kernel.submit(
+                session_id=session_id,
+                parts=[{"type": "text", "text": text}],
+                workspace_root=tmp_path,
+            )
+            assert (await _wait_for_terminal(first_kernel, run.run_id)).status == (
+                "completed"
+            )
+        assert first_client.overflow_raised
+        assert first_client.summary_calls == 1
+        assert first_client.normal_calls == 3
+    finally:
+        first_kernel.close()
+
+    reopened_requests: list[LLMGenerateRequest] = []
+
+    class _ReopenedClient:
+        async def generate(self, request: LLMGenerateRequest):  # noqa: ANN201
+            reopened_requests.append(request)
+            yield LLMMessage(role="assistant", content="reopened", finish_reason="stop")
+
+    second_kernel = build_kernel(
+        llm=_compaction_llm(),
+        repo_root=tmp_path,
+        _llm_client_override=_ReopenedClient(),
+    )
+    try:
+        continued = second_kernel.submit(
+            session_id=session_id,
+            parts=[{"type": "text", "text": "after-restart"}],
+            workspace_root=tmp_path,
+        )
+        assert (await _wait_for_terminal(second_kernel, continued.run_id)).status == (
+            "completed"
+        )
+        assert "OVERFLOW-REPLAY" in _request_text(reopened_requests[-1])
+    finally:
+        second_kernel.close()
+
+
+async def test_compaction_refreshes_memory_and_resets_file_read_window(
+    tmp_path: Path,
+) -> None:
+    memory_root = tmp_path / ".nanotest" / "memory"
+    memory_root.mkdir(parents=True)
+    (memory_root / "MEMORY.md").write_text("MEMORY-OLD", encoding="utf-8")
+    (memory_root / "USER.md").write_text("USER-OLD", encoding="utf-8")
+    tracked_file = tmp_path / "tracked.txt"
+    tracked_file.write_text("FILE-WINDOW-MARKER", encoding="utf-8")
+
+    start_requests: list[LLMGenerateRequest] = []
+    tool_followups: list[LLMGenerateRequest] = []
+    call_count = 0
+
+    class _ReadClient:
+        async def generate(self, request: LLMGenerateRequest):  # noqa: ANN201
+            nonlocal call_count
+            if _is_summary_request(request):
+                yield LLMMessage(
+                    role="assistant", content="<summary>WINDOW-RESET</summary>"
+                )
+                yield LLMMessage(role="assistant", content="", finish_reason="stop")
+                return
+            if request.messages[-1].role == "tool":
+                tool_followups.append(request)
+                yield LLMMessage(
+                    role="assistant", content="read-done", finish_reason="stop"
+                )
+                return
+            start_requests.append(request)
+            call_count += 1
+            yield LLMMessage(
+                role="assistant",
+                content="reading",
+                tool_calls=(
+                    LLMToolCall(
+                        call_id=f"call-read-{call_count}",
+                        name="read",
+                        arguments={"path": str(tracked_file)},
+                    ),
+                ),
+            )
+
+    async def _allow_all(_tool, _tool_input, _ctx):  # noqa: ANN001, ANN202
+        return PermissionDecision(behavior="allow")
+
+    kernel = build_kernel(
+        llm=_compaction_llm(),
+        repo_root=tmp_path,
+        workspace_config_dirname=".nanotest",
+        can_use_tool=_allow_all,
+        _llm_client_override=_ReadClient(),
+    )
+    try:
+        session = await kernel.create_session(
+            workspace_root=tmp_path,
+            enabled_tools=["read"],
+        )
+
+        first = kernel.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "read first"}],
+            workspace_root=tmp_path,
+        )
+        assert (await _wait_for_terminal(kernel, first.run_id)).status == "completed"
+        assert "MEMORY-OLD" in _request_text(start_requests[-1])
+        assert "USER-OLD" in _request_text(start_requests[-1])
+        assert "FILE-WINDOW-MARKER" in _request_text(tool_followups[-1])
+
+        (memory_root / "MEMORY.md").write_text("MEMORY-NEW", encoding="utf-8")
+        (memory_root / "USER.md").write_text("USER-NEW", encoding="utf-8")
+        frozen = kernel.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "read frozen"}],
+            workspace_root=tmp_path,
+        )
+        assert (await _wait_for_terminal(kernel, frozen.run_id)).status == "completed"
+        frozen_prompt = _request_text(start_requests[-1])
+        assert "MEMORY-OLD" in frozen_prompt and "MEMORY-NEW" not in frozen_prompt
+        assert "USER-OLD" in frozen_prompt and "USER-NEW" not in frozen_prompt
+        assert "earlier Read tool_result" in _request_text(tool_followups[-1])
+
+        assert (
+            await kernel.compact(session.session_id, workspace_root=tmp_path)
+            is not None
+        )
+        refreshed = kernel.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "read refreshed"}],
+            workspace_root=tmp_path,
+        )
+        assert (await _wait_for_terminal(kernel, refreshed.run_id)).status == (
+            "completed"
+        )
+        refreshed_prompt = _request_text(start_requests[-1])
+        assert "MEMORY-NEW" in refreshed_prompt and "MEMORY-OLD" not in refreshed_prompt
+        assert "USER-NEW" in refreshed_prompt and "USER-OLD" not in refreshed_prompt
+        refreshed_tool_context = _request_text(tool_followups[-1])
+        assert "FILE-WINDOW-MARKER" in refreshed_tool_context
+        assert "earlier Read tool_result" not in refreshed_tool_context
     finally:
         kernel.close()
