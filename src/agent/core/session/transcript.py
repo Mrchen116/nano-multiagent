@@ -178,32 +178,22 @@ class JsonlTranscript:
                 )
         return tuple(entries)
 
-    def append_turn_entries(
+    def append_messages(
         self,
-        entries: Sequence[Mapping[str, Any]],
+        messages: Sequence[Message],
         *,
         durable: bool = False,
     ) -> None:
-        """Append a turn batch after rewriting it onto the current reachable tail."""
+        """Serialize and append messages onto the current reachable tail."""
 
         with self._mutex:
-            self._ensure_tail_locked()
-            for raw in entries:
-                entry = dict(raw)
-                if entry.get("type", "turn") != "turn":
-                    raise ValueError("append_turn_entries accepts turn entries only")
-                message_id = entry.get("uuid")
-                if not isinstance(message_id, str) or not message_id:
-                    raise ValueError("turn entry requires uuid")
-                entry["type"] = "turn"
-                entry["session_id"] = self._ref.session_id
-                entry["timestamp"] = entry.get("timestamp") or utc_now_iso()
-                entry["parent_uuid"] = self._tail_uuid
-                self._writer.enqueue_raw(self._path, entry)
-                self._tail_uuid = message_id
-                self._tail_known = True
-            if durable:
-                self._writer.durable_barrier(self._path)
+            self._append_turn_entries_locked(
+                [
+                    _message_to_raw(message, self._ref.session_id)
+                    for message in messages
+                ],
+                durable=durable,
+            )
 
     def append_messages_snapshot(self, messages: Sequence[Message]) -> None:
         """Append a re-stamped fork snapshot while preserving its internal graph."""
@@ -308,8 +298,8 @@ class JsonlTranscript:
     def append_compaction(
         self,
         *,
-        summary: Mapping[str, Any],
-        reinjections: Sequence[Mapping[str, Any]] = (),
+        summary: Message,
+        reinjections: Sequence[Message] = (),
         reason: str,
         restored_files: Sequence[str] = (),
         expected_external_epoch: int | None = None,
@@ -322,9 +312,8 @@ class JsonlTranscript:
                 and expected_external_epoch != self._external_epoch
             ):
                 return False
-            summary_entry = dict(summary)
-            summary_uuid = summary_entry.get("uuid")
-            if not isinstance(summary_uuid, str) or not summary_uuid:
+            summary_uuid = summary.message_id
+            if not summary_uuid:
                 raise ValueError("compaction summary requires uuid")
             self._writer.enqueue_raw(
                 self._path,
@@ -339,11 +328,38 @@ class JsonlTranscript:
                     },
                 },
             )
-            self.append_turn_entries(
-                [summary_entry, *reinjections],
+            self._append_turn_entries_locked(
+                [
+                    _message_to_raw(message, self._ref.session_id)
+                    for message in (summary, *reinjections)
+                ],
                 durable=True,
             )
             return True
+
+    def _append_turn_entries_locked(
+        self,
+        entries: Sequence[Mapping[str, Any]],
+        *,
+        durable: bool,
+    ) -> None:
+        """Append already-serialized turns while the transcript mutex is held."""
+
+        self._ensure_tail_locked()
+        for raw in entries:
+            entry = dict(raw)
+            message_id = entry.get("uuid")
+            if not isinstance(message_id, str) or not message_id:
+                raise ValueError("turn entry requires uuid")
+            entry["type"] = "turn"
+            entry["session_id"] = self._ref.session_id
+            entry["timestamp"] = entry.get("timestamp") or utc_now_iso()
+            entry["parent_uuid"] = self._tail_uuid
+            self._writer.enqueue_raw(self._path, entry)
+            self._tail_uuid = message_id
+            self._tail_known = True
+        if durable:
+            self._writer.durable_barrier(self._path)
 
     def prepare_for_run(self, *, reason: str = "orphaned") -> None:
         """Repair every persisted orphaned tool call exactly once."""
@@ -693,13 +709,13 @@ def _message_to_raw(message: Message, session_id: str) -> dict[str, Any]:
     if message.parts:
         entry["parts"] = [dict(part) for part in message.parts]
     metadata = dict(message.metadata)
-    if message.tool_call_id:
+    if message.tool_call_id is not None:
         metadata["tool_call_id"] = message.tool_call_id
-    if message.group_id:
+    if message.group_id is not None:
         metadata["group_id"] = message.group_id
-    if message.reasoning_content:
+    if message.reasoning_content is not None:
         metadata["reasoning_content"] = message.reasoning_content
-    if message.reasoning_signature:
+    if message.reasoning_signature is not None:
         metadata["reasoning_signature"] = message.reasoning_signature
     _copy_turn_metadata(entry, metadata)
     return entry

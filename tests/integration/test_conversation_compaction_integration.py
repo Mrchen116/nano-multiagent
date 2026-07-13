@@ -10,8 +10,7 @@ from agent.sdk import LLMConfig, LLMModel, LLMProvider, build_kernel
 
 def _is_summary_request(request: LLMGenerateRequest) -> bool:
     return any(
-        "Do NOT call any tools" in str(message.content)
-        for message in request.messages
+        "Do NOT call any tools" in str(message.content) for message in request.messages
     )
 
 
@@ -64,9 +63,7 @@ async def test_threshold_compaction_replaces_live_history_for_next_turn(
                 yield LLMMessage(role="assistant", content="", finish_reason="stop")
                 return
             normal_requests.append(request)
-            yield LLMMessage(
-                role="assistant", content=f"reply-{len(normal_requests)}"
-            )
+            yield LLMMessage(role="assistant", content=f"reply-{len(normal_requests)}")
             prompt_tokens = 10_000 if len(normal_requests) == 1 else 100
             yield LLMMessage(
                 role="assistant",
@@ -166,7 +163,9 @@ async def test_threshold_compaction_rejects_stale_external_epoch(
             workspace_root=tmp_path,
         )
         release_summary.set()
-        assert (await _wait_for_terminal(kernel, compacting.run_id)).status == "completed"
+        assert (
+            await _wait_for_terminal(kernel, compacting.run_id)
+        ).status == "completed"
 
         followup = kernel.submit(
             session_id=session.session_id,
@@ -223,9 +222,10 @@ async def test_manual_compaction_refreshes_agents_md_prompt(tmp_path: Path) -> N
         assert "PROMPT-MARKER-OLD" in frozen_prompt
         assert "PROMPT-MARKER-NEW" not in frozen_prompt
 
-        assert await kernel.compact(
-            session.session_id, workspace_root=tmp_path
-        ) is not None
+        assert (
+            await kernel.compact(session.session_id, workspace_root=tmp_path)
+            is not None
+        )
 
         second = kernel.submit(
             session_id=session.session_id,
