@@ -21,13 +21,20 @@ def _write_stack_files(tmp_path: Path, *, internal_pid: int = _GATEWAY_PID) -> N
     (tmp_path / ".gateway-state.json").write_text(
         json.dumps({"pid": _GATEWAY_PID}), encoding="utf-8"
     )
-    (tmp_path / ".gateway-identity.json").write_text(
+    (tmp_path / "gateway.identity.json").write_text(
         json.dumps(
             {
+                "schema_version": 1,
                 "pid": _GATEWAY_PID,
-                "internal_pid": _GATEWAY_PID,
                 "config_path": str(config_path),
                 "process_start": _PROCESS_START,
+                "entry_module": "personal_assistant.main",
+                "argv": [
+                    "--config",
+                    str(config_path),
+                    "--foreground",
+                    "--auto-bind",
+                ],
             }
         ),
         encoding="utf-8",
@@ -107,7 +114,7 @@ def test_gateway_that_survives_sigkill_fails_without_tearing_down_stack(
         ".gateway.pid",
         "gateway.pid",
         ".gateway-state.json",
-        ".gateway-identity.json",
+        "gateway.identity.json",
         ".im.pid",
         ".gateway-config.yaml",
         ".e2e-ports.env",
@@ -167,7 +174,7 @@ return 0
         ".gateway.pid",
         "gateway.pid",
         ".gateway-state.json",
-        ".gateway-identity.json",
+        "gateway.identity.json",
         ".im.pid",
         ".gateway-config.yaml",
         ".e2e-ports.env",
@@ -238,3 +245,60 @@ return 0
 
     assert result.returncode == 0, result.stderr
     assert not (tmp_path / ".gateway.pid").exists()
+
+
+@pytest.mark.parametrize(
+    "internal_evidence",
+    ["gateway.pid", "gateway.identity.json", ".gateway-state.json"],
+)
+def test_missing_external_pid_with_internal_evidence_fails_before_any_signal(
+    internal_evidence: str,
+    tmp_path: Path,
+) -> None:
+    _write_stack_files(tmp_path)
+    (tmp_path / ".gateway.pid").unlink()
+    for evidence in ("gateway.pid", "gateway.identity.json", ".gateway-state.json"):
+        if evidence != internal_evidence:
+            (tmp_path / evidence).unlink()
+
+    result = _run_down(tmp_path, kill_body="return 0")
+
+    assert result.returncode == 1
+    calls_path = tmp_path / "calls.log"
+    assert not calls_path.exists() or "kill " not in calls_path.read_text(
+        encoding="utf-8"
+    )
+    assert "Gateway lifecycle evidence" in result.stderr
+    assert (tmp_path / internal_evidence).exists()
+    assert (tmp_path / ".im.pid").exists()
+
+
+def test_nonregular_external_pid_with_internal_evidence_fails_before_any_signal(
+    tmp_path: Path,
+) -> None:
+    _write_stack_files(tmp_path)
+    (tmp_path / ".gateway.pid").unlink()
+    (tmp_path / ".gateway.pid").mkdir()
+
+    result = _run_down(tmp_path, kill_body="return 0")
+
+    assert result.returncode == 1
+    calls_path = tmp_path / "calls.log"
+    assert not calls_path.exists() or "kill " not in calls_path.read_text(
+        encoding="utf-8"
+    )
+    assert "regular external PID" in result.stderr
+    assert (tmp_path / ".gateway.pid").is_dir()
+    assert (tmp_path / ".im.pid").exists()
+
+
+def test_all_gateway_evidence_absent_allows_im_stop(tmp_path: Path) -> None:
+    (tmp_path / ".im.pid").write_text("434343\n", encoding="utf-8")
+
+    result = _run_down(tmp_path, kill_body="return 0", check=True)
+
+    assert result.returncode == 0
+    calls = (tmp_path / "calls.log").read_text(encoding="utf-8")
+    assert "kill -0 434343" in calls
+    assert "kill 434343" in calls
+    assert not (tmp_path / ".im.pid").exists()
