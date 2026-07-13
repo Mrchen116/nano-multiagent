@@ -134,4 +134,3 @@ async def test_close_all_closes_every_interned_conversation(tmp_path: Path) -> N
 
     assert first.closed is True
     assert second.closed is True
-

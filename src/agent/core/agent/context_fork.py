@@ -11,7 +11,7 @@ from agent.core.hooks.context import HookContext
 from agent.core.llm.interfaces import LLMClient
 from agent.core.runs.origin import RunOrigin
 from agent.core.skills.registry import SkillMetadata
-from agent.core.tools.session_file_state import SessionFileState
+from agent.core.session.context_state import SessionFileState
 from agent.core.types import Message, ToolSpec, TurnResult
 
 

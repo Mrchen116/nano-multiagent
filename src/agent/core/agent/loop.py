@@ -29,7 +29,7 @@ from agent.core.skills.registry import SkillMetadata
 from agent.core.tools.result_budget import (
     DEFAULT_MAX_RESULT_SIZE_CHARS,
 )
-from agent.core.tools.session_file_state import SessionFileState, read_file_slice
+from agent.core.session.context_state import SessionFileState, read_file_slice
 
 from .liveness import _with_liveness_heartbeat, session_event_publisher
 from .compaction.planner import CompactionPlanner

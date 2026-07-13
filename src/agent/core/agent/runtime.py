@@ -40,7 +40,11 @@ from agent.core.skills import (
 )
 from agent.core.skills.usage import SkillSessionRef, skill_refs_for_session
 from agent.core.tools.result_budget import ToolResultCompressor
-from agent.core.tools.session_file_state import SessionFileState, read_file_slice
+from agent.core.session.context_state import (
+    MemorySnapshot,
+    SessionFileState,
+    read_file_slice,
+)
 from agent.core.utils.time import utc_now_iso as _utc_now_iso
 
 from .compaction.applier import CompactionApplier
@@ -109,31 +113,8 @@ from agent.core.agent.prompt_sections.wiring import (
 from agent.core.agent import agents_md as agents_md_loader
 from agent.core.memory.path import derive_memory_root
 from agent.core.memory.store import MemoryStore
-from typing import TypedDict
 
 logger = logging.getLogger(__name__)
-
-
-class MemorySnapshot(TypedDict):
-    """Lazy-frozen memory snapshot for one session.
-
-    Frozen on the first turn and held for the session's lifetime so the
-    stable prefix in the system prompt does not change between turns (which
-    would bust provider prefix-cache hits).  Invalidated on compaction so
-    the next turn re-reads updated memory from disk.
-
-    M4 Decision 17: memory_content / user_profile_content hold pure data (no banner);
-    memory_pct / user_pct hold usage percentages for banner rendering by core segments.
-    """
-
-    memory_content: "str | None"
-    memory_pct: int
-    user_profile_content: "str | None"
-    user_pct: int
-    # feat-428 机制 A: expanded workspace-root AGENTS.md text (@import expanded),
-    # or None when absent. Frozen with memory/user content (same compaction-window
-    # lifecycle); refreshed on the next turn after _invalidate_memory_snapshot.
-    agents_md_content: "str | None"
 
 
 if TYPE_CHECKING:

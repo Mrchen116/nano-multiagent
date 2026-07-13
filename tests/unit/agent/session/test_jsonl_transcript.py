@@ -58,9 +58,7 @@ def test_recovery_control_entry_never_becomes_persisted_tail(tmp_path: Path) -> 
                 "uuid": "msg_tool_call",
                 "role": "assistant",
                 "content": "",
-                "tool_calls": [
-                    {"call_id": "call_1", "name": "read", "arguments": {}}
-                ],
+                "tool_calls": [{"call_id": "call_1", "name": "read", "arguments": {}}],
             }
         ],
         durable=True,
@@ -97,11 +95,7 @@ def test_external_append_is_durable_and_idempotent(tmp_path: Path) -> None:
     assert created.created is True
     assert duplicate.created is False
     raw = _raw_entries(files, ref)
-    matches = [
-        entry
-        for entry in raw
-        if entry.get("metadata", {}).get("idempotency_key") == "awareness:1"
-    ]
+    matches = [entry for entry in raw if entry.get("uuid") == "msg_awareness"]
     assert len(matches) == 1
     with files.resolve_path(ref).open("r", encoding="utf-8") as handle:
         persisted = [json.loads(line) for line in handle if line.strip()]
@@ -139,4 +133,3 @@ def test_repair_is_idempotent_and_materializes_one_synthetic_result(
         if message.role == "tool" and message.tool_call_id == "call_orphan"
     ]
     assert len(recovered) == 1
-

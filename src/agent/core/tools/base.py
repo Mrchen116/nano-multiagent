@@ -20,6 +20,7 @@ from .safety_types import (
 )
 
 if TYPE_CHECKING:
+    from agent.core.session.context_state import SessionFileState
     from agent.core.llm.interfaces import LLMClient
 
 _TOOL_SAFETY_FACTORY: ToolSafetyFactory | None = None
