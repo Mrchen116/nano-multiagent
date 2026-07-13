@@ -55,7 +55,7 @@ def test_launch_gateway_in_background_writes_runtime_state_file(tmp_path: Path) 
         config_path=config.source_path,
         load_config=lambda _path: config,
         spawn_process=lambda _argv, _log_path: process,
-        wait_for_ready=lambda _child, _config, _timeout: None,
+        wait_for_start=lambda _child, _config, _timeout: None,
     )
 
     state_path = tmp_path / ".gateway-state.json"
@@ -259,7 +259,7 @@ def test_launch_background_clears_stale_pid_file_when_process_dead(
         config_path=config.source_path,
         load_config=lambda _path: config,
         spawn_process=_spawn,
-        wait_for_ready=lambda _child, _config, _timeout: None,
+        wait_for_start=lambda _child, _config, _timeout: None,
     )
 
     assert spawned, "gateway must have been spawned after stale PID cleanup"

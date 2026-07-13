@@ -41,13 +41,12 @@ def test_main_defaults_to_background_launch(
     assert exit_code == 0
     assert seen == {"background": (str(tmp_path / "node-config.yaml"), None)}
     assert capsys.readouterr().out == (
-        "Gateway started (pid=999)\n"
-        f"Log:             {tmp_path / 'gateway.log'}\n"
+        f"Gateway started (pid=999)\nLog:             {tmp_path / 'gateway.log'}\n"
     )
 
 
 def test_main_passes_im_service_url_override_to_background_launch(
-    monkeypatch, tmp_path: Path
+    monkeypatch, capsys, tmp_path: Path
 ) -> None:
     seen: dict[str, object] = {}
 
@@ -56,10 +55,14 @@ def test_main_passes_im_service_url_override_to_background_launch(
         return BackgroundLaunchResult(
             pid=1,
             log_path=tmp_path / "gateway.log",
+            im_service_url="http://im.remote:9011",
         )
 
     monkeypatch.setattr(
         "personal_assistant.main.launch_gateway_in_background", _launch_background
+    )
+    monkeypatch.setattr(
+        "personal_assistant.main._check_im_reachable", lambda _url: False
     )
     monkeypatch.setattr(
         "personal_assistant.main.run_gateway",
@@ -82,6 +85,12 @@ def test_main_passes_im_service_url_override_to_background_launch(
         "config_path": str(tmp_path / "node-config.yaml"),
         "im_service_url_override": "http://im.remote:9011",
     }
+    assert capsys.readouterr().out == (
+        "Gateway started (pid=1)\n"
+        "IM service:      http://im.remote:9011  "
+        "[unavailable (running offline, will retry)]\n"
+        f"Log:             {tmp_path / 'gateway.log'}\n"
+    )
 
 
 def test_main_defaults_to_canonical_config_path_when_flag_missing(
