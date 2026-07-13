@@ -8,6 +8,7 @@ from agent.core.session.conversation import ConversationSession
 from agent.core.session.jsonl_files import JsonlSessionFiles
 from agent.core.session.jsonl_writer import JsonlWriter
 from agent.core.session.types import (
+    ExternalMessage,
     INTERNAL_PROMPT_SLOTS_KEY,
     NewSession,
     PromptSlotSeed,
@@ -163,6 +164,35 @@ def test_find_by_metadata_does_not_materialize_message_history(
         )
         == expected.ref
     )
+
+
+def test_find_by_metadata_reads_only_creation_header(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    directory = _directory(tmp_path)
+    expected = directory.create(
+        NewSession(workspace_root=tmp_path, metadata={"agent_id": "target"})
+    )
+    expected.transcript.append_external(
+        ExternalMessage(role="user", content="large history")
+    )
+    limits: list[int | None] = []
+    original = JsonlSessionFiles.read_raw_entries
+
+    def _tracking_read(self, ref, **kwargs):  # noqa: ANN001, ANN202
+        limits.append(kwargs.get("limit"))
+        return original(self, ref, **kwargs)
+
+    monkeypatch.setattr(JsonlSessionFiles, "read_raw_entries", _tracking_read)
+
+    found = directory.find_by_metadata(
+        workspace_root=tmp_path,
+        parent_session_id=None,
+        query={"agent_id": "target"},
+    )
+
+    assert found == expected.ref
+    assert limits == [1]
 
 
 @pytest.mark.asyncio
