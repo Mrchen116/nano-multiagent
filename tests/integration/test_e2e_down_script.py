@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 
 import pytest
 
@@ -93,6 +94,8 @@ exec bash "{script}" --wt "{wt_argument or tmp_path}"
         GATEWAY_COMMAND=command,
         PATH=f"{fake_bin}:{os.environ['PATH']}",
         PROCESS_START=_PROCESS_START,
+        REAL_PYTHON=sys.executable,
+        E2E_WT=str(tmp_path),
     )
     if process_stat is not None:
         env["PROCESS_STAT"] = process_stat
@@ -162,6 +165,7 @@ def test_live_command_rendering_is_audit_only_when_instance_matches(
     tmp_path: Path,
 ) -> None:
     _write_stack_files(tmp_path)
+    (tmp_path / ".gateway-config.yaml.lock").write_text("", encoding="utf-8")
     term_marker = tmp_path / "term-sent"
     kill_body = f"""
 if [[ "$*" == "-0 {_GATEWAY_PID}" ]]; then
@@ -190,6 +194,7 @@ return 0
         "gateway.identity.json",
         ".im.pid",
         ".gateway-config.yaml",
+        ".gateway-config.yaml.lock",
         ".e2e-ports.env",
     ):
         assert not (tmp_path / residue).exists(), residue
@@ -303,6 +308,140 @@ def test_nonregular_external_pid_with_internal_evidence_fails_before_any_signal(
     assert "regular external PID" in result.stderr
     assert (tmp_path / ".gateway.pid").is_dir()
     assert (tmp_path / ".im.pid").exists()
+
+
+def test_dangling_external_pid_symlink_retains_whole_stack(tmp_path: Path) -> None:
+    _write_stack_files(tmp_path)
+    (tmp_path / ".gateway.pid").unlink()
+    (tmp_path / ".gateway.pid").symlink_to(tmp_path / "missing-external-pid")
+
+    result = _run_down(tmp_path, kill_body="return 0")
+
+    assert result.returncode == 1
+    calls_path = tmp_path / "calls.log"
+    assert not calls_path.exists() or "kill " not in calls_path.read_text(
+        encoding="utf-8"
+    )
+    assert (tmp_path / ".gateway.pid").is_symlink()
+    assert (tmp_path / "gateway.pid").exists()
+    assert (tmp_path / ".im.pid").exists()
+    assert (tmp_path / ".gateway-config.yaml").exists()
+
+
+@pytest.mark.parametrize(
+    "internal_evidence",
+    ["gateway.pid", "gateway.identity.json", ".gateway-state.json"],
+)
+def test_dangling_internal_evidence_without_external_owner_retains_stack(
+    internal_evidence: str,
+    tmp_path: Path,
+) -> None:
+    _write_stack_files(tmp_path)
+    (tmp_path / ".gateway.pid").unlink()
+    for evidence in ("gateway.pid", "gateway.identity.json", ".gateway-state.json"):
+        path = tmp_path / evidence
+        path.unlink()
+        if evidence == internal_evidence:
+            path.symlink_to(tmp_path / f"missing-{evidence}")
+
+    result = _run_down(tmp_path, kill_body="return 0")
+
+    assert result.returncode == 1
+    calls_path = tmp_path / "calls.log"
+    assert not calls_path.exists() or "kill " not in calls_path.read_text(
+        encoding="utf-8"
+    )
+    assert (tmp_path / internal_evidence).is_symlink()
+    assert (tmp_path / ".im.pid").exists()
+
+
+@pytest.mark.parametrize("state_mode", ["malformed", "different_pid"])
+def test_invalid_state_evidence_is_never_partially_deleted(
+    state_mode: str,
+    tmp_path: Path,
+) -> None:
+    _write_stack_files(tmp_path)
+    state_path = tmp_path / ".gateway-state.json"
+    state_path.write_text(
+        "{" if state_mode == "malformed" else json.dumps({"pid": 999999}),
+        encoding="utf-8",
+    )
+
+    result = _run_down(tmp_path, kill_body="return 0")
+
+    assert result.returncode == 1
+    for evidence in (
+        ".gateway.pid",
+        "gateway.pid",
+        "gateway.identity.json",
+        ".gateway-state.json",
+        ".im.pid",
+        ".gateway-config.yaml",
+    ):
+        assert (tmp_path / evidence).exists(), evidence
+
+
+def test_same_pid_new_birth_before_cleanup_causes_zero_deletion(
+    tmp_path: Path,
+) -> None:
+    _write_stack_files(tmp_path)
+    kill_body = f"""
+if [[ "$*" == "{_GATEWAY_PID}" ]]; then
+  "$REAL_PYTHON" - "$E2E_WT/gateway.identity.json" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+payload = json.loads(path.read_text(encoding="utf-8"))
+payload["process_start"] = "Tue Jul 14 12:34:56 2026"
+path.write_text(json.dumps(payload), encoding="utf-8")
+PY
+  export PROCESS_STAT=""
+fi
+return 0
+"""
+
+    result = _run_down(tmp_path, kill_body=kill_body)
+
+    assert result.returncode == 1
+    assert "evidence changed during cleanup" in result.stderr
+    for evidence in (
+        ".gateway.pid",
+        "gateway.pid",
+        "gateway.identity.json",
+        ".gateway-state.json",
+        ".im.pid",
+        ".gateway-config.yaml",
+    ):
+        assert (tmp_path / evidence).exists(), evidence
+
+
+def test_same_content_inode_drift_before_cleanup_causes_zero_deletion(
+    tmp_path: Path,
+) -> None:
+    _write_stack_files(tmp_path)
+    kill_body = f"""
+if [[ "$*" == "{_GATEWAY_PID}" ]]; then
+  cp "$E2E_WT/.gateway-state.json" "$E2E_WT/.gateway-state.json.replacement"
+  mv "$E2E_WT/.gateway-state.json.replacement" "$E2E_WT/.gateway-state.json"
+  export PROCESS_STAT=""
+fi
+return 0
+"""
+
+    result = _run_down(tmp_path, kill_body=kill_body)
+
+    assert result.returncode == 1
+    for evidence in (
+        ".gateway.pid",
+        "gateway.pid",
+        "gateway.identity.json",
+        ".gateway-state.json",
+        ".im.pid",
+        ".gateway-config.yaml",
+    ):
+        assert (tmp_path / evidence).exists(), evidence
 
 
 def test_all_gateway_evidence_absent_allows_im_stop(tmp_path: Path) -> None:

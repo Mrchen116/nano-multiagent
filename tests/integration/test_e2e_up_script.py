@@ -98,6 +98,9 @@ if [[ "${1-}" == "-m" && "${2-}" == "personal_assistant.main" ]]; then
       config_path="${args[$((index + 1))]}"
     fi
   done
+  if [[ "${CREATE_GATEWAY_LOCK-0}" == "1" ]]; then
+    : > "${config_path}.lock"
+  fi
   if [[ "${EXPECT_STALE_CLEAN-0}" == "1" ]] \
     && [[ -e "$E2E_WT/gateway.pid" || -e "$E2E_WT/gateway.identity.json" \
       || -e "$E2E_WT/.gateway-state.json" ]]; then
@@ -156,10 +159,30 @@ def _run_up(
     env: dict[str, str],
     *,
     default_from: Path | None = None,
+    preserve_gateway_signals: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     repo_root = Path(__file__).resolve().parents[2]
     script = repo_root / "scripts" / "e2e-up.sh"
-    if default_from is None:
+    if preserve_gateway_signals:
+        argv = [
+            "bash",
+            "-c",
+            f"""
+kill() {{
+  printf 'kill %s\\n' "$*" >> "$E2E_WT/signal-calls.log"
+  target="${{@: -1}}"
+  if [[ -f "$E2E_WT/.gateway.pid" ]] \
+    && [[ "$target" == "$(cat "$E2E_WT/.gateway.pid")" ]]; then
+    return 0
+  fi
+  builtin kill "$@"
+}}
+export -f kill
+exec bash "{script}" --wt "{tmp_path}" --main-config "{env['MAIN_CONFIG']}"
+""",
+        ]
+        cwd = repo_root
+    elif default_from is None:
         argv = [
             "bash",
             str(script),
@@ -250,6 +273,7 @@ def test_identity_timeout_rolls_back_exact_spawned_stack_and_preserves_logs(
 ) -> None:
     env = _prepare_harness(tmp_path, startup_timeout=0.5)
     env["GATEWAY_IDENTITY_MODE"] = "timeout"
+    env["CREATE_GATEWAY_LOCK"] = "1"
 
     try:
         result = _run_up(tmp_path, env)
@@ -262,8 +286,34 @@ def test_identity_timeout_rolls_back_exact_spawned_stack_and_preserves_logs(
         assert not (tmp_path / ".im.pid").exists()
         assert not (tmp_path / "gateway.pid").exists()
         assert not (tmp_path / "gateway.identity.json").exists()
+        assert not (tmp_path / ".gateway-config.yaml.lock").exists()
         assert (tmp_path / ".gateway.log").exists()
         assert (tmp_path / ".im.log").exists()
+    finally:
+        _cleanup_owned(tmp_path)
+
+
+def test_identity_timeout_gateway_survivor_retains_whole_stack(
+    tmp_path: Path,
+) -> None:
+    env = _prepare_harness(tmp_path, startup_timeout=0.1)
+    env["GATEWAY_IDENTITY_MODE"] = "timeout"
+
+    try:
+        result = _run_up(tmp_path, env, preserve_gateway_signals=True)
+        gateway_pid, im_pid = _spawned_pids(tmp_path)[1], _spawned_pids(tmp_path)[0]
+        calls = (tmp_path / "signal-calls.log").read_text(
+            encoding="utf-8"
+        ).splitlines()
+
+        assert result.returncode == 1
+        assert "rollback could not stop Gateway" in result.stderr
+        assert _pid_alive(gateway_pid)
+        assert _pid_alive(im_pid)
+        assert not any(line.endswith(f" {im_pid}") for line in calls)
+        for evidence in (".gateway.pid", ".im.pid", ".gateway-config.yaml"):
+            assert (tmp_path / evidence).exists(), evidence
+        assert "stack rollback complete" not in result.stderr
     finally:
         _cleanup_owned(tmp_path)
 
