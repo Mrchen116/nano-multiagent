@@ -3,6 +3,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from IM.application.event_bridge import EventBridge
 from IM.domain.models import Actor, ConversationEvent, TokenUsage, ToolCall
 from IM.infra.db import connect, initialize_schema
@@ -41,6 +43,19 @@ def _make_bridge(tmp_path: Path):
     connection.commit()
     conv = conversations.create_conversation(title="t", participant_ids=[alice.id])
     return bridge, conv.id, agent_user.id, messages, captured
+
+
+def test_event_bridge_constructor_rejects_second_notify_owner(tmp_path: Path) -> None:
+    """Repositories are the only post-commit publisher; the bridge cannot publish too."""
+    connection = connect(tmp_path / "im.db")
+    initialize_schema(connection)
+
+    with pytest.raises(TypeError):
+        EventBridge(
+            message_repository=MessageRepository(connection),
+            event_repository=EventRepository(connection),
+            notify=lambda _event: None,
+        )
 
 
 def test_on_turn_start_creates_empty_agent_message_and_emits_event(

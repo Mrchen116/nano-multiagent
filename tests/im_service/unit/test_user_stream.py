@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
+from contextlib import suppress
 import json
 
 from IM.domain.models import ConversationEvent
+from IM.infra.repositories import EventReplayResult
 from IM.ws.user_stream import (
     UserStreamRegistry,
     conversation_event_to_wire_data,
     encode_user_stream_event_frame,
+    serve_user_websocket,
 )
 
 
@@ -21,6 +25,72 @@ class _StubWebSocket:
         if self.closed:
             raise RuntimeError("closed")
         self.sent.append(text)
+
+
+def _event(event_id: int) -> ConversationEvent:
+    return ConversationEvent(
+        event_id=event_id,
+        conversation_id="conv-1",
+        message_id=None,
+        event_type="message.sent",
+        delivery_status="sent",
+        payload_json=json.dumps({"content": f"event-{event_id}"}),
+        created_at="2026-07-13T00:00:00Z",
+    )
+
+
+class _PagedEventRepository:
+    def __init__(self, count: int) -> None:
+        self.events = [_event(event_id) for event_id in range(1, count + 1)]
+        self.calls: list[int] = []
+
+    def list_events_for_user_resume(
+        self,
+        *,
+        user_id: str,
+        after_event_id: int,
+        max_batch: int,
+        max_gap: int,
+        replay_window_minutes: int,
+    ) -> EventReplayResult:
+        del user_id, max_gap, replay_window_minutes
+        self.calls.append(after_event_id)
+        page = [event for event in self.events if event.event_id > after_event_id][
+            :max_batch
+        ]
+        return EventReplayResult(events=page, resync_required=False, reason=None)
+
+
+class _ResumeWebSocket(_StubWebSocket):
+    def __init__(self, *, expected_events: int = 0, block_first_replay: bool = False) -> None:
+        super().__init__()
+        self.expected_events = expected_events
+        self.block_first_replay = block_first_replay
+        self.accepted = False
+        self.replay_started = asyncio.Event()
+        self.release_replay = asyncio.Event()
+        self.drained = asyncio.Event()
+        self._received_resume = False
+
+    async def accept(self) -> None:
+        self.accepted = True
+
+    async def receive_text(self) -> str:
+        if not self._received_resume:
+            self._received_resume = True
+            return json.dumps({"op": "resume", "after_event_id": 0})
+        await asyncio.Future()
+        raise AssertionError("unreachable")
+
+    async def send_text(self, text: str) -> None:
+        frame = json.loads(text)
+        if self.block_first_replay and frame.get("event_id") == 1:
+            self.replay_started.set()
+            await self.release_replay.wait()
+        self.sent.append(text)
+        event_frames = [json.loads(item) for item in self.sent if '"op":"event"' in item]
+        if self.expected_events and len(event_frames) >= self.expected_events:
+            self.drained.set()
 
 
 async def test_broadcast_to_user_delivers_only_to_target_user() -> None:
@@ -71,6 +141,71 @@ async def test_broadcast_to_user_silent_when_user_absent() -> None:
     registry = UserStreamRegistry()
     # No add. Should not raise.
     await registry.broadcast_to_user("ghost", '{"x":1}')
+
+
+async def test_resume_handoff_blocks_live_delivery_until_replay_is_registered() -> None:
+    """Live broadcast cannot overtake an in-progress replay for the same user."""
+    registry = UserStreamRegistry()
+    repository = _PagedEventRepository(1)
+    websocket = _ResumeWebSocket(block_first_replay=True)
+    serving = asyncio.create_task(
+        serve_user_websocket(
+            websocket=websocket,
+            event_repository=repository,  # type: ignore[arg-type]
+            registry=registry,
+            user_id="user-a",
+        )
+    )
+    broadcast: asyncio.Task[None] | None = None
+    try:
+        await asyncio.wait_for(websocket.replay_started.wait(), timeout=1)
+        broadcast = asyncio.create_task(
+            registry.broadcast_to_user(
+                "user-a",
+                '{"op":"event","event_type":"message.sent","event_id":2,'
+                '"data":{"content":"live"}}',
+            )
+        )
+        await asyncio.sleep(0)
+        assert not broadcast.done(), "same-user live delivery must wait for replay handoff"
+
+        websocket.release_replay.set()
+        await asyncio.wait_for(broadcast, timeout=1)
+        frames = [json.loads(text) for text in websocket.sent]
+        assert [frame["event_id"] for frame in frames] == [1, 2]
+    finally:
+        websocket.release_replay.set()
+        if broadcast is not None and not broadcast.done():
+            broadcast.cancel()
+            with suppress(asyncio.CancelledError):
+                await broadcast
+        serving.cancel()
+        with suppress(asyncio.CancelledError):
+            await serving
+
+
+async def test_resume_drains_every_page_beyond_single_replay_batch() -> None:
+    """A recoverable backlog larger than 500 is replayed completely before live mode."""
+    registry = UserStreamRegistry()
+    repository = _PagedEventRepository(650)
+    websocket = _ResumeWebSocket(expected_events=650)
+    serving = asyncio.create_task(
+        serve_user_websocket(
+            websocket=websocket,
+            event_repository=repository,  # type: ignore[arg-type]
+            registry=registry,
+            user_id="user-a",
+        )
+    )
+    try:
+        await asyncio.wait_for(websocket.drained.wait(), timeout=1)
+        frames = [json.loads(text) for text in websocket.sent]
+        assert [frame["event_id"] for frame in frames] == list(range(1, 651))
+        assert repository.calls == [0, 500]
+    finally:
+        serving.cancel()
+        with suppress(asyncio.CancelledError):
+            await serving
 
 
 def test_replayed_tombstone_preserves_discarded_message_identity() -> None:
