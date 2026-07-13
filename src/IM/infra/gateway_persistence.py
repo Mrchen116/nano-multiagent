@@ -361,7 +361,7 @@ class GatewayConversationPersistence:
                 infers or repairs owner policy.
 
         Returns:
-            Normalized target, landed conversation, and optional target node.
+            Normalized target and the landed conversation identifier.
 
         Raises:
             ValueError: When source or target identity cannot be resolved.

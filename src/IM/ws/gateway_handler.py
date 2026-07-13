@@ -815,9 +815,10 @@ class GatewayHandler:
             reason: Diagnostic tag stored as ``last_error`` to surface why it flipped.
 
         Notes:
-            Idempotent — if the node is already offline, this is a no-op aside from
-            persisting ``last_error``. The active in-memory ``self._connections``
-            entry is also dropped, matching the WS-disconnect path semantics.
+            Idempotent — if the node is already offline, its persisted state and
+            existing ``last_error`` remain unchanged. The active in-memory
+            ``self._connections`` entry is dropped before persistence, matching the
+            WS-disconnect path semantics.
         """
         if self._node_persistence is None:
             return
