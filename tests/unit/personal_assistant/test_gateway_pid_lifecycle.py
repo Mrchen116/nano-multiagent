@@ -26,7 +26,12 @@ from personal_assistant.main import (
 import personal_assistant.main as main_module
 
 from agent.core.llm.model_registry import _reset_for_tests
-from ._main_helpers import _FakeProcess, build_config
+from ._main_helpers import (
+    _FakeProcess,
+    build_config,
+    observed_gateway_process,
+    write_gateway_identity,
+)
 
 from agent.core.llm.config import LLMConfigPayload, LLMModelPayload, LLMProviderPayload
 
@@ -89,12 +94,12 @@ def test_stop_gateway_ignores_legacy_health_url_when_pid_is_stale(
         lambda *_args, **_kwargs: pytest.fail("stop must not probe legacy health_url"),
     )
 
-    result = main_module.stop_gateway(
-        config_path=config.source_path, load_config=lambda _path: config
-    )
+    with pytest.raises(RuntimeError, match="state/PID identity mismatch"):
+        main_module.stop_gateway(
+            config_path=config.source_path, load_config=lambda _path: config
+        )
 
-    assert result == f"STALE pid=2468 state={state_path}"
-    assert state_path.exists() is False
+    assert state_path.exists() is True
 
 
 def test_stop_gateway_uses_pid_liveness_and_ignores_legacy_health_url(
@@ -127,9 +132,15 @@ def test_stop_gateway_uses_pid_liveness_and_ignores_legacy_health_url(
         ),
         encoding="utf-8",
     )
+    (tmp_path / "gateway.pid").write_text("2468", encoding="utf-8")
+    write_gateway_identity(config)
     pid_checks = iter([True, False])
     monkeypatch.setattr(
         "personal_assistant.main._pid_is_running", lambda _pid: next(pid_checks)
+    )
+    monkeypatch.setattr(
+        "personal_assistant.main._observe_gateway_process",
+        lambda _pid: observed_gateway_process(config),
     )
     monkeypatch.setattr("personal_assistant.main.os.kill", lambda _pid, _sig: None)
     # 漏 mock 会让 stop_gateway 对虚构 PID 2468 真实 killpg,CI 上若该 pid 存活则误杀 runner 进程组。
@@ -292,10 +303,15 @@ def test_stop_gateway_removes_pid_file_on_successful_stop(
         ),
         encoding="utf-8",
     )
+    write_gateway_identity(config)
 
     pid_checks = iter([True, False])
     monkeypatch.setattr(
         "personal_assistant.main._pid_is_running", lambda _pid: next(pid_checks)
+    )
+    monkeypatch.setattr(
+        "personal_assistant.main._observe_gateway_process",
+        lambda _pid: observed_gateway_process(config),
     )
     monkeypatch.setattr("personal_assistant.main.os.kill", lambda _pid, _sig: None)
     # 漏 mock 会让 stop_gateway 对虚构 PID 2468 真实 killpg,CI 上若该 pid 存活则误杀 runner 进程组。
@@ -324,11 +340,16 @@ def test_stop_gateway_stops_foreground_pid_without_runtime_state(
     config = build_config(tmp_path)
     pid_path = _gateway_pid_path(config)
     pid_path.write_text("2468", encoding="utf-8")
+    write_gateway_identity(config)
     pid_checks = iter([True, False])
     kills: list[tuple[int, int]] = []
 
     monkeypatch.setattr(
         "personal_assistant.main._pid_is_running", lambda _pid: next(pid_checks)
+    )
+    monkeypatch.setattr(
+        "personal_assistant.main._observe_gateway_process",
+        lambda _pid: observed_gateway_process(config),
     )
     monkeypatch.setattr(
         "personal_assistant.main.os.kill", lambda pid, sig: kills.append((pid, sig))
@@ -369,6 +390,7 @@ def test_stop_gateway_force_kills_owned_process_group_and_cleans_state(
         ),
         encoding="utf-8",
     )
+    write_gateway_identity(config)
     signals: list[tuple[str, int, int]] = []
     killed = False
 
@@ -376,6 +398,11 @@ def test_stop_gateway_force_kills_owned_process_group_and_cleans_state(
         return not killed
 
     monkeypatch.setattr(main_module, "_pid_is_running", _pid_is_running)
+    monkeypatch.setattr(
+        main_module,
+        "_observe_gateway_process",
+        lambda _pid: observed_gateway_process(config),
+    )
 
     def _kill(pid: int, sig: int) -> None:
         nonlocal killed

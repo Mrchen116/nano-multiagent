@@ -23,7 +23,12 @@ from personal_assistant.main import (
 
 import personal_assistant.main as main_module
 
-from ._main_helpers import _FakeProcess, build_config
+from ._main_helpers import (
+    _FakeProcess,
+    build_config,
+    observed_gateway_process,
+    write_gateway_identity,
+)
 
 from agent.core.llm.config import LLMConfigPayload, LLMModelPayload, LLMProviderPayload
 
@@ -204,7 +209,7 @@ def test_launch_gateway_in_background_default_waiter_times_out_without_pid(
     monkeypatch.setattr(main_module.time, "monotonic", iter([0.0, 1.0]).__next__)
     monkeypatch.setattr(main_module, "_kill_process_tree", lambda _pid, _sig: None)
 
-    with pytest.raises(GatewayStartupError, match="pid file never appeared"):
+    with pytest.raises(GatewayStartupError, match="pid or process identity"):
         launch_gateway_in_background(
             config_path=config.source_path,
             load_config=lambda _path: config,
@@ -215,6 +220,7 @@ def test_launch_gateway_in_background_default_waiter_times_out_without_pid(
 
 
 def test_launch_gateway_in_background_default_waiter_accepts_child_pid(
+    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     config = build_config(tmp_path)
@@ -222,7 +228,14 @@ def test_launch_gateway_in_background_default_waiter_accepts_child_pid(
 
     def _spawn(_argv: list[str], _log_path: Path) -> _FakeProcess:
         (tmp_path / "gateway.pid").write_text("2468", encoding="utf-8")
+        write_gateway_identity(config)
         return process
+
+    monkeypatch.setattr(
+        main_module,
+        "_observe_gateway_process",
+        lambda _pid: observed_gateway_process(config),
+    )
 
     result = launch_gateway_in_background(
         config_path=config.source_path,
@@ -235,6 +248,7 @@ def test_launch_gateway_in_background_default_waiter_accepts_child_pid(
 
 
 def test_launch_gateway_in_background_removes_malformed_pid_before_spawn(
+    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     config = build_config(tmp_path)
@@ -245,7 +259,14 @@ def test_launch_gateway_in_background_removes_malformed_pid_before_spawn(
     def _spawn(_argv: list[str], _log_path: Path) -> _FakeProcess:
         assert not pid_path.exists()
         pid_path.write_text("2468", encoding="utf-8")
+        write_gateway_identity(config)
         return process
+
+    monkeypatch.setattr(
+        main_module,
+        "_observe_gateway_process",
+        lambda _pid: observed_gateway_process(config),
+    )
 
     result = launch_gateway_in_background(
         config_path=config.source_path,
