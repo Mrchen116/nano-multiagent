@@ -57,7 +57,8 @@ _WHITELIST: frozenset[str] = frozenset(
         # feat-446 round-4 contract fix: helper removals compacted build_kernel back to 141,
         # utc_now_iso import shifted the fallback line to 142; global_skill_root param to 143.
         # refactor-462 shared engine/resource ownership docs shifted the fallback.
-        "src/agent/sdk/kernel.py:238",
+        # refactor-462 fix-r2 deterministic writer shutdown added an import.
+        "src/agent/sdk/kernel.py:239",
         # kernel.py: M3fix #2 workspace .nano/hooks dir for the _SearchRootsResolver
         # (决策2-style workspace discovery; literal .nano, not workspace_config_dirname);
         # M3fix-r2 dead-code removal shifted 369→370.
@@ -66,7 +67,7 @@ _WHITELIST: frozenset[str] = frozenset(
         # feat-446 round-4 contract fix: helper removals compacted the hook root literal to 379,
         # utc_now_iso import shifted it to 380; global_skill_root param to 382.
         # refactor-462 shared composition setup shifted the hook root literal.
-        "src/agent/sdk/kernel.py:487",
+        "src/agent/sdk/kernel.py:488",
         # kernel.py: M3fix-r2 R2-1 workspace .nano/tools dir loaded via
         # _load_tools_from_single_dir(replace=True) (决策2 workspace discovery; literal .nano).
         # bugfix-417-M7: foreground_stopper injection comment expanded (decision 12); shifted 480→483.
@@ -79,7 +80,8 @@ _WHITELIST: frozenset[str] = frozenset(
         # feat-446 round-4 contract fix: helper removals compacted the tools root literal to 523,
         # utc_now_iso import shifted it to 524; global_skill_root param to 526.
         # refactor-462 shared resource finalizer shifted the tool root literal.
-        "src/agent/sdk/kernel.py:679",
+        # refactor-462 fix-r2 writer finalization shifted this root by one more line.
+        "src/agent/sdk/kernel.py:681",
         # skills/discovery.py: .nano skill search root — platform default, pre-185
         "src/agent/core/skills/discovery.py:45",
         # jsonl_files.py: transcript address fallback when no product dirname is supplied.
