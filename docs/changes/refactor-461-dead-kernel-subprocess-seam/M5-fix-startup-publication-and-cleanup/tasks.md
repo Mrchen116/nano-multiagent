@@ -36,10 +36,10 @@
 
 ### R2 — Shared process snapshot and birth identity
 
-- 状态：TODO
-- C1 Red：补真实子进程空格/引号 config path、不同 locale/TZ、new identity stop 与 legacy upgrade regression。
-- C2 Green：提供 Python/shell 共用的 snapshot 边界；固定 birth 环境；新 identity 只以 PID+birth 授权，argv 仅审计，legacy raw exact command adoption 保持 forward-read。
-- C3 Docs：记录 signal authority、legacy 边界与跨环境证据。
+- 状态：DONE
+- [x] C1 Red：补真实子进程空格/引号 config path、不同 locale/TZ、new identity stop 与 legacy upgrade regression。
+- [x] C2 Green：提供 Python/shell 共用的 snapshot 边界；固定 birth 环境；新 identity 只以 PID+birth 授权，argv 仅审计，legacy raw exact command adoption 保持 forward-read。
+- [x] C3 Docs：记录 signal authority、legacy 边界与跨环境证据。
 
 ### R3 — e2e rollback and evidence cleanup transaction
 

@@ -28,7 +28,22 @@
 
 ## R2 — Shared process snapshot and birth identity
 
-- Status: TODO。
+- Status: DONE。
+- Context: Python public stop 与 shell e2e-down 分别解析 `ps command`；命令含空格/引号时 `shlex` 无法还原 OS 原始 argv，且 `lstart` 受 locale/TZ 影响。新 identity 已持久化精确 launch audit，不应再次从易变的显示字符串授予 signal 权限。
+- Decision: 新增 public `GatewayProcessSnapshot` / `read_gateway_process_snapshot()`，在固定 `LC_ALL=C LANG=C TZ=UTC` 下读取 birth/status/raw command，并以 birth-before/birth-after 防 PID 观测竞态。新 identity 的每次 signal 授权只比较 PID + birth；持久化 module/config/argv 仍做静态审计。仅 legacy state 在首次升级时用 anchored、项目专属 foreground command pattern 校验 raw command，升级后立即写入结构化 identity。shell 调用同一 Python snapshot；TERM/KILL 各只向 owned process group 发一次，避免 leader 连续收到 PID 与 group 双 SIGTERM 的 handler-restore 竞态。
+- Rationale: OS process birth identity 是同 PID 实例的稳定事实；command 是面向人的渲染，不是 argv 序列。把 raw command 限制在 legacy adoption，既保留 forward-read，又消除新 identity 对 quoting、locale 与 shell parser 的授权依赖。
+- Evidence:
+  - Tests: R1/R2 affected Python + shell suites → `52 passed, 2 warnings in 21.68s`；`ruff check` 通过，9 个受影响 Python 文件 `ruff format --check` 通过。
+  - Entry: 真实 background start/stop 覆盖含空格路径；legacy public stop 在不同 `TZ` 与含空格路径下安全升级并退出；两条真实集成入口 `3 passed in 7.00s`。
+  - Frontend State Matrix: N/A。
+  - Browser QA: N/A。
+  - E2E/Regression: `tests/integration/test_gateway_legacy_state_upgrade.py` 与 `tests/integration/test_e2e_down_script.py`；marker 无。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Debug note: 首次真实 quoted-path test 的 child 继承了主仓 `PYTHONPATH`，因此实际运行了错误 checkout；测试显式把当前 worktree `src` 放到 child import path 后，才对本分支做真实验证。随后 background stop 返回 `-15`：追踪 signal 记录确认 stop 先向 PID 发 SIGTERM、再立刻向同组发第二次 SIGTERM；runtime 在第一次 handler 后恢复默认 handler，第二次命中默认动作。修复为每阶段只向 owned group 发一次 signal。
+- Rollback: 回退 `9ca8f5826` 恢复 command reconstruction；保留 C1 `dfaa43565` 可稳定重现 quoted path/TZ failure。
+- Commits: C1=`dfaa43565`；C2=`9ca8f5826`；C3=本提交。
+- Next: R3 e2e rollback and evidence cleanup transaction。
 
 ## R3 — e2e rollback and evidence cleanup transaction
 
