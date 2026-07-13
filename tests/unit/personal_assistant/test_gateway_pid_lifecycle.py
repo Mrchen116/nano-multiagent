@@ -370,11 +370,23 @@ def test_stop_gateway_force_kills_owned_process_group_and_cleans_state(
         encoding="utf-8",
     )
     signals: list[tuple[str, int, int]] = []
-    monkeypatch.setattr(main_module, "_pid_is_running", lambda _pid: True)
+    killed = False
+
+    def _pid_is_running(_pid: int) -> bool:
+        return not killed
+
+    monkeypatch.setattr(main_module, "_pid_is_running", _pid_is_running)
+
+    def _kill(pid: int, sig: int) -> None:
+        nonlocal killed
+        signals.append(("pid", pid, sig))
+        if sig == signal.SIGKILL:
+            killed = True
+
     monkeypatch.setattr(
         main_module.os,
         "kill",
-        lambda pid, sig: signals.append(("pid", pid, sig)),
+        _kill,
     )
     monkeypatch.setattr(
         main_module,
