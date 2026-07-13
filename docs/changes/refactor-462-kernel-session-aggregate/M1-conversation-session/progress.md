@@ -55,7 +55,21 @@
 
 ## R3 — KernelExecutor、RunsRegistry 与 subagent 控制面
 
-- Status: TODO
+- Status: DONE
+- Context: 旧 RunsRegistry 同时持 event loop、Task 与 RunRecord，RuntimeRunner 暴露 loop getter/bare coroutine；cancel 的 public terminal 与 carrier cleanup 混在同一状态域。
+- Decision: 新建 typed `KernelExecutor`，以 `TargetToken` 统一 top-level/auxiliary/lifecycle carrier ownership；RunsRegistry 只写 RunRecord/controller/held pending，并通过 completion sink 完成 bind-before-schedule 与 cleanup ack；subagent runner 改成 typed auxiliary API。
+- Rationale: Executor 不发布 RunStatus，Registry 不接触 Task/loop；cancel 可同步写 CANCELLED 后异步清理 target，同一 session 的后续 run 由 ConversationSession permit/gate 等待旧事务退出。
+- Evidence:
+  - Tests: `python -m pytest -xvs tests/unit/agent/runs/test_kernel_executor.py tests/unit/agent/runs/test_runs_registry_executor.py` → `5 passed`。
+  - Entry: top-level bind→start 顺序、blocked target cancel→cleanup ack→同 executor resubmit、auxiliary shutdown、late admission reject、Registry completion、model threading、`interrupt()` 返回前 held-pending park。
+  - Frontend State Matrix: N/A（执行控制面重构）。
+  - Browser QA: N/A（执行控制面重构）。
+  - E2E/Regression: AgentTool 已不再向 runner 传 bare coroutine；完整 subagent 真入口在 R4 签收。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: 回退 `6dfc0f9f` 与红测 `3a87ff73` 可恢复 Registry-owned loop；R4 前 unit 分支不作为可运行交付。
+- Commits: `3a87ff73`（C1），`6dfc0f9f`（C2）。
+- Next: R4 切换 build_kernel/Kernel/AgentTool 到 Directory+Executor，删除 manager/service/store/旧测试 seam，跑全量与真实入口。
 
 ## R4 — SDK composition cutover、旧 seam 删除与真实入口签收
 

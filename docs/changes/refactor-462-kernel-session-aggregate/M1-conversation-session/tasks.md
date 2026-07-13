@@ -56,7 +56,7 @@ N/A：本 milestone 不修改 UI、前端状态或视觉资源。
 
 ### R3 — KernelExecutor、RunsRegistry 与 subagent 控制面
 
-- 状态: TODO
+- 状态: DONE
 - 步骤:
   - 新增 typed `KernelExecutor`，唯一拥有 owner loop、top-level/auxiliary/lifecycle Task、TargetToken 与 cleanup ack；禁止 generic coroutine/event-loop getter。
   - RunsRegistry 只保留 RunRecord/controller/steer/held-pending，保持 `/stop` 同步 park 与 cancel 同步 semantic terminal，并用 Executor token 做资源清理。
