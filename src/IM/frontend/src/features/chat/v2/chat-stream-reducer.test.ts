@@ -574,4 +574,26 @@ describe("chat-stream-reducer", () => {
     expect(next.messages[0]!.id).toBe("id-a");
     expect(next.messages[1]!.id).toBe("id-b");
   });
+
+  it("removes a provisional bubble when message.discarded arrives", () => {
+    const provisional: Message = {
+      ...userMessage("m-agent", ""),
+      sender: { type: "agent", id: "agent-a" },
+      sender_type: "agent",
+      delivery_status: "running"
+    };
+    const state: ConversationState = {
+      conversation_id: "c1",
+      messages: [provisional]
+    };
+
+    const next = applyWsEvent(state, {
+      type: "message.discarded",
+      conversation_id: "c1",
+      message_id: "m-agent",
+      reason: "no_reply_token"
+    } as WsEvent);
+
+    expect(next.messages).toEqual([]);
+  });
 });

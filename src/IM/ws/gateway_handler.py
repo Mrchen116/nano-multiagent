@@ -1151,6 +1151,7 @@ class GatewayHandler:
         - ``turn_start``: agent begins a reply; EventBridge inserts placeholder message.
         - ``message_delta``: incremental text chunk; EventBridge appends content.
         - ``message_completed``: run finished; EventBridge marks message completed with token_usage.
+        - ``message_discarded``: silent run; EventBridge removes the provisional message.
         - ``tool_call_upserted``: tool call started; EventBridge upserts tool_calls JSON.
         - ``tool_call_completed``: tool call done; EventBridge settles tool_calls JSON.
 
@@ -1328,6 +1329,13 @@ class GatewayHandler:
                 token_usage=token_usage,
                 delivery_status=ds,
                 kernel_message_id=kernel_message_id,
+            )
+
+        elif kind == "message_discarded":
+            message_id = _require_text(event.message_id, field_name="message_id")
+            reason = _require_text(event.reason, field_name="reason")
+            self._event_bridge.on_message_discarded(
+                message_id=message_id, reason=reason
             )
 
         elif kind == "run_heartbeat":

@@ -7,7 +7,11 @@ from collections.abc import Callable, Coroutine, Mapping, MutableMapping
 import logging
 from typing import Any
 
-from personal_assistant.gateway.inbound_pipeline import InboundPipeline
+from personal_assistant.gateway.reply_visibility import (
+    ReplyVisibilityPolicy,
+    is_protocol_silence_token,
+    should_suppress_reply,
+)
 from personal_assistant.ws.im_connection import IMConnectionManager
 
 from .context import RunDeliveryContextStore
@@ -147,7 +151,9 @@ def build_kernel_event_observer(
     - run_context_store entries with ``to_user_id`` (no ``conversation_id``) are heartbeat runs.
     - turn_start is deferred until the first non-empty, non-NO_REPLY assistant_message arrives.
     - NO_REPLY/empty content → no turn_start is ever sent → zero IM trace (silent tick).
-    - Normal chat (conversation_id present) is unchanged (eager placeholder on run_status=running).
+    - Normal chat eagerly creates a provisional placeholder on run_status=running.
+      Suppression-enabled contexts roll that placeholder back if the complete reply
+      is a protocol silence token.
 
     Canonical session (feat-394 decision 3):
     - HeartbeatScheduler.tick() calls session_store.find_direct_by_agent() BEFORE each run
@@ -215,7 +221,7 @@ def build_kernel_event_observer(
         cleaned_text = text.strip()
         if not cleaned_text:
             return
-        if InboundPipeline._is_no_reply_token(cleaned_text):
+        if is_protocol_silence_token(cleaned_text):
             return
         external_metadata = _external_context_metadata(ctx)
         if external_metadata is None:
@@ -395,6 +401,30 @@ def build_kernel_event_observer(
 
         elif event_name == "assistant_message":
             content = str(event.get("content") or "").strip()
+            kernel_msg_id = str(event.get("message_id") or "").strip()
+            prev_kernel_msg_id = ctx.get("kernel_message_id") or ""
+            raw_visibility_policy = ctx.get("visibility_policy")
+            visibility_policy = (
+                ReplyVisibilityPolicy(raw_visibility_policy)
+                if raw_visibility_policy
+                else (
+                    ReplyVisibilityPolicy.SUPPRESS_PROTOCOL_TOKENS
+                    if to_user_id
+                    else ReplyVisibilityPolicy.LITERAL_TEXT
+                )
+            )
+            if should_suppress_reply(content, policy=visibility_policy):
+                # The eager normal-chat placeholder is provisional until assistant
+                # content commits it. A first-bubble silence token rolls that row back;
+                # a later token merely declines to open another bubble, preserving the
+                # preceding real assistant message.
+                if message_id and not prev_kernel_msg_id:
+                    ctx["discard_current_bubble"] = "1"
+                ctx.pop("external_current_text", None)
+                return None
+            # A later real assistant message supersedes an earlier provisional silence
+            # decision in the same run and commits the existing bubble normally.
+            ctx.pop("discard_current_bubble", None)
             # feat-439-M2: 整轮每回合各带一段思考(决策 4 / §1 事实 A)。空正文「且无
             # 思考」的回合仍整段丢弃(避免空气泡)；空正文「但有思考」的回合不再丢，作为
             # 「过程项」转发到当前气泡(不 roll 新气泡、不发空 delta)。思考段的时序序号
@@ -409,9 +439,6 @@ def build_kernel_event_observer(
             )
             if not content and not visible_reasoning:
                 return None
-            kernel_msg_id = str(event.get("message_id") or "").strip()
-            prev_kernel_msg_id = ctx.get("kernel_message_id") or ""
-
             # feat-393 heartbeat lazy-bubble path:
             # When to_user_id is set and no bubble exists yet, this is the first real
             # content event.  Gate on NO_REPLY: if agent chose to be quiet → stay silent.
@@ -422,11 +449,7 @@ def build_kernel_event_observer(
                 # 可投递内容(也无气泡可挂)，直接跳过。
                 if not content:
                     return None
-                from personal_assistant.gateway.inbound_pipeline import (
-                    InboundPipeline as _IP,
-                )
-
-                if _IP._is_no_reply_token(content):
+                if is_protocol_silence_token(content):
                     # NO_REPLY: heartbeat has nothing to report; do not create any IM trace.
                     return None
 
@@ -710,6 +733,18 @@ def build_kernel_event_observer(
             # empty-dict residue and guarantees the map can't grow unbounded on a long
             # Gateway. reconcile owns the abnormal path and pops there.
             running_tool_calls.pop(run_id, None)
+
+            if message_id and ctx.get("discard_current_bubble"):
+                return _send(
+                    manager,
+                    "node.streaming_delta",
+                    {
+                        "kind": "message_discarded",
+                        "message_id": message_id,
+                        "run_id": run_id,
+                        "reason": "no_reply_token",
+                    },
+                )
 
             # Finalize message with token_usage if present (only on success path).
             usage_raw = event.get("usage") if turn_completed else None

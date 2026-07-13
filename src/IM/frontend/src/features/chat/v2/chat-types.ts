@@ -214,6 +214,7 @@ export type WsEvent =
   | { type: "message.created"; seq?: number; conversation_id: string; message_id: string; sender_user_id: string; sender_type: string; sender?: Actor | null; sender_display_name?: string | null; content: string; attachments?: Attachment[]; tool_calls: ToolCall[]; thinking?: ThinkingSegment[]; token_usage: TokenUsage | null; delivery_status: DeliveryStatus; created_at: string }
   | { type: "message.delta"; seq?: number; conversation_id: string; message_id: string; delta_text: string }
   | { type: "message.completed"; seq?: number; conversation_id: string; message_id: string; content: string; token_usage: TokenUsage | null; elapsed_ms?: number | null; kernel_message_id?: string | null }
+  | { type: "message.discarded"; seq?: number; conversation_id: string; message_id: string; reason: string }
   | { type: "tool_call.upserted"; seq?: number; conversation_id: string; message_id: string; tool_call: ToolCall }
   | { type: "tool_call.completed"; seq?: number; conversation_id: string; message_id: string; tool_call: ToolCall }
   // feat-439-M2: 一段思考过程项到达当前气泡（过程时间线）。

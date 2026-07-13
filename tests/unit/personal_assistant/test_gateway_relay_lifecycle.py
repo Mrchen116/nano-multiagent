@@ -36,6 +36,7 @@ from personal_assistant.gateway.runtime_delivery.lifecycle import (
     build_relay_lifecycle_callback as _build_relay_lifecycle_callback,
 )
 from personal_assistant.gateway.runtime_delivery.observer import roll_bubble
+from personal_assistant.gateway.reply_visibility import ReplyVisibilityPolicy
 from personal_assistant.main import (
     GatewayRuntime,
     GatewayStartupError,
@@ -869,6 +870,179 @@ def test_kernel_event_observer_does_not_mirror_im_triggered_shadow_runs() -> Non
     asyncio.run(_exercise())
 
     assert mirrored == []
+
+
+def test_group_no_reply_discards_provisional_im_message() -> None:
+    """A group silence token must roll back its eager IM placeholder."""
+
+    class _Manager:
+        connected = True
+
+        def __init__(self) -> None:
+            self.sent_frames: list[tuple[str, dict[str, object]]] = []
+
+        async def send_json_await_ack(
+            self, message_type: str, payload: dict[str, object]
+        ) -> dict[str, object]:
+            self.sent_frames.append((message_type, payload))
+            return {"payload": {"message_id": "im-msg-1"}}
+
+        async def send_json(
+            self, message_type: str, payload: dict[str, object]
+        ) -> None:
+            self.sent_frames.append((message_type, payload))
+
+    manager = _Manager()
+    observer = _build_kernel_event_observer(
+        im_connection_manager_factory=lambda: manager,
+        run_context_store={
+            "run-1": {
+                "conversation_id": "group-conv",
+                "message_id": "",
+                "agent_id": "agent-a",
+                "kernel_session_id": "sess-1",
+                "visibility_policy": "suppress_protocol_tokens",
+            }
+        },
+    )
+
+    async def _exercise() -> None:
+        started = observer(
+            {"event": "run_status", "run_id": "run-1", "status": "running"}
+        )
+        assert asyncio.iscoroutine(started)
+        await started
+        suppressed = observer(
+            {
+                "event": "assistant_message",
+                "run_id": "run-1",
+                "message_id": "kernel-msg-1",
+                "content": "NO_REPLY",
+                "reasoning_content": "The group asked me to stay silent.",
+                "group_id": "kernel-msg-1",
+            }
+        )
+        if asyncio.iscoroutine(suppressed):
+            await suppressed
+        ended = observer({"event": "turn_end", "run_id": "run-1", "completed": True})
+        if asyncio.iscoroutine(ended):
+            await ended
+        await asyncio.sleep(0)
+
+    asyncio.run(_exercise())
+
+    payloads = [payload for _, payload in manager.sent_frames]
+    assert [payload["kind"] for payload in payloads] == [
+        "turn_start",
+        "message_discarded",
+    ]
+    assert payloads[-1] == {
+        "kind": "message_discarded",
+        "message_id": "im-msg-1",
+        "run_id": "run-1",
+        "reason": "no_reply_token",
+    }
+
+
+def test_group_relay_context_enables_protocol_token_suppression() -> None:
+    """Accepted group relays must carry silence policy into runtime delivery."""
+    store = RunDeliveryContextStore()
+    message = InboundMessage(
+        channel_name="web_relay",
+        text="@agent-a stay quiet",
+        external_user_id="user-1",
+        external_chat_id="group-conv",
+        is_group=True,
+        agent_id="agent-a",
+        metadata={"relay_task_id": "relay-1", "message_id": "user-msg-1"},
+    )
+
+    context = store.seed_from_lifecycle(
+        message=message,
+        update=RelayLifecycleUpdate(
+            phase="accepted",
+            agent_id="agent-a",
+            session_key="web:user-1:group-conv:agent-a",
+            run_id="run-1",
+            kernel_session_id="sess-1",
+        ),
+        owner_user_id="owner-1",
+    )
+
+    assert context is not None
+    assert context.visibility_policy is ReplyVisibilityPolicy.SUPPRESS_PROTOCOL_TOKENS
+
+
+def test_later_no_reply_preserves_preceding_real_bubble() -> None:
+    """A final silence token must not discard an earlier visible assistant message."""
+
+    class _Manager:
+        connected = True
+
+        def __init__(self) -> None:
+            self.payloads: list[dict[str, object]] = []
+
+        async def send_json_await_ack(
+            self, _message_type: str, payload: dict[str, object]
+        ) -> dict[str, object]:
+            self.payloads.append(payload)
+            return {"payload": {"message_id": "im-msg-1"}}
+
+        async def send_json(
+            self, _message_type: str, payload: dict[str, object]
+        ) -> None:
+            self.payloads.append(payload)
+
+    manager = _Manager()
+    observer = _build_kernel_event_observer(
+        im_connection_manager_factory=lambda: manager,
+        run_context_store={
+            "run-1": {
+                "conversation_id": "group-conv",
+                "message_id": "",
+                "agent_id": "agent-a",
+                "kernel_session_id": "sess-1",
+                "visibility_policy": "suppress_protocol_tokens",
+            }
+        },
+    )
+
+    async def _exercise() -> None:
+        started = observer(
+            {"event": "run_status", "run_id": "run-1", "status": "running"}
+        )
+        assert asyncio.iscoroutine(started)
+        await started
+        observer(
+            {
+                "event": "assistant_message",
+                "run_id": "run-1",
+                "message_id": "kernel-msg-1",
+                "content": "I checked the state.",
+            }
+        )
+        await asyncio.sleep(0)
+        observer(
+            {
+                "event": "assistant_message",
+                "run_id": "run-1",
+                "message_id": "kernel-msg-2",
+                "content": "NO_REPLY",
+            }
+        )
+        ended = observer({"event": "turn_end", "run_id": "run-1", "completed": True})
+        if asyncio.iscoroutine(ended):
+            await ended
+        await asyncio.sleep(0)
+
+    asyncio.run(_exercise())
+
+    assert [payload["kind"] for payload in manager.payloads] == [
+        "turn_start",
+        "message_delta",
+        "message_completed",
+    ]
+    assert all("NO_REPLY" not in str(payload) for payload in manager.payloads)
 
 
 def test_relay_lifecycle_callback_failed_sends_message_level_report_with_real_cause() -> (

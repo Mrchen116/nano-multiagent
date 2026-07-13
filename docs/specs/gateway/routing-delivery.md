@@ -73,13 +73,15 @@
 
 #### Scenario: 群聊 Agent 输出 NO_REPLY 时不发言
 - **WHEN** 群聊一轮运行的最终回复文本为 `NO_REPLY`
-- **THEN** Gateway 抑制出站投递,用户在群里看不到任何 Agent 发言
+- **THEN** Gateway 不把 token 作为正文 delta 投递;若该轮已有用于 running/工具过程的 provisional
+  气泡则在终态回滚,最终不留下消息行、列表摘要、未读数或桌面通知
 
 #### Scenario: 群聊 Agent 互相 @ 的 fan-out 回复输出 NO_REPLY 时不发言
 - **GIVEN** 群聊里 Agent A 的回复 @ 了 Agent B,把 B 拉起(agent-to-agent fan-out),或某 Agent 的
   后台任务在群聊会话产生回复
 - **WHEN** 被拉起的 Agent 判断无需接话,输出 `NO_REPLY`(或心跳静默 token `HEARTBEAT_OK`)
 - **THEN** Gateway 对该 fan-out / 后台投递同样抑制,用户在群里看不到 `NO_REPLY` 字面量,该消息也不落库
+- **AND** 静默 token 不作为 Agent 发言继续 fan-out,其他 Agent 的群上下文 buffer / run 不得收到该 token
 
 ### Requirement: /stop 控制命令中断当前运行
 

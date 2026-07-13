@@ -8,6 +8,7 @@ from typing import Literal
 
 from personal_assistant.channels.base import InboundMessage
 from personal_assistant.gateway.inbound_pipeline import RelayLifecycleUpdate
+from personal_assistant.gateway.reply_visibility import ReplyVisibilityPolicy
 from personal_assistant.gateway.runtime_protocol import (
     ShadowConversationRef,
     runtime_protocol_or_derive,
@@ -57,7 +58,13 @@ class RunDeliveryTarget:
 
 @dataclass(slots=True)
 class RunDeliveryContext:
-    """Hold delivery facts for one kernel run."""
+    """Hold delivery facts and provisional-message state for one kernel run.
+
+    ``visibility_policy`` is fixed when the run is accepted, so every delivery path
+    interprets protocol silence tokens consistently. ``discard_current_bubble`` is
+    transient observer state: a running placeholder exists, but the completed
+    assistant message chose silence and the placeholder must be rolled back.
+    """
 
     run_id: str
     agent_id: str
@@ -74,6 +81,8 @@ class RunDeliveryContext:
     rolling: bool = False
     external_current_text: str = ""
     external_intermediate_sent_marker: str = ""
+    visibility_policy: ReplyVisibilityPolicy = ReplyVisibilityPolicy.LITERAL_TEXT
+    discard_current_bubble: bool = False
 
     def ensure_initial_runtime_state(self) -> None:
         """Initialize runtime delivery ids from the static delivery target."""
@@ -115,6 +124,8 @@ class RunDeliveryContext:
         fields.update({key: value for key, value in optional.items() if value})
         if self.rolling:
             fields["rolling"] = "1"
+        if self.discard_current_bubble:
+            fields["discard_current_bubble"] = "1"
         return fields
 
 
@@ -135,6 +146,8 @@ class RunDeliveryRuntimeView(MutableMapping[str, str]):
         "kernel_message_id",
         "external_current_text",
         "external_intermediate_sent_marker",
+        "visibility_policy",
+        "discard_current_bubble",
         "rolling",
     )
 
@@ -221,6 +234,10 @@ class RunDeliveryContextStore:
             return context.external_current_text or None
         if key == "external_intermediate_sent_marker":
             return context.external_intermediate_sent_marker or None
+        if key == "visibility_policy":
+            return context.visibility_policy.value
+        if key == "discard_current_bubble":
+            return "1" if context.discard_current_bubble else None
         if key == "rolling":
             return "1" if context.rolling else None
         raise KeyError(key)
@@ -239,6 +256,8 @@ class RunDeliveryContextStore:
             context.external_current_text = value
         elif key == "external_intermediate_sent_marker":
             context.external_intermediate_sent_marker = value
+        elif key == "discard_current_bubble":
+            context.discard_current_bubble = bool(value)
         elif key == "rolling":
             context.rolling = bool(value)
         else:
@@ -255,6 +274,8 @@ class RunDeliveryContextStore:
             self._contexts[run_id].external_current_text = ""
         elif key == "external_intermediate_sent_marker":
             self._contexts[run_id].external_intermediate_sent_marker = ""
+        elif key == "discard_current_bubble":
+            self._contexts[run_id].discard_current_bubble = False
         elif key == "rolling":
             self._contexts[run_id].rolling = False
         else:
@@ -300,6 +321,7 @@ class RunDeliveryContextStore:
                 agent_id=agent_id,
                 kernel_session_id=kernel_session_id,
                 delivery_target=delivery_target,
+                visibility_policy=ReplyVisibilityPolicy.SUPPRESS_PROTOCOL_TOKENS,
             )
         )
 
@@ -389,6 +411,13 @@ class RunDeliveryContextStore:
                 reply_target_chat_id=reply_target_chat_id,
                 reply_thread_id=reply_thread_id,
                 feishu_message_id=feishu_message_id,
+                visibility_policy=(
+                    ReplyVisibilityPolicy.SUPPRESS_PROTOCOL_TOKENS
+                    if message.is_group
+                    or delivery_target.kind == "owner_direct"
+                    or protocol.external_source is not None
+                    else ReplyVisibilityPolicy.LITERAL_TEXT
+                ),
             )
         )
 

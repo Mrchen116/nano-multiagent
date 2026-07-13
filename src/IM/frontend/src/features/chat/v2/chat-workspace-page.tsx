@@ -61,6 +61,7 @@ const CHAT_STREAM_EVENT_TYPES = new Set([
   "message.created",
   "message.delta",
   "message.completed",
+  "message.discarded",
   "tool_call.upserted",
   "tool_call.completed",
   "thinking.segment",

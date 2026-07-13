@@ -73,6 +73,19 @@ Agent 后台任务(`run_in_background`)完成后回发给人类用户的通知,�
 - **WHEN** Gateway 重启后重发同一条通知
 - **THEN** IM 识别其为同一通知,用户流不再新增第二条气泡,会话中该通知仍只有一条
 
+### Requirement: Gateway 可原子回滚未形成用户回复的 provisional 消息
+
+Gateway 为普通聊天预先创建的 `running` agent 消息是 provisional 状态。若 Agent 最终选择协议静默,
+Gateway 发送 `message_discarded`;IM 在同一事务内留下可重放 tombstone、删除 provisional 消息及其
+message-scoped 过程事件,并恢复会话 preview / last_message_at / unread_count。浏览器收到 tombstone 后按
+message_id 移除占位气泡;重复 discard 幂等,刷新历史也不得重新出现该消息。
+
+#### Scenario: NO_REPLY 回滚 running 占位且断线后不复活
+- **GIVEN** 某群聊 Agent run 已创建 running 占位消息
+- **WHEN** Gateway 判定完整 assistant message 为静默 token 并发送 `message_discarded`
+- **THEN** IM 删除该消息并广播 `message.discarded`,会话投影恢复到该消息出现前
+- **AND** 在线浏览器移除占位;断线客户端重放 tombstone 或刷新历史后同样看不到该消息
+
 ### Requirement: 中继看门狗按 liveness 判存活,不误杀活着但安静的消息
 
 中继看门狗判定某 `running` 消息是否失去进展时,依据其存活信号是否仍在刷新:agent run 在"活着但安静"
