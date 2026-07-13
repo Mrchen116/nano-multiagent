@@ -454,3 +454,99 @@ signal 前 `validate_gateway_identity()` 会核对 process start + exact argv，
 无。
 
 No critical issues. 3 warning(s) to consider. Ready for PR (with noted improvements).
+
+# Round 5
+
+## Verification Report: refactor-461
+
+### Summary
+
+Mode: full
+Delta range: `d8df1b124..20f301a61`
+Focus issues: M5 startup publication transaction；process birth snapshot / quoted path / locale-TZ；legacy state adoption；e2e survivor barrier / fail-atomic cleanup / sidecar zero residue
+requires_full_verification: true
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | Tasks 33/33 marked complete；Requirements 4/4 implemented；M5 8/8 exit criteria implemented |
+| Correctness | Round 4 W10-W12 与 code-review startup/publication findings均已闭环；新增真实 quoted-path regression 存在 1 个测试清理 warning |
+| Coherence | D1-D5、M5 R1-R3 followed；canonical spec 按 §7.0 延后归并，不是 blocker |
+
+本轮基于 integration head `20f301a61`，完整读取 M5 tasks/progress、历轮 verification、motivation、design 与 `d8df1b124..20f301a61` 实现。实现已关闭 state/publication rollback、cleanup failure 双因保留、foreground publish finally、PID + birth snapshot、space/quote path、locale/TZ、legacy state adoption，以及 Round 4 的 survivor/dangling/drift/sidecar 三类 warning。affected、ruff、format、shell syntax 与 diff whitespace 均通过；完整 non-e2e 的产品断言通过，但新增 quoted-path 测试在 Darwin zombie teardown 竞态中失败，因此本轮保留 1 个 WARNING，不能声称完整门禁已绿。
+
+## Prior Issue Closure
+
+| Round 5 focus | 结论 | 证据 |
+|---|---|---|
+| Background state publication rollback | closed | waiter + state publish 位于同一事务；失败后 TERM/KILL 并确认退出，只有确认退出才条件删除本 launch evidence：`src/personal_assistant/main.py:2472-2499,4613-4621,4754-4770`；异常注入回归 `test_gateway_startup_publication.py:17-89` |
+| Cleanup failure causality/evidence | closed | 二次 wait 仍超时抛 typed cleanup error，外层以 `ExceptionGroup` 同时保留 startup + cleanup cause，并保留 PID/identity：`main.py:2476-2492,4754-4770`；回归 `test_gateway_startup_publication.py:52-89` |
+| Foreground publication finally | closed | signal handler 安装后的 identity/PID publish 与 runtime 共处同一 `try/finally`；identity/PID 任一 durable publish 失败都恢复 handler并条件清本实例：`main.py:2393-2414`；回归 `test_gateway_startup_publication.py:92-184` |
+| Structured PID + birth snapshot | closed | 固定 `LC_ALL=C LANG=C TZ=UTC`，birth-before/status/command/birth-after 形成稳定 snapshot；新 identity 的 signal authority 只认 PID + birth：`main.py:4129-4195,4546-4560` |
+| Space/quote path + legacy adoption | closed | legacy 仅以 anchored project foreground command 首次升级，随后 durable structured identity；真实带空格/单引号 config 与跨 TZ stop 回归：`main.py:4501-4543`；`test_gateway_legacy_state_upgrade.py:59-189` |
+| W10 e2e-up survivor barrier | closed | Gateway stop 未确认即退出 rollback，禁止触碰 IM并保留全栈 evidence：`scripts/e2e-up.sh:189-214`；真实 signal shim 回归 `test_e2e_up_script.py:296-316` |
+| W11 dangling evidence | closed | up/down residue 判据统一为 `-e || -L`，external/internal dangling/nonregular/malformed 在 signal 前 fail closed：`scripts/e2e-down.sh:214-250`；回归 `test_e2e_down_script.py:325-393` |
+| W12 two-phase cleanup / same-PID drift | closed | shell 复用 Python full-file snapshot，记录 type/dev/inode/size/mtime/digest/content；signal 前复核，退出后 validate-all 再统一 delete：`main.py:4198-4368`、`scripts/e2e-down.sh:137-181,247-280`；same-birth/inode drift 回归 `test_e2e_down_script.py:396-456` |
+| Config sidecar zero residue | closed | 两服务确认退出后才 non-blocking exclusive flock，并复核 held/path inode后删除；survivor/busy lock保留 config + sidecar：`scripts/e2e-down.sh:184-209`；`test_e2e_down_script.py:493-535` |
+| Canonical spec 归并 | deferred as designed | orchestrator 按 §7.0 在最终验收后校正 delta 并归并；不是本轮 blocker |
+
+## Completeness
+
+- Tasks: 33/33 marked complete（M1 5/5，M2 6/6，M3 6/6，M4 8/8，M5 8/8）。
+- Requirement 覆盖: 4/4；M5 未恢复 dead Kernel subprocess/HTTP seam，也未改变消息、heartbeat/cron、IM 离线自治或 Gateway timing ownership。
+- Scenario 覆盖: 10/10；M5 增量全部位于 startup/public lifecycle 与 e2e 异常收口。
+- Prototype / Reference: N/A；本 unit 无前端或 reference contract。
+
+## Correctness
+
+| Requirement / Scenario group | M5 实现与回归证据 | 状态 |
+|---|---|---|
+| 消息、Heartbeat/Cron、IM 离线自治 | M5 delta 未改 runtime message/channel/kernel wiring；完整 non-e2e 除 W13 测试 teardown 外无产品失败 | covered |
+| 默认 start / stop / restart | durable identity→PID publish、publication rollback、cleanup failure causality、quoted path与 legacy upgrade均有直接回归 | covered with test warning |
+| timing 迁移 / canonical save | M5 未回退 M4 transaction/sidecar边界；static与受影响测试通过 | covered |
+| 旧连接/HTTP 字段不形成输入 | legacy `health_url` 只 forward-read；只对 exact project foreground command 做一次结构化 adoption | covered |
+| e2e 只管理 IM + Gateway且失败收口 | Gateway survivor 零 IM signal；dangling/malformed/drift 零 signal或零删除；confirmed exit后 config/sidecar清零 | covered |
+
+### Test Evidence
+
+- affected suites: `70 passed, 2 warnings in 84.66s`。
+- `ruff check .`: passed。
+- `ruff format --check .`: `787 files already formatted`。
+- `bash -n scripts/e2e-up.sh scripts/e2e-down.sh`: passed。
+- `git diff --check d8df1b124..HEAD`: passed。
+- full non-e2e（共享 runner 空闲后唯一单实例）: `1 failed, 3576 passed, 1 skipped, 23 deselected, 16 warnings in 199.92s`；唯一失败见 W13。
+- 隔离诊断：目标 test 单跑 `1 passed`；整个 `tests/integration` 为 `131 passed`；`contract + im_service + target` 为 `590 passed, 1 skipped`。完整前缀 `-x --pdb` 稳定复现后，失败 PID 显示为本 pytest 子进程 `Z <defunct>`，`subprocess._active == [(pid, None)]`；对保留的 `Popen` 调用 `poll()` 返回 0 并立即完成回收。
+
+## Coherence
+
+| design / M5 决策 | 遵守? | 证据 |
+|---|---|---|
+| D1-D5 原始 seam/timing/lifecycle/active-scope 决策 | 是 | M5 只改 public Gateway lifecycle、e2e scripts与对应测试；无 Kernel subprocess/HTTP接口回流 |
+| M5 R1 startup publication transaction | 是 | foreground publish/runtime finally完整；background waiter/state publish rollback及 cleanup double-cause完整 |
+| M5 R2 structured process identity | 是 | public snapshot固定环境并防 birth read竞态；new identity PID+birth授权；legacy exact command只用于首次 adoption |
+| M5 R3 e2e fail-closed state machine | 是 | survivor barrier、dangling判据、full evidence snapshot、validate-all/delete与sidecar lock均闭环 |
+
+### Architecture Coherence
+
+- 依赖方向保持；production delta 只在 `personal_assistant` 与 shell scripts 内，没有产品包新增 `agent.core` / `agent.platform` import。
+- e2e-down 已复用 public runtime 的 snapshot/conditional-clear primitive，消除了 Round 4 shell-only PID cleanup drift。
+- M5 把 cooperative lock 与 process lifecycle evidence 分开处理：config sidecar 以 flock 证明无 writer，Gateway evidence 以 process exit + immutable revision证明可删。
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+无。
+
+### WARNING（应该修）
+
+#### W13 — quoted-path integration teardown 在 Darwin zombie race 下使完整 non-e2e 门禁失败
+
+`test_background_start_and_stop_support_quoted_config_path()` 的产品断言已成功：`stop_gateway()` 返回 STOPPED，PID/identity/state也全部删除；但 `finally` 无条件 `os.killpg(result.pid, SIGKILL)`，且只捕获 `ProcessLookupError`（`tests/integration/test_gateway_legacy_state_upgrade.py:68-80`）。在完整 runner 的时序下，`read_gateway_process_snapshot()` 正好观察到 child 已变成 zombie 并把它判为 exited（`src/personal_assistant/main.py:4169-4181`），而默认 background `Popen` 仍留在 pytest 的 `subprocess._active`、尚未 wait/reap。Darwin 对这个 zombie process-group 的 `killpg` 返回 `EPERM`，于是 cleanup 自己把已通过的产品场景变成失败。PDB 现场为 PID `54740`、`Z <defunct>`、PPID 为 pytest，`subprocess._active` 中该对象 `returncode=None`；调用其 `poll()` 后返回 0。目标单跑/整个 integration 都通过，完整 suite 与完整前缀则稳定在该行失败，证明是 retained `Popen` 的时序型 test teardown，不是 quoted path、identity或 stop 产品行为失败。
+
+修复：该真实进程测试应通过 `spawn_process` wrapper 保留本次 child 的 `Popen` ownership；正常 stop 后对同一 handle 调用 `wait()` 回收，只有 `poll() is None` 时才对该 owned process group 做兜底 SIGKILL。不要在只剩裸 PID、且 identity evidence 已清除后无条件 signal，也不要用宽泛吞掉 `PermissionError` 掩盖 ownership 不明。修后重跑 single full `pytest -m "not e2e" -q`。
+
+### SUGGESTION（可以修）
+
+无。
+
+No critical issues. 1 warning(s) to consider. Ready for PR (with noted improvement).
