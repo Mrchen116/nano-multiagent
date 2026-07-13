@@ -312,3 +312,100 @@ N/A — 本 unit 无原型、设计稿、reference screenshot 或视觉 must-mat
 ## Recommended Next Step
 
 产品验收通过，可进入 orchestrator §7.0 长青契约归并和后续 PR/CI 门禁。`.gateway-config.yaml.lock` 的 ephemeral cleanup 可作为非阻断 polish 后续处理。
+
+---
+
+# Round 5 — 2026-07-13
+
+## Verdict
+
+- **Verdict:** pass
+- **Highest Required Action:** pass
+- **Needs Re-review:** false
+- **Review Mode:** final full
+- **Implementation Head:** `20f301a61414b126689df70f07a36cde471a9a57`
+- **Issue Count:** blocking 0 / major 0 / minor 0
+
+M5 对 startup publication、PID + birth identity 与 e2e evidence cleanup 的最终收口通过产品验收。真实含空格/双引号 config 的 start/restart/stop、跨时区 legacy `health_url` state 升级、state publication 失败回滚、cold/timeout e2e、Gateway survivor 与 dangling/missing/malformed/drift 证据边界、normal down、Web IM/Cron 和 M170 均得到可观察的正确结果。
+
+## Prior Finding Closure
+
+- Round 3 cold identity timeout：继续保持 closed。本轮完全干净 cold up rc=0，用时 4.789s。
+- Round 4 ephemeral sidecar residue：**closed**。本轮 normal down 后 `.gateway-config.yaml.lock` 已自动清理；短 timeout rollback 后 sidecar 也不存在。
+
+## User Journeys Exercised
+
+### Journey 1 — 特殊路径 operator 与跨时区 legacy state
+
+- 隔离 config 目录名为 `.review-r5 operator "quoted"`，config 文件名为 `config "node".yaml`。在 `TZ=Pacific/Honolulu` 下默认 start 成功，PID 93868 存活，identity 完整保留带空格/引号的 resolved config 和 argv。
+- restart 从 PID 93868 切换到 97464，旧 PID 退出、新 PID 存活。
+- 移除新 identity 并在 state 中注入旧 `health_url`，改用 `TZ=UTC` 执行 public stop。返回 `STOPPED pid=97464`，PID/state/identity 全清，IM 仍 HTTP 200。说明 locale/TZ 与 command quoting 不再影响旧 state 的安全升级与停止。
+
+### Journey 2 — startup publication 失败的用户结果
+
+- 在隔离 config 目录预置不可覆盖的 `.gateway-state.json/` 目录，然后走真实默认 start。
+- 用户可见结果为 `Gateway failed to start` / rc=1，并指引查看 Gateway log；命令没有误报启动成功。
+- 本轮观察到的 child PID 99449 已退出，`gateway.pid` / `gateway.identity.json` 不存在，预置 state 目录保留。publication 失败未留下无法管理的 Gateway。
+
+### Journey 3 — e2e cold/rollback/evidence/normal-down 全状态机
+
+- 完全干净 cold up rc=0，用时 4.789s；Gateway PID 90183、IM PID 89581 均存活，节点 online，identity 存在，无 `.api.pid` / `personal_assistant.kernel_app`。
+- 真实负路径：移走 external PID、将 external PID 改为 malformed 内容、将 external PID 改为 dangling symlink、放入 malformed optional state，四次 down 均 rc=1，Gateway/IM 均保持存活，证据未被拆除。
+- Gateway 在 rollback 中 survive 时保留 IM 与全套 evidence，以及 same-content/new-inode drift 零删除，由真 shell entry + child/signal harness 定向复跑：11 passed。
+- 恢复真实 evidence 后 normal down rc=0，Gateway/IM 都退出，external/internal PID、identity/state、IM PID、config、sidecar、ports env 全部不存在。
+- 短 timeout：`startup_timeout_seconds=0.1` 的真实 up rc=1，Gateway PID 14496 与 IM PID 14199 均收到 TERM 并确认退出，端口 60584 无 listener，PID/identity/state/sidecar/env 无残留，日志保留。
+
+### Journey 4 — 用户消息、Cron 与配置迁移不变性
+
+- 在本轮 cold 真 IM + Gateway + LLM proxy 上复跑 Web IM tool-call reply 和 cron auto-push：`2 passed in 47.14s`。消息仍由进程内 Kernel 回复，Cron 仍按原会话/投递语义产生用户可见推送。
+- M5 没有修改 config loader/save transaction。Round 4 真实 legacy `9 / 4 / 0.4`、backup/mode/sidecar/rollback，Round 2 mixed `12 / 4 / 0.3` 与 dead-field 忽略证据继续有效。
+
+### Journey 5 — M170 鲜活 runtime
+
+- `rebuild → start` 完成真实注册/登录、Bearer 查询和 auto-bind；Gateway PID 18075，`node_online=true` / `node_status=online`。
+- stop 后 `im_http_ok=false`、`gateway_pid=null`、`gateway_running=false`、`node_online=false`、`node_status=null`，无运行态残留。
+
+## Automated Supporting Evidence
+
+- M5 affected launch/publication/identity/legacy/e2e up/down 组合：70 passed。
+- survivor/dangling/missing/malformed/drift 高风险 shell 定向组：11 passed。
+- 自动化证据仅用于补足无法对真实 OS 进程强制制造的 survivor/drift 时序；主路径、常见负路径与用户结果均已由真实入口观察。
+
+## Scenario Coverage Matrix
+
+| Scenario | Round 5 证据 | 本轮执行 | 累计结论 | 备注 |
+|---|---|---|---|---|
+| Web IM 或外部通道消息正常回复 | 真 Web IM tool-call reply | pass | pass | 按 Scenario 的“或”由 Web IM 覆盖。 |
+| Heartbeat 与 Cron 活路径不受影响 | 真 cron auto-push | pass | pass | 与消息同栈复跑。 |
+| 默认启动确认 | quoted/spaced config start + publication failure | pass | pass | 成功只承诺 PID/liveness；publication 失败明确 rc=1。 |
+| stop 与 restart 保持现有结果 | quoted restart + cross-TZ legacy stop | pass | pass | 新/legacy identity 都进入明确终态。 |
+| IM 离线时 Gateway 本地自治不变 | 本轮未发送飞书 P2P | not-run (authorization) | pass | Round 1 真实 offline Feishu user/app P2P 已 pass；M5 未修改 channel/runtime；本轮无单次授权，禁止发送。 |
+| 旧自定义 timing 继续生效 | Round 4 真 legacy + M5 lifecycle regression | reused | pass | `9 / 4 / 0.4`。 |
+| 新配置优先于旧值 | Round 2 真 mixed | reused | pass | 逐字段 `12 / 4 / 0.3`；M5 未改 loader。 |
+| 保存后只保留 Gateway 所有权 | Round 4 真 migration/backup/mode/rollback | reused | pass | M5 未改 config transaction。 |
+| 旧连接与 HTTP 字段不再形成运行时输入 | 前轮真 legacy dead-fields | reused | pass | 仍只构建进程内 Kernel。 |
+| e2e 起停无 Kernel API 产物 | cold/timeout/survivor/evidence/normal down | pass | pass | PID/identity/config/sidecar/env 全清，无 Kernel API。 |
+
+## Reference Artifacts Reviewed
+
+N/A — 本 unit 无原型、设计稿、reference screenshot 或视觉 must-match 契约。
+
+## Issues
+
+无 blocking / major / minor 产品可接受性 issue。
+
+## Side Findings
+
+- 当 optional `.gateway-state.json` 是 malformed JSON 时，`e2e-down.sh` 会先打印 Python `JSONDecodeError` traceback，再打印明确的 `gateway identity mismatch ... refusing to signal or tear down stack`。rc=1、Gateway/IM 保留和 evidence 不删除都正确；该 traceback 仅属非阻断诊断文案 polish。
+
+## Upper-level Documentation Sync
+
+- [x] `README.md` / `docs/operator-runbook.md`：与真实 start/stop/restart 及“非 readiness”语义一致。
+- [x] `SPEC.md`：无需更新，仍正确规定 Kernel 为 Gateway 进程内库。
+- [x] `AGENTS.md` / `CLAUDE.md`：无新增产品运维漂移。
+- [x] `docs/SPEC_GUIDE.md`：本 unit 未修改文档体系，无需更新。
+- [ ] `docs/specs/gateway/service-lifecycle.md`：由 orchestrator 按 §7.0 在最终验收通过后归并；当前未归并不是 blocker。
+
+## Recommended Next Step
+
+最终产品验收通过，可进入 orchestrator §7.0 长青契约归并和 PR/CI 门禁。malformed optional state 的 traceback 可作为非阻断 CLI polish 后续处理。
