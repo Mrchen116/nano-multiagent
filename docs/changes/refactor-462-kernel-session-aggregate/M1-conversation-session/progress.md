@@ -19,7 +19,21 @@
 
 ## R1 — Transcript、Directory 与核心 session 数据模型
 
-- Status: TODO
+- Status: DONE
+- Context: 旧 JSONL store 同时拥有 raw I/O 与会话语义，Runtime 又另存 tail/history/context maps；PromptSlots 只在进程内保存，重启后无法重建。
+- Decision: 引入绑定 `SessionRef` 的 private `JsonlTranscript`、raw `JsonlSessionFiles`、stable-identity `SessionDirectory` 与 core-owned request/seed/context types；writer 收窄为 raw enqueue + durability barrier，旧入口暂留到 R4 cutover。
+- Rationale: tail、repair、materialize、idempotency 与持久化 prompt seed 只有一个 per-conversation owner；Directory 的短 guard 只负责 identity intern，不承载 I/O 或事务。
+- Evidence:
+  - Tests: `python -m pytest -q tests/unit/agent/session/test_jsonl_transcript.py tests/unit/agent/session/test_session_directory.py tests/unit/test_session_file_state.py tests/unit/test_agents_md_runtime_snapshot.py` → `28 passed`。
+  - Entry: `JsonlTranscript.create/load/append_external/prepare_for_run` 与 `SessionDirectory.create/open/get/find_by_metadata/close_all` 的真实 temp-dir 测试。
+  - Frontend State Matrix: N/A（纯内核重构）。
+  - Browser QA: N/A（纯内核重构）。
+  - E2E/Regression: baseline 非 e2e 套件已通过；最终真实入口签收在 R4。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: 回退 `15c9ee5e` 及其 C1 `01ee0172`；旧 manager/store/runtime 路径在 R4 前仍可工作。
+- Commits: `01ee0172`（C1），`15c9ee5e`（C2）。
+- Next: R2 以 `ConversationSession` interface 红测锁定 lifecycle permit、active external append、compact stale commit 与 fork snapshot。
 
 ## R2 — ConversationSession 接管 turn/compact/fork transaction
 

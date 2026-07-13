@@ -37,7 +37,7 @@ N/A：本 milestone 不修改 UI、前端状态或视觉资源。
 
 ### R1 — Transcript、Directory 与核心 session 数据模型
 
-- 状态: TODO
+- 状态: DONE
 - 步骤:
   - 定义 `SessionRef` / `NewSession` / `TurnRequest` / `ExternalMessage` / `PromptSlotSeed` 及内部 lifecycle errors。
   - 把 JSONL 高层 materialize/repair/taxonomy/tail/append/compaction/fork 语义收进绑定单 session 的 private `JsonlTranscript`；下层仅保留 raw address/read/enumerate 与 writer raw enqueue/barrier。
