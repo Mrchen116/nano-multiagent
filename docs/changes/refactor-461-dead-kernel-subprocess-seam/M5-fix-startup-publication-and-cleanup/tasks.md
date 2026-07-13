@@ -43,10 +43,10 @@
 
 ### R3 — e2e rollback and evidence cleanup transaction
 
-- 状态：TODO
-- C1 Red：补 surviving Gateway 零 IM signal、dangling external/internal、malformed/different state、same-PID/new-birth、cleanup drift 与 sidecar residue regression。
-- C2 Green：rollback 遇 survivor 立即停止；down 实施完整 snapshot 的 validate-then-delete；所有 evidence 存在性含 symlink；confirmed full teardown/rollback 清 ephemeral sidecar。
-- C3 Docs：记录状态矩阵、两阶段 cleanup 原子边界与回退点。
+- 状态：DONE
+- [x] C1 Red：补 surviving Gateway 零 IM signal、dangling external/internal、malformed/different state、same-PID/new-birth、cleanup drift 与 sidecar residue regression。
+- [x] C2 Green：rollback 遇 survivor 立即停止；down 实施完整 snapshot 的 validate-then-delete；所有 evidence 存在性含 symlink；confirmed full teardown/rollback 清 ephemeral sidecar。
+- [x] C3 Docs：记录状态矩阵、两阶段 cleanup 原子边界与回退点。
 
 ### R4 — Full validation and live signoff
 

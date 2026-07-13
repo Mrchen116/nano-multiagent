@@ -47,7 +47,21 @@
 
 ## R3 — e2e rollback and evidence cleanup transaction
 
-- Status: TODO。
+- Status: DONE。
+- Context: up 的 EXIT rollback 在 Gateway TERM/KILL survivor 后仍继续停止 IM，制造 live Gateway + dead IM 半栈；down 用 `-e` 漏掉 dangling symlink，且 confirmed exit 后逐文件只按 PID 删除，无法识别同 PID/new birth 或相同内容/new inode drift。config sidecar 也没有 full-teardown commit gate。
+- Decision: up rollback 以 Gateway 为第一道 barrier，未确认退出立即报告并保留 Gateway/IM 与全部现存 evidence，禁止触碰 IM。down 的 public `capture_gateway_lifecycle_evidence()` 冻结 external/internal PID、identity、optional state 的 regular-file type、device/inode、size、mtime、digest 与内容；每次 signal 前复核同一 revision，退出后 `clear_gateway_lifecycle_evidence()` 先完成全量二次验证，再进入统一删除 commit。所有 residue preflight 以 `-e || -L` 判存在。IM 也必须在 PID evidence 未漂移下确认 TERM/KILL exit。`.gateway-config.yaml.lock` 仅在两服务退出后通过 non-blocking exclusive `flock` 并复核 held/path inode 才删除。
+- Rationale: teardown 的“可删”权限必须同时绑定进程实例与 evidence revision；PID 相同不代表文件仍属于旧 lifecycle。Gateway 是 IM teardown 的顺序 barrier，任何 survivor 都应保留完整可诊断现场。sidecar inode 是 cooperative writer 的协调点，只能在没有 writer 时结束其生命周期。
+- Evidence:
+  - Tests: R1-R3 affected launch/identity/up/down suites → `68 passed, 2 warnings in 71.28s`；新增 IM survivor 与 busy-sidecar regression 后 e2e up/down 全文件 `28 passed`；`bash -n`、受影响 `ruff check` / `ruff format --check` 通过。
+  - Entry: shell harness 真实执行 `e2e-up.sh` / `e2e-down.sh`，以真实 child PID 与 exported signal shim 覆盖 Gateway survivor 零 IM signal；真实 filesystem 覆盖 dangling symlink、same-birth-content/inode drift 与 advisory lock holder。
+  - Frontend State Matrix: N/A。
+  - Browser QA: N/A。
+  - E2E/Regression: survivor → 全栈保留；missing/dangling/malformed/drift → 零 signal 或零删除；confirmed Gateway+IM exit → evidence/config/sidecar 全清；IM survivor/busy lock → generated state 保留。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: 回退 `856108cbc` 恢复原 rollback/cleanup；保留 C1 `766e34e8e` 可稳定复现八个失败分支。
+- Commits: C1=`766e34e8e`；C2=`856108cbc`；C3=本提交。
+- Next: R4 full validation and live signoff。
 
 ## R4 — Full validation and live signoff
 
