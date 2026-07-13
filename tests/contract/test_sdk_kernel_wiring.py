@@ -208,6 +208,41 @@ def test_build_kernel_from_llm_config_no_pre_init(tmp_path: Path) -> None:
     assert cfg.model == "codex_oauth:gpt-5.5"
 
 
+def test_kernel_close_closes_owned_provider_clients(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import agent.sdk.kernel as kernel_module
+
+    class _ClosableClient:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def generate(self, request: Any):  # noqa: ANN001, ANN201
+            return _stub("unused")
+
+        async def close(self) -> None:
+            self.closed = True
+
+    clients: list[_ClosableClient] = []
+
+    def _factory(**_kwargs: Any) -> _ClosableClient:
+        client = _ClosableClient()
+        clients.append(client)
+        return client
+
+    monkeypatch.setattr(kernel_module, "_platform_create_llm_client", _factory)
+    kernel = build_kernel(
+        llm=_llm_config(),
+        workspace_config_dirname=".nanotest",
+        repo_root=tmp_path,
+    )
+
+    kernel.close()
+
+    assert clients
+    assert all(client.closed for client in clients)
+
+
 # ---------------------------------------------------------------------------
 # 决策 1/6: create_session per-agent → SessionInfo; submit → RunInfo
 # ---------------------------------------------------------------------------
