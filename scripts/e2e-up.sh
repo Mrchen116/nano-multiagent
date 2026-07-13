@@ -20,6 +20,7 @@
 #   .gateway-config.yaml      (isolated copy of main config)
 #   .gateway-workspace/       (per-agent workspaces, replacing ~/nano-assistant/workspace)
 #   .im.pid / .gateway.pid
+#   .gateway-identity.json  (PID/config/argv start identity for safe teardown)
 #   .im.log / .gateway.log
 
 set -euo pipefail
@@ -31,7 +32,7 @@ MAIN_CFG="${HOME}/.nano-assistant/config.yaml"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --wt) WT_ROOT="$(cd "$2" && pwd)"; shift 2 ;;
+    --wt) WT_ROOT="$(cd "$2" && pwd -P)"; shift 2 ;;
     --main-config) MAIN_CFG="$2"; shift 2 ;;
     -h|--help) sed -n '1,/^set -e/p' "$0" | sed -n '2,/^$/p'; exit 0 ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
@@ -221,7 +222,57 @@ PYTHONPATH="$SRC_DIR" "$PYTHON_BIN" -m personal_assistant.main \
   --foreground \
   --auto-bind \
   > "$WT_ROOT/.gateway.log" 2>&1 &
-echo $! > "$WT_ROOT/.gateway.pid"
+GW_PID=$!
+echo "$GW_PID" > "$WT_ROOT/.gateway.pid"
+
+# The external shell PID alone is not sufficient signal ownership: it can be
+# reused after an unclean run. Wait for the Gateway's own PID file, then bind
+# both claims to the exact config argv and OS process start identity.
+GW_IDENTITY_READY=0
+for _ in $(seq 1 60); do
+  if [[ -f "$WT_ROOT/gateway.pid" ]]; then
+    INTERNAL_GW_PID=$(tr -d '[:space:]' < "$WT_ROOT/gateway.pid")
+    if [[ "$INTERNAL_GW_PID" != "$GW_PID" ]]; then
+      echo "Gateway identity mismatch: external=$GW_PID internal=$INTERNAL_GW_PID" >&2
+      exit 1
+    fi
+    GW_START=$(ps -p "$GW_PID" -o lstart= 2>/dev/null | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    if [[ -n "$GW_START" ]]; then
+      "$PYTHON_BIN" - \
+        "$WT_ROOT/.gateway-identity.json" "$GW_PID" "$INTERNAL_GW_PID" "$WT_CFG" "$GW_START" <<'PY'
+import json
+import pathlib
+import sys
+
+identity_path, pid, internal_pid, config_path, process_start = sys.argv[1:]
+pathlib.Path(identity_path).write_text(
+    json.dumps(
+        {
+            "pid": int(pid),
+            "internal_pid": int(internal_pid),
+            "config_path": str(pathlib.Path(config_path).resolve()),
+            "process_start": process_start,
+        },
+        indent=2,
+        sort_keys=True,
+    ),
+    encoding="utf-8",
+)
+PY
+      GW_IDENTITY_READY=1
+      break
+    fi
+  fi
+  if ! kill -0 "$GW_PID" 2>/dev/null; then
+    echo "Gateway process died before identity confirmation; see $WT_ROOT/.gateway.log" >&2
+    exit 1
+  fi
+  sleep 0.1
+done
+if [[ $GW_IDENTITY_READY -eq 0 ]]; then
+  echo "Gateway did not establish teardown identity; see $WT_ROOT/.gateway.log" >&2
+  exit 1
+fi
 
 # Wait for the Gateway process to stay alive and its node to become online in IM.
 # This is transport-level startup evidence only; user-visible journeys remain the
@@ -241,7 +292,7 @@ raise SystemExit(0 if any(
 '; then
     GW_READY=1; break
   fi
-  if ! kill -0 "$(cat "$WT_ROOT/.gateway.pid")" 2>/dev/null; then
+  if ! kill -0 "$GW_PID" 2>/dev/null; then
     echo "Gateway process died during startup; see $WT_ROOT/.gateway.log" >&2
     tail -30 "$WT_ROOT/.gateway.log" >&2 || true
     exit 1

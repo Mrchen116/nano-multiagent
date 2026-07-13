@@ -232,3 +232,76 @@ def test_launch_gateway_in_background_default_waiter_accepts_child_pid(
 
     assert result.pid == 2468
     assert json.loads((tmp_path / ".gateway-state.json").read_text())["pid"] == 2468
+
+
+def test_launch_gateway_in_background_removes_malformed_pid_before_spawn(
+    tmp_path: Path,
+) -> None:
+    config = build_config(tmp_path)
+    pid_path = tmp_path / "gateway.pid"
+    pid_path.write_text("not-a-pid", encoding="utf-8")
+    process = _FakeProcess(wait_result=0, pid=2468)
+
+    def _spawn(_argv: list[str], _log_path: Path) -> _FakeProcess:
+        assert not pid_path.exists()
+        pid_path.write_text("2468", encoding="utf-8")
+        return process
+
+    result = launch_gateway_in_background(
+        config_path=config.source_path,
+        load_config=lambda _path: config,
+        spawn_process=_spawn,
+    )
+
+    assert result.pid == 2468
+
+
+@pytest.mark.parametrize("pid_text", ["not-a-pid", "9999"])
+def test_launch_gateway_in_background_rejects_invalid_or_mismatched_child_pid(
+    pid_text: str,
+    tmp_path: Path,
+) -> None:
+    config = build_config(tmp_path)
+    process = _FakeProcess(wait_result=0, pid=2468)
+
+    def _spawn(_argv: list[str], _log_path: Path) -> _FakeProcess:
+        (tmp_path / "gateway.pid").write_text(pid_text, encoding="utf-8")
+        return process
+
+    with pytest.raises(GatewayStartupError, match="PID"):
+        launch_gateway_in_background(
+            config_path=config.source_path,
+            load_config=lambda _path: config,
+            spawn_process=_spawn,
+        )
+
+    assert not (tmp_path / ".gateway-state.json").exists()
+
+
+def test_launch_gateway_in_background_rechecks_child_before_pid_success(
+    tmp_path: Path,
+) -> None:
+    config = build_config(tmp_path)
+
+    class _ExitsDuringConfirmation(_FakeProcess):
+        def __init__(self) -> None:
+            super().__init__(wait_result=7, pid=2468)
+            self._poll_results = iter([None, 7, 7])
+
+        def poll(self) -> int | None:
+            return next(self._poll_results)
+
+    process = _ExitsDuringConfirmation()
+
+    def _spawn(_argv: list[str], _log_path: Path) -> _FakeProcess:
+        (tmp_path / "gateway.pid").write_text("2468", encoding="utf-8")
+        return process
+
+    with pytest.raises(GatewayStartupError, match="return code 7"):
+        launch_gateway_in_background(
+            config_path=config.source_path,
+            load_config=lambda _path: config,
+            spawn_process=_spawn,
+        )
+
+    assert not (tmp_path / ".gateway-state.json").exists()

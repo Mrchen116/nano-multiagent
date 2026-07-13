@@ -1,95 +1,240 @@
-"""Integration coverage for the worktree e2e shutdown script."""
+"""Integration coverage for identity-safe worktree e2e shutdown."""
 
 from __future__ import annotations
 
-import os
 import json
-import subprocess
+import os
 from pathlib import Path
+import subprocess
+
+import pytest
 
 
-def test_gateway_grace_period_uses_point_two_second_ticks(tmp_path: Path) -> None:
-    """A five-second grace period must poll 25 times before force-killing."""
+_GATEWAY_PID = 424242
+_PROCESS_START = "Mon Jul 13 12:34:56 2026"
+
+
+def _write_stack_files(tmp_path: Path, *, internal_pid: int = _GATEWAY_PID) -> None:
+    config_path = tmp_path / ".gateway-config.yaml"
+    (tmp_path / ".gateway.pid").write_text(f"{_GATEWAY_PID}\n", encoding="utf-8")
+    (tmp_path / "gateway.pid").write_text(f"{internal_pid}\n", encoding="utf-8")
+    (tmp_path / ".gateway-state.json").write_text(
+        json.dumps({"pid": _GATEWAY_PID}), encoding="utf-8"
+    )
+    (tmp_path / ".gateway-identity.json").write_text(
+        json.dumps(
+            {
+                "pid": _GATEWAY_PID,
+                "internal_pid": _GATEWAY_PID,
+                "config_path": str(config_path),
+                "process_start": _PROCESS_START,
+            }
+        ),
+        encoding="utf-8",
+    )
+    config_path.write_text("node: {}\n", encoding="utf-8")
+    (tmp_path / ".e2e-ports.env").write_text("export IM_PORT=1\n", encoding="utf-8")
+    (tmp_path / ".e2e-jwt-secret").write_text("secret\n", encoding="utf-8")
+    (tmp_path / ".im.pid").write_text("434343\n", encoding="utf-8")
+
+
+def _run_down(
+    tmp_path: Path,
+    *,
+    kill_body: str,
+    command: str | None = None,
+    process_stat: str | None = None,
+    wt_argument: Path | None = None,
+    check: bool = False,
+) -> subprocess.CompletedProcess[str]:
     repo_root = Path(__file__).resolve().parents[2]
     script = repo_root / "scripts" / "e2e-down.sh"
     calls_file = tmp_path / "calls.log"
-    (tmp_path / ".gateway.pid").write_text("424242\n", encoding="utf-8")
-
-    command = f"""
+    command = command or (
+        f"python -m personal_assistant.main --config "
+        f"{tmp_path / '.gateway-config.yaml'} --foreground --auto-bind"
+    )
+    shell = f"""
 kill() {{
   printf 'kill %s\\n' "$*" >> "$CALLS_FILE"
-  return 0
+  {kill_body}
+}}
+ps() {{
+  case "$*" in
+    *"command="*) printf '%s\\n' "$GATEWAY_COMMAND" ;;
+    *"lstart="*) printf '%s\\n' "$PROCESS_START" ;;
+    *"stat="*) printf '%s\\n' "${{PROCESS_STAT-S}}" ;;
+  esac
 }}
 sleep() {{
   printf 'sleep %s\\n' "$*" >> "$CALLS_FILE"
   return 0
 }}
-export -f kill sleep
-exec bash "{script}" --wt "{tmp_path}"
-"""
-    env = dict(os.environ, CALLS_FILE=str(calls_file))
-
-    subprocess.run(
-        ["bash", "-c", command],
-        cwd=repo_root,
-        env=env,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-    calls = calls_file.read_text(encoding="utf-8").splitlines()
-    assert calls.count("sleep 0.2") == 25
-    assert "kill -9 424242" in calls
-
-
-def test_gateway_exit_cleans_internal_residue_without_signalling_recorded_pids(
-    tmp_path: Path,
-) -> None:
-    repo_root = Path(__file__).resolve().parents[2]
-    script = repo_root / "scripts" / "e2e-down.sh"
-    calls_file = tmp_path / "calls.log"
-    term_marker = tmp_path / "term-sent"
-    (tmp_path / ".gateway.pid").write_text("424242\n", encoding="utf-8")
-    (tmp_path / "gateway.pid").write_text("999999\n", encoding="utf-8")
-    (tmp_path / ".gateway-state.json").write_text(
-        json.dumps({"pid": 888888}), encoding="utf-8"
-    )
-
-    command = f"""
-kill() {{
-  printf 'kill %s\\n' "$*" >> "$CALLS_FILE"
-  if [[ "$*" == "-0 424242" ]]; then
-    [[ ! -f "$TERM_MARKER" ]]
-    return
-  fi
-  if [[ "$*" == "424242" ]]; then
-    : > "$TERM_MARKER"
-  fi
-  return 0
-}}
-sleep() {{ return 0; }}
-export -f kill sleep
-exec bash "{script}" --wt "{tmp_path}"
+export -f kill ps sleep
+exec bash "{script}" --wt "{wt_argument or tmp_path}"
 """
     env = dict(
         os.environ,
         CALLS_FILE=str(calls_file),
-        TERM_MARKER=str(term_marker),
+        GATEWAY_COMMAND=command,
+        PROCESS_START=_PROCESS_START,
     )
-
-    subprocess.run(
-        ["bash", "-c", command],
+    if process_stat is not None:
+        env["PROCESS_STAT"] = process_stat
+    return subprocess.run(
+        ["bash", "-c", shell],
         cwd=repo_root,
         env=env,
-        check=True,
+        check=check,
         capture_output=True,
         text=True,
     )
 
-    assert not (tmp_path / ".gateway.pid").exists()
-    assert not (tmp_path / "gateway.pid").exists()
-    assert not (tmp_path / ".gateway-state.json").exists()
-    calls = calls_file.read_text(encoding="utf-8")
+
+def test_gateway_that_survives_sigkill_fails_without_tearing_down_stack(
+    tmp_path: Path,
+) -> None:
+    _write_stack_files(tmp_path)
+
+    result = _run_down(tmp_path, kill_body="return 0")
+
+    assert result.returncode != 0
+    calls = (tmp_path / "calls.log").read_text(encoding="utf-8").splitlines()
+    assert calls.count("sleep 0.2") == 25
+    assert f"kill -9 {_GATEWAY_PID}" in calls
+    assert "still appears alive" in result.stderr
+    for residue in (
+        ".gateway.pid",
+        "gateway.pid",
+        ".gateway-state.json",
+        ".gateway-identity.json",
+        ".im.pid",
+        ".gateway-config.yaml",
+        ".e2e-ports.env",
+    ):
+        assert (tmp_path / residue).exists(), residue
+    assert "e2e stack stopped" not in result.stdout
+
+
+@pytest.mark.parametrize("mismatch", ["internal_pid", "argv"])
+def test_gateway_identity_mismatch_sends_no_signal_and_retains_stack(
+    mismatch: str,
+    tmp_path: Path,
+) -> None:
+    _write_stack_files(
+        tmp_path, internal_pid=999999 if mismatch == "internal_pid" else _GATEWAY_PID
+    )
+    command = None
+    if mismatch == "argv":
+        command = (
+            "python -m personal_assistant.main --config /tmp/other.yaml --foreground"
+        )
+
+    result = _run_down(tmp_path, kill_body="return 0", command=command)
+
+    assert result.returncode != 0
+    calls_file = tmp_path / "calls.log"
+    assert not calls_file.exists() or "kill " not in calls_file.read_text(
+        encoding="utf-8"
+    )
+    assert "identity mismatch" in result.stderr
+    assert (tmp_path / ".gateway.pid").exists()
+    assert (tmp_path / "gateway.pid").exists()
+    assert (tmp_path / ".im.pid").exists()
+
+
+def test_confirmed_gateway_exit_cleans_lifecycle_then_stops_im(
+    tmp_path: Path,
+) -> None:
+    _write_stack_files(tmp_path)
+    term_marker = tmp_path / "term-sent"
+    kill_body = f"""
+if [[ "$*" == "-0 {_GATEWAY_PID}" ]]; then
+  [[ ! -f "{term_marker}" ]]
+  return
+fi
+if [[ "$*" == "{_GATEWAY_PID}" ]]; then
+  : > "{term_marker}"
+  export PROCESS_STAT=""
+fi
+return 0
+"""
+
+    result = _run_down(tmp_path, kill_body=kill_body, check=True)
+
+    assert result.returncode == 0
+    for residue in (
+        ".gateway.pid",
+        "gateway.pid",
+        ".gateway-state.json",
+        ".gateway-identity.json",
+        ".im.pid",
+        ".gateway-config.yaml",
+        ".e2e-ports.env",
+    ):
+        assert not (tmp_path / residue).exists(), residue
+    calls = (tmp_path / "calls.log").read_text(encoding="utf-8")
     assert "999999" not in calls
-    assert "888888" not in calls
+    assert "e2e stack stopped" in result.stdout
+
+
+def test_zombie_gateway_is_exit_confirmed_without_signalling_its_pid(
+    tmp_path: Path,
+) -> None:
+    _write_stack_files(tmp_path)
+
+    result = _run_down(
+        tmp_path,
+        kill_body="return 0",
+        process_stat="Z",
+        check=True,
+    )
+
+    calls = (tmp_path / "calls.log").read_text(encoding="utf-8")
+    assert str(_GATEWAY_PID) not in calls
+    assert not (tmp_path / ".gateway.pid").exists()
+    assert "e2e stack stopped" in result.stdout
+
+
+def test_signal_permission_failure_retains_stack_and_reports_failure(
+    tmp_path: Path,
+) -> None:
+    _write_stack_files(tmp_path)
+    kill_body = f"""
+if [[ "$*" == "{_GATEWAY_PID}" ]]; then
+  return 1
+fi
+return 0
+"""
+
+    result = _run_down(tmp_path, kill_body=kill_body)
+
+    assert result.returncode != 0
+    assert "cannot be signalled" in result.stderr
+    assert (tmp_path / ".gateway.pid").exists()
+    assert (tmp_path / ".im.pid").exists()
+
+
+def test_worktree_symlink_alias_resolves_to_same_config_identity(
+    tmp_path: Path,
+) -> None:
+    _write_stack_files(tmp_path)
+    wt_alias = tmp_path.parent / f"{tmp_path.name}-alias"
+    wt_alias.symlink_to(tmp_path, target_is_directory=True)
+    term_marker = tmp_path / "term-sent"
+    kill_body = f"""
+if [[ "$*" == "{_GATEWAY_PID}" ]]; then
+  : > "{term_marker}"
+  export PROCESS_STAT=""
+fi
+return 0
+"""
+
+    result = _run_down(
+        tmp_path,
+        kill_body=kill_body,
+        wt_argument=wt_alias,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert not (tmp_path / ".gateway.pid").exists()

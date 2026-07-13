@@ -7,8 +7,9 @@ from datetime import datetime, timezone
 import math
 import os
 from pathlib import Path
-import shutil
 import stat
+import tempfile
+import threading
 from typing import Any
 
 import yaml
@@ -445,7 +446,72 @@ _BACKUP_RETAIN = 30
 """Maximum number of backup files kept in backups/ — oldest are pruned first."""
 
 
-def _backup_existing_config(dest: Path, new_text: str) -> None:
+@dataclass(frozen=True, slots=True)
+class _ConfigSnapshot:
+    """One stable source revision used throughout a config save transaction."""
+
+    identity: tuple[int, int]
+    mode: int
+    content: bytes
+
+
+_CONFIG_LOCKS_GUARD = threading.Lock()
+_CONFIG_LOCKS: dict[Path, threading.Lock] = {}
+
+
+def _config_lock(path: Path) -> threading.Lock:
+    """Return the in-process coordinator for one resolved config path."""
+    with _CONFIG_LOCKS_GUARD:
+        return _CONFIG_LOCKS.setdefault(path, threading.Lock())
+
+
+def _read_config_snapshot(path: Path) -> _ConfigSnapshot | None:
+    """Read one regular file revision without following replacement aliases."""
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(path, flags)
+    except FileNotFoundError:
+        return None
+    try:
+        before = os.fstat(fd)
+        if not stat.S_ISREG(before.st_mode):
+            raise OSError(f"config path is not a regular file: {path}")
+        chunks: list[bytes] = []
+        while chunk := os.read(fd, 1024 * 64):
+            chunks.append(chunk)
+        after = os.fstat(fd)
+        if (
+            (before.st_dev, before.st_ino) != (after.st_dev, after.st_ino)
+            or before.st_size != after.st_size
+            or before.st_mtime_ns != after.st_mtime_ns
+        ):
+            raise RuntimeError(f"config changed while taking save snapshot: {path}")
+        return _ConfigSnapshot(
+            identity=(after.st_dev, after.st_ino),
+            mode=stat.S_IMODE(after.st_mode),
+            content=b"".join(chunks),
+        )
+    finally:
+        os.close(fd)
+
+
+def _assert_snapshot_current(path: Path, snapshot: _ConfigSnapshot | None) -> None:
+    """Fail the transaction when an uncoordinated writer changed the source."""
+    current = _read_config_snapshot(path)
+    if current is None and snapshot is None:
+        return
+    if (
+        current is None
+        or snapshot is None
+        or current.identity != snapshot.identity
+        or current.content != snapshot.content
+    ):
+        raise RuntimeError(f"config changed during save: {path}")
+
+
+def _backup_existing_config(
+    dest: Path, new_text: str, snapshot: _ConfigSnapshot | None
+) -> None:
     """Copy dest to a timestamped backup before it is overwritten.
 
     Only runs when dest equals the default main config path and actually
@@ -465,11 +531,11 @@ def _backup_existing_config(dest: Path, new_text: str) -> None:
     # ephemeral and not worth preserving across restarts.
     if dest != default_local_config_path():
         return
-    if not dest.exists():
+    if snapshot is None:
         # First-ever write — no prior version to back up.
         return
 
-    current_text = dest.read_text(encoding="utf-8")
+    current_text = snapshot.content.decode("utf-8")
     if current_text == new_text:
         # Nothing actually changed; skip to avoid filling backups/ with
         # identical files (token-refresh writes the same content repeatedly).
@@ -490,7 +556,8 @@ def _backup_existing_config(dest: Path, new_text: str) -> None:
 
     # Raises if backup cannot be written (disk full, permissions, etc.).
     # The caller must NOT proceed to overwrite dest in that case.
-    shutil.copy2(dest, bak_path)
+    bak_path.write_bytes(snapshot.content)
+    bak_path.chmod(snapshot.mode)
 
     # Prune oldest backups, retaining only the most recent _BACKUP_RETAIN files.
     all_baks = sorted(backups_dir.glob("config.*.yaml.bak"))
@@ -517,16 +584,35 @@ def _read_and_secure_existing_migration_backup(
     original: bytes,
 ) -> None:
     """Validate and durably flush an existing matching migration backup."""
-    if backup_path.is_symlink():
+    try:
+        path_stat = backup_path.lstat()
+    except FileNotFoundError:
+        raise
+    if stat.S_ISLNK(path_stat.st_mode):
         raise FileExistsError(f"migration backup aliases current config: {backup_path}")
+    if not stat.S_ISREG(path_stat.st_mode):
+        raise FileExistsError(f"migration backup is not a regular file: {backup_path}")
+    if (path_stat.st_dev, path_stat.st_ino) == (
+        source_stat.st_dev,
+        source_stat.st_ino,
+    ):
+        raise FileExistsError(f"migration backup aliases current config: {backup_path}")
+    if path_stat.st_nlink != 1:
+        raise FileExistsError(
+            f"migration backup must be a single-link file: {backup_path}"
+        )
 
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
     fd = os.open(backup_path, flags)
     try:
         backup_stat = os.fstat(fd)
         if not stat.S_ISREG(backup_stat.st_mode):
             raise FileExistsError(
                 f"migration backup is not a regular file: {backup_path}"
+            )
+        if backup_stat.st_nlink != 1:
+            raise FileExistsError(
+                f"migration backup must be a single-link file: {backup_path}"
             )
         if (backup_stat.st_dev, backup_stat.st_ino) == (
             source_stat.st_dev,
@@ -566,7 +652,7 @@ def _unlink_owned_backup(path: Path, identity: tuple[int, int] | None) -> None:
         path.unlink()
 
 
-def _backup_legacy_kernel_config(dest: Path) -> None:
+def _backup_legacy_kernel_config(dest: Path, snapshot: _ConfigSnapshot | None) -> None:
     """Preserve a config before canonical save removes its legacy kernel block.
 
     Args:
@@ -579,17 +665,36 @@ def _backup_legacy_kernel_config(dest: Path) -> None:
     Side Effects:
         Creates ``<dest>.pre-refactor-461.bak`` once with the source bytes and mode.
     """
-    if not dest.is_file():
+    if snapshot is None:
         return
-    original = dest.read_bytes()
+    original = snapshot.content
     raw = yaml.safe_load(original)
     if not isinstance(raw, dict) or "kernel" not in raw:
         return
 
     backup_path = Path(f"{dest}.pre-refactor-461.bak")
-    source_stat = dest.stat()
-    source_mode = stat.S_IMODE(source_stat.st_mode)
-    if backup_path.exists():
+    source_stat = os.stat_result(
+        (
+            stat.S_IFREG | snapshot.mode,
+            snapshot.identity[1],
+            snapshot.identity[0],
+            1,
+            0,
+            0,
+            len(snapshot.content),
+            0,
+            0,
+            0,
+        )
+    )
+    source_mode = snapshot.mode
+    try:
+        backup_path.lstat()
+    except FileNotFoundError:
+        backup_exists = False
+    else:
+        backup_exists = True
+    if backup_exists:
         _read_and_secure_existing_migration_backup(
             backup_path=backup_path,
             source_stat=source_stat,
@@ -605,6 +710,10 @@ def _backup_legacy_kernel_config(dest: Path) -> None:
         fd = os.open(backup_path, flags, source_mode)
         created_stat = os.fstat(fd)
         owned_identity = (created_stat.st_dev, created_stat.st_ino)
+        if not stat.S_ISREG(created_stat.st_mode) or created_stat.st_nlink != 1:
+            raise FileExistsError(
+                f"migration backup must be a single-link regular file: {backup_path}"
+            )
         os.fchmod(fd, source_mode)
         remaining = memoryview(original)
         while remaining:
@@ -613,6 +722,11 @@ def _backup_legacy_kernel_config(dest: Path) -> None:
                 raise OSError("migration backup write made no progress")
             remaining = remaining[written:]
         os.fsync(fd)
+        durable_stat = os.fstat(fd)
+        if durable_stat.st_nlink != 1:
+            raise FileExistsError(
+                f"migration backup must be a single-link file: {backup_path}"
+            )
         os.close(fd)
         fd = None
         _fsync_parent_directory(backup_path)
@@ -621,6 +735,34 @@ def _backup_legacy_kernel_config(dest: Path) -> None:
             os.close(fd)
         _unlink_owned_backup(backup_path, owned_identity)
         raise
+
+
+def _atomic_commit_config(
+    dest: Path, new_text: str, snapshot: _ConfigSnapshot | None
+) -> None:
+    """Durably stage bytes, CAS the source revision, then atomically replace it."""
+    fd, temp_name = tempfile.mkstemp(prefix=f".{dest.name}.", dir=dest.parent)
+    temp_path = Path(temp_name)
+    try:
+        os.fchmod(fd, snapshot.mode if snapshot is not None else 0o600)
+        payload = memoryview(new_text.encode("utf-8"))
+        while payload:
+            written = os.write(fd, payload)
+            if written <= 0:
+                raise OSError("config write made no progress")
+            payload = payload[written:]
+        os.fsync(fd)
+        os.close(fd)
+        fd = -1
+        _assert_snapshot_current(dest, snapshot)
+        os.replace(temp_path, dest)
+        temp_path = Path()
+        _fsync_parent_directory(dest)
+    finally:
+        if fd >= 0:
+            os.close(fd)
+        if temp_path != Path():
+            temp_path.unlink(missing_ok=True)
 
 
 def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
@@ -775,11 +917,14 @@ def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
     )
     dest = Path(config_path).expanduser().resolve()
     dest.parent.mkdir(parents=True, exist_ok=True)
-    _backup_legacy_kernel_config(dest)
-    # Backup must succeed before we overwrite; raises on IO failure so dest
-    # is never silently clobbered when backup storage is unavailable.
-    _backup_existing_config(dest, new_text)
-    dest.write_text(new_text, encoding="utf-8")
+    with _config_lock(dest):
+        snapshot = _read_config_snapshot(dest)
+        _backup_legacy_kernel_config(dest, snapshot)
+        # Both backup kinds are derived from the same transaction-start snapshot.
+        # The CAS immediately before replace protects them from an external writer
+        # that does not participate in this process-local coordination lock.
+        _backup_existing_config(dest, new_text, snapshot)
+        _atomic_commit_config(dest, new_text, snapshot)
 
 
 def _parse_node_config(payload: Any) -> NodeConfig:
