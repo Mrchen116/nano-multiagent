@@ -24,14 +24,16 @@
 
 ## R2 — bind reconciliation 真实失败与 token 隔离
 
-- Status: TODO
+- Status: DONE
 - Context: 默认 QueryClient 的 refetch error 不 reject，现有 mock promise rejection 产生虚假覆盖；confirmed result 未按 URL token 分区。
-- Decision: pending C1 red tests.
-- Rationale: pending.
-- Evidence: pending.
-- Rollback: pending.
-- Commits: pending.
-- Next: R1 完成后进入。
+- Decision: 每组 owner-derived invalidation 传入 `throwOnError: true`，仍以 `Promise.allSettled` 等待六组完成后汇总失败；confirmed result 改为 `{token,result}`，仅 same-token reconciliation retry 复用。
+- Rationale: TanStack 默认把 queryFn error 收进 query state 并 resolve invalidate promise，必须显式传播；bind token 是一次性资源，但复用边界是该 token，不是组件 lifetime。
+- Evidence:
+  - C1 红测：真实 QueryClient 第一组 queryFn 抛错时页面仍导航且无 alert；A confirm 后 `/me` 失败，SPA query 改为 B 后只调用过 A。
+  - C2：`bind-confirm-page.test.tsx` 4 tests passed；测试用六组真实 query cache 证明失败不导航、same-token retry 不二次 confirm、全成功才导航；A→B 调用序列为 `[bind-a, bind-b]`。frontend build passed。
+- Rollback: 回退 C2 `f58ba4f7`；C1 `b5b6d50f` 保留真实失败与 token 隔离回归。
+- Commits: C1=`b5b6d50f`, C2=`f58ba4f7`, C3=本提交。
+- Next: R3 修 direct Web IM NO_REPLY canonical policy、在线 Agent toast 与 Chat API 残余。
 
 ## R3 — 静默回复、在线提醒与 canonical Chat API 收口
 

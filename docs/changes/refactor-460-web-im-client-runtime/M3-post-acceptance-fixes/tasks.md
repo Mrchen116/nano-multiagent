@@ -75,7 +75,7 @@ N/A：design 明确不改变 UI/交互/视觉，不产 prototype；以当前真�
 - 步骤：红测锁定 fresh-but-rejected 强制 refresh、storage throw 下 resume/dispatch、四类 Chat recovery 与收窄 ownership guard；实现共享 force-refresh entry、safe cursor adapter、settled recovery refetch/reset。
 - 验证：auth/session/runtime/workspace 定向 Vitest、ownership contract、build。
 
-### R2 — bind reconciliation 真实失败与 token 隔离
+### R2 — bind reconciliation 真实失败与 token 隔离（DONE）
 
 - 步骤：用真实 QueryClient/queryFn 建红测，覆盖首次 refetch 失败不导航、same-token retry 不 confirm、A→B 必须 confirm B；实现 `throwOnError` 与 token-scoped confirmed result。
 - 验证：bind 页面定向集成测试、全量相关 frontend test。
