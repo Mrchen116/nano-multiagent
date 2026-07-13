@@ -70,7 +70,7 @@ N/A：design 明确不改变 UI/交互/视觉，不产 prototype；以当前真�
 
 ## Roadpoints
 
-### R1 — auth/runtime 与 Chat recovery 连续性
+### R1 — auth/runtime 与 Chat recovery 连续性（DONE）
 
 - 步骤：红测锁定 fresh-but-rejected 强制 refresh、storage throw 下 resume/dispatch、四类 Chat recovery 与收窄 ownership guard；实现共享 force-refresh entry、safe cursor adapter、settled recovery refetch/reset。
 - 验证：auth/session/runtime/workspace 定向 Vitest、ownership contract、build。
