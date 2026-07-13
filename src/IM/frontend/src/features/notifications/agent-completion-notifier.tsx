@@ -1,8 +1,8 @@
 // 桌面通知触发器:订阅 IM WS 流,在 agent 回复完成 + tab 非前台时弹出系统通知。
 //
 // 设计要点:
-// - 纯归约 + 纯 spec 函数(`reduceNotifierEvent` / `buildNotificationSpec`)便于单测覆盖
-//   各 gating 条件,React glue 只负责副作用(订阅 WS / 订阅 visibility / 调 Notification)。
+// - app toast 与桌面通知复用同一纯 lifecycle accumulator；本组件只保留
+//   visibility/preference/permission 展示策略与 Notification 副作用。
 // - 订阅全局 user stream 而非寄生在 chat workspace,因为通知需要在用户离开 /chat 路由
 //   时也持续工作(spec 场景 D:用户在 Me 页时 agent 完成,也要弹)。
 // - 跟踪 agent 发出的消息 id,排除"用户自己发出的消息回声"误弹。
@@ -11,9 +11,16 @@ import { useEffect, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 
-import type { Conversation, WsEvent } from "../chat/chat-types";
-import { toChatWsEvent } from "../chat/chat-stream-reducer";
+import type { Conversation } from "../chat/chat-types";
 import { subscribeUserStream } from "../../realtime/user-stream";
+import {
+  type AgentCompletionCandidate,
+  type AgentCompletionState,
+  emptyAgentCompletionState,
+  hydrateAgentCompletionState,
+  persistAgentCompletionState,
+  reduceAgentCompletionEvent
+} from "./agent-completion-accumulator";
 import { ensureNotificationPermission, isNotificationSupported, showAgentNotification } from "./notification-api";
 import { isDocumentHidden, subscribeDocumentVisibility } from "./document-visibility";
 import { useNotificationPreference } from "./notification-preference";
@@ -21,44 +28,18 @@ import { useAuthStore } from "../auth/auth-store";
 
 const NOTIFICATION_BODY_MAX = 140;
 
-export interface NotifierState {
-  agentMessages: Record<string, { conversation_id: string; sender_user_id: string }>;
-}
-
-export const emptyNotifierState: NotifierState = { agentMessages: {} };
-
-export function reduceNotifierEvent(state: NotifierState, ev: WsEvent): NotifierState {
-  if (ev.type === "message.created") {
-    if (ev.sender_type !== "agent") return state;
-    return {
-      agentMessages: {
-        ...state.agentMessages,
-        [ev.message_id]: { conversation_id: ev.conversation_id, sender_user_id: ev.sender_user_id }
-      }
-    };
-  }
-  if (ev.type === "message.completed" || ev.type === "message.discarded") {
-    if (!(ev.message_id in state.agentMessages)) return state;
-    const next = { ...state.agentMessages };
-    delete next[ev.message_id];
-    return { agentMessages: next };
-  }
-  return state;
-}
-
-export interface NotificationSpec {
+interface NotificationSpec {
   title: string;
   body: string;
   conversationId: string;
   tag: string;
 }
 
-export interface BuildSpecContext {
+interface BuildSpecContext {
   hidden: boolean;
   enabled: boolean;
   permissionGranted: boolean;
   resolveAgentName(senderUserId: string): string;
-  resolveConversationTitle(conversationId: string): string;
 }
 
 function truncate(text: string): string {
@@ -66,22 +47,17 @@ function truncate(text: string): string {
   return `${text.slice(0, NOTIFICATION_BODY_MAX - 1)}…`;
 }
 
-export function buildNotificationSpec(
-  state: NotifierState,
-  ev: WsEvent,
+function buildCandidateSpec(
+  candidate: AgentCompletionCandidate,
   ctx: BuildSpecContext
 ): NotificationSpec | null {
-  if (ev.type !== "message.completed") return null;
-  const tracked = state.agentMessages[ev.message_id];
-  if (!tracked) return null;
   if (!ctx.hidden || !ctx.enabled || !ctx.permissionGranted) return null;
-  const senderName = ctx.resolveAgentName(tracked.sender_user_id);
-  const body = truncate(ev.content?.trim() ? ev.content : ctx.resolveConversationTitle(tracked.conversation_id));
+  const resolvedName = ctx.resolveAgentName(candidate.senderUserId);
   return {
-    title: senderName,
-    body,
-    conversationId: tracked.conversation_id,
-    tag: `im-conv-${tracked.conversation_id}`
+    title: resolvedName === candidate.senderUserId ? candidate.senderName : resolvedName,
+    body: truncate(candidate.preview),
+    conversationId: candidate.conversationId,
+    tag: `im-conv-${candidate.conversationId}`
   };
 }
 
@@ -94,7 +70,7 @@ export function AgentCompletionNotifier(): null {
   const navigate = useNavigate();
   const [preferenceEnabled] = useNotificationPreference();
   const userId = useAuthStore((state) => state.user?.id ?? null);
-  const stateRef = useRef<NotifierState>(emptyNotifierState);
+  const stateRef = useRef<AgentCompletionState>(emptyAgentCompletionState);
   const hiddenRef = useRef<boolean>(isDocumentHidden());
   const preferenceRef = useRef<boolean>(preferenceEnabled);
   preferenceRef.current = preferenceEnabled;
@@ -102,7 +78,7 @@ export function AgentCompletionNotifier(): null {
   navigateRef.current = navigate;
 
   useEffect(() => {
-    stateRef.current = emptyNotifierState;
+    stateRef.current = hydrateAgentCompletionState(userId);
   }, [userId]);
 
   // 用户打开通知时,确保浏览器权限就位(default → 弹一次系统授权框)。
@@ -118,14 +94,6 @@ export function AgentCompletionNotifier(): null {
       hiddenRef.current = hidden;
     });
   }, []);
-
-  const resolveConversationTitle = useMemo(
-    () => (cid: string) => {
-      const list = queryClient.getQueryData<Conversation[]>(["chat", "conversations"]);
-      return list?.find((c) => c.id === cid)?.title ?? cid;
-    },
-    [queryClient]
-  );
 
   const resolveAgentName = useMemo(
     () => (senderUserId: string) => {
@@ -145,11 +113,11 @@ export function AgentCompletionNotifier(): null {
     if (!isNotificationSupported()) return;
     return subscribeUserStream({
       onEvent: (event) => {
-        const ev = toChatWsEvent(event.eventType, event.payload, event.eventId);
-        if (!ev) return;
-        const prior = stateRef.current;
-        stateRef.current = reduceNotifierEvent(prior, ev);
-        const spec = buildNotificationSpec(prior, ev, {
+        const reduced = reduceAgentCompletionEvent(stateRef.current, event);
+        stateRef.current = reduced.state;
+        persistAgentCompletionState(userId, reduced.state);
+        if (!reduced.candidate) return;
+        const spec = buildCandidateSpec(reduced.candidate, {
           hidden: hiddenRef.current,
           enabled: preferenceRef.current,
           permissionGranted:
@@ -158,8 +126,7 @@ export function AgentCompletionNotifier(): null {
               "string" &&
             (globalThis as { Notification: { permission: NotificationPermission } }).Notification.permission ===
               "granted",
-          resolveAgentName,
-          resolveConversationTitle
+          resolveAgentName
         });
         if (!spec) return;
         showAgentNotification({
@@ -177,7 +144,7 @@ export function AgentCompletionNotifier(): null {
         });
       }
     });
-  }, [resolveAgentName, resolveConversationTitle]);
+  }, [resolveAgentName, userId]);
 
   return null;
 }

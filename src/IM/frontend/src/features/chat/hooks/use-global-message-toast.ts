@@ -5,6 +5,18 @@ import { useLocation } from "react-router-dom";
 import type { Conversation } from "../chat-types";
 import { useAuthStore } from "../../auth/auth-store";
 import { subscribeUserStream, type UserStreamEvent } from "../../../realtime/user-stream";
+import {
+  type AgentCompletionState,
+  emptyAgentCompletionState,
+  hydrateAgentCompletionState,
+  persistAgentCompletionState,
+  reduceAgentCompletionEvent
+} from "../../notifications/agent-completion-accumulator";
+import {
+  clearLocalUnreadFeedback,
+  markLocalUnreadFeedback,
+  resetLocalUnreadFeedback
+} from "../../notifications/local-unread-feedback";
 
 /** 应用内 toast 通知的载荷。 */
 export interface ToastPayload {
@@ -24,11 +36,6 @@ interface NotificationCandidate {
 interface ConversationNotificationState {
   lastSeenEventId: number;
   notifiedMessageKeys: Set<string>;
-}
-
-interface PendingAgentMessage {
-  senderName: string;
-  createdAt?: string;
 }
 
 function normalizeText(value: unknown): string | null {
@@ -54,14 +61,10 @@ function truncatePreview(preview: string): string {
   return preview.slice(0, 80);
 }
 
-function extractPreview(eventType: string, payload: Record<string, unknown>): string | null {
+function extractPreview(payload: Record<string, unknown>): string | null {
   const content = normalizeText(payload.content);
   if (content) {
     return truncatePreview(content);
-  }
-  const detail = normalizeText(payload.detail);
-  if (eventType === "relay.completed" && detail && !detail.includes("suppressed_by=no_reply_token") && detail !== "NO_REPLY") {
-    return truncatePreview(detail);
   }
   const fileName = normalizeText(payload.file_name);
   if (fileName) {
@@ -89,20 +92,28 @@ function patchConversationPreview(
   items: Conversation[] | undefined,
   conversationId: string,
   preview: string,
-  createdAt?: string
+  createdAt?: string,
+  markUnread = false
 ) {
   if (!items) {
     return items;
   }
-  return items.map((item) =>
+  const patched = items.map((item) =>
     item.id === conversationId
       ? {
           ...item,
           last_message_preview: preview,
-          last_message_at: createdAt ?? item.last_message_at
+          last_message_at: createdAt ?? item.last_message_at,
+          unread_count: markUnread ? Math.max(1, item.unread_count) : item.unread_count
         }
       : item
   );
+  return patched.sort((left, right) => {
+    const leftTime = Date.parse(left.last_message_at ?? "");
+    const rightTime = Date.parse(right.last_message_at ?? "");
+    if (!Number.isFinite(leftTime) || !Number.isFinite(rightTime)) return 0;
+    return rightTime - leftTime;
+  });
 }
 
 function isViewingConversation(pathname: string, conversationId: string): boolean {
@@ -126,46 +137,20 @@ function isSelfAuthoredUserMessage(payload: Record<string, unknown>, selfUserId:
   return normalizeUserId(payload.sender_user_id) === selfUserId;
 }
 
-function toRelayMessageKey(payload: Record<string, unknown>): string | null {
-  const messageId = normalizeText(payload.message_id);
-  if (!messageId) {
-    return null;
-  }
-  const relayIdentity =
-    normalizeText(payload.relay_task_id) ??
-    normalizeText(payload.agent_id) ??
-    normalizeText(payload.run_id) ??
-    "agent";
-  return `relay:${messageId}:${relayIdentity}`;
-}
-
 export function buildNotificationCandidate(event: UserStreamEvent): NotificationCandidate | null {
   const payload = event.payload as Record<string, unknown>;
-  const preview = extractPreview(event.eventType, payload);
+  const preview = extractPreview(payload);
   if (!preview) {
     return null;
   }
 
-  if (event.eventType === "message.sent" || event.eventType === "message_created") {
+  if (event.eventType === "message.sent") {
     const messageId = normalizeText(payload.message_id);
     if (!messageId) {
       return null;
     }
     return {
       messageKey: `message:${messageId}`,
-      senderName: extractSenderName(payload),
-      preview,
-      createdAt: normalizeText(payload.created_at) ?? undefined
-    };
-  }
-
-  if (event.eventType === "relay.completed") {
-    const messageKey = toRelayMessageKey(payload);
-    if (!messageKey) {
-      return null;
-    }
-    return {
-      messageKey,
       senderName: extractSenderName(payload),
       preview,
       createdAt: normalizeText(payload.created_at) ?? undefined
@@ -187,17 +172,21 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
   const selfUserIdRef = useRef<string | null>(selfUserId);
   /** 按会话记录已处理 event_id，避免重复 toast。 */
   const conversationStateRef = useRef(new Map<string, ConversationNotificationState>());
-  /** message.completed 不带 sender；按 message id 保留 canonical created 事件的身份。 */
-  const pendingAgentMessagesRef = useRef(new Map<string, PendingAgentMessage>());
+  const agentCompletionRef = useRef<AgentCompletionState>(emptyAgentCompletionState);
 
   useEffect(() => {
     pathnameRef.current = location.pathname;
+    const viewedConversationId = location.pathname.startsWith("/chat/")
+      ? location.pathname.slice("/chat/".length)
+      : null;
+    if (viewedConversationId) clearLocalUnreadFeedback(viewedConversationId);
   }, [location.pathname]);
 
   useEffect(() => {
     selfUserIdRef.current = selfUserId;
     conversationStateRef.current.clear();
-    pendingAgentMessagesRef.current.clear();
+    agentCompletionRef.current = hydrateAgentCompletionState(selfUserId);
+    resetLocalUnreadFeedback();
     setToast(null);
   }, [selfUserId]);
 
@@ -207,71 +196,53 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
         await queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
       },
       onEvent: (event) => {
-            if (typeof event.eventId !== "number") {
-              return;
-            }
-            const payload = event.payload as Record<string, unknown>;
-            const conversationIdRaw = payload.conversation_id;
-            if (typeof conversationIdRaw !== "string" || !conversationIdRaw) {
-              return;
-            }
-            const conversationId = conversationIdRaw;
-            let state = conversationStateRef.current.get(conversationId);
-            if (!state) {
-              state = { lastSeenEventId: 0, notifiedMessageKeys: new Set<string>() };
-              conversationStateRef.current.set(conversationId, state);
-            }
-            if (event.eventId <= state.lastSeenEventId) {
-              return;
-            }
-            state.lastSeenEventId = event.eventId;
+        if (typeof event.eventId !== "number") return;
+        const payload = event.payload as Record<string, unknown>;
+        const conversationIdRaw = payload.conversation_id;
+        if (typeof conversationIdRaw !== "string" || !conversationIdRaw) return;
+        const conversationId = conversationIdRaw;
+        let state = conversationStateRef.current.get(conversationId);
+        if (!state) {
+          state = { lastSeenEventId: 0, notifiedMessageKeys: new Set<string>() };
+          conversationStateRef.current.set(conversationId, state);
+        }
+        if (event.eventId <= state.lastSeenEventId) return;
+        state.lastSeenEventId = event.eventId;
 
-            const messageId = normalizeText(payload.message_id);
-            if (event.eventType === "message.created" && payload.sender_type === "agent" && messageId) {
-              pendingAgentMessagesRef.current.set(messageId, {
-                senderName: extractSenderName(payload),
-                createdAt: normalizeText(payload.created_at) ?? undefined
-              });
-            }
-
-            let candidate = buildNotificationCandidate(event);
-            const pendingAgent = messageId ? pendingAgentMessagesRef.current.get(messageId) : undefined;
-            if (event.eventType === "message.completed" && messageId && pendingAgent) {
-              const preview = extractPreview(event.eventType, payload);
-              if (preview) {
-                candidate = {
-                  messageKey: `message:${messageId}`,
-                  senderName: pendingAgent.senderName,
-                  preview,
-                  createdAt: pendingAgent.createdAt
-                };
-              }
-              pendingAgentMessagesRef.current.delete(messageId);
-              void queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
-            } else if (event.eventType === "message.discarded" && messageId) {
-              pendingAgentMessagesRef.current.delete(messageId);
-            }
-            if (candidate) {
-              queryClient.setQueryData<Conversation[] | undefined>(["chat", "conversations"], (previous) =>
-                patchConversationPreview(previous, conversationId, candidate.preview, candidate.createdAt)
-              );
-            }
-            if (isViewingConversation(pathnameRef.current, conversationId)) {
-              return;
-            }
-            if (isSelfAuthoredUserMessage(payload, selfUserIdRef.current)) {
-              return;
-            }
-            if (!candidate || state.notifiedMessageKeys.has(candidate.messageKey)) {
-              return;
-            }
-            state.notifiedMessageKeys.add(candidate.messageKey);
-            setToast({
-              id: candidate.messageKey,
-              conversationId,
-              senderName: candidate.senderName,
-              preview: candidate.preview
-            });
+        const completion = reduceAgentCompletionEvent(agentCompletionRef.current, event);
+        agentCompletionRef.current = completion.state;
+        persistAgentCompletionState(selfUserIdRef.current, completion.state);
+        let candidate = buildNotificationCandidate(event);
+        if (completion.candidate) {
+          candidate = {
+            messageKey: completion.candidate.messageKey,
+            senderName: completion.candidate.senderName,
+            preview: truncatePreview(completion.candidate.preview),
+            createdAt: completion.candidate.createdAt
+          };
+        }
+        const viewingConversation = isViewingConversation(pathnameRef.current, conversationId);
+        const selfAuthored = isSelfAuthoredUserMessage(payload, selfUserIdRef.current);
+        const shouldMarkUnread = Boolean(candidate && !viewingConversation && !selfAuthored);
+        if (shouldMarkUnread) markLocalUnreadFeedback(conversationId);
+        if (candidate) {
+          queryClient.setQueryData<Conversation[] | undefined>(["chat", "conversations"], (previous) =>
+            patchConversationPreview(previous, conversationId, candidate.preview, candidate.createdAt, shouldMarkUnread)
+          );
+        }
+        if (event.eventType === "message.completed") {
+          void queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] }).catch(() => undefined);
+        }
+        if (viewingConversation || selfAuthored || !candidate || state.notifiedMessageKeys.has(candidate.messageKey)) {
+          return;
+        }
+        state.notifiedMessageKeys.add(candidate.messageKey);
+        setToast({
+          id: candidate.messageKey,
+          conversationId,
+          senderName: candidate.senderName,
+          preview: candidate.preview
+        });
       }
     });
   }, [queryClient]);

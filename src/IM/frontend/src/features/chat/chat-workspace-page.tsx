@@ -29,6 +29,7 @@ import {
 import { authFetch } from "../auth/auth-fetch";
 import { useAuthStore } from "../auth/auth-store";
 import { subscribeUserStream } from "../../realtime/user-stream";
+import { useLocalUnreadFeedback } from "../notifications/local-unread-feedback";
 import {
   classifyConversationKind,
   type Attachment,
@@ -273,6 +274,7 @@ export function ChatWorkspacePage() {
     queryKey: ["chat", "conversations"],
     queryFn: listConversations
   });
+  const sidebarConversations = useLocalUnreadFeedback(conversationsQuery.data ?? []);
 
   const activeConversation: Conversation | null = useMemo(() => {
     if (!conversationId) return null;
@@ -967,7 +969,7 @@ export function ChatWorkspacePage() {
       )}
       {showList && (
         <ConversationSidebar
-          conversations={conversationsQuery.data ?? []}
+          conversations={sidebarConversations}
           activeConversationId={conversationId ?? null}
           onSelect={(id) => navigate(`/chat/${id}`)}
           onNewGroup={() => setShowNewGroup(true)}

@@ -6,6 +6,10 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useAuthStore } from "../../auth/auth-store";
 import type { Conversation } from "../chat-types";
+import {
+  hasLocalUnreadFeedback,
+  resetLocalUnreadFeedback
+} from "../../notifications/local-unread-feedback";
 
 let streamHandler: ((event: { eventType: string; payload: Record<string, unknown>; eventId?: number }) => void) | null = null;
 
@@ -99,6 +103,8 @@ describe("useGlobalMessageToast", () => {
   beforeEach(() => {
     streamHandler = null;
     vi.clearAllMocks();
+    sessionStorage.clear();
+    resetLocalUnreadFeedback();
     useAuthStore.getState().setSession({
       access_token: "token",
       refresh_token: "refresh",
@@ -144,7 +150,7 @@ describe("useGlobalMessageToast", () => {
     expect(result.current.toast).toBeNull();
   });
 
-  it("dedupes message_created and message.sent for the same message id", async () => {
+  it("ignores retired message_created and accepts canonical message.sent", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const { result } = renderHook(() => useGlobalMessageToast(), { wrapper: buildWrapper(queryClient, "/") });
 
@@ -155,11 +161,6 @@ describe("useGlobalMessageToast", () => {
       eventId: 1,
       payload: { message_id: "m-1", sender_type: "user", sender_user_id: "user:peer", content: "hello" }
     });
-    expect(result.current.toast?.id).toBe("message:m-1");
-
-    act(() => {
-      result.current.dismiss();
-    });
     expect(result.current.toast).toBeNull();
 
     emit("conv-1", {
@@ -168,10 +169,10 @@ describe("useGlobalMessageToast", () => {
       payload: { message_id: "m-1", sender_type: "user", sender_user_id: "user:peer", content: "hello" }
     });
 
-    expect(result.current.toast).toBeNull();
+    expect(result.current.toast?.id).toBe("message:m-1");
   });
 
-  it("ignores relay.report but toasts one relay.completed reply", async () => {
+  it("treats relay.report and relay.completed as non-notifying receipts", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const { result } = renderHook(() => useGlobalMessageToast(), { wrapper: buildWrapper(queryClient, "/") });
 
@@ -196,7 +197,7 @@ describe("useGlobalMessageToast", () => {
       }
     });
 
-    expect(result.current.toast).toMatchObject({ id: "relay:m-1:relay-1", senderName: "Ops Bot", preview: "Done" });
+    expect(result.current.toast).toBeNull();
   });
 
   it("suppresses NO_REPLY relay completions", async () => {
@@ -267,7 +268,7 @@ describe("useGlobalMessageToast", () => {
     ]);
   });
 
-  it("refreshes the cached sidebar preview when an unopened conversation finishes a relay turn", async () => {
+  it("does not let a relay receipt overwrite canonical conversation preview", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     queryClient.setQueryData(["chat", "conversations"], [
       conversation("conv-2", {
@@ -293,15 +294,12 @@ describe("useGlobalMessageToast", () => {
       }
     });
 
-    expect(result.current.toast).toMatchObject({
-      conversationId: "conv-2",
-      preview: "A\n\nGot it. What would you like to do?"
-    });
+    expect(result.current.toast).toBeNull();
     expect(queryClient.getQueryData(["chat", "conversations"])).toEqual([
       conversation("conv-2", {
         title: "Agent chat",
-        last_message_preview: "A\n\nGot it. What would you like to do?",
-        last_message_at: "2026-03-26T00:02:00Z"
+        last_message_preview: "11",
+        last_message_at: "2026-03-26T00:00:00Z"
       })
     ]);
   });
@@ -317,7 +315,9 @@ describe("useGlobalMessageToast", () => {
         title: "Agent",
         last_message_preview: "Finished in the background",
         last_message_at: "2026-03-26T00:03:00Z",
-        unread_count: 1
+        // Another same-account browser may already have read the server row.
+        // This tab must still retain visible local feedback for the live completion.
+        unread_count: 0
       }),
       initial[0]!
     ];
@@ -355,7 +355,51 @@ describe("useGlobalMessageToast", () => {
         preview: "Finished in the background"
       });
       expect(queryFn).toHaveBeenCalledTimes(2);
-      expect(queryClient.getQueryData(["chat", "conversations"])).toEqual(refreshed);
+      expect(queryClient.getQueryData<Conversation[]>(["chat", "conversations"])?.[0]).toMatchObject({
+        id: "conv-agent",
+        last_message_preview: "Finished in the background",
+        unread_count: 1
+      });
+    });
+
+    // A later sibling consumer may refresh authoritative unread back to zero;
+    // the view layer keeps this tab's live unseen overlay until navigation.
+    queryClient.setQueryData(["chat", "conversations"], refreshed);
+    expect(queryClient.getQueryData<Conversation[]>(["chat", "conversations"])?.[0]?.unread_count).toBe(0);
+    expect(hasLocalUnreadFeedback("conv-agent")).toBe(true);
+  });
+
+  it("restores pending sender identity when reload falls between created and completed", async () => {
+    const firstClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const first = renderHook(() => useGlobalMessageToast(), { wrapper: buildWrapper(firstClient, "/") });
+    await waitFor(() => expect(subscribeUserStreamMock).toHaveBeenCalled());
+    emit("conv-agent", {
+      eventType: "message.created",
+      eventId: 1,
+      payload: {
+        message_id: "agent-msg-reload",
+        sender_type: "agent",
+        sender_user_id: "agent:planner",
+        sender_display_name: "Planner",
+        content: "",
+        created_at: "2026-03-26T00:03:00Z"
+      }
+    });
+    first.unmount();
+
+    const secondClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const second = renderHook(() => useGlobalMessageToast(), { wrapper: buildWrapper(secondClient, "/") });
+    await waitFor(() => expect(subscribeUserStreamMock).toHaveBeenCalledTimes(2));
+    emit("conv-agent", {
+      eventType: "message.completed",
+      eventId: 2,
+      payload: { message_id: "agent-msg-reload", content: "Survived reload" }
+    });
+
+    expect(second.result.current.toast).toMatchObject({
+      id: "message:agent-msg-reload",
+      senderName: "Planner",
+      preview: "Survived reload"
     });
   });
 

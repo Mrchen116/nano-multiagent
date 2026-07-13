@@ -6,6 +6,7 @@ import { useIsMobile } from "../../hooks/use-is-mobile";
 import { useTranslation } from "../../i18n";
 import { listConversations } from "../../features/chat/chat-api";
 import { useAuthStore } from "../../features/auth/auth-store";
+import { useLocalUnreadFeedback } from "../../features/notifications/local-unread-feedback";
 import { UserMenu } from "./user-menu";
 
 /**
@@ -26,7 +27,8 @@ export function AppShell({ children }: PropsWithChildren) {
     enabled: authed && isMobile,
     staleTime: 10_000
   });
-  const totalUnread = (conversations ?? []).reduce((sum, c) => sum + (c.unread_count ?? 0), 0);
+  const conversationsWithLocalUnread = useLocalUnreadFeedback(conversations ?? []);
+  const totalUnread = conversationsWithLocalUnread.reduce((sum, c) => sum + (c.unread_count ?? 0), 0);
 
   return (
     <div className="im-shell">
