@@ -313,6 +313,21 @@ describe("agent detail page", () => {
   it("opens the canonical direct chat for the current agent", async () => {
     const user = userEvent.setup();
 
+    // The canonical list cache belongs to the desktop rail. Its snapshot may lag
+    // behind the detail draft and must not create a second query or name the chat.
+    apiMocks.listAgentSummariesMock.mockResolvedValue([
+      {
+        agent_id: "agent-core-1",
+        display_name: "Stale Summary Name",
+        owner_id: "owner-1",
+        description: "",
+        profile_version: 1,
+        default_model: null,
+        workspace_root: "",
+        workspace_is_default: false
+      }
+    ]);
+
     apiMocks.getAgentDetailStateMock.mockResolvedValue({
       config: {
         agent_id: "agent-core-1",
@@ -367,6 +382,7 @@ describe("agent detail page", () => {
     expect(screen.getByRole("heading", { name: "Access & Model" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Workspace & Runtime" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Open chat/i })).toBeInTheDocument();
+    await waitFor(() => expect(apiMocks.listAgentSummariesMock).toHaveBeenCalledTimes(1));
 
     const panel = screen.getByTestId("agent-detail");
     expect(panel.className).toContain("im-agent-panel");
