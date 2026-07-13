@@ -8,12 +8,12 @@ Web IM 单标签页只保留一个 owner-scoped user-stream lifecycle；所有�
 
 ## 退出标准
 
-- [ ] auth session interface 覆盖 fresh token、<=30s/expired refresh、HTTP/WS single-flight、retry/signed_out、stale-result guard。
-- [ ] runtime 覆盖单 socket/多 subscriber、resume/ping/backoff、readiness、generation、cursor、resync/recovery、subscriber isolation、last-unsubscribe。
-- [ ] Chat/toast/desktop notification/Nodes/Agents 全部迁移到唯一 runtime；legacy stream 与 `v2/chat-stream.ts` 无生产调用方并删除其实现/测试。
-- [ ] token refresh 不清 cache；logout/account switch 清 QueryClient。
-- [ ] ownership contract、相关 Vitest、`npm run build` 通过。
-- [ ] 真 Web IM + Gateway + 浏览器完成 live-critical 签收；包含 expired access + valid refresh 的断网重连恢复，证据落入 `M1-realtime-runtime/evidence/`。
+- [x] auth session interface 覆盖 fresh token、<=30s/expired refresh、HTTP/WS single-flight、retry/signed_out、stale-result guard。
+- [x] runtime 覆盖单 socket/多 subscriber、resume/ping/backoff、readiness、generation、cursor、resync/recovery、subscriber isolation、last-unsubscribe。
+- [x] Chat/toast/desktop notification/Nodes/Agents 全部迁移到唯一 runtime；legacy stream 与 `v2/chat-stream.ts` 无生产调用方并删除其实现/测试。
+- [x] token refresh 不清 cache；logout/account switch 清 QueryClient。
+- [x] ownership contract、相关 Vitest、`npm run build` 通过。
+- [x] 真 Web IM + Gateway + 浏览器完成 live-critical 签收；包含 expired access + valid refresh 的断网重连恢复，证据落入 `M1-realtime-runtime/evidence/`。
 
 ## 测试策略
 
@@ -70,6 +70,6 @@ Prototype / Reference Contract：N/A（design 明确不改变 UI/交互/视觉�
 
 ### R3 — 消费者迁移与真栈签收
 
-- 状态：DOING
+- 状态：DONE
 - 步骤：迁移 Chat/toast/notifier/Nodes/Agents；AppProviders session cache reset；删除两套旧 stream；补 ownership contract；完成相关回归、build 与真栈浏览器签收。
 - 验证：相关/全量 Vitest、production build、Python contract；`evidence/` 中逐条映射用户可见 Chat/toast/notification/status/reconnect/account isolation，含 expired access + valid refresh。

@@ -44,4 +44,20 @@
 
 ## R3 — 消费者迁移与真栈签收
 
-- 状态：DOING
+- 状态：DONE
+- Context: 五类生产消费者原本分散持有 legacy/v2 stream 或依赖旧 cache；收尾必须同时证明唯一连接 owner、账号隔离与真实恢复旅程。
+- Decision: Chat、toast、desktop notifier、Nodes、Agents 统一订阅 `subscribeUserStream()`；AppProviders 按 user id 清 QueryClient；删除 legacy stream 与 `v2/chat-stream.ts`；用 ownership contract 阻止第二 owner 回流。
+- Rationale: transport lifecycle 只由 runtime 管理，领域 subscriber 只负责 mapper/reducer/cache 决策；token refresh 与 account switch 采用不同 cache 语义。
+- Scope expansion: 真浏览器暴露测试 helper 的 opaque `test-token` 会强制走 refresh，并在并发页面测试中制造无关 401。经 orchestrator 批准，将 `render-router.tsx` 的共享 token 改为结构合法、长期有效的 test JWT，并同步一处精确 Authorization 断言；未扩大生产范围。
+- Evidence:
+  - Tests: `npm run test`，65 files / 630 tests passed；`npm run build` passed；`pytest -q tests/contract/test_im_frontend_user_stream_ownership.py`，2 passed。
+  - Entry: contract 证明生产源码只有 runtime 构造 `/im/ws/user` WebSocket；legacy/v2 stream 实现和测试已删除。
+  - Frontend State Matrix: 当前会话、后台会话 toast、desktop notification gates、Node/Agent status、token refresh、logout/account switch、desktop/mobile 均有 regression 或真浏览器证据。
+  - Browser QA: `evidence/live-browser-report.md`；真实 Gateway/LLM 回复、expired access + valid refresh、Gateway offline/online、浏览器 offline/online、应用内 toast、移动端、A→B 隔离均通过。
+  - E2E/Regression: 稳态仅一个 browser user-stream；refresh 401→200 重放后仍收到新事件；未观察历史通知重放。
+  - Known unrelated issue: IM 共享 SQLite 连接偶发 500 后重试成功，已登记 #191，不在前端 M1 内修复。
+  - Visual/Interaction: N/A（无设计变化；仅回归既有 UI）。
+  - Prototype Comparison: N/A。
+- Rollback: 回退 C2 `aa0227bd` 恢复消费者旧路径；R1/R2 runtime 可独立保留，C1 契约测试用于暴露回退缺口。
+- Commits: C1=`90bb0a27`, C2=`aa0227bd`, C3=本提交。
+- Next: M1 合入 `unit/refactor-460` 后由 orchestrator 进入 reviewer/verifier gate，再决定是否启动 M2。
