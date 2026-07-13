@@ -20,13 +20,19 @@
 
 ## R3 — full gates / docs / independent closure
 
-- Status: IN PROGRESS
+- Status: DONE
 - Docs: 已校正 shared pre-fanout validation、toast accumulator owner、M4 global event-store max 和 M5/M6 milestone 演进。
 - Full gates: frontend clean rerun 64 files / 596 tests passed；首次与 backend 并行时 1 个无关 Agent detail 5s timeout，原入口隔离复跑通过。Production build passed；`pytest -m "not e2e"` 3513 passed / 1 skipped / 23 deselected；`ruff check src tests` passed。
-- Independent closure: pending readonly verifier/code review；不会派实现 agent。
+- Round 5 readonly verifier/code review 先确认 3 个 history/external critical 与 1 个 attachment warning；orchestrator 亲自补红测和实现。修复后 frontend full 64 files / 600 tests passed，workspace/toast/composer focused 136 passed，build passed。
+- 后续 targeted closure 连续攻击 authority/query/cache 乱序，依次补齐 canonical cache 回写、新旧 query 时序、preview/toast 单调与 cached external fast path 的统一 event clock；最终 toast focused 19/19。第五次 targeted verifier=`pass`、code review=`no findings`，`requires_full_verification=false`。
 
 ## Commits
 
 - external fresh-cache red/fix：`b90afaac` / `9b2f67ce`
 - external failure recovery red/fix：`7fc9ab7b` / `86de959e`
 - gate issues red/fix：`4acfc593` / `0340d661`
+- final gate races red/fix：`db214251` / `3a581f3e`
+- external cache convergence：`136e238e` / `48c62723`
+- authority/query ordering：`976b83ec` / `2e900f4a`
+- external monotonic candidates：`98d19a9d` / `001414fb`
+- cached external fast path：`b0a06d62` / `5dbf63db`

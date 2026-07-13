@@ -15,7 +15,7 @@
 - [x] composer 仅在异步发送成功后清稿；失败保留正文/附件，pending 窗口同步阻止重复提交。
 - [x] multi-bubble roll 后，新气泡收到真实正文即重建 bubble-local visibility，终态不会误 tombstone。
 - [x] completion accumulator 状态 identity 未变化时不重复写 sessionStorage。
-- [ ] 最终独立只读 verifier/code review 通过（全量自动化门禁已通过）。
+- [x] 最终独立只读 verifier/code review 通过（全量自动化门禁已通过）。
 
 ## 测试策略
 
@@ -36,7 +36,7 @@
 - REST reset 对请求飞行期间触达的 message id 使用 live row，一次 reset 后清保护集。
 - failed completion、composer async commit、multi-bubble visibility 与 accumulator persistence 各自补红测并修复。
 
-### R3 — docs / full gates / independent closure（IN PROGRESS）
+### R3 — docs / full gates / independent closure（DONE）
 
 - 校正 design 中 canonical validation、notification owner、milestone 演进与 M4 epoch max 措辞。
 - 完成全量门禁，将只读 verifier/code review 结论追加到 unit 证据。
