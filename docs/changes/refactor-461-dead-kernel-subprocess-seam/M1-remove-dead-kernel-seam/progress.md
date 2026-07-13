@@ -44,4 +44,20 @@
 
 ## R3 — 清理 active 入口残留并完成真栈验收
 
-- Status: TODO
+- Status: DONE
+- Context: active AGENTS/scripts/acceptance helpers/sample configs 仍描述独立 Kernel 端口、health 与 `.api.pid`；`e2e-up.sh` 还用 buffered log 关键词冒充 readiness，并混用系统 `python3`，导致真实 worktree 环境缺 PyYAML 时无法起栈。
+- Decision: 清理 allowlist 内全部旧拓扑与 sample `kernel:`；M170 helper 改用 Gateway state PID/liveness + IM node-online；e2e finalizer 只追真实 Gateway 入口。`e2e-up.sh` 统一选择可 import PyYAML 的项目 Python，并用“Gateway PID 存活 + 认证 `/im/v1/nodes` 返回本 node online”作为 transport startup 检查，明确不把它提升为用户旅程 readiness；`e2e-down.sh` 只回收 IM/Gateway 并删除 worktree migration backup。
+- Rationale: buffered stdout 在非 TTY 子进程可保持空文件，日志关键词不是稳定协议；项目依赖必须由既有环境提供。PID + IM node-online 与真实所有权/拓扑一致，最终 readiness 仍由黑盒消息和主动任务证明。
+- Evidence:
+  - Tests: C1 contract guard `2 failed, 1 passed`，失败精确命中 active narrative/sample config；Green 后 guard + runtime helper + finalizer 15 passed。受影响合集（contract、runtime helper/finalizer、全部 PA unit、provider error integration）最终 `791 passed`；ruff check/format、`bash -n` 全绿。
+  - Entry: `e2e-up.sh` 在持久 tmux 中启动 ephemeral IM `58666` + Gateway PID `87603`，认证 node board 返回本 node online；`.api.pid` 与旧 app 进程均不存在。主机同时有主仓 Gateway PID `80740` 占用 8089，worktree Gateway 的 internal-dispatch bind 冲突未阻断 Web IM 主链路。
+  - Frontend State Matrix: N/A；本 unit 不改 UI。
+  - Browser QA: N/A；以 Web IM 客户端使用的同一 HTTP/WebSocket 黑盒接口驱动。
+  - E2E/Regression: LLM proxy `/health` 200；`test_tool_call_reply_critical_path` 通过，真实工具读取随机哨兵并由 Agent 回复到 IM。cron 首轮被 pytest 全局 120s（短于用例 180s 业务窗口）中断；以 `--timeout=240` 原样单独重跑后 `1 passed in 44.87s`，用户收到新的 cron 主动推送。两条均在 8089 冲突存在时成立。
+  - Config migration: 分别以 legacy-only 和 mixed config 启动真实后台 Gateway，再 load/save；legacy 三项解析为 `9/4/0.4`，mixed 逐字段解析为 `12/4/0.3`；两次 backup 都与启动前原文 `cmp` 一致，canonical 文件均无 `kernel:` 且只写非默认 `gateway:`，随后按各自 config state 成功 stop 并删除隔离目录。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+  - Cleanup: `e2e-down.sh` 后 PID 87603 已退出，`.gateway.pid`、`.im.pid`、`.api.pid`、`.gateway-config.yaml`、migration backup 与旧 app/migration 测试进程均无残留；tmux session 已删除。
+- Rollback: 回退到 C1 `02766572` 可恢复 R3 Green 前的 active entrypoint 内容；配置回退按 design 先恢复对应 migration backup。
+- Commits: C1=`02766572`, C2=`d3399998`, C3=本 docs commit。
+- Next: milestone 全量 non-e2e、rebase/锁校验与 unit branch 集成。
