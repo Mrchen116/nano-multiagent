@@ -45,17 +45,38 @@
 - Decision: up 等待 `gateway.pid == $!`，记录 `.gateway-identity.json`（external/internal PID、resolved config path、`ps lstart`）。down 在任何 kill 前核对 JSON、内部 PID、process start，并以 shlex 精确确认 `-m personal_assistant.main`、唯一 `--config <WT_CFG>`、`--foreground`、`--auto-bind`；`ps stat` 区分 exited/zombie 与仍存活，signal failure + live stat 视作 unmanageable。只有确认退出才删 lifecycle identity 并继续 IM teardown，否则立即非零退出保留整栈。
 - Rationale: PID、argv 与 OS start identity 共同把 signal ownership 绑定到本次 up；read-only identity check 先于 signal，teardown 以 confirmed exit 为原子门槛。
 - Evidence:
-  - Tests: `pytest -q tests/integration/test_e2e_down_script.py` → 4 passed。
+  - Tests: `pytest -q tests/integration/test_e2e_down_script.py` → 7 passed；额外覆盖 zombie、signal permission failure 与 worktree symlink alias。
   - Entry: shell 集成覆盖内部 PID mismatch、argv mismatch、TERM→KILL 后持续存活、正常确认退出；mismatch 无 TERM/KILL，失败路径保留 Gateway/IM/config/env/identity 且无 stopped 文案。
   - Frontend State Matrix: N/A，非前端。
   - Browser QA: N/A，非前端。
-  - E2E/Regression: `bash -n scripts/e2e-up.sh scripts/e2e-down.sh`、测试文件 ruff check/format 通过；真实栈在 R4 收尾。
+  - E2E/Regression: tmux 持久真实栈 up 成功；篡改内部 PID 后 down rc=1 且 Gateway/IM 都保持存活，恢复后 down rc=0 且 lifecycle/config/env residue 全清。`bash -n` 与测试文件 ruff 通过。
   - Visual/Interaction: N/A，非前端。
   - Prototype Comparison: N/A，design 无前端 prototype/reference。
 - Debug note: 首次 green 发现 status 在 identity 前调用 `kill -0`，且正常退出夹具用 `${VAR:-S}` 覆盖显式空状态；按 systematic-debugging 将 existence/zombie 检查改为纯 `ps stat`，identity 严格先于 kill，并修正夹具空状态语义。
+- Debug note: 真实栈以 `/tmp` 起时，JSON 的 `Path.resolve()` 记录 `/private/tmp`，而 argv 保留 `/tmp`，正常 down 被误判 mismatch。新增 symlink-worktree 红测后，up/down 统一 `pwd -P`，argv config 以 resolved path identity 比较；保留现场验证恢复成功。
 - Rollback: 先以 down 确认无 live stack，再回退 C2；C1 是新安全语义门禁。
-- Commits: `f7bf8cfd` (C1), `d5260895` (C2)
+- Commits: `f7bf8cfd`, `8ea12662` (C1); `d5260895`, `c0209393` (C2); `ed80a412` (coverage)
 
 ## R4 — 格式与全链路收口
 
-- Status: TODO
+- Context: 基线 `ruff format --check tests/unit/test_runtime_helpers.py` 明确报告该文件需要格式化；M3 同时需要两个统一机制的全链路 signoff。
+- Decision: 只对指派测试文件执行 formatter；先跑 103 项 selective affected，再跑全仓 ruff/format 与唯一 full non-e2e。真实生命周期使用隔离临时 config；真实 e2e 使用 tmux 持久承载，避免宿主回收普通后台进程。
+- Rationale: formatter 变更保持纯机械；full suite 只在共享 runner 空闲时单实例运行，真实服务则以可追踪持久进程完成 identity 负路径与正常清理闭环。
+- Evidence:
+  - Tests: affected → 103 passed；full non-e2e → `3532 passed, 1 skipped, 23 deselected, 16 warnings in 180.83s`，明确 exit 0。
+  - Entry: 隔离 config 的默认 start/stop/restart 全部完成且无 `gateway.pid` / `.gateway-state.json` residue；R1 public save barrier 证明真实文件 drift 保留 external revision 与 original backup。
+  - Frontend State Matrix: N/A，非前端。
+  - Browser QA: N/A，非前端。
+  - E2E/Regression: `ruff check .` → passed；`ruff format --check .` → 783 files formatted；真实 e2e up/mismatch/down 证据见 R3。
+  - Visual/Interaction: N/A，非前端。
+  - Prototype Comparison: N/A，design 无前端 prototype/reference。
+- Runner note: 首轮 M3 full 与另外两个 worktree full 重叠；按 PID cwd ownership 只停止自有 49436，未触碰他人。疑似失败区间窄跑 55 passed；等待共享 runner 空闲后，以新日志单实例重跑得到最终 exit 0。
+- Rollback: formatter commit 可独立回退；功能回退按 R1-R3 各自三提交边界执行。
+- Commits: `951941f9` (C1), `bb0aa714` (C2)
+
+## Milestone validation
+
+- Affected suites: 103 passed（config transaction/local store、Gateway launch/forced stop/PID lifecycle、e2e-down、runtime helper）。
+- Lint/format: `ruff check .` passed；`ruff format --check .` → 783 files already formatted；shell `bash -n` passed。
+- Full non-e2e: 3532 passed, 1 skipped, 23 deselected, 16 warnings，exit 0。
+- Real entries: 隔离 default start/stop/restart 无 residue；tmux e2e up 后 identity mismatch fail-atomic、恢复 identity 正常 down 并全清通过。
