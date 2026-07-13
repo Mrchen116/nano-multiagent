@@ -5,7 +5,8 @@ a ready-to-use Kernel without exposing any HTTP/FastAPI surface.
 
 Design (refactor-387 M1, refactor-462):
 - Mirrors create_app() assembly logic with FastAPI/routes/middleware removed.
-- LLMClientFactory injected into per-conversation AgentEngine instances.
+- One shared AgentEngine and provider-client graph serves stable conversations;
+  per-conversation mutable state remains in ConversationState.
 - Permission flow: AgentEngine hook context races optional can_use_tool
   callback against a PermissionBroker future; gateway resolves the future
   externally via Kernel.submit_permission_decision (feat-394-M14).
@@ -14,6 +15,7 @@ Design (refactor-387 M1, refactor-462):
 
 from __future__ import annotations
 
+import inspect
 import os
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -86,6 +88,7 @@ class _KernelComponents:
     hook_registry: HookRegistry
     hook_runner: HookRunner
     stop_all_foreground: Callable[[], None]
+    finalize_resources: Callable[[], Awaitable[None]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -493,6 +496,7 @@ def _build_kernel_base(
         setup(hook_registry)
     hook_runner = HookRunner(registry=hook_registry)
 
+    owned_llm_clients: list[LLMClient] = []
     if _llm_client_override is not None:
         direct_llm_client: LLMClient | None = _llm_client_override
         llm_clients: dict[str, LLMClient] | None = None
@@ -516,6 +520,8 @@ def _build_kernel_base(
             for p in llm.providers
             if p.models
         } or None
+        if llm_clients is not None:
+            owned_llm_clients.extend(llm_clients.values())
         direct_llm_client = (
             llm_clients.get(factory_config.provider)
             if llm_clients is not None
@@ -523,6 +529,7 @@ def _build_kernel_base(
         )
         if direct_llm_client is None:
             direct_llm_client = _platform_create_llm_client(config=factory_config)
+            owned_llm_clients.append(direct_llm_client)
 
     event_hub = EventStreamHub()
     set_session_event_publisher_factory(
@@ -577,6 +584,22 @@ def _build_kernel_base(
         conversation_factory=_conversation_factory,
         default_metadata={"workspace_config_dirname": workspace_config_dirname},
     )
+
+    async def _finalize_resources() -> None:
+        await directory.close_all()
+        seen: set[int] = set()
+        for client in owned_llm_clients:
+            identity = id(client)
+            if identity in seen:
+                continue
+            seen.add(identity)
+            close = getattr(client, "close", None)
+            if not callable(close):
+                continue
+            result = close()
+            if inspect.isawaitable(result):
+                await result
+
     runs_registry = RunsRegistry(
         directory=directory,
         executor=executor,
@@ -687,6 +710,7 @@ def _build_kernel_base(
         hook_registry=hook_registry,
         hook_runner=hook_runner,
         stop_all_foreground=background_task_wiring.foreground_registry.stop_all,
+        finalize_resources=_finalize_resources,
     )
 
     return Kernel(
@@ -1621,7 +1645,7 @@ class Kernel:
         registry.begin_shutdown()
         self._c.stop_all_foreground()
         await _asyncio.to_thread(
-            registry.shutdown, finalize=self._c.directory.close_all
+            registry.shutdown, finalize=self._c.finalize_resources
         )
 
     def close(self) -> None:
@@ -1634,7 +1658,7 @@ class Kernel:
             return
         self._closed = True
         self._c.stop_all_foreground()
-        self._c.runs_registry.shutdown(finalize=self._c.directory.close_all)
+        self._c.runs_registry.shutdown(finalize=self._c.finalize_resources)
 
     def assemble_prompt_preview(
         self,

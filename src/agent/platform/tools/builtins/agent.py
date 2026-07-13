@@ -534,9 +534,9 @@ class AgentTool(WiringMixin):
         )
         registry.mark_running(agent_id)
 
-        # Start worker for the resumed turn. The subagent JSONL lives under the
-        # parent session's workspace_root, threaded here so the stateless store
-        # can locate it.
+        # Start the resumed turn through the typed runtime runner. The child
+        # conversation is addressed within its parent's workspace root, so that
+        # root remains part of the stable SessionRef lookup.
         # bugfix-422 (#129): llm_session_id=parent so the resumed turn's LLM
         # requests group under the parent in the proxy session-inspector.
         # bugfix-443 fix1 C4: resolve the model from the *current resuming run*
