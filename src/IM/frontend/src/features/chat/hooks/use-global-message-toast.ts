@@ -40,6 +40,11 @@ interface ConversationNotificationState {
   notifiedMessageKeys: Set<string>;
 }
 
+interface PendingExternalClassification {
+  inFlight: boolean;
+  retry(): void;
+}
+
 function normalizeText(value: unknown): string | null {
   if (typeof value !== "string") {
     return null;
@@ -178,6 +183,7 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
   const selfUserIdRef = useRef<string | null>(selfUserId);
   /** 按会话记录已处理 event_id，避免重复 toast。 */
   const conversationStateRef = useRef(new Map<string, ConversationNotificationState>());
+  const pendingExternalClassificationsRef = useRef(new Map<string, PendingExternalClassification>());
   const agentCompletionRef = useRef<AgentCompletionState>(emptyAgentCompletionState);
 
   useEffect(() => {
@@ -191,6 +197,7 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
   useEffect(() => {
     selfUserIdRef.current = selfUserId;
     conversationStateRef.current.clear();
+    pendingExternalClassificationsRef.current.clear();
     agentCompletionRef.current = hydrateAgentCompletionState(selfUserId);
     resetLocalUnreadFeedback();
     setToast(null);
@@ -201,6 +208,9 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
     return subscribeUserStream({
       onRecovery: async () => {
         await queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
+        for (const pending of pendingExternalClassificationsRef.current.values()) {
+          pending.retry();
+        }
       },
       onEvent: (event) => {
         if (typeof event.eventId !== "number") return;
@@ -270,23 +280,38 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
           && authoredByAccountUser
           && cachedConversation === undefined
         );
-        if (unresolvedExternalOwnerMirror) {
+        if (unresolvedExternalOwnerMirror && candidate) {
           const eventUserId = selfUserIdRef.current;
-          void queryClient.fetchQuery({
-            queryKey: ["chat", "conversations"],
-            queryFn: listConversations,
-            // The cached list can still be fresh when the server creates an
-            // external conversation and immediately emits its first message.
-            // Force this classification read through to the authoritative API.
-            staleTime: 0
-          }).then((freshConversations) => {
-            if (
-              selfUserIdRef.current !== eventUserId
-              || conversationStateRef.current.get(conversationId) !== state
-            ) return;
-            const freshConversation = freshConversations.find((item) => item.id === conversationId);
-            surfaceCandidate(!freshConversation?.external_source);
-          }).catch(() => undefined);
+          const candidateKey = candidate.messageKey;
+          const pending: PendingExternalClassification = {
+            inFlight: false,
+            retry: () => undefined
+          };
+          pending.retry = () => {
+            if (pending.inFlight) return;
+            pending.inFlight = true;
+            void queryClient.fetchQuery({
+              queryKey: ["chat", "conversations"],
+              queryFn: listConversations,
+              // The cached list can still be fresh when the server creates an
+              // external conversation and immediately emits its first message.
+              // Force this classification read through to the authoritative API.
+              staleTime: 0
+            }).then((freshConversations) => {
+              if (
+                pendingExternalClassificationsRef.current.get(candidateKey) !== pending
+                || selfUserIdRef.current !== eventUserId
+                || conversationStateRef.current.get(conversationId) !== state
+              ) return;
+              pendingExternalClassificationsRef.current.delete(candidateKey);
+              const freshConversation = freshConversations.find((item) => item.id === conversationId);
+              surfaceCandidate(!freshConversation?.external_source);
+            }).catch(() => undefined).finally(() => {
+              pending.inFlight = false;
+            });
+          };
+          pendingExternalClassificationsRef.current.set(candidateKey, pending);
+          pending.retry();
           return;
         }
         surfaceCandidate(authoredByAccountUser && !externalConversation);
