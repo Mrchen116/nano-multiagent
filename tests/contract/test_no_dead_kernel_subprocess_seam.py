@@ -86,3 +86,13 @@ def test_active_test_fixtures_do_not_construct_removed_kernel_config() -> None:
             continue
         content = path.read_text(encoding="utf-8")
         assert legacy_name not in content, path.relative_to(_ROOT)
+
+
+def test_gateway_operator_docs_describe_pid_confirmation_not_health_readiness() -> None:
+    for relative_path in ("README.md", "docs/operator-runbook.md"):
+        content = _read(relative_path)
+        assert "health_url=" not in content, relative_path
+        assert "Gateway started (pid=<pid>)" in content, relative_path
+        assert "Log:" in content, relative_path
+        assert "IM service:" in content, relative_path
+        assert "不代表 runtime/channel ready" in content, relative_path
