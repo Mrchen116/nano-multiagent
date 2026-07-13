@@ -2484,9 +2484,16 @@ def stop_gateway(
 
     identity = _read_gateway_process_identity(config)
     if identity is None:
-        raise RuntimeError(
-            "gateway process identity is missing or invalid; evidence retained"
-        )
+        identity_path = _gateway_process_identity_path(config)
+        if identity_path.exists() or state is None:
+            raise RuntimeError(
+                "gateway process identity is missing or invalid; evidence retained"
+            )
+        identity = _upgrade_legacy_gateway_identity(config, resolved_pid)
+        if identity is None:
+            _remove_gateway_state(state_path)
+            _remove_gateway_pid(config, expected_pid=resolved_pid)
+            return f"STALE pid={resolved_pid} {success_target}"
     _assert_gateway_identity_static(config, resolved_pid, identity)
     if not _assert_gateway_process_instance(identity):
         _clear_gateway_lifecycle(config, resolved_state_path, identity)
@@ -4243,6 +4250,61 @@ def _assert_gateway_identity_static(
         raise RuntimeError("gateway process identity mismatch; evidence retained")
 
 
+def _upgrade_legacy_gateway_identity(
+    config: LocalConfig, pid: int
+) -> GatewayProcessIdentity | None:
+    """Safely give a matching pre-identity state file signal authority.
+
+    Legacy state remains forward-readable, but its PID is never trusted alone.
+    The live process must expose the exact supported Gateway module/config argv
+    before the current OS birth identity is durably adopted.
+    """
+    observed = _observe_gateway_process(pid)
+    if observed is None:
+        return None
+    module_indexes = [
+        index
+        for index in range(max(0, len(observed.argv) - 1))
+        if observed.argv[index : index + 2] == ("-m", "personal_assistant.main")
+    ]
+    if len(module_indexes) != 1:
+        raise RuntimeError("legacy Gateway identity mismatch; evidence retained")
+    argv = observed.argv[module_indexes[0] + 2 :]
+    config_path = str(config.source_path.resolve())
+    expected_prefix = ("--config",)
+    if not argv[:1] == expected_prefix or len(argv) < 3:
+        raise RuntimeError("legacy Gateway identity mismatch; evidence retained")
+    try:
+        argv_config = Path(argv[1]).resolve()
+    except (OSError, RuntimeError):
+        raise RuntimeError(
+            "legacy Gateway identity mismatch; evidence retained"
+        ) from None
+    cursor = 2
+    if argv[cursor : cursor + 1] == ("--im-service-url",):
+        if cursor + 1 >= len(argv) or not argv[cursor + 1].strip():
+            raise RuntimeError("legacy Gateway identity mismatch; evidence retained")
+        cursor += 2
+    if argv[cursor : cursor + 1] != ("--foreground",):
+        raise RuntimeError("legacy Gateway identity mismatch; evidence retained")
+    cursor += 1
+    if argv[cursor : cursor + 1] == ("--auto-bind",):
+        cursor += 1
+    if cursor != len(argv) or argv_config != config.source_path.resolve():
+        raise RuntimeError("legacy Gateway identity mismatch; evidence retained")
+
+    identity = GatewayProcessIdentity(
+        schema_version=1,
+        pid=pid,
+        process_start=observed.process_start,
+        config_path=config_path,
+        entry_module="personal_assistant.main",
+        argv=argv,
+    )
+    _write_gateway_process_identity(config, identity)
+    return identity
+
+
 def _assert_gateway_process_instance(identity: GatewayProcessIdentity) -> bool:
     """Return False for exit; raise when a live PID no longer matches identity."""
     observed = _observe_gateway_process(identity.pid)
@@ -4303,11 +4365,19 @@ def _remove_gateway_state(state_path: Path) -> None:
 
 
 def _pid_is_running(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    return True
+    """Return whether PID names a non-zombie process, without sending a signal."""
+    result = subprocess.run(
+        ["ps", "-p", str(pid), "-o", "stat="],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    process_stat = result.stdout.strip()
+    return (
+        result.returncode == 0
+        and bool(process_stat)
+        and not process_stat.startswith("Z")
+    )
 
 
 def _resolve_agent_tool_allowlist(

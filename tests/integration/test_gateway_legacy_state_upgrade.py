@@ -39,7 +39,7 @@ agents:
 channels: []
 gateway:
   startup_timeout_seconds: 5
-  shutdown_grace_seconds: 1
+  shutdown_grace_seconds: 5
   poll_interval_seconds: 0.05
 llm:
   default_model: anthropic:test-model

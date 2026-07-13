@@ -125,14 +125,12 @@ def test_foreground_runtime_persists_identity_before_entering_runtime(
     assert not (tmp_path / "gateway.pid").exists()
 
 
-@pytest.mark.parametrize("with_state", [False, True])
 def test_stop_fails_closed_without_process_identity(
-    with_state: bool,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     config = build_config(tmp_path)
-    _write_lifecycle(tmp_path, with_state=with_state, with_identity=False)
+    _write_lifecycle(tmp_path, with_state=False, with_identity=False)
     signals: list[tuple[int, int]] = []
     monkeypatch.setattr(main_module, "_pid_is_running", lambda _pid: True)
     monkeypatch.setattr(
@@ -149,7 +147,7 @@ def test_stop_fails_closed_without_process_identity(
 
     assert signals == []
     assert (tmp_path / "gateway.pid").exists()
-    assert (tmp_path / ".gateway-state.json").exists() is with_state
+    assert not (tmp_path / ".gateway-state.json").exists()
 
 
 @pytest.mark.parametrize("with_state", [False, True])
