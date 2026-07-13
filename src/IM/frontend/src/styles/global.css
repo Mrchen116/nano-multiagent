@@ -3114,6 +3114,54 @@ body {
   white-space: pre-wrap;
 }
 
+/* web_search → result list card */
+.chat-tool-detail-search {
+  background: oklch(0.07 0.01 240);
+  border-radius: 0.4rem;
+  overflow: hidden;
+}
+
+.chat-tool-detail-search-item {
+  padding: 0.5rem 0.65rem;
+  border-bottom: 1px solid oklch(0.14 0.01 240);
+}
+
+.chat-tool-detail-search-item:last-child {
+  border-bottom: 0;
+}
+
+.chat-tool-detail-search-title {
+  color: oklch(0.7 0.12 250);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.chat-tool-detail-search > .chat-tool-detail-search-title {
+  padding: 0.5rem 0.65rem;
+}
+
+.chat-tool-detail-search-url {
+  color: oklch(0.5 0.01 240);
+  font-family: var(--im-font-mono);
+  font-size: 0.68rem;
+  margin-top: 0.15rem;
+  overflow-wrap: anywhere;
+}
+
+.chat-tool-detail-search-snippet {
+  color: oklch(0.65 0.02 240);
+  font-size: 0.74rem;
+  line-height: 1.55;
+  margin-top: 0.3rem;
+  white-space: pre-wrap;
+}
+
+.chat-tool-detail-search-empty {
+  color: oklch(0.65 0.02 240);
+  font-size: 0.74rem;
+  padding: 0.5rem 0.65rem;
+}
+
 /* agent → prompt-before-result */
 .chat-tool-detail-agent-prompt {
   color: oklch(0.78 0.03 240);
