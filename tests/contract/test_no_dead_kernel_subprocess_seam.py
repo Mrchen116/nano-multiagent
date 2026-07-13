@@ -75,3 +75,14 @@ def test_tracked_active_sample_configs_do_not_contain_kernel_block() -> None:
         payload = yaml.safe_load(_read(relative_path))
         assert isinstance(payload, dict)
         assert "kernel" not in payload, relative_path
+
+
+def test_active_test_fixtures_do_not_construct_removed_kernel_config() -> None:
+    legacy_name = "Kernel" + "Config"
+    guard_path = Path(__file__).resolve()
+
+    for path in (_ROOT / "tests").rglob("*.py"):
+        if path.resolve() == guard_path:
+            continue
+        content = path.read_text(encoding="utf-8")
+        assert legacy_name not in content, path.relative_to(_ROOT)
