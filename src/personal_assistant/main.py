@@ -8,9 +8,11 @@ from datetime import datetime, timezone
 import json
 import logging
 import os
+import shlex
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import webbrowser
@@ -279,6 +281,35 @@ class GatewayRuntimeState:
     pid: int
     config_path: str
     log_path: str
+
+
+@dataclass(frozen=True, slots=True)
+class GatewayProcessIdentity:
+    """Persist the exact OS process instance allowed to receive lifecycle signals.
+
+    Args:
+        schema_version: Identity wire-schema version shared with e2e scripts.
+        pid: Foreground Gateway process id.
+        process_start: OS-reported process birth/start identity.
+        config_path: Resolved config path owned by this Gateway.
+        entry_module: Required Python module entry point.
+        argv: Expected arguments following the module entry point.
+    """
+
+    schema_version: int
+    pid: int
+    process_start: str
+    config_path: str
+    entry_module: str
+    argv: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _ObservedGatewayProcess:
+    """One read-only OS process observation used for ownership checks."""
+
+    process_start: str
+    argv: tuple[str, ...]
 
 
 def _default_pa_global_skill_names() -> tuple[str, ...]:
@@ -2321,13 +2352,18 @@ def run_gateway(
         or _install_default_signal_handlers(runtime)
     )
     restore = restore_signal_handlers()
-    # Write PID file so the background launcher can detect a live instance.
-    _write_gateway_pid(config)
+    identity = _build_gateway_process_identity(
+        config, im_service_url_override=im_service_url_override
+    )
+    # Identity is durable before PID becomes the launcher's readiness marker.
+    _write_gateway_process_identity(config, identity)
+    _write_gateway_pid(config, expected_pid=identity.pid)
     try:
         return runtime.run_forever()
     finally:
         restore()
-        _remove_gateway_pid(config)
+        _remove_gateway_pid(config, expected_pid=identity.pid)
+        _remove_gateway_process_identity(config, expected=identity)
 
 
 def launch_gateway_in_background(
@@ -2425,25 +2461,42 @@ def stop_gateway(
     if state is None:
         pid = _read_gateway_pid(config)
         if pid is None:
+            if _gateway_process_identity_path(config).exists():
+                raise RuntimeError(
+                    "gateway lifecycle identity exists without a valid PID; "
+                    "evidence retained"
+                )
             return f"NOT RUNNING config={config.source_path.name} state={state_path}"
-        if not _pid_is_running(pid):
-            _remove_gateway_pid(config)
-            return f"STALE pid={pid} pid_file={_gateway_pid_path(config)}"
-        return _stop_owned_gateway(
-            config=config,
-            pid=pid,
-            state_path=None,
-            success_target=f"pid_file={_gateway_pid_path(config)}",
+        resolved_pid = pid
+        success_target = f"pid_file={_gateway_pid_path(config)}"
+        resolved_state_path = None
+    else:
+        if Path(state.config_path).resolve() != config.source_path.resolve():
+            raise RuntimeError(
+                "gateway state config identity mismatch; evidence retained"
+            )
+        pid_file = _read_gateway_pid(config)
+        if pid_file != state.pid:
+            raise RuntimeError("gateway state/PID identity mismatch; evidence retained")
+        resolved_pid = state.pid
+        success_target = f"state={state_path}"
+        resolved_state_path = state_path
+
+    identity = _read_gateway_process_identity(config)
+    if identity is None:
+        raise RuntimeError(
+            "gateway process identity is missing or invalid; evidence retained"
         )
-    if not _pid_is_running(state.pid):
-        _remove_gateway_state(state_path)
-        _remove_gateway_pid(config)
-        return f"STALE pid={state.pid} state={state_path}"
+    _assert_gateway_identity_static(config, resolved_pid, identity)
+    if not _assert_gateway_process_instance(identity):
+        _clear_gateway_lifecycle(config, resolved_state_path, identity)
+        return f"STALE pid={resolved_pid} {success_target}"
     return _stop_owned_gateway(
         config=config,
-        pid=state.pid,
-        state_path=state_path,
-        success_target=f"state={state_path}",
+        pid=resolved_pid,
+        identity=identity,
+        state_path=resolved_state_path,
+        success_target=success_target,
     )
 
 
@@ -2451,6 +2504,7 @@ def _stop_owned_gateway(
     *,
     config: LocalConfig,
     pid: int,
+    identity: GatewayProcessIdentity,
     state_path: Path | None,
     success_target: str,
 ) -> str:
@@ -2458,21 +2512,28 @@ def _stop_owned_gateway(
     try:
         os.kill(pid, signal.SIGTERM)
     except ProcessLookupError:
-        _clear_gateway_lifecycle(config, state_path)
+        _clear_gateway_lifecycle(config, state_path, identity)
         return f"STALE pid={pid} {success_target}"
     # The process group is the owned Gateway lifecycle boundary.
+    if not _assert_gateway_process_instance(identity):
+        _clear_gateway_lifecycle(config, state_path, identity)
+        return f"STOPPED pid={pid} {success_target}"
     _kill_process_tree(pid, signal.SIGTERM)
     if _wait_for_pid_exit(config, pid):
-        _clear_gateway_lifecycle(config, state_path)
+        _clear_gateway_lifecycle(config, state_path, identity)
         return f"STOPPED pid={pid} {success_target}"
+    _require_gateway_process_instance(identity)
     try:
         os.kill(pid, signal.SIGKILL)
     except ProcessLookupError:
-        _clear_gateway_lifecycle(config, state_path)
+        _clear_gateway_lifecycle(config, state_path, identity)
+        return f"STOPPED pid={pid} {success_target} forced=true"
+    if not _assert_gateway_process_instance(identity):
+        _clear_gateway_lifecycle(config, state_path, identity)
         return f"STOPPED pid={pid} {success_target} forced=true"
     _kill_process_tree(pid, signal.SIGKILL)
     if _wait_for_pid_exit(config, pid):
-        _clear_gateway_lifecycle(config, state_path)
+        _clear_gateway_lifecycle(config, state_path, identity)
         return f"STOPPED pid={pid} {success_target} forced=true"
     raise RuntimeError(
         f"gateway pid={pid} did not exit after SIGKILL; lifecycle state retained"
@@ -2485,18 +2546,24 @@ def _wait_for_pid_exit(config: LocalConfig, pid: int) -> bool:
         return True
     deadline = time.monotonic() + config.gateway.shutdown_grace_seconds
     while True:
-        if time.monotonic() >= deadline:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
             return False
-        time.sleep(config.gateway.poll_interval_seconds)
+        time.sleep(min(config.gateway.poll_interval_seconds, remaining))
         if not _pid_is_running(pid):
             return True
 
 
-def _clear_gateway_lifecycle(config: LocalConfig, state_path: Path | None) -> None:
+def _clear_gateway_lifecycle(
+    config: LocalConfig,
+    state_path: Path | None,
+    identity: GatewayProcessIdentity,
+) -> None:
     """Remove lifecycle evidence after the owning process is confirmed gone."""
     if state_path is not None:
         _remove_gateway_state(state_path)
-    _remove_gateway_pid(config)
+    _remove_gateway_pid(config, expected_pid=identity.pid)
+    _remove_gateway_process_identity(config, expected=identity)
 
 
 class _KernelClientShim:
@@ -3968,23 +4035,29 @@ def _gateway_pid_path(config: LocalConfig) -> Path:
     return config.source_path.parent / "gateway.pid"
 
 
-def _write_gateway_pid(config: LocalConfig) -> None:
-    """Write the current process PID to ``gateway.pid``.
+def _write_gateway_pid(config: LocalConfig, *, expected_pid: int | None = None) -> None:
+    """Write the owned foreground process PID to ``gateway.pid``.
 
     Side Effects:
         Creates or overwrites ``gateway.pid`` in the runtime directory.
     """
-    _gateway_pid_path(config).write_text(str(os.getpid()), encoding="utf-8")
+    pid = os.getpid() if expected_pid is None else expected_pid
+    _gateway_pid_path(config).write_text(str(pid), encoding="utf-8")
 
 
-def _remove_gateway_pid(config: LocalConfig) -> None:
+def _remove_gateway_pid(
+    config: LocalConfig, *, expected_pid: int | None = None
+) -> None:
     """Remove ``gateway.pid`` if it exists.
 
     Side Effects:
         Deletes the PID file; silently succeeds if the file is already gone.
     """
+    pid_path = _gateway_pid_path(config)
+    if expected_pid is not None and _read_gateway_pid(config) != expected_pid:
+        return
     with suppress(FileNotFoundError):
-        _gateway_pid_path(config).unlink()
+        pid_path.unlink()
 
 
 def _read_gateway_pid(config: LocalConfig) -> int | None:
@@ -4000,6 +4073,202 @@ def _read_gateway_pid(config: LocalConfig) -> int | None:
         return int(pid_path.read_text(encoding="utf-8").strip())
     except (ValueError, OSError):
         return None
+
+
+def _gateway_process_identity_path(config: LocalConfig) -> Path:
+    """Return the shared public process-instance identity path."""
+    return config.source_path.parent / "gateway.identity.json"
+
+
+def _process_start_identity(pid: int) -> str | None:
+    """Read one process birth identity without sending it a signal."""
+    result = subprocess.run(
+        ["ps", "-p", str(pid), "-o", "lstart="],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    value = result.stdout.strip()
+    if result.returncode != 0 or not value:
+        return None
+    return " ".join(value.split())
+
+
+def _observe_gateway_process(pid: int) -> _ObservedGatewayProcess | None:
+    """Read one stable process start + argv observation without any signal."""
+    before = _process_start_identity(pid)
+    if before is None:
+        return None
+    result = subprocess.run(
+        ["ps", "-ww", "-p", str(pid), "-o", "command="],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    command = result.stdout.strip()
+    after = _process_start_identity(pid)
+    if result.returncode != 0 or not command or after is None:
+        return None
+    if before != after:
+        raise RuntimeError(f"gateway pid={pid} changed during identity observation")
+    try:
+        argv = tuple(shlex.split(command))
+    except ValueError as exc:
+        raise RuntimeError(f"gateway pid={pid} has unparseable argv") from exc
+    return _ObservedGatewayProcess(process_start=after, argv=argv)
+
+
+def _runtime_gateway_argv(
+    config: LocalConfig, *, im_service_url_override: str | None
+) -> tuple[str, ...]:
+    """Build the expected arguments following the module entry point."""
+    argv = ["--config", str(config.source_path.resolve())]
+    if isinstance(im_service_url_override, str) and im_service_url_override.strip():
+        argv.extend(["--im-service-url", im_service_url_override.strip()])
+    argv.append("--foreground")
+    if "--auto-bind" in sys.argv:
+        argv.append("--auto-bind")
+    return tuple(argv)
+
+
+def _build_gateway_process_identity(
+    config: LocalConfig, *, im_service_url_override: str | None
+) -> GatewayProcessIdentity:
+    """Build the durable identity for the current foreground process."""
+    pid = os.getpid()
+    process_start = _process_start_identity(pid)
+    if process_start is None:
+        raise RuntimeError(
+            f"cannot observe Gateway process start identity for pid={pid}"
+        )
+    return GatewayProcessIdentity(
+        schema_version=1,
+        pid=pid,
+        process_start=process_start,
+        config_path=str(config.source_path.resolve()),
+        entry_module="personal_assistant.main",
+        argv=_runtime_gateway_argv(
+            config, im_service_url_override=im_service_url_override
+        ),
+    )
+
+
+def _write_gateway_process_identity(
+    config: LocalConfig, identity: GatewayProcessIdentity
+) -> None:
+    """Atomically and durably publish the process-instance identity."""
+    path = _gateway_process_identity_path(config)
+    fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temp_path = Path(temp_name)
+    try:
+        remaining = memoryview(
+            json.dumps(asdict(identity), indent=2, sort_keys=True).encode()
+        )
+        os.fchmod(fd, 0o600)
+        while remaining:
+            written = os.write(fd, remaining)
+            if written <= 0:
+                raise OSError("Gateway identity write made no progress")
+            remaining = remaining[written:]
+        os.fsync(fd)
+        os.close(fd)
+        fd = -1
+        os.replace(temp_path, path)
+        temp_path = Path()
+        directory_fd = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    finally:
+        if fd >= 0:
+            os.close(fd)
+        if temp_path != Path():
+            temp_path.unlink(missing_ok=True)
+
+
+def _read_gateway_process_identity(
+    config: LocalConfig,
+) -> GatewayProcessIdentity | None:
+    """Read a valid identity payload, returning None for absent/malformed evidence."""
+    path = _gateway_process_identity_path(config)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        argv = payload["argv"]
+        if not isinstance(argv, list) or not all(isinstance(arg, str) for arg in argv):
+            return None
+        return GatewayProcessIdentity(
+            schema_version=int(payload["schema_version"]),
+            pid=int(payload["pid"]),
+            process_start=str(payload["process_start"]),
+            config_path=str(payload["config_path"]),
+            entry_module=str(payload["entry_module"]),
+            argv=tuple(argv),
+        )
+    except (FileNotFoundError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return None
+
+
+def _remove_gateway_process_identity(
+    config: LocalConfig, *, expected: GatewayProcessIdentity
+) -> None:
+    """Remove identity only while the path still contains the expected instance."""
+    if _read_gateway_process_identity(config) != expected:
+        return
+    with suppress(FileNotFoundError):
+        _gateway_process_identity_path(config).unlink()
+
+
+def _assert_gateway_identity_static(
+    config: LocalConfig, pid: int, identity: GatewayProcessIdentity
+) -> None:
+    """Reject persisted identity fields that do not claim this Gateway/config."""
+    config_args = [
+        index for index, value in enumerate(identity.argv) if value == "--config"
+    ]
+    valid_config_arg = (
+        len(config_args) == 1
+        and config_args[0] + 1 < len(identity.argv)
+        and Path(identity.argv[config_args[0] + 1]).resolve()
+        == config.source_path.resolve()
+    )
+    if (
+        identity.schema_version != 1
+        or identity.pid != pid
+        or Path(identity.config_path).resolve() != config.source_path.resolve()
+        or identity.entry_module != "personal_assistant.main"
+        or identity.argv.count("--foreground") != 1
+        or not valid_config_arg
+    ):
+        raise RuntimeError("gateway process identity mismatch; evidence retained")
+
+
+def _assert_gateway_process_instance(identity: GatewayProcessIdentity) -> bool:
+    """Return False for exit; raise when a live PID no longer matches identity."""
+    observed = _observe_gateway_process(identity.pid)
+    if observed is None:
+        return False
+    try:
+        module_index = observed.argv.index("-m")
+    except ValueError:
+        module_matches = False
+    else:
+        module_matches = (
+            module_index + 1 < len(observed.argv)
+            and observed.argv[module_index + 1] == identity.entry_module
+            and observed.argv[module_index + 2 :] == identity.argv
+        )
+    if observed.process_start != identity.process_start or not module_matches:
+        raise RuntimeError("gateway process identity mismatch; evidence retained")
+    return True
+
+
+def _require_gateway_process_instance(identity: GatewayProcessIdentity) -> None:
+    """Require the same live process instance before a further signal."""
+    if not _assert_gateway_process_instance(identity):
+        raise RuntimeError(
+            "gateway exited before next signal; lifecycle evidence retained"
+        )
 
 
 def _gateway_state_path(config: LocalConfig) -> Path:
@@ -4151,10 +4420,18 @@ def _wait_for_gateway_start(
                     "gateway exited before startup confirmation with return code "
                     f"{return_code}"
                 )
-            return
+            identity = _read_gateway_process_identity(config)
+            if identity is not None:
+                _assert_gateway_identity_static(config, process.pid, identity)
+                if not _assert_gateway_process_instance(identity):
+                    raise RuntimeError(
+                        "gateway exited before process identity confirmation"
+                    )
+                return
         time.sleep(config.gateway.poll_interval_seconds or 0.2)
     raise RuntimeError(
-        "timed out waiting for gateway startup confirmation (pid file never appeared)"
+        "timed out waiting for gateway startup confirmation "
+        "(pid or process identity never appeared)"
     )
 
 

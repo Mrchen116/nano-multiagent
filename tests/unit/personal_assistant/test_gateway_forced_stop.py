@@ -11,7 +11,11 @@ import pytest
 import personal_assistant.main as main_module
 from personal_assistant.main import stop_gateway
 
-from ._main_helpers import build_config
+from ._main_helpers import (
+    build_config,
+    observed_gateway_process,
+    write_gateway_identity,
+)
 
 
 def _write_lifecycle_files(tmp_path: Path, *, with_state: bool) -> tuple[Path, Path]:
@@ -40,9 +44,15 @@ def test_force_stop_treats_sigkill_esrch_as_confirmed_exit(
 ) -> None:
     config = build_config(tmp_path)
     pid_path, state_path = _write_lifecycle_files(tmp_path, with_state=with_state)
+    write_gateway_identity(config)
     signals: list[tuple[str, int]] = []
 
     monkeypatch.setattr(main_module, "_pid_is_running", lambda _pid: True)
+    monkeypatch.setattr(
+        main_module,
+        "_observe_gateway_process",
+        lambda _pid: observed_gateway_process(config),
+    )
 
     def _kill(_pid: int, sig: int) -> None:
         signals.append(("pid", sig))
@@ -79,10 +89,16 @@ def test_force_stop_retains_lifecycle_state_when_process_survives_sigkill(
 ) -> None:
     config = build_config(tmp_path)
     pid_path, state_path = _write_lifecycle_files(tmp_path, with_state=with_state)
+    write_gateway_identity(config)
     signals: list[tuple[str, int]] = []
     clock = iter([0.0, 1.0, 2.0, 3.0])
 
     monkeypatch.setattr(main_module, "_pid_is_running", lambda _pid: True)
+    monkeypatch.setattr(
+        main_module,
+        "_observe_gateway_process",
+        lambda _pid: observed_gateway_process(config),
+    )
     monkeypatch.setattr(
         main_module.os,
         "kill",
