@@ -26,6 +26,11 @@ interface ConversationNotificationState {
   notifiedMessageKeys: Set<string>;
 }
 
+interface PendingAgentMessage {
+  senderName: string;
+  createdAt?: string;
+}
+
 function normalizeText(value: unknown): string | null {
   if (typeof value !== "string") {
     return null;
@@ -182,6 +187,8 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
   const selfUserIdRef = useRef<string | null>(selfUserId);
   /** 按会话记录已处理 event_id，避免重复 toast。 */
   const conversationStateRef = useRef(new Map<string, ConversationNotificationState>());
+  /** message.completed 不带 sender；按 message id 保留 canonical created 事件的身份。 */
+  const pendingAgentMessagesRef = useRef(new Map<string, PendingAgentMessage>());
 
   useEffect(() => {
     pathnameRef.current = location.pathname;
@@ -190,6 +197,7 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
   useEffect(() => {
     selfUserIdRef.current = selfUserId;
     conversationStateRef.current.clear();
+    pendingAgentMessagesRef.current.clear();
     setToast(null);
   }, [selfUserId]);
 
@@ -218,7 +226,31 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
             }
             state.lastSeenEventId = event.eventId;
 
-            const candidate = buildNotificationCandidate(event);
+            const messageId = normalizeText(payload.message_id);
+            if (event.eventType === "message.created" && payload.sender_type === "agent" && messageId) {
+              pendingAgentMessagesRef.current.set(messageId, {
+                senderName: extractSenderName(payload),
+                createdAt: normalizeText(payload.created_at) ?? undefined
+              });
+            }
+
+            let candidate = buildNotificationCandidate(event);
+            const pendingAgent = messageId ? pendingAgentMessagesRef.current.get(messageId) : undefined;
+            if (event.eventType === "message.completed" && messageId && pendingAgent) {
+              const preview = extractPreview(event.eventType, payload);
+              if (preview) {
+                candidate = {
+                  messageKey: `message:${messageId}`,
+                  senderName: pendingAgent.senderName,
+                  preview,
+                  createdAt: pendingAgent.createdAt
+                };
+              }
+              pendingAgentMessagesRef.current.delete(messageId);
+              void queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
+            } else if (event.eventType === "message.discarded" && messageId) {
+              pendingAgentMessagesRef.current.delete(messageId);
+            }
             if (candidate) {
               queryClient.setQueryData<Conversation[] | undefined>(["chat", "conversations"], (previous) =>
                 patchConversationPreview(previous, conversationId, candidate.preview, candidate.createdAt)

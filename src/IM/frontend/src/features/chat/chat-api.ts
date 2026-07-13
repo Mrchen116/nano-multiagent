@@ -1,27 +1,21 @@
 // Canonical REST client for the Chat surface. All calls share authFetch so
 // token refresh and retry semantics stay owned by the auth transport.
 
-import { authFetch } from "../auth/auth-fetch";
+import { authFetch, authFetchJson } from "../auth/auth-fetch";
 import { useAuthStore } from "../auth/auth-store";
 import type {
   Actor,
   Attachment,
   Conversation,
-  MentionCandidate,
   Message
 } from "./chat-types";
 
-async function jsonOrThrow<T>(res: Response, label: string): Promise<T> {
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`${label} failed: ${res.status} ${body}`);
-  }
-  return (await res.json()) as T;
-}
-
 export async function listConversations(): Promise<Conversation[]> {
-  const res = await authFetch("/im/v1/conversations");
-  const payload = await jsonOrThrow<{ items: Conversation[] }>(res, "listConversations");
+  const payload = await authFetchJson<{ items: Conversation[] }>(
+    "/im/v1/conversations",
+    undefined,
+    "listConversations"
+  );
   return payload.items;
 }
 
@@ -46,8 +40,7 @@ export async function listMessages(
   if (opts.markAsRead) params.set("mark_as_read", "true");
   const qs = params.toString();
   const url = `/im/v1/conversations/${encodeURIComponent(conversationId)}/messages${qs ? `?${qs}` : ""}`;
-  const res = await authFetch(url);
-  return jsonOrThrow<ListMessagesResult>(res, "listMessages");
+  return authFetchJson<ListMessagesResult>(url, undefined, "listMessages");
 }
 
 export interface CreateMessageRequest {
@@ -69,11 +62,11 @@ export async function createMessage(req: CreateMessageRequest): Promise<Message>
     content: req.content,
     attachments: req.attachments ?? []
   };
-  const res = await authFetch(`/im/v1/conversations/${encodeURIComponent(req.conversationId)}/messages`, {
-    method: "POST",
-    body: JSON.stringify(body)
-  });
-  return jsonOrThrow<Message>(res, "createMessage");
+  return authFetchJson<Message>(
+    `/im/v1/conversations/${encodeURIComponent(req.conversationId)}/messages`,
+    { method: "POST", body: JSON.stringify(body) },
+    "createMessage"
+  );
 }
 
 export interface CreateConversationRequest {
@@ -88,11 +81,11 @@ export async function createConversation(req: CreateConversationRequest): Promis
     { type: "user", id: self.id },
     ...req.agentIds.map((id): Actor => ({ type: "agent", id }))
   ];
-  const res = await authFetch("/im/v1/conversations", {
-    method: "POST",
-    body: JSON.stringify({ title: req.title, participants })
-  });
-  return jsonOrThrow<Conversation>(res, "createConversation");
+  return authFetchJson<Conversation>(
+    "/im/v1/conversations",
+    { method: "POST", body: JSON.stringify({ title: req.title, participants }) },
+    "createConversation"
+  );
 }
 
 /**
@@ -104,11 +97,11 @@ export async function forkConversation(
   conversationId: string,
   forkMessageId: string
 ): Promise<Conversation> {
-  const res = await authFetch(`/im/v1/conversations/${encodeURIComponent(conversationId)}/fork`, {
-    method: "POST",
-    body: JSON.stringify({ fork_message_id: forkMessageId })
-  });
-  return jsonOrThrow<Conversation>(res, "forkConversation");
+  return authFetchJson<Conversation>(
+    `/im/v1/conversations/${encodeURIComponent(conversationId)}/fork`,
+    { method: "POST", body: JSON.stringify({ fork_message_id: forkMessageId }) },
+    "forkConversation"
+  );
 }
 
 // ─── Group settings (feat-438): rename / add / remove / dissolve ─────────────
@@ -118,11 +111,11 @@ export async function updateConversation(
   conversationId: string,
   patch: { title: string }
 ): Promise<Conversation> {
-  const res = await authFetch(`/im/v1/conversations/${encodeURIComponent(conversationId)}`, {
-    method: "PATCH",
-    body: JSON.stringify(patch)
-  });
-  return jsonOrThrow<Conversation>(res, "updateConversation");
+  return authFetchJson<Conversation>(
+    `/im/v1/conversations/${encodeURIComponent(conversationId)}`,
+    { method: "PATCH", body: JSON.stringify(patch) },
+    "updateConversation"
+  );
 }
 
 /** Add agent participants to an existing group; returns the refreshed snapshot. */
@@ -131,11 +124,11 @@ export async function addParticipants(
   agentIds: string[]
 ): Promise<Conversation> {
   const participants: Actor[] = agentIds.map((id): Actor => ({ type: "agent", id }));
-  const res = await authFetch(
+  return authFetchJson<Conversation>(
     `/im/v1/conversations/${encodeURIComponent(conversationId)}/participants`,
-    { method: "POST", body: JSON.stringify({ participants }) }
+    { method: "POST", body: JSON.stringify({ participants }) },
+    "addParticipants"
   );
-  return jsonOrThrow<Conversation>(res, "addParticipants");
 }
 
 /**
@@ -168,13 +161,7 @@ export async function deleteConversation(conversationId: string): Promise<void> 
   }
 }
 
-/**
- * Mention candidates = the agents that participate in this conversation (per
- * spec Q8: candidates only come from the current user's own agents and the
- * conversation already restricts to those). The agent list endpoint returns
- * every agent the user owns; we intersect with the conversation participants
- * so the picker shows exactly the agents the message can actually mention.
- */
+/** Agent list row shared by the Chat workspace's authoritative agent snapshot. */
 export interface AgentRow {
   agent_id: string;
   display_name: string;
@@ -182,34 +169,4 @@ export interface AgentRow {
   description?: string;
   /** IM user UUID for ``agent:<agent_id>`` — used to map WS sender_user_id → display_name. */
   user_id?: string | null;
-}
-
-function initialsFrom(name: string): string {
-  const cleaned = name.trim();
-  if (!cleaned) return "?";
-  const parts = cleaned.split(/\s+/);
-  if (parts.length >= 2) return (parts[0]!.charAt(0) + parts[1]!.charAt(0)).toUpperCase();
-  return cleaned.slice(0, 2).toUpperCase();
-}
-
-export async function listMentionCandidates(opts: {
-  conversation: { participants: { type: string; id: string; is_stale?: boolean | null }[] };
-}): Promise<MentionCandidate[]> {
-  const res = await authFetch("/im/v1/agents");
-  const rows = await jsonOrThrow<AgentRow[]>(res, "listMentionCandidates");
-  const allowed = new Set(
-    opts.conversation.participants
-      .filter((p) => p.type === "agent" && !p.is_stale)
-      .map((p) => p.id.replace(/^agent:/, ""))
-  );
-  return rows
-    .filter((r) => allowed.has(r.agent_id.replace(/^agent:/, "")))
-    .map((r) => ({
-      agent_id: r.agent_id,
-      display_name: r.display_name,
-      initials: initialsFrom(r.display_name),
-      // Backend agent list does not yet carry online/offline; surface "offline"
-      // by default and let WS `agent.status_changed` patch it in once live.
-      status: "offline" as const
-    }));
 }

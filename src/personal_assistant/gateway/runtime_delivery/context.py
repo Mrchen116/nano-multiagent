@@ -411,9 +411,13 @@ class RunDeliveryContextStore:
                 reply_target_chat_id=reply_target_chat_id,
                 reply_thread_id=reply_thread_id,
                 feishu_message_id=feishu_message_id,
+                # Web relay owns the provisional Web IM bubble, so a protocol
+                # silence token must tombstone it instead of surviving history.
+                # Other shadow transports retain their pre-existing literal policy.
                 visibility_policy=(
                     ReplyVisibilityPolicy.SUPPRESS_PROTOCOL_TOKENS
                     if message.is_group
+                    or message.channel_name == "web_relay"
                     or delivery_target.kind == "owner_direct"
                     or protocol.external_source is not None
                     else ReplyVisibilityPolicy.LITERAL_TEXT

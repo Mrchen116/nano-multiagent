@@ -22,18 +22,20 @@ from typing import Any
 import pytest
 
 from IM.application.event_bridge import EventBridge
+from IM.application.metrics_service import MetricsService
+from IM.application.relay_service import RelayService
 from IM.infra.db import connect, initialize_schema
 from IM.infra.gateway_persistence import GatewayConversationPersistence
 from IM.infra.repositories import (
     ConversationRepository,
     EventRepository,
     MessageRepository,
+    UsageMetricsRepository,
     UserRepository,
 )
 from IM.ws.gateway_handler import GatewayHandler
-from IM.application.metrics_service import MetricsService
-from IM.application.relay_service import RelayService
-from IM.infra.repositories import UsageMetricsRepository
+from personal_assistant.channels.base import InboundMessage
+from personal_assistant.gateway.inbound_pipeline import RelayLifecycleUpdate
 from personal_assistant.gateway.runtime_delivery.context import (
     OwnerDirectTarget,
     RunDeliveryContext,
@@ -637,6 +639,80 @@ def test_group_no_reply_leaves_zero_agent_rows_in_fk_enforced_db(
             visibility_policy=ReplyVisibilityPolicy.SUPPRESS_PROTOCOL_TOKENS,
         )
     )
+    fake_manager = _FakeIMManager(handler)
+    observer = build_kernel_event_observer(
+        im_connection_manager_factory=lambda: fake_manager,
+        run_context_store=run_context_store,
+    )
+
+    async def _run() -> None:
+        started = observer(
+            {"run_id": run_id, "event": "run_status", "status": "running"}
+        )
+        assert asyncio.iscoroutine(started)
+        await started
+        observer(
+            {
+                "run_id": run_id,
+                "event": "assistant_message",
+                "message_id": "kernel-msg-quiet",
+                "content": "NO_REPLY",
+            }
+        )
+        ended = observer({"run_id": run_id, "event": "turn_end", "completed": True})
+        assert asyncio.iscoroutine(ended)
+        await ended
+
+    asyncio.run(_run())
+
+    assert MessageRepository(connection).list_messages(conversation_id=conv.id) == []
+    assert [payload["kind"] for _, payload in fake_manager.sent_frames] == [
+        "turn_start",
+        "message_discarded",
+    ]
+
+
+def test_direct_web_no_reply_leaves_zero_agent_rows_in_fk_enforced_db(
+    tmp_path: Path,
+) -> None:
+    """Direct Web IM silence is discarded before it can survive a history refresh."""
+    connection, handler = _build_im_db_and_handler(tmp_path)
+    users = UserRepository(connection)
+    owner = users.create_user(username="direct-user", display_name="Direct User")
+    agent_user = users.create_user(username="agent:quiet", display_name="Quiet")
+    conv = ConversationRepository(connection).create_conversation(
+        title="quiet direct", participant_ids=[owner.id, agent_user.id]
+    )
+    asyncio.run(
+        handler.handle_message(
+            websocket=_NullWebSocket(),
+            message_type="node.register",
+            payload={"node_id": "node-1", "agents": ["quiet"], "capabilities": {}},
+        )
+    )
+
+    run_id = "run-direct-web-no-reply-1"
+    run_context_store = RunDeliveryContextStore()
+    context = run_context_store.seed_from_lifecycle(
+        message=InboundMessage(
+            channel_name="web_relay",
+            text="stay quiet",
+            external_user_id=owner.id,
+            external_chat_id=conv.id,
+            is_group=False,
+            agent_id="quiet",
+            metadata={"relay_task_id": "relay-1", "message_id": "user-msg-1"},
+        ),
+        update=RelayLifecycleUpdate(
+            phase="accepted",
+            agent_id="quiet",
+            session_key=f"web:{owner.id}:{conv.id}:quiet",
+            run_id=run_id,
+            kernel_session_id="sess-direct-1",
+        ),
+        owner_user_id=owner.id,
+    )
+    assert context is not None
     fake_manager = _FakeIMManager(handler)
     observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: fake_manager,
