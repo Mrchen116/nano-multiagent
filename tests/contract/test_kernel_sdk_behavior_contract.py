@@ -372,8 +372,7 @@ async def test_session_interrupt_suppresses_chunk_blocked_in_message_hook(
             "completed"
         )
         continued_context = " ".join(
-            _flatten_msg_text(message)
-            for message in captured_requests[-1].messages
+            _flatten_msg_text(message) for message in captured_requests[-1].messages
         )
         assert "racy-late-output" not in continued_context
     finally:
