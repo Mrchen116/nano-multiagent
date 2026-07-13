@@ -8,13 +8,13 @@ Web IM 只保留无版本后缀的 canonical Chat；绑定确认与 Agent 详情
 
 ## 退出标准
 
-- [ ] 原 `features/chat/v2/` current 文件经 `git mv` 提升到 `features/chat/`，所有生产与测试 import/query key 使用 canonical 命名。
-- [ ] legacy `im-chat-api.ts`、`chat-api.ts`、`mock-chat-api.ts`、`types.ts`、旧 ConversationList/MessagePane 及只服务旧路径的测试删除，不保留 shim。
-- [ ] 绑定确认只消费 token 一次；随后 `/me` 替换同 user auth snapshot，并等待六组 owner-derived prefix 以 `refetchType:'all'` 收敛后导航；reconciliation 失败重试不再 confirm。
-- [ ] Agent 详情单聊使用 canonical `createConversation`，Agent config 自己归一化 items envelope。
-- [ ] 生产源码无 `VITE_CHAT_API_MODE`、`chat-v2` query key、legacy import 或第二个 user-stream socket；README 与真实入口一致。
-- [ ] `npm run test`、`npm run build`、相关 Python contract、`pytest -m "not e2e"`、`scripts/e2e-critical.sh` 全绿。
-- [ ] 真栈预热 Chat/Settings cache 后，绑定 Node/Agent/默认入口立即可见；M1 实时旅程及桌面/移动 Chat 回归证据持久化在 `evidence/`。
+- [x] 原 `features/chat/v2/` current 文件经 `git mv` 提升到 `features/chat/`，所有生产与测试 import/query key 使用 canonical 命名。
+- [x] legacy `im-chat-api.ts`、`chat-api.ts`、`mock-chat-api.ts`、`types.ts`、旧 ConversationList/MessagePane 及只服务旧路径的测试删除，不保留 shim。
+- [x] 绑定确认只消费 token 一次；随后 `/me` 替换同 user auth snapshot，并等待六组 owner-derived prefix 以 `refetchType:'all'` 收敛后导航；reconciliation 失败重试不再 confirm。
+- [x] Agent 详情单聊使用 canonical `createConversation`，Agent config 自己归一化 items envelope。
+- [x] 生产源码无 `VITE_CHAT_API_MODE`、`chat-v2` query key、legacy import 或第二个 user-stream socket；README 与真实入口一致。
+- [x] `npm run test`、`npm run build`、相关 Python contract、`pytest -m "not e2e"`、`scripts/e2e-critical.sh` 全绿。
+- [x] 真栈预热 Chat/Settings cache 后，绑定 Node/Agent/默认入口立即可见；M1 实时旅程及桌面/移动 Chat 回归证据持久化在 `evidence/`。
 
 ## 测试策略
 
@@ -72,7 +72,7 @@ N/A：design 明确不改变 UI/交互/视觉，不产 prototype；以当前真�
 - 步骤：先补 auth replaceUser 与 BindConfirmPage 集成红测；在 settings client 增加窄 bind 请求，页面持有不可重复 confirm result 与可重试 reconciliation，严格执行 `/me`、同用户 snapshot replace、六组 cache refetch settled、导航。
 - 验证：auth-store、settings API、bind 页面集成测试；失败重试断言 confirm 只调用一次且导航在全部 refetch settled 后发生。
 
-### R3 — 零残留收尾与全量真栈验收（DOING）
+### R3 — 零残留收尾与全量真栈验收（DONE）
 
 - 步骤：以 repository-wide guard 验红 README/测试残留，清理过期 mock 与版本叙事；完成全量门禁及持久化真栈证据，并复验已迁移的 Agent 详情 canonical 单聊与 Agent envelope normalization。
 - 验证：Agent detail/config 测试、全量 Vitest/build/Python contract/non-e2e/e2e-critical；预热 cache 后真实绑定、Agent 单聊、M1 实时旅程、桌面/移动 Chat 与 console/network 检查。

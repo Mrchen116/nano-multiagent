@@ -44,5 +44,18 @@
 
 ## R3 — 零残留收尾与全量真栈验收
 
-- Status: DOING
-- Context: 待以 repository-wide guard 锁定 README、测试命名与 legacy symbol 零残留，然后完成交付门禁及 M1 真栈旅程。
+- Status: DONE
+- Context: 实现删除后，README 仍宣称 Chat 可通过 env 切换 legacy/mock client，production 注释与部分 Agent/Chat 测试仍保留 `im-chat-api`、版本路径与 `createDirectConversation` 假 mock；这些残留会继续误导维护者，也让删除缺少 repository-wide 门禁。
+- Decision: 扩展 Python architecture contract，锁定 legacy 路径、生产叙事与 README 零残留；把 README 改为 canonical `authFetch` + shared user-stream 真实数据面，清除测试的旧直聊 mock 与版本命名。随后在真浏览器回归 Agent 详情单聊、实时消息、toast、status/recovery、真实签名过期 JWT refresh 与桌面/移动布局。
+- Rationale: TypeScript 同目录 guard 证明 Chat 局部结构，Python contract 覆盖 production tree 与 README，二者共同阻止 compatibility surface 回流；真栈验证则覆盖静态 guard 无法证明的 transport/session/cache 首屏一致性。
+- Evidence:
+  - Tests: `npm run test -- --reporter=dot`，62 files / 574 tests passed；`npm run build` passed；`pytest -q tests/contract/test_im_frontend_user_stream_ownership.py`，3 passed；`pytest -m "not e2e"`，3499 passed / 1 skipped / 23 deselected。
+  - Entry: Agent 详情 `Open chat` 真实发出 canonical `POST /im/v1/conversations` 201，并进入新 direct conversation；两次消息发送均 201，桌面与移动实时收到完整 agent reply、thinking 与 token usage。
+  - Frontend State Matrix: desktop/mobile/default/empty/online/offline/reconnected/notification 已真浏览器覆盖；loading/error/disabled/submitting/permission/long-content/missing data 由全量 Vitest 覆盖。
+  - Browser QA: `evidence/r3-browser-report.md`；普通旅程 console 0 error/0 warning、请求均 2xx；过期 JWT 专项观察到预期首轮 401、单次 refresh 200 与所有 replay 200。
+  - E2E/Regression: `scripts/e2e-critical.sh -m "not slow" -q` 为 15 passed / 2 deselected；`scripts/e2e-critical.sh -m slow --timeout=240 -q` 为 1 passed / 1 xfailed（仓库已声明 #126 heartbeat xfail）/ 15 deselected。默认 90 秒 timeout 会在该测试自身 180 秒等待前中断，故提高 timeout 让预期 xfail 正常收口。
+  - Visual/Interaction: `evidence/r3-agent-detail-direct-chat.png`、`evidence/r3-realtime-desktop.png`、`evidence/r3-realtime-mobile.png`、`evidence/r3-agents-offline.png`、`evidence/r3-agents-reconnected.png` 已人工复核，未见路径迁移造成的布局/交互 drift。
+  - Prototype Comparison: N/A（design 明确无 prototype/视觉变化，以当前真实 Web IM 为基线）。
+- Rollback: 回退 C2 `c8aaed90` 恢复旧 README/测试叙事；C1 保留 repository-wide 零残留契约红测。R1/R2 可按各自 progress 独立回退。
+- Commits: C1=`b47441cc`, C2=`c8aaed90`, C3=本提交。
+- Next: rebase 最新 unit branch，复跑合并前门禁，合入并清理 milestone worktree/branch。
