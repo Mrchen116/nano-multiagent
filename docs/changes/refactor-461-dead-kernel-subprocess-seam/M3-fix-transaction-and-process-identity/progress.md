@@ -24,7 +24,20 @@
 
 ## R2 — 统一 Gateway PID/exit 确认状态机
 
-- Status: TODO
+- Context: default start waiter 只看 PID path 存在，malformed residue、mismatched PID 或 PID 出现后 child 退出都可写入成功 state；stop 两条分支在发出 SIGKILL 后立即删除证据并回报成功。
+- Decision: spawn 前删除不可解析 residue；default waiter 要求 PID 可解析、等于 `process.pid`，并在读取前后确认 child 存活。state/PID-only stop 共用 `_stop_owned_gateway`：TERM 后 bounded confirm，必要时按 PID→process-group 顺序 KILL，再次 bounded confirm；SIGKILL ESRCH 直接视作 confirmed exit，仍存活则抛出明确失败并保留文件。
+- Rationale: path existence 和 signal delivery 都不是生命周期事实；成功状态必须由同一 launched identity 加可观测存活/退出共同建立。
+- Evidence:
+  - Tests: `pytest -q tests/unit/personal_assistant/test_gateway_launch.py tests/unit/personal_assistant/test_gateway_forced_stop.py tests/unit/personal_assistant/test_gateway_pid_lifecycle.py` → 25 passed。
+  - Entry: 公共 `launch_gateway_in_background` 覆盖 malformed/mismatch/invalid/dead-after-PID；公共 `stop_gateway` 参数化覆盖 state 与 PID-only 的 KILL ESRCH/post-KILL alive。
+  - Frontend State Matrix: N/A，非前端。
+  - Browser QA: N/A，非前端。
+  - E2E/Regression: signal order 与 lifecycle evidence retain/cleanup 均有断言；ruff check/format 窄门禁通过。
+  - Visual/Interaction: N/A，非前端。
+  - Prototype Comparison: N/A，design 无前端 prototype/reference。
+- Debug note: green 阶段旧 force 用例只提供一次 grace 时钟；新 helper 在 KILL 后再次取 deadline 触发 StopIteration。按 systematic-debugging 确认是夹具时钟而非 signal failure 后，将 helper 改为先即时确认 liveness，已退出时无需创建无意义 deadline。
+- Rollback: 回退 C2 恢复重复 stop 分支及宽松 start waiter；回退 C1 删除严格 identity/exit 门禁。
+- Commits: `550c0705` (C1), `869eb016` (C2)
 
 ## R3 — e2e Gateway ownership identity 与 fail-atomic teardown
 
