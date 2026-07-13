@@ -15,6 +15,7 @@ Design (refactor-387 M1, refactor-462):
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import os
 from dataclasses import dataclass, replace
@@ -587,6 +588,7 @@ def _build_kernel_base(
 
     async def _finalize_resources() -> None:
         await directory.close_all()
+        await asyncio.to_thread(writer.close)
         seen: set[int] = set()
         for client in owned_llm_clients:
             identity = id(client)
@@ -1649,9 +1651,7 @@ class Kernel:
         finalize_resources = getattr(
             self._c, "finalize_resources", self._c.directory.close_all
         )
-        await _asyncio.to_thread(
-            registry.shutdown, finalize=finalize_resources
-        )
+        await _asyncio.to_thread(registry.shutdown, finalize=finalize_resources)
 
     def close(self) -> None:
         """Shut down background loops (sync-compat wrapper for non-async consumers).

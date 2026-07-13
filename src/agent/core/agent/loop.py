@@ -397,6 +397,8 @@ class AgentLoop:
                         run_id=run_id,
                         source="llm",
                     ):
+                        if controller is not None and controller.is_aborted:
+                            break
                         # Terminal metadata message: empty content with finish_reason
                         if llm_msg.content == "" and llm_msg.finish_reason is not None:
                             finish_reason = llm_msg.finish_reason
@@ -544,6 +546,20 @@ class AgentLoop:
                         # bubble (决策6). An empty result commits the terminal: subsequent
                         # injects are rejected and fall back to a new run.
                         if controller is not None:
+                            if controller.is_aborted:
+                                controller.commit_terminal()
+                                yield Message(
+                                    message_id=make_message_id(),
+                                    role="turn_meta",
+                                    content="",
+                                    metadata={
+                                        "stop_reason": "aborted",
+                                        "usage": turn_usage,
+                                        "completed": False,
+                                        "tool_iterations": api_round_count,
+                                    },
+                                )
+                                return
                             late_pending = controller.try_commit_terminal()
                             if late_pending:
                                 for pending in late_pending:

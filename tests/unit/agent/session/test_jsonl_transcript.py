@@ -50,6 +50,30 @@ def test_reopened_transcript_first_append_extends_persisted_tail(
     ]
 
 
+def test_reopened_first_append_resolves_tail_without_materializing_messages(
+    tmp_path: Path, monkeypatch
+) -> None:
+    transcript, files, writer, ref = _build_transcript(tmp_path)
+    transcript.append_external(
+        ExternalMessage(role="user", content="first", message_id="msg_first")
+    )
+    reopened = JsonlTranscript(ref=ref, files=files, writer=writer)
+
+    def _unexpected_materialize(*_args, **_kwargs):  # noqa: ANN002, ANN003, ANN202
+        raise AssertionError("cold append must not materialize Message history")
+
+    monkeypatch.setattr(
+        "agent.core.session.transcript._materialize", _unexpected_materialize
+    )
+
+    reopened.append_external(
+        ExternalMessage(role="assistant", content="second", message_id="msg_second")
+    )
+
+    turns = [entry for entry in _raw_entries(files, ref) if entry["type"] == "turn"]
+    assert turns[-1]["parent_uuid"] == "msg_first"
+
+
 def test_recovery_control_entry_never_becomes_persisted_tail(tmp_path: Path) -> None:
     transcript, files, _writer, ref = _build_transcript(tmp_path)
     transcript.append_messages(
