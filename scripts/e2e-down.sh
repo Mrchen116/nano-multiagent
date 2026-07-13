@@ -175,7 +175,9 @@ expected = GatewayLifecycleEvidenceSnapshot(
     pid=payload["pid"],
     files=tuple(GatewayLifecycleEvidenceFile(**item) for item in payload["files"]),
 )
-clear_gateway_lifecycle_evidence(Path(sys.argv[1]), expected)
+clear_gateway_lifecycle_evidence(
+    Path(sys.argv[1]), expected, allow_runtime_cleared=True
+)
 PY
 }
 

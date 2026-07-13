@@ -4320,7 +4320,10 @@ def capture_gateway_lifecycle_evidence(
 
 
 def clear_gateway_lifecycle_evidence(
-    root: Path, expected: GatewayLifecycleEvidenceSnapshot
+    root: Path,
+    expected: GatewayLifecycleEvidenceSnapshot,
+    *,
+    allow_runtime_cleared: bool = False,
 ) -> None:
     """Conditionally clear one complete, unchanged Gateway evidence revision.
 
@@ -4328,10 +4331,35 @@ def clear_gateway_lifecycle_evidence(
         root: Directory containing worktree Gateway lifecycle evidence.
         expected: Exact revision previously returned by
             :func:`capture_gateway_lifecycle_evidence`.
+        allow_runtime_cleared: Accept the foreground runtime's normal exit
+            state where the unchanged external PID remains but every
+            runtime-owned internal evidence file has already been removed.
 
     Raises:
         RuntimeError: When any evidence path changed before the commit point.
     """
+    root = root.resolve()
+    current_files = tuple(
+        _snapshot_gateway_evidence_file(root, item.name) for item in expected.files
+    )
+    if current_files != expected.files:
+        expected_by_name = {item.name: item for item in expected.files}
+        current_by_name = {item.name: item for item in current_files}
+        external_unchanged = (
+            current_by_name[".gateway.pid"] == expected_by_name[".gateway.pid"]
+        )
+        internal_cleared = all(
+            not current_by_name[name].exists
+            for name in (
+                "gateway.pid",
+                "gateway.identity.json",
+                ".gateway-state.json",
+            )
+        )
+        if not (allow_runtime_cleared and external_unchanged and internal_cleared):
+            raise RuntimeError("Gateway lifecycle evidence changed before cleanup")
+        (root / ".gateway.pid").unlink()
+        return
     current = capture_gateway_lifecycle_evidence(root, expected.pid)
     if current != expected:
         raise RuntimeError("Gateway lifecycle evidence changed before cleanup")
