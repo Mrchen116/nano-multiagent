@@ -1879,7 +1879,6 @@ class GatewayRuntime:
         """
 
         self._ready_event.clear()
-        self._shutdown_requested.clear()
         return asyncio.run(self._run_until_shutdown())
 
     async def _run_until_shutdown(self) -> int:
