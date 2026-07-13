@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from agent.core.session.directory import SessionDirectory
+from agent.core.session.conversation import ConversationSession
 from agent.core.session.jsonl_files import JsonlSessionFiles
 from agent.core.session.jsonl_writer import JsonlWriter
 from agent.core.session.types import (
@@ -14,6 +15,7 @@ from agent.core.session.types import (
     SessionAddressMismatch,
     SessionRef,
 )
+from agent.core.types import TurnResult
 
 
 class _FakeConversation:
@@ -24,6 +26,20 @@ class _FakeConversation:
 
     async def close(self) -> None:
         self.closed = True
+
+
+class _ImmediateEngine:
+    async def execute_turn(self, state, request):  # noqa: ANN001, ANN201
+        return TurnResult(
+            session_id=state.ref.session_id,
+            turn_id="turn-test",
+            messages=(),
+            completed=True,
+            stop_reason="end_turn",
+        )
+
+    async def compact(self, state):  # noqa: ANN001, ANN201
+        return None
 
 
 def _directory(tmp_path: Path) -> SessionDirectory:
@@ -122,6 +138,52 @@ def test_find_by_metadata_requires_exact_parent_scope(tmp_path: Path) -> None:
 
     assert found_root == root.ref
     assert found_nested == nested.ref
+
+
+def test_find_by_metadata_does_not_materialize_message_history(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    directory = _directory(tmp_path)
+    expected = directory.create(
+        NewSession(workspace_root=tmp_path, metadata={"agent_id": "target"})
+    )
+
+    def _unexpected_load(*_args, **_kwargs):  # noqa: ANN002, ANN003, ANN202
+        raise AssertionError("metadata lookup must not materialize transcript history")
+
+    monkeypatch.setattr("agent.core.session.transcript.JsonlTranscript.load", _unexpected_load)
+
+    assert directory.find_by_metadata(
+        workspace_root=tmp_path,
+        parent_session_id=None,
+        query={"agent_id": "target"},
+    ) == expected.ref
+
+
+@pytest.mark.asyncio
+async def test_directory_evicts_quiescent_loaded_payloads_over_capacity(
+    tmp_path: Path,
+) -> None:
+    directory = SessionDirectory(
+        files=JsonlSessionFiles(data_dir=tmp_path / "data"),
+        writer=JsonlWriter(),
+        conversation_factory=lambda ref, transcript: ConversationSession(
+            ref=ref,
+            transcript=transcript,
+            engine=_ImmediateEngine(),
+        ),
+        max_loaded_conversations=1,
+    )
+    first = directory.create(NewSession(workspace_root=tmp_path))
+    second = directory.create(NewSession(workspace_root=tmp_path))
+
+    from agent.core.session.types import TurnRequest
+
+    await first.submit_turn(TurnRequest(parts=({"type": "text", "text": "one"},)))
+    await second.submit_turn(TurnRequest(parts=({"type": "text", "text": "two"},)))
+
+    assert first.is_payload_loaded is False
+    assert second.is_payload_loaded is True
 
 
 @pytest.mark.asyncio
