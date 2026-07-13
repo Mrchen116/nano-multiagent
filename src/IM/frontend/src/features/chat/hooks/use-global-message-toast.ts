@@ -115,16 +115,22 @@ function patchConversationPreview(
   if (!items) {
     return items;
   }
-  const patched = items.map((item) =>
-    item.id === conversationId
-      ? {
-          ...item,
-          last_message_preview: preview,
-          last_message_at: createdAt ?? item.last_message_at,
-          unread_count: markUnread ? Math.max(1, item.unread_count) : item.unread_count
-        }
-      : item
-  );
+  const patched = items.map((item) => {
+    if (item.id !== conversationId) return item;
+    const currentTime = Date.parse(item.last_message_at ?? "");
+    const candidateTime = Date.parse(createdAt ?? "");
+    if (Number.isFinite(currentTime) && Number.isFinite(candidateTime) && currentTime > candidateTime) {
+      return markUnread
+        ? { ...item, unread_count: Math.max(1, item.unread_count) }
+        : item;
+    }
+    return {
+      ...item,
+      last_message_preview: preview,
+      last_message_at: createdAt ?? item.last_message_at,
+      unread_count: markUnread ? Math.max(1, item.unread_count) : item.unread_count
+    };
+  });
   return patched.sort((left, right) => {
     const leftTime = Date.parse(left.last_message_at ?? "");
     const rightTime = Date.parse(right.last_message_at ?? "");
@@ -194,6 +200,7 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
   /** 按会话记录已处理 event_id，避免重复 toast。 */
   const conversationStateRef = useRef(new Map<string, ConversationNotificationState>());
   const pendingExternalClassificationsRef = useRef(new Map<string, PendingExternalClassification>());
+  const latestExternalClassificationEventIdRef = useRef(new Map<string, number>());
   const agentCompletionRef = useRef<AgentCompletionState>(emptyAgentCompletionState);
 
   useEffect(() => {
@@ -208,6 +215,7 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
     selfUserIdRef.current = selfUserId;
     conversationStateRef.current.clear();
     pendingExternalClassificationsRef.current.clear();
+    latestExternalClassificationEventIdRef.current.clear();
     agentCompletionRef.current = hydrateAgentCompletionState(selfUserId);
     resetLocalUnreadFeedback();
     setToast(null);
@@ -296,6 +304,8 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
         if (unresolvedExternalOwnerMirror && candidate) {
           const eventUserId = selfUserIdRef.current;
           const candidateKey = candidate.messageKey;
+          const candidateEventId = event.eventId;
+          latestExternalClassificationEventIdRef.current.set(conversationId, candidateEventId);
           const pending: PendingExternalClassification = {
             inFlight: false,
             retry: () => undefined
@@ -318,7 +328,12 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
                 || selfUserIdRef.current !== eventUserId
                 || conversationStateRef.current.get(conversationId) !== state
               ) return;
+              if (latestExternalClassificationEventIdRef.current.get(conversationId) !== candidateEventId) {
+                pendingExternalClassificationsRef.current.delete(candidateKey);
+                return;
+              }
               pendingExternalClassificationsRef.current.delete(candidateKey);
+              latestExternalClassificationEventIdRef.current.delete(conversationId);
               const freshConversation = freshConversations.find((item) => item.id === conversationId);
               if (freshConversation) {
                 queryClient.setQueryData<Conversation[] | undefined>(
