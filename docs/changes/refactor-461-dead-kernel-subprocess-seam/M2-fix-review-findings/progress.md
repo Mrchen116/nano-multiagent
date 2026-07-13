@@ -19,7 +19,7 @@
   - Visual/Interaction: N/A，非前端。
   - Prototype Comparison: N/A，design 无前端 prototype/reference。
 - Rollback: 回退 R1 三个提交即可恢复原文档与测试，不影响运行时代码。
-- Commits: `eeb7ac71` (C1), `130b2e11` (C2)
+- Commits: `eeb7ac71` (C1), `130b2e11` (C2), `3909a88d` (C3)
 
 ## R2 — legacy migration backup 事务边界
 
@@ -36,7 +36,7 @@
   - Prototype Comparison: N/A，design 无前端 prototype/reference。
 - Debug note: 初次 non-finite 夹具先被 `agents must contain at least one entry` 截断；按 systematic-debugging 从栈回溯数据流，改为合法单 agent 配置后稳定复现 `.nan` / `.inf` 被误接收，未把夹具错误计为产品红测。
 - Rollback: 回退 C2 恢复原 backup helper；回退 C1 删除对应行为门禁。
-- Commits: `a8ecd5fb` (C1), `7d830467` (C2)
+- Commits: `a8ecd5fb` (C1), `7d830467` (C2), `a5f3cb42` (C3)
 
 ## R3 — M170 authenticated auto-bind 真实入口
 
@@ -52,7 +52,7 @@
   - Visual/Interaction: N/A，非前端。
   - Prototype Comparison: N/A，design 无前端 prototype/reference。
 - Rollback: `m170_runtime.py stop` 后回退 C2/C1；canonical runtime 由下次 rebuild 覆盖。
-- Commits: `559aab92` (C1), `f917567b` (C2)
+- Commits: `559aab92` (C1), `f917567b` (C2), `8cb8b5f9` (C3)
 
 ## R4 — e2e-down owned Gateway residue cleanup
 
@@ -68,4 +68,12 @@
   - Visual/Interaction: N/A，非前端。
   - Prototype Comparison: N/A，design 无前端 prototype/reference。
 - Rollback: 回退 C2 恢复旧 cleanup；C1 会立即暴露 internal residue。
-- Commits: `b9e98b22` (C1), `326141b7` (C2)
+- Commits: `b9e98b22` (C1), `326141b7` (C2), `4aabfabb` (C3)
+
+## Milestone validation
+
+- Affected suites: 90 passed（Gateway launch/PID lifecycle/local store/runtime helper/e2e-down/no-dead-seam contract）。
+- Lint: `/Users/czj/Repos/nano-multiagent/.venv/bin/ruff check .` → passed。
+- Full non-e2e: `3515 passed, 1 skipped, 23 deselected, 16 warnings in 123.57s`。
+- Real entries: authenticated M170 fresh start/status/stop 通过；worktree e2e up/down 通过且 Gateway/IM lifecycle files 无残留。
+- Runner diagnosis: 首轮误叠了两个 M2 full suites，并与另一个 worktree full suite 并发，单轮曾在 18% 被系统以 exit 137 终止。清理自有重复进程、确认 init-admin 单测独立通过并等待共享 runner 空闲后，同一 session 单独全量运行完整收口；无产品断言失败。
