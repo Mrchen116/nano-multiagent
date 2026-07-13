@@ -41,7 +41,20 @@
 
 ## R3 — e2e Gateway ownership identity 与 fail-atomic teardown
 
-- Status: TODO
+- Context: `.gateway.pid` 只保存可复用数字，down 未核对 Gateway 自写 PID、config argv 或进程启动实例；KILL 后仍存活也会继续停 IM、删 config/env 并打印 stopped。
+- Decision: up 等待 `gateway.pid == $!`，记录 `.gateway-identity.json`（external/internal PID、resolved config path、`ps lstart`）。down 在任何 kill 前核对 JSON、内部 PID、process start，并以 shlex 精确确认 `-m personal_assistant.main`、唯一 `--config <WT_CFG>`、`--foreground`、`--auto-bind`；`ps stat` 区分 exited/zombie 与仍存活，signal failure + live stat 视作 unmanageable。只有确认退出才删 lifecycle identity 并继续 IM teardown，否则立即非零退出保留整栈。
+- Rationale: PID、argv 与 OS start identity 共同把 signal ownership 绑定到本次 up；read-only identity check 先于 signal，teardown 以 confirmed exit 为原子门槛。
+- Evidence:
+  - Tests: `pytest -q tests/integration/test_e2e_down_script.py` → 4 passed。
+  - Entry: shell 集成覆盖内部 PID mismatch、argv mismatch、TERM→KILL 后持续存活、正常确认退出；mismatch 无 TERM/KILL，失败路径保留 Gateway/IM/config/env/identity 且无 stopped 文案。
+  - Frontend State Matrix: N/A，非前端。
+  - Browser QA: N/A，非前端。
+  - E2E/Regression: `bash -n scripts/e2e-up.sh scripts/e2e-down.sh`、测试文件 ruff check/format 通过；真实栈在 R4 收尾。
+  - Visual/Interaction: N/A，非前端。
+  - Prototype Comparison: N/A，design 无前端 prototype/reference。
+- Debug note: 首次 green 发现 status 在 identity 前调用 `kill -0`，且正常退出夹具用 `${VAR:-S}` 覆盖显式空状态；按 systematic-debugging 将 existence/zombie 检查改为纯 `ps stat`，identity 严格先于 kill，并修正夹具空状态语义。
+- Rollback: 先以 down 确认无 live stack，再回退 C2；C1 是新安全语义门禁。
+- Commits: `f7bf8cfd` (C1), `d5260895` (C2)
 
 ## R4 — 格式与全链路收口
 
