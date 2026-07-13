@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
+from types import SimpleNamespace
 
 from agent.core.llm.config import LLMConfigPayload, LLMModelPayload, LLMProviderPayload
 from personal_assistant.config.local_store import (
@@ -158,6 +160,53 @@ def build_config(tmp_path: Path) -> LocalConfig:
         im_service=None,
         llm=_DEFAULT_TEST_LLM,
         source_path=tmp_path / "node-config.yaml",
+    )
+
+
+def write_gateway_identity(
+    config: LocalConfig,
+    *,
+    pid: int = 2468,
+    process_start: str = "Mon Jul 13 12:34:56 2026",
+) -> Path:
+    """Write one valid process-instance identity for lifecycle unit tests."""
+    identity_path = config.source_path.parent / "gateway.identity.json"
+    identity_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "pid": pid,
+                "process_start": process_start,
+                "config_path": str(config.source_path.resolve()),
+                "entry_module": "personal_assistant.main",
+                "argv": [
+                    "--config",
+                    str(config.source_path.resolve()),
+                    "--foreground",
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    return identity_path
+
+
+def observed_gateway_process(
+    config: LocalConfig,
+    *,
+    process_start: str = "Mon Jul 13 12:34:56 2026",
+):
+    """Build one matching read-only OS process observation test double."""
+    return SimpleNamespace(
+        process_start=process_start,
+        argv=(
+            "python",
+            "-m",
+            "personal_assistant.main",
+            "--config",
+            str(config.source_path.resolve()),
+            "--foreground",
+        ),
     )
 
 
