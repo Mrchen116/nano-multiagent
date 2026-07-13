@@ -40,7 +40,19 @@
 
 ## R3 — M170 authenticated auto-bind 真实入口
 
-- Status: pending
+- Context: fresh M170 DB 开启 auth 后，helper 既未创建/登录用户，也未给 Gateway credentials/`--auto-bind`，并以匿名 GET 查询受保护的 nodes endpoint，导致 401 与伪 readiness。
+- Decision: canonical config 写入专用测试 credentials；IM ready 后 register（409 可重入）+ login，回写真实 `node.user_id`；Gateway 启动附 `--auto-bind`；start/status 的 node 查询一律使用登录 token 的 Bearer header。
+- Rationale: 验收 helper 必须与真实产品入口走同一 auth/binding 约束，不能靠预灌 DB 或匿名内部读取绕过用户边界。
+- Evidence:
+  - Tests: `pytest -q tests/unit/test_runtime_helpers.py` → 8 passed；`ruff check scripts/acceptance/m170_runtime.py tests/unit/test_runtime_helpers.py` → passed。
+  - Entry: fresh `m170_runtime.py start` → IM pid 65639, Gateway pid 66646, `node_online=true`, `node_status=online`；stdout 为真实 `Gateway started` / `IM service [connected]` / `Log`。
+  - Frontend State Matrix: N/A，非前端。
+  - Browser QA: N/A，非前端。
+  - E2E/Regression: 紧接着 `status` 观测 `im_http_ok=true`, `gateway_running=true`, `m170-node=online`；`stop` 返回 `STOPPED pid=66646` / `im_url_stopped=true`；stop 后 status 全部 offline/null。
+  - Visual/Interaction: N/A，非前端。
+  - Prototype Comparison: N/A，design 无前端 prototype/reference。
+- Rollback: `m170_runtime.py stop` 后回退 C2/C1；canonical runtime 由下次 rebuild 覆盖。
+- Commits: `559aab92` (C1), `f917567b` (C2)
 
 ## R4 — e2e-down owned Gateway residue cleanup
 
