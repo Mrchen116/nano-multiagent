@@ -37,14 +37,17 @@
 
 ## R3 — 静默回复、在线提醒与 canonical Chat API 收口
 
-- Status: TODO
+- Status: DONE
 - Context: acceptance 两项 major 均为真实用户旅程失败，另有 dead/duplicate API seam。
-- Decision: pending C1 red tests.
-- Rationale: pending.
-- Evidence: pending.
-- Rollback: pending.
-- Commits: pending.
-- Next: R2 完成后进入。
+- Decision: `RunDeliveryContextStore` 仅为 `web_relay`（含 direct Web IM）启用 protocol-token suppression，保留任意非 Web shadow transport 的 literal policy；全局 toast 按 message id 暂存 canonical `message.created` 的 Agent 身份，在 `message.completed` 取最终正文后提醒并 invalidation 权威 conversations；Chat JSON 调用统一进入 `authFetchJson` 的 operation-label error seam，删除 dead mention API/initials。
+- Rationale: direct Web 的 provisional bubble 与 tombstone 都由 Gateway runtime delivery 所有，UI 隐藏文本不能修复已落库历史；canonical completion 缺 sender、created 缺正文，必须跨事件聚合；未读/preview/排序由服务端维护，completion 后 refetch 才不会重复推算；operation label 下沉共享 auth seam 可复用 refresh/401/A→B 语义同时保持旧错误文本。
+- Evidence:
+  - C1 红测：direct Web lifecycle context 仍为 `literal_text`；canonical Agent completion toast 保持 `null` 且未 refetch；architecture guard 报出 `listMentionCandidates` / `initialsFrom` / `jsonOrThrow` 三个残余。`listConversations failed: 503 temporarily unavailable` 文案锁定并保持通过。
+  - C2 Gateway：relay lifecycle + heartbeat delivery 两文件 42 tests passed；新增 FK-enforced real Gateway handler 路径证明 `turn_start → message_discarded` 后刷新历史消息表为零；非 Web shadow 保持 literal。相关 Python ruff passed。
+  - C2 frontend：auth/chat API/architecture/toast/reducer/workspace 6 files / 92 tests passed；真实 QueryClient 第二次请求返回 `unread_count=1`、最终 preview 和置顶排序，非当前会话弹 Planner toast，当前会话不弹；frontend build passed。
+- Rollback: 回退 C2 `42083438`；C1 `9c7dff4f` 保留根因回归。
+- Commits: C1=`9c7dff4f`, C2=`42083438`, C3=本提交。
+- Next: R4 删除 Agent detail 重复 summary query，并完成全量门禁和真栈验收。
 
 ## R4 — Agent 详情去重与全量验收
 

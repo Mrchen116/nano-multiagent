@@ -80,10 +80,10 @@ N/A：design 明确不改变 UI/交互/视觉，不产 prototype；以当前真�
 - 步骤：用真实 QueryClient/queryFn 建红测，覆盖首次 refetch 失败不导航、same-token retry 不 confirm、A→B 必须 confirm B；实现 `throwOnError` 与 token-scoped confirmed result。
 - 验证：bind 页面定向集成测试、全量相关 frontend test。
 
-### R3 — 静默回复、在线提醒与 canonical Chat API 收口
+### R3 — 静默回复、在线提醒与 canonical Chat API 收口（DONE）
 
-- 步骤：红测锁定 direct Web IM NO_REPLY discard、canonical agent created→completed toast/refetch、dead mention API 删除与共享 JSON error seam；在 Gateway 源头修 policy，补在线事件聚合，删除重复 helper/API。
-- 验证：Gateway runtime delivery unit、toast/chat API/reducer/workspace 定向测试、真栈 NO_REPLY + 双浏览器提醒。
+- 步骤：红测锁定 direct Web IM NO_REPLY discard、canonical agent created→completed toast/refetch、dead mention API 删除与共享 JSON error seam；Gateway 仅为 `web_relay` run 启用协议静默，按 message id 聚合 canonical 完成事件，删除重复 helper/API。
+- 验证：Gateway runtime delivery unit + FK-enforced real handler、toast/chat API/reducer/workspace 定向测试、frontend build；真进程/浏览器验收并入 R4。
 
 ### R4 — Agent 详情去重与全量验收
 
