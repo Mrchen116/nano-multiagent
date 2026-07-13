@@ -145,3 +145,58 @@ The final aggregate shape is substantially aligned: stable per-session objects, 
 - **WARNING-4 — 当前分支未通过 milestone 自己声明的格式/差异门禁。** `ruff format --check .` 报 `src/agent/core/session/conversation.py`、`src/agent/sdk/kernel.py`、`tests/contract/test_kernel_sdk_behavior_contract.py` 需格式化；`git diff --check origin/main...HEAD` 报 `acceptance.md:3-5` trailing whitespace。`M1-conversation-session/tasks.md:17` 要求这些门禁全绿。**修复方向：**运行 formatter、移除 trailing whitespace，并重跑两项检查。
 
 2 critical issue(s) found. Fix before PR.
+
+# Round 3
+
+## Summary
+
+- **Mode:** targeted-closure
+- **Delta range:** `0d96d5573774c9886aee7110da585f9f8192bbf8..d4c611438a9e75d0fec876ae12d4c4f6836cb8dd`
+- **Focus issues:** Round 2 CRITICAL-4、CRITICAL-5、WARNING-3、WARNING-4，以及 code-review 的 cold append / metadata lookup 两项遗留。
+- **Verdict:** **PASS**
+- **requires_full_verification:** `false`
+- **Issues:** 0 CRITICAL，0 WARNING，0 SUGGESTION（限本轮 targeted scope）。
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 6/6 focus issues / review concerns closed |
+| Correctness | 6/6 targeted behaviors reproduced as fixed |
+| Coherence | Followed（interrupt semantic terminal、writer ownership、active payload ownership、cold-read boundary 均与 design 对齐） |
+
+Round 2 WARNING-2（更完整的最终接口永久测试矩阵）不在本轮 orchestrator 的 targeted focus 中，本轮没有重新判定或计入 issue 数；其历史记录保留在 Round 2。
+
+## Verification Evidence
+
+- 受影响窄测：`pytest -q` 覆盖 Kernel interrupt/active append、Kernel wiring、ConversationSession、JsonlWriter、JsonlTranscript、SessionDirectory、RuntimeRunner、KernelExecutor、RunsRegistry 与 architecture contract → **66 passed in 1.98s**。
+- Round 2 full 基线复用：`pytest -m "not e2e"` → **3319 passed, 1 skipped, 20 deselected**；本轮 delta 只触及上述 focus 路径，定向测试与独立 probes 足以核销，不要求升级 full。
+- 独立 interrupt grace probe：连续 30 次让 provider 在 `interrupt()` 返回后立即产出 late assistant；30/30 RunInfo 保持 `cancelled`，0 条 late provider output 进入 JSONL，30/30 同 session 后续 turn 完成。
+- 独立 writer lifecycle probe：连续 build/close 20 个 Kernel，交替调用 `close()` / `aclose()` 并重复关闭；20/20 writer thread 退出，20/20 close 前 enqueue 的最后一条 entry durable。
+- 独立 active-append partial probe：真实 `ConversationSession + KernelExecutor + RuntimeRunner` 中先记录 assistant/tool/usage partial，再同步 append external 并 raw-cancel auxiliary；kill callback 保留 `partial-real`、18 tokens、1 tool，target 与 writer 均完成 cleanup。
+- `ruff check .` → passed；`ruff format --check .` → **760 files already formatted**；`git diff --check origin/main...HEAD` → passed。
+
+## Targeted Closure
+
+| Focus issue / concern | Round 3 result | Implementation evidence | Permanent regression evidence |
+|---|---|---|---|
+| CRITICAL-4 interrupt grace race | **closed** | `src/agent/core/runs/registry.py:283-332` 在返回前线性化 `CANCELLED` 并请求 carrier cancel；`src/agent/core/agent/loop.py:394-401,548-562` 在 stream 与 terminal commit 两处阻止 abort 后的 late completed/output | `tests/contract/test_kernel_sdk_behavior_contract.py:266-318`；另有 30 次独立 race probe |
+| CRITICAL-5 JsonlWriter thread leak | **closed** | `src/agent/core/session/jsonl_writer.py:28-78,80-107` 以 lifecycle guard + FIFO sentinel flush/join；`src/agent/sdk/kernel.py:589-603` 在 Directory close 后由 Kernel finalizer 关闭 writer | `tests/unit/agent/session/test_jsonl_writer.py:12-23`、`tests/contract/test_sdk_kernel_wiring.py:246-254`；另有 20 次独立 lifecycle probe |
+| WARNING-3 active append 后 partial result 丢失 | **closed** | `src/agent/core/session/conversation.py:226-271` 用 `_payload_stale` 保留 active state，下一次 stateful operation 才 reload；`partial_turn_result()` 仍可读取 active progress | `tests/unit/agent/session/test_conversation_session.py:157-184` + `tests/unit/agent/background_tasks/test_runtime_runner_foreground.py:157-194`；另有真实 aggregate/auxiliary 组合 probe |
+| WARNING-4 format / diff gate | **closed** | Round 2 的 3 个 formatter drift 与 `acceptance.md` trailing whitespace 均已清理 | 本轮 `ruff check .`、`ruff format --check .`、`git diff --check origin/main...HEAD` 全绿 |
+| code-review: cold append 不应 materialize Message history | **closed** | `src/agent/core/session/transcript.py:432-451,521-573` 直接从 raw turn entries 解 reachable tail，不再调用 `_materialize()` / `_to_message()` | `tests/unit/agent/session/test_jsonl_transcript.py:53-76` 令 `_materialize` 抛错并证明 cold append 仍接到既有 tail |
+| code-review: `find_by_metadata` 应 header-only | **closed** | `src/agent/core/session/directory.py:152-174` 只调用 `initial_metadata()`；`src/agent/core/session/transcript.py:141-149` 以 `limit=1` 只读 creation header | `tests/unit/agent/session/test_session_directory.py:169-197` 记录读取 limit 并断言只有 `[1]` |
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+N/A。
+
+### WARNING（应该修）
+
+N/A（限本轮 targeted scope）。
+
+### SUGGESTION（可以修）
+
+N/A。
+
+All checks passed. Ready for PR.
