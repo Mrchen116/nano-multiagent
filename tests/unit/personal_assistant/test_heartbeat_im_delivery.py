@@ -23,6 +23,7 @@ import pytest
 
 from IM.application.event_bridge import EventBridge
 from IM.infra.db import connect, initialize_schema
+from IM.infra.gateway_persistence import GatewayConversationPersistence
 from IM.infra.repositories import (
     ConversationRepository,
     EventRepository,
@@ -121,11 +122,11 @@ def _build_im_db_and_handler(tmp_path: Path):  # noqa: ANN202
     bridge = EventBridge(
         message_repository=msg_repo, event_repository=evt_repo, notify=None
     )
-    convs = ConversationRepository(connection)
     handler = GatewayHandler(
         relay_service=RelayService(connection),
         metrics_service=MetricsService(metrics=UsageMetricsRepository(connection)),
-        conversation_repository=convs,
+        conversation_persistence=GatewayConversationPersistence(connection),
+        message_repository=msg_repo,
         event_bridge=bridge,
     )
     return connection, handler

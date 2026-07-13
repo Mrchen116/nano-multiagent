@@ -2,18 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import replace
 import json
 
 from IM.domain.models import ConversationEvent
 from IM.infra._helpers import _optional_text
 from IM.infra.repositories import EventRepository
-
-
-@dataclass(frozen=True, slots=True)
-class _RelayRunIdentity:
-    relay_task_id: str | None
-    agent_id: str | None
 
 
 class EventService:
@@ -30,6 +24,10 @@ class EventService:
     def get_latest_event_id(self, *, conversation_id: str) -> int:
         """Return the latest persisted event id for one conversation."""
         return self._events.get_latest_event_id(conversation_id=conversation_id)
+
+    def global_max_event_id(self) -> int:
+        """Return the latest persisted event id across all conversations."""
+        return self._events.global_max_event_id()
 
     def list_events(
         self,
@@ -57,11 +55,11 @@ class EventService:
         if not events:
             return events
         up_to_event_id = max(event.event_id for event in events)
-        run_identity_by_run_id = self._load_relay_run_identity(
+        run_identity_by_run_id = self._events.relay_run_identities(
             conversation_id=conversation_id,
             up_to_event_id=up_to_event_id,
         )
-        agent_display_names = self._load_agent_display_names(
+        agent_display_names = self._events.agent_display_names(
             agent_ids={
                 identity.agent_id
                 for identity in run_identity_by_run_id.values()
@@ -107,54 +105,6 @@ class EventService:
             enriched_events.append(event)
         return enriched_events
 
-    def _load_relay_run_identity(
-        self,
-        *,
-        conversation_id: str,
-        up_to_event_id: int,
-    ) -> dict[str, _RelayRunIdentity]:
-        rows = self._events._connection.execute(  # noqa: SLF001
-            """
-            SELECT payload_json
-            FROM conversation_events
-            WHERE conversation_id = ? AND event_type = ? AND event_id <= ?
-            ORDER BY event_id
-            """,
-            (conversation_id, "relay.accepted", up_to_event_id),
-        ).fetchall()
-        run_identity_by_run_id: dict[str, _RelayRunIdentity] = {}
-        for row in rows:
-            try:
-                payload = json.loads(row["payload_json"])
-            except json.JSONDecodeError:
-                continue
-            if not isinstance(payload, dict):
-                continue
-            run_id = self._parse_run_id(payload)
-            if run_id is None:
-                continue
-            run_identity_by_run_id[run_id] = _RelayRunIdentity(
-                relay_task_id=_optional_text(payload.get("relay_task_id")),
-                agent_id=_optional_text(payload.get("agent_id")),
-            )
-        return run_identity_by_run_id
-
-    def _load_agent_display_names(self, *, agent_ids: set[str]) -> dict[str, str]:
-        if not agent_ids:
-            return {}
-        placeholders = ",".join("?" for _ in agent_ids)
-        rows = self._events._connection.execute(  # noqa: SLF001
-            f"SELECT agent_id, display_name FROM agent_profiles WHERE agent_id IN ({placeholders})",  # noqa: S608, SLF001
-            tuple(agent_ids),
-        ).fetchall()
-        return {
-            str(row["agent_id"]): str(row["display_name"])
-            for row in rows
-            if row["agent_id"] is not None
-            and row["display_name"] is not None
-            and str(row["display_name"]).strip()
-        }
-
     @staticmethod
     def _decode_payload(event: ConversationEvent) -> dict[str, object] | None:
         try:
@@ -164,16 +114,6 @@ class EventService:
         if not isinstance(payload, dict):
             return None
         return payload
-
-    @classmethod
-    def _parse_run_id(cls, payload: dict[str, object]) -> str | None:
-        direct_run_id = _optional_text(payload.get("run_id"))
-        if direct_run_id is not None:
-            return direct_run_id
-        detail = _optional_text(payload.get("detail"))
-        if detail is None or not detail.startswith("run_id="):
-            return None
-        return _optional_text(detail[len("run_id=") :])
 
 
 __all__ = ["EventService"]

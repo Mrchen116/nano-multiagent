@@ -6,29 +6,18 @@ import asyncio
 import json
 from collections import defaultdict
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-import sqlite3
 from fastapi import WebSocket, WebSocketDisconnect
 
 from IM.application.event_service import EventService
 from IM.domain.models import ConversationEvent
+from IM.infra.gateway_persistence import GatewayNodePersistence
+from IM.infra.repositories import EventRepository
 
 # 与迁移计划对齐；可用环境变量覆盖（后续可加）
 REPLAY_MAX_BATCH = 500
 REPLAY_MAX_GAP = 2000
 REPLAY_WINDOW_MINUTES = 15
-
-
-def resolve_recipient_user_ids(
-    connection: sqlite3.Connection, conversation_id: str
-) -> list[str]:
-    """返回应接收该会话事件的 user_id 列表（与 conversation_participants 一致）。"""
-    rows = connection.execute(
-        "SELECT user_id FROM conversation_participants WHERE conversation_id = ? ORDER BY rowid",
-        (conversation_id,),
-    ).fetchall()
-    return [str(row["user_id"]) for row in rows]
 
 
 def conversation_event_to_wire_data(event: ConversationEvent) -> dict[str, object]:
@@ -59,85 +48,6 @@ def encode_user_stream_event_frame(event: ConversationEvent) -> str:
         "data": conversation_event_to_wire_data(event),
     }
     return json.dumps(body, ensure_ascii=True, separators=(",", ":"))
-
-
-def replay_cutoff_iso() -> str:
-    """回放时间窗下限（UTC ISO）。"""
-    cutoff = datetime.now(timezone.utc) - timedelta(minutes=REPLAY_WINDOW_MINUTES)
-    return cutoff.isoformat().replace("+00:00", "Z")
-
-
-@dataclass(frozen=True, slots=True)
-class ReplayOutcome:
-    """resume 回放结果。"""
-
-    events: list[ConversationEvent]
-    resync_required: bool
-    reason: str | None
-
-
-def list_events_for_user_resume(
-    connection: sqlite3.Connection,
-    *,
-    user_id: str,
-    after_event_id: int,
-) -> ReplayOutcome:
-    """按用户可见会话与游标列出待回放事件；必要时要求客户端走 /sync。"""
-    row = connection.execute(
-        "SELECT MAX(event_id) AS m FROM conversation_events"
-    ).fetchone()
-    max_id = int(row["m"] or 0) if row is not None else 0
-    if after_event_id > 0 and max_id - after_event_id > REPLAY_MAX_GAP:
-        return ReplayOutcome(
-            events=[], resync_required=True, reason="event_gap_exceeded"
-        )
-
-    cutoff = replay_cutoff_iso()
-    rows = connection.execute(
-        """
-        SELECT event_id, conversation_id, message_id, event_type, delivery_status, payload_json, created_at
-        FROM conversation_events
-        WHERE event_id > ?
-          AND created_at >= ?
-          AND conversation_id IN (
-            SELECT conversation_id FROM conversation_participants WHERE user_id = ?
-          )
-        ORDER BY event_id
-        LIMIT ?
-        """,
-        (after_event_id, cutoff, user_id, REPLAY_MAX_BATCH),
-    ).fetchall()
-
-    # 若游标过旧导致时间窗内没有记录但库里有更新，要求全量对齐
-    if after_event_id > 0 and not rows and max_id > after_event_id:
-        return ReplayOutcome(
-            events=[],
-            resync_required=True,
-            reason="cursor_stale_or_outside_replay_window",
-        )
-
-    events = [
-        ConversationEvent(
-            event_id=int(r["event_id"]),
-            conversation_id=str(r["conversation_id"]),
-            message_id=str(r["message_id"]) if r["message_id"] is not None else None,
-            event_type=str(r["event_type"]),
-            delivery_status=str(r["delivery_status"]),
-            payload_json=str(r["payload_json"]),
-            created_at=str(r["created_at"]),
-        )
-        for r in rows
-    ]
-    return ReplayOutcome(events=events, resync_required=False, reason=None)
-
-
-def global_max_event_id(connection: sqlite3.Connection) -> int:
-    row = connection.execute(
-        "SELECT MAX(event_id) AS m FROM conversation_events"
-    ).fetchone()
-    if row is None or row["m"] is None:
-        return 0
-    return int(row["m"])
 
 
 class UserStreamRegistry:
@@ -197,7 +107,7 @@ class UserStreamRegistry:
 
 def build_notify_enqueue(
     *,
-    connection: sqlite3.Connection,
+    event_repository: EventRepository,
     outbound_queue: asyncio.Queue[tuple[frozenset[str], str]],
     loop: asyncio.AbstractEventLoop,
     event_service: EventService | None = None,
@@ -214,7 +124,7 @@ def build_notify_enqueue(
             )
             if rows:
                 out = rows[-1]
-        users = frozenset(resolve_recipient_user_ids(connection, out.conversation_id))
+        users = frozenset(event_repository.recipient_user_ids(out.conversation_id))
         if not users:
             return
         text = encode_user_stream_event_frame(out)
@@ -226,7 +136,7 @@ def build_notify_enqueue(
 async def scan_and_flip_stale_nodes(
     *,
     handler,  # type: GatewayHandler — late-imported to avoid circular ref
-    node_repository,  # type: NodeRepository
+    node_persistence: GatewayNodePersistence,
     timeout_seconds: int = 60,
 ) -> int:
     """Scan the nodes table once and flip any stale online node to offline.
@@ -239,20 +149,9 @@ async def scan_and_flip_stale_nodes(
         .isoformat()
         .replace("+00:00", "Z")
     )
-    rows = node_repository._connection.execute(  # noqa: SLF001
-        """
-        SELECT node_id FROM nodes
-        WHERE status = 'online'
-          AND last_heartbeat_at IS NOT NULL
-          AND last_heartbeat_at < ?
-        """,
-        (cutoff,),
-    ).fetchall()
     flipped = 0
-    for row in rows:
-        await handler.force_mark_offline(
-            node_id=str(row["node_id"]), reason="heartbeat_timeout"
-        )
+    for node_id in node_persistence.stale_online_node_ids(cutoff=cutoff):
+        await handler.force_mark_offline(node_id=node_id, reason="heartbeat_timeout")
         flipped += 1
     return flipped
 
@@ -260,7 +159,7 @@ async def scan_and_flip_stale_nodes(
 async def run_offline_guard(
     *,
     handler,  # type: GatewayHandler
-    node_repository,  # type: NodeRepository
+    node_persistence: GatewayNodePersistence,
     interval_seconds: int = 10,
     timeout_seconds: int = 60,
 ) -> None:
@@ -272,7 +171,7 @@ async def run_offline_guard(
     while True:
         await scan_and_flip_stale_nodes(
             handler=handler,
-            node_repository=node_repository,
+            node_persistence=node_persistence,
             timeout_seconds=timeout_seconds,
         )
         await asyncio.sleep(interval_seconds)
@@ -292,7 +191,7 @@ async def pump_user_stream_outbound(
 async def serve_user_websocket(
     *,
     websocket: WebSocket,
-    connection: sqlite3.Connection,
+    event_repository: EventRepository,
     registry: UserStreamRegistry,
     user_id: str,
 ) -> None:
@@ -313,8 +212,12 @@ async def serve_user_websocket(
         except json.JSONDecodeError:
             after_event_id = 0
 
-        outcome = list_events_for_user_resume(
-            connection, user_id=user_id, after_event_id=after_event_id
+        outcome = event_repository.list_events_for_user_resume(
+            user_id=user_id,
+            after_event_id=after_event_id,
+            max_batch=REPLAY_MAX_BATCH,
+            max_gap=REPLAY_MAX_GAP,
+            replay_window_minutes=REPLAY_WINDOW_MINUTES,
         )
         if outcome.resync_required:
             await websocket.send_text(
@@ -347,8 +250,12 @@ async def serve_user_websocket(
                     if isinstance(raw_after, int) and raw_after >= 0
                     else 0
                 )
-                again = list_events_for_user_resume(
-                    connection, user_id=user_id, after_event_id=next_after
+                again = event_repository.list_events_for_user_resume(
+                    user_id=user_id,
+                    after_event_id=next_after,
+                    max_batch=REPLAY_MAX_BATCH,
+                    max_gap=REPLAY_MAX_GAP,
+                    replay_window_minutes=REPLAY_WINDOW_MINUTES,
                 )
                 if again.resync_required:
                     await websocket.send_text(

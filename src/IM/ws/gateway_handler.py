@@ -22,24 +22,22 @@ from IM.api.ws.event_types import (
 from IM.application.event_bridge import EventBridge
 from IM.application.metrics_service import MetricsService
 from IM.application.relay_service import RelayService
-from collections.abc import Callable
-
 from IM.domain.models import (
     Actor,
-    ConversationEvent,
     Message,
     NodeStatus,
     TokenUsage,
     ToolCall,
-    managed_workspace_root,
+)
+from IM.infra.gateway_persistence import (
+    AgentDispatchRecord,
+    DispatchTarget,
+    GatewayConversationPersistence,
+    GatewayNodePersistence,
 )
 from IM.infra.repositories import (
-    AgentProfileRepository,
-    ConversationRepository,
     EventRepository,
     MessageRepository,
-    NodeRepository,
-    UserRepository,
 )
 from IM.ws.user_stream import UserStreamRegistry
 from IM.ws.gateway_protocol import (
@@ -61,14 +59,6 @@ class GatewayConnection:
     heartbeats: list[dict[str, object]]
 
 
-@dataclass(frozen=True, slots=True)
-class DispatchTarget:
-    """Represent one normalized outbound dispatch target."""
-
-    kind: str
-    id: str
-
-
 class GatewayHandler:
     """Manage gateway websocket sessions and IM relay protocol messages.
 
@@ -85,31 +75,20 @@ class GatewayHandler:
         self,
         *,
         relay_service: RelayService,
-        node_repository: NodeRepository | None = None,
+        node_persistence: GatewayNodePersistence | None = None,
+        conversation_persistence: GatewayConversationPersistence | None = None,
+        message_repository: MessageRepository | None = None,
         event_repository: EventRepository | None = None,
         metrics_service: MetricsService | None = None,
-        conversation_repository: ConversationRepository | None = None,
-        user_event_notify: Callable[[ConversationEvent], None] | None = None,
         user_stream_registry: UserStreamRegistry | None = None,
         event_bridge: EventBridge | None = None,
     ) -> None:
         self._relay_service = relay_service
-        self._node_repository = node_repository
+        self._node_persistence = node_persistence
+        self._conversation_persistence = conversation_persistence
+        self._message_repository = message_repository
         self._event_repository = event_repository
         self._metrics_service = metrics_service
-        self._conversation_repository = conversation_repository
-        self._user_repository = (
-            UserRepository(conversation_repository._connection)
-            if conversation_repository is not None
-            else None
-        )
-        self._message_repository = (
-            MessageRepository(
-                conversation_repository._connection, notify=user_event_notify
-            )
-            if conversation_repository is not None
-            else None
-        )
         self._user_stream_registry = user_stream_registry
         # EventBridge wires kernel events → IM WS streaming events (feat-340-M14).
         # External injection takes priority (tests / explicit wiring); auto-build from repos as fallback.
@@ -162,7 +141,6 @@ class GatewayHandler:
         self._session_fork_waiters: dict[
             str, asyncio.Future[dict[str, object] | None]
         ] = {}
-        self._ensure_agent_message_dispatch_table()
 
     async def serve(self, websocket: WebSocket) -> None:
         """Accept one websocket and process gateway protocol frames until disconnect."""
@@ -813,12 +791,11 @@ class GatewayHandler:
             ):
                 return
             self._connections.pop(node_id, None)
-        if self._node_repository is None:
+        if self._node_persistence is None:
             return
-        prior = self._node_repository.get_node(node_id=node_id)
-        agent_ids = self._list_node_agent_ids(node_id=node_id)
-        self._node_repository.mark_disconnected(node_id=node_id)
-        next_node = self._node_repository.get_node(node_id=node_id)
+        transition = self._node_persistence.mark_offline(node_id=node_id)
+        prior = transition.previous_node
+        next_node = transition.current_node
         if (
             prior is not None
             and next_node is not None
@@ -827,7 +804,7 @@ class GatewayHandler:
             await self._broadcast_status_change(
                 owner_id=next_node.owner_id,
                 node=next_node,
-                agent_ids=agent_ids,
+                agent_ids=list(transition.agent_ids),
             )
 
     async def force_mark_offline(self, *, node_id: str, reason: str) -> None:
@@ -838,43 +815,28 @@ class GatewayHandler:
             reason: Diagnostic tag stored as ``last_error`` to surface why it flipped.
 
         Notes:
-            Idempotent — if the node is already offline, this is a no-op aside from
-            persisting ``last_error``. The active in-memory ``self._connections``
-            entry is also dropped, matching the WS-disconnect path semantics.
+            Idempotent — if the node is already offline, its persisted state and
+            existing ``last_error`` remain unchanged. The active in-memory
+            ``self._connections`` entry is dropped before persistence, matching the
+            WS-disconnect path semantics.
         """
-        if self._node_repository is None:
+        if self._node_persistence is None:
             return
-        prior = self._node_repository.get_node(node_id=node_id)
-        if prior is None or prior.status == "offline":
-            return
-        agent_ids = self._list_node_agent_ids(node_id=node_id)
         async with self._lock:
             self._connections.pop(node_id, None)
-        # Record last_error then flip to offline. mark_disconnected handles status flip;
-        # write last_error via a heartbeat-style update so it surfaces in /im/v1/nodes.
-        self._node_repository._connection.execute(  # noqa: SLF001
-            "UPDATE nodes SET last_error = ? WHERE node_id = ?",
-            (reason, node_id),
+        transition = self._node_persistence.mark_offline(
+            node_id=node_id, last_error=reason
         )
-        self._node_repository._connection.commit()  # noqa: SLF001
-        self._node_repository.mark_disconnected(node_id=node_id)
-        next_node = self._node_repository.get_node(node_id=node_id)
+        prior = transition.previous_node
+        if prior is None or prior.status == "offline":
+            return
+        next_node = transition.current_node
         if next_node is not None and prior.status != next_node.status:
             await self._broadcast_status_change(
                 owner_id=next_node.owner_id,
                 node=next_node,
-                agent_ids=agent_ids,
+                agent_ids=list(transition.agent_ids),
             )
-
-    def _list_node_agent_ids(self, *, node_id: str) -> list[str]:
-        """Return agent ids currently advertised by the given node, in stable order."""
-        if self._node_repository is None:
-            return []
-        rows = self._node_repository._connection.execute(  # noqa: SLF001
-            "SELECT agent_id FROM agent_profiles WHERE node_id = ? ORDER BY agent_id",
-            (node_id,),
-        ).fetchall()
-        return [str(row["agent_id"]) for row in rows]
 
     async def _next_status_seq(self, *, owner_id: str) -> int:
         """Allocate one monotonically increasing seq number per owner."""
@@ -972,99 +934,24 @@ class GatewayHandler:
         )
         async with self._lock:
             self._connections[node_id] = connection
-        prior_node: NodeStatus | None = None
-        if self._node_repository is not None:
-            prior_node = self._node_repository.get_node(node_id=node_id)
-            node = self._node_repository.record_gateway_registration(
+        if self._node_persistence is not None:
+            result = self._node_persistence.register(
                 node_id=node_id,
                 node_name=node_name,
                 version=version,
-                agent_count=len(agents),
+                agent_ids=agents,
+                agent_workspaces=agent_workspaces,
             )
-            profile_repository = AgentProfileRepository(
-                self._node_repository._connection
+            prior_status = (
+                result.previous_node.status
+                if result.previous_node is not None
+                else None
             )
-            user_repository = UserRepository(self._node_repository._connection)
-            for agent_id in agents:
-                existing = profile_repository.get_profile(agent_id=agent_id)
-                owner_id = (
-                    existing.owner_id
-                    if existing is not None and existing.owner_id.strip()
-                    else (node.owner_id or "")
-                )
-                if existing is None:
-                    runtime_display_name = agent_id
-                    runtime_description = f"Runtime agent advertised by {node_name}."
-                    runtime_system_prompt = f"You are {agent_id}."
-                    runtime_skills: list[str] = []
-                    runtime_tool_allowlist: list[str] = []
-                    runtime_group_reply_policy = "MENTION"
-                    runtime_default_model: str | None = None
-                    # bugfix-404-M2 decision 3: use the gateway-supplied workspace seed
-                    # on first registration; fall back to managed default only when the
-                    # frame does not carry agent_workspaces (old gateway compatibility).
-                    runtime_workspace_root = agent_workspaces.get(
-                        agent_id
-                    ) or managed_workspace_root(agent_id)
-                else:
-                    runtime_display_name = existing.display_name
-                    runtime_description = existing.description
-                    runtime_system_prompt = existing.system_prompt
-                    runtime_skills = existing.skills
-                    runtime_tool_allowlist = existing.tool_allowlist
-                    runtime_group_reply_policy = existing.group_reply_policy
-                    runtime_default_model = existing.default_model
-                    runtime_workspace_root = (
-                        existing.workspace_root or managed_workspace_root(agent_id)
-                    )
-                if runtime_display_name == agent_id and agent_id.startswith("agent-"):
-                    runtime_display_name = (
-                        agent_id.replace("agent-", "", 1).replace("-", " ").title()
-                    )
-                # feat-379-M6 (ISSUE-2): preserve features/custom_prompt from the existing
-                # DB row when re-registering. node.register only carries agent_ids, not
-                # per-agent config, so passing None would overwrite user edits with defaults.
-                runtime_features = existing.features if existing is not None else None
-                runtime_custom_prompt = (
-                    existing.custom_prompt if existing is not None else None
-                )
-                profile_repository.upsert_profile(
-                    agent_id=agent_id,
-                    owner_id=owner_id,
-                    display_name=runtime_display_name,
-                    description=runtime_description,
-                    system_prompt=runtime_system_prompt,
-                    skills=runtime_skills,
-                    tool_allowlist=runtime_tool_allowlist,
-                    group_reply_policy=runtime_group_reply_policy,
-                    default_model=runtime_default_model,
-                    workspace_root=runtime_workspace_root,
-                    features=runtime_features,
-                    custom_prompt=runtime_custom_prompt,
-                )
-                if (
-                    user_repository.get_user_by_username(username=f"agent:{agent_id}")
-                    is None
-                ):
-                    user_repository.create_user(
-                        username=f"agent:{agent_id}",
-                        display_name=runtime_display_name,
-                    )
-                self._node_repository._connection.execute(
-                    "UPDATE agent_profiles SET node_id = ? WHERE agent_id = ?",
-                    (node_id, agent_id),
-                )
-            profile_repository.mark_stale_for_node(
-                node_id=node_id,
-                advertised_agent_ids=list(agents),
-            )
-            self._node_repository._connection.commit()
-            prior_status = prior_node.status if prior_node is not None else None
-            if prior_status != node.status:
+            if prior_status != result.current_node.status:
                 await self._broadcast_status_change(
-                    owner_id=node.owner_id,
-                    node=node,
-                    agent_ids=list(agents),
+                    owner_id=result.current_node.owner_id,
+                    node=result.current_node,
+                    agent_ids=list(result.agent_ids),
                 )
         return {
             "type": "ack",
@@ -1084,21 +971,25 @@ class GatewayHandler:
         # liveness marker. Permission waits now stay alive via the kernel run_heartbeat
         # that EventBridge persists as a conversation_events row (advancing last_evt), so
         # the relay watchdog needs no per-window exemption — one uniform liveness signal.
-        if self._node_repository is not None:
-            prior_node = self._node_repository.get_node(node_id=node_id)
-            next_node = self._node_repository.record_heartbeat(
+        if self._node_persistence is not None:
+            transition = self._node_persistence.heartbeat(
                 node_id=node_id,
                 reported_status=_optional_text(payload.get("status")),
                 agent_count=_optional_int(payload.get("agent_count")),
                 last_error=_optional_text(payload.get("last_error")),
                 version=_optional_text(payload.get("version")),
             )
-            prior_status = prior_node.status if prior_node is not None else None
-            if prior_status != next_node.status:
+            prior_status = (
+                transition.previous_node.status
+                if transition.previous_node is not None
+                else None
+            )
+            next_node = transition.current_node
+            if next_node is not None and prior_status != next_node.status:
                 await self._broadcast_status_change(
                     owner_id=next_node.owner_id,
                     node=next_node,
-                    agent_ids=self._list_node_agent_ids(node_id=node_id),
+                    agent_ids=list(transition.agent_ids),
                 )
         return {
             "type": "ack",
@@ -1178,10 +1069,7 @@ class GatewayHandler:
                 #
                 # Two modes are mutually exclusive: conversation_id → normal eager-bubble
                 # path (unchanged); to_user_id → lazy canonical-conv resolution path.
-                if (
-                    self._conversation_repository is None
-                    or self._user_repository is None
-                ):
+                if self._conversation_persistence is None:
                     return {
                         "type": "ack",
                         "payload": {
@@ -1192,11 +1080,10 @@ class GatewayHandler:
                     }
                 agent_user_id = event.agent_user_id
                 if agent_user_id is None:
-                    row = self._user_repository._connection.execute(  # noqa: SLF001
-                        "SELECT id FROM users WHERE username = ?",
-                        (f"agent:{agent_id}",),
-                    ).fetchone()
-                    if row is None:
+                    agent_user_id = self._conversation_persistence.agent_user_id(
+                        agent_id=agent_id
+                    )
+                    if agent_user_id is None:
                         return {
                             "type": "ack",
                             "payload": {
@@ -1205,7 +1092,6 @@ class GatewayHandler:
                                 "skipped": "agent_user_id_not_found",
                             },
                         }
-                    agent_user_id = str(row["id"])
                 # feat-393 fix-r1: owner lookup / canonical-conv creation can fail when
                 # config.node.user_id is stale or the ephemeral IM DB has no such user yet.
                 # Must NOT raise out of this handler — that would close the WS connection and
@@ -1214,10 +1100,9 @@ class GatewayHandler:
                 # Per design decision-6: delivery failure ≠ run failure; log and return skipped
                 # ack so the Gateway can continue and this heartbeat run completes normally.
                 try:
-                    canonical_conv = self._find_or_create_direct_conversation(
-                        left_user_id=to_user_id,
-                        right_user_id=agent_user_id,
-                        expected_direct_kind="user-agent",
+                    conversation_id = self._conversation_persistence.resolve_user_agent_conversation(
+                        agent_id=agent_id,
+                        user_id=to_user_id,
                         # Pass the owner's own id as caller_owner_id so the created
                         # conversation is visible via list_conversations_for_owner.
                         # Without this, the conversation is created with the owner_id
@@ -1239,7 +1124,7 @@ class GatewayHandler:
                         },
                     }
                 created_message = self._event_bridge.on_turn_start(
-                    conversation_id=canonical_conv.id,
+                    conversation_id=conversation_id,
                     agent_user_id=agent_user_id,
                     agent_id=agent_id,
                 )
@@ -1250,7 +1135,7 @@ class GatewayHandler:
                     "payload": {
                         "message_type": "node.streaming_delta",
                         "kind": kind,
-                        "conversation_id": canonical_conv.id,
+                        "conversation_id": conversation_id,
                         "message_id": created_message.id,
                     },
                 }
@@ -1262,13 +1147,10 @@ class GatewayHandler:
             # Resolve IM user ID from agent_id; gateway sends agent_id (e.g. "alpha"),
             # IM stores the agent as username="agent:<agent_id>" in the users table.
             agent_user_id = event.agent_user_id
-            if agent_user_id is None and self._user_repository is not None:
-                row = self._user_repository._connection.execute(  # noqa: SLF001
-                    "SELECT id FROM users WHERE username = ?",
-                    (f"agent:{agent_id}",),
-                ).fetchone()
-                if row is not None:
-                    agent_user_id = str(row["id"])
+            if agent_user_id is None and self._conversation_persistence is not None:
+                agent_user_id = self._conversation_persistence.agent_user_id(
+                    agent_id=agent_id
+                )
             if agent_user_id is None:
                 return {
                     "type": "ack",
@@ -1429,7 +1311,7 @@ class GatewayHandler:
     async def _broadcast_group_reply_context(
         self, *, task, node_id: str, detail: str | None
     ) -> None:  # noqa: ANN001
-        if self._conversation_repository is None or self._user_repository is None:
+        if self._conversation_persistence is None:
             return
         if (
             detail is None
@@ -1447,41 +1329,11 @@ class GatewayHandler:
         source_agent_id = task.payload.get("agent_id")
         if not isinstance(source_agent_id, str) or not source_agent_id.strip():
             return
-        conversation = self._conversation_repository.get_conversation(
-            conversation_id=task.conversation_id
+        route = self._conversation_persistence.group_reply_route(
+            conversation_id=task.conversation_id,
+            source_agent_id=source_agent_id,
         )
-        if conversation is None:
-            return
-        participant_ids = [
-            item.user_id or item.id
-            for item in conversation.participants
-            if (item.user_id or item.id).strip()
-        ] or conversation.participant_ids
-        if not participant_ids:
-            return
-        placeholders = ",".join("?" for _ in participant_ids)
-        participant_rows = self._conversation_repository._connection.execute(  # noqa: SLF001
-            f"SELECT id, username, display_name FROM users WHERE id IN ({placeholders})",  # noqa: S608, SLF001
-            tuple(participant_ids),
-        ).fetchall()
-        source_user = self._conversation_repository._connection.execute(  # noqa: SLF001
-            "SELECT id, display_name FROM users WHERE username = ?",
-            (f"agent:{source_agent_id}",),
-        ).fetchone()
-        if source_user is None:
-            return
-        sender_user_id = str(source_user["id"])
-        sender_display_name = str(source_user["display_name"])
-        peer_agent_ids: list[str] = []
-        for row in participant_rows:
-            username = str(row["username"])
-            if not username.startswith("agent:"):
-                continue
-            agent_id = username[len("agent:") :].strip()
-            if not agent_id or agent_id == source_agent_id:
-                continue
-            peer_agent_ids.append(agent_id)
-        if not peer_agent_ids:
+        if route is None:
             return
 
         # bugfix-358: IM 在此处只做哑路由——给每个 peer agent 各扇出一份 group relay。
@@ -1493,38 +1345,36 @@ class GatewayHandler:
         synthetic_message = Message(
             id=task.message_id,
             conversation_id=task.conversation_id,
-            sender_user_id=sender_user_id,
+            sender_user_id=route.sender_user_id,
             sender_type="agent",
             sender=Actor(
                 type="agent",
                 id=source_agent_id,
-                display_name=sender_display_name,
-                user_id=sender_user_id,
+                display_name=route.sender_display_name,
+                user_id=route.sender_user_id,
             ),
             content=detail.strip(),
             attachments=[],
             delivery_status="completed",
             created_at=task.updated_at,
         )
-        for peer_agent_id in peer_agent_ids:
-            profile_row = self._conversation_repository._connection.execute(  # noqa: SLF001
-                "SELECT node_id FROM agent_profiles WHERE agent_id = ?",
-                (peer_agent_id,),
-            ).fetchone()
-            if profile_row is None or profile_row["node_id"] is None:
+        for target in route.targets:
+            target_node_id = self._conversation_persistence.agent_node_id(
+                agent_id=target.agent_id
+            )
+            if target_node_id is None:
                 continue
-            target_node_id = str(profile_row["node_id"])
             result = self._relay_service.enqueue_message_relay(
                 message=synthetic_message,
                 target_node_id=target_node_id,
-                idempotency_key=f"agent-reply:{task.relay_task_id}:{peer_agent_id}",
-                sender_user_id=sender_user_id,
+                idempotency_key=f"agent-reply:{task.relay_task_id}:{target.agent_id}",
+                sender_user_id=route.sender_user_id,
                 conversation_type="group",
                 extra_metadata={
                     "source_agent_id": source_agent_id,
-                    "sender_display_name": sender_display_name,
+                    "sender_display_name": route.sender_display_name,
                 },
-                _override_agent_id=peer_agent_id,
+                _override_agent_id=target.agent_id,
             )
             if result.created:
                 await self.push_relay_message(
@@ -1797,11 +1647,7 @@ class GatewayHandler:
         create_message path is preserved — those messages are forwarded via relay and
         the target agent does not need a live WS bubble.
         """
-        if (
-            self._conversation_repository is None
-            or self._user_repository is None
-            or self._message_repository is None
-        ):
+        if self._conversation_persistence is None or self._message_repository is None:
             return {
                 "type": "error",
                 "payload": {
@@ -1819,17 +1665,20 @@ class GatewayHandler:
             source_agent_id, dispatch_request_id = (
                 self._resolve_dispatch_source_from_session_id(source_raw=source_raw)
             )
-            resolved_target, conversation_id = self.resolve_send_message_target(
+            resolution = self._conversation_persistence.resolve_send_target(
                 source_agent_id=source_agent_id,
                 target=target,
+                caller_owner_id=None,
             )
+            resolved_target = resolution.target
+            conversation_id = resolution.conversation_id
             dispatch_request_key = (
                 f"{source_agent_id}:{dispatch_request_id}"
                 if dispatch_request_id is not None
                 else None
             )
             existing = (
-                self._find_dispatched_agent_message(
+                self._conversation_persistence.find_dispatch(
                     dispatch_request_key=dispatch_request_key
                 )
                 if dispatch_request_key is not None
@@ -1838,16 +1687,20 @@ class GatewayHandler:
             if existing is None:
                 async with self._agent_message_lock:
                     existing = (
-                        self._find_dispatched_agent_message(
+                        self._conversation_persistence.find_dispatch(
                             dispatch_request_key=dispatch_request_key
                         )
                         if dispatch_request_key is not None
                         else None
                     )
                     if existing is None:
-                        sender_user_id = self._require_user_id_by_username(
-                            username=f"agent:{source_agent_id}"
+                        sender_user_id = self._conversation_persistence.agent_user_id(
+                            agent_id=source_agent_id
                         )
+                        if sender_user_id is None:
+                            raise ValueError(
+                                f"username not found: agent:{source_agent_id}"
+                            )
                         # bugfix-404 fix-realtime: user-target notifications must flow
                         # through EventBridge so message.created is written to
                         # conversation_events and the front-end real-time stream picks it
@@ -1877,28 +1730,39 @@ class GatewayHandler:
                                 sender_type="agent",
                                 content=text,
                             )
+                        # The asyncio lock is process-local. The durable first write is
+                        # the authority when another handler/process races this message.
+                        owns_durable_dispatch = True
                         if dispatch_request_key is not None:
-                            self._record_dispatched_agent_message(
-                                dispatch_request_key=dispatch_request_key,
-                                source_agent_id=source_agent_id,
-                                target_kind=resolved_target.kind,
-                                target_id=resolved_target.id,
-                                conversation_id=conversation_id,
-                                message_id=message.id,
+                            durable_dispatch = (
+                                self._conversation_persistence.record_dispatch(
+                                    AgentDispatchRecord(
+                                        dispatch_request_key=dispatch_request_key,
+                                        source_agent_id=source_agent_id,
+                                        target_kind=resolved_target.kind,
+                                        target_id=resolved_target.id,
+                                        conversation_id=conversation_id,
+                                        message_id=message.id,
+                                    )
+                                )
+                            )
+                            owns_durable_dispatch = (
+                                durable_dispatch.message_id == message.id
                             )
                         if (
-                            resolved_target.kind == "agent_id"
+                            owns_durable_dispatch
+                            and resolved_target.kind == "agent_id"
                             and self._relay_service is not None
                         ):
-                            _profile = self._conversation_repository._connection.execute(  # noqa: SLF001
-                                "SELECT node_id FROM agent_profiles WHERE agent_id = ?",
-                                (resolved_target.id,),
-                            ).fetchone()
-                            if _profile is not None and _profile["node_id"]:
-                                _node = str(_profile["node_id"])
+                            target_node_id = (
+                                self._conversation_persistence.agent_node_id(
+                                    agent_id=resolved_target.id
+                                )
+                            )
+                            if target_node_id is not None:
                                 _relay_result = self._relay_service.enqueue_message_relay(
                                     message=message,
-                                    target_node_id=_node,
+                                    target_node_id=target_node_id,
                                     idempotency_key=f"agent-dm:{message.id}:{resolved_target.id}",
                                     sender_user_id=sender_user_id,
                                     conversation_type="direct",
@@ -1907,23 +1771,31 @@ class GatewayHandler:
                                 if _relay_result.created:
                                     await self.push_relay_message(
                                         relay_task_id=_relay_result.relay_task.relay_task_id,
-                                        target_node_id=_node,
+                                        target_node_id=target_node_id,
                                         payload=_relay_result.relay_task.payload,
                                     )
+                        if not owns_durable_dispatch:
+                            existing = durable_dispatch
+                            conversation_id = durable_dispatch.conversation_id
+                            resolved_target = DispatchTarget(
+                                kind=durable_dispatch.target_kind,
+                                id=durable_dispatch.target_id,
+                            )
+                            message_id = durable_dispatch.message_id
                     else:
-                        conversation_id = existing["conversation_id"]
+                        conversation_id = existing.conversation_id
                         resolved_target = DispatchTarget(
-                            kind=existing["target_kind"],
-                            id=existing["target_id"],
+                            kind=existing.target_kind,
+                            id=existing.target_id,
                         )
-                        message_id = existing["message_id"]
+                        message_id = existing.message_id
             else:
-                conversation_id = existing["conversation_id"]
+                conversation_id = existing.conversation_id
                 resolved_target = DispatchTarget(
-                    kind=existing["target_kind"],
-                    id=existing["target_id"],
+                    kind=existing.target_kind,
+                    id=existing.target_id,
                 )
-                message_id = existing["message_id"]
+                message_id = existing.message_id
         except ValueError as exc:
             return {
                 "type": "error",
@@ -1997,7 +1869,7 @@ class GatewayHandler:
         Returns:
             Ack dict with ``message_id`` on success, or error dict on failure.
         """
-        if self._conversation_repository is None or self._message_repository is None:
+        if self._conversation_persistence is None or self._message_repository is None:
             return {
                 "type": "error",
                 "payload": {
@@ -2012,30 +1884,9 @@ class GatewayHandler:
             ).strip()
             text = _require_text(payload.get("text"), field_name="text").strip()
 
-            # Resolve or lazily create the well-known system user.
-            # The system user has username='system'; its owner_id equals its own id.
-            system_user = (
-                self._user_repository.get_user_by_username(username="system")
-                if self._user_repository is not None
-                else None
-            )
-            if system_user is None and self._user_repository is not None:
-                system_user = self._user_repository.create_user(
-                    username="system",
-                    display_name="System",
-                )
-            if system_user is None:
-                return {
-                    "type": "error",
-                    "payload": {
-                        "code": "system_user_unavailable",
-                        "message": "could not resolve system user",
-                    },
-                }
-
             message = self._message_repository.create_message(
                 conversation_id=conversation_id,
-                sender_user_id=system_user.id,
+                sender_user_id=self._conversation_persistence.system_user_id(),
                 sender_type="system",
                 content=text,
             )
@@ -2051,273 +1902,6 @@ class GatewayHandler:
                 "type": "error",
                 "payload": {"code": "invalid_system_message", "message": str(exc)},
             }
-
-    def _ensure_agent_message_dispatch_table(self) -> None:
-        if self._conversation_repository is None:
-            return
-        self._conversation_repository._connection.execute(  # noqa: SLF001
-            """
-            CREATE TABLE IF NOT EXISTS agent_message_dispatch_log (
-                dispatch_request_key TEXT PRIMARY KEY,
-                source_agent_id TEXT NOT NULL,
-                target_kind TEXT NOT NULL,
-                target_id TEXT NOT NULL,
-                conversation_id TEXT NOT NULL,
-                message_id TEXT NOT NULL,
-                created_at TEXT NOT NULL
-            )
-            """
-        )
-        self._conversation_repository._connection.commit()  # noqa: SLF001
-
-    def _find_dispatched_agent_message(
-        self, *, dispatch_request_key: str | None
-    ) -> dict[str, str] | None:
-        if dispatch_request_key is None or self._conversation_repository is None:
-            return None
-        row = self._conversation_repository._connection.execute(  # noqa: SLF001
-            """
-            SELECT target_kind, target_id, conversation_id, message_id
-            FROM agent_message_dispatch_log
-            WHERE dispatch_request_key = ?
-            """,
-            (dispatch_request_key,),
-        ).fetchone()
-        if row is None:
-            return None
-        return {
-            "target_kind": str(row["target_kind"]),
-            "target_id": str(row["target_id"]),
-            "conversation_id": str(row["conversation_id"]),
-            "message_id": str(row["message_id"]),
-        }
-
-    def _record_dispatched_agent_message(
-        self,
-        *,
-        dispatch_request_key: str,
-        source_agent_id: str,
-        target_kind: str,
-        target_id: str,
-        conversation_id: str,
-        message_id: str,
-    ) -> None:
-        if self._conversation_repository is None:
-            return
-        self._conversation_repository._connection.execute(  # noqa: SLF001
-            """
-            INSERT INTO agent_message_dispatch_log(
-                dispatch_request_key, source_agent_id, target_kind, target_id, conversation_id, message_id, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
-            """,
-            (
-                dispatch_request_key,
-                source_agent_id,
-                target_kind,
-                target_id,
-                conversation_id,
-                message_id,
-            ),
-        )
-        self._conversation_repository._connection.commit()  # noqa: SLF001
-
-    def resolve_send_message_target(
-        self,
-        *,
-        source_agent_id: str,
-        target: str,
-    ) -> tuple[DispatchTarget, str]:
-        """Resolve one send_message target into kind + landed conversation_id."""
-        if self._conversation_repository is None or self._user_repository is None:
-            raise RuntimeError(
-                "conversation_repository and user_repository must be configured"
-            )
-        source_user_id = self._require_user_id_by_username(
-            username=f"agent:{source_agent_id}"
-        )
-        resolved_target = self._classify_dispatch_target(target=target)
-        if resolved_target.kind == "conversation_id":
-            conversation = self._conversation_repository.get_conversation(
-                conversation_id=resolved_target.id
-            )
-            if conversation is None:
-                raise ValueError("conversation_id not found")
-            return (resolved_target, conversation.id)
-        if resolved_target.kind == "agent_id":
-            target_user_id = self._require_user_id_by_username(
-                username=f"agent:{resolved_target.id}"
-            )
-            landed = self._find_or_create_direct_conversation(
-                left_user_id=source_user_id,
-                right_user_id=target_user_id,
-                expected_direct_kind="agent-agent",
-            )
-            return (resolved_target, landed.id)
-        target_user_id = self._require_user_id_by_id(user_id=resolved_target.id)
-        landed = self._find_or_create_direct_conversation(
-            left_user_id=source_user_id,
-            right_user_id=target_user_id,
-            expected_direct_kind="user-agent",
-        )
-        return (resolved_target, landed.id)
-
-    def _classify_dispatch_target(self, *, target: str) -> DispatchTarget:
-        """Classify one raw target into conversation_id, agent_id, or user_id."""
-        normalized = _require_text(target, field_name="target").strip()
-        for prefix, kind in (
-            ("conversation:", "conversation_id"),
-            ("conversation_id:", "conversation_id"),
-            ("agent:", "agent_id"),
-            ("agent_id:", "agent_id"),
-            ("user:", "user_id"),
-            ("user_id:", "user_id"),
-        ):
-            if normalized.startswith(prefix):
-                resolved_id = normalized[len(prefix) :].strip()
-                if not resolved_id:
-                    raise ValueError("target id must be non-empty")
-                return DispatchTarget(kind=kind, id=resolved_id)
-
-        conversation = self._conversation_repository.get_conversation(
-            conversation_id=normalized
-        )
-        if conversation is not None:
-            return DispatchTarget(kind="conversation_id", id=normalized)
-        by_id = self._user_repository.get_user(user_id=normalized)
-        if by_id is not None:
-            if by_id.username.startswith("agent:"):
-                return DispatchTarget(
-                    kind="agent_id",
-                    id=by_id.username[len("agent:") :].strip() or by_id.id,
-                )
-            return DispatchTarget(kind="user_id", id=by_id.id)
-        agent_row = self._find_user_by_username(username=f"agent:{normalized}")
-        if agent_row is not None:
-            return DispatchTarget(kind="agent_id", id=normalized)
-        raise ValueError("target not found")
-
-    def _find_or_create_direct_conversation(
-        self,
-        *,
-        left_user_id: str,
-        right_user_id: str,
-        expected_direct_kind: str,
-        caller_owner_id: str | None = None,
-    ):  # noqa: ANN202
-        """Resolve one canonical direct conversation, creating it when absent.
-
-        Args:
-            caller_owner_id: The authenticated caller's owner_id.  When supplied, the
-                created conversation's owner_id is set to this value so that
-                ``list_conversations_for_owner`` can surface it to the caller.
-                For heartbeat delivery the caller is the owner user (to_user_id).
-        """
-        existing = self._find_canonical_direct_conversation(
-            left_user_id=left_user_id,
-            right_user_id=right_user_id,
-            expected_direct_kind=expected_direct_kind,
-        )
-        if existing is not None:
-            return existing
-        return self._conversation_repository.create_conversation(
-            title=self._build_default_direct_conversation_title(
-                left_user_id=left_user_id,
-                right_user_id=right_user_id,
-                expected_direct_kind=expected_direct_kind,
-            ),
-            participant_ids=[left_user_id, right_user_id],
-            creator_id=left_user_id,
-            caller_owner_id=caller_owner_id,
-        )
-
-    def _build_default_direct_conversation_title(
-        self,
-        *,
-        left_user_id: str,
-        right_user_id: str,
-        expected_direct_kind: str,
-    ) -> str:
-        if self._conversation_repository is None:
-            return "Direct conversation"
-        placeholders = ",".join("?" for _ in (left_user_id, right_user_id))
-        rows = self._conversation_repository._connection.execute(  # noqa: SLF001
-            f"SELECT id, username, display_name FROM users WHERE id IN ({placeholders})",  # noqa: S608
-            (left_user_id, right_user_id),
-        ).fetchall()
-        row_by_id = {str(row["id"]): row for row in rows}
-        left_user = row_by_id.get(left_user_id)
-        right_user = row_by_id.get(right_user_id)
-
-        def _display_name(row: object | None) -> str | None:
-            if row is None:
-                return None
-            display_name = str(row["display_name"] or "").strip()  # type: ignore[index]
-            if display_name:
-                return display_name
-            username = str(row["username"] or "").strip()  # type: ignore[index]
-            if username.startswith("agent:"):
-                return username[len("agent:") :].strip() or None
-            return username or None
-
-        if expected_direct_kind == "user-agent":
-            for row in (left_user, right_user):
-                username = str(row["username"] or "").strip() if row is not None else ""
-                if username.startswith("agent:"):
-                    agent_name = _display_name(row)
-                    if agent_name:
-                        return agent_name
-
-        return (
-            _display_name(right_user)
-            or _display_name(left_user)
-            or "Direct conversation"
-        )
-
-    def _find_canonical_direct_conversation(
-        self,
-        *,
-        left_user_id: str,
-        right_user_id: str,
-        expected_direct_kind: str,
-    ):  # noqa: ANN202
-        """Return the canonical direct conversation for one participant pair."""
-        pair = {left_user_id, right_user_id}
-        direct_candidates = [
-            item
-            for item in self._conversation_repository.list_conversations()
-            if item.type == "direct"
-            and len(item.participant_ids) == 2
-            and set(item.participant_ids) == pair
-        ]
-        kind_matches = [
-            item
-            for item in direct_candidates
-            if item.direct_kind == expected_direct_kind
-        ]
-        candidates = kind_matches or direct_candidates
-        if not candidates:
-            return None
-        return sorted(candidates, key=lambda item: (item.created_at, item.id))[0]
-
-    def _find_user_by_username(self, *, username: str):  # noqa: ANN202
-        if self._user_repository is None:
-            return None
-        return self._conversation_repository._connection.execute(  # noqa: SLF001
-            "SELECT id, username, display_name, owner_id FROM users WHERE username = ?",
-            (username,),
-        ).fetchone()
-
-    def _require_user_id_by_username(self, *, username: str) -> str:
-        row = self._find_user_by_username(username=username)
-        if row is None:
-            raise ValueError(f"username not found: {username}")
-        return str(row["id"])
-
-    def _require_user_id_by_id(self, *, user_id: str) -> str:
-        user = self._user_repository.get_user(user_id=user_id)
-        if user is None:
-            raise ValueError("user_id not found")
-        return str(user.id)
 
     def record_relay_failure(
         self,
@@ -2508,7 +2092,7 @@ class GatewayHandler:
             )
 
     def _persist_report_usage(self, *, payload: dict[str, object]) -> None:
-        if self._metrics_service is None or self._conversation_repository is None:
+        if self._metrics_service is None or self._conversation_persistence is None:
             return
         if _optional_text(payload.get("status")) != "completed":
             return
@@ -2516,10 +2100,9 @@ class GatewayHandler:
         usage = _optional_usage(payload.get("usage"))
         if conversation_id is None or usage is None:
             return
-        conversation = self._conversation_repository.get_conversation(
+        owner_id = self._conversation_persistence.conversation_usage_scope(
             conversation_id=conversation_id
         )
-        owner_id = conversation.owner_id if conversation is not None else None
         self._metrics_service.record_usage(
             owner_id=owner_id,
             conversation_id=None,

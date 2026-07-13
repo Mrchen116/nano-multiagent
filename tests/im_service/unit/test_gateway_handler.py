@@ -9,6 +9,10 @@ from IM.application.metrics_service import MetricsService
 from IM.application.relay_service import RelayService
 from IM.domain.models import Message
 from IM.infra.db import connect, initialize_schema
+from IM.infra.gateway_persistence import (
+    GatewayConversationPersistence,
+    GatewayNodePersistence,
+)
 from IM.infra.repositories import (
     ConversationRepository,
     MessageRepository,
@@ -37,21 +41,27 @@ def _build_handler(tmp_path: Path) -> GatewayHandler:
     return GatewayHandler(
         relay_service=RelayService(connection),
         metrics_service=MetricsService(metrics=UsageMetricsRepository(connection)),
-        conversation_repository=ConversationRepository(connection),
+        conversation_persistence=GatewayConversationPersistence(connection),
+        message_repository=MessageRepository(connection),
     )
 
 
-def _build_handler_with_node_repo(tmp_path: Path) -> GatewayHandler:
-    """构建带 NodeRepository 的 handler，用于验证 agent profile 落库行为。"""
-    from IM.infra.repositories import NodeRepository
+def _build_handler_with_node_persistence(
+    tmp_path: Path,
+) -> tuple[GatewayHandler, object]:
+    """构建带 node persistence seam 的 handler，用于验证 profile 落库行为。"""
 
     connection = connect(tmp_path / "im.db")
     initialize_schema(connection)
-    return GatewayHandler(
-        relay_service=RelayService(connection),
-        metrics_service=MetricsService(metrics=UsageMetricsRepository(connection)),
-        conversation_repository=ConversationRepository(connection),
-        node_repository=NodeRepository(connection),
+    return (
+        GatewayHandler(
+            relay_service=RelayService(connection),
+            metrics_service=MetricsService(metrics=UsageMetricsRepository(connection)),
+            conversation_persistence=GatewayConversationPersistence(connection),
+            message_repository=MessageRepository(connection),
+            node_persistence=GatewayNodePersistence(connection),
+        ),
+        connection,
     )
 
 
@@ -215,7 +225,8 @@ def test_completed_report_persists_real_usage_metrics(tmp_path: Path) -> None:
     handler = GatewayHandler(
         relay_service=RelayService(connection),
         metrics_service=MetricsService(metrics=metrics_repo),
-        conversation_repository=conversations,
+        conversation_persistence=GatewayConversationPersistence(connection),
+        message_repository=messages_repo,
     )
     websocket = StubWebSocket()
     owner = users.create_user(username="owner", display_name="Owner")
@@ -312,7 +323,8 @@ def test_completed_group_reply_broadcasts_background_context_to_peer_agents(
     handler = GatewayHandler(
         relay_service=relay_service,
         metrics_service=MetricsService(metrics=UsageMetricsRepository(connection)),
-        conversation_repository=conversations,
+        conversation_persistence=GatewayConversationPersistence(connection),
+        message_repository=MessageRepository(connection),
     )
     websocket = StubWebSocket()
     owner = users.create_user(username="owner", display_name="Owner")
@@ -430,106 +442,6 @@ def test_completed_group_reply_broadcasts_background_context_to_peer_agents(
     assert relay_frames[0]["payload"]["agent_id"] == "Q"
 
 
-def test_resolve_send_message_target_handles_agent_user_and_conversation(
-    tmp_path: Path,
-) -> None:
-    connection = connect(tmp_path / "im.db")
-    initialize_schema(connection)
-    users = UserRepository(connection)
-    conversations = ConversationRepository(connection)
-    handler = GatewayHandler(
-        relay_service=RelayService(connection),
-        metrics_service=MetricsService(metrics=UsageMetricsRepository(connection)),
-        conversation_repository=conversations,
-    )
-    owner = users.create_user(username="owner", display_name="Owner")
-    source_agent = users.create_user(username="agent:A", display_name="Agent A")
-    target_agent = users.create_user(username="agent:B", display_name="Agent B")
-    teammate = users.create_user(username="teammate", display_name="Teammate")
-    group = conversations.create_conversation(
-        title="group",
-        participant_ids=[owner.id, source_agent.id, target_agent.id, teammate.id],
-    )
-
-    agent_target, agent_conversation_id = handler.resolve_send_message_target(
-        source_agent_id="A",
-        target="agent:B",
-    )
-    user_target, user_conversation_id = handler.resolve_send_message_target(
-        source_agent_id="A",
-        target=f"user:{teammate.id}",
-    )
-    group_target, landed_group_id = handler.resolve_send_message_target(
-        source_agent_id="A",
-        target=f"conversation:{group.id}",
-    )
-
-    landed_agent = conversations.get_conversation(conversation_id=agent_conversation_id)
-    landed_user = conversations.get_conversation(conversation_id=user_conversation_id)
-
-    assert agent_target.kind == "agent_id"
-    assert agent_target.id == "B"
-    assert landed_agent is not None
-    assert landed_agent.type == "direct"
-    assert landed_agent.direct_kind == "agent-agent"
-    assert landed_agent.title == "Agent B"
-
-    assert user_target.kind == "user_id"
-    assert user_target.id == teammate.id
-    assert landed_user is not None
-    assert landed_user.type == "direct"
-    assert landed_user.direct_kind == "user-agent"
-    assert landed_user.title == "Agent A"
-
-    assert group_target.kind == "conversation_id"
-    assert landed_group_id == group.id
-
-
-def test_resolve_send_message_target_reuses_existing_direct_conversation(
-    tmp_path: Path,
-) -> None:
-    connection = connect(tmp_path / "im.db")
-    initialize_schema(connection)
-    users = UserRepository(connection)
-    conversations = ConversationRepository(connection)
-    handler = GatewayHandler(
-        relay_service=RelayService(connection),
-        metrics_service=MetricsService(metrics=UsageMetricsRepository(connection)),
-        conversation_repository=conversations,
-    )
-    source_agent = users.create_user(username="agent:A", display_name="Agent A")
-    target_agent = users.create_user(username="agent:B", display_name="Agent B")
-    existing = conversations.create_conversation(
-        title="existing direct",
-        participant_ids=[source_agent.id, target_agent.id],
-    )
-
-    first_target, first_conversation_id = handler.resolve_send_message_target(
-        source_agent_id="A",
-        target="agent:B",
-    )
-    second_target, second_conversation_id = handler.resolve_send_message_target(
-        source_agent_id="A",
-        target="agent:B",
-    )
-
-    assert first_target.kind == "agent_id"
-    assert second_target.kind == "agent_id"
-    assert first_conversation_id == existing.id
-    assert second_conversation_id == existing.id
-
-
-def test_resolve_send_message_target_rejects_unknown_target(tmp_path: Path) -> None:
-    handler = _build_handler(tmp_path)
-    users = UserRepository(handler._conversation_repository._connection)  # noqa: SLF001
-    users.create_user(username="agent:A", display_name="Agent A")
-
-    with pytest.raises(ValueError, match="target not found"):
-        handler.resolve_send_message_target(
-            source_agent_id="A", target="missing-target"
-        )
-
-
 def test_handle_agent_message_routes_user_target_and_persists_message(
     tmp_path: Path,
 ) -> None:
@@ -541,7 +453,8 @@ def test_handle_agent_message_routes_user_target_and_persists_message(
     handler = GatewayHandler(
         relay_service=RelayService(connection),
         metrics_service=MetricsService(metrics=UsageMetricsRepository(connection)),
-        conversation_repository=conversations,
+        conversation_persistence=GatewayConversationPersistence(connection),
+        message_repository=messages_repo,
     )
     websocket = StubWebSocket()
     source_agent = users.create_user(username="agent:A", display_name="Agent A")
@@ -616,7 +529,8 @@ def test_handle_agent_message_deduplicates_same_dispatch_request(
     handler = GatewayHandler(
         relay_service=RelayService(connection),
         metrics_service=MetricsService(metrics=UsageMetricsRepository(connection)),
-        conversation_repository=conversations,
+        conversation_persistence=GatewayConversationPersistence(connection),
+        message_repository=messages_repo,
     )
     websocket = StubWebSocket()
     source_agent = users.create_user(username="agent:A", display_name="Agent A")
@@ -731,11 +645,11 @@ def _build_handler_with_event_bridge(tmp_path: Path) -> tuple["GatewayHandler", 
     bridge = EventBridge(
         message_repository=msg_repo, event_repository=evt_repo, notify=None
     )
-    # user_repository is auto-derived from conversation_repository._connection in GatewayHandler.__init__
     handler = GatewayHandler(
         relay_service=RelayService(connection),
         metrics_service=MetricsService(metrics=UsageMetricsRepository(connection)),
-        conversation_repository=ConversationRepository(connection),
+        conversation_persistence=GatewayConversationPersistence(connection),
+        message_repository=msg_repo,
         event_bridge=bridge,
     )
     return handler, connection
@@ -1432,7 +1346,7 @@ def test_handle_register_with_agent_workspaces_seeds_first_seen_profile(
 
     bugfix-404-M2 决策 3：种子链路修复——IM 首次见到 agent 时用上报值，不再凭空填默认路径。
     """
-    handler = _build_handler_with_node_repo(tmp_path)
+    handler, connection = _build_handler_with_node_persistence(tmp_path)
     ws_path = "/worktrees/bugfix-404-M2/.gateway-workspace/Arch"
     asyncio.run(
         handler.handle_message(
@@ -1446,8 +1360,7 @@ def test_handle_register_with_agent_workspaces_seeds_first_seen_profile(
             },
         )
     )
-    conn = handler._node_repository._connection
-    row = conn.execute(
+    row = connection.execute(
         "SELECT workspace_root FROM agent_profiles WHERE agent_id = ?", ("Arch",)
     ).fetchone()
     assert row is not None
@@ -1460,7 +1373,7 @@ def test_handle_register_runtime_profile_provisions_agent_user(
     tmp_path: Path,
 ) -> None:
     """Runtime node.register profiles must be usable as conversation participants."""
-    handler = _build_handler_with_node_repo(tmp_path)
+    handler, connection = _build_handler_with_node_persistence(tmp_path)
 
     asyncio.run(
         handler.handle_message(
@@ -1474,7 +1387,7 @@ def test_handle_register_runtime_profile_provisions_agent_user(
         )
     )
 
-    users = UserRepository(handler._node_repository._connection)
+    users = UserRepository(connection)
     agent_user = users.get_user_by_username(username="agent:default-agent")
     assert agent_user is not None
     assert agent_user.display_name == "default-agent"
@@ -1487,7 +1400,7 @@ def test_handle_register_preserves_existing_workspace_on_reregister(
 
     bugfix-404-M2 决策 3：首见才写种子，已存在则不动（与 feat-379-M6 同模式）。
     """
-    handler = _build_handler_with_node_repo(tmp_path)
+    handler, connection = _build_handler_with_node_persistence(tmp_path)
     original_ws = "/original/workspace/Arch"
     new_ws = "/different/workspace/Arch"
     # 首次注册，确立原始值
@@ -1516,8 +1429,7 @@ def test_handle_register_preserves_existing_workspace_on_reregister(
             },
         )
     )
-    conn = handler._node_repository._connection
-    row = conn.execute(
+    row = connection.execute(
         "SELECT workspace_root FROM agent_profiles WHERE agent_id = ?", ("Arch",)
     ).fetchone()
     assert row is not None
@@ -1533,7 +1445,7 @@ def test_handle_register_without_agent_workspaces_falls_back_to_managed_default(
 
     向后兼容性：老版本 gateway 发的帧无 agent_workspaces，IM 应走原路逻辑不报错。
     """
-    handler = _build_handler_with_node_repo(tmp_path)
+    handler, connection = _build_handler_with_node_persistence(tmp_path)
     asyncio.run(
         handler.handle_message(
             websocket=StubWebSocket(),
@@ -1546,8 +1458,7 @@ def test_handle_register_without_agent_workspaces_falls_back_to_managed_default(
             },
         )
     )
-    conn = handler._node_repository._connection
-    row = conn.execute(
+    row = connection.execute(
         "SELECT workspace_root FROM agent_profiles WHERE agent_id = ?",
         ("LegacyAgent",),
     ).fetchone()
@@ -1587,7 +1498,8 @@ def _build_handler_with_event_bridge_and_notify(
     handler = GatewayHandler(
         relay_service=RelayService(connection),
         metrics_service=MetricsService(metrics=UsageMetricsRepository(connection)),
-        conversation_repository=ConversationRepository(connection),
+        conversation_persistence=GatewayConversationPersistence(connection),
+        message_repository=msg_repo,
         event_bridge=bridge,
     )
     return handler, connection, emitted

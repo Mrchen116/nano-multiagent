@@ -58,8 +58,10 @@ def _drain_until_pong(websocket, *, max_total: int = 20) -> list[dict]:
     return frames
 
 
-def test_register_broadcasts_node_online_to_owner_via_real_ws(tmp_path: Path) -> None:
-    """PA gateway sends node.register → matching owner's user WS receives node + agent online frames."""
+def test_register_broadcasts_agents_in_advertisement_order_via_real_ws(
+    tmp_path: Path,
+) -> None:
+    """Register preserves protocol advertisement order in owner status frames."""
     with make_app_client(tmp_path) as client:
         owner = register_user(client, username="owner-a")
         authorize(client, owner)
@@ -78,7 +80,7 @@ def test_register_broadcasts_node_online_to_owner_via_real_ws(tmp_path: Path) ->
                             "type": "node.register",
                             "payload": {
                                 "node_id": "node-1",
-                                "agents": ["agent-a"],
+                                "agents": ["agent-z", "agent-a"],
                                 "capabilities": {},
                             },
                         }
@@ -99,9 +101,15 @@ def test_register_broadcasts_node_online_to_owner_via_real_ws(tmp_path: Path) ->
         agent_frames = [f for f in frames if f["event_type"] == "agent.status_changed"]
         assert any(f["data"]["status"] == "online" for f in node_frames), event_types
         assert any(f["data"]["status"] == "offline" for f in node_frames), event_types
-        assert any(f["data"]["agent_id"] == "agent-a" for f in agent_frames), (
-            event_types
-        )
+        online_agent_frames = [
+            frame for frame in agent_frames if frame["data"]["status"] == "online"
+        ]
+        assert [frame["data"]["agent_id"] for frame in online_agent_frames] == [
+            "agent-z",
+            "agent-a",
+        ]
+        online_seq = [frame["data"]["seq"] for frame in online_agent_frames]
+        assert online_seq == sorted(online_seq)
 
 
 def test_cross_owner_isolation_real_ws(tmp_path: Path) -> None:
