@@ -29,10 +29,10 @@
 
 ### R1 — Startup publication transaction
 
-- 状态：TODO
-- C1 Red：补 parent state publication 失败、TERM/KILL 后仍存活、foreground identity fail、PID publish fail 的 public regression。
-- C2 Green：让 parent post-spawn state 与 foreground identity/PID publication 各自形成事务；明确 confirmed cleanup result/failure，原子发布 PID，只条件清本实例 evidence。
-- C3 Docs：记录失败因果链、evidence 保留边界与回退点。
+- 状态：DONE
+- [x] C1 Red：补 parent state publication 失败、TERM/KILL 后仍存活、foreground identity fail、PID publish fail 的 public regression。
+- [x] C2 Green：让 parent post-spawn state 与 foreground identity/PID publication 各自形成事务；明确 confirmed cleanup result/failure，原子发布 PID，只条件清本实例 evidence。
+- [x] C3 Docs：记录失败因果链、evidence 保留边界与回退点。
 
 ### R2 — Shared process snapshot and birth identity
 
