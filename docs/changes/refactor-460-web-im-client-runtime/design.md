@@ -140,13 +140,14 @@ Before 是“两条 socket + legacy/v2 两套 Chat 数据面”；After 是“�
 
 ### 决策 4: cursor 表示 transport 已接收，subscriber 故障彼此隔离
 
-**合法持久事件一经 runtime 接收即单调推进 per-user cursor；每个 subscriber 独立调用，单个异常不阻塞其他人。**
+**已知 canonical 持久事件先在共享边界校验，合法后才单调推进 per-user cursor；每个 subscriber 独立调用，单个异常不阻塞其他人。**
 
 - **理由**: cursor 是连接恢复位置，不是所有 UI 副作用完成的事务。把它绑到最慢/失败 subscriber 会导致无限 replay
   和重复通知；领域恢复应依赖 REST snapshot。
 - **拒绝**: 所有 subscriber 成功后才写 cursor；任一 subscriber 失败就关闭 socket；为每个 subscriber 建独立 cursor。
 - **风险**: 崩溃 subscriber 会错过该帧；runtime 在 recovery 时通知所有 subscriber 刷新各自权威查询，且错误必须
-  可被测试观察而不破坏分发。
+  可被测试观察而不破坏分发。已知 canonical payload 的 schema 错误在 cursor/fan-out 前触发 recovery，不能让任一
+  subscriber 先消费、也不能推进 cursor；未知事件仍按开放 envelope 分发。
 
 ### 决策 5: reconnect 与 resync 统一为 recovery signal
 
@@ -321,8 +322,8 @@ stateDiagram-v2
 | Subscriber | 保留的领域职责 | recovery 行为 |
 |---|---|---|
 | Chat workspace | raw message/tool/thinking/permission -> canonical `WsEvent`；active timeline reducer；node/agent chip patch | 刷 current messages、conversations、agents、nodes |
-| Global toast | self/current-conversation 过滤、toast dedupe/文案；预热并刷新 canonical conversations query | 刷 conversations，保留已通知 key 防重复 |
-| Desktop notifier | agent created/completed/discarded 配对、visibility/preference/permission gate、点击导航 | 不清已处理状态；靠 cursor 避免旧 completion 再入 |
+| Global toast | 唯一 completion accumulator owner；self/current-conversation 过滤、toast dedupe/文案；external 会话权威分类；预热并刷新 canonical conversations query | 刷 conversations、重试未决 external 分类，保留已通知 key 防重复 |
+| Desktop notifier | 消费 toast owner 产出的 completion candidate；visibility/preference/permission gate、点击导航 | 不另行归约或持久化 lifecycle；靠 cursor 与共享 candidate 避免旧 completion 再入 |
 | Nodes page | node status payload validation + settings nodes cache patch | 刷 settings nodes |
 | Agent status consumer | agent status validation + agents list/detail cache patch | 刷 settings agents |
 
@@ -368,8 +369,9 @@ fresh session，负责 socket generation，不接触 QueryClient。
   顺序测试兜底；失败时回退 M1，不保留双 runtime 降级。
 - **refresh 与断网/account switch 竞态**：过期 access token 重连时必须主动 refresh，但断网不应被误判为退出，
   A 的延迟 refresh 也不得覆盖 B。以共享 single-flight、snapshot guard 和 `ready/retry/signed_out` 分类测试兜底。
-- **cursor 与通知重复/丢失**：cursor 提前或回退都影响 replay。测试覆盖非法帧不推进、持久帧单调推进、status 无
-  event id 不推进、subscriber 抛错仍推进且其他人继续、resync 使用 max 对齐。
+- **cursor 与通知重复/丢失**：cursor 提前或回退都影响 replay。测试覆盖 canonical 非法帧在共享 fan-out 前拒绝且
+  不推进、合法持久帧单调推进、status 无 event id 不推进、subscriber 抛错仍推进且其他人继续；普通 resync 使用
+  monotonic max，仅 `cursor_ahead_of_event_store` 以 global event-store max 替换旧 epoch cursor。
 - **非持久状态断线漏帧**：每次 continuity recovery 通知 Nodes/Agents/Chat 刷 REST；不能只依赖 replay。
 - **React StrictMode mount/unmount**：多 subscriber 和重复 dispose 必须只产生一条活动 socket；最后 subscriber 离开
   后不再重连。
@@ -404,11 +406,13 @@ subscriber 代替客户端旅程。
 实现/测试文件并新增完整连接生命周期；M2 要迁移/移动 40+ current v2 文件并删除 4200+ 行 legacy。先证明 M1
 恢复语义，再删除旧表面，能把 correctness 风险与机械迁移风险分开。Round 1 验收后追加 M3，集中修复验收与代码审查
 发现的恢复、提醒、绑定和残余重复表面；Round 2 又以真实旅程和 full diff review 暴露 replay/live 交接与通知生命周期
-仍未闭合，因此追加 M4 做协议连续性收口。两个 fix milestone 都不改变前两阶段的架构决策。
+仍未闭合，因此追加 M4 做协议连续性收口。Round 3/4 的独立 verifier 与 code review 继续暴露 handoff、external 首帧、
+跨账号刷新及 UI/REST 竞态，依次追加 M5/M6；这些 fix milestone 不改变前两阶段的架构决策，只把连续性语义落实到
+正确 owner。
 
 ```mermaid
 graph LR
-    M1["M1 realtime-runtime"] --> M2["M2 legacy-retirement"] --> M3["M3 post-acceptance fixes"] --> M4["M4 replay and notification closure"]
+    M1["M1 realtime-runtime"] --> M2["M2 legacy-retirement"] --> M3["M3 post-acceptance fixes"] --> M4["M4 replay and notification closure"] --> M5["M5 continuity source fixes"] --> M6["M6 gate closure"]
 ```
 
 ### Scenario coverage
@@ -436,3 +440,4 @@ graph LR
 | refactor-460-M3 | post-acceptance-fixes | refactor-460-M2 | C | `features/auth/{auth-fetch*,auth-session*}`；`realtime/user-stream/*`；`features/chat/{chat-workspace-page*,chat-workspace.integration.test*,bind-confirm-page*,chat-api*,hooks/use-global-message-toast*}`；`features/settings/agents/agent-detail-page*`；frontend architecture contract；`personal_assistant/gateway/runtime_delivery/context.py` 与 Gateway delivery tests；`IM/infra/repositories.py`、`IM/ws/user_stream.py` 与 IM repository/wire tests | **[reviewer]** 关闭 Round 1 的静默回复残留与在线非当前会话 toast/未读问题，并补齐恢复、绑定和凭证失效的可观察回归；不改变既有桌面/移动 Chat 交互。<br>**[worker]** Chat recovery 对当前消息、会话、Agent、Node 四类权威状态完成收敛；服务端拒绝但本地仍 fresh 的 token 通过同一 single-flight coordinator 强制 refresh；storage 不可用不击穿共享实时流；绑定 refetch 真实失败不导航且一次性 confirm 结果按 token 隔离。<br>**[worker]** direct Web IM 在 Gateway 源头采用既有协议静默语义；IM tombstone 在事务提交后 exactly-once 发布，nullable event FK 不覆盖 payload 中的 provisional message id，在线撤泡与 reload 历史一致且外部 channel/普通事件不变。<br>**[worker]** 删除无调用 mention API、详情页重复 Agent summary 请求与过宽 WebSocket ownership guard；复用统一 JSON transport/error seam且保持用户错误展示；相关定向测试、全量 Vitest/build、contract、non-e2e 与受影响真栈旅程通过。 |
 | refactor-460-M4 | replay-and-notification-closure | refactor-460-M3 | D | `IM/infra/repositories.py`、`IM/ws/user_stream.py`、`IM/application/event_bridge.py` 及 replay/stream tests；`personal_assistant/gateway/runtime_delivery/{observer.py,context.py}` 与 direct Web lifecycle/repository tests；`frontend/src/realtime/user-stream/*`；`features/chat/chat-stream-reducer*`、`features/chat/hooks/use-global-message-toast*`、`features/notifications/agent-completion-notifier*` 与相关 integration tests | **[reviewer]** 关闭 Round 2 的“带 tool/thinking 的静默回复 reload 后残留空 Agent 行”和“在线非当前会话无 toast/可见未读”，并验证同一回复只提醒一次、冷启动/恢复不重放历史提醒、刷新跨越 created/completed 不漏提醒；回归桌面/移动 Chat、绑定、状态、账号隔离。<br>**[worker]** replay 与 live 交接不双投、不乱序；短期 backlog 超过单批上限不会截断丢失；客户端 cursor 高于当前事件库 max 时触发权威 resync；新标签页 cursor=0 的历史 replay 不表现为新通知。<br>**[worker]** direct Web lifecycle 以可见正文是否提交决定 completed/discarded，tool/thinking 过程不阻止自然静默整泡回滚；普通可见回复与非 Web delivery 不变。<br>**[worker]** canonical completion 与 relay receipt 对同一回复只产生一次提醒；通知生命周期在页面 reload 前后保持正确，应用内与桌面通知复用一个纯生命周期 accumulator；退役非 canonical `message_created` alias。<br>**[worker]** repository/bridge 只保留一个 post-commit event notify owner；domain mapper 对异常持久 payload 安全降级；内存 cursor hydrate 后不在事件热路径重复读 storage，storage 不可用不洪泛日志。<br>**[worker]** 定向并发/分页/epoch/通知测试、全量 frontend/backend/contract/critical-path 与真实双浏览器旅程通过，证据持久化。 |
 | refactor-460-M5 | continuity-source-fixes | refactor-460-M4 | E | `IM/ws/user_stream.py`、`IM/infra/repositories.py` 与 handoff/replay tests；`frontend/src/realtime/user-stream/*`、canonical event validator、Chat recovery tests；`personal_assistant/gateway/runtime_delivery/observer.py` 与 steer lifecycle tests；notification coordinator/toast/notifier/local unread；external shadow message mapping 与相关 Gateway/IM tests | **[reviewer]** 真实隔离浏览器验证冷启动 baseline 不漏消息、epoch sync 失败可恢复、同一连接多次独立 recovery 均收敛、steer 后自然静默不留空泡、外部 channel 消息实时进入已打开会话并在非当前会话产生正确提醒；不得使用用户 Chrome、Computer Use 或 macOS 系统设置。<br>**[implementation]** replay handoff 给每条连接建立明确 high-water/cutoff，同一持久事件不因 replay 与 queued live 双投；分页期间新事件只从一个路径进入。<br>**[implementation]** cold baseline 后必做领域 recovery；epoch sync 失败重连重试；recovery 仅合并同时在途调用；canonical payload 在 fan-out 前统一验证，异常帧不污染任一 subscriber。<br>**[implementation]** `visible_reply_committed` 按 bubble 生命周期重置；外部参与者消息沿用既有 canonical created payload/metadata，不能被误判为 owner 自己消息；通知生命周期由单一 coordinator 归约一次后 fan-out，持久化仅在状态变化时发生。<br>**[implementation]** 定向并发/竞态/steer/external-message 回归、全量 frontend/backend/contract/e2e-critical 与隔离真栈通过，证据持久化。 |
+| refactor-460-M6 | gate-closure | refactor-460-M5 | F | external classification authority/retry；`features/auth/auth-session*`；Chat reducer/history/composer/toast；Gateway multi-bubble observer；相关 tests | **[reviewer/verifier]** 复核 fresh conversations cache 下的新 external 首帧、authority failure recovery、跨账号 refresh flight、live-over-history、失败终态、发送失败保稿、多气泡终态与 accumulator 写放大。<br>**[implementation]** authoritative external fetch 绕过 stale cache，失败分类保留到 recovery 重试；refresh singleflight 以 user/refresh-token snapshot 隔离；history request 飞行期间所有同消息 live event 保护一次 reset；failed completion 保留 wire 终态；composer 成功后清稿且 pending 同步防双击；新气泡正文重建可见 marker；accumulator 只在状态 identity 变化时持久化。<br>**[implementation]** 聚焦与全量 frontend/backend/build/ruff 通过，最终只读 verifier/code review 无确认阻断项。 |
