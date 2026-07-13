@@ -58,13 +58,13 @@ Prototype / Reference Contract：N/A（design 明确不改变 UI/交互/视觉�
 
 ### R1 — Auth session freshness coordinator
 
-- 状态：TODO
+- 状态：DONE
 - 步骤：先写 interface 红测；实现 JWT freshness、共享 refresh single-flight、retry/signed_out 与 stale-result guard；让 `authFetch` 共用 coordinator。
 - 验证：auth session/auth fetch Vitest；网络/5xx 不清 session、refresh 401 才清、A→B 延迟结果不覆盖 B。
 
 ### R2 — 单一 user-stream lifecycle
 
-- 状态：TODO
+- 状态：DOING
 - 步骤：先写 runtime interface 红测；实现单 socket/多 subscriber、generation、resume/ping/backoff、cursor、resync/recovery、readiness 与隔离。
 - 验证：runtime Vitest 覆盖 design M1 worker 退出标准全部 lifecycle 分支。
 

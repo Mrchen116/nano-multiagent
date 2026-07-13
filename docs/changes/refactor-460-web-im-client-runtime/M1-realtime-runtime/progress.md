@@ -10,11 +10,24 @@
 
 ## R1 — Auth session freshness coordinator
 
-- 状态：TODO
+- Context: WebSocket 重连不能依赖其他页面碰巧触发 HTTP 401；同时 refresh 结果不能覆盖已切换账号。
+- Decision: 新增 `ensureFreshSession()`，按 JWT `exp` 的 30 秒窗口判定 freshness；与 `authFetch` 共用 module-level refresh promise，并按 `{userId, refreshToken}` 提交或丢弃结果。
+- Rationale: auth module 是 access/refresh token 失效语义的唯一 owner；runtime 只消费 `ready/retry/signed_out`，不读取 refresh token。
+- Evidence:
+  - Tests: `npm run test -- src/features/auth/auth-session.test.ts src/features/auth/auth-fetch.test.ts`，2 files / 13 tests passed。
+  - Entry: `authFetch` 真实公开 wrapper 的 401 重放测试与 `ensureFreshSession` 并发测试共用一次 refresh；浏览器 WebSocket 入口在 R3 真栈验证。
+  - Frontend State Matrix: fresh、near-expiry、expired、network/5xx、refresh 401、A→B account switch 已覆盖。
+  - Browser QA: R3 统一执行。
+  - E2E/Regression: `src/features/auth/auth-session.test.ts` 覆盖 observable readiness contract；`auth-fetch.test.ts` 保持既有 HTTP 入口回归。
+  - Visual/Interaction: N/A（无 UI/视觉变化）。
+  - Prototype Comparison: N/A。
+- Rollback: 回退 C2 `5a5adaec` 恢复原 authFetch 私有 refresh 路径；C1 保留契约红测。
+- Commits: C1=`519d6ec7`, C2=`5a5adaec`, C3=本提交。
+- Next: R2 实现唯一 user-stream lifecycle。
 
 ## R2 — 单一 user-stream lifecycle
 
-- 状态：TODO
+- 状态：DOING
 
 ## R3 — 消费者迁移与真栈签收
 
