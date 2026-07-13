@@ -43,6 +43,7 @@ def _run_down(
     *,
     kill_body: str,
     command: str | None = None,
+    process_stat: str | None = None,
     check: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     repo_root = Path(__file__).resolve().parents[2]
@@ -77,6 +78,8 @@ exec bash "{script}" --wt "{tmp_path}"
         GATEWAY_COMMAND=command,
         PROCESS_START=_PROCESS_START,
     )
+    if process_stat is not None:
+        env["PROCESS_STAT"] = process_stat
     return subprocess.run(
         ["bash", "-c", shell],
         cwd=repo_root,
@@ -172,3 +175,40 @@ return 0
     calls = (tmp_path / "calls.log").read_text(encoding="utf-8")
     assert "999999" not in calls
     assert "e2e stack stopped" in result.stdout
+
+
+def test_zombie_gateway_is_exit_confirmed_without_signalling_its_pid(
+    tmp_path: Path,
+) -> None:
+    _write_stack_files(tmp_path)
+
+    result = _run_down(
+        tmp_path,
+        kill_body="return 0",
+        process_stat="Z",
+        check=True,
+    )
+
+    calls = (tmp_path / "calls.log").read_text(encoding="utf-8")
+    assert str(_GATEWAY_PID) not in calls
+    assert not (tmp_path / ".gateway.pid").exists()
+    assert "e2e stack stopped" in result.stdout
+
+
+def test_signal_permission_failure_retains_stack_and_reports_failure(
+    tmp_path: Path,
+) -> None:
+    _write_stack_files(tmp_path)
+    kill_body = f"""
+if [[ "$*" == "{_GATEWAY_PID}" ]]; then
+  return 1
+fi
+return 0
+"""
+
+    result = _run_down(tmp_path, kill_body=kill_body)
+
+    assert result.returncode != 0
+    assert "cannot be signalled" in result.stderr
+    assert (tmp_path / ".gateway.pid").exists()
+    assert (tmp_path / ".im.pid").exists()
