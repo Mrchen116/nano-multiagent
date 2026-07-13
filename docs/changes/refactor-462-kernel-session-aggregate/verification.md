@@ -77,3 +77,71 @@ N/A：`design.md` 没有前端原型或 must-match 视觉 reference。
 ### SUGGESTION（可以修）
 
 - **SUGGESTION-1 — 退役 owner 的注释仍残留，容易误导后续维护。** `src/agent/core/session/jsonl_writer.py:18-19` 仍称 `_session_histories` 无上限，`src/agent/platform/tools/builtins/agent.py:542-547` 仍描述 `_active_run_models`；两者已被本 unit 删除。**建议：**按 `COMMENTING_GUIDE.md` 改为当前 ConversationSession / current-run model owner 的事实，或删除不再提供约束价值的历史注释。
+
+# Round 2
+
+## Summary
+
+- **Mode:** full
+- **Verdict:** **FAIL**
+- **Scope:** `origin/main...c83acaa9b66d20d9c3e45cebc141654015ebd08c`
+- **Roadpoints:** 4/4 标记 DONE；但 2 个实现/生命周期阻断使 milestone 退出标准未达成。
+- **Issues:** 2 CRITICAL，3 WARNING。
+- **Prior round:** CRITICAL-1（string workspace）、CRITICAL-2（active append residual history）、CRITICAL-3（manual compact window refresh）均已关闭；WARNING-1 仅部分关闭；SUGGESTION-1 的生产注释已清理。
+
+## Verification Evidence
+
+- 聚焦回归：72 passed（SDK contract、ConversationSession/Transcript/Directory、compaction、Executor/Registry、RuntimeRunner/ForegroundRegistry、architecture/wiring）。
+- 全量非 e2e：`pytest -m "not e2e"` → **3319 passed, 1 skipped, 20 deselected**。
+- `ruff check .` → passed。
+- `ruff format --check .` → failed，3 files would be reformatted。
+- `git diff --check origin/main...HEAD` → failed，`acceptance.md:3-5` trailing whitespace。
+- 独立 interrupt 竞态 probe：provider await 被释放紧跟 `kernel.interrupt()`；输出 `interrupt run_...` 后 `terminal completed`。
+- 独立 lifecycle probe：build Kernel 创建 `JsonlWriter` 与 `nano-kernel-executor` 两个线程；`kernel.close()` 后 executor 已退出，`Thread-1 (_run)` 仍 alive。
+- 独立 partial-result probe：active turn 先有 partial assistant；同步 external append 前 `partial_turn_result() is not None`，append 后返回 `None`。
+
+## Prior Round Closure
+
+| Round 1 issue | Round 2 result | Evidence |
+|---|---|---|
+| CRITICAL-1 string workspace | closed | `src/agent/sdk/kernel.py:1080-1095`; `tests/contract/test_kernel_sdk_behavior_contract.py:335-349` |
+| CRITICAL-2 active append residual history | closed | `src/agent/core/session/conversation.py:225-239`; `tests/contract/test_kernel_sdk_behavior_contract.py:433-492` proves external + late assistant both reach next model context |
+| CRITICAL-3 manual compact prompt refresh | closed | `src/agent/core/agent/runtime.py:1707-1717,1832-1843`; `tests/integration/test_conversation_compaction_integration.py:182-240` |
+| WARNING-1 durable scenario matrix | partially closed | threshold replacement/stale epoch/manual AGENTS refresh and active late assistant are now permanent tests; restart compaction, compaction-crossing forks, active tool/recovery residuals and real restart PromptSlots remain absent |
+| SUGGESTION-1 stale production comments | closed | cited `_session_histories` / `_active_run_models` comments are gone |
+
+## Completeness
+
+| User scenario / exit concern | Result | Evidence |
+|---|---|---|
+| CLI/Gateway multi-turn and restart continuity | covered | full suite plus existing product/e2e regression tests |
+| Between-turn and cold-first external append | covered | `tests/contract/test_kernel_sdk_behavior_contract.py:370-430`; `tests/unit/agent/session/test_jsonl_transcript.py:28-51` |
+| Interrupt/cancel continuation | **deviates** | fast provider completion wins the 100ms cancellation grace; CRITICAL-4 |
+| Compaction transparent continuation | implemented; durable matrix incomplete | `tests/integration/test_conversation_compaction_integration.py:52-240`; WARNING-2 |
+| Whole/as-of fork independence | implemented; compaction boundary matrix incomplete | `src/agent/core/session/directory.py:204-244`; `tests/unit/agent/session/test_conversation_session.py:207-244`; WARNING-2 |
+| Prompt/file window stability and refresh | manual path covered; restart/automatic matrix incomplete | `tests/integration/test_conversation_compaction_integration.py:182-240`; WARNING-2 |
+| Stable aggregate / bounded loaded payload | covered | `tests/unit/agent/session/test_session_directory.py:143-203`; `src/agent/core/session/directory.py:119-195` |
+| Shared engine/provider ownership | covered | one shared engine at `src/agent/sdk/kernel.py:545-565`; owned clients close at `:588-601`; contracts at `tests/contract/test_session_aggregate_architecture.py:78-108` and `tests/contract/test_sdk_kernel_wiring.py:211-243` |
+| Auxiliary cleanup / partial result | partially covered | typed stop, foreground reap and ordinary raw-cancel partial result tests pass, but active append invalidates the observable partial state; WARNING-3 |
+
+## Coherence
+
+The final aggregate shape is substantially aligned: stable per-session objects, header-only Directory reads, bounded loaded-payload LRU, private Transcript, shared session-stateless engine/provider graph, typed Executor ownership, and retired legacy managers are all present. Two lifecycle edges remain incoherent with the approved final architecture: accepted user interrupt can still finish successfully, and the Kernel-owned JSONL writer has no shutdown path.
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+- **CRITICAL-4 — `interrupt()` 存在 100ms 竞态：已向用户确认 stop 的 run 仍可输出并终态为 COMPLETED。** `RunsRegistry.interrupt()` 在 `src/agent/core/runs/registry.py:283-332` 仅当 foreground stopper 返回 true 时同步把 RunRecord 置为 CANCELLED；普通 provider await 只调用非 force cancel。`KernelExecutor` 在 `src/agent/core/runs/executor.py:385-402` 等待 100ms 才取消 carrier。与此同时 `AgentLoop` 只在下一轮 model call 前检查 abort（`src/agent/core/agent/loop.py:320-351`），provider 在 grace 内返回后，terminal 分支 `:535-572` 不再检查 abort并提交 completed。独立真实 SDK probe 稳定得到 `kernel.interrupt(session_id)` 返回目标 run_id，紧接释放 provider，最终 `get_run(run_id).status == "completed"`。现有回归 `tests/contract/test_kernel_sdk_behavior_contract.py:217-263` 只让 provider 永久阻塞，因此没有覆盖该竞态。**修复方向：**把 user interrupt 的语义终态在同步返回前线性化为 CANCELLED，并保证 carrier 不能在该线性化点后发布 late assistant/completed；可对 user interrupt 一律 force-cancel，或在 model stream/terminal commit 前加入 abort-aware suppression，但不能依赖 grace 定时器。新增真实 SDK 回归：provider 在 `interrupt()` 返回后立即完成，断言目标 run 为 cancelled、late assistant 不对用户发布，随后同 session 新 turn 正常完成。
+
+- **CRITICAL-5 — Kernel close 泄漏每个实例的 `JsonlWriter` daemon thread，未兑现 final architecture 的 deterministic close。** `JsonlWriter.__init__` 在 `src/agent/core/session/jsonl_writer.py:24-27` 启动线程，`_run()` 在 `:54-94` 永久 `while True`，类没有 close/sentinel。Kernel finalizer `src/agent/sdk/kernel.py:588-601` 只关闭 conversations 与 owned provider clients。独立 probe 在 `kernel.close()` 后观察 executor thread 已结束，但 `Thread-1 (_run)` 仍 alive。该行为违背 design 的 deterministic close 要求（`design.md:116`）、共享 writer ownership（`:148`）及 shutdown 顺序（`:182`），反复 build/close 会无界累积线程。**修复方向：**为 JsonlWriter 增加幂等 `close()`（先 durable drain，再 sentinel，join 并传播写入错误），由 Kernel finalizer 在 Directory close 后调用；补永久 contract：重复 build/close 后 writer/executor threads 均退出，close/aclose 幂等，最后一批数据已 durable。
+
+### WARNING（应该修）
+
+- **WARNING-2 — milestone 要求的最终接口永久测试矩阵仍不完整。** `M1-conversation-session/tasks.md:9-17,21-30` 明确要求三类 compaction、两类 fork、restart PromptSlots/file window、active append tool/recovery与真产品入口。Round 2 已补 threshold、manual、stale epoch 和 late assistant，但仍没有 overflow + restart、whole/as-of fork 穿越 compact boundary、active append 后 late tool result/recovery、两个 Kernel 实例把 PromptSlots seed 注入真实 system prompt、legacy empty fallback及 automatic compaction refresh 的永久回归。**修复方向：**在最低 final-interface 层补齐这些组合，不以 progress/临时 e2e 记录替代。
+
+- **WARNING-3 — active external append 会让 raw-cancel auxiliary 丢失 partial result。** `ConversationSession.append_external()` 在 `src/agent/core/session/conversation.py:225-239` 将 `self._state=None`；`partial_turn_result()` 在 `:249-267` 只读取该槽位。若 active engine 已累计 partial assistant/tool/usage，append 后再被 raw cancel，`RuntimeRunner` 的 cancellation 分支 `src/agent/platform/background_tasks/runtime_runner.py:80-92` 得到 `None`。独立 probe 已复现 append 前有 partial、append 后为 None；现有 `tests/unit/agent/background_tasks/test_runtime_runner_foreground.py:157-194` 使用 fake session，未覆盖真实 aggregate。**修复方向：**把 active state 的可取消 progress 保留到 turn cleanup，或为 stale payload 保存独立 active-turn partial handle；补 real ConversationSession + auxiliary + external append + force cancel 回归，断言 text/usage/tool count 保留。
+
+- **WARNING-4 — 当前分支未通过 milestone 自己声明的格式/差异门禁。** `ruff format --check .` 报 `src/agent/core/session/conversation.py`、`src/agent/sdk/kernel.py`、`tests/contract/test_kernel_sdk_behavior_contract.py` 需格式化；`git diff --check origin/main...HEAD` 报 `acceptance.md:3-5` trailing whitespace。`M1-conversation-session/tasks.md:17` 要求这些门禁全绿。**修复方向：**运行 formatter、移除 trailing whitespace，并重跑两项检查。
+
+2 critical issue(s) found. Fix before PR.
