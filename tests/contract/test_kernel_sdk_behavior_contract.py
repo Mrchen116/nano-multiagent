@@ -380,6 +380,87 @@ async def test_session_interrupt_suppresses_chunk_blocked_in_message_hook(
         kernel.close()
 
 
+async def test_session_interrupt_suppresses_message_end_wakeup_queued_before_cancel(
+    tmp_path: Path,
+) -> None:
+    """A hook wakeup already queued before cancel cannot publish after /stop."""
+    hook_started = threading.Event()
+    loop_blocked = threading.Event()
+    release_loop = threading.Event()
+    hook_loop: list[asyncio.AbstractEventLoop] = []
+    hook_future: list[asyncio.Future[None]] = []
+
+    async def _park_first_message_end(event: Any, _ctx: Any) -> None:
+        if event.get("role") != "assistant" or hook_started.is_set():
+            return
+        loop = asyncio.get_running_loop()
+        future = loop.create_future()
+        hook_loop.append(loop)
+        hook_future.append(future)
+        hook_started.set()
+        await future
+
+    def _setup_hooks(hooks: Any) -> None:
+        hooks.on("message_end", _park_first_message_end, timeout_ms=None)
+
+    kernel = _build_kernel(
+        tmp_path,
+        hooks=[_setup_hooks],
+        _llm_client_override=_fake_llm_client(content="queued-before-cancel-output"),
+    )
+    try:
+        session = await kernel.create_session(workspace_root=tmp_path)
+        interrupted_run = kernel.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "pause in message_end"}],
+            workspace_root=tmp_path,
+        )
+        assert await asyncio.to_thread(hook_started.wait, 1.0)
+
+        def _queue_wakeup_then_block_owner_loop() -> None:
+            hook_future[0].set_result(None)
+            loop_blocked.set()
+            release_loop.wait()
+
+        hook_loop[0].call_soon_threadsafe(_queue_wakeup_then_block_owner_loop)
+        assert await asyncio.to_thread(loop_blocked.wait, 1.0)
+
+        assert kernel.interrupt(session.session_id) == interrupted_run.run_id
+        release_loop.set()
+        assert (
+            await _wait_for_terminal_run(kernel, interrupted_run.run_id)
+        ).status == ("cancelled")
+
+        continued_run = kernel.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "continue"}],
+            workspace_root=tmp_path,
+        )
+        assert (await _wait_for_terminal_run(kernel, continued_run.run_id)).status == (
+            "completed"
+        )
+
+        events: list[dict[str, Any]] = []
+        async for event in kernel.stream(session.session_id, after_sequence=0):
+            events.append(event)
+            if (
+                event.get("event") == "run_status"
+                and event.get("run_id") == continued_run.run_id
+                and event.get("status") == "completed"
+            ):
+                break
+        late_events = [
+            event
+            for event in events
+            if event.get("event") == "assistant_message"
+            and event.get("run_id") == interrupted_run.run_id
+        ]
+        assert late_events == []
+    finally:
+        release_loop.set()
+        kernel.close()
+
+
 # ---------------------------------------------------------------------------
 # LLM config
 # ---------------------------------------------------------------------------
