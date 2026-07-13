@@ -43,6 +43,8 @@ from personal_assistant.gateway.runtime_delivery.context import (
 from personal_assistant.gateway.runtime_delivery.observer import (
     build_kernel_event_observer,
 )
+from personal_assistant.gateway.reply_visibility import ReplyVisibilityPolicy
+from personal_assistant.gateway.runtime_protocol import ShadowConversationRef
 
 
 # ---------------------------------------------------------------------------
@@ -601,6 +603,71 @@ def test_normal_chat_run_context_store_eager_bubble_unchanged(tmp_path: Path) ->
     assert len(messages) == 1, (
         f"normal chat eager bubble must persist message immediately; got {len(messages)}"
     )
+
+
+def test_group_no_reply_leaves_zero_agent_rows_in_fk_enforced_db(
+    tmp_path: Path,
+) -> None:
+    """Group NO_REPLY rolls its eager placeholder back through the real IM handler."""
+    connection, handler = _build_im_db_and_handler(tmp_path)
+    users = UserRepository(connection)
+    owner = users.create_user(username="group-user", display_name="Group User")
+    agent_user = users.create_user(username="agent:quiet", display_name="Quiet")
+    conv = ConversationRepository(connection).create_conversation(
+        title="quiet group", participant_ids=[owner.id, agent_user.id]
+    )
+    asyncio.run(
+        handler.handle_message(
+            websocket=_NullWebSocket(),
+            message_type="node.register",
+            payload={"node_id": "node-1", "agents": ["quiet"], "capabilities": {}},
+        )
+    )
+
+    run_id = "run-group-no-reply-1"
+    run_context_store = RunDeliveryContextStore()
+    run_context_store.seed(
+        RunDeliveryContext(
+            run_id=run_id,
+            agent_id="quiet",
+            kernel_session_id="sess-group-1",
+            delivery_target=RunDeliveryTarget.shadow(
+                ShadowConversationRef(conversation_id=conv.id)
+            ),
+            visibility_policy=ReplyVisibilityPolicy.SUPPRESS_PROTOCOL_TOKENS,
+        )
+    )
+    fake_manager = _FakeIMManager(handler)
+    observer = build_kernel_event_observer(
+        im_connection_manager_factory=lambda: fake_manager,
+        run_context_store=run_context_store,
+    )
+
+    async def _run() -> None:
+        started = observer(
+            {"run_id": run_id, "event": "run_status", "status": "running"}
+        )
+        assert asyncio.iscoroutine(started)
+        await started
+        observer(
+            {
+                "run_id": run_id,
+                "event": "assistant_message",
+                "message_id": "kernel-msg-quiet",
+                "content": "NO_REPLY",
+            }
+        )
+        ended = observer({"run_id": run_id, "event": "turn_end", "completed": True})
+        assert asyncio.iscoroutine(ended)
+        await ended
+
+    asyncio.run(_run())
+
+    assert MessageRepository(connection).list_messages(conversation_id=conv.id) == []
+    assert [payload["kind"] for _, payload in fake_manager.sent_frames] == [
+        "turn_start",
+        "message_discarded",
+    ]
 
 
 # ---------------------------------------------------------------------------

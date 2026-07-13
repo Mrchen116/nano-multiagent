@@ -153,6 +153,10 @@ export function applyWsEvent(
         kernel_message_id: ev.kernel_message_id ?? m.kernel_message_id,
       }));
     }
+    case "message.discarded": {
+      const messages = state.messages.filter((message) => message.id !== ev.message_id);
+      return messages.length === state.messages.length ? state : { ...state, messages };
+    }
     case "tool_call.upserted":
     case "tool_call.completed": {
       return patchMessage(state, ev.message_id, (m) => upsertToolCall(m, ev.tool_call));

@@ -29,6 +29,11 @@ from personal_assistant.gateway.group_context_store import GroupContextStore
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
 from personal_assistant.gateway.runtime_protocol import external_identity_from_message
+from personal_assistant.gateway.reply_visibility import (
+    ReplyVisibilityPolicy,
+    is_protocol_silence_token,
+    should_suppress_reply,
+)
 from personal_assistant.gateway.session_keys import (
     SessionBinding,
     SessionBindingStore,
@@ -963,27 +968,27 @@ class InboundPipeline:
         # feat-394 decision 3: HEARTBEAT_OK is the heartbeat silence token (replaces NO_REPLY
         # in heartbeat turns); both are recognised here so the heartbeat delivery path and
         # the group-chat path share the same gate without special-casing the origin.
-        stripped = text.strip()
-        return stripped == "NO_REPLY" or stripped == "HEARTBEAT_OK"
+        return is_protocol_silence_token(text)
 
-    @classmethod
-    def _should_suppress_no_reply(cls, reply_text: str, *, in_group: bool) -> bool:
-        """Single guard deciding whether an agent text must be silently dropped.
+    @staticmethod
+    def _should_suppress_no_reply(reply_text: str, *, in_group: bool) -> bool:
+        """Apply the shared reply-visibility policy to a pipeline send.
 
-        bugfix-416 #107: this is the ONE place that gates agent text on the
-        NO_REPLY/HEARTBEAT_OK sentinel. **Any new agent-text delivery path MUST
-        route its outgoing text through this guard before sending** — group chat
-        has three independent delivery paths (main synchronous reply, streaming
-        other-origin fan-out, background-task relay) and the original bug was
-        precisely that the sentinel check lived only at the first one, so fan-out
-        replies leaked the literal `NO_REPLY` into a bubble.
+        Canonical protocol-token classification lives in ``reply_visibility``.
+        Runtime streaming and the pipeline's final/background delivery paths use
+        that same policy so their user-visible behavior cannot drift.
 
         ``in_group`` instead of an ``InboundMessage`` because the background relay
         path runs across a separate SSE loop and does not hold the originating
         message; agent-to-agent fan-out implies a group context, so those paths
         pass ``in_group=True``.
         """
-        return in_group and cls._is_no_reply_token(reply_text)
+        policy = (
+            ReplyVisibilityPolicy.SUPPRESS_PROTOCOL_TOKENS
+            if in_group
+            else ReplyVisibilityPolicy.LITERAL_TEXT
+        )
+        return should_suppress_reply(reply_text, policy=policy)
 
     def _is_stop_command(self, message: InboundMessage, *, agent_id: str) -> bool:
         """Check whether the inbound message is a /stop control command.

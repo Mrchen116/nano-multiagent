@@ -102,6 +102,49 @@ def test_on_message_delta_appends_content_and_emits_delta(tmp_path: Path) -> Non
     assert p0["message_id"] == msg.id
 
 
+def test_on_message_discarded_removes_placeholder_and_keeps_tombstone(
+    tmp_path: Path,
+) -> None:
+    """Discarding a provisional reply removes its row and leaves a replayable event."""
+    bridge, conv_id, agent_uid, messages, captured = _make_bridge(tmp_path)
+    msg = bridge.on_turn_start(
+        conversation_id=conv_id, agent_user_id=agent_uid, agent_id="planner"
+    )
+    bridge.on_thinking_segment(message_id=msg.id, text="internal reasoning")
+    captured.clear()
+
+    bridge.on_message_discarded(message_id=msg.id, reason="no_reply_token")
+    bridge.on_message_discarded(message_id=msg.id, reason="no_reply_token")
+
+    assert messages.list_messages(conversation_id=conv_id) == []
+    discarded = [event for event in captured if event.event_type == "message.discarded"]
+    assert len(discarded) == 1
+    assert discarded[0].message_id is None
+    assert json.loads(discarded[0].payload_json) == {
+        "conversation_id": conv_id,
+        "message_id": msg.id,
+        "reason": "no_reply_token",
+    }
+
+    connection = messages._connection  # noqa: SLF001
+    stored = connection.execute(
+        "SELECT message_id, payload_json FROM conversation_events "
+        "WHERE event_type = 'message.discarded'"
+    ).fetchone()
+    assert stored is not None
+    assert stored["message_id"] is None
+    assert json.loads(stored["payload_json"])["message_id"] == msg.id
+    projection = connection.execute(
+        "SELECT last_message_preview, last_message_at, unread_count "
+        "FROM conversations WHERE id = ?",
+        (conv_id,),
+    ).fetchone()
+    assert projection is not None
+    assert projection["last_message_preview"] == ""
+    assert projection["last_message_at"] is None
+    assert projection["unread_count"] == 0
+
+
 def test_on_run_heartbeat_appends_liveness_event_without_mutating_message(
     tmp_path: Path,
 ) -> None:

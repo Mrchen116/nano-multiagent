@@ -442,6 +442,31 @@ def test_completed_group_reply_broadcasts_background_context_to_peer_agents(
     assert relay_frames[0]["payload"]["agent_id"] == "Q"
 
 
+def test_suppressed_group_reply_is_not_broadcast_to_peer_agents(
+    tmp_path: Path,
+) -> None:
+    """A completed NO_REPLY receipt must stop before creating any peer relay task."""
+    connection = connect(tmp_path / "im.db")
+    initialize_schema(connection)
+    relay_service = RelayService(connection)
+    handler = GatewayHandler(
+        relay_service=relay_service,
+        metrics_service=MetricsService(metrics=UsageMetricsRepository(connection)),
+        conversation_persistence=GatewayConversationPersistence(connection),
+    )
+
+    asyncio.run(
+        handler._broadcast_group_reply_context(  # noqa: SLF001
+            task=object(),
+            node_id="node-1",
+            detail="suppressed_by=no_reply_token",
+        )
+    )
+
+    count = connection.execute("SELECT COUNT(*) FROM relay_tasks").fetchone()[0]
+    assert count == 0
+
+
 def test_handle_agent_message_routes_user_target_and_persists_message(
     tmp_path: Path,
 ) -> None:

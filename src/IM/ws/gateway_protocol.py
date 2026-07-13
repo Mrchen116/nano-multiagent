@@ -117,6 +117,7 @@ def parse_streaming_delta_event(payload: Mapping[str, object]) -> StreamingDelta
         message_id=text_for(
             "message_delta",
             "message_completed",
+            "message_discarded",
             "run_heartbeat",
             "thinking_segment",
             "tool_call_upserted",
@@ -150,7 +151,9 @@ def parse_streaming_delta_event(payload: Mapping[str, object]) -> StreamingDelta
         ),
         request_id=text_for("permission_resolved", field_name="request_id"),
         decision=text_for("permission_resolved", field_name="decision"),
-        reason=text_for("run_terminal_reconcile", field_name="reason"),
+        reason=text_for(
+            "run_terminal_reconcile", "message_discarded", field_name="reason"
+        ),
     )
 
 

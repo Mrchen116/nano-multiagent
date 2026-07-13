@@ -102,6 +102,22 @@ def test_streaming_delta_parser_ignores_unrelated_bad_text_fields() -> None:
     assert event.reason is None
 
 
+def test_streaming_delta_parser_reads_message_discard_tombstone() -> None:
+    event = parse_streaming_delta_event(
+        {
+            "kind": "message_discarded",
+            "message_id": "assistant-msg-1",
+            "run_id": "run-1",
+            "reason": "no_reply_token",
+        }
+    )
+
+    assert event.kind == "message_discarded"
+    assert event.message_id == "assistant-msg-1"
+    assert event.run_id == "run-1"
+    assert event.reason == "no_reply_token"
+
+
 def test_node_report_parser_ignores_legacy_unstructured_detail_and_usage() -> None:
     event = parse_node_report_event(
         {

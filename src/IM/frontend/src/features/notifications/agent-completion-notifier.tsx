@@ -35,7 +35,7 @@ export function reduceNotifierEvent(state: NotifierState, ev: WsEvent): Notifier
       }
     };
   }
-  if (ev.type === "message.completed") {
+  if (ev.type === "message.completed" || ev.type === "message.discarded") {
     if (!(ev.message_id in state.agentMessages)) return state;
     const next = { ...state.agentMessages };
     delete next[ev.message_id];

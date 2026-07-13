@@ -36,6 +36,13 @@ const completedAgent: WsEvent = {
   token_usage: null
 };
 
+const discardedAgent: WsEvent = {
+  type: "message.discarded",
+  conversation_id: "conv-1",
+  message_id: "msg-1",
+  reason: "no_reply_token"
+};
+
 describe("reduceNotifierEvent", () => {
   it("tracks agent message.created", () => {
     const next = reduceNotifierEvent(emptyNotifierState, createdAgent);
@@ -53,6 +60,12 @@ describe("reduceNotifierEvent", () => {
   it("clears tracked entry on message.completed", () => {
     const seeded = reduceNotifierEvent(emptyNotifierState, createdAgent);
     const next = reduceNotifierEvent(seeded, completedAgent);
+    expect(next.agentMessages["msg-1"]).toBeUndefined();
+  });
+
+  it("clears tracked entry without notifying on message.discarded", () => {
+    const seeded = reduceNotifierEvent(emptyNotifierState, createdAgent);
+    const next = reduceNotifierEvent(seeded, discardedAgent);
     expect(next.agentMessages["msg-1"]).toBeUndefined();
   });
 });

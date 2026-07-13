@@ -1468,6 +1468,91 @@ class MessageRepository:
                 self._notify(live_event)
         return created_message
 
+    def discard_running_agent_message(
+        self, *, message_id: str, reason: str
+    ) -> ConversationEvent | None:
+        """Atomically remove a provisional agent message and persist its tombstone.
+
+        Args:
+            message_id: Running agent placeholder selected for rollback.
+            reason: Stable machine-readable reason included in the tombstone payload.
+
+        Returns:
+            The persisted tombstone, or None when the message was already discarded.
+
+        Raises:
+            ValueError: When the target exists but is not a running agent message.
+
+        Side Effects:
+            Deletes the message and its message-scoped events. A ``message.discarded``
+            event with a null foreign key remains replayable for connected clients.
+        """
+
+        with self._connection:
+            row = self._connection.execute(
+                "SELECT conversation_id, sender_type, delivery_status "
+                "FROM messages WHERE id = ?",
+                (message_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            if row["sender_type"] != "agent" or row["delivery_status"] != "running":
+                raise ValueError("only a running agent message can be discarded")
+            conversation_id = str(row["conversation_id"])
+            deleted = self._connection.execute(
+                "DELETE FROM messages "
+                "WHERE id = ? AND sender_type = 'agent' AND delivery_status = 'running'",
+                (message_id,),
+            )
+            if deleted.rowcount != 1:
+                raise ValueError("only a running agent message can be discarded")
+            latest = self._connection.execute(
+                """
+                SELECT content, attachments_json, created_at
+                FROM messages
+                WHERE conversation_id = ?
+                ORDER BY created_at DESC, id DESC
+                LIMIT 1
+                """,
+                (conversation_id,),
+            ).fetchone()
+            latest_preview = (
+                _to_message_preview(
+                    content=str(latest["content"]),
+                    attachments=_decode_attachments(str(latest["attachments_json"])),
+                )
+                if latest is not None
+                else ""
+            )
+            latest_at = str(latest["created_at"]) if latest is not None else None
+            # turn_start increments unread_count for an agent placeholder. Roll back
+            # that projection too; MAX handles a user who read the conversation while
+            # the run was still in flight.
+            self._connection.execute(
+                """
+                UPDATE conversations
+                SET last_message_preview = ?,
+                    last_message_at = ?,
+                    unread_count = MAX(unread_count - 1, 0)
+                WHERE id = ?
+                """,
+                (latest_preview, latest_at, conversation_id),
+            )
+            # Insert after the delete so the message's cascaded stream events disappear
+            # first. The tombstone intentionally has no message FK and survives replay.
+            tombstone = self._insert_event(
+                conversation_id=conversation_id,
+                message_id=None,
+                event_type="message.discarded",
+                delivery_status="completed",
+                payload={
+                    "conversation_id": conversation_id,
+                    "message_id": message_id,
+                    "reason": reason,
+                },
+            )
+        return tombstone
+
     def update_runtime_state(
         self,
         *,

@@ -13,6 +13,7 @@ const KNOWN_TYPES = new Set([
   "message.created",
   "message.delta",
   "message.completed",
+  "message.discarded",
   "tool_call.upserted",
   "tool_call.completed",
   // feat-439-M2: thinking process item arrived for an in-flight agent message.

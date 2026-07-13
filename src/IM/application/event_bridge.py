@@ -7,8 +7,8 @@ The bridge owns three responsibilities for a single agent run:
 2. Maintain the per-message tool_calls / token_usage JSON columns so the chat panel can
    render Tool Calls / Token Chip without replaying every event.
 3. Emit the WS event_types schema events (message.created / .delta / .completed /
-   tool_call.upserted / .completed) by appending to ``conversation_events`` and
-   triggering the registered notify callback.
+   .discarded / tool_call.upserted / .completed) by appending to
+   ``conversation_events`` and triggering the registered notify callback.
 
 Kept inside ``IM.application`` (not the Gateway or kernel) because the WS event schema
 is an IM concept; kernel stays product-agnostic and Gateway stays a thin relay. Decision
@@ -349,6 +349,24 @@ class EventBridge:
                 kernel_message_id=updated.kernel_message_id,
             ),
         )
+
+    def on_message_discarded(self, *, message_id: str, reason: str) -> None:
+        """Roll back a provisional agent message and notify clients.
+
+        Args:
+            message_id: Running placeholder that never became user-visible content.
+            reason: Stable rollback reason, such as ``no_reply_token``.
+
+        Side Effects:
+            Atomically deletes the message row and persists a replayable tombstone.
+            Repeated calls are idempotent.
+        """
+
+        event = self.message_repository.discard_running_agent_message(
+            message_id=message_id, reason=reason
+        )
+        if event is not None and self.notify is not None:
+            self.notify(event)
 
     def on_permission_request(
         self,

@@ -26,6 +26,7 @@ from IM.domain.models import Message, ThinkingSegment, TokenUsage, ToolCall
 EVENT_MESSAGE_CREATED = "message.created"
 EVENT_MESSAGE_DELTA = "message.delta"
 EVENT_MESSAGE_COMPLETED = "message.completed"
+EVENT_MESSAGE_DISCARDED = "message.discarded"
 EVENT_TOOL_CALL_UPSERTED = "tool_call.upserted"
 EVENT_TOOL_CALL_COMPLETED = "tool_call.completed"
 # feat-439-M2: one thinking process item arrived for an in-flight agent message.
