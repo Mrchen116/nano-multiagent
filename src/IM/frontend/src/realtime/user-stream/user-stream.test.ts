@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createUserStreamRuntime, type UserStreamRuntimeDependencies } from "./user-stream-runtime";
+import {
+  createUserStreamRuntime,
+  UserStreamRecoveryError,
+  type UserStreamRuntimeDependencies
+} from "./user-stream-runtime";
 
 class FakeSocket {
   static readonly CONNECTING = 0;
@@ -270,6 +274,7 @@ describe("user stream runtime", () => {
   });
 
   it("does not let stale resync completion mutate a new user's cursor", async () => {
+    sessionStorage.setItem("cursor:user-a", "1");
     let releaseSync!: (value: { maxEventId: number }) => void;
     const sync = vi.fn(() => new Promise<{ maxEventId: number }>((resolve) => {
       releaseSync = resolve;
@@ -286,7 +291,97 @@ describe("user stream runtime", () => {
     releaseSync({ maxEventId: 50 });
     await settle();
 
-    expect(sessionStorage.getItem("cursor:user-a")).toBeNull();
+    expect(sessionStorage.getItem("cursor:user-a")).toBe("1");
     expect(sessionStorage.getItem("cursor:user-b")).toBeNull();
+  });
+
+  it("establishes a cold cursor baseline from sync before opening the first socket", async () => {
+    const sync = vi.fn(async () => ({ maxEventId: 42 }));
+    const received = vi.fn();
+    const { runtime } = setup({ sync });
+    runtime.subscribe({ onEvent: received });
+    await settle();
+
+    expect(sync).toHaveBeenCalledTimes(1);
+    const socket = FakeSocket.instances[0]!;
+    socket.open();
+    expect(socket.sent).toContain(JSON.stringify({ op: "resume", after_event_id: 42 }));
+    expect(received).not.toHaveBeenCalled();
+  });
+
+  it("drops persisted duplicate or stale event ids before any subscriber sees them", async () => {
+    sessionStorage.setItem("cursor:user-a", "7");
+    const received = vi.fn();
+    const { runtime } = setup();
+    runtime.subscribe({ onEvent: received });
+    await settle();
+    const socket = FakeSocket.instances[0]!;
+    socket.open();
+
+    socket.message({ op: "event", event_type: "message.created", event_id: 7, data: { content: "duplicate" } });
+    socket.message({ op: "event", event_type: "message.delta", event_id: 6, data: { delta_text: "stale" } });
+    socket.message({ op: "event", event_type: "message.completed", event_id: 8, data: { content: "fresh" } });
+
+    expect(received).toHaveBeenCalledTimes(1);
+    expect(received.mock.calls[0]![0]).toMatchObject({ eventType: "message.completed", eventId: 8 });
+  });
+
+  it("hydrates cursor storage once and fuses read/write failures for the tab", async () => {
+    const storageError = new DOMException("blocked", "SecurityError");
+    const readCursor = vi.fn(() => { throw storageError; });
+    const writeCursor = vi.fn(() => { throw storageError; });
+    const { runtime, errors } = setup({ readCursor, writeCursor });
+    runtime.subscribe({ onEvent: vi.fn() });
+    await settle();
+    const first = FakeSocket.instances[0]!;
+    first.open();
+    first.message({ op: "event", event_type: "message.created", event_id: 1, data: { content: "one" } });
+    first.message({ op: "event", event_type: "message.delta", event_id: 2, data: { delta_text: "two" } });
+    first.message({ op: "event", event_type: "message.completed", event_id: 3, data: { content: "three" } });
+    first.disconnect();
+    await vi.advanceTimersByTimeAsync(1000);
+    await settle();
+    FakeSocket.instances[1]!.open();
+
+    expect(readCursor).toHaveBeenCalledTimes(1);
+    expect(writeCursor).toHaveBeenCalledTimes(1);
+    expect(errors).toEqual([storageError, storageError]);
+  });
+
+  it("allows an epoch resync reason to replace a cursor with a lower DB max", async () => {
+    sessionStorage.setItem("cursor:user-a", "50");
+    const sync = vi.fn(async () => ({ maxEventId: 3 }));
+    const recovered = vi.fn();
+    const { runtime } = setup({ sync });
+    runtime.subscribe({ onEvent: vi.fn(), onRecovery: recovered });
+    await settle();
+    const socket = FakeSocket.instances[0]!;
+    socket.open();
+
+    socket.message({ op: "resync_required", reason: "cursor_ahead_of_event_store" });
+    await settle();
+
+    expect(sessionStorage.getItem("cursor:user-a")).toBe("3");
+    expect(recovered).toHaveBeenCalledTimes(1);
+  });
+
+  it("coalesces authoritative recovery when a domain rejects a malformed canonical event", async () => {
+    const recovered = vi.fn();
+    const { runtime, errors } = setup();
+    runtime.subscribe({
+      onEvent: () => { throw new UserStreamRecoveryError("invalid message.created payload"); },
+      onRecovery: recovered
+    });
+    await settle();
+    const socket = FakeSocket.instances[0]!;
+    socket.open();
+
+    socket.message({ op: "event", event_type: "message.created", event_id: 1, data: { message_id: null } });
+    socket.message({ op: "event", event_type: "message.created", event_id: 2, data: { message_id: null } });
+    await settle();
+
+    expect(errors).toHaveLength(2);
+    expect(recovered).toHaveBeenCalledTimes(1);
+    expect(sessionStorage.getItem("cursor:user-a")).toBe("2");
   });
 });

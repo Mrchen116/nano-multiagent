@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { applyWsEvent, type ConversationState, emptyConversationState } from "./chat-stream-reducer";
+import { UserStreamRecoveryError } from "../../realtime/user-stream/user-stream-runtime";
+import {
+  applyWsEvent,
+  type ConversationState,
+  emptyConversationState,
+  toChatWsEvent
+} from "./chat-stream-reducer";
 import type { Message, WsEvent } from "./chat-types";
 
 function userMessage(id: string, content: string): Message {
@@ -19,6 +25,30 @@ function userMessage(id: string, content: string): Message {
 }
 
 describe("chat-stream-reducer", () => {
+  it("rejects malformed known canonical payloads but keeps unknown event types open", () => {
+    expect(() =>
+      toChatWsEvent("message.created", {
+        conversation_id: "c1",
+        message_id: "m1",
+        sender_user_id: "agent:a",
+        sender_type: "agent",
+        content: "hello",
+        tool_calls: "not-an-array",
+        token_usage: null,
+        delivery_status: "completed",
+        created_at: "2026-07-13T00:00:00Z"
+      })
+    ).toThrow(UserStreamRecoveryError);
+    expect(() =>
+      toChatWsEvent("tool_call.completed", {
+        conversation_id: "c1",
+        message_id: "m1",
+        tool_call: { id: null, name: "bash", status: "completed" }
+      })
+    ).toThrow(UserStreamRecoveryError);
+    expect(toChatWsEvent("future.domain.event", { arbitrary: "payload" })).toBeNull();
+  });
+
   it("appends a new agent message on message.created", () => {
     const state: ConversationState = { ...emptyConversationState, messages: [userMessage("m1", "hello")] };
     const ev: WsEvent = {
