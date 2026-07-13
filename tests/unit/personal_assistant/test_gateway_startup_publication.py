@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-import subprocess
-
 import pytest
 
 from agent.core.llm.model_registry import _reset_for_tests
@@ -62,12 +60,13 @@ def test_background_cleanup_failure_preserves_startup_and_cleanup_causes(
     tmp_path: Path,
 ) -> None:
     config = build_config(tmp_path)
-    process = _FakeProcess(
-        wait_result=subprocess.TimeoutExpired("gateway", 0.1), pid=2468
-    )
-    (tmp_path / "gateway.pid").write_text("2468", encoding="utf-8")
-    write_gateway_identity(config)
+    process = _FakeProcess(wait_result=TimeoutError("wait timed out"), pid=2468)
     monkeypatch.setattr(main_module, "_kill_process_tree", lambda _pid, _sig: None)
+
+    def _spawn(_argv: list[str], _log_path: Path) -> _FakeProcess:
+        (tmp_path / "gateway.pid").write_text("2468", encoding="utf-8")
+        write_gateway_identity(config)
+        return process
 
     with pytest.raises(
         GatewayStartupError,
@@ -76,7 +75,7 @@ def test_background_cleanup_failure_preserves_startup_and_cleanup_causes(
         launch_gateway_in_background(
             config_path=config.source_path,
             load_config=lambda _path: config,
-            spawn_process=lambda _argv, _log_path: process,
+            spawn_process=_spawn,
             wait_for_start=lambda _child, _config, _timeout: (_ for _ in ()).throw(
                 RuntimeError("startup confirmation failed")
             ),
