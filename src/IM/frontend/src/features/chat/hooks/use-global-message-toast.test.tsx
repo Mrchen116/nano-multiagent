@@ -272,7 +272,7 @@ describe("useGlobalMessageToast", () => {
     const oldRequest = queryClient.fetchQuery({
       queryKey: ["chat", "conversations"],
       queryFn: () => new Promise<Conversation[]>((resolve) => { resolveOldRequest = resolve; })
-    });
+    }).catch(() => undefined);
     listConversationsMock.mockResolvedValue([
       conversation("conv-new-external", { external_source: "feishu", external_chat_id: "oc_new" })
     ]);
@@ -290,12 +290,21 @@ describe("useGlobalMessageToast", () => {
         content: "classify after candidate arrival"
       }
     });
+    await waitFor(() => expect(listConversationsMock).toHaveBeenCalledTimes(1));
     resolveOldRequest([conversation("conv-existing")]);
     await oldRequest;
 
     await waitFor(() => {
-      expect(listConversationsMock).toHaveBeenCalledTimes(1);
       expect(result.current.toast).toMatchObject({ id: "message:external-inflight-1" });
+      expect(queryClient.getQueryData<Conversation[]>(["chat", "conversations"]))
+        .toEqual(expect.arrayContaining([
+          expect.objectContaining({
+            id: "conv-new-external",
+            external_source: "feishu",
+            last_message_preview: "classify after candidate arrival",
+            unread_count: 1
+          })
+        ]));
     });
   });
 
