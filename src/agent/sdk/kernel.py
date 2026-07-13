@@ -1643,9 +1643,14 @@ class Kernel:
 
         registry = self._c.runs_registry
         registry.begin_shutdown()
-        self._c.stop_all_foreground()
+        stop_all_foreground = getattr(self._c, "stop_all_foreground", None)
+        if callable(stop_all_foreground):
+            stop_all_foreground()
+        finalize_resources = getattr(
+            self._c, "finalize_resources", self._c.directory.close_all
+        )
         await _asyncio.to_thread(
-            registry.shutdown, finalize=self._c.finalize_resources
+            registry.shutdown, finalize=finalize_resources
         )
 
     def close(self) -> None:
@@ -1657,8 +1662,13 @@ class Kernel:
         if getattr(self, "_closed", False):
             return
         self._closed = True
-        self._c.stop_all_foreground()
-        self._c.runs_registry.shutdown(finalize=self._c.finalize_resources)
+        stop_all_foreground = getattr(self._c, "stop_all_foreground", None)
+        if callable(stop_all_foreground):
+            stop_all_foreground()
+        finalize_resources = getattr(
+            self._c, "finalize_resources", self._c.directory.close_all
+        )
+        self._c.runs_registry.shutdown(finalize=finalize_resources)
 
     def assemble_prompt_preview(
         self,
