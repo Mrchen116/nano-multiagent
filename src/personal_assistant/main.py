@@ -2473,6 +2473,7 @@ def launch_gateway_in_background(
     try:
         start_waiter(process, config, config.gateway.startup_timeout_seconds)
         _write_gateway_state(config, result)
+        _confirm_gateway_launch_publication(process, config)
     except Exception as exc:
         try:
             _stop_background_process(
@@ -2498,6 +2499,34 @@ def launch_gateway_in_background(
             next_step=f"Check the log for details: tail -20 {log_path}",
         ) from exc
     return result
+
+
+def _confirm_gateway_launch_publication(
+    process: ProcessLike, config: LocalConfig
+) -> None:
+    """Require the durable launch evidence to still name one live child."""
+    return_code = process.poll()
+    if return_code is not None:
+        raise RuntimeError(
+            f"gateway exited after state publication with return code {return_code}"
+        )
+    pid = _read_gateway_pid(config)
+    if pid != process.pid:
+        raise RuntimeError(
+            "gateway PID changed after state publication: "
+            f"spawned={process.pid} file={pid}"
+        )
+    identity = _read_gateway_process_identity(config)
+    if identity is None:
+        raise RuntimeError("gateway identity missing after state publication")
+    _assert_gateway_identity_static(config, process.pid, identity)
+    if not _assert_gateway_process_instance(identity):
+        raise RuntimeError("gateway exited after state publication")
+    return_code = process.poll()
+    if return_code is not None:
+        raise RuntimeError(
+            f"gateway exited after identity confirmation with return code {return_code}"
+        )
 
 
 def stop_gateway(
@@ -4755,14 +4784,12 @@ def _stop_background_process(process: ProcessLike, *, timeout_seconds: float) ->
     """Stop a spawned Gateway or raise while retaining ownership evidence."""
     if process.poll() is not None:
         return
-    process.terminate()
     # Gateway owns the session created by start_new_session=True. Terminating the
-    # process group also reaps channel/tool descendants owned by that Gateway.
+    # group once avoids delivering duplicate signals to its leader.
     _kill_process_tree(process.pid, signal.SIGTERM)
     try:
         process.wait(timeout=timeout_seconds)
     except (TimeoutError, subprocess.TimeoutExpired):
-        process.kill()
         _kill_process_tree(process.pid, signal.SIGKILL)
         try:
             process.wait(timeout=timeout_seconds)
