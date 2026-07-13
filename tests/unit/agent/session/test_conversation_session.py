@@ -181,6 +181,44 @@ async def test_active_external_append_preserves_partial_turn_snapshot(
 
 
 @pytest.mark.asyncio
+async def test_external_append_between_cold_load_and_publish_stays_visible(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    session, _files, engine = _conversation(tmp_path)
+    transcript = session._transcript  # type: ignore[attr-defined]
+    original_load = transcript.load
+    injected = False
+
+    def _load_then_append():  # noqa: ANN202
+        nonlocal injected
+        loaded = original_load()
+        if not injected:
+            injected = True
+            transcript.append_external(
+                ExternalMessage(
+                    role="user",
+                    content="during-cold-load",
+                    message_id="msg_during_load",
+                )
+            )
+        return loaded
+
+    monkeypatch.setattr(transcript, "load", _load_then_append)
+
+    first = asyncio.create_task(
+        session.submit_turn(TurnRequest(parts=({"type": "text", "text": "first"},)))
+    )
+    await engine.started.wait()
+    engine.release.set()
+    await first
+    await session.submit_turn(
+        TurnRequest(parts=({"type": "text", "text": "second"},))
+    )
+
+    assert "during-cold-load" in engine.histories[-1]
+
+
+@pytest.mark.asyncio
 async def test_close_drains_admitted_turn_then_rejects_new_operations(
     tmp_path: Path,
 ) -> None:

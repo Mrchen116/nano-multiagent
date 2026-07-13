@@ -253,6 +253,27 @@ def test_kernel_close_stops_owned_jsonl_writer_thread(tmp_path: Path) -> None:
     assert not writer_thread.is_alive()
 
 
+async def test_kernel_aclose_stops_threads_when_conversation_flush_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    kernel = _build(tmp_path)
+    await kernel.create_session(workspace_root=tmp_path)
+    writer = kernel._c.directory._writer  # type: ignore[attr-defined]
+    writer_thread = writer._thread
+    executor_thread = kernel._c.executor._thread  # type: ignore[attr-defined]
+
+    async def _fail_flush(_path: Path) -> None:
+        raise OSError("simulated flush failure")
+
+    monkeypatch.setattr(writer, "durable_barrier_async", _fail_flush)
+
+    with pytest.raises(OSError, match="simulated flush failure"):
+        await kernel.aclose()
+
+    assert not writer_thread.is_alive()
+    assert not executor_thread.is_alive()
+
+
 # ---------------------------------------------------------------------------
 # 决策 1/6: create_session per-agent → SessionInfo; submit → RunInfo
 # ---------------------------------------------------------------------------
