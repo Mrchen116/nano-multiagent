@@ -1,27 +1,6 @@
-import { refreshTokens } from "./auth-api";
 import { useAuthStore } from "./auth-store";
 import { withBase } from "./auth-api";
-
-let refreshPromise: Promise<boolean> | null = null;
-
-async function attemptRefresh(): Promise<boolean> {
-  if (refreshPromise) return refreshPromise;
-  const current = useAuthStore.getState();
-  if (!current.refreshToken) return false;
-  refreshPromise = (async () => {
-    try {
-      const pair = await refreshTokens(current.refreshToken!);
-      useAuthStore.getState().setSession(pair);
-      return true;
-    } catch {
-      useAuthStore.getState().clear();
-      return false;
-    } finally {
-      refreshPromise = null;
-    }
-  })();
-  return refreshPromise;
-}
+import { ensureFreshSession } from "./auth-session";
 
 function buildHeaders(init: RequestInit | undefined, token: string | null): Headers {
   const headers = new Headers(init?.headers ?? {});
@@ -44,14 +23,15 @@ function buildHeaders(init: RequestInit | undefined, token: string | null): Head
  */
 export async function authFetch(path: string, init?: RequestInit): Promise<Response> {
   const url = path.startsWith("http") ? path : withBase(path);
-  const initialToken = useAuthStore.getState().accessToken;
+  const initialSession = useAuthStore.getState();
+  const initialToken = initialSession.accessToken;
+  const initialUserId = initialSession.user?.id;
   const firstHeaders = buildHeaders(init, initialToken);
   const first = await fetch(url, { ...init, headers: firstHeaders });
   if (first.status !== 401) return first;
-  const refreshed = await attemptRefresh();
-  if (!refreshed) return first;
-  const newToken = useAuthStore.getState().accessToken;
-  const retryHeaders = buildHeaders(init, newToken);
+  const readiness = await ensureFreshSession();
+  if (readiness.status !== "ready" || readiness.userId !== initialUserId) return first;
+  const retryHeaders = buildHeaders(init, readiness.accessToken);
   return fetch(url, { ...init, headers: retryHeaders });
 }
 
