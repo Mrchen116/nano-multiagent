@@ -92,6 +92,14 @@ describe("nodes page — node.status_changed WS subscription", () => {
           })
         );
       }
+      if (url === "/im/v1/sync") {
+        return Promise.resolve(
+          new Response(JSON.stringify({ max_event_id: 0, events: [] }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          })
+        );
+      }
       if (url === "/im/v1/nodes") {
         return Promise.resolve(
           new Response(

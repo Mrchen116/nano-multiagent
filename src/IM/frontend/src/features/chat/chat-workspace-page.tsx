@@ -29,6 +29,7 @@ import {
 import { authFetch } from "../auth/auth-fetch";
 import { useAuthStore } from "../auth/auth-store";
 import { subscribeUserStream } from "../../realtime/user-stream";
+import { useLocalUnreadFeedback } from "../notifications/local-unread-feedback";
 import {
   classifyConversationKind,
   type Attachment,
@@ -273,6 +274,7 @@ export function ChatWorkspacePage() {
     queryKey: ["chat", "conversations"],
     queryFn: listConversations
   });
+  const sidebarConversations = useLocalUnreadFeedback(conversationsQuery.data ?? []);
 
   const activeConversation: Conversation | null = useMemo(() => {
     if (!conversationId) return null;
@@ -634,11 +636,9 @@ export function ChatWorkspacePage() {
           ["chat", "nodes"],
           ...(activeConversationId ? [["chat", "messages", activeConversationId]] : [])
         ];
-        const results = await Promise.allSettled(
+        await Promise.allSettled(
           queryKeys.map((queryKey) => queryClient.invalidateQueries({ queryKey }))
         );
-        const failure = results.find((result) => result.status === "rejected");
-        if (failure?.status === "rejected") throw failure.reason;
       },
       onEvent: (event) => {
         const chatEvent = toChatWsEvent(event.eventType, event.payload, event.eventId);
@@ -969,7 +969,7 @@ export function ChatWorkspacePage() {
       )}
       {showList && (
         <ConversationSidebar
-          conversations={conversationsQuery.data ?? []}
+          conversations={sidebarConversations}
           activeConversationId={conversationId ?? null}
           onSelect={(id) => navigate(`/chat/${id}`)}
           onNewGroup={() => setShowNewGroup(true)}

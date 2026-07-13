@@ -522,6 +522,9 @@ describe("ChatWorkspacePage — integration", () => {
           sender_user_id: "user-uuid-planner",
           sender_type: "agent",
           content: "agent 回复",
+          tool_calls: [],
+          token_usage: null,
+          delivery_status: "completed",
           created_at: "2026-05-01T00:01:00Z"
         },
         eventId: 43

@@ -42,12 +42,23 @@ export interface UserStreamRuntime {
   subscribe(subscriber: UserStreamSubscriber): () => void;
 }
 
+/** Domain subscribers throw this after recognizing a malformed canonical frame. */
+export class UserStreamRecoveryError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "UserStreamRecoveryError";
+  }
+}
+
 const SOCKET_OPEN = 1;
 const MAX_BACKOFF_EXPONENT = 5;
 
 export function createUserStreamRuntime(dependencies: UserStreamRuntimeDependencies): UserStreamRuntime {
   const subscribers = new Set<UserStreamSubscriber>();
   const memoryCursors = new Map<string, number>();
+  const hydratedCursorUsers = new Set<string>();
+  const baselinedCursorUsers = new Set<string>();
+  const storageWriteDisabledUsers = new Set<string>();
   let socket: UserStreamSocket | null = null;
   let sessionUnsubscribe: (() => void) | null = null;
   let retryTimer: number | null = null;
@@ -90,17 +101,27 @@ export function createUserStreamRuntime(dependencies: UserStreamRuntimeDependenc
   }
 
   function readCursor(userId: string): number {
-    const memoryCursor = memoryCursors.get(userId) ?? 0;
+    if (hydratedCursorUsers.has(userId)) return memoryCursors.get(userId) ?? 0;
+    hydratedCursorUsers.add(userId);
     try {
       const storedCursor = dependencies.readCursor(userId);
-      const cursor = Number.isFinite(storedCursor) && storedCursor >= 0
-        ? Math.max(memoryCursor, storedCursor)
-        : memoryCursor;
+      const cursor = Number.isFinite(storedCursor) && storedCursor >= 0 ? storedCursor : 0;
       memoryCursors.set(userId, cursor);
       return cursor;
     } catch (error) {
       dependencies.reportError(error);
-      return memoryCursor;
+      memoryCursors.set(userId, 0);
+      return 0;
+    }
+  }
+
+  function persistCursor(userId: string, cursor: number): void {
+    if (storageWriteDisabledUsers.has(userId)) return;
+    try {
+      dependencies.writeCursor(userId, cursor);
+    } catch (error) {
+      storageWriteDisabledUsers.add(userId);
+      dependencies.reportError(error);
     }
   }
 
@@ -108,11 +129,15 @@ export function createUserStreamRuntime(dependencies: UserStreamRuntimeDependenc
     const current = memoryCursors.get(userId) ?? 0;
     if (!Number.isFinite(cursor) || cursor <= current) return;
     memoryCursors.set(userId, cursor);
-    try {
-      dependencies.writeCursor(userId, cursor);
-    } catch (error) {
-      dependencies.reportError(error);
-    }
+    persistCursor(userId, cursor);
+  }
+
+  function replaceCursor(userId: string, cursor: number): void {
+    if (!Number.isFinite(cursor) || cursor < 0) return;
+    const current = memoryCursors.get(userId) ?? 0;
+    if (cursor === current) return;
+    memoryCursors.set(userId, cursor);
+    persistCursor(userId, cursor);
   }
 
   async function signalRecovery(currentGeneration: number): Promise<void> {
@@ -130,14 +155,16 @@ export function createUserStreamRuntime(dependencies: UserStreamRuntimeDependenc
     );
   }
 
-  async function handleResync(currentGeneration: number, userId: string): Promise<void> {
+  async function handleResync(currentGeneration: number, userId: string, reason?: string): Promise<void> {
     if (currentGeneration !== generation || resyncHandledGeneration === currentGeneration) return;
     resyncHandledGeneration = currentGeneration;
     try {
       const result = await dependencies.sync();
       if (currentGeneration !== generation) return;
       const current = readCursor(userId);
-      if (Number.isFinite(result.maxEventId) && result.maxEventId > current) {
+      if (reason === "cursor_ahead_of_event_store") {
+        replaceCursor(userId, result.maxEventId);
+      } else if (Number.isFinite(result.maxEventId) && result.maxEventId > current) {
         writeCursor(userId, result.maxEventId);
       }
     } catch (error) {
@@ -171,20 +198,25 @@ export function createUserStreamRuntime(dependencies: UserStreamRuntimeDependenc
     const record = frame as Record<string, unknown>;
     if (record.op === "pong") return;
     if (record.op === "resync_required") {
-      void handleResync(currentGeneration, userId);
+      const reason = typeof record.reason === "string" ? record.reason : undefined;
+      void handleResync(currentGeneration, userId, reason);
       return;
     }
     const event = parseEvent(record);
     if (!event) return;
     if (event.eventId !== undefined) {
       const current = readCursor(userId);
-      if (event.eventId > current) writeCursor(userId, event.eventId);
+      if (event.eventId <= current) return;
+      writeCursor(userId, event.eventId);
     }
     for (const subscriber of [...subscribers]) {
       try {
         subscriber.onEvent(event);
       } catch (error) {
         reportSubscriberError(error);
+        if (error instanceof UserStreamRecoveryError) {
+          void signalRecovery(currentGeneration);
+        }
       }
     }
   }
@@ -231,6 +263,23 @@ export function createUserStreamRuntime(dependencies: UserStreamRuntimeDependenc
     }
     const latest = dependencies.getSession();
     if (latest.userId !== readiness.userId || latest.accessToken !== readiness.accessToken) return;
+
+    const initialCursor = readCursor(readiness.userId);
+    if (!baselinedCursorUsers.has(readiness.userId) && initialCursor === 0) {
+      try {
+        const baseline = await dependencies.sync();
+        if (currentGeneration !== generation || subscribers.size === 0) return;
+        replaceCursor(readiness.userId, baseline.maxEventId);
+        baselinedCursorUsers.add(readiness.userId);
+      } catch (error) {
+        if (currentGeneration !== generation) return;
+        dependencies.reportError(error);
+        scheduleReconnect();
+        return;
+      }
+    } else {
+      baselinedCursorUsers.add(readiness.userId);
+    }
 
     activeUserId = readiness.userId;
     activeToken = readiness.accessToken;

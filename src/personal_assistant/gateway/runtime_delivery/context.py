@@ -61,9 +61,9 @@ class RunDeliveryContext:
     """Hold delivery facts and provisional-message state for one kernel run.
 
     ``visibility_policy`` is fixed when the run is accepted, so every delivery path
-    interprets protocol silence tokens consistently. ``discard_current_bubble`` is
-    transient observer state: a running placeholder exists, but the completed
-    assistant message chose silence and the placeholder must be rolled back.
+    interprets protocol silence tokens consistently. ``discard_empty_completion``
+    scopes the stronger direct-Web rule: a successful run must commit visible text or
+    its provisional bubble is rolled back. Process events never commit that bubble.
     """
 
     run_id: str
@@ -82,6 +82,8 @@ class RunDeliveryContext:
     external_current_text: str = ""
     external_intermediate_sent_marker: str = ""
     visibility_policy: ReplyVisibilityPolicy = ReplyVisibilityPolicy.LITERAL_TEXT
+    discard_empty_completion: bool = False
+    visible_reply_committed: bool = False
     discard_current_bubble: bool = False
 
     def ensure_initial_runtime_state(self) -> None:
@@ -126,6 +128,10 @@ class RunDeliveryContext:
             fields["rolling"] = "1"
         if self.discard_current_bubble:
             fields["discard_current_bubble"] = "1"
+        if self.discard_empty_completion:
+            fields["discard_empty_completion"] = "1"
+        if self.visible_reply_committed:
+            fields["visible_reply_committed"] = "1"
         return fields
 
 
@@ -147,6 +153,8 @@ class RunDeliveryRuntimeView(MutableMapping[str, str]):
         "external_current_text",
         "external_intermediate_sent_marker",
         "visibility_policy",
+        "discard_empty_completion",
+        "visible_reply_committed",
         "discard_current_bubble",
         "rolling",
     )
@@ -236,6 +244,10 @@ class RunDeliveryContextStore:
             return context.external_intermediate_sent_marker or None
         if key == "visibility_policy":
             return context.visibility_policy.value
+        if key == "discard_empty_completion":
+            return "1" if context.discard_empty_completion else None
+        if key == "visible_reply_committed":
+            return "1" if context.visible_reply_committed else None
         if key == "discard_current_bubble":
             return "1" if context.discard_current_bubble else None
         if key == "rolling":
@@ -256,6 +268,8 @@ class RunDeliveryContextStore:
             context.external_current_text = value
         elif key == "external_intermediate_sent_marker":
             context.external_intermediate_sent_marker = value
+        elif key == "visible_reply_committed":
+            context.visible_reply_committed = bool(value)
         elif key == "discard_current_bubble":
             context.discard_current_bubble = bool(value)
         elif key == "rolling":
@@ -274,6 +288,8 @@ class RunDeliveryContextStore:
             self._contexts[run_id].external_current_text = ""
         elif key == "external_intermediate_sent_marker":
             self._contexts[run_id].external_intermediate_sent_marker = ""
+        elif key == "visible_reply_committed":
+            self._contexts[run_id].visible_reply_committed = False
         elif key == "discard_current_bubble":
             self._contexts[run_id].discard_current_bubble = False
         elif key == "rolling":
@@ -422,6 +438,10 @@ class RunDeliveryContextStore:
                     or protocol.external_source is not None
                     else ReplyVisibilityPolicy.LITERAL_TEXT
                 ),
+                # Only the canonical Web relay owns a provisional browser bubble whose
+                # successful process-only terminal state means protocol silence. Other
+                # transports keep their existing completion semantics.
+                discard_empty_completion=message.channel_name == "web_relay",
             )
         )
 

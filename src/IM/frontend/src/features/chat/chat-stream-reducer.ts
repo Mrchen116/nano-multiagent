@@ -9,6 +9,7 @@
 // /im/v1/sync response as a sequence of synthetic events.
 
 import type { Message, ToolCall, WsEvent } from "./chat-types";
+import { UserStreamRecoveryError } from "../../realtime/user-stream/user-stream-runtime";
 
 const CHAT_STREAM_EVENT_TYPES = new Set([
   "message.created",
@@ -22,12 +23,96 @@ const CHAT_STREAM_EVENT_TYPES = new Set([
   "permission.resolved"
 ]);
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isText(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0;
+}
+
+function isNullableRecord(value: unknown): boolean {
+  return value === null || isRecord(value);
+}
+
+function isToolCall(value: unknown): boolean {
+  return isRecord(value)
+    && isText(value.id)
+    && isText(value.name)
+    && isText(value.status)
+    && (value.input === undefined || isRecord(value.input));
+}
+
+function isThinkingSegment(value: unknown): boolean {
+  return isRecord(value)
+    && typeof value.seq === "number"
+    && Number.isFinite(value.seq)
+    && typeof value.text === "string";
+}
+
+function malformed(eventType: string): never {
+  throw new UserStreamRecoveryError(`invalid ${eventType} payload`);
+}
+
+function validateChatPayload(eventType: string, payload: Record<string, unknown>): void {
+  if (!isText(payload.conversation_id) || !isText(payload.message_id)) malformed(eventType);
+  switch (eventType) {
+    case "message.created":
+      if (
+        !isText(payload.sender_user_id)
+        || !isText(payload.sender_type)
+        || typeof payload.content !== "string"
+        || !Array.isArray(payload.tool_calls)
+        || !payload.tool_calls.every(isToolCall)
+        || !isNullableRecord(payload.token_usage)
+        || !isText(payload.delivery_status)
+        || !isText(payload.created_at)
+        || (payload.attachments !== undefined && !Array.isArray(payload.attachments))
+        || (payload.thinking !== undefined
+          && (!Array.isArray(payload.thinking) || !payload.thinking.every(isThinkingSegment)))
+      ) malformed(eventType);
+      return;
+    case "message.delta":
+      if (typeof payload.delta_text !== "string") malformed(eventType);
+      return;
+    case "message.completed":
+      if (typeof payload.content !== "string" || !isNullableRecord(payload.token_usage)) malformed(eventType);
+      return;
+    case "message.discarded":
+      if (!isText(payload.reason)) malformed(eventType);
+      return;
+    case "tool_call.upserted":
+    case "tool_call.completed":
+      if (!isToolCall(payload.tool_call)) malformed(eventType);
+      return;
+    case "thinking.segment":
+      if (!isThinkingSegment(payload.thinking_segment)) malformed(eventType);
+      return;
+    case "permission.request": {
+      const request = payload.permission_request;
+      if (
+        !isRecord(request)
+        || !isText(request.request_id)
+        || !isText(request.tool_name)
+        || !isRecord(request.tool_input)
+        || typeof request.question !== "string"
+        || !Array.isArray(request.options)
+        || (request.status !== "pending" && request.status !== "resolved")
+      ) malformed(eventType);
+      return;
+    }
+    case "permission.resolved":
+      if (!isText(payload.request_id) || !isText(payload.decision)) malformed(eventType);
+  }
+}
+
 export function toChatWsEvent(
   eventType: string,
   payload: Record<string, unknown>,
   eventId?: number
 ): WsEvent | null {
   if (!CHAT_STREAM_EVENT_TYPES.has(eventType)) return null;
+  validateChatPayload(eventType, payload);
   return { ...payload, type: eventType, seq: eventId } as WsEvent;
 }
 

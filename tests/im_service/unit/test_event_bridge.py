@@ -3,6 +3,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from IM.application.event_bridge import EventBridge
 from IM.domain.models import Actor, ConversationEvent, TokenUsage, ToolCall
 from IM.infra.db import connect, initialize_schema
@@ -25,12 +27,11 @@ def _make_bridge(tmp_path: Path):
     def notify(event: ConversationEvent) -> None:
         captured.append(event)
 
-    messages = MessageRepository(connection)
-    events = EventRepository(connection)
+    messages = MessageRepository(connection, notify=notify)
+    events = EventRepository(connection, notify=notify)
     bridge = EventBridge(
         message_repository=messages,
         event_repository=events,
-        notify=notify,
     )
     alice = users.create_user(username="alice", display_name="Alice")
     # Register a synthetic agent user under alice's owner scope so the bridge can address it as sender.
@@ -41,6 +42,19 @@ def _make_bridge(tmp_path: Path):
     connection.commit()
     conv = conversations.create_conversation(title="t", participant_ids=[alice.id])
     return bridge, conv.id, agent_user.id, messages, captured
+
+
+def test_event_bridge_constructor_rejects_second_notify_owner(tmp_path: Path) -> None:
+    """Repositories are the only post-commit publisher; the bridge cannot publish too."""
+    connection = connect(tmp_path / "im.db")
+    initialize_schema(connection)
+
+    with pytest.raises(TypeError):
+        EventBridge(
+            message_repository=MessageRepository(connection),
+            event_repository=EventRepository(connection),
+            notify=lambda _event: None,
+        )
 
 
 def test_on_turn_start_creates_empty_agent_message_and_emits_event(
@@ -148,11 +162,10 @@ def test_on_message_discarded_removes_placeholder_and_keeps_tombstone(
 def test_on_message_discarded_notifies_once_through_message_repository(
     tmp_path: Path,
 ) -> None:
-    """Production wiring must publish the tombstone without EventBridge.notify."""
+    """Production wiring publishes the tombstone through MessageRepository once."""
     bridge, conv_id, agent_uid, messages, _captured = _make_bridge(tmp_path)
     repository_events: list[ConversationEvent] = []
     messages._notify = repository_events.append  # noqa: SLF001
-    bridge.notify = None
     msg = bridge.on_turn_start(
         conversation_id=conv_id, agent_user_id=agent_uid, agent_id="planner"
     )
