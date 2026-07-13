@@ -44,6 +44,7 @@ def _run_down(
     kill_body: str,
     command: str | None = None,
     process_stat: str | None = None,
+    wt_argument: Path | None = None,
     check: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     repo_root = Path(__file__).resolve().parents[2]
@@ -70,7 +71,7 @@ sleep() {{
   return 0
 }}
 export -f kill ps sleep
-exec bash "{script}" --wt "{tmp_path}"
+exec bash "{script}" --wt "{wt_argument or tmp_path}"
 """
     env = dict(
         os.environ,
@@ -212,3 +213,28 @@ return 0
     assert "cannot be signalled" in result.stderr
     assert (tmp_path / ".gateway.pid").exists()
     assert (tmp_path / ".im.pid").exists()
+
+
+def test_worktree_symlink_alias_resolves_to_same_config_identity(
+    tmp_path: Path,
+) -> None:
+    _write_stack_files(tmp_path)
+    wt_alias = tmp_path.parent / f"{tmp_path.name}-alias"
+    wt_alias.symlink_to(tmp_path, target_is_directory=True)
+    term_marker = tmp_path / "term-sent"
+    kill_body = f"""
+if [[ "$*" == "{_GATEWAY_PID}" ]]; then
+  : > "{term_marker}"
+  export PROCESS_STAT=""
+fi
+return 0
+"""
+
+    result = _run_down(
+        tmp_path,
+        kill_body=kill_body,
+        wt_argument=wt_alias,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert not (tmp_path / ".gateway.pid").exists()
