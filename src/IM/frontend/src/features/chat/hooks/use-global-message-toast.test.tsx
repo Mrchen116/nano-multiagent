@@ -222,8 +222,11 @@ describe("useGlobalMessageToast", () => {
     expect(hasLocalUnreadFeedback("conv-external")).toBe(true);
   });
 
-  it("resolves a newly created external conversation before classifying its first message as self-authored", async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  it("forces an authoritative lookup for a new external conversation even while the list cache is fresh", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: 60_000 } }
+    });
+    queryClient.setQueryData(["chat", "conversations"], [conversation("conv-existing")]);
     listConversationsMock.mockResolvedValue([
       conversation("conv-new-external", {
         title: "New Feishu chat",
