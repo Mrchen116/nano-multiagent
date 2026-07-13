@@ -5,7 +5,7 @@ from __future__ import annotations
 import queue
 import threading
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 if TYPE_CHECKING:
     from agent.core.llm.interfaces import LLMMessage
@@ -75,6 +75,23 @@ class RunController:
             if user_initiated:
                 self.user_interrupt_event.set()
             self.abort_event.set()
+
+    def publish_if_active(self, publish: Callable[[], None]) -> bool:
+        """Publish synchronously only while this run is still active.
+
+        The publisher runs under the same short lock used by abort/cancel. This
+        makes a public event and an accepted user interrupt linearizable even
+        when an earlier hook wakeup is already queued ahead of Task.cancel.
+
+        Returns:
+            True when ``publish`` ran; False after abort or cancellation.
+        """
+
+        with self._terminal_lock:
+            if self.abort_event.is_set() or self.cancel_event.is_set():
+                return False
+            publish()
+            return True
 
     def enqueue_message(self, message: "LLMMessage", origin: "RunOrigin") -> bool:
         """Enqueue a message for round-boundary injection. Thread-safe.

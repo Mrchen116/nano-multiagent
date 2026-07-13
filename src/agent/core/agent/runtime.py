@@ -367,7 +367,10 @@ class AgentEngine:
         if origin is not None:
             hook_metadata["run_origin"] = getattr(origin, "value", str(origin))
         hook_ctx = self._build_hook_context(
-            session_id=session_id, turn_id=turn_id, metadata=hook_metadata
+            session_id=session_id,
+            turn_id=turn_id,
+            metadata=hook_metadata,
+            controller=controller,
         )
 
         input_payload, handled = await self._dispatch_intercept(
@@ -1152,6 +1155,7 @@ class AgentEngine:
         session_id: str,
         turn_id: str | None = None,
         metadata: Mapping[str, Any] | None = None,
+        controller: RunController | None = None,
     ) -> HookContext:
         session_event_publisher = None
         if self._hook_runner is not None:
@@ -1159,6 +1163,19 @@ class AgentEngine:
                 registry=self._hook_runner.registry,
                 session_id=session_id,
             )
+        if session_event_publisher is not None and controller is not None:
+            unguarded_publisher = session_event_publisher
+
+            def _run_guarded_publisher(event: str, data: Mapping[str, Any]) -> None:
+                # Assistant content must be wholly before or after /stop. Keep
+                # lifecycle/tool closure events unguarded so consumers can still
+                # finalize in-flight UI after cancellation.
+                if event != "assistant_message":
+                    unguarded_publisher(event, data)
+                    return
+                controller.publish_if_active(lambda: unguarded_publisher(event, data))
+
+            session_event_publisher = _run_guarded_publisher
 
         # Build permission_requester closure when broker is available.
         # The closure captures the broker and session_event_publisher so
