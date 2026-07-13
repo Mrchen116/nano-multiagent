@@ -49,3 +49,9 @@ Gateway 只保留自身后台进程与进程内 Kernel 的真实拓扑；旧 Ker
 - 状态：DONE
 - 步骤：按 systematic-debugging 稳定复现全量门禁中的 `KernelConfig` ImportError，反查为 R1 机械迁移仅覆盖 PA unit fixtures、漏掉 IM integration 构造点；先扩展 zero-residue guard 验红，再把该 fixture 改为 `GatewayLifecycleConfig` / `gateway=`。
 - 验证：原失败用例与 contract guard 5 passed；全量 non-e2e `3496 passed, 1 skipped, 23 deselected`。
+
+### R5 — 补齐严格 reviewer live signoff 证据
+
+- 状态：DONE
+- 步骤：不改生产代码，以隔离 config 和真实入口补跑 IM-offline 飞书收发、同 config 重复默认 start、旧 state extra-field stop，以及受控不响应进程的强杀升级。
+- 验证：四条 `[reviewer]` 行为均取得用户/CLI 可观察结果并记录在 `progress.md`；隔离 Gateway、IM、tmux、config/workspace/state/log 全部清理。
