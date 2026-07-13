@@ -72,10 +72,11 @@ N/A：design 明确不改变 UI/交互/视觉，未提供 prototype/reference；
 
 ## Roadpoints
 
-### R1 — direct Web 静默终态归属（TODO）
+### R1 — direct Web 静默终态归属（DONE）
 
 - 步骤：先以真实 two-browser/NO_REPLY 基线取证；红测覆盖 process→无可见完成、bare token、普通 tool+正文、非 Web；在 Gateway lifecycle owner 记录是否已有可见回复并在 terminal chokepoint 选择 discard/completed。
 - 验证：Gateway observer/context + real IM handler/repository focused tests；真 Gateway/LLM/UI/reload 静默旅程并入 R4。
+- 结果：direct Web context 独立声明 `discard_empty_completion`；只有完整可见 assistant text 才提交 provisional bubble，tool/thinking 不提交；成功空终态在 terminal chokepoint 发 `message_discarded(reason=empty_visible_reply)`。真栈受控 prompt 的 `1 tool + 1 thinking + empty final` 在线撤泡，reload/REST 均仅保留用户行。
 
 ### R2 — IM replay/live 无缝交接与唯一发布（TODO）
 
