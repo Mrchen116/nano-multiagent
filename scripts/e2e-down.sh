@@ -32,6 +32,7 @@ done
 gateway_pid_file="$WT_ROOT/.gateway.pid"
 if [[ -f "$gateway_pid_file" ]]; then
   gw_pid=$(cat "$gateway_pid_file")
+  gateway_exit_confirmed=0
   if kill -0 "$gw_pid" 2>/dev/null; then
     kill "$gw_pid" 2>/dev/null || true
     # Wait for graceful exit, then force-kill on timeout.
@@ -44,13 +45,36 @@ if [[ -f "$gateway_pid_file" ]]; then
       if [[ $elapsed_ticks -ge $max_ticks ]]; then
         echo "gateway pid=$gw_pid did not exit within ${GATEWAY_GRACE_SECONDS}s — force-killing" >&2
         kill -9 "$gw_pid" 2>/dev/null || true
+        # SIGKILL is asynchronous. Do not erase lifecycle evidence until the
+        # owned external PID is observably gone.
+        for _ in $(seq 1 10); do
+          if ! kill -0 "$gw_pid" 2>/dev/null; then
+            gateway_exit_confirmed=1
+            break
+          fi
+          sleep 0.05
+        done
         break
       fi
       sleep 0.2
       elapsed_ticks=$(( elapsed_ticks + 1 ))
     done
+    if ! kill -0 "$gw_pid" 2>/dev/null; then
+      gateway_exit_confirmed=1
+    fi
+  else
+    gateway_exit_confirmed=1
   fi
-  rm -f "$gateway_pid_file"
+  if [[ $gateway_exit_confirmed -eq 1 ]]; then
+    # Only .gateway.pid establishes process ownership. gateway.pid and the
+    # background state file may contain stale or unrelated numbers, so cleanup
+    # must never signal the PIDs recorded inside them.
+    rm -f "$gateway_pid_file"
+    rm -f "$WT_ROOT/gateway.pid"
+    rm -f "$WT_ROOT/.gateway-state.json"
+  else
+    echo "gateway pid=$gw_pid still appears alive; retaining lifecycle state" >&2
+  fi
 fi
 
 # Step 2: Now that Gateway is gone, stop IM.
