@@ -20,24 +20,14 @@
 绑定相关行为：
 - 未绑定节点时，Gateway 会输出 `ACTION ...` / `NEXT ...`，并尝试打开绑定页。
 - 默认绑定页位于 `http://127.0.0.1:8011/bind/confirm?token=...`。
-- 绑定完成后刷新 `/` 或重新打开 `/chat`，即可继续聊天。
+- 绑定完成后，页面会先同步当前账号、Node、Agent 与会话缓存，再自动返回 `/chat`，无需手工刷新。
 - 打开 `/chat` 后，左侧会话列表会说明不同会话类型：direct agent chat 表示你可直接发消息给某个 agent；agent-to-agent chat 表示可查看 agent 协作线程；group chat 表示多人/多 agent 共享线程。
 
 ## 2. 前端开发模式
 
 `127.0.0.1:4173` 只用于前端开发或回归，不是默认用户入口。
 
-### 2.1 Mock 模式
-
-```bash
-cd src/IM/frontend
-npm install
-VITE_CHAT_API_MODE=mock npm run dev -- --host 127.0.0.1 --port 4173
-```
-
-访问：`http://127.0.0.1:4173/chat`
-
-### 2.2 真实 IM 服务 + Vite 开发模式
+### 2.1 真实 IM 服务 + Vite 开发模式
 
 终端 A（启动 IM 服务）：
 
@@ -49,11 +39,12 @@ PYTHONPATH=src python -m uvicorn IM.app:app --host 127.0.0.1 --port 8001
 
 ```bash
 cd src/IM/frontend
-VITE_IM_API_BASE_URL=http://127.0.0.1:8001 VITE_CHAT_API_MODE=im npm run dev -- --host 127.0.0.1 --port 4173
+VITE_IM_PROXY_TARGET=http://127.0.0.1:8001 npm run dev -- --host 127.0.0.1 --port 4173
 ```
 
 说明：
-- 这条路径只用于前端开发、Mock/真实 API 切换和页面调试。
+- Chat 与 Settings 都通过同一 authenticated IM REST/user-stream 数据面工作，不提供运行时 mock 模式。
+- Vite 将 `/im` HTTP 与 WebSocket 请求代理到 `VITE_IM_PROXY_TARGET`；默认目标是 `http://127.0.0.1:8021`。
 - 如果 IM host 没有可用 `dist`，它才会把 `/`、`/chat`、`/bind/confirm` 重定向到配置的前端 dev server。
 
 ## 3. 构建与门禁
@@ -72,14 +63,14 @@ npm run build
 PYTHONPATH=src pytest -q tests/im_service && cd src/IM/frontend && npm run test && npm run build
 ```
 
-## 4. API 与 Mock 边界
+## 4. API 与测试边界
 
-| 模块 | 当前数据源 | 切换方式 | 边界说明 |
-|---|---|---|---|
-| Chat（`/chat`、`/chat/:conversationId`） | `im-chat-api` 或 `mock-chat-api` | `VITE_CHAT_API_MODE=im|mock`；若未显式设置则 `test` 环境默认 mock、其他环境默认 im | 由 `src/features/chat/chat-api.ts` 的 `resolveChatApiMode` 决定 |
-| Settings（`/settings/*`） | `mock-settings-api` | 无运行时切换（V1 固定 mock） | 页面直接调用 `src/features/settings/mock-settings-api.ts`，用于前端独立验证 |
-| Vitest | mock | 自动 | 测试运行时 `import.meta.env.MODE === "test"`，chat 自动走 mock |
-| Playwright 回归（M38） | mock | 启动前端时设置 `VITE_CHAT_API_MODE=mock` | 避免回归时受外部服务可用性干扰，专注 UI/交互稳定性 |
+| 模块 | 当前数据源 | 边界说明 |
+|---|---|---|
+| Chat（`/chat`、`/chat/:conversationId`） | canonical `src/features/chat/chat-api.ts` + shared user stream | REST 请求统一经过 `authFetch`，实时事件由单一 `realtime/user-stream` lifecycle 分发 |
+| Settings（`/settings/*`） | IM REST + shared user stream | Account、Node、Agent、Policy 均使用当前 Bearer session；状态变化复用同一用户流 |
+| Vitest | 注入的 fetch/WebSocket adapter | 测试在边界注入响应与事件，不在生产 bundle 中保留数据源切换或 mock client |
+| 浏览器/e2e 回归 | 真实 IM + Gateway 进程 | 使用 `scripts/e2e-up.sh` / `scripts/e2e-critical.sh` 的隔离端口和配置验证完整用户旅程 |
 
 ## 5. 第二轮验收截图索引（2026-03-04）
 

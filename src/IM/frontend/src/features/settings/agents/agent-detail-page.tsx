@@ -6,15 +6,14 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { useIsMobile } from "../../../hooks/use-is-mobile";
 import { useTranslation } from "../../../i18n";
-import { createDirectChatByAgentUserId, listAgents } from "../../chat/chat-api";
-import { Avatar, colorForAgent } from "../../chat/v2/components/avatar";
+import { createConversation } from "../../chat/chat-api";
+import { Avatar, colorForAgent } from "../../chat/components/avatar";
 import { PillSelector } from "./pill-selector";
 import { SkillSourceSelector } from "./skill-source-selector";
 import { useAgentStatusBroadcastConsumer } from "./agent-status-ws-consumer";
 import {
   AgentConfig,
   AgentFeature,
-  AgentSummary,
   CronJobSummary,
   ModelOption,
   SkillUsageItem,
@@ -1356,20 +1355,6 @@ export function AgentDetailPage() {
     staleTime: 30_000
   });
 
-  // feat-340-M18 R9-2: fetch the agent summary list to obtain ``user_id``.
-  // ``getAgentDetailState`` only returns the AgentConfig shape (no user_id), so we
-  // pair it with the list endpoint. Using a separate query keeps cache invalidation
-  // simple and lets the Open chat button re-attempt after a transient miss.
-  const agentsSummaryQuery = useQuery({
-    queryKey: ["settings", "agents", "summary"],
-    queryFn: () => listAgents(),
-    staleTime: 30_000
-  });
-  const currentAgentSummary = useMemo(
-    () => agentsSummaryQuery.data?.find((item) => item.agent_id === agentId) ?? null,
-    [agentsSummaryQuery.data, agentId]
-  );
-
   useEffect(() => {
     setActiveSection("config");
   }, [agentId]);
@@ -1438,7 +1423,6 @@ export function AgentDetailPage() {
         });
       }
       void queryClient.invalidateQueries({ queryKey: ["settings", "agents"], exact: true });
-      void queryClient.invalidateQueries({ queryKey: ["settings", "agents", "summary"], exact: true });
       if (savedResetTimer.current) clearTimeout(savedResetTimer.current);
       savedResetTimer.current = setTimeout(() => {
         setSaved(false);
@@ -1455,32 +1439,15 @@ export function AgentDetailPage() {
 
   const openDirectChatMutation = useMutation({
     mutationFn: async () => {
-      // feat-340-M18 R9-2: drive the create directly off agent.user_id (returned
-      // by /im/v1/agents since R9-1). Bypassing the legacy bootstrap path
-      // sidesteps the /im/v1/users 404 that previously made this button
-      // appear broken in fresh sessions.
-      if (!currentAgentSummary || !currentAgentSummary.user_id) {
-        throw new Error(
-          "This agent has no associated IM user yet. Try refreshing the page in a moment."
-        );
-      }
-      return createDirectChatByAgentUserId({
-        agentId,
-        agentUserId: currentAgentSummary.user_id,
-        agentDisplayName: currentAgentSummary.display_name || draft?.display_name || agentId
+      return createConversation({
+        title: draft?.display_name || agentId,
+        agentIds: [agentId]
       });
     },
-    onSuccess: async ({ conversation_id }) => {
+    onSuccess: async ({ id: conversationId }) => {
       setErrorMessage(null);
-      // Invalidate both legacy and v2 conversation caches so whichever chat
-      // surface the user lands on shows the new direct conv without a reload.
-      // (M17/R7-4: without v2 invalidation the workspace renders the empty
-      // "select a conversation" pane, which users read as a 404.)
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] }),
-        queryClient.invalidateQueries({ queryKey: ["chat-v2", "conversations"] }),
-      ]);
-      navigate(`/chat/${conversation_id}`);
+      await queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
+      navigate(`/chat/${conversationId}`);
     },
     onError: (error) => {
       // R9-2: surface the failure prominently instead of swallowing it. Older

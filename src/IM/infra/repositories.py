@@ -1551,6 +1551,10 @@ class MessageRepository:
                     "reason": reason,
                 },
             )
+        # Publish only after the delete + tombstone transaction commits. Repeated
+        # discard calls return above, so connected clients receive exactly one rollback.
+        if self._notify is not None:
+            self._notify(tombstone)
         return tombstone
 
     def update_runtime_state(
@@ -3347,9 +3351,20 @@ class EventRepository:
         max_batch: int = 500,
         max_gap: int = 2000,
         replay_window_minutes: int = 15,
+        up_to_event_id: int | None = None,
     ) -> EventReplayResult:
-        """List owner-visible events after a browser resume cursor."""
-        max_id = self.global_max_event_id()
+        """List owner-visible events inside one stable resume snapshot."""
+        max_id = (
+            self.global_max_event_id()
+            if up_to_event_id is None
+            else max(0, up_to_event_id)
+        )
+        if after_event_id > max_id:
+            return EventReplayResult(
+                events=[],
+                resync_required=True,
+                reason="cursor_ahead_of_event_store",
+            )
         if after_event_id > 0 and max_id - after_event_id > max_gap:
             return EventReplayResult(
                 events=[],
@@ -3364,6 +3379,7 @@ class EventRepository:
             SELECT event_id, conversation_id, message_id, event_type, delivery_status, payload_json, created_at
             FROM conversation_events
             WHERE event_id > ?
+              AND event_id <= ?
               AND created_at >= ?
               AND conversation_id IN (
                 SELECT conversation_id FROM conversation_participants WHERE user_id = ?
@@ -3371,9 +3387,25 @@ class EventRepository:
             ORDER BY event_id
             LIMIT ?
             """,
-            (after_event_id, cutoff_iso, user_id, max_batch),
+            (after_event_id, max_id, cutoff_iso, user_id, max_batch),
         ).fetchall()
-        if after_event_id > 0 and not rows and max_id > after_event_id:
+        user_max_row = self._connection.execute(
+            """
+            SELECT MAX(event_id) AS max_event_id
+            FROM conversation_events
+            WHERE event_id <= ?
+              AND conversation_id IN (
+                SELECT conversation_id FROM conversation_participants WHERE user_id = ?
+            )
+            """,
+            (max_id, user_id),
+        ).fetchone()
+        user_max_id = (
+            int(user_max_row["max_event_id"])
+            if user_max_row is not None and user_max_row["max_event_id"] is not None
+            else 0
+        )
+        if after_event_id > 0 and not rows and user_max_id > after_event_id:
             return EventReplayResult(
                 events=[],
                 resync_required=True,

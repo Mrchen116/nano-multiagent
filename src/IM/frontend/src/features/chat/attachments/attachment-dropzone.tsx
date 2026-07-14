@@ -4,6 +4,7 @@ export interface AttachmentDropzoneProps {
   onAdd(files: File[]): void;
   children: ReactNode;
   className?: string;
+  disabled?: boolean;
 }
 
 /**
@@ -13,15 +14,17 @@ export interface AttachmentDropzoneProps {
  *
  * `data-dragging` lets the consumer style the active state purely in CSS.
  */
-export function AttachmentDropzone({ onAdd, children, className }: AttachmentDropzoneProps) {
+export function AttachmentDropzone({ onAdd, children, className, disabled = false }: AttachmentDropzoneProps) {
   const [dragging, setDragging] = useState(false);
 
   function handleDragOver(e: DragEvent<HTMLDivElement>) {
+    if (disabled) return;
     if (!e.dataTransfer.types.includes("Files")) return;
     e.preventDefault();
   }
 
   function handleDragEnter(e: DragEvent<HTMLDivElement>) {
+    if (disabled) return;
     if (!e.dataTransfer.types.includes("Files")) return;
     e.preventDefault();
     setDragging(true);
@@ -35,6 +38,7 @@ export function AttachmentDropzone({ onAdd, children, className }: AttachmentDro
   function handleDrop(e: DragEvent<HTMLDivElement>) {
     e.preventDefault();
     setDragging(false);
+    if (disabled) return;
     const dropped = Array.from(e.dataTransfer.files);
     if (dropped.length === 0) return;
     onAdd(dropped);
@@ -44,6 +48,7 @@ export function AttachmentDropzone({ onAdd, children, className }: AttachmentDro
     <div
       className={className}
       data-dragging={dragging}
+      aria-disabled={disabled}
       onDragOver={handleDragOver}
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}

@@ -48,6 +48,7 @@ async def test_message_completed_carries_per_bubble_kernel_message_id() -> None:
             "conversation_id": "conv-1",
             "message_id": "",
             "agent_id": "alpha",
+            "discard_empty_completion": "1",
         }
     }
 
@@ -95,6 +96,7 @@ async def test_message_completed_carries_per_bubble_kernel_message_id() -> None:
     await asyncio.sleep(0)
 
     completed = [p for _, p in send_calls if p.get("kind") == "message_completed"]
+    discarded = [p for _, p in send_calls if p.get("kind") == "message_discarded"]
     by_bubble = {p["message_id"]: p.get("kernel_message_id") for p in completed}
 
     # bubble-1 (textA) closed via roll carries kmsg-A; bubble-2 (textB) via turn_end carries kmsg-B
@@ -104,6 +106,7 @@ async def test_message_completed_carries_per_bubble_kernel_message_id() -> None:
     assert by_bubble.get("bubble-2") == "kmsg-B", (
         f"bubble-2 must carry its own kernel id kmsg-B, frames={completed}"
     )
+    assert discarded == []
 
 
 @pytest.mark.asyncio

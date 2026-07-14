@@ -1,1109 +1,1104 @@
-// @deprecated v1 chat surface. Production router (src/app/router.tsx:5) mounts
-// `features/chat/v2/components/message-pane.tsx`; this file remains only to
-// keep its dedicated vitest suites (≥ 20 tests) compiling. M19/R6 visual
-// rewrite landed here by mistake — superseded by R8.5 on the v2 path.
-// TODO(feat-340-v2-cleanup): drop this file + v1 test suites after the v2
-// surface fully replaces it (R12+ scope).
-import { ChangeEvent, Dispatch, FormEvent, KeyboardEvent, SetStateAction, SyntheticEvent, useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import ReactMarkdown, { type Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
 
+import { useTranslation } from "../../../i18n";
+import { AttachmentChip } from "../attachments/attachment-chip";
+import { AttachmentDropzone } from "../attachments/attachment-dropzone";
+import { uploadOneAttachment } from "../attachments/use-attachment-upload";
 import {
-  ChatAttachment,
-  ChatMessage,
-  ChatStarter,
-  ChatTokenUsage,
-  ChatUsageView,
-  ConversationDetail,
-  MentionCandidate,
-  UsageAgentView,
-  UsageTotals
-} from "../types";
-import { getSendAvailabilityMessages, SendAvailability } from "../im-chat-api";
+  classifyConversationKind,
+  type Actor,
+  type Attachment,
+  type Conversation,
+  type MentionCandidate,
+  type Message
+} from "../chat-types";
+import { Avatar, colorForAgentSeed } from "./avatar";
+import { KindBadge } from "./kind-badge";
+import { parseMentions } from "./mention-parser";
+import { MentionPicker } from "./mention-picker";
+import { NodeChip } from "./node-chip";
+import { PermissionCard } from "./permission-card";
+import { SlashPicker } from "./slash-picker";
+import {
+  matchSlashTrigger,
+  type SlashCandidate,
+  type SlashSkillCandidate,
+} from "./slash-candidates";
+import { TokenChip } from "./token-chip";
+import { formatDuration, ToolCallsPanel } from "./tool-calls-panel";
+import { remarkMention } from "./remark-mention";
 
-const SEND_AVAILABILITY_MESSAGES = getSendAvailabilityMessages();
-const RELAY_UNAVAILABLE_MESSAGE = SEND_AVAILABILITY_MESSAGES.unavailableHelperText;
+export interface MessagePaneProps {
+  conversation: Conversation;
+  messages: Message[];
+  mentionCandidates: MentionCandidate[];
+  draftSeed?: { id: string; text: string } | null;
+  /** feat-430: enabled skills for this conversation's agent(s), for the slash picker. */
+  slashSkills?: SlashSkillCandidate[];
+  nodeName?: string | null;
+  nodeStatus?: "online" | "offline";
+  /** Agent color for header avatar (direct-agent conversations). */
+  agentColor?: string | null;
+  /** Agent initials for header avatar (direct-agent conversations). */
+  agentInitials?: string | null;
+  /** Compact mobile chat header (< 768px). Desktop layout (R7-5 Node chip + ⚙ + KindBadge + participants) is preserved when false/undefined. */
+  isMobile?: boolean;
+  onSend(text: string, attachments: Attachment[]): void | Promise<void>;
+  onBack?(): void;
+  onOpenConfig?(): void;
+  /** Send mutation error message, shown as an in-app toast. */
+  sendError?: string | null;
+  /** Current logged-in user id; used to distinguish local send appends from external user messages. */
+  selfUserId?: string | null;
+  /** Whether a message is currently being sent. */
+  isSending?: boolean;
+  /** feat-445-M1: this is a direct user↔agent chat (fork is only offered here). */
+  isDirectChat?: boolean;
+  /** feat-445-M1: the agent's node is online (fork requires a live agent). */
+  agentOnline?: boolean;
+  /** feat-445-M1: fork from one completed agent reply (by message id). */
+  onFork?(messageId: string): void;
+  /** feat-445-M2 #7: a fork is in flight — disable fork buttons to block double-submit. */
+  forkPending?: boolean;
+  /** Older history page exists above the currently loaded messages. */
+  hasMoreHistory?: boolean | null;
+  /** Older history request is in flight. */
+  isLoadingHistory?: boolean;
+  /** Trigger loading the next older history page. */
+  onLoadOlder?(): void;
+  /** Test seam: overrides the real upload helper so vitest can stub uploads. */
+  uploadAttachment?(file: File): Promise<Attachment>;
+}
 
-function toErrorMessage(error: unknown) {
-  if (error instanceof Error && error.message) {
-    if (error.message.includes("target_node_id is not connected")) {
-      return RELAY_UNAVAILABLE_MESSAGE;
-    }
-    return error.message;
+const MENTION_RE = /@([^@\s]*)$/;
+const NEAR_BOTTOM_PX = 80;
+
+/**
+ * Build the overlay mirror nodes for the composer textarea.
+ *
+ * bugfix-358 (composer): textarea 现在装可见形式 `@DisplayName`(不是 wire XML),
+ * 字符宽度与视觉一致, IME 输入框光标定位自然对齐。mirror 仅做 `@word` 高亮装饰。
+ * wire 转换(可见 → `<mention/>` XML)在 commit() send 前根据 draftMentions 状态完成。
+ */
+function buildMirrorNodes(text: string): React.ReactNode[] {
+  const nodes: React.ReactNode[] = [];
+  const MENTION_HIGHLIGHT_RE = /@[\w一-龥][^\s@]*/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = MENTION_HIGHLIGHT_RE.exec(text)) !== null) {
+    if (m.index > last) nodes.push(text.slice(last, m.index));
+    nodes.push(<mark key={m.index} className="chat-composer-mention-highlight">{m[0]}</mark>);
+    last = m.index + m[0].length;
   }
-  return RELAY_UNAVAILABLE_MESSAGE;
+  if (last < text.length) nodes.push(text.slice(last));
+  // Mirror needs a trailing zero-width space so the last line has correct height.
+  nodes.push("​");
+  return nodes;
 }
 
-function getFailureAppearance(sendAvailability: SendAvailability) {
-  if (sendAvailability.state === "unbound") {
-    return {
-      title: SEND_AVAILABILITY_MESSAGES.failureTitle,
-      actionLabel: "Open bind flow",
-      helperText: sendAvailability.helperText
-    };
+/**
+ * One picker-originated mention range in the draft.
+ *
+ * bugfix-358 (composer): textarea 装可见 `@DisplayName` 文本, 此 state 跟踪每次 picker
+ * 选中产生的 mention 元数据。commit 时按 label 在 draft 里精确替换为 wire XML。
+ * 用户手敲删除 label 时, indexOf 找不到自然跳过——零清理逻辑。
+ */
+type DraftMention = {
+  label: string;       // e.g. "@架构" — visible text inserted into textarea
+  type: "agent" | "user";
+  target_id: string;
+};
+
+/**
+ * Reconstruct wire content from visible draft + picker-tracked mention metadata.
+ *
+ * 遍历每个 tracked mention,在 draft 中按 label 找第一处匹配替换为对应的 inline XML 标签。
+ * 同一 label 多次出现(用户连续选同一 agent): 每次循环替换第一处, 下一轮自然替换下一处。
+ * 用户已删除某 label: indexOf 返回 -1, 该项跳过——不会污染最终 wire 文本。
+ */
+function reconstructWireContent(draftText: string, mentions: DraftMention[]): string {
+  let wire = draftText;
+  for (const m of mentions) {
+    const pos = wire.indexOf(m.label);
+    if (pos === -1) continue;
+    const xml = `<mention type="${m.type}" target_id="${m.target_id}"/>`;
+    wire = wire.slice(0, pos) + xml + wire.slice(pos + m.label.length);
   }
-  if (sendAvailability.state === "offline") {
-    return {
-      title: SEND_AVAILABILITY_MESSAGES.failureTitle,
-      actionLabel: "Bring Gateway online",
-      helperText: sendAvailability.helperText
-    };
-  }
-  return {
-    title: SEND_AVAILABILITY_MESSAGES.failureTitle,
-    actionLabel: "Retry delivery",
-    helperText: RELAY_UNAVAILABLE_MESSAGE
-  };
+  return wire;
 }
 
-function FailureStateBanner({ sendAvailability }: { sendAvailability: SendAvailability }) {
-  if (sendAvailability.canSend || !sendAvailability.helperText) {
-    return null;
-  }
-  const appearance = getFailureAppearance(sendAvailability);
-  return (
-    <div role="alert" className="mb-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-      <p className="font-semibold text-amber-950">{appearance.title}</p>
-      <p className="mt-1">{appearance.helperText}</p>
-      <p className="mt-2 text-xs font-semibold uppercase tracking-[0.12em] text-amber-800">Next: {appearance.actionLabel}</p>
-    </div>
-  );
-}
-
-function SendErrorBanner(props: { message: string; onRetry: () => void; isRetrying: boolean }) {
-  return (
-    <div role="alert" className="mb-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="font-semibold text-rose-900">{SEND_AVAILABILITY_MESSAGES.failureTitle}</p>
-          <p className="mt-1">{props.message}</p>
-          <p className="mt-2 text-xs font-semibold uppercase tracking-[0.12em] text-rose-700">Next: Retry delivery</p>
-        </div>
-        <button type="button" className="im-btn im-btn-muted" onClick={props.onRetry} disabled={props.isRetrying}>
-          Retry send
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function UploadErrorBanner(props: {
-  message: string;
-  fileName: string;
-  onRetry: () => void;
-  isRetrying: boolean;
-}) {
-  return (
-    <div role="alert" className="mb-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="font-semibold text-amber-950">Attachment upload failed</p>
-          <p className="mt-1">{props.message}</p>
-          <p className="mt-2 text-xs font-semibold uppercase tracking-[0.12em] text-amber-800">Next: Retry upload</p>
-        </div>
-        <button type="button" className="im-btn im-btn-muted" onClick={props.onRetry} disabled={props.isRetrying}>
-          {`Retry upload ${props.fileName}`}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function toUploadErrorMessage(fileName: string, error: unknown) {
-  if (error instanceof Error && error.message) {
-    return `Couldn't upload ${fileName}. ${error.message}`;
-  }
-  return `Couldn't upload ${fileName}. Try again.`;
-}
-
-function toDeliveryStatusCopy(message: ChatMessage) {
-  if (message.sender_type === "agent" && message.delivery_status === "completed" && !message.content?.trim()) {
-    return null;
-  }
-  switch (message.delivery_status) {
-    case "sent":
-      return {
-        label: message.is_mine ? "Sent to relay" : "Delivered",
-        hint: message.is_mine ? "Your message left this device and is waiting for agent work." : null
-      };
-    case "running":
-      return {
-        label: "Agent is working",
-        hint: "The relay accepted your request and the agent is still processing it."
-      };
-    case "completed":
-      return {
-        label: "Delivered",
-        hint: null
-      };
-    case "failed":
-      return {
-        label: message.sender_type === "agent" ? "Agent couldn't finish" : "Didn't send",
-        hint:
-          message.recovery_hint ??
-          (message.sender_type === "agent"
-            ? "The agent stopped before finishing this turn. Retry the request to ask the agent again."
-            : "The message did not reach the relay. Retry after the connection is back."),
-        actionLabel: message.recovery_action_label ?? "Retry"
-      };
-    default:
-      return null;
-  }
-}
-
-interface FailedUploadState {
-  file: File;
-  message: string;
-}
-
-function removeAttachmentAt(attachments: ChatAttachment[], indexToRemove: number) {
-  return attachments.filter((_, index) => index !== indexToRemove);
-}
-
-function canSubmitMessage(input: {
-  draft: string;
-  attachments: ChatAttachment[];
-  canSend: boolean;
-  isUploading: boolean;
-  isMentionMenuOpen: boolean;
-  isSending: boolean;
-}) {
-  return !((!input.draft.trim() && input.attachments.length === 0) || !input.canSend || input.isUploading || input.isMentionMenuOpen || input.isSending);
-}
-
-function isTextAreaElement(target: EventTarget | null): target is HTMLTextAreaElement {
-  return target instanceof HTMLTextAreaElement;
-}
-
-function requestSubmitFromTarget(target: EventTarget | null) {
-  if (!isTextAreaElement(target)) {
-    return;
-  }
-  target.form?.requestSubmit();
-}
-
-function retrySubmitFromForm(form: HTMLFormElement | null) {
-  form?.requestSubmit();
-}
-
-function retryUploadAction(retry: () => void) {
-  retry();
-}
-
-function retrySendAction(retry: () => void) {
-  retry();
-}
-
-function submitOnEnter(event: KeyboardEvent<HTMLTextAreaElement>) {
-  if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) {
-    return false;
-  }
-  event.preventDefault();
-  requestSubmitFromTarget(event.currentTarget);
-  return true;
-}
-
-function removePendingAttachmentAction(input: {
-  index: number;
-  attachments: ChatAttachment[];
-  setPendingAttachments: Dispatch<SetStateAction<ChatAttachment[]>>;
-}) {
-  input.setPendingAttachments(removeAttachmentAt(input.attachments, input.index));
-}
-
-function retryPendingUpload(input: {
-  failedUpload: FailedUploadState | null;
-  uploadFile: (file: File) => Promise<void>;
-}) {
-  if (!input.failedUpload) {
-    return Promise.resolve();
-  }
-  return input.uploadFile(input.failedUpload.file);
-}
-
-function PendingStatusHint(props: { canSend: boolean; isUploading: boolean; hasAttachments: boolean }) {
-  if (props.isUploading) {
-    return <p className="mt-2 text-xs text-slate-500">Attachment upload in progress. Send unlocks when the upload finishes.</p>;
-  }
-  if (props.hasAttachments) {
-    return <p className="mt-2 text-xs text-slate-500">Attachments stay in the draft until you send or remove them.</p>;
-  }
-  if (!props.canSend) {
-    return null;
-  }
-  return <p className="mt-2 text-xs text-slate-500">Press Enter to send. Press Shift+Enter for a new line.</p>;
-}
-
-function AttachmentLinks({ attachments, muted = false }: { attachments: ChatAttachment[]; muted?: boolean }) {
-  if (attachments.length === 0) {
-    return null;
-  }
-  return (
-    <ul className="mt-2 space-y-1 text-xs">
-      {attachments.map((attachment) => (
-        <li key={`${attachment.url}:${attachment.file_name ?? "file"}`}>
-          <a
-            href={attachment.url}
-            target="_blank"
-            rel="noreferrer"
-            className={muted ? "underline underline-offset-2 opacity-80" : "underline underline-offset-2"}
-          >
-            {attachment.file_name ?? attachment.url}
-          </a>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function getGroupMessageSenderLabel(message: ChatMessage) {
-  if (message.sender_display_name) {
-    return message.sender_display_name;
-  }
-  if (message.sender_name && message.sender_name !== message.sender_user_id) {
-    return message.sender_name;
-  }
-  if (message.sender_type === "agent") {
-    return "Agent";
-  }
-  if (message.sender_type === "system") {
-    return "System";
-  }
-  return "Participant";
-}
-
-function formatMessageTimestamp(createdAt: string) {
-  const timestamp = new Date(createdAt);
-  if (Number.isNaN(timestamp.getTime())) {
-    throw new Error(`Invalid message timestamp: ${createdAt}`);
-  }
-  const hours = String(timestamp.getHours()).padStart(2, "0");
-  const minutes = String(timestamp.getMinutes()).padStart(2, "0");
-  return `${hours}:${minutes}`;
-}
-
-function avatarInitials(message: ChatMessage): string {
-  const source = message.sender_display_name || message.sender_name || (message.is_mine ? "ME" : "AG");
-  return source.trim().slice(0, 2).toUpperCase();
-}
-
-// M19/R11-7: prototype `im-components.jsx::TokenChip` 用 pct = round(used/window*100),
-// warn >= 70% / critical >= 90%;颜色: oklch(0.52 0.14 180) 青 (normal) → oklch(0.65 0.18 60)
-// 橙 (warn) → oklch(0.55 0.15 25) 红 (critical)。chip 落在气泡下方 status row。
-function TokenChip({ usage }: { usage: ChatTokenUsage }) {
-  const pct = Math.round((usage.context_used / usage.context_window) * 100);
-  const critical = pct >= 90;
-  const warn = pct >= 70;
-  function fmtK(n: number) {
-    return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
-  }
-  const colorClass = critical
-    ? "text-[oklch(0.55_0.15_25)] border-[oklch(0.55_0.15_25)]"
-    : warn
-      ? "text-[oklch(0.55_0.16_60)] border-[oklch(0.75_0.18_60)]"
-      : "text-[oklch(0.38_0.01_240)] border-[oklch(0.76_0.012_240)]";
-  return (
-    <span
-      data-testid="token-chip"
-      className={[
-        "inline-flex items-center gap-[5px] rounded-full bg-[oklch(0.96_0.005_240)] px-[9px] py-[3px] font-mono text-[11px] font-semibold",
-        "border",
-        colorClass
-      ].join(" ")}
-    >
-      <span>{fmtK(usage.output)} tok</span>
-      <span className="opacity-40">·</span>
-      <span>ctx {pct}%</span>
-    </span>
-  );
-}
-
-function MessageBubble({ message, isGroupChat }: { message: ChatMessage; isGroupChat: boolean }) {
-  const mine = message.is_mine ?? message.sender_type === "user";
-  const attachments = message.attachments ?? [];
-  const deliveryStatus = toDeliveryStatusCopy(message);
-  const senderLabel = isGroupChat ? getGroupMessageSenderLabel(message) : null;
-  const timestampLabel = formatMessageTimestamp(message.created_at);
-  const initials = avatarInitials(message);
-  const tokenUsage = message.token_usage;
-  return (
-    <div
-      className={["mb-4 flex items-start gap-[10px]", mine ? "flex-row-reverse" : "flex-row"].join(" ")}
-    >
-      <span
-        data-testid="message-avatar"
-        aria-hidden="true"
-        className={[
-          "flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-white",
-          "bg-[oklch(0.52_0.14_180)]"
-        ].join(" ")}
-      >
-        {initials}
-      </span>
-      <div className={["flex max-w-[72%] min-w-0 flex-col", mine ? "items-end" : "items-start"].join(" ")}>
-        {senderLabel ? (
-          <span className="mb-[3px] px-[2px] text-[11px] font-bold text-[oklch(0.38_0.10_180)]">{senderLabel}</span>
-        ) : null}
-        <div
-          data-testid="message-bubble"
-          className={[
-            "px-[13px] py-[9px] text-[13.5px] leading-[1.6]",
-            mine
-              ? "rounded-[16px_16px_4px_16px] bg-[oklch(0.52_0.14_180)] text-white"
-              : "rounded-[16px_16px_16px_4px] bg-[oklch(0.91_0.007_240)] text-[oklch(0.14_0.01_240)]"
-          ].join(" ")}
-        >
-          {message.content ? <p className="m-0 whitespace-pre-wrap break-words">{message.content}</p> : null}
-          <AttachmentLinks attachments={attachments} muted={mine} />
-        </div>
-        <div
-          className={[
-            "mt-[3px] flex items-center gap-[6px]",
-            mine ? "pr-[2px]" : "pl-[2px]"
-          ].join(" ")}
-        >
-          <time
-            data-testid="message-timestamp"
-            dateTime={message.created_at}
-            className="text-[11px] text-[oklch(0.65_0.01_240)]"
-          >
-            {timestampLabel}
-          </time>
-          {tokenUsage ? <TokenChip usage={tokenUsage} /> : null}
-        </div>
-        {deliveryStatus && (
-          <div className="mt-2 rounded-xl border border-black/10 bg-black/5 px-2 py-1 text-[10px] leading-4">
-            <p className="font-semibold tracking-wide opacity-80">{deliveryStatus.label}</p>
-            {deliveryStatus.hint ? <p className="mt-1 opacity-75">{deliveryStatus.hint}</p> : null}
-            {deliveryStatus.actionLabel ? <p className="mt-1 font-semibold opacity-80">Recovery: {deliveryStatus.actionLabel}</p> : null}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function UsageCard(props: { label: string; totals: UsageTotals }) {
-  return (
-    <div className="rounded-2xl border border-[var(--im-border)] bg-slate-50 px-3 py-2">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">{props.label}</p>
-      <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-600">
-        <span>{props.totals.turns} turns</span>
-        <span>{props.totals.totalTokens} tokens</span>
-        <span>Prompt {props.totals.promptTokens}</span>
-        <span>Completion {props.totals.completionTokens}</span>
-      </div>
-    </div>
-  );
-}
-
-function AgentUsagePanel(props: { agents: UsageAgentView[] }) {
-  const [activeAgentId, setActiveAgentId] = useState<string | null>(props.agents[0]?.agentId ?? null);
-
-  useEffect(() => {
-    if (!props.agents.some((agent) => agent.agentId === activeAgentId)) {
-      setActiveAgentId(props.agents[0]?.agentId ?? null);
-    }
-  }, [activeAgentId, props.agents]);
-
-  if (props.agents.length === 0) {
-    return null;
-  }
-
-  const activeAgent = props.agents.find((agent) => agent.agentId === activeAgentId) ?? props.agents[0];
-  return (
-    <div className="mt-2 rounded-2xl border border-[var(--im-border)] bg-white px-3 py-3">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">By agent</p>
-      <div className="mt-2 flex flex-wrap gap-2" role="tablist" aria-label="Agent usage views">
-        {props.agents.map((agent) => {
-          const selected = agent.agentId === activeAgent.agentId;
-          return (
-            <button
-              key={agent.agentId}
-              type="button"
-              role="tab"
-              aria-selected={selected}
-              className={[
-                "rounded-full border px-3 py-1 text-xs font-semibold",
-                selected
-                  ? "border-slate-900 bg-slate-900 text-white"
-                  : "border-slate-200 bg-slate-50 text-slate-600"
-              ].join(" ")}
-              onClick={() => setActiveAgentId(agent.agentId)}
-            >
-              {agent.label}
-            </button>
-          );
-        })}
-      </div>
-      <div className="mt-3">
-        <UsageCard label={`Agent · ${activeAgent.label}`} totals={activeAgent.totals} />
-      </div>
-    </div>
-  );
-}
-
-function UsageStrip(props: { usage: ChatUsageView }) {
-  const [expanded, setExpanded] = useState(false);
-  return (
-    <div className="border-b border-[var(--im-border)] px-4 py-2">
-      <button
-        type="button"
-        className="flex w-full items-center gap-1 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500 hover:text-slate-700"
-        aria-expanded={expanded}
-        onClick={() => setExpanded((prev) => !prev)}
-      >
-        <span>Usage</span>
-        <span aria-hidden="true" className="text-[10px] text-slate-400">{expanded ? "▲" : "▶"}</span>
-      </button>
-      {expanded && (
-        <div className="mt-2">
-          <div className="grid gap-2 md:grid-cols-2">
-            <UsageCard label="This chat" totals={props.usage.conversation} />
-            <UsageCard label="Workspace total" totals={props.usage.workspace} />
-          </div>
-          <AgentUsagePanel agents={props.usage.agents} />
-        </div>
-      )}
-    </div>
-  );
-}
-
-const STABLE_MENTION_PREFIX = "@agent:";
-
-function formatMention(agentId: string) {
-  return `${STABLE_MENTION_PREFIX}${agentId}`;
-}
-
-function formatMentionDisplay(label: string) {
-  return `@${label}`;
-}
-
-function encodeMentionDraft(draft: string, candidates: MentionCandidate[]) {
-  return candidates.reduce((nextDraft, candidate) => {
-    const encodedLabel = formatMentionDisplay(candidate.label);
-    const stableMention = formatMention(candidate.agentId);
-    return nextDraft.replaceAll(encodedLabel, stableMention);
-  }, draft);
-}
-
-function getMentionDisplayTokenRange(
-  draft: string,
-  selectionStart: number,
-  selectionEnd: number,
-  candidates: MentionCandidate[]
-): { start: number; end: number } | null {
-  if (selectionStart !== selectionEnd || selectionStart === 0) {
-    return null;
-  }
-  for (const candidate of candidates) {
-    const displayMention = formatMentionDisplay(candidate.label);
-    const mentionPattern = new RegExp(`(^|\\s)(${displayMention.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")})(?=\\s|$)`, "g");
-    let match: RegExpExecArray | null = mentionPattern.exec(draft);
-    while (match) {
-      const whitespacePrefix = match[1] ?? "";
-      const mentionText = match[2] ?? "";
-      const start = match.index + whitespacePrefix.length;
-      const end = start + mentionText.length;
-      const tokenEnd = end < draft.length && draft[end] === " " ? end + 1 : end;
-      if (selectionStart === tokenEnd) {
-        return { start, end: tokenEnd };
-      }
-      match = mentionPattern.exec(draft);
-    }
-  }
-  return null;
-}
-
-function formatMentionSecondaryCopy(candidate: MentionCandidate) {
-  return `${candidate.label} mention`;
-}
-
-function getMentionQuery(draft: string, selectionStart = draft.length): { start: number; query: string } | null {
-  const beforeCursor = draft.slice(0, selectionStart);
-  const match = /(?:^|\s)@([^\s@]*)$/.exec(beforeCursor);
-  if (!match || typeof match.index !== "number") {
-    return null;
-  }
-  const start = match.index + match[0].lastIndexOf("@");
-  return {
-    start,
-    query: match[1] ?? ""
-  };
-}
-
-
-function buildMentionCandidates(detail: ConversationDetail | null): MentionCandidate[] {
-  return detail?.mention_candidates ?? [];
-}
-
-
-function PendingAttachments(props: {
-  attachments: ChatAttachment[];
-  isUploading: boolean;
-  onRemove: (index: number) => void;
-}) {
-  if (props.attachments.length === 0 && !props.isUploading) {
-    return null;
-  }
-  return (
-    <div className="mb-3 flex flex-wrap items-center gap-2">
-      {props.attachments.map((attachment, index) => {
-        const label = attachment.file_name ?? attachment.url;
-        return (
-          <span
-            key={`${attachment.url}:${attachment.file_name ?? "pending"}:${index}`}
-            className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-600"
-          >
-            <span>{label}</span>
-            <button
-              type="button"
-              className="rounded-full px-1 text-slate-500 transition hover:bg-slate-200 hover:text-slate-900"
-              aria-label={`Remove attachment ${label}`}
-              onClick={() => props.onRemove(index)}
-            >
-              ×
-            </button>
-          </span>
-        );
-      })}
-      {props.isUploading && (
-        <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-600">Uploading…</span>
-      )}
-    </div>
-  );
-}
-
-function DefaultAgentStarterCard({ starter }: { starter: ChatStarter }) {
-  return (
-    <section className="im-card flex h-full min-h-[420px] flex-col justify-center gap-4 px-6 py-6 text-slate-700">
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Default chat</p>
-        <h2 className="im-title mt-2 text-2xl font-bold">{starter.title}</h2>
-        <p className="mt-3 max-w-2xl text-sm text-slate-600">{starter.description}</p>
-      </div>
-      <dl className="grid gap-2 text-sm text-slate-500">
-        <div className="flex items-center gap-2">
-          <dt className="font-semibold text-slate-700">Agent</dt>
-          <dd>{starter.agentName}</dd>
-        </div>
-        {starter.nodeLabel && (
-          <div className="flex items-center gap-2">
-            <dt className="font-semibold text-slate-700">Node</dt>
-            <dd>{starter.nodeLabel}</dd>
-          </div>
-        )}
-        {starter.statusLabel && (
-          <div className="flex items-center gap-2">
-            <dt className="font-semibold text-slate-700">Gateway status</dt>
-            <dd>{starter.statusLabel}</dd>
-          </div>
-        )}
-      </dl>
-      <div className="rounded-2xl border border-[var(--im-border)] bg-slate-50 px-4 py-3 text-sm text-slate-600">
-        <p className="font-semibold text-slate-800">Need a different target?</p>
-        <p className="mt-1">Reuse each agent's dedicated direct chat from Settings, or open group chats and agent-to-agent threads from the conversation list.</p>
-      </div>
-      <div>
-        <Link to={starter.actionHref} className="im-btn im-btn-primary inline-flex" aria-label={starter.actionLabel}>
-          {starter.actionLabel}
-        </Link>
-      </div>
-    </section>
-  );
-}
-
-function EmptyWorkspaceState() {
-  return (
-    <section className="im-card hidden h-full min-h-[420px] items-center justify-center px-6 py-6 lg:flex">
-      <div className="max-w-md text-center text-slate-600">
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Workspace ready</p>
-        <h2 className="im-title mt-2 text-2xl font-bold text-slate-900">Open a conversation to review context and reply</h2>
-        <p className="mt-3 text-sm">
-          Pick a thread from the conversation list to inspect history, compare usage, and continue the discussion without losing context.
-        </p>
-      </div>
-    </section>
-  );
-}
-
-function EmptyThreadState() {
-  return (
-    <div className="flex min-h-full items-center justify-center py-10">
-      <div className="max-w-sm text-center text-slate-500">
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">No messages yet</p>
-        <p className="mt-2 text-sm">This conversation is ready for the first message. Replies and status updates will appear here.</p>
-      </div>
-    </div>
-  );
-}
-
-export function MessagePane(props: {
-  detail: ConversationDetail | null;
-  starter?: ChatStarter | null;
-  isMobile: boolean;
-  isSending: boolean;
-  isStartingFreshSession: boolean;
-  sendAvailability: SendAvailability;
-  usage: ChatUsageView;
-  onSend: (payload: { content: string; attachments: ChatAttachment[] }) => Promise<unknown>;
-  onStartFreshSession?: (agentId: string) => Promise<unknown>;
-  onUploadAttachment: (file: File) => Promise<ChatAttachment>;
-  /** Called when user confirms leaving a group conversation. */
-  onLeaveConversation?: (conversationId: string) => Promise<void>;
-  /** Called when group creator confirms dissolving a conversation. */
-  onDeleteConversation?: (conversationId: string) => Promise<void>;
-  /** Whether the current user is the creator/owner of this group conversation. */
-  isGroupCreator?: boolean;
-  /** M235: called when user renames the group chat; receives (conversationId, newTitle). */
-  onRenameConversation?: (conversationId: string, title: string) => Promise<void>;
-}) {
+/**
+ * Right-hand message pane — header (avatar / title / participants / node chip /
+ * kind badge / ⚙) + messages list + composer (with @mention picker for groups).
+ *
+ * The component is fully controlled by the caller for `messages` and the
+ * `onSend` callback fires when the user hits Send / Enter. The composer holds
+ * draft text + pending attachments locally; on send it returns the trimmed
+ * string + attachment snapshot, clearing those values only after async success.
+ * A failed send keeps the draft and attachments available for retry.
+ * Mention picker activates only when `classifyConversationKind` resolves to
+ * `group` or `agent-network` (matches spec Q5 — mention only meaningful when
+ * there are 2+ agents to disambiguate).
+ */
+export function MessagePane({
+  conversation,
+  messages,
+  mentionCandidates,
+  draftSeed = null,
+  slashSkills = [],
+  nodeName,
+  nodeStatus = "offline",
+  agentColor,
+  agentInitials,
+  isMobile = false,
+  onSend,
+  onBack,
+  onOpenConfig,
+  sendError,
+  selfUserId = null,
+  isSending,
+  isDirectChat = false,
+  agentOnline = false,
+  onFork,
+  forkPending = false,
+  hasMoreHistory = null,
+  isLoadingHistory = false,
+  onLoadOlder,
+  uploadAttachment = uploadOneAttachment
+}: MessagePaneProps) {
+  const { t } = useTranslation();
   const [draft, setDraft] = useState("");
-  const [sendError, setSendError] = useState<string | null>(null);
-  const [failedUpload, setFailedUpload] = useState<FailedUploadState | null>(null);
-  const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
-  const [isUploading, setIsUploading] = useState(false);
-  const [activeMentionIndex, setActiveMentionIndex] = useState(0);
-  // Confirmation dialog state for leave/delete group operations (M234).
-  const [confirmAction, setConfirmAction] = useState<"leave" | "delete" | null>(null);
-  const [isConfirmPending, setIsConfirmPending] = useState(false);
-  // M235: inline group-name edit state.
-  const [isEditingTitle, setIsEditingTitle] = useState(false);
-  const [titleDraft, setTitleDraft] = useState("");
-  const listRef = useRef<HTMLDivElement | null>(null);
-  const formRef = useRef<HTMLFormElement | null>(null);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [draftMentions, setDraftMentions] = useState<DraftMention[]>([]);
+  const [pending, setPending] = useState<Attachment[]>([]);
+  const [composerSending, setComposerSending] = useState(false);
+  // feat-430: Esc / click-outside hides the slash picker but keeps the `/` text;
+  // any further typing re-opens it (reset on draft change).
+  const [slashDismissed, setSlashDismissed] = useState(false);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
-  const [composerSelection, setComposerSelection] = useState({ start: 0, end: 0 });
+  const mirrorRef = useRef<HTMLDivElement | null>(null);
+  const messagesContainerRef = useRef<HTMLDivElement | null>(null);
+  const slashWrapRef = useRef<HTMLDivElement | null>(null);
+  const historyWasLoadingRef = useRef(false);
+  const historyAnchorRef = useRef<{
+    messageId: string;
+    scrollTop: number;
+    scrollHeight: number;
+  } | null>(null);
+  const skipNextMessageAutoScrollRef = useRef(false);
+  const lastMessageIdRef = useRef<string | null>(null);
+  const nearBottomRef = useRef(true);
+  const forceScrollToBottomRef = useRef(false);
+  const sendInFlightRef = useRef(false);
+  const composerBusy = Boolean(isSending || composerSending);
 
-  const mentionCandidates = useMemo(() => buildMentionCandidates(props.detail), [props.detail]);
-  const mentionQuery = useMemo(() => getMentionQuery(draft, composerSelection.start), [draft, composerSelection.start]);
-  const filteredMentionCandidates = useMemo(() => {
-    if (!mentionQuery || mentionCandidates.length === 0) {
-      return [];
-    }
-    const normalizedQuery = mentionQuery.query.trim().toLowerCase();
-    if (!normalizedQuery) {
-      return mentionCandidates;
-    }
-    return mentionCandidates.filter((candidate) => {
-      const stableMention = formatMention(candidate.agentId).toLowerCase();
-      return candidate.label.toLowerCase().includes(normalizedQuery) || stableMention.includes(normalizedQuery);
+  useEffect(() => {
+    if (!draftSeed) return;
+    setDraft(draftSeed.text);
+    setDraftMentions([]);
+    setSlashDismissed(false);
+    requestAnimationFrame(() => {
+      const el = composerRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(draftSeed.text.length, draftSeed.text.length);
     });
-  }, [mentionCandidates, mentionQuery]);
-  const isGroupChat =
-    props.detail?.kind_label === "Group chat" ||
-    props.detail?.kind_label === "Agent-to-agent direct chat";
-  const isMentionMenuOpen = isGroupChat && filteredMentionCandidates.length > 0 && Boolean(mentionQuery);
+  }, [draftSeed?.id]);
 
-  useEffect(() => {
-    if (!props.detail) {
-      return;
-    }
-    const node = listRef.current;
-    if (!node) {
-      return;
-    }
-    node.scrollTop = node.scrollHeight;
-  }, [props.detail, props.detail?.messages.length]);
+  const kind = classifyConversationKind(conversation);
+  const isGroup = kind === "group" || kind === "agent-network";
+  const mentionMatch = isGroup ? MENTION_RE.exec(draft) : null;
+  const mentionQuery = mentionMatch?.[1] ?? null;
 
-  useEffect(() => {
-    if (!isMentionMenuOpen) {
-      setActiveMentionIndex(0);
-      return;
-    }
-    setActiveMentionIndex((current) => Math.min(current, filteredMentionCandidates.length - 1));
-  }, [filteredMentionCandidates.length, isMentionMenuOpen]);
+  // feat-430: slash picker triggers only at the START of the composer (决策 6) and
+  // never simultaneously with the @ mention picker. Available in single and group chats.
+  const slashMatch =
+    mentionQuery === null && !slashDismissed ? matchSlashTrigger(draft) : null;
+  const minComposerRows = isMobile ? 1 : 2;
+  const maxComposerRows = isMobile ? 4 : 5;
+  const composerRows = Math.min(
+    maxComposerRows,
+    Math.max(minComposerRows, draft.split("\n").length)
+  );
 
-  useEffect(() => {
-    if (!composerRef.current) {
-      return;
-    }
-    composerRef.current.setSelectionRange(composerSelection.start, composerSelection.end);
-  }, [composerSelection, draft]);
-
-  if (!props.detail) {
-    if (props.starter) {
-      return <DefaultAgentStarterCard starter={props.starter} />;
-    }
-    return <EmptyWorkspaceState />;
+  function changeDraft(next: string) {
+    setSlashDismissed(false);
+    setDraft(next);
   }
 
-  const uploadFile = async (file: File) => {
-    setSendError(null);
-    setFailedUpload(null);
-    setIsUploading(true);
+  const placeholder = isGroup
+    ? t("chat.messagePane.placeholderGroup")
+    : t("chat.messagePane.placeholderDirect", { title: conversation.title });
+
+  async function commit(text: string) {
+    if (isSending || sendInFlightRef.current) return;
+    const trimmed = text.trim();
+    if (!trimmed && pending.length === 0) return;
+    // bugfix-358 (composer): textarea 装可见 `@DisplayName`, wire XML 在此处重建。
+    const wireContent = reconstructWireContent(trimmed, draftMentions);
+    const submittedAttachments = pending;
+    const submittedAttachmentUrls = new Set(submittedAttachments.map((attachment) => attachment.url));
+    forceScrollToBottomRef.current = true;
+    sendInFlightRef.current = true;
+    setComposerSending(true);
     try {
-      const uploaded = await props.onUploadAttachment(file);
-      setPendingAttachments((current) => [...current, uploaded]);
-    } catch (error) {
-      setFailedUpload({
-        file,
-        message: toUploadErrorMessage(file.name || "attachment", error)
-      });
+      await onSend(wireContent, submittedAttachments);
+    } catch {
+      forceScrollToBottomRef.current = false;
+      return;
     } finally {
-      setIsUploading(false);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
+      sendInFlightRef.current = false;
+      setComposerSending(false);
     }
-  };
+    setDraft("");
+    setDraftMentions([]);
+    setPending((current) => current.filter((attachment) => !submittedAttachmentUrls.has(attachment.url)));
+  }
 
-  const onPickAttachment = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) {
+  function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    void commit(draft);
+  }
+
+  function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (mentionQuery !== null && e.key === "Escape") {
+      e.preventDefault();
+      setDraft((d) => d.replace(MENTION_RE, ""));
       return;
     }
-    await uploadFile(file);
-  };
-
-  const selectMention = (candidate: MentionCandidate) => {
-    if (!mentionQuery) {
+    // feat-430: while the slash picker is open it owns Arrow/Enter/Tab/Esc (its own
+    // window keydown handler). Here we only stop Enter from sending the raw `/...` text.
+    if (slashMatch !== null) {
+      if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+        e.preventDefault();
+      }
       return;
     }
-    const prefix = draft.slice(0, mentionQuery.start);
-    const suffix = draft.slice(composerSelection.start);
-    const mention = `${formatMentionDisplay(candidate.label)} `;
-    const nextDraft = `${prefix}${mention}${suffix}`;
-    const nextSelection = prefix.length + mention.length;
-    setDraft(nextDraft);
-    setComposerSelection({ start: nextSelection, end: nextSelection });
-    setActiveMentionIndex(0);
-    setSendError(null);
-  };
+    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+      if (mentionQuery !== null) return;
+      e.preventDefault();
+      void commit(draft);
+    }
+  }
 
-  const onComposerSelect = (event: SyntheticEvent<HTMLTextAreaElement>) => {
-    setComposerSelection({
-      start: event.currentTarget.selectionStart,
-      end: event.currentTarget.selectionEnd
-    });
-  };
+  function handleSlashSelect(c: SlashCandidate) {
+    // 命令补 `/name `、skill 补 `/skill:name `（尾随空格），光标置末尾、保持焦点（决策 6）。
+    const insert = c.kind === "command" ? `/${c.name} ` : `/skill:${c.name} `;
+    changeDraft(insert);
+    const el = composerRef.current;
+    if (el) {
+      el.focus();
+      // Defer cursor placement until the controlled value re-renders.
+      requestAnimationFrame(() => {
+        el.setSelectionRange(insert.length, insert.length);
+      });
+    }
+  }
 
-  const onComposerChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
-    setDraft(event.target.value);
-    setComposerSelection({
-      start: event.target.selectionStart,
-      end: event.target.selectionEnd
-    });
-  };
+  function handleMentionSelect(c: MentionCandidate) {
+    if (!mentionMatch) return;
+    // bugfix-358 (composer): 插入可见形式 `@DisplayName` 而非 XML, 同时旁路记录
+    // mention 元数据 (label + target_id + type), commit 时统一替换为 wire XML。
+    // 这样 textarea 字符宽度 = 视觉宽度, IME / 光标 / 撤销栈全部自然对齐。
+    const label = `@${c.display_name}`;
+    const before = draft.slice(0, draft.length - mentionMatch[0].length);
+    setDraft(`${before}${label} `);
+    setDraftMentions((prev) => [...prev, { label, type: "agent", target_id: c.agent_id }]);
+    composerRef.current?.focus();
+  }
 
-  const onComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (isMentionMenuOpen) {
-      if (event.key === "ArrowDown") {
-        event.preventDefault();
-        setActiveMentionIndex((current) => (current + 1) % filteredMentionCandidates.length);
-        return;
-      }
-      if (event.key === "ArrowUp") {
-        event.preventDefault();
-        setActiveMentionIndex((current) => (current - 1 + filteredMentionCandidates.length) % filteredMentionCandidates.length);
-        return;
-      }
-      if (event.key === "Enter") {
-        event.preventDefault();
-        const candidate = filteredMentionCandidates[activeMentionIndex];
-        if (candidate) {
-          selectMention(candidate);
-        }
-        return;
+  async function handleAdd(files: File[]) {
+    if (sendInFlightRef.current) return;
+    for (const file of files) {
+      try {
+        // Sequential uploads keep the chip ordering deterministic and avoid
+        // bursting `/im/v1/uploads` with N parallel large bodies.
+        const att = await uploadAttachment(file);
+        setPending((prev) => [...prev, att]);
+      } catch {
+        // Bubbling the error to a toast is the chat-workspace's job;
+        // here we just drop the failing file so the rest still flow.
       }
     }
-    if (event.key === "Backspace") {
-      const mentionTokenRange = getMentionDisplayTokenRange(draft, event.currentTarget.selectionStart, event.currentTarget.selectionEnd, mentionCandidates);
-      if (mentionTokenRange) {
-        event.preventDefault();
-        const nextDraft = `${draft.slice(0, mentionTokenRange.start)}${draft.slice(mentionTokenRange.end)}`;
-        setDraft(nextDraft);
-        setComposerSelection({ start: mentionTokenRange.start, end: mentionTokenRange.start });
-        setSendError(null);
-        return;
-      }
-    }
-    submitOnEnter(event);
-  };
+  }
 
-  const submitDraft = async () => {
-    const text = encodeMentionDraft(draft.trim(), mentionCandidates);
-    if (
-      !canSubmitMessage({
-        draft: text,
-        attachments: pendingAttachments,
-        canSend: props.sendAvailability.canSend,
-        isUploading,
-        isMentionMenuOpen,
-        isSending: props.isSending
-      })
-    ) {
+  function messageRows(): HTMLElement[] {
+    const el = messagesContainerRef.current;
+    if (!el) return [];
+    return Array.from(el.querySelectorAll<HTMLElement>("[data-message-id]"));
+  }
+
+  function captureHistoryAnchor() {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    const rows = messageRows();
+    const anchor = rows.find((row) => row.offsetTop >= el.scrollTop) ?? rows[0] ?? null;
+    historyAnchorRef.current = anchor
+      ? {
+        messageId: anchor.dataset.messageId ?? "",
+        scrollTop: el.scrollTop,
+        scrollHeight: el.scrollHeight
+      }
+      : null;
+  }
+
+  function restoreHistoryAnchor() {
+    const el = messagesContainerRef.current;
+    const anchor = historyAnchorRef.current;
+    if (!el || !anchor) return;
+    const row = messageRows().find((candidate) => candidate.dataset.messageId === anchor.messageId);
+    if (row) {
+      el.scrollTop = row.offsetTop;
+    } else {
+      el.scrollTop = anchor.scrollTop + (el.scrollHeight - anchor.scrollHeight);
+    }
+    updateNearBottom();
+    skipNextMessageAutoScrollRef.current = true;
+    historyAnchorRef.current = null;
+  }
+
+  function maybeLoadOlderFromScroll() {
+    const el = messagesContainerRef.current;
+    if (!el || hasMoreHistory !== true || isLoadingHistory || !onLoadOlder) return;
+    const scrollable = el.scrollHeight - el.clientHeight;
+    if (scrollable <= 0) return;
+    if (el.scrollTop <= scrollable / 3) onLoadOlder();
+  }
+
+  function updateNearBottom() {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    nearBottomRef.current = el.scrollHeight - el.clientHeight - el.scrollTop <= NEAR_BOTTOM_PX;
+  }
+
+  function handleMessagesScroll() {
+    updateNearBottom();
+    maybeLoadOlderFromScroll();
+  }
+
+  useEffect(() => {
+    lastMessageIdRef.current = null;
+    nearBottomRef.current = true;
+    forceScrollToBottomRef.current = false;
+    historyWasLoadingRef.current = false;
+    historyAnchorRef.current = null;
+    skipNextMessageAutoScrollRef.current = false;
+  }, [conversation.id]);
+
+  useEffect(() => {
+    if (sendError) forceScrollToBottomRef.current = false;
+  }, [sendError]);
+
+  // Auto-scroll only when the user is already following the bottom, or when the
+  // local user just sent a message. Prepending history and off-bottom arrivals
+  // must not steal the reading position.
+  useEffect(() => {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    if (skipNextMessageAutoScrollRef.current) {
+      skipNextMessageAutoScrollRef.current = false;
       return;
     }
-    setSendError(null);
-    try {
-      await props.onSend({ content: text, attachments: pendingAttachments });
-      setDraft("");
-      setPendingAttachments([]);
-      setFailedUpload(null);
-    } catch (error) {
-      setSendError(toErrorMessage(error));
-      // Preserve the draft and uploaded attachments so the user can retry after reading the failure feedback.
+    if (historyAnchorRef.current) return;
+    const lastMessage = messages[messages.length - 1] ?? null;
+    const lastMessageId = lastMessage?.id ?? null;
+    const lastMessageChanged = lastMessageIdRef.current !== lastMessageId;
+    const lastMessageIsSelfAuthored =
+      lastMessage?.sender.type === "user" &&
+      selfUserId !== null &&
+      (lastMessage.sender_user_id === selfUserId || lastMessage.sender.id === selfUserId);
+    const isInitialHydration = lastMessageIdRef.current === null;
+    const shouldFollowBottom =
+      isInitialHydration
+      || (forceScrollToBottomRef.current && lastMessageChanged && lastMessageIsSelfAuthored)
+      || nearBottomRef.current;
+    lastMessageIdRef.current = lastMessageId;
+    if (shouldFollowBottom) {
+      el.scrollTop = el.scrollHeight;
+      updateNearBottom();
     }
-  };
+    forceScrollToBottomRef.current = false;
+  }, [messages]);
 
-  const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    await submitDraft();
-  };
+  useLayoutEffect(() => {
+    if (isLoadingHistory && !historyWasLoadingRef.current) {
+      captureHistoryAnchor();
+    }
+    if (!isLoadingHistory && historyWasLoadingRef.current) {
+      restoreHistoryAnchor();
+    }
+    historyWasLoadingRef.current = isLoadingHistory;
+  }, [isLoadingHistory, messages]);
+
+  useEffect(() => {
+    const el = messagesContainerRef.current;
+    if (!el || hasMoreHistory !== true || isLoadingHistory || !onLoadOlder) return;
+    if (el.scrollHeight > 0 && el.scrollHeight <= el.clientHeight) onLoadOlder();
+  }, [hasMoreHistory, isLoadingHistory, messages.length, onLoadOlder]);
+
+  // feat-430: clicking outside the slash picker and composer dismisses it while
+  // preserving the typed `/` text (spec: Esc / 点面板外关闭).
+  const slashOpen = slashMatch !== null;
+  useEffect(() => {
+    if (!slashOpen) return;
+    function onDocMouseDown(e: MouseEvent) {
+      const target = e.target as Node;
+      if (slashWrapRef.current?.contains(target)) return;
+      if (composerRef.current?.contains(target)) return;
+      setSlashDismissed(true);
+    }
+    document.addEventListener("mousedown", onDocMouseDown);
+    return () => document.removeEventListener("mousedown", onDocMouseDown);
+  }, [slashOpen]);
 
   return (
-    <section
-      className={`im-card relative flex h-full flex-col overflow-hidden ${props.isMobile ? "min-h-0" : "min-h-[420px]"}`}
-    >
-      <div className="flex items-start gap-3 border-b border-[var(--im-border)] px-4 py-3">
-        {props.isMobile && (
-          <Link to="/chat" className="rounded-lg bg-slate-100 px-2 py-1 text-xs font-bold text-slate-700">
-            Back
-          </Link>
+    <section className="chat-pane" aria-label={conversation.title}>
+      <header className="chat-pane-header">
+        {onBack && (
+          <button type="button" className="chat-pane-back" onClick={onBack} aria-label="Back">‹</button>
         )}
-        <div className="min-w-0 flex-1">
-          {/* M235: group chats show an inline-editable title; others show a plain heading */}
-          {props.detail.kind_label === "Group chat" && props.onRenameConversation ? (
-            isEditingTitle ? (
-              <input
-                className="im-input w-full text-lg font-bold"
-                value={titleDraft}
-                autoFocus
-                onChange={(e) => setTitleDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    const trimmed = titleDraft.trim();
-                    if (trimmed) {
-                      void props.onRenameConversation!(props.detail!.conversation_id, trimmed);
-                    }
-                    setIsEditingTitle(false);
-                  } else if (e.key === "Escape") {
-                    setIsEditingTitle(false);
-                  }
-                }}
-                onBlur={() => {
-                  const trimmed = titleDraft.trim();
-                  if (trimmed && trimmed !== props.detail!.title) {
-                    void props.onRenameConversation!(props.detail!.conversation_id, trimmed);
-                  }
-                  setIsEditingTitle(false);
-                }}
-              />
-            ) : (
-              <div className="flex items-center gap-1">
-                <h2 className="im-title text-lg font-bold">{props.detail.title}</h2>
-                <button
-                  type="button"
-                  aria-label="编辑群聊名称"
-                  className="rounded px-1 py-0.5 text-xs text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                  onClick={() => {
-                    setTitleDraft(props.detail!.title);
-                    setIsEditingTitle(true);
-                  }}
-                >
-                  ✏
-                </button>
-              </div>
-            )
-          ) : (
-            <h2 className="im-title text-lg font-bold">{props.detail.title}</h2>
-          )}
-        </div>
-        {props.detail.direct_agent_id && props.onStartFreshSession ? (
-          <button
-            type="button"
-            className="im-btn im-btn-muted shrink-0"
-            disabled={props.isStartingFreshSession}
-            onClick={() => void props.onStartFreshSession?.(props.detail!.direct_agent_id!)}
-          >
-            {props.isStartingFreshSession ? "Starting fresh session…" : "Start fresh session"}
-          </button>
-        ) : null}
-        {/* M234: group chat leave/delete buttons shown when handlers are provided */}
-        {props.detail.kind_label === "Group chat" && (props.onLeaveConversation || props.onDeleteConversation) ? (
-          <div className="flex shrink-0 flex-col gap-1">
-            {props.onLeaveConversation && (
-              <button
-                type="button"
-                className="im-btn im-btn-muted shrink-0 text-xs"
-                onClick={() => setConfirmAction("leave")}
-              >
-                退出群聊
-              </button>
-            )}
-            {props.isGroupCreator && props.onDeleteConversation && (
-              <button
-                type="button"
-                className="im-btn shrink-0 border border-rose-300 bg-rose-50 text-xs text-rose-700 hover:bg-rose-100"
-                onClick={() => setConfirmAction("delete")}
-              >
-                解散群聊
-              </button>
-            )}
-          </div>
-        ) : null}
-      </div>
-      {/* M234: confirmation dialog for leave/delete group */}
-      {confirmAction && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label={confirmAction === "delete" ? "解散群聊确认" : "退出群聊确认"}
-          className="absolute inset-0 z-20 flex items-center justify-center bg-black/30"
-        >
-          <div className="mx-4 w-full max-w-sm rounded-2xl border border-[var(--im-border)] bg-white px-6 py-5 shadow-xl">
-            <h3 className="text-base font-bold text-slate-900">
-              {confirmAction === "delete" ? "解散群聊" : "退出群聊"}
-            </h3>
-            <p className="mt-2 text-sm text-slate-600">
-              {confirmAction === "delete"
-                ? "解散后所有成员将无法继续使用此群聊，且所有消息将被删除。此操作不可撤销，确认继续？"
-                : "退出后你将离开此群聊，其他成员不受影响。确认退出？"}
-            </p>
-            <div className="mt-4 flex justify-end gap-2">
-              <button
-                type="button"
-                className="im-btn im-btn-muted"
-                disabled={isConfirmPending}
-                onClick={() => setConfirmAction(null)}
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                className={confirmAction === "delete" ? "im-btn border border-rose-400 bg-rose-600 text-white hover:bg-rose-700" : "im-btn im-btn-primary"}
-                disabled={isConfirmPending}
-                onClick={async () => {
-                  if (!props.detail) return;
-                  setIsConfirmPending(true);
-                  try {
-                    if (confirmAction === "delete") {
-                      await props.onDeleteConversation?.(props.detail.conversation_id);
-                    } else {
-                      await props.onLeaveConversation?.(props.detail.conversation_id);
-                    }
-                  } finally {
-                    setIsConfirmPending(false);
-                    setConfirmAction(null);
-                  }
-                }}
-              >
-                {isConfirmPending ? "处理中…" : confirmAction === "delete" ? "确认解散" : "确认退出"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      <UsageStrip usage={props.usage} />
-      <div
-        ref={listRef}
-        className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-y-contain px-4 py-4 [-webkit-overflow-scrolling:touch]"
-      >
-        <div data-testid="message-list-stack" className="flex min-h-full flex-col justify-end">
-          {props.detail.messages.length === 0 ? (
-            <EmptyThreadState />
-          ) : (
-            props.detail.messages.map((message) => <MessageBubble key={message.message_id} message={message} isGroupChat={isGroupChat} />)
-          )}
-        </div>
-      </div>
-      <form
-        ref={formRef}
-        className={`border-t border-[var(--im-border)] p-3 ${props.isMobile ? "pb-[max(0.75rem,env(safe-area-inset-bottom,0px))]" : ""}`}
-        onSubmit={onSubmit}
-      >
-        <FailureStateBanner sendAvailability={props.sendAvailability} />
-        {failedUpload && (
-          <UploadErrorBanner
-            message={failedUpload.message}
-            fileName={failedUpload.file.name || "attachment"}
-            onRetry={() => retryUploadAction(() => void retryPendingUpload({ failedUpload, uploadFile }))}
-            isRetrying={isUploading}
-          />
-        )}
-        {sendError && <SendErrorBanner message={sendError} onRetry={() => retrySendAction(() => retrySubmitFromForm(formRef.current))} isRetrying={props.isSending} />}
-        <PendingAttachments
-          attachments={pendingAttachments}
-          isUploading={isUploading}
-          onRemove={(index) => removePendingAttachmentAction({ index, attachments: pendingAttachments, setPendingAttachments })}
+        <Avatar
+          // 只有 direct-agent 用该 agent 的头像；群 / agent-network 用群名 initials +
+          // 群色(紫)，与左侧会话列表的群头像一致，不再误用第一个 agent 的头像。
+          initials={kind === "direct-agent" ? (agentInitials ?? conversation.title.slice(0, 2)) : conversation.title.slice(0, 2)}
+          color={kind === "direct-agent" ? (agentColor ?? "oklch(0.52 0.14 270)") : "oklch(0.52 0.14 270)"}
+          size={34}
+          status={kind === "direct-agent" ? nodeStatus : null}
         />
-        <div className="relative flex items-end gap-2">
-          <label className="im-btn im-btn-muted cursor-pointer">
-            <span aria-hidden="true">+</span>
-            <span className="sr-only">Attachment picker</span>
-            <input
-              ref={fileInputRef}
-              type="file"
-              className="sr-only"
-              aria-label="Attachment picker"
-              onChange={onPickAttachment}
-            />
-          </label>
-          <div className="relative flex-1">
-            <textarea
-              ref={composerRef}
-              className="im-input min-h-24 max-h-56 w-full resize-y"
-              placeholder={props.sendAvailability.placeholder}
-              value={draft}
-              rows={3}
-              disabled={!props.sendAvailability.canSend}
-              onChange={onComposerChange}
-              onClick={onComposerSelect}
-              onKeyUp={onComposerSelect}
-              onSelect={onComposerSelect}
-              onKeyDown={onComposerKeyDown}
-              aria-expanded={isMentionMenuOpen}
-              aria-controls={isMentionMenuOpen ? "mention-candidate-list" : undefined}
-              aria-autocomplete={props.detail.kind_label === "Group chat" ? "list" : undefined}
-            />
-            {isMentionMenuOpen && (
-              <div
-                id="mention-candidate-list"
-                role="listbox"
-                aria-label="Mention candidates"
-                className="absolute bottom-full left-0 z-10 mb-2 w-full rounded-2xl border border-[var(--im-border)] bg-white p-2 shadow-lg"
-              >
-                {filteredMentionCandidates.map((candidate, index) => {
-                  const isActive = index === activeMentionIndex;
-                  return (
-                    <button
-                      key={candidate.agentId}
-                      type="button"
-                      role="option"
-                      aria-selected={isActive}
-                      className={[
-                        "flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm",
-                        isActive ? "bg-slate-900 text-white" : "text-slate-700 hover:bg-slate-50"
-                      ].join(" ")}
-                      onMouseDown={(event) => {
-                        event.preventDefault();
-                        selectMention(candidate);
-                      }}
-                    >
-                      <span className="font-medium">{candidate.label}</span>
-                      <span className={isActive ? "text-slate-200" : "text-slate-400"}>{formatMentionSecondaryCopy(candidate)}</span>
-                    </button>
-                  );
-                })}
+        <div className="chat-pane-header-body">
+          <h2 className="chat-pane-title">{conversation.title}</h2>
+          <div className="chat-pane-header-meta">
+            {!isMobile && (
+              <span className="chat-pane-participants">
+                {conversation.participants.map((p, i) => (
+                  <span
+                    key={p.id}
+                    className={p.is_stale ? "opacity-40" : undefined}
+                    title={p.is_stale ? "Offline — agent no longer advertised by its Gateway" : undefined}
+                  >
+                    {p.display_name ?? p.id}
+                    {i < conversation.participants.length - 1 ? " · " : ""}
+                  </span>
+                ))}
+              </span>
+            )}
+            {kind === "direct-agent" && <NodeChip nodeName={nodeName ?? null} status={nodeStatus} />}
+          </div>
+        </div>
+        {!isMobile && <KindBadge kind={kind} />}
+        {onOpenConfig && (
+          isMobile ? (
+            <button
+              type="button"
+              className="chat-pane-config chat-pane-config-icon"
+              onClick={onOpenConfig}
+              aria-label={t("chat.messagePane.config")}
+            >
+              ⚙
+            </button>
+          ) : (
+            <button type="button" className="chat-pane-config" onClick={onOpenConfig} aria-label={t("chat.messagePane.config")}>
+              ⚙ {t("chat.messagePane.config")}
+            </button>
+          )
+        )}
+      </header>
+
+      <div ref={messagesContainerRef} className="chat-pane-messages" onScroll={handleMessagesScroll}>
+        {messages.length === 0 ? (
+          <div className="chat-pane-empty">
+            <div className="chat-pane-empty-icon" aria-hidden="true">✨</div>
+            <p className="chat-pane-empty-title">{t("chat.messagePane.emptyTitle")}</p>
+            <p className="chat-pane-empty-sub">{t("chat.messagePane.emptySubtitle")}</p>
+          </div>
+        ) : (
+          <>
+            {(isLoadingHistory || hasMoreHistory === false) && (
+              <div className="chat-history-status" role="status">
+                {isLoadingHistory && <span className="chat-history-spinner" aria-hidden="true" />}
+                {isLoadingHistory
+                  ? t("chat.messagePane.historyLoading")
+                  : t("chat.messagePane.historyEnd")}
               </div>
             )}
-            <PendingStatusHint
-              canSend={props.sendAvailability.canSend}
-              isUploading={isUploading}
-              hasAttachments={pendingAttachments.length > 0}
-            />
+            {messages.map((m) => (
+              <MessageBubble
+                key={m.id}
+                message={m}
+                isMobile={isMobile}
+                participants={conversation.participants}
+                isDirectChat={isDirectChat}
+                agentOnline={agentOnline}
+                onFork={onFork}
+                forkPending={forkPending}
+              />
+            ))}
+          </>
+        )}
+      </div>
+
+      <form className="chat-pane-composer" onSubmit={handleSubmit}>
+        <AttachmentDropzone className="chat-pane-composer-dropzone" onAdd={handleAdd} disabled={composerBusy}>
+          {pending.length > 0 && (
+            <div className="chat-pane-composer-chips">
+              {pending.map((att) => (
+                <AttachmentChip
+                  key={att.url}
+                  attachment={att}
+                  onRemove={() => {
+                    if (sendInFlightRef.current) return;
+                    setPending((prev) => prev.filter((p) => p.url !== att.url));
+                  }}
+                  removeDisabled={composerBusy}
+                />
+              ))}
+            </div>
+          )}
+          <div className="chat-pane-composer-row">
+            {isGroup && mentionQuery !== null && (
+              <MentionPicker
+                candidates={mentionCandidates}
+                query={mentionQuery}
+                onSelect={handleMentionSelect}
+                onClose={() => setDraft((d) => d.replace(MENTION_RE, ""))}
+              />
+            )}
+            {slashMatch !== null && (
+              <div ref={slashWrapRef}>
+                <SlashPicker
+                  skills={slashSkills}
+                  query={slashMatch.prefix}
+                  skillMode={slashMatch.skillMode}
+                  isGroup={isGroup}
+                  onSelect={handleSlashSelect}
+                  onClose={() => setSlashDismissed(true)}
+                />
+              </div>
+            )}
+            <div className="chat-composer-highlight-wrapper">
+              <div
+                ref={mirrorRef}
+                className="chat-composer-highlight-mirror"
+                aria-hidden="true"
+              >
+                {buildMirrorNodes(draft)}
+              </div>
+              <textarea
+                ref={composerRef}
+                value={draft}
+                onChange={(e) => changeDraft(e.target.value)}
+                onKeyDown={handleKeyDown}
+                disabled={composerBusy}
+                onScroll={() => {
+                  if (mirrorRef.current && composerRef.current) {
+                    mirrorRef.current.scrollTop = composerRef.current.scrollTop;
+                  }
+                }}
+                placeholder={placeholder}
+                rows={composerRows}
+                className="chat-pane-composer-input chat-composer-highlight-input"
+              />
+            </div>
+            <button
+              type="submit"
+              className="chat-pane-composer-send"
+              disabled={composerBusy || (!draft.trim() && pending.length === 0)}
+              aria-label="Send"
+            >
+              ↑
+            </button>
           </div>
-          <button
-            type="submit"
-            className="im-btn im-btn-primary"
-            disabled={props.isSending || !props.sendAvailability.canSend || isUploading}
-          >
-            Send
-          </button>
-        </div>
+          {!isMobile && (
+            <p className="chat-pane-composer-help">
+              {isGroup ? t("chat.messagePane.helpDesktopGroup") : t("chat.messagePane.helpDesktop")}
+            </p>
+          )}
+        </AttachmentDropzone>
       </form>
     </section>
   );
+}
+
+function MessageBubble({
+  message,
+  isMobile,
+  participants,
+  isDirectChat = false,
+  agentOnline = false,
+  onFork,
+  forkPending = false,
+}: {
+  message: Message;
+  isMobile?: boolean;
+  participants?: Actor[];
+  isDirectChat?: boolean;
+  agentOnline?: boolean;
+  onFork?(messageId: string): void;
+  forkPending?: boolean;
+}) {
+  const { t } = useTranslation();
+  const isSystem = message.sender.type === "system";
+  const isUser = message.sender.type === "user";
+  const isAgent = message.sender.type === "agent";
+  const initials = (message.sender.display_name ?? message.sender.id).slice(0, 2).toUpperCase();
+  const ts = formatHM(message.created_at);
+  const senderColor = message.sender.type === "agent" && message.sender.display_name
+    ? colorForAgentSeed(message.sender.display_name)
+    : "oklch(0.52 0.14 270)";
+  const rowFlex = isUser ? "flex-row-reverse" : "flex-row";
+  const statusAlign = isUser ? "justify-end" : "justify-start";
+  const deliveryStatus = message.delivery_status;
+
+  // feat-445-M1: fork is offered only on a *completed agent reply* in a *direct chat*
+  // that carries a kernel message id (the fork anchor — legacy bubbles have none). When
+  // the agent is offline the button still renders but disabled, with an explanatory tip.
+  const forkEligible =
+    isAgent &&
+    deliveryStatus === "completed" &&
+    isDirectChat &&
+    Boolean(message.kernel_message_id);
+  const forkClass = forkEligible ? (agentOnline ? " is-forkable" : " is-offline") : "";
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const [copyError, setCopyError] = useState<string | null>(null);
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const longPressRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const ignoreNextCardMouseDownRef = useRef(false);
+
+  function clearLongPress() {
+    if (longPressRef.current !== null) {
+      window.clearTimeout(longPressRef.current);
+      longPressRef.current = null;
+    }
+  }
+
+  function openMenu(x: number, y: number) {
+    const menuWidth = 148;
+    const menuHeight = isMobile && forkEligible ? 92 : 52;
+    setCopyError(null);
+    setMenu({
+      x: Math.min(Math.max(8, x), Math.max(8, window.innerWidth - menuWidth)),
+      y: Math.min(Math.max(8, y), Math.max(8, window.innerHeight - menuHeight)),
+    });
+  }
+
+  function handleContextMenu(e: React.MouseEvent) {
+    e.preventDefault();
+    if (isMobile) return;
+    openMenu(e.clientX, e.clientY);
+  }
+
+  function handleTouchStart(e: React.TouchEvent) {
+    if (!isMobile || e.touches.length === 0) return;
+    const touch = e.touches[0]!;
+    touchStartRef.current = { x: touch.clientX, y: touch.clientY };
+    clearLongPress();
+    longPressRef.current = window.setTimeout(() => {
+      openMenu(touch.clientX, touch.clientY);
+      ignoreNextCardMouseDownRef.current = true;
+      longPressRef.current = null;
+    }, 600);
+  }
+
+  function handleTouchMove(e: React.TouchEvent) {
+    const start = touchStartRef.current;
+    if (!start || e.touches.length === 0) return;
+    const touch = e.touches[0]!;
+    if (Math.abs(touch.clientX - start.x) > 10 || Math.abs(touch.clientY - start.y) > 10) {
+      clearLongPress();
+    }
+  }
+
+  function handleTouchEnd(e: React.TouchEvent) {
+    if (menu) e.preventDefault();
+    clearLongPress();
+    touchStartRef.current = null;
+  }
+
+  function handleTouchCancel() {
+    clearLongPress();
+    touchStartRef.current = null;
+  }
+
+  async function handleCopy() {
+    setCopyError(null);
+    const writeText = navigator.clipboard?.writeText;
+    if (!writeText) {
+      setCopyError(t("chat.messagePane.copyError"));
+      return;
+    }
+    try {
+      await writeText.call(navigator.clipboard, message.content ?? "");
+      setMenu(null);
+    } catch {
+      setCopyError(t("chat.messagePane.copyError"));
+    }
+  }
+
+  function handleMenuFork() {
+    if (agentOnline && !forkPending) onFork?.(message.id);
+    setMenu(null);
+  }
+
+  useEffect(() => clearLongPress, []);
+
+  useEffect(() => {
+    if (!menu) return;
+    function onDocumentMouseDown(e: MouseEvent) {
+      const target = e.target as Node;
+      if (menuRef.current?.contains(target)) return;
+      if (ignoreNextCardMouseDownRef.current && cardRef.current?.contains(target)) {
+        ignoreNextCardMouseDownRef.current = false;
+        return;
+      }
+      ignoreNextCardMouseDownRef.current = false;
+      setMenu(null);
+    }
+    function onDocumentKeyDown(e: globalThis.KeyboardEvent) {
+      if (e.key === "Escape") setMenu(null);
+    }
+    document.addEventListener("mousedown", onDocumentMouseDown);
+    document.addEventListener("keydown", onDocumentKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onDocumentMouseDown);
+      document.removeEventListener("keydown", onDocumentKeyDown);
+    };
+  }, [menu]);
+
+  // feat-414 决策 2: running 时前端本地 tick（锚 message.created_at），
+  // completed 后用后端权威 elapsed_ms 定格，不再 tick。
+  const [tickMs, setTickMs] = useState<number>(() => {
+    if (deliveryStatus !== "running") return 0;
+    return Math.max(0, Date.now() - new Date(message.created_at).getTime());
+  });
+  useEffect(() => {
+    if (deliveryStatus !== "running") return;
+    const origin = new Date(message.created_at).getTime();
+    const id = setInterval(() => setTickMs(Date.now() - origin), 1000);
+    return () => clearInterval(id);
+  }, [deliveryStatus, message.created_at]);
+
+  // completed 用权威后端值；running 用前端本地 tick；其余（user/failed）不展示。
+  const elapsedDisplay: string | null = isAgent
+    ? deliveryStatus === "completed" && message.elapsed_ms != null
+      ? formatDuration(message.elapsed_ms)
+      : deliveryStatus === "running"
+        ? formatDuration(tickMs)
+        : null
+    : null;
+
+  if (isSystem) {
+    return (
+      <div className="chat-bubble-system">
+        {message.content}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      data-message-id={message.id}
+      className={`chat-bubble chat-bubble--${isUser ? "user" : "agent"}${forkClass} flex ${rowFlex} gap-2 items-end`}
+    >
+      {!isUser && (
+        <span
+          data-testid={`message-avatar-${message.id}`}
+          className="inline-flex shrink-0 items-center justify-center w-[30px] h-[30px] rounded-full text-white text-[12px] font-semibold"
+          style={{ backgroundColor: senderColor }}
+          aria-hidden
+        >
+          {initials}
+        </span>
+      )}
+      <div className="flex flex-col min-w-0">
+        {!isUser && (
+          <div className="chat-bubble-meta">
+            <span className="chat-bubble-sender" style={{ color: senderColor }}>
+              {message.sender.display_name ?? message.sender.id}
+            </span>
+          </div>
+        )}
+        <div
+          ref={cardRef}
+          data-testid={`message-bubble-${message.id}`}
+          className="chat-bubble-card"
+          onContextMenu={handleContextMenu}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          onTouchCancel={handleTouchCancel}
+        >
+          {message.content && (
+            isUser
+              ? <div className="chat-bubble-content">{renderInlineContent(message.content, participants)}</div>
+              : <MarkdownContent content={message.content} participants={participants} />
+          )}
+          {message.attachments && message.attachments.length > 0 && (
+            <div className="chat-bubble-attachments">
+              {message.attachments.map((att) => (
+                <AttachmentChip key={att.url} attachment={att} />
+              ))}
+            </div>
+          )}
+          {/* feat-439-M2: 过程盘在有工具调用 OR 有思考段时渲染（无思考不留空壳）。 */}
+          {isAgent &&
+            ((message.tool_calls && message.tool_calls.length > 0) ||
+              (message.thinking && message.thinking.length > 0)) && (
+              <ToolCallsPanel
+                toolCalls={message.tool_calls ?? []}
+                thinking={message.thinking}
+              />
+            )}
+          {isAgent && deliveryStatus === "completed" && message.token_usage && (
+            <TokenChip usage={message.token_usage} dataTestId={`message-token-chip-${message.id}`} />
+          )}
+          {/* feat-434 决策 1/3: 待决审批卡收进气泡内最下方（不再飘在气泡外的墙）。只渲染
+              pending —— 已决审批已并入工具行的闸门区，独立已决卡取消（决策 3）。同一 message
+              多次 ask 时，已决的并入工具面板，pending 的在此醒目可操作。 */}
+          {isAgent && (message.permission_requests ?? [])
+            .filter((req) => req.status !== "resolved")
+            .map((req) => (
+              <PermissionCard
+                key={req.request_id}
+                request={req}
+                conversationId={message.conversation_id}
+                messageId={message.id}
+                onResolved={() => {/* WS event will update the message status */}}
+              />
+            ))}
+          {/* feat-445-M1: fork from this completed agent reply. Child of the bubble
+              card (zero hover gap), revealed on hover via CSS .is-forkable/.is-offline. */}
+          {forkEligible && !isMobile && (
+            <>
+              <button
+                type="button"
+                data-testid={`message-fork-${message.id}`}
+                className="chat-bubble-fork"
+                disabled={!agentOnline || forkPending}
+                onClick={() => {
+                  // #7: ignore clicks while a fork is in flight (button is also disabled).
+                  if (agentOnline && !forkPending) onFork?.(message.id);
+                }}
+                aria-label={t("chat.messagePane.fork")}
+              >
+                ⑂ {t("chat.messagePane.fork")}
+              </button>
+              {!agentOnline && (
+                <div className="fork-tip">{t("chat.messagePane.forkOffline")}</div>
+              )}
+            </>
+          )}
+          {menu && (
+            <div
+              ref={menuRef}
+              role="menu"
+              className="chat-message-menu"
+              style={{ left: menu.x, top: menu.y }}
+            >
+              <button type="button" role="menuitem" className="chat-message-menu-item" onClick={handleCopy}>
+                {t("chat.messagePane.copy")}
+              </button>
+              {isMobile && forkEligible && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="chat-message-menu-item"
+                  disabled={!agentOnline || forkPending}
+                  onClick={handleMenuFork}
+                >
+                  {t("chat.messagePane.fork")}
+                </button>
+              )}
+              {copyError && (
+                <div className="chat-message-menu-error" role="status">
+                  {copyError}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+        <div className={`chat-bubble-status mt-[2px] flex items-center gap-2 text-[11px] text-[oklch(0.55 0.01 240)] ${statusAlign}`}>
+          <span data-testid={`message-timestamp-${message.id}`}>{ts}</span>
+          {deliveryStatus === "running" && (
+            // feat-414: oklch 任意值含空格，Tailwind 会拆词导致类名失效；改用内联 style 确保颜色可靠渲染
+            <span className="flex items-center gap-1" style={{ color: "oklch(0.65 0.15 60)" }}>
+              <span
+                className="inline-block w-[6px] h-[6px] rounded-full animate-pulse"
+                style={{ backgroundColor: "oklch(0.70 0.18 60)" }}
+              />
+              {/* feat-414: running 态实时走 tick；有值时加 ⏱ 与 prototype.html 对齐，无值时回退文案 */}
+              {elapsedDisplay != null ? `⏱ ${elapsedDisplay}` : t("chat.messagePane.running")}
+            </span>
+          )}
+          {/* feat-414: completed agent 消息在时间戳右侧显示本轮墙钟，中性灰 */}
+          {deliveryStatus === "completed" && elapsedDisplay && (
+            <span
+              data-testid={`message-elapsed-${message.id}`}
+              className="text-[oklch(0.55 0.01 240)]"
+            >
+              ⏱ {elapsedDisplay}
+            </span>
+          )}
+          {deliveryStatus === "failed" && (
+            <span className="text-[oklch(0.55 0.15 25)]">{t("chat.messagePane.failed")}</span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// CR-3: remarkPlugins 和无闭包依赖的 table/th/td components 提到模块级常量，
+// 避免每次 render 重建引用导致 react-markdown 重建 unified pipeline。
+
+// CR-2: node prop 不透传 DOM（react-markdown v10 ExtraProps 传 node，不是合法 DOM attr）。
+// CR-6: hast-util-to-jsx-runtime 已将 hast align → style.textAlign，直接透传 props
+// 即可保留对齐（无需在 components 中二次转换 align 属性）。
+const MD_REMARK_PLUGINS = [remarkGfm, remarkMention];
+const MD_TABLE_COMPONENTS: Pick<Components, "table" | "th" | "td"> = {
+  table: ({ node: _node, ...props }) => (
+    <table {...props} className="im-md-table" />
+  ),
+  th: ({ node: _node, ...props }) => <th {...props} />,
+  td: ({ node: _node, ...props }) => <td {...props} />,
+};
+
+/**
+ * MarkdownContent — 渲染 agent/对方气泡的块级 Markdown 内容。
+ *
+ * bugfix-413: 改用 react-markdown + remark-gfm 取代手写渲染器，彻底支持
+ * CommonMark/GFM（标题/分隔线/引用块/嵌套列表/链接/表格/代码块）。
+ * @mention 经 remarkMention 插件在 mdast 层切出，注入带 data-* 属性的 <span>，
+ * 再由 components.span 映射渲染成 .chat-mention-chip。
+ *
+ * 对外 props 签名不变，调用点（message-pane.tsx:401）零改动。
+ * raw HTML 安全：不引 rehype-raw，agent 输出的 <script> 等一律转义为字面量。
+ */
+function MarkdownContent({
+  content,
+  participants,
+}: {
+  content: string;
+  participants?: Actor[];
+}) {
+  // CR-3: participantMap 和 components 用 useMemo，仅 participants 变化时重建，
+  // 保证 react-markdown 的 components 引用稳定，不触发不必要的 pipeline 重建。
+  const participantMap = useMemo(() => {
+    const map = new Map<string, string>();
+    if (participants) {
+      for (const p of participants) {
+        map.set(p.id, p.display_name ?? p.id);
+      }
+    }
+    return map;
+  }, [participants]);
+
+  const components: Components = useMemo(() => ({
+    ...MD_TABLE_COMPONENTS,
+    // CR-2: node prop 不透传 DOM。
+    // remarkMention sets data-mention-target-id on the injected <span>.
+    span: ({ node: _node, children, ...props }) => {
+      const targetId = (props as Record<string, unknown>)["data-mention-target-id"] as string | undefined;
+
+      if (!targetId) {
+        // Plain span — pass through untouched.
+        return <span {...props}>{children}</span>;
+      }
+
+      const displayName = participantMap.get(targetId);
+      if (displayName) {
+        return (
+          <span className="chat-mention-chip" data-target-id={targetId}>
+            @{displayName}
+          </span>
+        );
+      }
+      // Unknown target_id: same fallback as the prior renderInlineContent path.
+      return (
+        <span className="chat-mention-chip chat-mention-chip--unknown">
+          @unknown
+        </span>
+      );
+    },
+  }), [participantMap]);
+
+  return (
+    <div className="im-md">
+      <ReactMarkdown
+        remarkPlugins={MD_REMARK_PLUGINS}
+        components={components}
+      >
+        {content}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
+/**
+ * Render a text segment that may contain inline mention tags and markdown emphasis.
+ * bugfix-358: <mention type="agent"|"user" target_id="X"/> tags are rendered as
+ * chip elements showing the current display_name from the participants dictionary.
+ */
+function renderInlineContent(
+  text: string,
+  participants?: Actor[],
+): React.ReactNode {
+  // Build a lookup map from wire ID to display_name for mention chip resolution.
+  const participantMap = new Map<string, string>();
+  if (participants) {
+    for (const p of participants) {
+      const displayName = p.display_name ?? p.id;
+      participantMap.set(p.id, displayName);
+    }
+  }
+
+  const segments = parseMentions(text);
+  // Fast path: no mention segments — fall back to markdown-only rendering.
+  if (segments.every((s) => s.kind === "text")) {
+    return renderInlineMarkdown(text);
+  }
+
+  return segments.map((seg, idx) => {
+    if (seg.kind === "mention") {
+      const displayName = participantMap.get(seg.target_id);
+      if (displayName) {
+        return (
+          <span key={idx} className="chat-mention-chip" data-target-id={seg.target_id}>
+            @{displayName}
+          </span>
+        );
+      }
+      // Unknown target_id: silent degradation — no raw tag shown
+      return (
+        <span key={idx} className="chat-mention-chip chat-mention-chip--unknown">
+          @unknown
+        </span>
+      );
+    }
+    // Text segment: apply inline markdown within it
+    return <React.Fragment key={idx}>{renderInlineMarkdown(seg.text)}</React.Fragment>;
+  });
+}
+
+function renderInlineMarkdown(text: string) {
+  const parts = text.split(/(`[^`]+`|\*\*[^*]+\*\*)/g);
+  return parts.map((part, idx) => {
+    if (part.startsWith("`") && part.endsWith("`")) {
+      return <code key={idx}>{part.slice(1, -1)}</code>;
+    }
+    if (part.startsWith("**") && part.endsWith("**")) {
+      return <strong key={idx}>{part.slice(2, -2)}</strong>;
+    }
+    return <span key={idx}>{part}</span>;
+  });
+}
+
+function formatHM(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${hh}:${mm}`;
 }

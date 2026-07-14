@@ -667,9 +667,7 @@ def _build_handler_with_event_bridge(tmp_path: Path) -> tuple["GatewayHandler", 
     initialize_schema(connection)
     msg_repo = MessageRepository(connection)
     evt_repo = EventRepository(connection)
-    bridge = EventBridge(
-        message_repository=msg_repo, event_repository=evt_repo, notify=None
-    )
+    bridge = EventBridge(message_repository=msg_repo, event_repository=evt_repo)
     handler = GatewayHandler(
         relay_service=RelayService(connection),
         metrics_service=MetricsService(metrics=UsageMetricsRepository(connection)),
@@ -1501,7 +1499,7 @@ def test_handle_register_without_agent_workspaces_falls_back_to_managed_default(
 def _build_handler_with_event_bridge_and_notify(
     tmp_path: Path,
 ) -> tuple["GatewayHandler", object, list]:
-    """Build a GatewayHandler with EventBridge wired to a notify-collecting list.
+    """Build a GatewayHandler with repositories wired to a notify-collecting list.
 
     The notify list captures every ConversationEvent produced so tests can assert
     that message.created (not just message.sent/message.delivered) is emitted when
@@ -1518,7 +1516,6 @@ def _build_handler_with_event_bridge_and_notify(
     bridge = EventBridge(
         message_repository=msg_repo,
         event_repository=evt_repo,
-        notify=emitted.append,
     )
     handler = GatewayHandler(
         relay_service=RelayService(connection),

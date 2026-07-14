@@ -140,6 +140,28 @@ def test_user_resume_reports_gap_and_window_miss(tmp_path: Path) -> None:
     assert stale.reason == "cursor_stale_or_outside_replay_window"
 
 
+def test_user_resume_reports_cursor_ahead_of_current_event_store(
+    tmp_path: Path,
+) -> None:
+    """A browser cursor from an older DB epoch must receive an explicit reset reason."""
+    _connection, events, alice, _bob, visible, _hidden = _build_event_fixture(tmp_path)
+    latest = events.append_event(
+        conversation_id=visible.id,
+        message_id=None,
+        event_type="run.completed",
+        delivery_status="completed",
+        payload={},
+    )
+
+    ahead = events.list_events_for_user_resume(
+        user_id=alice.id,
+        after_event_id=latest.event_id + 100,
+    )
+
+    assert ahead.resync_required is True
+    assert ahead.reason == "cursor_ahead_of_event_store"
+
+
 def test_event_enrichment_queries_return_typed_identity_maps(tmp_path: Path) -> None:
     """Resolve relay history and agent labels without exposing SQL rows."""
     connection, events, _alice, _bob, visible, _hidden = _build_event_fixture(tmp_path)

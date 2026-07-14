@@ -95,8 +95,9 @@ def test_full_kernel_stream_persists_and_broadcasts(tmp_path: Path) -> None:
     initialize_schema(connection)
     users = UserRepository(connection)
     conversations = ConversationRepository(connection)
-    messages = MessageRepository(connection)
-    events_repo = EventRepository(connection)
+    captured: list[ConversationEvent] = []
+    messages = MessageRepository(connection, notify=captured.append)
+    events_repo = EventRepository(connection, notify=captured.append)
 
     alice = users.create_user(username="alice", display_name="Alice")
     agent_user = users.create_user(username="agent:planner", display_name="Planner")
@@ -106,11 +107,9 @@ def test_full_kernel_stream_persists_and_broadcasts(tmp_path: Path) -> None:
     connection.commit()
     conv = conversations.create_conversation(title="t", participant_ids=[alice.id])
 
-    captured: list[ConversationEvent] = []
     bridge = EventBridge(
         message_repository=messages,
         event_repository=events_repo,
-        notify=captured.append,
     )
 
     # 1. Agent turn starts — placeholder message created.
@@ -167,7 +166,16 @@ def test_full_kernel_stream_persists_and_broadcasts(tmp_path: Path) -> None:
     )
 
     # 4. WS broadcast events emitted in lifecycle order, ready for the browser to consume.
-    event_types_in_order = [e.event_type for e in captured]
+    bridge_event_types = {
+        EVENT_MESSAGE_CREATED,
+        EVENT_MESSAGE_DELTA,
+        EVENT_MESSAGE_COMPLETED,
+        EVENT_TOOL_CALL_UPSERTED,
+        EVENT_TOOL_CALL_COMPLETED,
+    }
+    event_types_in_order = [
+        event.event_type for event in captured if event.event_type in bridge_event_types
+    ]
     assert event_types_in_order[0] == EVENT_MESSAGE_CREATED
     assert event_types_in_order[-1] == EVENT_MESSAGE_COMPLETED
     assert EVENT_TOOL_CALL_UPSERTED in event_types_in_order

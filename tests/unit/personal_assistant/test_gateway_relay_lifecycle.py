@@ -410,6 +410,7 @@ def test_roll_bubble_updates_typed_context_runtime_state() -> None:
     )
     context_store.set_message_id("run-roll", "im-msg-a")
     context_store.set_kernel_message_id("run-roll", "kernel-msg-a")
+    context_store.get("run-roll").visible_reply_committed = True  # type: ignore[union-attr]
     manager = _AckingIMManager(message_id="im-msg-b")
 
     new_message_id = asyncio.run(
@@ -429,6 +430,7 @@ def test_roll_bubble_updates_typed_context_runtime_state() -> None:
     assert ctx is not None
     assert ctx.message_id == "im-msg-b"
     assert ctx.kernel_message_id == "kernel-msg-b"
+    assert ctx.visible_reply_committed is False
     assert ctx.rolling is False
 
 
@@ -971,6 +973,254 @@ def test_group_relay_context_enables_protocol_token_suppression() -> None:
 
     assert context is not None
     assert context.visibility_policy is ReplyVisibilityPolicy.SUPPRESS_PROTOCOL_TOKENS
+
+
+def test_direct_web_relay_no_reply_discards_provisional_im_message() -> None:
+    """A direct Web IM silence token must roll back its eager IM placeholder."""
+
+    class _Manager:
+        connected = True
+
+        def __init__(self) -> None:
+            self.sent_frames: list[tuple[str, dict[str, object]]] = []
+
+        async def send_json_await_ack(
+            self, message_type: str, payload: dict[str, object]
+        ) -> dict[str, object]:
+            self.sent_frames.append((message_type, payload))
+            return {"payload": {"message_id": "im-msg-direct"}}
+
+        async def send_json(
+            self, message_type: str, payload: dict[str, object]
+        ) -> None:
+            self.sent_frames.append((message_type, payload))
+
+    store = RunDeliveryContextStore()
+    context = store.seed_from_lifecycle(
+        message=InboundMessage(
+            channel_name="web_relay",
+            text="stay quiet",
+            external_user_id="user-1",
+            external_chat_id="direct-conv",
+            is_group=False,
+            agent_id="agent-a",
+            metadata={"relay_task_id": "relay-1", "message_id": "user-msg-1"},
+        ),
+        update=RelayLifecycleUpdate(
+            phase="accepted",
+            agent_id="agent-a",
+            session_key="web:user-1:direct-conv:agent-a",
+            run_id="run-direct",
+            kernel_session_id="sess-1",
+        ),
+        owner_user_id="owner-1",
+    )
+    assert context is not None
+
+    manager = _Manager()
+    observer = _build_kernel_event_observer(
+        im_connection_manager_factory=lambda: manager,
+        run_context_store=store,
+    )
+
+    async def _exercise() -> None:
+        started = observer(
+            {"event": "run_status", "run_id": "run-direct", "status": "running"}
+        )
+        assert asyncio.iscoroutine(started)
+        await started
+        observer(
+            {
+                "event": "assistant_message",
+                "run_id": "run-direct",
+                "message_id": "kernel-msg-direct",
+                "content": "NO_REPLY",
+            }
+        )
+        ended = observer(
+            {"event": "turn_end", "run_id": "run-direct", "completed": True}
+        )
+        if asyncio.iscoroutine(ended):
+            await ended
+        await asyncio.sleep(0)
+
+    asyncio.run(_exercise())
+
+    assert context.visibility_policy is ReplyVisibilityPolicy.SUPPRESS_PROTOCOL_TOKENS
+    assert [payload["kind"] for _, payload in manager.sent_frames] == [
+        "turn_start",
+        "message_discarded",
+    ]
+    assert manager.sent_frames[-1][1]["reason"] == "no_reply_token"
+
+
+def test_direct_web_empty_completion_after_process_discards_provisional_message() -> (
+    None
+):
+    """A successful Web run with process-only output must remove its whole bubble."""
+    store = RunDeliveryContextStore()
+    context = store.seed_from_lifecycle(
+        message=InboundMessage(
+            channel_name="web_relay",
+            text="run a tool, then stay silent",
+            external_user_id="user-1",
+            external_chat_id="direct-conv",
+            is_group=False,
+            agent_id="agent-a",
+            metadata={"relay_task_id": "relay-1", "message_id": "user-msg-1"},
+        ),
+        update=RelayLifecycleUpdate(
+            phase="accepted",
+            agent_id="agent-a",
+            session_key="web:user-1:direct-conv:agent-a",
+            run_id="run-direct-empty",
+            kernel_session_id="sess-1",
+        ),
+        owner_user_id="owner-1",
+    )
+    assert context is not None
+
+    manager = _AckingIMManager(message_id="im-msg-direct-empty")
+    observer = _build_kernel_event_observer(
+        im_connection_manager_factory=lambda: manager,
+        run_context_store=store,
+    )
+
+    async def _exercise() -> None:
+        started = observer(
+            {"event": "run_status", "run_id": "run-direct-empty", "status": "running"}
+        )
+        assert asyncio.iscoroutine(started)
+        await started
+        observer(
+            {
+                "event": "tool_start",
+                "run_id": "run-direct-empty",
+                "call_id": "tool-1",
+                "name": "bash",
+                "arguments": {"command": "printf OK"},
+            }
+        )
+        observer(
+            {
+                "event": "tool_end",
+                "run_id": "run-direct-empty",
+                "call_id": "tool-1",
+                "name": "bash",
+                "status": "completed",
+                "result": "OK",
+            }
+        )
+        observer(
+            {
+                "event": "assistant_message",
+                "run_id": "run-direct-empty",
+                "message_id": "kernel-msg-direct-empty",
+                "content": "",
+                "reasoning_content": "The requested tool completed; remain silent.",
+                "group_id": "kernel-msg-direct-empty",
+            }
+        )
+        await asyncio.sleep(0)
+        ended = observer(
+            {"event": "turn_end", "run_id": "run-direct-empty", "completed": True}
+        )
+        if asyncio.iscoroutine(ended):
+            await ended
+        await asyncio.sleep(0)
+
+    asyncio.run(_exercise())
+
+    assert context.discard_empty_completion is True
+    kinds = [payload["kind"] for _, payload in manager.sent_frames]
+    assert kinds[-1] == "message_discarded"
+    assert "message_completed" not in kinds
+    assert manager.sent_frames[-1][1]["reason"] == "empty_visible_reply"
+
+
+def test_non_web_shadow_context_keeps_literal_reply_visibility() -> None:
+    """The direct Web fix must not broaden to arbitrary shadow transports."""
+    store = RunDeliveryContextStore()
+    context = store.seed_from_lifecycle(
+        message=InboundMessage(
+            channel_name="custom_relay",
+            text="literal protocol text",
+            external_user_id="user-1",
+            external_chat_id="custom-conv",
+            is_group=False,
+            agent_id="agent-a",
+            metadata={"relay_task_id": "relay-1", "message_id": "msg-1"},
+        ),
+        update=RelayLifecycleUpdate(
+            phase="accepted",
+            agent_id="agent-a",
+            session_key="custom:user-1:agent-a",
+            run_id="run-custom",
+            kernel_session_id="sess-1",
+        ),
+        owner_user_id="owner-1",
+    )
+
+    assert context is not None
+    assert context.visibility_policy is ReplyVisibilityPolicy.LITERAL_TEXT
+    assert context.discard_empty_completion is False
+
+
+def test_non_web_empty_completion_keeps_existing_completed_message_semantics() -> None:
+    """An empty external completion is not reclassified as direct-Web silence."""
+    store = RunDeliveryContextStore()
+    context = store.seed_from_lifecycle(
+        message=InboundMessage(
+            channel_name="custom_relay",
+            text="external request",
+            external_user_id="user-1",
+            external_chat_id="custom-conv",
+            is_group=False,
+            agent_id="agent-a",
+            metadata={"relay_task_id": "relay-1", "message_id": "msg-1"},
+        ),
+        update=RelayLifecycleUpdate(
+            phase="accepted",
+            agent_id="agent-a",
+            session_key="custom:user-1:agent-a",
+            run_id="run-custom-empty",
+            kernel_session_id="sess-1",
+        ),
+        owner_user_id="owner-1",
+    )
+    assert context is not None
+
+    manager = _AckingIMManager(message_id="im-msg-custom-empty")
+    observer = _build_kernel_event_observer(
+        im_connection_manager_factory=lambda: manager,
+        run_context_store=store,
+    )
+
+    async def _exercise() -> None:
+        started = observer(
+            {"event": "run_status", "run_id": "run-custom-empty", "status": "running"}
+        )
+        assert asyncio.iscoroutine(started)
+        await started
+        observer(
+            {
+                "event": "assistant_message",
+                "run_id": "run-custom-empty",
+                "message_id": "kernel-msg-custom-empty",
+                "content": "",
+                "reasoning_content": "External process detail.",
+                "group_id": "kernel-msg-custom-empty",
+            }
+        )
+        await asyncio.sleep(0)
+        observer({"event": "turn_end", "run_id": "run-custom-empty", "completed": True})
+        await asyncio.sleep(0)
+
+    asyncio.run(_exercise())
+
+    kinds = [payload["kind"] for _, payload in manager.sent_frames]
+    assert kinds[-1] == "message_completed"
+    assert "message_discarded" not in kinds
 
 
 def test_later_no_reply_preserves_preceding_real_bubble() -> None:

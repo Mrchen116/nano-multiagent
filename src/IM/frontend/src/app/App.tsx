@@ -6,11 +6,11 @@ import { AgentCompletionNotifier } from "../features/notifications/agent-complet
 import { AppShell } from "./shell/app-shell";
 
 export function App() {
-  const { toast, dismiss } = useGlobalMessageToast();
+  const { toast, dismiss, agentCompletionCandidate } = useGlobalMessageToast();
 
   return (
     <AppShell>
-      <AgentCompletionNotifier />
+      <AgentCompletionNotifier candidate={agentCompletionCandidate} />
       {toast && (
         <InAppToast
           key={toast.id}

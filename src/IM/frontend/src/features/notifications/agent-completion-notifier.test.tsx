@@ -1,139 +1,25 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { WsEvent } from "../chat/v2/chat-types";
-import {
-  type NotifierState,
-  emptyNotifierState,
-  reduceNotifierEvent,
-  buildNotificationSpec
-} from "./agent-completion-notifier";
+import type { AgentCompletionCandidate } from "./agent-completion-accumulator";
 
-const createdAgent: WsEvent = {
-  type: "message.created",
-  conversation_id: "conv-1",
-  message_id: "msg-1",
-  sender_user_id: "agent:asst-1",
-  sender_type: "agent",
-  content: "",
-  tool_calls: [],
-  token_usage: null,
-  delivery_status: "running",
-  created_at: "2026-05-11T00:00:00Z"
+const completedAgent: AgentCompletionCandidate = {
+  conversationId: "conv-1",
+  messageId: "msg-1",
+  messageKey: "message:msg-1",
+  senderUserId: "agent:asst-1",
+  senderName: "agent:asst-1",
+  preview: "All tests passed."
 };
 
-const createdUser: WsEvent = {
-  ...createdAgent,
-  message_id: "msg-user-1",
-  sender_user_id: "user:alice",
-  sender_type: "user"
-};
-
-const completedAgent: WsEvent = {
-  type: "message.completed",
-  conversation_id: "conv-1",
-  message_id: "msg-1",
-  content: "All tests passed.",
-  token_usage: null
-};
-
-const discardedAgent: WsEvent = {
-  type: "message.discarded",
-  conversation_id: "conv-1",
-  message_id: "msg-1",
-  reason: "no_reply_token"
-};
-
-describe("reduceNotifierEvent", () => {
-  it("tracks agent message.created", () => {
-    const next = reduceNotifierEvent(emptyNotifierState, createdAgent);
-    expect(next.agentMessages["msg-1"]).toEqual({
-      conversation_id: "conv-1",
-      sender_user_id: "agent:asst-1"
-    });
-  });
-
-  it("ignores user message.created", () => {
-    const next = reduceNotifierEvent(emptyNotifierState, createdUser);
-    expect(next).toBe(emptyNotifierState);
-  });
-
-  it("clears tracked entry on message.completed", () => {
-    const seeded = reduceNotifierEvent(emptyNotifierState, createdAgent);
-    const next = reduceNotifierEvent(seeded, completedAgent);
-    expect(next.agentMessages["msg-1"]).toBeUndefined();
-  });
-
-  it("clears tracked entry without notifying on message.discarded", () => {
-    const seeded = reduceNotifierEvent(emptyNotifierState, createdAgent);
-    const next = reduceNotifierEvent(seeded, discardedAgent);
-    expect(next.agentMessages["msg-1"]).toBeUndefined();
-  });
-});
-
-describe("buildNotificationSpec", () => {
-  const baseCtx = {
-    hidden: true,
-    enabled: true,
-    permissionGranted: true,
-    resolveAgentName: (sender: string) => (sender === "agent:asst-1" ? "Assistant" : sender),
-    resolveConversationTitle: (cid: string) => (cid === "conv-1" ? "Assistant chat" : cid)
-  };
-
-  it("returns spec when agent reply completes and all gates pass", () => {
-    const seeded = reduceNotifierEvent(emptyNotifierState, createdAgent);
-    const spec = buildNotificationSpec(seeded, completedAgent, baseCtx);
-    expect(spec).toEqual({
-      title: "Assistant",
-      body: "All tests passed.",
-      conversationId: "conv-1",
-      tag: "im-conv-conv-1"
-    });
-  });
-
-  it("truncates long body to a single-line preview", () => {
-    const seeded = reduceNotifierEvent(emptyNotifierState, createdAgent);
-    const long = { ...completedAgent, content: "x".repeat(300) };
-    const spec = buildNotificationSpec(seeded, long, baseCtx);
-    expect(spec).not.toBeNull();
-    expect(spec!.body.length).toBeLessThanOrEqual(140);
-  });
-
-  it("returns null when tab is in foreground", () => {
-    const seeded = reduceNotifierEvent(emptyNotifierState, createdAgent);
-    expect(buildNotificationSpec(seeded, completedAgent, { ...baseCtx, hidden: false })).toBeNull();
-  });
-
-  it("returns null when preference is disabled", () => {
-    const seeded = reduceNotifierEvent(emptyNotifierState, createdAgent);
-    expect(buildNotificationSpec(seeded, completedAgent, { ...baseCtx, enabled: false })).toBeNull();
-  });
-
-  it("returns null when permission is not granted", () => {
-    const seeded = reduceNotifierEvent(emptyNotifierState, createdAgent);
-    expect(buildNotificationSpec(seeded, completedAgent, { ...baseCtx, permissionGranted: false })).toBeNull();
-  });
-
-  it("returns null when message is not a tracked agent message", () => {
-    const spec = buildNotificationSpec(emptyNotifierState, completedAgent, baseCtx);
-    expect(spec).toBeNull();
-  });
-
-  it("ignores non-completed events", () => {
-    const seeded = reduceNotifierEvent(emptyNotifierState, createdAgent);
-    const delta: WsEvent = { type: "message.delta", conversation_id: "conv-1", message_id: "msg-1", delta_text: "hi" };
-    expect(buildNotificationSpec(seeded, delta, baseCtx)).toBeNull();
-  });
-});
-
-// ── Integration: real reducer + real preference + fake Notification ──
+// ── Integration: coordinator candidate + real preference + fake Notification ──
 import { render, act } from "@testing-library/react";
 import { MemoryRouter, Routes, Route, useLocation } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect } from "react";
 
-import * as streamModule from "../chat/v2/chat-stream";
 import { setNotificationPreference, NOTIFICATION_PREFERENCE_STORAGE_KEY } from "./notification-preference";
 import { AgentCompletionNotifier } from "./agent-completion-notifier";
+import { useAuthStore } from "../auth/auth-store";
 
 let installedNotificationCalls: { title: string; options?: NotificationOptions; instance: { onclick: ((this: unknown) => void) | null; close: () => void } }[] = [];
 
@@ -158,8 +44,6 @@ function setHidden(hidden: boolean) {
   document.dispatchEvent(new Event("visibilitychange"));
 }
 
-let capturedOnEvent: ((ev: WsEvent) => void) | null = null;
-
 function LocationCapture({ onChange }: { onChange: (path: string) => void }) {
   const loc = useLocation();
   useEffect(() => {
@@ -170,7 +54,7 @@ function LocationCapture({ onChange }: { onChange: (path: string) => void }) {
 
 function renderHarness() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  client.setQueryData(["chat-v2", "conversations"], [
+  client.setQueryData(["chat", "conversations"], [
     {
       id: "conv-1",
       title: "Assistant chat",
@@ -184,27 +68,38 @@ function renderHarness() {
   const onPath = (p: string) => {
     lastPath = p;
   };
-  const utils = render(
+  const view = (candidate: AgentCompletionCandidate | null) => (
     <MemoryRouter initialEntries={["/me"]}>
       <QueryClientProvider client={client}>
         <Routes>
           <Route path="*" element={<>
-            <AgentCompletionNotifier />
+            <AgentCompletionNotifier candidate={candidate} />
             <LocationCapture onChange={onPath} />
           </>} />
         </Routes>
       </QueryClientProvider>
     </MemoryRouter>
   );
-  return { ...utils, getPath: () => lastPath };
+  const utils = render(view(null));
+  return {
+    ...utils,
+    getPath: () => lastPath,
+    pushCandidate(candidate: AgentCompletionCandidate | null) {
+      utils.rerender(view(candidate));
+    }
+  };
 }
 
 beforeEach(() => {
   localStorage.clear();
-  capturedOnEvent = null;
-  vi.spyOn(streamModule, "openChatStream").mockImplementation((opts) => {
-    capturedOnEvent = opts.onEvent;
-    return { close: () => {} };
+  sessionStorage.clear();
+  useAuthStore.getState().setSession({
+    access_token: "token-a",
+    refresh_token: "refresh-a",
+    user: {
+      id: "user-a", username: "alice", display_name: "Alice", owner_id: "user-a", locale: "en",
+      default_entry_node_id: null, owned_node_ids: [], created_at: ""
+    }
   });
 });
 
@@ -213,17 +108,17 @@ afterEach(() => {
   delete (globalThis as unknown as { Notification?: unknown }).Notification;
   setHidden(false);
   localStorage.removeItem(NOTIFICATION_PREFERENCE_STORAGE_KEY);
+  sessionStorage.clear();
 });
 
 describe("AgentCompletionNotifier integration", () => {
   it("fires Notification when preference on + hidden + permission granted + agent completes", async () => {
     installFakeNotification("granted");
     setNotificationPreference(true);
-    const { getPath } = renderHarness();
+    const { getPath, pushCandidate } = renderHarness();
     setHidden(true);
     act(() => {
-      capturedOnEvent!(createdAgent);
-      capturedOnEvent!(completedAgent);
+      pushCandidate(completedAgent);
     });
     expect(installedNotificationCalls.length).toBe(1);
     expect(installedNotificationCalls[0].title).toBe("Assistant");
@@ -241,11 +136,10 @@ describe("AgentCompletionNotifier integration", () => {
   it("does not fire when preference is disabled (toggle off)", () => {
     installFakeNotification("granted");
     setNotificationPreference(false);
-    renderHarness();
+    const { pushCandidate } = renderHarness();
     setHidden(true);
     act(() => {
-      capturedOnEvent!(createdAgent);
-      capturedOnEvent!(completedAgent);
+      pushCandidate(completedAgent);
     });
     expect(installedNotificationCalls.length).toBe(0);
   });
@@ -253,24 +147,44 @@ describe("AgentCompletionNotifier integration", () => {
   it("does not fire when document is visible (tab active)", () => {
     installFakeNotification("granted");
     setNotificationPreference(true);
-    renderHarness();
+    const { pushCandidate } = renderHarness();
     setHidden(false);
     act(() => {
-      capturedOnEvent!(createdAgent);
-      capturedOnEvent!(completedAgent);
+      pushCandidate(completedAgent);
     });
     expect(installedNotificationCalls.length).toBe(0);
   });
 
-  it("does not fire for user messages echo", () => {
-    installFakeNotification("granted");
+  it("does not fire when browser permission is denied", () => {
+    installFakeNotification("denied");
     setNotificationPreference(true);
-    renderHarness();
+    const { pushCandidate } = renderHarness();
     setHidden(true);
     act(() => {
-      capturedOnEvent!(createdUser);
-      capturedOnEvent!({ ...completedAgent, message_id: "msg-user-1" });
+      pushCandidate(completedAgent);
+    });
+    expect(installedNotificationCalls).toHaveLength(0);
+  });
+
+  it("does not fire without a coordinator candidate", () => {
+    installFakeNotification("granted");
+    setNotificationPreference(true);
+    const { pushCandidate } = renderHarness();
+    setHidden(true);
+    act(() => {
+      pushCandidate(null);
     });
     expect(installedNotificationCalls.length).toBe(0);
+  });
+
+  it("does not repeat the same candidate on rerender", () => {
+    installFakeNotification("granted");
+    setNotificationPreference(true);
+    const { pushCandidate } = renderHarness();
+    setHidden(true);
+    act(() => pushCandidate(completedAgent));
+    act(() => pushCandidate({ ...completedAgent }));
+
+    expect(installedNotificationCalls).toHaveLength(1);
   });
 });

@@ -2,10 +2,23 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "react-router-dom";
 
-import { attachUserConversationStream, getChatBootstrapState, listConversations } from "../chat-api";
-import { ParsedImStreamEvent, setConversationPreviewSnapshot } from "../im-chat-api";
-import { ConversationSummary } from "../types";
+import type { Conversation } from "../chat-types";
+import { listConversations } from "../chat-api";
 import { useAuthStore } from "../../auth/auth-store";
+import { subscribeUserStream, type UserStreamEvent } from "../../../realtime/user-stream";
+import {
+  type AgentCompletionCandidate,
+  type AgentCompletionState,
+  emptyAgentCompletionState,
+  hydrateAgentCompletionState,
+  persistAgentCompletionState,
+  reduceAgentCompletionEvent
+} from "../../notifications/agent-completion-accumulator";
+import {
+  clearLocalUnreadFeedback,
+  markLocalUnreadFeedback,
+  resetLocalUnreadFeedback
+} from "../../notifications/local-unread-feedback";
 
 /** 应用内 toast 通知的载荷。 */
 export interface ToastPayload {
@@ -25,6 +38,21 @@ interface NotificationCandidate {
 interface ConversationNotificationState {
   lastSeenEventId: number;
   notifiedMessageKeys: Set<string>;
+}
+
+interface PendingExternalClassification {
+  inFlight: boolean;
+  retry(): void;
+}
+
+function mergeAuthorityConversation(
+  previous: Conversation[] | undefined,
+  authoritative: Conversation[],
+  candidate: Conversation
+): Conversation[] {
+  if (!previous) return authoritative;
+  if (previous.some((conversation) => conversation.id === candidate.id)) return previous;
+  return [candidate, ...previous];
 }
 
 function normalizeText(value: unknown): string | null {
@@ -50,14 +78,10 @@ function truncatePreview(preview: string): string {
   return preview.slice(0, 80);
 }
 
-function extractPreview(eventType: string, payload: Record<string, unknown>): string | null {
+function extractPreview(payload: Record<string, unknown>): string | null {
   const content = normalizeText(payload.content);
   if (content) {
     return truncatePreview(content);
-  }
-  const detail = normalizeText(payload.detail);
-  if (eventType === "relay.completed" && detail && !detail.includes("suppressed_by=no_reply_token") && detail !== "NO_REPLY") {
-    return truncatePreview(detail);
   }
   const fileName = normalizeText(payload.file_name);
   if (fileName) {
@@ -82,23 +106,37 @@ function extractSenderName(payload: Record<string, unknown>): string {
 }
 
 function patchConversationPreview(
-  items: ConversationSummary[] | undefined,
+  items: Conversation[] | undefined,
   conversationId: string,
   preview: string,
-  createdAt?: string
+  createdAt?: string,
+  markUnread = false
 ) {
   if (!items) {
     return items;
   }
-  return items.map((item) =>
-    item.conversation_id === conversationId
-      ? {
-          ...item,
-          last_message_preview: preview,
-          last_message_at: createdAt ?? item.last_message_at
-        }
-      : item
-  );
+  const patched = items.map((item) => {
+    if (item.id !== conversationId) return item;
+    const currentTime = Date.parse(item.last_message_at ?? "");
+    const candidateTime = Date.parse(createdAt ?? "");
+    if (Number.isFinite(currentTime) && Number.isFinite(candidateTime) && currentTime > candidateTime) {
+      return markUnread
+        ? { ...item, unread_count: Math.max(1, item.unread_count) }
+        : item;
+    }
+    return {
+      ...item,
+      last_message_preview: preview,
+      last_message_at: createdAt ?? item.last_message_at,
+      unread_count: markUnread ? Math.max(1, item.unread_count) : item.unread_count
+    };
+  });
+  return patched.sort((left, right) => {
+    const leftTime = Date.parse(left.last_message_at ?? "");
+    const rightTime = Date.parse(right.last_message_at ?? "");
+    if (!Number.isFinite(leftTime) || !Number.isFinite(rightTime)) return 0;
+    return rightTime - leftTime;
+  });
 }
 
 function isViewingConversation(pathname: string, conversationId: string): boolean {
@@ -122,46 +160,23 @@ function isSelfAuthoredUserMessage(payload: Record<string, unknown>, selfUserId:
   return normalizeUserId(payload.sender_user_id) === selfUserId;
 }
 
-function toRelayMessageKey(payload: Record<string, unknown>): string | null {
-  const messageId = normalizeText(payload.message_id);
-  if (!messageId) {
-    return null;
-  }
-  const relayIdentity =
-    normalizeText(payload.relay_task_id) ??
-    normalizeText(payload.agent_id) ??
-    normalizeText(payload.run_id) ??
-    "agent";
-  return `relay:${messageId}:${relayIdentity}`;
-}
-
-export function buildNotificationCandidate(event: ParsedImStreamEvent): NotificationCandidate | null {
+export function buildNotificationCandidate(event: UserStreamEvent): NotificationCandidate | null {
   const payload = event.payload as Record<string, unknown>;
-  const preview = extractPreview(event.eventType, payload);
+  const preview = extractPreview(payload);
   if (!preview) {
     return null;
   }
 
-  if (event.eventType === "message.sent" || event.eventType === "message_created") {
+  if (
+    event.eventType === "message.sent"
+    || (event.eventType === "message.created" && payload.sender_type === "user")
+  ) {
     const messageId = normalizeText(payload.message_id);
     if (!messageId) {
       return null;
     }
     return {
       messageKey: `message:${messageId}`,
-      senderName: extractSenderName(payload),
-      preview,
-      createdAt: normalizeText(payload.created_at) ?? undefined
-    };
-  }
-
-  if (event.eventType === "relay.completed") {
-    const messageKey = toRelayMessageKey(payload);
-    if (!messageKey) {
-      return null;
-    }
-    return {
-      messageKey,
       senderName: extractSenderName(payload),
       preview,
       createdAt: normalizeText(payload.created_at) ?? undefined
@@ -176,99 +191,182 @@ export function buildNotificationCandidate(event: ParsedImStreamEvent): Notifica
  */
 export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
   const [toast, setToast] = useState<ToastPayload | null>(null);
+  const [agentCompletionCandidate, setAgentCompletionCandidate] = useState<AgentCompletionCandidate | null>(null);
   const queryClient = useQueryClient();
   const location = useLocation();
   const pathnameRef = useRef(location.pathname);
-  const selfUserIdRef = useRef<string | null>(null);
-  const accessToken = useAuthStore((s) => s.accessToken ?? "");
+  const selfUserId = useAuthStore((s) => s.user?.id ?? null);
+  const selfUserIdRef = useRef<string | null>(selfUserId);
   /** 按会话记录已处理 event_id，避免重复 toast。 */
   const conversationStateRef = useRef(new Map<string, ConversationNotificationState>());
+  const pendingExternalClassificationsRef = useRef(new Map<string, PendingExternalClassification>());
+  const latestExternalClassificationEventIdRef = useRef(new Map<string, number>());
+  const agentCompletionRef = useRef<AgentCompletionState>(emptyAgentCompletionState);
 
   useEffect(() => {
     pathnameRef.current = location.pathname;
+    const viewedConversationId = location.pathname.startsWith("/chat/")
+      ? location.pathname.slice("/chat/".length)
+      : null;
+    if (viewedConversationId) clearLocalUnreadFeedback(viewedConversationId);
   }, [location.pathname]);
 
   useEffect(() => {
-    let cancelled = false;
-    let detach: (() => void) | undefined;
+    selfUserIdRef.current = selfUserId;
+    conversationStateRef.current.clear();
+    pendingExternalClassificationsRef.current.clear();
+    latestExternalClassificationEventIdRef.current.clear();
+    agentCompletionRef.current = hydrateAgentCompletionState(selfUserId);
+    resetLocalUnreadFeedback();
+    setToast(null);
+    setAgentCompletionCandidate(null);
+  }, [selfUserId]);
 
-    void (async () => {
-      try {
-        const [bootstrap] = await Promise.all([getChatBootstrapState(), listConversations()]);
-        if (cancelled || !bootstrap.selfUserId) {
+  useEffect(() => {
+    return subscribeUserStream({
+      onRecovery: async () => {
+        await queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
+        for (const pending of pendingExternalClassificationsRef.current.values()) {
+          pending.retry();
+        }
+      },
+      onEvent: (event) => {
+        if (typeof event.eventId !== "number") return;
+        const payload = event.payload as Record<string, unknown>;
+        const conversationIdRaw = payload.conversation_id;
+        if (typeof conversationIdRaw !== "string" || !conversationIdRaw) return;
+        const conversationId = conversationIdRaw;
+        let state = conversationStateRef.current.get(conversationId);
+        if (!state) {
+          state = { lastSeenEventId: 0, notifiedMessageKeys: new Set<string>() };
+          conversationStateRef.current.set(conversationId, state);
+        }
+        if (event.eventId <= state.lastSeenEventId) return;
+        state.lastSeenEventId = event.eventId;
+
+        const previousCompletionState = agentCompletionRef.current;
+        const completion = reduceAgentCompletionEvent(previousCompletionState, event);
+        agentCompletionRef.current = completion.state;
+        if (completion.state !== previousCompletionState) {
+          persistAgentCompletionState(selfUserIdRef.current, completion.state);
+        }
+        if (completion.candidate) setAgentCompletionCandidate(completion.candidate);
+        let candidate = buildNotificationCandidate(event);
+        if (completion.candidate) {
+          candidate = {
+            messageKey: completion.candidate.messageKey,
+            senderName: completion.candidate.senderName,
+            preview: truncatePreview(completion.candidate.preview),
+            createdAt: completion.candidate.createdAt
+          };
+        }
+        const viewingConversation = isViewingConversation(pathnameRef.current, conversationId);
+        const conversations = queryClient.getQueryData<Conversation[]>(["chat", "conversations"]);
+        const cachedConversation = conversations?.find((conversation) => conversation.id === conversationId);
+        const authoredByAccountUser = isSelfAuthoredUserMessage(payload, selfUserIdRef.current);
+        const surfaceCandidate = (resolvedSelfAuthored: boolean): void => {
+          if (!candidate) return;
+          const shouldMarkUnread = !viewingConversation && !resolvedSelfAuthored;
+          if (shouldMarkUnread) markLocalUnreadFeedback(conversationId);
+          queryClient.setQueryData<Conversation[] | undefined>(["chat", "conversations"], (previous) =>
+            patchConversationPreview(previous, conversationId, candidate.preview, candidate.createdAt, shouldMarkUnread)
+          );
+          if (
+            viewingConversation
+            || resolvedSelfAuthored
+            || state.notifiedMessageKeys.has(candidate.messageKey)
+          ) return;
+          state.notifiedMessageKeys.add(candidate.messageKey);
+          setToast({
+            id: candidate.messageKey,
+            conversationId,
+            senderName: candidate.senderName,
+            preview: candidate.preview
+          });
+        };
+
+        const externalConversation = Boolean(cachedConversation?.external_source);
+        if (
+          externalConversation
+          && candidate
+          && event.eventType === "message.created"
+          && payload.sender_type === "user"
+        ) {
+          // Cached and unresolved external candidates share one per-conversation
+          // clock. A fast-path newer message must invalidate any older authority
+          // request that is still waiting to classify the same conversation.
+          latestExternalClassificationEventIdRef.current.set(conversationId, event.eventId);
+        }
+        // External shadow writes intentionally persist under the account owner so
+        // they stay inside the owner's conversation scope. The conversation's
+        // existing external identity, not that storage identity, decides whether
+        // this tab should surface the inbound peer message.
+        if (event.eventType === "message.completed") {
+          void queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] }).catch(() => undefined);
+        }
+
+        const unresolvedExternalOwnerMirror = Boolean(
+          candidate
+          && event.eventType === "message.created"
+          && payload.sender_type === "user"
+          && authoredByAccountUser
+          && cachedConversation === undefined
+        );
+        if (unresolvedExternalOwnerMirror && candidate) {
+          const eventUserId = selfUserIdRef.current;
+          const candidateKey = candidate.messageKey;
+          const candidateEventId = event.eventId;
+          latestExternalClassificationEventIdRef.current.set(conversationId, candidateEventId);
+          const pending: PendingExternalClassification = {
+            inFlight: false,
+            retry: () => undefined
+          };
+          pending.retry = () => {
+            if (pending.inFlight) return;
+            pending.inFlight = true;
+            // Do not use fetchQuery here: an older request for the same cache key
+            // may still be in flight and TanStack would reuse its pre-external
+            // snapshot even with staleTime=0. Classification needs a read that is
+            // guaranteed to start after this candidate arrived. Cancel only the
+            // cache request that already existed at candidate time; any refetch
+            // started after this point is newer and must remain untouched.
+            void queryClient.cancelQueries({
+              queryKey: ["chat", "conversations"],
+              exact: true
+            }).then(() => listConversations()).then((freshConversations) => {
+              if (
+                pendingExternalClassificationsRef.current.get(candidateKey) !== pending
+                || selfUserIdRef.current !== eventUserId
+                || conversationStateRef.current.get(conversationId) !== state
+              ) return;
+              if (latestExternalClassificationEventIdRef.current.get(conversationId) !== candidateEventId) {
+                pendingExternalClassificationsRef.current.delete(candidateKey);
+                return;
+              }
+              pendingExternalClassificationsRef.current.delete(candidateKey);
+              latestExternalClassificationEventIdRef.current.delete(conversationId);
+              const freshConversation = freshConversations.find((item) => item.id === conversationId);
+              if (freshConversation) {
+                queryClient.setQueryData<Conversation[] | undefined>(
+                  ["chat", "conversations"],
+                  (previous) => mergeAuthorityConversation(previous, freshConversations, freshConversation)
+                );
+              }
+              surfaceCandidate(!freshConversation?.external_source);
+            }).catch(() => undefined).finally(() => {
+              pending.inFlight = false;
+            });
+          };
+          pendingExternalClassificationsRef.current.set(candidateKey, pending);
+          pending.retry();
           return;
         }
-        selfUserIdRef.current = bootstrap.selfUserId;
-        // 预热侧边栏缓存（与用户流解耦）
-        void queryClient.ensureQueryData({ queryKey: ["chat", "conversations"], queryFn: listConversations });
-
-        detach = attachUserConversationStream({
-          selfUserId: bootstrap.selfUserId,
-          token: accessToken,
-          onResyncRequired: async () => {
-            await queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
-          },
-          onEvent: (event) => {
-            if (typeof event.eventId !== "number") {
-              return;
-            }
-            const payload = event.payload as Record<string, unknown>;
-            const conversationIdRaw = payload.conversation_id;
-            if (typeof conversationIdRaw !== "string" || !conversationIdRaw) {
-              return;
-            }
-            const conversationId = conversationIdRaw;
-            let state = conversationStateRef.current.get(conversationId);
-            if (!state) {
-              state = { lastSeenEventId: 0, notifiedMessageKeys: new Set<string>() };
-              conversationStateRef.current.set(conversationId, state);
-            }
-            if (event.eventId <= state.lastSeenEventId) {
-              return;
-            }
-            state.lastSeenEventId = event.eventId;
-
-            const candidate = buildNotificationCandidate(event);
-            if (candidate) {
-              queryClient.setQueryData<ConversationSummary[] | undefined>(["chat", "conversations"], (previous) =>
-                patchConversationPreview(previous, conversationId, candidate.preview, candidate.createdAt)
-              );
-              setConversationPreviewSnapshot({
-                conversationId,
-                preview: candidate.preview,
-                lastMessageAt: candidate.createdAt
-              });
-            }
-            if (isViewingConversation(pathnameRef.current, conversationId)) {
-              return;
-            }
-            if (isSelfAuthoredUserMessage(payload, selfUserIdRef.current)) {
-              return;
-            }
-            if (!candidate || state.notifiedMessageKeys.has(candidate.messageKey)) {
-              return;
-            }
-            state.notifiedMessageKeys.add(candidate.messageKey);
-            setToast({
-              id: candidate.messageKey,
-              conversationId,
-              senderName: candidate.senderName,
-              preview: candidate.preview
-            });
-          }
-        });
-      } catch {
-        /* bootstrap 失败时静默跳过 toast 流 */
+        surfaceCandidate(authoredByAccountUser && !externalConversation);
       }
-    })();
-
-    return () => {
-      cancelled = true;
-      detach?.();
-    };
+    });
   }, [queryClient]);
 
   const dismiss = useCallback(() => setToast(null), []);
 
-  return { toast, dismiss };
+  return { toast, dismiss, agentCompletionCandidate };
 }

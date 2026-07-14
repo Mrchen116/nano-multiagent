@@ -1,6 +1,6 @@
 # IM - Agents and Nodes Specification
 
-> 对齐: feat-446
+> 对齐: refactor-460
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
@@ -161,7 +161,8 @@ config 接口不含该字段(请求中出现也被忽略),且任何配置更新�
 bearer.<jwt>` 子协议),无 token / 非法 token 立即关闭;身份只认 JWT,单凭 `?user_id=` 不构成信任锚。
 握手后发 `{op:"resume", after_event_id:N}` 即回放该用户 owner 范围内、`event_id > N` 的事件帧
 (`op:"event"`),跨租事件不投递。`GET /im/v1/sync` 给出会话列表快照 + 全局 `max_event_id`,供前端在
-`resync_required` 后对齐游标。
+`resync_required` 后对齐游标。浏览器短暂断网或登录凭证自动更新后,使用当前登录身份恢复连接和游标;
+账号切换后不再接收前一账号事件。
 
 #### Scenario: 无 token / 非法 token / 仅 user_id 的连接被拒
 - **WHEN** 浏览器 `websocket_connect("/im/ws/user")`(无 token,或 `?token=not-a-jwt`,或仅 `?user_id=`)
@@ -175,6 +176,15 @@ bearer.<jwt>` 子协议),无 token / 非法 token 立即关闭;身份只认 JWT,
 #### Scenario: sync 返回快照与全局游标
 - **WHEN** 前端 `GET /im/v1/sync`
 - **THEN** 200 含 `items`(会话列表)与 `max_event_id`(>0);前端据其对齐用户流游标
+
+#### Scenario: 长时间登录后短暂断网自动恢复
+- **GIVEN** 用户已在 Web IM 持续登录一段时间
+- **WHEN** 浏览器网络短暂中断后恢复
+- **THEN** 浏览器以当前登录身份恢复用户流,继续收到本账号的新事件,无需退出后重新登录
+
+#### Scenario: 切换账号后只接收新账号事件
+- **WHEN** 用户退出账号 A 并登录账号 B
+- **THEN** 浏览器停止接收 A 的事件,后续用户流只交付 B 的 owner 范围事件
 
 ### Requirement: 设备绑定把节点归属到当前用户
 

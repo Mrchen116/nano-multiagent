@@ -18,8 +18,7 @@ const apiMocks = vi.hoisted(() => ({
   listAgentsMock: vi.fn(),
   navigateMock: vi.fn(),
   promptPreviewMock: vi.fn(),
-  createDirectChatByAgentUserIdMock: vi.fn(),
-  createDirectConversationMock: vi.fn(),
+  createConversationMock: vi.fn(),
 }));
 
 vi.mock("react-router-dom", async () => {
@@ -32,8 +31,7 @@ vi.mock("react-router-dom", async () => {
 });
 
 vi.mock("../../chat/chat-api", () => ({
-  createDirectConversation: apiMocks.createDirectConversationMock,
-  createDirectChatByAgentUserId: apiMocks.createDirectChatByAgentUserIdMock,
+  createConversation: apiMocks.createConversationMock,
   listAgents: apiMocks.listAgentsMock,
 }));
 
@@ -231,4 +229,3 @@ describe("cadence input shows actual backend value", () => {
     expect(unitSelect!.value, "cadence unit must display backend unit 'm'").toBe("m");
   });
 });
-

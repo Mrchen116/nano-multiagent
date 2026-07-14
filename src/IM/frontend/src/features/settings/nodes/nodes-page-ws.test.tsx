@@ -55,7 +55,7 @@ describe("nodes page — node.status_changed WS subscription", () => {
 
     // Seed an authenticated user so the user-stream WS auto-attaches with our selfUserId.
     useAuthStore.setState({
-      accessToken: "tok",
+      accessToken: `${btoa('{"alg":"HS256"}')}.${btoa(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 120 }))}.sig`,
       refreshToken: "rtok",
       user: {
         id: "user-1",
@@ -72,6 +72,34 @@ describe("nodes page — node.status_changed WS subscription", () => {
 
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input.toString();
+      if (url === "/im/v1/auth/refresh") {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              access_token: `${btoa('{"alg":"HS256"}')}.${btoa(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 120 }))}.sig`,
+              refresh_token: "test-refresh-2",
+              user: useAuthStore.getState().user
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          )
+        );
+      }
+      if (url === "/im/v1/conversations") {
+        return Promise.resolve(
+          new Response(JSON.stringify({ items: [] }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          })
+        );
+      }
+      if (url === "/im/v1/sync") {
+        return Promise.resolve(
+          new Response(JSON.stringify({ max_event_id: 0, events: [] }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          })
+        );
+      }
       if (url === "/im/v1/nodes") {
         return Promise.resolve(
           new Response(

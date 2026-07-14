@@ -76,6 +76,13 @@ export async function listNodes() {
   return requestJson<NodeSettingsProfile[]>("/im/v1/nodes");
 }
 
+export async function confirmBindToken(bindToken: string) {
+  return requestJson<{ node_id: string }>("/im/v1/bind", {
+    method: "POST",
+    body: JSON.stringify({ action: "confirm", bind_token: bindToken })
+  });
+}
+
 export async function updateNode(
   nodeId: string,
   patch: Pick<NodeSettingsProfile, "alias" | "relay_enabled" | "reporting_enabled">

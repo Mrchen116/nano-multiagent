@@ -3,6 +3,11 @@ import { describe, expect, it } from "vitest";
 
 import { applyAgentStatusEvent } from "./agent-status-ws-consumer";
 import type { AgentConfig, AgentSummary } from "./im-agent-config-api";
+import type { UserStreamEvent } from "../../../realtime/user-stream";
+
+function event(value: UserStreamEvent): UserStreamEvent {
+  return value;
+}
 
 function makeSummary(overrides: Partial<AgentSummary> = {}): AgentSummary {
   return {
@@ -50,10 +55,10 @@ describe("applyAgentStatusEvent — agent.status_changed WS consumer", () => {
     const initial = [makeSummary({ agent_id: "agent-a", node_status: "offline" }), makeSummary({ agent_id: "agent-b", node_status: "offline" })];
     client.setQueryData(["settings", "agents"], initial);
 
-    applyAgentStatusEvent(client, {
+    applyAgentStatusEvent(client, event({
       eventType: "agent.status_changed",
       payload: { agent_id: "agent-a", status: "online", seq: 1 }
-    });
+    }));
 
     const after = client.getQueryData<AgentSummary[]>(["settings", "agents"]);
     expect(after).toBeDefined();

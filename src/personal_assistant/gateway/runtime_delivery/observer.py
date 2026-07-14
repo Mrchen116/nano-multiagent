@@ -108,6 +108,11 @@ async def roll_bubble(
         live_ctx = _runtime_context_view(run_context_store, run_id)
         if new_message_id and live_ctx is not None:
             live_ctx["message_id"] = new_message_id
+            # These flags describe the bubble that was just closed, not the whole
+            # run. Carrying either across a steer makes the new bubble inherit the
+            # old bubble's visible/silence terminal decision.
+            live_ctx.pop("visible_reply_committed", None)
+            live_ctx.pop("discard_current_bubble", None)
             if new_kernel_message_id:
                 live_ctx["kernel_message_id"] = new_kernel_message_id
             else:
@@ -425,6 +430,11 @@ def build_kernel_event_observer(
             # A later real assistant message supersedes an earlier provisional silence
             # decision in the same run and commits the existing bubble normally.
             ctx.pop("discard_current_bubble", None)
+            if content:
+                # Tool/thinking frames are process metadata, not a user-visible reply.
+                # The direct-Web terminal policy commits a provisional bubble only when
+                # complete assistant text has actually crossed this boundary.
+                ctx["visible_reply_committed"] = "1"
             # feat-439-M2: 整轮每回合各带一段思考(决策 4 / §1 事实 A)。空正文「且无
             # 思考」的回合仍整段丢弃(避免空气泡)；空正文「但有思考」的回合不再丢，作为
             # 「过程项」转发到当前气泡(不 roll 新气泡、不发空 delta)。思考段的时序序号
@@ -588,6 +598,11 @@ def build_kernel_event_observer(
                             new_kernel_message_id=new_kernel_id,
                         )
                         if new_msg_id:
+                            # roll_bubble intentionally clears bubble-local visibility.
+                            # This branch already has real text for the newly opened
+                            # bubble, so restore the marker before the run terminal
+                            # decides whether that bubble should be discarded.
+                            ctx["visible_reply_committed"] = "1"
                             ctx["external_current_text"] = text
                             if reasoning_text:
                                 await mgr.send_json(
@@ -734,7 +749,16 @@ def build_kernel_event_observer(
             # Gateway. reconcile owns the abnormal path and pops there.
             running_tool_calls.pop(run_id, None)
 
-            if message_id and ctx.get("discard_current_bubble"):
+            discard_reason = None
+            if ctx.get("discard_current_bubble"):
+                discard_reason = "no_reply_token"
+            elif (
+                turn_completed
+                and ctx.get("discard_empty_completion")
+                and not ctx.get("visible_reply_committed")
+            ):
+                discard_reason = "empty_visible_reply"
+            if message_id and discard_reason:
                 return _send(
                     manager,
                     "node.streaming_delta",
@@ -742,7 +766,7 @@ def build_kernel_event_observer(
                         "kind": "message_discarded",
                         "message_id": message_id,
                         "run_id": run_id,
-                        "reason": "no_reply_token",
+                        "reason": discard_reason,
                     },
                 )
 

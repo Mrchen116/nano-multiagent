@@ -17,7 +17,6 @@ is an IM concept; kernel stays product-agnostic and Gateway stays a thin relay. 
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -38,11 +37,8 @@ from IM.api.ws.event_types import (
     build_tool_call_completed_payload,
     build_tool_call_upserted_payload,
 )
-from IM.domain.models import ConversationEvent, Message, TokenUsage, ToolCall
+from IM.domain.models import Message, TokenUsage, ToolCall
 from IM.infra.repositories import EventRepository, MessageRepository
-
-
-NotifyCallable = Callable[[ConversationEvent], None]
 
 
 def _persisted_tool_call(updated: Message, incoming: ToolCall) -> ToolCall:
@@ -66,14 +62,13 @@ class EventBridge:
         message_repository: Used to insert the placeholder agent message and patch its
             runtime state (content / tool_calls / token_usage / delivery_status).
         event_repository: Used to append conversation_events rows.
-        notify: Optional sync callback fired *after* event persistence; the wiring in
-            ``IM.ws.user_stream.build_notify_enqueue`` forwards to the user-stream
-            registry. When ``None``, events are only persisted (e.g. unit tests).
+        Publishing is repository-owned: ``EventRepository`` and ``MessageRepository``
+            receive the single post-commit callback. The bridge intentionally exposes
+            no second notify surface.
     """
 
     message_repository: MessageRepository
     event_repository: EventRepository
-    notify: NotifyCallable | None = None
 
     def emit_instant_message(
         self,
@@ -362,11 +357,9 @@ class EventBridge:
             Repeated calls are idempotent.
         """
 
-        event = self.message_repository.discard_running_agent_message(
+        self.message_repository.discard_running_agent_message(
             message_id=message_id, reason=reason
         )
-        if event is not None and self.notify is not None:
-            self.notify(event)
 
     def on_permission_request(
         self,
@@ -458,12 +451,10 @@ class EventBridge:
         delivery_status: str,
         payload: dict[str, object],
     ) -> None:
-        event = self.event_repository.append_event(
+        self.event_repository.append_event(
             conversation_id=conversation_id,
             message_id=message_id,
             event_type=event_type,
             delivery_status=delivery_status,
             payload=payload,
         )
-        if self.notify is not None:
-            self.notify(event)

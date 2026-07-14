@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { useIsMobile } from "../../../hooks/use-is-mobile";
 import { useTranslation } from "../../../i18n";
-import { Avatar, colorForAgent } from "../../chat/v2/components/avatar";
+import { Avatar, colorForAgent } from "../../chat/components/avatar";
 import { useAgentStatusBroadcastConsumer } from "./agent-status-ws-consumer";
 import { listAgentSummaries, listNodes, type AgentSummary, type NodeSummary } from "./im-agent-config-api";
 

@@ -4,8 +4,7 @@ import { Link } from "react-router-dom";
 
 import { useIsMobile } from "../../../hooks/use-is-mobile";
 import { useTranslation } from "../../../i18n";
-import { useAuthStore } from "../../auth/auth-store";
-import { attachUserConversationStream } from "../../chat/im-chat-api";
+import { subscribeUserStream } from "../../../realtime/user-stream";
 import { NodeSettingsProfile, listNodes, updateNode } from "../im-settings-api";
 
 function statusDotStyle(status: string): import("react").CSSProperties {
@@ -63,17 +62,14 @@ export function NodesPage() {
     );
   }
 
-  const selfUserId = useAuthStore((state) => state.user?.id ?? null);
-  const accessToken = useAuthStore((state) => state.accessToken ?? "");
-
   // node.status_changed is emitted by M10 (owner-scoped) and patched into React
   // Query cache so the status pill / last_heartbeat / last_error reflect heartbeat
   // state in real time without forcing a refetch round trip.
   useEffect(() => {
-    if (!selfUserId || !accessToken) return;
-    const detach = attachUserConversationStream({
-      selfUserId,
-      token: accessToken,
+    const detach = subscribeUserStream({
+      onRecovery: async () => {
+        await queryClient.invalidateQueries({ queryKey: ["settings", "nodes"] });
+      },
       onEvent: (event) => {
         if (event.eventType !== "node.status_changed") return;
         const payload = event.payload as {
@@ -130,7 +126,7 @@ export function NodesPage() {
       }
     });
     return detach;
-  }, [selfUserId, accessToken, queryClient]);
+  }, [queryClient]);
 
   const mutation = useMutation({
     mutationFn: (row: NodeSettingsProfile) =>
