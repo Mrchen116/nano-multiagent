@@ -11,7 +11,7 @@ from agent.core.hooks.context import HookContext
 from agent.core.llm.interfaces import LLMClient
 from agent.core.runs.origin import RunOrigin
 from agent.core.skills.registry import SkillMetadata
-from agent.core.tools.session_file_state import SessionFileState
+from agent.core.session.context_state import SessionFileState
 from agent.core.types import Message, ToolSpec, TurnResult
 
 
@@ -71,7 +71,7 @@ class AgentContextFork:
     def bind_tool_registry(self, tool_registry: ToolRegistryLike | None) -> None:
         """Propagate a post-construction tool registry binding into the fork loop.
 
-        Called by AgentRuntime.bind_tool_registry so that the fork side-chain has
+        Called by AgentEngine.bind_tool_registry so that the fork side-chain has
         the same registry as the main loop.  Without this, forks constructed before
         the registry is available (as in app.py) would run with tool_registry=None
         and exit with stop_reason='tool_registry_unavailable' after the first LLM

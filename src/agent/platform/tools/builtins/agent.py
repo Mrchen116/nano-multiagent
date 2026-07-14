@@ -4,21 +4,14 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Mapping
-from concurrent.futures import TimeoutError as FutureTimeoutError
+from concurrent.futures import CancelledError, TimeoutError as FutureTimeoutError
 from pathlib import Path
 from typing import Any
 
-from agent.core.agent.run_control import RunController
 from agent.core.background_tasks.ids import generate_agent_id
-from agent.core.background_tasks.interfaces import (
-    BackgroundSubagentMessageHandle,
-    BackgroundTaskStopper,
-)
 from agent.core.background_tasks.models import BackgroundTaskStatus
 from agent.core.background_tasks.registry import BackgroundTaskRegistry
 from agent.core.errors import ToolError
-from agent.core.llm.interfaces import LLMMessage
-from agent.core.runs.origin import RunOrigin
 from agent.core.tools.base import ToolContext
 from agent.core.tools.serialization import json_serialize
 from agent.core.types import TurnResult
@@ -219,15 +212,9 @@ class AgentTool(WiringMixin):
     def __init__(
         self,
         *,
-        runtime: Any | None = None,
         wiring: Any | None = None,
     ) -> None:
-        self._runtime = runtime
         self._wiring = wiring
-
-    def bind_runtime(self, runtime: Any | None) -> None:
-        """Bind runtime after bootstrap."""
-        self._runtime = runtime
 
     # ------------------------------------------------------------------
     # Entry point
@@ -254,7 +241,7 @@ class AgentTool(WiringMixin):
     def _run_background(
         self, args: Mapping[str, Any], ctx: ToolContext
     ) -> dict[str, Any]:
-        runtime = self._require_runtime()
+        control = self._require_control(ctx)
         wiring = self._require_wiring()
         registry = wiring.registry
 
@@ -265,7 +252,7 @@ class AgentTool(WiringMixin):
 
         # Create subagent session with metadata
         agent_session_id = self._create_subagent_session(
-            runtime=runtime,
+            control=control,
             ctx=ctx,
             agent_id=agent_id,
             agent_type=agent_type,
@@ -277,7 +264,7 @@ class AgentTool(WiringMixin):
         # lives under {ctx.cwd}/.nano/sessions/{parent}/subagents/. Thread ctx.cwd
         # so the stateless store can locate it.
         output_file = self._resolve_output_file(
-            runtime, agent_session_id, ctx.session_id, ctx.cwd
+            control, agent_session_id, ctx.session_id, ctx.cwd
         )
 
         # Register background task
@@ -311,7 +298,7 @@ class AgentTool(WiringMixin):
             on_kill=_make_on_kill(registry, agent_id),
             workspace_root=ctx.cwd,
             llm_session_id=ctx.session_id or None,
-            model=runtime.resolve_run_model(ctx.session_id),
+            model=control.resolve_run_model(),
         )
         registry.set_stop_handle(agent_id, stopper)
         registry.set_message_handle(agent_id, stopper)
@@ -330,7 +317,7 @@ class AgentTool(WiringMixin):
     def _run_foreground(
         self, args: Mapping[str, Any], ctx: ToolContext
     ) -> dict[str, Any]:
-        runtime = self._require_runtime()
+        control = self._require_control(ctx)
         wiring = self._require_wiring()
 
         agent_id = generate_agent_id()
@@ -340,7 +327,7 @@ class AgentTool(WiringMixin):
         timeout_seconds = _resolve_timeout_seconds(args)
 
         agent_session_id = self._create_subagent_session(
-            runtime=runtime,
+            control=control,
             ctx=ctx,
             agent_id=agent_id,
             agent_type=agent_type,
@@ -351,45 +338,20 @@ class AgentTool(WiringMixin):
         # Subagent sessions are created with workspace_root=ctx.cwd; thread it so
         # the stateless store can locate the subagent JSONL.
         output_file = self._resolve_output_file(
-            runtime, agent_session_id, ctx.session_id, ctx.cwd
+            control, agent_session_id, ctx.session_id, ctx.cwd
         )
 
-        # bugfix-418: submit the bare runtime.run(...) coroutine onto the kernel's
-        # dedicated event loop (the same loop that created AgentRuntime's per-session
-        # locks and the shared httpx client) instead of a private ThreadPoolExecutor
-        # running asyncio.run on a transient loop. This eliminates the cross-loop
-        # fault and isolates the subagent as an independent Task — its failure stays
-        # in the returned future and cannot kill the loop or sibling runs. Bare coro
-        # (no completion callback) means an in-budget result is never re-delivered as
-        # a <task-notification> (bugfix-417 invariant; see decision 2).
-        #
-        # bugfix-420 (round-1 C1): thread a RunController so that if this run gets
-        # auto-backgrounded and then task_stop'd, the worker can be cooperatively
-        # aborted (returning its accumulated messages) — the same mechanism the
-        # explicit run_in_background / resume paths use. Without it this third
-        # terminal path could not abort and would close as COMPLETED, violating
-        # decision 2's "stopped task enters killed terminal".
-        controller = RunController()
-        # bugfix-422 (#129): pass llm_session_id=parent so the subagent's LLM
-        # requests group under the parent in the proxy session-inspector; the
-        # subagent's own agent_session_id still drives JSONL storage/resumption.
-        # bugfix-443: model=parent run's model so the foreground subagent inherits
-        # it instead of falling back to the build-time global default.
-        future = wiring.subagent_runner.submit_foreground(
-            runtime.run(
-                agent_session_id,
-                [{"type": "text", "text": prompt}],
-                stream=False,
-                controller=controller,
-                parent_session_id=ctx.session_id or "",
-                workspace_root=ctx.cwd,
-                llm_session_id=ctx.session_id or None,
-                model=runtime.resolve_run_model(ctx.session_id),
-            )
+        handle = wiring.subagent_runner.start_foreground(
+            agent_session_id=agent_session_id,
+            parent_session_id=ctx.session_id or "",
+            prompt=prompt,
+            workspace_root=ctx.cwd,
+            llm_session_id=ctx.session_id or None,
+            model=control.resolve_run_model(),
         )
 
         try:
-            turn = future.result(timeout=timeout_seconds)
+            turn = handle.result(timeout=timeout_seconds)
         except FutureTimeoutError:
             # Auto-background: register task and let worker continue
             registry = wiring.registry
@@ -406,17 +368,10 @@ class AgentTool(WiringMixin):
             )
             registry.mark_running(agent_id)
 
-            # bugfix-420 (round-1 C1): register a stop handle that aborts the
-            # controller so task_stop's request_stop actually triggers the
-            # cooperative abort (request_stop returns True even with no handle, so
-            # without this the stop was a silent no-op).
-            handle = _ControllerHandle(controller)
             registry.set_stop_handle(agent_id, handle)
             registry.set_message_handle(agent_id, handle)
 
-            # Watcher thread updates registry when future completes; on abort it
-            # routes to registry.kill(result_text=...) instead of complete().
-            _start_registry_watcher(registry, agent_id, future, controller)
+            _start_registry_watcher(registry, agent_id, handle)
 
             return {
                 "status": "async_launched",
@@ -457,8 +412,8 @@ class AgentTool(WiringMixin):
         # Subagent JSONL lives under the parent session's workspace_root; the
         # parent turn (ctx.session_id) is what invoked this tool, so the runtime
         # holds the parent's workspace_root in memory.
-        runtime = self._require_runtime()
-        parent_workspace_root = runtime.session_workspace_root(ctx.session_id or "")
+        control = self._require_control(ctx)
+        parent_workspace_root = control.workspace_root
 
         # 1. Check in-memory registry
         record = registry.get(agent_id)
@@ -487,6 +442,7 @@ class AgentTool(WiringMixin):
                         output_file=current.output_file,
                         agent_type=current.agent_type,
                         workspace_root=parent_workspace_root,
+                        control=control,
                     )
                 raise ToolError(
                     (
@@ -507,50 +463,26 @@ class AgentTool(WiringMixin):
                 output_file=record.output_file,
                 agent_type=record.agent_type,
                 workspace_root=parent_workspace_root,
+                control=control,
             )
 
         # 2. Try JSONL rehydrate. The stateless store needs the parent's
         # workspace_root (resolved above) to locate both the index scan and the
         # subagent file.
-        store = runtime._session_manager.store
         parent_session_id = ctx.session_id or ""
-        found_session_id = store.find_session_by_metadata(
-            parent_session_id=parent_session_id,
-            match={"agent_id": agent_id},
-            workspace_root=parent_workspace_root,
-        )
-        if found_session_id is None:
+        found = control.find_subagent(agent_id)
+        if found is None:
             raise ToolError(
                 f'No subagent with agent_id="{agent_id}" found in session history.',
                 tool_name=self.name,
                 details={"code": "agent_not_found"},
             )
 
-        # Load session config to get metadata
-        try:
-            load_result = runtime._session_manager.load(
-                found_session_id,
-                workspace_root=parent_workspace_root,
-                parent_session_id=parent_session_id,
-            )
-        except Exception as exc:  # noqa: BLE001
-            raise ToolError(
-                f"Failed to load subagent session: {exc}",
-                tool_name=self.name,
-                details={"code": "agent_not_found"},
-            ) from exc
-
-        config = load_result.config
-        metadata = dict(config.metadata) if config.metadata else {}
+        found_session_id = str(found["session_id"])
+        metadata = dict(found.get("metadata") or {})
         description = metadata.get("description", "")
         agent_type = metadata.get("agent_type")
-        output_file = str(
-            store.resolve_path(
-                found_session_id,
-                workspace_root=parent_workspace_root,
-                parent_session_id=parent_session_id,
-            )
-        )
+        output_file = str(found["output_path"])
 
         return self._resume_subagent(
             agent_id=agent_id,
@@ -562,6 +494,7 @@ class AgentTool(WiringMixin):
             output_file=output_file,
             agent_type=agent_type,
             workspace_root=parent_workspace_root,
+            control=control,
         )
 
     def _resume_subagent(
@@ -576,6 +509,7 @@ class AgentTool(WiringMixin):
         output_file: str,
         agent_type: str | None,
         workspace_root: Path | None = None,
+        control: Any,
     ) -> dict[str, Any]:
         if agent_session_id is None:
             raise ToolError(
@@ -585,7 +519,6 @@ class AgentTool(WiringMixin):
 
         wiring = self._require_wiring()
         registry = wiring.registry
-        runtime = self._require_runtime()
 
         # Register/resume task in registry
         registry.register_subagent(
@@ -601,9 +534,9 @@ class AgentTool(WiringMixin):
         )
         registry.mark_running(agent_id)
 
-        # Start worker for the resumed turn. The subagent JSONL lives under the
-        # parent session's workspace_root, threaded here so the stateless store
-        # can locate it.
+        # Start the resumed turn through the typed runtime runner. The child
+        # conversation is addressed within its parent's workspace root, so that
+        # root remains part of the stable SessionRef lookup.
         # bugfix-422 (#129): llm_session_id=parent so the resumed turn's LLM
         # requests group under the parent in the proxy session-inspector.
         # bugfix-443 fix1 C4: resolve the model from the *current resuming run*
@@ -621,7 +554,7 @@ class AgentTool(WiringMixin):
             on_kill=_make_on_kill(registry, agent_id),
             workspace_root=workspace_root,
             llm_session_id=parent_session_id or None,
-            model=runtime.resolve_run_model(resuming_session_id),
+            model=control.resolve_run_model(),
         )
         registry.set_stop_handle(agent_id, stopper)
         registry.set_message_handle(agent_id, stopper)
@@ -640,7 +573,7 @@ class AgentTool(WiringMixin):
     def _create_subagent_session(
         self,
         *,
-        runtime: Any,
+        control: Any,
         ctx: ToolContext,
         agent_id: str,
         agent_type: str,
@@ -660,26 +593,17 @@ class AgentTool(WiringMixin):
             if effective_workspace
             else None,
         }
-        # bugfix-418 (decision 1, applied to the creation path): like the turn
-        # path, run create_session on the kernel's dedicated loop via the runner —
-        # never on a transient loop via bare asyncio.run. Submit directly (no
-        # capability probe, no fallback): when no real runner is wired, the
-        # turn step would raise anyway, so a create that silently "succeeds" via
-        # asyncio.run would only re-open the cross-loop back door. Letting
-        # _NoOpSubagentRunner.submit_foreground raise keeps the failure loud.
-        wiring = self._require_wiring()
-        create_coro = runtime.create_session(
+        session = control.create_subagent(
             workspace_root=effective_workspace,
             skills=load_skills if load_skills else None,
             metadata=metadata,
             parent_session_id=ctx.session_id,
         )
-        session = wiring.subagent_runner.submit_foreground(create_coro).result()
         return str(session.session_id)
 
     def _resolve_output_file(
         self,
-        runtime: Any,
+        control: Any,
         agent_session_id: str,
         parent_session_id: str | None,
         workspace_root: Path,
@@ -687,18 +611,17 @@ class AgentTool(WiringMixin):
         # Subagent JSONL lives under the parent session's workspace_root, which
         # is the spawning turn's ctx.cwd (also used as the subagent's own
         # workspace_root at create_session time).
-        store = runtime._session_manager.store
-        return store.resolve_path(
+        return control.output_path(
             agent_session_id,
             workspace_root=workspace_root,
             parent_session_id=parent_session_id or "",
         )
 
-    def _require_runtime(self) -> Any:
-        runtime = self._runtime
-        if runtime is None:
-            raise ToolError("agent runtime is not configured", tool_name=self.name)
-        return runtime
+    def _require_control(self, ctx: ToolContext) -> Any:
+        control = ctx.subagent_control
+        if control is None:
+            raise ToolError("subagent control is not configured", tool_name=self.name)
+        return control
 
     def _validate_new_agent_args(
         self, args: Mapping[str, Any], *, ctx: ToolContext
@@ -715,7 +638,7 @@ class AgentTool(WiringMixin):
         )
         # bugfix-431 决策 3: use runtime.resolve_available_skills so subagent skill
         # validation uses the same resolver as runtime and preview (同源).
-        available = self._runtime.resolve_available_skills(
+        available = self._require_control(ctx).resolve_available_skills(
             ctx.repo_root,
             include_names=load_skills,
         )
@@ -814,8 +737,7 @@ class AgentTool(WiringMixin):
 def _start_registry_watcher(
     registry: BackgroundTaskRegistry,
     task_id: str,
-    future: Any,
-    controller: RunController,
+    handle: Any,
 ) -> None:
     """Start a daemon thread that waits for ``future`` and updates registry.
 
@@ -828,44 +750,15 @@ def _start_registry_watcher(
 
     def _watch() -> None:
         try:
-            turn = future.result()
+            turn = handle.result()
             result_text = _extract_assistant_text(turn)
-            if controller.is_aborted:
-                registry.kill(
-                    task_id,
-                    reason="stopped by user",
-                    result_text=result_text,
-                )
-            else:
-                registry.complete(
-                    task_id,
-                    result_text=result_text,
-                )
+            registry.complete(task_id, result_text=result_text)
+        except CancelledError:
+            registry.kill(task_id, reason="stopped by user", result_text=None)
         except Exception as exc:  # noqa: BLE001
             registry.fail(task_id, error=str(exc))
 
     threading.Thread(target=_watch, daemon=True).start()
-
-
-class _ControllerHandle(BackgroundTaskStopper, BackgroundSubagentMessageHandle):
-    """Control handle for an auto-backgrounded foreground subagent.
-
-    bugfix-420 (round-1 C1): mirrors runtime_runner._ControllerHandle so the
-    registry's request_stop → handle.stop() path triggers a cooperative abort on
-    the auto-backgrounded foreground run.
-    """
-
-    def __init__(self, controller: RunController) -> None:
-        self._controller = controller
-
-    def stop(self) -> None:
-        self._controller.abort()
-
-    def send_message(self, prompt: str) -> bool:
-        return self._controller.enqueue_message(
-            LLMMessage(role="user", content=prompt),
-            origin=RunOrigin.USER,
-        )
 
 
 def _make_on_complete(registry: BackgroundTaskRegistry, agent_id: str) -> Any:

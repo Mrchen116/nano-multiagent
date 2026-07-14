@@ -230,3 +230,24 @@ async def test_exhaustion_preserves_original_details() -> None:
     )
     # Retry metadata appended
     assert details.get("retry_exhausted") is True
+
+
+async def test_close_delegates_to_wrapped_provider_client() -> None:
+    class _ClosableClient:
+        def __init__(self) -> None:
+            self.closed = False
+
+        async def generate(
+            self, request: LLMGenerateRequest
+        ) -> AsyncIterator[LLMMessage]:
+            yield LLMMessage(role="assistant", content="ok")
+
+        async def close(self) -> None:
+            self.closed = True
+
+    inner = _ClosableClient()
+    client = RetryingLLMClient(inner)
+
+    await client.close()
+
+    assert inner.closed is True

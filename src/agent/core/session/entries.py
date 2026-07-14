@@ -110,7 +110,8 @@ def new_turn_appended_entry(
         "content": content,
         "metadata": dict(metadata or {}),
     }
-    # bugfix-433-fix1 #4: only write `parts` when non-empty, matching _message_to_entry.
+    # Keep the event projection aligned with Transcript's Message serializer: only
+    # non-empty structured parts are persisted for an otherwise plain-text turn.
     # A text-only turn must not carry `parts: []` — that asymmetry made the two write
     # paths produce structurally different entries for the same turn (golden drift).
     if parts:
@@ -128,7 +129,7 @@ def parse_parts(raw_parts: Any) -> tuple[Mapping[str, Any], ...] | None:
     """Normalize a persisted ``parts`` value back into a Message.parts tuple, or None.
 
     bugfix-433-fix1 #8: single source of truth for restoring structured parts, shared by
-    both restore paths (jsonl_store._to_message and message_from_turn_entry) so they stay
+    both transcript restore paths so they stay
     byte-for-byte consistent. Absent / empty / non-list → None (pure-text turns keep the
     content:str path).
     """
@@ -148,7 +149,7 @@ def message_from_turn_entry(entry: SessionEntry) -> Message:
     # entry.data["metadata"] already; nothing extra needed here.
     # Old JSONL files that lack this field default to False via dict.get().
     # bugfix-433 决策4: surface structured parts so this restore path stays aligned
-    # with jsonl_store._to_message (shared parse_parts, fix1 #8).
+    # with transcript materialization (shared parse_parts, fix1 #8).
     parts = parse_parts(entry.data.get("parts"))
     return Message(
         message_id=str(entry.data.get("message_id", "")),

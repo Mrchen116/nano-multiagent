@@ -151,7 +151,7 @@ def test_installed_feishu_doc_is_same_source_for_capabilities_preview_and_runtim
         }
         runtime_skill_names = {
             skill.name
-            for skill in kernel._c.runtime.resolve_available_skills(  # type: ignore[attr-defined]
+            for skill in kernel._c.engine_services.resolve_available_skills(  # type: ignore[attr-defined]
                 workspace, include_names=["feishu-doc"]
             )
         }

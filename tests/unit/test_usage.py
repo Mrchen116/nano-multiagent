@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from agent.core.agent.runtime import AgentRuntime
+from agent.core.agent.runtime import AgentEngine
 from agent.core.skills.usage import (
     F4Trigger,
     bump_skill_usage,
@@ -155,7 +155,7 @@ def test_bump_skill_usage_does_not_trigger_f4_for_manual_skill(tmp_path: Path) -
 
 
 def test_runtime_dedupes_running_or_queued_skill_batch_reviews() -> None:
-    runtime = AgentRuntime.__new__(AgentRuntime)
+    runtime = AgentEngine.__new__(AgentEngine)
     runtime._skill_batch_review_queued = set()
     runtime._skill_batch_review_running = set()
     trigger = F4Trigger(
@@ -165,10 +165,10 @@ def test_runtime_dedupes_running_or_queued_skill_batch_reviews() -> None:
         call_key="session-1:call-1",
     )
 
-    assert AgentRuntime.enqueue_skill_batch_review(runtime, trigger) is True
-    assert AgentRuntime.enqueue_skill_batch_review(runtime, trigger) is False
+    assert AgentEngine.enqueue_skill_batch_review(runtime, trigger) is True
+    assert AgentEngine.enqueue_skill_batch_review(runtime, trigger) is False
     runtime._skill_batch_review_queued.clear()
     runtime._skill_batch_review_running.add(
         f"{Path('/tmp/skills').resolve()}:auto-skill"
     )
-    assert AgentRuntime.enqueue_skill_batch_review(runtime, trigger) is False
+    assert AgentEngine.enqueue_skill_batch_review(runtime, trigger) is False

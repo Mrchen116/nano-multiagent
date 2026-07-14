@@ -5,7 +5,7 @@ import time
 from collections.abc import AsyncIterator, Callable
 from dataclasses import replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Mapping, Protocol
+from typing import Any, Mapping, Protocol
 
 from agent.core.ids import make_message_id, make_tool_call_id
 from agent.core.types import (
@@ -29,7 +29,8 @@ from agent.core.skills.registry import SkillMetadata
 from agent.core.tools.result_budget import (
     DEFAULT_MAX_RESULT_SIZE_CHARS,
 )
-from agent.core.tools.session_file_state import SessionFileState, read_file_slice
+from agent.core.session.context_state import SessionFileState, read_file_slice
+from agent.core.session.entries import CompactionEntry, SessionEntry
 
 from .liveness import _with_liveness_heartbeat, session_event_publisher
 from .compaction.planner import CompactionPlanner
@@ -45,9 +46,6 @@ from .prompting import (
 from .run_control import RunController
 from .state import AgentState, render_user_content_parts
 from .tool_executor import StreamingToolExecutor
-
-if TYPE_CHECKING:
-    from agent.core.session.manager import SessionManager
 
 
 class ToolRegistryLike(Protocol):
@@ -82,11 +80,17 @@ class AgentLoop:
         tool_registry: ToolRegistryLike | None = None,
         current_working_directory: Path | None = None,
         tool_result_compressor: Any | None = None,
-        session_manager: "SessionManager | None" = None,
+        compaction_entries: Callable[[], tuple[SessionEntry | CompactionEntry, ...]]
+        | None = None,
         compaction_planner: CompactionPlanner | None = None,
         compaction_summarizer: CompactionSummarizer | None = None,
         compaction_settings: CompactionSettings | None = None,
         on_compaction: Callable[[str], None] | None = None,
+        capture_compaction_epoch: Callable[[], int] | None = None,
+        commit_compaction: Callable[
+            [Message, tuple[Message, ...], str, tuple[str, ...], int], bool
+        ]
+        | None = None,
         build_skill_reinjection: Callable[[str, Path | None, str], Message | None]
         | None = None,
     ) -> None:
@@ -106,20 +110,14 @@ class AgentLoop:
         self._tool_registry = tool_registry
         self._current_working_directory = current_working_directory
         self._tool_result_compressor = tool_result_compressor
-        self._session_manager = session_manager
+        self._compaction_entries = compaction_entries
         self._compaction_planner = compaction_planner
         self._compaction_summarizer = compaction_summarizer
         self._compaction_settings = compaction_settings
         self._on_compaction_callback = on_compaction
+        self._capture_compaction_epoch = capture_compaction_epoch
+        self._commit_compaction = commit_compaction
         self._build_skill_reinjection = build_skill_reinjection
-        self._active_session_id: str | None = None
-        # Most recent real prompt_tokens reported by the model, keyed by session.
-        # Drives compaction's threshold check with the exact tokenizer count
-        # instead of the char-based estimate, which undershoots on CJK/code and
-        # tool_call args (bugfix-412 #103). Per-session because one loop instance
-        # serves multiple sessions; survives across turns so a long session's
-        # first iteration still compacts on the prior turn's true footprint.
-        self._last_real_prompt_tokens: dict[str, int] = {}
 
     @property
     def available_skills(self) -> tuple[SkillMetadata, ...]:
@@ -167,6 +165,9 @@ class AgentLoop:
         tool_execution_allowlist: tuple[str, ...] | None = None,
         is_fork_sidechain: bool = False,
         model_override: str | None = None,
+        prior_prompt_tokens: int | None = None,
+        on_progress: Callable[[TokenUsage | None, tuple[ToolCall, ...]], None]
+        | None = None,
     ) -> AsyncIterator[Message]:
         """Stream one user turn until completion or terminal stop reason.
 
@@ -198,7 +199,6 @@ class AgentLoop:
             - role="turn_meta": final turn metadata (stop_reason, usage)
         """
 
-        self._active_session_id = state.session_id
         # bugfix-429: the model is a per-run property — production callers (runtime
         # threading kernel.submit(model=...)) always pass model_override. self._model
         # is the build-time default used only by the single-client path (unit tests
@@ -259,6 +259,7 @@ class AgentLoop:
         all_tool_results: list[ToolResult] = []
         call_id_to_arguments: dict[str, Mapping[str, Any]] = {}
         turn_usage: TokenUsage | None = None
+        last_real_prompt_tokens = prior_prompt_tokens
         last_parent_id = state.user_message_id or (
             state.history_messages[-1].message_id if state.history_messages else None
         )
@@ -302,7 +303,7 @@ class AgentLoop:
                     real_prompt_tokens = (
                         turn_usage.prompt_tokens
                         if turn_usage is not None
-                        else self._last_real_prompt_tokens.get(state.session_id)
+                        else last_real_prompt_tokens
                     )
                     compacted_msg = await self._maybe_compact(
                         llm_messages=llm_messages,
@@ -396,6 +397,8 @@ class AgentLoop:
                         run_id=run_id,
                         source="llm",
                     ):
+                        if controller is not None and controller.is_aborted:
+                            break
                         # Terminal metadata message: empty content with finish_reason
                         if llm_msg.content == "" and llm_msg.finish_reason is not None:
                             finish_reason = llm_msg.finish_reason
@@ -425,9 +428,14 @@ class AgentLoop:
                         last_assistant_msg_id = assistant_msg.message_id
                         last_parent_id = assistant_msg.message_id
 
-                        await self._dispatch_message_hooks(
-                            assistant_msg, active_hook_ctx, run_id
+                        published = await self._dispatch_message_hooks(
+                            assistant_msg,
+                            active_hook_ctx,
+                            run_id,
+                            controller=controller,
                         )
+                        if not published:
+                            break
                         yield assistant_msg
 
                         _append_llm_message(
@@ -467,6 +475,12 @@ class AgentLoop:
                                 # 让前端误显示 "运行中"。gate 拒绝时整条 dispatch 链 break，
                                 # tool_start 也不发，前端只在 tool_result 阶段渲染 ✕。
 
+                            if on_progress is not None:
+                                on_progress(
+                                    _accumulate_usage(turn_usage, latest_usage),
+                                    tuple(all_tool_calls),
+                                )
+
                             # Collect early-completed results for UI but defer LLM
                             # history appending until after the stream ends.
                             # Appending tool_result messages mid-stream would split
@@ -480,6 +494,7 @@ class AgentLoop:
                                         result,
                                         parent_message_id=last_assistant_msg_id,
                                         group_id=last_assistant_msg_id,
+                                        session_id=state.session_id,
                                     )
                                     last_parent_id = tool_msg.message_id
                                     yield tool_msg
@@ -493,7 +508,9 @@ class AgentLoop:
                     for result in early_tool_results:
                         _append_llm_message(
                             llm_messages,
-                            self._build_llm_tool_result_message(result),
+                            self._build_llm_tool_result_message(
+                                result, session_id=state.session_id
+                            ),
                         )
                     if executor is not None:
                         async for result in executor.get_remaining_results():
@@ -502,12 +519,15 @@ class AgentLoop:
                                 result,
                                 parent_message_id=last_assistant_msg_id,
                                 group_id=last_assistant_msg_id,
+                                session_id=state.session_id,
                             )
                             last_parent_id = tool_msg.message_id
                             yield tool_msg
                             _append_llm_message(
                                 llm_messages,
-                                self._build_llm_tool_result_message(result),
+                                self._build_llm_tool_result_message(
+                                    result, session_id=state.session_id
+                                ),
                             )
                             await self._dispatch_tool_result_hook(
                                 result, active_hook_ctx, run_id
@@ -515,9 +535,9 @@ class AgentLoop:
 
                     turn_usage = _accumulate_usage(turn_usage, latest_usage)
                     if turn_usage is not None and turn_usage.prompt_tokens > 0:
-                        self._last_real_prompt_tokens[state.session_id] = (
-                            turn_usage.prompt_tokens
-                        )
+                        last_real_prompt_tokens = turn_usage.prompt_tokens
+                    if on_progress is not None:
+                        on_progress(turn_usage, tuple(all_tool_calls))
 
                     if not iteration_tool_calls:
                         # bugfix-426-M4 决策5: before finishing, atomically re-check for a
@@ -531,6 +551,20 @@ class AgentLoop:
                         # bubble (决策6). An empty result commits the terminal: subsequent
                         # injects are rejected and fall back to a new run.
                         if controller is not None:
+                            if controller.is_aborted:
+                                controller.commit_terminal()
+                                yield Message(
+                                    message_id=make_message_id(),
+                                    role="turn_meta",
+                                    content="",
+                                    metadata={
+                                        "stop_reason": "aborted",
+                                        "usage": turn_usage,
+                                        "completed": False,
+                                        "tool_iterations": api_round_count,
+                                    },
+                                )
+                                return
                             late_pending = controller.try_commit_terminal()
                             if late_pending:
                                 for pending in late_pending:
@@ -620,7 +654,11 @@ class AgentLoop:
         msg: Message,
         hook_ctx: HookContext,
         run_id: str | None,
-    ) -> None:
+        *,
+        controller: RunController | None = None,
+    ) -> bool:
+        if controller is not None and controller.is_aborted:
+            return False
         await self._dispatch_observe_async(
             "message_start",
             _with_optional_run_id(
@@ -634,6 +672,8 @@ class AgentLoop:
             ),
             hook_ctx,
         )
+        if controller is not None and controller.is_aborted:
+            return False
         await self._dispatch_observe_async(
             "message_update",
             _with_optional_run_id(
@@ -647,6 +687,8 @@ class AgentLoop:
             ),
             hook_ctx,
         )
+        if controller is not None and controller.is_aborted:
+            return False
         await self._dispatch_observe_async(
             "message_end",
             _with_optional_run_id(
@@ -665,6 +707,7 @@ class AgentLoop:
             ),
             hook_ctx,
         )
+        return controller is None or not controller.is_aborted
 
     async def _dispatch_pending_consumed(
         self,
@@ -764,7 +807,7 @@ class AgentLoop:
             return self._available_tools
         return ()
 
-    def _serialize_tool_result(self, result: ToolResult) -> str:
+    def _serialize_tool_result(self, result: ToolResult, *, session_id: str) -> str:
         """Serialize tool result via tool adapter, then apply budget compression."""
 
         tool = (
@@ -781,11 +824,7 @@ class AgentLoop:
             raw_content = _serialize_tool_result_content(result)
 
         compressor = self._tool_result_compressor
-        if (
-            compressor is not None
-            and result.call_id
-            and self._active_session_id is not None
-        ):
+        if compressor is not None and result.call_id:
             max_size = getattr(
                 tool, "max_result_size_chars", DEFAULT_MAX_RESULT_SIZE_CHARS
             )
@@ -793,18 +832,20 @@ class AgentLoop:
                 raw_content,
                 tool_name=result.name,
                 tool_call_id=result.call_id,
-                session_id=self._active_session_id,
+                session_id=session_id,
                 max_size_chars=max_size,
             )
 
         return raw_content
 
-    def _build_llm_tool_result_message(self, result: ToolResult) -> LLMMessage:
+    def _build_llm_tool_result_message(
+        self, result: ToolResult, *, session_id: str
+    ) -> LLMMessage:
         """Build an LLMMessage for appending to the live prompt."""
 
         return LLMMessage(
             role="tool",
-            content=self._serialize_tool_result(result),
+            content=self._serialize_tool_result(result, session_id=session_id),
             tool_call_id=result.call_id,
         )
 
@@ -814,6 +855,7 @@ class AgentLoop:
         *,
         parent_message_id: str | None = None,
         group_id: str | None = None,
+        session_id: str,
     ) -> Message:
         """Build a Message for yielding a completed tool result."""
 
@@ -822,7 +864,7 @@ class AgentLoop:
             parent_message_id=parent_message_id,
             group_id=group_id,
             role="tool",
-            content=self._serialize_tool_result(result),
+            content=self._serialize_tool_result(result, session_id=session_id),
             tool_call_id=result.call_id,
             metadata={
                 "tool_phase": "result",
@@ -891,15 +933,18 @@ class AgentLoop:
         ):
             return None
         if (
-            self._session_manager is None
+            self._compaction_entries is None
             or self._compaction_planner is None
             or self._compaction_summarizer is None
         ):
             return None
 
-        entries = self._session_manager.list_entries(
-            session_id, workspace_root=workspace_root
+        captured_epoch = (
+            self._capture_compaction_epoch()
+            if self._capture_compaction_epoch is not None
+            else 0
         )
+        entries = self._compaction_entries()
         plan = self._compaction_planner.plan(
             events=entries, reason=CompactionReason.THRESHOLD
         )
@@ -964,6 +1009,19 @@ class AgentLoop:
         )
         if reinjection_msg is not None:
             summary_msg.metadata["_post_compact_messages"] = (reinjection_msg,)
+
+        reinjections = (reinjection_msg,) if reinjection_msg is not None else ()
+        if self._commit_compaction is not None and not self._commit_compaction(
+            summary_msg,
+            reinjections,
+            plan.reason.value,
+            tuple(restored_files),
+            captured_epoch,
+        ):
+            # An external append landed while the summary was being generated.
+            # Keep the current prompt intact; the next transaction reloads the
+            # durable append instead of hiding it behind a stale boundary.
+            return None
 
         # Build new llm_messages before the post-compact model retry/continuation.
         llm_messages[:] = [LLMMessage(role="user", content=summary)]

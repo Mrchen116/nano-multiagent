@@ -21,6 +21,7 @@ This is the design.md M1 「外部产品最小证明」exit-criterion in test fo
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -40,6 +41,7 @@ from agent.sdk import (
 )
 from agent.sdk.dto import FeatureInfo, ModelInfo, RunInfo, ToolInfo
 from agent.core.llm.interfaces import LLMMessage, LLMToolCall
+from agent.core.session.types import PromptSlotSeed, SessionRef
 
 
 # ---------------------------------------------------------------------------
@@ -206,6 +208,72 @@ def test_build_kernel_from_llm_config_no_pre_init(tmp_path: Path) -> None:
     assert isinstance(cfg, LLMConfig)
     assert cfg.provider == "openai_compat"
     assert cfg.model == "codex_oauth:gpt-5.5"
+
+
+def test_kernel_close_closes_owned_provider_clients(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import agent.sdk.kernel as kernel_module
+
+    class _ClosableClient:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def generate(self, request: Any):  # noqa: ANN001, ANN201
+            return _stub("unused")
+
+        async def close(self) -> None:
+            self.closed = True
+
+    clients: list[_ClosableClient] = []
+
+    def _factory(**_kwargs: Any) -> _ClosableClient:
+        client = _ClosableClient()
+        clients.append(client)
+        return client
+
+    monkeypatch.setattr(kernel_module, "_platform_create_llm_client", _factory)
+    kernel = build_kernel(
+        llm=_llm_config(),
+        workspace_config_dirname=".nanotest",
+        repo_root=tmp_path,
+    )
+
+    kernel.close()
+
+    assert clients
+    assert all(client.closed for client in clients)
+
+
+def test_kernel_close_stops_owned_jsonl_writer_thread(tmp_path: Path) -> None:
+    kernel = _build(tmp_path)
+    writer_thread = kernel._c.directory._writer._thread  # type: ignore[attr-defined]
+    assert writer_thread.is_alive()
+
+    kernel.close()
+
+    assert not writer_thread.is_alive()
+
+
+async def test_kernel_aclose_stops_threads_when_conversation_flush_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    kernel = _build(tmp_path)
+    await kernel.create_session(workspace_root=tmp_path)
+    writer = kernel._c.directory._writer  # type: ignore[attr-defined]
+    writer_thread = writer._thread
+    executor_thread = kernel._c.executor._thread  # type: ignore[attr-defined]
+
+    async def _fail_flush(_path: Path) -> None:
+        raise OSError("simulated flush failure")
+
+    monkeypatch.setattr(writer, "durable_barrier_async", _fail_flush)
+
+    with pytest.raises(OSError, match="simulated flush failure"):
+        await kernel.aclose()
+
+    assert not writer_thread.is_alive()
+    assert not executor_thread.is_alive()
 
 
 # ---------------------------------------------------------------------------
@@ -391,3 +459,85 @@ async def test_prompt_slots_reach_preview(tmp_path: Path) -> None:
         scenario="direct",
     )
     assert "UNIQUE-IDENTITY-MARKER" in result["prompt"]
+
+
+async def test_prompt_slots_rehydrate_into_system_prompt_after_kernel_restart(
+    tmp_path: Path,
+) -> None:
+    slots = PromptSlots(
+        head=(PromptText(name="app.identity", text="PROMPT-SLOTS-RESTART"),)
+    )
+    first = _build(tmp_path)
+    try:
+        session = await first.create_session(
+            workspace_root=tmp_path,
+            prompt=slots,
+        )
+    finally:
+        await first.aclose()
+
+    captured: list[Any] = []
+
+    class _CapturingClient:
+        def generate(self, request: Any):  # noqa: ANN001, ANN201
+            captured.append(request)
+            return _stub("reopened")
+
+    second = _build(tmp_path, _llm_client_override=_CapturingClient())
+    try:
+        run = second.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "after restart"}],
+            workspace_root=tmp_path,
+        )
+        assert (await _wait_terminal(second, run.run_id)).status == "completed"
+        system_prompt = str(captured[-1].messages[0].content)
+        assert "PROMPT-SLOTS-RESTART" in system_prompt
+    finally:
+        await second.aclose()
+
+
+async def test_legacy_session_without_prompt_seed_uses_empty_fallback(
+    tmp_path: Path,
+) -> None:
+    session_id = "sess_legacy_prompt_slots"
+    transcript = tmp_path / ".nanotest" / "sessions" / f"{session_id}.jsonl"
+    transcript.parent.mkdir(parents=True)
+    transcript.write_text(
+        json.dumps(
+            {
+                "type": "session_created",
+                "session_id": session_id,
+                "created_at": "2026-01-01T00:00:00Z",
+                "workspace_root": str(tmp_path),
+                "metadata": {"legacy": True},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    captured: list[Any] = []
+
+    class _CapturingClient:
+        def generate(self, request: Any):  # noqa: ANN001, ANN201
+            captured.append(request)
+            return _stub("legacy-opened")
+
+    kernel = _build(tmp_path, _llm_client_override=_CapturingClient())
+    try:
+        run = kernel.submit(
+            session_id=session_id,
+            parts=[{"type": "text", "text": "open legacy"}],
+            workspace_root=tmp_path,
+        )
+        assert (await _wait_terminal(kernel, run.run_id)).status == "completed"
+        reopened = kernel._c.directory.open(  # type: ignore[attr-defined]
+            SessionRef(session_id=session_id, workspace_root=tmp_path)
+        )
+        assert reopened.prompt_seed == PromptSlotSeed()
+        assert captured[-1].messages[0].role == "system"
+        assert kernel.get_session(session_id, workspace_root=tmp_path)["metadata"] == {
+            "legacy": True
+        }
+    finally:
+        await kernel.aclose()

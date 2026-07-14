@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from concurrent.futures import Future
 from pathlib import Path
-from typing import Any, Coroutine, Literal, Mapping, Protocol, Sequence
+from typing import Any, Literal, Mapping, Protocol, Sequence
 
 from agent.core.background_tasks.models import BackgroundTaskRecord
 
@@ -55,6 +54,13 @@ class BackgroundSubagentHandle(
     """Live subagent control handle: stop plus follow-up delivery."""
 
 
+class ForegroundSubagentHandle(BackgroundSubagentHandle, Protocol):
+    """Typed foreground target whose result may time out and continue running."""
+
+    def result(self, timeout: float | None = None) -> Any:
+        """Wait for the subagent turn result within the foreground budget."""
+
+
 class BackgroundSubagentRunner(Protocol):
     """Execute a subagent turn and report completion via callback."""
 
@@ -72,16 +78,17 @@ class BackgroundSubagentRunner(Protocol):
         model: str | None = None,
     ) -> BackgroundSubagentHandle: ...
 
-    def submit_foreground(self, coro: Coroutine[Any, Any, Any]) -> Future:
-        """Run a foreground subagent coroutine and return a Future for its result.
-
-        Unlike :meth:`start` (fire-and-forget background task with completion
-        callback), this submits a *bare* coroutine onto the kernel's dedicated
-        event loop and returns a ``concurrent.futures.Future`` the caller blocks
-        on for the foreground budget. bugfix-418: avoids the cross-loop fault and
-        the double-notification regression (no completion callback to fire).
-        """
-        ...
+    def start_foreground(
+        self,
+        *,
+        agent_session_id: str,
+        parent_session_id: str,
+        prompt: str,
+        workspace_root: Path,
+        llm_session_id: str | None = None,
+        model: str | None = None,
+    ) -> ForegroundSubagentHandle:
+        """Start one typed auxiliary target without accepting a bare coroutine."""
 
 
 class BackgroundBashRunner(Protocol):

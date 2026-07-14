@@ -50,8 +50,8 @@ class _FakeLLMClient:
         )
 
 
-class _FakeSessionManager:
-    """Session manager that returns synthetic entries for compaction planning."""
+class _FakeCompactionEntries:
+    """Provide synthetic transcript entries for compaction planning."""
 
     def __init__(self, history_messages: tuple[Message, ...]) -> None:
         self._history = history_messages
@@ -157,7 +157,9 @@ async def test_loop_triggers_compact_when_token_threshold_exceeded() -> None:
         ),
         compaction_planner=_FakeCompactionPlanner(),
         compaction_summarizer=_FakeCompactionSummarizer(),
-        session_manager=_FakeSessionManager(history),
+        compaction_entries=lambda: _FakeCompactionEntries(history).list_entries(
+            "sess-compact"
+        ),
     )
     state = _make_state(history_messages=history, user_text="trigger")
 
@@ -195,7 +197,9 @@ async def test_loop_continues_iteration_after_compact() -> None:
         ),
         compaction_planner=_FakeCompactionPlanner(),
         compaction_summarizer=_FakeCompactionSummarizer(),
-        session_manager=_FakeSessionManager(history),
+        compaction_entries=lambda: _FakeCompactionEntries(history).list_entries(
+            "sess-compact"
+        ),
     )
     state = _make_state(history_messages=history, user_text="trigger")
 
@@ -230,7 +234,9 @@ async def test_loop_compact_does_not_modify_session_history() -> None:
         ),
         compaction_planner=_FakeCompactionPlanner(),
         compaction_summarizer=_FakeCompactionSummarizer(),
-        session_manager=_FakeSessionManager(original_history),
+        compaction_entries=lambda: _FakeCompactionEntries(
+            original_history
+        ).list_entries("sess-compact"),
     )
     state = _make_state(history_messages=original_history, user_text="trigger")
 
@@ -266,7 +272,9 @@ async def test_loop_preserves_system_prompt_after_compact() -> None:
         ),
         compaction_planner=_FakeCompactionPlanner(),
         compaction_summarizer=_FakeCompactionSummarizer(),
-        session_manager=_FakeSessionManager(history),
+        compaction_entries=lambda: _FakeCompactionEntries(history).list_entries(
+            "sess-compact"
+        ),
     )
     state = _make_state(history_messages=history, user_text="trigger")
 
@@ -282,8 +290,8 @@ async def test_loop_fires_on_compaction_callback_with_session_id() -> None:
     """compaction 触发后 on_compaction callback 被调用，携带正确 session_id。
 
     Verifies the closed loop: _maybe_compact success → _on_compaction_callback(session_id),
-    which lets AgentRuntime._invalidate_memory_snapshot drop the stale cache entry so the
-    next turn re-reads memory from disk.
+    which lets the owning conversation invalidate its memory snapshot so the next turn
+    re-reads memory from disk.
     """
     long_content = "x" * 800
     session_id = "sess-callback-check"
@@ -310,7 +318,9 @@ async def test_loop_fires_on_compaction_callback_with_session_id() -> None:
         ),
         compaction_planner=_FakeCompactionPlanner(),
         compaction_summarizer=_FakeCompactionSummarizer(),
-        session_manager=_FakeSessionManager(history),
+        compaction_entries=lambda: _FakeCompactionEntries(history).list_entries(
+            session_id
+        ),
         on_compaction=on_compaction,
     )
     state = _make_state(
@@ -544,7 +554,9 @@ def _make_compacting_loop(summarizer, *, summary_model=None) -> tuple[AgentLoop,
         ),
         compaction_planner=_FakeCompactionPlanner(),
         compaction_summarizer=summarizer,
-        session_manager=_FakeSessionManager(history),
+        compaction_entries=lambda: _FakeCompactionEntries(history).list_entries(
+            "sess-compact"
+        ),
     )
     return loop, history
 

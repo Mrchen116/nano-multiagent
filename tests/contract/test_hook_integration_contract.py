@@ -3,30 +3,21 @@ from pathlib import Path
 
 import pytest
 
-from agent.core.agent.runtime import AgentRuntime
 from agent.core.errors import ToolError
 from agent.core.hooks.context import HookContext
 from agent.core.hooks.registry import HookRegistry
 from agent.core.hooks.runner import HookRunner
-from agent.core.llm.interfaces import (
-    LLMGenerateRequest,
-    LLMGenerateResponse,
-    LLMMessage,
-)
-from agent.core.session.jsonl_store import JsonlSessionStore
-from agent.core.session.manager import SessionManager
 from agent.platform.tools.base import ToolContext
 from agent.platform.tools.registry import ToolRegistry
+from agent.core.tools.base import (
+    set_tool_safety_config_factory,
+    set_tool_safety_factory,
+)
+from agent.platform.tools.safety import ToolSafety, ToolSafetyConfig
 
 
-class StubLLMClient:
-    def generate(self, request: LLMGenerateRequest) -> LLMGenerateResponse:
-        del request
-        return LLMGenerateResponse(
-            model="mock-model",
-            message=LLMMessage(role="assistant", content="ignored"),
-            finish_reason="stop",
-        )
+set_tool_safety_factory(ToolSafety)
+set_tool_safety_config_factory(ToolSafetyConfig)
 
 
 class EchoTool:
@@ -42,36 +33,6 @@ class EchoTool:
     def run(self, args, ctx):
         del ctx
         return {"text": args["text"]}
-
-
-def test_runtime_input_handled_short_circuit_contract(tmp_path: Path) -> None:
-    registry = HookRegistry()
-
-    async def handled(event, ctx):
-        del event, ctx
-        return {"action": "handled"}
-
-    registry.on("input", handled)
-
-    manager = SessionManager(store=JsonlSessionStore(data_dir=tmp_path / "sessions"))
-    session = manager.create_session(workspace_root=tmp_path)
-    runtime = AgentRuntime(
-        session_manager=manager,
-        llm_client=StubLLMClient(),
-        model="mock-model",
-        hook_runner=HookRunner(registry=registry),
-        repo_root=Path.cwd(),
-    )
-
-    result = asyncio.run(
-        runtime.run(
-            session.session_id, [{"type": "text", "text": "ping"}], stream=False
-        )
-    )
-
-    assert result.completed is True
-    assert result.stop_reason == "handled_by_hook"
-    assert result.messages == ()
 
 
 def test_tool_call_block_error_contract() -> None:

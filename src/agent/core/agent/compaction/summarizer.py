@@ -4,7 +4,7 @@ import logging
 from typing import TYPE_CHECKING, Sequence
 
 from agent.core.agent.state import AgentState, InputPart
-from agent.core.tools.session_file_state import SessionFileState
+from agent.core.session.context_state import SessionFileState
 from agent.core.types import Message
 
 from .prompts import format_compact_summary, get_compact_prompt

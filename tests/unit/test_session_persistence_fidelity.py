@@ -18,15 +18,16 @@ import pytest
 
 from agent.core.ids import make_message_id
 from agent.core.types import Message
-from agent.core.agent.runtime import _message_to_entry
 from agent.core.agent.prompting import build_chat_messages
 from agent.core.session.entries import (
     message_from_turn_entry,
     SessionEntry,
     SessionEntryKind,
 )
-from agent.core.session.jsonl_store import JsonlSessionStore
-from agent.core.session.manager import SessionManager
+from agent.core.session.jsonl_files import JsonlSessionFiles
+from agent.core.session.jsonl_writer import JsonlWriter
+from agent.core.session.transcript import JsonlTranscript, _message_to_raw, _to_message
+from agent.core.session.types import NewSession, SessionRef
 
 
 # ---------------------------------------------------------------------------
@@ -102,8 +103,20 @@ def _entry_to_message(entry: dict) -> Message:
 
 def _roundtrip(msg: Message) -> Message:
     """Persist msg → JSONL entry → restore as Message."""
-    entry = _message_to_entry(msg, session_id="test-session")
+    entry = _message_to_raw(msg, session_id="test-session")
     return _entry_to_message(entry)
+
+
+def _make_transcript(
+    tmp_path: Path, session_id: str = "test-session"
+) -> JsonlTranscript:
+    ref = SessionRef(session_id=session_id, workspace_root=tmp_path)
+    return JsonlTranscript.create(
+        ref=ref,
+        spec=NewSession(workspace_root=tmp_path),
+        files=JsonlSessionFiles(data_dir=tmp_path),
+        writer=JsonlWriter(),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -117,12 +130,12 @@ class TestReasoningPersistence:
             reasoning_content="let me think step by step",
             reasoning_signature="sig-abc123",
         )
-        entry = _message_to_entry(msg, session_id="s1")
+        entry = _message_to_raw(msg, session_id="s1")
         assert entry.get("reasoning_content") == "let me think step by step", (
-            "_message_to_entry must write reasoning_content to JSONL"
+            "_message_to_raw must write reasoning_content to JSONL"
         )
         assert entry.get("reasoning_signature") == "sig-abc123", (
-            "_message_to_entry must write reasoning_signature to JSONL"
+            "_message_to_raw must write reasoning_signature to JSONL"
         )
 
     def test_reasoning_fields_on_message_type(self):
@@ -178,7 +191,7 @@ class TestReasoningPersistence:
 
     def test_reasoning_none_when_absent(self):
         msg = _make_assistant_msg(content="no thinking here")
-        entry = _message_to_entry(msg, session_id="s1")
+        entry = _message_to_raw(msg, session_id="s1")
         assert "reasoning_content" not in entry
         assert "reasoning_signature" not in entry
         restored = _roundtrip(msg)
@@ -194,9 +207,9 @@ class TestReasoningPersistence:
 class TestToolResultPairingFidelity:
     def test_tool_call_id_written_to_jsonl_entry(self):
         msg = _make_tool_msg(call_id="call-A", tool_name="read", result="file contents")
-        entry = _message_to_entry(msg, session_id="s1")
+        entry = _message_to_raw(msg, session_id="s1")
         assert entry.get("tool_call_id") == "call-A", (
-            "_message_to_entry must write tool_call_id to JSONL"
+            "_message_to_raw must write tool_call_id to JSONL"
         )
 
     def test_tool_call_id_restored_on_message(self):
@@ -293,7 +306,7 @@ class TestToolResultPairingFidelity:
 # ---------------------------------------------------------------------------
 # Guard (bugfix-375/M2): Message↔JSONL round-trip field-conservation.
 # Forces any newly-added Message field to be classified as persisted (and
-# handled in _message_to_entry/_to_message) or explicitly not-persisted — so a
+# handled in _message_to_raw/_to_message) or explicitly not-persisted — so a
 # future field can't silently vanish on persist→restore the way reasoning_*
 # once did.
 # ---------------------------------------------------------------------------
@@ -301,7 +314,6 @@ class TestToolResultPairingFidelity:
 
 def test_message_jsonl_roundtrip_field_conservation_guard():
     import dataclasses
-    from agent.core.session.jsonl_store import _to_message
 
     # Top-level scalar fields that MUST survive Message -> entry -> Message.
     PERSISTED = {
@@ -326,7 +338,7 @@ def test_message_jsonl_roundtrip_field_conservation_guard():
     all_fields = {f.name for f in dataclasses.fields(Message)}
     assert all_fields == PERSISTED | NOT_PERSISTED, (
         "Message gained/lost a field. Classify each field: add it to PERSISTED "
-        "(and handle it in _message_to_entry + _to_message) or to NOT_PERSISTED "
+        "(and handle it in _message_to_raw + _to_message) or to NOT_PERSISTED "
         "with a reason — never let a new field silently skip JSONL round-trip."
     )
 
@@ -340,7 +352,7 @@ def test_message_jsonl_roundtrip_field_conservation_guard():
         reasoning_content="chain of thought",
         reasoning_signature="sig-xyz-4340",
     )
-    restored = _to_message(_message_to_entry(msg, "sess-guard"))
+    restored = _to_message(_message_to_raw(msg, "sess-guard"))
     for fname in PERSISTED:
         assert getattr(restored, fname) == getattr(msg, fname), (
             f"field '{fname}' dropped in Message↔JSONL round-trip"
@@ -367,10 +379,8 @@ class TestImagePartsRoundTrip:
         JSONL and the session is reloaded (simulating a later turn / process restart),
         the model must still see the image.
         """
-        store = JsonlSessionStore(data_dir=tmp_path)
-        manager = SessionManager(store=store)
-        session = manager.create_session(workspace_root=tmp_path)
-        sid = session.session_id
+        sid = "sess-image"
+        transcript = _make_transcript(tmp_path, sid)
 
         # Persist a user turn carrying an image (mirrors runtime submit path).
         user_msg = Message(
@@ -382,13 +392,10 @@ class TestImagePartsRoundTrip:
                 {"type": "image", "image_url": _IMAGE_DATA_URL},
             ),
         )
-        path = store.resolve_path(sid)
-        with path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(_message_to_entry(user_msg, sid)) + "\n")
+        transcript.append_messages([user_msg], durable=True)
 
         # Reload through the real load path (used to rebuild runtime history).
-        reloaded = JsonlSessionStore(data_dir=tmp_path)
-        result = reloaded.load(sid)
+        result = transcript.load()
         restored = [m for m in result.messages if m.role == "user"][-1]
         assert restored.parts is not None
         assert {"type": "image", "image_url": _IMAGE_DATA_URL} in [
@@ -407,7 +414,7 @@ class TestImagePartsRoundTrip:
     def test_pure_text_user_turn_has_no_parts_key_in_jsonl(self) -> None:
         """A text-only user turn must not write a `parts` key (text golden 不漂移)."""
         msg = Message(message_id="m1", role="user", content="just text")
-        entry = _message_to_entry(msg, session_id="s1")
+        entry = _message_to_raw(msg, session_id="s1")
         assert "parts" not in entry
 
     def test_message_from_turn_entry_restores_parts(self) -> None:
@@ -443,7 +450,7 @@ class TestImagePartsRoundTrip:
     def test_new_turn_appended_entry_omits_empty_parts_key(self) -> None:
         """bugfix-433-fix1 #4: text-only turn must NOT write `parts: []`.
 
-        ``_message_to_entry`` only writes ``parts`` when non-empty; ``new_turn_appended_entry``
+        ``_message_to_raw`` only writes ``parts`` when non-empty; ``new_turn_appended_entry``
         previously always wrote ``"parts": []`` — an asymmetry that makes the two write paths
         produce structurally different entries for the same text-only turn (golden drift).
         """
@@ -463,10 +470,8 @@ class TestImagePartsRoundTrip:
 
         The field-conservation guard only exercised parts=None→None; a regression that
         dropped non-empty parts on round-trip would slip through. Assert image parts
-        survive _message_to_entry → _to_message intact.
+        survive _message_to_raw → _to_message intact.
         """
-        from agent.core.session.jsonl_store import _to_message
-
         msg = Message(
             message_id="m-parts",
             role="user",
@@ -476,7 +481,7 @@ class TestImagePartsRoundTrip:
                 {"type": "image", "image_url": _IMAGE_DATA_URL},
             ),
         )
-        restored = _to_message(_message_to_entry(msg, "sess-parts"))
+        restored = _to_message(_message_to_raw(msg, "sess-parts"))
         assert restored.parts is not None
         assert [dict(p) for p in restored.parts] == [
             {"type": "text", "text": "look"},
@@ -491,36 +496,28 @@ class TestImagePartsRoundTrip:
 
 def _make_session_with_orphaned_tool_call(
     tmp_path: Path,
-) -> tuple[JsonlSessionStore, str]:
+) -> JsonlTranscript:
     """Create a session whose JSONL contains an unclosed assistant tool_call."""
-    store = JsonlSessionStore(data_dir=tmp_path)
-    manager = SessionManager(store=store)
-    session = manager.create_session(workspace_root=tmp_path)
-    sid = session.session_id
+    sid = "sess-orphan"
+    transcript = _make_transcript(tmp_path, sid)
     call_id = "call-orphan-r3"
 
-    path = store.resolve_path(sid)
-    # Write assistant message with tool_call directly to JSONL (simulates mid-run crash)
-    with path.open("a", encoding="utf-8") as f:
-        f.write(
-            json.dumps(
-                {
-                    "type": "turn",
-                    "uuid": "msg-r3-asst",
-                    "parent_uuid": None,
-                    "session_id": sid,
-                    "role": "assistant",
-                    "content": "",
-                    "timestamp": "2026-01-01T00:00:00+00:00",
+    transcript.append_messages(
+        [
+            Message(
+                message_id="msg-r3-asst",
+                role="assistant",
+                content="",
+                metadata={
                     "tool_calls": [
                         {"call_id": call_id, "name": "bash", "arguments": {}}
-                    ],
+                    ]
                 },
-                ensure_ascii=False,
             )
-            + "\n"
-        )
-    return store, sid
+        ],
+        durable=True,
+    )
+    return transcript
 
 
 class TestOrphanedToolCallRecovery:
@@ -528,11 +525,11 @@ class TestOrphanedToolCallRecovery:
 
     def test_build_chat_messages_valid_after_prepare(self, tmp_path: Path) -> None:
         """prepare 修复后 load+build 产生合法 transcript（每个 tool_call 都有 result）。"""
-        store, sid = _make_session_with_orphaned_tool_call(tmp_path)
+        transcript = _make_session_with_orphaned_tool_call(tmp_path)
 
-        store.prepare_transcript_for_run(sid, reason="interrupted")
+        transcript.prepare_for_run(reason="interrupted")
 
-        result = store.load(sid)
+        result = transcript.load()
         messages = tuple(result.messages)
 
         # build_chat_messages 不应因孤立 tool_call 抛错
@@ -559,10 +556,10 @@ class TestOrphanedToolCallRecovery:
 
     def test_load_after_prepare_contains_recovery_message(self, tmp_path: Path) -> None:
         """load() 结果中包含 recovery 后的合成 tool result message。"""
-        store, sid = _make_session_with_orphaned_tool_call(tmp_path)
-        store.prepare_transcript_for_run(sid, reason="cancelled")
+        transcript = _make_session_with_orphaned_tool_call(tmp_path)
+        transcript.prepare_for_run(reason="cancelled")
 
-        result = store.load(sid)
+        result = transcript.load()
         # recovery entry は「type=tool_call_recovery」として raw JSONL に追加されるが,
         # load()の現状実装は recovery entry を messages には含まない.
         # ここでは build_chat_messages が合法であることを確認する.
@@ -572,12 +569,12 @@ class TestOrphanedToolCallRecovery:
 
     def test_prepare_then_load_is_idempotent(self, tmp_path: Path) -> None:
         """prepare を 2 回呼んでも load 結果に重複 recovery message が出ない。"""
-        store, sid = _make_session_with_orphaned_tool_call(tmp_path)
+        transcript = _make_session_with_orphaned_tool_call(tmp_path)
 
-        store.prepare_transcript_for_run(sid, reason="shutdown")
-        store.prepare_transcript_for_run(sid, reason="shutdown")
+        transcript.prepare_for_run(reason="shutdown")
+        transcript.prepare_for_run(reason="shutdown")
 
-        path = store.resolve_path(sid)
+        path = transcript.path
         raw: list[dict] = []
         with path.open("r", encoding="utf-8") as f:
             for line in f:
@@ -605,33 +602,15 @@ class TestRecoveryWithNoTurns:
         an empty messages list (not raise or silently skip) — the important thing is
         that the code path does NOT return before reaching _inject_recovery_messages.
         """
-        import json as _json
-        from agent.core.session.jsonl_store import JsonlSessionStore
-        from agent.core.session.manager import SessionManager
-
-        store = JsonlSessionStore(data_dir=tmp_path)
-        manager = SessionManager(store=store)
-        # Create a real session (writes session_created line) so load() can parse config.
-        session = manager.create_session(workspace_root=tmp_path)
-        sid = session.session_id
-
-        # Append a recovery entry directly — no turn entries follow the session_created.
-        path = store.resolve_path(sid)
-        with path.open("a", encoding="utf-8") as f:
-            f.write(
-                _json.dumps(
-                    {
-                        "type": "tool_call_recovery",
-                        "tool_call_id": "call_orphan_1",
-                        "reason": "interrupted",
-                        "idempotency_key": "test-idem-1",
-                    }
-                )
-                + "\n"
-            )
+        transcript = _make_transcript(tmp_path, "sess-recovery-only")
+        transcript.append_tool_call_recovery(
+            tool_call_id="call_orphan_1",
+            reason="interrupted",
+            durable=True,
+        )
 
         # Load must not raise and must return an empty (or at least non-None) LoadResult.
-        result = store.load(session_id=sid)
+        result = transcript.load()
         # The primary assertion: load() completes without error.
         # messages must be [] since there are no assistant turns to attach recovery to;
         # _inject_recovery_messages finds no insertion point and returns unchanged [].

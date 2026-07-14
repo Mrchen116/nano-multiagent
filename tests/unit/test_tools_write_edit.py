@@ -15,7 +15,7 @@ from agent.core.tools.base import (
     set_tool_safety_factory,
     set_tool_safety_config_factory,
 )
-from agent.core.tools.session_file_state import SessionFileState
+from agent.core.session.context_state import SessionFileState
 
 set_tool_safety_factory(ToolSafety)
 set_tool_safety_config_factory(ToolSafetyConfig)

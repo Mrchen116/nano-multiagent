@@ -6,8 +6,8 @@ call registry functions without setup will now fail with RuntimeError.
 
 Module-level initialization here ensures the registry is populated before pytest
 collection imports test modules that transitively call registry functions (e.g.
-src/agent/platform/http_api/app.py calls create_app() at module level, which
-invokes AgentRuntime.__init__ → LLMFactoryConfig.from_env() → get_default_provider()).
+SDK composition may construct an AgentEngine while tests import product modules,
+which resolves LLMFactoryConfig.from_env() → get_default_provider().
 
 The autouse fixture resets/re-initializes before each test, so tests get a clean
 slate and explicit "not initialized" tests can call _reset_for_tests() safely.

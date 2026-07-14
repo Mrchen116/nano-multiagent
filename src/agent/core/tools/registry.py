@@ -24,7 +24,7 @@ from .base import (
     _require_tool_safety_factory,
 )
 from .result_budget import DEFAULT_MAX_RESULT_SIZE_CHARS
-from .session_file_state import SessionFileState
+from agent.core.session.context_state import SessionFileState
 
 # bugfix-417-M6 (#115): cadence of the generic tool-execution liveness ticker. Must
 # stay well below the watchdog idle window (Gateway/IM default 120s) so a long silent
@@ -304,6 +304,7 @@ class ToolRegistry:
                 if active_hook_context.metadata
                 else {},
                 session_file_state=session_file_state,
+                subagent_control=active_hook_context.subagent_control,
             )
             log_info("tool_execution_start", tool_name=name)
             await self._dispatch_observe(

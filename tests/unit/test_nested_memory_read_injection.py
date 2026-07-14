@@ -22,7 +22,7 @@ from agent.core.tools.base import (
     set_tool_safety_config_factory,
     set_tool_safety_factory,
 )
-from agent.core.tools.session_file_state import SessionFileState
+from agent.core.session.context_state import SessionFileState
 from agent.platform.tools.builtins.read import ReadTool
 from agent.platform.tools.safety import ToolSafety, ToolSafetyConfig
 

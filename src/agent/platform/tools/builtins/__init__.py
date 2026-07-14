@@ -40,7 +40,6 @@ __all__ = [
 
 def builtin_tools(
     *,
-    runtime: Any | None = None,
     wiring: Any | None = None,
 ) -> tuple[object, ...]:
     """Return built-in tool instances in the canonical registration order.
@@ -55,7 +54,7 @@ def builtin_tools(
         WriteTool(),
         EditTool(),
         BashTool(wiring=wiring),
-        AgentTool(runtime=runtime, wiring=wiring),
+        AgentTool(wiring=wiring),
         TaskStopTool(wiring=wiring),
         WebFetchTool(),
     )
@@ -64,10 +63,9 @@ def builtin_tools(
 def register_builtin_tools(
     registry,
     *,
-    runtime: Any | None = None,
     wiring: Any | None = None,
 ) -> None:  # noqa: ANN001
     """Register all built-in tools into the provided registry."""
 
-    for tool in builtin_tools(runtime=runtime, wiring=wiring):
+    for tool in builtin_tools(wiring=wiring):
         registry.register(tool)

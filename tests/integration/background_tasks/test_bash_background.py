@@ -33,11 +33,6 @@ class _RunsRegistryStub:
     def get_active_run_id(self, session_id: str) -> str | None:
         return self._active_run_by_session.get(session_id)
 
-    @property
-    def session_manager(self) -> None:
-        # bugfix-404 F3: stub satisfies the public property added to RunsRegistry.
-        return None
-
     def inject_pending_message(
         self,
         session_id: str,
