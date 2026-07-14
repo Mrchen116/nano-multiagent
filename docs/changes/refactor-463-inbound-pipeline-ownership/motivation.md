@@ -3,7 +3,7 @@
 ## Relations
 
 - Depends on: refactor-461（实施基线；本单元的 spec/design 可先完成）
-- Related: refactor-460
+- Related: refactor-460, refactor-462
 
 ## 原始诉求
 
@@ -66,6 +66,16 @@ Gateway 继续以同一个稳定入站入口处理消息，但每类会跨 `awai
 #### Scenario: 未知 Agent 路由仍被拒绝
 - **WHEN** 入站消息显式指向一个 Gateway 未注册的 Agent
 - **THEN** 该消息仍被拒绝，不创建会话或执行，也不误投递给其他 Agent，与变更前一致
+
+#### Scenario: 动态 Agent 配置在下一轮生效
+- **GIVEN** IM 已向 Gateway 同步某 Agent 的模型、提示词、工具、技能或自动化开关更新
+- **WHEN** 用户随后向该 Agent 发送下一条消息，或到达下一次 heartbeat/cron tick
+- **THEN** 对应路径仍读取同一份最新配置，其他 Agent 不受影响，与变更前一致
+
+#### Scenario: Agent 工具投递仍同步到正确直聊会话
+- **GIVEN** Agent 在运行中通过 `send_message` 等产品工具向用户投递消息
+- **WHEN** Gateway 内部 dispatch 收到 IM 对该投递的确认
+- **THEN** 消息仍绑定到来源 Agent 的正确直聊会话并写入其连续历史，动态更新后的 workspace 配置也被正确使用，与变更前一致
 
 ### Requirement: 群聊门控与背景上下文保持一致
 
@@ -141,6 +151,11 @@ Gateway 继续以同一个稳定入站入口处理消息，但每类会跨 `awai
 #### Scenario: 启动、停止和重连结果保持一致
 - **WHEN** 运维者按现有方式启动、停止、重启 Gateway，或 Gateway 经历 IM 断线重连
 - **THEN** 服务管理与恢复结果遵循 refactor-461 完成后的当前契约；本单元不新增另一套进程、配置或 readiness 语义
+
+#### Scenario: 停止时已接纳的入站工作有明确结局
+- **GIVEN** Gateway 停止时既有已提交的活动 run，也可能有已进入同会话 FIFO 但尚未提交到 Kernel 的消息
+- **WHEN** Gateway 进入优雅关闭
+- **THEN** 活动 run 仍有机会完成终态投递；尚未提交的排队消息不会在 Kernel 关闭后偶然提交，而是经既有失败终态明确收尾；IM transport 只在这些已接纳工作及其投递任务被收拢后关闭
 
 ## 影响范围
 
