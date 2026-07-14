@@ -648,3 +648,101 @@ N/A — 本 unit 不包含原型、设计稿、reference screenshot 或视觉 mu
 派 `fix-implementation` 修复公开 global `--config` 的 `restart` 目标语义，并用隔离 config 验证 global-first
 形式不会启动、停止或替换默认 Gateway。修复后做 targeted re-review，至少复验 Issue #1 的错误命令、正确
 custom-config restart/stop 与 default lifecycle evidence 的零误触碰。
+
+---
+
+# Round 8 — 2026-07-14
+
+## Verdict
+
+- **Verdict:** `pass`
+- **Highest Required Action:** `pass`
+- **Needs Re-review:** `false`
+- **Review Mode:** targeted Fast-lane（仅复验 Round 7 Issue #1 与 M10 lifecycle option delta）
+- **Implementation Head:** `a4023b6b67c87976e01d45a206352f3ef995a874`
+- **Issue Count:** blocking 0 / major 0 / minor 0
+
+Round 7 的 custom-config lifecycle target 错配已关闭。公开 global-first `--config` / `--im-service-url` /
+`--auto-bind` restart 只替换隔离 Gateway，global-first stop 也只停止该 Gateway；整个过程默认
+`~/.nano-assistant` 的 lifecycle evidence 始终不存在。正常无 `--auto-bind` 的 command-first restart 同样
+保持可用。
+
+## Round 7 Issue Closure
+
+### Issue #1 — closed：全局 `--config` 在 `restart` 时没有约束目标 Gateway
+
+- 按更新后的 canonical Scenario，在持久 tmux 真栈上先运行 `./scripts/e2e-up.sh`，得到 ephemeral IM
+  `http://127.0.0.1:49605` 和初始 worktree Gateway PID `76129`。执行前确认 default
+  `gateway.pid` / `.gateway-state.json` / `gateway.identity.json` 均不存在。
+- 执行上一轮失败的同一 public command shape：
+
+  ```bash
+  PYTHONPATH=src python -m personal_assistant.main \
+    --config <worktree>/.gateway-config.yaml \
+    --im-service-url http://127.0.0.1:49605 \
+    --auto-bind restart
+  ```
+
+  用户可见输出为 `Gateway started (pid=78094)`、`IM service: http://127.0.0.1:49605 [connected]` 和
+  worktree `gateway.log`，不再回退到 `:8011` 或 `~/.nano-assistant`。旧 PID `76129` 已退出；新 state
+  的 `config_path` 与 PID 都是 worktree target；default lifecycle evidence 仍全部不存在。
+- 随后以无 `--auto-bind` 的 command-first lifecycle 形式 restart，PID `78094` 正常替换为 `79942`，仍使用
+  ephemeral IM/worktree log；说明 auto-bind 修复没有破坏常规 lifecycle。
+- 再执行 global-first stop：
+
+  ```bash
+  PYTHONPATH=src python -m personal_assistant.main \
+    --config <worktree>/.gateway-config.yaml \
+    --im-service-url http://127.0.0.1:49605 \
+    --auto-bind stop
+  ```
+
+  返回 `STOPPED pid=79942 .../.gateway-state.json`；PID 已退出，default lifecycle evidence 继续为零。
+  清理已退出的旧 e2e PID evidence 后，真实 `./scripts/e2e-down.sh` 正常回收 IM；本轮已知 PID
+  `76129`、`78094`、`79942` 和 `49605` 均退出，worktree/default lifecycle artifacts 均不存在。
+
+## User Journeys Exercised
+
+### Journey 1 — 公开 option 前置的 custom-config restart / stop
+
+使用完整真 IM + Gateway 进程，而不是 mock 或内部调用，先后走 global-first restart、normal command-first
+restart 和 global-first stop。运维者看到的 IM URL、log、state 和 PID 全部属于传入的 worktree config；默认
+Gateway 没有被启动、停止或替换。
+
+### Journey 2 — 真栈收尾
+
+public stop 替换了 e2e 原始 Gateway generation 后，reviewer 先验证旧外部 PID 已退出，才移除这份自建且
+陈旧的 PID evidence；随后 `e2e-down.sh` 正常停止它仍拥有的 IM。没有遗留 Kernel API、Gateway 或 IM 进程。
+
+## Reference Artifacts Reviewed
+
+N/A — 本 unit 不包含原型、设计稿、reference screenshot 或视觉 must-match 契约。
+
+## Issues
+
+无 blocking / major / minor 产品可接受性 issue。Round 7 Issue #1 已由上述真 CLI journey 关闭。
+
+## Acceptance Criteria Coverage
+
+本 targeted Fast-lane 继承 Round 7 中未受 M10 触及 Scenario 的有效结论；仅更新上轮失败项。
+
+### Requirement: 运维者仍把 Gateway 当一个后台服务管理 — Round 8 更新后组内结论: pass
+
+| Scenario | 期望来源 | 验证方式（覆盖它的旅程） | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| stop 与 restart 保持现有结果 | `motivation.md`；`docs/specs/gateway/service-lifecycle.md` 的 lifecycle target option Scenario | Journey 1 的真 global-first restart、normal restart 和 global-first stop | `76129 -> 78094 -> 79942 -> STOPPED`；IM 始终 `:49605`；default evidence 始终不存在 | pass | config / IM override / auto-bind 在 option 前置时仍只管理 target A。 |
+
+其余 Scenario（Web IM 消息、Cron、默认 start、IM 离线自治、timing migration、旧 connection 字段忽略与
+e2e 无 Kernel API）继承 Round 7 的 pass；M10 未触及这些用户旅程。
+
+## Upper-level Documentation Sync
+
+- [x] `SPEC.md`（跨包顶点架构）：**无需更新**。
+- [x] `docs/specs/gateway/`（长青行为契约层）：**已更新**。`service-lifecycle.md` 现在明确 lifecycle
+  target option 写在子命令前后均只管理 config A，且 restart 的 IM override 前后等价。
+- [x] `AGENTS.md` / `CLAUDE.md`：**无需更新**。
+- [x] `docs/SPEC_GUIDE.md`（文档规范）：**无需更新**。
+
+## Recommended Next Step
+
+Round 8 targeted 产品复验通过；可继续 delta verifier 与 final code-review 门禁。
