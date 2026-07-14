@@ -602,3 +602,49 @@ Web IM 交互不退化。
 先按 `fix-implementation` 修复 Issue 1 和 Issue 2。之后必须使用真实 GUI 全量复验；在最终 `pass` 前，还需提供受控而真实的
 external channel、系统通知/点击导航、第二测试账号、expired-token + network recovery 以及未绑定 Gateway hot-cache
 条件，关闭所有 `inconclusive` Scenario。
+
+---
+
+## Round 6 — 2026-07-14
+
+- **Verdict**: `pass`（仅对 Round 5 的两项问题作独立、定向复验）
+- **Highest Required Action**: `none`
+- **Review mode**: targeted product revalidation
+- **Scope**: 仅复验 Round 5 Issue 1（非当前会话应用内 toast）和 Issue 2（Gateway 状态）。本轮不把尚未复验的
+  external channel、系统通知、账号切换、长登录恢复或绑定入口标为通过。
+
+### 执行边界与隔离证明
+
+本轮在新建的单一 Chrome 标签中，以 `nano` 登录全新隔离真栈 `http://127.0.0.1:59476`；未使用 HTTP、mock、
+Playwright、已有用户标签或浏览器/系统设置。启动 UI 前检查该 URL 没有既存 Gateway；启动后，唯一匹配该 URL 的
+Gateway 是 PID `51058`（`--config .../.gateway-config.yaml --foreground --auto-bind`）。页面初始显示四个 Agent 均为
+online。
+
+### 定向用户旅程与观察
+
+1. **非当前会话应用内提醒（Issue 1）**：在 `plato` 发送三次真实、延迟的 bash 回复请求，并在完成前切回
+   `default-agent`。其中独立的 `R6_TOAST_ONE` 与 `R6_TOAST_THREE` 完成时，都在桌面 UI 中观察到 toast 卡片
+   `plato · R6_TOAST_* · View message`，同时侧栏更新预览、排序和 `1 unread`。首次在请求后约 19.3 秒捕获；
+   连续观察的第三次在约 19.5 秒捕获，确认不是在自动消失窗口之后由侧栏状态反推。`R6_TOAST_TWO` 同样更新预览与
+   未读，但该轮单次截图晚于自动消失窗口，未将它计入通过证据。
+2. **Gateway 离线与恢复（Issue 2）**：始终停留在 Agents 页面（没有刷新或导航），确认 PID `51058` 是唯一匹配
+   隔离 IM URL 的 Gateway 后发送 `SIGTERM` 并确认该 PID 退出。首个约 30 秒的 UI 观察窗口内，四个 Agent 全部由
+   online 变为 offline。随后只重启 Gateway（新 PID `60390`，同一隔离 config 和 IM URL），约 10 秒后在同一
+   Agents 页面观察到四个 Agent 全部恢复为 online。
+
+### 验收标准覆盖
+
+| Scenario | 验证方式（本轮） | 证据 | 结果 |
+|---|---|---|---|
+| 非当前会话收到可见 Agent 回复时提示用户 | 同一真实 GUI 中完成延迟回复并切换到另一会话；两次在短暂窗口内观察桌面 UI | `R6_TOAST_ONE`、`R6_TOAST_THREE` 均显示 `View message` toast、预览、排序与未读 | pass |
+| Gateway 断连与重连 | Agents 页面保持打开，停止记录且唯一的 Gateway PID，再只重启该 Gateway | PID `51058` 退出后约 30 秒全员 offline；PID `60390` 重启后约 10 秒全员 online | pass |
+
+### 结论
+
+Round 5 的 Gateway 观察受到同 URL 残留 Gateway 干扰，不能作为产品失败证据；本轮排除该混杂因素后，两项被报告的
+用户面问题均未复现。此 `pass` 只关闭上述两项定向问题，不替代最终 full round 对其余 `inconclusive` 场景的验收。
+
+### Recommended Next Step
+
+继续 final full acceptance，补齐仍未获得受控真实条件的 Scenario；无需因 Round 5 Issue 1 或 Issue 2 进入
+`fix-implementation`。
