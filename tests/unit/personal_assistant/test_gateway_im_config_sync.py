@@ -445,6 +445,8 @@ def test_skill_created_global_enables_explicit_allowlists_and_drops_all_sessions
     ws_a = tmp_path / "agent-a"
     ws_b = tmp_path / "agent-b"
     ws_c = tmp_path / "agent-c"
+    for workspace in (ws_a, ws_b, ws_c):
+        workspace.mkdir()
     config_path = tmp_path / "config.yaml"
     requests: list[tuple[str, str, dict[str, object] | None]] = []
 
