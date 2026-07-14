@@ -122,6 +122,11 @@ def test_background_state_publication_failure_reaps_child_and_clears_partial_sta
     state_path = tmp_path / ".gateway-state.json"
     group_signals: list[int] = []
 
+    def _spawn(_argv: list[str], _log_path: Path) -> _FakeProcess:
+        (tmp_path / "gateway.pid").write_text("2468", encoding="utf-8")
+        write_gateway_identity(config)
+        return process
+
     def _fail_state_publication(_config, _result) -> None:  # noqa: ANN001
         state_path.write_text(
             json.dumps(
@@ -141,12 +146,21 @@ def test_background_state_publication_failure_reaps_child_and_clears_partial_sta
         "_kill_process_tree",
         lambda _pid, sent_signal: group_signals.append(sent_signal),
     )
+    monkeypatch.setattr(
+        main_module,
+        "read_gateway_process_snapshot",
+        lambda _pid: main_module.GatewayProcessSnapshot(
+            pid=2468,
+            process_start="Mon Jul 13 12:34:56 2026",
+            command=None,
+        ),
+    )
 
     with pytest.raises(GatewayStartupError, match="state disk full") as raised:
         launch_gateway_in_background(
             config_path=config.source_path,
             load_config=lambda _path: config,
-            spawn_process=lambda _argv, _log_path: process,
+            spawn_process=_spawn,
             wait_for_start=lambda _child, _config, _timeout: None,
         )
 

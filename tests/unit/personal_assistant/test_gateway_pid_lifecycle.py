@@ -52,14 +52,28 @@ _DEFAULT_TEST_LLM = LLMConfigPayload(
 )
 
 
-def test_launch_gateway_in_background_writes_runtime_state_file(tmp_path: Path) -> None:
+def test_launch_gateway_in_background_writes_runtime_state_file(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
     config = build_config(tmp_path)
     process = _FakeProcess(wait_result=0, pid=2468)
+
+    def _spawn(_argv: list[str], _log_path: Path) -> _FakeProcess:
+        (tmp_path / "gateway.pid").write_text("2468", encoding="utf-8")
+        write_gateway_identity(config)
+        return process
+
+    monkeypatch.setattr(
+        main_module,
+        "read_gateway_process_snapshot",
+        lambda _pid: gateway_process_snapshot(config),
+    )
 
     launch_gateway_in_background(
         config_path=config.source_path,
         load_config=lambda _path: config,
-        spawn_process=lambda _argv, _log_path: process,
+        spawn_process=_spawn,
         wait_for_start=lambda _child, _config, _timeout: None,
     )
 
@@ -261,10 +275,17 @@ def test_launch_background_clears_stale_pid_file_when_process_dead(
 
     def _spawn(argv: list[str], log_path: Path) -> _FakeProcess:
         spawned.append(argv)
+        pid_path.write_text("1111", encoding="utf-8")
+        write_gateway_identity(config, pid=1111)
         return _FakeProcess(wait_result=0, pid=1111)
 
     # Simulate that PID 99999 is dead
     monkeypatch.setattr("personal_assistant.main._pid_is_running", lambda _pid: False)
+    monkeypatch.setattr(
+        main_module,
+        "read_gateway_process_snapshot",
+        lambda _pid: gateway_process_snapshot(config),
+    )
 
     launch_gateway_in_background(
         config_path=config.source_path,
