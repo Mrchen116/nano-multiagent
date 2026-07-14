@@ -16,6 +16,14 @@
 - [x] `e2e-down.sh` 进程树测试先报告脚本失败关闭原因，再等待 fixture leader。
 - [x] 目标 xdist 测试、测试命名/尺寸契约、静态检查和 CI 同款 non-e2e xdist 回归通过。
 
+## R2 — Remote CI timing follow-up
+
+- [x] 用不会自然到期的 fixture child 替代 30 秒 sleep，并移除 lifecycle-lock test 的 5 秒外部
+  `communicate()` deadline。
+- [x] fixture teardown 保留短暂的真实调度让步，而不是把生产 50ms polling 原样带入 CI。
+- [x] CI 失败涉及的 lifecycle target xdist bundle、静态检查和测试命名/尺寸契约通过。
+- [ ] 远端完整 non-e2e CI rerun 通过。
+
 ## 测试策略
 
 - 用假 IM 忽略 TERM，守护 SIGKILL 后 `wait` 的精确回收和证据删除。

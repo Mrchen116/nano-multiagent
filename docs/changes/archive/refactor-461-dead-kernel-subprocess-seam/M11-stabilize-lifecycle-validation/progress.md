@@ -36,6 +36,19 @@
 - Delta verification: M11 tasks, source, and regression evidence agree; no kernel seam, public runtime behavior,
   or canonical contract changed.
 
+## R2 — Remote CI timing follow-up
+
+- Remote run `29347706827` failed after Python static checks had passed. Four lifecycle failures exposed
+  test-harness timing assumptions: the ownership fixture's 30-second children expired before capture under xdist
+  load, two lifecycle-lock tests imposed a 5-second external `communicate()` deadline on a deliberately blocked
+  script, and accelerated teardown polling gave a just-signalled child too little scheduling time before evidence
+  cleanup. The same run also had one unrelated IM dispatch concurrency assertion; its focused retry passed.
+- `ba1689df8` replaces the finite children with explicitly killed infinite children, removes the two external
+  deadlines, and changes the e2e-up harness to give signal-driven teardown a short scheduling yield rather than
+  preserving production wall-clock intervals.
+- A four-file xdist target bundle covering the three lifecycle areas plus the IM concurrency regression completed
+  with no pytest `lastfailed` entries; Ruff, shell syntax, and test naming/size checks passed.
+
 ## Status
 
-All M11 gates pass. Ready for PR.
+R2 is ready for remote CI rerun.

@@ -1207,3 +1207,21 @@ None.
 None.
 
 All checks passed. Ready for PR.
+
+# Round 13
+
+## Remote CI Follow-up: refactor-461 M11 R2
+
+Remote run `29347706827` produced five Python-test failures after Ruff and format passed. Four were lifecycle
+test-harness timing assumptions: an ownership child could expire after 30 seconds before a loaded xdist worker
+captured it, two lock tests set a 5-second deadline around scripts intentionally blocked on their shared lock, and
+accelerated teardown polling could outpace a just-signalled child before evidence cleanup. The remaining IM dispatch
+concurrency failure is outside this delta and passed its focused retry.
+
+`ba1689df8` removes the finite fixture lifetime and external lock-test deadlines, while retaining a short scheduling
+yield for the fake signal-driven teardown. The affected four-file xdist target bundle, static checks, and test naming
+contract pass locally. A new full remote CI run is required before this follow-up can be closed.
+
+## Status
+
+Remote CI rerun pending.
