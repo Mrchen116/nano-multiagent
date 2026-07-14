@@ -115,14 +115,16 @@ if [[ "${1-}" == "-m" && "${2-}" == "personal_assistant.main" ]]; then
     while [[ "$(cat "$E2E_TICKS_FILE")" -lt "$target_ticks" ]]; do
       /bin/sleep 0.001
     done
-    "$REAL_PYTHON" - "$config_path" "$$" "${args[@]}" <<'PY'
+    process_start="$(LC_ALL=C LANG=C TZ=UTC ps -p "$$" -o lstart= | xargs)"
+    "$REAL_PYTHON" - "$config_path" "$$" "$process_start" "${args[@]}" <<'PY'
 import json
 from pathlib import Path
 import sys
 
 config_path = Path(sys.argv[1]).resolve()
 pid = int(sys.argv[2])
-argv = sys.argv[3:]
+process_start = sys.argv[3]
+argv = sys.argv[4:]
 root = config_path.parent
 (root / "gateway.pid").write_text(str(pid), encoding="utf-8")
 (root / "gateway.identity.json").write_text(
@@ -130,7 +132,7 @@ root = config_path.parent
         {
             "schema_version": 1,
             "pid": pid,
-            "process_start": "Mon Jul 13 12:34:56 2026",
+            "process_start": process_start,
             "config_path": str(config_path),
             "entry_module": "personal_assistant.main",
             "argv": argv,
@@ -344,7 +346,7 @@ def test_readiness_failure_after_identity_rolls_back_spawned_stack(
         _cleanup_owned(tmp_path)
 
 
-def test_preflight_clears_stale_internal_evidence_without_signalling_its_pid(
+def test_preflight_rejects_invalid_internal_evidence_without_signalling_its_pid(
     tmp_path: Path,
 ) -> None:
     env = _prepare_harness(tmp_path)
@@ -352,18 +354,67 @@ def test_preflight_clears_stale_internal_evidence_without_signalling_its_pid(
     (tmp_path / "gateway.pid").write_text(str(sentinel.pid), encoding="utf-8")
     (tmp_path / "gateway.identity.json").write_text("{}", encoding="utf-8")
     (tmp_path / ".gateway-state.json").write_text("{}", encoding="utf-8")
-    env["EXPECT_STALE_CLEAN"] = "1"
-
     try:
         result = _run_up(tmp_path, env)
 
-        assert result.returncode == 0, result.stderr
+        assert result.returncode == 1
         assert sentinel.poll() is None
-        assert not (tmp_path / "spawn-check").exists()
+        assert "Gateway lifecycle evidence is invalid" in result.stderr
+        assert not (tmp_path / "spawned-pids.log").exists()
+        assert (tmp_path / "gateway.pid").exists()
+        assert (tmp_path / "gateway.identity.json").exists()
+        assert (tmp_path / ".gateway-state.json").exists()
     finally:
         _cleanup_owned(tmp_path)
         sentinel.terminate()
         sentinel.wait(timeout=3)
+
+
+def test_preflight_rejects_live_internal_gateway_before_spawning_second_stack(
+    tmp_path: Path,
+) -> None:
+    env = _prepare_harness(tmp_path)
+    config_path = tmp_path / ".gateway-config.yaml"
+    config_path.write_text(
+        Path(env["MAIN_CONFIG"]).read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    owner = subprocess.Popen(
+        [
+            "python",
+            "-m",
+            "personal_assistant.main",
+            "--config",
+            str(config_path),
+            "--foreground",
+            "--auto-bind",
+        ],
+        cwd=tmp_path,
+        env=env,
+    )
+    try:
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            if (tmp_path / "gateway.identity.json").exists():
+                break
+            time.sleep(0.02)
+        assert (tmp_path / "gateway.identity.json").exists()
+
+        result = _run_up(tmp_path, env)
+
+        assert result.returncode == 1
+        assert "service still running" in result.stderr
+        assert owner.poll() is None
+        spawned = _spawned_pids(tmp_path)
+        assert spawned == [owner.pid]
+        assert (tmp_path / "gateway.pid").read_text(encoding="utf-8").strip() == str(
+            owner.pid
+        )
+    finally:
+        _cleanup_owned(tmp_path)
+        if owner.poll() is None:
+            owner.kill()
+        owner.wait(timeout=3)
 
 
 def test_default_symlink_cwd_is_canonicalized_after_argument_parsing(

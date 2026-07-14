@@ -233,6 +233,44 @@ def test_birth_drift_fails_before_any_owned_group_signal(
     assert signals == []
 
 
+def test_shell_freeze_delegates_the_complete_transaction_to_python(
+    tmp_path: Path,
+) -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    helper = repo_root / "scripts" / "e2e-owned-processes.sh"
+    fake_python = tmp_path / "python"
+    fake_python.write_text(
+        "#!/bin/bash\n"
+        "payload=$(cat)\n"
+        "grep -q 'freeze_gateway_owned_process_set' <<<\"$payload\" || exit 42\n"
+        "printf '%s\\n' '{\"leader_pid\":2468,\"processes\":[]}'\n",
+        encoding="utf-8",
+    )
+    fake_python.chmod(0o755)
+
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            'source "$1"; '
+            "ps() { printf '%s\\n' \"2468\"; }; "
+            "kill() { return 0; }; "
+            "export -f ps kill; "
+            'e2e_freeze_gateway_owned_processes "$2" "$3" 2468 expected-birth',
+            "bash",
+            str(helper),
+            str(repo_root / "src"),
+            str(fake_python),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {"leader_pid": 2468, "processes": []}
+
+
 def test_e2e_up_rollback_reaps_detached_gateway_descendant(tmp_path: Path) -> None:
     env = _prepare_harness(tmp_path)
     env["NODES_STATUS"] = "offline"
