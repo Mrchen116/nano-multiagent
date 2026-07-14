@@ -28,7 +28,13 @@
 
 ## R3 — e2e IM and freeze failure ownership
 
-- Status: TODO。
+- Status: DONE。
+- C1 Red: `5fa8c9633` 固化五条独立缺口：shell freeze 必须委托完整 Python transaction；invalid/live internal Gateway evidence 不得被 up 擦除或触发第二 generation；有完整 stack 但 `.im.pid` 缺失时任何 Gateway/IM signal 都不得发生；IM numeric PID 的 birth 与 evidence 不一致时零信号并保留证据。
+- C2 Green: `e2e_freeze_gateway_owned_processes()` 直接调用 R2 的 `freeze_gateway_owned_process_set()`，从而由同一原语负责三次 capture/STOP/confirm 与每次失败后的逐 PID `SIGCONT`。`e2e-up.sh` 将 internal Gateway evidence 与 IM PID+identity pair 视为启动拒绝条件；它不再从 start 路径删除 runtime-owned evidence。IM 启动后先 atomic publish `.im.identity.json`，再发布 `.im.pid`；identity schema 为 `schema_version/pid/process_start/cwd/argv`，argv 固定绑定 `-m uvicorn IM.app:app --host 127.0.0.1 --port <ephemeral>`。
+- C2 Green (continued): `e2e-down.sh` 在任何 Gateway signal 前 snapshot IM PID 与 identity 的 regular-file revision/content hash，验证 schema 与 current OS birth；full-stack evidence 存在却缺 `.im.pid` 直接失败。Gateway freeze、TERM、IM TERM、IM KILL 与 cleanup 前均复核 immutable snapshot；任一 birth/revision drift fail closed。只有 Gateway 和 IM original births 都观测为 exited、两个 IM evidence 文件仍等于 snapshot 时，才删除 PID+identity 并继续删除 config/env。
+- Validation: targeted red→green `5 passed, 2 warnings in 12.68s`；rollback/real-descendant critical path `3 passed, 2 warnings in 31.71s`；full e2e lifecycle suite `46 passed, 2 warnings in 313.13s`。`bash -n scripts/e2e-up.sh scripts/e2e-down.sh scripts/e2e-owned-processes.sh`、affected Ruff/format、`git diff --check` 通过。
+- Commit boundary: start 从不获得 teardown deletion authority；durable IM identity 写在 PID marker 前。任何缺失、malformed、PID reuse、birth/revision drift 均保留完整 stack evidence，避免“未知 owner 被杀”或“live owner 被擦除”。
+- Rollback: 可整体回退 R3 tests/scripts；不会改 public Gateway identity schema，e2e 仅新增 `.im.identity.json` sidecar，正常 down/rollback 均按 matching PID 清除。
 
 ## R4 — Final gates
 
