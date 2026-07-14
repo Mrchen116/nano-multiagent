@@ -747,3 +747,69 @@ Round 5 的 Gateway 观察受到同 URL 残留 Gateway 干扰，不能作为产�
 
 先进入 `fix-implementation` 处理 Issue 1；修复后需要新的独立 `full` product revalidation。复验必须再次覆盖真实 Lark P2P
 shadow 的创建/实时到达，并在可用 GUI 通道下补齐第二账号切换隔离；系统通知仍须遵从用户是否解除本轮排除的决定。
+
+---
+
+## Round 8 — 2026-07-14
+
+- **Verdict**: `pass`
+- **Highest Required Action**: none
+- **Review mode**: final independent product revalidation
+- **Acceptance bar**: all in-scope user journeys pass; desktop system-notification scenarios are `not-applicable` by the user's explicit instruction.
+
+### 执行边界与环境
+
+本轮只使用 `unit/refactor-460` worktree 的真 IM + Gateway 栈、一个新建的 `127.0.0.1` Chrome 测试标签和获准的
+Lark 测试 identity。没有操作既有用户标签、浏览器持久化权限或系统通知设置，也没有读取或修改产品源码。外部 channel 的
+早期一次尝试发现另一个 unit 的 Gateway 竞争消费该 channel，因此该次结果作废；停止竞争 Gateway 后，以下外部证据全部在
+唯一的 460 Gateway 上重新取得。
+
+### User Journeys Exercised
+
+1. **当前会话实时过程与静默终态**：从 `default-agent` 和 `plato` details 的 `Open chat` 进入单聊。真实工具请求在不
+   reload 的情况下显示回复、工具/思考过程与 usage，reload 后历史完整；最终 `NO_REPLY` 的临时回复气泡完成后消失，reload
+   后也未恢复。
+2. **会话外提醒与当前会话抑制**：`plato` 的延迟回复到达时切至 `default-agent`，观察到应用内 `View message` toast、
+   预览、排序和 `1 unread`；当前会话回复和本人发送均没有误导性 toast。
+3. **真实外部 Lark shadow**：向 app Bot 发送一个新的无害 seed 后，4 秒内 Web 会话列表出现
+   `default-agent · feishu` shadow 和未读数。打开后可见入站消息与 Agent 回复；在该 shadow 发送 Web 消息，无 reload
+   即显示，reload 后发送者/channel、本人消息和后续回复均保留。
+4. **长登录与短暂网络恢复**：向测试标签注入一个签名已过期 access token，同时保留有效 refresh token。受保护请求出现
+   401，浏览器只发起一次 refresh 并恢复到全 Agent online 的可用界面。随后仅将该标签设为 Offline 再恢复网络，Chat
+   恢复可用，未重放历史应用内 toast。
+5. **Gateway 状态**：在同一 Agents 页面停止本轮唯一 Gateway，四个 Agent 均转 offline；重启相同 Gateway 后，无需
+   reload 即全部恢复 online。
+6. **热缓存绑定与错误反馈**：同一 SPA 先访问 Chat、Agents、Nodes、Account，再启动一个未 auto-bind 的临时 Gateway。
+   有效 binding URL 的 `Continue to chat` 只点击一次，返回 Chat 后 Account 立即从 `1 owned · 1 online` 收敛为
+   `2 owned · 2 online`；Nodes 显示两个 online nodes、共八个 agents。无效 token 明确显示
+   `POST /im/v1/bind failed: 404 (bind_token not found)`，重试按钮仍存在。
+7. **桌面/移动入口**：桌面两份 Agent details 均可打开对应 Chat；在 DevTools phone-size viewport 中，composer、消息过程、
+   Back 与 `Chat`/`Agents`/`Me` 底部导航均可用。
+8. **账号隔离**：经 action-time confirmation 后创建一个仅属于该隔离 IM 数据库的临时账号。进入 Chat 后显示该测试用户且
+   为 `No conversations`，没有旧账号的 conversations、Agent 或 toast；随后已 sign out 并关闭唯一测试标签。账户菜单没有
+   提供删除入口；该临时账户随隔离 IM 数据库在本轮 teardown 中删除，而非遗留到持久环境。
+
+### 验收标准覆盖
+
+| Requirement / Scenario | 验证方式（本轮） | 证据 | 结果 | 备注 |
+|---|---|---|---|---|
+| Agent 回复实时更新 | 真实工具请求和 reload | 无 reload 更新；历史、过程、usage 均保留 | pass | `default-agent` |
+| 静默回复撤销临时气泡 | `NO_REPLY` 后 reload | 两次都没有最终回复气泡 | pass | |
+| 外部 channel 消息实时进入已打开会话 | 获准真实 Lark P2P seed + Web follow-up | shadow、入站、即时 Web follow-up 与 reload 历史完整 | pass | 仅采用排除竞争 Gateway 后的最终运行 |
+| 未打开会话收到新消息 | 延迟 `plato` 回复时切换会话 | toast、预览、排序、unread 同步 | pass | |
+| 当前会话和自己的消息不产生多余提醒 | 当前 `default-agent` 与本人发送 | 未出现应用内 toast | pass | |
+| 后台标签页收到 Agent 完成系统通知 | 用户明确排除系统通知测试 | 未测试 | not-applicable | 未改通知权限或系统设置 |
+| 不满足通知条件时不弹系统通知 | 用户明确排除系统通知测试 | 未测试 | not-applicable | 未改通知权限或系统设置 |
+| 恢复连接不重放历史系统通知 | 用户明确排除系统通知测试 | 未测试 | not-applicable | 应用内不重放见下一行 |
+| 长登录刷新与网络恢复 | expired access + valid refresh；Offline → online | 一次 refresh 后恢复；无历史应用内 toast 重放 | pass | 不以应用内结果代替系统通知 |
+| Gateway 断连与重连 | 同页停止/重启唯一 460 Gateway | 四个 Agent online → offline → online，无 reload | pass | |
+| 切换为另一用户不泄漏前账号事件 | action-time-confirmed 临时注册 | 新账号无旧会话、Agent 或 toast | pass | 已 sign out；测试 DB teardown 删除账户 |
+| 热缓存下确认 Gateway 绑定及错误反馈 | 真实临时未绑定 Gateway 的有效/无效 URL | 成功后 owner/node cache 立即刷新；无效 token 显式 404 且可重试 | pass | 不记录 URL/token |
+| 从 Agent details 打开单聊 | `default-agent`、`plato` 分别操作 | 都进入对应有效 Chat | pass | |
+| 桌面与移动 Chat 基础可用性 | 桌面与 phone-size viewport | composer、消息、Back、三项底部导航可用 | pass | |
+
+### 结论
+
+Round 7 的 external-channel 失败由并发 Gateway 的环境混杂造成，不能归因为产品缺陷；在唯一 460 Gateway 的重测中该完整
+旅程通过。其余此前缺口（有效 refresh、Offline 恢复、热缓存绑定、账号隔离）也都有真实用户面证据。因此在用户明确排除
+系统通知的边界内，`refactor-460` 通过最终产品验收；无需 `fix-implementation`。
