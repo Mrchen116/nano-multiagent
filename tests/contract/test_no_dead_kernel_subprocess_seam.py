@@ -47,7 +47,6 @@ def test_active_gateway_entrypoints_do_not_describe_kernel_process_artifacts() -
         "scripts/fixtures/README.md",
         "scripts/fixtures/anthropic_sse_error.py",
         "tests/e2e/conftest.py",
-        "tests/integration/test_provider_error_user_visible.py",
         "tests/unit/test_e2e_conftest_finalizer.py",
         "tests/unit/test_runtime_helpers.py",
     )
