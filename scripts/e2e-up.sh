@@ -289,21 +289,35 @@ PY
 }
 
 spawned_process_status() {
-  local pid=$1 expected_start=$2
-  PYTHONPATH="$SRC_DIR${PYTHONPATH:+:$PYTHONPATH}" "$PYTHON_BIN" - \
-    "$pid" "$expected_start" <<'PY'
-import sys
+  local pid=$1 expected_start=$2 before_start after_start process_stat
 
-from personal_assistant.main import read_gateway_process_snapshot
-
-snapshot = read_gateway_process_snapshot(int(sys.argv[1]))
-if snapshot is None:
-    print("exited")
-elif " ".join(snapshot.process_start.split()) == " ".join(sys.argv[2].split()):
-    print("alive")
-else:
-    print("mismatch")
-PY
+  # This function is called for every readiness poll.  Importing main.py here
+  # turns a nominal 30s startup budget into minutes on a cold interpreter.  Keep
+  # the same two-read birth check locally: if PID reuse happens during observation,
+  # the disagreeing lstart values fail closed as ``mismatch``.
+  before_start="$(
+    LC_ALL=C LANG=C TZ=UTC ps -p "$pid" -o lstart= 2>/dev/null \
+      | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]][[:space:]]*/ /g' -e 's/[[:space:]]*$//' \
+      || true
+  )"
+  [[ -n "$before_start" ]] || { printf '%s\n' exited; return 0; }
+  process_stat="$(LC_ALL=C LANG=C TZ=UTC ps -p "$pid" -o stat= 2>/dev/null | tr -d '[:space:]' || true)"
+  [[ -n "$process_stat" && "$process_stat" != Z* ]] || {
+    printf '%s\n' exited
+    return 0
+  }
+  after_start="$(
+    LC_ALL=C LANG=C TZ=UTC ps -p "$pid" -o lstart= 2>/dev/null \
+      | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]][[:space:]]*/ /g' -e 's/[[:space:]]*$//' \
+      || true
+  )"
+  if [[ -z "$after_start" || "$before_start" != "$after_start" ]]; then
+    printf '%s\n' mismatch
+  elif [[ "$after_start" == "$expected_start" ]]; then
+    printf '%s\n' alive
+  else
+    printf '%s\n' mismatch
+  fi
 }
 
 spawned_process_liveness() {
