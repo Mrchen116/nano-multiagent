@@ -202,10 +202,11 @@ def _run_up(
     *,
     default_from: Path | None = None,
     preserve_gateway_signals: bool = False,
+    preserve_im_signals: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     repo_root = Path(__file__).resolve().parents[2]
     script = repo_root / "scripts" / "e2e-up.sh"
-    if preserve_gateway_signals:
+    if preserve_gateway_signals or preserve_im_signals:
         argv = [
             "bash",
             "-c",
@@ -214,8 +215,14 @@ kill() {{
   printf 'kill %s\\n' "$*" >> "$E2E_WT/signal-calls.log"
   target="${{@: -1}}"
   target="${{target#-}}"
-  if [[ -f "$E2E_WT/.gateway.pid" ]] \
+  if [[ "{int(preserve_gateway_signals)}" == 1 ]] \
+    && [[ -f "$E2E_WT/.gateway.pid" ]] \
     && [[ "$target" == "$(cat "$E2E_WT/.gateway.pid")" ]]; then
+    return 0
+  fi
+  if [[ "{int(preserve_im_signals)}" == 1 ]] \
+    && [[ -f "$E2E_WT/.im.pid" ]] \
+    && [[ "$target" == "$(cat "$E2E_WT/.im.pid")" ]]; then
     return 0
   fi
   builtin kill "$@"

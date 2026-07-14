@@ -362,10 +362,16 @@ stop_spawned_pid() {
     reap_spawned_pid "$pid" "$expected_start"
     return $?
   fi
-  # SIGKILL is terminal for this exact spawned child. `wait` provides the
-  # completion condition rather than racing a fixed number of ps snapshots.
-  wait "$pid" 2>/dev/null || true
-  reap_spawned_pid "$pid" "$expected_start"
+  # A successful SIGKILL request does not prove that a process blocked in
+  # uninterruptible I/O has exited. Keep rollback bounded; only `wait` after
+  # an exited observation, where it can reap this shell's exact child promptly.
+  for _ in $(seq 1 20); do
+    status="$(spawned_process_status "$pid" "$expected_start")" || return 1
+    [[ "$status" == exited ]] && reap_spawned_pid "$pid" "$expected_start" && return 0
+    [[ "$status" == alive ]] || return 1
+    sleep 0.05
+  done
+  return 1
 }
 
 stop_spawned_gateway() {

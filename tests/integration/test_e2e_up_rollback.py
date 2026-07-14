@@ -84,6 +84,30 @@ def test_identity_timeout_gateway_survivor_retains_whole_stack(
         _cleanup_owned(tmp_path)
 
 
+def test_identity_timeout_im_survivor_retains_im_evidence_after_sigkill(
+    tmp_path: Path,
+) -> None:
+    env = _prepare_harness(tmp_path, startup_timeout=0.1)
+    env["GATEWAY_IDENTITY_MODE"] = "timeout"
+
+    try:
+        result = _run_up(tmp_path, env, preserve_im_signals=True)
+        gateway_pid, im_pid = _spawned_pids(tmp_path)[1], _spawned_pids(tmp_path)[0]
+        calls = (tmp_path / "signal-calls.log").read_text(encoding="utf-8").splitlines()
+
+        assert result.returncode == 1
+        assert "rollback could not stop IM" in result.stderr
+        assert not _pid_alive(gateway_pid)
+        assert _pid_alive(im_pid)
+        assert any(line.endswith(f" {im_pid}") for line in calls)
+        assert not (tmp_path / ".gateway.pid").exists()
+        assert (tmp_path / ".im.pid").exists()
+        assert (tmp_path / ".gateway-config.yaml").exists()
+        assert "stack rollback complete" not in result.stderr
+    finally:
+        _cleanup_owned(tmp_path)
+
+
 def test_readiness_failure_after_identity_rolls_back_spawned_stack(
     tmp_path: Path,
 ) -> None:
