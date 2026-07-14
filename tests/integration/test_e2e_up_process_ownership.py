@@ -108,3 +108,36 @@ def test_rollback_reused_gateway_pid_retains_complete_stack(
             assert (tmp_path / evidence).exists(), evidence
     finally:
         _cleanup_owned(tmp_path)
+
+
+def test_success_path_rejects_gateway_identity_from_foreign_generation(
+    tmp_path: Path,
+) -> None:
+    """A matching PID/config/argv cannot replace this launch's captured birth."""
+    env = _prepare_harness(tmp_path)
+    env["GATEWAY_IDENTITY_PROCESS_START"] = "Tue Jul 14 12:34:56 2026"
+
+    try:
+        result = _run_up(tmp_path, env)
+
+        assert result.returncode == 1
+        assert "Gateway public process identity mismatch" in result.stderr
+    finally:
+        _cleanup_owned(tmp_path)
+
+
+def test_online_node_does_not_mask_gateway_generation_drift(
+    tmp_path: Path,
+) -> None:
+    """Readiness needs the same birth check after public identity is published."""
+    env = _prepare_harness(tmp_path)
+    env["NODES_STATUS"] = "online"
+    env["SIMULATE_ROLLBACK_PID_REUSE"] = "1"
+
+    try:
+        result = _run_up(tmp_path, env)
+
+        assert result.returncode == 1
+        assert "Gateway process identity changed before readiness" in result.stderr
+    finally:
+        _cleanup_owned(tmp_path)

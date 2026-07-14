@@ -134,7 +134,10 @@ if [[ "${1-}" == "-m" && "${2-}" == "personal_assistant.main" ]]; then
     while [[ "$(cat "$E2E_TICKS_FILE")" -lt "$target_ticks" ]]; do
       /bin/sleep 0.001
     done
-    process_start="$(LC_ALL=C LANG=C TZ=UTC ps -p "$$" -o lstart= | xargs)"
+    process_start="${GATEWAY_IDENTITY_PROCESS_START-}"
+    if [[ -z "$process_start" ]]; then
+      process_start="$(LC_ALL=C LANG=C TZ=UTC ps -p "$$" -o lstart= | xargs)"
+    fi
     "$REAL_PYTHON" - "$config_path" "$$" "$process_start" "${args[@]}" <<'PY'
 import json
 from pathlib import Path
