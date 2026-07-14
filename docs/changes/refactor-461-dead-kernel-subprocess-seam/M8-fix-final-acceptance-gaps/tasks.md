@@ -19,8 +19,8 @@ Gateway 重启仍不补投离线期间已过期的任务。
   command-not-found，且仅以无信号 liveness 检查早退。
 - [x] `at` 任务在本进程的 Cron service 已启动后即使超过旧 60 秒 grace 才被 tick，也会只投递
   一次；任务若在 service 启动前已经过期，仍不在 restart 后补投。
-- [ ] affected / static / test naming-size / full non-e2e / real e2e up-down 完成，随后交独立
-  verifier、reviewer 和 final code review。
+- [x] affected / static / test naming-size / full non-e2e / real e2e up-down 完成。
+- [ ] 交独立 verifier、reviewer 和 final code review。
 
 ## 测试策略
 
@@ -62,4 +62,5 @@ Gateway 重启仍不补投离线期间已过期的任务。
 
 ### R5 — Final gates
 
-- [ ] C3：记录验证、真实 e2e 与独立验收结论。
+- [x] C3：记录 rebase 后的验证与真实 e2e 结论。
+- [ ] C4：记录独立 verifier、reviewer 和 final code review 结论。

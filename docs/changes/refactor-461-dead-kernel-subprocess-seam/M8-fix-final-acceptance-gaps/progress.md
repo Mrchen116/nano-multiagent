@@ -50,19 +50,27 @@
 
 ## R5 — Final gates
 
-- Status: IN PROGRESS（等待把旧 integration base rebase 到当前 `origin/main` 后重跑）。
+- Status: IMPLEMENTATION VALIDATED；独立 verifier / reviewer / final code review 待调度。
+- Rebase: 当前 unit 已从 refactor-462 前的历史基线 rebase 到 `origin/main`
+  `829a3cd15`。唯一冲突是主线已删除、M1 仅更新说明文字的
+  `tests/integration/test_provider_error_user_visible.py`；保持主线删除，并从
+  `test_no_dead_kernel_subprocess_seam.py` 的 active-entrypoint 清单移除该路径。对应契约
+  → `5 passed`。
 - Affected evidence:
   - Cron / Feishu unit bundle → `61 passed, 2 warnings in 2.90s`。
-  - `test_e2e_up_process_ownership.py` → `3 passed in 17.64s`；e2e-up 的 delayed identity、
-    timeout rollback、survivor fail-closed、readiness rollback、canonical cwd 五条分别复跑通过。
+  - rebased `test_e2e_up_process_ownership.py` + `test_e2e_up_script.py` →
+    `8 passed in 85.71s`，覆盖 delayed identity、timeout rollback、survivor fail-closed、
+    readiness rollback、canonical cwd 与 PID-reuse。
   - affected Ruff / format、`bash -n scripts/e2e-{up,down,owned-processes}.sh`、
-    `git diff --check` 通过。
+    `git diff --check` 通过；历史验收 / 验证文档的 4 处行尾空格已机械清理。
 - Real e2e: 独立 tmux session 的 `e2e-up.sh` 正常启动 ephemeral IM / Gateway；IM OpenAPI
   可访问，IM 与 Gateway identity 的 PID / process-start 均和 OS 一致，stderr 无
   `process_status: command not found`；随后 `e2e-down.sh` 完整回收且无 lifecycle evidence
   残留。
-- Full non-e2e: 已运行 `/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -n auto
-  -m "not e2e" -q`。唯一失败是 `test_new_test_files_under_400_lines`；`--lf` 复现为同一项。
-  该 guard 以**当前** `origin/main` 比较，但本 integration branch 尚基于 refactor-462 前的
-  `d9e4780`，而当前 `origin/main` 的 refactor-462 已删除七个旧超限测试文件。它们均为 branch
-  继承文件，非 M8 变更；需先 rebase 当前 unit 到 `origin/main`，再把该 gate 作为最终结果。
+- Full non-e2e: `/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -m "not e2e" -q`
+  → `3469 passed, 1 skipped, 20 deselected, 16 warnings in 561.04s`，包含 naming/size contract。
+  xdist 运行额外暴露 `test_competing_handlers_relay_and_ack_only_the_durable_winner` 的既有测试时序：
+  durable winner 已提交时，另一个 handler 可直接读到它而绕开该测试的 `Barrier(2)`，等待者随后
+  抛出空消息 `BrokenBarrierError` 并被 handler 映射为 `gateway_not_configured`。该 test 和相关
+  IM source 均与 `origin/main` 无 diff；串行 target 连续三次通过，未把范围外测试 harness 修复混入
+  refactor-461。

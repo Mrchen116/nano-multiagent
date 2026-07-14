@@ -2,7 +2,7 @@
 
 > 对齐：`motivation.md` 的用户侧验收标准
 >
-> Round: 1（full）  
+> Round: 1（full）
 > Date: 2026-07-13
 
 ## Verdict
