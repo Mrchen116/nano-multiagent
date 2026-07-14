@@ -15,16 +15,6 @@ import yaml
 from tests.e2e.critical_paths import test_gateway_im_resilience_critical_path as wrapper
 
 
-def _lifecycle_command_timeout(config_path: Path) -> float:
-    """Return a real-stack timeout derived from the tested Gateway lifecycle."""
-    payload = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
-    gateway = payload.get("gateway") if isinstance(payload, dict) else None
-    gateway = gateway if isinstance(gateway, dict) else {}
-    startup = float(gateway.get("startup_timeout_seconds", 15))
-    shutdown = float(gateway.get("shutdown_grace_seconds", 5))
-    return max(5.0, (startup + shutdown) * 3)
-
-
 def test_resilience_wrapper_kills_process_group_on_timeout(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -207,7 +197,6 @@ def test_e2e_up_script_yq_path_sets_each_agent_workspace_independently(
             capture_output=True,
             text=True,
             check=False,
-            timeout=_lifecycle_command_timeout(main_config),
         )
 
         assert result.returncode == 0, result.stderr
@@ -231,5 +220,4 @@ def test_e2e_up_script_yq_path_sets_each_agent_workspace_independently(
             capture_output=True,
             text=True,
             check=False,
-            timeout=_lifecycle_command_timeout(main_config),
         )
