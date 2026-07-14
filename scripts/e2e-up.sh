@@ -330,30 +330,42 @@ spawned_process_liveness() {
   fi
 }
 
+reap_spawned_pid() {
+  local pid=$1 expected_start=$2 status
+  status="$(spawned_process_status "$pid" "$expected_start")" || return 1
+  [[ "$status" == exited ]] || return 1
+  # IM_PID comes directly from this shell's `$!`. Reaping the exact child
+  # closes the gap between a zombie/absent status observation and evidence
+  # cleanup without ever waiting on an unrelated reused PID.
+  wait "$pid" 2>/dev/null || true
+  status="$(spawned_process_status "$pid" "$expected_start")" || return 1
+  [[ "$status" == exited ]]
+}
+
 stop_spawned_pid() {
   local pid=$1 expected_start=$2 status
   [[ -n "$pid" ]] || return 0
   status="$(spawned_process_status "$pid" "$expected_start")" || return 1
-  [[ "$status" == exited ]] && return 0
+  [[ "$status" == exited ]] && reap_spawned_pid "$pid" "$expected_start" && return 0
   [[ "$status" == alive ]] || return 1
   kill "$pid" 2>/dev/null || true
   for _ in $(seq 1 20); do
     status="$(spawned_process_status "$pid" "$expected_start")" || return 1
-    [[ "$status" == exited ]] && return 0
+    [[ "$status" == exited ]] && reap_spawned_pid "$pid" "$expected_start" && return 0
     [[ "$status" == alive ]] || return 1
     sleep 0.05
   done
   status="$(spawned_process_status "$pid" "$expected_start")" || return 1
-  [[ "$status" == exited ]] && return 0
+  [[ "$status" == exited ]] && reap_spawned_pid "$pid" "$expected_start" && return 0
   [[ "$status" == alive ]] || return 1
-  kill -9 "$pid" 2>/dev/null || true
-  for _ in $(seq 1 20); do
-    status="$(spawned_process_status "$pid" "$expected_start")" || return 1
-    [[ "$status" == exited ]] && return 0
-    [[ "$status" == alive ]] || return 1
-    sleep 0.05
-  done
-  return 1
+  if ! kill -9 "$pid" 2>/dev/null; then
+    reap_spawned_pid "$pid" "$expected_start"
+    return $?
+  fi
+  # SIGKILL is terminal for this exact spawned child. `wait` provides the
+  # completion condition rather than racing a fixed number of ps snapshots.
+  wait "$pid" 2>/dev/null || true
+  reap_spawned_pid "$pid" "$expected_start"
 }
 
 stop_spawned_gateway() {

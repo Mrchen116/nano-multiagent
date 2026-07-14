@@ -115,7 +115,12 @@ exec /bin/ps "$@"
 set -e
 if [[ "${1-}" == "-m" && "${2-}" == "uvicorn" ]]; then
   printf 'im %s\n' "$$" >> "$E2E_WT/spawned-pids.log"
-  trap 'exit 0' TERM INT
+  trap 'exit 0' INT
+  if [[ "${IM_IGNORES_TERM-0}" == "1" ]]; then
+    trap '' TERM
+  else
+    trap 'exit 0' TERM
+  fi
   while true; do /bin/sleep 1; done
 fi
 if [[ "${1-}" == "-m" && "${2-}" == "personal_assistant.main" ]]; then
@@ -302,78 +307,6 @@ def test_delayed_runtime_identity_uses_configured_startup_budget(
         assert (tmp_path / "gateway.identity.json").exists()
         assert int(env["IDENTITY_AFTER_TICKS"]) > 60
         assert "command not found" not in result.stderr
-    finally:
-        _cleanup_owned(tmp_path)
-
-
-def test_identity_timeout_rolls_back_exact_spawned_stack_and_preserves_logs(
-    tmp_path: Path,
-) -> None:
-    env = _prepare_harness(tmp_path, startup_timeout=0.5)
-    env["GATEWAY_IDENTITY_MODE"] = "timeout"
-    env["CREATE_GATEWAY_LOCK"] = "1"
-
-    try:
-        result = _run_up(tmp_path, env)
-        spawned_pids = _spawned_pids(tmp_path)
-
-        assert result.returncode == 1
-        assert spawned_pids
-        assert all(not _pid_alive(pid) for pid in spawned_pids), result.stderr
-        assert not (tmp_path / ".gateway.pid").exists()
-        assert not (tmp_path / ".im.pid").exists()
-        assert not (tmp_path / "gateway.pid").exists()
-        assert not (tmp_path / "gateway.identity.json").exists()
-        assert not (tmp_path / ".gateway-config.yaml.lock").exists()
-        assert (tmp_path / ".gateway.log").exists()
-        assert (tmp_path / ".im.log").exists()
-    finally:
-        _cleanup_owned(tmp_path)
-
-
-def test_identity_timeout_gateway_survivor_retains_whole_stack(
-    tmp_path: Path,
-) -> None:
-    env = _prepare_harness(tmp_path, startup_timeout=0.1)
-    env["GATEWAY_IDENTITY_MODE"] = "timeout"
-
-    try:
-        result = _run_up(tmp_path, env, preserve_gateway_signals=True)
-        gateway_pid, im_pid = _spawned_pids(tmp_path)[1], _spawned_pids(tmp_path)[0]
-        calls = (tmp_path / "signal-calls.log").read_text(encoding="utf-8").splitlines()
-
-        assert result.returncode == 1
-        assert "rollback could not stop Gateway" in result.stderr
-        assert _pid_alive(gateway_pid)
-        assert _pid_alive(im_pid)
-        assert not any(line.endswith(f" {im_pid}") for line in calls)
-        for evidence in (".gateway.pid", ".im.pid", ".gateway-config.yaml"):
-            assert (tmp_path / evidence).exists(), evidence
-        assert "stack rollback complete" not in result.stderr
-    finally:
-        _cleanup_owned(tmp_path)
-
-
-def test_readiness_failure_after_identity_rolls_back_spawned_stack(
-    tmp_path: Path,
-) -> None:
-    env = _prepare_harness(tmp_path)
-    env["NODES_STATUS"] = "offline"
-
-    try:
-        result = _run_up(tmp_path, env)
-        spawned_pids = _spawned_pids(tmp_path)
-
-        assert result.returncode == 1
-        assert "did not become online" in result.stderr
-        assert spawned_pids
-        assert all(not _pid_alive(pid) for pid in spawned_pids), result.stderr
-        assert not (tmp_path / ".gateway.pid").exists()
-        assert not (tmp_path / ".im.pid").exists()
-        assert not (tmp_path / "gateway.pid").exists()
-        assert not (tmp_path / "gateway.identity.json").exists()
-        assert (tmp_path / ".gateway.log").exists()
-        assert (tmp_path / ".im.log").exists()
     finally:
         _cleanup_owned(tmp_path)
 

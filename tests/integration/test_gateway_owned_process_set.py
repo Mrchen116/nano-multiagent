@@ -143,7 +143,6 @@ def test_e2e_down_reaps_same_group_and_detached_descendants(tmp_path: Path) -> N
             },
             capture_output=True,
             text=True,
-            timeout=40,
             check=False,
         )
         leader.wait(timeout=3)
