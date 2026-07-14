@@ -91,6 +91,9 @@ if [[ "${1-}" == "-m" && "${2-}" == "uvicorn" ]]; then
 fi
 if [[ "${1-}" == "-m" && "${2-}" == "personal_assistant.main" ]]; then
   printf 'gateway %s\n' "$$" >> "$E2E_WT/spawned-pids.log"
+  if [[ "${SPAWN_GATEWAY_DETACHED-0}" == "1" ]]; then
+    "$REAL_PYTHON" -c 'import os,pathlib,sys,time; os.setsid(); pathlib.Path(sys.argv[1]).write_text(str(os.getpid())); time.sleep(30)' "$E2E_WT/detached-gateway-child.pid" &
+  fi
   config_path=""
   args=("${@:3}")
   for ((index=0; index<${#args[@]}; index++)); do
@@ -171,6 +174,7 @@ def _run_up(
 kill() {{
   printf 'kill %s\\n' "$*" >> "$E2E_WT/signal-calls.log"
   target="${{@: -1}}"
+  target="${{target#-}}"
   if [[ -f "$E2E_WT/.gateway.pid" ]] \
     && [[ "$target" == "$(cat "$E2E_WT/.gateway.pid")" ]]; then
     return 0
@@ -281,7 +285,7 @@ def test_identity_timeout_rolls_back_exact_spawned_stack_and_preserves_logs(
 
         assert result.returncode == 1
         assert spawned_pids
-        assert all(not _pid_alive(pid) for pid in spawned_pids)
+        assert all(not _pid_alive(pid) for pid in spawned_pids), result.stderr
         assert not (tmp_path / ".gateway.pid").exists()
         assert not (tmp_path / ".im.pid").exists()
         assert not (tmp_path / "gateway.pid").exists()
@@ -329,7 +333,7 @@ def test_readiness_failure_after_identity_rolls_back_spawned_stack(
         assert result.returncode == 1
         assert "did not become online" in result.stderr
         assert spawned_pids
-        assert all(not _pid_alive(pid) for pid in spawned_pids)
+        assert all(not _pid_alive(pid) for pid in spawned_pids), result.stderr
         assert not (tmp_path / ".gateway.pid").exists()
         assert not (tmp_path / ".im.pid").exists()
         assert not (tmp_path / "gateway.pid").exists()

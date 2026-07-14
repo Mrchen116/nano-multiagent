@@ -65,6 +65,8 @@ fi
 # shellcheck source=scripts/e2e-lifecycle-lock.sh
 source "$SCRIPT_DIR/e2e-lifecycle-lock.sh"
 e2e_acquire_lifecycle_lock "$WT_ROOT" "$PYTHON_BIN"
+# shellcheck source=scripts/e2e-owned-processes.sh
+source "$SCRIPT_DIR/e2e-owned-processes.sh"
 
 # ─── liveness check (refuse to clobber) ──────────────────────────────────────
 
@@ -133,6 +135,37 @@ stop_spawned_pid() {
   return 1
 }
 
+stop_spawned_gateway() {
+  local pid=$1 owned
+  [[ -n "$pid" ]] || return 0
+  if [[ "$(process_status "$pid")" == exited ]]; then
+    return 0
+  fi
+  owned="$(e2e_freeze_gateway_owned_processes \
+    "$SRC_DIR" "$PYTHON_BIN" "$pid")" || return 1
+  if ! e2e_signal_gateway_owned_groups \
+    "$SRC_DIR" "$PYTHON_BIN" "$owned" TERM 0; then
+    e2e_signal_gateway_owned_groups \
+      "$SRC_DIR" "$PYTHON_BIN" "$owned" CONT 0 || true
+    return 1
+  fi
+  e2e_signal_gateway_owned_groups \
+    "$SRC_DIR" "$PYTHON_BIN" "$owned" CONT 0 || true
+  for _ in $(seq 1 20); do
+    [[ "$(e2e_gateway_owned_status \
+      "$SRC_DIR" "$PYTHON_BIN" "$owned")" == exited ]] && return 0
+    sleep 0.05
+  done
+  e2e_signal_gateway_owned_groups \
+    "$SRC_DIR" "$PYTHON_BIN" "$owned" KILL 1 || return 1
+  for _ in $(seq 1 20); do
+    [[ "$(e2e_gateway_owned_status \
+      "$SRC_DIR" "$PYTHON_BIN" "$owned")" == exited ]] && return 0
+    sleep 0.05
+  done
+  return 1
+}
+
 clear_matching_pid_file() {
   local path=$1 expected_pid=$2 actual
   [[ -f "$path" && ! -L "$path" ]] || return 0
@@ -192,7 +225,7 @@ rollback_spawned_stack() {
   trap - EXIT
   set +e
   if [[ -n "$GW_PID" ]]; then
-    if ! stop_spawned_pid "$GW_PID"; then
+    if ! stop_spawned_gateway "$GW_PID"; then
       echo "rollback could not stop Gateway pid=$GW_PID; retaining complete stack evidence" >&2
       exit "$exit_code"
     fi
@@ -359,7 +392,9 @@ fi
 # replaces the interactive "click this URL" step that breaks worktree e2e.
 # refactor-381.
 
-PYTHONPATH="$SRC_DIR" "$PYTHON_BIN" -m personal_assistant.main \
+PYTHONPATH="$SRC_DIR" "$PYTHON_BIN" -c \
+  'import os,sys; os.setsid(); os.execv(sys.argv[1], sys.argv[1:])' \
+  "$PYTHON_BIN" -m personal_assistant.main \
   --config "$WT_CFG" \
   --im-service-url "http://127.0.0.1:$IM_PORT" \
   --foreground \
@@ -424,6 +459,11 @@ raise SystemExit(
 PY
       then
         echo "Gateway public process identity mismatch for pid=$GW_PID" >&2
+        exit 1
+      fi
+      GW_PGID="$(ps -p "$GW_PID" -o pgid= 2>/dev/null | tr -d '[:space:]')"
+      if [[ "$GW_PGID" != "$GW_PID" ]]; then
+        echo "Gateway must be its exclusive process-group leader: pid=$GW_PID pgid=$GW_PGID" >&2
         exit 1
       fi
       GW_IDENTITY_READY=1; break

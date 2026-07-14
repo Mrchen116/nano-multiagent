@@ -38,6 +38,8 @@ SRC_DIR="$(cd "$SCRIPT_DIR/../src" && pwd)"
 # shellcheck source=scripts/e2e-lifecycle-lock.sh
 source "$SCRIPT_DIR/e2e-lifecycle-lock.sh"
 e2e_acquire_lifecycle_lock "$WT_ROOT" "$PYTHON_BIN"
+# shellcheck source=scripts/e2e-owned-processes.sh
+source "$SCRIPT_DIR/e2e-owned-processes.sh"
 
 gateway_process_snapshot() {
   local pid=$1
@@ -347,42 +349,56 @@ if [[ -f "$gateway_pid_file" ]]; then
     exit 1
   }
   if [[ "$gateway_status" == "alive" ]]; then
+    gateway_expected_start="$($PYTHON_BIN -c \
+      'import json,sys; print(json.load(open(sys.argv[1]))["process_start"])' \
+      "$WT_ROOT/gateway.identity.json")"
     if ! validate_gateway_identity "$gw_pid" 1 \
       || ! gateway_lifecycle_snapshot_matches "$gateway_lifecycle_snapshot" "$gw_pid" \
       || ! im_pid_snapshot_matches; then
       echo "gateway identity changed before SIGTERM; retaining stack" >&2
       exit 1
     fi
-    if ! kill "$gw_pid" 2>/dev/null; then
-      if [[ "$(gateway_process_status "$gw_pid")" != "exited" ]]; then
-        echo "gateway pid=$gw_pid exists but cannot be signalled; retaining stack" >&2
-        exit 1
-      fi
-      gateway_exit_confirmed=1
+    gateway_owned_snapshot="$(e2e_freeze_gateway_owned_processes \
+      "$SRC_DIR" "$PYTHON_BIN" "$gw_pid" "$gateway_expected_start")" || {
+      echo "gateway descendant ownership is unstable; retaining stack" >&2
+      exit 1
+    }
+    if ! gateway_lifecycle_snapshot_matches "$gateway_lifecycle_snapshot" "$gw_pid" \
+      || ! im_pid_snapshot_matches; then
+      e2e_signal_gateway_owned_groups \
+        "$SRC_DIR" "$PYTHON_BIN" "$gateway_owned_snapshot" CONT 0 || true
+      echo "gateway evidence changed while freezing descendants; retaining stack" >&2
+      exit 1
     fi
+    if ! e2e_signal_gateway_owned_groups \
+      "$SRC_DIR" "$PYTHON_BIN" "$gateway_owned_snapshot" TERM 0; then
+      e2e_signal_gateway_owned_groups \
+        "$SRC_DIR" "$PYTHON_BIN" "$gateway_owned_snapshot" CONT 0 || true
+      echo "gateway owned groups cannot be signalled; retaining stack" >&2
+      exit 1
+    fi
+    e2e_signal_gateway_owned_groups \
+      "$SRC_DIR" "$PYTHON_BIN" "$gateway_owned_snapshot" CONT 0 || true
     # Wait for graceful exit, then force-kill on timeout.
     # bugfix-402-M6: elapsed was incremented by 1 per 0.2s sleep, so the loop
     # exited after GATEWAY_GRACE_SECONDS × 0.2s (≈ 1s) instead of the intended
     # GATEWAY_GRACE_SECONDS (5s).  Track ticks at 0.2s granularity.
     elapsed_ticks=0
     max_ticks=$(( GATEWAY_GRACE_SECONDS * 5 ))
-    while [[ "$(gateway_process_status "$gw_pid")" != "exited" ]]; do
+    while [[ "$(e2e_gateway_owned_status \
+      "$SRC_DIR" "$PYTHON_BIN" "$gateway_owned_snapshot")" != "exited" ]]; do
       if [[ $elapsed_ticks -ge $max_ticks ]]; then
-        echo "gateway pid=$gw_pid did not exit within ${GATEWAY_GRACE_SECONDS}s — force-killing" >&2
-        if ! validate_gateway_identity "$gw_pid" 1 \
-          || ! gateway_lifecycle_snapshot_matches "$gateway_lifecycle_snapshot" "$gw_pid"; then
-          echo "gateway identity changed before SIGKILL; retaining stack" >&2
-          exit 1
-        fi
-        if ! kill -9 "$gw_pid" 2>/dev/null \
-          && [[ "$(gateway_process_status "$gw_pid")" != "exited" ]]; then
-          echo "gateway pid=$gw_pid survived but cannot receive SIGKILL; retaining stack" >&2
+        echo "gateway owned set did not exit within ${GATEWAY_GRACE_SECONDS}s — force-killing" >&2
+        if ! e2e_signal_gateway_owned_groups \
+          "$SRC_DIR" "$PYTHON_BIN" "$gateway_owned_snapshot" KILL 1; then
+          echo "gateway owned set changed before SIGKILL; retaining stack" >&2
           exit 1
         fi
         # SIGKILL is asynchronous. Do not erase lifecycle evidence until the
         # owned external PID is observably gone.
         for _ in $(seq 1 10); do
-          if [[ "$(gateway_process_status "$gw_pid")" == "exited" ]]; then
+          if [[ "$(e2e_gateway_owned_status \
+            "$SRC_DIR" "$PYTHON_BIN" "$gateway_owned_snapshot")" == "exited" ]]; then
             gateway_exit_confirmed=1
             break
           fi
@@ -393,7 +409,8 @@ if [[ -f "$gateway_pid_file" ]]; then
       sleep 0.2
       elapsed_ticks=$(( elapsed_ticks + 1 ))
     done
-    if [[ "$(gateway_process_status "$gw_pid")" == "exited" ]]; then
+    if [[ "$(e2e_gateway_owned_status \
+      "$SRC_DIR" "$PYTHON_BIN" "$gateway_owned_snapshot")" == "exited" ]]; then
       gateway_exit_confirmed=1
     fi
   else
@@ -407,7 +424,7 @@ if [[ -f "$gateway_pid_file" ]]; then
       exit 1
     fi
   else
-    echo "gateway pid=$gw_pid still appears alive; retaining lifecycle state" >&2
+    echo "gateway owned process set still appears alive; retaining lifecycle state" >&2
     exit 1
   fi
 fi

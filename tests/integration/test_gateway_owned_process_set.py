@@ -14,6 +14,8 @@ import pytest
 
 import personal_assistant.main as main_module
 
+from .test_e2e_up_script import _prepare_harness, _run_up
+
 
 def _spawn_gateway_tree() -> tuple[subprocess.Popen[str], dict[str, int]]:
     code = """
@@ -117,7 +119,7 @@ def test_e2e_down_reaps_same_group_and_detached_descendants(tmp_path: Path) -> N
             },
             capture_output=True,
             text=True,
-            timeout=15,
+            timeout=40,
             check=False,
         )
         leader.wait(timeout=3)
@@ -173,3 +175,22 @@ def test_birth_drift_fails_before_any_owned_group_signal(
         main_module.signal_gateway_owned_process_set(expected, signal.SIGTERM)
 
     assert signals == []
+
+
+def test_e2e_up_rollback_reaps_detached_gateway_descendant(tmp_path: Path) -> None:
+    env = _prepare_harness(tmp_path)
+    env["NODES_STATUS"] = "offline"
+    env["SPAWN_GATEWAY_DETACHED"] = "1"
+    detached_pid: int | None = None
+    try:
+        result = _run_up(tmp_path, env)
+        detached_pid = int(
+            (tmp_path / "detached-gateway-child.pid").read_text(encoding="utf-8")
+        )
+
+        assert result.returncode == 1
+        assert "did not become online" in result.stderr
+        assert _process_exited(detached_pid)
+    finally:
+        if detached_pid is not None and not _process_exited(detached_pid):
+            os.killpg(detached_pid, signal.SIGKILL)
