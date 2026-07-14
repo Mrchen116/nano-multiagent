@@ -52,6 +52,47 @@ _DEFAULT_TEST_LLM = LLMConfigPayload(
 )
 
 
+def _stub_owned_stop(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    exits: list[bool],
+) -> list[int]:
+    owned = main_module.GatewayOwnedProcessSet(
+        leader_pid=2468,
+        processes=(
+            main_module.GatewayOwnedProcess(
+                pid=2468,
+                ppid=1,
+                pgid=2468,
+                process_start="Mon Jul 13 12:34:56 2026",
+            ),
+        ),
+    )
+    signals: list[int] = []
+    exit_results = iter(exits)
+    monkeypatch.setattr(
+        main_module,
+        "freeze_gateway_owned_process_set",
+        lambda *_args, **_kwargs: owned,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "signal_gateway_owned_process_set",
+        lambda _owned, sent_signal, **_kwargs: signals.append(sent_signal),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "resume_gateway_owned_process_set",
+        lambda _owned: signals.append(signal.SIGCONT),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_wait_for_gateway_owned_process_set_exit",
+        lambda _config, _owned: next(exit_results),
+    )
+    return signals
+
+
 def test_launch_gateway_in_background_writes_runtime_state_file(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -107,6 +148,7 @@ def test_stop_gateway_ignores_legacy_health_url_when_pid_is_stale(
         "personal_assistant.main.httpx.get",
         lambda *_args, **_kwargs: pytest.fail("stop must not probe legacy health_url"),
     )
+    _stub_owned_stop(monkeypatch, exits=[True])
 
     with pytest.raises(RuntimeError, match="state/PID identity mismatch"):
         main_module.stop_gateway(
@@ -169,6 +211,7 @@ def test_stop_gateway_uses_pid_liveness_and_ignores_legacy_health_url(
         "personal_assistant.main.httpx.get",
         lambda *_args, **_kwargs: pytest.fail("stop must not probe legacy health_url"),
     )
+    _stub_owned_stop(monkeypatch, exits=[True])
 
     result = main_module.stop_gateway(
         config_path=config.source_path, load_config=lambda _path: config
@@ -343,6 +386,7 @@ def test_stop_gateway_removes_pid_file_on_successful_stop(
     monkeypatch.setattr(
         "personal_assistant.main.time.monotonic", iter([0.0, 0.01]).__next__
     )
+    _stub_owned_stop(monkeypatch, exits=[True])
     result = stop_gateway(
         config_path=config.source_path, load_config=lambda _path: config
     )
@@ -363,7 +407,7 @@ def test_stop_gateway_stops_foreground_pid_without_runtime_state(
     pid_path.write_text("2468", encoding="utf-8")
     write_gateway_identity(config)
     pid_checks = iter([True, False])
-    kills: list[tuple[int, int]] = []
+    kills = _stub_owned_stop(monkeypatch, exits=[True])
 
     monkeypatch.setattr(
         "personal_assistant.main._pid_is_running", lambda _pid: next(pid_checks)
@@ -373,10 +417,6 @@ def test_stop_gateway_stops_foreground_pid_without_runtime_state(
         lambda _pid: gateway_process_snapshot(config),
     )
     # 漏 mock 会让 stop_gateway 对虚构 PID 2468 真实 killpg,CI 上若该 pid 存活则误杀 runner 进程组。
-    monkeypatch.setattr(
-        "personal_assistant.main._kill_process_tree",
-        lambda pid, sig: kills.append((pid, sig)),
-    )
     monkeypatch.setattr("personal_assistant.main.time.sleep", lambda _s: None)
     monkeypatch.setattr(
         "personal_assistant.main.time.monotonic", iter([0.0, 0.01]).__next__
@@ -387,7 +427,7 @@ def test_stop_gateway_stops_foreground_pid_without_runtime_state(
     )
 
     assert result == f"STOPPED pid=2468 pid_file={pid_path}"
-    assert kills == [(2468, signal.SIGTERM)]
+    assert kills == [signal.SIGTERM, signal.SIGCONT]
     assert not pid_path.exists()
 
 
@@ -410,7 +450,7 @@ def test_stop_gateway_force_kills_owned_process_group_and_cleans_state(
         encoding="utf-8",
     )
     write_gateway_identity(config)
-    signals: list[tuple[str, int, int]] = []
+    signals = _stub_owned_stop(monkeypatch, exits=[False, True])
     killed = False
 
     def _pid_is_running(_pid: int) -> bool:
@@ -423,13 +463,6 @@ def test_stop_gateway_force_kills_owned_process_group_and_cleans_state(
         lambda _pid: gateway_process_snapshot(config),
     )
 
-    def _kill_group(pid: int, sig: int) -> None:
-        nonlocal killed
-        signals.append(("group", pid, sig))
-        if sig == signal.SIGKILL:
-            killed = True
-
-    monkeypatch.setattr(main_module, "_kill_process_tree", _kill_group)
     monkeypatch.setattr(main_module.time, "monotonic", iter([0.0, 1.0]).__next__)
 
     result = stop_gateway(
@@ -438,8 +471,9 @@ def test_stop_gateway_force_kills_owned_process_group_and_cleans_state(
 
     assert result == f"STOPPED pid=2468 state={state_path} forced=true"
     assert signals == [
-        ("group", 2468, signal.SIGTERM),
-        ("group", 2468, signal.SIGKILL),
+        signal.SIGTERM,
+        signal.SIGCONT,
+        signal.SIGKILL,
     ]
     assert not pid_path.exists()
     assert not state_path.exists()

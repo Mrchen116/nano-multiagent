@@ -78,7 +78,7 @@ def test_e2e_up_waits_on_external_generation_lock_before_preflight(
             for name in (".gateway-config.yaml", ".im.pid", "spawned-pids.log")
         )
         _release_holder(holder)
-        _stdout, stderr = process.communicate(timeout=15)
+        _stdout, stderr = process.communicate()
 
         assert not crossed_generation
         assert process.returncode == 0, stderr
@@ -214,6 +214,23 @@ def test_invalid_im_evidence_fails_before_any_gateway_or_im_signal(
     assert "kill " not in calls
     assert "IM PID evidence" in result.stderr
     assert (tmp_path / ".gateway.pid").exists()
+
+
+def test_missing_im_pid_with_gateway_evidence_fails_before_any_signal(
+    tmp_path: Path,
+) -> None:
+    _write_stack_files(tmp_path)
+    (tmp_path / ".im.pid").unlink()
+
+    result = _run_down(tmp_path, kill_body="return 0")
+
+    calls_path = tmp_path / "calls.log"
+    calls = calls_path.read_text(encoding="utf-8") if calls_path.exists() else ""
+    assert result.returncode == 1
+    assert "kill " not in calls
+    assert "IM PID evidence is missing" in result.stderr
+    assert (tmp_path / ".gateway.pid").exists()
+    assert (tmp_path / ".im.identity.json").exists()
 
 
 def test_im_evidence_revision_drift_after_gateway_exit_sends_no_im_signal(

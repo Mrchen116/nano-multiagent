@@ -175,17 +175,19 @@ async def test_make_token_getter_uses_refresh_token_first(tmp_path: Path) -> Non
 
     persisted: list[tuple[str, str]] = []
 
-    def _fake_save(cfg, path) -> None:  # noqa: ANN001
+    def _fake_update(path, mutation):  # noqa: ANN001, ANN202
+        cfg = mutation(local_config)
         if cfg.im_service is not None:
             persisted.append(
                 (cfg.im_service.token or "", cfg.im_service.refresh_token or "")
             )
+        return cfg
 
     token_getter = _make_token_getter(
         im_service=im_service,
         local_config=local_config,
         auth_client=_FakeAuthClient(),
-        save_config=_fake_save,
+        update_config=_fake_update,
     )
 
     result = await token_getter()
@@ -242,17 +244,19 @@ async def test_make_token_getter_falls_back_to_login_when_refresh_fails(
 
     persisted: list[tuple[str, str]] = []
 
-    def _fake_save(cfg, path) -> None:  # noqa: ANN001
+    def _fake_update(path, mutation):  # noqa: ANN001, ANN202
+        cfg = mutation(local_config)
         if cfg.im_service is not None:
             persisted.append(
                 (cfg.im_service.token or "", cfg.im_service.refresh_token or "")
             )
+        return cfg
 
     token_getter = _make_token_getter(
         im_service=im_service,
         local_config=local_config,
         auth_client=_FakeAuthClient(),
-        save_config=_fake_save,
+        update_config=_fake_update,
     )
 
     result = await token_getter()
@@ -304,7 +308,7 @@ async def test_make_token_getter_returns_static_token_when_no_refresh_or_credent
         im_service=im_service,
         local_config=local_config,
         auth_client=_FakeAuthClient(),
-        save_config=lambda cfg, path: None,
+        update_config=lambda path, mutation: mutation(local_config),
     )
 
     result = await token_getter()

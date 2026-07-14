@@ -214,7 +214,7 @@ PY
 }
 
 capture_im_pid_snapshot() {
-  "$PYTHON_BIN" - "$WT_ROOT/.im.pid" <<'PY'
+  "$PYTHON_BIN" - "$WT_ROOT" <<'PY'
 import hashlib
 import json
 import os
@@ -222,72 +222,112 @@ from pathlib import Path
 import stat
 import sys
 
-path = Path(sys.argv[1])
-try:
-    before = path.lstat()
-except FileNotFoundError:
+root = Path(sys.argv[1]).resolve()
+pid_path = root / ".im.pid"
+identity_path = root / ".im.identity.json"
+
+
+def capture_file(path: Path, label: str) -> tuple[dict[str, int | str], bytes]:
+    try:
+        before = path.lstat()
+    except FileNotFoundError:
+        raise SystemExit(f"{label} evidence is missing") from None
+    if not stat.S_ISREG(before.st_mode) or stat.S_ISLNK(before.st_mode):
+        raise SystemExit(f"{label} evidence is non-regular")
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(path, flags)
+    try:
+        held_before = os.fstat(fd)
+        chunks = []
+        while chunk := os.read(fd, 4096):
+            chunks.append(chunk)
+        held_after = os.fstat(fd)
+        current = path.lstat()
+    finally:
+        os.close(fd)
+    content = b"".join(chunks)
+    revision = (
+        held_before.st_dev,
+        held_before.st_ino,
+        held_before.st_mode,
+        held_before.st_size,
+        held_before.st_mtime_ns,
+    )
+    if (
+        revision
+        != (
+            held_after.st_dev,
+            held_after.st_ino,
+            held_after.st_mode,
+            held_after.st_size,
+            held_after.st_mtime_ns,
+        )
+        or revision
+        != (
+            current.st_dev,
+            current.st_ino,
+            current.st_mode,
+            current.st_size,
+            current.st_mtime_ns,
+        )
+        or held_before.st_nlink != 1
+        or held_after.st_nlink != 1
+        or current.st_nlink != 1
+    ):
+        raise SystemExit(f"{label} evidence changed during snapshot")
+    return (
+        {
+            "content_sha256": hashlib.sha256(content).hexdigest(),
+            "device": held_before.st_dev,
+            "inode": held_before.st_ino,
+            "mode": held_before.st_mode,
+            "mtime_ns": held_before.st_mtime_ns,
+            "size": held_before.st_size,
+        },
+        content,
+    )
+
+
+if not (pid_path.exists() or pid_path.is_symlink()):
     print(json.dumps({"exists": False}, sort_keys=True))
     raise SystemExit(0)
-if not stat.S_ISREG(before.st_mode) or stat.S_ISLNK(before.st_mode):
-    raise SystemExit("IM PID evidence is non-regular")
-flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
-fd = os.open(path, flags)
+pid_file, pid_content = capture_file(pid_path, "IM PID")
+identity_file, identity_content = capture_file(identity_path, "IM identity")
 try:
-    held_before = os.fstat(fd)
-    chunks = []
-    while chunk := os.read(fd, 4096):
-        chunks.append(chunk)
-    held_after = os.fstat(fd)
-    current = path.lstat()
-finally:
-    os.close(fd)
-content = b"".join(chunks)
-revision = (
-    held_before.st_dev,
-    held_before.st_ino,
-    held_before.st_mode,
-    held_before.st_size,
-    held_before.st_mtime_ns,
-)
-if (
-    revision
-    != (
-        held_after.st_dev,
-        held_after.st_ino,
-        held_after.st_mode,
-        held_after.st_size,
-        held_after.st_mtime_ns,
-    )
-    or revision
-    != (
-        current.st_dev,
-        current.st_ino,
-        current.st_mode,
-        current.st_size,
-        current.st_mtime_ns,
-    )
-    or held_before.st_nlink != 1
-    or held_after.st_nlink != 1
-    or current.st_nlink != 1
-):
-    raise SystemExit("IM PID evidence changed during snapshot")
-try:
-    pid_text = content.decode("ascii").strip()
+    pid_text = pid_content.decode("ascii").strip()
 except UnicodeDecodeError as exc:
     raise SystemExit("IM PID evidence is malformed") from exc
 if not pid_text.isdigit() or pid_text.startswith("0"):
     raise SystemExit("IM PID evidence is malformed")
+pid = int(pid_text)
+try:
+    identity = json.loads(identity_content.decode("utf-8"))
+except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+    raise SystemExit("IM identity evidence is malformed") from exc
+argv = identity.get("argv")
+valid = (
+    identity.get("schema_version") == 1
+    and identity.get("pid") == pid
+    and isinstance(identity.get("process_start"), str)
+    and bool(identity["process_start"].strip())
+    and Path(identity.get("cwd", "")).resolve() == root
+    and isinstance(argv, list)
+    and argv[:6]
+    == ["-m", "uvicorn", "IM.app:app", "--host", "127.0.0.1", "--port"]
+    and len(argv) == 7
+    and isinstance(argv[6], str)
+    and argv[6].isdigit()
+)
+if not valid:
+    raise SystemExit("IM identity evidence is malformed")
 print(
     json.dumps(
         {
-            "content_sha256": hashlib.sha256(content).hexdigest(),
-            "device": held_before.st_dev,
             "exists": True,
-            "inode": held_before.st_ino,
-            "mode": held_before.st_mode,
-            "mtime_ns": held_before.st_mtime_ns,
-            "pid": int(pid_text),
-            "size": held_before.st_size,
+            "identity": identity,
+            "identity_file": identity_file,
+            "pid": pid,
+            "pid_file": pid_file,
         },
         sort_keys=True,
     )
@@ -301,12 +341,98 @@ im_pid_snapshot_matches() {
   [[ "$current" == "$im_pid_snapshot" ]]
 }
 
+im_owned_process_status() {
+  local expected_json=$1
+  PYTHONPATH="$SRC_DIR${PYTHONPATH:+:$PYTHONPATH}" "$PYTHON_BIN" - \
+    "$expected_json" <<'PY'
+import json
+import sys
+
+from personal_assistant.main import read_gateway_process_snapshot
+
+expected = json.loads(sys.argv[1])
+if not expected.get("exists"):
+    print("exited")
+    raise SystemExit(0)
+snapshot = read_gateway_process_snapshot(expected["pid"])
+if snapshot is None:
+    print("exited")
+    raise SystemExit(0)
+expected_start = " ".join(expected["identity"]["process_start"].split())
+if " ".join(snapshot.process_start.split()) != expected_start:
+    raise SystemExit(1)
+print("alive")
+PY
+}
+
+clear_im_lifecycle_snapshot() {
+  local expected_json=$1
+  "$PYTHON_BIN" - "$WT_ROOT" "$expected_json" <<'PY'
+import hashlib
+import json
+from pathlib import Path
+import sys
+
+root = Path(sys.argv[1]).resolve()
+expected = json.loads(sys.argv[2])
+if not expected.get("exists"):
+    raise SystemExit(0)
+paths = {
+    "pid_file": root / ".im.pid",
+    "identity_file": root / ".im.identity.json",
+}
+for key, path in paths.items():
+    try:
+        current = path.lstat()
+        content = path.read_bytes()
+    except OSError:
+        raise SystemExit(1) from None
+    revision = expected[key]
+    if (
+        current.st_dev != revision["device"]
+        or current.st_ino != revision["inode"]
+        or current.st_mode != revision["mode"]
+        or current.st_size != revision["size"]
+        or current.st_mtime_ns != revision["mtime_ns"]
+        or current.st_nlink != 1
+        or hashlib.sha256(content).hexdigest() != revision["content_sha256"]
+    ):
+        raise SystemExit(1)
+for path in paths.values():
+    path.unlink()
+PY
+}
+
 # IM evidence is part of the same full-stack generation. Reject malformed or
 # non-regular ownership before any Gateway signal can partially tear down it.
+if [[ ! -e "$WT_ROOT/.im.pid" && ! -L "$WT_ROOT/.im.pid" ]]; then
+  stack_evidence=0
+  for evidence in \
+    "$WT_ROOT/.im.identity.json" \
+    "$WT_ROOT/.gateway.pid" \
+    "$WT_ROOT/gateway.pid" \
+    "$WT_ROOT/gateway.identity.json" \
+    "$WT_ROOT/.gateway-state.json" \
+    "$WT_ROOT/.gateway-identity.json" \
+    "$WT_ROOT/.gateway-config.yaml" \
+    "$WT_ROOT/.gateway-config.yaml.lock" \
+    "$WT_ROOT/.e2e-ports.env" \
+    "$WT_ROOT/.e2e-jwt-secret"; do
+    [[ -e "$evidence" || -L "$evidence" ]] && stack_evidence=1
+  done
+  if [[ $stack_evidence -eq 1 ]]; then
+    echo "IM PID evidence is missing; retaining complete stack" >&2
+    exit 1
+  fi
+fi
 im_pid_snapshot="$(capture_im_pid_snapshot)" || {
   echo "IM PID evidence is invalid; retaining complete stack" >&2
   exit 1
 }
+if ! im_owned_process_status "$im_pid_snapshot" >/dev/null; then
+  echo "IM process identity mismatch; refusing to signal or tear down stack" >&2
+  exit 1
+fi
 
 # Step 1: Signal Gateway and wait for graceful exit before touching IM.
 # Gateway's shutdown drains in-flight runs before closing IM transport;
@@ -354,7 +480,8 @@ if [[ -f "$gateway_pid_file" ]]; then
       "$WT_ROOT/gateway.identity.json")"
     if ! validate_gateway_identity "$gw_pid" 1 \
       || ! gateway_lifecycle_snapshot_matches "$gateway_lifecycle_snapshot" "$gw_pid" \
-      || ! im_pid_snapshot_matches; then
+      || ! im_pid_snapshot_matches \
+      || ! im_owned_process_status "$im_pid_snapshot" >/dev/null; then
       echo "gateway identity changed before SIGTERM; retaining stack" >&2
       exit 1
     fi
@@ -364,7 +491,8 @@ if [[ -f "$gateway_pid_file" ]]; then
       exit 1
     }
     if ! gateway_lifecycle_snapshot_matches "$gateway_lifecycle_snapshot" "$gw_pid" \
-      || ! im_pid_snapshot_matches; then
+      || ! im_pid_snapshot_matches \
+      || ! im_owned_process_status "$im_pid_snapshot" >/dev/null; then
       e2e_signal_gateway_owned_groups \
         "$SRC_DIR" "$PYTHON_BIN" "$gateway_owned_snapshot" CONT 0 || true
       echo "gateway evidence changed while freezing descendants; retaining stack" >&2
@@ -430,28 +558,53 @@ if [[ -f "$gateway_pid_file" ]]; then
 fi
 
 # Step 2: Now that Gateway is gone, stop and confirm IM before cleanup commit.
-im_pid_file="$WT_ROOT/.im.pid"
 if ! im_pid_snapshot_matches; then
   echo "IM PID evidence changed during Gateway teardown; retaining generated state" >&2
   exit 1
 fi
 im_pid="$($PYTHON_BIN -c 'import json,sys; print(json.loads(sys.argv[1]).get("pid", ""))' "$im_pid_snapshot")"
 if [[ -n "$im_pid" ]]; then
-  if kill -0 "$im_pid" 2>/dev/null; then
-    if ! kill "$im_pid" 2>/dev/null && kill -0 "$im_pid" 2>/dev/null; then
-      echo "IM pid=$im_pid cannot be signalled; retaining generated state" >&2
-      exit 1
+  if ! im_process_status="$(im_owned_process_status "$im_pid_snapshot")"; then
+    echo "IM process identity mismatch; retaining generated state" >&2
+    exit 1
+  fi
+  if [[ "$im_process_status" == alive ]]; then
+    if ! kill "$im_pid" 2>/dev/null; then
+      if ! im_process_status="$(im_owned_process_status "$im_pid_snapshot")"; then
+        echo "IM process identity mismatch; retaining generated state" >&2
+        exit 1
+      fi
+      if [[ "$im_process_status" == alive ]]; then
+        echo "IM pid=$im_pid cannot be signalled; retaining generated state" >&2
+        exit 1
+      fi
     fi
     sleep 0.5
-    if kill -0 "$im_pid" 2>/dev/null; then
+    im_process_status="$(im_owned_process_status "$im_pid_snapshot")" || {
+      echo "IM process identity mismatch; retaining generated state" >&2
+      exit 1
+    }
+    if [[ "$im_process_status" == alive ]]; then
+      if ! im_pid_snapshot_matches; then
+        echo "IM PID evidence changed before SIGKILL; retaining generated state" >&2
+        exit 1
+      fi
       kill -9 "$im_pid" 2>/dev/null || true
       for _ in $(seq 1 10); do
-        kill -0 "$im_pid" 2>/dev/null || break
+        im_process_status="$(im_owned_process_status "$im_pid_snapshot")" || {
+          echo "IM process identity mismatch; retaining generated state" >&2
+          exit 1
+        }
+        [[ "$im_process_status" == exited ]] && break
         sleep 0.05
       done
     fi
   fi
-  if kill -0 "$im_pid" 2>/dev/null; then
+  im_process_status="$(im_owned_process_status "$im_pid_snapshot")" || {
+    echo "IM process identity mismatch; retaining generated state" >&2
+    exit 1
+  }
+  if [[ "$im_process_status" == alive ]]; then
     echo "IM pid=$im_pid still appears alive; retaining generated state" >&2
     exit 1
   fi
@@ -459,7 +612,10 @@ if [[ -n "$im_pid" ]]; then
     echo "IM PID evidence changed during teardown; retaining generated state" >&2
     exit 1
   fi
-  rm -f "$im_pid_file"
+  if ! clear_im_lifecycle_snapshot "$im_pid_snapshot"; then
+    echo "IM lifecycle evidence changed during cleanup; retaining generated state" >&2
+    exit 1
+  fi
 fi
 
 # The sidecar inode coordinates every project config writer. Remove this

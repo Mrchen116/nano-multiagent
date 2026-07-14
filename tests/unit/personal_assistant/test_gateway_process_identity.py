@@ -27,6 +27,21 @@ from ._main_helpers import _FakeProcess, build_config
 _PROCESS_START = "Mon Jul 13 12:34:56 2026"
 
 
+def _owned_gateway_set() -> main_module.GatewayOwnedProcessSet:
+    """Return the frozen single-process ownership used by public-stop fakes."""
+    return main_module.GatewayOwnedProcessSet(
+        leader_pid=2468,
+        processes=(
+            main_module.GatewayOwnedProcess(
+                pid=2468,
+                ppid=1,
+                pgid=2468,
+                process_start=_PROCESS_START,
+            ),
+        ),
+    )
+
+
 def _identity_payload(config_path: Path, *, process_start: str = _PROCESS_START):
     return {
         "schema_version": 1,
@@ -214,13 +229,6 @@ def test_public_stop_bounds_both_wait_phases_to_remaining_grace(
     )
     _write_lifecycle(tmp_path, with_state=True)
     signals: list[tuple[str, int]] = []
-    sleeps: list[float] = []
-    now = 0.0
-
-    def _sleep(seconds: float) -> None:
-        nonlocal now
-        sleeps.append(seconds)
-        now += seconds
 
     monkeypatch.setattr(
         main_module,
@@ -228,24 +236,28 @@ def test_public_stop_bounds_both_wait_phases_to_remaining_grace(
         lambda _pid: _observed_gateway(config.source_path),
         raising=False,
     )
-    monkeypatch.setattr(main_module, "_pid_is_running", lambda _pid: True)
     monkeypatch.setattr(
-        main_module.os,
-        "kill",
-        lambda _pid, sig: signals.append(("pid", sig)),
+        main_module,
+        "freeze_gateway_owned_process_set",
+        lambda *_args, **_kwargs: _owned_gateway_set(),
     )
     monkeypatch.setattr(
         main_module,
-        "_kill_process_tree",
-        lambda _pid, sig: signals.append(("group", sig)),
+        "signal_gateway_owned_process_set",
+        lambda _owned, sig, **_kwargs: signals.append(("group", sig)),
     )
-    monkeypatch.setattr(main_module.time, "monotonic", lambda: now)
-    monkeypatch.setattr(main_module.time, "sleep", _sleep)
+    monkeypatch.setattr(
+        main_module, "resume_gateway_owned_process_set", lambda _owned: None
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_wait_for_gateway_owned_process_set_exit",
+        lambda _config, _owned: False,
+    )
 
     with pytest.raises(RuntimeError, match="did not exit after SIGKILL"):
         stop_gateway(config_path=config.source_path, load_config=lambda _path: config)
 
-    assert sleeps == [1, 1]
     assert signals == [
         ("group", signal.SIGTERM),
         ("group", signal.SIGKILL),
@@ -263,25 +275,29 @@ def test_legacy_state_matching_gateway_is_upgraded_before_public_stop(
     state_payload["health_url"] = "http://127.0.0.1:8011/openapi.json"
     state_path.write_text(json.dumps(state_payload), encoding="utf-8")
     signals: list[tuple[str, int]] = []
-    pid_checks = iter([True, False])
     monkeypatch.setattr(
         main_module,
         "read_gateway_process_snapshot",
         lambda _pid: _observed_gateway(config.source_path),
     )
-    monkeypatch.setattr(main_module, "_pid_is_running", lambda _pid: next(pid_checks))
     monkeypatch.setattr(
-        main_module.os,
-        "kill",
-        lambda _pid, sig: signals.append(("pid", sig)),
+        main_module,
+        "freeze_gateway_owned_process_set",
+        lambda *_args, **_kwargs: _owned_gateway_set(),
     )
     monkeypatch.setattr(
         main_module,
-        "_kill_process_tree",
-        lambda _pid, sig: signals.append(("group", sig)),
+        "signal_gateway_owned_process_set",
+        lambda _owned, sig, **_kwargs: signals.append(("group", sig)),
     )
-    monkeypatch.setattr(main_module.time, "monotonic", iter([0.0, 0.0]).__next__)
-    monkeypatch.setattr(main_module.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(
+        main_module, "resume_gateway_owned_process_set", lambda _owned: None
+    )
+    monkeypatch.setattr(
+        main_module,
+        "_wait_for_gateway_owned_process_set_exit",
+        lambda _config, _owned: True,
+    )
 
     result = stop_gateway(
         config_path=config.source_path, load_config=lambda _path: config

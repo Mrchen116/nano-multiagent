@@ -15,6 +15,7 @@ import pytest
 import personal_assistant.main as main_module
 
 from .test_e2e_up_script import _prepare_harness, _run_up
+from tests.unit.personal_assistant._main_helpers import build_config
 
 
 def _spawn_gateway_tree() -> tuple[subprocess.Popen[str], dict[str, int]]:
@@ -89,6 +90,29 @@ def _write_gateway_evidence(root: Path, leader_pid: int) -> None:
         json.dumps({"pid": leader_pid, "config_path": str(config_path)}),
         encoding="utf-8",
     )
+    # The Gateway-only tree fixture represents a stack whose IM already exited.
+    # e2e-down requires this durable pair before it may signal any Gateway owner.
+    (root / ".im.pid").write_text("999999999\n", encoding="utf-8")
+    (root / ".im.identity.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "pid": 999999999,
+                "process_start": "Mon Jul 13 12:34:56 2026",
+                "cwd": str(root.resolve()),
+                "argv": [
+                    "-m",
+                    "uvicorn",
+                    "IM.app:app",
+                    "--host",
+                    "127.0.0.1",
+                    "--port",
+                    "1",
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
 
 
 def test_owned_process_snapshot_includes_same_group_and_detached_descendants() -> None:
@@ -136,6 +160,61 @@ def test_e2e_down_reaps_same_group_and_detached_descendants(tmp_path: Path) -> N
         _cleanup_tree(leader, children)
 
 
+def test_public_stop_reaps_same_group_and_detached_descendants(
+    tmp_path: Path,
+) -> None:
+    leader, children = _spawn_gateway_tree()
+    config = build_config(tmp_path)
+    snapshot = main_module.read_gateway_process_snapshot(leader.pid)
+    assert snapshot is not None
+    (tmp_path / "gateway.pid").write_text(str(leader.pid), encoding="utf-8")
+    (tmp_path / "gateway.identity.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "pid": leader.pid,
+                "process_start": snapshot.process_start,
+                "config_path": str(config.source_path.resolve()),
+                "entry_module": "personal_assistant.main",
+                "argv": [
+                    "--config",
+                    str(config.source_path.resolve()),
+                    "--foreground",
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / ".gateway-state.json").write_text(
+        json.dumps(
+            {
+                "pid": leader.pid,
+                "config_path": str(config.source_path.resolve()),
+                "log_path": str(tmp_path / "gateway.log"),
+            }
+        ),
+        encoding="utf-8",
+    )
+    try:
+        result = main_module.stop_gateway(
+            config_path=config.source_path,
+            load_config=lambda _path: config,
+        )
+        leader.wait(timeout=3)
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline and not all(
+            _process_exited(pid) for pid in children.values()
+        ):
+            time.sleep(0.05)
+
+        assert result.startswith(f"STOPPED pid={leader.pid}")
+        assert all(_process_exited(pid) for pid in children.values())
+        assert not (tmp_path / "gateway.pid").exists()
+        assert not (tmp_path / ".gateway-state.json").exists()
+    finally:
+        _cleanup_tree(leader, children)
+
+
 def test_birth_drift_fails_before_any_owned_group_signal(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -175,6 +254,44 @@ def test_birth_drift_fails_before_any_owned_group_signal(
         main_module.signal_gateway_owned_process_set(expected, signal.SIGTERM)
 
     assert signals == []
+
+
+def test_shell_freeze_delegates_the_complete_transaction_to_python(
+    tmp_path: Path,
+) -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    helper = repo_root / "scripts" / "e2e-owned-processes.sh"
+    fake_python = tmp_path / "python"
+    fake_python.write_text(
+        "#!/bin/bash\n"
+        "payload=$(cat)\n"
+        "grep -q 'freeze_gateway_owned_process_set' <<<\"$payload\" || exit 42\n"
+        "printf '%s\\n' '{\"leader_pid\":2468,\"processes\":[]}'\n",
+        encoding="utf-8",
+    )
+    fake_python.chmod(0o755)
+
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            'source "$1"; '
+            "ps() { printf '%s\\n' \"2468\"; }; "
+            "kill() { return 0; }; "
+            "export -f ps kill; "
+            'e2e_freeze_gateway_owned_processes "$2" "$3" 2468 expected-birth',
+            "bash",
+            str(helper),
+            str(repo_root / "src"),
+            str(fake_python),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {"leader_pid": 2468, "processes": []}
 
 
 def test_e2e_up_rollback_reaps_detached_gateway_descendant(tmp_path: Path) -> None:
