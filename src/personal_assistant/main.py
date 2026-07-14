@@ -3754,6 +3754,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             job_store=job_store,
             state_store=state_store,
             submit_fn=_enqueue_via_service,
+            active_since=_service.active_since,
         )
         await scheduler.tick()
 

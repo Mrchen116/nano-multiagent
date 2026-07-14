@@ -302,6 +302,10 @@ class CronExecutionService:
         self._agent_id = agent_id
         self._workspace_root = Path(workspace_root).expanduser().resolve()
         self._execute_fn = execute_fn
+        # Keep an in-memory lifetime fence for one-shot scheduling.  Persisted run
+        # state tells us whether a job already ran, but cannot distinguish a task
+        # missed while this Gateway was alive from one missed before a restart.
+        self._active_since = datetime.now(tz=UTC)
         # Gateway asyncio loop reference for scheduling execute_fn when enqueue()
         # is called from a sync thread (e.g. tool.run() via asyncio.to_thread).
         # Without this, asyncio.get_event_loop() in the worker thread has no
@@ -331,6 +335,11 @@ class CronExecutionService:
     def runs_store(self) -> CronRunsStore:
         """Expose the runs store so execute_fn implementations can update history."""
         return self._runs_store
+
+    @property
+    def active_since(self) -> datetime:
+        """Return when this in-memory service became able to dispatch scheduled jobs."""
+        return self._active_since
 
     def enqueue(
         self,

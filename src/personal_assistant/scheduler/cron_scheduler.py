@@ -294,6 +294,10 @@ class CronScheduler:
         submit_fn: Async callable invoked for each due job.
             Signature: ``async def submit_fn(*, agent_id: str, job: CronJob) -> None``
             Pass None to use the scheduler in read-only mode (for testing _compute_due_jobs).
+        active_since: When supplied by the live CronExecutionService, the instant this
+            Gateway process became able to run scheduled work.  A one-shot due before
+            this fence is not replayed after restart; one due after it is still
+            delivered even if a polling tick arrives late.
 
     Notes:
         One CronScheduler instance is created per agent per PollingCronRunner tick;
@@ -308,11 +312,15 @@ class CronScheduler:
         job_store: CronJobStore,
         state_store: CronSchedulerStateStore,
         submit_fn: Callable[..., Awaitable[None]] | None,
+        active_since: datetime | None = None,
     ) -> None:
         self._agent_id = agent_id
         self._job_store = job_store
         self._state_store = state_store
         self._submit_fn = submit_fn
+        self._active_since = (
+            _normalize_datetime(active_since) if active_since is not None else None
+        )
 
     async def tick(self, *, now: datetime | None = None) -> None:
         """Evaluate all enabled jobs and submit due ones.
@@ -351,7 +359,11 @@ class CronScheduler:
                 schedule = _parse_schedule_dict(job.schedule)
             except (ValueError, KeyError):
                 continue
-            if schedule.due_times_up_to(now=now, last_due_at=last_run):
+            if self._due_times_up_to(
+                schedule=schedule,
+                now=now,
+                last_due_at=last_run,
+            ):
                 due.append(job)
         return due
 
@@ -365,8 +377,37 @@ class CronScheduler:
             schedule = _parse_schedule_dict(job.schedule)
         except (ValueError, KeyError):
             return None
-        times = schedule.due_times_up_to(now=now, last_due_at=last_run)
+        times = self._due_times_up_to(
+            schedule=schedule,
+            now=now,
+            last_due_at=last_run,
+        )
         return times[0] if times else now
+
+    def _due_times_up_to(
+        self,
+        *,
+        schedule: _Schedule,
+        now: datetime,
+        last_due_at: datetime | None,
+    ) -> list[datetime]:
+        """Return due instants while preserving restart-safe one-shot semantics."""
+        if (
+            isinstance(schedule, _AtSchedule)
+            and self._active_since is not None
+            and last_due_at is None
+        ):
+            # The job existed before this service became live, so it expired while
+            # the Gateway was offline.  Preserve the no-backfill restart contract.
+            if schedule.due_at < self._active_since:
+                return []
+            # Conversely, this process was alive before the scheduled time.  A
+            # delayed polling tick is not an offline restart and must not discard
+            # the user's one-shot request merely because it exceeded the old 60s
+            # grace window.
+            if now >= schedule.due_at:
+                return [schedule.due_at]
+        return schedule.due_times_up_to(now=now, last_due_at=last_due_at)
 
 
 def make_cron_job_id() -> str:
