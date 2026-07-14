@@ -1219,8 +1219,10 @@ accelerated teardown polling could outpace a just-signalled child before evidenc
 concurrency failure is outside this delta and passed its focused retry.
 
 `ba1689df8` removes the finite fixture lifetime and external lock-test deadlines, while retaining a short scheduling
-yield for the fake signal-driven teardown. The affected four-file xdist target bundle, static checks, and test naming
-contract pass locally. A new full remote CI run is required before this follow-up can be closed.
+yield for the fake signal-driven teardown. A subsequent code review found fixture-setup and hang-cleanup gaps;
+`60bd45339` places setup under immediate `try/finally` ownership and kills/reaps a hung post-release lifecycle script
+before failing its test. The affected four-file xdist target bundle, static checks, and test naming contract pass
+locally. A new full remote CI run is required before this follow-up can be closed.
 
 ## Status
 
