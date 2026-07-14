@@ -19,7 +19,7 @@
 #   .e2e-jwt-secret           (random IM JWT secret for this run)
 #   .gateway-config.yaml      (isolated copy of main config)
 #   .gateway-workspace/       (per-agent workspaces, replacing ~/nano-assistant/workspace)
-#   .im.pid / .gateway.pid
+#   .im.pid / .im.identity.json / .gateway.pid
 #   gateway.identity.json  (public PID/config/argv start identity for safe teardown)
 #   .im.log / .gateway.log
 
@@ -78,27 +78,193 @@ if [[ ( -e "$external_gateway_pid" || -L "$external_gateway_pid" ) \
 fi
 if [[ -f "$external_gateway_pid" ]]; then
   existing_gateway_pid="$(tr -d '[:space:]' < "$external_gateway_pid")"
-  if [[ "$existing_gateway_pid" =~ ^[1-9][0-9]*$ ]] \
-    && kill -0 "$existing_gateway_pid" 2>/dev/null; then
+  if [[ ! "$existing_gateway_pid" =~ ^[1-9][0-9]*$ ]]; then
+    echo "external Gateway PID evidence is malformed: $external_gateway_pid" >&2
+    exit 1
+  fi
+  if kill -0 "$existing_gateway_pid" 2>/dev/null; then
     echo "service still running: $external_gateway_pid (pid=$existing_gateway_pid)" >&2
     echo "run ./scripts/e2e-down.sh first" >&2
     exit 1
   fi
 fi
-if [[ -f "$WT_ROOT/.im.pid" ]] && kill -0 "$(cat "$WT_ROOT/.im.pid")" 2>/dev/null; then
-  echo "service still running: $WT_ROOT/.im.pid (pid=$(cat "$WT_ROOT/.im.pid"))" >&2
-  echo "run ./scripts/e2e-down.sh first" >&2
+
+# Internal runtime evidence remains authoritative even when the external wrapper
+# PID file is missing. Never erase it during start: down owns validated cleanup.
+if ! internal_gateway_status="$(
+  PYTHONPATH="$SRC_DIR${PYTHONPATH:+:$PYTHONPATH}" "$PYTHON_BIN" - "$WT_ROOT" <<'PY'
+import json
+from pathlib import Path
+import stat
+import sys
+
+from personal_assistant.main import read_gateway_process_snapshot
+
+root = Path(sys.argv[1]).resolve()
+pid_path = root / "gateway.pid"
+identity_path = root / "gateway.identity.json"
+state_path = root / ".gateway-state.json"
+legacy_path = root / ".gateway-identity.json"
+evidence = (pid_path, identity_path, state_path, legacy_path)
+if not any(path.exists() or path.is_symlink() for path in evidence):
+    print("absent")
+    raise SystemExit(0)
+for path in evidence:
+    if not (path.exists() or path.is_symlink()):
+        continue
+    mode = path.lstat().st_mode
+    if stat.S_ISLNK(mode) or not stat.S_ISREG(mode):
+        raise SystemExit(1)
+if legacy_path.exists() or not pid_path.exists() or not identity_path.exists():
+    raise SystemExit(1)
+try:
+    pid_text = pid_path.read_text(encoding="ascii").strip()
+    if not pid_text.isdigit() or pid_text.startswith("0"):
+        raise ValueError
+    pid = int(pid_text)
+    identity = json.loads(identity_path.read_text(encoding="utf-8"))
+    argv = identity.get("argv")
+    config_path = (root / ".gateway-config.yaml").resolve()
+    config_indexes = (
+        [index for index, value in enumerate(argv) if value == "--config"]
+        if isinstance(argv, list)
+        else []
+    )
+    valid = (
+        identity.get("schema_version") == 1
+        and identity.get("pid") == pid
+        and Path(identity.get("config_path", "")).resolve() == config_path
+        and identity.get("entry_module") == "personal_assistant.main"
+        and isinstance(identity.get("process_start"), str)
+        and bool(identity["process_start"].strip())
+        and len(config_indexes) == 1
+        and config_indexes[0] + 1 < len(argv)
+        and Path(argv[config_indexes[0] + 1]).resolve() == config_path
+        and argv.count("--foreground") == 1
+        and argv.count("--auto-bind") == 1
+    )
+    if state_path.exists():
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        valid = valid and state.get("pid") == pid
+        if state.get("config_path") is not None:
+            valid = valid and Path(state["config_path"]).resolve() == config_path
+    if not valid:
+        raise ValueError
+except (KeyError, OSError, TypeError, ValueError, json.JSONDecodeError):
+    raise SystemExit(1) from None
+snapshot = read_gateway_process_snapshot(pid)
+if snapshot is None:
+    print("stale")
+elif " ".join(snapshot.process_start.split()) == " ".join(
+    identity["process_start"].split()
+):
+    print("live")
+else:
+    raise SystemExit(1)
+PY
+)"; then
+  echo "Gateway lifecycle evidence is invalid; retaining it for validated teardown" >&2
   exit 1
 fi
+case "$internal_gateway_status" in
+  absent) ;;
+  live)
+    echo "service still running: $WT_ROOT/gateway.pid" >&2
+    echo "run ./scripts/e2e-down.sh first" >&2
+    exit 1
+    ;;
+  stale)
+    echo "stale Gateway lifecycle evidence requires validated teardown" >&2
+    echo "run ./scripts/e2e-down.sh first" >&2
+    exit 1
+    ;;
+  *)
+    echo "Gateway lifecycle evidence is invalid; retaining it for validated teardown" >&2
+    exit 1
+    ;;
+esac
 
-# Without a live external owner, internal PID/identity/state are stale evidence,
-# never signal authority. Clear them before a new child can observe or reuse them.
+# IM ownership is a PID plus durable birth identity. A reused PID, partial pair,
+# or stale complete pair must go through down instead of being overwritten.
+if ! im_evidence_status="$(
+  PYTHONPATH="$SRC_DIR${PYTHONPATH:+:$PYTHONPATH}" "$PYTHON_BIN" - "$WT_ROOT" <<'PY'
+import json
+from pathlib import Path
+import stat
+import sys
+
+from personal_assistant.main import read_gateway_process_snapshot
+
+root = Path(sys.argv[1]).resolve()
+pid_path = root / ".im.pid"
+identity_path = root / ".im.identity.json"
+evidence = (pid_path, identity_path)
+if not any(path.exists() or path.is_symlink() for path in evidence):
+    print("absent")
+    raise SystemExit(0)
+if not all(path.exists() and not path.is_symlink() for path in evidence):
+    raise SystemExit(1)
+if not all(stat.S_ISREG(path.lstat().st_mode) for path in evidence):
+    raise SystemExit(1)
+try:
+    pid_text = pid_path.read_text(encoding="ascii").strip()
+    if not pid_text.isdigit() or pid_text.startswith("0"):
+        raise ValueError
+    pid = int(pid_text)
+    identity = json.loads(identity_path.read_text(encoding="utf-8"))
+    argv = identity.get("argv")
+    valid = (
+        identity.get("schema_version") == 1
+        and identity.get("pid") == pid
+        and isinstance(identity.get("process_start"), str)
+        and bool(identity["process_start"].strip())
+        and Path(identity.get("cwd", "")).resolve() == root
+        and isinstance(argv, list)
+        and argv[:6]
+        == ["-m", "uvicorn", "IM.app:app", "--host", "127.0.0.1", "--port"]
+        and len(argv) == 7
+        and isinstance(argv[6], str)
+        and argv[6].isdigit()
+    )
+    if not valid:
+        raise ValueError
+except (OSError, TypeError, ValueError, json.JSONDecodeError):
+    raise SystemExit(1) from None
+snapshot = read_gateway_process_snapshot(pid)
+if snapshot is None:
+    print("stale")
+elif " ".join(snapshot.process_start.split()) == " ".join(
+    identity["process_start"].split()
+):
+    print("live")
+else:
+    raise SystemExit(1)
+PY
+)"; then
+  echo "IM lifecycle evidence is invalid; retaining it for validated teardown" >&2
+  exit 1
+fi
+case "$im_evidence_status" in
+  absent) ;;
+  live)
+    echo "service still running: $WT_ROOT/.im.pid" >&2
+    echo "run ./scripts/e2e-down.sh first" >&2
+    exit 1
+    ;;
+  stale)
+    echo "stale IM lifecycle evidence requires validated teardown" >&2
+    echo "run ./scripts/e2e-down.sh first" >&2
+    exit 1
+    ;;
+  *)
+    echo "IM lifecycle evidence is invalid; retaining it for validated teardown" >&2
+    exit 1
+    ;;
+esac
+
+# A dead external wrapper claim is not signal authority and is safe to discard
+# only after both runtime-owned evidence sets are proven absent.
 rm -f "$external_gateway_pid"
-rm -f "$WT_ROOT/gateway.pid"
-rm -f "$WT_ROOT/gateway.identity.json"
-rm -f "$WT_ROOT/.gateway-state.json"
-rm -f "$WT_ROOT/.gateway-identity.json"
-rm -f "$WT_ROOT/.im.pid"
 
 # ─── port allocation ─────────────────────────────────────────────────────────
 
@@ -240,6 +406,7 @@ rollback_spawned_stack() {
       exit "$exit_code"
     fi
     clear_matching_pid_file "$WT_ROOT/.im.pid" "$IM_PID"
+    clear_matching_json_pid_file "$WT_ROOT/.im.identity.json" "$IM_PID"
   fi
   if ! clear_ephemeral_config_lock; then
     echo "rollback could not exclusively remove ephemeral config lock; retaining it" >&2
@@ -321,6 +488,43 @@ IM_JWT_SECRET="$JWT_SECRET" PYTHONPATH="$SRC_DIR" \
   "$PYTHON_BIN" -m uvicorn IM.app:app --host 127.0.0.1 --port "$IM_PORT" \
   > "$WT_ROOT/.im.log" 2>&1 9>&- &
 IM_PID=$!
+PYTHONPATH="$SRC_DIR${PYTHONPATH:+:$PYTHONPATH}" "$PYTHON_BIN" - \
+  "$WT_ROOT" "$IM_PID" "$IM_PORT" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+from personal_assistant.main import (
+    _atomic_write_gateway_file,
+    read_gateway_process_snapshot,
+)
+
+root = Path(sys.argv[1]).resolve()
+pid = int(sys.argv[2])
+port = sys.argv[3]
+snapshot = read_gateway_process_snapshot(pid)
+if snapshot is None:
+    raise SystemExit("IM exited before identity publication")
+payload = {
+    "schema_version": 1,
+    "pid": pid,
+    "process_start": snapshot.process_start,
+    "cwd": str(root),
+    "argv": [
+        "-m",
+        "uvicorn",
+        "IM.app:app",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        port,
+    ],
+}
+_atomic_write_gateway_file(
+    root / ".im.identity.json",
+    json.dumps(payload, indent=2, sort_keys=True).encode(),
+)
+PY
 echo "$IM_PID" > "$WT_ROOT/.im.pid"
 
 # Wait for IM ready. IM has no dedicated /health endpoint, so we probe
