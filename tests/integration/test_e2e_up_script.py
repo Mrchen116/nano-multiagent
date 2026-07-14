@@ -10,8 +10,6 @@ import subprocess
 import sys
 import time
 
-import yaml
-
 
 _PROCESS_START = "Mon Jul 13 12:34:56 2026"
 
@@ -161,16 +159,6 @@ exec "$REAL_PYTHON" "$@"
     }
 
 
-def _lifecycle_command_timeout(config_path: Path) -> float:
-    """Return a launcher budget derived from its configured lifecycle windows."""
-    payload = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
-    gateway = payload.get("gateway") if isinstance(payload, dict) else None
-    gateway = gateway if isinstance(gateway, dict) else {}
-    startup = float(gateway.get("startup_timeout_seconds", 15))
-    shutdown = float(gateway.get("shutdown_grace_seconds", 5))
-    return max(5.0, (startup + shutdown) * 3)
-
-
 def _run_up(
     tmp_path: Path,
     env: dict[str, str],
@@ -224,7 +212,6 @@ exec bash "{script}" --wt "{tmp_path}" --main-config "{env["MAIN_CONFIG"]}"
         env=env,
         capture_output=True,
         text=True,
-        timeout=_lifecycle_command_timeout(Path(env["MAIN_CONFIG"])),
         check=False,
     )
 
