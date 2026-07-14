@@ -138,9 +138,9 @@ def test_owned_process_snapshot_includes_same_group_and_detached_descendants() -
 
 def test_e2e_down_reaps_same_group_and_detached_descendants(tmp_path: Path) -> None:
     leader, children = _spawn_gateway_tree()
-    _write_gateway_evidence(tmp_path, leader.pid)
-    repo_root = Path(__file__).resolve().parents[2]
     try:
+        _write_gateway_evidence(tmp_path, leader.pid)
+        repo_root = Path(__file__).resolve().parents[2]
         result = subprocess.run(
             ["bash", str(repo_root / "scripts" / "e2e-down.sh"), "--wt", str(tmp_path)],
             cwd=repo_root,
@@ -172,38 +172,38 @@ def test_public_stop_reaps_same_group_and_detached_descendants(
     tmp_path: Path,
 ) -> None:
     leader, children = _spawn_gateway_tree()
-    config = build_config(tmp_path)
-    snapshot = main_module.read_gateway_process_snapshot(leader.pid)
-    assert snapshot is not None
-    (tmp_path / "gateway.pid").write_text(str(leader.pid), encoding="utf-8")
-    (tmp_path / "gateway.identity.json").write_text(
-        json.dumps(
-            {
-                "schema_version": 1,
-                "pid": leader.pid,
-                "process_start": snapshot.process_start,
-                "config_path": str(config.source_path.resolve()),
-                "entry_module": "personal_assistant.main",
-                "argv": [
-                    "--config",
-                    str(config.source_path.resolve()),
-                    "--foreground",
-                ],
-            }
-        ),
-        encoding="utf-8",
-    )
-    (tmp_path / ".gateway-state.json").write_text(
-        json.dumps(
-            {
-                "pid": leader.pid,
-                "config_path": str(config.source_path.resolve()),
-                "log_path": str(tmp_path / "gateway.log"),
-            }
-        ),
-        encoding="utf-8",
-    )
     try:
+        config = build_config(tmp_path)
+        snapshot = main_module.read_gateway_process_snapshot(leader.pid)
+        assert snapshot is not None
+        (tmp_path / "gateway.pid").write_text(str(leader.pid), encoding="utf-8")
+        (tmp_path / "gateway.identity.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "pid": leader.pid,
+                    "process_start": snapshot.process_start,
+                    "config_path": str(config.source_path.resolve()),
+                    "entry_module": "personal_assistant.main",
+                    "argv": [
+                        "--config",
+                        str(config.source_path.resolve()),
+                        "--foreground",
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        (tmp_path / ".gateway-state.json").write_text(
+            json.dumps(
+                {
+                    "pid": leader.pid,
+                    "config_path": str(config.source_path.resolve()),
+                    "log_path": str(tmp_path / "gateway.log"),
+                }
+            ),
+            encoding="utf-8",
+        )
         result = main_module.stop_gateway(
             config_path=config.source_path,
             load_config=lambda _path: config,

@@ -19,6 +19,23 @@ from .test_e2e_up_script import (
 )
 
 
+_POST_RELEASE_CLEANUP_TIMEOUT_SECONDS = 30
+
+
+def _communicate_after_release(process: subprocess.Popen[str]) -> tuple[str, str]:
+    """Wait for a released lifecycle script and reap it before reporting a hang."""
+    try:
+        return process.communicate(timeout=_POST_RELEASE_CLEANUP_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        if process.poll() is None:
+            process.kill()
+        stdout, stderr = process.communicate()
+        pytest.fail(
+            "lifecycle script did not finish after lock release; "
+            f"stdout={stdout!r} stderr={stderr!r}"
+        )
+
+
 def _lock_holder(path: Path) -> subprocess.Popen[str]:
     holder = subprocess.Popen(
         [
@@ -78,7 +95,7 @@ def test_e2e_up_waits_on_external_generation_lock_before_preflight(
             for name in (".gateway-config.yaml", ".im.pid", "spawned-pids.log")
         )
         _release_holder(holder)
-        _stdout, stderr = process.communicate()
+        _stdout, stderr = _communicate_after_release(process)
 
         assert not crossed_generation
         assert process.returncode == 0, stderr
@@ -180,7 +197,7 @@ def test_generation_lock_remains_owned_by_parent_shell_after_acquire(
         owner.stdin.write("release\n")
         owner.stdin.flush()
         owner.wait(timeout=3)
-        _stdout, stderr = down.communicate()
+        _stdout, stderr = _communicate_after_release(down)
         assert down.returncode == 0, stderr
     finally:
         if owner.poll() is None:
