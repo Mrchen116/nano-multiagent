@@ -23,10 +23,17 @@ def _spawn_gateway_tree() -> tuple[subprocess.Popen[str], dict[str, int]]:
 import json
 import signal
 import subprocess
+import sys
 import time
 
-same_group = subprocess.Popen(["/bin/sleep", "30"])
-detached = subprocess.Popen(["/bin/sleep", "30"], start_new_session=True)
+child_code = '''import time
+while True:
+    time.sleep(1)
+'''
+same_group = subprocess.Popen([sys.executable, "-c", child_code])
+detached = subprocess.Popen(
+    [sys.executable, "-c", child_code], start_new_session=True
+)
 print(json.dumps({"same_group": same_group.pid, "detached": detached.pid}), flush=True)
 while True:
     time.sleep(1)

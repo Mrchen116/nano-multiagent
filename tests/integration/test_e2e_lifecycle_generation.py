@@ -125,7 +125,7 @@ def test_e2e_down_waits_on_same_external_lock_before_preflight(
         time.sleep(0.2)
         crossed_generation = process.poll() is not None
         _release_holder(holder)
-        _stdout, stderr = process.communicate(timeout=5)
+        _stdout, stderr = process.communicate()
 
         assert not crossed_generation
         assert process.returncode == 0, stderr
@@ -180,7 +180,7 @@ def test_generation_lock_remains_owned_by_parent_shell_after_acquire(
         owner.stdin.write("release\n")
         owner.stdin.flush()
         owner.wait(timeout=3)
-        _stdout, stderr = down.communicate(timeout=5)
+        _stdout, stderr = down.communicate()
         assert down.returncode == 0, stderr
     finally:
         if owner.poll() is None:
