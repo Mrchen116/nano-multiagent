@@ -615,12 +615,13 @@ def test_busy_config_sidecar_is_not_unlinked_after_service_exit(
         [
             sys.executable,
             "-c",
-            "import fcntl,sys,time; "
+            "import fcntl,sys; "
             "f=open(sys.argv[1], 'r+'); "
             "fcntl.flock(f, fcntl.LOCK_EX); "
-            "print('ready', flush=True); time.sleep(30)",
+            "print('ready', flush=True); sys.stdin.readline()",
             str(lock_path),
         ],
+        stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         text=True,
     )
@@ -641,5 +642,15 @@ return 0
         assert lock_path.exists()
         assert (tmp_path / ".gateway-config.yaml").exists()
     finally:
-        holder.terminate()
-        holder.wait(timeout=3)
+        if holder.poll() is None:
+            assert holder.stdin is not None
+            try:
+                holder.stdin.write("release\n")
+                holder.stdin.flush()
+            except BrokenPipeError:
+                pass
+            try:
+                holder.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                holder.terminate()
+                holder.wait(timeout=3)

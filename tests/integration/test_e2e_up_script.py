@@ -56,9 +56,19 @@ llm:
     _write_executable(
         fake_bin / "sleep",
         """#!/bin/bash
-ticks=$(cat "$E2E_TICKS_FILE")
-printf '%s\n' "$((ticks + 1))" > "$E2E_TICKS_FILE"
-/bin/sleep 0.002
+case "${1-}" in
+  0.1|0.2|0.5)
+    ticks=$(cat "$E2E_TICKS_FILE")
+    printf '%s\n' "$((ticks + 1))" > "$E2E_TICKS_FILE"
+    /bin/sleep 0.002
+    ;;
+  *)
+    # Startup polling may be accelerated because the fixture owns its identity
+    # signal. Teardown polling instead observes real child exit, so preserve
+    # the script's interval rather than collapsing its 20-attempt budget.
+    /bin/sleep "$1"
+    ;;
+esac
 """,
     )
     _write_executable(
