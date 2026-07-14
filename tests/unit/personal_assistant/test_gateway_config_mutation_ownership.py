@@ -9,11 +9,16 @@ import pytest
 
 from personal_assistant.config.local_store import (
     AgentWorkspaceConfig,
+    ChannelConfig,
     IMServiceConfig,
     load_local_config,
     save_local_config,
 )
-from personal_assistant.main import _IMConfigSyncClient, _make_token_getter
+from personal_assistant.main import (
+    _IMConfigSyncClient,
+    _build_feishu_owner_open_id_binder,
+    _make_token_getter,
+)
 
 from ._main_helpers import make_minimal_config
 
@@ -114,3 +119,45 @@ def test_agent_sync_preserves_token_refreshed_after_client_creation(
     assert persisted.im_service is not None
     assert persisted.im_service.token == "access-new"
     assert persisted.im_service.refresh_token == "refresh-new"
+
+
+def test_feishu_owner_bind_preserves_token_refreshed_after_binder_creation(
+    tmp_path: Path,
+) -> None:
+    base = make_minimal_config(tmp_path)
+    config = replace(
+        base,
+        gateway=replace(base.gateway, poll_interval_seconds=0.01),
+        channels=(
+            ChannelConfig(
+                name="feishu:agent-a",
+                enabled=True,
+                settings={"appId": "cli_test", "appSecret": "secret"},
+            ),
+        ),
+        im_service=IMServiceConfig(
+            url="http://im.local",
+            token="access-old",
+            refresh_token="refresh-old",
+        ),
+    )
+    save_local_config(config, config.source_path)
+    stale = load_local_config(config.source_path)
+    binder = _build_feishu_owner_open_id_binder(stale)
+    latest = replace(
+        stale,
+        im_service=replace(
+            stale.im_service,
+            token="access-new",
+            refresh_token="refresh-new",
+        ),
+    )
+    save_local_config(latest, latest.source_path)
+
+    assert binder("feishu:agent-a", "ou_first") == "ou_first"
+
+    persisted = load_local_config(config.source_path)
+    assert persisted.im_service is not None
+    assert persisted.im_service.token == "access-new"
+    assert persisted.im_service.refresh_token == "refresh-new"
+    assert persisted.channels[0].settings["ownerOpenId"] == "ou_first"
