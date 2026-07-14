@@ -30,4 +30,3 @@ The desktop notification subscriber was also exercised by the committed integrat
 ## Known unrelated environment issue
 
 One initial messages request transiently returned 500, then its retry returned 200. The IM traceback points to concurrent use of the shared SQLite connection (`sqlite3.OperationalError: not an error`) in `repositories.py`; this is outside the frontend runtime milestone and is tracked separately as [#191](https://github.com/Mrchen116/nano-multiagent/issues/191).
-
