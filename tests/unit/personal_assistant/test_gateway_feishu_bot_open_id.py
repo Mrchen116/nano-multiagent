@@ -121,17 +121,26 @@ def test_feishu_owner_open_id_binder_persists_first_sender(
             ),
         ),
     )
-    saved: list[LocalConfig] = []
+    persisted: list[LocalConfig] = []
+
+    def _update(
+        _path: str | Path,
+        mutation: Callable[[LocalConfig], LocalConfig],
+    ) -> LocalConfig:
+        updated = mutation(config)
+        persisted.append(updated)
+        return updated
+
     binder = _build_feishu_owner_open_id_binder(
         config,
-        save_config=lambda cfg, _path: saved.append(cfg),
+        update_config=_update,
     )
 
     bound = binder("feishu:plato", "ou_first")
 
     assert bound == "ou_first"
     assert config.channels[0].settings["ownerOpenId"] == "ou_first"
-    assert saved == [config]
+    assert persisted[0].channels[0].settings["ownerOpenId"] == "ou_first"
 
 
 def test_feishu_owner_open_id_binder_keeps_existing_owner(
@@ -153,7 +162,7 @@ def test_feishu_owner_open_id_binder_keeps_existing_owner(
     )
     binder = _build_feishu_owner_open_id_binder(
         config,
-        save_config=lambda _cfg, _path: pytest.fail("must not persist existing"),
+        update_config=lambda _path, _mutation: pytest.fail("must not persist existing"),
     )
 
     bound = binder("feishu:plato", "ou_other")

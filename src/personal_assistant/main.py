@@ -3964,7 +3964,9 @@ def _build_channel_registry(
 def _build_feishu_owner_open_id_binder(
     config: LocalConfig,
     *,
-    save_config: Callable[[LocalConfig, str | Path], None] = save_local_config,
+    update_config: Callable[
+        [str | Path, Callable[[LocalConfig], LocalConfig]], LocalConfig
+    ] = update_local_config,
 ) -> Callable[[str, str], str | None]:
     """Bind missing Feishu ownerOpenId to the first real sender for an adapter."""
     lock = threading.Lock()
@@ -3984,22 +3986,45 @@ def _build_feishu_owner_open_id_binder(
                 existing = channel.settings.get("ownerOpenId")
                 if isinstance(existing, str) and existing.strip():
                     return existing.strip()
-                channel.settings["ownerOpenId"] = cleaned_sender
                 source_path = getattr(config, "source_path", None)
+                bound_owner = cleaned_sender
                 if source_path is not None:
+
+                    def _patch(latest: LocalConfig) -> LocalConfig:
+                        nonlocal bound_owner
+                        channels = list(latest.channels)
+                        for index, latest_channel in enumerate(channels):
+                            if latest_channel.name != channel_name:
+                                continue
+                            if (
+                                not latest_channel.enabled
+                                or not latest_channel.name.startswith("feishu:")
+                            ):
+                                return latest
+                            settings = dict(latest_channel.settings)
+                            current_owner = settings.get("ownerOpenId")
+                            if isinstance(current_owner, str) and current_owner.strip():
+                                bound_owner = current_owner.strip()
+                                return latest
+                            settings["ownerOpenId"] = cleaned_sender
+                            channels[index] = replace(latest_channel, settings=settings)
+                            return replace(latest, channels=tuple(channels))
+                        return latest
+
                     try:
-                        save_config(config, source_path)
+                        update_config(source_path, _patch)
                     except Exception:  # noqa: BLE001
                         _log.warning(
                             "failed to persist feishu ownerOpenId for channel %s",
                             channel_name,
                             exc_info=True,
                         )
+                channel.settings["ownerOpenId"] = bound_owner
                 _log.info(
                     "bound feishu ownerOpenId from first inbound sender for channel %s",
                     channel_name,
                 )
-                return cleaned_sender
+                return bound_owner
         return None
 
     return _bind
