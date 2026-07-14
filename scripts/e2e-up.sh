@@ -306,6 +306,16 @@ else:
 PY
 }
 
+spawned_process_liveness() {
+  local pid=$1 process_stat
+  process_stat="$(ps -p "$pid" -o stat= 2>/dev/null | tr -d '[:space:]')"
+  if [[ -z "$process_stat" || "$process_stat" == Z* ]]; then
+    printf '%s\n' exited
+  else
+    printf '%s\n' alive
+  fi
+}
+
 stop_spawned_pid() {
   local pid=$1 expected_start=$2 status
   [[ -n "$pid" ]] || return 0
@@ -741,7 +751,7 @@ PY
       GW_IDENTITY_READY=1; break
     fi
   fi
-  if [[ "$(process_status "$GW_PID")" == exited ]]; then
+  if [[ "$(spawned_process_liveness "$GW_PID")" == exited ]]; then
     echo "Gateway process died before identity confirmation; see $WT_ROOT/.gateway.log" >&2
     exit 1
   fi
