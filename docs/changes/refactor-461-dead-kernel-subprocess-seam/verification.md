@@ -951,3 +951,123 @@ must cover that extreme Darwin window, adopt a higher-resolution OS birth identi
 same-second reuse simulation. This is not a demonstrated M9 regression and does not change the verdict.
 
 1 critical issue(s) found. Fix before PR.
+
+# Round 10
+
+## Verification Report: refactor-461
+
+### Summary
+
+Mode: delta
+Delta range: `bcad2c850..99016b4be`
+Focus issues: Round 7 global-first lifecycle target mismatch; M10 auto-bind caller-environment leak found during final code review
+requires_full_verification: false
+
+| Dimension | Result |
+|---|---|
+| Completeness | 93/105 task checkboxes complete; 12 final-gate / exit-criterion checkboxes remain open |
+| Correctness | 4/4 M10 lifecycle and auto-bind scenarios have implementation and durable regression evidence |
+| Coherence | Followed; M10 stays inside the existing Gateway CLI/lifecycle boundary |
+
+This delta verification rebased an independent detached worktree to remote head
+`99016b4be`. It read M10 tasks/progress, Round 7 and Round 8 acceptance, the
+canonical Gateway lifecycle contract, the prior verifier report, and the changed
+source/tests. The original Round 7 product regression and the later same-process
+auto-bind leak are both closed. The remaining blocker is accurate final-gate
+recording, not an implementation or contract deviation.
+
+## Prior Issue Closure
+
+| Prior issue | Verdict | Evidence |
+|---|---|---|
+| Round 7 major — global-first `--config` restart operated the default Gateway | closed | `main()` uses `argparse.SUPPRESS` for omitted subcommand options at `src/personal_assistant/main.py:3838-3868`, preserving root-parsed config/IM values. The durable regression asserts global-first restart sends both stop/start to A and its IM override at `tests/unit/personal_assistant/test_gateway_lifecycle_cli_options.py:37-76`; Round 8 acceptance exercises the real isolated CLI journey at `acceptance.md:668-706`. |
+| Global-first stop could likewise discard config A | closed | The same parser rule covers `stop`; `test_global_config_before_stop_preserves_lifecycle_target` asserts it at `tests/unit/personal_assistant/test_gateway_lifecycle_cli_options.py:85-99`. |
+| Final code-review candidate — `--auto-bind` leaked into a later no-flag `main()` call | closed | The flag is scoped to this invocation and restores the caller value in `finally` at `src/personal_assistant/main.py:3876-3916`. The first mocked launch sees `"1"`, while the immediate second no-flag launch sees `None`, at `tests/unit/personal_assistant/test_gateway_lifecycle_cli_options.py:51-77`. |
+| Canonical lifecycle option-order contract missing | closed | `docs/specs/gateway/service-lifecycle.md:34-39` now states all four option-order forms target config A and preserves the IM override for restart. |
+
+## Completeness
+
+- Tasks: **93/105 complete**. M1--M7 remain complete; M8 is 14/16, M9 is 5/10,
+  and M10 is 4/9. M10 implementation roadpoints C1--C3 and its local-gate
+  roadpoint are checked, but its public exit criteria and final-gate row remain
+  unchecked at `M10-fix-global-lifecycle-cli-option-order/tasks.md:13-19,40`.
+- Round 8 acceptance is now a durable targeted product pass at
+  `docs/changes/refactor-461-dead-kernel-subprocess-seam/acceptance.md:651-748`.
+  It verifies the exact formerly failing global-first command against an
+  isolated IM/Gateway stack, then verifies normal command-first restart and
+  global-first stop without creating default lifecycle evidence.
+- The unit's prior M8/M9 final-gate records are still open at
+  `M8-fix-final-acceptance-gaps/tasks.md:23,66` and
+  `M9-fix-final-generation-cron-and-spec-gaps/tasks.md:13-20,53`.
+
+## Correctness
+
+| Requirement / scenario | Implementation evidence | Durable test / acceptance evidence | Status |
+|---|---|---|---|
+| Global-first and command-first restart manage the same config A | Subparser defaults no longer overwrite root values: `main.py:3838-3868`; resolved values feed both lifecycle calls at `:3885-3902`. | Global-first mock regression `test_gateway_lifecycle_cli_options.py:37-76`; existing command-first regression `test_gateway_main_command.py:297-325`; real Round 8 journey. | covered |
+| Global-first IM override and stop remain attached to A | `args.im_service_url` is passed only with the retained parsed target at `main.py:3885-3891`; stop shares the same resolved config at `:3881-3884`. | `test_gateway_lifecycle_cli_options.py:51-76,85-99`; real Round 8 restart/stop. | covered |
+| `--auto-bind` reaches its own launch but cannot affect a later no-flag launch | Scoped set/restore covers all return and exception paths at `main.py:3876-3916`; the background launcher executes inside the `try` before restoration. | `test_gateway_lifecycle_cli_options.py:37-77` observes `"1"` during the first launch and `None` during the immediate second launch; existing binding tests preserve env-set and env-unset behavior at `test_auto_bind.py:73-104`. | covered |
+| Canonical current contract matches the option-order behavior | `docs/specs/gateway/service-lifecycle.md:34-39` states config A and IM-override invariants. | Round 8 acceptance maps its real CLI journey to that Scenario at `acceptance.md:728-738`. | covered |
+
+### Test Evidence
+
+- Independent targeted bundle:
+  `tests/unit/personal_assistant/test_gateway_lifecycle_cli_options.py`,
+  `tests/unit/personal_assistant/test_gateway_main_command.py`,
+  `tests/unit/personal_assistant/test_auto_bind.py`,
+  `tests/integration/test_gateway_legacy_state_upgrade.py`, and
+  `tests/contract/test_test_naming_and_size_contract.py` → **30 passed**, 2
+  third-party warnings, in 12.87s.
+- `ruff check src/personal_assistant/main.py tests/unit/personal_assistant/test_gateway_lifecycle_cli_options.py`,
+  `ruff format --check` for the same files, and
+  `git diff --check bcad2c850..a4023b6b6` all passed.
+- A verifier-launched serial `pytest -m "not e2e" -q` ran on the M10 source
+  revision. Its normal pytest cache finalization wrote `nodeids` and left no
+  `lastfailed` entry; the execution transport did not retain the terminal
+  summary, so this report deliberately does not invent a pass count. The
+  code-identical M10 local record reports `3475 passed, 1 skipped, 20
+  deselected, 16 warnings in 538.83s` at
+  `M10-fix-global-lifecycle-cli-option-order/progress.md:36-38`.
+- Round 8 independently exercised the real process path in persistent tmux:
+  isolated Gateway `76129 -> 78094 -> 79942 -> STOPPED`, ephemeral IM
+  `:49605`, and no default lifecycle artifacts (`acceptance.md:668-706`).
+
+## Coherence
+
+| Design / architecture constraint | Followed? | Evidence |
+|---|---|---|
+| D3 — lifecycle remains real PID/liveness ownership, not a readiness seam | yes | M10 changes only CLI argument retention and temporary environment scope; it adds no IPC, state field, or readiness assertion. `main.py:3871-3916` still delegates to the existing public stop/start paths. |
+| Gateway owns the lifecycle surface without a parallel abstraction | yes | The patch reuses the existing root parser, `stop_gateway()`, and `launch_gateway_in_background()` instead of adding a second command dispatcher or process manager. |
+| Current contract is canonical | yes | The behavior is merged into the existing lifecycle Scenario rather than a change-only document (`docs/specs/gateway/service-lifecycle.md:34-39`). |
+
+No new product-to-kernel import, cross-process dependency, or parallel lifecycle mechanism appears in this
+delta.
+
+## Issues
+
+### CRITICAL (must fix before PR)
+
+#### C1 — Required final-gate results are not yet recorded as complete
+
+The repository now contains a passing Round 8 product review and this report supplies the verifier leg, but
+the authoritative task records still leave the unit's final gates and M10 exit criteria unchecked:
+`M8-fix-final-acceptance-gaps/tasks.md:23,66`,
+`M9-fix-final-generation-cron-and-spec-gaps/tasks.md:13-20,53`, and
+`M10-fix-global-lifecycle-cli-option-order/tasks.md:13-19,40`. In particular, no repository record at this
+head ties the final `change-code-review` verdict to these task claims. Marking the unit ready before those
+records are reconciled would contradict the tasks' own completion contract.
+
+Fix: the orchestrator should record the Round 8 reviewer pass, this Round 10 verifier result, and the final
+code-review verdict in the relevant M8/M9/M10 progress/task records; check each exit criterion only once its
+linked evidence exists. Then run a documentation-only delta verifier refresh to confirm all 105 task
+checkboxes are complete. No product-code fix is indicated.
+
+### WARNING (should fix)
+
+None.
+
+### SUGGESTION (optional)
+
+None.
+
+1 critical issue found. Fix before PR.
