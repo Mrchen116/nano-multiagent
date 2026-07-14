@@ -8,6 +8,7 @@ no persisted run state, but only the latter remains an actionable user request.
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+import json
 from pathlib import Path
 
 from personal_assistant.scheduler.cron_scheduler import (
@@ -69,3 +70,33 @@ class TestCronSchedulerActiveLifetime:
         due_jobs = scheduler._compute_due_jobs(now=due_at + timedelta(hours=7))
 
         assert due_jobs == []
+
+    async def test_one_shot_created_after_its_due_time_is_not_backfilled(
+        self, tmp_path: Path
+    ) -> None:
+        """A delayed live tick cannot turn a newly created stale job into a run."""
+        due_at = datetime(2026, 7, 14, 5, 14, 30, tzinfo=UTC)
+        job_store = CronJobStore(workspace_root=tmp_path)
+        job_store.add(_one_shot_job(due_at=due_at))
+        jobs_path = tmp_path / ".nanoassistant" / "cron" / "jobs.json"
+        serialized = json.loads(jobs_path.read_text(encoding="utf-8"))
+        serialized[0]["eligible_at"] = (due_at + timedelta(minutes=15)).isoformat()
+        jobs_path.write_text(json.dumps(serialized), encoding="utf-8")
+        submitted: list[str] = []
+
+        async def submit(*, agent_id: str, job: CronJob) -> None:
+            submitted.append(f"{agent_id}:{job.id}")
+
+        state_store = CronSchedulerStateStore(state_path=tmp_path / "cron-state.json")
+        scheduler = CronScheduler(
+            agent_id="agent-1",
+            job_store=job_store,
+            state_store=state_store,
+            submit_fn=submit,
+            active_since=due_at - timedelta(minutes=1),
+        )
+
+        await scheduler.tick(now=due_at + timedelta(minutes=30))
+
+        assert submitted == []
+        assert state_store.load().jobs == {}
