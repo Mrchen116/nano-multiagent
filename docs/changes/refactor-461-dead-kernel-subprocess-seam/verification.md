@@ -735,3 +735,92 @@ None.
 None.
 
 All checks passed. Ready for PR.
+
+# Round 8
+
+## Verification Report: refactor-461
+
+### Summary
+
+Mode: full
+Delta range: `origin/main...3d3eef0a1`
+Focus issues: Round 7 Feishu stale-config write, e2e rollback PID reuse, delayed one-shot Cron delivery, and the rebase-to-main contract/layout result
+requires_full_verification: false
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 84/86 task checkboxes complete; M8 final-review gate remains open |
+| Correctness | 10/10 motivation scenarios have an implementation mapping; one M8 Cron delivery regression is not tested through its public delivery path |
+| Coherence | D1-D5 implementation remains coherent; canonical Gateway contract was not converged to the verified behavior |
+
+This full verification read the motivation, design, delta-spec, all M1--M8 task/progress records, all prior verification rounds, the current Gateway/Kernel contracts, and the project architecture/testing/commenting rules. It verified rebased unit head `3d3eef0a1` and independently ran the current serial non-e2e gate.
+
+## Completeness
+
+- Tasks: 84/86 complete. M1--M7 are fully checked; `M8-fix-final-acceptance-gaps/tasks.md:23,65-66` still leaves the independent verifier/reviewer/final-code-review handoff and its record unchecked.
+- Motivation coverage: all four requirements and their ten scenarios have production mappings. The in-process SDK kernel and `_KernelClientShim` remain in the Gateway composition root; operator lifecycle remains PID/birth-owned; Gateway owns migrated timing; and the e2e stack remains IM + Gateway only.
+- Delta-spec coverage: the Gateway delta is present at `specs/gateway/service-lifecycle.md:5-74`, but its required canonical merge is absent; this is the blocking C1 below.
+- Prototype / reference: N/A. This unit has no frontend prototype or reference contract.
+
+## Correctness
+
+| Requirement / Scenario | Implementation evidence | Durable test evidence | Status |
+|---|---|---|---|
+| Messages, heartbeat and Cron remain on the in-process Kernel | `src/personal_assistant/main.py:3103-3167` builds the local SDK kernel and shim; Cron routes through the unified dispatcher at `main.py:3710-3759`. | Runtime/shutdown coverage plus the current full non-e2e gate. | covered |
+| Default start is PID/liveness confirmation; stop/restart retain owned lifecycle semantics | `main.py:2554-2844` owns start, instance verification, stop and cleanup without a Kernel subprocess. | `test_gateway_launch.py`, `test_gateway_pid_lifecycle.py`, lifecycle-generation/ownership suites. | covered |
+| Legacy timing migrates to `gateway:` and canonical saves protect old config | `config/local_store.py:275-318,1448-1498` defines Gateway-owned timing and per-field legacy fallback; transactional save/mutation remains at `1109-1184`. | local-store, migration-backup and transaction regressions; full gate passed. | covered |
+| e2e manages only IM and Gateway and fails closed on uncertain ownership | `scripts/e2e-up.sh:277-360,754-758` binds rollback to PID + birth and uses liveness only before runtime identity is published. | `test_e2e_up_process_ownership.py:89-110`, `test_e2e_up_script.py`, generation/owned-process tests. | covered |
+| Feishu first-owner binding does not overwrite a concurrent token/config update | Binder applies its channel-only patch through `update_local_config()` at `main.py:3965-4028`. | `test_gateway_config_mutation_ownership.py:124-163` and existing Feishu binder tests. | covered |
+| A delayed live one-shot Cron delivers once while a restart-missed one does not replay | `CronExecutionService` owns the in-memory fence at `cron_execution_service.py:305-342`; `CronScheduler` applies it at `cron_scheduler.py:395-410`; live wiring passes it at `main.py:3752-3759`. | `test_cron_scheduler_active_lifetime.py:31-71` proves the two due-time decisions. It does not exercise `tick()`/enqueue/state persistence for this new behavior; see W1. | covered with warning |
+
+### Test Evidence
+
+- Focused M8/config/lifecycle selection, including Feishu, Cron, e2e-up ownership, zero-seam and naming/size contracts: passed.
+- Affected `ruff check`, `ruff format --check`, `bash -n scripts/e2e-{up,down,owned-processes}.sh`, and `git diff --check origin/main...HEAD`: passed.
+- Independent serial full gate: `PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -m "not e2e" -q` → `3469 passed, 1 skipped, 20 deselected, 16 warnings in 600.94s`.
+
+## Coherence
+
+| Design decision | 遵守? | Evidence |
+|---|---|---|
+| D1: delete dead manager rather than replace it with a port | yes | `tests/contract/test_no_dead_kernel_subprocess_seam.py:17-36` rejects the old manager/config surface; Gateway builds only the SDK kernel. |
+| D2: move live timing to Gateway with one-way migration/backup | yes | `GatewayLifecycleConfig` and `_parse_gateway_lifecycle()` implement the stated ownership and fallback. |
+| D3: distinguish child-start confirmation from readiness; stop by real process facts | yes | Launcher/stop APIs and e2e birth snapshots retain PID/process-instance authority without a new readiness IPC. |
+| D4: keep the actual Gateway shutdown sequence | yes | M8 leaves shutdown ownership untouched; only the Cron scheduler’s due-time interpretation changes. |
+| D5 and delta-spec finalization | no | Active scripts/docs were cleaned, but the required current canonical `service-lifecycle.md` is still the pre-refactor contract; see C1. |
+
+### Architecture Coherence
+
+- No `personal_assistant` import of `agent.core` or `agent.platform` was found; the live composition root remains `agent.sdk` only.
+- M8 reuses the existing locked narrow-config mutation, process-birth snapshot, scheduler and e2e ownership mechanisms. It creates no parallel Kernel lifecycle or cross-machine filesystem dependency.
+- The rebase kept the deleted mainline provider-error integration path out of the active-scope guard, which is coherent with the current layout.
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+#### C1 — Gateway canonical lifecycle contract was never merged from the unit delta
+
+`docs/specs/gateway/service-lifecycle.md:3,14-25` still says it aligns with `feat-447` and tells operators to expect a generic “健康提示”. It also has no requirement for Gateway-owned timing, per-field legacy fallback, migration backup, or the no-Kernel-readiness guarantee. The verified implementation and unit delta say the opposite (`docs/changes/refactor-461-dead-kernel-subprocess-seam/specs/gateway/service-lifecycle.md:5-74`; `src/personal_assistant/main.py:2554-2844`; `src/personal_assistant/config/local_store.py:1448-1498`). This violates the unit’s M1 scope (`design.md:309`) and the pre-PR canonical-merge checklist (`docs/SPEC_GUIDE.md:169-184`), leaving the current authority incorrect for operators and later changes.
+
+Fix: apply the delta’s complete MODIFIED lifecycle requirement and ADDED timing/migration requirement to `docs/specs/gateway/service-lifecycle.md`, then bump its `> 对齐:` line to `refactor-461`. No new area or index structure is needed; re-check the resulting scenarios against the implementation before marking the checklist complete.
+
+#### C2 — M8’s mandatory independent-final-review task is still open
+
+`docs/changes/refactor-461-dead-kernel-subprocess-seam/M8-fix-final-acceptance-gaps/tasks.md:23,65-66` leaves both the independent review handoff and the R5/C4 evidence record unchecked. This verifier report completes only one of the required three gates; reviewer and final code-review outcomes are still required before the unit can claim all tasks complete.
+
+Fix: complete the independent reviewer and final code-review gates, record all three verdicts in M8 R5, and check the two task entries only after any resulting fixes are revalidated.
+
+### WARNING（应该修）
+
+#### W1 — The new one-shot Cron regression proves a private due calculation, not the promised one-time delivery
+
+`tests/unit/personal_assistant/test_cron_scheduler_active_lifetime.py:38-50,59-71` constructs a scheduler with `submit_fn=None` and calls private `_compute_due_jobs()`. It therefore neither drives `CronScheduler.tick()` (`src/personal_assistant/scheduler/cron_scheduler.py:325-347`) nor asserts enqueue/delivery and persisted state suppressing a second late tick. That misses the M8 exit criterion “只投递一次” and violates the testing guide’s rule against testing private implementation details (`docs/TESTING_GUIDE.md:9-13`); generic tick tests do not cover the new `active_since` fence.
+
+Fix: move or extend this coverage in `tests/unit/personal_assistant/test_cron_scheduler_tick.py` with an async submit recorder. Run a due+107s tick with `active_since` before due, assert one submission and persisted state, run a second tick and assert no second submission; retain the restart-before-fence case through the same public `tick()` path.
+
+### SUGGESTION（可以修）
+
+None.
+
+2 critical issue(s) found. Fix before PR.
