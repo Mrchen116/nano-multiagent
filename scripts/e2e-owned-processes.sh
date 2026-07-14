@@ -166,24 +166,18 @@ e2e_signal_gateway_owned_groups() {
 
 e2e_freeze_gateway_owned_processes() {
   local src_dir=$1 python_bin=$2 leader_pid=$3 expected_start=${4-}
-  local leader_pgid owned confirmed
-  leader_pgid="$(ps -p "$leader_pid" -o pgid= 2>/dev/null | tr -d '[:space:]')"
-  [[ "$leader_pgid" == "$leader_pid" ]] || return 1
-  kill -STOP -- "-$leader_pid" 2>/dev/null || return 1
-  for _ in 1 2 3; do
-    owned="$(e2e_capture_gateway_owned_processes \
-      "$src_dir" "$python_bin" "$leader_pid" "$expected_start")" || continue
-    if ! e2e_signal_gateway_owned_groups \
-      "$src_dir" "$python_bin" "$owned" STOP 0; then
-      continue
-    fi
-    confirmed="$(e2e_capture_gateway_owned_processes \
-      "$src_dir" "$python_bin" "$leader_pid" "$expected_start")" || continue
-    if [[ "$confirmed" == "$owned" ]]; then
-      printf '%s\n' "$owned"
-      return 0
-    fi
-  done
-  kill -CONT -- "-$leader_pid" 2>/dev/null || true
-  return 1
+  PYTHONPATH="$src_dir${PYTHONPATH:+:$PYTHONPATH}" "$python_bin" - \
+    "$leader_pid" "$expected_start" <<'PY'
+from dataclasses import asdict
+import json
+import sys
+
+from personal_assistant.main import freeze_gateway_owned_process_set
+
+expected_start = sys.argv[2] or None
+owned = freeze_gateway_owned_process_set(
+    int(sys.argv[1]), expected_process_start=expected_start
+)
+print(json.dumps(asdict(owned), sort_keys=True))
+PY
 }

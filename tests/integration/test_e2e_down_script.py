@@ -84,6 +84,9 @@ def _run_down(
     fake_ps = fake_bin / "ps"
     fake_ps.write_text(
         """#!/bin/bash
+if [[ "$*" == *"-p 434343"* && "${IM_ALIVE-1}" != "1" ]]; then
+  exit 1
+fi
 case "$*" in
   *"pid=,ppid=,pgid=,stat=,lstart="*) printf '%s 1 %s %s %s\\n' "$GATEWAY_PID" "$GATEWAY_PID" "${PROCESS_STAT-S}" "$PROCESS_START" ;;
   *"pid=,stat=,lstart="*) printf '%s %s %s\\n' "$GATEWAY_PID" "${PROCESS_STAT-S}" "$PROCESS_START" ;;
@@ -244,7 +247,8 @@ return 0
         ".e2e-ports.env",
     ):
         assert not (tmp_path / residue).exists(), residue
-    calls = (tmp_path / "calls.log").read_text(encoding="utf-8")
+    calls_path = tmp_path / "calls.log"
+    calls = calls_path.read_text(encoding="utf-8") if calls_path.exists() else ""
     assert "999999" not in calls
     assert "e2e stack stopped" in result.stdout
 
@@ -261,7 +265,8 @@ def test_zombie_gateway_is_exit_confirmed_without_signalling_its_pid(
         check=True,
     )
 
-    calls = (tmp_path / "calls.log").read_text(encoding="utf-8")
+    calls_path = tmp_path / "calls.log"
+    calls = calls_path.read_text(encoding="utf-8") if calls_path.exists() else ""
     assert str(_GATEWAY_PID) not in calls
     assert not (tmp_path / ".gateway.pid").exists()
     assert "e2e stack stopped" in result.stdout
@@ -539,9 +544,9 @@ def test_all_gateway_evidence_absent_allows_im_stop(tmp_path: Path) -> None:
 
     assert result.returncode == 0
     calls = (tmp_path / "calls.log").read_text(encoding="utf-8")
-    assert "kill -0 434343" in calls
     assert "kill 434343" in calls
     assert not (tmp_path / ".im.pid").exists()
+    assert not (tmp_path / ".im.identity.json").exists()
 
 
 def test_im_birth_mismatch_sends_no_signal_and_retains_evidence(tmp_path: Path) -> None:
@@ -553,7 +558,8 @@ def test_im_birth_mismatch_sends_no_signal_and_retains_evidence(tmp_path: Path) 
 
     result = _run_down(tmp_path, kill_body="return 0")
 
-    calls = (tmp_path / "calls.log").read_text(encoding="utf-8")
+    calls_path = tmp_path / "calls.log"
+    calls = calls_path.read_text(encoding="utf-8") if calls_path.exists() else ""
     assert result.returncode == 1
     assert "kill 434343" not in calls
     assert "IM process identity mismatch" in result.stderr

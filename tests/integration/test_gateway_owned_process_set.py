@@ -90,6 +90,29 @@ def _write_gateway_evidence(root: Path, leader_pid: int) -> None:
         json.dumps({"pid": leader_pid, "config_path": str(config_path)}),
         encoding="utf-8",
     )
+    # The Gateway-only tree fixture represents a stack whose IM already exited.
+    # e2e-down requires this durable pair before it may signal any Gateway owner.
+    (root / ".im.pid").write_text("999999999\n", encoding="utf-8")
+    (root / ".im.identity.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "pid": 999999999,
+                "process_start": "Mon Jul 13 12:34:56 2026",
+                "cwd": str(root.resolve()),
+                "argv": [
+                    "-m",
+                    "uvicorn",
+                    "IM.app:app",
+                    "--host",
+                    "127.0.0.1",
+                    "--port",
+                    "1",
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
 
 
 def test_owned_process_snapshot_includes_same_group_and_detached_descendants() -> None:
