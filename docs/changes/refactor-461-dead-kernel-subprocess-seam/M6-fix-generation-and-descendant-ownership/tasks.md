@@ -36,7 +36,7 @@
 
 ### R2 — Public lifecycle generation
 
-- 状态：TODO
+- 状态：DONE
 - C1 Red：以两个真实/受控 public lifecycle 调用构造 old stop/new start barrier，证明旧 teardown 当前可删新 state。
 - C2 Green：引入 stable per-config generation lock，覆盖 start publication、stop snapshot/signals/cleanup；所有 cleanup 显式携带 expected runtime state/identity。
 - C3 Docs：记录 generation lock location、持锁区间、state ownership 与回退点。

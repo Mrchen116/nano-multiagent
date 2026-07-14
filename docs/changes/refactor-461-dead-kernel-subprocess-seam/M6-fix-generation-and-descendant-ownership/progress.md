@@ -18,7 +18,12 @@
 
 ## R2 — Public lifecycle generation
 
-- Status: TODO。
+- Status: DONE。
+- C1 Red: `cb2f0cba2` 用两个同 config 的真实线程化 public 调用稳定复现 old stop 尚未 cleanup 时 replacement start 穿越 generation，以及旧 cleanup 无条件删除 replacement state revision。
+- C2 Green: `6e9f43aea` 为 resolved config identity 引入 `~/.cache/nano-multiagent/gateway-lifecycle-locks/<sha256>.lock`；lock inode 持久存在、目录/文件收紧为 `0700/0600`，start 从 config load 到 state/identity commit、stop 从 snapshot 到 signal/expected cleanup 全程独占。state、PID 与 identity cleanup 均以本调用 snapshot 为 expected owner，launch rollback 不再采信 cleanup 时才出现的 identity。
+- Validation: lifecycle generation + launch/PID/identity/forced-stop/legacy-upgrade affected suites `46 passed, 2 warnings`；affected Ruff、format 与 `git diff --check` 全通过。
+- Commit boundary: public start 返回前拥有同 config generation lock 并完成 child/state/PID/identity 双侧复核；public stop 仅删除 snapshot 中的 exact state/PID/identity revision，随后才释放 lock 给 replacement start。
+- Rollback: 可整体回退 R2 三个提交；external cache lock 可安全保留，代码从不 unlink stable lock inode，避免 waiter 与新 holder 落到不同 inode。
 
 ## R3 — e2e generation and IM preflight
 
