@@ -8,14 +8,14 @@
 
 ## 退出标准
 
-- [ ] migration backup commit gate 从 held fd 读取并复核完整 content + mode，existing/new backup 原地漂移均不覆盖 source。
-- [ ] background state durable publish 后 return 前重验 child poll、PID、identity PID+birth；失败进入同一 rollback，startup rollback 每阶段只 group signal 一次。
-- [ ] quoted-path 真实进程测试保留并 reap owned `Popen`，完整 non-e2e 无 Darwin zombie teardown failure。
-- [ ] public start/stop 全程持有同一 per-config stable generation lock；所有 cleanup 都携带 expected state/identity，old stop 不删除 new start state。
-- [ ] e2e-up/down 从第一项 preflight 到 rollback/exit 持有同一 worktree generation lock，lock 不落用户 worktree residue；并发 up/down 不跨 generation 操作。
-- [ ] down 在任何 Gateway signal 前完整 snapshot IM PID evidence，dangling/nonregular/malformed IM 产生零 Gateway/IM signal、全栈保留；Step2 复核相同 revision。
-- [ ] e2e Gateway 为 PID==PGID 的独占 session leader；down/rollback 冻结 leader、same-group 与 detached descendant 的 PID/PPID/PGID/birth ownership set，逐组 TERM/KILL 并确认全员退出后才 cleanup/stop IM。
-- [ ] affected、ruff、format、bash syntax、diff check、最终唯一 full non-e2e 与真实 operator/e2e/descendant entry 全通过，无本轮 process/file/lock residue。
+- [x] migration backup commit gate 从 held fd 读取并复核完整 content + mode，existing/new backup 原地漂移均不覆盖 source。
+- [x] background state durable publish 后 return 前重验 child poll、PID、identity PID+birth；失败进入同一 rollback，startup rollback 每阶段只 group signal 一次。
+- [x] quoted-path 真实进程测试保留并 reap owned `Popen`，完整 non-e2e 无 Darwin zombie teardown failure。
+- [x] public start/stop 全程持有同一 per-config stable generation lock；所有 cleanup 都携带 expected state/identity，old stop 不删除 new start state。
+- [x] e2e-up/down 从第一项 preflight 到 rollback/exit 持有同一 worktree generation lock，lock 不落用户 worktree residue；并发 up/down 不跨 generation 操作。
+- [x] down 在任何 Gateway signal 前完整 snapshot IM PID evidence，dangling/nonregular/malformed IM 产生零 Gateway/IM signal、全栈保留；Step2 复核相同 revision。
+- [x] e2e Gateway 为 PID==PGID 的独占 session leader；down/rollback 冻结 leader、same-group 与 detached descendant 的 PID/PPID/PGID/birth ownership set，逐组 TERM/KILL 并确认全员退出后才 cleanup/stop IM。
+- [x] affected、ruff、format、bash syntax、diff check、最终唯一 full non-e2e 与真实 operator/e2e/descendant entry 全通过，无本轮 process/file/lock residue。
 
 ## 测试策略
 
@@ -50,7 +50,7 @@
 
 ### R4 — Owned descendant process set and final signoff
 
-- 状态：TODO
+- 状态：DONE
 - C1 Red：补 PID==PGID、same-group child、detached descendant、startup rollback、PID reuse/birth mismatch regression。
 - C2 Green：提供共享 structured process-tree snapshot；up 用 `os.setsid+exec` 建 leader，down/rollback按 frozen owned groups signal并确认全 set退出；完成 affected/static/single full与真实入口。
 - C3 Docs：记录 owned set 算法、安全排除边界、真实/自动证据、最终 residue 与回退点。

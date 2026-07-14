@@ -36,4 +36,10 @@
 
 ## R4 — Owned descendant process set and final signoff
 
-- Status: TODO。
+- Status: DONE。
+- C1 Red: `8916d9d3e` 以真实 exclusive leader 同时派生 same-group 与 `start_new_session` detached child，证明旧 down 只结束 leader；另锁定 e2e-up 的 `PID != PGID` 与 birth drift 零 group signal。
+- C2 Green: `8f9e65dce` 增加共享 `GatewayOwnedProcessSet`（PID/PPID/PGID/birth）与 `scripts/e2e-owned-processes.sh`。up 通过 `os.setsid()+exec` 建立 `PID == PGID` leader；down/rollback 先 STOP leader group、稳定 capture、STOP detached groups并二次确认 frozen set，再按 detached-first/leader-last 顺序 TERM+CONT，超时才对仍匹配 original birth 的 groups KILL；所有 frozen process 退出后才允许 evidence/IM cleanup。真实 down 与 startup rollback 均证明 detached descendant 被回收，birth drift 在 group signal 前 fail closed。
+- Affected validation: config migration + public lifecycle + legacy + up/down + generation + owned descendants + naming contract `104 passed, 2 warnings in 167.02s`；脚本/descendant 专项 `41 passed, 2 warnings in 160.64s`。
+- Final full: 唯一完整 `pytest -m "not e2e" -n 4 --dist worksteal --durations=20 --durations-min=0.5` → `3598 passed, 1 skipped, 22 warnings in 102.96s`，Round-5 W13 Darwin zombie teardown 未复现。
+- Static/residue: repo-wide Ruff check + format (`791 files already formatted`)、bash syntax、`git diff --check` 全通过；worktree 内无 PID/e2e/config/identity residue，process scan 仅见当前检查命令。stable generation lock inode 仅存在 external cache/tmp 且按契约不 unlink，不构成 worktree residue。
+- Rollback: 可整体回退 R4 两个代码提交与本 docs commit；若 frozen ownership 任一 birth/topology/group membership 漂移，保留完整可诊断 evidence，不继续破坏性 cleanup。
