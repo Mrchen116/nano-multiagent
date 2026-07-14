@@ -13,6 +13,7 @@ import pytest
 from .test_e2e_down_script import _GATEWAY_PID, _run_down, _write_stack_files
 from .test_e2e_up_script import (
     _cleanup_owned,
+    _lifecycle_command_timeout,
     _prepare_harness,
     _run_up,
     _spawned_pids,
@@ -78,7 +79,9 @@ def test_e2e_up_waits_on_external_generation_lock_before_preflight(
             for name in (".gateway-config.yaml", ".im.pid", "spawned-pids.log")
         )
         _release_holder(holder)
-        _stdout, stderr = process.communicate(timeout=15)
+        _stdout, stderr = process.communicate(
+            timeout=_lifecycle_command_timeout(Path(env["MAIN_CONFIG"]))
+        )
 
         assert not crossed_generation
         assert process.returncode == 0, stderr
