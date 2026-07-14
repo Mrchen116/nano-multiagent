@@ -96,7 +96,12 @@ def test_rollback_reused_gateway_pid_retains_complete_stack(
     try:
         result = _run_up(tmp_path, env, preserve_gateway_signals=True)
         gateway_pid, im_pid = _spawned_pids(tmp_path)[1], _spawned_pids(tmp_path)[0]
-        calls = (tmp_path / "signal-calls.log").read_text(encoding="utf-8").splitlines()
+        calls_path = tmp_path / "signal-calls.log"
+        calls = (
+            calls_path.read_text(encoding="utf-8").splitlines()
+            if calls_path.exists()
+            else []
+        )
 
         assert result.returncode == 1
         assert "rollback could not stop Gateway" in result.stderr

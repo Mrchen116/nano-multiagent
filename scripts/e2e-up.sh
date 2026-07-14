@@ -711,12 +711,12 @@ for _ in $(seq 1 "$GW_IDENTITY_TICKS"); do
     if [[ -f "$WT_ROOT/gateway.identity.json" ]]; then
       if ! "$PYTHON_BIN" - \
         "$WT_ROOT/gateway.identity.json" "$GW_PID" "$WT_CFG" \
-        "http://127.0.0.1:$IM_PORT" <<'PY'
+        "http://127.0.0.1:$IM_PORT" "$GW_PROCESS_START" <<'PY'
 import json
 from pathlib import Path
 import sys
 
-identity_path, pid, config_path, im_url = sys.argv[1:]
+identity_path, pid, config_path, im_url, expected_process_start = sys.argv[1:]
 payload = json.loads(Path(identity_path).read_text(encoding="utf-8"))
 expected_config = str(Path(config_path).resolve())
 expected_argv = [
@@ -736,6 +736,8 @@ raise SystemExit(
     and payload.get("argv") == expected_argv
     and isinstance(payload.get("process_start"), str)
     and payload["process_start"].strip()
+    and " ".join(payload["process_start"].split())
+    == " ".join(expected_process_start.split())
     else 1
 )
 PY
@@ -767,6 +769,11 @@ fi
 # end-to-end readiness evidence.
 GW_READY=0
 for _ in $(seq 1 60); do
+  GW_STATUS="$(spawned_process_status "$GW_PID" "$GW_PROCESS_START")"
+  if [[ "$GW_STATUS" != alive ]]; then
+    echo "Gateway process identity changed before readiness (status=$GW_STATUS); see $WT_ROOT/.gateway.log" >&2
+    exit 1
+  fi
   if [[ -n "$NANO_ACCESS_TOKEN" ]] \
     && curl -sf "http://127.0.0.1:$IM_PORT/im/v1/nodes" \
       -H "Authorization: Bearer $NANO_ACCESS_TOKEN" 2>/dev/null \
@@ -778,12 +785,14 @@ raise SystemExit(0 if any(
     for item in nodes
 ) else 1)
 '; then
+    # The nodes request itself may take long enough for PID reuse or a wrapper
+    # replacement.  Check again before declaring this launch ready.
+    GW_STATUS="$(spawned_process_status "$GW_PID" "$GW_PROCESS_START")"
+    if [[ "$GW_STATUS" != alive ]]; then
+      echo "Gateway process identity changed before readiness (status=$GW_STATUS); see $WT_ROOT/.gateway.log" >&2
+      exit 1
+    fi
     GW_READY=1; break
-  fi
-  if ! kill -0 "$GW_PID" 2>/dev/null; then
-    echo "Gateway process died during startup; see $WT_ROOT/.gateway.log" >&2
-    tail -30 "$WT_ROOT/.gateway.log" >&2 || true
-    exit 1
   fi
   sleep 0.5
 done
