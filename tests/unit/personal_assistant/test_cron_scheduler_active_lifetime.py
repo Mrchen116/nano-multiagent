@@ -29,26 +29,32 @@ def _one_shot_job(*, due_at: datetime) -> CronJob:
 
 
 class TestCronSchedulerActiveLifetime:
-    def test_late_one_shot_fires_when_gateway_was_active_before_due_time(
+    async def test_late_one_shot_fires_once_when_gateway_was_active_before_due_time(
         self, tmp_path: Path
     ) -> None:
-        """A live Gateway must deliver a one-shot despite a delayed polling tick."""
+        """A live Gateway delivers one delayed one-shot once through real ticks."""
         due_at = datetime(2026, 7, 14, 5, 14, 30, tzinfo=UTC)
         job_store = CronJobStore(workspace_root=tmp_path)
         job_store.add(_one_shot_job(due_at=due_at))
+        submitted: list[str] = []
+
+        async def submit(*, agent_id: str, job: CronJob) -> None:
+            submitted.append(f"{agent_id}:{job.id}")
+
+        state_store = CronSchedulerStateStore(state_path=tmp_path / "cron-state.json")
         scheduler = CronScheduler(
             agent_id="agent-1",
             job_store=job_store,
-            state_store=CronSchedulerStateStore(
-                state_path=tmp_path / "cron-state.json"
-            ),
-            submit_fn=None,
+            state_store=state_store,
+            submit_fn=submit,
             active_since=due_at - timedelta(minutes=1),
         )
 
-        due_jobs = scheduler._compute_due_jobs(now=due_at + timedelta(seconds=107))
+        await scheduler.tick(now=due_at + timedelta(seconds=107))
+        await scheduler.tick(now=due_at + timedelta(seconds=108))
 
-        assert [job.id for job in due_jobs] == ["one-shot"]
+        assert submitted == ["agent-1:one-shot"]
+        assert state_store.load().jobs["one-shot"].last_due_at == due_at.isoformat()
 
     def test_one_shot_missed_before_gateway_started_is_not_backfilled(
         self, tmp_path: Path
