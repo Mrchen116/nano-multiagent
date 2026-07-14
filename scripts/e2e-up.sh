@@ -49,6 +49,25 @@ if [[ ! -f "$MAIN_CFG" ]]; then
   exit 1
 fi
 
+# Resolve the checkout runtime before the first lifecycle preflight so up/down
+# can hold one external generation lock across every check, spawn and rollback.
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd 2>/dev/null)"
+REPO_ROOT="${REPO_ROOT:-$(git -C "$WT_ROOT" rev-parse --show-toplevel 2>/dev/null || dirname "$WT_ROOT")}"
+SRC_DIR="$REPO_ROOT/src"
+FREE_PORTS_SH="$REPO_ROOT/scripts/free-ports.sh"
+[[ -x "$FREE_PORTS_SH" ]] || FREE_PORTS_SH="$SCRIPT_DIR/free-ports.sh"
+PYTHON_BIN="$(command -v python || true)"
+if [[ -z "$PYTHON_BIN" ]] || ! "$PYTHON_BIN" -c "import yaml" 2>/dev/null; then
+  echo "python with project dependencies (including PyYAML) not found on PATH" >&2
+  exit 1
+fi
+# shellcheck source=scripts/e2e-lifecycle-lock.sh
+source "$SCRIPT_DIR/e2e-lifecycle-lock.sh"
+e2e_acquire_lifecycle_lock "$WT_ROOT" "$PYTHON_BIN"
+# shellcheck source=scripts/e2e-owned-processes.sh
+source "$SCRIPT_DIR/e2e-owned-processes.sh"
+
 # ─── liveness check (refuse to clobber) ──────────────────────────────────────
 
 external_gateway_pid="$WT_ROOT/.gateway.pid"
@@ -83,23 +102,6 @@ rm -f "$WT_ROOT/.im.pid"
 
 # ─── port allocation ─────────────────────────────────────────────────────────
 
-# REPO_ROOT must resolve to the checkout that holds src/ and scripts/, NOT to
-# $WT_ROOT — feat-421 runs the stack with --wt pointing at a pytest tmp dir that
-# is not a git checkout and has no src/. Derive it from this script's own path
-# ($0 lives in <repo>/scripts/) so PYTHONPATH and free-ports.sh resolve no matter
-# where $WT_ROOT points. Falls back to git/dirname only if $0 derivation fails.
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd 2>/dev/null)"
-REPO_ROOT="${REPO_ROOT:-$(git -C "$WT_ROOT" rev-parse --show-toplevel 2>/dev/null || dirname "$WT_ROOT")}"
-SRC_DIR="$REPO_ROOT/src"
-FREE_PORTS_SH="$REPO_ROOT/scripts/free-ports.sh"
-[[ -x "$FREE_PORTS_SH" ]] || FREE_PORTS_SH="$SCRIPT_DIR/free-ports.sh"
-PYTHON_BIN="$(command -v python || true)"
-if [[ -z "$PYTHON_BIN" ]] || ! "$PYTHON_BIN" -c "import yaml" 2>/dev/null; then
-  echo "python with project dependencies (including PyYAML) not found on PATH" >&2
-  exit 1
-fi
-
 IM_PID=""
 GW_PID=""
 ROLLBACK_ACTIVE=1
@@ -128,6 +130,37 @@ stop_spawned_pid() {
   kill -9 "$pid" 2>/dev/null || true
   for _ in $(seq 1 20); do
     [[ "$(process_status "$pid")" == exited ]] && return 0
+    sleep 0.05
+  done
+  return 1
+}
+
+stop_spawned_gateway() {
+  local pid=$1 owned
+  [[ -n "$pid" ]] || return 0
+  if [[ "$(process_status "$pid")" == exited ]]; then
+    return 0
+  fi
+  owned="$(e2e_freeze_gateway_owned_processes \
+    "$SRC_DIR" "$PYTHON_BIN" "$pid")" || return 1
+  if ! e2e_signal_gateway_owned_groups \
+    "$SRC_DIR" "$PYTHON_BIN" "$owned" TERM 0; then
+    e2e_signal_gateway_owned_groups \
+      "$SRC_DIR" "$PYTHON_BIN" "$owned" CONT 0 || true
+    return 1
+  fi
+  e2e_signal_gateway_owned_groups \
+    "$SRC_DIR" "$PYTHON_BIN" "$owned" CONT 0 || true
+  for _ in $(seq 1 20); do
+    [[ "$(e2e_gateway_owned_status \
+      "$SRC_DIR" "$PYTHON_BIN" "$owned")" == exited ]] && return 0
+    sleep 0.05
+  done
+  e2e_signal_gateway_owned_groups \
+    "$SRC_DIR" "$PYTHON_BIN" "$owned" KILL 1 || return 1
+  for _ in $(seq 1 20); do
+    [[ "$(e2e_gateway_owned_status \
+      "$SRC_DIR" "$PYTHON_BIN" "$owned")" == exited ]] && return 0
     sleep 0.05
   done
   return 1
@@ -192,7 +225,7 @@ rollback_spawned_stack() {
   trap - EXIT
   set +e
   if [[ -n "$GW_PID" ]]; then
-    if ! stop_spawned_pid "$GW_PID"; then
+    if ! stop_spawned_gateway "$GW_PID"; then
       echo "rollback could not stop Gateway pid=$GW_PID; retaining complete stack evidence" >&2
       exit "$exit_code"
     fi
@@ -286,7 +319,7 @@ rm -f "$WT_ROOT/relay_dedup.sqlite3"
 cd "$WT_ROOT"
 IM_JWT_SECRET="$JWT_SECRET" PYTHONPATH="$SRC_DIR" \
   "$PYTHON_BIN" -m uvicorn IM.app:app --host 127.0.0.1 --port "$IM_PORT" \
-  > "$WT_ROOT/.im.log" 2>&1 &
+  > "$WT_ROOT/.im.log" 2>&1 9>&- &
 IM_PID=$!
 echo "$IM_PID" > "$WT_ROOT/.im.pid"
 
@@ -359,12 +392,14 @@ fi
 # replaces the interactive "click this URL" step that breaks worktree e2e.
 # refactor-381.
 
-PYTHONPATH="$SRC_DIR" "$PYTHON_BIN" -m personal_assistant.main \
+PYTHONPATH="$SRC_DIR" "$PYTHON_BIN" -c \
+  'import os,sys; os.setsid(); os.execv(sys.argv[1], sys.argv[1:])' \
+  "$PYTHON_BIN" -m personal_assistant.main \
   --config "$WT_CFG" \
   --im-service-url "http://127.0.0.1:$IM_PORT" \
   --foreground \
   --auto-bind \
-  > "$WT_ROOT/.gateway.log" 2>&1 &
+  > "$WT_ROOT/.gateway.log" 2>&1 9>&- &
 GW_PID=$!
 echo "$GW_PID" > "$WT_ROOT/.gateway.pid"
 
@@ -424,6 +459,11 @@ raise SystemExit(
 PY
       then
         echo "Gateway public process identity mismatch for pid=$GW_PID" >&2
+        exit 1
+      fi
+      GW_PGID="$(ps -p "$GW_PID" -o pgid= 2>/dev/null | tr -d '[:space:]')"
+      if [[ "$GW_PGID" != "$GW_PID" ]]; then
+        echo "Gateway must be its exclusive process-group leader: pid=$GW_PID pgid=$GW_PGID" >&2
         exit 1
       fi
       GW_IDENTITY_READY=1; break

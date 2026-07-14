@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 import json
 from pathlib import Path
+import signal
 
 import pytest
 
@@ -50,6 +51,7 @@ _DEFAULT_TEST_LLM = LLMConfigPayload(
 
 
 def test_launch_gateway_in_background_spawns_foreground_child_and_waits_for_start(
+    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     config = build_config(tmp_path)
@@ -64,6 +66,14 @@ def test_launch_gateway_in_background_spawns_foreground_child_and_waits_for_star
         child: _FakeProcess, loaded_config: LocalConfig, timeout_seconds: float
     ) -> None:
         seen["wait"] = (child, loaded_config, timeout_seconds)
+        (tmp_path / "gateway.pid").write_text("2468", encoding="utf-8")
+        write_gateway_identity(config)
+
+    monkeypatch.setattr(
+        main_module,
+        "read_gateway_process_snapshot",
+        lambda _pid: gateway_process_snapshot(config),
+    )
 
     result = launch_gateway_in_background(
         config_path=config.source_path,
@@ -91,6 +101,7 @@ def test_launch_gateway_in_background_spawns_foreground_child_and_waits_for_star
 
 
 def test_launch_gateway_in_background_passes_im_service_override_to_child_and_runtime_config(
+    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     config = build_config(tmp_path)
@@ -105,6 +116,14 @@ def test_launch_gateway_in_background_passes_im_service_override_to_child_and_ru
         child: _FakeProcess, loaded_config: LocalConfig, timeout_seconds: float
     ) -> None:
         seen["wait"] = (child, loaded_config, timeout_seconds)
+        (tmp_path / "gateway.pid").write_text("1357", encoding="utf-8")
+        write_gateway_identity(config, pid=1357)
+
+    monkeypatch.setattr(
+        main_module,
+        "read_gateway_process_snapshot",
+        lambda _pid: gateway_process_snapshot(config),
+    )
 
     result = launch_gateway_in_background(
         config_path=config.source_path,
@@ -168,10 +187,17 @@ def test_load_runtime_config_preserves_im_credentials_when_overriding_url(
 
 
 def test_launch_gateway_in_background_stops_child_when_start_confirmation_fails(
+    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     config = build_config(tmp_path)
     process = _FakeProcess(wait_result=0)
+    group_signals: list[int] = []
+    monkeypatch.setattr(
+        main_module,
+        "_kill_process_tree",
+        lambda _pid, sent_signal: group_signals.append(sent_signal),
+    )
 
     with pytest.raises(RuntimeError, match="not started"):
         launch_gateway_in_background(
@@ -183,7 +209,9 @@ def test_launch_gateway_in_background_stops_child_when_start_confirmation_fails(
             ),
         )
 
-    assert process.terminate_called == 1
+    assert group_signals == [signal.SIGTERM]
+    assert process.terminate_called == 0
+    assert process.kill_called == 0
 
 
 def test_launch_gateway_in_background_default_waiter_reports_child_early_exit(
@@ -206,8 +234,13 @@ def test_launch_gateway_in_background_default_waiter_times_out_without_pid(
 ) -> None:
     config = build_config(tmp_path)
     process = _FakeProcess(wait_result=0)
+    group_signals: list[int] = []
     monkeypatch.setattr(main_module.time, "monotonic", iter([0.0, 1.0]).__next__)
-    monkeypatch.setattr(main_module, "_kill_process_tree", lambda _pid, _sig: None)
+    monkeypatch.setattr(
+        main_module,
+        "_kill_process_tree",
+        lambda _pid, sent_signal: group_signals.append(sent_signal),
+    )
 
     with pytest.raises(GatewayStartupError, match="pid or process identity"):
         launch_gateway_in_background(
@@ -216,7 +249,9 @@ def test_launch_gateway_in_background_default_waiter_times_out_without_pid(
             spawn_process=lambda _argv, _log_path: process,
         )
 
-    assert process.terminate_called == 1
+    assert group_signals == [signal.SIGTERM]
+    assert process.terminate_called == 0
+    assert process.kill_called == 0
 
 
 def test_launch_gateway_in_background_default_waiter_accepts_child_pid(

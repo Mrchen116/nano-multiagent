@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import signal
 import pytest
 
 from agent.core.llm.model_registry import _reset_for_tests
@@ -18,6 +19,100 @@ import personal_assistant.main as main_module
 from ._main_helpers import _FakeProcess, build_config, write_gateway_identity
 
 
+def test_background_revalidates_child_after_durable_state_publication(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    config = build_config(tmp_path)
+    process = _FakeProcess(wait_result=7, pid=2468)
+    process.poll_result = None
+    real_write_state = main_module._write_gateway_state
+
+    def _spawn(_argv: list[str], _log_path: Path) -> _FakeProcess:
+        (tmp_path / "gateway.pid").write_text("2468", encoding="utf-8")
+        write_gateway_identity(config)
+        return process
+
+    def _publish_then_exit(loaded_config, result) -> None:  # noqa: ANN001
+        real_write_state(loaded_config, result)
+        process.poll_result = 7
+        (tmp_path / "gateway.pid").unlink()
+        (tmp_path / "gateway.identity.json").unlink()
+
+    monkeypatch.setattr(main_module, "_write_gateway_state", _publish_then_exit)
+
+    with pytest.raises(GatewayStartupError, match="return code 7"):
+        launch_gateway_in_background(
+            config_path=config.source_path,
+            load_config=lambda _path: config,
+            spawn_process=_spawn,
+            wait_for_start=lambda *_args: None,
+        )
+
+    assert not (tmp_path / ".gateway-state.json").exists()
+
+
+def test_background_revalidates_birth_after_durable_state_publication(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    config = build_config(tmp_path)
+    process = _FakeProcess(wait_result=0, pid=2468)
+
+    def _spawn(_argv: list[str], _log_path: Path) -> _FakeProcess:
+        (tmp_path / "gateway.pid").write_text("2468", encoding="utf-8")
+        write_gateway_identity(config)
+        return process
+
+    monkeypatch.setattr(
+        main_module,
+        "read_gateway_process_snapshot",
+        lambda _pid: main_module.GatewayProcessSnapshot(
+            pid=2468,
+            process_start="different birth",
+            command=None,
+        ),
+    )
+
+    with pytest.raises(GatewayStartupError, match="identity"):
+        launch_gateway_in_background(
+            config_path=config.source_path,
+            load_config=lambda _path: config,
+            spawn_process=_spawn,
+            wait_for_start=lambda *_args: None,
+        )
+
+    assert not (tmp_path / ".gateway-state.json").exists()
+
+
+def test_startup_rollback_signals_owned_group_once_per_stage(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    config = build_config(tmp_path)
+    process = _FakeProcess(wait_result=TimeoutError("still alive"), pid=2468)
+    group_signals: list[int] = []
+    monkeypatch.setattr(
+        main_module,
+        "_kill_process_tree",
+        lambda _pid, sent_signal: group_signals.append(sent_signal),
+    )
+
+    with pytest.raises(GatewayStartupError, match="cleanup failed"):
+        launch_gateway_in_background(
+            config_path=config.source_path,
+            load_config=lambda _path: config,
+            spawn_process=lambda _argv, _log_path: process,
+            wait_for_start=lambda *_args: (_ for _ in ()).throw(
+                RuntimeError("confirmation failed")
+            ),
+        )
+
+    assert group_signals == [signal.SIGTERM, signal.SIGKILL]
+    assert process.terminate_called == 0
+    assert process.kill_called == 0
+
+
 def test_background_state_publication_failure_reaps_child_and_clears_partial_state(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -25,6 +120,12 @@ def test_background_state_publication_failure_reaps_child_and_clears_partial_sta
     config = build_config(tmp_path)
     process = _FakeProcess(wait_result=0, pid=2468)
     state_path = tmp_path / ".gateway-state.json"
+    group_signals: list[int] = []
+
+    def _spawn(_argv: list[str], _log_path: Path) -> _FakeProcess:
+        (tmp_path / "gateway.pid").write_text("2468", encoding="utf-8")
+        write_gateway_identity(config)
+        return process
 
     def _fail_state_publication(_config, _result) -> None:  # noqa: ANN001
         state_path.write_text(
@@ -40,18 +141,33 @@ def test_background_state_publication_failure_reaps_child_and_clears_partial_sta
         raise OSError("state disk full")
 
     monkeypatch.setattr(main_module, "_write_gateway_state", _fail_state_publication)
-    monkeypatch.setattr(main_module, "_kill_process_tree", lambda _pid, _sig: None)
+    monkeypatch.setattr(
+        main_module,
+        "_kill_process_tree",
+        lambda _pid, sent_signal: group_signals.append(sent_signal),
+    )
+    monkeypatch.setattr(
+        main_module,
+        "read_gateway_process_snapshot",
+        lambda _pid: main_module.GatewayProcessSnapshot(
+            pid=2468,
+            process_start="Mon Jul 13 12:34:56 2026",
+            command=None,
+        ),
+    )
 
     with pytest.raises(GatewayStartupError, match="state disk full") as raised:
         launch_gateway_in_background(
             config_path=config.source_path,
             load_config=lambda _path: config,
-            spawn_process=lambda _argv, _log_path: process,
+            spawn_process=_spawn,
             wait_for_start=lambda _child, _config, _timeout: None,
         )
 
     assert isinstance(raised.value.__cause__, OSError)
-    assert process.terminate_called == 1
+    assert group_signals == [signal.SIGTERM]
+    assert process.terminate_called == 0
+    assert process.kill_called == 0
     assert not state_path.exists()
 
 
@@ -61,7 +177,12 @@ def test_background_cleanup_failure_preserves_startup_and_cleanup_causes(
 ) -> None:
     config = build_config(tmp_path)
     process = _FakeProcess(wait_result=TimeoutError("wait timed out"), pid=2468)
-    monkeypatch.setattr(main_module, "_kill_process_tree", lambda _pid, _sig: None)
+    group_signals: list[int] = []
+    monkeypatch.setattr(
+        main_module,
+        "_kill_process_tree",
+        lambda _pid, sent_signal: group_signals.append(sent_signal),
+    )
 
     def _spawn(_argv: list[str], _log_path: Path) -> _FakeProcess:
         (tmp_path / "gateway.pid").write_text("2468", encoding="utf-8")
@@ -87,8 +208,9 @@ def test_background_cleanup_failure_preserves_startup_and_cleanup_causes(
         "startup confirmation failed",
         "gateway pid=2468 did not exit after SIGKILL; lifecycle evidence retained",
     ]
-    assert process.terminate_called == 1
-    assert process.kill_called == 1
+    assert group_signals == [signal.SIGTERM, signal.SIGKILL]
+    assert process.terminate_called == 0
+    assert process.kill_called == 0
     assert (tmp_path / "gateway.pid").exists()
     assert (tmp_path / "gateway.identity.json").exists()
 

@@ -464,6 +464,8 @@ class _MigrationBackupGuard:
     path: Path
     fd: int
     identity: tuple[int, int]
+    mode: int
+    content: bytes
 
 
 class ConfigCommitRollbackError(RuntimeError):
@@ -712,6 +714,8 @@ def _read_and_secure_existing_migration_backup(
             path=backup_path,
             fd=fd,
             identity=(backup_stat.st_dev, backup_stat.st_ino),
+            mode=tightened_mode,
+            content=original,
         )
     except BaseException:
         os.close(fd)
@@ -785,7 +789,7 @@ def _backup_legacy_kernel_config(
     fd: int | None = None
     owned_identity: tuple[int, int] | None = None
     try:
-        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+        flags = os.O_RDWR | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
         fd = os.open(backup_path, flags, source_mode)
         created_stat = os.fstat(fd)
         owned_identity = (created_stat.st_dev, created_stat.st_ino)
@@ -811,6 +815,8 @@ def _backup_legacy_kernel_config(
             path=backup_path,
             fd=fd,
             identity=owned_identity,
+            mode=source_mode,
+            content=original,
         )
         fd = None
         return guard
@@ -822,8 +828,14 @@ def _backup_legacy_kernel_config(
 
 
 def _assert_migration_backup_current(guard: _MigrationBackupGuard) -> None:
-    """Require the backup path to retain the held single-link inode."""
-    held = os.fstat(guard.fd)
+    """Require the held backup inode to retain its full expected revision."""
+    before = os.fstat(guard.fd)
+    chunks: list[bytes] = []
+    offset = 0
+    while chunk := os.pread(guard.fd, 1024 * 64, offset):
+        chunks.append(chunk)
+        offset += len(chunk)
+    after = os.fstat(guard.fd)
     try:
         current = guard.path.lstat()
     except FileNotFoundError as exc:
@@ -831,12 +843,21 @@ def _assert_migration_backup_current(guard: _MigrationBackupGuard) -> None:
             f"migration backup changed before config commit: {guard.path}"
         ) from exc
     if (
-        not stat.S_ISREG(held.st_mode)
-        or held.st_nlink != 1
+        not stat.S_ISREG(before.st_mode)
+        or before.st_nlink != 1
+        or not stat.S_ISREG(after.st_mode)
+        or after.st_nlink != 1
         or not stat.S_ISREG(current.st_mode)
         or current.st_nlink != 1
-        or (held.st_dev, held.st_ino) != guard.identity
+        or (before.st_dev, before.st_ino) != guard.identity
+        or (after.st_dev, after.st_ino) != guard.identity
         or (current.st_dev, current.st_ino) != guard.identity
+        or stat.S_IMODE(before.st_mode) != guard.mode
+        or stat.S_IMODE(after.st_mode) != guard.mode
+        or stat.S_IMODE(current.st_mode) != guard.mode
+        or before.st_size != after.st_size
+        or before.st_mtime_ns != after.st_mtime_ns
+        or b"".join(chunks) != guard.content
     ):
         raise FileExistsError(
             f"migration backup changed before config commit: {guard.path}"
