@@ -34,19 +34,20 @@ Gateway lifecycle delta-spec 必须归并到长青契约层。
 
 ### R1 — Success-path Gateway generation identity
 
-- [x] C1 `a4b563130`：复现 foreign/reused birth 可通过 success identity gate，及 online node
+- [x] C1 `2f5a21138`：复现 foreign/reused birth 可通过 success identity gate，及 online node
   掩盖 identity 后 birth 漂移。
-- [ ] C2：identity gate 比较 captured birth，readiness 持续使用 birth-aware status。
+- [x] C2 `b030d0f3d` + `8e5dc88d6`：identity gate 比较 captured birth，readiness 每轮及 nodes-online
+  后持续使用 birth-aware status，且该检查不耗尽 startup budget。
 
 ### R2 — Cron activation boundary
 
-- [x] C1 `a19b69947`：复现 due 后创建 `at` 任务经真实 `tick()` 被错误 submit 并写 state。
-- [ ] C2：持久化 job eligibility boundary，保持 legacy/restart 与 delayed-live-tick 语义。
+- [x] C1 `c8859a742`：复现 due 后创建 `at` 任务经真实 `tick()` 被错误 submit 并写 state。
+- [x] C2 `d9f19341d`：持久化 job eligibility boundary，保持 legacy/restart 与 delayed-live-tick 语义。
 
 ### R3 — Canonical Gateway lifecycle spec merge
 
-- [ ] C3：从 delta-spec 归并并对账 canonical service lifecycle requirement。
+- [x] C3：从 delta-spec 归并并对账 canonical service lifecycle requirement。
 
 ### R4 — Final gates
 
-- [ ] C3：记录验证、真实 e2e 与独立验收结论。
+- [ ] C3：记录验证、真实 e2e 与独立验收结论（e2e-up script suite 已通过；full non-e2e 与独立门禁待跑）。

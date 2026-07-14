@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Heartbeat and Cron Specification
 
-> 对齐: feat-447
+> 对齐: refactor-461
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -86,6 +86,12 @@ Agent 身份路由——多 Agent 并存、Agent 在运行期新建、或请求�
 - **GIVEN** 一个一次性(`at`)cron/heartbeat 的触发时刻在 Gateway 停机期间已过
 - **WHEN** Gateway 重启后调度器恢复
 - **THEN** 该任务被视为错过窗口、不补跑(已执行过的同样不重复)
+
+#### Scenario: 到期后新建、改期或重启用的一次性 Cron 不自动回放
+- **GIVEN** Gateway 已持续运行,某一次性(`at`)Cron 的触发时刻已经过去
+- **WHEN** Agent 在该时刻后新建该任务、把任务改期到该过去时刻,或重新启用该任务
+- **THEN** 后续调度 tick 不自动入队该任务
+- **AND** Agent 仍可明确使用 cron 的手动 `run` 请求立即入队
 
 #### Scenario: Cron 汇报后用户追问,Agent 记得汇报内容
 - **GIVEN** 某 Agent 的 cron 任务已执行并把结果发回 canonical 直聊
