@@ -28,17 +28,25 @@
   scheduler 对 one-shot 先检查该 job 边界，再保留 legacy job 的 Gateway-lifetime/restart fence。
 - Target evidence: active-lifetime + cron-tool closure tests `13 passed`；新 C1 以真实 `tick()` 验证不 submit
   且不写 state。
-- Status: IMPLEMENTED; full regression pending.
+- Full regression: Cron scheduler/tool bundle `72 passed`; full non-e2e below also includes all Cron delivery,
+  polling-runner and scheduling tests.
+- Status: IMPLEMENTED and locally validated.
 
 ## R3 — Canonical Gateway lifecycle spec merge
 
 - `docs/specs/gateway/service-lifecycle.md` 已机械归并 delta 的 startup confirmation 与 Gateway-owned
   timing migration requirement；`docs/specs/gateway/spec.md` 更新 area 计数，heartbeat/cron 契约补充
   due 后创建、改期和重新启用的 one-shot 不自动回放。
-- Status: EDITED; pending documentation commit and verifier review.
+- Documentation commit: `02a6604a3`.
+- Status: COMMITTED; verifier review pending.
 
 ## R4 — Final gates
 
-- Narrow static checks、Cron target tests 与 generation regression 已通过；完整 e2e-up script suite
-  `10 passed in 90.00s`，Cron scheduler/tool regression bundle `72 passed`。
-- Status: IN PROGRESS — full non-e2e、真实 stack up/down 和独立 verifier/reviewer/final code review 待执行。
+- Static: target Ruff check/format, `bash -n scripts/e2e-{up,down,owned-processes}.sh`, and `git diff --check`
+  all passed.
+- Focused: e2e-up script suite `10 passed in 90.00s`; Cron scheduler/tool bundle `72 passed`.
+- Full non-e2e: `3473 passed, 1 skipped, 20 deselected, 16 warnings in 517.19s`.
+- Real stack: a tmux-owned `scripts/e2e-up.sh` started an ephemeral IM + Gateway; IM OpenAPI was reachable and
+  both persisted IM/Gateway PID + process-start identities matched fresh OS snapshots. `scripts/e2e-down.sh`
+  completed and left no PID, identity, state or port-map evidence.
+- Status: LOCAL GATES COMPLETE — independent verifier/reviewer/final code review pending.

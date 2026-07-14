@@ -46,8 +46,8 @@ Gateway lifecycle delta-spec 必须归并到长青契约层。
 
 ### R3 — Canonical Gateway lifecycle spec merge
 
-- [x] C3：从 delta-spec 归并并对账 canonical service lifecycle requirement。
+- [x] C3 `02a6604a3`：从 delta-spec 归并并对账 canonical service lifecycle requirement。
 
 ### R4 — Final gates
 
-- [ ] C3：记录验证、真实 e2e 与独立验收结论（e2e-up script suite 已通过；full non-e2e 与独立门禁待跑）。
+- [ ] C3：记录验证、真实 e2e 与独立验收结论（local gates 已完成；独立门禁待跑）。
