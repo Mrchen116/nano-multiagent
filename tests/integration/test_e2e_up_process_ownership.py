@@ -8,6 +8,7 @@ import time
 
 from .test_e2e_up_script import (
     _cleanup_owned,
+    _pid_alive,
     _prepare_harness,
     _run_up,
     _spawned_pids,
@@ -83,3 +84,27 @@ def test_preflight_rejects_live_internal_gateway_before_spawning_second_stack(
         if owner.poll() is None:
             owner.kill()
         owner.wait(timeout=3)
+
+
+def test_rollback_reused_gateway_pid_retains_complete_stack(
+    tmp_path: Path,
+) -> None:
+    env = _prepare_harness(tmp_path)
+    env["NODES_STATUS"] = "offline"
+    env["SIMULATE_ROLLBACK_PID_REUSE"] = "1"
+
+    try:
+        result = _run_up(tmp_path, env, preserve_gateway_signals=True)
+        gateway_pid, im_pid = _spawned_pids(tmp_path)[1], _spawned_pids(tmp_path)[0]
+        calls = (tmp_path / "signal-calls.log").read_text(encoding="utf-8").splitlines()
+
+        assert result.returncode == 1
+        assert "rollback could not stop Gateway" in result.stderr
+        assert _pid_alive(gateway_pid)
+        assert _pid_alive(im_pid)
+        assert f"kill -- -{gateway_pid}" not in calls
+        assert f"kill -9 -- -{gateway_pid}" not in calls
+        for evidence in (".gateway.pid", "gateway.identity.json", ".im.pid"):
+            assert (tmp_path / evidence).exists(), evidence
+    finally:
+        _cleanup_owned(tmp_path)

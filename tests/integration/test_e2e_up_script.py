@@ -69,6 +69,9 @@ case "$*" in
     printf '%s\n' '{"user":{"id":"user-e2e"},"access_token":"token-e2e"}'
     ;;
   *"/im/v1/nodes"*)
+    if [[ "${SIMULATE_ROLLBACK_PID_REUSE-0}" == "1" ]]; then
+      : > "$E2E_WT/simulate-pid-reuse"
+    fi
     node_id="$($REAL_PYTHON - "$E2E_WT/.gateway-config.yaml" <<'PY'
 import sys, yaml
 print(yaml.safe_load(open(sys.argv[1]))["node"]["node_id"])
@@ -78,6 +81,23 @@ PY
     ;;
   *) printf '%s\n' '{}' ;;
 esac
+""",
+    )
+    _write_executable(
+        fake_bin / "ps",
+        """#!/bin/bash
+if [[ -e "$E2E_WT/simulate-pid-reuse" && "$*" == *"pid=,lstart=,command="* ]]; then
+  for ((index=1; index<=$#; index++)); do
+    if [[ "${!index}" == "-p" ]]; then
+      next=$((index + 1))
+      pid="${!next}"
+      command="$(/bin/ps -p "$pid" -o command=)"
+      printf '%s Tue Jul 14 12:34:56 2026 %s\\n' "$pid" "$command"
+      exit 0
+    fi
+  done
+fi
+exec /bin/ps "$@"
 """,
     )
     _write_executable(
