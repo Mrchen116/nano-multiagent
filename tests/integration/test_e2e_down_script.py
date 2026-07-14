@@ -65,6 +65,10 @@ def _run_down(
     fake_ps.write_text(
         """#!/bin/bash
 case "$*" in
+  *"pid=,ppid=,pgid=,stat=,lstart="*) printf '%s 1 %s %s %s\\n' "$GATEWAY_PID" "$GATEWAY_PID" "${PROCESS_STAT-S}" "$PROCESS_START" ;;
+  *"pid=,stat=,lstart="*) printf '%s %s %s\\n' "$GATEWAY_PID" "${PROCESS_STAT-S}" "$PROCESS_START" ;;
+  *"pid=,ppid=,pgid="*) printf '%s 1 %s\\n' "$GATEWAY_PID" "$GATEWAY_PID" ;;
+  *"pgid="*) printf '%s\\n' "$GATEWAY_PID" ;;
   *"command="*) printf '%s\\n' "$GATEWAY_COMMAND" ;;
   *"lstart="*) printf '%s\\n' "$PROCESS_START" ;;
   *"stat="*) printf '%s\\n' "${PROCESS_STAT-S}" ;;
@@ -81,6 +85,15 @@ esac
 IM_ALIVE=1
 export IM_ALIVE
 kill() {{
+  normalized=()
+  for arg in "$@"; do
+    [[ "$arg" == "--" ]] || normalized+=("$arg")
+  done
+  last_index=$(( ${{#normalized[@]}} - 1 ))
+  if [[ $last_index -ge 0 && "${{normalized[$last_index]}}" =~ ^-[1-9][0-9]*$ ]]; then
+    normalized[$last_index]="${{normalized[$last_index]#-}}"
+  fi
+  set -- "${{normalized[@]}}"
   printf 'kill %s\\n' "$*" >> "$CALLS_FILE"
   if [[ "$*" == "-0 434343" ]]; then
     [[ "$IM_ALIVE" == 1 ]]
@@ -103,6 +116,7 @@ exec bash "{script}" --wt "{wt_argument or tmp_path}"
         os.environ,
         CALLS_FILE=str(calls_file),
         GATEWAY_COMMAND=command,
+        GATEWAY_PID=str(_GATEWAY_PID),
         PATH=f"{fake_bin}:{os.environ['PATH']}",
         PROCESS_START=_PROCESS_START,
         REAL_PYTHON=sys.executable,
