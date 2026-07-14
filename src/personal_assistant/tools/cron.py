@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping, NamedTuple
 
@@ -84,6 +85,7 @@ class _CronJob(NamedTuple):
     instruction: str
     enabled: bool = True
     delete_after_run: bool = False
+    eligible_at: str | None = None
 
 
 def _read_jobs(workspace_root: Path) -> list[_CronJob]:
@@ -111,6 +113,12 @@ def _read_jobs(workspace_root: Path) -> list[_CronJob]:
                     instruction=str(item.get("instruction", "")),
                     enabled=bool(item.get("enabled", True)),
                     delete_after_run=bool(item.get("delete_after_run", False)),
+                    eligible_at=(
+                        item["eligible_at"]
+                        if isinstance(item.get("eligible_at"), str)
+                        and item["eligible_at"].strip()
+                        else None
+                    ),
                 )
             )
         except (KeyError, TypeError, ValueError):
@@ -121,17 +129,19 @@ def _read_jobs(workspace_root: Path) -> list[_CronJob]:
 def _write_jobs(workspace_root: Path, jobs: list[_CronJob]) -> None:
     cron_dir = workspace_root / _CRON_SUBDIR
     cron_dir.mkdir(parents=True, exist_ok=True)
-    serialized = [
-        {
-            "id": j.id,
-            "name": j.name,
-            "schedule": dict(j.schedule),
-            "instruction": j.instruction,
-            "enabled": j.enabled,
-            "delete_after_run": j.delete_after_run,
+    serialized = []
+    for job in jobs:
+        item = {
+            "id": job.id,
+            "name": job.name,
+            "schedule": dict(job.schedule),
+            "instruction": job.instruction,
+            "enabled": job.enabled,
+            "delete_after_run": job.delete_after_run,
         }
-        for j in jobs
-    ]
+        if job.eligible_at is not None:
+            item["eligible_at"] = job.eligible_at
+        serialized.append(item)
     (cron_dir / _JOBS_FILENAME).write_text(
         json.dumps(serialized, ensure_ascii=False, indent=2), encoding="utf-8"
     )
@@ -429,6 +439,7 @@ class CronTool:
             instruction=instruction,
             enabled=bool(job_raw.get("enabled", True)),
             delete_after_run=bool(job_raw.get("deleteAfterRun", False)),
+            eligible_at=datetime.now(tz=UTC).isoformat(),
         )
         existing = _read_jobs(workspace_root)
         existing.append(job)
@@ -470,6 +481,12 @@ class CronTool:
             if isinstance(patch.get("payload"), dict)
             else existing.instruction
         )
+        # An edited schedule or disabled→enabled transition starts a new one-shot
+        # eligibility lifetime.  In particular, a past ``at`` instant must not turn
+        # into an automatic replay merely because the Gateway is still running.
+        activation_changed = isinstance(patch.get("schedule"), dict) or (
+            not existing.enabled and new_enabled
+        )
         updated = _CronJob(
             id=existing.id,
             name=new_name,
@@ -477,6 +494,11 @@ class CronTool:
             instruction=new_instruction,
             enabled=new_enabled,
             delete_after_run=new_delete_after,
+            eligible_at=(
+                datetime.now(tz=UTC).isoformat()
+                if activation_changed
+                else existing.eligible_at
+            ),
         )
         jobs[idx] = updated
         _write_jobs(workspace_root, jobs)

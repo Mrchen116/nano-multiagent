@@ -12,6 +12,8 @@ the per-agent ``CronExecutionService`` via the factory closure — no
 
 from __future__ import annotations
 
+import json
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -68,6 +70,57 @@ def test_add_list_remove_roundtrip(tmp_path: Path) -> None:
     removed = tool.run({"action": "remove", "jobId": job_id}, _Ctx(tmp_path, "agent-a"))
     assert removed["removed"] is True
     assert tool.run({"action": "list"}, _Ctx(tmp_path, "agent-a"))["count"] == 0
+
+
+def test_add_and_reenable_persist_one_shot_activation_boundary(tmp_path: Path) -> None:
+    """Cron's private job metadata prevents a stale re-enabled ``at`` replay."""
+    tool = make_cron_tool({})
+    result = tool.run(
+        {
+            "action": "add",
+            "job": {
+                "name": "stale reminder",
+                "schedule": {"kind": "at", "at": "2026-01-01T00:00:00Z"},
+                "payload": {"kind": "agentTurn", "message": "ping"},
+                "enabled": False,
+            },
+        },
+        _Ctx(tmp_path, "agent-a"),
+    )
+    jobs_path = tmp_path / ".nanoassistant" / "cron" / "jobs.json"
+    persisted = json.loads(jobs_path.read_text(encoding="utf-8"))
+    assert isinstance(persisted[0]["eligible_at"], str)
+    assert "eligible_at" not in result["job"], (
+        "internal scheduling metadata stays private"
+    )
+
+    # Seed a known stale boundary, then prove disabled→enabled overwrites it.
+    persisted[0]["eligible_at"] = "2000-01-01T00:00:00+00:00"
+    jobs_path.write_text(json.dumps(persisted), encoding="utf-8")
+    tool.run(
+        {"action": "update", "jobId": result["jobId"], "patch": {"enabled": True}},
+        _Ctx(tmp_path, "agent-a"),
+    )
+    reenabled = json.loads(jobs_path.read_text(encoding="utf-8"))
+    assert datetime.fromisoformat(reenabled[0]["eligible_at"]) > datetime(
+        2000, 1, 1, tzinfo=UTC
+    )
+
+    # Changing a schedule creates the same fresh activation boundary.
+    reenabled[0]["eligible_at"] = "2000-01-01T00:00:00+00:00"
+    jobs_path.write_text(json.dumps(reenabled), encoding="utf-8")
+    tool.run(
+        {
+            "action": "update",
+            "jobId": result["jobId"],
+            "patch": {"schedule": {"kind": "at", "at": "2026-01-01T00:00:00Z"}},
+        },
+        _Ctx(tmp_path, "agent-a"),
+    )
+    rescheduled = json.loads(jobs_path.read_text(encoding="utf-8"))
+    assert datetime.fromisoformat(rescheduled[0]["eligible_at"]) > datetime(
+        2000, 1, 1, tzinfo=UTC
+    )
 
 
 def test_run_routes_to_agent_service(tmp_path: Path) -> None:
