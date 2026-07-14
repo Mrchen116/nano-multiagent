@@ -31,6 +31,13 @@
 - **WHEN** 运维者对同一 config 再次发起后台启动
 - **THEN** 启动被拒,提示「gateway is already running (pid=…)」并指引先 `stop` 或 `restart`
 
+#### Scenario: lifecycle target option 在子命令前后语义一致
+- **GIVEN** 运维者以自定义 config A 管理 Gateway,且默认 config 可以指向另一 Gateway
+- **WHEN** 运维者以 `--config A ... restart` / `--config A ... stop`，或等价的
+  `restart --config A` / `stop --config A` 形式执行 lifecycle 命令
+- **THEN** 四种形式都只定位、停止或启动 config A 对应的 Gateway,绝不回退操作默认 config
+- **AND** restart 使用的 `--im-service-url` 无论写在 `restart` 前后都传给新启动的 config A Gateway
+
 #### Scenario: stop 终止后台 Gateway 并清理状态
 - **WHEN** 运维者执行 `... main stop`
 - **THEN** 对应后台进程被优雅终止(超时则升级 SIGKILL),PID/状态文件被清理;若本无运行则报「NOT RUNNING」,

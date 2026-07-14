@@ -3836,15 +3836,20 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     subparsers = parser.add_subparsers(dest="command")
+    # `--config A restart` and `restart --config A` target the same Gateway.
+    # Missing post-command options must not erase values parsed by the root parser.
+    preserve_global_target = argparse.SUPPRESS
     stop_parser = subparsers.add_parser(
         "stop", help="Stop the current background gateway for one config"
     )
     stop_parser.add_argument(
         "--config",
+        default=preserve_global_target,
         help="Path to local gateway config (defaults to ~/.nano-assistant/config.yaml)",
     )
     stop_parser.add_argument(
         "--im-service-url",
+        default=preserve_global_target,
         help="Override the upstream IM service base URL for this launch",
     )
     restart_parser = subparsers.add_parser(
@@ -3853,10 +3858,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     restart_parser.add_argument(
         "--config",
+        default=preserve_global_target,
         help="Path to local gateway config (defaults to ~/.nano-assistant/config.yaml)",
     )
     restart_parser.add_argument(
         "--im-service-url",
+        default=preserve_global_target,
         help="Override the upstream IM service base URL for this launch",
     )
     args = parser.parse_args(argv)
