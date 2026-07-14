@@ -142,7 +142,7 @@ def test_e2e_down_waits_on_same_external_lock_before_preflight(
         time.sleep(0.2)
         crossed_generation = process.poll() is not None
         _release_holder(holder)
-        _stdout, stderr = process.communicate()
+        _stdout, stderr = _communicate_after_release(process)
 
         assert not crossed_generation
         assert process.returncode == 0, stderr
