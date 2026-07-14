@@ -19,7 +19,12 @@
 
 ## R2 — Public instance and descendant ownership
 
-- Status: TODO。
+- Status: DONE。
+- C1 Red: `b28f307b6` 锁定 shared PGID 必须 single-PID signal、public stop 必须以完整 owned set 的退出作为 commit、同 config lifetime claim 必须拒绝第二 holder；旧实现分别误用 `killpg`、只等 leader 与完全没有 runtime claim。
+- C2 Green: `6d804e2dd` 增加独立于 start/stop generation lock 的 stable per-config instance claim，foreground/background child 均在构建 runtime 前 nonblocking 获取并持有到 evidence cleanup；background parent 继续持 generation lock等待 child publication，二者不嵌套同一 inode。owned set 记录 leader PGID 是否独占：独占组按 detached-first/leader-last group signal，共享 leader PGID 只对验证过 birth 的 owned PIDs逐个 signal；freeze 失败逐 PID `SIGCONT`。public stop 在 generation lock 内冻结完整 set、TERM+resume、必要时 KILL，并在全员 birth 消失后才 cleanup/返回。
+- Validation: public ownership + PID/generation + launch/publication/legacy +真实 descendant（排除尚待 R3 修复的旧 e2e rollback case）`41 passed, 1 deselected`，另 R2 核心组合 `19 passed, 1 deselected`；真实 public stop 回收 same-group 与 detached child。affected Ruff、format、diff check通过，无测试进程残留。
+- Commit boundary: runtime instance lock 是“同 config 只有一个 live Gateway”的 lifetime claim；generation lock 是 start/stop publication transaction。`STOPPED` 仅在 frozen original births 全部退出且 exact evidence 清理完成后成立。
+- Rollback: 可整体回退 R2 测试/实现；external instance lock inode 与 generation lock 同样稳定保留，不在 runtime unlink。共享 PGID 永不获得 group signal 权。
 
 ## R3 — e2e IM and freeze failure ownership
 
