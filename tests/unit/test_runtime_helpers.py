@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import sqlite3
+from types import SimpleNamespace
 
 import yaml
 
@@ -103,8 +104,13 @@ def test_rebuild_runtime_writes_canonical_node_config(
         "Agent M170 Alpha",
         "Agent M170 Beta",
     ]
-    assert payload["im_service"] == {"url": "http://127.0.0.1:18031"}
-    assert "18070" in payload["kernel"]["command"]
+    assert payload["im_service"] == {
+        "url": "http://127.0.0.1:18031",
+        "username": "m170-test-user",
+        "password": "m170-test-password",
+    }
+    assert "kernel" not in payload
+    assert payload["llm"]["default_model"] == "kimiCoding:K2.6"
 
 
 def test_rebuild_runtime_seeds_canonical_agent_profiles_into_fresh_db(
@@ -184,7 +190,7 @@ def test_resolve_canonical_repo_root_collapses_worktree_checkout_to_main_repo() 
     )
 
 
-def test_stop_runtime_terminates_duplicate_gateway_and_kernel_processes(
+def test_stop_runtime_terminates_duplicate_gateway_processes(
     monkeypatch, tmp_path: Path
 ) -> None:
     runtime_root = tmp_path / "m170-runtime"
@@ -208,7 +214,6 @@ def test_stop_runtime_terminates_duplicate_gateway_and_kernel_processes(
     monkeypatch.setattr(
         m170_runtime, "_list_gateway_pids_for_config", lambda config_path: {111, 200}
     )
-    monkeypatch.setattr(m170_runtime, "_list_listener_pids", lambda port: {222, 300})
     terminated: list[tuple[int, float]] = []
     monkeypatch.setattr(
         m170_runtime,
@@ -228,7 +233,7 @@ def test_stop_runtime_terminates_duplicate_gateway_and_kernel_processes(
 
     assert result["gateway"] == f"STOPPED config={runtime_root / 'node-config.yaml'}"
     assert result["im_url_stopped"] == "true"
-    assert terminated == [(111, 3.5), (222, 3.5)]
+    assert terminated == [(111, 3.5)]
     assert kill_calls == [(200, 0), (300, m170_runtime.signal.SIGTERM)]
     assert (runtime_root / ".im-state.json").exists() is False
 
@@ -242,3 +247,116 @@ def test_resolve_canonical_repo_root_keeps_main_checkout_path() -> None:
     assert resolved / "ACCEPTANCE" / "m170-runtime" == Path(
         "/repo/nano-multiagent/ACCEPTANCE/m170-runtime"
     )
+
+
+class _HTTPResponse:
+    def __init__(self, status_code: int, payload: object) -> None:
+        self.status_code = status_code
+        self._payload = payload
+        self.text = str(payload)
+
+    def json(self) -> object:
+        return self._payload
+
+    def raise_for_status(self) -> None:
+        if self.status_code >= 400:
+            raise RuntimeError(f"HTTP {self.status_code}: {self.text}")
+
+
+def _online_runtime_status(runtime_root: Path) -> m170_runtime.RuntimeStatus:
+    return m170_runtime.RuntimeStatus(
+        runtime_root=str(runtime_root),
+        runtime_db=str(runtime_root / "im_service.sqlite3"),
+        config_path=str(runtime_root / "node-config.yaml"),
+        im_log=str(runtime_root / "im.log"),
+        gateway_log=str(runtime_root / "gateway.log"),
+        im_url=m170_runtime.IM_HEALTH_URL,
+        im_http_ok=True,
+        gateway_pid=2468,
+        gateway_running=True,
+        node_online=True,
+        node_status="online",
+    )
+
+
+def test_start_runtime_authenticates_user_syncs_owner_and_enables_auto_bind(
+    monkeypatch, tmp_path: Path
+) -> None:
+    runtime_root = tmp_path / "m170-runtime"
+    _patch_runtime_paths(monkeypatch, runtime_root)
+    monkeypatch.setattr(m170_runtime, "stop_runtime", lambda: {})
+    m170_runtime.rebuild_runtime()
+
+    monkeypatch.setattr(m170_runtime, "rebuild_runtime", lambda: {"status": "rebuilt"})
+    monkeypatch.setattr(m170_runtime, "_spawn_im", lambda: 1357)
+    monkeypatch.setattr(m170_runtime, "_wait_for_url", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(
+        m170_runtime,
+        "_wait_for_node_online",
+        lambda **_kwargs: _online_runtime_status(runtime_root),
+    )
+    post_urls: list[str] = []
+
+    def _post(url: str, **_kwargs: object) -> _HTTPResponse:
+        post_urls.append(url)
+        if url.endswith("/register"):
+            return _HTTPResponse(201, {"access_token": "register-token"})
+        return _HTTPResponse(
+            200,
+            {
+                "access_token": "login-token",
+                "user": {"id": "m170-user-id"},
+            },
+        )
+
+    monkeypatch.setattr(m170_runtime.httpx, "post", _post)
+    commands: list[list[str]] = []
+
+    def _run(argv: list[str], **_kwargs: object) -> SimpleNamespace:
+        commands.append(argv)
+        return SimpleNamespace(returncode=0, stdout="Gateway started", stderr="")
+
+    monkeypatch.setattr(m170_runtime.subprocess, "run", _run)
+
+    result = m170_runtime.start_runtime()
+
+    assert post_urls == [
+        f"{m170_runtime.IM_BASE_URL}/im/v1/auth/register",
+        f"{m170_runtime.IM_BASE_URL}/im/v1/auth/login",
+    ]
+    assert "--auto-bind" in commands[0]
+    payload = yaml.safe_load(
+        (runtime_root / "node-config.yaml").read_text(encoding="utf-8")
+    )
+    assert payload["node"]["user_id"] == "m170-user-id"
+    assert result["node_online"] == "true"
+
+
+def test_runtime_status_uses_login_token_for_nodes_query(
+    monkeypatch, tmp_path: Path
+) -> None:
+    runtime_root = tmp_path / "m170-runtime"
+    _patch_runtime_paths(monkeypatch, runtime_root)
+    runtime_root.mkdir(parents=True)
+    monkeypatch.setattr(
+        m170_runtime.httpx,
+        "post",
+        lambda *_args, **_kwargs: _HTTPResponse(
+            200,
+            {"access_token": "login-token", "user": {"id": "m170-user-id"}},
+        ),
+    )
+    node_headers: dict[str, str] = {}
+
+    def _get(url: str, **kwargs: object) -> _HTTPResponse:
+        if url == m170_runtime.IM_NODES_URL:
+            node_headers.update(kwargs.get("headers", {}))  # type: ignore[arg-type]
+            return _HTTPResponse(200, [{"node_id": "m170-node", "status": "online"}])
+        return _HTTPResponse(200, {})
+
+    monkeypatch.setattr(m170_runtime.httpx, "get", _get)
+
+    status = m170_runtime.runtime_status()
+
+    assert status.node_online is True
+    assert node_headers == {"Authorization": "Bearer login-token"}

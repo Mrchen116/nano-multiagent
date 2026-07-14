@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
+import fcntl
+import math
 import os
 from pathlib import Path
-import shlex
-import shutil
-from typing import Any
+import stat
+import tempfile
+import threading
+from typing import Any, Callable
 
 import yaml
 
@@ -52,11 +56,6 @@ class LLMConfigPayload:
     providers: tuple[LLMProviderPayload, ...] = field(default_factory=tuple)
 
 
-_DEFAULT_KERNEL_BASE_URL = "http://127.0.0.1:8000"
-# refactor-387 M3: kernel_app.py deleted; KernelConfig.command is retained for M4 cleanup.
-_DEFAULT_KERNEL_ENTRYPOINT = ""
-_DEFAULT_KERNEL_HEALTH_PATH = "/v1/health"
-DEFAULT_LOCAL_KERNEL_TOKEN = "nano-local-gateway"
 DEFAULT_LOCAL_CONFIG_DIR = Path("~/.nano-assistant").expanduser()
 DEFAULT_LOCAL_CONFIG_PATH = DEFAULT_LOCAL_CONFIG_DIR / "config.yaml"
 FEISHU_DOC_SKILL_ID = "feishu-doc"
@@ -273,35 +272,18 @@ class IMServiceConfig:
 
 
 @dataclass(frozen=True, slots=True)
-class KernelConfig:
-    """Legacy gateway-to-kernel connectivity settings retained for config compatibility.
-
-    refactor-387: the kernel is now in-process (agent.sdk); these fields are no
-    longer used at runtime.  Preserved so that existing config files with a
-    ``kernel:`` section parse without error; fields will be removed when the
-    config schema is trimmed in a follow-up unit.
+class GatewayLifecycleConfig:
+    """Configure lifecycle timing for the Gateway background process.
 
     Args:
-        base_url: Unused (was: HTTP URL of the standalone kernel process).
-        token: Unused (was: bearer token for the kernel HTTP API).
-        request_id: Unused (was: fixed request id prefix for health probes).
-        timeout_seconds: Unused (was: per-request HTTP timeout).
-        command: Unused (was: command used to spawn the kernel subprocess).
-        health_path: Unused (was: health endpoint for readiness polling).
-        startup_timeout_seconds: Unused (was: maximum readiness wait after spawn).
-        shutdown_grace_seconds: Unused (was: grace period before forced kill).
-        health_poll_interval_seconds: Unused (was: delay between health probe attempts).
+        startup_timeout_seconds: Maximum wait for a background child to write its PID.
+        shutdown_grace_seconds: Grace period before the launcher force-kills the process group.
+        poll_interval_seconds: Delay between child liveness checks.
     """
 
-    base_url: str = _DEFAULT_KERNEL_BASE_URL
-    token: str | None = None
-    request_id: str | None = None
-    timeout_seconds: float = 10.0
-    command: str = _DEFAULT_KERNEL_ENTRYPOINT
-    health_path: str = _DEFAULT_KERNEL_HEALTH_PATH
     startup_timeout_seconds: float = _DEFAULT_STARTUP_TIMEOUT_SECONDS
     shutdown_grace_seconds: float = _DEFAULT_SHUTDOWN_GRACE_SECONDS
-    health_poll_interval_seconds: float = _DEFAULT_POLL_INTERVAL_SECONDS
+    poll_interval_seconds: float = _DEFAULT_POLL_INTERVAL_SECONDS
 
 
 @dataclass(frozen=True, slots=True)
@@ -323,7 +305,7 @@ class LocalConfig:
         node: Node identity and ownership metadata.
         agents: Agent workspace definitions managed by this gateway.
         channels: Configured inbound/outbound channel adapters.
-        kernel: Legacy kernel connectivity settings (unused since refactor-387; retained for config-file backward compatibility).
+        gateway: Gateway background process lifecycle timing.
         heartbeat: Local heartbeat scheduler polling settings.
         im_service: Optional upstream IM service configuration.
         llm: LLM registry configuration (required; no hardcoded fallback).
@@ -333,7 +315,7 @@ class LocalConfig:
     node: NodeConfig
     agents: tuple[AgentWorkspaceConfig, ...]
     channels: tuple[ChannelConfig, ...]
-    kernel: KernelConfig
+    gateway: GatewayLifecycleConfig
     heartbeat: HeartbeatConfig
     im_service: IMServiceConfig | None
     llm: LLMConfigPayload
@@ -371,14 +353,16 @@ def load_local_config(config_path: str | Path) -> LocalConfig:
     llm = _parse_llm(raw.get("llm"))
     agents = _parse_agents(raw.get("agents"), llm)
     channels = _parse_channels(raw.get("channels"))
-    kernel = _parse_kernel(raw.get("kernel"))
+    gateway = _parse_gateway_lifecycle(
+        raw.get("gateway"), legacy_kernel=raw.get("kernel")
+    )
     heartbeat = _parse_heartbeat(raw.get("heartbeat"))
     im_service = _parse_im_service(raw.get("im_service"))
     return LocalConfig(
         node=node,
         agents=agents,
         channels=channels,
-        kernel=kernel,
+        gateway=gateway,
         heartbeat=heartbeat,
         im_service=im_service,
         llm=llm,
@@ -464,7 +448,144 @@ _BACKUP_RETAIN = 30
 """Maximum number of backup files kept in backups/ — oldest are pruned first."""
 
 
-def _backup_existing_config(dest: Path, new_text: str) -> None:
+@dataclass(frozen=True, slots=True)
+class _ConfigSnapshot:
+    """One stable source revision used throughout a config save transaction."""
+
+    identity: tuple[int, int]
+    mode: int
+    content: bytes
+
+
+@dataclass(frozen=True, slots=True)
+class _MigrationBackupGuard:
+    """Keep one verified deterministic backup inode open through commit."""
+
+    path: Path
+    fd: int
+    identity: tuple[int, int]
+    mode: int
+    content: bytes
+
+
+class ConfigCommitRollbackError(RuntimeError):
+    """Report that commit durability failed and source rollback also failed.
+
+    Args:
+        config_path: Config path whose post-replace rollback could not complete.
+        commit_error: Original directory durability failure after atomic replace.
+        rollback_error: Error raised while restoring or persisting the old source.
+    """
+
+    def __init__(
+        self,
+        config_path: Path,
+        commit_error: BaseException,
+        rollback_error: BaseException,
+    ) -> None:
+        super().__init__(
+            f"config commit durability failed and rollback failed for "
+            f"{config_path}: {rollback_error}"
+        )
+        self.config_path = config_path
+        self.commit_error = commit_error
+        self.rollback_error = rollback_error
+
+
+_CONFIG_LOCKS_GUARD = threading.Lock()
+_CONFIG_LOCKS: dict[Path, threading.Lock] = {}
+
+
+def _config_lock(path: Path) -> threading.Lock:
+    """Return the in-process coordinator for one resolved config path."""
+    with _CONFIG_LOCKS_GUARD:
+        return _CONFIG_LOCKS.setdefault(path, threading.Lock())
+
+
+@contextmanager
+def _config_transaction_lock(path: Path):
+    """Serialize the complete save transaction across threads and processes."""
+    lock_path = Path(f"{path}.lock")
+    with _config_lock(path):
+        flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
+        fd = os.open(lock_path, flags, 0o600)
+        try:
+            opened = os.fstat(fd)
+            current = lock_path.lstat()
+            if (
+                not stat.S_ISREG(opened.st_mode)
+                or opened.st_nlink != 1
+                or not stat.S_ISREG(current.st_mode)
+                or current.st_nlink != 1
+                or (opened.st_dev, opened.st_ino) != (current.st_dev, current.st_ino)
+            ):
+                raise OSError(f"config transaction lock is not stable: {lock_path}")
+            os.fchmod(fd, 0o600)
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            locked = os.fstat(fd)
+            current = lock_path.lstat()
+            if (
+                locked.st_nlink != 1
+                or current.st_nlink != 1
+                or (locked.st_dev, locked.st_ino) != (current.st_dev, current.st_ino)
+            ):
+                raise OSError(
+                    f"config transaction lock changed while waiting: {lock_path}"
+                )
+            yield
+        finally:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+            os.close(fd)
+
+
+def _read_config_snapshot(path: Path) -> _ConfigSnapshot | None:
+    """Read one regular file revision without following replacement aliases."""
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(path, flags)
+    except FileNotFoundError:
+        return None
+    try:
+        before = os.fstat(fd)
+        if not stat.S_ISREG(before.st_mode):
+            raise OSError(f"config path is not a regular file: {path}")
+        chunks: list[bytes] = []
+        while chunk := os.read(fd, 1024 * 64):
+            chunks.append(chunk)
+        after = os.fstat(fd)
+        if (
+            (before.st_dev, before.st_ino) != (after.st_dev, after.st_ino)
+            or before.st_size != after.st_size
+            or before.st_mtime_ns != after.st_mtime_ns
+        ):
+            raise RuntimeError(f"config changed while taking save snapshot: {path}")
+        return _ConfigSnapshot(
+            identity=(after.st_dev, after.st_ino),
+            mode=stat.S_IMODE(after.st_mode),
+            content=b"".join(chunks),
+        )
+    finally:
+        os.close(fd)
+
+
+def _assert_snapshot_current(path: Path, snapshot: _ConfigSnapshot | None) -> None:
+    """Fail the transaction when an uncoordinated writer changed the source."""
+    current = _read_config_snapshot(path)
+    if current is None and snapshot is None:
+        return
+    if (
+        current is None
+        or snapshot is None
+        or current.identity != snapshot.identity
+        or current.mode != snapshot.mode
+        or current.content != snapshot.content
+    ):
+        raise RuntimeError(f"config changed during save: {path}")
+
+
+def _backup_existing_config(
+    dest: Path, new_text: str, snapshot: _ConfigSnapshot | None
+) -> None:
     """Copy dest to a timestamped backup before it is overwritten.
 
     Only runs when dest equals the default main config path and actually
@@ -484,11 +605,11 @@ def _backup_existing_config(dest: Path, new_text: str) -> None:
     # ephemeral and not worth preserving across restarts.
     if dest != default_local_config_path():
         return
-    if not dest.exists():
+    if snapshot is None:
         # First-ever write — no prior version to back up.
         return
 
-    current_text = dest.read_text(encoding="utf-8")
+    current_text = snapshot.content.decode("utf-8")
     if current_text == new_text:
         # Nothing actually changed; skip to avoid filling backups/ with
         # identical files (token-refresh writes the same content repeatedly).
@@ -509,7 +630,8 @@ def _backup_existing_config(dest: Path, new_text: str) -> None:
 
     # Raises if backup cannot be written (disk full, permissions, etc.).
     # The caller must NOT proceed to overwrite dest in that case.
-    shutil.copy2(dest, bak_path)
+    bak_path.write_bytes(snapshot.content)
+    bak_path.chmod(snapshot.mode)
 
     # Prune oldest backups, retaining only the most recent _BACKUP_RETAIN files.
     all_baks = sorted(backups_dir.glob("config.*.yaml.bak"))
@@ -518,15 +640,329 @@ def _backup_existing_config(dest: Path, new_text: str) -> None:
         old_bak.unlink(missing_ok=True)
 
 
-def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
-    """Serialize a LocalConfig back to YAML and write to disk.
+def _fsync_parent_directory(path: Path) -> None:
+    """Persist a newly created directory entry before its source may be replaced."""
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    directory_fd = os.open(path.parent, flags)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
+
+
+def _read_and_secure_existing_migration_backup(
+    *,
+    backup_path: Path,
+    source_stat: os.stat_result,
+    source_mode: int,
+    original: bytes,
+) -> _MigrationBackupGuard:
+    """Validate an existing backup and hold its fd through the commit gate."""
+    try:
+        path_stat = backup_path.lstat()
+    except FileNotFoundError:
+        raise
+    if stat.S_ISLNK(path_stat.st_mode):
+        raise FileExistsError(f"migration backup aliases current config: {backup_path}")
+    if not stat.S_ISREG(path_stat.st_mode):
+        raise FileExistsError(f"migration backup is not a regular file: {backup_path}")
+    if (path_stat.st_dev, path_stat.st_ino) == (
+        source_stat.st_dev,
+        source_stat.st_ino,
+    ):
+        raise FileExistsError(f"migration backup aliases current config: {backup_path}")
+    if path_stat.st_nlink != 1:
+        raise FileExistsError(
+            f"migration backup must be a single-link file: {backup_path}"
+        )
+
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+    fd = os.open(backup_path, flags)
+    try:
+        backup_stat = os.fstat(fd)
+        if not stat.S_ISREG(backup_stat.st_mode):
+            raise FileExistsError(
+                f"migration backup is not a regular file: {backup_path}"
+            )
+        if backup_stat.st_nlink != 1:
+            raise FileExistsError(
+                f"migration backup must be a single-link file: {backup_path}"
+            )
+        if (backup_stat.st_dev, backup_stat.st_ino) == (
+            source_stat.st_dev,
+            source_stat.st_ino,
+        ):
+            raise FileExistsError(
+                f"migration backup aliases current config: {backup_path}"
+            )
+
+        chunks: list[bytes] = []
+        while chunk := os.read(fd, 1024 * 64):
+            chunks.append(chunk)
+        if b"".join(chunks) != original:
+            raise FileExistsError(
+                f"migration backup conflicts with current config: {backup_path}"
+            )
+
+        backup_mode = stat.S_IMODE(backup_stat.st_mode)
+        tightened_mode = backup_mode & source_mode
+        if tightened_mode != backup_mode:
+            os.fchmod(fd, tightened_mode)
+        os.fsync(fd)
+        _fsync_parent_directory(backup_path)
+        return _MigrationBackupGuard(
+            path=backup_path,
+            fd=fd,
+            identity=(backup_stat.st_dev, backup_stat.st_ino),
+            mode=tightened_mode,
+            content=original,
+        )
+    except BaseException:
+        os.close(fd)
+        raise
+
+
+def _unlink_owned_backup(path: Path, identity: tuple[int, int] | None) -> None:
+    """Delete a failed partial only while the path still names our inode."""
+    if identity is None:
+        return
+    try:
+        current = path.lstat()
+    except FileNotFoundError:
+        return
+    if (current.st_dev, current.st_ino) == identity:
+        path.unlink()
+
+
+def _backup_legacy_kernel_config(
+    dest: Path, snapshot: _ConfigSnapshot | None
+) -> _MigrationBackupGuard | None:
+    """Preserve a config before canonical save removes its legacy kernel block.
+
+    Args:
+        dest: Existing config file that may contain a top-level ``kernel`` mapping.
+
+    Raises:
+        FileExistsError: When the deterministic backup exists with different content.
+        OSError: When the backup cannot be created, written, or flushed durably.
+
+    Side Effects:
+        Creates ``<dest>.pre-refactor-461.bak`` once with the source bytes and mode.
+    """
+    if snapshot is None:
+        return None
+    original = snapshot.content
+    raw = yaml.safe_load(original)
+    if not isinstance(raw, dict) or "kernel" not in raw:
+        return None
+
+    backup_path = Path(f"{dest}.pre-refactor-461.bak")
+    source_stat = os.stat_result(
+        (
+            stat.S_IFREG | snapshot.mode,
+            snapshot.identity[1],
+            snapshot.identity[0],
+            1,
+            0,
+            0,
+            len(snapshot.content),
+            0,
+            0,
+            0,
+        )
+    )
+    source_mode = snapshot.mode
+    try:
+        backup_path.lstat()
+    except FileNotFoundError:
+        backup_exists = False
+    else:
+        backup_exists = True
+    if backup_exists:
+        return _read_and_secure_existing_migration_backup(
+            backup_path=backup_path,
+            source_stat=source_stat,
+            source_mode=source_mode,
+            original=original,
+        )
+
+    fd: int | None = None
+    owned_identity: tuple[int, int] | None = None
+    try:
+        flags = os.O_RDWR | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+        fd = os.open(backup_path, flags, source_mode)
+        created_stat = os.fstat(fd)
+        owned_identity = (created_stat.st_dev, created_stat.st_ino)
+        if not stat.S_ISREG(created_stat.st_mode) or created_stat.st_nlink != 1:
+            raise FileExistsError(
+                f"migration backup must be a single-link regular file: {backup_path}"
+            )
+        os.fchmod(fd, source_mode)
+        remaining = memoryview(original)
+        while remaining:
+            written = os.write(fd, remaining)
+            if written <= 0:
+                raise OSError("migration backup write made no progress")
+            remaining = remaining[written:]
+        os.fsync(fd)
+        durable_stat = os.fstat(fd)
+        if durable_stat.st_nlink != 1:
+            raise FileExistsError(
+                f"migration backup must be a single-link file: {backup_path}"
+            )
+        _fsync_parent_directory(backup_path)
+        guard = _MigrationBackupGuard(
+            path=backup_path,
+            fd=fd,
+            identity=owned_identity,
+            mode=source_mode,
+            content=original,
+        )
+        fd = None
+        return guard
+    except BaseException:
+        if fd is not None:
+            os.close(fd)
+        _unlink_owned_backup(backup_path, owned_identity)
+        raise
+
+
+def _assert_migration_backup_current(guard: _MigrationBackupGuard) -> None:
+    """Require the held backup inode to retain its full expected revision."""
+    before = os.fstat(guard.fd)
+    chunks: list[bytes] = []
+    offset = 0
+    while chunk := os.pread(guard.fd, 1024 * 64, offset):
+        chunks.append(chunk)
+        offset += len(chunk)
+    after = os.fstat(guard.fd)
+    try:
+        current = guard.path.lstat()
+    except FileNotFoundError as exc:
+        raise FileExistsError(
+            f"migration backup changed before config commit: {guard.path}"
+        ) from exc
+    if (
+        not stat.S_ISREG(before.st_mode)
+        or before.st_nlink != 1
+        or not stat.S_ISREG(after.st_mode)
+        or after.st_nlink != 1
+        or not stat.S_ISREG(current.st_mode)
+        or current.st_nlink != 1
+        or (before.st_dev, before.st_ino) != guard.identity
+        or (after.st_dev, after.st_ino) != guard.identity
+        or (current.st_dev, current.st_ino) != guard.identity
+        or stat.S_IMODE(before.st_mode) != guard.mode
+        or stat.S_IMODE(after.st_mode) != guard.mode
+        or stat.S_IMODE(current.st_mode) != guard.mode
+        or before.st_size != after.st_size
+        or before.st_mtime_ns != after.st_mtime_ns
+        or b"".join(chunks) != guard.content
+    ):
+        raise FileExistsError(
+            f"migration backup changed before config commit: {guard.path}"
+        )
+
+
+def _stage_config_bytes(dest: Path, payload: bytes, mode: int, *, label: str) -> Path:
+    """Create and durably flush one same-directory transaction inode."""
+    fd, temp_name = tempfile.mkstemp(prefix=f".{dest.name}.{label}.", dir=dest.parent)
+    temp_path = Path(temp_name)
+    try:
+        os.fchmod(fd, mode)
+        remaining = memoryview(payload)
+        while remaining:
+            written = os.write(fd, remaining)
+            if written <= 0:
+                raise OSError("config write made no progress")
+            remaining = remaining[written:]
+        os.fsync(fd)
+        os.close(fd)
+        return temp_path
+    except BaseException:
+        os.close(fd)
+        temp_path.unlink(missing_ok=True)
+        raise
+
+
+def _rollback_replaced_config(
+    *,
+    dest: Path,
+    snapshot: _ConfigSnapshot | None,
+    rollback_path: Path | None,
+    committed: _ConfigSnapshot,
+) -> None:
+    """Restore the old source only while dest is still our committed revision."""
+    current = _read_config_snapshot(dest)
+    if current != committed:
+        raise RuntimeError(f"config changed after replace; rollback refused: {dest}")
+    if snapshot is None:
+        dest.unlink()
+    else:
+        if rollback_path is None:
+            raise RuntimeError("config rollback inode is unavailable")
+        os.replace(rollback_path, dest)
+    _fsync_parent_directory(dest)
+
+
+def _atomic_commit_config(
+    dest: Path,
+    new_text: str,
+    snapshot: _ConfigSnapshot | None,
+    backup_guard: _MigrationBackupGuard | None,
+) -> None:
+    """Durably stage bytes, CAS the source revision, then atomically replace it."""
+    payload = new_text.encode("utf-8")
+    mode = snapshot.mode if snapshot is not None else 0o600
+    temp_path = _stage_config_bytes(dest, payload, mode, label="commit")
+    rollback_path = (
+        _stage_config_bytes(dest, snapshot.content, snapshot.mode, label="rollback")
+        if snapshot is not None
+        else None
+    )
+    try:
+        if backup_guard is not None:
+            _assert_migration_backup_current(backup_guard)
+        _assert_snapshot_current(dest, snapshot)
+        staged = temp_path.stat()
+        committed = _ConfigSnapshot(
+            identity=(staged.st_dev, staged.st_ino),
+            mode=stat.S_IMODE(staged.st_mode),
+            content=payload,
+        )
+        os.replace(temp_path, dest)
+        temp_path = None
+        try:
+            _fsync_parent_directory(dest)
+        except BaseException as commit_error:
+            try:
+                _rollback_replaced_config(
+                    dest=dest,
+                    snapshot=snapshot,
+                    rollback_path=rollback_path,
+                    committed=committed,
+                )
+                rollback_path = None
+            except BaseException as rollback_error:
+                raise ConfigCommitRollbackError(
+                    dest, commit_error, rollback_error
+                ) from rollback_error
+            raise
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+        if rollback_path is not None:
+            rollback_path.unlink(missing_ok=True)
+
+
+def _serialize_local_config(config: LocalConfig) -> str:
+    """Serialize one typed config without performing filesystem I/O.
 
     Args:
         config: Typed configuration to serialize.
-        config_path: Destination file path. Parent directories must exist.
 
-    Side Effects:
-        Writes one UTF-8 YAML file to local disk, overwriting any existing file.
+    Returns:
+        Canonical UTF-8 YAML text for the complete configuration document.
     """
     data: dict[str, Any] = {}
 
@@ -602,28 +1038,16 @@ def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
             channels_list.append(ch_dict)
         data["channels"] = channels_list
 
-    # Kernel — only emit non-default values to keep output concise
-    kernel_dict: dict[str, Any] = {}
-    if config.kernel.base_url != _DEFAULT_KERNEL_BASE_URL:
-        kernel_dict["base_url"] = config.kernel.base_url
-    if config.kernel.command != _DEFAULT_KERNEL_ENTRYPOINT:
-        kernel_dict["command"] = config.kernel.command
-    if config.kernel.health_path != _DEFAULT_KERNEL_HEALTH_PATH:
-        kernel_dict["health_path"] = config.kernel.health_path
-    if config.kernel.request_id is not None:
-        kernel_dict["request_id"] = config.kernel.request_id
-    if config.kernel.timeout_seconds != 10.0:
-        kernel_dict["timeout_seconds"] = config.kernel.timeout_seconds
-    if config.kernel.startup_timeout_seconds != _DEFAULT_STARTUP_TIMEOUT_SECONDS:
-        kernel_dict["startup_timeout_seconds"] = config.kernel.startup_timeout_seconds
-    if config.kernel.shutdown_grace_seconds != _DEFAULT_SHUTDOWN_GRACE_SECONDS:
-        kernel_dict["shutdown_grace_seconds"] = config.kernel.shutdown_grace_seconds
-    if config.kernel.health_poll_interval_seconds != _DEFAULT_POLL_INTERVAL_SECONDS:
-        kernel_dict["health_poll_interval_seconds"] = (
-            config.kernel.health_poll_interval_seconds
-        )
-    if kernel_dict:
-        data["kernel"] = kernel_dict
+    # Gateway lifecycle — only emit non-default values to keep output concise.
+    gateway_dict: dict[str, Any] = {}
+    if config.gateway.startup_timeout_seconds != _DEFAULT_STARTUP_TIMEOUT_SECONDS:
+        gateway_dict["startup_timeout_seconds"] = config.gateway.startup_timeout_seconds
+    if config.gateway.shutdown_grace_seconds != _DEFAULT_SHUTDOWN_GRACE_SECONDS:
+        gateway_dict["shutdown_grace_seconds"] = config.gateway.shutdown_grace_seconds
+    if config.gateway.poll_interval_seconds != _DEFAULT_POLL_INTERVAL_SECONDS:
+        gateway_dict["poll_interval_seconds"] = config.gateway.poll_interval_seconds
+    if gateway_dict:
+        data["gateway"] = gateway_dict
 
     # Heartbeat — only emit non-default
     if (
@@ -677,35 +1101,85 @@ def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
     }
     data["llm"] = llm_dict
 
-    new_text = yaml.safe_dump(
+    return yaml.safe_dump(
         data, default_flow_style=False, allow_unicode=True, sort_keys=False
     )
-    dest = Path(config_path).expanduser().resolve()
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    # Backup must succeed before we overwrite; raises on IO failure so dest
-    # is never silently clobbered when backup storage is unavailable.
-    _backup_existing_config(dest, new_text)
-    dest.write_text(new_text, encoding="utf-8")
 
 
-def resolve_kernel_token(token: str | None) -> str:
-    """Return the effective bearer token sourced from config or environment.
+def _commit_local_config(
+    config: LocalConfig,
+    dest: Path,
+    snapshot: _ConfigSnapshot | None,
+) -> None:
+    """Commit one config while its transaction lock and source snapshot are held."""
+    new_text = _serialize_local_config(config)
+    backup_guard = _backup_legacy_kernel_config(dest, snapshot)
+    try:
+        # Both backup kinds are derived from one transaction-start snapshot.
+        # Uncoordinated writers remain detectable at the pre-replace gate;
+        # POSIX cannot close the final check-to-replace syscall window.
+        _backup_existing_config(dest, new_text, snapshot)
+        _atomic_commit_config(dest, new_text, snapshot, backup_guard)
+    finally:
+        if backup_guard is not None:
+            os.close(backup_guard.fd)
+
+
+def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
+    """Serialize a LocalConfig back to YAML and write to disk.
 
     Args:
-        token: Explicit token configured in the gateway config file.
+        config: Typed configuration to serialize.
+        config_path: Destination file path. Parent directories must exist.
+
+    Side Effects:
+        Writes one UTF-8 YAML file to local disk, overwriting any existing file.
+    """
+    dest = Path(config_path).expanduser().resolve()
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    with _config_transaction_lock(dest):
+        snapshot = _read_config_snapshot(dest)
+        _commit_local_config(config, dest, snapshot)
+
+
+def update_local_config(
+    config_path: str | Path,
+    mutation: Callable[[LocalConfig], LocalConfig],
+    *,
+    initial: LocalConfig | None = None,
+) -> LocalConfig:
+    """Apply one narrow mutation to the latest locked config revision.
+
+    Args:
+        config_path: Config document whose latest revision owns untouched fields.
+        mutation: Pure callback returning a replacement config from that latest revision.
+        initial: Optional seed used only when the destination has never been written.
 
     Returns:
-        Explicit token when provided, otherwise the shared process token from
-        ``NANO_MULTIAGENT_API_TOKEN``, and finally ``DEFAULT_LOCAL_KERNEL_TOKEN``
-        as a stable fallback.
-    """
+        The exact typed configuration committed by this transaction.
 
-    if isinstance(token, str) and token.strip():
-        return token.strip()
-    env_token = os.getenv("NANO_MULTIAGENT_API_TOKEN", "").strip()
-    if env_token:
-        return env_token
-    return DEFAULT_LOCAL_KERNEL_TOKEN
+    Raises:
+        RuntimeError: When the source changes outside the cooperative transaction lock.
+
+    Side Effects:
+        Atomically rewrites the config after applying ``mutation`` under its stable lock.
+    """
+    dest = Path(config_path).expanduser().resolve()
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    with _config_transaction_lock(dest):
+        snapshot = _read_config_snapshot(dest)
+        if snapshot is None:
+            if initial is None:
+                raise FileNotFoundError(f"config file does not exist: {dest}")
+            latest = replace(initial, source_path=dest)
+        else:
+            latest = load_local_config(dest)
+            _assert_snapshot_current(dest, snapshot)
+        updated = mutation(latest)
+        if updated.source_path.resolve() != dest:
+            raise ValueError("config mutation changed source_path identity")
+        _commit_local_config(updated, dest, snapshot)
+        return updated
 
 
 def _parse_node_config(payload: Any) -> NodeConfig:
@@ -971,58 +1445,56 @@ def _validate_feishu_settings(settings: dict[str, Any], *, prefix: str) -> None:
         raise ValueError(f"{prefix}.botOpenId must be a string")
 
 
-def _parse_kernel(payload: Any) -> KernelConfig:
+def _parse_gateway_lifecycle(
+    payload: Any, *, legacy_kernel: Any
+) -> GatewayLifecycleConfig:
+    """Parse Gateway timing while migrating the three live legacy kernel fields.
+
+    Args:
+        payload: Optional canonical ``gateway`` mapping.
+        legacy_kernel: Legacy ``kernel`` value; only its three live timing fields
+            are considered when it is a mapping.
+
+    Returns:
+        Gateway-owned lifecycle timing with canonical values preferred per field.
+
+    Raises:
+        ValueError: When ``gateway`` or a selected timing value is malformed.
+    """
     if payload is None:
         payload = {}
     if not isinstance(payload, dict):
-        raise ValueError("kernel must be a mapping")
-    command = (
-        _optional_string(payload.get("command"), field_name="kernel.command")
-        or _DEFAULT_KERNEL_ENTRYPOINT
+        raise ValueError("gateway must be a mapping")
+    legacy = legacy_kernel if isinstance(legacy_kernel, dict) else {}
+
+    def selected(
+        canonical_name: str, legacy_name: str, default: float
+    ) -> tuple[Any, str]:
+        if canonical_name in payload:
+            return payload[canonical_name], f"gateway.{canonical_name}"
+        if legacy_name in legacy:
+            return legacy[legacy_name], f"kernel.{legacy_name}"
+        return default, f"gateway.{canonical_name}"
+
+    startup, startup_field = selected(
+        "startup_timeout_seconds",
+        "startup_timeout_seconds",
+        _DEFAULT_STARTUP_TIMEOUT_SECONDS,
     )
-    explicit_base_url = _optional_string(
-        payload.get("base_url"), field_name="kernel.base_url"
+    shutdown, shutdown_field = selected(
+        "shutdown_grace_seconds",
+        "shutdown_grace_seconds",
+        _DEFAULT_SHUTDOWN_GRACE_SECONDS,
     )
-    base_url = (
-        explicit_base_url
-        or _derive_kernel_base_url(command)
-        or _DEFAULT_KERNEL_BASE_URL
+    poll, poll_field = selected(
+        "poll_interval_seconds",
+        "health_poll_interval_seconds",
+        _DEFAULT_POLL_INTERVAL_SECONDS,
     )
-    token = resolve_kernel_token(
-        _optional_string(payload.get("token"), field_name="kernel.token")
-    )
-    request_id = _optional_string(
-        payload.get("request_id"), field_name="kernel.request_id"
-    )
-    health_path = (
-        _optional_string(payload.get("health_path"), field_name="kernel.health_path")
-        or _DEFAULT_KERNEL_HEALTH_PATH
-    )
-    timeout_seconds = _positive_number(
-        payload.get("timeout_seconds", 10.0), field_name="kernel.timeout_seconds"
-    )
-    startup_timeout_seconds = _positive_number(
-        payload.get("startup_timeout_seconds", _DEFAULT_STARTUP_TIMEOUT_SECONDS),
-        field_name="kernel.startup_timeout_seconds",
-    )
-    shutdown_grace_seconds = _positive_number(
-        payload.get("shutdown_grace_seconds", _DEFAULT_SHUTDOWN_GRACE_SECONDS),
-        field_name="kernel.shutdown_grace_seconds",
-    )
-    health_poll_interval_seconds = _positive_number(
-        payload.get("health_poll_interval_seconds", _DEFAULT_POLL_INTERVAL_SECONDS),
-        field_name="kernel.health_poll_interval_seconds",
-    )
-    return KernelConfig(
-        base_url=base_url,
-        token=token,
-        request_id=request_id,
-        timeout_seconds=timeout_seconds,
-        command=command,
-        health_path=health_path,
-        startup_timeout_seconds=startup_timeout_seconds,
-        shutdown_grace_seconds=shutdown_grace_seconds,
-        health_poll_interval_seconds=health_poll_interval_seconds,
+    return GatewayLifecycleConfig(
+        startup_timeout_seconds=_positive_number(startup, field_name=startup_field),
+        shutdown_grace_seconds=_positive_number(shutdown, field_name=shutdown_field),
+        poll_interval_seconds=_positive_number(poll, field_name=poll_field),
     )
 
 
@@ -1063,36 +1535,6 @@ def _parse_im_service(payload: Any) -> IMServiceConfig | None:
     )
 
 
-def _derive_kernel_base_url(command: str) -> str | None:
-    try:
-        tokens = shlex.split(command)
-    except ValueError:
-        return None
-    host: str | None = None
-    port: str | None = None
-    for index, token in enumerate(tokens):
-        if token == "--host" and index + 1 < len(tokens):
-            host = tokens[index + 1].strip()
-            continue
-        if token == "--port" and index + 1 < len(tokens):
-            port = tokens[index + 1].strip()
-            continue
-        if token.startswith("--host="):
-            host = token.partition("=")[2].strip()
-            continue
-        if token.startswith("--port="):
-            port = token.partition("=")[2].strip()
-    if not host or not port:
-        return None
-    if host == "0.0.0.0":
-        host = "127.0.0.1"
-    if host not in {"127.0.0.1", "localhost"}:
-        return None
-    if not port.isdigit():
-        return None
-    return f"http://{host}:{port}"
-
-
 def _require_non_empty_string(value: Any, *, field_name: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{field_name} must be a non-empty string")
@@ -1112,7 +1554,7 @@ def _positive_number(value: Any, *, field_name: str) -> float:
     if isinstance(value, bool) or not isinstance(value, int | float):
         raise ValueError(f"{field_name} must be a positive number")
     resolved = float(value)
-    if resolved <= 0:
+    if not math.isfinite(resolved) or resolved <= 0:
         raise ValueError(f"{field_name} must be a positive number")
     return resolved
 

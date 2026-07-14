@@ -1,0 +1,339 @@
+"""Integration coverage for fail-atomic worktree e2e startup."""
+
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+import signal
+import subprocess
+import sys
+import time
+
+
+_PROCESS_START = "Mon Jul 13 12:34:56 2026"
+
+
+def _write_executable(path: Path, content: str) -> None:
+    path.write_text(content, encoding="utf-8")
+    path.chmod(0o755)
+
+
+def _prepare_harness(tmp_path: Path, *, startup_timeout: float = 10) -> dict[str, str]:
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    ticks_path = tmp_path / "sleep-ticks"
+    ticks_path.write_text("0", encoding="utf-8")
+    config_path = tmp_path / "main-config.yaml"
+    workspace = tmp_path / "main-workspace"
+    workspace.mkdir()
+    config_path.write_text(
+        f"""\
+node:
+  node_id: source-node
+agents:
+  - agent_id: default-agent
+    workspace_root: {workspace}
+channels: []
+gateway:
+  startup_timeout_seconds: {startup_timeout}
+  shutdown_grace_seconds: 1
+  poll_interval_seconds: 0.1
+im_service:
+  url: http://127.0.0.1:8011
+  username: nano
+  password: nano1234
+llm:
+  default_model: anthropic:test-model
+  providers:
+    - name: anthropic
+      base_url: http://127.0.0.1:4000
+      models:
+        - name: anthropic:test-model
+""",
+        encoding="utf-8",
+    )
+    _write_executable(
+        fake_bin / "sleep",
+        """#!/bin/bash
+case "${1-}" in
+  0.05)
+    # Let signal-driven child teardown run, while keeping this fixture distinct
+    # from production wall-clock timing.
+    /bin/sleep 0.01
+    ;;
+  *)
+    ticks=$(cat "$E2E_TICKS_FILE")
+    printf '%s\n' "$((ticks + 1))" > "$E2E_TICKS_FILE"
+    /bin/sleep 0.002
+    ;;
+esac
+""",
+    )
+    _write_executable(
+        fake_bin / "curl",
+        """#!/bin/bash
+case "$*" in
+  *"/im/v1/auth/login"*)
+    printf '%s\n' '{"user":{"id":"user-e2e"},"access_token":"token-e2e"}'
+    ;;
+  *"/im/v1/nodes"*)
+    if [[ "${SIMULATE_ROLLBACK_PID_REUSE-0}" == "1" ]]; then
+      : > "$E2E_WT/simulate-pid-reuse"
+    fi
+    node_id="$($REAL_PYTHON - "$E2E_WT/.gateway-config.yaml" <<'PY'
+import sys, yaml
+print(yaml.safe_load(open(sys.argv[1]))["node"]["node_id"])
+PY
+)"
+    printf '[{"node_id":"%s","status":"%s"}]\n' "$node_id" "${NODES_STATUS-online}"
+    ;;
+  *) printf '%s\n' '{}' ;;
+esac
+""",
+    )
+    _write_executable(
+        fake_bin / "ps",
+        """#!/bin/bash
+if [[ -e "$E2E_WT/simulate-pid-reuse" && "$*" == *"lstart="* ]]; then
+  for ((index=1; index<=$#; index++)); do
+    if [[ "${!index}" == "-p" ]]; then
+      next=$((index + 1))
+      pid="${!next}"
+      printf '%s\\n' "Tue Jul 14 12:34:56 2026"
+      exit 0
+    fi
+  done
+fi
+exec /bin/ps "$@"
+""",
+    )
+    _write_executable(
+        fake_bin / "python",
+        """#!/bin/bash
+set -e
+if [[ "${1-}" == "-m" && "${2-}" == "uvicorn" ]]; then
+  printf 'im %s\n' "$$" >> "$E2E_WT/spawned-pids.log"
+  trap 'exit 0' INT
+  if [[ "${IM_IGNORES_TERM-0}" == "1" ]]; then
+    trap '' TERM
+  else
+    trap 'exit 0' TERM
+  fi
+  while true; do /bin/sleep 1; done
+fi
+if [[ "${1-}" == "-m" && "${2-}" == "personal_assistant.main" ]]; then
+  printf 'gateway %s\n' "$$" >> "$E2E_WT/spawned-pids.log"
+  if [[ "${SPAWN_GATEWAY_DETACHED-0}" == "1" ]]; then
+    "$REAL_PYTHON" -c 'import os,pathlib,sys,time; os.setsid(); pathlib.Path(sys.argv[1]).write_text(str(os.getpid())); time.sleep(30)' "$E2E_WT/detached-gateway-child.pid" &
+  fi
+  config_path=""
+  args=("${@:3}")
+  for ((index=0; index<${#args[@]}; index++)); do
+    if [[ "${args[$index]}" == "--config" ]]; then
+      config_path="${args[$((index + 1))]}"
+    fi
+  done
+  if [[ "${CREATE_GATEWAY_LOCK-0}" == "1" ]]; then
+    : > "${config_path}.lock"
+  fi
+  if [[ "${EXPECT_STALE_CLEAN-0}" == "1" ]] \
+    && [[ -e "$E2E_WT/gateway.pid" || -e "$E2E_WT/gateway.identity.json" \
+      || -e "$E2E_WT/.gateway-state.json" ]]; then
+    printf '%s\n' stale-evidence-visible > "$E2E_WT/spawn-check"
+    exit 41
+  fi
+  if [[ "${GATEWAY_IDENTITY_MODE-ready}" != "timeout" ]]; then
+    target_ticks="${IDENTITY_AFTER_TICKS-0}"
+    while [[ "$(cat "$E2E_TICKS_FILE")" -lt "$target_ticks" ]]; do
+      /bin/sleep 0.001
+    done
+    process_start="${GATEWAY_IDENTITY_PROCESS_START-}"
+    if [[ -z "$process_start" ]]; then
+      process_start="$(LC_ALL=C LANG=C TZ=UTC ps -p "$$" -o lstart= | xargs)"
+    fi
+    "$REAL_PYTHON" - "$config_path" "$$" "$process_start" "${args[@]}" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+config_path = Path(sys.argv[1]).resolve()
+pid = int(sys.argv[2])
+process_start = sys.argv[3]
+argv = sys.argv[4:]
+root = config_path.parent
+(root / "gateway.pid").write_text(str(pid), encoding="utf-8")
+(root / "gateway.identity.json").write_text(
+    json.dumps(
+        {
+            "schema_version": 1,
+            "pid": pid,
+            "process_start": process_start,
+            "config_path": str(config_path),
+            "entry_module": "personal_assistant.main",
+            "argv": argv,
+        }
+    ),
+    encoding="utf-8",
+)
+PY
+  fi
+  trap 'exit 0' TERM INT
+  while true; do /bin/sleep 1; done
+fi
+exec "$REAL_PYTHON" "$@"
+""",
+    )
+    return {
+        **os.environ,
+        "PATH": f"{fake_bin}:/usr/bin:/bin",
+        "REAL_PYTHON": sys.executable,
+        "E2E_TICKS_FILE": str(ticks_path),
+        "E2E_WT": str(tmp_path),
+        "PROCESS_START": _PROCESS_START,
+        "MAIN_CONFIG": str(config_path),
+    }
+
+
+def _run_up(
+    tmp_path: Path,
+    env: dict[str, str],
+    *,
+    default_from: Path | None = None,
+    preserve_gateway_signals: bool = False,
+    preserve_im_signals: bool = False,
+) -> subprocess.CompletedProcess[str]:
+    repo_root = Path(__file__).resolve().parents[2]
+    script = repo_root / "scripts" / "e2e-up.sh"
+    if preserve_gateway_signals or preserve_im_signals:
+        argv = [
+            "bash",
+            "-c",
+            f"""
+kill() {{
+  printf 'kill %s\\n' "$*" >> "$E2E_WT/signal-calls.log"
+  target="${{@: -1}}"
+  target="${{target#-}}"
+  if [[ "{int(preserve_gateway_signals)}" == 1 ]] \
+    && [[ -f "$E2E_WT/.gateway.pid" ]] \
+    && [[ "$target" == "$(cat "$E2E_WT/.gateway.pid")" ]]; then
+    return 0
+  fi
+  if [[ "{int(preserve_im_signals)}" == 1 ]] \
+    && [[ -f "$E2E_WT/.im.pid" ]] \
+    && [[ "$target" == "$(cat "$E2E_WT/.im.pid")" ]]; then
+    return 0
+  fi
+  builtin kill "$@"
+}}
+export -f kill
+exec bash "{script}" --wt "{tmp_path}" --main-config "{env["MAIN_CONFIG"]}"
+""",
+        ]
+        cwd = repo_root
+    elif default_from is None:
+        argv = [
+            "bash",
+            str(script),
+            "--wt",
+            str(tmp_path),
+            "--main-config",
+            env["MAIN_CONFIG"],
+        ]
+        cwd = repo_root
+    else:
+        argv = [
+            "bash",
+            "-c",
+            f'cd -L "{default_from}" && exec bash "{script}" '
+            f'--main-config "{env["MAIN_CONFIG"]}"',
+        ]
+        cwd = default_from.parent
+    return subprocess.run(
+        argv,
+        cwd=cwd,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def _owned_pids(tmp_path: Path) -> list[int]:
+    pids: list[int] = []
+    for name in (".gateway.pid", ".im.pid"):
+        try:
+            pids.append(int((tmp_path / name).read_text(encoding="utf-8").strip()))
+        except (FileNotFoundError, ValueError):
+            pass
+    return pids
+
+
+def _spawned_pids(tmp_path: Path) -> list[int]:
+    try:
+        lines = (tmp_path / "spawned-pids.log").read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        return []
+    return [int(line.split()[1]) for line in lines]
+
+
+def _cleanup_owned(tmp_path: Path) -> None:
+    for pid in {*_owned_pids(tmp_path), *_spawned_pids(tmp_path)}:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+
+def _pid_alive(pid: int) -> bool:
+    result = subprocess.run(
+        ["ps", "-p", str(pid), "-o", "stat="],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    process_stat = result.stdout.strip()
+    return (
+        result.returncode == 0
+        and bool(process_stat)
+        and not process_stat.startswith("Z")
+    )
+
+
+def test_delayed_runtime_identity_uses_configured_startup_budget(
+    tmp_path: Path,
+) -> None:
+    env = _prepare_harness(tmp_path, startup_timeout=10)
+    env["IDENTITY_AFTER_TICKS"] = "70"
+
+    try:
+        result = _run_up(tmp_path, env)
+
+        assert result.returncode == 0, result.stderr
+        assert (tmp_path / "gateway.identity.json").exists()
+        assert int(env["IDENTITY_AFTER_TICKS"]) > 60
+        assert "command not found" not in result.stderr
+    finally:
+        _cleanup_owned(tmp_path)
+
+
+def test_default_symlink_cwd_is_canonicalized_after_argument_parsing(
+    tmp_path: Path,
+) -> None:
+    env = _prepare_harness(tmp_path)
+    alias = tmp_path.parent / f"{tmp_path.name}-alias"
+    alias.symlink_to(tmp_path, target_is_directory=True)
+
+    try:
+        result = _run_up(tmp_path, env, default_from=alias)
+
+        assert result.returncode == 0, result.stderr
+        assert f"e2e stack ready in {tmp_path.resolve()}" in result.stdout.splitlines()
+        identity = json.loads(
+            (tmp_path / "gateway.identity.json").read_text(encoding="utf-8")
+        )
+        assert identity["config_path"] == str(
+            (tmp_path / ".gateway-config.yaml").resolve()
+        )
+    finally:
+        _cleanup_owned(tmp_path)

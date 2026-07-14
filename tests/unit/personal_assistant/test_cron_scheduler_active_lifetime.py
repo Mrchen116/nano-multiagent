@@ -1,0 +1,108 @@
+"""Regression tests for one-shot cron jobs across a Gateway process lifetime.
+
+The scheduler must distinguish a task missed while the Gateway was offline from
+one delayed while the same Gateway process remains alive.  Both cases can have
+no persisted run state, but only the latter remains an actionable user request.
+"""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime, timedelta
+import json
+from pathlib import Path
+
+from personal_assistant.scheduler.cron_scheduler import (
+    CronJob,
+    CronJobStore,
+    CronScheduler,
+    CronSchedulerStateStore,
+)
+
+
+def _one_shot_job(*, due_at: datetime) -> CronJob:
+    return CronJob(
+        id="one-shot",
+        name="one-shot reminder",
+        schedule={"kind": "at", "at": due_at.isoformat()},
+        instruction="Send the reminder.",
+    )
+
+
+class TestCronSchedulerActiveLifetime:
+    async def test_late_one_shot_fires_once_when_gateway_was_active_before_due_time(
+        self, tmp_path: Path
+    ) -> None:
+        """A live Gateway delivers one delayed one-shot once through real ticks."""
+        due_at = datetime(2026, 7, 14, 5, 14, 30, tzinfo=UTC)
+        job_store = CronJobStore(workspace_root=tmp_path)
+        job_store.add(_one_shot_job(due_at=due_at))
+        submitted: list[str] = []
+
+        async def submit(*, agent_id: str, job: CronJob) -> None:
+            submitted.append(f"{agent_id}:{job.id}")
+
+        state_store = CronSchedulerStateStore(state_path=tmp_path / "cron-state.json")
+        scheduler = CronScheduler(
+            agent_id="agent-1",
+            job_store=job_store,
+            state_store=state_store,
+            submit_fn=submit,
+            active_since=due_at - timedelta(minutes=1),
+        )
+
+        await scheduler.tick(now=due_at + timedelta(seconds=107))
+        await scheduler.tick(now=due_at + timedelta(seconds=108))
+
+        assert submitted == ["agent-1:one-shot"]
+        assert state_store.load().jobs["one-shot"].last_due_at == due_at.isoformat()
+
+    def test_one_shot_missed_before_gateway_started_is_not_backfilled(
+        self, tmp_path: Path
+    ) -> None:
+        """A restart must still not replay a one-shot that expired while offline."""
+        due_at = datetime(2026, 7, 14, 5, 14, 30, tzinfo=UTC)
+        job_store = CronJobStore(workspace_root=tmp_path)
+        job_store.add(_one_shot_job(due_at=due_at))
+        scheduler = CronScheduler(
+            agent_id="agent-1",
+            job_store=job_store,
+            state_store=CronSchedulerStateStore(
+                state_path=tmp_path / "cron-state.json"
+            ),
+            submit_fn=None,
+            active_since=due_at + timedelta(minutes=1),
+        )
+
+        due_jobs = scheduler._compute_due_jobs(now=due_at + timedelta(hours=7))
+
+        assert due_jobs == []
+
+    async def test_one_shot_created_after_its_due_time_is_not_backfilled(
+        self, tmp_path: Path
+    ) -> None:
+        """A delayed live tick cannot turn a newly created stale job into a run."""
+        due_at = datetime(2026, 7, 14, 5, 14, 30, tzinfo=UTC)
+        job_store = CronJobStore(workspace_root=tmp_path)
+        job_store.add(_one_shot_job(due_at=due_at))
+        jobs_path = tmp_path / ".nanoassistant" / "cron" / "jobs.json"
+        serialized = json.loads(jobs_path.read_text(encoding="utf-8"))
+        serialized[0]["eligible_at"] = (due_at + timedelta(minutes=15)).isoformat()
+        jobs_path.write_text(json.dumps(serialized), encoding="utf-8")
+        submitted: list[str] = []
+
+        async def submit(*, agent_id: str, job: CronJob) -> None:
+            submitted.append(f"{agent_id}:{job.id}")
+
+        state_store = CronSchedulerStateStore(state_path=tmp_path / "cron-state.json")
+        scheduler = CronScheduler(
+            agent_id="agent-1",
+            job_store=job_store,
+            state_store=state_store,
+            submit_fn=submit,
+            active_since=due_at - timedelta(minutes=1),
+        )
+
+        await scheduler.tick(now=due_at + timedelta(minutes=30))
+
+        assert submitted == []
+        assert state_store.load().jobs == {}

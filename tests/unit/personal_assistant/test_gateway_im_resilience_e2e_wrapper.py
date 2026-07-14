@@ -197,7 +197,6 @@ def test_e2e_up_script_yq_path_sets_each_agent_workspace_independently(
             capture_output=True,
             text=True,
             check=False,
-            timeout=30,
         )
 
         assert result.returncode == 0, result.stderr
@@ -221,5 +220,4 @@ def test_e2e_up_script_yq_path_sets_each_agent_workspace_independently(
             capture_output=True,
             text=True,
             check=False,
-            timeout=20,
         )

@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
+from types import SimpleNamespace
 
 from agent.core.llm.config import LLMConfigPayload, LLMModelPayload, LLMProviderPayload
 from personal_assistant.config.local_store import (
     AgentWorkspaceConfig,
     HeartbeatConfig,
-    KernelConfig,
+    GatewayLifecycleConfig,
     LocalConfig,
     NodeConfig,
 )
@@ -73,17 +75,6 @@ class _FakeProcess:
         if isinstance(self.wait_result, TimeoutError):
             raise self.wait_result
         return self.wait_result
-
-
-class _FakeProcessManager:
-    def __init__(self, events: list[str]) -> None:
-        self._events = events
-
-    def start_kernel_process(self) -> None:
-        self._events.append("kernel.start")
-
-    def stop_kernel_process(self) -> None:
-        self._events.append("kernel.stop")
 
 
 class _FakeChannel:
@@ -160,16 +151,59 @@ def build_config(tmp_path: Path) -> LocalConfig:
         node=NodeConfig(node_id="node-local"),
         agents=(),
         channels=(),
-        kernel=KernelConfig(
-            # command removed: kernel now in-process (refactor-387-M4)
+        gateway=GatewayLifecycleConfig(
             startup_timeout_seconds=0.2,
-            health_poll_interval_seconds=0.0,
+            poll_interval_seconds=0.0,
             shutdown_grace_seconds=0.1,
         ),
         heartbeat=HeartbeatConfig(),
         im_service=None,
         llm=_DEFAULT_TEST_LLM,
         source_path=tmp_path / "node-config.yaml",
+    )
+
+
+def write_gateway_identity(
+    config: LocalConfig,
+    *,
+    pid: int = 2468,
+    process_start: str = "Mon Jul 13 12:34:56 2026",
+) -> Path:
+    """Write one valid process-instance identity for lifecycle unit tests."""
+    identity_path = config.source_path.parent / "gateway.identity.json"
+    identity_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "pid": pid,
+                "process_start": process_start,
+                "config_path": str(config.source_path.resolve()),
+                "entry_module": "personal_assistant.main",
+                "argv": [
+                    "--config",
+                    str(config.source_path.resolve()),
+                    "--foreground",
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    return identity_path
+
+
+def gateway_process_snapshot(
+    config: LocalConfig,
+    *,
+    process_start: str = "Mon Jul 13 12:34:56 2026",
+):
+    """Build one matching read-only OS process observation test double."""
+    return SimpleNamespace(
+        pid=2468,
+        process_start=process_start,
+        command=(
+            "python -m personal_assistant.main --config "
+            f"{config.source_path.resolve()} --foreground"
+        ),
     )
 
 
@@ -183,11 +217,9 @@ def make_minimal_config(tmp_path: Path) -> LocalConfig:
             AgentWorkspaceConfig(agent_id="agent-a", workspace_root=workspace_root),
         ),
         channels=(),
-        kernel=KernelConfig(
-            token=None,
-            command="python -m dummy",
+        gateway=GatewayLifecycleConfig(
             startup_timeout_seconds=0.1,
-            health_poll_interval_seconds=0.0,
+            poll_interval_seconds=0.0,
             shutdown_grace_seconds=0.1,
         ),
         heartbeat=HeartbeatConfig(),

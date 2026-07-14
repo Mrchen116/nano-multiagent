@@ -17,21 +17,23 @@ Ctrl-C. None of them require dependencies beyond Python stdlib.
 | `slow_stream.py <port> truncate` | Opens stream, writes partial `message_start`, closes before `message_stop` | `retryable=True`("stream ended without terminal event"),进 retry 循环 |
 | `slow_stream.py <port> hang` | Holds socket open without writing — triggers client read timeout | `retryable=True`,进 retry 循环 |
 
-## Wiring into kernel
+## Wiring into a product runtime
 
 ```bash
 # 1. Start fixture (default port shown; pass arg to override)
 python3 scripts/fixtures/anthropic_sse_error.py 19998 &
 
-# 2. Point kernel LLM at it
-export NANO_MULTIAGENT_LLM_PROVIDER=anthropic
-export NANO_MULTIAGENT_LLM_BASE_URL=http://127.0.0.1:19998
-# (model name can be any string — the fixture ignores it)
+# 2. Copy the persistent config so the validation run stays isolated
+cp ~/.nano-assistant/config.yaml .fixture-gateway-config.yaml
 
-# 3. Start kernel API
-PYTHONPATH=src python -m uvicorn agent.platform.http_api.app:app --port 8000
+# 3. Point an Anthropic provider in that copy at the fixture
+yq -i '(.llm.providers[] | select(.name == "anthropic") | .base_url) = "http://127.0.0.1:19998"' \
+  .fixture-gateway-config.yaml
 
-# 4. Any kernel chat → fixture replies error → agent surfaces ⚠️ to IM/CLI
+# 4. Start a real product entry and send a user message
+PYTHONPATH=src python -m personal_assistant.main \
+  --config .fixture-gateway-config.yaml --foreground
+# The fixture replies with an error and the product surfaces it to IM.
 ```
 
 ## Why this exists
@@ -55,5 +57,5 @@ spec each time.
   write a fixture provider that produces real `content_block_*` / `message_stop`
   frames — that's a different artifact.
 - **Not** automatically wired by `scripts/e2e-up.sh`. The e2e bootstrap
-  scripts start IM/Kernel/Gateway only; fixtures are independent tools you
+  scripts start IM/Gateway only; fixtures are independent tools you
   start manually when you want to inject failures.

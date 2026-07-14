@@ -44,6 +44,9 @@ class CronJob:
         enabled: When False the job is skipped by the scheduler.
         delete_after_run: When True the job is removed after its first successful execution
             (one-shot 'at' semantics, openclaw deleteAfterRun).
+        eligible_at: UTC ISO-8601 instant at which this definition most recently
+            became eligible to run.  ``None`` denotes a legacy persisted job, whose
+            existing Gateway-lifetime behavior is retained for compatibility.
     """
 
     id: str
@@ -52,6 +55,7 @@ class CronJob:
     instruction: str
     enabled: bool = True
     delete_after_run: bool = False
+    eligible_at: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -153,7 +157,7 @@ class CronJobStore:
 
 
 def _job_to_dict(job: CronJob) -> dict[str, Any]:
-    return {
+    serialized = {
         "id": job.id,
         "name": job.name,
         "schedule": dict(job.schedule),
@@ -161,9 +165,19 @@ def _job_to_dict(job: CronJob) -> dict[str, Any]:
         "enabled": job.enabled,
         "delete_after_run": job.delete_after_run,
     }
+    if job.eligible_at is not None:
+        serialized["eligible_at"] = job.eligible_at
+    return serialized
 
 
 def _job_from_dict(d: dict[str, Any]) -> CronJob:
+    eligible_at = d.get("eligible_at")
+    if eligible_at is not None:
+        if not isinstance(eligible_at, str) or not eligible_at.strip():
+            raise ValueError("eligible_at must be a non-empty ISO-8601 string")
+        # A malformed activation boundary must not silently turn a stale job into
+        # runnable work.  _read_all drops this invalid definition until it is fixed.
+        _parse_optional_datetime(eligible_at)
     return CronJob(
         id=str(d["id"]),
         name=str(d.get("name", "")),
@@ -171,6 +185,7 @@ def _job_from_dict(d: dict[str, Any]) -> CronJob:
         instruction=str(d.get("instruction", "")),
         enabled=bool(d.get("enabled", True)),
         delete_after_run=bool(d.get("delete_after_run", False)),
+        eligible_at=eligible_at,
     )
 
 
@@ -294,6 +309,10 @@ class CronScheduler:
         submit_fn: Async callable invoked for each due job.
             Signature: ``async def submit_fn(*, agent_id: str, job: CronJob) -> None``
             Pass None to use the scheduler in read-only mode (for testing _compute_due_jobs).
+        active_since: When supplied by the live CronExecutionService, the instant this
+            Gateway process became able to run scheduled work.  A one-shot due before
+            this fence is not replayed after restart; one due after it is still
+            delivered even if a polling tick arrives late.
 
     Notes:
         One CronScheduler instance is created per agent per PollingCronRunner tick;
@@ -308,11 +327,15 @@ class CronScheduler:
         job_store: CronJobStore,
         state_store: CronSchedulerStateStore,
         submit_fn: Callable[..., Awaitable[None]] | None,
+        active_since: datetime | None = None,
     ) -> None:
         self._agent_id = agent_id
         self._job_store = job_store
         self._state_store = state_store
         self._submit_fn = submit_fn
+        self._active_since = (
+            _normalize_datetime(active_since) if active_since is not None else None
+        )
 
     async def tick(self, *, now: datetime | None = None) -> None:
         """Evaluate all enabled jobs and submit due ones.
@@ -349,9 +372,15 @@ class CronScheduler:
             )
             try:
                 schedule = _parse_schedule_dict(job.schedule)
+                eligible_at = _parse_optional_datetime(job.eligible_at)
             except (ValueError, KeyError):
                 continue
-            if schedule.due_times_up_to(now=now, last_due_at=last_run):
+            if self._due_times_up_to(
+                schedule=schedule,
+                now=now,
+                last_due_at=last_run,
+                eligible_at=eligible_at,
+            ):
                 due.append(job)
         return due
 
@@ -363,10 +392,44 @@ class CronScheduler:
         )
         try:
             schedule = _parse_schedule_dict(job.schedule)
+            eligible_at = _parse_optional_datetime(job.eligible_at)
         except (ValueError, KeyError):
             return None
-        times = schedule.due_times_up_to(now=now, last_due_at=last_run)
+        times = self._due_times_up_to(
+            schedule=schedule,
+            now=now,
+            last_due_at=last_run,
+            eligible_at=eligible_at,
+        )
         return times[0] if times else now
+
+    def _due_times_up_to(
+        self,
+        *,
+        schedule: _Schedule,
+        now: datetime,
+        last_due_at: datetime | None,
+        eligible_at: datetime | None,
+    ) -> list[datetime]:
+        """Return due instants while preserving restart-safe one-shot semantics."""
+        if isinstance(schedule, _AtSchedule) and last_due_at is None:
+            # A task definition created or re-enabled after its due instant has no
+            # pending user request to replay.  This boundary is per-job rather than
+            # per-service: a long-lived Gateway can otherwise backfill stale jobs.
+            if eligible_at is not None and schedule.due_at < eligible_at:
+                return []
+            if self._active_since is not None:
+                # The job existed before this service became live, so it expired while
+                # the Gateway was offline.  Preserve the no-backfill restart contract.
+                if schedule.due_at < self._active_since:
+                    return []
+                # Conversely, this process was alive before the scheduled time.  A
+                # delayed polling tick is not an offline restart and must not discard
+                # the user's one-shot request merely because it exceeded the old 60s
+                # grace window.
+                if now >= schedule.due_at:
+                    return [schedule.due_at]
+        return schedule.due_times_up_to(now=now, last_due_at=last_due_at)
 
 
 def make_cron_job_id() -> str:

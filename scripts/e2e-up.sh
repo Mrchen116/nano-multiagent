@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/e2e-up.sh — start the full IM + Kernel API + Gateway stack inside the
+# scripts/e2e-up.sh — start the full IM + Gateway stack inside the
 # current worktree, with ephemeral ports and an isolated Gateway config.
 #
 # Idempotent within one worktree: if any .pid file is live, refuses to start to
@@ -19,8 +19,9 @@
 #   .e2e-jwt-secret           (random IM JWT secret for this run)
 #   .gateway-config.yaml      (isolated copy of main config)
 #   .gateway-workspace/       (per-agent workspaces, replacing ~/nano-assistant/workspace)
-#   .im.pid / .api.pid / .gateway.pid
-#   .im.log / .api.log / .gateway.log
+#   .im.pid / .im.identity.json / .gateway.pid
+#   gateway.identity.json  (public PID/config/argv start identity for safe teardown)
+#   .im.log / .gateway.log
 
 set -euo pipefail
 
@@ -31,12 +32,16 @@ MAIN_CFG="${HOME}/.nano-assistant/config.yaml"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --wt) WT_ROOT="$(cd "$2" && pwd)"; shift 2 ;;
+    --wt) WT_ROOT="$(cd "$2" && pwd -P)"; shift 2 ;;
     --main-config) MAIN_CFG="$2"; shift 2 ;;
     -h|--help) sed -n '1,/^set -e/p' "$0" | sed -n '2,/^$/p'; exit 0 ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
 done
+
+# Bash preserves a logical symlink PWD. Lifecycle identity and argv comparisons
+# use one physical root regardless of whether --wt was explicit or defaulted.
+WT_ROOT="$(cd "$WT_ROOT" && pwd -P)"
 
 if [[ ! -f "$MAIN_CFG" ]]; then
   echo "main config not found: $MAIN_CFG" >&2
@@ -44,30 +49,475 @@ if [[ ! -f "$MAIN_CFG" ]]; then
   exit 1
 fi
 
-# ─── liveness check (refuse to clobber) ──────────────────────────────────────
-
-for pidfile in "$WT_ROOT/.im.pid" "$WT_ROOT/.gateway.pid"; do
-  if [[ -f "$pidfile" ]] && kill -0 "$(cat "$pidfile")" 2>/dev/null; then
-    echo "service still running: $pidfile (pid=$(cat "$pidfile"))" >&2
-    echo "run ./scripts/e2e-down.sh first" >&2
-    exit 1
-  fi
-done
-
-# ─── port allocation ─────────────────────────────────────────────────────────
-
-# REPO_ROOT must resolve to the checkout that holds src/ and scripts/, NOT to
-# $WT_ROOT — feat-421 runs the stack with --wt pointing at a pytest tmp dir that
-# is not a git checkout and has no src/. Derive it from this script's own path
-# ($0 lives in <repo>/scripts/) so PYTHONPATH and free-ports.sh resolve no matter
-# where $WT_ROOT points. Falls back to git/dirname only if $0 derivation fails.
+# Resolve the checkout runtime before the first lifecycle preflight so up/down
+# can hold one external generation lock across every check, spawn and rollback.
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd 2>/dev/null)"
 REPO_ROOT="${REPO_ROOT:-$(git -C "$WT_ROOT" rev-parse --show-toplevel 2>/dev/null || dirname "$WT_ROOT")}"
 SRC_DIR="$REPO_ROOT/src"
 FREE_PORTS_SH="$REPO_ROOT/scripts/free-ports.sh"
 [[ -x "$FREE_PORTS_SH" ]] || FREE_PORTS_SH="$SCRIPT_DIR/free-ports.sh"
-# refactor-387 M3: kernel runs in-process; only 1 port needed (IM).
+PYTHON_BIN="$(command -v python || true)"
+if [[ -z "$PYTHON_BIN" ]] || ! "$PYTHON_BIN" -c "import yaml" 2>/dev/null; then
+  echo "python with project dependencies (including PyYAML) not found on PATH" >&2
+  exit 1
+fi
+# shellcheck source=scripts/e2e-lifecycle-lock.sh
+source "$SCRIPT_DIR/e2e-lifecycle-lock.sh"
+e2e_acquire_lifecycle_lock "$WT_ROOT" "$PYTHON_BIN"
+# shellcheck source=scripts/e2e-owned-processes.sh
+source "$SCRIPT_DIR/e2e-owned-processes.sh"
+
+# ─── liveness check (refuse to clobber) ──────────────────────────────────────
+
+external_gateway_pid="$WT_ROOT/.gateway.pid"
+if [[ ( -e "$external_gateway_pid" || -L "$external_gateway_pid" ) \
+  && ( ! -f "$external_gateway_pid" || -L "$external_gateway_pid" ) ]]; then
+  echo "non-regular external Gateway PID evidence: $external_gateway_pid" >&2
+  exit 1
+fi
+if [[ -f "$external_gateway_pid" ]]; then
+  existing_gateway_pid="$(tr -d '[:space:]' < "$external_gateway_pid")"
+  if [[ ! "$existing_gateway_pid" =~ ^[1-9][0-9]*$ ]]; then
+    echo "external Gateway PID evidence is malformed: $external_gateway_pid" >&2
+    exit 1
+  fi
+  if kill -0 "$existing_gateway_pid" 2>/dev/null; then
+    echo "service still running: $external_gateway_pid (pid=$existing_gateway_pid)" >&2
+    echo "run ./scripts/e2e-down.sh first" >&2
+    exit 1
+  fi
+fi
+
+# Internal runtime evidence remains authoritative even when the external wrapper
+# PID file is missing. Never erase it during start: down owns validated cleanup.
+if ! internal_gateway_status="$(
+  PYTHONPATH="$SRC_DIR${PYTHONPATH:+:$PYTHONPATH}" "$PYTHON_BIN" - "$WT_ROOT" <<'PY'
+import json
+from pathlib import Path
+import stat
+import sys
+
+from personal_assistant.main import read_gateway_process_snapshot
+
+root = Path(sys.argv[1]).resolve()
+pid_path = root / "gateway.pid"
+identity_path = root / "gateway.identity.json"
+state_path = root / ".gateway-state.json"
+legacy_path = root / ".gateway-identity.json"
+evidence = (pid_path, identity_path, state_path, legacy_path)
+if not any(path.exists() or path.is_symlink() for path in evidence):
+    print("absent")
+    raise SystemExit(0)
+for path in evidence:
+    if not (path.exists() or path.is_symlink()):
+        continue
+    mode = path.lstat().st_mode
+    if stat.S_ISLNK(mode) or not stat.S_ISREG(mode):
+        raise SystemExit(1)
+if legacy_path.exists() or not pid_path.exists() or not identity_path.exists():
+    raise SystemExit(1)
+try:
+    pid_text = pid_path.read_text(encoding="ascii").strip()
+    if not pid_text.isdigit() or pid_text.startswith("0"):
+        raise ValueError
+    pid = int(pid_text)
+    identity = json.loads(identity_path.read_text(encoding="utf-8"))
+    argv = identity.get("argv")
+    config_path = (root / ".gateway-config.yaml").resolve()
+    config_indexes = (
+        [index for index, value in enumerate(argv) if value == "--config"]
+        if isinstance(argv, list)
+        else []
+    )
+    valid = (
+        identity.get("schema_version") == 1
+        and identity.get("pid") == pid
+        and Path(identity.get("config_path", "")).resolve() == config_path
+        and identity.get("entry_module") == "personal_assistant.main"
+        and isinstance(identity.get("process_start"), str)
+        and bool(identity["process_start"].strip())
+        and len(config_indexes) == 1
+        and config_indexes[0] + 1 < len(argv)
+        and Path(argv[config_indexes[0] + 1]).resolve() == config_path
+        and argv.count("--foreground") == 1
+        and argv.count("--auto-bind") == 1
+    )
+    if state_path.exists():
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        valid = valid and state.get("pid") == pid
+        if state.get("config_path") is not None:
+            valid = valid and Path(state["config_path"]).resolve() == config_path
+    if not valid:
+        raise ValueError
+except (KeyError, OSError, TypeError, ValueError, json.JSONDecodeError):
+    raise SystemExit(1) from None
+snapshot = read_gateway_process_snapshot(pid)
+if snapshot is None:
+    print("stale")
+elif " ".join(snapshot.process_start.split()) == " ".join(
+    identity["process_start"].split()
+):
+    print("live")
+else:
+    raise SystemExit(1)
+PY
+)"; then
+  echo "Gateway lifecycle evidence is invalid; retaining it for validated teardown" >&2
+  exit 1
+fi
+case "$internal_gateway_status" in
+  absent) ;;
+  live)
+    echo "service still running: $WT_ROOT/gateway.pid" >&2
+    echo "run ./scripts/e2e-down.sh first" >&2
+    exit 1
+    ;;
+  stale)
+    echo "stale Gateway lifecycle evidence requires validated teardown" >&2
+    echo "run ./scripts/e2e-down.sh first" >&2
+    exit 1
+    ;;
+  *)
+    echo "Gateway lifecycle evidence is invalid; retaining it for validated teardown" >&2
+    exit 1
+    ;;
+esac
+
+# IM ownership is a PID plus durable birth identity. A reused PID, partial pair,
+# or stale complete pair must go through down instead of being overwritten.
+if ! im_evidence_status="$(
+  PYTHONPATH="$SRC_DIR${PYTHONPATH:+:$PYTHONPATH}" "$PYTHON_BIN" - "$WT_ROOT" <<'PY'
+import json
+from pathlib import Path
+import stat
+import sys
+
+from personal_assistant.main import read_gateway_process_snapshot
+
+root = Path(sys.argv[1]).resolve()
+pid_path = root / ".im.pid"
+identity_path = root / ".im.identity.json"
+evidence = (pid_path, identity_path)
+if not any(path.exists() or path.is_symlink() for path in evidence):
+    print("absent")
+    raise SystemExit(0)
+if not all(path.exists() and not path.is_symlink() for path in evidence):
+    raise SystemExit(1)
+if not all(stat.S_ISREG(path.lstat().st_mode) for path in evidence):
+    raise SystemExit(1)
+try:
+    pid_text = pid_path.read_text(encoding="ascii").strip()
+    if not pid_text.isdigit() or pid_text.startswith("0"):
+        raise ValueError
+    pid = int(pid_text)
+    identity = json.loads(identity_path.read_text(encoding="utf-8"))
+    argv = identity.get("argv")
+    valid = (
+        identity.get("schema_version") == 1
+        and identity.get("pid") == pid
+        and isinstance(identity.get("process_start"), str)
+        and bool(identity["process_start"].strip())
+        and Path(identity.get("cwd", "")).resolve() == root
+        and isinstance(argv, list)
+        and argv[:6]
+        == ["-m", "uvicorn", "IM.app:app", "--host", "127.0.0.1", "--port"]
+        and len(argv) == 7
+        and isinstance(argv[6], str)
+        and argv[6].isdigit()
+    )
+    if not valid:
+        raise ValueError
+except (OSError, TypeError, ValueError, json.JSONDecodeError):
+    raise SystemExit(1) from None
+snapshot = read_gateway_process_snapshot(pid)
+if snapshot is None:
+    print("stale")
+elif " ".join(snapshot.process_start.split()) == " ".join(
+    identity["process_start"].split()
+):
+    print("live")
+else:
+    raise SystemExit(1)
+PY
+)"; then
+  echo "IM lifecycle evidence is invalid; retaining it for validated teardown" >&2
+  exit 1
+fi
+case "$im_evidence_status" in
+  absent) ;;
+  live)
+    echo "service still running: $WT_ROOT/.im.pid" >&2
+    echo "run ./scripts/e2e-down.sh first" >&2
+    exit 1
+    ;;
+  stale)
+    echo "stale IM lifecycle evidence requires validated teardown" >&2
+    echo "run ./scripts/e2e-down.sh first" >&2
+    exit 1
+    ;;
+  *)
+    echo "IM lifecycle evidence is invalid; retaining it for validated teardown" >&2
+    exit 1
+    ;;
+esac
+
+# A dead external wrapper claim is not signal authority and is safe to discard
+# only after both runtime-owned evidence sets are proven absent.
+rm -f "$external_gateway_pid"
+
+# ─── port allocation ─────────────────────────────────────────────────────────
+
+IM_PID=""
+IM_PROCESS_START=""
+GW_PID=""
+GW_PROCESS_START=""
+ROLLBACK_ACTIVE=1
+
+capture_spawned_process_start() {
+  local pid=$1
+  PYTHONPATH="$SRC_DIR${PYTHONPATH:+:$PYTHONPATH}" "$PYTHON_BIN" - "$pid" <<'PY'
+import sys
+
+from personal_assistant.main import read_gateway_process_snapshot
+
+snapshot = read_gateway_process_snapshot(int(sys.argv[1]))
+if snapshot is None:
+    raise SystemExit(1)
+print(snapshot.process_start)
+PY
+}
+
+spawned_process_status() {
+  local pid=$1 expected_start=$2 before_start after_start process_stat
+
+  # This function is called for every readiness poll.  Importing main.py here
+  # turns a nominal 30s startup budget into minutes on a cold interpreter.  Keep
+  # the same two-read birth check locally: if PID reuse happens during observation,
+  # the disagreeing lstart values fail closed as ``mismatch``.
+  before_start="$(
+    LC_ALL=C LANG=C TZ=UTC ps -p "$pid" -o lstart= 2>/dev/null \
+      | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]][[:space:]]*/ /g' -e 's/[[:space:]]*$//' \
+      || true
+  )"
+  [[ -n "$before_start" ]] || { printf '%s\n' exited; return 0; }
+  process_stat="$(LC_ALL=C LANG=C TZ=UTC ps -p "$pid" -o stat= 2>/dev/null | tr -d '[:space:]' || true)"
+  [[ -n "$process_stat" && "$process_stat" != Z* ]] || {
+    printf '%s\n' exited
+    return 0
+  }
+  after_start="$(
+    LC_ALL=C LANG=C TZ=UTC ps -p "$pid" -o lstart= 2>/dev/null \
+      | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]][[:space:]]*/ /g' -e 's/[[:space:]]*$//' \
+      || true
+  )"
+  if [[ -z "$after_start" || "$before_start" != "$after_start" ]]; then
+    printf '%s\n' mismatch
+  elif [[ "$after_start" == "$expected_start" ]]; then
+    printf '%s\n' alive
+  else
+    printf '%s\n' mismatch
+  fi
+}
+
+spawned_process_liveness() {
+  local pid=$1 process_stat
+  process_stat="$(ps -p "$pid" -o stat= 2>/dev/null | tr -d '[:space:]')"
+  if [[ -z "$process_stat" || "$process_stat" == Z* ]]; then
+    printf '%s\n' exited
+  else
+    printf '%s\n' alive
+  fi
+}
+
+reap_spawned_pid() {
+  local pid=$1 expected_start=$2 status
+  status="$(spawned_process_status "$pid" "$expected_start")" || return 1
+  [[ "$status" == exited ]] || return 1
+  # IM_PID comes directly from this shell's `$!`. Reaping the exact child
+  # closes the gap between a zombie/absent status observation and evidence
+  # cleanup without ever waiting on an unrelated reused PID.
+  wait "$pid" 2>/dev/null || true
+  status="$(spawned_process_status "$pid" "$expected_start")" || return 1
+  [[ "$status" == exited ]]
+}
+
+stop_spawned_pid() {
+  local pid=$1 expected_start=$2 status
+  [[ -n "$pid" ]] || return 0
+  status="$(spawned_process_status "$pid" "$expected_start")" || return 1
+  [[ "$status" == exited ]] && reap_spawned_pid "$pid" "$expected_start" && return 0
+  [[ "$status" == alive ]] || return 1
+  kill "$pid" 2>/dev/null || true
+  for _ in $(seq 1 20); do
+    status="$(spawned_process_status "$pid" "$expected_start")" || return 1
+    [[ "$status" == exited ]] && reap_spawned_pid "$pid" "$expected_start" && return 0
+    [[ "$status" == alive ]] || return 1
+    sleep 0.05
+  done
+  status="$(spawned_process_status "$pid" "$expected_start")" || return 1
+  [[ "$status" == exited ]] && reap_spawned_pid "$pid" "$expected_start" && return 0
+  [[ "$status" == alive ]] || return 1
+  if ! kill -9 "$pid" 2>/dev/null; then
+    reap_spawned_pid "$pid" "$expected_start"
+    return $?
+  fi
+  # A successful SIGKILL request does not prove that a process blocked in
+  # uninterruptible I/O has exited. Keep rollback bounded; only `wait` after
+  # an exited observation, where it can reap this shell's exact child promptly.
+  for _ in $(seq 1 20); do
+    status="$(spawned_process_status "$pid" "$expected_start")" || return 1
+    [[ "$status" == exited ]] && reap_spawned_pid "$pid" "$expected_start" && return 0
+    [[ "$status" == alive ]] || return 1
+    sleep 0.05
+  done
+  return 1
+}
+
+stop_spawned_gateway() {
+  local pid=$1 expected_start=$2 owned status
+  [[ -n "$pid" ]] || return 0
+  status="$(spawned_process_status "$pid" "$expected_start")" || return 1
+  [[ "$status" == exited ]] && return 0
+  [[ "$status" == alive ]] || return 1
+  owned="$(e2e_freeze_gateway_owned_processes \
+    "$SRC_DIR" "$PYTHON_BIN" "$pid" "$expected_start")" || return 1
+  if ! e2e_signal_gateway_owned_groups \
+    "$SRC_DIR" "$PYTHON_BIN" "$owned" TERM 0; then
+    e2e_signal_gateway_owned_groups \
+      "$SRC_DIR" "$PYTHON_BIN" "$owned" CONT 0 || true
+    return 1
+  fi
+  e2e_signal_gateway_owned_groups \
+    "$SRC_DIR" "$PYTHON_BIN" "$owned" CONT 0 || true
+  for _ in $(seq 1 20); do
+    [[ "$(e2e_gateway_owned_status \
+      "$SRC_DIR" "$PYTHON_BIN" "$owned")" == exited ]] && return 0
+    sleep 0.05
+  done
+  e2e_signal_gateway_owned_groups \
+    "$SRC_DIR" "$PYTHON_BIN" "$owned" KILL 1 || return 1
+  for _ in $(seq 1 20); do
+    [[ "$(e2e_gateway_owned_status \
+      "$SRC_DIR" "$PYTHON_BIN" "$owned")" == exited ]] && return 0
+    sleep 0.05
+  done
+  return 1
+}
+
+clear_spawned_lifecycle_evidence() {
+  local kind=$1 expected_pid=$2 expected_start=$3
+  PYTHONPATH="$SRC_DIR${PYTHONPATH:+:$PYTHONPATH}" "$PYTHON_BIN" - \
+    "$WT_ROOT" "$kind" "$expected_pid" "$expected_start" <<'PY'
+import json
+from pathlib import Path
+import stat
+import sys
+
+from personal_assistant.main import read_gateway_process_snapshot
+
+root = Path(sys.argv[1]).resolve()
+kind = sys.argv[2]
+expected_pid = int(sys.argv[3])
+expected_start = " ".join(sys.argv[4].split())
+if read_gateway_process_snapshot(expected_pid) is not None:
+    raise SystemExit(1)
+names = (
+    (".im.pid", ".im.identity.json")
+    if kind == "im"
+    else (".gateway.pid", "gateway.pid", "gateway.identity.json", ".gateway-state.json")
+)
+paths = [root / name for name in names]
+for path in paths:
+    try:
+        mode = path.lstat().st_mode
+    except FileNotFoundError:
+        continue
+    if stat.S_ISLNK(mode) or not stat.S_ISREG(mode):
+        raise SystemExit(1)
+    if path.suffix == ".pid":
+        try:
+            actual_pid = int(path.read_text(encoding="ascii").strip())
+        except (OSError, ValueError):
+            raise SystemExit(1) from None
+        if actual_pid != expected_pid:
+            raise SystemExit(1)
+        continue
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        raise SystemExit(1) from None
+    if payload.get("pid") != expected_pid:
+        raise SystemExit(1)
+    if path.name.endswith("identity.json"):
+        actual_start = payload.get("process_start")
+        if not isinstance(actual_start, str) or " ".join(actual_start.split()) != expected_start:
+            raise SystemExit(1)
+for path in paths:
+    path.unlink(missing_ok=True)
+PY
+}
+
+clear_ephemeral_config_lock() {
+  local lock_path="$WT_ROOT/.gateway-config.yaml.lock"
+  [[ -e "$lock_path" || -L "$lock_path" ]] || return 0
+  "$PYTHON_BIN" - "$lock_path" <<'PY'
+import fcntl
+import os
+from pathlib import Path
+import stat
+import sys
+
+path = Path(sys.argv[1])
+before = path.lstat()
+if stat.S_ISLNK(before.st_mode) or not stat.S_ISREG(before.st_mode):
+    raise SystemExit(1)
+fd = os.open(path, os.O_RDWR)
+try:
+    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    held = os.fstat(fd)
+    current = path.lstat()
+    if (held.st_dev, held.st_ino) != (current.st_dev, current.st_ino):
+        raise SystemExit(1)
+    path.unlink()
+finally:
+    os.close(fd)
+PY
+}
+
+rollback_spawned_stack() {
+  local exit_code=$?
+  [[ $ROLLBACK_ACTIVE -eq 1 && $exit_code -ne 0 ]] || return "$exit_code"
+  trap - EXIT
+  set +e
+  if [[ -n "$GW_PID" ]]; then
+    if ! stop_spawned_gateway "$GW_PID" "$GW_PROCESS_START"; then
+      echo "rollback could not stop Gateway pid=$GW_PID; retaining complete stack evidence" >&2
+      exit "$exit_code"
+    fi
+    if ! clear_spawned_lifecycle_evidence gateway "$GW_PID" "$GW_PROCESS_START"; then
+      echo "rollback could not clear Gateway evidence; retaining complete stack evidence" >&2
+      exit "$exit_code"
+    fi
+  fi
+  if [[ -n "$IM_PID" ]]; then
+    if ! stop_spawned_pid "$IM_PID" "$IM_PROCESS_START"; then
+      echo "rollback could not stop IM pid=$IM_PID; retaining remaining evidence" >&2
+      exit "$exit_code"
+    fi
+    if ! clear_spawned_lifecycle_evidence im "$IM_PID" "$IM_PROCESS_START"; then
+      echo "rollback could not clear IM evidence; retaining remaining evidence" >&2
+      exit "$exit_code"
+    fi
+  fi
+  if ! clear_ephemeral_config_lock; then
+    echo "rollback could not exclusively remove ephemeral config lock; retaining it" >&2
+  fi
+  exit "$exit_code"
+}
+
+trap rollback_spawned_stack EXIT
+# The agent runtime is in-process; only the IM service needs a port.
 read -r IM_PORT < <("$FREE_PORTS_SH" 1)
 
 JWT_SECRET="$(LC_ALL=C tr -dc 'a-zA-Z0-9' < /dev/urandom 2>/dev/null | head -c 32 || echo "e2e-$$-$(date +%s)")"
@@ -93,9 +543,8 @@ if command -v yq >/dev/null 2>&1; then
   " "$WT_CFG"
 else
   # Fallback when yq is absent: use python.
-  # refactor-387 M3: kernel.base_url no longer needed (kernel runs in-process).
   WT_CFG_PY="$WT_CFG" NODE_ID="$NODE_ID" IM_PORT="$IM_PORT" WORKSPACE_DIR="$WORKSPACE_DIR" \
-    python3 - <<'PY'
+    "$PYTHON_BIN" - <<'PY'
 import os, sys, yaml
 path = os.environ["WT_CFG_PY"]
 with open(path) as f: cfg = yaml.safe_load(f)
@@ -111,7 +560,7 @@ PY
 fi
 
 # Pre-create each agent's workspace dir; Gateway refuses to start otherwise.
-python3 - "$WT_CFG" "$WORKSPACE_DIR" <<'PY'
+"$PYTHON_BIN" - "$WT_CFG" "$WORKSPACE_DIR" <<'PY'
 import os, sys, yaml
 cfg_path, wsd = sys.argv[1], sys.argv[2]
 with open(cfg_path) as f: cfg = yaml.safe_load(f)
@@ -138,9 +587,51 @@ rm -f "$WT_ROOT/relay_dedup.sqlite3"
 
 cd "$WT_ROOT"
 IM_JWT_SECRET="$JWT_SECRET" PYTHONPATH="$SRC_DIR" \
-  python -m uvicorn IM.app:app --host 127.0.0.1 --port "$IM_PORT" \
-  > "$WT_ROOT/.im.log" 2>&1 &
-echo $! > "$WT_ROOT/.im.pid"
+  "$PYTHON_BIN" -m uvicorn IM.app:app --host 127.0.0.1 --port "$IM_PORT" \
+  > "$WT_ROOT/.im.log" 2>&1 9>&- &
+IM_PID=$!
+IM_PROCESS_START="$(capture_spawned_process_start "$IM_PID")" || {
+  echo "IM exited before process identity capture" >&2
+  exit 1
+}
+PYTHONPATH="$SRC_DIR${PYTHONPATH:+:$PYTHONPATH}" "$PYTHON_BIN" - \
+  "$WT_ROOT" "$IM_PID" "$IM_PORT" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+from personal_assistant.main import (
+    _atomic_write_gateway_file,
+    read_gateway_process_snapshot,
+)
+
+root = Path(sys.argv[1]).resolve()
+pid = int(sys.argv[2])
+port = sys.argv[3]
+snapshot = read_gateway_process_snapshot(pid)
+if snapshot is None:
+    raise SystemExit("IM exited before identity publication")
+payload = {
+    "schema_version": 1,
+    "pid": pid,
+    "process_start": snapshot.process_start,
+    "cwd": str(root),
+    "argv": [
+        "-m",
+        "uvicorn",
+        "IM.app:app",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        port,
+    ],
+}
+_atomic_write_gateway_file(
+    root / ".im.identity.json",
+    json.dumps(payload, indent=2, sort_keys=True).encode(),
+)
+PY
+echo "$IM_PID" > "$WT_ROOT/.im.pid"
 
 # Wait for IM ready. IM has no dedicated /health endpoint, so we probe
 # /openapi.json — present on every FastAPI app once startup completes.
@@ -165,17 +656,24 @@ curl -sf -X POST "http://127.0.0.1:$IM_PORT/im/v1/auth/register" \
 # heartbeat to pass a nonexistent to_user_id and never deliver messages to the owner.
 # We login to obtain the authenticated profile which includes the real id, then update
 # the worktree config copy so Gateway uses the correct owner for heartbeat delivery.
-NANO_USER_ID="$(
+LOGIN_JSON="$(
   curl -sf -X POST "http://127.0.0.1:$IM_PORT/im/v1/auth/login" \
     -H "Content-Type: application/json" \
-    -d '{"username":"nano","password":"nano1234"}' 2>/dev/null \
-  | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('user',{}).get('id') or d.get('id',''))" 2>/dev/null
+    -d '{"username":"nano","password":"nano1234"}' 2>/dev/null
+)" || true
+NANO_USER_ID="$(
+  printf '%s' "$LOGIN_JSON" \
+    | "$PYTHON_BIN" -c "import sys,json; d=json.load(sys.stdin); print(d.get('user',{}).get('id') or d.get('id',''))" 2>/dev/null
+)" || true
+NANO_ACCESS_TOKEN="$(
+  printf '%s' "$LOGIN_JSON" \
+    | "$PYTHON_BIN" -c "import sys,json; print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null
 )" || true
 if [[ -n "$NANO_USER_ID" ]]; then
   if command -v yq >/dev/null 2>&1; then
     yq -i ".node.user_id = \"$NANO_USER_ID\"" "$WT_CFG"
   else
-    NANO_USER_ID="$NANO_USER_ID" WT_CFG_PY="$WT_CFG" python3 - <<'PY'
+    NANO_USER_ID="$NANO_USER_ID" WT_CFG_PY="$WT_CFG" "$PYTHON_BIN" - <<'PY'
 import os, yaml
 path = os.environ["WT_CFG_PY"]
 with open(path) as f: cfg = yaml.safe_load(f)
@@ -189,9 +687,8 @@ else
 fi
 
 # ─── validate llm config before starting Gateway ─────────────────────────────
-# refactor-387 M3: kernel runs in-process inside Gateway; no separate Kernel API.
 
-if ! python3 -c "import yaml; cfg=yaml.safe_load(open('$WT_CFG')); exit(0 if 'llm' in cfg else 1)" 2>/dev/null; then
+if ! "$PYTHON_BIN" -c "import yaml; cfg=yaml.safe_load(open('$WT_CFG')); exit(0 if 'llm' in cfg else 1)" 2>/dev/null; then
   echo "ERROR: '$WT_CFG' is missing the 'llm:' section." >&2
   echo "Add the llm: block to ~/.nano-assistant/config.yaml first (see AGENTS.md 'minimum config example')." >&2
   exit 1
@@ -205,30 +702,134 @@ fi
 # replaces the interactive "click this URL" step that breaks worktree e2e.
 # refactor-381.
 
-PYTHONPATH="$SRC_DIR" python -m personal_assistant.main \
+PYTHONPATH="$SRC_DIR" "$PYTHON_BIN" -c \
+  'import os,sys; os.setsid(); os.execv(sys.argv[1], sys.argv[1:])' \
+  "$PYTHON_BIN" -m personal_assistant.main \
   --config "$WT_CFG" \
   --im-service-url "http://127.0.0.1:$IM_PORT" \
   --foreground \
   --auto-bind \
-  > "$WT_ROOT/.gateway.log" 2>&1 &
-echo $! > "$WT_ROOT/.gateway.pid"
+  > "$WT_ROOT/.gateway.log" 2>&1 9>&- &
+GW_PID=$!
+GW_PROCESS_START="$(capture_spawned_process_start "$GW_PID")" || {
+  echo "Gateway exited before process identity capture" >&2
+  exit 1
+}
+echo "$GW_PID" > "$WT_ROOT/.gateway.pid"
 
-# Wait for Gateway readiness. Probe the internal health port written into the
-# log; absent a health line within 20s, abort.
+# The external shell PID alone is not sufficient signal ownership. Foreground
+# runtime publishes the same public identity used by operator stop; wait within
+# the configured launcher budget and require both PID claims + exact argv schema.
+GW_IDENTITY_TICKS="$($PYTHON_BIN - "$WT_CFG" <<'PY'
+import math
+import sys
+import yaml
+
+payload = yaml.safe_load(open(sys.argv[1])) or {}
+gateway = payload.get("gateway") if isinstance(payload.get("gateway"), dict) else {}
+legacy = payload.get("kernel") if isinstance(payload.get("kernel"), dict) else {}
+timeout = gateway.get("startup_timeout_seconds", legacy.get("startup_timeout_seconds", 15))
+print(max(1, math.ceil(float(timeout) / 0.1)))
+PY
+)"
+GW_IDENTITY_READY=0
+for _ in $(seq 1 "$GW_IDENTITY_TICKS"); do
+  if [[ -f "$WT_ROOT/gateway.pid" ]]; then
+    INTERNAL_GW_PID=$(tr -d '[:space:]' < "$WT_ROOT/gateway.pid")
+    if [[ "$INTERNAL_GW_PID" != "$GW_PID" ]]; then
+      echo "Gateway identity mismatch: external=$GW_PID internal=$INTERNAL_GW_PID" >&2
+      exit 1
+    fi
+    if [[ -f "$WT_ROOT/gateway.identity.json" ]]; then
+      if ! "$PYTHON_BIN" - \
+        "$WT_ROOT/gateway.identity.json" "$GW_PID" "$WT_CFG" \
+        "http://127.0.0.1:$IM_PORT" "$GW_PROCESS_START" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+identity_path, pid, config_path, im_url, expected_process_start = sys.argv[1:]
+payload = json.loads(Path(identity_path).read_text(encoding="utf-8"))
+expected_config = str(Path(config_path).resolve())
+expected_argv = [
+    "--config",
+    expected_config,
+    "--im-service-url",
+    im_url,
+    "--foreground",
+    "--auto-bind",
+]
+raise SystemExit(
+    0
+    if payload.get("schema_version") == 1
+    and payload.get("pid") == int(pid)
+    and payload.get("config_path") == expected_config
+    and payload.get("entry_module") == "personal_assistant.main"
+    and payload.get("argv") == expected_argv
+    and isinstance(payload.get("process_start"), str)
+    and payload["process_start"].strip()
+    and " ".join(payload["process_start"].split())
+    == " ".join(expected_process_start.split())
+    else 1
+)
+PY
+      then
+        echo "Gateway public process identity mismatch for pid=$GW_PID" >&2
+        exit 1
+      fi
+      GW_PGID="$(ps -p "$GW_PID" -o pgid= 2>/dev/null | tr -d '[:space:]')"
+      if [[ "$GW_PGID" != "$GW_PID" ]]; then
+        echo "Gateway must be its exclusive process-group leader: pid=$GW_PID pgid=$GW_PGID" >&2
+        exit 1
+      fi
+      GW_IDENTITY_READY=1; break
+    fi
+  fi
+  if [[ "$(spawned_process_liveness "$GW_PID")" == exited ]]; then
+    echo "Gateway process died before identity confirmation; see $WT_ROOT/.gateway.log" >&2
+    exit 1
+  fi
+  sleep 0.1
+done
+if [[ $GW_IDENTITY_READY -eq 0 ]]; then
+  echo "Gateway did not establish teardown identity; see $WT_ROOT/.gateway.log" >&2
+  exit 1
+fi
+
+# Wait for the Gateway process to stay alive and its node to become online in IM.
+# This is transport-level startup evidence only; user-visible journeys remain the
+# end-to-end readiness evidence.
 GW_READY=0
 for _ in $(seq 1 60); do
-  if grep -q "INFO node .* auto-bound to IM\|Gateway started\|node_id=\|INFO im_connection" "$WT_ROOT/.gateway.log" 2>/dev/null; then
-    GW_READY=1; break
-  fi
-  if ! kill -0 "$(cat "$WT_ROOT/.gateway.pid")" 2>/dev/null; then
-    echo "Gateway process died during startup; see $WT_ROOT/.gateway.log" >&2
-    tail -30 "$WT_ROOT/.gateway.log" >&2 || true
+  GW_STATUS="$(spawned_process_status "$GW_PID" "$GW_PROCESS_START")"
+  if [[ "$GW_STATUS" != alive ]]; then
+    echo "Gateway process identity changed before readiness (status=$GW_STATUS); see $WT_ROOT/.gateway.log" >&2
     exit 1
+  fi
+  if [[ -n "$NANO_ACCESS_TOKEN" ]] \
+    && curl -sf "http://127.0.0.1:$IM_PORT/im/v1/nodes" \
+      -H "Authorization: Bearer $NANO_ACCESS_TOKEN" 2>/dev/null \
+      | NODE_ID="$NODE_ID" "$PYTHON_BIN" -c '
+import json, os, sys
+nodes = json.load(sys.stdin)
+raise SystemExit(0 if any(
+    item.get("node_id") == os.environ["NODE_ID"] and item.get("status") == "online"
+    for item in nodes
+) else 1)
+'; then
+    # The nodes request itself may take long enough for PID reuse or a wrapper
+    # replacement.  Check again before declaring this launch ready.
+    GW_STATUS="$(spawned_process_status "$GW_PID" "$GW_PROCESS_START")"
+    if [[ "$GW_STATUS" != alive ]]; then
+      echo "Gateway process identity changed before readiness (status=$GW_STATUS); see $WT_ROOT/.gateway.log" >&2
+      exit 1
+    fi
+    GW_READY=1; break
   fi
   sleep 0.5
 done
 if [[ $GW_READY -eq 0 ]]; then
-  echo "Gateway did not signal readiness within 30s; see $WT_ROOT/.gateway.log" >&2
+  echo "Gateway node did not become online within 30s; see $WT_ROOT/.gateway.log" >&2
   tail -30 "$WT_ROOT/.gateway.log" >&2 || true
   exit 1
 fi
@@ -237,7 +838,7 @@ fi
 
 cat > "$WT_ROOT/.e2e-ports.env" <<EOF
 # Generated by scripts/e2e-up.sh on $(date -u +%Y-%m-%dT%H:%M:%SZ)
-# refactor-387 M3: kernel is in-process; no API_PORT needed.
+# The agent runtime is in-process; no separate service port is exported.
 # source this file in your shell, then curl with \$IM_URL.
 export IM_PORT=$IM_PORT
 export IM_URL=http://127.0.0.1:$IM_PORT
@@ -250,3 +851,6 @@ echo "e2e stack ready in $WT_ROOT"
 echo "  IM   $IM_PORT  ($WT_ROOT/.im.log)"
 echo "  GW   pid=$(cat "$WT_ROOT/.gateway.pid")  ($WT_ROOT/.gateway.log)"
 echo "source $WT_ROOT/.e2e-ports.env to expose ports"
+
+ROLLBACK_ACTIVE=0
+trap - EXIT

@@ -61,7 +61,6 @@ def test_watchdog_rebuilds_im_loop_after_abnormal_exit(tmp_path: Path) -> None:
     manager = _CrashingIMManager(events, crash_times=2)
     runtime = GatewayRuntime(
         config,
-        None,
         im_connection_manager=manager,
         im_watchdog_initial_seconds=0.01,
         im_watchdog_max_seconds=0.02,
@@ -101,7 +100,7 @@ def test_watchdog_does_not_swallow_process_exit_signals(
         async def run_forever(self) -> None:
             raise SystemExit(2)
 
-    runtime = GatewayRuntime(make_config(tmp_path), None)
+    runtime = GatewayRuntime(make_config(tmp_path))
 
     async def _unexpected_rebuild_sleep(_delay: float) -> None:
         raise AssertionError("SystemExit must not enter watchdog rebuild backoff")
@@ -138,7 +137,6 @@ def test_watchdog_resets_backoff_after_stable_runtime(tmp_path: Path) -> None:
 
     runtime = GatewayRuntime(
         make_config(tmp_path),
-        None,
         im_watchdog_initial_seconds=0.04,
         im_watchdog_max_seconds=0.10,
     )
@@ -172,7 +170,7 @@ def test_watchdog_treats_manager_stop_return_as_clean_exit(
             self.calls += 1
             self._stop_requested = True
 
-    runtime = GatewayRuntime(make_config(tmp_path), None)
+    runtime = GatewayRuntime(make_config(tmp_path))
     manager = _CleanStoppedIMManager()
 
     async def _unexpected_rebuild_sleep(_delay: float) -> None:
@@ -206,7 +204,6 @@ def test_watchdog_backoff_sleep_is_interrupted_by_shutdown(tmp_path: Path) -> No
     async def _exercise() -> None:
         runtime = GatewayRuntime(
             make_config(tmp_path),
-            None,
             im_watchdog_initial_seconds=5.0,
             im_watchdog_max_seconds=5.0,
         )
@@ -255,7 +252,6 @@ def test_watchdog_backoff_does_not_consume_executor_threads(
     async def _exercise() -> None:
         runtime = GatewayRuntime(
             make_config(tmp_path),
-            None,
             im_watchdog_initial_seconds=0.01,
             im_watchdog_max_seconds=0.01,
         )

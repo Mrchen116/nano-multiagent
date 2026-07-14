@@ -5,18 +5,22 @@ from __future__ import annotations
 import argparse
 import asyncio
 from datetime import datetime, timezone
+import fcntl
+import hashlib
 import json
 import logging
 import os
-import shlex
+import re
 import signal
+import stat
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import webbrowser
-from collections.abc import Awaitable, Callable, Mapping
-from contextlib import suppress
+from collections.abc import Awaitable, Callable, Iterator, Mapping
+from contextlib import contextmanager, suppress
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any, Protocol
@@ -41,7 +45,6 @@ from personal_assistant.config.local_store import (
     ChannelConfig,
     HeartbeatConfig,
     IMServiceConfig,
-    KernelConfig,
     LocalConfig,
     WORKSPACE_CONFIG_DIRNAME as _WCD,
     default_local_config_path,
@@ -50,6 +53,7 @@ from personal_assistant.config.local_store import (
     load_local_config,
     resolve_run_model,
     save_local_config,
+    update_local_config,
 )
 from personal_assistant.config.sync_client import ConfigSyncClient
 from personal_assistant.gateway.bootstrap import start_channels, stop_channels
@@ -113,9 +117,8 @@ from personal_assistant.ws.im_connection import (
 
 
 ProcessLike = subprocess.Popen[Any]
-ProcessFactory = Callable[[str], ProcessLike]
 BackgroundProcessFactory = Callable[[list[str], Path], ProcessLike]
-ReadyWaiter = Callable[[ProcessLike, LocalConfig, float], None]
+StartWaiter = Callable[[ProcessLike, LocalConfig, float], None]
 Monotonic = Callable[[], float]
 Sleep = Callable[[float], None]
 AsyncConnect = Callable[[str, Mapping[str, str]], Awaitable[ClientConnection]]
@@ -144,6 +147,20 @@ class GatewayStartupError(RuntimeError):
         self.next_step = cleaned_next_step
 
 
+class GatewayProcessCleanupError(RuntimeError):
+    """Report that a failed background launch could not confirm child exit.
+
+    Args:
+        pid: Spawned Gateway process whose exit could not be confirmed.
+    """
+
+    def __init__(self, pid: int) -> None:
+        super().__init__(
+            f"gateway pid={pid} did not exit after SIGKILL; lifecycle evidence retained"
+        )
+        self.pid = pid
+
+
 def _read_log_last_error(
     log_path: Path, *, offset: int = 0, lines: int = 20
 ) -> str | None:
@@ -168,8 +185,7 @@ def _check_im_reachable(url: str) -> bool:
 
 
 def _print_gateway_started(result: "BackgroundLaunchResult") -> None:
-    print(f"Gateway started  (pid={result.pid})")
-    print(f"Health:          {result.health_url}")
+    print(f"Gateway started (pid={result.pid})")
     if result.im_service_url is not None:
         reachable = _check_im_reachable(result.im_service_url)
         status = (
@@ -261,13 +277,11 @@ class BackgroundLaunchResult:
 
     Args:
         pid: Process id of the detached foreground child now hosting the gateway runtime.
-        health_url: Ready-check URL operators can probe during follow-up troubleshooting.
         log_path: File receiving the detached child stdout/stderr stream.
         im_service_url: Optional IM service URL configured for this gateway.
     """
 
     pid: int
-    health_url: str
     log_path: Path
     im_service_url: str | None = None
 
@@ -279,14 +293,102 @@ class GatewayRuntimeState:
     Args:
         pid: Background gateway process id launched for this config.
         config_path: Absolute config path used for that process.
-        health_url: Health endpoint associated with the launched gateway.
         log_path: Log file receiving the detached process output.
     """
 
     pid: int
     config_path: str
-    health_url: str
     log_path: str
+
+
+@dataclass(frozen=True, slots=True)
+class GatewayProcessIdentity:
+    """Persist the exact OS process instance allowed to receive lifecycle signals.
+
+    Args:
+        schema_version: Identity wire-schema version shared with e2e scripts.
+        pid: Foreground Gateway process id.
+        process_start: OS-reported process birth/start identity.
+        config_path: Resolved config path owned by this Gateway.
+        entry_module: Required Python module entry point.
+        argv: Expected arguments following the module entry point.
+    """
+
+    schema_version: int
+    pid: int
+    process_start: str
+    config_path: str
+    entry_module: str
+    argv: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class GatewayProcessSnapshot:
+    """Describe one stable, read-only OS process observation.
+
+    Args:
+        pid: Observed process id.
+        process_start: Locale- and timezone-stable OS birth identity.
+        command: Raw OS audit rendering; never parsed to grant signal authority.
+    """
+
+    pid: int
+    process_start: str
+    command: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class GatewayOwnedProcess:
+    """Describe one process instance frozen into Gateway teardown ownership.
+
+    Args:
+        pid: Process id observed during the stable capture.
+        ppid: Parent process id proving the descendant chain at capture time.
+        pgid: Process group id used as the signal boundary.
+        process_start: OS birth identity preventing PID reuse from granting authority.
+    """
+
+    pid: int
+    ppid: int
+    pgid: int
+    process_start: str
+
+
+@dataclass(frozen=True, slots=True)
+class GatewayOwnedProcessSet:
+    """Describe one exclusive Gateway leader and every observed descendant.
+
+    Args:
+        leader_pid: Gateway session/process-group leader id.
+        processes: Stable transitive descendant set including the leader.
+        leader_group_exclusive: Whether the leader PGID contains only owned processes.
+    """
+
+    leader_pid: int
+    processes: tuple[GatewayOwnedProcess, ...]
+    leader_group_exclusive: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class GatewayLifecycleEvidenceFile:
+    """Describe one lifecycle evidence path at a stable filesystem revision."""
+
+    name: str
+    exists: bool
+    device: int | None = None
+    inode: int | None = None
+    size: int | None = None
+    modified_ns: int | None = None
+    sha256: str | None = None
+    content: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class GatewayLifecycleEvidenceSnapshot:
+    """Capture all evidence that one Gateway teardown transaction may delete."""
+
+    pid: int
+    files: tuple[GatewayLifecycleEvidenceFile, ...]
 
 
 def _default_pa_global_skill_names() -> tuple[str, ...]:
@@ -859,29 +961,27 @@ class _IMConfigSyncClient:
             )
 
     def _persist_agent_config(self, agent_config: AgentWorkspaceConfig) -> None:
-        agents = list(self._local_config.agents)
-        for index, existing in enumerate(agents):
-            if existing.agent_id == agent_config.agent_id:
-                agents[index] = agent_config
-                break
-        else:
-            agents.append(agent_config)
         persist_path = (
             Path(self._local_config.source_path)
             if self._local_config.source_path
             else default_local_config_path()
         )
-        self._local_config = LocalConfig(
-            node=self._local_config.node,
-            agents=tuple(agents),
-            channels=self._local_config.channels,
-            kernel=self._local_config.kernel,
-            heartbeat=self._local_config.heartbeat,
-            im_service=self._local_config.im_service,
-            llm=self._local_config.llm,
-            source_path=persist_path,
+
+        def _upsert(latest: LocalConfig) -> LocalConfig:
+            agents = list(latest.agents)
+            for index, existing in enumerate(agents):
+                if existing.agent_id == agent_config.agent_id:
+                    agents[index] = agent_config
+                    break
+            else:
+                agents.append(agent_config)
+            return replace(latest, agents=tuple(agents))
+
+        self._local_config = update_local_config(
+            persist_path,
+            _upsert,
+            initial=self._local_config,
         )
-        save_local_config(self._local_config, persist_path)
 
     def current_agent_payload(self, *, agent_id: str) -> dict[str, object] | None:
         for agent in self._local_config.agents:
@@ -1273,97 +1373,6 @@ class _IMBootstrapClient:
             )
         self._clients[base_url] = client
         return client
-
-
-class GatewayProcessManager:
-    """Legacy kernel subprocess manager — unused since refactor-387.
-
-    refactor-387 M3: the kernel runs in-process via agent.sdk; no child process
-    is spawned.  This class is retained only because GatewayRuntime still
-    accepts a ``process_manager`` parameter typed as ``GatewayProcessManager | None``
-    for backward compatibility with tests that pass None.  It will be removed
-    in a follow-up unit that trims the dead config+process management layer.
-
-    Args:
-        config: Legacy KernelConfig (unused at runtime).
-        kernel_client: Unused (was: HTTP client for readiness probes).
-        process_factory: Unused (was: factory to spawn the kernel subprocess).
-        monotonic: Monotonic clock source for timeout accounting.
-        sleep: Sleep function used between readiness probes.
-    """
-
-    def __init__(
-        self,
-        *,
-        config: KernelConfig,
-        kernel_client: Any,  # KernelApiClient removed in M3; GatewayProcessManager is dead code until M4
-        process_factory: ProcessFactory | None = None,
-        monotonic: Monotonic = time.monotonic,
-        sleep: Sleep = time.sleep,
-    ) -> None:
-        self._config = config
-        self._kernel_client = kernel_client
-        self._process_factory = process_factory or _spawn_process
-        self._monotonic = monotonic
-        self._sleep = sleep
-        self.process: ProcessLike | None = None
-
-    def start_kernel_process(self) -> ProcessLike:
-        """Spawn the kernel subprocess and poll until ``/v1/health`` reports ready.
-
-        Legacy method — not called since refactor-387 (kernel runs in-process).
-
-        Returns:
-            The spawned process handle once health probing succeeds.
-
-        Raises:
-            RuntimeError: When the kernel does not become healthy before timeout.
-        """
-
-        if self.process is not None:
-            return self.process
-        process = self._process_factory(self._config.command)
-        self.process = process
-        self._wait_for_health()
-        return process
-
-    def stop_kernel_process(self) -> None:
-        """Terminate the managed kernel child, escalating to kill when needed.
-
-        Side Effects:
-            Sends terminate/kill signals to the managed child process.
-        """
-
-        process = self.process
-        if process is None:
-            return
-        process.terminate()
-        try:
-            process.wait(timeout=self._config.shutdown_grace_seconds)
-        except (TimeoutError, subprocess.TimeoutExpired):
-            process.kill()
-        finally:
-            self.process = None
-
-    def _wait_for_health(self) -> None:
-        deadline = self._monotonic() + self._config.startup_timeout_seconds
-        last_error: Exception | None = None
-        while self._monotonic() <= deadline:
-            try:
-                payload = self._kernel_client.health()
-            except Exception as exc:  # noqa: BLE001
-                last_error = exc
-            else:
-                if bool(payload.get("healthy")):
-                    return
-                last_error = RuntimeError(
-                    f"kernel reported unhealthy payload: {payload}"
-                )
-            self._sleep(self._config.health_poll_interval_seconds)
-        message = "kernel health check timed out"
-        if last_error is not None:
-            raise RuntimeError(message) from last_error
-        raise RuntimeError(message)
 
 
 async def _stream_run_to_completion(
@@ -1861,9 +1870,6 @@ class GatewayRuntime:
 
     Args:
         config: Parsed immutable local gateway config.
-        process_manager: Optional kernel child-process lifecycle manager.
-            Pass ``None`` (M3+) when the kernel runs in-process; the
-            runtime then skips subprocess spawn/stop.
         channel_registry: Registry containing configured channel adapters.
         heartbeat_runner: Background heartbeat loop wrapper.
         im_connection_manager: Optional IM websocket connector.
@@ -1877,7 +1883,6 @@ class GatewayRuntime:
     def __init__(
         self,
         config: LocalConfig,
-        process_manager: GatewayProcessManager | None,
         *,
         channel_registry: ChannelRegistry | None = None,
         heartbeat_runner: HeartbeatRunner | None = None,
@@ -1893,7 +1898,6 @@ class GatewayRuntime:
         cron_dispatcher: CronServiceRegistry | None = None,
     ) -> None:
         self._config = config
-        self._process_manager = process_manager
         self._channel_registry = channel_registry or ChannelRegistry()
         self._heartbeat_runner = heartbeat_runner
         self._im_connection_manager = im_connection_manager
@@ -1938,7 +1942,6 @@ class GatewayRuntime:
         """
 
         self._ready_event.clear()
-        self._shutdown_requested.clear()
         return asyncio.run(self._run_until_shutdown())
 
     async def _run_until_shutdown(self) -> int:
@@ -1958,8 +1961,6 @@ class GatewayRuntime:
         dispatch_runner: Any | None = None
         im_task: asyncio.Task[None] | None = None
         try:
-            if self._process_manager is not None:
-                self._process_manager.start_kernel_process()
             start_channels(self._channel_registry, self._on_inbound)
             channels_started = True
             if self._internal_dispatch_handler is not None:
@@ -2049,8 +2050,6 @@ class GatewayRuntime:
                     await _await_background_task(im_task)
                 except BaseException as exc:  # noqa: BLE001
                     _log.warning("IM task await raised during shutdown: %s", exc)
-            if self._process_manager is not None:
-                self._process_manager.stop_kernel_process()
             for closer in self._resource_closers:
                 closer()
             self._shutdown_async_event = None
@@ -2413,6 +2412,21 @@ def run_gateway(
     Returns:
         Process exit code. `0` means the managed startup/shutdown sequence succeeded.
     """
+    with _gateway_runtime_instance_claim(config_path):
+        return _run_gateway_claimed(
+            config_path=config_path,
+            factories=factories,
+            im_service_url_override=im_service_url_override,
+        )
+
+
+def _run_gateway_claimed(
+    *,
+    config_path: str | Path,
+    factories: RuntimeFactories | Mapping[str, Any] | None,
+    im_service_url_override: str | None,
+) -> int:
+    """Build and run one Gateway while its per-config instance claim is held."""
 
     resolved_factories = _coerce_factories(factories)
     config = _load_runtime_config(
@@ -2429,13 +2443,112 @@ def run_gateway(
         or _install_default_signal_handlers(runtime)
     )
     restore = restore_signal_handlers()
-    # Write PID file so the background launcher can detect a live instance.
-    _write_gateway_pid(config)
+    identity: GatewayProcessIdentity | None = None
     try:
+        identity = _build_gateway_process_identity(
+            config, im_service_url_override=im_service_url_override
+        )
+        # Identity is durable before PID becomes the launcher's readiness marker.
+        _write_gateway_process_identity(config, identity)
+        _write_gateway_pid(config, expected_pid=identity.pid)
         return runtime.run_forever()
     finally:
-        restore()
-        _remove_gateway_pid(config)
+        try:
+            restore()
+        finally:
+            if identity is not None:
+                _remove_gateway_pid(config, expected_pid=identity.pid)
+                _remove_gateway_process_identity(config, expected=identity)
+
+
+def _gateway_lifecycle_lock_path(config_path: str | Path) -> Path:
+    """Return the stable external lock path for one resolved config identity."""
+    config_identity = str(Path(config_path).expanduser().resolve())
+    digest = hashlib.sha256(config_identity.encode()).hexdigest()
+    return (
+        Path.home()
+        / ".cache"
+        / "nano-multiagent"
+        / "gateway-lifecycle-locks"
+        / f"{digest}.lock"
+    )
+
+
+def _gateway_runtime_instance_lock_path(config_path: str | Path) -> Path:
+    """Return the stable lifetime-claim path for one resolved config identity."""
+    lifecycle_path = _gateway_lifecycle_lock_path(config_path)
+    return lifecycle_path.with_suffix(".instance.lock")
+
+
+@contextmanager
+def _gateway_private_file_lock(
+    lock_path: Path,
+    *,
+    blocking: bool,
+) -> Iterator[None]:
+    """Hold one validated private advisory lock inode."""
+    lock_dir = lock_path.parent
+    lock_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if lock_dir.is_symlink():
+        raise RuntimeError(f"Gateway lifecycle lock directory is a symlink: {lock_dir}")
+    lock_dir.chmod(0o700)
+    flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(lock_path, flags, 0o600)
+    try:
+        os.fchmod(fd, 0o600)
+        held = os.fstat(fd)
+        current = lock_path.lstat()
+        if (
+            not stat.S_ISREG(held.st_mode)
+            or held.st_nlink != 1
+            or not stat.S_ISREG(current.st_mode)
+            or current.st_nlink != 1
+            or (held.st_dev, held.st_ino) != (current.st_dev, current.st_ino)
+        ):
+            raise RuntimeError(f"Gateway lifecycle lock is not private: {lock_path}")
+        operation = fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB)
+        fcntl.flock(fd, operation)
+        locked = os.fstat(fd)
+        current = lock_path.lstat()
+        if (
+            locked.st_nlink != 1
+            or current.st_nlink != 1
+            or (locked.st_dev, locked.st_ino) != (current.st_dev, current.st_ino)
+        ):
+            raise RuntimeError(f"Gateway lifecycle lock changed: {lock_path}")
+        yield
+    finally:
+        with suppress(OSError):
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
+
+
+@contextmanager
+def _gateway_runtime_instance_claim(config_path: str | Path) -> Iterator[None]:
+    """Claim the single live Gateway instance slot for one config identity."""
+    try:
+        with _gateway_private_file_lock(
+            _gateway_runtime_instance_lock_path(config_path),
+            blocking=False,
+        ):
+            yield
+    except BlockingIOError as exc:
+        raise GatewayStartupError(
+            summary="gateway is already running for this config",
+            next_step="Run 'stop' before starting another foreground or background instance.",
+        ) from exc
+
+
+@contextmanager
+def _gateway_lifecycle_generation_lock(
+    config_path: str | Path,
+) -> Iterator[None]:
+    """Serialize public start/stop commits for one stable config identity."""
+    with _gateway_private_file_lock(
+        _gateway_lifecycle_lock_path(config_path),
+        blocking=True,
+    ):
+        yield
 
 
 def launch_gateway_in_background(
@@ -2443,23 +2556,43 @@ def launch_gateway_in_background(
     config_path: str | Path,
     load_config: Callable[[str | Path], LocalConfig] = load_local_config,
     spawn_process: BackgroundProcessFactory | None = None,
-    wait_for_ready: ReadyWaiter | None = None,
+    wait_for_start: StartWaiter | None = None,
     im_service_url_override: str | None = None,
 ) -> BackgroundLaunchResult:
-    """Start the gateway in a detached child and wait until it is ready.
+    """Start the gateway in a detached child and confirm its PID is live.
 
     Args:
         config_path: Operator-provided config path forwarded to the detached child.
-        load_config: Config loader used to resolve health-check details before spawning.
+        load_config: Config loader used to resolve lifecycle timing before spawning.
         spawn_process: Optional detached-child launcher override used by tests.
-        wait_for_ready: Optional readiness waiter override used by tests.
+        wait_for_start: Optional PID/start confirmation waiter override used by tests.
 
     Returns:
-        Detached process metadata once the child reaches ready state.
+        Detached process metadata once the child writes its PID and remains alive.
 
     Raises:
-        RuntimeError: When the detached child exits or never becomes ready.
+        RuntimeError: When the detached child exits or never confirms startup.
     """
+
+    with _gateway_lifecycle_generation_lock(config_path):
+        return _launch_gateway_in_background_locked(
+            config_path=config_path,
+            load_config=load_config,
+            spawn_process=spawn_process,
+            wait_for_start=wait_for_start,
+            im_service_url_override=im_service_url_override,
+        )
+
+
+def _launch_gateway_in_background_locked(
+    *,
+    config_path: str | Path,
+    load_config: Callable[[str | Path], LocalConfig],
+    spawn_process: BackgroundProcessFactory | None,
+    wait_for_start: StartWaiter | None,
+    im_service_url_override: str | None,
+) -> BackgroundLaunchResult:
+    """Execute one background launch while its config generation is exclusive."""
 
     config = _load_runtime_config(
         config_path,
@@ -2476,38 +2609,90 @@ def launch_gateway_in_background(
             )
         # Stale PID file from a crashed process — clean it up and continue.
         _remove_gateway_pid(config)
+    elif _gateway_pid_path(config).exists():
+        # A malformed residue is not an ownership claim. Remove it before the
+        # child starts so the start waiter can only observe this launch's PID.
+        _remove_gateway_pid(config)
     log_path = _default_gateway_log_path(config)
     log_offset = log_path.stat().st_size if log_path.exists() else 0
     argv = _background_gateway_argv(
         config.source_path, im_service_url_override=im_service_url_override
     )
     launcher = spawn_process or _spawn_background_gateway_process
-    ready_waiter = wait_for_ready or _wait_for_gateway_ready
+    start_waiter = wait_for_start or _wait_for_gateway_start
     process = launcher(argv, log_path)
+    result = BackgroundLaunchResult(
+        pid=process.pid,
+        log_path=log_path,
+        im_service_url=config.im_service.url if config.im_service is not None else None,
+    )
+    expected_state = _gateway_runtime_state(config, result)
+    expected_identity: GatewayProcessIdentity | None = None
     try:
-        ready_waiter(process, config, config.kernel.startup_timeout_seconds)
+        start_waiter(process, config, config.gateway.startup_timeout_seconds)
+        expected_identity = _read_gateway_process_identity(config)
+        if expected_identity is None:
+            raise RuntimeError("gateway identity missing before state publication")
+        _assert_gateway_identity_static(config, process.pid, expected_identity)
+        _write_gateway_state(config, result)
+        _confirm_gateway_launch_publication(process, config, expected_identity)
     except Exception as exc:
-        _stop_background_process(
-            process, timeout_seconds=config.kernel.shutdown_grace_seconds
-        )
+        try:
+            _stop_background_process(
+                process, timeout_seconds=config.gateway.shutdown_grace_seconds
+            )
+        except GatewayProcessCleanupError as cleanup_error:
+            hint = _read_log_last_error(log_path, offset=log_offset)
+            startup_summary = hint if hint else str(exc)
+            raise GatewayStartupError(
+                summary=f"{startup_summary}; cleanup failed for pid={process.pid}",
+                next_step=(
+                    "Process exit was not confirmed; lifecycle evidence was retained. "
+                    f"Inspect pid={process.pid} and {log_path} before retrying."
+                ),
+            ) from ExceptionGroup(
+                "Gateway startup and rollback both failed", [exc, cleanup_error]
+            )
+        _clear_failed_gateway_startup(config, expected_state, expected_identity)
         hint = _read_log_last_error(log_path, offset=log_offset)
         summary = hint if hint else str(exc)
         raise GatewayStartupError(
             summary=summary,
             next_step=f"Check the log for details: tail -20 {log_path}",
         ) from exc
-    result = BackgroundLaunchResult(
-        pid=process.pid,
-        # refactor-387 M3: kernel is in-process; no separate health endpoint.
-        # Use the IM service URL as the operator-facing health hint when available.
-        health_url=config.im_service.url
-        if config.im_service is not None
-        else f"pid={process.pid}",
-        log_path=log_path,
-        im_service_url=config.im_service.url if config.im_service is not None else None,
-    )
-    _write_gateway_state(config, result)
     return result
+
+
+def _confirm_gateway_launch_publication(
+    process: ProcessLike,
+    config: LocalConfig,
+    expected_identity: GatewayProcessIdentity,
+) -> None:
+    """Require the durable launch evidence to still name one live child."""
+    return_code = process.poll()
+    if return_code is not None:
+        raise RuntimeError(
+            f"gateway exited after state publication with return code {return_code}"
+        )
+    pid = _read_gateway_pid(config)
+    if pid != process.pid:
+        raise RuntimeError(
+            "gateway PID changed after state publication: "
+            f"spawned={process.pid} file={pid}"
+        )
+    identity = _read_gateway_process_identity(config)
+    if identity is None:
+        raise RuntimeError("gateway identity missing after state publication")
+    if identity != expected_identity:
+        raise RuntimeError("gateway identity changed after state publication")
+    _assert_gateway_identity_static(config, process.pid, identity)
+    if not _assert_gateway_process_instance(identity):
+        raise RuntimeError("gateway exited after state publication")
+    return_code = process.poll()
+    if return_code is not None:
+        raise RuntimeError(
+            f"gateway exited after identity confirmation with return code {return_code}"
+        )
 
 
 def stop_gateway(
@@ -2522,12 +2707,22 @@ def stop_gateway(
         load_config: Config loader used to derive the state file and shutdown timing.
 
     Returns:
-        One operator-facing status line describing stop success, not-running, stale state, or
-        a remaining listener that still answers on the same health URL.
+        One operator-facing status line describing stop success, not-running, or stale state.
 
     Side Effects:
         Sends SIGTERM and possibly SIGKILL to the background gateway process and removes stale state.
     """
+
+    with _gateway_lifecycle_generation_lock(config_path):
+        return _stop_gateway_locked(config_path=config_path, load_config=load_config)
+
+
+def _stop_gateway_locked(
+    *,
+    config_path: str | Path,
+    load_config: Callable[[str | Path], LocalConfig],
+) -> str:
+    """Execute one stop while its config generation is exclusive."""
 
     config = load_config(config_path)
     state_path = _gateway_state_path(config)
@@ -2535,85 +2730,117 @@ def stop_gateway(
     if state is None:
         pid = _read_gateway_pid(config)
         if pid is None:
+            if _gateway_process_identity_path(config).exists():
+                raise RuntimeError(
+                    "gateway lifecycle identity exists without a valid PID; "
+                    "evidence retained"
+                )
             return f"NOT RUNNING config={config.source_path.name} state={state_path}"
-        if not _pid_is_running(pid):
-            _remove_gateway_pid(config)
-            return f"STALE pid={pid} pid_file={_gateway_pid_path(config)}"
-        try:
-            os.kill(pid, signal.SIGTERM)
-        except ProcessLookupError:
-            _remove_gateway_pid(config)
-            return f"STALE pid={pid} pid_file={_gateway_pid_path(config)}"
-        # bugfix-359: 顺手 killpg 把 kernel uvicorn 子进程一起带走;leader 进程已收过 SIGTERM,
-        # 多发一次无副作用,pgid 拿不到时静默吞掉。
-        _kill_process_tree(pid, signal.SIGTERM)
-        deadline = time.monotonic() + config.kernel.shutdown_grace_seconds
-        while time.monotonic() <= deadline:
-            if not _pid_is_running(pid):
-                _remove_gateway_pid(config)
-                return f"STOPPED pid={pid} pid_file={_gateway_pid_path(config)}"
-            time.sleep(config.kernel.health_poll_interval_seconds)
-        os.kill(pid, signal.SIGKILL)
-        _kill_process_tree(pid, signal.SIGKILL)
-        _remove_gateway_pid(config)
-        return f"STOPPED pid={pid} pid_file={_gateway_pid_path(config)} forced=true"
-    if not _pid_is_running(state.pid):
-        _remove_gateway_state(state_path)
-        _remove_gateway_pid(config)
-        if _healthcheck_reports_healthy(state.health_url):
-            return f"STALE pid={state.pid} state={state_path} health_url={state.health_url} still_healthy=true"
-        return f"STALE pid={state.pid} state={state_path}"
-    try:
-        os.kill(state.pid, signal.SIGTERM)
-    except ProcessLookupError:
-        _remove_gateway_state(state_path)
-        _remove_gateway_pid(config)
-        if _healthcheck_reports_healthy(state.health_url):
-            return f"STALE pid={state.pid} state={state_path} health_url={state.health_url} still_healthy=true"
-        return f"STALE pid={state.pid} state={state_path}"
-    # bugfix-359: 顺手 killpg 把 kernel uvicorn 子进程一起带走。
-    _kill_process_tree(state.pid, signal.SIGTERM)
-    deadline = time.monotonic() + config.kernel.shutdown_grace_seconds
-    while time.monotonic() <= deadline:
-        if not _pid_is_running(state.pid):
-            _remove_gateway_state(state_path)
-            _remove_gateway_pid(config)
-            if _verify_stopped_health_url(
-                state.health_url,
-                timeout_seconds=config.kernel.shutdown_grace_seconds,
-                sleep_seconds=config.kernel.health_poll_interval_seconds,
-            ):
-                return f"STOPPED pid={state.pid} state={state_path}"
-            return (
-                f"STOPPED pid={state.pid} state={state_path} "
-                f"health_url={state.health_url} still_healthy=true"
+        resolved_pid = pid
+        success_target = f"pid_file={_gateway_pid_path(config)}"
+        resolved_state_path = None
+    else:
+        if Path(state.config_path).resolve() != config.source_path.resolve():
+            raise RuntimeError(
+                "gateway state config identity mismatch; evidence retained"
             )
-        time.sleep(config.kernel.health_poll_interval_seconds)
-    os.kill(state.pid, signal.SIGKILL)
-    _kill_process_tree(state.pid, signal.SIGKILL)
-    _remove_gateway_state(state_path)
-    _remove_gateway_pid(config)
-    forced = f"STOPPED pid={state.pid} state={state_path} forced=true"
-    if _verify_stopped_health_url(
-        state.health_url,
-        timeout_seconds=config.kernel.shutdown_grace_seconds,
-        sleep_seconds=config.kernel.health_poll_interval_seconds,
-    ):
-        return forced
-    return f"{forced} health_url={state.health_url} still_healthy=true"
+        pid_file = _read_gateway_pid(config)
+        if pid_file != state.pid:
+            raise RuntimeError("gateway state/PID identity mismatch; evidence retained")
+        resolved_pid = state.pid
+        success_target = f"state={state_path}"
+        resolved_state_path = state_path
 
-
-def _healthcheck_reports_healthy(health_url: str) -> bool:
-    try:
-        response = httpx.get(health_url, timeout=1.0, trust_env=False)
-        payload = response.json()
-    except Exception:  # noqa: BLE001
-        return False
-    return (
-        response.status_code == 200
-        and isinstance(payload, dict)
-        and bool(payload.get("healthy"))
+    identity = _read_gateway_process_identity(config)
+    if identity is None:
+        identity_path = _gateway_process_identity_path(config)
+        if identity_path.exists() or state is None:
+            raise RuntimeError(
+                "gateway process identity is missing or invalid; evidence retained"
+            )
+        identity = _upgrade_legacy_gateway_identity(config, resolved_pid)
+        if identity is None:
+            _remove_gateway_state(state_path, expected=state)
+            _remove_gateway_pid(config, expected_pid=resolved_pid)
+            return f"STALE pid={resolved_pid} {success_target}"
+    _assert_gateway_identity_static(config, resolved_pid, identity)
+    if not _assert_gateway_process_instance(identity):
+        _clear_gateway_lifecycle(config, resolved_state_path, state, identity)
+        return f"STALE pid={resolved_pid} {success_target}"
+    return _stop_owned_gateway(
+        config=config,
+        pid=resolved_pid,
+        identity=identity,
+        state_path=resolved_state_path,
+        expected_state=state,
+        success_target=success_target,
     )
+
+
+def _stop_owned_gateway(
+    *,
+    config: LocalConfig,
+    pid: int,
+    identity: GatewayProcessIdentity,
+    state_path: Path | None,
+    expected_state: GatewayRuntimeState | None,
+    success_target: str,
+) -> str:
+    """Signal one owned Gateway and clear evidence only after confirmed exit."""
+    owned = freeze_gateway_owned_process_set(
+        pid,
+        expected_process_start=identity.process_start,
+        allow_shared_leader_group=True,
+    )
+    try:
+        signal_gateway_owned_process_set(owned, signal.SIGTERM)
+    finally:
+        resume_gateway_owned_process_set(owned)
+    if _wait_for_gateway_owned_process_set_exit(config, owned):
+        _clear_gateway_lifecycle(config, state_path, expected_state, identity)
+        return f"STOPPED pid={pid} {success_target}"
+    signal_gateway_owned_process_set(
+        owned,
+        signal.SIGKILL,
+        allow_reparented=True,
+    )
+    if _wait_for_gateway_owned_process_set_exit(config, owned):
+        _clear_gateway_lifecycle(config, state_path, expected_state, identity)
+        return f"STOPPED pid={pid} {success_target} forced=true"
+    raise RuntimeError(
+        f"gateway owned process set for pid={pid} did not exit after SIGKILL; "
+        "lifecycle state retained"
+    )
+
+
+def _wait_for_gateway_owned_process_set_exit(
+    config: LocalConfig,
+    owned: GatewayOwnedProcessSet,
+) -> bool:
+    """Poll one bounded shutdown interval for every original owned process birth."""
+    if gateway_owned_process_set_exited(owned):
+        return True
+    deadline = time.monotonic() + config.gateway.shutdown_grace_seconds
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False
+        time.sleep(min(config.gateway.poll_interval_seconds, remaining))
+        if gateway_owned_process_set_exited(owned):
+            return True
+
+
+def _clear_gateway_lifecycle(
+    config: LocalConfig,
+    state_path: Path | None,
+    expected_state: GatewayRuntimeState | None,
+    identity: GatewayProcessIdentity,
+) -> None:
+    """Remove lifecycle evidence after the owning process is confirmed gone."""
+    if state_path is not None:
+        _remove_gateway_state(state_path, expected=expected_state)
+    _remove_gateway_pid(config, expected_pid=identity.pid)
+    _remove_gateway_process_identity(config, expected=identity)
 
 
 class _KernelClientShim:
@@ -2776,17 +3003,6 @@ class _KernelClientShim:
         pass
 
 
-def _verify_stopped_health_url(
-    health_url: str, *, timeout_seconds: float, sleep_seconds: float
-) -> bool:
-    deadline = time.monotonic() + timeout_seconds
-    while time.monotonic() <= deadline:
-        if not _healthcheck_reports_healthy(health_url):
-            return True
-        time.sleep(sleep_seconds)
-    return not _healthcheck_reports_healthy(health_url)
-
-
 def _make_prompt_preview_provider(kernel: Any) -> "PromptPreviewProvider":
     """Build a PromptPreviewProvider backed by Kernel.assemble_prompt_preview.
 
@@ -2887,8 +3103,8 @@ def _parse_heartbeat_from_im_payload(
 def build_runtime(config: LocalConfig) -> GatewayRuntime:
     """Construct the default long-running gateway runtime from parsed local config.
 
-    refactor-387 M3: kernel is now in-process via agent.sdk.  No kernel child
-    process is spawned; GatewayProcessManager is no longer used here.
+    refactor-387 M3: kernel is now in-process via agent.sdk; no independent
+    Kernel process is spawned.
     """
     # refactor-406-M1 R6: PA assembles its kernel through the 2-layer SDK surface
     # via its own factory (personal_assistant.product).  PA imports only agent.sdk +
@@ -3538,6 +3754,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             job_store=job_store,
             state_store=state_store,
             submit_fn=_enqueue_via_service,
+            active_since=_service.active_since,
         )
         await scheduler.tick()
 
@@ -3577,7 +3794,6 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     )
     return GatewayRuntime(
         config,
-        None,  # no kernel subprocess — kernel runs in-process (M3+)
         channel_registry=channel_registry,
         heartbeat_runner=heartbeat_runner,
         im_connection_manager=im_connection_manager,
@@ -3620,15 +3836,20 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     subparsers = parser.add_subparsers(dest="command")
+    # `--config A restart` and `restart --config A` target the same Gateway.
+    # Missing post-command options must not erase values parsed by the root parser.
+    preserve_global_target = argparse.SUPPRESS
     stop_parser = subparsers.add_parser(
         "stop", help="Stop the current background gateway for one config"
     )
     stop_parser.add_argument(
         "--config",
+        default=preserve_global_target,
         help="Path to local gateway config (defaults to ~/.nano-assistant/config.yaml)",
     )
     stop_parser.add_argument(
         "--im-service-url",
+        default=preserve_global_target,
         help="Override the upstream IM service base URL for this launch",
     )
     restart_parser = subparsers.add_parser(
@@ -3637,10 +3858,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     restart_parser.add_argument(
         "--config",
+        default=preserve_global_target,
         help="Path to local gateway config (defaults to ~/.nano-assistant/config.yaml)",
     )
     restart_parser.add_argument(
         "--im-service-url",
+        default=preserve_global_target,
         help="Override the upstream IM service base URL for this launch",
     )
     args = parser.parse_args(argv)
@@ -3650,7 +3873,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.config
         else str(default_local_config_path())
     )
-    if getattr(args, "auto_bind", False):
+    auto_bind_requested = bool(getattr(args, "auto_bind", False))
+    previous_auto_bind = os.environ.get("NANO_MULTIAGENT_AUTO_BIND")
+    if auto_bind_requested:
+        # The child inherits this setting, but an embedded main() caller must not.
         os.environ["NANO_MULTIAGENT_AUTO_BIND"] = "1"
     try:
         if command == "stop":
@@ -3682,6 +3908,12 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:  # noqa: BLE001
         print(f"ERROR {exc}", file=sys.stderr)
         return 1
+    finally:
+        if auto_bind_requested:
+            if previous_auto_bind is None:
+                os.environ.pop("NANO_MULTIAGENT_AUTO_BIND", None)
+            else:
+                os.environ["NANO_MULTIAGENT_AUTO_BIND"] = previous_auto_bind
 
 
 def _coerce_factories(
@@ -3749,7 +3981,9 @@ def _build_channel_registry(
 def _build_feishu_owner_open_id_binder(
     config: LocalConfig,
     *,
-    save_config: Callable[[LocalConfig, str | Path], None] = save_local_config,
+    update_config: Callable[
+        [str | Path, Callable[[LocalConfig], LocalConfig]], LocalConfig
+    ] = update_local_config,
 ) -> Callable[[str, str], str | None]:
     """Bind missing Feishu ownerOpenId to the first real sender for an adapter."""
     lock = threading.Lock()
@@ -3769,22 +4003,45 @@ def _build_feishu_owner_open_id_binder(
                 existing = channel.settings.get("ownerOpenId")
                 if isinstance(existing, str) and existing.strip():
                     return existing.strip()
-                channel.settings["ownerOpenId"] = cleaned_sender
                 source_path = getattr(config, "source_path", None)
+                bound_owner = cleaned_sender
                 if source_path is not None:
+
+                    def _patch(latest: LocalConfig) -> LocalConfig:
+                        nonlocal bound_owner
+                        channels = list(latest.channels)
+                        for index, latest_channel in enumerate(channels):
+                            if latest_channel.name != channel_name:
+                                continue
+                            if (
+                                not latest_channel.enabled
+                                or not latest_channel.name.startswith("feishu:")
+                            ):
+                                return latest
+                            settings = dict(latest_channel.settings)
+                            current_owner = settings.get("ownerOpenId")
+                            if isinstance(current_owner, str) and current_owner.strip():
+                                bound_owner = current_owner.strip()
+                                return latest
+                            settings["ownerOpenId"] = cleaned_sender
+                            channels[index] = replace(latest_channel, settings=settings)
+                            return replace(latest, channels=tuple(channels))
+                        return latest
+
                     try:
-                        save_config(config, source_path)
+                        update_config(source_path, _patch)
                     except Exception:  # noqa: BLE001
                         _log.warning(
                             "failed to persist feishu ownerOpenId for channel %s",
                             channel_name,
                             exc_info=True,
                         )
+                channel.settings["ownerOpenId"] = bound_owner
                 _log.info(
                     "bound feishu ownerOpenId from first inbound sender for channel %s",
                     channel_name,
                 )
-                return cleaned_sender
+                return bound_owner
         return None
 
     return _bind
@@ -3795,7 +4052,9 @@ def _make_token_getter(
     im_service: IMServiceConfig,
     local_config: LocalConfig,
     auth_client: IMAuthClient,
-    save_config: Callable[[LocalConfig, Path], None] = save_local_config,
+    update_config: Callable[
+        [str | Path, Callable[[LocalConfig], LocalConfig]], LocalConfig
+    ] = update_local_config,
 ) -> Callable[[], Awaitable[str | None]]:
     """Build an async closure that returns a fresh access token before each reconnect.
 
@@ -3813,7 +4072,7 @@ def _make_token_getter(
         im_service: IM connectivity settings containing token credentials.
         local_config: Full gateway config used for ``save_config`` persistence path.
         auth_client: HTTP client implementing refresh/login against the IM auth API.
-        save_config: Callable used to persist the updated config (injectable for tests).
+        update_config: Locked read-modify-write primitive used to patch token fields.
 
     Returns:
         Async zero-argument callable that resolves to the latest access token or None.
@@ -3824,7 +4083,6 @@ def _make_token_getter(
         "refresh_token": im_service.refresh_token,
         "token": im_service.token,
     }
-    _config_holder: list[LocalConfig] = [local_config]
 
     async def _getter() -> str | None:
         current_refresh = _state["refresh_token"]
@@ -3857,20 +4115,20 @@ def _make_token_getter(
         return _state["token"]
 
     def _persist(access: str, new_refresh: str) -> None:
-        current_cfg = _config_holder[0]
-        old_im = current_cfg.im_service
-        if old_im is None:
-            return
-        updated_im = IMServiceConfig(
-            url=old_im.url,
-            token=access,
-            refresh_token=new_refresh,
-            username=old_im.username,
-            password=old_im.password,
-        )
-        new_cfg = replace(current_cfg, im_service=updated_im)
-        _config_holder[0] = new_cfg
-        save_config(new_cfg, new_cfg.source_path)
+        def _patch(latest: LocalConfig) -> LocalConfig:
+            old_im = latest.im_service
+            if old_im is None:
+                return latest
+            return replace(
+                latest,
+                im_service=replace(
+                    old_im,
+                    token=access,
+                    refresh_token=new_refresh,
+                ),
+            )
+
+        update_config(local_config.source_path, _patch)
 
     return _getter
 
@@ -4097,23 +4355,29 @@ def _gateway_pid_path(config: LocalConfig) -> Path:
     return config.source_path.parent / "gateway.pid"
 
 
-def _write_gateway_pid(config: LocalConfig) -> None:
-    """Write the current process PID to ``gateway.pid``.
+def _write_gateway_pid(config: LocalConfig, *, expected_pid: int | None = None) -> None:
+    """Atomically and durably publish the owned PID to ``gateway.pid``.
 
     Side Effects:
         Creates or overwrites ``gateway.pid`` in the runtime directory.
     """
-    _gateway_pid_path(config).write_text(str(os.getpid()), encoding="utf-8")
+    pid = os.getpid() if expected_pid is None else expected_pid
+    _atomic_write_gateway_file(_gateway_pid_path(config), str(pid).encode())
 
 
-def _remove_gateway_pid(config: LocalConfig) -> None:
+def _remove_gateway_pid(
+    config: LocalConfig, *, expected_pid: int | None = None
+) -> None:
     """Remove ``gateway.pid`` if it exists.
 
     Side Effects:
         Deletes the PID file; silently succeeds if the file is already gone.
     """
+    pid_path = _gateway_pid_path(config)
+    if expected_pid is not None and _read_gateway_pid(config) != expected_pid:
+        return
     with suppress(FileNotFoundError):
-        _gateway_pid_path(config).unlink()
+        pid_path.unlink()
 
 
 def _read_gateway_pid(config: LocalConfig) -> int | None:
@@ -4131,19 +4395,824 @@ def _read_gateway_pid(config: LocalConfig) -> int | None:
         return None
 
 
+def _gateway_process_identity_path(config: LocalConfig) -> Path:
+    """Return the shared public process-instance identity path."""
+    return config.source_path.parent / "gateway.identity.json"
+
+
+def _process_snapshot_environment() -> dict[str, str]:
+    """Return the fixed environment used by every process identity query."""
+    return {**os.environ, "LC_ALL": "C", "LANG": "C", "TZ": "UTC"}
+
+
+def _read_process_start(pid: int) -> str | None:
+    """Read one normalized process birth value under the fixed environment."""
+    result = subprocess.run(
+        ["ps", "-p", str(pid), "-o", "lstart="],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=_process_snapshot_environment(),
+    )
+    value = result.stdout.strip()
+    if result.returncode != 0 or not value:
+        return None
+    return " ".join(value.split())
+
+
+def read_gateway_process_snapshot(pid: int) -> GatewayProcessSnapshot | None:
+    """Read one non-zombie process snapshot without sending it a signal.
+
+    Args:
+        pid: Positive process id to observe.
+
+    Returns:
+        A stable snapshot, or ``None`` when the process is absent or a zombie.
+
+    Raises:
+        RuntimeError: When the PID changes birth identity during observation.
+    """
+    before = _read_process_start(pid)
+    if before is None:
+        return None
+    status_result = subprocess.run(
+        ["ps", "-p", str(pid), "-o", "stat="],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=_process_snapshot_environment(),
+    )
+    status = status_result.stdout.strip()
+    if status_result.returncode != 0 or not status or status.startswith("Z"):
+        return None
+    command_result = subprocess.run(
+        ["ps", "-ww", "-p", str(pid), "-o", "command="],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=_process_snapshot_environment(),
+    )
+    command = command_result.stdout.strip() or None
+    after = _read_process_start(pid)
+    if after is None:
+        return None
+    if before != after:
+        raise RuntimeError(f"gateway pid={pid} changed during identity observation")
+    return GatewayProcessSnapshot(pid=pid, process_start=after, command=command)
+
+
+def _read_process_topology() -> dict[int, tuple[int, int]]:
+    """Read PID to (PPID, PGID) topology under the identity locale."""
+    result = subprocess.run(
+        ["ps", "-axo", "pid=,ppid=,pgid="],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=_process_snapshot_environment(),
+    )
+    if result.returncode != 0:
+        raise RuntimeError("cannot read process topology for Gateway teardown")
+    topology: dict[int, tuple[int, int]] = {}
+    try:
+        for line in result.stdout.splitlines():
+            if not line.strip():
+                continue
+            pid_text, ppid_text, pgid_text = line.split()
+            topology[int(pid_text)] = (int(ppid_text), int(pgid_text))
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError("process topology is malformed") from exc
+    return topology
+
+
+def _descendant_process_ids(
+    topology: Mapping[int, tuple[int, int]], leader_pid: int
+) -> set[int]:
+    """Return the transitive PPID closure rooted at one live leader."""
+    if leader_pid not in topology:
+        raise RuntimeError(f"Gateway leader pid={leader_pid} is not observable")
+    owned = {leader_pid}
+    while True:
+        additions = {
+            pid for pid, (ppid, _pgid) in topology.items() if ppid in owned
+        } - owned
+        if not additions:
+            return owned
+        owned.update(additions)
+
+
+def _capture_gateway_owned_process_set_once(
+    leader_pid: int,
+    *,
+    expected_process_start: str | None,
+    allow_shared_leader_group: bool,
+) -> GatewayOwnedProcessSet:
+    """Capture one candidate descendant set before the stability recheck."""
+    topology = _read_process_topology()
+    owned_pids = _descendant_process_ids(topology, leader_pid)
+    leader_pgid = topology[leader_pid][1]
+    owned_groups = {topology[pid][1] for pid in owned_pids}
+    foreign_group_members = {
+        pid
+        for pid, (_ppid, pgid) in topology.items()
+        if pgid in owned_groups and pid not in owned_pids
+    }
+    foreign_live = {
+        pid
+        for pid in foreign_group_members
+        if read_gateway_process_snapshot(pid) is not None
+    }
+    leader_group_exclusive = leader_pgid == leader_pid and not any(
+        topology[pid][1] == leader_pgid for pid in foreign_live
+    )
+    if not allow_shared_leader_group and not leader_group_exclusive:
+        raise RuntimeError(
+            f"Gateway leader pid={leader_pid} is not an exclusive process group leader"
+        )
+    foreign_detached = {pid for pid in foreign_live if topology[pid][1] != leader_pgid}
+    if foreign_detached:
+        raise RuntimeError(
+            f"Gateway process group contains foreign live pid={min(foreign_detached)}"
+        )
+    processes: list[GatewayOwnedProcess] = []
+    for pid in sorted(owned_pids):
+        snapshot = read_gateway_process_snapshot(pid)
+        if snapshot is None:
+            raise RuntimeError(
+                f"Gateway descendant pid={pid} exited during ownership capture"
+            )
+        ppid, pgid = topology[pid]
+        processes.append(
+            GatewayOwnedProcess(
+                pid=pid,
+                ppid=ppid,
+                pgid=pgid,
+                process_start=snapshot.process_start,
+            )
+        )
+    captured = GatewayOwnedProcessSet(
+        leader_pid=leader_pid,
+        processes=tuple(processes),
+        leader_group_exclusive=leader_group_exclusive,
+    )
+    leader = next(item for item in captured.processes if item.pid == leader_pid)
+    if (
+        expected_process_start is not None
+        and leader.process_start != expected_process_start
+    ):
+        raise RuntimeError(
+            "Gateway leader birth identity changed before ownership capture"
+        )
+    return captured
+
+
+def capture_gateway_owned_process_set(
+    leader_pid: int,
+    *,
+    expected_process_start: str | None = None,
+    allow_shared_leader_group: bool = False,
+) -> GatewayOwnedProcessSet:
+    """Freeze one stable PID/PPID/PGID/birth ownership set.
+
+    Args:
+        leader_pid: Exclusive Gateway session/process-group leader.
+        expected_process_start: Optional durable birth identity to bind the leader.
+        allow_shared_leader_group: Permit a foreground leader sharing its caller's PGID.
+
+    Returns:
+        The stable leader and transitive descendant process set.
+
+    Raises:
+        RuntimeError: When topology is unstable, foreign, or not leader-owned.
+    """
+    last_error: RuntimeError | None = None
+    for _ in range(3):
+        try:
+            first = _capture_gateway_owned_process_set_once(
+                leader_pid,
+                expected_process_start=expected_process_start,
+                allow_shared_leader_group=allow_shared_leader_group,
+            )
+            second = _capture_gateway_owned_process_set_once(
+                leader_pid,
+                expected_process_start=expected_process_start,
+                allow_shared_leader_group=allow_shared_leader_group,
+            )
+            if first == second:
+                return first
+            last_error = RuntimeError(
+                "Gateway descendant topology changed during ownership capture"
+            )
+        except RuntimeError as exc:
+            last_error = exc
+        time.sleep(0.01)
+    assert last_error is not None
+    raise last_error
+
+
+def _live_gateway_owned_processes(
+    expected: GatewayOwnedProcessSet,
+    *,
+    allow_reparented: bool,
+) -> tuple[GatewayOwnedProcess, ...]:
+    """Validate the frozen set and return its still-live original instances."""
+    topology = _read_process_topology()
+    expected_by_pid = {item.pid: item for item in expected.processes}
+    live: list[GatewayOwnedProcess] = []
+    for item in expected.processes:
+        snapshot = read_gateway_process_snapshot(item.pid)
+        if snapshot is None:
+            continue
+        if snapshot.process_start != item.process_start:
+            raise RuntimeError(
+                f"Gateway descendant pid={item.pid} birth identity changed"
+            )
+        current = topology.get(item.pid)
+        if current is None:
+            raise RuntimeError(
+                f"Gateway descendant pid={item.pid} topology disappeared"
+            )
+        current_ppid, current_pgid = current
+        if current_pgid != item.pgid:
+            raise RuntimeError(f"Gateway descendant pid={item.pid} PGID changed")
+        live.append(
+            GatewayOwnedProcess(
+                pid=item.pid,
+                ppid=current_ppid,
+                pgid=current_pgid,
+                process_start=item.process_start,
+            )
+        )
+    live_pids = {item.pid for item in live}
+    for current in live:
+        expected_item = expected_by_pid[current.pid]
+        if current.ppid == expected_item.ppid:
+            continue
+        parent_was_owned = expected_item.ppid in expected_by_pid
+        parent_still_live = expected_item.ppid in live_pids
+        if not (allow_reparented and parent_was_owned and not parent_still_live):
+            raise RuntimeError(f"Gateway descendant pid={current.pid} PPID changed")
+    live_groups = {item.pgid for item in live}
+    leader = expected_by_pid[expected.leader_pid]
+    for pid, (_ppid, pgid) in topology.items():
+        if pgid not in live_groups or pid in expected_by_pid:
+            continue
+        if pgid == leader.pgid and not expected.leader_group_exclusive:
+            continue
+        if read_gateway_process_snapshot(pid) is not None:
+            raise RuntimeError(f"Gateway owned process group gained foreign pid={pid}")
+    if expected.leader_pid in live_pids:
+        current_descendants = _descendant_process_ids(topology, expected.leader_pid)
+        for pid in current_descendants - expected_by_pid.keys():
+            if read_gateway_process_snapshot(pid) is not None:
+                raise RuntimeError(f"Gateway gained unfrozen descendant pid={pid}")
+    return tuple(live)
+
+
+def gateway_owned_process_groups(
+    expected: GatewayOwnedProcessSet,
+    *,
+    allow_reparented: bool = False,
+) -> tuple[int, ...]:
+    """Return validated live PGIDs, detached groups first and leader last.
+
+    Args:
+        expected: Frozen process set that grants teardown authority.
+        allow_reparented: Accept descendants whose owned parent has already exited.
+
+    Returns:
+        Unique live process group ids in safe shutdown order.
+
+    Raises:
+        RuntimeError: When PID birth, PPID, PGID, or group membership drifted.
+    """
+    live = _live_gateway_owned_processes(
+        expected,
+        allow_reparented=allow_reparented,
+    )
+    leader = next(
+        item for item in expected.processes if item.pid == expected.leader_pid
+    )
+    groups = {item.pgid for item in live}
+    if not expected.leader_group_exclusive:
+        groups.discard(leader.pgid)
+    return tuple(sorted(groups - {leader.pgid})) + (
+        (leader.pgid,)
+        if expected.leader_group_exclusive and leader.pgid in groups
+        else ()
+    )
+
+
+def signal_gateway_owned_process_set(
+    expected: GatewayOwnedProcessSet,
+    sent_signal: int,
+    *,
+    allow_reparented: bool = False,
+) -> None:
+    """Validate and signal every live owned process group exactly once.
+
+    Args:
+        expected: Frozen process set that grants teardown authority.
+        sent_signal: POSIX signal delivered to each owned group.
+        allow_reparented: Accept descendants whose owned parent has already exited.
+
+    Raises:
+        RuntimeError: When the frozen ownership set no longer matches live topology.
+
+    Side Effects:
+        Sends ``sent_signal`` to each still-live owned process group.
+    """
+    live = _live_gateway_owned_processes(
+        expected,
+        allow_reparented=allow_reparented,
+    )
+    leader = next(
+        item for item in expected.processes if item.pid == expected.leader_pid
+    )
+    groups = {item.pgid for item in live}
+    detached_groups = tuple(sorted(groups - {leader.pgid}))
+    group_targets = detached_groups + (
+        (leader.pgid,)
+        if expected.leader_group_exclusive and leader.pgid in groups
+        else ()
+    )
+    for pgid in group_targets:
+        try:
+            os.killpg(pgid, sent_signal)
+        except ProcessLookupError:
+            continue
+    if expected.leader_group_exclusive:
+        return
+    shared_group_processes = [item for item in live if item.pgid == leader.pgid]
+    shared_group_processes.sort(key=lambda item: item.pid == expected.leader_pid)
+    for item in shared_group_processes:
+        try:
+            os.kill(item.pid, sent_signal)
+        except ProcessLookupError:
+            continue
+
+
+def resume_gateway_owned_process_set(expected: GatewayOwnedProcessSet) -> None:
+    """Resume each still-matching frozen PID without signalling a shared group.
+
+    Args:
+        expected: Frozen process instances previously stopped by this lifecycle.
+
+    Side Effects:
+        Sends ``SIGCONT`` only to original PIDs whose birth identity still matches.
+    """
+    for item in expected.processes:
+        snapshot = read_gateway_process_snapshot(item.pid)
+        if snapshot is None or snapshot.process_start != item.process_start:
+            continue
+        try:
+            os.kill(item.pid, signal.SIGCONT)
+        except ProcessLookupError:
+            continue
+
+
+def freeze_gateway_owned_process_set(
+    leader_pid: int,
+    *,
+    expected_process_start: str | None = None,
+    allow_shared_leader_group: bool = False,
+) -> GatewayOwnedProcessSet:
+    """Freeze and confirm one complete Gateway descendant ownership set.
+
+    Args:
+        leader_pid: Gateway process whose transitive descendants become owned.
+        expected_process_start: Optional durable birth identity for the leader.
+        allow_shared_leader_group: Permit foreground launchers that share a caller PGID.
+
+    Returns:
+        A stable set whose original process instances are all stopped.
+
+    Raises:
+        RuntimeError: When three attempts cannot freeze one stable ownership set.
+    """
+    last_error: RuntimeError | None = None
+    for _ in range(3):
+        owned: GatewayOwnedProcessSet | None = None
+        try:
+            owned = capture_gateway_owned_process_set(
+                leader_pid,
+                expected_process_start=expected_process_start,
+                allow_shared_leader_group=allow_shared_leader_group,
+            )
+            signal_gateway_owned_process_set(owned, signal.SIGSTOP)
+            confirmed = capture_gateway_owned_process_set(
+                leader_pid,
+                expected_process_start=expected_process_start,
+                allow_shared_leader_group=allow_shared_leader_group,
+            )
+            if confirmed == owned:
+                return owned
+            last_error = RuntimeError(
+                "Gateway descendant topology changed while freezing ownership"
+            )
+        except RuntimeError as exc:
+            last_error = exc
+        if owned is not None:
+            resume_gateway_owned_process_set(owned)
+        time.sleep(0.01)
+    assert last_error is not None
+    raise last_error
+
+
+def gateway_owned_process_set_exited(expected: GatewayOwnedProcessSet) -> bool:
+    """Return whether every frozen original process instance has exited.
+
+    Args:
+        expected: Frozen process set whose original births must disappear.
+
+    Returns:
+        ``True`` only when no PID still names its captured birth identity.
+    """
+    for item in expected.processes:
+        snapshot = read_gateway_process_snapshot(item.pid)
+        if snapshot is not None and snapshot.process_start == item.process_start:
+            return False
+    return True
+
+
+_GATEWAY_LIFECYCLE_EVIDENCE_NAMES = (
+    ".gateway.pid",
+    "gateway.pid",
+    "gateway.identity.json",
+    ".gateway-state.json",
+)
+
+
+def _snapshot_gateway_evidence_file(
+    root: Path, name: str
+) -> GatewayLifecycleEvidenceFile:
+    """Read one evidence file without following links or accepting drift."""
+    path = root / name
+    try:
+        before = path.lstat()
+    except FileNotFoundError:
+        return GatewayLifecycleEvidenceFile(name=name, exists=False)
+    if stat.S_ISLNK(before.st_mode) or not stat.S_ISREG(before.st_mode):
+        raise RuntimeError(f"non-regular Gateway lifecycle evidence: {path}")
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(path, flags)
+    try:
+        held = os.fstat(fd)
+        chunks: list[bytes] = []
+        while chunk := os.read(fd, 65536):
+            chunks.append(chunk)
+    finally:
+        os.close(fd)
+    after = path.lstat()
+    before_identity = (
+        before.st_dev,
+        before.st_ino,
+        before.st_size,
+        before.st_mtime_ns,
+    )
+    after_identity = (
+        after.st_dev,
+        after.st_ino,
+        after.st_size,
+        after.st_mtime_ns,
+    )
+    held_identity = (
+        held.st_dev,
+        held.st_ino,
+        held.st_size,
+        held.st_mtime_ns,
+    )
+    if before_identity != held_identity or held_identity != after_identity:
+        raise RuntimeError(f"Gateway lifecycle evidence changed while read: {path}")
+    content = b"".join(chunks)
+    try:
+        text = content.decode("utf-8")
+    except UnicodeError as exc:
+        raise RuntimeError(f"Gateway lifecycle evidence is not UTF-8: {path}") from exc
+    return GatewayLifecycleEvidenceFile(
+        name=name,
+        exists=True,
+        device=held.st_dev,
+        inode=held.st_ino,
+        size=held.st_size,
+        modified_ns=held.st_mtime_ns,
+        sha256=hashlib.sha256(content).hexdigest(),
+        content=text,
+    )
+
+
+def capture_gateway_lifecycle_evidence(
+    root: Path, pid: int
+) -> GatewayLifecycleEvidenceSnapshot:
+    """Capture the complete evidence revision owned by one Gateway PID.
+
+    Args:
+        root: Directory containing worktree Gateway lifecycle evidence.
+        pid: Externally owned Gateway process id.
+
+    Returns:
+        An immutable filesystem snapshot suitable for a later conditional clear.
+
+    Raises:
+        RuntimeError: When evidence is missing, malformed, non-regular, or does
+            not consistently name ``pid``.
+    """
+    root = root.resolve()
+    legacy_path = root / ".gateway-identity.json"
+    if legacy_path.exists() or legacy_path.is_symlink():
+        raise RuntimeError(
+            f"unsupported Gateway lifecycle evidence retained: {legacy_path}"
+        )
+    files = tuple(
+        _snapshot_gateway_evidence_file(root, name)
+        for name in _GATEWAY_LIFECYCLE_EVIDENCE_NAMES
+    )
+    by_name = {item.name: item for item in files}
+    required = (".gateway.pid", "gateway.pid", "gateway.identity.json")
+    if any(not by_name[name].exists for name in required):
+        raise RuntimeError("Gateway lifecycle evidence is incomplete")
+    try:
+        external_pid = int(by_name[".gateway.pid"].content or "")
+        internal_pid = int(by_name["gateway.pid"].content or "")
+        identity = json.loads(by_name["gateway.identity.json"].content or "")
+        state = (
+            json.loads(by_name[".gateway-state.json"].content or "")
+            if by_name[".gateway-state.json"].exists
+            else None
+        )
+    except (OSError, UnicodeError, ValueError, TypeError) as exc:
+        raise RuntimeError("Gateway lifecycle evidence is malformed") from exc
+    if (
+        external_pid != pid
+        or internal_pid != pid
+        or identity.get("pid") != pid
+        or (state is not None and state.get("pid") != pid)
+    ):
+        raise RuntimeError("Gateway lifecycle evidence PID mismatch")
+    # Re-capture after semantic reads so callers never receive a mixed revision.
+    confirmed = tuple(
+        _snapshot_gateway_evidence_file(root, name)
+        for name in _GATEWAY_LIFECYCLE_EVIDENCE_NAMES
+    )
+    if confirmed != files:
+        raise RuntimeError("Gateway lifecycle evidence changed during capture")
+    return GatewayLifecycleEvidenceSnapshot(pid=pid, files=files)
+
+
+def clear_gateway_lifecycle_evidence(
+    root: Path,
+    expected: GatewayLifecycleEvidenceSnapshot,
+    *,
+    allow_runtime_cleared: bool = False,
+) -> None:
+    """Conditionally clear one complete, unchanged Gateway evidence revision.
+
+    Args:
+        root: Directory containing worktree Gateway lifecycle evidence.
+        expected: Exact revision previously returned by
+            :func:`capture_gateway_lifecycle_evidence`.
+        allow_runtime_cleared: Accept the foreground runtime's normal exit
+            state where the unchanged external PID remains but every
+            runtime-owned internal evidence file has already been removed.
+
+    Raises:
+        RuntimeError: When any evidence path changed before the commit point.
+    """
+    root = root.resolve()
+    current_files = tuple(
+        _snapshot_gateway_evidence_file(root, item.name) for item in expected.files
+    )
+    if current_files != expected.files:
+        expected_by_name = {item.name: item for item in expected.files}
+        current_by_name = {item.name: item for item in current_files}
+        external_unchanged = (
+            current_by_name[".gateway.pid"] == expected_by_name[".gateway.pid"]
+        )
+        internal_cleared = all(
+            not current_by_name[name].exists
+            for name in (
+                "gateway.pid",
+                "gateway.identity.json",
+                ".gateway-state.json",
+            )
+        )
+        if not (allow_runtime_cleared and external_unchanged and internal_cleared):
+            raise RuntimeError("Gateway lifecycle evidence changed before cleanup")
+        (root / ".gateway.pid").unlink()
+        return
+    current = capture_gateway_lifecycle_evidence(root, expected.pid)
+    if current != expected:
+        raise RuntimeError("Gateway lifecycle evidence changed before cleanup")
+    for item in expected.files:
+        if item.exists:
+            (root / item.name).unlink()
+
+
+def _runtime_gateway_argv(
+    config: LocalConfig, *, im_service_url_override: str | None
+) -> tuple[str, ...]:
+    """Build the expected arguments following the module entry point."""
+    argv = ["--config", str(config.source_path.resolve())]
+    if isinstance(im_service_url_override, str) and im_service_url_override.strip():
+        argv.extend(["--im-service-url", im_service_url_override.strip()])
+    argv.append("--foreground")
+    if "--auto-bind" in sys.argv:
+        argv.append("--auto-bind")
+    return tuple(argv)
+
+
+def _build_gateway_process_identity(
+    config: LocalConfig, *, im_service_url_override: str | None
+) -> GatewayProcessIdentity:
+    """Build the durable identity for the current foreground process."""
+    pid = os.getpid()
+    snapshot = read_gateway_process_snapshot(pid)
+    if snapshot is None:
+        raise RuntimeError(
+            f"cannot observe Gateway process start identity for pid={pid}"
+        )
+    return GatewayProcessIdentity(
+        schema_version=1,
+        pid=pid,
+        process_start=snapshot.process_start,
+        config_path=str(config.source_path.resolve()),
+        entry_module="personal_assistant.main",
+        argv=_runtime_gateway_argv(
+            config, im_service_url_override=im_service_url_override
+        ),
+    )
+
+
+def _write_gateway_process_identity(
+    config: LocalConfig, identity: GatewayProcessIdentity
+) -> None:
+    """Atomically and durably publish the process-instance identity."""
+    _atomic_write_gateway_file(
+        _gateway_process_identity_path(config),
+        json.dumps(asdict(identity), indent=2, sort_keys=True).encode(),
+    )
+
+
+def _atomic_write_gateway_file(path: Path, payload: bytes) -> None:
+    """Atomically replace one lifecycle file and persist its directory entry."""
+    fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temp_path = Path(temp_name)
+    try:
+        remaining = memoryview(payload)
+        os.fchmod(fd, 0o600)
+        while remaining:
+            written = os.write(fd, remaining)
+            if written <= 0:
+                raise OSError("Gateway identity write made no progress")
+            remaining = remaining[written:]
+        os.fsync(fd)
+        os.close(fd)
+        fd = -1
+        os.replace(temp_path, path)
+        temp_path = Path()
+        directory_fd = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    finally:
+        if fd >= 0:
+            os.close(fd)
+        if temp_path != Path():
+            temp_path.unlink(missing_ok=True)
+
+
+def _read_gateway_process_identity(
+    config: LocalConfig,
+) -> GatewayProcessIdentity | None:
+    """Read a valid identity payload, returning None for absent/malformed evidence."""
+    path = _gateway_process_identity_path(config)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        argv = payload["argv"]
+        if not isinstance(argv, list) or not all(isinstance(arg, str) for arg in argv):
+            return None
+        return GatewayProcessIdentity(
+            schema_version=int(payload["schema_version"]),
+            pid=int(payload["pid"]),
+            process_start=str(payload["process_start"]),
+            config_path=str(payload["config_path"]),
+            entry_module=str(payload["entry_module"]),
+            argv=tuple(argv),
+        )
+    except (FileNotFoundError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return None
+
+
+def _remove_gateway_process_identity(
+    config: LocalConfig, *, expected: GatewayProcessIdentity
+) -> None:
+    """Remove identity only while the path still contains the expected instance."""
+    if _read_gateway_process_identity(config) != expected:
+        return
+    with suppress(FileNotFoundError):
+        _gateway_process_identity_path(config).unlink()
+
+
+def _assert_gateway_identity_static(
+    config: LocalConfig, pid: int, identity: GatewayProcessIdentity
+) -> None:
+    """Reject persisted identity fields that do not claim this Gateway/config."""
+    config_args = [
+        index for index, value in enumerate(identity.argv) if value == "--config"
+    ]
+    valid_config_arg = (
+        len(config_args) == 1
+        and config_args[0] + 1 < len(identity.argv)
+        and Path(identity.argv[config_args[0] + 1]).resolve()
+        == config.source_path.resolve()
+    )
+    if (
+        identity.schema_version != 1
+        or identity.pid != pid
+        or Path(identity.config_path).resolve() != config.source_path.resolve()
+        or identity.entry_module != "personal_assistant.main"
+        or identity.argv.count("--foreground") != 1
+        or not valid_config_arg
+    ):
+        raise RuntimeError("gateway process identity mismatch; evidence retained")
+
+
+def _upgrade_legacy_gateway_identity(
+    config: LocalConfig, pid: int
+) -> GatewayProcessIdentity | None:
+    """Safely give a matching pre-identity state file signal authority.
+
+    Legacy state remains forward-readable, but its PID is never trusted alone.
+    The live process must expose the exact supported Gateway module/config argv
+    before the current OS birth identity is durably adopted.
+    """
+    snapshot = read_gateway_process_snapshot(pid)
+    if snapshot is None:
+        return None
+    command = snapshot.command
+    if command is None:
+        raise RuntimeError("legacy Gateway identity mismatch; evidence retained")
+    config_path = str(config.source_path.resolve())
+    pattern = re.compile(
+        r"^.+ -m personal_assistant\.main --config "
+        + re.escape(config_path)
+        + r"(?: --im-service-url (?P<im_url>\S+))?"
+        + r" --foreground(?P<auto_bind> --auto-bind)?$"
+    )
+    match = pattern.fullmatch(command)
+    if match is None:
+        raise RuntimeError("legacy Gateway identity mismatch; evidence retained")
+    argv = ["--config", config_path]
+    im_url = match.group("im_url")
+    if im_url is not None:
+        argv.extend(["--im-service-url", im_url])
+    argv.append("--foreground")
+    if match.group("auto_bind") is not None:
+        argv.append("--auto-bind")
+
+    identity = GatewayProcessIdentity(
+        schema_version=1,
+        pid=pid,
+        process_start=snapshot.process_start,
+        config_path=config_path,
+        entry_module="personal_assistant.main",
+        argv=tuple(argv),
+    )
+    _write_gateway_process_identity(config, identity)
+    return identity
+
+
+def _assert_gateway_process_instance(identity: GatewayProcessIdentity) -> bool:
+    """Return False for exit; raise when a live PID no longer matches identity."""
+    snapshot = read_gateway_process_snapshot(identity.pid)
+    if snapshot is None:
+        return False
+    if snapshot.process_start != identity.process_start:
+        raise RuntimeError("gateway process identity mismatch; evidence retained")
+    return True
+
+
 def _gateway_state_path(config: LocalConfig) -> Path:
     return config.source_path.parent / ".gateway-state.json"
 
 
 def _write_gateway_state(config: LocalConfig, result: BackgroundLaunchResult) -> None:
-    state = GatewayRuntimeState(
+    """Atomically and durably publish background launcher state."""
+    state = _gateway_runtime_state(config, result)
+    _atomic_write_gateway_file(
+        _gateway_state_path(config),
+        json.dumps(asdict(state), indent=2, sort_keys=True).encode(),
+    )
+
+
+def _gateway_runtime_state(
+    config: LocalConfig, result: BackgroundLaunchResult
+) -> GatewayRuntimeState:
+    """Build the exact state payload owned by one background launch."""
+    return GatewayRuntimeState(
         pid=result.pid,
         config_path=str(Path(config.source_path).resolve()),
-        health_url=result.health_url,
         log_path=str(result.log_path),
-    )
-    _gateway_state_path(config).write_text(
-        json.dumps(asdict(state), indent=2, sort_keys=True), encoding="utf-8"
     )
 
 
@@ -4154,22 +5223,39 @@ def _read_gateway_state(state_path: Path) -> GatewayRuntimeState | None:
     return GatewayRuntimeState(
         pid=int(payload["pid"]),
         config_path=str(payload["config_path"]),
-        health_url=str(payload["health_url"]),
         log_path=str(payload["log_path"]),
     )
 
 
-def _remove_gateway_state(state_path: Path) -> None:
+def _remove_gateway_state(
+    state_path: Path, *, expected: GatewayRuntimeState | None = None
+) -> None:
+    """Remove state only when it still belongs to the expected launch."""
+    if expected is not None:
+        try:
+            if _read_gateway_state(state_path) != expected:
+                return
+        except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+            return
     with suppress(FileNotFoundError):
         state_path.unlink()
 
 
+def _clear_failed_gateway_startup(
+    config: LocalConfig,
+    expected_state: GatewayRuntimeState,
+    expected_identity: GatewayProcessIdentity | None,
+) -> None:
+    """Clear only lifecycle files still naming a confirmed-exited launch."""
+    _remove_gateway_state(_gateway_state_path(config), expected=expected_state)
+    _remove_gateway_pid(config, expected_pid=expected_state.pid)
+    if expected_identity is not None:
+        _remove_gateway_process_identity(config, expected=expected_identity)
+
+
 def _pid_is_running(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    return True
+    """Return whether PID names a non-zombie process, without sending a signal."""
+    return read_gateway_process_snapshot(pid) is not None
 
 
 def _resolve_agent_tool_allowlist(
@@ -4249,52 +5335,76 @@ def _spawn_background_gateway_process(argv: list[str], log_path: Path) -> Proces
         )
 
 
-def _wait_for_gateway_ready(
+def _wait_for_gateway_start(
     process: ProcessLike, config: LocalConfig, timeout_seconds: float
 ) -> None:
-    """Wait for the background gateway to write its PID file (ready signal).
+    """Wait for the background Gateway child to write its PID and remain alive.
 
-    refactor-387 M3: the kernel is in-process and has no HTTP health endpoint.
-    We detect readiness by waiting for the gateway PID file to appear on disk —
-    run_gateway() writes it via _write_gateway_pid() after runtime.run_forever() starts.
+    This is a process-start confirmation, not a runtime/channel readiness signal.
+    ``run_gateway`` writes the PID immediately before entering ``run_forever``.
     """
     pid_path = _gateway_pid_path(config)
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() <= deadline:
-        if process.poll() is not None:
+        return_code = process.poll()
+        if return_code is not None:
             raise RuntimeError(
-                f"gateway exited before ready with return code {process.poll()}"
+                f"gateway exited before startup confirmation with return code {return_code}"
             )
         if pid_path.exists():
-            return
-        time.sleep(config.kernel.health_poll_interval_seconds or 0.2)
+            child_pid = _read_gateway_pid(config)
+            if child_pid is None:
+                raise RuntimeError(
+                    f"gateway startup confirmation has invalid PID file: {pid_path}"
+                )
+            if child_pid != process.pid:
+                raise RuntimeError(
+                    "gateway startup confirmation PID mismatch: "
+                    f"spawned={process.pid} file={child_pid}"
+                )
+            return_code = process.poll()
+            if return_code is not None:
+                raise RuntimeError(
+                    "gateway exited before startup confirmation with return code "
+                    f"{return_code}"
+                )
+            identity = _read_gateway_process_identity(config)
+            if identity is not None:
+                _assert_gateway_identity_static(config, process.pid, identity)
+                if not _assert_gateway_process_instance(identity):
+                    raise RuntimeError(
+                        "gateway exited before process identity confirmation"
+                    )
+                return
+        time.sleep(config.gateway.poll_interval_seconds or 0.2)
     raise RuntimeError(
-        "timed out waiting for gateway readiness (pid file never appeared)"
+        "timed out waiting for gateway startup confirmation "
+        "(pid or process identity never appeared)"
     )
 
 
 def _stop_background_process(process: ProcessLike, *, timeout_seconds: float) -> None:
+    """Stop a spawned Gateway or raise while retaining ownership evidence."""
     if process.poll() is not None:
         return
-    process.terminate()
-    # bugfix-359: Gateway 启动用 start_new_session=True,kernel uvicorn 子进程在同一个 pgid 下。
-    # process.terminate() 只发给 Gateway pid,kernel 接不到。补一发 killpg 把整个会话带走;
-    # fake/mock ProcessLike 的 pid 拿不到 pgid 时 _kill_process_tree 静默吞掉。
+    # Gateway owns the session created by start_new_session=True. Terminating the
+    # group once avoids delivering duplicate signals to its leader.
     _kill_process_tree(process.pid, signal.SIGTERM)
     try:
         process.wait(timeout=timeout_seconds)
     except (TimeoutError, subprocess.TimeoutExpired):
-        process.kill()
         _kill_process_tree(process.pid, signal.SIGKILL)
-        with suppress(TimeoutError, subprocess.TimeoutExpired):
+        try:
             process.wait(timeout=timeout_seconds)
+        except (TimeoutError, subprocess.TimeoutExpired) as exc:
+            raise GatewayProcessCleanupError(process.pid) from exc
 
 
 def _kill_process_tree(pid: int, sig: int) -> None:
     """Send ``sig`` to the entire process group led by ``pid``; falls back to single pid.
 
-    Gateway 后台启动时 ``start_new_session=True``,kernel uvicorn 子进程在同一个 pgid 下。
-    killpg 是唯一能一次性把 Gateway + kernel + 任何其它 Gateway 派生的孙进程都带走的方式。
+    Gateway 后台启动时 ``start_new_session=True``，其 channel/tool 后代进程位于同一 pgid。
+    killpg 一次性回收 Gateway 拥有的整棵进程树。
     pgid 拿不到(进程刚消失)时静默吞掉,让上层走 wait 路径决定下一步。
     """
     try:
@@ -4302,7 +5412,10 @@ def _kill_process_tree(pid: int, sig: int) -> None:
     except ProcessLookupError:
         return
     try:
-        os.killpg(pgid, sig)
+        if pgid == pid:
+            os.killpg(pgid, sig)
+        else:
+            os.kill(pid, sig)
     except ProcessLookupError:
         return
 
@@ -4363,13 +5476,6 @@ def _consume_future_exception(future: object) -> None:
     if callable(result):
         with suppress(asyncio.CancelledError):
             result()
-
-
-def _spawn_process(command: str) -> ProcessLike:
-    _kernel_log = Path("~/.nano-assistant/kernel.log").expanduser()
-    _kernel_log.parent.mkdir(parents=True, exist_ok=True)
-    _log_file = _kernel_log.open("ab")
-    return subprocess.Popen(shlex.split(command), stdout=_log_file, stderr=_log_file)
 
 
 if __name__ == "__main__":

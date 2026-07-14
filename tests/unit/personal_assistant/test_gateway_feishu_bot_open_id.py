@@ -13,7 +13,7 @@ from personal_assistant.config.local_store import (
     ChannelConfig,
     HeartbeatConfig,
     IMServiceConfig,
-    KernelConfig,
+    GatewayLifecycleConfig,
     LLMConfigPayload,
     LLMModelPayload,
     LLMProviderPayload,
@@ -37,7 +37,7 @@ def _local_config(tmp_path: Path, channels: tuple[ChannelConfig, ...]) -> LocalC
             ),
         ),
         channels=channels,
-        kernel=KernelConfig(),
+        gateway=GatewayLifecycleConfig(),
         heartbeat=HeartbeatConfig(),
         im_service=IMServiceConfig(url="http://127.0.0.1:8011"),
         llm=LLMConfigPayload(
@@ -121,17 +121,26 @@ def test_feishu_owner_open_id_binder_persists_first_sender(
             ),
         ),
     )
-    saved: list[LocalConfig] = []
+    persisted: list[LocalConfig] = []
+
+    def _update(
+        _path: str | Path,
+        mutation: Callable[[LocalConfig], LocalConfig],
+    ) -> LocalConfig:
+        updated = mutation(config)
+        persisted.append(updated)
+        return updated
+
     binder = _build_feishu_owner_open_id_binder(
         config,
-        save_config=lambda cfg, _path: saved.append(cfg),
+        update_config=_update,
     )
 
     bound = binder("feishu:plato", "ou_first")
 
     assert bound == "ou_first"
     assert config.channels[0].settings["ownerOpenId"] == "ou_first"
-    assert saved == [config]
+    assert persisted[0].channels[0].settings["ownerOpenId"] == "ou_first"
 
 
 def test_feishu_owner_open_id_binder_keeps_existing_owner(
@@ -153,7 +162,7 @@ def test_feishu_owner_open_id_binder_keeps_existing_owner(
     )
     binder = _build_feishu_owner_open_id_binder(
         config,
-        save_config=lambda _cfg, _path: pytest.fail("must not persist existing"),
+        update_config=lambda _path, _mutation: pytest.fail("must not persist existing"),
     )
 
     bound = binder("feishu:plato", "ou_other")
@@ -179,7 +188,7 @@ def test_autofill_feishu_bot_open_id_without_source_path_keeps_memory_update(
         node=config.node,
         agents=config.agents,
         channels=config.channels,
-        kernel=config.kernel,
+        gateway=config.gateway,
         heartbeat=config.heartbeat,
         im_service=config.im_service,
         llm=config.llm,

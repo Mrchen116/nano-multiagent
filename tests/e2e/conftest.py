@@ -6,7 +6,7 @@ bugfix-359: e2e 测试 ``tests/e2e/test_personal_assistant_main_e2e.py`` 在异�
 都改成 killpg,只要测试在跑到清理代码前就异常,daemon 还是飞了。
 
 本 finalizer 是兜底:session teardown 时扫一遍系统进程,cmdline 命中 pytest-of-<user>/pytest-NN/
-的 ``personal_assistant.main`` 或 ``uvicorn personal_assistant.kernel_app`` 一律 SIGKILL,
+的 ``personal_assistant.main`` 一律 SIGKILL,
 每条打一行 ``WARN:`` 让 dev 立刻看到 — 兜底干净不等于测试自身清理也干净,留下的告警就是
 "测试本身的清理路径有 bug,请修"。
 """
@@ -28,12 +28,9 @@ import pytest
 # 或 /tmp/pytest-of-<user>/pytest-<NN>/...
 _PYTEST_TMP_RE = re.compile(r"pytest-of-[^/\s]+/pytest-\d+/")
 
-# 只追这两类进程 — Gateway 父 + kernel uvicorn 子。其它 cmdline 命中 pytest tmpdir 的
-# 比如 SQLite 连接的 wal 文件路径出现在 fd 表里(实际不会出现在 cmdline),不在追杀范围。
-_LEAK_NEEDLES = (
-    "personal_assistant.main",
-    "personal_assistant.kernel_app",
-)
+# 只追 Gateway 入口进程。其它 cmdline 命中 pytest tmpdir 的进程不在追杀范围，
+# 避免误杀测试 runner 或无关工具。
+_LEAK_NEEDLES = ("personal_assistant.main",)
 
 
 def _scan_leaked_pids(*, exclude: Iterable[int] = ()) -> list[tuple[int, str]]:
