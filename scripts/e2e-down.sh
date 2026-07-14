@@ -35,6 +35,9 @@ if [[ -z "$PYTHON_BIN" ]]; then
 fi
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SRC_DIR="$(cd "$SCRIPT_DIR/../src" && pwd)"
+# shellcheck source=scripts/e2e-lifecycle-lock.sh
+source "$SCRIPT_DIR/e2e-lifecycle-lock.sh"
+e2e_acquire_lifecycle_lock "$WT_ROOT" "$PYTHON_BIN"
 
 gateway_process_snapshot() {
   local pid=$1
@@ -208,6 +211,101 @@ finally:
 PY
 }
 
+capture_im_pid_snapshot() {
+  "$PYTHON_BIN" - "$WT_ROOT/.im.pid" <<'PY'
+import hashlib
+import json
+import os
+from pathlib import Path
+import stat
+import sys
+
+path = Path(sys.argv[1])
+try:
+    before = path.lstat()
+except FileNotFoundError:
+    print(json.dumps({"exists": False}, sort_keys=True))
+    raise SystemExit(0)
+if not stat.S_ISREG(before.st_mode) or stat.S_ISLNK(before.st_mode):
+    raise SystemExit("IM PID evidence is non-regular")
+flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+fd = os.open(path, flags)
+try:
+    held_before = os.fstat(fd)
+    chunks = []
+    while chunk := os.read(fd, 4096):
+        chunks.append(chunk)
+    held_after = os.fstat(fd)
+    current = path.lstat()
+finally:
+    os.close(fd)
+content = b"".join(chunks)
+revision = (
+    held_before.st_dev,
+    held_before.st_ino,
+    held_before.st_mode,
+    held_before.st_size,
+    held_before.st_mtime_ns,
+)
+if (
+    revision
+    != (
+        held_after.st_dev,
+        held_after.st_ino,
+        held_after.st_mode,
+        held_after.st_size,
+        held_after.st_mtime_ns,
+    )
+    or revision
+    != (
+        current.st_dev,
+        current.st_ino,
+        current.st_mode,
+        current.st_size,
+        current.st_mtime_ns,
+    )
+    or held_before.st_nlink != 1
+    or held_after.st_nlink != 1
+    or current.st_nlink != 1
+):
+    raise SystemExit("IM PID evidence changed during snapshot")
+try:
+    pid_text = content.decode("ascii").strip()
+except UnicodeDecodeError as exc:
+    raise SystemExit("IM PID evidence is malformed") from exc
+if not pid_text.isdigit() or pid_text.startswith("0"):
+    raise SystemExit("IM PID evidence is malformed")
+print(
+    json.dumps(
+        {
+            "content_sha256": hashlib.sha256(content).hexdigest(),
+            "device": held_before.st_dev,
+            "exists": True,
+            "inode": held_before.st_ino,
+            "mode": held_before.st_mode,
+            "mtime_ns": held_before.st_mtime_ns,
+            "pid": int(pid_text),
+            "size": held_before.st_size,
+        },
+        sort_keys=True,
+    )
+)
+PY
+}
+
+im_pid_snapshot_matches() {
+  local current
+  current="$(capture_im_pid_snapshot)" || return 1
+  [[ "$current" == "$im_pid_snapshot" ]]
+}
+
+# IM evidence is part of the same full-stack generation. Reject malformed or
+# non-regular ownership before any Gateway signal can partially tear down it.
+im_pid_snapshot="$(capture_im_pid_snapshot)" || {
+  echo "IM PID evidence is invalid; retaining complete stack" >&2
+  exit 1
+}
+
 # Step 1: Signal Gateway and wait for graceful exit before touching IM.
 # Gateway's shutdown drains in-flight runs before closing IM transport;
 # sending SIGTERM to both at once would close IM before runs settle.
@@ -250,7 +348,8 @@ if [[ -f "$gateway_pid_file" ]]; then
   }
   if [[ "$gateway_status" == "alive" ]]; then
     if ! validate_gateway_identity "$gw_pid" 1 \
-      || ! gateway_lifecycle_snapshot_matches "$gateway_lifecycle_snapshot" "$gw_pid"; then
+      || ! gateway_lifecycle_snapshot_matches "$gateway_lifecycle_snapshot" "$gw_pid" \
+      || ! im_pid_snapshot_matches; then
       echo "gateway identity changed before SIGTERM; retaining stack" >&2
       exit 1
     fi
@@ -315,17 +414,12 @@ fi
 
 # Step 2: Now that Gateway is gone, stop and confirm IM before cleanup commit.
 im_pid_file="$WT_ROOT/.im.pid"
-if [[ ( -e "$im_pid_file" || -L "$im_pid_file" ) \
-  && ( ! -f "$im_pid_file" || -L "$im_pid_file" ) ]]; then
-  echo "non-regular IM PID evidence; retaining generated state" >&2
+if ! im_pid_snapshot_matches; then
+  echo "IM PID evidence changed during Gateway teardown; retaining generated state" >&2
   exit 1
 fi
-if [[ -f "$im_pid_file" ]]; then
-  im_pid="$(tr -d '[:space:]' < "$im_pid_file")"
-  if [[ ! "$im_pid" =~ ^[1-9][0-9]*$ ]]; then
-    echo "IM PID evidence is malformed; retaining generated state" >&2
-    exit 1
-  fi
+im_pid="$($PYTHON_BIN -c 'import json,sys; print(json.loads(sys.argv[1]).get("pid", ""))' "$im_pid_snapshot")"
+if [[ -n "$im_pid" ]]; then
   if kill -0 "$im_pid" 2>/dev/null; then
     if ! kill "$im_pid" 2>/dev/null && kill -0 "$im_pid" 2>/dev/null; then
       echo "IM pid=$im_pid cannot be signalled; retaining generated state" >&2
@@ -344,8 +438,7 @@ if [[ -f "$im_pid_file" ]]; then
     echo "IM pid=$im_pid still appears alive; retaining generated state" >&2
     exit 1
   fi
-  current_im_pid="$(tr -d '[:space:]' < "$im_pid_file")"
-  if [[ "$current_im_pid" != "$im_pid" ]]; then
+  if ! im_pid_snapshot_matches; then
     echo "IM PID evidence changed during teardown; retaining generated state" >&2
     exit 1
   fi
