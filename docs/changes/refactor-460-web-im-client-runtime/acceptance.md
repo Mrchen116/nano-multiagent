@@ -648,3 +648,102 @@ Round 5 的 Gateway 观察受到同 URL 残留 Gateway 干扰，不能作为产�
 
 继续 final full acceptance，补齐仍未获得受控真实条件的 Scenario；无需因 Round 5 Issue 1 或 Issue 2 进入
 `fix-implementation`。
+
+---
+
+## Round 7 — 2026-07-14
+
+- **Verdict**: `fail`
+- **Highest Required Action**: `fix-implementation`
+- **Review mode**: full
+- **Acceptance bar**: final independent product revalidation
+
+### 执行边界与环境
+
+本轮在一个新建的 Chrome 测试标签中，以 `nano` 登录新起的隔离真栈；先停止既有隔离栈，再以临时、未跟踪的主配置
+启动该栈。除本轮测试标签的 session、localStorage 和 DevTools 网络模拟外，没有操作已有用户标签或持久化浏览器/系统设置。
+测试完毕会删除所有本轮临时配置。reviewer 未读取实现代码、未修改产品代码或测试。
+
+用户明确排除了系统通知测试。因此下表中三个仅关于桌面系统通知的 Scenario 一律记为 `not-applicable`；本轮未改变通知权限、
+没有观察或点击系统通知，也没有用应用内 toast 替代系统通知验收。
+
+### User Journeys Exercised
+
+1. **当前会话实时过程与静默终态**：从 Agent details 的 `Open chat` 进入 `default-agent`，发送真实 bash 工具请求。
+   `R7_REALTIME_OK` 在不 reload 的情况下出现，显示 `1 tool · 2 thinking` 和 usage；reload 后聊天、过程和历史仍存在。
+   随后要求最终只输出 `NO_REPLY`，完成后临时回复气泡消失，reload 后也没有回来。
+2. **非当前会话提醒与当前会话抑制**：在 `plato` 发起延迟回复，在完成前切到 `default-agent`。`R7_TOAST_TWO` 到达时，
+   桌面 UI 同时显示 `plato · R7_TOAST_TWO · View message`、会话预览、排序变化及 `1 unread`。当前会话自身完成与本人
+   发送期间均未出现多余 toast。
+3. **Gateway 状态**：四个 Agent 均显示 online 时，仅停止本轮 Gateway；同一页面随后显示全部 offline。以同一临时配置
+   重启后，同一页面约数秒内全部恢复 online，无需 reload。
+4. **长登录刷新与短暂网络中断**：仅在测试标签的 localStorage 写入已过期的 access token，保留原 valid refresh token，
+   reload 后页面继续正常工作；DevTools 显示刷新期间的预期 401，随后四个 Agent 仍 online。再仅对该标签模拟 Offline 并恢复
+   `No throttling`，页面恢复在线，未见历史应用内 `View message` toast 重放。
+5. **未绑定 Gateway 的热缓存绑定**：用第二个临时、非 auto-bind Gateway 预热 Chat 后，真实绑定成功回到 Chat，已缓存会话
+   立即显示新绑定节点。以无效 binding token 重试时页面保留重试入口并显示 `POST /im/v1/bind failed: 404 (bind_token not found)`。
+   报告不记录真实 binding URL 或 token。
+6. **桌面/移动入口**：`default-agent` 和 `plato` 的 Agent details `Open chat` 都进入对应单聊。用 DevTools phone-size
+   viewport 复验同一 Chat 的消息过程、composer、`Back` 与底部 `Chat` / `Agents` / `Me` 导航；还原桌面后 Chat 正常。
+7. **外部 channel**：按获准的真实 Lark user identity 向该 app Bot 发送无害
+   `R7_EXT_SEED_20260714`，并只以 Lark 消息列表确认平台接收。Web Chat 在发送前已打开；保持约 90 秒不 reload，之后只作一次
+   正常 browser reload，两次均显示 `No conversations`，没有 `default-agent · feishu` shadow。因此没有违背顺序地发送后续
+   `R7_EXT_LIVE`：该 shadow 不存在时无法完成该用户旅程。
+8. **账号切换隔离**：在同一新测试标签中创建临时第二 IM 测试账号并等待前账号的延迟回复。提交后 Chrome 的 Computer Use
+   accessibility tree 持续只返回窗口壳、没有页面元素或截图，无法从 GUI 确认该账号的会话/提示是否隔离；已清除临时凭据，
+   不继续重试或保留凭据。
+
+### 问题清单
+
+### Issue 1 — 外部 P2P 消息没有进入 Web IM 可观察的 shadow 会话
+
+- **Severity**: major
+- **Regression Relation**: direct
+- **Recommended Action**: fix-implementation
+- **Action Rationale**: 已获准的真实外部用户向 Bot 发消息后，Web 用户无法在已打开的 Chat 中看到对应 `default-agent · feishu`
+  shadow，因而无法继续收到或阅读外部 P2P 回复。
+- **Expected**: 已打开的外部 shadow 会话应无需手动刷新实时接收外部 P2P 消息；如果 shadow 尚未存在，用户也应能在 Web IM 中
+  找到相应会话，随后继续接收新消息。
+- **Actual**: 平台确认收到 `R7_EXT_SEED_20260714` 后，Web Chat 保持约 90 秒和一次正常 reload 均显示 `No conversations`；
+  无法打开 shadow，也没有发送后续 live message。
+- **Reproduction**:
+  1. 在 Web IM 打开 `default-agent` 的外部 channel shadow（若存在）。
+  2. 使用获准的真实 Lark user identity 向该 app Bot 发送无害 P2P seed。
+  3. 保持 Web Chat 打开，观察会话列表与 shadow；必要时仅作一次普通 reload。
+
+### 验收标准覆盖
+
+| Requirement / Scenario | 验证方式（本轮） | 证据 | 结果 | 备注 |
+|---|---|---|---|---|
+| Agent 回复实时更新 | 当前 `default-agent` 真实工具请求 | `R7_REALTIME_OK`、过程摘要、usage，且无需 reload 即完成 | pass | reload 后仍保持 |
+| 静默回复撤销临时气泡 | 最终 bare `NO_REPLY` 请求并 reload | 完成后没有回复气泡，reload 后仍没有 | pass | 不把自然语言说明误计为静默 |
+| 外部 channel 消息实时进入已打开 shadow | 获准真实 Lark P2P seed，Web Chat 发送前已打开 | 平台确认 seed；Web 约 90 秒及一次 reload 均为 `No conversations` | fail | Issue 1；未发送后续 `R7_EXT_LIVE` |
+| 未打开会话收到新消息 | `plato` 延迟回复期间切到 `default-agent` | `R7_TOAST_TWO` toast `View message`、preview、排序、`1 unread` | pass | 在可见短暂窗口内观察 |
+| 当前会话和自己的消息不产生多余提醒 | 当前 `default-agent` 完成及本人发送 | 无多余应用内 toast | pass | 与非当前条件分开验证 |
+| 后台标签页收到 Agent 完成系统通知 | 用户明确排除系统通知测试 | 未测试 | not-applicable | 未改通知权限/设置 |
+| 不满足通知条件时不弹系统通知 | 用户明确排除系统通知测试 | 未测试 | not-applicable | 未改通知权限/设置 |
+| 恢复连接不重放历史系统通知 | 用户明确排除系统通知测试 | 未测试 | not-applicable | 未改通知权限/设置 |
+| Gateway 断连与重连 | 同页停止并重启本轮唯一 Gateway | 四个 Agent online → offline → online，无 reload | pass | 使用同一隔离配置 |
+| 长登录刷新与网络恢复 | expired access + valid refresh；测试标签 Offline → online | 401 后会话仍可用、四个 Agent online，恢复后无历史应用内 toast | pass | 仅验证应用内不重放；系统通知见 N/A |
+| 切换为另一用户不泄漏前账号事件 | 新标签创建第二账号并等待旧账号延迟回复 | 提交后 Computer Use UI 仅剩窗口壳，无可读会话或 toast 证据 | inconclusive | 环境/UI 可访问性阻断；凭据已清除 |
+| 热缓存下确认 Gateway 绑定及错误反馈 | 真实未绑定 Gateway 的有效/无效 binding URL | 成功回 Chat 并立即收敛；无效 token 显示 404 且保留重试页 | pass | 不记录真实 URL/token |
+| 从 Agent details 打开单聊 | `default-agent`、`plato` 各执行 `Open chat` | 都进入对应有效 Chat | pass | 未观察到失败状态 |
+| 桌面与移动 Chat 基础可用性 | 桌面和 DevTools phone-size viewport | 消息、过程、composer、Back、三项底部导航正常 | pass | 还原桌面后复验正常 |
+
+### Side Findings
+
+- 账号切换 Scenario 的未闭合原因是提交临时注册后的 Computer Use 可访问性通道失去页面内容，不是产品实现归因；它不影响
+  Issue 1 的独立 `fail` 结论，也不能被推断为通过。
+- expired-token 与 Offline 恢复期间没有观察到历史**应用内** toast 重放；这不替代用户明确排除的系统通知三项。
+
+### 上层文档同步
+
+- [x] `SPEC.md`：无需更新；Issue 1 是既有跨产品消息可达性未满足，不改变职责边界。
+- [x] `docs/specs/im/`：由后续修复/收尾判断是否需要更新 current 契约；reviewer 不修改契约。
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新；本轮只使用临时隔离运行配置。
+- [x] `docs/SPEC_GUIDE.md`：无需更新；本轮不涉及文档体系。
+
+### Recommended Next Step
+
+先进入 `fix-implementation` 处理 Issue 1；修复后需要新的独立 `full` product revalidation。复验必须再次覆盖真实 Lark P2P
+shadow 的创建/实时到达，并在可用 GUI 通道下补齐第二账号切换隔离；系统通知仍须遵从用户是否解除本轮排除的决定。
