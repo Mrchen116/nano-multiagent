@@ -12,7 +12,7 @@ from pathlib import Path
 import stat
 import tempfile
 import threading
-from typing import Any
+from typing import Any, Callable
 
 import yaml
 
@@ -955,15 +955,14 @@ def _atomic_commit_config(
             rollback_path.unlink(missing_ok=True)
 
 
-def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
-    """Serialize a LocalConfig back to YAML and write to disk.
+def _serialize_local_config(config: LocalConfig) -> str:
+    """Serialize one typed config without performing filesystem I/O.
 
     Args:
         config: Typed configuration to serialize.
-        config_path: Destination file path. Parent directories must exist.
 
-    Side Effects:
-        Writes one UTF-8 YAML file to local disk, overwriting any existing file.
+    Returns:
+        Canonical UTF-8 YAML text for the complete configuration document.
     """
     data: dict[str, Any] = {}
 
@@ -1102,23 +1101,85 @@ def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
     }
     data["llm"] = llm_dict
 
-    new_text = yaml.safe_dump(
+    return yaml.safe_dump(
         data, default_flow_style=False, allow_unicode=True, sort_keys=False
     )
+
+
+def _commit_local_config(
+    config: LocalConfig,
+    dest: Path,
+    snapshot: _ConfigSnapshot | None,
+) -> None:
+    """Commit one config while its transaction lock and source snapshot are held."""
+    new_text = _serialize_local_config(config)
+    backup_guard = _backup_legacy_kernel_config(dest, snapshot)
+    try:
+        # Both backup kinds are derived from one transaction-start snapshot.
+        # Uncoordinated writers remain detectable at the pre-replace gate;
+        # POSIX cannot close the final check-to-replace syscall window.
+        _backup_existing_config(dest, new_text, snapshot)
+        _atomic_commit_config(dest, new_text, snapshot, backup_guard)
+    finally:
+        if backup_guard is not None:
+            os.close(backup_guard.fd)
+
+
+def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
+    """Serialize a LocalConfig back to YAML and write to disk.
+
+    Args:
+        config: Typed configuration to serialize.
+        config_path: Destination file path. Parent directories must exist.
+
+    Side Effects:
+        Writes one UTF-8 YAML file to local disk, overwriting any existing file.
+    """
     dest = Path(config_path).expanduser().resolve()
     dest.parent.mkdir(parents=True, exist_ok=True)
     with _config_transaction_lock(dest):
         snapshot = _read_config_snapshot(dest)
-        backup_guard = _backup_legacy_kernel_config(dest, snapshot)
-        try:
-            # Both backup kinds are derived from one transaction-start snapshot.
-            # Uncoordinated writers remain detectable at the pre-replace gate;
-            # POSIX cannot close the final check-to-replace syscall window.
-            _backup_existing_config(dest, new_text, snapshot)
-            _atomic_commit_config(dest, new_text, snapshot, backup_guard)
-        finally:
-            if backup_guard is not None:
-                os.close(backup_guard.fd)
+        _commit_local_config(config, dest, snapshot)
+
+
+def update_local_config(
+    config_path: str | Path,
+    mutation: Callable[[LocalConfig], LocalConfig],
+    *,
+    initial: LocalConfig | None = None,
+) -> LocalConfig:
+    """Apply one narrow mutation to the latest locked config revision.
+
+    Args:
+        config_path: Config document whose latest revision owns untouched fields.
+        mutation: Pure callback returning a replacement config from that latest revision.
+        initial: Optional seed used only when the destination has never been written.
+
+    Returns:
+        The exact typed configuration committed by this transaction.
+
+    Raises:
+        RuntimeError: When the source changes outside the cooperative transaction lock.
+
+    Side Effects:
+        Atomically rewrites the config after applying ``mutation`` under its stable lock.
+    """
+    dest = Path(config_path).expanduser().resolve()
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    with _config_transaction_lock(dest):
+        snapshot = _read_config_snapshot(dest)
+        if snapshot is None:
+            if initial is None:
+                raise FileNotFoundError(f"config file does not exist: {dest}")
+            latest = replace(initial, source_path=dest)
+        else:
+            latest = load_local_config(dest)
+            _assert_snapshot_current(dest, snapshot)
+        updated = mutation(latest)
+        if updated.source_path.resolve() != dest:
+            raise ValueError("config mutation changed source_path identity")
+        _commit_local_config(updated, dest, snapshot)
+        return updated
 
 
 def _parse_node_config(payload: Any) -> NodeConfig:

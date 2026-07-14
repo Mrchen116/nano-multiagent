@@ -53,6 +53,7 @@ from personal_assistant.config.local_store import (
     load_local_config,
     resolve_run_model,
     save_local_config,
+    update_local_config,
 )
 from personal_assistant.config.sync_client import ConfigSyncClient
 from personal_assistant.gateway.bootstrap import start_channels, stop_channels
@@ -958,29 +959,27 @@ class _IMConfigSyncClient:
             )
 
     def _persist_agent_config(self, agent_config: AgentWorkspaceConfig) -> None:
-        agents = list(self._local_config.agents)
-        for index, existing in enumerate(agents):
-            if existing.agent_id == agent_config.agent_id:
-                agents[index] = agent_config
-                break
-        else:
-            agents.append(agent_config)
         persist_path = (
             Path(self._local_config.source_path)
             if self._local_config.source_path
             else default_local_config_path()
         )
-        self._local_config = LocalConfig(
-            node=self._local_config.node,
-            agents=tuple(agents),
-            channels=self._local_config.channels,
-            gateway=self._local_config.gateway,
-            heartbeat=self._local_config.heartbeat,
-            im_service=self._local_config.im_service,
-            llm=self._local_config.llm,
-            source_path=persist_path,
+
+        def _upsert(latest: LocalConfig) -> LocalConfig:
+            agents = list(latest.agents)
+            for index, existing in enumerate(agents):
+                if existing.agent_id == agent_config.agent_id:
+                    agents[index] = agent_config
+                    break
+            else:
+                agents.append(agent_config)
+            return replace(latest, agents=tuple(agents))
+
+        self._local_config = update_local_config(
+            persist_path,
+            _upsert,
+            initial=self._local_config,
         )
-        save_local_config(self._local_config, persist_path)
 
     def current_agent_payload(self, *, agent_id: str) -> dict[str, object] | None:
         for agent in self._local_config.agents:
@@ -3936,7 +3935,9 @@ def _make_token_getter(
     im_service: IMServiceConfig,
     local_config: LocalConfig,
     auth_client: IMAuthClient,
-    save_config: Callable[[LocalConfig, Path], None] = save_local_config,
+    update_config: Callable[
+        [str | Path, Callable[[LocalConfig], LocalConfig]], LocalConfig
+    ] = update_local_config,
 ) -> Callable[[], Awaitable[str | None]]:
     """Build an async closure that returns a fresh access token before each reconnect.
 
@@ -3954,7 +3955,7 @@ def _make_token_getter(
         im_service: IM connectivity settings containing token credentials.
         local_config: Full gateway config used for ``save_config`` persistence path.
         auth_client: HTTP client implementing refresh/login against the IM auth API.
-        save_config: Callable used to persist the updated config (injectable for tests).
+        update_config: Locked read-modify-write primitive used to patch token fields.
 
     Returns:
         Async zero-argument callable that resolves to the latest access token or None.
@@ -3965,7 +3966,6 @@ def _make_token_getter(
         "refresh_token": im_service.refresh_token,
         "token": im_service.token,
     }
-    _config_holder: list[LocalConfig] = [local_config]
 
     async def _getter() -> str | None:
         current_refresh = _state["refresh_token"]
@@ -3998,20 +3998,20 @@ def _make_token_getter(
         return _state["token"]
 
     def _persist(access: str, new_refresh: str) -> None:
-        current_cfg = _config_holder[0]
-        old_im = current_cfg.im_service
-        if old_im is None:
-            return
-        updated_im = IMServiceConfig(
-            url=old_im.url,
-            token=access,
-            refresh_token=new_refresh,
-            username=old_im.username,
-            password=old_im.password,
-        )
-        new_cfg = replace(current_cfg, im_service=updated_im)
-        _config_holder[0] = new_cfg
-        save_config(new_cfg, new_cfg.source_path)
+        def _patch(latest: LocalConfig) -> LocalConfig:
+            old_im = latest.im_service
+            if old_im is None:
+                return latest
+            return replace(
+                latest,
+                im_service=replace(
+                    old_im,
+                    token=access,
+                    refresh_token=new_refresh,
+                ),
+            )
+
+        update_config(local_config.source_path, _patch)
 
     return _getter
 
