@@ -44,6 +44,26 @@ def _write_stack_files(tmp_path: Path, *, internal_pid: int = _GATEWAY_PID) -> N
     (tmp_path / ".e2e-ports.env").write_text("export IM_PORT=1\n", encoding="utf-8")
     (tmp_path / ".e2e-jwt-secret").write_text("secret\n", encoding="utf-8")
     (tmp_path / ".im.pid").write_text("434343\n", encoding="utf-8")
+    (tmp_path / ".im.identity.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "pid": 434343,
+                "process_start": _PROCESS_START,
+                "cwd": str(tmp_path.resolve()),
+                "argv": [
+                    "-m",
+                    "uvicorn",
+                    "IM.app:app",
+                    "--host",
+                    "127.0.0.1",
+                    "--port",
+                    "1",
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
 
 
 def _run_down(
@@ -494,6 +514,26 @@ return 0
 
 def test_all_gateway_evidence_absent_allows_im_stop(tmp_path: Path) -> None:
     (tmp_path / ".im.pid").write_text("434343\n", encoding="utf-8")
+    (tmp_path / ".im.identity.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "pid": 434343,
+                "process_start": _PROCESS_START,
+                "cwd": str(tmp_path.resolve()),
+                "argv": [
+                    "-m",
+                    "uvicorn",
+                    "IM.app:app",
+                    "--host",
+                    "127.0.0.1",
+                    "--port",
+                    "1",
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
 
     result = _run_down(tmp_path, kill_body="return 0", check=True)
 
@@ -504,8 +544,45 @@ def test_all_gateway_evidence_absent_allows_im_stop(tmp_path: Path) -> None:
     assert not (tmp_path / ".im.pid").exists()
 
 
+def test_im_birth_mismatch_sends_no_signal_and_retains_evidence(tmp_path: Path) -> None:
+    _write_stack_files(tmp_path)
+    identity_path = tmp_path / ".im.identity.json"
+    identity = json.loads(identity_path.read_text(encoding="utf-8"))
+    identity["process_start"] = "Sun Jul 12 00:00:00 2026"
+    identity_path.write_text(json.dumps(identity), encoding="utf-8")
+
+    result = _run_down(tmp_path, kill_body="return 0")
+
+    calls = (tmp_path / "calls.log").read_text(encoding="utf-8")
+    assert result.returncode == 1
+    assert "kill 434343" not in calls
+    assert "IM process identity mismatch" in result.stderr
+    assert (tmp_path / ".im.pid").exists()
+    assert identity_path.exists()
+
+
 def test_im_survivor_retains_config_and_sidecar(tmp_path: Path) -> None:
     (tmp_path / ".im.pid").write_text("434343\n", encoding="utf-8")
+    (tmp_path / ".im.identity.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "pid": 434343,
+                "process_start": _PROCESS_START,
+                "cwd": str(tmp_path.resolve()),
+                "argv": [
+                    "-m",
+                    "uvicorn",
+                    "IM.app:app",
+                    "--host",
+                    "127.0.0.1",
+                    "--port",
+                    "1",
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
     (tmp_path / ".gateway-config.yaml").write_text("node: {}\n", encoding="utf-8")
     (tmp_path / ".gateway-config.yaml.lock").write_text("", encoding="utf-8")
 
