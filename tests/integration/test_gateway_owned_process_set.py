@@ -15,6 +15,7 @@ import pytest
 import personal_assistant.main as main_module
 
 from .test_e2e_up_script import _prepare_harness, _run_up
+from tests.unit.personal_assistant._main_helpers import build_config
 
 
 def _spawn_gateway_tree() -> tuple[subprocess.Popen[str], dict[str, int]]:
@@ -132,6 +133,61 @@ def test_e2e_down_reaps_same_group_and_detached_descendants(tmp_path: Path) -> N
         assert result.returncode == 0, result.stderr
         assert all(_process_exited(pid) for pid in children.values())
         assert not (tmp_path / ".gateway.pid").exists()
+    finally:
+        _cleanup_tree(leader, children)
+
+
+def test_public_stop_reaps_same_group_and_detached_descendants(
+    tmp_path: Path,
+) -> None:
+    leader, children = _spawn_gateway_tree()
+    config = build_config(tmp_path)
+    snapshot = main_module.read_gateway_process_snapshot(leader.pid)
+    assert snapshot is not None
+    (tmp_path / "gateway.pid").write_text(str(leader.pid), encoding="utf-8")
+    (tmp_path / "gateway.identity.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "pid": leader.pid,
+                "process_start": snapshot.process_start,
+                "config_path": str(config.source_path.resolve()),
+                "entry_module": "personal_assistant.main",
+                "argv": [
+                    "--config",
+                    str(config.source_path.resolve()),
+                    "--foreground",
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / ".gateway-state.json").write_text(
+        json.dumps(
+            {
+                "pid": leader.pid,
+                "config_path": str(config.source_path.resolve()),
+                "log_path": str(tmp_path / "gateway.log"),
+            }
+        ),
+        encoding="utf-8",
+    )
+    try:
+        result = main_module.stop_gateway(
+            config_path=config.source_path,
+            load_config=lambda _path: config,
+        )
+        leader.wait(timeout=3)
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline and not all(
+            _process_exited(pid) for pid in children.values()
+        ):
+            time.sleep(0.05)
+
+        assert result.startswith(f"STOPPED pid={leader.pid}")
+        assert all(_process_exited(pid) for pid in children.values())
+        assert not (tmp_path / "gateway.pid").exists()
+        assert not (tmp_path / ".gateway-state.json").exists()
     finally:
         _cleanup_tree(leader, children)
 

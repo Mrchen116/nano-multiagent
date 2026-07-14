@@ -75,7 +75,6 @@ def test_public_stop_waits_for_complete_owned_descendant_set(
     signals: list[int] = []
     exits = iter([False, True])
     monkeypatch.setattr(main_module, "_assert_gateway_process_instance", lambda _: True)
-    monkeypatch.setattr(main_module, "_require_gateway_process_instance", lambda _: None)
     monkeypatch.setattr(main_module, "_kill_process_tree", lambda *_args: None)
     monkeypatch.setattr(main_module, "_pid_is_running", lambda _pid: True)
     monkeypatch.setattr(
@@ -91,11 +90,15 @@ def test_public_stop_waits_for_complete_owned_descendant_set(
     )
     monkeypatch.setattr(
         main_module,
+        "resume_gateway_owned_process_set",
+        lambda _owned: signals.append(signal.SIGCONT),
+    )
+    monkeypatch.setattr(
+        main_module,
         "_wait_for_gateway_owned_process_set_exit",
         lambda _config, _owned: next(exits),
         raising=False,
     )
-    monkeypatch.setattr(main_module, "_wait_for_pid_exit", lambda *_args: True)
 
     result = main_module.stop_gateway(
         config_path=config.source_path,
