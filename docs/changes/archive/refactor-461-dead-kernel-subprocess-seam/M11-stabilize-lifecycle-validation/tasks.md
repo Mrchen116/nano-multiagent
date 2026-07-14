@@ -24,7 +24,8 @@
 - [x] CI 失败涉及的 lifecycle target xdist bundle、静态检查和测试命名/尺寸契约通过。
 - [x] 无限 fixture child 在全部 setup 路径下立即受 `try/finally` 保护；lock-release watchdog 在报告
   hang 前先杀死并回收 subprocess。
-- [ ] 远端完整 non-e2e CI rerun 通过。
+- [x] 远端完整 non-e2e CI rerun 通过（run `29351103954`：Python 3476 passed、2 skipped，Frontend
+  checks 通过）。
 
 ## 测试策略
 

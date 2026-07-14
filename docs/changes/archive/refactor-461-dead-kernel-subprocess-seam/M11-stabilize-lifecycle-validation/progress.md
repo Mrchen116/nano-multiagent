@@ -55,4 +55,6 @@
 
 ## Status
 
-R2 is ready for remote CI rerun.
+R2 is complete. Remote run `29351103954` passed both CI jobs: Python completed `3476 passed, 2 skipped,
+26 warnings in 415.40s`, and Frontend checks passed. The final independent review also confirmed that
+`e836da7cf` changes only the test-fixture watchdog and preserves fail-closed product semantics.

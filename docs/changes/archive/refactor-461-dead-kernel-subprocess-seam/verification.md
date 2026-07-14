@@ -1222,9 +1222,11 @@ concurrency failure is outside this delta and passed its focused retry.
 yield for the fake signal-driven teardown. A subsequent code review found fixture-setup and hang-cleanup gaps;
 `60bd45339` places setup under immediate `try/finally` ownership and kills/reaps a hung post-release lifecycle script
 before failing its test; `e836da7cf` applies that watchdog to the remaining e2e-down lock waiter. The affected
-four-file xdist target bundle, static checks, and test naming contract pass locally. A new full remote CI run is
-required before this follow-up can be closed.
+four-file xdist target bundle, static checks, and test naming contract pass locally. Remote run `29351103954` then
+passed both jobs: Python reported `3476 passed, 2 skipped, 26 warnings in 415.40s`, and Frontend checks passed.
+An independent follow-up review ran 33 xdist lifecycle black-box tests and confirmed that the last watchdog change
+affects only test-fixture cleanup, not the product's fail-closed lifecycle behavior.
 
 ## Status
 
-Remote CI rerun pending.
+Remote CI rerun passed. Ready for PR.
