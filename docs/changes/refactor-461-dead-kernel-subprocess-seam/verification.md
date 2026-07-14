@@ -550,3 +550,104 @@ requires_full_verification: true
 无。
 
 No critical issues. 1 warning(s) to consider. Ready for PR (with noted improvement).
+
+# Round 6
+
+## Verification Report: refactor-461
+
+### Summary
+
+Mode: full
+Delta range: `a084ce907..7accd44da`
+Focus issues: M6 backup content/mode gate；post-publication gate；public/e2e generation locks；expected cleanup；IM preflight；owned descendant PID/PPID/PGID/birth 与 STOP/TERM/CONT/KILL；Round 5 W13
+requires_full_verification: false
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | Tasks 63/63 marked complete；Requirements 4/4 implemented；M6 8/8 exit criteria有 2 个 warning 级收尾缺口 |
+| Correctness | Scenarios 10/10 covered；backup/publication/generation/IM/descendant主路径闭环；冻结失败恢复与完整门禁稳定性有 2 个 warning |
+| Coherence | D1-D5 与 M6 R1-R4 主决策 followed；无 dead Kernel seam、平行生命周期或依赖反转回流 |
+
+本轮基于 unit integration head `7accd44da`，完整读取 motivation、design、delta-spec、M1-M6 tasks/progress、历轮 verification，以及项目架构、测试、注释与长青 Gateway 契约。M6 的 backup held-fd gate、state 后复核、per-config/worktree generation lock、expected cleanup、IM preflight 与结构化 descendant ownership 均有真实实现和直接回归；Round 5 W13 已由 owned `Popen.wait()` 修复。独立 affected 验证全部通过，但仓库规定的 xdist full 命令在本轮正常结束为 `6 failed, 3592 passed`，且多组冻结失败路径仍可能只恢复 leader，因此保留 2 个 WARNING。
+
+## Prior Issue / M6 Closure
+
+| Focus | 结论 | 证据 |
+|---|---|---|
+| W13 Darwin zombie teardown | closed | quoted-path test 持有本次 `Popen`，正常 stop 后 `wait()` 回收，兜底只对仍 live 的 owned handle 发信号：`tests/integration/test_gateway_legacy_state_upgrade.py:59-95` |
+| Backup content/mode commit gate | closed | existing/new backup guard 持有 fd，并在 replace 前以 `pread` 重读完整 content、复核 mode/inode/link/size/mtime revision：`src/personal_assistant/config/local_store.py:737-864`；public save drift regression `tests/unit/personal_assistant/test_config_migration_backup_guard.py:41-97` |
+| Post-state publication / group-only rollback | closed | durable state 后重验 child poll、PID、完整 identity 与 PID+birth，再次 poll 后才返回；失败 rollback 每阶段只 group signal 一次：`src/personal_assistant/main.py:2571-2603,2606-2635,5167-5190` |
+| Public lifecycle generation / expected cleanup | closed | resolved config hash 对应稳定 external flock；start 持锁到 publication commit，stop 持锁覆盖 snapshot→signal→expected state/PID/identity cleanup：`src/personal_assistant/main.py:2448-2491,2494-2769`；public concurrent regression `tests/unit/personal_assistant/test_gateway_lifecycle_generation.py:24-130` |
+| e2e generation / IM preflight | closed | up/down 全程持 external FD 9 lock，长驻 child 关闭 fd；down 在任何 Gateway signal 前 snapshot IM evidence并在 Step 2 复核 revision：`scripts/e2e-lifecycle-lock.sh:4-63`、`scripts/e2e-down.sh:216-309,432-463`；8 generation/preflight regressions通过 |
+| PID==PGID / same-group + detached ownership | mostly closed | up 以 `setsid()+exec` 建 exclusive leader；Python snapshot冻结 PID/PPID/PGID/birth，down/rollback 的成功路径 detached-first、leader-last，确认全 set退出后才清 evidence/停 IM：`src/personal_assistant/main.py:4386-4608`、`scripts/e2e-up.sh:395-404`、`scripts/e2e-down.sh:351-430`；冻结失败恢复见 W14 |
+| Final full / residue | not closed | affected 94 tests与静态门禁通过；本轮 full正常 exit 1，5 个 M6 shell-related tests在 xdist负载下失败，见 W15。失败留下的本 verifier 专属 PID/PGID 已按命令与临时目录 ownership 精确清理，最终无 process/port/worktree residue |
+| Canonical spec 归并 | deferred as designed | delta-spec 与实现一致；按 orchestrator 收尾契约，在最终验收/修复后归并 `docs/specs/gateway/service-lifecycle.md`，本轮不提前修改 canonical |
+
+## Completeness
+
+- Tasks: 63/63 marked complete（M1 5，M2 6，M3 6，M4 19，M5 19，M6 8）；无未勾选项。
+- Requirement 覆盖: 4/4。消息与主动任务仍由进程内 Kernel 执行；Gateway operator lifecycle 保留；三项 timing 单向迁移并安全 canonical save；e2e 只管理 IM + Gateway。
+- Scenario 覆盖: 10/10。M6 未改消息、heartbeat/cron、IM offline autonomy；其增量集中在 lifecycle transaction 的异常边界。
+- Prototype / Reference: N/A；本 unit 无前端原型或 reference contract。
+
+## Correctness
+
+| Requirement / Scenario group | 实现与测试证据 | 状态 |
+|---|---|---|
+| 消息、Heartbeat/Cron、IM 离线自治 | M6 delta 未改 runtime message/channel/kernel wiring；zero-seam contract与完整套件绝大多数行为断言通过 | covered |
+| 默认 start / stop / restart | state 后 liveness+identity commit gate、group-only rollback、per-config generation lock与 expected cleanup 均有 public 回归 | covered |
+| timing 迁移 / canonical save | held backup fd 在 commit gate 重读 content并复核 mode/revision；existing/new in-place drift均保留 source | covered |
+| 旧连接/HTTP 字段不形成输入 | zero-residue contract通过；生产接口未恢复 `KernelConfig`、process manager、health endpoint或 `.api.pid` | covered |
+| e2e 只管理 IM + Gateway且失败收口 | external generation lock、IM preflight、exclusive leader、same/detached成功回收与 birth mismatch零 TERM/KILL均覆盖；W14 是冻结中途失败恢复缺口 | covered with warning |
+
+### Test Evidence
+
+- focused Python lifecycle/config/legacy/contract: `53 passed, 2 warnings in 15.32s`。
+- e2e generation/IM preflight: `8 passed in 18.69s`；owned descendant real processes: `4 passed, 2 warnings in 29.44s`；e2e-up: `6 passed in 24.06s`；e2e-down: `23 passed in 147.20s`。合计 affected 94 tests全部通过。
+- full mandated command：`pytest -m "not e2e" -n 4 --dist worksteal --durations=20 --durations-min=0.5 -q` 正常结束，`6 failed, 3592 passed, 1 skipped, 22 warnings in 227.31s`。一个 `test_liveness_ticker` 是全仓负载抖动；其余 5 个与 M6 shell lifecycle 测试的 timeout/固定 sleep有关，见 W15。
+- 将 liveness ticker 对照 + 4 个 M6 shell失败单独重跑：`5 passed, 2 warnings in 67.23s`；但 yq wrapper 独立重跑仍因 down 超过20秒而 `1 failed in 24.92s`。产品断言主路径通过，测试门禁仍有一个可稳定复现的 cleanup timeout。
+- `ruff check`、affected `ruff format --check`、`bash -n`、`git diff --check` 均通过。
+- full/独立 timeout 遗留的 verifier-owned PGID `67014/73716/73719/88241` 已按 exact pytest-609/611 path/command核对后 CONT/TERM/KILL；端口 `50785/51299/52501`、process scan与 verify worktree均无残留。
+
+## Coherence
+
+| design / M6 决策 | 遵守? | 证据 |
+|---|---|---|
+| D1 删除 dead manager且无替代 port | 是 | `GatewayProcessManager`/runtime `KernelConfig` 已删除；Gateway background factory与 `_KernelClientShim` 保留 |
+| D2 timing 归 Gateway且迁移事务安全 | 是 | `GatewayLifecycleConfig`、stable config sidecar、held backup revision与 atomic replace/rollback沿用同一机制 |
+| D3 PID/start confirmation，不制造 readiness | 是 | parent只确认 durable PID/identity/state和 child liveness；无 health/readiness field或IPC |
+| D4 生产关闭顺序不变 | 是 | M6只强化 operator/e2e process ownership；GatewayRuntime producer/channel/kernel/cron/IM顺序未重排 |
+| M6 generation boundaries | 是 | public按 config hash、e2e按 physical worktree hash各自使用不可 unlink的 stable inode；没有平行的可变锁文件 |
+| M6 owned descendant freeze | 部分 | 成功路径满足 PID/PPID/PGID/birth + detached-first信号与全员exit commit；W14 的 partial STOP失败恢复不完整 |
+
+### Architecture Coherence
+
+- 依赖方向保持：production delta仅在 `personal_assistant`与 scripts 内；`personal_assistant`未新增 `agent.core` / `agent.platform` import，IM未反向访问 Gateway workspace。
+- 没有把 Kernel subprocess seam换名重建；进程树 helper管理的是 Gateway自己拥有的 e2e descendants，与进程内 Kernel拓扑一致。
+- generation lock、config transaction lock与 lifecycle evidence各有不同一致性职责，未出现重复竞争的平行状态源。
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+无。
+
+### WARNING（应该修）
+
+#### W14 — 多组 freeze 中途失败只恢复 leader，detached 后代可能永久停在 STOP 状态
+
+`e2e_freeze_gateway_owned_processes()` 先 STOP leader group，再通过 `e2e_signal_gateway_owned_groups ... STOP` 逐组停止 detached groups（`scripts/e2e-owned-processes.sh:145-179`）。如果第二个或后续 group signal/复核失败，函数重试；三次仍失败时只执行 `kill -CONT -- "-$leader_pid"`（`:180-188`），没有记录并 CONT 已成功 STOP 的 detached PGID。并且 group列表先由独立 Python进程整体验证并输出，shell随后才逐条 `kill`（`:148-164`），每个 signal前不再复核该 group的 birth/membership。这样 descendant drift、权限失败或高负载 timeout可让 down/rollback报失败并保留证据，却把部分 owned detached进程永久暂停；这与 M6“descendant drift在破坏性动作前 fail closed、失败保留完整可诊断栈”的目标不完全一致。现有 birth-drift test只覆盖 Python `signal_gateway_owned_process_set()` 的零信号（`tests/integration/test_gateway_owned_process_set.py:139-177`），成功 rollback test也不覆盖第二组 STOP失败（`:180-196`）。
+
+修复：把“逐组即时验证 + signal + 已成功 STOP PGID ledger”收敛进同一 Python helper；每个 group在 `killpg` 前重验 frozen PID/birth/PGID/membership。任何阶段失败时，仅对 ledger 中仍匹配原 birth的所有 group逐组 CONT，确认没有 owned process留在 `T` 后再 fail closed。新增 second-group STOP failure / capture-confirm drift 两个 shell integration regression，断言零 TERM/KILL、所有 leader/detached均非 STOP、IM与lifecycle evidence完整保留。
+
+#### W15 — M6 lifecycle 测试在规定 xdist full 门禁下依赖过短 wall timeout和固定 sleep，完整门禁不可重复全绿
+
+M6 progress记录规定 full为 `3598 passed`（`M6-fix-generation-and-descendant-ownership/progress.md:42-44`），但本轮相同 xdist命令正常结束为 `6 failed, 3592 passed`。其中与本 unit相关的 5 个失败里，4 个和 liveness负载对照单独重跑通过；yq wrapper独立重跑仍稳定失败：`_run_up()`统一硬编码 15 秒（`tests/integration/test_e2e_up_script.py:207-215`），导致 readiness rollback、survivor和detached rollback在并发负载下 timeout；existing yq wrapper的 down cleanup固定 20 秒并在独立运行中也超时（`tests/unit/personal_assistant/test_gateway_im_resilience_e2e_wrapper.py:212-224`）；busy-sidecar regression让 holder固定 `sleep(30)`（`tests/integration/test_e2e_down_script.py:525-562`），而本轮该 down在负载下耗时39.45秒，锁先自然释放，测试反而误报成功。完整门禁因此无法证明M6“最终唯一 full全绿”，且 timeout会留下测试子进程，需要人工 ownership cleanup。
+
+修复：将 busy holder改成 stdin/event控制、由 test finally显式释放（复用 `test_e2e_lifecycle_generation.py` 的 holder模式），不要用固定 sleep当锁契约；给 up/down harness使用与脚本内部 budget一致、可按场景覆盖的 timeout，并确保 `TimeoutExpired` 时按本次 `Popen`/process-set ownership立即回收。修后必须重跑规定 xdist full命令，并在同一次 run后断言无 pytest temp Gateway/IM/STOPped descendant residue。
+
+### SUGGESTION（可以修）
+
+无。
+
+No critical issues. 2 warning(s) to consider. Ready for PR (with noted improvements).
