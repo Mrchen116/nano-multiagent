@@ -68,7 +68,10 @@ def test_e2e_up_waits_on_external_generation_lock_before_preflight(
     )
     try:
         time.sleep(0.2)
-        crossed_generation = (tmp_path / "spawned-pids.log").exists()
+        crossed_generation = any(
+            (tmp_path / name).exists()
+            for name in (".gateway-config.yaml", ".im.pid", "spawned-pids.log")
+        )
         _release_holder(holder)
         _stdout, stderr = process.communicate(timeout=15)
 
@@ -114,6 +117,61 @@ def test_e2e_down_waits_on_same_external_lock_before_preflight(
         if process.poll() is None:
             process.kill()
             process.wait(timeout=3)
+
+
+def test_generation_lock_remains_owned_by_parent_shell_after_acquire(
+    tmp_path: Path,
+) -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    helper = repo_root / "scripts" / "e2e-lifecycle-lock.sh"
+    lock_path = tmp_path.parent / f".{tmp_path.name}-lifecycle.lock"
+    env = {
+        **os.environ,
+        "NANO_MULTIAGENT_E2E_LIFECYCLE_LOCK_PATH": str(lock_path),
+    }
+    owner = subprocess.Popen(
+        [
+            "bash",
+            "-c",
+            'source "$1"; e2e_acquire_lifecycle_lock "$2" "$3"; '
+            "echo acquired; read -r _ || true",
+            "bash",
+            str(helper),
+            str(tmp_path),
+            sys.executable,
+        ],
+        env=env,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    assert owner.stdout is not None
+    assert owner.stdout.readline().strip() == "acquired"
+    down = subprocess.Popen(
+        ["bash", str(repo_root / "scripts" / "e2e-down.sh"), "--wt", str(tmp_path)],
+        cwd=repo_root,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        time.sleep(0.2)
+        assert down.poll() is None
+        assert owner.stdin is not None
+        owner.stdin.write("release\n")
+        owner.stdin.flush()
+        owner.wait(timeout=3)
+        _stdout, stderr = down.communicate(timeout=5)
+        assert down.returncode == 0, stderr
+    finally:
+        if owner.poll() is None:
+            owner.kill()
+            owner.wait(timeout=3)
+        if down.poll() is None:
+            down.kill()
+            down.wait(timeout=3)
 
 
 @pytest.mark.parametrize("mode", ["dangling", "nonregular", "malformed"])

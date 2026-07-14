@@ -49,6 +49,23 @@ if [[ ! -f "$MAIN_CFG" ]]; then
   exit 1
 fi
 
+# Resolve the checkout runtime before the first lifecycle preflight so up/down
+# can hold one external generation lock across every check, spawn and rollback.
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd 2>/dev/null)"
+REPO_ROOT="${REPO_ROOT:-$(git -C "$WT_ROOT" rev-parse --show-toplevel 2>/dev/null || dirname "$WT_ROOT")}"
+SRC_DIR="$REPO_ROOT/src"
+FREE_PORTS_SH="$REPO_ROOT/scripts/free-ports.sh"
+[[ -x "$FREE_PORTS_SH" ]] || FREE_PORTS_SH="$SCRIPT_DIR/free-ports.sh"
+PYTHON_BIN="$(command -v python || true)"
+if [[ -z "$PYTHON_BIN" ]] || ! "$PYTHON_BIN" -c "import yaml" 2>/dev/null; then
+  echo "python with project dependencies (including PyYAML) not found on PATH" >&2
+  exit 1
+fi
+# shellcheck source=scripts/e2e-lifecycle-lock.sh
+source "$SCRIPT_DIR/e2e-lifecycle-lock.sh"
+e2e_acquire_lifecycle_lock "$WT_ROOT" "$PYTHON_BIN"
+
 # ─── liveness check (refuse to clobber) ──────────────────────────────────────
 
 external_gateway_pid="$WT_ROOT/.gateway.pid"
@@ -82,23 +99,6 @@ rm -f "$WT_ROOT/.gateway-identity.json"
 rm -f "$WT_ROOT/.im.pid"
 
 # ─── port allocation ─────────────────────────────────────────────────────────
-
-# REPO_ROOT must resolve to the checkout that holds src/ and scripts/, NOT to
-# $WT_ROOT — feat-421 runs the stack with --wt pointing at a pytest tmp dir that
-# is not a git checkout and has no src/. Derive it from this script's own path
-# ($0 lives in <repo>/scripts/) so PYTHONPATH and free-ports.sh resolve no matter
-# where $WT_ROOT points. Falls back to git/dirname only if $0 derivation fails.
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd 2>/dev/null)"
-REPO_ROOT="${REPO_ROOT:-$(git -C "$WT_ROOT" rev-parse --show-toplevel 2>/dev/null || dirname "$WT_ROOT")}"
-SRC_DIR="$REPO_ROOT/src"
-FREE_PORTS_SH="$REPO_ROOT/scripts/free-ports.sh"
-[[ -x "$FREE_PORTS_SH" ]] || FREE_PORTS_SH="$SCRIPT_DIR/free-ports.sh"
-PYTHON_BIN="$(command -v python || true)"
-if [[ -z "$PYTHON_BIN" ]] || ! "$PYTHON_BIN" -c "import yaml" 2>/dev/null; then
-  echo "python with project dependencies (including PyYAML) not found on PATH" >&2
-  exit 1
-fi
 
 IM_PID=""
 GW_PID=""
@@ -286,7 +286,7 @@ rm -f "$WT_ROOT/relay_dedup.sqlite3"
 cd "$WT_ROOT"
 IM_JWT_SECRET="$JWT_SECRET" PYTHONPATH="$SRC_DIR" \
   "$PYTHON_BIN" -m uvicorn IM.app:app --host 127.0.0.1 --port "$IM_PORT" \
-  > "$WT_ROOT/.im.log" 2>&1 &
+  > "$WT_ROOT/.im.log" 2>&1 9>&- &
 IM_PID=$!
 echo "$IM_PID" > "$WT_ROOT/.im.pid"
 
@@ -364,7 +364,7 @@ PYTHONPATH="$SRC_DIR" "$PYTHON_BIN" -m personal_assistant.main \
   --im-service-url "http://127.0.0.1:$IM_PORT" \
   --foreground \
   --auto-bind \
-  > "$WT_ROOT/.gateway.log" 2>&1 &
+  > "$WT_ROOT/.gateway.log" 2>&1 9>&- &
 GW_PID=$!
 echo "$GW_PID" > "$WT_ROOT/.gateway.pid"
 
