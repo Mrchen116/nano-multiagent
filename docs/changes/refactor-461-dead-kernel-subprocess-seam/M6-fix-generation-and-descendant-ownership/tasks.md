@@ -43,7 +43,7 @@
 
 ### R3 — e2e generation and IM preflight
 
-- 状态：TODO
+- 状态：DONE
 - C1 Red：补 concurrent up/down barrier，以及 dangling/nonregular/malformed/drift IM evidence 的零信号 regression。
 - C2 Green：up/down 从 preflight 起获取 worktree-external stable lock；down 先 snapshot IM evidence，Step2 重验同 revision后才 stop。
 - C3 Docs：记录 full-stack generation 状态矩阵、IM fail-closed boundary 与回退点。

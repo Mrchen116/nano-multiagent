@@ -27,7 +27,12 @@
 
 ## R3 — e2e generation and IM preflight
 
-- Status: TODO。
+- Status: DONE。
+- C1 Red: `c8b16cc43` 增加 up/down 外部 lock barrier、dangling/nonregular/malformed IM evidence 零信号，以及 Gateway exit 期间 IM inode drift 零 IM signal 回归；旧实现稳定暴露 5 个 failure。
+- C2 Green: `d70eaa79d` 增加共享 `scripts/e2e-lifecycle-lock.sh`，以 physical worktree hash 派生 `/tmp/nano-multiagent-e2e-lifecycle-locks-<uid>/` 下的 stable inode；up/down 从首项 lifecycle preflight 到 rollback/cleanup exit 持有 FD 9 flock，两个长驻子进程显式关闭该 fd。down 在任何 Gateway signal 前通过 held fd snapshot IM PID file 的 type/inode/mode/size/mtime/content，SIGTERM 前与 Step2 再验同一 revision，漂移时保留剩余 stack。
+- Validation: 原有 up/down + 新 generation/preflight integration 全量 `35 passed in 143.54s`；强化后的新文件 `7 passed`；bash syntax、Ruff、format 与 `git diff --check` 全通过。
+- Commit boundary: 同 worktree 的 up/down 永不跨 generation 执行；lock 永不写入用户 worktree，也不在脚本内 unlink。IM evidence invalid 时 Gateway/IM 零信号；Gateway shutdown 期间漂移时 IM 零信号且 remaining evidence 保留。
+- Rollback: 可整体回退 R3 三个提交；外部空 lock inode 可安全保留，测试 override 同样拒绝落入 target worktree。
 
 ## R4 — Owned descendant process set and final signoff
 
