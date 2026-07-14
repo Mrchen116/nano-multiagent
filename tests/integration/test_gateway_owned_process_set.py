@@ -145,6 +145,9 @@ def test_e2e_down_reaps_same_group_and_detached_descendants(tmp_path: Path) -> N
             text=True,
             check=False,
         )
+        # Surface a fail-closed teardown decision before waiting on the fixture
+        # leader. Otherwise a retained leader masks the script's actual reason.
+        assert result.returncode == 0, result.stderr
         leader.wait(timeout=3)
         deadline = time.monotonic() + 3
         while time.monotonic() < deadline and not all(
@@ -152,7 +155,6 @@ def test_e2e_down_reaps_same_group_and_detached_descendants(tmp_path: Path) -> N
         ):
             time.sleep(0.05)
 
-        assert result.returncode == 0, result.stderr
         assert all(_process_exited(pid) for pid in children.values())
         assert not (tmp_path / ".gateway.pid").exists()
     finally:
