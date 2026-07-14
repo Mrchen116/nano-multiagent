@@ -1054,7 +1054,9 @@ def test_direct_web_relay_no_reply_discards_provisional_im_message() -> None:
     assert manager.sent_frames[-1][1]["reason"] == "no_reply_token"
 
 
-def test_direct_web_empty_completion_after_process_discards_provisional_message() -> None:
+def test_direct_web_empty_completion_after_process_discards_provisional_message() -> (
+    None
+):
     """A successful Web run with process-only output must remove its whole bubble."""
     store = RunDeliveryContextStore()
     context = store.seed_from_lifecycle(
@@ -1211,9 +1213,7 @@ def test_non_web_empty_completion_keeps_existing_completed_message_semantics() -
             }
         )
         await asyncio.sleep(0)
-        observer(
-            {"event": "turn_end", "run_id": "run-custom-empty", "completed": True}
-        )
+        observer({"event": "turn_end", "run_id": "run-custom-empty", "completed": True})
         await asyncio.sleep(0)
 
     asyncio.run(_exercise())

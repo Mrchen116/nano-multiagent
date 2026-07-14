@@ -56,14 +56,14 @@ class _PagedEventRepository:
     ) -> EventReplayResult:
         del user_id, max_gap, replay_window_minutes
         self.calls.append(after_event_id)
-        replay_through = up_to_event_id if up_to_event_id is not None else len(self.events)
+        replay_through = (
+            up_to_event_id if up_to_event_id is not None else len(self.events)
+        )
         page = [
             event
             for event in self.events
             if after_event_id < event.event_id <= replay_through
-        ][
-            :max_batch
-        ]
+        ][:max_batch]
         return EventReplayResult(events=page, resync_required=False, reason=None)
 
     def global_max_event_id(self) -> int:
@@ -71,7 +71,9 @@ class _PagedEventRepository:
 
 
 class _ResumeWebSocket(_StubWebSocket):
-    def __init__(self, *, expected_events: int = 0, block_first_replay: bool = False) -> None:
+    def __init__(
+        self, *, expected_events: int = 0, block_first_replay: bool = False
+    ) -> None:
         super().__init__()
         self.expected_events = expected_events
         self.block_first_replay = block_first_replay
@@ -178,7 +180,9 @@ async def test_resume_handoff_blocks_live_delivery_until_replay_is_registered() 
             )
         )
         await asyncio.sleep(0)
-        assert not broadcast.done(), "same-user live delivery must wait for replay handoff"
+        assert not broadcast.done(), (
+            "same-user live delivery must wait for replay handoff"
+        )
 
         websocket.release_replay.set()
         await asyncio.wait_for(broadcast, timeout=5)

@@ -28,13 +28,19 @@ def test_user_stream_socket_has_one_production_lifecycle_owner() -> None:
     ]
 
     assert offenders == []
-    runtime_source = "\n".join(path.read_text(encoding="utf-8") for path in RUNTIME_ROOT.glob("*.ts"))
+    runtime_source = "\n".join(
+        path.read_text(encoding="utf-8") for path in RUNTIME_ROOT.glob("*.ts")
+    )
     assert runtime_source.count("new WebSocket(") == 1
     assert 'new URL("/im/ws/user"' in runtime_source
 
 
 def test_realtime_consumers_do_not_import_legacy_streams() -> None:
-    forbidden = ("attachUserConversationStream", "openChatStream", "streamConversationEvents")
+    forbidden = (
+        "attachUserConversationStream",
+        "openChatStream",
+        "streamConversationEvents",
+    )
     offenders: dict[str, list[str]] = {}
     for path in _production_typescript():
         source = path.read_text(encoding="utf-8")
@@ -52,9 +58,16 @@ def test_canonical_chat_has_no_legacy_runtime_surface() -> None:
         CHAT_ROOT / "mock-chat-api.ts",
         CHAT_ROOT / "types.ts",
     )
-    assert [path.relative_to(REPO_ROOT) for path in removed_paths if path.exists()] == []
+    assert [
+        path.relative_to(REPO_ROOT) for path in removed_paths if path.exists()
+    ] == []
 
-    forbidden_production_text = ("VITE_CHAT_API_MODE", "chat-v2", "features/chat/v2", "im-chat-api")
+    forbidden_production_text = (
+        "VITE_CHAT_API_MODE",
+        "chat-v2",
+        "features/chat/v2",
+        "im-chat-api",
+    )
     offenders: dict[str, list[str]] = {}
     for path in _production_typescript():
         source = path.read_text(encoding="utf-8")

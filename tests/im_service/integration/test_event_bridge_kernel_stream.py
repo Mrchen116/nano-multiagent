@@ -174,9 +174,7 @@ def test_full_kernel_stream_persists_and_broadcasts(tmp_path: Path) -> None:
         EVENT_TOOL_CALL_COMPLETED,
     }
     event_types_in_order = [
-        event.event_type
-        for event in captured
-        if event.event_type in bridge_event_types
+        event.event_type for event in captured if event.event_type in bridge_event_types
     ]
     assert event_types_in_order[0] == EVENT_MESSAGE_CREATED
     assert event_types_in_order[-1] == EVENT_MESSAGE_COMPLETED
