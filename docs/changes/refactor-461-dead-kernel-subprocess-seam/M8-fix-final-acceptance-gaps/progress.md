@@ -50,7 +50,13 @@
 
 ## R5 — Final gates
 
-- Status: IMPLEMENTATION VALIDATED；独立 verifier / reviewer / final code review 待调度。
+- Independent product review: Round 8 acceptance `pass` (`99016b4be`) ran the formerly failing global-first
+  lifecycle journey against an isolated IM/Gateway stack; default lifecycle evidence remained absent throughout.
+- Independent verifier: Round 10 (`5b61904ca`) validated implementation, contracts and a 30-test targeted
+  bundle. Its `fail` verdict is solely the then-unrecorded final-gate task rows, not a product/code finding.
+- Final code review: the M10 patch review initially confirmed the same-process `--auto-bind` environment leak;
+  `6f799b0a9` fixed it and the re-review of `bcad2c850..a4023b6b6` returned `[]`.
+- Status: final-gate evidence recorded; docs-only verifier refresh pending.
 - Rebase: 当前 unit 已从 refactor-462 前的历史基线 rebase 到 `origin/main`
   `829a3cd15`。唯一冲突是主线已删除、M1 仅更新说明文字的
   `tests/integration/test_provider_error_user_visible.py`；保持主线删除，并从

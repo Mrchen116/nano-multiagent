@@ -49,4 +49,10 @@
 - Real stack: a tmux-owned `scripts/e2e-up.sh` started an ephemeral IM + Gateway; IM OpenAPI was reachable and
   both persisted IM/Gateway PID + process-start identities matched fresh OS snapshots. `scripts/e2e-down.sh`
   completed and left no PID, identity, state or port-map evidence.
-- Status: LOCAL GATES COMPLETE — independent verifier/reviewer/final code review pending.
+- Independent product review: Round 8 acceptance `pass` (`99016b4be`) revalidated the affected Gateway public
+  lifecycle path in a real isolated stack.
+- Independent verifier: Round 10 (`5b61904ca`) found M9 generation/Cron/spec closure correct; its only critical
+  was the then-unrecorded final-gate checklist, which this record closes.
+- Final code review: the M9 full review found no credible candidate; the later M10 patch review surfaced and then
+  closed the auto-bind caller-environment issue, with final re-review `[]`.
+- Status: final-gate evidence recorded; docs-only verifier refresh pending.

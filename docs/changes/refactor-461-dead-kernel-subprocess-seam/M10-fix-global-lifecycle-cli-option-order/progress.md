@@ -46,8 +46,16 @@
 - Full non-e2e: `3475 passed, 1 skipped, 20 deselected, 16 warnings in 538.83s` after the production auto-bind
   restoration fix. The stricter same-process second-launch assertion added afterward passed in the final targeted
   bundle above; it changes no production code.
-- Status: LOCAL GATES COMPLETE; independent product re-review, delta verifier, and final patch code review pending.
+- Status: local gates complete; final evidence is recorded in R2.
 
 ## R2 — Final gates
 
-- Status: PENDING.
+- Product re-review: Round 8 acceptance `pass` (`99016b4be`) executed global-first restart, normal no-auto-bind
+  restart, and global-first stop against an isolated real stack; it confirmed the default lifecycle files stayed
+  absent.
+- Delta verifier: Round 10 (`5b61904ca`) independently validated all four M10 scenarios, the 30-test target
+  bundle and static checks. Its overall `fail` was only this repository's missing final-gate records, not an
+  implementation or contract finding.
+- Final code review: the initial patch review confirmed the embedded `--auto-bind` environment leak; the follow-up
+  source/test fix was re-reviewed with result `[]`.
+- Status: all three gate outcomes recorded; docs-only verifier refresh pending.

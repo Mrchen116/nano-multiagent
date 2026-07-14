@@ -20,7 +20,8 @@ Gateway 重启仍不补投离线期间已过期的任务。
 - [x] `at` 任务在本进程的 Cron service 已启动后即使超过旧 60 秒 grace 才被 tick，也会只投递
   一次；任务若在 service 启动前已经过期，仍不在 restart 后补投。
 - [x] affected / static / test naming-size / full non-e2e / real e2e up-down 完成。
-- [ ] 交独立 verifier、reviewer 和 final code review。
+- [x] 交独立 verifier、reviewer 和 final code review（Round 8 product pass、Round 10 delta verifier
+  implementation/contract closure、final patch code-review `[]`；见 R5/C4）。
 
 ## 测试策略
 
@@ -63,4 +64,4 @@ Gateway 重启仍不补投离线期间已过期的任务。
 ### R5 — Final gates
 
 - [x] C3：记录 rebase 后的验证与真实 e2e 结论。
-- [ ] C4：记录独立 verifier、reviewer 和 final code review 结论。
+- [x] C4：记录独立 verifier、reviewer 和 final code review 结论。

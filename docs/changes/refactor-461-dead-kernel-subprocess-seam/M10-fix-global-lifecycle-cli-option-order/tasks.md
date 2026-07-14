@@ -10,12 +10,12 @@
 
 ## 退出标准
 
-- [ ] `--config <A> ... restart` 与 `restart --config <A> ...` 管理相同的 A；前者绝不启动、停止或替换
+- [x] `--config <A> ... restart` 与 `restart --config <A> ...` 管理相同的 A；前者绝不启动、停止或替换
   默认 config 的 Gateway。
-- [ ] `--im-service-url` 与 `--auto-bind` 的 global-first `restart` 调用保持传递给新 Gateway 的行为；
+- [x] `--im-service-url` 与 `--auto-bind` 的 global-first `restart` 调用保持传递给新 Gateway 的行为；
   `stop` 的 global-first `--config` 同样只操作 A。
-- [ ] canonical Gateway lifecycle 契约明确 lifecycle target option 在子命令前后的一致目标语义。
-- [ ] 新回归、affected lifecycle tests、static、full non-e2e 与隔离真 CLI lifecycle 通过；随后完成独立
+- [x] canonical Gateway lifecycle 契约明确 lifecycle target option 在子命令前后的一致目标语义。
+- [x] 新回归、affected lifecycle tests、static、full non-e2e 与隔离真 CLI lifecycle 通过；随后完成独立
   reviewer、verifier 和 final code review。
 
 ## 测试策略
@@ -37,4 +37,6 @@
 ### R2 — Final gates
 
 - [x] targeted / static / full non-e2e / isolated lifecycle evidence。
-- [ ] independent reviewer re-review、delta verifier、final code review 全部通过。
+- [x] independent reviewer re-review、delta verifier、final code review 全部通过（Round 8 product pass；
+  Round 10 的唯一 fail 是本次 checkbox 记录缺失，代码/契约验证均通过；final patch code-review `[]`；
+  docs-only verifier refresh follows）。

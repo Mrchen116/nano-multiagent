@@ -10,14 +10,14 @@ Gateway lifecycle delta-spec 必须归并到长青契约层。
 
 ## 退出标准
 
-- [ ] e2e-up 在公开 identity 的 PID/config/argv 之外，还验证其 process birth 等于本轮捕获的
+- [x] e2e-up 在公开 identity 的 PID/config/argv 之外，还验证其 process birth 等于本轮捕获的
   `GW_PROCESS_START`，且 readiness loop 每轮继续验证该 birth；不匹配时 fail closed、不得把外来
   generation 宣布为 ready。
-- [ ] `at` Cron 在同一 Gateway 存活期间仍能承受延迟 tick；但 job 在其 due instant 后才新增、改 schedule
+- [x] `at` Cron 在同一 Gateway 存活期间仍能承受延迟 tick；但 job 在其 due instant 后才新增、改 schedule
   为过去时间、或从 disabled 重新启用时不自动补投，用户须显式 `run` 才立即执行。
-- [ ] `docs/specs/gateway/service-lifecycle.md` 归并本 unit 的 delta：PID/liveness-only startup
+- [x] `docs/specs/gateway/service-lifecycle.md` 归并本 unit 的 delta：PID/liveness-only startup
   confirmation、Gateway-owned timing 的旧值单向迁移与每文件 backup；header 对齐 refactor-461。
-- [ ] 精确回归、static、full non-e2e、真实 e2e up/down 通过，随后交 independent verifier、reviewer
+- [x] 精确回归、static、full non-e2e、真实 e2e up/down 通过，随后交 independent verifier、reviewer
   和 final code review。
 
 ## 测试策略
@@ -50,4 +50,5 @@ Gateway lifecycle delta-spec 必须归并到长青契约层。
 
 ### R4 — Final gates
 
-- [ ] C3：记录验证、真实 e2e 与独立验收结论（local gates 已完成；独立门禁待跑）。
+- [x] C3：记录验证、真实 e2e 与独立验收结论（Round 8 reviewer、Round 10 verifier 和 final code review
+  已有结果；见 progress.md R4）。
