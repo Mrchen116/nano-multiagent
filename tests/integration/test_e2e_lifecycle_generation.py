@@ -11,7 +11,12 @@ import time
 import pytest
 
 from .test_e2e_down_script import _GATEWAY_PID, _run_down, _write_stack_files
-from .test_e2e_up_script import _cleanup_owned, _prepare_harness
+from .test_e2e_up_script import (
+    _cleanup_owned,
+    _prepare_harness,
+    _run_up,
+    _spawned_pids,
+)
 
 
 def _lock_holder(path: Path) -> subprocess.Popen[str]:
@@ -83,6 +88,18 @@ def test_e2e_up_waits_on_external_generation_lock_before_preflight(
         if process.poll() is None:
             process.kill()
             process.wait(timeout=3)
+        _cleanup_owned(tmp_path)
+
+
+def test_e2e_up_gateway_is_exclusive_process_group_leader(tmp_path: Path) -> None:
+    env = _prepare_harness(tmp_path)
+    try:
+        result = _run_up(tmp_path, env)
+        gateway_pid = _spawned_pids(tmp_path)[1]
+
+        assert result.returncode == 0, result.stderr
+        assert os.getpgid(gateway_pid) == gateway_pid
+    finally:
         _cleanup_owned(tmp_path)
 
 
