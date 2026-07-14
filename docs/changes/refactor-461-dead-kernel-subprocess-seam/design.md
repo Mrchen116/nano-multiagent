@@ -302,7 +302,7 @@ sequenceDiagram
 
 ## Milestones
 
-**为什么最初只有一个 milestone**：这条 seam 横跨 runtime、schema、state 和测试，但每一部分单独合入都会暂时丢配置、留下假 interface 或让当前运维入口撒谎。按垂直行为切分后，最小可交付单位就是“旧配置可迁移、Gateway 可启停、关键路径不变、旧 seam 不可复活”的一次原子收敛；按文件横切成多个 milestone 反而制造不一致中间态。M2-M6 是独立验收后追加的返工 milestone，不改变原始实现切分。
+**为什么最初只有一个 milestone**：这条 seam 横跨 runtime、schema、state 和测试，但每一部分单独合入都会暂时丢配置、留下假 interface 或让当前运维入口撒谎。按垂直行为切分后，最小可交付单位就是“旧配置可迁移、Gateway 可启停、关键路径不变、旧 seam 不可复活”的一次原子收敛；按文件横切成多个 milestone 反而制造不一致中间态。M2-M7 是独立验收后追加的返工 milestone，不改变原始实现切分。
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
@@ -312,6 +312,7 @@ sequenceDiagram
 | refactor-461-M4 | fix-round-3-cross-process-and-fail-atomic-findings | refactor-461-M3 | D | `src/personal_assistant/{main.py,config/local_store.py}`；`scripts/{e2e-up.sh,e2e-down.sh}`；相关 lifecycle/config/e2e 回归测试与 M3 契约澄清 | 修复第三轮确认的 public stop PID identity、跨进程配置协调/backup path/mode/commit durability、bounded stop polling、e2e evidence fail-closed、stale residue/default symlink、冷启动 timeout 与失败回滚；明确 POSIX 文件事务只保证所有本系统 writer 通过稳定 sidecar lock 协调，并对不协作外部漂移作提交前检测（post-acceptance fix, round 3） |
 | refactor-461-M5 | fix-round-4-startup-publication-and-cleanup-findings | refactor-461-M4 | E | `src/personal_assistant/main.py`；`scripts/{e2e-up.sh,e2e-down.sh}`；相关 launch/identity/e2e 回归测试 | 修复第四轮确认的 startup state/publication rollback、未确认强杀、含空格 argv、locale/TZ birth identity、e2e rollback 幸存 Gateway、dangling evidence 与 cleanup 半提交；进程身份查询和 lifecycle evidence 清理各收敛为单一可测试原语（post-acceptance fix, round 4） |
 | refactor-461-M6 | fix-round-5-generation-and-descendant-ownership-findings | refactor-461-M5 | F | `src/personal_assistant/{main.py,config/local_store.py}`；`scripts/{e2e-up.sh,e2e-down.sh}`；相关 launch/config/e2e 回归测试 | 修复第五轮确认的 post-state liveness、public/e2e generation lock、backup content/mode gate、IM evidence preflight、startup group-only signal、Gateway descendant ownership与 Darwin test reap；全栈启动/停止以 generation 和 owned process set 为提交边界（post-acceptance fix, round 5） |
+| refactor-461-M7 | fix-round-6-process-and-config-ownership-findings | refactor-461-M6 | G | `src/personal_assistant/{main.py,config/local_store.py}`；`scripts/{e2e-up.sh,e2e-down.sh,e2e-owned-processes.sh}`；相关 config mutation/public lifecycle/e2e ownership 回归测试 | 修复第六轮 code review 确认的 8 个问题：窄字段配置写避免 stale snapshot lost update；foreground 共享 PGID、单实例 claim 与 public detached descendant 全量回收；e2e freeze 失败恢复、live internal Gateway preflight、IM missing/PID-reuse identity fail-closed；清除 xdist 下固定 timeout 假设（post-acceptance fix, round 6） |
 
 ### refactor-461-M1 两轨退出标准
 
