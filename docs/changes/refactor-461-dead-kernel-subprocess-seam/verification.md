@@ -1071,3 +1071,86 @@ None.
 None.
 
 1 critical issue found. Fix before PR.
+
+# Round 11
+
+## Verification Report: refactor-461
+
+### Summary
+
+Mode: delta
+Delta range: `5b61904ca..601ff04bf`
+Focus issues: Round 10 C1 — required final-gate results were not yet recorded as complete
+requires_full_verification: false
+
+| Dimension | Result |
+|---|---|
+| Completeness | 105/105 task checkboxes complete |
+| Correctness | Round 10 C1 is closed; every final-gate record resolves to an extant, reachable evidence commit |
+| Coherence | Followed; this is a documentation-only closure with no product-code, test, config, or architecture delta |
+
+This final docs-only delta verification rebased an independent detached worktree to
+`601ff04bf`. The closure changes only the M8/M9/M10 task/progress files. It makes
+the evidence chain explicit without rewriting the historical Round 10 `fail`:
+that verdict was correctly limited to the then-missing records, and this report is
+the pending refresh that closes it.
+
+## Prior Issue Closure
+
+| Prior issue | Verdict | Evidence |
+|---|---|---|
+| Round 10 C1 — final independent-gate outcomes were not recorded | closed | All ten task files contain no `- [ ]` entries; M8/M9/M10 are now respectively 16/16, 10/10, and 9/9. `601ff04bf` records Round 8 acceptance `99016b4be`, Round 10 verifier `5b61904ca`, and final patch code-review `[]` in each relevant final-gate progress/task record. |
+| M10's apparent circular verifier state | closed | `M10-fix-global-lifecycle-cli-option-order/progress.md:53-61` accurately identifies Round 10's sole documentation failure and leaves this docs-only refresh as the final step; this Round 11 report supplies that step without claiming Round 10 was a product pass. |
+
+## Completeness
+
+- **105/105 task checkboxes complete.** Per-milestone counts are M1 5/5, M2 6/6,
+  M3 6/6, M4 19/19, M5 19/19, M6 8/8, M7 7/7, M8 16/16, M9 10/10, and M10 9/9.
+- `601ff04bf` modifies only six final-gate task/progress files. It does not change
+  any product implementation, durable test, configuration, canonical behavior
+  contract, or prior acceptance/verifier result.
+- The linked evidence commits exist and are ancestors of this closure: Round 8
+  acceptance `99016b4be`, Round 10 verifier `5b61904ca`, M10 auto-bind fix
+  `6f799b0a9`, and M10 local-validation record `a4023b6b6`.
+
+## Correctness
+
+| Gate record | Consistency check | Status |
+|---|---|---|
+| Product re-review | M8/M9/M10 cite Round 8 acceptance `99016b4be`; that report is an ancestor and records the isolated real global-first restart, normal restart, and global-first stop journey as `pass`. | covered |
+| Delta verifier | M8/M9/M10 cite Round 10 `5b61904ca` and correctly state its only critical was missing final-gate recording, not a code or contract defect. | covered |
+| Final patch code review | M8/M9/M10 distinguish the initially confirmed auto-bind leak from the fixed/re-reviewed M10 patch, whose final candidate list is `[]`; this agrees with the M10 source/test chronology recorded in `M10-fix-global-lifecycle-cli-option-order/progress.md:18-29`. | covered |
+| Task-to-evidence relation | Every newly checked M8/M9/M10 exit criterion points to its local progress record or the linked Round 8/Round 10 evidence; no checked row claims an unrun product or test gate. | covered |
+
+### Test / Static Evidence
+
+- No product files changed in this delta, so no test rerun is required by the
+  testing guide. `git diff --check 5b61904ca..601ff04bf` passes.
+- The retained M10 evidence remains the independent 30-test targeted bundle,
+  static checks, serial non-e2e gate, and Round 8 real isolated CLI journey
+  recorded in Round 10 and the M10 progress record.
+
+## Coherence
+
+- The closure follows the unit workflow rather than masking a failed test: it
+  preserves the historical Round 10 `fail`, records why it failed, and adds this
+  distinct final verifier decision.
+- It introduces no dependency, process, lifecycle, or specification mechanism;
+  the canonical lifecycle contract remains the already verified
+  `docs/specs/gateway/service-lifecycle.md:34-39` Scenario.
+
+## Issues
+
+### CRITICAL (must fix before PR)
+
+None.
+
+### WARNING (should fix)
+
+None.
+
+### SUGGESTION (optional)
+
+None.
+
+All checks passed. Ready for PR.
