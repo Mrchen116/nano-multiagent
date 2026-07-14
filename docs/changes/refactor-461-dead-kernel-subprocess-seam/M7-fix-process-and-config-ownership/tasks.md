@@ -14,7 +14,7 @@
 - [x] e2e freeze 任一失败出口恢复每个已 STOP 的 owned group；失败后 leader 与 detached descendant 均可继续运行或被后续安全回收。
 - [x] e2e-up 遇到任意 internal Gateway/IM lifecycle evidence 都 fail closed；只有 e2e-down 在验证 original birth 已退出且 evidence revision 未变后清理，malformed/incomplete evidence 不启新 generation。
 - [x] e2e-down 在有 full-stack evidence 时将 missing IM PID 视为 incomplete ownership；IM PID identity 绑定 birth + argv/cwd/port，TERM/KILL 前重验，PID reuse 零信号。
-- [ ] affected、Ruff、format、bash syntax、diff check、test naming/size、最终 full non-e2e 与真实 public/e2e entry 全通过，无 process/file/lock residue。
+- [x] affected、Ruff、format、bash syntax、diff check、test naming/size、最终 full non-e2e 与真实 public/e2e entry 全通过，无 process/file/lock residue。
 
 ## 测试策略
 
@@ -49,6 +49,6 @@
 
 ### R4 — Final gates
 
-- 状态：TODO
+- 状态：DONE
 - C1/C2：修复 xdist 暴露的脚本固定 timeout/cleanup 不稳定，只做由本轮 ownership 行为引起的最小调整。
 - C3 Docs：完成 affected/static/唯一 full/真实入口/residue 证据，交回独立 reviewer/verifier/code review。

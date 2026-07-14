@@ -38,4 +38,9 @@
 
 ## R4 — Final gates
 
-- Status: TODO。
+- Status: DONE。
+- xdist 的唯一 full 首次暴露 8 个问题：6 个 public-stop 单测仍 stub 已退役的单 PID/group 路径，2 个 e2e wrapper 以独立于脚本 lifecycle 的 15/20/30 秒 `subprocess` deadline 终止进程，导致 xdist 下把可观测的正常 cleanup 误判为超时。`9a8447de6` 将旧测试迁移到 owned-process-set transaction；`dbb58b44f` 删除外部 deadline，仍由被测脚本的 startup/teardown 状态和 pytest 全局守护负责边界。
+- Validation: targeted public/e2e xdist 回归 `2 passed in 31.74s`，短配置路径 `2 passed in 14.03s`；唯一 full `/Users/czj/Repos/nano-multiagent/.venv/bin/pytest -n auto -m "not e2e"` 为 `3608 passed, 1 skipped, 30 warnings in 292.14s`。warnings 为既有 protobuf/FastAPI/JWT 与前端测试环境告警，未新增失败。
+- Static and frontend: affected Ruff/format、`git diff --check`、`bash -n scripts/e2e-up.sh scripts/e2e-down.sh scripts/e2e-owned-processes.sh`、`tests/contract/test_test_naming_and_size_contract.py` 均通过；frontend `npm run test -- --run && npm run build` 通过（`64` files、`618` tests；production build success）。
+- Real entry: 以独立 session 启动 `e2e-up.sh` 后，IM identity (`pid=55760`) 与 Gateway identity (`pid=56213`) 的 pid/birth 均与 OS 匹配，IM OpenAPI 可访问；随后 `e2e-down.sh` 成功停止两者，并确认无 `.im*`、`.gateway*`、`.e2e-*`、生成 config 或 live process residue。独立 session 是自动化宿主不会在命令返回时回收裸 IM 子进程的运行方式，不改变脚本的生产启动路径。
+- Commit boundary: R4 只消除被回归测试引入的第二个外部 deadline，未放宽任何 script lifecycle/identity/evidence 检查；全量与真实 down 后的零 residue 证明 teardown authority 仍在 matching-instance path 内。
