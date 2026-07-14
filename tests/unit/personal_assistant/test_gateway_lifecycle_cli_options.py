@@ -11,11 +11,13 @@ from personal_assistant.main import BackgroundLaunchResult, main
 def test_global_options_before_restart_preserve_lifecycle_target(
     monkeypatch, tmp_path: Path
 ) -> None:
-    """Global-first restart must not fall back to the default Gateway config."""
+    """Global-first restart keeps its target and scopes auto-bind to one launch."""
     calls: list[tuple[str, str, str | None]] = []
     observed_auto_bind: list[str | None] = []
     config_path = str(tmp_path / "isolated-config.yaml")
     im_service_url = "http://127.0.0.1:59123"
+    second_config_path = str(tmp_path / "second-isolated-config.yaml")
+    second_im_service_url = "http://127.0.0.1:59124"
     original_auto_bind = os.environ.pop("NANO_MULTIAGENT_AUTO_BIND", None)
 
     def _stop(*, config_path: str) -> str:
@@ -51,6 +53,27 @@ def test_global_options_before_restart_preserve_lifecycle_target(
             ("start", config_path, im_service_url),
         ]
         assert observed_auto_bind == ["1"]
+        assert "NANO_MULTIAGENT_AUTO_BIND" not in os.environ
+
+        assert (
+            main(
+                [
+                    "--config",
+                    second_config_path,
+                    "--im-service-url",
+                    second_im_service_url,
+                    "restart",
+                ]
+            )
+            == 0
+        )
+        assert calls == [
+            ("stop", config_path, None),
+            ("start", config_path, im_service_url),
+            ("stop", second_config_path, None),
+            ("start", second_config_path, second_im_service_url),
+        ]
+        assert observed_auto_bind == ["1", None]
         assert "NANO_MULTIAGENT_AUTO_BIND" not in os.environ
     finally:
         if original_auto_bind is None:
