@@ -9,7 +9,8 @@
 
 ## 退出标准
 
-- [x] 已退出的、由 `e2e-up.sh` 直接启动的 IM 子进程在删除 PID/identity 证据前被精确回收。
+- [x] 已退出的、由 `e2e-up.sh` 直接启动的 IM 子进程在删除 PID/identity 证据前被精确回收；SIGKILL
+  后仍以有界观察失败关闭，不会无期限等待。
 - [x] SIGKILL-only IM、identity timeout 与 readiness failure 都覆盖回滚后的证据清理。
 - [x] 锁持有测试以显式 release 条件维持锁；fixture 不压缩 teardown 的真实等待间隔。
 - [x] `e2e-down.sh` 进程树测试先报告脚本失败关闭原因，再等待 fixture leader。

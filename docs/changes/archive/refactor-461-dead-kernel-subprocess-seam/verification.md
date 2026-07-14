@@ -1154,3 +1154,56 @@ None.
 None.
 
 All checks passed. Ready for PR.
+
+# Round 12
+
+## Verification Report: refactor-461 M11
+
+### Summary
+
+Mode: delta
+Delta range: `601ff04bf..cc277d1ce`
+Focus: bounded `e2e-up.sh` rollback reaping and deterministic lifecycle-test evidence
+requires_full_verification: false
+
+| Dimension | Result |
+|---|---|
+| Completeness | M11's five exit criteria are implemented and recorded. |
+| Correctness | An owned child is reaped only after observed exit; a SIGKILL request that does not produce exit remains bounded and fail-closed. |
+| Coherence | The delta changes only e2e lifecycle cleanup/tests; it adds no Kernel process, public runtime behavior, or new lifecycle authority. |
+
+## Correctness
+
+| Scenario | Evidence | Status |
+|---|---|---|
+| TERM-ignored IM exits on SIGKILL before its evidence is cleared | `scripts/e2e-up.sh` observes exit before exact-child `wait`; `test_identity_timeout_reaps_sigkill_only_im_before_clearing_evidence`. | covered |
+| SIGKILL request does not guarantee exit | `stop_spawned_pid()` retains its 20-poll bounded observation after SIGKILL; `test_identity_timeout_im_survivor_retains_im_evidence_after_sigkill` preserves IM evidence and returns fail-closed. | covered |
+| `e2e-down` process-tree failure remains diagnosable | The test asserts script success before waiting for its fixture leader, so stderr is not hidden by a later fixture timeout. | covered |
+| Fixture locks do not self-release based on wall-clock duration | The lock holder waits for explicit stdin release. | covered |
+
+### Test / Review Evidence
+
+- New IM-survivor regression: `1 passed in 16.69s`.
+- Targeted lifecycle product review: 37 collected rollback/e2e-up/e2e-down/owned-process tests passed; the reviewer
+  also completed a real isolated tmux `e2e-up` / `e2e-down` journey with all PID, identity, state, config, and
+  port-map artifacts gone afterward.
+- `bash -n scripts/e2e-up.sh`, Python Ruff check/format, `git diff --check`, and the test naming/size contract passed.
+- CI-style `pytest -q -m "not e2e" -n 4 --dist worksteal` completed with an empty pytest `lastfailed` cache and no
+  test-run child-process residue. The execution transport did not preserve a final count, so none is invented here.
+- Independent final code review first found the unbounded-wait issue; after `cc277d1ce`, its candidate list was `[]`.
+
+## Issues
+
+### CRITICAL (must fix before PR)
+
+None.
+
+### WARNING (should fix)
+
+None.
+
+### SUGGESTION (optional)
+
+None.
+
+All checks passed. Ready for PR.
