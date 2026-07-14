@@ -651,3 +651,87 @@ M6 progress记录规定 full为 `3598 passed`（`M6-fix-generation-and-descendan
 无。
 
 No critical issues. 2 warning(s) to consider. Ready for PR (with noted improvements).
+
+# Round 7
+
+## Verification Report: refactor-461
+
+### Summary
+
+Mode: full
+Delta range: `14cd8af19..fe5f7eb71`
+Focus issues: Round 6 W14 partial-freeze recovery; W15 external lifecycle-test deadlines; stale whole-config writes; public and e2e process-instance ownership
+requires_full_verification: false
+
+| Dimension | Result |
+|---|---|
+| Completeness | 70/70 tasks complete; all four requirements implemented |
+| Correctness | 10/10 scenarios covered; Round 6 W14 and W15 closed |
+| Coherence | D1-D5 followed; no dependency reversal or parallel lifecycle seam |
+
+This full verification read the unit motivation, design, gateway delta-spec, all M1--M7 task/progress records, prior verification rounds, the current Gateway lifecycle contract, and the project testing/architecture/commenting rules. It verified unit integration head `fe5f7eb71`.
+
+## Prior Issue / M7 Closure
+
+| Prior focus | Result | Evidence |
+|---|---|---|
+| W14: a partial descendant freeze could leave a detached group stopped | closed | Shell freeze delegates to `freeze_gateway_owned_process_set()` (`scripts/e2e-owned-processes.sh:167-182`). The Python transaction captures, stops, confirms, and resumes every captured original PID on every failed attempt (`src/personal_assistant/main.py:4731-4776`); its regression covers shell delegation and real same-group/detached descendants (`tests/integration/test_gateway_owned_process_set.py:118-297`). |
+| W15: test harness applied independent 15/20/30-second deadlines | closed | Lifecycle helpers no longer impose a second subprocess deadline (`tests/integration/test_e2e_up_script.py:175-230`; `tests/unit/personal_assistant/test_gateway_im_resilience_e2e_wrapper.py:185-235`). M7 records a clean required full run: `3608 passed, 1 skipped, 30 warnings in 292.14s`. |
+| Stale token or IM sync could overwrite another writer's fields | closed | Both writers call the locked narrow mutation API (`src/personal_assistant/main.py:980-986,4008-4048`), whose latest-revision read, mutation and atomic commit remain inside one transaction lock (`src/personal_assistant/config/local_store.py:1145-1184`); reverse-order regressions are in `tests/unit/personal_assistant/test_gateway_config_mutation_ownership.py:31-115`. |
+| Public/e2e teardown could signal an unproven process or incompletely clean its descendants | closed | Public stop freezes the full PID/PPID/PGID/birth set, TERM/CONT/KILLs it, and clears evidence only after every original birth exits (`src/personal_assistant/main.py:2780-2813,4461-4779`). E2E startup publishes IM identity before PID (`scripts/e2e-up.sh:486-528`); teardown snapshots and validates the PID/identity pair before Gateway signals and again before IM teardown/cleanup (`scripts/e2e-down.sh:216-430,560-635`). |
+
+## Completeness
+
+- Tasks: 70/70 marked complete: M1 5/5, M2 6/6, M3 6/6, M4 19/19, M5 19/19, M6 8/8, and M7 7/7. No unchecked task remains.
+- Requirements: all four requirements from `motivation.md` have a production mapping and durable regression coverage.
+- Prototype / reference: N/A. This is a lifecycle/configuration refactor with no frontend prototype contract.
+
+## Correctness
+
+| Requirement / Scenario group | Implementation evidence | Durable test evidence | Status |
+|---|---|---|---|
+| Messages plus heartbeat/cron remain on the in-process Kernel | `build_runtime()` imports the SDK and creates `build_pa_kernel()` in the Gateway process (`src/personal_assistant/main.py:3103-3166`); no `agent.core`/`agent.platform` import or subprocess manager remains. | `tests/unit/personal_assistant/test_gateway_runtime_lifecycle.py` and `test_gateway_shutdown_order.py`; active-scope seam guard `tests/contract/test_no_dead_kernel_subprocess_seam.py:17-95`. | covered |
+| Default start is PID/liveness confirmation; stop/restart preserve graceful, forced, single-instance lifecycle results | Launcher waits for a durable PID/identity and confirms it after state publication (`src/personal_assistant/main.py:2554-2695`); `run_gateway()` takes the runtime instance claim (`src/personal_assistant/main.py:2400-2420`), and public stop clears evidence only after the frozen owned set exits (`src/personal_assistant/main.py:2720-2844`). | `tests/unit/personal_assistant/test_gateway_launch.py`, `test_gateway_pid_lifecycle.py`, `test_gateway_lifecycle_generation.py`, and `test_gateway_process_ownership_closure.py`. | covered |
+| IM-offline autonomy is not coupled to a removed Kernel HTTP service | Gateway continues to build its local SDK kernel before IM connection management (`src/personal_assistant/main.py:3103-3185`); no standalone Kernel endpoint is introduced. | Existing gateway runtime and heartbeat pipeline regressions, including `tests/im_service/integration/test_heartbeat_config_sync_pipeline.py`. | covered |
+| Legacy timing migrates field-by-field; canonical writes own only Gateway timing and protect the original file | Loader selects `gateway` first and only falls back to the three legacy fields (`src/personal_assistant/config/local_store.py:325-367,1448-1498`); write/mutation transactions retain backup/CAS/atomic-commit behavior (`src/personal_assistant/config/local_store.py:1109-1184`). | `tests/unit/personal_assistant/test_local_store.py`, `test_config_migration_backup_guard.py`, `test_config_migration_transaction.py`, and M7 mutation-ownership tests. | covered |
+| Dead command/HTTP fields have no runtime authority | The active-scope contract rejects the manager, health URL, API PID, old app and legacy config object (`tests/contract/test_no_dead_kernel_subprocess_seam.py:17-95`). | Same contract test passed in this verification. | covered |
+| One-command true stack owns only IM and Gateway and fails closed on incomplete, reused, or changed ownership evidence | E2E Gateway runs as its own session leader and must publish the matching public identity (`scripts/e2e-up.sh:600-665`); IM PID + identity files are immutable-snapshotted and bound to birth/argv/cwd before any destructive action (`scripts/e2e-down.sh:216-430,560-618`). | `tests/integration/test_e2e_up_process_ownership.py`, `test_e2e_lifecycle_generation.py`, `test_gateway_owned_process_set.py`, and selected `test_e2e_down_script.py` negative cases. | covered |
+
+### Test Evidence
+
+- This verification passed `90` focused config/lifecycle/runtime/heartbeat tests in `2.90s`.
+- The independent M7 contract/ownership/e2e-generation selection and seven fail-closed e2e-down cases passed; they cover PID/birth mismatch, missing owner evidence, freeze delegation, survivor retention, and busy sidecar retention.
+- `ruff check` and `ruff format --check` passed for the affected Python sources/tests; `bash -n` passed for `scripts/e2e-up.sh`, `scripts/e2e-down.sh`, and `scripts/e2e-owned-processes.sh`; `git diff --check 14cd8af19..fe5f7eb71` passed.
+- M7's recorded final gates additionally show the mandated full non-e2e run (`3608 passed, 1 skipped`) and a real isolated `e2e-up.sh`/`e2e-down.sh` lifecycle with matched identities and no residue (`M7-fix-process-and-config-ownership/progress.md:39-46`).
+
+## Coherence
+
+| Design decision | Followed? | Evidence |
+|---|---|---|
+| D1: remove the dead manager rather than create a replacement port | yes | Only Gateway's own background `Popen` factory remains (`src/personal_assistant/main.py:2554-2663,5284-5293`); the active-scope contract forbids reintroducing the old manager/API surface. |
+| D2: move live timing to Gateway with a safe one-way migration | yes | `GatewayLifecycleConfig` is the typed runtime field, with per-field legacy fallback and transactional migration backup (`src/personal_assistant/config/local_store.py:275-322,1109-1184,1448-1498`). |
+| D3: distinguish child-start confirmation from readiness and bind stop to process identity | yes | The launcher explicitly promises only PID/liveness confirmation (`src/personal_assistant/main.py:2554-2574,5296-5341`); identity/birth evidence gates stop and cleanup. |
+| D4: retain the real Gateway shutdown sequence | yes | Kernel remains an in-process runtime resource; the regression suite preserves heartbeat/channel/kernel/cron/IM shutdown ordering (`tests/unit/personal_assistant/test_gateway_shutdown_order.py:124-246`). |
+| D5: clean active entrypoints without rewriting history | yes | The narrow contract checks active docs/scripts/configs but deliberately excludes archived/change history (`tests/contract/test_no_dead_kernel_subprocess_seam.py:41-95`). |
+
+### Architecture Coherence
+
+- `personal_assistant` still uses only `agent.sdk`; no forbidden `agent.core` or `agent.platform` import was found.
+- The process-set helpers extend Gateway's existing lifecycle ownership boundary. They do not create a Kernel subprocess, a second lifecycle authority, or an IM-to-Gateway filesystem dependency.
+- Configuration locking, runtime instance claiming, and e2e generation locking retain distinct scopes and commit points; the M7 mutations reuse the existing atomic config transaction rather than creating a parallel writer path.
+
+## Issues
+
+### CRITICAL (must fix before PR)
+
+None.
+
+### WARNING (should fix)
+
+None.
+
+### SUGGESTION (optional)
+
+None.
+
+All checks passed. Ready for PR.
