@@ -269,46 +269,77 @@ rm -f "$external_gateway_pid"
 # ─── port allocation ─────────────────────────────────────────────────────────
 
 IM_PID=""
+IM_PROCESS_START=""
 GW_PID=""
+GW_PROCESS_START=""
 ROLLBACK_ACTIVE=1
 
-process_status() {
-  local pid=$1 process_stat
-  process_stat="$(ps -p "$pid" -o stat= 2>/dev/null | tr -d '[:space:]')"
-  if [[ -z "$process_stat" || "$process_stat" == Z* ]]; then
-    echo exited
-  else
-    echo alive
-  fi
+capture_spawned_process_start() {
+  local pid=$1
+  PYTHONPATH="$SRC_DIR${PYTHONPATH:+:$PYTHONPATH}" "$PYTHON_BIN" - "$pid" <<'PY'
+import sys
+
+from personal_assistant.main import read_gateway_process_snapshot
+
+snapshot = read_gateway_process_snapshot(int(sys.argv[1]))
+if snapshot is None:
+    raise SystemExit(1)
+print(snapshot.process_start)
+PY
+}
+
+spawned_process_status() {
+  local pid=$1 expected_start=$2
+  PYTHONPATH="$SRC_DIR${PYTHONPATH:+:$PYTHONPATH}" "$PYTHON_BIN" - \
+    "$pid" "$expected_start" <<'PY'
+import sys
+
+from personal_assistant.main import read_gateway_process_snapshot
+
+snapshot = read_gateway_process_snapshot(int(sys.argv[1]))
+if snapshot is None:
+    print("exited")
+elif " ".join(snapshot.process_start.split()) == " ".join(sys.argv[2].split()):
+    print("alive")
+else:
+    print("mismatch")
+PY
 }
 
 stop_spawned_pid() {
-  local pid=$1
+  local pid=$1 expected_start=$2 status
   [[ -n "$pid" ]] || return 0
-  if [[ "$(process_status "$pid")" == exited ]]; then
-    return 0
-  fi
+  status="$(spawned_process_status "$pid" "$expected_start")" || return 1
+  [[ "$status" == exited ]] && return 0
+  [[ "$status" == alive ]] || return 1
   kill "$pid" 2>/dev/null || true
   for _ in $(seq 1 20); do
-    [[ "$(process_status "$pid")" == exited ]] && return 0
+    status="$(spawned_process_status "$pid" "$expected_start")" || return 1
+    [[ "$status" == exited ]] && return 0
+    [[ "$status" == alive ]] || return 1
     sleep 0.05
   done
+  status="$(spawned_process_status "$pid" "$expected_start")" || return 1
+  [[ "$status" == exited ]] && return 0
+  [[ "$status" == alive ]] || return 1
   kill -9 "$pid" 2>/dev/null || true
   for _ in $(seq 1 20); do
-    [[ "$(process_status "$pid")" == exited ]] && return 0
+    status="$(spawned_process_status "$pid" "$expected_start")" || return 1
+    [[ "$status" == exited ]] && return 0
+    [[ "$status" == alive ]] || return 1
     sleep 0.05
   done
   return 1
 }
 
 stop_spawned_gateway() {
-  local pid=$1 owned
+  local pid=$1 expected_start=$2 owned status
   [[ -n "$pid" ]] || return 0
-  if [[ "$(process_status "$pid")" == exited ]]; then
-    return 0
-  fi
+  status="$(spawned_process_status "$pid" "$expected_start")" || return 1
+  [[ "$status" == exited ]] && return 0
+  [[ "$status" == alive ]] || return 1
   owned="$(e2e_freeze_gateway_owned_processes \
-    "$SRC_DIR" "$PYTHON_BIN" "$pid")" || return 1
+    "$SRC_DIR" "$PYTHON_BIN" "$pid" "$expected_start")" || return 1
   if ! e2e_signal_gateway_owned_groups \
     "$SRC_DIR" "$PYTHON_BIN" "$owned" TERM 0; then
     e2e_signal_gateway_owned_groups \
@@ -332,28 +363,55 @@ stop_spawned_gateway() {
   return 1
 }
 
-clear_matching_pid_file() {
-  local path=$1 expected_pid=$2 actual
-  [[ -f "$path" && ! -L "$path" ]] || return 0
-  actual="$(tr -d '[:space:]' < "$path")"
-  [[ "$actual" == "$expected_pid" ]] && rm -f "$path"
-}
-
-clear_matching_json_pid_file() {
-  local path=$1 expected_pid=$2
-  [[ -f "$path" && ! -L "$path" ]] || return 0
-  "$PYTHON_BIN" - "$path" "$expected_pid" <<'PY' || true
+clear_spawned_lifecycle_evidence() {
+  local kind=$1 expected_pid=$2 expected_start=$3
+  PYTHONPATH="$SRC_DIR${PYTHONPATH:+:$PYTHONPATH}" "$PYTHON_BIN" - \
+    "$WT_ROOT" "$kind" "$expected_pid" "$expected_start" <<'PY'
 import json
 from pathlib import Path
+import stat
 import sys
 
-path = Path(sys.argv[1])
-expected = int(sys.argv[2])
-try:
-    payload = json.loads(path.read_text(encoding="utf-8"))
-except (OSError, ValueError):
-    raise SystemExit(0)
-if payload.get("pid") == expected:
+from personal_assistant.main import read_gateway_process_snapshot
+
+root = Path(sys.argv[1]).resolve()
+kind = sys.argv[2]
+expected_pid = int(sys.argv[3])
+expected_start = " ".join(sys.argv[4].split())
+if read_gateway_process_snapshot(expected_pid) is not None:
+    raise SystemExit(1)
+names = (
+    (".im.pid", ".im.identity.json")
+    if kind == "im"
+    else (".gateway.pid", "gateway.pid", "gateway.identity.json", ".gateway-state.json")
+)
+paths = [root / name for name in names]
+for path in paths:
+    try:
+        mode = path.lstat().st_mode
+    except FileNotFoundError:
+        continue
+    if stat.S_ISLNK(mode) or not stat.S_ISREG(mode):
+        raise SystemExit(1)
+    if path.suffix == ".pid":
+        try:
+            actual_pid = int(path.read_text(encoding="ascii").strip())
+        except (OSError, ValueError):
+            raise SystemExit(1) from None
+        if actual_pid != expected_pid:
+            raise SystemExit(1)
+        continue
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        raise SystemExit(1) from None
+    if payload.get("pid") != expected_pid:
+        raise SystemExit(1)
+    if path.name.endswith("identity.json"):
+        actual_start = payload.get("process_start")
+        if not isinstance(actual_start, str) or " ".join(actual_start.split()) != expected_start:
+            raise SystemExit(1)
+for path in paths:
     path.unlink(missing_ok=True)
 PY
 }
@@ -391,22 +449,24 @@ rollback_spawned_stack() {
   trap - EXIT
   set +e
   if [[ -n "$GW_PID" ]]; then
-    if ! stop_spawned_gateway "$GW_PID"; then
+    if ! stop_spawned_gateway "$GW_PID" "$GW_PROCESS_START"; then
       echo "rollback could not stop Gateway pid=$GW_PID; retaining complete stack evidence" >&2
       exit "$exit_code"
     fi
-    clear_matching_pid_file "$WT_ROOT/.gateway.pid" "$GW_PID"
-    clear_matching_pid_file "$WT_ROOT/gateway.pid" "$GW_PID"
-    clear_matching_json_pid_file "$WT_ROOT/gateway.identity.json" "$GW_PID"
-    clear_matching_json_pid_file "$WT_ROOT/.gateway-state.json" "$GW_PID"
+    if ! clear_spawned_lifecycle_evidence gateway "$GW_PID" "$GW_PROCESS_START"; then
+      echo "rollback could not clear Gateway evidence; retaining complete stack evidence" >&2
+      exit "$exit_code"
+    fi
   fi
   if [[ -n "$IM_PID" ]]; then
-    if ! stop_spawned_pid "$IM_PID"; then
+    if ! stop_spawned_pid "$IM_PID" "$IM_PROCESS_START"; then
       echo "rollback could not stop IM pid=$IM_PID; retaining remaining evidence" >&2
       exit "$exit_code"
     fi
-    clear_matching_pid_file "$WT_ROOT/.im.pid" "$IM_PID"
-    clear_matching_json_pid_file "$WT_ROOT/.im.identity.json" "$IM_PID"
+    if ! clear_spawned_lifecycle_evidence im "$IM_PID" "$IM_PROCESS_START"; then
+      echo "rollback could not clear IM evidence; retaining remaining evidence" >&2
+      exit "$exit_code"
+    fi
   fi
   if ! clear_ephemeral_config_lock; then
     echo "rollback could not exclusively remove ephemeral config lock; retaining it" >&2
@@ -488,6 +548,10 @@ IM_JWT_SECRET="$JWT_SECRET" PYTHONPATH="$SRC_DIR" \
   "$PYTHON_BIN" -m uvicorn IM.app:app --host 127.0.0.1 --port "$IM_PORT" \
   > "$WT_ROOT/.im.log" 2>&1 9>&- &
 IM_PID=$!
+IM_PROCESS_START="$(capture_spawned_process_start "$IM_PID")" || {
+  echo "IM exited before process identity capture" >&2
+  exit 1
+}
 PYTHONPATH="$SRC_DIR${PYTHONPATH:+:$PYTHONPATH}" "$PYTHON_BIN" - \
   "$WT_ROOT" "$IM_PID" "$IM_PORT" <<'PY'
 import json
@@ -605,6 +669,10 @@ PYTHONPATH="$SRC_DIR" "$PYTHON_BIN" -c \
   --auto-bind \
   > "$WT_ROOT/.gateway.log" 2>&1 9>&- &
 GW_PID=$!
+GW_PROCESS_START="$(capture_spawned_process_start "$GW_PID")" || {
+  echo "Gateway exited before process identity capture" >&2
+  exit 1
+}
 echo "$GW_PID" > "$WT_ROOT/.gateway.pid"
 
 # The external shell PID alone is not sufficient signal ownership. Foreground

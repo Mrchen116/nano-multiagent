@@ -86,13 +86,12 @@ esac
     _write_executable(
         fake_bin / "ps",
         """#!/bin/bash
-if [[ -e "$E2E_WT/simulate-pid-reuse" && "$*" == *"pid=,lstart=,command="* ]]; then
+if [[ -e "$E2E_WT/simulate-pid-reuse" && "$*" == *"lstart="* ]]; then
   for ((index=1; index<=$#; index++)); do
     if [[ "${!index}" == "-p" ]]; then
       next=$((index + 1))
       pid="${!next}"
-      command="$(/bin/ps -p "$pid" -o command=)"
-      printf '%s Tue Jul 14 12:34:56 2026 %s\\n' "$pid" "$command"
+      printf '%s\\n' "Tue Jul 14 12:34:56 2026"
       exit 0
     fi
   done
