@@ -288,6 +288,7 @@ def test_delayed_runtime_identity_uses_configured_startup_budget(
         assert result.returncode == 0, result.stderr
         assert (tmp_path / "gateway.identity.json").exists()
         assert int(env["IDENTITY_AFTER_TICKS"]) > 60
+        assert "command not found" not in result.stderr
     finally:
         _cleanup_owned(tmp_path)
 
