@@ -409,3 +409,100 @@ N/A — 本 unit 无原型、设计稿、reference screenshot 或视觉 must-mat
 ## Recommended Next Step
 
 最终产品验收通过，可进入 orchestrator §7.0 长青契约归并和 PR/CI 门禁。malformed optional state 的 traceback 可作为非阻断 CLI polish 后续处理。
+
+---
+
+# Round 6 — 2026-07-14
+
+## Verdict
+
+- **Verdict:** pass
+- **Highest Required Action:** pass
+- **Needs Re-review:** false
+- **Review Mode:** final full
+- **Implementation Head:** `7accd44da849618a30d5fbeee69abe7b45bf414d`
+- **Issue Count:** blocking 0 / major 0 / minor 0
+
+M6 引入的 public/e2e generation 边界、IM evidence fail-closed 和完整 Gateway descendant ownership 通过独立产品验收。真实 cold stack 上的 Web IM 回复与 Cron 主动推送仍可用；并发 down/up 不跨 generation 操作；非法 IM PID evidence 在任何拆栈前拒绝；Gateway 作为 `PID == PGID` session leader 启动，same-group 与 detached descendants 都能被回收，birth drift 则在 group signal 前 fail closed。quoted-path operator 与 Darwin `Popen` reap 回归同样通过。
+
+## Prior Finding Closure
+
+- Round 5 W13 Darwin zombie teardown：**closed**。quoted-path / legacy-state 真实子进程入口 4 条全部通过，与 public generation / owned process set 合计 `10 passed, 2 warnings in 39.74s`，未再出现 zombie `EPERM`。
+- Round 5 所有 product finding 保持 closed；M6 未恢复独立 Kernel API/health seam，也未改变 channel/runtime 语义。
+
+## User Journeys Exercised
+
+### Journey 1 — cold 真栈、消息/Cron 与单一 Gateway 进程边界
+
+- 按 design Runbook 执行真实 `e2e-down → e2e-up`，持久会话中 IM `19922` 与 Gateway `20014` 同时存活，IM `/openapi.json` 200，Gateway 进程为 `PID=PGID=20014`。运行期无 `.api.pid`，无 `personal_assistant.kernel_app`。
+- 经真 IM HTTP/WebSocket 用户入口执行 tool-call reply 和 cron auto-push：`2 passed in 87.26s`。用户仍收到包含随机哨兵的 Agent 回复与到点 Cron 主动消息。
+- Harness note：直接工具 cell 退出会回收其后台 IM child，该次不计验收证据；改用持久 tmux 后进程稳定并完成全部旅程。
+
+### Journey 2 — IM evidence 异常在 Gateway signal 前 fail closed
+
+- 真栈存活时将 external `.im.pid` 暂时替换为 dangling symlink，再执行真实 `scripts/e2e-down.sh`。
+- 用户可见输出为 `IM PID evidence is non-regular` / `retaining complete stack`，rc=`1`。Gateway `20014` 和 IM `19922` 均保持存活，Gateway PID/identity/config/ports evidence 保留；恢复原 IM evidence 后可继续正常管理。
+- 这条证据直接关闭 M6 “dangling/nonregular IM evidence 不得先停 Gateway”的运维风险。
+
+### Journey 3 — concurrent down/up 的 full-stack generation 串行
+
+- 将旧 Gateway `20014` 暂停，用以拉长 teardown 窗口；随后在两个持久会话中几乎同时发起 `e2e-down.sh` 与 `e2e-up.sh`。
+- down 先返回 rc=`0` 并确认旧 Gateway `20014` / IM `19922` 退出；随后 up 返回 rc=`0`，发布新 Gateway `42735` / IM `41497`。新 Gateway 仍为 `PID=PGID=42735`，新 IM endpoint 返回 200。
+- 没有观察到旧 stop 删除新 state、新 up 穿越旧 teardown，或旧/新 PID evidence 交叉。
+
+### Journey 4 — quoted-path public lifecycle 与完整 descendant ownership
+
+- 真实子进程入口覆盖含空格/引号 config 的 background start/stop、command start/restart/stop、跨时区 legacy state 升级与公共 stop；所有入口成功并回收 owned `Popen`。
+- 专项真实 OS 进程旅程构建 exclusive leader + same-group child + `start_new_session` detached child：down 回收全部 owned set，startup rollback 也回收 detached descendant；人为 birth drift 时在 group signal 前拒绝。
+- public old-stop/new-start barrier、quoted lifecycle 与 owned descendants 组合结果：`10 passed, 2 warnings in 39.74s`。
+
+### Journey 5 — config migration commit gate 与 normal down 无残留
+
+- 本轮重跑 legacy/new priority、dead-field ignore、canonical save 及 migration backup 完整集：`test_local_store.py` 为 `58 passed`；backup held-fd content/mode、跨进程 sidecar、path/inode/mode drift 与 rollback 为 `15 passed`。
+- 对 Journey 3 新栈执行真实 normal down：Gateway `42735` 与 IM `41497` 退出，IM 端口 `49192` 无 listener。external/internal PID、identity、state、ephemeral config、migration backup/sidecar、ports env 和 `.api.pid` 均不存在；无旧 Kernel app 进程。
+
+## Scenario Coverage Matrix
+
+| Scenario | Round 6 证据 | 本轮执行 | 累计结论 | 备注 |
+|---|---|---|---|---|
+| Web IM 或外部通道消息正常回复 | 真 Web IM tool-call reply | pass | pass | 用户收到正确哨兵结果。 |
+| Heartbeat 与 Cron 活路径不受影响 | 真 cron auto-push | pass | pass | Cron 主动推送与消息同栈通过。 |
+| 默认启动确认 | cold up + quoted public start | pass | pass | child/PID/identity 发布稳定；`PID==PGID`。 |
+| stop 与 restart 保持现有结果 | quoted command lifecycle + concurrent down/up + normal down | pass | pass | old/new generation 边界清晰，最终零运行态残留。 |
+| IM 离线时 Gateway 本地自治不变 | Round 1 真 offline Feishu P2P | reused | pass | M6 未改 channel/runtime；本轮无新的外部发信授权。 |
+| 旧自定义 timing 继续生效 | current local-store + transaction suite；Round 4 真 legacy | pass + reused live | pass | loader 数值与 M6 backup commit gate 同时复核。 |
+| 新配置优先于旧值 | current local-store suite | pass | pass | 逐字段优先级未回归。 |
+| 保存后只保留 Gateway 所有权 | current local-store + migration transaction/guard suites | pass | pass | backup content/mode/inode 漂移均阻断 source overwrite。 |
+| 旧连接与 HTTP 字段不再形成运行时输入 | current local-store suite + 真栈进程清单 | pass | pass | 运行期只有 IM + Gateway，无 Kernel API。 |
+| e2e 起停无 Kernel API 产物 | cold / IM-invalid / concurrent generation / normal down | pass | pass | 异常证据保全，正常关闭全清，无 `.api.pid`。 |
+
+## Automated Supporting Evidence
+
+- 真 IM 消息 + Cron：`2 passed in 87.26s`。
+- public generation + quoted/legacy 真子进程 + owned process set：`10 passed, 2 warnings in 39.74s`。
+- config loader/save + migration transaction/guard：`73 passed`。
+- M6 progress 记录的最终唯一 full non-e2e：`3598 passed, 1 skipped, 22 warnings in 102.96s`；本 reviewer 不用该自证替代上述真实旅程。
+
+## Reference Artifacts Reviewed
+
+N/A — 本 unit 无原型、设计稿、reference screenshot 或视觉 must-match 契约。
+
+## Issues
+
+无 blocking / major / minor 产品可接受性 issue。
+
+## Side Findings
+
+- 无新增 side finding。Round 5 已记录的 malformed optional state traceback 文案瑕疵不影响 fail-closed 结果。
+
+## Upper-level Documentation Sync
+
+- [x] `README.md` / `docs/operator-runbook.md`：与本轮真实 start/stop/restart 及“PID confirmation 非 runtime readiness”结果一致。
+- [x] `SPEC.md`：无需更新，仍正确规定 Kernel 为 Gateway 进程内库。
+- [x] `AGENTS.md` / `CLAUDE.md`：当前 e2e 只启动 IM + Gateway，无旧 Kernel API 运维叙事回流。
+- [x] `docs/SPEC_GUIDE.md`：本 unit 未修改文档体系，无需更新。
+- [ ] `docs/specs/gateway/service-lifecycle.md`：当前 canonical Scenario 仍写“pid / 健康提示 / 日志路径”，与 motivation/delta 的 PID/liveness-only 语义不一致；这是 orchestrator §7.0 已预留的最终长青契约归并项，PR 前必须完成，不作为本轮 implementation verdict blocker。
+
+## Recommended Next Step
+
+Round 6 产品验收通过。进入 orchestrator 最终长青 spec 归并、CI/PR 门禁；无需再派 fix milestone 或 reviewer 复验。
