@@ -824,3 +824,130 @@ Fix: move or extend this coverage in `tests/unit/personal_assistant/test_cron_sc
 None.
 
 2 critical issue(s) found. Fix before PR.
+
+# Round 9
+
+## Verification Report: refactor-461
+
+### Summary
+
+Mode: targeted-closure
+Delta range: `88b9693ed..ee16f55a8`
+Focus issues: Round 8 C1 canonical lifecycle merge; Round 8 C2 final independent gates; Round 8 W1 public one-shot delivery coverage; M9 E2E-1/E2E-2 spawned-generation ownership; M9 CRON-1 activation boundary
+requires_full_verification: false
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 89/96 task checkboxes complete; 7 final-gate checkboxes remain open |
+| Correctness | M9 implementation closure covered; Round 8 C1 and W1 closed |
+| Coherence | D1-D5 followed; no new Kernel subprocess or cross-process readiness seam |
+
+本轮从远端 `origin/unit/refactor-461` 的 `ee16f55a8` 建独立 detached worktree。Round 8 的
+canonical 生命周期缺口已真正归并；M9 的 Gateway generation、one-shot activation 与真实 `tick()`
+delivery/dedupe 回归均通过。唯一 CRITICAL 是按任务定义尚未完成的独立 reviewer / final code-review
+门禁，不是产品代码或契约偏离；因此本轮 verdict 为 fail，待这些门禁完成并如实更新 tasks 后可做小范围
+delta reverify，无需再做整 unit full verification。
+
+## Prior Issue Closure
+
+| Prior issue | Verdict | Evidence |
+|---|---|---|
+| Round 8 C1 — canonical lifecycle delta absent | closed | `docs/specs/gateway/service-lifecycle.md:3,14-86` now exactly carries PID/liveness-only start semantics and Gateway timing migration; `docs/specs/gateway/spec.md:25-31` updates the area count; the source delta remains mechanically aligned at `docs/changes/refactor-461-dead-kernel-subprocess-seam/specs/gateway/service-lifecycle.md:5-74`. |
+| M9 E2E-1 — success identity could accept a foreign birth | closed | `scripts/e2e-up.sh:725-760` compares published `process_start` to captured `GW_PROCESS_START`; regression `tests/integration/test_e2e_up_process_ownership.py:118-131` fails closed for matching PID/config/argv with a foreign birth. |
+| M9 E2E-2 — online node could mask post-identity birth drift | closed | `scripts/e2e-up.sh:785-809` checks PID+birth before every node query and after an online response; `test_e2e_up_process_ownership.py:134-148` covers the online-drift path. |
+| M9 CRON-1 — past-due created/re-enabled at job could replay | closed | Per-job `eligible_at` persists through `CronJobStore` (`src/personal_assistant/scheduler/cron_scheduler.py:34-58,159-189`), is refreshed by add/schedule-edit/disabled-to-enabled tool actions (`src/personal_assistant/tools/cron.py:420-505`), and fences `_AtSchedule` before the service-lifetime fence (`cron_scheduler.py:364-432`). |
+| Round 8 W1 — delayed live one-shot proved only private due calculation | closed | `tests/unit/personal_assistant/test_cron_scheduler_active_lifetime.py:32-58` now drives public `await scheduler.tick()` at due+107s, asserts submission plus persisted due state, then runs a second tick and asserts no duplicate. The stale-creation path separately asserts no submit and no state write at `:74-102`. |
+
+## Completeness
+
+- Tasks: **89/96 complete**. M1-M7 are fully checked. M8 is 14/16 and M9 is 5/10.
+- Unchecked items are the exact final-gate claims at
+  `M8-fix-final-acceptance-gaps/tasks.md:23,65-66` and
+  `M9-fix-final-generation-cron-and-spec-gaps/tasks.md:13-20,53`.
+  Their implementation roadpoints are checked, but the independent reviewer and main-session final
+  code review have not yet occurred, so the unit cannot accurately mark final acceptance complete.
+- Requirement closure in scope:
+  - Gateway default-start and timing ownership are now current canonical behavior, not only a unit delta.
+  - e2e-up only declares success for the captured Gateway process instance.
+  - A delayed live one-shot delivers once, while a post-due add/edit/re-enable remains non-replaying;
+    explicit manual `run` remains routed through `CronExecutionService` (`src/personal_assistant/tools/cron.py:518-569`).
+
+## Correctness
+
+| Requirement / scenario | Implementation and durable evidence | Status |
+|---|---|---|
+| Captured Gateway generation owns successful e2e-up | `scripts/e2e-up.sh:291-323,725-809`; fake-process integration coverage at `tests/integration/test_e2e_up_process_ownership.py:118-148` | covered |
+| Delayed live one-shot fires exactly once | `CronScheduler.tick()` plus active/service/job fences at `cron_scheduler.py:340-432`; public tick/dedupe regression at `test_cron_scheduler_active_lifetime.py:32-58` | covered |
+| Post-due add, schedule edit, or re-enable does not replay | persistence/action boundary at `tools/cron.py:79-147,420-505`; stale-tick no-submit regression at `test_cron_scheduler_active_lifetime.py:74-102`; tool persistence regression at `test_cron_tool_closure.py:75-123` | covered |
+| Manual run remains explicit opt-in | existing direct service routing at `tools/cron.py:518-569`; `test_cron_tool_closure.py:126-167` | covered |
+| Canonical lifecycle contract is authoritative | `docs/specs/gateway/service-lifecycle.md:14-86`, matching the unit delta and implementation | covered |
+
+### Test Evidence
+
+- Independent e2e-up shell integration suite (M9 source head before the test-only `ee16f55a8` delta):
+  `tests/integration/test_e2e_up_process_ownership.py tests/integration/test_e2e_up_script.py`
+  → `10 passed in 97.45s`.
+- At `ee16f55a8`, Cron scheduler/tool/polling and active-scope contract selection →
+  `85 passed, 1 warning in 2.91s`. This includes the new public delayed-tick/dedupe regression.
+- Independent serial full non-e2e at `2ad53a245` →
+  `3473 passed, 1 skipped, 20 deselected, 16 warnings in 511.71s`.
+  `2ad53a245..ee16f55a8` changes only the already-passed active-lifetime test, not production code.
+- Target Ruff check/format, `bash -n scripts/e2e-{up,down,owned-processes}.sh`, and
+  `git diff --check origin/main...HEAD` passed.
+- Real persistent-runner e2e: from a dedicated tmux session, `scripts/e2e-up.sh` started an ephemeral
+  IM and Gateway; IM OpenAPI responded and both persisted IM/Gateway PID+birth identities matched fresh
+  OS snapshots. `scripts/e2e-down.sh` then completed with no PID, identity, state, port-map, config or
+  lifecycle-lock residue. A direct short-lived PTY reaped the bare IM child after script return while the
+  detached Gateway survived; the tmux control run proves this is runner-session reaping, not a product
+  lifecycle regression.
+
+## Coherence
+
+| Design decision | 遵守? | Evidence |
+|---|---|---|
+| D1 — no substitute Kernel subprocess seam | yes | No M9 code reintroduces a manager, HTTP endpoint, or `agent.core`/`agent.platform` product import; `tests/contract/test_no_dead_kernel_subprocess_seam.py` passes. |
+| D2 — lifecycle timing belongs to Gateway | yes | Canonical requirement and its legacy-migration scenarios are now merged at `docs/specs/gateway/service-lifecycle.md:49-86`. |
+| D3 — ownership derives from real process facts, not readiness IPC | yes | e2e keeps PID+birth validation in script-local process observation and makes no child readiness endpoint. |
+| D4 — shutdown ownership/order remains Gateway-owned | yes | M9 does not alter Gateway runtime shutdown wiring; its process checks only constrain shell lifecycle evidence. |
+| D5 — current narrative/specs, not history, are updated | yes | The active canonical area and its index are updated without rewriting archive/change history. |
+
+### Architecture Coherence
+
+- M9 extends existing scheduler/job-store and lifecycle-evidence primitives instead of creating a parallel
+  scheduling or process-management path.
+- The public start confirmation remains PID/liveness only; the stricter e2e-up generation check is an
+  automation ownership guard, not a new product readiness promise.
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+#### C1 — Mandatory final independent gates are still incomplete
+
+`docs/changes/refactor-461-dead-kernel-subprocess-seam/M8-fix-final-acceptance-gaps/tasks.md:23,65-66`
+still leaves independent reviewer/final code-review handoff and evidence unchecked. M9 repeats the same
+unclosed final acceptance claim at
+`docs/changes/refactor-461-dead-kernel-subprocess-seam/M9-fix-final-generation-cron-and-spec-gaps/tasks.md:13-20,53`.
+This verifier has completed only its own leg; no report at this revision establishes the required independent
+product review or main-session final code review.
+
+Fix: run the independent `change-reviewer` product journey and main-session `change-code-review`; route any
+findings through a fix milestone, then record the three gate verdicts and only then check M8 R5/C4 and M9 R4
+plus its final exit criteria. Reinvoke verifier in `delta` mode for the documentation/gate closure.
+
+### WARNING（应该修）
+
+None.
+
+### SUGGESTION（可以修）
+
+#### S1 — Darwin `lstart` remains a second-granularity process-birth safety debt
+
+The process snapshot primitives compare `ps -o lstart=` text at
+`src/personal_assistant/main.py:4392-4445`, and e2e’s fast readiness helper mirrors that representation at
+`scripts/e2e-up.sh:291-323`. A same-numeric-PID reuse within the same second therefore remains theoretically
+indistinguishable; no such collision was reproduced in this verification. If the claimed fail-closed guarantee
+must cover that extreme Darwin window, adopt a higher-resolution OS birth identity and add a deterministic
+same-second reuse simulation. This is not a demonstrated M9 regression and does not change the verdict.
+
+1 critical issue(s) found. Fix before PR.
