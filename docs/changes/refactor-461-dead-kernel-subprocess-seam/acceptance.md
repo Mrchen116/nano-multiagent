@@ -506,3 +506,98 @@ N/A — 本 unit 无原型、设计稿、reference screenshot 或视觉 must-mat
 ## Recommended Next Step
 
 Round 6 产品验收通过。进入 orchestrator 最终长青 spec 归并、CI/PR 门禁；无需再派 fix milestone 或 reviewer 复验。
+
+---
+
+# Round 7 — 2026-07-14
+
+## Verdict
+
+- **Verdict:** fail
+- **Highest Required Action:** fix-implementation
+- **Needs Re-review:** true
+- **Review Mode:** full（M7 ownership/config 修复后重新走产品入口）
+- **Implementation Head:** `fe5f7eb71fec661daf7c348cb68f059f9a1b2fde`
+- **Issue Count:** blocking 0 / major 1 / minor 0
+
+M7 的 Gateway/IM ownership、public lifecycle 和配置迁移旅程均通过真实入口复验：只有 IM 与 Gateway 两类进程；默认 operator start/restart/stop 维持 PID/liveness-only 语义；legacy/mixed timing 在隔离副本中迁移正确，正常 `e2e-down` 全清运行态。但本轮以真实 Web IM 使用的同一 HTTP 接口创建 one-shot Cron 后，用户收到“已创建、到期后会投递”的确认，却在到期后仍未收到约定内容；任务仍显示为 enabled。这直接违反本 unit 要求保持的 Cron 活路径，不能放行。
+
+## User Journeys Exercised
+
+### Journey 1 — 冷启动真栈、Web IM 消息与单一进程边界
+
+- 按 design Runbook 在隔离 worktree 执行真实 `e2e-down → e2e-up`。签名用户从 `/im/v1/nodes` 看到 Gateway `online`；IM `/openapi.json` 可访问，IM/Gateway identity PID 与 OS 存活进程一致。
+- 通过 Web IM 客户端使用的 HTTP 接口创建 `default-agent` 直聊并发送 `Reply with exactly: refactor-461 acceptance ok`；用户消息与 Agent 回复均为 `delivery=completed`，实际回复为 `refactor-461 acceptance ok`。
+- 再次确认无 `.api.pid`、`.api.log` 与 `personal_assistant.kernel_app` 进程。当前 unit 前端源码的 production build 也成功；本 unit 无视觉 reference/prototype 契约，浏览器自动化连接未可用时按 design Runbook 使用同一真实 HTTP 用户入口完成验收。
+
+### Journey 2 — 真实 operator 默认 start、单实例、restart、stop
+
+- 使用独立临时 config 调真实 `python -m personal_assistant.main --config <path>`：输出 `Gateway started (pid=79913)`、IM 独立状态与 log 路径，不输出 health/ready 或 runtime/channel ready 承诺。
+- 第二次 start 返回 rc=1，并向运维者显示 `gateway is already running (pid=79913)` 与 stop/restart 指引。
+- `restart` 以新 PID `80022` 成功替换旧 PID；随后 `stop` 返回 `STOPPED ... forced=true`，该 PID 退出且 `gateway.pid`、identity、state 均被清理，无独立 Kernel 进程。
+
+### Journey 3 — legacy/mixed lifecycle timing 的真实迁移
+
+- 以只含旧 `kernel:` timing（`9 / 4 / 0.4`）及故意无效 connection/HTTP 字段的隔离 config 起真栈。运行后 config 不含 `kernel:`，只含 `gateway: {startup_timeout_seconds: 9.0, shutdown_grace_seconds: 4.0, poll_interval_seconds: 0.4}`；同路径 migration backup 存在且保留 legacy `kernel:` 原文。
+- 以 mixed config 重跑：新的 `gateway.startup_timeout_seconds=12`、`gateway.poll_interval_seconds=0.3` 优先，未提供的 shutdown grace 从旧值迁移，最终为 `{12.0, 4.0, 0.3}`；backup 同样存在。栈健康、无 Kernel API 产物。
+
+### Journey 4 — Cron 创建确认后到期投递
+
+- 用户在真实 Web IM API 中创建临时 Agent（允许 `cron`），其 capability 对用户显示 `cron` available；再在直聊中要求创建约一分钟后执行的一次性任务，且在本会话投递精确文本 `cron survived refactor-461`。
+- Agent 向用户确认 job `29626825404940f6a8601cd9f3e44ebf` 已创建、计划时间为 `2026-07-14T05:14:30.000Z`，并承诺会投递到该会话；`GET /cron/jobs` 也显示同一 enabled job。
+- 到 `05:16:17Z`（已过计划时间约 107 秒）再次读取该真实会话：只有用户请求与两条创建确认，未出现 `cron survived refactor-461`；同一 job 仍为 enabled。用户看到的是“任务创建成功”后无投递结果。
+
+### Journey 5 — 一键真栈正常停止且零残留
+
+- 从 mixed config 真栈执行正常 `scripts/e2e-down.sh`。IM PID `95455` 与 Gateway PID `95927` 均退出；`.im*`、`.gateway*`、ephemeral config、migration backup/lock、ports env、`.api.pid`/`.api.log` 全部不存在，未发现独立 Kernel 进程。
+
+## Scenario Coverage Matrix
+
+| Scenario | Round 7 evidence | Result | Notes |
+|---|---|---|---|
+| Web IM 或外部通道消息正常回复 | Journey 1 的真 Web IM HTTP conversation/message/reply | pass | 用户得到精确要求的 Agent 回复。 |
+| Heartbeat 与 Cron 活路径不受影响 | Journey 4 one-shot Cron | **fail** | 用户收到 job 创建确认，但到期后未收到主动投递；见 Issue #1。 |
+| 默认启动确认 | Journey 2 default background start | pass | 仅 PID/liveness、IM 独立状态、log path；无 health/readiness 承诺。 |
+| stop 与 restart 保持现有结果 | Journey 2 duplicate/restart/stop | pass | PID 切换、单实例拒绝和 stop 后清理均对运维者可见。 |
+| IM 离线时 Gateway 本地自治不变 | Round 1 true offline Feishu P2P | reused | pass | M7 未触及 external-channel/runtime path；本轮未重复发送外部 P2P。 |
+| 旧自定义 timing 继续生效 | Journey 3 legacy-only true stack | pass | `9 / 4 / 0.4` 迁至 Gateway 所有权。 |
+| 新配置优先于旧值 | Journey 3 mixed true stack | pass | 得到逐字段 `{12.0, 4.0, 0.3}`。 |
+| 保存后只保留 Gateway 所有权 | Journey 3 config + migration backup | pass | canonical config 无 `kernel:`；同路径 backup 存在。 |
+| 旧连接与 HTTP 字段不再形成运行时输入 | Journey 3 legacy config with invalid retired fields | pass | 真栈仍 online，且无独立 Kernel API。 |
+| e2e 起停无 Kernel API 产物 | Journeys 1/3/5 | pass | 只有 IM + Gateway；normal down 后零 runtime residue。 |
+
+## Automated Supporting Evidence
+
+- M7 progress 记录的最终 non-e2e：`3608 passed, 1 skipped, 30 warnings in 292.14s`；前端 `64` files / `618` tests 与 production build 成功。本报告不以这些测试替代上述真实入口结论。
+
+## Reference Artifacts Reviewed
+
+N/A — 本 unit 无原型、设计稿、reference screenshot 或视觉 must-match 契约。
+
+## Issues
+
+### 1. 已确认的一次性 Cron 到期后不向用户投递结果
+
+- **Severity:** major
+- **Regression Relation:** direct
+- **Recommended Action:** fix-implementation
+- **Action Rationale:** `Heartbeat 与 Cron 活路径不受清理影响` 是本 unit 的直接不变性验收标准。用户已收到创建成功与将投递到当前会话的明确确认，但计划时间过去超过 100 秒后仍没有主动消息，无法完成安排任务这一主路径。
+- **Expected:** 到期的一次性 Cron 在确认的会话里投递 `cron survived refactor-461`，或向用户给出明确失败结果。
+- **Actual:** job `29626825404940f6a8601cd9f3e44ebf` 仍显示 enabled；会话未出现约定投递，也没有失败解释。
+- **Minimal Reproduction:** 在 fresh `e2e-up.sh` 栈中，以用户 HTTP 会话创建一个允许 `cron` 的 Agent；要求创建约一分钟后向当前会话投递的 one-shot Cron；等待超过到期时间后读取该会话和 `/im/v1/agents/<agent>/cron/jobs`。
+
+## Side Findings
+
+- 无。浏览器自动化连接不可用不影响本轮结论：design Runbook 明确允许以 Web IM 客户端实际调用的 HTTP/WebSocket 接口驱动本 unit 的非视觉旅程；前端 production build 已成功。
+
+## Upper-level Documentation Sync
+
+- [x] `SPEC.md`：无需更新；仍正确描述 Kernel 为进程内库、无内建 HTTP API。
+- [ ] `docs/specs/gateway/service-lifecycle.md`：**需要更新**。canonical default-start Scenario 仍承诺“pid / 健康提示 / 日志路径”，与本 unit 已验证的 PID/liveness-only 启动确认不一致；待 implementation issue 关闭后由 orchestrator §7.0 归并 delta spec。
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新；本轮活栈始终为 IM + Gateway，无旧 Kernel API 运维路径。
+- [x] `docs/SPEC_GUIDE.md`：无需更新；本 unit 未变更文档体系。
+- [x] `README.md` / `docs/operator-runbook.md`：无需更新；Round 7 真实 default-start 输出仍符合其 PID/liveness 描述。
+
+## Recommended Next Step
+
+派一个窄范围 `fix-implementation` 修复并真实复验 Issue #1 的一次性 Cron 创建→到期→用户投递闭环；复验必须保留本轮其他通过的 lifecycle/config 证据，并在 Cron 成功后再做 canonical lifecycle spec 归并。
