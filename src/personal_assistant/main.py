@@ -3873,7 +3873,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.config
         else str(default_local_config_path())
     )
-    if getattr(args, "auto_bind", False):
+    auto_bind_requested = bool(getattr(args, "auto_bind", False))
+    previous_auto_bind = os.environ.get("NANO_MULTIAGENT_AUTO_BIND")
+    if auto_bind_requested:
+        # The child inherits this setting, but an embedded main() caller must not.
         os.environ["NANO_MULTIAGENT_AUTO_BIND"] = "1"
     try:
         if command == "stop":
@@ -3905,6 +3908,12 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:  # noqa: BLE001
         print(f"ERROR {exc}", file=sys.stderr)
         return 1
+    finally:
+        if auto_bind_requested:
+            if previous_auto_bind is None:
+                os.environ.pop("NANO_MULTIAGENT_AUTO_BIND", None)
+            else:
+                os.environ["NANO_MULTIAGENT_AUTO_BIND"] = previous_auto_bind
 
 
 def _coerce_factories(

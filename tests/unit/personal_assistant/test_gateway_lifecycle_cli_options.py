@@ -13,6 +13,7 @@ def test_global_options_before_restart_preserve_lifecycle_target(
 ) -> None:
     """Global-first restart must not fall back to the default Gateway config."""
     calls: list[tuple[str, str, str | None]] = []
+    observed_auto_bind: list[str | None] = []
     config_path = str(tmp_path / "isolated-config.yaml")
     im_service_url = "http://127.0.0.1:59123"
     original_auto_bind = os.environ.pop("NANO_MULTIAGENT_AUTO_BIND", None)
@@ -24,6 +25,7 @@ def test_global_options_before_restart_preserve_lifecycle_target(
     def _start(
         *, config_path: str, im_service_url_override: str | None = None
     ) -> BackgroundLaunchResult:
+        observed_auto_bind.append(os.environ.get("NANO_MULTIAGENT_AUTO_BIND"))
         calls.append(("start", config_path, im_service_url_override))
         return BackgroundLaunchResult(pid=1234, log_path=tmp_path / "gateway.log")
 
@@ -48,7 +50,8 @@ def test_global_options_before_restart_preserve_lifecycle_target(
             ("stop", config_path, None),
             ("start", config_path, im_service_url),
         ]
-        assert "NANO_MULTIAGENT_AUTO_BIND" in os.environ
+        assert observed_auto_bind == ["1"]
+        assert "NANO_MULTIAGENT_AUTO_BIND" not in os.environ
     finally:
         if original_auto_bind is None:
             os.environ.pop("NANO_MULTIAGENT_AUTO_BIND", None)
