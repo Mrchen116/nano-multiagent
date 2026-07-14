@@ -506,3 +506,145 @@ N/A — 本 unit 无原型、设计稿、reference screenshot 或视觉 must-mat
 ## Recommended Next Step
 
 Round 6 产品验收通过。进入 orchestrator 最终长青 spec 归并、CI/PR 门禁；无需再派 fix milestone 或 reviewer 复验。
+
+---
+
+# Round 7 — 2026-07-14
+
+## Verdict
+
+- **Verdict:** `fail`
+- **Highest Required Action:** `fix-implementation`
+- **Needs Re-review:** `true`
+- **Review Mode:** full（M9 final-closure independent product review）
+- **Implementation Head:** `552915730932cdce5235cd32275a09917e78d314`
+- **Issue Count:** blocking 0 / major 1 / minor 0
+
+M9 修复后的真 IM + Gateway 栈、Web IM 消息、到点 Cron、配置迁移和 e2e 起停都保持可用；但公开 CLI
+help 宣称的全局 `--config` 在 `restart` 场景没有约束实际操作对象。运维者按该公开 syntax 执行时会启动或
+重启默认 `~/.nano-assistant/config.yaml` 的 Gateway，而不是指定 config 对应的 Gateway。这个误操作风险直接
+违反「同一 config 的 stop/restart 管理对应后台服务」契约，严格验收不能放行。
+
+## User Journeys Exercised
+
+### Journey 1 — 真栈消息与 Cron 主路径
+
+- 按 `design.md` 的 Runbook，在持久 tmux 中执行 `./scripts/e2e-down.sh` 后执行
+  `./scripts/e2e-up.sh`。真栈成功发布 IM PID `60567` 和 Gateway PID `75732`；IM OpenAPI 可达、
+  Gateway PID 存活、日志满足 auto-bind/IM connection 检查，运行期无 `.api.pid` 或
+  `personal_assistant.kernel_app`。
+- 在这一真 IM + Gateway + 本地 LLM proxy 栈上，以 Web IM 实际使用的 HTTP/WebSocket 用户入口运行
+  `test_tool_call_then_reply_carries_sentinel` 与 `test_cron_job_auto_pushes_message`。两条命令均以
+  成功状态退出；前者返回 pass，后者完成真实到点主动推送旅程。
+- 这覆盖了用户发消息后收到 Agent 回复，以及已经在 due 前存在的一次性 Cron 到点后向 IM 对话主动投递。
+  M9 新增的「due 后新建/改期/重新启用不自动回放」边界由本轮 R9 独立 verifier 的真实 `tick()` / tool
+  persistence 回归补充；当前 reviewer 没有绕过产品安全策略手改 job 数据或伪造用户事件。
+
+### Journey 2 — 运维者用隔离 config 启停、重启和单实例保护 Gateway
+
+- 使用由 e2e 真栈生成的隔离 config，在持久 tmux 中执行默认 start，得到
+  `Gateway started (pid=82058)`、`IM service: http://127.0.0.1:60567 [connected]` 和隔离 log 路径。
+  运行态 JSON 只含 `config_path,log_path,pid`，没有 health/readiness 字段，也没有 Kernel API 产物。
+- 对同一 config 再次默认 start，用户可见结果为 `gateway is already running (pid=82058)`，exit code `1`；
+  原 PID 未被替换。
+- 使用当前文档可行的子命令形式
+  `... main restart --config <isolated-config> --im-service-url <ephemeral-IM>`，旧 PID `82058` 退出并
+  启动新 PID `82865`；随后相同形式的 `stop` 返回 `STOPPED pid=82865`，PID、state 和 identity 都清理。
+- 但按 `--help` 明示的全局 option 形式执行 restart 时，实际操作目标错误；详见 Issue #1。
+
+### Journey 3 — 真实 legacy/mixed 配置迁移与失败原子性
+
+- legacy-only 隔离 config 包含旧 `kernel:` 三项 timing (`9 / 4 / 0.4`)以及不可达的 URL、无效 command
+  和 health path。Gateway 仍启动为 PID `83930`；保存后 backup 与启动前原文逐字节一致，`kernel:` 被裁掉，
+  canonical `gateway:` 为 `9.0 / 4.0 / 0.4`。随后 public stop 正常收拢该 PID。
+- mixed config 同时提供 `gateway.startup_timeout_seconds=12`、`gateway.poll_interval_seconds=0.3` 和旧
+  `kernel` timing。Gateway PID `85192` 启动成功；backup 与原文一致，保存后 timing 为
+  `12.0 / 4.0 / 0.3`，证明新字段逐字段优先、未提供的 shutdown 从旧值迁移。public stop 正常完成。
+- 对 migration backup 路径预置目录后，Gateway PID `86062` 仍可启动，但 config 与启动前原文逐字节一致、
+  `kernel:` 仍存在，证明 backup 不可创建时不会覆盖原 config；随后 public stop 正常完成。
+
+### Journey 4 — 一键真栈只管理 IM 与 Gateway，并完整收尾
+
+- 以上真栈结束时在同一持久 tmux 执行 `./scripts/e2e-down.sh`，用户可见输出为
+  `e2e stack stopped (...)`。
+- 复核 IM PID `60567` 和 Gateway PID `75732` 均已退出；`.im.pid`、`.gateway.pid`、identity/state、
+  `.e2e-ports.env`、worktree gateway config/migration backup 与 `.api.pid` 均不存在。
+
+## Reference Artifacts Reviewed
+
+N/A — 本 unit 不包含原型、设计稿、reference screenshot 或视觉 must-match 契约。
+
+## Issues
+
+### 1. 全局 `--config` 在 `restart` 时没有约束目标 Gateway
+
+- **Severity:** major
+- **Regression Relation:** direct
+- **Recommended Action:** fix-implementation
+- **Action Rationale:** 公开 `--help` 把 `--config` 列为 Gateway 的全局 option，运维者合理预期它在
+  `restart` 时也指定被管理的服务。实际命令接受该形式却操作默认 config；若默认服务已运行，运维者可能
+  重启错误的 Gateway。正确的替代写法存在，但不能消除公开 syntax 与实际行为的安全冲突。
+- **Expected:** `python -m personal_assistant.main --config <A> ... restart` 只 stop/start config A 对应的
+  Gateway，绝不改动默认 config 的 Gateway。
+- **Actual:** 在隔离验收中执行
+  `PYTHONPATH=src python -m personal_assistant.main --config <isolated-config> --im-service-url <ephemeral-IM> --auto-bind restart`
+  后，输出为 `Gateway started (pid=82471)`、`IM service: http://127.0.0.1:8011 [unavailable ...]` 和
+  `/Users/czj/.nano-assistant/gateway.log`，而非指定 config 的 ephemeral IM/log；说明它启动的是默认
+  config。与之对照，`main restart --config <isolated-config> --im-service-url <ephemeral-IM>` 正确将
+  PID `82058` 替换为 `82865`。
+- **Cleanup evidence:** 本轮只观察到由错误命令刚启动的 PID `82471`，随后以 public default `stop` 得到
+  `STOPPED pid=82471 state=/Users/czj/.nano-assistant/.gateway-state.json`；复核 `kill -0 82471` 失败，且
+  `~/.nano-assistant/{gateway.pid,.gateway-state.json,gateway.identity.json}` 均不存在。
+- **User impact:** 带自定义 config 的运维者可能误重启默认 Gateway，造成错误服务中断或默认服务被替换。
+
+## Acceptance Criteria Coverage
+
+### Requirement: 用户消息与主动任务仍由进程内 Kernel 正常执行 — 组内结论: pass
+
+| Scenario | 期望来源 | 验证方式（覆盖它的旅程） | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| Web IM 或外部通道消息正常回复 | `motivation.md`；`docs/specs/gateway/routing-delivery.md` | Journey 1 的真 Web IM HTTP/WebSocket tool-call reply | `test_tool_call_then_reply_carries_sentinel` 成功 | pass | 用户入口收到 Agent 回复；未以内部 runtime 调用替代。 |
+| Heartbeat 与 Cron 活路径不受清理影响 | `motivation.md`；`docs/specs/gateway/heartbeat-cron.md` | Journey 1 的真 Cron 主动推送 | `test_cron_job_auto_pushes_message` 成功；R9 verifier 覆盖 delayed live tick/dedupe | pass | 本轮直接走 Cron，R9 另证 M9 的 due-after-create/re-enable 边界。 |
+
+### Requirement: 运维者仍把 Gateway 当一个后台服务管理 — 组内结论: fail
+
+| Scenario | 期望来源 | 验证方式（覆盖它的旅程） | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 默认启动确认 | `motivation.md`；`design.md` D3 / Runbook | Journey 2 的隔离 public start | PID `82058`、三行 start 输出、state keys 仅 `config_path,log_path,pid` | pass | 只确认 PID/liveness，无 health/readiness。 |
+| stop 与 restart 保持现有结果 | `motivation.md`；`docs/specs/gateway/service-lifecycle.md` | Journey 2 的 duplicate/restart/stop 及全局-option 边界 | 正确子命令形式 `82058 -> 82865 -> STOPPED`；Issue #1 的全局 `--config` restart 操作默认 config | fail | 正确写法可用，但公开 global syntax 会管理错误服务。 |
+| IM 离线时 Gateway 本地自治不变 | `motivation.md`；`docs/specs/gateway/service-lifecycle.md` | Round 1 已授权的真 Feishu P2P 离线旅程；本轮未再次发送外部消息 | Round 1 用户消息 `om_x100b6a7fd17894a4b496de67fbecc15` → app reply `om_x100b6a7feee6bca0b247951bb9f5c27` | pass | M9 未触及 channel/runtime 路径；本轮没有新的外部发信授权，未重复发送。 |
+
+### Requirement: Gateway 生命周期 timing 有明确且可迁移的配置所有权 — 组内结论: pass
+
+| Scenario | 期望来源 | 验证方式（覆盖它的旅程） | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 旧自定义 timing 继续生效 | `motivation.md`；`design.md` D2 | Journey 3 legacy-only 真 public start/save | `9.0 / 4.0 / 0.4`，Gateway PID `83930` 成功启停 | pass | 旧 connection/HTTP/command 值没有阻断进程内 Gateway。 |
+| 新配置优先于旧值 | `motivation.md`；`design.md` D2 | Journey 3 mixed 真 public start/save | canonical `12.0 / 4.0 / 0.3`，Gateway PID `85192` | pass | 新字段逐字段优先，旧 shutdown 被迁移。 |
+| 保存后只保留 Gateway 所有权 | `motivation.md`；`design.md` D2 | Journey 3 legacy/mixed/backup-failure | 两份 backup byte-identical、canonical 无 `kernel:`；预置 backup 目录时原 config unchanged | pass | 覆盖正常 canonical save 与 backup 失败不覆盖。 |
+| 旧连接与 HTTP 字段不再形成运行时输入 | `motivation.md`；`design.md` D1/D2 | Journey 3 legacy config 放入 dead URL/command/health path | PID `83930` 正常启动，保存后 `kernel:` 裁掉 | pass | 没有独立 Kernel 进程或 endpoint。 |
+
+### Requirement: 维护者的一键真栈只管理 IM 与 Gateway — 组内结论: pass
+
+| Scenario | 期望来源 | 验证方式（覆盖它的旅程） | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| e2e 起停无 Kernel API 产物 | `motivation.md`；`design.md` Runbook | Journey 1/4 的真实 `e2e-up.sh` → `e2e-down.sh` | IM `60567` / Gateway `75732` 存活后均退出；所有 lifecycle evidence 与 `.api.pid` 消失 | pass | 运行期和收尾均只有 IM + Gateway。 |
+
+## Side Findings
+
+无。本轮未把 M9 的 process-birth extreme-window suggestion 升级为产品 issue：R9 verifier 也记录它尚无
+可复现的用户问题，且不改变本轮 Issue #1 的直接阻断结论。
+
+## Upper-level Documentation Sync
+
+- [x] `SPEC.md`（跨包顶点架构）：**无需更新**。Kernel 仍准确表述为 Gateway 进程内库。
+- [x] `docs/specs/gateway/`（长青行为契约层）：**本 unit 生命周期 timing / PID-liveness delta 已归并**；
+  Issue #1 修复后应确认 public CLI 文档与实际 option 语义一致。
+- [x] `AGENTS.md` / `CLAUDE.md`：**无需更新**。当前拓扑和 e2e 说明仍正确；问题是公开 CLI 对已列出的
+  global option 未按预期管理目标服务。
+- [x] `docs/SPEC_GUIDE.md`（文档规范）：**无需更新**。本 unit 未改变文档体系。
+
+## Recommended Next Step
+
+派 `fix-implementation` 修复公开 global `--config` 的 `restart` 目标语义，并用隔离 config 验证 global-first
+形式不会启动、停止或替换默认 Gateway。修复后做 targeted re-review，至少复验 Issue #1 的错误命令、正确
+custom-config restart/stop 与 default lifecycle evidence 的零误触碰。
