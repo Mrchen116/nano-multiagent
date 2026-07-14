@@ -48,7 +48,8 @@
   preserving production wall-clock intervals.
 - Follow-up code review correctly noted that the infinite child needed setup-wide cleanup ownership and that an
   unbounded post-release wait could bypass test cleanup. `60bd45339` moves all setup after spawn inside `try/finally`
-  and adds a 30-second cleanup watchdog which kills/reaps before reporting a hang.
+  and adds a 30-second cleanup watchdog which kills/reaps before reporting a hang; `e836da7cf` applies it to the
+  remaining e2e-down lock waiter.
 - A four-file xdist target bundle covering the three lifecycle areas plus the IM concurrency regression completed
   with no pytest `lastfailed` entries; Ruff, shell syntax, and test naming/size checks passed.
 
