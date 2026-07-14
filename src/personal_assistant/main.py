@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 from datetime import datetime, timezone
+import fcntl
 import hashlib
 import json
 import logging
@@ -18,8 +19,8 @@ import tempfile
 import threading
 import time
 import webbrowser
-from collections.abc import Awaitable, Callable, Mapping
-from contextlib import suppress
+from collections.abc import Awaitable, Callable, Iterator, Mapping
+from contextlib import contextmanager, suppress
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any, Protocol
@@ -2414,6 +2415,52 @@ def run_gateway(
                 _remove_gateway_process_identity(config, expected=identity)
 
 
+def _gateway_lifecycle_lock_path(config_path: str | Path) -> Path:
+    """Return the stable external lock path for one resolved config identity."""
+    config_identity = str(Path(config_path).expanduser().resolve())
+    digest = hashlib.sha256(config_identity.encode()).hexdigest()
+    return (
+        Path.home()
+        / ".cache"
+        / "nano-multiagent"
+        / "gateway-lifecycle-locks"
+        / f"{digest}.lock"
+    )
+
+
+@contextmanager
+def _gateway_lifecycle_generation_lock(
+    config_path: str | Path,
+) -> Iterator[None]:
+    """Serialize public start/stop commits for one stable config identity."""
+    lock_path = _gateway_lifecycle_lock_path(config_path)
+    lock_dir = lock_path.parent
+    lock_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if lock_dir.is_symlink():
+        raise RuntimeError(f"Gateway lifecycle lock directory is a symlink: {lock_dir}")
+    lock_dir.chmod(0o700)
+    flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(lock_path, flags, 0o600)
+    try:
+        os.fchmod(fd, 0o600)
+        held = os.fstat(fd)
+        current = lock_path.lstat()
+        if (
+            not stat.S_ISREG(held.st_mode)
+            or held.st_nlink != 1
+            or not stat.S_ISREG(current.st_mode)
+            or current.st_nlink != 1
+            or (held.st_dev, held.st_ino) != (current.st_dev, current.st_ino)
+        ):
+            raise RuntimeError(f"Gateway lifecycle lock is not private: {lock_path}")
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        with suppress(OSError):
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
+
+
 def launch_gateway_in_background(
     *,
     config_path: str | Path,
@@ -2436,6 +2483,26 @@ def launch_gateway_in_background(
     Raises:
         RuntimeError: When the detached child exits or never confirms startup.
     """
+
+    with _gateway_lifecycle_generation_lock(config_path):
+        return _launch_gateway_in_background_locked(
+            config_path=config_path,
+            load_config=load_config,
+            spawn_process=spawn_process,
+            wait_for_start=wait_for_start,
+            im_service_url_override=im_service_url_override,
+        )
+
+
+def _launch_gateway_in_background_locked(
+    *,
+    config_path: str | Path,
+    load_config: Callable[[str | Path], LocalConfig],
+    spawn_process: BackgroundProcessFactory | None,
+    wait_for_start: StartWaiter | None,
+    im_service_url_override: str | None,
+) -> BackgroundLaunchResult:
+    """Execute one background launch while its config generation is exclusive."""
 
     config = _load_runtime_config(
         config_path,
@@ -2470,10 +2537,15 @@ def launch_gateway_in_background(
         im_service_url=config.im_service.url if config.im_service is not None else None,
     )
     expected_state = _gateway_runtime_state(config, result)
+    expected_identity: GatewayProcessIdentity | None = None
     try:
         start_waiter(process, config, config.gateway.startup_timeout_seconds)
+        expected_identity = _read_gateway_process_identity(config)
+        if expected_identity is None:
+            raise RuntimeError("gateway identity missing before state publication")
+        _assert_gateway_identity_static(config, process.pid, expected_identity)
         _write_gateway_state(config, result)
-        _confirm_gateway_launch_publication(process, config)
+        _confirm_gateway_launch_publication(process, config, expected_identity)
     except Exception as exc:
         try:
             _stop_background_process(
@@ -2491,7 +2563,7 @@ def launch_gateway_in_background(
             ) from ExceptionGroup(
                 "Gateway startup and rollback both failed", [exc, cleanup_error]
             )
-        _clear_failed_gateway_startup(config, expected_state)
+        _clear_failed_gateway_startup(config, expected_state, expected_identity)
         hint = _read_log_last_error(log_path, offset=log_offset)
         summary = hint if hint else str(exc)
         raise GatewayStartupError(
@@ -2502,7 +2574,9 @@ def launch_gateway_in_background(
 
 
 def _confirm_gateway_launch_publication(
-    process: ProcessLike, config: LocalConfig
+    process: ProcessLike,
+    config: LocalConfig,
+    expected_identity: GatewayProcessIdentity,
 ) -> None:
     """Require the durable launch evidence to still name one live child."""
     return_code = process.poll()
@@ -2519,6 +2593,8 @@ def _confirm_gateway_launch_publication(
     identity = _read_gateway_process_identity(config)
     if identity is None:
         raise RuntimeError("gateway identity missing after state publication")
+    if identity != expected_identity:
+        raise RuntimeError("gateway identity changed after state publication")
     _assert_gateway_identity_static(config, process.pid, identity)
     if not _assert_gateway_process_instance(identity):
         raise RuntimeError("gateway exited after state publication")
@@ -2546,6 +2622,17 @@ def stop_gateway(
     Side Effects:
         Sends SIGTERM and possibly SIGKILL to the background gateway process and removes stale state.
     """
+
+    with _gateway_lifecycle_generation_lock(config_path):
+        return _stop_gateway_locked(config_path=config_path, load_config=load_config)
+
+
+def _stop_gateway_locked(
+    *,
+    config_path: str | Path,
+    load_config: Callable[[str | Path], LocalConfig],
+) -> str:
+    """Execute one stop while its config generation is exclusive."""
 
     config = load_config(config_path)
     state_path = _gateway_state_path(config)
@@ -2583,18 +2670,19 @@ def stop_gateway(
             )
         identity = _upgrade_legacy_gateway_identity(config, resolved_pid)
         if identity is None:
-            _remove_gateway_state(state_path)
+            _remove_gateway_state(state_path, expected=state)
             _remove_gateway_pid(config, expected_pid=resolved_pid)
             return f"STALE pid={resolved_pid} {success_target}"
     _assert_gateway_identity_static(config, resolved_pid, identity)
     if not _assert_gateway_process_instance(identity):
-        _clear_gateway_lifecycle(config, resolved_state_path, identity)
+        _clear_gateway_lifecycle(config, resolved_state_path, state, identity)
         return f"STALE pid={resolved_pid} {success_target}"
     return _stop_owned_gateway(
         config=config,
         pid=resolved_pid,
         identity=identity,
         state_path=resolved_state_path,
+        expected_state=state,
         success_target=success_target,
     )
 
@@ -2605,18 +2693,19 @@ def _stop_owned_gateway(
     pid: int,
     identity: GatewayProcessIdentity,
     state_path: Path | None,
+    expected_state: GatewayRuntimeState | None,
     success_target: str,
 ) -> str:
     """Signal one owned Gateway and clear evidence only after confirmed exit."""
     # The process group is the owned Gateway lifecycle boundary.
     _kill_process_tree(pid, signal.SIGTERM)
     if _wait_for_pid_exit(config, pid):
-        _clear_gateway_lifecycle(config, state_path, identity)
+        _clear_gateway_lifecycle(config, state_path, expected_state, identity)
         return f"STOPPED pid={pid} {success_target}"
     _require_gateway_process_instance(identity)
     _kill_process_tree(pid, signal.SIGKILL)
     if _wait_for_pid_exit(config, pid):
-        _clear_gateway_lifecycle(config, state_path, identity)
+        _clear_gateway_lifecycle(config, state_path, expected_state, identity)
         return f"STOPPED pid={pid} {success_target} forced=true"
     raise RuntimeError(
         f"gateway pid={pid} did not exit after SIGKILL; lifecycle state retained"
@@ -2640,11 +2729,12 @@ def _wait_for_pid_exit(config: LocalConfig, pid: int) -> bool:
 def _clear_gateway_lifecycle(
     config: LocalConfig,
     state_path: Path | None,
+    expected_state: GatewayRuntimeState | None,
     identity: GatewayProcessIdentity,
 ) -> None:
     """Remove lifecycle evidence after the owning process is confirmed gone."""
     if state_path is not None:
-        _remove_gateway_state(state_path)
+        _remove_gateway_state(state_path, expected=expected_state)
     _remove_gateway_pid(config, expected_pid=identity.pid)
     _remove_gateway_process_identity(config, expected=identity)
 
@@ -4640,14 +4730,15 @@ def _remove_gateway_state(
 
 
 def _clear_failed_gateway_startup(
-    config: LocalConfig, expected_state: GatewayRuntimeState
+    config: LocalConfig,
+    expected_state: GatewayRuntimeState,
+    expected_identity: GatewayProcessIdentity | None,
 ) -> None:
     """Clear only lifecycle files still naming a confirmed-exited launch."""
     _remove_gateway_state(_gateway_state_path(config), expected=expected_state)
     _remove_gateway_pid(config, expected_pid=expected_state.pid)
-    identity = _read_gateway_process_identity(config)
-    if identity is not None and identity.pid == expected_state.pid:
-        _remove_gateway_process_identity(config, expected=identity)
+    if expected_identity is not None:
+        _remove_gateway_process_identity(config, expected=expected_identity)
 
 
 def _pid_is_running(pid: int) -> bool:
