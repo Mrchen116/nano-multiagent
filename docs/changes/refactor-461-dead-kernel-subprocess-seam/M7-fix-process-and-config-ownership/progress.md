@@ -10,7 +10,12 @@
 
 ## R1 — Narrow config mutations
 
-- Status: TODO。
+- Status: DONE。
+- C1 Red: `08f605669` 用真实 config 复现 Agent sync 已写入 `agent-b` 后 token getter 基于 stale snapshot 将其删除，以及 token refresh 已写入新 token 后旧 sync snapshot 将 token 回退。
+- C2 Green: `e306935d4` 提供 `update_local_config()`：在 stable sidecar lock 内读取并复核最新磁盘 revision、对 typed config 执行窄 mutation、复用原 transaction backup/atomic commit；token getter 仅替换最新 `im_service` 的 token pair，IM sync 仅 upsert 最新 agents。首次尚无磁盘文件时仅允许显式 `initial` seed。
+- Validation: 双向 ownership regression + token/runtime/config-sync `33 passed`；完整 local-store/migration transaction `73 passed`；affected Ruff、format、`git diff --check` 通过。
+- Commit boundary: 未被 mutation 拥有的字段始终来自持锁后读取的最新 revision；输入 stale `LocalConfig` 不再拥有整文件覆盖权。异常继续沿用原 backup、pre-replace CAS、directory fsync 与 rollback 语义。
+- Rollback: 可整体回退 R1 测试/实现；不改变 `save_local_config()` 的显式整文件替换契约，只把 runtime 的 token/Agent writer 切到窄 mutation。
 
 ## R2 — Public instance and descendant ownership
 
