@@ -8,7 +8,7 @@
 
 ## 退出标准
 
-- [ ] token refresh 与 IM Agent sync 使用锁内 read-modify-write 窄 mutation，双向顺序均保留对方最新字段。
+- [x] token refresh 与 IM Agent sync 使用锁内 read-modify-write 窄 mutation，双向顺序均保留对方最新字段。
 - [ ] foreground 与 background child 共享原子 per-config single-instance claim，不死锁、不覆盖 live owner；foreground 非独占 PGID 时 public stop 只 signal 已验证 PID。
 - [ ] public stop 冻结 PID/PPID/PGID/birth descendant set，逐组 TERM/KILL 并确认全员退出后才返回 `STOPPED`、清 evidence、释放 generation lock。
 - [ ] e2e freeze 任一失败出口恢复每个已 STOP 的 owned group；失败后 leader 与 detached descendant 均可继续运行或被后续安全回收。
@@ -28,7 +28,7 @@
 
 ### R1 — Narrow config mutations
 
-- 状态：TODO
+- 状态：DONE
 - C1 Red：复现 Agent sync 后 token refresh 删除 Agent，以及 token refresh 后旧 Agent sync 覆盖 token。
 - C2 Green：提供 stable config lock 内的最新磁盘 read-modify-write API；token 与 Agent writer 只 patch owned field。
 - C3 Docs：记录 mutation ownership、commit point、failure/rollback 与验证结果。
