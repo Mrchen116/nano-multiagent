@@ -30,8 +30,8 @@
 
 ### R1 — Preserve global lifecycle target values
 
-- [ ] C1：为 global-first restart / stop 写红测，复现子 parser 以默认 `None` 覆盖 root parser 值。
-- [ ] C2：让子 parser 未显式收到 option 时不写同名 destination；保留 command-first 兼容性。
+- [x] C1 `6e73fcd7b`：为 global-first restart / stop 写红测，复现子 parser 以默认 `None` 覆盖 root parser 值。
+- [x] C2 `264c5402a`：让子 parser 未显式收到 option 时不写同名 destination；保留 command-first 兼容性。
 - [ ] C3：将 option-order target contract 归并到 canonical lifecycle spec，并记录本地验证。
 
 ### R2 — Final gates

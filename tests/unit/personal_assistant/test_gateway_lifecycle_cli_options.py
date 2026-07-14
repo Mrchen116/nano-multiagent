@@ -15,7 +15,7 @@ def test_global_options_before_restart_preserve_lifecycle_target(
     calls: list[tuple[str, str, str | None]] = []
     config_path = str(tmp_path / "isolated-config.yaml")
     im_service_url = "http://127.0.0.1:59123"
-    monkeypatch.delenv("NANO_MULTIAGENT_AUTO_BIND", raising=False)
+    original_auto_bind = os.environ.pop("NANO_MULTIAGENT_AUTO_BIND", None)
 
     def _stop(*, config_path: str) -> str:
         calls.append(("stop", config_path, None))
@@ -30,25 +30,30 @@ def test_global_options_before_restart_preserve_lifecycle_target(
     monkeypatch.setattr("personal_assistant.main.stop_gateway", _stop)
     monkeypatch.setattr("personal_assistant.main.launch_gateway_in_background", _start)
 
-    assert (
-        main(
-            [
-                "--config",
-                config_path,
-                "--im-service-url",
-                im_service_url,
-                "--auto-bind",
-                "restart",
-            ]
+    try:
+        assert (
+            main(
+                [
+                    "--config",
+                    config_path,
+                    "--im-service-url",
+                    im_service_url,
+                    "--auto-bind",
+                    "restart",
+                ]
+            )
+            == 0
         )
-        == 0
-    )
-
-    assert calls == [
-        ("stop", config_path, None),
-        ("start", config_path, im_service_url),
-    ]
-    assert "NANO_MULTIAGENT_AUTO_BIND" in os.environ
+        assert calls == [
+            ("stop", config_path, None),
+            ("start", config_path, im_service_url),
+        ]
+        assert "NANO_MULTIAGENT_AUTO_BIND" in os.environ
+    finally:
+        if original_auto_bind is None:
+            os.environ.pop("NANO_MULTIAGENT_AUTO_BIND", None)
+        else:
+            os.environ["NANO_MULTIAGENT_AUTO_BIND"] = original_auto_bind
 
 
 def test_global_config_before_stop_preserves_lifecycle_target(
