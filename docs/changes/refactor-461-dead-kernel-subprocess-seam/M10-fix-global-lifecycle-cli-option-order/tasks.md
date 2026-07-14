@@ -32,9 +32,9 @@
 
 - [x] C1 `6e73fcd7b`：为 global-first restart / stop 写红测，复现子 parser 以默认 `None` 覆盖 root parser 值。
 - [x] C2 `264c5402a`：让子 parser 未显式收到 option 时不写同名 destination；保留 command-first 兼容性。
-- [ ] C3：将 option-order target contract 归并到 canonical lifecycle spec，并记录本地验证。
+- [x] C3：将 option-order target contract 归并到 canonical lifecycle spec，并记录本地验证。
 
 ### R2 — Final gates
 
-- [ ] targeted / static / full non-e2e / isolated lifecycle evidence。
+- [x] targeted / static / full non-e2e / isolated lifecycle evidence。
 - [ ] independent reviewer re-review、delta verifier、final code review 全部通过。
