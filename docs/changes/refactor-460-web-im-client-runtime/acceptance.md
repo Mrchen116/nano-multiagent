@@ -474,3 +474,131 @@ N/A。`motivation.md` / `design.md` 未规定 prototype、设计稿或 reference
 
 为独立 reviewer 提供可用的 Codex 内置隔离浏览器后，重新执行一次 `full` Round 5：必须真实登录同一隔离栈，逐条
 重跑本表所有 Scenario，尤其补齐 external-channel live message 与可观察系统通知/点击导航；在此之前不能给 `pass`。
+
+---
+
+## Round 5 — 2026-07-14
+
+- **Verdict**: `fail`
+- **Highest Required Action**: `fix-implementation`
+- **Review mode**: full
+- **Acceptance bar**: final independent product revalidation
+
+### 执行边界与环境
+
+在新建的 Chrome 标签中，以 `nano` 登录由 Runbook 重启的隔离 Web IM 真栈
+`http://127.0.0.1:55124`。本轮只通过真实 GUI 操作聊天、Agents 和 Account 入口；没有读取实现代码，没有操作已有
+用户标签、浏览器/系统设置，也没有用 HTTP、DOM mock、外部 Playwright 或内部 reducer 代替用户旅程。
+
+### User Journeys Exercised
+
+1. **桌面 Chat 完整过程、刷新和静默终态**：从 `default-agent` 详情点击 `Open chat`，发送真实的 bash 工具请求。
+   当前会话先显示运行过程，随后出现 `R5_REALTIME_OK`、`1 tool · 2 thinking` 和 usage；浏览器 reload 后内容和过程
+   仍一致。随后让 Agent 最终输出 bare `NO_REPLY`；临时回复消失，reload 后也没有重新出现。
+2. **非当前会话提醒与未读**：在 `plato` 会话分别发起两次延迟 bash 回复，然后在单一标签页内切回
+   `default-agent` 等待完成。两次都使 `plato` 的预览更新为 `R5_TOAST_OK` / `R5_TOAST_VISIBLE`、排序前移并显示
+   `1 unread`；但既没有可访问的 `View message` 应用内 toast，实际页面截图也没有 toast。打开 `plato` 后未读清除。
+3. **Gateway 状态**：页面已停留在 Agents 且四个 Agent 都显示 online 时，只停止隔离 Gateway。超过 55 秒内页面
+   仍把四个 Agent 显示为 online，未显示预期 offline。随后只重启 Gateway，供环境恢复；由于离线转变已失败，
+   不把恢复过程当作本 Scenario 通过。
+4. **Agent 详情直接单聊与桌面回归**：`default-agent`、`plato` 的详情页 `Open chat` 都进入对应有效会话。桌面
+   Chat 的侧栏、时间线、过程摘要、usage 与 composer 均正常可用。
+
+### Reference Artifacts Reviewed
+
+N/A。`motivation.md` / `design.md` 未规定 prototype、设计稿或 reference screenshot；本 unit 的视觉口径是既有
+Web IM 交互不退化。
+
+### 问题清单
+
+### Issue 1 — 非当前会话的可见 Agent 回复没有应用内 toast
+
+- **Severity**: major
+- **Regression Relation**: direct
+- **Recommended Action**: fix-implementation
+- **Action Rationale**: 用户确实看到了另一会话更新的预览、排序和未读，但没有收到 Scenario 要求的既有样式应用内
+  提醒；用户很容易错过这条回复。
+- **Expected**: 非当前会话的可见新消息应同时显示应用内 toast、会话预览/排序和未读角标。
+- **Actual**: `plato` 的 `R5_TOAST_OK` 与 `R5_TOAST_VISIBLE` 两次完成均只更新了预览、排序和 `1 unread`；无
+  `View message` toast，实际桌面页面截图亦无 toast。
+- **Reproduction**:
+  1. 打开 `plato`，发送包含 `sleep` 的真实 Agent 请求。
+  2. 在完成前切到 `default-agent`。
+  3. 等待 `plato` 可见回复完成并观察页面。
+
+### Issue 2 — Gateway 已断开时，正在查看的 Agents 页持续显示 online
+
+- **Severity**: major
+- **Regression Relation**: direct
+- **Recommended Action**: fix-implementation
+- **Action Rationale**: 用户在 Gateway 已经不可用时仍被页面告知四个 Agent online，无法据此判断消息是否可投递。
+- **Expected**: Gateway 断开后，正在查看的 Chat、Nodes 或 Agents 状态无需手动刷新先显示 offline；重连后恢复 online。
+- **Actual**: 在 Agents 页保持打开且初始四个 Agent 都 online 的条件下停止隔离 Gateway，超过 55 秒仍全部显示
+  online，未出现 offline 过渡。
+- **Reproduction**:
+  1. 登录并打开 Agents，确认四个 Agent 都显示 online。
+  2. 停止该隔离栈的 Gateway（不停止 IM）。
+  3. 保持页面不刷新、不导航，等待超过 55 秒。
+
+### 验收标准覆盖
+
+### Requirement: 当前会话继续实时呈现完整消息过程 — 组内结论: fail
+
+| Scenario | 期望来源 | 验证方式（本轮） | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| Agent 回复实时更新 | `motivation.md` | Journey 1：真实 Agent、工具调用、生成过程、完成和 browser reload | `R5_REALTIME_OK`、`1 tool · 2 thinking`、usage 均在 reload 后存在 | pass | 无需手动刷新即可完成 |
+| 静默回复撤销临时气泡 | `motivation.md` | Journey 1：真实 Agent 最终 bare `NO_REPLY`，完成后 reload | 对应用户输入之后无 Agent 气泡；reload 后仍无 | pass | 另一次自然语言“保持沉默”请求实际生成了可见说明文字，未把它误当作静默终态 |
+| 外部 channel 消息实时进入已打开会话 | `motivation.md` | 计划由真实外部 channel 向影子会话写入 | 当前隔离环境没有可安全使用的真实外部 channel 入口 | inconclusive | 未用内部 IM 请求伪造该用户旅程 |
+
+### Requirement: 会话列表、未读状态和应用内提醒保持一致 — 组内结论: fail
+
+| Scenario | 期望来源 | 验证方式（本轮） | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 未打开会话收到新消息 | `motivation.md` | Journey 2：同一真实 GUI 中让 `plato` 延迟完成，再切回 `default-agent` | 两次 `R5_TOAST_*` 均更新 preview/sort/`1 unread`；无 toast | fail | Issue 1 |
+| 当前会话和自己的消息不产生多余提醒 | `motivation.md` | Journey 1：当前会话的 Agent 完成和自己发送的消息 | 当前会话完整更新，期间未见误导性应用内 toast | pass | 与 Issue 1 的非当前会话条件分开验证 |
+
+### Requirement: 桌面系统通知保持一次且可导航 — 组内结论: inconclusive
+
+| Scenario | 期望来源 | 验证方式（本轮） | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 后台标签页收到 Agent 完成通知 | `motivation.md` | 需要授权通知的后台真实标签页、一次系统通知和点击导航 | 单一新建测试标签必须保持受控；未操作其他用户标签或系统通知设置 | inconclusive | 未用 mock 或替代浏览器伪造系统通知 |
+| 不满足通知条件时不弹通知 | `motivation.md` | 需要前台、关闭开关、未授权三种真实系统通知条件 | 未改变 browser permission 或用户设置 | inconclusive | 前台期间未见系统通知不足以证明所有条件 |
+| 恢复连接不重放历史通知 | `motivation.md` | 需要真实断网/重连并同时观察应用内和系统通知 | 未通过浏览器设置模拟离线；系统通知也未可观察 | inconclusive | 不以本轮无 toast 的失败替代此验证 |
+
+### Requirement: Node 与 Agent 状态继续实时变化 — 组内结论: fail
+
+| Scenario | 期望来源 | 验证方式（本轮） | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| Gateway 断连与重连 | `motivation.md` | Journey 3：Agents 页可见时停止并仅重启隔离 Gateway | 停止后 >55s 四个 Agent 仍为 online | fail | Issue 2；未把随后重启淡化为通过 |
+
+### Requirement: 长时间登录与账号切换后实时体验仍然正确 — 组内结论: inconclusive
+
+| Scenario | 期望来源 | 验证方式（本轮） | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 长时间保持登录后发生网络重连 | `motivation.md`、`design.md` Runbook | 需要真实 expired access + valid refresh 与浏览器离线/恢复 | 未修改浏览器 session 或网络设置 | inconclusive | 未以服务重启代替 token/network 用户旅程 |
+| 退出后切换为另一用户 | `motivation.md` | 需要已有第二个授权测试账号和同一标签页登录切换 | 本轮只获授权使用 `nano` 测试账号 | inconclusive | 未创建或猜测第二个账号 |
+
+### Requirement: 非实时入口保持原有可用性 — 组内结论: inconclusive
+
+| Scenario | 期望来源 | 验证方式（本轮） | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 确认 Gateway 绑定 | `motivation.md`、`design.md` Runbook | 需要有效未绑定 Gateway 的绑定链接，并在 hot cache 下确认 | 当前隔离 Gateway 已 auto-bind，未提供新的有效绑定链接 | inconclusive | 未改配置或伪造 bind token |
+| 从 Agent 详情打开单聊 | `motivation.md` | Journey 4：从 `default-agent` 和 `plato` 的有效详情选择 `Open chat` | 两个入口均创建并进入对应会话 | pass | 未出现可观察失败，因此不臆造错误状态 |
+
+### Side Findings
+
+- 桌面 Chat 的主路径在本轮没有布局或输入区退化。移动 viewport、外部 channel、绑定 hot-cache、账号切换、长登录
+  恢复和系统通知仍缺少真实受控条件，不能以自动化门禁或旧轮证据补成通过。
+
+### 上层文档同步
+
+- [x] `SPEC.md`：无需更新；本轮发现的是现有 Web IM 体验未满足的回归，不改变跨包职责。
+- [x] `docs/specs/im/`：需要由后续修复/收尾判断是否补充当前提醒与状态恢复契约；reviewer 不改契约。
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新；本轮沿用隔离栈和端口约定。
+- [x] `docs/SPEC_GUIDE.md`：无需更新；本轮不涉及文档体系。
+
+### Recommended Next Step
+
+先按 `fix-implementation` 修复 Issue 1 和 Issue 2。之后必须使用真实 GUI 全量复验；在最终 `pass` 前，还需提供受控而真实的
+external channel、系统通知/点击导航、第二测试账号、expired-token + network recovery 以及未绑定 Gateway hot-cache
+条件，关闭所有 `inconclusive` Scenario。
