@@ -79,7 +79,7 @@
 
 ### R3 — 根治 dispatch readiness、reconnect 与 shadow/config 边界
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 先落端口冲突 fail-fast/实际 endpoint、offline supervisor、IM shadow typed guard、concrete config-sync ownership 红测；再修 composition/transport owner，并以 `custom_prompt` 真栈重验。
 - 验证: internal-dispatch/config-sync/shadow/reconnect/build-runtime/architecture 测试；真 `send_message` 与 IM kill/restart。
 

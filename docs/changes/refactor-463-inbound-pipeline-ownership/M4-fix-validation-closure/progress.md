@@ -40,3 +40,18 @@
 - Rollback: 回退 C2 `9d1a05170` 恢复 R1 末态；C1 可随同回退。R2 没有改变 IM wire、session key、binding schema 或 cron runs schema。
 - Commits: C1=`a304a053e`；C2=`9d1a05170`；C3=本次 docs commit。
 - Next: R3 先锁定真实 internal listener readiness/endpoint、IM reconnect supervisor、typed shadow identity 与 concrete config-sync wiring，再修 composition/transport owner。
+
+## R3 — 根治 dispatch readiness、reconnect 与 shadow/config 边界
+
+- Context: composition 固定写入 `127.0.0.1:8089`，runtime 吞掉 listener bind 异常后仍置 ready；`connect_once()` 在长耗时 `on_connected` 对账期间先启动 heartbeat，但 receive loop 尚未运行，register/heartbeat ack 即使已到 socket 也无人消费，最终把健康连接误判为 heartbeat timeout。IM-originated WebRelay typed identity 也会再次进入 external shadow sync；config-sync 的 dynamic-agent callback 仍由 composition 构造后赋值，测试用 `_ownership(pipeline)` 假 owner 掩盖真实 revision/invalidation。
+- Decision: `InternalDispatchEndpoint` 成为实际 listener URL 的生命周期 owner；runtime 先成功 bind（生产端口 `0`），从 socket 读取实际端口并 publish，再启动 channel/置 ready，任何 bind 异常直接使启动失败。coordinator 在 session resolve 当下读取 published URL；没有 provider/监听时省略 metadata URL，让 `SendMessageTool` 走既有 fail-fast。IM heartbeat 从 `connect_once()` 移到 `_listen_once()` admission，保证 callback 完成且接收路径已进入后才启动。shadow sync 用 typed `external_identity.trigger_source == 'im'` 拦截。`IMAgentConfigSync` 构造期接收只读 callback；所有 config-sync 测试改用 concrete `LiveAgentCatalog + GatewaySessionBinder`，并以真 v1→v2 publish/invalidation/resolve 覆盖 owner 语义。
+- Rationale: “配置端口”不是“已监听 endpoint”；只有 socket bind 成功后的地址才可进入 session capability metadata。heartbeat liveness 同时依赖发送和接收，不能在唯一接收循环尚未进入时启动。配置发布与 binding invalidation 必须由生产 owner 的真实 revision/generation 证明，而不是测试 shim 模拟调用次数。
+- Evidence:
+  - C1 red: 双 Gateway 动态 URL import/并存、真实端口冲突 readiness、慢 `on_connected` heartbeat race、typed IM shadow guard、mutable callback/测试 shim contract 共 6 个稳定失败；commit `bad87f2f1`。
+  - Focused: dispatch/send-message/reconnect/shadow/config-sync/build-runtime/architecture → `104 passed, 2 warnings`；相关 `ruff check` 与 `git diff --check` passed。
+  - Real stack: `evidence/r3-dispatch-reconnect.md`。生产 Gateway 实际监听 `60831`，新 session metadata 精确为该 URL；真 LLM tool call `send_message(to=plato)` 返回 `ok=true` 且 IM durable message completed。并行第二 Gateway 无端口冲突；`scripts/e2e-resilience.sh` 的 IM kill/restart 与 Gateway-before-IM 两场景均 PASS。
+  - Shadow: typed guard 永久回归不调用 shadow sync；真栈日志无 `RuntimeProtocolFacts` serialization / duplicate shadow warning。
+  - Frontend State Matrix / Browser QA / Visual: N/A（无前端变更）。
+- Rollback: 回退 C2 `9b70bd65d` 恢复 R2 末态；C1 可随同回退。R3 未改变 IM API、session key、binding schema 或外部 channel 协议；metadata 的 URL 值从固定配置地址收敛为实际 listener 地址。
+- Commits: C1=`bad87f2f1`；C2=`9b70bd65d`；C3=本次 docs commit。
+- Next: R4 收深 cron/config owner，完成无变化 persist 修复、全量门禁和四条真栈总签收；同时复核本轮 teardown 暴露的 background subscriber deadline warning。
