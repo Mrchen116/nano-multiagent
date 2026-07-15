@@ -106,7 +106,6 @@ class _InternalOwner:
     def seal(self) -> None:
         self.events.append("internal.seal")
 
-
 class _Kernel:
     def __init__(self, events: list[str]) -> None:
         self.events = events

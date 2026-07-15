@@ -119,6 +119,3 @@ def _external_shadow_title(
     if conversation_type == "group":
         return f"{agent_id} · {chat_name or '群聊'} · {external_source}"
     return f"{agent_id} · {external_source}"
-
-
-

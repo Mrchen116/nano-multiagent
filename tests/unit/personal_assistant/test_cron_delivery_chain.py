@@ -344,10 +344,9 @@ async def test_cron_delivery_extracts_result_for_awareness(tmp_path: Path) -> No
         canonical_session_id="sess-canonical",
     )
 
-    await runner._append_awareness(
+    await runner.append_awareness(
         session_id="sess-canonical",
         result_text=final_result,
-        workspace_root=tmp_path,
     )
 
     # Verify via kernel.append_message call (not raw file)

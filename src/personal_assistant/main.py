@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from datetime import datetime, timezone
 import fcntl
 import json
 import logging
@@ -89,6 +88,9 @@ from personal_assistant.gateway.runtime_delivery.observer import (
 from personal_assistant.gateway.runtime_delivery.task_tracker import (
     RuntimeDeliveryTaskTracker,
 )
+from personal_assistant.gateway.runtime_delivery.stream import (
+    stream_run_to_completion as _stream_run_to_completion,
+)
 from personal_assistant.gateway.internal_dispatch import (
     InternalDispatchEndpoint,
     InternalDispatchHandler,
@@ -120,8 +122,11 @@ from personal_assistant.scheduler.cron_scheduler import (
     CronScheduler,
     CronSchedulerStateStore,
 )
+from personal_assistant.scheduler.cron_execution_service import (
+    CronExecutionService,
+    CronRunStreamDelivery,
+)
 from personal_assistant.scheduler.cron_runner import CronRunner
-from personal_assistant.scheduler.cron_execution_service import CronExecutionService
 from personal_assistant.scheduler.cron_service_registry import CronServiceRegistry
 from personal_assistant.auth.im_auth_client import IMAuthClient, IMAuthError
 from personal_assistant.ws.im_connection import (
@@ -500,127 +505,6 @@ class _IMBootstrapClient:
             )
         self._clients[base_url] = client
         return client
-
-
-async def _stream_run_to_completion(
-    *,
-    run_id: str,
-    kernel_session_id: str,
-    agent_id: str,
-    owner_user_id: str,
-    kernel: Any,
-    run_context_store: dict[str, dict[str, str]] | RunDeliveryContextStore,
-    observer: Callable[..., Any] | None,
-    stream_anchor: int = 0,
-) -> tuple[str, dict | None]:
-    """Stream one kernel run to terminal state, driving the event observer.
-
-    Seeds run_context_store with the standard heartbeat/cron context (empty
-    conversation_id triggers lazy IM turn_start creation), then replays the
-    kernel event stream until a terminal run_status.
-
-    Args:
-        run_id: Kernel run ID to track.
-        kernel_session_id: Kernel session the run lives in.
-        agent_id: Agent ID, forwarded into run_context_store for routing.
-        owner_user_id: IM user_id of the gateway owner; drives lazy direct-chat
-            creation via to_user_id in the context entry.
-        kernel: In-process kernel; must implement stream(session_id, after_sequence).
-        run_context_store: Shared delivery context store seeded here and popped in
-            finally. Production passes RunDeliveryContextStore so the observer reads
-            and mutates the same typed runtime owner; legacy dict inputs remain
-            supported for narrow unit compatibility.
-        observer: kernel_event_observer callable (sync or async); None skips driving.
-        stream_anchor: after_sequence passed to kernel.stream; 0 means replay all.
-
-    Returns:
-        Tuple of (last_assistant_text, popped_ctx).  last_assistant_text is the last
-        assistant_message content seen, stripped (empty string on silence).
-        popped_ctx is the context entry that was removed from run_context_store on
-        completion — callers can inspect e.g. conversation_id to detect silent ticks.
-
-    Raises:
-        Nothing — stream failures are re-raised to the caller for per-path logging.
-    """
-    _seed_owner_direct_stream_context(
-        run_context_store=run_context_store,
-        run_id=run_id,
-        agent_id=agent_id,
-        kernel_session_id=kernel_session_id,
-        owner_user_id=owner_user_id,
-    )
-
-    final_result_text = ""
-    popped_ctx: dict | None = None
-    try:
-        async for event in kernel.stream(
-            kernel_session_id, after_sequence=stream_anchor
-        ):
-            if event.get("run_id") != run_id:
-                continue
-            if event.get("event") == "assistant_message":
-                content = str(event.get("content") or "").strip()
-                if content:
-                    final_result_text = content
-            if observer is not None:
-                obs_result = observer(event)
-                if asyncio.iscoroutine(obs_result):
-                    await obs_result
-            if event.get("event") == "run_status" and event.get("status") in (
-                "completed",
-                "failed",
-                "cancelled",
-                "error",
-            ):
-                break
-    except Exception:
-        # Re-raise so caller can log with per-path context (agent/job/run identifiers).
-        _pop_stream_context(run_context_store=run_context_store, run_id=run_id)
-        raise
-    finally:
-        popped_ctx = _pop_stream_context(
-            run_context_store=run_context_store, run_id=run_id
-        )
-
-    return final_result_text, popped_ctx
-
-
-def _seed_owner_direct_stream_context(
-    *,
-    run_context_store: dict[str, dict[str, str]] | RunDeliveryContextStore,
-    run_id: str,
-    agent_id: str,
-    kernel_session_id: str,
-    owner_user_id: str,
-) -> None:
-    if isinstance(run_context_store, RunDeliveryContextStore):
-        run_context_store.seed_owner_direct_run(
-            run_id=run_id,
-            agent_id=agent_id,
-            kernel_session_id=kernel_session_id,
-            owner_user_id=owner_user_id,
-        )
-        return
-    run_context_store[run_id] = {
-        "conversation_id": "",  # lazy: filled by IM turn_start ack
-        "message_id": "",  # lazy: filled by IM turn_start ack
-        "agent_id": agent_id,
-        "to_user_id": owner_user_id,
-        "kernel_session_id": kernel_session_id,
-    }
-
-
-def _pop_stream_context(
-    *,
-    run_context_store: dict[str, dict[str, str]] | RunDeliveryContextStore,
-    run_id: str,
-) -> dict[str, str] | None:
-    if isinstance(run_context_store, RunDeliveryContextStore):
-        context = run_context_store.get(run_id)
-        popped = context.to_legacy_dict() if context is not None else None
-        run_context_store.discard(run_id)
-        return popped
-    return run_context_store.pop(run_id, None)
 
 
 class PollingHeartbeatRunner:
@@ -1105,13 +989,16 @@ class GatewayRuntime:
         dispatch_site: Any | None = None
         im_task: asyncio.Task[None] | None = None
         try:
-            if self._internal_dispatch_handler is not None:
+            build_dispatch_handler = getattr(
+                self._internal_dispatch_handler, "build_aiohttp_handler", None
+            )
+            if callable(build_dispatch_handler):
                 from aiohttp import web as _aiohttp_web
 
                 _dispatch_app = _aiohttp_web.Application()
                 _dispatch_app.router.add_post(
                     "/internal/dispatch",
-                    self._internal_dispatch_handler.build_aiohttp_handler(),
+                    build_dispatch_handler(),
                 )
                 dispatch_runner = _aiohttp_web.AppRunner(_dispatch_app)
                 await dispatch_runner.setup()
@@ -2582,171 +2469,36 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         # Skip if already registered (idempotent — reconcile may call multiple times).
         if _cron_dispatcher.resolve(agent_id) is not None:
             return
-        execute_fn = _build_cron_execute_fn(agent_id=agent_id, ws_root=ws_root)
+        runner = CronRunner(
+            agent_id=agent_id,
+            workspace_root=ws_root,
+            kernel_client=kernel_shim,
+            session_binder=session_binder,
+            canonical_session_id_provider=lambda: _canonical_session_store.get(
+                agent_id
+            ),
+        )
+        stream_delivery = (
+            CronRunStreamDelivery(
+                kernel=kernel,
+                owner_user_id=_owner_user_id,
+                run_context_store=run_delivery_contexts,
+                observer=_kernel_event_observer,
+            )
+            if _owner_user_id and _kernel_event_observer is not None
+            else None
+        )
         service = CronExecutionService(
             agent_id=agent_id,
             workspace_root=ws_root,
-            execute_fn=execute_fn,
+            runner=runner,
+            stream_delivery=stream_delivery,
             gateway_loop=gateway_loop,
         )
         _cron_dispatcher.register(agent_id, service)
         # Converge stale accepted/running records from any previous crash so they
         # are never permanently in-progress.
-        service.runs_store.converge_stale_on_restart()
-
-    def _build_cron_execute_fn(
-        agent_id: str,
-        ws_root: Path,
-    ):
-        """Return the execute_fn for a single agent's CronExecutionService.
-
-        bugfix-402-M4: both scheduled ticks and manual tool calls share this
-        execution chain.  CronRunner is instantiated once per agent (not per tick)
-        so session binding state is preserved across runs.
-        """
-        _cron_runner = CronRunner(
-            agent_id=agent_id,
-            workspace_root=ws_root,
-            kernel_client=kernel_shim,
-            session_binder=session_binder,
-        )
-
-        async def _execute(
-            *, agent_id: str, job_id: str, request_id: str, trigger: str
-        ) -> None:
-            """Submit cron job then stream result to IM direct chat.
-
-            bugfix-402-M4 Decision 2: replaces per-tick _submit_and_deliver_fn.
-            Both scheduled and manual triggers enter here via CronExecutionService.enqueue().
-            Writes accepted→running→(completed|failed) state transitions to runs.jsonl.
-            """
-            from personal_assistant.scheduler.cron_execution_service import (
-                CronRunsStore,
-            )  # noqa: PLC0415
-
-            _runs_store = CronRunsStore(workspace_root=ws_root)
-            _now = datetime.now(timezone.utc).isoformat()
-
-            job_store = CronJobStore(workspace_root=ws_root)
-            job = job_store.get(job_id)
-            if job is None:
-                _log.warning(
-                    "cron execute: job not found at execution time: agent=%s job=%s request=%s",
-                    agent_id,
-                    job_id,
-                    request_id,
-                )
-                _runs_store.update_status(
-                    request_id,
-                    "failed",
-                    finished_at=_now,
-                    error="job_not_found",
-                )
-                return
-
-            _runs_store.update_status(request_id, "running", started_at=_now)
-
-            # _submit_cron_job returns (run_id, kernel_session_id) or None.
-            result = await _cron_runner._submit_cron_job(job=job)  # noqa: SLF001
-            if result is None:
-                _log.warning(
-                    "cron: submit returned no result: agent=%s job=%s request=%s",
-                    agent_id,
-                    job_id,
-                    request_id,
-                )
-                _runs_store.update_status(
-                    request_id,
-                    "failed",
-                    finished_at=datetime.now(timezone.utc).isoformat(),
-                    error="submit_failed",
-                )
-                return
-            run_id, kernel_session_id = result
-            _runs_store.update_status(request_id, "running", kernel_run_id=run_id)
-
-            _observer = _kernel_event_observer
-
-            if not _owner_user_id or _observer is None:
-                # No IM delivery path: fire-and-forget is correct.
-                _log.debug(
-                    "cron: no delivery path configured (owner=%r), skipping stream",
-                    _owner_user_id,
-                )
-                _runs_store.update_status(
-                    request_id,
-                    "completed",
-                    finished_at=datetime.now(timezone.utc).isoformat(),
-                    result_summary="no_delivery_path",
-                )
-                return
-
-            # Deliver result to IM by consuming the kernel stream.
-            final_result_text = ""
-            try:
-                final_result_text, _ = await _stream_run_to_completion(
-                    run_id=run_id,
-                    kernel_session_id=kernel_session_id,
-                    agent_id=agent_id,
-                    owner_user_id=_owner_user_id,
-                    kernel=kernel,
-                    run_context_store=run_delivery_contexts,
-                    observer=_observer,
-                    stream_anchor=0,
-                )
-            except Exception:  # noqa: BLE001
-                _log.exception(
-                    "cron: stream consume failed: agent=%s job=%s run=%s",
-                    agent_id,
-                    job_id,
-                    run_id,
-                )
-                _runs_store.update_status(
-                    request_id,
-                    "failed",
-                    finished_at=datetime.now(timezone.utc).isoformat(),
-                    error="stream_failed",
-                )
-                return
-
-            _runs_store.update_status(
-                request_id,
-                "completed",
-                finished_at=datetime.now(timezone.utc).isoformat(),
-                result_summary=(final_result_text[:200] if final_result_text else ""),
-            )
-
-            # Decision C-awareness: append result text as System(untrusted) to canonical
-            # direct-chat JSONL so user can ask follow-up questions about cron output.
-            if final_result_text:
-                # feat-394-M8 R6-2 fix: two-source canonical session resolution (priority order).
-                # (1) _canonical_session_store — populated by HeartbeatScheduler.tick().
-                # (2) _cron_runner._resolve_canonical_session_id() — SQLite session_bindings.
-                _awareness_session_id = (
-                    _canonical_session_store.get(agent_id)
-                    or _cron_runner._resolve_canonical_session_id()  # noqa: SLF001
-                )
-                if _awareness_session_id:
-                    try:
-                        await _cron_runner._append_awareness(  # noqa: SLF001
-                            session_id=_awareness_session_id,
-                            result_text=final_result_text,
-                            workspace_root=ws_root,
-                        )
-                    except Exception:  # noqa: BLE001
-                        _log.warning(
-                            "cron: awareness inject failed: agent=%s job=%s session=%s",
-                            agent_id,
-                            job_id,
-                            _awareness_session_id,
-                        )
-                else:
-                    _log.debug(
-                        "cron: awareness skip — no canonical session for agent=%s",
-                        agent_id,
-                    )
-
-        return _execute
+        service.converge_stale_on_restart()
 
     # Create one CronExecutionService per configured agent and register with dispatcher.
     # bugfix-402-M6: use _register_cron_service so dynamic (handle_agent_create) and

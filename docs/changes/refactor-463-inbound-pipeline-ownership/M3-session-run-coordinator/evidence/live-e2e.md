@@ -1,6 +1,6 @@
 # M3 验收证据对账
 
-Date: 2026-07-15  
+Date: 2026-07-15
 Milestone implementation head: `ef25d3b1f`
 
 ## 证据分层

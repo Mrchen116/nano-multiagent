@@ -6,7 +6,7 @@ tick and the manual run tool call the same enqueue() method.
 The service is responsible for:
 - Validating job exists and is enabled (before creating any state)
 - Persisting an "accepted" record to runs.jsonl
-- Dispatching execution via execute_fn (injected at construction)
+- Submitting, delivering, and finalizing accepted work through owned collaborators
 - Tracking accepted→running→terminal state transitions in runs.jsonl
 
 runs.jsonl lives at <workspace>/.nanoassistant/cron/runs.jsonl (append-only).
@@ -26,11 +26,13 @@ import uuid
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Mapping
+from typing import Any, Awaitable, Callable, Mapping, Protocol
 
 import logging
 
-from personal_assistant.scheduler.cron_scheduler import CronJobStore
+from personal_assistant.gateway.runtime_delivery.context import RunDeliveryContextStore
+from personal_assistant.gateway.runtime_delivery.stream import stream_run_to_completion
+from personal_assistant.scheduler.cron_scheduler import CronJob, CronJobStore
 
 _log = logging.getLogger(__name__)
 
@@ -274,22 +276,73 @@ def _new_request_id() -> str:
 # ---------------------------------------------------------------------------
 
 
+class CronRunnerPort(Protocol):
+    """Public cron runner operations consumed by the execution owner."""
+
+    async def submit(self, *, job: CronJob) -> tuple[str, str] | None: ...
+
+    async def append_awareness(self, *, result_text: str) -> bool: ...
+
+
+class CronStreamDeliveryPort(Protocol):
+    """Deliver one submitted cron run to its configured channel."""
+
+    async def deliver(
+        self, *, run_id: str, kernel_session_id: str, agent_id: str
+    ) -> str: ...
+
+
+class CronRunStreamDelivery:
+    """Deliver cron kernel events through the shared owner-direct stream path."""
+
+    def __init__(
+        self,
+        *,
+        kernel: Any,
+        owner_user_id: str,
+        run_context_store: RunDeliveryContextStore,
+        observer: Callable[..., Any],
+    ) -> None:
+        self._kernel = kernel
+        self._owner_user_id = owner_user_id
+        self._run_context_store = run_context_store
+        self._observer = observer
+
+    async def deliver(
+        self, *, run_id: str, kernel_session_id: str, agent_id: str
+    ) -> str:
+        """Consume one run through the standard IM delivery observer."""
+
+        final_text, _ = await stream_run_to_completion(
+            run_id=run_id,
+            kernel_session_id=kernel_session_id,
+            agent_id=agent_id,
+            owner_user_id=self._owner_user_id,
+            kernel=self._kernel,
+            run_context_store=self._run_context_store,
+            observer=self._observer,
+        )
+        return final_text
+
+
 class CronExecutionService:
     """Unified cron execution entry point for scheduled and manual triggers.
 
     Both the scheduler tick and the manual run tool call enqueue(); both paths
     are guaranteed to use the same execution logic, delivery chain, and run history.
 
-    The service validates the job, writes an accepted record, then calls execute_fn
-    in the background.  It does NOT wait for execution to complete before returning.
+    The service validates the job, writes an accepted record, then owns submit,
+    delivery, awareness, and terminal persistence in the background. It does not
+    wait for execution to complete before returning.
 
     Args:
         agent_id: Agent whose jobs this service manages.
         workspace_root: Agent workspace root (for CronJobStore and CronRunsStore).
-        execute_fn: Async callable invoked for each accepted request.
-            Signature: async def execute_fn(*, agent_id, job_id, request_id, trigger) -> None
-            The service writes accepted; execute_fn is responsible for updating to
-            running and terminal states via the injected CronRunsStore.
+        runner: Public runner for isolated kernel submission and awareness.
+        stream_delivery: Optional IM stream delivery. Absence is a supported
+            no-delivery configuration.
+        execute_fn: Compatibility injection for narrow callers. Production uses
+            runner and stream_delivery so the service owns the whole lifecycle.
     """
 
     def __init__(
@@ -297,12 +350,20 @@ class CronExecutionService:
         *,
         agent_id: str,
         workspace_root: Path,
-        execute_fn: Callable[..., Awaitable[None]],
+        runner: CronRunnerPort | None = None,
+        stream_delivery: CronStreamDeliveryPort | None = None,
+        execute_fn: Callable[..., Awaitable[None]] | None = None,
         gateway_loop: asyncio.AbstractEventLoop | None = None,
     ) -> None:
         self._agent_id = agent_id
         self._workspace_root = Path(workspace_root).expanduser().resolve()
-        self._execute_fn = execute_fn
+        if runner is None and execute_fn is None:
+            raise ValueError("CronExecutionService requires runner or execute_fn")
+        if runner is not None and execute_fn is not None:
+            raise ValueError("runner and execute_fn are mutually exclusive")
+        self._runner = runner
+        self._stream_delivery = stream_delivery
+        self._execute_fn = execute_fn or self._execute_owned
         # Gateway asyncio loop reference for scheduling execute_fn when enqueue()
         # is called from a sync thread (e.g. tool.run() via asyncio.to_thread).
         # Without this, asyncio.get_event_loop() in the worker thread has no
@@ -331,8 +392,100 @@ class CronExecutionService:
 
     @property
     def runs_store(self) -> CronRunsStore:
-        """Expose the runs store so execute_fn implementations can update history."""
+        """Return the service-owned run history store."""
         return self._runs_store
+
+    def converge_stale_on_restart(self) -> None:
+        """Converge stale accepted or running records through the owned store."""
+
+        self._runs_store.converge_stale_on_restart()
+
+    async def _execute_owned(
+        self, *, agent_id: str, job_id: str, request_id: str, trigger: str
+    ) -> None:
+        """Own accepted-to-terminal execution for production cron requests."""
+
+        del trigger
+        job = self._job_store.get(job_id)
+        if job is None:
+            self._runs_store.update_status(
+                request_id,
+                "failed",
+                finished_at=_utc_now(),
+                error="job_not_found",
+            )
+            return
+
+        self._runs_store.update_status(request_id, "running", started_at=_utc_now())
+        assert self._runner is not None
+        try:
+            submitted = await self._runner.submit(job=job)
+        except Exception:  # noqa: BLE001
+            _log.exception(
+                "cron submit failed: agent=%s job=%s request=%s",
+                agent_id,
+                job_id,
+                request_id,
+            )
+            submitted = None
+        if submitted is None:
+            self._runs_store.update_status(
+                request_id,
+                "failed",
+                finished_at=_utc_now(),
+                error="submit_failed",
+            )
+            return
+
+        run_id, kernel_session_id = submitted
+        self._runs_store.update_status(request_id, "running", kernel_run_id=run_id)
+        if self._stream_delivery is None:
+            self._runs_store.update_status(
+                request_id,
+                "completed",
+                finished_at=_utc_now(),
+                result_summary="no_delivery_path",
+            )
+            return
+
+        try:
+            final_text = await self._stream_delivery.deliver(
+                run_id=run_id,
+                kernel_session_id=kernel_session_id,
+                agent_id=agent_id,
+            )
+        except Exception:  # noqa: BLE001
+            _log.exception(
+                "cron stream delivery failed: agent=%s job=%s run=%s",
+                agent_id,
+                job_id,
+                run_id,
+            )
+            self._runs_store.update_status(
+                request_id,
+                "failed",
+                finished_at=_utc_now(),
+                error="stream_failed",
+            )
+            return
+
+        self._runs_store.update_status(
+            request_id,
+            "completed",
+            finished_at=_utc_now(),
+            result_summary=final_text[:200],
+        )
+        if not final_text:
+            return
+        try:
+            await self._runner.append_awareness(result_text=final_text)
+        except Exception:  # noqa: BLE001
+            _log.warning(
+                "cron awareness injection failed: agent=%s job=%s",
+                agent_id,
+                job_id,
+                exc_info=True,
+            )
 
     def enqueue(
         self,

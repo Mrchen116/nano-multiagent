@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from collections.abc import Awaitable, Callable, Mapping
@@ -129,92 +130,12 @@ class IMAgentConfigSync:
                     raise RuntimeError(
                         f"agent {agent_id} config stale: expected >= {profile_version}, got {resolved_profile_version}"
                     )
-                workspace_root = resolve_runtime_workspace(
-                    agent_id=agent_id,
-                    local_agents=self._local_config.agents,
-                    workspace_root_factory=self._workspace_root_factory,
+                self._publish_agent_config(
+                    self._decode_mirror_agent_config(
+                        payload=payload,
+                        agent_id=agent_id,
+                    )
                 )
-                # feat-379-M2: parse per-agent features/custom_prompt from IM mirror payload
-                raw_features = payload.get("features")
-                synced_features = (
-                    {
-                        k: v
-                        for k, v in raw_features.items()
-                        if isinstance(k, str) and isinstance(v, bool)
-                    }
-                    if isinstance(raw_features, dict)
-                    else {}
-                )
-                synced_custom_prompt_val = payload.get("custom_prompt")
-                synced_custom_prompt = (
-                    synced_custom_prompt_val.strip()
-                    if isinstance(synced_custom_prompt_val, str)
-                    and synced_custom_prompt_val.strip()
-                    else None
-                )
-                # feat-394 decision 5: parse heartbeat cadence (every / active_hours) from
-                # heartbeat_json; enable state lives in features["heartbeat"] (M9 decision D).
-                _hb_raw_str = payload.get("heartbeat_json")
-                if isinstance(_hb_raw_str, str) and _hb_raw_str.strip():
-                    import json as _json  # noqa: PLC0415
-
-                    try:
-                        _hb_raw = _json.loads(_hb_raw_str)
-                    except (ValueError, TypeError):
-                        _hb_raw = payload.get("heartbeat")
-                else:
-                    _hb_raw = payload.get("heartbeat")
-                (
-                    synced_heartbeat_every,
-                    synced_hb_start,
-                    synced_hb_end,
-                    synced_hb_tz,
-                ) = _parse_heartbeat_from_im_payload(_hb_raw)
-                # feat-394 fix: cron is a gated capability decoupled from the user tool
-                # whitelist — cron_enabled must NEVER be written into tool_allowlist.
-                # The cron tool is appended to the effective session toolset via the
-                # feature→requires_tool invariant (feat-394 M9 decision D).
-                _raw_allowlist = [
-                    item.strip()
-                    for item in payload.get("tool_allowlist", [])
-                    if isinstance(item, str) and item.strip()
-                ]
-                agent_config = AgentWorkspaceConfig(
-                    agent_id=agent_id,
-                    workspace_root=workspace_root,
-                    title=str(payload.get("display_name") or agent_id),
-                    skills=tuple(
-                        item.strip()
-                        for item in payload.get("skills", [])
-                        if isinstance(item, str) and item.strip()
-                    ),
-                    tool_allowlist=tuple(_raw_allowlist),
-                    system_prompt=(
-                        payload.get("system_prompt").strip()
-                        if isinstance(payload.get("system_prompt"), str)
-                        and payload.get("system_prompt").strip()
-                        else None
-                    ),
-                    group_reply_policy=(
-                        payload.get("group_reply_policy").strip()
-                        if isinstance(payload.get("group_reply_policy"), str)
-                        and payload.get("group_reply_policy").strip()
-                        else None
-                    ),
-                    default_model=(
-                        payload.get("default_model").strip()
-                        if isinstance(payload.get("default_model"), str)
-                        and payload.get("default_model").strip()
-                        else None
-                    ),
-                    features=synced_features,
-                    custom_prompt=synced_custom_prompt,
-                    heartbeat_every=synced_heartbeat_every,
-                    heartbeat_active_hours_start=synced_hb_start,
-                    heartbeat_active_hours_end=synced_hb_end,
-                    heartbeat_active_hours_timezone=synced_hb_tz,
-                )
-                self._publish_agent_config(agent_config)
                 return
             except (httpx.HTTPError, RuntimeError, ValueError):
                 if attempt >= self._max_attempts or self._monotonic() >= deadline:
@@ -503,92 +424,79 @@ class IMAgentConfigSync:
                     mem_ver,
                 )
                 continue
-            # IM 版本 >= 内存版本：覆盖内存 config 使其收敛到 IM 真值。
-            # Runtime workspace remains local-wins; IM workspace_root is mirror/display data.
-            workspace_root = resolve_runtime_workspace(
-                agent_id=agent_id,
-                local_agents=self._local_config.agents,
-                workspace_root_factory=self._workspace_root_factory,
+            self._publish_agent_config(
+                self._decode_mirror_agent_config(
+                    payload=payload,
+                    agent_id=agent_id,
+                )
             )
-            raw_features = payload.get("features")
-            synced_features = (
-                {
-                    k: v
-                    for k, v in raw_features.items()
-                    if isinstance(k, str) and isinstance(v, bool)
-                }
-                if isinstance(raw_features, dict)
-                else {}
-            )
-            synced_custom_prompt_val = payload.get("custom_prompt")
-            synced_custom_prompt = (
-                synced_custom_prompt_val.strip()
-                if isinstance(synced_custom_prompt_val, str)
-                and synced_custom_prompt_val.strip()
-                else None
-            )
-            _hb_raw_str = payload.get("heartbeat_json")
-            if isinstance(_hb_raw_str, str) and _hb_raw_str.strip():
-                import json as _json  # noqa: PLC0415
-
-                try:
-                    _hb_raw = _json.loads(_hb_raw_str)
-                except (ValueError, TypeError):
-                    _hb_raw = payload.get("heartbeat")
-            else:
-                _hb_raw = payload.get("heartbeat")
-            (
-                synced_heartbeat_every,
-                synced_hb_start,
-                synced_hb_end,
-                synced_hb_tz,
-            ) = _parse_heartbeat_from_im_payload(_hb_raw)
-            _raw_allowlist = [
-                item.strip()
-                for item in payload.get("tool_allowlist", [])
-                if isinstance(item, str) and item.strip()
-            ]
-            agent_config = AgentWorkspaceConfig(
-                agent_id=agent_id,
-                workspace_root=workspace_root,
-                title=str(payload.get("display_name") or agent_id),
-                skills=tuple(
-                    item.strip()
-                    for item in payload.get("skills", [])
-                    if isinstance(item, str) and item.strip()
-                ),
-                tool_allowlist=tuple(_raw_allowlist),
-                system_prompt=(
-                    payload.get("system_prompt").strip()
-                    if isinstance(payload.get("system_prompt"), str)
-                    and payload.get("system_prompt").strip()
-                    else None
-                ),
-                group_reply_policy=(
-                    payload.get("group_reply_policy").strip()
-                    if isinstance(payload.get("group_reply_policy"), str)
-                    and payload.get("group_reply_policy").strip()
-                    else None
-                ),
-                default_model=(
-                    payload.get("default_model").strip()
-                    if isinstance(payload.get("default_model"), str)
-                    and payload.get("default_model").strip()
-                    else None
-                ),
-                features=synced_features,
-                custom_prompt=synced_custom_prompt,
-                heartbeat_every=synced_heartbeat_every,
-                heartbeat_active_hours_start=synced_hb_start,
-                heartbeat_active_hours_end=synced_hb_end,
-                heartbeat_active_hours_timezone=synced_hb_tz,
-            )
-            self._publish_agent_config(agent_config)
             _log.debug(
                 "reconcile_all_agents: updated agent %s to IM version %d",
                 agent_id,
                 im_version,
             )
+
+    def _decode_mirror_agent_config(
+        self, *, payload: Mapping[str, object], agent_id: str
+    ) -> AgentWorkspaceConfig:
+        """Purely decode one IM mirror payload into the local runtime shape."""
+
+        workspace_root = resolve_runtime_workspace(
+            agent_id=agent_id,
+            local_agents=self._local_config.agents,
+            workspace_root_factory=self._workspace_root_factory,
+        )
+        raw_features = payload.get("features")
+        features = (
+            {
+                key: value
+                for key, value in raw_features.items()
+                if isinstance(key, str) and isinstance(value, bool)
+            }
+            if isinstance(raw_features, dict)
+            else {}
+        )
+        heartbeat_raw = payload.get("heartbeat")
+        heartbeat_json = payload.get("heartbeat_json")
+        if isinstance(heartbeat_json, str) and heartbeat_json.strip():
+            try:
+                heartbeat_raw = json.loads(heartbeat_json)
+            except (ValueError, TypeError):
+                pass
+        heartbeat_every, hb_start, hb_end, hb_timezone = (
+            _parse_heartbeat_from_im_payload(heartbeat_raw)
+        )
+
+        def _optional_text(field: str) -> str | None:
+            value = payload.get(field)
+            return value.strip() if isinstance(value, str) and value.strip() else None
+
+        raw_skills = payload.get("skills")
+        raw_tools = payload.get("tool_allowlist")
+        return AgentWorkspaceConfig(
+            agent_id=agent_id,
+            workspace_root=workspace_root,
+            title=str(payload.get("display_name") or agent_id),
+            skills=tuple(
+                item.strip()
+                for item in (raw_skills if isinstance(raw_skills, list) else [])
+                if isinstance(item, str) and item.strip()
+            ),
+            tool_allowlist=tuple(
+                item.strip()
+                for item in (raw_tools if isinstance(raw_tools, list) else [])
+                if isinstance(item, str) and item.strip()
+            ),
+            system_prompt=_optional_text("system_prompt"),
+            group_reply_policy=_optional_text("group_reply_policy"),
+            default_model=_optional_text("default_model"),
+            features=features,
+            custom_prompt=_optional_text("custom_prompt"),
+            heartbeat_every=heartbeat_every,
+            heartbeat_active_hours_start=hb_start,
+            heartbeat_active_hours_end=hb_end,
+            heartbeat_active_hours_timezone=hb_timezone,
+        )
 
     def _persist_agent_config(self, agent_config: AgentWorkspaceConfig) -> None:
         agents = list(self._local_config.agents)
@@ -616,9 +524,11 @@ class IMAgentConfigSync:
         save_local_config(self._local_config, persist_path)
 
     def _publish_agent_config(self, agent_config: AgentWorkspaceConfig) -> None:
-        """Persist first, then atomically publish and invalidate prior bindings."""
+        """Converge durable and live owners independently, persisting first."""
 
-        self._persist_agent_config(agent_config)
+        local_current = self._local_agent(agent_config.agent_id)
+        if local_current != agent_config:
+            self._persist_agent_config(agent_config)
         current = self._agent_catalog.get(agent_config.agent_id)
         if current is not None and current.config == agent_config:
             return

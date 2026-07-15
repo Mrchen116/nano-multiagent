@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime
 from pathlib import Path
+from collections.abc import Callable
 from typing import Protocol
 
 from personal_assistant.gateway.session_binder import GatewaySessionBinder
@@ -91,14 +92,16 @@ class CronRunner:
         kernel_client: _KernelClientLike,
         session_binder: GatewaySessionBinder | None = None,
         canonical_session_id: str | None = None,
+        canonical_session_id_provider: Callable[[], str | None] | None = None,
     ) -> None:
         self._agent_id = agent_id
         self._workspace_root = workspace_root
         self._kernel_client = kernel_client
         self._session_binder = session_binder
         self._canonical_session_id = canonical_session_id
+        self._canonical_session_id_provider = canonical_session_id_provider
 
-    async def _submit_cron_job(self, *, job: CronJob) -> tuple[str, str] | None:
+    async def submit(self, *, job: CronJob) -> tuple[str, str] | None:
         """Submit one cron job as an isolated run and return (run_id, kernel_session_id).
 
         The session key is ``cron:<jobId>`` — an ephemeral isolated session that
@@ -170,13 +173,12 @@ class CronRunner:
 
         return run_id, session_id
 
-    async def _append_awareness(
+    async def append_awareness(
         self,
         *,
-        session_id: str,
         result_text: str,
-        workspace_root: Path,
-    ) -> None:
+        session_id: str | None = None,
+    ) -> bool:
         """Append a System(untrusted) entry to the canonical direct-chat session.
 
         Provenance: openclaw delivery-dispatch.ts:335 queueCronAwarenessSystemEvent —
@@ -195,13 +197,18 @@ class CronRunner:
         Args:
             session_id: Canonical direct-chat kernel session ID to append to.
             result_text: Final assistant response text from the cron isolated run.
-            workspace_root: Agent workspace root passed through to kernel for session lookup.
+            session_id: Optional canonical session override. When omitted, the
+                runner resolves the current canonical direct session.
+
+        Returns:
+            True when awareness was appended; False when no canonical session exists.
         """
+        session_id = session_id or self.resolve_canonical_session_id()
         if not session_id:
             _logger.debug(
                 "cron: awareness skip — empty session_id: agent=%s", self._agent_id
             )
-            return
+            return False
 
         ts = datetime.now(tz=UTC).isoformat()
         awareness_content = f"System (untrusted): [{ts}] {result_text}"
@@ -210,7 +217,7 @@ class CronRunner:
             session_id=session_id,
             role="user",
             content=awareness_content,
-            workspace_root=str(workspace_root),
+            workspace_root=str(self._workspace_root),
             metadata={"is_cron_awareness": True},
         )
 
@@ -219,13 +226,18 @@ class CronRunner:
             self._agent_id,
             session_id,
         )
+        return True
 
-    def _resolve_canonical_session_id(self) -> str | None:
+    def resolve_canonical_session_id(self) -> str | None:
         """Return the canonical direct-chat kernel session for this agent, or None.
 
         Checks the injected canonical_session_id first; falls back to
         session_binding_store.find_direct_by_agent when available.
         """
+        if self._canonical_session_id_provider is not None:
+            provided = self._canonical_session_id_provider()
+            if provided:
+                return provided
         if self._canonical_session_id:
             return self._canonical_session_id
         if self._session_binder is not None:
