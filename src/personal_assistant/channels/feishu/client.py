@@ -30,6 +30,7 @@ from lark_oapi.api.im.v1 import (
 from lark_oapi.event.callback.model.p2_card_action_trigger import (
     P2CardActionTriggerResponse,
 )
+from lark_oapi.core.enum import LogLevel
 from lark_oapi.event.dispatcher_handler import EventDispatcherHandler
 from lark_oapi.ws import Client as WSClient
 
@@ -679,6 +680,9 @@ def _run_feishu_sdk_worker(context: FeishuWorkerProcessContext) -> None:
     client = WSClient(
         app_id=context.app_id,
         app_secret=context.app_secret,
+        # lark-oapi INFO logs include the complete WebSocket URL, whose query
+        # carries short-lived access_key and ticket credentials.
+        log_level=LogLevel.WARNING,
         event_handler=builder.build(),
         domain=context.domain,
         auto_reconnect=True,
