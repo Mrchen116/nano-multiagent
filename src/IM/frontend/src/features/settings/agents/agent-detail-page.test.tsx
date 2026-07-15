@@ -15,7 +15,10 @@ const apiMocks = vi.hoisted(() => ({
   listAgentCronJobsMock: vi.fn(),
   deleteAgentCronJobMock: vi.fn(),
   getAgentHeartbeatMdMock: vi.fn(),
-  getAgentSkillsUsageMock: vi.fn()
+  getAgentSkillsUsageMock: vi.fn(),
+  listAgentChannelsMock: vi.fn(),
+  createAgentChannelMock: vi.fn(),
+  updateAgentChannelMock: vi.fn()
 }));
 
 vi.mock("react-router-dom", async () => {
@@ -44,7 +47,10 @@ vi.mock("./im-agent-config-api", () => ({
   listAgentCronJobs: apiMocks.listAgentCronJobsMock,
   deleteAgentCronJob: apiMocks.deleteAgentCronJobMock,
   getAgentHeartbeatMd: apiMocks.getAgentHeartbeatMdMock,
-  getAgentSkillsUsage: apiMocks.getAgentSkillsUsageMock
+  getAgentSkillsUsage: apiMocks.getAgentSkillsUsageMock,
+  listAgentChannels: apiMocks.listAgentChannelsMock,
+  createAgentChannel: apiMocks.createAgentChannelMock,
+  updateAgentChannel: apiMocks.updateAgentChannelMock
 }));
 
 import { AgentDetailPage } from "./agent-detail-page";
@@ -79,10 +85,14 @@ afterEach(() => {
   apiMocks.deleteAgentCronJobMock.mockReset();
   apiMocks.getAgentHeartbeatMdMock.mockReset();
   apiMocks.getAgentSkillsUsageMock.mockReset();
+  apiMocks.listAgentChannelsMock.mockReset();
+  apiMocks.createAgentChannelMock.mockReset();
+  apiMocks.updateAgentChannelMock.mockReset();
 });
 
 // Default listAgentSummaries so the desktop rail (R12-bis-1) doesn't break tests.
 beforeEach(() => {
+  apiMocks.listAgentChannelsMock.mockResolvedValue([]);
   apiMocks.listAgentSummariesMock.mockResolvedValue([
     { agent_id: "agent-core-1", display_name: "Core Planner", owner_id: "owner-1", description: "", profile_version: 1, default_model: null, workspace_root: "", workspace_is_default: false }
   ]);
