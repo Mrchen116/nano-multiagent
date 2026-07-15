@@ -30,7 +30,8 @@
 - Rationale: revision 约束“哪版配置拥有这行 binding”，generation 使 eager invalidation 同时否决已经跨 await 的旧写回；semantic bind 由 binder 返回 typed stale，而不是让 internal dispatch/fork 自己理解 repository 与锁。
 - Evidence:
   - Tests: `pytest -q test_gateway_session_binder.py test_persistent_session_binding_store.py test_heartbeat_session_binding.py` → 32 passed；`ruff check src tests` → passed；`pytest -m 'not e2e' -n 4 --dist worksteal` → 3340 passed, 1 skipped（35.95s）。
-  - Entry: `GatewaySessionBinder.resolve()` 公开入口覆盖持久化 session reuse + reply refresh、完整 snapshot create、跨 await publish/invalidate 后 stale create 不写 repo；`bind_conversation()` 覆盖 pre-await guard stale、reverse 与 canonical lookup。
+  - Entry: `GatewaySessionBinder.resolve()` 公开入口覆盖持久化 session reuse + reply refresh、完整 snapshot create、跨 await publish/invalidate 后 stale create 不写 repo；`bind_conversation()` 覆盖 pre-await guard stale、reverse 与 canonical lookup。签收补证 `test_publish_during_old_binding_reuse_drops_old_row_before_new_resolve` 用阻塞 repository adapter 将 old-snapshot reuse 固定在 refresh 临界区，同时 publish 新 catalog revision 并启动 invalidate；断言旧调用只返回完整旧 binding、invalidate 后旧 row 不存在，new snapshot 的下一次 resolve 创建新 session 且不复用旧 revision。
+  - Acceptance follow-up (2026-07-15): reviewer 小修快车道仅补一个公开行为 race 与必需 progress/tasks 证据，使用单一可回退 commit；`pytest -q tests/unit/personal_assistant/test_gateway_session_binder.py` → 6 passed（0.22s）；binder/repository/heartbeat + test-size contract 聚焦门禁 → 35 passed（2.79s）；`ruff check tests/unit/personal_assistant/test_gateway_session_binder.py` → passed。当前生产实现已满足该线性化语义，本轮不修改源码，因此按派发条件不重复非 e2e 全量。
   - Frontend State Matrix: N/A（无前端变更）。
   - Browser QA: N/A（无前端变更）。
   - E2E/Regression: `tests/unit/personal_assistant/test_gateway_session_binder.py`；真实 Gateway 消费者尚未切线，统一在 R3 完成后运行真栈，避免双 owner 中间态。

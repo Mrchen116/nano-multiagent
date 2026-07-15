@@ -10,7 +10,7 @@
 
 - [x] Catalog 通过 copy-on-write 发布 frozen `LiveAgentSnapshot(config, revision)`，revision 单调且读者只观察完整旧/新快照。
 - [x] Binder 的 create/reuse/invalidate-generation/reverse/canonical/conversation-bind 均通过公开 interface 测试；SQLite schema、session key、reply-context 格式不变。
-- [x] 旧 binding reuse、跨 `create_session()` await、internal-dispatch IM ack 与 session-fork await 四个竞争窗均受 revision/generation guard；stale create/conversation bind 不落 repository，fork stale 返回失败走既有 IM rollback。
+- [x] 旧 binding reuse、跨 `create_session()` await、internal-dispatch IM ack 与 session-fork await 四个竞争窗均受 revision/generation guard；stale create/conversation bind 不落 repository，fork stale 返回失败走既有 IM rollback。旧 reuse 的显式公开接口竞争回归为 `test_publish_during_old_binding_reuse_drops_old_row_before_new_resolve`。
 - [x] `InternalDispatchHandler` 不持有启动 workspace snapshot；CronRunner、heartbeat、runtime delivery、fork、config sync 不直接访问 binding repository。
 - [x] `main.py`、scheduler、config-sync 无 `pipeline._*`、裸 live agent dict 或旧 `_IMConfigSyncClient` / `_IMShadowConversationSyncClient` 生产定义/兼容 re-export。
 - [x] 相关新增/拆分测试文件不超过 400 行；最窄测试与 `pytest -m "not e2e"` 全绿。
