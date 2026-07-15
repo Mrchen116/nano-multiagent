@@ -2,19 +2,19 @@
 
 ## R1 — 统一 Gateway 上行身份边界
 
-- Context: 待实施。
-- Decision: 待实施。
-- Rationale: 待实施。
+- Context: 原实现只在少数 channel handler 检查 `(websocket, node_id)`，heartbeat/report/waiter/streaming 等帧可由已认证的另一 owner socket 通过 payload 选择目标 node；未绑定时注册的 socket 还会在后续他人绑定后被当作合法 key 来源。
+- Decision: 所有非 `node.register` 帧在业务 handler 前统一从当前 websocket 反查唯一注册连接，校验 token owner、连接 owner、持久 owner及 payload node，并把可信 node 写回 payload；bind 初始化在注册 key/下发 manifest 前重校验 owner，失败时删除 key、移除连接并以 1008 关闭 socket。
+- Rationale: 以 socket 注册关系而不是不可信 payload 作为路由 authority，才能让所有现有和未来业务帧默认继承同一 tenant 边界；bind 后复核关闭了 pre-bind race。
 - Evidence:
-  - Tests: 待补。
-  - Entry: 待补。
+  - Tests: `pytest -q tests/im_service/integration/test_gateway_auth_boundary.py tests/im_service/unit/test_gateway_handler.py tests/im_service/unit/test_channel_status_broadcast.py tests/unit/IM/test_streaming_chain.py tests/integration/test_channel_reconcile.py tests/integration/test_channel_bootstrap.py` → `68 passed`；ruff focused → passed。
+  - Entry: FastAPI `/im/ws/gateway` 真实 websocket 入口分别用 Alice/Bob bearer、两个 live node 验证：伪造 Bob node 的 heartbeat 被 1008 拒绝，Bob DB/广播序列不变；伪造 result 不释放 Bob waiter；Bob pre-register/Alice bind 后连接和 key 均被逐出。
   - Frontend State Matrix: N/A。
   - Browser QA: N/A。
-  - E2E/Regression: 待补。
+  - E2E/Regression: 永久回归 `tests/im_service/integration/test_gateway_auth_boundary.py`，覆盖 HTTP auth + websocket + SQLite + bind callback 的真实组合入口。
   - Visual/Interaction: N/A。
   - Prototype Comparison: N/A。
 - Rollback: 回退 R1 的 test/fix/docs commits。
-- Commits: 待补。
+- Commits: `d75825abf`（C1 red），`5bef039ef`（C2 green）。
 
 ## R2 — 统一脱敏运行时配置 owner
 

@@ -8,8 +8,8 @@
 
 ## 退出标准
 
-- [ ] 所有 Gateway→IM node-scoped 帧在业务分发前统一校验当前 websocket 注册关系、token owner、连接 owner、持久 owner 与 payload node；拒绝路径不改 DB、不唤醒 waiter、不广播。
-- [ ] 绑定完成后重新校验已注册 websocket；错误 owner 的 socket/key 被逐出且不下发 manifest。
+- [x] 所有 Gateway→IM node-scoped 帧在业务分发前统一校验当前 websocket 注册关系、token owner、连接 owner、持久 owner 与 payload node；拒绝路径不改 DB、不唤醒 waiter、不广播。
+- [x] 绑定完成后重新校验已注册 websocket；错误 owner 的 socket/key 被逐出且不下发 manifest。
 - [ ] legacy secret 迁移后，agent 同步、token 刷新和 owner open-id 回写共享同一个脱敏 config owner；后续写盘不恢复 `appSecret` 或含密备份，`credentialRef` 保留且权限为 `0600`。
 - [ ] manifest 在任何 reconcile/stop/cache/head 变更前完成全量结构、generation、key、envelope 与 opener 校验；任一成员失败时整个 manifest 返回 `retryable_failed`。
 - [ ] cache commit 失败不会投影为已应用/当前连接；错误重载后仍可见，在线按同 revision 有界自动重试，只有 commit 成功才投影 applied；失败结果 ACK 不丢必需 outbox。
@@ -69,6 +69,7 @@ Prototype / Reference Contract：
 
 - 步骤：在 websocket 业务分发前以当前 socket 为根验证注册 node、token owner、连接 owner、持久 owner 与 payload node；连接管理器为所有上行帧补齐 node_id；绑定后的初始化先重校验 owner，失败则逐出连接和 key。
 - 验证：跨 owner/node 的 heartbeat/report/waiter/broadcast/channel-result 请求均被拒绝且零副作用；绑定前注册的错误 owner socket 不获 key/manifest。
+- 状态：完成。真实 websocket 回归覆盖跨 owner heartbeat 的 DB/广播隔离、waiter 隔离与 bind 后错误 socket/key 逐出；所有非 register 帧统一经过 socket-rooted guard。
 
 ### R2 — 统一脱敏运行时配置 owner
 
