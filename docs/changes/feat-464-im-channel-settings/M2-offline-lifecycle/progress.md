@@ -92,3 +92,10 @@
 - Rollback: 先用 `scripts/channel-control-export-legacy.py` 显式导出旧 YAML，再按 R1→R4 逆序回滚；R5 只增加证据和两个投影修复，无协议迁移。
 - Commits: headed defect tests/fixes=`6492f43c8/dd6d196b8/a9d2c45f5/167a259dd`；capability golden=`a3198d647`；evidence/C3=本提交。
 - Next: rebase unit integration head，复跑门禁，合并并清理 milestone worktree/branch。
+
+### Final post-base gates
+
+- `pytest -q -m "not e2e"` → `3382 passed, 1 skipped, 20 deselected`。
+- Frontend `npm run test -- --run` → `65 files / 612 passed`；`npm run build` → PASS（443 modules）。
+- M2 focused backend + naming/size contract → `123 passed`；`ruff check .` → PASS。
+- Branch contained current `origin/unit/feat-464-im-channel-settings` (`19 ahead / 0 behind`), so no rebase rewrite was required before integration。

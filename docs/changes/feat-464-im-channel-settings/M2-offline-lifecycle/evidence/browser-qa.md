@@ -48,4 +48,4 @@ Permanent integration coverage provides the destructive-path proof not safe to s
 - Frontend: `65 files / 612 tests passed`; production `tsc -b && vite build` passed (443 modules).
 - M2-focused backend: `123 passed`.
 - Ruff: `All checks passed`.
-- Full non-e2e first pass: `3379 passed, 1 skipped, 20 deselected`; its only three failures were stale capability golden dictionaries after `channel_bootstrap` became negotiated. The three expectations were updated and the focused rerun passed; the final post-rebase full run is recorded in `progress.md`.
+- Full non-e2e first pass: `3379 passed, 1 skipped, 20 deselected`; its only three failures were stale capability golden dictionaries after `channel_bootstrap` became negotiated. The three expectations were updated, and the final run passed: `3382 passed, 1 skipped, 20 deselected`.
