@@ -8,13 +8,13 @@
 
 ## 退出标准
 
-- [ ] Catalog 通过 copy-on-write 发布 frozen `LiveAgentSnapshot(config, revision)`，revision 单调且读者只观察完整旧/新快照。
-- [ ] Binder 的 create/reuse/invalidate-generation/reverse/canonical/conversation-bind 均通过公开 interface 测试；SQLite schema、session key、reply-context 格式不变。
-- [ ] 旧 binding reuse、跨 `create_session()` await、internal-dispatch IM ack 与 session-fork await 四个竞争窗均受 revision/generation guard；stale create/conversation bind 不落 repository，fork stale 返回失败走既有 IM rollback。
-- [ ] `InternalDispatchHandler` 不持有启动 workspace snapshot；CronRunner、heartbeat、runtime delivery、fork、config sync 不直接访问 binding repository。
-- [ ] `main.py`、scheduler、config-sync 无 `pipeline._*`、裸 live agent dict 或旧 `_IMConfigSyncClient` / `_IMShadowConversationSyncClient` 生产定义/兼容 re-export。
-- [ ] 相关新增/拆分测试文件不超过 400 行；最窄测试与 `pytest -m "not e2e"` 全绿。
-- [ ] 隔离真栈 durable evidence 明确证明下一轮动态配置、Gateway 重启续接、cron canonical direct、`send_message` 正确连续历史及未知 Agent 拒绝。
+- [x] Catalog 通过 copy-on-write 发布 frozen `LiveAgentSnapshot(config, revision)`，revision 单调且读者只观察完整旧/新快照。
+- [x] Binder 的 create/reuse/invalidate-generation/reverse/canonical/conversation-bind 均通过公开 interface 测试；SQLite schema、session key、reply-context 格式不变。
+- [x] 旧 binding reuse、跨 `create_session()` await、internal-dispatch IM ack 与 session-fork await 四个竞争窗均受 revision/generation guard；stale create/conversation bind 不落 repository，fork stale 返回失败走既有 IM rollback。
+- [x] `InternalDispatchHandler` 不持有启动 workspace snapshot；CronRunner、heartbeat、runtime delivery、fork、config sync 不直接访问 binding repository。
+- [x] `main.py`、scheduler、config-sync 无 `pipeline._*`、裸 live agent dict 或旧 `_IMConfigSyncClient` / `_IMShadowConversationSyncClient` 生产定义/兼容 re-export。
+- [x] 相关新增/拆分测试文件不超过 400 行；最窄测试与 `pytest -m "not e2e"` 全绿。
+- [x] 隔离真栈 durable evidence 明确证明下一轮动态配置、Gateway 重启续接、cron canonical direct、`send_message` 正确连续历史及未知 Agent 拒绝。
 
 ## 测试策略
 
@@ -43,6 +43,6 @@
 
 ### R3 — 切换全部生产消费者并证明真实入口
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 先提交 internal-dispatch ack/fork-await race、scheduler/runtime delivery/build-runtime 与 architecture guard 红测；迁出 `IMAgentConfigSync`/`ShadowConversationSync`，切换 internal dispatch、fork、heartbeat/cron、runtime delivery、kernel shim 和 composition root；拆分过大相关测试；最后跑隔离真栈并落 durable evidence。
 - 验证: 相关最窄单测 + contract；`ruff check src tests`；`pytest -m "not e2e" -n 4 --dist worksteal`；隔离真栈用户旅程与 SQLite/API 对账。

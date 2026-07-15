@@ -42,10 +42,17 @@
 
 ## R3 — 切换全部生产消费者并证明真实入口
 
-- Context: 待开始。
-- Decision: 待完成。
-- Rationale: 待完成。
-- Evidence: 待完成。
-- Rollback: 待完成。
-- Commits: 待完成。
-- Next: R2 完成后开始。
+- Context: pipeline、internal dispatch、fork、heartbeat/cron、runtime delivery、kernel shim 与 composition root 仍各自知道 live Agent dict 或 binding repository；`main.py` 还在构造后写 `pipeline._*` callback。真实重启路径又暴露出相同 IM mirror reconcile 也会 bump revision 并误删 durable binding。
+- Decision: 所有生产消费者统一注入同一个 `LiveAgentCatalog` 与 `GatewaySessionBinder`；每次操作捕获一个 snapshot，并在 `create_session()`、internal-dispatch IM ack、session fork 三类外部 await 后用同一 snapshot/generation guard 拒绝 stale write。将 `IMAgentConfigSync` 与 `IMShadowConversationSync` 迁入独立模块；composition root 一次性构造完整 pipeline，不再 post-wire 私有字段。config reconcile 先持久化，完全相同 config 不 publish、不 invalidate。
+- Rationale: Catalog/Binder 成为唯一业务 owner 后，消费者只需理解 snapshot/bind 语义，不再同时学习 repository schema、私有 dict 与 invalidation 顺序；no-op reconcile 保留 restart binding，同时真实配置变化仍用单调 revision 主动失效旧行。
+- Evidence:
+  - Tests: `ruff check src tests` → passed；`pytest -m 'not e2e' -n 4 --dist worksteal` → 3346 passed, 1 skipped（33.22s）。新增 catalog、binder、config no-op、internal-dispatch ack stale、fork-await stale 与 architecture ownership 回归均包含在全量门禁。
+  - Entry: `NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1 ... pytest -xvs test_create_agent_via_im_critical_path.py` → 1 passed（9.48s）；最终 C2 上 restart + cron 三条关键路径 → 3 passed（62.07s）。
+  - Durable E2E: `evidence/live-stack.md` 保存公开 IM journey、SQLite binding/API 与 session JSONL 对账；覆盖动态 Agent 下一轮、重启暗号续接、cron canonical direct、`send_message` 两个 conversation key 共用同一 Kernel session 并连续追加历史、未知 Agent 400 且 binding `0 → 0`。
+  - Frontend State Matrix: N/A（无前端变更）。
+  - Browser QA: N/A（无前端变更）。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: 回退 C2 `574da3ca6` 恢复旧消费者、内联 config/shadow 与 post-wiring；C1 `52669e470` 可随同回退。无 schema migration。
+- Commits: C1=`52669e470`；C2=`574da3ca6`；C3=本次 docs commit。
+- Next: 合并到 `unit/refactor-463`，由 orchestrator 进入 M2。
