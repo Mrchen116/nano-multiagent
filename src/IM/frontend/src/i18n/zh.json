@@ -208,7 +208,18 @@
       "unsavedChanges": "● 有未保存改动",
       "discard": "放弃",
       "version": "v{{version}}",
-      "loading": "加载 Agent 配置中..."
+      "loading": "加载 Agent 配置中...",
+      "sections": {
+        "navLabel": "Agent 详情分区",
+        "overview": "概览",
+        "config": "配置",
+        "channels": "通道",
+        "skills": "技能",
+        "sessions": "会话",
+        "overviewPlaceholder": "本期不设计概览页。保持空态，后续单独设计。",
+        "channelsPlaceholder": "本期不设计通道页。保持空态，后续单独设计。",
+        "sessionsPlaceholder": "本期不设计会话页。保持空态，后续单独设计。"
+      }
     },
     "form": {
       "identity": {

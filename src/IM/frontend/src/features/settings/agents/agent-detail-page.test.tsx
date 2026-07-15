@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, vi } from "vitest";
 
@@ -48,6 +48,7 @@ vi.mock("./im-agent-config-api", () => ({
 }));
 
 import { AgentDetailPage } from "./agent-detail-page";
+import { setLanguage } from "../../../i18n";
 
 function renderDetailPage() {
   const queryClient = new QueryClient({
@@ -66,6 +67,7 @@ function renderDetailPage() {
 }
 
 afterEach(() => {
+  setLanguage("en");
   apiMocks.getAgentDetailStateMock.mockReset();
   apiMocks.updateAgentConfigMock.mockReset();
   apiMocks.createConversationMock.mockReset();
@@ -171,6 +173,9 @@ describe("agent detail page", () => {
 
   it("shows skills usage list with use counts, status, trend, and archived filter", async () => {
     const user = userEvent.setup();
+    await act(async () => {
+      setLanguage("zh");
+    });
     apiMocks.getAgentDetailStateMock.mockResolvedValue(makeDashboardDetailState());
     apiMocks.listAgentsMock.mockResolvedValue([]);
     apiMocks.getAgentSkillsUsageMock.mockResolvedValue(makeSkillsUsage());
@@ -188,7 +193,7 @@ describe("agent detail page", () => {
     expect(screen.getByRole("heading", { name: "通道" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "会话" }));
     expect(screen.getByRole("heading", { name: "会话" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Skills" }));
+    await user.click(screen.getByRole("button", { name: "技能" }));
 
     expect(apiMocks.getAgentSkillsUsageMock).toHaveBeenCalledWith("agent-core-1");
     expect(await screen.findByRole("heading", { name: "全部 Skill" })).toBeInTheDocument();
@@ -213,6 +218,35 @@ describe("agent detail page", () => {
     expect(await screen.findByText("old-skill")).toBeInTheDocument();
     expect(screen.getByText("archived")).toBeInTheDocument();
     expect(screen.getByText("批量复盘")).toBeInTheDocument();
+  });
+
+  it("localizes every agent detail tab and placeholder", async () => {
+    const user = userEvent.setup();
+    setLanguage("en");
+    apiMocks.getAgentDetailStateMock.mockResolvedValue(makeDashboardDetailState());
+    apiMocks.listAgentsMock.mockResolvedValue([]);
+
+    renderDetailPage();
+    await screen.findByRole("heading", { name: "Core Planner" });
+
+    for (const label of ["Overview", "Config", "Channels", "Skills", "Sessions"]) {
+      expect(screen.getByRole("button", { name: label })).toBeInTheDocument();
+    }
+    await user.click(screen.getByRole("button", { name: "Overview" }));
+    expect(screen.getByRole("heading", { name: "Overview" })).toBeInTheDocument();
+    expect(screen.getByText("The overview page is not included in this release. It will be designed separately."))
+      .toBeInTheDocument();
+
+    await act(async () => {
+      setLanguage("zh");
+    });
+    await waitFor(() => {
+      for (const label of ["概览", "配置", "通道", "技能", "会话"]) {
+        expect(screen.getByRole("button", { name: label })).toBeInTheDocument();
+      }
+    });
+    expect(screen.getByRole("heading", { name: "概览" })).toBeInTheDocument();
+    expect(screen.getByText("本期不设计概览页。保持空态，后续单独设计。")).toBeInTheDocument();
   });
 
   it("opens skill statistics from the Access card entry in the real config flow", async () => {

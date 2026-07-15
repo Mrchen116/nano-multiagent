@@ -1617,14 +1617,14 @@ export function AgentDetailPage() {
         ) : null}
         <nav
           className="-mx-5 mt-3 flex flex-wrap gap-0 border-t border-[var(--im-border)] px-5"
-          aria-label="Agent detail sections"
+          aria-label={t("agents.detail.sections.navLabel")}
         >
           {([
-            ["overview", "概览"],
-            ["config", "配置"],
-            ["channels", "通道"],
-            ["skills", "Skills"],
-            ["sessions", "会话"],
+            ["overview", t("agents.detail.sections.overview")],
+            ["config", t("agents.detail.sections.config")],
+            ["channels", t("agents.detail.sections.channels")],
+            ["skills", t("agents.detail.sections.skills")],
+            ["sessions", t("agents.detail.sections.sessions")],
           ] as Array<[AgentDetailSection, string]>).map(([section, label]) => (
             <button
               key={section}
@@ -1647,16 +1647,16 @@ export function AgentDetailPage() {
         {activeSection === "skills" ? (
           <AgentSkillsUsagePanel agentId={agentId} />
         ) : activeSection === "overview" ? (
-          <PrototypePlaceholder title="概览">
-            本期不设计概览页。保持空态，后续单独设计。
+          <PrototypePlaceholder title={t("agents.detail.sections.overview")}>
+            {t("agents.detail.sections.overviewPlaceholder")}
           </PrototypePlaceholder>
         ) : activeSection === "channels" ? (
-          <PrototypePlaceholder title="通道">
-            本期不设计通道页。保持空态，后续单独设计。
+          <PrototypePlaceholder title={t("agents.detail.sections.channels")}>
+            {t("agents.detail.sections.channelsPlaceholder")}
           </PrototypePlaceholder>
         ) : activeSection === "sessions" ? (
-          <PrototypePlaceholder title="会话">
-            本期不设计会话页。保持空态，后续单独设计。
+          <PrototypePlaceholder title={t("agents.detail.sections.sessions")}>
+            {t("agents.detail.sections.sessionsPlaceholder")}
           </PrototypePlaceholder>
         ) : (
           <>

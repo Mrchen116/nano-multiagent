@@ -210,7 +210,18 @@
       "unsavedChanges": "● Unsaved changes",
       "discard": "Discard",
       "version": "v{{version}}",
-      "loading": "Loading agent profile..."
+      "loading": "Loading agent profile...",
+      "sections": {
+        "navLabel": "Agent detail sections",
+        "overview": "Overview",
+        "config": "Config",
+        "channels": "Channels",
+        "skills": "Skills",
+        "sessions": "Sessions",
+        "overviewPlaceholder": "The overview page is not included in this release. It will be designed separately.",
+        "channelsPlaceholder": "The channels page is not included in this release. It will be designed separately.",
+        "sessionsPlaceholder": "The sessions page is not included in this release. It will be designed separately."
+      }
     },
     "form": {
       "identity": {
