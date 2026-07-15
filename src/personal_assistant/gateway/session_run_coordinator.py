@@ -794,12 +794,13 @@ class SessionRunCoordinator:
             "event": "run_terminal_reconcile",
             "run_id": run_id,
             "reason": reason,
+            "finalize_bubble": True,
+            "delivery_status": "completed" if user_stopped else "failed",
         }
         if user_stopped:
             event.update(
                 {
                     "content": USER_INTERRUPT_RECOVERY_CONTENT,
-                    "finalize_bubble": True,
                 }
             )
         result = self._kernel_event_observer(event)
