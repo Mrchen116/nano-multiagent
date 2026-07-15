@@ -5,6 +5,7 @@
 
 ## Changelog
 
+- 2026-07-15: 刷新 refactor-461 合入后的 main 基线；依赖已由 PR #197 满足，关键 lifecycle/config seam 与 Approved 设计假设一致。
 - 2026-07-14: 根据第二轮独立 design review 把 producer seal 与 in-flight drain 分域，并把 internal-dispatch/fork semantic bind 纳入 post-await stale-write guard。
 - 2026-07-14: 根据首轮独立 design review 修订生产消费者清单、完整 shutdown task graph、child drain deadline、配置 revision 发布协议与 submit/stop 线性化。
 
@@ -14,8 +15,8 @@
 
 当前生产入口 `personal_assistant.main.build_runtime()` 同时构造 Kernel、channel、IM 连接、heartbeat/cron、配置同步、会话存储、入站管线和投递 callback。候选 4 命中的不是全部 Gateway 生命周期，而是其中的入站子图：
 
-- `src/personal_assistant/gateway/inbound_pipeline.py` 当前 1,962 行。`handle_inbound()` 之外还同时拥有 live agent map、session create/reuse、per-session queue、active-run map、steer、`/stop`、user-interrupt marker、group-buffer drain lock、image fetch/validate、kernel stream terminal、terminal reconcile 和 background subscriber map。
-- `src/personal_assistant/main.py` 当前 4,376 行。它在构造 `InboundPipeline` 后再写入 `_shadow_sync`、`_relay_lifecycle_callback`、`_kernel_event_observer`、`_bg_reply_sender`、`_session_event_callback`、`_attachment_fetcher` 六个私有字段；session fork、cron、heartbeat、kernel shim 又直接读取 `_agents`、`_session_store`、`_run_queue`。
+- `src/personal_assistant/gateway/inbound_pipeline.py` 在 refactor-461 合入后的 main 基线为 1,930 行。`handle_inbound()` 之外还同时拥有 live agent map、session create/reuse、per-session queue、active-run map、steer、`/stop`、user-interrupt marker、group-buffer drain lock、image fetch/validate、kernel stream terminal、terminal reconcile 和 background subscriber map。
+- `src/personal_assistant/main.py` 在 refactor-461 合入后的 main 基线为 4,517 行。它在构造 `InboundPipeline` 后再写入 `_shadow_sync`、`_relay_lifecycle_callback`、`_kernel_event_observer`、`_bg_reply_sender`、`_session_event_callback`、`_attachment_fetcher` 六个私有字段；session fork、cron、heartbeat、kernel shim 又直接读取 `_agents`、`_session_store`、`_run_queue`。
 - `_IMConfigSyncClient` 和 `_IMShadowConversationSyncClient` 是有完整业务语义的 adapter，却嵌在 `main.py`，并分别把 pipeline 当 live registry/session invalidation owner、把 pipeline 私有字段当装配入口。
 - `InternalDispatchHandler` 在真实 `/internal/dispatch` 产品工具路径直接持有 session repository 与启动时 workspace snapshot；`CronRunner` 也直接调用 repository 的 canonical lookup。两者都是 catalog/binder 必须迁移的生产消费者，不是测试旁路。
 - `SessionRunQueue` 自己拥有活跃 session 集合，但 heartbeat scheduler 通过 `getattr(run_queue, "_active_sessions")` 判断忙闲；这使 queue 的私有表示成为跨模块契约。
@@ -33,9 +34,9 @@
 - live agent 配置会由 IM config sync 动态更新，下一轮用户消息、heartbeat 和 cron 必须读到同一份新快照；不能退回启动时 `config.agents` snapshot。
 - session binding 使用 SQLite 在 Gateway 重启后续接，in-memory store 是测试 adapter；不改变表结构、session key 或 reply context 序列化格式。
 - `runtime_delivery/lifecycle.py` 已是 relay lifecycle 的生产 seam，`runtime_delivery/background.py` 已拥有 IM/外部 channel 的可见文本投递规则。本 unit 复用它们，不再创建同义 emitter/router。
-- `refactor-461` 正在清理 Gateway daemon、PID、timing config 和死 kernel subprocess seam。本 unit 的实现必须基于其合入结果，只在真实 Gateway shutdown 中增加“停止入站长期任务”这一个资源步骤，不重新设计进程生命周期。
+- `refactor-461` 已由 PR #197 合入，Gateway daemon、PID、timing config 和死 kernel subprocess seam 已清理。本 unit 直接基于该结果，只在真实 Gateway shutdown 中增加“停止入站长期任务”这一个资源步骤，不重新设计进程生命周期。
 - refactor-461 的 `gateway.shutdown_grace_seconds` 是父 launcher 从 SIGTERM 到强杀进程组的外层宽限，不是 child `GatewayRuntime` 可直接消费的 drain deadline。本 unit 只能从该值派生严格更短的内部关闭窗口，不能假设已有 runtime budget。
-- `refactor-462` 正在设计 Kernel per-conversation ownership。本 unit 只依赖现有 `agent.sdk` 语义，尤其保留 `interrupt()` 同步停放 pending steer、`append_message()` 持久化 stop marker、下一次真实 submit 承接 held message 的顺序，不复制 Kernel session owner。
+- `refactor-462` 已合入 Kernel per-conversation ownership。本 unit 只依赖现有 `agent.sdk` 语义，尤其保留 `interrupt()` 同步停放 pending steer、`append_message()` 持久化 stop marker、下一次真实 submit 承接 held message 的顺序，不复制 Kernel session owner。
 - 测试遵守 `docs/TESTING_GUIDE.md`：行为测试替换 white-box 测试，不在新旧两套测试表面上叠加；新增/拆分后的单测试文件不超过 400 行。
 
 ### 可复用能力
@@ -58,7 +59,7 @@
 - `bugfix-404/410/417/426/430/433` 逐步建立 background reply、terminal reconcile、user-stop attribution、steer 与 group drain 原子性、群裸 `/stop` 和图片失败语义。这些不是待清理的偶然复杂度，而是 `SessionRunCoordinator` 必须隐藏的历史不变量。
 - `feat-394` 把 heartbeat/cron 与用户直聊会话、live agent config、canonical binding 联系起来；它也是 `_agents`、`_session_store`、`_run_queue` 从 pipeline 泄漏到 scheduler 的来源。
 - `refactor-460` 改 Web IM client runtime，不拥有 Gateway 入站状态；本 unit 只把其既有 relay/continuity 行为作为回归面。
-- `refactor-461` 已有 Approved 设计并在独立 worktree 实施。它清理候选 8；本 unit 不移动其 daemon、PID、timing migration 或 process shutdown 决策。
+- `refactor-461` 已通过 PR #197 合入并清理候选 8；当前 main 的 `GatewayLifecycleConfig` 与 `GatewayRuntime` shutdown 形态已复核。本 unit 不移动其 daemon、PID、timing migration 或 process shutdown 决策。
 - `refactor-462` 的 Approved 设计把 Kernel session 事务收回 `ConversationSession`。Gateway 的 `GatewaySessionBinder` 只拥有“channel/session key ↔ kernel session id/reply target”的产品绑定，边界与 Kernel conversation owner 正交。
 
 ## 架构总览
@@ -96,7 +97,7 @@ graph TD
 
 Before，pipeline 是 live registry、session service、run owner、media policy 和 background task owner 的集合，`main.py` 与测试必须知道内部字段。After，façade 的调用者只知道 `handle_inbound()`；每个下游 module 的 interface 对应一组不可再拆的状态规则。
 
-预计 `inbound_pipeline.py` 会从 1,962 行收敛到约 250–400 行的 façade/route policy，`main.py` 会因配置同步与 shadow adapter 迁出、私有 post-wiring 删除而减少约 700–900 行；精确数字取决于 refactor-461 合入后的基线。总仓代码不会等量减少，因为有价值的并发和投递规则只是被归位。成功判据是隐式 interface 与重复测试消失，不是追求行数 KPI。
+预计 `inbound_pipeline.py` 会从当前 1,930 行收敛到约 250–400 行的 façade/route policy，`main.py` 会从当前 4,517 行因配置同步与 shadow adapter 迁出、私有 post-wiring 删除而减少约 700–900 行。总仓代码不会等量减少，因为有价值的并发和投递规则只是被归位。成功判据是隐式 interface 与重复测试消失，不是追求行数 KPI。
 
 ## 关键决策
 
