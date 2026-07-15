@@ -44,9 +44,9 @@ IM 在 Agent 详情页提供外部 channel 管理入口。列表、添加入口�
 - **THEN** 页面进入等待应用或连接中状态
 - **AND** 用户无需编辑本地配置文件或重启 Gateway
 
-### Requirement: Channel 期望配置版本化且与实际运行状态分离
+### Requirement: Channel 期望配置与实际运行状态分离，并通过内部一致性令牌关联
 
-IM 持久化外部 channel 的期望配置，并对每个 channel 使用 revision 乐观锁。Gateway 上报最近处理的 revision 和实际运行状态。保存成功只表示期望配置已持久化；节点未处理该 revision 时，页面显示等待应用，不得显示已连接。
+IM 持久化外部 channel 的期望配置，并使用不面向用户的 revision 令牌做乐观锁和运行状态关联。该令牌不形成可浏览、可选择或可回滚的版本历史，页面不得展示令牌或“版本 N”。保存成功只表示期望配置已持久化；节点尚未处理当前配置时，页面显示等待应用，不得显示已连接。
 
 #### Scenario: 在线保存后显示真实运行结果
 - **GIVEN** Agent 所属节点在线
@@ -68,9 +68,9 @@ IM 持久化外部 channel 的期望配置，并对每个 channel 使用 revisio
 - **AND** register、绑定确认和后续重连的重复触发最多初始化一次 manifest head
 - **AND** owner 未绑定期间不创建归属不明的 channel 配置
 
-#### Scenario: 并发更新发生 revision 冲突
-- **GIVEN** channel 已被另一客户端更新到新 revision
-- **WHEN** 当前客户端携带旧 revision 保存或删除
+#### Scenario: 并发更新携带过期一致性令牌
+- **GIVEN** channel 已被另一客户端更新，内部一致性令牌已经变化
+- **WHEN** 当前客户端携带过期令牌保存或删除
 - **THEN** IM 返回 conflict 和最新 channel view
 - **AND** 不覆盖较新的配置
 
@@ -143,9 +143,9 @@ IM 保存并向页面展示 Gateway 上报的 channel 连接状态、诊断状�
 - **AND** 不使用 desired config 的更新时间冒充运行状态更新时间
 - **AND** 节点离线时把该值标为最后状态而非当前在线证明
 
-#### Scenario: 同 revision 的旧运行状态不逆序覆盖
+#### Scenario: 同一配置代次的旧运行状态不逆序覆盖
 - **GIVEN** IM 已接收某次 runtime incarnation 的较新状态 sequence
-- **WHEN** 同一 channel revision 的旧 sequence 或旧 runtime 状态迟到
+- **WHEN** 当前配置代次的旧 sequence 或旧 runtime 状态迟到
 - **THEN** IM 保留较新的运行状态
 - **AND** 页面不会从已恢复错误回退为旧重连状态，也不会被旧 connected 覆盖新失败
 
@@ -179,7 +179,7 @@ IM 支持编辑、启用、停用、手动重连和删除外部 channel。删除
 - **GIVEN** channel 仍存在且节点在线
 - **WHEN** 用户发起重新连接
 - **THEN** 页面显示连接进度和最终结果
-- **AND** 该动作不创建新的 channel revision
+- **AND** 该动作不改变已保存的期望配置
 
 ## MODIFIED Requirements
 

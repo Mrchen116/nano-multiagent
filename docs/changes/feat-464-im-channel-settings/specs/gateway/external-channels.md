@@ -4,7 +4,7 @@
 
 ### Requirement: Gateway 按完整 manifest 调和 managed external channels
 
-支持 IM channel control 的 Gateway 将 IM 下发的完整 desired manifest 调和为本机 managed external channel 运行集合，并向 IM 回报该 manifest 的实际应用结果。manifest 与 channel revision 单调递增；已成功应用的重复 manifest 幂等，旧 manifest 不覆盖新状态；上次应用失败的同 revision 可以重试未完成动作。内置 `web_relay` 不属于 managed external manifest。
+支持 IM channel control 的 Gateway 将 IM 下发的完整 desired manifest 调和为本机 managed external channel 运行集合，并向 IM 回报该 manifest 的实际应用结果。manifest revision 只用于内部传输排序，channel revision 只用于一致性关联，两者都不构成用户可见的通道版本历史。已成功应用的重复 manifest 幂等，旧 manifest 不覆盖新状态；上次应用失败的同 revision 可以重试未完成动作。内置 `web_relay` 不属于 managed external manifest。
 
 #### Scenario: 在线新增 channel 无需重启 Gateway
 - **GIVEN** Gateway 已连接 IM
@@ -114,7 +114,7 @@ Gateway 对 managed external channel 的 disable、delete、replace 和 shutdown
 
 #### Scenario: 替换凭据不留下旧收发路径
 - **GIVEN** 一个正在运行的飞书 channel
-- **WHEN** manifest 提供新 App ID 或 App Secret revision
+- **WHEN** manifest 提供新 App ID 或替换后的 App Secret
 - **THEN** 旧飞书应用的后续消息不再触发该 Agent
 - **AND** 新飞书应用连接成功后可以触发该 Agent 并收到回复
 - **AND** 单条入站消息不会产生重复 Agent 处理或重复回复
@@ -126,7 +126,7 @@ Gateway 对 managed external channel 的 disable、delete、replace 和 shutdown
 
 ### Requirement: Gateway 上报 channel 实际状态与权限诊断
 
-Gateway 为每个 managed channel 上报最近处理的 channel revision、连接状态、诊断状态和结构化检查项。凭据无效、Bot 不可用、连接中断、权限缺失和检查不可用必须使用不同错误码/状态表达。
+Gateway 为每个 managed channel 上报当前内部配置代次、连接状态、诊断状态和结构化检查项。内部配置代次只用于让 IM 拒绝旧状态，不作为用户可见版本。凭据无效、Bot 不可用、连接中断、权限缺失和检查不可用必须使用不同错误码/状态表达。飞书权限诊断必须读取租户授权状态，只把 `grant_status=1` 且 `scope_type=tenant` 的条目作为应用身份已授权权限；缺字段、未知枚举或响应不可解析时结果为 unknown，不得仅凭 scope 名存在判定权限充足。
 
 #### Scenario: 连接成功且权限完整
 - **WHEN** 飞书通道已连接，且 Gateway 已确认所需权限与平台配置完整
@@ -139,12 +139,24 @@ Gateway 为每个 managed channel 上报最近处理的 channel revision、连�
 - **AND** 上报 `diagnostics_state=limited`，每项含 raw scope、影响和修复方向
 
 #### Scenario: 普通群消息权限缺失
-- **GIVEN** scope 列表不包含 `im:message.group_msg`
+- **GIVEN** 租户授权状态查询成功且结构完整，但应用身份已授权集合同时不包含当前权限 `im:message.group_msg` 和 legacy 等价权限 `im:message.group_msg:readonly`
 - **WHEN** Gateway 生成诊断
 - **THEN** 对应检查项说明未 @Bot 的群消息与群背景上下文不可用
 
+#### Scenario: 存量应用持有 legacy 等价权限
+- **GIVEN** 某项能力的当前推荐权限未授权，但一个仍受飞书支持的 legacy 等价权限以应用身份授权
+- **WHEN** Gateway 生成该能力的诊断
+- **THEN** 对应 `accepted_scope_sets` 检查为 satisfied
+- **AND** Gateway 不要求用户替换仍有效的旧权限，也不把它上报为 missing
+
+#### Scenario: scope 名存在但未按应用身份授权
+- **GIVEN** scope 响应含目标名称，但 `grant_status=2` 或 `scope_type=user`
+- **WHEN** Gateway 生成依赖该 scope 的诊断
+- **THEN** 该条目不能满足应用身份权限要求
+- **AND** Gateway 不得仅凭 scope 名存在上报 complete
+
 #### Scenario: scope 检查失败
-- **GIVEN** scope API 暂时失败或返回不可解析结果
+- **GIVEN** scope API 暂时失败，或返回缺少授权状态/身份类型、未知枚举或其他不可完整解析结果
 - **WHEN** 飞书基础连接仍然可用
 - **THEN** Gateway 上报 `diagnostics_state=unknown`
 - **AND** 不生成虚假的 missing scope
@@ -155,8 +167,8 @@ Gateway 为每个 managed channel 上报最近处理的 channel revision、连�
 - **THEN** Gateway 上报 reconnecting
 - **AND** 恢复或最终失败后再次上报终态
 
-#### Scenario: 同一配置版本的状态保持因果顺序
-- **GIVEN** 自动或手动重连在同一 channel revision 内产生多个状态
+#### Scenario: 同一配置代次的状态保持因果顺序
+- **GIVEN** 自动或手动重连在同一内部配置代次产生多个状态
 - **WHEN** 较新的恢复、再次中断或失败状态已经上报
 - **THEN** 较早状态不会随后覆盖较新状态
 - **AND** IM 最终看到的状态与当前 runtime 一致
