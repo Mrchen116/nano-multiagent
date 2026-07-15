@@ -10,6 +10,7 @@ import base64
 from pathlib import Path
 
 from personal_assistant.channels.base import InboundMessage
+from personal_assistant.gateway.image_attachments import ImageAttachmentResolver
 from personal_assistant.gateway.inbound_pipeline import InboundPipeline
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.channel_registry import ChannelRegistry
@@ -62,7 +63,7 @@ def _make_pipeline(tmp_path: Path, *, fetcher=None):
         run_queue=SessionRunQueue(),
         session_store=SessionBindingStore(),
         default_agent_id="agent-a",
-        attachment_fetcher=fetcher,
+        image_resolver=ImageAttachmentResolver(fetcher=fetcher),
     )
     delivered: list[str] = []
 

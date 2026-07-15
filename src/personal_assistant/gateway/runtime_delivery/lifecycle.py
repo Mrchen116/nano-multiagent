@@ -7,10 +7,8 @@ from typing import Any
 
 from personal_assistant.channels.base import InboundMessage
 from personal_assistant.gateway.channel_registry import ChannelRegistry
-from personal_assistant.gateway.inbound_pipeline import (
-    InboundPipeline,
-    RelayLifecycleUpdate,
-)
+from personal_assistant.gateway.inbound_models import RelayLifecycleUpdate
+from personal_assistant.gateway.inbound_pipeline import InboundPipeline
 from personal_assistant.gateway.runtime_protocol import runtime_protocol_or_derive
 from personal_assistant.reporter.upstream_reporter import UpstreamReporter
 from personal_assistant.ws.im_connection import IMConnectionManager

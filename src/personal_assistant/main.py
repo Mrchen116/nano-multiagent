@@ -62,6 +62,7 @@ from personal_assistant.gateway.agent_config_sync import (
     _parse_heartbeat_from_im_payload,  # noqa: F401 - compatibility re-export
 )
 from personal_assistant.gateway.group_context_store import GroupContextStore
+from personal_assistant.gateway.image_attachments import ImageAttachmentResolver
 from personal_assistant.gateway.inbound_pipeline import (
     InboundPipeline,
 )
@@ -2167,7 +2168,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     )
     _gateway_internal_port = 8089
     shadow_sync: IMShadowConversationSync | None = None
-    attachment_fetcher: Callable[[str], Awaitable[bytes]] | None = None
+    image_resolver = ImageAttachmentResolver()
 
     def _send_external_reply(text: str, metadata: Mapping[str, str]) -> None:
         channel_name = metadata.get("channel_name") or ""
@@ -2272,7 +2273,9 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             token_getter=_token_getter,
             owner_user_id=_owner_user_id,
         )
-        attachment_fetcher = _build_attachment_fetcher(token_getter=_token_getter)
+        image_resolver = ImageAttachmentResolver(
+            fetcher=_build_attachment_fetcher(token_getter=_token_getter)
+        )
 
         # M3: permission response handler is no longer wired — the SDK's can_use_tool
         # callback handles all permission decisions in-process (design decision 3).
@@ -2435,7 +2438,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         kernel_event_observer=_kernel_event_observer,
         bg_reply_sender=bg_reply_sender,
         session_event_callback=session_event_callback,
-        attachment_fetcher=attachment_fetcher,
+        image_resolver=image_resolver,
     )
 
     # bugfix-402-M4 R4 / bugfix-402-M6: build per-agent CronExecutionService and

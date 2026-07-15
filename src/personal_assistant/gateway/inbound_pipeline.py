@@ -3,14 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import logging
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any
-from typing import Literal
 from typing import Protocol
 
 from personal_assistant.channels.base import (
@@ -27,6 +24,8 @@ from personal_assistant.gateway.background_session_events import (
 )
 from personal_assistant.gateway.agent_catalog import LiveAgentCatalog, LiveAgentSnapshot
 from personal_assistant.gateway.group_context_store import GroupContextStore
+from personal_assistant.gateway.image_attachments import ImageAttachmentResolver
+from personal_assistant.gateway import inbound_models as _inbound_models
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
 from personal_assistant.gateway.runtime_protocol import external_identity_from_message
@@ -54,50 +53,6 @@ if TYPE_CHECKING:
     from agent.sdk.kernel import Kernel
 
 
-@dataclass(frozen=True, slots=True)
-class PipelineResult:
-    """Expose observable outputs from one inbound pipeline execution.
-
-    Args:
-        agent_id: Routed agent chosen in step 1.
-        session_key: Canonical gateway-local session key from step 2.
-        kernel_session_id: Kernel session bound to the message.
-        run_id: Async kernel run id created for the message.
-        reply_text: Final reply text selected for outbound routing.
-        outbound: Normalized outbound payload returned by the outbound router, or ``None``
-            when group-chat NO_REPLY suppresses user-visible delivery.
-    """
-
-    agent_id: str
-    session_key: str
-    kernel_session_id: str
-    run_id: str
-    reply_text: str
-    outbound: OutboundMessage | None
-
-
-@dataclass(frozen=True, slots=True)
-class RelayLifecycleUpdate:
-    """Describe one relay-visible execution milestone emitted by the pipeline."""
-
-    phase: Literal["accepted", "running", "completed", "failed"]
-    agent_id: str
-    session_key: str
-    run_id: str | None = None
-    reply_text: str | None = None
-    error: str | None = None
-    detail: Mapping[str, Any] | None = None
-    usage: Mapping[str, int] | None = None
-    # Populated on "accepted" so downstream wiring (e.g. permission_response handler)
-    # can reverse-lookup kernel session from run_id without re-resolving binding.
-    kernel_session_id: str | None = None
-
-
-RelayLifecycleCallback = Callable[
-    [InboundMessage, RelayLifecycleUpdate], Awaitable[None]
-]
-
-
 class ShadowConversationSync(Protocol):
     """Best-effort IM shadow conversation writer for external-channel inbound."""
 
@@ -113,10 +68,6 @@ _DEFAULT_GATEWAY_INTERNAL_PORT = 8089
 # Keep the Gateway's run owner aligned with IM's relay watchdog. The timeout is
 # idle-based: every kernel event resets it, so active long-running tool loops continue.
 _DEFAULT_RUN_IDLE_TIMEOUT_SECONDS = 120.0
-# bugfix-433 决策5: conservative image size cap (5MB) aligned with the strictest
-# provider limit (Anthropic). An image over this is rejected at inbound rather than
-# sent, independent of which provider this turn's model resolves to.
-_DEFAULT_MAX_IMAGE_BYTES = 5 * 1024 * 1024
 _MAX_SESSION_DRAIN_LOCKS = 4096
 
 # bugfix-433 决策5: fixed user-facing messages for image failure types. Worker MUST
@@ -144,6 +95,7 @@ class InboundPipeline:
         default_agent_id: Node-level fallback agent used when no explicit/bound agent matches.
         relay_lifecycle_callback: Optional async hook that mirrors relay execution milestones
             back to IM-facing runtime wiring.
+        image_resolver: Image policy owner used to resolve inbound attachment metadata.
         gateway_internal_port: Port for the Gateway's internal HTTP dispatch endpoint
             (``POST /internal/dispatch``).  Injected into kernel session metadata as
             ``gateway_dispatch_url`` so product tools (e.g. ``send_message``) can post
@@ -169,7 +121,7 @@ class InboundPipeline:
         session_binder: GatewaySessionBinder | None = None,
         channel_bindings: Mapping[str, str] | None = None,
         default_agent_id: str | None = None,
-        relay_lifecycle_callback: RelayLifecycleCallback | None = None,
+        relay_lifecycle_callback: _inbound_models.RelayLifecycleCallback | None = None,
         group_context_store: GroupContextStore | None = None,
         gateway_internal_port: int = _DEFAULT_GATEWAY_INTERNAL_PORT,
         run_idle_timeout_seconds: float = _DEFAULT_RUN_IDLE_TIMEOUT_SECONDS,
@@ -177,8 +129,7 @@ class InboundPipeline:
         session_event_callback: Callable[[str, Mapping[str, Any]], Awaitable[None]]
         | None = None,
         product_default_model: str | None = None,
-        attachment_fetcher: Callable[[str], Awaitable[bytes]] | None = None,
-        max_image_bytes: int = _DEFAULT_MAX_IMAGE_BYTES,
+        image_resolver: ImageAttachmentResolver | None = None,
         shadow_sync: ShadowConversationSync | None = None,
         bg_reply_sender: Callable[[str, ReplyContext, str], Awaitable[None]]
         | None = None,
@@ -199,13 +150,7 @@ class InboundPipeline:
         # The operation snapshot supplies agent.default_model, and this product
         # default applies when the Agent has not selected one.
         self._product_default_model = product_default_model
-        # bugfix-433 决策1: async fetcher (url → raw bytes) used to download IM image
-        # attachments at the inbound boundary so core only ever sees a self-contained
-        # base64 data URL. None keeps the pipeline product-agnostic (unit/test wiring):
-        # attachments pass through unchanged. max_image_bytes is the conservative size
-        # cap (决策5) above which an image is rejected rather than sent.
-        self._attachment_fetcher = attachment_fetcher
-        self._max_image_bytes = max_image_bytes
+        self._image_resolver = image_resolver or ImageAttachmentResolver()
         self._shadow_sync = shadow_sync
         self._outbound_router = outbound_router
         self._run_queue = run_queue
@@ -269,7 +214,7 @@ class InboundPipeline:
 
         self._shadow_sync = shadow_sync
 
-    async def handle_inbound(self, message: InboundMessage) -> PipelineResult | None:
+    async def handle_inbound(self, message: InboundMessage) -> _inbound_models.PipelineResult | None:
         """Process one inbound message through route, session, queue, and reply steps.
 
         Returns:
@@ -377,13 +322,13 @@ class InboundPipeline:
         agent: LiveAgentSnapshot,
         session_key: str,
         sender_label: str,
-    ) -> tuple[PipelineResult | None, list[dict[str, Any]]] | None:
+    ) -> tuple[_inbound_models.PipelineResult | None, list[dict[str, Any]]] | None:
         """Attempt to inject this message into the session's active run.
 
         Returns:
             None when there is no bound/active run to steer (caller falls through
             to a normal queued run). Otherwise a ``(injected_result, parts)`` pair:
-            ``injected_result`` is the PipelineResult when the kernel injected into
+            ``injected_result`` is the _inbound_models.PipelineResult when the kernel injected into
             the active run (caller returns it directly, no queued run); it is None
             when the active run ended in the race window, in which case ``parts``
             (already built, buffer drained) must be submitted by the caller's
@@ -420,7 +365,7 @@ class InboundPipeline:
             return None, parts
         await self._emit_relay_lifecycle(
             message,
-            RelayLifecycleUpdate(
+            _inbound_models.RelayLifecycleUpdate(
                 phase="accepted",
                 agent_id=agent_id,
                 session_key=session_key,
@@ -432,7 +377,7 @@ class InboundPipeline:
         # _run_turn, no second event loop. Its reply surfaces through the run that
         # is already being consumed by the original turn's _run_turn.
         return (
-            PipelineResult(
+            _inbound_models.PipelineResult(
                 agent_id=agent_id,
                 session_key=session_key,
                 kernel_session_id=binding.kernel_session_id,
@@ -477,7 +422,7 @@ class InboundPipeline:
         session_key: str,
         sender_label: str,
         prebuilt_parts: list[dict[str, Any]] | None = None,
-    ) -> PipelineResult:
+    ) -> _inbound_models.PipelineResult:
         agent_id = agent.agent_id
         run_id: str | None = None
         try:
@@ -527,7 +472,7 @@ class InboundPipeline:
                     self._active_runs[session_key] = run_id
             await self._emit_relay_lifecycle(
                 message,
-                RelayLifecycleUpdate(
+                _inbound_models.RelayLifecycleUpdate(
                     phase="accepted",
                     agent_id=agent_id,
                     session_key=session_key,
@@ -578,7 +523,7 @@ class InboundPipeline:
             )
             await self._emit_relay_lifecycle(
                 message,
-                RelayLifecycleUpdate(
+                _inbound_models.RelayLifecycleUpdate(
                     phase="running",
                     agent_id=agent_id,
                     session_key=session_key,
@@ -629,7 +574,7 @@ class InboundPipeline:
                 )
             else:
                 lifecycle_detail = {"suppressed_by": "no_reply_token"}
-            result = PipelineResult(
+            result = _inbound_models.PipelineResult(
                 agent_id=agent_id,
                 session_key=session_key,
                 kernel_session_id=binding.kernel_session_id,
@@ -639,7 +584,7 @@ class InboundPipeline:
             )
             await self._emit_relay_lifecycle(
                 message,
-                RelayLifecycleUpdate(
+                _inbound_models.RelayLifecycleUpdate(
                     phase="completed",
                     agent_id=agent_id,
                     session_key=session_key,
@@ -653,7 +598,7 @@ class InboundPipeline:
         except Exception as exc:
             await self._emit_relay_lifecycle(
                 message,
-                RelayLifecycleUpdate(
+                _inbound_models.RelayLifecycleUpdate(
                     phase="failed",
                     agent_id=agent_id,
                     session_key=session_key,
@@ -762,14 +707,14 @@ class InboundPipeline:
         # data URLs here at the inbound boundary. On any failure (download / size
         # / parse) the turn STOPS — the model is never called and a fixed message
         # is delivered to the user instead (决策5, outbound-only, not persisted).
-        image_parts, failure_kind = await self._resolve_image_parts(attachments)
-        if failure_kind is not None:
-            return [], failure_kind
-        parts.extend(image_parts)
+        image_resolution = await self._image_resolver.resolve(attachments)
+        if image_resolution.failure is not None:
+            return [], image_resolution.failure
+        parts.extend(image_resolution.parts)
         return parts, None
 
     async def _emit_relay_lifecycle(
-        self, message: InboundMessage, update: RelayLifecycleUpdate
+        self, message: InboundMessage, update: _inbound_models.RelayLifecycleUpdate
     ) -> None:
         callback = self._relay_lifecycle_callback
         if callback is None:
@@ -944,7 +889,7 @@ class InboundPipeline:
         *,
         agent: LiveAgentSnapshot,
         session_key: str,
-    ) -> PipelineResult:
+    ) -> _inbound_models.PipelineResult:
         """Handle /stop: interrupt active run or return friendly no-op message."""
         agent_id = agent.agent_id
         active_run_id: str | None = None
@@ -957,7 +902,7 @@ class InboundPipeline:
         # otherwise allocate an empty session for each idle group agent. Direct chats keep the
         # friendly ack (and binding) so an explicit /stop still gives the user feedback.
         if active_run_id is None and message.is_group:
-            return PipelineResult(
+            return _inbound_models.PipelineResult(
                 agent_id=agent_id,
                 session_key=session_key,
                 kernel_session_id="",
@@ -979,7 +924,7 @@ class InboundPipeline:
                 ack_tag="stop-noop",
                 source_message=message,
             )
-            return PipelineResult(
+            return _inbound_models.PipelineResult(
                 agent_id=agent_id,
                 session_key=session_key,
                 kernel_session_id=binding.kernel_session_id,
@@ -1026,7 +971,7 @@ class InboundPipeline:
             ack_tag="stop-ack",
             source_message=message,
         )
-        return PipelineResult(
+        return _inbound_models.PipelineResult(
             agent_id=agent_id,
             session_key=session_key,
             kernel_session_id=binding.kernel_session_id,
@@ -1092,64 +1037,6 @@ class InboundPipeline:
             text=text, reply_context=binding.reply_context
         )
 
-    async def _resolve_image_parts(
-        self, attachments: Any
-    ) -> tuple[list[dict[str, Any]], str | None]:
-        """Resolve image attachments to base64 data-URL parts (bugfix-433 决策1/5).
-
-        Returns ``(parts, None)`` on success. On the first failure returns
-        ``([], failure_kind)`` where ``failure_kind`` is one of ``download`` /
-        ``oversize`` / ``corrupt`` — the caller then stops the turn and replies. Mirrors
-        CC's integral stop: a single bad image fails the whole turn (no partial send).
-
-        With no fetcher wired (product-agnostic default) attachments pass through with
-        their original URL — used by unit/test wiring that does not download.
-        """
-        if not isinstance(attachments, list) or not attachments:
-            return [], None
-        parts: list[dict[str, Any]] = []
-        for item in attachments:
-            if not isinstance(item, dict) or not isinstance(item.get("url"), str):
-                continue
-            url = item["url"]
-            mime = item.get("content_type")
-            mime = mime.strip() if isinstance(mime, str) and mime.strip() else None
-            if self._attachment_fetcher is None:
-                # No download seam: keep the raw URL (test/agnostic wiring).
-                img_part: dict[str, Any] = {"type": "image", "image_url": url}
-                if mime:
-                    img_part["mime_type"] = mime
-                parts.append(img_part)
-                continue
-            try:
-                raw = await self._attachment_fetcher(url)
-            except Exception as exc:  # noqa: BLE001 — any download error stops the turn
-                logging.getLogger(__name__).info(
-                    "image attachment download failed (%s): %s", url, exc
-                )
-                return [], "download"
-            if not isinstance(raw, (bytes, bytearray)) or not raw:
-                return [], "download"
-            if len(raw) > self._max_image_bytes:
-                return [], "oversize"
-            detected_mime = _detect_image_mime(bytes(raw))
-            if detected_mime is None:
-                return [], "corrupt"
-            # bugfix-433-fix1 #6: trust the magic-byte detected mime over the
-            # client-supplied content_type (which can be wrong or forged). detected_mime
-            # is non-None here (the guard above returned on None), so it is authoritative.
-            data_url = f"data:{detected_mime};base64," + base64.b64encode(
-                bytes(raw)
-            ).decode("ascii")
-            parts.append(
-                {
-                    "type": "image",
-                    "image_url": data_url,
-                    "mime_type": detected_mime,
-                }
-            )
-        return parts, None
-
     async def _reply_image_failure(
         self,
         failure_kind: str,
@@ -1158,7 +1045,7 @@ class InboundPipeline:
         agent_id: str,
         session_key: str,
         binding: SessionBinding,
-    ) -> PipelineResult:
+    ) -> _inbound_models.PipelineResult:
         """Stop the turn and deliver the fixed image-failure message (决策5).
 
         The message is delivered via the same outbound sender as the /stop ack and is
@@ -1175,7 +1062,7 @@ class InboundPipeline:
         )
         await self._emit_relay_lifecycle(
             message,
-            RelayLifecycleUpdate(
+            _inbound_models.RelayLifecycleUpdate(
                 phase="completed",
                 agent_id=agent_id,
                 session_key=session_key,
@@ -1184,7 +1071,7 @@ class InboundPipeline:
                 detail={"image_failure": failure_kind},
             ),
         )
-        return PipelineResult(
+        return _inbound_models.PipelineResult(
             agent_id=agent_id,
             session_key=session_key,
             kernel_session_id=binding.kernel_session_id,
@@ -1585,65 +1472,6 @@ class InboundPipeline:
             "completion_tokens": max(completion_tokens, 0),
             "total_tokens": max(total_tokens, 0),
         }
-
-
-def _detect_image_mime(data: bytes) -> str | None:
-    """Detect a supported image MIME type with structural validation, else None.
-
-    bugfix-433 决策5 / fix1 #1: used to reject unrecognizable OR corrupt image bytes at
-    the inbound boundary (the model is never asked to interpret garbage). Magic bytes
-    alone are insufficient — a 41-byte payload with a valid PNG signature but a corrupt
-    body passed and reached the provider, surfacing a raw stream error instead of the
-    fixed "无法识别" message (regression Issue #1). So each format is validated for
-    structural integrity (header + terminator/size), not just the leading signature.
-    Stdlib-only (no Pillow, which is not a declared dependency).
-
-    An unknown signature OR a structurally broken payload → None → the turn stops with
-    the "无法识别" message.
-
-    Known limitation (intentional): this is a *lightweight* structural check (magic bytes
-    + header/terminator/length), NOT a full decode. A deliberately crafted fake (e.g. a
-    6-byte ``FFD8FF…FFD9`` JPEG, or a PNG whose IDAT compressed bytes happen to contain
-    the ``IEND`` substring) can slip through; real truncated/corrupt images are caught.
-    Full chunk parsing / an image library is intentionally NOT used (stdlib-only
-    constraint, no Pillow). The occasional provider-error that a slipped-through fake
-    would cause is covered by the broader fallback tracked in issue #147.
-    """
-    if data.startswith(b"\x89PNG\r\n\x1a\n"):
-        return "image/png" if _png_is_structurally_valid(data) else None
-    if data.startswith(b"\xff\xd8\xff"):
-        # JPEG: SOI start + EOI (FFD9) terminator must both be present.
-        return "image/jpeg" if data.rstrip(b"\x00").endswith(b"\xff\xd9") else None
-    if data.startswith(b"GIF87a") or data.startswith(b"GIF89a"):
-        # GIF: trailer byte 0x3B (';') marks a complete stream.
-        return "image/gif" if data.endswith(b"\x3b") else None
-    if data.startswith(b"RIFF") and data[8:12] == b"WEBP":
-        # WEBP: RIFF chunk size (LE @ offset 4) + 8 must not exceed the actual length.
-        if len(data) >= 12:
-            riff_size = int.from_bytes(data[4:8], "little")
-            if riff_size + 8 <= len(data):
-                return "image/webp"
-        return None
-    return None
-
-
-def _png_is_structurally_valid(data: bytes) -> bool:
-    """Return True if a PNG has a valid IHDR first chunk and an IEND trailer.
-
-    bugfix-433-fix1 #1: catches "valid signature + corrupt body" — the first chunk after
-    the 8-byte signature must be IHDR (type bytes at offset 12:16) and the stream must
-    contain the IEND end-chunk. A truncated / garbage body fails either check.
-    """
-    # Minimum complete PNG = signature(8) + IHDR chunk(4 len + 4 type + 13 data + 4 CRC
-    # = 25) + IEND chunk(4 len + 4 type + 0 data + 4 CRC = 12) = 45 bytes. Anything
-    # shorter is necessarily truncated.
-    if len(data) < 45:
-        return False
-    # First chunk type (bytes 12:16) must be IHDR.
-    if data[12:16] != b"IHDR":
-        return False
-    # IEND chunk must be present (end-of-image marker).
-    return b"IEND" in data
 
 
 def _format_sender_text(sender: str, text: str) -> str:

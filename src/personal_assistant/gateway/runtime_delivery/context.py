@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from personal_assistant.channels.base import InboundMessage
-from personal_assistant.gateway.inbound_pipeline import RelayLifecycleUpdate
+from personal_assistant.gateway.inbound_models import RelayLifecycleUpdate
 from personal_assistant.gateway.reply_visibility import ReplyVisibilityPolicy
 from personal_assistant.gateway.runtime_protocol import (
     ShadowConversationRef,
