@@ -53,7 +53,7 @@ def probe_feishu_runtime(
             auth_payload = _payload(auth)
             auth_code = _code(auth_payload, auth.status_code)
             if auth_code != 0:
-                _raise_auth_error(auth_code)
+                _raise_auth_error(auth_code, str(auth_payload.get("msg") or ""))
             tenant_token = str(auth_payload.get("tenant_access_token") or "")
             if not tenant_token:
                 raise ChannelStartupError(
@@ -143,7 +143,15 @@ def _code(payload: Mapping[str, object], http_status: int) -> int:
     return 0 if 200 <= http_status < 300 else http_status
 
 
-def _raise_auth_error(code: int) -> None:
+def _raise_auth_error(code: int, message: str) -> None:
+    normalized_message = message.casefold()
+    if "secret" in normalized_message and (
+        "invalid" in normalized_message or "wrong" in normalized_message
+    ):
+        raise ChannelStartupError(
+            "feishu_invalid_credentials",
+            "Feishu rejected the App ID or App Secret.",
+        )
     if code in _APP_DISABLED_CODES:
         raise ChannelStartupError(
             "feishu_app_disabled",
