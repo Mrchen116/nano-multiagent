@@ -224,6 +224,52 @@ class ChannelManifestStore:
                 )
             self._write_state(state)
 
+    def update_provider_metadata(
+        self,
+        *,
+        channel_id: str,
+        provider_identity_fingerprint: str,
+        provider_identity_revision: int,
+        channel_revision: int,
+        credential_revision: int,
+        patch: Mapping[str, str],
+    ) -> bool:
+        """Persist a metadata patch only for the exact cached runtime generation."""
+        with self._state_lock:
+            state = self._read_state()
+            raw_manifest = state.get("manifest")
+            if not isinstance(raw_manifest, dict):
+                return False
+            raw_channels = raw_manifest.get("channels")
+            if not isinstance(raw_channels, list):
+                return False
+            for item in raw_channels:
+                if not isinstance(item, dict) or item.get("channel_id") != channel_id:
+                    continue
+                expected = (
+                    provider_identity_fingerprint,
+                    provider_identity_revision,
+                    channel_revision,
+                    credential_revision,
+                )
+                actual = (
+                    str(item.get("provider_identity_fingerprint") or ""),
+                    int(item.get("provider_identity_revision") or 0),
+                    int(item.get("channel_revision") or 0),
+                    int(item.get("credential_revision") or 0),
+                )
+                if actual != expected:
+                    return False
+                runtime = item.get("provider_runtime")
+                values = runtime if isinstance(runtime, dict) else {}
+                for key, value in patch.items():
+                    if key in {"owner_open_id", "bot_open_id"} and not values.get(key):
+                        values[key] = value
+                item["provider_runtime"] = values
+                self._write_state(state)
+                return True
+            return False
+
     def pending_reconcile_result(self) -> dict[str, object] | None:
         """Compose the newest head with every independently unacknowledged token."""
         with self._state_lock:

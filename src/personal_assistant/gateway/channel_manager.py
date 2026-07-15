@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import threading
 from typing import Callable, Mapping, Protocol
 from uuid import uuid4
 
-from personal_assistant.channels.base import ChannelAdapter, InboundHandler
+from personal_assistant.channels.base import (
+    ChannelAdapter,
+    ChannelStartupError,
+    InboundHandler,
+)
 from personal_assistant.gateway.channel_manifest_store import (
     CachedChannelSpec,
     ChannelManifestStore,
@@ -90,6 +94,14 @@ class ProviderMetadataReport:
 
 
 @dataclass(frozen=True, slots=True)
+class ProviderRuntimeBuild:
+    """Return an adapter plus metadata learned before generation cutover."""
+
+    adapter: ChannelAdapter
+    initial_metadata: Mapping[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
 class ReconcileReport:
     """Per-manifest lifecycle result returned to the WS reconciliation layer."""
 
@@ -133,7 +145,7 @@ class ProviderRuntimeFactory(Protocol):
         spec: ManagedChannelSpec,
         metadata_binder: Callable[[dict[str, str]], dict[str, str] | None],
         status_handler: Callable[..., bool],
-    ) -> ChannelAdapter: ...
+    ) -> ChannelAdapter | ProviderRuntimeBuild: ...
 
 
 class FeishuActivationPolicy:
@@ -141,7 +153,7 @@ class FeishuActivationPolicy:
 
     def __init__(
         self,
-        on_activated: Callable[[str], None],
+        on_activated: Callable[[str], bool | None],
         *,
         load_skills: Callable[[str], tuple[str, ...]] | None = None,
         save_skills: Callable[[str, tuple[str, ...]], object] | None = None,
@@ -152,17 +164,22 @@ class FeishuActivationPolicy:
         self._activated: set[str] = set()
         self._lock = threading.Lock()
 
-    def ensure(self, agent_id: str) -> None:
+    def ensure(self, agent_id: str) -> bool:
         """Activate once; an empty allowlist intentionally keeps its default semantics."""
         with self._lock:
             if agent_id in self._activated:
-                return
-            if self._load_skills is not None and self._save_skills is not None:
-                current = self._load_skills(agent_id)
-                if current and "feishu-doc" not in current:
-                    self._save_skills(agent_id, (*current, "feishu-doc"))
-            self._on_activated(agent_id)
+                return True
+            try:
+                if self._load_skills is not None and self._save_skills is not None:
+                    current = self._load_skills(agent_id)
+                    if current and "feishu-doc" not in current:
+                        self._save_skills(agent_id, (*current, "feishu-doc"))
+                if self._on_activated(agent_id) is False:
+                    return False
+            except Exception:  # noqa: BLE001 - retry owns transient persistence failures.
+                return False
             self._activated.add(agent_id)
+            return True
 
 
 @dataclass(slots=True)
@@ -408,7 +425,18 @@ class ChannelManager:
                 )
             if not retryable_failure and self._manifest_store is not None:
                 try:
-                    self._manifest_store.commit_manifest(manifest)
+                    committed_channels = tuple(
+                        active.spec
+                        if (
+                            (active := self._active.get(spec.channel_id)) is not None
+                            and active.spec.generation == spec.generation
+                        )
+                        else spec
+                        for spec in manifest.channels
+                    )
+                    self._manifest_store.commit_manifest(
+                        replace(manifest, channels=committed_channels)
+                    )
                 except ChannelManifestStoreError as exc:
                     retryable_failure = True
                     failures.append(
@@ -520,6 +548,23 @@ class ChannelManager:
                 if active.spec.provider_runtime.get(key) != value
             }
             if new_values:
+                active.spec = replace(
+                    active.spec,
+                    provider_runtime=dict(active.metadata),
+                )
+                if self._manifest_store is not None:
+                    self._manifest_store.update_provider_metadata(
+                        channel_id=channel_id,
+                        provider_identity_fingerprint=(
+                            generation.provider_identity_fingerprint
+                        ),
+                        provider_identity_revision=(
+                            generation.provider_identity_revision
+                        ),
+                        channel_revision=generation.channel_revision,
+                        credential_revision=generation.credential_revision,
+                        patch=new_values,
+                    )
                 self._metadata_sink(
                     ProviderMetadataReport(
                         channel_id=channel_id,
@@ -528,6 +573,46 @@ class ChannelManager:
                     )
                 )
             return dict(active.metadata)
+
+    def replay_provider_metadata(self) -> None:
+        """Replay durable generation-scoped metadata after IM reconnect."""
+        with self._lock:
+            store = self._manifest_store
+            cached = store.load_manifest() if store is not None else None
+            if cached is None:
+                return
+            for item in cached.channels:
+                if not item.provider_runtime:
+                    continue
+                self._metadata_sink(
+                    ProviderMetadataReport(
+                        channel_id=item.channel_id,
+                        generation=ChannelGeneration(
+                            provider_identity_fingerprint=(
+                                item.provider_identity_fingerprint
+                            ),
+                            provider_identity_revision=(
+                                item.provider_identity_revision
+                            ),
+                            channel_revision=item.channel_revision,
+                            credential_revision=item.credential_revision,
+                        ),
+                        patch=dict(item.provider_runtime),
+                    )
+                )
+
+    def retry_pending_activations(self) -> None:
+        """Retry Feishu skill activation for current runtimes after IM reconnect."""
+        with self._lock:
+            if self._activation_policy is None:
+                return
+            agent_ids = {
+                active.spec.agent_id
+                for active in self._active.values()
+                if active.spec.provider == "feishu"
+            }
+            for agent_id in sorted(agent_ids):
+                self._activation_policy.ensure(agent_id)
 
     def accept_status(
         self,
@@ -601,9 +686,16 @@ class ChannelManager:
             )
 
         try:
-            adapter = factory(spec, bind_metadata, handle_status)
-        except Exception:
+            built = factory(spec, bind_metadata, handle_status)
+            if isinstance(built, ProviderRuntimeBuild):
+                adapter = built.adapter
+                initial_metadata = dict(built.initial_metadata)
+            else:
+                adapter = built
+                initial_metadata = {}
+        except Exception as exc:  # noqa: BLE001 - provider reason crosses status seam.
             self._stop_active(spec.channel_id)
+            self._emit_start_failure(spec, incarnation=incarnation, error=exc)
             return False
         runtime_name = f"{spec.provider}:{spec.agent_id}"
         if adapter.name != runtime_name:
@@ -621,6 +713,12 @@ class ChannelManager:
             metadata=dict(spec.provider_runtime),
         )
         self._active[spec.channel_id] = active
+        if initial_metadata:
+            self.record_provider_metadata(
+                channel_id=spec.channel_id,
+                generation=spec.generation,
+                patch=initial_metadata,
+            )
         barrier = self._snapshot(
             active,
             connection_state="connecting",
@@ -646,6 +744,36 @@ class ChannelManager:
             )
             return False
         return True
+
+    def _emit_start_failure(
+        self,
+        spec: ManagedChannelSpec,
+        *,
+        incarnation: str,
+        error: Exception,
+    ) -> None:
+        status_code = (
+            error.status_code
+            if isinstance(error, ChannelStartupError)
+            else "runtime_start_failed"
+        )
+        status_message = (
+            str(error)
+            if isinstance(error, ChannelStartupError)
+            else "Channel runtime could not start."
+        )
+        self._status_sink(
+            ChannelStatusSnapshot(
+                channel_id=spec.channel_id,
+                generation=spec.generation,
+                runtime_incarnation=incarnation,
+                status_sequence=1,
+                connection_state="failed",
+                status_code=status_code,
+                status_message=status_message,
+                instance_started=True,
+            )
+        )
 
     def _stop_active(
         self, channel_id: str, *, drain: bool = False

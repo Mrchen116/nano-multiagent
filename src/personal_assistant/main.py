@@ -69,6 +69,7 @@ from personal_assistant.gateway.channel_manager import (
     FeishuActivationPolicy,
     ManagedChannelSpec,
     ProviderMetadataReport,
+    ProviderRuntimeBuild,
 )
 from personal_assistant.gateway.channel_manifest_store import (
     CachedChannelSpec,
@@ -79,6 +80,7 @@ from personal_assistant.gateway.channel_manifest_apply import (
     apply_channel_manifest_payload,
 )
 from personal_assistant.gateway.group_context_store import GroupContextStore
+from personal_assistant.channels.feishu.preflight import probe_feishu_runtime
 from personal_assistant.gateway.inbound_pipeline import (
     InboundPipeline,
 )
@@ -656,13 +658,13 @@ class _IMConfigSyncClient:
 
     def _enable_created_skill_for_agent(
         self, agent: AgentWorkspaceConfig, skill_name: str
-    ) -> None:
+    ) -> bool:
         if not agent.skills:
             self._pipeline.drop_agent_sessions(agent.agent_id)
-            return
+            return True
         if skill_name in agent.skills:
             self._pipeline.drop_agent_sessions(agent.agent_id)
-            return
+            return True
         try:
             payload = self._fetch_agent_config(agent_id=agent.agent_id)
             next_skills = [
@@ -680,6 +682,7 @@ class _IMConfigSyncClient:
                 )
             else:
                 self._pipeline.drop_agent_sessions(agent.agent_id)
+            return True
         except (httpx.HTTPError, ValueError, RuntimeError):
             _log.warning(
                 "failed to enable created skill %s for agent %s",
@@ -687,6 +690,7 @@ class _IMConfigSyncClient:
                 agent.agent_id,
                 exc_info=True,
             )
+            return False
 
     def _patch_agent_skills(
         self,
@@ -3158,12 +3162,13 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
 
         im_config_sync_client.on_agent_created = _on_agent_created
 
-        def _activate_feishu_skill(agent_id: str) -> None:
+        def _activate_feishu_skill(agent_id: str) -> bool:
             agent = im_config_sync_client._local_agent(agent_id)  # noqa: SLF001
             if agent is not None:
-                im_config_sync_client._enable_created_skill_for_agent(  # noqa: SLF001
+                return im_config_sync_client._enable_created_skill_for_agent(  # noqa: SLF001
                     agent, "feishu-doc"
                 )
+            return False
 
         def _send_channel_status(snapshot: ChannelStatusSnapshot) -> None:
             generation = snapshot.generation
@@ -3212,20 +3217,18 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             spec: ManagedChannelSpec,
             metadata_binder: Callable[[dict[str, str]], dict[str, str] | None],
             status_handler: Callable[..., bool],
-        ) -> FeishuAdapter:
+        ) -> ProviderRuntimeBuild:
             app_id = str(spec.config.get("app_id") or "").strip()
             app_secret = str(spec.credentials.get("app_secret") or "").strip()
             if not app_id or not app_secret:
                 raise ValueError("Feishu credentials are required")
             metadata = dict(spec.provider_runtime)
-            bot_open_id = metadata.get("bot_open_id")
-            if not bot_open_id:
-                probed = _infer_feishu_bot_open_id_from_app_credentials(
-                    app_id, app_secret, "https://open.feishu.cn"
-                )
-                if probed:
-                    bound = metadata_binder({"bot_open_id": probed})
-                    bot_open_id = bound.get("bot_open_id") if bound else probed
+            preflight = probe_feishu_runtime(
+                app_id=app_id,
+                app_secret=app_secret,
+                domain="https://open.feishu.cn",
+            )
+            bot_open_id = metadata.get("bot_open_id") or preflight.bot_open_id
 
             def bind_owner(_channel_name: str, sender_open_id: str) -> str | None:
                 bound = metadata_binder({"owner_open_id": sender_open_id})
@@ -3243,16 +3246,19 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                     checks=getattr(worker_status, "checks", ()),
                 )
 
-            return FeishuAdapter(
-                name=f"feishu:{spec.agent_id}",
-                app_id=app_id,
-                app_secret=app_secret,
-                bot_open_id=bot_open_id,
-                owner_open_id=metadata.get("owner_open_id"),
-                owner_open_id_binder=bind_owner,
-                permission_decision_callback=permission_response_handler,
-                group_context_store=group_context_store,
-                status_callback=forward_status,
+            return ProviderRuntimeBuild(
+                adapter=FeishuAdapter(
+                    name=f"feishu:{spec.agent_id}",
+                    app_id=app_id,
+                    app_secret=app_secret,
+                    bot_open_id=bot_open_id,
+                    owner_open_id=metadata.get("owner_open_id"),
+                    owner_open_id_binder=bind_owner,
+                    permission_decision_callback=permission_response_handler,
+                    group_context_store=group_context_store,
+                    status_callback=forward_status,
+                ),
+                initial_metadata={"bot_open_id": preflight.bot_open_id},
             )
 
         channel_manager = ChannelManager(
@@ -3506,6 +3512,8 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                     request_id = str(status.get("request_id") or "")
                     if not im_connection_manager.has_pending_request(request_id):
                         await im_connection_manager.send_json("channel.status", status)
+            channel_manager.replay_provider_metadata()
+            channel_manager.retry_pending_activations()
             pending_result = channel_manifest_store.pending_reconcile_result()
             if pending_result is not None and im_connection_manager is not None:
                 await im_connection_manager.send_json(
