@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import platform
 from pathlib import Path
+from collections.abc import Callable
 from typing import Any, Mapping
 
 from agent.sdk import (
@@ -376,14 +377,16 @@ def build_pa_kernel(
     llm: LLMConfig,
     cron_services: Mapping[str, CronExecutionService],
     repo_root: Path | None = None,
+    gateway_dispatch_url_provider: Callable[[], str | None] | None = None,
 ) -> Any:
     """Assemble PA's Kernel via the 2-layer SDK surface (决策 1/2/5/9).
 
     PA supplies only its product-specific side-effect tools (cron / send_message /
     web_search, 决策 9) — they reach their services directly: cron via a closure over
-    the per-agent ``cron_services`` map, send_message via the Gateway dispatch URL in
-    session metadata. The self-evolution memory/skill_manage tools are kernel built-ins
-    (决策 3, registered by build_kernel), not PA tools.
+    the per-agent ``cron_services`` map, send_message via the live Gateway endpoint
+    provider in production (with metadata compatibility for standalone builds). The
+    self-evolution memory/skill_manage tools are kernel built-ins (决策 3, registered
+    by build_kernel), not PA tools.
 
     Args:
         llm: SDK-owned LLM config (catalog + active connection).
@@ -391,6 +394,9 @@ def build_pa_kernel(
             closure routes by agent_id at run time; registration may happen after
             build (shared-reference map).
         repo_root: Workspace root for tool/skill discovery.
+        gateway_dispatch_url_provider: Process-scoped listener URL provider resolved
+            by ``send_message`` on every call. ``None`` keeps standalone metadata
+            compatibility.
 
     Returns:
         A ready-to-use Kernel (can_use_tool=None: IM permission-card flow).
@@ -398,7 +404,9 @@ def build_pa_kernel(
     resolved_root = (repo_root or Path.cwd()).expanduser().resolve()
     tools: list[Any] = [
         make_cron_tool(cron_services),
-        SendMessageTool(),
+        SendMessageTool(
+            gateway_dispatch_url_provider=gateway_dispatch_url_provider,
+        ),
         WebSearchTool(),
     ]
     # refactor-406-M2: PA hooks supplied via build_kernel(hooks=…) (决策 2). chat_history

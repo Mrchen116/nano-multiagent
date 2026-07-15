@@ -2154,10 +2154,15 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     # reference means services registered after build (post-kernel_shim) are visible to
     # the already-built tool closure.
     _cron_dispatcher = CronServiceRegistry()
+    # The listener URL is a process-scoped capability. Construct its lifecycle owner
+    # before the PA Kernel so send_message can resolve current_url on every tool call;
+    # durable session metadata remains only a standalone/backward-compatible seed.
+    _internal_dispatch_endpoint = InternalDispatchEndpoint()
 
     kernel = build_pa_kernel(
         llm=llm,
         cron_services=_cron_dispatcher.services,  # shared mutable map (决策 9)
+        gateway_dispatch_url_provider=_internal_dispatch_endpoint.current_url,
         # can_use_tool=None: IM card flow; see submit_permission_decision.
     )
 
@@ -2213,7 +2218,6 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     run_delivery_contexts = RunDeliveryContextStore()
     _owner_user_id = config.node.user_id or ""
     _gateway_internal_port = 0
-    _internal_dispatch_endpoint = InternalDispatchEndpoint()
     shadow_sync: IMShadowConversationSync | None = None
     image_resolver = ImageAttachmentResolver()
 

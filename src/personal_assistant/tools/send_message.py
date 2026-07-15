@@ -1,12 +1,13 @@
 """Product-owned send_message tool for personal_assistant agent collaboration.
 
-Stateless design: the tool reads the Gateway dispatch endpoint URL from
-``ctx.session_metadata["gateway_dispatch_url"]`` at execution time and sends
-the message via an HTTP POST.  No module-level singleton, no bind_dispatcher.
+Production resolves the process-scoped Gateway endpoint from a provider on every
+tool call. Standalone tools without that provider retain the session-metadata
+compatibility path. No module-level singleton and no mutable dispatcher binding.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any, Mapping
 from uuid import uuid4
 
@@ -64,13 +65,13 @@ _SEND_MESSAGE_PRESENTER = _SendMessagePresenter()
 class SendMessageTool:
     """Send an IM-routed message to another agent or shared group.
 
-    The tool is stateless: it derives the dispatch endpoint from the kernel
-    session metadata key ``gateway_dispatch_url`` injected by the Gateway
-    inbound pipeline when creating the session.  The Gateway must expose a
-    ``POST /internal/dispatch`` endpoint that accepts the forwarded payload.
+    Production injects a live provider owned by the Gateway listener lifecycle.
+    Standalone construction derives the endpoint from the kernel session metadata
+    key ``gateway_dispatch_url`` for backward-compatible direct use.
 
     Raises:
-        RuntimeError: When ``gateway_dispatch_url`` is absent from session metadata.
+        RuntimeError: When the injected live endpoint is unavailable, or standalone
+            session metadata has no ``gateway_dispatch_url``.
         ValueError: When ``text`` or ``to`` arguments are blank.
     """
 
@@ -93,31 +94,46 @@ class SendMessageTool:
         "additionalProperties": False,
     }
 
+    def __init__(
+        self,
+        *,
+        gateway_dispatch_url_provider: Callable[[], str | None] | None = None,
+    ) -> None:
+        self._gateway_dispatch_url_provider = gateway_dispatch_url_provider
+
     def run(self, args: Mapping[str, Any], ctx: ToolContext) -> Mapping[str, Any]:
         """Dispatch one collaboration message through the gateway HTTP boundary.
 
         Args:
             args: Tool arguments; must contain ``text`` and ``to``.
-            ctx: Execution context; ``ctx.session_metadata`` must carry
-                ``gateway_dispatch_url`` pointing to the Gateway internal endpoint.
+            ctx: Execution context. Standalone tools require
+                ``ctx.session_metadata["gateway_dispatch_url"]``; production tools
+                resolve the injected listener provider instead.
 
         Returns:
             Dict with ``ok``, ``target``, and ``text`` fields on success.
 
         Raises:
-            RuntimeError: When ``gateway_dispatch_url`` is not configured in
-                session metadata.  Configure it by setting ``gateway_internal_port``
-                on InboundPipeline or by manually injecting the key into session
-                metadata.
+            RuntimeError: When the production listener is not ready or has shut down,
+                or standalone session metadata has no dispatch URL.
             ValueError: When ``text`` or ``to`` arguments are blank.
         """
 
-        dispatch_url = ctx.session_metadata.get("gateway_dispatch_url")
-        if not isinstance(dispatch_url, str) or not dispatch_url.strip():
-            raise RuntimeError(
-                "send_message: gateway_dispatch_url is not configured in session metadata. "
-                "Ensure the Gateway inbound pipeline injects gateway_dispatch_url when creating the session."
-            )
+        provider = self._gateway_dispatch_url_provider
+        if provider is not None:
+            dispatch_url = provider()
+            if not isinstance(dispatch_url, str) or not dispatch_url.strip():
+                raise RuntimeError(
+                    "send_message: live gateway_dispatch_url is not available; "
+                    "the Gateway listener is not ready or has shut down"
+                )
+        else:
+            dispatch_url = ctx.session_metadata.get("gateway_dispatch_url")
+            if not isinstance(dispatch_url, str) or not dispatch_url.strip():
+                raise RuntimeError(
+                    "send_message: gateway_dispatch_url is not configured in session metadata. "
+                    "Ensure the Gateway inbound pipeline injects gateway_dispatch_url when creating the session."
+                )
 
         text = _require_text(args.get("text"), field_name="text")
         target = _require_text(args.get("to"), field_name="to")
@@ -181,7 +197,7 @@ class SendMessageTool:
 
 
 def get_tool() -> SendMessageTool:
-    """Return a fresh stateless SendMessageTool instance for tool loader discovery."""
+    """Return a standalone metadata-compatible tool for loader discovery."""
     return SendMessageTool()
 
 
