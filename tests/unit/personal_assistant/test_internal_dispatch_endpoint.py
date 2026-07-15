@@ -101,6 +101,25 @@ def test_dispatch_handler_returns_error_when_im_manager_disconnected() -> None:
     assert "error" in result
 
 
+@pytest.mark.asyncio
+async def test_dispatch_handler_seal_rejects_new_kernel_touch() -> None:
+    """Shutdown seal makes new HTTP work unavailable without awaiting resources."""
+
+    manager = MagicMock()
+    manager.connected = True
+    manager.send_agent_message = AsyncMock()
+    handler = _make_dispatch_handler(im_manager=manager)
+
+    handler.seal()
+    result = await handler.handle({"text": "hi", "to": "agent_b"})
+
+    assert result == {
+        "ok": False,
+        "error": "Gateway is shutting down; cannot dispatch message",
+    }
+    manager.send_agent_message.assert_not_called()
+
+
 def test_dispatch_handler_validates_required_fields() -> None:
     """handle() must return ok=False when required fields are missing."""
     import asyncio
