@@ -221,6 +221,62 @@ def test_same_revision_retries_failed_stop_and_only_then_commits_empty_cache(
     ]
 
 
+def test_cache_commit_failure_is_visible_and_same_revision_can_retry(
+    tmp_path: Path,
+) -> None:
+    """Stopping a runtime is not removal success until the empty cache is durable."""
+
+    class FailingCommitStore(ChannelManifestStore):
+        fail_next_commit = False
+
+        def commit_manifest(self, manifest: ChannelManifest) -> None:
+            if self.fail_next_commit:
+                self.fail_next_commit = False
+                raise ChannelManifestStoreError("disk is full")
+            super().commit_manifest(manifest)
+
+    events: list[str] = []
+    store = FailingCommitStore(
+        tmp_path / "channel-manifest-v1.json",
+        node_id="node-a",
+        key_id="key-a",
+    )
+    manager = ChannelManager(
+        registry=ChannelRegistry(),
+        on_inbound=lambda _message: None,
+        provider_factories={
+            "feishu": lambda spec, _binder, _status: _Adapter(
+                f"feishu:{spec.agent_id}", events
+            )
+        },
+        status_sink=lambda _status: None,
+        manifest_store=store,
+    )
+    asyncio.run(manager.reconcile(_manifest(revision=1, channels=(_spec(),))))
+    store.fail_next_commit = True
+    removal = ChannelRemovalIntent(
+        removal_token="rm-cache-failure",
+        channel_id="ch-a",
+        agent_id="agent-a",
+        provider="feishu",
+        deletion_manifest_revision=2,
+    )
+
+    failed = asyncio.run(
+        manager.reconcile(_manifest(revision=2, channels=(), removals=(removal,)))
+    )
+    assert failed.outcome == "retryable_failed"
+    assert failed.removal_outcomes[0].error_code == "cache_commit_failed"
+    assert store.load_manifest().manifest_revision == 1
+
+    retried = asyncio.run(
+        manager.reconcile(_manifest(revision=2, channels=(), removals=(removal,)))
+    )
+    assert retried.outcome == "applied"
+    assert retried.removal_outcomes[0].outcome == "applied"
+    assert store.load_manifest().manifest_revision == 2
+
+
 def test_cached_start_opens_envelope_without_im_and_explicit_absence_is_terminal(
     tmp_path: Path,
 ) -> None:
