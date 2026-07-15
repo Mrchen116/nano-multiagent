@@ -242,16 +242,9 @@ describe("AgentChannelsPanel", () => {
     const user = userEvent.setup();
     const connected = channel();
     apiMocks.listAgentChannels.mockResolvedValue([connected]);
-    apiMocks.reconnectAgentChannel.mockResolvedValue(
-      channel({
-        observed: {
-          observed_revision: 7,
-          connection_state: "reconnecting",
-          status_message: null,
-          status_updated_at: "2026-07-15T06:43:00Z",
-        },
-      }),
-    );
+    // The live command endpoint returns the pre-command channel snapshot. The
+    // UI must not flash back to "connected" before the next observed report.
+    apiMocks.reconnectAgentChannel.mockResolvedValue(connected);
     apiMocks.deleteAgentChannel.mockResolvedValue(removal());
 
     renderPanel();
