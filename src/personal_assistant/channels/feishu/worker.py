@@ -278,6 +278,7 @@ class FeishuWorkerRuntime:
         self._dropped_events = 0
         self._event_inflight = 0
         self._event_lock = threading.Lock()
+        self._lifecycle_lock = threading.Lock()
         self._threads: tuple[threading.Thread, ...] = ()
 
     @property
@@ -292,22 +293,32 @@ class FeishuWorkerRuntime:
 
     def start(self) -> None:
         """Start one listener process and independent event/control/RPC consumers."""
-        if self._started:
-            raise RuntimeError("feishu worker already started")
-        self._process.start()
-        self._started = True
-        if not self._ready_event.wait(max(5.0, self._join_timeout)):
-            raise RuntimeError("feishu worker did not initialize")
-        self._threads = (
-            threading.Thread(target=self._event_loop, daemon=True),
-            threading.Thread(target=self._status_loop, daemon=True),
-            threading.Thread(target=self._action_loop, daemon=True),
-        )
-        for thread in self._threads:
-            thread.start()
+        with self._lifecycle_lock:
+            if self._started:
+                raise RuntimeError("feishu worker already started")
+            self._process.start()
+            self._started = True
+            try:
+                if not self._ready_event.wait(max(5.0, self._join_timeout)):
+                    raise RuntimeError("feishu worker did not initialize")
+                threads = (
+                    threading.Thread(target=self._event_loop, daemon=True),
+                    threading.Thread(target=self._status_loop, daemon=True),
+                    threading.Thread(target=self._action_loop, daemon=True),
+                )
+                for thread in threads:
+                    thread.start()
+                    self._threads = (*self._threads, thread)
+            except Exception:
+                self._stop_started(drain=False)
+                raise
 
     def stop(self, *, drain: bool) -> FeishuWorkerStopReport:
         """Drain shutdown traffic or drop an invalidated generation, then reap child."""
+        with self._lifecycle_lock:
+            return self._stop_started(drain=drain)
+
+    def _stop_started(self, *, drain: bool) -> FeishuWorkerStopReport:
         if not self._started:
             return FeishuWorkerStopReport(True, False, 0)
         self._stopping = True
@@ -319,6 +330,9 @@ class FeishuWorkerRuntime:
             self._process.terminate()
             self._process.join(self._join_timeout)
             terminated = True
+        if self._process.is_alive():
+            self._process.kill()
+            self._process.join(self._join_timeout)
         if drain:
             deadline = time.monotonic() + self._drain_timeout
             quiet_since: float | None = None
@@ -340,6 +354,8 @@ class FeishuWorkerRuntime:
         self._priority_recv.close()
         self._parent_action.close()
         joined = not self._process.is_alive()
+        if not joined:
+            raise RuntimeError("feishu worker could not be reaped")
         self._process.close()
         self._started = False
         return FeishuWorkerStopReport(

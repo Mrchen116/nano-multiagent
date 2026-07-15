@@ -209,9 +209,55 @@ def test_backpressure_reaps_noncooperative_listener_and_restarts_once() -> None:
         )
         _wait_until(lambda: len(adapters) == 2)
         _wait_until(lambda: adapters[0].runtime.is_alive is False)
+        _wait_until(
+            lambda: manager.registry.get("feishu:agent-a") is adapters[1]
+        )
         assert first_pid != adapters[1].runtime.pid
-        assert manager.registry.get("feishu:agent-a") is adapters[1]
         assert len(adapters) == 2
+    finally:
+        asyncio.run(manager.close())
+
+
+def test_backpressure_retry_budget_reaps_final_listener_and_allows_manual_retry() -> None:
+    """Three retries end failed with no child; reconnect can use retained desired."""
+    adapters: list[_WorkerAdapter] = []
+
+    def factory(_spec, _binder, status_handler):
+        pressure = len(adapters) < 4
+        adapter = _WorkerAdapter(
+            target=_noncooperative_pressure_worker if pressure else _stable_worker,
+            status_handler=status_handler,
+            block_events=pressure,
+        )
+        adapters.append(adapter)
+        return adapter
+
+    manager = ChannelManager(
+        registry=ChannelRegistry(),
+        on_inbound=lambda _message: None,
+        provider_factories={"feishu": factory},
+        status_sink=lambda _status: None,
+    )
+    try:
+        asyncio.run(
+            manager.reconcile(
+                ChannelManifest(manifest_revision=1, channels=(_spec(),))
+            )
+        )
+        _wait_until(lambda: len(adapters) == 4, timeout=8)
+        _wait_until(
+            lambda: manager.registry.get("feishu:agent-a") is None,
+            timeout=4,
+        )
+        _wait_until(lambda: all(not item.runtime.is_alive for item in adapters))
+        time.sleep(0.6)
+        assert len(adapters) == 4
+
+        asyncio.run(manager.reconnect("ch-a"))
+        _wait_until(
+            lambda: manager.registry.get("feishu:agent-a") is adapters[4]
+        )
+        assert len(adapters) == 5
     finally:
         asyncio.run(manager.close())
 

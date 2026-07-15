@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass
 from typing import Callable, Mapping
 
@@ -153,10 +152,7 @@ async def apply_channel_manifest_payload(
         removals=removals,
     )
 
-    def reconcile_in_thread():
-        return asyncio.run(manager.reconcile(manifest))
-
-    report = await asyncio.to_thread(reconcile_in_thread)
+    report = await manager.reconcile(manifest)
     runtime_failures = [
         {
             "channel_id": channel_id,

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field, replace
+import time
 import threading
 from typing import Callable, Mapping, Protocol
 from uuid import uuid4
@@ -216,6 +218,12 @@ class ChannelManager:
         self._manifest_store = manifest_store
         self._credential_opener = credential_opener
         self._active: dict[str, _ActiveRuntime] = {}
+        self._desired: dict[str, ManagedChannelSpec] = {}
+        self._restart_attempts: dict[tuple[str, ChannelGeneration], int] = {}
+        self._restart_scheduled: set[
+            tuple[str, ChannelGeneration, str]
+        ] = set()
+        self._closing = False
         try:
             self._last_seen_manifest_revision = (
                 manifest_store.last_seen_manifest_revision if manifest_store else 0
@@ -237,6 +245,9 @@ class ChannelManager:
 
     async def start_cached(self) -> tuple[ChannelStatusSnapshot, ...]:
         """Open the encrypted local manifest and start enabled channels without IM."""
+        return await asyncio.to_thread(self._start_cached_sync)
+
+    def _start_cached_sync(self) -> tuple[ChannelStatusSnapshot, ...]:
         with self._lock:
             store = self._manifest_store
             if store is None:
@@ -270,12 +281,16 @@ class ChannelManager:
             if cached.channels and self._credential_opener is None:
                 raise ChannelManifestStoreError("credential opener is required")
             for item in cached.channels:
-                if not item.enabled:
-                    continue
                 assert self._credential_opener is not None
                 spec = self._managed_from_cached(
-                    item, credentials=self._credential_opener(item)
+                    item,
+                    credentials=(
+                        self._credential_opener(item) if item.enabled else {}
+                    ),
                 )
+                self._desired[item.channel_id] = spec
+                if not item.enabled:
+                    continue
                 if not self._replace_runtime(spec):
                     raise RuntimeError(
                         f"cached channel runtime could not start: {item.channel_id}"
@@ -327,6 +342,9 @@ class ChannelManager:
 
     async def reconcile(self, manifest: ChannelManifest) -> ReconcileReport:
         """Apply one complete manifest with per-runtime stop-before-start cutover."""
+        return await asyncio.to_thread(self._reconcile_sync, manifest)
+
+    def _reconcile_sync(self, manifest: ChannelManifest) -> ReconcileReport:
         with self._lock:
             if manifest.manifest_revision < self._last_seen_manifest_revision:
                 return ReconcileReport(
@@ -339,6 +357,7 @@ class ChannelManager:
                 self._last_seen_manifest_revision, manifest.manifest_revision
             )
             desired = {item.channel_id: item for item in manifest.channels}
+            self._desired = desired
             removals = {item.channel_id: item for item in manifest.removals}
             applied: list[str] = []
             failed: list[str] = []
@@ -352,9 +371,8 @@ class ChannelManager:
             for channel_id in tuple(self._active):
                 spec = desired.get(channel_id)
                 if spec is None or not spec.enabled:
-                    active = self._active[channel_id]
                     try:
-                        stopped = self._stop_active(channel_id)
+                        self._stop_active(channel_id)
                     except Exception as exc:  # noqa: BLE001
                         retryable_failure = True
                         failure = {
@@ -373,17 +391,6 @@ class ChannelManager:
                                 error_message=str(exc),
                             )
                         continue
-                    if spec is not None and stopped is not None:
-                        self._status_sink(
-                            ChannelStatusSnapshot(
-                                channel_id=channel_id,
-                                generation=spec.generation,
-                                runtime_incarnation=active.incarnation,
-                                status_sequence=active.last_status_sequence + 1,
-                                connection_state="disabled",
-                                diagnostics_state="unknown",
-                            )
-                        )
             for spec in manifest.channels:
                 if spec.provider == "web_relay" or spec.agent_id == "web_relay":
                     failed.append(spec.channel_id)
@@ -483,11 +490,14 @@ class ChannelManager:
 
     async def reconnect(self, channel_id: str) -> ChannelStatusSnapshot:
         """Replace one current runtime under the same desired generation."""
+        return await asyncio.to_thread(self._reconnect_sync, channel_id)
+
+    def _reconnect_sync(self, channel_id: str) -> ChannelStatusSnapshot:
         with self._lock:
             active = self._active.get(channel_id)
-            if active is None:
+            spec = active.spec if active is not None else self._desired.get(channel_id)
+            if spec is None or not spec.enabled:
                 raise LookupError("channel runtime not found")
-            spec = active.spec
             if not self._replace_runtime(spec):
                 raise RuntimeError("channel reconnect failed")
             return self._snapshot(
@@ -498,6 +508,16 @@ class ChannelManager:
         self, *, channel_id: str, channel_revision: int, outcome: str
     ) -> None:
         """Quarantine runtimes only for terminal outcomes that invalidate them."""
+        await asyncio.to_thread(
+            self._handle_status_result_sync,
+            channel_id=channel_id,
+            channel_revision=channel_revision,
+            outcome=outcome,
+        )
+
+    def _handle_status_result_sync(
+        self, *, channel_id: str, channel_revision: int, outcome: str
+    ) -> None:
         with self._lock:
             if outcome == "fatal_owner_mismatch":
                 for active_channel_id in tuple(self._active):
@@ -515,7 +535,11 @@ class ChannelManager:
 
     async def close(self) -> None:
         """Stop all managed runtimes without touching static web relay adapters."""
+        await asyncio.to_thread(self._close_sync)
+
+    def _close_sync(self) -> None:
         with self._lock:
+            self._closing = True
             for channel_id in tuple(self._active):
                 self._stop_active(channel_id, drain=True)
 
@@ -651,6 +675,15 @@ class ChannelManager:
                     checks=checks,
                 )
             )
+            restart_key = (channel_id, generation)
+            if connection_state == "connected":
+                self._restart_attempts.pop(restart_key, None)
+            elif status_code in {"event_backpressure", "worker_crashed"}:
+                self._schedule_runtime_restart(
+                    channel_id=channel_id,
+                    generation=generation,
+                    runtime_incarnation=runtime_incarnation,
+                )
             return True
 
     def _replace_runtime(self, spec: ManagedChannelSpec) -> bool:
@@ -699,6 +732,7 @@ class ChannelManager:
             return False
         runtime_name = f"{spec.provider}:{spec.agent_id}"
         if adapter.name != runtime_name:
+            self._stop_candidate(adapter)
             self._stop_active(spec.channel_id)
             return False
         self._stop_active(spec.channel_id)
@@ -731,6 +765,7 @@ class ChannelManager:
         except Exception:
             self._active.pop(spec.channel_id, None)
             self._registry.remove(runtime_name, expected=adapter)
+            self._stop_candidate(adapter)
             self._status_sink(
                 ChannelStatusSnapshot(
                     channel_id=spec.channel_id,
@@ -744,6 +779,61 @@ class ChannelManager:
             )
             return False
         return True
+
+    def _schedule_runtime_restart(
+        self,
+        *,
+        channel_id: str,
+        generation: ChannelGeneration,
+        runtime_incarnation: str,
+    ) -> None:
+        """Reap a terminal listener and retry its unchanged generation off-loop."""
+        scheduled_key = (channel_id, generation, runtime_incarnation)
+        if self._closing or scheduled_key in self._restart_scheduled:
+            return
+        attempt_key = (channel_id, generation)
+        completed_attempts = self._restart_attempts.get(attempt_key, 0)
+        should_restart = completed_attempts < 3
+        attempt = completed_attempts + 1
+        if should_restart:
+            self._restart_attempts[attempt_key] = attempt
+        self._restart_scheduled.add(scheduled_key)
+
+        def restart() -> None:
+            time.sleep(0.1 * (2 ** (min(attempt, 3) - 1)))
+            with self._lock:
+                self._restart_scheduled.discard(scheduled_key)
+                active = self._active.get(channel_id)
+                if (
+                    self._closing
+                    or active is None
+                    or active.spec.generation != generation
+                    or active.incarnation != runtime_incarnation
+                ):
+                    return
+                spec = active.spec
+                if should_restart:
+                    self._replace_runtime(spec)
+                else:
+                    self._stop_active(channel_id)
+
+        threading.Thread(
+            target=restart,
+            name=f"channel-restart-{channel_id[:8]}",
+            daemon=True,
+        ).start()
+
+    @staticmethod
+    def _stop_candidate(adapter: ChannelAdapter) -> None:
+        """Best-effort reap for an adapter that never became routable."""
+        try:
+            stop_invalidated = getattr(adapter, "stop_invalidated", None)
+            if callable(stop_invalidated):
+                stop_invalidated()
+            else:
+                adapter.stop()
+        except Exception:  # noqa: BLE001 - preserve the primary startup failure.
+            pass
 
     def _emit_start_failure(
         self,
