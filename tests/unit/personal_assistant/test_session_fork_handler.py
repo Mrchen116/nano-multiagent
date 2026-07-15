@@ -205,3 +205,83 @@ async def test_fork_handler_kernel_failure_returns_not_ok(tmp_path: Path) -> Non
         )
         is None
     )
+
+
+@pytest.mark.asyncio
+async def test_fork_publish_race_returns_failure_without_stale_branch_binding(
+    tmp_path: Path,
+) -> None:
+    """A fork completed for an old snapshot must enter the existing rollback path."""
+
+    import asyncio
+
+    from personal_assistant.config.local_store import AgentWorkspaceConfig
+    from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
+    from personal_assistant.gateway.session_binder import GatewaySessionBinder
+    from personal_assistant.main import _build_session_fork_handler
+
+    class _BlockingKernel(_FakeKernel):
+        def __init__(self) -> None:
+            super().__init__()
+            self.started = asyncio.Event()
+            self.release = asyncio.Event()
+
+        async def fork_session(self, session_id, *, workspace_root=None, up_to=None):
+            self.started.set()
+            await self.release.wait()
+            return await super().fork_session(
+                session_id,
+                workspace_root=workspace_root,
+                up_to=up_to,
+            )
+
+    workspace_old = tmp_path / "old"
+    workspace_new = tmp_path / "new"
+    workspace_old.mkdir()
+    workspace_new.mkdir()
+    catalog = LiveAgentCatalog(
+        (
+            AgentWorkspaceConfig(
+                agent_id="alpha",
+                workspace_root=workspace_old,
+            ),
+        )
+    )
+    store = _store(tmp_path)
+    bind_conversation_session(
+        store=store,
+        channel_name="web_relay",
+        conversation_id="conv-src",
+        agent_id="alpha",
+        kernel_session_id="ksess-src",
+    )
+    kernel = _BlockingKernel()
+    binder = GatewaySessionBinder(catalog=catalog, repository=store, kernel=kernel)
+    handler = _build_session_fork_handler(
+        kernel=kernel,
+        session_binder=binder,
+        agent_catalog=catalog,
+        channel_name="web_relay",
+    )
+
+    fork = asyncio.create_task(
+        handler(
+            {
+                "source_conversation_id": "conv-src",
+                "new_conversation_id": "conv-new",
+                "agent_id": "alpha",
+                "fork_point": {"message_id": "a3"},
+            }
+        )
+    )
+    await kernel.started.wait()
+    current = catalog.publish(
+        AgentWorkspaceConfig(agent_id="alpha", workspace_root=workspace_new)
+    )
+    binder.invalidate_stale("alpha", current_revision=current.revision)
+    kernel.release.set()
+    result = await fork
+
+    assert result["ok"] is False
+    assert result["error"] == "agent config changed while session fork was running"
+    assert binder.lookup("web_relay:conv-new:alpha") is None

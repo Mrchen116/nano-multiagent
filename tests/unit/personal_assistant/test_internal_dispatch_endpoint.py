@@ -167,3 +167,86 @@ def test_dispatch_handler_build_aiohttp_handler_returns_callable() -> None:
     handler = InternalDispatchHandler(im_connection_manager=None)
     aiohttp_handler = handler.build_aiohttp_handler()
     assert callable(aiohttp_handler)
+
+
+@pytest.mark.asyncio
+async def test_dispatch_ack_after_config_publish_does_not_restore_stale_binding(
+    tmp_path,
+) -> None:
+    """An IM ack may finish the old request but cannot publish its stale row."""
+
+    from pathlib import Path
+
+    from personal_assistant.config.local_store import AgentWorkspaceConfig
+    from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
+    from personal_assistant.gateway.internal_dispatch import InternalDispatchHandler
+    from personal_assistant.gateway.session_binder import GatewaySessionBinder
+    from personal_assistant.gateway.session_keys import SessionBindingStore
+    from personal_assistant.ws.im_connection import IMDispatchAck
+
+    class _BlockingManager:
+        connected = True
+
+        def __init__(self) -> None:
+            import asyncio
+
+            self.started = asyncio.Event()
+            self.release = asyncio.Event()
+
+        async def send_agent_message(self, _payload):
+            self.started.set()
+            await self.release.wait()
+            return IMDispatchAck(
+                conversation_id="conv-stale-ack",
+                message_id="msg-stale-ack",
+                target_kind="user_id",
+                target_id="user-1",
+                source_agent_id="agent_a",
+            )
+
+    old_workspace = Path(tmp_path) / "old"
+    new_workspace = Path(tmp_path) / "new"
+    old_workspace.mkdir()
+    new_workspace.mkdir()
+    catalog = LiveAgentCatalog(
+        (
+            AgentWorkspaceConfig(
+                agent_id="agent_a",
+                workspace_root=old_workspace,
+            ),
+        )
+    )
+    store = SessionBindingStore()
+    binder = GatewaySessionBinder(catalog=catalog, repository=store, kernel=MagicMock())
+    manager = _BlockingManager()
+    kernel = MagicMock()
+    handler = InternalDispatchHandler(
+        im_connection_manager=manager,
+        kernel_client=kernel,
+        agent_catalog=catalog,
+        session_binder=binder,
+    )
+
+    import asyncio
+
+    dispatch = asyncio.create_task(
+        handler.handle(
+            {
+                "text": "old snapshot reply",
+                "to": "user-1",
+                "origin_kernel_session_id": "session-old",
+                "source_agent_id": "agent_a",
+            }
+        )
+    )
+    await manager.started.wait()
+    current = catalog.publish(
+        AgentWorkspaceConfig(agent_id="agent_a", workspace_root=new_workspace)
+    )
+    binder.invalidate_stale("agent_a", current_revision=current.revision)
+    manager.release.set()
+    result = await dispatch
+
+    assert result["ok"] is True
+    assert binder.lookup("web_relay:conv-stale-ack:agent_a") is None
+    assert kernel.append_message.call_args.kwargs["workspace_root"] == old_workspace
