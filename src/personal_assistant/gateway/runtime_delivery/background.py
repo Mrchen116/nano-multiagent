@@ -8,7 +8,7 @@ import logging
 from typing import Any
 
 from personal_assistant.channels.base import ReplyContext
-from personal_assistant.gateway.session_keys import SessionBindingStore
+from personal_assistant.gateway.session_binder import GatewaySessionBinder
 from personal_assistant.ws.im_connection import IMConnectionManager
 
 _log = logging.getLogger("personal_assistant.gateway.runtime_delivery.background")
@@ -24,7 +24,7 @@ def _metadata_text(metadata: Mapping[str, Any], *, key: str) -> str | None:
 def build_session_event_callback(
     *,
     im_connection_manager_factory: Callable[[], "IMConnectionManager | None"],
-    session_store: "SessionBindingStore",
+    session_binder: "GatewaySessionBinder",
 ) -> Callable[[str, Mapping[str, Any]], Awaitable[None]]:
     """Build a session event callback that sends self_evolution_review as IM system messages.
 
@@ -35,7 +35,7 @@ def build_session_event_callback(
 
     Args:
         im_connection_manager_factory: Returns the live IM connection manager (may be None).
-        session_store: Gateway session binding store used to reverse-resolve conversation_id.
+        session_binder: Gateway binding owner used to reverse-resolve conversation_id.
 
     Returns:
         Async callable ``(kernel_session_id, event) -> None``.
@@ -51,7 +51,7 @@ def build_session_event_callback(
             return
 
         # Resolve conversation_id from the session binding.
-        binding = session_store.find_by_kernel_session_id(kernel_session_id)
+        binding = session_binder.find_by_kernel_session_id(kernel_session_id)
         if binding is None:
             return
         conversation_id = reply_context_im_conversation_id(binding.reply_context)

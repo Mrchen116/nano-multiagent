@@ -254,7 +254,7 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
             assert request.agent_id == "agent-a"
             refreshed_workspace = tmp_path / "agent-a-refreshed"
             refreshed_workspace.mkdir()
-            pipeline.register_agent(
+            pipeline.agent_catalog.publish(
                 AgentWorkspaceConfig(
                     agent_id="agent-a",
                     workspace_root=refreshed_workspace,

@@ -362,7 +362,7 @@ def test_inbound_pipeline_kernel_sdk_stop_command_interrupts(tmp_path: Path) -> 
 
     # Inject an "active" run so /stop has something to interrupt
     session_key = "web:chat-1:agent-a"
-    binding = pipeline._session_store.get(session_key)
+    binding = pipeline.session_binder.lookup(session_key)
     if binding:
         pipeline._active_runs[session_key] = "run-1"  # noqa: SLF001
 
@@ -466,7 +466,7 @@ def test_steer_injects_into_active_run_not_new_run(tmp_path: Path) -> None:
     )
     asyncio.run(pipeline.handle_inbound(first))
     session_key = "web:chat-1:agent-a"
-    binding = pipeline._session_store.get(session_key)  # noqa: SLF001
+    binding = pipeline.session_binder.lookup(session_key)
     assert binding is not None
     kernel_session_id = binding.kernel_session_id
 
@@ -540,7 +540,7 @@ def test_group_steer_preserves_sender_prefix_and_buffered_context(
     )
     asyncio.run(pipeline.handle_inbound(first))
     session_key = "web:grp-1:agent-a"
-    binding = pipeline._session_store.get(session_key)  # noqa: SLF001
+    binding = pipeline.session_binder.lookup(session_key)
     assert binding is not None
     kernel_session_id = binding.kernel_session_id
 
@@ -613,7 +613,7 @@ def test_concurrent_group_steer_drain_is_serial_not_interleaved(
     )
     asyncio.run(pipeline.handle_inbound(first))
     session_key = "web:grp-1:agent-a"
-    binding = pipeline._session_store.get(session_key)  # noqa: SLF001
+    binding = pipeline.session_binder.lookup(session_key)
     assert binding is not None
     kernel_session_id = binding.kernel_session_id
 
@@ -647,10 +647,8 @@ def test_concurrent_group_steer_drain_is_serial_not_interleaved(
     # opening the exact interleaving window the real await creates.
     real_ensure = pipeline._ensure_binding  # noqa: SLF001
 
-    async def _instrumented_ensure(message, *, agent_id, session_key):  # noqa: ANN001, ANN202
-        binding_ = await real_ensure(
-            message, agent_id=agent_id, session_key=session_key
-        )
+    async def _instrumented_ensure(message, *, agent, session_key):  # noqa: ANN001, ANN202
+        binding_ = await real_ensure(message, agent=agent, session_key=session_key)
         events.append(f"bind:{_label_of(message)}")
         await asyncio.sleep(0)
         return binding_

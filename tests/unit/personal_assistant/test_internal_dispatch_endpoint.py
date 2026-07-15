@@ -16,13 +16,33 @@ def _make_dispatch_handler(
     agent_workspace_roots=None,
 ):
     """Build a minimal InternalDispatchHandler for testing."""
+    from pathlib import Path
+
+    from personal_assistant.config.local_store import AgentWorkspaceConfig
+    from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
     from personal_assistant.gateway.internal_dispatch import InternalDispatchHandler
+    from personal_assistant.gateway.session_binder import GatewaySessionBinder
+
+    catalog = None
+    binder = None
+    if session_store is not None:
+        catalog = LiveAgentCatalog(
+            tuple(
+                AgentWorkspaceConfig(agent_id=agent_id, workspace_root=Path(root))
+                for agent_id, root in (agent_workspace_roots or {}).items()
+            )
+        )
+        binder = GatewaySessionBinder(
+            catalog=catalog,
+            repository=session_store,
+            kernel=kernel_client,
+        )
 
     return InternalDispatchHandler(
         im_connection_manager=im_manager,
         kernel_client=kernel_client,
-        session_store=session_store,
-        agent_workspace_roots=agent_workspace_roots,
+        agent_catalog=catalog,
+        session_binder=binder,
     )
 
 
@@ -156,7 +176,7 @@ def test_dispatch_handler_binds_direct_conversation_and_appends_history() -> Non
             "source_agent_id": "agent_a",
         },
         idempotency_key="dispatch-sync:toolu_1",
-        workspace_root="/tmp/agent-a-workspace",
+        workspace_root=Path("/tmp/agent-a-workspace"),
     )
 
 

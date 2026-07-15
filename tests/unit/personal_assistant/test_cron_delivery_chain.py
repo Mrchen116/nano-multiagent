@@ -340,7 +340,7 @@ async def test_cron_delivery_extracts_result_for_awareness(tmp_path: Path) -> No
         agent_id="agent-Alpha",
         workspace_root=tmp_path,
         kernel_client=shim,
-        session_binding_store=None,
+        session_binder=None,
         canonical_session_id="sess-canonical",
     )
 

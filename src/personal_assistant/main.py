@@ -39,14 +39,12 @@ from personal_assistant.channels.web_relay_adapter import (
 from personal_assistant.channels.feishu import FeishuAdapter
 
 from personal_assistant.config.local_store import (
-    AgentWorkspaceConfig,
     ChannelConfig,
     HeartbeatConfig,
     IMServiceConfig,
     LocalConfig,
     WORKSPACE_CONFIG_DIRNAME as _WCD,
     default_local_config_path,
-    ensure_workspace_defaults,
     ensure_feishu_doc_skill_for_feishu_agents,
     load_local_config,
     resolve_run_model,
@@ -55,6 +53,14 @@ from personal_assistant.config.local_store import (
 from personal_assistant.config.sync_client import ConfigSyncClient
 from personal_assistant.gateway.bootstrap import start_channels, stop_channels
 from personal_assistant.gateway.channel_registry import ChannelRegistry
+from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
+from personal_assistant.gateway.agent_config_sync import (
+    IMAgentConfigSync,
+    _im_http_base_url,
+    _im_http_headers,
+    _make_workspace_root_factory,
+    _parse_heartbeat_from_im_payload,  # noqa: F401 - compatibility re-export
+)
 from personal_assistant.gateway.group_context_store import GroupContextStore
 from personal_assistant.gateway.inbound_pipeline import (
     InboundPipeline,
@@ -74,17 +80,19 @@ from personal_assistant.gateway.runtime_delivery.observer import (
     extract_ack_message_id as _extract_ack_message_id,  # noqa: F401
     roll_bubble as _roll_bubble,  # noqa: F401
 )
-from personal_assistant.gateway.workspace_authority import resolve_runtime_workspace
 from personal_assistant.gateway.internal_dispatch import InternalDispatchHandler
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
 from personal_assistant.gateway.session_keys import (
     PersistentSessionBindingStore,
-    SessionBindingStore,
-    bind_conversation_session,
     build_conversation_session_key,
     build_external_session_key,
 )
+from personal_assistant.gateway.session_binder import (
+    ConversationBindingRequest,
+    GatewaySessionBinder,
+)
+from personal_assistant.gateway.shadow_sync import IMShadowConversationSync
 from personal_assistant.reporter.upstream_reporter import (
     UpstreamReporter,
     build_agent_capabilities_payload,
@@ -284,799 +292,6 @@ class GatewayRuntimeState:
     config_path: str
     log_path: str
     process_start: str | None = None
-
-
-def _default_pa_global_skill_names() -> tuple[str, ...]:
-    """Resolve the PA global user skills that new IM-created agents inherit."""
-
-    root = _PA_GLOBAL_SKILL_ROOT.expanduser().resolve()
-    if not root.is_dir():
-        return ()
-    try:
-        names: set[str] = set()
-        for skill_file in sorted(root.rglob("SKILL.md")):
-            if ".archive" in skill_file.parts:
-                continue
-            names.add(_read_skill_name(skill_file))
-        return tuple(sorted(names))
-    except Exception:  # noqa: BLE001
-        _log.warning(
-            "failed to resolve PA global skill defaults from %s", root, exc_info=True
-        )
-        return ()
-
-
-def _read_skill_name(skill_file: Path) -> str:
-    """Return the skill's declared name, falling back to its directory name."""
-
-    for line in skill_file.read_text(encoding="utf-8", errors="replace").splitlines():
-        stripped = line.strip()
-        if stripped == "---" or not stripped:
-            continue
-        if stripped.startswith("name:"):
-            return (
-                stripped.split(":", 1)[1].strip().strip("\"'") or skill_file.parent.name
-            )
-        if not stripped.startswith("#"):
-            break
-    return skill_file.parent.name
-
-
-class _IMConfigSyncClient:
-    """Fetch IM agent config snapshots and extend the live gateway agent registry."""
-
-    # bugfix-402-M6: optional callback invoked at the end of handle_agent_create
-    # so build_runtime can register a CronExecutionService for dynamically created
-    # agents without handle_agent_create needing to know about the cron subsystem.
-    on_agent_created: Callable[[str, Path], None] | None = None
-
-    def __init__(
-        self,
-        *,
-        base_url: str,
-        token: str | None,
-        pipeline: InboundPipeline,
-        local_config: LocalConfig,
-        workspace_root_factory: Callable[[str], Path] | None = None,
-        reporter: UpstreamReporter | None = None,
-        client: httpx.Client | None = None,
-        client_factory: BootstrapClientFactory | None = None,
-        global_skill_root: Path | None = None,
-        timeout_seconds: float = 5.0,
-        retry_interval_seconds: float = 0.1,
-        max_attempts: int = 50,
-        monotonic: Monotonic = time.monotonic,
-        sleep: Sleep = time.sleep,
-        token_getter: Callable[[], Awaitable[str | None]] | None = None,
-    ) -> None:
-        self._base_url = _im_http_base_url(base_url)
-        self._base_headers = _im_http_headers(token)
-        self._timeout_seconds = timeout_seconds
-        self._retry_interval_seconds = retry_interval_seconds
-        self._max_attempts = max(max_attempts, 1)
-        self._pipeline = pipeline
-        self._local_config = local_config
-        self._workspace_root_factory = (
-            workspace_root_factory or self._default_workspace_root
-        )
-        self._reporter = reporter
-        self._client_factory = client_factory
-        self._client = client
-        self._global_skill_root = (
-            global_skill_root.expanduser().resolve()
-            if global_skill_root is not None
-            else None
-        )
-        self._monotonic = monotonic
-        self._sleep = sleep
-        # feat-394-M3 fix: accept token_getter so auto-bind token refresh propagates
-        # to config sync requests. Without this, sync_agent calls 401 after auto-bind
-        # because the initial token is empty and is never updated. Mirrors the pattern
-        # used by _IMBootstrapClient (main.py:599-613).
-        self._token_getter = token_getter
-
-    def sync_agent(self, *, agent_id: str, profile_version: int) -> None:
-        deadline = self._monotonic() + self._timeout_seconds
-        attempt = 0
-        while True:
-            attempt += 1
-            try:
-                payload = self._fetch_agent_config(agent_id=agent_id)
-                resolved_profile_version = int(payload.get("profile_version", 0))
-                if resolved_profile_version < profile_version:
-                    raise RuntimeError(
-                        f"agent {agent_id} config stale: expected >= {profile_version}, got {resolved_profile_version}"
-                    )
-                workspace_root = resolve_runtime_workspace(
-                    agent_id=agent_id,
-                    local_agents=self._local_config.agents,
-                    workspace_root_factory=self._workspace_root_factory,
-                )
-                # feat-379-M2: parse per-agent features/custom_prompt from IM mirror payload
-                raw_features = payload.get("features")
-                synced_features = (
-                    {
-                        k: v
-                        for k, v in raw_features.items()
-                        if isinstance(k, str) and isinstance(v, bool)
-                    }
-                    if isinstance(raw_features, dict)
-                    else {}
-                )
-                synced_custom_prompt_val = payload.get("custom_prompt")
-                synced_custom_prompt = (
-                    synced_custom_prompt_val.strip()
-                    if isinstance(synced_custom_prompt_val, str)
-                    and synced_custom_prompt_val.strip()
-                    else None
-                )
-                # feat-394 decision 5: parse heartbeat cadence (every / active_hours) from
-                # heartbeat_json; enable state lives in features["heartbeat"] (M9 decision D).
-                _hb_raw_str = payload.get("heartbeat_json")
-                if isinstance(_hb_raw_str, str) and _hb_raw_str.strip():
-                    import json as _json  # noqa: PLC0415
-
-                    try:
-                        _hb_raw = _json.loads(_hb_raw_str)
-                    except (ValueError, TypeError):
-                        _hb_raw = payload.get("heartbeat")
-                else:
-                    _hb_raw = payload.get("heartbeat")
-                (
-                    synced_heartbeat_every,
-                    synced_hb_start,
-                    synced_hb_end,
-                    synced_hb_tz,
-                ) = _parse_heartbeat_from_im_payload(_hb_raw)
-                # feat-394 fix: cron is a gated capability decoupled from the user tool
-                # whitelist — cron_enabled must NEVER be written into tool_allowlist.
-                # The cron tool is appended to the effective session toolset via the
-                # feature→requires_tool invariant (feat-394 M9 decision D).
-                _raw_allowlist = [
-                    item.strip()
-                    for item in payload.get("tool_allowlist", [])
-                    if isinstance(item, str) and item.strip()
-                ]
-                agent_config = AgentWorkspaceConfig(
-                    agent_id=agent_id,
-                    workspace_root=workspace_root,
-                    title=str(payload.get("display_name") or agent_id),
-                    skills=tuple(
-                        item.strip()
-                        for item in payload.get("skills", [])
-                        if isinstance(item, str) and item.strip()
-                    ),
-                    tool_allowlist=tuple(_raw_allowlist),
-                    system_prompt=(
-                        payload.get("system_prompt").strip()
-                        if isinstance(payload.get("system_prompt"), str)
-                        and payload.get("system_prompt").strip()
-                        else None
-                    ),
-                    group_reply_policy=(
-                        payload.get("group_reply_policy").strip()
-                        if isinstance(payload.get("group_reply_policy"), str)
-                        and payload.get("group_reply_policy").strip()
-                        else None
-                    ),
-                    default_model=(
-                        payload.get("default_model").strip()
-                        if isinstance(payload.get("default_model"), str)
-                        and payload.get("default_model").strip()
-                        else None
-                    ),
-                    features=synced_features,
-                    custom_prompt=synced_custom_prompt,
-                    heartbeat_every=synced_heartbeat_every,
-                    heartbeat_active_hours_start=synced_hb_start,
-                    heartbeat_active_hours_end=synced_hb_end,
-                    heartbeat_active_hours_timezone=synced_hb_tz,
-                )
-                self._pipeline.register_agent(agent_config)
-                self._persist_agent_config(agent_config)
-                self._pipeline.drop_agent_sessions(agent_id)
-                return
-            except (httpx.HTTPError, RuntimeError, ValueError):
-                if attempt >= self._max_attempts or self._monotonic() >= deadline:
-                    raise
-                self._sleep(self._retry_interval_seconds)
-
-    def handle_agent_create(
-        self, agent_payload: Mapping[str, object]
-    ) -> dict[str, object]:
-        """在节点上落地工作区并注册 Agent，供 IM ``agent.create`` / ``agent.created`` 回包使用。"""
-        agent_id_raw = agent_payload.get("agent_id")
-        if not isinstance(agent_id_raw, str) or not agent_id_raw.strip():
-            raise ValueError("agent.create requires non-empty agent_id")
-        agent_id = agent_id_raw.strip()
-        ws_raw = agent_payload.get("workspace_root")
-        if isinstance(ws_raw, str) and ws_raw.strip():
-            workspace_root = Path(ws_raw.strip()).expanduser()
-            if not workspace_root.is_absolute():
-                raise ValueError(
-                    "workspace_root must be an absolute path or start with ~/"
-                )
-            workspace_root = workspace_root.resolve()
-        else:
-            workspace_root = self._workspace_root_factory(agent_id)
-        workspace_root = ensure_workspace_defaults(workspace_root)
-        display = agent_payload.get("display_name")
-        title = (
-            display.strip()
-            if isinstance(display, str) and display.strip()
-            else agent_id
-        )
-        desc_val = agent_payload.get("description")
-        description_str = desc_val.strip() if isinstance(desc_val, str) else ""
-        system_prompt_val = agent_payload.get("system_prompt")
-        system_prompt = (
-            system_prompt_val.strip()
-            if isinstance(system_prompt_val, str) and system_prompt_val.strip()
-            else None
-        )
-        raw_skills = agent_payload.get("skills")
-        skills = tuple(
-            item.strip()
-            for item in (raw_skills if isinstance(raw_skills, list) else [])
-            if isinstance(item, str) and item.strip()
-        )
-        if "skills" not in agent_payload:
-            skills = _default_pa_global_skill_names()
-        raw_tools = agent_payload.get("tool_allowlist")
-        tool_allowlist = tuple(
-            item.strip()
-            for item in (raw_tools if isinstance(raw_tools, list) else [])
-            if isinstance(item, str) and item.strip()
-        )
-        grp = agent_payload.get("group_reply_policy")
-        group_reply_policy = (
-            grp.strip() if isinstance(grp, str) and grp.strip() else "MENTION"
-        )
-        dm = agent_payload.get("default_model")
-        default_model = dm.strip() if isinstance(dm, str) and dm.strip() else None
-        # feat-379-M2: per-agent features and custom_prompt from IM push payload
-        raw_features = agent_payload.get("features")
-        features = (
-            {
-                k: v
-                for k, v in raw_features.items()
-                if isinstance(k, str) and isinstance(v, bool)
-            }
-            if isinstance(raw_features, dict)
-            else {}
-        )
-        cp_val = agent_payload.get("custom_prompt")
-        custom_prompt = (
-            cp_val.strip() if isinstance(cp_val, str) and cp_val.strip() else None
-        )
-        agent_config = AgentWorkspaceConfig(
-            agent_id=agent_id,
-            workspace_root=workspace_root,
-            title=title,
-            skills=skills,
-            tool_allowlist=tool_allowlist,
-            system_prompt=system_prompt,
-            group_reply_policy=group_reply_policy,
-            default_model=default_model,
-            features=features,
-            custom_prompt=custom_prompt,
-        )
-        self._pipeline.register_agent(agent_config)
-        self._persist_agent_config(agent_config)
-        if self._reporter is not None:
-            self._reporter.replace_agents(tuple(self._local_config.agents))
-        # bugfix-402-M6: notify build_runtime so it can register a
-        # CronExecutionService for this newly created agent.  The callback is
-        # wired after im_config_sync_client is constructed (see build_runtime).
-        if self.on_agent_created is not None:
-            try:
-                self.on_agent_created(agent_id, workspace_root)
-            except Exception:  # noqa: BLE001
-                _log.warning(
-                    "on_agent_created callback failed for agent=%s; "
-                    "cron execution service may not be registered",
-                    agent_id,
-                )
-        return {
-            "agent_id": agent_id,
-            "display_name": title,
-            "description": description_str,
-            "system_prompt": system_prompt or "",
-            "skills": list(skills),
-            "tool_allowlist": list(tool_allowlist),
-            "group_reply_policy": group_reply_policy,
-            "default_model": default_model,
-            "workspace_root": str(workspace_root),
-            "features": features,
-            "custom_prompt": custom_prompt,
-        }
-
-    def handle_skill_created(self, agent_id: str, event: Mapping[str, object]) -> None:
-        """Enable a successfully created skill for the affected live agents."""
-
-        skill_name = event.get("name")
-        scope = event.get("scope")
-        raw_skill_root = event.get("skill_root")
-        if not (
-            isinstance(skill_name, str)
-            and skill_name.strip()
-            and isinstance(scope, str)
-            and isinstance(raw_skill_root, str)
-            and raw_skill_root.strip()
-        ):
-            return
-        skill_name = skill_name.strip()
-        skill_root = Path(raw_skill_root).expanduser().resolve()
-        if scope == "agent":
-            agent = self._local_agent(agent_id)
-            if agent is None:
-                return
-            if skill_root != self._agent_skill_root(agent):
-                _log.warning(
-                    "ignoring agent-scoped skill_created for %s: root %s is not the agent skill root",
-                    agent_id,
-                    skill_root,
-                )
-                return
-            self._enable_created_skill_for_agent(agent, skill_name)
-            return
-        if scope == "global":
-            if self._global_skill_root is None or skill_root != self._global_skill_root:
-                _log.warning(
-                    "ignoring global skill_created for %s: root %s is not configured global root",
-                    agent_id,
-                    skill_root,
-                )
-                return
-            for agent in tuple(self._local_config.agents):
-                self._enable_created_skill_for_agent(agent, skill_name)
-
-    def _enable_created_skill_for_agent(
-        self, agent: AgentWorkspaceConfig, skill_name: str
-    ) -> None:
-        if not agent.skills:
-            self._pipeline.drop_agent_sessions(agent.agent_id)
-            return
-        if skill_name in agent.skills:
-            self._pipeline.drop_agent_sessions(agent.agent_id)
-            return
-        try:
-            payload = self._fetch_agent_config(agent_id=agent.agent_id)
-            next_skills = [
-                item.strip()
-                for item in payload.get("skills", [])
-                if isinstance(item, str) and item.strip()
-            ]
-            if skill_name not in next_skills:
-                next_skills.append(skill_name)
-                updated = self._patch_agent_skills(agent.agent_id, payload, next_skills)
-                profile_version = int(updated.get("profile_version", 0))
-                self.sync_agent(
-                    agent_id=agent.agent_id,
-                    profile_version=profile_version,
-                )
-            else:
-                self._pipeline.drop_agent_sessions(agent.agent_id)
-        except (httpx.HTTPError, ValueError, RuntimeError):
-            _log.warning(
-                "failed to enable created skill %s for agent %s",
-                skill_name,
-                agent.agent_id,
-                exc_info=True,
-            )
-
-    def _patch_agent_skills(
-        self,
-        agent_id: str,
-        payload: Mapping[str, object],
-        skills: list[str],
-    ) -> dict[str, object]:
-        raw_tools = payload.get("tool_allowlist")
-        raw_features = payload.get("features")
-        patch_payload: dict[str, object] = {
-            "profile_version": int(payload.get("profile_version", 1)),
-            "display_name": str(payload.get("display_name") or agent_id),
-            "description": str(payload.get("description") or ""),
-            "system_prompt": str(payload.get("system_prompt") or ""),
-            "skills": skills,
-            "tool_allowlist": [
-                item.strip()
-                for item in (raw_tools if isinstance(raw_tools, list) else [])
-                if isinstance(item, str) and item.strip()
-            ],
-            "group_reply_policy": str(payload.get("group_reply_policy") or "manual"),
-            "default_model": payload.get("default_model")
-            if isinstance(payload.get("default_model"), str)
-            else None,
-            "features": raw_features if isinstance(raw_features, dict) else {},
-            "custom_prompt": payload.get("custom_prompt")
-            if isinstance(payload.get("custom_prompt"), str)
-            else None,
-            "heartbeat_json": payload.get("heartbeat_json")
-            if isinstance(payload.get("heartbeat_json"), str)
-            else None,
-        }
-        response = self._get_client().patch(
-            f"/im/v1/agents/{agent_id}/config",
-            json=patch_payload,
-        )
-        response.raise_for_status()
-        updated = response.json()
-        if not isinstance(updated, dict):
-            raise ValueError("agent config patch response must be an object")
-        return updated
-
-    def _local_agent(self, agent_id: str) -> AgentWorkspaceConfig | None:
-        return next(
-            (
-                agent
-                for agent in self._local_config.agents
-                if agent.agent_id == agent_id
-            ),
-            None,
-        )
-
-    @staticmethod
-    def _agent_skill_root(agent: AgentWorkspaceConfig) -> Path:
-        return (agent.workspace_root / _WCD / "skills").expanduser().resolve()
-
-    def close(self) -> None:
-        client = self._client
-        if client is not None:
-            client.close()
-            self._client = None
-
-    def reconcile_all_agents(
-        self,
-        *,
-        memory_versions: dict[str, int] | None = None,
-    ) -> None:
-        """拉 IM 权威 profile 做全量对账，按 profile_version 取大覆盖内存 config。
-
-        feat-394-M12 决策 F：gateway WS bind 完成（含重连）后调用一次，消除「漏一次
-        增量推送即永久停在旧状态」的问题。对每个 local_config.agents 拉 source=mirror
-        profile；若 IM 返回的 profile_version >= memory_versions[agent_id] 则
-        register_agent 覆盖内存，否则保留内存（取大原则，避免回退新版本）。HTTP 失败
-        时记录警告并跳过该 agent——不抛出，WS 连接生命周期不受影响。
-
-        Args:
-            memory_versions: 可选的 agent_id → 当前内存 profile_version 映射（由
-                ConfigSyncClient 维护）。缺失或无对应 key 时视作内存版本为 0，即接受
-                任意 IM 版本。
-        """
-        if memory_versions is None:
-            memory_versions = {}
-        for agent in self._local_config.agents:
-            agent_id = agent.agent_id
-            mem_ver = memory_versions.get(agent_id, 0)
-            try:
-                payload = self._fetch_agent_config(agent_id=agent_id)
-            except (httpx.HTTPError, ValueError):
-                _log.warning(
-                    "reconcile_all_agents: failed to fetch profile for agent %s, skipping",
-                    agent_id,
-                )
-                continue
-            im_version = int(payload.get("profile_version", 0))
-            if im_version < mem_ver:
-                # IM 版本落后内存（增量推送已带来更新版本），保留内存不回退
-                _log.debug(
-                    "reconcile_all_agents: skipping agent %s — IM version %d < memory %d",
-                    agent_id,
-                    im_version,
-                    mem_ver,
-                )
-                continue
-            # IM 版本 >= 内存版本：覆盖内存 config 使其收敛到 IM 真值。
-            # Runtime workspace remains local-wins; IM workspace_root is mirror/display data.
-            workspace_root = resolve_runtime_workspace(
-                agent_id=agent_id,
-                local_agents=self._local_config.agents,
-                workspace_root_factory=self._workspace_root_factory,
-            )
-            raw_features = payload.get("features")
-            synced_features = (
-                {
-                    k: v
-                    for k, v in raw_features.items()
-                    if isinstance(k, str) and isinstance(v, bool)
-                }
-                if isinstance(raw_features, dict)
-                else {}
-            )
-            synced_custom_prompt_val = payload.get("custom_prompt")
-            synced_custom_prompt = (
-                synced_custom_prompt_val.strip()
-                if isinstance(synced_custom_prompt_val, str)
-                and synced_custom_prompt_val.strip()
-                else None
-            )
-            _hb_raw_str = payload.get("heartbeat_json")
-            if isinstance(_hb_raw_str, str) and _hb_raw_str.strip():
-                import json as _json  # noqa: PLC0415
-
-                try:
-                    _hb_raw = _json.loads(_hb_raw_str)
-                except (ValueError, TypeError):
-                    _hb_raw = payload.get("heartbeat")
-            else:
-                _hb_raw = payload.get("heartbeat")
-            (
-                synced_heartbeat_every,
-                synced_hb_start,
-                synced_hb_end,
-                synced_hb_tz,
-            ) = _parse_heartbeat_from_im_payload(_hb_raw)
-            _raw_allowlist = [
-                item.strip()
-                for item in payload.get("tool_allowlist", [])
-                if isinstance(item, str) and item.strip()
-            ]
-            agent_config = AgentWorkspaceConfig(
-                agent_id=agent_id,
-                workspace_root=workspace_root,
-                title=str(payload.get("display_name") or agent_id),
-                skills=tuple(
-                    item.strip()
-                    for item in payload.get("skills", [])
-                    if isinstance(item, str) and item.strip()
-                ),
-                tool_allowlist=tuple(_raw_allowlist),
-                system_prompt=(
-                    payload.get("system_prompt").strip()
-                    if isinstance(payload.get("system_prompt"), str)
-                    and payload.get("system_prompt").strip()
-                    else None
-                ),
-                group_reply_policy=(
-                    payload.get("group_reply_policy").strip()
-                    if isinstance(payload.get("group_reply_policy"), str)
-                    and payload.get("group_reply_policy").strip()
-                    else None
-                ),
-                default_model=(
-                    payload.get("default_model").strip()
-                    if isinstance(payload.get("default_model"), str)
-                    and payload.get("default_model").strip()
-                    else None
-                ),
-                features=synced_features,
-                custom_prompt=synced_custom_prompt,
-                heartbeat_every=synced_heartbeat_every,
-                heartbeat_active_hours_start=synced_hb_start,
-                heartbeat_active_hours_end=synced_hb_end,
-                heartbeat_active_hours_timezone=synced_hb_tz,
-            )
-            self._pipeline.register_agent(agent_config)
-            self._persist_agent_config(agent_config)
-            _log.debug(
-                "reconcile_all_agents: updated agent %s to IM version %d",
-                agent_id,
-                im_version,
-            )
-
-    def _persist_agent_config(self, agent_config: AgentWorkspaceConfig) -> None:
-        agents = list(self._local_config.agents)
-        for index, existing in enumerate(agents):
-            if existing.agent_id == agent_config.agent_id:
-                agents[index] = agent_config
-                break
-        else:
-            agents.append(agent_config)
-        persist_path = (
-            Path(self._local_config.source_path)
-            if self._local_config.source_path
-            else default_local_config_path()
-        )
-        self._local_config = LocalConfig(
-            node=self._local_config.node,
-            agents=tuple(agents),
-            channels=self._local_config.channels,
-            gateway=self._local_config.gateway,
-            heartbeat=self._local_config.heartbeat,
-            im_service=self._local_config.im_service,
-            llm=self._local_config.llm,
-            source_path=persist_path,
-        )
-        save_local_config(self._local_config, persist_path)
-
-    def current_agent_payload(self, *, agent_id: str) -> dict[str, object] | None:
-        for agent in self._local_config.agents:
-            if agent.agent_id != agent_id:
-                continue
-            payload: dict[str, object] = {
-                "display_name": agent.title or agent.agent_id,
-                "system_prompt": agent.system_prompt or "",
-                "skills": list(agent.skills),
-                "tool_allowlist": list(agent.tool_allowlist),
-                "group_reply_policy": agent.group_reply_policy or "manual",
-                "default_model": agent.default_model,
-                "workspace_root": str(agent.workspace_root),
-                # feat-379-M2: expose per-agent features/custom_prompt for capabilities reporting
-                "features": dict(agent.features),
-                "custom_prompt": agent.custom_prompt,
-            }
-            return payload
-        return None
-
-    def _fetch_agent_config(self, *, agent_id: str) -> dict[str, object]:
-        response = self._get_client().get(
-            f"/im/v1/agents/{agent_id}/config", params={"source": "mirror"}
-        )
-        response.raise_for_status()
-        payload = response.json()
-        if not isinstance(payload, dict):
-            raise ValueError("agent config response must be an object")
-        return payload
-
-    def _get_client(self) -> httpx.Client:
-        if self._client is not None:
-            return self._client
-        if self._client_factory is not None:
-            self._client = self._client_factory(self._base_url)
-        else:
-            self._client = httpx.Client(
-                base_url=self._base_url,
-                headers=self._base_headers,
-                timeout=self._timeout_seconds,
-                trust_env=False,
-            )
-        return self._client
-
-    def update_token(self, token: str | None) -> None:
-        """Propagate a refreshed access token so future sync requests use it.
-
-        feat-394-M3 fix: called by the token_getter wrapper in _run_gateway after
-        each successful token refresh so this client does not hold a stale/empty
-        Bearer token when auto-bind has rotated credentials.  Mirrors the
-        _refresh_token pattern in _IMBootstrapClient (main.py:621-628).
-
-        Args:
-            token: New access token, or None to clear.
-        """
-        self._base_headers = _im_http_headers(token)
-        # Propagate updated headers to any live client instance so in-flight
-        # connections also pick up the new token without a full reconnect.
-        # Injected test clients (passed via constructor) are updated in-place;
-        # self-built clients are rebuilt by _get_client() on the next request
-        # if they were previously None (first call) or by headers update here.
-        if self._client is not None:
-            self._client.headers.update(self._base_headers)
-
-    @staticmethod
-    def _default_workspace_root(agent_id: str) -> Path:
-        return Path("~/nano-assistant/workspace").expanduser() / agent_id
-
-
-def _make_workspace_root_factory(
-    workspace_base: str | None,
-) -> Callable[[str], Path] | None:
-    """Build a workspace_root factory rooted at ``workspace_base`` (bugfix-424 / #127).
-
-    When ``workspace_base`` is set, dynamically-created agents (built via IM
-    ``agent.create`` without an explicit ``workspace_root``) get their workspace at
-    ``<workspace_base>/<agent_id>`` — the same isolation root preset agents use.
-    Returns ``None`` when ``workspace_base`` is unset so the caller keeps its legacy
-    ``~/nano-assistant/workspace`` default, leaving existing deployments unchanged.
-
-    Args:
-        workspace_base: Base directory from ``node.workspace_base``, or None.
-
-    Returns:
-        A factory mapping ``agent_id`` to an absolute workspace path, or None.
-    """
-    if not (isinstance(workspace_base, str) and workspace_base.strip()):
-        return None
-    base = Path(workspace_base.strip()).expanduser()
-
-    def _factory(agent_id: str, _base: Path = base) -> Path:
-        return _base / agent_id
-
-    return _factory
-
-
-class _IMShadowConversationSyncClient:
-    """Best-effort HTTP writer for external-channel shadow conversations."""
-
-    def __init__(
-        self,
-        *,
-        base_url: str,
-        token_getter: Callable[[], Awaitable[str | None]],
-        owner_user_id: str,
-        timeout_seconds: float = 3.0,
-        transport: httpx.AsyncBaseTransport | None = None,
-    ) -> None:
-        self._base_url = _im_http_base_url(base_url)
-        self._token_getter = token_getter
-        self._owner_user_id = owner_user_id.strip()
-        self._timeout_seconds = timeout_seconds
-        self._transport = transport
-        self._resolved_owner_user_id: str | None = None
-
-    async def sync_user_message(
-        self, message: InboundMessage, *, agent_id: str
-    ) -> str | None:
-        metadata = dict(message.metadata)
-        external_source = _metadata_text(metadata, key="external_source")
-        external_chat_id = _metadata_text(metadata, key="external_chat_id")
-        if external_source is None or external_chat_id is None:
-            return None
-        token = await self._token_getter()
-        headers = _im_http_headers(token)
-        async with httpx.AsyncClient(
-            base_url=self._base_url,
-            headers=headers,
-            timeout=self._timeout_seconds,
-            trust_env=False,
-            transport=self._transport,
-        ) as client:
-            owner_user_id = await self._resolve_owner_user_id(client)
-            conversation_response = await client.post(
-                "/im/v1/conversations/external/find-or-create",
-                json={
-                    "external_source": external_source,
-                    "external_chat_id": external_chat_id,
-                    "agent_id": agent_id,
-                    "title": _external_shadow_title(
-                        metadata, agent_id=agent_id, external_source=external_source
-                    ),
-                    "is_group": bool(message.is_group),
-                    "participant_ids": [
-                        f"user:{owner_user_id}",
-                        f"agent:{agent_id}",
-                    ],
-                    "metadata": {
-                        key: value
-                        for key, value in metadata.items()
-                        if isinstance(key, str)
-                    },
-                },
-            )
-            conversation_response.raise_for_status()
-            conversation_payload = conversation_response.json()
-            conversation_id = str(conversation_payload.get("id") or "").strip()
-            if not conversation_id:
-                raise ValueError("external shadow conversation response missing id")
-            message_response = await client.post(
-                f"/im/v1/conversations/{conversation_id}/messages",
-                json={
-                    "sender_user_id": owner_user_id,
-                    "sender_type": "user",
-                    "content": message.text,
-                    "sender_display_name": _metadata_text(
-                        metadata, key="sender_display_name"
-                    ),
-                    "suppress_relay": True,
-                },
-            )
-            message_response.raise_for_status()
-            return conversation_id
-
-    async def _resolve_owner_user_id(self, client: httpx.AsyncClient) -> str:
-        if self._resolved_owner_user_id:
-            return self._resolved_owner_user_id
-        response = await client.get("/im/v1/me")
-        response.raise_for_status()
-        payload = response.json()
-        user_id = payload.get("id") or payload.get("user_id")
-        if not isinstance(user_id, str) or not user_id.strip():
-            raise ValueError("IM /me response missing user id")
-        self._resolved_owner_user_id = user_id.strip()
-        return self._resolved_owner_user_id
-
-
-def _external_shadow_title(
-    metadata: Mapping[str, object], *, agent_id: str, external_source: str
-) -> str:
-    title = _metadata_text(metadata, key="conversation_title")
-    if title is not None:
-        return title
-    chat_name = _metadata_text(metadata, key="chat_name")
-    conversation_type = _metadata_text(metadata, key="conversation_type")
-    if conversation_type == "group":
-        return f"{agent_id} · {chat_name or '群聊'} · {external_source}"
-    return f"{agent_id} · {external_source}"
 
 
 class _IMBootstrapClient:
@@ -1428,7 +643,7 @@ class PollingHeartbeatRunner:
         owner_user_id: str = "",
         kernel_event_observer: Any | None = None,
         cron_tick_fn: Callable[[str], Awaitable[None]] | None = None,
-        agents: "dict[str, Any] | None" = None,
+        agent_catalog: LiveAgentCatalog | None = None,
     ) -> None:
         self._scheduler = scheduler
         self._config = config
@@ -1445,7 +660,7 @@ class PollingHeartbeatRunner:
         # cron_tick_fn(agent_id) is called once per tick for each cron_enabled agent.
         # When None, cron is skipped (backward compat, no cron subsystem configured).
         self._cron_tick_fn = cron_tick_fn
-        self._agents = agents or {}
+        self._agent_catalog = agent_catalog
 
     async def start(self) -> None:
         """Start background scheduler ticking exactly once."""
@@ -1505,7 +720,15 @@ class PollingHeartbeatRunner:
             # Design §架构总览: "统一 Polling 调度 tick（扩展现 PollingHeartbeatRunner）".
             # For each agent with cron_enabled=True, invoke the cron tick function.
             if self._cron_tick_fn is not None and not self._stop_requested:
-                for agent_id, agent in list(self._agents.items()):
+                active_agents = (
+                    (
+                        (snapshot.agent_id, snapshot.config)
+                        for snapshot in self._agent_catalog.values_snapshot()
+                    )
+                    if self._agent_catalog is not None
+                    else ()
+                )
+                for agent_id, agent in active_agents:
                     if self._stop_requested:
                         break
                     cron_enabled = getattr(agent, "cron_enabled", False)
@@ -2601,14 +1824,14 @@ class _KernelClientShim:
         self,
         kernel: "Kernel",
         *,
-        agents_by_id: dict[str, Any] | None = None,
+        agent_catalog: LiveAgentCatalog | None = None,
         product_default_model: str | None = None,
     ) -> None:
         self._kernel = kernel
         # refactor-406-M1 R6: per-agent config for building PromptSlots at
         # session-open (决策 8).  heartbeat/cron sessions look up the agent by
         # metadata["agent_id"] and assemble the PA prompt via prompt_for.
-        self._agents_by_id = agents_by_id or {}
+        self._agent_catalog = agent_catalog
         # bugfix-429 决策2: product default model for the heartbeat/cron path.
         # Callers pass the agent's selected model (may be None); the shim falls
         # back to this so unattended runs use the same default as user turns.
@@ -2629,7 +1852,12 @@ class _KernelClientShim:
         enabled_tools = None
         features = None
         agent_id = (metadata or {}).get("agent_id")
-        agent = self._agents_by_id.get(agent_id) if isinstance(agent_id, str) else None
+        snapshot = (
+            self._agent_catalog.get(agent_id)
+            if self._agent_catalog is not None and isinstance(agent_id, str)
+            else None
+        )
+        agent = snapshot.config if snapshot is not None else None
         if agent is not None:
             from personal_assistant.product import (  # noqa: PLC0415
                 prompt_for,
@@ -2684,9 +1912,12 @@ class _KernelClientShim:
         # bugfix-429 决策2 / fix-r1 #3: resolve via the shared helper — explicit
         # model (heartbeat passes agent.default_model) wins; else the agent looked
         # up by agent_id (cron); else the product default. The kernel holds none.
-        resolved_agent = (
-            self._agents_by_id.get(agent_id) if isinstance(agent_id, str) else None
+        snapshot = (
+            self._agent_catalog.get(agent_id)
+            if self._agent_catalog is not None and isinstance(agent_id, str)
+            else None
         )
+        resolved_agent = snapshot.config if snapshot is not None else None
         resolved_model = resolve_run_model(
             resolved_agent,
             product_default=self._product_default_model,
@@ -2801,46 +2032,6 @@ def _make_prompt_preview_provider(kernel: Any) -> "PromptPreviewProvider":
     return _provider  # type: ignore[return-value]
 
 
-def _parse_heartbeat_from_im_payload(
-    raw: object,
-) -> tuple[str | None, str | None, str | None, str | None]:
-    """Parse heartbeat cadence fields from an IM agent config payload.
-
-    feat-394 decision 5 / M9-E: enable state lives in features["heartbeat"] (decision D).
-    This function only extracts cadence data: every, active_hours_{start,end,timezone}.
-
-    Args:
-        raw: The raw value of ``payload["heartbeat"]`` from an IM API response.
-
-    Returns:
-        4-tuple of (heartbeat_every, active_hours_start, active_hours_end,
-        active_hours_timezone).  All fields are None when absent.
-    """
-    if not isinstance(raw, dict):
-        return None, None, None, None
-    every_raw = raw.get("every")
-    heartbeat_every = (
-        every_raw.strip() if isinstance(every_raw, str) and every_raw.strip() else None
-    )
-    active_hours_raw = raw.get("active_hours")
-    if isinstance(active_hours_raw, dict):
-        start_raw = active_hours_raw.get("start")
-        end_raw = active_hours_raw.get("end")
-        tz_raw = active_hours_raw.get("timezone")
-        hb_start = (
-            start_raw.strip()
-            if isinstance(start_raw, str) and start_raw.strip()
-            else None
-        )
-        hb_end = (
-            end_raw.strip() if isinstance(end_raw, str) and end_raw.strip() else None
-        )
-        hb_tz = tz_raw.strip() if isinstance(tz_raw, str) and tz_raw.strip() else None
-    else:
-        hb_start, hb_end, hb_tz = None, None, None
-    return heartbeat_every, hb_start, hb_end, hb_tz
-
-
 def build_runtime(config: LocalConfig) -> GatewayRuntime:
     """Construct the default long-running gateway runtime from parsed local config.
 
@@ -2897,12 +2088,13 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         # can_use_tool=None: IM card flow; see submit_permission_decision.
     )
 
+    agent_catalog = LiveAgentCatalog(config.agents)
     # Wrap Kernel as a _KernelClientLike shim so HeartbeatScheduler and
     # InternalDispatchHandler (which still use kernel_client protocol) work
     # without modification until M4 cleanup.
     kernel_shim = _KernelClientShim(
         kernel,
-        agents_by_id={a.agent_id: a for a in config.agents},
+        agent_catalog=agent_catalog,
         product_default_model=config.llm.default_model,
     )
     permission_response_handler = _build_permission_response_handler(kernel=kernel)
@@ -2914,9 +2106,8 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         db_path=runtime_dir / "group_context_buffer.sqlite3"
     )
     # The shim builds per-session PromptSlots/enabled_tools/features from agent config
-    # (决策 8).  Point it at the live pipeline._agents dict (set after the pipeline is
-    # built below) so config-sync register_agent updates — e.g. enabling heartbeat/cron —
-    # reach heartbeat/cron sessions; a startup snapshot would go stale.
+    # (决策 8). The shared LiveAgentCatalog keeps heartbeat/cron session creation
+    # current when config sync publishes a new Agent revision.
     channel_registry = _build_channel_registry(
         config.channels,
         dedup_db_path=runtime_dir / "relay_dedup.sqlite3",
@@ -2933,6 +2124,12 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     session_store = PersistentSessionBindingStore(
         db_path=runtime_dir / "session_bindings.sqlite3"
     )
+    session_binder = GatewaySessionBinder(
+        catalog=agent_catalog,
+        repository=session_store,
+        kernel=kernel,
+    )
+    run_queue = SessionRunQueue()
     # feat-394 decision 3: canonical direct-chat kernel session store.
     # Updated by HeartbeatScheduler.tick() via session_store.find_direct_by_agent()
     # BEFORE each run submission (tick-time read, no reactive ack dependency).
@@ -2944,12 +2141,14 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         kernel_client=kernel_shim,
         state_store=HeartbeatSchedulerStateStore(_default_heartbeat_state_path(config)),
         canonical_session_store=_canonical_session_store,
-        session_store=session_store,
+        agent_catalog=agent_catalog,
+        session_binder=session_binder,
+        is_session_busy=run_queue.is_active,
     )
     reporter: UpstreamReporter | None = None
     im_connection_manager: IMConnectionManager | None = None
     im_bootstrap_client: _IMBootstrapClient | None = None
-    im_config_sync_client: _IMConfigSyncClient | None = None
+    im_config_sync_client: IMAgentConfigSync | None = None
     run_delivery_contexts = RunDeliveryContextStore()
     # feat-393: heartbeat_runner is built here (before im_connection_manager which references it),
     # but the kernel_event_observer is wired after im_service block via attribute set below.
@@ -2963,21 +2162,12 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         kernel=kernel if _owner_user_id else None,
         run_context_store=run_delivery_contexts if _owner_user_id else None,
         owner_user_id=_owner_user_id,
+        agent_catalog=agent_catalog,
         # kernel_event_observer is set below after _build_kernel_event_observer runs.
     )
     _gateway_internal_port = 8089
-    pipeline = InboundPipeline(
-        kernel=kernel,
-        agents=config.agents,
-        outbound_router=outbound_router,
-        run_queue=SessionRunQueue(),
-        session_store=session_store,
-        group_context_store=group_context_store,
-        gateway_internal_port=_gateway_internal_port,
-        # bugfix-429 决策2: product owns the default model; each turn falls back to
-        # this when the agent has not selected one (config.llm.default_model).
-        product_default_model=config.llm.default_model,
-    )
+    shadow_sync: IMShadowConversationSync | None = None
+    attachment_fetcher: Callable[[str], Awaitable[bytes]] | None = None
 
     def _send_external_reply(text: str, metadata: Mapping[str, str]) -> None:
         channel_name = metadata.get("channel_name") or ""
@@ -3042,15 +2232,16 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         # node's configured workspace_base so they land under the same isolation
         # root as preset agents (e.g. a worktree's `.gateway-workspace`) instead of
         # the hardcoded `~/nano-assistant/workspace` default. When workspace_base is
-        # unset the factory stays None and _IMConfigSyncClient keeps its legacy
+        # unset the factory stays None and the config sync keeps its legacy
         # default — existing deployments are unaffected.
         workspace_root_factory = _make_workspace_root_factory(
             config.node.workspace_base
         )
-        im_config_sync_client = _IMConfigSyncClient(
+        im_config_sync_client = IMAgentConfigSync(
             base_url=config.im_service.url,
             token=config.im_service.token,
-            pipeline=pipeline,
+            agent_catalog=agent_catalog,
+            session_binder=session_binder,
             local_config=config,
             reporter=reporter,
             workspace_root_factory=workspace_root_factory,
@@ -3076,11 +2267,12 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                 _sync_client_ref.update_token(token)
             return token
 
-        pipeline._shadow_sync = _IMShadowConversationSyncClient(  # noqa: SLF001
+        shadow_sync = IMShadowConversationSync(
             base_url=config.im_service.url,
             token_getter=_token_getter,
             owner_user_id=_owner_user_id,
         )
+        attachment_fetcher = _build_attachment_fetcher(token_getter=_token_getter)
 
         # M3: permission response handler is no longer wired — the SDK's can_use_tool
         # callback handles all permission decisions in-process (design decision 3).
@@ -3183,15 +2375,15 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             agent_create_handler=im_config_sync_client.handle_agent_create,
             session_fork_handler=_build_session_fork_handler(
                 kernel=kernel,
-                session_store=session_store,
-                agents_getter=lambda: pipeline._agents,  # noqa: SLF001
+                session_binder=session_binder,
+                agent_catalog=agent_catalog,
                 channel_name=WebRelayAdapter.name,
             ),
             token_getter=_token_getter,
             permission_response_handler=permission_response_handler,
             on_connected=_reconcile_on_connect,
         )
-    pipeline._relay_lifecycle_callback = _build_relay_lifecycle_callback(
+    relay_lifecycle_callback = _build_relay_lifecycle_callback(
         reporter=reporter,
         im_connection_manager_factory=lambda: im_connection_manager,
         run_context_store=run_delivery_contexts,
@@ -3209,7 +2401,6 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             im_config_sync_client, "handle_skill_created", None
         ),
     )
-    pipeline._kernel_event_observer = _kernel_event_observer
     # feat-393: wire observer into heartbeat_runner now that it's built. When IM is
     # absent, the observer still mirrors external-channel permission/control events.
     if _owner_user_id:
@@ -3217,23 +2408,35 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     else:
         # No owner bound → heartbeat delivery disabled; clear kernel reference.
         heartbeat_runner._kernel = None  # noqa: SLF001
-    pipeline._bg_reply_sender = _build_bg_reply_sender(
+    bg_reply_sender = _build_bg_reply_sender(
         im_connection_manager_factory=lambda: im_connection_manager,
         external_reply_sender=_send_external_reply,
     )
+    session_event_callback = None
     if config.im_service is not None:
         # feat-349-M3: wire background session event callback so self_evolution_review
         # events published by background hooks reach IM as system/meta messages.
-        pipeline._session_event_callback = _build_session_event_callback(
+        session_event_callback = _build_session_event_callback(
             im_connection_manager_factory=lambda: im_connection_manager,
-            session_store=pipeline._session_store,
+            session_binder=session_binder,
         )
-        # bugfix-433 决策1: wire the live attachment downloader so inbound image URLs
-        # are fetched (with the live IM token) and converted to base64 data URLs before
-        # reaching the kernel. Only wired when im_service is configured.
-        pipeline._attachment_fetcher = _build_attachment_fetcher(
-            token_getter=_token_getter,
-        )
+
+    pipeline = InboundPipeline(
+        kernel=kernel,
+        outbound_router=outbound_router,
+        run_queue=run_queue,
+        agent_catalog=agent_catalog,
+        session_binder=session_binder,
+        group_context_store=group_context_store,
+        gateway_internal_port=_gateway_internal_port,
+        product_default_model=config.llm.default_model,
+        shadow_sync=shadow_sync,
+        relay_lifecycle_callback=relay_lifecycle_callback,
+        kernel_event_observer=_kernel_event_observer,
+        bg_reply_sender=bg_reply_sender,
+        session_event_callback=session_event_callback,
+        attachment_fetcher=attachment_fetcher,
+    )
 
     # bugfix-402-M4 R4 / bugfix-402-M6: build per-agent CronExecutionService and
     # register with dispatcher.  execute_fn is a closure that captures kernel_shim,
@@ -3296,7 +2499,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             agent_id=agent_id,
             workspace_root=ws_root,
             kernel_client=kernel_shim,
-            session_binding_store=session_store,
+            session_binder=session_binder,
         )
 
         async def _execute(
@@ -3455,9 +2658,10 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         shared CronExecutionService.enqueue(trigger="scheduled") for each due job.
         CronScheduler still handles due-time computation and last_due_at persistence.
         """
-        agent_cfg = pipeline._agents.get(agent_id)  # noqa: SLF001
-        if agent_cfg is None or not getattr(agent_cfg, "cron_enabled", False):
+        agent_snapshot = agent_catalog.get(agent_id)
+        if agent_snapshot is None or not agent_snapshot.config.cron_enabled:
             return
+        agent_cfg = agent_snapshot.config
         ws_root = Path(agent_cfg.workspace_root).expanduser().resolve()
 
         # bugfix-402 round-2: route by agent_id, not workspace_root.
@@ -3498,22 +2702,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         )
         await scheduler.tick()
 
-    # Provide agents dict reference (closure over pipeline for dynamic updates).
     heartbeat_runner._cron_tick_fn = _cron_tick_for_agent  # noqa: SLF001
-    heartbeat_runner._agents = pipeline._agents  # noqa: SLF001
-    # refactor-406-M1 R6: share the live pipeline._agents dict so the shim's PromptSlots/
-    # features (built per heartbeat/cron session) reflect config-sync updates, same as
-    # the heartbeat scheduler/runner above.
-    kernel_shim._agents_by_id = pipeline._agents  # noqa: SLF001
-    # feat-394-M4 R3 S1.3 fix: wire a live agents_getter into the heartbeat scheduler
-    # so each tick reads the current agent config from pipeline._agents rather than the
-    # frozen config.agents tuple captured at init time.  This lets heartbeat_enabled=False
-    # take effect on the next tick without requiring a gateway restart.
-    _heartbeat_scheduler._agents_getter = lambda: pipeline._agents.values()  # noqa: SLF001
-    # feat-394-M4 R2-3 fix: wire SessionRunQueue into scheduler so heartbeat skips
-    # when a user message is currently being processed on the canonical session.
-    # This prevents the heartbeat LLM call from blocking user message responses.
-    _heartbeat_scheduler._run_queue = pipeline._run_queue  # noqa: SLF001
 
     inbound_dispatcher = _InboundDispatcher(pipeline)
     # bugfix-402-M3 R3: kernel is closed explicitly via GatewayRuntime(kernel=) and
@@ -3527,10 +2716,8 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     internal_dispatch_handler = InternalDispatchHandler(
         im_connection_manager=im_connection_manager,
         kernel_client=kernel_shim,
-        session_store=session_store,
-        agent_workspace_roots={
-            agent.agent_id: str(agent.workspace_root) for agent in config.agents
-        },
+        agent_catalog=agent_catalog,
+        session_binder=session_binder,
     )
     return GatewayRuntime(
         config,
@@ -3832,8 +3019,8 @@ def _make_token_getter(
 def _build_session_fork_handler(
     *,
     kernel: Any,
-    session_store: SessionBindingStore,
-    agents_getter: Callable[[], Mapping[str, Any]],
+    session_binder: GatewaySessionBinder,
+    agent_catalog: LiveAgentCatalog,
     channel_name: str,
 ) -> SessionForkHandler:
     """Build the gateway-side handler for IM-delegated session fork (feat-445-M1 决策 2).
@@ -3860,7 +3047,7 @@ def _build_session_fork_handler(
         ):
             return {"ok": False, "error": "fork request missing required fields"}
 
-        source_binding = session_store.get(
+        source_binding = session_binder.lookup(
             build_conversation_session_key(
                 channel_name=channel_name,
                 conversation_id=source_conversation_id,
@@ -3871,7 +3058,7 @@ def _build_session_fork_handler(
             external_source = str(payload.get("source_external_source") or "").strip()
             external_chat_id = str(payload.get("source_external_chat_id") or "").strip()
             if external_source and external_chat_id:
-                source_binding = session_store.get(
+                source_binding = session_binder.lookup(
                     build_external_session_key(
                         external_source=external_source,
                         external_chat_id=external_chat_id,
@@ -3881,26 +3068,35 @@ def _build_session_fork_handler(
         if source_binding is None:
             return {"ok": False, "error": "source session binding not found"}
 
-        agent_cfg = agents_getter().get(agent_id)
-        if agent_cfg is None:
+        agent = agent_catalog.get(agent_id)
+        if agent is None:
             return {"ok": False, "error": f"unknown agent {agent_id}"}
+        write_guard = session_binder.capture_write_guard(agent)
 
         try:
             new_session = await kernel.fork_session(
                 source_binding.kernel_session_id,
-                workspace_root=agent_cfg.workspace_root,
+                workspace_root=agent.config.workspace_root,
                 up_to=message_id,
             )
         except Exception as exc:  # noqa: BLE001 — report to IM, which rolls back
             return {"ok": False, "error": str(exc)}
 
-        bind_conversation_session(
-            store=session_store,
-            channel_name=channel_name,
-            conversation_id=new_conversation_id,
-            agent_id=agent_id,
-            kernel_session_id=new_session.session_id,
+        bind_result = session_binder.bind_conversation(
+            ConversationBindingRequest(
+                channel_name=channel_name,
+                conversation_id=new_conversation_id,
+                agent_id=agent_id,
+                kernel_session_id=new_session.session_id,
+                guard=write_guard,
+            ),
+            agent,
         )
+        if bind_result.status == "stale":
+            return {
+                "ok": False,
+                "error": "agent config changed while session fork was running",
+            }
         # feat-445-M2 #5: hand back the source→branch kernel-uuid re-stamp map so IM can
         # realign each copied bubble's kernel_message_id to the branch session's JSONL
         # uuids (else a recursive fork from a copied bubble 502s on the source uuid).
@@ -4316,7 +3512,7 @@ def _remove_gateway_state(
 
 
 def _resolve_agent_tool_allowlist(
-    sync_client: "_IMConfigSyncClient",
+    sync_client: "IMAgentConfigSync",
     agent_id: str,
 ) -> tuple[str, ...]:
     """Return the tool_allowlist for an agent from the live local config snapshot.
@@ -4338,26 +3534,6 @@ def _resolve_agent_tool_allowlist(
     if not isinstance(raw, list):
         return ()
     return tuple(item for item in raw if isinstance(item, str))
-
-
-def _im_http_headers(token: str | None) -> dict[str, str]:
-    headers = {"User-Agent": "nano-multiagent-gateway-bootstrap"}
-    if token is not None:
-        headers["Authorization"] = f"Bearer {token}"
-    return headers
-
-
-def _im_http_base_url(url: str) -> str:
-    parsed = urlparse(url)
-    if parsed.scheme == "http":
-        return f"http://{parsed.netloc}{parsed.path}".rstrip("/")
-    if parsed.scheme == "https":
-        return f"https://{parsed.netloc}{parsed.path}".rstrip("/")
-    if parsed.scheme == "ws":
-        return f"http://{parsed.netloc}{parsed.path}".rstrip("/")
-    if parsed.scheme == "wss":
-        return f"https://{parsed.netloc}{parsed.path}".rstrip("/")
-    raise ValueError("IM URL must use http(s) or ws(s)")
 
 
 def _im_bootstrap_base_urls(url: str) -> tuple[str, ...]:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 
@@ -17,11 +18,31 @@ from personal_assistant.config.local_store import (
     load_local_config,
 )
 from personal_assistant.gateway.session_keys import SessionBindingStore
-from personal_assistant.main import (
-    _IMConfigSyncClient,
+from personal_assistant.gateway.agent_config_sync import (
+    IMAgentConfigSync as _IMConfigSyncClient,
     _read_skill_name,
     _make_workspace_root_factory,
 )
+
+
+def _ownership(pipeline):
+    revision = 0
+
+    def _publish(agent):
+        nonlocal revision
+        revision += 1
+        pipeline.register_agent(agent)
+        return SimpleNamespace(revision=revision)
+
+    return {
+        "agent_catalog": SimpleNamespace(publish=_publish, get=lambda _agent_id: None),
+        "session_binder": SimpleNamespace(
+            invalidate_stale=lambda agent_id, **_kwargs: pipeline.drop_agent_sessions(
+                agent_id
+            )
+        ),
+    }
+
 
 from agent.core.llm.config import LLMConfigPayload, LLMModelPayload, LLMProviderPayload
 
@@ -129,7 +150,7 @@ def test_im_config_sync_client_retries_until_live_agent_config_reaches_target_ve
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,
-        pipeline=pipeline,
+        **_ownership(pipeline),
         local_config=local_config,
         client=client,
         monotonic=lambda: 0.0,
@@ -232,7 +253,7 @@ def test_im_config_sync_client_drops_existing_agent_session_bindings_after_profi
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,
-        pipeline=pipeline,
+        **_ownership(pipeline),
         local_config=local_config,
         workspace_root_factory=lambda _agent_id: workspace_root,
         client=client,
@@ -308,7 +329,7 @@ def test_im_config_sync_client_does_not_overwrite_existing_workspace_files(
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,
-        pipeline=pipeline,
+        **_ownership(pipeline),
         local_config=local_config,
         workspace_root_factory=lambda _agent_id: workspace_root,
         client=client,
@@ -374,7 +395,7 @@ def test_im_config_sync_client_persists_agent_config_to_source_path(
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,
-        pipeline=_Pipeline(),
+        **_ownership(_Pipeline()),
         local_config=local_config,
         client=httpx.Client(
             transport=httpx.MockTransport(_handler),
@@ -527,7 +548,7 @@ def test_skill_created_global_enables_explicit_allowlists_and_drops_all_sessions
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,
-        pipeline=pipeline,
+        **_ownership(pipeline),
         local_config=local_config,
         client=httpx.Client(
             transport=httpx.MockTransport(_handler),
@@ -556,7 +577,11 @@ def test_skill_created_global_enables_explicit_allowlists_and_drops_all_sessions
         ["existing-skill", "new-skill"],
     ]
     assert pipeline.dropped == ["agent-a", "agent-b", "agent-c"]
-    assert [agent.agent_id for agent in pipeline.registered] == ["agent-a", "agent-c"]
+    assert [agent.agent_id for agent in pipeline.registered] == [
+        "agent-a",
+        "agent-b",
+        "agent-c",
+    ]
 
 
 def test_skill_created_agent_scope_only_enables_executing_agent(
@@ -620,7 +645,7 @@ def test_skill_created_agent_scope_only_enables_executing_agent(
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,
-        pipeline=pipeline,
+        **_ownership(pipeline),
         local_config=LocalConfig(
             node=NodeConfig(node_id="node-1"),
             agents=(
@@ -692,7 +717,7 @@ def test_sync_agent_passes_through_features(tmp_path: Path) -> None:
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,
-        pipeline=pipeline,
+        **_ownership(pipeline),
         local_config=local_config,
         client=httpx.Client(
             transport=httpx.MockTransport(_handler),
@@ -722,7 +747,7 @@ def test_handle_agent_create_passes_through_features(tmp_path: Path) -> None:
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,
-        pipeline=pipeline,
+        **_ownership(pipeline),
         local_config=local_config,
         client=httpx.Client(
             transport=httpx.MockTransport(lambda _r: httpx.Response(200, json={})),
@@ -770,7 +795,7 @@ def test_handle_agent_create_defaults_to_pa_global_skills(
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,
-        pipeline=pipeline,
+        **_ownership(pipeline),
         local_config=local_config,
         client=httpx.Client(
             transport=httpx.MockTransport(lambda _r: httpx.Response(200, json={})),
@@ -809,7 +834,7 @@ def test_handle_agent_create_respects_explicit_empty_skills(
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,
-        pipeline=pipeline,
+        **_ownership(pipeline),
         local_config=local_config,
         client=httpx.Client(
             transport=httpx.MockTransport(lambda _r: httpx.Response(200, json={})),
@@ -876,7 +901,7 @@ def test_handle_agent_create_persists_default_model_to_source_path(
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,
-        pipeline=pipeline,
+        **_ownership(pipeline),
         local_config=local_config,
         client=httpx.Client(
             transport=httpx.MockTransport(lambda _r: httpx.Response(200, json={})),
@@ -950,7 +975,7 @@ def test_handle_agent_create_persists_to_default_config_path(tmp_path: Path) -> 
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,
-        pipeline=pipeline,
+        **_ownership(pipeline),
         local_config=local_config,
         client=httpx.Client(
             transport=httpx.MockTransport(lambda _r: httpx.Response(200, json={})),
@@ -1007,7 +1032,7 @@ def test_handle_agent_create_derives_workspace_from_injected_base(
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,
-        pipeline=pipeline,
+        **_ownership(pipeline),
         local_config=local_config,
         client=httpx.Client(
             transport=httpx.MockTransport(lambda _r: httpx.Response(200, json={})),
@@ -1064,7 +1089,7 @@ def test_sync_agent_passes_through_heartbeat_enabled(tmp_path: Path) -> None:
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,
-        pipeline=pipeline,
+        **_ownership(pipeline),
         local_config=local_config,
         client=httpx.Client(
             transport=httpx.MockTransport(_handler),
@@ -1104,7 +1129,7 @@ def test_sync_agent_heartbeat_disabled_by_default(tmp_path: Path) -> None:
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,
-        pipeline=pipeline,
+        **_ownership(pipeline),
         local_config=local_config,
         client=httpx.Client(
             transport=httpx.MockTransport(_handler),
@@ -1146,7 +1171,7 @@ def test_current_agent_payload_includes_features(tmp_path: Path) -> None:
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,
-        pipeline=_NullPipeline(),
+        **_ownership(_NullPipeline()),
         local_config=local_config,
         client=httpx.Client(
             transport=httpx.MockTransport(lambda _r: httpx.Response(200, json={})),
@@ -1203,7 +1228,7 @@ def test_im_config_sync_client_update_token_propagates_to_requests(
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,  # initial token is empty (pre-bind)
-        pipeline=pipeline,
+        **_ownership(pipeline),
         local_config=local_config,
         client=httpx.Client(
             transport=httpx.MockTransport(_handler),
@@ -1255,7 +1280,7 @@ def test_im_config_sync_client_update_token_none_clears_auth(
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token="old-token",
-        pipeline=pipeline,
+        **_ownership(pipeline),
         local_config=local_config,
         client=httpx.Client(
             transport=httpx.MockTransport(_handler),
@@ -1337,7 +1362,7 @@ def test_sync_agent_ignores_mirror_workspace_root_and_uses_local_config(
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,
-        pipeline=pipeline,
+        **_ownership(pipeline),
         local_config=local_config,
         client=client,
         monotonic=lambda: 0.0,

@@ -13,6 +13,7 @@ from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.gateway.inbound_pipeline import InboundPipeline
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
+from personal_assistant.gateway.session_binder import _build_session_metadata
 
 
 def _make_pipeline(gateway_internal_port: int = 8089) -> InboundPipeline:
@@ -50,7 +51,11 @@ def test_build_session_metadata_includes_gateway_dispatch_url() -> None:
     """_build_session_metadata must inject gateway_dispatch_url into session metadata."""
     pipeline = _make_pipeline(gateway_internal_port=8089)
     message = _make_direct_message()
-    meta = pipeline._build_session_metadata(message, agent_id="agent_a")
+    meta = _build_session_metadata(
+        message,
+        agent=pipeline.agent_catalog.require("agent_a"),
+        gateway_internal_port=8089,
+    )
     assert meta is not None
     assert "gateway_dispatch_url" in meta, (
         f"Expected gateway_dispatch_url in session metadata, got keys: {list(meta.keys())}"
@@ -65,7 +70,11 @@ def test_build_session_metadata_gateway_dispatch_url_respects_custom_port() -> N
     """gateway_dispatch_url must use the configured gateway_internal_port."""
     pipeline = _make_pipeline(gateway_internal_port=9999)
     message = _make_direct_message()
-    meta = pipeline._build_session_metadata(message, agent_id="agent_a")
+    meta = _build_session_metadata(
+        message,
+        agent=pipeline.agent_catalog.require("agent_a"),
+        gateway_internal_port=9999,
+    )
     assert meta is not None
     assert "9999" in meta["gateway_dispatch_url"]
 

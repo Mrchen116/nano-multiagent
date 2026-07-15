@@ -47,6 +47,11 @@ class SessionRunQueue:
             loop.create_task(self._drain_session(session_key))
         return await future
 
+    def is_active(self, session_key: str) -> bool:
+        """Return whether the session currently owns or awaits queue execution."""
+
+        return session_key in self._active_sessions
+
     async def _drain_session(self, session_key: str) -> None:
         queue = self._queues[session_key]
         try:

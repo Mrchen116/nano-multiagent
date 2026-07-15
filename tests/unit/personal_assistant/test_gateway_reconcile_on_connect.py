@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, call
 
@@ -24,7 +25,29 @@ from personal_assistant.config.local_store import (
     NodeConfig,
     load_local_config,
 )
-from personal_assistant.main import _IMConfigSyncClient
+from personal_assistant.gateway.agent_config_sync import (
+    IMAgentConfigSync as _IMConfigSyncClient,
+)
+
+
+def _ownership(pipeline):
+    revision = 0
+
+    def _publish(agent):
+        nonlocal revision
+        revision += 1
+        pipeline.register_agent(agent)
+        return SimpleNamespace(revision=revision)
+
+    return {
+        "agent_catalog": SimpleNamespace(publish=_publish, get=lambda _agent_id: None),
+        "session_binder": SimpleNamespace(
+            invalidate_stale=lambda agent_id, **_kwargs: pipeline.drop_agent_sessions(
+                agent_id
+            )
+        ),
+    }
+
 
 from agent.core.llm.config import LLMConfigPayload, LLMModelPayload, LLMProviderPayload
 
@@ -125,7 +148,7 @@ def test_reconcile_updates_disabled_heartbeat_when_missed_incremental_push(
     sync_client = _IMConfigSyncClient(
         base_url="http://im.local:9000",
         token="tok",
-        pipeline=pipeline,
+        **_ownership(pipeline),
         local_config=local_config,
         client=client,
     )
@@ -182,7 +205,7 @@ def test_reconcile_persists_enabled_skills_for_live_config_after_restart(
     sync_client = _IMConfigSyncClient(
         base_url="http://im.local:9000",
         token="tok",
-        pipeline=pipeline,
+        **_ownership(pipeline),
         local_config=local_config,
         client=client,
     )
@@ -245,7 +268,7 @@ def test_reconcile_skips_update_when_im_profile_version_is_older(
     sync_client = _IMConfigSyncClient(
         base_url="http://im.local:9000",
         token="tok",
-        pipeline=pipeline,
+        **_ownership(pipeline),
         local_config=local_config,
         client=client,
     )
@@ -295,7 +318,7 @@ def test_reconcile_updates_when_im_profile_version_is_equal_or_newer(
     sync_client = _IMConfigSyncClient(
         base_url="http://im.local:9000",
         token="tok",
-        pipeline=pipeline,
+        **_ownership(pipeline),
         local_config=local_config,
         client=client,
     )
@@ -342,7 +365,7 @@ def test_reconcile_ignores_mirror_workspace_root_and_uses_local_config(
     sync_client = _IMConfigSyncClient(
         base_url="http://im.local:9000",
         token="tok",
-        pipeline=pipeline,
+        **_ownership(pipeline),
         local_config=local_config,
         client=client,
         workspace_root_factory=lambda agent_id: tmp_path / "factory" / agent_id,

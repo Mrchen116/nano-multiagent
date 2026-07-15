@@ -48,7 +48,10 @@ def test_build_runtime_uses_persistent_session_binding_store(
     runtime = build_runtime(config)
 
     pipeline = runtime._on_inbound._pipeline  # noqa: SLF001
-    assert isinstance(pipeline._session_store, PersistentSessionBindingStore)  # noqa: SLF001
+    assert isinstance(
+        pipeline.session_binder._repository,
+        PersistentSessionBindingStore,  # noqa: SLF001
+    )
 
 
 def test_build_runtime_session_store_db_path_is_under_config_dir(
@@ -60,7 +63,7 @@ def test_build_runtime_session_store_db_path_is_under_config_dir(
     runtime = build_runtime(config)
 
     pipeline = runtime._on_inbound._pipeline  # noqa: SLF001
-    store: PersistentSessionBindingStore = pipeline._session_store  # noqa: SLF001
+    store: PersistentSessionBindingStore = pipeline.session_binder._repository  # noqa: SLF001
     expected_db_path = tmp_path / "session_bindings.sqlite3"
     assert store._db_path == expected_db_path  # noqa: SLF001
 
@@ -397,7 +400,7 @@ async def test_reconcile_on_connect_continues_after_binding_failure_and_reports_
         return manager
 
     monkeypatch.setattr(gateway_main, "_IMBootstrapClient", _FailingBootstrap)
-    monkeypatch.setattr(gateway_main, "_IMConfigSyncClient", _RecordingSyncClient)
+    monkeypatch.setattr(gateway_main, "IMAgentConfigSync", _RecordingSyncClient)
     monkeypatch.setattr(
         gateway_main, "_build_im_connection_manager", _fake_build_im_connection_manager
     )

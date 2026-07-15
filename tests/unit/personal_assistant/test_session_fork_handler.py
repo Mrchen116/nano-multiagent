@@ -7,6 +7,9 @@ from types import SimpleNamespace
 import pytest
 
 from personal_assistant.channels.base import ReplyContext
+from personal_assistant.config.local_store import AgentWorkspaceConfig
+from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
+from personal_assistant.gateway.session_binder import GatewaySessionBinder
 from personal_assistant.gateway.session_keys import (
     PersistentSessionBindingStore,
     bind_conversation_session,
@@ -36,11 +39,14 @@ def _store(tmp_path: Path) -> PersistentSessionBindingStore:
 def _handler(tmp_path: Path, kernel: _FakeKernel, store: PersistentSessionBindingStore):
     from personal_assistant.main import _build_session_fork_handler
 
-    agents = {"alpha": SimpleNamespace(workspace_root=tmp_path / "ws-alpha")}
+    catalog = LiveAgentCatalog(
+        (AgentWorkspaceConfig(agent_id="alpha", workspace_root=tmp_path / "ws-alpha"),)
+    )
+    binder = GatewaySessionBinder(catalog=catalog, repository=store, kernel=kernel)
     return _build_session_fork_handler(
         kernel=kernel,
-        session_store=store,
-        agents_getter=lambda: agents,
+        session_binder=binder,
+        agent_catalog=catalog,
         channel_name="web_relay",
     )
 
@@ -177,11 +183,19 @@ async def test_fork_handler_kernel_failure_returns_not_ok(tmp_path: Path) -> Non
     )
     from personal_assistant.main import _build_session_fork_handler
 
-    agents = {"alpha": SimpleNamespace(workspace_root=tmp_path / "ws")}
+    catalog = LiveAgentCatalog(
+        (AgentWorkspaceConfig(agent_id="alpha", workspace_root=tmp_path / "ws"),)
+    )
+    boom_kernel = _BoomKernel()
+    binder = GatewaySessionBinder(
+        catalog=catalog,
+        repository=store,
+        kernel=boom_kernel,
+    )
     handler = _build_session_fork_handler(
-        kernel=_BoomKernel(),
-        session_store=store,
-        agents_getter=lambda: agents,
+        kernel=boom_kernel,
+        session_binder=binder,
+        agent_catalog=catalog,
         channel_name="web_relay",
     )
     result = await handler(

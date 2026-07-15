@@ -56,7 +56,7 @@ def test_register_agent_keeps_existing_direct_sessions_and_uses_new_workspace_fo
 
     refreshed_workspace = tmp_path / "agent-a-v2"
     refreshed_workspace.mkdir()
-    pipeline.register_agent(
+    pipeline.agent_catalog.publish(
         AgentWorkspaceConfig(
             agent_id="agent-a",
             workspace_root=refreshed_workspace,
@@ -208,7 +208,7 @@ def test_drop_agent_sessions_forces_group_mentions_to_create_a_fresh_kernel_sess
     )
 
     # Simulate config sync: update system_prompt via register_agent + drop stale sessions.
-    pipeline.register_agent(
+    current = pipeline.agent_catalog.publish(
         AgentWorkspaceConfig(
             agent_id="agent-a",
             workspace_root=agent_a_dir,
@@ -216,7 +216,9 @@ def test_drop_agent_sessions_forces_group_mentions_to_create_a_fresh_kernel_sess
             system_prompt="When mentioned in a group chat, reply exactly with NO_REPLY.",
         )
     )
-    pipeline.drop_agent_sessions("agent-a")
+    pipeline.session_binder.invalidate_stale(
+        "agent-a", current_revision=current.revision
+    )
 
     second = asyncio.run(
         pipeline.handle_inbound(

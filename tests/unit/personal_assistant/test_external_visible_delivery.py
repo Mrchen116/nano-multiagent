@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 from typing import Any
 
 from personal_assistant.channels.base import ReplyContext
@@ -235,7 +236,9 @@ def test_system_notification_for_feishu_binding_targets_shadow_im_only() -> None
     )
     callback = build_session_event_callback(
         im_connection_manager_factory=lambda: manager,
-        session_store=store,
+        session_binder=SimpleNamespace(
+            find_by_kernel_session_id=store.find_by_kernel_session_id
+        ),
     )
 
     asyncio.run(

@@ -26,7 +26,9 @@ from personal_assistant.gateway.inbound_pipeline import InboundPipeline
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
 from personal_assistant.gateway.session_keys import SessionBindingStore
-from personal_assistant.main import _IMConfigSyncClient
+from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
+from personal_assistant.gateway.agent_config_sync import IMAgentConfigSync
+from personal_assistant.gateway.session_binder import GatewaySessionBinder
 from personal_assistant.scheduler.heartbeat_scheduler import (
     HeartbeatScheduler,
     HeartbeatSchedulerStateStore,
@@ -107,17 +109,24 @@ def test_patch_heartbeat_disabled_reaches_scheduler(tmp_path: Path) -> None:
 
         relay_adapter = WebRelayAdapter()
         run_queue = SessionRunQueue()
+        session_store = SessionBindingStore()
+        catalog = LiveAgentCatalog((agent_with_hb,))
+        binder = GatewaySessionBinder(
+            catalog=catalog, repository=session_store, kernel=kernel_client
+        )
         pipeline = InboundPipeline(
             kernel=kernel_client,
             agents=(agent_with_hb,),
             outbound_router=OutboundRouter(ChannelRegistry((relay_adapter,))),
             run_queue=run_queue,
-            session_store=SessionBindingStore(),
+            session_store=session_store,
+            agent_catalog=catalog,
+            session_binder=binder,
             default_agent_id=agent_id,
         )
 
         # Verify initial state: heartbeat enabled
-        assert pipeline._agents[agent_id].heartbeat_enabled is True  # noqa: SLF001
+        assert catalog.require(agent_id).config.heartbeat_enabled is True
 
         # Wire sync_client: uses the IM app's HTTP interface via ASGITransport
         # so sync_agent can GET /im/v1/agents/{id}/config?source=mirror from the
@@ -164,10 +173,11 @@ def test_patch_heartbeat_disabled_reaches_scheduler(tmp_path: Path) -> None:
             llm=_llm,
             source_path=tmp_path / "config.yaml",
         )
-        im_sync_client = _IMConfigSyncClient(
+        im_sync_client = IMAgentConfigSync(
             base_url="http://testserver",
             token=auth_token,
-            pipeline=pipeline,
+            agent_catalog=catalog,
+            session_binder=binder,
             local_config=local_config,
             client=im_http_client,
             monotonic=lambda: 0.0,
@@ -181,8 +191,8 @@ def test_patch_heartbeat_disabled_reaches_scheduler(tmp_path: Path) -> None:
             agents=(),
             kernel_client=kernel_client,
             state_store=state_store,
+            agent_catalog=catalog,
         )
-        scheduler._agents_getter = lambda: pipeline._agents.values()  # noqa: SLF001
 
         # Connect a gateway WS to IM
         with client.websocket_connect("/im/ws/gateway") as websocket:
@@ -233,7 +243,7 @@ def test_patch_heartbeat_disabled_reaches_scheduler(tmp_path: Path) -> None:
             config_sync_client.handle_notification(sync_frame["payload"])
 
         # After sync_agent ran, pipeline._agents must reflect heartbeat=False
-        updated_agent = pipeline._agents[agent_id]  # noqa: SLF001
+        updated_agent = catalog.require(agent_id).config
         assert updated_agent.heartbeat_enabled is False, (
             f"Expected heartbeat_enabled=False after config.sync, "
             f"got features={updated_agent.features!r}. "

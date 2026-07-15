@@ -142,7 +142,7 @@ def test_group_chat_uses_live_updated_profile_after_config_sync_in_same_conversa
                 "type": "config.sync",
                 "payload": {"agent_id": "agent-a", "profile_version": 2},
             }
-            pipeline.register_agent(
+            current_snapshot = pipeline.agent_catalog.publish(
                 AgentWorkspaceConfig(
                     agent_id="agent-a",
                     workspace_root=agents[0].workspace_root,
@@ -150,7 +150,9 @@ def test_group_chat_uses_live_updated_profile_after_config_sync_in_same_conversa
                     system_prompt="When mentioned in a group chat, reply exactly with NO_REPLY.",
                 )
             )
-            pipeline.drop_agent_sessions("agent-a")
+            pipeline.session_binder.invalidate_stale(
+                "agent-a", current_revision=current_snapshot.revision
+            )
 
             second_message = client.post(
                 f"/im/v1/conversations/{conversation_id}/messages",
@@ -311,7 +313,7 @@ def test_group_chat_keeps_no_reply_when_completed_snapshot_and_late_stream_delta
             },
         )
         assert patched.status_code == 200
-        pipeline.register_agent(
+        pipeline.agent_catalog.publish(
             AgentWorkspaceConfig(
                 agent_id="agent-a",
                 workspace_root=agents[0].workspace_root,

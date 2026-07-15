@@ -18,6 +18,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
 
+from personal_assistant.gateway.session_binder import GatewaySessionBinder
 from personal_assistant.scheduler.cron_scheduler import CronJob, CronJobStore
 
 _logger = logging.getLogger(__name__)
@@ -88,13 +89,13 @@ class CronRunner:
         agent_id: str,
         workspace_root: Path,
         kernel_client: _KernelClientLike,
-        session_binding_store: object | None,
+        session_binder: GatewaySessionBinder | None = None,
         canonical_session_id: str | None = None,
     ) -> None:
         self._agent_id = agent_id
         self._workspace_root = workspace_root
         self._kernel_client = kernel_client
-        self._session_binding_store = session_binding_store
+        self._session_binder = session_binder
         self._canonical_session_id = canonical_session_id
 
     async def _submit_cron_job(self, *, job: CronJob) -> tuple[str, str] | None:
@@ -227,12 +228,9 @@ class CronRunner:
         """
         if self._canonical_session_id:
             return self._canonical_session_id
-        if self._session_binding_store is None:
-            return None
-        find_fn = getattr(self._session_binding_store, "find_direct_by_agent", None)
-        if not callable(find_fn):
-            return None
-        binding = find_fn(channel_name="web_relay", agent_id=self._agent_id)
-        if binding is None:
-            return None
-        return getattr(binding, "kernel_session_id", None)
+        if self._session_binder is not None:
+            binding = self._session_binder.find_canonical_direct(
+                channel_name="web_relay", agent_id=self._agent_id
+            )
+            return binding.kernel_session_id if binding is not None else None
+        return None

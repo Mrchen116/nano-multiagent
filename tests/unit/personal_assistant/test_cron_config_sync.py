@@ -8,6 +8,7 @@ and prompt enabled_when gate work correctly.
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -20,7 +21,29 @@ from personal_assistant.config.local_store import (
     LocalConfig,
     NodeConfig,
 )
-from personal_assistant.main import _IMConfigSyncClient
+from personal_assistant.gateway.agent_config_sync import (
+    IMAgentConfigSync as _IMConfigSyncClient,
+)
+
+
+def _ownership(pipeline):
+    revision = 0
+
+    def _publish(agent):
+        nonlocal revision
+        revision += 1
+        pipeline.register_agent(agent)
+        return SimpleNamespace(revision=revision)
+
+    return {
+        "agent_catalog": SimpleNamespace(publish=_publish, get=lambda _agent_id: None),
+        "session_binder": SimpleNamespace(
+            invalidate_stale=lambda agent_id, **_kwargs: pipeline.drop_agent_sessions(
+                agent_id
+            )
+        ),
+    }
+
 
 from agent.core.llm.config import LLMConfigPayload, LLMModelPayload, LLMProviderPayload
 
@@ -96,7 +119,7 @@ def test_sync_agent_passes_through_cron_enabled(tmp_path: Path) -> None:
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,
-        pipeline=pipeline,
+        **_ownership(pipeline),
         local_config=local_config,
         client=httpx.Client(
             transport=httpx.MockTransport(_handler),
@@ -133,7 +156,7 @@ def test_sync_agent_cron_disabled_by_default(tmp_path: Path) -> None:
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,
-        pipeline=pipeline,
+        **_ownership(pipeline),
         local_config=local_config,
         client=httpx.Client(
             transport=httpx.MockTransport(_handler),
@@ -171,7 +194,7 @@ def test_sync_agent_cron_enabled_false_in_payload(tmp_path: Path) -> None:
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,
-        pipeline=pipeline,
+        **_ownership(pipeline),
         local_config=local_config,
         client=httpx.Client(
             transport=httpx.MockTransport(_handler),
@@ -228,7 +251,7 @@ def test_sync_agent_cron_enabled_does_not_pollute_tool_allowlist(
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,
-        pipeline=pipeline,
+        **_ownership(pipeline),
         local_config=local_config,
         client=httpx.Client(
             transport=httpx.MockTransport(_handler),
@@ -279,7 +302,7 @@ def test_sync_agent_empty_allowlist_stays_empty_when_cron_enabled(
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,
-        pipeline=pipeline,
+        **_ownership(pipeline),
         local_config=local_config,
         client=httpx.Client(
             transport=httpx.MockTransport(_handler),

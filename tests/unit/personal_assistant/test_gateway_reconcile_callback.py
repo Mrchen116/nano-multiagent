@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, call
 
@@ -22,7 +23,29 @@ from personal_assistant.config.local_store import (
     LocalConfig,
     NodeConfig,
 )
-from personal_assistant.main import _IMConfigSyncClient
+from personal_assistant.gateway.agent_config_sync import (
+    IMAgentConfigSync as _IMConfigSyncClient,
+)
+
+
+def _ownership(pipeline):
+    revision = 0
+
+    def _publish(agent):
+        nonlocal revision
+        revision += 1
+        pipeline.register_agent(agent)
+        return SimpleNamespace(revision=revision)
+
+    return {
+        "agent_catalog": SimpleNamespace(publish=_publish, get=lambda _agent_id: None),
+        "session_binder": SimpleNamespace(
+            invalidate_stale=lambda agent_id, **_kwargs: pipeline.drop_agent_sessions(
+                agent_id
+            )
+        ),
+    }
+
 
 from agent.core.llm.config import LLMConfigPayload, LLMModelPayload, LLMProviderPayload
 
@@ -195,7 +218,7 @@ def test_reconcile_http_failure_does_not_raise(tmp_path: Path) -> None:
     sync_client = _IMConfigSyncClient(
         base_url="http://im.local:9000",
         token="tok",
-        pipeline=pipeline,
+        **_ownership(pipeline),
         local_config=local_config,
         client=client,
     )

@@ -138,7 +138,7 @@ def test_binding_matches_workspace_root_reads_top_level_key(tmp_path: Path) -> N
         default_agent_id="agent-a",
     )
 
-    result = pipeline._binding_matches_workspace_root(  # noqa: SLF001
+    result = pipeline.session_binder._binding_matches_workspace_root(  # noqa: SLF001
         "sess-existing", expected_workspace_root=expected_workspace_root
     )
 

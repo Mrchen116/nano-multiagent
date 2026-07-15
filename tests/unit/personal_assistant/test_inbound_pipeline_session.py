@@ -1101,7 +1101,7 @@ def test_register_agent_keeps_existing_direct_sessions_and_uses_new_workspace_fo
 
     refreshed_workspace = tmp_path / "agent-a-v2"
     refreshed_workspace.mkdir()
-    pipeline.register_agent(
+    pipeline.agent_catalog.publish(
         AgentWorkspaceConfig(
             agent_id="agent-a",
             workspace_root=refreshed_workspace,

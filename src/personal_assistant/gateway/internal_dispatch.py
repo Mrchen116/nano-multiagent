@@ -10,7 +10,12 @@ from __future__ import annotations
 import json
 from typing import Any, Callable, Mapping
 
-from personal_assistant.gateway.session_keys import bind_conversation_session
+from personal_assistant.gateway.agent_catalog import LiveAgentCatalog, LiveAgentSnapshot
+from personal_assistant.gateway.session_binder import (
+    BindingWriteGuard,
+    ConversationBindingRequest,
+    GatewaySessionBinder,
+)
 
 
 class InternalDispatchHandler:
@@ -30,20 +35,15 @@ class InternalDispatchHandler:
         *,
         im_connection_manager: Any | None = None,
         kernel_client: Any | None = None,
-        session_store: Any | None = None,
+        agent_catalog: LiveAgentCatalog | None = None,
+        session_binder: GatewaySessionBinder | None = None,
         direct_channel_name: str = "web_relay",
-        agent_workspace_roots: Mapping[str, Any] | None = None,
     ) -> None:
         self._im_connection_manager = im_connection_manager
         self._kernel_client = kernel_client
-        self._session_store = session_store
+        self._agent_catalog = agent_catalog
+        self._session_binder = session_binder
         self._direct_channel_name = direct_channel_name
-        # agent_id -> workspace_root, used to locate the origin agent's session
-        # JSONL when persisting the dispatched assistant message into the
-        # stateless kernel.
-        self._agent_workspace_roots: dict[str, str] = {
-            str(k): str(v) for k, v in (agent_workspace_roots or {}).items()
-        }
 
     async def handle(self, payload: Mapping[str, Any]) -> dict[str, Any]:
         """Process one dispatch request and return a response dict.
@@ -98,6 +98,7 @@ class InternalDispatchHandler:
         if isinstance(dispatch_request_id, str) and dispatch_request_id.strip():
             dispatch_payload["dispatch_request_id"] = dispatch_request_id.strip()
 
+        captured_agent, write_guard = self._capture_source_guard(source_agent_id)
         try:
             ack = await manager.send_agent_message(dispatch_payload)
             await self._sync_direct_session(
@@ -106,6 +107,8 @@ class InternalDispatchHandler:
                 origin_kernel_session_id=origin_kernel_session_id,
                 source_agent_id=source_agent_id,
                 dispatch_request_id=dispatch_request_id,
+                captured_agent=captured_agent,
+                write_guard=write_guard,
             )
         except Exception as exc:  # noqa: BLE001
             return {"ok": False, "error": f"IM dispatch failed: {exc}"}
@@ -125,6 +128,8 @@ class InternalDispatchHandler:
         origin_kernel_session_id: object,
         source_agent_id: object,
         dispatch_request_id: object,
+        captured_agent: LiveAgentSnapshot | None,
+        write_guard: BindingWriteGuard | None,
     ) -> None:
         if getattr(ack, "target_kind", None) != "user_id":
             return
@@ -137,22 +142,35 @@ class InternalDispatchHandler:
             source_agent_id = getattr(ack, "source_agent_id", None)
         if not isinstance(source_agent_id, str) or not source_agent_id.strip():
             return
-        if self._session_store is None or self._kernel_client is None:
+        catalog = self._agent_catalog
+        binder = self._session_binder
+        if catalog is None or binder is None or self._kernel_client is None:
+            return
+        normalized_agent_id = source_agent_id.strip()
+        if captured_agent is None or captured_agent.agent_id != normalized_agent_id:
+            captured_agent = catalog.get(normalized_agent_id)
+            if captured_agent is None:
+                return
+            write_guard = binder.capture_write_guard(captured_agent)
+        if write_guard is None:
             return
 
-        bind_conversation_session(
-            store=self._session_store,
-            channel_name=self._direct_channel_name,
-            conversation_id=str(getattr(ack, "conversation_id")),
-            agent_id=source_agent_id.strip(),
-            kernel_session_id=origin_kernel_session_id.strip(),
+        binder.bind_conversation(
+            ConversationBindingRequest(
+                channel_name=self._direct_channel_name,
+                conversation_id=str(getattr(ack, "conversation_id")),
+                agent_id=normalized_agent_id,
+                kernel_session_id=origin_kernel_session_id.strip(),
+                guard=write_guard,
+            ),
+            captured_agent,
         )
         append_idempotency_key = None
         if isinstance(dispatch_request_id, str) and dispatch_request_id.strip():
             append_idempotency_key = f"dispatch-sync:{dispatch_request_id.strip()}"
         # The stateless kernel needs the origin session's workspace_root to locate
         # its JSONL; resolve it from the source agent's config.
-        origin_workspace_root = self._agent_workspace_roots.get(source_agent_id.strip())
+        origin_workspace_root = captured_agent.config.workspace_root
         self._kernel_client.append_message(
             session_id=origin_kernel_session_id.strip(),
             role="assistant",
@@ -168,6 +186,20 @@ class InternalDispatchHandler:
             idempotency_key=append_idempotency_key,
             workspace_root=origin_workspace_root,
         )
+
+    def _capture_source_guard(
+        self, source_agent_id: object
+    ) -> tuple[LiveAgentSnapshot | None, BindingWriteGuard | None]:
+        """Capture the source snapshot before the IM acknowledgement await."""
+
+        if not isinstance(source_agent_id, str) or not source_agent_id.strip():
+            return None, None
+        if self._agent_catalog is None or self._session_binder is None:
+            return None, None
+        agent = self._agent_catalog.get(source_agent_id.strip())
+        if agent is None:
+            return None, None
+        return agent, self._session_binder.capture_write_guard(agent)
 
     def build_aiohttp_handler(self) -> Callable:
         """Return an aiohttp request handler for ``POST /internal/dispatch``.

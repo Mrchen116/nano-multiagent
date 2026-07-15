@@ -201,12 +201,14 @@ def test_register_agent_refresh_drops_old_session_binding_and_recreates_session(
     refreshed_workspace.mkdir()
 
     first = asyncio.run(pipeline.handle_inbound(inbound))
-    pipeline.register_agent(
+    current = pipeline.agent_catalog.publish(
         AgentWorkspaceConfig(
             agent_id="agent-a", workspace_root=refreshed_workspace, title="Agent A v2"
         )
     )
-    session_store.drop_agent("agent-a")
+    pipeline.session_binder.invalidate_stale(
+        "agent-a", current_revision=current.revision
+    )
     second = asyncio.run(pipeline.handle_inbound(inbound))
 
     assert first is not None

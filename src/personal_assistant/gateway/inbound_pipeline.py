@@ -25,6 +25,7 @@ from personal_assistant.config.local_store import (
 from personal_assistant.gateway.background_session_events import (
     BackgroundSessionEventSubscriber,
 )
+from personal_assistant.gateway.agent_catalog import LiveAgentCatalog, LiveAgentSnapshot
 from personal_assistant.gateway.group_context_store import GroupContextStore
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
@@ -41,6 +42,10 @@ from personal_assistant.gateway.session_keys import (
     build_reply_context,
     build_session_key,
     session_binding_store,
+)
+from personal_assistant.gateway.session_binder import (
+    GatewaySessionBinder,
+    SessionBindingRequest,
 )
 
 from agent.sdk import TERMINAL_RUN_STATUSES, USER_INTERRUPT_RECOVERY_CONTENT
@@ -156,10 +161,12 @@ class InboundPipeline:
         self,
         *,
         kernel: "Kernel",
-        agents: tuple[AgentWorkspaceConfig, ...],
+        agents: tuple[AgentWorkspaceConfig, ...] = (),
         outbound_router: OutboundRouter,
         run_queue: SessionRunQueue,
         session_store: SessionBindingStore = session_binding_store,
+        agent_catalog: LiveAgentCatalog | None = None,
+        session_binder: GatewaySessionBinder | None = None,
         channel_bindings: Mapping[str, str] | None = None,
         default_agent_id: str | None = None,
         relay_lifecycle_callback: RelayLifecycleCallback | None = None,
@@ -173,17 +180,24 @@ class InboundPipeline:
         attachment_fetcher: Callable[[str], Awaitable[bytes]] | None = None,
         max_image_bytes: int = _DEFAULT_MAX_IMAGE_BYTES,
         shadow_sync: ShadowConversationSync | None = None,
+        bg_reply_sender: Callable[[str, ReplyContext, str], Awaitable[None]]
+        | None = None,
         max_session_drain_locks: int = _MAX_SESSION_DRAIN_LOCKS,
     ) -> None:
         if run_idle_timeout_seconds <= 0:
             raise ValueError("run_idle_timeout_seconds must be > 0")
         self._kernel = kernel
-        self._agents = {agent.agent_id: agent for agent in agents}
+        catalog = agent_catalog or LiveAgentCatalog(agents)
+        binder = session_binder or GatewaySessionBinder(
+            catalog=catalog,
+            repository=session_store,
+            kernel=kernel,
+        )
+        self._agent_catalog = catalog
+        self._session_binder = binder
         # bugfix-429 决策2: the product owns the default model. Each turn submits
-        # agent.default_model (read fresh from self._agents so a config change takes
-        # effect on the next turn, incl. old sessions) and falls back to this
-        # product default when the agent has not selected one. The kernel holds no
-        # conversational default.
+        # The operation snapshot supplies agent.default_model, and this product
+        # default applies when the Agent has not selected one.
         self._product_default_model = product_default_model
         # bugfix-433 决策1: async fetcher (url → raw bytes) used to download IM image
         # attachments at the inbound boundary so core only ever sees a self-contained
@@ -195,10 +209,10 @@ class InboundPipeline:
         self._shadow_sync = shadow_sync
         self._outbound_router = outbound_router
         self._run_queue = run_queue
-        self._session_store = session_store
         self._channel_bindings = dict(channel_bindings or {})
+        snapshots = catalog.values_snapshot()
         self._default_agent_id = default_agent_id or (
-            agents[0].agent_id if agents else None
+            snapshots[0].agent_id if snapshots else None
         )
         self._relay_lifecycle_callback = relay_lifecycle_callback
         self._group_context_store = group_context_store
@@ -234,9 +248,26 @@ class InboundPipeline:
         # a BACKGROUND_TASK run reply back to IM.  Wired by main.py after im_connection_manager
         # is created.  None disables BACKGROUND_TASK relay (outbound_router.send_text() is a
         # no-op for the web_relay channel, so this must be the real IM send path).
-        self._bg_reply_sender: "Callable[[str, ReplyContext, str], Awaitable[None]] | None" = None
+        self._bg_reply_sender = bg_reply_sender
         # Tracks active BackgroundSessionEventSubscribers by kernel_session_id.
         self._bg_subscribers: dict[str, BackgroundSessionEventSubscriber] = {}
+
+    @property
+    def agent_catalog(self) -> LiveAgentCatalog:
+        """Return the shared live Agent snapshot owner."""
+
+        return self._agent_catalog
+
+    @property
+    def session_binder(self) -> GatewaySessionBinder:
+        """Return the shared Gateway session binding owner."""
+
+        return self._session_binder
+
+    def set_shadow_sync(self, shadow_sync: ShadowConversationSync | None) -> None:
+        """Replace the external shadow adapter used by subsequent inbound messages."""
+
+        self._shadow_sync = shadow_sync
 
     async def handle_inbound(self, message: InboundMessage) -> PipelineResult | None:
         """Process one inbound message through route, session, queue, and reply steps.
@@ -247,7 +278,8 @@ class InboundPipeline:
         """
 
         agent_id = self._resolve_agent(message)
-        agent_config = self._agents.get(agent_id)
+        agent = self._agent_catalog.require(agent_id)
+        agent_config = agent.config
         should_process = self._should_process(
             message, agent_id=agent_id, agent_config=agent_config
         )
@@ -279,7 +311,7 @@ class InboundPipeline:
 
         if self._is_stop_command(message, agent_id=agent_id):
             return await self._handle_stop_command(
-                message, agent_id=agent_id, session_key=session_key
+                message, agent=agent, session_key=session_key
             )
 
         # Mid-run steer (bugfix-426 决策1): if a run is already active for this
@@ -306,7 +338,7 @@ class InboundPipeline:
             steered = (
                 await self._try_steer_active_run(
                     message,
-                    agent_id=agent_id,
+                    agent=agent,
                     session_key=session_key,
                     sender_label=sender_label,
                 )
@@ -321,7 +353,7 @@ class InboundPipeline:
                 session_key,
                 lambda: self._run_turn(
                     message,
-                    agent_id=agent_id,
+                    agent=agent,
                     session_key=session_key,
                     sender_label=sender_label,
                     prebuilt_parts=fallback_parts,
@@ -332,7 +364,7 @@ class InboundPipeline:
             session_key,
             lambda: self._run_turn(
                 message,
-                agent_id=agent_id,
+                agent=agent,
                 session_key=session_key,
                 sender_label=sender_label,
             ),
@@ -342,7 +374,7 @@ class InboundPipeline:
         self,
         message: InboundMessage,
         *,
-        agent_id: str,
+        agent: LiveAgentSnapshot,
         session_key: str,
         sender_label: str,
     ) -> tuple[PipelineResult | None, list[dict[str, Any]]] | None:
@@ -357,8 +389,9 @@ class InboundPipeline:
             (already built, buffer drained) must be submitted by the caller's
             queued run instead of re-draining.
         """
+        agent_id = agent.agent_id
         binding = await self._ensure_binding(
-            message, agent_id=agent_id, session_key=session_key
+            message, agent=agent, session_key=session_key
         )
         parts, failure_kind = await self._build_message_parts(
             message, agent_id=agent_id, sender_label=sender_label
@@ -374,13 +407,13 @@ class InboundPipeline:
                 ),
                 [],
             )
-        agent_workspace_root_path = self._agents[agent_id].workspace_root
+        agent_workspace_root_path = agent.config.workspace_root
         run_record = self._kernel.submit(
             session_id=binding.kernel_session_id,
             parts=parts,
             workspace_root=agent_workspace_root_path,
             steer=True,
-            model=self._resolve_model(agent_id),
+            model=self._resolve_model(agent),
         )
         if not getattr(run_record, "injected", False):
             # Race: run ended before the enqueue. Caller re-runs with these parts.
@@ -440,15 +473,16 @@ class InboundPipeline:
         self,
         message: InboundMessage,
         *,
-        agent_id: str,
+        agent: LiveAgentSnapshot,
         session_key: str,
         sender_label: str,
         prebuilt_parts: list[dict[str, Any]] | None = None,
     ) -> PipelineResult:
+        agent_id = agent.agent_id
         run_id: str | None = None
         try:
             binding = await self._ensure_binding(
-                message, agent_id=agent_id, session_key=session_key
+                message, agent=agent, session_key=session_key
             )
             # Build parts once (drains the group buffer). The steer race path
             # passes already-built parts so the buffer is not drained twice.
@@ -473,14 +507,14 @@ class InboundPipeline:
                         session_key=session_key,
                         binding=binding,
                     )
-            agent_workspace_root_path = self._agents[agent_id].workspace_root
+            agent_workspace_root_path = agent.config.workspace_root
             # submit() is sync, non-blocking — schedules the turn on RunsRegistry's
             # background loop and returns immediately with a RunRecord.
             run_record = self._kernel.submit(
                 session_id=binding.kernel_session_id,
                 parts=parts,
                 workspace_root=agent_workspace_root_path,
-                model=self._resolve_model(agent_id),
+                model=self._resolve_model(agent),
             )
             run_id = run_record.run_id
             # Anchor the per-turn event stream to this run's own start position.
@@ -750,10 +784,16 @@ class InboundPipeline:
             mentioned = metadata.get("mentioned_agent_ids")
             if isinstance(mentioned, list):
                 for candidate in mentioned:
-                    if isinstance(candidate, str) and candidate in self._agents:
+                    if (
+                        isinstance(candidate, str)
+                        and self._agent_catalog.get(candidate) is not None
+                    ):
                         return self._require_known_agent(candidate)
             reply_to_agent_id = metadata.get("reply_to_agent_id")
-            if isinstance(reply_to_agent_id, str) and reply_to_agent_id in self._agents:
+            if (
+                isinstance(reply_to_agent_id, str)
+                and self._agent_catalog.get(reply_to_agent_id) is not None
+            ):
                 return self._require_known_agent(reply_to_agent_id)
         if message.agent_id:
             return self._require_known_agent(message.agent_id)
@@ -762,128 +802,28 @@ class InboundPipeline:
         if bound_agent is not None:
             return self._require_known_agent(bound_agent)
         if self._default_agent_id is None:
-            raise LookupError("no default agent configured")
+            snapshots = self._agent_catalog.values_snapshot()
+            if not snapshots:
+                raise LookupError("no default agent configured")
+            return snapshots[0].agent_id
         return self._require_known_agent(self._default_agent_id)
 
     async def _ensure_binding(
-        self, message: InboundMessage, *, agent_id: str, session_key: str
+        self,
+        message: InboundMessage,
+        *,
+        agent: LiveAgentSnapshot,
+        session_key: str,
     ) -> SessionBinding:
-        existing = self._session_store.get(session_key)
-        agent = self._agents[agent_id]
-        if existing is not None and self._binding_matches_workspace_root(
-            existing.kernel_session_id,
-            expected_workspace_root=str(agent.workspace_root),
-        ):
-            return self._session_store.bind(
+        return await self._session_binder.resolve(
+            SessionBindingRequest(
                 session_key=session_key,
-                kernel_session_id=existing.kernel_session_id,
                 reply_context=build_reply_context(message),
-            )
-        # Resolve per-agent config into session parameters.
-        session_metadata = self._build_session_metadata(message, agent_id=agent_id)
-        agent_skills = list(agent.skills) if agent.skills else None
-        # refactor-406-M1 R6: per-agent enabled tools + PromptSlots + features (决策 1/6/8).
-        # tool_allowlist is a TRUE whitelist (user may disable defaults); cron is a
-        # gated capability appended when agent.cron_enabled.  PromptSlots carry all PA
-        # conditional prompt content (heartbeat/cron → body, group context → tail),
-        # built per-session from agent config + the group routing scenario in metadata.
-        from personal_assistant.product import (  # noqa: PLC0415
-            prompt_for,
-            resolve_enabled_tools,
+                message=message,
+                gateway_internal_port=self._gateway_internal_port,
+            ),
+            agent,
         )
-
-        agent_tool_allowlist = resolve_enabled_tools(agent)
-        session = await self._kernel.create_session(
-            title=agent.title,
-            workspace_root=agent.workspace_root,
-            skills=agent_skills,
-            enabled_tools=agent_tool_allowlist,
-            features=dict(agent.features) if agent.features else None,
-            prompt=prompt_for(agent, scenario=session_metadata),
-            metadata=session_metadata,
-        )
-        kernel_session_id = session.session_id
-        if not kernel_session_id:
-            raise RuntimeError("kernel session creation did not return session_id")
-        return self._session_store.bind(
-            session_key=session_key,
-            kernel_session_id=kernel_session_id,
-            reply_context=build_reply_context(message),
-        )
-
-    def _build_session_metadata(
-        self, message: InboundMessage, *, agent_id: str
-    ) -> dict[str, object] | None:
-        """Build kernel session metadata from local agent config and message routing fields.
-
-        Args:
-            message: Inbound channel message carrying routing metadata (conversation_id, etc.).
-            agent_id: Resolved agent whose local config supplies prompt/skills/tool_allowlist.
-
-        Returns:
-            Metadata dict for kernel session creation. Prompt-related fields come from the
-            local AgentWorkspaceConfig; routing fields (conversation_id, config_profile_version)
-            come from message metadata. Group-chat sessions additionally carry
-            ``conversation_type``, ``participants``, ``participant_agent_ids``, and
-            ``external_chat_id`` so that downstream hooks (e.g. before_agent_start) can
-            inject group context into the system prompt without requiring a separate API call.
-        """
-
-        agent = self._agents[agent_id]
-        metadata = dict(message.metadata)
-        session_metadata: dict[str, object] = {
-            "agent_id": agent_id,
-            # Inject internal Gateway dispatch URL so product tools (e.g. send_message)
-            # can post outbound messages back through the Gateway HTTP boundary.
-            "gateway_dispatch_url": f"http://127.0.0.1:{self._gateway_internal_port}/internal/dispatch",
-        }
-        conversation_id = metadata.get("conversation_id")
-        if isinstance(conversation_id, str) and conversation_id.strip():
-            session_metadata["conversation_id"] = conversation_id.strip()
-        profile_version = metadata.get("config_profile_version")
-        if isinstance(profile_version, int):
-            session_metadata["config_profile_version"] = profile_version
-        # Prompt/skills/tool_allowlist: read from local agent config, not message metadata.
-        if agent.system_prompt:
-            session_metadata["system_prompt"] = agent.system_prompt
-        if agent.skills:
-            session_metadata["skills"] = list(agent.skills)
-        if agent.tool_allowlist:
-            session_metadata["tool_allowlist"] = list(agent.tool_allowlist)
-        # feat-379-M2 R6: inject per-agent feature flags and custom prompt supplement
-        # into session metadata so the runtime can populate PromptContext.flags/vars.
-        # agent.features may be empty dict (no overrides); always inject so runtime
-        # can merge with FEATURE_REGISTRY default_on values.
-        session_metadata["agent_features"] = dict(agent.features)
-        if agent.custom_prompt:
-            session_metadata["agent_custom_prompt"] = agent.custom_prompt
-        # feat-394 M9 R4: standalone heartbeat_enabled/cron_enabled metadata keys removed.
-        # Gate state lives in agent_features (injected above) and is read by
-        # resolve_flags_from_metadata → ctx.flags in runtime.py.
-        # SPEC §7: inject group chat routing context into session metadata so the
-        # before_agent_start hook can append a communication context block.
-        if message.is_group:
-            session_metadata["conversation_type"] = "group"
-            session_metadata["external_chat_id"] = message.external_chat_id or ""
-            # Prefer structured participants and normalize to actor-first identities.
-            raw_participants = metadata.get("participants")
-            normalized_participants = _normalize_group_participants(raw_participants)
-            if normalized_participants:
-                session_metadata["participants"] = normalized_participants
-            participant_agent_ids = metadata.get("participant_agent_ids")
-            if isinstance(participant_agent_ids, list):
-                session_metadata["participant_agent_ids"] = [
-                    str(aid) for aid in participant_agent_ids if isinstance(aid, str)
-                ]
-            elif normalized_participants:
-                session_metadata["participant_agent_ids"] = (
-                    _extract_participant_agent_ids(normalized_participants)
-                )
-            else:
-                session_metadata["participant_agent_ids"] = [agent_id]
-        else:
-            session_metadata["conversation_type"] = "direct"
-        return session_metadata
 
     @staticmethod
     def _should_process(
@@ -1002,10 +942,11 @@ class InboundPipeline:
         self,
         message: InboundMessage,
         *,
-        agent_id: str,
+        agent: LiveAgentSnapshot,
         session_key: str,
     ) -> PipelineResult:
         """Handle /stop: interrupt active run or return friendly no-op message."""
+        agent_id = agent.agent_id
         active_run_id: str | None = None
         async with self._active_runs_lock:
             active_run_id = self._active_runs.get(session_key)
@@ -1026,7 +967,7 @@ class InboundPipeline:
             )
 
         binding = await self._ensure_binding(
-            message, agent_id=agent_id, session_key=session_key
+            message, agent=agent, session_key=session_key
         )
 
         if active_run_id is None:
@@ -1047,7 +988,7 @@ class InboundPipeline:
                 outbound=outbound,
             )
 
-        agent_workspace_root_path = self._agents[agent_id].workspace_root
+        agent_workspace_root_path = agent.config.workspace_root
         # bugfix-417-M5 (#114): mark this run user-interrupted BEFORE interrupting so
         # the terminal reconcile attributes the in-flight tool card content to the
         # user. (active_run_id is the run /stop targets.)
@@ -1252,63 +1193,16 @@ class InboundPipeline:
             outbound=outbound,
         )
 
-    def register_agent(self, agent: AgentWorkspaceConfig) -> None:
-        """Add or replace one live agent workspace binding for future sessions."""
-        self._agents[agent.agent_id] = agent
-        if self._default_agent_id is None:
-            self._default_agent_id = agent.agent_id
-
-    def _resolve_model(self, agent_id: str) -> str | None:
+    def _resolve_model(self, agent: LiveAgentSnapshot) -> str | None:
         """Resolve the model for one turn (bugfix-429 决策2).
 
-        Reads ``agent.default_model`` fresh from the live ``self._agents`` map
-        (config.sync updates it via register_agent) so a model change applies to
-        the next turn, including existing/old sessions. The fallback rule lives in
-        the shared ``resolve_run_model`` helper (fix-r1 #3).
+        The caller supplies the operation's captured snapshot so every decision in
+        the turn observes one complete Agent revision.
         """
         return resolve_run_model(
-            self._agents.get(agent_id),
+            agent.config,
             product_default=self._product_default_model,
         )
-
-    def _binding_matches_workspace_root(
-        self, session_id: str, *, expected_workspace_root: str
-    ) -> bool:
-        """Return whether one bound kernel session carries the expected workspace metadata.
-
-        Notes:
-            In the SDK (in-process) mode, sessions are always created with the correct
-            workspace_root in the same process, so stale workspace mismatches cannot
-            occur across process restarts (the in-memory session store is fresh each
-            startup).  We still verify via get_session so legacy sessions persisted
-            before M3 are refreshed on the first inbound message.
-
-            Older test doubles may not implement get_session yet; in that case we
-            preserve the historical reuse behavior.
-        """
-
-        get_session = getattr(self._kernel, "get_session", None)
-        if not callable(get_session):
-            return True
-        try:
-            session_payload = get_session(
-                session_id=session_id, workspace_root=expected_workspace_root
-            )
-        except RuntimeError:
-            return False
-        # workspace_root is a top-level key in the session payload (set by
-        # Kernel.get_session from Session.workspace_root).  Reading it from
-        # metadata would require the gateway to inject a redundant copy on
-        # create_session, creating two sources of truth — refactor-387 regression.
-        workspace_root = session_payload.get("workspace_root")
-        return (
-            isinstance(workspace_root, str)
-            and workspace_root.strip() == expected_workspace_root.strip()
-        )
-
-    def drop_agent_sessions(self, agent_id: str) -> None:
-        """Drop existing kernel-session bindings for one agent after config sync."""
-        self._session_store.drop_agent(agent_id)
 
     async def _ensure_background_subscriber(
         self,
@@ -1419,7 +1313,7 @@ class InboundPipeline:
         await subscriber.start()
 
     def _require_known_agent(self, agent_id: str) -> str:
-        if agent_id not in self._agents:
+        if self._agent_catalog.get(agent_id) is None:
             raise LookupError(f"unknown agent_id: {agent_id}")
         return agent_id
 

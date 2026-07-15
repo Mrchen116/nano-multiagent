@@ -155,7 +155,7 @@ async def test_cron_runner_submit_uses_isolated_session(tmp_path: Path) -> None:
         agent_id="agent-1",
         workspace_root=tmp_path,
         kernel_client=kernel_client,
-        session_binding_store=None,
+        session_binder=None,
     )
 
     await runner._submit_cron_job(job=job)
@@ -189,7 +189,7 @@ async def test_cron_runner_awareness_appended_to_canonical_session(
         agent_id="agent-1",
         workspace_root=tmp_path,
         kernel_client=kernel_client,
-        session_binding_store=None,
+        session_binder=None,
         canonical_session_id=canonical_session_id,
     )
 
@@ -235,7 +235,7 @@ async def test_cron_runner_isolated_turns_not_in_canonical(tmp_path: Path) -> No
         agent_id="agent-1",
         workspace_root=tmp_path,
         kernel_client=kernel_client,
-        session_binding_store=None,
+        session_binder=None,
         canonical_session_id=canonical_session_id,
     )
 
@@ -280,7 +280,7 @@ async def test_cron_runner_delete_after_run(tmp_path: Path) -> None:
         agent_id="agent-1",
         workspace_root=tmp_path,
         kernel_client=_FakeKernelClient(),
-        session_binding_store=None,
+        session_binder=None,
     )
 
     await runner._submit_cron_job(job=job)
@@ -355,7 +355,7 @@ async def test_cron_runner_submit_no_session_id_kwarg_to_shim(tmp_path: Path) ->
         agent_id="agent-1",
         workspace_root=tmp_path,
         kernel_client=shim_client,
-        session_binding_store=None,
+        session_binder=None,
     )
 
     # Must not raise TypeError after the fix.
@@ -391,7 +391,7 @@ async def test_cron_runner_uses_returned_session_id_for_submit(tmp_path: Path) -
         agent_id="agent-1",
         workspace_root=tmp_path,
         kernel_client=shim_client,
-        session_binding_store=None,
+        session_binder=None,
     )
 
     await runner._submit_cron_job(job=job)
@@ -420,7 +420,7 @@ async def test_cron_runner_session_metadata_contains_agent_id(tmp_path: Path) ->
         agent_id="agent-x",
         workspace_root=tmp_path,
         kernel_client=kernel_client,
-        session_binding_store=None,
+        session_binder=None,
     )
 
     await runner._submit_cron_job(job=job)
