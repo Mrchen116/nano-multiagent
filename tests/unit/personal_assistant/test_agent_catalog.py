@@ -110,11 +110,21 @@ def test_readers_only_observe_complete_old_or_new_snapshot(tmp_path: Path) -> No
     )
     catalog = LiveAgentCatalog((old,))
     start = Event()
+    reader_ready = Event()
     done = Event()
     observed: list[tuple[str | None, str | None, bool]] = []
 
     def _read() -> None:
         start.wait()
+        first = catalog.require("agent-a")
+        observed.append(
+            (
+                first.config.title,
+                first.config.default_model,
+                first.config.heartbeat_enabled,
+            )
+        )
+        reader_ready.set()
         while not done.is_set():
             snapshot = catalog.require("agent-a")
             observed.append(
@@ -128,6 +138,7 @@ def test_readers_only_observe_complete_old_or_new_snapshot(tmp_path: Path) -> No
     reader = Thread(target=_read)
     reader.start()
     start.set()
+    assert reader_ready.wait(timeout=1), "catalog reader did not reach observation loop"
     for _ in range(100):
         catalog.publish(new)
         catalog.publish(old)
