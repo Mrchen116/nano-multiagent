@@ -30,6 +30,7 @@ from IM.infra.repositories import (
     UsageMetricsRepository,
     UserRepository,
 )
+from IM.infra.binding_store import BindingStore
 from IM.infra.channel_control_store import ChannelManifest
 from IM.ws.gateway_handler import GatewayHandler
 
@@ -157,6 +158,11 @@ def get_bind_service(request: Request) -> BindService:
         nodes=_build_node_repository(request),
         binds=_build_bind_repository(request),
         profiles=_build_profile_repository(request),
+        binding_store=getattr(
+            request.app.state,
+            "binding_store",
+            BindingStore(request.app.state.db_path),
+        ),
         bind_base_url=os.getenv(
             "IM_BIND_BASE_URL", "http://127.0.0.1:8011/bind/confirm"
         ),

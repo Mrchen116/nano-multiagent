@@ -55,6 +55,7 @@ class GatewayConnection:
     """Represent one active gateway websocket bound to a node id."""
 
     node_id: str
+    owner_id: str
     websocket: WebSocket
     agents: list[str]
     capabilities: dict[str, object]
@@ -63,6 +64,12 @@ class GatewayConnection:
     credential_key_id: str | None = None
     credential_algorithm: str | None = None
     credential_public_key: str | None = None
+
+
+class GatewayAuthorizationError(PermissionError):
+    """Reject an authenticated Gateway operation outside its owner scope."""
+
+    code = "gateway_owner_mismatch"
 
 
 class GatewayHandler:
@@ -151,8 +158,16 @@ class GatewayHandler:
             str, asyncio.Future[dict[str, object] | None]
         ] = {}
 
-    async def serve(self, websocket: WebSocket) -> None:
-        """Accept one websocket and process gateway protocol frames until disconnect."""
+    async def serve(
+        self, websocket: WebSocket, *, authenticated_owner_id: str = ""
+    ) -> None:
+        """Accept one websocket and process gateway protocol frames until disconnect.
+
+        Args:
+            websocket: Authenticated Gateway transport owned by the caller.
+            authenticated_owner_id: Owner scope derived from the bearer token by
+                the HTTP/WebSocket composition boundary.
+        """
         await websocket.accept()
         node_id: str | None = None
         try:
@@ -165,6 +180,7 @@ class GatewayHandler:
                     websocket=websocket,
                     message_type=message_type,
                     payload=body,
+                    authenticated_owner_id=authenticated_owner_id,
                 )
                 if response is not None:
                     await websocket.send_json(response)
@@ -186,10 +202,15 @@ class GatewayHandler:
         websocket: WebSocket,
         message_type: str,
         payload: dict[str, object],
+        authenticated_owner_id: str = "",
     ) -> dict[str, object] | None:
         """Handle one gateway->IM protocol message and return optional ack/error."""
         if message_type == "node.register":
-            return await self._handle_register(websocket=websocket, payload=payload)
+            return await self._handle_register(
+                websocket=websocket,
+                payload=payload,
+                authenticated_owner_id=authenticated_owner_id,
+            )
         if message_type == "node.heartbeat":
             return await self._handle_heartbeat(payload=payload)
         if message_type == "node.report":
@@ -1008,9 +1029,17 @@ class GatewayHandler:
             return set(self._connections.keys())
 
     async def _handle_register(
-        self, *, websocket: WebSocket, payload: dict[str, object]
+        self,
+        *,
+        websocket: WebSocket,
+        payload: dict[str, object],
+        authenticated_owner_id: str,
     ) -> dict[str, object]:
         node_id = _require_text(payload.get("node_id"), field_name="node_id")
+        if self._node_persistence is not None:
+            durable_owner = self._node_persistence.owner_for_node(node_id=node_id)
+            if durable_owner and durable_owner != authenticated_owner_id:
+                raise GatewayAuthorizationError("node is bound to another owner")
         agents = _require_string_list(payload.get("agents", []), field_name="agents")
         # bugfix-404-M2 decision 3: optional field carrying per-agent workspace seeds.
         # Old gateway frames omit this field; IM falls back to managed_workspace_root.
@@ -1033,6 +1062,7 @@ class GatewayHandler:
         version = _optional_text(payload.get("version")) or ""
         connection = GatewayConnection(
             node_id=node_id,
+            owner_id=authenticated_owner_id,
             websocket=websocket,
             agents=agents,
             capabilities=capabilities,

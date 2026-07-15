@@ -28,6 +28,7 @@ from IM.application.relay_watchdog import run_relay_watchdog
 from IM.domain.models import ConversationEvent
 from IM.infra.db import connect, initialize_schema
 from IM.infra.channel_control_store import ChannelControlStore
+from IM.infra.binding_store import BindingStore
 from IM.infra.gateway_persistence import (
     GatewayConversationPersistence,
     GatewayNodePersistence,
@@ -275,6 +276,8 @@ def create_app(
         connection = connect(resolved_db_path)
         initialize_schema(connection)
         app_instance.state.connection = connection
+        app_instance.state.db_path = resolved_db_path
+        app_instance.state.binding_store = BindingStore(resolved_db_path)
         app_instance.state.channel_control_store = ChannelControlStore(resolved_db_path)
         app_instance.state.upload_dir = resolved_upload_dir
         app_instance.state.auth_service = AuthService(
@@ -370,6 +373,7 @@ def create_app(
             connection.close()
 
     app = FastAPI(title="Independent IM Service", version="0.1.0", lifespan=lifespan)
+    app.state.db_path = resolved_db_path
     app.state.upload_dir = resolved_upload_dir
     app.state.frontend_dist_dirs = resolved_frontend_dist_dirs
     app.add_middleware(
@@ -400,8 +404,36 @@ def create_app(
     @app.websocket("/im/ws/gateway")
     async def gateway_websocket(websocket: WebSocket) -> None:
         """Serve the Gateway websocket protocol used by IM relay delivery."""
+        from IM.application.auth_service import InvalidTokenError
+        from IM.infra.repositories import UserRepository
+        from IM.ws.gateway_handler import GatewayAuthorizationError
+
+        authorization = websocket.headers.get("authorization", "")
+        scheme, _, raw_token = authorization.partition(" ")
+        if scheme.lower() != "bearer" or not raw_token.strip():
+            await websocket.close(code=1008)
+            return
         try:
-            await app.state.gateway_handler.serve(websocket)
+            user_id = app.state.auth_service.verify_access_token(raw_token.strip())
+        except InvalidTokenError:
+            await websocket.close(code=1008)
+            return
+        user = UserRepository(app.state.connection).get_user(user_id=user_id)
+        if user is None:
+            await websocket.close(code=1008)
+            return
+        try:
+            await app.state.gateway_handler.serve(
+                websocket, authenticated_owner_id=user.owner_id
+            )
+        except GatewayAuthorizationError as exc:
+            await websocket.send_json(
+                {
+                    "type": "error",
+                    "payload": {"code": exc.code, "message": str(exc)},
+                }
+            )
+            await websocket.close(code=1008)
         except ValueError as exc:
             await websocket.send_json(
                 {

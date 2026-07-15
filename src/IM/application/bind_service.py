@@ -1,6 +1,7 @@
 """Application service for IM account and device binding APIs."""
 
 from IM.domain.models import DeviceBindRequest, User
+from IM.infra.binding_store import BindingStore
 from IM.infra.repositories import (
     AgentProfileRepository,
     BindRepository,
@@ -19,6 +20,7 @@ class BindService:
         nodes: NodeRepository,
         binds: BindRepository,
         profiles: AgentProfileRepository,
+        binding_store: BindingStore,
         bind_base_url: str,
     ) -> None:
         """Bind service to repositories used by account and bind routes."""
@@ -26,6 +28,7 @@ class BindService:
         self._nodes = nodes
         self._binds = binds
         self._profiles = profiles
+        self._binding_store = binding_store
         self._bind_base_url = bind_base_url
 
     def get_me(self, *, user_id: str) -> User | None:
@@ -60,32 +63,6 @@ class BindService:
         self, *, bind_id: str | None = None, bind_token: str | None = None, user_id: str
     ) -> DeviceBindRequest:
         """Confirm a pending bind request and reassign node-local agents."""
-        user = self._users.get_user(user_id=user_id)
-        if user is None:
-            raise ValueError("user_id not found")
-        existing = (
-            self._binds.get_bind_request(bind_id=bind_id)
-            if bind_id is not None
-            else self._binds.get_bind_request_by_token(bind_token=bind_token or "")
-        )
-        if existing is None:
-            missing = "bind_id not found" if bind_id is not None else "bind_token not found"
-            raise ValueError(missing)
-        node = self._nodes.get_node(node_id=existing.node_id)
-        if node is None:
-            raise ValueError("node_id not found")
-        if node.owner_id and node.owner_id != user.owner_id:
-            raise ValueError("node already bound to another owner")
-        if existing.status == "confirmed":
-            if existing.user_id == user_id:
-                return existing
-            raise ValueError("bind request already confirmed")
-        bind = self._binds.confirm_bind_request(
+        return self._binding_store.confirm(
             bind_id=bind_id, bind_token=bind_token, user_id=user_id
         )
-        self._nodes.assign_owner(node_id=bind.node_id, owner_id=user.owner_id)
-        self._profiles.reassign_owner_by_node(
-            node_id=bind.node_id, owner_id=user.owner_id
-        )
-        self._users.ensure_default_entry_node(user_id=user_id, node_id=bind.node_id)
-        return bind
