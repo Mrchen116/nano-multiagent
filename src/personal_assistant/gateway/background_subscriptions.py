@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
 from personal_assistant.channels.base import ReplyContext
@@ -35,6 +36,15 @@ class BackgroundSubscriptionRequest:
     after_sequence: int
     reply_context: ReplyContext | None
     agent_id: str
+
+
+class ForegroundTerminalSubscriptionOutcome(StrEnum):
+    """Describe optional background admission after a foreground terminal."""
+
+    STARTED = "started"
+    ALREADY_ACTIVE = "already_active"
+    NOT_REQUIRED = "not_required"
+    SHUTDOWN_SKIPPED = "shutdown_skipped"
 
 
 class BackgroundSubscriptionManager:
@@ -76,27 +86,37 @@ class BackgroundSubscriptionManager:
             RuntimeError: When new subscription admission has been sealed.
         """
 
-        has_session_delivery = (
-            self._session_event_callback is not None
-            and request.reply_context is not None
-        )
-        has_background_delivery = (
-            request.reply_context is not None and self._bg_reply_sender is not None
-        )
         async with self._lock:
             if request.session_id in self._subscribers:
                 return
             if self._sealed:
                 raise RuntimeError("background subscription manager is sealed")
-            if not has_session_delivery and not has_background_delivery:
-                return
-            subscriber = self._build_subscriber(request)
-            self._subscribers[request.session_id] = subscriber
-            try:
-                await subscriber.start()
-            except BaseException:
-                self._subscribers.pop(request.session_id, None)
-                raise
+            await self._start_locked(request)
+
+    async def ensure_after_foreground_terminal(
+        self, request: BackgroundSubscriptionRequest
+    ) -> ForegroundTerminalSubscriptionOutcome:
+        """Optionally subscribe without making foreground success depend on shutdown.
+
+        The foreground run has already reached a Kernel terminal before this method
+        is called. A concurrent Gateway seal therefore means no new background work
+        may be admitted, not that the completed foreground run failed.
+
+        Args:
+            request: Session, replay anchor, reply target and explicit Agent identity.
+
+        Returns:
+            Typed admission outcome; shutdown rejection is a normal result.
+        """
+
+        async with self._lock:
+            if request.session_id in self._subscribers:
+                return ForegroundTerminalSubscriptionOutcome.ALREADY_ACTIVE
+            if self._sealed:
+                return ForegroundTerminalSubscriptionOutcome.SHUTDOWN_SKIPPED
+            if await self._start_locked(request):
+                return ForegroundTerminalSubscriptionOutcome.STARTED
+            return ForegroundTerminalSubscriptionOutcome.NOT_REQUIRED
 
     def seal(self) -> None:
         """Synchronously reject new subscribers without cancelling existing ones."""
@@ -190,6 +210,27 @@ class BackgroundSubscriptionManager:
             after_sequence=request.after_sequence,
             bg_run_output_callback=bg_run_output_callback,
         )
+
+    async def _start_locked(self, request: BackgroundSubscriptionRequest) -> bool:
+        """Start one subscriber while the manager admission lock is held."""
+
+        has_session_delivery = (
+            self._session_event_callback is not None
+            and request.reply_context is not None
+        )
+        has_background_delivery = (
+            request.reply_context is not None and self._bg_reply_sender is not None
+        )
+        if not has_session_delivery and not has_background_delivery:
+            return False
+        subscriber = self._build_subscriber(request)
+        self._subscribers[request.session_id] = subscriber
+        try:
+            await subscriber.start()
+        except BaseException:
+            self._subscribers.pop(request.session_id, None)
+            raise
+        return True
 
 
 class _KernelStreamAdapter:

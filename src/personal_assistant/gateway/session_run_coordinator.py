@@ -418,7 +418,7 @@ class SessionRunCoordinator:
             )
             active_closed = True
             if self._background_subscriptions is not None:
-                await self._background_subscriptions.ensure(
+                await self._background_subscriptions.ensure_after_foreground_terminal(
                     BackgroundSubscriptionRequest(
                         session_id=binding.kernel_session_id,
                         after_sequence=anchor_sequence or 0,

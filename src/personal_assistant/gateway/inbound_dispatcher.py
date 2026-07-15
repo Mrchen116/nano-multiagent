@@ -25,6 +25,9 @@ class InboundDispatcher:
         self._loop_roots: set[asyncio.Task[None]] = set()
         self._thread_roots: dict[ConcurrentFuture[None], str] = {}
         self._thread_loop_roots: dict[str, asyncio.Task[None]] = {}
+        self._thread_root_registrations: dict[
+            str, ConcurrentFuture[asyncio.Task[None]]
+        ] = {}
 
     def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         """Bind the single Gateway loop used for all inbound coroutine roots."""
@@ -53,18 +56,22 @@ class InboundDispatcher:
                 return
             self._root_sequence += 1
             root_name = f"inbound-root:{self._root_sequence}"
-            coroutine = self._run_root(
-                message,
-                root_name=root_name,
-                thread_boundary=running_loop is not loop,
-            )
             if running_loop is loop:
+                coroutine = self._run_root(message, root_name=root_name)
                 task = loop.create_task(coroutine, name=root_name)
                 self._loop_roots.add(task)
                 task.add_done_callback(self._loop_root_done)
                 return
+            registration: ConcurrentFuture[asyncio.Task[None]] = ConcurrentFuture()
+            coroutine = self._run_root(
+                message,
+                root_name=root_name,
+                thread_boundary=True,
+                thread_registration=registration,
+            )
             future = asyncio.run_coroutine_threadsafe(coroutine, loop)
             self._thread_roots[future] = root_name
+            self._thread_root_registrations[root_name] = registration
             future.add_done_callback(self._thread_root_done)
 
     def seal(self) -> None:
@@ -95,12 +102,13 @@ class InboundDispatcher:
             loop_roots = list(self._loop_roots)
             thread_roots = dict(self._thread_roots)
             thread_loop_roots = dict(self._thread_loop_roots)
+            thread_root_registrations = dict(self._thread_root_registrations)
         started_thread_names = set(thread_loop_roots)
-        wrapped = [
-            asyncio.wrap_future(future)
+        wrapped = {
+            asyncio.wrap_future(future): root_name
             for future, root_name in thread_roots.items()
             if root_name not in started_thread_names
-        ]
+        }
         roots: list[asyncio.Future[Any] | asyncio.Task[Any]] = [
             *loop_roots,
             *thread_loop_roots.values(),
@@ -112,9 +120,23 @@ class InboundDispatcher:
         _, pending = await asyncio.wait(roots, timeout=remaining)
         if not pending:
             return
+        late_thread_names = {
+            wrapped[root]
+            for root in pending
+            if root in wrapped
+        }
         for root in pending:
             root.cancel()
         await asyncio.gather(*pending, return_exceptions=True)
+        # Cancelling an asyncio wrapper only acknowledges the concurrent proxy. A
+        # run_coroutine_threadsafe callback queued before this drain may create its
+        # real Task after the initial snapshot. Wait for that registration, then for
+        # the Task's cancellation cleanup even though the shared deadline is spent.
+        late_tasks = [
+            await asyncio.wrap_future(thread_root_registrations[root_name])
+            for root_name in late_thread_names
+        ]
+        await asyncio.gather(*late_tasks, return_exceptions=True)
         raise TimeoutError(f"inbound roots exceeded deadline: {len(pending)}")
 
     async def _run_root(
@@ -123,6 +145,7 @@ class InboundDispatcher:
         *,
         root_name: str,
         thread_boundary: bool = False,
+        thread_registration: ConcurrentFuture[asyncio.Task[None]] | None = None,
     ) -> None:
         task = asyncio.current_task()
         if task is not None:
@@ -130,6 +153,8 @@ class InboundDispatcher:
             if thread_boundary:
                 with self._lock:
                     self._thread_loop_roots[root_name] = task
+                    assert thread_registration is not None
+                    thread_registration.set_result(task)
                 task.add_done_callback(
                     lambda done, name=root_name: self._thread_loop_root_done(
                         name, done
@@ -161,3 +186,4 @@ class InboundDispatcher:
         with self._lock:
             if self._thread_loop_roots.get(root_name) is task:
                 self._thread_loop_roots.pop(root_name, None)
+            self._thread_root_registrations.pop(root_name, None)
