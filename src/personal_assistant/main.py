@@ -224,8 +224,11 @@ class HeartbeatRunner(Protocol):
     async def start(self) -> None:
         """Start background scheduler ticking."""
 
-    async def close(self) -> None:
-        """Stop background scheduler ticking and wait for drain."""
+    def request_stop(self) -> None:
+        """Synchronously reject future scheduler passes."""
+
+    async def close(self, deadline: float) -> None:
+        """Wait for the current pass by the shared shutdown deadline."""
 
 
 class IMConnectionManagerLike(Protocol):
@@ -684,16 +687,41 @@ class PollingHeartbeatRunner:
         # letting it die silently (issue path 4). Mirrors the inbound dispatcher pattern.
         self._task.add_done_callback(_consume_task_exception)
 
-    async def close(self) -> None:
-        """Stop the background loop and wait for the worker task to finish."""
+    def request_stop(self) -> None:
+        """Synchronously stop admission without joining the current tick."""
+
+        self._stop_requested = True
+        self._wake_event.set()
+
+    async def close(self, deadline: float | None = None) -> None:
+        """Drain or cancel the current tick by an absolute loop deadline.
+
+        Args:
+            deadline: Shared Gateway ``loop.time()`` deadline. ``None`` preserves
+                the standalone caller behavior of waiting without a timeout.
+
+        Raises:
+            TimeoutError: When the current tick requires deadline cancellation.
+        """
 
         task = self._task
         if task is None:
             return
-        self._stop_requested = True
-        self._wake_event.set()
-        await task
-        self._task = None
+        self.request_stop()
+        try:
+            if deadline is None:
+                await task
+                return
+            remaining = max(0.0, deadline - asyncio.get_running_loop().time())
+            _, pending = await asyncio.wait((task,), timeout=remaining)
+            if not pending:
+                await task
+                return
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            raise TimeoutError("heartbeat tick exceeded Gateway shutdown deadline")
+        finally:
+            self._task = None
 
     def request_tick(self) -> None:
         """Wake the loop so a manual IM-triggered tick can run promptly."""
@@ -988,6 +1016,9 @@ class GatewayRuntime:
         gateway_internal_port: int = 8089,
         kernel: object | None = None,
         cron_dispatcher: CronServiceRegistry | None = None,
+        run_queue: SessionRunQueue | None = None,
+        background_subscriptions: BackgroundSubscriptionManager | None = None,
+        runtime_delivery_tasks: RuntimeDeliveryTaskTracker | None = None,
     ) -> None:
         self._config = config
         self._channel_registry = channel_registry or ChannelRegistry()
@@ -1007,8 +1038,16 @@ class GatewayRuntime:
         # bugfix-402-M4: inject gateway loop into cron services so enqueue() from
         # worker threads (asyncio.to_thread) can schedule execute_fn correctly.
         self._cron_dispatcher = cron_dispatcher
+        self._inbound_dispatcher = (
+            on_inbound if isinstance(on_inbound, InboundDispatcher) else None
+        )
+        self._run_queue = run_queue
+        self._background_subscriptions = background_subscriptions
+        self._runtime_delivery_tasks = runtime_delivery_tasks
         self._ready_event = threading.Event()
         self._shutdown_requested = threading.Event()
+        self._shutdown_request_lock = threading.Lock()
+        self._shutdown_started_at: float | None = None
         self._shutdown_async_event: asyncio.Event | None = None
         self._shutdown_loop: asyncio.AbstractEventLoop | None = None
 
@@ -1020,7 +1059,10 @@ class GatewayRuntime:
     def request_shutdown(self) -> None:
         """Request graceful shutdown from another thread or signal handler."""
 
-        self._shutdown_requested.set()
+        with self._shutdown_request_lock:
+            if not self._shutdown_requested.is_set():
+                self._shutdown_started_at = time.monotonic()
+                self._shutdown_requested.set()
         loop = self._shutdown_loop
         event = self._shutdown_async_event
         if loop is not None and event is not None and loop.is_running():
@@ -1034,15 +1076,17 @@ class GatewayRuntime:
         """
 
         self._ready_event.clear()
-        self._shutdown_requested.clear()
+        with self._shutdown_request_lock:
+            self._shutdown_requested.clear()
+            self._shutdown_started_at = None
         return asyncio.run(self._run_until_shutdown())
 
     async def _run_until_shutdown(self) -> int:
         loop = asyncio.get_running_loop()
         self._shutdown_loop = loop
         self._shutdown_async_event = asyncio.Event()
-        if isinstance(self._on_inbound, InboundDispatcher):
-            self._on_inbound.bind_loop(loop)
+        if self._inbound_dispatcher is not None:
+            self._inbound_dispatcher.bind_loop(loop)
         # bugfix-402-M4: wire gateway loop into cron dispatcher so enqueue()
         # called from asyncio.to_thread (tool.run) can schedule execute_fn on
         # this loop rather than silently dropping (no-running-loop path).
@@ -1099,37 +1143,136 @@ class GatewayRuntime:
             await self._wait_for_shutdown_request()
             return 0
         finally:
+            shutdown_started_at = self._shutdown_started_at or loop.time()
+            inner_deadline = shutdown_started_at + (
+                0.8 * self._config.gateway.shutdown_grace_seconds
+            )
             self._ready_event.clear()
-            if dispatch_runner is not None:
-                try:
-                    await dispatch_runner.cleanup()
-                except Exception as exc:
-                    # Cleanup failure (e.g. socket already closed) must not prevent
-                    # further shutdown steps; log so the error is observable (refactor-395-M1).
-                    _log.warning(
-                        "dispatch runner cleanup failed during shutdown: %s", exc
-                    )
+
+            # Admission seal is deliberately synchronous: active HTTP handlers,
+            # heartbeat ticks and inbound roots remain consumers until after Kernel
+            # terminal events have crossed their delivery boundaries.
+            if self._inbound_dispatcher is not None:
+                self._run_shutdown_action(
+                    "inbound dispatcher seal", self._inbound_dispatcher.seal
+                )
+            if self._internal_dispatch_handler is not None:
+                self._run_shutdown_action(
+                    "internal dispatch seal", self._internal_dispatch_handler.seal
+                )
             if heartbeat_started and self._heartbeat_runner is not None:
-                await self._heartbeat_runner.close()
-            if channels_started:
-                stop_channels(self._channel_registry)
-            # bugfix-402-M3 R3: drain in-flight runs before closing the IM transport
-            # (Decision 7). Producers are already stopped above; aclose() waits for
-            # the Registry to reach CLOSED before returning.
-            if self._kernel is not None and hasattr(self._kernel, "aclose"):
-                try:
-                    await self._kernel.aclose()
-                except Exception as exc:  # noqa: BLE001
-                    _log.warning("kernel.aclose() raised during shutdown: %s", exc)
-            # bugfix-402-M6 W-1: drain in-flight cron executions after kernel is
-            # closed (no new runs accepted) but before IM transport is torn down.
+                self._run_shutdown_action(
+                    "heartbeat request_stop", self._heartbeat_runner.request_stop
+                )
             if self._cron_dispatcher is not None:
-                try:
-                    await self._cron_dispatcher.drain_all()
-                except Exception as exc:  # noqa: BLE001
-                    _log.warning(
-                        "cron dispatcher drain_all() raised during shutdown: %s", exc
+                self._run_shutdown_action(
+                    "cron request_stop", self._cron_dispatcher.request_stop
+                )
+            if self._run_queue is not None:
+                self._run_shutdown_action(
+                    "session run queue seal",
+                    self._run_queue.seal_and_cancel_pending,
+                )
+            if self._background_subscriptions is not None:
+                self._run_shutdown_action(
+                    "background subscriptions seal",
+                    self._background_subscriptions.seal,
+                )
+            if channels_started:
+                self._run_shutdown_action(
+                    "channel stop", lambda: stop_channels(self._channel_registry)
+                )
+
+            if self._inbound_dispatcher is not None:
+                await self._run_shutdown_operation(
+                    "inbound admission settle",
+                    inner_deadline,
+                    lambda: self._inbound_dispatcher.settle_admission(inner_deadline),
+                    enforce_deadline=False,
+                )
+
+            # Kernel close precedes physical consumer drain so accepted runs can
+            # publish their final lifecycle through still-live subscribers/delivery.
+            if self._kernel is not None and hasattr(self._kernel, "aclose"):
+                await self._run_shutdown_operation(
+                    "kernel close",
+                    inner_deadline,
+                    self._kernel.aclose,
+                )
+
+            consumer_drains: list[
+                tuple[str, Callable[[], Awaitable[object]], bool]
+            ] = []
+            if dispatch_runner is not None:
+                consumer_drains.append(
+                    ("internal dispatch", dispatch_runner.cleanup, True)
+                )
+            if heartbeat_started and self._heartbeat_runner is not None:
+                consumer_drains.append(
+                    (
+                        "heartbeat",
+                        lambda: self._heartbeat_runner.close(inner_deadline),
+                        False,
                     )
+                )
+            if self._cron_dispatcher is not None:
+                consumer_drains.append(
+                    (
+                        "cron",
+                        lambda: self._cron_dispatcher.drain_all(inner_deadline),
+                        False,
+                    )
+                )
+            if self._inbound_dispatcher is not None:
+                consumer_drains.append(
+                    (
+                        "inbound roots",
+                        lambda: self._inbound_dispatcher.drain(inner_deadline),
+                        False,
+                    )
+                )
+            if self._run_queue is not None:
+                consumer_drains.append(
+                    (
+                        "session run queue",
+                        lambda: self._run_queue.drain_workers(inner_deadline),
+                        False,
+                    )
+                )
+            if self._background_subscriptions is not None:
+                consumer_drains.append(
+                    (
+                        "background subscriptions",
+                        lambda: self._background_subscriptions.aclose(inner_deadline),
+                        False,
+                    )
+                )
+            if consumer_drains:
+                await asyncio.gather(
+                    *(
+                        asyncio.create_task(
+                            self._run_shutdown_operation(
+                                name,
+                                inner_deadline,
+                                operation,
+                                enforce_deadline=enforce_deadline,
+                            ),
+                            name=f"shutdown-drain:{name}",
+                        )
+                        for name, operation, enforce_deadline in consumer_drains
+                    )
+                )
+
+            if self._runtime_delivery_tasks is not None:
+                await self._run_shutdown_operation(
+                    "runtime delivery",
+                    inner_deadline,
+                    lambda: self._runtime_delivery_tasks.close_and_drain(
+                        inner_deadline
+                    ),
+                    enforce_deadline=False,
+                )
+
             if self._im_connection_manager is not None:
                 try:
                     await self._im_connection_manager.close()
@@ -1144,9 +1287,37 @@ class GatewayRuntime:
                 except BaseException as exc:  # noqa: BLE001
                     _log.warning("IM task await raised during shutdown: %s", exc)
             for closer in self._resource_closers:
-                closer()
+                self._run_shutdown_action("resource closer", closer)
             self._shutdown_async_event = None
             self._shutdown_loop = None
+
+    @staticmethod
+    def _run_shutdown_action(name: str, action: Callable[[], None]) -> None:
+        """Run one synchronous seal/close action without skipping later owners."""
+
+        try:
+            action()
+        except BaseException as exc:  # noqa: BLE001
+            _log.warning("%s raised during shutdown: %s", name, exc)
+
+    @staticmethod
+    async def _run_shutdown_operation(
+        name: str,
+        deadline: float,
+        operation: Callable[[], Awaitable[object]],
+        *,
+        enforce_deadline: bool = True,
+    ) -> None:
+        """Run one async owner under the shared deadline with failure isolation."""
+
+        try:
+            if enforce_deadline:
+                async with asyncio.timeout_at(deadline):
+                    await operation()
+            else:
+                await operation()
+        except BaseException as exc:  # noqa: BLE001
+            _log.warning("%s raised during shutdown: %s", name, exc)
 
     def _shutdown_event_for_loop(self) -> asyncio.Event:
         loop = asyncio.get_running_loop()
@@ -2710,6 +2881,9 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         internal_dispatch_handler=internal_dispatch_handler,
         kernel=kernel,
         cron_dispatcher=_cron_dispatcher,
+        run_queue=run_queue,
+        background_subscriptions=background_subscriptions,
+        runtime_delivery_tasks=runtime_delivery_tasks,
         gateway_internal_port=_gateway_internal_port,
     )
 

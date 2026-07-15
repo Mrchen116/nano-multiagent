@@ -19,6 +19,7 @@ as failed(gateway_restarted) so they never stay permanently "in progress".
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
 import json
 import threading
 import uuid
@@ -326,6 +327,7 @@ class CronExecutionService:
         self._pending_zero: threading.Condition = threading.Condition(
             self._pending_lock
         )
+        self._sealed = False
 
     @property
     def runs_store(self) -> CronRunsStore:
@@ -355,6 +357,16 @@ class CronExecutionService:
                 request_id (str | None): Stable request ID for history tracking.
                 error_code (str | None): "job_not_found", "job_disabled", or "cron_unavailable".
         """
+        with self._pending_lock:
+            sealed = self._sealed
+        if sealed:
+            return {
+                "accepted": False,
+                "job_id": job_id,
+                "request_id": None,
+                "error_code": "cron_unavailable",
+            }
+
         job = self._job_store.get(job_id)
         if job is None:
             return {
@@ -465,8 +477,14 @@ class CronExecutionService:
             "error_code": None,
         }
 
-    async def drain(self, timeout: float = 30.0) -> None:
-        """Await all pending execute_fn tasks before the Gateway closes IM.
+    def request_stop(self) -> None:
+        """Synchronously reject new cron execution admission."""
+
+        with self._pending_lock:
+            self._sealed = True
+
+    async def drain(self, deadline: float) -> None:
+        """Await all pending execute_fn tasks by one absolute deadline.
 
         bugfix-402-M6 W-1: Decision 7 requires Gateway to drain in-flight cron
         executions before closing the IM transport so result delivery completes.
@@ -480,10 +498,11 @@ class CronExecutionService:
         empty _pending_tasks and return while the task is still in-flight.
 
         Args:
-            timeout: Maximum wall-clock seconds to wait for all tasks (including
-                the registration gate).  Tasks still running after timeout are
-                cancelled (best-effort; converge_stale_on_restart cleans them on
-                next Gateway startup).
+            deadline: Shared absolute Gateway ``loop.time()`` deadline. Tasks
+                still running at the deadline are cancelled before returning.
+
+        Raises:
+            TimeoutError: When accepted work required deadline cancellation.
         """
         with self._pending_lock:
             already_zero = self._pending_count == 0
@@ -495,17 +514,15 @@ class CronExecutionService:
         # event loop (closes the Context B window) and then complete.  We use
         # asyncio.to_thread so the threading.Condition.wait() does not block the
         # event loop while Context B callbacks are being dispatched.
-        import time as _time  # noqa: PLC0415
-
-        deadline = _time.monotonic() + timeout
+        loop = asyncio.get_running_loop()
 
         def _wait_for_zero() -> bool:
-            remaining = deadline - _time.monotonic()
+            remaining = deadline - loop.time()
             if remaining <= 0:
                 return False
             with self._pending_zero:
                 while self._pending_count > 0:
-                    remaining = deadline - _time.monotonic()
+                    remaining = deadline - loop.time()
                     if remaining <= 0:
                         return False
                     self._pending_zero.wait(timeout=remaining)
@@ -518,13 +535,13 @@ class CronExecutionService:
             return
 
         _log.debug(
-            "cron drain: waiting for %d pending task(s) (agent=%s timeout=%.1fs)",
+            "cron drain: waiting for %d pending task(s) (agent=%s remaining=%.1fs)",
             len(pending),
             self._agent_id,
-            timeout,
+            max(0.0, deadline - loop.time()),
         )
 
-        remaining_timeout = max(0.0, deadline - _time.monotonic())
+        remaining_timeout = max(0.0, deadline - loop.time())
         try:
             await asyncio.wait_for(
                 asyncio.gather(*pending, return_exceptions=True),
@@ -532,12 +549,14 @@ class CronExecutionService:
             )
         except (asyncio.TimeoutError, TimeoutError):
             _log.warning(
-                "cron drain: %d task(s) exceeded timeout %.1fs — cancelling (agent=%s)",
+                "cron drain: %d task(s) exceeded Gateway deadline — cancelling (agent=%s)",
                 len(self._pending_tasks),
-                timeout,
                 self._agent_id,
             )
             for task in list(self._pending_tasks):
                 task.cancel()
-            with asyncio.suppress(Exception):
+            with suppress(Exception):
                 await asyncio.gather(*list(self._pending_tasks), return_exceptions=True)
+            raise TimeoutError(
+                f"cron execution exceeded shutdown deadline: agent={self._agent_id}"
+            ) from None

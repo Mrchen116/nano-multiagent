@@ -11,10 +11,10 @@ from typing import Any
 
 import pytest
 
-from personal_assistant.config.local_store import GatewayLifecycleConfig
+from personal_assistant.config.local_store import GatewayLifecycleConfig, HeartbeatConfig
 from personal_assistant.gateway.inbound_dispatcher import InboundDispatcher
 from personal_assistant.gateway.internal_dispatch import InternalDispatchHandler
-from personal_assistant.main import GatewayRuntime
+from personal_assistant.main import GatewayRuntime, PollingHeartbeatRunner
 
 from ._gateway_runtime_test_utils import make_config, run_in_thread
 
@@ -40,6 +40,12 @@ class _ConsumerOwner:
         self.name = name
         self.events = events
         self.deadlines = deadlines
+
+    def seal_and_cancel_pending(self) -> None:
+        self.events.append(f"{self.name}.seal")
+
+    def seal(self) -> None:
+        self.events.append(f"{self.name}.seal")
 
     async def drain_workers(self, deadline: float) -> None:
         self.events.append(f"{self.name}.drain")
@@ -272,3 +278,116 @@ async def test_active_internal_http_handler_does_not_block_kernel_close(tmp_path
 
     thread.join(timeout=3)
     assert outcome == {"exit_code": 0}
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_seal_preserves_current_tick_until_deadline_drain() -> None:
+    class _BlockingScheduler:
+        def __init__(self) -> None:
+            self.started = asyncio.Event()
+            self.release = asyncio.Event()
+
+        async def tick(self) -> None:
+            self.started.set()
+            await self.release.wait()
+
+    scheduler = _BlockingScheduler()
+    runner = PollingHeartbeatRunner(
+        scheduler=scheduler,  # type: ignore[arg-type]
+        config=HeartbeatConfig(tick_interval_seconds=60),
+    )
+    await runner.start()
+    await asyncio.wait_for(scheduler.started.wait(), timeout=1)
+
+    runner.request_stop()
+    close = asyncio.create_task(
+        runner.close(asyncio.get_running_loop().time() + 1)
+    )
+    await asyncio.sleep(0)
+    assert not close.done()
+
+    scheduler.release.set()
+    await close
+    assert not any(
+        task.get_name() == "personal-assistant-heartbeat"
+        for task in asyncio.all_tasks()
+        if not task.done()
+    )
+
+
+def test_active_heartbeat_drain_does_not_block_kernel_close(tmp_path) -> None:
+    class _BlockingHeartbeat(_HeartbeatOwner):
+        def __init__(self, events: list[str], deadlines: list[float]) -> None:
+            super().__init__(events, deadlines)
+            self.close_started = threading.Event()
+            self.release = threading.Event()
+
+        async def close(self, deadline: float) -> None:
+            self.events.append("heartbeat.drain")
+            self.deadlines.append(deadline)
+            self.close_started.set()
+            await asyncio.to_thread(self.release.wait)
+
+    events: list[str] = []
+    deadlines: list[float] = []
+    heartbeat = _BlockingHeartbeat(events, deadlines)
+    kernel = _Kernel(events)
+    runtime = GatewayRuntime(
+        make_config(tmp_path),
+        heartbeat_runner=heartbeat,
+        kernel=kernel,
+    )
+    thread, outcome = run_in_thread(runtime)
+    assert runtime.wait_until_ready(timeout=2)
+    runtime.request_shutdown()
+    assert kernel.closed.wait(timeout=0.5)
+    assert heartbeat.close_started.wait(timeout=0.5)
+    assert thread.is_alive()
+
+    heartbeat.release.set()
+    thread.join(timeout=3)
+    assert outcome == {"exit_code": 0}
+
+
+@pytest.mark.asyncio
+async def test_cron_seal_rejects_late_work_and_drains_current_execution(tmp_path) -> None:
+    from personal_assistant.scheduler.cron_execution_service import (
+        CronExecutionService,
+    )
+    from personal_assistant.scheduler.cron_scheduler import CronJob, CronJobStore
+
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def _execute(**_kwargs: object) -> None:
+        started.set()
+        await release.wait()
+
+    CronJobStore(workspace_root=tmp_path).add(
+        CronJob(
+            id="job-1",
+            name="shutdown lifecycle",
+            schedule={"kind": "every", "everyMs": 60_000},
+            instruction="test",
+        )
+    )
+    service = CronExecutionService(
+        agent_id="agent-a",
+        workspace_root=tmp_path,
+        execute_fn=_execute,
+    )
+    assert service.enqueue(job_id="job-1", trigger="manual")["accepted"] is True
+    await asyncio.wait_for(started.wait(), timeout=1)
+
+    service.request_stop()
+    late = service.enqueue(job_id="job-1", trigger="manual")
+    assert late["accepted"] is False
+    assert late["error_code"] == "cron_unavailable"
+
+    close = asyncio.create_task(
+        service.drain(asyncio.get_running_loop().time() + 1)
+    )
+    await asyncio.sleep(0)
+    assert not close.done()
+    release.set()
+    await close

@@ -44,6 +44,12 @@ class InternalDispatchHandler:
         self._agent_catalog = agent_catalog
         self._session_binder = session_binder
         self._direct_channel_name = direct_channel_name
+        self._sealed = False
+
+    def seal(self) -> None:
+        """Synchronously reject requests that have not entered ``handle`` yet."""
+
+        self._sealed = True
 
     async def handle(self, payload: Mapping[str, Any]) -> dict[str, Any]:
         """Process one dispatch request and return a response dict.
@@ -54,6 +60,12 @@ class InternalDispatchHandler:
         Returns:
             ``{"ok": True}`` on success or ``{"ok": False, "error": "..."}`` on failure.
         """
+
+        if self._sealed:
+            return {
+                "ok": False,
+                "error": "Gateway is shutting down; cannot dispatch message",
+            }
 
         text = payload.get("text")
         to = payload.get("to")

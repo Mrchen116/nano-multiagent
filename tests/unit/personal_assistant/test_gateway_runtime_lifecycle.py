@@ -56,7 +56,10 @@ class _RecordingHeartbeatRunner:
     async def start(self) -> None:
         self._events.append("heartbeat.start")
 
-    async def close(self) -> None:
+    def request_stop(self) -> None:
+        self._events.append("heartbeat.seal")
+
+    async def close(self, _deadline: float) -> None:
         self._events.append("heartbeat.close")
 
 
