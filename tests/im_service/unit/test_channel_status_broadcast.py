@@ -137,4 +137,3 @@ def test_accepted_status_broadcasts_precise_agent_channel_event_once(
             },
         }
     ]
-
