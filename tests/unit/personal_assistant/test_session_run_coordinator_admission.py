@@ -11,6 +11,7 @@ from personal_assistant.gateway.inbound_models import (
     InboundRunRequest,
     StopRunRequest,
 )
+from personal_assistant.gateway.image_attachments import ImageResolution
 from personal_assistant.gateway.session_keys import build_session_key
 from personal_assistant.gateway.session_run_coordinator import SessionRunCoordinator
 
@@ -29,6 +30,23 @@ def _request(message, catalog) -> InboundRunRequest:
         session_key=build_session_key(message, agent_id=agent.agent_id),
         sender_label="Alice",
     )
+
+
+class _GatedImageResolver:
+    """Expose successive pre-submit resolution gates without timing sleeps."""
+
+    def __init__(self, count: int) -> None:
+        self.entered = tuple(asyncio.Event() for _ in range(count))
+        self.release = tuple(asyncio.Event() for _ in range(count))
+        self._calls = 0
+
+    async def resolve(self, attachments: object) -> ImageResolution:
+        del attachments
+        index = self._calls
+        self._calls += 1
+        self.entered[index].set()
+        await self.release[index].wait()
+        return ImageResolution(parts=())
 
 
 @pytest.mark.asyncio
@@ -160,6 +178,60 @@ async def test_stop_observes_marker_before_first_post_submit_await(
     release_callback.set()
     kernel.finish("run-1", status="cancelled", text="")
     await running
+
+
+@pytest.mark.asyncio
+async def test_bounded_lock_registry_cannot_evict_pre_submit_session_owner(
+    tmp_path: Path,
+) -> None:
+    """Capacity pressure cannot let stop bypass another session's pre-submit lock."""
+
+    kernel, catalog, binder, router, group_store = build_dependencies(tmp_path)
+    images = _GatedImageResolver(2)
+    coordinator = SessionRunCoordinator(
+        kernel=kernel,
+        session_binder=binder,
+        outbound_router=router,
+        group_context_store=group_store,
+        image_resolver=images,
+        max_transition_locks=1,
+    )
+    message_a = inbound(chat_id="chat-a", text="first")
+    message_b = inbound(chat_id="chat-b", text="second")
+
+    running_a = asyncio.create_task(
+        coordinator.dispatch(_request(message_a, catalog))
+    )
+    await asyncio.wait_for(images.entered[0].wait(), timeout=1)
+    running_b = asyncio.create_task(
+        coordinator.dispatch(_request(message_b, catalog))
+    )
+    await asyncio.wait_for(images.entered[1].wait(), timeout=1)
+
+    stopping_b = asyncio.create_task(
+        coordinator.stop(
+            StopRunRequest(
+                message=inbound(chat_id="chat-b", text="/stop"),
+                agent=catalog.require("agent-a"),
+                session_key=build_session_key(message_b, agent_id="agent-a"),
+            )
+        )
+    )
+    with pytest.raises(TimeoutError):
+        await asyncio.wait_for(asyncio.shield(stopping_b), timeout=0.05)
+
+    images.release[1].set()
+    await kernel.wait_stream("run-1")
+    stopped = await asyncio.wait_for(stopping_b, timeout=1)
+    assert stopped.run_id == "run-1"
+    assert stopped.reply_text == "已停止当前操作。"
+    kernel.finish("run-1", status="cancelled", text="")
+    await running_b
+
+    images.release[0].set()
+    await kernel.wait_stream("run-2")
+    kernel.finish("run-2", text="first done")
+    assert (await running_a).reply_text == "first done"
 
 
 @pytest.mark.asyncio
