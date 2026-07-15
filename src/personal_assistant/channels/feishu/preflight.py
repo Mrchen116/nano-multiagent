@@ -77,10 +77,16 @@ def probe_feishu_runtime(
                     "feishu_bot_unavailable",
                     "Feishu could not verify the Bot capability; check app availability.",
                 )
-            bot_data = bot_payload.get("data")
-            bot_mapping = bot_data if isinstance(bot_data, Mapping) else {}
-            raw_bot = bot_mapping.get("bot")
-            identity = raw_bot if isinstance(raw_bot, Mapping) else bot_mapping
+            raw_bot = bot_payload.get("bot")
+            if isinstance(raw_bot, Mapping):
+                identity = raw_bot
+            else:
+                bot_data = bot_payload.get("data")
+                bot_mapping = bot_data if isinstance(bot_data, Mapping) else {}
+                nested_bot = bot_mapping.get("bot")
+                identity = (
+                    nested_bot if isinstance(nested_bot, Mapping) else bot_mapping
+                )
             bot_open_id = str(identity.get("open_id") or "")
             if not bot_open_id:
                 raise ChannelStartupError(
