@@ -132,3 +132,22 @@ def test_config_sync_callback_is_constructor_owned_and_tests_use_real_owners() -
         "tests/unit/personal_assistant/test_cron_config_sync.py",
     ):
         assert "def _ownership(" not in _source(relative)
+
+
+def test_composition_root_does_not_implement_cron_execution_lifecycle() -> None:
+    build_runtime = _source("src/personal_assistant/main.py")
+    build_runtime = build_runtime[
+        build_runtime.index("def build_runtime") : build_runtime.index("def main(")
+    ]
+
+    assert "def _build_cron_execute_fn" not in build_runtime
+    assert "CronRunsStore" not in build_runtime
+    assert "._submit_cron_job" not in build_runtime
+    assert "._append_awareness" not in build_runtime
+    assert "._resolve_canonical_session_id" not in build_runtime
+
+
+def test_config_sync_paths_share_one_mirror_decoder() -> None:
+    source = _source("src/personal_assistant/gateway/agent_config_sync.py")
+
+    assert source.count("self._decode_mirror_agent_config(") == 2
