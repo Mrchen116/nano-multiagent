@@ -82,6 +82,8 @@ function ConnectionCard({
   const waiting = channel.sync_state !== "applied";
   const state = manualReconnecting
     ? "reconnecting"
+    : channel.sync_state === "failed" || observedState === "failed"
+      ? "failed"
     : waiting
     ? channel.enabled
       ? offline ? "pending" : "connecting"
