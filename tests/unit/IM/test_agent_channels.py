@@ -348,6 +348,8 @@ def test_pruned_receipt_replay_is_terminal_only_after_applied_head(
             "UPDATE agent_channel_removals SET expires_at = '2000-01-01T00:00:00Z'"
         )
     assert store.prune_applied_removals() == 1
+    replacement = _create(store)
+    assert replacement.manifest.manifest_revision == 3
 
     replay = store.record_reconcile_result(
         node_id="node-a",

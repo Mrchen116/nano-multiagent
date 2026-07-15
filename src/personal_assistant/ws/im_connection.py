@@ -134,6 +134,10 @@ ChannelManifestHandler = Callable[
     [Mapping[str, object]],
     Awaitable[Mapping[str, object]] | Mapping[str, object],
 ]
+ChannelReconnectHandler = Callable[[str, int], Awaitable[object] | object]
+ChannelReconcileAckHandler = Callable[
+    [Mapping[str, object]], Awaitable[None] | None
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -222,6 +226,8 @@ class IMConnectionManager:
         permission_response_handler: PermissionResponseHandler | None = None,
         on_connected: Callable[[], Awaitable[None]] | None = None,
         channel_manifest_handler: ChannelManifestHandler | None = None,
+        channel_reconnect_handler: ChannelReconnectHandler | None = None,
+        channel_reconcile_ack_handler: ChannelReconcileAckHandler | None = None,
         connect: ConnectFn,
         sleep: SleepFn = asyncio.sleep,
     ) -> None:
@@ -248,6 +254,8 @@ class IMConnectionManager:
         # config converges to IM truth on connect and every reconnect.
         self._on_connected = on_connected
         self._channel_manifest_handler = channel_manifest_handler
+        self._channel_reconnect_handler = channel_reconnect_handler
+        self._channel_reconcile_ack_handler = channel_reconcile_ack_handler
         self._connect = connect
         self._sleep = sleep
         self._websocket: ClientWebSocket | None = None
@@ -503,13 +511,28 @@ class IMConnectionManager:
                 },
             )
             return
+        if message_type == "channel.reconnect":
+            if self._channel_reconnect_handler is None:
+                raise RuntimeError("channel.reconnect requires channel_reconnect_handler")
+            channel_id = _require_text(
+                body.get("channel_id"), field_name="channel_id"
+            )
+            revision = int(body.get("channel_revision") or 0)
+            await _maybe_await(self._channel_reconnect_handler(channel_id, revision))
+            return
         if message_type in {
             "channel.status.result",
             "channel.runtime_metadata.result",
+            "channels.reconcile.result.ack",
         }:
             self._resolve_correlated_channel_result(
                 message_type=message_type, payload=body
             )
+            if (
+                message_type == "channels.reconcile.result.ack"
+                and self._channel_reconcile_ack_handler is not None
+            ):
+                await _maybe_await(self._channel_reconcile_ack_handler(body))
             await self._flush_pending_frames()
             return
         if message_type == "heartbeat.trigger":
@@ -947,6 +970,7 @@ class IMConnectionManager:
         source_type = {
             "channel.status.result": "channel.status",
             "channel.runtime_metadata.result": "channel.runtime_metadata",
+            "channels.reconcile.result.ack": "channel.reconcile.result",
         }[message_type]
         if self._awaiting_ack_type != source_type or not self._pending_frames:
             return
@@ -965,7 +989,7 @@ class IMConnectionManager:
             {
                 "event": "channel_result",
                 "type": source_type,
-                "outcome": payload.get("outcome"),
+                "outcome": payload.get("outcome") or payload.get("head_outcome"),
             }
         )
 

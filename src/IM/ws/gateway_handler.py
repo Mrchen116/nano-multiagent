@@ -282,6 +282,19 @@ class GatewayHandler:
             payload=manifest.as_payload(request_id=uuid4().hex),
         )
 
+    async def push_channel_reconnect(
+        self, *, target_node_id: str, channel_id: str, channel_revision: int
+    ) -> bool:
+        """Push one ephemeral reconnect action without changing desired state."""
+        return await self._push_downstream(
+            target_node_id=target_node_id,
+            message_type="channel.reconnect",
+            payload={
+                "channel_id": channel_id,
+                "channel_revision": channel_revision,
+            },
+        )
+
     async def initialize_channel_control(self, *, node_id: str) -> bool:
         """Persist a registered public key after bind and replay current desired state."""
         store = self._channel_control_store
@@ -1061,12 +1074,42 @@ class GatewayHandler:
         manifest_revision = _optional_int(payload.get("manifest_revision"))
         if manifest_revision is None:
             raise ValueError("manifest_revision is required")
+        legacy_outcomes = payload.get("outcomes")
+        modern = "outcome" in payload
+        outcome = str(payload.get("outcome") or "")
+        applied_channel_ids = payload.get("applied_channel_ids")
+        failures = payload.get("failures")
+        if not modern:
+            normalized = legacy_outcomes if isinstance(legacy_outcomes, list) else []
+            applied_channel_ids = [
+                item.get("channel_id")
+                for item in normalized
+                if isinstance(item, dict) and item.get("outcome") == "applied"
+            ]
+            failures = [
+                item
+                for item in normalized
+                if isinstance(item, dict) and item.get("outcome") != "applied"
+            ]
+            outcome = "retryable_failed" if failures else "applied"
+        acknowledgement: dict[str, object] = {
+            "head_outcome": "accepted",
+            "removal_token_outcomes": [],
+        }
         if self._channel_control_store is not None:
-            self._channel_control_store.record_reconcile_result(
+            acknowledgement = self._channel_control_store.record_reconcile_result(
                 node_id=node_id,
                 manifest_revision=manifest_revision,
-                outcomes=payload.get("outcomes"),
+                outcome=outcome,
+                applied_channel_ids=applied_channel_ids,
+                removal_outcomes=payload.get("removal_outcomes"),
+                failures=failures,
             )
+        if modern:
+            return {
+                "type": "channels.reconcile.result.ack",
+                "payload": {"request_id": request_id, **acknowledgement},
+            }
         return {
             "type": "ack",
             "payload": {

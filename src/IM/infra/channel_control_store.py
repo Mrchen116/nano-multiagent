@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from contextlib import closing
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 import hashlib
 import json
 from pathlib import Path
@@ -50,6 +50,19 @@ class ChannelView:
 
 
 @dataclass(frozen=True, slots=True)
+class ChannelRemovalView:
+    """Secret-free persistent projection while runtime deletion is unconfirmed."""
+
+    channel_id: str
+    provider: str
+    display_config: dict[str, object]
+    deletion_manifest_revision: int
+    apply_state: Literal["pending", "failed"]
+    apply_error: dict[str, str] | None
+    created_at: str
+
+
+@dataclass(frozen=True, slots=True)
 class ManifestChannel:
     """Complete internal desired item delivered only to its bound Gateway node."""
 
@@ -87,6 +100,27 @@ class ManifestChannel:
 
 
 @dataclass(frozen=True, slots=True)
+class ManifestRemoval:
+    """Credential-free removal intent delivered until its token is confirmed."""
+
+    removal_token: str
+    channel_id: str
+    agent_id: str
+    provider: str
+    deletion_manifest_revision: int
+
+    def as_payload(self) -> dict[str, object]:
+        """Serialize the stable deletion identity for Gateway reconciliation."""
+        return {
+            "removal_token": self.removal_token,
+            "channel_id": self.channel_id,
+            "agent_id": self.agent_id,
+            "provider": self.provider,
+            "deletion_manifest_revision": self.deletion_manifest_revision,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class ChannelManifest:
     """Atomic full desired snapshot for one owner-bound node."""
 
@@ -94,6 +128,7 @@ class ChannelManifest:
     node_id: str
     manifest_revision: int
     channels: tuple[ManifestChannel, ...]
+    removals: tuple[ManifestRemoval, ...] = ()
 
     def as_payload(self, *, request_id: str) -> dict[str, object]:
         """Serialize a complete reconcile frame without exposing plaintext secret."""
@@ -103,7 +138,7 @@ class ChannelManifest:
             "node_id": self.node_id,
             "manifest_revision": self.manifest_revision,
             "channels": [item.as_payload() for item in self.channels],
-            "removals": [],
+            "removals": [item.as_payload() for item in self.removals],
         }
 
 
@@ -112,6 +147,14 @@ class ChannelMutationResult:
     """Return the user projection and same-transaction manifest snapshot."""
 
     channel: ChannelView
+    manifest: ChannelManifest
+
+
+@dataclass(frozen=True, slots=True)
+class ChannelRemovalMutationResult:
+    """Return a deletion receipt and its same-transaction full manifest."""
+
+    removal: ChannelRemovalView
     manifest: ChannelManifest
 
 
@@ -223,40 +266,178 @@ class ChannelControlStore:
             )
 
     def record_reconcile_result(
-        self, *, node_id: str, manifest_revision: int, outcomes: object
-    ) -> None:
-        """Advance the applied head monotonically after an authenticated result."""
+        self,
+        *,
+        node_id: str,
+        manifest_revision: int,
+        outcome: str,
+        applied_channel_ids: object,
+        removal_outcomes: object,
+        failures: object,
+    ) -> dict[str, object]:
+        """Apply one node-head result and ACK each removal token independently."""
         now = _utc_now()
         with closing(self._connect()) as connection:
             connection.execute("BEGIN IMMEDIATE")
             head = connection.execute(
-                "SELECT manifest_revision FROM channel_manifest_heads WHERE node_id = ?",
+                """
+                SELECT owner_id, manifest_revision, applied_manifest_revision
+                FROM channel_manifest_heads WHERE node_id = ?
+                """,
                 (node_id,),
             ).fetchone()
             if head is None:
                 raise ChannelControlError("channel_not_found", status_code=404)
-            normalized_outcomes = outcomes if isinstance(outcomes, list) else []
-            failures = [
-                item
-                for item in normalized_outcomes
-                if isinstance(item, dict) and item.get("outcome") != "applied"
-            ]
+            current_revision = int(head["manifest_revision"])
+            if manifest_revision > current_revision:
+                raise ChannelControlError("channel_manifest_future", status_code=409)
+            normalized_failures = failures if isinstance(failures, list | tuple) else []
+            head_outcome = "accepted"
+            if outcome == "applied":
+                connection.execute(
+                    """
+                    UPDATE channel_manifest_heads SET
+                        applied_manifest_revision = MAX(applied_manifest_revision, ?),
+                        last_apply_error_json = CASE
+                            WHEN manifest_revision = ? THEN NULL
+                            ELSE last_apply_error_json
+                        END,
+                        applied_at = ?, updated_at = ?
+                    WHERE node_id = ?
+                    """,
+                    (manifest_revision, current_revision, now, now, node_id),
+                )
+            elif outcome == "retryable_failed":
+                connection.execute(
+                    """
+                    UPDATE channel_manifest_heads SET
+                        last_apply_error_json = CASE
+                            WHEN manifest_revision = ? THEN ?
+                            ELSE last_apply_error_json
+                        END,
+                        updated_at = ?
+                    WHERE node_id = ?
+                    """,
+                    (
+                        current_revision,
+                        _json(normalized_failures),
+                        now,
+                        node_id,
+                    ),
+                )
+                head_outcome = "accepted"
+            elif outcome == "stale":
+                head_outcome = "already_applied"
+            else:
+                raise ChannelControlError("channel_reconcile_result_invalid", status_code=422)
+
+            token_acks: list[dict[str, str]] = []
+            normalized_removals = (
+                removal_outcomes
+                if isinstance(removal_outcomes, list | tuple)
+                else []
+            )
+            for item in normalized_removals:
+                if not isinstance(item, Mapping):
+                    continue
+                token = str(item.get("removal_token") or "")
+                channel_id = str(item.get("channel_id") or "")
+                removal_outcome = str(item.get("outcome") or "")
+                if not token or not channel_id:
+                    continue
+                receipt = connection.execute(
+                    """
+                    SELECT * FROM agent_channel_removals
+                    WHERE removal_token = ? AND channel_id = ? AND node_id = ?
+                    """,
+                    (token, channel_id, node_id),
+                ).fetchone()
+                if receipt is None:
+                    deletion_revision = int(
+                        item.get("deletion_manifest_revision") or 0
+                    )
+                    active = connection.execute(
+                        "SELECT 1 FROM agent_channels WHERE channel_id = ? AND node_id = ?",
+                        (channel_id, node_id),
+                    ).fetchone()
+                    applied_head = max(
+                        int(head["applied_manifest_revision"]),
+                        manifest_revision if outcome == "applied" else 0,
+                    )
+                    terminal = (
+                        active is None
+                        and deletion_revision > 0
+                        and applied_head >= deletion_revision
+                    )
+                    token_acks.append(
+                        {
+                            "removal_token": token,
+                            "outcome": (
+                                "already_applied_by_head" if terminal else "fatal_unknown"
+                            ),
+                        }
+                    )
+                    continue
+                deletion_revision = int(receipt["deletion_manifest_revision"])
+                if manifest_revision < deletion_revision:
+                    token_acks.append(
+                        {"removal_token": token, "outcome": "fatal_unknown"}
+                    )
+                    continue
+                if str(receipt["apply_state"]) == "applied":
+                    token_acks.append(
+                        {"removal_token": token, "outcome": "already_applied"}
+                    )
+                    continue
+                if removal_outcome in {"applied", "already_absent"}:
+                    connection.execute(
+                        """
+                        UPDATE agent_channel_removals SET
+                            apply_state = 'applied', apply_error_code = NULL,
+                            apply_error_message = NULL, applied_at = ?, updated_at = ?
+                        WHERE removal_token = ?
+                        """,
+                        (now, now, token),
+                    )
+                    connection.execute(
+                        "DELETE FROM agent_channel_status WHERE channel_id = ?",
+                        (channel_id,),
+                    )
+                    token_acks.append(
+                        {"removal_token": token, "outcome": "accepted"}
+                    )
+                    continue
+                if removal_outcome == "failed":
+                    connection.execute(
+                        """
+                        UPDATE agent_channel_removals SET
+                            apply_state = 'failed', apply_error_code = ?,
+                            apply_error_message = ?, updated_at = ?
+                        WHERE removal_token = ?
+                        """,
+                        (
+                            item.get("error_code"),
+                            item.get("error_message"),
+                            now,
+                            token,
+                        ),
+                    )
+                    token_acks.append(
+                        {"removal_token": token, "outcome": "accepted"}
+                    )
+                    continue
+                token_acks.append(
+                    {"removal_token": token, "outcome": "fatal_unknown"}
+                )
             connection.execute(
-                """
-                UPDATE channel_manifest_heads SET
-                    applied_manifest_revision = MAX(applied_manifest_revision, ?),
-                    last_apply_error_json = ?, applied_at = ?, updated_at = ?
-                WHERE node_id = ?
-                """,
-                (
-                    manifest_revision,
-                    _json(failures) if failures else None,
-                    now,
-                    now,
-                    node_id,
-                ),
+                "UPDATE channel_manifest_heads SET updated_at = ? WHERE node_id = ?",
+                (now, node_id),
             )
             connection.commit()
+            return {
+                "head_outcome": head_outcome,
+                "removal_token_outcomes": token_acks,
+            }
 
     def record_status(self, payload: Mapping[str, object]) -> str:
         """Apply incarnation/sequence CAS and return a correlated status outcome."""
@@ -384,8 +565,10 @@ class ChannelControlStore:
         finally:
             connection.close()
 
-    def list_channels(self, *, owner_id: str, agent_id: str) -> list[ChannelView]:
-        """List secret-free channel views within one owner and agent scope."""
+    def list_channels(
+        self, *, owner_id: str, agent_id: str
+    ) -> list[ChannelView | ChannelRemovalView]:
+        """List active channels plus pending/failed removal receipts."""
         with closing(self._connect()) as connection:
             rows = connection.execute(
                 """
@@ -400,7 +583,18 @@ class ChannelControlStore:
                 """,
                 (owner_id, agent_id),
             ).fetchall()
-            return [self._view_from_row(row) for row in rows]
+            removals = connection.execute(
+                """
+                SELECT * FROM agent_channel_removals
+                WHERE owner_id = ? AND agent_id = ? AND apply_state != 'applied'
+                ORDER BY created_at, channel_id
+                """,
+                (owner_id, agent_id),
+            ).fetchall()
+            return [
+                *[self._view_from_row(row) for row in rows],
+                *[self._removal_view_from_row(row) for row in removals],
+            ]
 
     def create_channel(
         self,
@@ -429,6 +623,16 @@ class ChannelControlStore:
             identity = self._identity_fingerprint(
                 provider=provider, config=normalized
             )
+            pending_removal = connection.execute(
+                """
+                SELECT 1 FROM agent_channel_removals
+                WHERE owner_id = ? AND agent_id = ? AND provider = ?
+                  AND apply_state != 'applied'
+                """,
+                (owner_id, agent_id, provider),
+            ).fetchone()
+            if pending_removal is not None:
+                raise ChannelControlError("channel_deletion_pending", status_code=409)
             envelope = seal_channel_secret(
                 public_key=str(key["public_key"]),
                 secret=secret,
@@ -616,6 +820,170 @@ class ChannelControlStore:
         finally:
             connection.close()
 
+    def delete_channel(
+        self,
+        *,
+        owner_id: str,
+        agent_id: str,
+        channel_id: str,
+        expected_revision: int,
+    ) -> ChannelRemovalMutationResult:
+        """Delete desired credentials and create a durable runtime-removal receipt."""
+        now = _utc_now()
+        expires_at = (datetime.now(UTC) + timedelta(days=7)).isoformat().replace(
+            "+00:00", "Z"
+        )
+        connection = self._connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                """
+                SELECT * FROM agent_channels
+                WHERE channel_id = ? AND owner_id = ? AND agent_id = ?
+                """,
+                (channel_id, owner_id, agent_id),
+            ).fetchone()
+            if row is None:
+                raise ChannelControlError("channel_not_found", status_code=404)
+            if int(row["channel_revision"]) != expected_revision:
+                raise ChannelControlError(
+                    "channel_revision_conflict",
+                    status_code=409,
+                    current=self._view_from_row(row),
+                )
+            node_id = str(row["node_id"])
+            provider = str(row["provider"])
+            config = json.loads(str(row["config_json"]))
+            app_id = str(config.get("app_id") or "")
+            display_config = {"app_id_suffix": app_id[-5:]}
+            token = f"rm_{uuid4().hex}"
+            connection.execute(
+                "DELETE FROM agent_channels WHERE channel_id = ?",
+                (channel_id,),
+            )
+            manifest_revision = self._advance_manifest(
+                connection, owner_id=owner_id, node_id=node_id, now=now
+            )
+            connection.execute(
+                """
+                INSERT INTO agent_channel_removals(
+                    channel_id, removal_token, owner_id, agent_id, node_id,
+                    provider, display_config_json, deleted_channel_revision,
+                    deletion_manifest_revision, apply_state, expires_at,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
+                """,
+                (
+                    channel_id,
+                    token,
+                    owner_id,
+                    agent_id,
+                    node_id,
+                    provider,
+                    _json(display_config),
+                    expected_revision,
+                    manifest_revision,
+                    expires_at,
+                    now,
+                    now,
+                ),
+            )
+            receipt = connection.execute(
+                "SELECT * FROM agent_channel_removals WHERE channel_id = ?",
+                (channel_id,),
+            ).fetchone()
+            assert receipt is not None
+            manifest = self._manifest_snapshot(
+                connection,
+                owner_id=owner_id,
+                node_id=node_id,
+                manifest_revision=manifest_revision,
+            )
+            connection.commit()
+            return ChannelRemovalMutationResult(
+                removal=self._removal_view_from_row(receipt),
+                manifest=manifest,
+            )
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def retry_removal(
+        self, *, owner_id: str, agent_id: str, channel_id: str
+    ) -> ChannelManifest:
+        """Return the unchanged current manifest for one retryable receipt."""
+        with closing(self._connect()) as connection:
+            receipt = connection.execute(
+                """
+                SELECT * FROM agent_channel_removals
+                WHERE channel_id = ? AND owner_id = ? AND agent_id = ?
+                  AND apply_state != 'applied'
+                """,
+                (channel_id, owner_id, agent_id),
+            ).fetchone()
+            if receipt is None:
+                raise ChannelControlError("channel_not_found", status_code=404)
+            head = connection.execute(
+                """
+                SELECT manifest_revision FROM channel_manifest_heads
+                WHERE node_id = ? AND owner_id = ?
+                """,
+                (str(receipt["node_id"]), owner_id),
+            ).fetchone()
+            if head is None:
+                raise ChannelControlError("channel_not_found", status_code=404)
+            return self._manifest_snapshot(
+                connection,
+                owner_id=owner_id,
+                node_id=str(receipt["node_id"]),
+                manifest_revision=int(head["manifest_revision"]),
+            )
+
+    def channel_for_reconnect(
+        self, *, owner_id: str, agent_id: str, channel_id: str
+    ) -> tuple[ChannelView, str]:
+        """Return the current desired view and node identity for a live action."""
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                """
+                SELECT ac.*, s.observed_revision, s.connection_state,
+                       s.diagnostics_state, s.status_code, s.status_message,
+                       s.checks_json, s.received_at, n.status AS node_status
+                FROM agent_channels ac
+                LEFT JOIN agent_channel_status s ON s.channel_id = ac.channel_id
+                LEFT JOIN nodes n ON n.node_id = ac.node_id
+                WHERE ac.channel_id = ? AND ac.owner_id = ? AND ac.agent_id = ?
+                """,
+                (channel_id, owner_id, agent_id),
+            ).fetchone()
+            if row is None:
+                raise ChannelControlError("channel_not_found", status_code=404)
+            return self._view_from_row(row), str(row["node_id"])
+
+    def prune_applied_removals(self) -> int:
+        """Delete expired hidden receipts only after the node head covers them."""
+        now = _utc_now()
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            cursor = connection.execute(
+                """
+                DELETE FROM agent_channel_removals
+                WHERE apply_state = 'applied' AND expires_at <= ?
+                  AND EXISTS (
+                    SELECT 1 FROM channel_manifest_heads h
+                    WHERE h.node_id = agent_channel_removals.node_id
+                      AND h.owner_id = agent_channel_removals.owner_id
+                      AND h.applied_manifest_revision >=
+                          agent_channel_removals.deletion_manifest_revision
+                  )
+                """,
+                (now,),
+            )
+            connection.commit()
+            return cursor.rowcount
+
     @staticmethod
     def _require_agent_node(
         connection: sqlite3.Connection, *, owner_id: str, agent_id: str
@@ -719,7 +1087,11 @@ class ChannelControlStore:
 
     @staticmethod
     def _view_from_row(row: sqlite3.Row) -> ChannelView:
-        observed_revision = row["observed_revision"] if "observed_revision" in row.keys() else None
+        observed_revision = (
+            row["observed_revision"]
+            if "observed_revision" in row.keys()
+            else None
+        )
         observed = None
         sync_state: Literal["pending", "applied", "failed"] = "pending"
         if observed_revision is not None:
@@ -748,6 +1120,26 @@ class ChannelControlStore:
             sync_state=sync_state,
             observed=observed,
             updated_at=str(row["updated_at"]),
+        )
+
+    @staticmethod
+    def _removal_view_from_row(row: sqlite3.Row) -> ChannelRemovalView:
+        error_code = row["apply_error_code"]
+        error_message = row["apply_error_message"]
+        apply_error = None
+        if error_code or error_message:
+            apply_error = {
+                "code": str(error_code or "channel_removal_failed"),
+                "message": str(error_message or "Removal could not be applied"),
+            }
+        return ChannelRemovalView(
+            channel_id=str(row["channel_id"]),
+            provider=str(row["provider"]),
+            display_config=json.loads(str(row["display_config_json"])),
+            deletion_manifest_revision=int(row["deletion_manifest_revision"]),
+            apply_state=str(row["apply_state"]),  # type: ignore[arg-type]
+            apply_error=apply_error,
+            created_at=str(row["created_at"]),
         )
 
     @staticmethod
@@ -786,9 +1178,28 @@ class ChannelControlStore:
             )
             for row in rows
         )
+        removal_rows = connection.execute(
+            """
+            SELECT * FROM agent_channel_removals
+            WHERE owner_id = ? AND node_id = ? AND apply_state != 'applied'
+            ORDER BY created_at, channel_id
+            """,
+            (owner_id, node_id),
+        ).fetchall()
+        removals = tuple(
+            ManifestRemoval(
+                removal_token=str(row["removal_token"]),
+                channel_id=str(row["channel_id"]),
+                agent_id=str(row["agent_id"]),
+                provider=str(row["provider"]),
+                deletion_manifest_revision=int(row["deletion_manifest_revision"]),
+            )
+            for row in removal_rows
+        )
         return ChannelManifest(
             owner_id=owner_id,
             node_id=node_id,
             manifest_revision=manifest_revision,
             channels=channels,
+            removals=removals,
         )

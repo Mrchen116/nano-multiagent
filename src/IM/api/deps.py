@@ -3,6 +3,8 @@
 import asyncio
 import concurrent.futures
 import os
+from collections.abc import Coroutine
+from typing import Any
 
 from fastapi import Depends, HTTPException, Request, status
 
@@ -28,6 +30,7 @@ from IM.infra.repositories import (
     UsageMetricsRepository,
     UserRepository,
 )
+from IM.infra.channel_control_store import ChannelManifest
 from IM.ws.gateway_handler import GatewayHandler
 
 
@@ -167,19 +170,31 @@ def get_channel_control_service(request: Request) -> ChannelControlService:
         request.app.state, "event_loop", None
     )
 
-    def notify(manifest: object) -> None:
+    def run_live(coroutine: Coroutine[Any, Any, bool]) -> bool:
         if event_loop is None or event_loop.is_closed():
-            return
-        future = asyncio.run_coroutine_threadsafe(
-            handler.push_channel_reconcile(manifest), event_loop
-        )
+            return False
+        future = asyncio.run_coroutine_threadsafe(coroutine, event_loop)
         try:
-            future.result(timeout=5)
+            return bool(future.result(timeout=5))
         except (concurrent.futures.TimeoutError, RuntimeError):
-            return
+            return False
+
+    def notify(manifest: ChannelManifest) -> bool:
+        return run_live(handler.push_channel_reconcile(manifest))
+
+    def reconnect(node_id: str, channel_id: str, channel_revision: int) -> bool:
+        return run_live(
+            handler.push_channel_reconnect(
+                target_node_id=node_id,
+                channel_id=channel_id,
+                channel_revision=channel_revision,
+            )
+        )
 
     return ChannelControlService(
-        request.app.state.channel_control_store, manifest_notifier=notify
+        request.app.state.channel_control_store,
+        manifest_notifier=notify,
+        reconnect_notifier=reconnect,
     )
 
 
