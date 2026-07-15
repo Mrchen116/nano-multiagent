@@ -262,11 +262,33 @@
         "close": "Close",
         "cancel": "Cancel",
         "saving": "Saving…",
-        "saveConnect": "Save and connect"
+        "saveConnect": "Save and connect",
+        "reconnect": "Reconnect",
+        "disable": "Disable",
+        "enable": "Re-enable",
+        "delete": "Delete",
+        "nodeOffline": "Node offline",
+        "retryApply": "Retry apply"
+      },
+      "offline": {
+        "title": "Node is offline",
+        "detail": "Changes are saved securely and apply automatically when the node returns."
+      },
+      "confirm": {
+        "disableTitle": "Disable the Feishu channel?",
+        "disableBody": "New messaging stops after the node applies this change. Saved credentials are retained.",
+        "disableAction": "Confirm disable",
+        "deleteTitle": "Delete the Feishu channel?",
+        "deleteBody": "Credentials are removed from IM immediately. The card remains until the node stops; history is retained.",
+        "deleteAction": "Confirm delete"
       },
       "status": {
         "connected": "Connected",
         "connecting": "Connecting",
+        "pending": "Waiting for node",
+        "disabling": "Disabling",
+        "disabled": "Disabled",
+        "reconnecting": "Reconnecting",
         "failed": "Connection failed",
         "synced": "Runtime status synchronized",
         "applied": "Current configuration applied",
@@ -274,7 +296,23 @@
         "connectingDetail": "Establishing the Feishu long connection",
         "unknownFailure": "The node could not establish a connection",
         "updatedAt": "Status updated {{time}}",
-        "savedAt": "Saved {{time}}"
+        "savedAt": "Saved {{time}}",
+        "saved": "Configuration saved",
+        "autoApply": "Applies automatically when the node returns",
+        "disableSaved": "Disable change saved",
+        "disableWaiting": "Waiting for the node to stop messaging",
+        "disabledApplied": "Node applied the disabled state",
+        "disabledDetail": "No longer receiving or sending new messages",
+        "credentialsRetained": "credentials retained",
+        "connectionInterrupted": "Long connection interrupted",
+        "autoRecover": "The system is recovering automatically; credentials are unchanged",
+        "failureAction": "Update credentials or check the application, then retry",
+        "deletePending": "Deletion pending",
+        "deleteFailed": "Deletion incomplete",
+        "credentialsDeleted": "credentials removed from IM",
+        "deleteSaved": "Deletion saved; waiting for the node to stop",
+        "deleteReload": "This state remains after page reload",
+        "deleteUnknownFailure": "The node could not stop the old connection"
       }
     },
     "form": {

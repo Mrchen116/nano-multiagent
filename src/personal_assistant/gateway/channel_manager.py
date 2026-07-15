@@ -8,6 +8,11 @@ from typing import Callable, Mapping, Protocol
 from uuid import uuid4
 
 from personal_assistant.channels.base import ChannelAdapter, InboundHandler
+from personal_assistant.gateway.channel_manifest_store import (
+    CachedChannelSpec,
+    ChannelManifestStore,
+    ChannelManifestStoreError,
+)
 from personal_assistant.gateway.channel_registry import ChannelRegistry
 
 
@@ -33,6 +38,19 @@ class ManagedChannelSpec:
     credentials: Mapping[str, str]
     provider_runtime: Mapping[str, str]
     generation: ChannelGeneration
+    credential_envelope: Mapping[str, object] = field(default_factory=dict)
+    credential_key_id: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class ChannelRemovalIntent:
+    """Credential-free explicit deletion identity from the IM control plane."""
+
+    removal_token: str
+    channel_id: str
+    agent_id: str
+    provider: str
+    deletion_manifest_revision: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,6 +59,9 @@ class ChannelManifest:
 
     manifest_revision: int
     channels: tuple[ManagedChannelSpec, ...]
+    owner_id: str = ""
+    node_id: str = ""
+    removals: tuple[ChannelRemovalIntent, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,6 +95,33 @@ class ReconcileReport:
     manifest_revision: int
     applied_channel_ids: tuple[str, ...]
     failed_channel_ids: tuple[str, ...]
+    outcome: str = "applied"
+    removal_outcomes: tuple[RemovalOutcome, ...] = ()
+    failures: tuple[dict[str, object], ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class RemovalOutcome:
+    """Report one explicit removal intent independently from the node head."""
+
+    removal_token: str
+    channel_id: str
+    outcome: str
+    error_code: str | None = None
+    error_message: str | None = None
+
+    def as_payload(self) -> dict[str, object]:
+        """Serialize the token result without adding empty diagnostic fields."""
+        payload: dict[str, object] = {
+            "removal_token": self.removal_token,
+            "channel_id": self.channel_id,
+            "outcome": self.outcome,
+        }
+        if self.error_code is not None:
+            payload["error_code"] = self.error_code
+        if self.error_message is not None:
+            payload["error_message"] = self.error_message
+        return payload
 
 
 class ProviderRuntimeFactory(Protocol):
@@ -138,6 +186,8 @@ class ChannelManager:
         status_sink: Callable[[ChannelStatusSnapshot], None],
         metadata_sink: Callable[[ProviderMetadataReport], None] | None = None,
         activation_policy: FeishuActivationPolicy | None = None,
+        manifest_store: ChannelManifestStore | None = None,
+        credential_opener: Callable[[CachedChannelSpec], Mapping[str, str]] | None = None,
     ) -> None:
         self._registry = registry
         self._on_inbound = on_inbound
@@ -145,7 +195,15 @@ class ChannelManager:
         self._status_sink = status_sink
         self._metadata_sink = metadata_sink or (lambda _report: None)
         self._activation_policy = activation_policy
+        self._manifest_store = manifest_store
+        self._credential_opener = credential_opener
         self._active: dict[str, _ActiveRuntime] = {}
+        self._last_seen_manifest_revision = (
+            manifest_store.last_seen_manifest_revision if manifest_store else 0
+        )
+        self._last_applied_manifest_revision = (
+            manifest_store.last_applied_manifest_revision if manifest_store else 0
+        )
         self._lock = threading.RLock()
 
     @property
@@ -154,8 +212,30 @@ class ChannelManager:
         return self._registry
 
     async def start_cached(self) -> tuple[ChannelStatusSnapshot, ...]:
-        """Return active snapshots; encrypted cache startup is completed in M2."""
+        """Open the encrypted local manifest and start enabled channels without IM."""
         with self._lock:
+            store = self._manifest_store
+            if store is None:
+                return ()
+            cached = store.load_manifest()
+            if cached is None:
+                return ()
+            if cached.channels and self._credential_opener is None:
+                raise ChannelManifestStoreError("credential opener is required")
+            for item in cached.channels:
+                if not item.enabled:
+                    continue
+                assert self._credential_opener is not None
+                spec = self._managed_from_cached(
+                    item, credentials=self._credential_opener(item)
+                )
+                if not self._replace_runtime(spec):
+                    raise RuntimeError(
+                        f"cached channel runtime could not start: {item.channel_id}"
+                    )
+            self._last_seen_manifest_revision = max(
+                self._last_seen_manifest_revision, cached.manifest_revision
+            )
             return tuple(
                 self._snapshot(active, connection_state="connecting")
                 for active in self._active.values()
@@ -164,18 +244,79 @@ class ChannelManager:
     async def reconcile(self, manifest: ChannelManifest) -> ReconcileReport:
         """Apply one complete manifest with per-runtime stop-before-start cutover."""
         with self._lock:
+            if manifest.manifest_revision < self._last_seen_manifest_revision:
+                return ReconcileReport(
+                    manifest_revision=manifest.manifest_revision,
+                    applied_channel_ids=(),
+                    failed_channel_ids=(),
+                    outcome="stale",
+                )
+            self._last_seen_manifest_revision = max(
+                self._last_seen_manifest_revision, manifest.manifest_revision
+            )
             desired = {item.channel_id: item for item in manifest.channels}
+            removals = {item.channel_id: item for item in manifest.removals}
             applied: list[str] = []
             failed: list[str] = []
+            failures: list[dict[str, object]] = []
+            removal_outcomes: dict[str, RemovalOutcome] = {}
+            cached = self._manifest_store.load_manifest() if self._manifest_store else None
+            cached_channel_ids = {
+                item.channel_id for item in cached.channels
+            } if cached is not None else set()
+            retryable_failure = False
             for channel_id in tuple(self._active):
                 spec = desired.get(channel_id)
                 if spec is None or not spec.enabled:
-                    self._stop_active(channel_id)
+                    active = self._active[channel_id]
+                    try:
+                        stopped = self._stop_active(channel_id)
+                    except Exception as exc:  # noqa: BLE001
+                        retryable_failure = True
+                        failure = {
+                            "channel_id": channel_id,
+                            "error_code": "runtime_stop_failed",
+                            "error_message": str(exc),
+                        }
+                        failures.append(failure)
+                        removal = removals.get(channel_id)
+                        if removal is not None:
+                            removal_outcomes[channel_id] = RemovalOutcome(
+                                removal_token=removal.removal_token,
+                                channel_id=channel_id,
+                                outcome="failed",
+                                error_code="runtime_stop_failed",
+                                error_message=str(exc),
+                            )
+                        continue
+                    if spec is not None and stopped is not None:
+                        self._status_sink(
+                            ChannelStatusSnapshot(
+                                channel_id=channel_id,
+                                generation=spec.generation,
+                                runtime_incarnation=active.incarnation,
+                                status_sequence=active.last_status_sequence + 1,
+                                connection_state="disabled",
+                                diagnostics_state="unknown",
+                            )
+                        )
             for spec in manifest.channels:
                 if spec.provider == "web_relay" or spec.agent_id == "web_relay":
                     failed.append(spec.channel_id)
                     continue
                 if not spec.enabled:
+                    if spec.channel_id not in self._active:
+                        self._status_sink(
+                            ChannelStatusSnapshot(
+                                channel_id=spec.channel_id,
+                                generation=spec.generation,
+                                runtime_incarnation=uuid4().hex,
+                                status_sequence=1,
+                                connection_state="disabled",
+                                diagnostics_state="unknown",
+                                instance_started=True,
+                            )
+                        )
                     applied.append(spec.channel_id)
                     continue
                 current = self._active.get(spec.channel_id)
@@ -186,11 +327,64 @@ class ChannelManager:
                     applied.append(spec.channel_id)
                 else:
                     failed.append(spec.channel_id)
-            return ReconcileReport(
+            for removal in manifest.removals:
+                if removal.channel_id in removal_outcomes:
+                    continue
+                removal_outcomes[removal.channel_id] = RemovalOutcome(
+                    removal_token=removal.removal_token,
+                    channel_id=removal.channel_id,
+                    outcome=(
+                        "applied"
+                        if removal.channel_id in cached_channel_ids
+                        else "already_absent"
+                    ),
+                )
+            if not retryable_failure and self._manifest_store is not None:
+                try:
+                    self._manifest_store.commit_manifest(manifest)
+                except ChannelManifestStoreError as exc:
+                    retryable_failure = True
+                    failures.append(
+                        {
+                            "error_code": "cache_commit_failed",
+                            "error_message": str(exc),
+                        }
+                    )
+                    removal_outcomes = {
+                        channel_id: RemovalOutcome(
+                            removal_token=outcome.removal_token,
+                            channel_id=outcome.channel_id,
+                            outcome="failed",
+                            error_code="cache_commit_failed",
+                            error_message=str(exc),
+                        )
+                        for channel_id, outcome in removal_outcomes.items()
+                    }
+            outcome = "retryable_failed" if retryable_failure else "applied"
+            report = ReconcileReport(
                 manifest_revision=manifest.manifest_revision,
                 applied_channel_ids=tuple(applied),
                 failed_channel_ids=tuple(failed),
+                outcome=outcome,
+                removal_outcomes=tuple(removal_outcomes.values()),
+                failures=tuple(failures),
             )
+            if self._manifest_store is not None:
+                self._manifest_store.record_reconcile_result(
+                    manifest_revision=report.manifest_revision,
+                    outcome=report.outcome,
+                    applied_channel_ids=report.applied_channel_ids,
+                    removal_outcomes=tuple(
+                        item.as_payload() for item in report.removal_outcomes
+                    ),
+                    failures=report.failures,
+                )
+            if not retryable_failure:
+                self._last_applied_manifest_revision = max(
+                    self._last_applied_manifest_revision,
+                    manifest.manifest_revision,
+                )
+            return report
 
     async def reconnect(self, channel_id: str) -> ChannelStatusSnapshot:
         """Replace one current runtime under the same desired generation."""
@@ -364,16 +558,42 @@ class ChannelManager:
             return False
         return True
 
-    def _stop_active(self, channel_id: str, *, drain: bool = False) -> None:
-        active = self._active.pop(channel_id, None)
+    def _stop_active(
+        self, channel_id: str, *, drain: bool = False
+    ) -> _ActiveRuntime | None:
+        active = self._active.get(channel_id)
         if active is None:
-            return
+            return None
         self._registry.remove(active.runtime_name, expected=active.adapter)
         stop_invalidated = getattr(active.adapter, "stop_invalidated", None)
         if not drain and callable(stop_invalidated):
             stop_invalidated()
         else:
             active.adapter.stop()
+        self._active.pop(channel_id, None)
+        return active
+
+    @staticmethod
+    def _managed_from_cached(
+        item: CachedChannelSpec, *, credentials: Mapping[str, str]
+    ) -> ManagedChannelSpec:
+        return ManagedChannelSpec(
+            channel_id=item.channel_id,
+            agent_id=item.agent_id,
+            provider=item.provider,
+            enabled=item.enabled,
+            config=item.config,
+            credentials=credentials,
+            provider_runtime=item.provider_runtime,
+            generation=ChannelGeneration(
+                provider_identity_fingerprint=item.provider_identity_fingerprint,
+                provider_identity_revision=item.provider_identity_revision,
+                channel_revision=item.channel_revision,
+                credential_revision=item.credential_revision,
+            ),
+            credential_envelope=item.credential_envelope,
+            credential_key_id=item.credential_key_id,
+        )
 
     @staticmethod
     def _snapshot(

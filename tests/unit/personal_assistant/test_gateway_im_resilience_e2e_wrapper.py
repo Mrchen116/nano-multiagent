@@ -223,3 +223,17 @@ def test_e2e_up_script_yq_path_sets_each_agent_workspace_independently(
             check=False,
             timeout=20,
         )
+
+
+def test_e2e_scripts_isolate_and_cleanup_channel_key_and_cache() -> None:
+    """Every worktree run owns fresh channel crypto/cache files and removes them."""
+    repo_root = Path(__file__).resolve().parents[3]
+    up = (repo_root / "scripts" / "e2e-up.sh").read_text(encoding="utf-8")
+    down = (repo_root / "scripts" / "e2e-down.sh").read_text(encoding="utf-8")
+
+    for filename in (
+        "channel-credentials-v1.pem",
+        "channel-manifest-v1.json",
+    ):
+        assert f'rm -f "$WT_ROOT/{filename}"' in up
+        assert f'rm -f "$WT_ROOT/{filename}"' in down

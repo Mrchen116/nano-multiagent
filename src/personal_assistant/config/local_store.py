@@ -6,7 +6,7 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 import shutil
-from typing import Any
+from typing import Any, Mapping
 
 import yaml
 
@@ -241,6 +241,29 @@ class ChannelConfig:
     name: str
     enabled: bool = True
     settings: dict[str, Any] = field(default_factory=dict)
+
+
+def migrate_managed_channels_to_credential_refs(
+    channels: tuple[ChannelConfig, ...],
+    *,
+    credential_refs: Mapping[str, str],
+) -> tuple[ChannelConfig, ...]:
+    """Replace managed YAML plaintext only after cache authority is established.
+
+    The input objects are left untouched so a failed config write can continue using
+    the complete legacy configuration on the next process start.
+    """
+    migrated: list[ChannelConfig] = []
+    for channel in channels:
+        reference = credential_refs.get(channel.name)
+        if reference is None or not channel.name.startswith("feishu:"):
+            migrated.append(channel)
+            continue
+        settings = dict(channel.settings)
+        settings.pop("appSecret", None)
+        settings["credentialRef"] = reference
+        migrated.append(replace(channel, settings=settings))
+    return tuple(migrated)
 
 
 @dataclass(frozen=True, slots=True)
@@ -910,9 +933,18 @@ def _validate_feishu_settings(settings: dict[str, Any], *, prefix: str) -> None:
         ValueError: When required fields are missing or malformed.
     """
     _require_non_empty_string(settings.get("appId"), field_name=f"{prefix}.appId")
-    _require_non_empty_string(
-        settings.get("appSecret"), field_name=f"{prefix}.appSecret"
-    )
+    app_secret = settings.get("appSecret")
+    credential_ref = settings.get("credentialRef")
+    if app_secret is None and credential_ref is None:
+        raise ValueError(
+            f"{prefix}.appSecret or {prefix}.credentialRef must be provided"
+        )
+    if app_secret is not None:
+        _require_non_empty_string(app_secret, field_name=f"{prefix}.appSecret")
+    if credential_ref is not None:
+        _require_non_empty_string(
+            credential_ref, field_name=f"{prefix}.credentialRef"
+        )
     owner_open_id = settings.get("ownerOpenId")
     if owner_open_id is not None:
         _require_non_empty_string(owner_open_id, field_name=f"{prefix}.ownerOpenId")

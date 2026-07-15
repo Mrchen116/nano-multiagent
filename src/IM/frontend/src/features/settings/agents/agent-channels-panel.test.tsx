@@ -7,14 +7,17 @@ import { setLanguage } from "../../../i18n";
 
 const apiMocks = vi.hoisted(() => ({
   createAgentChannel: vi.fn(),
+  deleteAgentChannel: vi.fn(),
   listAgentChannels: vi.fn(),
+  reconnectAgentChannel: vi.fn(),
+  retryAgentChannelRemoval: vi.fn(),
   updateAgentChannel: vi.fn(),
 }));
 
 vi.mock("./im-agent-config-api", () => apiMocks);
 
 import { AgentChannelsPanel } from "./agent-channels-panel";
-import type { AgentChannel } from "./im-agent-config-api";
+import type { AgentChannel, AgentChannelRemoval } from "./im-agent-config-api";
 
 function channel(overrides: Partial<AgentChannel> = {}): AgentChannel {
   return {
@@ -36,13 +39,27 @@ function channel(overrides: Partial<AgentChannel> = {}): AgentChannel {
   };
 }
 
-function renderPanel() {
+function removal(overrides: Partial<AgentChannelRemoval> = {}): AgentChannelRemoval {
+  return {
+    resource_type: "removal",
+    channel_id: "channel-1",
+    provider: "feishu",
+    display_config: { app_id_suffix: "_1234" },
+    deletion_manifest_revision: 8,
+    apply_state: "pending",
+    apply_error: null,
+    created_at: "2026-07-15T06:40:00Z",
+    ...overrides,
+  };
+}
+
+function renderPanel(nodeStatus = "online") {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <AgentChannelsPanel agentId="agent-1" />
+      <AgentChannelsPanel agentId="agent-1" nodeStatus={nodeStatus} />
     </QueryClientProvider>,
   );
 }
@@ -51,6 +68,9 @@ beforeEach(() => {
   setLanguage("zh");
   apiMocks.listAgentChannels.mockReset();
   apiMocks.createAgentChannel.mockReset();
+  apiMocks.deleteAgentChannel.mockReset();
+  apiMocks.reconnectAgentChannel.mockReset();
+  apiMocks.retryAgentChannelRemoval.mockReset();
   apiMocks.updateAgentChannel.mockReset();
 });
 
@@ -137,7 +157,7 @@ describe("AgentChannelsPanel", () => {
 
     apiMocks.listAgentChannels.mockResolvedValue([
       channel({
-        sync_state: "applied",
+        sync_state: "failed",
         observed: {
           observed_revision: 7,
           connection_state: "failed",
@@ -154,5 +174,94 @@ describe("AgentChannelsPanel", () => {
     );
     await waitFor(() => expect(screen.getAllByText("连接失败")).toHaveLength(2));
     expect(screen.getByText("飞书拒绝了 App ID 或 App Secret")).toBeInTheDocument();
+  });
+
+  it("keeps offline desired changes pending and separates disabling from disabled", async () => {
+    const user = userEvent.setup();
+    const pending = channel({ sync_state: "pending", observed: null });
+    apiMocks.listAgentChannels.mockResolvedValue([pending]);
+    apiMocks.updateAgentChannel.mockResolvedValue({ ...pending, enabled: false });
+
+    renderPanel("offline");
+
+    expect(await screen.findByText("配置已保存")).toBeInTheDocument();
+    expect(screen.getByText("节点上线后自动应用")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "节点离线" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "停用" }));
+    await user.click(screen.getByRole("button", { name: "确认停用" }));
+    expect(await screen.findByText("正在停用")).toBeInTheDocument();
+    expect(apiMocks.updateAgentChannel).toHaveBeenCalledWith(
+      "agent-1",
+      "channel-1",
+      expect.objectContaining({ enabled: false, credentials: { mode: "keep" } }),
+    );
+
+    apiMocks.listAgentChannels.mockResolvedValue([
+      channel({
+        enabled: false,
+        observed: {
+          observed_revision: 7,
+          connection_state: "disabled",
+          status_message: null,
+          status_updated_at: "2026-07-15T06:42:00Z",
+        },
+      }),
+    ]);
+    renderPanel();
+    expect(await screen.findByText("已停用")).toBeInTheDocument();
+    expect(screen.getByText(/凭据已保留/)).toBeInTheDocument();
+  });
+
+  it("retains deleting receipts across reload and retries failed removal", async () => {
+    const user = userEvent.setup();
+    apiMocks.listAgentChannels.mockResolvedValue([
+      removal({
+        apply_state: "failed",
+        apply_error: {
+          code: "runtime_stop_failed",
+          message: "worker 退出超时",
+        },
+      }),
+    ]);
+    apiMocks.retryAgentChannelRemoval.mockResolvedValue(removal());
+
+    renderPanel();
+
+    expect(await screen.findByText("删除未完成")).toBeInTheDocument();
+    expect(screen.getByText("worker 退出超时")).toBeInTheDocument();
+    expect(screen.queryByText("还没有外部通道")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "重新尝试应用" }));
+    expect(await screen.findByText("删除待应用")).toBeInTheDocument();
+    expect(apiMocks.retryAgentChannelRemoval).toHaveBeenCalledWith(
+      "agent-1",
+      "channel-1",
+    );
+  });
+
+  it("confirms deletion and projects manual reconnect without changing credentials", async () => {
+    const user = userEvent.setup();
+    const connected = channel();
+    apiMocks.listAgentChannels.mockResolvedValue([connected]);
+    // The live command endpoint returns the pre-command channel snapshot. The
+    // UI must not flash back to "connected" before the next observed report.
+    apiMocks.reconnectAgentChannel.mockResolvedValue(connected);
+    apiMocks.deleteAgentChannel.mockResolvedValue(removal());
+
+    renderPanel();
+    await screen.findByText("当前配置已应用");
+    await user.click(screen.getByRole("button", { name: "重新连接" }));
+    expect(await screen.findByText("正在重新连接")).toBeInTheDocument();
+    expect(apiMocks.reconnectAgentChannel).toHaveBeenCalledWith(
+      "agent-1",
+      "channel-1",
+    );
+    await user.click(screen.getByRole("button", { name: "删除" }));
+    await user.click(screen.getByRole("button", { name: "确认删除" }));
+    expect(await screen.findByText("删除待应用")).toBeInTheDocument();
+    expect(apiMocks.deleteAgentChannel).toHaveBeenCalledWith(
+      "agent-1",
+      "channel-1",
+      7,
+    );
   });
 });

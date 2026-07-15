@@ -260,11 +260,33 @@
         "close": "关闭",
         "cancel": "取消",
         "saving": "保存中…",
-        "saveConnect": "保存并连接"
+        "saveConnect": "保存并连接",
+        "reconnect": "重新连接",
+        "disable": "停用",
+        "enable": "重新启用",
+        "delete": "删除",
+        "nodeOffline": "节点离线",
+        "retryApply": "重新尝试应用"
+      },
+      "offline": {
+        "title": "节点当前离线",
+        "detail": "配置更改会安全保存，节点上线后自动应用。"
+      },
+      "confirm": {
+        "disableTitle": "停用飞书通道？",
+        "disableBody": "节点应用后将停止新的消息收发，已保存凭据会保留。",
+        "disableAction": "确认停用",
+        "deleteTitle": "删除飞书通道？",
+        "deleteBody": "凭据会立即从 IM 删除；卡片会保留到节点确认停止，历史会话不会删除。",
+        "deleteAction": "确认删除"
       },
       "status": {
         "connected": "已连接",
         "connecting": "正在连接",
+        "pending": "等待节点应用",
+        "disabling": "正在停用",
+        "disabled": "已停用",
+        "reconnecting": "正在重新连接",
         "failed": "连接失败",
         "synced": "运行状态已同步",
         "applied": "当前配置已应用",
@@ -272,7 +294,23 @@
         "connectingDetail": "正在建立飞书长连接",
         "unknownFailure": "节点未能建立连接",
         "updatedAt": "状态更新于 {{time}}",
-        "savedAt": "保存于 {{time}}"
+        "savedAt": "保存于 {{time}}",
+        "saved": "配置已保存",
+        "autoApply": "节点上线后自动应用",
+        "disableSaved": "停用配置已保存",
+        "disableWaiting": "等待节点停止后续消息收发",
+        "disabledApplied": "节点已应用停用状态",
+        "disabledDetail": "不再收发新消息",
+        "credentialsRetained": "凭据已保留",
+        "connectionInterrupted": "长连接暂时中断",
+        "autoRecover": "系统正在自动恢复，无需重新填写凭据",
+        "failureAction": "更新凭据或检查应用状态后重试",
+        "deletePending": "删除待应用",
+        "deleteFailed": "删除未完成",
+        "credentialsDeleted": "凭据已从 IM 删除",
+        "deleteSaved": "删除已保存，等待节点确认停止收发",
+        "deleteReload": "页面刷新后仍会保留此状态",
+        "deleteUnknownFailure": "节点未能停止旧连接"
       }
     },
     "form": {
