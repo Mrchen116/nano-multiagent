@@ -32,13 +32,13 @@
 
 ### R1 — 建立 coordinator admission 与线性化 owner
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 先提交 public dispatch/stop/is_session_busy 红测，覆盖同/跨 session、连续 steer、submit 暂停点、steer race prepared-parts 恰好一次与 queue lifecycle delegation；再实现 coordinator 独立 owner，不切生产 facade。
 - 验证: `pytest tests/unit/personal_assistant/test_session_run_coordinator_admission.py tests/unit/personal_assistant/test_run_queue.py`
 
 ### R2 — 迁入 stop/terminal/watchdog 并收窄 pipeline
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 先提交 public terminal/stop/liveness/failure/NO_REPLY 红测并迁移旧 private assertions；再把 run/session/media/subscriber 状态与完整 terminal consumer 原子移入 coordinator，pipeline 只 route/gate/shadow/group append 后委托。
 - 验证: coordinator terminal + stop/watchdog/SSE/route/group/external-delivery 聚焦门禁。
 
