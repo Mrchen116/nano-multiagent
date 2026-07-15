@@ -61,8 +61,20 @@
 
 ## R4 — Agent 通道页与 provider registry
 
-- Context: TODO
-- Next: R3 完成后开始。
+- Context: DONE
+- Decision: Agent detail 的“通道”页签直接挂载通用 `AgentChannelsPanel`；`CHANNEL_PROVIDERS` 只保留 provider 展示与向导元数据，列表/状态/请求错误均由通用组件处理。create/patch 成功先写 React Query cache 投影 connecting，仅在 desired 尚未 applied 或 observed 仍处于过渡态时每秒轮询；connected/failed 后停止轮询。
+- Rationale: provider picker 即使已有通道仍可打开，以禁用态明确展示“已添加”；新增固定 replace，编辑默认 keep 且不渲染 secret 输入，App ID 变化立即切换 replace。页面只消费 `sync_state/observed/status_updated_at`，不渲染内部 revision。
+- Evidence:
+  - Tests: C1 缺 `agent-channels-panel` 与 channel API 按预期 red；C2 `42 passed`，覆盖通用空态且无 Web IM、飞书唯一性、开放平台精确链接、App ID/Secret required、keep/replace、App ID 自动 replace、在线保存即时 connecting、connected 时间/应用文案、具体 failed 与 API path/body。
+  - Entry: 真实 `AgentDetailPage` 的 channels branch 从占位切换为 `AgentChannelsPanel`；API 使用认证 `authFetch` 访问 `/im/v1/agents/{id}/channels` POST/GET/PATCH。
+  - Frontend State Matrix: default/provider picker、loading、empty、request error、disabled provider、submitting、connecting、connected、failed 均有实现；M1 desktop 状态由 R5 真浏览器验收。
+  - Browser QA: 待 R5 真栈补齐。
+  - E2E/Regression: `npm run build` 通过，Vite `443 modules transformed`；仅保留既有 chunk-size warning。
+  - Visual/Interaction: 复用 Agent detail 卡片/token 与既有 modal primitives，secret 输入 `autocomplete=new-password` 且编辑初始 DOM 不存在。
+  - Prototype Comparison: 代码结构已覆盖四个 M1 must-match 锚点；截图/DOM/network/console 证据待 R5。
+- Rollback: 回滚 R4 三提交恢复通道占位页，不影响已部署的 IM/Gateway 控制面；浏览器将无法创建或编辑 managed channel。
+- Commits: `a5878c0b3` (C1 red), `6d5ee4e62` (C2 green), C3 为本提交。
+- Next: R5 启动隔离真 IM/Gateway，走真实 Agent detail → 通道路径并落四锚点 durable evidence。
 
 ## R5 — 真栈/真浏览器证据与总门禁
 

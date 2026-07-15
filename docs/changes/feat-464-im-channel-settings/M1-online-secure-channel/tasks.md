@@ -90,9 +90,9 @@
 
 ### R4 — Agent 通道页与 provider registry
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 通用 channels panel、飞书 provider registry/表单/API；覆盖空态、唯一性、required、keep/replace、connecting/connected/failed。
-- 验证: `npm test -- agent-channels-panel.test.tsx im-agent-config-api.test.ts agent-detail-page.test.tsx && npm run build`。
+- 验证: `npm run test -- agent-channels-panel.test.tsx im-agent-config-api.test.ts agent-detail-page.test.tsx` → `42 passed`；`npm run build` 通过（443 modules transformed）。
 
 ### R5 — 真栈/真浏览器证据与总门禁
 
