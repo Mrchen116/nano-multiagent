@@ -109,6 +109,40 @@ class ChannelManifestStore:
         """Load and validate the current encrypted desired manifest."""
         with self._state_lock:
             state = self._read_state()
+        return self._decode_manifest(state)
+
+    def quarantine_key_mismatch(self) -> CachedChannelManifest | None:
+        """Move a foreign-key cache aside and return its non-secret desired metadata.
+
+        The ciphertext is never opened or overwritten. Removing it from the active
+        path lets the current key create a fresh status/result outbox so Gateway can
+        reconnect to IM and request credential re-entry.
+        """
+        with self._state_lock:
+            state = self._read_state(allow_foreign_key=True)
+            if state.get("key_id") == self._key_id:
+                return self._decode_manifest(state)
+            manifest = self._decode_manifest(state)
+            quarantine_path = self._path.with_name(
+                f"{self._path.name}.credential-reentry.{uuid4().hex}"
+            )
+            try:
+                os.replace(self._path, quarantine_path)
+                os.chmod(quarantine_path, 0o600)
+                directory_fd = os.open(self._path.parent, os.O_RDONLY)
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
+            except OSError as exc:
+                raise ChannelManifestStoreError(
+                    "channel manifest cache quarantine failed"
+                ) from exc
+            return manifest
+
+    def _decode_manifest(
+        self, state: Mapping[str, object]
+    ) -> CachedChannelManifest | None:
         raw_manifest = state.get("manifest")
         if not isinstance(raw_manifest, Mapping):
             return None
@@ -371,7 +405,7 @@ class ChannelManifestStore:
         with self._state_lock:
             return int(self._read_state().get("last_applied_manifest_revision") or 0)
 
-    def _read_state(self) -> dict[str, object]:
+    def _read_state(self, *, allow_foreign_key: bool = False) -> dict[str, object]:
         if not self._path.exists():
             return self._empty_state()
         try:
@@ -382,7 +416,7 @@ class ChannelManifestStore:
             raise ChannelManifestStoreError("channel manifest cache version mismatch")
         if decoded.get("node_id") != self._node_id:
             raise ChannelManifestStoreError("node_id mismatch")
-        if decoded.get("key_id") != self._key_id:
+        if not allow_foreign_key and decoded.get("key_id") != self._key_id:
             raise ChannelManifestStoreError("key_id mismatch")
         return decoded
 

@@ -199,12 +199,18 @@ class ChannelManager:
         self._manifest_store = manifest_store
         self._credential_opener = credential_opener
         self._active: dict[str, _ActiveRuntime] = {}
-        self._last_seen_manifest_revision = (
-            manifest_store.last_seen_manifest_revision if manifest_store else 0
-        )
-        self._last_applied_manifest_revision = (
-            manifest_store.last_applied_manifest_revision if manifest_store else 0
-        )
+        try:
+            self._last_seen_manifest_revision = (
+                manifest_store.last_seen_manifest_revision if manifest_store else 0
+            )
+            self._last_applied_manifest_revision = (
+                manifest_store.last_applied_manifest_revision if manifest_store else 0
+            )
+        except ChannelManifestStoreError as exc:
+            if str(exc) != "key_id mismatch":
+                raise
+            self._last_seen_manifest_revision = 0
+            self._last_applied_manifest_revision = 0
         self._lock = threading.RLock()
 
     @property
@@ -218,7 +224,30 @@ class ChannelManager:
             store = self._manifest_store
             if store is None:
                 return ()
-            cached = store.load_manifest()
+            try:
+                cached = store.load_manifest()
+            except ChannelManifestStoreError as exc:
+                if str(exc) != "key_id mismatch":
+                    raise
+                cached = store.quarantine_key_mismatch()
+                if cached is None:
+                    return ()
+                return tuple(
+                    self.report_credential_reentry(
+                        channel_id=item.channel_id,
+                        generation=ChannelGeneration(
+                            provider_identity_fingerprint=(
+                                item.provider_identity_fingerprint
+                            ),
+                            provider_identity_revision=(
+                                item.provider_identity_revision
+                            ),
+                            channel_revision=item.channel_revision,
+                            credential_revision=item.credential_revision,
+                        ),
+                    )
+                    for item in cached.channels
+                )
             if cached is None:
                 return ()
             if cached.channels and self._credential_opener is None:
@@ -241,6 +270,43 @@ class ChannelManager:
                 self._snapshot(active, connection_state="connecting")
                 for active in self._active.values()
             )
+
+    def report_credential_reentry(
+        self, *, channel_id: str, generation: ChannelGeneration
+    ) -> ChannelStatusSnapshot:
+        """Report an undecryptable desired generation without replacing safe runtime.
+
+        Args:
+            channel_id: Desired channel whose credential could not be opened.
+            generation: IM-authored generation parsed before envelope opening failed.
+
+        Returns:
+            The emitted recovery status snapshot.
+        """
+        with self._lock:
+            active = self._active.get(channel_id)
+            if active is not None and active.spec.generation == generation:
+                active.last_status_sequence += 1
+                incarnation = active.incarnation
+                sequence = active.last_status_sequence
+                instance_started = False
+            else:
+                incarnation = uuid4().hex
+                sequence = 1
+                instance_started = True
+            snapshot = ChannelStatusSnapshot(
+                channel_id=channel_id,
+                generation=generation,
+                runtime_incarnation=incarnation,
+                status_sequence=sequence,
+                connection_state="failed",
+                diagnostics_state="unknown",
+                status_code="credential_reentry_required",
+                status_message="Channel credentials must be entered again.",
+                instance_started=instance_started,
+            )
+            self._status_sink(snapshot)
+            return snapshot
 
     async def reconcile(self, manifest: ChannelManifest) -> ReconcileReport:
         """Apply one complete manifest with per-runtime stop-before-start cutover."""

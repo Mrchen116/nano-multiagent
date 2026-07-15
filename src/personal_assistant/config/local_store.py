@@ -5,8 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
+import os
 import shutil
 from typing import Any, Mapping
+from uuid import uuid4
 
 import yaml
 
@@ -672,6 +674,49 @@ def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     _backup_existing_config(dest, new_text)
     dest.write_text(new_text, encoding="utf-8")
+
+
+def save_sensitive_local_config(
+    config: LocalConfig, config_path: str | Path
+) -> None:
+    """Atomically write a potentially secret-bearing config as mode 0600.
+
+    Args:
+        config: Typed configuration to serialize.
+        config_path: Final path that becomes visible only after the secure temp is
+            flushed.
+
+    Side Effects:
+        Creates a mode-0600 temp file, fsyncs it, atomically replaces the target,
+        and fsyncs the parent directory. Unlike the normal config writer, this
+        deliberately creates no plaintext backup.
+    """
+    destination = Path(config_path).expanduser().resolve()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_name(f".{destination.name}.{uuid4().hex}.tmp")
+    descriptor: int | None = None
+    try:
+        descriptor = os.open(
+            temporary,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+            0o600,
+        )
+        os.close(descriptor)
+        descriptor = None
+        save_local_config(config, temporary)
+        with temporary.open("rb") as handle:
+            os.fsync(handle.fileno())
+        os.replace(temporary, destination)
+        os.chmod(destination, 0o600)
+        directory_fd = os.open(destination.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+        temporary.unlink(missing_ok=True)
 
 
 def _parse_node_config(payload: Any) -> NodeConfig:

@@ -58,15 +58,13 @@ from personal_assistant.config.local_store import (
     migrate_managed_channels_to_credential_refs,
     resolve_run_model,
     save_local_config,
+    save_sensitive_local_config,
 )
 from personal_assistant.config.sync_client import ConfigSyncClient
 from personal_assistant.gateway.bootstrap import start_channels, stop_channels
 from personal_assistant.gateway.channel_registry import ChannelRegistry
 from personal_assistant.gateway.channel_manager import (
-    ChannelGeneration,
     ChannelManager,
-    ChannelManifest,
-    ChannelRemovalIntent,
     ChannelStatusSnapshot,
     FeishuActivationPolicy,
     ManagedChannelSpec,
@@ -75,6 +73,10 @@ from personal_assistant.gateway.channel_manager import (
 from personal_assistant.gateway.channel_manifest_store import (
     CachedChannelSpec,
     ChannelManifestStore,
+)
+from personal_assistant.gateway.channel_manifest_apply import (
+    CredentialEnvelopeContext,
+    apply_channel_manifest_payload,
 )
 from personal_assistant.gateway.group_context_store import GroupContextStore
 from personal_assistant.gateway.inbound_pipeline import (
@@ -3267,106 +3269,28 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         async def _apply_channel_manifest(
             body: Mapping[str, object],
         ) -> Mapping[str, object]:
-            raw_channels = body.get("channels")
-            raw_removals = body.get("removals")
-            owner_id = str(body.get("owner_id") or "")
-            decoded: list[ManagedChannelSpec] = []
-            failed_ids: list[str] = []
-            for raw in raw_channels if isinstance(raw_channels, list) else []:
-                if not isinstance(raw, Mapping):
-                    continue
-                channel_id = str(raw.get("channel_id") or "")
-                try:
-                    generation = ChannelGeneration(
-                        provider_identity_fingerprint=str(
-                            raw["provider_identity_fingerprint"]
-                        ),
-                        provider_identity_revision=int(
-                            raw["provider_identity_revision"]
-                        ),
-                        channel_revision=int(raw["channel_revision"]),
-                        credential_revision=int(raw["credential_revision"]),
-                    )
-                    if str(raw.get("credential_key_id") or "") != channel_key.key_id:
-                        raise ValueError("credential key mismatch")
-                    aad = GatewayChannelAad(
-                        owner_id=owner_id,
-                        node_id=config.node.node_id,
-                        agent_id=str(raw["agent_id"]),
-                        channel_id=channel_id,
-                        provider=str(raw["provider"]),
-                        credential_revision=generation.credential_revision,
-                    )
-                    envelope = raw.get("credential_envelope")
-                    if not isinstance(envelope, Mapping):
-                        raise ValueError("credential envelope missing")
-                    credentials = channel_key.open(envelope=envelope, aad=aad)
-                    raw_config = raw.get("config")
-                    raw_runtime = raw.get("provider_runtime")
-                    decoded.append(
-                        ManagedChannelSpec(
-                            channel_id=channel_id,
-                            agent_id=aad.agent_id,
-                            provider=aad.provider,
-                            enabled=raw.get("enabled") is True,
-                            config=dict(raw_config)
-                            if isinstance(raw_config, Mapping)
-                            else {},
-                            credentials=credentials,
-                            provider_runtime={
-                                str(key): str(value)
-                                for key, value in raw_runtime.items()
-                                if isinstance(key, str) and isinstance(value, str)
-                            }
-                            if isinstance(raw_runtime, Mapping)
-                            else {},
-                            generation=generation,
-                            credential_envelope=dict(envelope),
-                            credential_key_id=channel_key.key_id,
-                        )
-                    )
-                except (KeyError, TypeError, ValueError):
-                    failed_ids.append(channel_id)
-            removals = tuple(
-                ChannelRemovalIntent(
-                    removal_token=str(raw.get("removal_token") or ""),
-                    channel_id=str(raw.get("channel_id") or ""),
-                    agent_id=str(raw.get("agent_id") or ""),
-                    provider=str(raw.get("provider") or ""),
-                    deletion_manifest_revision=int(
-                        raw.get("deletion_manifest_revision") or 0
+            def open_credentials(
+                context: CredentialEnvelopeContext,
+            ) -> Mapping[str, str]:
+                return channel_key.open(
+                    envelope=context.envelope,
+                    aad=GatewayChannelAad(
+                        owner_id=context.owner_id,
+                        node_id=context.node_id,
+                        agent_id=context.agent_id,
+                        channel_id=context.channel_id,
+                        provider=context.provider,
+                        credential_revision=context.credential_revision,
                     ),
                 )
-                for raw in raw_removals
-                if isinstance(raw, Mapping)
-            ) if isinstance(raw_removals, list) else ()
-            manifest = ChannelManifest(
-                owner_id=owner_id,
-                node_id=str(body.get("node_id") or config.node.node_id),
-                manifest_revision=int(body.get("manifest_revision") or 0),
-                channels=tuple(decoded),
-                removals=removals,
+
+            return await apply_channel_manifest_payload(
+                body=body,
+                node_id=config.node.node_id,
+                credential_key_id=channel_key.key_id,
+                credential_opener=open_credentials,
+                manager=channel_manager,
             )
-
-            def reconcile_in_thread():
-                return asyncio.run(channel_manager.reconcile(manifest))
-
-            report = await asyncio.to_thread(reconcile_in_thread)
-            failures = [
-                {
-                    "channel_id": channel_id,
-                    "error_code": "runtime_apply_failed",
-                }
-                for channel_id in (*failed_ids, *report.failed_channel_ids)
-            ]
-            return {
-                "outcome": report.outcome,
-                "applied_channel_ids": list(report.applied_channel_ids),
-                "removal_outcomes": [
-                    item.as_payload() for item in report.removal_outcomes
-                ],
-                "failures": [*report.failures, *failures],
-            }
 
         bootstrap_credential_refs: dict[str, str] = {}
 
@@ -3440,7 +3364,9 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                 credential_refs=bootstrap_credential_refs,
             )
             try:
-                save_local_config(replace(config, channels=migrated), config.source_path)
+                save_sensitive_local_config(
+                    replace(config, channels=migrated), config.source_path
+                )
             except Exception:  # noqa: BLE001
                 _log.warning(
                     "channel bootstrap cache committed but legacy YAML cleanup failed",
