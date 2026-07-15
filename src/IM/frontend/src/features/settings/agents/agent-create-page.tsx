@@ -27,7 +27,7 @@ function sameStringList(left: string[], right: string[]) {
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
-function defaultSkillNames(options: { name: string; default_on?: boolean }[]) {
+function defaultNames(options: { name: string; default_on?: boolean }[]) {
   return normalizeAllowlist(
     options
       .filter((option) => option.default_on === true)
@@ -321,6 +321,8 @@ export function AgentCreatePage() {
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   const skillsEditedRef = useRef(false);
   const autoDefaultSkillsRef = useRef<string[]>([]);
+  const autoDefaultToolsRef = useRef<string[]>([]);
+  const toolsEditedRef = useRef(false);
 
   const nodesQuery = useQuery({
     queryKey: ["settings", "agents", "create", "nodes"],
@@ -337,7 +339,9 @@ export function AgentCreatePage() {
   useEffect(() => {
     skillsEditedRef.current = false;
     autoDefaultSkillsRef.current = [];
-    setDraft((current) => ({ ...current, skills: [] }));
+    toolsEditedRef.current = false;
+    autoDefaultToolsRef.current = [];
+    setDraft((current) => ({ ...current, skills: [], tool_allowlist: [] }));
   }, [selectedNodeId]);
 
   const createStateQuery = useQuery({
@@ -364,16 +368,34 @@ export function AgentCreatePage() {
       : "Unable to load this node.";
 
   useEffect(() => {
-    if (!capabilities || skillsEditedRef.current) return;
-    const defaults = defaultSkillNames(capabilities.skills);
-    setDraft((current) => {
-      if (sameStringList(current.skills, defaults)) return current;
-      if (current.skills.length > 0 && !sameStringList(current.skills, autoDefaultSkillsRef.current)) {
-        return current;
-      }
-      autoDefaultSkillsRef.current = defaults;
-      return { ...current, skills: defaults };
-    });
+    if (!capabilities) return;
+
+    if (!skillsEditedRef.current) {
+      const skillDefaults = defaultNames(capabilities.skills);
+      setDraft((current) => {
+        if (sameStringList(current.skills, skillDefaults)) return current;
+        if (current.skills.length > 0 && !sameStringList(current.skills, autoDefaultSkillsRef.current)) {
+          return current;
+        }
+        autoDefaultSkillsRef.current = skillDefaults;
+        return { ...current, skills: skillDefaults };
+      });
+    }
+
+    if (!toolsEditedRef.current) {
+      const toolDefaults = defaultNames(capabilities.tools);
+      setDraft((current) => {
+        if (sameStringList(current.tool_allowlist, toolDefaults)) return current;
+        if (
+          current.tool_allowlist.length > 0 &&
+          !sameStringList(current.tool_allowlist, autoDefaultToolsRef.current)
+        ) {
+          return current;
+        }
+        autoDefaultToolsRef.current = toolDefaults;
+        return { ...current, tool_allowlist: toolDefaults };
+      });
+    }
   }, [capabilities]);
 
   const mutation = useMutation({
@@ -666,8 +688,10 @@ export function AgentCreatePage() {
               isLoading={createStateQuery.isLoading}
               errorMessage={createStateQuery.isError ? queryErrorDetail : null}
               onRetry={() => void createStateQuery.refetch()}
-              useDefaultOn={true}
+              useDefaultOn={false}
               onChange={(toolAllowlist) => {
+                toolsEditedRef.current = true;
+                autoDefaultToolsRef.current = [];
                 setErrorMessage(null);
                 // feat-379-M9 (決策 12): removed tool → uncheck any feature that requires it.
                 const capFeats = capabilities?.features ?? [];

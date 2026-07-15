@@ -6,7 +6,7 @@ import asyncio
 import base64
 import logging
 from collections import OrderedDict
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any
@@ -124,38 +124,6 @@ _IMAGE_FAILURE_MESSAGES: dict[str, str] = {
     ),
     "corrupt": "这张图片我无法识别，没能收到它，无法据此回复。请确认图片有效后重新发送。",
 }
-
-
-def resolve_effective_tool_allowlist(
-    tool_allowlist: Sequence[str],
-    *,
-    default_tool_ids: Sequence[str],
-) -> list[str] | None:
-    """Resolve a per-session tool allowlist as a TRUE whitelist.
-
-    feat-394 fix (supersedes M7 R5-2 force-merge): ``tool_allowlist`` is the user's
-    explicit tool whitelist, not an additive extras list.
-
-    - Non-empty ``tool_allowlist`` → exactly those tools. A user may select a subset
-      of the product defaults, so default file/web tools CAN be disabled.
-    - Empty ``tool_allowlist`` → the product default tool set (unconfigured agent).
-
-    feat-394 M9 R4: ``cron_enabled`` param removed. The call-site reads
-    ``agent.cron_enabled`` (@property from features dict) and appends ``"cron"``
-    before passing the list here, keeping this function free of feature-model state.
-
-    Args:
-        tool_allowlist: The agent's stored explicit tool whitelist (may be empty).
-            Call-site must append gated capabilities (e.g. ``"cron"``) before
-            passing when the relevant feature flag is on.
-        default_tool_ids: Product default tool ids used when the whitelist is empty.
-
-    Returns:
-        Explicit tool-id list for ``Kernel.create_session(tool_allowlist=...)``, or
-        ``None`` only in the degenerate case of an empty resolved set.
-    """
-    effective = list(tool_allowlist) if tool_allowlist else list(default_tool_ids)
-    return effective or None
 
 
 class InboundPipeline:
