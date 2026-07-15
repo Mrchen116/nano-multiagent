@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import asyncio
+import contextlib
 import json
 import logging
 from typing import Any
@@ -211,6 +212,12 @@ class GatewayHandler:
                 payload=payload,
                 authenticated_owner_id=authenticated_owner_id,
             )
+        if authenticated_owner_id:
+            await self._authorize_upstream_frame(
+                websocket=websocket,
+                payload=payload,
+                authenticated_owner_id=authenticated_owner_id,
+            )
         if message_type == "node.heartbeat":
             return await self._handle_heartbeat(payload=payload)
         if message_type == "node.report":
@@ -339,6 +346,15 @@ class GatewayHandler:
                 or not connection.credential_algorithm
                 or not connection.credential_public_key
             ):
+                return False
+            durable_owner = store.current_owner_for_node(node_id=node_id)
+            if durable_owner and durable_owner != connection.owner_id:
+                store.remove_node_public_key(node_id=node_id)
+                await self.disconnect(
+                    node_id=node_id, expected_websocket=connection.websocket
+                )
+                with contextlib.suppress(RuntimeError, WebSocketDisconnect):
+                    await connection.websocket.close(code=1008)
                 return False
             registered = store.register_bound_node_public_key(
                 node_id=node_id,
@@ -1036,6 +1052,16 @@ class GatewayHandler:
         authenticated_owner_id: str,
     ) -> dict[str, object]:
         node_id = _require_text(payload.get("node_id"), field_name="node_id")
+        async with self._lock:
+            registered_node_ids = [
+                registered_node_id
+                for registered_node_id, connection in self._connections.items()
+                if connection.websocket is websocket
+            ]
+        if registered_node_ids and registered_node_ids != [node_id]:
+            raise GatewayAuthorizationError(
+                "gateway websocket is already registered to another node"
+            )
         if self._node_persistence is not None:
             durable_owner = self._node_persistence.owner_for_node(node_id=node_id)
             if durable_owner and durable_owner != authenticated_owner_id:
@@ -1097,6 +1123,52 @@ class GatewayHandler:
             "type": "ack",
             "payload": {"message_type": "node.register", "node_id": node_id},
         }
+
+    async def _authorize_upstream_frame(
+        self,
+        *,
+        websocket: WebSocket,
+        payload: dict[str, object],
+        authenticated_owner_id: str,
+    ) -> GatewayConnection:
+        """Bind every upstream business frame to its authenticated live socket.
+
+        The websocket registration is the routing authority. Payload ``node_id`` is
+        only an assertion and may never select a different connection. Older Gateway
+        clients that omitted it are normalized after the same checks, keeping the
+        mutation handlers on one trusted node identity.
+        """
+        async with self._lock:
+            matches = [
+                connection
+                for connection in self._connections.values()
+                if connection.websocket is websocket
+            ]
+        if len(matches) != 1:
+            raise GatewayAuthorizationError(
+                "gateway websocket is not registered to exactly one node"
+            )
+        connection = matches[0]
+        if connection.owner_id != authenticated_owner_id:
+            raise GatewayAuthorizationError(
+                "gateway token owner does not match the registered connection"
+            )
+        payload_node_id = _optional_text(payload.get("node_id"))
+        if payload_node_id and payload_node_id != connection.node_id:
+            raise GatewayAuthorizationError(
+                "payload node does not match the registered connection"
+            )
+        durable_owner = (
+            self._node_persistence.owner_for_node(node_id=connection.node_id)
+            if self._node_persistence is not None
+            else ""
+        )
+        if durable_owner and durable_owner != connection.owner_id:
+            raise GatewayAuthorizationError(
+                "durable node owner does not match the registered connection"
+            )
+        payload["node_id"] = connection.node_id
+        return connection
 
     async def _handle_heartbeat(
         self, *, payload: dict[str, object]

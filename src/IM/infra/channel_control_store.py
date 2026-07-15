@@ -264,6 +264,14 @@ class ChannelControlStore:
         )
         return True
 
+    def remove_node_public_key(self, *, node_id: str) -> None:
+        """Remove a node key when its live socket fails post-bind ownership checks."""
+        with closing(self._connect()) as connection:
+            connection.execute(
+                "DELETE FROM node_credential_keys WHERE node_id = ?", (node_id,)
+            )
+            connection.commit()
+
     def current_manifest_for_node(self, *, node_id: str) -> ChannelManifest | None:
         """Read the current complete desired snapshot for an owner-bound node."""
         with closing(self._connect()) as connection:

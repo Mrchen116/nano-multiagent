@@ -154,8 +154,8 @@ def test_registered_socket_cannot_mutate_another_owners_node(
                 bob_socket.send_json(bob_registration)
                 assert bob_socket.receive_json()["type"] == "ack"
                 _bind(client, node_id="node-bob")
-                broadcast_seq = dict(
-                    client.app.state.gateway_handler._status_seq_by_owner  # noqa: SLF001
+                bob_broadcast_seq = client.app.state.gateway_handler._status_seq_by_owner.get(  # noqa: SLF001
+                    bob.owner_id, 0
                 )
 
                 alice_socket.send_json(
@@ -175,7 +175,9 @@ def test_registered_socket_cannot_mutate_another_owners_node(
                     "SELECT status, last_error FROM nodes WHERE node_id = 'node-bob'"
                 ).fetchone()
                 assert tuple(row) == ("online", None)
-                assert client.app.state.gateway_handler._status_seq_by_owner == broadcast_seq  # noqa: SLF001
+                assert client.app.state.gateway_handler._status_seq_by_owner.get(  # noqa: SLF001
+                    bob.owner_id, 0
+                ) == bob_broadcast_seq
 
 
 def test_cross_owner_result_cannot_release_another_nodes_waiter(
