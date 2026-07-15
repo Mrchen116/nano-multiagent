@@ -78,9 +78,9 @@
 
 ### R2 — Gateway 动态 runtime 与 Feishu worker
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 并发安全 registry、`ChannelManager`、activation/metadata generation、可终止进程与双向 card action IPC；覆盖 M1-E7/E8 runtime 部分。
-- 验证: `pytest -q tests/unit/personal_assistant/test_channel_manager.py tests/unit/personal_assistant/test_feishu_worker_runtime.py tests/unit/test_feishu_adapter_permission_approval.py`。
+- 验证: `pytest -q tests/unit/personal_assistant/test_channel_manager.py tests/unit/personal_assistant/test_feishu_worker_runtime.py tests/unit/test_feishu_adapter_permission_approval.py tests/unit/test_feishu_client.py tests/unit/test_feishu_client_interactive.py` → `40 passed`；Feishu 关联回归另 `61 passed`。
 
 ### R3 — WS 在线 reconcile/status 闭环
 

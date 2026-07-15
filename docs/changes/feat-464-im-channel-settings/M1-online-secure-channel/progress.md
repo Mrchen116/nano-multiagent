@@ -27,8 +27,20 @@
 
 ## R2 — Gateway 动态 runtime 与 Feishu worker
 
-- Context: TODO
-- Next: R1 完成后开始。
+- Context: DONE
+- Decision: `ChannelManager` 成为 managed external channel 的单一 lifecycle owner；runtime identity 只由 provider + agent 派生为 `feishu:<agent_id>`。App identity/generation 同时约束 metadata 与 status；owner/bot metadata 采用 set-if-null first-wins。Feishu SDK listener 从 Gateway 线程迁入每 Bot 一个 spawn process，parent 保留 REST、adapter、approval 与 kernel callback。
+- Rationale: `ChannelRegistry` 只提供锁保护的 register/replace/remove，不吸收调和规则；worker 用 message FIFO、latest status mailbox、priority pipe、card-action duplex pipe 四类职责明确的 IPC，并以 incarnation + sequence 在 parent 单点归并。
+- Evidence:
+  - Tests: C1 两个新模块 collection red；C2 `40 passed` 覆盖稳定 runtime name、stop-before-start cutover、旧 generation 双拒绝、App replacement metadata 清空/owner 重绑、feishu-doc activation、双 listener 进程隔离、真实 stop/join、FIFO backpressure、status coalescing、priority error、drain/drop、card correlation/timeout、worker crash，以及既有 approval first-wins。
+  - Entry: `FeishuClient.start()` 只在 parent 创建 REST client，SDK `WSClient` 与 event loop 在 `FeishuWorkerRuntime` child process；`FeishuAdapter.stop_invalidated()` 为 replace/disable/delete 立即丢弃旧 generation 输入。
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: 全部既有 Feishu adapter/client/history/mention/send 关联测试 `61 passed`；目标文件 Ruff 通过；测试退出后无残留 worker process。
+  - Visual/Interaction: N/A
+  - Prototype Comparison: N/A
+- Rollback: 回滚 R2 三提交恢复静态 registry + daemon thread；不会影响 R1 IM schema/API，但动态 manifest 不能再热应用。
+- Commits: `054e4810f` (C1 red), `3577ad112` (C2 green), C3 为本提交。
+- Next: R3 把 node key、manifest reconcile、status/metadata result 接入现有单槽 IM WebSocket FIFO 和 Gateway composition root。
 
 ## R3 — WS 在线 reconcile/status 闭环
 
