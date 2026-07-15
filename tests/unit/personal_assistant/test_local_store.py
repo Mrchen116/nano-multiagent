@@ -480,7 +480,9 @@ def test_parse_agents_loads_extended_fields(tmp_path: Path) -> None:
     assert agent.default_model == "codex_oauth:gpt-5.5"
 
 
-def test_parse_agents_explicit_empty_tool_allowlist_is_preserved(tmp_path: Path) -> None:
+def test_parse_agents_explicit_empty_tool_allowlist_is_preserved(
+    tmp_path: Path,
+) -> None:
     """An explicit empty tool_allowlist: [] must not be backfilled to defaults."""
     config_path = tmp_path / "node-config.yaml"
     workspace_root = tmp_path / "agents" / "a"
