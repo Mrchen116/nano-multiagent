@@ -170,6 +170,47 @@ export interface AgentDetailState {
   owningNode: AgentDetailNodeView | null;
 }
 
+export interface ChannelObservedState {
+  observed_revision: number;
+  connection_state: string;
+  diagnostics_state?: string | null;
+  status_code?: string | null;
+  status_message?: string | null;
+  status_updated_at: string;
+  status_stale?: boolean;
+}
+
+export interface AgentChannel {
+  channel_id: string;
+  provider: string;
+  enabled: boolean;
+  config: Record<string, unknown>;
+  secret_configured: boolean;
+  channel_revision: number;
+  sync_state: string;
+  observed: ChannelObservedState | null;
+  updated_at: string;
+}
+
+export interface ChannelCredentialsInput {
+  mode: "keep" | "replace";
+  app_secret?: string;
+}
+
+export interface CreateAgentChannelInput {
+  provider: string;
+  enabled: boolean;
+  config: Record<string, unknown>;
+  credentials: ChannelCredentialsInput;
+}
+
+export interface UpdateAgentChannelInput {
+  channel_revision: number;
+  enabled: boolean;
+  config: Record<string, unknown>;
+  credentials: ChannelCredentialsInput;
+}
+
 interface AgentCapabilitiesWire {
   agent_id?: string;
   node_id: string;
@@ -484,6 +525,31 @@ export async function updateAgentConfig(agentId: string, next: UpdateAgentConfig
     }),
   });
   return normalizeAgentConfigResponse(raw);
+}
+
+export async function listAgentChannels(agentId: string): Promise<AgentChannel[]> {
+  return requestJson<AgentChannel[]>(`/im/v1/agents/${encodeURIComponent(agentId)}/channels`);
+}
+
+export async function createAgentChannel(
+  agentId: string,
+  next: CreateAgentChannelInput,
+): Promise<AgentChannel> {
+  return requestJson<AgentChannel>(`/im/v1/agents/${encodeURIComponent(agentId)}/channels`, {
+    method: "POST",
+    body: JSON.stringify(next),
+  });
+}
+
+export async function updateAgentChannel(
+  agentId: string,
+  channelId: string,
+  next: UpdateAgentChannelInput,
+): Promise<AgentChannel> {
+  return requestJson<AgentChannel>(
+    `/im/v1/agents/${encodeURIComponent(agentId)}/channels/${encodeURIComponent(channelId)}`,
+    { method: "PATCH", body: JSON.stringify(next) },
+  );
 }
 
 // feat-379-M3: preview assembled system prompt for an agent with given feature flags and custom text.

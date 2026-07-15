@@ -200,7 +200,7 @@ describe("agent detail page", () => {
     expect(screen.getByRole("heading", { name: "概览" })).toBeInTheDocument();
     expect(screen.getByText("本期不设计概览页。保持空态，后续单独设计。")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "通道" }));
-    expect(screen.getByRole("heading", { name: "通道" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "外部通道" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "会话" }));
     expect(screen.getByRole("heading", { name: "会话" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "技能" }));

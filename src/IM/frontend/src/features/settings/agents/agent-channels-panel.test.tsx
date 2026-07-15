@@ -63,9 +63,9 @@ describe("AgentChannelsPanel", () => {
 
     renderPanel();
 
-    expect(await screen.findByRole("heading", { name: "还没有外部通道" })).toBeInTheDocument();
+    const emptyHeading = await screen.findByRole("heading", { name: "还没有外部通道" });
     expect(screen.queryByText(/Web IM/i)).toBeNull();
-    await user.click(screen.getByRole("button", { name: "添加通道" }));
+    await user.click(within(emptyHeading.closest("section")!).getByRole("button", { name: "添加通道" }));
     const picker = screen.getByRole("dialog", { name: "添加通道" });
     await user.click(within(picker).getByRole("button", { name: /飞书/ }));
 
@@ -110,7 +110,8 @@ describe("AgentChannelsPanel", () => {
     );
 
     renderPanel();
-    await user.click(await screen.findByRole("button", { name: "添加通道" }));
+    const emptyHeading = await screen.findByRole("heading", { name: "还没有外部通道" });
+    await user.click(within(emptyHeading.closest("section")!).getByRole("button", { name: "添加通道" }));
     await user.click(screen.getByRole("button", { name: /飞书/ }));
     await user.type(screen.getByLabelText("App ID"), "cli_created");
     await user.type(screen.getByLabelText("App Secret"), "secret-value");
@@ -151,7 +152,7 @@ describe("AgentChannelsPanel", () => {
         <AgentChannelsPanel agentId="agent-2" />
       </QueryClientProvider>,
     );
-    await waitFor(() => expect(screen.getByText("连接失败")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getAllByText("连接失败")).toHaveLength(2));
     expect(screen.getByText("飞书拒绝了 App ID 或 App Secret")).toBeInTheDocument();
   });
 });

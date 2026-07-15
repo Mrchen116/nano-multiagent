@@ -223,6 +223,60 @@
         "sessionsPlaceholder": "The sessions page is not included in this release. It will be designed separately."
       }
     },
+    "channels": {
+      "title": "External channels",
+      "subtitle": "Manage this Agent's connections to external messaging platforms. Configuration and runtime status are stored separately.",
+      "loading": "Loading channels…",
+      "loadError": "Unable to load channel configuration",
+      "empty": {
+        "title": "No external channels yet",
+        "description": "Add a channel so users can reach this Agent from an external messaging platform. Feishu is currently supported."
+      },
+      "provider": { "added": "Added" },
+      "feishu": {
+        "label": "Feishu",
+        "description": "Connect a Feishu application bot",
+        "guide": "Create an app in Feishu Open Platform, enable the bot, and receive events over a long connection.",
+        "openPlatform": "Open Feishu Open Platform"
+      },
+      "dialog": {
+        "addTitle": "Add channel",
+        "editTitle": "Edit Feishu channel",
+        "chooseProvider": "Choose an external messaging provider",
+        "credentialsSubtitle": "Enter application credentials and connect online"
+      },
+      "credentials": {
+        "keep": "Keep existing secret",
+        "keepHelp": "Do not change the saved App Secret",
+        "replace": "Replace secret",
+        "replaceHelp": "Enter and save a new App Secret",
+        "secretHelp": "The secret is stored securely and will not be displayed again."
+      },
+      "validation": {
+        "appId": "Enter an App ID",
+        "appSecret": "Enter an App Secret"
+      },
+      "actions": {
+        "add": "Add channel",
+        "edit": "Edit",
+        "close": "Close",
+        "cancel": "Cancel",
+        "saving": "Saving…",
+        "saveConnect": "Save and connect"
+      },
+      "status": {
+        "connected": "Connected",
+        "connecting": "Connecting",
+        "failed": "Connection failed",
+        "synced": "Runtime status synchronized",
+        "applied": "Current configuration applied",
+        "savedSecurely": "Configuration and credentials saved securely",
+        "connectingDetail": "Establishing the Feishu long connection",
+        "unknownFailure": "The node could not establish a connection",
+        "updatedAt": "Status updated {{time}}",
+        "savedAt": "Saved {{time}}"
+      }
+    },
     "form": {
       "identity": {
         "title": "Identity",

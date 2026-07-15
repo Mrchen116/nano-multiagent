@@ -10,6 +10,7 @@ import { createConversation } from "../../chat/chat-api";
 import { Avatar, colorForAgent } from "../../chat/components/avatar";
 import { PillSelector } from "./pill-selector";
 import { SkillSourceSelector } from "./skill-source-selector";
+import { AgentChannelsPanel } from "./agent-channels-panel";
 import { useAgentStatusBroadcastConsumer } from "./agent-status-ws-consumer";
 import {
   AgentConfig,
@@ -1651,9 +1652,7 @@ export function AgentDetailPage() {
             {t("agents.detail.sections.overviewPlaceholder")}
           </PrototypePlaceholder>
         ) : activeSection === "channels" ? (
-          <PrototypePlaceholder title={t("agents.detail.sections.channels")}>
-            {t("agents.detail.sections.channelsPlaceholder")}
-          </PrototypePlaceholder>
+          <AgentChannelsPanel agentId={agentId} />
         ) : activeSection === "sessions" ? (
           <PrototypePlaceholder title={t("agents.detail.sections.sessions")}>
             {t("agents.detail.sections.sessionsPlaceholder")}
