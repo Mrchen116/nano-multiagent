@@ -75,3 +75,20 @@
 - Rollback: 回滚 R4 三提交恢复 M1 create/edit 页面；R1-R3 backend lifecycle 协议仍保持兼容，但用户不能从 Web IM 操作完整生命周期。
 - Commits: C1=`bebcc4b2d`，C2=`a08ec2c9b`，C3=本提交。
 - Next: R5 用隔离高位真栈和 headed Chromium 验证七个原型锚点、DB/runtime/outbox/cleanup，再跑总门禁。
+
+## R5 — 真栈浏览器证据与总门禁
+
+- Context: DONE；用 worktree 隔离 IM/Gateway、真实 Feishu worker 与 headed Chrome 走完整 Agent detail → Channels 旅程。浏览器验收额外发现两个单测未暴露的投影缺口：reconnect endpoint 返回发命令前快照导致状态闪回 Connected；`sync_state=failed` 比 observed failed 优先导致真实 worker 失败仍显示 Connecting。
+- Decision: manual reconnect 在真实 post-command observed poll 到来前保留两秒稳定 reconnecting 投影；runtime/reconcile failed 优先于一般 pending/connecting。两处均先以真实栈 + DB/调用顺序证明根因，再补红测、修复并重建前端。
+- Rationale: ephemeral live action 的响应不是执行结果，不能覆盖动作态；failed 是用户必须处理的终态，不能被“尚未 applied”这个更低优先级状态遮住。
+- Evidence:
+  - Tests: frontend 全套 `612 passed` + build；M2 backend `123 passed`；Ruff 全绿。首次 non-e2e `3379 passed / 3 failed`，三项均为新增 negotiated `channel_bootstrap` 后未更新的 golden expected dict，更新后聚焦 `3 passed`；最终 post-rebase full gate 见本节后续记录。
+  - Entry: 真实 `http://127.0.0.1:56189/settings/agents/default-agent`，headed Chrome 1440×1000；create/PATCH/reconnect/DELETE/retry 均走 authenticated production HTTP + Gateway WS。
+  - Frontend State Matrix: default/empty/error/disabled/submitting/missing observed/desktop 全覆盖；loading 沿用 M1；offline live action 为 disabled “Node offline”。
+  - Browser QA: 七锚点、offline create→delete-before-first-sync、reload removal、failed retry、result 后 empty 全部 PASS；详见 `evidence/browser-qa.md` 与 14 张截图。
+  - E2E/Regression: real legacy bootstrap → connected；disable → observed disabled → re-enable connecting；manual reconnect；invalid credential worker failure；paused node desired/delete/reload/resume convergence；controlled cache failure same-revision retry；mode-0600/no-plaintext/cache cleanup。
+  - Visual/Interaction: 1440×1000 无遮挡或横向溢出，动作层级与原型一致；长错误可换行，状态信息不显示内部 revision。
+  - Prototype Comparison: must-match 七锚点全部对账；may-adapt icon/shadow/transition 继续使用现有 IM design tokens；Web IM/future providers 未进入 managed provider picker。
+- Rollback: 先用 `scripts/channel-control-export-legacy.py` 显式导出旧 YAML，再按 R1→R4 逆序回滚；R5 只增加证据和两个投影修复，无协议迁移。
+- Commits: headed defect tests/fixes=`6492f43c8/dd6d196b8/a9d2c45f5/167a259dd`；capability golden=`a3198d647`；evidence/C3=本提交。
+- Next: rebase unit integration head，复跑门禁，合并并清理 milestone worktree/branch。

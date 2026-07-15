@@ -8,14 +8,14 @@
 
 ## 退出标准
 
-- [ ] M2-E1：节点离线时新增、修改、启用、停用、删除均保存并显示“等待节点应用”，覆盖 offline create→delete-before-first-sync、reload removal pending、zero-item removal/result 后才空态。
-- [ ] M2-E2：节点重连后无需再次保存，完整 manifest 自动收敛为真实终态。
-- [ ] M2-E3：停用确认后实际停止收发，observed 后才显示已停用；重新启用无需重填 secret 并进入 connecting。
-- [ ] M2-E4：手动重连展示稳定 connecting/reconnecting 与结果；离线时返回可理解反馈；credential/Bot/worker failure 可操作。
-- [ ] M2-E5：删除确认后保留 removing 卡片，stop/cache failure 可见且同 revision 可重试；applied 后才移除卡片且影子会话/历史不级联删除。
-- [ ] M2-E6：旧 YAML 首次上线自动 bootstrap，人工 bind-confirm 保持同一 WS 即触发且最多一次；初始化后空 manifest 不复活删除配置；IM 离线可从密文 cache 启动。
-- [ ] M2-E7：重复/stale manifest、离线最终态、半迁移失败、node/key mismatch、原子文件、export-legacy、delete-no-cascade、per-token outcome 跨 revision/retention 终态、e2e key/cache 隔离清理全部受测。
-- [ ] M2-E8：原型 `#channel-pending/#channel-actions/#channel-disabling/#channel-disabled/#channel-deleting/#channel-reconnecting/#channel-failed` 有真实浏览器证据与逐项对账。
+- [x] M2-E1：节点离线时新增、修改、启用、停用、删除均保存并显示“等待节点应用”，覆盖 offline create→delete-before-first-sync、reload removal pending、zero-item removal/result 后才空态。
+- [x] M2-E2：节点重连后无需再次保存，完整 manifest 自动收敛为真实终态。
+- [x] M2-E3：停用确认后实际停止收发，observed 后才显示已停用；重新启用无需重填 secret 并进入 connecting。
+- [x] M2-E4：手动重连展示稳定 connecting/reconnecting 与结果；离线时返回可理解反馈；credential/Bot/worker failure 可操作。
+- [x] M2-E5：删除确认后保留 removing 卡片，stop/cache failure 可见且同 revision 可重试；applied 后才移除卡片且影子会话/历史不级联删除。
+- [x] M2-E6：旧 YAML 首次上线自动 bootstrap，人工 bind-confirm 保持同一 WS 即触发且最多一次；初始化后空 manifest 不复活删除配置；IM 离线可从密文 cache 启动。
+- [x] M2-E7：重复/stale manifest、离线最终态、半迁移失败、node/key mismatch、原子文件、export-legacy、delete-no-cascade、per-token outcome 跨 revision/retention 终态、e2e key/cache 隔离清理全部受测。
+- [x] M2-E8：原型 `#channel-pending/#channel-actions/#channel-disabling/#channel-disabled/#channel-deleting/#channel-reconnecting/#channel-failed` 有真实浏览器证据与逐项对账。
 
 ## 测试策略
 
@@ -98,6 +98,6 @@
 
 ### R5 — 真栈浏览器证据与总门禁
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 按 runbook 用高位隔离 IM/Gateway + headed Chromium 驱动离线/重连/启停/重连/删除旅程，落七锚点 evidence，核对 history/secret/outbox/key/cache/PID 清理。
 - 验证: M2-E1..M2-E8 证据表；最窄、frontend、non-e2e、Ruff、build、test contract 全绿。
