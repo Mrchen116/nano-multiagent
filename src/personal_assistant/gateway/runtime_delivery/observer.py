@@ -15,6 +15,7 @@ from personal_assistant.gateway.reply_visibility import (
 from personal_assistant.ws.im_connection import IMConnectionManager
 
 from .context import RunDeliveryContextStore
+from .task_tracker import RuntimeDeliveryTaskTracker
 
 _log = logging.getLogger("personal_assistant.gateway.runtime_delivery.observer")
 
@@ -138,6 +139,7 @@ def build_kernel_event_observer(
         Callable[[str, str, Mapping[str, str]], Any] | None
     ) = None,
     skill_created_handler: Callable[[str, Mapping[str, object]], Any] | None = None,
+    task_tracker: RuntimeDeliveryTaskTracker | None = None,
 ) -> Callable[[Mapping[str, Any]], "Coroutine[Any, Any, None] | None"]:
     """Build a kernel SSE event observer that forwards streaming events to IM via node.streaming_delta.
 
@@ -179,6 +181,10 @@ def build_kernel_event_observer(
     # reconcile), so this never grows unbounded on a long-lived Gateway.
     if running_tool_calls is None:
         running_tool_calls = {}
+    if task_tracker is None:
+        # Direct observer tests and library callers keep a local owner. Production
+        # always injects the composition-root singleton so GatewayRuntime can drain it.
+        task_tracker = RuntimeDeliveryTaskTracker()
     visible_reasoning_by_group: dict[str, dict[str, str]] = {}
 
     async def _send(
@@ -243,7 +249,7 @@ def build_kernel_event_observer(
         }
         result = external_reply_sender(cleaned_text, metadata)
         if asyncio.iscoroutine(result):
-            asyncio.get_event_loop().create_task(result)
+            task_tracker.start(result, name=f"external-reply:{rid}:{phase}")
 
     def _mirror_external_permission_request(
         *, rid: str, ctx: Mapping[str, str], request: Mapping[str, Any]
@@ -256,7 +262,7 @@ def build_kernel_event_observer(
         metadata["run_id"] = rid
         result = external_permission_request_sender(request, metadata)
         if asyncio.iscoroutine(result):
-            asyncio.get_event_loop().create_task(result)
+            task_tracker.start(result, name=f"external-permission-request:{rid}")
 
     def _mirror_external_permission_resolved(
         *, ctx: Mapping[str, str], request_id: str, decision: str
@@ -268,7 +274,10 @@ def build_kernel_event_observer(
             return
         result = external_permission_resolved_sender(request_id, decision, metadata)
         if asyncio.iscoroutine(result):
-            asyncio.get_event_loop().create_task(result)
+            task_tracker.start(
+                result,
+                name=f"external-permission-resolved:{request_id}",
+            )
 
     def _mirror_external_current_as_intermediate(
         *, rid: str, ctx: dict[str, str]
@@ -320,8 +329,9 @@ def build_kernel_event_observer(
         message_id = ctx.get("message_id") or ""
         agent_id = ctx.get("agent_id") or ""
         if event_name == "skill_created" and agent_id and skill_created_handler:
-            asyncio.get_event_loop().create_task(
-                asyncio.to_thread(skill_created_handler, agent_id, event)
+            task_tracker.start(
+                asyncio.to_thread(skill_created_handler, agent_id, event),
+                name=f"skill-created:{agent_id}",
             )
             return None
 
@@ -359,8 +369,6 @@ def build_kernel_event_observer(
                 return None
             elif event_name != "permission_resolved":
                 return None
-        loop = asyncio.get_event_loop()
-
         if event_name == "run_status" and event.get("status") == "running":
             if to_user_id:
                 # Heartbeat: skip eager turn_start; bubble is created lazily on first
@@ -640,7 +648,7 @@ def build_kernel_event_observer(
                 # (content="") 只发 thinking_segment，不发 delta、不动 kernel_message_id
                 # (保留下一含正文回合的 roll 判定基准)。
                 if visible_reasoning:
-                    loop.create_task(
+                    task_tracker.start(
                         _send(
                             manager,
                             "node.streaming_delta",
@@ -650,7 +658,8 @@ def build_kernel_event_observer(
                                 "text": visible_reasoning,
                                 "run_id": run_id,
                             },
-                        )
+                        ),
+                        name=f"thinking-segment:{run_id}",
                     )
                     _mark_visible_reasoning(
                         rid=run_id, group_id=group_id, reasoning=reasoning
@@ -660,7 +669,7 @@ def build_kernel_event_observer(
                     if kernel_msg_id:
                         ctx["kernel_message_id"] = kernel_msg_id
                     ctx["external_current_text"] = content
-                    loop.create_task(
+                    task_tracker.start(
                         _send(
                             manager,
                             "node.streaming_delta",
@@ -670,7 +679,8 @@ def build_kernel_event_observer(
                                 "delta_text": content,
                                 "run_id": run_id,
                             },
-                        )
+                        ),
+                        name=f"message-delta:{run_id}",
                     )
             elif content and conversation_id and agent_id:
                 # Kernel skipped run_status=running; send turn_start inline and await ack
@@ -804,7 +814,7 @@ def build_kernel_event_observer(
                     phase="final",
                     text=ctx.get("external_current_text") or "",
                 )
-                loop.create_task(
+                task_tracker.start(
                     _send(
                         manager,
                         "node.streaming_delta",
@@ -821,7 +831,8 @@ def build_kernel_event_observer(
                             "kernel_message_id": ctx.get("kernel_message_id"),
                             "run_id": run_id,
                         },
-                    )
+                    ),
+                    name=f"message-completed:{run_id}",
                 )
 
         elif event_name == "run_heartbeat":
@@ -832,7 +843,7 @@ def build_kernel_event_observer(
             # permission-specific marker needed (decision 4). Pure liveness: it does not
             # mutate message content or tool_calls and is not rendered by the frontend.
             if message_id:
-                loop.create_task(
+                task_tracker.start(
                     _send(
                         manager,
                         "node.streaming_delta",
@@ -842,7 +853,8 @@ def build_kernel_event_observer(
                             "run_id": run_id,
                             "source": str(event.get("source") or ""),
                         },
-                    )
+                    ),
+                    name=f"run-heartbeat:{run_id}",
                 )
 
         elif event_name == "tool_start":
@@ -890,7 +902,7 @@ def build_kernel_event_observer(
                     start_tool_call["detail"] = start_detail
                 if start_emoji is not None:
                     start_tool_call["emoji"] = start_emoji
-                loop.create_task(
+                task_tracker.start(
                     _send(
                         manager,
                         "node.streaming_delta",
@@ -900,7 +912,8 @@ def build_kernel_event_observer(
                             "tool_call": start_tool_call,
                             "run_id": run_id,
                         },
-                    )
+                    ),
+                    name=f"tool-start:{run_id}:{call_id}",
                 )
 
         elif event_name == "tool_end":
@@ -974,7 +987,7 @@ def build_kernel_event_observer(
             if approval is not None:
                 tool_call_payload["approval"] = approval
             if message_id:
-                loop.create_task(
+                task_tracker.start(
                     _send(
                         manager,
                         "node.streaming_delta",
@@ -984,7 +997,8 @@ def build_kernel_event_observer(
                             "tool_call": tool_call_payload,
                             "run_id": run_id,
                         },
-                    )
+                    ),
+                    name=f"tool-terminal:{run_id}:{call_id}",
                 )
 
         elif event_name == "permission_request":
@@ -1009,7 +1023,7 @@ def build_kernel_event_observer(
                 "status": "pending",
             }
             if message_id and im_connected and manager is not None:
-                loop.create_task(
+                task_tracker.start(
                     _send(
                         manager,
                         "node.streaming_delta",
@@ -1019,7 +1033,8 @@ def build_kernel_event_observer(
                             "permission_request": permission_request,
                             "run_id": run_id,
                         },
-                    )
+                    ),
+                    name=f"permission-request:{run_id}:{request_id}",
                 )
             _mirror_external_permission_request(
                 rid=run_id,
@@ -1033,7 +1048,7 @@ def build_kernel_event_observer(
             request_id = str(event.get("request_id") or "").strip()
             decision = str(event.get("decision") or "").strip()
             if message_id and im_connected and manager is not None:
-                loop.create_task(
+                task_tracker.start(
                     _send(
                         manager,
                         "node.streaming_delta",
@@ -1044,7 +1059,8 @@ def build_kernel_event_observer(
                             "decision": decision,
                             "run_id": run_id,
                         },
-                    )
+                    ),
+                    name=f"permission-resolved:{run_id}:{request_id}",
                 )
             _mirror_external_permission_resolved(
                 ctx=ctx,
@@ -1152,7 +1168,7 @@ def build_kernel_event_observer(
                         stuck_tool_call["emoji"] = stuck_emoji
                     if reconcile_output is not None:
                         stuck_tool_call["output"] = reconcile_output
-                    loop.create_task(
+                    task_tracker.start(
                         _send(
                             manager,
                             "node.streaming_delta",
@@ -1162,7 +1178,8 @@ def build_kernel_event_observer(
                                 "tool_call": stuck_tool_call,
                                 "run_id": run_id,
                             },
-                        )
+                        ),
+                        name=f"tool-reconcile:{run_id}:{stuck_call_id}",
                     )
 
             # bugfix-417-fix2 (#114, Issue 1): a user /stop cancels the run, but the
@@ -1173,7 +1190,7 @@ def build_kernel_event_observer(
             # must stay failed — Req B), finalize the bubble with delivery_status=
             # completed (a user stop is a clean termination, not a failure).
             if event.get("finalize_bubble") and message_id:
-                loop.create_task(
+                task_tracker.start(
                     _send(
                         manager,
                         "node.streaming_delta",
@@ -1185,7 +1202,8 @@ def build_kernel_event_observer(
                             "delivery_status": "completed",
                             "run_id": run_id,
                         },
-                    )
+                    ),
+                    name=f"bubble-finalize:{run_id}",
                 )
 
     return observer

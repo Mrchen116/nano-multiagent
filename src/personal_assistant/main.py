@@ -85,6 +85,9 @@ from personal_assistant.gateway.runtime_delivery.observer import (
     extract_ack_message_id as _extract_ack_message_id,  # noqa: F401
     roll_bubble as _roll_bubble,  # noqa: F401
 )
+from personal_assistant.gateway.runtime_delivery.task_tracker import (
+    RuntimeDeliveryTaskTracker,
+)
 from personal_assistant.gateway.internal_dispatch import InternalDispatchHandler
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
@@ -2362,6 +2365,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         channel_registry=channel_registry,
     )
 
+    runtime_delivery_tasks = RuntimeDeliveryTaskTracker()
     _kernel_event_observer = _build_kernel_event_observer(
         im_connection_manager_factory=lambda: im_connection_manager,
         run_context_store=run_delivery_contexts,
@@ -2371,6 +2375,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         skill_created_handler=getattr(
             im_config_sync_client, "handle_skill_created", None
         ),
+        task_tracker=runtime_delivery_tasks,
     )
     # feat-393: wire observer into heartbeat_runner now that it's built. When IM is
     # absent, the observer still mirrors external-channel permission/control events.
