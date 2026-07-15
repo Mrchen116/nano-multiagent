@@ -74,13 +74,13 @@
 
 ### R1 — Gateway 密文 manifest、可靠 outbox 与完整调和
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 新增原子 `ChannelManifestStore`（node/key header、applied head、per-token result/status outbox），扩展 `ChannelManager` 支持 cached startup、stale/retry、explicit removals、stop/cache failure 与同 revision 重试。
 - 验证: 最窄 manager/store unit tests；M2-E2/E3/E5/E7 的 Gateway 侧。
 
 ### R2 — IM removal receipt、生命周期 API 与可靠 result ACK
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 实现 DELETE/reconnect/removal retry、pending/failed/applied view、zero-item removals、per-token ACK 与 retention/applied-head terminal，接入 WS correlated result。
 - 验证: IM store/HTTP/WS integration；delete-no-cascade、offline create→delete、reload、同 revision retry 与 ACK replay。
 
