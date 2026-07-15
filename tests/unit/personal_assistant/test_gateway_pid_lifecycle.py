@@ -53,11 +53,14 @@ def test_launch_gateway_in_background_writes_runtime_state_file(
         "personal_assistant.main._process_start_identity", lambda _pid: "birth-2468"
     )
 
+    def _publish_state(_child, _config, _timeout) -> None:
+        _write_state(config.source_path, pid=2468, process_start="birth-2468")
+
     launch_gateway_in_background(
         config_path=config.source_path,
         load_config=lambda _path: config,
         spawn_process=lambda _argv, _log_path: process,
-        wait_for_start=lambda _child, _config, _timeout: None,
+        wait_for_start=_publish_state,
     )
 
     state_path = tmp_path / ".gateway-state.json"
@@ -69,13 +72,12 @@ def test_launch_gateway_in_background_writes_runtime_state_file(
     }
 
 
-def test_run_gateway_writes_pid_file_before_start_and_removes_on_exit(
+def test_run_gateway_publishes_single_state_before_start_and_removes_on_exit(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """run_gateway must write gateway.pid before the runtime starts and remove it on clean exit."""
+    """run_gateway publishes one complete state before runtime start."""
     from personal_assistant.main import (
-        _gateway_pid_path,
         _gateway_state_path,
         _read_gateway_state,
         run_gateway,
@@ -83,15 +85,14 @@ def test_run_gateway_writes_pid_file_before_start_and_removes_on_exit(
 
     _reset_for_tests()  # run_gateway calls init_model_registry; must start from clean state
     config = build_config(tmp_path)
-    pid_path = _gateway_pid_path(config)
     state_path = _gateway_state_path(config)
-    evidence_observed_during_run: list[tuple[bool, str | None]] = []
+    evidence_observed_during_run: list[str | None] = []
 
     class _Runtime:
         def run_forever(self) -> int:
             state = _read_gateway_state(state_path)
             evidence_observed_during_run.append(
-                (pid_path.exists(), state.process_start if state is not None else None)
+                state.process_start if state is not None else None
             )
             return 0
 
@@ -103,22 +104,21 @@ def test_run_gateway_writes_pid_file_before_start_and_removes_on_exit(
         ),
     )
 
-    assert evidence_observed_during_run[0][0] is True
-    assert evidence_observed_during_run[0][1]
-    assert not pid_path.exists()
+    assert evidence_observed_during_run[0]
+    assert not (tmp_path / "gateway.pid").exists()
     assert not state_path.exists()
 
 
-def test_run_gateway_removes_pid_file_even_when_runtime_raises(
+def test_run_gateway_removes_state_even_when_runtime_raises(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """run_gateway must remove gateway.pid even when the runtime raises an exception."""
-    from personal_assistant.main import run_gateway, _gateway_pid_path
+    """run_gateway removes canonical state even when the runtime raises."""
+    from personal_assistant.main import run_gateway
 
     _reset_for_tests()  # run_gateway calls init_model_registry; must start from clean state
     config = build_config(tmp_path)
-    pid_path = _gateway_pid_path(config)
+    state_path = tmp_path / ".gateway-state.json"
 
     class _BrokenRuntime:
         def run_forever(self) -> int:
@@ -133,7 +133,8 @@ def test_run_gateway_removes_pid_file_even_when_runtime_raises(
             ),
         )
 
-    assert not pid_path.exists(), "gateway.pid must be cleaned up even on error"
+    assert not state_path.exists()
+    assert not (tmp_path / "gateway.pid").exists()
 
 
 def test_launch_background_refuses_to_start_when_pid_file_shows_live_process(
@@ -141,14 +142,21 @@ def test_launch_background_refuses_to_start_when_pid_file_shows_live_process(
     tmp_path: Path,
 ) -> None:
     """launch_gateway_in_background must raise GatewayStartupError with PID when already running."""
-    from personal_assistant.main import launch_gateway_in_background, _gateway_pid_path
+    from personal_assistant.main import (
+        _legacy_gateway_pid_path,
+        launch_gateway_in_background,
+    )
 
     config = build_config(tmp_path)
-    pid_path = _gateway_pid_path(config)
+    pid_path = _legacy_gateway_pid_path(config)
     pid_path.write_text("12345", encoding="utf-8")
 
     monkeypatch.setattr(
         "personal_assistant.main._process_start_identity", lambda _pid: "live-birth"
+    )
+    monkeypatch.setattr(
+        "personal_assistant.main._process_command",
+        lambda _pid: _gateway_command(config.source_path),
     )
 
     with pytest.raises(GatewayStartupError) as exc_info:
@@ -166,10 +174,13 @@ def test_launch_background_clears_stale_pid_file_when_process_dead(
     tmp_path: Path,
 ) -> None:
     """launch_gateway_in_background must remove a stale gateway.pid if process is no longer running."""
-    from personal_assistant.main import launch_gateway_in_background, _gateway_pid_path
+    from personal_assistant.main import (
+        _legacy_gateway_pid_path,
+        launch_gateway_in_background,
+    )
 
     config = build_config(tmp_path)
-    pid_path = _gateway_pid_path(config)
+    pid_path = _legacy_gateway_pid_path(config)
     pid_path.write_text("99999", encoding="utf-8")
 
     spawned: list[list[str]] = []
@@ -177,6 +188,9 @@ def test_launch_background_clears_stale_pid_file_when_process_dead(
     def _spawn(argv: list[str], log_path: Path) -> _FakeProcess:
         spawned.append(argv)
         return _FakeProcess(wait_result=0, pid=1111)
+
+    def _publish_state(_child, _config, _timeout) -> None:
+        _write_state(config.source_path, pid=1111, process_start="new-birth")
 
     monkeypatch.setattr(
         "personal_assistant.main._process_start_identity",
@@ -187,7 +201,7 @@ def test_launch_background_clears_stale_pid_file_when_process_dead(
         config_path=config.source_path,
         load_config=lambda _path: config,
         spawn_process=_spawn,
-        wait_for_start=lambda _child, _config, _timeout: None,
+        wait_for_start=_publish_state,
     )
 
     assert spawned, "gateway must have been spawned after stale PID cleanup"
@@ -203,10 +217,10 @@ def test_stop_gateway_removes_pid_file_on_successful_stop(
     tmp_path: Path,
 ) -> None:
     """stop_gateway must delete gateway.pid after successfully stopping the process."""
-    from personal_assistant.main import stop_gateway, _gateway_pid_path
+    from personal_assistant.main import _legacy_gateway_pid_path, stop_gateway
 
     config = build_config(tmp_path)
-    pid_path = _gateway_pid_path(config)
+    pid_path = _legacy_gateway_pid_path(config)
     pid_path.write_text("2468", encoding="utf-8")
     state_path = _write_state(
         config.source_path, pid=2468, process_start=stored_process_start
@@ -244,10 +258,10 @@ def test_stop_gateway_stops_foreground_pid_without_runtime_state(
     tmp_path: Path,
 ) -> None:
     """stop_gateway must stop a live PID-file-only gateway started in foreground mode."""
-    from personal_assistant.main import stop_gateway, _gateway_pid_path
+    from personal_assistant.main import _legacy_gateway_pid_path, stop_gateway
 
     config = build_config(tmp_path)
-    pid_path = _gateway_pid_path(config)
+    pid_path = _legacy_gateway_pid_path(config)
     pid_path.write_text("2468", encoding="utf-8")
     running = True
     kills: list[tuple[int, int]] = []
@@ -303,9 +317,7 @@ def test_stop_gateway_rejects_legacy_pid_owned_by_another_command(
     )
 
     with pytest.raises(RuntimeError, match="ownership mismatch; evidence retained"):
-        stop_gateway(
-            config_path=config.source_path, load_config=lambda _path: config
-        )
+        stop_gateway(config_path=config.source_path, load_config=lambda _path: config)
 
     assert pid_path.exists()
     assert json.loads(state_path.read_text(encoding="utf-8"))["process_start"] is None

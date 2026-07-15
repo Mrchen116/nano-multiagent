@@ -247,9 +247,9 @@ stop_pidfile .im.pid
 ```
 
 **B. wrapper 启动器**(Gateway, `python -m personal_assistant.main`):
-它**不是** ASGI app —— 后台启动器会 spawn 一个前台 Gateway 子进程；该进程内持有 channel relay、agent runtime、heartbeat 与 cron，**自带内部 PID 单例锁**(写在 `<config 同目录>/gateway.pid`,**不带点**)+ `stop` / `restart` 子命令。
+它**不是** ASGI app —— 后台启动器会 spawn 一个前台 Gateway 子进程；该进程内持有 channel relay、agent runtime、heartbeat 与 cron。`start` / `stop` / `restart` 通过 config scoped lock 与 `<config 同目录>/.gateway-state.json` 管理生命周期。
 
-> **不要套用 A 类范式杀它**(`kill $(cat .gateway.pid)` 杀的是 shell job pid,启动器内部 pid 文件还在,下次 restart 撞单例锁报 `gateway is already running pid=...`,循环若干次才能逃出来,bugfix-380 fix-worker-r3 撞 4-5 次)。
+> **不要套用 A 类范式管理后台启动器**。worktree 的 `.gateway.pid`（带点）只是 e2e shell wrapper 的外部 PID 文件；正式启动器的权威证据是 `.gateway-state.json`。
 
 worktree 内用 `--foreground` 模式 + 外部 pid 文件,让外部脚本主导生死:
 

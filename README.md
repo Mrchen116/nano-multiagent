@@ -104,7 +104,7 @@ PYTHONPATH=src python -m personal_assistant.main restart --im-service-url http:/
 ```
 
 **单实例保护**：同一 config 同一时刻只允许运行一个 Gateway 实例。`start` / `stop` / `restart`
-由 config 同目录的一把 lifecycle lock 串行化；PID 和 birth identity 记录在 `gateway.pid` 与
+由 config 同目录的一把 lifecycle lock 串行化；PID 和 birth identity 原子记录在唯一的
 `.gateway-state.json` 中。若已有实例在运行，`start` 会拒绝启动并提示当前 PID：
 
 ```text

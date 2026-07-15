@@ -57,11 +57,9 @@ RUNTIME_GATEWAY_STATE = RUNTIME_ROOT / ".gateway-state.json"
 RUNTIME_UPLOADS = RUNTIME_ROOT / "uploads"
 RUNTIME_WORKSPACE = RUNTIME_ROOT / "workspace"
 IM_PORT = 18031
-KERNEL_PORT = 18070
 IM_BASE_URL = f"http://127.0.0.1:{IM_PORT}"
 IM_HEALTH_URL = f"{IM_BASE_URL}/chat"
 IM_NODES_URL = f"{IM_BASE_URL}/im/v1/nodes"
-GATEWAY_HEALTH_URL = f"http://127.0.0.1:{KERNEL_PORT}/v1/health"
 DEFAULT_READY_TIMEOUT_SECONDS = 20.0
 DEFAULT_STOP_TIMEOUT_SECONDS = 10.0
 
@@ -74,9 +72,9 @@ class RuntimeStatus:
     im_log: str
     gateway_log: str
     im_url: str
-    gateway_health_url: str
     im_http_ok: bool
-    gateway_http_ok: bool
+    gateway_pid: int | None
+    gateway_running: bool
     node_online: bool
     node_status: str | None
 
@@ -128,24 +126,6 @@ def _wait_for_url(url: str, *, timeout_seconds: float) -> bool:
     return False
 
 
-def _wait_for_gateway_health(url: str, *, timeout_seconds: float) -> bool:
-    deadline = time.monotonic() + timeout_seconds
-    while time.monotonic() <= deadline:
-        try:
-            response = httpx.get(url, timeout=1.0, trust_env=False)
-            payload = response.json()
-            if (
-                response.status_code == 200
-                and isinstance(payload, dict)
-                and bool(payload.get("healthy"))
-            ):
-                return True
-        except Exception:
-            pass
-        time.sleep(0.25)
-    return False
-
-
 def _read_yaml(path: Path) -> dict[str, Any]:
     if not path.is_file():
         return {}
@@ -181,10 +161,15 @@ def _write_runtime_config() -> None:
             for agent in CANONICAL_RUNTIME_AGENTS
         ],
         "channels": [{"name": "web_relay", "enabled": True}],
-        "kernel": {
-            "command": (
-                f"python -m uvicorn personal_assistant.kernel_app:app --host 127.0.0.1 --port {KERNEL_PORT}"
-            )
+        "llm": {
+            "default_model": "kimiCoding:K2.6",
+            "providers": [
+                {
+                    "name": "anthropic",
+                    "base_url": "http://127.0.0.1:4000",
+                    "models": [{"name": "kimiCoding:K2.6"}],
+                }
+            ],
         },
         "im_service": {"url": IM_BASE_URL},
     }
@@ -234,29 +219,6 @@ def _list_gateway_pids_for_config(config_path: Path) -> set[int]:
         pid_text, _, _command = line.partition(" ")
         try:
             pids.add(int(pid_text))
-        except ValueError:
-            continue
-    return pids
-
-
-def _list_listener_pids(port: int) -> set[int]:
-    try:
-        completed = subprocess.run(
-            ["lsof", "-ti", f"tcp:{port}"],
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=5,
-        )
-    except Exception:
-        return set()
-    pids: set[int] = set()
-    for raw_line in completed.stdout.splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-        try:
-            pids.add(int(line))
         except ValueError:
             continue
     return pids
@@ -319,9 +281,7 @@ def stop_runtime(
             pass
         finally:
             im_pid_path.unlink(missing_ok=True)
-    stale_pids = _list_gateway_pids_for_config(RUNTIME_CONFIG) | _list_listener_pids(
-        KERNEL_PORT
-    )
+    stale_pids = _list_gateway_pids_for_config(RUNTIME_CONFIG)
     stale_pids.discard(os.getpid())
     if state_pid is not None:
         stale_pids.discard(state_pid)
@@ -444,10 +404,6 @@ def start_runtime(
     if not _wait_for_url(IM_HEALTH_URL, timeout_seconds=timeout_seconds):
         raise RuntimeError(f"IM did not become ready on {IM_HEALTH_URL}; pid={im_pid}")
     gateway_started = _start_gateway()
-    if not _wait_for_gateway_health(
-        GATEWAY_HEALTH_URL, timeout_seconds=timeout_seconds
-    ):
-        raise RuntimeError(f"Gateway did not become healthy on {GATEWAY_HEALTH_URL}")
     status = _wait_for_node_online(timeout_seconds=timeout_seconds)
     result = {
         "im_pid": str(im_pid),
@@ -455,16 +411,17 @@ def start_runtime(
         "node_online": str(status.node_online).lower(),
         "node_status": status.node_status or "",
     }
-    if not status.node_online:
+    if not status.gateway_running or not status.node_online:
         raise RuntimeError(
-            f"Gateway became healthy but node m170-node is not online: {json.dumps(result, ensure_ascii=False)}"
+            f"Gateway did not stay running or node m170-node is not online: {json.dumps(result, ensure_ascii=False)}"
         )
     return result
 
 
 def runtime_status() -> RuntimeStatus:
     im_http_ok = False
-    gateway_http_ok = False
+    gateway_pid = None
+    gateway_running = False
     node_online = False
     node_status = None
     try:
@@ -472,16 +429,16 @@ def runtime_status() -> RuntimeStatus:
         im_http_ok = response.status_code == 200
     except Exception:
         im_http_ok = False
-    try:
-        response = httpx.get(GATEWAY_HEALTH_URL, timeout=1.0, trust_env=False)
-        payload = response.json()
-        gateway_http_ok = (
-            response.status_code == 200
-            and isinstance(payload, dict)
-            and bool(payload.get("healthy"))
-        )
-    except Exception:
-        gateway_http_ok = False
+    if RUNTIME_GATEWAY_STATE.is_file():
+        try:
+            payload = json.loads(RUNTIME_GATEWAY_STATE.read_text(encoding="utf-8"))
+            gateway_pid = int(payload["pid"])
+            os.kill(gateway_pid, 0)
+            gateway_running = True
+        except (KeyError, TypeError, ValueError, ProcessLookupError, PermissionError):
+            gateway_running = False
+        except Exception:
+            gateway_running = False
     try:
         response = httpx.get(IM_NODES_URL, timeout=1.0, trust_env=False)
         if response.status_code == 200:
@@ -505,9 +462,9 @@ def runtime_status() -> RuntimeStatus:
         im_log=str(RUNTIME_IM_LOG),
         gateway_log=str(RUNTIME_GATEWAY_LOG),
         im_url=IM_HEALTH_URL,
-        gateway_health_url=GATEWAY_HEALTH_URL,
         im_http_ok=im_http_ok,
-        gateway_http_ok=gateway_http_ok,
+        gateway_pid=gateway_pid,
+        gateway_running=gateway_running,
         node_online=node_online,
         node_status=node_status,
     )

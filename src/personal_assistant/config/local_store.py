@@ -523,8 +523,16 @@ def _backup_legacy_kernel_config(
         return
 
     backup_path = Path(f"{dest}.pre-refactor-461.bak")
-    if backup_path.exists():
-        if not backup_path.is_file() or backup_path.read_bytes() != original:
+    try:
+        backup_stat = backup_path.lstat()
+    except FileNotFoundError:
+        backup_stat = None
+    if backup_stat is not None:
+        if (
+            not stat.S_ISREG(backup_stat.st_mode)
+            or backup_path.is_symlink()
+            or backup_path.read_bytes() != original
+        ):
             raise FileExistsError(
                 f"migration backup conflicts with current config: {backup_path}"
             )
@@ -532,8 +540,10 @@ def _backup_legacy_kernel_config(
         return
 
     fd: int | None = None
+    created = False
     try:
         fd = os.open(backup_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, source_mode)
+        created = True
         os.fchmod(fd, source_mode)
         with os.fdopen(fd, "wb") as stream:
             fd = None
@@ -543,7 +553,8 @@ def _backup_legacy_kernel_config(
     except BaseException:
         if fd is not None:
             os.close(fd)
-        backup_path.unlink(missing_ok=True)
+        if created:
+            backup_path.unlink(missing_ok=True)
         raise
 
 

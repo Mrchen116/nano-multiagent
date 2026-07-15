@@ -111,13 +111,13 @@ Gateway stop 反馈语义：
 - `STOPPED pid=... state=...`：已找到当前后台 Gateway，并完成关闭；若优雅等待超时会额外带 `forced=true`。
 - `NOT RUNNING config=... state=...`：当前配置目录没有运行态文件，说明这一路径下没有可关闭的后台 Gateway。
 - `STALE pid=... state=...`：运行态文件存在，但 pid 已失效；CLI 会自动清理陈旧状态，然后你可以直接重新 start。
-- 旧 `.gateway-state.json` 若没有 process birth，`stop` 只在 live command 精确匹配
-  `personal_assistant.main --config <同一绝对路径> ... --foreground` 后采纳当前 birth；不匹配时拒绝
+- 旧 `.gateway-state.json` 若没有 process birth，`stop` 只在 live command 的入口、参数和规范化后的
+  config 路径匹配 `personal_assistant.main ... --foreground` 后采纳当前 birth；不匹配时拒绝
   发信号并保留证据。执行一次成功的 `restart` 会写成新格式。
 
 同一 config 的 `start` / `stop` / `restart` 由 config 同目录的一把 lifecycle lock 串行化；
-`restart` 在同一次加锁期间完成 stop + start。新运行态只使用 `gateway.pid` 和
-`.gateway-state.json`（含 `process_start`），不存在独立 Kernel PID 或 health endpoint。
+`restart` 在同一次加锁期间完成 stop + start。新运行态只使用 `.gateway-state.json`
+（含 PID 与 `process_start`），不存在第二份 PID 真相、独立 Kernel PID 或 health endpoint。
 
 Gateway ready 信号：
 - 默认路径下，终端会先返回 `Gateway started (pid=...)`；这是进程启动确认，不是 runtime/channel

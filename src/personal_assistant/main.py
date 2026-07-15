@@ -9,7 +9,7 @@ import fcntl
 import json
 import logging
 import os
-import re
+import shlex
 import signal
 import subprocess
 import sys
@@ -2338,13 +2338,7 @@ def run_gateway(
     )
     _write_gateway_state(config, state)
     try:
-        # PID publication is the launcher's start marker, so the state carrying
-        # its birth identity must already be complete on disk.
-        _write_gateway_pid(config, expected_pid=pid)
-        try:
-            return runtime.run_forever()
-        finally:
-            _remove_gateway_pid(config, expected_pid=pid)
+        return runtime.run_forever()
     finally:
         restore()
         _remove_gateway_state(_gateway_state_path(config), expected=state)
@@ -2397,36 +2391,32 @@ def _launch_gateway_in_background_unlocked(
         load_config=load_config,
         im_service_url_override=im_service_url_override,
     )
-    existing_pid = _read_gateway_pid(config)
     state_path = _gateway_state_path(config)
     existing_state = _read_gateway_state(state_path)
-    if existing_pid is not None:
-        current_start = _process_start_identity(existing_pid)
-        if existing_state is not None:
-            _assert_gateway_state_static(config, existing_pid, existing_state)
-        if current_start is not None and (
-            existing_state is None
-            or existing_state.process_start is None
-            or current_start == existing_state.process_start
-        ):
+    if existing_state is not None:
+        _assert_gateway_state_static(config, existing_state)
+        signal_state = (
+            _upgrade_legacy_gateway_state(config, existing_state.pid, existing_state)
+            if existing_state.process_start is None
+            else existing_state
+        )
+        if signal_state is not None and _gateway_process_matches(signal_state):
             raise GatewayStartupError(
-                summary=f"gateway is already running (pid={existing_pid})",
+                summary=f"gateway is already running (pid={existing_state.pid})",
                 next_step="Run 'stop' to shut it down first, or 'restart' to replace it.",
             )
-        _remove_gateway_pid(config, expected_pid=existing_pid)
         _remove_gateway_state(state_path, expected=existing_state)
-    elif existing_state is not None:
-        if existing_state.process_start is not None and _gateway_process_matches(
-            existing_state
-        ):
-            raise GatewayStartupError(
-                summary=(
-                    f"gateway process identity is live for pid={existing_state.pid} "
-                    "but gateway.pid is missing"
-                ),
-                next_step="Inspect the config runtime directory before retrying start.",
-            )
-        _remove_gateway_state(state_path, expected=existing_state)
+    else:
+        legacy_pid = _read_legacy_gateway_pid(config)
+        if legacy_pid is not None:
+            legacy_state = _upgrade_legacy_gateway_state(config, legacy_pid, None)
+            if legacy_state is not None and _gateway_process_matches(legacy_state):
+                raise GatewayStartupError(
+                    summary=f"gateway is already running (pid={legacy_pid})",
+                    next_step="Run 'stop' to shut it down first, or 'restart' to replace it.",
+                )
+            _remove_legacy_gateway_pid(config, expected_pid=legacy_pid)
+
     log_path = _default_gateway_log_path(config)
     log_offset = log_path.stat().st_size if log_path.exists() else 0
     argv = _background_gateway_argv(
@@ -2454,23 +2444,14 @@ def _launch_gateway_in_background_unlocked(
     )
     published_state = _read_gateway_state(state_path)
     if published_state is None:
-        process_start = _process_start_identity(process.pid)
-        if process_start is None:
-            _stop_background_process(
-                process, timeout_seconds=config.gateway.shutdown_grace_seconds
-            )
-            raise GatewayStartupError(
-                summary=f"cannot read process birth identity for gateway pid={process.pid}",
-                next_step=f"Check the log for details: tail -20 {log_path}",
-            )
-        published_state = GatewayRuntimeState(
-            pid=process.pid,
-            process_start=process_start,
-            config_path=str(config.source_path.resolve()),
-            log_path=str(log_path),
+        _stop_background_process(
+            process, timeout_seconds=config.gateway.shutdown_grace_seconds
         )
-        _write_gateway_state(config, published_state)
-    _assert_gateway_state_static(config, process.pid, published_state)
+        raise GatewayStartupError(
+            summary="gateway child did not publish lifecycle state",
+            next_step=f"Check the log for details: tail -20 {log_path}",
+        )
+    _assert_gateway_state_static(config, published_state, expected_pid=process.pid)
     return result
 
 
@@ -2540,21 +2521,21 @@ def _stop_gateway_unlocked(
     state_path = _gateway_state_path(config)
     state = _read_gateway_state(state_path)
     if state is None:
-        pid = _read_gateway_pid(config)
+        pid = _read_legacy_gateway_pid(config)
         if pid is None:
             return f"NOT RUNNING config={config.source_path.name} state={state_path}"
-        success_target = f"pid_file={_gateway_pid_path(config)}"
+        success_target = f"pid_file={_legacy_gateway_pid_path(config)}"
         state_to_remove = None
     else:
-        pid = _read_gateway_pid(config)
-        _assert_gateway_state_static(config, pid, state)
+        pid = state.pid
+        _assert_gateway_state_static(config, state)
         success_target = f"state={state_path}"
         state_to_remove = state_path
 
     if state is None or state.process_start is None:
         signal_state = _upgrade_legacy_gateway_state(config, pid, state)
         if signal_state is None:
-            _remove_gateway_pid(config, expected_pid=pid)
+            _remove_legacy_gateway_pid(config, expected_pid=pid)
             if state_to_remove is not None:
                 _remove_gateway_state(state_to_remove, expected=state)
             return f"STALE pid={pid} {success_target}"
@@ -2581,9 +2562,7 @@ def _stop_gateway_unlocked(
     return f"STOPPED pid={pid} {success_target} forced=true"
 
 
-def _wait_for_gateway_exit(
-    config: LocalConfig, state: GatewayRuntimeState
-) -> bool:
+def _wait_for_gateway_exit(config: LocalConfig, state: GatewayRuntimeState) -> bool:
     """Wait one shutdown grace interval for the original process instance to exit."""
     deadline = time.monotonic() + config.gateway.shutdown_grace_seconds
     while _gateway_process_matches(state):
@@ -2601,10 +2580,8 @@ def _clear_gateway_lifecycle(
 ) -> None:
     """Clear only lifecycle evidence that still names the completed instance."""
     if state_path is not None:
-        state = _read_gateway_state(state_path)
-        if state is not None and state.pid == completed.pid:
-            _remove_gateway_state(state_path, expected=state)
-    _remove_gateway_pid(config, expected_pid=completed.pid)
+        _remove_gateway_state(state_path, expected=completed)
+    _remove_legacy_gateway_pid(config, expected_pid=completed.pid)
 
 
 class _KernelClientShim:
@@ -4065,8 +4042,8 @@ def _extract_bind_token(bind_url: str) -> str | None:
     return tokens[0] if tokens else None
 
 
-def _gateway_pid_path(config: LocalConfig) -> Path:
-    """Return the PID file path used for single-instance protection.
+def _legacy_gateway_pid_path(config: LocalConfig) -> Path:
+    """Return the pre-refactor PID file path used only during live migration.
 
     Returns:
         Path to ``gateway.pid`` inside the config's runtime directory.
@@ -4089,37 +4066,27 @@ def _gateway_lifecycle_lock(config_path: str | Path) -> Iterator[None]:
         os.close(fd)
 
 
-def _write_gateway_pid(config: LocalConfig, *, expected_pid: int | None = None) -> None:
-    """Write the owned process PID to ``gateway.pid``.
-
-    Side Effects:
-        Creates or overwrites ``gateway.pid`` in the runtime directory.
-    """
-    pid = os.getpid() if expected_pid is None else expected_pid
-    _gateway_pid_path(config).write_text(str(pid), encoding="utf-8")
-
-
-def _remove_gateway_pid(
+def _remove_legacy_gateway_pid(
     config: LocalConfig, *, expected_pid: int | None = None
 ) -> None:
-    """Remove ``gateway.pid`` only while it still names the expected process.
+    """Remove a legacy ``gateway.pid`` only while it names the expected process.
 
     Side Effects:
         Deletes the PID file; silently succeeds if the file is already gone.
     """
-    if expected_pid is not None and _read_gateway_pid(config) != expected_pid:
+    if expected_pid is not None and _read_legacy_gateway_pid(config) != expected_pid:
         return
     with suppress(FileNotFoundError):
-        _gateway_pid_path(config).unlink()
+        _legacy_gateway_pid_path(config).unlink()
 
 
-def _read_gateway_pid(config: LocalConfig) -> int | None:
-    """Read and return the PID stored in ``gateway.pid``, or ``None`` if absent/invalid.
+def _read_legacy_gateway_pid(config: LocalConfig) -> int | None:
+    """Read a pre-refactor ``gateway.pid``, or ``None`` if absent/invalid.
 
     Returns:
         Integer PID when the file exists and contains a parseable integer; ``None`` otherwise.
     """
-    pid_path = _gateway_pid_path(config)
+    pid_path = _legacy_gateway_pid_path(config)
     if not pid_path.exists():
         return None
     try:
@@ -4156,6 +4123,68 @@ def _process_command(pid: int) -> str | None:
     return command if result.returncode == 0 and command else None
 
 
+def _process_cwd(pid: int) -> Path | None:
+    """Return the live process working directory when the OS exposes it."""
+    proc_cwd = Path(f"/proc/{pid}/cwd")
+    try:
+        return proc_cwd.resolve(strict=True)
+    except (FileNotFoundError, OSError):
+        pass
+    try:
+        result = subprocess.run(
+            ["lsof", "-a", "-p", str(pid), "-d", "cwd", "-Fn"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env={**os.environ, "LC_ALL": "C", "LANG": "C", "TZ": "UTC"},
+        )
+    except FileNotFoundError:
+        return None
+    if result.returncode != 0:
+        return None
+    for line in result.stdout.splitlines():
+        if line.startswith("n") and len(line) > 1:
+            return Path(line[1:]).resolve()
+    return None
+
+
+def _legacy_gateway_command_matches(
+    command: str, *, pid: int, config: LocalConfig
+) -> bool:
+    """Validate one legacy Gateway command by argv semantics, not formatting."""
+    try:
+        argv = shlex.split(command)
+    except ValueError:
+        return False
+    if (
+        not any(
+            argv[index : index + 2] == ["-m", "personal_assistant.main"]
+            for index in range(max(0, len(argv) - 1))
+        )
+        or "--foreground" not in argv
+    ):
+        return False
+
+    raw_config: str | None = None
+    for index, value in enumerate(argv):
+        if value == "--config" and index + 1 < len(argv):
+            raw_config = argv[index + 1]
+            break
+        if value.startswith("--config="):
+            raw_config = value.split("=", 1)[1]
+            break
+    if raw_config is None:
+        candidate = default_local_config_path()
+    else:
+        candidate = Path(raw_config).expanduser()
+        if not candidate.is_absolute():
+            cwd = _process_cwd(pid)
+            if cwd is None:
+                return False
+            candidate = cwd / candidate
+    return candidate.resolve() == config.source_path.resolve()
+
+
 def _upgrade_legacy_gateway_state(
     config: LocalConfig,
     pid: int,
@@ -4172,12 +4201,9 @@ def _upgrade_legacy_gateway_state(
     if before != after:
         raise RuntimeError("legacy Gateway process changed; evidence retained")
     config_path = str(config.source_path.resolve())
-    pattern = re.compile(
-        r"^.+ -m personal_assistant\.main --config "
-        + re.escape(config_path)
-        + r"(?: --im-service-url \S+)? --foreground(?: --auto-bind)?$"
-    )
-    if command is None or pattern.fullmatch(command) is None:
+    if command is None or not _legacy_gateway_command_matches(
+        command, pid=pid, config=config
+    ):
         raise RuntimeError("legacy Gateway ownership mismatch; evidence retained")
     upgraded = (
         replace(state, process_start=after)
@@ -4198,14 +4224,16 @@ def _upgrade_legacy_gateway_state(
 
 
 def _assert_gateway_state_static(
-    config: LocalConfig, pid: int | None, state: GatewayRuntimeState
+    config: LocalConfig,
+    state: GatewayRuntimeState,
+    *,
+    expected_pid: int | None = None,
 ) -> None:
     """Reject state that does not claim the selected PID and resolved config."""
-    if (
-        state.pid != pid
-        or Path(state.config_path).resolve() != config.source_path.resolve()
-    ):
-        raise RuntimeError("gateway state does not match PID file and config")
+    if (expected_pid is not None and state.pid != expected_pid) or Path(
+        state.config_path
+    ).resolve() != config.source_path.resolve():
+        raise RuntimeError("gateway state does not match process and config")
 
 
 def _gateway_process_matches(state: GatewayRuntimeState) -> bool:
@@ -4367,12 +4395,11 @@ def _spawn_background_gateway_process(argv: list[str], log_path: Path) -> Proces
 def _wait_for_gateway_start(
     process: ProcessLike, config: LocalConfig, timeout_seconds: float
 ) -> None:
-    """Wait for the background Gateway child to write its PID and remain alive.
+    """Wait for the background Gateway child to publish complete lifecycle state.
 
     This is a process-start confirmation, not a runtime/channel readiness signal.
-    ``run_gateway`` writes the PID immediately before entering ``run_forever``.
+    ``run_gateway`` writes one atomic state document before entering ``run_forever``.
     """
-    pid_path = _gateway_pid_path(config)
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() <= deadline:
         return_code = process.poll()
@@ -4380,25 +4407,18 @@ def _wait_for_gateway_start(
             raise RuntimeError(
                 f"gateway exited before startup confirmation with return code {return_code}"
             )
-        if pid_path.exists():
-            child_pid = _read_gateway_pid(config)
-            if child_pid != process.pid:
+        state = _read_gateway_state(_gateway_state_path(config))
+        if state is not None and state.process_start is not None:
+            _assert_gateway_state_static(config, state, expected_pid=process.pid)
+            if not _gateway_process_matches(state):
                 raise RuntimeError(
-                    "gateway startup PID mismatch: "
-                    f"spawned={process.pid} published={child_pid}"
+                    "gateway exited before process identity confirmation"
                 )
-            state = _read_gateway_state(_gateway_state_path(config))
-            if state is not None and state.process_start is not None:
-                _assert_gateway_state_static(config, process.pid, state)
-                if not _gateway_process_matches(state):
-                    raise RuntimeError(
-                        "gateway exited before process identity confirmation"
-                    )
-                return
+            return
         time.sleep(config.gateway.poll_interval_seconds or 0.2)
     raise RuntimeError(
         "timed out waiting for gateway startup confirmation "
-        "(PID or process identity never appeared)"
+        "(lifecycle state never appeared)"
     )
 
 

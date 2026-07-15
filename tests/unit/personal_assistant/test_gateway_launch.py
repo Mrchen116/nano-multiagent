@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -61,6 +62,18 @@ def test_launch_gateway_in_background_spawns_foreground_child_and_waits_for_star
         child: _FakeProcess, loaded_config: LocalConfig, timeout_seconds: float
     ) -> None:
         seen["wait"] = (child, loaded_config, timeout_seconds)
+        state_path = config.source_path.parent / ".gateway-state.json"
+        state_path.write_text(
+            json.dumps(
+                {
+                    "pid": process.pid,
+                    "process_start": "birth-2468",
+                    "config_path": str(config.source_path.resolve()),
+                    "log_path": str(config.source_path.parent / "gateway.log"),
+                }
+            ),
+            encoding="utf-8",
+        )
 
     result = launch_gateway_in_background(
         config_path=config.source_path,
@@ -105,6 +118,18 @@ def test_launch_gateway_in_background_passes_im_service_override_to_child_and_ru
         child: _FakeProcess, loaded_config: LocalConfig, timeout_seconds: float
     ) -> None:
         seen["wait"] = (child, loaded_config, timeout_seconds)
+        state_path = config.source_path.parent / ".gateway-state.json"
+        state_path.write_text(
+            json.dumps(
+                {
+                    "pid": process.pid,
+                    "process_start": "birth-1357",
+                    "config_path": str(config.source_path.resolve()),
+                    "log_path": str(config.source_path.parent / "gateway.log"),
+                }
+            ),
+            encoding="utf-8",
+        )
 
     result = launch_gateway_in_background(
         config_path=config.source_path,
