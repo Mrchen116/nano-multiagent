@@ -34,9 +34,6 @@ from personal_assistant.gateway.group_context_store import GroupContextStore
 logger = logging.getLogger(__name__)
 
 _ACK_REACTION_EMOJI_TYPE = "THINKING"
-_GROUP_MESSAGE_SCOPE = "im:message.group_msg"
-
-
 class FeishuAdapter:
     """Feishu channel adapter implementing the ChannelAdapter Protocol.
 
@@ -121,7 +118,6 @@ class FeishuAdapter:
             self._handle_message,
             on_card_action=self._handle_card_action,
         )
-        self._warn_if_group_message_scope_missing()
         logger.info("feishu adapter %s started", self.name)
 
     def send(self, outbound: OutboundMessage) -> None:
@@ -511,45 +507,6 @@ class FeishuAdapter:
                 },
             )
             return None
-
-    def _warn_if_group_message_scope_missing(self) -> None:
-        """Warn when Feishu ordinary group messages are likely unavailable."""
-        if self._client is None:
-            return
-        try:
-            has_scope = self._client.has_scope(_GROUP_MESSAGE_SCOPE)
-        except (FeishuAuthError, FeishuAPIError, RuntimeError):
-            logger.warning(
-                "failed to verify feishu app scope %s; ordinary group messages "
-                "may not be delivered unless the app has this scope and the "
-                "matching event subscription is enabled",
-                _GROUP_MESSAGE_SCOPE,
-                exc_info=True,
-                extra={
-                    "error_code": "feishu_group_message_scope_check_failed",
-                    "agent_id": self._agent_id,
-                    "adapter": self.name,
-                },
-            )
-            return
-        if has_scope is False:
-            logger.warning(
-                "Feishu app for adapter %s does not appear to have scope %s; "
-                "ordinary group messages will not reach the agent/IM unless "
-                "the Feishu/Lark app enables this permission and subscribes to "
-                "group message events.",
-                self.name,
-                _GROUP_MESSAGE_SCOPE,
-            )
-        elif has_scope is None:
-            logger.warning(
-                "could not verify Feishu app scope %s for adapter %s; if ordinary "
-                "group messages are missing, check Feishu/Lark app permissions "
-                "and event subscriptions",
-                _GROUP_MESSAGE_SCOPE,
-                self.name,
-            )
-
 
 def _is_bot_mentioned(mentions: list[FeishuMention], bot_open_id: str | None) -> bool:
     """Check if the bot is explicitly mentioned in the message.

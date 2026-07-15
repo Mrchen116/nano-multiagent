@@ -3164,30 +3164,28 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                 )
 
         def _send_channel_status(snapshot: ChannelStatusSnapshot) -> None:
-            connection = im_connection_manager
-            if connection is None:
-                return
             generation = snapshot.generation
-            connection.send_json_threadsafe(
-                "channel.status",
-                {
-                    "request_id": uuid4().hex,
-                    "node_id": config.node.node_id,
-                    "channel_id": snapshot.channel_id,
-                    "provider_identity_fingerprint": generation.provider_identity_fingerprint,
-                    "provider_identity_revision": generation.provider_identity_revision,
-                    "channel_revision": generation.channel_revision,
-                    "credential_revision": generation.credential_revision,
-                    "runtime_incarnation": snapshot.runtime_incarnation,
-                    "status_sequence": snapshot.status_sequence,
-                    "instance_started": snapshot.instance_started,
-                    "connection_state": snapshot.connection_state,
-                    "diagnostics_state": snapshot.diagnostics_state,
-                    "status_code": snapshot.status_code,
-                    "status_message": snapshot.status_message,
-                    "checks": [],
-                },
-            )
+            payload = {
+                "request_id": uuid4().hex,
+                "node_id": config.node.node_id,
+                "channel_id": snapshot.channel_id,
+                "provider_identity_fingerprint": generation.provider_identity_fingerprint,
+                "provider_identity_revision": generation.provider_identity_revision,
+                "channel_revision": generation.channel_revision,
+                "credential_revision": generation.credential_revision,
+                "runtime_incarnation": snapshot.runtime_incarnation,
+                "status_sequence": snapshot.status_sequence,
+                "instance_started": snapshot.instance_started,
+                "connection_state": snapshot.connection_state,
+                "diagnostics_state": snapshot.diagnostics_state,
+                "status_code": snapshot.status_code,
+                "status_message": snapshot.status_message,
+                "checks": [dict(item) for item in snapshot.checks],
+            }
+            sendable = channel_manifest_store.record_channel_status(payload)
+            connection = im_connection_manager
+            if connection is not None and sendable is not None:
+                connection.send_json_threadsafe("channel.status", sendable)
 
         def _send_provider_metadata(report: ProviderMetadataReport) -> None:
             connection = im_connection_manager
@@ -3240,6 +3238,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                     ),
                     status_code=getattr(worker_status, "status_code", None),
                     status_message=getattr(worker_status, "status_message", None),
+                    checks=getattr(worker_status, "checks", ()),
                 )
 
             return FeishuAdapter(
@@ -3460,6 +3459,62 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                 else [],
             )
 
+        def _log_channel_status_retry(task: asyncio.Task[None]) -> None:
+            try:
+                task.result()
+            except asyncio.CancelledError:
+                return
+            except Exception:  # noqa: BLE001
+                _log.warning("channel status retry failed", exc_info=True)
+
+        async def _handle_channel_status_result(
+            payload: Mapping[str, object],
+        ) -> None:
+            request_id = str(payload.get("request_id") or "")
+            outcome = str(payload.get("outcome") or "")
+            ack = channel_manifest_store.apply_channel_status_result(
+                request_id=request_id,
+                outcome=outcome,
+            )
+            if ack is None:
+                return
+            await channel_manager.handle_status_result(
+                channel_id=ack.channel_id,
+                channel_revision=ack.channel_revision,
+                outcome=ack.outcome,
+            )
+            connection = im_connection_manager
+            if connection is None:
+                return
+            if ack.outcome == "fatal_owner_mismatch":
+                await connection.close()
+                return
+            if ack.next_payload is None:
+                return
+
+            async def _send_unblocked_status(*, delay: float = 0.0) -> None:
+                if delay:
+                    await asyncio.sleep(delay)
+                current = im_connection_manager
+                next_request_id = str(ack.next_payload.get("request_id") or "")
+                if delay and not any(
+                    status.get("request_id") == next_request_id
+                    for status in channel_manifest_store.pending_channel_statuses()
+                ):
+                    return
+                if current is None or current.has_pending_request(next_request_id):
+                    return
+                await current.send_json("channel.status", ack.next_payload)
+
+            if ack.outcome == "retryable_store_busy":
+                task = asyncio.create_task(
+                    _send_unblocked_status(delay=0.5),
+                    name=f"channel-status-retry:{ack.channel_id}",
+                )
+                task.add_done_callback(_log_channel_status_retry)
+            else:
+                await _send_unblocked_status()
+
         async def _reconnect_managed_channel(
             channel_id: str, channel_revision: int
         ) -> None:
@@ -3520,6 +3575,11 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                             "failed to send degraded IM heartbeat after binding failure: %s",
                             heartbeat_exc,
                         )
+            if im_connection_manager is not None:
+                for status in channel_manifest_store.pending_channel_statuses():
+                    request_id = str(status.get("request_id") or "")
+                    if not im_connection_manager.has_pending_request(request_id):
+                        await im_connection_manager.send_json("channel.status", status)
             pending_result = channel_manifest_store.pending_reconcile_result()
             if pending_result is not None and im_connection_manager is not None:
                 await im_connection_manager.send_json(
@@ -3577,6 +3637,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             channel_manifest_handler=_apply_channel_manifest,
             channel_reconnect_handler=_reconnect_managed_channel,
             channel_reconcile_ack_handler=_ack_channel_reconcile,
+            channel_status_result_handler=_handle_channel_status_result,
             channel_bootstrap_provider=_legacy_bootstrap_items,
             channel_bootstrap_applied_handler=_mark_legacy_bootstrap_cached,
         )
@@ -4333,6 +4394,10 @@ def _build_im_connection_manager(
     | None = None,
     channel_reconcile_ack_handler: Callable[[Mapping[str, object]], None]
     | None = None,
+    channel_status_result_handler: Callable[
+        [Mapping[str, object]], Awaitable[None] | None
+    ]
+    | None = None,
     channel_bootstrap_provider: Callable[
         [Mapping[str, object]], list[Mapping[str, object]]
     ]
@@ -4361,6 +4426,7 @@ def _build_im_connection_manager(
         channel_manifest_handler=channel_manifest_handler,
         channel_reconnect_handler=channel_reconnect_handler,
         channel_reconcile_ack_handler=channel_reconcile_ack_handler,
+        channel_status_result_handler=channel_status_result_handler,
         channel_bootstrap_provider=channel_bootstrap_provider,
         channel_bootstrap_applied_handler=channel_bootstrap_applied_handler,
     )

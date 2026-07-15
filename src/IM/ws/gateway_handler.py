@@ -14,8 +14,10 @@ _logger = logging.getLogger(__name__)
 from fastapi import WebSocket, WebSocketDisconnect
 
 from IM.api.ws.event_types import (
+    EVENT_AGENT_CHANNEL_STATUS_CHANGED,
     EVENT_AGENT_STATUS_CHANGED,
     EVENT_NODE_STATUS_CHANGED,
+    build_agent_channel_status_changed_payload,
     build_agent_status_changed_payload,
     build_node_status_changed_payload,
 )
@@ -970,6 +972,26 @@ class GatewayHandler:
                 ),
             )
 
+    async def _broadcast_channel_status_change(
+        self, *, owner_id: str, agent_id: str, channel_id: str
+    ) -> None:
+        """Invalidate only the authenticated owner's affected Agent channel list."""
+        if self._user_stream_registry is None or not owner_id.strip():
+            return
+        seq = await self._next_status_seq(owner_id=owner_id)
+        payload = build_agent_channel_status_changed_payload(
+            seq=seq,
+            agent_id=agent_id,
+            channel_id=channel_id,
+        )
+        await self._user_stream_registry.broadcast_to_user(
+            owner_id,
+            _encode_status_frame(
+                event_type=EVENT_AGENT_CHANNEL_STATUS_CHANGED,
+                payload=payload,
+            ),
+        )
+
     async def is_connected(self, *, node_id: str) -> bool:
         """Report whether one node currently has an active websocket."""
         async with self._lock:
@@ -1180,11 +1202,24 @@ class GatewayHandler:
         node_id = _require_text(payload.get("node_id"), field_name="node_id")
         if not await self._is_registered_sender(websocket=websocket, node_id=node_id):
             return _not_registered_error(node_id=node_id)
-        outcome = (
-            self._channel_control_store.record_status(payload)
+        result = (
+            self._channel_control_store.record_status_result(payload)
             if self._channel_control_store is not None
-            else "terminal_channel_removed"
+            else None
         )
+        outcome = result.outcome if result is not None else "terminal_channel_removed"
+        if (
+            outcome == "accepted"
+            and result is not None
+            and result.owner_id is not None
+            and result.agent_id is not None
+            and result.channel_id is not None
+        ):
+            await self._broadcast_channel_status_change(
+                owner_id=result.owner_id,
+                agent_id=result.agent_id,
+                channel_id=result.channel_id,
+            )
         return {
             "type": "channel.status.result",
             "payload": {"request_id": request_id, "outcome": outcome},

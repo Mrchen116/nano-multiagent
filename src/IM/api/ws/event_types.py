@@ -33,6 +33,7 @@ EVENT_TOOL_CALL_COMPLETED = "tool_call.completed"
 EVENT_THINKING_SEGMENT = "thinking.segment"
 EVENT_NODE_STATUS_CHANGED = "node.status_changed"
 EVENT_AGENT_STATUS_CHANGED = "agent.status_changed"
+EVENT_AGENT_CHANNEL_STATUS_CHANGED = "agent.channel.status_changed"
 # feat-333-M2: permission ask flow — sent when agent awaits user decision and when resolved.
 EVENT_PERMISSION_REQUEST = "permission.request"
 EVENT_PERMISSION_RESOLVED = "permission.resolved"
@@ -262,3 +263,10 @@ def build_agent_status_changed_payload(
     the same value. ``seq`` shares the owner-scoped counter with node events.
     """
     return {"seq": seq, "agent_id": agent_id, "status": status}
+
+
+def build_agent_channel_status_changed_payload(
+    *, seq: int, agent_id: str, channel_id: str
+) -> dict[str, Any]:
+    """Build the precise cache-invalidation event for one channel status update."""
+    return {"seq": seq, "agent_id": agent_id, "channel_id": channel_id}

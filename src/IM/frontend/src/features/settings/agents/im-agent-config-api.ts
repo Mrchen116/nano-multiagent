@@ -170,6 +170,17 @@ export interface AgentDetailState {
   owningNode: AgentDetailNodeView | null;
 }
 
+export interface ChannelDiagnosticCheck {
+  check_id: string;
+  state: "satisfied" | "missing" | "unknown";
+  required: {
+    accepted_scope_sets: string[][];
+    recommended_scopes: string[];
+  };
+  effect: string;
+  remediation: string;
+}
+
 export interface ChannelObservedState {
   observed_revision: number;
   connection_state: string;
@@ -178,6 +189,7 @@ export interface ChannelObservedState {
   status_message?: string | null;
   status_updated_at: string;
   status_stale?: boolean;
+  checks?: ChannelDiagnosticCheck[];
 }
 
 export interface AgentChannel {

@@ -47,6 +47,7 @@ class FeishuWorkerStatus:
     diagnostics_state: str = "unknown"
     status_code: str | None = None
     status_message: str | None = None
+    checks: tuple[dict[str, object], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

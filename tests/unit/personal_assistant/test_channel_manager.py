@@ -204,6 +204,50 @@ def test_replacement_start_failure_cuts_old_send_path_and_surfaces_failure() -> 
     assert statuses[-1].status_code == "runtime_start_failed"
 
 
+def test_active_status_forwards_structured_diagnostic_checks() -> None:
+    """Provider diagnostics remain attached to the monotonic runtime status."""
+    statuses = []
+    status_handlers = []
+
+    def factory(spec, _binder, status_handler):
+        status_handlers.append(status_handler)
+        return _Adapter(f"feishu:{spec.agent_id}", [])
+
+    manager = ChannelManager(
+        registry=ChannelRegistry(),
+        on_inbound=lambda _message: None,
+        provider_factories={"feishu": factory},
+        status_sink=statuses.append,
+    )
+    asyncio.run(
+        manager.reconcile(
+            ChannelManifest(manifest_revision=1, channels=(_spec(),))
+        )
+    )
+
+    assert status_handlers[0](
+        status_sequence=2,
+        connection_state="connected",
+        diagnostics_state="limited",
+        checks=(
+            {
+                "check_id": "feishu.receive_group_message",
+                "state": "missing",
+                "required": {
+                    "accepted_scope_sets": [["im:message.group_msg"]],
+                    "recommended_scopes": ["im:message.group_msg"],
+                },
+                "effect": "Group background context is incomplete.",
+                "remediation": "Grant the recommended scope and publish the app.",
+            },
+        ),
+    ) is True
+    assert statuses[-1].diagnostics_state == "limited"
+    assert statuses[-1].checks[0]["check_id"] == (
+        "feishu.receive_group_message"
+    )
+
+
 def test_activation_policy_adds_feishu_doc_once_for_explicit_allowlist() -> None:
     """Legacy and managed Feishu activation share one idempotent skill policy."""
     skills = {"agent-a": ["planning"], "agent-open": []}

@@ -50,6 +50,23 @@ function makeConfig(overrides: Partial<AgentConfig> = {}): AgentConfig {
 }
 
 describe("applyAgentStatusEvent — agent.status_changed WS consumer", () => {
+  it("invalidates only the affected agent channel list on channel status events", async () => {
+    const client = new QueryClient();
+    const target = ["settings", "agents", "agent-a", "channels"] as const;
+    const other = ["settings", "agents", "agent-b", "channels"] as const;
+    client.setQueryData(target, [{ channel_id: "ch-a" }]);
+    client.setQueryData(other, [{ channel_id: "ch-b" }]);
+
+    applyAgentStatusEvent(client, {
+      eventType: "agent.channel.status_changed",
+      payload: { agent_id: "agent-a", channel_id: "ch-a", seq: 9 }
+    });
+    await Promise.resolve();
+
+    expect(client.getQueryState(target)?.isInvalidated).toBe(true);
+    expect(client.getQueryState(other)?.isInvalidated).toBe(false);
+  });
+
   it("patches the list cache so the matching AgentSummary.node_status flips offline → online", () => {
     const client = new QueryClient();
     const initial = [makeSummary({ agent_id: "agent-a", node_status: "offline" }), makeSummary({ agent_id: "agent-b", node_status: "offline" })];

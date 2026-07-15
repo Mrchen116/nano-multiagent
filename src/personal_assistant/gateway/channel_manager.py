@@ -77,6 +77,7 @@ class ChannelStatusSnapshot:
     status_code: str | None = None
     status_message: str | None = None
     instance_started: bool = False
+    checks: tuple[Mapping[str, object], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -399,6 +400,25 @@ class ChannelManager:
                 self._active[channel_id], connection_state="connecting"
             )
 
+    async def handle_status_result(
+        self, *, channel_id: str, channel_revision: int, outcome: str
+    ) -> None:
+        """Quarantine runtimes only for terminal outcomes that invalidate them."""
+        with self._lock:
+            if outcome == "fatal_owner_mismatch":
+                for active_channel_id in tuple(self._active):
+                    self._stop_active(active_channel_id, drain=True)
+                return
+            if outcome != "terminal_channel_removed":
+                return
+            active = self._active.get(channel_id)
+            if (
+                active is None
+                or active.spec.generation.channel_revision != channel_revision
+            ):
+                return
+            self._stop_active(channel_id, drain=True)
+
     async def close(self) -> None:
         """Stop all managed runtimes without touching static web relay adapters."""
         with self._lock:
@@ -454,6 +474,7 @@ class ChannelManager:
         diagnostics_state: str = "unknown",
         status_code: str | None = None,
         status_message: str | None = None,
+        checks: tuple[Mapping[str, object], ...] = (),
     ) -> bool:
         """Forward only monotonic status from the active generation/incarnation."""
         with self._lock:
@@ -476,6 +497,7 @@ class ChannelManager:
                     diagnostics_state=diagnostics_state,
                     status_code=status_code,
                     status_message=status_message,
+                    checks=checks,
                 )
             )
             return True
@@ -509,6 +531,7 @@ class ChannelManager:
                 status_message=payload.get("status_message")
                 if isinstance(payload.get("status_message"), str)
                 else None,
+                checks=_require_diagnostic_checks(payload.get("checks", ())),
             )
 
         try:
@@ -610,3 +633,15 @@ class ChannelManager:
             connection_state=connection_state,
             instance_started=instance_started,
         )
+
+
+def _require_diagnostic_checks(value: object) -> tuple[Mapping[str, object], ...]:
+    """Validate provider-authored checks before they enter the status protocol."""
+    if not isinstance(value, (tuple, list)):
+        raise TypeError("diagnostic checks must be a sequence")
+    checks: list[Mapping[str, object]] = []
+    for item in value:
+        if not isinstance(item, Mapping):
+            raise TypeError("diagnostic check must be an object")
+        checks.append(dict(item))
+    return tuple(checks)
