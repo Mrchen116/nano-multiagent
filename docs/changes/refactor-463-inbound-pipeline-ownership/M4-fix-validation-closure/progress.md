@@ -55,3 +55,19 @@
 - Rollback: 回退 C2 `9b70bd65d` 恢复 R2 末态；C1 可随同回退。R3 未改变 IM API、session key、binding schema 或外部 channel 协议；metadata 的 URL 值从固定配置地址收敛为实际 listener 地址。
 - Commits: C1=`bad87f2f1`；C2=`9b70bd65d`；C3=本次 docs commit。
 - Next: R4 收深 cron/config owner，完成无变化 persist 修复、全量门禁和四条真栈总签收；同时复核本轮 teardown 暴露的 background subscriber deadline warning。
+
+## R4 — 收深 cron/config owner 并完成全量与真栈签收
+
+- Context: `main.py` 仍内嵌 cron execute/deliver/awareness 全链并另建 `CronRunsStore`；config sync 两条 mirror 路径重复 decoder，且每次 reconnect 都无条件重写整份 YAML。最终 SIGTERM 真栈还证明“terminal 已生成”不等于“IM 已持久化”：逐帧 ack queue 未 drain 会在 transport close 时丢后续终态帧。
+- Decision: `CronExecutionService` 持有 job/run stores、公开 runner 与 stream delivery collaborator；shared owner-direct stream primitive 下沉到 runtime-delivery。mirror payload 只由一个 decoder 解析，durable/live 各自 diff，保持 persist-before-publish。异常 reconcile 总是显式完成当前 bubble：用户 stop=`completed`，system abort=`failed`。`IMConnectionManager.drain(deadline)` 在 close 前等待所有 outbound frames 收到协议 ack。background subscriber 关闭时给已 dequeue event 一个短 handoff grace，若 callback 已开始则等到共享 deadline；没有 callback 的 idle stream 立即取消，不再制造虚假的 shutdown deadline warning。
+- Rationale: composition root 只做装配；cron lifecycle 与配置收敛分别由深模块内部闭合。Gateway 的 shutdown 完成判据必须落在 transport ack owner，而不是“调用者已 await queue append”。
+- Evidence:
+  - C1 red：cron owner/config steady-state/contract 共 6 个失败；后续真 SIGTERM 又稳定暴露 abnormal bubble 与 outbound ack drain 两组红测。
+  - Focused：cron/config/contract `39 passed`；personal-assistant 单测 `809 passed`；shutdown terminal/IM drain 聚焦回归全绿；subscriber buffered/idle shutdown `16 passed`。
+  - Full：`ruff check src tests`、`git diff --check` passed；`pytest -m 'not e2e' -n 4 --dist worksteal` → `3387 passed, 1 skipped`。
+  - Real stack：`evidence/r4-final-validation.md`。动态 `custom_prompt` 同会话热更新与新会话均生效；真 `send_message` durable completed；两条 accepted work SIGTERM 后两个 relay 和所有 bubble 都是明确终态、零 running；IM kill/restart 与 Gateway-before-IM 均 PASS。
+  - Frontend State Matrix / Browser QA / Visual：N/A（无前端变更；用户可见状态由 IM REST/SQLite 与 WS lifecycle 对账）。
+- Debugging note: 首次 SIGTERM 复验保留为失败证据。修复 bubble reconcile 后仍失败，事件序列进一步定位到 connection manager ack queue；增加 transport drain 后同一旅程才通过，没有用 watchdog 或测试等待掩盖。
+- Rollback: 回退 R4 implementation/fix commits 恢复 R3 末态；不改变 IM API、binding schema、session key 或外部 channel 协议。
+- Commits: C1=`3ddfd6b1e`；C2=`1295ccaaa`；真栈 fix-loop=`9b803698a..b0ebd6798`；C3=本次 docs commit。
+- Next: M4 完成，交回 orchestrator 进入独立 verifier/reviewer/code-review 门禁。

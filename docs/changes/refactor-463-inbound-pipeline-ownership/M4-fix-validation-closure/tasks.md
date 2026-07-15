@@ -48,12 +48,12 @@
 
 ## 退出标准
 
-- [ ] 上述 A/B/C 的每个 confirmed correctness finding 都有先失败后通过的永久回归；不得仅靠 mock 内部调用次数证明。
-- [ ] Round 1 verifier 的 CRITICAL 与两条 WARNING 关闭；`git diff --check` 全绿。
-- [ ] Round 1 reviewer 的 `send_message`、accepted-work shutdown、offline reconnect 三条真用户旅程关闭；动态配置用 `custom_prompt` 重跑并通过。
-- [ ] Cron lifecycle 只有一个 production owner，`main.py` 不构造 cron stores、不调用 `CronRunner` 私有方法；config-sync 无 `_ownership(pipeline)` 测试 shim和 mutable callback post-wiring。
-- [ ] 最窄测试、相关 contract、`ruff check src tests`、`pytest -m "not e2e" -n 4 --dist worksteal` 全绿。
-- [ ] 通过 `scripts/e2e-up.sh` / `e2e-down.sh` 的隔离高位端口真栈落 durable evidence：动态 `custom_prompt`、真 `send_message`、并发 accepted-work SIGTERM、IM 断开重连；所有自启服务和运行时文件清理完成。
+- [x] 上述 A/B/C 的每个 confirmed correctness finding 都有先失败后通过的永久回归；不得仅靠 mock 内部调用次数证明。
+- [x] Round 1 verifier 的 CRITICAL 与两条 WARNING 关闭；`git diff --check` 全绿。
+- [x] Round 1 reviewer 的 `send_message`、accepted-work shutdown、offline reconnect 三条真用户旅程关闭；动态配置用 `custom_prompt` 重跑并通过。
+- [x] Cron lifecycle 只有一个 production owner，`main.py` 不构造 cron stores、不调用 `CronRunner` 私有方法；config-sync 无 `_ownership(pipeline)` 测试 shim和 mutable callback post-wiring。
+- [x] 最窄测试、相关 contract、`ruff check src tests`、`pytest -m "not e2e" -n 4 --dist worksteal` 全绿。
+- [x] 通过 `scripts/e2e-up.sh` / `e2e-down.sh` 的隔离高位端口真栈落 durable evidence：动态 `custom_prompt`、真 `send_message`、并发 accepted-work SIGTERM、IM 断开重连；所有自启服务和运行时文件清理完成。
 
 ## 测试策略
 
@@ -85,6 +85,6 @@
 
 ### R4 — 收深 cron/config owner 并完成全量与真栈签收
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 收回 cron execute/deliver/awareness、提取 mirror decoder、避免无变化整份持久化；清 whitespace；跑全量门禁与隔离真栈，落 durable evidence 并清理服务。
 - 验证: 最窄测试 + contract；`git diff --check`; `ruff check src tests`; `pytest -m "not e2e" -n 4 --dist worksteal`; M4 四条真栈旅程。
