@@ -144,3 +144,70 @@ def test_channels_api_hides_another_owners_agent(tmp_path: Path) -> None:
         response = owner_client.get("/im/v1/agents/agent-a/channels")
         assert response.status_code == 404
         assert response.json()["detail"]["code"] == "channel_not_found"
+
+
+def test_offline_disable_delete_reload_and_actions_keep_truthful_state(
+    tmp_path: Path,
+) -> None:
+    """Offline desired mutations persist while live-only actions fail explicitly."""
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        owner = register_user(client, username="owner")
+        authorize(client, owner)
+        _seed_agent(client, owner_id=owner.owner_id)
+        created = client.post(
+            "/im/v1/agents/agent-a/channels",
+            json={
+                "provider": "feishu",
+                "config": {"app_id": "cli_offline"},
+                "credentials": {"mode": "replace", "app_secret": "offline-secret"},
+            },
+        ).json()
+        channel_id = created["channel_id"]
+
+        disabled = client.patch(
+            f"/im/v1/agents/agent-a/channels/{channel_id}",
+            json={
+                "channel_revision": 1,
+                "enabled": False,
+                "config": {"app_id": "cli_offline"},
+                "credentials": {"mode": "keep"},
+            },
+        )
+        assert disabled.status_code == 200
+        assert disabled.json()["enabled"] is False
+        assert disabled.json()["sync_state"] == "pending"
+
+        reconnect = client.post(
+            f"/im/v1/agents/agent-a/channels/{channel_id}/actions/reconnect"
+        )
+        assert reconnect.status_code == 409
+        assert reconnect.json()["detail"]["code"] == "channel_node_offline"
+
+        deleted = client.delete(
+            f"/im/v1/agents/agent-a/channels/{channel_id}?channel_revision=2"
+        )
+        assert deleted.status_code == 200
+        removal = deleted.json()
+        assert removal["resource_type"] == "removal"
+        assert removal["apply_state"] == "pending"
+        assert removal["display_config"] == {"app_id_suffix": "fline"}
+        assert "secret" not in deleted.text.lower()
+        assert client.get("/im/v1/agents/agent-a/channels").json() == [removal]
+
+        duplicate = client.post(
+            "/im/v1/agents/agent-a/channels",
+            json={
+                "provider": "feishu",
+                "config": {"app_id": "cli_duplicate"},
+                "credentials": {"mode": "replace", "app_secret": "duplicate"},
+            },
+        )
+        assert duplicate.status_code == 409
+        assert duplicate.json()["detail"]["code"] == "channel_deletion_pending"
+
+        retry = client.post(
+            f"/im/v1/agents/agent-a/channel-removals/{channel_id}/actions/retry"
+        )
+        assert retry.status_code == 409
+        assert retry.json()["detail"]["code"] == "channel_node_offline"
