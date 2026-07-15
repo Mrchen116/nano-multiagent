@@ -221,6 +221,60 @@
         "sessionsPlaceholder": "本期不设计会话页。保持空态，后续单独设计。"
       }
     },
+    "channels": {
+      "title": "外部通道",
+      "subtitle": "管理这个 Agent 在外部 IM 中的连接。配置与运行状态会分别保存。",
+      "loading": "正在加载通道…",
+      "loadError": "无法加载通道配置",
+      "empty": {
+        "title": "还没有外部通道",
+        "description": "添加一个通道，让用户可以从外部 IM 找到这个 Agent。当前支持飞书。"
+      },
+      "provider": { "added": "已添加" },
+      "feishu": {
+        "label": "飞书",
+        "description": "连接一个飞书应用机器人",
+        "guide": "在飞书开放平台创建应用、开启机器人能力并选择长连接接收事件。",
+        "openPlatform": "打开飞书开放平台"
+      },
+      "dialog": {
+        "addTitle": "添加通道",
+        "editTitle": "编辑飞书通道",
+        "chooseProvider": "选择要连接的外部 IM 类型",
+        "credentialsSubtitle": "填写应用凭据并在线连接"
+      },
+      "credentials": {
+        "keep": "保留现有密钥",
+        "keepHelp": "本次不修改已保存的 App Secret",
+        "replace": "替换密钥",
+        "replaceHelp": "输入并保存一个新的 App Secret",
+        "secretHelp": "密钥将安全保存，之后不会再次明文显示。"
+      },
+      "validation": {
+        "appId": "请输入 App ID",
+        "appSecret": "请输入 App Secret"
+      },
+      "actions": {
+        "add": "添加通道",
+        "edit": "编辑",
+        "close": "关闭",
+        "cancel": "取消",
+        "saving": "保存中…",
+        "saveConnect": "保存并连接"
+      },
+      "status": {
+        "connected": "已连接",
+        "connecting": "正在连接",
+        "failed": "连接失败",
+        "synced": "运行状态已同步",
+        "applied": "当前配置已应用",
+        "savedSecurely": "配置与凭据已安全保存",
+        "connectingDetail": "正在建立飞书长连接",
+        "unknownFailure": "节点未能建立连接",
+        "updatedAt": "状态更新于 {{time}}",
+        "savedAt": "保存于 {{time}}"
+      }
+    },
     "form": {
       "identity": {
         "title": "身份",

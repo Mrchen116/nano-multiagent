@@ -1,12 +1,14 @@
 """Dependency helpers for IM API routes."""
 
 import asyncio
+import concurrent.futures
 import os
 
 from fastapi import Depends, HTTPException, Request, status
 
 from IM.application.auth_service import AuthService, InvalidTokenError
 from IM.application.bind_service import BindService
+from IM.application.channel_control_service import ChannelControlService
 from IM.application.config_service import ConfigService
 from IM.application.event_service import EventService
 from IM.application.metrics_service import MetricsService
@@ -155,6 +157,29 @@ def get_bind_service(request: Request) -> BindService:
         bind_base_url=os.getenv(
             "IM_BIND_BASE_URL", "http://127.0.0.1:8011/bind/confirm"
         ),
+    )
+
+
+def get_channel_control_service(request: Request) -> ChannelControlService:
+    """Return the app's independent external-channel control boundary."""
+    handler = get_gateway_handler(request)
+    event_loop: asyncio.AbstractEventLoop | None = getattr(
+        request.app.state, "event_loop", None
+    )
+
+    def notify(manifest: object) -> None:
+        if event_loop is None or event_loop.is_closed():
+            return
+        future = asyncio.run_coroutine_threadsafe(
+            handler.push_channel_reconcile(manifest), event_loop
+        )
+        try:
+            future.result(timeout=5)
+        except (concurrent.futures.TimeoutError, RuntimeError):
+            return
+
+    return ChannelControlService(
+        request.app.state.channel_control_store, manifest_notifier=notify
     )
 
 

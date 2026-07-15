@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from typing import Iterable
 
 from personal_assistant.channels.base import ChannelAdapter
@@ -15,6 +16,7 @@ class ChannelRegistry:
     """
 
     def __init__(self, channels: Iterable[ChannelAdapter] = ()) -> None:
+        self._lock = threading.RLock()
         self._channels: dict[str, ChannelAdapter] = {}
         for channel in channels:
             self.register(channel)
@@ -33,16 +35,39 @@ class ChannelRegistry:
         name = str(getattr(channel, "name", "")).strip()
         if not name:
             raise ValueError("channel name is required")
-        if name in self._channels and not replace:
-            raise ValueError(f"channel already registered: {name}")
-        self._channels[name] = channel
+        with self._lock:
+            if name in self._channels and not replace:
+                raise ValueError(f"channel already registered: {name}")
+            self._channels[name] = channel
+
+    def remove(
+        self, name: str, *, expected: ChannelAdapter | None = None
+    ) -> ChannelAdapter | None:
+        """Atomically remove one adapter, optionally only when identity matches."""
+        with self._lock:
+            current = self._channels.get(name)
+            if current is None or (expected is not None and current is not expected):
+                return None
+            return self._channels.pop(name)
+
+    def replace(self, channel: ChannelAdapter) -> ChannelAdapter | None:
+        """Atomically route a stable adapter name to a new runtime."""
+        name = str(getattr(channel, "name", "")).strip()
+        if not name:
+            raise ValueError("channel name is required")
+        with self._lock:
+            previous = self._channels.get(name)
+            self._channels[name] = channel
+            return previous
 
     def get(self, name: str) -> ChannelAdapter | None:
         """Return one registered channel adapter by name."""
 
-        return self._channels.get(name)
+        with self._lock:
+            return self._channels.get(name)
 
     def list(self) -> tuple[ChannelAdapter, ...]:
         """Return registered channel adapters in bootstrap order."""
 
-        return tuple(self._channels.values())
+        with self._lock:
+            return tuple(self._channels.values())

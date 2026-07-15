@@ -130,6 +130,10 @@ SessionForkHandler = Callable[
     [Mapping[str, object]],
     Awaitable[Mapping[str, object]] | Mapping[str, object],
 ]
+ChannelManifestHandler = Callable[
+    [Mapping[str, object]],
+    Awaitable[Mapping[str, object]] | Mapping[str, object],
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -217,6 +221,7 @@ class IMConnectionManager:
         token_getter: TokenGetter | None = None,
         permission_response_handler: PermissionResponseHandler | None = None,
         on_connected: Callable[[], Awaitable[None]] | None = None,
+        channel_manifest_handler: ChannelManifestHandler | None = None,
         connect: ConnectFn,
         sleep: SleepFn = asyncio.sleep,
     ) -> None:
@@ -242,6 +247,7 @@ class IMConnectionManager:
         # (node.register ack received). Used to trigger reconcile_all_agents so gateway
         # config converges to IM truth on connect and every reconnect.
         self._on_connected = on_connected
+        self._channel_manifest_handler = channel_manifest_handler
         self._connect = connect
         self._sleep = sleep
         self._websocket: ClientWebSocket | None = None
@@ -262,6 +268,7 @@ class IMConnectionManager:
         # silently drops while not connected).  Lazily created so it binds to the loop
         # that actually runs run_forever.
         self._first_connect_resolved: asyncio.Event | None = None
+        self._event_loop: asyncio.AbstractEventLoop | None = None
 
     @property
     def connected(self) -> bool:
@@ -282,6 +289,7 @@ class IMConnectionManager:
         that was loaded at startup.
         """
 
+        self._event_loop = asyncio.get_running_loop()
         headers = {"User-Agent": "nano-multiagent-gateway"}
         # Resolve token: prefer token_getter (dynamic refresh path) over static config.token.
         if self._token_getter is not None:
@@ -337,6 +345,16 @@ class IMConnectionManager:
             PendingFrame(message_type=message_type, payload=dict(payload))
         )
         await self._flush_pending_frames()
+
+    def send_json_threadsafe(
+        self, message_type: str, payload: Mapping[str, object]
+    ) -> bool:
+        """Queue one worker-thread status/metadata frame on the bound Gateway loop."""
+        loop = self._event_loop
+        if loop is None or loop.is_closed() or not loop.is_running():
+            return False
+        asyncio.run_coroutine_threadsafe(self.send_json(message_type, payload), loop)
+        return True
 
     async def send_json_await_ack(
         self, message_type: str, payload: Mapping[str, object]
@@ -468,6 +486,31 @@ class IMConnectionManager:
         if message_type == "config.sync":
             if self._sync_client is not None:
                 self._sync_client.handle_notification(body)
+            return
+        if message_type == "channel.reconcile":
+            if self._channel_manifest_handler is None:
+                raise RuntimeError("channel.reconcile requires channel_manifest_handler")
+            request_id = _require_text(body.get("request_id"), field_name="request_id")
+            result = await _maybe_await(self._channel_manifest_handler(body))
+            result_payload = dict(result) if isinstance(result, Mapping) else {}
+            await self.send_json(
+                "channel.reconcile.result",
+                {
+                    "request_id": request_id,
+                    "node_id": self._reporter.node_id,
+                    "manifest_revision": int(body.get("manifest_revision") or 0),
+                    **result_payload,
+                },
+            )
+            return
+        if message_type in {
+            "channel.status.result",
+            "channel.runtime_metadata.result",
+        }:
+            self._resolve_correlated_channel_result(
+                message_type=message_type, payload=body
+            )
+            await self._flush_pending_frames()
             return
         if message_type == "heartbeat.trigger":
             if self._heartbeat_trigger is not None:
@@ -897,6 +940,34 @@ class IMConnectionManager:
         if pending_frame.ack_future is not None and not pending_frame.ack_future.done():
             pending_frame.ack_future.set_result(dict(payload))
         self._events.append({"event": "acked", "type": awaiting})
+
+    def _resolve_correlated_channel_result(
+        self, *, message_type: str, payload: Mapping[str, object]
+    ) -> None:
+        source_type = {
+            "channel.status.result": "channel.status",
+            "channel.runtime_metadata.result": "channel.runtime_metadata",
+        }[message_type]
+        if self._awaiting_ack_type != source_type or not self._pending_frames:
+            return
+        pending = self._pending_frames[0]
+        request_id = payload.get("request_id")
+        if (
+            not isinstance(request_id, str)
+            or request_id != pending.payload.get("request_id")
+        ):
+            return
+        self._pending_frames.popleft()
+        self._awaiting_ack_type = None
+        if pending.ack_future is not None and not pending.ack_future.done():
+            pending.ack_future.set_result(dict(payload))
+        self._events.append(
+            {
+                "event": "channel_result",
+                "type": source_type,
+                "outcome": payload.get("outcome"),
+            }
+        )
 
     def _ack_heartbeat_frame(self, payload: Mapping[str, object]) -> None:
         ack_type = payload.get("message_type")

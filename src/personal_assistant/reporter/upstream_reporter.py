@@ -220,6 +220,7 @@ class UpstreamReporter:
         capabilities: ReporterCapabilities | None = None,
         node_name: str | None = None,
         version: str | None = None,
+        channel_credential_key: Mapping[str, str] | None = None,
     ) -> None:
         self._node = node
         self._agents = agents
@@ -227,6 +228,7 @@ class UpstreamReporter:
         self._capabilities = capabilities or ReporterCapabilities()
         self._node_name = (node_name or node.node_id).strip()
         self._version = (version or "").strip()
+        self._channel_credential_key = dict(channel_credential_key or {})
 
     def replace_agents(self, agents: tuple[AgentWorkspaceConfig, ...]) -> None:
         """在运行时在 IM 上新建 Agent 后，刷新登记到本机的 agent 列表（供 heartbeat 等使用）。"""
@@ -258,6 +260,7 @@ class UpstreamReporter:
         }
         if self._node.user_id is not None:
             payload["user_id"] = self._node.user_id
+        payload.update(self._channel_credential_key)
         self._send_frame("node.register", payload)
         return payload
 

@@ -28,6 +28,7 @@ from personal_assistant.channels.feishu.client import (
     FeishuMessageEvent,
     FeishuMention,
 )
+from personal_assistant.channels.feishu.worker import FeishuWorkerStatus
 from personal_assistant.gateway.group_context_store import GroupContextStore
 
 logger = logging.getLogger(__name__)
@@ -73,6 +74,8 @@ class FeishuAdapter:
         ) = None,
         group_context_store: GroupContextStore,
         domain: str = "https://open.feishu.cn",
+        worker_incarnation: str | None = None,
+        status_callback: Callable[[FeishuWorkerStatus], None] | None = None,
     ) -> None:
         self._name = name
         self._app_id = app_id
@@ -85,6 +88,8 @@ class FeishuAdapter:
         self._owner_open_id_lock = threading.Lock()
         self._group_ctx = group_context_store
         self._domain = domain
+        self._worker_incarnation = worker_incarnation
+        self._status_callback = status_callback
         self._client: FeishuClient | None = None
         self._on_inbound: InboundHandler | None = None
         self._ack_reactions: dict[str, str] = {}
@@ -109,6 +114,8 @@ class FeishuAdapter:
             app_id=self._app_id,
             app_secret=self._app_secret,
             domain=self._domain,
+            worker_incarnation=self._worker_incarnation,
+            status_callback=self._status_callback,
         )
         self._client.start(
             self._handle_message,
@@ -178,6 +185,14 @@ class FeishuAdapter:
             self._client = None
         self._on_inbound = None
         logger.info("feishu adapter %s stopped", self.name)
+
+    def stop_invalidated(self) -> None:
+        """Drop queued input after disable/delete/credential replacement invalidation."""
+        if self._client is not None:
+            self._client.stop(drain=False)
+            self._client = None
+        self._on_inbound = None
+        logger.info("invalidated feishu adapter %s stopped", self.name)
 
     def send_permission_request(
         self,

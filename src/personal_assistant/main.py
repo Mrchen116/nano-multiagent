@@ -17,6 +17,7 @@ import threading
 import time
 import tempfile
 import webbrowser
+from uuid import uuid4
 from collections.abc import Awaitable, Callable, Iterator, Mapping
 from contextlib import contextmanager, suppress
 from dataclasses import asdict, dataclass, replace
@@ -37,6 +38,10 @@ from personal_assistant.channels.web_relay_adapter import (
     WebRelayAdapter,
 )
 from personal_assistant.channels.feishu import FeishuAdapter
+from personal_assistant.channels.channel_credentials import (
+    GatewayChannelAad,
+    GatewayChannelKeyStore,
+)
 
 from personal_assistant.config.local_store import (
     AgentWorkspaceConfig,
@@ -55,6 +60,15 @@ from personal_assistant.config.local_store import (
 from personal_assistant.config.sync_client import ConfigSyncClient
 from personal_assistant.gateway.bootstrap import start_channels, stop_channels
 from personal_assistant.gateway.channel_registry import ChannelRegistry
+from personal_assistant.gateway.channel_manager import (
+    ChannelGeneration,
+    ChannelManager,
+    ChannelManifest,
+    ChannelStatusSnapshot,
+    FeishuActivationPolicy,
+    ManagedChannelSpec,
+    ProviderMetadataReport,
+)
 from personal_assistant.gateway.group_context_store import GroupContextStore
 from personal_assistant.gateway.inbound_pipeline import (
     InboundPipeline,
@@ -1793,6 +1807,7 @@ class GatewayRuntime:
         gateway_internal_port: int = 8089,
         kernel: object | None = None,
         cron_dispatcher: CronServiceRegistry | None = None,
+        channel_manager: ChannelManager | None = None,
     ) -> None:
         self._config = config
         self._channel_registry = channel_registry or ChannelRegistry()
@@ -1812,6 +1827,7 @@ class GatewayRuntime:
         # bugfix-402-M4: inject gateway loop into cron services so enqueue() from
         # worker threads (asyncio.to_thread) can schedule execute_fn correctly.
         self._cron_dispatcher = cron_dispatcher
+        self._channel_manager = channel_manager
         self._ready_event = threading.Event()
         self._shutdown_requested = threading.Event()
         self._shutdown_async_event: asyncio.Event | None = None
@@ -1916,6 +1932,8 @@ class GatewayRuntime:
                     )
             if heartbeat_started and self._heartbeat_runner is not None:
                 await self._heartbeat_runner.close()
+            if self._channel_manager is not None:
+                await self._channel_manager.close()
             if channels_started:
                 stop_channels(self._channel_registry)
             # bugfix-402-M3 R3: drain in-flight runs before closing the IM transport
@@ -2948,6 +2966,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     )
     reporter: UpstreamReporter | None = None
     im_connection_manager: IMConnectionManager | None = None
+    channel_manager: ChannelManager | None = None
     im_bootstrap_client: _IMBootstrapClient | None = None
     im_config_sync_client: _IMConfigSyncClient | None = None
     run_delivery_contexts = RunDeliveryContextStore()
@@ -2978,6 +2997,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         # this when the agent has not selected one (config.llm.default_model).
         product_default_model=config.llm.default_model,
     )
+    inbound_dispatcher = _InboundDispatcher(pipeline)
 
     def _send_external_reply(text: str, metadata: Mapping[str, str]) -> None:
         channel_name = metadata.get("channel_name") or ""
@@ -3032,11 +3052,15 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         relay_adapter = channel_registry.get("web_relay")
         if not isinstance(relay_adapter, WebRelayAdapter):
             raise ValueError("im_service requires enabled web_relay channel")
+        channel_key = GatewayChannelKeyStore(
+            runtime_dir / "channel-credentials-v1.pem"
+        ).load_or_create()
         reporter = UpstreamReporter(
             node=config.node,
             agents=config.agents,
             send_frame=lambda _message_type, _payload: None,
             capabilities=build_runtime_capabilities(kernel),
+            channel_credential_key=channel_key.registration_payload(),
         )
         # bugfix-424 (#127): derive dynamically-created agents' workspace from the
         # node's configured workspace_base so they land under the same isolation
@@ -3101,6 +3125,196 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             _register_cron_service(agent_id, workspace_root, gateway_loop=_loop)
 
         im_config_sync_client.on_agent_created = _on_agent_created
+
+        def _activate_feishu_skill(agent_id: str) -> None:
+            agent = im_config_sync_client._local_agent(agent_id)  # noqa: SLF001
+            if agent is not None:
+                im_config_sync_client._enable_created_skill_for_agent(  # noqa: SLF001
+                    agent, "feishu-doc"
+                )
+
+        def _send_channel_status(snapshot: ChannelStatusSnapshot) -> None:
+            connection = im_connection_manager
+            if connection is None:
+                return
+            generation = snapshot.generation
+            connection.send_json_threadsafe(
+                "channel.status",
+                {
+                    "request_id": uuid4().hex,
+                    "node_id": config.node.node_id,
+                    "channel_id": snapshot.channel_id,
+                    "provider_identity_fingerprint": generation.provider_identity_fingerprint,
+                    "provider_identity_revision": generation.provider_identity_revision,
+                    "channel_revision": generation.channel_revision,
+                    "credential_revision": generation.credential_revision,
+                    "runtime_incarnation": snapshot.runtime_incarnation,
+                    "status_sequence": snapshot.status_sequence,
+                    "instance_started": snapshot.instance_started,
+                    "connection_state": snapshot.connection_state,
+                    "diagnostics_state": snapshot.diagnostics_state,
+                    "status_code": snapshot.status_code,
+                    "status_message": snapshot.status_message,
+                    "checks": [],
+                },
+            )
+
+        def _send_provider_metadata(report: ProviderMetadataReport) -> None:
+            connection = im_connection_manager
+            if connection is None:
+                return
+            generation = report.generation
+            connection.send_json_threadsafe(
+                "channel.runtime_metadata",
+                {
+                    "request_id": uuid4().hex,
+                    "node_id": config.node.node_id,
+                    "channel_id": report.channel_id,
+                    "provider_runtime_patch": dict(report.patch),
+                    "provider_identity_fingerprint": generation.provider_identity_fingerprint,
+                    "provider_identity_revision": generation.provider_identity_revision,
+                    "channel_revision": generation.channel_revision,
+                    "credential_revision": generation.credential_revision,
+                },
+            )
+
+        def _build_managed_feishu(
+            spec: ManagedChannelSpec,
+            metadata_binder: Callable[[dict[str, str]], dict[str, str] | None],
+            status_handler: Callable[..., bool],
+        ) -> FeishuAdapter:
+            app_id = str(spec.config.get("app_id") or "").strip()
+            app_secret = str(spec.credentials.get("app_secret") or "").strip()
+            if not app_id or not app_secret:
+                raise ValueError("Feishu credentials are required")
+            metadata = dict(spec.provider_runtime)
+            bot_open_id = metadata.get("bot_open_id")
+            if not bot_open_id:
+                probed = _infer_feishu_bot_open_id_from_app_credentials(
+                    app_id, app_secret, "https://open.feishu.cn"
+                )
+                if probed:
+                    bound = metadata_binder({"bot_open_id": probed})
+                    bot_open_id = bound.get("bot_open_id") if bound else probed
+
+            def bind_owner(_channel_name: str, sender_open_id: str) -> str | None:
+                bound = metadata_binder({"owner_open_id": sender_open_id})
+                return bound.get("owner_open_id") if bound else None
+
+            def forward_status(worker_status: object) -> None:
+                status_handler(
+                    status_sequence=getattr(worker_status, "status_sequence"),
+                    connection_state=getattr(worker_status, "connection_state"),
+                    diagnostics_state=getattr(
+                        worker_status, "diagnostics_state", "unknown"
+                    ),
+                    status_code=getattr(worker_status, "status_code", None),
+                    status_message=getattr(worker_status, "status_message", None),
+                )
+
+            return FeishuAdapter(
+                name=f"feishu:{spec.agent_id}",
+                app_id=app_id,
+                app_secret=app_secret,
+                bot_open_id=bot_open_id,
+                owner_open_id=metadata.get("owner_open_id"),
+                owner_open_id_binder=bind_owner,
+                permission_decision_callback=permission_response_handler,
+                group_context_store=group_context_store,
+                status_callback=forward_status,
+            )
+
+        channel_manager = ChannelManager(
+            registry=channel_registry,
+            on_inbound=inbound_dispatcher,
+            provider_factories={"feishu": _build_managed_feishu},
+            status_sink=_send_channel_status,
+            metadata_sink=_send_provider_metadata,
+            activation_policy=FeishuActivationPolicy(_activate_feishu_skill),
+        )
+
+        async def _apply_channel_manifest(
+            body: Mapping[str, object],
+        ) -> Mapping[str, object]:
+            raw_channels = body.get("channels")
+            owner_id = str(body.get("owner_id") or "")
+            decoded: list[ManagedChannelSpec] = []
+            failed_ids: list[str] = []
+            for raw in raw_channels if isinstance(raw_channels, list) else []:
+                if not isinstance(raw, Mapping):
+                    continue
+                channel_id = str(raw.get("channel_id") or "")
+                try:
+                    generation = ChannelGeneration(
+                        provider_identity_fingerprint=str(
+                            raw["provider_identity_fingerprint"]
+                        ),
+                        provider_identity_revision=int(
+                            raw["provider_identity_revision"]
+                        ),
+                        channel_revision=int(raw["channel_revision"]),
+                        credential_revision=int(raw["credential_revision"]),
+                    )
+                    if str(raw.get("credential_key_id") or "") != channel_key.key_id:
+                        raise ValueError("credential key mismatch")
+                    aad = GatewayChannelAad(
+                        owner_id=owner_id,
+                        node_id=config.node.node_id,
+                        agent_id=str(raw["agent_id"]),
+                        channel_id=channel_id,
+                        provider=str(raw["provider"]),
+                        credential_revision=generation.credential_revision,
+                    )
+                    envelope = raw.get("credential_envelope")
+                    if not isinstance(envelope, Mapping):
+                        raise ValueError("credential envelope missing")
+                    credentials = channel_key.open(envelope=envelope, aad=aad)
+                    raw_config = raw.get("config")
+                    raw_runtime = raw.get("provider_runtime")
+                    decoded.append(
+                        ManagedChannelSpec(
+                            channel_id=channel_id,
+                            agent_id=aad.agent_id,
+                            provider=aad.provider,
+                            enabled=raw.get("enabled") is True,
+                            config=dict(raw_config)
+                            if isinstance(raw_config, Mapping)
+                            else {},
+                            credentials=credentials,
+                            provider_runtime={
+                                str(key): str(value)
+                                for key, value in raw_runtime.items()
+                                if isinstance(key, str) and isinstance(value, str)
+                            }
+                            if isinstance(raw_runtime, Mapping)
+                            else {},
+                            generation=generation,
+                        )
+                    )
+                except (KeyError, TypeError, ValueError):
+                    failed_ids.append(channel_id)
+            manifest = ChannelManifest(
+                manifest_revision=int(body.get("manifest_revision") or 0),
+                channels=tuple(decoded),
+            )
+
+            def reconcile_in_thread():
+                return asyncio.run(channel_manager.reconcile(manifest))
+
+            report = await asyncio.to_thread(reconcile_in_thread)
+            applied = [
+                {"channel_id": channel_id, "outcome": "applied"}
+                for channel_id in report.applied_channel_ids
+            ]
+            failed = [
+                {
+                    "channel_id": channel_id,
+                    "outcome": "failed",
+                    "error_code": "runtime_apply_failed",
+                }
+                for channel_id in (*failed_ids, *report.failed_channel_ids)
+            ]
+            return {"outcomes": [*applied, *failed]}
 
         im_bootstrap_client = _IMBootstrapClient(
             base_url=_im_http_base_url(config.im_service.url),
@@ -3190,6 +3404,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             token_getter=_token_getter,
             permission_response_handler=permission_response_handler,
             on_connected=_reconcile_on_connect,
+            channel_manifest_handler=_apply_channel_manifest,
         )
     pipeline._relay_lifecycle_callback = _build_relay_lifecycle_callback(
         reporter=reporter,
@@ -3515,7 +3730,6 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     # This prevents the heartbeat LLM call from blocking user message responses.
     _heartbeat_scheduler._run_queue = pipeline._run_queue  # noqa: SLF001
 
-    inbound_dispatcher = _InboundDispatcher(pipeline)
     # bugfix-402-M3 R3: kernel is closed explicitly via GatewayRuntime(kernel=) and
     # its aclose() in the ordered shutdown phase (Decision 7). It must not be in
     # resource_closers — that list only holds lightweight sync cleanup (HTTP clients).
@@ -3542,6 +3756,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         internal_dispatch_handler=internal_dispatch_handler,
         kernel=kernel,
         cron_dispatcher=_cron_dispatcher,
+        channel_manager=channel_manager,
         gateway_internal_port=_gateway_internal_port,
     )
 
@@ -3929,6 +4144,10 @@ def _build_im_connection_manager(
     token_getter: Callable[[], Awaitable[str | None]] | None = None,
     permission_response_handler: Callable[[Mapping[str, object]], bool] | None = None,
     on_connected: Callable[[], Awaitable[None]] | None = None,
+    channel_manifest_handler: Callable[
+        [Mapping[str, object]], Awaitable[Mapping[str, object]] | Mapping[str, object]
+    ]
+    | None = None,
 ) -> IMConnectionManager:
     im_service = config.im_service
     if im_service is None:
@@ -3949,6 +4168,7 @@ def _build_im_connection_manager(
         connect=_connect_websocket,
         permission_response_handler=permission_response_handler,
         on_connected=on_connected,
+        channel_manifest_handler=channel_manifest_handler,
     )
 
 
