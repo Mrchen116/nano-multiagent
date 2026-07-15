@@ -6,6 +6,10 @@
 
 ## Changelog
 
+- v10 (2026-07-15): 补齐普通群消息 `im:message.group_msg:readonly` 与群信息 `im:chat.group_info:readonly` 两项仍对存量应用生效的 legacy 等价权限。
+- v9 (2026-07-15): 权限判断改为读取飞书租户授权状态并校验 `grant_status=1` 与 `scope_type=tenant`；未知/缺字段不猜测，避免仅凭 scope 名误判权限充足。
+- v8 (2026-07-15): capability catalog 改为 accepted scope sets，补齐飞书仍接受的 p2p/history/send legacy 等价权限，避免存量应用被误报缺权限。
+- v7 (2026-07-15): 移除通道页用户可见的配置版本号；明确 revision 仅为内部一致性令牌，不提供版本历史、回滚或版本管理。
 - v6 (2026-07-15): 禁止已绑定节点跨 owner 改绑；补 status negative ACK/FIFO 释放与 stale runtime quarantine；receipt GC 绑定 applied head 并提供超期终态。
 - v5 (2026-07-15): manifest 显式携带未确认 removal intents，按 token 持久 result outbox/幂等 receipt；固定 stop-old → active-new → seq1 → start-new 的 runtime cutover。
 - v4 (2026-07-15): 为 DELETE 增加短期 removal receipt、reconcile result/applied head/失败重试，并用 worker incarnation + status sequence 闭合跨 lane 同 revision 顺序。
@@ -22,7 +26,7 @@
 - `src/IM/ws/gateway_handler.py`、`src/personal_assistant/ws/im_connection.py`：IM 与 Gateway 已有长连接、下行通知和 request/result RPC 模式，可承载 channel 调和命令和运行状态回报；当前协议只覆盖 Agent 配置与能力等既有场景。
 - `src/personal_assistant/config/local_store.py`、`src/personal_assistant/main.py`：Gateway 当前把 `channels[]` 从本地 YAML 解析为 `ChannelConfig`，启动时一次性构建 adapter；飞书 `appSecret` 以明文保存在 YAML 中。
 - `src/personal_assistant/gateway/channel_registry.py`、`src/personal_assistant/gateway/bootstrap.py`：`ChannelRegistry` 只负责注册和查找，进程启动/退出时统一 start/stop，不具备单 channel 幂等新增、替换、停用、删除或状态查询能力。
-- `src/personal_assistant/channels/feishu/client.py`、`adapter.py`：已有飞书消息能力、scope 探测及 SDK 重连钩子基础，但权限结果只写日志；现有 `stop()` 不会关闭 SDK WebSocket/线程，不能满足热停用和换密钥语义。
+- `src/personal_assistant/channels/feishu/client.py`、`adapter.py`：已有飞书消息能力、scope 探测及 SDK 重连钩子基础，但权限结果只写日志，且 `_extract_scope_names()` 只取名称、忽略 `grant_status` 与 `scope_type`，不能可靠证明权限已按应用身份授权；现有 `stop()` 不会关闭 SDK WebSocket/线程，不能满足热停用和换密钥语义。
 - 当前 `lark-oapi` 的 WebSocket client 使用包级全局事件循环，且没有公开的停止接口。现有“每个 Feishu adapter 各起一个线程”的方式既无法可靠终止，也无法证明多个 Bot 能在同一 Gateway 进程内并行运行。
 
 ### 既有约束
@@ -38,7 +42,7 @@
 
 ### 可复用能力
 
-- **改** IM Agent 配置的“持久化期望状态 + 版本 + 在线推送 + 重连调和”模式：复用语义和传输骨架，不把 channel 字段硬塞进 `AgentProfile`。
+- **改** IM Agent 配置的“持久化期望状态 + 内部一致性令牌 + 在线推送 + 重连调和”模式：复用语义和传输骨架，不把 channel 字段硬塞进 `AgentProfile`。
 - **改** IM/Gateway WebSocket 的 request/result 与事件上报模式：增加 channel 领域帧，不新建 Gateway 入站 HTTP 服务。
 - **用** `ChannelAdapter` 的消息收发 seam、`InboundPipeline`、`OutboundRouter` 与飞书影子会话路径；本 unit 不重写既有飞书消息语义。
 - **不用作生命周期 owner** `ChannelRegistry`：它是浅容器，缺少调和、串行化、状态机、错误归一和真实停止语义。新增的深模块统一封装 adapter 构建、启停、替换、诊断与状态快照；registry 只保留并发安全的路由查找。
@@ -56,9 +60,9 @@
 
 本方案把 channel 分成三个互不混淆的层次：
 
-1. **期望状态**：IM `ChannelConfigService` 持久化用户希望存在的外部 channel、版本和加密凭据。
+1. **期望状态**：IM `ChannelConfigService` 持久化用户希望存在的外部 channel、内部一致性令牌和加密凭据。
 2. **调和与运行**：Gateway `ChannelManager` 从本地密文缓存启动，并在 IM 上线后用完整 manifest 幂等收敛 adapter。
-3. **实际状态**：Gateway 把连接、重连、失败和权限检查结果上报给 IM；页面用期望 revision 与已处理 revision 的差异表达“等待应用”。
+3. **实际状态**：Gateway 把连接、重连、失败和权限检查结果上报给 IM；服务端用期望 revision 与已处理 revision 的差异计算“等待应用”，页面只展示结果，不展示 revision 或“版本 N”。
 
 `ChannelManager` 是本 unit 的深模块。其调用者只需提交完整 manifest、要求重连或读取快照；adapter 替换顺序、本地缓存、密钥解封、Feishu worker 进程、错误分类和状态上报全部藏在模块内部。
 
@@ -132,9 +136,11 @@ After：IM 是已初始化节点的期望状态控制面；Gateway 本地密文 
 
 由于 IM 与 Gateway 不能互相 import，封装/解封分别落在各自包内，通过 envelope v1 固定测试向量做跨包 contract，不引入新的共享顶层包。
 
-### 决策 2：期望状态与实际状态分表、分版本
+### 决策 2：期望状态与实际状态分表，用内部一致性令牌关联
 
 **“配置保存成功”和“运行连接成功”是两个正交状态；页面不得从节点在线状态推断 channel 已连接。**
+
+`channel_revision`、`observed_revision` 和 `manifest_revision` 是实现层的一致性与传输排序字段，不是通道的产品版本。系统不保存可浏览的版本历史，不提供选择版本、比较版本或回滚版本的 API；前端只把令牌随更新请求透传、按服务端投影展示状态，任何页面都不得渲染 revision 数字。
 
 - `agent_channels` 保存期望配置和 `channel_revision`。
 - `agent_channel_status` 保存 Gateway 最近处理的 `observed_revision`、连接状态、诊断状态、错误码、检查项和 IM 接收时间。
@@ -145,6 +151,7 @@ After：IM 是已初始化节点的期望状态控制面；Gateway 本地密文 
   - revision 相等：展示真实 `connected/limited/reconnecting/failed/disabled`。
   - Gateway 报告某 revision 处理失败时，`observed_revision` 仍推进到该 revision，连接状态为 `failed`；它不再被误报为“仍在排队”。
   - pending/failed removal receipt 存在：展示 `deleting`，不显示空态；若 outcome failed，展示停止失败原因与“重新尝试应用”。只有 removal applied result 把 receipt 标成 applied 并隐藏后才显示空态。
+- 上述 revision 只参与服务端计算与前端 mutation 防并发。卡片文案只显示“当前配置已应用”“配置已保存，等待节点应用”和最近状态时间，不出现“配置版本 N”。
 - IM 以接收时间作为展示新鲜度，拒绝比当前 channel revision 新、归属不符或比现有 observed revision 旧的上报；revision 相等时再以当前 `runtime_incarnation/status_sequence` CAS，接收时间不能用于覆盖因果顺序。
 
 **所有 channel control 数据库操作统一由 `ChannelControlStore` 串行化，禁止新 repository 直接复用现有 app-scoped SQLite connection 开事务。** 当前 IM 的同一 connection 会被同步 route worker 与异步 Gateway handler 跨线程共享；仅在 service 里写“同一事务”无法阻止别的请求在同一 handle 上交错。
@@ -245,20 +252,29 @@ class ChannelManager:
 - `limited`：已确认缺少一项或多项权限/平台配置，但可继续使用剩余能力。
 - `unknown`：scope list 或某项检查暂时无法完成。
 
-Feishu provider 内部维护 capability catalog，每项包含 `check_id`、可接受 scopes、受影响能力、严重度和修复文案。首版至少覆盖当前代码真实使用的能力：
+Gateway 用 App ID/App Secret 换取 `tenant_access_token` 后调用飞书“查询租户授权状态”接口，一次性把返回值归一为应用身份的已授权集合 `G`。归一规则是：
 
-| 检查 | 可接受权限/配置 | 缺失影响 |
+1. 仅 `grant_status == 1`（已授权）的条目可进入 `G`；`grant_status == 2` 是已确认未授权。
+2. 仅 `scope_type == "tenant"` 的条目可满足本通道以应用身份执行的能力；`scope_type == "user"` 不能替代应用身份权限。
+3. `grant_status` / `scope_type` 缺失、出现未知枚举、API 失败或响应无法完整解析时，该次 scope probe 为 `unknown`，不得仅凭 `scope_name` 出现就判断已授权，也不得把它伪造成确定缺失。
+4. 只有 probe 成功且结构完整时，某个所需 scope 没进入 `G` 才能参与 `missing` 判断。
+
+Feishu provider 内部维护 capability catalog，每项包含 `check_id`、`accepted_scope_sets`、`recommended_scopes`、受影响能力、严重度和修复文案。`accepted_scope_sets` 是“任一完整集合满足”的 OR 列表：只要其中一个集合是 `G` 的子集，该能力就为 `satisfied`；probe 成功且所有集合都不满足才为 `missing`；probe 为 `unknown` 时所有依赖它的 scope 检查都为 `unknown`。`recommended_scopes` 只给修复引导使用，优先推荐当前权限，不要求用户新申请 legacy scope。首版至少覆盖当前代码真实使用的能力：
+
+| 检查 | 可接受权限/配置（任一完整集合满足） | 缺失影响 |
 |---|---|---|
-| 单聊接收 | `im:message.p2p_msg:readonly`（兼容现有旧 scope） | 无法收到用户私聊 |
-| 群聊 @Bot 接收 | `im:message.group_at_msg:readonly`（兼容旧 `im:message.group_at_msg`） | 群中 @Bot 不触发 |
-| Bot 发消息 | `im:message:send_as_bot` 或 `im:message` | Agent 无法回复 |
-| 普通群消息 | `im:message.group_msg` | 未 @ 消息无法进入群背景上下文 |
-| 历史消息 | `im:message:readonly` 或 `im:message`，群聊同时要求 `im:message.group_msg` | 断线补拉/群历史上下文不完整 |
-| THINKING reaction | `im:message.reactions:write_only` 或 `im:message` | 思考表情不可用，消息主链路仍可用 |
-| 群信息 | `im:chat:readonly`、`im:chat:read` 或 `im:chat` | 群影子会话标题可能退化为 ID |
+| 单聊接收 | `{im:message.p2p_msg:readonly}` OR `{im:message.p2p_msg}`（legacy） | 无法收到用户私聊 |
+| 群聊 @Bot 接收 | `{im:message.group_at_msg:readonly}` OR `{im:message.group_at_msg}`（legacy） | 群中 @Bot 不触发 |
+| Bot 发消息 | `{im:message:send_as_bot}` OR `{im:message}` OR `{im:message:send}`（legacy） | Agent 无法回复 |
+| 普通群消息 | `{im:message.group_msg}` OR `{im:message.group_msg:readonly}`（legacy） | 未 @ 消息无法进入群背景上下文 |
+| 历史消息 | `{im:message:readonly}` OR `{im:message}` OR `{im:message.history:readonly}`（legacy）；群聊历史在任一集合中再加入 `im:message.group_msg` | 断线补拉/群历史上下文不完整 |
+| THINKING reaction | `{im:message.reactions:write_only}` OR `{im:message}` | 思考表情不可用，消息主链路仍可用 |
+| 群信息 | `{im:chat:readonly}` OR `{im:chat:read}` OR `{im:chat}` OR `{im:chat.group_info:readonly}`（legacy） | 群影子会话标题可能退化为 ID |
 | Bot/长连接/事件订阅 | Bot probe、worker status；事件订阅无法由现有 API 确认时为 unknown | 无法接收事件或状态待确认 |
 
-飞书官方当前明确：接收普通群消息需要 `im:message.group_msg`；发送消息可用 `im:message:send_as_bot` 或 `im:message`；reaction 可用 `im:message.reactions:write_only`；群信息可用 `im:chat:readonly`。实现时以 provider catalog 常量集中维护，不把 scope 字符串散落在 UI。
+飞书官方“[查询租户授权状态](https://open.feishu.cn/document/uAjLw4CM/ukTMukTMukTM/application-v6/scope/list)”定义 `grant_status=1` 为已授权、`grant_status=2` 为未授权；[官方 Node SDK 的当前接口模型](https://github.com/larksuite/node-sdk/blob/main/code-gen/projects/application.ts)还返回 `scope_type=tenant|user` 用来区分应用身份与用户身份。[接收消息](https://open.feishu.cn/document/server-docs/im-v1/message/events/receive)仍接受 p2p、group-at 与普通群消息的 legacy 等价 scope；[发送消息](https://open.feishu.cn/document/server-docs/im-v1/message/create)仍接受 `im:message:send`；[获取会话历史消息](https://open.feishu.cn/document/server-docs/im-v1/message/list)仍接受 `im:message.history:readonly`；[权限点下线说明](https://open.feishu.cn/document/uAjLw4CM/ugTN1YjL4UTN24CO1UjN/platform-updates-/message-and-group-scope-removed)明确已经获得 `im:chat.group_info:readonly` 的存量应用不受下线影响。`recommended_scopes` 仍只推荐当前权限，legacy scope 仅用于识别现有授权。实现时以 provider catalog 常量集中维护，不把授权状态枚举、scope 字符串或等价关系散落在 UI。
+
+诊断汇总优先级固定为：任一检查确定 `missing` → `limited`；否则任一检查 `unknown` → `unknown`；全部 `satisfied` → `complete`。`limited` 可以同时携带其他 `unknown` 检查，页面既告诉用户已确认缺什么，也保留“还有哪些暂时无法确认”，不会因为允许降级使用而吞掉信息。
 
 每个诊断项返回：
 
@@ -266,9 +282,12 @@ Feishu provider 内部维护 capability catalog，每项包含 `check_id`、可�
 {
   "check_id": "feishu.group_messages",
   "state": "missing",
-  "required": ["im:message.group_msg"],
+  "required": {
+    "accepted_scope_sets": [["im:message.group_msg"]],
+    "recommended_scopes": ["im:message.group_msg"]
+  },
   "effect": "未 @Bot 的群消息不会进入群背景上下文",
-  "remediation": "在飞书开放平台为应用添加该权限并发布版本"
+  "remediation": "在飞书开放平台为应用添加该权限并发布应用"
 }
 ```
 
@@ -615,8 +634,8 @@ stateDiagram-v2
 | `#channels-empty` 通用空态与“添加通道” | must-match | Agent detail → 通道 | desktop + empty | M1-E1、M1-E2 |
 | `#add-feishu` provider 选择与轻量飞书向导 | must-match | 添加/编辑通道 | desktop + 已添加 provider 禁选 + required error + 显式 secret keep/replace | M1-E2、M1-E3、M1-E4 |
 | `#channel-connecting` 保存后的连接进度 | must-match | 新增/编辑保存 | online + connecting | M1-E4 |
-| `#channel-connected` 通用卡片与 desired/observed 信息层级 | must-match | 通道列表 | desktop + connected | M1-E5 |
-| `#channel-pending` 离线横幅和等待应用状态 | must-match | 通道列表 | desktop + node offline | M2-E1、M2-E2 |
+| `#channel-connected` 通用卡片与 desired/observed 信息层级 | must-match | 通道列表 | desktop + connected；显示“当前配置已应用”与最近状态时间，不显示内部 revision | M1-E5 |
+| `#channel-pending` 离线横幅和等待应用状态 | must-match | 通道列表 | desktop + node offline；显示“节点上线后自动应用”，不显示内部 revision | M2-E1、M2-E2 |
 | `#channel-actions` / `#channel-disabling` / `#channel-disabled` 启停与确认 | must-match | channel card actions | disable confirm → pending/disabling → observed disabled；re-enable → connecting；delete confirm | M2-E1、M2-E3、M2-E5 |
 | `#channel-deleting` 删除 apply receipt | must-match | 删除确认后 | offline reload pending + stop failure/retry + applied 后空态 | M2-E1、M2-E5、M2-E8 |
 | `#channel-reconnecting` / `#channel-failed` | must-match | channel status | stable reconnecting + actionable credential/Bot/worker failure | M2-E4、M3-E2 |
@@ -678,6 +697,6 @@ stateDiagram-v2
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| M1 | 在线安全接入与热连接 | — | G1 | IM `ChannelControlStore` 独立事务 owner、channel tables/service/REST、node public-key registration、manifest head、完整 reconcile/status/metadata frames 与 envelope v1；Gateway `ChannelManager` 外部 seam、稳定 runtime identity、Feishu activation policy、双向 card-action IPC worker、registry 动态路由；前端通用 provider registry、channels list、飞书新增/编辑表单和 connected/failed 状态；对应 contract/unit/integration/frontend tests | **M1-E1 [reviewer]** 未配置时通道页显示通用空态和添加入口，不展示 Web IM。 **M1-E2 [reviewer]** 已有飞书时 provider picker 显示“已添加”并禁止第二个实例。 **M1-E3 [reviewer]** 向导只提供简短说明、指定开放平台链接、App ID/Secret 必填校验。 **M1-E4 [reviewer]** 在线保存无需改文件/重启，先显示 pending/connecting，最终显示 connected 或具体 failed；再次编辑不回显 secret，必须显式选择 keep 或 replace，replace 才出现必填输入。 **M1-E5 [reviewer]** 真实产品入口呈现 `#channel-connected` 的卡片层级和最近状态更新时间。 **M1-E6 [worker]** 独立 connection 的并发旧 revision 只有一个成功，desired+manifest 原子；envelope 固定向量、credential revision、AAD 篡改、key mismatch、跨 owner、响应/日志无 secret 全部受测。 **M1-E7 [worker]** 飞书 runtime 始终使用 `feishu:<agent_id>`；UI 新建和 legacy migration 都能持久化 owner/bot identity、启用 `feishu-doc`，审批 card action request/result（correlation/timeout/crash/first-wins）受测。 **M1-E8 [worker]** Feishu worker 可真实 stop/join，同节点两个 fake/Feishu listener 不争用事件循环，替换凭据不留下旧收发路径；原型三锚点有浏览器证据，前端 build 和最窄测试通过。 |
+| M1 | 在线安全接入与热连接 | — | G1 | IM `ChannelControlStore` 独立事务 owner、channel tables/service/REST、node public-key registration、manifest head、完整 reconcile/status/metadata frames 与 envelope v1；Gateway `ChannelManager` 外部 seam、稳定 runtime identity、Feishu activation policy、双向 card-action IPC worker、registry 动态路由；前端通用 provider registry、channels list、飞书新增/编辑表单和 connected/failed 状态；对应 contract/unit/integration/frontend tests | **M1-E1 [reviewer]** 未配置时通道页显示通用空态和添加入口，不展示 Web IM。 **M1-E2 [reviewer]** 已有飞书时 provider picker 显示“已添加”并禁止第二个实例。 **M1-E3 [reviewer]** 向导只提供简短说明、指定开放平台链接、App ID/Secret 必填校验。 **M1-E4 [reviewer]** 在线保存无需改文件/重启，先显示 pending/connecting，最终显示 connected 或具体 failed；再次编辑不回显 secret，必须显式选择 keep 或 replace，replace 才出现必填输入。 **M1-E5 [reviewer]** 真实产品入口呈现 `#channel-connected` 的卡片层级、最近状态更新时间和“当前配置已应用”，不展示内部 revision 或“版本 N”。 **M1-E6 [worker]** 独立 connection 的并发旧 revision 只有一个成功，desired+manifest 原子；envelope 固定向量、credential revision、AAD 篡改、key mismatch、跨 owner、响应/日志无 secret 全部受测。 **M1-E7 [worker]** 飞书 runtime 始终使用 `feishu:<agent_id>`；UI 新建和 legacy migration 都能持久化 owner/bot identity、启用 `feishu-doc`，审批 card action request/result（correlation/timeout/crash/first-wins）受测。 **M1-E8 [worker]** Feishu worker 可真实 stop/join，同节点两个 fake/Feishu listener 不争用事件循环，替换凭据不留下旧收发路径；原型三锚点有浏览器证据，前端 build 和最窄测试通过。 |
 | M2 | 离线收敛、迁移与完整生命周期 | M1 | G2 | 本地 encrypted manifest store、旧 YAML bootstrap/credentialRef/export-legacy、worktree e2e key/cache 隔离；离线 create/update/enable/disable/delete、manual reconnect 与重连时完整调和；前端 offline banner、pending projection、动作菜单和确认框；e2e reconcile tests | **M2-E1 [reviewer]** 节点离线时新增、修改、启用、停用、删除均保存成功并显示“等待节点应用”，不误报 connected。 **M2-E2 [reviewer]** 节点重连后无需再次保存，完整 manifest 自动收敛为真实终态。 **M2-E3 [reviewer]** 停用需确认且完成后不再收发，重新启用无需重填未变 secret。 **M2-E4 [reviewer]** 手动重连有稳定 connecting/reconnecting 状态和结果；离线点击得到可理解反馈。 **M2-E5 [reviewer]** 删除后卡片移除且后续不收发，既有飞书影子会话和历史仍可查看。 **M2-E6 [reviewer]** 旧 YAML 飞书配置首次上线后自动出现在通道页，之后空 manifest 不会复活已删除配置；IM 离线重启 Gateway 仍从密文 cache 启动。 **M2-E7 [worker]** 重复/stale manifest、离线最终态、半迁移失败、node_id/key_id mismatch、原子文件写、export-legacy、delete-no-cascade 全部受测；`e2e-up/down.sh` 隔离/清理新 key/cache。 **M2-E8 [worker]** 原型 `#channel-pending/#channel-actions/#channel-reconnecting/#channel-failed` 有真实浏览器证据并对账。 |
-| M3 | 权限诊断、异常态与响应式验收 | M2 | G3 | Feishu capability catalog、scope/config probes、structured status checks、user-stream status invalidation；前端 limited/unknown diagnostics、list error/retry、移动端 sheet；长青 delta 对账、关键旅程与真飞书 smoke | **M3-E1 [reviewer]** 基础链路可用但缺权限时显示“连接受限”，逐项展示 raw scope、影响和修复方向；缺 `im:message.group_msg` 明确说明群背景上下文不完整。 **M3-E2 [reviewer]** scope 检查失败显示“权限状态暂时无法确认”，不伪造缺失项；连接暂断显示 reconnecting 并自动恢复或允许手动重试。 **M3-E3 [reviewer]** channel list 读取失败显示错误和 retry，不渲染空态。 **M3-E4 [reviewer]** 375×812 下真实页面呈现 `#channels-mobile` 的单列卡片和底部 sheet，关键动作可触达。 **M3-E5 [worker]** catalog 覆盖当前 Feishu client 实际调用的 receive/send/history/reaction/chat 能力，missing/unknown/error 分类单测齐全。 **M3-E6 [worker]** user-stream 乱序/stale status 不覆盖新 revision，`status_updated_at` 始终来自 IM 接收时间且节点离线标为 stale，前端 query 精确失效受测。 **M3-E7 [worker]** 原型 `#channel-limited/#channels-error/#channels-mobile` 有真实浏览器证据；ruff、frontend test/build、`pytest -m "not e2e"` 通过，新测试文件遵守 400 行限制。 **M3-E8 [reviewer]** 真实飞书测试应用完成连接、受限诊断和 stop/restart smoke，期间无 secret 泄漏、无重复 listener。 |
+| M3 | 权限诊断、异常态与响应式验收 | M2 | G3 | Feishu capability catalog、scope/config probes、structured status checks、user-stream status invalidation；前端 limited/unknown diagnostics、list error/retry、移动端 sheet；长青 delta 对账、关键旅程与真飞书 smoke | **M3-E1 [reviewer]** 基础链路可用但缺权限时显示“连接受限”，逐项展示 raw scope、影响和修复方向；缺 `im:message.group_msg` 明确说明群背景上下文不完整。 **M3-E2 [reviewer]** scope 检查失败显示“权限状态暂时无法确认”，不伪造缺失项；连接暂断显示 reconnecting 并自动恢复或允许手动重试。 **M3-E3 [reviewer]** channel list 读取失败显示错误和 retry，不渲染空态。 **M3-E4 [reviewer]** 375×812 下真实页面呈现 `#channels-mobile` 的单列卡片和底部 sheet，关键动作可触达。 **M3-E5 [worker]** catalog 覆盖当前 Feishu client 实际调用的 receive/send/history/reaction/chat 能力；只把 `grant_status=1 + scope_type=tenant` 纳入已授权集合，`grant_status=2`、user identity、缺字段和未知枚举分别受测；catalog 中每个 current/legacy `accepted_scope_sets` 等价集合都分别证明可得到 `satisfied`，只有完整 probe 下全部集合不满足才为 `missing`，scope API/解析失败为 `unknown`。 **M3-E6 [worker]** user-stream 乱序/stale status 不覆盖新 revision，`status_updated_at` 始终来自 IM 接收时间且节点离线标为 stale，前端 query 精确失效受测。 **M3-E7 [worker]** 原型 `#channel-limited/#channels-error/#channels-mobile` 有真实浏览器证据；ruff、frontend test/build、`pytest -m "not e2e"` 通过，新测试文件遵守 400 行限制。 **M3-E8 [reviewer]** 真实飞书测试应用完成连接、受限诊断和 stop/restart smoke，期间无 secret 泄漏、无重复 listener。 |
