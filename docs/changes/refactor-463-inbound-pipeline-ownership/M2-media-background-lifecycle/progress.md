@@ -57,3 +57,20 @@
 - Rollback: 回退 C2 `f9f4992a5` 恢复 observer 裸 task 调度；C1 可随同回退。
 - Commits: C1=`c68f93a86`；C2=`f9f4992a5`；C3=本次 docs commit。
 - Next: R4 C1 锁定单一 80% deadline、O(1) producer seal、Kernel-before-consumer-drain、timeout isolation 与全图零残留。
+
+## R4 — 关闭完整 ingress resource graph 并证明真入口
+
+- Context: refactor-461 的 runtime cleanup 仍按 owner 顺序各自等待，未追踪 inbound root、queue worker、subscriber 与 detached delivery；internal HTTP、heartbeat 和 cron 也没有“同步拒绝新 work / Kernel 后 drain current work”的两段式关闭。首轮真栈还暴露出 deadline 到期取消 active queue worker 时，`CancelledError` 越过 pipeline 的 `except Exception`，使 IM relay 永久停在 `sent`。
+- Decision: `request_shutdown()` 首次调用记录 monotonic 起点，cleanup 第一条语句派生唯一 80% absolute deadline。dispatcher/internal handler/heartbeat/cron/queue/subscriber/channel 先 O(1) seal，settle admission 后先 `kernel.aclose()`；再以同一 deadline 并发 drain AppRunner、heartbeat current tick、cron current execution、accepted inbound roots、queue workers 与 subscriber，最后 repeat-drain delivery tracker、关闭 IM/resources。active worker 的 deadline cancellation 在重新抛出前发明确 failed lifecycle，作为 Kernel close 超时后的最后终态兜底。
+- Rationale: producer 的 admission switch 不再被 handler/tick 网络等待阻塞；Kernel terminal consumer 与投递保持存活到正确阶段。单项 timeout/异常只记录本 owner，不跳过资源图其余节点。queued-before-submit 与 active-after-submit 分别由 queue failure 和 Kernel/consumer terminal 收口，IM transport 不会先被关闭。
+- Evidence:
+  - Tests: shutdown resource graph、active relay cancellation、owner lifecycle 与文件大小 contract → `33 passed`；`ruff check src tests` → passed；全量非 e2e → `3367 passed, 1 skipped, 22 warnings`（33.82s）。
+  - Entry: 真 IM/Gateway 证据覆盖有效/坏图与恢复、后台哨兵回原 conversation 且 8 秒窗口内只出现一次、真前台 Bash `/stop`、SIGTERM 时 active relay `sent → failed`。真 GatewayRuntime/Kernel 的确定性 FIFO 场景得到 `second → failed(gateway_shutdown_before_submit)`、`first → failed(run was aborted)`；`im_service=None` 的 external channel 经真 LLM 返回 `OFFLINE651B70A9`。完整命令与输出见 `evidence/live-stack.md`。
+  - Frontend State Matrix: N/A（无前端变更）。
+  - Browser QA: N/A（无前端变更）。
+  - E2E/Regression: 临时真栈驱动执行后已删除；持久回归落在 concrete owner/shutdown 单测与既有 critical-path e2e。新增 `test_gateway_shutdown_resource_graph.py` 393 行，其他新增测试均低于 400 行。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: 回退 shutdown C2 `3651bf8e1` 与 active-terminal fix `85e4bb651`，再回退对应 C1；若资源图任一节点回退，M2 整体回退，不能保留半套 seal/drain。
+- Commits: resource graph C1=`f439a9f6b`、C2=`3651bf8e1`；active terminal C1=`8ee021809`、C2=`85e4bb651`；C3=本次 docs commit。
+- Next: 将 milestone 合入 `unit/refactor-463`、推送并清理 milestone branch/worktree，M3 才开始迁移最终 `SessionRunCoordinator`，不在 M2 重写 queue 算法。

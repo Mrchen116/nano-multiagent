@@ -8,14 +8,14 @@
 
 ## 退出标准
 
-- [ ] `ImageAttachmentResolver.resolve()` 返回 typed `ImageResolution(parts, failure)`，保留有效图片、raw URL、MIME authority、整轮失败和固定可见反馈语义。
-- [ ] `BackgroundSubscriptionManager` 公开验证 ensure-once、replay anchor、BACKGROUND_TASK dedupe key、seal 和 Kernel 后 close；已有 subscriber 在 Kernel 前不被 cancel。
-- [ ] `SessionRunQueue` 在 seal 时拒绝新 work、摘除尚未开始项并以明确 shutdown exception 完成 future，持续追踪/按同一 deadline drain worker；`InboundDispatcher` 同时追踪 loop task 与 thread-safe future roots。
-- [ ] observer 所有 detached coroutine 都经 concrete `RuntimeDeliveryTaskTracker`；producer 结束后 tracker close-and-repeat-drain，关闭后无 delivery task。
-- [ ] Gateway shutdown 在任何 await 前从首次 `request_shutdown()` 时点建立单个 80% absolute deadline；所有 producer O(1) seal，settle admission 后先 Kernel close，再以同一 deadline 并发 drain AppRunner、active heartbeat、cron、accepted roots、queue workers、subscribers，最后 delivery → IM。
-- [ ] active heartbeat/HTTP handler 不阻塞 Kernel close；单项 timeout/异常不跳过其余 drain；关闭后无 `bg-sse-sub:*`、queue worker、inbound root 或 delivery task。
-- [ ] 无旧 private callback post-wiring、`_InboundDispatcher`/`PipelineResult`/`RelayLifecycleUpdate` 旧 class re-export；新增/拆分测试文件不超过 400 行，最窄测试、`ruff check src tests` 与 `pytest -m "not e2e"` 全绿。
-- [ ] 隔离真栈 durable evidence 证明有效/失败图片、后台结果原会话且不重复、停止时 active/queued 明确终态，以及 IM 离线不阻断外部 channel；pytest/stub 只作回归补充。
+- [x] `ImageAttachmentResolver.resolve()` 返回 typed `ImageResolution(parts, failure)`，保留有效图片、raw URL、MIME authority、整轮失败和固定可见反馈语义。
+- [x] `BackgroundSubscriptionManager` 公开验证 ensure-once、replay anchor、BACKGROUND_TASK dedupe key、seal 和 Kernel 后 close；已有 subscriber 在 Kernel 前不被 cancel。
+- [x] `SessionRunQueue` 在 seal 时拒绝新 work、摘除尚未开始项并以明确 shutdown exception 完成 future，持续追踪/按同一 deadline drain worker；`InboundDispatcher` 同时追踪 loop task 与 thread-safe future roots。
+- [x] observer 所有 detached coroutine 都经 concrete `RuntimeDeliveryTaskTracker`；producer 结束后 tracker close-and-repeat-drain，关闭后无 delivery task。
+- [x] Gateway shutdown 在任何 await 前从首次 `request_shutdown()` 时点建立单个 80% absolute deadline；所有 producer O(1) seal，settle admission 后先 Kernel close，再以同一 deadline 并发 drain AppRunner、active heartbeat、cron、accepted roots、queue workers、subscribers，最后 delivery → IM。
+- [x] active heartbeat/HTTP handler 不阻塞 Kernel close；单项 timeout/异常不跳过其余 drain；关闭后无 `bg-sse-sub:*`、queue worker、inbound root 或 delivery task。
+- [x] 无旧 private callback post-wiring、`_InboundDispatcher`/`PipelineResult`/`RelayLifecycleUpdate` 旧 class re-export；新增/拆分测试文件不超过 400 行，最窄测试、`ruff check src tests` 与 `pytest -m "not e2e"` 全绿。
+- [x] 隔离真栈 durable evidence 证明有效/失败图片、后台结果原会话且不重复、停止时 active/queued 明确终态，以及 IM 离线不阻断外部 channel；pytest/stub 只作回归补充。
 
 ## 测试策略
 
@@ -51,6 +51,6 @@
 
 ### R4 — 关闭完整 ingress resource graph 并证明真入口
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 先提交单 deadline、O(1) seal、active heartbeat/HTTP、queued/active terminal、timeout isolation/零残留红测，再接 GatewayRuntime、internal dispatch、heartbeat、cron、consumer/delivery/IM 顺序；删除 private post-wiring/旧 class re-export；最后跑隔离真栈并落 durable evidence。
 - 验证: 相关最窄单测 + contract；`ruff check src tests`；`pytest -m "not e2e" -n 4 --dist worksteal`；隔离高位端口真栈图片/后台/stop/offline journey 与持久化对账。
