@@ -117,7 +117,7 @@ Gateway stop 反馈语义：
 
 同一 config 的 `start` / `stop` / `restart` 由 config 同目录的一把 lifecycle lock 串行化；
 `restart` 在同一次加锁期间完成 stop + start。新运行态只使用 `.gateway-state.json`
-（含 PID 与 `process_start`），不存在第二份 PID 真相、独立 Kernel PID 或 health endpoint。
+（含 PID 与 `process_start`）。
 
 Gateway ready 信号：
 - 默认路径下，终端会先返回 `Gateway started (pid=...)`；这是进程启动确认，不是 runtime/channel

@@ -17,14 +17,14 @@
 显式 `--foreground` 仅作 debug/高级模式。单实例 PID 锁防止对同一 config 重复启动。`stop`/`restart`
 必须先停止新入站、heartbeat、cron 和 dispatch 生产者,再收拢内核运行,最后关闭 IM/channel 资源;
 进行中的操作进入明确终态,终态事件有机会完成投递;关闭阶段的次要错误不得覆盖导致进程退出的最早
-真实错误。后台 parent 只确认 child 已写入 PID + process birth 且仍存活，不把该确认表述为 Kernel
-health 或 Gateway runtime/channel readiness。
+真实错误。后台 parent 只确认 child 已写入 PID + process birth 且仍存活；runtime/channel readiness
+由日志和 IM 节点状态呈现。
 
 #### Scenario: 默认启动后台常驻并尽快返回
 - **WHEN** 运维者执行 `python -m personal_assistant.main`(无子命令)
 - **THEN** Gateway 在脱离的子进程中后台启动,主命令确认 child 已写入 PID + process birth 且仍
   存活后打印 pid / IM service 状态 / 日志路径并尽快返回
-- **AND** 该确认不承诺 runtime/channel 已 ready,也不探测 Kernel HTTP health/readiness endpoint
+- **AND** runtime/channel readiness 由 `gateway.log` 或 IM 节点状态呈现
 
 #### Scenario: 重复启动被单实例锁拦下
 - **GIVEN** 某 config 已有一个存活的后台 Gateway
