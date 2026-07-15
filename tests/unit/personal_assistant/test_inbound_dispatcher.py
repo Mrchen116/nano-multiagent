@@ -79,3 +79,41 @@ async def test_dispatcher_tracks_threadsafe_roots_until_drain() -> None:
     pipeline.release.set()
     await drain_task
     assert pipeline.calls == ["thread-root"]
+
+
+@pytest.mark.asyncio
+async def test_threadsafe_proxy_cancellation_waits_for_loop_task_cleanup() -> None:
+    """Drain cannot return until the loop task acknowledges cancel and cleans up."""
+
+    class _CleanupPipeline(_BlockingPipeline):
+        def __init__(self) -> None:
+            super().__init__()
+            self.cleanup_started = asyncio.Event()
+            self.cleanup_release = asyncio.Event()
+
+        async def handle_inbound(self, message: Any) -> None:
+            self.calls.append(message)
+            self.started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                self.cleanup_started.set()
+                await self.cleanup_release.wait()
+                raise
+
+    pipeline = _CleanupPipeline()
+    dispatcher = InboundDispatcher(pipeline)
+    dispatcher.bind_loop(asyncio.get_running_loop())
+    await asyncio.to_thread(dispatcher, "thread-root")
+    await asyncio.wait_for(pipeline.started.wait(), timeout=1)
+
+    drain = asyncio.create_task(
+        dispatcher.drain(asyncio.get_running_loop().time() + 0.01)
+    )
+    await asyncio.wait_for(pipeline.cleanup_started.wait(), timeout=1)
+    returned_before_cleanup = drain.done()
+    pipeline.cleanup_release.set()
+    with pytest.raises(TimeoutError, match="inbound roots exceeded"):
+        await drain
+
+    assert returned_before_cleanup is False

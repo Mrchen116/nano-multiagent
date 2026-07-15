@@ -31,6 +31,24 @@ class _QueuedKernel:
             yield event
 
 
+class _YieldGatedKernel(_QueuedKernel):
+    """Pause after dequeuing so shutdown races with an already-buffered event."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.dequeued = asyncio.Event()
+        self.release_yield = asyncio.Event()
+
+    async def stream(self, session_id: str, *, after_sequence: int = 0):
+        self.calls.append((session_id, after_sequence))
+        self.started.set()
+        event = await self.events.get()
+        assert event is not None
+        self.dequeued.set()
+        await self.release_yield.wait()
+        yield event
+
+
 def _request(session_id: str = "sess-bg") -> BackgroundSubscriptionRequest:
     return BackgroundSubscriptionRequest(
         session_id=session_id,
@@ -150,3 +168,54 @@ async def test_session_event_uses_subscription_reply_context_after_binding_inval
     assert delivered == [("conv-original", "self_evolution_review")]
     await kernel.events.put(None)
     await manager.aclose(asyncio.get_running_loop().time() + 1)
+
+
+@pytest.mark.asyncio
+async def test_sealed_manager_allows_terminal_ensure_for_existing_session() -> None:
+    """Terminal cleanup may idempotently ensure a subscriber admitted before seal."""
+
+    kernel = _QueuedKernel()
+    manager = BackgroundSubscriptionManager(
+        kernel=kernel,
+        session_event_callback=lambda _context, _event: asyncio.sleep(0),
+    )
+    request = _request()
+    await manager.ensure(request)
+    await asyncio.wait_for(kernel.started.wait(), timeout=1)
+
+    manager.seal()
+    await manager.ensure(request)
+
+    assert kernel.calls == [("sess-bg", 7)]
+    await kernel.events.put(None)
+    await manager.aclose(asyncio.get_running_loop().time() + 1)
+
+
+@pytest.mark.asyncio
+async def test_close_consumes_event_dequeued_before_stop_request() -> None:
+    """A buffered terminal event remains deliverable after close requests stop."""
+
+    kernel = _YieldGatedKernel()
+    delivered: list[str] = []
+
+    async def _on_event(
+        _reply_context: ReplyContext, event: Mapping[str, Any]
+    ) -> None:
+        delivered.append(str(event["event"]))
+
+    manager = BackgroundSubscriptionManager(
+        kernel=kernel,
+        session_event_callback=_on_event,
+    )
+    await manager.ensure(_request())
+    await kernel.events.put({"event": "self_evolution_review"})
+    await asyncio.wait_for(kernel.dequeued.wait(), timeout=1)
+
+    close = asyncio.create_task(
+        manager.aclose(asyncio.get_running_loop().time() + 1)
+    )
+    await asyncio.sleep(0)
+    kernel.release_yield.set()
+    await close
+
+    assert delivered == ["self_evolution_review"]

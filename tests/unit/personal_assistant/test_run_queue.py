@@ -130,3 +130,33 @@ async def test_worker_drain_timeout_cancels_owned_worker() -> None:
     await asyncio.wait_for(cancelled.wait(), timeout=1)
     with pytest.raises(asyncio.CancelledError):
         await submit_task
+
+
+@pytest.mark.asyncio
+async def test_admission_timeout_names_session_and_stable_item() -> None:
+    """A stuck transition reports the exact queue partition and accepted item."""
+
+    queue = SessionRunQueue()
+    started = asyncio.Event()
+    release = asyncio.Event()
+    admission = asyncio.Event()
+
+    async def _blocked() -> None:
+        started.set()
+        await release.wait()
+
+    submit = asyncio.create_task(
+        queue.submit("sess-admission", _blocked, admission_event=admission)
+    )
+    await asyncio.wait_for(started.wait(), timeout=1)
+    queue.seal_and_cancel_pending()
+
+    with pytest.raises(TimeoutError) as exc_info:
+        await queue.settle_admission(asyncio.get_running_loop().time() + 0.01)
+
+    message = str(exc_info.value)
+    assert "session_key=sess-admission" in message
+    assert "item_id=item-1" in message
+    release.set()
+    await submit
+    await queue.drain_workers(asyncio.get_running_loop().time() + 1)

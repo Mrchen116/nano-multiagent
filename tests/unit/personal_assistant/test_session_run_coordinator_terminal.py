@@ -210,3 +210,47 @@ async def test_no_reply_never_reaches_group_or_external_target(
     result = await running
     assert result.reply_text == "NO_REPLY"
     assert result.outbound is None
+
+
+@pytest.mark.asyncio
+async def test_shutdown_fails_primary_and_steered_accepted_messages(
+    tmp_path: Path,
+) -> None:
+    """Every accepted relay item reaches terminal when its shared run is cancelled."""
+
+    kernel, catalog, binder, router, group_store = build_dependencies(tmp_path)
+    kernel.inject_steer = True
+    lifecycle: list[tuple[str, str]] = []
+
+    async def _capture(message, update) -> None:
+        lifecycle.append((message.text, update.phase))
+
+    coordinator = SessionRunCoordinator(
+        kernel=kernel,
+        session_binder=binder,
+        outbound_router=router,
+        group_context_store=group_store,
+        relay_lifecycle_callback=_capture,
+    )
+    primary_message = inbound(chat_id="shutdown", text="primary")
+    primary = asyncio.create_task(
+        coordinator.dispatch(_request(primary_message, catalog))
+    )
+    await kernel.wait_stream("run-1")
+
+    steered_message = inbound(chat_id="shutdown", text="steered")
+    steered = await coordinator.dispatch(_request(steered_message, catalog))
+    assert steered.run_id == "run-1"
+
+    coordinator.seal()
+    with pytest.raises(RuntimeError, match="queue"):
+        await coordinator.drain(asyncio.get_running_loop().time())
+    with pytest.raises(asyncio.CancelledError):
+        await primary
+
+    assert lifecycle == [
+        ("primary", "accepted"),
+        ("steered", "accepted"),
+        ("primary", "failed"),
+        ("steered", "failed"),
+    ]
