@@ -54,13 +54,15 @@ class SessionBindingRequest:
         session_key: Stable Gateway session key selected by routing.
         reply_context: Current reply target to refresh on successful reuse.
         message: Inbound message supplying immutable routing metadata.
-        gateway_internal_port: Internal dispatch port injected into session metadata.
+        gateway_internal_port: Legacy configured port used when no actual URL provider exists.
+        gateway_dispatch_url: Exact URL published by the active listener, when available.
     """
 
     session_key: str
     reply_context: ReplyContext
     message: InboundMessage
-    gateway_internal_port: int
+    gateway_internal_port: int | None = None
+    gateway_dispatch_url: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -197,6 +199,7 @@ class GatewaySessionBinder:
             request.message,
             agent=agent,
             gateway_internal_port=request.gateway_internal_port,
+            gateway_dispatch_url=request.gateway_dispatch_url,
         )
         session = await self._kernel.create_session(
             title=config.title,
@@ -431,18 +434,25 @@ def _build_session_metadata(
     message: InboundMessage,
     *,
     agent: LiveAgentSnapshot,
-    gateway_internal_port: int,
+    gateway_internal_port: int | None,
+    gateway_dispatch_url: str | None = None,
 ) -> dict[str, object]:
     """Build Kernel session metadata from one captured Agent snapshot."""
 
     config = agent.config
     metadata = dict(message.metadata)
-    result: dict[str, object] = {
-        "agent_id": agent.agent_id,
-        "gateway_dispatch_url": (
+    result: dict[str, object] = {"agent_id": agent.agent_id}
+    normalized_dispatch_url = (
+        gateway_dispatch_url.strip()
+        if isinstance(gateway_dispatch_url, str) and gateway_dispatch_url.strip()
+        else None
+    )
+    if normalized_dispatch_url is not None:
+        result["gateway_dispatch_url"] = normalized_dispatch_url
+    elif gateway_internal_port is not None:
+        result["gateway_dispatch_url"] = (
             f"http://127.0.0.1:{gateway_internal_port}/internal/dispatch"
-        ),
-    }
+        )
     conversation_id = metadata.get("conversation_id")
     if isinstance(conversation_id, str) and conversation_id.strip():
         result["conversation_id"] = conversation_id.strip()

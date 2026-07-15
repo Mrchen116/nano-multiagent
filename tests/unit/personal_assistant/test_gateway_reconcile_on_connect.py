@@ -10,7 +10,6 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, call
 
@@ -28,25 +27,9 @@ from personal_assistant.config.local_store import (
 from personal_assistant.gateway.agent_config_sync import (
     IMAgentConfigSync as _IMConfigSyncClient,
 )
-
-
-def _ownership(pipeline):
-    revision = 0
-
-    def _publish(agent):
-        nonlocal revision
-        revision += 1
-        pipeline.register_agent(agent)
-        return SimpleNamespace(revision=revision)
-
-    return {
-        "agent_catalog": SimpleNamespace(publish=_publish, get=lambda _agent_id: None),
-        "session_binder": SimpleNamespace(
-            invalidate_stale=lambda agent_id, **_kwargs: pipeline.drop_agent_sessions(
-                agent_id
-            )
-        ),
-    }
+from tests.unit.personal_assistant._config_sync_test_owners import (
+    build_config_sync_test_owners,
+)
 
 
 from agent.core.llm.config import LLMConfigPayload, LLMModelPayload, LLMProviderPayload
@@ -61,20 +44,6 @@ _DEFAULT_LLM = LLMConfigPayload(
         ),
     ),
 )
-
-
-class _FakePipeline:
-    """记录 register_agent 调用，供断言使用。"""
-
-    def __init__(self) -> None:
-        self.registered: list[AgentWorkspaceConfig] = []
-        self.dropped: list[str] = []
-
-    def register_agent(self, agent: AgentWorkspaceConfig) -> None:
-        self.registered.append(agent)
-
-    def drop_agent_sessions(self, agent_id: str) -> None:
-        self.dropped.append(agent_id)
 
 
 def _make_local_config(
@@ -116,12 +85,12 @@ def test_reconcile_updates_disabled_heartbeat_when_missed_incremental_push(
 
     这是 bug C 的核心场景：如果没有对账，gateway 一直认为 heartbeat=True 继续打。
     """
-    pipeline = _FakePipeline()
     # gateway 内存中 agent 的 heartbeat feature 是 True（旧值）
     local_config = _make_local_config(
         tmp_path,
         [("agent-x", {"features": {"heartbeat": True}})],
     )
+    owners = build_config_sync_test_owners(local_config)
 
     ws = tmp_path / "agent-x"
 
@@ -148,20 +117,19 @@ def test_reconcile_updates_disabled_heartbeat_when_missed_incremental_push(
     sync_client = _IMConfigSyncClient(
         base_url="http://im.local:9000",
         token="tok",
-        **_ownership(pipeline),
+        **owners.kwargs(),
         local_config=local_config,
         client=client,
     )
 
-    # 对账前 pipeline 没有被调用
-    assert len(pipeline.registered) == 0
+    initial_revision = owners.catalog.require("agent-x").revision
 
     # 触发对账
     sync_client.reconcile_all_agents()
 
-    # 对账后 register_agent 被调用，且 heartbeat 已收敛到 False
-    assert len(pipeline.registered) == 1
-    registered = pipeline.registered[0]
+    registered_snapshot = owners.catalog.require("agent-x")
+    assert registered_snapshot.revision > initial_revision
+    registered = registered_snapshot.config
     assert registered.agent_id == "agent-x"
     assert registered.features.get("heartbeat") is False
     persisted = load_local_config(local_config.source_path)
@@ -177,8 +145,8 @@ def test_reconcile_persists_enabled_skills_for_live_config_after_restart(
     ``current_agent_payload()`` still reported the stale local empty skills list.
     """
 
-    pipeline = _FakePipeline()
     local_config = _make_local_config(tmp_path, [("agent-skills", {"skills": ()})])
+    owners = build_config_sync_test_owners(local_config)
     ws = tmp_path / "agent-skills"
     responses = iter(
         [
@@ -205,7 +173,7 @@ def test_reconcile_persists_enabled_skills_for_live_config_after_restart(
     sync_client = _IMConfigSyncClient(
         base_url="http://im.local:9000",
         token="tok",
-        **_ownership(pipeline),
+        **owners.kwargs(),
         local_config=local_config,
         client=client,
     )
@@ -217,7 +185,7 @@ def test_reconcile_persists_enabled_skills_for_live_config_after_restart(
         "systematic-debugging",
         "tdd-execution-worker",
     )
-    assert pipeline.registered[0].skills == expected
+    assert owners.catalog.require("agent-skills").config.skills == expected
     assert sync_client.current_agent_payload(agent_id="agent-skills")["skills"] == [
         *expected
     ]
@@ -237,11 +205,11 @@ def test_reconcile_skips_update_when_im_profile_version_is_older(
 
     IM mirror 可能返回旧版本（缓存延迟）；增量推送已带来更新版本时对账不应回退。
     """
-    pipeline = _FakePipeline()
     local_config = _make_local_config(
         tmp_path,
         [("agent-y", {"features": {"heartbeat": True}})],
     )
+    owners = build_config_sync_test_owners(local_config)
     # 内存中已知 agent-y 的 profile_version（通过增量推送写入）
     # reconcile 应在知道内存版本时才跳过；此场景用 reconcile_all_agents 接受 memory_versions 参数
     ws = tmp_path / "agent-y"
@@ -268,7 +236,7 @@ def test_reconcile_skips_update_when_im_profile_version_is_older(
     sync_client = _IMConfigSyncClient(
         base_url="http://im.local:9000",
         token="tok",
-        **_ownership(pipeline),
+        **owners.kwargs(),
         local_config=local_config,
         client=client,
     )
@@ -277,7 +245,7 @@ def test_reconcile_skips_update_when_im_profile_version_is_older(
     sync_client.reconcile_all_agents(memory_versions={"agent-y": 5})
 
     # IM 版本 2 < 内存版本 5 → 不覆盖
-    assert len(pipeline.registered) == 0
+    assert owners.catalog.require("agent-y").revision == 1
 
 
 # ---------------------------------------------------------------------------
@@ -289,11 +257,11 @@ def test_reconcile_updates_when_im_profile_version_is_equal_or_newer(
     tmp_path: Path,
 ) -> None:
     """对账拉到 profile_version >= 内存版本时，覆盖内存 config。"""
-    pipeline = _FakePipeline()
     local_config = _make_local_config(
         tmp_path,
         [("agent-z", {"features": {"heartbeat": True}})],
     )
+    owners = build_config_sync_test_owners(local_config)
     ws = tmp_path / "agent-z"
 
     responses = iter(
@@ -318,7 +286,7 @@ def test_reconcile_updates_when_im_profile_version_is_equal_or_newer(
     sync_client = _IMConfigSyncClient(
         base_url="http://im.local:9000",
         token="tok",
-        **_ownership(pipeline),
+        **owners.kwargs(),
         local_config=local_config,
         client=client,
     )
@@ -326,8 +294,7 @@ def test_reconcile_updates_when_im_profile_version_is_equal_or_newer(
     sync_client.reconcile_all_agents(memory_versions={"agent-z": 3})
 
     # IM 版本 3 >= 内存版本 3 → 覆盖
-    assert len(pipeline.registered) == 1
-    registered = pipeline.registered[0]
+    registered = owners.catalog.require("agent-z").config
     assert registered.features.get("heartbeat") is False
     assert registered.features.get("cron_scheduling") is True
 
@@ -336,11 +303,11 @@ def test_reconcile_ignores_mirror_workspace_root_and_uses_local_config(
     tmp_path: Path,
 ) -> None:
     """reconcile_all_agents must not let IM mirror workspace override local runtime."""
-    pipeline = _FakePipeline()
     local_config = _make_local_config(
         tmp_path,
         [("agent-local", {"features": {"heartbeat": True}})],
     )
+    owners = build_config_sync_test_owners(local_config)
     local_ws = local_config.agents[0].workspace_root
     dirty_im_ws = tmp_path / "dirty-im-mirror"
 
@@ -365,7 +332,7 @@ def test_reconcile_ignores_mirror_workspace_root_and_uses_local_config(
     sync_client = _IMConfigSyncClient(
         base_url="http://im.local:9000",
         token="tok",
-        **_ownership(pipeline),
+        **owners.kwargs(),
         local_config=local_config,
         client=client,
         workspace_root_factory=lambda agent_id: tmp_path / "factory" / agent_id,
@@ -373,8 +340,7 @@ def test_reconcile_ignores_mirror_workspace_root_and_uses_local_config(
 
     sync_client.reconcile_all_agents(memory_versions={"agent-local": 7})
 
-    assert len(pipeline.registered) == 1
-    registered = pipeline.registered[0]
+    registered = owners.catalog.require("agent-local").config
     assert registered.workspace_root == local_ws
     assert (local_ws / "HEARTBEAT.md").is_file()
     assert not dirty_im_ws.exists()

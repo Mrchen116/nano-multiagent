@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -10,6 +11,7 @@ import pytest
 from personal_assistant.channels.base import InboundMessage
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.gateway.channel_registry import ChannelRegistry
+from personal_assistant.gateway.internal_dispatch import InternalDispatchEndpoint
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
 from personal_assistant.gateway.session_keys import SessionBindingStore
@@ -56,4 +58,32 @@ def test_inbound_session_metadata_uses_configured_dispatch_port(
     assert result is not None
     assert kernel.create_session_calls[0]["metadata"]["gateway_dispatch_url"] == (
         f"http://127.0.0.1:{port}/internal/dispatch"
+    )
+
+
+def test_session_metadata_uses_published_listener_url_or_omits_it(tmp_path: Path) -> None:
+    """A session advertises only an endpoint published by a successful listener."""
+
+    workspace = tmp_path / "agent-a"
+    workspace.mkdir()
+    endpoint = InternalDispatchEndpoint()
+    kernel = _FakeKernel()
+    pipeline = build_inbound_pipeline(
+        kernel=kernel,
+        agents=(AgentWorkspaceConfig(agent_id="agent_a", workspace_root=workspace),),
+        outbound_router=OutboundRouter(ChannelRegistry((_FakeChannel("web_relay"),))),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        gateway_internal_port=0,
+        gateway_dispatch_url_provider=endpoint.current_url,
+    )
+
+    asyncio.run(pipeline.handle_inbound(_make_direct_message()))
+    assert "gateway_dispatch_url" not in kernel.create_session_calls[0]["metadata"]
+
+    endpoint.publish(host="127.0.0.1", port=43210)
+    second = replace(_make_direct_message(), external_chat_id="chat_2")
+    asyncio.run(pipeline.handle_inbound(second))
+    assert kernel.create_session_calls[1]["metadata"]["gateway_dispatch_url"] == (
+        "http://127.0.0.1:43210/internal/dispatch"
     )

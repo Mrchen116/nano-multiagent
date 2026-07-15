@@ -8,6 +8,7 @@ existing IM routing layer without requiring a separate process or service.
 from __future__ import annotations
 
 import json
+from threading import Lock
 from typing import Any, Callable, Mapping
 
 from personal_assistant.gateway.session_binder import (
@@ -15,6 +16,39 @@ from personal_assistant.gateway.session_binder import (
     GatewaySessionBinder,
     SessionProvenance,
 )
+
+
+class InternalDispatchEndpoint:
+    """Publish the URL of the listener that is currently accepting dispatches.
+
+    The runtime writes this owner only after ``aiohttp`` has successfully bound a
+    socket. Session creation reads it later, so metadata can never advertise a
+    configured port that failed to listen.
+    """
+
+    def __init__(self) -> None:
+        self._lock = Lock()
+        self._url: str | None = None
+
+    def publish(self, *, host: str, port: int) -> str:
+        """Publish and return the exact internal dispatch URL for a bound socket."""
+
+        url = f"http://{host}:{port}/internal/dispatch"
+        with self._lock:
+            self._url = url
+        return url
+
+    def clear(self) -> None:
+        """Remove a listener URL that is no longer accepting requests."""
+
+        with self._lock:
+            self._url = None
+
+    def current_url(self) -> str | None:
+        """Return the currently bound URL, or ``None`` before/after listener life."""
+
+        with self._lock:
+            return self._url
 
 
 class InternalDispatchHandler:

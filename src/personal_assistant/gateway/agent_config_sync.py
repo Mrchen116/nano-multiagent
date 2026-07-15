@@ -68,11 +68,6 @@ def _read_skill_name(skill_file: Path) -> str:
 class IMAgentConfigSync:
     """Fetch IM agent config snapshots and extend the live gateway agent registry."""
 
-    # bugfix-402-M6: optional callback invoked at the end of handle_agent_create
-    # so build_runtime can register a CronExecutionService for dynamically created
-    # agents without handle_agent_create needing to know about the cron subsystem.
-    on_agent_created: Callable[[str, Path], None] | None = None
-
     def __init__(
         self,
         *,
@@ -92,6 +87,7 @@ class IMAgentConfigSync:
         monotonic: Monotonic = time.monotonic,
         sleep: Sleep = time.sleep,
         token_getter: Callable[[], Awaitable[str | None]] | None = None,
+        on_agent_created: Callable[[str, Path], None] | None = None,
     ) -> None:
         self._base_url = _im_http_base_url(base_url)
         self._base_headers = _im_http_headers(token)
@@ -104,6 +100,7 @@ class IMAgentConfigSync:
         self._workspace_root_factory = (
             workspace_root_factory or self._default_workspace_root
         )
+        self._on_agent_created = on_agent_created
         self._reporter = reporter
         self._client_factory = client_factory
         self._client = client
@@ -307,12 +304,9 @@ class IMAgentConfigSync:
         self._publish_agent_config(agent_config)
         if self._reporter is not None:
             self._reporter.replace_agents(tuple(self._local_config.agents))
-        # bugfix-402-M6: notify build_runtime so it can register a
-        # CronExecutionService for this newly created agent.  The callback is
-        # wired after im_config_sync_client is constructed (see build_runtime).
-        if self.on_agent_created is not None:
+        if self._on_agent_created is not None:
             try:
-                self.on_agent_created(agent_id, workspace_root)
+                self._on_agent_created(agent_id, workspace_root)
             except Exception:  # noqa: BLE001
                 _log.warning(
                     "on_agent_created callback failed for agent=%s; "

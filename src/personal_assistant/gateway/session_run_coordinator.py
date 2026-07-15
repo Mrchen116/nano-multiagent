@@ -93,6 +93,7 @@ class SessionRunCoordinator:
         image_resolver: Image policy used exactly once per admitted message.
         background_subscriptions: Optional persistent session-event subscription owner.
         gateway_internal_port: Internal dispatch port written into new session metadata.
+        gateway_dispatch_url_provider: Current URL from the listener lifecycle owner.
         product_default_model: Product fallback when an Agent snapshot has no model.
         relay_lifecycle_callback: Optional relay accepted/running/terminal callback.
         kernel_event_observer: Optional runtime-delivery event translator.
@@ -117,6 +118,7 @@ class SessionRunCoordinator:
         image_resolver: ImageAttachmentResolver | None = None,
         background_subscriptions: BackgroundSubscriptionManager | None = None,
         gateway_internal_port: int = _DEFAULT_GATEWAY_INTERNAL_PORT,
+        gateway_dispatch_url_provider: Callable[[], str | None] | None = None,
         product_default_model: str | None = None,
         relay_lifecycle_callback: RelayLifecycleCallback | None = None,
         kernel_event_observer: Callable[[Mapping[str, Any]], object] | None = None,
@@ -135,6 +137,7 @@ class SessionRunCoordinator:
         self._image_resolver = image_resolver or ImageAttachmentResolver()
         self._background_subscriptions = background_subscriptions
         self._gateway_internal_port = gateway_internal_port
+        self._gateway_dispatch_url_provider = gateway_dispatch_url_provider
         self._product_default_model = product_default_model
         self._relay_lifecycle_callback = relay_lifecycle_callback
         self._kernel_event_observer = kernel_event_observer
@@ -614,26 +617,36 @@ class SessionRunCoordinator:
         return parts, None
 
     async def _ensure_binding(self, request: InboundRunRequest) -> SessionBinding:
+        dispatch_url, fallback_port = self._dispatch_endpoint_metadata()
         return await self._session_binder.resolve(
             SessionBindingRequest(
                 session_key=request.session_key,
                 reply_context=build_reply_context(request.message),
                 message=request.message,
-                gateway_internal_port=self._gateway_internal_port,
+                gateway_internal_port=fallback_port,
+                gateway_dispatch_url=dispatch_url,
             ),
             request.agent,
         )
 
     async def _ensure_binding_for_stop(self, request: StopRunRequest) -> SessionBinding:
+        dispatch_url, fallback_port = self._dispatch_endpoint_metadata()
         return await self._session_binder.resolve(
             SessionBindingRequest(
                 session_key=request.session_key,
                 reply_context=build_reply_context(request.message),
                 message=request.message,
-                gateway_internal_port=self._gateway_internal_port,
+                gateway_internal_port=fallback_port,
+                gateway_dispatch_url=dispatch_url,
             ),
             request.agent,
         )
+
+    def _dispatch_endpoint_metadata(self) -> tuple[str | None, int | None]:
+        provider = self._gateway_dispatch_url_provider
+        if provider is None:
+            return None, self._gateway_internal_port
+        return provider(), None
 
     async def _reply_image_failure(
         self,

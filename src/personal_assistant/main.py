@@ -89,7 +89,10 @@ from personal_assistant.gateway.runtime_delivery.observer import (
 from personal_assistant.gateway.runtime_delivery.task_tracker import (
     RuntimeDeliveryTaskTracker,
 )
-from personal_assistant.gateway.internal_dispatch import InternalDispatchHandler
+from personal_assistant.gateway.internal_dispatch import (
+    InternalDispatchEndpoint,
+    InternalDispatchHandler,
+)
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.session_keys import (
     PersistentSessionBindingStore,
@@ -1016,6 +1019,7 @@ class GatewayRuntime:
         resource_closers: tuple[Callable[[], None], ...] = (),
         feedback_sink: FeedbackSink = _emit_gateway_feedback,
         internal_dispatch_handler: InternalDispatchHandler | None = None,
+        internal_dispatch_endpoint: InternalDispatchEndpoint | None = None,
         gateway_internal_port: int = 8089,
         kernel: object | None = None,
         cron_dispatcher: CronServiceRegistry | None = None,
@@ -1032,6 +1036,7 @@ class GatewayRuntime:
         self._resource_closers = resource_closers
         self._feedback_sink = feedback_sink
         self._internal_dispatch_handler = internal_dispatch_handler
+        self._internal_dispatch_endpoint = internal_dispatch_endpoint
         self._gateway_internal_port = gateway_internal_port
         # bugfix-402-M3 R3: explicit kernel reference for ordered async shutdown
         # (Decision 7). Kernel is closed via aclose() between producers and consumers,
@@ -1097,27 +1102,36 @@ class GatewayRuntime:
         channels_started = False
         heartbeat_started = False
         dispatch_runner: Any | None = None
+        dispatch_site: Any | None = None
         im_task: asyncio.Task[None] | None = None
         try:
+            if self._internal_dispatch_handler is not None:
+                from aiohttp import web as _aiohttp_web
+
+                _dispatch_app = _aiohttp_web.Application()
+                _dispatch_app.router.add_post(
+                    "/internal/dispatch",
+                    self._internal_dispatch_handler.build_aiohttp_handler(),
+                )
+                dispatch_runner = _aiohttp_web.AppRunner(_dispatch_app)
+                await dispatch_runner.setup()
+                dispatch_site = _aiohttp_web.TCPSite(
+                    dispatch_runner, "127.0.0.1", self._gateway_internal_port
+                )
+                await dispatch_site.start()
+                dispatch_server = getattr(dispatch_site, "_server", None)
+                dispatch_sockets = getattr(dispatch_server, "sockets", ())
+                if not dispatch_sockets:
+                    raise RuntimeError(
+                        "internal dispatch listener started without a bound socket"
+                    )
+                actual_port = int(dispatch_sockets[0].getsockname()[1])
+                if self._internal_dispatch_endpoint is not None:
+                    self._internal_dispatch_endpoint.publish(
+                        host="127.0.0.1", port=actual_port
+                    )
             start_channels(self._channel_registry, self._on_inbound)
             channels_started = True
-            if self._internal_dispatch_handler is not None:
-                try:
-                    from aiohttp import web as _aiohttp_web
-
-                    _dispatch_app = _aiohttp_web.Application()
-                    _dispatch_app.router.add_post(
-                        "/internal/dispatch",
-                        self._internal_dispatch_handler.build_aiohttp_handler(),
-                    )
-                    dispatch_runner = _aiohttp_web.AppRunner(_dispatch_app)
-                    await dispatch_runner.setup()
-                    _dispatch_site = _aiohttp_web.TCPSite(
-                        dispatch_runner, "127.0.0.1", self._gateway_internal_port
-                    )
-                    await _dispatch_site.start()
-                except Exception:  # noqa: BLE001
-                    dispatch_runner = None
             await self._run_skill_maintenance()
             self._install_skill_batch_review_scheduler()
             self._ready_event.set()
@@ -1149,6 +1163,8 @@ class GatewayRuntime:
                 0.8 * self._config.gateway.shutdown_grace_seconds
             )
             self._ready_event.clear()
+            if self._internal_dispatch_endpoint is not None:
+                self._internal_dispatch_endpoint.clear()
 
             # Admission seal is deliberately synchronous: active HTTP handlers,
             # heartbeat ticks and inbound roots remain consumers until after Kernel
@@ -2296,7 +2312,8 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     im_config_sync_client: IMAgentConfigSync | None = None
     run_delivery_contexts = RunDeliveryContextStore()
     _owner_user_id = config.node.user_id or ""
-    _gateway_internal_port = 8089
+    _gateway_internal_port = 0
+    _internal_dispatch_endpoint = InternalDispatchEndpoint()
     shadow_sync: IMShadowConversationSync | None = None
     image_resolver = ImageAttachmentResolver()
 
@@ -2349,6 +2366,13 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             return
         resolver(request_id=request_id, decision=decision)
 
+    def _on_agent_created(agent_id: str, workspace_root: Path) -> None:
+        try:
+            gateway_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            gateway_loop = None
+        _register_cron_service(agent_id, workspace_root, gateway_loop=gateway_loop)
+
     if config.im_service is not None:
         relay_adapter = channel_registry.get("web_relay")
         if not isinstance(relay_adapter, WebRelayAdapter):
@@ -2377,6 +2401,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             reporter=reporter,
             workspace_root_factory=workspace_root_factory,
             global_skill_root=PA_SKILL_SEARCH_ROOTS[0],
+            on_agent_created=_on_agent_created,
         )
         # Build a token_getter closure that auto-refreshes the access token on reconnect.
         # The auth client uses the IM HTTP base URL so it can reach /im/v1/auth/* endpoints.
@@ -2410,22 +2435,6 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         # M3: permission response handler is no longer wired — the SDK's can_use_tool
         # callback handles all permission decisions in-process (design decision 3).
         _im_sync_client = ConfigSyncClient(fetcher=im_config_sync_client.sync_agent)
-
-        # bugfix-402-M6: wire cron service registration into the agent-create callback
-        # so dynamically created agents (via IM agent.create push) also get a
-        # CronExecutionService registered before their first cron tick fires.
-        #
-        # bugfix-402 round-2 code-review fix: capture the running loop at call site
-        # (inside the WS event loop) so the service gets a valid loop immediately
-        # instead of relying on get_running_loop() inside _register_cron_service.
-        def _on_agent_created(agent_id: str, workspace_root: Path) -> None:
-            try:
-                _loop = asyncio.get_running_loop()
-            except RuntimeError:
-                _loop = None
-            _register_cron_service(agent_id, workspace_root, gateway_loop=_loop)
-
-        im_config_sync_client.on_agent_created = _on_agent_created
 
         im_bootstrap_client = _IMBootstrapClient(
             base_url=_im_http_base_url(config.im_service.url),
@@ -2524,6 +2533,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         outbound_router=outbound_router,
         group_context_store=group_context_store,
         gateway_internal_port=_gateway_internal_port,
+        gateway_dispatch_url_provider=_internal_dispatch_endpoint.current_url,
         product_default_model=config.llm.default_model,
         relay_lifecycle_callback=relay_lifecycle_callback,
         kernel_event_observer=_kernel_event_observer,
@@ -2875,6 +2885,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         on_inbound=inbound_dispatcher,
         resource_closers=tuple(closers),
         internal_dispatch_handler=internal_dispatch_handler,
+        internal_dispatch_endpoint=_internal_dispatch_endpoint,
         kernel=kernel,
         cron_dispatcher=_cron_dispatcher,
         run_coordinator=run_coordinator,

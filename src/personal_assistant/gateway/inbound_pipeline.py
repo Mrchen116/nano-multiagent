@@ -144,7 +144,12 @@ class InboundPipeline:
         self, message: InboundMessage, *, agent_id: str
     ) -> InboundMessage:
         sync = self._shadow_sync
-        if sync is None or external_identity_from_message(message) is None:
+        external_identity = external_identity_from_message(message)
+        if (
+            sync is None
+            or external_identity is None
+            or external_identity.trigger_source == "im"
+        ):
             return message
         metadata = dict(message.metadata)
         try:

@@ -297,7 +297,6 @@ class IMConnectionManager:
         self._events.append({"event": "connected", "url": self._config.websocket_url()})
         try:
             await self._send_frame("node.register", self._reporter.send_register())
-            self._start_heartbeat_loop()
             await self._flush_pending_frames(raise_on_disconnect=True)
         except Exception as exc:  # noqa: BLE001
             await self._disconnect_current_websocket(exc)
@@ -447,6 +446,10 @@ class IMConnectionManager:
         return self._stop_requested or stop_task in done
 
     async def _listen_once(self) -> None:
+        # Heartbeat needs the receive path to be active so its ack can be consumed.
+        # Starting it in connect_once races a slow on_connected reconcile against a
+        # buffered ack and falsely tears down a healthy socket.
+        self._start_heartbeat_loop()
         websocket = self._require_websocket()
         raw = await websocket.recv()
         payload = _decode_message(raw)
