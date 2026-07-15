@@ -26,6 +26,8 @@ class GatewayShutdownBeforeSubmit(RuntimeError):
 
 @dataclass(slots=True)
 class _QueueItem(Generic[T]):
+    session_key: str
+    item_id: str
     future: asyncio.Future[T]
     operation: Callable[[], Awaitable[T]]
     on_cancel: Callable[[GatewayShutdownBeforeSubmit], Awaitable[None]] | None
@@ -51,6 +53,7 @@ class SessionRunQueue:
         self._workers: dict[str, asyncio.Task[None]] = {}
         self._settlement_tasks: set[asyncio.Task[None]] = set()
         self._sealed = False
+        self._item_sequence = 0
 
     async def submit(
         self,
@@ -81,9 +84,12 @@ class SessionRunQueue:
         if self._sealed:
             raise SessionRunQueueSealed("session run queue is sealed")
         loop = asyncio.get_running_loop()
+        self._item_sequence += 1
         future: asyncio.Future[T] = loop.create_future()
         owns_admission_event = admission_event is None
         item = _QueueItem(
+            session_key=session_key,
+            item_id=f"item-{self._item_sequence}",
             future=future,
             operation=operation,
             on_cancel=on_cancel,
@@ -120,7 +126,13 @@ class SessionRunQueue:
         if self._sealed:
             self._cancel_pending_items()
         event_waiters = [
-            asyncio.create_task(item.admission_event.wait())
+            asyncio.create_task(
+                item.admission_event.wait(),
+                name=(
+                    "session-run-admission:"
+                    f"session_key={item.session_key}:item_id={item.item_id}"
+                ),
+            )
             for queue in self._queues.values()
             for item in queue
             if not item.admission_event.is_set()
@@ -136,10 +148,14 @@ class SessionRunQueue:
         _, pending = await asyncio.wait(waiters, timeout=remaining)
         if not pending:
             return
+        pending_names = sorted(item.get_name() for item in pending)
         for pending_item in pending:
             pending_item.cancel()
         await asyncio.gather(*pending, return_exceptions=True)
-        raise TimeoutError("session run queue admission did not settle before deadline")
+        raise TimeoutError(
+            "session run queue admission did not settle before deadline: "
+            + ", ".join(pending_names)
+        )
 
     def _cancel_pending_items(self) -> None:
         """Detach shutdown-pending work inside the owner-controlled async phase."""
@@ -216,7 +232,10 @@ class SessionRunQueue:
             return
         task = asyncio.get_running_loop().create_task(
             item.on_cancel(error),
-            name="session-run-queue:cancel-lifecycle",
+            name=(
+                "session-run-queue:cancel-lifecycle:"
+                f"session_key={item.session_key}:item_id={item.item_id}"
+            ),
         )
         self._settlement_tasks.add(task)
         task.add_done_callback(self._settlement_tasks.discard)

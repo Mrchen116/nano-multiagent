@@ -76,8 +76,6 @@ class BackgroundSubscriptionManager:
             RuntimeError: When new subscription admission has been sealed.
         """
 
-        if self._sealed:
-            raise RuntimeError("background subscription manager is sealed")
         has_session_delivery = (
             self._session_event_callback is not None
             and request.reply_context is not None
@@ -85,12 +83,12 @@ class BackgroundSubscriptionManager:
         has_background_delivery = (
             request.reply_context is not None and self._bg_reply_sender is not None
         )
-        if not has_session_delivery and not has_background_delivery:
-            return
         async with self._lock:
+            if request.session_id in self._subscribers:
+                return
             if self._sealed:
                 raise RuntimeError("background subscription manager is sealed")
-            if request.session_id in self._subscribers:
+            if not has_session_delivery and not has_background_delivery:
                 return
             subscriber = self._build_subscriber(request)
             self._subscribers[request.session_id] = subscriber

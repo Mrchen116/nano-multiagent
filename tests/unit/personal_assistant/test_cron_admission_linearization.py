@@ -19,7 +19,6 @@ async def test_request_stop_cannot_pass_acceptance_before_task_registration(
 
     lookup_started = threading.Event()
     release_lookup = threading.Event()
-    stop_returned = threading.Event()
     execution_started = asyncio.Event()
     release_execution = asyncio.Event()
 
@@ -50,22 +49,27 @@ async def test_request_stop_cannot_pass_acceptance_before_task_registration(
 
     service._job_store.get = _blocking_get  # type: ignore[method-assign]  # noqa: SLF001
 
-    def _stop() -> None:
-        service.request_stop()
-        stop_returned.set()
-
     enqueue = asyncio.create_task(
         asyncio.to_thread(service.enqueue, job_id="job-1", trigger="manual")
     )
     assert await asyncio.to_thread(lookup_started.wait, 1)
-    stop = asyncio.create_task(asyncio.to_thread(_stop))
-    stopped_before_registration = await asyncio.to_thread(stop_returned.wait, 0.05)
+    service.request_stop()
+    drain = asyncio.create_task(
+        service.drain(asyncio.get_running_loop().time() + 1)
+    )
+    await asyncio.sleep(0.05)
+    drained_before_registration = drain.done()
     release_lookup.set()
     ack = await enqueue
-    await stop
-    await asyncio.wait_for(execution_started.wait(), timeout=1)
-    release_execution.set()
-    await service.drain(asyncio.get_running_loop().time() + 1)
+    if ack["accepted"]:
+        await asyncio.wait_for(execution_started.wait(), timeout=1)
+        release_execution.set()
+    await drain
 
-    assert ack["accepted"] is True
-    assert stopped_before_registration is False
+    assert ack == {
+        "accepted": False,
+        "job_id": "job-1",
+        "request_id": None,
+        "error_code": "cron_unavailable",
+    }
+    assert drained_before_registration is False

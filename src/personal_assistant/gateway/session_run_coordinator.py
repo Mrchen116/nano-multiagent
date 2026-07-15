@@ -141,6 +141,7 @@ class SessionRunCoordinator:
         self._bg_reply_sender = bg_reply_sender
         self._run_idle_timeout_seconds = run_idle_timeout_seconds
         self._active_runs: dict[str, _ActiveRunHandle] = {}
+        self._steered_requests: dict[str, list[InboundRunRequest]] = {}
         self._user_interrupted_runs: set[str] = set()
         self._transition_locks: OrderedDict[str, asyncio.Lock] = OrderedDict()
         self._transition_lock_users: dict[str, int] = {}
@@ -178,6 +179,9 @@ class SessionRunCoordinator:
                         model=self._resolve_agent_model(active.agent),
                     )
                     if getattr(record, "injected", False):
+                        self._steered_requests.setdefault(active.run_id, []).append(
+                            request
+                        )
                         injected_result = PipelineResult(
                             agent_id=request.agent.agent_id,
                             session_key=request.session_key,
@@ -354,6 +358,8 @@ class SessionRunCoordinator:
     ) -> PipelineResult:
         run_id: str | None = None
         binding: SessionBinding | None = None
+        terminal_followers: tuple[InboundRunRequest, ...] = ()
+        active_closed = False
         try:
             failure_kind: str | None = None
             async with self._transition(request.session_key):
@@ -403,6 +409,11 @@ class SessionRunCoordinator:
                 anchor_sequence=anchor_sequence,
                 on_other=lambda event: self._on_other_event(event, binding=binding),
             )
+            terminal_followers = await self._close_active_run(
+                session_key=request.session_key,
+                run_id=run_id or "",
+            )
+            active_closed = True
             if self._background_subscriptions is not None:
                 await self._background_subscriptions.ensure(
                     BackgroundSubscriptionRequest(
@@ -437,56 +448,91 @@ class SessionRunCoordinator:
                 reply_text=reply_text,
                 outbound=outbound,
             )
-            await self._emit_lifecycle(
-                request.message,
-                RelayLifecycleUpdate(
-                    phase="completed",
-                    agent_id=request.agent.agent_id,
-                    session_key=request.session_key,
-                    run_id=run_id,
-                    reply_text=reply_text,
-                    detail=detail,
-                    usage=self._extract_usage(run_state),
-                ),
+            completed = RelayLifecycleUpdate(
+                phase="completed",
+                agent_id=request.agent.agent_id,
+                session_key=request.session_key,
+                run_id=run_id,
+                reply_text=reply_text,
+                detail=detail,
+                usage=self._extract_usage(run_state),
             )
+            await self._emit_lifecycle(request.message, completed)
+            await self._emit_follower_lifecycle(terminal_followers, completed)
             return result
         except asyncio.CancelledError:
             try:
-                await self._emit_lifecycle(
-                    request.message,
-                    RelayLifecycleUpdate(
-                        phase="failed",
-                        agent_id=request.agent.agent_id,
+                if run_id and not active_closed:
+                    terminal_followers = await self._close_active_run(
                         session_key=request.session_key,
                         run_id=run_id,
-                        error=_SHUTDOWN_ACTIVE_RUN_CANCELLED,
-                    ),
+                    )
+                    active_closed = True
+                failed = RelayLifecycleUpdate(
+                    phase="failed",
+                    agent_id=request.agent.agent_id,
+                    session_key=request.session_key,
+                    run_id=run_id,
+                    error=_SHUTDOWN_ACTIVE_RUN_CANCELLED,
                 )
+                await self._emit_lifecycle(request.message, failed)
+                await self._emit_follower_lifecycle(terminal_followers, failed)
             finally:
                 admission_event.set()
             raise
         except Exception as exc:
             try:
-                await self._emit_lifecycle(
-                    request.message,
-                    RelayLifecycleUpdate(
-                        phase="failed",
-                        agent_id=request.agent.agent_id,
+                if run_id and not active_closed:
+                    terminal_followers = await self._close_active_run(
                         session_key=request.session_key,
                         run_id=run_id,
-                        error=str(exc),
-                    ),
+                    )
+                    active_closed = True
+                failed = RelayLifecycleUpdate(
+                    phase="failed",
+                    agent_id=request.agent.agent_id,
+                    session_key=request.session_key,
+                    run_id=run_id,
+                    error=str(exc),
                 )
+                await self._emit_lifecycle(request.message, failed)
+                await self._emit_follower_lifecycle(terminal_followers, failed)
             finally:
                 admission_event.set()
             raise
         finally:
-            if run_id:
-                async with self._transition(request.session_key):
-                    active = self._active_runs.get(request.session_key)
-                    if active is not None and active.run_id == run_id:
-                        self._active_runs.pop(request.session_key, None)
-                    self._user_interrupted_runs.discard(run_id)
+            if run_id and not active_closed:
+                await self._close_active_run(
+                    session_key=request.session_key,
+                    run_id=run_id,
+                )
+
+    async def _close_active_run(
+        self, *, session_key: str, run_id: str
+    ) -> tuple[InboundRunRequest, ...]:
+        """Atomically stop steer admission and capture every accepted follower."""
+
+        async with self._transition(session_key):
+            active = self._active_runs.get(session_key)
+            if active is not None and active.run_id == run_id:
+                self._active_runs.pop(session_key, None)
+            self._user_interrupted_runs.discard(run_id)
+            return tuple(self._steered_requests.pop(run_id, ()))
+
+    async def _emit_follower_lifecycle(
+        self,
+        followers: tuple[InboundRunRequest, ...],
+        update: RelayLifecycleUpdate,
+    ) -> None:
+        for follower in followers:
+            await self._emit_lifecycle(
+                follower.message,
+                replace(
+                    update,
+                    agent_id=follower.agent.agent_id,
+                    session_key=follower.session_key,
+                ),
+            )
 
     async def _on_other_event(
         self, event: Mapping[str, object], *, binding: SessionBinding

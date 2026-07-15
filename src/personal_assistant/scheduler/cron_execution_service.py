@@ -357,131 +357,117 @@ class CronExecutionService:
                 request_id (str | None): Stable request ID for history tracking.
                 error_code (str | None): "job_not_found", "job_disabled", or "cron_unavailable".
         """
+        # Register an admission token in the same tiny critical section as the seal
+        # check. Shutdown may then set its O(1) seal without waiting for job-store I/O;
+        # drain still observes this request until validation rejects it or its task ends.
         with self._pending_lock:
-            sealed = self._sealed
-        if sealed:
-            return {
-                "accepted": False,
-                "job_id": job_id,
-                "request_id": None,
-                "error_code": "cron_unavailable",
-            }
+            if self._sealed:
+                return self._rejected_ack(job_id, "cron_unavailable")
+            self._pending_count += 1
 
-        job = self._job_store.get(job_id)
-        if job is None:
-            return {
-                "accepted": False,
-                "job_id": job_id,
-                "request_id": None,
-                "error_code": "job_not_found",
-            }
-        if not job.enabled:
-            return {
-                "accepted": False,
-                "job_id": job_id,
-                "request_id": None,
-                "error_code": "job_disabled",
-            }
-
-        request_id = _new_request_id()
-        now = _utc_now()
-
-        # Persist accepted record before dispatching execute_fn.
-        self._runs_store.append(
-            CronRunRecord(
-                request_id=request_id,
-                job_id=job_id,
-                trigger=trigger,
-                status="accepted",
-                accepted_at=now,
-            )
-        )
-
-        # Schedule execution (fire-and-forget from caller's perspective).
-        # execute_fn is responsible for calling runs_store.update_status().
-        #
-        # enqueue() can be called from two contexts:
-        #   A. Gateway asyncio loop (scheduled cron ticks): ensure_future directly.
-        #   B. Worker thread via asyncio.to_thread (tool.run() from kernel): use
-        #      call_soon_threadsafe on the injected gateway_loop so the coroutine
-        #      lands on the correct loop.
-        coro = self._execute_fn(
-            agent_id=self._agent_id,
-            job_id=job_id,
-            request_id=request_id,
-            trigger=trigger,
-        )
-
+        owns_pending_token = True
         try:
-            running_loop = asyncio.get_running_loop()
-        except RuntimeError:
-            running_loop = None
+            job = self._job_store.get(job_id)
+            if job is None:
+                self._complete_pending()
+                owns_pending_token = False
+                return self._rejected_ack(job_id, "job_not_found")
+            if not job.enabled:
+                self._complete_pending()
+                owns_pending_token = False
+                return self._rejected_ack(job_id, "job_disabled")
+            if self._sealed:
+                self._complete_pending()
+                owns_pending_token = False
+                return self._rejected_ack(job_id, "cron_unavailable")
 
-        if running_loop is not None:
-            # Context A: already inside an asyncio loop (e.g. scheduled tick).
-            # bugfix-402-M6 W-1: use create_task so we get a Task handle for drain().
-            with self._pending_lock:
-                self._pending_count += 1
-            task = running_loop.create_task(coro, name=f"cron-execute-{request_id}")
-            self._pending_tasks.append(task)
-
-            def _on_done_a(t: asyncio.Task) -> None:
-                if t in self._pending_tasks:
-                    self._pending_tasks.remove(t)
-                with self._pending_zero:
-                    self._pending_count -= 1
-                    if self._pending_count == 0:
-                        self._pending_zero.notify_all()
-
-            task.add_done_callback(_on_done_a)
-        elif self._gateway_loop is not None and self._gateway_loop.is_running():
-            # Context B: called from a sync thread; schedule on the Gateway loop.
-            # bugfix-402-M6 W-1: create_task via call_soon_threadsafe for drain tracking.
-            #
-            # bugfix-402 code-review fix: increment _pending_count BEFORE
-            # call_soon_threadsafe so drain()'s "wait for count==0" gate sees the
-            # in-flight submission even before _schedule_with_tracking runs on the loop.
-            # Without this, drain() could snapshot _pending_tasks before the callback
-            # fires and miss the task entirely.
-            with self._pending_lock:
-                self._pending_count += 1
-
-            def _schedule_with_tracking(c=coro) -> None:
-                t = self._gateway_loop.create_task(c, name=f"cron-execute-{request_id}")  # type: ignore[union-attr]
-                self._pending_tasks.append(t)
-
-                def _on_done_b(done: asyncio.Task) -> None:
-                    if done in self._pending_tasks:
-                        self._pending_tasks.remove(done)
-                    with self._pending_zero:
-                        self._pending_count -= 1
-                        if self._pending_count == 0:
-                            self._pending_zero.notify_all()
-
-                t.add_done_callback(_on_done_b)
-
-            self._gateway_loop.call_soon_threadsafe(_schedule_with_tracking)
-        else:
-            _log.warning(
-                "cron enqueue: no running event loop; execute_fn not scheduled "
-                "(agent=%s job=%s request=%s)",
-                self._agent_id,
-                job_id,
-                request_id,
+            request_id = _new_request_id()
+            self._runs_store.append(
+                CronRunRecord(
+                    request_id=request_id,
+                    job_id=job_id,
+                    trigger=trigger,
+                    status="accepted",
+                    accepted_at=_utc_now(),
+                )
+            )
+            coro = self._execute_fn(
+                agent_id=self._agent_id,
+                job_id=job_id,
+                request_id=request_id,
+                trigger=trigger,
             )
 
+            try:
+                running_loop = asyncio.get_running_loop()
+            except RuntimeError:
+                running_loop = None
+
+            if running_loop is not None:
+                task = running_loop.create_task(
+                    coro, name=f"cron-execute-{request_id}"
+                )
+                self._pending_tasks.append(task)
+                task.add_done_callback(self._on_execution_done)
+                owns_pending_token = False
+            elif self._gateway_loop is not None and self._gateway_loop.is_running():
+                def _schedule_with_tracking(c=coro) -> None:
+                    assert self._gateway_loop is not None
+                    task = self._gateway_loop.create_task(
+                        c, name=f"cron-execute-{request_id}"
+                    )
+                    self._pending_tasks.append(task)
+                    task.add_done_callback(self._on_execution_done)
+
+                self._gateway_loop.call_soon_threadsafe(_schedule_with_tracking)
+                owns_pending_token = False
+            else:
+                coro.close()
+                self._complete_pending()
+                owns_pending_token = False
+                _log.warning(
+                    "cron enqueue: no running event loop; execute_fn not scheduled "
+                    "(agent=%s job=%s request=%s)",
+                    self._agent_id,
+                    job_id,
+                    request_id,
+                )
+
+            return {
+                "accepted": True,
+                "job_id": job_id,
+                "request_id": request_id,
+                "error_code": None,
+            }
+        except BaseException:
+            if owns_pending_token:
+                self._complete_pending()
+            raise
+
+    @staticmethod
+    def _rejected_ack(job_id: str, error_code: str) -> Mapping[str, Any]:
         return {
-            "accepted": True,
+            "accepted": False,
             "job_id": job_id,
-            "request_id": request_id,
-            "error_code": None,
+            "request_id": None,
+            "error_code": error_code,
         }
+
+    def _on_execution_done(self, task: asyncio.Task) -> None:
+        if task in self._pending_tasks:
+            self._pending_tasks.remove(task)
+        self._complete_pending()
+
+    def _complete_pending(self) -> None:
+        with self._pending_zero:
+            self._pending_count -= 1
+            if self._pending_count == 0:
+                self._pending_zero.notify_all()
 
     def request_stop(self) -> None:
         """Synchronously reject new cron execution admission."""
 
-        with self._pending_lock:
-            self._sealed = True
+        self._sealed = True
 
     async def drain(self, deadline: float) -> None:
         """Await all pending execute_fn tasks by one absolute deadline.
@@ -531,7 +517,7 @@ class CronExecutionService:
         reached_zero = await asyncio.to_thread(_wait_for_zero)
 
         pending = list(self._pending_tasks)
-        if not pending:
+        if not pending and reached_zero:
             return
 
         _log.debug(
@@ -543,10 +529,13 @@ class CronExecutionService:
 
         remaining_timeout = max(0.0, deadline - loop.time())
         try:
-            await asyncio.wait_for(
-                asyncio.gather(*pending, return_exceptions=True),
-                timeout=remaining_timeout if reached_zero else 0.0,
-            )
+            if pending:
+                await asyncio.wait_for(
+                    asyncio.gather(*pending, return_exceptions=True),
+                    timeout=remaining_timeout if reached_zero else 0.0,
+                )
+            elif not reached_zero:
+                raise TimeoutError
         except (asyncio.TimeoutError, TimeoutError):
             _log.warning(
                 "cron drain: %d task(s) exceeded Gateway deadline — cancelling (agent=%s)",

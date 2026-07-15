@@ -160,8 +160,6 @@ class BackgroundSessionEventSubscriber:
                     last_event_id=last_sequence if last_sequence > 0 else None,
                     workspace_root=self._workspace_root,  # Refs #64
                 ):
-                    if self._stop_event.is_set():
-                        return
                     # Track sequence for reconnect replay.
                     seq = event.get("_id") or event.get("sequence_num")
                     if isinstance(seq, int):
@@ -199,6 +197,11 @@ class BackgroundSessionEventSubscriber:
                                     "event": event_name,
                                 },
                             )
+                    # The stream may already have dequeued this event when shutdown
+                    # requested stop. Deliver that accepted buffer exactly once, then
+                    # leave without reconnecting or waiting for another event.
+                    if self._stop_event.is_set():
+                        return
                 # Stream ended cleanly — treat as transient; reconnect after delay.
                 delay = self._reconnect_delay
             except asyncio.CancelledError:
