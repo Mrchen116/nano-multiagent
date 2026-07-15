@@ -1,10 +1,10 @@
-# LLM Upstream Fixtures
+# Runtime Failure Fixtures
 
-Tiny single-file HTTP stubs used to drive nano-multiagent's "LLM upstream
-error → user-readable" code paths(bugfix-380)without burning real provider
-quota or rigging a flaky proxy.
+Small deterministic harnesses used to drive failure paths without damaging a
+real provider or relying on timing races. HTTP fixtures use only the Python
+stdlib; the Gateway wrapper uses the repository environment.
 
-Each script binds 127.0.0.1:`<port>`,handles a single request, and exits on
+Each HTTP script binds 127.0.0.1:`<port>`, handles a single request, and exits on
 Ctrl-C. None of them require dependencies beyond Python stdlib.
 
 ## Available stubs
@@ -16,6 +16,7 @@ Ctrl-C. None of them require dependencies beyond Python stdlib.
 | `http_error.py <port> <code>` | HTTP 401 / 403 / 429 / 500 / 502 / 503 response | `retryable=False`(non-2xx),~1s fail |
 | `slow_stream.py <port> truncate` | Opens stream, writes partial `message_start`, closes before `message_stop` | `retryable=True`("stream ended without terminal event"),进 retry 循环 |
 | `slow_stream.py <port> hang` | Holds socket open without writing — triggers client read timeout | `retryable=True`,进 retry 循环 |
+| `channel_cache_commit_failure.py <Gateway args>` | First channel-removal cache commit fails; same-process retry is normal | Removal remains failed/retryable until the real retry endpoint replays the same revision |
 
 ## Wiring into a product runtime
 
@@ -49,6 +50,13 @@ the fix is broken.
 These stubs encode the correct wire-protocol shape so any e2e scenario can
 trigger the exact `ModelError` variant it wants without re-discovering the
 spec each time.
+
+`channel_cache_commit_failure.py` is additionally gated by
+`NANO_MULTIAGENT_TEST_ALLOW_FAULT_INJECTION=1`. It monkeypatches only the
+Gateway cache-store seam before delegating to the production entrypoint, and
+only for the first manifest containing a removal. Use it with a worktree-local
+config and database; a disabled channel is sufficient, so no real provider is
+contacted.
 
 ## What this is not
 
