@@ -48,12 +48,31 @@
 - Gateway-before-IM 场景 B1 存活；IM 后启动后 B2 自动 online。
 - 终态：`RESILIENCE E2E PASS`。
 
+## Round 1 strict signoff closure
+
+### Foreground terminal 与 background seal
+
+- 红测使用 real `BackgroundSubscriptionManager` + `SessionRunCoordinator` public dispatch：首次 foreground run 已从 Kernel 得到 `completed` 后 manager 被 seal；旧实现从 terminal 路径调用普通 `ensure()`，抛出 `RuntimeError` 并把成功 run 改成 failed。
+- manager 新增 `ensure_after_foreground_terminal()` typed collaboration API，返回 `ForegroundTerminalSubscriptionOutcome`。已有 subscriber 仍幂等，未 seal 时照常启动；shutdown seal 对新 session 返回 `SHUTDOWN_SKIPPED`，普通 `ensure()` 仍明确拒绝新 admission。
+- coordinator 只在 foreground terminal 路径使用该 API；没有异常字符串匹配或宽泛 `RuntimeError` 吞错。永久回归证明生命周期严格为 `accepted → running → completed`。
+
+### Threadsafe root registration window
+
+- 红测用真实线程在 event loop 阻塞期间完成 `run_coroutine_threadsafe()` submission，使 drain 的首个快照稳定观察到 proxy、但尚未观察到 loop task；旧实现取消 proxy 后先返回 `TimeoutError`，此时底层 task 的 `CancelledError` cleanup 尚未完成。
+- dispatcher 为每个跨线程 root 建立 `ConcurrentFuture[asyncio.Task]` registration acknowledgement。deadline 到达后先取消 snapshot 中的 proxy，再等待 queued callback 登记真实 loop task，并无 deadline 地等待该 task 完成 cancellation cleanup，最后才返回 timeout。
+- 已启动 task 继续沿原 `_thread_loop_roots` 路径 drain；registration 在真实 task done callback 中清理，不留下 inbound root。
+
+TDD commits：C1 `ae9babdd2`（3 个稳定红测）；C2 `2f39e034f`。
+
 ## 最终门禁与清理
 
 - 聚焦 cron/config/contract：`39 passed`。
 - personal-assistant 单测：`809 passed`（cron/config owner 初始实现后）。
 - subscriber shutdown 聚焦回归：`16 passed`，同时覆盖 stop 前已 dequeue 的事件不丢失，以及 idle stream 不产生 deadline warning。
+- Round 1 foreground/background 终态聚焦：`25 passed`。
+- Round 1 dispatcher/shutdown resource graph 聚焦：`11 passed`。
+- inbound ownership / PA main-package / test-size contracts：`19 passed`。
 - 最终 `ruff check src tests`：passed。
 - 最终 `git diff --check`：passed。
-- 最终 `/Users/czj/Repos/nano-multiagent/.venv/bin/pytest -m 'not e2e' -n 4 --dist worksteal`：`3387 passed, 1 skipped`。
+- 最终 `/Users/czj/Repos/nano-multiagent/.venv/bin/pytest -m 'not e2e' -n 4 --dist worksteal`：`3390 passed, 1 skipped`。
 - `scripts/e2e-down.sh` 已执行；worktree 下无 `.im.pid`、`.gateway.pid`、`.gateway-state.json`、`.e2e-ports.env`、`.e2e-jwt-secret`、`.gateway-config.yaml`，无本 worktree IM/Gateway 残留进程。

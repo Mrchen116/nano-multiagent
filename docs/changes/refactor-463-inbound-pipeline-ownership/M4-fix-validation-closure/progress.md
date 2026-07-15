@@ -64,10 +64,23 @@
 - Evidence:
   - C1 red：cron owner/config steady-state/contract 共 6 个失败；后续真 SIGTERM 又稳定暴露 abnormal bubble 与 outbound ack drain 两组红测。
   - Focused：cron/config/contract `39 passed`；personal-assistant 单测 `809 passed`；shutdown terminal/IM drain 聚焦回归全绿；subscriber buffered/idle shutdown `16 passed`。
-  - Full：`ruff check src tests`、`git diff --check` passed；`pytest -m 'not e2e' -n 4 --dist worksteal` → `3387 passed, 1 skipped`。
+  - Initial full：`ruff check src tests`、`git diff --check` passed；`pytest -m 'not e2e' -n 4 --dist worksteal` → `3387 passed, 1 skipped`；严格签收 closure 后的最终结果见下节。
   - Real stack：`evidence/r4-final-validation.md`。动态 `custom_prompt` 同会话热更新与新会话均生效；真 `send_message` durable completed；两条 accepted work SIGTERM 后两个 relay 和所有 bubble 都是明确终态、零 running；IM kill/restart 与 Gateway-before-IM 均 PASS。
   - Frontend State Matrix / Browser QA / Visual：N/A（无前端变更；用户可见状态由 IM REST/SQLite 与 WS lifecycle 对账）。
 - Debugging note: 首次 SIGTERM 复验保留为失败证据。修复 bubble reconcile 后仍失败，事件序列进一步定位到 connection manager ack queue；增加 transport drain 后同一旅程才通过，没有用 watchdog 或测试等待掩盖。
 - Rollback: 回退 R4 implementation/fix commits 恢复 R3 末态；不改变 IM API、binding schema、session key 或外部 channel 协议。
 - Commits: C1=`3ddfd6b1e`；C2=`1295ccaaa`；真栈 fix-loop=`9b803698a..b0ebd6798`；C3=本次 docs commit。
 - Next: M4 完成，交回 orchestrator 进入独立 verifier/reviewer/code-review 门禁。
+
+### Round 1 strict signoff closure
+
+- Context: 严格签收补充命中两个原测试未覆盖的窗口。其一，首次 foreground run terminal 时 background manager 已 seal，普通 `ensure()` 的 admission error 会逆转已完成 run。其二，跨线程 dispatcher 的旧回归先等待 pipeline started，遗漏 drain 快照 proxy 后、底层 loop task 注册前的窗口；proxy cancellation 完成不等于真实 task cleanup 完成。
+- Decision: background manager 提供 `ensure_after_foreground_terminal()` 与 `ForegroundTerminalSubscriptionOutcome`，shutdown 的 no-new-subscriber 对 terminal caller 是 typed `SHUTDOWN_SKIPPED`，普通 admission 继续 raise。dispatcher 为 thread root 建立 registration acknowledgement；deadline cancel proxy 后重新取得真实 task，并等待 cancellation cleanup acknowledgement 后才抛 timeout。
+- Rationale: foreground terminal 是已完成的主业务事实，可选 background admission 不能将它改写为失败；跨线程 proxy 只是调度句柄，真实 loop task 才是 async resource owner。两处都由 owner API 表达，不在 caller 做异常字符串匹配或时间等待。
+- Evidence:
+  - C1 `ae9babdd2`：foreground seal、typed skip、registration-window cleanup 3 个稳定失败。
+  - C2 `2f39e034f`：新增回归全部通过；foreground/background 组 `25 passed`，dispatcher/shutdown resource graph 组 `11 passed`，相关 contracts `19 passed`。
+  - Full：`ruff check src tests`、`git diff --check` passed；`pytest -m 'not e2e' -n 4 --dist worksteal` → `3390 passed, 1 skipped`。
+- Rollback: 回退 C2 恢复首轮 R4 签收末态；不改变 wire、binding/session schema 或 shutdown owner 顺序。
+- Commits: C1=`ae9babdd2`；C2=`2f39e034f`；C3=本次 docs commit。
+- Next: 两条 confirmed closure gap 已关闭，重新交回独立严格签收。
