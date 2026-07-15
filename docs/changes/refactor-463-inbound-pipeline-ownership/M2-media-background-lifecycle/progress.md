@@ -40,3 +40,20 @@
 - Rollback: 回退 C2 `31429404a` 恢复 pipeline/main/queue 旧 ownership；C1 可随同回退。
 - Commits: C1=`943bb14d8`；C2=`31429404a`；C3=本次 docs commit。
 - Next: R3 C1 锁定唯一 delivery task tracker 与 observer 无裸 detached coroutine。
+
+## R3 — 收回 observer detached delivery task 所有权
+
+- Context: observer 的 delta、tool/permission terminal、external mirror、skill-created、reconcile 与 bubble finalize 全部以裸 `create_task` 脱离事件调用栈；Gateway 没有 handle，IM close 前也无法证明这些投递已经完成。
+- Decision: 新增 concrete `RuntimeDeliveryTaskTracker`，由 composition root 构造单例并注入 observer；所有 detached awaitable 以 `runtime-delivery:<event>:<run>` 语义名进入 tracker。关闭先拒绝新 admission，再按同一 absolute deadline drain 到集合为空；到期统一 cancel/await leftovers 并在 `TimeoutError` 中列出 task name。ordering-critical 的 turn-start/roll callback 仍原样返回给 producer await，不进入 tracker。
+- Rationale: observer 只翻译事件，不拥有 event-loop task 集合；tracker 是唯一 detached delivery owner，既保持投递异常不反向打断 Kernel stream，又给 Gateway shutdown 一个可证明、可诊断的收拢边界。直接构造 observer 的既有单测保留局部 tracker，生产路径显式注入唯一实例。
+- Evidence:
+  - Tests: tracker seal/drain/timeout/零残留与 observer 禁止裸 task → `3 passed`；relay lifecycle、heartbeat delivery、streaming、external visibility、permission 回归 → `87 passed`；相关 `ruff check` → passed。
+  - Entry: public tracker 测试证明 close 已开始时旧 delivery 继续完成、late awaitable 被关闭并拒绝；deadline 到期同时取消 delta/tool terminal 两项并报告语义名，最终无 `runtime-delivery:*` task。source contract 证明 observer 内无 `.create_task(`。
+  - Frontend State Matrix: N/A（无前端变更）。
+  - Browser QA: N/A（无前端变更）。
+  - E2E/Regression: `tests/unit/personal_assistant/test_runtime_delivery_task_tracker.py` 加既有 runtime-delivery 回归；tracker 最终 close 顺序与真进程零残留在 R4 统一验证。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: 回退 C2 `f9f4992a5` 恢复 observer 裸 task 调度；C1 可随同回退。
+- Commits: C1=`c68f93a86`；C2=`f9f4992a5`；C3=本次 docs commit。
+- Next: R4 C1 锁定单一 80% deadline、O(1) producer seal、Kernel-before-consumer-drain、timeout isolation 与全图零残留。

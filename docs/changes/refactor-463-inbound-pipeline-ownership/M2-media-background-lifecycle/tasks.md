@@ -45,12 +45,12 @@
 
 ### R3 — 收回 observer detached delivery task 所有权
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 先提交 tracker start/seal/repeat-drain/timeout 红测与 observer 无裸 task contract，再实现 composition-root singleton tracker 并改接所有 detached coroutine。
 - 验证: `pytest tests/unit/personal_assistant/test_runtime_delivery_task_tracker.py tests/unit/personal_assistant/test_gateway_relay_lifecycle.py tests/unit/personal_assistant/test_heartbeat_im_delivery.py`
 
 ### R4 — 关闭完整 ingress resource graph 并证明真入口
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 先提交单 deadline、O(1) seal、active heartbeat/HTTP、queued/active terminal、timeout isolation/零残留红测，再接 GatewayRuntime、internal dispatch、heartbeat、cron、consumer/delivery/IM 顺序；删除 private post-wiring/旧 class re-export；最后跑隔离真栈并落 durable evidence。
 - 验证: 相关最窄单测 + contract；`ruff check src tests`；`pytest -m "not e2e" -n 4 --dist worksteal`；隔离高位端口真栈图片/后台/stop/offline journey 与持久化对账。
