@@ -8,14 +8,14 @@
 
 ## 退出标准
 
-- [ ] Coordinator 的同一 per-session transition lock 线性化 active-check / destructive group drain / image resolve / steer 与 normal submit -> active marker；stop/steer 不可观察 submit 后、marker 前的半提交状态。
-- [ ] steer race fallback 复用同一份 prepared parts，群背景 destructive drain 与图片 resolve 均恰好一次；同 session FIFO、跨 session 并行和连续 steer 保持。
-- [ ] active `/stop` 固定 mark -> interrupt -> append -> original stream reconcile；idle direct 友好提示、idle group 零副作用；completed/cancelled/failed/stall/stream-end/shutdown 的 active/interrupt cleanup 全部单点收口。
-- [ ] quiet alive heartbeat 持续刷新 idle watchdog，真实 stall cancel + failed lifecycle 后释放 queue；`NO_REPLY`、terminal failure、external/shadow trigger-source 与原目标投递不变。
-- [ ] `SessionRunQueue` 的 M2 O(1) seal、async settle 与 shared-deadline worker drain 只成为 coordinator 私有实现，不重写算法或 shutdown reason。
-- [ ] heartbeat 只经 coordinator public `is_session_busy()`；GatewayRuntime 只经 coordinator public seal/settle/drain，`main.py` 不单独持有 queue lifecycle。
-- [ ] `InboundPipeline` 不拥有 run/session/media/subscriber state；runtime lifecycle 不反向 import facade；32 个既有 `InboundPipeline` 测试文件完成行为覆盖盘点，对等 private access 删除而非改名迁移。
-- [ ] architecture contract、`ruff check src tests`、`pytest -m "not e2e"` 与关键路径 e2e 全绿；隔离真栈 durable evidence 覆盖同/跨 session、连续插话、群背景/sender、active+idle stop、quiet+stall、NO_REPLY/failure、external/shadow、启动/停止/重连。
+- [x] Coordinator 的同一 per-session transition lock 线性化 active-check / destructive group drain / image resolve / steer 与 normal submit -> active marker；stop/steer 不可观察 submit 后、marker 前的半提交状态。
+- [x] steer race fallback 复用同一份 prepared parts，群背景 destructive drain 与图片 resolve 均恰好一次；同 session FIFO、跨 session 并行和连续 steer 保持。
+- [x] active `/stop` 固定 mark -> interrupt -> append -> original stream reconcile；idle direct 友好提示、idle group 零副作用；completed/cancelled/failed/stall/stream-end/shutdown 的 active/interrupt cleanup 全部单点收口。
+- [x] quiet alive heartbeat 持续刷新 idle watchdog，真实 stall cancel + failed lifecycle 后释放 queue；`NO_REPLY`、terminal failure、external/shadow trigger-source 与原目标投递不变。
+- [x] `SessionRunQueue` 的 M2 O(1) seal、async settle 与 shared-deadline worker drain 只成为 coordinator 私有实现，不重写算法或 shutdown reason。
+- [x] heartbeat 只经 coordinator public `is_session_busy()`；GatewayRuntime 只经 coordinator public seal/settle/drain，`main.py` 不单独持有 queue lifecycle。
+- [x] `InboundPipeline` 不拥有 run/session/media/subscriber state；runtime lifecycle 不反向 import facade；32 个既有 `InboundPipeline` 测试文件完成行为覆盖盘点，对等 private access 删除而非改名迁移。
+- [x] architecture contract、`ruff check src tests`、`pytest -m "not e2e"` 与关键路径 e2e 全绿；隔离真栈 durable evidence 覆盖同/跨 session、连续插话、群背景/sender、active+idle stop、quiet+stall、NO_REPLY/failure、external/shadow、启动/停止/重连。
 
 ## 测试策略
 
@@ -44,6 +44,6 @@
 
 ### R3 — 切换 composition/heartbeat/contracts 并完成真栈验收
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 先提交 build-runtime/heartbeat/shutdown/architecture 红测与 32 文件盘点；再一次构造 coordinator 并让 GatewayRuntime/heartbeat 只用公开 lifecycle/busy interface，删除旧 queue/facade owner seam；跑全量门禁与隔离真栈并落 durable evidence。
 - 验证: 聚焦 wiring + contract；`ruff check src tests`；`pytest -m "not e2e" -n 4 --dist worksteal`；隔离高位端口关键路径 e2e 与持久化/日志对账。

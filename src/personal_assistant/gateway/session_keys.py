@@ -210,10 +210,9 @@ class PersistentSessionBindingStore:
             Liveness/workspace validation of the kernel session is **not** done
             here.  The stateless kernel locates a session JSONL by its
             ``workspace_root``, which this binding row does not carry.  The
-            authoritative check lives one layer up in
-            ``InboundPipeline._ensure_binding`` -> ``_binding_matches_workspace_root``,
-            which already knows the agent's ``workspace_root`` and refreshes a
-            stale binding by creating a fresh kernel session.  Probing here
+            authoritative check lives in :class:`GatewaySessionBinder`, which already
+            knows the agent's ``workspace_root`` and refreshes a stale binding by
+            creating a fresh kernel session.  Probing here
             (without ``workspace_root``) would always 404 against the stateless
             kernel and wrongly evict every binding after a gateway restart.
         """

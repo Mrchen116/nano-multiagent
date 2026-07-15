@@ -8,7 +8,7 @@ spec Req「/stop 中止正在执行的运行」。
 
 鲁棒断言(design 决策 4):
 - 正向锚:``/stop`` 的 ack 文案 ``已停止当前操作。`` 是 Gateway **硬编码固定串**(非 LLM
-  生成,见 inbound_pipeline `_handle_stop_command`),可逐字断言;无活跃 run 时 ack 会是
+  生成,见 ``SessionRunCoordinator.stop``),可逐字断言;无活跃 run 时 ack 会是
   ``当前没有正在执行的操作。``——所以先确保 run 真的在跑(等到 run 启动信号)再发 /stop。
 - 否定锚:发完 /stop 后,在有界窗口内不应再出现「被中止 run 的长任务完成哨兵」
   (assert_no_event 风格的消息历史否定断言)——run 真被中止则那个哨兵永远不会到。

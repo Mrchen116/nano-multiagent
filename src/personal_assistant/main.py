@@ -2243,8 +2243,8 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     )
     outbound_router = OutboundRouter(channel_registry)
     # Use SQLite-backed store so kernel session mappings survive gateway restarts
-    # (NodeGateway-SPEC §4.2).  Live session validation is done via kernel.get_session
-    # inside InboundPipeline._binding_matches_workspace_root — no kernel_client needed.
+    # (NodeGateway-SPEC §4.2).  Live session validation is owned by
+    # GatewaySessionBinder via the in-process Kernel — no HTTP kernel client is needed.
     # Must be created before HeartbeatScheduler so the store can be injected for
     # tick-time canonical session lookup (feat-394 decision 3).
     session_store = PersistentSessionBindingStore(

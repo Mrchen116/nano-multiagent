@@ -41,10 +41,14 @@
 
 ## R3 — 切换 composition/heartbeat/contracts 并完成真栈验收
 
-- Context: 待完成。
-- Decision: 待完成。
-- Rationale: 待完成。
-- Evidence: 待完成。
-- Rollback: 待完成。
-- Commits: C1=待完成；C2=待完成；C3=待完成。
-- Next: R2 完成后开始。
+- Context: R2 已把运行状态收进 coordinator，但 composition root 仍外置 `SessionRunQueue`，`GatewayRuntime` 仍单独持有 queue/subscriber lifecycle，heartbeat 还可经旧 queue seam 查 busy；新 owner 尚未成为生产图中的唯一 lifecycle 边界。
+- Decision: `main.py` 只构造一个 `SessionRunCoordinator`，queue 由 coordinator 私有构造；`GatewayRuntime` 关停只调 coordinator `seal/settle_admission/drain`，heartbeat 只调 `is_session_busy`。`PollingHeartbeatRunner` 在构造时一次注入 observer/cron callback，删除生产图的 private post-wiring。`InboundDispatcher` 仍经窄 facade 入口 seal/settle，资源 drain 不再反向经 facade。
+- Rationale: composition 与 runtime 只看 deep owner 的少量公开能力，避免 queue、subscriber 与 active marker 再被多个 owner 各自关停；heartbeat busy gate 同时覆盖 queued/admitting/active 而不泄露布局。
+- Evidence:
+  - C1 red: `test_gateway_inbound_ownership_contract.py` 新增的 coordinator-only lifecycle 与无 heartbeat private post-wiring 两条 contract 在旧图稳定失败；32 文件基线由 `git grep -l '\bInboundPipeline\b' a3ce27d93170fb13cde7f7c8004ab5df198a8ab1 -- tests` 获得，逐一映射见 `evidence/test-coverage-inventory.md`。
+  - Self-review fix: bounded lock LRU 原先只看 `lock.locked()`，当 A session 占锁且容量为 1 时，B 新建但尚未 acquire 的 lock 会被当前 trim 自行淘汰，B `/stop` 遂可另取一把 lock 绕过 pre-submit await 并误报 idle。Public red test 稳定失败为 `DID NOT RAISE TimeoutError`；修复为 acquisition/waiter lease refcount，只淘汰零 lease 且 unlocked 的 idle entry，修后同 case 通过且空闲上限不变。
+  - Focused/full after fix: coordinator/stop/ownership/size 聚焦门禁 -> `35 passed`；`ruff check src tests` 全绿；最终 `pytest -m 'not e2e' -n 4 --dist worksteal --durations=20 --durations-min=0.5` -> `3358 passed, 1 skipped, 22 warnings in 31.61s`。
+  - True stack after fix: 隔离高位端口的真 IM + Gateway + Kernel + LLM 完整 non-slow 关键路径 -> `15 passed, 2 deselected in 251.42s`；slow 子集以高于 case 自身等待的 `--timeout=210` 运行 -> `1 passed, 1 xfailed, 15 deselected in 229.46s`，#126 按仓库 `strict=True` 声明正常归档。其中 active `/stop`/群定向 mention/Gateway 重启/background Bash 选定子集单独复验 -> `6 passed in 102.13s`，真 IM/Gateway kill/restart 韧性 -> `1 passed in 23.76s`。完整对账见 `evidence/live-e2e.md`。
+- Rollback: 回退 C2 `9604f0b70` 可恢复 R2 的临时外置 queue/runtime lifecycle 图；C1 contract 可随同回退。R3 未改 queue 算法、shutdown reason 或用户文案。
+- Commits: C1=`621c3544b`；C2=`9604f0b70`；self-review C1=`c8f073263`；self-review C2=`ef25d3b1f`；C3=本次 docs commit。
+- Next: 完成 milestone self-review，合入并推送 `unit/refactor-463`，然后清理 milestone worktree/branch。

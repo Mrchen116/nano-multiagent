@@ -230,9 +230,8 @@ class HeartbeatScheduler:
         self._agent_catalog = agent_catalog
         self._kernel_client = kernel_client
         self._state_store = state_store
-        # feat-394-M4 R2-3 cron/heartbeat busy-skip: SessionRunQueue reference.
-        # When provided, tick checks run_queue._active_sessions for the agent's
-        # canonical session_key before submitting a heartbeat run.
+        # M3: the coordinator's public busy query includes queued, admitting, and
+        # active work without exposing its private queue or run markers.
         # This prevents heartbeat from stacking while user messages are in flight.
         self._is_session_busy = is_session_busy or (lambda _key: False)
         # feat-394 decision 3: canonical direct chat kernel session per agent_id.
