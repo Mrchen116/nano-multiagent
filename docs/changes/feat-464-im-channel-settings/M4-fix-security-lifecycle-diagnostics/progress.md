@@ -95,3 +95,17 @@
   - Prototype Comparison: `#channel-pending/#channel-connected/#channel-disabling/#channel-disabled/#channel-deleting/#channels-empty/#channel-failed/#channels-mobile` must-match 状态均有当前或永久证据；may-adapt 继续沿用 IM token/card 体系。
 - Rollback: R6 的三项 live 修复分别依赖 R3 provider seam、R2 cached recovery 与 R1认证边界；回滚必须同时移除相应 regression。截图/JSON 可单独移除，不影响运行时。
 - Commits: live bot shape C1/C2 `b3847a34a`/`9cf53f7d5`；credential 语义 C1/C2 `d17d2773c`/`f636c0b29`；cached startup C1/C2 `77acec914`/`b823b0b36`；认证夹具 `0ffbd46e8`；evidence/C3=本提交。
+
+### Current-HEAD cache-failure sign-off supplement
+
+- Context: 原 R6 对 cache/stop failure 的最终说明仍引用永久 integration tests 和 M2 旧截图，不能独立证明当前 M4 HEAD 的生产前端、真实 HTTP、IM store 与 Gateway cache 在同一浏览器旅程内保持一致。
+- Decision: 增加显式环境门禁的 `channel_cache_commit_failure.py` 验收夹具，只让第一次含 removal 的 `ChannelManifestStore.commit_manifest` 失败，随后的真实 retry endpoint 使用原 store；在隔离 IM/Gateway 中只创建 `enabled=false` 通道，避免启动 provider worker 或触达真实飞书。
+- Rationale: cache 写故障需要发生在 production store seam 才能同时观察 IM receipt/head、Gateway cache、HTTP resource 和浏览器投影；一次性门禁夹具提供确定性，又不把故障开关注入生产配置/API。
+- Evidence:
+  - Entry: production baseline `6bc146c3c`；真实 `DELETE ...?channel_revision=1` 返回 200，receipt revision 3 随 cache failure 进入 `failed/cache_commit_failed`。
+  - Frontend State Matrix: 删除失败卡片、具体 cache error、`Retry apply` 在整页 reload 后仍可见；失败前后都不显示 empty；retry applied 后才显示 empty。
+  - Browser QA: `r6-current-head-cache-failure.png`、`r6-current-head-cache-failure-reloaded.png`、`r6-current-head-cache-retry-applied.png` 已用 1440×1000 原图目检通过。
+  - E2E/Regression: retry `POST .../actions/retry` 返回 200；IM manifest head 从 `3/2` 收敛到 `3/3`，removal receipt 从 failed 收敛到 applied，Gateway cache 从 revision 2/旧 channel 收敛到同一 revision 3/零 channel；未分配 revision 4。
+  - Safety: fixture 必须显式设置 `NANO_MULTIAGENT_TEST_ALLOW_FAULT_INJECTION=1`；隔离 config 只含 `web_relay`，待删通道为 disabled，无 provider worker/外部请求。
+- Rollback: 删除验收夹具及本节 evidence 即可；production runtime 无新增 fault switch 或行为变化。
+- Commits: fixture `a85ebdf0c`；evidence/C3=本提交。

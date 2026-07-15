@@ -37,7 +37,7 @@
 - 已有测试在：`tests/im_service/unit/test_gateway_handler.py`、`tests/im_service/integration/test_account_binding_api.py`、`tests/unit/personal_assistant/test_channel_manifest_store.py`、`tests/unit/personal_assistant/test_local_store.py`、`tests/unit/personal_assistant/test_channel_manager.py`、`tests/unit/personal_assistant/test_feishu_worker_runtime.py`、`tests/integration/test_channel_reconcile.py`、`src/IM/frontend/src/features/settings/agents/agent-channels-panel.test.tsx`（扩展）；为隔离认证攻击、并发 bind、provider preflight、生命周期和 provider dispatch，按行为新建不超过 400 行的聚焦 regression 文件。
 - 落层/目录/marker：纯状态机/序列化落 `tests/unit/`；SQLite 多连接、IM/Gateway 协议与真实子进程落 `tests/integration/`；HTTP/WS 用户边界落 `tests/im_service/integration/`；真实飞书 smoke 落 `tests/e2e/` 且 marker `e2e`；前端分派落 Vitest。
 - 可选依赖 importorskip：真实 Feishu e2e 使用现有 `lark_oapi` 与本机持久配置；非 e2e regression 无可选依赖。
-- 一次性验收证据：`evidence/output/playwright/` 状态截图与 snapshot、`evidence/output/runtime/` 真实栈/飞书脱敏日志、`evidence/output/secret-scan.txt`、`evidence/summary.md`；不把临时脚本并入套件。
+- 一次性验收证据：`evidence/output/playwright/` 状态截图与 snapshot、`evidence/output/runtime/` 真实栈/飞书脱敏日志、`evidence/output/secret-scan.txt`、`evidence/summary.md`。确定性 cache failure 使用 `scripts/fixtures/channel_cache_commit_failure.py`：它有显式环境门禁，只能包装隔离 Gateway，并且不向生产 API 暴露 fault switch。
 
 ### UI 状态矩阵
 
