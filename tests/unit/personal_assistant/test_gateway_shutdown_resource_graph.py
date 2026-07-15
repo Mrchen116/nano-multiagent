@@ -11,7 +11,10 @@ from typing import Any
 
 import pytest
 
-from personal_assistant.config.local_store import GatewayLifecycleConfig, HeartbeatConfig
+from personal_assistant.config.local_store import (
+    GatewayLifecycleConfig,
+    HeartbeatConfig,
+)
 from personal_assistant.gateway.inbound_dispatcher import InboundDispatcher
 from personal_assistant.gateway.internal_dispatch import InternalDispatchHandler
 from personal_assistant.main import GatewayRuntime, PollingHeartbeatRunner
@@ -56,6 +59,10 @@ class _ConsumerOwner:
         self.deadlines.append(deadline)
 
     async def close_and_drain(self, deadline: float) -> None:
+        self.events.append(f"{self.name}.drain")
+        self.deadlines.append(deadline)
+
+    async def drain(self, deadline: float) -> None:
         self.events.append(f"{self.name}.drain")
         self.deadlines.append(deadline)
 
@@ -135,8 +142,7 @@ def test_shutdown_seals_then_closes_kernel_and_drains_one_deadline(tmp_path) -> 
     dispatcher = InboundDispatcher(pipeline)
     heartbeat = _HeartbeatOwner(events, deadlines)
     cron = _CronOwner(events, deadlines)
-    queue = _ConsumerOwner("queue", events, deadlines)
-    subscribers = _ConsumerOwner("subscribers", events, deadlines)
+    coordinator = _ConsumerOwner("coordinator", events, deadlines)
     delivery = _ConsumerOwner("delivery", events, deadlines)
     internal = _InternalOwner(events)
     kernel = _Kernel(events)
@@ -153,8 +159,7 @@ def test_shutdown_seals_then_closes_kernel_and_drains_one_deadline(tmp_path) -> 
         internal_dispatch_handler=internal,
         kernel=kernel,
         im_connection_manager=im,
-        run_queue=queue,
-        background_subscriptions=subscribers,
+        run_coordinator=coordinator,
         runtime_delivery_tasks=delivery,
     )
 
@@ -170,7 +175,7 @@ def test_shutdown_seals_then_closes_kernel_and_drains_one_deadline(tmp_path) -> 
     assert events.index("heartbeat.seal") < events.index("kernel.close")
     assert events.index("cron.seal") < events.index("kernel.close")
     assert events.index("dispatcher.settle") < events.index("kernel.close")
-    for owner in ("heartbeat", "cron", "queue", "subscribers"):
+    for owner in ("heartbeat", "cron", "coordinator"):
         assert events.index("kernel.close") < events.index(f"{owner}.drain")
         assert events.index(f"{owner}.drain") < events.index("delivery.drain")
     assert events.index("delivery.drain") < events.index("im.close")
@@ -200,8 +205,7 @@ def test_one_consumer_failure_does_not_skip_other_drains(tmp_path) -> None:
         cron_dispatcher=_CronOwner(events, deadlines),
         kernel=_Kernel(events),
         im_connection_manager=_IM(events),
-        run_queue=_ConsumerOwner("queue", events, deadlines),
-        background_subscriptions=_ConsumerOwner("subscribers", events, deadlines),
+        run_coordinator=_ConsumerOwner("coordinator", events, deadlines),
         runtime_delivery_tasks=_ConsumerOwner("delivery", events, deadlines),
     )
 
@@ -212,8 +216,7 @@ def test_one_consumer_failure_does_not_skip_other_drains(tmp_path) -> None:
 
     assert outcome == {"exit_code": 0}
     assert "dispatcher.drain.failed" in events
-    assert "queue.drain" in events
-    assert "subscribers.drain" in events
+    assert "coordinator.drain" in events
     assert "delivery.drain" in events
     assert "im.close" in events
 
@@ -243,7 +246,9 @@ def _free_port() -> int:
 
 
 @pytest.mark.asyncio
-async def test_active_internal_http_handler_does_not_block_kernel_close(tmp_path) -> None:
+async def test_active_internal_http_handler_does_not_block_kernel_close(
+    tmp_path,
+) -> None:
     from aiohttp import ClientSession
 
     manager = _BlockingDispatchManager()
@@ -300,9 +305,7 @@ async def test_heartbeat_seal_preserves_current_tick_until_deadline_drain() -> N
     await asyncio.wait_for(scheduler.started.wait(), timeout=1)
 
     runner.request_stop()
-    close = asyncio.create_task(
-        runner.close(asyncio.get_running_loop().time() + 1)
-    )
+    close = asyncio.create_task(runner.close(asyncio.get_running_loop().time() + 1))
     await asyncio.sleep(0)
     assert not close.done()
 
@@ -350,7 +353,9 @@ def test_active_heartbeat_drain_does_not_block_kernel_close(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_cron_seal_rejects_late_work_and_drains_current_execution(tmp_path) -> None:
+async def test_cron_seal_rejects_late_work_and_drains_current_execution(
+    tmp_path,
+) -> None:
     from personal_assistant.scheduler.cron_execution_service import (
         CronExecutionService,
     )
@@ -384,9 +389,7 @@ async def test_cron_seal_rejects_late_work_and_drains_current_execution(tmp_path
     assert late["accepted"] is False
     assert late["error_code"] == "cron_unavailable"
 
-    close = asyncio.create_task(
-        service.drain(asyncio.get_running_loop().time() + 1)
-    )
+    close = asyncio.create_task(service.drain(asyncio.get_running_loop().time() + 1))
     await asyncio.sleep(0)
     assert not close.done()
     release.set()

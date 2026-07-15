@@ -98,23 +98,20 @@ class _Owner:
         self.deadlines.append(deadline)
 
 
-class _TimeoutQueue:
+class _TimeoutCoordinator:
     def __init__(self, events: list[str], deadlines: list[float]) -> None:
         self.events = events
         self.deadlines = deadlines
         self.timed_out = threading.Event()
 
-    def seal_and_cancel_pending(self) -> None:
-        self.events.append("queue.seal")
-
-    async def drain_workers(self, deadline: float) -> None:
-        self.events.append("queue.drain")
+    async def drain(self, deadline: float) -> None:
+        self.events.append("coordinator.drain")
         self.deadlines.append(deadline)
         remaining = max(0.0, deadline - asyncio.get_running_loop().time())
         await asyncio.sleep(remaining + 0.01)
-        self.events.append("queue.timeout")
+        self.events.append("coordinator.timeout")
         self.timed_out.set()
-        raise TimeoutError("queue exceeded shared shutdown deadline")
+        raise TimeoutError("coordinator exceeded shared shutdown deadline")
 
 
 class _Kernel:
@@ -174,7 +171,7 @@ def test_timeout_does_not_skip_later_owners_or_reset_deadline(tmp_path) -> None:
     events: list[str] = []
     deadlines: list[float] = []
     pipeline = _Pipeline(events, deadlines)
-    queue = _TimeoutQueue(events, deadlines)
+    coordinator = _TimeoutCoordinator(events, deadlines)
     im = _BlockingIM(events)
     port = _free_port()
     config = replace(
@@ -190,8 +187,7 @@ def test_timeout_does_not_skip_later_owners_or_reset_deadline(tmp_path) -> None:
         gateway_internal_port=port,
         kernel=_Kernel(events),
         im_connection_manager=im,
-        run_queue=queue,
-        background_subscriptions=_Owner("subscribers", events, deadlines),
+        run_coordinator=coordinator,
         runtime_delivery_tasks=_Owner("delivery", events, deadlines),
         resource_closers=(lambda: events.append("resource.close"),),
     )
@@ -202,7 +198,7 @@ def test_timeout_does_not_skip_later_owners_or_reset_deadline(tmp_path) -> None:
     requested_at = time.monotonic()
     runtime.request_shutdown()
 
-    assert queue.timed_out.wait(timeout=2)
+    assert coordinator.timed_out.wait(timeout=2)
     assert im.close_started.wait(timeout=2)
     try:
         assert im.close_cancelled.wait(timeout=1)
@@ -216,7 +212,6 @@ def test_timeout_does_not_skip_later_owners_or_reset_deadline(tmp_path) -> None:
         "dispatcher.drain",
         "heartbeat.drain",
         "cron.drain",
-        "subscribers.drain",
         "delivery.drain",
         "im.close.attempt",
         "im.close.cancelled",
@@ -224,7 +219,7 @@ def test_timeout_does_not_skip_later_owners_or_reset_deadline(tmp_path) -> None:
         "resource.close",
     ):
         assert event in events
-    assert events.index("queue.timeout") < events.index("delivery.drain")
+    assert events.index("coordinator.timeout") < events.index("delivery.drain")
     assert events.index("delivery.drain") < events.index("im.close.attempt")
     assert events.index("im.task.cancelled") < events.index("resource.close")
     assert deadlines and len(set(deadlines)) == 1

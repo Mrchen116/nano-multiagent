@@ -327,8 +327,8 @@ class HeartbeatScheduler:
             if canonical_session and canonical_session in self._busy_sessions:
                 skipped_agents.append(agent.agent_id)
                 continue
-            # feat-394-M4 R2-3: run_queue busy-skip — skip when the canonical direct-chat
-            # session_key has an active run in the gateway SessionRunQueue.
+            # The coordinator busy gate covers queued, admitting, and active work for
+            # the canonical direct-chat session key.
             # This prevents heartbeat from executing while user messages are in flight,
             # which would force user messages to wait behind the heartbeat LLM call.
             if _canonical_session_key is not None:

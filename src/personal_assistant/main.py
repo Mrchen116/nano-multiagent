@@ -91,7 +91,6 @@ from personal_assistant.gateway.runtime_delivery.task_tracker import (
 )
 from personal_assistant.gateway.internal_dispatch import InternalDispatchHandler
 from personal_assistant.gateway.outbound_router import OutboundRouter
-from personal_assistant.gateway.run_queue import SessionRunQueue
 from personal_assistant.gateway.session_keys import (
     PersistentSessionBindingStore,
     build_conversation_session_key,
@@ -1018,8 +1017,7 @@ class GatewayRuntime:
         gateway_internal_port: int = 8089,
         kernel: object | None = None,
         cron_dispatcher: CronServiceRegistry | None = None,
-        run_queue: SessionRunQueue | None = None,
-        background_subscriptions: BackgroundSubscriptionManager | None = None,
+        run_coordinator: SessionRunCoordinator | None = None,
         runtime_delivery_tasks: RuntimeDeliveryTaskTracker | None = None,
     ) -> None:
         self._config = config
@@ -1043,8 +1041,7 @@ class GatewayRuntime:
         self._inbound_dispatcher = (
             on_inbound if isinstance(on_inbound, InboundDispatcher) else None
         )
-        self._run_queue = run_queue
-        self._background_subscriptions = background_subscriptions
+        self._run_coordinator = run_coordinator
         self._runtime_delivery_tasks = runtime_delivery_tasks
         self._ready_event = threading.Event()
         self._shutdown_requested = threading.Event()
@@ -1170,16 +1167,6 @@ class GatewayRuntime:
                 self._run_shutdown_action(
                     "cron request_stop", self._cron_dispatcher.request_stop
                 )
-            if self._run_queue is not None:
-                self._run_shutdown_action(
-                    "session run queue seal",
-                    self._run_queue.seal_and_cancel_pending,
-                )
-            if self._background_subscriptions is not None:
-                self._run_shutdown_action(
-                    "background subscriptions seal",
-                    self._background_subscriptions.seal,
-                )
             if channels_started:
                 self._run_shutdown_action(
                     "channel stop", lambda: stop_channels(self._channel_registry)
@@ -1233,19 +1220,11 @@ class GatewayRuntime:
                         False,
                     )
                 )
-            if self._run_queue is not None:
+            if self._run_coordinator is not None:
                 consumer_drains.append(
                     (
-                        "session run queue",
-                        lambda: self._run_queue.drain_workers(inner_deadline),
-                        False,
-                    )
-                )
-            if self._background_subscriptions is not None:
-                consumer_drains.append(
-                    (
-                        "background subscriptions",
-                        lambda: self._background_subscriptions.aclose(inner_deadline),
+                        "session run coordinator",
+                        lambda: self._run_coordinator.drain(inner_deadline),
                         False,
                     )
                 )
@@ -2276,42 +2255,18 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         repository=session_store,
         kernel=kernel,
     )
-    run_queue = SessionRunQueue()
     # feat-394 decision 3: canonical direct-chat kernel session store.
     # Updated by HeartbeatScheduler.tick() via session_store.find_direct_by_agent()
     # BEFORE each run submission (tick-time read, no reactive ack dependency).
     # This replaces the prior approach of populating from turn_start ack, which failed
     # for first-tick / restart / silent-polling scenarios (silent polls never ack → never fill).
     _canonical_session_store: dict[str, str] = {}
-    _heartbeat_scheduler = HeartbeatScheduler(
-        agents=config.agents,
-        kernel_client=kernel_shim,
-        state_store=HeartbeatSchedulerStateStore(_default_heartbeat_state_path(config)),
-        canonical_session_store=_canonical_session_store,
-        agent_catalog=agent_catalog,
-        session_binder=session_binder,
-        is_session_busy=run_queue.is_active,
-    )
     reporter: UpstreamReporter | None = None
     im_connection_manager: IMConnectionManager | None = None
     im_bootstrap_client: _IMBootstrapClient | None = None
     im_config_sync_client: IMAgentConfigSync | None = None
     run_delivery_contexts = RunDeliveryContextStore()
-    # feat-393: heartbeat_runner is built here (before im_connection_manager which references it),
-    # but the kernel_event_observer is wired after im_service block via attribute set below.
-    # NOTE: session_store + _heartbeat_scheduler are constructed earlier (feat-394 moved
-    # them up so HeartbeatScheduler can take the store for tick-time canonical lookup);
-    # this supersedes origin/main's simpler heartbeat_runner/session_store block here.
     _owner_user_id = config.node.user_id or ""
-    heartbeat_runner = PollingHeartbeatRunner(
-        scheduler=_heartbeat_scheduler,
-        config=config.heartbeat,
-        kernel=kernel if _owner_user_id else None,
-        run_context_store=run_delivery_contexts if _owner_user_id else None,
-        owner_user_id=_owner_user_id,
-        agent_catalog=agent_catalog,
-        # kernel_event_observer is set below after _build_kernel_event_observer runs.
-    )
     _gateway_internal_port = 8089
     shadow_sync: IMShadowConversationSync | None = None
     image_resolver = ImageAttachmentResolver()
@@ -2497,41 +2452,6 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                 memory_versions=memory_versions,
             )
 
-        im_connection_manager = _build_im_connection_manager(
-            config=config,
-            relay_adapter=relay_adapter,
-            reporter=reporter,
-            heartbeat_runner=heartbeat_runner,
-            sync_client=_im_sync_client,
-            agent_config_provider=lambda agent_id: (
-                im_config_sync_client.current_agent_payload(agent_id=agent_id)
-            ),
-            agent_capabilities_provider=lambda agent_id, workspace_root: (
-                build_agent_capabilities_payload(
-                    kernel,
-                    workspace_root=workspace_root,
-                    tool_allowlist=_resolve_agent_tool_allowlist(
-                        im_config_sync_client, agent_id
-                    ),
-                )
-            ),
-            node_capabilities_provider=lambda: build_node_capabilities_payload(kernel),
-            # sdk-fix-prompt-preview: assemble_prompt_preview is now available on the
-            # in-process Kernel (refactor-387 M3 regression fix).  The provider
-            # signature matches PromptPreviewProvider: (agent_id, workspace_root,
-            # features, custom_prompt, tool_ids, scenario, skill_ids) → preview dict.
-            prompt_preview_provider=_make_prompt_preview_provider(kernel),
-            agent_create_handler=im_config_sync_client.handle_agent_create,
-            session_fork_handler=_build_session_fork_handler(
-                kernel=kernel,
-                session_binder=session_binder,
-                agent_catalog=agent_catalog,
-                channel_name=WebRelayAdapter.name,
-            ),
-            token_getter=_token_getter,
-            permission_response_handler=permission_response_handler,
-            on_connected=_reconcile_on_connect,
-        )
     relay_lifecycle_callback = _build_relay_lifecycle_callback(
         reporter=reporter,
         im_connection_manager_factory=lambda: im_connection_manager,
@@ -2552,13 +2472,6 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         ),
         task_tracker=runtime_delivery_tasks,
     )
-    # feat-393: wire observer into heartbeat_runner now that it's built. When IM is
-    # absent, the observer still mirrors external-channel permission/control events.
-    if _owner_user_id:
-        heartbeat_runner._kernel_event_observer = _kernel_event_observer  # noqa: SLF001
-    else:
-        # No owner bound → heartbeat delivery disabled; clear kernel reference.
-        heartbeat_runner._kernel = None  # noqa: SLF001
     bg_reply_sender = _build_bg_reply_sender(
         im_connection_manager_factory=lambda: im_connection_manager,
         external_reply_sender=_send_external_reply,
@@ -2581,7 +2494,6 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         kernel=kernel,
         session_binder=session_binder,
         outbound_router=outbound_router,
-        run_queue=run_queue,
         group_context_store=group_context_store,
         gateway_internal_port=_gateway_internal_port,
         product_default_model=config.llm.default_model,
@@ -2598,14 +2510,12 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         route_config=InboundRouteConfig(),
         shadow_sync=shadow_sync,
     )
+    inbound_dispatcher = InboundDispatcher(pipeline)
 
     # bugfix-402-M4 R4 / bugfix-402-M6: build per-agent CronExecutionService and
-    # register with dispatcher.  execute_fn is a closure that captures kernel_shim,
-    # kernel, heartbeat_runner, etc.  All captured references are set before the
-    # first cron tick fires.  _canonical_session_store and
-    # heartbeat_runner._kernel_event_observer use late binding: they may be None
-    # at construction time but are populated by the im_service block before any
-    # tick runs.
+    # register with dispatcher. execute_fn captures only owners already constructed;
+    # the runtime-delivery observer is supplied directly rather than read from a
+    # heartbeat runner private field.
     #
     # bugfix-402 round-2: routing key changed from workspace_root to agent_id —
     # workspace_root has two data sources (local YAML vs IM-synced value from
@@ -2717,8 +2627,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             run_id, kernel_session_id = result
             _runs_store.update_status(request_id, "running", kernel_run_id=run_id)
 
-            # Observer is set on heartbeat_runner after im_service block; read at call time.
-            _observer = heartbeat_runner._kernel_event_observer  # noqa: SLF001
+            _observer = _kernel_event_observer
 
             if not _owner_user_id or _observer is None:
                 # No IM delivery path: fire-and-forget is correct.
@@ -2863,9 +2772,61 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         )
         await scheduler.tick()
 
-    heartbeat_runner._cron_tick_fn = _cron_tick_for_agent  # noqa: SLF001
+    _heartbeat_scheduler = HeartbeatScheduler(
+        agents=config.agents,
+        kernel_client=kernel_shim,
+        state_store=HeartbeatSchedulerStateStore(_default_heartbeat_state_path(config)),
+        canonical_session_store=_canonical_session_store,
+        agent_catalog=agent_catalog,
+        session_binder=session_binder,
+        is_session_busy=run_coordinator.is_session_busy,
+    )
+    heartbeat_runner = PollingHeartbeatRunner(
+        scheduler=_heartbeat_scheduler,
+        config=config.heartbeat,
+        kernel=kernel if _owner_user_id else None,
+        run_context_store=run_delivery_contexts if _owner_user_id else None,
+        owner_user_id=_owner_user_id,
+        agent_catalog=agent_catalog,
+        kernel_event_observer=(_kernel_event_observer if _owner_user_id else None),
+        cron_tick_fn=_cron_tick_for_agent,
+    )
 
-    inbound_dispatcher = InboundDispatcher(pipeline)
+    if config.im_service is not None:
+        assert reporter is not None
+        assert im_config_sync_client is not None
+        im_connection_manager = _build_im_connection_manager(
+            config=config,
+            relay_adapter=relay_adapter,
+            reporter=reporter,
+            heartbeat_runner=heartbeat_runner,
+            sync_client=_im_sync_client,
+            agent_config_provider=lambda agent_id: (
+                im_config_sync_client.current_agent_payload(agent_id=agent_id)
+            ),
+            agent_capabilities_provider=lambda agent_id, workspace_root: (
+                build_agent_capabilities_payload(
+                    kernel,
+                    workspace_root=workspace_root,
+                    tool_allowlist=_resolve_agent_tool_allowlist(
+                        im_config_sync_client, agent_id
+                    ),
+                )
+            ),
+            node_capabilities_provider=lambda: build_node_capabilities_payload(kernel),
+            prompt_preview_provider=_make_prompt_preview_provider(kernel),
+            agent_create_handler=im_config_sync_client.handle_agent_create,
+            session_fork_handler=_build_session_fork_handler(
+                kernel=kernel,
+                session_binder=session_binder,
+                agent_catalog=agent_catalog,
+                channel_name=WebRelayAdapter.name,
+            ),
+            token_getter=_token_getter,
+            permission_response_handler=permission_response_handler,
+            on_connected=_reconcile_on_connect,
+        )
+
     # bugfix-402-M3 R3: kernel is closed explicitly via GatewayRuntime(kernel=) and
     # its aclose() in the ordered shutdown phase (Decision 7). It must not be in
     # resource_closers — that list only holds lightweight sync cleanup (HTTP clients).
@@ -2890,8 +2851,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         internal_dispatch_handler=internal_dispatch_handler,
         kernel=kernel,
         cron_dispatcher=_cron_dispatcher,
-        run_queue=run_queue,
-        background_subscriptions=background_subscriptions,
+        run_coordinator=run_coordinator,
         runtime_delivery_tasks=runtime_delivery_tasks,
         gateway_internal_port=_gateway_internal_port,
     )
