@@ -41,3 +41,20 @@
 - Rollback: 回滚 R2 三提交后 active channel 的 create/update 仍可用，但 DELETE/retry/reconnect 与 removal result 协议不可用；数据库 receipt 表保持无害未消费。
 - Commits: C1=`5ee2e4596`，C2=`586408622`，C3=本提交。
 - Next: R3 接入 Gateway manifest store/key cache，完成旧 YAML bootstrap、credentialRef/export 与 e2e 隔离。
+
+## R3 — 旧 YAML bootstrap、credentialRef/export 与 e2e 隔离
+
+- Context: DONE；Gateway 的密文 store 在 R1 尚未接入生产装配，启动也不会 `start_cached()`；IM 无 initialized 协议，人工 bind 后只尝试 replay 不存在的 head；YAML 只接受明文 `appSecret`，worktree 起停也未隔离新 key/cache。
+- Decision: node.register capability 显式协商 bootstrap；IM 在 register/bind 共用的串行初始化入口中区分 waiting/bootstrap/initialized，同一 WS 人工 confirm 立即发一次 request，bootstrap 在独立事务生成 revision 1，之后只 replay 权威 manifest。Gateway 用自身公钥封装 legacy secret，权威 manifest 经 manager 写入 cache 且 outcome applied 后才原子保存 `credentialRef` YAML；重启先从 node/key scoped cache 启动。新增显式 `--output` rollback export，e2e-up/down 同时清理 key/cache。
+- Rationale: initialized head 是“尚未迁移”与“用户已经删除到空”的唯一可靠边界；capability negotiation 保持旧 Gateway/既有 WS 测试兼容。cache 与 YAML 的提交顺序保证任一步失败仍有至少一个可启动的凭据来源，且正常 cache 永不含 plaintext。
+- Evidence:
+  - Tests: C1 因缺 migration API 按预期 collection red；C2 bootstrap/protocol/cache/export/main wiring 组合 `36 passed`，local-store/WS/bind/registration/test-contract 组合 `81 passed`，目标 Ruff 全绿。
+  - Entry: `channels.bootstrap.request → channels.bootstrap → channels.bootstrap.result → channel.reconcile.result`；`ChannelManager.start_cached()` 在 IM loop 前运行；`scripts/channel-control-export-legacy.py --output ...` 生成 mode 0600 回退配置。
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: 覆盖 same-WS manual bind bootstrap once、initialized replay、client apply-before-cleanup、credentialRef parse/secret removal、mode-0600 export/no stdout secret、old-head ACK 不清 newer outbox、node/key cache guard 与 e2e key/cache cleanup contract。
+  - Visual/Interaction: N/A
+  - Prototype Comparison: N/A
+- Rollback: 停 Gateway 后先用 export script 生成旧 YAML，再回滚 R3；IM initialized rows无需删除，旧二进制忽略它们。
+- Commits: C1=`e3155ab01`，C2=`68333c71e`，C3=本提交。
+- Next: R4 扩展前端 removal model、离线 banner、启停/重连/删除确认及 failed retry 投影。

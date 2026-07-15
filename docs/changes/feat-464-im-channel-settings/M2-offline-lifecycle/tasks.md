@@ -86,13 +86,13 @@
 
 ### R3 — 旧 YAML bootstrap、credentialRef/export 与 e2e 隔离
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 实现 same-WS bootstrap request/response、IM 初始化事务、权威 cache 后移除 appSecret/写 credentialRef、半迁移回退、export-legacy；让 e2e-up/down 隔离并清理 key/cache。
 - 验证: bootstrap integration、local config/export CLI tests、script contract；M2-E6/E7。
 
 ### R4 — 前端离线投影与生命周期交互
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: channels API/model 增加 removal/actions；页面增加 offline banner、pending/disabled/reconnecting/deleting/failed 卡片、停用/删除确认与 retry。
 - 验证: frontend interaction tests + build；M2-E1/E3/E4/E5。
 
