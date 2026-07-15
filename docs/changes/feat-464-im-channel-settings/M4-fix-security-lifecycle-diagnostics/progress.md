@@ -18,12 +18,19 @@
 
 ## R2 — Credential re-entry 与本地 secret 安全写
 
-- Context: 待实施。
-- Decision: 待实施。
-- Rationale: 待实施。
-- Evidence: 待实施。
-- Rollback: 待实施。
-- Commits: 待实施。
+- Context: manifest 解封失败时旧代码从 complete snapshot 中省略该 channel 后仍调用 reconcile，等价于删除；cache key mismatch 更在 `ChannelManager` 构造/startup 阶段抛错，阻止 Gateway 连 IM。legacy cleanup 还会先把含 secret 的主配置复制到普通 backup；export 则写完才 chmod。
+- Decision: 新增 fail-closed manifest applier：任一 item key/envelope/open 失败即整份返回 `retryable_failed`，不调用 lifecycle reconcile、不提交 cache/applied head，并为目标 generation 上报 `credential_reentry_required`。foreign-key cache 原字节 0600 quarantine 后开放新的状态 outbox，使 Gateway 可继续连 IM。legacy cleanup/export 统一改用预创建 0600 temp、fsync、atomic replace、目录 fsync 且无 backup 的 sensitive writer。
+- Rationale: complete-manifest 协议不能在部分解码后执行；旧密文既不能弱解密也不能覆盖，只能保留证据并向权威控制面请求重新输入。明文文件的权限必须在首次可见前确定。
+- Evidence:
+  - Tests: `pytest -q tests/unit/personal_assistant/test_channel_credential_recovery.py tests/unit/personal_assistant/test_sensitive_local_config.py tests/unit/personal_assistant/test_channel_manifest_store.py tests/unit/personal_assistant/test_channel_legacy_migration.py` → 12 passed；另 `test_channel_reconcile.py/test_channel_manager.py/test_channel_status_outbox.py/test_gateway_im_resilience_e2e_wrapper.py` → 13 passed。
+  - Entry: 单项 wrong key 的 revision 2 返回 retryable failure，revision 1 safe runtime 不 stop、cache/applied head 保持；cache key loss 不调用 opener，旧 cache 字节完整移入 `.credential-reentry.*`，startup 返回 failed recovery snapshot 而非抛错。
+  - Frontend State Matrix: error 状态由稳定 `credential_reentry_required`/message 驱动；真实浏览器留 R6。
+  - Browser QA: R6 执行真实产品恢复路径。
+  - E2E/Regression: legacy CLI 回归确认最终 0600；sensitive writer 故障注入确认 destination 原字节与零 temp/backup plaintext。
+  - Visual/Interaction: R6。
+  - Prototype Comparison: `#channel-failed` 的稳定原因 contract 已由 wire 状态满足，视觉证据留 R6。
+- Rollback: applier、quarantine 与 sensitive writer 必须成组回退；只回退 quarantine 会重新阻断连接，只回退 applier会重新把 desired 误删。
+- Commits: C1 `26785d798`；C2 `b5275e125`。
 
 ## R3 — Provider preflight、metadata replay 与 activation retry
 
