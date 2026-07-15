@@ -26,13 +26,18 @@
 
 ## R2 — 迁入 stop/terminal/watchdog 并收窄 pipeline
 
-- Context: 待完成。
-- Decision: 待完成。
-- Rationale: 待完成。
-- Evidence: 待完成。
-- Rollback: 待完成。
-- Commits: C1=待完成；C2=待完成；C3=待完成。
-- Next: R1 完成后开始。
+- Context: 旧 `InboundPipeline` 同时持有 route/gate/shadow 与 binder、queue、active/interrupt、image、background subscriber、terminal/watchdog、delivery callback；测试也直接修改 `_active_runs`、调用 `_await_terminal_run_async` / drain-lock helpers，导致 facade 成为 state-machine 聚合点且实现布局被回归套件固化。
+- Decision: terminal consumer、quiet-liveness watchdog、stall cancel/reconcile、user-stop attribution、NO_REPLY/failure visibility、image/control delivery 与 subscriber ensure 全部迁入 `SessionRunCoordinator`；`InboundPipeline` 仅捕获 immutable Agent snapshot，执行 route、group gate、external shadow sync、ignored chatter append，再委托 frozen request。`runtime_delivery.lifecycle` 直接依赖 reply-visibility policy，不再反向 import facade。生产 `main.py` 先显式构造 coordinator + narrow facade；R3 再移除 heartbeat/GatewayRuntime 对 queue lifecycle 的临时直连。
+- Rationale: terminal cleanup 与 admission marker 必须由同一 owner/transition lock 收口，才能保证 stop 的 mark -> interrupt -> append -> original consumer reconcile 顺序和任何 terminal 分支的 marker cleanup；route facade 不再拥有跨消息资源。旧 private-layout 用例由 public coordinator/pipeline 行为替代：permission/watchdog、interrupt-content/leak 三个文件删除；active stop 改为真实 public dispatch task 后经 facade `/stop`；drain-lock/active-map 私有断言删除；group key 与 silence token 改测共享 public policy。
+- Evidence:
+  - C1 red: `test_session_run_coordinator_terminal.py` 的 quiet/stall/active+idle stop/failure/NO_REPLY public tests 已通过独立 owner，但 ownership contract 稳定失败于旧 pipeline 仍出现 `SessionRunCoordinator` owner 字段、runtime lifecycle 仍 import facade；commit `a837a6765` 固化红态。
+  - Focused: 23 个 route/group/session/stop/image/SSE/IM integration 文件共 `118 passed`；terminal + ownership 聚焦门禁 `26 passed`；`ruff check src tests` 全绿。
+  - Full: `/Users/czj/Repos/nano-multiagent/.venv/bin/pytest -m 'not e2e' -n 4 --dist worksteal --durations=20 --durations-min=0.5` -> `3355 passed, 1 skipped, 22 warnings in 29.51s`。
+  - Regression found during migration: 初版 coordinator control ack key 误改成 `dispatch:<agent>:control-...`，旧 public delivery tests稳定显示期望的 IM parse/dedupe key 为 `<agent>|tool_call:<session>:<tag>[:source]`。对照迁移前实现确认是产品回归而非测试债，已恢复原格式、source key 优先级与 normalization，重复 Feishu `/stop` 去重用例重新全绿。
+  - Test factory: `tests/helpers/inbound_pipeline.py` 仅在测试侧显式组合 catalog/binder/coordinator/facade，不向产品添加兼容构造器或旧私有属性。
+- Rollback: 回退 C2 `af57d05e2` 恢复旧巨型 pipeline 与旧测试布局；C1 可一并回退。R2 没有改变 queue 算法或 lifecycle reason。
+- Commits: C1=`a837a6765`；C2=`af57d05e2`；C3=本次 docs commit。
+- Next: R3 先用红 contract 锁定 heartbeat/GatewayRuntime 只依赖 coordinator public interface，并完成 32 文件覆盖盘点，再切最终 composition、跑隔离真栈。
 
 ## R3 — 切换 composition/heartbeat/contracts 并完成真栈验收
 

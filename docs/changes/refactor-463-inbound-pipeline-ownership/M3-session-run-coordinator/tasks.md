@@ -38,12 +38,12 @@
 
 ### R2 — 迁入 stop/terminal/watchdog 并收窄 pipeline
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 先提交 public terminal/stop/liveness/failure/NO_REPLY 红测并迁移旧 private assertions；再把 run/session/media/subscriber 状态与完整 terminal consumer 原子移入 coordinator，pipeline 只 route/gate/shadow/group append 后委托。
 - 验证: coordinator terminal + stop/watchdog/SSE/route/group/external-delivery 聚焦门禁。
 
 ### R3 — 切换 composition/heartbeat/contracts 并完成真栈验收
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 先提交 build-runtime/heartbeat/shutdown/architecture 红测与 32 文件盘点；再一次构造 coordinator 并让 GatewayRuntime/heartbeat 只用公开 lifecycle/busy interface，删除旧 queue/facade owner seam；跑全量门禁与隔离真栈并落 durable evidence。
 - 验证: 聚焦 wiring + contract；`ruff check src tests`；`pytest -m "not e2e" -n 4 --dist worksteal`；隔离高位端口关键路径 e2e 与持久化/日志对账。
