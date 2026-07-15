@@ -4,9 +4,14 @@ import { useId, useState } from "react";
 import { useTranslation } from "../../../i18n";
 import {
   AgentChannel,
+  AgentChannelRemoval,
+  AgentChannelResource,
   CreateAgentChannelInput,
   createAgentChannel,
+  deleteAgentChannel,
   listAgentChannels,
+  reconnectAgentChannel,
+  retryAgentChannelRemoval,
   updateAgentChannel,
 } from "./im-agent-config-api";
 
@@ -46,25 +51,68 @@ function errorDetail(error: unknown): string {
   return error.message.split(" failed: ").at(-1) ?? error.message;
 }
 
-function ConnectionCard({ channel, onEdit }: { channel: AgentChannel; onEdit(): void }) {
+function isRemoval(resource: AgentChannelResource): resource is AgentChannelRemoval {
+  return "resource_type" in resource && resource.resource_type === "removal";
+}
+
+interface ConnectionCardProps {
+  channel: AgentChannel;
+  offline: boolean;
+  pending: boolean;
+  onEdit(): void;
+  onReconnect(): void;
+  onToggle(): void;
+  onDelete(): void;
+}
+
+function ConnectionCard({
+  channel,
+  offline,
+  pending,
+  onEdit,
+  onReconnect,
+  onToggle,
+  onDelete,
+}: ConnectionCardProps) {
   const { t } = useTranslation();
   const observed = channel.observed;
-  const state = observed?.connection_state ?? "pending";
-  const connected = channel.sync_state === "applied" && state === "connected";
+  const observedState = observed?.connection_state ?? "pending";
+  const waiting = channel.sync_state !== "applied";
+  const state = waiting
+    ? channel.enabled
+      ? offline ? "pending" : "connecting"
+      : "disabling"
+    : !channel.enabled || observedState === "disabled"
+      ? "disabled"
+      : observedState;
+  const connected = state === "connected";
   const failed = state === "failed";
-  const statusLabel = connected
-    ? t("agents.channels.status.connected")
-    : failed
-      ? t("agents.channels.status.failed")
-      : t("agents.channels.status.connecting");
+  const disabled = state === "disabled";
+  const statusLabel = t(`agents.channels.status.${state}`);
   const statusClass = connected
     ? "border-emerald-200 bg-emerald-50 text-emerald-700"
     : failed
       ? "border-rose-200 bg-rose-50 text-rose-700"
-      : "border-amber-200 bg-amber-50 text-amber-700";
+      : disabled
+        ? "border-slate-200 bg-slate-100 text-slate-700"
+        : "border-amber-200 bg-amber-50 text-amber-700";
+
+  const detail = state === "pending"
+    ? { strong: t("agents.channels.status.saved"), copy: t("agents.channels.status.autoApply") }
+    : state === "disabling"
+      ? { strong: t("agents.channels.status.disableSaved"), copy: t("agents.channels.status.disableWaiting") }
+      : state === "disabled"
+        ? { strong: t("agents.channels.status.disabledApplied"), copy: t("agents.channels.status.disabledDetail") }
+        : state === "reconnecting"
+          ? { strong: t("agents.channels.status.connectionInterrupted"), copy: t("agents.channels.status.autoRecover") }
+          : failed
+            ? { strong: t("agents.channels.status.failed"), copy: observed?.status_message || observed?.status_code || t("agents.channels.status.unknownFailure") }
+            : connected
+              ? { strong: t("agents.channels.status.synced"), copy: t("agents.channels.status.applied") }
+              : { strong: t("agents.channels.status.savedSecurely"), copy: t("agents.channels.status.connectingDetail") };
 
   return (
-    <article className="im-agent-card" data-channel-state={connected ? "connected" : failed ? "failed" : "connecting"}>
+    <article className="im-agent-card" data-channel-state={state}>
       <div className="flex flex-wrap items-center gap-3">
         <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-sm font-bold text-blue-700">
           飞
@@ -74,20 +122,26 @@ function ConnectionCard({ channel, onEdit }: { channel: AgentChannel; onEdit(): 
             <h3 className="m-0 text-[15px] font-bold text-slate-900">{t("agents.channels.feishu.label")}</h3>
             <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${statusClass}`}>{statusLabel}</span>
           </div>
-          <p className="m-0 mt-1 text-xs text-slate-500">App ID · {maskAppId(appIdOf(channel))}</p>
+          <p className="m-0 mt-1 text-xs text-slate-500">
+            App ID · {maskAppId(appIdOf(channel))}
+            {disabled ? ` · ${t("agents.channels.status.credentialsRetained")}` : null}
+          </p>
         </div>
-        <button type="button" className="im-btn im-btn-muted" onClick={onEdit}>
-          {t("agents.channels.actions.edit")}
-        </button>
+        <div className="flex flex-wrap gap-2">
+          {state !== "disabling" ? <button type="button" className="im-btn im-btn-muted" disabled={pending} onClick={onEdit}>{t("agents.channels.actions.edit")}</button> : null}
+          {channel.enabled && offline ? (
+            <button type="button" className="im-btn im-btn-muted" disabled>{t("agents.channels.actions.nodeOffline")}</button>
+          ) : channel.enabled && ["connected", "reconnecting", "failed"].includes(state) ? (
+            <button type="button" className="im-btn im-btn-muted" disabled={pending} onClick={onReconnect}>{t("agents.channels.actions.reconnect")}</button>
+          ) : null}
+          {state !== "disabling" ? <button type="button" className="im-btn im-btn-muted" disabled={pending} onClick={onToggle}>{channel.enabled ? t("agents.channels.actions.disable") : t("agents.channels.actions.enable")}</button> : null}
+          <button type="button" className="im-btn im-btn-muted text-rose-700" disabled={pending} onClick={onDelete}>{t("agents.channels.actions.delete")}</button>
+        </div>
       </div>
       <div className="flex flex-wrap justify-between gap-2 border-t border-[var(--im-border)] pt-3 text-xs text-slate-500">
-        {connected ? (
-          <span><strong className="text-slate-800">{t("agents.channels.status.synced")}</strong> · <span>{t("agents.channels.status.applied")}</span></span>
-        ) : failed ? (
-          <span role="alert"><strong className="text-rose-700">{t("agents.channels.status.failed")}</strong> · <span>{observed?.status_message || observed?.status_code || t("agents.channels.status.unknownFailure")}</span></span>
-        ) : (
-          <span><strong className="text-slate-800">{t("agents.channels.status.savedSecurely")}</strong> · {t("agents.channels.status.connectingDetail")}</span>
-        )}
+        <span role={failed ? "alert" : undefined}>
+          <strong className={failed ? "text-rose-700" : "text-slate-800"}>{detail.strong}</strong> · <span>{detail.copy}</span>
+        </span>
         <span>
           {observed?.status_updated_at
             ? t("agents.channels.status.updatedAt", { time: formatTime(observed.status_updated_at) })
@@ -98,8 +152,76 @@ function ConnectionCard({ channel, onEdit }: { channel: AgentChannel; onEdit(): 
   );
 }
 
+function RemovalCard({
+  removal,
+  pending,
+  onRetry,
+}: {
+  removal: AgentChannelRemoval;
+  pending: boolean;
+  onRetry(): void;
+}) {
+  const { t } = useTranslation();
+  const failed = removal.apply_state === "failed";
+  const suffix = typeof removal.display_config.app_id_suffix === "string"
+    ? removal.display_config.app_id_suffix
+    : "—";
+  return (
+    <article className="im-agent-card" data-channel-state="deleting">
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-sm font-bold text-blue-700">飞</span>
+        <div className="min-w-[180px] flex-1">
+          <div className="flex items-center gap-2">
+            <h3 className="m-0 text-[15px] font-bold text-slate-900">{t("agents.channels.feishu.label")}</h3>
+            <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${failed ? "border-rose-200 bg-rose-50 text-rose-700" : "border-amber-200 bg-amber-50 text-amber-700"}`}>
+              {failed ? t("agents.channels.status.deleteFailed") : t("agents.channels.status.deletePending")}
+            </span>
+          </div>
+          <p className="m-0 mt-1 text-xs text-slate-500">App ID · ••••{suffix} · {t("agents.channels.status.credentialsDeleted")}</p>
+        </div>
+        <button type="button" className="im-btn im-btn-muted" disabled={pending} onClick={onRetry}>{t("agents.channels.actions.retryApply")}</button>
+      </div>
+      <div className="flex flex-wrap justify-between gap-2 border-t border-[var(--im-border)] pt-3 text-xs text-slate-500">
+        <span role={failed ? "alert" : undefined}>
+          <strong className={failed ? "text-rose-700" : "text-slate-800"}>
+            {failed ? removal.apply_error?.message || t("agents.channels.status.deleteUnknownFailure") : t("agents.channels.status.deleteSaved")}
+          </strong> · {t("agents.channels.status.deleteReload")}
+        </span>
+        <span>{t("agents.channels.status.savedAt", { time: formatTime(removal.created_at) })}</span>
+      </div>
+    </article>
+  );
+}
+
+function ConfirmationDialog({
+  kind,
+  pending,
+  onCancel,
+  onConfirm,
+}: {
+  kind: "disable" | "delete";
+  pending: boolean;
+  onCancel(): void;
+  onConfirm(): void;
+}) {
+  const { t } = useTranslation();
+  const titleId = useId();
+  return (
+    <div className="chat-modal-backdrop" role="presentation">
+      <section className="chat-modal" role="dialog" aria-modal="true" aria-labelledby={titleId}>
+        <header className="chat-modal-header bg-white"><h2 id={titleId}>{t(`agents.channels.confirm.${kind}Title`)}</h2></header>
+        <div className="chat-modal-body"><p className="m-0 text-sm text-slate-600">{t(`agents.channels.confirm.${kind}Body`)}</p></div>
+        <footer className="chat-modal-footer bg-white">
+          <button type="button" className="chat-modal-btn-ghost" onClick={onCancel}>{t("agents.channels.actions.cancel")}</button>
+          <button type="button" className="chat-modal-btn-primary" disabled={pending} onClick={onConfirm}>{t(`agents.channels.confirm.${kind}Action`)}</button>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
 interface ChannelDialogProps {
-  existing: AgentChannel | null;
+  providerOccupied: boolean;
   editing: AgentChannel | null;
   initialStep: "provider" | "credentials";
   pending: boolean;
@@ -108,7 +230,7 @@ interface ChannelDialogProps {
   onSave(input: ChannelFormState): void;
 }
 
-function ChannelDialog({ existing, editing, initialStep, pending, requestError, onClose, onSave }: ChannelDialogProps) {
+function ChannelDialog({ providerOccupied, editing, initialStep, pending, requestError, onClose, onSave }: ChannelDialogProps) {
   const { t } = useTranslation();
   const titleId = useId();
   const appIdInputId = useId();
@@ -153,7 +275,7 @@ function ChannelDialog({ existing, editing, initialStep, pending, requestError, 
         {step === "provider" ? (
           <div className="chat-modal-body">
             {CHANNEL_PROVIDERS.map((provider) => {
-              const alreadyAdded = existing?.provider === provider.id;
+              const alreadyAdded = providerOccupied;
               return (
                 <button
                   key={provider.id}
@@ -233,23 +355,42 @@ function ChannelDialog({ existing, editing, initialStep, pending, requestError, 
   );
 }
 
-export function AgentChannelsPanel({ agentId }: { agentId: string }) {
+export function AgentChannelsPanel({
+  agentId,
+  nodeStatus = "online",
+}: {
+  agentId: string;
+  nodeStatus?: string | null;
+}) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const queryKey = ["settings", "agents", agentId, "channels"];
   const [dialog, setDialog] = useState<{ step: "provider" | "credentials"; editing: AgentChannel | null } | null>(null);
+  const [confirmation, setConfirmation] = useState<{ kind: "disable" | "delete"; channel: AgentChannel } | null>(null);
   const [requestError, setRequestError] = useState<string | null>(null);
+  const offline = nodeStatus === "offline";
   const channelsQuery = useQuery({
     queryKey,
     queryFn: () => listAgentChannels(agentId),
     refetchInterval: (query) => {
-      const channels = query.state.data as AgentChannel[] | undefined;
-      return channels?.some((channel) => {
+      const resources = query.state.data as AgentChannelResource[] | undefined;
+      return resources?.some((resource) => {
+        if (isRemoval(resource)) return true;
+        const channel = resource;
         const state = channel.observed?.connection_state;
         return channel.sync_state !== "applied" || !state || state === "connecting" || state === "reconnecting";
       }) ? 1_000 : false;
     },
   });
+
+  function storeResource(saved: AgentChannelResource) {
+    queryClient.setQueryData<AgentChannelResource[]>(queryKey, (current = []) => {
+      const exists = current.some((item) => item.channel_id === saved.channel_id);
+      return exists
+        ? current.map((item) => item.channel_id === saved.channel_id ? saved : item)
+        : [...current, saved];
+    });
+  }
 
   const saveMutation = useMutation({
     mutationFn: ({ form, editing }: { form: ChannelFormState; editing: AgentChannel | null }) => {
@@ -259,7 +400,7 @@ export function AgentChannelsPanel({ agentId }: { agentId: string }) {
       if (editing) {
         return updateAgentChannel(agentId, editing.channel_id, {
           channel_revision: editing.channel_revision,
-          enabled: true,
+          enabled: editing.enabled,
           config: { app_id: form.appId },
           credentials,
         });
@@ -273,18 +414,60 @@ export function AgentChannelsPanel({ agentId }: { agentId: string }) {
       return createAgentChannel(agentId, payload);
     },
     onSuccess: (saved) => {
-      queryClient.setQueryData<AgentChannel[]>(queryKey, (current = []) => {
-        const exists = current.some((item) => item.channel_id === saved.channel_id);
-        return exists ? current.map((item) => item.channel_id === saved.channel_id ? saved : item) : [...current, saved];
-      });
+      storeResource(saved);
       setRequestError(null);
       setDialog(null);
     },
     onError: (error) => setRequestError(errorDetail(error)),
   });
 
-  const channels = channelsQuery.data ?? [];
-  const feishu = channels.find((channel) => channel.provider === "feishu") ?? null;
+  const toggleMutation = useMutation({
+    mutationFn: (channel: AgentChannel) => updateAgentChannel(agentId, channel.channel_id, {
+      channel_revision: channel.channel_revision,
+      enabled: !channel.enabled,
+      config: channel.config,
+      credentials: { mode: "keep" },
+    }),
+    onSuccess: (saved) => {
+      storeResource(saved);
+      setConfirmation(null);
+      setRequestError(null);
+    },
+    onError: (error) => setRequestError(errorDetail(error)),
+  });
+
+  const reconnectMutation = useMutation({
+    mutationFn: (channel: AgentChannel) => reconnectAgentChannel(agentId, channel.channel_id),
+    onSuccess: (saved) => { storeResource(saved); setRequestError(null); },
+    onError: (error) => setRequestError(errorDetail(error)),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (channel: AgentChannel) => deleteAgentChannel(
+      agentId,
+      channel.channel_id,
+      channel.channel_revision,
+    ),
+    onSuccess: (saved) => {
+      storeResource(saved);
+      setConfirmation(null);
+      setRequestError(null);
+    },
+    onError: (error) => setRequestError(errorDetail(error)),
+  });
+
+  const retryMutation = useMutation({
+    mutationFn: (removal: AgentChannelRemoval) => retryAgentChannelRemoval(
+      agentId,
+      removal.channel_id,
+    ),
+    onSuccess: (saved) => { storeResource(saved); setRequestError(null); },
+    onError: (error) => setRequestError(errorDetail(error)),
+  });
+
+  const resources = channelsQuery.data ?? [];
+  const providerOccupied = resources.some((resource) => resource.provider === "feishu");
+  const lifecyclePending = toggleMutation.isPending || reconnectMutation.isPending || deleteMutation.isPending || retryMutation.isPending;
 
   if (channelsQuery.isLoading) return <p className="text-sm text-slate-500">{t("agents.channels.loading")}</p>;
   if (channelsQuery.isError) {
@@ -309,7 +492,16 @@ export function AgentChannelsPanel({ agentId }: { agentId: string }) {
         </button>
       </header>
 
-      {channels.length === 0 ? (
+      {offline && resources.length > 0 ? (
+        <section className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900" role="status">
+          <strong>{t("agents.channels.offline.title")}</strong>
+          <span>{t("agents.channels.offline.detail")}</span>
+        </section>
+      ) : null}
+
+      {requestError && !dialog ? <p className="m-0 text-xs font-semibold text-rose-700" role="alert">{requestError}</p> : null}
+
+      {resources.length === 0 ? (
         <section className="im-agent-card place-items-center py-10 text-center">
           <span className="flex h-11 w-11 items-center justify-center rounded-full bg-slate-100 text-xl text-slate-500">+</span>
           <div>
@@ -320,24 +512,51 @@ export function AgentChannelsPanel({ agentId }: { agentId: string }) {
             {t("agents.channels.actions.add")}
           </button>
         </section>
-      ) : channels.map((channel) => (
+      ) : resources.map((resource) => isRemoval(resource) ? (
+        <RemovalCard
+          key={resource.channel_id}
+          removal={resource}
+          pending={retryMutation.isPending}
+          onRetry={() => retryMutation.mutate(resource)}
+        />
+      ) : (
         <ConnectionCard
-          key={channel.channel_id}
-          channel={channel}
-          onEdit={() => { setRequestError(null); setDialog({ step: "credentials", editing: channel }); }}
+          key={resource.channel_id}
+          channel={resource}
+          offline={offline}
+          pending={lifecyclePending}
+          onEdit={() => { setRequestError(null); setDialog({ step: "credentials", editing: resource }); }}
+          onReconnect={() => reconnectMutation.mutate(resource)}
+          onToggle={() => {
+            if (resource.enabled) setConfirmation({ kind: "disable", channel: resource });
+            else toggleMutation.mutate(resource);
+          }}
+          onDelete={() => setConfirmation({ kind: "delete", channel: resource })}
         />
       ))}
 
       {dialog ? (
         <ChannelDialog
           key={`${dialog.step}:${dialog.editing?.channel_id ?? "new"}`}
-          existing={feishu}
+          providerOccupied={providerOccupied}
           editing={dialog.editing}
           initialStep={dialog.step}
           pending={saveMutation.isPending}
           requestError={requestError}
           onClose={() => setDialog(null)}
           onSave={(form) => saveMutation.mutate({ form, editing: dialog.editing })}
+        />
+      ) : null}
+
+      {confirmation ? (
+        <ConfirmationDialog
+          kind={confirmation.kind}
+          pending={toggleMutation.isPending || deleteMutation.isPending}
+          onCancel={() => setConfirmation(null)}
+          onConfirm={() => {
+            if (confirmation.kind === "disable") toggleMutation.mutate(confirmation.channel);
+            else deleteMutation.mutate(confirmation.channel);
+          }}
         />
       ) : null}
     </div>

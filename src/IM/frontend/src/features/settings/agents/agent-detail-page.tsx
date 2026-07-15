@@ -1652,7 +1652,7 @@ export function AgentDetailPage() {
             {t("agents.detail.sections.overviewPlaceholder")}
           </PrototypePlaceholder>
         ) : activeSection === "channels" ? (
-          <AgentChannelsPanel agentId={agentId} />
+          <AgentChannelsPanel agentId={agentId} nodeStatus={displayedNodeStatusRaw} />
         ) : activeSection === "sessions" ? (
           <PrototypePlaceholder title={t("agents.detail.sections.sessions")}>
             {t("agents.detail.sections.sessionsPlaceholder")}

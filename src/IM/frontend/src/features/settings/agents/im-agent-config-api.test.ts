@@ -200,7 +200,9 @@ describe("agent channel API", () => {
       .mockResolvedValueOnce(new Response(JSON.stringify([responseBody]), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify(responseBody), { status: 201 }))
       .mockResolvedValueOnce(new Response(JSON.stringify(responseBody), { status: 200 }))
-      .mockResolvedValue(new Response(JSON.stringify(responseBody), { status: 200 }));
+      .mockImplementation(() => Promise.resolve(
+        new Response(JSON.stringify(responseBody), { status: 200 }),
+      ));
 
     await expect(listAgentChannels("agent/a")).resolves.toEqual([responseBody]);
     const createPayload = {
