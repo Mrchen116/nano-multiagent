@@ -84,9 +84,9 @@
 
 ### R3 — WS 在线 reconcile/status 闭环
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: node.register 公钥、完整 reconcile/status/metadata frames、Gateway IM client dispatch 与 composition root 在线热应用。
-- 验证: `pytest -q tests/integration/test_channel_reconcile.py tests/im_service/unit/test_gateway_handler.py tests/unit/personal_assistant/test_gateway_im_connection_behavior.py`。
+- 验证: `pytest -q tests/integration/test_channel_reconcile.py tests/im_service/unit/test_gateway_handler.py tests/unit/personal_assistant/test_gateway_im_connection_behavior.py tests/unit/personal_assistant/test_gateway_build_runtime.py tests/unit/personal_assistant/test_gateway_shutdown_order.py` → `84 passed`；R1 安全控制面回归 `20 passed`。
 
 ### R4 — Agent 通道页与 provider registry
 

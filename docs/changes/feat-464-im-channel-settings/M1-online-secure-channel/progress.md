@@ -44,8 +44,20 @@
 
 ## R3 — WS 在线 reconcile/status 闭环
 
-- Context: TODO
-- Next: R2 完成后开始。
+- Context: DONE
+- Decision: Gateway 启动时持久化生成权限为 `0600` 的 X25519 私钥，只在 `node.register` 上行公钥材料；IM 在 bind 后向对应 node 推送完整 manifest，Gateway 解封 secret 后由 `ChannelManager` 热调和，并用 `channel.reconcile.result`、`channel.status`、`channel.runtime_metadata` 三类上行帧回投结果。状态和 metadata 均以 generation/incarnation/sequence 做 CAS，相关 result 复用现有单槽 FIFO 释放机制。
+- Rationale: 私钥不进入 IM，也不随进程重启变化；同一 WebSocket 完成 ack 后初始化控制面，可兼容 register-before-bind，bind confirm 也会主动触发初始化。composition root 只把解密后的凭据交给 runtime factory，static legacy 同名 adapter 会在 managed runtime 启动前被 stop/remove，关闭顺序则先收敛 managed channel 再关闭静态 registry。
+- Evidence:
+  - Tests: C1 因缺少 Gateway credential module 按预期 red；C2 目标与接线回归 `84 passed`，覆盖私钥权限/稳定性、公钥注册、跨端 envelope 解密、真实 IM app WebSocket 推送、reconcile result、connected status、metadata first-wins、App replacement 清 metadata、旧 generation 拒绝、下行 dispatch 与 FIFO 相关结果释放。
+  - Entry: `GatewayHandler` 校验 frame sender 与当前 node socket 一致后写入 control store；`IMConnectionManager` dispatch `channel.reconcile` 并线程安全回传结果；`build_runtime()` 组装 credential store、manager、Feishu factory、status/metadata bridge 和 manifest handler。
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: R1 安全控制面回归 `20 passed`，目标源/测试 Ruff 通过；所有 SQLite 短连接用 `closing()` 明确释放。
+  - Visual/Interaction: N/A
+  - Prototype Comparison: N/A
+- Rollback: 回滚 R3 三提交会保留 R1/R2 能力但断开在线调和协议；Gateway 不再注册 credential key，IM 不会向该 node 推送 manifest。
+- Commits: `8902d9533` (C1 red), `8f15216ce` (C2 green), C3 为本提交。
+- Next: R4 实现 Agent detail 的通道面板、Feishu provider registry 与 keep/replace 表单。
 
 ## R4 — Agent 通道页与 provider registry
 
