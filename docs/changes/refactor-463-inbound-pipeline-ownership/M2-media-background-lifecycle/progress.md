@@ -23,3 +23,20 @@
 - Rollback: 回退 C2 `174b4043f` 恢复 pipeline 内图片策略与 DTO；C1 可随同回退。
 - Commits: C1=`c2b2240ea`；C2=`174b4043f`；C3=本次 docs commit。
 - Next: R2 C1 锁定 subscriber、dispatcher 与 queue 的公开资源生命周期。
+
+## R2 — 收回 subscriber、dispatcher 与 queue worker 生命周期
+
+- Context: pipeline 用裸 dict 拥有 subscriber，main 内嵌 dispatcher 且不保存 root handle，queue 用裸 `create_task` 启 worker；shutdown 因而无法区分 seal admission、settle submit 边界和 Kernel 后 drain，也无法给 queued-before-submit 工作明确终态。
+- Decision: 新增 concrete `BackgroundSubscriptionManager`，以显式 agent id 构造稳定 dedupe key，保留首次 replay anchor/route 并 ensure-once；manager `seal()` 不 cancel，Kernel 后 `aclose(deadline)` 并发收拢。新增 `InboundDispatcher` 同时追踪 loop task 与 thread-safe future。`SessionRunQueue` 增加 seal、typed `GatewayShutdownBeforeSubmit`、pending lifecycle callback、admission event、具名 worker与同 deadline settle/drain。pipeline 只通过 manager/queue 公开接口接线；删除旧 subscriber dict/method、main 私有 dispatcher class 以及对等 private subscriber 测试。
+- Rationale: 每类 task 集合只存在于创建它的 owner；composition/shutdown 只调用 seal/settle/drain，不读取集合。queued item 的 failed lifecycle 仍复用 relay callback，未新增 wire 字段或用户文案；active head 保留给 Kernel close 产生终态。
+- Evidence:
+  - Tests: 新 owner 公共 lifecycle 门禁 → `6 passed`；subscriber/pipeline/queue/build-runtime 既有回归 → `38 passed`；相关 `ruff check` → passed。
+  - Entry: public manager 测试证明同 session 两次 ensure 只打开一个 `after_sequence=7` stream，重复 `_id=42` 生成同一 `agent-a|tool_call:sess-bg:42` 并回原 `ReplyContext`；seal 后新订阅拒绝、当前 callback 不被提前 cancel。queue/dispatcher 公开测试证明 post-seal work 不执行、accepted root/worker drain 后无具名 task。真 Gateway/IM 入口统一在 R4。
+  - Frontend State Matrix: N/A（无前端变更）。
+  - Browser QA: N/A（无前端变更）。
+  - E2E/Regression: `test_background_subscription_manager.py`、`test_inbound_dispatcher.py`、`test_run_queue.py`；`test_inbound_pipeline_sse.py` 删除对 pipeline subscriber 私有 dict/callback 的断言并降到 392 行。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: 回退 C2 `31429404a` 恢复 pipeline/main/queue 旧 ownership；C1 可随同回退。
+- Commits: C1=`943bb14d8`；C2=`31429404a`；C3=本次 docs commit。
+- Next: R3 C1 锁定唯一 delivery task tracker 与 observer 无裸 detached coroutine。
