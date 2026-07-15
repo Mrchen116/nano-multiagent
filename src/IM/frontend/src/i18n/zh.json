@@ -261,14 +261,15 @@
       "dialog": {
         "addTitle": "添加通道",
         "editTitle": "编辑飞书通道",
+        "editTitleGeneric": "编辑{{provider}}通道",
         "chooseProvider": "选择要连接的外部 IM 类型",
         "credentialsSubtitle": "填写应用凭据并在线连接"
       },
       "credentials": {
         "keep": "保留现有密钥",
-        "keepHelp": "本次不修改已保存的 App Secret",
+        "keepHelp": "本次不修改已保存的通道密钥",
         "replace": "替换密钥",
-        "replaceHelp": "输入并保存一个新的 App Secret",
+        "replaceHelp": "输入并保存新的通道密钥",
         "secretHelp": "密钥将安全保存，之后不会再次明文显示。"
       },
       "validation": {
@@ -295,9 +296,11 @@
       },
       "confirm": {
         "disableTitle": "停用飞书通道？",
+        "disableTitleGeneric": "停用{{provider}}通道？",
         "disableBody": "节点应用后将停止新的消息收发，已保存凭据会保留。",
         "disableAction": "确认停用",
         "deleteTitle": "删除飞书通道？",
+        "deleteTitleGeneric": "删除{{provider}}通道？",
         "deleteBody": "凭据会立即从 IM 删除；卡片会保留到节点确认停止，历史会话不会删除。",
         "deleteAction": "确认删除"
       },

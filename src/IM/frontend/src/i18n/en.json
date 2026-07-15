@@ -263,14 +263,15 @@
       "dialog": {
         "addTitle": "Add channel",
         "editTitle": "Edit Feishu channel",
+        "editTitleGeneric": "Edit {{provider}} channel",
         "chooseProvider": "Choose an external messaging provider",
         "credentialsSubtitle": "Enter application credentials and connect online"
       },
       "credentials": {
         "keep": "Keep existing secret",
-        "keepHelp": "Do not change the saved App Secret",
+        "keepHelp": "Do not change the saved channel secret",
         "replace": "Replace secret",
-        "replaceHelp": "Enter and save a new App Secret",
+        "replaceHelp": "Enter and save a new channel secret",
         "secretHelp": "The secret is stored securely and will not be displayed again."
       },
       "validation": {
@@ -297,9 +298,11 @@
       },
       "confirm": {
         "disableTitle": "Disable the Feishu channel?",
+        "disableTitleGeneric": "Disable the {{provider}} channel?",
         "disableBody": "New messaging stops after the node applies this change. Saved credentials are retained.",
         "disableAction": "Confirm disable",
         "deleteTitle": "Delete the Feishu channel?",
+        "deleteTitleGeneric": "Delete the {{provider}} channel?",
         "deleteBody": "Credentials are removed from IM immediately. The card remains until the node stops; history is retained.",
         "deleteAction": "Confirm delete"
       },

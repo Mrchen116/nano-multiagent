@@ -225,7 +225,7 @@ export function isAgentChannelRemoval(
 
 export interface ChannelCredentialsInput {
   mode: "keep" | "replace";
-  app_secret?: string;
+  [credential: string]: string | undefined;
 }
 
 export interface CreateAgentChannelInput {
