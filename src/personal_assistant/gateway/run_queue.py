@@ -37,11 +37,11 @@ class SessionRunQueue:
     """Serialize work per session and own every queue worker through shutdown.
 
     Notes:
-        ``seal_and_cancel_pending`` is an O(1)-per-item synchronous admission switch.
-        It preserves only an operation already executing at the head of each session;
-        later FIFO items receive ``gateway_shutdown_before_submit`` without reaching
-        their operation. Worker and cancellation callback tasks remain owned until the
-        corresponding absolute-deadline drain method completes.
+        ``seal_and_cancel_pending`` is an O(1) synchronous admission switch: it only
+        rejects later submissions. ``settle_admission`` owns the per-item async phase
+        that removes queued work while preserving an executing head. Removed items
+        receive ``gateway_shutdown_before_submit`` without reaching their operation,
+        and cancellation callbacks remain owned through the shared deadline.
     """
 
     def __init__(self) -> None:
@@ -110,22 +110,15 @@ class SessionRunQueue:
         return session_key in self._active_sessions
 
     def seal_and_cancel_pending(self) -> None:
-        """Synchronously reject new work and fail FIFO items not yet executing."""
+        """Synchronously reject new work without walking accepted queue items."""
 
-        if self._sealed:
-            return
         self._sealed = True
-        for session_key, queue in self._queues.items():
-            keep_count = 1 if session_key in self._running_sessions else 0
-            pending = list(queue)[keep_count:]
-            while len(queue) > keep_count:
-                queue.pop()
-            for item in pending:
-                self._cancel_before_submit(item)
 
     async def settle_admission(self, deadline: float) -> None:
         """Wait for every accepted item to cross submit-or-rollback by one deadline."""
 
+        if self._sealed:
+            self._cancel_pending_items()
         event_waiters = [
             asyncio.create_task(item.admission_event.wait())
             for queue in self._queues.values()
@@ -147,6 +140,17 @@ class SessionRunQueue:
             pending_item.cancel()
         await asyncio.gather(*pending, return_exceptions=True)
         raise TimeoutError("session run queue admission did not settle before deadline")
+
+    def _cancel_pending_items(self) -> None:
+        """Detach shutdown-pending work inside the owner-controlled async phase."""
+
+        for session_key, queue in self._queues.items():
+            keep_count = 1 if session_key in self._running_sessions else 0
+            pending = list(queue)[keep_count:]
+            while len(queue) > keep_count:
+                queue.pop()
+            for item in pending:
+                self._cancel_before_submit(item)
 
     async def drain_workers(self, deadline: float) -> None:
         """Drain or cancel every owned per-session worker by one absolute deadline."""

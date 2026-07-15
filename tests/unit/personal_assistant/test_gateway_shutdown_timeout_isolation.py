@@ -134,12 +134,14 @@ class _BlockingIM:
         self.close_started = threading.Event()
         self.close_cancelled = threading.Event()
         self.closed = asyncio.Event()
+        self.task_started = threading.Event()
         self.task_cancelled = threading.Event()
 
     async def wait_first_connect_attempt(self, *, timeout: float = 10.0) -> None:
         del timeout
 
     async def run_forever(self) -> None:
+        self.task_started.set()
         try:
             await self.closed.wait()
         except asyncio.CancelledError:
@@ -196,6 +198,7 @@ def test_timeout_does_not_skip_later_owners_or_reset_deadline(tmp_path) -> None:
 
     thread, outcome = run_in_thread(runtime)
     assert runtime.wait_until_ready(timeout=2)
+    assert im.task_started.wait(timeout=2)
     requested_at = time.monotonic()
     runtime.request_shutdown()
 

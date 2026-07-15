@@ -44,9 +44,9 @@ async def test_seal_cancels_pending_item_and_keeps_active_operation() -> None:
     await asyncio.sleep(0)
 
     queue.seal_and_cancel_pending()
+    await queue.settle_admission(asyncio.get_running_loop().time() + 1)
     with pytest.raises(GatewayShutdownBeforeSubmit) as exc_info:
         await pending_task
-    await queue.settle_admission(asyncio.get_running_loop().time() + 1)
 
     assert exc_info.value.reason == "gateway_shutdown_before_submit"
     assert cancelled == ["gateway_shutdown_before_submit"]

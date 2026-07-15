@@ -1274,18 +1274,20 @@ class GatewayRuntime:
                 )
 
             if self._im_connection_manager is not None:
-                try:
-                    await self._im_connection_manager.close()
-                except Exception as exc:  # noqa: BLE001
-                    _log.warning("IM connection close raised during shutdown: %s", exc)
+                await self._run_shutdown_operation(
+                    "IM connection close",
+                    inner_deadline,
+                    self._im_connection_manager.close,
+                )
             if im_task is not None:
                 # issue path 3: cleanup must never be torn apart by a stored task
-                # exception. _await_background_task already absorbs cancellation; wrap the
-                # rest so any leaked fault is logged, not propagated out of finally.
-                try:
-                    await _await_background_task(im_task)
-                except BaseException as exc:  # noqa: BLE001
-                    _log.warning("IM task await raised during shutdown: %s", exc)
+                # exception. It uses the same absolute deadline as transport close;
+                # either timeout remains isolated so synchronous closers still run.
+                await self._run_shutdown_operation(
+                    "IM task await",
+                    inner_deadline,
+                    lambda: _await_background_task(im_task),
+                )
             for closer in self._resource_closers:
                 self._run_shutdown_action("resource closer", closer)
             self._shutdown_async_event = None
