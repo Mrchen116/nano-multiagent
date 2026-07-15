@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import asyncio
 from collections import OrderedDict
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
+from contextlib import asynccontextmanager
 from dataclasses import replace
 import logging
 from typing import TYPE_CHECKING, Any
@@ -132,6 +133,7 @@ class SessionRunCoordinator:
         self._active_runs: dict[str, str] = {}
         self._user_interrupted_runs: set[str] = set()
         self._transition_locks: OrderedDict[str, asyncio.Lock] = OrderedDict()
+        self._transition_lock_users: dict[str, int] = {}
         self._max_transition_locks = max(1, max_transition_locks)
 
     async def dispatch(self, request: InboundRunRequest) -> PipelineResult:
@@ -150,8 +152,7 @@ class SessionRunCoordinator:
         fallback_parts: list[dict[str, Any]] | None = None
         injected_result: PipelineResult | None = None
         image_failure: tuple[str, SessionBinding] | None = None
-        lock = self._transition_lock_for(request.session_key)
-        async with lock:
+        async with self._transition(request.session_key):
             active_run_id = self._active_runs.get(request.session_key)
             if active_run_id is not None:
                 binding = await self._ensure_binding(request)
@@ -201,8 +202,7 @@ class SessionRunCoordinator:
 
         binding: SessionBinding | None = None
         active_run_id: str | None = None
-        lock = self._transition_lock_for(request.session_key)
-        async with lock:
+        async with self._transition(request.session_key):
             active_run_id = self._active_runs.get(request.session_key)
             if active_run_id is None and request.message.is_group:
                 return PipelineResult(
@@ -341,8 +341,7 @@ class SessionRunCoordinator:
         binding: SessionBinding | None = None
         try:
             failure_kind: str | None = None
-            lock = self._transition_lock_for(request.session_key)
-            async with lock:
+            async with self._transition(request.session_key):
                 binding = await self._ensure_binding(request)
                 if prebuilt_parts is None:
                     parts, failure_kind = await self._build_message_parts(request)
@@ -464,7 +463,7 @@ class SessionRunCoordinator:
             raise
         finally:
             if run_id:
-                async with self._transition_lock_for(request.session_key):
+                async with self._transition(request.session_key):
                     if self._active_runs.get(request.session_key) == run_id:
                         self._active_runs.pop(request.session_key, None)
                     self._user_interrupted_runs.discard(run_id)
@@ -733,23 +732,44 @@ class SessionRunCoordinator:
         if lock is None:
             lock = asyncio.Lock()
             self._transition_locks[session_key] = lock
-            self._trim_transition_locks()
         else:
             self._transition_locks.move_to_end(session_key)
         return lock
 
+    @asynccontextmanager
+    async def _transition(self, session_key: str) -> AsyncIterator[None]:
+        """Lease one stable session lock across acquisition, use, and waiters."""
+
+        lock = self._transition_lock_for(session_key)
+        self._transition_lock_users[session_key] = (
+            self._transition_lock_users.get(session_key, 0) + 1
+        )
+        self._trim_transition_locks()
+        try:
+            async with lock:
+                yield
+        finally:
+            remaining = self._transition_lock_users[session_key] - 1
+            if remaining:
+                self._transition_lock_users[session_key] = remaining
+            else:
+                self._transition_lock_users.pop(session_key, None)
+            self._trim_transition_locks()
+
     def _trim_transition_locks(self) -> None:
-        checked_locked = 0
         while len(self._transition_locks) > self._max_transition_locks:
-            session_key, lock = next(iter(self._transition_locks.items()))
-            if lock.locked():
-                self._transition_locks.move_to_end(session_key)
-                checked_locked += 1
-                if checked_locked >= len(self._transition_locks):
-                    break
-                continue
-            self._transition_locks.popitem(last=False)
-            checked_locked = 0
+            removable = next(
+                (
+                    session_key
+                    for session_key, lock in self._transition_locks.items()
+                    if self._transition_lock_users.get(session_key, 0) == 0
+                    and not lock.locked()
+                ),
+                None,
+            )
+            if removable is None:
+                break
+            self._transition_locks.pop(removable, None)
 
     def _resolve_model(self, request: InboundRunRequest) -> str | None:
         return resolve_run_model(
