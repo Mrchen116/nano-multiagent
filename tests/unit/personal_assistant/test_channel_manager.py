@@ -199,7 +199,12 @@ def test_replacement_start_failure_cuts_old_send_path_and_surfaces_failure() -> 
 
     assert failed.failed_channel_ids == ("ch-a",)
     assert manager.registry.get("feishu:agent-a") is None
-    assert events[-2:] == ["stop:feishu:agent-a", "start:feishu:agent-a"]
+    assert events[-3:] == [
+        "stop:feishu:agent-a",
+        "start:feishu:agent-a",
+        "stop:feishu:agent-a",
+    ]
+    assert adapters[1].stopped == 1
     assert statuses[-1].connection_state == "failed"
     assert statuses[-1].status_code == "runtime_start_failed"
 
