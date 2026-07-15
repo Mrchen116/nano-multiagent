@@ -3185,7 +3185,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                     "diagnostics_state": snapshot.diagnostics_state,
                     "status_code": snapshot.status_code,
                     "status_message": snapshot.status_message,
-                    "checks": [],
+                    "checks": [dict(item) for item in snapshot.checks],
                 },
             )
 
@@ -3240,6 +3240,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                     ),
                     status_code=getattr(worker_status, "status_code", None),
                     status_message=getattr(worker_status, "status_message", None),
+                    checks=getattr(worker_status, "checks", ()),
                 )
 
             return FeishuAdapter(
