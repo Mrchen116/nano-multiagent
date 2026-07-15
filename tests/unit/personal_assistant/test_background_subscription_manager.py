@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Mapping
+from enum import Enum
 from typing import Any
 
 import pytest
@@ -189,6 +190,26 @@ async def test_sealed_manager_allows_terminal_ensure_for_existing_session() -> N
     assert kernel.calls == [("sess-bg", 7)]
     await kernel.events.put(None)
     await manager.aclose(asyncio.get_running_loop().time() + 1)
+
+
+@pytest.mark.asyncio
+async def test_terminal_ensure_returns_typed_skip_when_shutdown_rejects_new_session() -> (
+    None
+):
+    """Foreground terminal cleanup observes seal as a typed non-error outcome."""
+
+    manager = BackgroundSubscriptionManager(
+        kernel=_QueuedKernel(),
+        session_event_callback=lambda _context, _event: asyncio.sleep(0),
+    )
+    manager.seal()
+
+    outcome = await manager.ensure_after_foreground_terminal(_request())
+
+    assert isinstance(outcome, Enum)
+    assert outcome.value == "shutdown_skipped"
+    with pytest.raises(RuntimeError, match="sealed"):
+        await manager.ensure(_request())
 
 
 @pytest.mark.asyncio

@@ -15,6 +15,9 @@ from personal_assistant.gateway.inbound_models import (
     RelayLifecycleUpdate,
     StopRunRequest,
 )
+from personal_assistant.gateway.background_subscriptions import (
+    BackgroundSubscriptionManager,
+)
 from personal_assistant.gateway.session_keys import build_session_key
 from personal_assistant.gateway.session_run_coordinator import SessionRunCoordinator
 
@@ -193,6 +196,45 @@ async def test_terminal_failure_reconciles_fails_lifecycle_and_cleans_state(
         "delivery_status": "failed",
     }
     assert not coordinator.is_session_busy(build_session_key(message, agent_id="agent-a"))
+
+
+@pytest.mark.asyncio
+async def test_completed_foreground_run_survives_background_subscription_seal(
+    tmp_path: Path,
+) -> None:
+    """Optional background admission cannot turn a completed foreground run failed."""
+
+    kernel, catalog, binder, router, group_store = build_dependencies(tmp_path)
+    lifecycle: list[str] = []
+
+    async def _capture(_message, update: RelayLifecycleUpdate) -> None:
+        lifecycle.append(update.phase)
+
+    background_subscriptions = BackgroundSubscriptionManager(
+        kernel=kernel,
+        session_event_callback=lambda _context, _event: asyncio.sleep(0),
+    )
+    coordinator = SessionRunCoordinator(
+        kernel=kernel,
+        session_binder=binder,
+        outbound_router=router,
+        group_context_store=group_store,
+        background_subscriptions=background_subscriptions,
+        relay_lifecycle_callback=_capture,
+    )
+    running = asyncio.create_task(
+        coordinator.dispatch(
+            _request(inbound(chat_id="sealed-background", text="work"), catalog)
+        )
+    )
+    await kernel.wait_stream("run-1")
+
+    background_subscriptions.seal()
+    kernel.finish("run-1", text="completed before shutdown")
+
+    result = await running
+    assert result.reply_text == "completed before shutdown"
+    assert lifecycle == ["accepted", "running", "completed"]
 
 
 @pytest.mark.asyncio
