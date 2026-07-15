@@ -50,12 +50,19 @@
 
 ## R4 — Worker 生命周期、背压与真实停用收敛
 
-- Context: 待实施。
-- Decision: 待实施。
-- Rationale: 待实施。
-- Evidence: 待实施。
-- Rollback: 待实施。
-- Commits: 待实施。
+- Context: runtime candidate 在 `start()` partial failure 或 registry registration failure 后只从 map/registry 摘除，从未 stop；FIFO backpressure 只给 child 设置一个 SDK listener 不消费的 event，可能留下孤儿进程。`reconnect/reconcile/status-result/close` 虽是 async API，实际在 Gateway event loop 内同步 join；disable 又先发旧 incarnation 的 revision-N disabled，再发新 incarnation seq=1，IM 因果投影会收到两个互相冲突的终态。
+- Decision: 所有 lifecycle async API 统一用 `asyncio.to_thread` 承载同步 per-channel lock 和 stop/join；candidate 只要已构造，后续任何失败都 best-effort invalidated-stop。worker start 自身也在 ready/thread 初始化失败时自回收，并在 terminate 后仍存活时 kill。`event_backpressure/worker_crashed` 由独立 supervisor 以 100/200/400ms 三次有界重启，第四次只回收不再重启；desired spec 独立保留，用户可 manual reconnect。disable 只在旧 PID 回收后发布一个新 generation、新 incarnation、seq=1 的 disabled barrier。
+- Rationale: 生命周期 owner 必须同时拥有 candidate、active 与失败路径；仅发 terminal status 不等于关闭阻塞的 SDK WebSocket。stop/join 放到后台线程使 heartbeat/ACK 继续调度；retry budget 按连续未 connected 的 generation 计数，连接成功才清零，既避免紧循环也保留人工恢复入口。disabled 是一个未启动的新 observed instance，而不是旧 worker 的迟到状态。
+- Evidence:
+  - Tests: `pytest -q tests/unit/personal_assistant/test_channel_lifecycle_failures.py` → 6 passed；真实 spawn child 覆盖 partial start、registry failure、non-cooperative backpressure、三次 retry budget、人工恢复、event-loop 30ms heartbeat 与 disable/re-enable 单 barrier。
+  - Entry: backpressure 初始 listener + 3 个 retry PID 全部 `is_alive=False`，registry 为空且 600ms 后无额外 listener；同 desired 的 manual reconnect 建立唯一第 5 个 stable listener。
+  - Frontend State Matrix: disabled 现在只有 revision-N/new-incarnation/seq=1 `instance_started=true`；真实卡片投影留 R6。
+  - Browser QA: R6 执行 connected → disabled → enabled。
+  - E2E/Regression: worker/manager focused 回归 16 passed；channel reconcile/removal/status/IM resilience 回归 49 passed；Ruff 与 `git diff --check` 通过，测试后无 `feishu-worker-*` 残留进程。
+  - Visual/Interaction: R6。
+  - Prototype Comparison: wire 因果已满足 `#channel-disabling/#channel-disabled` must-match；视觉对账留 R6。
+- Rollback: supervisor、candidate cleanup、worker self-reap 与 async lifecycle seam 必须整体回退；只回退 supervisor 会重新留下 backpressure child，只回退 desired retention 会让 retry budget 耗尽后无法人工恢复。
+- Commits: C1 `2cd48facc`；C2 `b94551986`。
 
 ## R5 — 前端 provider registry 真分派
 
