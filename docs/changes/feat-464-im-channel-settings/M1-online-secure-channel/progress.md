@@ -78,14 +78,26 @@
 
 ## R5 — 真栈/真浏览器证据与总门禁
 
-- Context: TODO
-- Next: R4 完成后开始。
+- Context: DONE
+- Decision: 使用 worktree `e2e-up.sh` 的 ephemeral IM + foreground 真 Gateway，并从隔离 config 将现有飞书凭据直接注入 headed Chromium；不落临时浏览器脚本、不把 secret 输出到命令或证据。浏览器依次完成 empty → add/required → create → connecting → connected → already-added → edit keep → PATCH → reconnect；随后按 Gateway → IM 顺序清理。
+- Rationale: managed exec 的短生命周期 shell 会回收脚本后台进程，因此真栈由持续 PTY 托管；这只改变进程托管方式，不替换产品入口。connected 来自真实 Feishu worker、IM status 落库和页面 GET polling，不使用 route mock、状态注入或进程内 fake。
+- Evidence:
+  - Tests: 总门禁见 `evidence/gates.md`：后端非 e2e `3365 passed, 1 skipped, 20 deselected`；前端 `65 files / 609 tests passed`；目标前端 `42 passed`；测试文件 contract `2 passed`；Ruff / pip check / build 全绿。
+  - Entry: 浏览器真实 `POST /im/v1/agents/default-agent/channels → 201`、`PATCH .../<channel_id> → 200`；IM SQLite 最终 `channel_revision=2, manifest=2, applied=2, connected, status_sequence=3`。
+  - Frontend State Matrix: 1440px 验收 empty、default/provider、required error、disabled provider、submitting/connecting、connected、edit keep/replace；loading/request error/failed 由 42 项可重复交互回归保护；M2/M3 状态保持其 milestone 边界。
+  - Browser QA: headed Chromium 真实 Agent detail → 通道；console `0 errors / 0 warnings`；requests 无失败，POST/PATCH/GET 均 2xx；App Secret 在编辑初始 DOM 不存在，证据 secret scan clean。
+  - E2E/Regression: 真 Feishu create 与 keep edit 均从 connecting 收敛 connected；第一次 worker PID `84409`，编辑 cutover 后为 `91135` 且同一时刻只有一个 worker child。清理后端口/Gateway/worker/PID/control files 全为 `0`。
+  - Visual/Interaction: `evidence/output/playwright/` 六张 1440 × 1000 截图；SHA-256 与逐步说明见 `evidence/README.md`。
+  - Prototype Comparison: 四个 must-match 锚点逐项 match，见下表与 `evidence/README.md`；provider glyph/色彩使用现有 IM token，为 design 授权的 may-adapt。
+- Rollback: 回滚 R5 Verify/门禁/文档提交只移除验收证据，不改变 R1–R4 产品实现。
+- Commits: `90f3c302e` (C1 Verify), `671255df8` (C2 gates), C3 为本提交。
+- Next: M1 已完成并可合入 `unit/feat-464-im-channel-settings`，由 orchestrator 继续独立 verifier/reviewer。
 
 ## Prototype Comparison
 
 | Reference | Required contract | Actual evidence | Viewport / state | Result | Deviation rationale |
 |---|---|---|---|---|---|
-| `#channels-empty` | 通用空态 + 添加入口；无 Web IM | 待补 | desktop / empty | blocked | 尚未实现 |
-| `#add-feishu` | provider 禁选、required、keep/replace | 待补 | desktop / modal | blocked | 尚未实现 |
-| `#channel-connecting` | 在线保存后的 connecting | 待补 | desktop / connecting | blocked | 尚未实现 |
-| `#channel-connected` | 当前配置已应用 + 最近状态时间；无 revision | 待补 | desktop / connected | blocked | 尚未实现 |
+| `#channels-empty` | 通用空态 + 添加入口；无 Web IM | `evidence/output/playwright/channels-empty.png` + DOM 报告 | 1440 × 1000 / empty | match | N/A |
+| `#add-feishu` | provider 禁选、required、keep/replace | `add-feishu-required.png`、`add-feishu-already-added.png`、`edit-feishu-keep-replace.png` | 1440 × 1000 / add + edit modal | match | provider glyph/色彩沿用现有 IM token，属于 may-adapt |
+| `#channel-connecting` | 在线保存后的 connecting | `evidence/output/playwright/channel-connecting.png` + POST 201/status 时间 | 1440 × 1000 / live connecting | match | N/A |
+| `#channel-connected` | 当前配置已应用 + 最近状态时间；无 revision | `evidence/output/playwright/channel-connected.png` + SQLite connected/seq3 | 1440 × 1000 / live connected | match | N/A |

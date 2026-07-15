@@ -8,14 +8,14 @@
 
 ## 退出标准
 
-- [ ] M1-E1：未配置时展示通用外部通道空态和“添加通道”，不展示 Web IM。
-- [ ] M1-E2：已有飞书时 provider picker 显示“已添加”并禁止第二实例。
-- [ ] M1-E3：飞书向导只给简短准备说明、指定开放平台链接和 App ID/Secret 必填校验。
-- [ ] M1-E4：在线保存后无需改配置文件或重启，先显示 pending/connecting，再显示 connected 或具体 failed；编辑不回显 secret，keep/replace 显式且 replace 才要求新 secret。
-- [ ] M1-E5：真实入口的 connected 卡片显示最近状态时间与“当前配置已应用”，不展示 revision/版本号。
-- [ ] M1-E6：独立 connection 并发旧 revision 仅一个成功，desired+manifest 原子；envelope 固定向量、credential revision、AAD 篡改、key mismatch、跨 owner、响应/日志无 secret 受测；same-owner bind 幂等，online/offline cross-owner bind 409 且数据/cache/API 隔离不变。
-- [ ] M1-E7：runtime 始终使用 `feishu:<agent_id>`；UI 新建和 legacy seam 都可持久化 owner/bot identity、启用 `feishu-doc`；App ID replacement 清 metadata，新 owner 重绑，旧 generation patch 双端拒绝；card action correlation/timeout/crash/first-wins 受测。
-- [ ] M1-E8：Feishu worker 可真实 stop/join；同节点两个 listener 隔离；替换凭据切断旧收发；小容量 IPC queue backpressure、status coalescing、priority error、stop drain/drop、incarnation/sequence 逆序和 A→B cutover 受测；四个 M1 原型锚点有 durable 浏览器证据，前端 build 与最窄测试通过。
+- [x] M1-E1：未配置时展示通用外部通道空态和“添加通道”，不展示 Web IM。
+- [x] M1-E2：已有飞书时 provider picker 显示“已添加”并禁止第二实例。
+- [x] M1-E3：飞书向导只给简短准备说明、指定开放平台链接和 App ID/Secret 必填校验。
+- [x] M1-E4：在线保存后无需改配置文件或重启，先显示 pending/connecting，再显示 connected 或具体 failed；编辑不回显 secret，keep/replace 显式且 replace 才要求新 secret。
+- [x] M1-E5：真实入口的 connected 卡片显示最近状态时间与“当前配置已应用”，不展示 revision/版本号。
+- [x] M1-E6：独立 connection 并发旧 revision 仅一个成功，desired+manifest 原子；envelope 固定向量、credential revision、AAD 篡改、key mismatch、跨 owner、响应/日志无 secret 受测；same-owner bind 幂等，online/offline cross-owner bind 409 且数据/cache/API 隔离不变。
+- [x] M1-E7：runtime 始终使用 `feishu:<agent_id>`；UI 新建和 legacy seam 都可持久化 owner/bot identity、启用 `feishu-doc`；App ID replacement 清 metadata，新 owner 重绑，旧 generation patch 双端拒绝；card action correlation/timeout/crash/first-wins 受测。
+- [x] M1-E8：Feishu worker 可真实 stop/join；同节点两个 listener 隔离；替换凭据切断旧收发；小容量 IPC queue backpressure、status coalescing、priority error、stop drain/drop、incarnation/sequence 逆序和 A→B cutover 受测；四个 M1 原型锚点有 durable 浏览器证据，前端 build 与最窄测试通过。
 
 ## 测试策略
 
@@ -96,6 +96,6 @@
 
 ### R5 — 真栈/真浏览器证据与总门禁
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 按 reviewer runbook 起隔离真栈，走 M1 用户路径，落四锚点 durable evidence，核对 console/network/secret/worker 清理；完成 M1-E1..E8 对账。
-- 验证: 最窄后端/前端、`pytest -m "not e2e"`、`ruff check src tests`、浏览器报告与服务 PID 清理。
+- 验证: 真栈 POST 201 / PATCH 200 → connecting → connected；console `0/0`；`pytest -m "not e2e" -q` → `3365 passed, 1 skipped, 20 deselected`；前端 `609 passed`；Ruff、build、secret scan、PID/端口/worker 清理全绿。证据见 `evidence/`。
