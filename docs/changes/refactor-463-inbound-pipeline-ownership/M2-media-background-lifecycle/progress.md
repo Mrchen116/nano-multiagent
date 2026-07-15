@@ -74,3 +74,20 @@
 - Rollback: 回退 shutdown C2 `3651bf8e1` 与 active-terminal fix `85e4bb651`，再回退对应 C1；若资源图任一节点回退，M2 整体回退，不能保留半套 seal/drain。
 - Commits: resource graph C1=`f439a9f6b`、C2=`3651bf8e1`；active terminal C1=`8ee021809`、C2=`85e4bb651`；C3=本次 docs commit。
 - Next: 将 milestone 合入 `unit/refactor-463`、推送并清理 milestone branch/worktree，M3 才开始迁移最终 `SessionRunCoordinator`，不在 M2 重写 queue 算法。
+
+## 正式签收 closure — O(1) seal 与 IM shared-deadline 完整收口
+
+- Context: 正式签收发现三处实现证据未完全匹配 D6：queue seal 仍做 O(n) pending walk 并同步派生 callback task；IM close / supervisor await 绕过 inner deadline；既有 isolation test 只覆盖普通 `RuntimeError`，没有证明真实 deadline overrun 后完整资源图继续收口。
+- Decision: queue 的同步 seal 收缩为单一 `_sealed=True`，`settle_admission(deadline)` 在 Kernel close 前摘除非 active-head 项并 await admission/lifecycle settlement；GatewayRuntime 依次用同一 `_run_shutdown_operation` 和同一 `inner_deadline` 执行 IM transport close、IM supervisor task await。新增独立 shutdown timeout isolation 测试，以一个 owner 睡到 shared deadline 后抛 `TimeoutError`，同时启动真实 AppRunner，并验证后续 delivery、两个 IM 阶段和 resource closer。
+- Rationale: admission switch 的复杂度不再随 backlog 增长；per-item failure 仍只由 queue owner 在 async settlement phase 产生，未形成第二 owner。IM 两步即使 deadline 已过也各自获得一次 bounded attempt；helper 隔离 timeout 后继续执行同步 closer，保留外层 20% 退出余量。
+- Evidence:
+  - Tests: closure 红测修前分别观察到 pending 在 seal 后已经 terminal，以及 IM close 超过 shared deadline 后未被取消；修后聚焦 shutdown/queue/tracker/contract → `26 passed`，`ruff check src tests` → passed；全量非 e2e → `3369 passed, 1 skipped, 22 warnings`（37.88s）。
+  - Entry: 原 M2 真 IM/Gateway 图片、后台、`/stop`、active/queued shutdown 与 IM-offline 证据保持有效；本轮是 shutdown ownership 内部 closure，新增确定性真实 event-loop/AppRunner resource graph 证据见 `evidence/live-stack.md` 的“正式签收 closure”段。
+  - Frontend State Matrix: N/A（无前端变更）。
+  - Browser QA: N/A（无前端变更）。
+  - E2E/Regression: `test_seal_defers_pending_settlement_to_async_phase` 锁定 seal/settle 两阶段；`test_timeout_does_not_skip_later_owners_or_reset_deadline` 锁定真实 timeout、同 deadline、完整后续 close 与端口释放。调试中确认 `ready_event` 先于 IM task create 可被观察，测试因而显式等待 manager `run_forever` 入口，避免把 readiness 误当 supervisor-start。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: 回退 C2 `7677fc1d1` 恢复签收前实现；C1 可随后回退。
+- Commits: C1=`c2bf0d4eb`；C2=`7677fc1d1`；C3=本次 docs commit。
+- Next: 推送 `unit/refactor-463`，交回独立正式签收；M2 不再有已知 design mismatch。

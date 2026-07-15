@@ -54,3 +54,10 @@
 - 状态: DONE
 - 步骤: 先提交单 deadline、O(1) seal、active heartbeat/HTTP、queued/active terminal、timeout isolation/零残留红测，再接 GatewayRuntime、internal dispatch、heartbeat、cron、consumer/delivery/IM 顺序；删除 private post-wiring/旧 class re-export；最后跑隔离真栈并落 durable evidence。
 - 验证: 相关最窄单测 + contract；`ruff check src tests`；`pytest -m "not e2e" -n 4 --dist worksteal`；隔离高位端口真栈图片/后台/stop/offline journey 与持久化对账。
+
+## 正式签收 closure（2026-07-15）
+
+- [x] `SessionRunQueue.seal_and_cancel_pending()` 只翻 admission flag，不遍历 queue、不创建 callback task；pending 摘除、future failure 与 lifecycle callback 全部进入 `settle_admission(deadline)` 的 owner-owned async phase，active head 保持不动。
+- [x] IM transport close 与 IM supervisor task await 均通过 `_run_shutdown_operation(..., inner_deadline)`；任一 timeout/异常不跳过另一项或同步 resource closer。
+- [x] 独立 resource-graph regression 让 queue consumer 真实运行到 shared deadline 后抛 `TimeoutError`，并证明 dispatcher/heartbeat/cron/subscriber/delivery/IM close/IM task/resource closer 仍全部执行；所有 deadline-aware owner 记录同一 absolute value。
+- [x] 聚焦 shutdown/queue/tracker + test-size contract 与 `ruff check src tests` 全绿；源码变化后全量非 e2e 重跑全绿。

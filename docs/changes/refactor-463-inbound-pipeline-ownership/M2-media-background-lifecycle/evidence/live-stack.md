@@ -124,3 +124,59 @@ pytest -m 'not e2e' -n 4 --dist worksteal --durations=20 --durations-min=0.5
 ```
 
 结果：ruff 全绿；`3367 passed, 1 skipped, 22 warnings in 33.82s`。warnings 均为既有依赖的 deprecation / JWT 测试密钥长度提示。
+
+## 正式签收 closure（2026-07-15）
+
+### 红转绿证据
+
+- queue 两阶段红测：修前调用同步 seal 并让出一次 event loop 后，pending task 已经 `done=True`，证明 seal 仍遍历并完成 item；修后 seal 后 task/callback 均保持 pending，只有 `await settle_admission(shared_deadline)` 才得到 `gateway_shutdown_before_submit`。
+- IM deadline 红测：一个 queue consumer 真正等待到 `request_at + 0.8 * 0.25s` 后抛 `TimeoutError`；修前后续 IM close 直接阻塞且没有 deadline cancellation，修后 close 被同一 deadline 取消，IM supervisor task 随后也在同一 deadline helper 中取消，resource closer 仍执行。
+
+持久 regression：
+
+```text
+tests/unit/personal_assistant/test_run_queue.py::
+  test_seal_defers_pending_settlement_to_async_phase
+tests/unit/personal_assistant/test_gateway_shutdown_timeout_isolation.py::
+  test_timeout_does_not_skip_later_owners_or_reset_deadline
+```
+
+完整 resource-graph 记录包含：
+
+```text
+dispatcher.drain
+heartbeat.drain
+cron.drain
+queue.drain -> queue.timeout (TimeoutError)
+subscribers.drain
+delivery.drain
+im.close.attempt -> im.close.cancelled
+im.task.cancelled
+resource.close
+```
+
+`pipeline.settle`、dispatcher、heartbeat、cron、queue、subscriber、delivery 收到的 deadline 集合长度为 1，且该值约等于 `request_shutdown()` 时点加 0.2 秒。runtime 返回 exit code 0；真实 internal dispatch AppRunner 的高位端口可立即重新 bind，证明 timeout 没跳过 listener cleanup。
+
+### closure 门禁
+
+```bash
+pytest -q \
+  tests/unit/personal_assistant/test_run_queue.py \
+  tests/unit/personal_assistant/test_gateway_shutdown_timeout_isolation.py \
+  tests/unit/personal_assistant/test_gateway_shutdown_resource_graph.py \
+  tests/unit/personal_assistant/test_gateway_shutdown_order.py \
+  tests/unit/personal_assistant/test_gateway_runtime_lifecycle.py \
+  tests/unit/personal_assistant/test_runtime_delivery_task_tracker.py \
+  tests/unit/personal_assistant/test_inbound_pipeline_shutdown_terminal.py \
+  tests/unit/personal_assistant/test_inbound_dispatcher.py \
+  tests/contract/test_test_naming_and_size_contract.py
+```
+
+结果：`26 passed in 3.04s`。
+
+```bash
+ruff check src tests
+pytest -m 'not e2e' -n 4 --dist worksteal --durations=20 --durations-min=0.5
+```
+
+结果：ruff 全绿；`3369 passed, 1 skipped, 22 warnings in 37.88s`。warnings 仍仅为既有依赖 deprecation / JWT 测试密钥长度提示。
