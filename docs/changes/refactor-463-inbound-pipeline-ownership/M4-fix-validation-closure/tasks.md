@@ -73,7 +73,7 @@
 
 ### R2 — 闭合 shutdown task graph 与 terminal delivery
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 先落 subscriber seal/buffer、cron admission、threadsafe root cancellation、具名 timeout 与真 SIGTERM 悬空回复红测，再修 owner 顺序和 cancellation acknowledgement。
 - 验证: shutdown/queue/dispatcher/subscriber/cron 聚焦测试；真 IM/Gateway 两条 accepted work 终态对账。
 

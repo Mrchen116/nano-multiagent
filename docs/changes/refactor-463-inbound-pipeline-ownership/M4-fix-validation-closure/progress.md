@@ -22,3 +22,21 @@
 - Rollback: 回退 C2 `9e300138e` 恢复 M3 末态；C1 可随同回退。R1 没有改变 session key、binding schema、IM API 或外部 channel 协议。
 - Commits: C1=`6c2bdd88d`；C2=`9e300138e`；C3=本次 docs commit。
 - Next: R2 先以永久红测锁定 subscriber/cron/dispatcher/shutdown accepted-work 的线性化与 terminal delivery，再修复 shutdown resource graph。
+
+## R2 — 闭合 shutdown task graph 与 terminal delivery
+
+- Context: subscriber 在 seal 后无条件拒绝 `ensure()`，stream 已 dequeue 的缓冲事件也会因 stop flag 在 callback 前丢弃；manual cron 的 sealed check 与 pending registration 之间存在窗口；`run_coroutine_threadsafe()` proxy 可在底层 loop task 完成 async cancellation cleanup 前变成 cancelled。queue admission timeout 没有 session/item 身份，且 steer 进入共享 active run 的第二条 relay 只有 accepted、没有随原 run terminal。
+- Decision: manager 在同一 async lock 内先识别 existing subscriber，再对新 session 执行 seal gate；subscriber 对已 yield 的一条事件完成 callback 后才响应 stop。cron 在 sealed check 的同一极短临界区登记 admission token，seal 保持 O(1)，drain 等 token 走到 reject 或 execution terminal；validation 期间发生 seal 则返回 `cron_unavailable`，不在 drain 后启动。dispatcher 同时跟踪 thread-safe proxy 对应的真实 loop task，超时 cancellation 只取消/await真实 owner。queue 给每项分配稳定 `item-N`，所有 admission/cancel-lifecycle waiter 带 `session_key` 与 `item_id`。coordinator 在 active transition lock 内登记 steered follower，run terminal 时原子关闭 steer admission并向 primary/follower 分别发 completed/failed lifecycle。
+- Rationale: seal 仍只是常数时间 admission switch；耗时 validation/callback/async cleanup 都留在 owner 的 settle/drain 阶段。proxy 不是协程资源终态，真实 loop task 才是。共享 Kernel run 不等于共享 relay task，每一条已发 accepted receipt 的用户消息都必须拥有自己的 terminal receipt。
+- Evidence:
+  - C1 red: existing ensure、buffered event、thread proxy cleanup、queue timeout identity、steered accepted terminal、cron check/register window共 6 个稳定失败；commit `a304a053e`。
+  - Focused: subscriber/dispatcher/queue/coordinator/cron/shutdown/size contract → `59 passed, 2 warnings`；相关 `ruff check` → passed。
+  - Full: `/Users/czj/Repos/nano-multiagent/.venv/bin/pytest -m 'not e2e' -n 4 --dist worksteal` → `3370 passed, 1 skipped, 22 warnings`（32.43s）。
+  - Entry: public manager 测试证明 seal 后 existing ensure 幂等且 stop 前已 dequeue 的 terminal event 仍投递；public dispatcher 测试证明 proxy cancel 后 drain 等到底层 cleanup；public cron 测试把 job lookup 固定在竞争窗口，证明 seal 后 drain 不提前返回且该请求不启动；public queue timeout显示 `session_key=sess-admission`、`item_id=item-1`；public coordinator deadline cancellation 对 primary 与 steered 两条 accepted 消息都发 failed。真 SIGTERM + 两条 Web IM 消息的持久对账在 R4 统一签收。
+  - Frontend State Matrix: N/A（无前端变更）。
+  - Browser QA: N/A（无前端变更）。
+  - Visual/Interaction: N/A。
+- Debugging note: C1 首版 cron 红测把“线性化”误写成 `request_stop()` 必须等待 job lookup；对照 D6 的 O(1) seal 硬约束后，将判据修正为真正用户可见的不变量：seal 可立即返回，但 drain 不能在 admission token settle 前观察零任务。最终实现没有用大锁包磁盘 I/O。
+- Rollback: 回退 C2 `9d1a05170` 恢复 R1 末态；C1 可随同回退。R2 没有改变 IM wire、session key、binding schema 或 cron runs schema。
+- Commits: C1=`a304a053e`；C2=`9d1a05170`；C3=本次 docs commit。
+- Next: R3 先锁定真实 internal listener readiness/endpoint、IM reconnect supervisor、typed shadow identity 与 concrete config-sync wiring，再修 composition/transport owner。
