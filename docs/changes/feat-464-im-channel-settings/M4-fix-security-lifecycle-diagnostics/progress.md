@@ -66,12 +66,19 @@
 
 ## R5 — 前端 provider registry 真分派
 
-- Context: 待实施。
-- Decision: 待实施。
-- Rationale: 待实施。
-- Evidence: 待实施。
-- Rollback: 待实施。
-- Commits: 待实施。
+- Context: 原 `CHANNEL_PROVIDERS` 只驱动 picker 的一行展示；picker 占用判断、表单字段、validation、create/update payload、连接/删除卡片摘要、诊断链接和 Feishu group effect 全部仍写死 `feishu/app_id/app_secret`。把第二 provider 加进数组会被 Feishu 占用一起禁用，即使进入表单也会错误提交为 Feishu。
+- Decision: 新建 typed `ChannelProviderDescriptor`，集中描述 provider identity/icon/i18n、guide、config/credential fields、credential reset、validation/wire key、card/removal summary、diagnostic console/scope/effect override 与 connecting detail。panel 只接受 registry，按 resource/dialog 的 provider id 解析 descriptor；picker 唯一性按 provider 独立计算，create/update 统一经 descriptor serializer。生产 registry 仍只发布 Feishu；Vitest 注入完整 Webhook fixture。
+- Rationale: provider 分支不能散落在 presentation 与 mutation 中，否则“在 picker 新增一项”会产生可选择但不可用的假扩展。声明式 field/wire schema 让 form、validation 与 payload 使用同一来源；provider-owned diagnostics 阻止非 Feishu 通道继承开放平台链接或特殊 effect。
+- Evidence:
+  - Tests: `agent-channels-provider-registry.test.tsx` 3 passed，覆盖 Feishu 已占用时 Webhook 仍可选、Workspace/API Token 独立表单与 validation、create/update `workspace_slug/api_token` payload、card summary 和 Webhook diagnostics；明确断言无 `app_id/app_secret`、无飞书链接/群背景 effect。
+  - Entry: 生产 Feishu 既有 wizard/card/disable/delete/reconnect 7 tests 全绿；provider registry + i18n 合计 16 tests passed。
+  - Frontend State Matrix: picker、create/edit、connected/limited card 与 provider-specific remediation 已由 descriptor fixture 覆盖；其余真实状态留 R6。
+  - Browser QA: R6 复验 production-only Feishu registry 的 desktop/mobile 路径。
+  - E2E/Regression: `npm run build`（tsc + Vite）通过；panel 生产组件不再出现 `provider: "feishu"`、`app_id/app_secret` 或 Feishu URL 硬编码。
+  - Visual/Interaction: provider icon/label/summary、guide link、field labels 和 diagnostics link 均来自 descriptor。
+  - Prototype Comparison: Feishu descriptor 保留原型飞书 picker/form/card；测试 provider 证明架构路径不依赖飞书外观。
+- Rollback: registry schema、panel dispatch、credentials input 扩展与 i18n generic title 应整体回退；只回退 serializer 会再次提交错误 provider，单独回退 card/diagnostics 会恢复 Feishu 内容泄漏。
+- Commits: C1 `55553386b`；C2 `742db037c`。
 
 ## R6 — 独立真实旅程与全门禁
 
