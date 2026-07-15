@@ -157,7 +157,7 @@ describe("AgentChannelsPanel", () => {
 
     apiMocks.listAgentChannels.mockResolvedValue([
       channel({
-        sync_state: "applied",
+        sync_state: "failed",
         observed: {
           observed_revision: 7,
           connection_state: "failed",
