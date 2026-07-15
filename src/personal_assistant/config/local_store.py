@@ -549,8 +549,9 @@ def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
             agent_dict["title"] = agent.title
         if agent.skills:
             agent_dict["skills"] = list(agent.skills)
-        if agent.tool_allowlist:
-            agent_dict["tool_allowlist"] = list(agent.tool_allowlist)
+        # feat-394 fix: always serialize tool_allowlist so an explicit empty
+        # whitelist round-trips as [] instead of being omitted and re-backfilled.
+        agent_dict["tool_allowlist"] = list(agent.tool_allowlist)
         if agent.system_prompt is not None:
             agent_dict["system_prompt"] = agent.system_prompt
         if agent.group_reply_policy is not None:
@@ -834,12 +835,13 @@ def _parse_agents(
         skills = _parse_string_list(
             item.get("skills"), field_name=f"agents[{index}].skills"
         )
+        tool_allowlist_raw = item.get("tool_allowlist")
         tool_allowlist = _parse_string_list(
-            item.get("tool_allowlist"), field_name=f"agents[{index}].tool_allowlist"
+            tool_allowlist_raw, field_name=f"agents[{index}].tool_allowlist"
         )
-        # No legacy "unconfigured" state: an agent with no tool_allowlist gets the
-        # product defaults on load so the runtime never has to fall back.
-        if not tool_allowlist:
+        # No legacy "unconfigured" state: only a missing tool_allowlist field gets
+        # the product defaults on load. An explicit empty list is preserved as-is.
+        if tool_allowlist_raw is None:
             from personal_assistant.product import DEFAULT_TOOL_IDS
 
             tool_allowlist = tuple(DEFAULT_TOOL_IDS)

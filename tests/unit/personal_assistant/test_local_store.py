@@ -480,6 +480,33 @@ def test_parse_agents_loads_extended_fields(tmp_path: Path) -> None:
     assert agent.default_model == "codex_oauth:gpt-5.5"
 
 
+def test_parse_agents_explicit_empty_tool_allowlist_is_preserved(tmp_path: Path) -> None:
+    """An explicit empty tool_allowlist: [] must not be backfilled to defaults."""
+    config_path = tmp_path / "node-config.yaml"
+    workspace_root = tmp_path / "agents" / "a"
+    workspace_root.mkdir(parents=True)
+    config_path.write_text(
+        "\n".join(
+            [
+                "node:",
+                "  node_id: n1",
+                "agents:",
+                "  - agent_id: agent-a",
+                f"    workspace_root: {workspace_root}",
+                "    tool_allowlist: []",
+            ]
+        )
+        + "\n"
+        + _LLM_YAML,
+        encoding="utf-8",
+    )
+
+    config = load_local_config(config_path)
+    agent = config.agents[0]
+
+    assert agent.tool_allowlist == ()
+
+
 def test_save_local_config_round_trip(tmp_path: Path) -> None:
     """Load config, save it, reload — fields must be equivalent."""
     config_path = tmp_path / "node-config.yaml"
@@ -544,6 +571,44 @@ def test_save_local_config_round_trip(tmp_path: Path) -> None:
     assert reloaded.im_service is not None
     assert reloaded.im_service.url == original.im_service.url
     assert reloaded.im_service.token == original.im_service.token
+
+
+def test_save_local_config_round_trip_preserves_empty_tool_allowlist(
+    tmp_path: Path,
+) -> None:
+    """An explicit empty tool_allowlist must round-trip as empty, not defaults."""
+    import yaml as _yaml
+
+    config_path = tmp_path / "node-config.yaml"
+    workspace_root = tmp_path / "agents" / "a"
+    workspace_root.mkdir(parents=True)
+    config_path.write_text(
+        "\n".join(
+            [
+                "node:",
+                "  node_id: n1",
+                "  user_id: u1",
+                "agents:",
+                "  - agent_id: agent-a",
+                f"    workspace_root: {workspace_root}",
+                "    tool_allowlist: []",
+            ]
+        )
+        + "\n"
+        + _LLM_YAML,
+        encoding="utf-8",
+    )
+
+    original = load_local_config(config_path)
+    saved_path = tmp_path / "saved-config.yaml"
+    save_local_config(original, saved_path)
+    reloaded = load_local_config(saved_path)
+
+    assert original.agents[0].tool_allowlist == ()
+    assert reloaded.agents[0].tool_allowlist == ()
+
+    raw = _yaml.safe_load(saved_path.read_text(encoding="utf-8"))
+    assert raw["agents"][0]["tool_allowlist"] == []
 
 
 def test_save_local_config_creates_missing_parent_directories(tmp_path: Path) -> None:
@@ -750,8 +815,8 @@ def test_save_local_config_omits_none_fields(tmp_path: Path) -> None:
     assert "title" not in agent_raw
     # Empty tuples should also be absent
     assert "skills" not in agent_raw
-    # tool_allowlist is always populated with product defaults on load, so it is
-    # serialized and round-trips.
+    # tool_allowlist is always serialized (even when empty) so explicit empty
+    # whitelists round-trip instead of being re-backfilled as defaults.
     from personal_assistant.product import DEFAULT_TOOL_IDS
 
     assert agent_raw["tool_allowlist"] == list(DEFAULT_TOOL_IDS)
