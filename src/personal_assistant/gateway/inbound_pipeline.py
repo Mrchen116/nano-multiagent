@@ -74,6 +74,7 @@ _DEFAULT_GATEWAY_INTERNAL_PORT = 8089
 # idle-based: every kernel event resets it, so active long-running tool loops continue.
 _DEFAULT_RUN_IDLE_TIMEOUT_SECONDS = 120.0
 _MAX_SESSION_DRAIN_LOCKS = 4096
+_SHUTDOWN_ACTIVE_RUN_CANCELLED = "gateway_shutdown_active_run_cancelled"
 
 # bugfix-433 决策5: fixed user-facing messages for image failure types. Worker MUST
 # NOT paraphrase — these are part of the contract (incident Q6 / design 决策5 表).
@@ -655,6 +656,25 @@ class InboundPipeline:
                 ),
             )
             return result
+        except asyncio.CancelledError:
+            # Queue-worker drain is the final deadline fallback after Kernel close.
+            # The Kernel normally publishes a terminal run_status first, but if its
+            # close exceeds the shared shutdown deadline, cancelling this consumer
+            # must still close the accepted IM relay instead of leaving it at `sent`.
+            try:
+                await self._emit_relay_lifecycle(
+                    message,
+                    _inbound_models.RelayLifecycleUpdate(
+                        phase="failed",
+                        agent_id=agent_id,
+                        session_key=session_key,
+                        run_id=run_id,
+                        error=_SHUTDOWN_ACTIVE_RUN_CANCELLED,
+                    ),
+                )
+            finally:
+                admission_event.set()
+            raise
         except Exception as exc:
             try:
                 await self._emit_relay_lifecycle(
