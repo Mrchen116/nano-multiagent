@@ -1,0 +1,196 @@
+"""Public admission and linearization behavior of SessionRunCoordinator."""
+
+from __future__ import annotations
+
+import asyncio
+from pathlib import Path
+
+import pytest
+
+from personal_assistant.gateway.inbound_models import (
+    InboundRunRequest,
+    StopRunRequest,
+)
+from personal_assistant.gateway.session_keys import build_session_key
+from personal_assistant.gateway.session_run_coordinator import SessionRunCoordinator
+
+from ._session_run_coordinator_helpers import (
+    CountingImageResolver,
+    build_dependencies,
+    inbound,
+)
+
+
+def _request(message, catalog) -> InboundRunRequest:
+    agent = catalog.require("agent-a")
+    return InboundRunRequest(
+        message=message,
+        agent=agent,
+        session_key=build_session_key(message, agent_id=agent.agent_id),
+        sender_label="Alice",
+    )
+
+
+@pytest.mark.asyncio
+async def test_fallback_serializes_same_session_while_other_session_runs(
+    tmp_path: Path,
+) -> None:
+    """A lost steer falls into FIFO once, without blocking another session."""
+
+    kernel, catalog, binder, router, group_store = build_dependencies(tmp_path)
+    coordinator = SessionRunCoordinator(
+        kernel=kernel,
+        session_binder=binder,
+        outbound_router=router,
+        group_context_store=group_store,
+    )
+    first_message = inbound(chat_id="chat-a", text="first")
+    second_message = inbound(chat_id="chat-a", text="second")
+    other_message = inbound(chat_id="chat-b", text="other")
+
+    first = asyncio.create_task(coordinator.dispatch(_request(first_message, catalog)))
+    await kernel.wait_stream("run-1")
+    second = asyncio.create_task(
+        coordinator.dispatch(_request(second_message, catalog))
+    )
+    while not any(call["steer"] for call in kernel.submit_calls):
+        await asyncio.sleep(0)
+    other = asyncio.create_task(coordinator.dispatch(_request(other_message, catalog)))
+    await kernel.wait_stream("run-2")
+
+    assert coordinator.is_session_busy(
+        build_session_key(first_message, agent_id="agent-a")
+    )
+    assert not second.done()
+    kernel.finish("run-1", text="first done")
+    await first
+    await kernel.wait_stream("run-3")
+    kernel.finish("run-2", text="other done")
+    kernel.finish("run-3", text="second done")
+
+    assert (await other).reply_text == "other done"
+    assert (await second).reply_text == "second done"
+
+
+@pytest.mark.asyncio
+async def test_steer_race_reuses_group_and_image_parts_exactly_once(
+    tmp_path: Path,
+) -> None:
+    """Fallback reuses prepared parts instead of a second drain or download."""
+
+    kernel, catalog, binder, router, group_store = build_dependencies(tmp_path)
+    images = CountingImageResolver()
+    coordinator = SessionRunCoordinator(
+        kernel=kernel,
+        session_binder=binder,
+        outbound_router=router,
+        group_context_store=group_store,
+        image_resolver=images,
+    )
+    first_message = inbound(chat_id="room", text="first", is_group=True)
+    second_message = inbound(chat_id="room", text="second", is_group=True)
+    request = _request(second_message, catalog)
+    buffer_key = "agent-a:web_relay:room"
+
+    first = asyncio.create_task(
+        coordinator.dispatch(_request(first_message, catalog))
+    )
+    await kernel.wait_stream("run-1")
+    group_store.append(buffer_key, "background once", sender="Bob")
+    fallback = asyncio.create_task(coordinator.dispatch(request))
+    while len(kernel.submit_calls) < 2:
+        await asyncio.sleep(0)
+    steer_parts = kernel.submit_calls[1]["parts"]
+
+    kernel.finish("run-1")
+    await first
+    await kernel.wait_stream("run-2")
+    fallback_parts = kernel.submit_calls[-1]["parts"]
+    kernel.finish("run-2")
+    await fallback
+
+    assert images.calls == 2  # first message + second message, not fallback again
+    assert steer_parts == fallback_parts
+    assert [part["text"] for part in fallback_parts] == [
+        "[Bob] background once",
+        "[Alice] second",
+    ]
+    assert group_store.drain(buffer_key) == []
+
+
+@pytest.mark.asyncio
+async def test_stop_observes_marker_before_first_post_submit_await(
+    tmp_path: Path,
+) -> None:
+    """The accepted callback pause cannot expose a Kernel-admitted idle gap."""
+
+    kernel, catalog, binder, router, group_store = build_dependencies(tmp_path)
+    accepted = asyncio.Event()
+    release_callback = asyncio.Event()
+
+    async def _lifecycle(_message, update) -> None:
+        if update.phase == "accepted":
+            accepted.set()
+            await release_callback.wait()
+
+    coordinator = SessionRunCoordinator(
+        kernel=kernel,
+        session_binder=binder,
+        outbound_router=router,
+        group_context_store=group_store,
+        relay_lifecycle_callback=_lifecycle,
+    )
+    message = inbound(chat_id="chat-a", text="work")
+    request = _request(message, catalog)
+    running = asyncio.create_task(coordinator.dispatch(request))
+    await asyncio.wait_for(accepted.wait(), timeout=1)
+
+    stopped = await coordinator.stop(
+        StopRunRequest(
+            message=inbound(chat_id="chat-a", text="/stop"),
+            agent=request.agent,
+            session_key=request.session_key,
+        )
+    )
+
+    assert stopped.run_id == "run-1"
+    assert kernel.operations[:3] == [
+        ("submit", "run-1"),
+        ("interrupt", "run-1"),
+        ("append", "run-1"),
+    ]
+    release_callback.set()
+    kernel.finish("run-1", status="cancelled", text="")
+    await running
+
+
+@pytest.mark.asyncio
+async def test_continuous_steer_uses_one_original_stream(
+    tmp_path: Path,
+) -> None:
+    """Multiple admitted interjections inject without opening extra consumers."""
+
+    kernel, catalog, binder, router, group_store = build_dependencies(tmp_path)
+    coordinator = SessionRunCoordinator(
+        kernel=kernel,
+        session_binder=binder,
+        outbound_router=router,
+        group_context_store=group_store,
+    )
+    running = asyncio.create_task(
+        coordinator.dispatch(_request(inbound(chat_id="chat-a", text="one"), catalog))
+    )
+    await kernel.wait_stream("run-1")
+    kernel.inject_steer = True
+
+    two = await coordinator.dispatch(
+        _request(inbound(chat_id="chat-a", text="two"), catalog)
+    )
+    three = await coordinator.dispatch(
+        _request(inbound(chat_id="chat-a", text="three"), catalog)
+    )
+
+    assert two.run_id == three.run_id == "run-1"
+    assert [call["steer"] for call in kernel.submit_calls] == [False, True, True]
+    kernel.finish("run-1", text="all done")
+    assert (await running).reply_text == "all done"
