@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Service Lifecycle Specification
 
-> 对齐: feat-447
+> 对齐: refactor-461
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -17,12 +17,14 @@
 显式 `--foreground` 仅作 debug/高级模式。单实例 PID 锁防止对同一 config 重复启动。`stop`/`restart`
 必须先停止新入站、heartbeat、cron 和 dispatch 生产者,再收拢内核运行,最后关闭 IM/channel 资源;
 进行中的操作进入明确终态,终态事件有机会完成投递;关闭阶段的次要错误不得覆盖导致进程退出的最早
-真实错误。
+真实错误。后台 parent 只确认 child 已写入 PID + process birth 且仍存活；runtime/channel readiness
+由日志和 IM 节点状态呈现。
 
 #### Scenario: 默认启动后台常驻并尽快返回
 - **WHEN** 运维者执行 `python -m personal_assistant.main`(无子命令)
-- **THEN** Gateway 在脱离的子进程中后台启动,主命令打印 pid / 健康提示 / 日志路径后尽快返回,
-  进程转入常驻服务态
+- **THEN** Gateway 在脱离的子进程中后台启动,主命令确认 child 已写入 PID + process birth 且仍
+  存活后打印 pid / IM service 状态 / 日志路径并尽快返回
+- **AND** runtime/channel readiness 由 `gateway.log` 或 IM 节点状态呈现
 
 #### Scenario: 重复启动被单实例锁拦下
 - **GIVEN** 某 config 已有一个存活的后台 Gateway
@@ -34,6 +36,18 @@
 - **THEN** 对应后台进程被优雅终止(超时则升级 SIGKILL),PID/状态文件被清理;若本无运行则报「NOT RUNNING」,
   状态陈旧则报「STALE」
 
+#### Scenario: start stop restart 对同一 config 串行
+- **WHEN** 同一 config 的多个 lifecycle 命令并发执行
+- **THEN** 命令经同一个 config-scoped lock 串行化,且 `restart` 在一次持锁期间完成 stop + start
+
+#### Scenario: stop 只向已证明的进程实例发信号
+- **GIVEN** `.gateway-state.json` 记录 PID、resolved config 和 process birth
+- **WHEN** 运维者执行 `stop`
+- **THEN** 每次发信号前重新核对 PID 的 live birth,不向已复用该 PID 的无关进程发信号
+- **AND** 旧状态缺少 birth 时,仅在 live command 精确属于
+  `personal_assistant.main --config <同一 resolved config> ... --foreground` 后采纳当前 birth
+- **AND** command 不匹配或观察期间 birth 改变时 fail closed,不发信号并保留旧证据
+
 #### Scenario: stop 收拢活动运行后终止 Gateway
 - **GIVEN** Gateway 有活动 Agent run 或权限等待
 - **WHEN** 运维者执行 `stop` 或 `restart`
@@ -43,6 +57,17 @@
 #### Scenario: 真实故障在关闭后仍是主要错误
 - **WHEN** Gateway 因运行故障进入关闭流程
 - **THEN** 日志保留原始首因;任何资源关闭失败只作为次要诊断,不替换首因
+
+### Requirement: Gateway lifecycle timing 由 Gateway 配置拥有
+
+后台启动、停止和轮询只读取 `gateway:` 下的 lifecycle timing。
+
+#### Scenario: 加载 Gateway lifecycle timing
+- **GIVEN** config 提供 `gateway.startup_timeout_seconds`、
+  `gateway.shutdown_grace_seconds` 或 `gateway.poll_interval_seconds`
+- **WHEN** Gateway 加载配置
+- **THEN** 对应 timing 用于后台启动、停止或轮询
+- **AND** 未提供的字段使用 Gateway 默认值
 
 ### Requirement: IM 服务在线时 Gateway 主动连出并保持双向通信
 

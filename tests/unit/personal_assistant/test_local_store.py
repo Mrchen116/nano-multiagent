@@ -3,7 +3,6 @@ from pathlib import Path
 import pytest
 
 from personal_assistant.config.local_store import (
-    DEFAULT_LOCAL_KERNEL_TOKEN,
     AgentWorkspaceConfig,
     default_local_config_path,
     load_local_config,
@@ -197,8 +196,6 @@ def test_load_local_config_reads_yaml_and_applies_defaults(tmp_path: Path) -> No
                 f"    workspace_root: {workspace_root}",
                 "channels:",
                 "  - name: web_relay",
-                "kernel:",
-                "  base_url: http://127.0.0.1:8100",
             ]
         )
         + "\n"
@@ -209,9 +206,9 @@ def test_load_local_config_reads_yaml_and_applies_defaults(tmp_path: Path) -> No
     config = load_local_config(config_path)
 
     assert config.node.node_id == "node-local"
-    assert config.kernel.base_url == "http://127.0.0.1:8100"
-    assert config.kernel.health_path == "/v1/health"
-    assert config.kernel.startup_timeout_seconds == 15.0
+    assert config.gateway.startup_timeout_seconds == 15.0
+    assert config.gateway.shutdown_grace_seconds == 5.0
+    assert config.gateway.poll_interval_seconds == 0.25
     assert config.agents[0].workspace_root == workspace_root
     assert config.channels[0].enabled is True
     assert config.im_service is None
@@ -251,36 +248,7 @@ def test_load_local_config_preserves_multiple_seed_agents_in_order(
     assert [agent.workspace_root for agent in config.agents] == [alpha_root, beta_root]
 
 
-def test_load_local_config_uses_internal_kernel_base_url_default(
-    tmp_path: Path,
-) -> None:
-    # refactor-387-M4: kernel is in-process; kernel.command is empty (no subprocess).
-    config_path = tmp_path / "node-config.yaml"
-    workspace_root = tmp_path / "agents" / "assistant-a"
-    workspace_root.mkdir(parents=True)
-    config_path.write_text(
-        "\n".join(
-            [
-                "node:",
-                "  node_id: node-local",
-                "agents:",
-                "  - agent_id: assistant-a",
-                f"    workspace_root: {workspace_root}",
-            ]
-        )
-        + "\n"
-        + _LLM_YAML,
-        encoding="utf-8",
-    )
-
-    config = load_local_config(config_path)
-
-    assert config.kernel.base_url == "http://127.0.0.1:8000"
-    assert config.kernel.command == ""  # in-process: no subprocess command needed
-    assert config.agents[0].workspace_root == workspace_root
-
-
-def test_load_local_config_defaults_kernel_command_to_real_http_app_entrypoint(
+def test_load_local_config_defaults_gateway_lifecycle_timing(
     tmp_path: Path,
 ) -> None:
     config_path = tmp_path / "node-config.yaml"
@@ -303,40 +271,12 @@ def test_load_local_config_defaults_kernel_command_to_real_http_app_entrypoint(
 
     config = load_local_config(config_path)
 
-    # refactor-387 M3: kernel_app.py deleted; default command is now empty string
-    assert config.kernel.command == ""
-    assert config.kernel.base_url == "http://127.0.0.1:8000"
-    assert config.agents[0].workspace_root == workspace_root
+    assert config.gateway.startup_timeout_seconds == 15.0
+    assert config.gateway.shutdown_grace_seconds == 5.0
+    assert config.gateway.poll_interval_seconds == 0.25
 
 
-def test_load_local_config_defaults_kernel_token_for_local_gateway(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    config_path = tmp_path / "node-config.yaml"
-    workspace_root = tmp_path / "agents" / "assistant-a"
-    workspace_root.mkdir(parents=True)
-    monkeypatch.delenv("NANO_MULTIAGENT_API_TOKEN", raising=False)
-    config_path.write_text(
-        "\n".join(
-            [
-                "node:",
-                "  node_id: node-local",
-                "agents:",
-                "  - agent_id: assistant-a",
-                f"    workspace_root: {workspace_root}",
-            ]
-        )
-        + "\n"
-        + _LLM_YAML,
-        encoding="utf-8",
-    )
-
-    config = load_local_config(config_path)
-
-    assert config.kernel.token == DEFAULT_LOCAL_KERNEL_TOKEN
-
-
-def test_load_local_config_derives_kernel_base_url_from_local_command_port(
+def test_load_local_config_reads_gateway_lifecycle_timing(
     tmp_path: Path,
 ) -> None:
     config_path = tmp_path / "node-config.yaml"
@@ -350,8 +290,10 @@ def test_load_local_config_derives_kernel_base_url_from_local_command_port(
                 "agents:",
                 "  - agent_id: assistant-a",
                 f"    workspace_root: {workspace_root}",
-                "kernel:",
-                "  command: python -m uvicorn personal_assistant.kernel_app:app --host 127.0.0.1 --port 8123",
+                "gateway:",
+                "  startup_timeout_seconds: 31",
+                "  shutdown_grace_seconds: 8",
+                "  poll_interval_seconds: 0.6",
             ]
         )
         + "\n"
@@ -361,9 +303,9 @@ def test_load_local_config_derives_kernel_base_url_from_local_command_port(
 
     config = load_local_config(config_path)
 
-    assert config.kernel.base_url == "http://127.0.0.1:8123"
-    assert config.kernel.command.endswith("--host 127.0.0.1 --port 8123")
-    assert config.agents[0].workspace_root == workspace_root
+    assert config.gateway.startup_timeout_seconds == 31.0
+    assert config.gateway.shutdown_grace_seconds == 8.0
+    assert config.gateway.poll_interval_seconds == 0.6
 
 
 def test_load_local_config_rejects_missing_agents(tmp_path: Path) -> None:

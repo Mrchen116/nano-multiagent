@@ -26,7 +26,7 @@ import 内核内部(由 `tests/contract/` 把守)。
 | Area | Covers | Requirements |
 |---|---|---|
 | [Routing and Delivery](routing-delivery.md) | 入站路由、群聊触发、/stop、mid-run steering、回复线程、会话映射、产品投递、失败反馈 | 9 |
-| [Service Lifecycle](service-lifecycle.md) | 启停、IM WS、reconnect/ack、auto-bind | 4 |
+| [Service Lifecycle](service-lifecycle.md) | 启停、IM WS、reconnect/ack、auto-bind | 5 |
 | [Agent Capabilities](agent-capabilities.md) | 模型配置、tool_allowlist、context window、skills bootstrap | 6 |
 | [Heartbeat and Cron](heartbeat-cron.md) | per-agent heartbeat / cron 开关、调度、错过周期语义 | 1 |
 | [Relay Protocol](relay-protocol.md) | tool relay、skill usage RPC、附件透传、tool terminal events、图片、授权决策、cache/thinking、fork | 9 |

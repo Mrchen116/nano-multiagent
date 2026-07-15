@@ -9,12 +9,11 @@ from pathlib import Path
 import pytest
 
 from personal_assistant.config.local_store import (
-    DEFAULT_LOCAL_KERNEL_TOKEN,
     AgentWorkspaceConfig,
     ChannelConfig,
     HeartbeatConfig,
     IMServiceConfig,
-    KernelConfig,
+    GatewayLifecycleConfig,
     LocalConfig,
     NodeConfig,
 )
@@ -1532,41 +1531,6 @@ def test_run_gateway_loads_config_and_starts_runtime(tmp_path: Path) -> None:
     assert seen == {"config": config, "ran": True}
 
 
-def test_build_runtime_returns_gateway_runtime_with_no_process_manager(
-    tmp_path: Path,
-) -> None:
-    """refactor-387 M3: build_runtime no longer spawns a kernel subprocess.
-
-    GatewayRuntime.process_manager must be None — the kernel runs in-process.
-    """
-    workspace_root = tmp_path / "agent-a"
-    workspace_root.mkdir()
-    config = LocalConfig(
-        node=NodeConfig(node_id="node-local"),
-        agents=(
-            AgentWorkspaceConfig(agent_id="agent-a", workspace_root=workspace_root),
-        ),
-        channels=(),
-        kernel=KernelConfig(
-            token=None,
-            # command removed: kernel now in-process (refactor-387-M4)
-            startup_timeout_seconds=0.2,
-            health_poll_interval_seconds=0.0,
-            shutdown_grace_seconds=0.1,
-        ),
-        heartbeat=HeartbeatConfig(),
-        im_service=None,
-        llm=_DEFAULT_TEST_LLM,
-        source_path=tmp_path / "node-config.yaml",
-    )
-
-    runtime = build_runtime(config)
-
-    assert isinstance(runtime, GatewayRuntime)
-    # M3: process manager must be None — kernel is in-process, no subprocess spawned.
-    assert runtime._process_manager is None  # noqa: SLF001
-
-
 def test_build_channel_registry_passes_dedup_db_path(tmp_path: Path) -> None:
     registry = _build_channel_registry(
         (ChannelConfig(name="web_relay", enabled=True),),
@@ -1591,11 +1555,9 @@ def test_build_runtime_wires_web_relay_dedup_db_under_config_dir(
             AgentWorkspaceConfig(agent_id="agent-a", workspace_root=workspace_root),
         ),
         channels=(ChannelConfig(name="web_relay", enabled=True),),
-        kernel=KernelConfig(
-            token=None,
-            # command removed: kernel now in-process (refactor-387-M4)
+        gateway=GatewayLifecycleConfig(
             startup_timeout_seconds=0.2,
-            health_poll_interval_seconds=0.0,
+            poll_interval_seconds=0.0,
             shutdown_grace_seconds=0.1,
         ),
         heartbeat=HeartbeatConfig(),
@@ -1748,10 +1710,9 @@ def test_build_runtime_wires_prompt_preview_provider_when_im_service_configured(
             AgentWorkspaceConfig(agent_id="agent-a", workspace_root=workspace_root),
         ),
         channels=(ChannelConfig(name="web_relay", enabled=True),),
-        kernel=KernelConfig(
-            token=None,
+        gateway=GatewayLifecycleConfig(
             startup_timeout_seconds=0.2,
-            health_poll_interval_seconds=0.0,
+            poll_interval_seconds=0.0,
             shutdown_grace_seconds=0.1,
         ),
         heartbeat=HeartbeatConfig(),

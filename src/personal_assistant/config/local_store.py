@@ -4,9 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
-import os
 from pathlib import Path
-import shlex
 import shutil
 from typing import Any
 
@@ -52,11 +50,6 @@ class LLMConfigPayload:
     providers: tuple[LLMProviderPayload, ...] = field(default_factory=tuple)
 
 
-_DEFAULT_KERNEL_BASE_URL = "http://127.0.0.1:8000"
-# refactor-387 M3: kernel_app.py deleted; KernelConfig.command is retained for M4 cleanup.
-_DEFAULT_KERNEL_ENTRYPOINT = ""
-_DEFAULT_KERNEL_HEALTH_PATH = "/v1/health"
-DEFAULT_LOCAL_KERNEL_TOKEN = "nano-local-gateway"
 DEFAULT_LOCAL_CONFIG_DIR = Path("~/.nano-assistant").expanduser()
 DEFAULT_LOCAL_CONFIG_PATH = DEFAULT_LOCAL_CONFIG_DIR / "config.yaml"
 FEISHU_DOC_SKILL_ID = "feishu-doc"
@@ -273,35 +266,18 @@ class IMServiceConfig:
 
 
 @dataclass(frozen=True, slots=True)
-class KernelConfig:
-    """Legacy gateway-to-kernel connectivity settings retained for config compatibility.
-
-    refactor-387: the kernel is now in-process (agent.sdk); these fields are no
-    longer used at runtime.  Preserved so that existing config files with a
-    ``kernel:`` section parse without error; fields will be removed when the
-    config schema is trimmed in a follow-up unit.
+class GatewayLifecycleConfig:
+    """Configure lifecycle timing for the Gateway background process.
 
     Args:
-        base_url: Unused (was: HTTP URL of the standalone kernel process).
-        token: Unused (was: bearer token for the kernel HTTP API).
-        request_id: Unused (was: fixed request id prefix for health probes).
-        timeout_seconds: Unused (was: per-request HTTP timeout).
-        command: Unused (was: command used to spawn the kernel subprocess).
-        health_path: Unused (was: health endpoint for readiness polling).
-        startup_timeout_seconds: Unused (was: maximum readiness wait after spawn).
-        shutdown_grace_seconds: Unused (was: grace period before forced kill).
-        health_poll_interval_seconds: Unused (was: delay between health probe attempts).
+        startup_timeout_seconds: Maximum wait for a background child to write its PID.
+        shutdown_grace_seconds: Grace period before the launcher force-kills the process group.
+        poll_interval_seconds: Delay between child liveness checks.
     """
 
-    base_url: str = _DEFAULT_KERNEL_BASE_URL
-    token: str | None = None
-    request_id: str | None = None
-    timeout_seconds: float = 10.0
-    command: str = _DEFAULT_KERNEL_ENTRYPOINT
-    health_path: str = _DEFAULT_KERNEL_HEALTH_PATH
     startup_timeout_seconds: float = _DEFAULT_STARTUP_TIMEOUT_SECONDS
     shutdown_grace_seconds: float = _DEFAULT_SHUTDOWN_GRACE_SECONDS
-    health_poll_interval_seconds: float = _DEFAULT_POLL_INTERVAL_SECONDS
+    poll_interval_seconds: float = _DEFAULT_POLL_INTERVAL_SECONDS
 
 
 @dataclass(frozen=True, slots=True)
@@ -323,7 +299,7 @@ class LocalConfig:
         node: Node identity and ownership metadata.
         agents: Agent workspace definitions managed by this gateway.
         channels: Configured inbound/outbound channel adapters.
-        kernel: Legacy kernel connectivity settings (unused since refactor-387; retained for config-file backward compatibility).
+        gateway: Gateway background process lifecycle timing.
         heartbeat: Local heartbeat scheduler polling settings.
         im_service: Optional upstream IM service configuration.
         llm: LLM registry configuration (required; no hardcoded fallback).
@@ -333,7 +309,7 @@ class LocalConfig:
     node: NodeConfig
     agents: tuple[AgentWorkspaceConfig, ...]
     channels: tuple[ChannelConfig, ...]
-    kernel: KernelConfig
+    gateway: GatewayLifecycleConfig
     heartbeat: HeartbeatConfig
     im_service: IMServiceConfig | None
     llm: LLMConfigPayload
@@ -371,14 +347,14 @@ def load_local_config(config_path: str | Path) -> LocalConfig:
     llm = _parse_llm(raw.get("llm"))
     agents = _parse_agents(raw.get("agents"), llm)
     channels = _parse_channels(raw.get("channels"))
-    kernel = _parse_kernel(raw.get("kernel"))
+    gateway = _parse_gateway_lifecycle(raw.get("gateway"))
     heartbeat = _parse_heartbeat(raw.get("heartbeat"))
     im_service = _parse_im_service(raw.get("im_service"))
     return LocalConfig(
         node=node,
         agents=agents,
         channels=channels,
-        kernel=kernel,
+        gateway=gateway,
         heartbeat=heartbeat,
         im_service=im_service,
         llm=llm,
@@ -603,28 +579,16 @@ def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
             channels_list.append(ch_dict)
         data["channels"] = channels_list
 
-    # Kernel — only emit non-default values to keep output concise
-    kernel_dict: dict[str, Any] = {}
-    if config.kernel.base_url != _DEFAULT_KERNEL_BASE_URL:
-        kernel_dict["base_url"] = config.kernel.base_url
-    if config.kernel.command != _DEFAULT_KERNEL_ENTRYPOINT:
-        kernel_dict["command"] = config.kernel.command
-    if config.kernel.health_path != _DEFAULT_KERNEL_HEALTH_PATH:
-        kernel_dict["health_path"] = config.kernel.health_path
-    if config.kernel.request_id is not None:
-        kernel_dict["request_id"] = config.kernel.request_id
-    if config.kernel.timeout_seconds != 10.0:
-        kernel_dict["timeout_seconds"] = config.kernel.timeout_seconds
-    if config.kernel.startup_timeout_seconds != _DEFAULT_STARTUP_TIMEOUT_SECONDS:
-        kernel_dict["startup_timeout_seconds"] = config.kernel.startup_timeout_seconds
-    if config.kernel.shutdown_grace_seconds != _DEFAULT_SHUTDOWN_GRACE_SECONDS:
-        kernel_dict["shutdown_grace_seconds"] = config.kernel.shutdown_grace_seconds
-    if config.kernel.health_poll_interval_seconds != _DEFAULT_POLL_INTERVAL_SECONDS:
-        kernel_dict["health_poll_interval_seconds"] = (
-            config.kernel.health_poll_interval_seconds
-        )
-    if kernel_dict:
-        data["kernel"] = kernel_dict
+    # Gateway lifecycle — only emit non-default values to keep output concise.
+    gateway_dict: dict[str, Any] = {}
+    if config.gateway.startup_timeout_seconds != _DEFAULT_STARTUP_TIMEOUT_SECONDS:
+        gateway_dict["startup_timeout_seconds"] = config.gateway.startup_timeout_seconds
+    if config.gateway.shutdown_grace_seconds != _DEFAULT_SHUTDOWN_GRACE_SECONDS:
+        gateway_dict["shutdown_grace_seconds"] = config.gateway.shutdown_grace_seconds
+    if config.gateway.poll_interval_seconds != _DEFAULT_POLL_INTERVAL_SECONDS:
+        gateway_dict["poll_interval_seconds"] = config.gateway.poll_interval_seconds
+    if gateway_dict:
+        data["gateway"] = gateway_dict
 
     # Heartbeat — only emit non-default
     if (
@@ -683,30 +647,8 @@ def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
     )
     dest = Path(config_path).expanduser().resolve()
     dest.parent.mkdir(parents=True, exist_ok=True)
-    # Backup must succeed before we overwrite; raises on IO failure so dest
-    # is never silently clobbered when backup storage is unavailable.
     _backup_existing_config(dest, new_text)
     dest.write_text(new_text, encoding="utf-8")
-
-
-def resolve_kernel_token(token: str | None) -> str:
-    """Return the effective bearer token sourced from config or environment.
-
-    Args:
-        token: Explicit token configured in the gateway config file.
-
-    Returns:
-        Explicit token when provided, otherwise the shared process token from
-        ``NANO_MULTIAGENT_API_TOKEN``, and finally ``DEFAULT_LOCAL_KERNEL_TOKEN``
-        as a stable fallback.
-    """
-
-    if isinstance(token, str) and token.strip():
-        return token.strip()
-    env_token = os.getenv("NANO_MULTIAGENT_API_TOKEN", "").strip()
-    if env_token:
-        return env_token
-    return DEFAULT_LOCAL_KERNEL_TOKEN
 
 
 def _parse_node_config(payload: Any) -> NodeConfig:
@@ -979,58 +921,35 @@ def _validate_feishu_settings(settings: dict[str, Any], *, prefix: str) -> None:
         raise ValueError(f"{prefix}.botOpenId must be a string")
 
 
-def _parse_kernel(payload: Any) -> KernelConfig:
+def _parse_gateway_lifecycle(payload: Any) -> GatewayLifecycleConfig:
+    """Parse Gateway-owned lifecycle timing.
+
+    Args:
+        payload: Optional canonical ``gateway`` mapping.
+
+    Returns:
+        Gateway-owned lifecycle timing.
+
+    Raises:
+        ValueError: When ``gateway`` or a selected timing value is malformed.
+    """
     if payload is None:
         payload = {}
     if not isinstance(payload, dict):
-        raise ValueError("kernel must be a mapping")
-    command = (
-        _optional_string(payload.get("command"), field_name="kernel.command")
-        or _DEFAULT_KERNEL_ENTRYPOINT
-    )
-    explicit_base_url = _optional_string(
-        payload.get("base_url"), field_name="kernel.base_url"
-    )
-    base_url = (
-        explicit_base_url
-        or _derive_kernel_base_url(command)
-        or _DEFAULT_KERNEL_BASE_URL
-    )
-    token = resolve_kernel_token(
-        _optional_string(payload.get("token"), field_name="kernel.token")
-    )
-    request_id = _optional_string(
-        payload.get("request_id"), field_name="kernel.request_id"
-    )
-    health_path = (
-        _optional_string(payload.get("health_path"), field_name="kernel.health_path")
-        or _DEFAULT_KERNEL_HEALTH_PATH
-    )
-    timeout_seconds = _positive_number(
-        payload.get("timeout_seconds", 10.0), field_name="kernel.timeout_seconds"
-    )
-    startup_timeout_seconds = _positive_number(
-        payload.get("startup_timeout_seconds", _DEFAULT_STARTUP_TIMEOUT_SECONDS),
-        field_name="kernel.startup_timeout_seconds",
-    )
-    shutdown_grace_seconds = _positive_number(
-        payload.get("shutdown_grace_seconds", _DEFAULT_SHUTDOWN_GRACE_SECONDS),
-        field_name="kernel.shutdown_grace_seconds",
-    )
-    health_poll_interval_seconds = _positive_number(
-        payload.get("health_poll_interval_seconds", _DEFAULT_POLL_INTERVAL_SECONDS),
-        field_name="kernel.health_poll_interval_seconds",
-    )
-    return KernelConfig(
-        base_url=base_url,
-        token=token,
-        request_id=request_id,
-        timeout_seconds=timeout_seconds,
-        command=command,
-        health_path=health_path,
-        startup_timeout_seconds=startup_timeout_seconds,
-        shutdown_grace_seconds=shutdown_grace_seconds,
-        health_poll_interval_seconds=health_poll_interval_seconds,
+        raise ValueError("gateway must be a mapping")
+    return GatewayLifecycleConfig(
+        startup_timeout_seconds=_positive_number(
+            payload.get("startup_timeout_seconds", _DEFAULT_STARTUP_TIMEOUT_SECONDS),
+            field_name="gateway.startup_timeout_seconds",
+        ),
+        shutdown_grace_seconds=_positive_number(
+            payload.get("shutdown_grace_seconds", _DEFAULT_SHUTDOWN_GRACE_SECONDS),
+            field_name="gateway.shutdown_grace_seconds",
+        ),
+        poll_interval_seconds=_positive_number(
+            payload.get("poll_interval_seconds", _DEFAULT_POLL_INTERVAL_SECONDS),
+            field_name="gateway.poll_interval_seconds",
+        ),
     )
 
 
@@ -1069,36 +988,6 @@ def _parse_im_service(payload: Any) -> IMServiceConfig | None:
         username=username,
         password=password,
     )
-
-
-def _derive_kernel_base_url(command: str) -> str | None:
-    try:
-        tokens = shlex.split(command)
-    except ValueError:
-        return None
-    host: str | None = None
-    port: str | None = None
-    for index, token in enumerate(tokens):
-        if token == "--host" and index + 1 < len(tokens):
-            host = tokens[index + 1].strip()
-            continue
-        if token == "--port" and index + 1 < len(tokens):
-            port = tokens[index + 1].strip()
-            continue
-        if token.startswith("--host="):
-            host = token.partition("=")[2].strip()
-            continue
-        if token.startswith("--port="):
-            port = token.partition("=")[2].strip()
-    if not host or not port:
-        return None
-    if host == "0.0.0.0":
-        host = "127.0.0.1"
-    if host not in {"127.0.0.1", "localhost"}:
-        return None
-    if not port.isdigit():
-        return None
-    return f"http://{host}:{port}"
 
 
 def _require_non_empty_string(value: Any, *, field_name: str) -> str:

@@ -76,8 +76,13 @@ PYTHONPATH=src python -m personal_assistant.main --im-service-url http://<im-hos
 默认命令会把 Gateway 放到后台，并立即返回：
 
 ```text
-STARTED pid=<pid> health_url=http://<im-host>:8011 log=<config目录>/gateway.log
+Gateway started (pid=<pid>)
+IM service:      http://<im-host>:8011  [connected|unavailable (running offline, will retry)]
+Log:             <config目录>/gateway.log
 ```
+
+这只确认后台子进程已写出带 process birth 的运行态并仍存活，不代表 runtime/channel ready。
+IM 连接、节点绑定和 channel 启动结果仍需查看 `gateway.log` 或 Web IM 节点状态。
 
 启动后的预期行为：
 - 未绑定节点：Gateway 会把 `ACTION ...` / `NEXT ...` 写入 `gateway.log`，并尝试打开绑定页；默认绑定页位于 `http://127.0.0.1:8011/bind/confirm?token=...`。
@@ -98,7 +103,9 @@ PYTHONPATH=src python -m personal_assistant.main restart
 PYTHONPATH=src python -m personal_assistant.main restart --im-service-url http://<im-host>:8011
 ```
 
-**单实例保护**：同一台机器只允许运行一个 Gateway 实例。若已有实例在运行，`start`/`restart` 会拒绝启动并提示当前 PID：
+**单实例保护**：同一 config 同一时刻只允许运行一个 Gateway 实例。`start` / `stop` / `restart`
+由 config 同目录的一把 lifecycle lock 串行化；PID 和 birth identity 原子记录在唯一的
+`.gateway-state.json` 中。若已有实例在运行，`start` 会拒绝启动并提示当前 PID：
 
 ```text
 ERROR gateway already running (pid=<pid>). Run `stop` first or `restart` to replace it.
@@ -110,7 +117,7 @@ stop 反馈语义：
 - `STALE ...`：记录里的 pid 已失效；CLI 会自动清掉陈旧状态文件，然后你可以重新 start。
 
 你会看到的 ready 信号：
-- 默认路径下，终端先打印 `STARTED ...` 并返回；随后可查看 `gateway.log` 或 Web IM/绑定页确认 Gateway 已 ready。
+- 默认路径下，终端先打印 `Gateway started (pid=...)` 并返回；随后可查看 `gateway.log` 或 Web IM/绑定页确认 Gateway 已 ready。
 - 若使用 `--foreground` 调试路径，终端会保持常驻，并直接显示 `ACTION ...` / `NEXT ...`。
 - 如果终端打印 `ERROR ...` / `NEXT ...`，不要先翻代码；直接按 `NEXT` 的动作处理即可。
 
