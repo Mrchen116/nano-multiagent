@@ -8,7 +8,7 @@ from pathlib import Path
 from personal_assistant.channels.base import InboundMessage, OutboundMessage
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.gateway.channel_registry import ChannelRegistry
-from personal_assistant.gateway.inbound_pipeline import InboundPipeline
+from tests.helpers.inbound_pipeline import build_inbound_pipeline, inbound_graph
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
 from personal_assistant.gateway.session_keys import (
@@ -31,65 +31,6 @@ class _ShadowSync:
         return self.conversation_id
 
 
-def test_inbound_pipeline_bounds_session_drain_locks(tmp_path: Path) -> None:
-    agents = _agents(tmp_path)
-    channel = _FakeChannel("web")
-    registry = ChannelRegistry((channel,))
-    pipeline = InboundPipeline(
-        kernel=_FakeKernel(),
-        agents=agents,
-        outbound_router=OutboundRouter(registry),
-        run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
-        default_agent_id="agent-a",
-        max_session_drain_locks=2,
-    )
-
-    first = pipeline._drain_lock_for("session-1")  # noqa: SLF001
-    second = pipeline._drain_lock_for("session-2")  # noqa: SLF001
-
-    assert pipeline._drain_lock_for("session-1") is first  # noqa: SLF001
-    third = pipeline._drain_lock_for("session-3")  # noqa: SLF001
-
-    assert third is not first
-    assert list(pipeline._session_drain_locks) == [  # noqa: SLF001
-        "session-1",
-        "session-3",
-    ]
-    assert "session-2" not in pipeline._session_drain_locks  # noqa: SLF001
-    assert second is not pipeline._drain_lock_for("session-2")  # noqa: SLF001
-
-
-def test_inbound_pipeline_does_not_evict_locked_drain_lock(
-    tmp_path: Path,
-) -> None:
-    agents = _agents(tmp_path)
-    channel = _FakeChannel("web")
-    registry = ChannelRegistry((channel,))
-    pipeline = InboundPipeline(
-        kernel=_FakeKernel(),
-        agents=agents,
-        outbound_router=OutboundRouter(registry),
-        run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
-        default_agent_id="agent-a",
-        max_session_drain_locks=2,
-    )
-    first = pipeline._drain_lock_for("session-1")  # noqa: SLF001
-    second = pipeline._drain_lock_for("session-2")  # noqa: SLF001
-    asyncio.run(first.acquire())
-
-    try:
-        third = pipeline._drain_lock_for("session-3")  # noqa: SLF001
-    finally:
-        first.release()
-
-    assert third is not first
-    assert pipeline._drain_lock_for("session-1") is first  # noqa: SLF001
-    assert "session-2" not in pipeline._session_drain_locks  # noqa: SLF001
-    assert second is not pipeline._drain_lock_for("session-2")  # noqa: SLF001
-
-
 def test_inbound_pipeline_runs_four_steps_and_replies_via_origin_channel(
     tmp_path: Path,
 ) -> None:
@@ -97,7 +38,7 @@ def test_inbound_pipeline_runs_four_steps_and_replies_via_origin_channel(
     channel = _FakeChannel("web")
     registry = ChannelRegistry((channel,))
     kernel_client = _FakeKernel()
-    pipeline = InboundPipeline(
+    pipeline = build_inbound_pipeline(
         kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
@@ -166,7 +107,7 @@ def test_external_inbound_syncs_user_message_and_seeds_shadow_metadata(
             )
         )
 
-    pipeline = InboundPipeline(
+    pipeline = build_inbound_pipeline(
         kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
@@ -219,7 +160,7 @@ def test_external_shadow_sync_failure_does_not_block_or_seed_lazy_direct(
             )
         )
 
-    pipeline = InboundPipeline(
+    pipeline = build_inbound_pipeline(
         kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
@@ -273,7 +214,7 @@ def test_inbound_pipeline_passes_local_config_metadata_when_creating_new_kernel_
     channel = _FakeChannel("web_relay")
     registry = ChannelRegistry((channel,))
     kernel_client = _FakeKernel()
-    pipeline = InboundPipeline(
+    pipeline = build_inbound_pipeline(
         kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
@@ -323,7 +264,7 @@ def test_inbound_pipeline_recreates_bound_session_when_workspace_mismatches(
     registry = ChannelRegistry((channel,))
     kernel_client = _FakeKernel()
     session_store = SessionBindingStore()
-    pipeline = InboundPipeline(
+    pipeline = build_inbound_pipeline(
         kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
@@ -379,7 +320,7 @@ def test_inbound_pipeline_emits_running_and_completed_relay_lifecycle_reports_wh
     async def _capture(message: InboundMessage, update) -> None:  # noqa: ANN001
         seen.append((update.phase, update.run_id, message.metadata.get("message_id")))
 
-    pipeline = InboundPipeline(
+    pipeline = build_inbound_pipeline(
         kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
@@ -419,7 +360,7 @@ def test_inbound_pipeline_emits_relay_lifecycle_updates_for_web_relay_messages(
     async def _capture(message: InboundMessage, update) -> None:  # noqa: ANN001
         seen.append((update.phase, update.run_id, message.metadata.get("message_id")))
 
-    pipeline = InboundPipeline(
+    pipeline = build_inbound_pipeline(
         kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
@@ -461,7 +402,7 @@ def test_inbound_pipeline_emits_real_usage_in_completed_relay_update(
         if update.phase == "completed":
             seen.append(update.usage)
 
-    pipeline = InboundPipeline(
+    pipeline = build_inbound_pipeline(
         kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
@@ -498,7 +439,7 @@ def test_inbound_pipeline_treats_statusless_run_snapshot_with_output_as_complete
     channel = _FakeChannel("web_relay")
     registry = ChannelRegistry((channel,))
     kernel_client = _FakeKernel()
-    pipeline = InboundPipeline(
+    pipeline = build_inbound_pipeline(
         kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
@@ -550,7 +491,7 @@ def test_inbound_pipeline_builds_reply_text_from_session_events_when_run_snapsho
             )
         )
 
-    pipeline = InboundPipeline(
+    pipeline = build_inbound_pipeline(
         kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
@@ -608,7 +549,7 @@ def test_inbound_pipeline_prefers_completed_run_output_text_over_streamed_text(
     channel = _FakeChannel("web_relay")
     registry = ChannelRegistry((channel,))
     kernel_client = _FakeKernel()
-    pipeline = InboundPipeline(
+    pipeline = build_inbound_pipeline(
         kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
@@ -662,7 +603,7 @@ def test_inbound_pipeline_prefers_completed_no_reply_token_even_when_streamed_te
     channel = _FakeChannel("web_relay")
     registry = ChannelRegistry((channel,))
     kernel_client = _FakeKernel()
-    pipeline = InboundPipeline(
+    pipeline = build_inbound_pipeline(
         kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
@@ -727,7 +668,7 @@ def _run_group_fanout(
     channel = _FakeChannel("web_relay")
     registry = ChannelRegistry((channel,))
     kernel_client = _FakeKernel()
-    pipeline = InboundPipeline(
+    pipeline = build_inbound_pipeline(
         kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
@@ -806,7 +747,7 @@ def test_inbound_pipeline_prefers_explicit_agent_then_channel_binding_then_defau
     registry = ChannelRegistry((channel,))
 
     explicit_kernel = _FakeKernel()
-    explicit_pipeline = InboundPipeline(
+    explicit_pipeline = build_inbound_pipeline(
         kernel=explicit_kernel,
         agents=agents,
         outbound_router=OutboundRouter(registry),
@@ -828,7 +769,7 @@ def test_inbound_pipeline_prefers_explicit_agent_then_channel_binding_then_defau
     )
 
     bound_kernel = _FakeKernel()
-    bound_pipeline = InboundPipeline(
+    bound_pipeline = build_inbound_pipeline(
         kernel=bound_kernel,
         agents=agents,
         outbound_router=OutboundRouter(registry),
@@ -851,7 +792,7 @@ def test_inbound_pipeline_prefers_explicit_agent_then_channel_binding_then_defau
     )
 
     default_kernel = _FakeKernel()
-    default_pipeline = InboundPipeline(
+    default_pipeline = build_inbound_pipeline(
         kernel=default_kernel,
         agents=agents,
         outbound_router=OutboundRouter(registry),
@@ -889,7 +830,7 @@ def test_inbound_pipeline_trusts_group_relay_target_agent_over_mentions(
     channel = _FakeChannel("web_relay")
     registry = ChannelRegistry((channel,))
     kernel_client = _FakeKernel()
-    pipeline = InboundPipeline(
+    pipeline = build_inbound_pipeline(
         kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
@@ -929,7 +870,7 @@ def test_inbound_pipeline_freezes_group_agent_id_even_without_additional_snapsho
     channel = _FakeChannel("web_relay")
     registry = ChannelRegistry((channel,))
     kernel_client = _FakeKernel()
-    pipeline = InboundPipeline(
+    pipeline = build_inbound_pipeline(
         kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
@@ -983,7 +924,7 @@ def test_inbound_pipeline_reuses_existing_session_binding_per_session_key(
     registry = ChannelRegistry((channel,))
     kernel_client = _FakeKernel()
     store = SessionBindingStore()
-    pipeline = InboundPipeline(
+    pipeline = build_inbound_pipeline(
         kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
@@ -1015,7 +956,7 @@ def test_inbound_pipeline_refreshes_legacy_binding_without_workspace_root(
     registry = ChannelRegistry((channel,))
     kernel_client = _FakeKernel()
     store = SessionBindingStore()
-    pipeline = InboundPipeline(
+    pipeline = build_inbound_pipeline(
         kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
@@ -1076,7 +1017,7 @@ def test_register_agent_keeps_existing_direct_sessions_and_uses_new_workspace_fo
     registry = ChannelRegistry((channel,))
     kernel_client = _FakeKernel()
     store = SessionBindingStore()
-    pipeline = InboundPipeline(
+    pipeline = build_inbound_pipeline(
         kernel=kernel_client,
         agents=(initial_agent,),
         outbound_router=OutboundRouter(registry),
@@ -1101,7 +1042,7 @@ def test_register_agent_keeps_existing_direct_sessions_and_uses_new_workspace_fo
 
     refreshed_workspace = tmp_path / "agent-a-v2"
     refreshed_workspace.mkdir()
-    pipeline.agent_catalog.publish(
+    inbound_graph(pipeline).catalog.publish(
         AgentWorkspaceConfig(
             agent_id="agent-a",
             workspace_root=refreshed_workspace,

@@ -33,28 +33,36 @@ class TestHeartbeatOkSilenceToken:
 
         This is the gating check used in _build_kernel_event_observer for heartbeat runs.
         """
-        from personal_assistant.gateway.inbound_pipeline import InboundPipeline
+        from personal_assistant.gateway.reply_visibility import (
+            is_protocol_silence_token,
+        )
 
-        assert InboundPipeline._is_no_reply_token("HEARTBEAT_OK") is True  # noqa: SLF001
+        assert is_protocol_silence_token("HEARTBEAT_OK") is True
 
     def test_heartbeat_ok_with_whitespace_still_silent(self) -> None:
         """Trailing/leading whitespace around HEARTBEAT_OK must still be recognized."""
-        from personal_assistant.gateway.inbound_pipeline import InboundPipeline
+        from personal_assistant.gateway.reply_visibility import (
+            is_protocol_silence_token,
+        )
 
-        assert InboundPipeline._is_no_reply_token("  HEARTBEAT_OK  ") is True  # noqa: SLF001
+        assert is_protocol_silence_token("  HEARTBEAT_OK  ") is True
 
     def test_no_reply_still_detected(self) -> None:
         """NO_REPLY must still be recognised as a silence token (regression guard)."""
-        from personal_assistant.gateway.inbound_pipeline import InboundPipeline
+        from personal_assistant.gateway.reply_visibility import (
+            is_protocol_silence_token,
+        )
 
-        assert InboundPipeline._is_no_reply_token("NO_REPLY") is True  # noqa: SLF001
+        assert is_protocol_silence_token("NO_REPLY") is True
 
     def test_non_silence_content_not_flagged(self) -> None:
         """Ordinary assistant content must NOT be flagged as a silence token."""
-        from personal_assistant.gateway.inbound_pipeline import InboundPipeline
+        from personal_assistant.gateway.reply_visibility import (
+            is_protocol_silence_token,
+        )
 
-        assert InboundPipeline._is_no_reply_token("Here is your daily update.") is False  # noqa: SLF001
-        assert InboundPipeline._is_no_reply_token("") is False  # noqa: SLF001
+        assert is_protocol_silence_token("Here is your daily update.") is False
+        assert is_protocol_silence_token("") is False
 
 
 # ---------------------------------------------------------------------------

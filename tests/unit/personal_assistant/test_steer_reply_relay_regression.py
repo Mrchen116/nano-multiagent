@@ -28,7 +28,7 @@ from typing import Any
 
 from personal_assistant.channels.base import InboundMessage
 from personal_assistant.gateway.channel_registry import ChannelRegistry
-from personal_assistant.gateway.inbound_pipeline import InboundPipeline
+from tests.helpers.inbound_pipeline import build_inbound_pipeline
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
 from personal_assistant.gateway.session_keys import SessionBindingStore
@@ -128,7 +128,7 @@ def test_collapse_window_steer_streams_reply_in_new_bubble_no_timeout(
 
     channel = _FakeChannel("web_relay")
     registry = ChannelRegistry((channel,))
-    pipeline = InboundPipeline(
+    pipeline = build_inbound_pipeline(
         kernel=kernel,
         agents=_agents(tmp_path),
         outbound_router=OutboundRouter(registry),

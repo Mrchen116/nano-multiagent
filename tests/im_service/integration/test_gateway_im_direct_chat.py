@@ -14,7 +14,7 @@ from personal_assistant.channels.web_relay_adapter import WebRelayAdapter
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.config.sync_client import ConfigSyncClient
 from personal_assistant.gateway.channel_registry import ChannelRegistry
-from personal_assistant.gateway.inbound_pipeline import InboundPipeline
+from tests.helpers.inbound_pipeline import build_inbound_pipeline, inbound_graph
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
 from personal_assistant.gateway.session_keys import SessionBindingStore
@@ -37,7 +37,7 @@ def test_direct_chat_recreates_legacy_kernel_session_without_workspace_metadata(
     agents = make_agent_configs(tmp_path, "agent-a")
     registry = ChannelRegistry((relay_adapter,))
     session_store = SessionBindingStore()
-    pipeline = InboundPipeline(
+    pipeline = build_inbound_pipeline(
         kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
@@ -150,7 +150,7 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
     agents = make_agent_configs(tmp_path, "agent-a")
     registry = ChannelRegistry((relay_adapter,))
     session_store = SessionBindingStore()
-    pipeline = InboundPipeline(
+    pipeline = build_inbound_pipeline(
         kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
@@ -254,7 +254,7 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
             assert request.agent_id == "agent-a"
             refreshed_workspace = tmp_path / "agent-a-refreshed"
             refreshed_workspace.mkdir()
-            pipeline.agent_catalog.publish(
+            inbound_graph(pipeline).catalog.publish(
                 AgentWorkspaceConfig(
                     agent_id="agent-a",
                     workspace_root=refreshed_workspace,

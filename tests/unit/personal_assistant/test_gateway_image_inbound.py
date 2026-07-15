@@ -11,7 +11,7 @@ from pathlib import Path
 
 from personal_assistant.channels.base import InboundMessage
 from personal_assistant.gateway.image_attachments import ImageAttachmentResolver
-from personal_assistant.gateway.inbound_pipeline import InboundPipeline
+from tests.helpers.inbound_pipeline import build_inbound_pipeline
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.channel_registry import ChannelRegistry
 from personal_assistant.gateway.run_queue import SessionRunQueue
@@ -56,7 +56,12 @@ def _make_pipeline(tmp_path: Path, *, fetcher=None):
     channel = _FakeChannel("web")
     registry = ChannelRegistry((channel,))
     kernel = _FakeKernel()
-    pipeline = InboundPipeline(
+    delivered: list[str] = []
+
+    async def _bg_sender(text, reply_context, from_session_id):
+        delivered.append(text)
+
+    pipeline = build_inbound_pipeline(
         kernel=kernel,
         agents=agents,
         outbound_router=OutboundRouter(registry),
@@ -64,13 +69,8 @@ def _make_pipeline(tmp_path: Path, *, fetcher=None):
         session_store=SessionBindingStore(),
         default_agent_id="agent-a",
         image_resolver=ImageAttachmentResolver(fetcher=fetcher),
+        bg_reply_sender=_bg_sender,
     )
-    delivered: list[str] = []
-
-    async def _bg_sender(text, reply_context, from_session_id):
-        delivered.append(text)
-
-    pipeline._bg_reply_sender = _bg_sender
     return pipeline, kernel, delivered
 
 

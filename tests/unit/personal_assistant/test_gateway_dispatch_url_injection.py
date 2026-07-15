@@ -11,6 +11,7 @@ import pytest
 from personal_assistant.channels.base import InboundMessage
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.gateway.inbound_pipeline import InboundPipeline
+from tests.helpers.inbound_pipeline import build_inbound_pipeline, inbound_graph
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
 from personal_assistant.gateway.session_binder import _build_session_metadata
@@ -26,7 +27,7 @@ def _make_pipeline(gateway_internal_port: int = 8089) -> InboundPipeline:
     )
     registry = MagicMock()
     router = OutboundRouter(registry)
-    return InboundPipeline(
+    return build_inbound_pipeline(
         kernel=kernel_client,
         agents=(agent,),
         outbound_router=router,
@@ -53,7 +54,7 @@ def test_build_session_metadata_includes_gateway_dispatch_url() -> None:
     message = _make_direct_message()
     meta = _build_session_metadata(
         message,
-        agent=pipeline.agent_catalog.require("agent_a"),
+        agent=inbound_graph(pipeline).catalog.require("agent_a"),
         gateway_internal_port=8089,
     )
     assert meta is not None
@@ -72,36 +73,8 @@ def test_build_session_metadata_gateway_dispatch_url_respects_custom_port() -> N
     message = _make_direct_message()
     meta = _build_session_metadata(
         message,
-        agent=pipeline.agent_catalog.require("agent_a"),
+        agent=inbound_graph(pipeline).catalog.require("agent_a"),
         gateway_internal_port=9999,
     )
     assert meta is not None
     assert "9999" in meta["gateway_dispatch_url"]
-
-
-def test_inbound_pipeline_accepts_gateway_internal_port_kwarg() -> None:
-    """InboundPipeline must accept gateway_internal_port constructor argument."""
-    pipeline = _make_pipeline(gateway_internal_port=8089)
-    assert hasattr(pipeline, "_gateway_internal_port")
-    assert pipeline._gateway_internal_port == 8089
-
-
-def test_inbound_pipeline_default_gateway_internal_port() -> None:
-    """InboundPipeline must have a sensible default gateway_internal_port when not supplied."""
-    kernel_client = MagicMock()
-    agent = AgentWorkspaceConfig(
-        agent_id="agent_a",
-        workspace_root=Path("/tmp/agent_a"),
-        title="Agent A",
-    )
-    registry = MagicMock()
-    router = OutboundRouter(registry)
-    pipeline = InboundPipeline(
-        kernel=kernel_client,
-        agents=(agent,),
-        outbound_router=router,
-        run_queue=SessionRunQueue(),
-    )
-    assert hasattr(pipeline, "_gateway_internal_port")
-    assert isinstance(pipeline._gateway_internal_port, int)
-    assert pipeline._gateway_internal_port > 0

@@ -12,7 +12,7 @@ import pytest
 from personal_assistant.channels.base import InboundMessage
 from personal_assistant.gateway.channel_registry import ChannelRegistry
 from personal_assistant.gateway.inbound_models import RelayLifecycleUpdate
-from personal_assistant.gateway.inbound_pipeline import InboundPipeline
+from tests.helpers.inbound_pipeline import build_inbound_pipeline
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
 from personal_assistant.gateway.session_keys import SessionBindingStore
@@ -57,7 +57,7 @@ def test_shutdown_cancellation_fails_submitted_relay_before_worker_exits(
         ) -> None:
             lifecycle.append(update)
 
-        pipeline = InboundPipeline(
+        pipeline = build_inbound_pipeline(
             kernel=kernel,
             agents=_agents(tmp_path),
             outbound_router=OutboundRouter(ChannelRegistry((channel,))),

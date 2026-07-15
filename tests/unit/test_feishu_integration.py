@@ -302,7 +302,7 @@ class TestFeishuBufferKeyConsistency:
     ) -> None:
         """FeishuAdapter emits external identity metadata consumed by Pipeline buffer keys."""
         from personal_assistant.channels.feishu.adapter import FeishuAdapter
-        from personal_assistant.gateway.inbound_pipeline import InboundPipeline
+        from personal_assistant.gateway.inbound_models import build_group_context_key
 
         store = MagicMock(spec=GroupContextStore)
         adapter = FeishuAdapter(
@@ -331,7 +331,7 @@ class TestFeishuBufferKeyConsistency:
         inbound = on_inbound.call_args[0][0]
         assert inbound.metadata["mentioned_agent_ids"] == []
         assert "sync_only" not in inbound.metadata
-        assert InboundPipeline._group_buf_key_for_agent(inbound, "plato") == (
+        assert build_group_context_key(inbound, "plato") == (
             "feishu:feishu:cli_a:group:oc_grp1:plato"
         )
 

@@ -8,7 +8,7 @@ from typing import Any
 from personal_assistant.channels.base import InboundMessage
 from personal_assistant.gateway.channel_registry import ChannelRegistry
 from personal_assistant.gateway.inbound_models import RelayLifecycleUpdate
-from personal_assistant.gateway.inbound_pipeline import InboundPipeline
+from personal_assistant.gateway.reply_visibility import is_protocol_silence_token
 from personal_assistant.gateway.runtime_protocol import runtime_protocol_or_derive
 from personal_assistant.reporter.upstream_reporter import UpstreamReporter
 from personal_assistant.ws.im_connection import IMConnectionManager
@@ -246,7 +246,7 @@ def _completed_receipt_detail(
     suppression_detail = _suppression_detail(detail)
     if suppression_detail is None:
         return reply_text
-    if InboundPipeline._is_no_reply_token(reply_text or ""):
+    if is_protocol_silence_token(reply_text or ""):
         return suppression_detail
     return " | ".join(part for part in [reply_text, suppression_detail] if part) or None
 

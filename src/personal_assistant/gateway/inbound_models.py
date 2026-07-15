@@ -8,6 +8,8 @@ from typing import Any, Literal
 
 from personal_assistant.channels.base import InboundMessage, OutboundMessage
 from personal_assistant.gateway.agent_catalog import LiveAgentSnapshot
+from personal_assistant.gateway.runtime_protocol import external_identity_from_message
+from personal_assistant.gateway.session_keys import build_external_session_key
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,3 +83,24 @@ class RelayLifecycleUpdate:
 RelayLifecycleCallback = Callable[
     [InboundMessage, RelayLifecycleUpdate], Awaitable[None]
 ]
+
+
+def build_group_context_key(message: InboundMessage, agent_id: str) -> str:
+    """Build the shared ignored-chatter partition key for one Agent.
+
+    Args:
+        message: Inbound group message from IM or an external channel.
+        agent_id: Routed Agent whose background context owns the message.
+
+    Returns:
+        Stable external identity key when present, otherwise the Web IM/channel key.
+    """
+
+    external_identity = external_identity_from_message(message)
+    if external_identity is not None:
+        return build_external_session_key(
+            external_source=external_identity.external_source,
+            external_chat_id=external_identity.external_chat_id,
+            agent_id=agent_id,
+        )
+    return f"{agent_id}:{message.channel_name}:{message.external_chat_id}"

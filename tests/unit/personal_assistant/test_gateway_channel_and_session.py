@@ -9,7 +9,7 @@ from personal_assistant.channels.base import InboundMessage
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.gateway.bootstrap import start_channels, stop_channels
 from personal_assistant.gateway.channel_registry import ChannelRegistry
-from personal_assistant.gateway.inbound_pipeline import InboundPipeline
+from tests.helpers.inbound_pipeline import build_inbound_pipeline, inbound_graph
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
 from personal_assistant.gateway.session_keys import (
@@ -103,7 +103,7 @@ def test_drop_agent_sessions_forces_group_mentions_to_create_a_fresh_kernel_sess
     registry = ChannelRegistry((channel,))
     kernel_client = _FakeKernel()
     store = SessionBindingStore()
-    pipeline = InboundPipeline(
+    pipeline = build_inbound_pipeline(
         kernel=kernel_client,
         agents=(initial_agent,),
         outbound_router=OutboundRouter(registry),
@@ -132,7 +132,7 @@ def test_drop_agent_sessions_forces_group_mentions_to_create_a_fresh_kernel_sess
     )
 
     # Simulate config sync: update system_prompt via register_agent + drop stale sessions.
-    current = pipeline.agent_catalog.publish(
+    current = inbound_graph(pipeline).catalog.publish(
         AgentWorkspaceConfig(
             agent_id="agent-a",
             workspace_root=agent_a_dir,
@@ -140,7 +140,7 @@ def test_drop_agent_sessions_forces_group_mentions_to_create_a_fresh_kernel_sess
             system_prompt="When mentioned in a group chat, reply exactly with NO_REPLY.",
         )
     )
-    pipeline.session_binder.invalidate_stale(
+    inbound_graph(pipeline).binder.invalidate_stale(
         "agent-a", current_revision=current.revision
     )
 

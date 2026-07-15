@@ -24,6 +24,7 @@ class ControlledKernel:
     """Expose deterministic synchronous submit and asynchronous terminal streams."""
 
     def __init__(self) -> None:
+        self.create_calls: list[str] = []
         self.submit_calls: list[dict[str, Any]] = []
         self.operations: list[tuple[str, str]] = []
         self.append_calls: list[dict[str, Any]] = []
@@ -41,6 +42,7 @@ class ControlledKernel:
     async def create_session(
         self, *, workspace_root: Path, **_kwargs: Any
     ) -> SimpleNamespace:
+        self.create_calls.append(str(workspace_root))
         self._session_index += 1
         session_id = f"sess-{self._session_index}"
         self._sessions[session_id] = str(workspace_root)
@@ -142,9 +144,7 @@ class ControlledKernel:
             queue.put_nowait(
                 {"event": "assistant_message", "run_id": run_id, "content": text}
             )
-        queue.put_nowait(
-            {"event": "run_status", "run_id": run_id, "status": status}
-        )
+        queue.put_nowait({"event": "run_status", "run_id": run_id, "status": status})
 
     def push(self, run_id: str, event: dict[str, Any]) -> None:
         """Publish one non-terminal stream event for a controlled run."""
@@ -182,7 +182,9 @@ class CountingImageResolver:
         return ImageResolution(parts=())
 
 
-def build_dependencies(tmp_path: Path) -> tuple[
+def build_dependencies(
+    tmp_path: Path,
+) -> tuple[
     ControlledKernel,
     LiveAgentCatalog,
     GatewaySessionBinder,

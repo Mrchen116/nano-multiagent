@@ -9,7 +9,7 @@ import pytest
 
 from personal_assistant.channels.base import InboundMessage, OutboundMessage
 from personal_assistant.gateway.channel_registry import ChannelRegistry
-from personal_assistant.gateway.inbound_pipeline import InboundPipeline
+from tests.helpers.inbound_pipeline import build_inbound_pipeline
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
 from personal_assistant.gateway.session_keys import SessionBindingStore
@@ -29,7 +29,7 @@ def test_inbound_pipeline_uses_sse_path_when_submit_and_stream_available(
             {"event": "run_status", "run_id": "run-1", "status": "completed"},
         ]
     )
-    pipeline = InboundPipeline(
+    pipeline = build_inbound_pipeline(
         kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
@@ -79,7 +79,7 @@ def test_inbound_pipeline_sse_path_extracts_reply_from_assistant_message(
             {"event": "run_status", "run_id": "run-1", "status": "completed"},
         ]
     )
-    pipeline = InboundPipeline(
+    pipeline = build_inbound_pipeline(
         kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
@@ -116,7 +116,7 @@ def test_inbound_pipeline_sse_path_raises_on_failed_run(tmp_path: Path) -> None:
             },
         ]
     )
-    pipeline = InboundPipeline(
+    pipeline = build_inbound_pipeline(
         kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
@@ -162,7 +162,7 @@ def test_inbound_pipeline_sse_path_routes_non_user_origin_events(
             {"event": "run_status", "run_id": "run-1", "status": "completed"},
         ]
     )
-    pipeline = InboundPipeline(
+    pipeline = build_inbound_pipeline(
         kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
@@ -212,7 +212,7 @@ def test_inbound_pipeline_sse_path_relay_lifecycle_emits_completed_with_usage(
         del message
         seen.append(update)
 
-    pipeline = InboundPipeline(
+    pipeline = build_inbound_pipeline(
         kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
@@ -284,7 +284,7 @@ def test_idle_run_is_cancelled_and_next_same_session_message_continues(
             return _gen()
 
     kernel = _IdleThenSuccessfulKernel()
-    pipeline = InboundPipeline(
+    pipeline = build_inbound_pipeline(
         kernel=kernel,
         agents=agents,
         outbound_router=OutboundRouter(registry),
@@ -368,7 +368,7 @@ def test_inbound_pipeline_stream_called_with_session_id(tmp_path: Path) -> None:
     from personal_assistant.gateway.run_queue import SessionRunQueue
     from personal_assistant.gateway.session_keys import SessionBindingStore
 
-    pipeline = InboundPipeline(
+    pipeline = build_inbound_pipeline(
         kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(ChannelRegistry((channel,))),

@@ -69,6 +69,7 @@ from personal_assistant.gateway.image_attachments import ImageAttachmentResolver
 from personal_assistant.gateway.inbound_dispatcher import InboundDispatcher
 from personal_assistant.gateway.inbound_pipeline import (
     InboundPipeline,
+    InboundRouteConfig,
 )
 from personal_assistant.gateway.runtime_delivery.context import (
     RunDeliveryContextStore,
@@ -100,6 +101,7 @@ from personal_assistant.gateway.session_binder import (
     ConversationBindingRequest,
     GatewaySessionBinder,
 )
+from personal_assistant.gateway.session_run_coordinator import SessionRunCoordinator
 from personal_assistant.gateway.shadow_sync import IMShadowConversationSync
 from personal_assistant.reporter.upstream_reporter import (
     UpstreamReporter,
@@ -2575,21 +2577,26 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         session_event_callback=session_event_callback,
         bg_reply_sender=bg_reply_sender,
     )
-    pipeline = InboundPipeline(
+    run_coordinator = SessionRunCoordinator(
         kernel=kernel,
+        session_binder=session_binder,
         outbound_router=outbound_router,
         run_queue=run_queue,
-        agent_catalog=agent_catalog,
-        session_binder=session_binder,
         group_context_store=group_context_store,
         gateway_internal_port=_gateway_internal_port,
         product_default_model=config.llm.default_model,
-        shadow_sync=shadow_sync,
         relay_lifecycle_callback=relay_lifecycle_callback,
         kernel_event_observer=_kernel_event_observer,
         bg_reply_sender=bg_reply_sender,
         background_subscriptions=background_subscriptions,
         image_resolver=image_resolver,
+    )
+    pipeline = InboundPipeline(
+        agent_catalog=agent_catalog,
+        run_coordinator=run_coordinator,
+        group_context_store=group_context_store,
+        route_config=InboundRouteConfig(),
+        shadow_sync=shadow_sync,
     )
 
     # bugfix-402-M4 R4 / bugfix-402-M6: build per-agent CronExecutionService and
@@ -3837,6 +3844,7 @@ def _consume_task_exception(task: asyncio.Task[object]) -> None:
         pass
     except Exception as exc:
         _log.exception("background task raised unexpected exception: %s", exc)
+
 
 if __name__ == "__main__":
     raise SystemExit(main())

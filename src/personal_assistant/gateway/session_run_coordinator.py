@@ -11,7 +11,11 @@ from typing import TYPE_CHECKING, Any
 
 from agent.sdk import TERMINAL_RUN_STATUSES, USER_INTERRUPT_RECOVERY_CONTENT
 
-from personal_assistant.channels.base import InboundMessage, OutboundMessage, ReplyContext
+from personal_assistant.channels.base import (
+    InboundMessage,
+    OutboundMessage,
+    ReplyContext,
+)
 from personal_assistant.config.local_store import resolve_run_model
 from personal_assistant.gateway.background_subscriptions import (
     BackgroundSubscriptionManager,
@@ -25,6 +29,7 @@ from personal_assistant.gateway.inbound_models import (
     RelayLifecycleCallback,
     RelayLifecycleUpdate,
     StopRunRequest,
+    build_group_context_key,
 )
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.reply_visibility import (
@@ -37,14 +42,12 @@ from personal_assistant.gateway.run_queue import (
     SessionRunQueue,
     SessionRunQueueSealed,
 )
-from personal_assistant.gateway.runtime_protocol import external_identity_from_message
 from personal_assistant.gateway.session_binder import (
     GatewaySessionBinder,
     SessionBindingRequest,
 )
 from personal_assistant.gateway.session_keys import (
     SessionBinding,
-    build_external_session_key,
     build_reply_context,
 )
 
@@ -248,7 +251,9 @@ class SessionRunCoordinator:
     def is_session_busy(self, session_key: str) -> bool:
         """Return whether a session owns queued/admitting work or an active run."""
 
-        return self._run_queue.is_active(session_key) or session_key in self._active_runs
+        return (
+            self._run_queue.is_active(session_key) or session_key in self._active_runs
+        )
 
     def seal(self) -> None:
         """Synchronously reject new runs and subscriptions without waiting."""
@@ -472,8 +477,10 @@ class SessionRunCoordinator:
         if event.get("event") != "assistant_message":
             return
         content = event.get("content")
-        if isinstance(content, str) and content.strip() and not self._suppress_reply(
-            content.strip(), in_group=True
+        if (
+            isinstance(content, str)
+            and content.strip()
+            and not self._suppress_reply(content.strip(), in_group=True)
         ):
             self._outbound_router.send_text(
                 text=content.strip(), reply_context=binding.reply_context
@@ -521,7 +528,7 @@ class SessionRunCoordinator:
         message = request.message
         buffered = (
             self._group_context_store.drain(
-                self._group_buffer_key(message, request.agent.agent_id)
+                build_group_context_key(message, request.agent.agent_id)
             )
             if message.is_group and self._group_context_store is not None
             else []
@@ -532,9 +539,7 @@ class SessionRunCoordinator:
             if message.is_group
             else message.text
         )
-        parts: list[dict[str, Any]] = [
-            {"type": "text", "text": text} for text in texts
-        ]
+        parts: list[dict[str, Any]] = [{"type": "text", "text": text} for text in texts]
         resolution = await self._image_resolver.resolve(
             message.metadata.get("attachments")
         )
@@ -675,9 +680,10 @@ class SessionRunCoordinator:
                     content = event.get("content")
                     if isinstance(content, str):
                         reply_text = content
-                elif event.get("event") == "run_status" and event.get(
-                    "status"
-                ) in TERMINAL_RUN_STATUSES:
+                elif (
+                    event.get("event") == "run_status"
+                    and event.get("status") in TERMINAL_RUN_STATUSES
+                ):
                     run_state = event
                     break
         finally:
@@ -751,17 +757,6 @@ class SessionRunCoordinator:
         )
 
     @staticmethod
-    def _group_buffer_key(message: InboundMessage, agent_id: str) -> str:
-        external_identity = external_identity_from_message(message)
-        if external_identity is not None:
-            return build_external_session_key(
-                external_source=external_identity.external_source,
-                external_chat_id=external_identity.external_chat_id,
-                agent_id=agent_id,
-            )
-        return f"{agent_id}:{message.channel_name}:{message.external_chat_id}"
-
-    @staticmethod
     def _is_no_reply_token(text: str) -> bool:
         return is_protocol_silence_token(text)
 
@@ -818,13 +813,17 @@ def _control_ack_from_session_id(
     ack_tag: str,
     source_message: InboundMessage,
 ) -> str:
+    """Build the stable IM dispatch key for one visible control acknowledgement."""
+
+    base = f"{agent_id}|tool_call:{kernel_session_id}:{ack_tag}"
     source_id = _control_ack_source_id(source_message)
-    suffix = f"-{source_id}" if source_id else ""
-    return f"dispatch:{agent_id}:control-{ack_tag}{suffix}:{kernel_session_id}"
+    if source_id is None:
+        return base
+    return f"{base}:{source_id}"
 
 
 def _control_ack_source_id(message: InboundMessage) -> str | None:
-    for key in ("relay_task_id", "im_message_id", "feishu_message_id", "message_id"):
+    for key in ("feishu_message_id", "relay_task_id", "idempotency_key", "message_id"):
         value = message.metadata.get(key)
         if isinstance(value, str) and value.strip():
             return _normalize_dispatch_id_part(value)
@@ -832,8 +831,8 @@ def _control_ack_source_id(message: InboundMessage) -> str | None:
 
 
 def _normalize_dispatch_id_part(value: str) -> str:
-    normalized = "".join(char if char.isalnum() else "-" for char in value.strip())
-    return normalized.strip("-")[:64]
+    normalized = "_".join(value.strip().split()).replace("|", "_")
+    return normalized[:160] if len(normalized) > 160 else normalized
 
 
 def _is_external_channel_inbound(message: InboundMessage) -> bool:

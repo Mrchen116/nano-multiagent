@@ -13,7 +13,7 @@ from IM.infra.repositories import UserRepository
 from personal_assistant.channels.web_relay_adapter import WebRelayAdapter
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.gateway.channel_registry import ChannelRegistry
-from personal_assistant.gateway.inbound_pipeline import InboundPipeline
+from tests.helpers.inbound_pipeline import build_inbound_pipeline, inbound_graph
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
 from personal_assistant.gateway.session_keys import SessionBindingStore
@@ -38,7 +38,7 @@ def test_group_chat_uses_live_updated_profile_after_config_sync_in_same_conversa
     agents = make_agent_configs(tmp_path, "agent-a", "agent-b")
     registry = ChannelRegistry((relay_adapter,))
     session_store = SessionBindingStore()
-    pipeline = InboundPipeline(
+    pipeline = build_inbound_pipeline(
         kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
@@ -142,7 +142,7 @@ def test_group_chat_uses_live_updated_profile_after_config_sync_in_same_conversa
                 "type": "config.sync",
                 "payload": {"agent_id": "agent-a", "profile_version": 2},
             }
-            current_snapshot = pipeline.agent_catalog.publish(
+            current_snapshot = inbound_graph(pipeline).catalog.publish(
                 AgentWorkspaceConfig(
                     agent_id="agent-a",
                     workspace_root=agents[0].workspace_root,
@@ -150,7 +150,7 @@ def test_group_chat_uses_live_updated_profile_after_config_sync_in_same_conversa
                     system_prompt="When mentioned in a group chat, reply exactly with NO_REPLY.",
                 )
             )
-            pipeline.session_binder.invalidate_stale(
+            inbound_graph(pipeline).binder.invalidate_stale(
                 "agent-a", current_revision=current_snapshot.revision
             )
 
@@ -276,7 +276,7 @@ def test_group_chat_keeps_no_reply_when_completed_snapshot_and_late_stream_delta
     agents = make_agent_configs(tmp_path, "agent-a")
     registry = ChannelRegistry((relay_adapter,))
     session_store = SessionBindingStore()
-    pipeline = InboundPipeline(
+    pipeline = build_inbound_pipeline(
         kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
@@ -313,7 +313,7 @@ def test_group_chat_keeps_no_reply_when_completed_snapshot_and_late_stream_delta
             },
         )
         assert patched.status_code == 200
-        pipeline.agent_catalog.publish(
+        inbound_graph(pipeline).catalog.publish(
             AgentWorkspaceConfig(
                 agent_id="agent-a",
                 workspace_root=agents[0].workspace_root,

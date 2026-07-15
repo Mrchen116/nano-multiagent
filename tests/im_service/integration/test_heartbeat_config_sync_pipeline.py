@@ -22,7 +22,7 @@ from IM.app import create_app
 from IM.infra.repositories import AgentProfileRepository, NodeRepository, UserRepository
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.config.sync_client import ConfigSyncClient
-from personal_assistant.gateway.inbound_pipeline import InboundPipeline
+from tests.helpers.inbound_pipeline import build_inbound_pipeline
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
 from personal_assistant.gateway.session_keys import SessionBindingStore
@@ -114,7 +114,7 @@ def test_patch_heartbeat_disabled_reaches_scheduler(tmp_path: Path) -> None:
         binder = GatewaySessionBinder(
             catalog=catalog, repository=session_store, kernel=kernel_client
         )
-        pipeline = InboundPipeline(
+        pipeline = build_inbound_pipeline(
             kernel=kernel_client,
             agents=(agent_with_hb,),
             outbound_router=OutboundRouter(ChannelRegistry((relay_adapter,))),
