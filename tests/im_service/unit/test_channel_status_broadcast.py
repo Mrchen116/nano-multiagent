@@ -95,6 +95,7 @@ def test_accepted_status_broadcasts_precise_agent_channel_event_once(
             websocket=gateway,
             message_type="node.register",
             payload={"node_id": "node-a", "agents": ["agent-a"], "capabilities": {}},
+            authenticated_owner_id="owner-a",
         )
     )
     browser.frames.clear()

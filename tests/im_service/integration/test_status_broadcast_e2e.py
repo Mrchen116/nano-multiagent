@@ -128,7 +128,12 @@ def test_cross_owner_isolation_real_ws(tmp_path: Path) -> None:
                 ws_a.send_text(json.dumps({"op": "resume", "after_event_id": 0}))
                 ws_b.send_text(json.dumps({"op": "resume", "after_event_id": 0}))
 
-                with client.websocket_connect("/im/ws/gateway") as gateway_ws:
+                with client.websocket_connect(
+                    "/im/ws/gateway",
+                    headers={
+                        "Authorization": f"Bearer {owner_a.access_token}"
+                    },
+                ) as gateway_ws:
                     gateway_ws.send_text(
                         json.dumps(
                             {

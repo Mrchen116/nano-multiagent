@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import replace
-import os
 from pathlib import Path
 import sys
 
@@ -19,7 +18,7 @@ from personal_assistant.channels.channel_credentials import (  # noqa: E402
 from personal_assistant.config.local_store import (  # noqa: E402
     ChannelConfig,
     load_local_config,
-    save_local_config,
+    save_sensitive_local_config,
 )
 from personal_assistant.gateway.channel_manifest_store import (  # noqa: E402
     ChannelManifestStore,
@@ -82,8 +81,7 @@ def main() -> int:
         channels.append(replacement or channel)
     channels.extend(exported_by_name.values())
     output_config = replace(config, channels=tuple(channels), source_path=args.output)
-    save_local_config(output_config, args.output)
-    os.chmod(args.output, 0o600)
+    save_sensitive_local_config(output_config, args.output)
     return 0
 
 

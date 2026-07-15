@@ -1,0 +1,12 @@
+{
+  "action": "snapshot",
+  "expected": "connected",
+  "mutations": [
+    {
+      "method": "POST",
+      "path": "/im/v1/auth/login",
+      "status": 200
+    }
+  ],
+  "consoleErrorCount": 0
+}

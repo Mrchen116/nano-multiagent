@@ -158,15 +158,18 @@ def test_reconcile_replaces_runtime_with_stable_name_and_generation_cas() -> Non
 def test_replacement_start_failure_cuts_old_send_path_and_surfaces_failure() -> None:
     """A rejected replacement never leaves the superseded credential listener routable."""
     events: list[str] = []
+    adapters: list[_Adapter] = []
     calls = 0
     statuses = []
 
     def factory(spec, _binder, _status_handler):
         nonlocal calls
         calls += 1
-        return _Adapter(
+        adapter = _Adapter(
             f"feishu:{spec.agent_id}", events, fail_start=calls == 2
         )
+        adapters.append(adapter)
+        return adapter
 
     manager = ChannelManager(
         registry=ChannelRegistry(),
@@ -199,7 +202,12 @@ def test_replacement_start_failure_cuts_old_send_path_and_surfaces_failure() -> 
 
     assert failed.failed_channel_ids == ("ch-a",)
     assert manager.registry.get("feishu:agent-a") is None
-    assert events[-2:] == ["stop:feishu:agent-a", "start:feishu:agent-a"]
+    assert events[-3:] == [
+        "stop:feishu:agent-a",
+        "start:feishu:agent-a",
+        "stop:feishu:agent-a",
+    ]
+    assert adapters[1].stopped == 1
     assert statuses[-1].connection_state == "failed"
     assert statuses[-1].status_code == "runtime_start_failed"
 

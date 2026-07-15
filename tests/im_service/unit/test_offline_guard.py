@@ -62,6 +62,7 @@ def test_scan_flips_stale_online_node_to_offline_and_broadcasts(tmp_path: Path) 
             websocket=type("X", (), {"send_json": lambda self, p: asyncio.sleep(0)})(),  # noqa: E501
             message_type="node.register",
             payload={"node_id": "node-1", "agents": ["agent-a"], "capabilities": {}},
+            authenticated_owner_id=owner.owner_id,
         )
     )
     browser.frames.clear()
@@ -109,6 +110,7 @@ def test_scan_skips_fresh_node(tmp_path: Path) -> None:
             websocket=type("X", (), {"send_json": lambda self, p: asyncio.sleep(0)})(),
             message_type="node.register",
             payload={"node_id": "node-1", "agents": [], "capabilities": {}},
+            authenticated_owner_id=owner.owner_id,
         )
     )
     browser.frames.clear()

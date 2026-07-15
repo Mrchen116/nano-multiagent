@@ -58,25 +58,29 @@ from personal_assistant.config.local_store import (
     migrate_managed_channels_to_credential_refs,
     resolve_run_model,
     save_local_config,
+    save_sensitive_local_config,
 )
 from personal_assistant.config.sync_client import ConfigSyncClient
 from personal_assistant.gateway.bootstrap import start_channels, stop_channels
 from personal_assistant.gateway.channel_registry import ChannelRegistry
 from personal_assistant.gateway.channel_manager import (
-    ChannelGeneration,
     ChannelManager,
-    ChannelManifest,
-    ChannelRemovalIntent,
     ChannelStatusSnapshot,
     FeishuActivationPolicy,
     ManagedChannelSpec,
     ProviderMetadataReport,
+    ProviderRuntimeBuild,
 )
 from personal_assistant.gateway.channel_manifest_store import (
     CachedChannelSpec,
     ChannelManifestStore,
 )
+from personal_assistant.gateway.channel_manifest_apply import (
+    CredentialEnvelopeContext,
+    apply_channel_manifest_payload,
+)
 from personal_assistant.gateway.group_context_store import GroupContextStore
+from personal_assistant.channels.feishu.preflight import probe_feishu_runtime
 from personal_assistant.gateway.inbound_pipeline import (
     InboundPipeline,
 )
@@ -654,13 +658,13 @@ class _IMConfigSyncClient:
 
     def _enable_created_skill_for_agent(
         self, agent: AgentWorkspaceConfig, skill_name: str
-    ) -> None:
+    ) -> bool:
         if not agent.skills:
             self._pipeline.drop_agent_sessions(agent.agent_id)
-            return
+            return True
         if skill_name in agent.skills:
             self._pipeline.drop_agent_sessions(agent.agent_id)
-            return
+            return True
         try:
             payload = self._fetch_agent_config(agent_id=agent.agent_id)
             next_skills = [
@@ -678,6 +682,7 @@ class _IMConfigSyncClient:
                 )
             else:
                 self._pipeline.drop_agent_sessions(agent.agent_id)
+            return True
         except (httpx.HTTPError, ValueError, RuntimeError):
             _log.warning(
                 "failed to enable created skill %s for agent %s",
@@ -685,6 +690,7 @@ class _IMConfigSyncClient:
                 agent.agent_id,
                 exc_info=True,
             )
+            return False
 
     def _patch_agent_skills(
         self,
@@ -3156,12 +3162,13 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
 
         im_config_sync_client.on_agent_created = _on_agent_created
 
-        def _activate_feishu_skill(agent_id: str) -> None:
+        def _activate_feishu_skill(agent_id: str) -> bool:
             agent = im_config_sync_client._local_agent(agent_id)  # noqa: SLF001
             if agent is not None:
-                im_config_sync_client._enable_created_skill_for_agent(  # noqa: SLF001
+                return im_config_sync_client._enable_created_skill_for_agent(  # noqa: SLF001
                     agent, "feishu-doc"
                 )
+            return False
 
         def _send_channel_status(snapshot: ChannelStatusSnapshot) -> None:
             generation = snapshot.generation
@@ -3210,20 +3217,18 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             spec: ManagedChannelSpec,
             metadata_binder: Callable[[dict[str, str]], dict[str, str] | None],
             status_handler: Callable[..., bool],
-        ) -> FeishuAdapter:
+        ) -> ProviderRuntimeBuild:
             app_id = str(spec.config.get("app_id") or "").strip()
             app_secret = str(spec.credentials.get("app_secret") or "").strip()
             if not app_id or not app_secret:
                 raise ValueError("Feishu credentials are required")
             metadata = dict(spec.provider_runtime)
-            bot_open_id = metadata.get("bot_open_id")
-            if not bot_open_id:
-                probed = _infer_feishu_bot_open_id_from_app_credentials(
-                    app_id, app_secret, "https://open.feishu.cn"
-                )
-                if probed:
-                    bound = metadata_binder({"bot_open_id": probed})
-                    bot_open_id = bound.get("bot_open_id") if bound else probed
+            preflight = probe_feishu_runtime(
+                app_id=app_id,
+                app_secret=app_secret,
+                domain="https://open.feishu.cn",
+            )
+            bot_open_id = metadata.get("bot_open_id") or preflight.bot_open_id
 
             def bind_owner(_channel_name: str, sender_open_id: str) -> str | None:
                 bound = metadata_binder({"owner_open_id": sender_open_id})
@@ -3241,16 +3246,19 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                     checks=getattr(worker_status, "checks", ()),
                 )
 
-            return FeishuAdapter(
-                name=f"feishu:{spec.agent_id}",
-                app_id=app_id,
-                app_secret=app_secret,
-                bot_open_id=bot_open_id,
-                owner_open_id=metadata.get("owner_open_id"),
-                owner_open_id_binder=bind_owner,
-                permission_decision_callback=permission_response_handler,
-                group_context_store=group_context_store,
-                status_callback=forward_status,
+            return ProviderRuntimeBuild(
+                adapter=FeishuAdapter(
+                    name=f"feishu:{spec.agent_id}",
+                    app_id=app_id,
+                    app_secret=app_secret,
+                    bot_open_id=bot_open_id,
+                    owner_open_id=metadata.get("owner_open_id"),
+                    owner_open_id_binder=bind_owner,
+                    permission_decision_callback=permission_response_handler,
+                    group_context_store=group_context_store,
+                    status_callback=forward_status,
+                ),
+                initial_metadata={"bot_open_id": preflight.bot_open_id},
             )
 
         channel_manager = ChannelManager(
@@ -3267,106 +3275,28 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         async def _apply_channel_manifest(
             body: Mapping[str, object],
         ) -> Mapping[str, object]:
-            raw_channels = body.get("channels")
-            raw_removals = body.get("removals")
-            owner_id = str(body.get("owner_id") or "")
-            decoded: list[ManagedChannelSpec] = []
-            failed_ids: list[str] = []
-            for raw in raw_channels if isinstance(raw_channels, list) else []:
-                if not isinstance(raw, Mapping):
-                    continue
-                channel_id = str(raw.get("channel_id") or "")
-                try:
-                    generation = ChannelGeneration(
-                        provider_identity_fingerprint=str(
-                            raw["provider_identity_fingerprint"]
-                        ),
-                        provider_identity_revision=int(
-                            raw["provider_identity_revision"]
-                        ),
-                        channel_revision=int(raw["channel_revision"]),
-                        credential_revision=int(raw["credential_revision"]),
-                    )
-                    if str(raw.get("credential_key_id") or "") != channel_key.key_id:
-                        raise ValueError("credential key mismatch")
-                    aad = GatewayChannelAad(
-                        owner_id=owner_id,
-                        node_id=config.node.node_id,
-                        agent_id=str(raw["agent_id"]),
-                        channel_id=channel_id,
-                        provider=str(raw["provider"]),
-                        credential_revision=generation.credential_revision,
-                    )
-                    envelope = raw.get("credential_envelope")
-                    if not isinstance(envelope, Mapping):
-                        raise ValueError("credential envelope missing")
-                    credentials = channel_key.open(envelope=envelope, aad=aad)
-                    raw_config = raw.get("config")
-                    raw_runtime = raw.get("provider_runtime")
-                    decoded.append(
-                        ManagedChannelSpec(
-                            channel_id=channel_id,
-                            agent_id=aad.agent_id,
-                            provider=aad.provider,
-                            enabled=raw.get("enabled") is True,
-                            config=dict(raw_config)
-                            if isinstance(raw_config, Mapping)
-                            else {},
-                            credentials=credentials,
-                            provider_runtime={
-                                str(key): str(value)
-                                for key, value in raw_runtime.items()
-                                if isinstance(key, str) and isinstance(value, str)
-                            }
-                            if isinstance(raw_runtime, Mapping)
-                            else {},
-                            generation=generation,
-                            credential_envelope=dict(envelope),
-                            credential_key_id=channel_key.key_id,
-                        )
-                    )
-                except (KeyError, TypeError, ValueError):
-                    failed_ids.append(channel_id)
-            removals = tuple(
-                ChannelRemovalIntent(
-                    removal_token=str(raw.get("removal_token") or ""),
-                    channel_id=str(raw.get("channel_id") or ""),
-                    agent_id=str(raw.get("agent_id") or ""),
-                    provider=str(raw.get("provider") or ""),
-                    deletion_manifest_revision=int(
-                        raw.get("deletion_manifest_revision") or 0
+            def open_credentials(
+                context: CredentialEnvelopeContext,
+            ) -> Mapping[str, str]:
+                return channel_key.open(
+                    envelope=context.envelope,
+                    aad=GatewayChannelAad(
+                        owner_id=context.owner_id,
+                        node_id=context.node_id,
+                        agent_id=context.agent_id,
+                        channel_id=context.channel_id,
+                        provider=context.provider,
+                        credential_revision=context.credential_revision,
                     ),
                 )
-                for raw in raw_removals
-                if isinstance(raw, Mapping)
-            ) if isinstance(raw_removals, list) else ()
-            manifest = ChannelManifest(
-                owner_id=owner_id,
-                node_id=str(body.get("node_id") or config.node.node_id),
-                manifest_revision=int(body.get("manifest_revision") or 0),
-                channels=tuple(decoded),
-                removals=removals,
+
+            return await apply_channel_manifest_payload(
+                body=body,
+                node_id=config.node.node_id,
+                credential_key_id=channel_key.key_id,
+                credential_opener=open_credentials,
+                manager=channel_manager,
             )
-
-            def reconcile_in_thread():
-                return asyncio.run(channel_manager.reconcile(manifest))
-
-            report = await asyncio.to_thread(reconcile_in_thread)
-            failures = [
-                {
-                    "channel_id": channel_id,
-                    "error_code": "runtime_apply_failed",
-                }
-                for channel_id in (*failed_ids, *report.failed_channel_ids)
-            ]
-            return {
-                "outcome": report.outcome,
-                "applied_channel_ids": list(report.applied_channel_ids),
-                "removal_outcomes": [
-                    item.as_payload() for item in report.removal_outcomes
-                ],
-                "failures": [*report.failures, *failures],
-            }
 
         bootstrap_credential_refs: dict[str, str] = {}
 
@@ -3440,7 +3370,9 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                 credential_refs=bootstrap_credential_refs,
             )
             try:
-                save_local_config(replace(config, channels=migrated), config.source_path)
+                save_sensitive_local_config(
+                    replace(config, channels=migrated), config.source_path
+                )
             except Exception:  # noqa: BLE001
                 _log.warning(
                     "channel bootstrap cache committed but legacy YAML cleanup failed",
@@ -3580,6 +3512,8 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                     request_id = str(status.get("request_id") or "")
                     if not im_connection_manager.has_pending_request(request_id):
                         await im_connection_manager.send_json("channel.status", status)
+            channel_manager.replay_provider_metadata()
+            channel_manager.retry_pending_activations()
             pending_result = channel_manifest_store.pending_reconcile_result()
             if pending_result is not None and im_connection_manager is not None:
                 await im_connection_manager.send_json(

@@ -109,6 +109,40 @@ class ChannelManifestStore:
         """Load and validate the current encrypted desired manifest."""
         with self._state_lock:
             state = self._read_state()
+        return self._decode_manifest(state)
+
+    def quarantine_key_mismatch(self) -> CachedChannelManifest | None:
+        """Move a foreign-key cache aside and return its non-secret desired metadata.
+
+        The ciphertext is never opened or overwritten. Removing it from the active
+        path lets the current key create a fresh status/result outbox so Gateway can
+        reconnect to IM and request credential re-entry.
+        """
+        with self._state_lock:
+            state = self._read_state(allow_foreign_key=True)
+            if state.get("key_id") == self._key_id:
+                return self._decode_manifest(state)
+            manifest = self._decode_manifest(state)
+            quarantine_path = self._path.with_name(
+                f"{self._path.name}.credential-reentry.{uuid4().hex}"
+            )
+            try:
+                os.replace(self._path, quarantine_path)
+                os.chmod(quarantine_path, 0o600)
+                directory_fd = os.open(self._path.parent, os.O_RDONLY)
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
+            except OSError as exc:
+                raise ChannelManifestStoreError(
+                    "channel manifest cache quarantine failed"
+                ) from exc
+            return manifest
+
+    def _decode_manifest(
+        self, state: Mapping[str, object]
+    ) -> CachedChannelManifest | None:
         raw_manifest = state.get("manifest")
         if not isinstance(raw_manifest, Mapping):
             return None
@@ -189,6 +223,52 @@ class ChannelManifestStore:
                     manifest_revision,
                 )
             self._write_state(state)
+
+    def update_provider_metadata(
+        self,
+        *,
+        channel_id: str,
+        provider_identity_fingerprint: str,
+        provider_identity_revision: int,
+        channel_revision: int,
+        credential_revision: int,
+        patch: Mapping[str, str],
+    ) -> bool:
+        """Persist a metadata patch only for the exact cached runtime generation."""
+        with self._state_lock:
+            state = self._read_state()
+            raw_manifest = state.get("manifest")
+            if not isinstance(raw_manifest, dict):
+                return False
+            raw_channels = raw_manifest.get("channels")
+            if not isinstance(raw_channels, list):
+                return False
+            for item in raw_channels:
+                if not isinstance(item, dict) or item.get("channel_id") != channel_id:
+                    continue
+                expected = (
+                    provider_identity_fingerprint,
+                    provider_identity_revision,
+                    channel_revision,
+                    credential_revision,
+                )
+                actual = (
+                    str(item.get("provider_identity_fingerprint") or ""),
+                    int(item.get("provider_identity_revision") or 0),
+                    int(item.get("channel_revision") or 0),
+                    int(item.get("credential_revision") or 0),
+                )
+                if actual != expected:
+                    return False
+                runtime = item.get("provider_runtime")
+                values = runtime if isinstance(runtime, dict) else {}
+                for key, value in patch.items():
+                    if key in {"owner_open_id", "bot_open_id"} and not values.get(key):
+                        values[key] = value
+                item["provider_runtime"] = values
+                self._write_state(state)
+                return True
+            return False
 
     def pending_reconcile_result(self) -> dict[str, object] | None:
         """Compose the newest head with every independently unacknowledged token."""
@@ -371,7 +451,7 @@ class ChannelManifestStore:
         with self._state_lock:
             return int(self._read_state().get("last_applied_manifest_revision") or 0)
 
-    def _read_state(self) -> dict[str, object]:
+    def _read_state(self, *, allow_foreign_key: bool = False) -> dict[str, object]:
         if not self._path.exists():
             return self._empty_state()
         try:
@@ -382,7 +462,7 @@ class ChannelManifestStore:
             raise ChannelManifestStoreError("channel manifest cache version mismatch")
         if decoded.get("node_id") != self._node_id:
             raise ChannelManifestStoreError("node_id mismatch")
-        if decoded.get("key_id") != self._key_id:
+        if not allow_foreign_key and decoded.get("key_id") != self._key_id:
             raise ChannelManifestStoreError("key_id mismatch")
         return decoded
 
