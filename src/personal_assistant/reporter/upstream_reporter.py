@@ -36,6 +36,7 @@ class ReporterCapabilities:
     relay: bool = True
     send_message: bool = True
     config_sync: bool = True
+    channel_bootstrap: bool = True
     # bugfix-429 R5: each entry is ``{"name", "provider"}`` so the IM dropdown can
     # label a model's registered format (was a bare model-id tuple).
     models: tuple[dict[str, str], ...] = ()
@@ -54,6 +55,7 @@ class ReporterCapabilities:
             "relay": self.relay,
             "send_message": self.send_message,
             "config_sync": self.config_sync,
+            "channel_bootstrap": self.channel_bootstrap,
             "models": list(self.models),
             "skills": list(self.skills),
             "tools": list(self.tools),
@@ -67,6 +69,7 @@ class ReporterCapabilities:
             "relay": self.relay,
             "send_message": self.send_message,
             "config_sync": self.config_sync,
+            "channel_bootstrap": self.channel_bootstrap,
         }
 
 

@@ -57,6 +57,41 @@ class GatewayChannelKey:
             "credential_public_key": self.public_key,
         }
 
+    def seal(
+        self, *, secret: Mapping[str, str], aad: GatewayChannelAad
+    ) -> dict[str, object]:
+        """Seal bootstrap credentials to this node's own public key."""
+        recipient = X25519PublicKey.from_public_bytes(
+            b64decode(self.public_key, validate=True)
+        )
+        ephemeral = X25519PrivateKey.generate()
+        salt = os.urandom(32)
+        nonce = os.urandom(12)
+        shared = ephemeral.exchange(recipient)
+        key = HKDF(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=salt,
+            info=_HKDF_CONTEXT,
+        ).derive(shared)
+        ciphertext = AESGCM(key).encrypt(
+            nonce,
+            _canonical_json(dict(secret)),
+            _canonical_json(aad.as_dict()),
+        )
+        ephemeral_public = ephemeral.public_key().public_bytes(
+            encoding=serialization.Encoding.Raw,
+            format=serialization.PublicFormat.Raw,
+        )
+        return {
+            "version": 1,
+            "algorithm": _ALGORITHM,
+            "ephemeral_public_key": b64encode(ephemeral_public).decode("ascii"),
+            "salt": b64encode(salt).decode("ascii"),
+            "nonce": b64encode(nonce).decode("ascii"),
+            "ciphertext": b64encode(ciphertext).decode("ascii"),
+        }
+
     def open(
         self, *, envelope: Mapping[str, object], aad: GatewayChannelAad
     ) -> dict[str, str]:

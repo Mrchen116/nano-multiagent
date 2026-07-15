@@ -6,6 +6,7 @@ import argparse
 import asyncio
 from datetime import datetime, timezone
 import fcntl
+import hashlib
 import json
 import logging
 import os
@@ -54,6 +55,7 @@ from personal_assistant.config.local_store import (
     ensure_workspace_defaults,
     ensure_feishu_doc_skill_for_feishu_agents,
     load_local_config,
+    migrate_managed_channels_to_credential_refs,
     resolve_run_model,
     save_local_config,
 )
@@ -64,10 +66,15 @@ from personal_assistant.gateway.channel_manager import (
     ChannelGeneration,
     ChannelManager,
     ChannelManifest,
+    ChannelRemovalIntent,
     ChannelStatusSnapshot,
     FeishuActivationPolicy,
     ManagedChannelSpec,
     ProviderMetadataReport,
+)
+from personal_assistant.gateway.channel_manifest_store import (
+    CachedChannelSpec,
+    ChannelManifestStore,
 )
 from personal_assistant.gateway.group_context_store import GroupContextStore
 from personal_assistant.gateway.inbound_pipeline import (
@@ -1877,6 +1884,8 @@ class GatewayRuntime:
         try:
             start_channels(self._channel_registry, self._on_inbound)
             channels_started = True
+            if self._channel_manager is not None:
+                await self._channel_manager.start_cached()
             if self._internal_dispatch_handler is not None:
                 try:
                     from aiohttp import web as _aiohttp_web
@@ -3055,6 +3064,27 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         channel_key = GatewayChannelKeyStore(
             runtime_dir / "channel-credentials-v1.pem"
         ).load_or_create()
+        channel_manifest_store = ChannelManifestStore(
+            runtime_dir / "channel-manifest-v1.json",
+            node_id=config.node.node_id,
+            key_id=channel_key.key_id,
+        )
+
+        def _open_cached_channel(item: CachedChannelSpec) -> Mapping[str, str]:
+            cached = channel_manifest_store.load_manifest()
+            if cached is None:
+                raise ValueError("channel manifest cache is empty")
+            return channel_key.open(
+                envelope=item.credential_envelope,
+                aad=GatewayChannelAad(
+                    owner_id=cached.owner_id,
+                    node_id=cached.node_id,
+                    agent_id=item.agent_id,
+                    channel_id=item.channel_id,
+                    provider=item.provider,
+                    credential_revision=item.credential_revision,
+                ),
+            )
         reporter = UpstreamReporter(
             node=config.node,
             agents=config.agents,
@@ -3231,12 +3261,15 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             status_sink=_send_channel_status,
             metadata_sink=_send_provider_metadata,
             activation_policy=FeishuActivationPolicy(_activate_feishu_skill),
+            manifest_store=channel_manifest_store,
+            credential_opener=_open_cached_channel,
         )
 
         async def _apply_channel_manifest(
             body: Mapping[str, object],
         ) -> Mapping[str, object]:
             raw_channels = body.get("channels")
+            raw_removals = body.get("removals")
             owner_id = str(body.get("owner_id") or "")
             decoded: list[ManagedChannelSpec] = []
             failed_ids: list[str] = []
@@ -3289,32 +3322,159 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                             if isinstance(raw_runtime, Mapping)
                             else {},
                             generation=generation,
+                            credential_envelope=dict(envelope),
+                            credential_key_id=channel_key.key_id,
                         )
                     )
                 except (KeyError, TypeError, ValueError):
                     failed_ids.append(channel_id)
+            removals = tuple(
+                ChannelRemovalIntent(
+                    removal_token=str(raw.get("removal_token") or ""),
+                    channel_id=str(raw.get("channel_id") or ""),
+                    agent_id=str(raw.get("agent_id") or ""),
+                    provider=str(raw.get("provider") or ""),
+                    deletion_manifest_revision=int(
+                        raw.get("deletion_manifest_revision") or 0
+                    ),
+                )
+                for raw in raw_removals
+                if isinstance(raw, Mapping)
+            ) if isinstance(raw_removals, list) else ()
             manifest = ChannelManifest(
+                owner_id=owner_id,
+                node_id=str(body.get("node_id") or config.node.node_id),
                 manifest_revision=int(body.get("manifest_revision") or 0),
                 channels=tuple(decoded),
+                removals=removals,
             )
 
             def reconcile_in_thread():
                 return asyncio.run(channel_manager.reconcile(manifest))
 
             report = await asyncio.to_thread(reconcile_in_thread)
-            applied = [
-                {"channel_id": channel_id, "outcome": "applied"}
-                for channel_id in report.applied_channel_ids
-            ]
-            failed = [
+            failures = [
                 {
                     "channel_id": channel_id,
-                    "outcome": "failed",
                     "error_code": "runtime_apply_failed",
                 }
                 for channel_id in (*failed_ids, *report.failed_channel_ids)
             ]
-            return {"outcomes": [*applied, *failed]}
+            return {
+                "outcome": report.outcome,
+                "applied_channel_ids": list(report.applied_channel_ids),
+                "removal_outcomes": [
+                    item.as_payload() for item in report.removal_outcomes
+                ],
+                "failures": [*report.failures, *failures],
+            }
+
+        bootstrap_credential_refs: dict[str, str] = {}
+
+        def _legacy_bootstrap_items(
+            request: Mapping[str, object],
+        ) -> list[Mapping[str, object]]:
+            owner_id = str(request.get("owner_id") or "")
+            items: list[Mapping[str, object]] = []
+            bootstrap_credential_refs.clear()
+            for channel in config.channels:
+                if not channel.name.startswith("feishu:"):
+                    continue
+                app_secret = channel.settings.get("appSecret")
+                app_id = channel.settings.get("appId")
+                agent_id = channel.name.removeprefix("feishu:")
+                if not (
+                    owner_id
+                    and agent_id
+                    and isinstance(app_id, str)
+                    and app_id.strip()
+                    and isinstance(app_secret, str)
+                    and app_secret.strip()
+                ):
+                    continue
+                digest = hashlib.sha256(
+                    f"{config.node.node_id}\0{channel.name}".encode()
+                ).hexdigest()[:24]
+                channel_id = f"ch_legacy_{digest}"
+                aad = GatewayChannelAad(
+                    owner_id=owner_id,
+                    node_id=config.node.node_id,
+                    agent_id=agent_id,
+                    channel_id=channel_id,
+                    provider="feishu",
+                    credential_revision=1,
+                )
+                runtime = {
+                    key: value
+                    for key, source in (
+                        ("owner_open_id", "ownerOpenId"),
+                        ("bot_open_id", "botOpenId"),
+                    )
+                    if isinstance((value := channel.settings.get(source)), str)
+                    and value
+                }
+                items.append(
+                    {
+                        "channel_id": channel_id,
+                        "agent_id": agent_id,
+                        "provider": "feishu",
+                        "enabled": channel.enabled,
+                        "config": {"app_id": app_id.strip()},
+                        "credential_envelope": channel_key.seal(
+                            secret={"app_secret": app_secret.strip()}, aad=aad
+                        ),
+                        "credential_key_id": channel_key.key_id,
+                        "credential_revision": 1,
+                        "provider_runtime": runtime,
+                    }
+                )
+                bootstrap_credential_refs[channel.name] = (
+                    f"channel-manifest:{channel_id}"
+                )
+            return items
+
+        def _mark_legacy_bootstrap_cached() -> None:
+            if not bootstrap_credential_refs:
+                return
+            migrated = migrate_managed_channels_to_credential_refs(
+                config.channels,
+                credential_refs=bootstrap_credential_refs,
+            )
+            try:
+                save_local_config(replace(config, channels=migrated), config.source_path)
+            except Exception:  # noqa: BLE001
+                _log.warning(
+                    "channel bootstrap cache committed but legacy YAML cleanup failed",
+                    exc_info=True,
+                )
+
+        def _ack_channel_reconcile(payload: Mapping[str, object]) -> None:
+            token_outcomes = payload.get("removal_token_outcomes")
+            channel_manifest_store.ack_reconcile_result(
+                head_outcome=str(payload.get("head_outcome") or ""),
+                manifest_revision=int(payload.get("manifest_revision") or 0),
+                removal_token_outcomes=[
+                    item for item in token_outcomes if isinstance(item, Mapping)
+                ]
+                if isinstance(token_outcomes, list)
+                else [],
+            )
+
+        async def _reconnect_managed_channel(
+            channel_id: str, channel_revision: int
+        ) -> None:
+            cached = channel_manifest_store.load_manifest()
+            desired = next(
+                (
+                    item
+                    for item in cached.channels
+                    if item.channel_id == channel_id
+                ),
+                None,
+            ) if cached is not None else None
+            if desired is None or desired.channel_revision != channel_revision:
+                raise LookupError("channel reconnect revision is stale")
+            await channel_manager.reconnect(channel_id)
 
         im_bootstrap_client = _IMBootstrapClient(
             base_url=_im_http_base_url(config.im_service.url),
@@ -3360,6 +3520,16 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                             "failed to send degraded IM heartbeat after binding failure: %s",
                             heartbeat_exc,
                         )
+            pending_result = channel_manifest_store.pending_reconcile_result()
+            if pending_result is not None and im_connection_manager is not None:
+                await im_connection_manager.send_json(
+                    "channel.reconcile.result",
+                    {
+                        "request_id": uuid4().hex,
+                        "node_id": config.node.node_id,
+                        **pending_result,
+                    },
+                )
             memory_versions = {
                 agent_id: ver
                 for agent_id in (a.agent_id for a in config.agents)
@@ -3405,6 +3575,10 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             permission_response_handler=permission_response_handler,
             on_connected=_reconcile_on_connect,
             channel_manifest_handler=_apply_channel_manifest,
+            channel_reconnect_handler=_reconnect_managed_channel,
+            channel_reconcile_ack_handler=_ack_channel_reconcile,
+            channel_bootstrap_provider=_legacy_bootstrap_items,
+            channel_bootstrap_applied_handler=_mark_legacy_bootstrap_cached,
         )
     pipeline._relay_lifecycle_callback = _build_relay_lifecycle_callback(
         reporter=reporter,
@@ -3880,7 +4054,12 @@ def _build_channel_registry(
         Callable[[Mapping[str, object]], bool | None] | None
     ) = None,
 ) -> ChannelRegistry:
-    has_feishu = any(ch.enabled and ch.name.startswith("feishu:") for ch in channels)
+    has_feishu = any(
+        ch.enabled
+        and ch.name.startswith("feishu:")
+        and isinstance(ch.settings.get("appSecret"), str)
+        for ch in channels
+    )
     if has_feishu and group_context_store is None:
         raise ValueError(
             "group_context_store is required when feishu channels are enabled"
@@ -3898,6 +4077,8 @@ def _build_channel_registry(
         # feat-447: feishu channels are named "feishu:<agent_id>"
         if channel.name.startswith("feishu:"):
             settings = channel.settings
+            if "credentialRef" in settings and "appSecret" not in settings:
+                continue
             registry.register(
                 FeishuAdapter(
                     name=channel.name,
@@ -4148,6 +4329,15 @@ def _build_im_connection_manager(
         [Mapping[str, object]], Awaitable[Mapping[str, object]] | Mapping[str, object]
     ]
     | None = None,
+    channel_reconnect_handler: Callable[[str, int], Awaitable[object] | object]
+    | None = None,
+    channel_reconcile_ack_handler: Callable[[Mapping[str, object]], None]
+    | None = None,
+    channel_bootstrap_provider: Callable[
+        [Mapping[str, object]], list[Mapping[str, object]]
+    ]
+    | None = None,
+    channel_bootstrap_applied_handler: Callable[[], None] | None = None,
 ) -> IMConnectionManager:
     im_service = config.im_service
     if im_service is None:
@@ -4169,6 +4359,10 @@ def _build_im_connection_manager(
         permission_response_handler=permission_response_handler,
         on_connected=on_connected,
         channel_manifest_handler=channel_manifest_handler,
+        channel_reconnect_handler=channel_reconnect_handler,
+        channel_reconcile_ack_handler=channel_reconcile_ack_handler,
+        channel_bootstrap_provider=channel_bootstrap_provider,
+        channel_bootstrap_applied_handler=channel_bootstrap_applied_handler,
     )
 
 

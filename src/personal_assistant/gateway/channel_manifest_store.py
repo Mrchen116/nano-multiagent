@@ -191,11 +191,18 @@ class ChannelManifestStore:
         *,
         head_outcome: str,
         removal_token_outcomes: list[Mapping[str, object]],
+        manifest_revision: int | None = None,
     ) -> None:
         """Delete only head/token entries that received a terminal IM outcome."""
         state = self._read_state()
         outbox = self._outbox(state)
-        if head_outcome in self._TERMINAL_ACKS:
+        current_head = outbox.get("head")
+        head_revision_matches = manifest_revision is None or (
+            isinstance(current_head, Mapping)
+            and int(current_head.get("manifest_revision") or 0)
+            == manifest_revision
+        )
+        if head_outcome in self._TERMINAL_ACKS and head_revision_matches:
             outbox["head"] = None
         token_map = outbox.get("removal_outcomes")
         if isinstance(token_map, dict):

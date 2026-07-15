@@ -221,6 +221,14 @@ class ChannelControlStore:
                 is not None
             )
 
+    def current_owner_for_node(self, *, node_id: str) -> str:
+        """Return the bound owner id used in bootstrap envelope scope."""
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                "SELECT owner_id FROM nodes WHERE node_id = ?", (node_id,)
+            ).fetchone()
+        return str(row["owner_id"] or "") if row is not None else ""
+
     def register_bound_node_public_key(
         self,
         *,
@@ -264,6 +272,195 @@ class ChannelControlStore:
                 node_id=node_id,
                 manifest_revision=int(head["manifest_revision"]),
             )
+
+    def prepare_initialization(
+        self, *, node_id: str
+    ) -> tuple[str, ChannelManifest | None]:
+        """Return the next bootstrap/replay action from durable node state."""
+        now = _utc_now()
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            node = connection.execute(
+                "SELECT owner_id FROM nodes WHERE node_id = ?", (node_id,)
+            ).fetchone()
+            owner_id = str(node["owner_id"] or "") if node is not None else ""
+            if not owner_id:
+                connection.rollback()
+                return "waiting_for_owner", None
+            head = connection.execute(
+                "SELECT * FROM channel_manifest_heads WHERE node_id = ?",
+                (node_id,),
+            ).fetchone()
+            if head is None:
+                connection.execute(
+                    """
+                    INSERT INTO channel_manifest_heads(
+                        node_id, owner_id, manifest_revision,
+                        applied_manifest_revision, initialized_at, updated_at
+                    ) VALUES (?, ?, 0, 0, NULL, ?)
+                    """,
+                    (node_id, owner_id, now),
+                )
+                connection.commit()
+                return "bootstrap_required", None
+            revision = int(head["manifest_revision"])
+            if head["initialized_at"] is None and revision == 0:
+                connection.commit()
+                return "bootstrap_required", None
+            if head["initialized_at"] is None:
+                connection.execute(
+                    """
+                    UPDATE channel_manifest_heads
+                    SET initialized_at = ?, updated_at = ? WHERE node_id = ?
+                    """,
+                    (now, now, node_id),
+                )
+            manifest = self._manifest_snapshot(
+                connection,
+                owner_id=owner_id,
+                node_id=node_id,
+                manifest_revision=revision,
+            )
+            connection.commit()
+            return "initialized", manifest
+
+    def bootstrap_channels(
+        self, *, node_id: str, items: object
+    ) -> tuple[str, ChannelManifest]:
+        """Atomically initialize desired state from legacy Gateway YAML once."""
+        if not isinstance(items, list | tuple):
+            raise ChannelControlError("channel_bootstrap_invalid", status_code=422)
+        now = _utc_now()
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            node = connection.execute(
+                "SELECT owner_id FROM nodes WHERE node_id = ?", (node_id,)
+            ).fetchone()
+            owner_id = str(node["owner_id"] or "") if node is not None else ""
+            if not owner_id:
+                raise ChannelControlError("channel_not_found", status_code=404)
+            key = self._require_node_key(
+                connection, owner_id=owner_id, node_id=node_id
+            )
+            head = connection.execute(
+                "SELECT * FROM channel_manifest_heads WHERE node_id = ?",
+                (node_id,),
+            ).fetchone()
+            if head is not None and head["initialized_at"] is not None:
+                manifest = self._manifest_snapshot(
+                    connection,
+                    owner_id=owner_id,
+                    node_id=node_id,
+                    manifest_revision=int(head["manifest_revision"]),
+                )
+                connection.commit()
+                return "already_initialized", manifest
+            connection.execute(
+                "DELETE FROM agent_channels WHERE owner_id = ? AND node_id = ?",
+                (owner_id, node_id),
+            )
+            seen: set[tuple[str, str]] = set()
+            for raw in items:
+                if not isinstance(raw, Mapping):
+                    raise ChannelControlError(
+                        "channel_bootstrap_invalid", status_code=422
+                    )
+                channel_id = str(raw.get("channel_id") or "")
+                agent_id = str(raw.get("agent_id") or "")
+                provider = str(raw.get("provider") or "")
+                credential_key_id = str(raw.get("credential_key_id") or "")
+                config = raw.get("config")
+                envelope = raw.get("credential_envelope")
+                provider_runtime = raw.get("provider_runtime")
+                if (
+                    not channel_id
+                    or not agent_id
+                    or provider != "feishu"
+                    or credential_key_id != str(key["key_id"])
+                    or not isinstance(config, Mapping)
+                    or not isinstance(envelope, Mapping)
+                    or not envelope
+                ):
+                    raise ChannelControlError(
+                        "channel_bootstrap_invalid", status_code=422
+                    )
+                uniqueness = (agent_id, provider)
+                if uniqueness in seen:
+                    raise ChannelControlError(
+                        "channel_bootstrap_invalid", status_code=422
+                    )
+                seen.add(uniqueness)
+                bound = connection.execute(
+                    """
+                    SELECT 1 FROM agent_profiles
+                    WHERE agent_id = ? AND owner_id = ? AND node_id = ?
+                    """,
+                    (agent_id, owner_id, node_id),
+                ).fetchone()
+                if bound is None:
+                    raise ChannelControlError("channel_not_found", status_code=404)
+                normalized = self._normalize_config(
+                    provider=provider, config=config
+                )
+                runtime = (
+                    {
+                        str(name): str(value)
+                        for name, value in provider_runtime.items()
+                        if isinstance(name, str) and isinstance(value, str)
+                    }
+                    if isinstance(provider_runtime, Mapping)
+                    else {}
+                )
+                connection.execute(
+                    """
+                    INSERT INTO agent_channels(
+                        channel_id, owner_id, agent_id, node_id, provider, enabled,
+                        config_json, provider_identity_fingerprint,
+                        provider_identity_revision, provider_runtime_json,
+                        credential_envelope_json, credential_key_id,
+                        credential_revision, channel_revision, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, 1, 1, ?, ?)
+                    """,
+                    (
+                        channel_id,
+                        owner_id,
+                        agent_id,
+                        node_id,
+                        provider,
+                        int(raw.get("enabled") is not False),
+                        _json(normalized),
+                        self._identity_fingerprint(
+                            provider=provider, config=normalized
+                        ),
+                        _json(runtime),
+                        _json(dict(envelope)),
+                        credential_key_id,
+                        now,
+                        now,
+                    ),
+                )
+            connection.execute(
+                """
+                INSERT INTO channel_manifest_heads(
+                    node_id, owner_id, manifest_revision,
+                    applied_manifest_revision, initialized_at, updated_at
+                ) VALUES (?, ?, 1, 0, ?, ?)
+                ON CONFLICT(node_id) DO UPDATE SET
+                    owner_id = excluded.owner_id,
+                    manifest_revision = 1,
+                    initialized_at = excluded.initialized_at,
+                    updated_at = excluded.updated_at
+                """,
+                (node_id, owner_id, now, now),
+            )
+            manifest = self._manifest_snapshot(
+                connection,
+                owner_id=owner_id,
+                node_id=node_id,
+                manifest_revision=1,
+            )
+            connection.commit()
+            return "initialized", manifest
 
     def record_reconcile_result(
         self,

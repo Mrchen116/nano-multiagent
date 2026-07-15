@@ -138,6 +138,10 @@ ChannelReconnectHandler = Callable[[str, int], Awaitable[object] | object]
 ChannelReconcileAckHandler = Callable[
     [Mapping[str, object]], Awaitable[None] | None
 ]
+ChannelBootstrapProvider = Callable[
+    [Mapping[str, object]], list[Mapping[str, object]]
+]
+ChannelBootstrapAppliedHandler = Callable[[], None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -228,6 +232,9 @@ class IMConnectionManager:
         channel_manifest_handler: ChannelManifestHandler | None = None,
         channel_reconnect_handler: ChannelReconnectHandler | None = None,
         channel_reconcile_ack_handler: ChannelReconcileAckHandler | None = None,
+        channel_bootstrap_provider: ChannelBootstrapProvider | None = None,
+        channel_bootstrap_applied_handler: ChannelBootstrapAppliedHandler
+        | None = None,
         connect: ConnectFn,
         sleep: SleepFn = asyncio.sleep,
     ) -> None:
@@ -256,6 +263,8 @@ class IMConnectionManager:
         self._channel_manifest_handler = channel_manifest_handler
         self._channel_reconnect_handler = channel_reconnect_handler
         self._channel_reconcile_ack_handler = channel_reconcile_ack_handler
+        self._channel_bootstrap_provider = channel_bootstrap_provider
+        self._channel_bootstrap_applied_handler = channel_bootstrap_applied_handler
         self._connect = connect
         self._sleep = sleep
         self._websocket: ClientWebSocket | None = None
@@ -510,6 +519,55 @@ class IMConnectionManager:
                     **result_payload,
                 },
             )
+            return
+        if message_type == "channels.bootstrap.request":
+            if self._channel_bootstrap_provider is None:
+                raise RuntimeError(
+                    "channels.bootstrap.request requires channel_bootstrap_provider"
+                )
+            request_id = _require_text(body.get("request_id"), field_name="request_id")
+            await self.send_json(
+                "channels.bootstrap",
+                {
+                    "request_id": request_id,
+                    "node_id": self._reporter.node_id,
+                    "items": [
+                        dict(item) for item in self._channel_bootstrap_provider(body)
+                    ],
+                },
+            )
+            return
+        if message_type == "channels.bootstrap.result":
+            self._resolve_correlated_channel_result(
+                message_type=message_type, payload=body
+            )
+            manifest = body.get("manifest")
+            if not isinstance(manifest, Mapping):
+                raise ValueError("channels.bootstrap.result manifest is required")
+            if self._channel_manifest_handler is None:
+                raise RuntimeError(
+                    "channels.bootstrap.result requires channel_manifest_handler"
+                )
+            result = await _maybe_await(self._channel_manifest_handler(manifest))
+            result_payload = dict(result) if isinstance(result, Mapping) else {}
+            await self.send_json(
+                "channel.reconcile.result",
+                {
+                    "request_id": _require_text(
+                        manifest.get("request_id"), field_name="request_id"
+                    ),
+                    "node_id": self._reporter.node_id,
+                    "manifest_revision": int(
+                        manifest.get("manifest_revision") or 0
+                    ),
+                    **result_payload,
+                },
+            )
+            if (
+                result_payload.get("outcome") == "applied"
+                and self._channel_bootstrap_applied_handler is not None
+            ):
+                self._channel_bootstrap_applied_handler()
             return
         if message_type == "channel.reconnect":
             if self._channel_reconnect_handler is None:
@@ -971,6 +1029,7 @@ class IMConnectionManager:
             "channel.status.result": "channel.status",
             "channel.runtime_metadata.result": "channel.runtime_metadata",
             "channels.reconcile.result.ack": "channel.reconcile.result",
+            "channels.bootstrap.result": "channels.bootstrap",
         }[message_type]
         if self._awaiting_ack_type != source_type or not self._pending_frames:
             return

@@ -163,6 +163,37 @@ def test_removal_outcome_survives_new_revision_until_per_token_terminal_ack(
     assert store.pending_reconcile_result() is None
 
 
+def test_old_head_ack_does_not_clear_a_newer_persisted_result(tmp_path: Path) -> None:
+    """ACK loss across a newer revision preserves the current head outbox item."""
+    store = ChannelManifestStore(
+        tmp_path / "channel-manifest-v1.json",
+        node_id="node-a",
+        key_id="key-a",
+    )
+    store.record_reconcile_result(
+        manifest_revision=4,
+        outcome="applied",
+        applied_channel_ids=(),
+        removal_outcomes=(),
+        failures=(),
+    )
+    store.record_reconcile_result(
+        manifest_revision=5,
+        outcome="applied",
+        applied_channel_ids=("ch-b",),
+        removal_outcomes=(),
+        failures=(),
+    )
+
+    store.ack_reconcile_result(
+        manifest_revision=4,
+        head_outcome="accepted",
+        removal_token_outcomes=[],
+    )
+
+    assert store.pending_reconcile_result()["manifest_revision"] == 5
+
+
 def test_same_revision_retries_failed_stop_and_only_then_commits_empty_cache(
     tmp_path: Path,
 ) -> None:
