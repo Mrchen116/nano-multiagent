@@ -251,6 +251,7 @@ class IMConnectionManager:
         self._events: list[dict[str, object]] = []
         self._pending_frames: deque[PendingFrame] = deque()
         self._awaiting_ack_type: str | None = None
+        self._outbound_drained: asyncio.Event | None = None
         self._flush_lock = asyncio.Lock()
         self._heartbeat_task: asyncio.Task[None] | None = None
         self._heartbeat_ack_future: asyncio.Future[None] | None = None
@@ -329,9 +330,32 @@ class IMConnectionManager:
                 await heartbeat_task
         self._events.append({"event": "closed"})
 
+    async def drain(self, deadline: float) -> None:
+        """Wait until every queued outbound frame has been acknowledged by IM.
+
+        Args:
+            deadline: Absolute event-loop deadline shared by Gateway shutdown.
+
+        Raises:
+            TimeoutError: When IM does not acknowledge all queued frames in time.
+        """
+
+        drained = self._outbound_drained_event()
+        if not self._pending_frames and self._awaiting_ack_type is None:
+            drained.set()
+        try:
+            async with asyncio.timeout_at(deadline):
+                await drained.wait()
+        except TimeoutError:
+            queued = [frame.message_type for frame in self._pending_frames]
+            raise TimeoutError(
+                f"IM outbound frames exceeded shutdown deadline: {queued}"
+            ) from None
+
     async def send_json(self, message_type: str, payload: Mapping[str, object]) -> None:
         """Queue one gateway -> IM protocol frame and flush it when the socket is available."""
 
+        self._outbound_drained_event().clear()
         self._pending_frames.append(
             PendingFrame(message_type=message_type, payload=dict(payload))
         )
@@ -344,6 +368,7 @@ class IMConnectionManager:
 
         loop = asyncio.get_running_loop()
         ack_future: asyncio.Future[dict[str, object]] = loop.create_future()
+        self._outbound_drained_event().clear()
         self._pending_frames.append(
             PendingFrame(
                 message_type=message_type, payload=dict(payload), ack_future=ack_future
@@ -363,6 +388,13 @@ class IMConnectionManager:
         if self._first_connect_resolved is None:
             self._first_connect_resolved = asyncio.Event()
         return self._first_connect_resolved
+
+    def _outbound_drained_event(self) -> asyncio.Event:
+        event = self._outbound_drained
+        if event is None:
+            event = asyncio.Event()
+            self._outbound_drained = event
+        return event
 
     def _stop_wait_event(self) -> asyncio.Event:
         if self._stop_event is None:
@@ -900,6 +932,8 @@ class IMConnectionManager:
         if pending_frame.ack_future is not None and not pending_frame.ack_future.done():
             pending_frame.ack_future.set_result(dict(payload))
         self._events.append({"event": "acked", "type": awaiting})
+        if not self._pending_frames:
+            self._outbound_drained_event().set()
 
     def _ack_heartbeat_frame(self, payload: Mapping[str, object]) -> None:
         ack_type = payload.get("message_type")

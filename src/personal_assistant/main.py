@@ -259,6 +259,9 @@ class IMConnectionManagerLike(Protocol):
     async def close(self) -> None:
         """Close the websocket and stop reconnect attempts."""
 
+    async def drain(self, deadline: float) -> None:
+        """Wait for all accepted outbound frames to be acknowledged."""
+
 
 class BrowserOpener(Protocol):
     """Describe the minimal browser-launch interface needed by bind bootstrap."""
@@ -1160,6 +1163,16 @@ class GatewayRuntime:
                 )
 
             if self._im_connection_manager is not None:
+                im_outbound_drain = getattr(
+                    self._im_connection_manager, "drain", None
+                )
+                if callable(im_outbound_drain):
+                    await self._run_shutdown_operation(
+                        "IM outbound drain",
+                        inner_deadline,
+                        lambda: im_outbound_drain(inner_deadline),
+                        enforce_deadline=False,
+                    )
                 await self._run_shutdown_operation(
                     "IM connection close",
                     inner_deadline,
