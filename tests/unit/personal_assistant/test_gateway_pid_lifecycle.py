@@ -21,9 +21,37 @@ from agent.core.llm.model_registry import _reset_for_tests
 from ._main_helpers import _FakeProcess, build_config
 
 
-def test_launch_gateway_in_background_writes_runtime_state_file(tmp_path: Path) -> None:
+def _write_state(config_path: Path, *, pid: int, process_start: str | None) -> Path:
+    state_path = config_path.parent / ".gateway-state.json"
+    state_path.write_text(
+        json.dumps(
+            {
+                "pid": pid,
+                "process_start": process_start,
+                "config_path": str(config_path.resolve()),
+                "log_path": str(config_path.parent / "gateway.log"),
+            }
+        ),
+        encoding="utf-8",
+    )
+    return state_path
+
+
+def _gateway_command(config_path: Path) -> str:
+    return (
+        "/usr/bin/python -m personal_assistant.main --config "
+        f"{config_path.resolve()} --foreground"
+    )
+
+
+def test_launch_gateway_in_background_writes_runtime_state_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     config = build_config(tmp_path)
     process = _FakeProcess(wait_result=0, pid=2468)
+    monkeypatch.setattr(
+        "personal_assistant.main._process_start_identity", lambda _pid: "birth-2468"
+    )
 
     launch_gateway_in_background(
         config_path=config.source_path,
@@ -37,6 +65,7 @@ def test_launch_gateway_in_background_writes_runtime_state_file(tmp_path: Path) 
         "config_path": str(config.source_path),
         "log_path": str(tmp_path / "gateway.log"),
         "pid": 2468,
+        "process_start": "birth-2468",
     }
 
 
@@ -45,16 +74,25 @@ def test_run_gateway_writes_pid_file_before_start_and_removes_on_exit(
     tmp_path: Path,
 ) -> None:
     """run_gateway must write gateway.pid before the runtime starts and remove it on clean exit."""
-    from personal_assistant.main import run_gateway, _gateway_pid_path
+    from personal_assistant.main import (
+        _gateway_pid_path,
+        _gateway_state_path,
+        _read_gateway_state,
+        run_gateway,
+    )
 
     _reset_for_tests()  # run_gateway calls init_model_registry; must start from clean state
     config = build_config(tmp_path)
     pid_path = _gateway_pid_path(config)
-    pid_observed_during_run: list[bool] = []
+    state_path = _gateway_state_path(config)
+    evidence_observed_during_run: list[tuple[bool, str | None]] = []
 
     class _Runtime:
         def run_forever(self) -> int:
-            pid_observed_during_run.append(pid_path.exists())
+            state = _read_gateway_state(state_path)
+            evidence_observed_during_run.append(
+                (pid_path.exists(), state.process_start if state is not None else None)
+            )
             return 0
 
     run_gateway(
@@ -65,10 +103,10 @@ def test_run_gateway_writes_pid_file_before_start_and_removes_on_exit(
         ),
     )
 
-    assert pid_observed_during_run == [True], (
-        "gateway.pid must exist while runtime is running"
-    )
-    assert not pid_path.exists(), "gateway.pid must be removed after clean exit"
+    assert evidence_observed_during_run[0][0] is True
+    assert evidence_observed_during_run[0][1]
+    assert not pid_path.exists()
+    assert not state_path.exists()
 
 
 def test_run_gateway_removes_pid_file_even_when_runtime_raises(
@@ -109,8 +147,9 @@ def test_launch_background_refuses_to_start_when_pid_file_shows_live_process(
     pid_path = _gateway_pid_path(config)
     pid_path.write_text("12345", encoding="utf-8")
 
-    # Simulate that PID 12345 is alive
-    monkeypatch.setattr("personal_assistant.main._pid_is_running", lambda _pid: True)
+    monkeypatch.setattr(
+        "personal_assistant.main._process_start_identity", lambda _pid: "live-birth"
+    )
 
     with pytest.raises(GatewayStartupError) as exc_info:
         launch_gateway_in_background(
@@ -139,8 +178,10 @@ def test_launch_background_clears_stale_pid_file_when_process_dead(
         spawned.append(argv)
         return _FakeProcess(wait_result=0, pid=1111)
 
-    # Simulate that PID 99999 is dead
-    monkeypatch.setattr("personal_assistant.main._pid_is_running", lambda _pid: False)
+    monkeypatch.setattr(
+        "personal_assistant.main._process_start_identity",
+        lambda pid: None if pid == 99999 else "new-birth",
+    )
 
     launch_gateway_in_background(
         config_path=config.source_path,
@@ -155,7 +196,9 @@ def test_launch_background_clears_stale_pid_file_when_process_dead(
     )
 
 
+@pytest.mark.parametrize("stored_process_start", ["birth-a", None])
 def test_stop_gateway_removes_pid_file_on_successful_stop(
+    stored_process_start: str | None,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -165,39 +208,35 @@ def test_stop_gateway_removes_pid_file_on_successful_stop(
     config = build_config(tmp_path)
     pid_path = _gateway_pid_path(config)
     pid_path.write_text("2468", encoding="utf-8")
-
-    # Also write state file so stop_gateway can find the PID
-    state_path = tmp_path / ".gateway-state.json"
-    state_path.write_text(
-        json.dumps(
-            {
-                "pid": 2468,
-                "config_path": str(config.source_path),
-                "log_path": str(tmp_path / "gateway.log"),
-            }
-        ),
-        encoding="utf-8",
+    state_path = _write_state(
+        config.source_path, pid=2468, process_start=stored_process_start
     )
 
-    pid_checks = iter([True, False])
+    running = True
+
+    def _process_start(_pid: int) -> str | None:
+        return "birth-a" if running else None
+
+    def _kill_group(_pid: int, _sig: int) -> None:
+        nonlocal running
+        running = False
+
     monkeypatch.setattr(
-        "personal_assistant.main._pid_is_running", lambda _pid: next(pid_checks)
+        "personal_assistant.main._process_start_identity", _process_start
     )
-    monkeypatch.setattr("personal_assistant.main.os.kill", lambda _pid, _sig: None)
-    # 漏 mock 会让 stop_gateway 对虚构 PID 2468 真实 killpg,CI 上若该 pid 存活则误杀 runner 进程组。
     monkeypatch.setattr(
-        "personal_assistant.main._kill_process_tree", lambda _pid, _sig: None
+        "personal_assistant.main._process_command",
+        lambda _pid: _gateway_command(config.source_path),
     )
-    monkeypatch.setattr("personal_assistant.main.time.sleep", lambda _s: None)
-    monkeypatch.setattr(
-        "personal_assistant.main.time.monotonic", iter([0.0, 0.01]).__next__
-    )
+    monkeypatch.setattr("personal_assistant.main.os.getpgid", lambda pid: pid)
+    monkeypatch.setattr("personal_assistant.main.os.killpg", _kill_group)
     result = stop_gateway(
         config_path=config.source_path, load_config=lambda _path: config
     )
 
     assert "STOPPED" in result
-    assert not pid_path.exists(), "gateway.pid must be removed after stop"
+    assert not pid_path.exists()
+    assert not state_path.exists()
 
 
 def test_stop_gateway_stops_foreground_pid_without_runtime_state(
@@ -210,23 +249,26 @@ def test_stop_gateway_stops_foreground_pid_without_runtime_state(
     config = build_config(tmp_path)
     pid_path = _gateway_pid_path(config)
     pid_path.write_text("2468", encoding="utf-8")
-    pid_checks = iter([True, False])
+    running = True
     kills: list[tuple[int, int]] = []
 
+    def _process_start(_pid: int) -> str | None:
+        return "birth-a" if running else None
+
+    def _kill_group(pid: int, sig: int) -> None:
+        nonlocal running
+        kills.append((pid, sig))
+        running = False
+
     monkeypatch.setattr(
-        "personal_assistant.main._pid_is_running", lambda _pid: next(pid_checks)
+        "personal_assistant.main._process_start_identity", _process_start
     )
     monkeypatch.setattr(
-        "personal_assistant.main.os.kill", lambda pid, sig: kills.append((pid, sig))
+        "personal_assistant.main._process_command",
+        lambda _pid: _gateway_command(config.source_path),
     )
-    # 漏 mock 会让 stop_gateway 对虚构 PID 2468 真实 killpg,CI 上若该 pid 存活则误杀 runner 进程组。
-    monkeypatch.setattr(
-        "personal_assistant.main._kill_process_tree", lambda _pid, _sig: None
-    )
-    monkeypatch.setattr("personal_assistant.main.time.sleep", lambda _s: None)
-    monkeypatch.setattr(
-        "personal_assistant.main.time.monotonic", iter([0.0, 0.01]).__next__
-    )
+    monkeypatch.setattr("personal_assistant.main.os.getpgid", lambda pid: pid)
+    monkeypatch.setattr("personal_assistant.main.os.killpg", _kill_group)
 
     result = stop_gateway(
         config_path=config.source_path, load_config=lambda _path: config
@@ -235,3 +277,69 @@ def test_stop_gateway_stops_foreground_pid_without_runtime_state(
     assert result == f"STOPPED pid=2468 pid_file={pid_path}"
     assert kills == [(2468, signal.SIGTERM)]
     assert not pid_path.exists()
+
+
+def test_stop_gateway_rejects_legacy_pid_owned_by_another_command(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    config = build_config(tmp_path)
+    pid_path = tmp_path / "gateway.pid"
+    pid_path.write_text("2468", encoding="utf-8")
+    state_path = _write_state(config.source_path, pid=2468, process_start=None)
+    monkeypatch.setattr(
+        "personal_assistant.main._process_start_identity", lambda _pid: "birth-a"
+    )
+    monkeypatch.setattr(
+        "personal_assistant.main._process_command", lambda _pid: "/bin/sleep 100"
+    )
+    monkeypatch.setattr(
+        "personal_assistant.main.os.kill",
+        lambda *_args: pytest.fail("an unrelated process must never receive a signal"),
+    )
+    monkeypatch.setattr(
+        "personal_assistant.main.os.killpg",
+        lambda *_args: pytest.fail("an unrelated process group must not be signalled"),
+    )
+
+    with pytest.raises(RuntimeError, match="ownership mismatch; evidence retained"):
+        stop_gateway(
+            config_path=config.source_path, load_config=lambda _path: config
+        )
+
+    assert pid_path.exists()
+    assert json.loads(state_path.read_text(encoding="utf-8"))["process_start"] is None
+
+
+def test_stop_gateway_does_not_signal_reused_pid(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    config = build_config(tmp_path)
+    pid_path = tmp_path / "gateway.pid"
+    pid_path.write_text("2468", encoding="utf-8")
+    state_path = _write_state(
+        config.source_path, pid=2468, process_start="original-birth"
+    )
+    monkeypatch.setattr(
+        "personal_assistant.main._process_start_identity",
+        lambda _pid: "reused-birth",
+    )
+    monkeypatch.setattr(
+        "personal_assistant.main.os.kill",
+        lambda *_args: pytest.fail("a reused PID must never receive a signal"),
+    )
+    monkeypatch.setattr(
+        "personal_assistant.main.os.killpg",
+        lambda *_args: pytest.fail(
+            "a reused process group must never receive a signal"
+        ),
+    )
+
+    result = stop_gateway(
+        config_path=config.source_path, load_config=lambda _path: config
+    )
+
+    assert result == f"STALE pid=2468 state={state_path}"
+    assert not pid_path.exists()
+    assert not state_path.exists()

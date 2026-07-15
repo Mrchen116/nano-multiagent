@@ -294,89 +294,32 @@ def test_main_stop_command_reports_stale_runtime_state(
     assert capsys.readouterr().out == "STALE pid=999 state=.gateway-state.json\n"
 
 
-def test_main_restart_command_stops_then_starts(
+def test_main_restart_command_uses_serialized_lifecycle_operation(
     monkeypatch, capsys, tmp_path: Path
 ) -> None:
-    """main restart must call stop then start (background launch), returning exit code 0."""
-    calls: list[str] = []
+    seen: dict[str, object] = {}
 
-    def _stop(*, config_path: str) -> str:
-        calls.append(f"stop:{config_path}")
-        return "STOPPED pid=999"
-
-    def _start(
+    def _restart(
         *, config_path: str, im_service_url_override: str | None = None
     ) -> BackgroundLaunchResult:
-        calls.append(f"start:{config_path}:{im_service_url_override}")
+        seen.update(
+            config_path=config_path,
+            im_service_url_override=im_service_url_override,
+        )
         return BackgroundLaunchResult(
             pid=1234,
             log_path=tmp_path / "gateway.log",
         )
 
-    monkeypatch.setattr("personal_assistant.main.stop_gateway", _stop)
-    monkeypatch.setattr("personal_assistant.main.launch_gateway_in_background", _start)
+    monkeypatch.setattr("personal_assistant.main.restart_gateway", _restart)
 
     config_path = str(tmp_path / "node-config.yaml")
     exit_code = main(["restart", "--config", config_path])
 
     assert exit_code == 0
-    assert calls == [f"stop:{config_path}", f"start:{config_path}:None"]
+    assert seen == {
+        "config_path": config_path,
+        "im_service_url_override": None,
+    }
     out = capsys.readouterr().out
     assert "Gateway started (pid=1234)" in out
-
-
-def test_main_restart_command_continues_when_gateway_not_running(
-    monkeypatch, tmp_path: Path
-) -> None:
-    """main restart must ignore NOT RUNNING from stop and proceed to start."""
-    calls: list[str] = []
-
-    def _stop(*, config_path: str) -> str:
-        calls.append("stop")
-        return "NOT RUNNING config=node-config.yaml"
-
-    def _start(
-        *, config_path: str, im_service_url_override: str | None = None
-    ) -> BackgroundLaunchResult:
-        calls.append(f"start:{im_service_url_override}")
-        return BackgroundLaunchResult(
-            pid=5678,
-            log_path=tmp_path / "gateway.log",
-        )
-
-    monkeypatch.setattr("personal_assistant.main.stop_gateway", _stop)
-    monkeypatch.setattr("personal_assistant.main.launch_gateway_in_background", _start)
-
-    exit_code = main(["restart", "--config", str(tmp_path / "node-config.yaml")])
-
-    assert exit_code == 0
-    assert calls == ["stop", "start:None"]
-
-
-def test_main_restart_command_stops_foreground_pid_before_start(
-    monkeypatch, tmp_path: Path
-) -> None:
-    """restart must proceed after stop handles a live PID-file-only gateway."""
-    calls: list[str] = []
-
-    def _stop(*, config_path: str) -> str:
-        calls.append(f"stop:{config_path}")
-        return f"STOPPED pid=2468 pid_file={tmp_path / 'gateway.pid'}"
-
-    def _start(
-        *, config_path: str, im_service_url_override: str | None = None
-    ) -> BackgroundLaunchResult:
-        calls.append(f"start:{config_path}:{im_service_url_override}")
-        return BackgroundLaunchResult(
-            pid=5678,
-            log_path=tmp_path / "gateway.log",
-        )
-
-    monkeypatch.setattr("personal_assistant.main.stop_gateway", _stop)
-    monkeypatch.setattr("personal_assistant.main.launch_gateway_in_background", _start)
-
-    config_path = str(tmp_path / "node-config.yaml")
-    exit_code = main(["restart", "--config", config_path])
-
-    assert exit_code == 0
-    assert calls == [f"stop:{config_path}", f"start:{config_path}:None"]

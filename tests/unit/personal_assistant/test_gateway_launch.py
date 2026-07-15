@@ -44,11 +44,14 @@ _DEFAULT_TEST_LLM = LLMConfigPayload(
 
 
 def test_launch_gateway_in_background_spawns_foreground_child_and_waits_for_start(
-    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config = build_config(tmp_path)
     process = _FakeProcess(wait_result=0, pid=2468)
     seen: dict[str, object] = {}
+    monkeypatch.setattr(
+        "personal_assistant.main._process_start_identity", lambda _pid: "birth-2468"
+    )
 
     def _spawn_process(argv: list[str], log_path: Path) -> _FakeProcess:
         seen["spawn"] = (argv, log_path)
@@ -85,11 +88,14 @@ def test_launch_gateway_in_background_spawns_foreground_child_and_waits_for_star
 
 
 def test_launch_gateway_in_background_passes_im_service_override_to_child_and_runtime_config(
-    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config = build_config(tmp_path)
     process = _FakeProcess(wait_result=0, pid=1357)
     seen: dict[str, object] = {}
+    monkeypatch.setattr(
+        "personal_assistant.main._process_start_identity", lambda _pid: "birth-1357"
+    )
 
     def _spawn_process(argv: list[str], log_path: Path) -> _FakeProcess:
         seen["spawn"] = (argv, log_path)
