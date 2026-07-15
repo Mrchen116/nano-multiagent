@@ -34,12 +34,19 @@
 
 ## R3 — Provider preflight、metadata replay 与 activation retry
 
-- Context: 待实施。
-- Decision: 待实施。
-- Rationale: 待实施。
-- Evidence: 待实施。
-- Rollback: 待实施。
-- Commits: 待实施。
+- Context: managed Feishu 只做 scope probe，invalid credential/Bot disabled/WS endpoint 错误最终都变成 `runtime_start_failed`；bot metadata 在 factory 阶段调用 binder，但 active generation 尚未建立，必然被拒；metadata 无 durable replay；skill activation 即使 HTTP 失败也被永久 memoized。
+- Decision: 增加 provider-owned 三段 preflight（tenant token → bot info → SDK 同源 `/callback/ws/endpoint`），按飞书官方 code 映射 secret-free 稳定状态。factory 通过 `ProviderRuntimeBuild` 把 preflight metadata 带到 generation cutover 后，manager 更新 active spec、cache 并发送；IM 重连从 cache 重放。activation 仅成功才 memoize，失败不阻塞 runtime，并在 reconnect 重试。
+- Rationale: provider 才拥有错误语义；runtime manager 只透传稳定 code/message。metadata 必须先关联已接纳 generation 才能 CAS，durable cache 是离线重放权威。activation 属附加能力，瞬态同步失败不应让监听器不可用。
+- Evidence:
+  - Tests: `pytest -q tests/unit/personal_assistant/test_feishu_preflight_and_metadata.py tests/unit/personal_assistant/test_channel_manager.py tests/unit/personal_assistant/test_channel_manifest_store.py tests/unit/personal_assistant/test_gateway_im_config_sync.py` → 38 passed。
+  - Entry: 10015 → `feishu_invalid_credentials`、10014 → `feishu_app_disabled`、230006 → `feishu_bot_disabled`、WS endpoint 非零 → `feishu_long_connection_unavailable`；错误文案不含 secret。
+  - Frontend State Matrix: provider-specific status code/message 已进入既有 failed card；浏览器留 R6。
+  - Browser QA: R6。
+  - E2E/Regression: initial bot metadata 在 revision 1 cache 可见，模拟 IM offline 后调用 reconnect replay 得到同 generation patch；activation 第一次失败仍 applied，第二次 reconnect 成功且后续幂等。
+  - Visual/Interaction: R6。
+  - Prototype Comparison: `#channel-failed/#channel-reconnecting` wire contract 已满足，视觉证据留 R6。
+- Rollback: preflight、runtime build、cache metadata 与 replay 应整体回退；只保留 preflight 会再次丢 bot identity，只保留 replay 会继续重放空 metadata。
+- Commits: C1 `002407f82`；C2 `17aa5b4c7`。
 
 ## R4 — Worker 生命周期、背压与真实停用收敛
 
