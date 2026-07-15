@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 
 from IM.api.routes.account import router as account_router
 from IM.api.routes.agents import router as agent_router
+from IM.api.routes.agent_channels import router as agent_channels_router
 from IM.api.routes.auth import router as auth_router
 from IM.api.routes.messages import router as message_router
 from IM.api.routes.metrics import router as metrics_router
@@ -26,6 +27,7 @@ from IM.application.relay_service import RelayService
 from IM.application.relay_watchdog import run_relay_watchdog
 from IM.domain.models import ConversationEvent
 from IM.infra.db import connect, initialize_schema
+from IM.infra.channel_control_store import ChannelControlStore
 from IM.infra.gateway_persistence import (
     GatewayConversationPersistence,
     GatewayNodePersistence,
@@ -273,6 +275,7 @@ def create_app(
         connection = connect(resolved_db_path)
         initialize_schema(connection)
         app_instance.state.connection = connection
+        app_instance.state.channel_control_store = ChannelControlStore(resolved_db_path)
         app_instance.state.upload_dir = resolved_upload_dir
         app_instance.state.auth_service = AuthService(
             users=UserRepository(connection),
@@ -381,6 +384,7 @@ def create_app(
     app.include_router(auth_router)
     app.include_router(account_router)
     app.include_router(agent_router)
+    app.include_router(agent_channels_router)
     app.include_router(web_im_router)
     app.include_router(message_router)
     app.include_router(nodes_router)

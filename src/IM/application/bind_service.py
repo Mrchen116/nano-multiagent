@@ -63,6 +63,23 @@ class BindService:
         user = self._users.get_user(user_id=user_id)
         if user is None:
             raise ValueError("user_id not found")
+        existing = (
+            self._binds.get_bind_request(bind_id=bind_id)
+            if bind_id is not None
+            else self._binds.get_bind_request_by_token(bind_token=bind_token or "")
+        )
+        if existing is None:
+            missing = "bind_id not found" if bind_id is not None else "bind_token not found"
+            raise ValueError(missing)
+        node = self._nodes.get_node(node_id=existing.node_id)
+        if node is None:
+            raise ValueError("node_id not found")
+        if node.owner_id and node.owner_id != user.owner_id:
+            raise ValueError("node already bound to another owner")
+        if existing.status == "confirmed":
+            if existing.user_id == user_id:
+                return existing
+            raise ValueError("bind request already confirmed")
         bind = self._binds.confirm_bind_request(
             bind_id=bind_id, bind_token=bind_token, user_id=user_id
         )

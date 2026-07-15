@@ -7,6 +7,7 @@ from fastapi import Depends, HTTPException, Request, status
 
 from IM.application.auth_service import AuthService, InvalidTokenError
 from IM.application.bind_service import BindService
+from IM.application.channel_control_service import ChannelControlService
 from IM.application.config_service import ConfigService
 from IM.application.event_service import EventService
 from IM.application.metrics_service import MetricsService
@@ -156,6 +157,11 @@ def get_bind_service(request: Request) -> BindService:
             "IM_BIND_BASE_URL", "http://127.0.0.1:8011/bind/confirm"
         ),
     )
+
+
+def get_channel_control_service(request: Request) -> ChannelControlService:
+    """Return the app's independent external-channel control boundary."""
+    return ChannelControlService(request.app.state.channel_control_store)
 
 
 def get_relay_service(request: Request) -> RelayService:

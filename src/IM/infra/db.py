@@ -171,6 +171,83 @@ CREATE TABLE IF NOT EXISTS agent_message_dispatch_log (
     message_id TEXT NOT NULL,
     created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS node_credential_keys (
+    node_id TEXT PRIMARY KEY,
+    owner_id TEXT NOT NULL,
+    key_id TEXT NOT NULL,
+    algorithm TEXT NOT NULL,
+    public_key TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS channel_manifest_heads (
+    node_id TEXT PRIMARY KEY,
+    owner_id TEXT NOT NULL,
+    manifest_revision INTEGER NOT NULL DEFAULT 0,
+    applied_manifest_revision INTEGER NOT NULL DEFAULT 0,
+    last_apply_error_json TEXT,
+    applied_at TEXT,
+    initialized_at TEXT,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS agent_channels (
+    channel_id TEXT PRIMARY KEY,
+    owner_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    enabled INTEGER NOT NULL,
+    config_json TEXT NOT NULL,
+    provider_identity_fingerprint TEXT NOT NULL,
+    provider_identity_revision INTEGER NOT NULL,
+    provider_runtime_json TEXT NOT NULL DEFAULT '{}',
+    credential_envelope_json TEXT NOT NULL,
+    credential_key_id TEXT NOT NULL,
+    credential_revision INTEGER NOT NULL,
+    channel_revision INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(owner_id, agent_id, provider)
+);
+
+CREATE TABLE IF NOT EXISTS agent_channel_removals (
+    channel_id TEXT PRIMARY KEY,
+    removal_token TEXT NOT NULL UNIQUE,
+    owner_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    display_config_json TEXT NOT NULL,
+    deleted_channel_revision INTEGER NOT NULL,
+    deletion_manifest_revision INTEGER NOT NULL,
+    apply_state TEXT NOT NULL,
+    apply_error_code TEXT,
+    apply_error_message TEXT,
+    applied_at TEXT,
+    expires_at TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS one_pending_removal_per_provider
+ON agent_channel_removals(owner_id, agent_id, provider)
+WHERE apply_state != 'applied';
+
+CREATE TABLE IF NOT EXISTS agent_channel_status (
+    channel_id TEXT PRIMARY KEY,
+    node_id TEXT NOT NULL,
+    observed_revision INTEGER NOT NULL,
+    runtime_incarnation TEXT NOT NULL,
+    status_sequence INTEGER NOT NULL,
+    connection_state TEXT NOT NULL,
+    diagnostics_state TEXT NOT NULL,
+    status_code TEXT,
+    status_message TEXT,
+    checks_json TEXT NOT NULL DEFAULT '[]',
+    received_at TEXT NOT NULL
+);
 """
 
 

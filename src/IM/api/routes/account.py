@@ -188,4 +188,6 @@ def bind_device(
             "bind_token not found",
         }:
             status_code = status.HTTP_404_NOT_FOUND
+        if detail == "node already bound to another owner":
+            status_code = status.HTTP_409_CONFLICT
         raise HTTPException(status_code=status_code, detail=detail) from exc
