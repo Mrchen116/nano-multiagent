@@ -6,9 +6,12 @@ import multiprocessing
 import os
 import threading
 import time
+from types import SimpleNamespace
 
+from lark_oapi.core.enum import LogLevel
 from lark_oapi.ws import Client as WSClient
 
+from personal_assistant.channels.feishu.client import _run_feishu_sdk_worker
 from personal_assistant.channels.feishu.worker import (
     FeishuWorkerProcessContext,
     FeishuWorkerRuntime,
@@ -253,3 +256,37 @@ def test_supported_lark_sdk_exposes_reconnect_observer_seam() -> None:
     assert callable(client._connect)
     assert callable(client.on_reconnecting)
     assert callable(client.on_reconnected)
+
+
+def test_sdk_worker_suppresses_sensitive_websocket_url_info_log(monkeypatch) -> None:
+    """The SDK must not log access_key/ticket query values at INFO."""
+    captured: dict[str, object] = {}
+
+    class FakeWSClient:
+        def __init__(self, **kwargs) -> None:
+            captured.update(kwargs)
+            self.on_reconnecting = lambda: None
+            self.on_reconnected = lambda: None
+
+        async def _connect(self) -> None:
+            return None
+
+        def start(self) -> None:
+            return None
+
+    monkeypatch.setattr(
+        "personal_assistant.channels.feishu.client.WSClient", FakeWSClient
+    )
+    monkeypatch.setattr(
+        "personal_assistant.channels.feishu.client.publish_status",
+        lambda *_args, **_kwargs: None,
+    )
+    _run_feishu_sdk_worker(
+        SimpleNamespace(
+            app_id="cli_sensitive",
+            app_secret="secret",
+            domain="https://open.feishu.cn",
+        )
+    )
+
+    assert captured["log_level"] is LogLevel.WARNING
