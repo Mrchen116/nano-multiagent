@@ -12,9 +12,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { authFetch } from "../../auth/auth-fetch";
 import {
   createAgentChannel,
+  deleteAgentChannel,
   getAgentConfig,
   getAgentSkillsUsage,
   listAgentChannels,
+  reconnectAgentChannel,
+  retryAgentChannelRemoval,
   normalizeAgentConfigResponse,
   updateAgentChannel,
 } from "./im-agent-config-api";
@@ -181,7 +184,7 @@ describe("agent channel API", () => {
 
   beforeEach(() => mockedFetch.mockReset());
 
-  it("lists, creates, and updates channels through the authenticated resource", async () => {
+  it("uses authenticated channel lifecycle resources", async () => {
     const responseBody = {
       channel_id: "channel-1",
       provider: "feishu",
@@ -196,7 +199,8 @@ describe("agent channel API", () => {
     mockedFetch
       .mockResolvedValueOnce(new Response(JSON.stringify([responseBody]), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify(responseBody), { status: 201 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify(responseBody), { status: 200 }));
+      .mockResolvedValueOnce(new Response(JSON.stringify(responseBody), { status: 200 }))
+      .mockResolvedValue(new Response(JSON.stringify(responseBody), { status: 200 }));
 
     await expect(listAgentChannels("agent/a")).resolves.toEqual([responseBody]);
     const createPayload = {
@@ -213,6 +217,9 @@ describe("agent channel API", () => {
       credentials: { mode: "keep" as const },
     };
     await updateAgentChannel("agent/a", "channel/1", updatePayload);
+    await reconnectAgentChannel("agent/a", "channel/1");
+    await deleteAgentChannel("agent/a", "channel/1", 1);
+    await retryAgentChannelRemoval("agent/a", "channel/1");
 
     expect(mockedFetch).toHaveBeenNthCalledWith(1, "/im/v1/agents/agent%2Fa/channels", expect.anything());
     expect(mockedFetch).toHaveBeenNthCalledWith(
@@ -224,6 +231,21 @@ describe("agent channel API", () => {
       3,
       "/im/v1/agents/agent%2Fa/channels/channel%2F1",
       expect.objectContaining({ method: "PATCH", body: JSON.stringify(updatePayload) }),
+    );
+    expect(mockedFetch).toHaveBeenNthCalledWith(
+      4,
+      "/im/v1/agents/agent%2Fa/channels/channel%2F1/actions/reconnect",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(mockedFetch).toHaveBeenNthCalledWith(
+      5,
+      "/im/v1/agents/agent%2Fa/channels/channel%2F1?channel_revision=1",
+      expect.objectContaining({ method: "DELETE" }),
+    );
+    expect(mockedFetch).toHaveBeenNthCalledWith(
+      6,
+      "/im/v1/agents/agent%2Fa/channel-removals/channel%2F1/actions/retry",
+      expect.objectContaining({ method: "POST" }),
     );
   });
 });
