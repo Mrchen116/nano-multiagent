@@ -53,8 +53,7 @@ async def test_fallback_serializes_same_session_while_other_session_runs(
     second = asyncio.create_task(
         coordinator.dispatch(_request(second_message, catalog))
     )
-    while not any(call["steer"] for call in kernel.submit_calls):
-        await asyncio.sleep(0)
+    await kernel.wait_submit_count(2)
     other = asyncio.create_task(coordinator.dispatch(_request(other_message, catalog)))
     await kernel.wait_stream("run-2")
 
@@ -98,8 +97,7 @@ async def test_steer_race_reuses_group_and_image_parts_exactly_once(
     await kernel.wait_stream("run-1")
     group_store.append(buffer_key, "background once", sender="Bob")
     fallback = asyncio.create_task(coordinator.dispatch(request))
-    while len(kernel.submit_calls) < 2:
-        await asyncio.sleep(0)
+    await kernel.wait_submit_count(2)
     steer_parts = kernel.submit_calls[1]["parts"]
 
     kernel.finish("run-1")

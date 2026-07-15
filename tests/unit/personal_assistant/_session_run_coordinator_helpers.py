@@ -36,6 +36,7 @@ class ControlledKernel:
         self._latest_run_by_session: dict[str, str] = {}
         self._events: dict[str, asyncio.Queue[dict[str, Any]]] = {}
         self._stream_started: dict[str, asyncio.Event] = {}
+        self._submit_changed = asyncio.Event()
 
     async def create_session(
         self, *, workspace_root: Path, **_kwargs: Any
@@ -75,6 +76,7 @@ class ControlledKernel:
                     "run_id": run_id,
                 }
             )
+            self._submit_changed.set()
             return SimpleNamespace(run_id=run_id, injected=self.inject_steer)
         self._run_index += 1
         run_id = f"run-{self._run_index}"
@@ -90,6 +92,7 @@ class ControlledKernel:
         self._latest_run_by_session[session_id] = run_id
         self._events[run_id] = asyncio.Queue()
         self._stream_started[run_id] = asyncio.Event()
+        self._submit_changed.set()
         return SimpleNamespace(
             run_id=run_id,
             injected=False,
@@ -115,7 +118,21 @@ class ControlledKernel:
         return _generate()
 
     async def wait_stream(self, run_id: str) -> None:
+        while run_id not in self._stream_started:
+            self._submit_changed.clear()
+            if run_id in self._stream_started:
+                break
+            await asyncio.wait_for(self._submit_changed.wait(), timeout=1)
         await asyncio.wait_for(self._stream_started[run_id].wait(), timeout=1)
+
+    async def wait_submit_count(self, count: int) -> None:
+        """Wait until the synchronous Kernel boundary has observed ``count`` calls."""
+
+        while len(self.submit_calls) < count:
+            self._submit_changed.clear()
+            if len(self.submit_calls) >= count:
+                break
+            await asyncio.wait_for(self._submit_changed.wait(), timeout=1)
 
     def finish(
         self, run_id: str, *, status: str = "completed", text: str = "ok"
