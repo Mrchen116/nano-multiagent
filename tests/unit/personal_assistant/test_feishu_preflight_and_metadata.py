@@ -105,6 +105,22 @@ def test_preflight_distinguishes_bot_disabled_from_long_connection_unavailable()
     assert ws_error.value.status_code == "feishu_long_connection_unavailable"
 
 
+def test_preflight_accepts_official_top_level_bot_identity_shape() -> None:
+    """The live bot/v3/info response places ``bot`` beside code/msg."""
+    result = probe_feishu_runtime(
+        app_id="cli_live_shape",
+        app_secret="secret-live-shape",
+        domain="https://open.feishu.test",
+        transport=_transport(
+            _response({"code": 0, "tenant_access_token": "tenant-token"}),
+            _response({"code": 0, "msg": "ok", "bot": {"open_id": "ou-live"}}),
+            _response({"code": 0, "data": {"URL": "wss://example.test/ws"}}),
+        ),
+    )
+
+    assert result.bot_open_id == "ou-live"
+
+
 def _spec(*, revision: int = 1) -> ManagedChannelSpec:
     return ManagedChannelSpec(
         channel_id="ch-a",
