@@ -1190,7 +1190,10 @@ def build_kernel_event_observer(
             # The coordinator supplies the status explicitly so a system abort cannot
             # be mistaken for a clean user cancellation.
             if event.get("finalize_bubble") and message_id:
-                delivery_status = str(event.get("delivery_status") or "failed")
+                # Legacy user-stop emitters set finalize_bubble without an explicit
+                # status; preserve their clean-completion contract. New system-abort
+                # emitters always carry delivery_status="failed".
+                delivery_status = str(event.get("delivery_status") or "completed")
                 task_tracker.start(
                     _send(
                         manager,
