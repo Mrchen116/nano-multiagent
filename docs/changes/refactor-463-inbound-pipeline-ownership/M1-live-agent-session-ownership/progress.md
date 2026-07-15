@@ -25,13 +25,20 @@
 
 ## R2 — 收回 Gateway session binding 所有权
 
-- Context: 待开始。
-- Decision: 待完成。
-- Rationale: 待完成。
-- Evidence: 待完成。
-- Rollback: 待完成。
-- Commits: 待完成。
-- Next: R1 完成后开始。
+- Context: 既有 `SessionBindingStore` / SQLite store 同时被 pipeline、scheduler、runtime delivery、fork 与 internal dispatch 当业务 service 使用；配置 publish 跨 `create_session`、IM ack 或 fork await 时没有统一 stale-write guard。
+- Decision: 新增 concrete `GatewaySessionBinder`，repository 只保留存储 adapter；Binder 用 process-local binding revision + per-agent invalidation generation 管理 reuse/create writeback，旧 snapshot 在 create await 后变 stale 时仍返回本轮可用的 ephemeral binding、但不持久化。新增 typed `BindingWriteGuard` / `ConversationBindingRequest` / `ConversationBindResult(bound|stale)`，供 external await 前捕获、await 后统一校验。内存/SQLite adapter 增加 exact drop、按 Agent 枚举与 canonical direct 查询，未改表结构和序列化。
+- Rationale: revision 约束“哪版配置拥有这行 binding”，generation 使 eager invalidation 同时否决已经跨 await 的旧写回；semantic bind 由 binder 返回 typed stale，而不是让 internal dispatch/fork 自己理解 repository 与锁。
+- Evidence:
+  - Tests: `pytest -q test_gateway_session_binder.py test_persistent_session_binding_store.py test_heartbeat_session_binding.py` → 32 passed；`ruff check src tests` → passed；`pytest -m 'not e2e' -n 4 --dist worksteal` → 3340 passed, 1 skipped（35.95s）。
+  - Entry: `GatewaySessionBinder.resolve()` 公开入口覆盖持久化 session reuse + reply refresh、完整 snapshot create、跨 await publish/invalidate 后 stale create 不写 repo；`bind_conversation()` 覆盖 pre-await guard stale、reverse 与 canonical lookup。
+  - Frontend State Matrix: N/A（无前端变更）。
+  - Browser QA: N/A（无前端变更）。
+  - E2E/Regression: `tests/unit/personal_assistant/test_gateway_session_binder.py`；真实 Gateway 消费者尚未切线，统一在 R3 完成后运行真栈，避免双 owner 中间态。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: 回退 C2 `fd9328713` 删除 binder 与 repository adapter 扩展；现有生产路径仍完整使用旧 store，因此可原子回退。
+- Commits: C1=`ea6237abc`；C2=`fd9328713`；C3=本次 docs commit。
+- Next: R3 C1 锁定 internal-dispatch ack/fork-await stale、consumer public wiring 与 architecture guard。
 
 ## R3 — 切换全部生产消费者并证明真实入口
 

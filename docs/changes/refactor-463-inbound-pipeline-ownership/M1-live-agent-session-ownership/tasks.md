@@ -37,12 +37,12 @@
 
 ### R2 — 收回 Gateway session binding 所有权
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 先提交 binder 公开行为与 create-await race 红测，再实现 resolve/reuse/workspace validation/revision-generation guard/reverse/canonical/typed conversation bind；pipeline 改接 binder，repository 仅作为内部 adapter。
 - 验证: `pytest tests/unit/personal_assistant/test_gateway_session_binder.py tests/unit/personal_assistant/test_persistent_session_binding_store.py tests/unit/personal_assistant/test_inbound_pipeline_agent_sessions.py`
 
 ### R3 — 切换全部生产消费者并证明真实入口
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 先提交 internal-dispatch ack/fork-await race、scheduler/runtime delivery/build-runtime 与 architecture guard 红测；迁出 `IMAgentConfigSync`/`ShadowConversationSync`，切换 internal dispatch、fork、heartbeat/cron、runtime delivery、kernel shim 和 composition root；拆分过大相关测试；最后跑隔离真栈并落 durable evidence。
 - 验证: 相关最窄单测 + contract；`ruff check src tests`；`pytest -m "not e2e" -n 4 --dist worksteal`；隔离真栈用户旅程与 SQLite/API 对账。
