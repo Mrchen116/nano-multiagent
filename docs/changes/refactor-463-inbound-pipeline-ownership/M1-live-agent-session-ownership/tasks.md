@@ -31,13 +31,13 @@
 
 ### R1 — 收回 live Agent snapshot 所有权
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 先提交 catalog 公开行为红测，再实现 frozen snapshot、copy-on-write publish、单调 revision 与完整旧/新读取；把 pipeline 的路由/模型/metadata 读取改接 catalog，但暂不迁 session repository owner。
 - 验证: `pytest tests/unit/personal_assistant/test_agent_catalog.py tests/unit/personal_assistant/test_inbound_pipeline_agent_sessions.py`
 
 ### R2 — 收回 Gateway session binding 所有权
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 先提交 binder 公开行为与 create-await race 红测，再实现 resolve/reuse/workspace validation/revision-generation guard/reverse/canonical/typed conversation bind；pipeline 改接 binder，repository 仅作为内部 adapter。
 - 验证: `pytest tests/unit/personal_assistant/test_gateway_session_binder.py tests/unit/personal_assistant/test_persistent_session_binding_store.py tests/unit/personal_assistant/test_inbound_pipeline_agent_sessions.py`
 
