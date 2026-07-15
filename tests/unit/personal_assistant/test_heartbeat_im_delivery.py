@@ -35,7 +35,7 @@ from IM.infra.repositories import (
 )
 from IM.ws.gateway_handler import GatewayHandler
 from personal_assistant.channels.base import InboundMessage
-from personal_assistant.gateway.inbound_pipeline import RelayLifecycleUpdate
+from personal_assistant.gateway.inbound_models import RelayLifecycleUpdate
 from personal_assistant.gateway.runtime_delivery.context import (
     OwnerDirectTarget,
     RunDeliveryContext,
