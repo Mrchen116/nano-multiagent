@@ -117,3 +117,18 @@ def test_composition_builds_coordinator_before_public_heartbeat_wiring() -> None
         "background_subscriptions=background_subscriptions"
         not in build_source[build_source.rindex("return GatewayRuntime(") :]
     )
+
+
+def test_config_sync_callback_is_constructor_owned_and_tests_use_real_owners() -> None:
+    config_sync = _source("src/personal_assistant/gateway/agent_config_sync.py")
+    build_runtime = _source("src/personal_assistant/main.py")
+
+    assert "im_config_sync_client.on_agent_created =" not in build_runtime
+    assert "self.on_agent_created" not in config_sync
+    for relative in (
+        "tests/unit/personal_assistant/test_gateway_im_config_sync.py",
+        "tests/unit/personal_assistant/test_gateway_reconcile_callback.py",
+        "tests/unit/personal_assistant/test_gateway_reconcile_on_connect.py",
+        "tests/unit/personal_assistant/test_cron_config_sync.py",
+    ):
+        assert "def _ownership(" not in _source(relative)
