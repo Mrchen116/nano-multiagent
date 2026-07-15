@@ -8,14 +8,16 @@
 
 ## 退出标准
 
-- [ ] M3-E1：基础链路可用但权限不完整时展示“连接受限”，逐项展示 raw scope、影响和修复方向；缺 `im:message.group_msg` 明确说明群背景上下文不完整。
-- [ ] M3-E2：scope API/解析失败显示“权限状态暂时无法确认”，不伪造 missing；该状态与 reconnecting/failed 连接故障分层展示。
-- [ ] M3-E3：channel list 读取失败显示 error 与 retry，不渲染空态。
-- [ ] M3-E4：真实 375×812 Agent detail → 通道页为单列卡片，添加/编辑/确认使用底部 sheet，关键动作可触达。
-- [ ] M3-E5：capability catalog 覆盖当前/legacy receive/send/history/reaction/chat 等价集合；仅 `grant_status=1 && scope_type=tenant` 进入 granted set；confirmed unauthorized、user identity、缺字段、未知 enum、API/解析失败分别受测；每个 accepted set 单独满足，只有完整 probe 全不满足才 missing。
-- [ ] M3-E6：同 revision 旧 incarnation/sequence 不覆盖新状态；offline N barrier 遇到 IM N+1/delete terminal ACK 后释放 FIFO、drop/quarantine 并继续 reconcile/result/status；`status_updated_at` 取 IM 接收时间、offline 标 stale，user-stream 仅失效目标 Agent channels query。
-- [ ] M3-E7：`#channel-limited/#channels-error/#channels-mobile` 有 durable 真实浏览器证据；Ruff、frontend test/build、`pytest -m "not e2e"` 与测试命名/行数门禁通过。
-- [ ] M3-E8：真实飞书测试应用完成连接、受限诊断、stop/restart smoke；IM DB、Gateway cache、HTTP、日志和证据无 secret，同一 Bot 无重复 listener。
+- [x] M3-E1：基础链路可用但权限不完整时展示“连接受限”，逐项展示 raw scope、影响和修复方向；缺 `im:message.group_msg` 明确说明群背景上下文不完整。
+- [x] M3-E2：scope API/解析失败显示“权限状态暂时无法确认”，不伪造 missing；该状态与 reconnecting/failed 连接故障分层展示。
+- [x] M3-E3：channel list 读取失败显示 error 与 retry，不渲染空态。
+- [x] M3-E4：真实 375×812 Agent detail → 通道页为单列卡片，添加/编辑/确认使用底部 sheet，关键动作可触达。
+- [x] M3-E5：capability catalog 覆盖当前/legacy receive/send/history/reaction/chat 等价集合；仅 `grant_status=1 && scope_type=tenant` 进入 granted set；confirmed unauthorized、user identity、缺字段、未知 enum、API/解析失败分别受测；每个 accepted set 单独满足，只有完整 probe 全不满足才 missing。
+- [x] M3-E6：同 revision 旧 incarnation/sequence 不覆盖新状态；offline N barrier 遇到 IM N+1/delete terminal ACK 后释放 FIFO、drop/quarantine 并继续 reconcile/result/status；`status_updated_at` 取 IM 接收时间、offline 标 stale，user-stream 仅失效目标 Agent channels query。
+- [x] M3-E7：`#channel-limited/#channels-error/#channels-mobile` 有 durable 真实浏览器证据；Ruff、frontend test/build、`pytest -m "not e2e"` 与测试命名/行数门禁通过。
+- [x] M3-E8：真实飞书测试应用完成连接、受限诊断、stop/restart smoke；IM DB、Gateway cache、HTTP、日志和证据无 secret，同一 Bot 无重复 listener。
+
+> M3-E8 证据口径经 orchestrator 批准拆分：真实测试应用已完整授权，live 部分证明官方 complete probe、连接、stop/restart、secret 与单 listener；limited/unknown 通过 production-store → 真 IM HTTP → 真前端取证，不撤销外部权限，也不伪造成 provider live result。详见 `evidence/README.md`。
 
 ## 测试策略
 
@@ -94,6 +96,6 @@
 
 ### R4 — 真栈浏览器、真实飞书 smoke 与总门禁
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 用 worktree 隔离 runbook 驱动 limited/unknown/list error/retry/mobile sheet；使用真实飞书测试应用完成连接、受限诊断、stop/restart，核对 secret/listener/cleanup；跑全门禁并落 M3-E1..E8 证据表。
 - 验证: durable screenshots/reports + focused/full frontend + Ruff + `pytest -m "not e2e"` + naming/size contract。

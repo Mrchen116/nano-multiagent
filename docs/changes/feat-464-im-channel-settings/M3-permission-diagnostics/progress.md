@@ -62,26 +62,26 @@
 
 ## R4 — 真栈浏览器、真实飞书 smoke 与总门禁
 
-- Context: TODO
-- Decision: TODO
-- Rationale: TODO
+- Context: 真实测试应用已经完整授权，官方 probe 得到 34 个 tenant grants 且 8 项 capability 全 satisfied，无法在不破坏外部共享配置的前提下制造真实 limited；首次真栈日志审计还发现 Lark SDK 默认 INFO 会记录带临时 `access_key/ticket` 的完整 WebSocket URL。
+- Decision: 经 orchestrator 批准采用证据拆分 B：真实应用只证明官方 complete probe、连接、stop/restart、单 listener 与 secret 安全；limited/reconnecting/failed + unknown 用 production `ChannelControlStore`、production catalog 和 live IM SQLite 注入状态，再经真实 IM HTTP 与真实前端取证，明确不冒充 provider live result。SDK worker 固定 `LogLevel.WARNING` 并用 red test 锁定；所有含旧日志的临时产物删除后重取证。
+- Rationale: 不撤销真实测试应用权限、不伪造外部 provider 结果，同时仍穿过生产存储、HTTP 和前端边界验收所有 UI 状态；provider grant/parse 语义由参数化永久测试和官方 complete probe共同覆盖。SDK 的临时连接 URL 属 credential material，抑制 SDK INFO 是生产安全修复而非证据清洗。
 - Evidence:
-  - Tests: TODO
-  - Entry: TODO
-  - Frontend State Matrix: TODO
-  - Browser QA: TODO
-  - E2E/Regression: TODO
-  - Visual/Interaction: TODO
-  - Prototype Comparison: TODO
-- Rollback: TODO
-- Commits: TODO
-- Next: 完成 M3 并集成 unit branch
+  - Tests: focused Feishu worker/client/scope `35 passed`；full backend `3425 passed, 1 skipped, 20 deselected`；full frontend `66 files / 617 passed`；production build PASS（443 modules）；Ruff PASS；test naming/size contract `2 passed`。
+  - Entry: worktree 真栈运行在高位 IM `64311`，真实 Agent detail → Channels 通过 authenticated IM HTTP 读取。最终 authoritative snapshot 为 `connected/complete`、8 satisfied/0 missing/0 unknown；官方 application-v6 probe 为 34 tenant grants，8 项均匹配 accepted set。
+  - Frontend State Matrix: desktop connected/complete、connected/limited、reconnecting+unknown、failed+unknown、list error+retry；mobile 375×812 单卡与 add/edit/delete confirm bottom sheet 全部通过。loading/empty/disabled/submitting 继续由全量回归守护。
+  - Browser QA: headed Chromium、真前端/真 HTTP；注入 limited/unknown 只使用 production store，不用 route mock/static DOM/fake provider。故意停 IM 后 UI 展示 error + Retry 且无 empty，点击 Retry 产生第二次真实 `ERR_CONNECTION_REFUSED` 请求；同 DB/JWT/端口恢复后页面恢复。断网前 console 0 error/0 warning。
+  - E2E/Regression: 真实应用官方 probe 于 `2026-07-15T11:27:42.535995Z` 返回 complete；最终 Gateway/listener `43122/44037`，旧 `30176/31110` 均退出，仅 1 listener + 1 resource tracker。IM DB/cache/config/log/evidence/HTTP secret hits 均 0，日志 `access_key=/ticket=` 与 Lark INFO 均 0；config/cache/key mode 0600，config 仅 credentialRef、无 appSecret。两条 restart 前 SDK 网络 ERROR 后由 final complete snapshot 明确证明恢复。
+  - Visual/Interaction: 9 张 durable PNG 覆盖 complete、limited、reconnecting/failed unknown、真 IM list outage、375×812 卡片与三类 bottom sheet；raw scope 可换行、群背景影响与 remediation 可读，关键动作可触达。
+  - Prototype Comparison: `#channel-limited`、`#channels-error`、`#channels-mobile`、`#channel-reconnecting/#channel-failed` 的 must-match 行为全部 PASS；视觉 token 复用现有 IM primitives，未引入未来 provider/Web IM。
+- Rollback: 回滚 R4 C2 恢复 SDK 默认日志级别会重新暴露临时 WS URL，因此只应与 C1 安全测试一并回滚；evidence/docs 可独立回滚，不改变 R1-R3 生产行为。
+- Commits: C1=`c583ade75`，C2=`c7c75e878`，C3=本提交。
+- Next: M3 完成，集成 `unit/feat-464-im-channel-settings` 并清理真栈/worktree。
 
 ## Prototype Comparison
 
 | Reference | Required contract | Actual evidence | Viewport / state | Result | Deviation rationale |
 |---|---|---|---|---|---|
-| `#channel-limited` | limited + unknown checks；raw scope、影响、修复；普通群背景上下文 | TODO | desktop / limited + unknown | blocked | 待 R4 真入口证据 |
-| `#channels-error` | list error + retry；不渲染空态 | TODO | desktop / error | blocked | 待 R4 真入口证据 |
-| `#channels-mobile` | 375×812 单列卡片 + bottom sheet，动作可触达 | TODO | 375×812 / connected+limited+sheet | blocked | 待 R4 真入口证据 |
-| `#channel-reconnecting/#channel-failed` | 连接故障与权限 unknown 分层 | TODO | desktop/mobile / reconnecting + unknown | blocked | 待 R4 真入口证据 |
+| `#channel-limited` | limited + unknown checks；raw scope、影响、修复；普通群背景上下文 | `evidence/output/playwright/channel-limited-production-store.png` | 1440×1000 / connected + limited | PASS | 真实应用已 complete；limited 明确来自 production-store harness，不伪造 provider live result |
+| `#channels-error` | list error + retry；不渲染空态 | `evidence/output/playwright/channels-list-error-real-im-outage.png` | 1440×1000 / IM outage | PASS | 真 IM outage + 真 Retry 请求，无 route mock |
+| `#channels-mobile` | 375×812 单列卡片 + bottom sheet，动作可触达 | `evidence/output/playwright/channels-mobile-375x812.png` 与三类 sheet 截图 | 375×812 / connected + limited + sheet | PASS | 复用现有 `chat-modal-bottom-sheet` primitive |
+| `#channel-reconnecting/#channel-failed` | 连接故障与权限 unknown 分层 | `evidence/output/playwright/channel-reconnecting-unknown-production-store.png`、`channel-failed-unknown-production-store.png` | 1440×1000 / reconnecting或failed + unknown | PASS | production-store harness 驱动真实 HTTP/frontend 投影 |
