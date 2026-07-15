@@ -291,10 +291,7 @@ class ChannelManager:
                 self._desired[item.channel_id] = spec
                 if not item.enabled:
                     continue
-                if not self._replace_runtime(spec):
-                    raise RuntimeError(
-                        f"cached channel runtime could not start: {item.channel_id}"
-                    )
+                self._replace_runtime(spec)
             self._last_seen_manifest_revision = max(
                 self._last_seen_manifest_revision, cached.manifest_revision
             )
