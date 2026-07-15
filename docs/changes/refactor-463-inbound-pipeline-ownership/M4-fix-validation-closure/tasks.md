@@ -67,7 +67,7 @@
 
 ### R1 — 闭合 revision/run-control 与权限 provenance
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 先落 active publish/invalidate→steer/stop、internal-dispatch/fork provenance、empty allowlist、heartbeat revision、旧 subscriber context 红测，再在 coordinator/binder/Kernel source owner 修复。
 - 验证: catalog/binder/coordinator/internal-dispatch/fork/heartbeat/background 聚焦测试与权限集成回归。
 
