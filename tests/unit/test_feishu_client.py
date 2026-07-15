@@ -126,10 +126,10 @@ class TestFeishuClientEventParsing:
 class TestFeishuClientSendMessage:
     """Verify FeishuClient.send_message calls lark-oapi REST API."""
 
-    @patch("personal_assistant.channels.feishu.client.WSClient")
+    @patch("personal_assistant.channels.feishu.client.FeishuWorkerRuntime")
     @patch("personal_assistant.channels.feishu.client.lark")
     def test_send_message_calls_api(
-        self, mock_lark: MagicMock, mock_ws_cls: MagicMock
+        self, mock_lark: MagicMock, mock_worker_cls: MagicMock
     ) -> None:
         mock_rest = MagicMock()
         mock_builder = MagicMock()

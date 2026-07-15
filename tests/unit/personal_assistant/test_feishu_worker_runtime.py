@@ -7,6 +7,8 @@ import os
 import threading
 import time
 
+from lark_oapi.ws import Client as WSClient
+
 from personal_assistant.channels.feishu.worker import (
     FeishuWorkerProcessContext,
     FeishuWorkerRuntime,
@@ -243,3 +245,11 @@ def test_worker_crash_is_a_terminal_priority_status() -> None:
     report = runtime.stop(drain=False)
     assert report.joined
     assert runtime.is_alive is False
+
+
+def test_supported_lark_sdk_exposes_reconnect_observer_seam() -> None:
+    """The pinned 1.x SDK contract supports isolated reconnect status callbacks."""
+    client = WSClient(app_id="cli_contract", app_secret="secret")
+    assert callable(client._connect)
+    assert callable(client.on_reconnecting)
+    assert callable(client.on_reconnected)
