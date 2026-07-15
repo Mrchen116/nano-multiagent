@@ -57,6 +57,7 @@ function isRemoval(resource: AgentChannelResource): resource is AgentChannelRemo
 
 interface ConnectionCardProps {
   channel: AgentChannel;
+  manualReconnecting: boolean;
   offline: boolean;
   pending: boolean;
   onEdit(): void;
@@ -67,6 +68,7 @@ interface ConnectionCardProps {
 
 function ConnectionCard({
   channel,
+  manualReconnecting,
   offline,
   pending,
   onEdit,
@@ -78,7 +80,9 @@ function ConnectionCard({
   const observed = channel.observed;
   const observedState = observed?.connection_state ?? "pending";
   const waiting = channel.sync_state !== "applied";
-  const state = waiting
+  const state = manualReconnecting
+    ? "reconnecting"
+    : waiting
     ? channel.enabled
       ? offline ? "pending" : "connecting"
       : "disabling"
@@ -367,6 +371,7 @@ export function AgentChannelsPanel({
   const queryKey = ["settings", "agents", agentId, "channels"];
   const [dialog, setDialog] = useState<{ step: "provider" | "credentials"; editing: AgentChannel | null } | null>(null);
   const [confirmation, setConfirmation] = useState<{ kind: "disable" | "delete"; channel: AgentChannel } | null>(null);
+  const [reconnectingChannelId, setReconnectingChannelId] = useState<string | null>(null);
   const [requestError, setRequestError] = useState<string | null>(null);
   const offline = nodeStatus === "offline";
   const channelsQuery = useQuery({
@@ -438,8 +443,20 @@ export function AgentChannelsPanel({
 
   const reconnectMutation = useMutation({
     mutationFn: (channel: AgentChannel) => reconnectAgentChannel(agentId, channel.channel_id),
-    onSuccess: (saved) => { storeResource(saved); setRequestError(null); },
-    onError: (error) => setRequestError(errorDetail(error)),
+    onMutate: (channel) => setReconnectingChannelId(channel.channel_id),
+    onSuccess: () => {
+      setRequestError(null);
+      // The command endpoint returns the snapshot read before dispatch. Keep a
+      // stable action projection until the first post-command status poll.
+      window.setTimeout(() => {
+        setReconnectingChannelId(null);
+        void queryClient.invalidateQueries({ queryKey });
+      }, 2_000);
+    },
+    onError: (error) => {
+      setReconnectingChannelId(null);
+      setRequestError(errorDetail(error));
+    },
   });
 
   const deleteMutation = useMutation({
@@ -523,6 +540,7 @@ export function AgentChannelsPanel({
         <ConnectionCard
           key={resource.channel_id}
           channel={resource}
+          manualReconnecting={reconnectingChannelId === resource.channel_id}
           offline={offline}
           pending={lifecyclePending}
           onEdit={() => { setRequestError(null); setDialog({ step: "credentials", editing: resource }); }}
