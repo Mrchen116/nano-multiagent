@@ -8,6 +8,7 @@ import stat
 import subprocess
 import sys
 
+import pytest
 import yaml
 
 from personal_assistant.channels.channel_credentials import (
@@ -15,8 +16,17 @@ from personal_assistant.channels.channel_credentials import (
     GatewayChannelKeyStore,
 )
 from personal_assistant.config.local_store import (
+    AgentWorkspaceConfig,
     ChannelConfig,
+    GatewayLifecycleConfig,
+    HeartbeatConfig,
+    IMServiceConfig,
+    LLMConfigPayload,
     migrate_managed_channels_to_credential_refs,
+    LocalConfig,
+    NodeConfig,
+    RuntimeConfigOwner,
+    save_sensitive_local_config,
 )
 from personal_assistant.gateway.channel_manager import (
     ChannelGeneration,
@@ -24,6 +34,11 @@ from personal_assistant.gateway.channel_manager import (
     ManagedChannelSpec,
 )
 from personal_assistant.gateway.channel_manifest_store import ChannelManifestStore
+from personal_assistant.main import (
+    _build_feishu_owner_open_id_binder,
+    _IMConfigSyncClient,
+    _make_token_getter,
+)
 
 
 def test_migration_replaces_only_managed_secret_after_authoritative_cache() -> None:
@@ -163,3 +178,87 @@ def test_export_legacy_cli_opens_cache_to_explicit_mode_0600_file(
         "ownerOpenId": "ou-owner",
     }
     assert "must-not-persist" not in json.dumps(exported)
+
+
+@pytest.mark.asyncio
+async def test_migrated_secret_never_returns_from_later_runtime_writers(
+    tmp_path: Path,
+) -> None:
+    """Every long-lived config writer observes the post-migration sanitized snapshot."""
+    path = tmp_path / "config.yaml"
+    workspace = tmp_path / "agent-a"
+    workspace.mkdir()
+    config = LocalConfig(
+        node=NodeConfig(node_id="node-a"),
+        agents=(AgentWorkspaceConfig(agent_id="agent-a", workspace_root=workspace),),
+        channels=(
+            ChannelConfig(
+                name="feishu:agent-a",
+                settings={"appId": "cli_a", "appSecret": "legacy-secret"},
+            ),
+        ),
+        gateway=GatewayLifecycleConfig(),
+        heartbeat=HeartbeatConfig(),
+        im_service=IMServiceConfig(
+            url="http://im.local",
+            token="old-token",
+            refresh_token="old-refresh",
+        ),
+        llm=LLMConfigPayload(default_model="test:model"),
+        source_path=path,
+    )
+    save_sensitive_local_config(config, path)
+    owner = RuntimeConfigOwner(config)
+    migrated = migrate_managed_channels_to_credential_refs(
+        config.channels,
+        credential_refs={"feishu:agent-a": "channel-manifest:ch-a"},
+    )
+    owner.persist(
+        lambda current: current.__class__(
+            node=current.node,
+            agents=current.agents,
+            channels=migrated,
+            gateway=current.gateway,
+            heartbeat=current.heartbeat,
+            im_service=current.im_service,
+            llm=current.llm,
+            source_path=current.source_path,
+        ),
+        save_config=save_sensitive_local_config,
+    )
+
+    sync = _IMConfigSyncClient.__new__(_IMConfigSyncClient)
+    sync._config_owner = owner  # noqa: SLF001
+    sync._persist_agent_config(  # noqa: SLF001
+        AgentWorkspaceConfig(
+            agent_id="agent-a", workspace_root=workspace, title="Updated Agent"
+        )
+    )
+
+    class _AuthClient:
+        async def refresh(self, _refresh: str) -> tuple[str, str]:
+            return "new-token", "new-refresh"
+
+    token_getter = _make_token_getter(
+        im_service=config.im_service,
+        local_config=config,
+        config_owner=owner,
+        auth_client=_AuthClient(),
+    )
+    assert await token_getter() == "new-token"
+    binder = _build_feishu_owner_open_id_binder(config, config_owner=owner)
+    assert binder("feishu:agent-a", "ou_owner") == "ou_owner"
+
+    persisted_text = "\n".join(
+        candidate.read_text(encoding="utf-8")
+        for candidate in tmp_path.rglob("*")
+        if candidate.is_file()
+    )
+    assert "legacy-secret" not in persisted_text
+    assert "credentialRef: channel-manifest:ch-a" in path.read_text(encoding="utf-8")
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    assert owner.snapshot().channels[0].settings == {
+        "appId": "cli_a",
+        "credentialRef": "channel-manifest:ch-a",
+        "ownerOpenId": "ou_owner",
+    }
