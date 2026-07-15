@@ -299,3 +299,76 @@ async def test_fork_publish_race_returns_failure_without_stale_branch_binding(
     assert result["ok"] is False
     assert result["error"] == "agent config changed while session fork was running"
     assert binder.lookup("web_relay:conv-new:alpha") is None
+
+
+@pytest.mark.asyncio
+async def test_fork_captures_source_binding_and_revision_atomically(
+    tmp_path: Path,
+) -> None:
+    """A publish between source lookup and snapshot capture cannot relabel the fork."""
+
+    from personal_assistant.gateway.session_binder import ConversationBindingRequest
+    from personal_assistant.gateway.session_keys import SessionBindingStore
+    from personal_assistant.main import _build_session_fork_handler
+
+    old_workspace = tmp_path / "old-atomic"
+    new_workspace = tmp_path / "new-atomic"
+    old_workspace.mkdir()
+    new_workspace.mkdir()
+    catalog = LiveAgentCatalog(
+        (AgentWorkspaceConfig(agent_id="alpha", workspace_root=old_workspace),)
+    )
+
+    class _PublishingStore(SessionBindingStore):
+        publish_on_get = False
+
+        def get(self, session_key: str):
+            binding = super().get(session_key)
+            if self.publish_on_get:
+                self.publish_on_get = False
+                catalog.publish(
+                    AgentWorkspaceConfig(
+                        agent_id="alpha",
+                        workspace_root=new_workspace,
+                    )
+                )
+            return binding
+
+    store = _PublishingStore()
+    kernel = _FakeKernel()
+    binder = GatewaySessionBinder(catalog=catalog, repository=store, kernel=kernel)
+    old_snapshot = catalog.require("alpha")
+    bound = binder.bind_conversation(
+        ConversationBindingRequest(
+            channel_name="web_relay",
+            conversation_id="conv-src",
+            agent_id="alpha",
+            kernel_session_id="ksess-src",
+            guard=binder.capture_write_guard(old_snapshot),
+        ),
+        old_snapshot,
+    )
+    assert bound.status == "bound"
+    store.publish_on_get = True
+    handler = _build_session_fork_handler(
+        kernel=kernel,
+        session_binder=binder,
+        agent_catalog=catalog,
+        channel_name="web_relay",
+    )
+
+    result = await handler(
+        {
+            "source_conversation_id": "conv-src",
+            "new_conversation_id": "conv-new",
+            "agent_id": "alpha",
+            "fork_point": {"message_id": "a3"},
+        }
+    )
+
+    assert result == {
+        "ok": False,
+        "error": "agent config changed while session fork was running",
+    }
+    assert kernel.fork_calls[0]["workspace_root"] == old_workspace
+    assert binder.lookup("web_relay:conv-new:alpha") is None

@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.gateway.inbound_models import (
     InboundRunRequest,
     StopRunRequest,
@@ -264,3 +265,60 @@ async def test_continuous_steer_uses_one_original_stream(
     assert [call["steer"] for call in kernel.submit_calls] == [False, True, True]
     kernel.finish("run-1", text="all done")
     assert (await running).reply_text == "all done"
+
+
+@pytest.mark.asyncio
+async def test_active_run_keeps_original_session_across_config_publish(
+    tmp_path: Path,
+) -> None:
+    """Steer and stop control the admitted session until its terminal event."""
+
+    kernel, catalog, binder, router, group_store = build_dependencies(tmp_path)
+    coordinator = SessionRunCoordinator(
+        kernel=kernel,
+        session_binder=binder,
+        outbound_router=router,
+        group_context_store=group_store,
+    )
+    old_request = _request(inbound(chat_id="chat-a", text="old run"), catalog)
+    running = asyncio.create_task(coordinator.dispatch(old_request))
+    await kernel.wait_stream("run-1")
+
+    new_workspace = tmp_path / "agent-a-v2"
+    new_workspace.mkdir()
+    current = catalog.publish(
+        AgentWorkspaceConfig(
+            agent_id="agent-a",
+            workspace_root=new_workspace,
+            title="Agent A v2",
+        )
+    )
+    binder.invalidate_stale("agent-a", current_revision=current.revision)
+    kernel.inject_steer = True
+
+    steered = await coordinator.dispatch(
+        _request(inbound(chat_id="chat-a", text="new follow-up"), catalog)
+    )
+    stopped = await coordinator.stop(
+        StopRunRequest(
+            message=inbound(chat_id="chat-a", text="/stop"),
+            agent=current,
+            session_key=old_request.session_key,
+        )
+    )
+
+    assert steered.run_id == stopped.run_id == "run-1"
+    assert kernel.submit_calls[-1]["session_id"] == "sess-1"
+    assert kernel.interrupt_calls == ["sess-1"]
+    assert kernel.append_calls[-1]["session_id"] == "sess-1"
+    assert kernel.create_calls == [str(old_request.agent.config.workspace_root)]
+
+    kernel.finish("run-1", status="cancelled", text="")
+    await running
+    next_run = asyncio.create_task(
+        coordinator.dispatch(_request(inbound(chat_id="chat-a", text="v2"), catalog))
+    )
+    await kernel.wait_stream("run-2")
+    kernel.finish("run-2", text="v2 done")
+    assert (await next_run).kernel_session_id == "sess-2"
+    assert kernel.create_calls[-1] == str(new_workspace)

@@ -120,3 +120,33 @@ async def test_manager_seal_does_not_cancel_current_callback_before_close() -> N
         for task in asyncio.all_tasks()
         if not task.done()
     )
+
+
+@pytest.mark.asyncio
+async def test_session_event_uses_subscription_reply_context_after_binding_invalidation() -> (
+    None
+):
+    """An old subscriber keeps its original delivery target after config publication."""
+
+    kernel = _QueuedKernel()
+    delivered: list[tuple[str, str]] = []
+    event_seen = asyncio.Event()
+
+    async def _on_session_event(
+        reply_context: ReplyContext, event: Mapping[str, Any]
+    ) -> None:
+        delivered.append((reply_context.target_chat_id, str(event["event"])))
+        event_seen.set()
+
+    manager = BackgroundSubscriptionManager(
+        kernel=kernel,
+        session_event_callback=_on_session_event,
+    )
+    await manager.ensure(_request())
+    manager.seal()
+    await kernel.events.put({"event": "self_evolution_review"})
+    await asyncio.wait_for(event_seen.wait(), timeout=1)
+
+    assert delivered == [("conv-original", "self_evolution_review")]
+    await kernel.events.put(None)
+    await manager.aclose(asyncio.get_running_loop().time() + 1)

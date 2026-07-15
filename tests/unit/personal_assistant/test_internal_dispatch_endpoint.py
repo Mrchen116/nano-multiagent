@@ -289,3 +289,89 @@ async def test_dispatch_ack_after_config_publish_does_not_restore_stale_binding(
     assert result["ok"] is True
     assert binder.lookup("web_relay:conv-stale-ack:agent_a") is None
     assert kernel.append_message.call_args.kwargs["workspace_root"] == old_workspace
+
+
+@pytest.mark.asyncio
+async def test_dispatch_from_old_session_keeps_captured_provenance_after_publish(
+    tmp_path,
+) -> None:
+    """A running old session cannot be relabelled as the current Agent revision."""
+
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    from personal_assistant.channels.base import InboundMessage, ReplyContext
+    from personal_assistant.config.local_store import AgentWorkspaceConfig
+    from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
+    from personal_assistant.gateway.internal_dispatch import InternalDispatchHandler
+    from personal_assistant.gateway.session_binder import (
+        GatewaySessionBinder,
+        SessionBindingRequest,
+    )
+    from personal_assistant.gateway.session_keys import SessionBindingStore
+    from personal_assistant.ws.im_connection import IMDispatchAck
+
+    old_workspace = Path(tmp_path) / "old"
+    new_workspace = Path(tmp_path) / "new"
+    old_workspace.mkdir()
+    new_workspace.mkdir()
+    catalog = LiveAgentCatalog(
+        (AgentWorkspaceConfig(agent_id="agent_a", workspace_root=old_workspace),)
+    )
+    kernel = MagicMock()
+    kernel.create_session = AsyncMock(return_value=SimpleNamespace(session_id="session-old"))
+    binder = GatewaySessionBinder(
+        catalog=catalog,
+        repository=SessionBindingStore(),
+        kernel=kernel,
+    )
+    message = InboundMessage(
+        channel_name="web_relay",
+        text="start",
+        external_user_id="user",
+        external_chat_id="source",
+        is_group=False,
+        agent_id="agent_a",
+    )
+    await binder.resolve(
+        SessionBindingRequest(
+            session_key="web_relay:source:agent_a",
+            reply_context=ReplyContext("web_relay", "source"),
+            message=message,
+            gateway_internal_port=8089,
+        ),
+        catalog.require("agent_a"),
+    )
+    current = catalog.publish(
+        AgentWorkspaceConfig(agent_id="agent_a", workspace_root=new_workspace)
+    )
+    binder.invalidate_stale("agent_a", current_revision=current.revision)
+    manager = MagicMock(connected=True)
+    manager.send_agent_message = AsyncMock(
+        return_value=IMDispatchAck(
+            conversation_id="target-conv",
+            message_id="target-msg",
+            target_kind="user_id",
+            target_id="target-user",
+            source_agent_id="agent_a",
+        )
+    )
+    handler = InternalDispatchHandler(
+        im_connection_manager=manager,
+        kernel_client=kernel,
+        agent_catalog=catalog,
+        session_binder=binder,
+    )
+
+    result = await handler.handle(
+        {
+            "text": "from old run",
+            "to": "target-user",
+            "origin_kernel_session_id": "session-old",
+            "source_agent_id": "agent_a",
+        }
+    )
+
+    assert result["ok"] is True
+    assert binder.lookup("web_relay:target-conv:agent_a") is None
+    assert kernel.append_message.call_args.kwargs["workspace_root"] == old_workspace
