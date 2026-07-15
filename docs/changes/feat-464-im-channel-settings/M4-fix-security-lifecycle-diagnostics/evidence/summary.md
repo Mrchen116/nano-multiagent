@@ -47,4 +47,3 @@ The online journey recorded five lifecycle `PATCH` responses at HTTP 200 and zer
 - Backend `pytest -q -m "not e2e"` → 3447 passed, 1 skipped, 20 deselected.
 - Gateway handler-focused suite → 70 passed; every test file opening `/im/ws/gateway` → 71 passed.
 - `git diff --check`, test naming/size contract, secret scan, file-mode audit, screenshot inspection and process cleanup → PASS.
-
