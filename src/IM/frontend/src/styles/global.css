@@ -2287,6 +2287,60 @@ body {
   background: oklch(0.80 0.01 240);
 }
 
+.im-channel-diagnostics {
+  display: grid;
+  gap: 0.75rem;
+  border: 1px solid var(--im-border);
+  border-radius: 0.75rem;
+  padding: 0.875rem;
+}
+
+.im-channel-diagnostics--limited {
+  border-color: oklch(0.82 0.10 80);
+  background: oklch(0.97 0.035 85);
+}
+
+.im-channel-diagnostics--unknown {
+  background: oklch(0.96 0.005 240);
+}
+
+.im-channel-scope {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  border-radius: 0.35rem;
+  background: oklch(0.93 0.01 255);
+  padding: 0.2rem 0.4rem;
+  color: oklch(0.35 0.10 255);
+  font-size: 0.7rem;
+}
+
+@media (max-width: 767px) {
+  .im-channel-card-head {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .im-channel-actions {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .im-channel-actions .im-btn {
+    width: 100%;
+  }
+
+  .im-channel-card-footer {
+    display: grid;
+  }
+
+  .chat-modal-bottom-sheet .chat-modal-footer {
+    padding-bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
+  }
+}
+
 .chat-modal-header {
   padding: 1rem 1.25rem 0.75rem;
   border-bottom: 1px solid var(--im-border);

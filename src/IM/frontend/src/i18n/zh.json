@@ -237,6 +237,27 @@
         "guide": "在飞书开放平台创建应用、开启机器人能力并选择长连接接收事件。",
         "openPlatform": "打开飞书开放平台"
       },
+      "diagnostics": {
+        "limited": {
+          "title": "连接受限",
+          "detail": "基础消息链路可用，但部分能力因应用权限不完整而受限。"
+        },
+        "unknown": {
+          "title": "权限状态暂时无法确认",
+          "detail": "连接状态与权限检查相互独立；系统稍后会重新检查，不会把未知误报为缺失。"
+        },
+        "checkState": {
+          "missing": "权限缺失",
+          "unknown": "暂时无法确认",
+          "satisfied": "已满足"
+        },
+        "rawScopes": "飞书权限范围",
+        "effect": "影响",
+        "remediation": "修复方向",
+        "checkUnknown": "该项权限暂时无法确认",
+        "openPlatform": "前往开放平台检查",
+        "groupBackgroundEffect": "群背景上下文不完整：未 @ 机器人的消息不会进入 Agent 上下文。"
+      },
       "dialog": {
         "addTitle": "添加通道",
         "editTitle": "编辑飞书通道",

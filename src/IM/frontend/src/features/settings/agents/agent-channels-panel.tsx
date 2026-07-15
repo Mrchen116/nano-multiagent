@@ -1,11 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useId, useState } from "react";
 
+import { useIsMobile } from "../../../hooks/use-is-mobile";
 import { useTranslation } from "../../../i18n";
 import {
   AgentChannel,
   AgentChannelRemoval,
   AgentChannelResource,
+  ChannelDiagnosticCheck,
   CreateAgentChannelInput,
   createAgentChannel,
   deleteAgentChannel,
@@ -53,6 +55,87 @@ function errorDetail(error: unknown): string {
 
 function isRemoval(resource: AgentChannelResource): resource is AgentChannelRemoval {
   return "resource_type" in resource && resource.resource_type === "removal";
+}
+
+function diagnosticScopes(check: ChannelDiagnosticCheck): string[] {
+  if (check.required.recommended_scopes.length > 0) {
+    return check.required.recommended_scopes;
+  }
+  return [...new Set(check.required.accepted_scope_sets.flat())];
+}
+
+function DiagnosticsPanel({ channel }: { channel: AgentChannel }) {
+  const { t } = useTranslation();
+  const state = channel.observed?.diagnostics_state;
+  if (state !== "limited" && state !== "unknown") return null;
+  const limited = state === "limited";
+  const checks = (channel.observed?.checks ?? []).filter(
+    (check) => check.state !== "satisfied",
+  );
+  return (
+    <section
+      className={`im-channel-diagnostics ${limited ? "im-channel-diagnostics--limited" : "im-channel-diagnostics--unknown"}`}
+      data-diagnostics-state={state}
+      role="status"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <strong className="text-sm text-slate-900">
+            {t(`agents.channels.diagnostics.${state}.title`)}
+          </strong>
+          <p className="m-0 mt-1 text-xs leading-5 text-slate-600">
+            {t(`agents.channels.diagnostics.${state}.detail`)}
+          </p>
+        </div>
+        <a
+          className="text-xs font-semibold text-blue-700 underline"
+          href={FEISHU_OPEN_PLATFORM_URL}
+          target="_blank"
+          rel="noreferrer"
+        >
+          {t("agents.channels.diagnostics.openPlatform")} ↗
+        </a>
+      </div>
+      {checks.length > 0 ? (
+        <div className="grid gap-2">
+          {checks.map((check) => {
+            const missing = check.state === "missing";
+            const effect = check.check_id === "feishu.receive_group_message"
+              ? t("agents.channels.diagnostics.groupBackgroundEffect")
+              : check.effect;
+            return (
+              <article
+                className="grid gap-2 rounded-lg border border-slate-200 bg-white/80 p-3"
+                data-diagnostic-check={check.check_id}
+                key={check.check_id}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <code className="text-[11px] font-semibold text-slate-700">{check.check_id}</code>
+                  <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${missing ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-600"}`}>
+                    {t(`agents.channels.diagnostics.checkState.${check.state}`)}
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-1.5" aria-label={t("agents.channels.diagnostics.rawScopes")}>
+                  {diagnosticScopes(check).map((scope) => (
+                    <code className="im-channel-scope" key={scope}>{scope}</code>
+                  ))}
+                </div>
+                {check.state === "unknown" ? (
+                  <p className="m-0 text-xs font-semibold text-slate-600">
+                    {t("agents.channels.diagnostics.checkUnknown")}
+                  </p>
+                ) : null}
+                <dl className="m-0 grid gap-1 text-xs leading-5 text-slate-600">
+                  <div><dt className="inline font-semibold text-slate-800">{t("agents.channels.diagnostics.effect")}</dt><dd className="m-0 inline"> · {effect}</dd></div>
+                  <div><dt className="inline font-semibold text-slate-800">{t("agents.channels.diagnostics.remediation")}</dt><dd className="m-0 inline"> · {check.remediation}</dd></div>
+                </dl>
+              </article>
+            );
+          })}
+        </div>
+      ) : null}
+    </section>
+  );
 }
 
 interface ConnectionCardProps {
@@ -118,8 +201,8 @@ function ConnectionCard({
               : { strong: t("agents.channels.status.savedSecurely"), copy: t("agents.channels.status.connectingDetail") };
 
   return (
-    <article className="im-agent-card" data-channel-state={state}>
-      <div className="flex flex-wrap items-center gap-3">
+    <article className="im-agent-card im-channel-card" data-channel-state={state}>
+      <div className="im-channel-card-head flex flex-wrap items-center gap-3">
         <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-sm font-bold text-blue-700">
           飞
         </span>
@@ -133,7 +216,7 @@ function ConnectionCard({
             {disabled ? ` · ${t("agents.channels.status.credentialsRetained")}` : null}
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="im-channel-actions flex flex-wrap gap-2" data-testid="channel-actions">
           {state !== "disabling" ? <button type="button" className="im-btn im-btn-muted" disabled={pending} onClick={onEdit}>{t("agents.channels.actions.edit")}</button> : null}
           {channel.enabled && offline ? (
             <button type="button" className="im-btn im-btn-muted" disabled>{t("agents.channels.actions.nodeOffline")}</button>
@@ -144,7 +227,8 @@ function ConnectionCard({
           <button type="button" className="im-btn im-btn-muted text-rose-700" disabled={pending} onClick={onDelete}>{t("agents.channels.actions.delete")}</button>
         </div>
       </div>
-      <div className="flex flex-wrap justify-between gap-2 border-t border-[var(--im-border)] pt-3 text-xs text-slate-500">
+      <DiagnosticsPanel channel={channel} />
+      <div className="im-channel-card-footer flex flex-wrap justify-between gap-2 border-t border-[var(--im-border)] pt-3 text-xs text-slate-500">
         <span role={failed ? "alert" : undefined}>
           <strong className={failed ? "text-rose-700" : "text-slate-800"}>{detail.strong}</strong> · <span>{detail.copy}</span>
         </span>
@@ -211,11 +295,15 @@ function ConfirmationDialog({
   onConfirm(): void;
 }) {
   const { t } = useTranslation();
+  const isMobile = useIsMobile();
   const titleId = useId();
   return (
-    <div className="chat-modal-backdrop" role="presentation">
+    <div className={isMobile ? "chat-modal-bottom-sheet" : "chat-modal-backdrop"} role="presentation">
       <section className="chat-modal" role="dialog" aria-modal="true" aria-labelledby={titleId}>
-        <header className="chat-modal-header bg-white"><h2 id={titleId}>{t(`agents.channels.confirm.${kind}Title`)}</h2></header>
+        <header className="chat-modal-header bg-white">
+          {isMobile ? <div className="chat-modal-sheet-handle" aria-hidden="true"><div className="chat-modal-sheet-handle-bar" /></div> : null}
+          <h2 id={titleId}>{t(`agents.channels.confirm.${kind}Title`)}</h2>
+        </header>
         <div className="chat-modal-body"><p className="m-0 text-sm text-slate-600">{t(`agents.channels.confirm.${kind}Body`)}</p></div>
         <footer className="chat-modal-footer bg-white">
           <button type="button" className="chat-modal-btn-ghost" onClick={onCancel}>{t("agents.channels.actions.cancel")}</button>
@@ -238,6 +326,7 @@ interface ChannelDialogProps {
 
 function ChannelDialog({ providerOccupied, editing, initialStep, pending, requestError, onClose, onSave }: ChannelDialogProps) {
   const { t } = useTranslation();
+  const isMobile = useIsMobile();
   const titleId = useId();
   const appIdInputId = useId();
   const secretInputId = useId();
@@ -268,10 +357,11 @@ function ChannelDialog({ providerOccupied, editing, initialStep, pending, reques
   }
 
   return (
-    <div className="chat-modal-backdrop" role="presentation">
+    <div className={isMobile ? "chat-modal-bottom-sheet" : "chat-modal-backdrop"} role="presentation">
       <section className="chat-modal" role="dialog" aria-modal="true" aria-labelledby={titleId}>
         <header className="chat-modal-header flex items-start justify-between gap-3 bg-white">
           <div>
+            {isMobile ? <div className="chat-modal-sheet-handle" aria-hidden="true"><div className="chat-modal-sheet-handle-bar" /></div> : null}
             <h2 id={titleId}>{editing ? t("agents.channels.dialog.editTitle") : t("agents.channels.dialog.addTitle")}</h2>
             <p>{step === "provider" ? t("agents.channels.dialog.chooseProvider") : t("agents.channels.dialog.credentialsSubtitle")}</p>
           </div>

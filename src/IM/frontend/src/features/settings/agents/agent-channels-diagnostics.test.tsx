@@ -154,6 +154,11 @@ describe("AgentChannelsPanel diagnostics and responsive states", () => {
     const card = (await screen.findByText("连接受限")).closest("article");
     expect(card).toHaveClass("im-channel-card");
     expect(within(card!).getByTestId("channel-actions")).toHaveClass("im-channel-actions");
+    await user.click(screen.getByRole("button", { name: "添加通道" }));
+    const add = screen.getByRole("dialog", { name: "添加通道" });
+    expect(add.parentElement).toHaveClass("chat-modal-bottom-sheet");
+    await user.click(within(add).getByRole("button", { name: "关闭" }));
+
     await user.click(within(card!).getByRole("button", { name: "编辑" }));
     const edit = screen.getByRole("dialog", { name: "编辑飞书通道" });
     expect(edit.parentElement).toHaveClass("chat-modal-bottom-sheet");

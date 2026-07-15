@@ -239,6 +239,27 @@
         "guide": "Create an app in Feishu Open Platform, enable the bot, and receive events over a long connection.",
         "openPlatform": "Open Feishu Open Platform"
       },
+      "diagnostics": {
+        "limited": {
+          "title": "Connection limited",
+          "detail": "The basic messaging path works, but incomplete app permissions limit some capabilities."
+        },
+        "unknown": {
+          "title": "Permission status temporarily unavailable",
+          "detail": "Connection and permission checks are independent. The system will check again without reporting unknown as missing."
+        },
+        "checkState": {
+          "missing": "Permission missing",
+          "unknown": "Temporarily unavailable",
+          "satisfied": "Satisfied"
+        },
+        "rawScopes": "Feishu permission scopes",
+        "effect": "Impact",
+        "remediation": "Remediation",
+        "checkUnknown": "This permission cannot be confirmed right now",
+        "openPlatform": "Check Open Platform",
+        "groupBackgroundEffect": "Group background context is incomplete: messages without an @Bot mention do not enter the Agent context."
+      },
       "dialog": {
         "addTitle": "Add channel",
         "editTitle": "Edit Feishu channel",
