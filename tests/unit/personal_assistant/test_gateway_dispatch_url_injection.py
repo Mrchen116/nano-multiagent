@@ -87,3 +87,40 @@ def test_session_metadata_uses_published_listener_url_or_omits_it(tmp_path: Path
     assert kernel.create_session_calls[1]["metadata"]["gateway_dispatch_url"] == (
         "http://127.0.0.1:43210/internal/dispatch"
     )
+
+
+def test_build_runtime_injects_process_endpoint_provider_before_kernel(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Production PA tool receives the endpoint owner created before Kernel build."""
+
+    from personal_assistant.main import build_runtime
+    from personal_assistant.tools.send_message import SendMessageTool
+
+    from ._main_helpers import make_minimal_config
+
+    endpoint = InternalDispatchEndpoint()
+    captured_providers = []
+
+    class _TrackingSendMessageTool(SendMessageTool):
+        def __init__(self, *, gateway_dispatch_url_provider=None) -> None:  # noqa: ANN001
+            captured_providers.append(gateway_dispatch_url_provider)
+            super().__init__(
+                gateway_dispatch_url_provider=gateway_dispatch_url_provider
+            )
+
+    monkeypatch.setattr(
+        "personal_assistant.main.InternalDispatchEndpoint", lambda: endpoint
+    )
+    monkeypatch.setattr(
+        "personal_assistant.product.SendMessageTool", _TrackingSendMessageTool
+    )
+
+    build_runtime(make_minimal_config(tmp_path))
+
+    assert len(captured_providers) == 1
+    provider = captured_providers[0]
+    assert callable(provider)
+    assert provider() is None
+    endpoint.publish(host="127.0.0.1", port=43210)
+    assert provider() == "http://127.0.0.1:43210/internal/dispatch"
