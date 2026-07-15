@@ -4,11 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
-import os
 from pathlib import Path
 import shutil
-import stat
-import tempfile
 from typing import Any
 
 import yaml
@@ -350,9 +347,7 @@ def load_local_config(config_path: str | Path) -> LocalConfig:
     llm = _parse_llm(raw.get("llm"))
     agents = _parse_agents(raw.get("agents"), llm)
     channels = _parse_channels(raw.get("channels"))
-    gateway = _parse_gateway_lifecycle(
-        raw.get("gateway"), legacy_kernel=raw.get("kernel")
-    )
+    gateway = _parse_gateway_lifecycle(raw.get("gateway"))
     heartbeat = _parse_heartbeat(raw.get("heartbeat"))
     im_service = _parse_im_service(raw.get("im_service"))
     return LocalConfig(
@@ -497,97 +492,6 @@ def _backup_existing_config(dest: Path, new_text: str) -> None:
     excess = len(all_baks) - _BACKUP_RETAIN
     for old_bak in all_baks[:excess]:
         old_bak.unlink(missing_ok=True)
-
-
-def _backup_legacy_kernel_config(
-    dest: Path, *, original: bytes | None, source_mode: int
-) -> None:
-    """Preserve a config before canonical save removes its legacy kernel block.
-
-    Args:
-        dest: Config file that may contain a top-level ``kernel`` mapping.
-        original: Bytes read before this save began, or ``None`` for a new file.
-        source_mode: Permission bits to preserve on the recovery copy.
-
-    Raises:
-        FileExistsError: When the deterministic backup exists with different content.
-        OSError: When the backup cannot be created, written, or flushed durably.
-
-    Side Effects:
-        Creates ``<dest>.pre-refactor-461.bak`` once with the source bytes and mode.
-    """
-    if original is None:
-        return
-    raw = yaml.safe_load(original)
-    if not isinstance(raw, dict) or "kernel" not in raw:
-        return
-
-    backup_path = Path(f"{dest}.pre-refactor-461.bak")
-    try:
-        backup_stat = backup_path.lstat()
-    except FileNotFoundError:
-        backup_stat = None
-    if backup_stat is not None:
-        if (
-            not stat.S_ISREG(backup_stat.st_mode)
-            or backup_path.is_symlink()
-            or backup_path.read_bytes() != original
-        ):
-            raise FileExistsError(
-                f"migration backup conflicts with current config: {backup_path}"
-            )
-        backup_path.chmod(source_mode)
-        return
-
-    fd: int | None = None
-    created = False
-    try:
-        fd = os.open(backup_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, source_mode)
-        created = True
-        os.fchmod(fd, source_mode)
-        with os.fdopen(fd, "wb") as stream:
-            fd = None
-            stream.write(original)
-            stream.flush()
-            os.fsync(stream.fileno())
-    except BaseException:
-        if fd is not None:
-            os.close(fd)
-        if created:
-            backup_path.unlink(missing_ok=True)
-        raise
-
-
-def _atomic_write_config(dest: Path, payload: bytes, *, mode: int) -> None:
-    """Replace one config only after its complete new contents are durable.
-
-    Args:
-        dest: Destination in whose directory the temporary file is staged.
-        payload: Complete serialized config bytes.
-        mode: Permission bits copied from the existing config, or a safe new-file mode.
-
-    Raises:
-        OSError: When staging, flushing, or replacing the config fails.
-
-    Side Effects:
-        Atomically replaces ``dest`` after writing and flushing a same-directory file.
-    """
-    fd, temp_name = tempfile.mkstemp(prefix=f".{dest.name}.", dir=dest.parent)
-    temp_path: Path | None = Path(temp_name)
-    try:
-        os.fchmod(fd, mode)
-        with os.fdopen(fd, "wb") as stream:
-            fd = -1
-            stream.write(payload)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temp_path, dest)
-        temp_path = None
-    finally:
-        if fd >= 0:
-            os.close(fd)
-        if temp_path is not None:
-            temp_path.unlink(missing_ok=True)
 
 
 def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
@@ -743,17 +647,8 @@ def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
     )
     dest = Path(config_path).expanduser().resolve()
     dest.parent.mkdir(parents=True, exist_ok=True)
-    if dest.exists():
-        original = dest.read_bytes()
-        source_mode = stat.S_IMODE(dest.stat().st_mode)
-    else:
-        original = None
-        source_mode = 0o600
-    _backup_legacy_kernel_config(dest, original=original, source_mode=source_mode)
-    # Backup must succeed before we overwrite; raises on IO failure so dest
-    # is never silently clobbered when backup storage is unavailable.
     _backup_existing_config(dest, new_text)
-    _atomic_write_config(dest, new_text.encode("utf-8"), mode=source_mode)
+    dest.write_text(new_text, encoding="utf-8")
 
 
 def _parse_node_config(payload: Any) -> NodeConfig:
@@ -1026,18 +921,14 @@ def _validate_feishu_settings(settings: dict[str, Any], *, prefix: str) -> None:
         raise ValueError(f"{prefix}.botOpenId must be a string")
 
 
-def _parse_gateway_lifecycle(
-    payload: Any, *, legacy_kernel: Any
-) -> GatewayLifecycleConfig:
-    """Parse Gateway timing while migrating the three live legacy kernel fields.
+def _parse_gateway_lifecycle(payload: Any) -> GatewayLifecycleConfig:
+    """Parse Gateway-owned lifecycle timing.
 
     Args:
         payload: Optional canonical ``gateway`` mapping.
-        legacy_kernel: Legacy ``kernel`` value; only its three live timing fields
-            are considered when it is a mapping.
 
     Returns:
-        Gateway-owned lifecycle timing with canonical values preferred per field.
+        Gateway-owned lifecycle timing.
 
     Raises:
         ValueError: When ``gateway`` or a selected timing value is malformed.
@@ -1046,36 +937,19 @@ def _parse_gateway_lifecycle(
         payload = {}
     if not isinstance(payload, dict):
         raise ValueError("gateway must be a mapping")
-    legacy = legacy_kernel if isinstance(legacy_kernel, dict) else {}
-
-    def selected(
-        canonical_name: str, legacy_name: str, default: float
-    ) -> tuple[Any, str]:
-        if canonical_name in payload:
-            return payload[canonical_name], f"gateway.{canonical_name}"
-        if legacy_name in legacy:
-            return legacy[legacy_name], f"kernel.{legacy_name}"
-        return default, f"gateway.{canonical_name}"
-
-    startup, startup_field = selected(
-        "startup_timeout_seconds",
-        "startup_timeout_seconds",
-        _DEFAULT_STARTUP_TIMEOUT_SECONDS,
-    )
-    shutdown, shutdown_field = selected(
-        "shutdown_grace_seconds",
-        "shutdown_grace_seconds",
-        _DEFAULT_SHUTDOWN_GRACE_SECONDS,
-    )
-    poll, poll_field = selected(
-        "poll_interval_seconds",
-        "health_poll_interval_seconds",
-        _DEFAULT_POLL_INTERVAL_SECONDS,
-    )
     return GatewayLifecycleConfig(
-        startup_timeout_seconds=_positive_number(startup, field_name=startup_field),
-        shutdown_grace_seconds=_positive_number(shutdown, field_name=shutdown_field),
-        poll_interval_seconds=_positive_number(poll, field_name=poll_field),
+        startup_timeout_seconds=_positive_number(
+            payload.get("startup_timeout_seconds", _DEFAULT_STARTUP_TIMEOUT_SECONDS),
+            field_name="gateway.startup_timeout_seconds",
+        ),
+        shutdown_grace_seconds=_positive_number(
+            payload.get("shutdown_grace_seconds", _DEFAULT_SHUTDOWN_GRACE_SECONDS),
+            field_name="gateway.shutdown_grace_seconds",
+        ),
+        poll_interval_seconds=_positive_number(
+            payload.get("poll_interval_seconds", _DEFAULT_POLL_INTERVAL_SECONDS),
+            field_name="gateway.poll_interval_seconds",
+        ),
     )
 
 

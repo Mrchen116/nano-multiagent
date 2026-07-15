@@ -58,25 +58,16 @@ health 或 Gateway runtime/channel readiness。
 - **WHEN** Gateway 因运行故障进入关闭流程
 - **THEN** 日志保留原始首因;任何资源关闭失败只作为次要诊断,不替换首因
 
-### Requirement: Gateway lifecycle timing 由 Gateway 配置拥有并单向迁移旧值
+### Requirement: Gateway lifecycle timing 由 Gateway 配置拥有
 
-后台启动、停止和轮询使用的 timing 属于 `gateway:`。系统继续逐字段读取旧 `kernel:` mapping 中
-仍有 Gateway 语义的三项 timing；旧 Kernel command、连接、token 和 HTTP health 字段不再是运行时输入。
+后台启动、停止和轮询只读取 `gateway:` 下的 lifecycle timing。
 
-#### Scenario: 新字段逐项优先并回退旧 timing
-- **GIVEN** config 同时或分别提供 `gateway:` 与旧 `kernel:` timing
+#### Scenario: 加载 Gateway lifecycle timing
+- **GIVEN** config 提供 `gateway.startup_timeout_seconds`、
+  `gateway.shutdown_grace_seconds` 或 `gateway.poll_interval_seconds`
 - **WHEN** Gateway 加载配置
-- **THEN** `gateway.startup_timeout_seconds`、`gateway.shutdown_grace_seconds`、
-  `gateway.poll_interval_seconds` 逐字段优先
-- **AND** 缺失字段分别回退旧 `startup_timeout_seconds`、`shutdown_grace_seconds`、
-  `health_poll_interval_seconds`,其余旧字段被忽略
-
-#### Scenario: 保存旧配置前保留可恢复原件
-- **GIVEN** 待保存 config 含旧 `kernel:` mapping
-- **WHEN** 现有配置同步流程保存 canonical config
-- **THEN** 系统先创建 `<config>.pre-refactor-461.bak`,其 bytes 与 mode 等于迁移前原文件
-- **AND** backup 冲突、创建失败或 staged write 失败时不覆盖原 config
-- **AND** 成功写入使用同目录临时文件和 atomic replace,保留原 mode,只输出 canonical `gateway:` timing
+- **THEN** 对应 timing 用于后台启动、停止或轮询
+- **AND** 未提供的字段使用 Gateway 默认值
 
 ### Requirement: IM 服务在线时 Gateway 主动连出并保持双向通信
 
