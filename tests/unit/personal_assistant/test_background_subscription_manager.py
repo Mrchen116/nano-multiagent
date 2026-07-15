@@ -219,3 +219,24 @@ async def test_close_consumes_event_dequeued_before_stop_request() -> None:
     await close
 
     assert delivered == ["self_evolution_review"]
+
+
+@pytest.mark.asyncio
+async def test_close_cancels_idle_stream_without_deadline_warning() -> None:
+    """An idle subscription has no accepted callback and should close promptly."""
+
+    kernel = _QueuedKernel()
+    manager = BackgroundSubscriptionManager(
+        kernel=kernel,
+        session_event_callback=lambda _context, _event: asyncio.sleep(0),
+    )
+    await manager.ensure(_request())
+    await asyncio.wait_for(kernel.started.wait(), timeout=1)
+
+    await manager.aclose(asyncio.get_running_loop().time() + 0.2)
+
+    assert not any(
+        task.get_name().startswith("bg-sse-sub:")
+        for task in asyncio.all_tasks()
+        if not task.done()
+    )
