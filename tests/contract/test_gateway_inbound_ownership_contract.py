@@ -151,3 +151,12 @@ def test_config_sync_paths_share_one_mirror_decoder() -> None:
     source = _source("src/personal_assistant/gateway/agent_config_sync.py")
 
     assert source.count("self._decode_mirror_agent_config(") == 2
+
+
+def test_gateway_drains_im_outbound_frames_before_transport_close() -> None:
+    source = _source("src/personal_assistant/main.py")
+    shutdown = source[source.index("async def _run_until_shutdown") :]
+
+    assert shutdown.index('"IM outbound drain"') < shutdown.index(
+        '"IM connection close"'
+    )
