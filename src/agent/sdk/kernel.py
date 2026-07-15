@@ -962,9 +962,11 @@ class Kernel:
                 workspace_root=effective_root,
                 title=title,
                 skills=tuple(skills) if skills else None,
-                tool_allowlist=tuple(effective_allowlist)
-                if effective_allowlist
-                else None,
+                tool_allowlist=(
+                    tuple(effective_allowlist)
+                    if effective_allowlist is not None
+                    else None
+                ),
                 metadata=effective_metadata,
                 prompt_seed=_to_prompt_seed(prompt),
             )

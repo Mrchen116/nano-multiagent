@@ -51,7 +51,7 @@ class BackgroundSubscriptionManager:
         *,
         kernel: "Kernel",
         session_event_callback: Callable[
-            [str, Mapping[str, Any]], Awaitable[None]
+            [ReplyContext, Mapping[str, Any]], Awaitable[None]
         ]
         | None = None,
         bg_reply_sender: Callable[
@@ -78,10 +78,14 @@ class BackgroundSubscriptionManager:
 
         if self._sealed:
             raise RuntimeError("background subscription manager is sealed")
-        if (
-            self._session_event_callback is None
-            and (request.reply_context is None or self._bg_reply_sender is None)
-        ):
+        has_session_delivery = (
+            self._session_event_callback is not None
+            and request.reply_context is not None
+        )
+        has_background_delivery = (
+            request.reply_context is not None and self._bg_reply_sender is not None
+        )
+        if not has_session_delivery and not has_background_delivery:
             return
         async with self._lock:
             if self._sealed:
@@ -149,8 +153,8 @@ class BackgroundSubscriptionManager:
         session_event_callback = self._session_event_callback
 
         async def _on_session_event(event: Mapping[str, Any]) -> None:
-            if session_event_callback is not None:
-                await session_event_callback(request.session_id, event)
+            if session_event_callback is not None and request.reply_context is not None:
+                await session_event_callback(request.reply_context, event)
 
         bg_run_output_callback = None
         if request.reply_context is not None and self._bg_reply_sender is not None:

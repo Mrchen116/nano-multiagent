@@ -6,7 +6,7 @@ import asyncio
 from collections import OrderedDict
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager
-from dataclasses import replace
+from dataclasses import dataclass, replace
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -22,6 +22,7 @@ from personal_assistant.gateway.background_subscriptions import (
     BackgroundSubscriptionManager,
     BackgroundSubscriptionRequest,
 )
+from personal_assistant.gateway.agent_catalog import LiveAgentSnapshot
 from personal_assistant.gateway.group_context_store import GroupContextStore
 from personal_assistant.gateway.image_attachments import ImageAttachmentResolver
 from personal_assistant.gateway.inbound_models import (
@@ -68,6 +69,15 @@ _IMAGE_FAILURE_MESSAGES: dict[str, str] = {
     ),
     "corrupt": "这张图片我无法识别，没能收到它，无法据此回复。请确认图片有效后重新发送。",
 }
+
+
+@dataclass(frozen=True, slots=True)
+class _ActiveRunHandle:
+    """Freeze the Kernel session and Agent revision admitted for one active run."""
+
+    run_id: str
+    binding: SessionBinding
+    agent: LiveAgentSnapshot
 
 
 class SessionRunCoordinator:
@@ -130,7 +140,7 @@ class SessionRunCoordinator:
         self._kernel_event_observer = kernel_event_observer
         self._bg_reply_sender = bg_reply_sender
         self._run_idle_timeout_seconds = run_idle_timeout_seconds
-        self._active_runs: dict[str, str] = {}
+        self._active_runs: dict[str, _ActiveRunHandle] = {}
         self._user_interrupted_runs: set[str] = set()
         self._transition_locks: OrderedDict[str, asyncio.Lock] = OrderedDict()
         self._transition_lock_users: dict[str, int] = {}
@@ -153,9 +163,9 @@ class SessionRunCoordinator:
         injected_result: PipelineResult | None = None
         image_failure: tuple[str, SessionBinding] | None = None
         async with self._transition(request.session_key):
-            active_run_id = self._active_runs.get(request.session_key)
-            if active_run_id is not None:
-                binding = await self._ensure_binding(request)
+            active = self._active_runs.get(request.session_key)
+            if active is not None:
+                binding = active.binding
                 parts, failure_kind = await self._build_message_parts(request)
                 if failure_kind is not None:
                     image_failure = (failure_kind, binding)
@@ -163,9 +173,9 @@ class SessionRunCoordinator:
                     record = self._kernel.submit(
                         session_id=binding.kernel_session_id,
                         parts=parts,
-                        workspace_root=request.agent.config.workspace_root,
+                        workspace_root=active.agent.config.workspace_root,
                         steer=True,
-                        model=self._resolve_model(request),
+                        model=self._resolve_agent_model(active.agent),
                     )
                     if getattr(record, "injected", False):
                         injected_result = PipelineResult(
@@ -203,8 +213,9 @@ class SessionRunCoordinator:
         binding: SessionBinding | None = None
         active_run_id: str | None = None
         async with self._transition(request.session_key):
-            active_run_id = self._active_runs.get(request.session_key)
-            if active_run_id is None and request.message.is_group:
+            active = self._active_runs.get(request.session_key)
+            active_run_id = active.run_id if active is not None else None
+            if active is None and request.message.is_group:
                 return PipelineResult(
                     agent_id=request.agent.agent_id,
                     session_key=request.session_key,
@@ -213,8 +224,12 @@ class SessionRunCoordinator:
                     reply_text="",
                     outbound=None,
                 )
-            binding = await self._ensure_binding_for_stop(request)
-            if active_run_id is not None:
+            binding = (
+                active.binding
+                if active is not None
+                else await self._ensure_binding_for_stop(request)
+            )
+            if active is not None:
                 # This order is the user-stop attribution contract. The original
                 # stream consumer performs reconcile after Kernel interruption.
                 self._user_interrupted_runs.add(active_run_id)
@@ -223,7 +238,7 @@ class SessionRunCoordinator:
                     session_id=binding.kernel_session_id,
                     role="user",
                     content="[Request interrupted by user for tool use]",
-                    workspace_root=request.agent.config.workspace_root,
+                    workspace_root=active.agent.config.workspace_root,
                 )
         assert binding is not None
         if active_run_id is None:
@@ -359,7 +374,11 @@ class SessionRunCoordinator:
                     run_id = record.run_id
                     anchor_sequence = record.start_sequence
                     if run_id:
-                        self._active_runs[request.session_key] = run_id
+                        self._active_runs[request.session_key] = _ActiveRunHandle(
+                            run_id=run_id,
+                            binding=binding,
+                            agent=request.agent,
+                        )
                     admission_event.set()
             if failure_kind is not None:
                 result = await self._reply_image_failure(
@@ -464,7 +483,8 @@ class SessionRunCoordinator:
         finally:
             if run_id:
                 async with self._transition(request.session_key):
-                    if self._active_runs.get(request.session_key) == run_id:
+                    active = self._active_runs.get(request.session_key)
+                    if active is not None and active.run_id == run_id:
                         self._active_runs.pop(request.session_key, None)
                     self._user_interrupted_runs.discard(run_id)
 
@@ -772,9 +792,10 @@ class SessionRunCoordinator:
             self._transition_locks.pop(removable, None)
 
     def _resolve_model(self, request: InboundRunRequest) -> str | None:
-        return resolve_run_model(
-            request.agent.config, product_default=self._product_default_model
-        )
+        return self._resolve_agent_model(request.agent)
+
+    def _resolve_agent_model(self, agent: LiveAgentSnapshot) -> str | None:
+        return resolve_run_model(agent.config, product_default=self._product_default_model)
 
     @staticmethod
     def _is_no_reply_token(text: str) -> bool:

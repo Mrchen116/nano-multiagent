@@ -236,14 +236,11 @@ def test_system_notification_for_feishu_binding_targets_shadow_im_only() -> None
     )
     callback = build_session_event_callback(
         im_connection_manager_factory=lambda: manager,
-        session_binder=SimpleNamespace(
-            find_by_kernel_session_id=store.find_by_kernel_session_id
-        ),
     )
 
     asyncio.run(
         callback(
-            "sess-1",
+            store.find_by_kernel_session_id("sess-1").reply_context,
             {
                 "event": "self_evolution_review",
                 "reviewed_skills": True,

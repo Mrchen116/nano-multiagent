@@ -14,6 +14,7 @@ def _make_dispatch_handler(
     kernel_client=None,
     session_store=None,
     agent_workspace_roots=None,
+    origin_sessions=None,
 ):
     """Build a minimal InternalDispatchHandler for testing."""
     from pathlib import Path
@@ -37,11 +38,15 @@ def _make_dispatch_handler(
             repository=session_store,
             kernel=kernel_client,
         )
+        for agent_id, session_id in (origin_sessions or {}).items():
+            binder.register_session_provenance(
+                catalog.require(agent_id),
+                kernel_session_id=session_id,
+            )
 
     return InternalDispatchHandler(
         im_connection_manager=im_manager,
         kernel_client=kernel_client,
-        agent_catalog=catalog,
         session_binder=binder,
     )
 
@@ -161,6 +166,7 @@ def test_dispatch_handler_binds_direct_conversation_and_appends_history() -> Non
         kernel_client=kernel_client,
         session_store=session_store,
         agent_workspace_roots={"agent_a": "/tmp/agent-a-workspace"},
+        origin_sessions={"agent_a": "sess-origin-1"},
     )
 
     result = asyncio.run(
@@ -257,12 +263,14 @@ async def test_dispatch_ack_after_config_publish_does_not_restore_stale_binding(
     )
     store = SessionBindingStore()
     binder = GatewaySessionBinder(catalog=catalog, repository=store, kernel=MagicMock())
+    binder.register_session_provenance(
+        catalog.require("agent_a"), kernel_session_id="session-old"
+    )
     manager = _BlockingManager()
     kernel = MagicMock()
     handler = InternalDispatchHandler(
         im_connection_manager=manager,
         kernel_client=kernel,
-        agent_catalog=catalog,
         session_binder=binder,
     )
 
@@ -359,7 +367,6 @@ async def test_dispatch_from_old_session_keeps_captured_provenance_after_publish
     handler = InternalDispatchHandler(
         im_connection_manager=manager,
         kernel_client=kernel,
-        agent_catalog=catalog,
         session_binder=binder,
     )
 

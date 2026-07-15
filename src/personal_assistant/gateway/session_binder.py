@@ -91,6 +91,24 @@ class ConversationBindResult:
     binding: SessionBinding | None
 
 
+@dataclass(frozen=True, slots=True)
+class SessionProvenance:
+    """Capture the Agent snapshot and write guard that created a Kernel session."""
+
+    kernel_session_id: str
+    agent: LiveAgentSnapshot
+    guard: BindingWriteGuard
+
+
+@dataclass(frozen=True, slots=True)
+class BindingProvenance:
+    """Capture one binding and its Agent revision in a single binder transaction."""
+
+    binding: SessionBinding
+    agent: LiveAgentSnapshot
+    guard: BindingWriteGuard
+
+
 class GatewaySessionBinder:
     """Own Gateway channel-to-Kernel session binding business rules.
 
@@ -117,6 +135,8 @@ class GatewaySessionBinder:
         self._kernel = kernel
         self._lock = Lock()
         self._binding_revisions: dict[str, int] = {}
+        self._binding_agents: dict[str, LiveAgentSnapshot] = {}
+        self._session_agents: dict[str, LiveAgentSnapshot] = {}
         self._generations: dict[str, int] = {}
         self._startup_revisions = {
             snapshot.agent_id: snapshot.revision
@@ -169,6 +189,7 @@ class GatewaySessionBinder:
                             reply_context=refreshed.reply_context,
                         )
                         self._binding_revisions[request.session_key] = agent.revision
+                    self._record_provenance(refreshed, agent=agent, persist_binding=True)
                     return refreshed
 
         config = agent.config
@@ -195,6 +216,7 @@ class GatewaySessionBinder:
             reply_context=request.reply_context,
         )
         with self._lock:
+            self._session_agents[kernel_session_id] = agent
             if not self._write_guard_is_current(
                 agent=agent,
                 generation=generation,
@@ -206,6 +228,7 @@ class GatewaySessionBinder:
                 reply_context=request.reply_context,
             )
             self._binding_revisions[request.session_key] = agent.revision
+            self._binding_agents[request.session_key] = agent
             return binding
 
     def lookup(self, session_key: str) -> SessionBinding | None:
@@ -239,6 +262,7 @@ class GatewaySessionBinder:
                     continue
                 self._repository.drop(binding.session_key)
                 self._binding_revisions.pop(binding.session_key, None)
+                self._binding_agents.pop(binding.session_key, None)
             self._startup_revisions[agent_id] = current_revision
 
     def capture_write_guard(self, agent: LiveAgentSnapshot) -> BindingWriteGuard:
@@ -283,7 +307,58 @@ class GatewaySessionBinder:
                 ),
             )
             self._binding_revisions[binding.session_key] = agent.revision
+            self._binding_agents[binding.session_key] = agent
+            self._session_agents[request.kernel_session_id] = agent
             return ConversationBindResult(status="bound", binding=binding)
+
+    def register_session_provenance(
+        self, agent: LiveAgentSnapshot, *, kernel_session_id: str
+    ) -> None:
+        """Register a non-inbound Kernel session against its captured Agent snapshot."""
+
+        normalized = kernel_session_id.strip()
+        if not normalized:
+            raise ValueError("kernel_session_id must be non-empty")
+        with self._lock:
+            self._session_agents[normalized] = agent
+
+    def capture_session_provenance(
+        self, kernel_session_id: str, *, expected_agent_id: str
+    ) -> SessionProvenance | None:
+        """Capture immutable origin facts for a tool call from one Kernel session."""
+
+        with self._lock:
+            agent = self._session_agents.get(kernel_session_id)
+            if agent is None or agent.agent_id != expected_agent_id:
+                return None
+            return SessionProvenance(
+                kernel_session_id=kernel_session_id,
+                agent=agent,
+                guard=self._guard_for(agent),
+            )
+
+    def capture_binding_provenance(
+        self, session_key: str, *, expected_agent_id: str
+    ) -> BindingProvenance | None:
+        """Atomically capture a source binding, Agent snapshot, and semantic guard."""
+
+        with self._lock:
+            binding = self._repository.get(session_key)
+            if binding is None:
+                return None
+            agent = self._binding_agents.get(session_key)
+            if agent is None:
+                agent = self._catalog.get(expected_agent_id)
+                if agent is None:
+                    return None
+                self._record_provenance(binding, agent=agent, persist_binding=True)
+            if agent.agent_id != expected_agent_id:
+                return None
+            return BindingProvenance(
+                binding=binding,
+                agent=agent,
+                guard=self._guard_for(agent),
+            )
 
     def find_by_kernel_session_id(
         self, kernel_session_id: str
@@ -313,6 +388,24 @@ class GatewaySessionBinder:
         return generation == self._generations.get(
             agent.agent_id, 0
         ) and self._catalog.is_current(agent)
+
+    def _guard_for(self, agent: LiveAgentSnapshot) -> BindingWriteGuard:
+        return BindingWriteGuard(
+            agent_id=agent.agent_id,
+            revision=agent.revision,
+            generation=self._generations.get(agent.agent_id, 0),
+        )
+
+    def _record_provenance(
+        self,
+        binding: SessionBinding,
+        *,
+        agent: LiveAgentSnapshot,
+        persist_binding: bool,
+    ) -> None:
+        self._session_agents[binding.kernel_session_id] = agent
+        if persist_binding:
+            self._binding_agents[binding.session_key] = agent
 
     def _binding_matches_workspace_root(
         self, session_id: str, *, expected_workspace_root: str

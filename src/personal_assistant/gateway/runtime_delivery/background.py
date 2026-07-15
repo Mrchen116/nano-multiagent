@@ -8,7 +8,6 @@ import logging
 from typing import Any
 
 from personal_assistant.channels.base import ReplyContext
-from personal_assistant.gateway.session_binder import GatewaySessionBinder
 from personal_assistant.ws.im_connection import IMConnectionManager
 
 _log = logging.getLogger("personal_assistant.gateway.runtime_delivery.background")
@@ -24,8 +23,7 @@ def _metadata_text(metadata: Mapping[str, Any], *, key: str) -> str | None:
 def build_session_event_callback(
     *,
     im_connection_manager_factory: Callable[[], "IMConnectionManager | None"],
-    session_binder: "GatewaySessionBinder",
-) -> Callable[[str, Mapping[str, Any]], Awaitable[None]]:
+) -> Callable[[ReplyContext, Mapping[str, Any]], Awaitable[None]]:
     """Build a session event callback that sends self_evolution_review as IM system messages.
 
     When the background hook publishes ``self_evolution_review`` after a turn, this
@@ -35,13 +33,13 @@ def build_session_event_callback(
 
     Args:
         im_connection_manager_factory: Returns the live IM connection manager (may be None).
-        session_binder: Gateway binding owner used to reverse-resolve conversation_id.
-
     Returns:
-        Async callable ``(kernel_session_id, event) -> None``.
+        Async callable ``(captured_reply_context, event) -> None``.
     """
 
-    async def _callback(kernel_session_id: str, event: Mapping[str, Any]) -> None:
+    async def _callback(
+        reply_context: ReplyContext, event: Mapping[str, Any]
+    ) -> None:
         manager = im_connection_manager_factory()
         if manager is None or not manager.connected:
             return
@@ -50,11 +48,7 @@ def build_session_event_callback(
         if event_name != "self_evolution_review":
             return
 
-        # Resolve conversation_id from the session binding.
-        binding = session_binder.find_by_kernel_session_id(kernel_session_id)
-        if binding is None:
-            return
-        conversation_id = reply_context_im_conversation_id(binding.reply_context)
+        conversation_id = reply_context_im_conversation_id(reply_context)
         if not conversation_id:
             return
 

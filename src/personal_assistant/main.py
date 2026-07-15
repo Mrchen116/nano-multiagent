@@ -53,7 +53,7 @@ from personal_assistant.config.local_store import (
 from personal_assistant.config.sync_client import ConfigSyncClient
 from personal_assistant.gateway.bootstrap import start_channels, stop_channels
 from personal_assistant.gateway.channel_registry import ChannelRegistry
-from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
+from personal_assistant.gateway.agent_catalog import LiveAgentCatalog, LiveAgentSnapshot
 from personal_assistant.gateway.agent_config_sync import (
     IMAgentConfigSync,
     _im_http_base_url,
@@ -656,6 +656,7 @@ class PollingHeartbeatRunner:
         kernel_event_observer: Any | None = None,
         cron_tick_fn: Callable[[str], Awaitable[None]] | None = None,
         agent_catalog: LiveAgentCatalog | None = None,
+        session_binder: GatewaySessionBinder | None = None,
     ) -> None:
         self._scheduler = scheduler
         self._config = config
@@ -673,6 +674,7 @@ class PollingHeartbeatRunner:
         # When None, cron is skipped (backward compat, no cron subsystem configured).
         self._cron_tick_fn = cron_tick_fn
         self._agent_catalog = agent_catalog
+        self._session_binder = session_binder
 
     async def start(self) -> None:
         """Start background scheduler ticking exactly once."""
@@ -1951,6 +1953,7 @@ class _KernelClientShim:
         kernel: "Kernel",
         *,
         agent_catalog: LiveAgentCatalog | None = None,
+        session_binder: GatewaySessionBinder | None = None,
         product_default_model: str | None = None,
     ) -> None:
         self._kernel = kernel
@@ -1958,6 +1961,7 @@ class _KernelClientShim:
         # session-open (决策 8).  heartbeat/cron sessions look up the agent by
         # metadata["agent_id"] and assemble the PA prompt via prompt_for.
         self._agent_catalog = agent_catalog
+        self._session_binder = session_binder
         # bugfix-429 决策2: product default model for the heartbeat/cron path.
         # Callers pass the agent's selected model (may be None); the shim falls
         # back to this so unattended runs use the same default as user turns.
@@ -1970,6 +1974,7 @@ class _KernelClientShim:
         product_id: str,
         title: str | None = None,
         metadata: dict[str, object] | None = None,
+        agent_snapshot: LiveAgentSnapshot | None = None,
     ) -> dict[str, object]:
         # Build per-session PromptSlots from the agent config (决策 8).  cron /
         # heartbeat sessions are direct (no group scenario), so only head/body/custom
@@ -1978,11 +1983,13 @@ class _KernelClientShim:
         enabled_tools = None
         features = None
         agent_id = (metadata or {}).get("agent_id")
-        snapshot = (
-            self._agent_catalog.get(agent_id)
-            if self._agent_catalog is not None and isinstance(agent_id, str)
-            else None
-        )
+        snapshot = agent_snapshot
+        if snapshot is None:
+            snapshot = (
+                self._agent_catalog.get(agent_id)
+                if self._agent_catalog is not None and isinstance(agent_id, str)
+                else None
+            )
         agent = snapshot.config if snapshot is not None else None
         if agent is not None:
             from personal_assistant.product import (  # noqa: PLC0415
@@ -2001,7 +2008,31 @@ class _KernelClientShim:
             enabled_tools=enabled_tools,
             features=features,
         )
+        if snapshot is not None and self._session_binder is not None:
+            self._session_binder.register_session_provenance(
+                snapshot,
+                kernel_session_id=session.session_id,
+            )
         return {"session_id": session.session_id}
+
+    async def create_agent_session(
+        self,
+        *,
+        agent_snapshot: LiveAgentSnapshot,
+        workspace_root: str,
+        product_id: str,
+        title: str | None = None,
+        metadata: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        """Create an unattended session from one captured Agent revision."""
+
+        return await self.create_session(
+            workspace_root=workspace_root,
+            product_id=product_id,
+            title=title,
+            metadata=metadata,
+            agent_snapshot=agent_snapshot,
+        )
 
     def submit_message(
         self,
@@ -2215,14 +2246,6 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     )
 
     agent_catalog = LiveAgentCatalog(config.agents)
-    # Wrap Kernel as a _KernelClientLike shim so HeartbeatScheduler and
-    # InternalDispatchHandler (which still use kernel_client protocol) work
-    # without modification until M4 cleanup.
-    kernel_shim = _KernelClientShim(
-        kernel,
-        agent_catalog=agent_catalog,
-        product_default_model=config.llm.default_model,
-    )
     permission_response_handler = _build_permission_response_handler(kernel=kernel)
 
     runtime_dir = config.source_path.parent
@@ -2254,6 +2277,12 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         catalog=agent_catalog,
         repository=session_store,
         kernel=kernel,
+    )
+    kernel_shim = _KernelClientShim(
+        kernel,
+        agent_catalog=agent_catalog,
+        session_binder=session_binder,
+        product_default_model=config.llm.default_model,
     )
     # feat-394 decision 3: canonical direct-chat kernel session store.
     # Updated by HeartbeatScheduler.tick() via session_store.find_direct_by_agent()
@@ -2482,7 +2511,6 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         # events published by background hooks reach IM as system/meta messages.
         session_event_callback = _build_session_event_callback(
             im_connection_manager_factory=lambda: im_connection_manager,
-            session_binder=session_binder,
         )
 
     background_subscriptions = BackgroundSubscriptionManager(
@@ -2819,7 +2847,6 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             session_fork_handler=_build_session_fork_handler(
                 kernel=kernel,
                 session_binder=session_binder,
-                agent_catalog=agent_catalog,
                 channel_name=WebRelayAdapter.name,
             ),
             token_getter=_token_getter,
@@ -2838,7 +2865,6 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     internal_dispatch_handler = InternalDispatchHandler(
         im_connection_manager=im_connection_manager,
         kernel_client=kernel_shim,
-        agent_catalog=agent_catalog,
         session_binder=session_binder,
     )
     return GatewayRuntime(
@@ -3144,7 +3170,6 @@ def _build_session_fork_handler(
     *,
     kernel: Any,
     session_binder: GatewaySessionBinder,
-    agent_catalog: LiveAgentCatalog,
     channel_name: str,
 ) -> SessionForkHandler:
     """Build the gateway-side handler for IM-delegated session fork (feat-445-M1 决策 2).
@@ -3171,36 +3196,33 @@ def _build_session_fork_handler(
         ):
             return {"ok": False, "error": "fork request missing required fields"}
 
-        source_binding = session_binder.lookup(
+        source = session_binder.capture_binding_provenance(
             build_conversation_session_key(
                 channel_name=channel_name,
                 conversation_id=source_conversation_id,
                 agent_id=agent_id,
-            )
+            ),
+            expected_agent_id=agent_id,
         )
-        if source_binding is None:
+        if source is None:
             external_source = str(payload.get("source_external_source") or "").strip()
             external_chat_id = str(payload.get("source_external_chat_id") or "").strip()
             if external_source and external_chat_id:
-                source_binding = session_binder.lookup(
+                source = session_binder.capture_binding_provenance(
                     build_external_session_key(
                         external_source=external_source,
                         external_chat_id=external_chat_id,
                         agent_id=agent_id,
-                    )
+                    ),
+                    expected_agent_id=agent_id,
                 )
-        if source_binding is None:
+        if source is None:
             return {"ok": False, "error": "source session binding not found"}
-
-        agent = agent_catalog.get(agent_id)
-        if agent is None:
-            return {"ok": False, "error": f"unknown agent {agent_id}"}
-        write_guard = session_binder.capture_write_guard(agent)
 
         try:
             new_session = await kernel.fork_session(
-                source_binding.kernel_session_id,
-                workspace_root=agent.config.workspace_root,
+                source.binding.kernel_session_id,
+                workspace_root=source.agent.config.workspace_root,
                 up_to=message_id,
             )
         except Exception as exc:  # noqa: BLE001 — report to IM, which rolls back
@@ -3212,9 +3234,9 @@ def _build_session_fork_handler(
                 conversation_id=new_conversation_id,
                 agent_id=agent_id,
                 kernel_session_id=new_session.session_id,
-                guard=write_guard,
+                guard=source.guard,
             ),
-            agent,
+            source.agent,
         )
         if bind_result.status == "stale":
             return {

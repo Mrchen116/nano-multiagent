@@ -46,7 +46,6 @@ def _handler(tmp_path: Path, kernel: _FakeKernel, store: PersistentSessionBindin
     return _build_session_fork_handler(
         kernel=kernel,
         session_binder=binder,
-        agent_catalog=catalog,
         channel_name="web_relay",
     )
 
@@ -195,7 +194,6 @@ async def test_fork_handler_kernel_failure_returns_not_ok(tmp_path: Path) -> Non
     handler = _build_session_fork_handler(
         kernel=boom_kernel,
         session_binder=binder,
-        agent_catalog=catalog,
         channel_name="web_relay",
     )
     result = await handler(
@@ -274,7 +272,6 @@ async def test_fork_publish_race_returns_failure_without_stale_branch_binding(
     handler = _build_session_fork_handler(
         kernel=kernel,
         session_binder=binder,
-        agent_catalog=catalog,
         channel_name="web_relay",
     )
 
@@ -353,7 +350,6 @@ async def test_fork_captures_source_binding_and_revision_atomically(
     handler = _build_session_fork_handler(
         kernel=kernel,
         session_binder=binder,
-        agent_catalog=catalog,
         channel_name="web_relay",
     )
 

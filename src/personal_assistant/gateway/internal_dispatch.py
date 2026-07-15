@@ -10,11 +10,10 @@ from __future__ import annotations
 import json
 from typing import Any, Callable, Mapping
 
-from personal_assistant.gateway.agent_catalog import LiveAgentCatalog, LiveAgentSnapshot
 from personal_assistant.gateway.session_binder import (
-    BindingWriteGuard,
     ConversationBindingRequest,
     GatewaySessionBinder,
+    SessionProvenance,
 )
 
 
@@ -35,13 +34,11 @@ class InternalDispatchHandler:
         *,
         im_connection_manager: Any | None = None,
         kernel_client: Any | None = None,
-        agent_catalog: LiveAgentCatalog | None = None,
         session_binder: GatewaySessionBinder | None = None,
         direct_channel_name: str = "web_relay",
     ) -> None:
         self._im_connection_manager = im_connection_manager
         self._kernel_client = kernel_client
-        self._agent_catalog = agent_catalog
         self._session_binder = session_binder
         self._direct_channel_name = direct_channel_name
         self._sealed = False
@@ -110,7 +107,22 @@ class InternalDispatchHandler:
         if isinstance(dispatch_request_id, str) and dispatch_request_id.strip():
             dispatch_payload["dispatch_request_id"] = dispatch_request_id.strip()
 
-        captured_agent, write_guard = self._capture_source_guard(source_agent_id)
+        provenance = self._capture_source_provenance(
+            origin_kernel_session_id,
+            source_agent_id,
+        )
+        if (
+            self._session_binder is not None
+            and isinstance(origin_kernel_session_id, str)
+            and origin_kernel_session_id.strip()
+            and isinstance(source_agent_id, str)
+            and source_agent_id.strip()
+            and provenance is None
+        ):
+            return {
+                "ok": False,
+                "error": "origin Kernel session provenance is not registered",
+            }
         try:
             ack = await manager.send_agent_message(dispatch_payload)
             await self._sync_direct_session(
@@ -119,8 +131,7 @@ class InternalDispatchHandler:
                 origin_kernel_session_id=origin_kernel_session_id,
                 source_agent_id=source_agent_id,
                 dispatch_request_id=dispatch_request_id,
-                captured_agent=captured_agent,
-                write_guard=write_guard,
+                provenance=provenance,
             )
         except Exception as exc:  # noqa: BLE001
             return {"ok": False, "error": f"IM dispatch failed: {exc}"}
@@ -140,8 +151,7 @@ class InternalDispatchHandler:
         origin_kernel_session_id: object,
         source_agent_id: object,
         dispatch_request_id: object,
-        captured_agent: LiveAgentSnapshot | None,
-        write_guard: BindingWriteGuard | None,
+        provenance: SessionProvenance | None,
     ) -> None:
         if getattr(ack, "target_kind", None) != "user_id":
             return
@@ -154,17 +164,11 @@ class InternalDispatchHandler:
             source_agent_id = getattr(ack, "source_agent_id", None)
         if not isinstance(source_agent_id, str) or not source_agent_id.strip():
             return
-        catalog = self._agent_catalog
         binder = self._session_binder
-        if catalog is None or binder is None or self._kernel_client is None:
+        if binder is None or self._kernel_client is None or provenance is None:
             return
         normalized_agent_id = source_agent_id.strip()
-        if captured_agent is None or captured_agent.agent_id != normalized_agent_id:
-            captured_agent = catalog.get(normalized_agent_id)
-            if captured_agent is None:
-                return
-            write_guard = binder.capture_write_guard(captured_agent)
-        if write_guard is None:
+        if provenance.agent.agent_id != normalized_agent_id:
             return
 
         binder.bind_conversation(
@@ -173,16 +177,16 @@ class InternalDispatchHandler:
                 conversation_id=str(getattr(ack, "conversation_id")),
                 agent_id=normalized_agent_id,
                 kernel_session_id=origin_kernel_session_id.strip(),
-                guard=write_guard,
+                guard=provenance.guard,
             ),
-            captured_agent,
+            provenance.agent,
         )
         append_idempotency_key = None
         if isinstance(dispatch_request_id, str) and dispatch_request_id.strip():
             append_idempotency_key = f"dispatch-sync:{dispatch_request_id.strip()}"
         # The stateless kernel needs the origin session's workspace_root to locate
         # its JSONL; resolve it from the source agent's config.
-        origin_workspace_root = captured_agent.config.workspace_root
+        origin_workspace_root = provenance.agent.config.workspace_root
         self._kernel_client.append_message(
             session_id=origin_kernel_session_id.strip(),
             role="assistant",
@@ -199,19 +203,25 @@ class InternalDispatchHandler:
             workspace_root=origin_workspace_root,
         )
 
-    def _capture_source_guard(
-        self, source_agent_id: object
-    ) -> tuple[LiveAgentSnapshot | None, BindingWriteGuard | None]:
-        """Capture the source snapshot before the IM acknowledgement await."""
+    def _capture_source_provenance(
+        self,
+        origin_kernel_session_id: object,
+        source_agent_id: object,
+    ) -> SessionProvenance | None:
+        """Capture origin session facts before the IM acknowledgement await."""
 
-        if not isinstance(source_agent_id, str) or not source_agent_id.strip():
-            return None, None
-        if self._agent_catalog is None or self._session_binder is None:
-            return None, None
-        agent = self._agent_catalog.get(source_agent_id.strip())
-        if agent is None:
-            return None, None
-        return agent, self._session_binder.capture_write_guard(agent)
+        if (
+            not isinstance(origin_kernel_session_id, str)
+            or not origin_kernel_session_id.strip()
+            or not isinstance(source_agent_id, str)
+            or not source_agent_id.strip()
+            or self._session_binder is None
+        ):
+            return None
+        return self._session_binder.capture_session_provenance(
+            origin_kernel_session_id.strip(),
+            expected_agent_id=source_agent_id.strip(),
+        )
 
     def build_aiohttp_handler(self) -> Callable:
         """Return an aiohttp request handler for ``POST /internal/dispatch``.

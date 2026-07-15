@@ -9,7 +9,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from personal_assistant.config.local_store import AgentWorkspaceConfig
-from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
+from personal_assistant.gateway.agent_catalog import LiveAgentCatalog, LiveAgentSnapshot
 from personal_assistant.scheduler._schedule_primitives import (
     _INTERVAL_PATTERN,
     _AtSchedule,
@@ -140,7 +140,12 @@ class _KernelClientLike(Protocol):
     # create_session is async — the gateway runs an asyncio event loop and
     # run_until_complete on an already-running loop raises RuntimeError.
     async def create_session(
-        self, *, workspace_root: str, product_id: str, title: str | None = None
+        self,
+        *,
+        workspace_root: str,
+        product_id: str,
+        title: str | None = None,
+        **kwargs: object,
     ) -> dict[str, object]: ...
 
     def submit_message(
@@ -250,6 +255,7 @@ class HeartbeatScheduler:
         # Legacy fallback session store (for when no canonical session binding is found yet).
         # In feat-394 mode, session_store lookup takes precedence.
         self._heartbeat_sessions: dict[str, str] = {}
+        self._heartbeat_session_revisions: dict[str, int] = {}
 
     async def tick(self, *, now: datetime | None = None) -> HeartbeatTickSummary:
         """Run one scheduler evaluation pass.
@@ -280,12 +286,13 @@ class HeartbeatScheduler:
         # Falls back to the frozen _agents tuple when no getter is configured.
         if self._agent_catalog is not None:
             active_agents = tuple(
-                snapshot.config for snapshot in self._agent_catalog.values_snapshot()
+                (snapshot.config, snapshot)
+                for snapshot in self._agent_catalog.values_snapshot()
             )
         else:
-            active_agents = self._agents
+            active_agents = tuple((agent, None) for agent in self._agents)
 
-        for agent in active_agents:
+        for agent, agent_snapshot in active_agents:
             # feat-394 decision 5: per-agent heartbeat gate — skip without reading HEARTBEAT.md
             # when the agent's heartbeat_enabled flag is False (synced from IM via ConfigSyncNotifier).
             if not agent.heartbeat_enabled:
@@ -320,6 +327,8 @@ class HeartbeatScheduler:
                         _binding.kernel_session_id
                     )
                     _canonical_session_key = _binding.session_key
+            elif self._session_binder is not None:
+                self._canonical_session_store.pop(agent.agent_id, None)
             # feat-394 decision 3: busy-session gate — skip when canonical session is running
             # a turn (avoid concurrent runs in the same direct-chat kernel session).
             canonical_session = self._canonical_session_store.get(agent.agent_id)
@@ -356,7 +365,10 @@ class HeartbeatScheduler:
                         any_due = True
                         triggered_runs.append(
                             await self._submit_run(
-                                agent=agent, due_at=due_at, instructions=task.prompt
+                                agent=agent,
+                                agent_snapshot=agent_snapshot,
+                                due_at=due_at,
+                                instructions=task.prompt,
                             )
                         )
                         per_task_last_due[task.name] = due_at.isoformat()
@@ -391,7 +403,10 @@ class HeartbeatScheduler:
                 for due_at in due_times:
                     triggered_runs.append(
                         await self._submit_run(
-                            agent=agent, due_at=due_at, instructions=spec.instructions
+                            agent=agent,
+                            agent_snapshot=agent_snapshot,
+                            due_at=due_at,
+                            instructions=spec.instructions,
                         )
                     )
                     state_agents[agent.agent_id] = _AgentState(
@@ -405,7 +420,10 @@ class HeartbeatScheduler:
         )
 
     async def _get_or_create_heartbeat_session(
-        self, *, agent: AgentWorkspaceConfig
+        self,
+        *,
+        agent: AgentWorkspaceConfig,
+        agent_snapshot: LiveAgentSnapshot | None,
     ) -> str:
         """Return the session to use for one agent's heartbeat run.
 
@@ -427,27 +445,50 @@ class HeartbeatScheduler:
 
         # Fallback: legacy per-agent :heartbeat session (feat-393 behaviour, or first heartbeat).
         session_id = self._heartbeat_sessions.get(agent.agent_id)
-        if session_id:
+        cached_revision = self._heartbeat_session_revisions.get(agent.agent_id)
+        if session_id and (
+            agent_snapshot is None or cached_revision == agent_snapshot.revision
+        ):
             return session_id
-        session_payload = await self._kernel_client.create_session(
-            workspace_root=str(agent.workspace_root),
-            product_id="personal_assistant",
-            title=agent.title,
-            metadata={"agent_id": agent.agent_id},
+        create_kwargs: dict[str, object] = {
+            "workspace_root": str(agent.workspace_root),
+            "product_id": "personal_assistant",
+            "title": agent.title,
+            "metadata": {"agent_id": agent.agent_id},
+        }
+        create_agent_session = getattr(
+            self._kernel_client, "create_agent_session", None
         )
+        if agent_snapshot is not None and callable(create_agent_session):
+            session_payload = await create_agent_session(
+                agent_snapshot=agent_snapshot,
+                **create_kwargs,
+            )
+        else:
+            session_payload = await self._kernel_client.create_session(**create_kwargs)
         new_session_id = str(session_payload.get("session_id", "")).strip()
         if not new_session_id:
             raise RuntimeError("kernel session creation did not return session_id")
         self._heartbeat_sessions[agent.agent_id] = new_session_id
+        if agent_snapshot is not None:
+            self._heartbeat_session_revisions[agent.agent_id] = agent_snapshot.revision
         return new_session_id
 
     async def _submit_run(
-        self, *, agent: AgentWorkspaceConfig, due_at: datetime, instructions: str
+        self,
+        *,
+        agent: AgentWorkspaceConfig,
+        agent_snapshot: LiveAgentSnapshot | None,
+        due_at: datetime,
+        instructions: str,
     ) -> HeartbeatRunRecord:
         # feat-393 decision 4: stable :heartbeat session reused across ticks instead of
         # fresh session per tick.  Reuse preserves standing-task context continuity and
         # ensures heartbeat runs are never detached from a resolvable IM conversation target.
-        session_id = await self._get_or_create_heartbeat_session(agent=agent)
+        session_id = await self._get_or_create_heartbeat_session(
+            agent=agent,
+            agent_snapshot=agent_snapshot,
+        )
         message = _build_heartbeat_message(
             agent_id=agent.agent_id, due_at=due_at, instructions=instructions
         )
