@@ -118,3 +118,147 @@ requires_full_verification: false
 - 无。
 
 1 critical issue(s) found. Fix before PR.
+
+# Round 2
+
+## Summary
+
+Mode: full
+
+Delta range: `f47f169bbb85893f31617bd8529e25e15e392d1c..46096e3ec5a4875974345c6a5d82d5ebe8fba6e2`
+
+Focus issues: Round 1 全部问题与 M4 的 Gateway WS auth/cross-owner、manifest fail-closed/key recovery、bind 原子性、Feishu preflight/lifecycle/backpressure、secret migration/file mode、metadata/activation、provider registry、离线收敛/删除历史/失败重试。
+
+requires_full_verification: true
+
+Validated head: `46096e3ec5a4875974345c6a5d82d5ebe8fba6e2`
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 28/31 个退出标准被完整证实（文档勾选为 31/31）；M4-E3、M4-E4、聚合门禁 M4-E7 未闭合 |
+| Correctness | 20/20 个用户 spec scenario 有主体实现；2 个 M4 安全/调和失败路径与声明不符 |
+| Coherence | 8/9 个编号关键决策完整遵守；决策 3 的 complete-manifest fail-closed 有偏离，v11 WS 身份边界也只覆盖 register/channel 帧 |
+
+结论：**FAIL**。2 个 CRITICAL；修复后必须再做 full verification，不可进入 PR。
+
+## Round 1 问题复核
+
+| Round 1 问题 | Round 2 结果 | 证据 |
+|---|---|---|
+| CRITICAL-1：凭据/Bot/长连接失败被通用化 | closed | provider preflight 与稳定码见 `src/personal_assistant/channels/feishu/preflight.py:39-113`；真实 invalid-secret evidence 与 `test_feishu_preflight_and_metadata.py:51-122` |
+| WARNING-1：key loss / key mismatch 被当删除或阻止 IM 连接 | tested path closed，但 complete-manifest fail-closed 仍有新 CRITICAL-2 | key quarantine/re-entry 见 `channel_manifest_store.py:108-141`、`channel_manager.py:246-338`；合法 mapping 的 wrong-key 回归见 `test_channel_credential_recovery.py:142-210` |
+| WARNING-2：backpressure 不回收/无有界重启 | closed | `channel_manager.py:638-821`；非 cooperative child、三次重试和人工恢复见 `test_channel_lifecycle_failures.py:179-262` |
+| WARNING-3：跨 owner 永久测试未覆盖密文边界 | closed | `tests/im_service/integration/test_bind_atomicity.py:32-139` 快照 channel/head/key/removal 全表并验证一胜一败、同 owner 幂等 |
+| Round 1 acceptance：connected → disable 卡住 | closed | `channel_manager.py:340-486`；M4 real-stack evidence 记录 2.357s 到 disabled、旧 PID 退出、2.822s re-enable |
+
+## Completeness
+
+- Tasks：M1 8/8、M2 8/8、M3 8/8 均由实现、永久测试和 durable evidence 证实。M4 为 4/7：E1、E2、E5、E6 covered；E3 因非归属账号的已认证 socket 可提交已注册节点的非 channel 上行帧而未完成；E4 因非法 manifest item 会被静默省略并执行不完整 snapshot 而未完成；E7 的“十项缺口均有永久 regression”因此不成立。
+- Spec：6 个 Requirement、20 个 Scenario 的正常用户路径均有主体实现；owner bind 场景的跨 owner 事务隔离已补齐。两个 CRITICAL 属于 M4 新增的传输身份与失败恢复保证，并非可以因原始 20 个 scenario 正常路径通过而忽略。
+- Design/delta-spec：IM/Gateway 两份 delta 覆盖 desired/observed、完整 manifest、离线 cache、生命周期、诊断和 owner 隔离；编号决策 3 的“完整 manifest”实现对非法数组成员不 fail closed。canonical 长青 spec 尚未归并是 unit 收尾步骤，不作为本轮实现缺失。
+- Prototype / Reference：11 个 must-match 行均有 milestone 投影、实现与 durable screenshot/JSON 证据；M4 新增 connected/disabled/re-enabled/provider-failure/offline/delete/cache-failure/mobile 证据齐全。
+
+## Correctness
+
+| Requirement / Scenario | 实现位置 | 永久测试/证据 | 状态 |
+|---|---|---|---|
+| 通用页：空态、统一入口、不展示 Web IM | `src/IM/frontend/src/features/settings/agents/agent-channels-panel.tsx:690-721` | `agent-channels-panel.test.tsx` empty/wizard | covered |
+| 通用页：选择 provider | `agent-channels-panel.tsx:426-447`；`channel-provider-registry.ts:61-131` | `agent-channels-provider-registry.test.tsx:110-146` | covered |
+| 通用页：同 provider 已存在时禁选 | `agent-channels-panel.tsx:675-676`、`:428-444` | panel + provider registry tests | covered |
+| 通用页：列表失败显示 retry，不伪造空态 | `agent-channels-panel.tsx:679-687` | diagnostics/list-error frontend test + screenshot | covered |
+| 向导：简短说明与精确开放平台链接 | `channel-provider-registry.ts:58-79`；`agent-channels-panel.tsx:448-457` | wizard test | covered |
+| 向导：在线保存后立即连接，无需重启 | `agent-channels-panel.tsx:584-617`；`src/IM/ws/gateway_handler.py:305-365`；`channel_manager.py:340-486` | `tests/integration/test_channel_reconcile.py` + real connected evidence | covered |
+| 向导：App ID / Secret 必填 | `channel-provider-registry.ts:158-173`；`agent-channels-panel.tsx:400-405` | wizard/provider tests | covered |
+| 向导：secret 不回显，显式 keep/replace | `channel-provider-registry.ts:144-188`；`agent-channels-panel.tsx:475-523` | panel API/store tests | covered |
+| 状态：权限完整且连接正常 | `src/personal_assistant/channels/feishu/client.py:264-279`；`agent-channels-panel.tsx:151-249` | capability tests + real connected evidence | covered |
+| 状态：权限不足但基础能力可用 | `diagnostics.py` capability summary；`agent-channels-panel.tsx:62-136` | diagnostics tests + limited evidence | covered |
+| 状态：缺普通群消息权限并说明上下文影响 | `channel-provider-registry.ts:110-125` | capability/frontend diagnostics tests | covered |
+| 状态：权限检查失败为 unknown | `client.py:244-269`；`agent-channels-panel.tsx:62-136` | scope/diagnostics tests | covered |
+| 状态：凭据、Bot、长连接失败有具体下一步 | `preflight.py:39-113`；`channel_manager.py:686-778` | `test_feishu_preflight_and_metadata.py:51-122` + real invalid-secret evidence | covered |
+| 状态：暂断、自动恢复、手动重连 | `channel_manager.py:488-502`、`:638-821`；`agent-channels-panel.tsx:634-650` | lifecycle failures + frontend reconnect tests | covered |
+| 离线：新增/修改/启停/删除保存为 pending | `src/IM/infra/channel_control_store.py` desired mutations；`agent-channels-panel.tsx:702-706` | offline API/frontend tests + M4 screenshots | covered |
+| 离线：重连后完整 manifest 自动收敛 | `src/IM/ws/gateway_handler.py:326-365`；`src/personal_assistant/ws/im_connection.py:519-583` | reconcile/bootstrap tests + offline-converged evidence | covered |
+| 生命周期：停用后停止收发并保留凭据 | `channel_manager.py:368-409`；`agent-channels-panel.tsx:619-631` | `test_channel_lifecycle_failures.py:300-349` + real disabled evidence | covered |
+| 生命周期：重新启用且不重填 secret | `channel_manager.py:391-417`；frontend keep mutation | lifecycle/API test + real re-enabled evidence | covered |
+| 生命周期：删除等待实际停止、失败可重试、历史保留 | `channel_manager.py:368-485`；`agent-channels-panel.tsx:255-293`、`:652-673` | reconcile/removal tests + current-head cache-failure/history evidence | covered |
+| Owner：跨 owner bind 拒绝、数据边界不变、同 owner 幂等 | `src/IM/infra/binding_store.py:29-119` | `test_bind_atomicity.py:45-139` | covered |
+
+### M4 失败路径核对
+
+| M4 保证 | 当前实现 | 本地业务一致性复验 | 状态 |
+|---|---|---|---|
+| Gateway WS bearer identity 应约束非归属账号 | bearer 只在入口解析；`node.register` 校验 durable owner；channel 三类上行检查 websocket | 账号 B 开 socket但不 register，直接提交账号 A 节点的 `node.heartbeat`，收到 ACK，DB 状态被账号 B 的输入改写 | **critical** |
+| complete manifest 任一 item 失败不得做部分 reconcile | mapping item 的 key/envelope/open failure fail closed；非 mapping item 被 `continue` | 先运行 `ch-a`，再送 `channels=[None]`：返回 `outcome=applied`，旧 adapter 收到 stop，registry 为空 | **critical** |
+| key mismatch quarantine、Gateway 继续连接 IM | foreign-key cache 原字节 quarantine，status outbox 可重新建立 | credential recovery tests | covered |
+| bind guard/write 单事务、一胜一败 | 独立连接 `BEGIN IMMEDIATE` | two-thread integration test | covered |
+| preflight provider reason | tenant-token、bot、WS endpoint 分层 | unit + live invalid-secret | covered |
+| partial start/backpressure/stop 不阻塞 event loop | candidate cleanup、to_thread、PID reap、有界 restart | lifecycle failure tests | covered |
+| sensitive migration/export 首次可见即 0600、无 backup | secure temp + fsync + replace；export 复用 | sensitive config/legacy migration tests | covered |
+| metadata generation 持久化/重放，activation retry | cache CAS/update + reconnect replay；成功后 memoize | preflight/metadata tests | covered |
+| provider registry 真分派 | descriptor 驱动 fields/serialization/card/diagnostics/removal | injected Webhook provider test | covered |
+| offline/delete/cache failure 收敛 | desired manifest + removal receipt/outbox + retry | M4 browser/store evidence | covered |
+
+### 测试与门禁结果
+
+- M4 聚焦：25 passed（auth、bind、credential recovery、sensitive writer、preflight/metadata、lifecycle failures、reconcile）。
+- 完整后端：`pytest -m 'not e2e' -q` → 3447 passed、1 skipped、20 deselected。
+- 完整前端：67 files / 620 tests passed；`npm run build` → 444 modules transformed。验证 worktree 复用主仓 `node_modules`，测试与 build 均成功，生成物随后清理。
+- Ruff：`ruff check src tests` → PASS。
+- `git diff --check f47f169...46096e3` → PASS。
+- 新增/修改的 `test_*.py` 无超过 400 行；全量测试命名/大小 contract 也包含在完整后端门禁中。
+- 两个本地业务一致性复验均在 validated head 上独立执行并稳定复现；它们不是对既有失败测试的推断，也未访问任何外部目标。
+
+## Coherence
+
+| design 决策 | 遵守? | 代码证据 |
+|---|---|---|
+| 1. 节点公钥信封，IM/缓存不持久化明文 | 是 | `src/IM/infra/channel_credentials.py`；`src/personal_assistant/channels/channel_credentials.py:95-131`；sensitive writer `local_store.py:679-719` |
+| 2. desired/actual 分表、内部 revision/CAS、独立短事务 | 是 | `src/IM/infra/channel_control_store.py` 的 mutation/status/result transaction |
+| 3. IM 权威完整 manifest + Gateway 离线 cache/outbox | **部分** | 正常路径见 `channel_manager.py:340-485`；非法 channel item 在 `channel_manifest_apply.py:59-61` 被静默跳过后仍于 `:147-155` reconcile（CRITICAL-2） |
+| 4. ChannelManager 为唯一动态生命周期 owner | 是 | `channel_manager.py:197-928`；异步入口统一 `to_thread` |
+| 5. 每 Bot 可终止进程、三 lane、因果状态、backpressure 重启 | 是 | `worker.py:219-491`；`channel_manager.py:638-821` |
+| 6. connection/diagnostics 分层与 provider-owned probe | 是 | `preflight.py:39-113`；`client.py:244-279`；`diagnostics.py` |
+| 7. 通用 REST/resource + provider registry | 是 | `src/IM/api/routes/agent_channels.py`；`channel-provider-registry.ts` |
+| 8. 一次性 bootstrap、无跨 owner transfer、legacy export | 是 | `channel_control_store.py:286-455`；`binding_store.py:29-119`；`scripts/channel-control-export-legacy.py:37-85` |
+| 9. 纵向 milestone 交付 | 是 | M1-M4 tasks/progress/evidence 与永久测试均存在 |
+
+### Architecture coherence
+
+- `IM` 仍不 import `agent`；`personal_assistant` 对内核仅经 `agent.sdk`，完整 contract suite 通过。
+- credential/manifest/status 均经 HTTP/WS 协议，不假设 IM 可读 Gateway 文件；本地 key/cache/config 仍在 Gateway owner 边界。
+- `ChannelControlStore` 与新 `BindingStore` 均使用独立 SQLite connection；bind 并发 guard/write 已原子化。
+- **偏离：**`GatewayConnection.owner_id` 只保护 register 结果和 channel 帧的 websocket identity；通用 frame dispatcher 没有把已认证 owner/当前 websocket 作为所有节点上行操作的统一前置条件，形成第二套未授权路径（CRITICAL-1）。
+
+### Prototype / Reference Contract
+
+| Reference contract | Milestone projection | Implementation evidence | Durable evidence | Status |
+|---|---|---|---|---|
+| `#channels-empty` | M1-E1/E2 | `agent-channels-panel.tsx:690-721` | M1 empty screenshot | covered |
+| `#add-feishu` | M1-E2/E3/E4 | provider descriptor + `agent-channels-panel.tsx:426-534` | M1 add/required/keep-replace screenshots | covered |
+| `#channel-connecting` | M1-E4 | `agent-channels-panel.tsx:151-249` | M1 connecting + M4 real connection evidence | covered |
+| `#channel-connected` | M1-E5 | `agent-channels-panel.tsx:151-249` | M4 `r6-real-connected.png` | covered |
+| `#channel-pending` | M2-E1/E2 | `agent-channels-panel.tsx:151-249`、`:702-706` | M4 offline create/update evidence | covered |
+| `#channel-actions/#channel-disabling/#channel-disabled` | M2-E1/E3/E5 | card actions + toggle mutation | M4 disabling/disabled/re-enabled evidence | covered |
+| `#channel-deleting` | M2-E1/E5/E8 | `agent-channels-panel.tsx:255-293` | M4 cache-failure/reload/retry/history evidence | covered |
+| `#channel-reconnecting/#channel-failed` | M2-E4/M3-E2/M4-E2 | provider error + restart status | M4 invalid-credential/recovered evidence | covered |
+| `#channel-limited` | M3-E1/E2 | provider diagnostics descriptor + panel | M3 limited/unknown evidence | covered |
+| `#channels-error` | M3-E3 | `agent-channels-panel.tsx:679-687` | M3 outage/retry evidence | covered |
+| `#channels-mobile` | M3-E4/M4-E6 | mobile bottom sheet + generic provider picker | M4 375x812/picker evidence | covered |
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+1. **Gateway bearer identity 没有约束所有节点上行帧；非归属账号可更新已注册节点状态。** `/im/ws/gateway` 虽解析 token 并传入 `authenticated_owner_id`（`src/IM/app.py:404-436`），但 `GatewayHandler.handle_message()` 只把它传给 `node.register`（`src/IM/ws/gateway_handler.py:199-213`）。`node.heartbeat`、`node.report`、agent/config/capability/result 等分支随后都不校验当前 websocket 或 owner（`:214-260`）；例如 `_handle_heartbeat()` 只按 payload `node_id` 查找任意现存 connection 并持久化（`:1101-1137`）。本轮在本地 TestClient 中让账号 A 注册并绑定 `node-a`，随后账号 B 以合法 bearer 新开 socket但不 register，直接提交该节点的 heartbeat：账号 B 收到 ACK，`nodes.status/last_error` 被其输入改写。现有 auth test 只覆盖非归属账号再次执行 `node.register`（`tests/im_service/integration/test_gateway_auth_boundary.py:59-122`），未覆盖注册后的其他业务帧归属。**修复：**把注册连接的 `(websocket, authenticated_owner_id, node_id)` 校验提升为所有 node-scoped 上行帧的统一 dispatcher guard；未在该 websocket 完成 register、connection owner 与 token owner 不同、payload node_id 与注册 node 不同均关闭/拒绝，不能只在 channel 三个 handler 中局部调用 `_is_registered_sender`。补至少 heartbeat、report、agent result、channel result 的跨 owner/未注册 socket 回归，并断言 DB、waiter 与广播均零副作用。
+
+2. **fail-closed manifest applier 会静默跳过非法 item，执行不完整 snapshot 并把安全 runtime 当成删除。** `apply_channel_manifest_payload()` 对 `channels` 中非 mapping item 直接 `continue`（`src/personal_assistant/gateway/channel_manifest_apply.py:54-61`），对非 list/missing `channels` 也按空列表处理；之后仍构造 manifest 并调用 `manager.reconcile()`（`:133-155`）。本轮先启动 `ch-a`，再送 `manifest_revision=2, channels=[None]`：实现返回 `{outcome:'applied', failures:[]}`，旧 adapter 收到 `stop` 且 registry 为空，正好违反 M4-E4 和 progress 中“任一 item 失败整份 retryable_failed”的声明。现有回归只覆盖结构完整 item 的 `credential_key_id` mismatch（`tests/unit/personal_assistant/test_channel_credential_recovery.py:142-210`）。**修复：**在任何 lifecycle/cache mutation 前严格验证 `channels`/`removals` 均为 arrays 且每项为完整 mapping；任一结构、generation、key、envelope 或 opener 错误都返回 `retryable_failed`，不调用 `reconcile`、不 stop runtime、不 commit cache/advance applied head。增加 malformed member、missing/non-array channels、malformed removal 和 opener failure 回归，并直接断言旧 runtime/cache/applied head 保持。
+
+### WARNING（应该修）
+
+- 无。
+
+### SUGGESTION（可以修）
+
+- 无。
+
+2 critical issue(s) found. Fix before PR.
