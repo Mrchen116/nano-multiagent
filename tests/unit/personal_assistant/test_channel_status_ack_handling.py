@@ -121,4 +121,3 @@ def test_fatal_owner_mismatch_quarantines_every_managed_runtime() -> None:
         )
     )
     assert adapters[0].stopped == 1
-

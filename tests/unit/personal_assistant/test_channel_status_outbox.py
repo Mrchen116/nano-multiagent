@@ -84,4 +84,3 @@ def test_terminal_and_retryable_results_have_distinct_outbox_effects(
     )
     assert terminal is not None and terminal.outcome == "terminal_stale_revision"
     assert store.pending_channel_statuses() == ()
-
