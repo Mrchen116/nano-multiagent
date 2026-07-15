@@ -15,9 +15,7 @@ def _source(relative: str) -> str:
 def test_composition_and_schedulers_do_not_reach_pipeline_state() -> None:
     sources = {
         "main": _source("src/personal_assistant/main.py"),
-        "heartbeat": _source(
-            "src/personal_assistant/scheduler/heartbeat_scheduler.py"
-        ),
+        "heartbeat": _source("src/personal_assistant/scheduler/heartbeat_scheduler.py"),
         "cron": _source("src/personal_assistant/scheduler/cron_runner.py"),
     }
     forbidden = (
@@ -81,8 +79,41 @@ def test_inbound_facade_does_not_own_session_run_resources() -> None:
 
 
 def test_runtime_lifecycle_does_not_import_inbound_facade() -> None:
-    lifecycle = _source(
-        "src/personal_assistant/gateway/runtime_delivery/lifecycle.py"
-    )
+    lifecycle = _source("src/personal_assistant/gateway/runtime_delivery/lifecycle.py")
 
     assert "gateway.inbound_pipeline import" not in lifecycle
+
+
+def test_gateway_runtime_owns_only_coordinator_session_lifecycle() -> None:
+    main_source = _source("src/personal_assistant/main.py")
+    runtime_source = main_source[
+        main_source.index("class GatewayRuntime:") : main_source.index(
+            "def _load_runtime_config"
+        )
+    ]
+
+    assert "run_coordinator: SessionRunCoordinator" in runtime_source
+    assert "self._run_coordinator" in runtime_source
+    assert "SessionRunQueue" not in runtime_source
+    assert "_run_queue" not in runtime_source
+    assert "_background_subscriptions" not in runtime_source
+
+
+def test_composition_builds_coordinator_before_public_heartbeat_wiring() -> None:
+    main_source = _source("src/personal_assistant/main.py")
+    build_source = main_source[
+        main_source.index("def build_runtime") : main_source.index("def main(")
+    ]
+
+    coordinator = "run_coordinator = SessionRunCoordinator("
+    heartbeat = "_heartbeat_scheduler = HeartbeatScheduler("
+    assert coordinator in build_source
+    assert heartbeat in build_source
+    assert build_source.index(coordinator) < build_source.index(heartbeat)
+    assert "is_session_busy=run_coordinator.is_session_busy" in build_source
+    assert "heartbeat_runner._" not in build_source
+    assert "run_queue=run_queue" not in build_source
+    assert (
+        "background_subscriptions=background_subscriptions"
+        not in build_source[build_source.rindex("return GatewayRuntime(") :]
+    )
