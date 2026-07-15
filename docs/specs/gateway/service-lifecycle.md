@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Service Lifecycle Specification
 
-> 对齐: feat-447
+> 对齐: refactor-461
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -17,12 +17,14 @@
 显式 `--foreground` 仅作 debug/高级模式。单实例 PID 锁防止对同一 config 重复启动。`stop`/`restart`
 必须先停止新入站、heartbeat、cron 和 dispatch 生产者,再收拢内核运行,最后关闭 IM/channel 资源;
 进行中的操作进入明确终态,终态事件有机会完成投递;关闭阶段的次要错误不得覆盖导致进程退出的最早
-真实错误。
+真实错误。后台 parent 只确认 child 已写入 PID + process birth 且仍存活，不把该确认表述为 Kernel
+health 或 Gateway runtime/channel readiness。
 
 #### Scenario: 默认启动后台常驻并尽快返回
 - **WHEN** 运维者执行 `python -m personal_assistant.main`(无子命令)
-- **THEN** Gateway 在脱离的子进程中后台启动,主命令打印 pid / 健康提示 / 日志路径后尽快返回,
-  进程转入常驻服务态
+- **THEN** Gateway 在脱离的子进程中后台启动,主命令确认 child 已写入 PID + process birth 且仍
+  存活后打印 pid / IM service 状态 / 日志路径并尽快返回
+- **AND** 该确认不承诺 runtime/channel 已 ready,也不探测 Kernel HTTP health/readiness endpoint
 
 #### Scenario: 重复启动被单实例锁拦下
 - **GIVEN** 某 config 已有一个存活的后台 Gateway
@@ -34,6 +36,18 @@
 - **THEN** 对应后台进程被优雅终止(超时则升级 SIGKILL),PID/状态文件被清理;若本无运行则报「NOT RUNNING」,
   状态陈旧则报「STALE」
 
+#### Scenario: start stop restart 对同一 config 串行
+- **WHEN** 同一 config 的多个 lifecycle 命令并发执行
+- **THEN** 命令经同一个 config-scoped lock 串行化,且 `restart` 在一次持锁期间完成 stop + start
+
+#### Scenario: stop 只向已证明的进程实例发信号
+- **GIVEN** `.gateway-state.json` 记录 PID、resolved config 和 process birth
+- **WHEN** 运维者执行 `stop`
+- **THEN** 每次发信号前重新核对 PID 的 live birth,不向已复用该 PID 的无关进程发信号
+- **AND** 旧状态缺少 birth 时,仅在 live command 精确属于
+  `personal_assistant.main --config <同一 resolved config> ... --foreground` 后采纳当前 birth
+- **AND** command 不匹配或观察期间 birth 改变时 fail closed,不发信号并保留旧证据
+
 #### Scenario: stop 收拢活动运行后终止 Gateway
 - **GIVEN** Gateway 有活动 Agent run 或权限等待
 - **WHEN** 运维者执行 `stop` 或 `restart`
@@ -43,6 +57,26 @@
 #### Scenario: 真实故障在关闭后仍是主要错误
 - **WHEN** Gateway 因运行故障进入关闭流程
 - **THEN** 日志保留原始首因;任何资源关闭失败只作为次要诊断,不替换首因
+
+### Requirement: Gateway lifecycle timing 由 Gateway 配置拥有并单向迁移旧值
+
+后台启动、停止和轮询使用的 timing 属于 `gateway:`。系统继续逐字段读取旧 `kernel:` mapping 中
+仍有 Gateway 语义的三项 timing；旧 Kernel command、连接、token 和 HTTP health 字段不再是运行时输入。
+
+#### Scenario: 新字段逐项优先并回退旧 timing
+- **GIVEN** config 同时或分别提供 `gateway:` 与旧 `kernel:` timing
+- **WHEN** Gateway 加载配置
+- **THEN** `gateway.startup_timeout_seconds`、`gateway.shutdown_grace_seconds`、
+  `gateway.poll_interval_seconds` 逐字段优先
+- **AND** 缺失字段分别回退旧 `startup_timeout_seconds`、`shutdown_grace_seconds`、
+  `health_poll_interval_seconds`,其余旧字段被忽略
+
+#### Scenario: 保存旧配置前保留可恢复原件
+- **GIVEN** 待保存 config 含旧 `kernel:` mapping
+- **WHEN** 现有配置同步流程保存 canonical config
+- **THEN** 系统先创建 `<config>.pre-refactor-461.bak`,其 bytes 与 mode 等于迁移前原文件
+- **AND** backup 冲突、创建失败或 staged write 失败时不覆盖原 config
+- **AND** 成功写入使用同目录临时文件和 atomic replace,保留原 mode,只输出 canonical `gateway:` timing
 
 ### Requirement: IM 服务在线时 Gateway 主动连出并保持双向通信
 

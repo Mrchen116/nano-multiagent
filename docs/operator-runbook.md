@@ -83,8 +83,14 @@ PYTHONPATH=src python -m personal_assistant.main --config ./node-config.yaml
 默认命令会后台启动 Gateway，并立即返回：
 
 ```text
-STARTED pid=<pid> health_url=http://127.0.0.1:8011 log=<config目录>/gateway.log
+Gateway started (pid=<pid>)
+IM service:      http://127.0.0.1:8011  [connected|unavailable (running offline, will retry)]
+Log:             <config目录>/gateway.log
 ```
+
+这只确认后台子进程已写出带 process birth 的运行态并仍存活，不代表 runtime/channel ready。IM
+连接、节点绑定和 channel 启动结果仍需从 `gateway.log` 或 Web IM 节点状态确认；IM 暂时不可达时
+Gateway 会离线运行并继续重试。
 
 Gateway 默认启动顺序：
 1. 读取本地配置。
@@ -105,9 +111,17 @@ Gateway stop 反馈语义：
 - `STOPPED pid=... state=...`：已找到当前后台 Gateway，并完成关闭；若优雅等待超时会额外带 `forced=true`。
 - `NOT RUNNING config=... state=...`：当前配置目录没有运行态文件，说明这一路径下没有可关闭的后台 Gateway。
 - `STALE pid=... state=...`：运行态文件存在，但 pid 已失效；CLI 会自动清理陈旧状态，然后你可以直接重新 start。
+- 旧 `.gateway-state.json` 若没有 process birth，`stop` 只在 live command 精确匹配
+  `personal_assistant.main --config <同一绝对路径> ... --foreground` 后采纳当前 birth；不匹配时拒绝
+  发信号并保留证据。执行一次成功的 `restart` 会写成新格式。
+
+同一 config 的 `start` / `stop` / `restart` 由 config 同目录的一把 lifecycle lock 串行化；
+`restart` 在同一次加锁期间完成 stop + start。新运行态只使用 `gateway.pid` 和
+`.gateway-state.json`（含 `process_start`），不存在独立 Kernel PID 或 health endpoint。
 
 Gateway ready 信号：
-- 默认路径下，终端会先返回 `STARTED ...`；后续 readiness/绑定反馈写入 `gateway.log`，并可能自动打开绑定页。
+- 默认路径下，终端会先返回 `Gateway started (pid=...)`；这是进程启动确认，不是 runtime/channel
+  readiness。后续 readiness/绑定反馈写入 `gateway.log`，并可能自动打开绑定页。
 - 若你改用 `--foreground` 调试路径，终端会保持常驻，并直接看到 `ACTION ...` / `NEXT ...`。
 - 验证 Gateway 生命周期闭环，推荐用 `./scripts/e2e-up.sh` 一键起停后轮询 `/im/v1/nodes` 看到 `online` 即可（详见 §7）。
 

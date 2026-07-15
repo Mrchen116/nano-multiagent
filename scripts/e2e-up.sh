@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/e2e-up.sh — start the full IM + Kernel API + Gateway stack inside the
+# scripts/e2e-up.sh — start the full IM + Gateway stack inside the
 # current worktree, with ephemeral ports and an isolated Gateway config.
 #
 # Idempotent within one worktree: if any .pid file is live, refuses to start to
@@ -19,7 +19,7 @@
 #   .e2e-jwt-secret           (random IM JWT secret for this run)
 #   .gateway-config.yaml      (isolated copy of main config)
 #   .gateway-workspace/       (per-agent workspaces, replacing ~/nano-assistant/workspace)
-#   .im.pid / .api.pid / .gateway.pid
+#   .im.pid / .gateway.pid
 #   .im.log / .api.log / .gateway.log
 
 set -euo pipefail
@@ -189,7 +189,7 @@ else
 fi
 
 # ─── validate llm config before starting Gateway ─────────────────────────────
-# refactor-387 M3: kernel runs in-process inside Gateway; no separate Kernel API.
+# The kernel runs in-process inside Gateway; there is no separate Kernel service.
 
 if ! python3 -c "import yaml; cfg=yaml.safe_load(open('$WT_CFG')); exit(0 if 'llm' in cfg else 1)" 2>/dev/null; then
   echo "ERROR: '$WT_CFG' is missing the 'llm:' section." >&2
