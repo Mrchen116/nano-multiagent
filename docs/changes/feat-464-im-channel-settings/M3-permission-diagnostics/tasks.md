@@ -88,12 +88,12 @@
 
 ### R3 — limited/unknown/error 与移动端 sheet
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 实现通用诊断项、limited/unknown 投影、list error/retry 信息层级与 responsive bottom sheet；补中英文文案和 frontend API types，覆盖 M3-E1..E4/E7。
 - 验证: frontend interaction tests + build；桌面与 375×812 真浏览器前置验收。
 
 ### R4 — 真栈浏览器、真实飞书 smoke 与总门禁
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 用 worktree 隔离 runbook 驱动 limited/unknown/list error/retry/mobile sheet；使用真实飞书测试应用完成连接、受限诊断、stop/restart，核对 secret/listener/cleanup；跑全门禁并落 M3-E1..E8 证据表。
 - 验证: durable screenshots/reports + focused/full frontend + Ruff + `pytest -m "not e2e"` + naming/size contract。
