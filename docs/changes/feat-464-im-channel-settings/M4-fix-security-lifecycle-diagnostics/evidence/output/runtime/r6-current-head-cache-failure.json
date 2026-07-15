@@ -1,0 +1,47 @@
+{
+  "date": "2026-07-15T22:17:15+08:00",
+  "production_baseline_commit": "6bc146c3cd4abc2c626589bb8ceb78f27e23c05f",
+  "stack": {
+    "im": "real isolated IM service and SQLite store",
+    "gateway": "real foreground Gateway with gated cache-store fault injection",
+    "frontend": "production frontend build served by IM",
+    "browser": "Playwright Chromium 1440x1000",
+    "provider_safety": "disabled Feishu channel; no provider worker or provider request"
+  },
+  "before_retry": {
+    "channel_revision": 1,
+    "deletion_manifest_revision": 3,
+    "api_resource_count": 1,
+    "api_apply_state": "failed",
+    "api_error_code": "cache_commit_failed",
+    "api_error_message": "channel manifest cache write failed (deterministic fixture)",
+    "database_apply_state": "failed",
+    "manifest_head_revision": 3,
+    "applied_manifest_head_revision": 2,
+    "gateway_cache_manifest_revision": 2,
+    "gateway_cache_channel_count": 1,
+    "gateway_cache_removal_count": 0,
+    "browser_removal_card_visible": true,
+    "browser_retry_visible_after_reload": true,
+    "browser_empty_state_visible": false
+  },
+  "retry": {
+    "method": "POST",
+    "path": "/im/v1/agents/default-agent/channel-removals/ch_3badda0d8543432cb10aa6904a3bdbe5/actions/retry",
+    "status": 200,
+    "response_deletion_manifest_revision": 3
+  },
+  "after_retry": {
+    "api_resource_count": 0,
+    "database_apply_state": "applied",
+    "database_deletion_manifest_revision": 3,
+    "manifest_head_revision": 3,
+    "applied_manifest_head_revision": 3,
+    "gateway_cache_manifest_revision": 3,
+    "gateway_cache_channel_count": 0,
+    "gateway_cache_removal_count": 1,
+    "browser_removal_card_visible": false,
+    "browser_empty_state_visible": true
+  },
+  "assertion": "The real retry endpoint replayed deletion manifest revision 3; it did not allocate a new revision."
+}
