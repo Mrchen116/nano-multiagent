@@ -27,17 +27,17 @@
 
 ## R2 — IM removal receipt、生命周期 API 与可靠 result ACK
 
-- Context: DOING
-- Decision: 待实现。
-- Rationale: 待实现。
+- Context: DONE；原有 IM desired store 只有 active rows，DELETE/receipt/retry 不存在；旧 reconcile result 只保存 head 且 generic ACK，无法让 Gateway 按 removal token 安全清 outbox。Gateway 客户端也不能消费 live reconnect 或 modern ACK。
+- Decision: `ChannelControlStore` 在删除 active row与推进 manifest 的同一事务写入无凭据 removal receipt，并把 pending/failed receipt 投影到 GET 和 full manifest；result 对 head 与 token 分别判定，applied receipt 即时隐藏，保留期后只有 applied head 覆盖才清理。HTTP 增加 DELETE、live reconnect、same-revision retry；WS 同时保留 legacy ACK 并为现代 payload 返回 correlated per-token ACK，Gateway 消费 reconnect/ACK 并释放 FIFO。
+- Rationale: desired 删除必须先持久化才能容忍节点离线，而产品卡片必须等 runtime stop/cache commit result 后才消失；token ACK 与较新的 head revision 正交，不能用单一 generic ACK 猜测删除完成。manual reconnect 是 live action，节点离线明确 409，不伪装保存成功。
 - Evidence:
-  - Tests: 待补 C1 Red。
-  - Entry: 待实现。
+  - Tests: C1 因缺 `ChannelRemovalView` 按预期 collection red；C2 IM store/HTTP/WS/Gateway client 组合 `15 passed`，目标 Ruff 全绿。
+  - Entry: `DELETE /im/v1/agents/{agent_id}/channels/{channel_id}` 持久 receipt；`POST .../actions/reconnect` 只向在线 node 发 `channel.reconnect`；`POST .../channel-removals/{channel_id}/actions/retry` 重放当前 revision；`channels.reconcile.result.ack` 逐 token 返回 terminal outcome。
   - Frontend State Matrix: N/A
   - Browser QA: N/A
-  - E2E/Regression: 待实现。
+  - E2E/Regression: 覆盖 zero-item manifest+removal、offline disable/delete/reload、pending uniqueness guard、failed/retry same revision、applied hide、delete-no-cascade、receipt retention/applied-head terminal、connected reconnect 与 Gateway ACK callback/FIFO release；legacy result ACK 回归仍绿。
   - Visual/Interaction: N/A
   - Prototype Comparison: N/A
-- Rollback: 待提交。
-- Commits: 待提交。
-- Next: C1 先覆盖 removal view、zero-item intent/result、failure/retry、retention/head terminal 与 no-cascade。
+- Rollback: 回滚 R2 三提交后 active channel 的 create/update 仍可用，但 DELETE/retry/reconnect 与 removal result 协议不可用；数据库 receipt 表保持无害未消费。
+- Commits: C1=`5ee2e4596`，C2=`586408622`，C3=本提交。
+- Next: R3 接入 Gateway manifest store/key cache，完成旧 YAML bootstrap、credentialRef/export 与 e2e 隔离。

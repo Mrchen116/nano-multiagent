@@ -80,13 +80,13 @@
 
 ### R2 — IM removal receipt、生命周期 API 与可靠 result ACK
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 实现 DELETE/reconnect/removal retry、pending/failed/applied view、zero-item removals、per-token ACK 与 retention/applied-head terminal，接入 WS correlated result。
 - 验证: IM store/HTTP/WS integration；delete-no-cascade、offline create→delete、reload、同 revision retry 与 ACK replay。
 
 ### R3 — 旧 YAML bootstrap、credentialRef/export 与 e2e 隔离
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 实现 same-WS bootstrap request/response、IM 初始化事务、权威 cache 后移除 appSecret/写 credentialRef、半迁移回退、export-legacy；让 e2e-up/down 隔离并清理 key/cache。
 - 验证: bootstrap integration、local config/export CLI tests、script contract；M2-E6/E7。
 
