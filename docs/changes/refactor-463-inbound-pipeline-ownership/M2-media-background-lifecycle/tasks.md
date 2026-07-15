@@ -33,13 +33,13 @@
 
 ### R1 — 迁出 typed models 与图片解析策略
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 先提交 resolver typed output 与 pipeline 可见成功/固定失败红测，再新增 `inbound_models.py` / `image_attachments.py`，切换 pipeline/lifecycle/context 导入并删除旧 class re-export/private resolver 测试。
 - 验证: `pytest tests/unit/personal_assistant/test_image_attachment_resolver.py tests/unit/personal_assistant/test_gateway_image_inbound.py tests/unit/personal_assistant/test_gateway_relay_lifecycle.py`
 
 ### R2 — 收回 subscriber、dispatcher 与 queue worker 生命周期
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 先提交公开 ensure/replay/dedupe/seal/close、accepted roots 与 pending cancellation/worker drain 红测，再实现 manager/dispatcher/queue lifecycle 并切换 pipeline/main。
 - 验证: `pytest tests/unit/personal_assistant/test_background_subscription_manager.py tests/unit/personal_assistant/test_background_session_events.py tests/unit/personal_assistant/test_inbound_dispatcher.py tests/unit/personal_assistant/test_run_queue.py`
 
