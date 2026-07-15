@@ -10,20 +10,20 @@
 
 ## R1 — IM 安全控制面与 HTTP 入口
 
-- Context: DOING
-- Decision: 待完成。
-- Rationale: 待完成。
+- Context: DONE
+- Decision: IM channel desired/config、manifest head、status/removal/key 表一次性建齐；所有 channel 命令由按 resolved DB path 创建短连接的 `ChannelControlStore` 用 `BEGIN IMMEDIATE` 串行化。Secret 用 X25519 + HKDF-SHA256 + AES-256-GCM v1 envelope，HTTP 只投影 `secret_configured`。bind confirm 在写 bind/node/profile 之前检查现有 owner，same-user 重放返回同一 confirmed 结果。
+- Rationale: app-scoped SQLite handle 仍服务既有 IM repository，但不再承担 channel transaction owner；显式 `credentials.mode` 避免空字符串兼任 keep/replace，App ID 跨 identity 时强制 replace 并清空 app-scoped metadata。
 - Evidence:
-  - Tests: 待完成。
-  - Entry: 待完成。
+  - Tests: C1 缺模块按预期 collection red；C2 `18 passed`，覆盖固定 envelope 向量、六维 AAD 篡改、key mismatch、无明文持久化、并发旧 revision 仅一个成功、desired+manifest 原子、HTTP create/list/patch/唯一性/owner 隔离、online/offline cross-owner bind 与 same-owner 重放。
+  - Entry: `/im/v1/agents/{agent_id}/channels` GET/POST 与 `/{channel_id}` PATCH 均从 authenticated owner 进入 `ChannelControlService`，错误返回稳定 code；`GET/list` 和日志断言不含 secret。
   - Frontend State Matrix: N/A
   - Browser QA: N/A
-  - E2E/Regression: 待完成。
+  - E2E/Regression: account binding contract、multiuser isolation、完整 agent config integration 共 `23 passed`；目标文件 Ruff 通过。
   - Visual/Interaction: N/A
   - Prototype Comparison: N/A
-- Rollback: 待完成。
-- Commits: 待完成。
-- Next: C1 红测。
+- Rollback: 回滚 R1 三提交会同时移除新增 schema/API/envelope 与 bind guard，不遗留半接线模块；SQLite 仅新增表，无既有数据重写。
+- Commits: `31a22fa1c` (C1 red), `4728073f9` (C2 green), C3 为本提交。
+- Next: R2 的动态 registry、ChannelManager 与可终止 Feishu worker 红测。
 
 ## R2 — Gateway 动态 runtime 与 Feishu worker
 

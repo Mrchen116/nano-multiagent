@@ -72,9 +72,9 @@
 
 ### R1 — IM 安全控制面与 HTTP 入口
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: channel schema + 独立 `ChannelControlStore` + envelope v1 + REST/service；node key 与 bind owner guard；覆盖 M1-E6。
-- 验证: `pytest -q tests/unit/IM/test_agent_channels.py tests/unit/IM/test_channel_credentials.py tests/im_service/integration/test_account_binding_api.py`。
+- 验证: `pytest -q tests/unit/IM/test_agent_channels.py tests/unit/IM/test_channel_credentials.py tests/im_service/integration/test_agent_channels_api.py tests/im_service/integration/test_account_binding_api.py` → `18 passed`；关联 account/config 隔离回归 → `23 passed`。
 
 ### R2 — Gateway 动态 runtime 与 Feishu worker
 
