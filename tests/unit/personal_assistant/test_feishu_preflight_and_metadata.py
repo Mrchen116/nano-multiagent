@@ -52,6 +52,7 @@ def _transport(*payloads: httpx.Response) -> httpx.MockTransport:
     ("payload", "expected_code"),
     [
         ({"code": 10015, "msg": "wrong app secret"}, "feishu_invalid_credentials"),
+        ({"code": 10014, "msg": "app secret invalid"}, "feishu_invalid_credentials"),
         ({"code": 10014, "msg": "app disabled"}, "feishu_app_disabled"),
     ],
 )
