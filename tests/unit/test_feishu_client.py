@@ -12,42 +12,40 @@ from personal_assistant.channels.feishu.client import FeishuClient
 
 
 class TestFeishuClientLifecycle:
-    """Verify FeishuClient start/stop wrapping lark-oapi WSClient."""
+    """Verify FeishuClient owns REST in parent and WS in a worker process."""
 
-    @patch("personal_assistant.channels.feishu.client.WSClient")
-    def test_start_creates_ws_client_with_event_handler(
-        self, mock_ws_cls: MagicMock
+    @patch("personal_assistant.channels.feishu.client.FeishuWorkerRuntime")
+    def test_start_creates_worker_runtime_with_event_handler(
+        self, mock_worker_cls: MagicMock
     ) -> None:
-        mock_ws = MagicMock()
-        mock_ws_cls.return_value = mock_ws
+        mock_worker = MagicMock()
+        mock_worker_cls.return_value = mock_worker
         client = FeishuClient(
             app_id="cli_abc",
             app_secret="secret",
         )
         on_message = MagicMock()
         client.start(on_message)
-        mock_ws_cls.assert_called_once()
-        call_kwargs = mock_ws_cls.call_args
-        assert call_kwargs[1]["app_id"] == "cli_abc"
-        assert call_kwargs[1]["app_secret"] == "secret"
-        assert call_kwargs[1]["auto_reconnect"] is True
-        assert call_kwargs[1]["event_handler"] is not None
-        mock_ws.start.assert_called_once()
+        call_kwargs = mock_worker_cls.call_args.kwargs
+        assert call_kwargs["app_id"] == "cli_abc"
+        assert call_kwargs["app_secret"] == "secret"
+        assert call_kwargs["on_event"] is on_message
+        mock_worker.start.assert_called_once()
 
-    @patch("personal_assistant.channels.feishu.client.WSClient")
-    def test_stop_noop_when_not_started(self, mock_ws_cls: MagicMock) -> None:
+    @patch("personal_assistant.channels.feishu.client.FeishuWorkerRuntime")
+    def test_stop_noop_when_not_started(self, mock_worker_cls: MagicMock) -> None:
         client = FeishuClient(app_id="cli_abc", app_secret="secret")
         # stop before start should not raise
         client.stop()
 
-    @patch("personal_assistant.channels.feishu.client.WSClient")
-    def test_stop_after_start(self, mock_ws_cls: MagicMock) -> None:
-        mock_ws = MagicMock()
-        mock_ws_cls.return_value = mock_ws
+    @patch("personal_assistant.channels.feishu.client.FeishuWorkerRuntime")
+    def test_stop_after_start(self, mock_worker_cls: MagicMock) -> None:
+        mock_worker = MagicMock()
+        mock_worker_cls.return_value = mock_worker
         client = FeishuClient(app_id="cli_abc", app_secret="secret")
         client.start(MagicMock())
         client.stop()
-        # After stop, internal state is cleared
+        mock_worker.stop.assert_called_once_with(drain=True)
 
 
 class TestFeishuClientEventParsing:
