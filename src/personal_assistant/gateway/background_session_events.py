@@ -92,6 +92,8 @@ class BackgroundSessionEventSubscriber:
 
     async def start(self) -> None:
         """Start the background subscription task."""
+        if self._task is not None and not self._task.done():
+            return
         self._stop_event.clear()
         self._task = asyncio.create_task(
             self._run_loop(),
@@ -100,7 +102,7 @@ class BackgroundSessionEventSubscriber:
 
     async def stop(self) -> None:
         """Stop the background subscription and wait for the task to finish."""
-        self._stop_event.set()
+        self.request_stop()
         if self._task is not None and not self._task.done():
             self._task.cancel()
             try:
@@ -113,6 +115,37 @@ class BackgroundSessionEventSubscriber:
                     exc,
                     extra={"session_id": self._session_id},
                 )
+        self._task = None
+
+    def request_stop(self) -> None:
+        """Synchronously reject future stream work without cancelling a callback."""
+
+        self._stop_event.set()
+
+    async def aclose(self, deadline: float) -> None:
+        """Let the current callback finish, then cancel only if the deadline expires.
+
+        Args:
+            deadline: Absolute monotonic deadline from the owning Gateway event loop.
+
+        Raises:
+            TimeoutError: When the subscriber cannot finish before the shared deadline.
+        """
+
+        self.request_stop()
+        task = self._task
+        if task is None:
+            return
+        remaining = max(0.0, deadline - asyncio.get_running_loop().time())
+        _, pending = await asyncio.wait({task}, timeout=remaining)
+        if pending:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            self._task = None
+            raise TimeoutError(
+                f"background subscriber {self._session_id} exceeded deadline"
+            )
+        await asyncio.gather(task, return_exceptions=True)
         self._task = None
 
     async def _run_loop(self) -> None:

@@ -62,7 +62,11 @@ from personal_assistant.gateway.agent_config_sync import (
     _parse_heartbeat_from_im_payload,  # noqa: F401 - compatibility re-export
 )
 from personal_assistant.gateway.group_context_store import GroupContextStore
+from personal_assistant.gateway.background_subscriptions import (
+    BackgroundSubscriptionManager,
+)
 from personal_assistant.gateway.image_attachments import ImageAttachmentResolver
+from personal_assistant.gateway.inbound_dispatcher import InboundDispatcher
 from personal_assistant.gateway.inbound_pipeline import (
     InboundPipeline,
 )
@@ -906,42 +910,6 @@ class PollingHeartbeatRunner:
                 )
 
 
-class _InboundDispatcher:
-    """Bridge synchronous channel callbacks onto the async inbound pipeline."""
-
-    def __init__(self, pipeline: InboundPipeline) -> None:
-        self._pipeline = pipeline
-        self._loop: asyncio.AbstractEventLoop | None = None
-
-    def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
-        """Bind the runtime event loop used to execute inbound pipeline coroutines."""
-
-        self._loop = loop
-
-    def __call__(self, message: InboundMessage) -> None:
-        """Schedule one inbound message on the runtime loop.
-
-        Raises:
-            RuntimeError: When called before the runtime loop is available.
-        """
-
-        loop = self._loop
-        if loop is None:
-            raise RuntimeError("gateway runtime loop is not ready")
-        try:
-            running_loop = asyncio.get_running_loop()
-        except RuntimeError:
-            running_loop = None
-        if running_loop is loop:
-            task = loop.create_task(self._pipeline.handle_inbound(message))
-            task.add_done_callback(_consume_task_exception)
-            return
-        future = asyncio.run_coroutine_threadsafe(
-            self._pipeline.handle_inbound(message), loop
-        )
-        future.add_done_callback(_consume_future_exception)
-
-
 async def _run_kernel_background_analysis(
     kernel: Any,
     *,
@@ -1070,7 +1038,7 @@ class GatewayRuntime:
         loop = asyncio.get_running_loop()
         self._shutdown_loop = loop
         self._shutdown_async_event = asyncio.Event()
-        if isinstance(self._on_inbound, _InboundDispatcher):
+        if isinstance(self._on_inbound, InboundDispatcher):
             self._on_inbound.bind_loop(loop)
         # bugfix-402-M4: wire gateway loop into cron dispatcher so enqueue()
         # called from asyncio.to_thread (tool.run) can schedule execute_fn on
@@ -2424,6 +2392,11 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             session_binder=session_binder,
         )
 
+    background_subscriptions = BackgroundSubscriptionManager(
+        kernel=kernel,
+        session_event_callback=session_event_callback,
+        bg_reply_sender=bg_reply_sender,
+    )
     pipeline = InboundPipeline(
         kernel=kernel,
         outbound_router=outbound_router,
@@ -2437,7 +2410,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         relay_lifecycle_callback=relay_lifecycle_callback,
         kernel_event_observer=_kernel_event_observer,
         bg_reply_sender=bg_reply_sender,
-        session_event_callback=session_event_callback,
+        background_subscriptions=background_subscriptions,
         image_resolver=image_resolver,
     )
 
@@ -2707,7 +2680,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
 
     heartbeat_runner._cron_tick_fn = _cron_tick_for_agent  # noqa: SLF001
 
-    inbound_dispatcher = _InboundDispatcher(pipeline)
+    inbound_dispatcher = InboundDispatcher(pipeline)
     # bugfix-402-M3 R3: kernel is closed explicitly via GatewayRuntime(kernel=) and
     # its aclose() in the ordered shutdown phase (Decision 7). It must not be in
     # resource_closers — that list only holds lightweight sync cleanup (HTTP clients).
@@ -3683,14 +3656,6 @@ def _consume_task_exception(task: asyncio.Task[object]) -> None:
         pass
     except Exception as exc:
         _log.exception("background task raised unexpected exception: %s", exc)
-
-
-def _consume_future_exception(future: object) -> None:
-    result = getattr(future, "result", None)
-    if callable(result):
-        with suppress(asyncio.CancelledError):
-            result()
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

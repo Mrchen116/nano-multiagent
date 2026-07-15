@@ -19,15 +19,20 @@ from personal_assistant.config.local_store import (
     AgentWorkspaceConfig,
     resolve_run_model,
 )
-from personal_assistant.gateway.background_session_events import (
-    BackgroundSessionEventSubscriber,
+from personal_assistant.gateway.background_subscriptions import (
+    BackgroundSubscriptionManager,
+    BackgroundSubscriptionRequest,
 )
 from personal_assistant.gateway.agent_catalog import LiveAgentCatalog, LiveAgentSnapshot
 from personal_assistant.gateway.group_context_store import GroupContextStore
 from personal_assistant.gateway.image_attachments import ImageAttachmentResolver
 from personal_assistant.gateway import inbound_models as _inbound_models
 from personal_assistant.gateway.outbound_router import OutboundRouter
-from personal_assistant.gateway.run_queue import SessionRunQueue
+from personal_assistant.gateway.run_queue import (
+    GatewayShutdownBeforeSubmit,
+    SessionRunQueue,
+    SessionRunQueueSealed,
+)
 from personal_assistant.gateway.runtime_protocol import external_identity_from_message
 from personal_assistant.gateway.reply_visibility import (
     ReplyVisibilityPolicy,
@@ -126,10 +131,9 @@ class InboundPipeline:
         gateway_internal_port: int = _DEFAULT_GATEWAY_INTERNAL_PORT,
         run_idle_timeout_seconds: float = _DEFAULT_RUN_IDLE_TIMEOUT_SECONDS,
         kernel_event_observer: Callable[[Mapping[str, Any]], None] | None = None,
-        session_event_callback: Callable[[str, Mapping[str, Any]], Awaitable[None]]
-        | None = None,
         product_default_model: str | None = None,
         image_resolver: ImageAttachmentResolver | None = None,
+        background_subscriptions: BackgroundSubscriptionManager | None = None,
         shadow_sync: ShadowConversationSync | None = None,
         bg_reply_sender: Callable[[str, ReplyContext, str], Awaitable[None]]
         | None = None,
@@ -185,17 +189,12 @@ class InboundPipeline:
         # feat-340-M2: bootstrap wires this to an IM event_bridge consumer so the browser
         # sees live tool_call / token_usage events; default None keeps pipeline product-agnostic.
         self._kernel_event_observer = kernel_event_observer
-        # feat-349-M3: optional callback for session-level events (e.g. self_evolution_review)
-        # that arrive after the main per-turn SSE loop has terminated.  Caller wires this to
-        # send a system/meta notification to IM.  None keeps the pipeline IM-agnostic.
-        self._session_event_callback = session_event_callback
         # bugfix-404-M3: async callable (text, reply_context, agent_id) → None that sends
         # a BACKGROUND_TASK run reply back to IM.  Wired by main.py after im_connection_manager
         # is created.  None disables BACKGROUND_TASK relay (outbound_router.send_text() is a
         # no-op for the web_relay channel, so this must be the real IM send path).
         self._bg_reply_sender = bg_reply_sender
-        # Tracks active BackgroundSessionEventSubscribers by kernel_session_id.
-        self._bg_subscribers: dict[str, BackgroundSessionEventSubscriber] = {}
+        self._background_subscriptions = background_subscriptions
 
     @property
     def agent_catalog(self) -> LiveAgentCatalog:
@@ -208,6 +207,18 @@ class InboundPipeline:
         """Return the shared Gateway session binding owner."""
 
         return self._session_binder
+
+    def seal(self) -> None:
+        """Synchronously reject new queued runs and background subscriptions."""
+
+        self._run_queue.seal_and_cancel_pending()
+        if self._background_subscriptions is not None:
+            self._background_subscriptions.seal()
+
+    async def settle_admission(self, deadline: float) -> None:
+        """Wait for accepted turns to cross submit-or-rollback by one deadline."""
+
+        await self._run_queue.settle_admission(deadline)
 
     def set_shadow_sync(self, shadow_sync: ShadowConversationSync | None) -> None:
         """Replace the external shadow adapter used by subsequent inbound messages."""
@@ -294,6 +305,44 @@ class InboundPipeline:
             injected_result, fallback_parts = steered
             if injected_result is not None:
                 return injected_result
+            return await self._submit_queued_turn(
+                message,
+                agent=agent,
+                session_key=session_key,
+                sender_label=sender_label,
+                prebuilt_parts=fallback_parts,
+            )
+
+        return await self._submit_queued_turn(
+            message,
+            agent=agent,
+            session_key=session_key,
+            sender_label=sender_label,
+        )
+
+    async def _submit_queued_turn(
+        self,
+        message: InboundMessage,
+        *,
+        agent: LiveAgentSnapshot,
+        session_key: str,
+        sender_label: str,
+        prebuilt_parts: list[dict[str, Any]] | None = None,
+    ) -> _inbound_models.PipelineResult:
+        admission_event = asyncio.Event()
+
+        async def _on_cancel(error: GatewayShutdownBeforeSubmit) -> None:
+            await self._emit_relay_lifecycle(
+                message,
+                _inbound_models.RelayLifecycleUpdate(
+                    phase="failed",
+                    agent_id=agent.agent_id,
+                    session_key=session_key,
+                    error=error.reason,
+                ),
+            )
+
+        try:
             return await self._run_queue.submit(
                 session_key,
                 lambda: self._run_turn(
@@ -301,19 +350,23 @@ class InboundPipeline:
                     agent=agent,
                     session_key=session_key,
                     sender_label=sender_label,
-                    prebuilt_parts=fallback_parts,
+                    prebuilt_parts=prebuilt_parts,
+                    admission_event=admission_event,
+                ),
+                on_cancel=_on_cancel,
+                admission_event=admission_event,
+            )
+        except SessionRunQueueSealed:
+            await self._emit_relay_lifecycle(
+                message,
+                _inbound_models.RelayLifecycleUpdate(
+                    phase="failed",
+                    agent_id=agent.agent_id,
+                    session_key=session_key,
+                    error=GatewayShutdownBeforeSubmit.reason,
                 ),
             )
-
-        return await self._run_queue.submit(
-            session_key,
-            lambda: self._run_turn(
-                message,
-                agent=agent,
-                session_key=session_key,
-                sender_label=sender_label,
-            ),
-        )
+            raise
 
     async def _try_steer_active_run(
         self,
@@ -422,6 +475,7 @@ class InboundPipeline:
         session_key: str,
         sender_label: str,
         prebuilt_parts: list[dict[str, Any]] | None = None,
+        admission_event: asyncio.Event,
     ) -> _inbound_models.PipelineResult:
         agent_id = agent.agent_id
         run_id: str | None = None
@@ -445,13 +499,15 @@ class InboundPipeline:
                         message, agent_id=agent_id, sender_label=sender_label
                     )
                 if failure_kind is not None:
-                    return await self._reply_image_failure(
+                    result = await self._reply_image_failure(
                         failure_kind,
                         message=message,
                         agent_id=agent_id,
                         session_key=session_key,
                         binding=binding,
                     )
+                    admission_event.set()
+                    return result
             agent_workspace_root_path = agent.config.workspace_root
             # submit() is sync, non-blocking — schedules the turn on RunsRegistry's
             # background loop and returns immediately with a RunRecord.
@@ -470,6 +526,7 @@ class InboundPipeline:
             if run_id:
                 async with self._active_runs_lock:
                     self._active_runs[session_key] = run_id
+            admission_event.set()
             await self._emit_relay_lifecycle(
                 message,
                 _inbound_models.RelayLifecycleUpdate(
@@ -515,12 +572,15 @@ class InboundPipeline:
             # reply_context + session_key are passed so the subscriber can relay
             # BACKGROUND_TASK assistant_message events back to the originating IM
             # conversation via _bg_reply_sender (bugfix-404-M3).
-            await self._ensure_background_subscriber(
-                kernel_session_id=binding.kernel_session_id,
-                last_sequence=anchor_sequence or 0,
-                reply_context=binding.reply_context,
-                session_key=session_key,
-            )
+            if self._background_subscriptions is not None:
+                await self._background_subscriptions.ensure(
+                    BackgroundSubscriptionRequest(
+                        session_id=binding.kernel_session_id,
+                        after_sequence=anchor_sequence or 0,
+                        reply_context=binding.reply_context,
+                        agent_id=agent_id,
+                    )
+                )
             await self._emit_relay_lifecycle(
                 message,
                 _inbound_models.RelayLifecycleUpdate(
@@ -596,16 +656,19 @@ class InboundPipeline:
             )
             return result
         except Exception as exc:
-            await self._emit_relay_lifecycle(
-                message,
-                _inbound_models.RelayLifecycleUpdate(
-                    phase="failed",
-                    agent_id=agent_id,
-                    session_key=session_key,
-                    run_id=run_id,
-                    error=str(exc),
-                ),
-            )
+            try:
+                await self._emit_relay_lifecycle(
+                    message,
+                    _inbound_models.RelayLifecycleUpdate(
+                        phase="failed",
+                        agent_id=agent_id,
+                        session_key=session_key,
+                        run_id=run_id,
+                        error=str(exc),
+                    ),
+                )
+            finally:
+                admission_event.set()
             raise
         finally:
             if run_id:
@@ -1091,113 +1154,6 @@ class InboundPipeline:
             product_default=self._product_default_model,
         )
 
-    async def _ensure_background_subscriber(
-        self,
-        *,
-        kernel_session_id: str,
-        last_sequence: int,
-        reply_context: ReplyContext | None = None,
-        session_key: str | None = None,
-    ) -> None:
-        """Ensure one persistent background event subscriber is active for the session.
-
-        Called after each main turn completes so that session-level events (e.g.
-        self_evolution_review) published by background hooks after the main event
-        loop terminates are still received and forwarded to ``_session_event_callback``.
-
-        Also wires ``bg_run_output_callback`` so BACKGROUND_TASK-origin run output
-        (assistant_message events from notification-triggered runs) is relayed back to
-        the originating IM conversation. This closes the M3 gap: M1 fixed the kernel to
-        inject and re-run BACKGROUND_TASK notifications; M3 fixes the gateway to relay the
-        resulting assistant reply back to IM (bugfix-404-M3).
-
-        If a subscriber is already active for this session (from a previous turn) it
-        is left running — re-creation would lose events between turns.
-
-        Args:
-            kernel_session_id: Kernel session to subscribe to.
-            last_sequence: Last event sequence number seen by the main turn's loop,
-                used as ``after_sequence`` so the subscriber replays events missed
-                between turn termination and subscription start.
-            reply_context: Routing context for the originating IM conversation.
-                When provided and ``_bg_reply_sender`` is wired, BACKGROUND_TASK run
-                output is relayed to IM via the real IM send path.
-            session_key: Gateway session key (``channel:conv_id:agent_id``).
-                Used to extract the agent_id for the bg_reply_sender call.
-        """
-        # Require at least one of session_event_callback or reply_context to be set.
-        # Without both, there is nothing to do with received events.
-        if self._session_event_callback is None and reply_context is None:
-            return
-        if kernel_session_id in self._bg_subscribers:
-            return
-
-        on_session_event_cb = self._session_event_callback
-
-        async def _on_session_event(event: Mapping[str, Any]) -> None:
-            if on_session_event_cb is not None:
-                await on_session_event_cb(kernel_session_id, event)
-
-        # bugfix-404-M3: when reply_context is available and _bg_reply_sender is wired
-        # (by main.py after im_connection_manager is created), relay BACKGROUND_TASK-origin
-        # assistant_message events back to the originating IM conversation.
-        # outbound_router.send_text() → WebRelayAdapter.sent.append() is a no-op for the
-        # web_relay channel; _bg_reply_sender uses im_connection_manager.send_agent_message()
-        # which is the real IM WebSocket send path.
-        bg_run_output_callback = None
-        if reply_context is not None and self._bg_reply_sender is not None:
-            captured_reply_context = reply_context
-            bg_reply_sender = self._bg_reply_sender
-            # Extract agent_id from session_key ("channel:conv_id:agent_id").
-            # Fall back to empty string if session_key is absent or malformed.
-            agent_id_for_relay = session_key.rsplit(":", 1)[-1] if session_key else ""
-            # bugfix-404 F1: build a stable per-event idempotency key so IM
-            # deduplicates replayed BACKGROUND_TASK replies after gateway restarts.
-            # IM dedup path: from_session_id contains "|tool_call:<key>" →
-            # dispatch_request_key = f"{agent_id}:{key}" used as idempotency token
-            # (see gateway_handler.py _handle_agent_message / _resolve_dispatch_source).
-            # Key = kernel_session_id + ":" + event sequence number (stable, per-event).
-            captured_kernel_session_id = kernel_session_id
-
-            async def _relay_bg_run_output(event: Mapping[str, Any]) -> None:
-                content = event.get("content")
-                if isinstance(content, str) and content.strip():
-                    text = content.strip()
-                    # bugfix-416 #107: BACKGROUND_TASK relay is the third agent-text
-                    # delivery path; route through the shared guard so a NO_REPLY
-                    # sentinel never reaches IM. Background relays only run for group
-                    # fan-out contexts, so in_group=True.
-                    if self._should_suppress_no_reply(text, in_group=True):
-                        return
-                    seq = event.get("_id") or event.get("sequence_num")
-                    idempotency_key = (
-                        f"{captured_kernel_session_id}:{seq}"
-                        if seq is not None
-                        else captured_kernel_session_id
-                    )
-                    from_session_id = (
-                        f"{agent_id_for_relay}|tool_call:{idempotency_key}"
-                    )
-                    await bg_reply_sender(
-                        text,
-                        captured_reply_context,
-                        from_session_id,
-                    )
-
-            bg_run_output_callback = _relay_bg_run_output
-
-        # In-process mode: the subscriber uses the Kernel directly via its stream() method.
-        # BackgroundSessionEventSubscriber accepts any object with stream_session(); we
-        # adapt the Kernel's stream() method into the expected call shape.
-        subscriber = BackgroundSessionEventSubscriber(
-            kernel_client=_KernelStreamAdapter(self._kernel, kernel_session_id),
-            session_id=kernel_session_id,
-            on_event=_on_session_event,
-            after_sequence=last_sequence,
-            bg_run_output_callback=bg_run_output_callback,
-        )
-        self._bg_subscribers[kernel_session_id] = subscriber
-        await subscriber.start()
 
     def _require_known_agent(self, agent_id: str) -> str:
         if self._agent_catalog.get(agent_id) is None:
@@ -1622,36 +1578,3 @@ def _optional_stripped_text(value: object) -> str | None:
         return None
     normalized = value.strip()
     return normalized or None
-
-
-class _KernelStreamAdapter:
-    """Adapt Kernel.stream() to the stream_session(session_id, ...) interface.
-
-    BackgroundSessionEventSubscriber calls stream_session(session_id, last_event_id,
-    workspace_root) on its kernel_client.  In SDK mode, the session is already bound
-    to a fixed session_id; this adapter forwards calls to Kernel.stream() ignoring
-    the workspace_root parameter (not needed in-process).
-
-    Kernel.stream() now produces flattened dicts (refactor-387 sdk-fix-r3), so no
-    normalization is needed here — events are forwarded directly.
-    """
-
-    def __init__(self, kernel: "Kernel", session_id: str) -> None:
-        self._kernel = kernel
-        self._session_id = session_id
-
-    async def stream_session(
-        self,
-        *,
-        session_id: str,
-        last_event_id: int | None = None,
-        workspace_root: str | None = None,
-        **_kwargs: object,
-    ):
-        # last_event_id maps to after_sequence; workspace_root is ignored in-process.
-        # Kernel.stream() yields flattened dicts — forward directly.
-        async for event in self._kernel.stream(
-            session_id or self._session_id,
-            after_sequence=last_event_id or 0,
-        ):
-            yield event
