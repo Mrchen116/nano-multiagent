@@ -1,0 +1,41 @@
+{
+  "disableMs": 2357,
+  "enableMs": 2822,
+  "mutations": [
+    {
+      "method": "POST",
+      "path": "/im/v1/auth/login",
+      "status": 200
+    },
+    {
+      "method": "PATCH",
+      "path": "/im/v1/agents/default-agent/channels/ch_legacy_fd93333f47b0396a2fdd640a",
+      "status": 200
+    },
+    {
+      "method": "PATCH",
+      "path": "/im/v1/agents/default-agent/channels/ch_legacy_fd93333f47b0396a2fdd640a",
+      "status": 200
+    },
+    {
+      "method": "PATCH",
+      "path": "/im/v1/agents/default-agent/channels/ch_legacy_fd93333f47b0396a2fdd640a",
+      "status": 200
+    },
+    {
+      "method": "PATCH",
+      "path": "/im/v1/agents/default-agent/channels/ch_legacy_fd93333f47b0396a2fdd640a",
+      "status": 200
+    },
+    {
+      "method": "PATCH",
+      "path": "/im/v1/agents/default-agent/channels/ch_legacy_fd93333f47b0396a2fdd640a",
+      "status": 200
+    }
+  ],
+  "consoleErrorCount": 0,
+  "viewport": {
+    "width": 375,
+    "height": 812
+  }
+}

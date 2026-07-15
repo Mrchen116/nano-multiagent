@@ -39,7 +39,7 @@
 - Rationale: provider 才拥有错误语义；runtime manager 只透传稳定 code/message。metadata 必须先关联已接纳 generation 才能 CAS，durable cache 是离线重放权威。activation 属附加能力，瞬态同步失败不应让监听器不可用。
 - Evidence:
   - Tests: `pytest -q tests/unit/personal_assistant/test_feishu_preflight_and_metadata.py tests/unit/personal_assistant/test_channel_manager.py tests/unit/personal_assistant/test_channel_manifest_store.py tests/unit/personal_assistant/test_gateway_im_config_sync.py` → 38 passed。
-  - Entry: 10015 → `feishu_invalid_credentials`、10014 → `feishu_app_disabled`、230006 → `feishu_bot_disabled`、WS endpoint 非零 → `feishu_long_connection_unavailable`；错误文案不含 secret。
+  - Entry: 10015 或带 `app secret invalid` 语义的 10014 → `feishu_invalid_credentials`；其余 10014 → `feishu_app_disabled`；230006 → `feishu_bot_disabled`；WS endpoint 非零 → `feishu_long_connection_unavailable`；错误文案不含 secret。
   - Frontend State Matrix: provider-specific status code/message 已进入既有 failed card；浏览器留 R6。
   - Browser QA: R6。
   - E2E/Regression: initial bot metadata 在 revision 1 cache 可见，模拟 IM offline 后调用 reconnect replay 得到同 generation patch；activation 第一次失败仍 applied，第二次 reconnect 成功且后续幂等。
@@ -82,9 +82,16 @@
 
 ## R6 — 独立真实旅程与全门禁
 
-- Context: 待实施。
-- Decision: 待实施。
-- Rationale: 待实施。
-- Evidence: 待实施。
-- Rollback: 待实施。
-- Commits: 待实施。
+- Context: DONE；隔离高位 IM + 真 Gateway + 本机真实飞书应用 + Playwright 重新执行 Round 1 主旅程。真实服务额外暴露 bot info 为 top-level `bot`、错误 secret 返回 10014/`app secret invalid`，以及 invalid cached provider 在连 IM 前中止三个 mock 未覆盖缺口；总门禁又发现旧 Gateway WS 测试夹具仍无 token/owner。
+- Decision: preflight 同时接受官方 live top-level 与既有 nested bot shape；credential 分类结合 code 与 secret-free message 语义；cached provider start failure 保留 desired 并继续连接 IM。旧 WS/handler regression 全部改为显式 bearer/owner，不为通过测试放宽生产认证边界。
+- Rationale: 真服务响应而不是 mock shape 才是 provider contract；10014 在 tenant-token endpoint 的具体 message 比 generic code 表更精确。cache 中的坏 provider 是需要控制面修复的 desired state，不应阻断控制面连接。测试夹具必须服从新认证边界，不能靠 handler 空 owner 绕过。
+- Evidence:
+  - Tests: `pytest -q -m "not e2e"` → 3447 passed / 1 skipped / 20 deselected；frontend 67 files / 620 passed；build 444 modules；Ruff PASS。Gateway handler 70 passed，所有真实 `/im/ws/gateway` 测试文件 71 passed。
+  - Entry: connected → disabled 2.357s；无需 secret re-enable → connected 2.822s；真实错误 secret 显示 `feishu_invalid_credentials` provider 文案，恢复后 Connected；offline create/update/disable/enable 分别在 Gateway 返回后自动 applied。
+  - Frontend State Matrix: desktop connected/failed/pending/disabling/disabled/empty、history；mobile 375×812 connected/picker 全部目检，无遮挡、内部 revision 或 secret。
+  - Browser QA: 15 张真实入口截图与 JSON 结果见 `evidence/summary.md`；在线主旅程 console error 0，offline 旅程 mutation 均 200 并在重启后收敛。
+  - E2E/Regression: 删除 200 后 channel resources=0，生产 conversation/message API 与浏览器仍可见原 history；cache/stop failure + same-revision retry 由真实 store/HTTP/WS integration 重跑；key/cache/config 0600、secret/SQLite/evidence scan 0 hit。
+  - Visual/Interaction: 1440×1000 与 375×812 均目检；provider picker 生产环境只有 Feishu，失败原因、离线 banner、动作和历史正文可读。
+  - Prototype Comparison: `#channel-pending/#channel-connected/#channel-disabling/#channel-disabled/#channel-deleting/#channels-empty/#channel-failed/#channels-mobile` must-match 状态均有当前或永久证据；may-adapt 继续沿用 IM token/card 体系。
+- Rollback: R6 的三项 live 修复分别依赖 R3 provider seam、R2 cached recovery 与 R1认证边界；回滚必须同时移除相应 regression。截图/JSON 可单独移除，不影响运行时。
+- Commits: live bot shape C1/C2 `b3847a34a`/`9cf53f7d5`；credential 语义 C1/C2 `d17d2773c`/`f636c0b29`；cached startup C1/C2 `77acec914`/`b823b0b36`；认证夹具 `0ffbd46e8`；evidence/C3=本提交。

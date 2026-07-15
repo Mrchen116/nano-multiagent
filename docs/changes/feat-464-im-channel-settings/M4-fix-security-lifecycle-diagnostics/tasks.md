@@ -8,13 +8,13 @@
 
 ## 退出标准
 
-- [ ] M4-E1：真实 connected → disable 在 90 秒内进入 disabled 并停止收发；enable 不重填 secret 即恢复；delete 保留历史；stop/cache failure 可见且可重试。
-- [ ] M4-E2：无效凭据、Bot 未启用、长连接/事件配置不可用均产生 provider-owned 稳定原因；offline create/update/enable 在节点重连后自动收敛。
-- [ ] M4-E3：未认证或错误 owner 的 Gateway 无法覆盖 node/key/socket；跨 owner 并发 bind 只有一个成功，关联 channel/head/key/removal/envelope 边界不变，同 owner 幂等。
-- [ ] M4-E4：manifest 单项解封失败/cache key loss 不被解释为删除，不推进 applied head且 Gateway 仍可连 IM；上报 `credential_reentry_required`；迁移/导出不留明文 backup，首次可见即原子 `0600`。
-- [ ] M4-E5：partial start、registry failure、FIFO backpressure、disable/replace/reconnect 均回收旧 PID；重试有界、单 listener，Gateway heartbeat/ACK 不被 stop/join 阻塞。
-- [ ] M4-E6：bot/owner metadata 在匹配 generation 下持久化并可重放，旧 generation 被拒；activation 失败可重试；前端 registry 驱动 provider 选择、表单、mutation、卡片、诊断，第二 provider fixture 不落入 Feishu 路径。
-- [ ] M4-E7：十项缺口均有永久 regression；真实栈、真飞书和浏览器证据关闭 Round 1 fail/inconclusive；secret scan、进程清理及全门禁通过。
+- [x] M4-E1：真实 connected → disable 在 90 秒内进入 disabled 并停止收发；enable 不重填 secret 即恢复；delete 保留历史；stop/cache failure 可见且可重试。
+- [x] M4-E2：无效凭据、Bot 未启用、长连接/事件配置不可用均产生 provider-owned 稳定原因；offline create/update/enable 在节点重连后自动收敛。
+- [x] M4-E3：未认证或错误 owner 的 Gateway 无法覆盖 node/key/socket；跨 owner 并发 bind 只有一个成功，关联 channel/head/key/removal/envelope 边界不变，同 owner 幂等。
+- [x] M4-E4：manifest 单项解封失败/cache key loss 不被解释为删除，不推进 applied head且 Gateway 仍可连 IM；上报 `credential_reentry_required`；迁移/导出不留明文 backup，首次可见即原子 `0600`。
+- [x] M4-E5：partial start、registry failure、FIFO backpressure、disable/replace/reconnect 均回收旧 PID；重试有界、单 listener，Gateway heartbeat/ACK 不被 stop/join 阻塞。
+- [x] M4-E6：bot/owner metadata 在匹配 generation 下持久化并可重放，旧 generation 被拒；activation 失败可重试；前端 registry 驱动 provider 选择、表单、mutation、卡片、诊断，第二 provider fixture 不落入 Feishu 路径。
+- [x] M4-E7：十项缺口均有永久 regression；真实栈、真飞书和浏览器证据关闭 Round 1 fail/inconclusive；secret scan、进程清理及全门禁通过。
 
 ## 问题映射
 
