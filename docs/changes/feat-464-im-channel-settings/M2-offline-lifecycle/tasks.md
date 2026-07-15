@@ -92,12 +92,12 @@
 
 ### R4 — 前端离线投影与生命周期交互
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: channels API/model 增加 removal/actions；页面增加 offline banner、pending/disabled/reconnecting/deleting/failed 卡片、停用/删除确认与 retry。
 - 验证: frontend interaction tests + build；M2-E1/E3/E4/E5。
 
 ### R5 — 真栈浏览器证据与总门禁
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 按 runbook 用高位隔离 IM/Gateway + headed Chromium 驱动离线/重连/启停/重连/删除旅程，落七锚点 evidence，核对 history/secret/outbox/key/cache/PID 清理。
 - 验证: M2-E1..M2-E8 证据表；最窄、frontend、non-e2e、Ruff、build、test contract 全绿。

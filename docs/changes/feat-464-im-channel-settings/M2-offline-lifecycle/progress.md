@@ -58,3 +58,20 @@
 - Rollback: 停 Gateway 后先用 export script 生成旧 YAML，再回滚 R3；IM initialized rows无需删除，旧二进制忽略它们。
 - Commits: C1=`e3155ab01`，C2=`68333c71e`，C3=本提交。
 - Next: R4 扩展前端 removal model、离线 banner、启停/重连/删除确认及 failed retry 投影。
+
+## R4 — 前端离线投影与生命周期交互
+
+- Context: DONE；M1 页面只有 create/edit 和粗粒度 connected/failed/connecting，不能调用 R2 的 reconnect/delete/retry，也会在删除 active row 后错误进入 empty，无法区分“已保存等待节点”“正在停用”与 observed disabled。
+- Decision: channels API 返回 active/removal union 并暴露 live reconnect、revision-guarded delete 与 removal retry；Agent detail 把真实 node status 下传，卡片按 desired/sync/observed 三层投影 pending/connecting/disabling/disabled/reconnecting/failed/deleting。停用与删除增加明确确认框，removal receipt 独立卡片阻止过早空态，失败 receipt 保留原因和 retry。
+- Rationale: 页面状态必须来自后端权威 desired/removal 与 Gateway observed，而不是 mutation 本地猜测；离线 desired 操作仍可保存，但 live reconnect 明确禁用，避免把未执行动作伪装成成功。
+- Evidence:
+  - Tests: C1 新增离线、停用、删除 reload/retry、reconnect 与 API 路径测试并按预期失败；C2 focused frontend `45 passed`，`npm run build` 通过（443 modules transformed）。
+  - Entry: 真实 `AgentDetailPage → AgentChannelsPanel` 下传 raw node status；`DELETE ...?channel_revision=`、`POST .../actions/reconnect`、`POST .../channel-removals/.../actions/retry` 均由页面交互触发。
+  - Frontend State Matrix: covered=default/empty/error/disabled/submitting/missing observed/desktop wrapping；loading 沿用 M1，permission/mobile/dark 按 tasks 约定不在本 roadpoint。
+  - Browser QA: 推迟到 R5 真栈 headed Chromium，单测使用真实组件交互而非静态文案断言。
+  - E2E/Regression: 覆盖 offline pending + node-offline action、disable confirm → disabling → disabled、credential retained、reconnect projection、delete confirm → removal pending、reload failed receipt → retry、removal 不落 empty。
+  - Visual/Interaction: 动作按钮按状态收敛，offline banner、确认框、removal/failure detail 均可换行；内部 revision 不展示。
+  - Prototype Comparison: `#channel-pending/#channel-actions/#channel-disabling/#channel-disabled/#channel-deleting/#channel-reconnecting/#channel-failed` 的信息层级与文案已实现，最终像素/真入口截图在 R5 对账。
+- Rollback: 回滚 R4 三提交恢复 M1 create/edit 页面；R1-R3 backend lifecycle 协议仍保持兼容，但用户不能从 Web IM 操作完整生命周期。
+- Commits: C1=`bebcc4b2d`，C2=`a08ec2c9b`，C3=本提交。
+- Next: R5 用隔离高位真栈和 headed Chromium 验证七个原型锚点、DB/runtime/outbox/cleanup，再跑总门禁。
