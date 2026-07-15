@@ -17,7 +17,6 @@ def test_main_defaults_to_background_launch(
     seen: dict[str, object] = {}
     result = BackgroundLaunchResult(
         pid=999,
-        health_url="http://127.0.0.1:8100/v1/health",
         log_path=tmp_path / "gateway.log",
     )
 
@@ -42,14 +41,12 @@ def test_main_defaults_to_background_launch(
     assert exit_code == 0
     assert seen == {"background": (str(tmp_path / "node-config.yaml"), None)}
     assert capsys.readouterr().out == (
-        "Gateway started  (pid=999)\n"
-        "Health:          http://127.0.0.1:8100/v1/health\n"
-        f"Log:             {tmp_path / 'gateway.log'}\n"
+        f"Gateway started (pid=999)\nLog:             {tmp_path / 'gateway.log'}\n"
     )
 
 
 def test_main_passes_im_service_url_override_to_background_launch(
-    monkeypatch, tmp_path: Path
+    monkeypatch, capsys, tmp_path: Path
 ) -> None:
     seen: dict[str, object] = {}
 
@@ -57,12 +54,15 @@ def test_main_passes_im_service_url_override_to_background_launch(
         seen.update(kwargs)
         return BackgroundLaunchResult(
             pid=1,
-            health_url="http://127.0.0.1:8000/v1/health",
             log_path=tmp_path / "gateway.log",
+            im_service_url="http://im.remote:9011",
         )
 
     monkeypatch.setattr(
         "personal_assistant.main.launch_gateway_in_background", _launch_background
+    )
+    monkeypatch.setattr(
+        "personal_assistant.main._check_im_reachable", lambda _url: False
     )
     monkeypatch.setattr(
         "personal_assistant.main.run_gateway",
@@ -85,6 +85,12 @@ def test_main_passes_im_service_url_override_to_background_launch(
         "config_path": str(tmp_path / "node-config.yaml"),
         "im_service_url_override": "http://im.remote:9011",
     }
+    assert capsys.readouterr().out == (
+        "Gateway started (pid=1)\n"
+        "IM service:      http://im.remote:9011  "
+        "[unavailable (running offline, will retry)]\n"
+        f"Log:             {tmp_path / 'gateway.log'}\n"
+    )
 
 
 def test_main_defaults_to_canonical_config_path_when_flag_missing(
@@ -98,7 +104,6 @@ def test_main_defaults_to_canonical_config_path_when_flag_missing(
         seen["background"] = kwargs["config_path"]
         return BackgroundLaunchResult(
             pid=1,
-            health_url="http://127.0.0.1:8000/v1/health",
             log_path=tmp_path / "gateway.log",
         )
 
@@ -305,7 +310,6 @@ def test_main_restart_command_stops_then_starts(
         calls.append(f"start:{config_path}:{im_service_url_override}")
         return BackgroundLaunchResult(
             pid=1234,
-            health_url="http://127.0.0.1:8100/v1/health",
             log_path=tmp_path / "gateway.log",
         )
 
@@ -318,7 +322,7 @@ def test_main_restart_command_stops_then_starts(
     assert exit_code == 0
     assert calls == [f"stop:{config_path}", f"start:{config_path}:None"]
     out = capsys.readouterr().out
-    assert "Gateway started  (pid=1234)" in out
+    assert "Gateway started (pid=1234)" in out
 
 
 def test_main_restart_command_continues_when_gateway_not_running(
@@ -337,7 +341,6 @@ def test_main_restart_command_continues_when_gateway_not_running(
         calls.append(f"start:{im_service_url_override}")
         return BackgroundLaunchResult(
             pid=5678,
-            health_url="http://127.0.0.1:8100/v1/health",
             log_path=tmp_path / "gateway.log",
         )
 
@@ -366,7 +369,6 @@ def test_main_restart_command_stops_foreground_pid_before_start(
         calls.append(f"start:{config_path}:{im_service_url_override}")
         return BackgroundLaunchResult(
             pid=5678,
-            health_url="http://127.0.0.1:8100/v1/health",
             log_path=tmp_path / "gateway.log",
         )
 

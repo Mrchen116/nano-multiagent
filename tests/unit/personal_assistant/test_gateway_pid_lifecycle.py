@@ -9,12 +9,6 @@ from pathlib import Path
 
 import pytest
 
-from personal_assistant.config.local_store import (
-    HeartbeatConfig,
-    GatewayLifecycleConfig,
-    LocalConfig,
-    NodeConfig,
-)
 from personal_assistant.main import (
     GatewayStartupError,
     RuntimeFactories,
@@ -23,28 +17,8 @@ from personal_assistant.main import (
     stop_gateway,
 )
 
-import personal_assistant.main as main_module
-
 from agent.core.llm.model_registry import _reset_for_tests
 from ._main_helpers import _FakeProcess, build_config
-
-from agent.core.llm.config import LLMConfigPayload, LLMModelPayload, LLMProviderPayload
-
-_DEFAULT_TEST_LLM = LLMConfigPayload(
-    default_model="kimiCoding:K2.6",
-    providers=(
-        LLMProviderPayload(
-            name="anthropic",
-            base_url="http://127.0.0.1:4000",
-            models=(
-                LLMModelPayload(
-                    name="kimiCoding:K2.6",
-                    extra_request_body={"thinking": {"type": "adaptive"}},
-                ),
-            ),
-        ),
-    ),
-)
 
 
 def test_launch_gateway_in_background_writes_runtime_state_file(tmp_path: Path) -> None:
@@ -55,111 +29,15 @@ def test_launch_gateway_in_background_writes_runtime_state_file(tmp_path: Path) 
         config_path=config.source_path,
         load_config=lambda _path: config,
         spawn_process=lambda _argv, _log_path: process,
-        wait_for_ready=lambda _child, _config, _timeout: None,
+        wait_for_start=lambda _child, _config, _timeout: None,
     )
 
     state_path = tmp_path / ".gateway-state.json"
-    assert state_path.exists() is True
-    assert "2468" in state_path.read_text(encoding="utf-8")
-    assert str(config.source_path) in state_path.read_text(encoding="utf-8")
-
-
-def test_stop_gateway_reports_still_healthy_when_pid_is_stale_but_health_url_is_alive(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    config = build_config(tmp_path)
-    state_path = tmp_path / ".gateway-state.json"
-    state_path.write_text(
-        json.dumps(
-            {
-                "pid": 2468,
-                "config_path": str(config.source_path),
-                "health_url": "http://127.0.0.1:8100/v1/health",
-                "log_path": str(tmp_path / "gateway.log"),
-            }
-        ),
-        encoding="utf-8",
-    )
-    monkeypatch.setattr("personal_assistant.main._pid_is_running", lambda _pid: False)
-    monkeypatch.setattr(
-        "personal_assistant.main._healthcheck_reports_healthy", lambda _url: True
-    )
-
-    result = main_module.stop_gateway(
-        config_path=config.source_path, load_config=lambda _path: config
-    )
-
-    assert result == (
-        "STALE pid=2468 state="
-        f"{state_path} health_url=http://127.0.0.1:8100/v1/health still_healthy=true"
-    )
-    assert state_path.exists() is False
-
-
-def test_stop_gateway_only_reports_stopped_after_health_url_goes_down(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    config = LocalConfig(
-        node=NodeConfig(node_id="node-local"),
-        agents=(),
-        channels=(),
-        gateway=GatewayLifecycleConfig(
-            startup_timeout_seconds=0.2,
-            poll_interval_seconds=0.01,
-            shutdown_grace_seconds=0.1,
-        ),
-        heartbeat=HeartbeatConfig(),
-        im_service=None,
-        llm=_DEFAULT_TEST_LLM,
-        source_path=tmp_path / "node-config.yaml",
-    )
-    state_path = tmp_path / ".gateway-state.json"
-    state_path.write_text(
-        json.dumps(
-            {
-                "pid": 2468,
-                "config_path": str(config.source_path),
-                "health_url": "http://127.0.0.1:8100/v1/health",
-                "log_path": str(tmp_path / "gateway.log"),
-            }
-        ),
-        encoding="utf-8",
-    )
-    pid_checks = iter([True, False])
-    monkeypatch.setattr(
-        "personal_assistant.main._pid_is_running", lambda _pid: next(pid_checks)
-    )
-    monkeypatch.setattr("personal_assistant.main.os.kill", lambda _pid, _sig: None)
-    # 漏 mock 会让 stop_gateway 对虚构 PID 2468 真实 killpg,CI 上若该 pid 存活则误杀 runner 进程组。
-    monkeypatch.setattr(
-        "personal_assistant.main._kill_process_tree", lambda _pid, _sig: None
-    )
-    monkeypatch.setattr("personal_assistant.main.time.sleep", lambda _seconds: None)
-    monkeypatch.setattr(
-        "personal_assistant.main.time.monotonic", iter([0.0, 0.01]).__next__
-    )
-    verify_calls: list[tuple[str, float, float]] = []
-
-    def _verify(
-        health_url: str, *, timeout_seconds: float, sleep_seconds: float
-    ) -> bool:
-        verify_calls.append((health_url, timeout_seconds, sleep_seconds))
-        return False
-
-    monkeypatch.setattr("personal_assistant.main._verify_stopped_health_url", _verify)
-
-    result = main_module.stop_gateway(
-        config_path=config.source_path, load_config=lambda _path: config
-    )
-
-    assert result == (
-        "STOPPED pid=2468 state="
-        f"{state_path} health_url=http://127.0.0.1:8100/v1/health still_healthy=true"
-    )
-    assert verify_calls == [("http://127.0.0.1:8100/v1/health", 0.1, 0.01)]
-    assert state_path.exists() is False
+    assert json.loads(state_path.read_text(encoding="utf-8")) == {
+        "config_path": str(config.source_path),
+        "log_path": str(tmp_path / "gateway.log"),
+        "pid": 2468,
+    }
 
 
 def test_run_gateway_writes_pid_file_before_start_and_removes_on_exit(
@@ -268,7 +146,7 @@ def test_launch_background_clears_stale_pid_file_when_process_dead(
         config_path=config.source_path,
         load_config=lambda _path: config,
         spawn_process=_spawn,
-        wait_for_ready=lambda _child, _config, _timeout: None,
+        wait_for_start=lambda _child, _config, _timeout: None,
     )
 
     assert spawned, "gateway must have been spawned after stale PID cleanup"
@@ -295,7 +173,6 @@ def test_stop_gateway_removes_pid_file_on_successful_stop(
             {
                 "pid": 2468,
                 "config_path": str(config.source_path),
-                "health_url": "http://127.0.0.1:8100/v1/health",
                 "log_path": str(tmp_path / "gateway.log"),
             }
         ),
@@ -315,10 +192,6 @@ def test_stop_gateway_removes_pid_file_on_successful_stop(
     monkeypatch.setattr(
         "personal_assistant.main.time.monotonic", iter([0.0, 0.01]).__next__
     )
-    monkeypatch.setattr(
-        "personal_assistant.main._verify_stopped_health_url", lambda *a, **kw: True
-    )
-
     result = stop_gateway(
         config_path=config.source_path, load_config=lambda _path: config
     )

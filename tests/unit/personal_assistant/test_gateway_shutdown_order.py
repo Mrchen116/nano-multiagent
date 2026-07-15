@@ -130,7 +130,6 @@ def test_gateway_runtime_accepts_kernel_parameter(tmp_path: Path) -> None:
     # Must not raise TypeError — the parameter must exist.
     runtime = GatewayRuntime(
         config,
-        None,
         kernel=kernel,
     )
     assert runtime is not None
@@ -149,7 +148,6 @@ def test_gateway_runtime_calls_kernel_aclose_before_im_close(tmp_path: Path) -> 
 
     runtime = GatewayRuntime(
         config,
-        None,
         kernel=kernel,
         heartbeat_runner=heartbeat,
         im_connection_manager=im_manager,
@@ -191,7 +189,6 @@ def test_gateway_runtime_kernel_aclose_called_exactly_once(tmp_path: Path) -> No
 
     runtime = GatewayRuntime(
         config,
-        None,
         kernel=kernel,
         im_connection_manager=im_manager,
     )

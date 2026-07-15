@@ -75,17 +75,6 @@ class _FakeProcess:
         return self.wait_result
 
 
-class _FakeProcessManager:
-    def __init__(self, events: list[str]) -> None:
-        self._events = events
-
-    def start_kernel_process(self) -> None:
-        self._events.append("kernel.start")
-
-    def stop_kernel_process(self) -> None:
-        self._events.append("kernel.stop")
-
-
 class _FakeChannel:
     def __init__(self, events: list[str], *, name: str = "web_relay") -> None:
         self.name = name
