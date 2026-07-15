@@ -61,3 +61,28 @@ def test_runtime_consumers_do_not_import_binding_repository() -> None:
     ]
 
     assert violations == []
+
+
+def test_inbound_facade_does_not_own_session_run_resources() -> None:
+    pipeline = _source("src/personal_assistant/gateway/inbound_pipeline.py")
+    forbidden = (
+        "SessionRunQueue",
+        "_active_runs",
+        "_user_interrupted_runs",
+        "_session_drain_locks",
+        "_image_resolver",
+        "_background_subscriptions",
+        "_await_terminal_run_async",
+        "_handle_stop_command",
+    )
+
+    assert "SessionRunCoordinator" in pipeline
+    assert [snippet for snippet in forbidden if snippet in pipeline] == []
+
+
+def test_runtime_lifecycle_does_not_import_inbound_facade() -> None:
+    lifecycle = _source(
+        "src/personal_assistant/gateway/runtime_delivery/lifecycle.py"
+    )
+
+    assert "gateway.inbound_pipeline import" not in lifecycle

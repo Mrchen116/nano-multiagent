@@ -146,6 +146,11 @@ class ControlledKernel:
             {"event": "run_status", "run_id": run_id, "status": status}
         )
 
+    def push(self, run_id: str, event: dict[str, Any]) -> None:
+        """Publish one non-terminal stream event for a controlled run."""
+
+        self._events[run_id].put_nowait({**event, "run_id": run_id})
+
     def interrupt(self, session_id: str) -> None:
         run_id = self._latest_run_by_session[session_id]
         self.operations.append(("interrupt", run_id))
