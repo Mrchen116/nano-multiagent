@@ -236,7 +236,12 @@ GOLDEN_AGENT_SKILLS: list[dict[str, str]] = sorted(
     key=lambda s: s["name"],
 )
 
-GOLDEN_FLAGS = {"relay": True, "send_message": True, "config_sync": True}
+GOLDEN_FLAGS = {
+    "relay": True,
+    "send_message": True,
+    "config_sync": True,
+    "channel_bootstrap": True,
+}
 GOLDEN_DEFAULT_SYSTEM_PROMPT = ""
 
 
