@@ -332,6 +332,7 @@ def create_app(
                 message_repository=message_repository,
                 event_repository=event_repository,
             ),
+            channel_control_store=app_instance.state.channel_control_store,
         )
         offline_guard_task = asyncio.create_task(
             run_offline_guard(

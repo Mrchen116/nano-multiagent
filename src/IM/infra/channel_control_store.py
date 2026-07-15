@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import UTC, datetime
 import hashlib
@@ -66,6 +67,24 @@ class ManifestChannel:
     credential_revision: int
     channel_revision: int
 
+    def as_payload(self) -> dict[str, object]:
+        """Serialize one internal desired item for its authenticated node only."""
+        return {
+            "channel_id": self.channel_id,
+            "agent_id": self.agent_id,
+            "node_id": self.node_id,
+            "provider": self.provider,
+            "enabled": self.enabled,
+            "config": self.config,
+            "provider_identity_fingerprint": self.provider_identity_fingerprint,
+            "provider_identity_revision": self.provider_identity_revision,
+            "provider_runtime": self.provider_runtime,
+            "credential_envelope": self.credential_envelope,
+            "credential_key_id": self.credential_key_id,
+            "credential_revision": self.credential_revision,
+            "channel_revision": self.channel_revision,
+        }
+
 
 @dataclass(frozen=True, slots=True)
 class ChannelManifest:
@@ -75,6 +94,17 @@ class ChannelManifest:
     node_id: str
     manifest_revision: int
     channels: tuple[ManifestChannel, ...]
+
+    def as_payload(self, *, request_id: str) -> dict[str, object]:
+        """Serialize a complete reconcile frame without exposing plaintext secret."""
+        return {
+            "request_id": request_id,
+            "owner_id": self.owner_id,
+            "node_id": self.node_id,
+            "manifest_revision": self.manifest_revision,
+            "channels": [item.as_payload() for item in self.channels],
+            "removals": [],
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,7 +146,7 @@ class ChannelControlStore:
     ) -> None:
         """Persist the public half advertised by an already owner-bound node."""
         now = _utc_now()
-        with self._connect() as connection:
+        with closing(self._connect()) as connection:
             node = connection.execute(
                 "SELECT owner_id FROM nodes WHERE node_id = ?", (node_id,)
             ).fetchone()
@@ -139,7 +169,7 @@ class ChannelControlStore:
 
     def agent_exists_for_owner(self, *, owner_id: str, agent_id: str) -> bool:
         """Return whether one active agent belongs to an authenticated owner."""
-        with self._connect() as connection:
+        with closing(self._connect()) as connection:
             return (
                 connection.execute(
                     "SELECT 1 FROM agent_profiles WHERE agent_id = ? AND owner_id = ?",
@@ -148,9 +178,215 @@ class ChannelControlStore:
                 is not None
             )
 
+    def register_bound_node_public_key(
+        self,
+        *,
+        node_id: str,
+        key_id: str,
+        algorithm: str,
+        public_key: str,
+    ) -> bool:
+        """Cache a registered node key only after ownership is established."""
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                "SELECT owner_id FROM nodes WHERE node_id = ?", (node_id,)
+            ).fetchone()
+        owner_id = str(row["owner_id"] or "") if row is not None else ""
+        if not owner_id:
+            return False
+        self.register_node_public_key(
+            owner_id=owner_id,
+            node_id=node_id,
+            key_id=key_id,
+            algorithm=algorithm,
+            public_key=public_key,
+        )
+        return True
+
+    def current_manifest_for_node(self, *, node_id: str) -> ChannelManifest | None:
+        """Read the current complete desired snapshot for an owner-bound node."""
+        with closing(self._connect()) as connection:
+            head = connection.execute(
+                """
+                SELECT owner_id, manifest_revision FROM channel_manifest_heads
+                WHERE node_id = ?
+                """,
+                (node_id,),
+            ).fetchone()
+            if head is None:
+                return None
+            return self._manifest_snapshot(
+                connection,
+                owner_id=str(head["owner_id"]),
+                node_id=node_id,
+                manifest_revision=int(head["manifest_revision"]),
+            )
+
+    def record_reconcile_result(
+        self, *, node_id: str, manifest_revision: int, outcomes: object
+    ) -> None:
+        """Advance the applied head monotonically after an authenticated result."""
+        now = _utc_now()
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            head = connection.execute(
+                "SELECT manifest_revision FROM channel_manifest_heads WHERE node_id = ?",
+                (node_id,),
+            ).fetchone()
+            if head is None:
+                raise ChannelControlError("channel_not_found", status_code=404)
+            normalized_outcomes = outcomes if isinstance(outcomes, list) else []
+            failures = [
+                item
+                for item in normalized_outcomes
+                if isinstance(item, dict) and item.get("outcome") != "applied"
+            ]
+            connection.execute(
+                """
+                UPDATE channel_manifest_heads SET
+                    applied_manifest_revision = MAX(applied_manifest_revision, ?),
+                    last_apply_error_json = ?, applied_at = ?, updated_at = ?
+                WHERE node_id = ?
+                """,
+                (
+                    manifest_revision,
+                    _json(failures) if failures else None,
+                    now,
+                    now,
+                    node_id,
+                ),
+            )
+            connection.commit()
+
+    def record_status(self, payload: Mapping[str, object]) -> str:
+        """Apply incarnation/sequence CAS and return a correlated status outcome."""
+        node_id = str(payload.get("node_id") or "")
+        channel_id = str(payload.get("channel_id") or "")
+        channel_revision = int(payload.get("channel_revision") or 0)
+        incarnation = str(payload.get("runtime_incarnation") or "")
+        sequence = int(payload.get("status_sequence") or 0)
+        instance_started = payload.get("instance_started") is True
+        connection = self._connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            channel = connection.execute(
+                """
+                SELECT channel_revision FROM agent_channels
+                WHERE channel_id = ? AND node_id = ?
+                """,
+                (channel_id, node_id),
+            ).fetchone()
+            if channel is None:
+                connection.rollback()
+                return "terminal_channel_removed"
+            if int(channel["channel_revision"]) != channel_revision:
+                connection.rollback()
+                return "terminal_stale_revision"
+            current = connection.execute(
+                "SELECT runtime_incarnation, status_sequence FROM agent_channel_status WHERE channel_id = ?",
+                (channel_id,),
+            ).fetchone()
+            if current is None:
+                if not instance_started or sequence != 1:
+                    connection.rollback()
+                    return "already_current"
+            elif str(current["runtime_incarnation"]) != incarnation:
+                if not instance_started or sequence != 1:
+                    connection.rollback()
+                    return "already_current"
+            elif sequence <= int(current["status_sequence"]):
+                connection.rollback()
+                return "already_current"
+            now = _utc_now()
+            connection.execute(
+                """
+                INSERT INTO agent_channel_status(
+                    channel_id, node_id, observed_revision, runtime_incarnation,
+                    status_sequence, connection_state, diagnostics_state,
+                    status_code, status_message, checks_json, received_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(channel_id) DO UPDATE SET
+                    node_id = excluded.node_id,
+                    observed_revision = excluded.observed_revision,
+                    runtime_incarnation = excluded.runtime_incarnation,
+                    status_sequence = excluded.status_sequence,
+                    connection_state = excluded.connection_state,
+                    diagnostics_state = excluded.diagnostics_state,
+                    status_code = excluded.status_code,
+                    status_message = excluded.status_message,
+                    checks_json = excluded.checks_json,
+                    received_at = excluded.received_at
+                """,
+                (
+                    channel_id,
+                    node_id,
+                    channel_revision,
+                    incarnation,
+                    sequence,
+                    str(payload.get("connection_state") or "failed"),
+                    str(payload.get("diagnostics_state") or "unknown"),
+                    payload.get("status_code"),
+                    payload.get("status_message"),
+                    _json(payload.get("checks") if isinstance(payload.get("checks"), list) else []),
+                    now,
+                ),
+            )
+            connection.commit()
+            return "accepted"
+        finally:
+            connection.close()
+
+    def record_provider_metadata(self, payload: Mapping[str, object]) -> str:
+        """Apply current-generation owner/bot metadata with first-wins semantics."""
+        node_id = str(payload.get("node_id") or "")
+        channel_id = str(payload.get("channel_id") or "")
+        connection = self._connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT * FROM agent_channels WHERE channel_id = ? AND node_id = ?",
+                (channel_id, node_id),
+            ).fetchone()
+            if row is None:
+                connection.rollback()
+                return "terminal_channel_removed"
+            generation_matches = (
+                str(row["provider_identity_fingerprint"])
+                == str(payload.get("provider_identity_fingerprint") or "")
+                and int(row["provider_identity_revision"])
+                == int(payload.get("provider_identity_revision") or 0)
+                and int(row["channel_revision"])
+                == int(payload.get("channel_revision") or 0)
+                and int(row["credential_revision"])
+                == int(payload.get("credential_revision") or 0)
+            )
+            if not generation_matches:
+                connection.rollback()
+                return "terminal_stale_revision"
+            metadata = json.loads(str(row["provider_runtime_json"]))
+            patch = payload.get("provider_runtime_patch")
+            if not isinstance(patch, Mapping):
+                connection.rollback()
+                return "already_current"
+            changed = False
+            for key in ("owner_open_id", "bot_open_id"):
+                value = patch.get(key)
+                if isinstance(value, str) and value.strip() and not metadata.get(key):
+                    metadata[key] = value.strip()
+                    changed = True
+            if changed:
+                connection.execute(
+                    "UPDATE agent_channels SET provider_runtime_json = ? WHERE channel_id = ?",
+                    (_json(metadata), channel_id),
+                )
+            connection.commit()
+            return "accepted" if changed else "already_current"
+        finally:
+            connection.close()
+
     def list_channels(self, *, owner_id: str, agent_id: str) -> list[ChannelView]:
         """List secret-free channel views within one owner and agent scope."""
-        with self._connect() as connection:
+        with closing(self._connect()) as connection:
             rows = connection.execute(
                 """
                 SELECT ac.*, s.observed_revision, s.connection_state,

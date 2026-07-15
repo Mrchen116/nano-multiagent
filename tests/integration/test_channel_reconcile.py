@@ -190,6 +190,81 @@ def test_online_http_save_pushes_manifest_and_status_projects_connected(
             assert listed["observed"]["connection_state"] == "connected"
             assert listed["observed"]["status_updated_at"]
 
+            generation = {
+                key: channel[key]
+                for key in (
+                    "provider_identity_fingerprint",
+                    "provider_identity_revision",
+                    "channel_revision",
+                    "credential_revision",
+                )
+            }
+            websocket.send_json(
+                {
+                    "type": "channel.runtime_metadata",
+                    "payload": {
+                        "request_id": "metadata-1",
+                        "node_id": "node-a",
+                        "channel_id": channel_id,
+                        "provider_runtime_patch": {"owner_open_id": "ou_first"},
+                        **generation,
+                    },
+                }
+            )
+            assert websocket.receive_json()["payload"]["outcome"] == "accepted"
+            websocket.send_json(
+                {
+                    "type": "channel.runtime_metadata",
+                    "payload": {
+                        "request_id": "metadata-2",
+                        "node_id": "node-a",
+                        "channel_id": channel_id,
+                        "provider_runtime_patch": {"owner_open_id": "ou_second"},
+                        **generation,
+                    },
+                }
+            )
+            assert websocket.receive_json()["payload"]["outcome"] == "already_current"
+
+            replacement_result: dict[str, object] = {}
+
+            def replace_app() -> None:
+                replacement_result["response"] = client.patch(
+                    f"/im/v1/agents/agent-a/channels/{channel_id}",
+                    json={
+                        "channel_revision": 1,
+                        "enabled": True,
+                        "config": {"app_id": "cli_replacement"},
+                        "credentials": {
+                            "mode": "replace",
+                            "app_secret": "replacement-secret",
+                        },
+                    },
+                )
+
+            replacement_worker = threading.Thread(target=replace_app)
+            replacement_worker.start()
+            replacement_manifest = websocket.receive_json()
+            replacement_worker.join(timeout=5)
+            assert replacement_result["response"].status_code == 200
+            replacement_channel = replacement_manifest["payload"]["channels"][0]
+            assert replacement_channel["provider_runtime"] == {}
+            websocket.send_json(
+                {
+                    "type": "channel.runtime_metadata",
+                    "payload": {
+                        "request_id": "metadata-stale",
+                        "node_id": "node-a",
+                        "channel_id": channel_id,
+                        "provider_runtime_patch": {"owner_open_id": "ou_stale"},
+                        **generation,
+                    },
+                }
+            )
+            assert websocket.receive_json()["payload"]["outcome"] == (
+                "terminal_stale_revision"
+            )
+
 
 def test_gateway_dispatches_manifest_and_correlated_result_releases_fifo(
     tmp_path: Path,

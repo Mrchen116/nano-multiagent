@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Literal, Mapping
 
 from IM.infra.channel_control_store import (
@@ -14,8 +15,14 @@ from IM.infra.channel_control_store import (
 class ChannelControlService:
     """Validate owner scope and delegate mutations to the transaction owner."""
 
-    def __init__(self, store: ChannelControlStore) -> None:
+    def __init__(
+        self,
+        store: ChannelControlStore,
+        *,
+        manifest_notifier: Callable[[object], None] | None = None,
+    ) -> None:
         self._store = store
+        self._manifest_notifier = manifest_notifier or (lambda _manifest: None)
 
     def list_channels(self, *, owner_id: str, agent_id: str) -> list[ChannelView]:
         """Return one owner's active channel projections for an agent."""
@@ -37,14 +44,16 @@ class ChannelControlService:
         self._require_agent(owner_id=owner_id, agent_id=agent_id)
         if credential_mode != "replace" or app_secret is None:
             raise ChannelControlError("channel_credentials_required", status_code=422)
-        return self._store.create_channel(
+        result = self._store.create_channel(
             owner_id=owner_id,
             agent_id=agent_id,
             provider=provider,
             enabled=enabled,
             config=config,
             secret={"app_secret": app_secret},
-        ).channel
+        )
+        self._manifest_notifier(result.manifest)
+        return result.channel
 
     def update_channel(
         self,
@@ -61,7 +70,7 @@ class ChannelControlService:
         """Update desired channel state under its current revision."""
         self._require_agent(owner_id=owner_id, agent_id=agent_id)
         secret = {"app_secret": app_secret} if app_secret is not None else None
-        return self._store.update_channel(
+        result = self._store.update_channel(
             owner_id=owner_id,
             agent_id=agent_id,
             channel_id=channel_id,
@@ -70,7 +79,9 @@ class ChannelControlService:
             config=config,
             credential_mode=credential_mode,
             secret=secret,
-        ).channel
+        )
+        self._manifest_notifier(result.manifest)
+        return result.channel
 
     def _require_agent(self, *, owner_id: str, agent_id: str) -> None:
         if not self._store.agent_exists_for_owner(

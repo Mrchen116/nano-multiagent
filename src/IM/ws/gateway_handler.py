@@ -35,6 +35,7 @@ from IM.infra.gateway_persistence import (
     GatewayConversationPersistence,
     GatewayNodePersistence,
 )
+from IM.infra.channel_control_store import ChannelControlStore, ChannelManifest
 from IM.infra.repositories import (
     EventRepository,
     MessageRepository,
@@ -57,6 +58,9 @@ class GatewayConnection:
     capabilities: dict[str, object]
     reports: list[dict[str, object]]
     heartbeats: list[dict[str, object]]
+    credential_key_id: str | None = None
+    credential_algorithm: str | None = None
+    credential_public_key: str | None = None
 
 
 class GatewayHandler:
@@ -82,6 +86,7 @@ class GatewayHandler:
         metrics_service: MetricsService | None = None,
         user_stream_registry: UserStreamRegistry | None = None,
         event_bridge: EventBridge | None = None,
+        channel_control_store: ChannelControlStore | None = None,
     ) -> None:
         self._relay_service = relay_service
         self._node_persistence = node_persistence
@@ -90,6 +95,7 @@ class GatewayHandler:
         self._event_repository = event_repository
         self._metrics_service = metrics_service
         self._user_stream_registry = user_stream_registry
+        self._channel_control_store = channel_control_store
         # EventBridge wires kernel events → IM WS streaming events (feat-340-M14).
         # External injection takes priority (tests / explicit wiring); auto-build from repos as fallback.
         if event_bridge is not None:
@@ -161,6 +167,7 @@ class GatewayHandler:
                     await websocket.send_json(response)
                 if message_type == "node.register":
                     node_id = str(body["node_id"])
+                    await self.initialize_channel_control(node_id=node_id)
         except WebSocketDisconnect:
             pass
         finally:
@@ -208,6 +215,16 @@ class GatewayHandler:
             return await self._handle_skills_usage(payload=payload)
         if message_type == "session.fork.result":
             return await self._handle_session_fork_result(payload=payload)
+        if message_type == "channel.reconcile.result":
+            return await self._handle_channel_reconcile_result(
+                websocket=websocket, payload=payload
+            )
+        if message_type == "channel.status":
+            return await self._handle_channel_status(websocket=websocket, payload=payload)
+        if message_type == "channel.runtime_metadata":
+            return await self._handle_channel_runtime_metadata(
+                websocket=websocket, payload=payload
+            )
         if message_type == "agent.message":
             return await self._handle_agent_message(payload=payload)
         if message_type == "node.streaming_delta":
@@ -256,6 +273,40 @@ class GatewayHandler:
             message_type="config.sync",
             payload={"agent_id": agent_id, "profile_version": profile_version},
         )
+
+    async def push_channel_reconcile(self, manifest: ChannelManifest) -> bool:
+        """Push one authoritative full desired snapshot to its connected node."""
+        return await self._push_downstream(
+            target_node_id=manifest.node_id,
+            message_type="channel.reconcile",
+            payload=manifest.as_payload(request_id=uuid4().hex),
+        )
+
+    async def initialize_channel_control(self, *, node_id: str) -> bool:
+        """Persist a registered public key after bind and replay current desired state."""
+        store = self._channel_control_store
+        if store is None:
+            return False
+        connection = await self.snapshot_connection(node_id=node_id)
+        if (
+            connection is None
+            or not connection.credential_key_id
+            or not connection.credential_algorithm
+            or not connection.credential_public_key
+        ):
+            return False
+        registered = store.register_bound_node_public_key(
+            node_id=node_id,
+            key_id=connection.credential_key_id,
+            algorithm=connection.credential_algorithm,
+            public_key=connection.credential_public_key,
+        )
+        if not registered:
+            return False
+        manifest = store.current_manifest_for_node(node_id=node_id)
+        if manifest is not None:
+            await self.push_channel_reconcile(manifest)
+        return True
 
     async def push_heartbeat_trigger(
         self, *, target_node_id: str, agent_id: str, reason: str
@@ -931,6 +982,9 @@ class GatewayHandler:
             capabilities=capabilities,
             reports=[],
             heartbeats=[],
+            credential_key_id=_optional_text(payload.get("credential_key_id")),
+            credential_algorithm=_optional_text(payload.get("credential_algorithm")),
+            credential_public_key=_optional_text(payload.get("credential_public_key")),
         )
         async with self._lock:
             self._connections[node_id] = connection
@@ -995,6 +1049,74 @@ class GatewayHandler:
             "type": "ack",
             "payload": {"message_type": "node.heartbeat", "node_id": node_id},
         }
+
+    async def _handle_channel_reconcile_result(
+        self, *, websocket: WebSocket, payload: dict[str, object]
+    ) -> dict[str, object]:
+        """Persist an applied head and acknowledge the Gateway upstream FIFO item."""
+        request_id = _require_text(payload.get("request_id"), field_name="request_id")
+        node_id = _require_text(payload.get("node_id"), field_name="node_id")
+        if not await self._is_registered_sender(websocket=websocket, node_id=node_id):
+            return _not_registered_error(node_id=node_id)
+        manifest_revision = _optional_int(payload.get("manifest_revision"))
+        if manifest_revision is None:
+            raise ValueError("manifest_revision is required")
+        if self._channel_control_store is not None:
+            self._channel_control_store.record_reconcile_result(
+                node_id=node_id,
+                manifest_revision=manifest_revision,
+                outcomes=payload.get("outcomes"),
+            )
+        return {
+            "type": "ack",
+            "payload": {
+                "message_type": "channel.reconcile.result",
+                "request_id": request_id,
+            },
+        }
+
+    async def _handle_channel_status(
+        self, *, websocket: WebSocket, payload: dict[str, object]
+    ) -> dict[str, object]:
+        """Return a normal correlated result for every semantic status outcome."""
+        request_id = _require_text(payload.get("request_id"), field_name="request_id")
+        node_id = _require_text(payload.get("node_id"), field_name="node_id")
+        if not await self._is_registered_sender(websocket=websocket, node_id=node_id):
+            return _not_registered_error(node_id=node_id)
+        outcome = (
+            self._channel_control_store.record_status(payload)
+            if self._channel_control_store is not None
+            else "terminal_channel_removed"
+        )
+        return {
+            "type": "channel.status.result",
+            "payload": {"request_id": request_id, "outcome": outcome},
+        }
+
+    async def _handle_channel_runtime_metadata(
+        self, *, websocket: WebSocket, payload: dict[str, object]
+    ) -> dict[str, object]:
+        """Apply generation-scoped provider identity metadata and correlate result."""
+        request_id = _require_text(payload.get("request_id"), field_name="request_id")
+        node_id = _require_text(payload.get("node_id"), field_name="node_id")
+        if not await self._is_registered_sender(websocket=websocket, node_id=node_id):
+            return _not_registered_error(node_id=node_id)
+        outcome = (
+            self._channel_control_store.record_provider_metadata(payload)
+            if self._channel_control_store is not None
+            else "terminal_channel_removed"
+        )
+        return {
+            "type": "channel.runtime_metadata.result",
+            "payload": {"request_id": request_id, "outcome": outcome},
+        }
+
+    async def _is_registered_sender(
+        self, *, websocket: WebSocket, node_id: str
+    ) -> bool:
+        async with self._lock:
+            connection = self._connections.get(node_id)
+            return connection is not None and connection.websocket is websocket
 
     async def _handle_report(self, *, payload: dict[str, object]) -> dict[str, object]:
         # Validate node_id first; a missing or empty node_id means the payload is structurally

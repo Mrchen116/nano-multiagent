@@ -327,6 +327,9 @@ class ChannelManager:
             self._stop_active(spec.channel_id)
             return False
         self._stop_active(spec.channel_id)
+        legacy = self._registry.remove(runtime_name)
+        if legacy is not None and legacy is not adapter:
+            legacy.stop()
         active = _ActiveRuntime(
             spec=spec,
             adapter=adapter,

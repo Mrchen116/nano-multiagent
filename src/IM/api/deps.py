@@ -1,6 +1,7 @@
 """Dependency helpers for IM API routes."""
 
 import asyncio
+import concurrent.futures
 import os
 
 from fastapi import Depends, HTTPException, Request, status
@@ -161,7 +162,25 @@ def get_bind_service(request: Request) -> BindService:
 
 def get_channel_control_service(request: Request) -> ChannelControlService:
     """Return the app's independent external-channel control boundary."""
-    return ChannelControlService(request.app.state.channel_control_store)
+    handler = get_gateway_handler(request)
+    event_loop: asyncio.AbstractEventLoop | None = getattr(
+        request.app.state, "event_loop", None
+    )
+
+    def notify(manifest: object) -> None:
+        if event_loop is None or event_loop.is_closed():
+            return
+        future = asyncio.run_coroutine_threadsafe(
+            handler.push_channel_reconcile(manifest), event_loop
+        )
+        try:
+            future.result(timeout=5)
+        except (concurrent.futures.TimeoutError, RuntimeError):
+            return
+
+    return ChannelControlService(
+        request.app.state.channel_control_store, manifest_notifier=notify
+    )
 
 
 def get_relay_service(request: Request) -> RelayService:
