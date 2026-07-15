@@ -28,20 +28,20 @@
 
 ## R2 — 状态因果、terminal ACK 与 user-stream 精确刷新
 
-- Context: TODO
-- Decision: TODO
-- Rationale: TODO
+- Context: 原状态 sink 只把快照放进进程内单槽 FIFO：离线/进程重启会丢状态，seq>1 可在 barrier 未确认时直接排队；`channel.status.result` 虽能 dequeue，却没有 outcome handler，stale/removed/busy/owner mismatch 都不会驱动 outbox 或 runtime。IM 接收端已有 revision/incarnation/sequence CAS 与 IM 接收时间，但 accepted 后没有频道级 user-stream 事件，前端也无法精确刷新 channels query。
+- Decision: 在同一 mode-0600 manifest cache 内新增每 channel 的 durable `barrier/inflight/latest/retired` 状态 outbox；seq=1 原子替换 generation 并先发，后续状态只合并 latest，accepted/already_current ACK 才提升 latest。IM connection 先按 request_id 释放 FIFO 再调用 result handler；stale 丢 generation、removed 只 quarantine 匹配 revision、busy 退避后入队尾部、owner mismatch 停全部 managed runtime 并关闭 WS，同时保留密文 cache。IM 的 status CAS 同事务返回 owner/agent target，仅 accepted 广播 `agent.channel.status_changed`，前端 exact invalidate `['settings','agents',agentId,'channels']`。
+- Rationale: barrier 与 latest 的发送资格由持久 owner 决定，既能跨断线/重启重放，也不会让 worker 的 seq>1 越过 incarnation identity；result handler 在 dequeue 后运行，终态处置失败不会把旧 frame 永久卡在单槽 FIFO。runtime quarantine 带 revision guard，延迟的旧 removed ACK 不会杀死新 replacement；用户流只发不含诊断/secret 的失效事件，HTTP 仍是 observed projection 的唯一数据源。
 - Evidence:
-  - Tests: TODO
-  - Entry: TODO
+  - Tests: C1 分别证明缺少 status outbox、terminal handler/event builder 和 frontend invalidation；C2 focused backend `29 passed`，扩展 manager/store/IM connection/IM projection/GatewayHandler/contract 回归共 `94 passed`，frontend consumer `5 passed`，focused Ruff PASS。
+  - Entry: production `_send_channel_status()` 先写 durable outbox，只把当前 sendable barrier/inflight 交给 `IMConnectionManager`；真实 `channel.status.result` request_id dequeue 后进入 `_handle_channel_status_result()`，再执行 drop/retry/quarantine/close 与 latest 提升。`GatewayHandler._handle_channel_status()` 在 SQLite accepted 后通过真实 `UserStreamRegistry` 广播目标 owner/agent/channel。
   - Frontend State Matrix: N/A
   - Browser QA: N/A
-  - E2E/Regression: TODO
+  - E2E/Regression: offline revision N 的 barrier + coalesced seq2 遇到 `terminal_channel_removed` 后，测试同时断言 outbox 清空、匹配 cached runtime stop/registry remove，且排在其后的 `channel.reconcile.result` 继续发送；同 revision 的旧 sequence/无 seq1 新 incarnation 被拒，新 incarnation seq1 可接管。`received_at` 忽略 Gateway 伪字段并取 IM 时钟，node offline 时 observed stale；busy 返回 correlated retryable，owner drift 返回 fatal。
   - Visual/Interaction: N/A
   - Prototype Comparison: N/A
-- Rollback: TODO
-- Commits: TODO
-- Next: R3
+- Rollback: 回滚 R2 C2 恢复进程内直接发送与旧 user stream；同时回滚 C1 移除新因果/终态契约测试。cache version 未提升，旧文件缺 `status_outbox` 会按空 outbox 兼容读取。
+- Commits: C1=`6a498082a`，C2=`dcdcb876b`，C3=本提交。
+- Next: R3 实现 diagnostics/list error 的真实 channels panel 投影与 375×812 bottom sheet，再用组件测试和 build 固化。
 
 ## R3 — limited/unknown/error 与移动端 sheet
 

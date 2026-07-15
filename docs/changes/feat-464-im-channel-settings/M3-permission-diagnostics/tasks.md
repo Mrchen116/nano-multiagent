@@ -82,13 +82,13 @@
 
 ### R2 — 状态因果、terminal ACK 与 user-stream 精确刷新
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 持久化 incarnation barrier/latest snapshot；按 status result outcome ACK/drop/retry/quarantine，确保 FIFO 继续；补 IM CAS/time/stale 与 `agent.channel.status_changed` 精确失效，覆盖 M3-E6。
 - 验证: manifest store/manager/IM connection/ChannelControlStore/GatewayHandler/frontend consumer 的 focused unit/integration。
 
 ### R3 — limited/unknown/error 与移动端 sheet
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 实现通用诊断项、limited/unknown 投影、list error/retry 信息层级与 responsive bottom sheet；补中英文文案和 frontend API types，覆盖 M3-E1..E4/E7。
 - 验证: frontend interaction tests + build；桌面与 375×812 真浏览器前置验收。
 
