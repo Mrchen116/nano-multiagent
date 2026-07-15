@@ -837,6 +837,12 @@ def _parse_agents(
         tool_allowlist = _parse_string_list(
             item.get("tool_allowlist"), field_name=f"agents[{index}].tool_allowlist"
         )
+        # No legacy "unconfigured" state: an agent with no tool_allowlist gets the
+        # product defaults on load so the runtime never has to fall back.
+        if not tool_allowlist:
+            from personal_assistant.product import DEFAULT_TOOL_IDS
+
+            tool_allowlist = tuple(DEFAULT_TOOL_IDS)
         system_prompt = _optional_string(
             item.get("system_prompt"), field_name=f"agents[{index}].system_prompt"
         )

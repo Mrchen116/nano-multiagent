@@ -352,28 +352,23 @@ def prompt_for(
     return PromptSlots(head=head, body=tuple(body_pieces), custom=custom, tail=tail)
 
 
-def resolve_enabled_tools(agent: Any) -> list[str] | None:
-    """Resolve a session's enabled-tool whitelist from agent config (决策 1/6).
+def resolve_enabled_tools(agent: Any) -> list[str]:
+    """Resolve a session's enabled-tool whitelist from agent config.
 
-    Mirrors the legacy Gateway tool-allowlist resolution: a non-empty per-agent
-    ``tool_allowlist`` is a TRUE whitelist (user may disable defaults); an empty
-    one falls back to the PA default tool set. ``cron`` is appended when the agent
-    has cron enabled (gated capability materialised into the session toolset).
+    ``tool_allowlist`` is a TRUE whitelist: empty means no tools, non-empty means
+    exactly those tools. ``cron`` is appended when the agent has cron enabled
+    (gated capability materialised into the session toolset).
 
     Args:
         agent: Agent config exposing ``tool_allowlist`` / ``cron_enabled``.
 
     Returns:
-        Explicit tool-name list, or None to mean "kernel catalog default".
+        Explicit tool-name list (may be empty).
     """
     raw = list(getattr(agent, "tool_allowlist", None) or [])
     if bool(getattr(agent, "cron_enabled", False)) and "cron" not in raw:
         raw.append("cron")
-    if raw:
-        # TRUE whitelist: exactly the user-selected tools (+ cron if gated on).
-        return raw
-    # Unconfigured agent → product default tool set.
-    return list(DEFAULT_TOOL_IDS)
+    return raw
 
 
 def build_pa_kernel(
