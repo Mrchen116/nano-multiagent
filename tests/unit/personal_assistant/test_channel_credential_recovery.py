@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
+from personal_assistant.channels.base import ChannelStartupError
 from personal_assistant.gateway.channel_manifest_apply import (
     CredentialEnvelopeContext,
     apply_channel_manifest_payload,
@@ -99,6 +100,45 @@ def test_cache_key_loss_quarantines_ciphertext_and_allows_gateway_start(
     assert reader.load_manifest() is None
 
 
+def test_cached_provider_failure_allows_gateway_connect_and_manual_recovery(
+    tmp_path: Path,
+) -> None:
+    """An invalid cached provider stays desired instead of aborting Gateway startup."""
+    path = tmp_path / "channel-manifest-v1.json"
+    writer = ChannelManifestStore(path, node_id="node-a", key_id="key-a")
+    writer.commit_manifest(_manifest(revision=1, key_id="key-a"))
+    attempts = 0
+    events: list[str] = []
+    statuses = []
+
+    def factory(_spec, _binder, _status):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise ChannelStartupError(
+                "feishu_invalid_credentials",
+                "Feishu rejected the App ID or App Secret.",
+            )
+        return _Adapter(events)
+
+    manager = ChannelManager(
+        registry=ChannelRegistry(),
+        on_inbound=lambda _message: None,
+        provider_factories={"feishu": factory},
+        status_sink=statuses.append,
+        manifest_store=ChannelManifestStore(
+            path, node_id="node-a", key_id="key-a"
+        ),
+        credential_opener=lambda _item: {"app_secret": "opened"},
+    )
+
+    assert asyncio.run(manager.start_cached()) == ()
+    assert statuses[-1].status_code == "feishu_invalid_credentials"
+    recovered = asyncio.run(manager.reconnect("ch-a"))
+    assert recovered.connection_state == "connecting"
+    assert events == ["start"]
+
+
 def test_one_bad_envelope_rejects_complete_manifest_without_stopping_safe_runtime(
     tmp_path: Path,
 ) -> None:
@@ -168,4 +208,3 @@ def test_one_bad_envelope_rejects_complete_manifest_without_stopping_safe_runtim
     assert store.last_applied_manifest_revision == 1
     assert statuses[-1].generation == _generation(2)
     assert statuses[-1].status_code == "credential_reentry_required"
-
