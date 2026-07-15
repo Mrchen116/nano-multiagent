@@ -91,6 +91,8 @@ async def test_real_stall_fails_and_releases_next_same_session_turn(
         "event": "run_terminal_reconcile",
         "run_id": "run-1",
         "reason": "stalled",
+        "finalize_bubble": True,
+        "delivery_status": "failed",
     }
     assert lifecycle[-1].phase == "failed"
     assert not coordinator.is_session_busy(build_session_key(message, agent_id="agent-a"))
@@ -141,6 +143,7 @@ async def test_user_stop_reconciles_on_original_consumer_and_cleans_marker(
         "reason": "interrupted",
         "content": USER_INTERRUPT_RECOVERY_CONTENT,
         "finalize_bubble": True,
+        "delivery_status": "completed",
     }
     assert not coordinator.is_session_busy(request.session_key)
     idle = await coordinator.stop(
@@ -182,7 +185,13 @@ async def test_terminal_failure_reconciles_fails_lifecycle_and_cleans_state(
     with pytest.raises(RuntimeError, match="status=failed"):
         await failed
     assert lifecycle[-1].phase == "failed"
-    assert observed[-1]["reason"] == "interrupted"
+    assert observed[-1] == {
+        "event": "run_terminal_reconcile",
+        "run_id": "run-1",
+        "reason": "interrupted",
+        "finalize_bubble": True,
+        "delivery_status": "failed",
+    }
     assert not coordinator.is_session_busy(build_session_key(message, agent_id="agent-a"))
 
 

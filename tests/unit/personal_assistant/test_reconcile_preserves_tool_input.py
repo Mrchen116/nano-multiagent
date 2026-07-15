@@ -290,3 +290,47 @@ def test_reconcile_still_closes_in_flight_call_as_failed() -> None:
     assert tc["status"] == "failed"
     # The per-run entry is reaped so it can't be reconciled twice.
     assert "run-1" not in running_tool_calls
+
+
+def test_abnormal_reconcile_finalizes_current_bubble_as_failed() -> None:
+    """Shutdown/crash terminal cannot leave an empty provisional bubble running."""
+
+    manager = _FakeManager()
+    observer = _build_kernel_event_observer(
+        im_connection_manager_factory=lambda: manager,
+        run_context_store={
+            "run-1": {
+                "conversation_id": "conv-1",
+                "message_id": "bubble-2",
+                "agent_id": "agent-1",
+            }
+        },
+    )
+
+    _drive(
+        observer,
+        {
+            "event": "run_terminal_reconcile",
+            "run_id": "run-1",
+            "reason": "interrupted",
+            "finalize_bubble": True,
+            "delivery_status": "failed",
+        },
+    )
+
+    completed = [
+        payload
+        for message_type, payload in manager.sent
+        if message_type == "node.streaming_delta"
+        and payload.get("kind") == "message_completed"
+    ]
+    assert completed == [
+        {
+            "kind": "message_completed",
+            "message_id": "bubble-2",
+            "final_content": None,
+            "token_usage": None,
+            "delivery_status": "failed",
+            "run_id": "run-1",
+        }
+    ]
