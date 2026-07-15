@@ -65,6 +65,48 @@ async def test_seal_cancels_pending_item_and_keeps_active_operation() -> None:
 
 
 @pytest.mark.asyncio
+async def test_seal_defers_pending_settlement_to_async_phase() -> None:
+    """The synchronous seal only rejects admission; settle owns per-item work."""
+
+    queue = SessionRunQueue()
+    active_started = asyncio.Event()
+    release_active = asyncio.Event()
+    cancelled: list[str] = []
+
+    async def _active() -> None:
+        active_started.set()
+        await release_active.wait()
+
+    async def _pending() -> None:
+        raise AssertionError("pending operation must not start")
+
+    async def _on_cancel(error: GatewayShutdownBeforeSubmit) -> None:
+        cancelled.append(error.reason)
+
+    active_task = asyncio.create_task(queue.submit("sess-a", _active))
+    await asyncio.wait_for(active_started.wait(), timeout=1)
+    pending_task = asyncio.create_task(
+        queue.submit("sess-a", _pending, on_cancel=_on_cancel)
+    )
+    await asyncio.sleep(0)
+
+    queue.seal_and_cancel_pending()
+    await asyncio.sleep(0)
+
+    assert not pending_task.done()
+    assert cancelled == []
+
+    await queue.settle_admission(asyncio.get_running_loop().time() + 1)
+    with pytest.raises(GatewayShutdownBeforeSubmit):
+        await pending_task
+    assert cancelled == ["gateway_shutdown_before_submit"]
+
+    release_active.set()
+    await active_task
+    await queue.drain_workers(asyncio.get_running_loop().time() + 1)
+
+
+@pytest.mark.asyncio
 async def test_worker_drain_timeout_cancels_owned_worker() -> None:
     """A queue worker exceeding the absolute deadline is cancelled and does not leak."""
 
