@@ -138,6 +138,9 @@ ChannelReconnectHandler = Callable[[str, int], Awaitable[object] | object]
 ChannelReconcileAckHandler = Callable[
     [Mapping[str, object]], Awaitable[None] | None
 ]
+ChannelStatusResultHandler = Callable[
+    [Mapping[str, object]], Awaitable[None] | None
+]
 ChannelBootstrapProvider = Callable[
     [Mapping[str, object]], list[Mapping[str, object]]
 ]
@@ -232,6 +235,7 @@ class IMConnectionManager:
         channel_manifest_handler: ChannelManifestHandler | None = None,
         channel_reconnect_handler: ChannelReconnectHandler | None = None,
         channel_reconcile_ack_handler: ChannelReconcileAckHandler | None = None,
+        channel_status_result_handler: ChannelStatusResultHandler | None = None,
         channel_bootstrap_provider: ChannelBootstrapProvider | None = None,
         channel_bootstrap_applied_handler: ChannelBootstrapAppliedHandler
         | None = None,
@@ -263,6 +267,7 @@ class IMConnectionManager:
         self._channel_manifest_handler = channel_manifest_handler
         self._channel_reconnect_handler = channel_reconnect_handler
         self._channel_reconcile_ack_handler = channel_reconcile_ack_handler
+        self._channel_status_result_handler = channel_status_result_handler
         self._channel_bootstrap_provider = channel_bootstrap_provider
         self._channel_bootstrap_applied_handler = channel_bootstrap_applied_handler
         self._connect = connect
@@ -372,6 +377,13 @@ class IMConnectionManager:
             return False
         asyncio.run_coroutine_threadsafe(self.send_json(message_type, payload), loop)
         return True
+
+    def has_pending_request(self, request_id: str) -> bool:
+        """Return whether one correlated request is already queued or in flight."""
+        return any(
+            frame.payload.get("request_id") == request_id
+            for frame in self._pending_frames
+        )
 
     async def send_json_await_ack(
         self, message_type: str, payload: Mapping[str, object]
@@ -583,15 +595,22 @@ class IMConnectionManager:
             "channel.runtime_metadata.result",
             "channels.reconcile.result.ack",
         }:
-            self._resolve_correlated_channel_result(
+            resolved = self._resolve_correlated_channel_result(
                 message_type=message_type, payload=body
             )
+            if (
+                resolved
+                and message_type == "channel.status.result"
+                and self._channel_status_result_handler is not None
+            ):
+                await _maybe_await(self._channel_status_result_handler(body))
             if (
                 message_type == "channels.reconcile.result.ack"
                 and self._channel_reconcile_ack_handler is not None
             ):
                 await _maybe_await(self._channel_reconcile_ack_handler(body))
-            await self._flush_pending_frames()
+            if self._connected:
+                await self._flush_pending_frames()
             return
         if message_type == "heartbeat.trigger":
             if self._heartbeat_trigger is not None:
@@ -1024,7 +1043,7 @@ class IMConnectionManager:
 
     def _resolve_correlated_channel_result(
         self, *, message_type: str, payload: Mapping[str, object]
-    ) -> None:
+    ) -> bool:
         source_type = {
             "channel.status.result": "channel.status",
             "channel.runtime_metadata.result": "channel.runtime_metadata",
@@ -1032,14 +1051,14 @@ class IMConnectionManager:
             "channels.bootstrap.result": "channels.bootstrap",
         }[message_type]
         if self._awaiting_ack_type != source_type or not self._pending_frames:
-            return
+            return False
         pending = self._pending_frames[0]
         request_id = payload.get("request_id")
         if (
             not isinstance(request_id, str)
             or request_id != pending.payload.get("request_id")
         ):
-            return
+            return False
         self._pending_frames.popleft()
         self._awaiting_ack_type = None
         if pending.ack_future is not None and not pending.ack_future.done():
@@ -1051,6 +1070,7 @@ class IMConnectionManager:
                 "outcome": payload.get("outcome") or payload.get("head_outcome"),
             }
         )
+        return True
 
     def _ack_heartbeat_frame(self, payload: Mapping[str, object]) -> None:
         ack_type = payload.get("message_type")

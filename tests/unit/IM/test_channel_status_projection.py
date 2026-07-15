@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sqlite3
 
 from IM.infra.channel_control_store import ChannelControlStore
 from IM.infra.channel_credentials import generate_channel_key_pair
@@ -90,9 +91,16 @@ def test_incarnation_barrier_sequence_and_im_received_time_are_authoritative(
 
     observed = store.list_channels(owner_id="owner-a", agent_id="agent-a")[0].observed
     assert observed is not None
-    assert observed["runtime_incarnation"] == "inc-b"
     assert observed["status_updated_at"] != "1999-01-01T00:00:00Z"
     assert observed["status_stale"] is True
+    with connect(tmp_path / "im.db") as connection:
+        status = connection.execute(
+            "SELECT runtime_incarnation, status_sequence "
+            "FROM agent_channel_status WHERE channel_id = ?",
+            (channel_id,),
+        ).fetchone()
+    assert status is not None
+    assert tuple(status) == ("inc-b", 1)
 
 
 def test_node_owner_drift_returns_fatal_outcome(tmp_path: Path) -> None:
@@ -104,3 +112,19 @@ def test_node_owner_drift_returns_fatal_outcome(tmp_path: Path) -> None:
 
     assert store.record_status(_status(channel_id)) == "fatal_owner_mismatch"
 
+
+def test_busy_status_transaction_returns_correlated_retryable_outcome(
+    tmp_path: Path,
+) -> None:
+    store, channel_id = _store_with_channel(tmp_path)
+
+    class _BusyConnection:
+        def execute(self, _sql: str, _parameters: object = ()) -> None:
+            raise sqlite3.OperationalError("database is locked")
+
+        def close(self) -> None:
+            pass
+
+    store._connect = lambda: _BusyConnection()  # type: ignore[method-assign]  # noqa: SLF001
+
+    assert store.record_status(_status(channel_id)) == "retryable_store_busy"

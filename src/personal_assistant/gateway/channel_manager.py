@@ -400,6 +400,25 @@ class ChannelManager:
                 self._active[channel_id], connection_state="connecting"
             )
 
+    async def handle_status_result(
+        self, *, channel_id: str, channel_revision: int, outcome: str
+    ) -> None:
+        """Quarantine runtimes only for terminal outcomes that invalidate them."""
+        with self._lock:
+            if outcome == "fatal_owner_mismatch":
+                for active_channel_id in tuple(self._active):
+                    self._stop_active(active_channel_id, drain=True)
+                return
+            if outcome != "terminal_channel_removed":
+                return
+            active = self._active.get(channel_id)
+            if (
+                active is None
+                or active.spec.generation.channel_revision != channel_revision
+            ):
+                return
+            self._stop_active(channel_id, drain=True)
+
     async def close(self) -> None:
         """Stop all managed runtimes without touching static web relay adapters."""
         with self._lock:

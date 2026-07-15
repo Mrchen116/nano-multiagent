@@ -22,6 +22,16 @@ interface AgentDetailStateCacheShape {
  * 暴露成纯函数是为了让单元测试不依赖真实 WS,直接喂事件断言 cache 变化。
  */
 export function applyAgentStatusEvent(client: QueryClient, event: UserStreamEvent): void {
+  if (event.eventType === "agent.channel.status_changed") {
+    const agentId = typeof event.payload.agent_id === "string" ? event.payload.agent_id : null;
+    const channelId = typeof event.payload.channel_id === "string" ? event.payload.channel_id : null;
+    if (!agentId || !channelId) return;
+    void client.invalidateQueries({
+      queryKey: ["settings", "agents", agentId, "channels"],
+      exact: true
+    });
+    return;
+  }
   if (event.eventType !== "agent.status_changed") return;
   const payload = event.payload;
   const agentId = typeof payload.agent_id === "string" ? payload.agent_id : null;

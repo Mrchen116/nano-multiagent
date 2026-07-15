@@ -63,6 +63,16 @@ class ChannelRemovalView:
 
 
 @dataclass(frozen=True, slots=True)
+class ChannelStatusRecordResult:
+    """Return status CAS outcome plus the authenticated user-stream target."""
+
+    outcome: str
+    owner_id: str | None = None
+    agent_id: str | None = None
+    channel_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class ManifestChannel:
     """Complete internal desired item delivered only to its bound Gateway node."""
 
@@ -638,6 +648,12 @@ class ChannelControlStore:
 
     def record_status(self, payload: Mapping[str, object]) -> str:
         """Apply incarnation/sequence CAS and return a correlated status outcome."""
+        return self.record_status_result(payload).outcome
+
+    def record_status_result(
+        self, payload: Mapping[str, object]
+    ) -> ChannelStatusRecordResult:
+        """Apply status CAS and retain its owner/agent target in the same transaction."""
         node_id = str(payload.get("node_id") or "")
         channel_id = str(payload.get("channel_id") or "")
         channel_revision = int(payload.get("channel_revision") or 0)
@@ -649,17 +665,28 @@ class ChannelControlStore:
             connection.execute("BEGIN IMMEDIATE")
             channel = connection.execute(
                 """
-                SELECT channel_revision FROM agent_channels
-                WHERE channel_id = ? AND node_id = ?
+                SELECT
+                    ac.channel_revision,
+                    ac.owner_id,
+                    ac.agent_id,
+                    nodes.owner_id AS node_owner_id
+                FROM agent_channels AS ac
+                LEFT JOIN nodes ON nodes.node_id = ac.node_id
+                WHERE ac.channel_id = ? AND ac.node_id = ?
                 """,
                 (channel_id, node_id),
             ).fetchone()
             if channel is None:
                 connection.rollback()
-                return "terminal_channel_removed"
+                return ChannelStatusRecordResult("terminal_channel_removed")
+            owner_id = str(channel["owner_id"] or "")
+            agent_id = str(channel["agent_id"] or "")
+            if owner_id != str(channel["node_owner_id"] or ""):
+                connection.rollback()
+                return ChannelStatusRecordResult("fatal_owner_mismatch")
             if int(channel["channel_revision"]) != channel_revision:
                 connection.rollback()
-                return "terminal_stale_revision"
+                return ChannelStatusRecordResult("terminal_stale_revision")
             current = connection.execute(
                 "SELECT runtime_incarnation, status_sequence FROM agent_channel_status WHERE channel_id = ?",
                 (channel_id,),
@@ -667,14 +694,14 @@ class ChannelControlStore:
             if current is None:
                 if not instance_started or sequence != 1:
                     connection.rollback()
-                    return "already_current"
+                    return ChannelStatusRecordResult("already_current")
             elif str(current["runtime_incarnation"]) != incarnation:
                 if not instance_started or sequence != 1:
                     connection.rollback()
-                    return "already_current"
+                    return ChannelStatusRecordResult("already_current")
             elif sequence <= int(current["status_sequence"]):
                 connection.rollback()
-                return "already_current"
+                return ChannelStatusRecordResult("already_current")
             now = _utc_now()
             connection.execute(
                 """
@@ -710,7 +737,16 @@ class ChannelControlStore:
                 ),
             )
             connection.commit()
-            return "accepted"
+            return ChannelStatusRecordResult(
+                outcome="accepted",
+                owner_id=owner_id,
+                agent_id=agent_id,
+                channel_id=channel_id,
+            )
+        except sqlite3.OperationalError as exc:
+            if "locked" not in str(exc).lower() and "busy" not in str(exc).lower():
+                raise
+            return ChannelStatusRecordResult("retryable_store_busy")
         finally:
             connection.close()
 
