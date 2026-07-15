@@ -223,6 +223,7 @@ def test_reverse_and_canonical_lookups_only_expose_current_bindings(
 
     assert first.status == second.status == "bound"
     assert binder.find_by_kernel_session_id("session-second") == second.binding
-    assert binder.find_canonical_direct(
-        channel_name="web_relay", agent_id="agent-a"
-    ) == first.binding
+    assert (
+        binder.find_canonical_direct(channel_name="web_relay", agent_id="agent-a")
+        == first.binding
+    )

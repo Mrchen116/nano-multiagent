@@ -81,6 +81,35 @@ class SessionBindingStore:
             if session_key.endswith(suffix):
                 self._bindings.pop(session_key, None)
 
+    def drop(self, session_key: str) -> None:
+        """Remove one binding by its exact Gateway session key."""
+
+        self._bindings.pop(session_key, None)
+
+    def bindings_for_agent(self, agent_id: str) -> tuple[SessionBinding, ...]:
+        """Return a stable snapshot of all bindings routed to one Agent."""
+
+        suffix = f":{agent_id}"
+        return tuple(
+            binding for key, binding in self._bindings.items() if key.endswith(suffix)
+        )
+
+    def find_direct_by_agent(
+        self, *, channel_name: str, agent_id: str
+    ) -> SessionBinding | None:
+        """Return the oldest in-memory direct-chat binding for one Agent."""
+
+        prefix = f"{channel_name}:"
+        suffix = f":{agent_id}"
+        return next(
+            (
+                binding
+                for key, binding in self._bindings.items()
+                if key.startswith(prefix) and key.endswith(suffix)
+            ),
+            None,
+        )
+
 
 session_binding_store = SessionBindingStore()
 
@@ -271,6 +300,36 @@ class PersistentSessionBindingStore:
             (f"%{suffix}",),
         )
         self._conn.commit()
+
+    def drop(self, session_key: str) -> None:
+        """Remove one persisted binding by its exact Gateway session key."""
+
+        self._conn.execute(
+            "DELETE FROM session_bindings WHERE session_key = ?",
+            (session_key,),
+        )
+        self._conn.commit()
+
+    def bindings_for_agent(self, agent_id: str) -> tuple[SessionBinding, ...]:
+        """Return all persisted bindings routed to one Agent."""
+
+        rows = self._conn.execute(
+            """
+            SELECT session_key, kernel_session_id, reply_context_json
+            FROM session_bindings
+            WHERE session_key LIKE ?
+            ORDER BY created_at ASC, rowid ASC
+            """,
+            (f"%:{agent_id}",),
+        ).fetchall()
+        return tuple(
+            SessionBinding(
+                session_key=row[0],
+                kernel_session_id=row[1],
+                reply_context=_deserialize_reply_context(row[2]),
+            )
+            for row in rows
+        )
 
     def find_by_kernel_session_id(
         self, kernel_session_id: str
