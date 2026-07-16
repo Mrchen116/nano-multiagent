@@ -70,12 +70,17 @@ def _status(request_id: str, sequence: int) -> dict[str, object]:
     }
 
 
+def _register_ack() -> str:
+    return json.dumps({"type": "ack", "payload": {"message_type": "node.register"}})
+
+
 def test_status_result_releases_fifo_before_terminal_handler_runs(
     tmp_path: Path,
 ) -> None:
     """Terminal handling observes a released slot and the next frame still flushes."""
     socket = _FakeWebSocket(
         incoming=[
+            _register_ack(),
             json.dumps(
                 {
                     "type": "channel.status.result",
@@ -107,6 +112,7 @@ def test_status_result_releases_fifo_before_terminal_handler_runs(
 
     async def exercise() -> None:
         await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001 - establish registration
         await manager.send_json(
             "channel.status",
             {"request_id": "status-1", "channel_id": "ch-a"},
@@ -151,6 +157,7 @@ def test_offline_barrier_removed_ack_drops_outbox_quarantines_and_continues_fifo
     )
     socket = _FakeWebSocket(
         incoming=[
+            _register_ack(),
             json.dumps(
                 {
                     "type": "channel.status.result",
@@ -187,6 +194,7 @@ def test_offline_barrier_removed_ack_drops_outbox_quarantines_and_continues_fifo
 
     async def exercise() -> None:
         await connection.connect_once()
+        await connection._listen_once()  # noqa: SLF001 - establish registration
         await connection.send_json("channel.status", barrier)
         await connection.send_json(
             "channel.reconcile.result",
@@ -212,6 +220,7 @@ def test_disconnected_runtime_replacements_coalesce_unsent_statuses(
     """Only the current runtime incarnation survives in the disconnected queue."""
     socket = _FakeWebSocket(
         incoming=[
+            _register_ack(),
             json.dumps(
                 {"type": "ack", "payload": {"message_type": "node.report"}}
             ),
@@ -266,7 +275,14 @@ def test_disconnected_runtime_replacements_coalesce_unsent_statuses(
         await manager.connect_once()
         await manager._listen_once()  # noqa: SLF001
         await manager._listen_once()  # noqa: SLF001
-        assert manager._pending_frames[0].payload["request_id"] == "status-39"  # noqa: SLF001
+        await manager._listen_once()  # noqa: SLF001
+        sent_statuses = [
+            json.loads(frame)["payload"]
+            for frame in socket.sent
+            if json.loads(frame)["type"] == "channel.status"
+        ]
+        assert [item["request_id"] for item in sent_statuses] == ["status-39"]
+        assert resolved == []
         await manager._listen_once()  # noqa: SLF001
 
     asyncio.run(exercise())
@@ -294,6 +310,7 @@ def test_retryable_manifest_is_reapplied_online_with_bounded_same_revision_retri
     }
     socket = _FakeWebSocket(
         incoming=[
+            _register_ack(),
             json.dumps({"type": "channel.reconcile", "payload": manifest}),
             json.dumps(
                 {
@@ -335,7 +352,9 @@ def test_retryable_manifest_is_reapplied_online_with_bounded_same_revision_retri
         await asyncio.sleep(0)
 
     connection = IMConnectionManager(
-        config=IMConnectionConfig(url="http://im.local"),
+        config=IMConnectionConfig(
+            url="http://im.local", heartbeat_interval_seconds=0
+        ),
         reporter=_minimal_reporter(tmp_path),
         relay_adapter=relay,
         channel_manifest_handler=apply_manifest,
@@ -347,8 +366,13 @@ def test_retryable_manifest_is_reapplied_online_with_bounded_same_revision_retri
     async def exercise() -> None:
         await connection.connect_once()
         await connection._listen_once()  # noqa: SLF001
-        await asyncio.sleep(0)
-        await asyncio.sleep(0)
+        await connection._listen_once()  # noqa: SLF001
+        for _ in range(20):
+            if attempts == 3 and len(connection._pending_frames) == 2:  # noqa: SLF001
+                break
+            await asyncio.sleep(0)
+        assert attempts == 3
+        assert len(connection._pending_frames) == 2  # noqa: SLF001
         await connection._listen_once()  # noqa: SLF001
         await connection._listen_once()  # noqa: SLF001
 
