@@ -8,10 +8,10 @@
 
 ## 退出标准
 
-- [ ] `_`、`%` 与相似 Agent id 的持久化 binding 查询、canonical lookup 和 stale invalidation 互不串扰，只删除目标 Agent 的旧 binding。
-- [ ] workspace ownership 校验不在 binder 全局锁内，也不阻塞 event loop；一个长 transcript 的校验不会串行阻塞无关 Agent 的 resolve / invalidate。
-- [ ] 两阶段 recheck 在慢校验期间遇到 config publish / invalidate 时不 stale publish；新请求只复用或创建当前 revision/workspace 的 binding。
-- [ ] 永久 repository/binder race 回归、最窄测试、`ruff check src tests`、`pytest -m "not e2e"` 全绿；新增或修改后的测试文件小于 400 行。
+- [x] `_`、`%` 与相似 Agent id 的持久化 binding 查询、canonical lookup 和 stale invalidation 互不串扰，只删除目标 Agent 的旧 binding。
+- [x] workspace ownership 校验不在 binder 全局锁内，也不阻塞 event loop；一个长 transcript 的校验不会串行阻塞无关 Agent 的 resolve / invalidate。
+- [x] 两阶段 recheck 在慢校验期间遇到 config publish / invalidate 时不 stale publish；新请求只复用或创建当前 revision/workspace 的 binding。
+- [x] 永久 repository/binder race 回归、最窄测试、`ruff check src tests`、`pytest -m "not e2e"` 全绿；新增或修改后的测试文件小于 400 行。
 
 ## 测试策略
 
@@ -32,6 +32,6 @@
 
 ### R2 — Binder workspace 校验两阶段并发协议
 
-- 状态：DOING
+- 状态：DONE
 - 步骤：先补可控慢 `get_session` 并发红测，再把校验移到锁外 worker thread，并在短临界区按 candidate identity + revision + generation + catalog current recheck；保留 stale operation 可使用旧 snapshot、禁止 repository stale writeback。
 - 验证：无关 Agent resolve / invalidate 在慢校验释放前完成；publish/invalidate race 不复活旧 row；现有 create/reuse/conversation-bind race 全绿，随后跑 ruff 与非 e2e 全量。
