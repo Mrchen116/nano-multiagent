@@ -39,8 +39,67 @@
 
 ## 修复
 
-<!-- 改了什么 + commits。worker 完成后回填。 -->
+在 `src/personal_assistant/gateway/inbound_pipeline.py` 的 `_await_terminal_run_async` 中：
+
+- 引入局部变量 `current_timeout`，初始值为 `self._run_idle_timeout_seconds`。
+- `asyncio.wait_for(anext(stream), timeout=current_timeout)` 替代固定 timeout。
+- 当收到 `permission_request` 事件时，将 `current_timeout` 设为 `None`，使看门狗在该 run 等待人工决策期间完全暂停。
+- 当收到 `permission_resolved` 事件时，将 `current_timeout` 恢复为 `self._run_idle_timeout_seconds`，让决策后的正常活性检测继续生效。
+- 非权限等待的 run 仍按原 idle timeout 检测，保留 bugfix-417 对内部卡死/断连的防护。
+
+同时更新 `tests/unit/personal_assistant/test_inbound_pipeline_permission_watchdog.py`：
+
+- `test_permission_pending_survives_without_heartbeat`：推送 `permission_request` 后等待超过 idle 窗口，再推送 `permission_resolved` 与完成事件，断言 run 不被 reap 且正常完成。
+- `test_permission_resolved_restores_watchdog`：同上先等待，再仅推送 `permission_resolved` 而不继续产生事件，断言看门狗恢复后 run 被 reap。
+- `test_post_decision_stall_is_reaped`：在 `permission_resolved` 之后工具再次挂死，断言仍被 reap。
+
+Commits: `b8e3addfc` (`fix(bugfix-465/M1-fix): 权限等待期间完全豁免 idle 看门狗`)
 
 ## 验证
 
-<!-- 修前能复现 → 修后不能；相关功能回归正常。worker 完成后回填。 -->
+### 1. 单元测试与契约测试
+
+```bash
+pytest -xvs tests/unit/personal_assistant/test_inbound_pipeline_permission_watchdog.py
+pytest -m "not e2e" tests/unit/personal_assistant tests/contract
+```
+
+结果：`tests/unit/personal_assistant/` 770 通过，`tests/contract/` 169 通过。
+
+### 2. 真实入口验证（真 IM + 真 Gateway）
+
+复现路径：
+
+1. 在 worktree 内启动真 IM + 真 Gateway：`bash scripts/e2e-up.sh --wt <worktree>`。
+2. 以用户 `nano` 登录，向 `default-agent` 直聊发送触发 write 工具的消息（`~/.gitconfig` 为危险 basename，必触发 `permission.request`）。
+3. 等待前端收到 `permission.request` 事件后，**故意等待 125 秒**，超过默认 120 秒 idle 看门狗窗口。
+4. 再提交 `allow_once` 审批。
+
+修前行为：
+- 在 `bugfix-465` 之前，因为审批等待期间没有 `run_heartbeat`，idle 看门狗会在 120 秒时将 run 判定为 stalled 并 `cancel(run_id)`；后续审批 resolve 不会触发工具执行，run 以中断结束。
+
+修后行为：
+- 在 worktree 当前代码下，等待 125 秒后 resolve 审批，run 继续执行，write 工具成功写出 `.gitconfig` 文件，会话最终收到 `message.completed`。
+
+验证脚本输出（已手动运行并 stop stack）：
+
+```
+logged in user_id=...
+using agent_id=default-agent
+conversation_id=...
+sent trigger message, waiting for permission.request
+got permission.request request_id=... message_id=...
+pausing 125s to exceed idle timeout (120s)...
+resolving permission with allow_once
+got permission.resolved
+got message.completed
+PASS: run survived the parked wait; approved tool wrote .../.gateway-workspace/default-agent/.gitconfig
+```
+
+该真实入口验证证明：审批等待期间 run 被完全豁免于 idle 看门狗，用户离开后回来仍可正常审批；`permission_resolved` 后工具继续执行，run 正常收口。
+
+### 3. 回归项
+
+- 非权限等待的 run 仍会在 idle 超时后被 reap（`test_idle_watchdog_still_fires_without_permission_request`）。
+- `permission_resolved` 后工具再次挂死仍会被 reap（`test_permission_resolved_restores_watchdog`、`test_post_decision_stall_is_reaped`）。
+- 用户 `/stop` 触发的 `cancelled` 仍正常返回，不破坏 bugfix-417-fix2 行为。
