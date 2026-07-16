@@ -105,6 +105,9 @@ from personal_assistant.gateway.session_binder import (
     ConversationBindingRequest,
     GatewaySessionBinder,
 )
+from personal_assistant.gateway.session_composition import (
+    project_agent_session_capabilities,
+)
 from personal_assistant.gateway.session_run_coordinator import SessionRunCoordinator
 from personal_assistant.gateway.shadow_sync import IMShadowConversationSync
 from personal_assistant.reporter.upstream_reporter import (
@@ -1870,9 +1873,6 @@ class _KernelClientShim:
         metadata: dict[str, object] | None = None,
         agent_snapshot: LiveAgentSnapshot | None = None,
     ) -> dict[str, object]:
-        # Build per-session PromptSlots from the agent config (决策 8).  cron /
-        # heartbeat sessions are direct (no group scenario), so only head/body/custom
-        # slots populate; the tail (group context) stays empty.
         prompt = None
         enabled_tools = None
         features = None
@@ -1885,20 +1885,15 @@ class _KernelClientShim:
                 if self._agent_catalog is not None and isinstance(agent_id, str)
                 else None
             )
-        agent = snapshot.config if snapshot is not None else None
-        if agent is not None:
-            from personal_assistant.product import (  # noqa: PLC0415
-                prompt_for,
-                resolve_enabled_tools,
+        if snapshot is not None:
+            capabilities = project_agent_session_capabilities(
+                snapshot,
+                scenario=metadata or {},
             )
-
-            prompt = prompt_for(agent, scenario=metadata or {})
-            enabled_tools = resolve_enabled_tools(agent)
-            features = dict(getattr(agent, "features", {}) or {})
-            # Match foreground session composition: a non-empty configured
-            # subset restricts unattended sessions, while empty keeps the
-            # existing SDK default-discovery compatibility.
-            skills = list(agent.skills) if agent.skills else None
+            prompt = capabilities.prompt
+            enabled_tools = capabilities.enabled_tools
+            features = capabilities.features
+            skills = capabilities.skills
         session = await self._kernel.create_session(
             title=title,
             workspace_root=Path(workspace_root),

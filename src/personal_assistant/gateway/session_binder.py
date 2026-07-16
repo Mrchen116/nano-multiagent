@@ -18,7 +18,9 @@ from personal_assistant.gateway.session_keys import (
     build_conversation_reply_context,
     build_conversation_session_key,
 )
-from personal_assistant.product import prompt_for, resolve_enabled_tools
+from personal_assistant.gateway.session_composition import (
+    project_agent_session_capabilities,
+)
 
 
 class _SessionBindingRepository(Protocol):
@@ -244,20 +246,23 @@ class GatewaySessionBinder:
                 self._record_provenance(refreshed, agent=agent, persist_binding=True)
                 return refreshed
 
-        config = agent.config
         metadata = _build_session_metadata(
             request.message,
             agent=agent,
             gateway_internal_port=request.gateway_internal_port,
             gateway_dispatch_url=request.gateway_dispatch_url,
         )
+        capabilities = project_agent_session_capabilities(
+            agent,
+            scenario=metadata,
+        )
         session = await self._kernel.create_session(
-            title=config.title,
-            workspace_root=config.workspace_root,
-            skills=list(config.skills) if config.skills else None,
-            enabled_tools=resolve_enabled_tools(config),
-            features=dict(config.features) if config.features else None,
-            prompt=prompt_for(config, scenario=metadata),
+            title=agent.config.title,
+            workspace_root=agent.config.workspace_root,
+            skills=capabilities.skills,
+            enabled_tools=capabilities.enabled_tools,
+            features=capabilities.features,
+            prompt=capabilities.prompt,
             metadata=metadata,
         )
         kernel_session_id = str(getattr(session, "session_id", "")).strip()
