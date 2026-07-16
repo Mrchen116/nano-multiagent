@@ -16,7 +16,7 @@
 ## 测试策略
 
 - 被测行为（来自退出标准）：SQLite 对 Agent/channel 标识按字面值匹配；binder stale invalidation 只影响目标 Agent；慢 workspace 校验期间无关 resolve/invalidate 可进展；publish/invalidate 穿过慢校验时旧 binding 不被重新写回。
-- 已有测试在：`tests/unit/personal_assistant/test_persistent_session_binding_store.py`（扩展 repository 字面值匹配）；`tests/unit/personal_assistant/test_gateway_session_binder.py`（扩展 binder 并发与 revision/generation race）。不新建测试文件，避免重复已有 owner/interface fixture。
+- 已有测试在：`tests/unit/personal_assistant/test_gateway_session_binder.py`（扩展 repository 字面值匹配）；并发行为新建 `tests/unit/personal_assistant/test_gateway_session_binder_concurrency.py`，理由：既有 binder interface 文件已达 372 行，继续加入可控线程协作 fixture 会越过 400 行门禁；新文件只承载独立的慢校验并发语义。
 - 落层/目录/marker：`tests/unit/personal_assistant/`，marker：无；测试只走 repository/binder 公共行为，不断言私有 lock/map。
 - 可选依赖 importorskip：无。
 - 本 milestone 产生的一次性验收证据（收尾删除，不进套件）：无；PersistentSessionBindingStore 与 GatewaySessionBinder 公共接口回归即为长期可重复入口证据。
