@@ -1899,6 +1899,7 @@ class _KernelClientShim:
         prompt = None
         enabled_tools = None
         features = None
+        skills = None
         agent_id = (metadata or {}).get("agent_id")
         snapshot = agent_snapshot
         if snapshot is None:
@@ -1917,11 +1918,16 @@ class _KernelClientShim:
             prompt = prompt_for(agent, scenario=metadata or {})
             enabled_tools = resolve_enabled_tools(agent)
             features = dict(getattr(agent, "features", {}) or {})
+            # Match foreground session composition: a non-empty configured
+            # subset restricts unattended sessions, while empty keeps the
+            # existing SDK default-discovery compatibility.
+            skills = list(agent.skills) if agent.skills else None
         session = await self._kernel.create_session(
             title=title,
             workspace_root=Path(workspace_root),
             metadata=metadata,
             prompt=prompt,
+            skills=skills,
             enabled_tools=enabled_tools,
             features=features,
         )
