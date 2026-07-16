@@ -10,7 +10,7 @@
 
 - [x] 所有 Gateway→IM node-scoped 帧在业务分发前统一校验当前 websocket 注册关系、token owner、连接 owner、持久 owner 与 payload node；拒绝路径不改 DB、不唤醒 waiter、不广播。
 - [x] 绑定完成后重新校验已注册 websocket；错误 owner 的 socket/key 被逐出且不下发 manifest。
-- [ ] legacy secret 迁移后，agent 同步、token 刷新和 owner open-id 回写共享同一个脱敏 config owner；后续写盘不恢复 `appSecret` 或含密备份，`credentialRef` 保留且权限为 `0600`。
+- [x] legacy secret 迁移后，agent 同步、token 刷新和 owner open-id 回写共享同一个脱敏 config owner；后续写盘不恢复 `appSecret` 或含密备份，`credentialRef` 保留且权限为 `0600`。
 - [ ] manifest 在任何 reconcile/stop/cache/head 变更前完成全量结构、generation、key、envelope 与 opener 校验；任一成员失败时整个 manifest 返回 `retryable_failed`。
 - [ ] cache commit 失败不会投影为已应用/当前连接；错误重载后仍可见，在线按同 revision 有界自动重试，只有 commit 成功才投影 applied；失败结果 ACK 不丢必需 outbox。
 - [ ] node offline 且 `observed.status_stale=true` 时，connected/limited/failed 都明确显示“最后已知状态/节点离线”；pending/failed/retry 状态优先级不被覆盖，375px 可用。
@@ -75,6 +75,7 @@ Prototype / Reference Contract：
 
 - 步骤：让 migration、agent config sync、token refresh 和 Feishu owner binding 共享线程安全 config owner；迁移成功后原子替换内存快照，所有敏感阶段写盘走安全 writer。
 - 验证：迁移后依次触发同步、刷新和回写，主文件及备份无明文 secret，`credentialRef` 与 `0600` 保持。
+- 状态：完成。Gateway composition root 只创建一个 `RuntimeConfigOwner`，迁移、Agent sync、token rotation 和 owner binding 均在同一锁内基于最新不可变快照变换；落盘成功后才发布新快照，后续写回不再复活旧 `appSecret`。
 
 ### R3 — Manifest 全量预校验与原子失败
 

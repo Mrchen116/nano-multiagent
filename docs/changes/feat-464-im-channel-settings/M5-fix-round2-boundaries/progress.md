@@ -18,12 +18,19 @@
 
 ## R2 — 统一脱敏运行时配置 owner
 
-- Context: 待实施。
-- Decision: 待实施。
-- Rationale: 待实施。
-- Evidence: 待补。
+- Context: legacy bootstrap 原先只把脱敏后的 channels 写到磁盘，Agent config sync、IM token rotation 与 Feishu first-sender binder 仍各自捕获启动时 `LocalConfig`，后续任一写盘都会把旧 `appSecret` 整份带回。
+- Decision: 在 Gateway composition root 建立单一 `RuntimeConfigOwner`，所有长期 config writer 都在同一重入锁内从最新不可变快照执行 transform；敏感写回统一经无备份、原子 `0600` writer，只有 durable save 成功才发布内存快照。
+- Rationale: 根因是多个 writer 各自拥有可写的陈旧整文档副本，而不是 migration writer 自身不安全；统一 owner 从源头消除 lost update 和 secret resurrection，并保留 immutable config 的既有模型。
+- Evidence:
+  - Tests: `pytest -q tests/unit/personal_assistant/test_gateway_build_runtime.py tests/unit/personal_assistant/test_gateway_feishu_bot_open_id.py tests/unit/personal_assistant/test_channel_legacy_migration.py` → `22 passed`；focused Ruff → passed。
+  - Entry: regression 依次通过 migration、Agent config 持久化、refresh-token rotation 和 ownerOpenId binding 的真实文件写入口；递归扫描临时 config 目录无 `legacy-secret`，最终 YAML 只含 `credentialRef` 且 mode `0600`。
+  - Frontend State Matrix: N/A。
+  - Browser QA: N/A。
+  - E2E/Regression: `tests/unit/personal_assistant/test_channel_legacy_migration.py::test_migrated_secret_never_returns_from_later_runtime_writers`。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
 - Rollback: 回退 R2 的 test/fix/docs commits。
-- Commits: 待补。
+- Commits: C1=`0dc67c0f5`，C2=`522a8d7db`。
 
 ## R3 — Manifest 全量预校验与原子失败
 
