@@ -17,3 +17,19 @@
   - Prototype Comparison: N/A。
 - Rollback: 回退 R1 C1/C2/C3 commits；会恢复旧 producer 缺 identity 与 error 卡 FIFO 行为。
 - Commits: C1=`cf46a3931`，C2=`560b0f94c`。
+
+## R2 — 安全 startup/bootstrap 配置收敛
+
+- Context: Gateway composition root 会先用普通配置 writer 持久化 `feishu-doc` allowlist，再建立 `RuntimeConfigOwner` 和执行 legacy channel bootstrap；默认主配置路径上的普通 writer 会把尚含 `appSecret` 的旧文件复制进 `backups/`。
+- Decision: 在 skill activation 前建立唯一 `RuntimeConfigOwner`，并将该启动期变更改由 `save_sensitive_local_config` 串行持久化；bootstrap applied handler 继续复用同一 owner 清理 legacy secret。
+- Rationale: migration 完成前的每一次完整 YAML 写入都属于敏感写入；共享 owner 同时避免 skill 激活与 credentialRef 迁移彼此覆盖。
+- Evidence:
+  - Tests: C1 真实 `build_runtime → bootstrap provider → applied handler` 先因配置目录残留明文 backup 稳定失败；C2 后四个 focused 文件 `19 passed`，focused Ruff passed。
+  - Entry: 默认 `$HOME/.nano-assistant/config.yaml` 含 legacy marker、Feishu 显式 skills 缺 `feishu-doc`，启动后 reload 得到 `credentialRef + feishu-doc`，主文件 mode `0600`。
+  - Frontend State Matrix: N/A。
+  - Browser QA: N/A。
+  - E2E/Regression: 递归扫描配置目录所有文件均无 marker，且 `*.bak` / `*.tmp` 均为空。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: 回退 R2 C1/C2/C3 commits；会恢复启动顺序中的普通 backup writer。
+- Commits: C1=`491a2f264`，C2=`1d13b1d3d`。

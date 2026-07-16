@@ -74,6 +74,7 @@ Prototype / Reference Contract：
 
 - 步骤：把 Feishu skill activation 纳入单一 `RuntimeConfigOwner` 和无 backup 的安全 writer；bootstrap cleanup 在同一 owner 上同时保留 skill 变更并移除 secret。
 - 验证：legacy secret + 显式 skills 缺 skill 的真实 build/bootstrap 后，目录递归零明文、零 backup/temp，主文件 `credentialRef + feishu-doc + 0600`。
+- 状态：完成。composition root 在任何 skill bootstrap 持久化前建立共享 owner，并统一使用 sensitive writer；后续 manifest bootstrap cleanup 在同一快照上移除 legacy secret。
 
 ### R3 — 断线内存 status 队列有界化
 
