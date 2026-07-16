@@ -133,6 +133,9 @@ def test_late_old_incarnation_ack_is_idempotent_and_cannot_unlock_current(
     store.record_channel_status(_status("old-latest", sequence=2, incarnation="old"))
     store.record_channel_status(_status("new-barrier", sequence=1, incarnation="new"))
     store.record_channel_status(_status("new-latest", sequence=2, incarnation="new"))
+    assert store.record_channel_status(
+        _status("old-after-new", sequence=3, incarnation="old")
+    ) is None
 
     assert store.apply_channel_status_result(
         request_id="old-barrier", outcome="accepted"
@@ -159,3 +162,22 @@ def test_late_old_incarnation_ack_is_idempotent_and_cannot_unlock_current(
         request_id="new-latest", outcome="already_current"
     )
     assert restarted.pending_channel_statuses() == ()
+
+
+def test_restart_prunes_legacy_retired_statuses_from_disk(tmp_path: Path) -> None:
+    """Reading pending state migrates legacy retired ACK bookkeeping away."""
+    path = tmp_path / "channel-manifest-v1.json"
+    store = ChannelManifestStore(path, node_id="node-a", key_id="key-a")
+    store.record_channel_status(_status("current", sequence=1))
+    state = json.loads(path.read_text(encoding="utf-8"))
+    state["status_outbox"]["ch-a"]["retired"] = {
+        "old": _status("old", sequence=1, incarnation="old")
+    }
+    path.write_text(json.dumps(state), encoding="utf-8")
+
+    restarted = ChannelManifestStore(path, node_id="node-a", key_id="key-a")
+    assert [item["request_id"] for item in restarted.pending_channel_statuses()] == [
+        "current"
+    ]
+    persisted = json.loads(path.read_text(encoding="utf-8"))
+    assert "retired" not in persisted["status_outbox"]["ch-a"]

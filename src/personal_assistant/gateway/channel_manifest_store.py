@@ -344,37 +344,36 @@ class ChannelManifestStore:
         with self._state_lock:
             state = self._read_state()
             outbox = self._status_outbox(state)
+            self._discard_retired_statuses(outbox)
             current = outbox.get(channel_id)
             entry = current if isinstance(current, dict) else None
             current_generation = self._status_generation(entry)
             if sequence == 1 and encoded.get("instance_started") is True:
-                retired = self._retired_statuses(entry)
-                for slot in ("barrier", "inflight"):
-                    previous = entry.get(slot) if entry is not None else None
-                    if isinstance(previous, Mapping):
-                        retired[str(previous.get("request_id") or "")] = dict(previous)
                 entry = {
                     "channel_revision": revision,
                     "runtime_incarnation": incarnation,
                     "barrier": encoded,
                     "inflight": None,
                     "latest": None,
-                    "retired": retired,
                 }
                 outbox[channel_id] = entry
                 sendable = encoded
             else:
-                if entry is None or current_generation != generation:
+                if entry is None:
                     entry = {
                         "channel_revision": revision,
                         "runtime_incarnation": incarnation,
                         "barrier": None,
                         "inflight": encoded,
                         "latest": None,
-                        "retired": {},
                     }
                     outbox[channel_id] = entry
                     sendable = encoded
+                elif current_generation != generation:
+                    # A seq=1 barrier is the only frame allowed to establish a
+                    # replacement incarnation. Delayed snapshots from the
+                    # replaced runtime must not displace its current barrier.
+                    sendable = None
                 elif isinstance(entry.get("barrier"), Mapping) or isinstance(
                     entry.get("inflight"), Mapping
                 ):
@@ -393,6 +392,7 @@ class ChannelManifestStore:
         with self._state_lock:
             state = self._read_state()
             outbox = self._status_outbox(state)
+            pruned = self._discard_retired_statuses(outbox)
             pending: list[dict[str, object]] = []
             for channel_id in sorted(outbox):
                 entry = outbox[channel_id]
@@ -401,6 +401,8 @@ class ChannelManifestStore:
                 candidate = entry.get("barrier") or entry.get("inflight")
                 if isinstance(candidate, Mapping):
                     pending.append(dict(candidate))
+            if pruned:
+                self._write_state(state)
             return tuple(pending)
 
     def apply_channel_status_result(
@@ -410,28 +412,26 @@ class ChannelManifestStore:
         with self._state_lock:
             state = self._read_state()
             outbox = self._status_outbox(state)
+            pruned = self._discard_retired_statuses(outbox)
             located = self._locate_status_request(outbox, request_id)
             if located is None:
+                if pruned:
+                    self._write_state(state)
                 return None
             channel_id, entry, slot, payload = located
             revision = int(payload.get("channel_revision") or 0)
             next_payload: dict[str, object] | None = None
             if outcome in self._STATUS_SUCCESS_ACKS:
-                if slot == "retired":
-                    self._retired_statuses(entry).pop(request_id, None)
-                else:
-                    entry[slot] = None
-                    latest = entry.get("latest")
-                    if isinstance(latest, Mapping):
-                        next_payload = dict(latest)
-                        entry["inflight"] = next_payload
-                        entry["latest"] = None
+                entry[slot] = None
+                latest = entry.get("latest")
+                if isinstance(latest, Mapping):
+                    next_payload = dict(latest)
+                    entry["inflight"] = next_payload
+                    entry["latest"] = None
             elif outcome in self._STATUS_TERMINAL_ACKS:
                 current_revision = int(entry.get("channel_revision") or 0)
                 if current_revision == revision:
                     outbox.pop(channel_id, None)
-                else:
-                    self._retired_statuses(entry).pop(request_id, None)
             elif outcome == "retryable_store_busy":
                 next_payload = dict(payload)
             elif outcome != "fatal_owner_mismatch":
@@ -512,18 +512,18 @@ class ChannelManifestStore:
         )
 
     @staticmethod
-    def _retired_statuses(entry: Mapping[str, object] | None) -> dict[str, object]:
-        if not isinstance(entry, dict):
-            return {}
-        retired = entry.get("retired")
-        if not isinstance(retired, dict):
-            retired = {}
-            entry["retired"] = retired
-        return retired
+    def _discard_retired_statuses(outbox: Mapping[str, object]) -> bool:
+        """Drop legacy, non-replayable ACK bookkeeping from persisted entries."""
+        pruned = False
+        for entry in outbox.values():
+            if isinstance(entry, dict) and "retired" in entry:
+                entry.pop("retired", None)
+                pruned = True
+        return pruned
 
-    @classmethod
+    @staticmethod
     def _locate_status_request(
-        cls, outbox: Mapping[str, object], request_id: str
+        outbox: Mapping[str, object], request_id: str
     ) -> tuple[str, dict[str, object], str, Mapping[str, object]] | None:
         for channel_id, raw_entry in outbox.items():
             if not isinstance(channel_id, str) or not isinstance(raw_entry, dict):
@@ -532,10 +532,6 @@ class ChannelManifestStore:
                 payload = raw_entry.get(slot)
                 if isinstance(payload, Mapping) and payload.get("request_id") == request_id:
                     return channel_id, raw_entry, slot, payload
-            retired = cls._retired_statuses(raw_entry)
-            payload = retired.get(request_id)
-            if isinstance(payload, Mapping):
-                return channel_id, raw_entry, "retired", payload
         return None
 
     def _write_state(self, state: Mapping[str, object]) -> None:
