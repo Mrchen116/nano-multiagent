@@ -55,8 +55,6 @@ from personal_assistant.gateway.channel_registry import ChannelRegistry
 from personal_assistant.gateway.agent_catalog import LiveAgentCatalog, LiveAgentSnapshot
 from personal_assistant.gateway.agent_config_sync import (
     IMAgentConfigSync,
-    _im_http_base_url,
-    _im_http_headers,
     _make_workspace_root_factory,
     _parse_heartbeat_from_im_payload,  # noqa: F401 - compatibility re-export
 )
@@ -65,6 +63,10 @@ from personal_assistant.gateway.background_subscriptions import (
     BackgroundSubscriptionManager,
 )
 from personal_assistant.gateway.image_attachments import ImageAttachmentResolver
+from personal_assistant.gateway.im_http_transport import (
+    build_im_http_headers,
+    normalize_im_http_base_url,
+)
 from personal_assistant.gateway.inbound_dispatcher import InboundDispatcher
 from personal_assistant.gateway.inbound_pipeline import (
     InboundPipeline,
@@ -348,7 +350,7 @@ class _IMBootstrapClient:
         token_getter: Callable[[], Awaitable[str | None]] | None = None,
     ) -> None:
         self._base_urls = _im_bootstrap_base_urls(base_url)
-        self._base_headers = _im_http_headers(token)
+        self._base_headers = build_im_http_headers(token)
         self._timeout_seconds = timeout_seconds
         self._client_factory = client_factory
         self._clients: dict[str, httpx.Client] = {}
@@ -369,7 +371,7 @@ class _IMBootstrapClient:
             return
         token = asyncio.run(self._token_getter())
         if token:
-            self._base_headers = _im_http_headers(token)
+            self._base_headers = build_im_http_headers(token)
             for client in self._clients.values():
                 client.headers.update(self._base_headers)
 
@@ -2288,7 +2290,9 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         )
         # Build a token_getter closure that auto-refreshes the access token on reconnect.
         # The auth client uses the IM HTTP base URL so it can reach /im/v1/auth/* endpoints.
-        _auth_client = IMAuthClient(base_url=_im_http_base_url(config.im_service.url))
+        _auth_client = IMAuthClient(
+            base_url=normalize_im_http_base_url(config.im_service.url)
+        )
         _raw_token_getter = _make_token_getter(
             im_service=config.im_service,
             local_config=config,
@@ -2320,7 +2324,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         _im_sync_client = ConfigSyncClient(fetcher=im_config_sync_client.sync_agent)
 
         im_bootstrap_client = _IMBootstrapClient(
-            base_url=_im_http_base_url(config.im_service.url),
+            base_url=normalize_im_http_base_url(config.im_service.url),
             token=config.im_service.token,
             token_getter=_token_getter,
         )
@@ -3101,7 +3105,7 @@ def _build_attachment_fetcher(
     async def _fetch(url: str) -> bytes:
         token = await token_getter()
         async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(url, headers=_im_http_headers(token))
+            response = await client.get(url, headers=build_im_http_headers(token))
             response.raise_for_status()
             return response.content
 
@@ -3442,7 +3446,7 @@ def _resolve_agent_tool_allowlist(
 
 
 def _im_bootstrap_base_urls(url: str) -> tuple[str, ...]:
-    return (_im_http_base_url(url),)
+    return (normalize_im_http_base_url(url),)
 
 
 def _background_gateway_argv(

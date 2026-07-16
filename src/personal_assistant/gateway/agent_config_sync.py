@@ -7,7 +7,6 @@ import logging
 import time
 from collections.abc import Awaitable, Callable, Mapping
 from pathlib import Path
-from urllib.parse import urlparse
 
 import httpx
 
@@ -20,6 +19,10 @@ from personal_assistant.config.local_store import (
     save_local_config,
 )
 from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
+from personal_assistant.gateway.im_http_transport import (
+    build_im_http_headers,
+    normalize_im_http_base_url,
+)
 from personal_assistant.gateway.session_binder import GatewaySessionBinder
 from personal_assistant.gateway.workspace_authority import resolve_runtime_workspace
 from personal_assistant.reporter.upstream_reporter import UpstreamReporter
@@ -90,8 +93,8 @@ class IMAgentConfigSync:
         token_getter: Callable[[], Awaitable[str | None]] | None = None,
         on_agent_created: Callable[[str, Path], None] | None = None,
     ) -> None:
-        self._base_url = _im_http_base_url(base_url)
-        self._base_headers = _im_http_headers(token)
+        self._base_url = normalize_im_http_base_url(base_url)
+        self._base_headers = build_im_http_headers(token)
         self._timeout_seconds = timeout_seconds
         self._retry_interval_seconds = retry_interval_seconds
         self._max_attempts = max(max_attempts, 1)
@@ -595,7 +598,7 @@ class IMAgentConfigSync:
         Args:
             token: New access token, or None to clear.
         """
-        self._base_headers = _im_http_headers(token)
+        self._base_headers = build_im_http_headers(token)
         # Propagate updated headers to any live client instance so in-flight
         # connections also pick up the new token without a full reconnect.
         # Injected test clients (passed via constructor) are updated in-place;
@@ -675,22 +678,3 @@ def _parse_heartbeat_from_im_payload(
     else:
         hb_start, hb_end, hb_tz = None, None, None
     return heartbeat_every, hb_start, hb_end, hb_tz
-
-def _im_http_headers(token: str | None) -> dict[str, str]:
-    headers = {"User-Agent": "nano-multiagent-gateway-bootstrap"}
-    if token is not None:
-        headers["Authorization"] = f"Bearer {token}"
-    return headers
-
-
-def _im_http_base_url(url: str) -> str:
-    parsed = urlparse(url)
-    if parsed.scheme == "http":
-        return f"http://{parsed.netloc}{parsed.path}".rstrip("/")
-    if parsed.scheme == "https":
-        return f"https://{parsed.netloc}{parsed.path}".rstrip("/")
-    if parsed.scheme == "ws":
-        return f"http://{parsed.netloc}{parsed.path}".rstrip("/")
-    if parsed.scheme == "wss":
-        return f"https://{parsed.netloc}{parsed.path}".rstrip("/")
-    raise ValueError("IM URL must use http(s) or ws(s)")

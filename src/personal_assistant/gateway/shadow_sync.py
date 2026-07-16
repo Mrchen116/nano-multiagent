@@ -8,7 +8,10 @@ from typing import Any
 import httpx
 
 from personal_assistant.channels.base import InboundMessage
-from personal_assistant.gateway.agent_config_sync import _im_http_base_url, _im_http_headers
+from personal_assistant.gateway.im_http_transport import (
+    build_im_http_headers,
+    normalize_im_http_base_url,
+)
 from personal_assistant.gateway.runtime_protocol import (
     external_identity_from_message,
     strip_runtime_protocol_metadata,
@@ -34,7 +37,7 @@ class IMShadowConversationSync:
         timeout_seconds: float = 3.0,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
-        self._base_url = _im_http_base_url(base_url)
+        self._base_url = normalize_im_http_base_url(base_url)
         self._token_getter = token_getter
         self._owner_user_id = owner_user_id.strip()
         self._timeout_seconds = timeout_seconds
@@ -51,7 +54,7 @@ class IMShadowConversationSync:
         external_source = identity.external_source
         external_chat_id = identity.external_chat_id
         token = await self._token_getter()
-        headers = _im_http_headers(token)
+        headers = build_im_http_headers(token)
         async with httpx.AsyncClient(
             base_url=self._base_url,
             headers=headers,
