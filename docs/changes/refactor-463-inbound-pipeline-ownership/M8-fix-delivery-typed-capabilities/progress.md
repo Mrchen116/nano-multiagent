@@ -22,3 +22,11 @@
 - C2 `25dce7f1a`：adapter 复用 `external_identity_from_message`，自身执行 IM-origin guard，并在 HTTP persistence 前剥离 typed runtime metadata；标题消费 typed conversation type。
 - 聚焦验证：`15 passed`（shadow adapter + inbound identity guard + gateway relay）。
 - Ruff：R2 相关源文件与测试全部通过。
+
+## 2026-07-16 — R3 completed
+
+- C1 `c3f2caec6`：新增 cron catalog lookup 与 heartbeat captured snapshot 两条 unattended 装配路径回归；restricted 与 empty/`None` 四个 case 均在缺失 `skills` kwarg 处失败。
+- C2 `4862c1722`：`_KernelClientShim` 仅对非空 `agent.skills` 透传精确列表；空 tuple 明确传 `None`，不改 SDK/binder 语义。
+- 聚焦验证：`24 passed`（unattended skills + heartbeat gate + cron runner + foreground binder compatibility）。
+- Ruff：R3 相关源文件与测试全部通过。
+- 当前：进入 milestone 全量验证与 unit 集成。

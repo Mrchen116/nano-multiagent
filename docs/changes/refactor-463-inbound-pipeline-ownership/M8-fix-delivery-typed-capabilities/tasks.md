@@ -6,10 +6,10 @@
 
 ## Exit criteria
 
-- [ ] stream helper 仅以 `agent.sdk.TERMINAL_RUN_STATUSES` 判定终态，并返回 status、partial/final text、context 与 error。
-- [ ] failed/cancelled cron 保留真实历史状态，不写成功 awareness；缺失 terminal event 时可终止为失败而不挂起。
-- [ ] shadow sync 支持 typed-only external identity、拒绝 IM-origin identity，并保留 legacy metadata fallback。
-- [ ] cron 与 heartbeat 创建 unattended session 时透传非空 `agent.config.skills`；空配置继续兼容为 `None`。
+- [x] stream helper 仅以 `agent.sdk.TERMINAL_RUN_STATUSES` 判定终态，并返回 status、partial/final text、context 与 error。
+- [x] failed/cancelled cron 保留真实历史状态，不写成功 awareness；缺失 terminal event 时可终止为失败而不挂起。
+- [x] shadow sync 支持 typed-only external identity、拒绝 IM-origin identity，并保留 legacy metadata fallback。
+- [x] cron 与 heartbeat 创建 unattended session 时透传非空 `agent.config.skills`；空配置继续兼容为 `None`。
 - [ ] 聚焦回归、ruff 与 `pytest -m "not e2e"` 全部通过。
 - [ ] milestone 分支合入并推送 `unit/refactor-463`，随后清理 milestone worktree/branch。
 
@@ -35,8 +35,8 @@
 - [x] C2 实现：复用 canonical identity extractor 并清理 runtime metadata。
 - [x] C3 文档：记录行为、测试与验证证据。
 
-### R3 — Unattended skills 继承 (DOING)
+### R3 — Unattended skills 继承 (DONE)
 
-- [ ] C1 红测：cron/heartbeat restricted 与 empty compatibility。
-- [ ] C2 实现：`_KernelClientShim` 透传非空 restricted skills。
-- [ ] C3 文档：记录行为、测试与验证证据。
+- [x] C1 红测：cron/heartbeat restricted 与 empty compatibility。
+- [x] C2 实现：`_KernelClientShim` 透传非空 restricted skills。
+- [x] C3 文档：记录行为、测试与验证证据。
