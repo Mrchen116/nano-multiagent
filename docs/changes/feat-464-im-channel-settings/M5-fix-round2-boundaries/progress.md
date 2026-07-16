@@ -66,26 +66,26 @@
 
 ## R5 — 离线 stale UI
 
-- Context: 待实施。
-- Decision: 待实施。
-- Rationale: 待实施。
+- Context: API 能在节点离线后把 observed 标为 stale，但卡片仍直接以旧 `connection_state` 渲染 connected/limited/failed；而且节点状态 websocket 可能先于 channel query 失效，缓存中的 `status_stale=false` 会短暂继续冒充 current success。R4 新增的 durable apply error 也尚未进入前端类型与失败详情。
+- Decision: 状态优先级调整为 manual reconnect → durable apply failed → desired pending/disabling → live node offline → observed runtime；只要实时 node 已离线，任一缓存 observed 都降级为 `Node offline + Last known status`，并使用最后状态时间。失败详情优先显示 channel `apply_error`，中英文文案同步补齐。
+- Rationale: node online/offline 是“当前能否连接”的实时 authority，observed 只是在该边界内解释最后一次运行结果；因此不能等待 channel query 再次取得 `status_stale=true` 才撤销 connected。desired/apply 结果仍先于 stale snapshot，避免遮蔽用户尚待应用或持久失败的操作状态。
 - Evidence:
-  - Tests: 待补。
-  - Entry: 待补。
-  - Frontend State Matrix: 待补。
-  - Browser QA: 待补。
-  - E2E/Regression: 待补。
-  - Visual/Interaction: 待补。
-  - Prototype Comparison: 待补。
+  - Tests: `vitest run agent-channels-panel.test.tsx agent-channels-diagnostics.test.tsx agent-channels-provider-registry.test.tsx` → `19 passed`；`npm run build` → passed。
+  - Entry: `AgentChannelsPanel` 在 node websocket 投影为 offline 时立即撤销 cached connected；参数化回归覆盖 connected、limited、failed，另覆盖 pending desired 与 durable `cache_commit_failed` 的优先级。
+  - Frontend State Matrix: online connected 保留 current success；offline observed 统一为 last-known；pending 仍显示等待节点应用；apply failed 仍显示具体错误；limited 的最后已知标题保留权限受限语义。
+  - Browser QA: 真 IM + 真 Gateway 高位端口先呈现 Feishu Connected；停止 Gateway 后同页自动出现 offline banner，卡片徽标变为 Node offline，正文为 `Last known status: Connected (node offline; not a current connection)`。唯一 console 503 来自预期的离线 capabilities 请求，无前端异常。
+  - E2E/Regression: `agent-channels-panel.test.tsx` 包含 cached `status_stale=false` 但实时 node offline 的回归，防止 websocket/channel-query 失效时序复发。
+  - Visual/Interaction: Playwright CLI 在 desktop 与 375×812 均确认单列卡片、离线横幅、last-known 时间和 Edit/Disable/Delete 动作可见；临时截图按任务约定未入库。
+  - Prototype Comparison: `#channel-connected` 在线结构不变；离线态沿用 `#channel-pending/#channels-mobile` 的横幅、卡片和响应式层级，并只增加 last-known 降级说明。
 - Rollback: 回退 R5 的 test/fix/docs commits。
-- Commits: 待补。
+- Commits: C1=`a65fee48c`，C2=`60bfa2879`。
 
 Prototype Comparison：
 | Reference | Required contract | Actual evidence | Viewport / state | Result | Deviation rationale |
 |---|---|---|---|---|---|
-| `prototype.html#channel-connected/#channel-limited` | 在线 current 信息结构 | 待补 | 1440px | 待补 | — |
-| `prototype.html#channel-pending/#channel-failed` | pending/failed 优先级与可操作信息 | 待补 | 1440px | 待补 | — |
-| `prototype.html#channels-mobile` | 375px 单列与操作可用 | 待补 | 375x812 | 待补 | — |
+| `prototype.html#channel-connected/#channel-limited` | 在线 current 信息结构 | 真 Gateway connected 后停止；同卡片降级为 offline last-known | 1440px，connected→offline | pass | 原型未定义 stale 专属文案，补充明确的非当前连接说明 |
+| `prototype.html#channel-pending/#channel-failed` | pending/failed 优先级与可操作信息 | Vitest 参数化覆盖 pending/apply failed 优先于 stale | 1440px | pass | — |
+| `prototype.html#channels-mobile` | 375px 单列与操作可用 | 真页面卡片、横幅、状态时间和动作均可见 | 375×812，offline stale connected | pass | — |
 
 ## R6 — 有界 status incarnation 与全量门禁
 

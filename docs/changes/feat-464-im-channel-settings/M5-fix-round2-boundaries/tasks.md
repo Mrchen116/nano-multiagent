@@ -13,7 +13,7 @@
 - [x] legacy secret 迁移后，agent 同步、token 刷新和 owner open-id 回写共享同一个脱敏 config owner；后续写盘不恢复 `appSecret` 或含密备份，`credentialRef` 保留且权限为 `0600`。
 - [x] manifest 在任何 reconcile/stop/cache/head 变更前完成全量结构、generation、key、envelope 与 opener 校验；任一成员失败时整个 manifest 返回 `retryable_failed`。
 - [x] cache commit 失败不会投影为已应用/当前连接；错误重载后仍可见，在线按同 revision 有界自动重试，只有 commit 成功才投影 applied；失败结果 ACK 不丢必需 outbox。
-- [ ] node offline 且 `observed.status_stale=true` 时，connected/limited/failed 都明确显示“最后已知状态/节点离线”；pending/failed/retry 状态优先级不被覆盖，375px 可用。
+- [x] node offline 且 `observed.status_stale=true` 时，connected/limited/failed 都明确显示“最后已知状态/节点离线”；pending/failed/retry 状态优先级不被覆盖，375px 可用。
 - [ ] 新 status incarnation 原子替换旧未确认 barrier/snapshot；旧 outbox 不重放、不无界增长，晚到 ACK 幂等，重启后仍有界。
 - [ ] 所有新增永久回归文件不超过 400 行；窄测、非 e2e 全量、前端 test/build/ruff、关键 e2e 与真实浏览器证据完成。
 
@@ -93,6 +93,7 @@ Prototype / Reference Contract：
 
 - 步骤：调整连接卡片状态优先级和文案，offline + stale 统一呈现“节点离线/最后已知状态”，保留 pending/failed/retry；补齐 apply error 展示。
 - 验证：connected/limited/failed stale、pending/failed precedence、长错误和 375px Vitest；真实浏览器 desktop/mobile 对照 prototype 并记录 console/network。
+- 状态：完成。卡片以实时 node offline 为最高可信连接边界，把缓存的 connected/limited/failed 降级为“最后已知状态”；desired pending 与持久 apply failed 仍优先，cache apply error 直接呈现。真实 IM/Gateway 的 connected 状态在停止 Gateway 后自动切换为 stale，并在 1440px 与 375×812 浏览器中完成对照。
 
 ### R6 — 有界 status incarnation 与全量门禁
 
