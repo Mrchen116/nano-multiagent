@@ -264,4 +264,72 @@ describe("AgentChannelsPanel", () => {
       7,
     );
   });
+
+  it.each([
+    ["connected", undefined, "已连接"],
+    ["connected", "limited", "连接受限"],
+    ["failed", "unknown", "连接失败"],
+  ])(
+    "labels an offline stale %s snapshot as last-known rather than current",
+    async (connectionState, diagnosticsState, expectedLastState) => {
+      apiMocks.listAgentChannels.mockResolvedValue([
+        channel({
+          observed: {
+            observed_revision: 7,
+            connection_state: connectionState,
+            diagnostics_state: diagnosticsState,
+            status_message: connectionState === "failed" ? "旧连接已中断" : null,
+            status_updated_at: "2026-07-15T06:35:00Z",
+            status_stale: true,
+          },
+        }),
+      ]);
+
+      renderPanel("offline");
+
+      expect(await screen.findByText("节点离线")).toBeInTheDocument();
+      expect(screen.getByText(new RegExp(`最后已知状态.*${expectedLastState}`))).toBeInTheDocument();
+      expect(screen.queryByText("当前配置已应用")).toBeNull();
+      expect(screen.getByText(/最后状态更新于/)).toBeInTheDocument();
+    },
+  );
+
+  it("keeps pending desired state above an offline stale connected snapshot", async () => {
+    apiMocks.listAgentChannels.mockResolvedValue([
+      channel({
+        sync_state: "pending",
+        observed: {
+          observed_revision: 6,
+          connection_state: "connected",
+          status_message: null,
+          status_updated_at: "2026-07-15T06:35:00Z",
+          status_stale: true,
+        },
+      }),
+    ]);
+
+    renderPanel("offline");
+
+    expect(await screen.findByText("等待节点应用")).toBeInTheDocument();
+    expect(screen.getByText("配置已保存")).toBeInTheDocument();
+    expect(screen.queryByText(/最后已知状态/)).toBeNull();
+  });
+
+  it("shows the durable apply error instead of a stale connected success", async () => {
+    apiMocks.listAgentChannels.mockResolvedValue([
+      channel({
+        sync_state: "failed",
+        apply_error: {
+          code: "cache_commit_failed",
+          message: "本地通道缓存写入失败，请稍后重试应用",
+        },
+      }),
+    ]);
+
+    renderPanel();
+
+    expect(await screen.findByText("连接失败")).toBeInTheDocument();
+    expect(screen.getByText("本地通道缓存写入失败，请稍后重试应用")).toBeInTheDocument();
+    expect(screen.queryByText("当前配置已应用")).toBeNull();
+  });
 });
