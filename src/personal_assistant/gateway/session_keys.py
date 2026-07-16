@@ -131,6 +131,18 @@ _MIGRATE_ADD_CREATED_AT_SQL = """
 ALTER TABLE session_bindings ADD COLUMN created_at TEXT NOT NULL DEFAULT ''
 """
 
+_SQLITE_LIKE_ESCAPE = "!"
+
+
+def _literal_like_pattern(value: str) -> str:
+    """Escape one literal value embedded in a SQLite LIKE pattern."""
+
+    return (
+        value.replace(_SQLITE_LIKE_ESCAPE, _SQLITE_LIKE_ESCAPE * 2)
+        .replace("%", f"{_SQLITE_LIKE_ESCAPE}%")
+        .replace("_", f"{_SQLITE_LIKE_ESCAPE}_")
+    )
+
 
 class PersistentSessionBindingStore:
     """Persist gateway session bindings in SQLite for crash-safe recovery.
@@ -293,9 +305,9 @@ class PersistentSessionBindingStore:
             Deletes matching rows from the SQLite table.
         """
 
-        suffix = f":{agent_id}"
+        suffix = f":{_literal_like_pattern(agent_id)}"
         self._conn.execute(
-            "DELETE FROM session_bindings WHERE session_key LIKE ?",
+            "DELETE FROM session_bindings WHERE session_key LIKE ? ESCAPE '!'",
             (f"%{suffix}",),
         )
         self._conn.commit()
@@ -316,10 +328,10 @@ class PersistentSessionBindingStore:
             """
             SELECT session_key, kernel_session_id, reply_context_json
             FROM session_bindings
-            WHERE session_key LIKE ?
+            WHERE session_key LIKE ? ESCAPE '!'
             ORDER BY created_at ASC, rowid ASC
             """,
-            (f"%:{agent_id}",),
+            (f"%:{_literal_like_pattern(agent_id)}",),
         ).fetchall()
         return tuple(
             SessionBinding(
@@ -373,9 +385,9 @@ class PersistentSessionBindingStore:
     ) -> SessionBinding | None:
         """Return the oldest direct-chat binding for one agent on one channel.
 
-        Searches for all session keys matching ``{channel_name}:%:{agent_id}``
-        (same LIKE pattern as :meth:`drop_agent`) and returns the binding with
-        the smallest ``updated_at`` timestamp — the oldest (canonical) direct chat,
+        Searches for all session keys matching the literal channel/Agent boundary
+        ``{channel_name}:*:{agent_id}`` and returns the binding with the smallest
+        ``created_at`` timestamp — the oldest (canonical) direct chat,
         consistent with IM's ``_find_canonical_direct_conversation`` which takes
         ``sorted(key=created_at)[0]``.
 
@@ -407,10 +419,12 @@ class PersistentSessionBindingStore:
             conversation.
         """
 
-        # Session key format: ``{channel_name}:{conversation_id}:{agent_id}``
-        # LIKE pattern mirrors drop_agent's ``%:{agent_id}`` suffix but further
-        # constrains to the correct channel prefix.
-        pattern = f"{channel_name}:%:{agent_id}"
+        # Only the conversation-id segment is a wildcard. Channel and Agent ids
+        # are business identifiers, so SQLite pattern metacharacters stay literal.
+        pattern = (
+            f"{_literal_like_pattern(channel_name)}:%:"
+            f"{_literal_like_pattern(agent_id)}"
+        )
         # feat-394: ORDER BY created_at ASC (not updated_at) so the result matches
         # IM's _find_canonical_direct_conversation(sorted(key=created_at)[0]).
         # created_at is written once at first INSERT and never updated on upsert,
@@ -420,7 +434,7 @@ class PersistentSessionBindingStore:
             """
             SELECT session_key, kernel_session_id, reply_context_json
             FROM session_bindings
-            WHERE session_key LIKE ?
+            WHERE session_key LIKE ? ESCAPE '!'
             ORDER BY created_at ASC, rowid ASC
             LIMIT 1
             """,
