@@ -38,6 +38,7 @@ class PendingFrame:
 
     message_type: str
     payload: dict[str, object]
+    sent: bool = False
     ack_future: asyncio.Future[dict[str, object]] | None = field(
         default=None, repr=False
     )
@@ -374,7 +375,7 @@ class IMConnectionManager:
     async def send_json(self, message_type: str, payload: Mapping[str, object]) -> None:
         """Queue one gateway -> IM protocol frame and flush it when the socket is available."""
 
-        self._pending_frames.append(
+        self._queue_pending_frame(
             PendingFrame(message_type=message_type, payload=dict(payload))
         )
         await self._flush_pending_frames()
@@ -403,13 +404,52 @@ class IMConnectionManager:
 
         loop = asyncio.get_running_loop()
         ack_future: asyncio.Future[dict[str, object]] = loop.create_future()
-        self._pending_frames.append(
+        self._queue_pending_frame(
             PendingFrame(
                 message_type=message_type, payload=dict(payload), ack_future=ack_future
             )
         )
         await self._flush_pending_frames()
         return await ack_future
+
+    def _queue_pending_frame(self, pending: PendingFrame) -> None:
+        """Append a frame, superseding only unsent stale channel statuses.
+
+        A successfully written head remains eligible for replay after disconnect because
+        IM may have accepted it without returning the result. Runtime replacement may
+        compact only later unsent status frames; unrelated protocol FIFO is untouched.
+        """
+        if pending.message_type != "channel.status":
+            self._pending_frames.append(pending)
+            return
+        channel_id = pending.payload.get("channel_id")
+        incarnation = pending.payload.get("runtime_incarnation")
+        if not isinstance(channel_id, str) or not isinstance(incarnation, str):
+            self._pending_frames.append(pending)
+            return
+
+        status_sequence = pending.payload.get("status_sequence")
+        retained: deque[PendingFrame] = deque()
+        for queued in self._pending_frames:
+            same_channel = (
+                queued.message_type == "channel.status"
+                and queued.payload.get("channel_id") == channel_id
+            )
+            if not same_channel or queued.sent or queued.ack_future is not None:
+                retained.append(queued)
+                continue
+            queued_incarnation = queued.payload.get("runtime_incarnation")
+            queued_sequence = queued.payload.get("status_sequence")
+            keep_barrier = (
+                queued_incarnation == incarnation
+                and queued_sequence == 1
+                and isinstance(status_sequence, int)
+                and status_sequence > 1
+            )
+            if keep_barrier:
+                retained.append(queued)
+        retained.append(pending)
+        self._pending_frames = retained
 
     async def send_agent_message(self, payload: Mapping[str, object]) -> IMDispatchAck:
         """Send one agent.message frame and return the parsed IM dispatch ack."""
@@ -1094,6 +1134,7 @@ class IMConnectionManager:
                 if raise_on_disconnect:
                     raise
                 return
+            pending_frame.sent = True
             self._awaiting_ack_type = pending_frame.message_type
 
     async def _send_frame(
