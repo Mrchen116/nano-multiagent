@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Routing and Delivery Specification
 
-> 对齐: feat-447
+> 对齐: bugfix-465
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -15,9 +15,10 @@
 
 任一通道(外部 IM 或内置 Web IM)收到一条入站消息时,Gateway 依次决策:路由到哪个 Agent、用哪个会话、
 是否串行排队、回复发回哪个通道目标。同一会话的回复**只**回发原通道原目标,不跨通道混发。idle 看门狗按
-**liveness 心跳**判定一轮是否仍有进展——执行静默长工具、等待 LLM 返回、等待用户权限决策这三类"活着但安静"
-的窗口都有周期性 liveness 心跳,看门狗不再以"无业务输出事件"判卡死、也不再为某一类窗口单列特例豁免;只有
-在判定窗口内既无业务事件也无 liveness 心跳时才判失去进展并收尾。
+**liveness 心跳**判定一轮是否仍有进展——执行静默长工具、等待 LLM 返回这两类"活着但安静"的窗口都有周期性
+liveness 心跳,看门狗不再以"无业务输出事件"判卡死;等待用户权限决策的窗口则完全豁免于 idle 看门狗超时
+(用户可能离开、关闭页面、心搏链路也可能延迟或丢失),只有该轮收到 `permission_resolved` 或判定窗口内既无业务
+事件也无 liveness 心跳时才判失去进展并收尾。
 
 #### Scenario: 直聊消息被默认 Agent 处理并把回复发回原通道
 - **GIVEN** 一个配置了至少一个 Agent 的 Gateway,且消息未显式指定 `agent_id`
@@ -46,9 +47,10 @@
 - **THEN** 该轮不被看门狗误判卡死
 
 #### Scenario: 等人工权限决策期间不被 idle 看门狗误杀
-- **GIVEN** 某轮已发起一个需要授权的工具,正等待用户在权限卡片上决策(其间有周期性 liveness 心跳)
-- **WHEN** 等待时长超过判定窗口
+- **GIVEN** 某轮已发起一个需要授权的工具,正等待用户在权限卡片上决策
+- **WHEN** 等待时长超过判定窗口(即使用户离开、关闭 IM 页面、其间没有 liveness 心跳到达)
 - **THEN** 该轮不被 idle 看门狗取消;用户随后批准则工具正常执行、该轮继续推进,不报「relay idle for 120s」
+- **AND** 一旦用户做出决策、内核发出 `permission_resolved`,正常 idle 看门狗立即恢复,决策后的卡死/断连仍会被捕获
 
 #### Scenario: 路由到未知 Agent 被拒
 - **WHEN** 入站消息显式指定一个 Gateway 未注册的 `agent_id`
