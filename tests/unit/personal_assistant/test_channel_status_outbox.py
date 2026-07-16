@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from personal_assistant.gateway.channel_manifest_store import ChannelManifestStore
@@ -84,3 +85,77 @@ def test_terminal_and_retryable_results_have_distinct_outbox_effects(
     )
     assert terminal is not None and terminal.outcome == "terminal_stale_revision"
     assert store.pending_channel_statuses() == ()
+
+
+def test_new_incarnations_replace_old_status_state_without_retired_growth(
+    tmp_path: Path,
+) -> None:
+    """Only the current incarnation is durable after repeated runtime restarts."""
+    path = tmp_path / "channel-manifest-v1.json"
+    store = ChannelManifestStore(path, node_id="node-a", key_id="key-a")
+
+    for index in range(40):
+        incarnation = f"inc-{index}"
+        store.record_channel_status(
+            _status(f"barrier-{index}", sequence=1, incarnation=incarnation)
+        )
+        store.record_channel_status(
+            _status(f"snapshot-{index}", sequence=2, incarnation=incarnation)
+        )
+
+    state = json.loads(path.read_text(encoding="utf-8"))
+    entry = state["status_outbox"]["ch-a"]
+    assert set(entry) == {
+        "barrier",
+        "channel_revision",
+        "inflight",
+        "latest",
+        "runtime_incarnation",
+    }
+    assert entry["runtime_incarnation"] == "inc-39"
+    assert entry["barrier"]["request_id"] == "barrier-39"
+    assert entry["latest"]["request_id"] == "snapshot-39"
+    assert "barrier-0" not in path.read_text(encoding="utf-8")
+
+    restarted = ChannelManifestStore(path, node_id="node-a", key_id="key-a")
+    assert [item["request_id"] for item in restarted.pending_channel_statuses()] == [
+        "barrier-39"
+    ]
+
+
+def test_late_old_incarnation_ack_is_idempotent_and_cannot_unlock_current(
+    tmp_path: Path,
+) -> None:
+    """An ACK for replaced state is a no-op while the current barrier still gates."""
+    path = tmp_path / "channel-manifest-v1.json"
+    store = ChannelManifestStore(path, node_id="node-a", key_id="key-a")
+    store.record_channel_status(_status("old-barrier", sequence=1, incarnation="old"))
+    store.record_channel_status(_status("old-latest", sequence=2, incarnation="old"))
+    store.record_channel_status(_status("new-barrier", sequence=1, incarnation="new"))
+    store.record_channel_status(_status("new-latest", sequence=2, incarnation="new"))
+
+    assert store.apply_channel_status_result(
+        request_id="old-barrier", outcome="accepted"
+    ) is None
+    assert store.apply_channel_status_result(
+        request_id="old-latest", outcome="terminal_stale_revision"
+    ) is None
+    assert [item["request_id"] for item in store.pending_channel_statuses()] == [
+        "new-barrier"
+    ]
+
+    current = store.apply_channel_status_result(
+        request_id="new-barrier", outcome="accepted"
+    )
+    assert current is not None
+    assert current.next_payload is not None
+    assert current.next_payload["request_id"] == "new-latest"
+
+    restarted = ChannelManifestStore(path, node_id="node-a", key_id="key-a")
+    assert [item["request_id"] for item in restarted.pending_channel_statuses()] == [
+        "new-latest"
+    ]
+    restarted.apply_channel_status_result(
+        request_id="new-latest", outcome="already_current"
+    )
+    assert restarted.pending_channel_statuses() == ()
