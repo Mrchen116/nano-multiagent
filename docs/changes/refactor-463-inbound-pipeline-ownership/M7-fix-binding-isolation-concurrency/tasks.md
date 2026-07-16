@@ -26,12 +26,12 @@
 
 ### R1 — SQLite binding 字面值隔离
 
-- 状态：TODO
+- 状态：DONE
 - 步骤：先补真实 PersistentSessionBindingStore + binder.invalidate_stale 红测，再对所有 Agent/channel `LIKE` 查询统一做字面值转义，不改 schema/key。
 - 验证：红测精确复现 `_` / `%` 跨 Agent 匹配；实现后 repository/interface 最窄测试与 size contract 通过。
 
 ### R2 — Binder workspace 校验两阶段并发协议
 
-- 状态：TODO
+- 状态：DOING
 - 步骤：先补可控慢 `get_session` 并发红测，再把校验移到锁外 worker thread，并在短临界区按 candidate identity + revision + generation + catalog current recheck；保留 stale operation 可使用旧 snapshot、禁止 repository stale writeback。
 - 验证：无关 Agent resolve / invalidate 在慢校验释放前完成；publish/invalidate race 不复活旧 row；现有 create/reuse/conversation-bind race 全绿，随后跑 ruff 与非 e2e 全量。
