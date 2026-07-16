@@ -762,6 +762,7 @@ def test_im_connection_send_agent_message_fails_when_socket_drops_before_ack(
 
     async def _exercise() -> None:
         await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001 - register before business
         task = asyncio.create_task(
             manager.send_agent_message({"to": "user-1", "text": "hi"})
         )

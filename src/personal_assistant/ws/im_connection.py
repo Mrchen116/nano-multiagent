@@ -1164,7 +1164,12 @@ class IMConnectionManager:
             return
         raise ValueError(f"unsupported downstream message type: {message_type}")
 
-    async def _flush_pending_frames(self, *, raise_on_disconnect: bool = False) -> None:
+    async def _flush_pending_frames(
+        self,
+        *,
+        raise_on_disconnect: bool = False,
+        disconnect_on_cancel: bool = True,
+    ) -> None:
         async with self._flush_lock:
             if self._wire_frame_owner is not None or not self._connected:
                 return
@@ -1188,11 +1193,12 @@ class IMConnectionManager:
                     pending_frame.message_type, pending_frame.payload
                 )
             except asyncio.CancelledError:
-                await self._disconnect_current_websocket(
-                    RuntimeError(
-                        f"{pending_frame.message_type} send was cancelled"
+                if disconnect_on_cancel:
+                    await self._disconnect_current_websocket(
+                        RuntimeError(
+                            f"{pending_frame.message_type} send was cancelled"
+                        )
                     )
-                )
                 raise
             except Exception as exc:  # noqa: BLE001
                 await self._disconnect_current_websocket(exc)
@@ -1367,7 +1373,10 @@ class IMConnectionManager:
                 return
             try:
                 async with asyncio.timeout(timeout):
-                    await self._flush_pending_frames()
+                    # The timeout owner must report a precise send-vs-ack liveness
+                    # failure.  Let it disconnect after converting cancellation to
+                    # TimeoutError instead of logging a generic send cancellation here.
+                    await self._flush_pending_frames(disconnect_on_cancel=False)
                     await asyncio.shield(ack_future)
             except TimeoutError as exc:
                 owner = self._wire_frame_owner
@@ -1386,6 +1395,9 @@ class IMConnectionManager:
                 self._heartbeat_ack_future = None
             if not ack_future.done():
                 ack_future.cancel()
+            else:
+                with contextlib.suppress(asyncio.CancelledError):
+                    ack_future.exception()
             self._pending_control_frames = deque(
                 frame
                 for frame in self._pending_control_frames
