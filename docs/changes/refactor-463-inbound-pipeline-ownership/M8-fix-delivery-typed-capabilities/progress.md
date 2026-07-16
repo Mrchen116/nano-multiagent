@@ -33,7 +33,7 @@
 
 ## 2026-07-16 — Milestone verification
 
-- 已 rebase 到最新 `origin/unit/refactor-463`（含 M6/M7），无冲突。
+- 已 rebase 到当时最新 `origin/unit/refactor-463`（含 M7），无冲突；M6 当时仍为独立 pending milestone，本段测试不声称覆盖 M6 组合 delta，待 M6 合入后由 M6/最终复验覆盖组合状态。
 - M8 聚焦回归：`58 passed`。
 - 全仓 Ruff：`All checks passed!`。
 - 全量非 e2e：`3410 passed, 1 skipped, 20 deselected`，耗时 111.12 秒。
@@ -41,3 +41,12 @@
 ## 2026-07-16 — Integrated
 
 - milestone 分支以 `--no-ff` 合入 `unit/refactor-463`；unit push 与临时 worktree/branch 清理按 worker 集成流程完成。
+
+## 2026-07-16 — Strict live sign-off supplement
+
+- 基于 unit `efd9d2d19` 建立临时 evidence worktree；当时 unit 含 M7+M8，M6 仍独立 pending。
+- 真 IM `49277` + 真 Gateway/进程内 Kernel + fixture `65446` 的隔离栈触发 scheduled cron；公开 `CronTool runs` 从 running 收敛到 `failed`，保留真实 error、failure summary 与 Kernel run ID。
+- owner direct conversation 的公开 messages API 只出现 `delivery_status=failed` 的 cron failure bubble，没有 completed/sent 成功 bubble 或成功 awareness；conversation 最终回到 idle。
+- public cron-jobs API 删除 evidence job 后剩余匹配数为 0；Gateway、IM、fixture PID 均停止，两个端口关闭，生成状态已清理。
+- typed shadow + IM-origin guard + unattended skills 的可控回归刷新为 `8 passed`。
+- 完整命令、公开输出与清理证据见 `evidence/live-cron-failure.md`。
