@@ -181,3 +181,144 @@ N/A。本 unit 不改前端 UI，也没有原型、设计稿或 must-match refer
 - 仅写本报告；未调用 `systematic-debugging`，未基于日志或协议字段给实现归因。
 - controllable adapter 仅用于 design runbook 明确允许的 external/shadow/IM-offline 边界；direct chat、图片、并发/steer、stop、quiet/stall、background、restart/reconnect 与 shutdown 均走真 IM/Gateway/Kernel/LLM 或仓库真进程 critical path。
 - 未立 out-of-unit GitHub issue：四个问题都直接影响本 unit Scenario，默认路由 `fix-implementation`。
+
+---
+
+# Round 3 — 2026-07-16
+
+> Revalidation mode: `full`
+> Product journey head: `41577b479469e6e4325f3ef4e2dd0f12fb7f952f`
+> Report stacking head: `ecb0f2b7c`（仅新增 Round 3 `verification.md`，产品代码树未变化）
+
+## Verdict
+
+- **Verdict**: `fail`
+- **Highest Required Action**: `fix-implementation`
+- **Coverage**: 20 Scenarios = 19 pass / 1 fail / 0 inconclusive / 0 not-applicable
+- **Issues**: blocking 0 / major 1 / minor 0
+- **Round 1 closure**: 四个遗留 major 均已获得本轮独立用户面关闭证据；本轮另发现一个稳定复现的 liveness 后续工作恢复失败
+
+## User Journeys Exercised
+
+### Journey 1 — 直聊、动态配置、重启续接与真 `send_message`
+
+- 当前 head 的真进程 critical paths：`15 passed, 2 deselected in 263.95s`。其中直聊工具调用、Gateway 重启后上下文续接、群聊定向与静默、active `/stop`、后台回信和连接韧性全部经真 IM + Gateway + LLM 用户入口通过。
+- 动态配置使用公开 `custom_prompt`：旧 conversation `ba2de54444fe44659ab441e0904b8953` 先完成旧 session 历史；profile v2 发布后，其下一轮与新 conversation `604e04c514814186a2d834cc35d60f21` 均精确回复 `R463CONFIG3B32D4968`，两条 Agent 消息均 `delivery_status=completed`。随后通过同一公开配置 API 恢复原 prompt。
+- `send_message` 重启交叉旅程：source conversation `71ffbae1146946e2beacccbc51914e06` 在重启前记住 `R463HIST3F9F5EDBF`，并完成一次 `send_message(to=plato)`。Gateway 端口 A=`53828` 收到 SIGTERM 后 `curl` 为 connection refused；重启到 B=`57777` 后同一 conversation 精确回忆旧 marker；B 也彻底退出后重启到 C=`58238`，同一 conversation 的 `send_message(to=plato, text=R463PLATOC37053182E)` 真 tool call 为 `status=completed`、`detail.status=ok`，用户消息与确认回复均 `completed`。旧 A/B 已不可达，成功调用只能由新进程 endpoint 承接。
+- agent↔agent 目标会话不在 owner 的公开会话列表中；本轮没有读取 SQLite、session JSONL 或实现日志补证，以公开 tool/IM 回执与进程监听事实为验收证据。
+
+### Journey 2 — 群背景、并发、插话、停止与 liveness
+
+- 当前 head 的 full critical suite 中，双向定向 @、未点名 Agent 静默、active `/stop`、前台 timeout 后 session 可继续均通过；slow suite 为 `1 passed, 15 deselected, 1 xfailed in 236.48s`，cron 通过，heartbeat 保持仓库既有 #126 strict xfail。
+- Round 1 已有的真会话边界证据继续纳入 full 覆盖：未点名背景随后点名、同会话连续插话顺序、跨会话并行、idle `/stop` 友好提示、quiet 130 秒不误杀与 real stall 明确失败收尾。
+- 本轮发现新的失败后恢复问题：一次真实请求因 `relay idle for 120s with no new event` 明确失败并把 conversation 收为 `idle` 后，Gateway 进程与 node heartbeat 持续 online，但下一条消息只停在 `delivery_status=sent`，没有进入 running、没有 Agent 气泡或回复。该现象在重启前和重启后的两套进程各复现一次；人工 SIGTERM + 重启 Gateway 后，下一条 `to=plato` 请求立即恢复并完成。
+
+### Journey 3 — 图片、可见过程、后台与 external/shadow 边界
+
+- 当前 head full critical suite 的工具过程、前台 timeout、后台完成回到原会话、permission approve/deny 与 subagent failure isolation 全绿，证明中间/最终/后台投递主链在当前 head 可用。
+- 图片成功/损坏可读失败、`NO_REPLY` 不泄漏、external/shadow 单向边界与 IM-offline external 主路径沿用 Round 1 的真栈/controllable-adapter 用户面证据；本轮 M5 fix 只改变重启后 `send_message` 的 live endpoint capability，未改变这些用户入口。无真 Feishu 凭据，仍按 design runbook 的 controllable external adapter 边界验收。
+
+### Journey 4 — accepted-work SIGTERM 与 IM 断线恢复
+
+- conversation `ca793db4499a4f96b06ba6fe7edf2e5a` 在 SIGTERM 前为 `running`，包含两条已接纳用户消息 `FIRSTSHUT3514D2886` / `SECONDSHUT3514D2886` 和 provisional Agent 气泡。Gateway 约 1 秒退出后，conversation 立即为 `idle`，两个 user message 均 `failed`，两个 Agent 气泡分别为 `completed` / `failed`，`running=0`，last preview 为 `run was aborted`；5 秒后复查不变。
+- 独立运行真实 resilience 入口：Scenario A 初始 node online，kill IM 后同 DB 重启，同一 Gateway 无人工重启自动回 online；Scenario B Gateway 先于 IM 启动仍存活，IM 上线后 node 自动 online。终态：`RESILIENCE E2E PASS`。
+
+## Reference Artifacts Reviewed
+
+N/A。本 unit 无前端改动、原型、设计稿或 must-match reference contract。
+
+## Issues
+
+### Issue 1 — 一次 idle failure 后 Gateway 心跳在线但后续消息不再运行
+
+- **Severity**: major
+- **Regression Relation**: direct
+- **Expected**: 真正失去 liveness 的 run 明确失败收尾后释放后续工作；Gateway 仍在线时，下一条消息应进入运行并得到回复或新的明确终态。
+- **Actual**: `relay idle for 120s with no new event` 已把原 conversation 收为 `idle`，Gateway pid 存活、node heartbeat 持续刷新且状态为 online；但随后消息只停在 `delivery_status=sent`，没有进入 running，也没有 Agent 气泡或回复。只有人工重启 Gateway 后，下一条消息才恢复并完成。
+- **Reproduction**:
+  1. 在真 Web IM HTTP 入口向 `default-agent` 发送一条最终触发 `relay idle for 120s with no new event` 的请求，等待用户可见失败终态与 conversation `idle`。
+  2. 确认 `/im/v1/nodes` 仍为 online 且 `last_heartbeat_at` 持续更新。
+  3. 向同一或新 conversation 再发消息；观察 user message 长时间保持 `sent`，无 running/Agent reply。
+  4. SIGTERM 并重启同一 Gateway；再次发送后立即恢复 completed。本轮在重启前后各复现一次。
+- **Recommended Action**: `fix-implementation`
+- **Action Rationale**: 直接违反“活着但安静的运行不被误杀”Scenario 中“真正失去 liveness 的运行失败收尾并释放后续队列”，也使用户看到的 online 状态与实际可用性不一致；默认交 implementation worker 定位，不由 reviewer 读实现归因。
+
+## Round 1 Issue Closure
+
+| Round 1 issue | Round 3 evidence | 结论 |
+|---|---|---|
+| 动态 Agent 配置没有影响下一轮或新会话 | `custom_prompt` v2 后旧 session 下一轮与新 conversation 均精确返回 `R463CONFIG3B32D4968`，completed | closed / pass |
+| `send_message` 未完成目标投递 | 同一历史 conversation 跨 A→B/C 重启续接；A/B 旧端口拒绝连接；C 上真 `send_message(to=plato)` completed/ok | closed / pass |
+| SIGTERM 后 accepted work 永久 running | `ca793...` 两条 accepted work 在进程退出后全部明确 terminal，conversation idle，running=0 | closed / pass |
+| Gateway 存活断线 90 秒未自动恢复 | resilience A/B 两种时序均自动恢复 online，`RESILIENCE E2E PASS` | closed / pass |
+
+## 验收标准覆盖
+
+### Requirement: 入站路由、会话与回复位置保持一致 — 组内结论: pass
+
+| Scenario | 期望来源 | 验证方式与证据 | 结果 | 备注 |
+|---|---|---|---|---|
+| 直聊消息仍由正确 Agent 在原目标回复 | `motivation.md` | full critical 真进程用户旅程 + Journey 1 多条公开直聊 | pass | 原 conversation 回复 completed |
+| Gateway 重启后续接原会话 | `motivation.md` | full critical restart path；`71ff...` 重启后精确回忆 `R463HIST3F9F5EDBF` | pass | 同一 conversation 历史连续 |
+| 未知 Agent 路由仍被拒绝 | `motivation.md` | Round 1 公开 400/零 conversation 证据 + 当前 head full critical 路由回归 | pass | 无误投递 |
+| 动态 Agent 配置在下一轮生效 | `motivation.md` | `ba2de...` 下一轮 + `604e...` 新 session 精确 token | pass | Round 1 Issue 1 closed |
+| Agent 工具投递仍同步到正确直聊会话 | `motivation.md` | A/B 端口死亡、C 端口真 tool completed/ok、同一历史 conversation | pass | Round 1 Issue 2 closed |
+
+### Requirement: 群聊门控与背景上下文保持一致 — 组内结论: pass
+
+| Scenario | 期望来源 | 验证方式与证据 | 结果 | 备注 |
+|---|---|---|---|---|
+| 未点名群消息只积累背景 | `motivation.md` | full critical 未点名 Agent 静默 + Round 1 真群背景 | pass | 不抢话 |
+| 点名后带入此前群背景 | `motivation.md` | full critical 双向定向 @ + Round 1 sender/order 证据 | pass | 身份与顺序保留 |
+
+### Requirement: 单会话并发、插话与停止保持一致 — 组内结论: fail
+
+| Scenario | 期望来源 | 验证方式与证据 | 结果 | 备注 |
+|---|---|---|---|---|
+| 同会话串行且跨会话并行 | `motivation.md` | Round 1 A/B 真会话 + 当前 full critical timeout/stop 回归 | pass | 无跨会话阻塞 |
+| 运行中插话被及时采纳 | `motivation.md` | Round 1 连续 steer 顺序证据 + Journey 4 第二条 accepted work | pass | 插话被接纳 |
+| /stop 中断活动运行 | `motivation.md` | full critical active `/stop` | pass | 用户可见停止终态 |
+| 空闲会话收到 /stop | `motivation.md` | Round 1 真会话友好提示 | pass | 无新 run |
+| 活着但安静的运行不被误杀 | `motivation.md` | slow/timeout 回归 + 本轮两次 idle-failure 后续消息复现 | fail | Issue 1：失败收尾后未释放后续工作 |
+
+### Requirement: 图片与可见失败反馈保持一致 — 组内结论: pass
+
+| Scenario | 期望来源 | 验证方式与证据 | 结果 | 备注 |
+|---|---|---|---|---|
+| 有效图片正常进入本轮 | `motivation.md` | Round 1 真 Web IM PNG 识别证据 | pass | 当前 fix delta 不触及附件入口 |
+| 图片下载、超限或损坏 | `motivation.md` | Round 1 伪 PNG 原会话可读失败 | pass | 未误启动错误回复 |
+
+### Requirement: 运行过程、终态与后台回复保持一致 — 组内结论: pass
+
+| Scenario | 期望来源 | 验证方式与证据 | 结果 | 备注 |
+|---|---|---|---|---|
+| 中间与最终回复不重不漏 | `motivation.md` | full critical tool/timeout/permission + Round 1 `NO_REPLY` | pass | 静默 token 不泄漏 |
+| 后台任务完成后回到原会话 | `motivation.md` | full critical background notify | pass | 真进程原会话跟进 |
+| 外部 channel 与影子会话投递边界不变 | `motivation.md` | Round 1 design 允许的 controllable adapter 证据 | pass | 无真 Feishu 凭据 |
+| IM 离线时外部 channel 仍可用 | `motivation.md` | Round 1 IM-absent adapter + 本轮 resilience 连接恢复 | pass | external 本地主路径不被 IM 阻断 |
+
+### Requirement: Gateway 生命周期的用户结果不受本重构影响 — 组内结论: pass
+
+| Scenario | 期望来源 | 验证方式与证据 | 结果 | 备注 |
+|---|---|---|---|---|
+| 启动、停止和重连结果保持一致 | `motivation.md` | full critical + 独立 resilience A/B | pass | Round 1 Issue 4 closed |
+| 停止时已接纳的入站工作有明确结局 | `motivation.md` | `ca793...` 两条 accepted work 真 SIGTERM | pass | Round 1 Issue 3 closed；running=0 |
+
+## Side Findings
+
+- #126 heartbeat actionable bubble 仍为仓库既有 strict xfail；本轮 slow suite 按预期 xfail，不重复立单。
+- 用新注册的另一 tenant recipient 探索跨 tenant `to=user_id` 时，工具侧显示 completed/ok、recipient owner scope 下未出现会话。motivation/design 未声明跨 tenant 投递，本轮不把该探索计入 refactor-463 verdict；正式验收使用 design M5 明确指定的 `to=plato`。
+
+## 上层文档同步
+
+- [x] `SPEC.md`：无需更新；包边界与部署拓扑未变。
+- [x] `docs/specs/gateway/`：无需把失败现象写成契约；现有 routing/lifecycle 契约已表达应保持的结果。
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新；启动、隔离端口与清理约定未变。
+- [x] `docs/SPEC_GUIDE.md`：无需更新；本 unit 未改变文档体系。
+
+## Reviewer 越界自证
+
+- 未读取或修改实现源码；未编辑 tracked 测试、配置或 canonical product docs。动态配置变更只通过隔离真栈的公开产品 API 完成，并随栈清理。
+- 仅通过用户文档、OpenAPI、真 IM/Gateway/LLM、公开 conversation/message/node/config/capability 结果和 design 允许的 controllable adapter 判断；未读取 SQLite、session JSONL 或实现日志做归因。
+- 未调用 `systematic-debugging`；没有为 Issue 1 提实现方案。
+- 本轮自启的 worktree IM/Gateway 已由 `scripts/e2e-down.sh` 清理；resilience 临时栈自行清理，退出时 PID/端口与 runtime pid 文件均无残留。
