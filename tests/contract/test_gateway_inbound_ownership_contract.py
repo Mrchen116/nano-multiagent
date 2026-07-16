@@ -36,6 +36,15 @@ def _called_names(node: ast.AST) -> set[str]:
     }
 
 
+def _imported_names(relative: str, *, module: str) -> set[str]:
+    return {
+        alias.name
+        for node in ast.walk(ast.parse(_source(relative)))
+        if isinstance(node, ast.ImportFrom) and node.module == module
+        for alias in node.names
+    }
+
+
 def test_composition_and_schedulers_do_not_reach_pipeline_state() -> None:
     sources = {
         "main": _source("src/personal_assistant/main.py"),
@@ -208,3 +217,30 @@ def test_foreground_and_unattended_session_capabilities_share_one_owner() -> Non
         "prompt_for",
         "resolve_enabled_tools",
     }.intersection(_called_names(unattended_create))
+
+
+def test_im_http_consumers_depend_on_neutral_public_transport_owner() -> None:
+    transport_module = "personal_assistant.gateway.im_http_transport"
+    expected_public = {
+        "build_im_http_headers",
+        "normalize_im_http_base_url",
+    }
+    consumers = (
+        "src/personal_assistant/gateway/agent_config_sync.py",
+        "src/personal_assistant/gateway/shadow_sync.py",
+        "src/personal_assistant/main.py",
+    )
+
+    for relative in consumers:
+        assert expected_public.issubset(
+            _imported_names(relative, module=transport_module)
+        )
+        assert not {
+            "_im_http_base_url",
+            "_im_http_headers",
+        }.intersection(
+            _imported_names(
+                relative,
+                module="personal_assistant.gateway.agent_config_sync",
+            )
+        )
