@@ -177,8 +177,14 @@ class SessionRunCoordinator:
                     record = self._kernel.try_steer(
                         session_id=binding.kernel_session_id,
                         parts=parts,
+                        expected_run_id=active.run_id,
                     )
                     if record is not None:
+                        if record.run_id != active.run_id:
+                            raise RuntimeError(
+                                "Kernel accepted steer for a different active run: "
+                                f"expected={active.run_id}, actual={record.run_id}"
+                            )
                         self._steered_requests.setdefault(active.run_id, []).append(
                             request
                         )
@@ -860,7 +866,9 @@ class SessionRunCoordinator:
         return self._resolve_agent_model(request.agent)
 
     def _resolve_agent_model(self, agent: LiveAgentSnapshot) -> str | None:
-        return resolve_run_model(agent.config, product_default=self._product_default_model)
+        return resolve_run_model(
+            agent.config, product_default=self._product_default_model
+        )
 
     @staticmethod
     def _is_no_reply_token(text: str) -> bool:

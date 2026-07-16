@@ -132,10 +132,13 @@ class _FakeKernel:
         session_id: str,
         parts: list[dict],
         origin: Any = None,
+        expected_run_id: str | None = None,
     ) -> MagicMock | None:
         """Attempt injection without creating a fallback run."""
         active = self.active_run_by_session.get(session_id)
-        if active is None:
+        if active is None or (
+            expected_run_id is not None and expected_run_id != active
+        ):
             return None
         self.submit_calls.append(
             {

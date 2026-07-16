@@ -1056,6 +1056,7 @@ class Kernel:
         session_id: str,
         parts: list[dict],
         origin: RunOrigin = RunOrigin.USER,
+        expected_run_id: str | None = None,
     ) -> RunInfo | None:
         """Try to inject one message into the session's active run.
 
@@ -1068,6 +1069,8 @@ class Kernel:
             session_id: Session whose active run may receive the message.
             parts: Input parts rendered with the same rules as ``submit``.
             origin: Message origin recorded on the injected pending message.
+            expected_run_id: Optional caller-owned active marker. When supplied,
+                a replacement run for the same session is never targeted.
 
         Returns:
             The active ``RunInfo`` with ``injected=True`` when accepted, otherwise
@@ -1078,6 +1081,7 @@ class Kernel:
             session_id=session_id,
             parts=parts,
             origin=origin,
+            expected_run_id=expected_run_id,
         )
 
     def submit(
@@ -1125,9 +1129,7 @@ class Kernel:
         """
         effective_root = Path(workspace_root or self._repo_root).expanduser().resolve()
         if steer:
-            injected = self.try_steer(
-                session_id=session_id, parts=parts, origin=origin
-            )
+            injected = self.try_steer(session_id=session_id, parts=parts, origin=origin)
             if injected is not None:
                 return injected
         record = self._c.runs_registry.submit(
@@ -1147,6 +1149,7 @@ class Kernel:
         session_id: str,
         parts: list[dict],
         origin: RunOrigin,
+        expected_run_id: str | None = None,
     ) -> RunInfo | None:
         """Inject parts into the session's active run, mirroring the proven
         ``background_tasks/wiring.py`` range: check active run, then atomically
@@ -1165,23 +1168,20 @@ class Kernel:
         from agent.core.llm.interfaces import LLMMessage  # noqa: PLC0415
 
         registry = self._c.runs_registry
-        active_run_id = registry.get_active_run_id(session_id)
-        if active_run_id is None:
-            return None
         user_text = render_user_text(parse_input_parts(parts))
-        injected = registry.inject_pending_message(
+        accepted_run_id = registry.try_inject_pending_message(
             session_id,
             LLMMessage(role="user", content=user_text),
             origin=origin,
+            expected_run_id=expected_run_id,
         )
-        if not injected:
-            # The run ended between the active check and the enqueue; fall back to
-            # a new run. The stranded-continuation backstop (决策3) is irrelevant
-            # here because nothing was enqueued.
+        if accepted_run_id is None:
             return None
-        record = registry.get(active_run_id)
+        record = registry.get(accepted_run_id)
         if record is None:
-            return None
+            raise RuntimeError(
+                f"accepted steer run disappeared from registry: {accepted_run_id}"
+            )
         return _to_run_info(record, injected=True)
 
     def stream(
