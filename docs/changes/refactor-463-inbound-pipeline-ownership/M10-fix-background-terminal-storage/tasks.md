@@ -39,6 +39,6 @@
 
 ### R3 — Incremental cron history owner
 
-- [ ] C1 红测：锁定重复 update 不全量读取、restart materialization 正确。
+- [x] C1 红测：锁定重复 update 不全量读取、restart materialization 正确。
 - [ ] C2 实现：单次装载的进程内 materialized index + append-only durable update。
 - [ ] C3 文档：记录复杂度、并发与重启证据。
