@@ -33,7 +33,7 @@
 
 ### R2 — Mandatory cron terminal consumer
 
-- [ ] C1 红测：锁定 no-delivery failed/cancelled/missing-terminal 不得 completed。
+- [x] C1 红测：锁定 no-delivery failed/cancelled/missing-terminal 不得 completed。
 - [ ] C2 实现：解耦 mandatory consume 与 optional delivery/observer。
 - [ ] C3 文档：记录真实 history/awareness 证据。
 
