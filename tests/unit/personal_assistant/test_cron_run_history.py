@@ -139,4 +139,3 @@ def test_restart_converges_only_non_terminal_records(tmp_path: Path) -> None:
     assert records["req-000"].status == "failed"
     assert records["req-001"].status == "failed"
     assert records["req-002"].status == "completed"
-

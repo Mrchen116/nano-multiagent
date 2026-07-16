@@ -10,7 +10,8 @@ The service is responsible for:
 - Tracking accepted→running→terminal state transitions in runs.jsonl
 
 runs.jsonl lives at <workspace>/.nanoassistant/cron/runs.jsonl (append-only).
-State is materialized per request_id by replaying the log.
+Each store owner replays it once, then maintains the latest per-request state
+in memory while durably appending every transition.
 
 On gateway restart, converge_stale_on_restart() marks any accepted/running records
 as failed(gateway_restarted) so they never stay permanently "in progress".
@@ -112,17 +113,25 @@ class CronRunsStore:
         self._root = Path(workspace_root).expanduser().resolve()
         self._cron_dir = self._root / _CRON_SUBDIR
         self._runs_path = self._cron_dir / _RUNS_FILENAME
+        self._lock = threading.RLock()
+        self._materialized: dict[str, CronRunRecord] | None = None
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
     def append(self, record: CronRunRecord) -> None:
-        """Append one record to runs.jsonl.  Thread-unsafe; callers serialize."""
-        self._ensure_dir()
-        line = json.dumps(asdict(record), ensure_ascii=False)
-        with self._runs_path.open("a", encoding="utf-8") as f:
-            f.write(line + "\n")
+        """Append one record and publish it to this owner's materialized state."""
+
+        with self._lock:
+            materialized = self._materialize_locked()
+            self._ensure_dir()
+            line = json.dumps(asdict(record), ensure_ascii=False)
+            with self._runs_path.open("a", encoding="utf-8") as f:
+                f.write(line + "\n")
+            # Durable append is the transition commit point; readers only observe
+            # the new state after the line has been written successfully.
+            materialized[record.request_id] = record
 
     def update_status(
         self,
@@ -137,44 +146,44 @@ class CronRunsStore:
         error: str | None = None,
     ) -> None:
         """Append a status-update entry for an existing request_id."""
-        # Read the existing record to carry forward immutable fields.
-        all_records = self._materialize_all()
-        existing = all_records.get(request_id)
-        if existing is None:
-            _log.warning(
-                "cron runs: update_status for unknown request_id=%r (store may be inconsistent)",
-                request_id,
-            )
-            # Still append; the materializer will produce a partial record.
-            partial = CronRunRecord(
-                request_id=request_id,
-                job_id="",
-                trigger="unknown",
-                status=status,
-                accepted_at=_utc_now(),
-                started_at=started_at,
-                finished_at=finished_at,
-                kernel_run_id=kernel_run_id,
-                error=error,
-            )
-            self.append(partial)
-            return
+        with self._lock:
+            existing = self._materialize_locked().get(request_id)
+            if existing is None:
+                _log.warning(
+                    "cron runs: update_status for unknown request_id=%r (store may be inconsistent)",
+                    request_id,
+                )
+                # Preserve the established append-only recovery behavior for an
+                # unknown request while still publishing it to the in-memory state.
+                partial = CronRunRecord(
+                    request_id=request_id,
+                    job_id="",
+                    trigger="unknown",
+                    status=status,
+                    accepted_at=_utc_now(),
+                    started_at=started_at,
+                    finished_at=finished_at,
+                    kernel_run_id=kernel_run_id,
+                    error=error,
+                )
+                self.append(partial)
+                return
 
-        updated = CronRunRecord(
-            request_id=request_id,
-            job_id=existing.job_id,
-            trigger=existing.trigger,
-            status=status,
-            accepted_at=existing.accepted_at,
-            started_at=started_at or existing.started_at,
-            finished_at=finished_at or existing.finished_at,
-            kernel_run_id=kernel_run_id or existing.kernel_run_id,
-            target_conversation_id=target_conversation_id
-            or existing.target_conversation_id,
-            result_summary=result_summary or existing.result_summary,
-            error=error or existing.error,
-        )
-        self.append(updated)
+            updated = CronRunRecord(
+                request_id=request_id,
+                job_id=existing.job_id,
+                trigger=existing.trigger,
+                status=status,
+                accepted_at=existing.accepted_at,
+                started_at=started_at or existing.started_at,
+                finished_at=finished_at or existing.finished_at,
+                kernel_run_id=kernel_run_id or existing.kernel_run_id,
+                target_conversation_id=target_conversation_id
+                or existing.target_conversation_id,
+                result_summary=result_summary or existing.result_summary,
+                error=error or existing.error,
+            )
+            self.append(updated)
 
     def list_by_job(
         self,
@@ -206,16 +215,20 @@ class CronRunsStore:
         so that records that were accepted or running before the crash are never
         permanently in progress.
         """
-        all_records = self._materialize_all()
-        stale = [r for r in all_records.values() if r.status in ("accepted", "running")]
-        now = _utc_now()
-        for rec in stale:
-            self.update_status(
-                rec.request_id,
-                "failed",
-                finished_at=now,
-                error="gateway_restarted",
-            )
+        with self._lock:
+            stale = [
+                record
+                for record in self._materialize_locked().values()
+                if record.status in ("accepted", "running")
+            ]
+            now = _utc_now()
+            for rec in stale:
+                self.update_status(
+                    rec.request_id,
+                    "failed",
+                    finished_at=now,
+                    error="gateway_restarted",
+                )
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -225,7 +238,21 @@ class CronRunsStore:
         self._cron_dir.mkdir(parents=True, exist_ok=True)
 
     def _materialize_all(self) -> dict[str, CronRunRecord]:
-        """Replay runs.jsonl and return latest state per request_id."""
+        """Return a snapshot after replaying runs.jsonl at most once per owner."""
+
+        with self._lock:
+            return dict(self._materialize_locked())
+
+    def _materialize_locked(self) -> dict[str, CronRunRecord]:
+        """Return the owned latest-state index while the caller holds ``_lock``."""
+
+        if self._materialized is None:
+            self._materialized = self._load_all()
+        return self._materialized
+
+    def _load_all(self) -> dict[str, CronRunRecord]:
+        """Replay the durable log once for a newly-created store owner."""
+
         if not self._runs_path.exists():
             return {}
         records: dict[str, CronRunRecord] = {}
