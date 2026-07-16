@@ -158,6 +158,13 @@ class GatewayHandler:
                     payload=body,
                 )
                 if response is not None:
+                    if response.get("type") == "error":
+                        error_payload = response.get("payload")
+                        if isinstance(error_payload, dict):
+                            # Gateway serializes ack-bound frames, so the rejected
+                            # request type is sufficient correlation to finish the
+                            # matching waiter without disconnecting the socket.
+                            error_payload.setdefault("message_type", message_type)
                     await websocket.send_json(response)
                 if message_type == "node.register":
                     node_id = str(body["node_id"])

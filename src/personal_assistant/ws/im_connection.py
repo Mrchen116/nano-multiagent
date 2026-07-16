@@ -43,6 +43,10 @@ class PendingFrame:
     )
 
 
+class IMFrameRejectedError(RuntimeError):
+    """Report one IM-rejected outbound frame to its owning caller."""
+
+
 @dataclass(frozen=True, slots=True)
 class IMDispatchAck:
     """Canonical subset returned by IM after one agent.message dispatch."""
@@ -868,14 +872,18 @@ class IMConnectionManager:
             # delivered. The upstream frame that triggered the error was already sent; nothing to ack.
             error_code = body.get("code")
             error_message = body.get("message")
+            rejected_type = self._reject_pending_frame(body)
             self._events.append(
                 {
                     "event": "error_ack",
                     "type": "error",
                     "code": error_code,
                     "message": error_message,
+                    "message_type": rejected_type,
                 }
             )
+            if rejected_type is not None:
+                await self._flush_pending_frames()
             return
         raise ValueError(f"unsupported downstream message type: {message_type}")
 
@@ -934,6 +942,40 @@ class IMConnectionManager:
         self._events.append({"event": "acked", "type": awaiting})
         if not self._pending_frames:
             self._outbound_drained_event().set()
+
+    def _reject_pending_frame(self, payload: Mapping[str, object]) -> str | None:
+        """Finish the serialized pending frame explicitly rejected by IM."""
+
+        awaiting = self._awaiting_ack_type
+        rejected_type = payload.get("message_type")
+        if (
+            awaiting is None
+            or not isinstance(rejected_type, str)
+            or rejected_type.strip() != awaiting
+            or not self._pending_frames
+        ):
+            return None
+        pending_frame = self._pending_frames.popleft()
+        self._awaiting_ack_type = None
+        code = str(payload.get("code") or "rejected")
+        message = str(payload.get("message") or "IM rejected the frame")
+        if pending_frame.ack_future is not None and not pending_frame.ack_future.done():
+            pending_frame.ack_future.set_exception(
+                IMFrameRejectedError(
+                    f"IM rejected {awaiting} frame ({code}): {message}"
+                )
+            )
+        self._events.append(
+            {
+                "event": "rejected",
+                "type": awaiting,
+                "code": code,
+                "message": message,
+            }
+        )
+        if not self._pending_frames:
+            self._outbound_drained_event().set()
+        return awaiting
 
     def _ack_heartbeat_frame(self, payload: Mapping[str, object]) -> None:
         ack_type = payload.get("message_type")
