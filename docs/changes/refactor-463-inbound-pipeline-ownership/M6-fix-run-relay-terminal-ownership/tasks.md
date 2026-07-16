@@ -8,8 +8,8 @@
 
 ## 退出标准
 
-- [ ] public `agent.sdk` 提供只尝试 steer、失败绝不创建 run 的原子 seam；既有 `submit(steer=True)` 消费者保持兼容。
-- [ ] terminal observer 竞态下 fallback 只创建一个新 run，不遗留 orphan run、重复历史或第二次 submit 副作用。
+- [x] public `agent.sdk` 提供只尝试 steer、失败绝不创建 run 的原子 seam；既有 `submit(steer=True)` 消费者保持兼容。
+- [x] terminal observer 竞态下 fallback 只创建一个新 run，不遗留 orphan run、重复历史或第二次 submit 副作用。
 - [ ] IM 拒绝一个 Gateway 出站帧时，当前 waiter 得到明确失败、队列继续 flush，节点在线时后续同/新会话可继续投递。
 - [ ] pending permission 完全暂停 run idle watchdog；`permission_resolved` 后恢复命名 timeout。
 - [ ] `/stop`、shutdown、follower/queue 和 inbound root failure 不破坏后续 admission 或资源收敛。
