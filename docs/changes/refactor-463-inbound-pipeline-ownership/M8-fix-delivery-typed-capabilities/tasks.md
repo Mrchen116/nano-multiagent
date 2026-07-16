@@ -23,13 +23,13 @@
 
 ## Roadpoints
 
-### R1 — Stream terminal outcome 与 cron 状态闭环 (DOING)
+### R1 — Stream terminal outcome 与 cron 状态闭环 (DONE)
 
-- [ ] C1 红测：锁定 canonical terminal vocabulary、partial text、no-terminal 与失败 awareness 行为。
-- [ ] C2 实现：typed stream outcome；cron 按 outcome 持久化。
-- [ ] C3 文档：记录行为、测试与验证证据。
+- [x] C1 红测：锁定 canonical terminal vocabulary、partial text、no-terminal 与失败 awareness 行为。
+- [x] C2 实现：typed stream outcome；cron 按 outcome 持久化。
+- [x] C3 文档：记录行为、测试与验证证据。
 
-### R2 — Shadow sync typed-first identity (TODO)
+### R2 — Shadow sync typed-first identity (DOING)
 
 - [ ] C1 红测：typed-only external、IM-origin guard、legacy fallback。
 - [ ] C2 实现：复用 canonical identity extractor 并清理 runtime metadata。
@@ -40,4 +40,3 @@
 - [ ] C1 红测：cron/heartbeat restricted 与 empty compatibility。
 - [ ] C2 实现：`_KernelClientShim` 透传非空 restricted skills。
 - [ ] C3 文档：记录行为、测试与验证证据。
-
