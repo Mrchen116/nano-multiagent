@@ -12,7 +12,7 @@
 - [x] 绑定完成后重新校验已注册 websocket；错误 owner 的 socket/key 被逐出且不下发 manifest。
 - [x] legacy secret 迁移后，agent 同步、token 刷新和 owner open-id 回写共享同一个脱敏 config owner；后续写盘不恢复 `appSecret` 或含密备份，`credentialRef` 保留且权限为 `0600`。
 - [x] manifest 在任何 reconcile/stop/cache/head 变更前完成全量结构、generation、key、envelope 与 opener 校验；任一成员失败时整个 manifest 返回 `retryable_failed`。
-- [ ] cache commit 失败不会投影为已应用/当前连接；错误重载后仍可见，在线按同 revision 有界自动重试，只有 commit 成功才投影 applied；失败结果 ACK 不丢必需 outbox。
+- [x] cache commit 失败不会投影为已应用/当前连接；错误重载后仍可见，在线按同 revision 有界自动重试，只有 commit 成功才投影 applied；失败结果 ACK 不丢必需 outbox。
 - [ ] node offline 且 `observed.status_stale=true` 时，connected/limited/failed 都明确显示“最后已知状态/节点离线”；pending/failed/retry 状态优先级不被覆盖，375px 可用。
 - [ ] 新 status incarnation 原子替换旧未确认 barrier/snapshot；旧 outbox 不重放、不无界增长，晚到 ACK 幂等，重启后仍有界。
 - [ ] 所有新增永久回归文件不超过 400 行；窄测、非 e2e 全量、前端 test/build/ruff、关键 e2e 与真实浏览器证据完成。
@@ -87,6 +87,7 @@ Prototype / Reference Contract：
 
 - 步骤：IM projection 纳入 manifest head/apply error；retryable result ACK 不清失败 outbox；在线连接对 retryable reconcile 做有界同 revision 重试，成功 cache commit 后再清错并投影 applied。
 - 验证：故障注入 cache commit 首次失败、重载、自动重试成功与重启场景，期间 UI/API 从不报 current success，最终仅成功 commit 后 applied。
+- 状态：完成。IM channel projection 同时要求 current manifest head 已 applied 才允许显示 current，并持久返回 apply error；Gateway 将 retryable snapshot 以密文保留在独立 retry slot，在线使用同 revision 有界退避，进程重启优先恢复 retry snapshot，成功 commit 后原子清除。
 
 ### R5 — 离线 stale UI
 

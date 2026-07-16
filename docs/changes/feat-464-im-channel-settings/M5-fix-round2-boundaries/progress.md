@@ -50,12 +50,19 @@
 
 ## R4 — 应用失败投影与有界同 revision 重试
 
-- Context: 待实施。
-- Decision: 待实施。
-- Rationale: 待实施。
-- Evidence: 待补。
+- Context: runtime 可以先进入 connected，随后 cache commit 失败；IM 旧投影只比较 observed channel revision，因而会把未持久化的配置显示为 applied。Gateway cache 只保留上次成功 manifest，进程若在人工 Retry 前重启还会启动旧配置。
+- Decision: IM projection 以 node manifest applied head 为 current barrier，并把 current head 的结构化 apply error 暴露给 channel API；Gateway outbox 额外保存仅含 envelope 的 retry manifest，连接内对同 revision 做固定次数退避重试，重启时在启动旧 cache 前优先恢复 retry manifest，成功后才替换 committed cache、推进 local head并清 retry slot。
+- Rationale: observed runtime 与 durable desired 是两条独立事实；只有两者都覆盖当前 revision 才能声称“当前配置已应用”。把 retry snapshot 持久在同一 0600 cache owner 中，既不泄漏明文，也避免进程重启把用户期望回滚。
+- Evidence:
+  - Tests: channel control / cache / status / reconcile 聚焦集合 → `42 passed`；`test_channel_apply_failure_projection.py`、`test_channel_apply_failure_recovery.py` 与 bounded connection retry 回归 → `5 passed`；focused Ruff、`git diff --check` → passed。
+  - Entry: IM store 记录 current connected status 后接收 `cache_commit_failed` result，重新构造 store（等同页面/API reload）仍返回 `sync_state=failed + apply_error`；同 revision applied 后才清错。Gateway 首次 revision 2 commit 故障后重建 manager，启动证据只出现 `build:cli_new/start:feishu:agent-a`，cache/head 收敛到 revision 2且无 plaintext。
+  - Frontend State Matrix: apply error 数据面已进入公开 channel response；具体卡片优先级和 viewport 归 R5。
+  - Browser QA: 归 R5 统一完成。
+  - E2E/Regression: `tests/unit/IM/test_channel_apply_failure_projection.py`、`tests/unit/personal_assistant/test_channel_apply_failure_recovery.py`、`tests/unit/personal_assistant/test_channel_status_protocol.py::test_retryable_manifest_is_reapplied_online_with_bounded_same_revision_retries`。
+  - Visual/Interaction: 归 R5。
+  - Prototype Comparison: 归 R5。
 - Rollback: 回退 R4 的 test/fix/docs commits。
-- Commits: 待补。
+- Commits: C1=`695db273e`，C2=`577f14a85`。
 
 ## R5 — 离线 stale UI
 
