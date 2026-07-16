@@ -11,7 +11,7 @@
 - [x] binder 对 restart 首次接管、revision/workspace 变化保留权威验证；同进程稳定 reuse 为 O(1)，不重复读取完整 transcript。
 - [x] 永久竞态、restart/mismatch/invalidation 与复杂度回归通过，测试文件符合规模规范。
 - [x] 聚焦测试、`ruff check .` 与 `pytest -m "not e2e"` 全部通过。
-- [ ] milestone 分支合入并推送 `unit/refactor-463`，随后清理 milestone worktree/branch。
+- [x] milestone 分支合入并推送 `unit/refactor-463`，随后清理 milestone worktree/branch。
 
 ## Test strategy
 

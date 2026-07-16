@@ -48,3 +48,9 @@
 - Test size contract：passed；新增 `test_session_run_coordinator_steer_identity.py` 66 行，扩展的 binder concurrency 文件 180 行，均低于 400 行。
 - `git diff --check`: passed。
 - 运行时服务与 LLM：N/A；本 milestone 未启动端口、服务或代理，未触碰用户在 4000 端口的 LLM proxy。
+
+## 2026-07-16 — Integrated
+
+- milestone 分支以 `--no-ff` 合入 `unit/refactor-463`，merge commit 为 `dc4cd85b0`。
+- merge head 的 steer/binder 关键回归为 `31 passed`，Ruff 通过；合并前全量非 e2e 为 `3421 passed, 1 skipped, 20 deselected`。
+- unit 推送成功；milestone worktree、本地/远程分支与 unit lock 均已清理。
