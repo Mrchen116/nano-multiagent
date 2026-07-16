@@ -1,13 +1,13 @@
 # IM - Agents and Nodes Specification
 
-> 对齐: refactor-460
+> 对齐: refactor-460 + feat-464
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
 
 ## Purpose
 
-Agent 配置中心、节点绑定、节点状态、runtime 能力解析、用户维事件流和配置 RPC 的 IM 契约。
+Agent 配置中心、外部 channel 控制面、节点绑定、节点状态、runtime 能力解析、用户维事件流和配置 RPC 的 IM 契约。
 
 ## Requirements
 
@@ -203,6 +203,14 @@ bearer.<jwt>` 子协议),无 token / 非法 token 立即关闭;身份只认 JWT,
 - **WHEN** `confirm` 缺 `bind_id` 且缺 `bind_token`
 - **THEN** 400 `{detail:"bind_id or bind_token is required for confirm"}`
 
+#### Scenario: 同 owner 重复确认幂等，跨 owner 改绑被拒
+- **GIVEN** 节点已绑定 owner A，并保存或运行其外部 channel
+- **WHEN** owner A 再次确认该节点
+- **THEN** 保持原 owner、Agent 与 channel 数据不变，并可安全重试 channel initialization
+- **WHEN** owner B 尝试确认同一节点
+- **THEN** 返回 `node_owner_transfer_not_supported`，不迁移 node、Agent、channel、manifest、removal 或 credential key
+- **AND** owner B 不能读取或控制 owner A 的 channel
+
 ### Requirement: 节点 runtime 能力按需向在线网关解析,不入库快照
 
 新建/编辑 Agent 页需要的 runtime 候选项(skills / tools / models / features / 默认 system_prompt)由 IM
@@ -248,3 +256,98 @@ Gateway 上行 `node.register` / `node.heartbeat` 驱动 IM 向**该节点 owner
 - **WHEN** IM 后台扫描运行
 - **THEN** 节点态翻 `offline`,向本租浏览器广播一帧 `node.status_changed status:"offline"
   last_error:"heartbeat_timeout"`;对已 offline 节点重复扫描是无副作用的幂等(不重复广播)
+
+### Requirement: Agent 通道页统一管理外部 channel 与安全凭据
+
+Agent 详情页的“通道”页只管理可配置的外部 channel，不把内置 Web IM 列为 channel。页面和 REST
+资源按 provider 通用建模；本期 provider catalog 只有飞书，且同一 Agent 每种 provider 最多一个实例。
+飞书向导只给简短准备说明和开放平台入口。App Secret 只在新增或显式替换时提交，服务端立即封装为目标
+节点公钥可解的密文；list/get/edit 不返回明文或 envelope，Gateway 的普通 `config.yaml` 也不是该凭据的
+持久化位置。
+
+#### Scenario: 空态与添加入口不展示 Web IM
+- **GIVEN** 当前 Agent 没有外部 channel
+- **WHEN** 用户打开“通道”页
+- **THEN** 页面显示通用空态和“添加通道”，provider picker 当前包含飞书
+- **AND** 页面不展示 Web IM；已有飞书时 picker 标记已添加并禁止第二个实例
+
+#### Scenario: 飞书向导提供轻量开放平台入口
+- **WHEN** 用户选择添加飞书
+- **THEN** 页面简要提示准备应用、Bot 与长连接，并提供
+  `https://open.feishu.cn/page/launcher?from=backend_oneclick`
+- **AND** App ID/App Secret 缺失时在字段处提示，不提交连接请求
+
+#### Scenario: channel 列表读取失败不伪装成空态
+- **WHEN** IM 无法读取当前 Agent 的 channel resources
+- **THEN** 页面显示失败原因和重试入口，不显示“尚未配置”的空态
+
+#### Scenario: 已保存密钥不可读取且 App ID 换绑必须换密钥
+- **GIVEN** 飞书 channel 已保存 App Secret
+- **WHEN** 用户再次读取或编辑该 channel
+- **THEN** 响应只表明 `secret_configured=true`，不返回明文或 envelope；用户可显式 keep 或 replace
+- **AND** App ID 改变时 keep 被拒，必须同时 replace App Secret；通过 IM 新建/更新不会把 secret 写入 Gateway `config.yaml`
+
+#### Scenario: 节点尚未登记 credential public key
+- **GIVEN** IM 从未取得目标节点的 credential public key
+- **WHEN** 用户新增 channel 或 replace secret
+- **THEN** IM 拒绝凭据写入，并说明需让节点至少上线一次以建立安全存储
+- **AND** 不把该错误误报成飞书凭据无效
+
+### Requirement: 外部 channel desired state 与 runtime state 分离并自动收敛
+
+IM 持久化用户期望的 channel 配置，Gateway 上报实际连接和诊断状态。保存成功只代表 desired state 已提交；
+节点离线或 Gateway 尚未应用时显示“配置已保存，等待节点应用”，不能伪造已连接。节点重连后 IM 下发完整
+manifest 自动收敛。启用、停用、编辑、重连和删除均经同一资源生命周期；内部 revision 只用于并发/CAS，
+不作为用户可见版本。删除先保留无凭据 removal receipt，实际停止失败可重试；影子会话和历史不随 channel 删除。
+
+#### Scenario: 节点离线仍可保存并在重连后自动应用
+- **GIVEN** Agent 所属节点离线
+- **WHEN** 用户新增、编辑、启用、停用或删除 channel
+- **THEN** IM 保存期望状态并显示等待节点应用，不显示已连接
+- **AND** 节点恢复后无需再次保存或重启，页面自动收敛到 connected、limited、failed 或 disabled
+
+#### Scenario: 删除等待实际停止且保留历史
+- **GIVEN** channel 已产生外部影子会话
+- **WHEN** 用户确认删除
+- **THEN** desired 配置和凭据被删除，但 removal receipt 在 Gateway 确认停止前保持可见
+- **AND** stop 失败显示具体原因与重试入口；成功后 channel 从列表移除，既有影子会话和聊天历史保留
+
+#### Scenario: 停用、重新启用和手动重连
+- **GIVEN** 一个已连接 channel
+- **WHEN** 用户确认停用
+- **THEN** 页面等待 Gateway 实际停止后显示 disabled，配置和凭据继续保留
+- **WHEN** 用户重新启用或在节点在线时手动重连
+- **THEN** 无需重填未变化的 secret，页面显示连接进度和真实终态；手动重连不改变 desired 配置
+
+#### Scenario: transient removal feedback 随 receipt 生命周期收敛
+- **GIVEN** 用户离线时点击 removal retry，页面显示等待节点
+- **WHEN** 节点恢复后用户再次在线 retry，或后台成功令 receipt 消失
+- **THEN** 旧离线等待提示立即清除；receipt 消失时相关临时错误也清除，页面进入通用空态
+
+### Requirement: 外部 channel 状态提供可操作的 provider 诊断
+
+连接状态和权限诊断分层展示。基础收发可用但权限不完整时 channel 保持降级可用并标为“连接受限”；
+页面逐项展示缺失权限、受影响能力和修复方向。只有完整、可信的 provider probe 才能断言某权限缺失；
+probe 失败或返回信息不完整时显示“权限状态暂时无法确认”，不能猜测缺失。凭据、Bot、长连接或 runtime
+失败显示具体可操作原因，节点离线时已观测状态明确标成 last-known。
+
+#### Scenario: 部分权限缺失时降级使用并解释影响
+- **GIVEN** 飞书基础消息可收发，但某项租户权限未授权
+- **WHEN** 用户查看 channel 状态
+- **THEN** 页面显示“连接受限”而不是连接失败，并列出 raw scope、受影响能力和修复方向
+- **AND** 缺普通群消息权限时明确说明群聊背景上下文不完整
+
+#### Scenario: probe 不完整时不伪造缺失权限
+- **GIVEN** 基础连接可用，但权限接口失败、字段缺失或只得到用户级授权
+- **WHEN** 页面展示诊断
+- **THEN** 显示“权限状态暂时无法确认”和重试建议，不把任何 scope 断言为确定缺失
+
+#### Scenario: 连接失败与节点离线快照可区分
+- **WHEN** App 凭据无效、Bot 未启用、长连接不可用或 runtime 启动失败
+- **THEN** 页面显示具体失败原因和下一步，不要求用户查终端日志
+- **AND** 节点离线时 connected/limited/failed 只显示为最后已知状态，不冒充当前结论
+
+#### Scenario: 旧 runtime 状态不能逆序覆盖当前状态
+- **GIVEN** IM 已接收某 channel 当前配置和 runtime incarnation 的较新状态
+- **WHEN** 旧 revision、旧 incarnation 或较小 status sequence 的状态迟到
+- **THEN** IM 拒绝旧状态，页面不从已恢复/失败的当前事实回退到旧 connecting 或 connected

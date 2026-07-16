@@ -32,6 +32,10 @@ _PA_SHARED_SKILL_ROOTS: tuple[Path, ...] = (
 )
 
 
+class _RegistrationAckDeadlineExpired(TimeoutError):
+    """Signal that no downstream frame arrived before the registration deadline."""
+
+
 @dataclass(slots=True)
 class PendingFrame:
     """Track one unsent upstream frame plus its optional ack waiter."""
@@ -168,6 +172,8 @@ class IMConnectionConfig:
         heartbeat_interval_seconds: Delay between periodic node heartbeats while connected.
         heartbeat_ack_timeout_seconds: Maximum total wait to send one heartbeat and
             receive its IM acknowledgment.
+        registration_ack_timeout_seconds: Maximum total wait to send node
+            registration and receive its acknowledgment after transport connects.
     """
 
     url: str
@@ -176,6 +182,7 @@ class IMConnectionConfig:
     reconnect_max_seconds: float = 60.0
     heartbeat_interval_seconds: float = 30.0
     heartbeat_ack_timeout_seconds: float = 10.0
+    registration_ack_timeout_seconds: float = 10.0
 
     def normalized_heartbeat_interval_seconds(self) -> float | None:
         interval = self.heartbeat_interval_seconds
@@ -185,6 +192,12 @@ class IMConnectionConfig:
 
     def normalized_heartbeat_ack_timeout_seconds(self) -> float | None:
         timeout = self.heartbeat_ack_timeout_seconds
+        if timeout <= 0:
+            return None
+        return timeout
+
+    def normalized_registration_ack_timeout_seconds(self) -> float | None:
+        timeout = self.registration_ack_timeout_seconds
         if timeout <= 0:
             return None
         return timeout
@@ -292,6 +305,7 @@ class IMConnectionManager:
         self._pending_frames: deque[PendingFrame] = deque()
         self._wire_frame_owner: WireFrameOwner | None = None
         self._registered = False
+        self._registration_deadline: float | None = None
         self._flush_lock = asyncio.Lock()
         self._heartbeat_task: asyncio.Task[None] | None = None
         self._heartbeat_ack_future: asyncio.Future[dict[str, object]] | None = None
@@ -346,7 +360,14 @@ class IMConnectionManager:
         websocket = await self._connect(self._config.websocket_url(), headers)
         self._websocket = websocket
         self._connected = True
-        self._reconnect_delay = self._config.reconnect_initial_seconds
+        registration_timeout = (
+            self._config.normalized_registration_ack_timeout_seconds()
+        )
+        self._registration_deadline = (
+            self._event_loop.time() + registration_timeout
+            if registration_timeout is not None
+            else None
+        )
         self._events.append({"event": "connected", "url": self._config.websocket_url()})
         try:
             self._pending_control_frames.append(
@@ -355,7 +376,20 @@ class IMConnectionManager:
                     payload=dict(self._reporter.send_register()),
                 )
             )
-            await self._flush_pending_frames(raise_on_disconnect=True)
+            if registration_timeout is None:
+                await self._flush_pending_frames(raise_on_disconnect=True)
+            else:
+                try:
+                    async with asyncio.timeout(registration_timeout):
+                        await self._flush_pending_frames(
+                            raise_on_disconnect=True,
+                            disconnect_on_cancel=False,
+                        )
+                except TimeoutError as exc:
+                    raise TimeoutError(
+                        "IM node.register send timed out after "
+                        f"{registration_timeout:.2f}s"
+                    ) from exc
         except Exception as exc:  # noqa: BLE001
             await self._disconnect_current_websocket(exc)
             raise
@@ -377,6 +411,7 @@ class IMConnectionManager:
         self._websocket = None
         self._connected = False
         self._registered = False
+        self._registration_deadline = None
         if websocket is not None:
             await websocket.close()
         if heartbeat_task is not None and heartbeat_task is not asyncio.current_task():
@@ -543,7 +578,17 @@ class IMConnectionManager:
                 if not self._connected:
                     await self.connect_once()
                     first_attempt.set()
-                await self._listen_once()
+                if not self._registered:
+                    await self._await_registration()
+                else:
+                    await self._listen_once()
+                if not self._connected:
+                    # Control-frame rejection closes the socket inside the frame
+                    # handler. Treat that normal return as a connection failure so
+                    # it shares the same bounded backoff as recv/connect failures.
+                    raise ConnectionError(
+                        "IM websocket disconnected while handling a control frame"
+                    )
             except asyncio.CancelledError:
                 first_attempt.set()
                 await self._disconnect_current_websocket()
@@ -560,6 +605,28 @@ class IMConnectionManager:
                 )
             finally:
                 first_attempt.set()
+
+    async def _await_registration(self) -> None:
+        """Process downstream frames until IM accepts this websocket identity."""
+        timeout = self._config.normalized_registration_ack_timeout_seconds()
+        if timeout is None:
+            while self._connected and not self._registered:
+                await self._listen_once()
+            return
+
+        deadline = self._registration_deadline
+        if deadline is None:
+            deadline = asyncio.get_running_loop().time() + timeout
+        try:
+            while self._connected and not self._registered:
+                remaining = deadline - asyncio.get_running_loop().time()
+                if remaining <= 0:
+                    raise _RegistrationAckDeadlineExpired
+                await self._listen_once(receive_timeout_seconds=remaining)
+        except _RegistrationAckDeadlineExpired as exc:
+            raise TimeoutError(
+                f"IM node.register ack timed out after {timeout:.2f}s"
+            ) from exc
 
     async def _sleep_until_stop(self, delay: float) -> bool:
         if self._stop_requested:
@@ -664,9 +731,18 @@ class IMConnectionManager:
         except Exception:  # noqa: BLE001
             _log.warning("channel manifest retry failed", exc_info=True)
 
-    async def _listen_once(self) -> None:
+    async def _listen_once(
+        self, *, receive_timeout_seconds: float | None = None
+    ) -> None:
         websocket = self._require_websocket()
-        raw = await websocket.recv()
+        if receive_timeout_seconds is None:
+            raw = await websocket.recv()
+        else:
+            try:
+                async with asyncio.timeout(receive_timeout_seconds):
+                    raw = await websocket.recv()
+            except TimeoutError as exc:
+                raise _RegistrationAckDeadlineExpired from exc
         payload = _decode_message(raw)
         message_type = _require_text(payload.get("type"), field_name="type")
         body = payload.get("payload")
@@ -679,6 +755,8 @@ class IMConnectionManager:
             released = self._ack_pending_frame(body)
             if released is not None and released.message_type == "node.register":
                 self._registered = True
+                self._registration_deadline = None
+                self._reconnect_delay = self._config.reconnect_initial_seconds
                 self._start_heartbeat_loop()
                 await self._notify_registered()
             await self._flush_pending_frames()
@@ -1205,9 +1283,10 @@ class IMConnectionManager:
                 if raise_on_disconnect:
                     raise
                 return
-            if self._wire_frame_owner is not owner:
-                raise RuntimeError("frame lost wire ownership during send")
-            owner.phase = "awaiting_result"
+            if self._wire_frame_owner is owner:
+                owner.phase = "awaiting_result"
+            elif self._wire_frame_owner is not None:
+                raise RuntimeError("frame wire ownership changed during send")
 
     async def _send_frame(
         self, message_type: str, payload: Mapping[str, object]
@@ -1243,7 +1322,7 @@ class IMConnectionManager:
         self, payload: Mapping[str, object]
     ) -> PendingFrame | None:
         owner = self._wire_frame_owner
-        if owner is None or owner.phase != "awaiting_result":
+        if owner is None:
             return None
         awaiting = owner.frame.message_type
         ack_type = payload.get("message_type")
@@ -1269,7 +1348,6 @@ class IMConnectionManager:
         if (
             owner is None
             or owner.lane != "business"
-            or owner.phase != "awaiting_result"
             or owner.frame.message_type != source_type
         ):
             return False
@@ -1301,7 +1379,7 @@ class IMConnectionManager:
         Releasing it here preserves the connection and lets unrelated work continue.
         """
         owner = self._wire_frame_owner
-        if owner is None or owner.phase != "awaiting_result":
+        if owner is None:
             return None
         pending = owner.frame
         awaiting = pending.message_type
@@ -1417,6 +1495,7 @@ class IMConnectionManager:
         self._connected = False
         self._websocket = None
         self._registered = False
+        self._registration_deadline = None
         self._wire_frame_owner = None
         self._pending_control_frames.clear()
         self._heartbeat_ack_future = None

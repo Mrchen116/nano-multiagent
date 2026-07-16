@@ -715,6 +715,7 @@ export function AgentChannelsPanel({
         setRequestError(null);
         return;
       }
+      setRemovalRetryNoticeId(null);
       setRequestError({ message: detail, removalId: removal.channel_id });
     },
   });
@@ -801,6 +802,7 @@ export function AgentChannelsPanel({
                 setRemovalRetryNoticeId(resource.channel_id);
                 return;
               }
+              setRemovalRetryNoticeId(null);
               retryMutation.mutate(resource);
             }}
           />

@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Service Lifecycle Specification
 
-> 对齐: refactor-461
+> 对齐: refactor-461 + feat-464
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -82,6 +82,12 @@ Gateway 始终**主动**向 IM 服务发起 WebSocket 持久连接(因其在 NAT
   随后在线期间周期发 `node.heartbeat`(含 `node_id` / `status=online` / `agent_count`),
   IM 服务据此刷新节点状态
 
+#### Scenario: register ACK 是业务发送门禁且握手有界
+- **GIVEN** Gateway transport 已连上 IM，但 `node.register` 尚未被确认
+- **WHEN** register send 阻塞、IM 不返回 ACK 或明确拒绝该 control frame
+- **THEN** Gateway 在默认 10 秒 handshake deadline 内断开该 socket并进入有界 reconnect backoff，期间不发送业务 FIFO
+- **AND** ACK 一旦收到即开放业务发送并结束 handshake deadline；随后的配置收敛 callback 不被该 deadline 取消
+
 #### Scenario: runtime workspace_root 以本地 config 为准,IM 镜像值不进入 runtime
 - **GIVEN** IM 中某 agent profile 的 workspace_root 为路径 A,Gateway 本地 config 为路径 B
 - **WHEN** Gateway 同步 agent 配置并处理该 agent 的会话(含 heartbeat)
@@ -125,6 +131,16 @@ WebSocket 断开后 Gateway 自动重连(指数退避,有上限),重连后重发
 #### Scenario: 重连采用指数退避并封顶
 - **WHEN** IM 服务持续不可达,Gateway 反复重连
 - **THEN** 重连间隔按指数退避增长直到上限(不无限激增、不放弃)
+
+#### Scenario: control rejection 与普通断线使用同一退避
+- **WHEN** IM 以 protocol error 拒绝 `node.register` 或 `node.heartbeat`
+- **THEN** Gateway 断开当前 socket，保留未受影响的业务队列，并在下一次连接前执行既有指数退避
+- **AND** backoff 只在新连接的 register ACK 后重置，不能因 transport connect 成功但注册失败而形成热循环
+
+#### Scenario: send yield 内到达的匹配响应不会丢失
+- **GIVEN** 一帧已经取得唯一 wire owner 并对 transport 可见，但本地 `send()` coroutine 尚未返回
+- **WHEN** IM 在该窗口返回匹配 ACK、channel result 或 generic error
+- **THEN** Gateway 把响应结算给同一 owner且只结算一次；wrong type/request 不释放 owner，后继 FIFO 不会永久阻塞
 
 #### Scenario: IM 离线时外部 IM 主路径仍可用
 - **GIVEN** IM 服务不可达

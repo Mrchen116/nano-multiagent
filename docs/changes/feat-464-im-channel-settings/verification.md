@@ -501,3 +501,187 @@ Validated head: `a08ac99be47fcaf62aff44e812366f05cd62f8f6`（runtime code head `
 - 无。
 
 2 critical issue(s) found. Fix before PR.
+
+# Round 5
+
+## Summary
+
+Mode: full
+
+Delta range: `fb8308ae8ca6fb980fb748b9fb74140385edb8b5..c5b7b3c9240577aebede8064d6ad02d0545b57a7`
+
+Focus issues: M7 的 wire-send/in-flight ownership、断线 current-incarnation replay、register/heartbeat control correlation、removal response-lost 自动收敛，以及 v15 非 legacy 范围下 M1-M6 回归。
+
+requires_full_verification: true
+
+Validated head: `c93063c02cf3049f6cdb9f23a13f870b096ad994`（runtime code head `c5b7b3c9240577aebede8064d6ad02d0545b57a7`；后续提交仅收窄 v15 scope docs）
+
+Scope override: 按用户明确决定与 design v15，旧 `config.yaml`、历史 backup、standalone YAML、自动迁移/清理和 legacy export 均不属于本轮或本 unit 最终门禁；Round 4 的 historical plaintext backup 不再作为 issue 或退出标准。当前安全核对只覆盖经 IM 新建/更新的 channel 不向 `config.yaml` 写入 App Secret。
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 44/48 个 v15 in-scope milestone 退出标准被完整证实（原 tasks 文档 50/50 勾选；M5 legacy writer 与 M6 legacy startup 两个完整条目按 v15 排除） |
+| Correctness | 原始 6 个 Requirement / 20 个 Scenario 的主体实现仍完整；M7 四个当前重点中 disconnect replay 与 removal recovery 闭合，wire-send result ownership 和 heartbeat ACK correlation 仍有同一个可复现竞态 |
+| Coherence | 8/9 个编号关键决策完整遵守；决策 5 的单一因果 wire owner 在 response-during-send 时段没有闭合 |
+
+结论：**FAIL**。1 个 CRITICAL；修复后必须再次 full verification，不可进入 PR。
+
+## Round 4 问题复核
+
+| Round 4 问题 | Round 5 结果 | 证据 |
+|---|---|---|
+| CRITICAL-1：升级前历史 backup 仍含 legacy secret | removed from current scope | 用户明确不要求旧配置/backup 兼容、迁移或清理；design v15 scope override 与 Gateway delta 已移除该承诺，本轮不把它计入 issue、task 或 gate |
+| CRITICAL-2：断线前 sent/unacked 的旧 incarnation 在新 socket 重放 | closed | pending queue 与 wire owner 已分离；断线时若同 channel pending 已有新 incarnation，旧 owner 被标记 superseded 而不重排：`src/personal_assistant/ws/im_connection.py:1407-1460`；two-socket 永久回归见 `tests/unit/personal_assistant/test_gateway_status_frame_ownership.py:111-201` |
+
+## Completeness
+
+- Tasks：M1 8/8、M2 8/8、M3 8/8、M4 7/7 在 v15 保留范围内 covered；M5 排除完整 legacy writer 条目后 7/7；M6 排除完整 legacy startup 条目后为 4/5（generic protocol result/error 在 send yield 内仍可能丢失）；M7 为 2/5（current-incarnation reconnect 与 removal recovery covered，wire ownership/control correlation/aggregate gate 未闭合）。合计 44/48。
+- Spec：通用多 provider 通道页、不展示 Web IM、轻量开放平台链接、在线/离线保存、凭据不回显、权限受限降级与逐项缺失、生命周期、历史保留和跨 owner bind 的 20 个原始 Scenario 均有生产实现与永久测试。
+- 当前凭据边界：IM create/update 只把 `app_secret` 交给 channel control service 做 envelope sealing，读取投影只有 `secret_configured`（`src/IM/api/routes/agent_channels.py:47-87`、`:207-258`）；managed manifest/cache 路径不把 IM channel secret 写入 Gateway `config.yaml`。不验证旧 YAML 的任何兼容行为。
+- Prototype / Reference：M7 的 `#channel-deleting/#channels-empty` 均投影到 tasks、progress、永久 Vitest 与 durable screenshot；已检查 1440×1000 production 截图，最终只有通用空态，无 Web IM、旧 alert、waiting notice 或 retry button。
+
+## Correctness
+
+| Requirement / Scenario | Round 5 证据 | 状态 |
+|---|---|---|
+| status 在 send yield 前获得独占 owner，不会被 pending coalesce 删除 | flush 先 pop pending 并建立 `WireFrameOwner(phase="sending")`，再 await send：`im_connection.py:1167-1210`；yield/coalesce regression | covered for coalescing |
+| status result 只释放同 request，后继不阻塞 | request/type matching 正确，但 response 在 owner 仍为 `sending` 时被直接忽略且永久丢失 | **critical** |
+| disconnect 后新 incarnation 淘汰 old sent/unacked，新 socket 只发 current | `im_connection.py:473-485`、`:1407-1460`；two-socket + late old result regression | covered |
+| register ACK 前不 flush 业务 FIFO | `_registered=False` gate 与 control priority：`im_connection.py:291-297`、`:1167-1184`；register error reconnect regression | covered |
+| register/heartbeat error 不误弹业务队首/waiter | single wire owner 能隔离正常时序，但 heartbeat ACK/error 在 `websocket.send()` 尚未返回时同样被忽略，导致假 timeout/断线 | **critical** |
+| removal retry response-lost 后 receipt polling 为空即清旧 error/notice | feedback 绑定 removal id，resource 消失时 effect 清理：`agent-channels-panel.tsx:584-585`、`:701-737`；永久 Vitest + production screenshot | covered |
+| M1-M6 当前非 legacy 用户旅程 | focused/full evidence、完整 frontend、既有 integration/contract 与历轮 evidence | covered；仅 M6 terminal response 的 send-yield 边界被本轮 CRITICAL 重新打开 |
+
+### M7 边界复验
+
+| M7 保证 | 实现/永久回归 | 本轮结果 |
+|---|---|---|
+| in-flight status 不被 coalesce；result 同 request | pending/wire owner 分离；现有测试在 send 返回后才注入 result | **partial / critical**：send yield 内到达的 result 被消费但不释放 owner |
+| two-socket reconnect only current | disconnect supersede + request correlation regression | covered |
+| register/heartbeat 独立 owner，ACK/error 不伤业务 | register ACK gate 与 control lane 已实现；正常/拒绝 tests 通过 | **partial / critical**：heartbeat ACK 在 send yield 内丢失并超时 |
+| response-lost removal 自动进入无残影 empty | removal-owned error/notice effect + Vitest/browser | covered |
+| aggregate gates | focused、frontend、build、Ruff、size、diff 通过；worker full evidence 通过 | **failed**：本轮独立 wire race 反例；需修复后 full verifier |
+
+### 独立协议竞态复验
+
+本轮使用一个 deterministic fake socket：它先把 status/heartbeat 帧记录为“transport 已可见”，随后让 `websocket.send()` 保持 await；同时由 listener 收到对应 result/ACK，最后才释放 send。
+
+- status：result 到达时 owner phase 为 `sending`；handler 未调用；send 返回后 owner 仍为 `('status-early', 'awaiting_result')`，且该唯一 result 已被消费。
+- heartbeat：匹配 ACK 在 send yield 内到达后仍触发 `TimeoutError: IM heartbeat ack timed out`；owner 留在 `('node.heartbeat', 'awaiting_result')`。
+- 该交错是 asyncio 双任务的合法生产时序：发送协程在 transport drain 上 yield 时，独立 recv/listener 可以先处理服务端响应。它不是对 private coalesce 实现的假设。
+
+### 测试与门禁结果
+
+- M7/相关聚焦后端：53 passed（status ownership、control correlation、status protocol、connection behavior/resilience、reconcile callback、真实 reconnect/removal、test-size contract）。
+- 完整后端在本轮 managed sandbox：3460 passed、1 skipped、20 deselected；13 个失败均来自当前沙箱禁止 `ps/pgrep`、子进程操作或外网 DNS（与 M7 delta 无关）。M7 progress 在同一 runtime head 记录的非受限完整门禁为 3473 passed、1 skipped、20 deselected。
+- 完整前端：68 files / 627 tests passed；`npm run build` → 444 modules transformed。
+- Ruff：`ruff check src tests` → PASS；`git diff --check origin/main...HEAD` → PASS。
+- 新增 backend tests 分别 233/227 行，修改后的 `test_channel_status_protocol.py` 为 396 行，新 frontend regression 85 行；test naming/size contract 在聚焦套件中通过。
+- worktree 原有未跟踪 `output/` 未触碰；frontend `node_modules` 临时 symlink 已由命令 trap 清理。
+
+## Coherence
+
+| design 决策 | 遵守? | 代码证据 |
+|---|---|---|
+| 1. IM channel credential 使用节点公钥信封，读取面不透明 | 是 | IM create/update → envelope；GET/list 仅 `secret_configured`；不扩张到已排除 legacy YAML |
+| 2. desired/actual 分离、revision/CAS、独立短事务 | 是 | channel control mutation/result/projection |
+| 3. IM 权威完整 manifest + Gateway 密文 cache/outbox | 是 | strict manifest、retry result/status outbox |
+| 4. ChannelManager 唯一动态 lifecycle owner | 是 | reconcile/start/stop/reconnect 统一经 manager |
+| 5. 每 Bot 可终止 worker、三 lane、因果 status 与 wire correlation | **部分** | queue/wire owner 分离与 disconnect supersede 正确；response handlers 排除 `sending` owner，造成合法早到响应丢失（CRITICAL-1） |
+| 6. connection/diagnostics 分层、provider-owned probe | 是 | preflight/client/diagnostics 与 catalog 未回退 |
+| 7. 通用 REST/resource + provider registry | 是 | agent channel API + descriptor-driven UI |
+| 8. control-plane initialization 只建立 IM managed head；不承诺旧 YAML | 是 | design v15 与 Gateway delta 对齐；当前核对不要求 migration/export |
+| 9. 纵向 milestone 交付 | 是 | M1-M7 docs/tests/evidence 齐备；gate 因真实协议竞态保持 fail |
+
+### Architecture coherence
+
+- `IM` 未 import `agent`；`personal_assistant` 产品边界仍只经 `agent.sdk`，依赖方向未改变。
+- M7 使用一个公共 wire owner 承载 control/business 因果归属，没有为 status、register、heartbeat 各造平行 FIFO；方向与 design 一致。
+- removal 临时反馈以 durable receipt resource 为 owner，没有把 mutation response 提升成第二真相源。
+- **偏离：**owner 在 send 前已建立，但 response side 只承认 send 返回后的 `awaiting_result` phase；因此“wire 已可见”与“可接收响应”的边界不一致，单一 owner 在最关键的 yield 窗口并不真正拥有响应。
+
+## Prototype / Reference Contract
+
+| Reference contract | M7 implementation / evidence | 状态 |
+|---|---|---|
+| `#channel-deleting` | retry response lost 后继续以 receipt 为最终事实；polling 消失时反馈同步消失 | covered |
+| `#channels-empty` | production screenshot 显示唯一通用空态，alerts/waiting/retryButtons 均为 0，不展示 Web IM | covered |
+| M1-M6 其余 must-match reference | 完整 frontend tests/build 与既有 durable evidence未回退 | covered |
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+1. **服务端响应若在 `websocket.send()` yield 期间到达，会被 listener 永久丢弃，导致 status FIFO 卡死或 heartbeat 假超时断线。** M7 正确地在第一次 await 前建立 `WireFrameOwner(phase="sending")`（`src/personal_assistant/ws/im_connection.py:1185-1194`），但三个 response 入口都只接受 `phase == "awaiting_result"`：普通 ACK `:1242-1251`、correlated channel result `:1259-1282`、generic error `:1295-1305`。只有 send 返回后才把 phase 改成 awaiting（`:1208-1210`）。真实异步 socket 上，发送方可能已经把 frame 交给 transport、随后在 drain 上 yield；recv task 可以在 send coroutine 恢复前拿到服务端 ACK/result/error。此时当前实现消费该响应但返回 no-op，send 结束后 owner 进入 awaiting，永远等不到已被消费的唯一响应。本轮 deterministic 复现得到 `phase_when_result_arrived=sending`、`resolved=[]`、`owner_after_send=('status-early','awaiting_result')`；heartbeat 的同序列得到匹配 ACK 已接收但仍 `TimeoutError IM heartbeat ack timed out`。现有 status ownership regression 只在 `await asyncio.gather(old_send, new_send)` 之后才注入 result（`tests/unit/personal_assistant/test_gateway_status_frame_ownership.py:47-105`），control tests 也没有 response-during-send 交错。该缺口直接违反 M7-E1/M7-E3，并重新破坏 M6-E1 的 terminal result 保证。**修复：**让 wire owner 从 frame 对 transport 可见开始就能接收匹配响应，但不要在 send coroutine 返回前破坏 owner identity；可在 owner 上记录 deferred terminal response/error，send 完成后原子结算、唤醒 waiter并 flush next，或使用独立 response future/状态机表达 `sending_with_response`。新增 deterministic regressions：fake send 先记录 frame 再 await barrier，listener 在 barrier 内分别送 status result、heartbeat ACK 和 generic error；断言正确 owner 最终只结算一次、wrong request/type 仍 no-op、后继 business FIFO继续、heartbeat 不超时且不误伤业务 waiter。
+
+### WARNING（应该修）
+
+- 无。
+
+### SUGGESTION（可以修）
+
+- 无。
+
+1 critical issue(s) found. Fix before PR.
+
+# Round 6
+
+## Summary
+
+Mode: targeted-closure
+
+Delta range: working tree on `c93063c02cf3049f6cdb9f23a13f870b096ad994`
+
+Focus issues: Round 5 response-during-send CRITICAL；control rejection reconnect backoff；register send/ACK liveness deadline；offline removal waiting notice after node recovery。
+
+requires_full_verification: false
+
+Execution note: 用户明确要求本轮结束后不再派发 subagent；本轮由 orchestrator 亲自按 verifier 与 code-review closure 清单完成，只修改本报告，不冒充独立 reviewer 结论。
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 4/4 closure items complete |
+| Correctness | 4/4 focused regressions covered；相关面 60/60，最终 wire/liveness suite 6/6 |
+| Coherence | Followed；继续使用单一 wire owner、既有 run_forever backoff 与 removal receipt 真相源 |
+
+结论：**PASS**。Round 5 的 1 个 CRITICAL 及同轮 code-review 的 3 个关联问题均关闭；未发现新的 CRITICAL/WARNING/SUGGESTION。
+
+## Focus issue closure
+
+| Finding | 结论 | 代码与回归证据 |
+|---|---|---|
+| response 在 `websocket.send()` yield 期间被丢弃 | closed | wire owner 仍在 send 前建立；ACK、correlated result 与 generic error 不再排除 `sending` owner，send 返回时只在 owner 尚未被终态响应释放时转为 `awaiting_result`：`src/personal_assistant/ws/im_connection.py:1245-1289`、`:1321-1371`、`:1373-1397`。deterministic transport-visible/send-yield 回归覆盖 status result 与 heartbeat ACK：`tests/unit/personal_assistant/test_gateway_wire_liveness.py:72-149`。 |
+| register/heartbeat protocol rejection 正常 return 绕过 reconnect backoff | closed | frame handler 断开后，`run_forever()` 把 disconnected normal return 提升为 transient connection failure，再进入既有 `_sleep_until_stop` 与指数退避；退避只在 register ACK 后重置：`src/personal_assistant/ws/im_connection.py:562-605`、`:754-762`。回归断言首个 reconnect 前必先 sleep：`tests/unit/personal_assistant/test_gateway_wire_liveness.py:152-199`。 |
+| live socket 永不返回 register ACK 会永久冻结业务 FIFO | closed | `registration_ack_timeout_seconds` 默认 10 秒；同一 handshake deadline 同时覆盖 register send backpressure 与 ACK wait，deadline 在 ACK 收到时结束，不会取消其后的 convergence callback：`src/personal_assistant/ws/im_connection.py:163-203`、`:343-395`、`:609-629`、`:734-745`。send timeout、ACK timeout、post-ACK slow callback 三条回归：`tests/unit/personal_assistant/test_gateway_wire_liveness.py:202-304`。 |
+| 离线 retry waiting notice 在节点恢复后的在线 retry/error 仍残留 | closed | online retry 发起前清除旧 notice；非-offline error 也 fail-safe 清除，resource 消失仍由既有 receipt-owned effect 收敛：`src/IM/frontend/src/features/settings/agents/agent-channels-panel.tsx:701-734`、`:793-807`。offline→online→generic error 回归：`src/IM/frontend/src/features/settings/agents/agent-channels-removal-recovery.test.tsx:86-121`。 |
+
+## Correctness and regression evidence
+
+- 新增永久 backend regression：`tests/unit/personal_assistant/test_gateway_wire_liveness.py`，304 行，覆盖 early status result、early heartbeat ACK、control rejection backoff、register ACK timeout、register send timeout、ACK 后慢 convergence 不被误取消；新文件符合 400 行约束。
+- 聚焦相关面：status ownership、control correlation、connection behavior/resilience、status protocol、reconcile callback 与 channel reconcile/bootstrap/removal integration 共 `60 passed`；最终 wire/liveness + ownership/control/resilience closure 为 `21 passed`。
+- 完整前端：68 files / `628 passed`；相关 channels panel/removal suite `15 passed`。新增回归先稳定复现 waiting notice 与 generic error 同时存在，修复后只保留 error。
+- 完整后端先在 managed sandbox 得到 `3466 passed, 1 skipped, 20 deselected`，失败集合为 13 个依赖 `ps/pgrep`、进程/子进程或外网 DNS 的用例；开放权限后按 `.pytest_cache` 的精确 last-failed 清单复跑，`13 passed`（24.64s）。同一实现上的分段全量门禁因此闭合为 `3479 passed, 1 skipped, 20 deselected`；本轮新增 6 个 backend tests 也全部通过。
+- Ruff `src tests` PASS；test naming/size contract `2 passed`；`git diff --check` PASS。
+
+## Coherence
+
+- response closure 继续复用一个 `WireFrameOwner`，没有为 status/heartbeat 另造 FIFO；pending coalescing、disconnect incarnation supersede 和 result correlation 仍保持 M7 的单一因果模型。
+- registration deadline 落在 IM connection lifecycle owner，不进入 channel manager 或前端；reconnect backoff 仍由 `run_forever()` 唯一负责，并只在 IM 确认 register identity 后重置。
+- removal UI 仍以 durable removal receipt 是否存在为最终事实；本轮只修正瞬时 waiting/error 的 owner 切换，没有引入客户端成功态或版本概念。
+- `IM`/Gateway/agent 依赖方向未变化；本 delta 不新增跨包 import、跨机文件访问或平行配置源。
+
+## Issues
+
+### CRITICAL
+
+- 无。
+
+### WARNING
+
+- 无。
+
+### SUGGESTION
+
+- 无。
+
+All checks passed. Ready for PR.
