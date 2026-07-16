@@ -727,11 +727,12 @@ class SessionRunCoordinator:
         stream = self._kernel.stream(
             kernel_session_id, after_sequence=anchor_sequence or 0
         )
+        watchdog_timeout: float | None = self._run_idle_timeout_seconds
         try:
             while True:
                 try:
                     event = await asyncio.wait_for(
-                        anext(stream), timeout=self._run_idle_timeout_seconds
+                        anext(stream), timeout=watchdog_timeout
                     )
                 except StopAsyncIteration:
                     break
@@ -751,12 +752,19 @@ class SessionRunCoordinator:
                     result = self._kernel_event_observer(event)
                     if asyncio.iscoroutine(result):
                         await result
-                if event.get("event") == "assistant_message":
+                event_name = event.get("event")
+                if event_name == "permission_request":
+                    # Waiting for a human is an intentional parked state, not lost
+                    # run liveness. The decision event re-arms the normal watchdog.
+                    watchdog_timeout = None
+                elif event_name == "permission_resolved":
+                    watchdog_timeout = self._run_idle_timeout_seconds
+                if event_name == "assistant_message":
                     content = event.get("content")
                     if isinstance(content, str):
                         reply_text = content
                 elif (
-                    event.get("event") == "run_status"
+                    event_name == "run_status"
                     and event.get("status") in TERMINAL_RUN_STATUSES
                 ):
                     run_state = event
