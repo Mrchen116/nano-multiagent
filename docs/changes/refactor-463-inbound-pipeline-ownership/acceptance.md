@@ -322,3 +322,140 @@ N/A。本 unit 无前端改动、原型、设计稿或 must-match reference cont
 - 仅通过用户文档、OpenAPI、真 IM/Gateway/LLM、公开 conversation/message/node/config/capability 结果和 design 允许的 controllable adapter 判断；未读取 SQLite、session JSONL 或实现日志做归因。
 - 未调用 `systematic-debugging`；没有为 Issue 1 提实现方案。
 - 本轮自启的 worktree IM/Gateway 已由 `scripts/e2e-down.sh` 清理；resilience 临时栈自行清理，退出时 PID/端口与 runtime pid 文件均无残留。
+
+---
+
+# Round 4 — 2026-07-16
+
+> Revalidation mode: `full`
+> Product journey head: `55617c7b634e86d2c6daed5067e5ce0d50d325be`
+> Report stacking head: `e7cfa17a8c142b6a17c3504c218fdd774339ce08`（仅新增 Round 4 `verification.md`，产品代码树未变化）
+
+## Verdict
+
+- **Verdict**: `pass`
+- **Highest Required Action**: `none`
+- **Coverage**: 20 Scenarios = 20 pass / 0 fail / 0 inconclusive / 0 not-applicable
+- **Issues**: blocking 0 / major 0 / minor 0
+- **Round 3 closure**: `relay idle` 明确失败后，同 conversation 与新 conversation 均在不重启 Gateway 的前提下恢复 completed；Round 3 唯一 major 已关闭
+
+## User Journeys Exercised
+
+### Journey 1 — 全量关键路径与 Round 3 liveness 闭环
+
+- 真进程 non-slow critical catalog 共 15 条：首次执行有 13 条明确通过，`message_fork` 与 `subagent_foreground` 受同轮上游时延影响未稳定收尾；立即以同一产品 head、同一入口定点重跑后二者 `2 passed, 15 deselected in 104.14s`。本轮未把瞬时首跑当产品失败。
+- slow catalog：`1 passed, 15 deselected, 1 xfailed in 225.41s`；真实 cron 关键路径通过，heartbeat actionable bubble 保持仓库已登记 #126 strict xfail。
+- Round 3 问题独立闭环：conversation `99b5cecaaa3542ea811a4c1babeeda78` 的真 `send_message` 指向不存在 conversation，tool 明确 `failed`，公开 detail 为 `invalid_agent_message: conversation_id not found`，原 run 正常收为 idle。Gateway 不重启、node 始终 online 的前提下，同 conversation 下一条精确回复 `R4SAMEDC12D7CE`；新 conversation `e62a8cb3548949ce86f92a81589fb73e` 下一条精确回复 `R4NEWDC12D7CE`，均为 completed。node heartbeat 从 `09:35:52.705004Z` 继续推进到 `09:36:22.709759Z`。
+
+### Journey 2 — 动态配置、重启续接与 live `send_message`
+
+- 公开 profile 更新后的 `custom_prompt` token `R4CONFIG144181B0` 同时在既有 session `99b5...` 的下一轮与新 conversation `943482ac50df4f6bb3a5dc51f4d1a75d` 精确 completed，证明配置下一轮生效且不依赖新建 session。
+- 重启前，同一既有 conversation 的 `send_message(to=plato, text=R4PREDISPATCH1784194981)` 为 `status=completed`、`detail.status=ok`。Gateway A 的 live capability 端口 `53134` 收到 SIGTERM 后明确 connection refused；同配置重启为新进程/端口 `56180` 后，同一 conversation 精确回忆 `R4HISTORY1784195007`，随后 `send_message(to=plato, text=R4POSTDISPATCH1784195074)` 再次 completed/ok。
+- 上述判断只使用公开 IM/config/tool 回执、进程退出与监听端口事实；未读取 SQLite、session JSONL 或私有 runs 数据补证。
+
+### Journey 3 — 并发、continuous steer、停止、图片与静默回复
+
+- conversation A `0ce58a982f05468d8a12bd8681fd1be6` 执行 15 秒真实 tool wait 时连续接纳 `R4FOLLOW11784195141`、`R4FOLLOW21784195141`；最终回复按到达顺序包含两 token。跨 conversation B `9f5f81cc742c415c9f05344d44d7c08b` 于 `09:45:44.676130Z` 先完成 `R4FAST1784195141`，A 于 `09:46:01.517637Z` 后完成，证明跨会话并行且同会话 steer 有序。
+- 对已 idle 的 A 发送 `/stop`，conversation 保持 idle，无工作被误启动，收到 completed 友好提示“当前没有正在执行的操作。”；active `/stop` 已由 full critical 真进程路径通过。
+- 有效 PNG conversation `5955504cd6804beaac1b3514bd0cf208` 正确描述截图中的 IM 群详情 UI；伪 PNG conversation `f50e1594cbb74b658e40b48e82b849d9` 给出清晰“无法识别/请重新发送”反馈，未伪装成功。
+- group conversation `e8e3691b320d4cba9419f0c10e6be85e` 的 `NO_REPLY` 旅程实际经历 running→idle，Agent 消息数 `0→0`，`QUIET_R4_1784195319` 泄漏次数为 0。
+
+### Journey 4 — accepted-work SIGTERM、重连与 M8 用户面
+
+- conversation `921d9a233f5146efbe7e25fe4c215d1a` 在 SIGTERM 前为 running，已接纳 `R4FIRSTSHUT1784195387`、`R4SECONDSHUT1784195387` 且存在 provisional Agent bubble。Gateway 退出后 conversation 立即 idle，两条 user message 与 Agent bubble 均为明确 failed，`running=0`。
+- 独立 `scripts/e2e-resilience.sh`：Scenario A 同 DB 重启 IM、Gateway 不重启即 node 自动 online；Scenario B Gateway 先于 IM 启动仍存活，IM 上线后 node 自动 online；终态 `RESILIENCE E2E PASS`。
+- M8 current-head controllable product boundaries：typed external/shadow identity + unattended restricted skills `8 passed`；external visible delivery、shadow 单向守卫与 IM-absent external runtime `8 passed`；cron failed/cancelled terminal、无 success awareness 与 presenter 状态 `5 passed`。无真 Feishu 凭据，按 design runbook 使用 controllable adapter；真实成功 cron 则由 slow critical 真栈覆盖。
+- 额外尝试以 documented Anthropic SSE error fixture 重跑 live failed cron：第二次以持久 shell 启动的 IM/Gateway 保持存活，但 seed run 在本轮收敛窗口内仍为 running；该未完成探索不作为通过证据。failed/cancelled 分支的结论仅取 current-head 上述 5 条确定性产品边界证据，不把 running 误报为 completed。
+
+## Reference Artifacts Reviewed
+
+N/A。本 unit 无前端改动、原型、设计稿或 must-match reference contract。
+
+## Issues
+
+无。
+
+## Round 3 Issue Closure
+
+| Round 3 issue | Round 4 evidence | 结论 |
+|---|---|---|
+| 一次 idle failure 后 Gateway 心跳在线但后续消息不再运行 | `99b5...` 先收到真 invalid dispatch failed terminal；同进程随后同会话 `R4SAMEDC12D7CE` 与新会话 `R4NEWDC12D7CE` 均 completed，node heartbeat 持续推进 | closed / pass |
+
+## 验收标准覆盖
+
+### Requirement: 入站路由、会话与回复位置保持一致 — 组内结论: pass
+
+| Scenario | 验证方式与证据 | 结果 | 备注 |
+|---|---|---|---|
+| 直聊消息仍由正确 Agent 在原目标回复 | full critical + 多条公开 direct conversation completed | pass | 原目标原 conversation |
+| Gateway 重启后续接原会话 | A `53134` 退出、B `56180` 启动后 `99b5...` 精确回忆 marker | pass | live capability 已刷新 |
+| 未知 Agent 路由仍被拒绝 | full critical 路由回归；不存在 conversation 的 tool dispatch 公开 failed | pass | 无误投递 |
+| 动态 Agent 配置在下一轮生效 | 既有 `99b5...` 与新 `9434...` 均精确 `R4CONFIG144181B0` | pass | next round + new session |
+| Agent 工具投递仍同步到正确直聊会话 | 重启前后两次真 `send_message(to=plato)` 均 completed/ok | pass | capability 绑定新进程 |
+
+### Requirement: 群聊门控与背景上下文保持一致 — 组内结论: pass
+
+| Scenario | 验证方式与证据 | 结果 | 备注 |
+|---|---|---|---|
+| 未点名群消息只积累背景 | full critical unmentioned-silent 真进程路径 | pass | 不抢话 |
+| 点名后带入此前群背景 | full critical 双向定向 @ / group context 路径 | pass | sender/order 保留 |
+
+### Requirement: 单会话并发、插话与停止保持一致 — 组内结论: pass
+
+| Scenario | 验证方式与证据 | 结果 | 备注 |
+|---|---|---|---|
+| 同会话串行且跨会话并行 | A `0ce5...` 慢 run；B `9f5f...` 提前约 17 秒完成 | pass | 无跨会话阻塞 |
+| 运行中插话被及时采纳 | A 最终按顺序包含 FOLLOW1、FOLLOW2 | pass | continuous steer |
+| /stop 中断活动运行 | full critical active `/stop` | pass | 用户可见终态 |
+| 空闲会话收到 /stop | `0ce5...` 保持 idle 并返回友好提示 | pass | 无新 run |
+| 活着但安静的运行不被误杀 | slow/timeout 回归；invalid failure 后同/新会话无重启恢复 | pass | Round 3 Issue closed |
+
+### Requirement: 图片与可见失败反馈保持一致 — 组内结论: pass
+
+| Scenario | 验证方式与证据 | 结果 | 备注 |
+|---|---|---|---|
+| 有效图片正常进入本轮 | `5955...` 真 PNG 被正确描述 | pass | 真 Web IM attachment |
+| 图片下载、超限或损坏 | `f50e...` 伪 PNG 得到明确可读失败 | pass | 未伪装成功 |
+
+### Requirement: 运行过程、终态与后台回复保持一致 — 组内结论: pass
+
+| Scenario | 验证方式与证据 | 结果 | 备注 |
+|---|---|---|---|
+| 中间与最终回复不重不漏 | full critical tool/timeout/permission + `e8e3...` NO_REPLY | pass | 静默 token 不泄漏 |
+| 后台任务完成后回到原会话 | full critical background notify + slow cron | pass | 真进程原会话跟进 |
+| 外部 channel 与影子会话投递边界不变 | current-head typed identity/shadow + visible delivery adapters 16 pass | pass | 无真 Feishu 凭据 |
+| IM 离线时外部 channel 仍可用 | external runtime without IM adapter + resilience | pass | external 主路径不依赖 IM |
+
+### Requirement: Gateway 生命周期的用户结果不受本重构影响 — 组内结论: pass
+
+| Scenario | 验证方式与证据 | 结果 | 备注 |
+|---|---|---|---|
+| 启动、停止和重连结果保持一致 | full critical + `e2e-resilience.sh` A/B | pass | 自动恢复 online |
+| 停止时已接纳的入站工作有明确结局 | `921d...` 两条 accepted work 真 SIGTERM | pass | idle；running=0 |
+
+## M8 User-facing Supplement
+
+| 检查面 | 当前 head 证据 | 结论 |
+|---|---|---|
+| failed/cancelled cron 不展示 completed/success awareness | failed、cancelled 两种 terminal 参数化边界 + stream failure + presenter 共 5 pass；真实 success cron 另由 slow critical 通过 | pass |
+| typed external/shadow 身份与单向边界 | shadow identity/guard/unattended 8 pass；external visible/offline/routing 8 pass | pass |
+| unattended restricted skills 不漂移 | `test_unattended_session_skills.py` 纳入首组 8 pass | pass |
+
+## Side Findings
+
+- #126 heartbeat actionable bubble 仍为仓库既有 strict xfail；本轮 slow suite 按预期 xfail，不重复立单。
+- documented SSE failure fixture 的额外 live seed 在收敛窗口内保持 running，未被纳入 verdict 或伪报为 failed/completed；该探索未暴露新的已确认用户失败。
+
+## 上层文档同步
+
+- [x] `SPEC.md`：无需更新；包边界与部署拓扑未变。
+- [x] `docs/specs/gateway/`：无需更新；现有 routing/lifecycle 契约已覆盖本轮结果。
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新；启动、隔离端口与清理约定未变。
+- [x] `docs/SPEC_GUIDE.md`：无需更新；本 unit 未改变文档体系。
+
+## Reviewer 越界自证与清理
+
+- 未读取或修改实现源码；未编辑 tracked 测试、产品配置或 canonical docs。临时 profile 变更均经隔离真栈公开 API；fixture config 位于 `/tmp` 并已删除。
+- 仅使用用户文档、OpenAPI、真 IM/Gateway/Kernel/LLM、公开 conversation/message/node/config/tool 结果和 design 允许的 controllable adapter；未读取 SQLite、session JSONL 或私有 runs 数据归因。
+- 未调用 `systematic-debugging`，未提出或实施代码修复。
+- 所有自启 IM/Gateway/HTTP fixture 与 resilience 临时栈均已停止；`57198`、`57300`、`56704`、`53124` 均确认 closed，worktree runtime pid/config 文件已由 `e2e-down.sh` 清理。用户的 `127.0.0.1:4000` LLM Proxy 仅 health-read，未停止或改配。
