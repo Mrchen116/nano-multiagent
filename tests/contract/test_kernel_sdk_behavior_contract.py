@@ -973,6 +973,7 @@ async def test_submit_steer_active_run_injects_not_new_run(tmp_path: Path) -> No
             workspace_root=tmp_path,
         )
         await _wait_for_run_status(kernel, first.run_id, "running")
+        assert await kernel.discard_run_messages(first.run_id) is False
 
         runs_before = set(kernel._c.runs_registry._runs.keys())  # noqa: SLF001
         steered = kernel.submit(
@@ -1156,7 +1157,9 @@ async def test_discard_run_messages_preserves_later_history_and_parent_chain(
         heartbeat = await _submit("heartbeat prompt")
         await _submit("later user message")
 
+        assert await kernel.discard_run_messages("unknown-run") is False
         assert await kernel.discard_run_messages(heartbeat.run_id)
+        assert await kernel.discard_run_messages(heartbeat.run_id) is False
         await _submit("after cleanup")
 
         final_context = "\n".join(
