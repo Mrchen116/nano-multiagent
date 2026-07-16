@@ -167,14 +167,15 @@ function ConnectionCard({
   const { t } = useTranslation();
   const observed = channel.observed;
   const observedState = observed?.connection_state ?? "pending";
-  const waiting = channel.sync_state !== "applied";
+  const applyFailed = channel.sync_state === "failed" && channel.apply_error !== null;
+  const waiting = channel.sync_state === "pending";
   // The agent list can learn that a node went offline before the cached channel
   // query is invalidated.  The live node state is therefore authoritative for
   // whether any observed connection may still be presented as current.
   const stale = offline && observed !== null;
   const state = manualReconnecting
     ? "reconnecting"
-    : channel.sync_state === "failed"
+    : applyFailed
       ? "failed"
     : waiting
     ? channel.enabled
@@ -575,6 +576,7 @@ export function AgentChannelsPanel({
   } | null>(null);
   const [confirmation, setConfirmation] = useState<{ kind: "disable" | "delete"; channel: AgentChannel } | null>(null);
   const [reconnectingChannelId, setReconnectingChannelId] = useState<string | null>(null);
+  const [removalRetryNoticeId, setRemovalRetryNoticeId] = useState<string | null>(null);
   const [requestError, setRequestError] = useState<string | null>(null);
   const offline = nodeStatus === "offline";
   const channelsQuery = useQuery({
@@ -687,11 +689,26 @@ export function AgentChannelsPanel({
       agentId,
       removal.channel_id,
     ),
-    onSuccess: (saved) => { storeResource(saved); setRequestError(null); },
-    onError: (error) => setRequestError(errorDetail(error)),
+    onSuccess: (saved) => {
+      storeResource(saved);
+      setRemovalRetryNoticeId(null);
+      setRequestError(null);
+    },
+    onError: (error, removal) => {
+      const detail = errorDetail(error);
+      if (detail.includes("channel_node_offline")) {
+        setRemovalRetryNoticeId(removal.channel_id);
+        setRequestError(null);
+        return;
+      }
+      setRequestError(detail);
+    },
   });
 
   const resources = channelsQuery.data ?? [];
+  const removalRetryWaiting = removalRetryNoticeId !== null && resources.some(
+    (resource) => isRemoval(resource) && resource.channel_id === removalRetryNoticeId,
+  );
   const occupiedProviderIds = new Set(resources.map((resource) => resource.provider));
   const lifecyclePending = toggleMutation.isPending || reconnectMutation.isPending || deleteMutation.isPending || retryMutation.isPending;
 
@@ -726,6 +743,11 @@ export function AgentChannelsPanel({
       ) : null}
 
       {requestError && !dialog ? <p className="m-0 text-xs font-semibold text-rose-700" role="alert">{requestError}</p> : null}
+      {removalRetryWaiting ? (
+        <p className="m-0 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900" role="status">
+          {t("agents.channels.status.retryWaitingForNode")}
+        </p>
+      ) : null}
 
       {resources.length === 0 ? (
         <section className="im-agent-card place-items-center py-10 text-center">
@@ -747,7 +769,14 @@ export function AgentChannelsPanel({
             removal={resource}
             provider={provider}
             pending={retryMutation.isPending}
-            onRetry={() => retryMutation.mutate(resource)}
+            onRetry={() => {
+              setRequestError(null);
+              if (offline) {
+                setRemovalRetryNoticeId(resource.channel_id);
+                return;
+              }
+              retryMutation.mutate(resource);
+            }}
           />
         ) : (
           <ConnectionCard

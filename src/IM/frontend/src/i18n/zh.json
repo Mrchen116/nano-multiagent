@@ -338,6 +338,7 @@
         "credentialsDeleted": "凭据已从 IM 删除",
         "deleteSaved": "删除已保存，等待节点确认停止收发",
         "deleteReload": "页面刷新后仍会保留此状态",
+        "retryWaitingForNode": "等待节点上线后继续删除",
         "deleteUnknownFailure": "节点未能停止旧连接"
       }
     },
