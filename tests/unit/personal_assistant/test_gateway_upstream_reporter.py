@@ -229,6 +229,47 @@ def test_send_register_includes_agent_workspaces(tmp_path: Path) -> None:
     )
 
 
+def test_send_register_includes_agent_skills_and_tool_allowlist(
+    tmp_path: Path,
+) -> None:
+    """node.register 帧必须携带 per-agent skills / tool_allowlist 种子（bugfix-467）。
+
+    修前：注册只带 agent_ids + agent_workspaces，IM 建空壳 profile（skills=[]、
+    tool_allowlist=[]）；Gateway reconcile 时把空壳 v1 当权威，抹掉本地真值。
+    修后：帧还显式携带 agent_skills / agent_tool_allowlist，让 IM first-seen-wins
+    播种，mirror 出生即真值。
+    """
+    from personal_assistant.config.local_store import AgentWorkspaceConfig
+
+    workspace = tmp_path / "my-workspace"
+    workspace.mkdir()
+    frames: list[tuple[str, dict[str, object]]] = []
+    kernel = _build_test_kernel(tmp_path / "kernel-root")
+    reporter = UpstreamReporter(
+        node=NodeConfig(node_id="n1"),
+        agents=(
+            AgentWorkspaceConfig(
+                agent_id="Arch",
+                workspace_root=workspace,
+                skills=("plan", "playwright"),
+                tool_allowlist=("read", "bash", "edit"),
+            ),
+        ),
+        send_frame=lambda mt, p: frames.append((mt, p)),
+        capabilities=build_runtime_capabilities(kernel),
+    )
+    payload = reporter.send_register()
+
+    assert "agent_skills" in payload, (
+        "node.register 帧必须含 agent_skills 字段 (bugfix-467)"
+    )
+    assert "agent_tool_allowlist" in payload, (
+        "node.register 帧必须含 agent_tool_allowlist 字段 (bugfix-467)"
+    )
+    assert payload["agent_skills"] == {"Arch": ["plan", "playwright"]}
+    assert payload["agent_tool_allowlist"] == {"Arch": ["read", "bash", "edit"]}
+
+
 def test_node_capabilities_tools_contain_all_feature_required_tools(
     tmp_path: Path,
 ) -> None:
