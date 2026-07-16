@@ -454,3 +454,90 @@ None.
 ### SUGGESTION（可以修）
 
 - **SUGGESTION-1 — baseline diff 有 3 个 EOF trailing blank-line hygiene 问题。** git diff --check a6c04258183b89867df6f08f6dcedf125989daf0..55617c7b634e86d2c6daed5067e5ce0d50d325be 报告 M8 live-cron-failure evidence、test_runtime_delivery_stream.py、test_unattended_session_skills.py 各 1 个 new blank line at EOF。它们不影响运行语义或测试，但建议 PR 前清理。
+
+# Round 5
+
+- Validated head: `286bacc15b9a4137cb4b6b966ebe5300503309b1`
+- Review round: 5
+- Verification mode: full
+- Delta base: N/A
+- Focus issues: Round 4 WARNING-1 / SUGGESTION-1 及 M9-M11/code-review blocker 闭环
+- Requires full verification: false
+
+## Summary
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 105/105 tasks 已勾选；104/105 实质成立（M10 silent-heartbeat 只删本轮未成立） |
+| Correctness | motivation 20 个 Scenario 中 18 个完整覆盖、2 个在 active-run 带图 steer 时部分失败；另有 1 条 canonical heartbeat 数据破坏阻断 |
+| Coherence | D1-D4/D6-D9 主体闭合；heartbeat 产品层跨过 Kernel transcript owner 直接截断 JSONL，D5/D8 的图片与 public-contract 证据仍有偏离 |
+| Regression | `ruff check`、test-size contract、全量 non-e2e 与 diff hygiene 通过；必需的 `ruff format --check` 在 26 个文件上失败；正确启用 bash 后真栈后台回传通过 |
+
+**结论：1 critical issue found. Fix before PR.**
+
+## Completeness
+
+- Milestone tasks：M1 7/7、M2 12/12、M3 8/8、M4 6/6、M5 6/6、M6 6/6、M7 4/4、M8 15/15、M9 12/12、M10 16/16、M11 13/13，合计 105/105 已勾选。
+- M9 的 expected-run compare-and-inject、coordinator follower identity 与 binder 稳定 reuse O(1)，M10 的 failed/cancelled 分流、mandatory cron terminal consumer 与 CronRunsStore 单次 materialize，M11 的 capability projection / neutral IM transport owner 均有实现与永久回归。
+- M10 退出标准“极快 `HEARTBEAT_OK` 也只移除本轮新增记录”不成立：实现是回到 submit 前行数前缀，会同时删除之后追加的用户 turn，见 CRITICAL-1。因此实质完成度为 104/105。
+- motivation 的 6/6 Requirement 均有生产实现投影；prototype/reference contract 为 N/A。
+
+## Round 4 / M9-M11 closure
+
+| 历史项 | Round 5 结论 | 独立证据 |
+|---|---|---|
+| no-delivery cron 提前记 completed | CLOSED | `CronTerminalConsumerPort` 为 runner 路径 mandatory dependency；failed/cancelled/missing-terminal 持久化真实终态，只有 completed 写 awareness |
+| expected-run steer 可能串到 replacement run | CLOSED | registry lock 内同时 compare expected id、controller enqueue 与返回真实 run id；coordinator 传入自己 marker 并校验 SDK 返回 identity |
+| binder 稳定 reuse 重复 O(history) 扫 JSONL | CLOSED | 首次接管/revision 变化在锁外权威验证，稳定同进程 reuse 命中 `_VerifiedBindingOwnership` |
+| heartbeat failed/cancelled 被当静默成功 | CLOSED | typed outcome 非 completed 时发失败 reconcile 且不 trim；但 completed+silent 的 trim owner 引入 CRITICAL-1 |
+| capability 双投影 / 私有 IM helper 跨 owner import | CLOSED | foreground 与 unattended 复用 `project_agent_session_capabilities()`；config/shadow/main 只经 `im_http_transport` 公开 seam |
+| Round 4 EOF whitespace | CLOSED | `git diff --check a6c04258183b89867df6f08f6dcedf125989daf0..HEAD` 无输出 |
+
+## Correctness
+
+- 路由、restart session reuse、unknown-agent reject、dynamic config、`send_message`、群背景、FIFO/跨 session 并行、`/stop`、watchdog、图片普通入站/固定失败、terminal reconcile、external/shadow、IM-offline 自治、shutdown terminal 等 motivation 场景均能从生产入口追到永久回归。
+- 真 IM + Gateway + Kernel + LLM 在明确启用 bash 后，首条 bubble 持久了 `run_in_background=true` 的真 bash tool call，后台 output 写入哨兵，8 秒后第二条独立 bubble 将同一哨兵回到原 conversation，因此未确认 background subscription/reply ownership 缺口。先前失败样本的 proxy request 为 `tools=[]` 且无 tool call，不能用来证明已启动任务的回传失败。
+- active-run 运行中插话的文本、identity 与唯一 fallback 语义正确；但带图片 parts 被降级为 placeholder，使 motivation “运行中插话”与“有效图片进入本轮”的交叉路径部分失败，见 WARNING-1。
+- canonical heartbeat 要求携带并保留 owner 直聊上下文；当 silent cleanup 删除后来的用户 turn 时，用户历史与后续上下文被永久破坏，见 CRITICAL-1。
+
+## Coherence
+
+| design 决策 | 遵守? | Round 5 结论 |
+|---|---|---|
+| D1 narrow InboundPipeline | 是 | façade 只保留 route/gate/shadow/group append/delegation |
+| D2 revisioned catalog | 是 | immutable snapshot 与 publish revision owner 唯一 |
+| D3 binder owner | 是 | binding/reuse/invalidate/canonical/reverse/provenance 收敛，稳定 reuse O(1) |
+| D4 coordinator atomic run owner | 是 | expected-run compare-and-inject 闭合 A→B 切换窗口，fallback 只有一个 owner |
+| D5 typed image / exactly-once preparation | 部分 | Gateway 只 resolve/drain 一次，但 SDK steer 抛弃 structured image parts |
+| D6 sealed resource graph | 是 | seal→Kernel terminal→consumer/delivery→IM 的 one-deadline 顺序闭合 |
+| D7 construct once | 是 | composition 一次注入 typed owner/provider |
+| D8 public tests + deletion guard | 部分 | atomic steer 回归完整；图片 contract test 反向钉住 placeholder，`try_steer` 也未进 canonical SDK method/runs 契约 |
+| D9 deep modules | 部分 | 主要 owner 深度足够；`PollingHeartbeatRunner` 却跨过 Kernel transcript owner 按行数截断共享 session |
+
+## Independent checks
+
+- Fixed product head / ancestry：`HEAD == 286bacc15b9a4137cb4b6b966ebe5300503309b1`，是 `origin/unit/refactor-463` 产品头；diff base 为 `a6c04258183b89867df6f08f6dcedf125989daf0`。
+- `ruff check .`：`All checks passed!`
+- `ruff format --check .`：failed，26 files would be reformatted（其余 779 files already formatted）。这是 `.github/workflows/ci.yml:27-31` 的必需检查，当前 PR gate 会失败。
+- `pytest -q tests/contract/test_test_naming_and_size_contract.py`：`2 passed`。
+- `pytest -q -m 'not e2e' -n 4 --dist worksteal --durations=20 --durations-min=0.5`：`3441 passed, 1 skipped, 22 warnings in 34.83s`。
+- `git diff --check a6c04258183b89867df6f08f6dcedf125989daf0..HEAD`：passed。
+- 后台回传只读跨层诊断：真 `build_kernel` + 真后台 bash + `BackgroundSubscriptionManager` 在 foreground terminal 后产生 `<task-notification>`，subscriber 把 BACKGROUND_TASK assistant event 回调到原 `ReplyContext`。
+- Heartbeat 数据破坏确定性诊断：构造 baseline 3 条 + heartbeat 2 条 + 后来用户/回复 2 条，调用现有 `trim_silent_tick(..., 3)` 后仅剩 3 条，后来用户输入与回复均被删除。
+- 验证期间未修改 production source、tests 或 config。
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+- **CRITICAL-1 — silent heartbeat 用 submit 前行数截断共享 canonical transcript，会永久删除后续用户消息与 Agent 回复。** Heartbeat 会复用 owner canonical direct session（`src/personal_assistant/scheduler/heartbeat_scheduler.py:462-465`），忙闲检查只发生在 submit 之前（`:353-365`），与之后的用户 admission 没有同一 transition/transaction；scheduler 随后只记录 session JSONL 的 submit 前非空行数（`:523-539`）。completed+silent 后，consumer 把这个行数交给 `trim_silent_tick`（`src/personal_assistant/main.py:801-811`），后者直接重写为该前缀（`:723-742`）。因此 heartbeat submit 后进入 FIFO、并在 heartbeat consumer trim 前持久化的用户 turn 会被一并删除；当前注释“we own the file”也不成立，文件属于 Kernel transcript owner。现有测试只构造“baseline + heartbeat suffix”并期待全截断（`tests/unit/personal_assistant/test_heartbeat_session_trim.py:174-204`），未加入 concurrent/later foreground records，所以把数据破坏路径验绿。这违反 canonical heartbeat “携带 owner 直聊上下文”（`docs/specs/gateway/heartbeat-cron.md:19-24,60-68`）与 M10 “只移除本轮”退出标准。**修复要求：** 禁止 product runner 按 prefix 直接截断 Kernel JSONL；由 Kernel/transcript owner 提供按 run/message identity 的选择性静默清理，或在无法证明 suffix 只属于该 heartbeat 时保留后继记录而不做破坏性 trim。增加永久竞态回归：submit heartbeat 后追加用户 turn/reply，silent cleanup 后用户记录、parent chain 与后续 context 完整，只有 heartbeat 自身记录可被移除。
+
+### WARNING（应该修）
+
+- **WARNING-1 — active-run steer 将图片 parts 降成 `[image:placeholder]`，用户运行中补图时模型收不到真图。** `Kernel.try_steer()` 进入 `_try_inject_active_run`（`src/agent/sdk/kernel.py:1053-1085,1146-1185`）后只调 `render_user_text()`；该函数对图片明确输出 placeholder（`src/agent/core/agent/state.py:87-103`），而普通 turn 会经 `render_user_content_parts()` 保留 data URL（`:106-141`）。canonical run spec 明确要求 steer 保留文本+图片、与普通 turn 无差别（`docs/specs/kernel/runs.md:58-61`）；现有 contract test 反向断言 placeholder（`tests/contract/test_kernel_sdk_behavior_contract.py:1074-1109`）。**修复要求：** pending injection 使用 `LLMMessage.content` 支持的 structured blocks，与 normal submit 共用 parts→content 投影；把现有错向 contract 改为真 Kernel/provider-request 回归，断言 active steer 后的下一轮仍含 image block/data URL，text-only 语义不变。
+- **WARNING-2 — unit 新增了产品依赖的 public `Kernel.try_steer(expected_run_id=...)`，却仍宣称 `kernel: no spec delta`，canonical SDK/runs 契约没有记录该方法与 inject-only 语义。** `docs/specs/kernel/sdk-boundary.md:86-92` 的稳定 Kernel 方法集不含 `try_steer`，`docs/specs/kernel/runs.md:39-86` 只写 `submit(steer=True)` 的失败新建run语义，没有约定“失败零注入/零新 run、expected id 不得转向 replacement active run”。但 PA coordinator 已直接依赖该契约（`src/personal_assistant/gateway/session_run_coordinator.py:169-218`），这是真正 consumer-visible SDK delta，不是内部实现细节。**修复要求：** 更新 `sdk-boundary.md` 的稳定方法集，并在 `runs.md` 增加 `try_steer` 的 active success、idle/stale failure 与 expected-run identity Scenario；同时更正 unit design 的 delta-spec 判定，使长青契约与已有 public contract tests 一致。
+- **WARNING-3 — 必需的格式化 CI gate 当前会失败。** `ruff format --check .` 报告 26 个文件需要格式化，其中包含本 unit 修改的 Gateway owner、scheduler/runtime delivery 与对应 contract/integration/unit tests；CI workflow 在 `.github/workflows/ci.yml:27-31` 把该命令作为 required lint step，因此即使语义测试全绿，当前分支仍不能通过 PR checks。**修复要求：** 在实现分支执行 `.venv/bin/ruff format`（或精确格式化这 26 个文件），审阅仅格式 diff 后重跑 `ruff check .`、`ruff format --check .` 与相关测试。
+
+### SUGGESTION（可以修）
+
+None.
