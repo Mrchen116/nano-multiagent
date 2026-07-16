@@ -33,3 +33,19 @@
   - Prototype Comparison: N/A。
 - Rollback: 回退 R2 C1/C2/C3 commits；会恢复启动顺序中的普通 backup writer。
 - Commits: C1=`491a2f264`，C2=`1d13b1d3d`。
+
+## R3 — 断线内存 status 队列有界化
+
+- Context: durable outbox 已按 runtime incarnation 设置 barrier，但 websocket manager 在断线时仍把每次 replacement 的 `channel.status` 逐条 append；恢复后会重放旧实例，并让无关 frame 等待过时结果。
+- Decision: 在唯一 pending-frame 入队边界按 `channel_id` 合并未发送 status；新 incarnation 淘汰旧 incarnation，同 incarnation 保留必要 barrier；成功写过 wire 的 head、带显式 waiter 的 frame 和所有非 status frame不参与合并。
+- Rationale: durable outbox 决定可接受的 generation barrier，内存层只负责消除尚未发送的陈旧快照；已发送 head 的投递结果不确定，必须等待关联 result，不能被本地猜测删除。
+- Evidence:
+  - Tests: C1 断线 40 次 replacement 稳定得到 41-frame queue；C2 后 status protocol/outbox/connection/resilience focused suite `46 passed`，focused Ruff passed。
+  - Entry: `node.report` 先入队，40 个 status replacement 后 pending 仅 `node.report + status-39`；连接后 wire 只出现 current `inc-39`。
+  - Frontend State Matrix: N/A。
+  - Browser QA: N/A。
+  - E2E/Regression: `status-0` 迟到 result 不释放 `status-39` head，只有 current result 触发 handler。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: 回退 R3 C1/C2/C3 commits；会恢复断线队列随 replacement 次数线性增长。
+- Commits: C1=`84d7558d0`，C2=`7d7a27cd3`。

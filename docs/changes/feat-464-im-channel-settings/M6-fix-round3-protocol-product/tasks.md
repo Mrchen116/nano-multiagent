@@ -80,6 +80,7 @@ Prototype / Reference Contract：
 
 - 步骤：队列入口按 channel/revision/current incarnation 合并尚未发送的 `channel.status`，新 incarnation 淘汰旧状态；已发送 head 与其他业务帧保持 FIFO。
 - 验证：断线 40 次 replacement 后队列有界；重连只发 current；迟到旧 result no-op；node.report 等 frame 顺序不变。
+- 状态：完成。公共队列入口合并同 channel 的未发送 status，保留已上 wire 的不确定 head、同 incarnation barrier 和所有非 status frame；迟到旧 result 不能释放当前 request。
 
 ### R4 — Apply failure 首次投影与 Reconnect 入口
 
