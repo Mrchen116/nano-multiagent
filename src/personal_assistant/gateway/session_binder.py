@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Mapping
 from dataclasses import dataclass
 from threading import Lock
@@ -164,35 +165,60 @@ class GatewaySessionBinder:
 
         if request.session_key.rsplit(":", 1)[-1] != agent.agent_id:
             raise ValueError("session binding request agent does not match snapshot")
-        with self._lock:
-            generation = self._generations.get(agent.agent_id, 0)
-            existing = self._repository.get(request.session_key)
-            if existing is not None:
-                revision = self._binding_revisions.get(
-                    request.session_key,
-                    self._startup_revisions.get(agent.agent_id, agent.revision),
+        while True:
+            with self._lock:
+                generation = self._generations.get(agent.agent_id, 0)
+                existing = self._repository.get(request.session_key)
+                revision = (
+                    self._binding_revision(request.session_key, agent=agent)
+                    if existing is not None
+                    else None
                 )
-                if revision == agent.revision and self._binding_matches_workspace_root(
-                    existing.kernel_session_id,
-                    expected_workspace_root=str(agent.config.workspace_root),
-                ):
-                    refreshed = SessionBinding(
-                        session_key=request.session_key,
-                        kernel_session_id=existing.kernel_session_id,
-                        reply_context=request.reply_context,
-                    )
-                    if self._write_guard_is_current(
+                if existing is None or revision != agent.revision:
+                    break
+
+            workspace_matches = await asyncio.to_thread(
+                self._binding_matches_workspace_root,
+                existing.kernel_session_id,
+                expected_workspace_root=str(agent.config.workspace_root),
+            )
+            if not workspace_matches:
+                break
+
+            refreshed = SessionBinding(
+                session_key=request.session_key,
+                kernel_session_id=existing.kernel_session_id,
+                reply_context=request.reply_context,
+            )
+            with self._lock:
+                current = self._repository.get(request.session_key)
+                candidate_is_current = (
+                    current is not None
+                    and current.kernel_session_id == existing.kernel_session_id
+                    and self._binding_revision(request.session_key, agent=agent)
+                    == agent.revision
+                )
+                guard_is_current = self._write_guard_is_current(
+                    agent=agent,
+                    generation=generation,
+                )
+                if not guard_is_current:
+                    self._record_provenance(
+                        refreshed,
                         agent=agent,
-                        generation=generation,
-                    ):
-                        refreshed = self._repository.bind(
-                            session_key=refreshed.session_key,
-                            kernel_session_id=refreshed.kernel_session_id,
-                            reply_context=refreshed.reply_context,
-                        )
-                        self._binding_revisions[request.session_key] = agent.revision
-                    self._record_provenance(refreshed, agent=agent, persist_binding=True)
+                        persist_binding=candidate_is_current,
+                    )
                     return refreshed
+                if not candidate_is_current:
+                    continue
+                refreshed = self._repository.bind(
+                    session_key=refreshed.session_key,
+                    kernel_session_id=refreshed.kernel_session_id,
+                    reply_context=refreshed.reply_context,
+                )
+                self._binding_revisions[request.session_key] = agent.revision
+                self._record_provenance(refreshed, agent=agent, persist_binding=True)
+                return refreshed
 
         config = agent.config
         metadata = _build_session_metadata(
@@ -391,6 +417,17 @@ class GatewaySessionBinder:
         return generation == self._generations.get(
             agent.agent_id, 0
         ) and self._catalog.is_current(agent)
+
+    def _binding_revision(
+        self,
+        session_key: str,
+        *,
+        agent: LiveAgentSnapshot,
+    ) -> int:
+        return self._binding_revisions.get(
+            session_key,
+            self._startup_revisions.get(agent.agent_id, agent.revision),
+        )
 
     def _guard_for(self, agent: LiveAgentSnapshot) -> BindingWriteGuard:
         return BindingWriteGuard(
