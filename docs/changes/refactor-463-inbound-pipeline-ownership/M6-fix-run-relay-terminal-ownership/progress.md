@@ -13,8 +13,8 @@
   - E2E/Regression: public contract、controlled coordinator regression 与 real Kernel/coordinator integration 均已落库；真实 IM 产品旅程统一在 R2/R3 执行。
   - Visual/Interaction: N/A。
   - Prototype Comparison: N/A。
-- Rollback: 回退 `4f759badf` 恢复 Gateway 调用 `submit(steer=True)`；这会重新引入 terminal window 的 orphan/duplicate run。
-- Commits: `c697a8eac`（C1 red tests），`4f759badf`（C2 implementation），`65fa3d1b8`（C3 evidence）。
+- Rollback: 回退 `8b26c65db` 恢复 Gateway 调用 `submit(steer=True)`；这会重新引入 terminal window 的 orphan/duplicate run。
+- Commits: `0b8059959`（C1 red tests），`8b26c65db`（C2 implementation），`e6ab66261`（C3 evidence）。
 
 ## R2 — relay error 终态与后续队列恢复
 
@@ -26,11 +26,11 @@
   - Entry: ephemeral IM `:65132` + Gateway `wt-refactor-463-M6-87178` + 真实 LLM_PROXY 上游 `kimiCoding:K2.6`。模型实际发出 `send_message(to=conversation:missing-m6-real, text=M6TOOLBAD1D3E)`；session tool result 为 `tool execution failed: send_message: IM dispatch failed: IM rejected agent.message frame (invalid_agent_message): conversation_id not found`，同一 run 随后完成 `INVALID-HANDLED-M6TOOLBAD1D3E`。
   - Frontend State Matrix: N/A。
   - Browser QA: N/A；黑盒从 IM public HTTP 入口驱动。
-  - E2E/Regression: 同 conversation `aa12bf9d54424f17beb50d4b59b6eca0` 的后继 `M6TOOLSAME2E4F` completed；新 conversation `a993b9126d884ac9b9097bd818a565e7` 的 `M6TOOLNEW3F5A` completed。三段 agent reply 均由 IM DB 观测为 completed；node 心跳从 `08:50:35` 推进到 `08:51:35` 且保持 online，IM log 的 `gateway_ws_connections=1`，证明全程没有 Gateway restart / reconnect。
+  - E2E/Regression: 同 conversation `aa12bf9d54424f17beb50d4b59b6eca0` 的后继 `M6TOOLSAME2E4F` completed；新 conversation `a993b9126d884ac9b9097bd818a565e7` 的 `M6TOOLNEW3F5A` completed。三段 agent reply 均经 authenticated public IM message API 观测为 completed；node 心跳从 `08:50:35` 推进到 `08:51:35` 且保持 online，IM log 的 `gateway_ws_connections=1`，证明全程没有 Gateway restart / reconnect。
   - Visual/Interaction: N/A。
   - Prototype Comparison: N/A。
-- Rollback: 回退 `bfa2efb9e` 会恢复“error 只记录、pending head 永不结束”的队列毒化行为。
-- Commits: `914e15825`（C1 red tests），`bfa2efb9e`（C2 implementation），`81e93a122`（C3 evidence）。
+- Rollback: 回退 `06036137d` 会恢复“error 只记录、pending head 永不结束”的队列毒化行为。
+- Commits: `0e2179fdf`（C1 red tests），`06036137d`（C2 implementation），`bfa9ddaec`（C3 evidence）。
 
 ## R3 — permission watchdog 与整体资源收敛
 
@@ -38,12 +38,12 @@
 - Decision: `_await_terminal_run()` 用命名的 `watchdog_timeout` 持有当前策略：普通运行取配置值，收到 `permission_request` 切为 `None` 完全暂停，收到 `permission_resolved` 恢复配置值。测试同时证明 permission 等待超过 timeout 仍存活、resolved 后再次静默会被回收；旧 fake 补齐 inject-only public seam，不改变生产行为。
 - Rationale: permission pending 是明确的外部等待状态，不是 run 无进展；恢复后重新启用同一命名 timeout，仍保留真正 stalled run 的资源收敛。timeout 状态由唯一 terminal stream consumer 驱动，避免另建 timer owner。
 - Evidence:
-  - Tests: terminal / stop / shutdown / dispatcher focused 回归 `29 passed`；本 milestone 相关 focused suite `138 passed`；修正旧 fake 后 targeted pipeline `6 passed`；最终 `pytest -q -m "not e2e"` 为 `3401 passed, 1 skipped, 20 deselected`。
+  - Tests: terminal / stop / shutdown / dispatcher focused 回归 `29 passed`；本 milestone 相关 focused suite `138 passed`；修正旧 fake 后 targeted pipeline `6 passed`。在最新 unit `f71f524a2` 上 rebase 后，verified HEAD `0bac3f8312770386c864afe09cd75103346c4916`（本次 evidence-only refresh 前）通过 focused gate `105 passed`、`ruff check .` 与 `pytest -q -m "not e2e"`：`3417 passed, 1 skipped, 20 deselected`。
   - Entry: `tests/unit/personal_assistant/test_session_run_coordinator_terminal.py` 用可控 stream 让 pending permission 等待超过 idle timeout，再 resolve 并验证 timeout 重新生效。
   - Frontend State Matrix: N/A。
   - Browser QA: N/A。
   - E2E/Regression: 在真实 IM + Gateway + LLM 环境执行 `scripts/e2e-critical.sh -q -k stop_aborts_active_run`，结果 `1 passed, 16 deselected in 33.01s`；真实 invalid relay 后同/新会话恢复证据见 R2。隔离栈随后由 `e2e-down.sh` 停止并核对 PID。
   - Visual/Interaction: N/A。
   - Prototype Comparison: N/A。
-- Rollback: 回退 `91232958f` 会恢复 permission pending 被 idle watchdog 误杀；回退 `d8c839a55` 只会令旧测试 fake 再次偏离 public SDK contract。
-- Commits: `f0d6ff142`（C1 red tests），`91232958f`（C2 implementation），`d8c839a55`（compatibility fake）。
+- Rollback: 回退 `c0b9ead42` 会恢复 permission pending 被 idle watchdog 误杀；回退 `92f357e3a` 只会令旧测试 fake 再次偏离 public SDK contract。
+- Commits: `eb25a9866`（C1 red tests），`c0b9ead42`（C2 implementation），`92f357e3a`（compatibility fake）。
