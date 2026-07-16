@@ -1050,6 +1050,36 @@ class Kernel:
             raise ValueError(f"session does not exist: {session_id}")
         return await self._c.executor.compact(self._c.directory.open(ref))
 
+    def try_steer(
+        self,
+        *,
+        session_id: str,
+        parts: list[dict],
+        origin: RunOrigin = RunOrigin.USER,
+    ) -> RunInfo | None:
+        """Try to inject one message into the session's active run.
+
+        This operation is inject-only: it returns ``None`` when no active run can
+        accept the message and never creates a fallback run. Product coordinators
+        that already own normal-run admission can therefore decide when and where
+        to queue exactly one fallback without racing ``submit(steer=True)``.
+
+        Args:
+            session_id: Session whose active run may receive the message.
+            parts: Input parts rendered with the same rules as ``submit``.
+            origin: Message origin recorded on the injected pending message.
+
+        Returns:
+            The active ``RunInfo`` with ``injected=True`` when accepted, otherwise
+            ``None``. A ``None`` result guarantees this call created no run.
+        """
+
+        return self._try_inject_active_run(
+            session_id=session_id,
+            parts=parts,
+            origin=origin,
+        )
+
     def submit(
         self,
         *,
@@ -1095,7 +1125,7 @@ class Kernel:
         """
         effective_root = Path(workspace_root or self._repo_root).expanduser().resolve()
         if steer:
-            injected = self._try_inject_active_run(
+            injected = self.try_steer(
                 session_id=session_id, parts=parts, origin=origin
             )
             if injected is not None:

@@ -174,14 +174,11 @@ class SessionRunCoordinator:
                 if failure_kind is not None:
                     image_failure = (failure_kind, binding)
                 else:
-                    record = self._kernel.submit(
+                    record = self._kernel.try_steer(
                         session_id=binding.kernel_session_id,
                         parts=parts,
-                        workspace_root=active.agent.config.workspace_root,
-                        steer=True,
-                        model=self._resolve_agent_model(active.agent),
                     )
-                    if getattr(record, "injected", False):
+                    if record is not None:
                         self._steered_requests.setdefault(active.run_id, []).append(
                             request
                         )
