@@ -25,19 +25,19 @@
 
 ## R2 — 断线 incarnation supersede 与 control correlation
 
-- Context: TODO。
-- Decision: TODO。
-- Rationale: TODO。
+- Context: 旧连接一建立即并行发送 register 与业务队首，generic error 只能靠业务 deque 猜测归属；heartbeat 又绕过业务 FIFO 直接写 socket。register/heartbeat 的 error 因而可能弹掉 report/status/message，且断线重排会让旧 runtime incarnation status 抢在新 incarnation 前重放。
+- Decision: wire owner 扩展为 `control|business` 两条 lane 共用的单响应槽；register ack 前只允许 control flush，ack 后启动 heartbeat、执行 on-connected convergence 并开放业务。heartbeat 也排入 control lane、使用自身 future；control error 断开当前 socket且不消费业务。断线时 control 终止、业务重排，若 pending 已有同 channel 不同 incarnation status 则把旧 owner 标为 superseded 而不重放。
+- Rationale: IM websocket 的响应因果是单槽串行协议；显式 lane 与 owner 能让无 request metadata 的 generic error 仍有唯一归属。register ack gate 同时确保 node identity 被 IM 接受后才发送 node-scoped business；status 的 incarnation supersede 则把重连语义收敛为只恢复当前 runtime。
 - Evidence:
-  - Tests: TODO。
-  - Entry: TODO。
+  - Tests: C1 two-socket/register/heartbeat regressions 在旧实现稳定失败；C2 focused backend suite（status ownership/control correlation/status protocol/connection behavior/resilience/reconcile callback/channel reconcile/bootstrap）全绿，Ruff 全绿。
+  - Entry: 第一条 socket 的 register error 或 heartbeat error 后显式断开；第二条 socket 先只发 register，ack 后按原 FIFO 发送 `node.report`、current `channel.status`、`agent.message`，message waiter 由自身 ack 唤醒。旧 incarnation 的 late result 对新 owner 为 no-op。
   - Frontend State Matrix: N/A。
   - Browser QA: N/A。
-  - E2E/Regression: TODO。
+  - E2E/Regression: `test_gateway_status_frame_ownership.py::test_disconnect_replays_only_current_status_incarnation`、`test_gateway_control_frame_correlation.py::{test_register_error_never_rejects_buffered_business_fifo,test_heartbeat_error_rejects_only_heartbeat_control_owner}`。
   - Visual/Interaction: N/A。
   - Prototype Comparison: N/A。
-- Rollback: TODO。
-- Commits: TODO。
+- Rollback: 回退 R2 C1/C2/C3；会恢复 register ack 前业务并发、heartbeat 绕过 owner 以及旧 incarnation 重放风险。
+- Commits: C1=`b2d5310c4`，C2=`47723f6d1`，C3=本提交。
 
 ## R3 — Removal 自动成功清理旧反馈
 

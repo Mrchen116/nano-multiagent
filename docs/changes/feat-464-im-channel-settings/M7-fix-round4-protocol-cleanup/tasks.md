@@ -19,7 +19,7 @@
 ## 测试策略
 
 - 被测行为（来自退出标准）：wire-send yield 期间 status owner 稳定；断线后 current incarnation 独占重放；register/heartbeat 错误与业务 FIFO 隔离；removal resource 自动消失时清理旧反馈。
-- 已有测试在：`tests/unit/personal_assistant/test_channel_status_protocol.py`、`tests/unit/personal_assistant/test_gateway_im_connection_behavior.py`、`src/IM/frontend/src/features/settings/agents/agent-channels-panel.test.tsx`（扩展）；新建 `tests/unit/personal_assistant/test_gateway_status_frame_ownership.py`，理由：现有 status protocol 文件已接近 400 行软上限，M7 的 wire-owner/two-socket 行为需要独立且长期可读的最低层回归。
+- 已有测试在：`tests/unit/personal_assistant/test_channel_status_protocol.py`、`tests/unit/personal_assistant/test_gateway_im_connection_behavior.py`、`src/IM/frontend/src/features/settings/agents/agent-channels-panel.test.tsx`（扩展）；新建 `tests/unit/personal_assistant/test_gateway_status_frame_ownership.py` 与 `tests/unit/personal_assistant/test_gateway_control_frame_correlation.py`，理由：现有 status/connection behavior 文件已超过或接近 400 行软上限，M7 的 wire-owner/two-socket 与 control-owner 行为需要独立且长期可读的最低层回归。
 - 落层/目录/marker：`tests/unit/` 与前端 Vitest，marker：无；targeted production browser 只作 durable evidence，不落一次性 e2e 脚本。
 - 可选依赖 importorskip：无。
 - 本 milestone 产生的一次性验收证据（收尾删除，不进套件）：隔离高位 IM/Gateway、production frontend 和 Playwright session；截图与 sanitized 报告保存在 `M7-fix-round4-protocol-cleanup/evidence/`，临时配置、数据库、日志、PID、symlink 和浏览器 profile 收尾删除。
@@ -72,7 +72,7 @@ Prototype / Reference Contract：
 
 - 步骤：断线后新 incarnation 退休同 channel 旧 sent/unacked status；register/heartbeat 建立独立 ACK/error 边界，并以 register ack 开启业务 flush。
 - 验证：two-socket 只发 current；旧 result no-op；owner mismatch/heartbeat error 对 report/status/message/waiter 零误伤。
-- 状态：TODO。
+- 状态：DONE。新 socket 的 register ack 成为业务 flush 边界；register/heartbeat 进入 control lane 并占有显式 wire owner，错误只终止对应 control frame。断线重排 status 时，pending 中已有同 channel 新 incarnation 即淘汰旧 sent/unacked status，业务 FIFO 和 waiter 保持不变。
 
 ### R3 — Removal 自动成功清理旧反馈
 
