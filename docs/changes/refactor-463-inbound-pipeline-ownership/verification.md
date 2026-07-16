@@ -221,3 +221,108 @@ None.
 ### SUGGESTION（可以修）
 
 None.
+
+# Round 3
+
+Validated head: `41577b479469e6e4325f3ef4e2dd0f12fb7f952f`
+
+Review round: 3
+
+Mode: full
+
+Delta base: N/A
+
+Inherited focus issue: Round 2 CRITICAL-1（Gateway restart/reuse 后 `send_message` 使用旧 durable endpoint）
+
+Requires full verification: false
+
+## Summary
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 39/39 tasks 标记完成；6/6 requirements 有实现投影 |
+| Correctness | 17/20 scenarios covered；同一 terminal-race 根因使 steer fallback 产生 orphan + duplicate run，影响串行、插话与不重不漏 |
+| Coherence | Round 2 process-scoped endpoint 缺口已关闭；D4 的 atomic run ownership 与 D8 的 public-SDK regression 仍不闭合 |
+
+**结论：1 critical issue found. Fix before PR.**
+
+## Completeness
+
+- Tasks: 39/39 标记完成（M1 7/7，M2 12/12，M3 8/8，M4 6/6，M5 6/6）。五个 milestone 的 tasks、progress 与 durable evidence 均存在；M3/M4 对“无 orphan/duplicate run”的退出声明在真实 SDK terminal race 下不成立，归入 Correctness/Coherence 的 CRITICAL-1。
+- Spec 覆盖：motivation 的 6 组 Requirement、20 个 Scenario 都有生产实现和永久测试投影；“同会话串行且跨会话并行”“运行中插话被及时采纳”“中间与最终回复不重不漏”在同一合法 terminal race 下失败，见 CRITICAL-1。
+- Delta-spec：`kernel / im / gateway / cli: no spec delta` 的结论仍成立。M5 把当前 listener URL 作为 process-scoped provider 注入既有 `send_message` 工具；没有改变 binding schema、session key、history、IM API 或 channel protocol。CRITICAL-1 是实现没有满足既有 Gateway 并发/回复契约和已批准 D4，不应改写成新行为 spec。
+- Prototype / Reference：N/A；本 unit 无前端、原型或 must-match reference contract。
+- Acceptance artifact：`acceptance.md` 是 M4 前的历史输入；Round 3 直接按当前 head、全部 milestone evidence、生产代码和独立测试取证，不复用其中旧 verdict。
+
+## Round 2 focus closure
+
+| Round 2 finding | Round 3 结论 | 独立证据 |
+|---|---|---|
+| CRITICAL-1 restart/reuse 后旧 session metadata 的随机端口让 `send_message` 请求旧进程 | **closed** | `InternalDispatchEndpoint` 是带锁的 process owner（`internal_dispatch.py:29-51`）；composition 在 Kernel 前构造并把 `current_url` 注入 PA tool（`main.py:2157-2166`; `product.py:375-409`）；listener bind 后 publish、shutdown 开始即 clear（`main.py:1001-1022,1051-1057`）；工具每次调用优先解析 provider，provider 存在但为空时 fail-fast，绝不回退旧 metadata（`tools/send_message.py:97-136`）。永久真实 Kernel + persistent binding + 两个真实 listener 回归保留同 session/history，明确断言旧 A 零请求、新 B 唯一收件（`tests/integration/test_send_message_restart_routing.py:149-234`）；本轮独立重跑通过。 |
+
+## Correctness
+
+| Requirement / Scenario | 实现与测试投影 | 状态 |
+|---|---|---|
+| 直聊消息仍由正确 Agent 在原目标回复 | narrow pipeline route → coordinator → captured reply context；direct routing/IM tests | covered |
+| Gateway 重启后续接原会话 | persistent binding + Kernel JSONL reopen；M5 restart integration 保留 session id/history | covered |
+| 未知 Agent 路由仍被拒绝 | catalog `require()` 与 pipeline route guard；unknown-agent contract | covered |
+| 动态 Agent 配置在下一轮生效 | revisioned catalog publish + binder generation/invalidation；config/provenance races | covered |
+| Agent 工具投递仍同步到正确直聊会话 | live endpoint provider + captured provenance；M5 A→B restart dispatch integration | covered |
+| 未点名群消息只积累背景 | pipeline group gate + persistent group store；group tests | covered |
+| 点名后带入此前群背景 | coordinator destructive drain/sender prefix/image preparation；exactly-once tests | covered |
+| 同会话串行且跨会话并行 | queue/transition lock 对常规路径正确；terminal race 会在 queue slot 外先创建 orphan run、再排队创建 duplicate run | **fails：CRITICAL-1** |
+| 运行中插话被及时采纳 | active steer 对常规路径正确；Kernel 已 terminal、Gateway marker 未清时同一插话执行两次 | **fails：CRITICAL-1** |
+| `/stop` 中断活动运行 | complete active handle 固定 original binding/snapshot；publish/stop regression | covered |
+| 空闲会话收到 `/stop` | coordinator idle direct/group control paths | covered |
+| 活着但安静的运行不被误杀 | liveness stream timeout/reconcile owner；quiet/stall tests | covered |
+| 有效图片正常进入本轮 | typed resolver + coordinator single preparation | covered |
+| 图片下载、超限或损坏 | typed failure + fixed original-channel control reply，不 submit | covered |
+| 中间与最终回复不重不漏 | ordinary observer/tracker/terminal path正确；orphan run 无 stream/lifecycle owner且可能重复 history/tool side effect | **fails：CRITICAL-1** |
+| 后台任务完成后回到原会话 | captured subscription reply context + replay/dedupe/buffered handoff | covered |
+| 外部 channel 与影子会话投递边界不变 | typed trigger-source guard + external delivery tests | covered |
+| IM 离线时外部 channel 仍可用 | local outbound path不依赖 connected IM | covered |
+| 启动、停止和重连结果保持一致 | endpoint readiness/clear + supervised IM reconnect + resource graph tests/evidence | covered |
+| 停止时已接纳的入站工作有明确结局 | queue/dispatcher/Kernel/subscriber/delivery/IM ack ordered shutdown | covered |
+
+## Coherence
+
+| design 决策 | 遵守? | 代码证据与偏离 |
+|---|---|---|
+| D1 narrow `InboundPipeline` | 是 | façade 只做 route/gate/shadow/group append/delegation，run state 已迁出 |
+| D2 revisioned `LiveAgentCatalog` | 是 | copy-on-write immutable snapshots + concrete config publish owner |
+| D3 binder 唯一拥有 binding/stale guard | 是 | resolve/reuse/create/invalidate/reverse/canonical/conversation bind 与 provenance 收敛在 binder；M5 endpoint 属 process capability，不再依赖 durable binding refresh |
+| D4 coordinator 原子拥有 queue/steer/stop/terminal | **否** | `dispatch()` 对 active marker 调真实 `kernel.submit(steer=True)` 后，在 `injected=False` 时丢弃已创建的 fresh record，只把 parts 交给 queue（`session_run_coordinator.py:169-197,215`）；queue 随后再次 normal submit 并只拥有第二个 run（`:333-391`）。真实 SDK 明确 `injected=False` 代表 freshly created run（`src/agent/sdk/kernel.py:1070-1112`）。 |
+| D5 typed image strategy + exactly-once preparation | 是 | resolver typed result；同一 prepared parts 未二次 drain/download（但 CRITICAL-1 会二次执行同一 parts） |
+| D6 sealed resource graph + one deadline | 是 | admission/Kernel terminal/consumer/delivery/IM close 的 owner 顺序和具名 timeout 保持闭合 |
+| D7 composition 一次构造 | 是 | endpoint/callback/provider 都在构造期注入；合法晚绑定只返回 live resource |
+| D8 public tests + deletion guard | **部分** | interface/architecture contracts完整；coordinator fake 的 idle steer 与 SDK contract 不一致，导致 terminal race 的双 submit 未被永久回归捕获 |
+| D9 deep modules, no LOC KPI | 是 | catalog/binder/coordinator/subscription/tracker/cron service 均拥有真实状态与不变量 |
+
+### Prototype / Reference Contract
+
+N/A。
+
+## Independent checks
+
+- M5 + coordinator + SDK/architecture focused pytest：`48 passed in 1.47s`。
+- `ruff check src tests`：passed。
+- `pytest -q -m "not e2e"`：`3394 passed, 1 skipped, 20 deselected, 16 warnings in 121.07s`。
+- `git diff --check a6c04258183b89867df6f08f6dcedf125989daf0..41577b479469e6e4325f3ef4e2dd0f12fb7f952f`：passed。
+- test naming/size contract：included in focused run；M5 integration file 234 lines，未越过 400-line gate。
+- M5 durable evidence：审计 `M5-fix-restart-dispatch-capability/evidence/r2-live-restart-dispatch.md`，真实 Gateway/IM/LLM 的 A→B 重启旅程同时证明 old metadata=A、live endpoint=B、同 session/history 且只投递 B；与永久 integration 的机制一致。
+- 真实 Kernel terminal-race 只读诊断：第一 run 已在 Kernel terminal，但 observer gate 让 Gateway active marker 暂未清理；第二 dispatch 后 release 前 registry 已有 `[run1, run2]`，release 后最终为 `[run1, run2, run3]`，三者均 `completed`；第二 `PipelineResult.run_id == run3`，`run2` 无 Gateway stream/lifecycle owner。该诊断使用当前 `SessionRunCoordinator`、真实 `agent.sdk.Kernel`、真实 binder/catalog/router，只用 terminal observer gate 控制竞态，不修改源码、测试或配置。
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+- **CRITICAL-1 — coordinator 把真实 SDK 已创建的 steer fallback 当成“尚未 submit”，同一 inbound 因而产生 orphan run + duplicate run。** 合法时序是：① run1 已在 Kernel 进入 terminal，但 coordinator 还在 terminal observer/lifecycle await，故 `_active_runs` 仍保留 run1（`session_run_coordinator.py:409-418,720-766`）；② 第二条消息在 transition lock 内看到该 marker 并调用 `kernel.submit(steer=True)`（`:169-183`）；③ Kernel 此时已无 active run，所以按 public contract 创建并启动 fresh run2，返回 `injected=False`（`src/agent/sdk/kernel.py:1070-1112`；永久 SDK contract `tests/contract/test_kernel_sdk_behavior_contract.py:914-934`）；④ coordinator 忽略 record/run2，只保存 parts 后进入 `_submit_queued()`（`session_run_coordinator.py:184-197,215`）；⑤ run1 Gateway cleanup 释放 queue 后，`_run_turn()` 再 normal submit 同一 parts 为 run3，并只消费/发 lifecycle 给 run3（`:333-391,399-458`）。结果是 run2 已真实执行、写 history 并可能产生工具副作用，却没有 Gateway stream、reply 或 shutdown ownership；run3 又执行相同用户输入。现有 `ControlledKernel` 在 steer 时只返回旧 latest run id 和可配置的 `injected=False`，没有像真实 SDK 一样创建 fresh run（`tests/unit/personal_assistant/_session_run_coordinator_helpers.py:62-82`），因此 `test_fallback_serializes_same_session_while_other_session_runs` 与 `test_steer_race_reuses_group_and_image_parts_exactly_once`（`test_session_run_coordinator_admission.py:47-126`）把错误实现验证成绿。本轮真实 Kernel gate 诊断稳定得到 3 个 completed run，第二结果只认 run3。该路径违反 motivation 的 FIFO/插话/不重不漏场景（`motivation.md:92-102,128-132`）、D4 “fallback 一次”与唯一 terminal owner（`design.md:144-160`），也直接违背 M4 “stop/steer 无孤儿或重复 run”的退出标准（`design.md:394`）。**修复要求**：在产品只能依赖 `agent.sdk` 的边界内，选择并钉死一种原子语义：要么提供 public try-steer-only 操作（注入失败不创建 run），失败后才把 prepared parts 交 FIFO；要么 coordinator 立即接管 `injected=False` 返回的 fresh `RunInfo`，登记完整 active handle，并只消费/收尾该 run，绝不能二次 submit。接管方案还必须证明与旧 run terminal finalization、`/stop`、shutdown 和 follower lifecycle 的顺序闭合。补永久真实 Kernel/public-SDK 回归：用 terminal observer gate 令 run1 已 Kernel-terminal 但 marker 尚存，派发第二条消息，断言总 run 数只增加 1、该 run 恰好一个 stream/lifecycle owner、输入/history/tool side effect 各一次、第二结果返回同一 run id；同时让 coordinator fake 遵守 SDK 的 `injected=False == fresh run` contract，避免继续掩盖生产语义。
+
+### WARNING（应该修）
+
+None.
+
+### SUGGESTION（可以修）
+
+None.
