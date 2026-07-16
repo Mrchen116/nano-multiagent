@@ -11,7 +11,7 @@
 - [x] 所有 Gateway→IM node-scoped 帧在业务分发前统一校验当前 websocket 注册关系、token owner、连接 owner、持久 owner 与 payload node；拒绝路径不改 DB、不唤醒 waiter、不广播。
 - [x] 绑定完成后重新校验已注册 websocket；错误 owner 的 socket/key 被逐出且不下发 manifest。
 - [x] legacy secret 迁移后，agent 同步、token 刷新和 owner open-id 回写共享同一个脱敏 config owner；后续写盘不恢复 `appSecret` 或含密备份，`credentialRef` 保留且权限为 `0600`。
-- [ ] manifest 在任何 reconcile/stop/cache/head 变更前完成全量结构、generation、key、envelope 与 opener 校验；任一成员失败时整个 manifest 返回 `retryable_failed`。
+- [x] manifest 在任何 reconcile/stop/cache/head 变更前完成全量结构、generation、key、envelope 与 opener 校验；任一成员失败时整个 manifest 返回 `retryable_failed`。
 - [ ] cache commit 失败不会投影为已应用/当前连接；错误重载后仍可见，在线按同 revision 有界自动重试，只有 commit 成功才投影 applied；失败结果 ACK 不丢必需 outbox。
 - [ ] node offline 且 `observed.status_stale=true` 时，connected/limited/failed 都明确显示“最后已知状态/节点离线”；pending/failed/retry 状态优先级不被覆盖，375px 可用。
 - [ ] 新 status incarnation 原子替换旧未确认 barrier/snapshot；旧 outbox 不重放、不无界增长，晚到 ACK 幂等，重启后仍有界。
@@ -81,6 +81,7 @@ Prototype / Reference Contract：
 
 - 步骤：拆出严格 validation/prepare 阶段，完整校验顶层数组、每个 channel/removal mapping、revision/key/envelope/opener 后才调用 manager。
 - 验证：缺字段、错误类型、多成员后项失败、generation/key/opener 失败全部 `retryable_failed`，旧 runtime/cache/head 不变。
+- 状态：完成。applier 先验证完整 snapshot 的 owner/node/revision、两个必需数组、每个 channel/removal 的完整 wire shape 和 generation，再统一解封凭据；任一结构或凭据失败均在 `ChannelManager.reconcile()` 前返回。
 
 ### R4 — 应用失败投影与有界同 revision 重试
 

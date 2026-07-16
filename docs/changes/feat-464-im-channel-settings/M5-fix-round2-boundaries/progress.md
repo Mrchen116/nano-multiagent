@@ -34,12 +34,19 @@
 
 ## R3 — Manifest 全量预校验与原子失败
 
-- Context: 待实施。
-- Decision: 待实施。
-- Rationale: 待实施。
-- Evidence: 待补。
+- Context: applier 把缺失/非数组 `channels` 当空数组，并静默跳过非 mapping channel/removal；完整 snapshot 因此被截断后仍进入 manager，旧安全 runtime 会被当作 desired removal 停止并提交新 cache/head。
+- Decision: 增加无副作用 prepare 阶段，严格验证顶层 owner/node/revision、必需 `channels[]`/`removals[]`、每项完整 wire shape、generation 和 node scope；结构全部通过后才解封全部 credentials，最后才允许调用唯一 lifecycle owner。
+- Rationale: complete manifest 是 replace-all 契约，任何“跳过坏项继续”的解析方式都会把数据错误转成删除指令；原子 fail-closed 必须发生在生命周期和 cache 边界之外。
+- Evidence:
+  - Tests: `pytest -q tests/unit/personal_assistant/test_channel_credential_recovery.py tests/integration/test_channel_reconcile.py tests/integration/test_channel_bootstrap.py tests/integration/test_channel_removal_reconcile.py` → `18 passed`；focused Ruff → passed。
+  - Entry: 永久 regression 先运行并缓存 `ch-a`，再从真实 reconcile applier 入口分别提交 missing/non-array/non-mapping channels/removals、incomplete removal 和 opener failure；全部返回 `retryable_failed`，adapter events 仍只有 `start`、cache bytes 不变、applied head 保持 revision 1。
+  - Frontend State Matrix: N/A。
+  - Browser QA: N/A。
+  - E2E/Regression: `tests/unit/personal_assistant/test_channel_credential_recovery.py` 的 malformed/open failure 参数化回归。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
 - Rollback: 回退 R3 的 test/fix/docs commits。
-- Commits: 待补。
+- Commits: C1=`454e63cd6`，C2=`bc4379156`。
 
 ## R4 — 应用失败投影与有界同 revision 重试
 
