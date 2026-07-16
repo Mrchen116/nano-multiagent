@@ -1030,12 +1030,42 @@ async def test_try_steer_active_run_reuses_existing_run(tmp_path: Path) -> None:
         steered = kernel.try_steer(
             session_id=session.session_id,
             parts=[{"type": "text", "text": "use the new constraint"}],
+            expected_run_id=active.run_id,
         )
 
         assert steered is not None
         assert steered.injected is True
         assert steered.run_id == active.run_id
         assert set(kernel._c.runs_registry._runs) == runs_before  # noqa: SLF001
+    finally:
+        gate.set()
+        kernel.close()
+
+
+async def test_try_steer_rejects_stale_expected_run_identity(tmp_path: Path) -> None:
+    """The public inject-only seam never redirects an old marker to a new run."""
+
+    import threading
+
+    gate = threading.Event()
+    kernel = _build_kernel(tmp_path, _llm_client_override=_ThreadGatedClient(gate))
+    try:
+        session = await kernel.create_session(workspace_root=tmp_path)
+        current = kernel.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "replacement run"}],
+            workspace_root=tmp_path,
+        )
+        await _wait_for_run_status(kernel, current.run_id, "running")
+
+        steered = kernel.try_steer(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "stale follower"}],
+            expected_run_id="run-that-already-ended",
+        )
+
+        assert steered is None
+        assert kernel.get_run(current.run_id).status == "running"
     finally:
         gate.set()
         kernel.close()

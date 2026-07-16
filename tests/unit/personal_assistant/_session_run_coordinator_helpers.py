@@ -32,6 +32,7 @@ class ControlledKernel:
         self.interrupt_calls: list[str] = []
         self.cancel_calls: list[str] = []
         self.inject_steer = False
+        self.forced_active_run_id: str | None = None
         self._session_index = 0
         self._run_index = 0
         self._sessions: dict[str, str] = {}
@@ -45,22 +46,30 @@ class ControlledKernel:
         *,
         session_id: str,
         parts: list[dict[str, Any]],
+        expected_run_id: str | None = None,
         **_kwargs: Any,
     ) -> SimpleNamespace | None:
         """Mirror the public inject-only SDK seam without creating a run."""
 
-        run_id = self._latest_run_by_session.get(session_id, "")
+        run_id = self.forced_active_run_id or self._latest_run_by_session.get(
+            session_id, ""
+        )
         call = {
             "session_id": session_id,
             "parts": parts,
             "steer": True,
             "run_id": run_id,
+            "expected_run_id": expected_run_id,
         }
         self.operations.append(("steer", run_id))
         self.try_steer_calls.append(call)
         self.submit_calls.append(call)
         self._submit_changed.set()
-        if not self.inject_steer or not run_id:
+        if (
+            not self.inject_steer
+            or not run_id
+            or (expected_run_id is not None and expected_run_id != run_id)
+        ):
             return None
         return SimpleNamespace(run_id=run_id, injected=True)
 
