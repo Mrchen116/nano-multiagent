@@ -1,13 +1,9 @@
-"""bugfix-417-M3 R4: Gateway run-idle watchdog is a pure liveness detector.
+"""bugfix-465: permission waits are fully exempt from the idle watchdog.
 
-Supersedes bugfix-410-M2 R2's permission-specific exemption (#98). The kernel now
-emits a periodic ``run_heartbeat`` during every alive-but-quiet window (silent long
-tool / awaiting LLM / parked on a permission decision), all on the same stream. ANY
-event — business OR heartbeat — resets the idle timer, so there is no ``permission_request``
-exemption branch anymore: a parked permission wait survives because its heartbeat keeps
-arriving, and a genuinely dead run (heartbeat stopped, e.g. crash) is still reaped after
-the timeout. When the watchdog does reap, it reports ``reason="stalled"`` (中断), distinct
-from a tool hitting its own deadline (``tool_timeout``/执行超时).
+During a permission_request the run is intentionally waiting for a human decision,
+so it must not be reaped even if no run_heartbeat arrives. Once the kernel emits
+permission_resolved the normal idle watchdog is restored, so a subsequent stall
+(crashed tool, dead loop, etc.) is still cancelled after the idle window.
 """
 
 from __future__ import annotations
@@ -79,25 +75,25 @@ def _build_pipeline(
     )
 
 
-async def test_permission_pending_kept_alive_by_heartbeat() -> None:
-    """A parked permission wait survives a long decision because its run_heartbeat keeps
-    arriving (no permission-specific exemption branch) — each heartbeat resets the timer."""
+async def test_permission_pending_survives_without_heartbeat() -> None:
+    """A parked permission wait is fully exempt from the idle watchdog: even when no
+    run_heartbeat arrives for longer than the idle window, the run is NOT reaped.
+    Once the user resolves it, the run completes normally."""
     kernel = _ControlledStreamKernel()
-    pipeline = _build_pipeline(kernel, idle_timeout=0.15)
+    pipeline = _build_pipeline(kernel, idle_timeout=0.1)
 
     async def _drive() -> None:
-        # 1. Run parks awaiting a permission decision.
+        # Run parks awaiting a permission decision.
         kernel.push(
             {"event": "permission_request", "run_id": "run-1", "request_id": "p1"}
         )
-        # 2. The kernel emits periodic liveness heartbeats while parked — each one well
-        #    inside the 0.15s idle window, so the run is never reaped.
-        for _ in range(5):
-            await asyncio.sleep(0.08)
-            kernel.push(
-                {"event": "run_heartbeat", "run_id": "run-1", "source": "permission"}
-            )
-        # 3. User decides → the run resumes and completes.
+        # No heartbeat for longer than the 0.1s idle window — must stay alive.
+        await asyncio.sleep(0.25)
+        # User resolves the permission request.
+        kernel.push(
+            {"event": "permission_resolved", "run_id": "run-1", "request_id": "p1"}
+        )
+        # Run resumes and completes.
         kernel.push({"event": "tool_start", "run_id": "run-1", "call_id": "c1"})
         kernel.push(
             {
@@ -116,14 +112,14 @@ async def test_permission_pending_kept_alive_by_heartbeat() -> None:
     await driver
 
     assert kernel.cancel_calls == [], (
-        "a permission wait kept alive by heartbeats must not be reaped"
+        "a permission wait must not be reaped while awaiting a human decision"
     )
     assert run_state.get("status") == "completed"
 
 
-async def test_permission_pending_reaped_when_heartbeat_stops() -> None:
-    """Decision 4 crash detection: if the heartbeat stops (Gateway/kernel crash) a parked
-    permission wait is reaped after the idle window — no permanently-exempt ghost."""
+async def test_permission_resolved_restores_watchdog() -> None:
+    """After permission_resolved, the idle watchdog is restored. If the run stalls
+    without heartbeats again, it is reaped — the exemption ends at resolution."""
     kernel = _ControlledStreamKernel()
     pipeline = _build_pipeline(kernel, idle_timeout=0.1)
 
@@ -131,7 +127,12 @@ async def test_permission_pending_reaped_when_heartbeat_stops() -> None:
         kernel.push(
             {"event": "permission_request", "run_id": "run-c", "request_id": "pc"}
         )
-        # Heartbeat stops here (simulated crash) — no further events. Watchdog must reap.
+        # Permission wait is exempt, so wait longer than the idle window before resolving.
+        await asyncio.sleep(0.25)
+        kernel.push(
+            {"event": "permission_resolved", "run_id": "run-c", "request_id": "pc"}
+        )
+        # After resolution the normal watchdog is back; no further events → reap.
 
     driver = asyncio.create_task(_drive())
     with pytest.raises(TimeoutError):
@@ -141,7 +142,7 @@ async def test_permission_pending_reaped_when_heartbeat_stops() -> None:
     await driver
 
     assert kernel.cancel_calls == ["run-c"], (
-        "a permission wait whose heartbeat stopped must still be reaped"
+        "after permission_resolved, a stalled run must be reaped again"
     )
 
 
@@ -162,8 +163,8 @@ async def test_idle_watchdog_still_fires_without_permission_request() -> None:
 
 
 async def test_post_decision_stall_is_reaped() -> None:
-    """After the user decides and the tool starts, a fresh stall (heartbeat stops) is
-    reaped — liveness is uniform, no leftover exemption keeps a dead run alive."""
+    """After permission_resolved restores the watchdog, a fresh stall (no heartbeat)
+    is reaped — the exemption ends at resolution, so a dead run is still caught."""
     kernel = _ControlledStreamKernel()
     pipeline = _build_pipeline(kernel, idle_timeout=0.1)
 
@@ -171,14 +172,14 @@ async def test_post_decision_stall_is_reaped() -> None:
         kernel.push(
             {"event": "permission_request", "run_id": "run-3", "request_id": "p3"}
         )
-        # A couple of heartbeats keep it alive during the wait.
-        await asyncio.sleep(0.06)
+        # While parked, the run is fully exempt from the idle watchdog.
+        await asyncio.sleep(0.15)
+        # User resolves the request; the watchdog is restored from this point.
         kernel.push(
-            {"event": "run_heartbeat", "run_id": "run-3", "source": "permission"}
+            {"event": "permission_resolved", "run_id": "run-3", "request_id": "p3"}
         )
-        # User allows → tool_start; then the tool hangs with NO further heartbeat.
         kernel.push({"event": "tool_start", "run_id": "run-3", "call_id": "c3"})
-        # Do NOT end the stream — the post-decision stall must be reaped.
+        # Then the tool hangs with NO further heartbeat — must be reaped.
 
     driver = asyncio.create_task(_drive())
     with pytest.raises(TimeoutError):
@@ -188,7 +189,7 @@ async def test_post_decision_stall_is_reaped() -> None:
     await driver
 
     assert kernel.cancel_calls == ["run-3"], (
-        "a post-decision stall with no heartbeat must hit the watchdog"
+        "a post-decision stall after permission_resolved must hit the watchdog"
     )
 
 

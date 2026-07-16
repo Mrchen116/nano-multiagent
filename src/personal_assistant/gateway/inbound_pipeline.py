@@ -1447,20 +1447,19 @@ class InboundPipeline:
         stream = self._kernel.stream(
             kernel_session_id, after_sequence=anchor_sequence or 0
         )
-        # bugfix-417-M3 R4: the idle watchdog is now a pure liveness detector. All three
-        # alive-but-quiet windows (silent long tool / awaiting LLM / parked on a
-        # permission decision) emit periodic ``run_heartbeat`` events on the same stream
-        # (kernel decisions 2-4), so ANY event — business OR heartbeat — resets the idle
-        # timer below. The previous ``awaiting_permission`` special-case branch is gone:
-        # a parked permission wait now stays alive via its heartbeat, not a per-window
-        # exemption, and a Gateway/kernel crash stops the heartbeat so a genuinely dead
-        # run is still reaped after the timeout (decision 4 crash detection).
+        # bugfix-465: a parked permission_request is intentionally waiting for a human
+        # decision, not a sign of internal deadlock. While the run is in that window the
+        # idle watchdog is fully suspended (timeout=None). The normal idle timeout is
+        # restored the moment the kernel emits permission_resolved, so a genuine stall
+        # after the decision is still reaped. Non-permission stalls keep the standard
+        # idle timer on every stream read, preserving bugfix-417 crash detection.
+        current_timeout = self._run_idle_timeout_seconds
         try:
             while True:
                 try:
                     event = await asyncio.wait_for(
                         anext(stream),
-                        timeout=self._run_idle_timeout_seconds,
+                        timeout=current_timeout,
                     )
                 except StopAsyncIteration:
                     break
@@ -1491,9 +1490,15 @@ class InboundPipeline:
                     if asyncio.iscoroutine(result):
                         await result
                 event_name = event.get("event")
-                # bugfix-417-M3 R4: no permission exemption to toggle — liveness is
-                # carried by run_heartbeat on the stream, so reaching here (any event)
-                # already reset the idle timer above.
+                if event_name == "permission_request":
+                    # bugfix-465: suspend the idle watchdog while the run is parked on a
+                    # human decision. The user may leave, close the page, and come back;
+                    # the run must stay alive until permission_resolved.
+                    current_timeout = None
+                elif event_name == "permission_resolved":
+                    # bugfix-465: decision made; restore normal liveness detection so a
+                    # subsequent crash or dead loop is still caught.
+                    current_timeout = self._run_idle_timeout_seconds
                 if event_name == "assistant_message":
                     content = event.get("content")
                     if isinstance(content, str):
