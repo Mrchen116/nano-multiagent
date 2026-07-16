@@ -8,12 +8,12 @@
 
 ## 退出标准
 
-- [ ] `UpstreamReporter.send_register()` 的 payload 包含 `agent_skills` 与 `agent_tool_allowlist`（按 agent_id 映射的列表）。
-- [ ] IM 侧 `node.register` 处理把上述两个种子字段透传给 `GatewayNodePersistence.register()`。
-- [ ] `GatewayNodePersistence.register()` 在 profile 不存在时用种子值创建；已存在 profile 保持原值不被覆盖。
-- [ ] reconcile 逻辑与 `resolve_enabled_tools`「空=零工具」语义保持不变。
-- [ ] 单测覆盖：注册负载序列化、IM 建 profile 播种、已存在 profile 不被覆盖。
-- [ ] live 证据：用 `scripts/e2e-up.sh` 起 ephemeral IM + Gateway，curl `GET /im/v1/agents/<id>/config?source=mirror` 与 `?source=live` 均显示非空 skills/tool_allowlist。
+- [x] `UpstreamReporter.send_register()` 的 payload 包含 `agent_skills` 与 `agent_tool_allowlist`（按 agent_id 映射的列表）。
+- [x] IM 侧 `node.register` 处理把上述两个种子字段透传给 `GatewayNodePersistence.register()`。
+- [x] `GatewayNodePersistence.register()` 在 profile 不存在时用种子值创建；已存在 profile 保持原值不被覆盖。
+- [x] reconcile 逻辑与 `resolve_enabled_tools`「空=零工具」语义保持不变。
+- [x] 单测覆盖：注册负载序列化、IM 建 profile 播种、已存在 profile 不被覆盖。
+- [x] live 证据：用 `scripts/e2e-up.sh` 起 ephemeral IM + Gateway，curl `GET /im/v1/agents/<id>/config?source=mirror` 与 `?source=live` 均显示非空 skills/tool_allowlist。
 
 ## 测试策略
 
@@ -31,14 +31,14 @@
 
 ## Roadpoints
 
-### R1 — 注册播种 Red 测试
+### R1 — 注册播种 Red 测试 [DONE]
 
 - 步骤:
   - 在 `test_gateway_upstream_reporter.py` 扩展 `send_register` 断言：payload 必须包含 `agent_skills` 与 `agent_tool_allowlist`，且值与 `AgentWorkspaceConfig` 一致。
   - 在 IM 侧写红测试：全新 DB 收到 `node.register` 后，`get_profile` 的 skills/tool_allowlist 等于注册种子；已存在 profile 时重注册不被覆盖。
 - 验证: 测试先失败，失败点 = 当前缺少 agent_skills / agent_tool_allowlist 字段或播种逻辑。
 
-### R2 — 实现注册播种
+### R2 — 实现注册播种 [DONE]
 
 - 步骤:
   - `upstream_reporter.py`: `send_register` 增加 `agent_skills` 与 `agent_tool_allowlist` 两个字典。
@@ -46,7 +46,7 @@
   - `gateway_persistence.py`: `register()` 新增 `agent_skills` / `agent_tool_allowlist` 参数；仅在 `existing is None` 创建 profile 时使用种子值。
 - 验证: R1 测试转绿；跑相关单元测试 + contract 测试全绿。
 
-### R3 — 回填 fix.md 与 live e2e 验证
+### R3 — 回填 fix.md 与 live e2e 验证 [DONE]
 
 - 步骤:
   - 回填 `fix.md`「修复」「验证」两段。
