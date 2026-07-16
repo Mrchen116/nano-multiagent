@@ -29,13 +29,13 @@
 - [x] C2 实现：typed stream outcome；cron 按 outcome 持久化。
 - [x] C3 文档：记录行为、测试与验证证据。
 
-### R2 — Shadow sync typed-first identity (DOING)
+### R2 — Shadow sync typed-first identity (DONE)
 
-- [ ] C1 红测：typed-only external、IM-origin guard、legacy fallback。
-- [ ] C2 实现：复用 canonical identity extractor 并清理 runtime metadata。
-- [ ] C3 文档：记录行为、测试与验证证据。
+- [x] C1 红测：typed-only external、IM-origin guard、legacy fallback。
+- [x] C2 实现：复用 canonical identity extractor 并清理 runtime metadata。
+- [x] C3 文档：记录行为、测试与验证证据。
 
-### R3 — Unattended skills 继承 (TODO)
+### R3 — Unattended skills 继承 (DOING)
 
 - [ ] C1 红测：cron/heartbeat restricted 与 empty compatibility。
 - [ ] C2 实现：`_KernelClientShim` 透传非空 restricted skills。

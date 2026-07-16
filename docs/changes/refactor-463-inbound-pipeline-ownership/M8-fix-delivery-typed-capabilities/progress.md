@@ -15,3 +15,10 @@
 - C2 `9641c5ff0`：共享 helper 使用 SDK `TERMINAL_RUN_STATUSES` 并返回 `StreamRunOutcome`；cron 按真实 status 写 history，只有 completed 才写 awareness；heartbeat 适配 typed outcome。
 - 聚焦验证：`17 passed`（stream + cron owner chain + heartbeat IM delivery）。
 - Ruff：R1 相关源文件与测试全部通过。
+
+## 2026-07-16 — R2 completed
+
+- C1 `8534fd85f`：新增 typed-only external、typed IM-origin 与 legacy fallback 回归；旧实现分别暴露 skip 与 runtime dataclass JSON 序列化问题。
+- C2 `25dce7f1a`：adapter 复用 `external_identity_from_message`，自身执行 IM-origin guard，并在 HTTP persistence 前剥离 typed runtime metadata；标题消费 typed conversation type。
+- 聚焦验证：`15 passed`（shadow adapter + inbound identity guard + gateway relay）。
+- Ruff：R2 相关源文件与测试全部通过。
