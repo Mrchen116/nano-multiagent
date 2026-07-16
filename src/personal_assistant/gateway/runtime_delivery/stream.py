@@ -3,12 +3,31 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from typing import Any
 
+from agent.sdk import TERMINAL_RUN_STATUSES
 from personal_assistant.gateway.runtime_delivery.context import (
     RunDeliveryContextStore,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class StreamRunOutcome:
+    """Canonical terminal result of consuming one kernel run stream.
+
+    Args:
+        status: Terminal status from ``TERMINAL_RUN_STATUSES``.
+        final_text: Latest non-empty assistant message, including partial output.
+        context: Delivery context removed from the shared store after consumption.
+        error: Kernel-provided failure detail, when present.
+    """
+
+    status: str
+    final_text: str
+    context: dict[str, str] | None
+    error: str | None
 
 
 async def stream_run_to_completion(
@@ -21,11 +40,14 @@ async def stream_run_to_completion(
     run_context_store: dict[str, dict[str, str]] | RunDeliveryContextStore,
     observer: Callable[..., Any] | None,
     stream_anchor: int = 0,
-) -> tuple[str, dict[str, str] | None]:
-    """Deliver one kernel run and return its final assistant text and context.
+) -> StreamRunOutcome:
+    """Deliver one kernel run and return its canonical terminal outcome.
 
     The helper owns context seeding and cleanup so heartbeat and cron cannot
     diverge in how background runs are routed into the owner's direct chat.
+
+    Raises:
+        RuntimeError: The stream closes without a canonical terminal run status.
     """
 
     _seed_owner_direct_stream_context(
@@ -37,6 +59,7 @@ async def stream_run_to_completion(
     )
 
     final_result_text = ""
+    terminal_event: Mapping[str, Any] | None = None
     popped_ctx: dict[str, str] | None = None
     try:
         async for event in kernel.stream(
@@ -52,19 +75,41 @@ async def stream_run_to_completion(
                 observation = observer(event)
                 if asyncio.iscoroutine(observation):
                     await observation
-            if event.get("event") == "run_status" and event.get("status") in (
-                "completed",
-                "failed",
-                "cancelled",
-                "error",
+            if (
+                event.get("event") == "run_status"
+                and event.get("status") in TERMINAL_RUN_STATUSES
             ):
+                terminal_event = event
                 break
     finally:
         popped_ctx = _pop_stream_context(
             run_context_store=run_context_store, run_id=run_id
         )
 
-    return final_result_text, popped_ctx
+    if terminal_event is None:
+        raise RuntimeError("stream ended without terminal run_status")
+    status = str(terminal_event["status"])
+    return StreamRunOutcome(
+        status=status,
+        final_text=final_result_text,
+        context=popped_ctx,
+        error=_extract_terminal_error(terminal_event, status=status),
+    )
+
+
+def _extract_terminal_error(
+    terminal_event: Mapping[str, Any], *, status: str
+) -> str | None:
+    error = terminal_event.get("error")
+    if isinstance(error, str) and error.strip():
+        return error.strip()
+    if isinstance(error, Mapping):
+        message = error.get("message")
+        if isinstance(message, str) and message.strip():
+            return message.strip()
+    if status == "failed":
+        return f"kernel run ended with status={status}"
+    return None
 
 
 def _seed_owner_direct_stream_context(

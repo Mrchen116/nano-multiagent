@@ -796,7 +796,7 @@ class PollingHeartbeatRunner:
         try:
             # feat-393 fix-r2 Fix B: stream from the pre-submit anchor to skip replaying
             # history from prior ticks.  Falls back to 0 when anchor is absent (test path).
-            _, ctx = await _stream_run_to_completion(
+            outcome = await _stream_run_to_completion(
                 run_id=run_id,
                 kernel_session_id=kernel_session_id,
                 agent_id=agent_id,
@@ -806,6 +806,7 @@ class PollingHeartbeatRunner:
                 observer=self._kernel_event_observer,
                 stream_anchor=record.stream_anchor,
             )
+            ctx = outcome.context
         except Exception:  # noqa: BLE001  — delivery failure does not disrupt gateway loop
             _hb_logger.exception(
                 "heartbeat run delivery failed: agent=%s run_id=%s", agent_id, run_id

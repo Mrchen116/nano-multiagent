@@ -31,7 +31,10 @@ from typing import Any, Awaitable, Callable, Mapping, Protocol
 import logging
 
 from personal_assistant.gateway.runtime_delivery.context import RunDeliveryContextStore
-from personal_assistant.gateway.runtime_delivery.stream import stream_run_to_completion
+from personal_assistant.gateway.runtime_delivery.stream import (
+    StreamRunOutcome,
+    stream_run_to_completion,
+)
 from personal_assistant.scheduler.cron_scheduler import CronJob, CronJobStore
 
 _log = logging.getLogger(__name__)
@@ -289,7 +292,7 @@ class CronStreamDeliveryPort(Protocol):
 
     async def deliver(
         self, *, run_id: str, kernel_session_id: str, agent_id: str
-    ) -> str: ...
+    ) -> StreamRunOutcome: ...
 
 
 class CronRunStreamDelivery:
@@ -310,10 +313,10 @@ class CronRunStreamDelivery:
 
     async def deliver(
         self, *, run_id: str, kernel_session_id: str, agent_id: str
-    ) -> str:
+    ) -> StreamRunOutcome:
         """Consume one run through the standard IM delivery observer."""
 
-        final_text, _ = await stream_run_to_completion(
+        return await stream_run_to_completion(
             run_id=run_id,
             kernel_session_id=kernel_session_id,
             agent_id=agent_id,
@@ -322,7 +325,6 @@ class CronRunStreamDelivery:
             run_context_store=self._run_context_store,
             observer=self._observer,
         )
-        return final_text
 
 
 class CronExecutionService:
@@ -449,7 +451,7 @@ class CronExecutionService:
             return
 
         try:
-            final_text = await self._stream_delivery.deliver(
+            outcome = await self._stream_delivery.deliver(
                 run_id=run_id,
                 kernel_session_id=kernel_session_id,
                 agent_id=agent_id,
@@ -469,16 +471,27 @@ class CronExecutionService:
             )
             return
 
+        result_summary = outcome.final_text[:200] or None
+        if outcome.status != "completed":
+            self._runs_store.update_status(
+                request_id,
+                outcome.status,
+                finished_at=_utc_now(),
+                result_summary=result_summary,
+                error=outcome.error,
+            )
+            return
+
         self._runs_store.update_status(
             request_id,
             "completed",
             finished_at=_utc_now(),
-            result_summary=final_text[:200],
+            result_summary=result_summary,
         )
-        if not final_text:
+        if not outcome.final_text:
             return
         try:
-            await self._runner.append_awareness(result_text=final_text)
+            await self._runner.append_awareness(result_text=outcome.final_text)
         except Exception:  # noqa: BLE001
             _log.warning(
                 "cron awareness injection failed: agent=%s job=%s",
