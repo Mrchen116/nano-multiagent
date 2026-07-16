@@ -287,16 +287,16 @@ class CronRunnerPort(Protocol):
     async def append_awareness(self, *, result_text: str) -> bool: ...
 
 
-class CronStreamDeliveryPort(Protocol):
-    """Deliver one submitted cron run to its configured channel."""
+class CronTerminalConsumerPort(Protocol):
+    """Consume one submitted cron run until its canonical terminal status."""
 
-    async def deliver(
+    async def consume(
         self, *, run_id: str, kernel_session_id: str, agent_id: str
     ) -> StreamRunOutcome: ...
 
 
-class CronRunStreamDelivery:
-    """Deliver cron kernel events through the shared owner-direct stream path."""
+class CronRunTerminalConsumer:
+    """Consume cron kernel events with an optional owner-direct observer."""
 
     def __init__(
         self,
@@ -304,17 +304,17 @@ class CronRunStreamDelivery:
         kernel: Any,
         owner_user_id: str,
         run_context_store: RunDeliveryContextStore,
-        observer: Callable[..., Any],
+        observer: Callable[..., Any] | None = None,
     ) -> None:
         self._kernel = kernel
         self._owner_user_id = owner_user_id
         self._run_context_store = run_context_store
         self._observer = observer
 
-    async def deliver(
+    async def consume(
         self, *, run_id: str, kernel_session_id: str, agent_id: str
     ) -> StreamRunOutcome:
-        """Consume one run through the standard IM delivery observer."""
+        """Consume one run, optionally translating events through IM delivery."""
 
         return await stream_run_to_completion(
             run_id=run_id,
@@ -341,10 +341,11 @@ class CronExecutionService:
         agent_id: Agent whose jobs this service manages.
         workspace_root: Agent workspace root (for CronJobStore and CronRunsStore).
         runner: Public runner for isolated kernel submission and awareness.
-        stream_delivery: Optional IM stream delivery. Absence is a supported
-            no-delivery configuration.
+        terminal_consumer: Mandatory terminal owner for runner-based execution.
+            Its observer/delivery adapter may be absent, but Kernel terminal
+            consumption itself is never optional.
         execute_fn: Compatibility injection for narrow callers. Production uses
-            runner and stream_delivery so the service owns the whole lifecycle.
+            runner and terminal_consumer so the service owns the whole lifecycle.
     """
 
     def __init__(
@@ -353,7 +354,7 @@ class CronExecutionService:
         agent_id: str,
         workspace_root: Path,
         runner: CronRunnerPort | None = None,
-        stream_delivery: CronStreamDeliveryPort | None = None,
+        terminal_consumer: CronTerminalConsumerPort | None = None,
         execute_fn: Callable[..., Awaitable[None]] | None = None,
         gateway_loop: asyncio.AbstractEventLoop | None = None,
     ) -> None:
@@ -363,8 +364,12 @@ class CronExecutionService:
             raise ValueError("CronExecutionService requires runner or execute_fn")
         if runner is not None and execute_fn is not None:
             raise ValueError("runner and execute_fn are mutually exclusive")
+        if runner is not None and terminal_consumer is None:
+            raise ValueError("runner-based cron execution requires terminal consumer")
+        if execute_fn is not None and terminal_consumer is not None:
+            raise ValueError("terminal consumer requires runner-based execution")
         self._runner = runner
-        self._stream_delivery = stream_delivery
+        self._terminal_consumer = terminal_consumer
         self._execute_fn = execute_fn or self._execute_owned
         # Gateway asyncio loop reference for scheduling execute_fn when enqueue()
         # is called from a sync thread (e.g. tool.run() via asyncio.to_thread).
@@ -441,17 +446,10 @@ class CronExecutionService:
 
         run_id, kernel_session_id = submitted
         self._runs_store.update_status(request_id, "running", kernel_run_id=run_id)
-        if self._stream_delivery is None:
-            self._runs_store.update_status(
-                request_id,
-                "completed",
-                finished_at=_utc_now(),
-                result_summary="no_delivery_path",
-            )
-            return
+        assert self._terminal_consumer is not None
 
         try:
-            outcome = await self._stream_delivery.deliver(
+            outcome = await self._terminal_consumer.consume(
                 run_id=run_id,
                 kernel_session_id=kernel_session_id,
                 agent_id=agent_id,

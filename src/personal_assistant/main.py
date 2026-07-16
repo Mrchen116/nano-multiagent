@@ -124,7 +124,7 @@ from personal_assistant.scheduler.cron_scheduler import (
 )
 from personal_assistant.scheduler.cron_execution_service import (
     CronExecutionService,
-    CronRunStreamDelivery,
+    CronRunTerminalConsumer,
 )
 from personal_assistant.scheduler.cron_runner import CronRunner
 from personal_assistant.scheduler.cron_service_registry import CronServiceRegistry
@@ -2479,21 +2479,21 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                 agent_id
             ),
         )
-        stream_delivery = (
-            CronRunStreamDelivery(
-                kernel=kernel,
-                owner_user_id=_owner_user_id,
-                run_context_store=run_delivery_contexts,
-                observer=_kernel_event_observer,
-            )
-            if _owner_user_id and _kernel_event_observer is not None
-            else None
+        terminal_consumer = CronRunTerminalConsumer(
+            kernel=kernel,
+            owner_user_id=_owner_user_id,
+            run_context_store=run_delivery_contexts,
+            observer=(
+                _kernel_event_observer
+                if _owner_user_id and _kernel_event_observer is not None
+                else None
+            ),
         )
         service = CronExecutionService(
             agent_id=agent_id,
             workspace_root=ws_root,
             runner=runner,
-            stream_delivery=stream_delivery,
+            terminal_consumer=terminal_consumer,
             gateway_loop=gateway_loop,
         )
         _cron_dispatcher.register(agent_id, service)

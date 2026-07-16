@@ -41,7 +41,7 @@ class _Delivery:
         self.failure = failure
         self.calls: list[tuple[str, str, str]] = []
 
-    async def deliver(
+    async def consume(
         self, *, run_id: str, kernel_session_id: str, agent_id: str
     ) -> StreamRunOutcome:
         self.calls.append((run_id, kernel_session_id, agent_id))
@@ -95,7 +95,7 @@ async def test_service_owns_submit_delivery_terminal_and_awareness(tmp_path) -> 
         agent_id="agent-a",
         workspace_root=tmp_path,
         runner=runner,
-        stream_delivery=delivery,
+        terminal_consumer=delivery,
     )
 
     ack = service.enqueue(job_id="job-1", trigger="manual")
@@ -119,7 +119,7 @@ async def test_service_records_stream_failure_without_awareness(tmp_path) -> Non
         agent_id="agent-a",
         workspace_root=tmp_path,
         runner=runner,
-        stream_delivery=_Delivery(failure=RuntimeError("stream broke")),
+        terminal_consumer=_Delivery(failure=RuntimeError("stream broke")),
     )
 
     ack = service.enqueue(job_id="job-1", trigger="scheduled")
@@ -157,7 +157,7 @@ async def test_service_preserves_non_success_terminal_outcome_without_awareness(
         agent_id="agent-a",
         workspace_root=tmp_path,
         runner=runner,
-        stream_delivery=delivery,
+        terminal_consumer=delivery,
     )
 
     ack = service.enqueue(job_id="job-1", trigger="scheduled")
