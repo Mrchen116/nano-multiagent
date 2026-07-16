@@ -29,7 +29,7 @@
 - `runtime_delivery.observer` 用裸 `loop.create_task()` 派发 delta、tool terminal、permission、reconcile 与 bubble finalize；这些投递 task 不属于当前 dispatcher 或 pipeline，Gateway 即使等待 `handle_inbound()` 也可能先关 IM transport。
 - 当前有 32 个测试文件直接使用 `InboundPipeline`；其中 18 个文件、108 处访问 pipeline 私有方法或字段。主要覆盖是必要的，但测试表面选错了层级。
 
-本 unit 会调整 `src/personal_assistant/gateway/`、`src/personal_assistant/scheduler/heartbeat_scheduler.py`、`src/personal_assistant/scheduler/cron_runner.py`、`src/personal_assistant/main.py` 及对等测试。IM 服务、channel 协议和 `agent.sdk` 公共 API 不改。
+本 unit 会调整 `src/personal_assistant/gateway/`、`src/personal_assistant/scheduler/heartbeat_scheduler.py`、`src/personal_assistant/scheduler/cron_runner.py`、`src/personal_assistant/main.py` 及对等测试。IM 服务与 channel 协议不改；实施期为消除 Gateway 自有 admission 与 Kernel fallback 的双 owner，新增 public `Kernel.try_steer()` inject-only seam，并在 Round 5 增加按 terminal run identity 清理消息的 `discard_run_messages()` seam，二者作为 kernel delta 收口。
 
 ### 既有约束
 
@@ -351,12 +351,12 @@ IM config sync 先规范化远端 profile 并持久化 local config，再执行 
 
 ## 契约层增量 (delta-spec)
 
-- kernel: no spec delta
+- kernel: `specs/kernel/sdk-boundary.md` MODIFIED 稳定方法集；`specs/kernel/runs.md` ADDED inject-only steer 与 terminal run 消息清理契约
 - im: no spec delta
 - gateway: no spec delta
 - cli: no spec delta
 
-本 unit 是纯内部 Gateway ownership 重构；`docs/specs/gateway/routing-delivery.md`、`external-channels.md`、`service-lifecycle.md` 中的 current 行为全部作为回归基线，不产生 delta spec。
+Gateway 用户行为仍是 ownership 重构，`docs/specs/gateway/routing-delivery.md`、`external-channels.md`、`service-lifecycle.md` 中的 current 行为全部作为回归基线，不产生 Gateway delta；但实施期新增了两个 PA coordinator 直接依赖的 public Kernel 控制 seam，因此必须归并 kernel delta。
 
 ## 风险与回退
 
