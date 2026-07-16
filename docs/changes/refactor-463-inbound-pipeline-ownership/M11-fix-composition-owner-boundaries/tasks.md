@@ -26,9 +26,9 @@
 
 ### R1 — Shared Agent session projection
 
-- [ ] C1 红测：锁定 foreground/unattended capability parity 与 deletion guard。
-- [ ] C2 实现：抽取 typed projection 并迁移两个 owner。
-- [ ] C3 文档：记录 capability 边界与验证证据。
+- [x] C1 红测：锁定 foreground/unattended capability parity 与 deletion guard。
+- [x] C2 实现：抽取 typed projection 并迁移两个 owner。
+- [x] C3 文档：记录 capability 边界与验证证据。
 
 ### R2 — Neutral IM HTTP transport seam
 
