@@ -77,6 +77,7 @@ def _payload(*, revision: int = 2) -> dict[str, object]:
             {
                 "channel_id": "ch-a",
                 "agent_id": "agent-a",
+                "node_id": "node-a",
                 "provider": "feishu",
                 "enabled": True,
                 "config": {"app_id": "cli_changed"},
@@ -194,6 +195,7 @@ def test_one_bad_envelope_rejects_complete_manifest_without_stopping_safe_runtim
             {
                 "channel_id": "ch-a",
                 "agent_id": "agent-a",
+                "node_id": "node-a",
                 "provider": "feishu",
                 "enabled": True,
                 "config": {"app_id": "cli_changed"},
