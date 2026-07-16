@@ -9,19 +9,19 @@
 
 ## R1 — Status wire owner 与 coalescing race
 
-- Context: TODO。
-- Decision: TODO。
-- Rationale: TODO。
+- Context: 旧队列用 `PendingFrame.sent` 表示发送状态，但该字段只在 awaited `websocket.send()` 返回后才置 true；send yield 期间新 status 会把正在发送的旧 frame 从 deque 删除，随后旧 result 对着新队首无法关联，FIFO 永久卡住。
+- Decision: 将未发送 pending deque 与单一 `BusinessFrameOwner` 分开；flush 在进入 wire send 前先 pop 并建立 `sending` owner，send 成功后只把同 owner 转为 `awaiting_result`。ACK/result/error 直接消费 owner，不再通过可被 coalesce 的 deque 队首猜测。
+- Rationale: wire 因果归属必须在第一次可能 yield 前确定；pending queue 只拥有真正未发送 frame，coalescing 因而天然无法触碰 in-flight/sent-unacked frame，也无需堆叠 `sent` flag 分支。
 - Evidence:
-  - Tests: TODO。
-  - Entry: TODO。
+  - Tests: C1 deterministic await-send-yield regression 稳定失败为只发送 `status-old`；C2 后 status ownership/protocol/connection/resilience focused suite `42 passed`，focused Ruff passed。
+  - Entry: 公共 `send_json(channel.status)` 在真实 websocket `send` yield 时并发收到 seq3；seq2 result 只释放 seq2，随后 seq3 上 wire并由自身 result 释放。
   - Frontend State Matrix: N/A。
   - Browser QA: N/A。
-  - E2E/Regression: TODO。
+  - E2E/Regression: `tests/unit/personal_assistant/test_gateway_status_frame_ownership.py::test_status_coalescing_cannot_remove_frame_after_wire_send_begins`。
   - Visual/Interaction: N/A。
   - Prototype Comparison: N/A。
-- Rollback: TODO。
-- Commits: TODO。
+- Rollback: 回退 R1 C1/C2/C3；会恢复 send yield 期间 active status 被 pending coalesce 删除的竞态。
+- Commits: C1=`12e1599d2`，C2=`f81b1499e`，C3=本提交。
 
 ## R2 — 断线 incarnation supersede 与 control correlation
 

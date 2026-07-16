@@ -19,7 +19,7 @@
 ## 测试策略
 
 - 被测行为（来自退出标准）：wire-send yield 期间 status owner 稳定；断线后 current incarnation 独占重放；register/heartbeat 错误与业务 FIFO 隔离；removal resource 自动消失时清理旧反馈。
-- 已有测试在：`tests/unit/personal_assistant/test_channel_status_protocol.py`、`tests/unit/personal_assistant/test_gateway_im_connection_behavior.py`、`src/IM/frontend/src/features/settings/agents/agent-channels-panel.test.tsx`（扩展）；不新建流水号命名测试文件。
+- 已有测试在：`tests/unit/personal_assistant/test_channel_status_protocol.py`、`tests/unit/personal_assistant/test_gateway_im_connection_behavior.py`、`src/IM/frontend/src/features/settings/agents/agent-channels-panel.test.tsx`（扩展）；新建 `tests/unit/personal_assistant/test_gateway_status_frame_ownership.py`，理由：现有 status protocol 文件已接近 400 行软上限，M7 的 wire-owner/two-socket 行为需要独立且长期可读的最低层回归。
 - 落层/目录/marker：`tests/unit/` 与前端 Vitest，marker：无；targeted production browser 只作 durable evidence，不落一次性 e2e 脚本。
 - 可选依赖 importorskip：无。
 - 本 milestone 产生的一次性验收证据（收尾删除，不进套件）：隔离高位 IM/Gateway、production frontend 和 Playwright session；截图与 sanitized 报告保存在 `M7-fix-round4-protocol-cleanup/evidence/`，临时配置、数据库、日志、PID、symlink 和浏览器 profile 收尾删除。
@@ -66,7 +66,7 @@ Prototype / Reference Contract：
 
 - 步骤：把 pending、in-flight、sent/unacked、superseded owner 显式建模；wire send 开始前原子转移 owner，result 按 request correlation 释放。
 - 验证：await-send-yield 时新 status 不删除 in-flight；result 只释放同 request，后继不被错位阻塞。
-- 状态：TODO。
+- 状态：DONE。pending queue 与 wire business owner 分离，owner 在 `websocket.send` 前建立并以 `sending/awaiting_result` phase 明确生命周期；correlated result 只消费 owner request。
 
 ### R2 — 断线 incarnation supersede 与 control correlation
 
