@@ -201,6 +201,7 @@ def test_im_connection_replies_with_live_agent_config_snapshot(tmp_path: Path) -
         "type": "agent.config",
         "payload": {
             "request_id": "req-1",
+            "node_id": "node-1",
             "agent_id": "agent-a",
             "agent": {
                 "display_name": "Agent A",
@@ -401,6 +402,7 @@ def test_im_connection_retries_buffered_frame_after_reconnect(tmp_path: Path) ->
     assert json.loads(second_socket.sent[1])["payload"] == {
         "run_id": "run-1",
         "status": "running",
+        "node_id": "node-1",
     }
 
 
