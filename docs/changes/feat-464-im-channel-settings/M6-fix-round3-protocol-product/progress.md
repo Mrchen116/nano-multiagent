@@ -97,3 +97,11 @@
   - Prototype Comparison: `#channel-reconnecting`、`#channel-failed`、`#channel-deleting`、`#channels-mobile` 全部 PASS。
 - Rollback: 回退 M6 commits；无需数据迁移，现有 desired manifest、receipt 与 credential envelope schema 未改变。
 - Commits: browser/gates/evidence 与最终 checklist 由本 R6 C3 commit 记录。
+
+### R6 evidence supplement
+
+- Runtime code HEAD: `397701f78971d28482f67d289c957a95b7b5b25d`；仅补 durable evidence，不修改或重跑 `src/`、`tests/` 与 full suite。
+- Production entry: 隔离高位真 IM/Gateway 直接服务 `src/IM/frontend/dist`，headed Chromium 完成真实登录、Agent detail、Channels、Reconnect、Gateway offline、Delete/Retry 与同 node 恢复 reconcile。
+- Durable browser artifacts: `evidence/output/playwright/` 保存 1440×1000 Reconnect 和三张 375×812 offline/removal/empty PNG；文件路径、viewport 和 SHA-256 见 `evidence/README.md`。
+- HTTP/console: Reconnect 200、delete 200、offline Retry 无 live POST；无 channel 500/raw 409。在线 console 零 error/warning，故意离线后仅 capabilities 503。
+- Security/cleanup: 四张截图人工确认只有产品掩码值；提交前对 staged diff/runtime artifact 做 secret scan。浏览器、IM/Gateway、PID、SQLite/WAL/SHM、config/cache/key/log、dist、node_modules symlink 与 `.playwright-cli/` 全部清理。
