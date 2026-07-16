@@ -126,3 +126,108 @@ def test_status_coalescing_cannot_remove_frame_after_wire_send_begins(
     ]
     assert status_request_ids == ["status-old", "status-new"]
     assert resolved == ["status-old", "status-new"]
+
+
+def test_new_incarnation_supersedes_disconnected_unacked_status_on_next_socket(
+    tmp_path: Path,
+) -> None:
+    """Reconnect replays only the current runtime status and preserves other FIFO."""
+    first_socket = _FakeWebSocket(
+        incoming=[
+            json.dumps(
+                {"type": "ack", "payload": {"message_type": "node.register"}}
+            )
+        ]
+    )
+    second_socket = _FakeWebSocket(
+        incoming=[
+            json.dumps(
+                {"type": "ack", "payload": {"message_type": "node.register"}}
+            ),
+            json.dumps(
+                {
+                    "type": "channel.status.result",
+                    "payload": {"request_id": "status-old", "outcome": "accepted"},
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "channel.status.result",
+                    "payload": {
+                        "request_id": "status-current",
+                        "outcome": "accepted",
+                    },
+                }
+            ),
+            json.dumps(
+                {"type": "ack", "payload": {"message_type": "node.report"}}
+            ),
+        ]
+    )
+    sockets = [first_socket, second_socket]
+    relay = WebRelayAdapter()
+    relay.start(lambda _message: None)
+    resolved: list[str] = []
+
+    async def connect(url, headers):
+        return await _connect_fake(sockets.pop(0), [], url, headers)
+
+    async def handle_status(payload) -> None:
+        resolved.append(str(payload["request_id"]))
+
+    manager = IMConnectionManager(
+        config=IMConnectionConfig(url="http://im.local"),
+        reporter=_minimal_reporter(tmp_path),
+        relay_adapter=relay,
+        channel_status_result_handler=handle_status,
+        connect=connect,
+    )
+
+    async def exercise() -> None:
+        await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001 - register socket one
+        await manager.send_json(
+            "channel.status",
+            _status("status-old", incarnation="inc-old", sequence=2),
+        )
+        await manager._disconnect_current_websocket(  # noqa: SLF001
+            RuntimeError("socket one dropped before result")
+        )
+        await manager.send_json(
+            "channel.status",
+            _status("status-current", incarnation="inc-current", sequence=1),
+        )
+        await manager.send_json("node.report", {"status": "healthy"})
+
+        await manager.connect_once()
+        assert [json.loads(frame)["type"] for frame in second_socket.sent] == [
+            "node.register"
+        ]
+        await manager._listen_once()  # noqa: SLF001 - register ack flushes current
+        await manager._listen_once()  # noqa: SLF001 - late old result is a no-op
+        await manager._listen_once()  # noqa: SLF001 - current result releases current
+        await manager._listen_once()  # noqa: SLF001 - report ack drains FIFO
+
+    asyncio.run(exercise())
+
+    first_statuses = [
+        json.loads(frame)["payload"]
+        for frame in first_socket.sent
+        if json.loads(frame)["type"] == "channel.status"
+    ]
+    second_frames = [json.loads(frame) for frame in second_socket.sent]
+    second_statuses = [
+        frame["payload"]
+        for frame in second_frames
+        if frame["type"] == "channel.status"
+    ]
+    assert [item["runtime_incarnation"] for item in first_statuses] == ["inc-old"]
+    assert [item["runtime_incarnation"] for item in second_statuses] == [
+        "inc-current"
+    ]
+    assert [frame["type"] for frame in second_frames] == [
+        "node.register",
+        "channel.status",
+        "node.report",
+    ]
+    assert resolved == ["status-current"]
