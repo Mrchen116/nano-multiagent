@@ -6,6 +6,7 @@ import asyncio
 
 import pytest
 
+from personal_assistant.gateway.runtime_delivery.stream import StreamRunOutcome
 from personal_assistant.scheduler.cron_execution_service import CronExecutionService
 from personal_assistant.scheduler.cron_scheduler import CronJob, CronJobStore
 
@@ -25,17 +26,28 @@ class _Runner:
 
 
 class _Delivery:
-    def __init__(self, *, failure: Exception | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        outcome: StreamRunOutcome | None = None,
+        failure: Exception | None = None,
+    ) -> None:
+        self.outcome = outcome or StreamRunOutcome(
+            status="completed",
+            final_text="cron result",
+            context=None,
+            error=None,
+        )
         self.failure = failure
         self.calls: list[tuple[str, str, str]] = []
 
     async def deliver(
         self, *, run_id: str, kernel_session_id: str, agent_id: str
-    ) -> str:
+    ) -> StreamRunOutcome:
         self.calls.append((run_id, kernel_session_id, agent_id))
         if self.failure is not None:
             raise self.failure
-        return "cron result"
+        return self.outcome
 
 
 def _seed_job(tmp_path) -> None:
@@ -92,4 +104,43 @@ async def test_service_records_stream_failure_without_awareness(tmp_path) -> Non
     assert record.request_id == ack["request_id"]
     assert record.status == "failed"
     assert record.error == "stream_failed"
+    assert runner.awareness == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status", "error"),
+    [
+        ("failed", "upstream failed"),
+        ("cancelled", "owner cancelled"),
+    ],
+)
+async def test_service_preserves_non_success_terminal_outcome_without_awareness(
+    tmp_path, status: str, error: str
+) -> None:
+    _seed_job(tmp_path)
+    runner = _Runner()
+    delivery = _Delivery(
+        outcome=StreamRunOutcome(
+            status=status,
+            final_text="partial cron result",
+            context=None,
+            error=error,
+        )
+    )
+    service = CronExecutionService(
+        agent_id="agent-a",
+        workspace_root=tmp_path,
+        runner=runner,
+        stream_delivery=delivery,
+    )
+
+    ack = service.enqueue(job_id="job-1", trigger="scheduled")
+    await service.drain(asyncio.get_running_loop().time() + 2)
+
+    record = service.runs_store.list_by_job("job-1")[0]
+    assert record.request_id == ack["request_id"]
+    assert record.status == status
+    assert record.result_summary == "partial cron result"
+    assert record.error == error
     assert runner.awareness == []
