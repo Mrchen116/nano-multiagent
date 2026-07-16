@@ -9,6 +9,10 @@ import httpx
 
 from personal_assistant.channels.base import InboundMessage
 from personal_assistant.gateway.agent_config_sync import _im_http_base_url, _im_http_headers
+from personal_assistant.gateway.runtime_protocol import (
+    external_identity_from_message,
+    strip_runtime_protocol_metadata,
+)
 
 
 def _metadata_text(metadata: Mapping[str, Any], *, key: str) -> str | None:
@@ -16,6 +20,7 @@ def _metadata_text(metadata: Mapping[str, Any], *, key: str) -> str | None:
     if isinstance(value, str) and value.strip():
         return value.strip()
     return None
+
 
 class IMShadowConversationSync:
     """Best-effort HTTP writer for external-channel shadow conversations."""
@@ -39,11 +44,12 @@ class IMShadowConversationSync:
     async def sync_user_message(
         self, message: InboundMessage, *, agent_id: str
     ) -> str | None:
-        metadata = dict(message.metadata)
-        external_source = _metadata_text(metadata, key="external_source")
-        external_chat_id = _metadata_text(metadata, key="external_chat_id")
-        if external_source is None or external_chat_id is None:
+        identity = external_identity_from_message(message)
+        if identity is None or identity.trigger_source == "im":
             return None
+        metadata = strip_runtime_protocol_metadata(message.metadata)
+        external_source = identity.external_source
+        external_chat_id = identity.external_chat_id
         token = await self._token_getter()
         headers = _im_http_headers(token)
         async with httpx.AsyncClient(
@@ -61,7 +67,10 @@ class IMShadowConversationSync:
                     "external_chat_id": external_chat_id,
                     "agent_id": agent_id,
                     "title": _external_shadow_title(
-                        metadata, agent_id=agent_id, external_source=external_source
+                        metadata,
+                        agent_id=agent_id,
+                        external_source=external_source,
+                        conversation_type=identity.conversation_type,
                     ),
                     "is_group": bool(message.is_group),
                     "participant_ids": [
@@ -109,13 +118,19 @@ class IMShadowConversationSync:
 
 
 def _external_shadow_title(
-    metadata: Mapping[str, object], *, agent_id: str, external_source: str
+    metadata: Mapping[str, object],
+    *,
+    agent_id: str,
+    external_source: str,
+    conversation_type: str | None = None,
 ) -> str:
     title = _metadata_text(metadata, key="conversation_title")
     if title is not None:
         return title
     chat_name = _metadata_text(metadata, key="chat_name")
-    conversation_type = _metadata_text(metadata, key="conversation_type")
+    conversation_type = conversation_type or _metadata_text(
+        metadata, key="conversation_type"
+    )
     if conversation_type == "group":
         return f"{agent_id} · {chat_name or '群聊'} · {external_source}"
     return f"{agent_id} · {external_source}"
