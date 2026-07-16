@@ -78,7 +78,7 @@ Prototype / Reference Contract：
 
 - 步骤：把 retry error/waiting notice 与具体 removal resource 关联；polling/stream 更新令 resource 消失时清理对应 state。
 - 验证：retry response lost/temporary error 后 query 自动变空，页面仅空态且无 alert/notice；永久 Vitest。
-- 状态：TODO。
+- 状态：DONE。retry 临时错误记录其 removal resource owner；query polling/stream 令该 receipt 消失时 effect 同步清除对应 error 与 offline waiting notice，空态不再残留旧反馈。
 
 ### R4 — Targeted browser 与一次性全量门禁
 

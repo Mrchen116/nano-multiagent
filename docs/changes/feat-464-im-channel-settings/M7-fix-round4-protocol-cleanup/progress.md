@@ -41,19 +41,19 @@
 
 ## R3 — Removal 自动成功清理旧反馈
 
-- Context: TODO。
-- Decision: TODO。
-- Rationale: TODO。
+- Context: retry mutation 的 generic 临时错误仅存为全局字符串；即使响应丢失后 Gateway 实际完成删除、polling 把 removal receipt 收敛为不存在，空态仍会展示过期 alert。offline waiting 视觉上虽由 resource existence 派生隐藏，底层 notice state 也未被主动释放。
+- Decision: request error 增加可选 removal owner；只有 removal retry generic error 绑定具体 channel id，其他表单/生命周期错误保持无 owner。query data 每次变化时检查 owner 对应 removal 是否仍存在；receipt 消失即清除该 error，同时主动清除同 id 的 waiting notice。
+- Rationale: retry HTTP 结果不是删除最终事实，durable removal receipt 才是权威状态。让瞬时反馈绑定 receipt 生命周期，可在 response-lost 与后台自动成功并存时自然收敛，又不会误清理无关表单或连接错误。
 - Evidence:
-  - Tests: TODO。
-  - Entry: TODO。
+  - Tests: C1 permanent Vitest 在旧实现稳定失败为空态仍保留 `temporary gateway failure: response lost`；C2 新回归 + 原 panel 13 tests 共 `14 passed`。
+  - Entry: online failed removal 点击 retry，mutation 返回 temporary response-lost error；随后 production query cache 更新为 `[]`，页面进入通用 empty state并移除 request alert。既有 offline waiting 回归继续验证 resource 消失后 notice/alert 均为空。
   - Frontend State Matrix: error、waiting、empty、missing resource。
   - Browser QA: 延至 R4。
-  - E2E/Regression: TODO。
+  - E2E/Regression: `agent-channels-removal-recovery.test.tsx::clears a lost retry response once polling confirms the receipt disappeared` 与 `agent-channels-panel.test.tsx::waits locally for an offline removal retry and clears the notice on success`。
   - Visual/Interaction: 延至 R4。
   - Prototype Comparison: 延至 R4。
-- Rollback: TODO。
-- Commits: TODO。
+- Rollback: 回退 R3 C1/C2/C3；会恢复 response-lost 后 receipt 已消失但全局 alert 仍残留的空态矛盾。
+- Commits: C1=`ad5c95d94`，C2=`ee8024b14`，C3=本提交。
 
 ## R4 — Targeted browser 与一次性全量门禁
 
