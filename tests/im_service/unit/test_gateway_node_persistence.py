@@ -99,8 +99,13 @@ def test_register_does_not_overwrite_existing_profile_skills_and_tool_allowlist(
     profiles.update_profile(
         agent_id="agent-a",
         profile_version=current.profile_version,
+        display_name=current.display_name,
+        description=current.description,
+        system_prompt=current.system_prompt,
         skills=[],
         tool_allowlist=[],
+        group_reply_policy=current.group_reply_policy,
+        default_model=current.default_model,
     )
 
     result = persistence.register(
