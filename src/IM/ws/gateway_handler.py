@@ -85,6 +85,32 @@ class GatewayHandler:
         concurrent throughput.
     """
 
+    _SUPPORTED_UPSTREAM_TYPES = frozenset(
+        {
+            "node.heartbeat",
+            "node.report",
+            "node.delivery_receipt",
+            "agent.config",
+            "agent.created",
+            "agent.capabilities",
+            "node.capabilities",
+            "agent.prompt.preview",
+            "node.prompt.preview",
+            "node.heartbeat.md",
+            "node.cron.jobs",
+            "node.cron.delete",
+            "node.skills.usage",
+            "session.fork.result",
+            "channel.reconcile.result",
+            "channels.bootstrap",
+            "channel.status",
+            "channel.runtime_metadata",
+            "agent.message",
+            "node.streaming_delta",
+            "node.system_message",
+        }
+    )
+
     def __init__(
         self,
         *,
@@ -212,7 +238,22 @@ class GatewayHandler:
                 payload=payload,
                 authenticated_owner_id=authenticated_owner_id,
             )
+        if message_type not in self._SUPPORTED_UPSTREAM_TYPES:
+            return {
+                "type": "error",
+                "payload": {
+                    "code": "unsupported_message_type",
+                    "message": message_type,
+                },
+            }
         if authenticated_owner_id:
+            try:
+                _require_text(payload.get("node_id"), field_name="node_id")
+            except ValueError as exc:
+                return {
+                    "type": "error",
+                    "payload": {"code": "bad_payload", "message": str(exc)},
+                }
             await self._authorize_upstream_frame(
                 websocket=websocket,
                 payload=payload,
@@ -266,10 +307,7 @@ class GatewayHandler:
             return await self._handle_streaming_delta(payload=payload)
         if message_type == "node.system_message":
             return await self._handle_system_message(payload=payload)
-        return {
-            "type": "error",
-            "payload": {"code": "unsupported_message_type", "message": message_type},
-        }
+        raise AssertionError(f"unhandled supported gateway message type: {message_type}")
 
     async def push_relay_message(
         self, *, relay_task_id: str, target_node_id: str, payload: dict[str, object]
@@ -1134,9 +1172,9 @@ class GatewayHandler:
         """Bind every upstream business frame to its authenticated live socket.
 
         The websocket registration is the routing authority. Payload ``node_id`` is
-        only an assertion and may never select a different connection. Older Gateway
-        clients that omitted it are normalized after the same checks, keeping the
-        mutation handlers on one trusted node identity.
+        only an assertion and may never select a different connection. The dispatch
+        boundary validates that assertion before this method normalizes the payload
+        for downstream handlers.
         """
         async with self._lock:
             matches = [

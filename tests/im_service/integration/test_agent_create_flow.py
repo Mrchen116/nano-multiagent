@@ -184,6 +184,7 @@ def test_create_agent_lists_details_and_uses_new_node_binding_for_relay(
                 {
                     "type": "agent.config",
                     "payload": {
+                        "node_id": "node-1",
                         "request_id": live_request_id,
                         "agent_id": agent_user.id,
                         "agent": None,
