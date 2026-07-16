@@ -14,15 +14,40 @@ def _make_dispatch_handler(
     kernel_client=None,
     session_store=None,
     agent_workspace_roots=None,
+    origin_sessions=None,
 ):
     """Build a minimal InternalDispatchHandler for testing."""
+    from pathlib import Path
+
+    from personal_assistant.config.local_store import AgentWorkspaceConfig
+    from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
     from personal_assistant.gateway.internal_dispatch import InternalDispatchHandler
+    from personal_assistant.gateway.session_binder import GatewaySessionBinder
+
+    catalog = None
+    binder = None
+    if session_store is not None:
+        catalog = LiveAgentCatalog(
+            tuple(
+                AgentWorkspaceConfig(agent_id=agent_id, workspace_root=Path(root))
+                for agent_id, root in (agent_workspace_roots or {}).items()
+            )
+        )
+        binder = GatewaySessionBinder(
+            catalog=catalog,
+            repository=session_store,
+            kernel=kernel_client,
+        )
+        for agent_id, session_id in (origin_sessions or {}).items():
+            binder.register_session_provenance(
+                catalog.require(agent_id),
+                kernel_session_id=session_id,
+            )
 
     return InternalDispatchHandler(
         im_connection_manager=im_manager,
         kernel_client=kernel_client,
-        session_store=session_store,
-        agent_workspace_roots=agent_workspace_roots,
+        session_binder=binder,
     )
 
 
@@ -81,6 +106,25 @@ def test_dispatch_handler_returns_error_when_im_manager_disconnected() -> None:
     assert "error" in result
 
 
+@pytest.mark.asyncio
+async def test_dispatch_handler_seal_rejects_new_kernel_touch() -> None:
+    """Shutdown seal makes new HTTP work unavailable without awaiting resources."""
+
+    manager = MagicMock()
+    manager.connected = True
+    manager.send_agent_message = AsyncMock()
+    handler = _make_dispatch_handler(im_manager=manager)
+
+    handler.seal()
+    result = await handler.handle({"text": "hi", "to": "agent_b"})
+
+    assert result == {
+        "ok": False,
+        "error": "Gateway is shutting down; cannot dispatch message",
+    }
+    manager.send_agent_message.assert_not_called()
+
+
 def test_dispatch_handler_validates_required_fields() -> None:
     """handle() must return ok=False when required fields are missing."""
     import asyncio
@@ -122,6 +166,7 @@ def test_dispatch_handler_binds_direct_conversation_and_appends_history() -> Non
         kernel_client=kernel_client,
         session_store=session_store,
         agent_workspace_roots={"agent_a": "/tmp/agent-a-workspace"},
+        origin_sessions={"agent_a": "sess-origin-1"},
     )
 
     result = asyncio.run(
@@ -156,7 +201,7 @@ def test_dispatch_handler_binds_direct_conversation_and_appends_history() -> Non
             "source_agent_id": "agent_a",
         },
         idempotency_key="dispatch-sync:toolu_1",
-        workspace_root="/tmp/agent-a-workspace",
+        workspace_root=Path("/tmp/agent-a-workspace"),
     )
 
 
@@ -167,3 +212,175 @@ def test_dispatch_handler_build_aiohttp_handler_returns_callable() -> None:
     handler = InternalDispatchHandler(im_connection_manager=None)
     aiohttp_handler = handler.build_aiohttp_handler()
     assert callable(aiohttp_handler)
+
+
+@pytest.mark.asyncio
+async def test_dispatch_ack_after_config_publish_does_not_restore_stale_binding(
+    tmp_path,
+) -> None:
+    """An IM ack may finish the old request but cannot publish its stale row."""
+
+    from pathlib import Path
+
+    from personal_assistant.config.local_store import AgentWorkspaceConfig
+    from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
+    from personal_assistant.gateway.internal_dispatch import InternalDispatchHandler
+    from personal_assistant.gateway.session_binder import GatewaySessionBinder
+    from personal_assistant.gateway.session_keys import SessionBindingStore
+    from personal_assistant.ws.im_connection import IMDispatchAck
+
+    class _BlockingManager:
+        connected = True
+
+        def __init__(self) -> None:
+            import asyncio
+
+            self.started = asyncio.Event()
+            self.release = asyncio.Event()
+
+        async def send_agent_message(self, _payload):
+            self.started.set()
+            await self.release.wait()
+            return IMDispatchAck(
+                conversation_id="conv-stale-ack",
+                message_id="msg-stale-ack",
+                target_kind="user_id",
+                target_id="user-1",
+                source_agent_id="agent_a",
+            )
+
+    old_workspace = Path(tmp_path) / "old"
+    new_workspace = Path(tmp_path) / "new"
+    old_workspace.mkdir()
+    new_workspace.mkdir()
+    catalog = LiveAgentCatalog(
+        (
+            AgentWorkspaceConfig(
+                agent_id="agent_a",
+                workspace_root=old_workspace,
+            ),
+        )
+    )
+    store = SessionBindingStore()
+    binder = GatewaySessionBinder(catalog=catalog, repository=store, kernel=MagicMock())
+    binder.register_session_provenance(
+        catalog.require("agent_a"), kernel_session_id="session-old"
+    )
+    manager = _BlockingManager()
+    kernel = MagicMock()
+    handler = InternalDispatchHandler(
+        im_connection_manager=manager,
+        kernel_client=kernel,
+        session_binder=binder,
+    )
+
+    import asyncio
+
+    dispatch = asyncio.create_task(
+        handler.handle(
+            {
+                "text": "old snapshot reply",
+                "to": "user-1",
+                "origin_kernel_session_id": "session-old",
+                "source_agent_id": "agent_a",
+            }
+        )
+    )
+    await manager.started.wait()
+    current = catalog.publish(
+        AgentWorkspaceConfig(agent_id="agent_a", workspace_root=new_workspace)
+    )
+    binder.invalidate_stale("agent_a", current_revision=current.revision)
+    manager.release.set()
+    result = await dispatch
+
+    assert result["ok"] is True
+    assert binder.lookup("web_relay:conv-stale-ack:agent_a") is None
+    assert kernel.append_message.call_args.kwargs["workspace_root"] == old_workspace
+
+
+@pytest.mark.asyncio
+async def test_dispatch_from_old_session_keeps_captured_provenance_after_publish(
+    tmp_path,
+) -> None:
+    """A running old session cannot be relabelled as the current Agent revision."""
+
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    from personal_assistant.channels.base import InboundMessage, ReplyContext
+    from personal_assistant.config.local_store import AgentWorkspaceConfig
+    from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
+    from personal_assistant.gateway.internal_dispatch import InternalDispatchHandler
+    from personal_assistant.gateway.session_binder import (
+        GatewaySessionBinder,
+        SessionBindingRequest,
+    )
+    from personal_assistant.gateway.session_keys import SessionBindingStore
+    from personal_assistant.ws.im_connection import IMDispatchAck
+
+    old_workspace = Path(tmp_path) / "old"
+    new_workspace = Path(tmp_path) / "new"
+    old_workspace.mkdir()
+    new_workspace.mkdir()
+    catalog = LiveAgentCatalog(
+        (AgentWorkspaceConfig(agent_id="agent_a", workspace_root=old_workspace),)
+    )
+    kernel = MagicMock()
+    kernel.create_session = AsyncMock(
+        return_value=SimpleNamespace(session_id="session-old")
+    )
+    binder = GatewaySessionBinder(
+        catalog=catalog,
+        repository=SessionBindingStore(),
+        kernel=kernel,
+    )
+    message = InboundMessage(
+        channel_name="web_relay",
+        text="start",
+        external_user_id="user",
+        external_chat_id="source",
+        is_group=False,
+        agent_id="agent_a",
+    )
+    await binder.resolve(
+        SessionBindingRequest(
+            session_key="web_relay:source:agent_a",
+            reply_context=ReplyContext("web_relay", "source"),
+            message=message,
+            gateway_internal_port=8089,
+        ),
+        catalog.require("agent_a"),
+    )
+    current = catalog.publish(
+        AgentWorkspaceConfig(agent_id="agent_a", workspace_root=new_workspace)
+    )
+    binder.invalidate_stale("agent_a", current_revision=current.revision)
+    manager = MagicMock(connected=True)
+    manager.send_agent_message = AsyncMock(
+        return_value=IMDispatchAck(
+            conversation_id="target-conv",
+            message_id="target-msg",
+            target_kind="user_id",
+            target_id="target-user",
+            source_agent_id="agent_a",
+        )
+    )
+    handler = InternalDispatchHandler(
+        im_connection_manager=manager,
+        kernel_client=kernel,
+        session_binder=binder,
+    )
+
+    result = await handler.handle(
+        {
+            "text": "from old run",
+            "to": "target-user",
+            "origin_kernel_session_id": "session-old",
+            "source_agent_id": "agent_a",
+        }
+    )
+
+    assert result["ok"] is True
+    assert binder.lookup("web_relay:target-conv:agent_a") is None
+    assert kernel.append_message.call_args.kwargs["workspace_root"] == old_workspace

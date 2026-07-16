@@ -23,6 +23,7 @@ from ._im_client import IMClient
 def test_background_bash_completion_sends_followup(im_user: IMClient) -> None:
     """后台 bash 完成后,用户在同一对话再收到一条带哨兵的跟进消息。"""
     agent_id = im_user.first_agent_id()
+    im_user.update_agent_config(agent_id, tool_allowlist=["bash"])
     conversation_id = im_user.create_direct_conversation(agent_id)
 
     sentinel = "BGN" + secrets.token_hex(4).upper()

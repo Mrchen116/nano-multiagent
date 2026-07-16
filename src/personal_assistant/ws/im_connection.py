@@ -43,6 +43,10 @@ class PendingFrame:
     )
 
 
+class IMFrameRejectedError(RuntimeError):
+    """Report one IM-rejected outbound frame to its owning caller."""
+
+
 @dataclass(frozen=True, slots=True)
 class IMDispatchAck:
     """Canonical subset returned by IM after one agent.message dispatch."""
@@ -251,6 +255,7 @@ class IMConnectionManager:
         self._events: list[dict[str, object]] = []
         self._pending_frames: deque[PendingFrame] = deque()
         self._awaiting_ack_type: str | None = None
+        self._outbound_drained: asyncio.Event | None = None
         self._flush_lock = asyncio.Lock()
         self._heartbeat_task: asyncio.Task[None] | None = None
         self._heartbeat_ack_future: asyncio.Future[None] | None = None
@@ -297,7 +302,6 @@ class IMConnectionManager:
         self._events.append({"event": "connected", "url": self._config.websocket_url()})
         try:
             await self._send_frame("node.register", self._reporter.send_register())
-            self._start_heartbeat_loop()
             await self._flush_pending_frames(raise_on_disconnect=True)
         except Exception as exc:  # noqa: BLE001
             await self._disconnect_current_websocket(exc)
@@ -330,9 +334,32 @@ class IMConnectionManager:
                 await heartbeat_task
         self._events.append({"event": "closed"})
 
+    async def drain(self, deadline: float) -> None:
+        """Wait until every queued outbound frame has been acknowledged by IM.
+
+        Args:
+            deadline: Absolute event-loop deadline shared by Gateway shutdown.
+
+        Raises:
+            TimeoutError: When IM does not acknowledge all queued frames in time.
+        """
+
+        drained = self._outbound_drained_event()
+        if not self._pending_frames and self._awaiting_ack_type is None:
+            drained.set()
+        try:
+            async with asyncio.timeout_at(deadline):
+                await drained.wait()
+        except TimeoutError:
+            queued = [frame.message_type for frame in self._pending_frames]
+            raise TimeoutError(
+                f"IM outbound frames exceeded shutdown deadline: {queued}"
+            ) from None
+
     async def send_json(self, message_type: str, payload: Mapping[str, object]) -> None:
         """Queue one gateway -> IM protocol frame and flush it when the socket is available."""
 
+        self._outbound_drained_event().clear()
         self._pending_frames.append(
             PendingFrame(message_type=message_type, payload=dict(payload))
         )
@@ -345,6 +372,7 @@ class IMConnectionManager:
 
         loop = asyncio.get_running_loop()
         ack_future: asyncio.Future[dict[str, object]] = loop.create_future()
+        self._outbound_drained_event().clear()
         self._pending_frames.append(
             PendingFrame(
                 message_type=message_type, payload=dict(payload), ack_future=ack_future
@@ -364,6 +392,13 @@ class IMConnectionManager:
         if self._first_connect_resolved is None:
             self._first_connect_resolved = asyncio.Event()
         return self._first_connect_resolved
+
+    def _outbound_drained_event(self) -> asyncio.Event:
+        event = self._outbound_drained
+        if event is None:
+            event = asyncio.Event()
+            self._outbound_drained = event
+        return event
 
     def _stop_wait_event(self) -> asyncio.Event:
         if self._stop_event is None:
@@ -447,6 +482,10 @@ class IMConnectionManager:
         return self._stop_requested or stop_task in done
 
     async def _listen_once(self) -> None:
+        # Heartbeat needs the receive path to be active so its ack can be consumed.
+        # Starting it in connect_once races a slow on_connected reconcile against a
+        # buffered ack and falsely tears down a healthy socket.
+        self._start_heartbeat_loop()
         websocket = self._require_websocket()
         raw = await websocket.recv()
         payload = _decode_message(raw)
@@ -826,21 +865,24 @@ class IMConnectionManager:
             return
         if message_type == "error":
             # IM sends `type=error` when it rejects a PA-sent frame (e.g. malformed node.report
-            # with missing node_id, or a payload whose FK reference doesn't exist in the DB).
-            # Raising here would propagate into run_forever's `except Exception` → _mark_disconnected
-            # → reconnect loop, severing the connection on every bad frame. The right behaviour is to
-            # log the error and keep the connection alive so subsequent valid frames can still be
-            # delivered. The upstream frame that triggered the error was already sent; nothing to ack.
+            # with missing node_id, or a payload whose FK reference does not exist). It is the
+            # negative ack for the serialized matching frame: finish that frame's waiter, then
+            # keep the connection alive and flush later valid frames. An uncorrelated error is
+            # still recorded without guessing which independent request it belongs to.
             error_code = body.get("code")
             error_message = body.get("message")
+            rejected_type = self._reject_pending_frame(body)
             self._events.append(
                 {
                     "event": "error_ack",
                     "type": "error",
                     "code": error_code,
                     "message": error_message,
+                    "message_type": rejected_type,
                 }
             )
+            if rejected_type is not None:
+                await self._flush_pending_frames()
             return
         raise ValueError(f"unsupported downstream message type: {message_type}")
 
@@ -897,6 +939,42 @@ class IMConnectionManager:
         if pending_frame.ack_future is not None and not pending_frame.ack_future.done():
             pending_frame.ack_future.set_result(dict(payload))
         self._events.append({"event": "acked", "type": awaiting})
+        if not self._pending_frames:
+            self._outbound_drained_event().set()
+
+    def _reject_pending_frame(self, payload: Mapping[str, object]) -> str | None:
+        """Finish the serialized pending frame explicitly rejected by IM."""
+
+        awaiting = self._awaiting_ack_type
+        rejected_type = payload.get("message_type")
+        if (
+            awaiting is None
+            or not isinstance(rejected_type, str)
+            or rejected_type.strip() != awaiting
+            or not self._pending_frames
+        ):
+            return None
+        pending_frame = self._pending_frames.popleft()
+        self._awaiting_ack_type = None
+        code = str(payload.get("code") or "rejected")
+        message = str(payload.get("message") or "IM rejected the frame")
+        if pending_frame.ack_future is not None and not pending_frame.ack_future.done():
+            pending_frame.ack_future.set_exception(
+                IMFrameRejectedError(
+                    f"IM rejected {awaiting} frame ({code}): {message}"
+                )
+            )
+        self._events.append(
+            {
+                "event": "rejected",
+                "type": awaiting,
+                "code": code,
+                "message": message,
+            }
+        )
+        if not self._pending_frames:
+            self._outbound_drained_event().set()
+        return awaiting
 
     def _ack_heartbeat_frame(self, payload: Mapping[str, object]) -> None:
         ack_type = payload.get("message_type")

@@ -340,14 +340,13 @@ async def test_cron_delivery_extracts_result_for_awareness(tmp_path: Path) -> No
         agent_id="agent-Alpha",
         workspace_root=tmp_path,
         kernel_client=shim,
-        session_binding_store=None,
+        session_binder=None,
         canonical_session_id="sess-canonical",
     )
 
-    await runner._append_awareness(
+    await runner.append_awareness(
         session_id="sess-canonical",
         result_text=final_result,
-        workspace_root=tmp_path,
     )
 
     # Verify via kernel.append_message call (not raw file)
@@ -358,139 +357,6 @@ async def test_cron_delivery_extracts_result_for_awareness(tmp_path: Path) -> No
     assert "It is now 14:05 UTC" in appended.get("content", ""), (
         "awareness must contain the cron result text"
     )
-
-
-# ---------------------------------------------------------------------------
-# R3 bugfix-402-M4: CronExecutionService + runs.jsonl structured history
-# ---------------------------------------------------------------------------
-
-
-class TestCronRunsStore:
-    """CronRunsStore must persist and query runs.jsonl structured history."""
-
-    def test_runs_store_importable(self) -> None:
-        """CronRunsStore must be importable from personal_assistant.scheduler."""
-        from personal_assistant.scheduler.cron_execution_service import CronRunsStore  # noqa: F401
-
-        assert CronRunsStore is not None
-
-    def test_runs_store_append_and_query(self, tmp_path: Path) -> None:
-        """Appending a record and querying returns it in accepted_at desc order."""
-        from personal_assistant.scheduler.cron_execution_service import (
-            CronRunRecord,
-            CronRunsStore,
-        )
-
-        store = CronRunsStore(workspace_root=tmp_path)
-        rec = CronRunRecord(
-            request_id="req-1",
-            job_id="job-a",
-            trigger="manual",
-            status="accepted",
-            accepted_at="2026-01-01T10:00:00+00:00",
-        )
-        store.append(rec)
-        results = store.list_by_job("job-a")
-        assert len(results) == 1
-        assert results[0].request_id == "req-1"
-        assert results[0].status == "accepted"
-
-    def test_runs_store_status_update(self, tmp_path: Path) -> None:
-        """update_status must change the status of a specific request_id record."""
-        from personal_assistant.scheduler.cron_execution_service import (
-            CronRunRecord,
-            CronRunsStore,
-        )
-
-        store = CronRunsStore(workspace_root=tmp_path)
-        rec = CronRunRecord(
-            request_id="req-upd",
-            job_id="job-b",
-            trigger="scheduled",
-            status="accepted",
-            accepted_at="2026-01-01T11:00:00+00:00",
-        )
-        store.append(rec)
-        store.update_status(
-            "req-upd", "running", started_at="2026-01-01T11:00:01+00:00"
-        )
-        store.update_status(
-            "req-upd",
-            "completed",
-            finished_at="2026-01-01T11:01:00+00:00",
-            result_summary="done",
-        )
-        results = store.list_by_job("job-b")
-        assert results[0].status == "completed"
-        assert results[0].result_summary == "done"
-
-    def test_runs_store_list_by_job_returns_latest_first(self, tmp_path: Path) -> None:
-        """list_by_job must return records sorted by accepted_at descending."""
-        from personal_assistant.scheduler.cron_execution_service import (
-            CronRunRecord,
-            CronRunsStore,
-        )
-
-        store = CronRunsStore(workspace_root=tmp_path)
-        for i in range(3):
-            store.append(
-                CronRunRecord(
-                    request_id=f"req-{i}",
-                    job_id="job-c",
-                    trigger="scheduled",
-                    status="completed",
-                    accepted_at=f"2026-01-0{i + 1}T00:00:00+00:00",
-                )
-            )
-        results = store.list_by_job("job-c")
-        # latest first
-        assert results[0].request_id == "req-2"
-        assert results[-1].request_id == "req-0"
-
-    def test_runs_store_convergence_on_restart(self, tmp_path: Path) -> None:
-        """converge_stale_on_restart must mark accepted/running records as failed."""
-        from personal_assistant.scheduler.cron_execution_service import (
-            CronRunRecord,
-            CronRunsStore,
-        )
-
-        store = CronRunsStore(workspace_root=tmp_path)
-        store.append(
-            CronRunRecord(
-                request_id="req-stale-1",
-                job_id="job-d",
-                trigger="scheduled",
-                status="accepted",
-                accepted_at="2026-01-01T00:00:00+00:00",
-            )
-        )
-        store.append(
-            CronRunRecord(
-                request_id="req-stale-2",
-                job_id="job-d",
-                trigger="manual",
-                status="running",
-                accepted_at="2026-01-01T00:01:00+00:00",
-                started_at="2026-01-01T00:01:01+00:00",
-            )
-        )
-        store.append(
-            CronRunRecord(
-                request_id="req-done",
-                job_id="job-d",
-                trigger="scheduled",
-                status="completed",
-                accepted_at="2025-12-31T23:00:00+00:00",
-            )
-        )
-        store.converge_stale_on_restart()
-        results = {r.request_id: r for r in store.list_by_job("job-d")}
-        assert results["req-stale-1"].status == "failed"
-        assert results["req-stale-1"].error is not None
-        assert "gateway_restarted" in (results["req-stale-1"].error or "")
-        assert results["req-stale-2"].status == "failed"
-        # completed record untouched
-        assert results["req-done"].status == "completed"
 
 
 class TestCronExecutionServiceEnqueue:

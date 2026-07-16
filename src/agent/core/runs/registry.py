@@ -191,9 +191,8 @@ class RunsRegistry:
             held = self._held_pending.pop(session_id, None) if flush_held else None
         normalized_parts: list[Mapping[str, Any]] = []
         if held:
-            normalized_parts.extend(
-                {"type": "text", "text": pending.message.content} for pending in held
-            )
+            for pending in held:
+                normalized_parts.extend(_input_parts_from_message(pending.message))
         normalized_parts.extend(dict(part) for part in parts)
 
         ref = SessionRef(session_id=session_id, workspace_root=workspace_root)
@@ -328,6 +327,8 @@ class RunsRegistry:
         session_id: str,
         message: LLMMessage,
         origin: RunOrigin = RunOrigin.USER,
+        *,
+        expected_run_id: str | None = None,
     ) -> bool:
         """Enqueue a message for round-boundary injection into the active run.
 
@@ -337,6 +338,8 @@ class RunsRegistry:
             origin: Source that produced this message. Carried on the pending
                 queue so a stranded continuation re-run keeps the right origin
                 (user mid-run steer → USER, not BACKGROUND_TASK; bugfix-426 决策3).
+            expected_run_id: Optional caller-owned active marker. When supplied,
+                injection is rejected unless that exact run is still active.
 
         Returns:
             True if the message was enqueued, False if no active run exists, the
@@ -345,14 +348,56 @@ class RunsRegistry:
             between its last drain and the break — the steer lost the race and the
             caller must route it to a new run, not lose it).
         """
+        return (
+            self.try_inject_pending_message(
+                session_id,
+                message,
+                origin,
+                expected_run_id=expected_run_id,
+            )
+            is not None
+        )
+
+    def try_inject_pending_message(
+        self,
+        session_id: str,
+        message: LLMMessage,
+        origin: RunOrigin = RunOrigin.USER,
+        *,
+        expected_run_id: str | None = None,
+    ) -> str | None:
+        """Atomically compare, inject, and return the accepted active run identity.
+
+        Args:
+            session_id: Session whose active run may receive the message.
+            message: Message to inject before the run's next LLM call.
+            origin: Source preserved on the pending message.
+            expected_run_id: Optional caller-owned active marker. A mismatch
+                rejects the operation without injecting into a replacement run.
+
+        Returns:
+            The exact run id whose controller accepted the message, or ``None``
+            when no matching active run can accept it.
+
+        Notes:
+            The registry lock remains held through the controller's non-blocking
+            enqueue so active-run replacement cannot interleave between comparison
+            and admission.
+        """
+
         with self._lock:
             run_id = self._active_run_by_session.get(session_id)
+            if expected_run_id is not None and run_id != expected_run_id:
+                return None
             controller = self._controllers.get(run_id) if run_id else None
-        if controller is not None and not controller.is_aborted:
-            # enqueue_message returns False when the controller already committed its
-            # terminal — surface that so the caller falls back to a new run.
-            return controller.enqueue_message(message, origin)
-        return False
+            if controller is None:
+                return None
+            # Controller admission shares its terminal lock with the loop's terminal
+            # commit. Keeping both locks through enqueue makes active identity and
+            # terminal acceptance one linearizable decision.
+            if not controller.enqueue_message(message, origin):
+                return None
+            return run_id
 
     def get(self, run_id: str) -> RunRecord | None:
         with self._lock:
@@ -534,7 +579,9 @@ class RunsRegistry:
             self.submit(
                 session_id=session_id,
                 parts=[
-                    {"type": "text", "text": p.message.content} for p in pending_batch
+                    part
+                    for pending in pending_batch
+                    for part in _input_parts_from_message(pending.message)
                 ],
                 origin=origin_batch,
                 workspace_root=workspace_root,
@@ -824,6 +871,14 @@ def _group_pending_by_origin(
         else:
             batches.append((item.origin, [item]))
     return batches
+
+
+def _input_parts_from_message(message: LLMMessage) -> list[Mapping[str, Any]]:
+    """Recover canonical submit parts from a pending provider-neutral message."""
+
+    if isinstance(message.content, str):
+        return [{"type": "text", "text": message.content}]
+    return [dict(part) for part in message.content]
 
 
 def _serialize_usage(usage: TokenUsage | None) -> dict[str, int] | None:

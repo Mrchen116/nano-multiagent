@@ -96,13 +96,15 @@ def test_scheduler_uses_live_agents_getter_on_each_tick(tmp_path: Path) -> None:
     kernel = _FakeKernelClient()
 
     # Start with heartbeat_enabled=True
-    live_agents: dict[str, AgentWorkspaceConfig] = {agent.agent_id: agent}
+    from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
+
+    catalog = LiveAgentCatalog((agent,))
 
     scheduler = HeartbeatScheduler(
         agents=(),  # empty frozen tuple — all reads come from getter
         kernel_client=kernel,
         state_store=HeartbeatSchedulerStateStore(tmp_path / "state.json"),
-        agents_getter=lambda: list(live_agents.values()),
+        agent_catalog=catalog,
     )
 
     # First tick: agent is enabled → should fire
@@ -115,7 +117,7 @@ def test_scheduler_uses_live_agents_getter_on_each_tick(tmp_path: Path) -> None:
         workspace_root=agent.workspace_root,
         features={},
     )
-    live_agents[agent.agent_id] = disabled_agent
+    catalog.publish(disabled_agent)
 
     # Second tick (1 minute later): agent is now disabled → must NOT fire
     summary2 = asyncio.run(scheduler.tick(now=datetime(2026, 3, 11, 9, 1, tzinfo=UTC)))

@@ -8,9 +8,47 @@ existing IM routing layer without requiring a separate process or service.
 from __future__ import annotations
 
 import json
+from threading import Lock
 from typing import Any, Callable, Mapping
 
-from personal_assistant.gateway.session_keys import bind_conversation_session
+from personal_assistant.gateway.session_binder import (
+    ConversationBindingRequest,
+    GatewaySessionBinder,
+    SessionProvenance,
+)
+
+
+class InternalDispatchEndpoint:
+    """Publish the URL of the listener that is currently accepting dispatches.
+
+    The runtime writes this owner only after ``aiohttp`` has successfully bound a
+    socket. Session creation reads it later, so metadata can never advertise a
+    configured port that failed to listen.
+    """
+
+    def __init__(self) -> None:
+        self._lock = Lock()
+        self._url: str | None = None
+
+    def publish(self, *, host: str, port: int) -> str:
+        """Publish and return the exact internal dispatch URL for a bound socket."""
+
+        url = f"http://{host}:{port}/internal/dispatch"
+        with self._lock:
+            self._url = url
+        return url
+
+    def clear(self) -> None:
+        """Remove a listener URL that is no longer accepting requests."""
+
+        with self._lock:
+            self._url = None
+
+    def current_url(self) -> str | None:
+        """Return the currently bound URL, or ``None`` before/after listener life."""
+
+        with self._lock:
+            return self._url
 
 
 class InternalDispatchHandler:
@@ -30,20 +68,19 @@ class InternalDispatchHandler:
         *,
         im_connection_manager: Any | None = None,
         kernel_client: Any | None = None,
-        session_store: Any | None = None,
+        session_binder: GatewaySessionBinder | None = None,
         direct_channel_name: str = "web_relay",
-        agent_workspace_roots: Mapping[str, Any] | None = None,
     ) -> None:
         self._im_connection_manager = im_connection_manager
         self._kernel_client = kernel_client
-        self._session_store = session_store
+        self._session_binder = session_binder
         self._direct_channel_name = direct_channel_name
-        # agent_id -> workspace_root, used to locate the origin agent's session
-        # JSONL when persisting the dispatched assistant message into the
-        # stateless kernel.
-        self._agent_workspace_roots: dict[str, str] = {
-            str(k): str(v) for k, v in (agent_workspace_roots or {}).items()
-        }
+        self._sealed = False
+
+    def seal(self) -> None:
+        """Synchronously reject requests that have not entered ``handle`` yet."""
+
+        self._sealed = True
 
     async def handle(self, payload: Mapping[str, Any]) -> dict[str, Any]:
         """Process one dispatch request and return a response dict.
@@ -54,6 +91,12 @@ class InternalDispatchHandler:
         Returns:
             ``{"ok": True}`` on success or ``{"ok": False, "error": "..."}`` on failure.
         """
+
+        if self._sealed:
+            return {
+                "ok": False,
+                "error": "Gateway is shutting down; cannot dispatch message",
+            }
 
         text = payload.get("text")
         to = payload.get("to")
@@ -98,6 +141,22 @@ class InternalDispatchHandler:
         if isinstance(dispatch_request_id, str) and dispatch_request_id.strip():
             dispatch_payload["dispatch_request_id"] = dispatch_request_id.strip()
 
+        provenance = self._capture_source_provenance(
+            origin_kernel_session_id,
+            source_agent_id,
+        )
+        if (
+            self._session_binder is not None
+            and isinstance(origin_kernel_session_id, str)
+            and origin_kernel_session_id.strip()
+            and isinstance(source_agent_id, str)
+            and source_agent_id.strip()
+            and provenance is None
+        ):
+            return {
+                "ok": False,
+                "error": "origin Kernel session provenance is not registered",
+            }
         try:
             ack = await manager.send_agent_message(dispatch_payload)
             await self._sync_direct_session(
@@ -106,6 +165,7 @@ class InternalDispatchHandler:
                 origin_kernel_session_id=origin_kernel_session_id,
                 source_agent_id=source_agent_id,
                 dispatch_request_id=dispatch_request_id,
+                provenance=provenance,
             )
         except Exception as exc:  # noqa: BLE001
             return {"ok": False, "error": f"IM dispatch failed: {exc}"}
@@ -125,6 +185,7 @@ class InternalDispatchHandler:
         origin_kernel_session_id: object,
         source_agent_id: object,
         dispatch_request_id: object,
+        provenance: SessionProvenance | None,
     ) -> None:
         if getattr(ack, "target_kind", None) != "user_id":
             return
@@ -137,22 +198,29 @@ class InternalDispatchHandler:
             source_agent_id = getattr(ack, "source_agent_id", None)
         if not isinstance(source_agent_id, str) or not source_agent_id.strip():
             return
-        if self._session_store is None or self._kernel_client is None:
+        binder = self._session_binder
+        if binder is None or self._kernel_client is None or provenance is None:
+            return
+        normalized_agent_id = source_agent_id.strip()
+        if provenance.agent.agent_id != normalized_agent_id:
             return
 
-        bind_conversation_session(
-            store=self._session_store,
-            channel_name=self._direct_channel_name,
-            conversation_id=str(getattr(ack, "conversation_id")),
-            agent_id=source_agent_id.strip(),
-            kernel_session_id=origin_kernel_session_id.strip(),
+        binder.bind_conversation(
+            ConversationBindingRequest(
+                channel_name=self._direct_channel_name,
+                conversation_id=str(getattr(ack, "conversation_id")),
+                agent_id=normalized_agent_id,
+                kernel_session_id=origin_kernel_session_id.strip(),
+                guard=provenance.guard,
+            ),
+            provenance.agent,
         )
         append_idempotency_key = None
         if isinstance(dispatch_request_id, str) and dispatch_request_id.strip():
             append_idempotency_key = f"dispatch-sync:{dispatch_request_id.strip()}"
         # The stateless kernel needs the origin session's workspace_root to locate
         # its JSONL; resolve it from the source agent's config.
-        origin_workspace_root = self._agent_workspace_roots.get(source_agent_id.strip())
+        origin_workspace_root = provenance.agent.config.workspace_root
         self._kernel_client.append_message(
             session_id=origin_kernel_session_id.strip(),
             role="assistant",
@@ -167,6 +235,26 @@ class InternalDispatchHandler:
             },
             idempotency_key=append_idempotency_key,
             workspace_root=origin_workspace_root,
+        )
+
+    def _capture_source_provenance(
+        self,
+        origin_kernel_session_id: object,
+        source_agent_id: object,
+    ) -> SessionProvenance | None:
+        """Capture origin session facts before the IM acknowledgement await."""
+
+        if (
+            not isinstance(origin_kernel_session_id, str)
+            or not origin_kernel_session_id.strip()
+            or not isinstance(source_agent_id, str)
+            or not source_agent_id.strip()
+            or self._session_binder is None
+        ):
+            return None
+        return self._session_binder.capture_session_provenance(
+            origin_kernel_session_id.strip(),
+            expected_agent_id=source_agent_id.strip(),
         )
 
     def build_aiohttp_handler(self) -> Callable:

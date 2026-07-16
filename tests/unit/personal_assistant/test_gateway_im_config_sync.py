@@ -16,12 +16,16 @@ from personal_assistant.config.local_store import (
     NodeConfig,
     load_local_config,
 )
-from personal_assistant.gateway.session_keys import SessionBindingStore
-from personal_assistant.main import (
-    _IMConfigSyncClient,
+from personal_assistant.channels.base import ReplyContext
+from personal_assistant.gateway.agent_config_sync import (
+    IMAgentConfigSync as _IMConfigSyncClient,
     _read_skill_name,
     _make_workspace_root_factory,
 )
+from tests.unit.personal_assistant._config_sync_test_owners import (
+    build_config_sync_test_owners,
+)
+
 
 from agent.core.llm.config import LLMConfigPayload, LLMModelPayload, LLMProviderPayload
 
@@ -59,7 +63,6 @@ def test_im_config_sync_client_retries_until_live_agent_config_reaches_target_ve
     tmp_path: Path,
 ) -> None:
     workspace_root = tmp_path / "workspace-from-im"
-    seen: list[tuple[str, str | None]] = []
     sleeps: list[float] = []
     responses = iter(
         [
@@ -85,16 +88,6 @@ def test_im_config_sync_client_retries_until_live_agent_config_reaches_target_ve
         ]
     )
 
-    class _Pipeline:
-        def __init__(self) -> None:
-            self.dropped: list[str] = []
-
-        def register_agent(self, agent: AgentWorkspaceConfig) -> None:
-            seen.append((agent.agent_id, str(agent.workspace_root)))
-
-        def drop_agent_sessions(self, agent_id: str) -> None:
-            self.dropped.append(agent_id)
-
     def _handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "GET"
         assert request.url.path == "/im/v1/agents/agent-live/config"
@@ -106,7 +99,6 @@ def test_im_config_sync_client_retries_until_live_agent_config_reaches_target_ve
         base_url="http://im.local",
         trust_env=False,
     )
-    pipeline = _Pipeline()
     config_path = tmp_path / "config.yaml"
     # bugfix-404-M2: workspace_root comes from local config, not IM mirror.
     # agent-live must be in local_config.agents with the expected workspace so
@@ -126,10 +118,12 @@ def test_im_config_sync_client_retries_until_live_agent_config_reaches_target_ve
         llm=_DEFAULT_TEST_LLM,
         source_path=config_path,
     )
+    owners = build_config_sync_test_owners(local_config)
+    initial_revision = owners.catalog.require("agent-live").revision
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,
-        pipeline=pipeline,
+        **owners.kwargs(),
         local_config=local_config,
         client=client,
         monotonic=lambda: 0.0,
@@ -138,8 +132,9 @@ def test_im_config_sync_client_retries_until_live_agent_config_reaches_target_ve
 
     sync.sync_agent(agent_id="agent-live", profile_version=2)
 
-    assert seen == [("agent-live", str(workspace_root))]
-    assert pipeline.dropped == ["agent-live"]
+    published = owners.catalog.require("agent-live")
+    assert published.revision > initial_revision
+    assert published.config.workspace_root == workspace_root
     assert sleeps == [0.1, 0.1]
     assert workspace_root.is_dir()
     # feat-349-M3: MEMORY.md/USER.md seed under .nanoassistant/memory/;
@@ -157,45 +152,6 @@ def test_im_config_sync_client_drops_existing_agent_session_bindings_after_profi
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir(parents=True)
 
-    class _Pipeline:
-        def __init__(self) -> None:
-            self.registered: list[tuple[str, str]] = []
-            self._session_store = SessionBindingStore()
-            self._session_store.bind(
-                session_key="web:conv-1:agent-live",
-                kernel_session_id="sess-old",
-                reply_context=type(
-                    "_ReplyContext",
-                    (),
-                    {
-                        "channel_name": "web_relay",
-                        "target_chat_id": "conv-1",
-                        "thread_id": None,
-                        "metadata": {},
-                    },
-                )(),
-            )
-            self._session_store.bind(
-                session_key="web:conv-2:agent-other",
-                kernel_session_id="sess-other",
-                reply_context=type(
-                    "_ReplyContext",
-                    (),
-                    {
-                        "channel_name": "web_relay",
-                        "target_chat_id": "conv-2",
-                        "thread_id": None,
-                        "metadata": {},
-                    },
-                )(),
-            )
-
-        def register_agent(self, agent: AgentWorkspaceConfig) -> None:
-            self.registered.append((agent.agent_id, str(agent.workspace_root)))
-
-        def drop_agent_sessions(self, agent_id: str) -> None:
-            self._session_store.drop_agent(agent_id)
-
     def _handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "GET"
         assert request.url.path == "/im/v1/agents/agent-live/config"
@@ -208,7 +164,6 @@ def test_im_config_sync_client_drops_existing_agent_session_bindings_after_profi
             },
         )
 
-    pipeline = _Pipeline()
     client = httpx.Client(
         transport=httpx.MockTransport(_handler),
         base_url="http://im.local",
@@ -229,10 +184,21 @@ def test_im_config_sync_client_drops_existing_agent_session_bindings_after_profi
         llm=_DEFAULT_TEST_LLM,
         source_path=config_path,
     )
+    owners = build_config_sync_test_owners(local_config)
+    owners.store.bind(
+        session_key="web:conv-1:agent-live",
+        kernel_session_id="sess-old",
+        reply_context=ReplyContext(channel_name="web_relay", target_chat_id="conv-1"),
+    )
+    owners.store.bind(
+        session_key="web:conv-2:agent-other",
+        kernel_session_id="sess-other",
+        reply_context=ReplyContext(channel_name="web_relay", target_chat_id="conv-2"),
+    )
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,
-        pipeline=pipeline,
+        **owners.kwargs(),
         local_config=local_config,
         workspace_root_factory=lambda _agent_id: workspace_root,
         client=client,
@@ -242,9 +208,9 @@ def test_im_config_sync_client_drops_existing_agent_session_bindings_after_profi
 
     sync.sync_agent(agent_id="agent-live", profile_version=2)
 
-    assert pipeline.registered == [("agent-live", str(workspace_root))]
-    assert pipeline._session_store.get("web:conv-1:agent-live") is None
-    assert pipeline._session_store.get("web:conv-2:agent-other") is not None
+    assert owners.catalog.require("agent-live").config.workspace_root == workspace_root
+    assert owners.binder.lookup("web:conv-1:agent-live") is None
+    assert owners.binder.lookup("web:conv-2:agent-other") is not None
 
 
 def test_im_config_sync_client_does_not_overwrite_existing_workspace_files(
@@ -260,17 +226,6 @@ def test_im_config_sync_client_does_not_overwrite_existing_workspace_files(
     heartbeat_path.write_text(
         "interval: 1h\n\n- Existing heartbeat\n", encoding="utf-8"
     )
-    seen: list[tuple[str, str | None]] = []
-
-    class _Pipeline:
-        def __init__(self) -> None:
-            self.dropped: list[str] = []
-
-        def register_agent(self, agent: AgentWorkspaceConfig) -> None:
-            seen.append((agent.agent_id, str(agent.workspace_root)))
-
-        def drop_agent_sessions(self, agent_id: str) -> None:
-            self.dropped.append(agent_id)
 
     def _handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "GET"
@@ -289,7 +244,6 @@ def test_im_config_sync_client_does_not_overwrite_existing_workspace_files(
         base_url="http://im.local",
         trust_env=False,
     )
-    pipeline = _Pipeline()
     config_path = tmp_path / "config.yaml"
     local_config = LocalConfig(
         node=NodeConfig(node_id="node-1"),
@@ -305,10 +259,11 @@ def test_im_config_sync_client_does_not_overwrite_existing_workspace_files(
         llm=_DEFAULT_TEST_LLM,
         source_path=config_path,
     )
+    owners = build_config_sync_test_owners(local_config)
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,
-        pipeline=pipeline,
+        **owners.kwargs(),
         local_config=local_config,
         workspace_root_factory=lambda _agent_id: workspace_root,
         client=client,
@@ -318,8 +273,7 @@ def test_im_config_sync_client_does_not_overwrite_existing_workspace_files(
 
     sync.sync_agent(agent_id="agent-live", profile_version=2)
 
-    assert seen == [("agent-live", str(workspace_root))]
-    assert pipeline.dropped == ["agent-live"]
+    assert owners.catalog.require("agent-live").config.workspace_root == workspace_root
     assert memory_path.read_text(encoding="utf-8") == "existing memory\n"
     assert (
         heartbeat_path.read_text(encoding="utf-8")
@@ -332,13 +286,6 @@ def test_im_config_sync_client_persists_agent_config_to_source_path(
 ) -> None:
     """Config sync must write back to the path the config was loaded from, not a hardcoded default."""
     workspace_root = tmp_path / "workspace"
-
-    class _Pipeline:
-        def register_agent(self, agent: AgentWorkspaceConfig) -> None:
-            self.agent = agent
-
-        def drop_agent_sessions(self, agent_id: str) -> None:
-            self.dropped = agent_id
 
     def _handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
@@ -371,10 +318,11 @@ def test_im_config_sync_client_persists_agent_config_to_source_path(
         llm=_DEFAULT_TEST_LLM,
         source_path=config_path,
     )
+    owners = build_config_sync_test_owners(local_config)
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,
-        pipeline=_Pipeline(),
+        **owners.kwargs(),
         local_config=local_config,
         client=httpx.Client(
             transport=httpx.MockTransport(_handler),
@@ -426,16 +374,6 @@ def _make_local_config(tmp_path: Path, workspace_root: Path) -> "LocalConfig":
         source_path=config_path,
     )
     return local_config
-
-
-class _NullPipeline:
-    registered: list["AgentWorkspaceConfig"] = []
-
-    def register_agent(self, agent: "AgentWorkspaceConfig") -> None:
-        self.registered.append(agent)
-
-    def drop_agent_sessions(self, agent_id: str) -> None:
-        pass
 
 
 def test_skill_created_global_enables_explicit_allowlists_and_drops_all_sessions(
@@ -490,18 +428,6 @@ def test_skill_created_global_enables_explicit_allowlists_and_drops_all_sessions
             )
         raise AssertionError(f"unexpected request {request.method} {request.url.path}")
 
-    class _Pipeline:
-        def __init__(self) -> None:
-            self.registered: list[AgentWorkspaceConfig] = []
-            self.dropped: list[str] = []
-
-        def register_agent(self, agent: AgentWorkspaceConfig) -> None:
-            self.registered.append(agent)
-
-        def drop_agent_sessions(self, agent_id: str) -> None:
-            self.dropped.append(agent_id)
-
-    pipeline = _Pipeline()
     local_config = LocalConfig(
         node=NodeConfig(node_id="node-1"),
         agents=(
@@ -524,10 +450,15 @@ def test_skill_created_global_enables_explicit_allowlists_and_drops_all_sessions
         llm=_DEFAULT_TEST_LLM,
         source_path=config_path,
     )
+    owners = build_config_sync_test_owners(local_config)
+    initial_revisions = {
+        agent_id: owners.catalog.require(agent_id).revision
+        for agent_id in ("agent-a", "agent-b", "agent-c")
+    }
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,
-        pipeline=pipeline,
+        **owners.kwargs(),
         local_config=local_config,
         client=httpx.Client(
             transport=httpx.MockTransport(_handler),
@@ -555,8 +486,10 @@ def test_skill_created_global_enables_explicit_allowlists_and_drops_all_sessions
         ["old-skill", "new-skill"],
         ["existing-skill", "new-skill"],
     ]
-    assert pipeline.dropped == ["agent-a", "agent-b", "agent-c"]
-    assert [agent.agent_id for agent in pipeline.registered] == ["agent-a", "agent-c"]
+    assert all(
+        owners.catalog.require(agent_id).revision > initial_revisions[agent_id]
+        for agent_id in initial_revisions
+    )
 
 
 def test_skill_created_agent_scope_only_enables_executing_agent(
@@ -605,43 +538,34 @@ def test_skill_created_agent_scope_only_enables_executing_agent(
             )
         raise AssertionError(f"unexpected request {request.method} {request.url.path}")
 
-    class _Pipeline:
-        def __init__(self) -> None:
-            self.registered: list[AgentWorkspaceConfig] = []
-            self.dropped: list[str] = []
-
-        def register_agent(self, agent: AgentWorkspaceConfig) -> None:
-            self.registered.append(agent)
-
-        def drop_agent_sessions(self, agent_id: str) -> None:
-            self.dropped.append(agent_id)
-
-    pipeline = _Pipeline()
+    local_config = LocalConfig(
+        node=NodeConfig(node_id="node-1"),
+        agents=(
+            AgentWorkspaceConfig(
+                agent_id="agent-a",
+                workspace_root=ws_a,
+                skills=("old-skill",),
+            ),
+            AgentWorkspaceConfig(
+                agent_id="agent-b",
+                workspace_root=ws_b,
+                skills=("old-skill",),
+            ),
+        ),
+        channels=(),
+        gateway=GatewayLifecycleConfig(),
+        heartbeat=HeartbeatConfig(),
+        im_service=None,
+        llm=_DEFAULT_TEST_LLM,
+        source_path=tmp_path / "config.yaml",
+    )
+    owners = build_config_sync_test_owners(local_config)
+    agent_b_revision = owners.catalog.require("agent-b").revision
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,
-        pipeline=pipeline,
-        local_config=LocalConfig(
-            node=NodeConfig(node_id="node-1"),
-            agents=(
-                AgentWorkspaceConfig(
-                    agent_id="agent-a",
-                    workspace_root=ws_a,
-                    skills=("old-skill",),
-                ),
-                AgentWorkspaceConfig(
-                    agent_id="agent-b",
-                    workspace_root=ws_b,
-                    skills=("old-skill",),
-                ),
-            ),
-            channels=(),
-            gateway=GatewayLifecycleConfig(),
-            heartbeat=HeartbeatConfig(),
-            im_service=None,
-            llm=_DEFAULT_TEST_LLM,
-            source_path=tmp_path / "config.yaml",
-        ),
+        **owners.kwargs(),
+        local_config=local_config,
         client=httpx.Client(
             transport=httpx.MockTransport(_handler),
             base_url="http://im.local",
@@ -664,8 +588,11 @@ def test_skill_created_agent_scope_only_enables_executing_agent(
         body for method, _path, body in requests if method == "PATCH" and body
     ]
     assert [body["skills"] for body in patch_bodies] == [["old-skill", "agent-skill"]]
-    assert pipeline.dropped == ["agent-a"]
-    assert [agent.agent_id for agent in pipeline.registered] == ["agent-a"]
+    assert owners.catalog.require("agent-a").config.skills == (
+        "old-skill",
+        "agent-skill",
+    )
+    assert owners.catalog.require("agent-b").revision == agent_b_revision
 
 
 def test_sync_agent_passes_through_features(tmp_path: Path) -> None:
@@ -686,13 +613,12 @@ def test_sync_agent_passes_through_features(tmp_path: Path) -> None:
             },
         )
 
-    pipeline = _NullPipeline()
-    pipeline.registered = []
     local_config = _make_local_config(tmp_path, workspace_root)
+    owners = build_config_sync_test_owners(local_config)
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,
-        pipeline=pipeline,
+        **owners.kwargs(),
         local_config=local_config,
         client=httpx.Client(
             transport=httpx.MockTransport(_handler),
@@ -705,7 +631,7 @@ def test_sync_agent_passes_through_features(tmp_path: Path) -> None:
 
     sync.sync_agent(agent_id="alpha", profile_version=1)
 
-    registered = next(a for a in pipeline.registered if a.agent_id == "alpha")
+    registered = owners.catalog.require("alpha").config
     # features must be passed through from IM payload
     assert registered.features.get("memory_curation") is False
     assert registered.custom_prompt == "You are a legal advisor."
@@ -716,13 +642,12 @@ def test_handle_agent_create_passes_through_features(tmp_path: Path) -> None:
     workspace_root = tmp_path / "ws"
     workspace_root.mkdir()
 
-    pipeline = _NullPipeline()
-    pipeline.registered = []
     local_config = _make_local_config(tmp_path, workspace_root)
+    owners = build_config_sync_test_owners(local_config)
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,
-        pipeline=pipeline,
+        **owners.kwargs(),
         local_config=local_config,
         client=httpx.Client(
             transport=httpx.MockTransport(lambda _r: httpx.Response(200, json={})),
@@ -746,7 +671,7 @@ def test_handle_agent_create_passes_through_features(tmp_path: Path) -> None:
     assert result["features"] == {"skill_creation": False}
     assert result["custom_prompt"] == "You are a chef."
     # Persisted agent config must include features + custom_prompt
-    registered = next(a for a in pipeline.registered if a.agent_id == "beta")
+    registered = owners.catalog.require("beta").config
     assert registered.features.get("skill_creation") is False
     assert registered.custom_prompt == "You are a chef."
 
@@ -764,13 +689,12 @@ def test_handle_agent_create_defaults_to_pa_global_skills(
     )
     workspace_root = tmp_path / "ws"
     workspace_root.mkdir()
-    pipeline = _NullPipeline()
-    pipeline.registered = []
     local_config = _make_local_config(tmp_path, workspace_root)
+    owners = build_config_sync_test_owners(local_config)
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,
-        pipeline=pipeline,
+        **owners.kwargs(),
         local_config=local_config,
         client=httpx.Client(
             transport=httpx.MockTransport(lambda _r: httpx.Response(200, json={})),
@@ -786,7 +710,7 @@ def test_handle_agent_create_defaults_to_pa_global_skills(
     )
 
     assert result["skills"] == ["global-helper"]
-    registered = next(a for a in pipeline.registered if a.agent_id == "beta")
+    registered = owners.catalog.require("beta").config
     assert registered.skills == ("global-helper",)
 
 
@@ -803,13 +727,12 @@ def test_handle_agent_create_respects_explicit_empty_skills(
     )
     workspace_root = tmp_path / "ws"
     workspace_root.mkdir()
-    pipeline = _NullPipeline()
-    pipeline.registered = []
     local_config = _make_local_config(tmp_path, workspace_root)
+    owners = build_config_sync_test_owners(local_config)
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,
-        pipeline=pipeline,
+        **owners.kwargs(),
         local_config=local_config,
         client=httpx.Client(
             transport=httpx.MockTransport(lambda _r: httpx.Response(200, json={})),
@@ -825,7 +748,7 @@ def test_handle_agent_create_respects_explicit_empty_skills(
     )
 
     assert result["skills"] == []
-    registered = next(a for a in pipeline.registered if a.agent_id == "beta")
+    registered = owners.catalog.require("beta").config
     assert registered.skills == ()
 
 
@@ -842,8 +765,6 @@ def test_handle_agent_create_persists_default_model_to_source_path(
     workspace_root.mkdir()
     # Seed agent's workspace must exist on disk so the reload below validates.
     (tmp_path / "seed").mkdir()
-    pipeline = _NullPipeline()
-    pipeline.registered = []
     # Config must declare the gpt model (openai_compat) so reload validation
     # accepts it — mirrors the cross-provider case the incident reported.
     llm_with_gpt = LLMConfigPayload(
@@ -873,10 +794,11 @@ def test_handle_agent_create_persists_default_model_to_source_path(
         llm=llm_with_gpt,
         source_path=tmp_path / "config.yaml",
     )
+    owners = build_config_sync_test_owners(local_config)
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,
-        pipeline=pipeline,
+        **owners.kwargs(),
         local_config=local_config,
         client=httpx.Client(
             transport=httpx.MockTransport(lambda _r: httpx.Response(200, json={})),
@@ -945,12 +867,11 @@ def test_handle_agent_create_persists_to_default_config_path(tmp_path: Path) -> 
         llm=llm_with_gpt,
         source_path=default_cfg,
     )
-    pipeline = _NullPipeline()
-    pipeline.registered = []
+    owners = build_config_sync_test_owners(local_config)
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,
-        pipeline=pipeline,
+        **owners.kwargs(),
         local_config=local_config,
         client=httpx.Client(
             transport=httpx.MockTransport(lambda _r: httpx.Response(200, json={})),
@@ -1001,13 +922,12 @@ def test_handle_agent_create_derives_workspace_from_injected_base(
     """bugfix-424 (#127): an agent created without an explicit workspace_root lands
     under the injected factory base — not the hardcoded ~/nano-assistant/workspace."""
     base = tmp_path / "iso-base"
-    pipeline = _NullPipeline()
-    pipeline.registered = []
     local_config = _make_local_config(tmp_path, tmp_path / "preset-ws")
+    owners = build_config_sync_test_owners(local_config)
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,
-        pipeline=pipeline,
+        **owners.kwargs(),
         local_config=local_config,
         client=httpx.Client(
             transport=httpx.MockTransport(lambda _r: httpx.Response(200, json={})),
@@ -1024,7 +944,7 @@ def test_handle_agent_create_derives_workspace_from_injected_base(
 
     expected = (base / "dyn").resolve()
     assert result["workspace_root"] == str(expected)
-    registered = next(a for a in pipeline.registered if a.agent_id == "dyn")
+    registered = owners.catalog.require("dyn").config
     assert registered.workspace_root == expected
     # The hardcoded home default must NOT be used.
     assert "nano-assistant/workspace" not in result["workspace_root"]
@@ -1058,13 +978,12 @@ def test_sync_agent_passes_through_heartbeat_enabled(tmp_path: Path) -> None:
             },
         )
 
-    pipeline = _NullPipeline()
-    pipeline.registered = []
     local_config = _make_local_config(tmp_path, workspace_root)
+    owners = build_config_sync_test_owners(local_config)
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,
-        pipeline=pipeline,
+        **owners.kwargs(),
         local_config=local_config,
         client=httpx.Client(
             transport=httpx.MockTransport(_handler),
@@ -1077,7 +996,7 @@ def test_sync_agent_passes_through_heartbeat_enabled(tmp_path: Path) -> None:
 
     sync.sync_agent(agent_id="hb-agent", profile_version=1)
 
-    registered = next(a for a in pipeline.registered if a.agent_id == "hb-agent")
+    registered = owners.catalog.require("hb-agent").config
     assert registered.heartbeat_enabled is True
     assert registered.heartbeat_every == "10m"
 
@@ -1098,13 +1017,12 @@ def test_sync_agent_heartbeat_disabled_by_default(tmp_path: Path) -> None:
             },
         )
 
-    pipeline = _NullPipeline()
-    pipeline.registered = []
     local_config = _make_local_config(tmp_path, workspace_root)
+    owners = build_config_sync_test_owners(local_config)
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,
-        pipeline=pipeline,
+        **owners.kwargs(),
         local_config=local_config,
         client=httpx.Client(
             transport=httpx.MockTransport(_handler),
@@ -1117,7 +1035,7 @@ def test_sync_agent_heartbeat_disabled_by_default(tmp_path: Path) -> None:
 
     sync.sync_agent(agent_id="no-hb-agent", profile_version=1)
 
-    registered = next(a for a in pipeline.registered if a.agent_id == "no-hb-agent")
+    registered = owners.catalog.require("no-hb-agent").config
     assert registered.heartbeat_enabled is False
 
 
@@ -1143,10 +1061,11 @@ def test_current_agent_payload_includes_features(tmp_path: Path) -> None:
         llm=_DEFAULT_TEST_LLM,
         source_path=config_path,
     )
+    owners = build_config_sync_test_owners(local_config)
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,
-        pipeline=_NullPipeline(),
+        **owners.kwargs(),
         local_config=local_config,
         client=httpx.Client(
             transport=httpx.MockTransport(lambda _r: httpx.Response(200, json={})),
@@ -1197,13 +1116,12 @@ def test_im_config_sync_client_update_token_propagates_to_requests(
             },
         )
 
-    pipeline = _NullPipeline()
-    pipeline.registered = []
     local_config = _make_local_config(tmp_path, workspace_root)
+    owners = build_config_sync_test_owners(local_config)
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,  # initial token is empty (pre-bind)
-        pipeline=pipeline,
+        **owners.kwargs(),
         local_config=local_config,
         client=httpx.Client(
             transport=httpx.MockTransport(_handler),
@@ -1220,7 +1138,7 @@ def test_im_config_sync_client_update_token_propagates_to_requests(
 
     sync.sync_agent(agent_id="tg-agent", profile_version=1)
 
-    registered = next(a for a in pipeline.registered if a.agent_id == "tg-agent")
+    registered = owners.catalog.require("tg-agent").config
     assert registered.agent_id == "tg-agent"
     # All requests must have used the refreshed token, not the empty initial one.
     assert all(t == "Bearer refreshed-token-123" for t in tokens_seen), (
@@ -1249,13 +1167,12 @@ def test_im_config_sync_client_update_token_none_clears_auth(
             },
         )
 
-    pipeline = _NullPipeline()
-    pipeline.registered = []
     local_config = _make_local_config(tmp_path, workspace_root)
+    owners = build_config_sync_test_owners(local_config)
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token="old-token",
-        pipeline=pipeline,
+        **owners.kwargs(),
         local_config=local_config,
         client=httpx.Client(
             transport=httpx.MockTransport(_handler),
@@ -1291,18 +1208,6 @@ def test_sync_agent_ignores_mirror_workspace_root_and_uses_local_config(
     local_ws = tmp_path / "correct-local-workspace"
     dirty_im_ws = tmp_path / "dirty-im-workspace"
 
-    seen: list[tuple[str, str]] = []
-
-    class _Pipeline:
-        def __init__(self) -> None:
-            self.dropped: list[str] = []
-
-        def register_agent(self, agent: AgentWorkspaceConfig) -> None:
-            seen.append((agent.agent_id, str(agent.workspace_root)))
-
-        def drop_agent_sessions(self, agent_id: str) -> None:
-            self.dropped.append(agent_id)
-
     response = httpx.Response(
         200,
         json={
@@ -1333,11 +1238,11 @@ def test_sync_agent_ignores_mirror_workspace_root_and_uses_local_config(
         llm=_DEFAULT_TEST_LLM,
         source_path=config_path,
     )
-    pipeline = _Pipeline()
+    owners = build_config_sync_test_owners(local_config)
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,
-        pipeline=pipeline,
+        **owners.kwargs(),
         local_config=local_config,
         client=client,
         monotonic=lambda: 0.0,
@@ -1345,7 +1250,9 @@ def test_sync_agent_ignores_mirror_workspace_root_and_uses_local_config(
     )
     sync.sync_agent(agent_id="Arch", profile_version=1)
 
-    assert seen == [("Arch", str(local_ws))], (
+    registered = owners.catalog.require("Arch").config
+    assert registered.workspace_root == local_ws, (
         f"sync_agent 应使用本地 config workspace {local_ws!r}，"
-        f"实际注册了 {seen}（IM 脏值 {dirty_im_ws!r} 不应渗入 runtime）"
+        f"实际注册了 {registered.workspace_root!r}"
+        f"（IM 脏值 {dirty_im_ws!r} 不应渗入 runtime）"
     )

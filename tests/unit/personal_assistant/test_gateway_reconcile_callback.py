@@ -22,7 +22,13 @@ from personal_assistant.config.local_store import (
     LocalConfig,
     NodeConfig,
 )
-from personal_assistant.main import _IMConfigSyncClient
+from personal_assistant.gateway.agent_config_sync import (
+    IMAgentConfigSync as _IMConfigSyncClient,
+)
+from tests.unit.personal_assistant._config_sync_test_owners import (
+    build_config_sync_test_owners,
+)
+
 
 from agent.core.llm.config import LLMConfigPayload, LLMModelPayload, LLMProviderPayload
 
@@ -36,20 +42,6 @@ _DEFAULT_LLM = LLMConfigPayload(
         ),
     ),
 )
-
-
-class _FakePipeline:
-    """记录 register_agent 调用，供断言使用。"""
-
-    def __init__(self) -> None:
-        self.registered: list[AgentWorkspaceConfig] = []
-        self.dropped: list[str] = []
-
-    def register_agent(self, agent: AgentWorkspaceConfig) -> None:
-        self.registered.append(agent)
-
-    def drop_agent_sessions(self, agent_id: str) -> None:
-        self.dropped.append(agent_id)
 
 
 def _make_local_config(
@@ -179,11 +171,11 @@ def test_reconcile_callback_not_invoked_when_connect_fails(tmp_path: Path) -> No
 
 def test_reconcile_http_failure_does_not_raise(tmp_path: Path) -> None:
     """对账期间 IM HTTP 请求失败时，异常被记录但不传播，WS 连接保持存活。"""
-    pipeline = _FakePipeline()
     local_config = _make_local_config(
         tmp_path,
         [("agent-w", {})],
     )
+    owners = build_config_sync_test_owners(local_config)
 
     def _always_500(req: httpx.Request) -> httpx.Response:
         return httpx.Response(500, json={"detail": "server error"})
@@ -195,7 +187,7 @@ def test_reconcile_http_failure_does_not_raise(tmp_path: Path) -> None:
     sync_client = _IMConfigSyncClient(
         base_url="http://im.local:9000",
         token="tok",
-        pipeline=pipeline,
+        **owners.kwargs(),
         local_config=local_config,
         client=client,
     )
@@ -204,7 +196,7 @@ def test_reconcile_http_failure_does_not_raise(tmp_path: Path) -> None:
     sync_client.reconcile_all_agents()
 
     # 失败时没有 register_agent 调用
-    assert len(pipeline.registered) == 0
+    assert owners.catalog.require("agent-w").revision == 1
 
 
 # ---------------------------------------------------------------------------

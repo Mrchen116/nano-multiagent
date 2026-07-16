@@ -15,7 +15,7 @@ from typing import Any
 from personal_assistant.channels.base import InboundMessage, OutboundMessage
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.gateway.channel_registry import ChannelRegistry
-from personal_assistant.gateway.inbound_pipeline import InboundPipeline
+from tests.helpers.inbound_pipeline import build_inbound_pipeline
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
 from personal_assistant.gateway.session_keys import SessionBindingStore
@@ -124,7 +124,7 @@ def test_kernel_event_observer_receives_each_run_event_in_order(tmp_path: Path) 
 
     observed: list[Mapping[str, Any]] = []
 
-    pipeline = InboundPipeline(
+    pipeline = build_inbound_pipeline(
         kernel=kernel,
         agents=agents,
         outbound_router=OutboundRouter(registry),

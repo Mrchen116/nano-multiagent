@@ -503,7 +503,11 @@ class AgentEngine:
             parts=tuple(user_content_parts) if user_content_parts else None,
         )
         history.append(user_msg)
-        state.transcript.append_messages([user_msg], durable=True)
+        state.transcript.append_messages(
+            [user_msg],
+            durable=True,
+            turn_id=turn_id,
+        )
         preloop_messages: list[Message] = []
         if (
             slash_skill_command is not None
@@ -520,7 +524,9 @@ class AgentEngine:
             for preloop_msg in preloop_messages:
                 history.append(preloop_msg)
                 state.transcript.append_messages(
-                    [preloop_msg], durable=preloop_msg.role == "tool"
+                    [preloop_msg],
+                    durable=preloop_msg.role == "tool",
+                    turn_id=turn_id,
                 )
             if preloop_messages:
                 await state.transcript.flush_async()
@@ -603,7 +609,11 @@ class AgentEngine:
                         all_messages.append(post_compact_msg)
                     continue
                 history.append(msg)
-                state.transcript.append_messages([msg], durable=msg.role == "tool")
+                state.transcript.append_messages(
+                    [msg],
+                    durable=msg.role == "tool",
+                    turn_id=turn_id,
+                )
             await state.transcript.flush_async()
             # bugfix-410-M2 R1: orphaned tool_call recovery moved to the run
             # `finally` below (see _recover_orphaned_tool_calls). The bugfix-402
@@ -676,7 +686,9 @@ class AgentEngine:
                             continue
                         history.append(msg)
                         state.transcript.append_messages(
-                            [msg], durable=msg.role == "tool"
+                            [msg],
+                            durable=msg.role == "tool",
+                            turn_id=turn_id,
                         )
                     await state.transcript.flush_async()
                 else:
@@ -691,7 +703,11 @@ class AgentEngine:
                     parent_message_id=user_msg.message_id,
                 )
                 history.append(error_msg)
-                state.transcript.append_messages([error_msg], durable=True)
+                state.transcript.append_messages(
+                    [error_msg],
+                    durable=True,
+                    turn_id=turn_id,
+                )
                 # bugfix-380: run_id must be in message_end payload so realtime_stream hook
                 # can publish assistant_message SSE before run_status=failed arrives.
                 _error_run_id = hook_ctx.metadata.get("run_id") if hook_ctx else None

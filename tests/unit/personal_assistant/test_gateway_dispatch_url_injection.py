@@ -1,37 +1,23 @@
-"""Unit tests: InboundPipeline injects gateway_dispatch_url into session metadata (M250 R3)."""
+"""Public inbound behavior injects the configured Gateway dispatch URL."""
 
 from __future__ import annotations
 
+import asyncio
+from dataclasses import replace
 from pathlib import Path
-from typing import Any
-from unittest.mock import MagicMock
 
 import pytest
 
 from personal_assistant.channels.base import InboundMessage
 from personal_assistant.config.local_store import AgentWorkspaceConfig
-from personal_assistant.gateway.inbound_pipeline import InboundPipeline
+from personal_assistant.gateway.channel_registry import ChannelRegistry
+from personal_assistant.gateway.internal_dispatch import InternalDispatchEndpoint
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
+from personal_assistant.gateway.session_keys import SessionBindingStore
+from tests.helpers.inbound_pipeline import build_inbound_pipeline
 
-
-def _make_pipeline(gateway_internal_port: int = 8089) -> InboundPipeline:
-    """Build a minimal InboundPipeline with the given gateway_internal_port."""
-    kernel_client = MagicMock()
-    agent = AgentWorkspaceConfig(
-        agent_id="agent_a",
-        workspace_root=Path("/tmp/agent_a"),
-        title="Agent A",
-    )
-    registry = MagicMock()
-    router = OutboundRouter(registry)
-    return InboundPipeline(
-        kernel=kernel_client,
-        agents=(agent,),
-        outbound_router=router,
-        run_queue=SessionRunQueue(),
-        gateway_internal_port=gateway_internal_port,
-    )
+from ._pipeline_helpers import _FakeChannel, _FakeKernel
 
 
 def _make_direct_message() -> InboundMessage:
@@ -46,53 +32,97 @@ def _make_direct_message() -> InboundMessage:
     )
 
 
-def test_build_session_metadata_includes_gateway_dispatch_url() -> None:
-    """_build_session_metadata must inject gateway_dispatch_url into session metadata."""
-    pipeline = _make_pipeline(gateway_internal_port=8089)
-    message = _make_direct_message()
-    meta = pipeline._build_session_metadata(message, agent_id="agent_a")
-    assert meta is not None
-    assert "gateway_dispatch_url" in meta, (
-        f"Expected gateway_dispatch_url in session metadata, got keys: {list(meta.keys())}"
-    )
-    assert "8089" in meta["gateway_dispatch_url"], (
-        f"Expected port 8089 in gateway_dispatch_url, got: {meta['gateway_dispatch_url']}"
-    )
-    assert "/internal/dispatch" in meta["gateway_dispatch_url"]
+@pytest.mark.parametrize("port", [8089, 9999])
+def test_inbound_session_metadata_uses_configured_dispatch_port(
+    tmp_path: Path, port: int
+) -> None:
+    """The public turn creates a session with one exact internal dispatch URL."""
 
-
-def test_build_session_metadata_gateway_dispatch_url_respects_custom_port() -> None:
-    """gateway_dispatch_url must use the configured gateway_internal_port."""
-    pipeline = _make_pipeline(gateway_internal_port=9999)
-    message = _make_direct_message()
-    meta = pipeline._build_session_metadata(message, agent_id="agent_a")
-    assert meta is not None
-    assert "9999" in meta["gateway_dispatch_url"]
-
-
-def test_inbound_pipeline_accepts_gateway_internal_port_kwarg() -> None:
-    """InboundPipeline must accept gateway_internal_port constructor argument."""
-    pipeline = _make_pipeline(gateway_internal_port=8089)
-    assert hasattr(pipeline, "_gateway_internal_port")
-    assert pipeline._gateway_internal_port == 8089
-
-
-def test_inbound_pipeline_default_gateway_internal_port() -> None:
-    """InboundPipeline must have a sensible default gateway_internal_port when not supplied."""
-    kernel_client = MagicMock()
-    agent = AgentWorkspaceConfig(
-        agent_id="agent_a",
-        workspace_root=Path("/tmp/agent_a"),
-        title="Agent A",
-    )
-    registry = MagicMock()
-    router = OutboundRouter(registry)
-    pipeline = InboundPipeline(
-        kernel=kernel_client,
-        agents=(agent,),
-        outbound_router=router,
+    workspace = tmp_path / "agent-a"
+    workspace.mkdir()
+    kernel = _FakeKernel()
+    pipeline = build_inbound_pipeline(
+        kernel=kernel,
+        agents=(
+            AgentWorkspaceConfig(
+                agent_id="agent_a", workspace_root=workspace, title="Agent A"
+            ),
+        ),
+        outbound_router=OutboundRouter(ChannelRegistry((_FakeChannel("web_relay"),))),
         run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        gateway_internal_port=port,
     )
-    assert hasattr(pipeline, "_gateway_internal_port")
-    assert isinstance(pipeline._gateway_internal_port, int)
-    assert pipeline._gateway_internal_port > 0
+    result = asyncio.run(pipeline.handle_inbound(_make_direct_message()))
+
+    assert result is not None
+    assert kernel.create_session_calls[0]["metadata"]["gateway_dispatch_url"] == (
+        f"http://127.0.0.1:{port}/internal/dispatch"
+    )
+
+
+def test_session_metadata_uses_published_listener_url_or_omits_it(
+    tmp_path: Path,
+) -> None:
+    """A session advertises only an endpoint published by a successful listener."""
+
+    workspace = tmp_path / "agent-a"
+    workspace.mkdir()
+    endpoint = InternalDispatchEndpoint()
+    kernel = _FakeKernel()
+    pipeline = build_inbound_pipeline(
+        kernel=kernel,
+        agents=(AgentWorkspaceConfig(agent_id="agent_a", workspace_root=workspace),),
+        outbound_router=OutboundRouter(ChannelRegistry((_FakeChannel("web_relay"),))),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        gateway_internal_port=0,
+        gateway_dispatch_url_provider=endpoint.current_url,
+    )
+
+    asyncio.run(pipeline.handle_inbound(_make_direct_message()))
+    assert "gateway_dispatch_url" not in kernel.create_session_calls[0]["metadata"]
+
+    endpoint.publish(host="127.0.0.1", port=43210)
+    second = replace(_make_direct_message(), external_chat_id="chat_2")
+    asyncio.run(pipeline.handle_inbound(second))
+    assert kernel.create_session_calls[1]["metadata"]["gateway_dispatch_url"] == (
+        "http://127.0.0.1:43210/internal/dispatch"
+    )
+
+
+def test_build_runtime_injects_process_endpoint_provider_before_kernel(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Production PA tool receives the endpoint owner created before Kernel build."""
+
+    from personal_assistant.main import build_runtime
+    from personal_assistant.tools.send_message import SendMessageTool
+
+    from ._main_helpers import make_minimal_config
+
+    endpoint = InternalDispatchEndpoint()
+    captured_providers = []
+
+    class _TrackingSendMessageTool(SendMessageTool):
+        def __init__(self, *, gateway_dispatch_url_provider=None) -> None:  # noqa: ANN001
+            captured_providers.append(gateway_dispatch_url_provider)
+            super().__init__(
+                gateway_dispatch_url_provider=gateway_dispatch_url_provider
+            )
+
+    monkeypatch.setattr(
+        "personal_assistant.main.InternalDispatchEndpoint", lambda: endpoint
+    )
+    monkeypatch.setattr(
+        "personal_assistant.product.SendMessageTool", _TrackingSendMessageTool
+    )
+
+    build_runtime(make_minimal_config(tmp_path))
+
+    assert len(captured_providers) == 1
+    provider = captured_providers[0]
+    assert callable(provider)
+    assert provider() is None
+    endpoint.publish(host="127.0.0.1", port=43210)
+    assert provider() == "http://127.0.0.1:43210/internal/dispatch"

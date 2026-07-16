@@ -145,6 +145,64 @@ def test_send_message_tool_dispatches_http_post_to_gateway_dispatch_url() -> Non
     )
 
 
+def test_send_message_tool_resolves_live_provider_on_every_call() -> None:
+    """One tool instance follows endpoint publication instead of snapshotting it."""
+
+    from personal_assistant.gateway.internal_dispatch import InternalDispatchEndpoint
+    from personal_assistant.tools.send_message import SendMessageTool
+
+    endpoint = InternalDispatchEndpoint()
+    endpoint.publish(host="127.0.0.1", port=41001)
+    tool = SendMessageTool(gateway_dispatch_url_provider=endpoint.current_url)
+    ctx = _make_tool_context(
+        session_metadata={
+            "gateway_dispatch_url": "http://127.0.0.1:39999/internal/dispatch"
+        }
+    )
+    captured_urls: list[str] = []
+
+    def _ok_response(url: str, **_kwargs: Any) -> httpx.Response:
+        captured_urls.append(url)
+        return httpx.Response(
+            200, json={"ok": True}, request=httpx.Request("POST", url)
+        )
+
+    with patch("httpx.post", side_effect=_ok_response):
+        tool.run({"text": "first", "to": "agent_b"}, ctx)
+        endpoint.publish(host="127.0.0.1", port=42002)
+        tool.run({"text": "second", "to": "agent_b"}, ctx)
+
+    assert captured_urls == [
+        "http://127.0.0.1:41001/internal/dispatch",
+        "http://127.0.0.1:42002/internal/dispatch",
+    ]
+
+
+def test_send_message_tool_live_provider_clear_never_falls_back_to_metadata() -> None:
+    """A production provider without a listener fails before using stale metadata."""
+
+    from personal_assistant.gateway.internal_dispatch import InternalDispatchEndpoint
+    from personal_assistant.tools.send_message import SendMessageTool
+
+    endpoint = InternalDispatchEndpoint()
+    endpoint.publish(host="127.0.0.1", port=41001)
+    endpoint.clear()
+    tool = SendMessageTool(gateway_dispatch_url_provider=endpoint.current_url)
+    ctx = _make_tool_context(
+        session_metadata={
+            "gateway_dispatch_url": "http://127.0.0.1:41001/internal/dispatch"
+        }
+    )
+
+    with (
+        patch("httpx.post") as post,
+        pytest.raises(RuntimeError, match="live gateway_dispatch_url.*not available"),
+    ):
+        tool.run({"text": "hello", "to": "agent_b"}, ctx)
+
+    post.assert_not_called()
+
+
 def test_send_message_tool_raises_when_no_gateway_dispatch_url() -> None:
     """run() must raise RuntimeError with clear message when gateway_dispatch_url is absent."""
     from personal_assistant.tools.send_message import SendMessageTool

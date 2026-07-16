@@ -12,7 +12,7 @@ from IM.application.event_service import EventService
 from IM.app import create_app
 from personal_assistant.channels.web_relay_adapter import WebRelayAdapter
 from personal_assistant.gateway.channel_registry import ChannelRegistry
-from personal_assistant.gateway.inbound_pipeline import InboundPipeline
+from tests.helpers.inbound_pipeline import build_inbound_pipeline
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
 from personal_assistant.gateway.session_keys import SessionBindingStore
@@ -35,7 +35,7 @@ def test_group_message_mentioning_two_agents_exposes_distinct_sse_identity_for_r
     kernel_client = _FakeKernelClient()
     relay_adapter = WebRelayAdapter()
     agents = make_agent_configs(tmp_path, "agent-q", "agent-a")
-    pipeline = InboundPipeline(
+    pipeline = build_inbound_pipeline(
         kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(ChannelRegistry((relay_adapter,))),
@@ -182,7 +182,7 @@ def test_group_message_mentioning_two_agents_persists_distinct_completion_events
     kernel_client = _FakeKernelClient()
     relay_adapter = WebRelayAdapter()
     agents = make_agent_configs(tmp_path, "agent-a", "agent-b")
-    pipeline = InboundPipeline(
+    pipeline = build_inbound_pipeline(
         kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(ChannelRegistry((relay_adapter,))),

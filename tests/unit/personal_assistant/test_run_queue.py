@@ -1,0 +1,162 @@
+"""Public shutdown behavior tests for per-session Gateway run queues."""
+
+from __future__ import annotations
+
+import asyncio
+
+import pytest
+
+from personal_assistant.gateway.run_queue import (
+    GatewayShutdownBeforeSubmit,
+    SessionRunQueue,
+    SessionRunQueueSealed,
+)
+
+
+@pytest.mark.asyncio
+async def test_seal_cancels_pending_item_and_keeps_active_operation() -> None:
+    """Queued-before-submit work fails explicitly while the running head can finish."""
+
+    queue = SessionRunQueue()
+    active_started = asyncio.Event()
+    release_active = asyncio.Event()
+    pending_started = False
+    cancelled: list[str] = []
+
+    async def _active() -> str:
+        active_started.set()
+        await release_active.wait()
+        return "active-done"
+
+    async def _pending() -> str:
+        nonlocal pending_started
+        pending_started = True
+        return "pending-done"
+
+    async def _on_cancel(error: GatewayShutdownBeforeSubmit) -> None:
+        cancelled.append(error.reason)
+
+    active_task = asyncio.create_task(queue.submit("sess-a", _active))
+    await asyncio.wait_for(active_started.wait(), timeout=1)
+    pending_task = asyncio.create_task(
+        queue.submit("sess-a", _pending, on_cancel=_on_cancel)
+    )
+    await asyncio.sleep(0)
+
+    queue.seal_and_cancel_pending()
+    await queue.settle_admission(asyncio.get_running_loop().time() + 1)
+    with pytest.raises(GatewayShutdownBeforeSubmit) as exc_info:
+        await pending_task
+
+    assert exc_info.value.reason == "gateway_shutdown_before_submit"
+    assert cancelled == ["gateway_shutdown_before_submit"]
+    assert pending_started is False
+    with pytest.raises(SessionRunQueueSealed):
+        await queue.submit("sess-b", _pending)
+
+    release_active.set()
+    assert await active_task == "active-done"
+    await queue.drain_workers(asyncio.get_running_loop().time() + 1)
+    assert not any(
+        task.get_name().startswith("session-run-queue:")
+        for task in asyncio.all_tasks()
+        if not task.done()
+    )
+
+
+@pytest.mark.asyncio
+async def test_seal_defers_pending_settlement_to_async_phase() -> None:
+    """The synchronous seal only rejects admission; settle owns per-item work."""
+
+    queue = SessionRunQueue()
+    active_started = asyncio.Event()
+    release_active = asyncio.Event()
+    cancelled: list[str] = []
+
+    async def _active() -> None:
+        active_started.set()
+        await release_active.wait()
+
+    async def _pending() -> None:
+        raise AssertionError("pending operation must not start")
+
+    async def _on_cancel(error: GatewayShutdownBeforeSubmit) -> None:
+        cancelled.append(error.reason)
+
+    active_task = asyncio.create_task(queue.submit("sess-a", _active))
+    await asyncio.wait_for(active_started.wait(), timeout=1)
+    pending_task = asyncio.create_task(
+        queue.submit("sess-a", _pending, on_cancel=_on_cancel)
+    )
+    await asyncio.sleep(0)
+
+    queue.seal_and_cancel_pending()
+    await asyncio.sleep(0)
+
+    assert not pending_task.done()
+    assert cancelled == []
+
+    await queue.settle_admission(asyncio.get_running_loop().time() + 1)
+    with pytest.raises(GatewayShutdownBeforeSubmit):
+        await pending_task
+    assert cancelled == ["gateway_shutdown_before_submit"]
+
+    release_active.set()
+    await active_task
+    await queue.drain_workers(asyncio.get_running_loop().time() + 1)
+
+
+@pytest.mark.asyncio
+async def test_worker_drain_timeout_cancels_owned_worker() -> None:
+    """A queue worker exceeding the absolute deadline is cancelled and does not leak."""
+
+    queue = SessionRunQueue()
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def _blocked() -> None:
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    submit_task = asyncio.create_task(queue.submit("sess-timeout", _blocked))
+    await asyncio.wait_for(started.wait(), timeout=1)
+    queue.seal_and_cancel_pending()
+
+    with pytest.raises(TimeoutError):
+        await queue.drain_workers(asyncio.get_running_loop().time() + 0.01)
+    await asyncio.wait_for(cancelled.wait(), timeout=1)
+    with pytest.raises(asyncio.CancelledError):
+        await submit_task
+
+
+@pytest.mark.asyncio
+async def test_admission_timeout_names_session_and_stable_item() -> None:
+    """A stuck transition reports the exact queue partition and accepted item."""
+
+    queue = SessionRunQueue()
+    started = asyncio.Event()
+    release = asyncio.Event()
+    admission = asyncio.Event()
+
+    async def _blocked() -> None:
+        started.set()
+        await release.wait()
+
+    submit = asyncio.create_task(
+        queue.submit("sess-admission", _blocked, admission_event=admission)
+    )
+    await asyncio.wait_for(started.wait(), timeout=1)
+    queue.seal_and_cancel_pending()
+
+    with pytest.raises(TimeoutError) as exc_info:
+        await queue.settle_admission(asyncio.get_running_loop().time() + 0.01)
+
+    message = str(exc_info.value)
+    assert "session_key=sess-admission" in message
+    assert "item_id=item-1" in message
+    release.set()
+    await submit
+    await queue.drain_workers(asyncio.get_running_loop().time() + 1)

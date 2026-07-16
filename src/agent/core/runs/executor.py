@@ -80,6 +80,9 @@ class ConversationTarget(Protocol):
     async def fork(self, *, up_to: str | None = None) -> Any:
         """Create an independent fork through the owning directory."""
 
+    async def discard_turn(self, turn_id: str) -> bool:
+        """Selectively remove one persisted turn inside the owner loop."""
+
 
 class AuxiliaryHandle:
     """Expose typed auxiliary cancellation/result without a raw coroutine seam."""
@@ -220,6 +223,21 @@ class KernelExecutor:
 
         return await asyncio.wrap_future(
             self._admit_lifecycle("fork", lambda: session.fork(up_to=up_to))
+        )
+
+    async def discard_turn(
+        self,
+        session: ConversationTarget,
+        *,
+        turn_id: str,
+    ) -> bool:
+        """Run selective transcript cleanup as an owner-loop lifecycle target."""
+
+        return await asyncio.wrap_future(
+            self._admit_lifecycle(
+                "discard_turn",
+                lambda: session.discard_turn(turn_id),
+            )
         )
 
     def request_cancel(self, token: TargetToken, *, force: bool = False) -> bool:

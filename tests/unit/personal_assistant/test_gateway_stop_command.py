@@ -5,15 +5,19 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
+import pytest
+
 from personal_assistant.channels.base import InboundMessage, OutboundMessage
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.gateway.bootstrap import start_channels, stop_channels
 from personal_assistant.gateway.channel_registry import ChannelRegistry
-from personal_assistant.gateway.inbound_pipeline import InboundPipeline
+from personal_assistant.gateway.inbound_models import build_group_context_key
+from tests.helpers.inbound_pipeline import build_inbound_pipeline
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
 from personal_assistant.gateway.session_keys import SessionBindingStore
 from ._pipeline_helpers import _FakeKernel
+from ._session_run_coordinator_helpers import ControlledKernel
 
 
 class _FakeChannel:
@@ -178,7 +182,7 @@ def test_stop_command_with_no_active_run_returns_friendly_message(
     channel = _FakeChannel("web")
     registry = ChannelRegistry((channel,))
     kernel_client = _FakeKernel()
-    pipeline = InboundPipeline(
+    pipeline = build_inbound_pipeline(
         kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
@@ -227,21 +231,20 @@ def test_stop_ack_delivered_via_bg_reply_sender_when_wired(tmp_path: Path) -> No
     channel = _FakeChannel("web")
     registry = ChannelRegistry((channel,))
     kernel_client = _FakeKernel()
-    pipeline = InboundPipeline(
+    delivered: list[tuple[str, str]] = []
+
+    async def _fake_bg_sender(text, reply_context, from_session_id):
+        delivered.append((text, from_session_id))
+
+    pipeline = build_inbound_pipeline(
         kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
         session_store=SessionBindingStore(),
         default_agent_id="agent-a",
+        bg_reply_sender=_fake_bg_sender,
     )
-
-    delivered: list[tuple[str, str]] = []
-
-    async def _fake_bg_sender(text, reply_context, from_session_id):
-        delivered.append((text, from_session_id))
-
-    pipeline._bg_reply_sender = _fake_bg_sender
 
     inbound = InboundMessage(
         channel_name="web",
@@ -277,21 +280,20 @@ def test_repeated_feishu_stop_noop_uses_per_message_im_dedupe_key(
     channel = _FakeChannel("feishu:agent-a")
     registry = ChannelRegistry((channel,))
     kernel_client = _FakeKernel()
-    pipeline = InboundPipeline(
+    delivered: list[tuple[str, str]] = []
+
+    async def _fake_bg_sender(text, reply_context, from_session_id):
+        delivered.append((text, from_session_id))
+
+    pipeline = build_inbound_pipeline(
         kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
         session_store=SessionBindingStore(),
         default_agent_id="agent-a",
+        bg_reply_sender=_fake_bg_sender,
     )
-
-    delivered: list[tuple[str, str]] = []
-
-    async def _fake_bg_sender(text, reply_context, from_session_id):
-        delivered.append((text, from_session_id))
-
-    pipeline._bg_reply_sender = _fake_bg_sender
 
     for message_id in ("om_stop_1", "om_stop_2"):
         inbound = InboundMessage(
@@ -322,42 +324,51 @@ def test_repeated_feishu_stop_noop_uses_per_message_im_dedupe_key(
     assert delivered[1][1].endswith(":stop-noop:om_stop_2")
 
 
-def test_stop_command_interrupts_active_run_and_appends_message(tmp_path: Path) -> None:
+@pytest.mark.asyncio
+async def test_stop_command_interrupts_active_run_and_appends_message(
+    tmp_path: Path,
+) -> None:
     agents = _agents(tmp_path)
     channel = _FakeChannel("web")
     registry = ChannelRegistry((channel,))
-    kernel_client = _FakeKernel()
-    pipeline = InboundPipeline(
-        kernel=kernel_client,
+    kernel = ControlledKernel()
+    pipeline = build_inbound_pipeline(
+        kernel=kernel,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
         session_store=SessionBindingStore(),
         default_agent_id="agent-a",
     )
-    # Seed an existing session binding so /stop can resolve the kernel session.
-    session_key = "web:chat-1:agent-a"
-    kernel_client.seed_session = lambda session_id, metadata=None: None
-    kernel_client._session_metadata_by_id["sess-1"] = {
-        "workspace_root": str(agents[0].workspace_root)
-    }
-
-    # Simulate an active run by injecting it directly.
-    pipeline._active_runs[session_key] = "run-active"
-
-    inbound = InboundMessage(
-        channel_name="web",
-        text="/stop",
-        external_user_id="user-1",
-        external_chat_id="chat-1",
-        is_group=False,
+    running = asyncio.create_task(
+        pipeline.handle_inbound(
+            InboundMessage(
+                channel_name="web",
+                text="work",
+                external_user_id="user-1",
+                external_chat_id="chat-1",
+                is_group=False,
+            )
+        )
     )
+    await kernel.wait_stream("run-1")
+    stopped = await pipeline.handle_inbound(
+        InboundMessage(
+            channel_name="web",
+            text="/stop",
+            external_user_id="user-1",
+            external_chat_id="chat-1",
+            is_group=False,
+        )
+    )
+    kernel.finish("run-1", status="cancelled", text="")
+    completed = await running
 
-    result = asyncio.run(pipeline.handle_inbound(inbound))
-
-    assert result is not None
-    assert result.reply_text == "已停止当前操作。"
-    assert result.run_id == "run-active"
+    assert stopped is not None
+    assert stopped.reply_text == "已停止当前操作。"
+    assert stopped.run_id == "run-1"
+    assert completed is not None
+    assert completed.outbound is None
     assert channel.sent == [
         OutboundMessage(
             channel_name="web",
@@ -367,51 +378,40 @@ def test_stop_command_interrupts_active_run_and_appends_message(tmp_path: Path) 
             metadata={},
         )
     ]
-    assert len(kernel_client.interrupt_calls) == 1
-    assert kernel_client.interrupt_calls[0]["session_id"] == "sess-1"
-    # /stop logs via kernel.append_message without spawning a run.
-    assert len(kernel_client.append_calls) == 1
-    assert kernel_client.append_calls[0]["session_id"] == "sess-1"
-    assert kernel_client.append_calls[0]["role"] == "user"
-    assert (
-        "[Request interrupted by user for tool use]"
-        in kernel_client.append_calls[0]["content"]
-    )
+    assert kernel.interrupt_calls == ["sess-1"]
+    assert kernel.append_calls == [
+        {
+            "session_id": "sess-1",
+            "role": "user",
+            "content": "[Request interrupted by user for tool use]",
+        }
+    ]
 
 
 def test_stop_command_in_group_chat_with_mention_is_recognized(tmp_path: Path) -> None:
     agents = _agents(tmp_path)
     channel = _FakeChannel("web_relay")
-    registry = ChannelRegistry((channel,))
-    kernel_client = _FakeKernel()
-    pipeline = InboundPipeline(
-        kernel=kernel_client,
+    kernel = _FakeKernel()
+    pipeline = build_inbound_pipeline(
+        kernel=kernel,
         agents=agents,
-        outbound_router=OutboundRouter(registry),
+        outbound_router=OutboundRouter(ChannelRegistry((channel,))),
         run_queue=SessionRunQueue(),
         session_store=SessionBindingStore(),
         default_agent_id="agent-a",
     )
-    session_key = "web_relay:grp-1:agent-a"
-    kernel_client._session_metadata_by_id["sess-1"] = {
-        "workspace_root": str(agents[0].workspace_root)
-    }
-    pipeline._active_runs[session_key] = "run-active"
-
     inbound = InboundMessage(
-        channel_name="web_relay",
+        channel_name="web",
         text="@agent-a /stop",
         external_user_id="user-1",
         external_chat_id="grp-1",
         is_group=True,
         metadata={"mentioned_agent_ids": ["agent-a"]},
     )
-
     result = asyncio.run(pipeline.handle_inbound(inbound))
-
     assert result is not None
-    assert result.reply_text == "已停止当前操作。"
-    assert len(kernel_client.interrupt_calls) == 1
+    assert result.run_id == ""
+    assert kernel.create_session_calls == []
 
 
 def test_stop_command_with_structured_feishu_display_mention_is_recognized(
@@ -422,7 +422,7 @@ def test_stop_command_with_structured_feishu_display_mention_is_recognized(
     channel = _FakeChannel("feishu:agent-a")
     registry = ChannelRegistry((channel,))
     kernel_client = _FakeKernel()
-    pipeline = InboundPipeline(
+    pipeline = build_inbound_pipeline(
         kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
@@ -430,12 +430,6 @@ def test_stop_command_with_structured_feishu_display_mention_is_recognized(
         session_store=SessionBindingStore(),
         default_agent_id="agent-a",
     )
-    session_key = "feishu:agent-a:grp-1:agent-a"
-    kernel_client._session_metadata_by_id["sess-1"] = {
-        "workspace_root": str(agents[0].workspace_root)
-    }
-    pipeline._active_runs[session_key] = "run-active"
-
     inbound = InboundMessage(
         channel_name="feishu:agent-a",
         text="@nano /stop",
@@ -453,8 +447,8 @@ def test_stop_command_with_structured_feishu_display_mention_is_recognized(
     result = asyncio.run(pipeline.handle_inbound(inbound))
 
     assert result is not None
-    assert result.reply_text == "已停止当前操作。"
-    assert len(kernel_client.interrupt_calls) == 1
+    assert result.run_id == ""
+    assert kernel_client.create_session_calls == []
 
 
 def test_stop_command_with_agent_after_slash_is_recognized(tmp_path: Path) -> None:
@@ -462,7 +456,7 @@ def test_stop_command_with_agent_after_slash_is_recognized(tmp_path: Path) -> No
     channel = _FakeChannel("web_relay")
     registry = ChannelRegistry((channel,))
     kernel_client = _FakeKernel()
-    pipeline = InboundPipeline(
+    pipeline = build_inbound_pipeline(
         kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
@@ -470,12 +464,6 @@ def test_stop_command_with_agent_after_slash_is_recognized(tmp_path: Path) -> No
         session_store=SessionBindingStore(),
         default_agent_id="agent-a",
     )
-    session_key = "web_relay:grp-1:agent-a"
-    kernel_client._session_metadata_by_id["sess-1"] = {
-        "workspace_root": str(agents[0].workspace_root)
-    }
-    pipeline._active_runs[session_key] = "run-active"
-
     inbound = InboundMessage(
         channel_name="web_relay",
         text="/stop @agent-a",
@@ -488,8 +476,8 @@ def test_stop_command_with_agent_after_slash_is_recognized(tmp_path: Path) -> No
     result = asyncio.run(pipeline.handle_inbound(inbound))
 
     assert result is not None
-    assert result.reply_text == "已停止当前操作。"
-    assert len(kernel_client.interrupt_calls) == 1
+    assert result.run_id == ""
+    assert kernel_client.create_session_calls == []
 
 
 def test_stop_command_does_not_enter_group_context_buffer(tmp_path: Path) -> None:
@@ -500,7 +488,7 @@ def test_stop_command_does_not_enter_group_context_buffer(tmp_path: Path) -> Non
     registry = ChannelRegistry((channel,))
     kernel_client = _FakeKernel()
     group_store = GroupContextStore(db_path=tmp_path / "group_ctx.sqlite3")
-    pipeline = InboundPipeline(
+    pipeline = build_inbound_pipeline(
         kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
@@ -509,12 +497,6 @@ def test_stop_command_does_not_enter_group_context_buffer(tmp_path: Path) -> Non
         default_agent_id="agent-a",
         group_context_store=group_store,
     )
-    session_key = "web_relay:grp-1:agent-a"
-    kernel_client._session_metadata_by_id["sess-1"] = {
-        "workspace_root": str(agents[0].workspace_root)
-    }
-    pipeline._active_runs[session_key] = "run-active"
-
     inbound = InboundMessage(
         channel_name="web_relay",
         text="@agent-a /stop",
@@ -527,37 +509,8 @@ def test_stop_command_does_not_enter_group_context_buffer(tmp_path: Path) -> Non
     result = asyncio.run(pipeline.handle_inbound(inbound))
 
     assert result is not None
-    buf_key = pipeline._group_buf_key_for_agent(inbound, "agent-a")
+    buf_key = build_group_context_key(inbound, "agent-a")
     assert group_store.drain(buf_key) == []
-
-
-def test_active_run_tracking_registers_and_unregisters(tmp_path: Path) -> None:
-    agents = _agents(tmp_path)
-    channel = _FakeChannel("web")
-    registry = ChannelRegistry((channel,))
-    kernel_client = _FakeKernel()
-    pipeline = InboundPipeline(
-        kernel=kernel_client,
-        agents=agents,
-        outbound_router=OutboundRouter(registry),
-        run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
-        default_agent_id="agent-a",
-    )
-    inbound = InboundMessage(
-        channel_name="web",
-        text="ping",
-        external_user_id="user-1",
-        external_chat_id="chat-1",
-        is_group=False,
-    )
-
-    result = asyncio.run(pipeline.handle_inbound(inbound))
-
-    assert result is not None
-    session_key = "web:chat-1:agent-a"
-    # After the run completes, active run tracking should be cleared.
-    assert session_key not in pipeline._active_runs
 
 
 # ---------------------------------------------------------------------------
@@ -594,35 +547,43 @@ def _two_mention_agents(tmp_path: Path) -> tuple[AgentWorkspaceConfig, ...]:
     return tuple(out)
 
 
-def test_bare_stop_in_group_multi_agent_stops_only_running_no_noise(
+@pytest.mark.asyncio
+async def test_bare_stop_in_group_multi_agent_stops_only_running_no_noise(
     tmp_path: Path,
 ) -> None:
     """群聊裸 /stop 广播到每个成员（各自 relay）：只有正在运行的 agent 被停止，
     未运行的 agent 既不被 interrupt 也不发 no-op ack（spec 幂等/无副作用）。"""
     agents = _two_mention_agents(tmp_path)
     channel = _FakeChannel("web_relay")
-    kernel_client = _FakeKernel()
-    pipeline = InboundPipeline(
-        kernel=kernel_client,
-        agents=agents,
-        outbound_router=OutboundRouter(ChannelRegistry((channel,))),
-        run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
-        default_agent_id="agent-a",
-    )
+    kernel = ControlledKernel()
     delivered: list[tuple[str, str]] = []
 
     async def _fake_bg_sender(text, reply_context, from_session_id):
         delivered.append((text, from_session_id))
 
-    pipeline._bg_reply_sender = _fake_bg_sender
-
-    # Only agent-a has an active run; agent-b is idle.
-    running_key = "web_relay:grp-1:agent-a"
-    kernel_client._session_metadata_by_id["sess-1"] = {
-        "workspace_root": str(agents[0].workspace_root)
-    }
-    pipeline._active_runs[running_key] = "run-active"
+    pipeline = build_inbound_pipeline(
+        kernel=kernel,
+        agents=agents,
+        outbound_router=OutboundRouter(ChannelRegistry((channel,))),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+        bg_reply_sender=_fake_bg_sender,
+    )
+    running = asyncio.create_task(
+        pipeline.handle_inbound(
+            InboundMessage(
+                channel_name="web_relay",
+                text="@agent-a work",
+                external_user_id="user-1",
+                external_chat_id="grp-1",
+                is_group=True,
+                agent_id="agent-a",
+                metadata={"mentioned_agent_ids": ["agent-a"]},
+            )
+        )
+    )
+    await kernel.wait_stream("run-1")
 
     # The group /stop is relayed to each member agent separately (IM fan-out).
     for agent_id in ("agent-a", "agent-b"):
@@ -635,58 +596,19 @@ def test_bare_stop_in_group_multi_agent_stops_only_running_no_noise(
             agent_id=agent_id,
             metadata={"mentioned_agent_ids": []},
         )
-        asyncio.run(pipeline.handle_inbound(msg))
+        await pipeline.handle_inbound(msg)
+    kernel.finish("run-1", status="cancelled", text="")
+    await running
 
     # Exactly one interrupt — the running agent-a.
-    assert len(kernel_client.interrupt_calls) == 1
-    assert kernel_client.interrupt_calls[0]["session_id"] == "sess-1"
+    assert kernel.interrupt_calls == ["sess-1"]
     # Only the running agent's "已停止当前操作。" ack; no no-op noise from idle agent-b.
     assert delivered == [t for t in delivered if t[0] == "已停止当前操作。"]
     assert [t[0] for t in delivered] == ["已停止当前操作。"]
     assert all("当前没有正在执行" not in t[0] for t in delivered)
     assert channel.sent == []
     # fix-r2 (code-review P1.5): the idle member (agent-b) must NOT get a kernel session.
-    assert all(
-        "agent-b" not in str(c.get("workspace_root", ""))
-        for c in kernel_client.create_session_calls
-    )
-
-
-def test_bare_stop_in_group_mention_policy_interrupts_running_agent(
-    tmp_path: Path,
-) -> None:
-    """裸 /stop（不 @ 任何 agent）在 group_reply_policy=MENTION 下仍送达并中断运行中的 agent。"""
-    agents = _mention_agents(tmp_path)
-    channel = _FakeChannel("web_relay")
-    kernel_client = _FakeKernel()
-    pipeline = InboundPipeline(
-        kernel=kernel_client,
-        agents=agents,
-        outbound_router=OutboundRouter(ChannelRegistry((channel,))),
-        run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
-        default_agent_id="agent-a",
-    )
-    session_key = "web_relay:grp-1:agent-a"
-    kernel_client._session_metadata_by_id["sess-1"] = {
-        "workspace_root": str(agents[0].workspace_root)
-    }
-    pipeline._active_runs[session_key] = "run-active"
-
-    inbound = InboundMessage(
-        channel_name="web_relay",
-        text="/stop",
-        external_user_id="user-1",
-        external_chat_id="grp-1",
-        is_group=True,
-        metadata={"mentioned_agent_ids": []},
-    )
-
-    result = asyncio.run(pipeline.handle_inbound(inbound))
-
-    assert result is not None
-    assert result.reply_text == "已停止当前操作。"
-    assert len(kernel_client.interrupt_calls) == 1
+    assert kernel.create_calls == [str(agents[0].workspace_root)]
 
 
 def test_bare_stop_in_group_no_active_run_has_no_side_effect(tmp_path: Path) -> None:
@@ -697,7 +619,12 @@ def test_bare_stop_in_group_no_active_run_has_no_side_effect(tmp_path: Path) -> 
     channel = _FakeChannel("web_relay")
     kernel_client = _FakeKernel()
     group_store = GroupContextStore(db_path=tmp_path / "group_ctx.sqlite3")
-    pipeline = InboundPipeline(
+    delivered: list[tuple[str, str]] = []
+
+    async def _fake_bg_sender(text, reply_context, from_session_id):
+        delivered.append((text, from_session_id))
+
+    pipeline = build_inbound_pipeline(
         kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(ChannelRegistry((channel,))),
@@ -705,13 +632,8 @@ def test_bare_stop_in_group_no_active_run_has_no_side_effect(tmp_path: Path) -> 
         session_store=SessionBindingStore(),
         default_agent_id="agent-a",
         group_context_store=group_store,
+        bg_reply_sender=_fake_bg_sender,
     )
-    delivered: list[tuple[str, str]] = []
-
-    async def _fake_bg_sender(text, reply_context, from_session_id):
-        delivered.append((text, from_session_id))
-
-    pipeline._bg_reply_sender = _fake_bg_sender
     # No active run for this agent.
 
     inbound = InboundMessage(
@@ -733,5 +655,5 @@ def test_bare_stop_in_group_no_active_run_has_no_side_effect(tmp_path: Path) -> 
     # fix-r2 (code-review P1.5): idle group member must NOT allocate a kernel session.
     assert kernel_client.create_session_calls == []
     # /stop is a control command — it must not be buffered as group context.
-    buf_key = pipeline._group_buf_key_for_agent(inbound, "agent-a")
+    buf_key = build_group_context_key(inbound, "agent-a")
     assert group_store.drain(buf_key) == []

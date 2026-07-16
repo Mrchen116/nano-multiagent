@@ -155,10 +155,10 @@ async def test_cron_runner_submit_uses_isolated_session(tmp_path: Path) -> None:
         agent_id="agent-1",
         workspace_root=tmp_path,
         kernel_client=kernel_client,
-        session_binding_store=None,
+        session_binder=None,
     )
 
-    await runner._submit_cron_job(job=job)
+    await runner.submit(job=job)
 
     assert len(kernel_client.created_sessions) >= 1
     # The submit must pass origin=cron
@@ -189,14 +189,13 @@ async def test_cron_runner_awareness_appended_to_canonical_session(
         agent_id="agent-1",
         workspace_root=tmp_path,
         kernel_client=kernel_client,
-        session_binding_store=None,
+        session_binder=None,
         canonical_session_id=canonical_session_id,
     )
 
-    await runner._append_awareness(
+    await runner.append_awareness(
         session_id=canonical_session_id,
         result_text=result_text,
-        workspace_root=tmp_path,
     )
 
     # kernel.append_message must have been called with the awareness content
@@ -235,14 +234,13 @@ async def test_cron_runner_isolated_turns_not_in_canonical(tmp_path: Path) -> No
         agent_id="agent-1",
         workspace_root=tmp_path,
         kernel_client=kernel_client,
-        session_binding_store=None,
+        session_binder=None,
         canonical_session_id=canonical_session_id,
     )
 
-    await runner._append_awareness(
+    await runner.append_awareness(
         session_id=canonical_session_id,
         result_text="Final answer",
-        workspace_root=tmp_path,
     )
 
     # Exactly one append_message call — only the final result text
@@ -280,10 +278,10 @@ async def test_cron_runner_delete_after_run(tmp_path: Path) -> None:
         agent_id="agent-1",
         workspace_root=tmp_path,
         kernel_client=_FakeKernelClient(),
-        session_binding_store=None,
+        session_binder=None,
     )
 
-    await runner._submit_cron_job(job=job)
+    await runner.submit(job=job)
 
     # Job must be gone from the store after execution
     remaining = store.list_jobs(include_disabled=True)
@@ -355,12 +353,12 @@ async def test_cron_runner_submit_no_session_id_kwarg_to_shim(tmp_path: Path) ->
         agent_id="agent-1",
         workspace_root=tmp_path,
         kernel_client=shim_client,
-        session_binding_store=None,
+        session_binder=None,
     )
 
     # Must not raise TypeError after the fix.
     # feat-394-M7 R6 fix: _submit_cron_job now returns (run_id, kernel_session_id) or None.
-    result = await runner._submit_cron_job(job=job)
+    result = await runner.submit(job=job)
 
     assert shim_client.called_with is not None, "create_session was never called"
     assert "session_id" not in (shim_client.called_with or {}), (
@@ -391,10 +389,10 @@ async def test_cron_runner_uses_returned_session_id_for_submit(tmp_path: Path) -
         agent_id="agent-1",
         workspace_root=tmp_path,
         kernel_client=shim_client,
-        session_binding_store=None,
+        session_binder=None,
     )
 
-    await runner._submit_cron_job(job=job)
+    await runner.submit(job=job)
 
     assert shim_client.called_with is not None
     assert shim_client._session_counter == 1, (
@@ -420,10 +418,10 @@ async def test_cron_runner_session_metadata_contains_agent_id(tmp_path: Path) ->
         agent_id="agent-x",
         workspace_root=tmp_path,
         kernel_client=kernel_client,
-        session_binding_store=None,
+        session_binder=None,
     )
 
-    await runner._submit_cron_job(job=job)
+    await runner.submit(job=job)
 
     assert len(kernel_client.created_sessions) == 1
     metadata = kernel_client.created_sessions[0].get("metadata") or {}

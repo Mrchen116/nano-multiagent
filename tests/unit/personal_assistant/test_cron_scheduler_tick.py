@@ -10,6 +10,7 @@ Covers:
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -278,7 +279,7 @@ class TestCronExecutionServiceDrain:
         service.enqueue(job_id="job-drain-1", trigger="manual")
         assert len(finished) == 0, "task must not have finished before drain()"
 
-        await service.drain(timeout=5.0)
+        await service.drain(asyncio.get_running_loop().time() + 5.0)
         assert "job-drain-1" in finished, "drain() must await tracked execute_fn task"
 
     @pytest.mark.asyncio
@@ -296,7 +297,9 @@ class TestCronExecutionServiceDrain:
             execute_fn=AsyncMock(),
         )
         # Should return before timeout.
-        await asyncio.wait_for(service.drain(timeout=1.0), timeout=2.0)
+        await asyncio.wait_for(
+            service.drain(asyncio.get_running_loop().time() + 1.0), timeout=2.0
+        )
 
     @pytest.mark.asyncio
     async def test_drain_does_not_miss_context_b_task(self, tmp_path: Path) -> None:
@@ -361,7 +364,7 @@ class TestCronExecutionServiceDrain:
 
         assert len(finished) == 0, "task must not have finished before drain()"
 
-        await service.drain(timeout=5.0)
+        await service.drain(asyncio.get_running_loop().time() + 5.0)
         assert "job-ctxb-1" in finished, (
             "drain() must wait for Context B task registered via call_soon_threadsafe"
         )
@@ -435,7 +438,7 @@ class TestGatewayCronDispatcherDrainAll:
         dispatcher.register("agent-2", svc2)
 
         assert len(finished) == 0
-        await dispatcher.drain_all(timeout=5.0)
+        await dispatcher.drain_all(asyncio.get_running_loop().time() + 5.0)
         assert "svc1" in finished and "svc2" in finished
 
     @pytest.mark.asyncio
@@ -458,7 +461,7 @@ class TestGatewayCronDispatcherDrainAll:
             execute_fn=AsyncMock(),
         )
 
-        async def _count_drain(timeout: float = 30.0) -> None:
+        async def _count_drain(_deadline: float) -> None:
             nonlocal drain_count
             drain_count += 1
 
@@ -468,7 +471,7 @@ class TestGatewayCronDispatcherDrainAll:
         # Same service registered under two agent_ids — drain must dedup by identity.
         dispatcher.register("agent-dedup", service)
         dispatcher.register("agent-dedup-alias", service)
-        await dispatcher.drain_all()
+        await dispatcher.drain_all(asyncio.get_running_loop().time() + 5.0)
         assert drain_count == 1, (
             "drain_all() must deduplicate and call drain() exactly once"
         )

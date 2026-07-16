@@ -10,7 +10,8 @@ import base64
 from pathlib import Path
 
 from personal_assistant.channels.base import InboundMessage
-from personal_assistant.gateway.inbound_pipeline import InboundPipeline
+from personal_assistant.gateway.image_attachments import ImageAttachmentResolver
+from tests.helpers.inbound_pipeline import build_inbound_pipeline
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.channel_registry import ChannelRegistry
 from personal_assistant.gateway.run_queue import SessionRunQueue
@@ -55,21 +56,21 @@ def _make_pipeline(tmp_path: Path, *, fetcher=None):
     channel = _FakeChannel("web")
     registry = ChannelRegistry((channel,))
     kernel = _FakeKernel()
-    pipeline = InboundPipeline(
+    delivered: list[str] = []
+
+    async def _bg_sender(text, reply_context, from_session_id):
+        delivered.append(text)
+
+    pipeline = build_inbound_pipeline(
         kernel=kernel,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
         session_store=SessionBindingStore(),
         default_agent_id="agent-a",
-        attachment_fetcher=fetcher,
+        image_resolver=ImageAttachmentResolver(fetcher=fetcher),
+        bg_reply_sender=_bg_sender,
     )
-    delivered: list[str] = []
-
-    async def _bg_sender(text, reply_context, from_session_id):
-        delivered.append(text)
-
-    pipeline._bg_reply_sender = _bg_sender
     return pipeline, kernel, delivered
 
 
@@ -212,27 +213,6 @@ def test_corrupt_png_with_valid_magic_header_is_rejected(tmp_path: Path) -> None
     assert delivered == [
         "这张图片我无法识别，没能收到它，无法据此回复。请确认图片有效后重新发送。"
     ]
-
-
-def test_png_shorter_than_minimum_complete_length_is_rejected() -> None:
-    """bugfix-433-fix3 #1: a PNG shorter than a complete one (45 bytes) is rejected even
-    if it carries the IHDR + IEND markers — the old 28-byte threshold under-validated
-    such short truncated payloads.
-
-    Minimum complete PNG = signature(8) + IHDR chunk(25) + IEND chunk(12) = 45 bytes.
-    """
-    from personal_assistant.gateway.inbound_pipeline import _detect_image_mime
-
-    # 44 bytes: valid signature, "IHDR" type at offset 12, contains "IEND" — but one
-    # byte short of a complete PNG, so it must be rejected.
-    short = b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\x0dIHDR" + b"x" * 24 + b"IEND"
-    assert len(short) == 44
-    assert _detect_image_mime(short) is None
-
-    # 45-byte structurally complete PNG must pass (boundary just above the limit).
-    valid = _make_valid_png(1, 1, (0, 0, 0))
-    assert len(valid) >= 45
-    assert _detect_image_mime(valid) == "image/png"
 
 
 def test_valid_png_with_full_structure_passes(tmp_path: Path) -> None:

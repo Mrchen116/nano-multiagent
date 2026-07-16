@@ -276,6 +276,25 @@ class ConversationSession:
             finally:
                 self._note_quiescent()
 
+    async def discard_turn(self, turn_id: str) -> bool:
+        """Selectively remove one durable turn inside the conversation transaction."""
+
+        self._bind_owner_loop()
+        with self._lifecycle.begin_operation():
+            try:
+                async with self._turn_gate:
+                    removed = await asyncio.to_thread(
+                        self._transcript.discard_turn,
+                        turn_id,
+                    )
+                    if removed:
+                        with self._state_guard:
+                            self._state = None
+                            self._loaded_external_epoch = None
+                    return removed
+            finally:
+                self._note_quiescent()
+
     async def fork(self, *, up_to: str | None = None) -> tuple[Session, dict[str, str]]:
         """Fork this conversation through its identity-owning directory."""
 

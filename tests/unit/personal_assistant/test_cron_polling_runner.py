@@ -20,6 +20,7 @@ from typing import Any
 import pytest
 
 from personal_assistant.config.local_store import AgentWorkspaceConfig, HeartbeatConfig
+from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
 from personal_assistant.scheduler.cron_scheduler import (
     CronJob,
     CronJobStore,
@@ -108,7 +109,7 @@ async def test_polling_runner_calls_cron_tick_for_cron_enabled_agent(
         scheduler=hb_scheduler,
         config=hb_config,
         cron_tick_fn=_fake_cron_tick_fn,
-        agents={"cron-agent": agent},
+        agent_catalog=LiveAgentCatalog((agent,)),
     )
 
     await runner.start()
@@ -150,7 +151,7 @@ async def test_polling_runner_skips_cron_tick_for_cron_disabled_agent(
         scheduler=hb_scheduler,
         config=hb_config,
         cron_tick_fn=_fake_cron_tick_fn,
-        agents={"nocron-agent": agent},
+        agent_catalog=LiveAgentCatalog((agent,)),
     )
 
     await runner.start()

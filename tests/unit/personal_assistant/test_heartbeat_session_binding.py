@@ -120,10 +120,10 @@ def test_heartbeat_scheduler_uses_find_direct_by_agent_before_submit(
 
     EXPECTED_SESSION = "sess-from-direct-chat"
 
-    class _FakeSessionStore:
-        """Minimal session store fake with find_direct_by_agent."""
+    class _FakeSessionBinder:
+        """Minimal binder fake with canonical direct lookup."""
 
-        def find_direct_by_agent(
+        def find_canonical_direct(
             self, *, channel_name: str, agent_id: str
         ) -> SessionBinding | None:  # noqa: ARG002
             if agent_id == "agent-tick":
@@ -163,7 +163,7 @@ def test_heartbeat_scheduler_uses_find_direct_by_agent_before_submit(
         kernel_client=kernel,
         state_store=HeartbeatSchedulerStateStore(tmp_path / "state.json"),
         canonical_session_store=canonical_session_store,
-        session_store=_FakeSessionStore(),
+        session_binder=_FakeSessionBinder(),
     )
 
     t0 = datetime(2026, 6, 1, 9, 0, 0, tzinfo=UTC)

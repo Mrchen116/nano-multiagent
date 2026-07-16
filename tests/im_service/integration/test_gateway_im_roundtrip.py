@@ -13,7 +13,7 @@ from personal_assistant.channels.base import OutboundMessage
 from personal_assistant.channels.web_relay_adapter import WebRelayAdapter
 from personal_assistant.config.sync_client import ConfigSyncClient
 from personal_assistant.gateway.channel_registry import ChannelRegistry
-from personal_assistant.gateway.inbound_pipeline import InboundPipeline
+from tests.helpers.inbound_pipeline import build_inbound_pipeline
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
 from personal_assistant.gateway.session_keys import SessionBindingStore
@@ -33,7 +33,7 @@ def test_web_im_message_roundtrip_browserless(tmp_path: Path) -> None:
     relay_adapter = WebRelayAdapter()
     agents = make_agent_configs(tmp_path, "agent-a")
     registry = ChannelRegistry((relay_adapter,))
-    pipeline = InboundPipeline(
+    pipeline = build_inbound_pipeline(
         kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
@@ -235,7 +235,7 @@ def test_same_session_key_reuses_session_create_session_called_once(
     relay_adapter = WebRelayAdapter()
     agents = make_agent_configs(tmp_path, "agent-a")
     registry = ChannelRegistry((relay_adapter,))
-    pipeline = InboundPipeline(
+    pipeline = build_inbound_pipeline(
         kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),

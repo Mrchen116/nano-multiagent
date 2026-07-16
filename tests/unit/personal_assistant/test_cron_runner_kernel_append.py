@@ -144,14 +144,13 @@ async def test_awareness_uses_kernel_append_message_not_raw_file(
         agent_id="agent-1",
         workspace_root=tmp_path,
         kernel_client=kernel_client,
-        session_binding_store=None,
+        session_binder=None,
         canonical_session_id=canonical_session_id,
     )
 
-    await runner._append_awareness(
+    await runner.append_awareness(
         session_id=canonical_session_id,
         result_text=result_text,
-        workspace_root=tmp_path,
     )
 
     # kernel.append_message must have been called (not raw file write)
@@ -194,14 +193,13 @@ async def test_awareness_does_not_write_raw_jsonl(tmp_path: Path) -> None:
         agent_id="agent-1",
         workspace_root=tmp_path,
         kernel_client=kernel_client,
-        session_binding_store=None,
+        session_binder=None,
         canonical_session_id=canonical_session_id,
     )
 
-    await runner._append_awareness(
+    await runner.append_awareness(
         session_id=canonical_session_id,
         result_text="Some result",
-        workspace_root=tmp_path,
     )
 
     # append_message was called (new path goes through kernel regardless of file existence)
