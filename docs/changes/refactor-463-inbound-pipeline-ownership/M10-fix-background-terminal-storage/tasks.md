@@ -25,11 +25,11 @@
 
 ## Roadpoints
 
-### R1 — Heartbeat pre-submit baseline 与非成功终态
+### R1 — Heartbeat pre-submit baseline 与非成功终态 (DONE)
 
 - [x] C1 红测：锁定快完成 silent run、failed/cancelled 不 trim。
-- [ ] C2 实现：由 scheduler 传递 baseline，consumer 分流 typed outcome。
-- [ ] C3 文档：记录用户可观察失败与 transcript 证据。
+- [x] C2 实现：由 scheduler 传递 baseline，consumer 分流 typed outcome。
+- [x] C3 文档：记录用户可观察失败与 transcript 证据。
 
 ### R2 — Mandatory cron terminal consumer
 
