@@ -17,12 +17,12 @@
 
 ## 退出标准
 
-- [ ] 永久交叉回归：端口 A 创建并持久化 session；新 Gateway owner 发布端口 B 并复用同 binding/session；真实 `SendMessageTool` 只请求 B，A 零请求，session id 与历史不变。
-- [ ] provider 在每次 tool call 解析，而非 tool/kernel 构造时快照；同一进程 endpoint publish/clear 后行为随 live 状态变化。
-- [ ] 生产 provider 未 ready/已 clear 时给明确 fail-fast，不回退 session metadata；无 provider 的 standalone tool 继续兼容 metadata。
-- [ ] 新 session 当前 URL、双 Gateway 不冲突、restart continuity、provenance/ack/history 既有测试保持。
-- [ ] 最窄测试、相关 contract、`ruff check src tests`、`git diff --check`、`pytest -m "not e2e" -n 4 --dist worksteal` 全绿。
-- [ ] 隔离真栈 durable evidence：同 conversation Gateway restart 后继续原 session/history，再调用真 `send_message` 完成投递；服务与运行时文件清理。
+- [x] 永久交叉回归：端口 A 创建并持久化 session；新 Gateway owner 发布端口 B 并复用同 binding/session；真实 `SendMessageTool` 只请求 B，A 零请求，session id 与历史不变。（R1 `tests/integration/test_send_message_restart_routing.py`；R2 真栈复现，见 evidence）
+- [x] provider 在每次 tool call 解析，而非 tool/kernel 构造时快照；同一进程 endpoint publish/clear 后行为随 live 状态变化。（R1）
+- [x] 生产 provider 未 ready/已 clear 时给明确 fail-fast，不回退 session metadata；无 provider 的 standalone tool 继续兼容 metadata。（R1）
+- [x] 新 session 当前 URL、双 Gateway 不冲突、restart continuity、provenance/ack/history 既有测试保持。（R1 + R2 全量门禁）
+- [x] 最窄测试、相关 contract、`ruff check src tests`、`git diff --check`、`pytest -m "not e2e" -n 4 --dist worksteal` 全绿。（R2：`3394 passed, 1 skipped`）
+- [x] 隔离真栈 durable evidence：同 conversation Gateway restart 后继续原 session/history，再调用真 `send_message` 完成投递；服务与运行时文件清理。（R2 `evidence/r2-live-restart-dispatch.md`）
 
 ## 测试策略
 
@@ -34,12 +34,12 @@
 
 ### R1 — 注入 live endpoint provider 并锁定 restart/reuse 交叉行为
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 先提交 tool provider 与端口 A→B persistent reuse 红测，再让 composition 在 Kernel 之前构造 endpoint owner并注入 PA tool，保留无 provider metadata compatibility。
 - 验证: send_message tool + build_runtime/listener + persistent binder/Kernel integration 聚焦测试。
 
 ### R2 — 真重启签收与全量门禁
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 跑同 conversation/session 真 restart→send_message 旅程并落 evidence；更新 tasks/progress，跑全量门禁并清理服务。
-- 验证: `ruff check src tests`; `git diff --check`; `pytest -m "not e2e" -n 4 --dist worksteal`; 隔离真栈 durable evidence。
+- 验证: `ruff check src tests`（passed）; `git diff --check`（passed）; `pytest -m "not e2e" -n 4 --dist worksteal`（`3394 passed, 1 skipped`）; 隔离真栈 durable evidence（`evidence/r2-live-restart-dispatch.md`）。
