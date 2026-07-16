@@ -86,6 +86,7 @@ Prototype / Reference Contract：
 
 - 步骤：把 current head apply error 的失败投影移出 observed-row 条件；修复 reconnect 读取 projection 缺失 manifest head 字段的根因，保持 command 不改 desired revision。
 - 验证：observed=null 时 failed+reason，same revision applied 清错；真实 API → notifier → Gateway downstream action 返回 200 并进入 reconnecting，不再 500。
+- 状态：完成。durable head error 独立于 runtime observation 投影；Reconnect 专用查询补齐 manifest head join，真实 connected status 后 HTTP action 返回 200 并下发原 revision command。
 
 ### R5 — Offline last-known 与 removal retry 产品反馈
 

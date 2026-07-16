@@ -49,3 +49,19 @@
   - Prototype Comparison: N/A。
 - Rollback: 回退 R3 C1/C2/C3 commits；会恢复断线队列随 replacement 次数线性增长。
 - Commits: C1=`84d7558d0`，C2=`7d7a27cd3`。
+
+## R4 — Apply failure 首次投影与 Reconnect 入口
+
+- Context: projection 只在存在 observed row 时把 durable `last_apply_error_json` 转成 failed，首次启动失败因此显示 pending；Reconnect 专用 SQL 又未选择 `_view_from_row()` 在有 observed 时必读的 manifest head 字段，Connected → Reconnect 触发 Row KeyError/HTTP 500。
+- Decision: durable apply error 解码成功即设置 `sync_state=failed`；Reconnect 查询与标准 channel projection 对齐，join/select head revision、applied revision 和 last error。
+- Rationale: desired apply outcome 是持久化控制面事实，不依赖 runtime 是否成功发过一次 status；所有构造 `ChannelView` 的查询必须提供同一 projection schema。
+- Evidence:
+  - Tests: C1 首次 failure 得到 pending，真实 connected-status Reconnect 得到 HTTP 500；C2 后 projection、HTTP/WS lifecycle 和 agent channels API `7 passed`，focused Ruff passed。
+  - Entry: observed=null + `channel_start_failed` 返回 failed 和具体 message；same-revision applied 清除 error，在 runtime status 到达前诚实回到 pending。
+  - Frontend State Matrix: error/missing data 的服务端输入已稳定。
+  - Browser QA: 延至 R6。
+  - E2E/Regression: 真实 websocket 注册、manifest applied、channel.status connected 后，POST Reconnect 返回 200，socket 收到相同 channel revision 的 `channel.reconnect`。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: Reconnect command 不改变 desired revision，符合 `prototype.html#channel-reconnecting`。
+- Rollback: 回退 R4 C1/C2/C3 commits；会恢复首次失败不可见和 connected Reconnect 500。
+- Commits: C1=`14262be7d`，C2=`5e14313f7`。
