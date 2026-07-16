@@ -104,3 +104,44 @@ def test_cache_failure_remains_failed_across_reload_until_same_revision_applies(
     applied = reloaded.list_channels(owner_id="owner-a", agent_id="agent-a")[0]
     assert applied.sync_state == "applied"
     assert applied.apply_error is None
+
+
+def test_first_apply_failure_is_visible_before_any_runtime_status(
+    tmp_path: Path,
+) -> None:
+    """A durable head failure does not depend on a runtime observation existing."""
+    store, channel_id = _store_with_channel(tmp_path)
+    store.record_reconcile_result(
+        node_id="node-a",
+        manifest_revision=1,
+        outcome="retryable_failed",
+        applied_channel_ids=(),
+        removal_outcomes=(),
+        failures=(
+            {
+                "error_code": "channel_start_failed",
+                "error_message": "credential rejected",
+            },
+        ),
+    )
+
+    failed = store.list_channels(owner_id="owner-a", agent_id="agent-a")[0]
+    assert failed.observed is None
+    assert failed.sync_state == "failed"
+    assert failed.apply_error == {
+        "code": "channel_start_failed",
+        "message": "credential rejected",
+    }
+
+    store.record_reconcile_result(
+        node_id="node-a",
+        manifest_revision=1,
+        outcome="applied",
+        applied_channel_ids=(channel_id,),
+        removal_outcomes=(),
+        failures=(),
+    )
+    recovered = store.list_channels(owner_id="owner-a", agent_id="agent-a")[0]
+    assert recovered.observed is None
+    assert recovered.sync_state == "pending"
+    assert recovered.apply_error is None

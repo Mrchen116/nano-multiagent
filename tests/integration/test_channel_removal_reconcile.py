@@ -57,7 +57,7 @@ def test_connected_reconnect_and_failed_removal_retry_use_same_manifest_revision
 ) -> None:
     """The real HTTP/WS entry keeps deletion visible until a successful apply result."""
     app = create_app(db_path=tmp_path / "im.db")
-    with TestClient(app) as client:
+    with TestClient(app, raise_server_exceptions=False) as client:
         owner = register_user(client, username="owner")
         authorize(client, owner)
         registration = _seed_agent(client, owner_id=owner.owner_id)
@@ -117,6 +117,31 @@ def test_connected_reconnect_and_failed_removal_retry_use_same_manifest_revision
             create_ack = websocket.receive_json()
             assert create_ack["type"] == "channels.reconcile.result.ack"
             assert create_ack["payload"]["head_outcome"] == "accepted"
+            websocket.send_json(
+                {
+                    "type": "channel.status",
+                    "payload": {
+                        "request_id": "status-connected",
+                        "node_id": "node-a",
+                        "channel_id": channel_id,
+                        "channel_revision": 1,
+                        "runtime_incarnation": "inc-connected",
+                        "status_sequence": 1,
+                        "instance_started": True,
+                        "connection_state": "connected",
+                        "diagnostics_state": "complete",
+                        "checks": [],
+                    },
+                }
+            )
+            status_result = websocket.receive_json()
+            assert status_result == {
+                "type": "channel.status.result",
+                "payload": {
+                    "request_id": "status-connected",
+                    "outcome": "accepted",
+                },
+            }
 
             reconnect_result: dict[str, object] = {}
 
@@ -127,13 +152,14 @@ def test_connected_reconnect_and_failed_removal_retry_use_same_manifest_revision
 
             reconnect_thread = threading.Thread(target=reconnect)
             reconnect_thread.start()
-            reconnect_frame = websocket.receive_json()
             reconnect_thread.join(timeout=5)
+            assert reconnect_thread.is_alive() is False
+            assert reconnect_result["response"].status_code == 200
+            reconnect_frame = websocket.receive_json()
             assert reconnect_frame == {
                 "type": "channel.reconnect",
                 "payload": {"channel_id": channel_id, "channel_revision": 1},
             }
-            assert reconnect_result["response"].status_code == 200
 
             delete_result: dict[str, object] = {}
 
