@@ -26,8 +26,10 @@ class _SlowValidationKernel:
         self.release_validation = ThreadEvent()
         self.sessions: dict[str, str] = {}
         self.create_calls: list[str] = []
+        self.validation_calls: list[str] = []
 
     def get_session(self, *, session_id: str, workspace_root: str) -> dict[str, str]:
+        self.validation_calls.append(session_id)
         if session_id == self.slow_session_id:
             self.validation_started.set()
             self.release_validation.wait(timeout=1)
@@ -45,7 +47,9 @@ class _SlowValidationKernel:
         return SimpleNamespace(session_id=session_id)
 
 
-def _agent(tmp_path: Path, agent_id: str, *, version: str = "v1") -> AgentWorkspaceConfig:
+def _agent(
+    tmp_path: Path, agent_id: str, *, version: str = "v1"
+) -> AgentWorkspaceConfig:
     workspace = tmp_path / f"{agent_id}-{version}"
     workspace.mkdir()
     return AgentWorkspaceConfig(agent_id=agent_id, workspace_root=workspace)
@@ -90,8 +94,7 @@ async def test_slow_workspace_validation_does_not_block_unrelated_bindings(
     tmp_path: Path,
 ) -> None:
     agents = tuple(
-        _agent(tmp_path, agent_id)
-        for agent_id in ("agent-a", "agent-b", "agent-c")
+        _agent(tmp_path, agent_id) for agent_id in ("agent-a", "agent-b", "agent-c")
     )
     catalog = LiveAgentCatalog(agents)
     store = SessionBindingStore()
@@ -104,7 +107,9 @@ async def test_slow_workspace_validation_does_not_block_unrelated_bindings(
         binder.resolve(_request("agent-a"), catalog.require("agent-a"))
     )
     try:
-        await asyncio.wait_for(asyncio.to_thread(kernel.validation_started.wait), timeout=2)
+        await asyncio.wait_for(
+            asyncio.to_thread(kernel.validation_started.wait), timeout=2
+        )
         assert not kernel.validation_finished.is_set()
         fast = await asyncio.wait_for(
             binder.resolve(_request("agent-b"), catalog.require("agent-b")),
@@ -146,3 +151,30 @@ async def test_publish_during_slow_validation_never_republishes_stale_binding(
     new_result = await binder.resolve(request, current)
     assert binder.lookup(request.session_key) == new_result
     assert kernel.create_calls == [str(current.config.workspace_root)]
+
+
+async def test_stable_reuse_validates_once_per_binder_process_ownership(
+    tmp_path: Path,
+) -> None:
+    """Stable reuse is O(1), while a restarted binder revalidates persisted state."""
+
+    agent = _agent(tmp_path, "agent-a")
+    catalog = LiveAgentCatalog((agent,))
+    store = SessionBindingStore()
+    kernel = _SlowValidationKernel(slow_session_id="never-slow")
+    _bind_existing(store, kernel, agent)
+    request = _request("agent-a")
+    snapshot = catalog.require("agent-a")
+    binder = GatewaySessionBinder(catalog=catalog, repository=store, kernel=kernel)
+
+    first = await binder.resolve(request, snapshot)
+    second = await binder.resolve(request, snapshot)
+
+    assert first.kernel_session_id == second.kernel_session_id == "session-agent-a"
+    assert kernel.validation_calls == ["session-agent-a"]
+
+    restarted = GatewaySessionBinder(catalog=catalog, repository=store, kernel=kernel)
+    resumed = await restarted.resolve(request, snapshot)
+
+    assert resumed.kernel_session_id == "session-agent-a"
+    assert kernel.validation_calls == ["session-agent-a", "session-agent-a"]
