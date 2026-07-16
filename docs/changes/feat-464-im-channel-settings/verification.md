@@ -381,3 +381,123 @@ Validated head: `033a3839c6de07b03064c78cb055cc995e277492`
 - 无。
 
 1 critical issue(s) found. Fix before PR.
+
+# Round 4
+
+## Summary
+
+Mode: full
+
+Delta range: `e05d59c56344f3f45c74474416b16d126198445d..397701f78971d28482f67d289c957a95b7b5b25d`
+
+Focus issues: M6 的公共 sender identity / protocol terminal dequeue、安全 startup migration、断线内存 status queue、无 observed apply error、Reconnect、offline last-known/removal feedback，以及 M1-M5 回归。
+
+requires_full_verification: true
+
+Validated head: `a08ac99be47fcaf62aff44e812366f05cd62f8f6`（runtime code head `397701f78971d28482f67d289c957a95b7b5b25d`；后续提交仅补 M6 evidence）
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 39/45 个 milestone 退出标准被完整证实（文档勾选为 45/45）；M4-E4/M4-E7、M5-E7、M6 安全迁移、M6 status replacement 和 M6 聚合门禁未闭合 |
+| Correctness | 原始 6 个 Requirement / 20 个 Scenario 的主体实现仍完整；M6 sender、apply error、Reconnect 和 UI 恢复已闭合，但 2 个明确的 M6 hardening scenario 可在 validated head 独立复现失败 |
+| Coherence | 7/9 个编号关键决策完整遵守；安全迁移边界与因果 status/outbox 边界只有部分遵守 |
+
+结论：**FAIL**。2 个 CRITICAL；修复后必须再次 full verification，不可进入 PR。
+
+## Round 3 问题复核
+
+| Round 3 问题 | Round 4 结果 | 证据 |
+|---|---|---|
+| CRITICAL-1：skill activation 在 legacy migration 前用普通 writer 生成新的含密 backup | specific reproduction closed | `RuntimeConfigOwner` 在 activation 前建立，activation 与 bootstrap cleanup 均使用 sensitive writer：`src/personal_assistant/main.py:2915-2924`、`:3377-3390`；真实 composition-root 回归见 `tests/unit/personal_assistant/test_builtin_skill_bootstrap.py:64-139` |
+| M6-E2 的递归零明文目录保证 | still open | sensitive writer 只安全替换主文件并清理自己的 temp，不处理启动前已经存在的 `backups/config.*.yaml.bak`：`src/personal_assistant/config/local_store.py:721-761`；详见本轮 CRITICAL-1 |
+
+## Completeness
+
+- Tasks：M1 8/8、M2 8/8、M3 8/8 保持 covered。M4 为 5/7（E4/E7 未闭合）；M5 为 7/8（E7 full gate 未闭合）；M6 为 3/6（安全迁移、断线 replacement、聚合 gate 未闭合）。文档中的 45 项均被勾选，但实现证据只支持 39 项。
+- Spec：通用多 provider 通道页、不展示 Web IM、简短飞书开放平台指引、在线/离线配置、权限不足降级与缺项展示、生命周期和跨 owner bind 的 20 个原始 Scenario 均未在 M6 delta 中回退。
+- M6 design：E1、E4、E5、E6 有生产实现、永久 regression 或真实产品证据；E2/E3 可稳定反例；E7 因 secret scan 和 full verifier 失败而不成立（`design.md:706`）。
+- Prototype / Reference：已检查 M6 四张 headed Chromium 截图及 README；Connected→Reconnect、375×812 offline failed last-known、offline removal waiting、恢复后空态清警报均与对应 prototype anchor 对齐，截图未暴露完整凭据。
+
+## Correctness
+
+| Requirement / Scenario | Round 4 证据 | 状态 |
+|---|---|---|
+| 公共 Gateway sender 为所有 guarded frame 注入当前 node identity | 最终 wire sender 强制覆盖 `node_id`：`src/personal_assistant/ws/im_connection.py:1140-1153`；永久测试枚举 server guard 的 21 个生产 frame type | covered |
+| generic protocol error terminal dequeue、失败 waiter、继续 FIFO | `im_connection.py:1105-1120`、`:1214-1236`；聚焦 FIFO regression 通过 | covered |
+| legacy startup 的 activation 与 bootstrap cleanup 不再新建明文 backup | composition root 统一 sensitive owner/writer；`test_builtin_skill_bootstrap.py:64-139` | covered for newly-created files |
+| startup/bootstrap 后配置目录递归不存在 legacy secret | writer 不清理升级前已有的含密 backup；预置 backup 的真实 startup/bootstrap 后 marker 仍存在 | **critical** |
+| offline replacement 只保留当前 incarnation，重连不重放 superseded status | queue 明确保留所有 `sent=True` 的同 channel status；断线后新 incarnation 只能合并 unsent tail | **critical** |
+| 无 observed row 的 durable apply error 投影 failed；同 revision 成功清错 | `src/IM/infra/channel_control_store.py:1345-1408`；projection regressions | covered |
+| Connected → Reconnect 使用真实 HTTP/WS 并保持同 revision | reconnect 查询补齐 manifest head 字段：`channel_control_store.py:1190-1213`；integration `test_channel_removal_reconcile.py:55-239` 返回 200 并下发 revision 1 frame | covered |
+| offline connected/limited/failed 为 last-known；pending/apply failure 优先 | `agent-channels-panel.tsx:168-229`；frontend 状态矩阵 tests + desktop/mobile evidence | covered |
+| offline removal retry 为等待节点文案，成功后 card/alert 同时消失 | frontend mutation/receipt tests、真实 mobile waiting 与 applied-empty evidence | covered |
+
+### M6 边界复验
+
+| M6 保证 | 实现/永久回归 | 本轮结果 |
+|---|---|---|
+| sender identity + terminal FIFO | 单一 `_send_frame` 覆盖 identity；generic error 释放 head | covered |
+| safe startup migration | 新写入路径安全，主文件 `0600`；回归从干净 config 目录开始 | **partial**：已有含密 backup 不清理 |
+| disconnected current-incarnation coalescing | `_queue_pending_frame()` 只删除 `sent=False` 的同 channel status；现有测试只在首次连接前构造全部 unsent queue | **critical** |
+| apply error without observed + clear | durable head error 先于 observed 判定；同 revision applied 清除 | covered |
+| reconnect / offline / removal product recovery | HTTP/WS integration、Vitest、4 张真实浏览器截图 | covered |
+| aggregate gates | focused/full suites、Ruff、frontend test/build、test-size、diff check 通过 | **failed**：独立 secret scan 与 queue causality 反例 |
+
+### 测试与门禁结果
+
+- 聚焦后端：65 passed（sender/FIFO、status protocol、bootstrap、apply projection、真实 reconnect/removal、auth boundary、credential/cache/outbox/migration recovery、test naming/size contract）。
+- 完整后端：`pytest -q -m 'not e2e'` → 3469 passed、1 skipped、20 deselected。
+- 完整前端：67 files / 626 tests passed；`npm run build` → 444 modules transformed。验证 worktree 临时复用主仓 `node_modules`，命令退出时已移除 symlink。
+- Ruff：`ruff check src tests` → PASS。
+- `git diff --check origin/main...HEAD` → PASS；worktree source 状态干净，完整后端包含测试命名/大小 contract。
+- 独立 status queue 复验：socket 1 发出 `old/inc-old` 后在 result 前断线，再离线入队 `new/inc-new`；队列为 `[(old, sent=True), (new, sent=False)]`，socket 2 重连后的首个 status 仍为 `old/inc-old`。
+- 独立 secret 复验：预先在默认配置目录放入一份含 legacy marker 的 `backups/config.preexisting.yaml.bak`，再执行真实 `build_runtime → bootstrap provider → applied handler`；主文件正确变为 `0600 + credentialRef`，但递归扫描仍命中该 backup。
+
+## Coherence
+
+| design 决策 | 遵守? | 代码证据 |
+|---|---|---|
+| 1. 节点公钥信封，IM/cache 不持久明文，legacy 安全迁移 | **部分** | 新 activation/bootstrap 写入已统一 sensitive writer；该 writer 不审计/清理已有 config backups（CRITICAL-1） |
+| 2. desired/actual 分离、revision/CAS、独立短事务 | 是 | channel control mutation/result/projection 与 reconnect query |
+| 3. IM 权威完整 manifest + Gateway 密文 cache/outbox | 是 | strict manifest applier、retry manifest、durable result/status outbox |
+| 4. ChannelManager 唯一动态 lifecycle owner | 是 | reconcile/start/stop/retry 仍统一经 manager |
+| 5. 每 Bot 可终止 worker、三 lane、因果 status、有界 restart | **部分** | 持久 outbox 有界；但内存 FIFO 在断线 replacement 后保留旧 sent incarnation 并先重放（CRITICAL-2） |
+| 6. connection/diagnostics 分层、provider-owned probe | 是 | preflight/client/diagnostics 与 capability catalog 未回退 |
+| 7. 通用 REST/resource + 前端 provider registry | 是 | agent channel API + descriptor-driven UI |
+| 8. bootstrap、owner 隔离、legacy export | 是 | bootstrap/cache/binding/export 主路径均保持 |
+| 9. 纵向 milestone 交付 | 是 | M1-M6 docs/tests/evidence 均存在；验收 gate 如实保持 fail |
+
+### Architecture coherence
+
+- `IM` 未 import `agent`；`personal_assistant` 产品依赖边界和完整 contract suite 均通过。
+- M6 把 node identity 放在唯一 wire sender，而不是要求每个 producer 自行补字段；generic protocol rejection 也在 FIFO owner 内处理，方向正确。
+- apply error、reconnect SQL、offline projection 和 removal receipt 仍各自服从已有状态真相源，没有引入第二套 revision 或 UI 私有成功态。
+- **偏离 1：**安全 writer 只保证“本次不创建含密 backup”，没有完成 design 要求的升级后整个配置目录零明文。
+- **偏离 2：**内存 FIFO 把“已写 socket 但未收到 result”永久视为必须重放，即使同 channel 的 runtime 已被新 incarnation 替代；这与持久 outbox 的 current-incarnation 因果模型不一致。
+
+## Prototype / Reference Contract
+
+| Reference contract | M6 implementation / evidence | 状态 |
+|---|---|---|
+| `#channel-reconnecting` | Connected 点击真实 Reconnect 后 HTTP 200，页面进入 Connecting，无版本文案 | covered |
+| `#channel-failed/#channels-mobile` | 375×812 offline failed 显示 Node offline + Last known status，而非当前失败结论 | covered |
+| `#channel-deleting` | offline Retry 显示等待节点；恢复 applied 后空态无旧 alert | covered |
+| M1-M5 其余 must-match reference | 完整 frontend tests/build 与既有 evidence 未回退 | covered |
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+1. **legacy migration 只阻止新建含密 backup，不会清理升级前已经存在的明文 backup，因此真实老用户启动后仍可能永久保留 `appSecret`。** M6 已把 skill activation 和 bootstrap cleanup 都改为 `save_sensitive_local_config`（`src/personal_assistant/main.py:2915-2924`、`:3377-3390`），关闭了 Round 3 的“本次启动新建 backup”复现；但 sensitive writer 只创建 mode-0600 temp、replace 主文件并删除自己的 temp（`src/personal_assistant/config/local_store.py:721-761`），完全不处理 `backups/`。普通 writer 的历史行为会保留最多 30 个 `backups/config.*.yaml.bak`（`:506-561`），而 legacy YAML 本来允许这些文件包含 `appSecret`。现有 composition-root 回归从空目录开始，并且显式断言没有 backup（`tests/unit/personal_assistant/test_builtin_skill_bootstrap.py:64-139`），因此无法发现升级场景。本轮预置一份含 marker 的历史 backup 后执行同一真实 startup/bootstrap：主文件已正确迁移且 mode `0600`，但 `secret_hits_after_migration=['backups/config.preexisting.yaml.bak']`。这直接违反 M4-E4 和 M6-E2 的“递归扫描 config 目录无 secret backup/temp”。**修复：**成功迁移 legacy credential 时，在不记录 secret 的前提下安全审计已知 config backup 目录，删除或原子脱敏所有仍含 legacy channel secret 的历史 backup，并 fsync 目录；保留不含 secret 的普通备份。增加预置含密 backup 的真实 composition-root regression，迁移后递归扫描必须零命中。
+
+2. **断线前已写出但未收到 result 的旧 `channel.status` 不会被新 runtime incarnation 淘汰，重连会先重放 superseded 状态。** `_queue_pending_frame()` 的合并条件显式保留所有 `queued.sent` frame（`src/personal_assistant/ws/im_connection.py:415-451`）；断线只清空 `_awaiting_ack_type`，不会重置或移除该 head（`:1310-1336`）；重连 `_flush_pending_frames()` 直接发送队首并再次标记 sent（`:1123-1138`）。因此 old status 写到 socket 1 后断线、offline replacement 入队 new status 时，队列仍是 old+new，socket 2 首先收到 old incarnation。现有 regression 名称声称 current incarnation survives，但只在首次 connect 前构造全部 `sent=False` 的 40 个状态（`tests/unit/personal_assistant/test_channel_status_protocol.py:209-281`），没有覆盖这个生产序列。这违反 M6-E3 的“只保留当前 incarnation、重连不发 superseded status”，并可能让 IM 在旧 send 从未落库时短暂重新建立已退役 runtime 的 observed 状态。**修复：**当连接已断且同 channel 的新 incarnation 到来时，连同 sent-but-unacknowledged 的旧 status 一并退休，同时不触碰其他 message FIFO；旧 request 的迟到 result 必须幂等忽略。补双 socket 永久回归：old 已 send → disconnect before result → enqueue new incarnation → reconnect，断言 wire 上只出现 new status，队列有界且后续非 status frame 顺序不变。
+
+### WARNING（应该修）
+
+- 无。
+
+### SUGGESTION（可以修）
+
+- 无。
+
+2 critical issue(s) found. Fix before PR.
