@@ -119,6 +119,31 @@ def test_list_by_job_keeps_newest_first_and_max_limit(tmp_path: Path) -> None:
     assert results[-1].request_id == "req-005"
 
 
+def test_materialized_index_bounds_terminal_history_but_keeps_active_runs(
+    tmp_path: Path,
+) -> None:
+    """Durable history may grow, but one owner keeps only 100 terminals per job."""
+
+    store = CronRunsStore(workspace_root=tmp_path)
+    active = _record(999, job_id="job-a")
+    store.append(active)
+    for index in range(105):
+        record = _record(index, job_id="job-a")
+        store.append(record)
+        store.update_status(record.request_id, "completed")
+
+    live = store._materialize_all()  # noqa: SLF001
+    restarted = CronRunsStore(workspace_root=tmp_path)._materialize_all()  # noqa: SLF001
+
+    assert live == restarted
+    assert active.request_id in live
+    terminal = [record for record in live.values() if record.status == "completed"]
+    assert len(terminal) == 100
+    assert {record.request_id for record in terminal} == {
+        f"req-{index:03d}" for index in range(5, 105)
+    }
+
+
 def test_restart_converges_only_non_terminal_records(tmp_path: Path) -> None:
     """Restart convergence must retain completed rows and fail accepted/running rows."""
 
