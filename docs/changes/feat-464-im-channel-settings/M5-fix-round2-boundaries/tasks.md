@@ -14,8 +14,8 @@
 - [x] manifest 在任何 reconcile/stop/cache/head 变更前完成全量结构、generation、key、envelope 与 opener 校验；任一成员失败时整个 manifest 返回 `retryable_failed`。
 - [x] cache commit 失败不会投影为已应用/当前连接；错误重载后仍可见，在线按同 revision 有界自动重试，只有 commit 成功才投影 applied；失败结果 ACK 不丢必需 outbox。
 - [x] node offline 且 `observed.status_stale=true` 时，connected/limited/failed 都明确显示“最后已知状态/节点离线”；pending/failed/retry 状态优先级不被覆盖，375px 可用。
-- [ ] 新 status incarnation 原子替换旧未确认 barrier/snapshot；旧 outbox 不重放、不无界增长，晚到 ACK 幂等，重启后仍有界。
-- [ ] 所有新增永久回归文件不超过 400 行；窄测、非 e2e 全量、前端 test/build/ruff、关键 e2e 与真实浏览器证据完成。
+- [x] 新 status incarnation 原子替换旧未确认 barrier/snapshot；旧 outbox 不重放、不无界增长，晚到 ACK 幂等，重启后仍有界。
+- [x] 所有新增永久回归文件不超过 400 行；窄测、非 e2e 全量、前端 test/build/ruff、关键 e2e 与真实浏览器证据完成。
 
 ## 测试策略
 
@@ -23,7 +23,7 @@
 - 已有测试在：`tests/im_service/integration/test_gateway_auth_boundary.py`、`tests/unit/personal_assistant/test_channel_legacy_migration.py`、`tests/unit/personal_assistant/test_channel_credential_recovery.py`、`tests/unit/personal_assistant/test_channel_manifest_store.py`、`tests/unit/personal_assistant/test_channel_status_outbox.py`、`tests/unit/IM/test_channel_status_projection.py`、`src/IM/frontend/src/features/settings/agents/agent-channels-diagnostics.test.tsx`（扩展）；若某文件接近 400 行则按用户可观察行为新建同层测试文件。
 - 落层/目录/marker：`tests/unit/`、`tests/integration/`、`tests/im_service/integration/` 与前端 Vitest；关键真实链路使用既有 `e2e` marker/脚本，不新增仅验证 mock 自洽的 e2e。
 - 可选依赖 importorskip：无。
-- 本 milestone 产生的一次性验收证据（收尾删除，不进套件）：真实 IM + Gateway + Vite 高位端口浏览器截图、console/network 检查与 prototype 对照，落在 `M5-fix-round2-boundaries/evidence/`。
+- 本 milestone 的浏览器验收证据：真实 IM + Gateway 高位端口、production frontend build 的截图、console/network 检查与 prototype 对照，落在 `M5-fix-round2-boundaries/evidence/`；运行时临时文件收尾删除。
 
 用户路径分类：
 - critical-path：channel manifest 下发、Gateway 应用、结果回报与状态投影，永久回归 + 关键 e2e。
@@ -99,3 +99,4 @@ Prototype / Reference Contract：
 
 - 步骤：新 barrier 原子替换旧 incarnation，清理 legacy retired 结构；晚到 ACK 作为幂等 no-op；重载只保留当前 barrier/snapshot。完成全套 gate/e2e/evidence。
 - 验证：连续多 incarnation 不增长、旧 ACK 不解锁、最新 ACK 正常；ruff、非 e2e pytest、前端 test/build、关键 e2e、测试命名/行数 contract 全绿。
+- 状态：完成。每个 channel 只持久化当前 incarnation 的 barrier/inflight/latest；新 seq=1 原子替换旧 generation，旧 generation 的迟到 snapshot/ACK 均为幂等 no-op，首次重载还会原子清除 legacy `retired`。全量后端、前端、Ruff、文件大小、secret pattern、浏览器和进程清理门禁通过。

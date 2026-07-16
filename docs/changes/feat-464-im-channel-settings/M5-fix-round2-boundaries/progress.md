@@ -6,7 +6,7 @@
 - Decision: 所有非 `node.register` 帧在业务 handler 前统一从当前 websocket 反查唯一注册连接，校验 token owner、连接 owner、持久 owner及 payload node，并把可信 node 写回 payload；bind 初始化在注册 key/下发 manifest 前重校验 owner，失败时删除 key、移除连接并以 1008 关闭 socket。
 - Rationale: 以 socket 注册关系而不是不可信 payload 作为路由 authority，才能让所有现有和未来业务帧默认继承同一 tenant 边界；bind 后复核关闭了 pre-bind race。
 - Evidence:
-  - Tests: `pytest -q tests/im_service/integration/test_gateway_auth_boundary.py tests/im_service/unit/test_gateway_handler.py tests/im_service/unit/test_channel_status_broadcast.py tests/unit/IM/test_streaming_chain.py tests/integration/test_channel_reconcile.py tests/integration/test_channel_bootstrap.py` → `68 passed`；ruff focused → passed。
+  - Tests: `pytest -q tests/im_service/integration/test_gateway_auth_boundary.py tests/im_service/unit/test_gateway_handler.py tests/im_service/unit/test_channel_status_broadcast.py tests/unit/IM/test_streaming_chain.py tests/integration/test_channel_reconcile.py tests/integration/test_channel_bootstrap.py` → `68 passed`；协议错误边界与 live config 兼容聚焦复验 → `40 passed`；ruff focused → passed。
   - Entry: FastAPI `/im/ws/gateway` 真实 websocket 入口分别用 Alice/Bob bearer、两个 live node 验证：伪造 Bob node 的 heartbeat 被 1008 拒绝，Bob DB/广播序列不变；伪造 result 不释放 Bob waiter；Bob pre-register/Alice bind 后连接和 key 均被逐出。
   - Frontend State Matrix: N/A。
   - Browser QA: N/A。
@@ -14,7 +14,7 @@
   - Visual/Interaction: N/A。
   - Prototype Comparison: N/A。
 - Rollback: 回退 R1 的 test/fix/docs commits。
-- Commits: `d75825abf`（C1 red），`5bef039ef`（C2 green）。
+- Commits: `d75825abf`（C1 red），`5bef039ef`（C2 green），`835db5ee9`（全量门禁协议边界修复）。
 
 ## R2 — 统一脱敏运行时配置 owner
 
@@ -75,8 +75,8 @@
   - Frontend State Matrix: online connected 保留 current success；offline observed 统一为 last-known；pending 仍显示等待节点应用；apply failed 仍显示具体错误；limited 的最后已知标题保留权限受限语义。
   - Browser QA: 真 IM + 真 Gateway 高位端口先呈现 Feishu Connected；停止 Gateway 后同页自动出现 offline banner，卡片徽标变为 Node offline，正文为 `Last known status: Connected (node offline; not a current connection)`。唯一 console 503 来自预期的离线 capabilities 请求，无前端异常。
   - E2E/Regression: `agent-channels-panel.test.tsx` 包含 cached `status_stale=false` 但实时 node offline 的回归，防止 websocket/channel-query 失效时序复发。
-  - Visual/Interaction: Playwright CLI 在 desktop 与 375×812 均确认单列卡片、离线横幅、last-known 时间和 Edit/Disable/Delete 动作可见；临时截图按任务约定未入库。
-  - Prototype Comparison: `#channel-connected` 在线结构不变；离线态沿用 `#channel-pending/#channels-mobile` 的横幅、卡片和响应式层级，并只增加 last-known 降级说明。
+  - Visual/Interaction: Playwright CLI 在 desktop 与 375×812 均确认单列卡片、离线横幅、last-known 时间和 Edit/Disable/Delete 动作可见；持久截图见 `M5-fix-round2-boundaries/evidence/output/playwright/`。
+  - Prototype Comparison: `#channel-connected` 在线结构不变；离线态沿用 `#channel-pending/#channels-mobile` 的横幅、卡片和响应式层级，并只增加 last-known 降级说明；逐项对照见 `evidence/README.md`。
 - Rollback: 回退 R5 的 test/fix/docs commits。
 - Commits: C1=`a65fee48c`，C2=`60bfa2879`。
 
@@ -89,9 +89,15 @@ Prototype Comparison：
 
 ## R6 — 有界 status incarnation 与全量门禁
 
-- Context: 待实施。
-- Decision: 待实施。
-- Rationale: 待实施。
-- Evidence: 待补。
+- Context: 每次新 runtime seq=1 都把旧 barrier/inflight 复制进持久化 `retired` map；该 map 不参与重连重放，只等待可能永远不到的旧 ACK，导致每次 restart 都增加 cache 体积。更晚到达的旧 incarnation seq>1 还可能反向替换新 barrier。
+- Decision: seq=1 是唯一能建立/替换 incarnation 的 barrier，并原子丢弃旧 barrier/inflight/latest；已有 current 时拒绝其他 generation 的 seq>1。ACK 查找只覆盖 current barrier/inflight，未知旧 ACK 返回 `None`；pending/retry/record 首次触碰旧文件时持久删除 legacy `retired`。
+- Rationale: status 是可合并快照而非必须逐条送达的事件；一旦新 incarnation 建立，旧状态既不能安全重放，也不能影响当前 FIFO。只保留 current generation 同时满足因果顺序、重启恢复和空间有界。
+- Evidence:
+  - Tests: `pytest -q test_channel_status_outbox.py test_channel_status_protocol.py` → `8 passed`；连续 40 次 incarnation 后 JSON 仍只有 current 三槽，旧 snapshot/ACK 不解锁 current，reload 会清理人工构造的 legacy retired。
+  - Entry: `ChannelManifestStore.record_channel_status()`、`pending_channel_statuses()`、`apply_channel_status_result()` 真实 0600 原子 JSON 入口与重建 store 路径。
+  - Full backend: `pytest -m 'not e2e' -q` → `3465 passed, 1 skipped, 20 deselected`。
+  - Frontend: `npm test -- --run` → `67 files / 625 tests passed`；`npm run build` → passed（444 modules）。
+  - Gates: `ruff check src tests`、test naming/size contract（`2 passed`）、secret-pattern scan、`git diff --check`、PID/process cleanup → passed；新增测试文件最大 336 行。
+  - Browser/E2E: R1 真实 authenticated websocket、R3/R4 composition integration 与 R5 真 IM/Gateway/Feishu 浏览器切换共同覆盖本 milestone 关键链路；当前仓库 e2e marker 无 channel 专属用例，未伪造 provider e2e。
 - Rollback: 回退 R6 的 test/fix/docs commits。
-- Commits: 待补。
+- Commits: C1=`8a9035636`，C2=`b9d57d614`。
