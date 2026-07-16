@@ -121,7 +121,9 @@ def test_register_does_not_overwrite_existing_profile_skills_and_tool_allowlist(
     assert result.agent_ids == ("agent-a",)
     profile = profiles.get_profile(agent_id="agent-a")
     assert profile.skills == [], "existing profile skills must not be re-seeded"
-    assert profile.tool_allowlist == [], "existing profile tool_allowlist must not be re-seeded"
+    assert profile.tool_allowlist == [], (
+        "existing profile tool_allowlist must not be re-seeded"
+    )
 
 
 def test_reregister_preserves_profile_edits_and_reconciles_stale_agents(
