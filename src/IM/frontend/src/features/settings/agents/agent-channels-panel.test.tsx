@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { setLanguage } from "../../../i18n";
@@ -58,11 +58,12 @@ function renderPanel(nodeStatus = "online") {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
-  return render(
+  const view = render(
     <QueryClientProvider client={queryClient}>
       <AgentChannelsPanel agentId="agent-1" nodeStatus={nodeStatus} />
     </QueryClientProvider>,
   );
+  return { ...view, queryClient };
 }
 
 beforeEach(() => {
@@ -275,6 +276,8 @@ describe("AgentChannelsPanel", () => {
     async (connectionState, diagnosticsState, expectedLastState) => {
       apiMocks.listAgentChannels.mockResolvedValue([
         channel({
+          sync_state: connectionState === "failed" ? "failed" : "applied",
+          apply_error: null,
           observed: {
             observed_revision: 7,
             connection_state: connectionState,
@@ -332,5 +335,39 @@ describe("AgentChannelsPanel", () => {
     expect(await screen.findAllByText("连接失败")).not.toHaveLength(0);
     expect(screen.getByText("本地通道缓存写入失败，请稍后重试应用")).toBeInTheDocument();
     expect(screen.queryByText("当前配置已应用")).toBeNull();
+  });
+
+  it("waits locally for an offline removal retry and clears the notice on success", async () => {
+    const user = userEvent.setup();
+    apiMocks.listAgentChannels.mockResolvedValue([
+      removal({
+        apply_state: "failed",
+        apply_error: {
+          code: "runtime_stop_failed",
+          message: "worker 退出超时",
+        },
+      }),
+    ]);
+    apiMocks.retryAgentChannelRemoval.mockRejectedValue(
+      new Error('POST failed: {"detail":{"code":"channel_node_offline"}}'),
+    );
+
+    const view = renderPanel("offline");
+    await screen.findByText("删除未完成");
+    await user.click(screen.getByRole("button", { name: "重新尝试应用" }));
+
+    expect(apiMocks.retryAgentChannelRemoval).not.toHaveBeenCalled();
+    expect(screen.getByText("等待节点上线后继续删除")).toBeInTheDocument();
+    expect(screen.queryByText(/channel_node_offline/)).toBeNull();
+
+    act(() => {
+      view.queryClient.setQueryData(
+        ["settings", "agents", "agent-1", "channels"],
+        [],
+      );
+    });
+    expect(await screen.findByText("还没有外部通道")).toBeInTheDocument();
+    expect(screen.queryByText("等待节点上线后继续删除")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });

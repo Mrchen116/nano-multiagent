@@ -1196,10 +1196,14 @@ class ChannelControlStore:
                 """
                 SELECT ac.*, s.observed_revision, s.connection_state,
                        s.diagnostics_state, s.status_code, s.status_message,
-                       s.checks_json, s.received_at, n.status AS node_status
+                       s.checks_json, s.received_at, n.status AS node_status,
+                       h.manifest_revision AS head_manifest_revision,
+                       h.applied_manifest_revision,
+                       h.last_apply_error_json
                 FROM agent_channels ac
                 LEFT JOIN agent_channel_status s ON s.channel_id = ac.channel_id
                 LEFT JOIN nodes n ON n.node_id = ac.node_id
+                LEFT JOIN channel_manifest_heads h ON h.node_id = ac.node_id
                 WHERE ac.channel_id = ? AND ac.owner_id = ? AND ac.agent_id = ?
                 """,
                 (channel_id, owner_id, agent_id),
@@ -1366,6 +1370,7 @@ class ChannelControlStore:
                         or "Channel configuration could not be applied."
                     ),
                 }
+                sync_state = "failed"
         if observed_revision is not None:
             observed = {
                 "observed_revision": int(observed_revision),
@@ -1380,9 +1385,9 @@ class ChannelControlStore:
             head_is_applied = int(row["applied_manifest_revision"] or 0) >= int(
                 row["head_manifest_revision"] or 0
             )
-            if apply_error is not None:
-                sync_state = "failed"
-            elif head_is_applied and int(observed_revision) >= int(
+            if apply_error is None and head_is_applied and int(
+                observed_revision
+            ) >= int(
                 row["channel_revision"]
             ):
                 sync_state = (

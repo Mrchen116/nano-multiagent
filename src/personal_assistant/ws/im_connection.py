@@ -38,6 +38,7 @@ class PendingFrame:
 
     message_type: str
     payload: dict[str, object]
+    sent: bool = False
     ack_future: asyncio.Future[dict[str, object]] | None = field(
         default=None, repr=False
     )
@@ -374,7 +375,7 @@ class IMConnectionManager:
     async def send_json(self, message_type: str, payload: Mapping[str, object]) -> None:
         """Queue one gateway -> IM protocol frame and flush it when the socket is available."""
 
-        self._pending_frames.append(
+        self._queue_pending_frame(
             PendingFrame(message_type=message_type, payload=dict(payload))
         )
         await self._flush_pending_frames()
@@ -403,13 +404,52 @@ class IMConnectionManager:
 
         loop = asyncio.get_running_loop()
         ack_future: asyncio.Future[dict[str, object]] = loop.create_future()
-        self._pending_frames.append(
+        self._queue_pending_frame(
             PendingFrame(
                 message_type=message_type, payload=dict(payload), ack_future=ack_future
             )
         )
         await self._flush_pending_frames()
         return await ack_future
+
+    def _queue_pending_frame(self, pending: PendingFrame) -> None:
+        """Append a frame, superseding only unsent stale channel statuses.
+
+        A successfully written head remains eligible for replay after disconnect because
+        IM may have accepted it without returning the result. Runtime replacement may
+        compact only later unsent status frames; unrelated protocol FIFO is untouched.
+        """
+        if pending.message_type != "channel.status":
+            self._pending_frames.append(pending)
+            return
+        channel_id = pending.payload.get("channel_id")
+        incarnation = pending.payload.get("runtime_incarnation")
+        if not isinstance(channel_id, str) or not isinstance(incarnation, str):
+            self._pending_frames.append(pending)
+            return
+
+        status_sequence = pending.payload.get("status_sequence")
+        retained: deque[PendingFrame] = deque()
+        for queued in self._pending_frames:
+            same_channel = (
+                queued.message_type == "channel.status"
+                and queued.payload.get("channel_id") == channel_id
+            )
+            if not same_channel or queued.sent or queued.ack_future is not None:
+                retained.append(queued)
+                continue
+            queued_incarnation = queued.payload.get("runtime_incarnation")
+            queued_sequence = queued.payload.get("status_sequence")
+            keep_barrier = (
+                queued_incarnation == incarnation
+                and queued_sequence == 1
+                and isinstance(status_sequence, int)
+                and status_sequence > 1
+            )
+            if keep_barrier:
+                retained.append(queued)
+        retained.append(pending)
+        self._pending_frames = retained
 
     async def send_agent_message(self, payload: Mapping[str, object]) -> IMDispatchAck:
         """Send one agent.message frame and return the parsed IM dispatch ack."""
@@ -1063,22 +1103,20 @@ class IMConnectionManager:
                 self._permission_response_handler(body)
             return
         if message_type == "error":
-            # IM sends `type=error` when it rejects a PA-sent frame (e.g. malformed node.report
-            # with missing node_id, or a payload whose FK reference doesn't exist in the DB).
-            # Raising here would propagate into run_forever's `except Exception` → _mark_disconnected
-            # → reconnect loop, severing the connection on every bad frame. The right behaviour is to
-            # log the error and keep the connection alive so subsequent valid frames can still be
-            # delivered. The upstream frame that triggered the error was already sent; nothing to ack.
             error_code = body.get("code")
             error_message = body.get("message")
+            rejected_type = self._reject_pending_frame(body)
             self._events.append(
                 {
                     "event": "error_ack",
                     "type": "error",
                     "code": error_code,
                     "message": error_message,
+                    "rejected_type": rejected_type,
                 }
             )
+            if rejected_type is not None:
+                await self._flush_pending_frames()
             return
         raise ValueError(f"unsupported downstream message type: {message_type}")
 
@@ -1096,14 +1134,20 @@ class IMConnectionManager:
                 if raise_on_disconnect:
                     raise
                 return
+            pending_frame.sent = True
             self._awaiting_ack_type = pending_frame.message_type
 
     async def _send_frame(
         self, message_type: str, payload: Mapping[str, object]
     ) -> None:
         websocket = self._require_websocket()
+        wire_payload = dict(payload)
+        # Every Gateway business frame is node-scoped at the IM dispatcher.  The
+        # registered local reporter is the authority; individual producers must not
+        # be able to omit or select a different node identity.
+        wire_payload["node_id"] = self._reporter.node_id
         frame = json.dumps(
-            {"type": message_type, "payload": dict(payload)}, ensure_ascii=False
+            {"type": message_type, "payload": wire_payload}, ensure_ascii=False
         )
         await websocket.send(frame)
         self._events.append({"event": "sent", "type": message_type})
@@ -1166,6 +1210,30 @@ class IMConnectionManager:
             }
         )
         return True
+
+    def _reject_pending_frame(self, payload: Mapping[str, object]) -> str | None:
+        """Terminally reject the single in-flight frame selected by wire FIFO.
+
+        IM serializes one response per upstream frame, while this client sends only
+        one unacknowledged queued frame at a time.  A generic protocol error therefore
+        belongs to the current head even when an older server omits request metadata.
+        Releasing it here preserves the connection and lets unrelated work continue.
+        """
+        awaiting = self._awaiting_ack_type
+        if awaiting is None or not self._pending_frames:
+            return None
+        pending = self._pending_frames.popleft()
+        self._awaiting_ack_type = None
+        code = str(payload.get("code") or "protocol_error")
+        message = str(payload.get("message") or "upstream frame rejected")
+        if pending.ack_future is not None and not pending.ack_future.done():
+            pending.ack_future.set_exception(
+                RuntimeError(f"{code}: {message} ({awaiting})")
+            )
+        self._events.append(
+            {"event": "rejected", "type": awaiting, "code": code}
+        )
+        return awaiting
 
     def _ack_heartbeat_frame(self, payload: Mapping[str, object]) -> None:
         ack_type = payload.get("message_type")

@@ -340,6 +340,7 @@
         "credentialsDeleted": "credentials removed from IM",
         "deleteSaved": "Deletion saved; waiting for the node to stop",
         "deleteReload": "This state remains after page reload",
+        "retryWaitingForNode": "Waiting for the node to return before continuing deletion",
         "deleteUnknownFailure": "The node could not stop the old connection"
       }
     },
