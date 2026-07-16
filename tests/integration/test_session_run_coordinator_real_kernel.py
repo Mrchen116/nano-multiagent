@@ -1,0 +1,138 @@
+"""Real Kernel race coverage for Gateway run admission ownership."""
+
+from __future__ import annotations
+
+import asyncio
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from agent.core.llm.interfaces import LLMMessage
+from agent.sdk import LLMConfig, PermissionDecision, build_kernel
+from personal_assistant.config.local_store import AgentWorkspaceConfig
+from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
+from personal_assistant.gateway.channel_registry import ChannelRegistry
+from personal_assistant.gateway.group_context_store import GroupContextStore
+from personal_assistant.gateway.inbound_models import InboundRunRequest
+from personal_assistant.gateway.outbound_router import OutboundRouter
+from personal_assistant.gateway.session_binder import GatewaySessionBinder
+from personal_assistant.gateway.session_keys import (
+    SessionBindingStore,
+    build_session_key,
+)
+from personal_assistant.gateway.session_run_coordinator import SessionRunCoordinator
+
+from tests.unit.personal_assistant._pipeline_helpers import _FakeChannel
+from tests.unit.personal_assistant._session_run_coordinator_helpers import inbound
+
+
+async def _allow_all(
+    _tool: str, _input: Any, _context: Any
+) -> PermissionDecision:
+    return PermissionDecision(behavior="allow")
+
+
+class _CountingClient:
+    def __init__(self) -> None:
+        self.requests: list[Any] = []
+
+    async def generate(self, request: Any):
+        self.requests.append(request)
+        yield LLMMessage(
+            role="assistant",
+            content=f"reply-{len(self.requests)}",
+            finish_reason="stop",
+        )
+
+
+def _request(message, catalog: LiveAgentCatalog) -> InboundRunRequest:
+    agent = catalog.require("agent-a")
+    return InboundRunRequest(
+        message=message,
+        agent=agent,
+        session_key=build_session_key(message, agent_id=agent.agent_id),
+        sender_label="Alice",
+    )
+
+
+@pytest.mark.asyncio
+async def test_terminal_observer_window_creates_one_fallback_run(
+    tmp_path: Path,
+) -> None:
+    """Kernel-terminal/Gateway-active overlap must not create an orphan run."""
+
+    workspace = tmp_path / "agent-a"
+    workspace.mkdir()
+    client = _CountingClient()
+    kernel = build_kernel(
+        llm=LLMConfig(
+            provider="openai_compat",
+            model="test-model",
+            base_url="http://127.0.0.1:1",
+        ),
+        can_use_tool=_allow_all,
+        workspace_config_dirname=".nanoassistant",
+        repo_root=tmp_path,
+        _llm_client_override=client,
+    )
+    terminal_seen = asyncio.Event()
+    release_terminal = asyncio.Event()
+
+    async def _observer(event: dict[str, object]) -> None:
+        if event.get("event") == "run_status" and not terminal_seen.is_set():
+            terminal_seen.set()
+            await release_terminal.wait()
+
+    catalog = LiveAgentCatalog(
+        (AgentWorkspaceConfig(agent_id="agent-a", workspace_root=workspace),)
+    )
+    binder = GatewaySessionBinder(
+        catalog=catalog,
+        repository=SessionBindingStore(),
+        kernel=kernel,
+    )
+    coordinator = SessionRunCoordinator(
+        kernel=kernel,
+        session_binder=binder,
+        outbound_router=OutboundRouter(
+            ChannelRegistry((_FakeChannel("web_relay"),))
+        ),
+        group_context_store=GroupContextStore(tmp_path / "group.sqlite3"),
+        kernel_event_observer=_observer,
+    )
+    try:
+        first = asyncio.create_task(
+            coordinator.dispatch(
+                _request(inbound(chat_id="chat-a", text="first"), catalog)
+            )
+        )
+        await asyncio.wait_for(terminal_seen.wait(), timeout=2)
+        first_run_id = next(iter(kernel._c.runs_registry._runs))  # noqa: SLF001
+        while kernel.get_run(first_run_id).status not in {
+            "completed",
+            "failed",
+            "cancelled",
+        }:
+            await asyncio.sleep(0)
+        second = asyncio.create_task(
+            coordinator.dispatch(
+                _request(inbound(chat_id="chat-a", text="second"), catalog)
+            )
+        )
+        await asyncio.sleep(0)
+        release_terminal.set()
+
+        first_result, second_result = await asyncio.wait_for(
+            asyncio.gather(first, second), timeout=3
+        )
+
+        assert first_result.run_id != second_result.run_id
+        assert len(client.requests) == 2
+        second_context = " ".join(
+            str(message.content) for message in client.requests[-1].messages
+        )
+        assert second_context.count("second") == 1
+    finally:
+        release_terminal.set()
+        await kernel.aclose()

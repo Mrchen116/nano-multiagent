@@ -991,6 +991,56 @@ async def test_submit_steer_active_run_injects_not_new_run(tmp_path: Path) -> No
         kernel.close()
 
 
+async def test_try_steer_without_active_run_is_inject_only(tmp_path: Path) -> None:
+    """A rejected public steer attempt must never create a fallback run."""
+
+    kernel = _build_kernel(tmp_path)
+    try:
+        session = await kernel.create_session(workspace_root=tmp_path)
+        runs_before = set(kernel._c.runs_registry._runs)  # noqa: SLF001
+
+        result = kernel.try_steer(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "late steer"}],
+        )
+
+        assert result is None
+        assert set(kernel._c.runs_registry._runs) == runs_before  # noqa: SLF001
+    finally:
+        kernel.close()
+
+
+async def test_try_steer_active_run_reuses_existing_run(tmp_path: Path) -> None:
+    """The public inject-only seam returns the active run when admission wins."""
+
+    import threading
+
+    gate = threading.Event()
+    kernel = _build_kernel(tmp_path, _llm_client_override=_ThreadGatedClient(gate))
+    try:
+        session = await kernel.create_session(workspace_root=tmp_path)
+        active = kernel.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "long task"}],
+            workspace_root=tmp_path,
+        )
+        await _wait_for_run_status(kernel, active.run_id, "running")
+        runs_before = set(kernel._c.runs_registry._runs)  # noqa: SLF001
+
+        steered = kernel.try_steer(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "use the new constraint"}],
+        )
+
+        assert steered is not None
+        assert steered.injected is True
+        assert steered.run_id == active.run_id
+        assert set(kernel._c.runs_registry._runs) == runs_before  # noqa: SLF001
+    finally:
+        gate.set()
+        kernel.close()
+
+
 async def test_submit_steer_injects_render_user_text_content(tmp_path: Path) -> None:
     """Injected content is built via the same parts→text rendering submit uses:
     image parts collapse to the placeholder, text is preserved (决策2)."""

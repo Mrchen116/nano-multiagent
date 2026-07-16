@@ -91,6 +91,44 @@ async def test_fallback_serializes_same_session_while_other_session_runs(
 
 
 @pytest.mark.asyncio
+async def test_fallback_uses_inject_only_sdk_before_single_normal_submit(
+    tmp_path: Path,
+) -> None:
+    """A lost steer owns no run; FIFO creates exactly one fallback after terminal."""
+
+    kernel, catalog, binder, router, group_store = build_dependencies(tmp_path)
+    coordinator = SessionRunCoordinator(
+        kernel=kernel,
+        session_binder=binder,
+        outbound_router=router,
+        group_context_store=group_store,
+    )
+    first = asyncio.create_task(
+        coordinator.dispatch(_request(inbound(chat_id="chat-a", text="one"), catalog))
+    )
+    await kernel.wait_stream("run-1")
+    second = asyncio.create_task(
+        coordinator.dispatch(_request(inbound(chat_id="chat-a", text="two"), catalog))
+    )
+
+    await kernel.wait_try_steer_count(1)
+    assert [call for call in kernel.submit_calls if not call["steer"]] == [
+        kernel.submit_calls[0]
+    ]
+    kernel.finish("run-1", text="one done")
+    await first
+    await kernel.wait_stream("run-2")
+    kernel.finish("run-2", text="two done")
+
+    result = await second
+    assert result.run_id == "run-2"
+    assert [call["run_id"] for call in kernel.submit_calls if not call["steer"]] == [
+        "run-1",
+        "run-2",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_steer_race_reuses_group_and_image_parts_exactly_once(
     tmp_path: Path,
 ) -> None:

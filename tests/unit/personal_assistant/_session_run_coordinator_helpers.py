@@ -26,6 +26,7 @@ class ControlledKernel:
     def __init__(self) -> None:
         self.create_calls: list[str] = []
         self.submit_calls: list[dict[str, Any]] = []
+        self.try_steer_calls: list[dict[str, Any]] = []
         self.operations: list[tuple[str, str]] = []
         self.append_calls: list[dict[str, Any]] = []
         self.interrupt_calls: list[str] = []
@@ -38,6 +39,30 @@ class ControlledKernel:
         self._events: dict[str, asyncio.Queue[dict[str, Any]]] = {}
         self._stream_started: dict[str, asyncio.Event] = {}
         self._submit_changed = asyncio.Event()
+
+    def try_steer(
+        self,
+        *,
+        session_id: str,
+        parts: list[dict[str, Any]],
+        **_kwargs: Any,
+    ) -> SimpleNamespace | None:
+        """Mirror the public inject-only SDK seam without creating a run."""
+
+        run_id = self._latest_run_by_session.get(session_id, "")
+        call = {
+            "session_id": session_id,
+            "parts": parts,
+            "steer": True,
+            "run_id": run_id,
+        }
+        self.operations.append(("steer", run_id))
+        self.try_steer_calls.append(call)
+        self.submit_calls.append(call)
+        self._submit_changed.set()
+        if not self.inject_steer or not run_id:
+            return None
+        return SimpleNamespace(run_id=run_id, injected=True)
 
     async def create_session(
         self, *, workspace_root: Path, **_kwargs: Any
@@ -133,6 +158,15 @@ class ControlledKernel:
         while len(self.submit_calls) < count:
             self._submit_changed.clear()
             if len(self.submit_calls) >= count:
+                break
+            await asyncio.wait_for(self._submit_changed.wait(), timeout=1)
+
+    async def wait_try_steer_count(self, count: int) -> None:
+        """Wait until the inject-only Kernel boundary has observed ``count`` calls."""
+
+        while len(self.try_steer_calls) < count:
+            self._submit_changed.clear()
+            if len(self.try_steer_calls) >= count:
                 break
             await asyncio.wait_for(self._submit_changed.wait(), timeout=1)
 
