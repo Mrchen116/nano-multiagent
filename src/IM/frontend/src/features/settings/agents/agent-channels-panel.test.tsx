@@ -28,6 +28,7 @@ function channel(overrides: Partial<AgentChannel> = {}): AgentChannel {
     secret_configured: true,
     channel_revision: 7,
     sync_state: "applied",
+    apply_error: null,
     observed: {
       observed_revision: 7,
       connection_state: "connected",
@@ -280,14 +281,14 @@ describe("AgentChannelsPanel", () => {
             diagnostics_state: diagnosticsState,
             status_message: connectionState === "failed" ? "旧连接已中断" : null,
             status_updated_at: "2026-07-15T06:35:00Z",
-            status_stale: true,
+            status_stale: connectionState !== "connected",
           },
         }),
       ]);
 
       renderPanel("offline");
 
-      expect(await screen.findByText("节点离线")).toBeInTheDocument();
+      expect(await screen.findAllByText("节点离线")).not.toHaveLength(0);
       expect(screen.getByText(new RegExp(`最后已知状态.*${expectedLastState}`))).toBeInTheDocument();
       expect(screen.queryByText("当前配置已应用")).toBeNull();
       expect(screen.getByText(/最后状态更新于/)).toBeInTheDocument();
@@ -328,7 +329,7 @@ describe("AgentChannelsPanel", () => {
 
     renderPanel();
 
-    expect(await screen.findByText("连接失败")).toBeInTheDocument();
+    expect(await screen.findAllByText("连接失败")).not.toHaveLength(0);
     expect(screen.getByText("本地通道缓存写入失败，请稍后重试应用")).toBeInTheDocument();
     expect(screen.queryByText("当前配置已应用")).toBeNull();
   });
