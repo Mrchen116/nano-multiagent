@@ -24,3 +24,20 @@
 - Rollback: 回退 C2 `8a55cd798` 后恢复 Round 4 已确认缺口；C1 继续稳定复现。
 - Commits: C1=`717f0e4b5`, C2=`8a55cd798`, C3=本提交。
 - Next: R2 mandatory cron terminal consumer。
+
+## 2026-07-16 — R2 completed
+
+- Context: `CronExecutionService` 把 Kernel stream consumption 和可选 IM observer 合成 nullable `stream_delivery`；当 observer 不可用时直接把 submitted run 写成 `completed/no_delivery_path`，真实 failed/cancelled/missing-terminal 永远无人消费。
+- Decision: runner-based service 构造期强制要求 `CronTerminalConsumerPort`；concrete `CronRunTerminalConsumer` 始终消费 shared stream，只把 observer 作为可选 adapter；composition root 无条件构造 terminal consumer。仅 typed `completed` 写 awareness，其他终态原样持久化，stream/missing-terminal 失败写 `stream_failed`。
+- Rationale: Kernel run 的生命周期属于 cron execution owner，IM 是否在线或 owner id 是否可用只影响投递，不能改变 run 的事实终态。
+- Evidence:
+  - Tests: C1 `5c25fb9bb` 为 5 red；C2 `b051f7c5b` 后 owner/composition/shutdown/shared-stream 聚焦 `38 passed`。全仓 Ruff 通过；非 e2e `3426 passed, 1 skipped, 20 deselected`。
+  - Entry: `CronExecutionService.enqueue()` 公共入口在 no-observer 配置下分别从 accepted/running 收敛到 completed/failed/cancelled；missing terminal 收敛 failed，`runs_store.list_by_job()` 返回真实 terminal，只有 completed 调用 awareness。
+  - Frontend State Matrix: N/A（非前端）。
+  - Browser QA: N/A（非前端）。
+  - E2E/Regression: 永久回归位于 `test_cron_execution_owner_chain.py`；真 Kernel + fixture + CronTool/history 证据在 milestone verification 补齐。
+  - Visual/Interaction: N/A（非前端）。
+  - Prototype Comparison: N/A（无原型）。
+- Rollback: 回退 C2 `b051f7c5b` 将恢复 no-delivery 伪 completed；C1 会重新阻断。
+- Commits: C1=`5c25fb9bb`, C2=`b051f7c5b`, C3=本提交。
+- Next: R3 incremental cron history owner。

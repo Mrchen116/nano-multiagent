@@ -31,11 +31,11 @@
 - [x] C2 实现：由 scheduler 传递 baseline，consumer 分流 typed outcome。
 - [x] C3 文档：记录用户可观察失败与 transcript 证据。
 
-### R2 — Mandatory cron terminal consumer
+### R2 — Mandatory cron terminal consumer (DONE)
 
 - [x] C1 红测：锁定 no-delivery failed/cancelled/missing-terminal 不得 completed。
-- [ ] C2 实现：解耦 mandatory consume 与 optional delivery/observer。
-- [ ] C3 文档：记录真实 history/awareness 证据。
+- [x] C2 实现：解耦 mandatory consume 与 optional delivery/observer。
+- [x] C3 文档：记录真实 history/awareness 证据。
 
 ### R3 — Incremental cron history owner
 
