@@ -2912,12 +2912,16 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         _log.warning(
             "failed to install built-in personal assistant skills", exc_info=True
         )
-    config, feishu_skill_config_changed = ensure_feishu_doc_skill_for_feishu_agents(
-        config
-    )
-    if feishu_skill_config_changed:
-        save_local_config(config, config.source_path)
     config_owner = RuntimeConfigOwner(config)
+    _, feishu_skill_config_changed = ensure_feishu_doc_skill_for_feishu_agents(config)
+    if feishu_skill_config_changed:
+        # Startup may still hold legacy channel credentials. Keep every bootstrap
+        # mutation on the sensitive writer until manifest migration removes them,
+        # otherwise the ordinary writer can copy the legacy secret into backups.
+        config = config_owner.persist(
+            lambda current: ensure_feishu_doc_skill_for_feishu_agents(current)[0],
+            save_config=save_sensitive_local_config,
+        )
 
     # CronServiceRegistry holds the per-agent CronExecutionService map + lifecycle
     # (set_gateway_loop / drain_all / register).  refactor-406 决策 9: the cron *tool*
