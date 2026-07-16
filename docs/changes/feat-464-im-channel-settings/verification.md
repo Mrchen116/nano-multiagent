@@ -262,3 +262,122 @@ Validated head: `46096e3ec5a4875974345c6a5d82d5ebe8fba6e2`
 - 无。
 
 2 critical issue(s) found. Fix before PR.
+
+# Round 3
+
+## Summary
+
+Mode: full
+
+Delta range: `dffe4d941d04ce8ad3bfa01e9859e4921a6e9186..033a3839c6de07b03064c78cb055cc995e277492`
+
+Focus issues: M5 的统一上行帧 guard / bind 后复核、运行时配置 owner、畸形 manifest fail-closed、cache commit 投影与重试、offline stale UI、incarnation outbox 有界性，以及 Round 2 两个 CRITICAL 的关闭情况。
+
+requires_full_verification: true
+
+Validated head: `033a3839c6de07b03064c78cb055cc995e277492`
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 36/39 个 milestone 退出标准被完整证实（文档勾选为 39/39）；M4-E4 的“迁移不留明文 backup”、聚合门禁 M4-E7/M5-E7 未闭合 |
+| Correctness | 原始 20/20 个用户 spec scenario 的主体实现仍完整；M5 六类边界修复本身均可复验，但 legacy startup 的一个真实组合路径仍把 secret 留在 backup |
+| Coherence | 8/9 个编号关键决策完整遵守；节点信封/安全迁移决策因 composition root 在迁移前调用普通全量 writer 而只有部分遵守 |
+
+结论：**FAIL**。1 个 CRITICAL；修复后必须再次 full verification，不可进入 PR。
+
+## Round 2 问题复核
+
+| Round 2 问题 | Round 3 结果 | 证据 |
+|---|---|---|
+| CRITICAL-1：Gateway bearer identity 未约束所有节点上行帧 | closed | 所有非 register 帧在 dispatcher 统一进入 socket-rooted guard：`src/IM/ws/gateway_handler.py:88-112`、`:232-261`、`:1165-1208`；跨 owner heartbeat/result 和 bind 后驱逐回归见 `tests/im_service/integration/test_gateway_auth_boundary.py:123-270` |
+| CRITICAL-2：畸形 manifest 被截断后执行不完整 snapshot | closed | 完整 payload 先严格 prepare，再统一解封，最后才调用 manager：`src/personal_assistant/gateway/channel_manifest_apply.py:151-263`；missing/non-array/non-mapping/incomplete/opener 回归见 `tests/unit/personal_assistant/test_channel_credential_recovery.py:255-354` |
+
+## Completeness
+
+- Tasks：M1 8/8、M2 8/8、M3 8/8 保持 covered。M4 为 5/7：E4 的明文 backup 保证未闭合，因此聚合 E7 也未闭合。M5 为 7/8：E1-E6 均有实现与永久回归，E7 的 secret scan / Round 3 full gate 因本轮 CRITICAL 不成立。
+- Spec：6 个 Requirement、20 个 Scenario 的正常用户路径均有主体实现；不展示 Web IM、多 provider 前端模型、在线/离线保存、权限受限降级、生命周期和跨 owner bind 行为均未在 M5 delta 中回退。
+- Design/delta-spec：desired/observed、完整 manifest、credential envelope、离线 cache/status、provider diagnostics 和 owner 隔离均有代码实现；`design.md:705-706` 对 plaintext backup 与 full gate 的硬保证仍有一个组合入口未覆盖。
+- Prototype / Reference：既有 11 个 must-match reference 均保留 durable evidence；M5 另有真 IM/Gateway 的 desktop + 375px offline stale 截图与 README 对账，在线 current、pending/failed 优先级和移动端结构符合投影。
+
+## Correctness
+
+| Requirement / Scenario | Round 3 证据 | 状态 |
+|---|---|---|
+| 通用通道页、空态、provider 选择、不展示 Web IM | provider registry + `AgentChannelsPanel`；全量前端 625 tests | covered |
+| 飞书向导、开放平台链接、必填校验、secret keep/replace | `channel-provider-registry.ts` + panel/API tests | covered |
+| 在线保存即连接、权限不足可降级且列出缺项、unknown 不伪造 missing | manager/diagnostics + provider/frontend tests | covered |
+| 凭据/Bot/长连接失败的稳定原因，暂断恢复与人工重连 | preflight/lifecycle tests + M4 durable evidence | covered |
+| 离线 desired mutation、重连完整收敛、启停/删除/历史保留 | channel control/reconcile/removal tests + evidence | covered |
+| 跨 owner bind 拒绝、数据边界不变、同 owner 幂等 | `test_bind_atomicity.py` + M5 bind 后 socket/key 驱逐 | covered |
+| 所有 node-scoped 上行帧统一身份边界 | dispatcher guard 从当前 websocket 反查唯一 connection，并核对 token/connection/durable owner 与 payload node | covered |
+| 完整 manifest 任一成员失败原子拒绝 | structure/generation/key/envelope/opener 全部在 `manager.reconcile()` 前验证 | covered |
+| cache commit 失败不显示 current success，跨 reload/重启保留并有界重试 | manifest head + apply error 投影、retry manifest、同 revision 退避回归 | covered |
+| 节点离线时 observed 只显示最后已知状态 | live node offline 优先于 cached observed，pending/apply failed 优先于 stale；desktop/mobile evidence | covered |
+| 新 incarnation 替换旧 outbox 且重启后有界 | 40 次 incarnation、迟到 ACK、legacy retired 清理回归 | covered |
+| legacy secret 迁移/导出不留明文 backup | migration writer 单独调用时安全；但 Feishu skill 自动激活会在 migration 前调用普通 writer 并生成含 secret backup | **critical** |
+
+### M5 边界复验
+
+| M5 保证 | 实现/永久回归 | 本轮结果 |
+|---|---|---|
+| all upstream frame guard + bind postcheck | `gateway_handler.py:232-261`、`:371-420`、`:1165-1208`；auth boundary tests | covered |
+| migration 后所有长期 writer 共用脱敏 config owner | `main.py:2920` 及 agent sync/token/binder/migration owner；`test_channel_legacy_migration.py:188-267` | covered；但 migration **前** activation writer 有新 CRITICAL |
+| malformed manifest fail-closed | `channel_manifest_apply.py:151-263`；credential recovery malformed/open failure tests | covered |
+| cache commit projection/reload/retry/restart | `channel_control_store.py:1328-1401`、`channel_manifest_store.py:114-227`、`im_connection.py:519-587` | covered |
+| offline stale UI + pending/failed precedence | `agent-channels-panel.tsx:168-267`；panel tests `:269-344`；M5 browser evidence | covered |
+| bounded incarnation outbox | `channel_manifest_store.py:331-421`、`:515-521`；status outbox tests `:90-185` | covered |
+
+### 测试与门禁结果
+
+- M5 聚焦：31 passed（auth boundary、manifest validation、cache failure projection/recovery/retry、stale UI 相关后端、status outbox、测试大小 contract）。
+- 完整后端：`pytest -m 'not e2e' -q` → 3465 passed、1 skipped、20 deselected。
+- 完整前端：67 files / 625 tests passed；`npm run build` → 444 modules transformed，成功。验证 worktree 临时复用主仓 `node_modules`，随后移除 symlink。
+- Ruff：`ruff check src tests` → PASS。
+- `git diff --check origin/main...HEAD` → PASS；完整后端已包含 test naming/size contract。
+- 独立 secret 组合复验：legacy Feishu `appSecret` + 显式 agent skills 缺少 `feishu-doc` 时，自动激活返回 changed；普通 save 产生 1 个 backup，main 与 backup 均仍含 marker secret。该复验只写 `TemporaryDirectory`，未修改 source 或外部状态。
+
+## Coherence
+
+| design 决策 | 遵守? | 代码证据 |
+|---|---|---|
+| 1. 节点公钥信封，IM/cache 不持久明文，legacy 安全迁移 | **部分** | 信封、0600 cache、secure migration 已实现；但 `main.py:2915-2919` 在迁移前调用 ordinary writer，后者序列化 `appSecret` 并 backup：`local_store.py:637-647`、`:715-718`（CRITICAL-1） |
+| 2. desired/actual 分离、revision/CAS、独立短事务 | 是 | `channel_control_store.py` mutation/result/projection |
+| 3. IM 权威完整 manifest + Gateway 密文 cache/outbox | 是 | strict applier、retry manifest、result/status outbox |
+| 4. ChannelManager 唯一动态 lifecycle owner | 是 | reconcile/start/stop/retry 都经 `channel_manager.py` |
+| 5. 每 Bot 可终止 worker、三 lane、因果状态、有界 restart | 是 | worker + manager lifecycle failures suite |
+| 6. connection/diagnostics 分层、provider-owned probe | 是 | preflight/client/diagnostics + provider registry |
+| 7. 通用 REST/resource + 前端 provider registry | 是 | agent channel resource + descriptor dispatch |
+| 8. bootstrap、owner 隔离、legacy export | 是 | bind/store/export 主路径；仅安全迁移 writer 顺序计入决策 1 的 partial |
+| 9. 纵向 milestone 交付 | 是 | M1-M5 docs/tests/evidence 完整，验收 gate 因 CRITICAL 保持 fail |
+
+### Architecture coherence
+
+- `IM` 未 import `agent`；`personal_assistant` 产品边界仍仅经 `agent.sdk`，完整架构 contract 通过。
+- M5 把 Gateway WS tenant 校验提升到 dispatcher 公共入口，没有继续在各业务 handler 复制 owner 规则；bind 初始化再次查 durable owner，边界方向正确。
+- manifest prepare/reconcile、retry cache/applied projection 与 status outbox 仍各有单一 owner，未引入第二套生命周期或状态真相源。
+- **偏离：**composition root 在建立共享 `RuntimeConfigOwner` 和 legacy bootstrap migration 前先执行一个普通全量 YAML writer；这绕开了本 unit 已建立的 secret-bearing config 安全写边界。
+
+## Prototype / Reference Contract
+
+| Reference contract | M5 implementation / evidence | Status |
+|---|---|---|
+| `#channel-connected/#channel-limited` | live node online 保持 current；停止 Gateway 后同卡片降级 last-known；desktop screenshot | covered |
+| `#channel-pending/#channel-failed` | pending desired 与 durable apply failed 均优先于 stale snapshot；Vitest + evidence | covered |
+| `#channels-mobile` | 375×812 单列卡片、offline banner、last-known 时间和 actions 可见 | covered |
+| M1-M4 其余 must-match reference | 全量 frontend tests/build 与既有 durable evidence 未回退 | covered |
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+1. **legacy 飞书配置在 bootstrap migration 前可能先被普通配置写入器备份，迁移完成后磁盘仍永久保留明文 `appSecret`。** Gateway composition root 先调用 `ensure_feishu_doc_skill_for_feishu_agents()`；当 legacy `feishu:<agent>` 已启用、该 agent 使用非空显式 skills 且缺少 `feishu-doc` 时，它返回 changed，`build_runtime()` 随即调用 `save_local_config(config, config.source_path)`（`src/personal_assistant/main.py:2915-2919`）。此时 `config` 仍是 legacy 形态，因为创建共享 owner 和 channel bootstrap migration 都在后面（`:2920`、`:3373-3386`）。普通 writer 会原样序列化 channel settings 中的 `appSecret`（`src/personal_assistant/config/local_store.py:637-647`），并在覆盖默认主配置前把旧文件复制到 `backups/config.*.yaml.bak`（`:510-555`、`:715-718`）。后续 secure migration 只替换主文件且按设计不触碰既有 backup，所以这个副本永久留密。现有安全测试只直接调用 migration writer（`tests/unit/personal_assistant/test_sensitive_local_config.py:48-68`），M5 writer 测试也从“已经迁移”的 owner 开始，没有覆盖该 startup 顺序。本轮用临时默认 config 独立复现：`changed=True`、`backup_count=1`、`main_has_plaintext=True`、`backup_has_plaintext=True`。这直接违反 M4-E4、M4-E7 与 M5-E7。**修复：**在任何可能带 legacy secret 的配置上，禁止 migration 前调用 ordinary writer；可把 skill activation 也纳入共享 owner/安全 writer，或延迟持久化直到 bootstrap migration 同一原子变换中完成。补一个 composition-root 回归：legacy secret + 缺 `feishu-doc` 的显式 skills，执行真实 startup/bootstrap 后递归扫描整个 config 目录，断言主文件只含 `credentialRef`、无任何含 secret backup/temp、mode 为 `0600`，同时 skills 修改仍持久化。
+
+### WARNING（应该修）
+
+- 无。
+
+### SUGGESTION（可以修）
+
+- 无。
+
+1 critical issue(s) found. Fix before PR.
