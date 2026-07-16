@@ -92,6 +92,7 @@ Prototype / Reference Contract：
 
 - 步骤：区分 durable apply failure 与 observed runtime failure，offline observed failed/limited/connected 都降级 last-known；offline Retry 映射为 waiting-for-node notice，资源成功消失时自动清理 notice/alert。
 - 验证：pending/apply failed precedence、offline failed/limited/connected、raw 409 屏蔽、manual/automatic success 清提示与空态无 alert 的 Vitest。
+- 状态：完成。UI 仅把非空 `apply_error` 视为 durable failure，offline runtime failure 降级 last-known；removal Retry 离线时本地呈现等待节点，竞态 409 同样映射，资源消失后 notice 不再渲染。
 
 ### R6 — 浏览器复验与全量门禁
 

@@ -65,3 +65,19 @@
   - Prototype Comparison: Reconnect command 不改变 desired revision，符合 `prototype.html#channel-reconnecting`。
 - Rollback: 回退 R4 C1/C2/C3 commits；会恢复首次失败不可见和 connected Reconnect 500。
 - Commits: C1=`14262be7d`，C2=`5e14313f7`。
+
+## R5 — Offline last-known 与 removal retry 产品反馈
+
+- Context: frontend 把所有 `sync_state=failed` 都放在 offline stale 判断之前，导致 runtime observed failure 在节点离线后仍冒充当前失败；removal Retry 无离线产品分支，直接把 HTTP 409/raw code 放进全局 error。
+- Decision: 用非空 `apply_error` 区分 durable control-plane failure，pending/apply failure 保持高优先级，其余 observed 状态在 offline 时统一 last-known；offline Retry 不发 live command并显示 localized waiting notice，online/offline 竞态 code 也映射到同一反馈，notice 仅在对应 removal receipt 仍存在时展示。
+- Rationale: desired apply failure 是当前持久化事实，runtime failure 是节点最后一次上报；live-only retry 在离线时不是请求失败，而是等待节点恢复的可解释状态。
+- Evidence:
+  - Tests: C1 offline runtime failed 仍呈现 Connection failed，removal Retry 调用 API；C2 后 panel Vitest `13 passed`。
+  - Entry: offline connected/limited/failed 均显示最后已知状态和最后更新时间；pending 与 durable apply error 仍分别显示等待应用/具体失败。
+  - Frontend State Matrix: default、empty、error、submitting、permission-limited、nullable observed、offline stale 均由同一 panel suite覆盖。
+  - Browser QA: 延至 R6。
+  - E2E/Regression: offline failed-removal 点击 Retry 不调用 API、不显示 `channel_node_offline`；query cache 收敛为空后 waiting notice 和 alert 同时消失。
+  - Visual/Interaction: waiting notice 使用现有 amber offline 语义，未引入版本或 Web IM 文案。
+  - Prototype Comparison: 对齐 `#channel-failed` 的 last-known 层级和 `#channel-deleting` 的失败可重试/成功无残影。
+- Rollback: 回退 R5 C1/C2/C3 commits；会恢复 offline failure 冒充实时状态与 raw retry error。
+- Commits: C1=`a21ee1a35`，C2=`76c0807ac`。
