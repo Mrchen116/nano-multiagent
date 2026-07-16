@@ -266,7 +266,13 @@ def test_disconnected_runtime_replacements_coalesce_unsent_statuses(
         await manager.connect_once()
         await manager._listen_once()  # noqa: SLF001
         await manager._listen_once()  # noqa: SLF001
-        assert manager._pending_frames[0].payload["request_id"] == "status-39"  # noqa: SLF001
+        sent_statuses = [
+            json.loads(frame)["payload"]
+            for frame in socket.sent
+            if json.loads(frame)["type"] == "channel.status"
+        ]
+        assert [item["request_id"] for item in sent_statuses] == ["status-39"]
+        assert resolved == []
         await manager._listen_once()  # noqa: SLF001
 
     asyncio.run(exercise())

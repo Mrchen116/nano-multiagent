@@ -11,7 +11,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Mapping, Protocol
+from typing import Any, Literal, Mapping, Protocol
 from urllib.parse import urlparse
 
 from personal_assistant._utils import _require_text
@@ -34,14 +34,21 @@ _PA_SHARED_SKILL_ROOTS: tuple[Path, ...] = (
 
 @dataclass(slots=True)
 class PendingFrame:
-    """Track one queued upstream frame plus its optional ack waiter."""
+    """Track one unsent upstream frame plus its optional ack waiter."""
 
     message_type: str
     payload: dict[str, object]
-    sent: bool = False
     ack_future: asyncio.Future[dict[str, object]] | None = field(
         default=None, repr=False
     )
+
+
+@dataclass(slots=True)
+class BusinessFrameOwner:
+    """Own the one business frame currently crossing or awaiting the wire."""
+
+    frame: PendingFrame
+    phase: Literal["sending", "awaiting_result"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -281,6 +288,7 @@ class IMConnectionManager:
         self._reconnect_delay = config.reconnect_initial_seconds
         self._events: list[dict[str, object]] = []
         self._pending_frames: deque[PendingFrame] = deque()
+        self._business_frame_owner: BusinessFrameOwner | None = None
         self._awaiting_ack_type: str | None = None
         self._flush_lock = asyncio.Lock()
         self._heartbeat_task: asyncio.Task[None] | None = None
@@ -392,7 +400,11 @@ class IMConnectionManager:
 
     def has_pending_request(self, request_id: str) -> bool:
         """Return whether one correlated request is already queued or in flight."""
-        return any(
+        owner = self._business_frame_owner
+        return (
+            owner is not None
+            and owner.frame.payload.get("request_id") == request_id
+        ) or any(
             frame.payload.get("request_id") == request_id
             for frame in self._pending_frames
         )
@@ -413,11 +425,10 @@ class IMConnectionManager:
         return await ack_future
 
     def _queue_pending_frame(self, pending: PendingFrame) -> None:
-        """Append a frame, superseding only unsent stale channel statuses.
+        """Append a frame, coalescing only statuses still owned by the pending queue.
 
-        A successfully written head remains eligible for replay after disconnect because
-        IM may have accepted it without returning the result. Runtime replacement may
-        compact only later unsent status frames; unrelated protocol FIFO is untouched.
+        The wire owner is transferred out of this queue before ``websocket.send`` may
+        yield.  Coalescing therefore cannot delete a frame whose send has begun.
         """
         if pending.message_type != "channel.status":
             self._pending_frames.append(pending)
@@ -435,7 +446,7 @@ class IMConnectionManager:
                 queued.message_type == "channel.status"
                 and queued.payload.get("channel_id") == channel_id
             )
-            if not same_channel or queued.sent or queued.ack_future is not None:
+            if not same_channel or queued.ack_future is not None:
                 retained.append(queued)
                 continue
             queued_incarnation = queued.payload.get("runtime_incarnation")
@@ -1122,9 +1133,11 @@ class IMConnectionManager:
 
     async def _flush_pending_frames(self, *, raise_on_disconnect: bool = False) -> None:
         async with self._flush_lock:
-            if self._awaiting_ack_type is not None or not self._pending_frames:
+            if self._business_frame_owner is not None or not self._pending_frames:
                 return
-            pending_frame = self._pending_frames[0]
+            pending_frame = self._pending_frames.popleft()
+            owner = BusinessFrameOwner(frame=pending_frame, phase="sending")
+            self._business_frame_owner = owner
             try:
                 await self._send_frame(
                     pending_frame.message_type, pending_frame.payload
@@ -1134,7 +1147,9 @@ class IMConnectionManager:
                 if raise_on_disconnect:
                     raise
                 return
-            pending_frame.sent = True
+            if self._business_frame_owner is not owner:
+                raise RuntimeError("business frame lost wire ownership during send")
+            owner.phase = "awaiting_result"
             self._awaiting_ack_type = pending_frame.message_type
 
     async def _send_frame(
@@ -1168,13 +1183,15 @@ class IMConnectionManager:
                 await heartbeat_task
 
     def _ack_pending_frame(self, payload: Mapping[str, object]) -> None:
-        awaiting = self._awaiting_ack_type
-        if awaiting is None:
+        owner = self._business_frame_owner
+        if owner is None or owner.phase != "awaiting_result":
             return
+        awaiting = owner.frame.message_type
         ack_type = payload.get("message_type")
         if not isinstance(ack_type, str) or ack_type.strip() != awaiting:
             return
-        pending_frame = self._pending_frames.popleft()
+        pending_frame = owner.frame
+        self._business_frame_owner = None
         self._awaiting_ack_type = None
         if pending_frame.ack_future is not None and not pending_frame.ack_future.done():
             pending_frame.ack_future.set_result(dict(payload))
@@ -1189,16 +1206,21 @@ class IMConnectionManager:
             "channels.reconcile.result.ack": "channel.reconcile.result",
             "channels.bootstrap.result": "channels.bootstrap",
         }[message_type]
-        if self._awaiting_ack_type != source_type or not self._pending_frames:
+        owner = self._business_frame_owner
+        if (
+            owner is None
+            or owner.phase != "awaiting_result"
+            or owner.frame.message_type != source_type
+        ):
             return False
-        pending = self._pending_frames[0]
+        pending = owner.frame
         request_id = payload.get("request_id")
         if (
             not isinstance(request_id, str)
             or request_id != pending.payload.get("request_id")
         ):
             return False
-        self._pending_frames.popleft()
+        self._business_frame_owner = None
         self._awaiting_ack_type = None
         if pending.ack_future is not None and not pending.ack_future.done():
             pending.ack_future.set_result(dict(payload))
@@ -1219,10 +1241,12 @@ class IMConnectionManager:
         belongs to the current head even when an older server omits request metadata.
         Releasing it here preserves the connection and lets unrelated work continue.
         """
-        awaiting = self._awaiting_ack_type
-        if awaiting is None or not self._pending_frames:
+        owner = self._business_frame_owner
+        if owner is None or owner.phase != "awaiting_result":
             return None
-        pending = self._pending_frames.popleft()
+        pending = owner.frame
+        awaiting = pending.message_type
+        self._business_frame_owner = None
         self._awaiting_ack_type = None
         code = str(payload.get("code") or "protocol_error")
         message = str(payload.get("message") or "upstream frame rejected")
@@ -1309,10 +1333,12 @@ class IMConnectionManager:
 
     def _mark_disconnected(self, exc: Exception | None = None) -> None:
         had_connection = self._connected or self._websocket is not None
-        pending_frame = self._pending_frames[0] if self._pending_frames else None
+        owner = self._business_frame_owner
+        pending_frame = owner.frame if owner is not None else None
         heartbeat_ack_future = self._heartbeat_ack_future
         self._connected = False
         self._websocket = None
+        self._business_frame_owner = None
         self._awaiting_ack_type = None
         self._heartbeat_ack_future = None
         self._stop_heartbeat_loop()
@@ -1333,6 +1359,8 @@ class IMConnectionManager:
                 pending_frame.ack_future.set_exception(
                     RuntimeError("IM websocket disconnected before ack")
                 )
+        if pending_frame is not None:
+            self._pending_frames.appendleft(pending_frame)
         if had_connection:
             event: dict[str, object] = {"event": "disconnected"}
             if exc is not None:
