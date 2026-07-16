@@ -865,11 +865,10 @@ class IMConnectionManager:
             return
         if message_type == "error":
             # IM sends `type=error` when it rejects a PA-sent frame (e.g. malformed node.report
-            # with missing node_id, or a payload whose FK reference doesn't exist in the DB).
-            # Raising here would propagate into run_forever's `except Exception` → _mark_disconnected
-            # → reconnect loop, severing the connection on every bad frame. The right behaviour is to
-            # log the error and keep the connection alive so subsequent valid frames can still be
-            # delivered. The upstream frame that triggered the error was already sent; nothing to ack.
+            # with missing node_id, or a payload whose FK reference does not exist). It is the
+            # negative ack for the serialized matching frame: finish that frame's waiter, then
+            # keep the connection alive and flush later valid frames. An uncorrelated error is
+            # still recorded without guessing which independent request it belongs to.
             error_code = body.get("code")
             error_message = body.get("message")
             rejected_type = self._reject_pending_frame(body)
