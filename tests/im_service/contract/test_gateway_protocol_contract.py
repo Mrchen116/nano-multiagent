@@ -160,5 +160,37 @@ def test_gateway_websocket_rejects_unsupported_message_types(tmp_path: Path) -> 
 
     assert response == {
         "type": "error",
-        "payload": {"code": "unsupported_message_type", "message": "unknown.type"},
+        "payload": {
+            "code": "unsupported_message_type",
+            "message": "unknown.type",
+            "message_type": "unknown.type",
+        },
+    }
+
+
+def test_gateway_websocket_error_correlates_rejected_agent_message(
+    tmp_path: Path,
+) -> None:
+    """A connected Gateway must know which queued frame an IM error rejects."""
+
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        with client.websocket_connect("/im/ws/gateway") as websocket:
+            websocket.send_json(
+                {
+                    "type": "agent.message",
+                    "payload": {
+                        "from_session_id": "unknown-source",
+                        "to": "conversation:missing",
+                        "text": "not delivered",
+                    },
+                }
+            )
+            response = websocket.receive_json()
+
+    assert response["type"] == "error"
+    assert response["payload"] == {
+        "code": "invalid_agent_message",
+        "message": "username not found: agent:unknown-source",
+        "message_type": "agent.message",
     }
