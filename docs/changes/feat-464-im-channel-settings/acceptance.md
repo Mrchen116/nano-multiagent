@@ -445,3 +445,223 @@ transition 属 design 允许的适配；状态层级、操作和 responsive cont
 ## Side Findings
 
 - 无。
+
+---
+
+# Round 3 — 2026-07-16
+
+**Highest Required Action:** `fix-implementation`
+
+**Verdict:** `fail`
+
+本轮按 `revalidation_mode=full` 在产品实现基线
+`033a3839c6de07b03064c78cb055cc995e277492` 上重新接管完整真实栈，不继承 Round 1/2 的用户面结论。
+20 个必验 Scenario 均重新给出结论，11 组 prototype must-match 状态均完成 reference → 真实产品对照。
+本轮确认 3 个 major issue：手动重新连接返回 500；节点离线后 failed 状态未降级为 last-known；删除失败的
+`Retry apply` 在节点离线时暴露原始 409，且自动恢复后错误提示仍残留。因此本轮不通过。
+
+## 验收环境与证据口径
+
+- Worktree：`/Users/czj/Repos/nano-multiagent/.worktrees/unit-feat-464`。
+- 产品实现基线：`033a3839c6de07b03064c78cb055cc995e277492`；开始写本报告前仅快进合入
+  `50716a466` 的 `verification.md`，产品实现未变化。
+- 前端：从产品实现基线独立 production build，444 modules transformed；浏览器实际加载 bundle 与本地 build
+  SHA-256 一致，并命中 `Last known status`、`Retry apply`、`Current configuration applied` marker。
+- 真实栈：使用隔离 IM、worktree-local Gateway config、真实登录/HTTP/WebSocket/Gateway，以及用户现有飞书
+  测试应用；未修改飞书开放平台权限，未把 App ID、secret、token 或 bind token 写入报告或截图说明。
+- 浏览器：headed Chromium；desktop 与 `375×812` mobile 均实际操作。
+- deletion cache failure：使用 Runbook 允许、显式 gated 的
+  `scripts/fixtures/channel_cache_commit_failure.py`，只制造一次 removal cache commit failure；失败态、reload、
+  节点恢复与最终收敛继续走真实 IM/Gateway/frontend。
+- 权限受限态：当前真实应用权限完整，本轮没有为制造 limited 修改外部权限，也没有继承 Round 2 的持久化投影
+  结论；因此 limited 及其 group-message 缺权两个 Scenario 诚实记为 `inconclusive`。
+- Round 3 截图位于 `output/playwright/feat-464-acceptance-r3/`，按派发约束保持 ignored/untracked。
+
+## User Journeys Exercised
+
+### Journey 1 — 通用入口、飞书向导与安全编辑
+
+1. 无 channel 的 Agent 显示通用 External channels 空态、统一 Add channel CTA，不展示 Web IM。
+2. provider picker 只列 Feishu；已有 Feishu 的 Agent 中显示 Added 且不可重复添加。
+3. 简短准备指引打开精确的
+   `https://open.feishu.cn/page/launcher?from=backend_oneclick`；App ID / App Secret 为空均有明确必填错误。
+4. 编辑时 App Secret 不回显，默认 Keep existing secret；Replace 只出现空输入且必填。
+5. 在线 Keep 保存后立即显示 Connecting / saved securely，并在同一 Gateway 进程内回到 Connected / current
+   configuration applied，无需改配置文件或重启。
+
+证据：`empty-plato-r3.png`、`provider-picker-r3.png`、`provider-unique-r3.png`、`feishu-guide-r3.png`、
+`required-errors-r3.png`、`secret-keep-controls-r3.png`、`secret-replace-empty-r3.png`、
+`secret-replace-required-r3.png`、`online-save-connecting-r3.png`、`online-save-connected-r3.png`。
+
+### Journey 2 — 真实连接、诊断与生命周期
+
+1. 真实有效应用显示 Connected、current configuration applied 和最近状态时间；页面不展示版本概念。
+2. 使用无效测试凭据创建真实 Feishu channel，经真实 provider 网络稳定进入可操作 Connection failed，并把
+   认证失败与 permission unknown 分开。
+3. 在真实 Connected channel 点击 Reconnect 两次，均出现页面级 `500 (Internal Server Error)`，card 保持
+   Connected，未进入恢复过程。
+4. Connected → Disable → confirm 后约 1 秒进入 Disabled，明确 node 已应用停用状态且不再收发新消息。
+5. 不重填 secret 直接 Re-enable，先显示 Connecting，再回到真实 Connected。
+
+证据：`connected-initial-r3.png`、`invalid-credential-failed-r3.png`、`manual-reconnect-500-r3.png`、
+`disabled-r3.png`、`reenable-connecting-r3.png`、`online-save-connected-r3.png`。
+
+### Journey 3 — 离线 last-known、期望状态与自动收敛
+
+1. 停 Gateway 后，原 Connected card 明确显示 Node offline，以及
+   `Last known status: Connected (node offline; not a current connection)`；desktop/mobile 一致。
+2. 离线 Disable 保存为 waiting，不冒充 Disabled；同一 Gateway config 恢复后自动收敛到 Disabled。
+3. 再次离线 Re-enable 保存为 waiting；节点恢复后不重填 secret 自动收敛到 Connected。
+4. 对真实 invalid-credential failed channel 停 Gateway：页面虽显示 node offline，但 card 仍以
+   `Connection failed` 当前态和当前失败原因呈现，只把时间标签改为 Last status updated；没有 last-known / stale
+   语义。这与 Connected 的正确降级不一致。
+5. `375×812` 下卡片单列、动作可达，Add/Edit/Delete 均为 bottom sheet。
+
+证据：`offline-last-known-connected-desktop-r3.png`、`offline-last-known-connected-mobile-r3.png`、
+`offline-disable-pending-r3.png`、`offline-disable-converged-disabled-r3.png`、
+`offline-reenable-pending-r3.png`、`offline-reenable-converged-connected-r3.png`、
+`offline-failed-still-current-r3.png`、`mobile-add-sheet-r3.png`、`mobile-edit-secret-controls-r3.png`、
+`mobile-delete-sheet-r3.png`。
+
+### Journey 4 — 删除、历史保留与 durable failure/retry
+
+1. 通过真实 external shadow-conversation API 建立 Feishu 会话并写入一条用户可见历史；删除前 Web IM 可读。
+2. 删除真实 channel 后，同一 Web IM 会话和 messages API 仍可读取原消息，证明删除不删历史。
+3. 使用 gated fixture 使 removal cache commit 失败；真实页面显示 Deletion incomplete、credentials removed from
+   IM、失败原因和 Retry apply，且 reload 后仍保留失败 card，不提前显示空态。
+4. 节点离线时点击可见的 Retry apply，页面暴露原始
+   `409 ({"detail":{"code":"channel_node_offline"}})`；节点恢复后 bounded automatic retry 自动收敛为空态，
+   但该 409 页面警报仍残留，向用户继续暗示失败。
+
+证据：`history-before-delete-r3.png`、`history-after-delete-r3.png`、`cache-failure-visible-r3.png`、
+`cache-failure-after-reload-r3.png`、`cache-auto-recovered-with-stale-409-r3.png`；messages API count 保持为 1。
+
+### Journey 5 — 加载错误与 owner 边界
+
+1. 预载 Agent 外壳后停止真实 IM，再首次进入 Channels：显示 Unable to load channel configuration /
+   Failed to fetch / Retry，从未伪装成空态；IM 恢复后页面回到真实空态。
+2. 第二个真实 owner B 走公开 binding/channel HTTP：B confirm 已归属 A 的 node 为 409；B 读取 A 的 channels
+   和控制 A 的 channel 均为 404；A 首次和重复 confirm 均为 201，保持同 owner 幂等。
+
+证据：`list-error-outage-r3.png`、`list-error-restored-r3.png`；sanitized HTTP 状态序列
+`201/409/404/404/201/201`，未记录 token 或资源标识。
+
+## Reference Artifacts Reviewed
+
+对照源：`docs/changes/feat-464-im-channel-settings/prototype.html`。本轮通过本地 HTTP 在真实浏览器重新切换
+11 组 must-match 控制态，保存 `ref-r3-*.png`，并逐态与本轮真实产品证据对照。英文文案、icon、阴影和
+transition 属 design 允许的适配；状态层级、操作和 responsive contract 必须 match。
+
+| Prototype must-match | Required contract | Actual product evidence | Conclusion |
+|---|---|---|---|
+| `#channels-empty` | 通用空态、统一 CTA、无 Web IM | `ref-r3-channels-empty.png` ↔ `empty-plato-r3.png` | match |
+| `#add-feishu` | provider picker、短指引、精确链接、必填与 keep/replace | `ref-r3-add-feishu.png` ↔ provider/guide/required/secret screenshots | match |
+| `#channel-connecting` | 保存后立即展示真实连接进度 | `ref-r3-channel-connecting.png` ↔ `online-save-connecting-r3.png` | match |
+| `#channel-connected` | connected、actual applied、时间、动作区 | `ref-r3-channel-connected.png` ↔ `connected-initial-r3.png` | match |
+| `#channel-pending` | 离线 waiting，不假 terminal；恢复后自动应用 | `ref-r3-channel-pending.png` ↔ offline pending/converged screenshots | match |
+| `#channel-actions/#channel-disabling/#channel-disabled` | 确认→应用中→disabled→无 secret 再启用 | `ref-r3-channel-disabled.png` ↔ disabled/reenable screenshots | match |
+| `#channel-deleting` | pending/failed 持久、凭据移除、retry、实际应用后消失、历史保留 | `ref-r3-channel-deleting.png`; `ref-r3-channel-delete-failed.png` ↔ cache/history screenshots | deviation：offline Retry 暴露 raw 409 且恢复后残留 |
+| `#channel-reconnecting/#channel-failed` | 恢复过程、手动重试、provider-originated 可操作失败 | `ref-r3-channel-reconnecting.png`; `ref-r3-channel-failed.png` ↔ reconnect/invalid credential screenshots | deviation：手动 Reconnect 500；offline failed 非 stale |
+| `#channel-limited` | missing/unknown 分项、raw scope、影响、修复 | `ref-r3-channel-limited.png` ↔ 本轮 unknown 真实态 | inconclusive：limited 未安全制造；unknown match |
+| `#channels-error` | 错误 + Retry，不显示空态 | `ref-r3-channels-error.png` ↔ outage/restore screenshots | match |
+| `#channels-mobile` | 单列 card、动作可达、bottom sheet | `ref-r3-channels-mobile.png` ↔ four mobile screenshots | match |
+
+## Issues
+
+### Issue 1 — 手动 Reconnect 返回 500（major）
+
+- **Evidence：** `manual-reconnect-500-r3.png`；对真实 Connected channel 独立点击两次均复现。
+- **Impact：** 用户面对临时连接中断时无法主动触发恢复，也看不到 reconnecting 过程；这是 channel 主生命周期
+  操作，不是边缘视觉问题。
+- **Expected：** 点击 Reconnect 后进入 recovering/reconnecting，并得到可理解的成功或失败终态。
+- **Actual：** 页面级 `500 (Internal Server Error)`，card 仍显示 Connected。
+- **Required action：** `fix-implementation`。
+
+### Issue 2 — offline failed 未降级为 last-known（major）
+
+- **Evidence：** `offline-failed-still-current-r3.png`；同轮 Connected 离线对照为
+  `offline-last-known-connected-desktop-r3.png`。
+- **Impact：** 节点离线时用户会把旧失败原因误认为当前实时探测结果；M5 对 connected/limited/failed 的
+  last-known 统一降级只对 Connected 生效。
+- **Expected：** 节点离线后 failed card 明确为 last-known / stale，并说明不是当前连接结论。
+- **Actual：** badge 仍是 `Connection failed`，失败文案仍像当前事实，仅时间标签变为 Last status updated。
+- **Required action：** `fix-implementation`。
+
+### Issue 3 — deletion failure 的 Retry 暴露 raw 409，恢复后仍残留（major）
+
+- **Evidence：** `cache-failure-after-reload-r3.png`、`cache-auto-recovered-with-stale-409-r3.png`。
+- **Impact：** 页面明确提供 Retry apply，但节点离线时该恢复入口返回内部错误结构；即使节点恢复后后台自动
+  收敛为空态，页面仍保留错误警报，用户无法判断删除是否完成。
+- **Expected：** offline Retry 给出可理解的“等待节点上线”反馈；成功收敛后清除旧错误。
+- **Actual：** 显示 raw `channel_node_offline` 409；自动恢复后空态与旧错误同时存在。
+- **Required action：** `fix-implementation`。
+
+## 验收标准覆盖
+
+### Requirement: 通用的外部 channel 管理页 — 组内结论：pass
+
+| Scenario | 验证方式 | 结果 | 备注 |
+|---|---|---|---|
+| 尚未配置任何外部 channel | 无 channel Agent → Channels | pass | 通用空态，无 Web IM |
+| 从统一入口选择 channel 类型 | Add channel | pass | 仅 Feishu，结构支持多 provider |
+| 当前类型已经存在 | 已有 Feishu → Add | pass | Added disabled |
+| channel 列表加载失败 | 预载外壳 → 停 IM → Channels → Retry → 恢复 | pass | 错误态不冒充空态 |
+
+### Requirement: 飞书轻量接入向导 — 组内结论：pass
+
+| Scenario | 验证方式 | 结果 | 备注 |
+|---|---|---|---|
+| 用户查看飞书准备指引 | 选择 Feishu → 打开精确外链 | pass | 指引简短，launcher 实际可达 |
+| 在线节点保存有效配置后立即连接 | Edit → Keep → Save | pass | 同进程 Connecting→Connected |
+| 必填凭据缺失 | 空表单提交 | pass | 两字段明确错误 |
+| 已保存密钥不会重新明文展示 | Edit Keep/Replace | pass | secret 不回显，Replace 为空且必填 |
+
+### Requirement: 连接状态与可操作诊断 — 组内结论：fail
+
+| Scenario | 验证方式 | 结果 | 备注 |
+|---|---|---|---|
+| 权限完整且连接正常 | 真实测试应用 + 在线保存 | pass | actual applied + time |
+| 权限不足但基础能力仍可用 | 不修改外部权限；未继承旧投影 | inconclusive | 本轮无法安全制造真实 limited |
+| 缺少普通群消息权限 | 同上 | inconclusive | 未证明 group scope 影响投影 |
+| 暂时无法完成权限检查 | 真实 Connecting/Disabled/Failed 期间观察 permission unknown | pass | 不伪造 missing |
+| 凭据或连接无效 | 真实无效测试凭据 → provider 网络 | pass | 可操作认证失败；permission unknown 分层 |
+| 连接暂时中断 | 真实 Connected → Reconnect，两次 | fail | 500；未进入 reconnecting |
+
+### Requirement: 离线配置与重连收敛 — 组内结论：fail
+
+| Scenario | 验证方式 | 结果 | 备注 |
+|---|---|---|---|
+| 节点离线时保存飞书配置变更 | offline Disable；offline Re-enable | pass | 保存 desired，不假 terminal |
+| 节点重连后自动应用 | 同 config 恢复 Gateway | pass | Disabled / Connected 自动收敛；但 failed 离线展示仍违反 M5 last-known contract |
+
+### Requirement: 飞书 channel 生命周期管理 — 组内结论：fail
+
+| Scenario | 验证方式 | 结果 | 备注 |
+|---|---|---|---|
+| 停用已连接的 channel | Connected → Disable → confirm | pass | 约 1 秒进入 Disabled |
+| 重新启用 channel | Disabled → Re-enable，不填 secret | pass | Connecting→Connected |
+| 删除 channel 保留历史 | 真实历史 → 删除/cache failure/reload/recovery → 再读历史 | fail | 历史保留与自动恢复通过；显式 Retry 的 raw/stale error 不通过 |
+
+### Requirement: 节点绑定不得隐式迁移跨 owner channel — 组内结论：pass
+
+| Scenario | 验证方式 | 结果 | 备注 |
+|---|---|---|---|
+| 已绑定节点被另一个 owner 确认 | owner B bind/read/control；owner A confirm/repeat | pass | sanitized 201/409/404/404/201/201；同 owner 幂等 |
+
+## 上层文档同步
+
+- [x] `SPEC.md`：**无需更新**。本 unit 未改变四包拓扑或依赖方向。
+- [x] `docs/specs/<包>/`：**需要 orchestrator 收尾归并**。unit delta 已描述 control-plane、desired/actual、
+  动态生命周期、诊断、密钥与 owner 隔离；canonical IM/Gateway area 文档仍需写回。
+- [x] `AGENTS.md` / `CLAUDE.md`：**无需更新**。开发约定、启动方式和包边界未变化。
+- [x] `docs/SPEC_GUIDE.md`：**无需更新**。文档体系未改变。
+- [x] `docs/operator-runbook.md`：**需要更新**。应加入 IM Channels 热管理、legacy bootstrap、离线保存、
+  deletion pending/retry 与 credential re-entry 的操作语义。
+- [x] `docs/e2e-critical-paths.md`：**需要更新**。应登记 channel control 热生效、停用/重启、删除失败重试的
+  关键旅程与守护方案。
+
+以上写回属于 orchestrator 收尾职责，不改变本轮 `fail` 结论。
+
+## Side Findings
+
+- 无 out-of-unit side finding；3 个问题均直接属于 feat-464/M5 用户面能力。
