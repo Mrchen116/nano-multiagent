@@ -63,6 +63,51 @@ async def test_quiet_run_heartbeats_prevent_idle_reap(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_permission_wait_suspends_then_resolved_restores_idle_watchdog(
+    tmp_path: Path,
+) -> None:
+    """Human decision time is exempt; post-decision silence is a real stall."""
+
+    kernel, catalog, binder, router, group_store = build_dependencies(tmp_path)
+    pending_seen = asyncio.Event()
+    resolved_seen = asyncio.Event()
+
+    async def _observe(event) -> None:
+        if event.get("event") == "permission_request":
+            pending_seen.set()
+        elif event.get("event") == "permission_resolved":
+            resolved_seen.set()
+
+    coordinator = SessionRunCoordinator(
+        kernel=kernel,
+        session_binder=binder,
+        outbound_router=router,
+        group_context_store=group_store,
+        kernel_event_observer=_observe,
+        run_idle_timeout_seconds=0.02,
+    )
+    running = asyncio.create_task(
+        coordinator.dispatch(
+            _request(inbound(chat_id="permission", text="protected work"), catalog)
+        )
+    )
+    await kernel.wait_stream("run-1")
+    kernel.push("run-1", {"event": "permission_request", "request_id": "perm-1"})
+    await asyncio.wait_for(pending_seen.wait(), timeout=1)
+
+    with pytest.raises(TimeoutError):
+        await asyncio.wait_for(asyncio.shield(running), timeout=0.06)
+    assert not running.done()
+    assert kernel.cancel_calls == []
+
+    kernel.push("run-1", {"event": "permission_resolved", "request_id": "perm-1"})
+    await asyncio.wait_for(resolved_seen.wait(), timeout=1)
+    with pytest.raises(TimeoutError, match="produced no events"):
+        await running
+    assert kernel.cancel_calls == ["run-1"]
+
+
+@pytest.mark.asyncio
 async def test_real_stall_fails_and_releases_next_same_session_turn(
     tmp_path: Path,
 ) -> None:
