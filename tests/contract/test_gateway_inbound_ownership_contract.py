@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 
 
@@ -10,6 +11,29 @@ _ROOT = Path(__file__).resolve().parents[2]
 
 def _source(relative: str) -> str:
     return (_ROOT / relative).read_text(encoding="utf-8")
+
+
+def _method_node(relative: str, *, class_name: str, method_name: str) -> ast.FunctionDef:
+    tree = ast.parse(_source(relative))
+    owner = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == class_name
+    )
+    return next(
+        node
+        for node in owner.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name == method_name
+    )
+
+
+def _called_names(node: ast.AST) -> set[str]:
+    return {
+        call.func.id
+        for call in ast.walk(node)
+        if isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
+    }
 
 
 def test_composition_and_schedulers_do_not_reach_pipeline_state() -> None:
@@ -160,3 +184,27 @@ def test_gateway_drains_im_outbound_frames_before_transport_close() -> None:
     assert shutdown.index('"IM outbound drain"') < shutdown.index(
         '"IM connection close"'
     )
+
+
+def test_foreground_and_unattended_session_capabilities_share_one_owner() -> None:
+    binder_resolve = _method_node(
+        "src/personal_assistant/gateway/session_binder.py",
+        class_name="GatewaySessionBinder",
+        method_name="resolve",
+    )
+    unattended_create = _method_node(
+        "src/personal_assistant/main.py",
+        class_name="_KernelClientShim",
+        method_name="create_session",
+    )
+
+    assert "project_agent_session_capabilities" in _called_names(binder_resolve)
+    assert "project_agent_session_capabilities" in _called_names(unattended_create)
+    assert not {
+        "prompt_for",
+        "resolve_enabled_tools",
+    }.intersection(_called_names(binder_resolve))
+    assert not {
+        "prompt_for",
+        "resolve_enabled_tools",
+    }.intersection(_called_names(unattended_create))
