@@ -16,7 +16,10 @@ from personal_assistant.gateway.session_binder import (
     GatewaySessionBinder,
     SessionBindingRequest,
 )
-from personal_assistant.gateway.session_keys import SessionBindingStore
+from personal_assistant.gateway.session_keys import (
+    PersistentSessionBindingStore,
+    SessionBindingStore,
+)
 
 
 class _Kernel:
@@ -70,11 +73,16 @@ class _BlockingReuseStore(SessionBindingStore):
         )
 
 
-def _agent(tmp_path: Path, *, title: str = "Agent A") -> AgentWorkspaceConfig:
+def _agent(
+    tmp_path: Path,
+    *,
+    title: str = "Agent A",
+    agent_id: str = "agent-a",
+) -> AgentWorkspaceConfig:
     workspace = tmp_path / title.replace(" ", "-")
     workspace.mkdir(exist_ok=True)
     return AgentWorkspaceConfig(
-        agent_id="agent-a",
+        agent_id=agent_id,
         workspace_root=workspace,
         title=title,
         skills=("skill-a",),
@@ -237,6 +245,62 @@ async def test_publish_during_old_binding_reuse_drops_old_row_before_new_resolve
     assert binder.lookup(request.session_key) == new_result
     assert len(kernel.create_calls) == 1
     assert kernel.create_calls[0]["workspace_root"] == current.config.workspace_root
+
+
+def test_persistent_invalidation_treats_agent_wildcards_as_literals(
+    tmp_path: Path,
+) -> None:
+    agents = (
+        _agent(tmp_path, title="Target underscore", agent_id="team_a"),
+        _agent(tmp_path, title="Similar underscore", agent_id="teamXa"),
+        _agent(tmp_path, title="Target percent", agent_id="team%a"),
+        _agent(tmp_path, title="Similar percent", agent_id="teamXXa"),
+    )
+    catalog = LiveAgentCatalog(agents)
+    store = PersistentSessionBindingStore(db_path=tmp_path / "bindings.sqlite3")
+    reply = ReplyContext(channel_name="web_relay", target_chat_id="conv")
+    for index, agent in enumerate(agents):
+        store.bind(
+            session_key=f"web_relay:conv-{index}:{agent.agent_id}",
+            kernel_session_id=f"session-{index}",
+            reply_context=reply,
+        )
+    binder = GatewaySessionBinder(catalog=catalog, repository=store, kernel=object())
+
+    binder.invalidate_stale("team_a", current_revision=999)
+    binder.invalidate_stale("team%a", current_revision=999)
+
+    assert store.get("web_relay:conv-0:team_a") is None
+    assert store.get("web_relay:conv-2:team%a") is None
+    assert store.get("web_relay:conv-1:teamXa") is not None
+    assert store.get("web_relay:conv-3:teamXXa") is not None
+
+
+def test_persistent_canonical_lookup_treats_channel_and_agent_as_literals(
+    tmp_path: Path,
+) -> None:
+    target = _agent(tmp_path, title="Target", agent_id="team_a")
+    catalog = LiveAgentCatalog((target,))
+    store = PersistentSessionBindingStore(db_path=tmp_path / "bindings.sqlite3")
+    reply = ReplyContext(channel_name="web_relay", target_chat_id="target")
+    store.bind(
+        session_key="webXrelay:decoy:teamXa",
+        kernel_session_id="session-decoy",
+        reply_context=reply,
+    )
+    expected = store.bind(
+        session_key="web_relay:target:team_a",
+        kernel_session_id="session-target",
+        reply_context=reply,
+    )
+    binder = GatewaySessionBinder(catalog=catalog, repository=store, kernel=object())
+
+    result = binder.find_canonical_direct(
+        channel_name="web_relay",
+        agent_id="team_a",
+    )
+
+    assert result == expected
 
 
 def test_conversation_bind_rejects_guard_captured_before_publish(
