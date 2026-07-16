@@ -112,6 +112,17 @@ class BindingProvenance:
     guard: BindingWriteGuard
 
 
+@dataclass(frozen=True, slots=True)
+class _VerifiedBindingOwnership:
+    """Remember one process-local authoritative workspace ownership check."""
+
+    kernel_session_id: str
+    agent_id: str
+    revision: int
+    generation: int
+    workspace_root: str
+
+
 class GatewaySessionBinder:
     """Own Gateway channel-to-Kernel session binding business rules.
 
@@ -140,6 +151,7 @@ class GatewaySessionBinder:
         self._binding_revisions: dict[str, int] = {}
         self._binding_agents: dict[str, LiveAgentSnapshot] = {}
         self._session_agents: dict[str, LiveAgentSnapshot] = {}
+        self._verified_binding_ownership: dict[str, _VerifiedBindingOwnership] = {}
         self._generations: dict[str, int] = {}
         self._startup_revisions = {
             snapshot.agent_id: snapshot.revision
@@ -175,9 +187,15 @@ class GatewaySessionBinder:
                     else None
                 )
                 if existing is None or revision != agent.revision:
+                    self._verified_binding_ownership.pop(request.session_key, None)
                     break
+                ownership_is_verified = self._ownership_is_verified(
+                    existing,
+                    agent=agent,
+                    generation=generation,
+                )
 
-            workspace_matches = await asyncio.to_thread(
+            workspace_matches = ownership_is_verified or await asyncio.to_thread(
                 self._binding_matches_workspace_root,
                 existing.kernel_session_id,
                 expected_workspace_root=str(agent.config.workspace_root),
@@ -202,6 +220,12 @@ class GatewaySessionBinder:
                     agent=agent,
                     generation=generation,
                 )
+                if candidate_is_current:
+                    self._record_verified_ownership(
+                        refreshed,
+                        agent=agent,
+                        generation=generation,
+                    )
                 if not guard_is_current:
                     self._record_provenance(
                         refreshed,
@@ -258,6 +282,11 @@ class GatewaySessionBinder:
             )
             self._binding_revisions[request.session_key] = agent.revision
             self._binding_agents[request.session_key] = agent
+            self._record_verified_ownership(
+                binding,
+                agent=agent,
+                generation=generation,
+            )
             return binding
 
     def lookup(self, session_key: str) -> SessionBinding | None:
@@ -283,6 +312,7 @@ class GatewaySessionBinder:
             self._generations[agent_id] = self._generations.get(agent_id, 0) + 1
             startup_revision = self._startup_revisions.get(agent_id)
             for binding in self._repository.bindings_for_agent(agent_id):
+                self._verified_binding_ownership.pop(binding.session_key, None)
                 revision = self._binding_revisions.get(
                     binding.session_key,
                     startup_revision,
@@ -338,6 +368,10 @@ class GatewaySessionBinder:
             self._binding_revisions[binding.session_key] = agent.revision
             self._binding_agents[binding.session_key] = agent
             self._session_agents[request.kernel_session_id] = agent
+            # A semantic bind can point an existing conversation key at another
+            # Kernel session. The next resolve must establish workspace ownership
+            # for that exact key/session pair before it enters the stable hot path.
+            self._verified_binding_ownership.pop(binding.session_key, None)
             return ConversationBindResult(status="bound", binding=binding)
 
     def register_session_provenance(
@@ -446,6 +480,40 @@ class GatewaySessionBinder:
         self._session_agents[binding.kernel_session_id] = agent
         if persist_binding:
             self._binding_agents[binding.session_key] = agent
+
+    def _ownership_is_verified(
+        self,
+        binding: SessionBinding,
+        *,
+        agent: LiveAgentSnapshot,
+        generation: int,
+    ) -> bool:
+        return self._verified_binding_ownership.get(
+            binding.session_key
+        ) == _VerifiedBindingOwnership(
+            kernel_session_id=binding.kernel_session_id,
+            agent_id=agent.agent_id,
+            revision=agent.revision,
+            generation=generation,
+            workspace_root=str(agent.config.workspace_root).strip(),
+        )
+
+    def _record_verified_ownership(
+        self,
+        binding: SessionBinding,
+        *,
+        agent: LiveAgentSnapshot,
+        generation: int,
+    ) -> None:
+        self._verified_binding_ownership[binding.session_key] = (
+            _VerifiedBindingOwnership(
+                kernel_session_id=binding.kernel_session_id,
+                agent_id=agent.agent_id,
+                revision=agent.revision,
+                generation=generation,
+                workspace_root=str(agent.config.workspace_root).strip(),
+            )
+        )
 
     def _binding_matches_workspace_root(
         self, session_id: str, *, expected_workspace_root: str
