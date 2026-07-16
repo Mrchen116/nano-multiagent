@@ -123,7 +123,7 @@ def test_register_error_never_rejects_buffered_business_fifo(tmp_path: Path) -> 
 
 def test_heartbeat_error_rejects_only_heartbeat_control_owner(tmp_path: Path) -> None:
     """Heartbeat rejection cannot consume report, status, message, or its waiter."""
-    socket = _FakeWebSocket(
+    first_socket = _FakeWebSocket(
         incoming=[
             json.dumps(
                 {"type": "ack", "payload": {"message_type": "node.register"}}
@@ -136,6 +136,13 @@ def test_heartbeat_error_rejects_only_heartbeat_control_owner(tmp_path: Path) ->
                         "message": "heartbeat owner mismatch",
                     },
                 }
+            ),
+        ]
+    )
+    second_socket = _FakeWebSocket(
+        incoming=[
+            json.dumps(
+                {"type": "ack", "payload": {"message_type": "node.register"}}
             ),
             json.dumps(
                 {"type": "ack", "payload": {"message_type": "node.report"}}
@@ -157,13 +164,18 @@ def test_heartbeat_error_rejects_only_heartbeat_control_owner(tmp_path: Path) ->
             ),
         ]
     )
+    sockets = [first_socket, second_socket]
     relay = WebRelayAdapter()
     relay.start(lambda _message: None)
+
+    async def connect(url, headers):
+        return await _connect_fake(sockets.pop(0), [], url, headers)
+
     manager = IMConnectionManager(
         config=IMConnectionConfig(url="http://im.local", heartbeat_interval_seconds=0),
         reporter=_minimal_reporter(tmp_path),
         relay_adapter=relay,
-        connect=lambda url, headers: _connect_fake(socket, [], url, headers),
+        connect=connect,
     )
 
     async def exercise() -> None:
@@ -181,7 +193,7 @@ def test_heartbeat_error_rejects_only_heartbeat_control_owner(tmp_path: Path) ->
         )
         await asyncio.sleep(0)
 
-        assert [json.loads(frame)["type"] for frame in socket.sent] == [
+        assert [json.loads(frame)["type"] for frame in first_socket.sent] == [
             "node.register",
             "node.heartbeat",
         ]
@@ -189,8 +201,13 @@ def test_heartbeat_error_rejects_only_heartbeat_control_owner(tmp_path: Path) ->
         with pytest.raises(RuntimeError, match="heartbeat_rejected"):
             await asyncio.wait_for(heartbeat, timeout=0.1)
         assert not waiter.done()
-        for _ in range(3):
-            await manager._listen_once()  # noqa: SLF001 - drain untouched business
+
+        await manager.connect_once()
+        assert [json.loads(frame)["type"] for frame in second_socket.sent] == [
+            "node.register"
+        ]
+        for _ in range(4):
+            await manager._listen_once()  # noqa: SLF001 - register + untouched business
         assert await waiter == {
             "message_type": "agent.message",
             "conversation_id": "conv-1",
@@ -198,9 +215,8 @@ def test_heartbeat_error_rejects_only_heartbeat_control_owner(tmp_path: Path) ->
 
     asyncio.run(exercise())
 
-    assert [json.loads(frame)["type"] for frame in socket.sent] == [
+    assert [json.loads(frame)["type"] for frame in second_socket.sent] == [
         "node.register",
-        "node.heartbeat",
         "node.report",
         "channel.status",
         "agent.message",
