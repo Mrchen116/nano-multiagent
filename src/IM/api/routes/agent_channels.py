@@ -54,6 +54,7 @@ class ChannelResponse(BaseModel):
     secret_configured: bool
     channel_revision: int
     sync_state: str
+    apply_error: dict[str, str] | None
     observed: dict[str, object] | None
     updated_at: str
 
@@ -80,6 +81,7 @@ def _response(view: ChannelView) -> ChannelResponse:
         secret_configured=view.secret_configured,
         channel_revision=view.channel_revision,
         sync_state=view.sync_state,
+        apply_error=view.apply_error,
         observed=view.observed,
         updated_at=view.updated_at,
     )

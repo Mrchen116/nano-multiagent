@@ -109,7 +109,13 @@ class ChannelManifestStore:
         """Load and validate the current encrypted desired manifest."""
         with self._state_lock:
             state = self._read_state()
-        return self._decode_manifest(state)
+        return self._decode_manifest_payload(state.get("manifest"))
+
+    def load_retry_manifest(self) -> CachedChannelManifest | None:
+        """Load the newest retryable snapshot retained after an apply failure."""
+        with self._state_lock:
+            state = self._read_state()
+        return self._decode_manifest_payload(state.get("retry_manifest"))
 
     def quarantine_key_mismatch(self) -> CachedChannelManifest | None:
         """Move a foreign-key cache aside and return its non-secret desired metadata.
@@ -121,8 +127,8 @@ class ChannelManifestStore:
         with self._state_lock:
             state = self._read_state(allow_foreign_key=True)
             if state.get("key_id") == self._key_id:
-                return self._decode_manifest(state)
-            manifest = self._decode_manifest(state)
+                return self._decode_manifest_payload(state.get("manifest"))
+            manifest = self._decode_manifest_payload(state.get("manifest"))
             quarantine_path = self._path.with_name(
                 f"{self._path.name}.credential-reentry.{uuid4().hex}"
             )
@@ -140,10 +146,9 @@ class ChannelManifestStore:
                 ) from exc
             return manifest
 
-    def _decode_manifest(
-        self, state: Mapping[str, object]
+    def _decode_manifest_payload(
+        self, raw_manifest: object
     ) -> CachedChannelManifest | None:
-        raw_manifest = state.get("manifest")
         if not isinstance(raw_manifest, Mapping):
             return None
         raw_channels = raw_manifest.get("channels")
@@ -172,13 +177,8 @@ class ChannelManifestStore:
             raise ChannelManifestStoreError("node_id mismatch")
         with self._state_lock:
             state = self._read_state()
-            state["manifest"] = {
-                "owner_id": manifest.owner_id,
-                "node_id": self._node_id,
-                "manifest_revision": manifest.manifest_revision,
-                "channels": [self._encode_channel(item) for item in manifest.channels],
-                "removals": [self._encode_removal(item) for item in manifest.removals],
-            }
+            state["manifest"] = self._encode_manifest(manifest)
+            state["retry_manifest"] = None
             state["last_seen_manifest_revision"] = max(
                 int(state.get("last_seen_manifest_revision") or 0),
                 manifest.manifest_revision,
@@ -193,6 +193,7 @@ class ChannelManifestStore:
         applied_channel_ids: tuple[str, ...],
         removal_outcomes: tuple[Mapping[str, object], ...],
         failures: tuple[Mapping[str, object], ...],
+        retry_manifest: ChannelManifest | None = None,
     ) -> None:
         """Merge one head result and token outcomes into the persistent outbox."""
         with self._state_lock:
@@ -220,6 +221,12 @@ class ChannelManifestStore:
             if outcome == "applied":
                 state["last_applied_manifest_revision"] = max(
                     int(state.get("last_applied_manifest_revision") or 0),
+                    manifest_revision,
+                )
+            elif outcome == "retryable_failed" and retry_manifest is not None:
+                state["retry_manifest"] = self._encode_manifest(retry_manifest)
+                state["last_seen_manifest_revision"] = max(
+                    int(state.get("last_seen_manifest_revision") or 0),
                     manifest_revision,
                 )
             self._write_state(state)
@@ -472,6 +479,7 @@ class ChannelManifestStore:
             "node_id": self._node_id,
             "key_id": self._key_id,
             "manifest": None,
+            "retry_manifest": None,
             "last_seen_manifest_revision": 0,
             "last_applied_manifest_revision": 0,
             "outbox": {"head": None, "removal_outcomes": {}},
@@ -564,6 +572,22 @@ class ChannelManifestStore:
             if descriptor is not None:
                 os.close(descriptor)
             temp_path.unlink(missing_ok=True)
+
+    @staticmethod
+    def _encode_manifest(manifest: ChannelManifest) -> dict[str, object]:
+        return {
+            "owner_id": manifest.owner_id,
+            "node_id": manifest.node_id,
+            "manifest_revision": manifest.manifest_revision,
+            "channels": [
+                ChannelManifestStore._encode_channel(item)
+                for item in manifest.channels
+            ],
+            "removals": [
+                ChannelManifestStore._encode_removal(item)
+                for item in manifest.removals
+            ],
+        }
 
     @staticmethod
     def _encode_channel(item: object) -> dict[str, object]:

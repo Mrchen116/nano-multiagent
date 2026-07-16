@@ -16,6 +16,7 @@ from personal_assistant.channels.base import (
 )
 from personal_assistant.gateway.channel_manifest_store import (
     CachedChannelSpec,
+    CachedRemovalIntent,
     ChannelManifestStore,
     ChannelManifestStoreError,
 )
@@ -253,7 +254,8 @@ class ChannelManager:
             if store is None:
                 return ()
             try:
-                cached = store.load_manifest()
+                retry_manifest = store.load_retry_manifest()
+                cached = retry_manifest or store.load_manifest()
             except ChannelManifestStoreError as exc:
                 if str(exc) != "key_id mismatch":
                     raise
@@ -280,18 +282,25 @@ class ChannelManager:
                 return ()
             if cached.channels and self._credential_opener is None:
                 raise ChannelManifestStoreError("credential opener is required")
-            for item in cached.channels:
-                assert self._credential_opener is not None
-                spec = self._managed_from_cached(
-                    item,
-                    credentials=(
-                        self._credential_opener(item) if item.enabled else {}
-                    ),
+            desired = tuple(self._open_cached_channel(item) for item in cached.channels)
+            if retry_manifest is not None:
+                self._reconcile_sync(
+                    ChannelManifest(
+                        owner_id=cached.owner_id,
+                        node_id=cached.node_id,
+                        manifest_revision=cached.manifest_revision,
+                        channels=desired,
+                        removals=tuple(
+                            self._removal_from_cached(item)
+                            for item in cached.removals
+                        ),
+                    )
                 )
-                self._desired[item.channel_id] = spec
-                if not item.enabled:
-                    continue
-                self._replace_runtime(spec)
+            else:
+                for spec in desired:
+                    self._desired[spec.channel_id] = spec
+                    if spec.enabled:
+                        self._replace_runtime(spec)
             self._last_seen_manifest_revision = max(
                 self._last_seen_manifest_revision, cached.manifest_revision
             )
@@ -477,6 +486,7 @@ class ChannelManager:
                         item.as_payload() for item in report.removal_outcomes
                     ),
                     failures=report.failures,
+                    retry_manifest=manifest if retryable_failure else None,
                 )
             if not retryable_failure:
                 self._last_applied_manifest_revision = max(
@@ -876,6 +886,23 @@ class ChannelManager:
             active.adapter.stop()
         self._active.pop(channel_id, None)
         return active
+
+    @staticmethod
+    def _removal_from_cached(item: CachedRemovalIntent) -> ChannelRemovalIntent:
+        return ChannelRemovalIntent(
+            removal_token=item.removal_token,
+            channel_id=item.channel_id,
+            agent_id=item.agent_id,
+            provider=item.provider,
+            deletion_manifest_revision=item.deletion_manifest_revision,
+        )
+
+    def _open_cached_channel(self, item: CachedChannelSpec) -> ManagedChannelSpec:
+        assert self._credential_opener is not None
+        return self._managed_from_cached(
+            item,
+            credentials=self._credential_opener(item) if item.enabled else {},
+        )
 
     @staticmethod
     def _managed_from_cached(

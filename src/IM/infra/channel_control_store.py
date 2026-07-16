@@ -45,6 +45,7 @@ class ChannelView:
     channel_revision: int
     credential_revision: int
     sync_state: Literal["pending", "applied", "failed"]
+    apply_error: dict[str, str] | None
     observed: dict[str, object] | None
     updated_at: str
 
@@ -815,10 +816,14 @@ class ChannelControlStore:
                 """
                 SELECT ac.*, s.observed_revision, s.connection_state,
                        s.diagnostics_state, s.status_code, s.status_message,
-                       s.checks_json, s.received_at, n.status AS node_status
+                       s.checks_json, s.received_at, n.status AS node_status,
+                       h.manifest_revision AS head_manifest_revision,
+                       h.applied_manifest_revision,
+                       h.last_apply_error_json
                 FROM agent_channels ac
                 LEFT JOIN agent_channel_status s ON s.channel_id = ac.channel_id
                 LEFT JOIN nodes n ON n.node_id = ac.node_id
+                LEFT JOIN channel_manifest_heads h ON h.node_id = ac.node_id
                 WHERE ac.owner_id = ? AND ac.agent_id = ?
                 ORDER BY ac.created_at, ac.channel_id
                 """,
@@ -1295,7 +1300,9 @@ class ChannelControlStore:
         connection.execute(
             """
             UPDATE channel_manifest_heads
-            SET manifest_revision = manifest_revision + 1, updated_at = ?
+            SET manifest_revision = manifest_revision + 1,
+                last_apply_error_json = NULL,
+                updated_at = ?
             WHERE node_id = ? AND owner_id = ?
             """,
             (now, node_id, owner_id),
@@ -1315,10 +1322,14 @@ class ChannelControlStore:
             """
             SELECT ac.*, s.observed_revision, s.connection_state,
                    s.diagnostics_state, s.status_code, s.status_message,
-                   s.checks_json, s.received_at, n.status AS node_status
+                   s.checks_json, s.received_at, n.status AS node_status,
+                   h.manifest_revision AS head_manifest_revision,
+                   h.applied_manifest_revision,
+                   h.last_apply_error_json
             FROM agent_channels ac
             LEFT JOIN agent_channel_status s ON s.channel_id = ac.channel_id
             LEFT JOIN nodes n ON n.node_id = ac.node_id
+            LEFT JOIN channel_manifest_heads h ON h.node_id = ac.node_id
             WHERE ac.channel_id = ?
             """,
             (channel_id,),
@@ -1335,6 +1346,26 @@ class ChannelControlStore:
         )
         observed = None
         sync_state: Literal["pending", "applied", "failed"] = "pending"
+        apply_error = None
+        raw_apply_error = (
+            row["last_apply_error_json"]
+            if "last_apply_error_json" in row.keys()
+            else None
+        )
+        if isinstance(raw_apply_error, str) and raw_apply_error:
+            decoded_error = json.loads(raw_apply_error)
+            first_error = next(
+                (item for item in decoded_error if isinstance(item, Mapping)),
+                None,
+            ) if isinstance(decoded_error, list) else None
+            if first_error is not None:
+                apply_error = {
+                    "code": str(first_error.get("error_code") or "channel_apply_failed"),
+                    "message": str(
+                        first_error.get("error_message")
+                        or "Channel configuration could not be applied."
+                    ),
+                }
         if observed_revision is not None:
             observed = {
                 "observed_revision": int(observed_revision),
@@ -1346,7 +1377,14 @@ class ChannelControlStore:
                 "status_updated_at": str(row["received_at"]),
                 "status_stale": str(row["node_status"] or "offline") != "online",
             }
-            if int(observed_revision) >= int(row["channel_revision"]):
+            head_is_applied = int(row["applied_manifest_revision"] or 0) >= int(
+                row["head_manifest_revision"] or 0
+            )
+            if apply_error is not None:
+                sync_state = "failed"
+            elif head_is_applied and int(observed_revision) >= int(
+                row["channel_revision"]
+            ):
                 sync_state = (
                     "failed" if str(row["connection_state"]) == "failed" else "applied"
                 )
@@ -1359,6 +1397,7 @@ class ChannelControlStore:
             channel_revision=int(row["channel_revision"]),
             credential_revision=int(row["credential_revision"]),
             sync_state=sync_state,
+            apply_error=apply_error,
             observed=observed,
             updated_at=str(row["updated_at"]),
         )

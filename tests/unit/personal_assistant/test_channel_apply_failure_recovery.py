@@ -29,6 +29,9 @@ class _Adapter:
     def stop(self) -> None:
         self._events.append(f"stop:{self.name}")
 
+    def send(self, _outbound) -> None:
+        pass
+
 
 class _FailRevisionTwoOnceStore(ChannelManifestStore):
     fail_revision_two = True
@@ -69,6 +72,14 @@ def _manifest(*, revision: int, app_id: str) -> ChannelManifest:
     )
 
 
+def _factory(events: list[str]):
+    def build(spec, _binder, _status) -> _Adapter:
+        events.append(f"build:{spec.config['app_id']}")
+        return _Adapter("feishu:agent-a", events)
+
+    return build
+
+
 def test_pending_manifest_retries_after_restart_without_rolling_back_runtime(
     tmp_path: Path,
 ) -> None:
@@ -79,11 +90,7 @@ def test_pending_manifest_retries_after_restart_without_rolling_back_runtime(
     first = ChannelManager(
         registry=ChannelRegistry(),
         on_inbound=lambda _message: None,
-        provider_factories={
-            "feishu": lambda spec, _binder, _status: _Adapter(
-                f"{spec.config['app_id']}", first_events
-            )
-        },
+        provider_factories={"feishu": _factory(first_events)},
         status_sink=lambda _status: None,
         manifest_store=store,
     )
@@ -101,11 +108,7 @@ def test_pending_manifest_retries_after_restart_without_rolling_back_runtime(
     restarted = ChannelManager(
         registry=ChannelRegistry(),
         on_inbound=lambda _message: None,
-        provider_factories={
-            "feishu": lambda spec, _binder, _status: _Adapter(
-                f"{spec.config['app_id']}", restarted_events
-            )
-        },
+        provider_factories={"feishu": _factory(restarted_events)},
         status_sink=lambda _status: None,
         manifest_store=restarted_store,
         credential_opener=lambda _item: {"app_secret": "opened"},
@@ -113,7 +116,7 @@ def test_pending_manifest_retries_after_restart_without_rolling_back_runtime(
 
     asyncio.run(restarted.start_cached())
 
-    assert restarted_events == ["start:cli_new"]
+    assert restarted_events == ["build:cli_new", "start:feishu:agent-a"]
     assert restarted_store.load_manifest().manifest_revision == 2
     assert restarted_store.load_retry_manifest() is None
     assert restarted_store.last_applied_manifest_revision == 2
