@@ -200,9 +200,7 @@ def test_connected_reconnect_and_failed_removal_retry_use_same_manifest_revision
             )
             failed_ack = websocket.receive_json()
             assert failed_ack["type"] == "channels.reconcile.result.ack"
-            failed_view = client.get(
-                "/im/v1/agents/agent-a/channels"
-            ).json()[0]
+            failed_view = client.get("/im/v1/agents/agent-a/channels").json()[0]
             assert failed_view["apply_state"] == "failed"
 
             retry_result: dict[str, object] = {}
@@ -233,9 +231,10 @@ def test_connected_reconnect_and_failed_removal_retry_use_same_manifest_revision
                 }
             )
             applied_ack = websocket.receive_json()
-            assert applied_ack["payload"]["removal_token_outcomes"][0][
-                "outcome"
-            ] == "accepted"
+            assert (
+                applied_ack["payload"]["removal_token_outcomes"][0]["outcome"]
+                == "accepted"
+            )
             assert client.get("/im/v1/agents/agent-a/channels").json() == []
 
 

@@ -95,16 +95,12 @@ def test_partial_start_and_registry_failure_reap_candidate_child(failure: str) -
     manager = ChannelManager(
         registry=registry,
         on_inbound=lambda _message: None,
-        provider_factories={
-            "feishu": lambda _spec, _binder, _status: adapter
-        },
+        provider_factories={"feishu": lambda _spec, _binder, _status: adapter},
         status_sink=lambda _status: None,
     )
     try:
         result = asyncio.run(
-            manager.reconcile(
-                ChannelManifest(manifest_revision=1, channels=(_spec(),))
-            )
+            manager.reconcile(ChannelManifest(manifest_revision=1, channels=(_spec(),)))
         )
         assert result.failed_channel_ids == ("ch-a",)
         assert adapter.stopped == 1
@@ -199,26 +195,26 @@ def test_backpressure_reaps_noncooperative_listener_and_restarts_once() -> None:
     )
     try:
         asyncio.run(
-            manager.reconcile(
-                ChannelManifest(manifest_revision=1, channels=(_spec(),))
-            )
+            manager.reconcile(ChannelManifest(manifest_revision=1, channels=(_spec(),)))
         )
         first_pid = adapters[0].runtime.pid
         _wait_until(
-            lambda: any(status.status_code == "event_backpressure" for status in statuses)
+            lambda: any(
+                status.status_code == "event_backpressure" for status in statuses
+            )
         )
         _wait_until(lambda: len(adapters) == 2)
         _wait_until(lambda: adapters[0].runtime.is_alive is False)
-        _wait_until(
-            lambda: manager.registry.get("feishu:agent-a") is adapters[1]
-        )
+        _wait_until(lambda: manager.registry.get("feishu:agent-a") is adapters[1])
         assert first_pid != adapters[1].runtime.pid
         assert len(adapters) == 2
     finally:
         asyncio.run(manager.close())
 
 
-def test_backpressure_retry_budget_reaps_final_listener_and_allows_manual_retry() -> None:
+def test_backpressure_retry_budget_reaps_final_listener_and_allows_manual_retry() -> (
+    None
+):
     """Three retries end failed with no child; reconnect can use retained desired."""
     adapters: list[_WorkerAdapter] = []
 
@@ -240,9 +236,7 @@ def test_backpressure_retry_budget_reaps_final_listener_and_allows_manual_retry(
     )
     try:
         asyncio.run(
-            manager.reconcile(
-                ChannelManifest(manifest_revision=1, channels=(_spec(),))
-            )
+            manager.reconcile(ChannelManifest(manifest_revision=1, channels=(_spec(),)))
         )
         _wait_until(lambda: len(adapters) == 4, timeout=8)
         _wait_until(
@@ -254,9 +248,7 @@ def test_backpressure_retry_budget_reaps_final_listener_and_allows_manual_retry(
         assert len(adapters) == 4
 
         asyncio.run(manager.reconnect("ch-a"))
-        _wait_until(
-            lambda: manager.registry.get("feishu:agent-a") is adapters[4]
-        )
+        _wait_until(lambda: manager.registry.get("feishu:agent-a") is adapters[4])
         assert len(adapters) == 5
     finally:
         asyncio.run(manager.close())

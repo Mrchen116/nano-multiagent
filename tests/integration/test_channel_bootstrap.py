@@ -97,9 +97,7 @@ def test_manual_bind_bootstraps_once_on_same_websocket_then_replays_manifest(
                                 "credential_envelope": envelope,
                                 "credential_key_id": key.key_id,
                                 "credential_revision": 1,
-                                "provider_runtime": {
-                                    "owner_open_id": "ou-owner"
-                                },
+                                "provider_runtime": {"owner_open_id": "ou-owner"},
                             }
                         ],
                     },

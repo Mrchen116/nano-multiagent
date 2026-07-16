@@ -89,7 +89,7 @@ def test_status_result_releases_fifo_before_terminal_handler_runs(
                         "outcome": "terminal_channel_removed",
                     },
                 }
-            )
+            ),
         ]
     )
     relay = WebRelayAdapter()
@@ -166,7 +166,7 @@ def test_offline_barrier_removed_ack_drops_outbox_quarantines_and_continues_fifo
                         "outcome": "terminal_channel_removed",
                     },
                 }
-            )
+            ),
         ]
     )
     relay = WebRelayAdapter()
@@ -221,9 +221,7 @@ def test_disconnected_runtime_replacements_coalesce_unsent_statuses(
     socket = _FakeWebSocket(
         incoming=[
             _register_ack(),
-            json.dumps(
-                {"type": "ack", "payload": {"message_type": "node.report"}}
-            ),
+            json.dumps({"type": "ack", "payload": {"message_type": "node.report"}}),
             json.dumps(
                 {
                     "type": "channel.status.result",
@@ -345,16 +343,16 @@ def test_retryable_manifest_is_reapplied_online_with_bounded_same_revision_retri
             "outcome": "applied" if attempts == 3 else "retryable_failed",
             "applied_channel_ids": [],
             "removal_outcomes": [],
-            "failures": [] if attempts == 3 else [{"error_code": "cache_commit_failed"}],
+            "failures": []
+            if attempts == 3
+            else [{"error_code": "cache_commit_failed"}],
         }
 
     async def no_wait(_delay: float) -> None:
         await asyncio.sleep(0)
 
     connection = IMConnectionManager(
-        config=IMConnectionConfig(
-            url="http://im.local", heartbeat_interval_seconds=0
-        ),
+        config=IMConnectionConfig(url="http://im.local", heartbeat_interval_seconds=0),
         reporter=_minimal_reporter(tmp_path),
         relay_adapter=relay,
         channel_manifest_handler=apply_manifest,

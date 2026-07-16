@@ -50,13 +50,18 @@ def test_gateway_websocket_rejects_missing_bearer_before_registration(
     with make_app_client(tmp_path) as client:
         with pytest.raises(WebSocketDisconnect) as caught:
             with client.websocket_connect("/im/ws/gateway") as websocket:
-                websocket.send_json(_registration(node_id="node-anon", key_seed=b"a" * 32))
+                websocket.send_json(
+                    _registration(node_id="node-anon", key_seed=b"a" * 32)
+                )
                 websocket.receive_json()
 
         assert caught.value.code == 1008
-        assert client.app.state.connection.execute(
-            "SELECT 1 FROM nodes WHERE node_id = 'node-anon'"
-        ).fetchone() is None
+        assert (
+            client.app.state.connection.execute(
+                "SELECT 1 FROM nodes WHERE node_id = 'node-anon'"
+            ).fetchone()
+            is None
+        )
         connected = client.portal.call(
             partial(
                 client.app.state.gateway_handler.snapshot_connection,
@@ -154,8 +159,10 @@ def test_registered_socket_cannot_mutate_another_owners_node(
                 bob_socket.send_json(bob_registration)
                 assert bob_socket.receive_json()["type"] == "ack"
                 _bind(client, node_id="node-bob")
-                bob_broadcast_seq = client.app.state.gateway_handler._status_seq_by_owner.get(  # noqa: SLF001
-                    bob.owner_id, 0
+                bob_broadcast_seq = (
+                    client.app.state.gateway_handler._status_seq_by_owner.get(  # noqa: SLF001
+                        bob.owner_id, 0
+                    )
                 )
 
                 alice_socket.send_json(
@@ -175,9 +182,12 @@ def test_registered_socket_cannot_mutate_another_owners_node(
                     "SELECT status, last_error FROM nodes WHERE node_id = 'node-bob'"
                 ).fetchone()
                 assert tuple(row) == ("online", None)
-                assert client.app.state.gateway_handler._status_seq_by_owner.get(  # noqa: SLF001
-                    bob.owner_id, 0
-                ) == bob_broadcast_seq
+                assert (
+                    client.app.state.gateway_handler._status_seq_by_owner.get(  # noqa: SLF001
+                        bob.owner_id, 0
+                    )
+                    == bob_broadcast_seq
+                )
 
 
 def test_cross_owner_result_cannot_release_another_nodes_waiter(
@@ -189,12 +199,16 @@ def test_cross_owner_result_cannot_release_another_nodes_waiter(
         bob = register_user(client, username="waiter-bob")
         authorize(client, alice)
         with client.websocket_connect("/im/ws/gateway") as alice_socket:
-            alice_socket.send_json(_registration(node_id="waiter-a", key_seed=b"c" * 32))
+            alice_socket.send_json(
+                _registration(node_id="waiter-a", key_seed=b"c" * 32)
+            )
             assert alice_socket.receive_json()["type"] == "ack"
 
             authorize(client, bob)
             with client.websocket_connect("/im/ws/gateway") as bob_socket:
-                bob_socket.send_json(_registration(node_id="waiter-b", key_seed=b"d" * 32))
+                bob_socket.send_json(
+                    _registration(node_id="waiter-b", key_seed=b"d" * 32)
+                )
                 assert bob_socket.receive_json()["type"] == "ack"
 
                 async def seed_waiter() -> None:
@@ -254,6 +268,9 @@ def test_binding_evicts_a_pre_registered_socket_from_the_wrong_owner(
                 time.sleep(0.01)
 
             assert connection is None
-            assert client.app.state.connection.execute(
-                "SELECT 1 FROM node_credential_keys WHERE node_id = 'node-prebound'"
-            ).fetchone() is None
+            assert (
+                client.app.state.connection.execute(
+                    "SELECT 1 FROM node_credential_keys WHERE node_id = 'node-prebound'"
+                ).fetchone()
+                is None
+            )

@@ -145,7 +145,9 @@ def test_backpressure_status_coalescing_and_priority_error_are_visible() -> None
     )
     runtime.start()
     assert entered.wait(2)
-    _wait_until(lambda: any(item.status_code == "event_backpressure" for item in statuses))
+    _wait_until(
+        lambda: any(item.status_code == "event_backpressure" for item in statuses)
+    )
     release.set()
     report = runtime.stop(drain=True)
 

@@ -177,9 +177,7 @@ class FeishuClient:
         self._rest_client: lark.Client | None = None
         self._worker: FeishuWorkerRuntime | None = None
         self._last_stop_report: FeishuWorkerStopReport | None = None
-        self._diagnostics = summarize_diagnostics(
-            evaluate_scope_capabilities(None)
-        )
+        self._diagnostics = summarize_diagnostics(evaluate_scope_capabilities(None))
 
     def start(
         self,
@@ -264,9 +262,7 @@ class FeishuClient:
     def probe_capabilities(self) -> FeishuDiagnostics:
         """Evaluate every Feishu runtime capability from one tenant probe."""
         probe = self.probe_tenant_scope_grants()
-        return summarize_diagnostics(
-            evaluate_scope_capabilities(probe.granted_scopes)
-        )
+        return summarize_diagnostics(evaluate_scope_capabilities(probe.granted_scopes))
 
     def _forward_worker_status(self, status: FeishuWorkerStatus) -> None:
         """Attach the immutable capability snapshot to every connection state."""

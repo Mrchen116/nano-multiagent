@@ -296,7 +296,9 @@ class GatewayHandler:
                 websocket=websocket, payload=payload
             )
         if message_type == "channel.status":
-            return await self._handle_channel_status(websocket=websocket, payload=payload)
+            return await self._handle_channel_status(
+                websocket=websocket, payload=payload
+            )
         if message_type == "channel.runtime_metadata":
             return await self._handle_channel_runtime_metadata(
                 websocket=websocket, payload=payload
@@ -307,7 +309,9 @@ class GatewayHandler:
             return await self._handle_streaming_delta(payload=payload)
         if message_type == "node.system_message":
             return await self._handle_system_message(payload=payload)
-        raise AssertionError(f"unhandled supported gateway message type: {message_type}")
+        raise AssertionError(
+            f"unhandled supported gateway message type: {message_type}"
+        )
 
     async def push_relay_message(
         self, *, relay_task_id: str, target_node_id: str, payload: dict[str, object]
@@ -373,9 +377,7 @@ class GatewayHandler:
         store = self._channel_control_store
         if store is None:
             return False
-        lock = self._channel_initialization_locks.setdefault(
-            node_id, asyncio.Lock()
-        )
+        lock = self._channel_initialization_locks.setdefault(node_id, asyncio.Lock())
         async with lock:
             connection = await self.snapshot_connection(node_id=node_id)
             if (

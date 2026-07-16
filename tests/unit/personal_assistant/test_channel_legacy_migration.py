@@ -148,7 +148,11 @@ def test_export_legacy_cli_opens_cache_to_explicit_mode_0600_file(
         )
     )
     output = tmp_path / "legacy-export.yaml"
-    script = Path(__file__).resolve().parents[3] / "scripts" / "channel-control-export-legacy.py"
+    script = (
+        Path(__file__).resolve().parents[3]
+        / "scripts"
+        / "channel-control-export-legacy.py"
+    )
 
     completed = subprocess.run(
         [

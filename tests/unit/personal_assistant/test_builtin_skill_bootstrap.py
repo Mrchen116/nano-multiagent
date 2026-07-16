@@ -126,13 +126,10 @@ def test_gateway_startup_persists_feishu_doc_for_feishu_bound_allowlist(
     assert "appSecret" not in feishu_channel.settings
     assert stat.S_IMODE(config_path.stat().st_mode) == 0o600
     files = [
-        candidate
-        for candidate in config_path.parent.rglob("*")
-        if candidate.is_file()
+        candidate for candidate in config_path.parent.rglob("*") if candidate.is_file()
     ]
     assert not any(
-        "legacy-startup-marker"
-        in candidate.read_bytes().decode(errors="ignore")
+        "legacy-startup-marker" in candidate.read_bytes().decode(errors="ignore")
         for candidate in files
     )
     assert list(config_path.parent.rglob("*.bak")) == []

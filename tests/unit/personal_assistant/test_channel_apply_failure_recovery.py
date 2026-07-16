@@ -94,15 +94,16 @@ def test_pending_manifest_retries_after_restart_without_rolling_back_runtime(
         status_sink=lambda _status: None,
         manifest_store=store,
     )
-    assert asyncio.run(first.reconcile(_manifest(revision=1, app_id="cli_old"))).outcome == "applied"
+    assert (
+        asyncio.run(first.reconcile(_manifest(revision=1, app_id="cli_old"))).outcome
+        == "applied"
+    )
     failed = asyncio.run(first.reconcile(_manifest(revision=2, app_id="cli_new")))
     assert failed.outcome == "retryable_failed"
     assert store.load_manifest().manifest_revision == 1
     assert store.load_retry_manifest().manifest_revision == 2
 
-    restarted_store = _FailRevisionTwoOnceStore(
-        path, node_id="node-a", key_id="key-a"
-    )
+    restarted_store = _FailRevisionTwoOnceStore(path, node_id="node-a", key_id="key-a")
     restarted_store.fail_revision_two = False
     restarted_events: list[str] = []
     restarted = ChannelManager(

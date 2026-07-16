@@ -67,14 +67,15 @@ def test_catalog_matches_current_and_supported_legacy_scope_contract() -> None:
     assert by_id["feishu.receive_group_message"].recommended_scopes == (
         "im:message.group_msg",
     )
-    assert by_id["feishu.read_chat"].recommended_scopes == (
-        "im:chat:readonly",
+    assert by_id["feishu.read_chat"].recommended_scopes == ("im:chat:readonly",)
+    assert (
+        "legacy"
+        not in " ".join(
+            scope
+            for item in FEISHU_CAPABILITY_CATALOG
+            for scope in item.recommended_scopes
+        ).lower()
     )
-    assert "legacy" not in " ".join(
-        scope
-        for item in FEISHU_CAPABILITY_CATALOG
-        for scope in item.recommended_scopes
-    ).lower()
 
 
 @pytest.mark.parametrize(
@@ -96,9 +97,7 @@ def test_every_current_or_legacy_accepted_set_satisfies_its_capability(
 
 
 def test_complete_probe_only_marks_missing_when_no_full_set_is_granted() -> None:
-    checks = evaluate_scope_capabilities(
-        frozenset({"im:message:readonly"})
-    )
+    checks = evaluate_scope_capabilities(frozenset({"im:message:readonly"}))
 
     group_history = next(
         item for item in checks if item.check_id == "feishu.group_history"

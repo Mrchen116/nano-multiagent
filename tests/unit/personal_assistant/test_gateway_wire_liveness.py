@@ -59,9 +59,7 @@ def _manager(
 
     return IMConnectionManager(
         config=config
-        or IMConnectionConfig(
-            url="http://im.local", heartbeat_interval_seconds=0
-        ),
+        or IMConnectionConfig(url="http://im.local", heartbeat_interval_seconds=0),
         reporter=_minimal_reporter(tmp_path),
         relay_adapter=relay,
         connect=connect,
@@ -111,9 +109,7 @@ def test_status_result_during_yielding_send_releases_wire_owner(
         listen_task = asyncio.create_task(manager._listen_once())  # noqa: SLF001
         await asyncio.sleep(0)
         socket.release_send.set()
-        await asyncio.wait_for(
-            asyncio.gather(send_task, listen_task), timeout=0.5
-        )
+        await asyncio.wait_for(asyncio.gather(send_task, listen_task), timeout=0.5)
 
     asyncio.run(exercise())
 
@@ -134,16 +130,12 @@ def test_heartbeat_ack_during_yielding_send_completes_waiter(tmp_path: Path) -> 
         )
         await socket.send_started.wait()
         socket.incoming.append(
-            json.dumps(
-                {"type": "ack", "payload": {"message_type": "node.heartbeat"}}
-            )
+            json.dumps({"type": "ack", "payload": {"message_type": "node.heartbeat"}})
         )
         listen_task = asyncio.create_task(manager._listen_once())  # noqa: SLF001
         await asyncio.sleep(0)
         socket.release_send.set()
-        await asyncio.wait_for(
-            asyncio.gather(heartbeat_task, listen_task), timeout=0.5
-        )
+        await asyncio.wait_for(asyncio.gather(heartbeat_task, listen_task), timeout=0.5)
 
     asyncio.run(exercise())
     assert manager._awaiting_ack_type is None  # noqa: SLF001
@@ -260,9 +252,7 @@ def test_register_timeout_does_not_cancel_post_ack_convergence(tmp_path: Path) -
     """The handshake deadline ends at ACK, before slower convergence callbacks."""
     socket = _FakeWebSocket(
         incoming=[
-            json.dumps(
-                {"type": "ack", "payload": {"message_type": "node.register"}}
-            )
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}})
         ]
     )
     relay = WebRelayAdapter()

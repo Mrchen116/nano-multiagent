@@ -208,7 +208,8 @@ class ChannelManager:
         metadata_sink: Callable[[ProviderMetadataReport], None] | None = None,
         activation_policy: FeishuActivationPolicy | None = None,
         manifest_store: ChannelManifestStore | None = None,
-        credential_opener: Callable[[CachedChannelSpec], Mapping[str, str]] | None = None,
+        credential_opener: Callable[[CachedChannelSpec], Mapping[str, str]]
+        | None = None,
     ) -> None:
         self._registry = registry
         self._on_inbound = on_inbound
@@ -221,9 +222,7 @@ class ChannelManager:
         self._active: dict[str, _ActiveRuntime] = {}
         self._desired: dict[str, ManagedChannelSpec] = {}
         self._restart_attempts: dict[tuple[str, ChannelGeneration], int] = {}
-        self._restart_scheduled: set[
-            tuple[str, ChannelGeneration, str]
-        ] = set()
+        self._restart_scheduled: set[tuple[str, ChannelGeneration, str]] = set()
         self._closing = False
         try:
             self._last_seen_manifest_revision = (
@@ -291,8 +290,7 @@ class ChannelManager:
                         manifest_revision=cached.manifest_revision,
                         channels=desired,
                         removals=tuple(
-                            self._removal_from_cached(item)
-                            for item in cached.removals
+                            self._removal_from_cached(item) for item in cached.removals
                         ),
                     )
                 )
@@ -369,10 +367,14 @@ class ChannelManager:
             failed: list[str] = []
             failures: list[dict[str, object]] = []
             removal_outcomes: dict[str, RemovalOutcome] = {}
-            cached = self._manifest_store.load_manifest() if self._manifest_store else None
-            cached_channel_ids = {
-                item.channel_id for item in cached.channels
-            } if cached is not None else set()
+            cached = (
+                self._manifest_store.load_manifest() if self._manifest_store else None
+            )
+            cached_channel_ids = (
+                {item.channel_id for item in cached.channels}
+                if cached is not None
+                else set()
+            )
             retryable_failure = False
             for channel_id in tuple(self._active):
                 spec = desired.get(channel_id)

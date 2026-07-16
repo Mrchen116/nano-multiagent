@@ -74,20 +74,27 @@ def test_incarnation_barrier_sequence_and_im_received_time_are_authoritative(
 ) -> None:
     store, channel_id = _store_with_channel(tmp_path)
     assert store.record_status(_status(channel_id)) == "accepted"
-    assert store.record_status(
-        _status(channel_id, status_sequence=1, instance_started=False)
-    ) == "already_current"
-    assert store.record_status(
-        _status(
-            channel_id,
-            runtime_incarnation="inc-b",
-            status_sequence=2,
-            instance_started=False,
+    assert (
+        store.record_status(
+            _status(channel_id, status_sequence=1, instance_started=False)
         )
-    ) == "already_current"
-    assert store.record_status(
-        _status(channel_id, runtime_incarnation="inc-b")
-    ) == "accepted"
+        == "already_current"
+    )
+    assert (
+        store.record_status(
+            _status(
+                channel_id,
+                runtime_incarnation="inc-b",
+                status_sequence=2,
+                instance_started=False,
+            )
+        )
+        == "already_current"
+    )
+    assert (
+        store.record_status(_status(channel_id, runtime_incarnation="inc-b"))
+        == "accepted"
+    )
 
     observed = store.list_channels(owner_id="owner-a", agent_id="agent-a")[0].observed
     assert observed is not None

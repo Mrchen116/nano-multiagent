@@ -34,6 +34,8 @@ from personal_assistant.gateway.group_context_store import GroupContextStore
 logger = logging.getLogger(__name__)
 
 _ACK_REACTION_EMOJI_TYPE = "THINKING"
+
+
 class FeishuAdapter:
     """Feishu channel adapter implementing the ChannelAdapter Protocol.
 
@@ -507,6 +509,7 @@ class FeishuAdapter:
                 },
             )
             return None
+
 
 def _is_bot_mentioned(mentions: list[FeishuMention], bot_open_id: str | None) -> bool:
     """Check if the bot is explicitly mentioned in the message.

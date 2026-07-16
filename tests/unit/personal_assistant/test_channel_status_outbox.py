@@ -133,16 +133,23 @@ def test_late_old_incarnation_ack_is_idempotent_and_cannot_unlock_current(
     store.record_channel_status(_status("old-latest", sequence=2, incarnation="old"))
     store.record_channel_status(_status("new-barrier", sequence=1, incarnation="new"))
     store.record_channel_status(_status("new-latest", sequence=2, incarnation="new"))
-    assert store.record_channel_status(
-        _status("old-after-new", sequence=3, incarnation="old")
-    ) is None
+    assert (
+        store.record_channel_status(
+            _status("old-after-new", sequence=3, incarnation="old")
+        )
+        is None
+    )
 
-    assert store.apply_channel_status_result(
-        request_id="old-barrier", outcome="accepted"
-    ) is None
-    assert store.apply_channel_status_result(
-        request_id="old-latest", outcome="terminal_stale_revision"
-    ) is None
+    assert (
+        store.apply_channel_status_result(request_id="old-barrier", outcome="accepted")
+        is None
+    )
+    assert (
+        store.apply_channel_status_result(
+            request_id="old-latest", outcome="terminal_stale_revision"
+        )
+        is None
+    )
     assert [item["request_id"] for item in store.pending_channel_statuses()] == [
         "new-barrier"
     ]

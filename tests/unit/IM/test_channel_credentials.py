@@ -73,7 +73,9 @@ def test_envelope_rejects_every_aad_scope_change(
         aad=_aad(),
     )
 
-    with pytest.raises(ChannelEnvelopeError, match="credential envelope invalid") as error:
+    with pytest.raises(
+        ChannelEnvelopeError, match="credential envelope invalid"
+    ) as error:
         open_channel_secret(
             private_key=pair.private_key, envelope=envelope, aad=tampered_aad
         )

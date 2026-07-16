@@ -161,7 +161,9 @@ def test_keep_preserves_envelope_but_app_id_change_requires_replace(
     assert error.value.code == "channel_credentials_required"
 
 
-def test_owner_scope_hides_channels_and_missing_key_fails_closed(tmp_path: Path) -> None:
+def test_owner_scope_hides_channels_and_missing_key_fails_closed(
+    tmp_path: Path,
+) -> None:
     """Tenant isolation and absent node keys never leak channel or credential data."""
     store, _ = _seed_store(tmp_path)
     created = _create(store)
@@ -179,7 +181,9 @@ def test_owner_scope_hides_channels_and_missing_key_fails_closed(tmp_path: Path)
     assert hidden.value.code == "channel_not_found"
 
     with connect(tmp_path / "im.db") as connection:
-        connection.execute("DELETE FROM node_credential_keys WHERE node_id = ?", ("node-a",))
+        connection.execute(
+            "DELETE FROM node_credential_keys WHERE node_id = ?", ("node-a",)
+        )
     with pytest.raises(ChannelControlError) as no_key:
         store.update_channel(
             owner_id="owner-a",
@@ -240,17 +244,18 @@ def test_delete_persists_removal_until_applied_and_preserves_shadow_history(
     removal = deleted.removal
     assert removal.apply_state == "pending"
     assert removal.deletion_manifest_revision == 2
-    assert store.list_channels(owner_id="owner-a", agent_id="agent-a") == [
-        removal
-    ]
+    assert store.list_channels(owner_id="owner-a", agent_id="agent-a") == [removal]
     assert isinstance(removal, ChannelRemovalView)
     with pytest.raises(ChannelControlError) as duplicate:
         _create(store)
     assert duplicate.value.code == "channel_deletion_pending"
     with connect(tmp_path / "im.db") as connection:
-        assert connection.execute(
-            "SELECT content FROM messages WHERE id = 'msg-a'"
-        ).fetchone()[0] == "history stays"
+        assert (
+            connection.execute(
+                "SELECT content FROM messages WHERE id = 'msg-a'"
+            ).fetchone()[0]
+            == "history stays"
+        )
 
 
 def test_failed_removal_retries_same_revision_then_hides_only_after_result(

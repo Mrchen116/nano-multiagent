@@ -72,7 +72,9 @@ def test_preflight_preserves_official_credential_failure_categories(
     assert "secret-invalid" not in str(caught.value)
 
 
-def test_preflight_distinguishes_bot_disabled_from_long_connection_unavailable() -> None:
+def test_preflight_distinguishes_bot_disabled_from_long_connection_unavailable() -> (
+    None
+):
     """Bot capability and WS endpoint setup have independent remediation codes."""
     auth = _response({"code": 0, "tenant_access_token": "tenant-token"})
     with pytest.raises(ChannelStartupError) as bot_error:
@@ -186,7 +188,9 @@ def test_preflight_metadata_is_cached_and_replayed_for_current_generation(
     assert reports[0].patch == {"bot_open_id": "ou-bot"}
 
 
-def test_activation_failure_is_not_memoized_and_retries_without_blocking_runtime() -> None:
+def test_activation_failure_is_not_memoized_and_retries_without_blocking_runtime() -> (
+    None
+):
     """A transient config-sync failure can succeed after the IM connection recovers."""
     attempts = 0
 
@@ -198,9 +202,7 @@ def test_activation_failure_is_not_memoized_and_retries_without_blocking_runtime
     manager = ChannelManager(
         registry=ChannelRegistry(),
         on_inbound=lambda _message: None,
-        provider_factories={
-            "feishu": lambda _spec, _binder, _status: _Adapter()
-        },
+        provider_factories={"feishu": lambda _spec, _binder, _status: _Adapter()},
         status_sink=lambda _status: None,
         activation_policy=FeishuActivationPolicy(activate),
     )

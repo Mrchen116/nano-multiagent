@@ -18,7 +18,9 @@ from personal_assistant.gateway.channel_registry import ChannelRegistry
 
 
 class _Adapter:
-    def __init__(self, name: str, events: list[str], *, fail_start: bool = False) -> None:
+    def __init__(
+        self, name: str, events: list[str], *, fail_start: bool = False
+    ) -> None:
         self.name = name
         self.events = events
         self.fail_start = fail_start
@@ -99,12 +101,8 @@ def test_reconcile_replaces_runtime_with_stable_name_and_generation_cas() -> Non
     assert statuses[0].status_sequence == 1
     assert statuses[0].instance_started is True
     old_incarnation = statuses[0].runtime_incarnation
-    assert binders[0]({"owner_open_id": "ou_first"}) == {
-        "owner_open_id": "ou_first"
-    }
-    assert binders[0]({"owner_open_id": "ou_second"}) == {
-        "owner_open_id": "ou_first"
-    }
+    assert binders[0]({"owner_open_id": "ou_first"}) == {"owner_open_id": "ou_first"}
+    assert binders[0]({"owner_open_id": "ou_second"}) == {"owner_open_id": "ou_first"}
 
     replacement = _spec(
         app_id="cli_b",
@@ -132,27 +130,36 @@ def test_reconcile_replaces_runtime_with_stable_name_and_generation_cas() -> Non
     new_barrier = statuses[1]
     assert new_barrier.runtime_incarnation != old_incarnation
     assert new_barrier.status_sequence == 1
-    assert manager.accept_status(
-        channel_id="ch-a",
-        generation=original.generation,
-        runtime_incarnation=old_incarnation,
-        status_sequence=99,
-        connection_state="connected",
-    ) is False
-    assert manager.accept_status(
-        channel_id="ch-a",
-        generation=replacement.generation,
-        runtime_incarnation=new_barrier.runtime_incarnation,
-        status_sequence=2,
-        connection_state="connected",
-    ) is True
-    assert manager.accept_status(
-        channel_id="ch-a",
-        generation=replacement.generation,
-        runtime_incarnation=new_barrier.runtime_incarnation,
-        status_sequence=1,
-        connection_state="failed",
-    ) is False
+    assert (
+        manager.accept_status(
+            channel_id="ch-a",
+            generation=original.generation,
+            runtime_incarnation=old_incarnation,
+            status_sequence=99,
+            connection_state="connected",
+        )
+        is False
+    )
+    assert (
+        manager.accept_status(
+            channel_id="ch-a",
+            generation=replacement.generation,
+            runtime_incarnation=new_barrier.runtime_incarnation,
+            status_sequence=2,
+            connection_state="connected",
+        )
+        is True
+    )
+    assert (
+        manager.accept_status(
+            channel_id="ch-a",
+            generation=replacement.generation,
+            runtime_incarnation=new_barrier.runtime_incarnation,
+            status_sequence=1,
+            connection_state="failed",
+        )
+        is False
+    )
 
 
 def test_replacement_start_failure_cuts_old_send_path_and_surfaces_failure() -> None:
@@ -165,9 +172,7 @@ def test_replacement_start_failure_cuts_old_send_path_and_surfaces_failure() -> 
     def factory(spec, _binder, _status_handler):
         nonlocal calls
         calls += 1
-        adapter = _Adapter(
-            f"feishu:{spec.agent_id}", events, fail_start=calls == 2
-        )
+        adapter = _Adapter(f"feishu:{spec.agent_id}", events, fail_start=calls == 2)
         adapters.append(adapter)
         return adapter
 
@@ -228,32 +233,31 @@ def test_active_status_forwards_structured_diagnostic_checks() -> None:
         status_sink=statuses.append,
     )
     asyncio.run(
-        manager.reconcile(
-            ChannelManifest(manifest_revision=1, channels=(_spec(),))
-        )
+        manager.reconcile(ChannelManifest(manifest_revision=1, channels=(_spec(),)))
     )
 
-    assert status_handlers[0](
-        status_sequence=2,
-        connection_state="connected",
-        diagnostics_state="limited",
-        checks=(
-            {
-                "check_id": "feishu.receive_group_message",
-                "state": "missing",
-                "required": {
-                    "accepted_scope_sets": [["im:message.group_msg"]],
-                    "recommended_scopes": ["im:message.group_msg"],
+    assert (
+        status_handlers[0](
+            status_sequence=2,
+            connection_state="connected",
+            diagnostics_state="limited",
+            checks=(
+                {
+                    "check_id": "feishu.receive_group_message",
+                    "state": "missing",
+                    "required": {
+                        "accepted_scope_sets": [["im:message.group_msg"]],
+                        "recommended_scopes": ["im:message.group_msg"],
+                    },
+                    "effect": "Group background context is incomplete.",
+                    "remediation": "Grant the recommended scope and publish the app.",
                 },
-                "effect": "Group background context is incomplete.",
-                "remediation": "Grant the recommended scope and publish the app.",
-            },
-        ),
-    ) is True
-    assert statuses[-1].diagnostics_state == "limited"
-    assert statuses[-1].checks[0]["check_id"] == (
-        "feishu.receive_group_message"
+            ),
+        )
+        is True
     )
+    assert statuses[-1].diagnostics_state == "limited"
+    assert statuses[-1].checks[0]["check_id"] == ("feishu.receive_group_message")
 
 
 def test_activation_policy_adds_feishu_doc_once_for_explicit_allowlist() -> None:

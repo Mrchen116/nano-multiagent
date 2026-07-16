@@ -900,9 +900,7 @@ class _IMConfigSyncClient:
             )
             return replace(current, agents=tuple(agents), source_path=persist_path)
 
-        self._config_owner.persist(
-            update, save_config=save_sensitive_local_config
-        )
+        self._config_owner.persist(update, save_config=save_sensitive_local_config)
 
     @property
     def _local_config(self) -> LocalConfig:
@@ -3100,6 +3098,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                     credential_revision=item.credential_revision,
                 ),
             )
+
         reporter = UpstreamReporter(
             node=config.node,
             agents=config.agents,
@@ -3466,14 +3465,14 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             channel_id: str, channel_revision: int
         ) -> None:
             cached = channel_manifest_store.load_manifest()
-            desired = next(
-                (
-                    item
-                    for item in cached.channels
-                    if item.channel_id == channel_id
-                ),
-                None,
-            ) if cached is not None else None
+            desired = (
+                next(
+                    (item for item in cached.channels if item.channel_id == channel_id),
+                    None,
+                )
+                if cached is not None
+                else None
+            )
             if desired is None or desired.channel_revision != channel_revision:
                 raise LookupError("channel reconnect revision is stale")
             await channel_manager.reconnect(channel_id)
@@ -4364,8 +4363,7 @@ def _build_im_connection_manager(
     | None = None,
     channel_reconnect_handler: Callable[[str, int], Awaitable[object] | object]
     | None = None,
-    channel_reconcile_ack_handler: Callable[[Mapping[str, object]], None]
-    | None = None,
+    channel_reconcile_ack_handler: Callable[[Mapping[str, object]], None] | None = None,
     channel_status_result_handler: Callable[
         [Mapping[str, object]], Awaitable[None] | None
     ]

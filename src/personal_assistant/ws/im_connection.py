@@ -148,15 +148,9 @@ ChannelManifestHandler = Callable[
     Awaitable[Mapping[str, object]] | Mapping[str, object],
 ]
 ChannelReconnectHandler = Callable[[str, int], Awaitable[object] | object]
-ChannelReconcileAckHandler = Callable[
-    [Mapping[str, object]], Awaitable[None] | None
-]
-ChannelStatusResultHandler = Callable[
-    [Mapping[str, object]], Awaitable[None] | None
-]
-ChannelBootstrapProvider = Callable[
-    [Mapping[str, object]], list[Mapping[str, object]]
-]
+ChannelReconcileAckHandler = Callable[[Mapping[str, object]], Awaitable[None] | None]
+ChannelStatusResultHandler = Callable[[Mapping[str, object]], Awaitable[None] | None]
+ChannelBootstrapProvider = Callable[[Mapping[str, object]], list[Mapping[str, object]]]
 ChannelBootstrapAppliedHandler = Callable[[], None]
 
 
@@ -259,8 +253,7 @@ class IMConnectionManager:
         channel_reconcile_ack_handler: ChannelReconcileAckHandler | None = None,
         channel_status_result_handler: ChannelStatusResultHandler | None = None,
         channel_bootstrap_provider: ChannelBootstrapProvider | None = None,
-        channel_bootstrap_applied_handler: ChannelBootstrapAppliedHandler
-        | None = None,
+        channel_bootstrap_applied_handler: ChannelBootstrapAppliedHandler | None = None,
         channel_reconcile_retry_delays: tuple[float, ...] = (0.5, 1.0, 2.0),
         connect: ConnectFn,
         sleep: SleepFn = asyncio.sleep,
@@ -704,9 +697,7 @@ class IMConnectionManager:
         request_id: str,
         manifest_revision: int,
     ) -> None:
-        for attempt, delay in enumerate(
-            self._channel_reconcile_retry_delays, start=1
-        ):
+        for attempt, delay in enumerate(self._channel_reconcile_retry_delays, start=1):
             await self._sleep(delay)
             if (
                 self._stop_requested
@@ -770,7 +761,9 @@ class IMConnectionManager:
             return
         if message_type == "channel.reconcile":
             if self._channel_manifest_handler is None:
-                raise RuntimeError("channel.reconcile requires channel_manifest_handler")
+                raise RuntimeError(
+                    "channel.reconcile requires channel_manifest_handler"
+                )
             request_id = _require_text(body.get("request_id"), field_name="request_id")
             result_payload = await self._apply_channel_manifest_and_send(
                 body=body, request_id=request_id
@@ -818,9 +811,7 @@ class IMConnectionManager:
                         manifest.get("request_id"), field_name="request_id"
                     ),
                     "node_id": self._reporter.node_id,
-                    "manifest_revision": int(
-                        manifest.get("manifest_revision") or 0
-                    ),
+                    "manifest_revision": int(manifest.get("manifest_revision") or 0),
                     **result_payload,
                 },
             )
@@ -832,10 +823,10 @@ class IMConnectionManager:
             return
         if message_type == "channel.reconnect":
             if self._channel_reconnect_handler is None:
-                raise RuntimeError("channel.reconnect requires channel_reconnect_handler")
-            channel_id = _require_text(
-                body.get("channel_id"), field_name="channel_id"
-            )
+                raise RuntimeError(
+                    "channel.reconnect requires channel_reconnect_handler"
+                )
+            channel_id = _require_text(body.get("channel_id"), field_name="channel_id")
             revision = int(body.get("channel_revision") or 0)
             await _maybe_await(self._channel_reconnect_handler(channel_id, revision))
             return
@@ -1273,9 +1264,7 @@ class IMConnectionManager:
             except asyncio.CancelledError:
                 if disconnect_on_cancel:
                     await self._disconnect_current_websocket(
-                        RuntimeError(
-                            f"{pending_frame.message_type} send was cancelled"
-                        )
+                        RuntimeError(f"{pending_frame.message_type} send was cancelled")
                     )
                 raise
             except Exception as exc:  # noqa: BLE001
@@ -1318,9 +1307,7 @@ class IMConnectionManager:
             with contextlib.suppress(asyncio.CancelledError):
                 await heartbeat_task
 
-    def _ack_pending_frame(
-        self, payload: Mapping[str, object]
-    ) -> PendingFrame | None:
+    def _ack_pending_frame(self, payload: Mapping[str, object]) -> PendingFrame | None:
         owner = self._wire_frame_owner
         if owner is None:
             return None
@@ -1353,9 +1340,8 @@ class IMConnectionManager:
             return False
         pending = owner.frame
         request_id = payload.get("request_id")
-        if (
-            not isinstance(request_id, str)
-            or request_id != pending.payload.get("request_id")
+        if not isinstance(request_id, str) or request_id != pending.payload.get(
+            "request_id"
         ):
             return False
         self._wire_frame_owner = None

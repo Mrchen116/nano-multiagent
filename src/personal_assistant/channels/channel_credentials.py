@@ -127,7 +127,13 @@ class GatewayChannelKey:
             ):
                 raise ValueError("invalid secret payload")
             return decoded
-        except (InvalidTag, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        except (
+            InvalidTag,
+            KeyError,
+            TypeError,
+            ValueError,
+            json.JSONDecodeError,
+        ) as exc:
             raise ValueError("credential envelope invalid") from exc
 
 
@@ -143,7 +149,9 @@ class GatewayChannelKeyStore:
             self._create()
         os.chmod(self._path, 0o600)
         private_pem = self._path.read_text(encoding="ascii")
-        private = serialization.load_pem_private_key(private_pem.encode(), password=None)
+        private = serialization.load_pem_private_key(
+            private_pem.encode(), password=None
+        )
         if not isinstance(private, X25519PrivateKey):
             raise ValueError("channel credential key must be X25519")
         public_bytes = private.public_key().public_bytes(

@@ -718,9 +718,7 @@ def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
     dest.write_text(new_text, encoding="utf-8")
 
 
-def save_sensitive_local_config(
-    config: LocalConfig, config_path: str | Path
-) -> None:
+def save_sensitive_local_config(config: LocalConfig, config_path: str | Path) -> None:
     """Atomically write a potentially secret-bearing config as mode 0600.
 
     Args:
@@ -1029,9 +1027,7 @@ def _validate_feishu_settings(settings: dict[str, Any], *, prefix: str) -> None:
     if app_secret is not None:
         _require_non_empty_string(app_secret, field_name=f"{prefix}.appSecret")
     if credential_ref is not None:
-        _require_non_empty_string(
-            credential_ref, field_name=f"{prefix}.credentialRef"
-        )
+        _require_non_empty_string(credential_ref, field_name=f"{prefix}.credentialRef")
     owner_open_id = settings.get("ownerOpenId")
     if owner_open_id is not None:
         _require_non_empty_string(owner_open_id, field_name=f"{prefix}.ownerOpenId")

@@ -108,9 +108,7 @@ def test_cache_key_loss_quarantines_ciphertext_and_allows_gateway_start(
     manager = ChannelManager(
         registry=ChannelRegistry(),
         on_inbound=lambda _message: None,
-        provider_factories={
-            "feishu": lambda _spec, _binder, _status: _Adapter(events)
-        },
+        provider_factories={"feishu": lambda _spec, _binder, _status: _Adapter(events)},
         status_sink=statuses.append,
         manifest_store=reader,
         credential_opener=lambda _item: (_ for _ in ()).throw(
@@ -155,9 +153,7 @@ def test_cached_provider_failure_allows_gateway_connect_and_manual_recovery(
         on_inbound=lambda _message: None,
         provider_factories={"feishu": factory},
         status_sink=statuses.append,
-        manifest_store=ChannelManifestStore(
-            path, node_id="node-a", key_id="key-a"
-        ),
+        manifest_store=ChannelManifestStore(path, node_id="node-a", key_id="key-a"),
         credential_opener=lambda _item: {"app_secret": "opened"},
     )
 
@@ -179,9 +175,7 @@ def test_one_bad_envelope_rejects_complete_manifest_without_stopping_safe_runtim
     manager = ChannelManager(
         registry=ChannelRegistry(),
         on_inbound=lambda _message: None,
-        provider_factories={
-            "feishu": lambda _spec, _binder, _status: _Adapter(events)
-        },
+        provider_factories={"feishu": lambda _spec, _binder, _status: _Adapter(events)},
         status_sink=statuses.append,
         manifest_store=store,
     )
@@ -263,15 +257,14 @@ def test_malformed_manifest_rejects_snapshot_before_runtime_or_cache_mutation(
     manager = ChannelManager(
         registry=ChannelRegistry(),
         on_inbound=lambda _message: None,
-        provider_factories={
-            "feishu": lambda _spec, _binder, _status: _Adapter(events)
-        },
+        provider_factories={"feishu": lambda _spec, _binder, _status: _Adapter(events)},
         status_sink=lambda _snapshot: None,
         manifest_store=store,
     )
-    assert asyncio.run(
-        manager.reconcile(_manifest(revision=1, key_id="key-a"))
-    ).outcome == "applied"
+    assert (
+        asyncio.run(manager.reconcile(_manifest(revision=1, key_id="key-a"))).outcome
+        == "applied"
+    )
     cached_before = path.read_bytes()
     body = _payload()
     if malformation == "missing_channels":
@@ -315,15 +308,14 @@ def test_envelope_open_failure_rejects_manifest_before_runtime_or_cache_mutation
     manager = ChannelManager(
         registry=ChannelRegistry(),
         on_inbound=lambda _message: None,
-        provider_factories={
-            "feishu": lambda _spec, _binder, _status: _Adapter(events)
-        },
+        provider_factories={"feishu": lambda _spec, _binder, _status: _Adapter(events)},
         status_sink=lambda _snapshot: None,
         manifest_store=store,
     )
-    assert asyncio.run(
-        manager.reconcile(_manifest(revision=1, key_id="key-a"))
-    ).outcome == "applied"
+    assert (
+        asyncio.run(manager.reconcile(_manifest(revision=1, key_id="key-a"))).outcome
+        == "applied"
+    )
     cached_before = path.read_bytes()
 
     def reject_envelope(_context: CredentialEnvelopeContext) -> Mapping[str, str]:

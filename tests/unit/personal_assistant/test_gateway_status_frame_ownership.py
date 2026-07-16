@@ -134,16 +134,12 @@ def test_new_incarnation_supersedes_disconnected_unacked_status_on_next_socket(
     """Reconnect replays only the current runtime status and preserves other FIFO."""
     first_socket = _FakeWebSocket(
         incoming=[
-            json.dumps(
-                {"type": "ack", "payload": {"message_type": "node.register"}}
-            )
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}})
         ]
     )
     second_socket = _FakeWebSocket(
         incoming=[
-            json.dumps(
-                {"type": "ack", "payload": {"message_type": "node.register"}}
-            ),
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
             json.dumps(
                 {
                     "type": "channel.status.result",
@@ -159,9 +155,7 @@ def test_new_incarnation_supersedes_disconnected_unacked_status_on_next_socket(
                     },
                 }
             ),
-            json.dumps(
-                {"type": "ack", "payload": {"message_type": "node.report"}}
-            ),
+            json.dumps({"type": "ack", "payload": {"message_type": "node.report"}}),
         ]
     )
     sockets = [first_socket, second_socket]
@@ -217,14 +211,10 @@ def test_new_incarnation_supersedes_disconnected_unacked_status_on_next_socket(
     ]
     second_frames = [json.loads(frame) for frame in second_socket.sent]
     second_statuses = [
-        frame["payload"]
-        for frame in second_frames
-        if frame["type"] == "channel.status"
+        frame["payload"] for frame in second_frames if frame["type"] == "channel.status"
     ]
     assert [item["runtime_incarnation"] for item in first_statuses] == ["inc-old"]
-    assert [item["runtime_incarnation"] for item in second_statuses] == [
-        "inc-current"
-    ]
+    assert [item["runtime_incarnation"] for item in second_statuses] == ["inc-current"]
     assert [frame["type"] for frame in second_frames] == [
         "node.register",
         "channel.status",

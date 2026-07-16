@@ -424,11 +424,16 @@ class FeishuWorkerRuntime:
                 frame = self._parent_action.recv()
             except (EOFError, OSError):
                 return
-            if not isinstance(frame, dict) or frame.get("kind") != "card_action.request":
+            if (
+                not isinstance(frame, dict)
+                or frame.get("kind") != "card_action.request"
+            ):
                 continue
             request_id = frame.get("request_id")
             deadline = frame.get("deadline")
-            if not isinstance(request_id, str) or not isinstance(deadline, (int, float)):
+            if not isinstance(request_id, str) or not isinstance(
+                deadline, (int, float)
+            ):
                 continue
             if time.monotonic() >= deadline or self._on_card_action is None:
                 response = dict(_CARD_ACTION_FALLBACK)

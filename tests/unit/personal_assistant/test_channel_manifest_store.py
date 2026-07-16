@@ -331,9 +331,7 @@ def test_cached_start_opens_envelope_without_im_and_explicit_absence_is_terminal
             )
         },
         status_sink=lambda _status: None,
-        manifest_store=ChannelManifestStore(
-            path, node_id="node-a", key_id="key-a"
-        ),
+        manifest_store=ChannelManifestStore(path, node_id="node-a", key_id="key-a"),
         credential_opener=opener,
     )
 
@@ -361,8 +359,6 @@ def test_cached_start_opens_envelope_without_im_and_explicit_absence_is_terminal
         deletion_manifest_revision=1,
     )
     report = asyncio.run(
-        fresh_manager.reconcile(
-            _manifest(revision=1, channels=(), removals=(removal,))
-        )
+        fresh_manager.reconcile(_manifest(revision=1, channels=(), removals=(removal,)))
     )
     assert report.removal_outcomes[0].outcome == "already_absent"

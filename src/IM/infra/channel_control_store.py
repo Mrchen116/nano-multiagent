@@ -358,9 +358,7 @@ class ChannelControlStore:
             owner_id = str(node["owner_id"] or "") if node is not None else ""
             if not owner_id:
                 raise ChannelControlError("channel_not_found", status_code=404)
-            key = self._require_node_key(
-                connection, owner_id=owner_id, node_id=node_id
-            )
+            key = self._require_node_key(connection, owner_id=owner_id, node_id=node_id)
             head = connection.execute(
                 "SELECT * FROM channel_manifest_heads WHERE node_id = ?",
                 (node_id,),
@@ -418,9 +416,7 @@ class ChannelControlStore:
                 ).fetchone()
                 if bound is None:
                     raise ChannelControlError("channel_not_found", status_code=404)
-                normalized = self._normalize_config(
-                    provider=provider, config=config
-                )
+                normalized = self._normalize_config(provider=provider, config=config)
                 runtime = (
                     {
                         str(name): str(value)
@@ -545,13 +541,13 @@ class ChannelControlStore:
             elif outcome == "stale":
                 head_outcome = "already_applied"
             else:
-                raise ChannelControlError("channel_reconcile_result_invalid", status_code=422)
+                raise ChannelControlError(
+                    "channel_reconcile_result_invalid", status_code=422
+                )
 
             token_acks: list[dict[str, str]] = []
             normalized_removals = (
-                removal_outcomes
-                if isinstance(removal_outcomes, list | tuple)
-                else []
+                removal_outcomes if isinstance(removal_outcomes, list | tuple) else []
             )
             for item in normalized_removals:
                 if not isinstance(item, Mapping):
@@ -569,9 +565,7 @@ class ChannelControlStore:
                     (token, channel_id, node_id),
                 ).fetchone()
                 if receipt is None:
-                    deletion_revision = int(
-                        item.get("deletion_manifest_revision") or 0
-                    )
+                    deletion_revision = int(item.get("deletion_manifest_revision") or 0)
                     active = connection.execute(
                         "SELECT 1 FROM agent_channels WHERE channel_id = ? AND node_id = ?",
                         (channel_id, node_id),
@@ -589,7 +583,9 @@ class ChannelControlStore:
                         {
                             "removal_token": token,
                             "outcome": (
-                                "already_applied_by_head" if terminal else "fatal_unknown"
+                                "already_applied_by_head"
+                                if terminal
+                                else "fatal_unknown"
                             ),
                         }
                     )
@@ -619,9 +615,7 @@ class ChannelControlStore:
                         "DELETE FROM agent_channel_status WHERE channel_id = ?",
                         (channel_id,),
                     )
-                    token_acks.append(
-                        {"removal_token": token, "outcome": "accepted"}
-                    )
+                    token_acks.append({"removal_token": token, "outcome": "accepted"})
                     continue
                 if removal_outcome == "failed":
                     connection.execute(
@@ -638,13 +632,9 @@ class ChannelControlStore:
                             token,
                         ),
                     )
-                    token_acks.append(
-                        {"removal_token": token, "outcome": "accepted"}
-                    )
+                    token_acks.append({"removal_token": token, "outcome": "accepted"})
                     continue
-                token_acks.append(
-                    {"removal_token": token, "outcome": "fatal_unknown"}
-                )
+                token_acks.append({"removal_token": token, "outcome": "fatal_unknown"})
             connection.execute(
                 "UPDATE channel_manifest_heads SET updated_at = ? WHERE node_id = ?",
                 (now, node_id),
@@ -741,7 +731,11 @@ class ChannelControlStore:
                     str(payload.get("diagnostics_state") or "unknown"),
                     payload.get("status_code"),
                     payload.get("status_message"),
-                    _json(payload.get("checks") if isinstance(payload.get("checks"), list) else []),
+                    _json(
+                        payload.get("checks")
+                        if isinstance(payload.get("checks"), list)
+                        else []
+                    ),
                     now,
                 ),
             )
@@ -861,14 +855,10 @@ class ChannelControlStore:
             node_id = self._require_agent_node(
                 connection, owner_id=owner_id, agent_id=agent_id
             )
-            key = self._require_node_key(
-                connection, owner_id=owner_id, node_id=node_id
-            )
+            key = self._require_node_key(connection, owner_id=owner_id, node_id=node_id)
             normalized = self._normalize_config(provider=provider, config=config)
             self._validate_secret(secret)
-            identity = self._identity_fingerprint(
-                provider=provider, config=normalized
-            )
+            identity = self._identity_fingerprint(provider=provider, config=normalized)
             pending_removal = connection.execute(
                 """
                 SELECT 1 FROM agent_channel_removals
@@ -1076,8 +1066,8 @@ class ChannelControlStore:
     ) -> ChannelRemovalMutationResult:
         """Delete desired credentials and create a durable runtime-removal receipt."""
         now = _utc_now()
-        expires_at = (datetime.now(UTC) + timedelta(days=7)).isoformat().replace(
-            "+00:00", "Z"
+        expires_at = (
+            (datetime.now(UTC) + timedelta(days=7)).isoformat().replace("+00:00", "Z")
         )
         connection = self._connect()
         try:
@@ -1281,9 +1271,7 @@ class ChannelControlStore:
             raise ChannelControlError("channel_credentials_required", status_code=422)
 
     @staticmethod
-    def _identity_fingerprint(
-        *, provider: str, config: Mapping[str, object]
-    ) -> str:
+    def _identity_fingerprint(*, provider: str, config: Mapping[str, object]) -> str:
         material = f"{provider}\0{config['app_id']}".encode()
         return hashlib.sha256(material).hexdigest()
 
@@ -1319,9 +1307,7 @@ class ChannelControlStore:
         return int(row["manifest_revision"])
 
     @staticmethod
-    def _channel_row(
-        connection: sqlite3.Connection, *, channel_id: str
-    ) -> sqlite3.Row:
+    def _channel_row(connection: sqlite3.Connection, *, channel_id: str) -> sqlite3.Row:
         row = connection.execute(
             """
             SELECT ac.*, s.observed_revision, s.connection_state,
@@ -1344,9 +1330,7 @@ class ChannelControlStore:
     @staticmethod
     def _view_from_row(row: sqlite3.Row) -> ChannelView:
         observed_revision = (
-            row["observed_revision"]
-            if "observed_revision" in row.keys()
-            else None
+            row["observed_revision"] if "observed_revision" in row.keys() else None
         )
         observed = None
         sync_state: Literal["pending", "applied", "failed"] = "pending"
@@ -1358,13 +1342,19 @@ class ChannelControlStore:
         )
         if isinstance(raw_apply_error, str) and raw_apply_error:
             decoded_error = json.loads(raw_apply_error)
-            first_error = next(
-                (item for item in decoded_error if isinstance(item, Mapping)),
-                None,
-            ) if isinstance(decoded_error, list) else None
+            first_error = (
+                next(
+                    (item for item in decoded_error if isinstance(item, Mapping)),
+                    None,
+                )
+                if isinstance(decoded_error, list)
+                else None
+            )
             if first_error is not None:
                 apply_error = {
-                    "code": str(first_error.get("error_code") or "channel_apply_failed"),
+                    "code": str(
+                        first_error.get("error_code") or "channel_apply_failed"
+                    ),
                     "message": str(
                         first_error.get("error_message")
                         or "Channel configuration could not be applied."
@@ -1385,10 +1375,10 @@ class ChannelControlStore:
             head_is_applied = int(row["applied_manifest_revision"] or 0) >= int(
                 row["head_manifest_revision"] or 0
             )
-            if apply_error is None and head_is_applied and int(
-                observed_revision
-            ) >= int(
-                row["channel_revision"]
+            if (
+                apply_error is None
+                and head_is_applied
+                and int(observed_revision) >= int(row["channel_revision"])
             ):
                 sync_state = (
                     "failed" if str(row["connection_state"]) == "failed" else "applied"
@@ -1451,9 +1441,7 @@ class ChannelControlStore:
                 provider=str(row["provider"]),
                 enabled=bool(row["enabled"]),
                 config=json.loads(str(row["config_json"])),
-                provider_identity_fingerprint=str(
-                    row["provider_identity_fingerprint"]
-                ),
+                provider_identity_fingerprint=str(row["provider_identity_fingerprint"]),
                 provider_identity_revision=int(row["provider_identity_revision"]),
                 provider_runtime=json.loads(str(row["provider_runtime_json"])),
                 credential_envelope=json.loads(str(row["credential_envelope_json"])),

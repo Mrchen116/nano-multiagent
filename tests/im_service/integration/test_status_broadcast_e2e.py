@@ -130,9 +130,7 @@ def test_cross_owner_isolation_real_ws(tmp_path: Path) -> None:
 
                 with client.websocket_connect(
                     "/im/ws/gateway",
-                    headers={
-                        "Authorization": f"Bearer {owner_a.access_token}"
-                    },
+                    headers={"Authorization": f"Bearer {owner_a.access_token}"},
                 ) as gateway_ws:
                     gateway_ws.send_text(
                         json.dumps(

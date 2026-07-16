@@ -55,18 +55,14 @@ class _ManifestStructureError(ValueError):
 def _required_string(payload: Mapping[str, object], field: str) -> str:
     value = payload.get(field)
     if not isinstance(value, str) or not value.strip():
-        raise _ManifestStructureError(
-            channel_id=str(payload.get("channel_id") or "")
-        )
+        raise _ManifestStructureError(channel_id=str(payload.get("channel_id") or ""))
     return value.strip()
 
 
 def _required_revision(payload: Mapping[str, object], field: str) -> int:
     value = payload.get(field)
     if type(value) is not int or value <= 0:
-        raise _ManifestStructureError(
-            channel_id=str(payload.get("channel_id") or "")
-        )
+        raise _ManifestStructureError(channel_id=str(payload.get("channel_id") or ""))
     return value
 
 
@@ -109,7 +105,9 @@ def _prepare_channel(
         provider=_required_string(raw, "provider"),
         enabled=enabled,
         config=dict(config),
-        provider_runtime={str(key): str(value) for key, value in provider_runtime.items()},
+        provider_runtime={
+            str(key): str(value) for key, value in provider_runtime.items()
+        },
         generation=generation,
         credential_envelope=dict(envelope),
         credential_key_id=_required_string(raw, "credential_key_id"),
@@ -183,9 +181,7 @@ async def apply_channel_manifest_payload(
             or not all(isinstance(raw, Mapping) for raw in raw_removals)
         ):
             raise _ManifestStructureError()
-        prepared = tuple(
-            _prepare_channel(raw, node_id=node_id) for raw in raw_channels
-        )
+        prepared = tuple(_prepare_channel(raw, node_id=node_id) for raw in raw_channels)
         removals = tuple(_prepare_removal(raw) for raw in raw_removals)
     except _ManifestStructureError as exc:
         return _failure_result(

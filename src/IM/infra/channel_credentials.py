@@ -92,7 +92,11 @@ def seal_channel_secret(
     ephemeral_seed = ephemeral_private_seed or os.urandom(32)
     resolved_salt = salt or os.urandom(16)
     resolved_nonce = nonce or os.urandom(12)
-    if len(ephemeral_seed) != 32 or len(resolved_salt) != 16 or len(resolved_nonce) != 12:
+    if (
+        len(ephemeral_seed) != 32
+        or len(resolved_salt) != 16
+        or len(resolved_nonce) != 12
+    ):
         raise ValueError("invalid channel envelope entropy length")
     recipient = X25519PublicKey.from_public_bytes(b64decode(public_key, validate=True))
     ephemeral = X25519PrivateKey.from_private_bytes(ephemeral_seed)

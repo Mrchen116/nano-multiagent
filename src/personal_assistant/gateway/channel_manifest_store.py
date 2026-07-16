@@ -153,16 +153,24 @@ class ChannelManifestStore:
             return None
         raw_channels = raw_manifest.get("channels")
         raw_removals = raw_manifest.get("removals")
-        channels = tuple(
-            self._decode_channel(item)
-            for item in raw_channels
-            if isinstance(item, Mapping)
-        ) if isinstance(raw_channels, list) else ()
-        removals = tuple(
-            self._decode_removal(item)
-            for item in raw_removals
-            if isinstance(item, Mapping)
-        ) if isinstance(raw_removals, list) else ()
+        channels = (
+            tuple(
+                self._decode_channel(item)
+                for item in raw_channels
+                if isinstance(item, Mapping)
+            )
+            if isinstance(raw_channels, list)
+            else ()
+        )
+        removals = (
+            tuple(
+                self._decode_removal(item)
+                for item in raw_removals
+                if isinstance(item, Mapping)
+            )
+            if isinstance(raw_removals, list)
+            else ()
+        )
         return CachedChannelManifest(
             owner_id=self._text(raw_manifest, "owner_id"),
             node_id=self._node_id,
@@ -287,12 +295,18 @@ class ChannelManifestStore:
         tokens = list(token_map.values()) if isinstance(token_map, Mapping) else []
         if not isinstance(head, Mapping) and not tokens:
             return None
-        payload = dict(head) if isinstance(head, Mapping) else {
-            "manifest_revision": int(state.get("last_applied_manifest_revision") or 0),
-            "outcome": "applied",
-            "applied_channel_ids": [],
-            "failures": [],
-        }
+        payload = (
+            dict(head)
+            if isinstance(head, Mapping)
+            else {
+                "manifest_revision": int(
+                    state.get("last_applied_manifest_revision") or 0
+                ),
+                "outcome": "applied",
+                "applied_channel_ids": [],
+                "failures": [],
+            }
+        )
         payload["removal_outcomes"] = tokens
         return payload
 
@@ -310,8 +324,7 @@ class ChannelManifestStore:
             current_head = outbox.get("head")
             head_revision_matches = manifest_revision is None or (
                 isinstance(current_head, Mapping)
-                and int(current_head.get("manifest_revision") or 0)
-                == manifest_revision
+                and int(current_head.get("manifest_revision") or 0) == manifest_revision
             )
             if head_outcome in self._TERMINAL_ACKS and head_revision_matches:
                 outbox["head"] = None
@@ -464,7 +477,9 @@ class ChannelManifestStore:
         try:
             decoded = json.loads(self._path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
-            raise ChannelManifestStoreError("channel manifest cache is unreadable") from exc
+            raise ChannelManifestStoreError(
+                "channel manifest cache is unreadable"
+            ) from exc
         if not isinstance(decoded, dict) or decoded.get("version") != self._VERSION:
             raise ChannelManifestStoreError("channel manifest cache version mismatch")
         if decoded.get("node_id") != self._node_id:
@@ -503,7 +518,9 @@ class ChannelManifestStore:
         return outbox
 
     @staticmethod
-    def _status_generation(entry: Mapping[str, object] | None) -> tuple[int, str] | None:
+    def _status_generation(
+        entry: Mapping[str, object] | None,
+    ) -> tuple[int, str] | None:
         if entry is None:
             return None
         return (
@@ -530,7 +547,10 @@ class ChannelManifestStore:
                 continue
             for slot in ("barrier", "inflight"):
                 payload = raw_entry.get(slot)
-                if isinstance(payload, Mapping) and payload.get("request_id") == request_id:
+                if (
+                    isinstance(payload, Mapping)
+                    and payload.get("request_id") == request_id
+                ):
                     return channel_id, raw_entry, slot, payload
         return None
 
@@ -563,7 +583,9 @@ class ChannelManifestStore:
             finally:
                 os.close(directory_fd)
         except OSError as exc:
-            raise ChannelManifestStoreError("channel manifest cache write failed") from exc
+            raise ChannelManifestStoreError(
+                "channel manifest cache write failed"
+            ) from exc
         finally:
             if descriptor is not None:
                 os.close(descriptor)
@@ -576,12 +598,10 @@ class ChannelManifestStore:
             "node_id": manifest.node_id,
             "manifest_revision": manifest.manifest_revision,
             "channels": [
-                ChannelManifestStore._encode_channel(item)
-                for item in manifest.channels
+                ChannelManifestStore._encode_channel(item) for item in manifest.channels
             ],
             "removals": [
-                ChannelManifestStore._encode_removal(item)
-                for item in manifest.removals
+                ChannelManifestStore._encode_removal(item) for item in manifest.removals
             ],
         }
 
@@ -616,9 +636,7 @@ class ChannelManifestStore:
             "channel_id": getattr(item, "channel_id"),
             "agent_id": getattr(item, "agent_id"),
             "provider": getattr(item, "provider"),
-            "deletion_manifest_revision": getattr(
-                item, "deletion_manifest_revision"
-            ),
+            "deletion_manifest_revision": getattr(item, "deletion_manifest_revision"),
         }
 
     @classmethod
@@ -646,9 +664,7 @@ class ChannelManifestStore:
             provider_identity_fingerprint=cls._text(
                 item, "provider_identity_fingerprint"
             ),
-            provider_identity_revision=cls._integer(
-                item, "provider_identity_revision"
-            ),
+            provider_identity_revision=cls._integer(item, "provider_identity_revision"),
             channel_revision=cls._integer(item, "channel_revision"),
             credential_revision=cls._integer(item, "credential_revision"),
         )
@@ -660,9 +676,7 @@ class ChannelManifestStore:
             channel_id=cls._text(item, "channel_id"),
             agent_id=cls._text(item, "agent_id"),
             provider=cls._text(item, "provider"),
-            deletion_manifest_revision=cls._integer(
-                item, "deletion_manifest_revision"
-            ),
+            deletion_manifest_revision=cls._integer(item, "deletion_manifest_revision"),
         )
 
     @staticmethod

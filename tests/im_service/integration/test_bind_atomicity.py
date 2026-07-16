@@ -29,7 +29,9 @@ def _service(connection: sqlite3.Connection, db_path: Path) -> BindService:
     )
 
 
-def _protected_rows(connection: sqlite3.Connection) -> dict[str, list[tuple[object, ...]]]:
+def _protected_rows(
+    connection: sqlite3.Connection,
+) -> dict[str, list[tuple[object, ...]]]:
     tables = (
         "agent_channels",
         "channel_manifest_heads",
@@ -124,16 +126,20 @@ def test_cross_owner_concurrent_bind_has_one_atomic_winner(tmp_path: Path) -> No
     winner = winners[0]
     winner_user = alice if winner.user_id == alice.id else bob
     loser_user = bob if winner_user is alice else alice
-    assert NodeRepository(setup).get_node(node_id="node-race").owner_id == winner_user.owner_id
+    assert (
+        NodeRepository(setup).get_node(node_id="node-race").owner_id
+        == winner_user.owner_id
+    )
     assert profiles.get_profile(agent_id="agent-race").owner_id == winner_user.owner_id
     assert users.get_user(user_id=winner_user.id).default_entry_node_id == "node-race"
     assert users.get_user(user_id=loser_user.id).default_entry_node_id is None
     assert _protected_rows(setup) == protected_before
 
     winning_service = alice_service if winner_user is alice else bob_service
-    assert winning_service.confirm_bind(
-        bind_id=winner.bind_id, user_id=winner_user.id
-    ) == winner
+    assert (
+        winning_service.confirm_bind(bind_id=winner.bind_id, user_id=winner_user.id)
+        == winner
+    )
 
     alice_connection.close()
     bob_connection.close()

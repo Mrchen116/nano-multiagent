@@ -150,7 +150,5 @@ class ChannelControlService:
         return result.channel
 
     def _require_agent(self, *, owner_id: str, agent_id: str) -> None:
-        if not self._store.agent_exists_for_owner(
-            owner_id=owner_id, agent_id=agent_id
-        ):
+        if not self._store.agent_exists_for_owner(owner_id=owner_id, agent_id=agent_id):
             raise ChannelControlError("channel_not_found", status_code=404)

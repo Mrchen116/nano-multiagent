@@ -423,22 +423,18 @@ def test_im_connection_retries_unacked_frame_after_disconnect(tmp_path: Path) ->
     relay_adapter.start(lambda _message: None)
     first_socket = _FakeWebSocket(
         incoming=[
-            json.dumps(
-                {"type": "ack", "payload": {"message_type": "node.register"}}
-            )
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}})
         ]
     )
     second_socket = _FakeWebSocket(
         incoming=[
-            json.dumps(
-                {"type": "ack", "payload": {"message_type": "node.register"}}
-            ),
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
             json.dumps(
                 {
                     "type": "ack",
                     "payload": {"message_type": "node.report", "node_id": "node-1"},
                 }
-            )
+            ),
         ]
     )
     sockets = [first_socket, second_socket]
@@ -517,9 +513,7 @@ def test_every_guarded_upstream_frame_carries_registered_node_identity(
     relay_adapter.start(lambda _message: None)
     socket = _FakeWebSocket(
         incoming=[
-            json.dumps(
-                {"type": "ack", "payload": {"message_type": "node.register"}}
-            )
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}})
         ]
     )
     manager = IMConnectionManager(
@@ -565,7 +559,7 @@ def test_protocol_error_terminally_releases_waiter_and_flushes_next_frame(
                         "message": "node_id is required",
                     },
                 }
-            )
+            ),
         ]
     )
     relay_adapter = WebRelayAdapter()
