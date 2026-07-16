@@ -37,3 +37,7 @@
 - M8 聚焦回归：`58 passed`。
 - 全仓 Ruff：`All checks passed!`。
 - 全量非 e2e：`3410 passed, 1 skipped, 20 deselected`，耗时 111.12 秒。
+
+## 2026-07-16 — Integrated
+
+- milestone 分支以 `--no-ff` 合入 `unit/refactor-463`；unit push 与临时 worktree/branch 清理按 worker 集成流程完成。
