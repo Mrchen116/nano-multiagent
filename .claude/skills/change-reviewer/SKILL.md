@@ -88,7 +88,7 @@ git pull --ff-only origin "unit/<unit_id>"
 按顺序读(只读):
 
 1. **`<unit_path>/<首文档>.md`** —— 用户场景、验收标准(这是你的真值)。验收标准是 **Requirement / Scenario 结构**(`### Requirement` 下挂 `#### Scenario`,每个 scenario 有 WHEN/THEN)——每个 **Scenario** 就是你覆盖表的一行,也是旅程脚本(见 §3.1)
-2. **`<unit_path>/design.md`** —— 大概架构(只看 §架构总览 + §关键决策),为可能的 revise-design 引用准备
+2. **`<unit_path>/design.md`** —— 大概架构(§架构总览 + §关键决策),为可能的 revise-design 引用准备;Runbook 按 §2.5 读取
 3. **`README.md` / `docs/operator-runbook.md`** —— 怎么启动、怎么用
 4. **`CLAUDE.md` / `AGENTS.md`** —— 项目级约定,怎么跑产品
 5. **历轮验收报告**(若 `review_round > 1`)—— 上一轮的 issues、Recommended Action、修复路径
@@ -107,8 +107,8 @@ git pull --ff-only origin "unit/<unit_id>"
 
 步骤:
 
-1. **读 design.md `§Runbook for Reviewer` 段**,拿到服务清单 + 启动命令 + 非入仓产物的重建命令(前端 dist / 生成代码 / proto 等)。
-   - 如果 design.md 没有这一段(或缺产物重建命令) → 立即 `SendMessage` 给 orchestrator,要求回 `change-design-author` 补全后再派 reviewer。**不要**自己去读源码猜该启动 / build 什么。
+1. **读 design.md `§Runbook for Reviewer` 段**,拿到服务清单、启动 / 重建命令和验收前置。
+   - Runbook 缺失、旅程明显依赖但未列出仓库外前置,或必验前置未落实 → 立即 `SendMessage` 给 orchestrator,要求回 `change-design-author` 补齐后再派 reviewer;不自行猜测或降级验收。
 2. **清单内每个服务**:
    a. 有 PID 跑则 kill(含 worker 残留、本 worktree PID 文件)。
    b. **重建 runbook 列出的非入仓产物**(典型:`cd src/IM/frontend && npm run build`)。worktree 内 build 的产物随 worktree 删除,unit worktree 上必须重 build。
