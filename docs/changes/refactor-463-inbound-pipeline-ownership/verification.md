@@ -326,3 +326,131 @@ None.
 ### SUGGESTION（可以修）
 
 None.
+
+# Round 4
+
+- Validated head: 55617c7b634e86d2c6daed5067e5ce0d50d325be
+- Review round: 4
+- Verification mode: full
+- Delta base: N/A
+- Focus issues: Round 3 CRITICAL-1 及其后续 code-review blocker 闭环
+- Requires full verification: false
+
+## Summary
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 64/64 tasks 已勾选；63/64 exit criteria 实质满足；6/6 Requirements 均有实现 |
+| Correctness | motivation 的 20/20 Scenarios 均有代码与永久测试对应；另发现 1 条 design/M8 支持路径偏差 |
+| Coherence | D1-D9 的所有权边界整体闭合；D4、D8 的 Round 3 缺口已修复，M8 的 no-delivery 终态 owner 仍部分偏离 |
+| Regression | 聚焦测试、ruff、测试规模契约与全量非 e2e 均通过 |
+| Verdict | PASS |
+
+**结论：No critical issues. 1 warning(s) to consider. Ready for PR (with noted improvements).**
+
+## Completeness
+
+### Milestone / task audit
+
+| Milestone | checked / total | 实质结论 |
+|---|---:|---|
+| M1 | 7/7 | catalog snapshot、revision 与 immutable lookup 已落地 |
+| M2 | 12/12 | binder 唯一拥有 durable binding、stale guard、provenance 与 reverse lookup |
+| M3 | 8/8 | narrow InboundPipeline 只保留 route/gate/shadow/group append/delegation |
+| M4 | 6/6 | coordinator 原子拥有 admission、FIFO、steer、stop、terminal 与 shutdown |
+| M5 | 6/6 | restart 后 dispatch endpoint 使用 live process capability，不复用 durable stale endpoint |
+| M6 | 6/6 | full-stack lifecycle、invalid relay recovery、stop、shutdown 与 cleanup evidence 完整 |
+| M7 | 4/4 | typed agent-to-agent shadow 与 canonical session identity 收敛 |
+| M8 | 15/15 marked；14/15 satisfied | delivery-present cron/heartbeat 终态与 restricted skills 完整；supported no-delivery cron 路径未观察真实 Kernel 终态 |
+
+任务清单合计 64/64 已勾选。唯一未实质满足的 exit criterion 是 M8 要求 cron 无论 completed / failed / cancelled 都记录真实 Kernel 终态；当前 no-delivery 配置会提前写 completed，见 WARNING-1。
+
+### Requirements / Scenarios
+
+| Requirement | Scenarios | 结论与证据 |
+|---|---:|---|
+| R1 narrow inbound façade | 3/3 | ownership contract、architecture test 与 route/gate/shadow/delegation 测试覆盖 |
+| R2 one live catalog / binder owner | 4/4 | immutable snapshot、revision、two-phase stale guard、restart routing 与 binding tests 覆盖 |
+| R3 coordinator atomic run ownership | 4/4 | FIFO、try-steer-only fallback、stop、terminal race、shutdown tests 覆盖 |
+| R4 typed delivery / protocol recovery | 3/3 | typed StreamRunOutcome、negative ack dequeue、connection continuation tests 覆盖 |
+| R5 canonical external identity / shadow | 3/3 | literal LIKE escaping、IM-origin guard、runtime metadata stripping tests 覆盖 |
+| R6 unattended execution capabilities | 3/3 | cron/heartbeat restricted skills、real terminal failure delivery 与 live evidence 覆盖 |
+
+motivation 中 20 个场景均能从生产入口追到永久测试或 M6/M8 durable evidence。没有 delta-spec；prototype/reference contract 为 N/A。
+
+## Round 3 与 code-review blocker 闭环
+
+| 历史 blocker | Round 4 独立结论 | 关键证据 |
+|---|---|---|
+| steer fallback 产生 orphan + duplicate run | CLOSED | agent.sdk.Kernel.try_steer 只尝试注入且失败不建 run；coordinator 仅在失败后让自己的 FIFO normal submit 一次；真实 Kernel terminal-race regression 断言唯一新 run |
+| negative ack 卡住 pending queue | CLOSED | error frame 按原 message_type reject 队首；IMFrameRejectedError 结束对应 future、清 ack 并继续 flush 下一帧；连接不重建 |
+| permission wait 被普通 watchdog 误杀 | CLOSED | permission_request 将 watchdog 置为 None，permission_resolved 恢复；回归覆盖跨过普通 timeout 后恢复与再次 stall |
+| session LIKE 将 % / _ 当 wildcard | CLOSED | session key 对 !、%、_ 做 literal escaping，所有相关查询显式使用 ESCAPE ! |
+| binder 在锁内做 workspace I/O / stale publish | CLOSED | capture revision/generation 后 asyncio.to_thread 校验，回锁复核 candidate identity、revision、generation、catalog；stale operation 不写 durable binding |
+| cron 使用 SDK 私有终态常量 / false success | CLOSED for delivery-present path | runtime_delivery 从 agent.sdk 导入 TERMINAL_RUN_STATUSES 并返回 typed StreamRunOutcome；failed run 持久化 failed 且不产生 success awareness |
+| agent-to-agent shadow 使用平行 identity 协议 | CLOSED | 复用 external_identity_from_message，限制 IM-origin，并剥离 runtime metadata |
+| unattended session 忽略 agent restricted skills | CLOSED | Kernel client shim 将 agent.skills 传入 create_session；空集合保留默认行为；cron/heartbeat 均有回归 |
+
+Round 3 的唯一 CRITICAL 已由 public SDK contract 与真实 Kernel integration 双层钉死，不再依赖违反真实 SDK 语义的 fake。
+
+## Correctness
+
+### 关键用户旅程
+
+- 同 session 并发消息：active run 可注入时只 steer；不可注入时进入 coordinator FIFO，且只 normal submit 一次。
+- terminal race：Kernel 已 terminal、Gateway marker 尚未清理时，第二条消息不会创建 orphan run，也不会重复执行输入。
+- stop / shutdown：coordinator 持有 active handle、terminal observer 与 follower lifecycle，关闭顺序有界。
+- restart dispatch：durable binding 只保存 identity；真实投递 endpoint 从 live catalog 获取，重启后不向旧 endpoint 投递。
+- IM error recovery：单帧业务错误只拒绝对应 future，后继合法帧仍在同一连接完成。
+- permission lifecycle：等待用户授权期间不受普通响应 watchdog 约束，授权完成后恢复 timeout。
+- external identity：LIKE metacharacter 被当作字面值；shadow 只接收合法 IM-origin envelope。
+- unattended skills：cron/heartbeat 继承 agent allowlist；delivery-present cron 按 Kernel 真实 terminal status 写历史并对失败回执。
+
+### 当前 main 漂移
+
+unit 分支未包含 origin/main 上 bugfix-465 的 ancestry，但其语义已由新 owner 搬运：permission_request 暂停普通 watchdog，permission_resolved 恢复。当前 coordinator 回归覆盖该行为，因此不是遗漏式漂移。
+
+### Durable evidence audit
+
+- M6 progress/evidence 记录真实 IM + Gateway 的 invalid relay 后同连接恢复、same/new conversation 成功、node online、stop 与 clean shutdown；与当前永久 protocol tests 一致。
+- M8 live-cron-failure evidence 使用真实 IM + Gateway + Kernel 和确定性 provider failure，证明 failed cron history、owner failure bubble、无 success awareness，并完成清理。
+- M6 最终 refresh 明确在包含 M7+M8 的 unit head 上重跑 focused、ruff 与全量 non-e2e；当前 merge head 再次由本轮独立全量验证。
+
+## Coherence
+
+| design 决策 | 遵守? | Round 4 结论 |
+|---|---|---|
+| D1 narrow InboundPipeline | 是 | façade 不再拥有 run state、binding repository 或 delivery lifecycle |
+| D2 revisioned LiveAgentCatalog | 是 | immutable copy-on-write snapshot 与 revision publish owner 唯一 |
+| D3 binder 唯一拥有 binding/stale guard | 是 | resolve/create/invalidate/canonical/reverse lookup/provenance 收敛 |
+| D4 coordinator 原子拥有 queue/steer/stop/terminal | 是 | try-steer-only 消除了 Round 3 double submit；fallback 与 lifecycle owner 唯一 |
+| D5 typed image strategy + exactly-once preparation | 是 | prepared parts 只消费一次，steer fallback 不二次 download/drain |
+| D6 sealed resource graph + one deadline | 是 | admission、Kernel terminal、consumer、delivery、IM close owner 顺序闭合 |
+| D7 composition 一次构造 | 是 | callback/provider/endpoint 在 composition root 注入，合法晚绑定只读 live resource |
+| D8 public tests + deletion guard | 是 | public SDK contract、ownership tests 与真实 Kernel race regression 同时守护 |
+| D9 deep modules, no LOC KPI | 是 | catalog、binder、coordinator、subscription、tracker、cron service 均拥有明确不变量 |
+
+M8 对真实终态 owner 的实现只在 delivery-present 路径闭合；no-delivery 分支提前写 completed，详见 WARNING-1。
+
+## Independent checks
+
+- Focused verification suite（19 个 contract/unit/integration 文件）：118 passed, 2 warnings in 6.52s。
+- Ruff：ruff check src tests，passed。
+- Test naming / size contract：2 passed in 0.11s。
+- Full non-e2e：3417 passed, 1 skipped, 20 deselected, 16 warnings in 107.52s。
+- Architecture grep：coding_cli / personal_assistant 未越界 import agent.core 或 agent.platform；binding repository 引用只在 binder owner。
+- Worktree source/test 状态：验证期间只读，未修改 production code 或 tests。
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+None.
+
+### WARNING（应该修）
+
+- **WARNING-1 — supported no-delivery cron 配置未消费 Kernel 终态，会把失败或取消的 run 记成 completed。** CronExecutionService 的构造契约明确 stream_delivery 可为 None；production composition 在 owner_user_id 缺失或 observer 不可用时确实传 None。但 execute 路径在 runner.start 返回 run id 后立即写 status=completed、result_summary=no_delivery_path，没有等待该 run 的 completed / failed / cancelled 终态。本轮使用只读 fake runner 让 run 永不提供 terminal，仍稳定得到 completed history，证明这是提前成功而非仅缺少 UI delivery。现有 terminal regressions 都注入 stream delivery，因此没有覆盖该支持路径。这部分偏离 design 的 M8 real terminal owner 决策与 M8 exit criterion，但 delivery-present 的真实用户失败旅程正确，因此定为 WARNING 而非 CRITICAL。**建议修复**：把 mandatory terminal consumption 与 optional IM delivery/observer 解耦；无投递配置也必须经共享 typed terminal consumer 得到 StreamRunOutcome 并持久化真实 status，只有用户消息和 awareness 条件化；增加 no-delivery 下 failed、cancelled、missing-terminal 不得写 completed 的永久回归。
+
+### SUGGESTION（可以修）
+
+- **SUGGESTION-1 — baseline diff 有 3 个 EOF trailing blank-line hygiene 问题。** git diff --check a6c04258183b89867df6f08f6dcedf125989daf0..55617c7b634e86d2c6daed5067e5ce0d50d325be 报告 M8 live-cron-failure evidence、test_runtime_delivery_stream.py、test_unattended_session_skills.py 各 1 个 new blank line at EOF。它们不影响运行语义或测试，但建议 PR 前清理。
