@@ -163,4 +163,3 @@ pid_9706=stopped
 ```
 
 The generated fixture config, logs, databases, and isolated agent workspace were removed before committing this evidence.
-

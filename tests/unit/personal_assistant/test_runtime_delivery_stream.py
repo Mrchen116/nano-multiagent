@@ -72,7 +72,6 @@ async def test_stream_returns_failed_terminal_outcome_with_partial_text() -> Non
     ]
     assert context_store == {}
 
-
 @pytest.mark.asyncio
 async def test_stream_returns_cancelled_terminal_outcome() -> None:
     outcome = await stream_run_to_completion(
@@ -122,4 +121,3 @@ async def test_stream_ending_without_terminal_status_fails_instead_of_hanging() 
         )
 
     assert context_store == {}
-
