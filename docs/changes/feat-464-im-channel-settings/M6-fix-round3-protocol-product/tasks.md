@@ -68,6 +68,7 @@ Prototype / Reference Contract：
 
 - 步骤：在 Gateway 唯一发送边界为所有受 guard 的业务帧注入注册 `node_id`；把可关联的 generic protocol error 转成 terminal dequeue/ack-future failure，再 flush 后续帧。
 - 验证：真实 agent.config/agent.message/streaming/system/report/delivery/channel producer shape 全部携带 node；bad frame 不阻塞后续 frame，waiter 得到明确异常。
+- 状态：完成。最终 wire sender 统一用本机 reporter identity 覆盖所有上行 payload；serialized protocol error 终结当前 head、失败 waiter 并立即发送下一帧。
 
 ### R2 — 安全 startup/bootstrap 配置收敛
 
