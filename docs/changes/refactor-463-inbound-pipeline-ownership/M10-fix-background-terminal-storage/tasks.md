@@ -21,12 +21,13 @@
 - CronRunsStore：instrument `_materialize_all`/文件读取次数，重复状态更新不随历史增长；并发更新和新实例重载结果一致。
 - 隔离真 Kernel/fixture：公开 cron history 从 running 收敛到 failed/cancelled，conversation 不出现成功 awareness；使用高位端口并清理 PID，保留用户 `LLM_PROXY --ui`。
 - 非前端改动，无 frontend build/test 要求。
+- 永久测试落点：扩展 `test_heartbeat_scheduler.py` 与 `test_heartbeat_session_trim.py`；cron owner 扩展 `test_cron_execution_owner_chain.py`；run history 从已超 400 行且混合多职责的 `test_cron_delivery_chain.py` 拆到专属 `test_cron_run_history.py`。
 
 ## Roadpoints
 
 ### R1 — Heartbeat pre-submit baseline 与非成功终态
 
-- [ ] C1 红测：锁定快完成 silent run、failed/cancelled 不 trim。
+- [x] C1 红测：锁定快完成 silent run、failed/cancelled 不 trim。
 - [ ] C2 实现：由 scheduler 传递 baseline，consumer 分流 typed outcome。
 - [ ] C3 文档：记录用户可观察失败与 transcript 证据。
 
