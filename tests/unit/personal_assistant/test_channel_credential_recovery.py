@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from typing import Mapping
+
+import pytest
 
 from personal_assistant.channels.base import ChannelStartupError
 from personal_assistant.gateway.channel_manifest_apply import (
@@ -63,6 +66,31 @@ def _manifest(*, revision: int, key_id: str) -> ChannelManifest:
         manifest_revision=revision,
         channels=(_spec(revision=revision, key_id=key_id),),
     )
+
+
+def _payload(*, revision: int = 2) -> dict[str, object]:
+    return {
+        "owner_id": "owner-a",
+        "node_id": "node-a",
+        "manifest_revision": revision,
+        "channels": [
+            {
+                "channel_id": "ch-a",
+                "agent_id": "agent-a",
+                "provider": "feishu",
+                "enabled": True,
+                "config": {"app_id": "cli_changed"},
+                "provider_runtime": {},
+                "credential_envelope": {"ciphertext": "sealed"},
+                "credential_key_id": "key-a",
+                "provider_identity_fingerprint": "fp-a",
+                "provider_identity_revision": 1,
+                "channel_revision": revision,
+                "credential_revision": revision,
+            }
+        ],
+        "removals": [],
+    }
 
 
 def test_cache_key_loss_quarantines_ciphertext_and_allows_gateway_start(
@@ -208,3 +236,108 @@ def test_one_bad_envelope_rejects_complete_manifest_without_stopping_safe_runtim
     assert store.last_applied_manifest_revision == 1
     assert statuses[-1].generation == _generation(2)
     assert statuses[-1].status_code == "credential_reentry_required"
+
+
+@pytest.mark.parametrize(
+    "malformation",
+    (
+        "missing_channels",
+        "non_array_channels",
+        "non_mapping_channel",
+        "missing_removals",
+        "non_array_removals",
+        "non_mapping_removal",
+        "incomplete_removal",
+    ),
+)
+def test_malformed_manifest_rejects_snapshot_before_runtime_or_cache_mutation(
+    tmp_path: Path,
+    malformation: str,
+) -> None:
+    """A malformed complete snapshot cannot become an implicit removal."""
+    path = tmp_path / "channel-manifest-v1.json"
+    store = ChannelManifestStore(path, node_id="node-a", key_id="key-a")
+    events: list[str] = []
+    manager = ChannelManager(
+        registry=ChannelRegistry(),
+        on_inbound=lambda _message: None,
+        provider_factories={
+            "feishu": lambda _spec, _binder, _status: _Adapter(events)
+        },
+        status_sink=lambda _snapshot: None,
+        manifest_store=store,
+    )
+    assert asyncio.run(
+        manager.reconcile(_manifest(revision=1, key_id="key-a"))
+    ).outcome == "applied"
+    cached_before = path.read_bytes()
+    body = _payload()
+    if malformation == "missing_channels":
+        body.pop("channels")
+    elif malformation == "non_array_channels":
+        body["channels"] = {"channel_id": "ch-a"}
+    elif malformation == "non_mapping_channel":
+        body["channels"] = [None]
+    elif malformation == "missing_removals":
+        body.pop("removals")
+    elif malformation == "non_array_removals":
+        body["removals"] = {"channel_id": "ch-old"}
+    elif malformation == "non_mapping_removal":
+        body["removals"] = [None]
+    else:
+        body["removals"] = [{"channel_id": "ch-old"}]
+
+    result = asyncio.run(
+        apply_channel_manifest_payload(
+            body=body,
+            node_id="node-a",
+            credential_key_id="key-a",
+            credential_opener=lambda _context: {"app_secret": "opened"},
+            manager=manager,
+        )
+    )
+
+    assert result["outcome"] == "retryable_failed"
+    assert events == ["start"]
+    assert path.read_bytes() == cached_before
+    assert store.last_applied_manifest_revision == 1
+
+
+def test_envelope_open_failure_rejects_manifest_before_runtime_or_cache_mutation(
+    tmp_path: Path,
+) -> None:
+    """A decrypt failure rejects the whole snapshot while preserving the safe runtime."""
+    path = tmp_path / "channel-manifest-v1.json"
+    store = ChannelManifestStore(path, node_id="node-a", key_id="key-a")
+    events: list[str] = []
+    manager = ChannelManager(
+        registry=ChannelRegistry(),
+        on_inbound=lambda _message: None,
+        provider_factories={
+            "feishu": lambda _spec, _binder, _status: _Adapter(events)
+        },
+        status_sink=lambda _snapshot: None,
+        manifest_store=store,
+    )
+    assert asyncio.run(
+        manager.reconcile(_manifest(revision=1, key_id="key-a"))
+    ).outcome == "applied"
+    cached_before = path.read_bytes()
+
+    def reject_envelope(_context: CredentialEnvelopeContext) -> Mapping[str, str]:
+        raise ValueError("unable to authenticate envelope")
+
+    result = asyncio.run(
+        apply_channel_manifest_payload(
+            body=_payload(),
+            node_id="node-a",
+            credential_key_id="key-a",
+            credential_opener=reject_envelope,
+            manager=manager,
+        )
+    )
+
+    assert result["outcome"] == "retryable_failed"
+    assert events == ["start"]
+    assert path.read_bytes() == cached_before
+    assert store.last_applied_manifest_revision == 1
