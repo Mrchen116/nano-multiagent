@@ -206,6 +206,81 @@ def test_offline_barrier_removed_ack_drops_outbox_quarantines_and_continues_fifo
     ]
 
 
+def test_disconnected_runtime_replacements_coalesce_unsent_statuses(
+    tmp_path: Path,
+) -> None:
+    """Only the current runtime incarnation survives in the disconnected queue."""
+    socket = _FakeWebSocket(
+        incoming=[
+            json.dumps(
+                {"type": "ack", "payload": {"message_type": "node.report"}}
+            ),
+            json.dumps(
+                {
+                    "type": "channel.status.result",
+                    "payload": {
+                        "request_id": "status-0",
+                        "outcome": "accepted",
+                    },
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "channel.status.result",
+                    "payload": {
+                        "request_id": "status-39",
+                        "outcome": "accepted",
+                    },
+                }
+            ),
+        ]
+    )
+    relay = WebRelayAdapter()
+    relay.start(lambda _message: None)
+    resolved: list[str] = []
+
+    async def handle_status(payload) -> None:
+        resolved.append(str(payload["request_id"]))
+
+    manager = IMConnectionManager(
+        config=IMConnectionConfig(url="http://im.local"),
+        reporter=_minimal_reporter(tmp_path),
+        relay_adapter=relay,
+        channel_status_result_handler=handle_status,
+        connect=lambda url, headers: _connect_fake(socket, [], url, headers),
+    )
+
+    async def exercise() -> None:
+        await manager.send_json("node.report", {"run_id": "run-1"})
+        for index in range(40):
+            status = _status(f"status-{index}", 1)
+            status["runtime_incarnation"] = f"inc-{index}"
+            await manager.send_json("channel.status", status)
+
+        assert [frame.message_type for frame in manager._pending_frames] == [  # noqa: SLF001
+            "node.report",
+            "channel.status",
+        ]
+        assert manager._pending_frames[-1].payload["request_id"] == "status-39"  # noqa: SLF001
+
+        await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001
+        await manager._listen_once()  # noqa: SLF001
+        assert manager._pending_frames[0].payload["request_id"] == "status-39"  # noqa: SLF001
+        await manager._listen_once()  # noqa: SLF001
+
+    asyncio.run(exercise())
+
+    sent = [json.loads(frame) for frame in socket.sent]
+    assert [frame["type"] for frame in sent] == [
+        "node.register",
+        "node.report",
+        "channel.status",
+    ]
+    assert sent[-1]["payload"]["runtime_incarnation"] == "inc-39"
+    assert resolved == ["status-39"]
+
+
 def test_retryable_manifest_is_reapplied_online_with_bounded_same_revision_retries(
     tmp_path: Path,
 ) -> None:
