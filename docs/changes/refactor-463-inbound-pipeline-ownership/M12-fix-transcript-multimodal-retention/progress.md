@@ -17,9 +17,9 @@
 
 ### R1 — selective transcript cleanup
 
-- C1 `ac8a91228` 先证明旧实现会按 JSONL 前缀截断，导致更晚用户 turn/reply 从 provider context 消失；同时证明 Kernel 当时没有中立清理 seam。
-- C2 `ce8eb3773` 将清理下沉到 transcript/conversation owner：正常 turn 的全部消息持久化同一 `turn_id`，删除在 writer barrier + transcript mutex + conversation turn gate 内执行，并原子替换文件、修复后继 parent、重建 tail、失效已加载 state。
-- public `Kernel.discard_run_messages()` 只接受 terminal run 的 canonical session/turn identity；运行中、未知及重复清理均返回 `False`，由 `7ddd172a0` 锁定。
+- C1 `f598150ee` 先证明旧实现会按 JSONL 前缀截断，导致更晚用户 turn/reply 从 provider context 消失；同时证明 Kernel 当时没有中立清理 seam。
+- C2 `e9e2859ae` 将清理下沉到 transcript/conversation owner：正常 turn 的全部消息持久化同一 `turn_id`，删除在 writer barrier + transcript mutex + conversation turn gate 内执行，并原子替换文件、修复后继 parent、重建 tail、失效已加载 state。
+- public `Kernel.discard_run_messages()` 只接受 terminal run 的 canonical session/turn identity；运行中、未知及重复清理均返回 `False`，由 `32e91132b` 锁定。
 - 静默 heartbeat 只委托 run identity；产品层 raw JSONL 扫描、行数 baseline 与 prefix truncate 已全部删除。failed/cancelled heartbeat 不触发清理。
 
 ### R2 — multimodal retention and bounded cron index
@@ -35,15 +35,17 @@
 - Python CI 同命令：`3443 passed, 1 skipped`；`ruff check .`、`ruff format --check .`、test naming/size contract 与 `git diff --check` 全绿。
 - Frontend CI 同命令：`64 files / 604 tests passed`。
 - 真实 proxy critical path：后台 bash 完成后同会话跟进消息 `1 passed`；测试栈退出后无残留 IM/Gateway 进程或 pid/config/state 文件。
-- orchestrator 亲自执行 patch review（`539d5e965..HEAD`），逐项复核 transcript 删除边界、跨 loop 所有权、多模态反投影、cron active/terminal 保留与调用方，结果 `[]`；Round 5 的 1 CRITICAL + 3 WARNING 全部关闭。
+- final sync 将 `origin/main@e3d9182fb` 纳入本分支。唯一冲突是 main 在旧 `InboundPipeline` 上新增的 permission-wait watchdog 测试，而本 unit 已把同一行为迁移到 `SessionRunCoordinator`；保留新 owner 与对应回归后，owner terminal suite `9 passed`，且 `origin/main` 是 HEAD 祖先。
+- orchestrator 亲自执行 patch review（`675c42830..HEAD`），逐项复核 transcript 删除边界、跨 loop 所有权、多模态反投影、cron active/terminal 保留与调用方，结果 `[]`；Round 5 的 1 CRITICAL + 3 WARNING 全部关闭。
 
 ## Commits
 
-- `290076fa3` — M12 closure plan
-- `ac8a91228` — C1 regression evidence
-- `ce8eb3773` — transcript/multimodal/cron implementation
-- `7ddd172a0` — no-op cleanup contract coverage
-- `f8e2e04fd` — repository format gate closure
+- `0417ac73f` — M12 closure plan
+- `f598150ee` — C1 regression evidence
+- `e9e2859ae` — transcript/multimodal/cron implementation
+- `32e91132b` — no-op cleanup contract coverage
+- `42d12ae48` — repository format gate closure
+- `afe882126` — canonical Kernel contract merge
 
 ## Rollback
 
