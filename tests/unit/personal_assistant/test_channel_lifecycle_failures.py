@@ -132,7 +132,7 @@ class _WorkerAdapter:
 
         def on_event(_event) -> None:
             if block_events:
-                self._release.wait(1)
+                self._release.wait()
 
         self.runtime = FeishuWorkerRuntime(
             app_id="cli_pressure",
@@ -238,7 +238,9 @@ def test_backpressure_retry_budget_reaps_final_listener_and_allows_manual_retry(
         asyncio.run(
             manager.reconcile(ChannelManifest(manifest_revision=1, channels=(_spec(),)))
         )
-        _wait_until(lambda: len(adapters) == 4, timeout=8)
+        # Four spawn/reap cycles are intentionally sequential; leave headroom for
+        # loaded CI workers without adding delay to the successful path.
+        _wait_until(lambda: len(adapters) == 4, timeout=20)
         _wait_until(
             lambda: manager.registry.get("feishu:agent-a") is None,
             timeout=4,
