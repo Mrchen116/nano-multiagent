@@ -239,6 +239,7 @@ class IMConnectionManager:
         channel_bootstrap_provider: ChannelBootstrapProvider | None = None,
         channel_bootstrap_applied_handler: ChannelBootstrapAppliedHandler
         | None = None,
+        channel_reconcile_retry_delays: tuple[float, ...] = (0.5, 1.0, 2.0),
         connect: ConnectFn,
         sleep: SleepFn = asyncio.sleep,
     ) -> None:
@@ -270,6 +271,7 @@ class IMConnectionManager:
         self._channel_status_result_handler = channel_status_result_handler
         self._channel_bootstrap_provider = channel_bootstrap_provider
         self._channel_bootstrap_applied_handler = channel_bootstrap_applied_handler
+        self._channel_reconcile_retry_delays = channel_reconcile_retry_delays
         self._connect = connect
         self._sleep = sleep
         self._websocket: ClientWebSocket | None = None
@@ -291,6 +293,8 @@ class IMConnectionManager:
         # that actually runs run_forever.
         self._first_connect_resolved: asyncio.Event | None = None
         self._event_loop: asyncio.AbstractEventLoop | None = None
+        self._latest_channel_manifest_revision = 0
+        self._channel_manifest_retry_task: asyncio.Task[None] | None = None
 
     @property
     def connected(self) -> bool:
@@ -349,6 +353,10 @@ class IMConnectionManager:
         if stop_event is not None:
             stop_event.set()
         heartbeat_task = self._heartbeat_task
+        retry_task = self._channel_manifest_retry_task
+        self._channel_manifest_retry_task = None
+        if retry_task is not None:
+            retry_task.cancel()
         self._stop_heartbeat_loop()
         websocket = self._websocket
         self._websocket = None
@@ -358,6 +366,9 @@ class IMConnectionManager:
         if heartbeat_task is not None and heartbeat_task is not asyncio.current_task():
             with contextlib.suppress(asyncio.CancelledError):
                 await heartbeat_task
+        if retry_task is not None and retry_task is not asyncio.current_task():
+            with contextlib.suppress(asyncio.CancelledError):
+                await retry_task
         self._events.append({"event": "closed"})
 
     async def send_json(self, message_type: str, payload: Mapping[str, object]) -> None:
@@ -493,6 +504,93 @@ class IMConnectionManager:
             await sleep_task
         return self._stop_requested or stop_task in done
 
+    async def _apply_channel_manifest_and_send(
+        self,
+        *,
+        body: Mapping[str, object],
+        request_id: str,
+        supersede_retry: bool = True,
+    ) -> dict[str, object]:
+        handler = self._channel_manifest_handler
+        if handler is None:
+            raise RuntimeError("channel.reconcile requires channel_manifest_handler")
+        revision = int(body.get("manifest_revision") or 0)
+        if supersede_retry and revision >= self._latest_channel_manifest_revision:
+            self._latest_channel_manifest_revision = revision
+            retry_task = self._channel_manifest_retry_task
+            if retry_task is not None and retry_task is not asyncio.current_task():
+                retry_task.cancel()
+            self._channel_manifest_retry_task = None
+        result = await _maybe_await(handler(body))
+        result_payload = dict(result) if isinstance(result, Mapping) else {}
+        await self.send_json(
+            "channel.reconcile.result",
+            {
+                "request_id": request_id,
+                "node_id": self._reporter.node_id,
+                "manifest_revision": revision,
+                **result_payload,
+            },
+        )
+        return result_payload
+
+    def _schedule_channel_manifest_retry(
+        self,
+        *,
+        body: Mapping[str, object],
+        request_id: str,
+        result_payload: Mapping[str, object],
+    ) -> None:
+        if result_payload.get("outcome") != "retryable_failed":
+            return
+        revision = int(body.get("manifest_revision") or 0)
+        if revision != self._latest_channel_manifest_revision:
+            return
+        task = asyncio.create_task(
+            self._retry_channel_manifest(
+                body=dict(body),
+                request_id=request_id,
+                manifest_revision=revision,
+            ),
+            name=f"channel-manifest-retry:{revision}",
+        )
+        self._channel_manifest_retry_task = task
+        task.add_done_callback(self._channel_manifest_retry_done)
+
+    async def _retry_channel_manifest(
+        self,
+        *,
+        body: Mapping[str, object],
+        request_id: str,
+        manifest_revision: int,
+    ) -> None:
+        for attempt, delay in enumerate(
+            self._channel_reconcile_retry_delays, start=1
+        ):
+            await self._sleep(delay)
+            if (
+                self._stop_requested
+                or manifest_revision != self._latest_channel_manifest_revision
+            ):
+                return
+            result = await self._apply_channel_manifest_and_send(
+                body=body,
+                request_id=f"{request_id}:retry:{attempt}",
+                supersede_retry=False,
+            )
+            if result.get("outcome") != "retryable_failed":
+                return
+
+    def _channel_manifest_retry_done(self, task: asyncio.Task[None]) -> None:
+        if self._channel_manifest_retry_task is task:
+            self._channel_manifest_retry_task = None
+        try:
+            task.result()
+        except asyncio.CancelledError:
+            return
+        except Exception:  # noqa: BLE001
+            _log.warning("channel manifest retry failed", exc_info=True)
+
     async def _listen_once(self) -> None:
         websocket = self._require_websocket()
         raw = await websocket.recv()
@@ -520,16 +618,13 @@ class IMConnectionManager:
             if self._channel_manifest_handler is None:
                 raise RuntimeError("channel.reconcile requires channel_manifest_handler")
             request_id = _require_text(body.get("request_id"), field_name="request_id")
-            result = await _maybe_await(self._channel_manifest_handler(body))
-            result_payload = dict(result) if isinstance(result, Mapping) else {}
-            await self.send_json(
-                "channel.reconcile.result",
-                {
-                    "request_id": request_id,
-                    "node_id": self._reporter.node_id,
-                    "manifest_revision": int(body.get("manifest_revision") or 0),
-                    **result_payload,
-                },
+            result_payload = await self._apply_channel_manifest_and_send(
+                body=body, request_id=request_id
+            )
+            self._schedule_channel_manifest_retry(
+                body=body,
+                request_id=request_id,
+                result_payload=result_payload,
             )
             return
         if message_type == "channels.bootstrap.request":

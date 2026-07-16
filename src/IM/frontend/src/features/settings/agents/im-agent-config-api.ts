@@ -200,6 +200,7 @@ export interface AgentChannel {
   secret_configured: boolean;
   channel_revision: number;
   sync_state: string;
+  apply_error: { code: string; message: string } | null;
   observed: ChannelObservedState | null;
   updated_at: string;
 }

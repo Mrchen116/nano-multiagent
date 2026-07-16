@@ -221,6 +221,7 @@ def test_get_agent_config_prefers_live_gateway_snapshot(tmp_path: Path) -> None:
                 {
                     "type": "agent.config",
                     "payload": {
+                        "node_id": "node-1",
                         "request_id": request_id,
                         "agent_id": "agent-1",
                         "agent": {
@@ -338,6 +339,7 @@ def test_get_agent_config_ignores_mismatched_live_agent_payload(
                 {
                     "type": "agent.config",
                     "payload": {
+                        "node_id": "node-1",
                         "request_id": request_id,
                         "agent_id": "default-agent",
                         "agent": {

@@ -168,20 +168,31 @@ function ConnectionCard({
   const observed = channel.observed;
   const observedState = observed?.connection_state ?? "pending";
   const waiting = channel.sync_state !== "applied";
+  // The agent list can learn that a node went offline before the cached channel
+  // query is invalidated.  The live node state is therefore authoritative for
+  // whether any observed connection may still be presented as current.
+  const stale = offline && observed !== null;
   const state = manualReconnecting
     ? "reconnecting"
-    : channel.sync_state === "failed" || observedState === "failed"
+    : channel.sync_state === "failed"
       ? "failed"
     : waiting
     ? channel.enabled
       ? offline ? "pending" : "connecting"
       : "disabling"
+    : stale
+      ? "offline"
+    : observedState === "failed"
+      ? "failed"
     : !channel.enabled || observedState === "disabled"
       ? "disabled"
       : observedState;
   const connected = state === "connected";
   const failed = state === "failed";
   const disabled = state === "disabled";
+  const lastKnownState = observedState === "connected" && observed?.diagnostics_state === "limited"
+    ? t("agents.channels.diagnostics.limited.title")
+    : t(`agents.channels.status.${observedState}`);
   const statusLabel = t(`agents.channels.status.${state}`);
   const statusClass = connected
     ? "border-emerald-200 bg-emerald-50 text-emerald-700"
@@ -193,6 +204,11 @@ function ConnectionCard({
 
   const detail = state === "pending"
     ? { strong: t("agents.channels.status.saved"), copy: t("agents.channels.status.autoApply") }
+    : state === "offline"
+      ? {
+        strong: t("agents.channels.status.lastKnown"),
+        copy: t("agents.channels.status.lastKnownDetail", { status: lastKnownState }),
+      }
     : state === "disabling"
       ? { strong: t("agents.channels.status.disableSaved"), copy: t("agents.channels.status.disableWaiting") }
       : state === "disabled"
@@ -200,7 +216,10 @@ function ConnectionCard({
         : state === "reconnecting"
           ? { strong: t("agents.channels.status.connectionInterrupted"), copy: t("agents.channels.status.autoRecover") }
           : failed
-            ? { strong: t("agents.channels.status.failed"), copy: observed?.status_message || observed?.status_code || t("agents.channels.status.unknownFailure") }
+            ? {
+              strong: t("agents.channels.status.failed"),
+              copy: channel.apply_error?.message || observed?.status_message || observed?.status_code || t("agents.channels.status.unknownFailure"),
+            }
             : connected
               ? { strong: t("agents.channels.status.synced"), copy: t("agents.channels.status.applied") }
               : {
@@ -244,7 +263,7 @@ function ConnectionCard({
         </span>
         <span>
           {observed?.status_updated_at
-            ? t("agents.channels.status.updatedAt", { time: formatTime(observed.status_updated_at) })
+            ? t(stale ? "agents.channels.status.lastKnownUpdatedAt" : "agents.channels.status.updatedAt", { time: formatTime(observed.status_updated_at) })
             : t("agents.channels.status.savedAt", { time: formatTime(channel.updated_at) })}
         </span>
       </div>

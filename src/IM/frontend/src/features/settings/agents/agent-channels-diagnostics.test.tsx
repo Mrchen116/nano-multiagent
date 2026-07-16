@@ -47,6 +47,7 @@ function channel(overrides: Partial<AgentChannel> = {}): AgentChannel {
     secret_configured: true,
     channel_revision: 7,
     sync_state: "applied",
+    apply_error: null,
     observed: {
       observed_revision: 7,
       connection_state: "connected",

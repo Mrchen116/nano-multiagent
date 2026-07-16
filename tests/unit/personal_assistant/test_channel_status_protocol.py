@@ -204,3 +204,94 @@ def test_offline_barrier_removed_ack_drops_outbox_quarantines_and_continues_fifo
         "channel.status",
         "channel.reconcile.result",
     ]
+
+
+def test_retryable_manifest_is_reapplied_online_with_bounded_same_revision_retries(
+    tmp_path: Path,
+) -> None:
+    """One inbound snapshot reports failure, retries in place, then reports applied."""
+    manifest = {
+        "request_id": "reconcile-2",
+        "node_id": "node-a",
+        "manifest_revision": 2,
+        "channels": [],
+        "removals": [],
+    }
+    socket = _FakeWebSocket(
+        incoming=[
+            json.dumps({"type": "channel.reconcile", "payload": manifest}),
+            json.dumps(
+                {
+                    "type": "channels.reconcile.result.ack",
+                    "payload": {
+                        "request_id": "reconcile-2",
+                        "manifest_revision": 2,
+                        "head_outcome": "accepted",
+                    },
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "channels.reconcile.result.ack",
+                    "payload": {
+                        "request_id": "reconcile-2:retry:1",
+                        "manifest_revision": 2,
+                        "head_outcome": "accepted",
+                    },
+                }
+            ),
+        ]
+    )
+    relay = WebRelayAdapter()
+    relay.start(lambda _message: None)
+    attempts = 0
+
+    async def apply_manifest(_payload):
+        nonlocal attempts
+        attempts += 1
+        return {
+            "outcome": "applied" if attempts == 3 else "retryable_failed",
+            "applied_channel_ids": [],
+            "removal_outcomes": [],
+            "failures": [] if attempts == 3 else [{"error_code": "cache_commit_failed"}],
+        }
+
+    async def no_wait(_delay: float) -> None:
+        await asyncio.sleep(0)
+
+    connection = IMConnectionManager(
+        config=IMConnectionConfig(url="http://im.local"),
+        reporter=_minimal_reporter(tmp_path),
+        relay_adapter=relay,
+        channel_manifest_handler=apply_manifest,
+        channel_reconcile_retry_delays=(0.1, 0.2),
+        connect=lambda url, headers: _connect_fake(socket, [], url, headers),
+        sleep=no_wait,
+    )
+
+    async def exercise() -> None:
+        await connection.connect_once()
+        await connection._listen_once()  # noqa: SLF001
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        await connection._listen_once()  # noqa: SLF001
+        await connection._listen_once()  # noqa: SLF001
+
+    asyncio.run(exercise())
+
+    results = [
+        json.loads(frame)["payload"]
+        for frame in socket.sent
+        if json.loads(frame)["type"] == "channel.reconcile.result"
+    ]
+    assert attempts == 3
+    assert [item["request_id"] for item in results] == [
+        "reconcile-2",
+        "reconcile-2:retry:1",
+        "reconcile-2:retry:2",
+    ]
+    assert [item["outcome"] for item in results] == [
+        "retryable_failed",
+        "retryable_failed",
+        "applied",
+    ]

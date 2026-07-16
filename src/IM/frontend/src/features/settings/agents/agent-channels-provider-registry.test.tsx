@@ -76,6 +76,7 @@ function resource(
     secret_configured: true,
     channel_revision: 2,
     sync_state: "applied",
+    apply_error: null,
     observed: {
       observed_revision: 2,
       connection_state: "connected",

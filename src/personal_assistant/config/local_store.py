@@ -7,7 +7,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 import os
 import shutil
-from typing import Any, Mapping
+import threading
+from typing import Any, Callable, Mapping
 from uuid import uuid4
 
 import yaml
@@ -339,6 +340,47 @@ class LocalConfig:
     im_service: IMServiceConfig | None
     llm: LLMConfigPayload
     source_path: Path
+
+
+class RuntimeConfigOwner:
+    """Own the process-wide immutable config snapshot across concurrent writers.
+
+    Args:
+        config: Initial configuration loaded for the Gateway process.
+
+    Notes:
+        A replacement becomes visible only after its durable write succeeds. This
+        prevents one stale component from restoring fields removed by another.
+    """
+
+    def __init__(self, config: LocalConfig) -> None:
+        self._config = config
+        self._lock = threading.RLock()
+
+    def snapshot(self) -> LocalConfig:
+        """Return the latest process-wide immutable config snapshot."""
+        with self._lock:
+            return self._config
+
+    def replace(self, config: LocalConfig) -> None:
+        """Replace the in-memory snapshot when no durable write is required."""
+        with self._lock:
+            self._config = config
+
+    def persist(
+        self,
+        transform: Callable[[LocalConfig], LocalConfig],
+        *,
+        save_config: Callable[[LocalConfig, str | Path], None],
+    ) -> LocalConfig:
+        """Transform, durably save, then publish one serialized config update."""
+        with self._lock:
+            updated = transform(self._config)
+            if updated == self._config:
+                return self._config
+            save_config(updated, updated.source_path)
+            self._config = updated
+            return updated
 
 
 def load_local_config(config_path: str | Path) -> LocalConfig:

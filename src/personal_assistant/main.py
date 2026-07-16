@@ -50,6 +50,7 @@ from personal_assistant.config.local_store import (
     HeartbeatConfig,
     IMServiceConfig,
     LocalConfig,
+    RuntimeConfigOwner,
     WORKSPACE_CONFIG_DIRNAME as _WCD,
     default_local_config_path,
     ensure_workspace_defaults,
@@ -362,6 +363,7 @@ class _IMConfigSyncClient:
         token: str | None,
         pipeline: InboundPipeline,
         local_config: LocalConfig,
+        config_owner: RuntimeConfigOwner | None = None,
         workspace_root_factory: Callable[[str], Path] | None = None,
         reporter: UpstreamReporter | None = None,
         client: httpx.Client | None = None,
@@ -380,7 +382,7 @@ class _IMConfigSyncClient:
         self._retry_interval_seconds = retry_interval_seconds
         self._max_attempts = max(max_attempts, 1)
         self._pipeline = pipeline
-        self._local_config = local_config
+        self._config_owner = config_owner or RuntimeConfigOwner(local_config)
         self._workspace_root_factory = (
             workspace_root_factory or self._default_workspace_root
         )
@@ -883,29 +885,29 @@ class _IMConfigSyncClient:
             )
 
     def _persist_agent_config(self, agent_config: AgentWorkspaceConfig) -> None:
-        agents = list(self._local_config.agents)
-        for index, existing in enumerate(agents):
-            if existing.agent_id == agent_config.agent_id:
-                agents[index] = agent_config
-                break
-        else:
-            agents.append(agent_config)
-        persist_path = (
-            Path(self._local_config.source_path)
-            if self._local_config.source_path
-            else default_local_config_path()
+        def update(current: LocalConfig) -> LocalConfig:
+            agents = list(current.agents)
+            for index, existing in enumerate(agents):
+                if existing.agent_id == agent_config.agent_id:
+                    agents[index] = agent_config
+                    break
+            else:
+                agents.append(agent_config)
+            persist_path = (
+                Path(current.source_path)
+                if current.source_path
+                else default_local_config_path()
+            )
+            return replace(current, agents=tuple(agents), source_path=persist_path)
+
+        self._config_owner.persist(
+            update, save_config=save_sensitive_local_config
         )
-        self._local_config = LocalConfig(
-            node=self._local_config.node,
-            agents=tuple(agents),
-            channels=self._local_config.channels,
-            gateway=self._local_config.gateway,
-            heartbeat=self._local_config.heartbeat,
-            im_service=self._local_config.im_service,
-            llm=self._local_config.llm,
-            source_path=persist_path,
-        )
-        save_local_config(self._local_config, persist_path)
+
+    @property
+    def _local_config(self) -> LocalConfig:
+        """Expose the shared snapshot to existing sync/read paths."""
+        return self._config_owner.snapshot()
 
     def current_agent_payload(self, *, agent_id: str) -> dict[str, object] | None:
         for agent in self._local_config.agents:
@@ -2915,6 +2917,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     )
     if feishu_skill_config_changed:
         save_local_config(config, config.source_path)
+    config_owner = RuntimeConfigOwner(config)
 
     # CronServiceRegistry holds the per-agent CronExecutionService map + lifecycle
     # (set_gateway_loop / drain_all / register).  refactor-406 决策 9: the cron *tool*
@@ -2954,7 +2957,9 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         config.channels,
         dedup_db_path=runtime_dir / "relay_dedup.sqlite3",
         group_context_store=group_context_store,
-        feishu_owner_open_id_binder=_build_feishu_owner_open_id_binder(config),
+        feishu_owner_open_id_binder=_build_feishu_owner_open_id_binder(
+            config, config_owner=config_owner
+        ),
         feishu_permission_decision_callback=permission_response_handler,
     )
     outbound_router = OutboundRouter(channel_registry)
@@ -3112,6 +3117,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             token=config.im_service.token,
             pipeline=pipeline,
             local_config=config,
+            config_owner=config_owner,
             reporter=reporter,
             workspace_root_factory=workspace_root_factory,
             global_skill_root=PA_SKILL_SEARCH_ROOTS[0],
@@ -3122,6 +3128,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         _raw_token_getter = _make_token_getter(
             im_service=config.im_service,
             local_config=config,
+            config_owner=config_owner,
             auth_client=_auth_client,
         )
         # feat-394-M3 fix: wrap token_getter so each successful token refresh also
@@ -3303,10 +3310,11 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         def _legacy_bootstrap_items(
             request: Mapping[str, object],
         ) -> list[Mapping[str, object]]:
+            current_config = config_owner.snapshot()
             owner_id = str(request.get("owner_id") or "")
             items: list[Mapping[str, object]] = []
             bootstrap_credential_refs.clear()
-            for channel in config.channels:
+            for channel in current_config.channels:
                 if not channel.name.startswith("feishu:"):
                     continue
                 app_secret = channel.settings.get("appSecret")
@@ -3322,12 +3330,12 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                 ):
                     continue
                 digest = hashlib.sha256(
-                    f"{config.node.node_id}\0{channel.name}".encode()
+                    f"{current_config.node.node_id}\0{channel.name}".encode()
                 ).hexdigest()[:24]
                 channel_id = f"ch_legacy_{digest}"
                 aad = GatewayChannelAad(
                     owner_id=owner_id,
-                    node_id=config.node.node_id,
+                    node_id=current_config.node.node_id,
                     agent_id=agent_id,
                     channel_id=channel_id,
                     provider="feishu",
@@ -3365,13 +3373,16 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         def _mark_legacy_bootstrap_cached() -> None:
             if not bootstrap_credential_refs:
                 return
-            migrated = migrate_managed_channels_to_credential_refs(
-                config.channels,
-                credential_refs=bootstrap_credential_refs,
-            )
             try:
-                save_sensitive_local_config(
-                    replace(config, channels=migrated), config.source_path
+                config_owner.persist(
+                    lambda current: replace(
+                        current,
+                        channels=migrate_managed_channels_to_credential_refs(
+                            current.channels,
+                            credential_refs=bootstrap_credential_refs,
+                        ),
+                    ),
+                    save_config=save_sensitive_local_config,
                 )
             except Exception:  # noqa: BLE001
                 _log.warning(
@@ -4094,10 +4105,14 @@ def _build_channel_registry(
 def _build_feishu_owner_open_id_binder(
     config: LocalConfig,
     *,
-    save_config: Callable[[LocalConfig, str | Path], None] = save_local_config,
+    config_owner: RuntimeConfigOwner | None = None,
+    save_config: Callable[
+        [LocalConfig, str | Path], None
+    ] = save_sensitive_local_config,
 ) -> Callable[[str, str], str | None]:
     """Bind missing Feishu ownerOpenId to the first real sender for an adapter."""
     lock = threading.Lock()
+    owner = config_owner or RuntimeConfigOwner(config)
 
     def _bind(channel_name: str, sender_open_id: str) -> str | None:
         cleaned_sender = (
@@ -4106,30 +4121,47 @@ def _build_feishu_owner_open_id_binder(
         if not cleaned_sender:
             return None
         with lock:
-            for channel in config.channels:
-                if channel.name != channel_name or not channel.enabled:
-                    continue
-                if not channel.name.startswith("feishu:"):
+            existing_owner: str | None = None
+
+            def update(current: LocalConfig) -> LocalConfig:
+                nonlocal existing_owner
+                for index, channel in enumerate(current.channels):
+                    if channel.name != channel_name or not channel.enabled:
+                        continue
+                    if not channel.name.startswith("feishu:"):
+                        return current
+                    existing = channel.settings.get("ownerOpenId")
+                    if isinstance(existing, str) and existing.strip():
+                        existing_owner = existing.strip()
+                        return current
+                    settings = {**channel.settings, "ownerOpenId": cleaned_sender}
+                    channels = list(current.channels)
+                    channels[index] = replace(channel, settings=settings)
+                    return replace(current, channels=tuple(channels))
+                return current
+
+            current = owner.snapshot()
+            if current.source_path is not None:
+                try:
+                    owner.persist(update, save_config=save_config)
+                except Exception:  # noqa: BLE001
+                    _log.warning(
+                        "failed to persist feishu ownerOpenId for channel %s",
+                        channel_name,
+                        exc_info=True,
+                    )
                     return None
-                existing = channel.settings.get("ownerOpenId")
-                if isinstance(existing, str) and existing.strip():
-                    return existing.strip()
-                channel.settings["ownerOpenId"] = cleaned_sender
-                source_path = getattr(config, "source_path", None)
-                if source_path is not None:
-                    try:
-                        save_config(config, source_path)
-                    except Exception:  # noqa: BLE001
-                        _log.warning(
-                            "failed to persist feishu ownerOpenId for channel %s",
-                            channel_name,
-                            exc_info=True,
-                        )
-                _log.info(
-                    "bound feishu ownerOpenId from first inbound sender for channel %s",
-                    channel_name,
-                )
-                return cleaned_sender
+            else:
+                owner.replace(update(current))
+            if existing_owner is not None:
+                return existing_owner
+            if owner.snapshot() == current:
+                return None
+            _log.info(
+                "bound feishu ownerOpenId from first inbound sender for channel %s",
+                channel_name,
+            )
+            return cleaned_sender
         return None
 
     return _bind
@@ -4139,8 +4171,11 @@ def _make_token_getter(
     *,
     im_service: IMServiceConfig,
     local_config: LocalConfig,
+    config_owner: RuntimeConfigOwner | None = None,
     auth_client: IMAuthClient,
-    save_config: Callable[[LocalConfig, Path], None] = save_local_config,
+    save_config: Callable[
+        [LocalConfig, str | Path], None
+    ] = save_sensitive_local_config,
 ) -> Callable[[], Awaitable[str | None]]:
     """Build an async closure that returns a fresh access token before each reconnect.
 
@@ -4169,7 +4204,7 @@ def _make_token_getter(
         "refresh_token": im_service.refresh_token,
         "token": im_service.token,
     }
-    _config_holder: list[LocalConfig] = [local_config]
+    owner = config_owner or RuntimeConfigOwner(local_config)
 
     async def _getter() -> str | None:
         current_refresh = _state["refresh_token"]
@@ -4202,20 +4237,19 @@ def _make_token_getter(
         return _state["token"]
 
     def _persist(access: str, new_refresh: str) -> None:
-        current_cfg = _config_holder[0]
-        old_im = current_cfg.im_service
-        if old_im is None:
-            return
-        updated_im = IMServiceConfig(
-            url=old_im.url,
-            token=access,
-            refresh_token=new_refresh,
-            username=old_im.username,
-            password=old_im.password,
-        )
-        new_cfg = replace(current_cfg, im_service=updated_im)
-        _config_holder[0] = new_cfg
-        save_config(new_cfg, new_cfg.source_path)
+        def update(current: LocalConfig) -> LocalConfig:
+            old_im = current.im_service
+            if old_im is None:
+                return current
+            updated_im = replace(
+                old_im,
+                token=access,
+                refresh_token=new_refresh,
+            )
+            return replace(current, im_service=updated_im)
+
+        if owner.snapshot().im_service is not None:
+            owner.persist(update, save_config=save_config)
 
     return _getter
 

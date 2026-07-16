@@ -130,8 +130,8 @@ def test_feishu_owner_open_id_binder_persists_first_sender(
     bound = binder("feishu:plato", "ou_first")
 
     assert bound == "ou_first"
-    assert config.channels[0].settings["ownerOpenId"] == "ou_first"
-    assert saved == [config]
+    assert "ownerOpenId" not in config.channels[0].settings
+    assert saved[0].channels[0].settings["ownerOpenId"] == "ou_first"
 
 
 def test_feishu_owner_open_id_binder_keeps_existing_owner(
