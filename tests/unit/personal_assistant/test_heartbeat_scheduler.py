@@ -304,10 +304,10 @@ async def test_heartbeat_session_metadata_contains_agent_id(tmp_path: Path) -> N
 
 
 @pytest.mark.asyncio
-async def test_scheduler_captures_transcript_baseline_before_fast_submit(
-    tmp_path: Path,
+async def test_scheduler_does_not_read_or_own_transcript_before_fast_submit(
+    tmp_path: Path, monkeypatch
 ) -> None:
-    """A fast submit must not move the heartbeat transcript trim baseline."""
+    """Heartbeat scheduling leaves selective transcript cleanup to Kernel."""
 
     agent = _agent(tmp_path, name="hb-fast")
     _write_heartbeat(agent.workspace_root, "Check status.\n")
@@ -316,6 +316,14 @@ async def test_scheduler_captures_transcript_baseline_before_fast_submit(
     session_dir.mkdir(parents=True)
     session_file = session_dir / f"{session_id}.jsonl"
     session_file.write_text('{"type":"session_created"}\n', encoding="utf-8")
+    original_read_text = Path.read_text
+
+    def _reject_transcript_read(path: Path, *args, **kwargs):
+        if path == session_file:
+            raise AssertionError("scheduler must not inspect Kernel transcript files")
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", _reject_transcript_read)
 
     class _FastKernel(_FakeKernelClient):
         def submit_message(
@@ -324,9 +332,7 @@ async def test_scheduler_captures_transcript_baseline_before_fast_submit(
             with session_file.open("a", encoding="utf-8") as handle:
                 handle.write('{"role":"user","content":"heartbeat"}\n')
                 handle.write('{"role":"assistant","content":"HEARTBEAT_OK"}\n')
-            return super().submit_message(
-                session_id=session_id, texts=texts, **kwargs
-            )
+            return super().submit_message(session_id=session_id, texts=texts, **kwargs)
 
     scheduler = HeartbeatScheduler(
         agents=(agent,),
@@ -337,7 +343,5 @@ async def test_scheduler_captures_transcript_baseline_before_fast_submit(
 
     summary = await scheduler.tick(now=datetime(2026, 7, 16, 9, 0, tzinfo=UTC))
 
-    baseline = summary.triggered_runs[0].transcript_baseline
-    assert baseline.session_file == session_file
-    assert baseline.non_empty_line_count == 1
-    assert len(session_file.read_text(encoding="utf-8").splitlines()) == 3
+    assert summary.triggered_runs[0].run_id
+    assert len(original_read_text(session_file, encoding="utf-8").splitlines()) == 3

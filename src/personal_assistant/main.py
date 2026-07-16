@@ -686,64 +686,6 @@ class PollingHeartbeatRunner:
             finally:
                 self._wake_event.clear()
 
-    @staticmethod
-    async def trim_silent_tick(
-        *,
-        session_file: "Path",
-        pre_submit_line_count: int,
-    ) -> None:
-        """Truncate a JSONL session file to remove heartbeat turns added by a silent tick.
-
-        feat-394 decision 3 (transcript trim): after a silent heartbeat run (HEARTBEAT_OK
-        or empty response), the triggering prompt and ack turns are removed from the
-        canonical direct-chat session so they do not pollute the next LLM context window.
-        "Silent" is detected by the caller when run_context_store[run_id]["conversation_id"]
-        remains empty after the run completes (no turn_start was ever sent — zero IM trace).
-
-        The trim reads all lines, keeps only the first ``pre_submit_line_count`` non-empty
-        lines, and rewrites the file atomically (rename after write).  Lines beyond that
-        count are the heartbeat trigger prompt + HEARTBEAT_OK (or empty) assistant turn.
-
-        This approach is safe because:
-        - JSONL append is the only mutation normally done; we own the file.
-        - The rewrite is atomic (tmp file → rename) so a crash mid-write does not
-          corrupt existing history.
-        - heartbeat-only turns do not refresh session idle time (design §B requirement).
-
-        Args:
-            session_file: Absolute path to the session ``.jsonl`` file.
-            pre_submit_line_count: Number of non-empty lines present before the heartbeat
-                run was submitted.  Lines beyond this index are removed.
-        """
-
-        import os  # noqa: PLC0415
-
-        if not session_file.exists():
-            return  # nothing to trim
-        raw_text = session_file.read_text(encoding="utf-8")
-        all_lines = raw_text.splitlines(keepends=True)
-        # Count only non-empty lines to match the pre-submit count.
-        non_empty_indices: list[int] = []
-        for idx, line in enumerate(all_lines):
-            if line.strip():
-                non_empty_indices.append(idx)
-        if len(non_empty_indices) <= pre_submit_line_count:
-            return  # nothing to trim (no heartbeat lines were appended)
-        # Keep lines up to and including the last pre-submit non-empty line.
-        last_kept_line_idx = (
-            non_empty_indices[pre_submit_line_count - 1]
-            if pre_submit_line_count > 0
-            else -1
-        )
-        kept_lines = all_lines[: last_kept_line_idx + 1]
-        tmp_path = session_file.with_suffix(".jsonl.trim_tmp")
-        try:
-            tmp_path.write_text("".join(kept_lines), encoding="utf-8")
-            os.replace(tmp_path, session_file)
-        finally:
-            if tmp_path.exists():
-                tmp_path.unlink(missing_ok=True)
-
     async def _consume_heartbeat_run(self, record: "HeartbeatRunRecord") -> None:
         """Stream one heartbeat run to completion, driving the kernel_event_observer for IM delivery.
 
@@ -798,17 +740,13 @@ class PollingHeartbeatRunner:
             )
             return
 
-        # feat-394 B: silent-tick transcript trim.
-        # If conversation_id was never filled (no turn_start sent → zero IM trace → silent tick),
-        # truncate the session JSONL back to the pre-submit state.
+        # Silent heartbeat turns are removed by the Kernel conversation owner. The
+        # run identity is stable even if later foreground messages reached the same
+        # session before this consumer acquired its cleanup transaction.
         _was_silent = ctx is not None and not ctx.get("conversation_id")
-        baseline = record.transcript_baseline
-        if _was_silent and baseline is not None:
+        if _was_silent:
             try:
-                await self.trim_silent_tick(
-                    session_file=baseline.session_file,
-                    pre_submit_line_count=baseline.non_empty_line_count,
-                )
+                await self._kernel.discard_run_messages(run_id)
             except Exception:  # noqa: BLE001
                 _hb_logger.debug(
                     "heartbeat transcript trim failed (non-fatal): agent=%s run_id=%s",
@@ -1146,9 +1084,7 @@ class GatewayRuntime:
                 )
 
             if self._im_connection_manager is not None:
-                im_outbound_drain = getattr(
-                    self._im_connection_manager, "drain", None
-                )
+                im_outbound_drain = getattr(self._im_connection_manager, "drain", None)
                 if callable(im_outbound_drain):
                     await self._run_shutdown_operation(
                         "IM outbound drain",

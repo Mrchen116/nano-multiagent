@@ -191,9 +191,8 @@ class RunsRegistry:
             held = self._held_pending.pop(session_id, None) if flush_held else None
         normalized_parts: list[Mapping[str, Any]] = []
         if held:
-            normalized_parts.extend(
-                {"type": "text", "text": pending.message.content} for pending in held
-            )
+            for pending in held:
+                normalized_parts.extend(_input_parts_from_message(pending.message))
         normalized_parts.extend(dict(part) for part in parts)
 
         ref = SessionRef(session_id=session_id, workspace_root=workspace_root)
@@ -580,7 +579,9 @@ class RunsRegistry:
             self.submit(
                 session_id=session_id,
                 parts=[
-                    {"type": "text", "text": p.message.content} for p in pending_batch
+                    part
+                    for pending in pending_batch
+                    for part in _input_parts_from_message(pending.message)
                 ],
                 origin=origin_batch,
                 workspace_root=workspace_root,
@@ -870,6 +871,14 @@ def _group_pending_by_origin(
         else:
             batches.append((item.origin, [item]))
     return batches
+
+
+def _input_parts_from_message(message: LLMMessage) -> list[Mapping[str, Any]]:
+    """Recover canonical submit parts from a pending provider-neutral message."""
+
+    if isinstance(message.content, str):
+        return [{"type": "text", "text": message.content}]
+    return [dict(part) for part in message.content]
 
 
 def _serialize_usage(usage: TokenUsage | None) -> dict[str, int] | None:

@@ -45,6 +45,7 @@ _RUNS_FILENAME = "runs.jsonl"
 
 # Maximum number of terminal records to retain per job.
 _MAX_TERMINAL_RECORDS_PER_JOB = 100
+_TERMINAL_RUN_STATUSES = frozenset({"completed", "failed", "cancelled"})
 
 
 # ---------------------------------------------------------------------------
@@ -132,6 +133,11 @@ class CronRunsStore:
             # Durable append is the transition commit point; readers only observe
             # the new state after the line has been written successfully.
             materialized[record.request_id] = record
+            if record.status in _TERMINAL_RUN_STATUSES:
+                self._prune_terminal_records_locked(
+                    materialized,
+                    job_id=record.job_id,
+                )
 
     def update_status(
         self,
@@ -274,7 +280,39 @@ class CronRunsStore:
             if not isinstance(request_id, str) or not request_id:
                 continue
             records[request_id] = _record_from_dict(data)
+        self._prune_terminal_records_locked(records)
         return records
+
+    @staticmethod
+    def _prune_terminal_records_locked(
+        records: dict[str, CronRunRecord],
+        *,
+        job_id: str | None = None,
+    ) -> None:
+        """Bound terminal materialization while retaining every active record."""
+
+        job_ids = (
+            {job_id}
+            if job_id is not None
+            else {
+                record.job_id
+                for record in records.values()
+                if record.status in _TERMINAL_RUN_STATUSES
+            }
+        )
+        for current_job_id in job_ids:
+            terminal = sorted(
+                (
+                    record
+                    for record in records.values()
+                    if record.job_id == current_job_id
+                    and record.status in _TERMINAL_RUN_STATUSES
+                ),
+                key=lambda record: (record.accepted_at, record.request_id),
+                reverse=True,
+            )
+            for expired in terminal[_MAX_TERMINAL_RECORDS_PER_JOB:]:
+                records.pop(expired.request_id, None)
 
 
 def _record_from_dict(d: dict[str, Any]) -> CronRunRecord:
@@ -595,13 +633,12 @@ class CronExecutionService:
                 running_loop = None
 
             if running_loop is not None:
-                task = running_loop.create_task(
-                    coro, name=f"cron-execute-{request_id}"
-                )
+                task = running_loop.create_task(coro, name=f"cron-execute-{request_id}")
                 self._pending_tasks.append(task)
                 task.add_done_callback(self._on_execution_done)
                 owns_pending_token = False
             elif self._gateway_loop is not None and self._gateway_loop.is_running():
+
                 def _schedule_with_tracking(c=coro) -> None:
                     assert self._gateway_loop is not None
                     task = self._gateway_loop.create_task(

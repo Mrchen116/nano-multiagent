@@ -31,7 +31,7 @@ from agent.core.llm.factory import LLMFactoryConfig
 from agent.core.llm.interfaces import LLMClient
 from agent.core.observability.exporters.console import ConsoleTracer
 from agent.core.observability.tracing import set_tracer
-from agent.core.runs.registry import RunsRegistry
+from agent.core.runs.registry import RunStatus, RunsRegistry
 from agent.core.runs.executor import KernelExecutor
 from agent.core.runs.origin import RunOrigin
 from agent.core.session.conversation import ConversationSession
@@ -1050,6 +1050,46 @@ class Kernel:
             raise ValueError(f"session does not exist: {session_id}")
         return await self._c.executor.compact(self._c.directory.open(ref))
 
+    async def discard_run_messages(self, run_id: str) -> bool:
+        """Remove messages produced by one terminal run from its conversation.
+
+        The run record supplies the canonical session address and turn identity.
+        Cleanup is serialized by ``ConversationSession`` with normal turns, so
+        later messages remain durable and reachable even when they arrived before
+        this method acquired the conversation gate.
+
+        Args:
+            run_id: Terminal run whose persisted turn should be removed.
+
+        Returns:
+            True when the run had persisted messages that were removed. False for
+            unknown, non-terminal, or pre-turn runs and repeated cleanup.
+        """
+
+        record = self._c.runs_registry.get(run_id)
+        if (
+            record is None
+            or record.status
+            not in {
+                RunStatus.COMPLETED,
+                RunStatus.FAILED,
+                RunStatus.CANCELLED,
+            }
+            or not record.turn_id
+            or record.workspace_root is None
+        ):
+            return False
+        ref = SessionRef(
+            session_id=record.session_id,
+            workspace_root=record.workspace_root,
+        )
+        if self._c.directory.get(ref) is None:
+            return False
+        return await self._c.executor.discard_turn(
+            self._c.directory.open(ref),
+            turn_id=record.turn_id,
+        )
+
     def try_steer(
         self,
         *,
@@ -1163,15 +1203,19 @@ class Kernel:
         """
         from agent.core.agent.state import (  # noqa: PLC0415
             parse_input_parts,
+            render_user_content_parts,
             render_user_text,
         )
         from agent.core.llm.interfaces import LLMMessage  # noqa: PLC0415
 
         registry = self._c.runs_registry
-        user_text = render_user_text(parse_input_parts(parts))
+        parsed_parts = parse_input_parts(parts)
+        user_content = render_user_content_parts(parsed_parts) or render_user_text(
+            parsed_parts
+        )
         accepted_run_id = registry.try_inject_pending_message(
             session_id,
-            LLMMessage(role="user", content=user_text),
+            LLMMessage(role="user", content=user_content),
             origin=origin,
             expected_run_id=expected_run_id,
         )

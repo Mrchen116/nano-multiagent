@@ -10,7 +10,6 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from personal_assistant.config.local_store import (
     AgentWorkspaceConfig,
-    WORKSPACE_CONFIG_DIRNAME,
 )
 from personal_assistant.gateway.agent_catalog import LiveAgentCatalog, LiveAgentSnapshot
 from personal_assistant.scheduler._schedule_primitives import (
@@ -33,20 +32,6 @@ if TYPE_CHECKING:
 
 
 @dataclass(frozen=True, slots=True)
-class HeartbeatTranscriptBaseline:
-    """Identify the exact transcript prefix that predates a heartbeat submit.
-
-    Args:
-        session_file: Canonical JSONL transcript for the submitted kernel session.
-        non_empty_line_count: Number of durable transcript records observed before
-            submission. Zero is a valid baseline for a newly-created transcript.
-    """
-
-    session_file: Path
-    non_empty_line_count: int
-
-
-@dataclass(frozen=True, slots=True)
 class HeartbeatRunRecord:
     """Describe one heartbeat run submitted to the kernel.
 
@@ -60,9 +45,6 @@ class HeartbeatRunRecord:
             this run so the consumer skips replaying history from prior runs
             (perf: avoids O(history) scan on each tick).  0 = no anchor captured
             (legacy / test path) — stream from the beginning.
-        transcript_baseline: Immutable transcript prefix captured before submit.
-            Absence disables silent cleanup for legacy callers rather than taking
-            a later snapshot that may already include this run.
     """
 
     agent_id: str
@@ -70,7 +52,6 @@ class HeartbeatRunRecord:
     run_id: str
     session_id: str
     stream_anchor: int = 0
-    transcript_baseline: HeartbeatTranscriptBaseline | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -520,23 +501,6 @@ class HeartbeatScheduler:
         # current_event_sequence get anchor=0 (full-history scan, functionally correct).
         _get_seq = getattr(self._kernel_client, "current_event_sequence", None)
         stream_anchor = _get_seq() if callable(_get_seq) else 0
-        session_file = (
-            agent.workspace_root
-            / WORKSPACE_CONFIG_DIRNAME
-            / "sessions"
-            / f"{session_id}.jsonl"
-        )
-        non_empty_line_count = 0
-        if session_file.exists():
-            non_empty_line_count = sum(
-                1
-                for line in session_file.read_text(encoding="utf-8").splitlines()
-                if line.strip()
-            )
-        transcript_baseline = HeartbeatTranscriptBaseline(
-            session_file=session_file,
-            non_empty_line_count=non_empty_line_count,
-        )
         # The stateless kernel needs workspace_root to locate the session JSONL;
         # origin=heartbeat lets auto_mode_gate detect unattended context and skip
         # blocking permission requests that nobody is around to answer.
@@ -558,7 +522,6 @@ class HeartbeatScheduler:
             run_id=run_id,
             session_id=session_id,
             stream_anchor=stream_anchor,
-            transcript_baseline=transcript_baseline,
         )
 
 
