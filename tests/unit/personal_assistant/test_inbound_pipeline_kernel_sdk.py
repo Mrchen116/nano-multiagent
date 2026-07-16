@@ -126,6 +126,31 @@ class _FakeKernel:
         record.injected = False
         return record
 
+    def try_steer(
+        self,
+        *,
+        session_id: str,
+        parts: list[dict],
+        origin: Any = None,
+    ) -> MagicMock | None:
+        """Attempt injection without creating a fallback run."""
+        active = self.active_run_by_session.get(session_id)
+        if active is None:
+            return None
+        self.submit_calls.append(
+            {
+                "session_id": session_id,
+                "parts": parts,
+                "origin": origin,
+                "steer": True,
+                "injected": True,
+            }
+        )
+        record = MagicMock()
+        record.run_id = active
+        record.injected = True
+        return record
+
     def append_message(
         self,
         session_id: str,
