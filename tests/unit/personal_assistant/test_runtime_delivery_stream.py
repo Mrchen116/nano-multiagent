@@ -66,11 +66,14 @@ async def test_stream_returns_failed_terminal_outcome_with_partial_text() -> Non
         },
         error="upstream failed",
     )
-    assert [event.get("status") for event in observed if event["event"] == "run_status"] == [
+    assert [
+        event.get("status") for event in observed if event["event"] == "run_status"
+    ] == [
         "error",
         "failed",
     ]
     assert context_store == {}
+
 
 @pytest.mark.asyncio
 async def test_stream_returns_cancelled_terminal_outcome() -> None:

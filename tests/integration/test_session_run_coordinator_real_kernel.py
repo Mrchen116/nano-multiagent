@@ -27,9 +27,7 @@ from tests.unit.personal_assistant._pipeline_helpers import _FakeChannel
 from tests.unit.personal_assistant._session_run_coordinator_helpers import inbound
 
 
-async def _allow_all(
-    _tool: str, _input: Any, _context: Any
-) -> PermissionDecision:
+async def _allow_all(_tool: str, _input: Any, _context: Any) -> PermissionDecision:
     return PermissionDecision(behavior="allow")
 
 
@@ -95,9 +93,7 @@ async def test_terminal_observer_window_creates_one_fallback_run(
     coordinator = SessionRunCoordinator(
         kernel=kernel,
         session_binder=binder,
-        outbound_router=OutboundRouter(
-            ChannelRegistry((_FakeChannel("web_relay"),))
-        ),
+        outbound_router=OutboundRouter(ChannelRegistry((_FakeChannel("web_relay"),))),
         group_context_store=GroupContextStore(tmp_path / "group.sqlite3"),
         kernel_event_observer=_observer,
     )

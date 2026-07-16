@@ -21,9 +21,7 @@ def _build_sync(
     requests: list[dict[str, Any]],
 ) -> IMShadowConversationSync:
     def handler(request: httpx.Request) -> httpx.Response:
-        payload = (
-            json.loads(request.content.decode("utf-8")) if request.content else {}
-        )
+        payload = json.loads(request.content.decode("utf-8")) if request.content else {}
         requests.append({"path": request.url.path, "payload": payload})
         if request.url.path == "/im/v1/me":
             return httpx.Response(200, json={"id": "owner-a"})
@@ -72,9 +70,7 @@ def test_typed_only_external_identity_creates_shadow_conversation() -> None:
         ),
     )
 
-    conversation_id = asyncio.run(
-        sync.sync_user_message(inbound, agent_id="agent-a")
-    )
+    conversation_id = asyncio.run(sync.sync_user_message(inbound, agent_id="agent-a"))
 
     assert conversation_id == "shadow-a"
     create_payload = requests[1]["payload"]
@@ -104,9 +100,7 @@ def test_typed_im_origin_is_rejected_by_shadow_adapter() -> None:
         ),
     )
 
-    conversation_id = asyncio.run(
-        sync.sync_user_message(inbound, agent_id="agent-a")
-    )
+    conversation_id = asyncio.run(sync.sync_user_message(inbound, agent_id="agent-a"))
 
     assert conversation_id is None
     assert requests == []
@@ -124,9 +118,7 @@ def test_legacy_external_metadata_remains_supported() -> None:
         }
     )
 
-    conversation_id = asyncio.run(
-        sync.sync_user_message(inbound, agent_id="agent-a")
-    )
+    conversation_id = asyncio.run(sync.sync_user_message(inbound, agent_id="agent-a"))
 
     assert conversation_id == "shadow-a"
     create_payload = requests[1]["payload"]

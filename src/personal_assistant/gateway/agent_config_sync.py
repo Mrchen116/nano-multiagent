@@ -33,6 +33,7 @@ BootstrapClientFactory = Callable[[str], httpx.Client]
 Monotonic = Callable[[], float]
 Sleep = Callable[[float], None]
 
+
 def _default_pa_global_skill_names() -> tuple[str, ...]:
     """Resolve the PA global user skills that new IM-created agents inherit."""
 
@@ -637,7 +638,6 @@ def _make_workspace_root_factory(
         return _base / agent_id
 
     return _factory
-
 
 
 def _parse_heartbeat_from_im_payload(

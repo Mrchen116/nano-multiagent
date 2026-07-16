@@ -64,9 +64,7 @@ class BackgroundSubscriptionManager:
             [ReplyContext, Mapping[str, Any]], Awaitable[None]
         ]
         | None = None,
-        bg_reply_sender: Callable[
-            [str, ReplyContext, str], Awaitable[None]
-        ]
+        bg_reply_sender: Callable[[str, ReplyContext, str], Awaitable[None]]
         | None = None,
     ) -> None:
         self._kernel = kernel
@@ -156,7 +154,8 @@ class BackgroundSubscriptionManager:
         other_errors = [
             result
             for result in results
-            if isinstance(result, BaseException) and not isinstance(result, TimeoutError)
+            if isinstance(result, BaseException)
+            and not isinstance(result, TimeoutError)
         ]
         if other_errors:
             raise ExceptionGroup("background subscriber close failed", other_errors)

@@ -120,11 +120,7 @@ class InboundDispatcher:
         _, pending = await asyncio.wait(roots, timeout=remaining)
         if not pending:
             return
-        late_thread_names = {
-            wrapped[root]
-            for root in pending
-            if root in wrapped
-        }
+        late_thread_names = {wrapped[root] for root in pending if root in wrapped}
         for root in pending:
             root.cancel()
         await asyncio.gather(*pending, return_exceptions=True)
@@ -156,9 +152,7 @@ class InboundDispatcher:
                     assert thread_registration is not None
                     thread_registration.set_result(task)
                 task.add_done_callback(
-                    lambda done, name=root_name: self._thread_loop_root_done(
-                        name, done
-                    )
+                    lambda done, name=root_name: self._thread_loop_root_done(name, done)
                 )
         await self._pipeline.handle_inbound(message)
 
@@ -180,9 +174,7 @@ class InboundDispatcher:
         if error is not None:
             _log.error("threadsafe inbound root failed", exc_info=error)
 
-    def _thread_loop_root_done(
-        self, root_name: str, task: asyncio.Task[None]
-    ) -> None:
+    def _thread_loop_root_done(self, root_name: str, task: asyncio.Task[None]) -> None:
         with self._lock:
             if self._thread_loop_roots.get(root_name) is task:
                 self._thread_loop_roots.pop(root_name, None)

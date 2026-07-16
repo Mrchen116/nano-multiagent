@@ -188,16 +188,12 @@ def test_im_config_sync_client_drops_existing_agent_session_bindings_after_profi
     owners.store.bind(
         session_key="web:conv-1:agent-live",
         kernel_session_id="sess-old",
-        reply_context=ReplyContext(
-            channel_name="web_relay", target_chat_id="conv-1"
-        ),
+        reply_context=ReplyContext(channel_name="web_relay", target_chat_id="conv-1"),
     )
     owners.store.bind(
         session_key="web:conv-2:agent-other",
         kernel_session_id="sess-other",
-        reply_context=ReplyContext(
-            channel_name="web_relay", target_chat_id="conv-2"
-        ),
+        reply_context=ReplyContext(channel_name="web_relay", target_chat_id="conv-2"),
     )
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
@@ -230,6 +226,7 @@ def test_im_config_sync_client_does_not_overwrite_existing_workspace_files(
     heartbeat_path.write_text(
         "interval: 1h\n\n- Existing heartbeat\n", encoding="utf-8"
     )
+
     def _handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "GET"
         assert request.url.path == "/im/v1/agents/agent-live/config"

@@ -148,9 +148,7 @@ async def test_steer_race_reuses_group_and_image_parts_exactly_once(
     request = _request(second_message, catalog)
     buffer_key = "agent-a:web_relay:room"
 
-    first = asyncio.create_task(
-        coordinator.dispatch(_request(first_message, catalog))
-    )
+    first = asyncio.create_task(coordinator.dispatch(_request(first_message, catalog)))
     await kernel.wait_stream("run-1")
     group_store.append(buffer_key, "background once", sender="Bob")
     fallback = asyncio.create_task(coordinator.dispatch(request))
@@ -238,13 +236,9 @@ async def test_bounded_lock_registry_cannot_evict_pre_submit_session_owner(
     message_a = inbound(chat_id="chat-a", text="first")
     message_b = inbound(chat_id="chat-b", text="second")
 
-    running_a = asyncio.create_task(
-        coordinator.dispatch(_request(message_a, catalog))
-    )
+    running_a = asyncio.create_task(coordinator.dispatch(_request(message_a, catalog)))
     await asyncio.wait_for(images.entered[0].wait(), timeout=1)
-    running_b = asyncio.create_task(
-        coordinator.dispatch(_request(message_b, catalog))
-    )
+    running_b = asyncio.create_task(coordinator.dispatch(_request(message_b, catalog)))
     await asyncio.wait_for(images.entered[1].wait(), timeout=1)
 
     stopping_b = asyncio.create_task(

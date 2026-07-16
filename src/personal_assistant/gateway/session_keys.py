@@ -422,8 +422,7 @@ class PersistentSessionBindingStore:
         # Only the conversation-id segment is a wildcard. Channel and Agent ids
         # are business identifiers, so SQLite pattern metacharacters stay literal.
         pattern = (
-            f"{_literal_like_pattern(channel_name)}:%:"
-            f"{_literal_like_pattern(agent_id)}"
+            f"{_literal_like_pattern(channel_name)}:%:{_literal_like_pattern(agent_id)}"
         )
         # feat-394: ORDER BY created_at ASC (not updated_at) so the result matches
         # IM's _find_canonical_direct_conversation(sorted(key=created_at)[0]).

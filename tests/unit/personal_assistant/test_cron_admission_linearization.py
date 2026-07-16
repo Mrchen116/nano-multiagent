@@ -54,9 +54,7 @@ async def test_request_stop_cannot_pass_acceptance_before_task_registration(
     )
     assert await asyncio.to_thread(lookup_started.wait, 1)
     service.request_stop()
-    drain = asyncio.create_task(
-        service.drain(asyncio.get_running_loop().time() + 1)
-    )
+    drain = asyncio.create_task(service.drain(asyncio.get_running_loop().time() + 1))
     await asyncio.sleep(0.05)
     drained_before_registration = drain.done()
     release_lookup.set()

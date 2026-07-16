@@ -218,12 +218,9 @@ async def test_restart_reuses_session_history_but_dispatches_only_to_new_listene
         assert await _wait_terminal(kernel_b, run.run_id) == "completed"
 
         assert listener_a.requests == []
-        assert [request["text"] for request in listener_b.requests] == [
-            "after restart"
-        ]
+        assert [request["text"] for request in listener_b.requests] == ["after restart"]
         assert any(
-            sentinel in str(message.content)
-            for message in llm_b.requests[0].messages
+            sentinel in str(message.content) for message in llm_b.requests[0].messages
         )
         persisted = store_b.get(binding_b.session_key)
         assert persisted is not None

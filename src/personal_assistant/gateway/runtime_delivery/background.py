@@ -37,9 +37,7 @@ def build_session_event_callback(
         Async callable ``(captured_reply_context, event) -> None``.
     """
 
-    async def _callback(
-        reply_context: ReplyContext, event: Mapping[str, Any]
-    ) -> None:
+    async def _callback(reply_context: ReplyContext, event: Mapping[str, Any]) -> None:
         manager = im_connection_manager_factory()
         if manager is None or not manager.connected:
             return

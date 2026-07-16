@@ -40,7 +40,9 @@ class _Kernel:
         return {"session_id": session_id, "workspace_root": workspace_root}
 
 
-def test_v1_to_v2_publish_invalidates_binding_and_next_resolve_uses_v2(tmp_path) -> None:
+def test_v1_to_v2_publish_invalidates_binding_and_next_resolve_uses_v2(
+    tmp_path,
+) -> None:
     workspace = tmp_path / "agent-a"
     workspace.mkdir()
     initial = AgentWorkspaceConfig(agent_id="agent-a", workspace_root=workspace)
@@ -179,9 +181,7 @@ def test_unchanged_sync_and_reconcile_do_not_rewrite_or_republish(
         local_config=config,
         client=httpx.Client(
             transport=httpx.MockTransport(
-                lambda _request: httpx.Response(
-                    200, json=_unchanged_payload(workspace)
-                )
+                lambda _request: httpx.Response(200, json=_unchanged_payload(workspace))
             ),
             base_url="http://im.local",
         ),

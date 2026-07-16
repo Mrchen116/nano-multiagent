@@ -67,8 +67,7 @@ def build_inbound_pipeline(
     image_resolver: ImageAttachmentResolver | None = None,
     background_subscriptions: BackgroundSubscriptionManager | None = None,
     shadow_sync: ShadowConversationSync | None = None,
-    bg_reply_sender: Callable[[str, ReplyContext, str], Awaitable[None]]
-    | None = None,
+    bg_reply_sender: Callable[[str, ReplyContext, str], Awaitable[None]] | None = None,
     max_session_drain_locks: int = 4096,
 ) -> InboundPipeline:
     """Build production owners explicitly while preserving concise test setup."""

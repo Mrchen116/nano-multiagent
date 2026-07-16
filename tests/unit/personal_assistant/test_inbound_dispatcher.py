@@ -32,7 +32,9 @@ class _BlockingPipeline:
 
 
 @pytest.mark.asyncio
-async def test_dispatcher_seal_rejects_new_roots_and_drain_waits_accepted_root() -> None:
+async def test_dispatcher_seal_rejects_new_roots_and_drain_waits_accepted_root() -> (
+    None
+):
     """Same-loop roots accepted before seal drain; later callbacks never enter pipeline."""
 
     pipeline = _BlockingPipeline()
@@ -158,9 +160,7 @@ async def test_threadsafe_registration_window_waits_for_loop_task_cleanup() -> N
     assert not thread.is_alive()
 
     dispatcher.seal()
-    drain = asyncio.create_task(
-        dispatcher.drain(asyncio.get_running_loop().time())
-    )
+    drain = asyncio.create_task(dispatcher.drain(asyncio.get_running_loop().time()))
     await asyncio.wait_for(pipeline.cleanup_started.wait(), timeout=1)
     await asyncio.sleep(0)
     returned_before_cleanup = drain.done()

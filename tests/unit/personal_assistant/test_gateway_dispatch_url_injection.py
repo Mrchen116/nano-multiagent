@@ -61,7 +61,9 @@ def test_inbound_session_metadata_uses_configured_dispatch_port(
     )
 
 
-def test_session_metadata_uses_published_listener_url_or_omits_it(tmp_path: Path) -> None:
+def test_session_metadata_uses_published_listener_url_or_omits_it(
+    tmp_path: Path,
+) -> None:
     """A session advertises only an endpoint published by a successful listener."""
 
     workspace = tmp_path / "agent-a"

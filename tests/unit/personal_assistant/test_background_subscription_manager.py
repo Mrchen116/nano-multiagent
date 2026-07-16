@@ -110,9 +110,7 @@ async def test_manager_seal_does_not_cancel_current_callback_before_close() -> N
     callback_started = asyncio.Event()
     release_callback = asyncio.Event()
 
-    async def _on_session_event(
-        _session_id: str, _event: Mapping[str, Any]
-    ) -> None:
+    async def _on_session_event(_session_id: str, _event: Mapping[str, Any]) -> None:
         callback_started.set()
         await release_callback.wait()
 
@@ -219,9 +217,7 @@ async def test_close_consumes_event_dequeued_before_stop_request() -> None:
     kernel = _YieldGatedKernel()
     delivered: list[str] = []
 
-    async def _on_event(
-        _reply_context: ReplyContext, event: Mapping[str, Any]
-    ) -> None:
+    async def _on_event(_reply_context: ReplyContext, event: Mapping[str, Any]) -> None:
         delivered.append(str(event["event"]))
 
     manager = BackgroundSubscriptionManager(
@@ -232,9 +228,7 @@ async def test_close_consumes_event_dequeued_before_stop_request() -> None:
     await kernel.events.put({"event": "self_evolution_review"})
     await asyncio.wait_for(kernel.dequeued.wait(), timeout=1)
 
-    close = asyncio.create_task(
-        manager.aclose(asyncio.get_running_loop().time() + 1)
-    )
+    close = asyncio.create_task(manager.aclose(asyncio.get_running_loop().time() + 1))
     await asyncio.sleep(0)
     kernel.release_yield.set()
     await close

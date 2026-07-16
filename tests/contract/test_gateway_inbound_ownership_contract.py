@@ -13,7 +13,9 @@ def _source(relative: str) -> str:
     return (_ROOT / relative).read_text(encoding="utf-8")
 
 
-def _method_node(relative: str, *, class_name: str, method_name: str) -> ast.FunctionDef:
+def _method_node(
+    relative: str, *, class_name: str, method_name: str
+) -> ast.FunctionDef:
     tree = ast.parse(_source(relative))
     owner = next(
         node

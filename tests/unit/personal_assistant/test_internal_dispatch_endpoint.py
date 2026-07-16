@@ -327,7 +327,9 @@ async def test_dispatch_from_old_session_keeps_captured_provenance_after_publish
         (AgentWorkspaceConfig(agent_id="agent_a", workspace_root=old_workspace),)
     )
     kernel = MagicMock()
-    kernel.create_session = AsyncMock(return_value=SimpleNamespace(session_id="session-old"))
+    kernel.create_session = AsyncMock(
+        return_value=SimpleNamespace(session_id="session-old")
+    )
     binder = GatewaySessionBinder(
         catalog=catalog,
         repository=SessionBindingStore(),

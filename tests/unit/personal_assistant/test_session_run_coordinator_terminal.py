@@ -143,7 +143,9 @@ async def test_real_stall_fails_and_releases_next_same_session_turn(
         "delivery_status": "failed",
     }
     assert lifecycle[-1].phase == "failed"
-    assert not coordinator.is_session_busy(build_session_key(message, agent_id="agent-a"))
+    assert not coordinator.is_session_busy(
+        build_session_key(message, agent_id="agent-a")
+    )
 
     next_turn = asyncio.create_task(
         coordinator.dispatch(_request(replace(message, text="second"), catalog))
@@ -240,7 +242,9 @@ async def test_terminal_failure_reconciles_fails_lifecycle_and_cleans_state(
         "finalize_bubble": True,
         "delivery_status": "failed",
     }
-    assert not coordinator.is_session_busy(build_session_key(message, agent_id="agent-a"))
+    assert not coordinator.is_session_busy(
+        build_session_key(message, agent_id="agent-a")
+    )
 
 
 @pytest.mark.asyncio
