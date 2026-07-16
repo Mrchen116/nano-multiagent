@@ -8,12 +8,12 @@
 
 ## 退出标准
 
-- [ ] `agent.config`、`agent.message`、streaming/system message、heartbeat/report/result/delivery/channel 等真实 Gateway 上行帧在公共发送边界携带当前注册 `node_id`；协议错误作为 terminal result 释放当前 FIFO 与 waiter，后续帧继续发送。
-- [ ] legacy Feishu `appSecret` 与缺失 `feishu-doc` 的显式 skills 组合启动时，skill 激活和 bootstrap migration 共享安全配置 owner；递归扫描配置目录无明文 backup/temp，最终主文件仅有 `credentialRef`、skills 已持久化、mode `0600`。
-- [ ] IM 断线期间，同 channel 多次 runtime replacement 的内存 `channel.status` 队列只保留当前 incarnation 的可重放帧；不影响其他 frame FIFO，重连不发 superseded status，迟到 ACK/result 幂等。
-- [ ] current manifest 的 durable apply error 在没有 observed row 时也投影 `sync_state=failed` 和具体原因；同 revision applied 后立即清错。Connected → Reconnect 通过真实 HTTP/WS action 进入 reconnecting 或可操作失败，不返回 500。
-- [ ] 节点离线时 observed connected/limited/failed 统一显示 last-known；desired pending 与 durable apply failure 继续优先。offline removal Retry 显示等待节点的产品反馈，不暴露 raw 409，手动或自动成功后旧提示消失，空态无残留 alert。
-- [ ] 三个 Round 3 失败旅程与直接回归完成真实浏览器复验；focused/full backend、frontend test/build、Ruff、test-size、secret scan、`git diff --check` 和进程清理全绿。
+- [x] `agent.config`、`agent.message`、streaming/system message、heartbeat/report/result/delivery/channel 等真实 Gateway 上行帧在公共发送边界携带当前注册 `node_id`；协议错误作为 terminal result 释放当前 FIFO 与 waiter，后续帧继续发送。
+- [x] legacy Feishu `appSecret` 与缺失 `feishu-doc` 的显式 skills 组合启动时，skill 激活和 bootstrap migration 共享安全配置 owner；递归扫描配置目录无明文 backup/temp，最终主文件仅有 `credentialRef`、skills 已持久化、mode `0600`。
+- [x] IM 断线期间，同 channel 多次 runtime replacement 的内存 `channel.status` 队列只保留当前 incarnation 的可重放帧；不影响其他 frame FIFO，重连不发 superseded status，迟到 ACK/result 幂等。
+- [x] current manifest 的 durable apply error 在没有 observed row 时也投影 `sync_state=failed` 和具体原因；同 revision applied 后立即清错。Connected → Reconnect 通过真实 HTTP/WS action 进入 reconnecting 或可操作失败，不返回 500。
+- [x] 节点离线时 observed connected/limited/failed 统一显示 last-known；desired pending 与 durable apply failure 继续优先。offline removal Retry 显示等待节点的产品反馈，不暴露 raw 409，手动或自动成功后旧提示消失，空态无残留 alert。
+- [x] 三个 Round 3 失败旅程与直接回归完成真实浏览器复验；focused/full backend、frontend test/build、Ruff、test-size、secret scan、`git diff --check` 和进程清理全绿。
 
 ## 测试策略
 
@@ -98,3 +98,4 @@ Prototype / Reference Contract：
 
 - 步骤：隔离高位端口重跑 Connected→Reconnect、offline failed、removal retry 三个失败旅程及首次 apply failure/安全迁移直接回归，保存 prototype 对照与 sanitized 证据；执行全量 gate 并清理进程、symlink 与临时文件。
 - 验证：真实浏览器无 500/raw 409/stale alert，desktop/mobile 状态收敛；所有测试、build、lint、size、secret、diff、process gate 全绿。
+- 状态：完成。真实 Feishu 测试通道覆盖 Reconnect、375×812 offline failed、offline removal waiting 与 empty cleanup；全量 backend/frontend/build/lint/contract/security/cleanup gates 全绿，证据见 `evidence/README.md`。

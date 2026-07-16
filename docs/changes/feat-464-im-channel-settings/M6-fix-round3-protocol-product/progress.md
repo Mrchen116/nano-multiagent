@@ -81,3 +81,19 @@
   - Prototype Comparison: 对齐 `#channel-failed` 的 last-known 层级和 `#channel-deleting` 的失败可重试/成功无残影。
 - Rollback: 回退 R5 C1/C2/C3 commits；会恢复 offline failure 冒充实时状态与 raw retry error。
 - Commits: C1=`a21ee1a35`，C2=`76c0807ac`。
+
+## R6 — 浏览器复验与全量门禁
+
+- Context: Round 3 问题跨真实 HTTP/WS、节点在线性和前端投影，仅 focused test 不能证明用户入口不再 500/raw 409 或残留旧 alert。
+- Decision: 用 worktree 隔离 IM/Gateway/Vite 与真实 Feishu 测试通道做 headed Chromium 复验；Gateway 停止后的 failed/removal 状态通过 production SQLite projection 构造，仍由真实认证 HTTP 和真实 frontend 读取，不替换 DOM 或 mock route。
+- Rationale: 外部应用无需为了制造失败而更改真实授权；production store harness 能稳定复现控制面/运行面边界，永久 regression 则守住每个协议入口。
+- Evidence:
+  - Tests: full backend `3469 passed, 1 skipped, 20 deselected`；frontend `67 files / 626 tests passed`；production build `444 modules transformed`。
+  - Entry: 真实登录 → Agent detail → Channels；Connected 点击 Reconnect 后进入新 connecting status，HTTP 无 500；offline failed 在 375×812 显示 last-known。
+  - Frontend State Matrix: default、empty、error、disabled、submitting、permission unknown/limited、nullable observed、mobile 均由 full suite与 browser journey覆盖。
+  - Browser QA: offline removal Retry 显示 waiting-for-node 且不发 raw live request；receipt applied 后 reload 为 empty，无旧 notice/alert。完整记录见 `evidence/README.md`。
+  - E2E/Regression: Ruff `All checks passed`；test naming/size `2 passed`；secret scan、runtime-artifact absence、`git diff --check` passed。
+  - Visual/Interaction: desktop Reconnect 与 375×812 offline/removal/empty 均可操作；无版本或 Web IM provider 文案。
+  - Prototype Comparison: `#channel-reconnecting`、`#channel-failed`、`#channel-deleting`、`#channels-mobile` 全部 PASS。
+- Rollback: 回退 M6 commits；无需数据迁移，现有 desired manifest、receipt 与 credential envelope schema 未改变。
+- Commits: browser/gates/evidence 与最终 checklist 由本 R6 C3 commit 记录。
