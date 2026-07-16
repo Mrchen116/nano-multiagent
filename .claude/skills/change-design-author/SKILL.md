@@ -306,6 +306,16 @@ design.md 读起来像文字墙,根源是该画的地方在用散文描述。人
 
 **写实,别写空话**。"需要小心兼容性"是空话;"现有 X 调用方有 47 个,迁移需分 3 批 + 一个兼容层"才是能让人采取行动的风险。
 
+### §3.5 验收前置条件
+
+从首文档 Scenario 和计划中的 `[reviewer]` 真实旅程反推验收前置。凡是依赖仓库外资源(账号、凭据、测试租户、第三方对象、特定权限状态或硬件),必须在 `## Runbook for Reviewer` 中写明:
+
+- 需要什么、如何安全注入 / 定位、如何确认可用;
+- 只记录环境变量名、Keychain 项或私密文件路径,不读出、不复制、不把 secret 值写入 design / Git;
+- 当前环境找不到必验资源时,在 design 阶段请用户提供安全的 provision 方式,不把问题留给 reviewer。
+
+必验前置未落实时,门禁 2 不通过。如果用户无法提供,回 `change-spec-author` 调整验收范围或明确授权替代验证;不得默认用 fake / 单测代替真栈验收。无仓库外前置时,在 Runbook 显式写"无"。
+
 ---
 
 ## §4 Milestone 拆分
@@ -506,6 +516,8 @@ mkdir -p docs/changes/<unit_dir>/specs/<包>/   # 仅为有对外行为变化的
 - [ ] 没有把不归本 unit 的基础设施(数据库/MQ/第三方)塞进清单
 - [ ] 命令是可直接照搬的(不是"按 README 操作"或"问开发者"这种空话)——reviewer 拿到这段不需要再读源码
 - [ ] 已声明 **Review 驱动方式**:一律端到端真栈;本 unit 不改客户端面 → 可用客户端实际调用的同一接口代驱动,改了客户端面 → 必须真驱动客户端面。不声明则 reviewer 即兴
+- [ ] 已逐条反推 `[reviewer]` 旅程的验收前置;仓库外资源已写明安全来源 / 注入方式和可用性检查,或显式"无"
+- [ ] 所有必验前置已在当前环境落实;未落实项已向用户索取 provision 方式,不含任何 secret 值
 
 **Milestone 表 ↔ design 对齐**:
 
@@ -559,6 +571,7 @@ mkdir -p docs/changes/<unit_dir>/specs/<包>/   # 仅为有对外行为变化的
 - [ ] 架构总览(配图)、关键决策、接口与数据流、风险与回退 都写了实质内容
 - [ ] 前端相关 unit 已产出 `prototype.html`,且 `design.md ## 前端原型` 含现有 UX grounding + 原型对齐契约;非前端 unit 没有该段和原型文件
 - [ ] `§Runbook for Reviewer` 段已填(列出本 unit 涉及的常驻服务 + 停止/启动/健康检查命令,或显式"无常驻服务")
+- [ ] `§Runbook for Reviewer` 已列出验收前置(或显式"无"),所有必验的仓库外资源已在当前环境落实
 - [ ] Milestone 表完整(每行字段都填),数量 = `docs/changes/<unit_dir>/M*/` 子目录数
 - [ ] milestone 子目录仅含 `.gitkeep`，没有预填 tasks.md / progress.md
 - [ ] 对外行为有变化的包都按最窄 canonical 落点产了 delta-spec `docs/changes/<unit_dir>/specs/<包>/<target>.md`(§4.8);纯内部 unit 在 design.md 注 "no spec delta"
