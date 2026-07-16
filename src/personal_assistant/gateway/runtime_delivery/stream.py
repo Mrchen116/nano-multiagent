@@ -61,6 +61,7 @@ async def stream_run_to_completion(
     final_result_text = ""
     terminal_event: Mapping[str, Any] | None = None
     popped_ctx: dict[str, str] | None = None
+    abnormal_terminal_reconciled = False
     try:
         async for event in kernel.stream(
             kernel_session_id, after_sequence=stream_anchor
@@ -75,11 +76,31 @@ async def stream_run_to_completion(
                 observation = observer(event)
                 if asyncio.iscoroutine(observation):
                     await observation
+            if event.get("event") == "run_terminal_reconcile":
+                abnormal_terminal_reconciled = True
             if (
                 event.get("event") == "run_status"
                 and event.get("status") in TERMINAL_RUN_STATUSES
             ):
                 terminal_event = event
+                status = str(event["status"])
+                if (
+                    status != "completed"
+                    and observer is not None
+                    and not abnormal_terminal_reconciled
+                ):
+                    reconcile = observer(
+                        {
+                            "event": "run_terminal_reconcile",
+                            "run_id": run_id,
+                            "reason": _extract_terminal_error(event, status=status)
+                            or status,
+                            "finalize_bubble": True,
+                            "delivery_status": "failed",
+                        }
+                    )
+                    if asyncio.iscoroutine(reconcile):
+                        await reconcile
                 break
     finally:
         popped_ctx = _pop_stream_context(

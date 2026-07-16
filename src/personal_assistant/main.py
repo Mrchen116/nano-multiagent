@@ -762,37 +762,6 @@ class PollingHeartbeatRunner:
 
         assert self._run_context_store is not None  # guard (checked in _run_loop)
 
-        # feat-394 decision 3 transcript trim (B): snapshot session file line count before run.
-        # After a silent tick (HEARTBEAT_OK / empty), the triggered prompt + ack turns are
-        # removed so they don't pollute the canonical session's next LLM context window.
-        # We also don't refresh session idle time for heartbeat-only ticks.
-        _session_file_for_trim: "Path | None" = None
-        _pre_submit_line_count = 0
-        try:
-            _get_session_fn = getattr(self._kernel, "get_session", None)
-            if _get_session_fn is not None:
-                _sess_info = _get_session_fn(kernel_session_id)
-                _ws_root = (
-                    _sess_info.get("workspace_root")
-                    if isinstance(_sess_info, dict)
-                    else None
-                )
-                if _ws_root:
-                    _sess_path = (
-                        Path(_ws_root)
-                        / _WCD
-                        / "sessions"
-                        / f"{kernel_session_id}.jsonl"
-                    )
-                    if _sess_path.exists():
-                        _session_file_for_trim = _sess_path
-                        _content = _sess_path.read_text(encoding="utf-8")
-                        _pre_submit_line_count = sum(
-                            1 for ln in _content.splitlines() if ln.strip()
-                        )
-        except Exception:  # noqa: BLE001
-            pass  # trim snapshot failure is non-fatal; trim skipped for this tick
-
         try:
             # feat-393 fix-r2 Fix B: stream from the pre-submit anchor to skip replaying
             # history from prior ticks.  Falls back to 0 when anchor is absent (test path).
@@ -813,19 +782,27 @@ class PollingHeartbeatRunner:
             )
             return
 
+        if outcome.status != "completed":
+            _hb_logger.warning(
+                "heartbeat run reached non-success terminal: agent=%s run_id=%s "
+                "status=%s error=%s",
+                agent_id,
+                run_id,
+                outcome.status,
+                outcome.error,
+            )
+            return
+
         # feat-394 B: silent-tick transcript trim.
         # If conversation_id was never filled (no turn_start sent → zero IM trace → silent tick),
         # truncate the session JSONL back to the pre-submit state.
         _was_silent = ctx is not None and not ctx.get("conversation_id")
-        if (
-            _was_silent
-            and _session_file_for_trim is not None
-            and _pre_submit_line_count > 0
-        ):
+        baseline = record.transcript_baseline
+        if _was_silent and baseline is not None:
             try:
                 await self.trim_silent_tick(
-                    session_file=_session_file_for_trim,
-                    pre_submit_line_count=_pre_submit_line_count,
+                    session_file=baseline.session_file,
+                    pre_submit_line_count=baseline.non_empty_line_count,
                 )
             except Exception:  # noqa: BLE001
                 _hb_logger.debug(
