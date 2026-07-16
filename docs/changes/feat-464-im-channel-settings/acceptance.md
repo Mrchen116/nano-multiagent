@@ -665,3 +665,131 @@ transition 属 design 允许的适配；状态层级、操作和 responsive cont
 ## Side Findings
 
 - 无 out-of-unit side finding；3 个问题均直接属于 feat-464/M5 用户面能力。
+
+---
+
+# Round 4 — 2026-07-16
+
+**Highest Required Action:** `pass`
+
+**Verdict:** `pass`
+
+本轮按 Fast-lane 做定向产品复验，只重验 Round 3 的 3 个 major issue 及其直接依赖，不重复执行其余已通过的
+Scenario。复验产品实现为 `397701f78`，派发时已持久化验收证据的分支头为 `a08ac99be`；写报告前仅快进合入
+`7e1194a5a` 的 `verification.md`，产品实现未变化。3 个问题均已关闭：Reconnect 可进入恢复态并回到
+Connected；节点离线时 connected / failed / limited 都明确降级为 last-known；删除失败的离线重试不再暴露
+原始 409，节点恢复并应用删除后旧提示被清除且历史仍可读。因此本轮产品验收通过。
+
+## 验收环境与证据口径
+
+- 使用隔离 IM、worktree-local Gateway config、真实登录/HTTP/WebSocket/Gateway，以及用户现有飞书测试应用；
+  私有配置文件权限与必需字段存在性已确认，未输出 App Secret、完整 App ID、token 或 bind token。
+- 前端从复验实现独立 production build，444 modules transformed；浏览器实际加载 bundle 与本地 build 的
+  SHA-256 一致，并命中 `Current configuration applied`、`Last known status`、`Retry apply` marker。
+- 浏览器使用 headed Chromium；desktop 与 `375×812` mobile 均实际操作。
+- deletion cache failure 使用 Runbook 允许、显式 gated 的
+  `scripts/fixtures/channel_cache_commit_failure.py` 触发真实 cache commit failure。由于 bounded retry 会快速收敛，
+  为稳定观察 reload / offline Retry 页面，随后仅在隔离环境的 production store 中保持同一 failed receipt；未改
+  前端、未 mock HTTP route、未做 DOM override。
+- 当前真实飞书应用权限完整，未修改外部权限。limited 采用隔离 production store 的确定性状态投影，只验收
+  M5 的用户可见展示：raw scope、影响、修复建议以及 offline last-known；不将其表述为本轮 provider-originated
+  权限探测证据。
+- Round 4 截图位于 `output/playwright/feat-464-acceptance-r4/`，按派发约束保持 ignored/untracked。
+
+## Round 3 问题关闭
+
+| Round 3 issue | 定向复验 | 证据 | 结论 |
+|---|---|---|---|
+| 手动 Reconnect 返回 500 | 对真实 Connected channel 连续执行两次 Reconnect；两次 POST 均为 200，立即进入 Reconnecting，随后回到 Connected / current configuration applied | `reconnect-reconnecting-r4.png`、`reconnect-connected-r4.png` | closed |
+| offline failed 未降级为 last-known | 停止 Gateway 后分别观察真实 Connected、确定性 failed 与 limited 投影；desktop/mobile 均显示 Node offline，且明确为 last-known、不是当前连接结论 | `offline-connected-desktop-r4.png`、`offline-failed-desktop-r4.png`、`offline-failed-mobile-last-known-r4.png`、`offline-limited-desktop-r4.png`、`offline-limited-mobile-r4.png` | closed |
+| deletion Retry 暴露 raw 409，恢复后仍残留 | cache failure reload 后保留 Deletion incomplete；节点离线点击 Retry 显示等待节点返回且未发 retry POST、无 raw 409；同 config Gateway 恢复后自动应用删除并清除旧提示 | `removal-failed-after-reload-r4.png`、`removal-offline-retry-waiting-r4.png`、`removal-recovered-empty-r4.png` | closed |
+
+## 定向 User Journeys
+
+### Journey 1 — Reconnect 恢复闭环
+
+1. 真实有效应用首先显示 Connected、current configuration applied 和最近状态时间。
+2. 点击 Reconnect 后立即显示 Reconnecting，并说明长连接中断、系统自动恢复、凭据未变化。
+3. 两次独立操作的后端请求均为 200，没有页面级 500；最终回到 Connected / current configuration applied。
+
+该状态与未改动 prototype 的 `#channel-reconnecting` / `#channel-connected` contract match。
+
+### Journey 2 — offline last-known 与受限权限可理解性
+
+1. 真实 Connected channel 停 Gateway 后显示
+   `Last known status: Connected (node offline; not a current connection)`。
+2. failed 投影在 desktop/mobile 都显示
+   `Last known status: Connection failed (node offline; not a current connection)`，不再把旧失败当作实时结论。
+3. limited 投影仍完整呈现 raw scope `im:message.group_msg`、影响和修复建议，并显示
+   `Last known status: Connection limited (node offline; not a current connection)`。
+
+该状态与 `#channel-failed`、`#channel-limited`、`#channels-mobile` 的层级和操作 contract match。limited 结论只覆盖
+本轮明确要求的 production UI projection；本轮没有声称重新验证外部飞书权限探测。
+
+### Journey 3 — durable removal failure、离线重试与历史保留
+
+1. 删除前创建一条真实 external shadow conversation 历史并在 Web IM 读取。
+2. cache commit failure 后 reload 仍显示 Deletion incomplete、credentials removed from IM、明确失败原因和
+   Retry apply，不提前显示空态。
+3. 节点离线点击 Retry apply 后显示“Waiting for the node to return before continuing deletion”；浏览器请求中无
+   retry POST，页面无 `409` / `channel_node_offline` 原始错误。
+4. 同一 Gateway/config 恢复后，删除 revision 自动应用，页面只显示真实空态，等待提示和旧错误均清除。
+5. 删除后的同一会话与 messages API 仍保留 1 条原消息。
+
+证据：`history-before-removal-r4.png`、`history-after-removal-r4.png` 及 removal 三张状态截图。该旅程与
+`#channel-deleting` contract match。
+
+### Journey 4 — 相邻 list error / empty precedence
+
+预载 Agent 外壳后停止真实 IM，再进入 Channels：页面只显示 Unable to load channel configuration / Failed to
+fetch / Retry，没有伪装成空态。恢复同一 IM 并 Retry 后回到 No external channels yet，且没有残留错误提示。
+
+证据：`list-error-precedence-r4.png`、`list-restored-empty-r4.png`。该旅程与 `#channels-error` / `#channels-empty`
+contract match。
+
+## Targeted Coverage
+
+| Focus Scenario | 验证方式 | 结果 | 备注 |
+|---|---|---|---|
+| 连接暂时中断 | 真实 Connected → Reconnect ×2 → Reconnecting → Connected | pass | 两次 POST 200；无 500 |
+| offline connected / failed / limited last-known | 停真实 Gateway；production failed/limited projection | pass | 三种态均明确 stale / 非当前结论 |
+| 权限不足的可理解展示 | limited production UI projection | pass | raw scope、影响、修复建议齐全；非 provider-originated |
+| 删除失败 reload 与离线 Retry | gated failure → reload → offline Retry | pass | 持久失败态；等待节点；无 raw 409 |
+| 节点恢复后删除自动收敛 | 同 config Gateway 恢复 | pass | 空态无旧提示 |
+| 删除 channel 保留历史 | 删除前后读取同一会话/messages API | pass | message count 保持 1 |
+| 列表错误优先于空态 | IM outage → Channels → restore → Retry | pass | error 与 empty 边界稳定 |
+
+Round 3 其余未受修复影响且已通过的 Scenario 按 Fast-lane 继承原结论。Round 3 的 limited 两项
+`inconclusive` 在本轮按派发允许的方法补齐了 M5 产品展示层证据；外部 provider 权限探测没有被虚构为已重跑。
+
+## Reference Artifacts Reviewed
+
+`prototype.html` 在修复 delta 中未变化，本轮只复用 Round 3 已保存的相关 reference capture，并与 Round 4
+实际产品逐态对照：
+
+| Prototype state | Round 4 actual | Conclusion |
+|---|---|---|
+| `#channel-reconnecting/#channel-connected` | reconnecting → connected screenshots | match |
+| `#channel-failed/#channel-limited/#channels-mobile` | offline failed/limited desktop + mobile screenshots | match |
+| `#channel-deleting` | failed after reload → offline waiting → recovered empty + history | match |
+| `#channels-error/#channels-empty` | list error → restored empty screenshots | match |
+
+## Issues
+
+- 无。Round 3 的 3 个 major issue 均已关闭。
+
+## 上层文档同步
+
+- [x] `SPEC.md`：**无需更新**。本 unit 未改变四包拓扑或依赖方向。
+- [x] `docs/specs/<包>/`：**需要 orchestrator 收尾归并**。canonical IM/Gateway area 文档仍需写回该 unit 增量。
+- [x] `AGENTS.md` / `CLAUDE.md`：**无需更新**。开发约定、启动方式和包边界未变化。
+- [x] `docs/SPEC_GUIDE.md`：**无需更新**。文档体系未改变。
+- [x] `docs/operator-runbook.md`：**需要更新**。应加入 Channels 热管理、离线保存、deletion pending / retry 与
+  credential re-entry 语义。
+- [x] `docs/e2e-critical-paths.md`：**需要更新**。应登记 channel control、停用/重启、删除失败重试旅程。
+
+以上写回属于 orchestrator 收尾职责，不改变本轮定向产品验收 `pass` 结论。
+
+## Side Findings
+
+- 无。
