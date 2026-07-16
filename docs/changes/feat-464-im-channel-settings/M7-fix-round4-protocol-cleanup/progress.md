@@ -57,22 +57,22 @@
 
 ## R4 — Targeted browser 与一次性全量门禁
 
-- Context: TODO。
-- Decision: TODO。
-- Rationale: TODO。
+- Context: 永久 Vitest 已证明 query cache 变空时会清理旧反馈，但仍需在 production bundle、真实 IM/Gateway 删除链路和浏览器 polling 下验证 response-lost 最终态；全量回归同时暴露旧测试仍把 `connect_once()` 当成 register 已 ACK，以及 heartbeat send timeout 被内层 cancellation 抢先记录成笼统错误的问题。
+- Decision: 使用 production SQLite store 只预置一个 `retryable_failed` removal receipt，页面通过真实 HTTP retry；路由先让请求真实到达 Gateway，再只丢弃浏览器响应，随后所有 channel polling 恢复真实网络。同步把旧连接测试推进到显式 register ACK 边界；heartbeat timeout 由外层 timeout owner 负责断线与精确归因，并消费已完成 future 的异常。
+- Rationale: 先执行后丢响应复现的是用户真正会遇到的“服务端已成功、客户端只看到网络失败”，而不是 mock 成功；最终资源列表与 DOM 同时为空才能证明 durable receipt 是唯一事实源。timeout owner 单点负责取消则避免同一次 liveness failure 被内外两层竞态归因。
 - Evidence:
-  - Tests: TODO。
-  - Entry: TODO。
-  - Frontend State Matrix: TODO。
-  - Browser QA: TODO。
-  - E2E/Regression: TODO。
-  - Visual/Interaction: TODO。
-  - Prototype Comparison: TODO。
-- Rollback: TODO。
-- Commits: TODO。
+  - Tests: backend `3473 passed, 1 skipped, 20 deselected`；frontend `68 files / 627 tests passed`；production build PASS；Ruff `src tests` PASS；`test_channel_status_protocol.py` 396 行且 size contract 随 full backend PASS。
+  - Entry: 真实 retry POST 已由 IM/Gateway 完成，浏览器侧被注入 `net::ERR_FAILED`；后续真实 GET polling 返回空数组，API 最终 channel resources=`0`。
+  - Frontend State Matrix: failed removal → retry submitting → response lost error → polling empty；最终 `empty=1, alerts=0, waiting=0, retryButtons=0`。
+  - Browser QA: production bundle，1440×1000；除预期注入的单次 retry resource error 外无 console render error。
+  - E2E/Regression: deterministic backend、永久 Vitest、production browser 三层均完成；secret/diff/process gate PASS，隔离 IM/Gateway/Playwright 资源已清理。
+  - Visual/Interaction: `evidence/output/playwright/m7-removal-response-lost-auto-empty.png`，SHA-256 `3ad0e8443826bbaa80f4e5ba17a430cdc068498ee6d3766e4888357d74f13061`。
+  - Prototype Comparison: `#channel-deleting` 的反馈生命周期与 receipt 对齐；receipt 消失后匹配 `#channels-empty`，不展示 Web IM。
+- Rollback: 回退 R4 实现提交会恢复 heartbeat send timeout 的笼统 cancellation 归因及旧测试对 register 边界的错误假设；浏览器/聚合证据文档可独立回退，不影响产品代码。
+- Commits: implementation/test maintenance=`1a8106935`，evidence/docs=本提交。
 
 Prototype Comparison：
 | Reference | Required contract | Actual evidence | Viewport / state | Result | Deviation rationale |
 |---|---|---|---|---|---|
-| `prototype.html#channel-deleting` | retry error/waiting 只随 receipt 存在 | TODO | desktop / failed→empty | blocked | 等待 R4 |
-| `prototype.html#channels-empty` | 收敛后只显示空态，无旧 alert/notice | TODO | desktop / empty | blocked | 等待 R4 |
+| `prototype.html#channel-deleting` | retry error/waiting 只随 receipt 存在 | 真实 retry 已执行但响应丢失；receipt polling 消失时旧反馈同步消失 | 1440×1000 / failed→empty | pass | 无偏差 |
+| `prototype.html#channels-empty` | 收敛后只显示空态，无旧 alert/notice | 截图 DOM：empty=1，alerts/waiting/retryButtons=0，且不展示 Web IM | 1440×1000 / empty | pass | 无偏差 |

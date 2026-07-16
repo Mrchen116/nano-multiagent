@@ -10,11 +10,11 @@
 
 ## 退出标准
 
-- [ ] `channel.status` 在 wire send 开始前进入明确 in-flight owner；并发 coalesce 不会删除该 frame，correlated result 只释放同 request。
-- [ ] 同 channel 新 runtime incarnation 在断线后淘汰旧 sent/unacked status；新 socket 只发送 current incarnation，旧 result/ACK 为 no-op，非 status FIFO 不受影响。
-- [ ] `node.register` 与 heartbeat 拥有独立 correlation/error owner；register ack 前业务 FIFO 不发送，register/heartbeat error 不弹业务队首、不误伤 waiter。
-- [ ] removal retry 响应丢失或临时失败后，polling/自动 reconcile 令 receipt 消失并进入空态时，旧 request error 与 waiting notice 同步清除。
-- [ ] deterministic asyncio/two-socket、真实 startup/bootstrap、永久 Vitest 与 targeted production browser evidence 完成；一次性 full backend/frontend/build/Ruff/test-size/secret/diff/process gate 全绿。
+- [x] `channel.status` 在 wire send 开始前进入明确 in-flight owner；并发 coalesce 不会删除该 frame，correlated result 只释放同 request。
+- [x] 同 channel 新 runtime incarnation 在断线后淘汰旧 sent/unacked status；新 socket 只发送 current incarnation，旧 result/ACK 为 no-op，非 status FIFO 不受影响。
+- [x] `node.register` 与 heartbeat 拥有独立 correlation/error owner；register ack 前业务 FIFO 不发送，register/heartbeat error 不弹业务队首、不误伤 waiter。
+- [x] removal retry 响应丢失或临时失败后，polling/自动 reconcile 令 receipt 消失并进入空态时，旧 request error 与 waiting notice 同步清除。
+- [x] deterministic asyncio/two-socket、真实 startup/bootstrap、永久 Vitest 与 targeted production browser evidence 完成；一次性 full backend/frontend/build/Ruff/test-size/secret/diff/process gate 全绿。
 
 ## 测试策略
 
@@ -84,4 +84,4 @@ Prototype / Reference Contract：
 
 - 步骤：隔离 production runtime 只复验 R4 用户路径，保存 durable screenshot/report；随后一次性运行 full backend/frontend/build/Ruff/test-size/secret/diff/process gates并清理资源。
 - 验证：真实浏览器从 removal temporary error/waiting 收敛为空态，无 console render error/failed channel request；所有聚合门禁全绿。
-- 状态：TODO。
+- 状态：DONE。production frontend 通过真实 IM API 发起 retry，Gateway 完成删除后由 polling 收敛到空数组；浏览器端在 retry 响应被注入丢失的情况下最终只保留通用空态，无旧 alert、waiting notice 或 retry button。全量 backend/frontend/build/Ruff/test-size/secret/diff/process gates 全绿，隔离运行时与浏览器 profile 已清理。
