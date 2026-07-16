@@ -2251,8 +2251,10 @@ def _normalize_agent_string_list_seed(
     for agent_id, items in raw.items():
         if not isinstance(agent_id, str) or not agent_id.strip():
             continue
-        if isinstance(items, list) and all(isinstance(item, str) for item in items):
-            result[agent_id] = [item for item in items]
+        if isinstance(items, list):
+            cleaned = [item for item in items if isinstance(item, str)]
+            if cleaned:
+                result[agent_id] = cleaned
     return result
 
 
