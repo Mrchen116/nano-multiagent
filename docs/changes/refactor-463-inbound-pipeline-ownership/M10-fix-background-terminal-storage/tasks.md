@@ -6,13 +6,13 @@
 
 ## Exit criteria
 
-- [ ] heartbeat transcript baseline 在 submit 前捕获并随 run record 传递；极快 `HEARTBEAT_OK` 也只移除本轮新增记录。
-- [ ] heartbeat 对 completed/failed/cancelled 分流；failed/cancelled 有明确失败终态，不进入 silent-success trim。
-- [ ] cron terminal consumer 为 mandatory dependency，IM observer/delivery 为 optional adapter；no-delivery 配置等待并持久化真实 terminal。
-- [ ] missing terminal/stream failure 不得写 completed，失败 partial text 不写成功 awareness。
-- [ ] CronRunsStore 启动/首次使用时 materialize 一次，状态 append/update 不再全量重放；并发、restart、limit 语义不变。
-- [ ] 永久单元/真 Kernel 失败回归、`ruff check .` 与 `pytest -m "not e2e"` 全部通过。
-- [ ] milestone 分支合入并推送 `unit/refactor-463`，随后清理 milestone worktree/branch及自启服务。
+- [x] heartbeat transcript baseline 在 submit 前捕获并随 run record 传递；极快 `HEARTBEAT_OK` 也只移除本轮新增记录。
+- [x] heartbeat 对 completed/failed/cancelled 分流；failed/cancelled 有明确失败终态，不进入 silent-success trim。
+- [x] cron terminal consumer 为 mandatory dependency，IM observer/delivery 为 optional adapter；no-delivery 配置等待并持久化真实 terminal。
+- [x] missing terminal/stream failure 不得写 completed，失败 partial text 不写成功 awareness。
+- [x] CronRunsStore 启动/首次使用时 materialize 一次，状态 append/update 不再全量重放；并发、restart、limit 语义不变。
+- [x] 永久单元/真 Kernel 失败回归、`ruff check .` 与 `pytest -m "not e2e"` 全部通过。
+- [x] milestone 分支合入并推送 `unit/refactor-463`，随后清理 milestone worktree/branch及自启服务。
 
 ## Test strategy
 
@@ -37,8 +37,8 @@
 - [x] C2 实现：解耦 mandatory consume 与 optional delivery/observer。
 - [x] C3 文档：记录真实 history/awareness 证据。
 
-### R3 — Incremental cron history owner
+### R3 — Incremental cron history owner (DONE)
 
 - [x] C1 红测：锁定重复 update 不全量读取、restart materialization 正确。
-- [ ] C2 实现：单次装载的进程内 materialized index + append-only durable update。
-- [ ] C3 文档：记录复杂度、并发与重启证据。
+- [x] C2 实现：单次装载的进程内 materialized index + append-only durable update。
+- [x] C3 文档：记录复杂度、并发与重启证据。

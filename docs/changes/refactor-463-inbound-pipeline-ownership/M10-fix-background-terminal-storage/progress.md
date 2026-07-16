@@ -41,3 +41,20 @@
 - Rollback: 回退 C2 `b051f7c5b` 将恢复 no-delivery 伪 completed；C1 会重新阻断。
 - Commits: C1=`5c25fb9bb`, C2=`b051f7c5b`, C3=本提交。
 - Next: R3 incremental cron history owner。
+
+## 2026-07-16 — R3 completed
+
+- Context: `CronRunsStore.update_status()` 每次都从 `runs.jsonl` 全量 replay，单个 run 的多次状态更新会让累计文件读取量随历史长度增长，长期形成 O(runs²) I/O；旧测试还混在超大 delivery-chain 文件中，无法单独钉住存储 owner 的复杂度和并发语义。
+- Decision: store 首次使用时在 `RLock` 内 materialize 一次 owner-wide index；后续 append/update 先 durable append，再原子发布内存索引。update 在同一锁内完成 read/build/append，restart 由新实例重新 replay 一次，未知 request 继续保持 no-op。run-history 回归拆到专属测试文件。
+- Rationale: append-only JSONL 是 durable truth，进程内 index 是同一个 owner 的增量读模型；锁住“基于旧状态生成新状态 + durable append + index publish”才能同时避免重复 replay 和并发 lost update。
+- Evidence:
+  - Tests: C1 `cec690a31` 精确暴露 25 次 update + 2 次 list 触发 `27` 次文件读取（期望 `1`）；C2 `437159d83` 后 run-history/delivery/owner/tool/size-contract 聚焦 `46 passed`。全仓 Ruff 通过；非 e2e `3426 passed, 1 skipped, 20 deselected`。
+  - Entry: 新 `test_cron_run_history.py` 从公开 `append/update_status/list_by_job` 驱动首次装载、60 条并发 append/update、restart、newest/limit 与 stale convergence；instrumented `Path.read_text` 证明同一实例只读一次。
+  - Frontend State Matrix: N/A（非前端）。
+  - Browser QA: N/A（非前端）。
+  - E2E/Regression: 真 Kernel + 高位 Anthropic fixture 通过公开 `CronTool add/run/runs` 接受运行；在拿到真实 `kernel_run_id` 后通过公开 `kernel.cancel()` 产生 typed `cancelled`，`observer=None` 的 mandatory terminal consumer 将 history 收敛为 `cancelled` + `finished_at`，且 transcript 无 awareness。完整记录见 `evidence/live-no-observer-cron-terminal.md`。
+  - Visual/Interaction: N/A（非前端）。
+  - Prototype Comparison: N/A（无原型）。
+- Rollback: 回退 C2 `437159d83` 后 instrumented regression 恢复为每次 update 全量读；并发/restart 行为仍由同一专属测试文件守护。
+- Commits: C1=`cec690a31`, C2=`437159d83`, C3=本提交。
+- Next: rebase 含 M9 的 `unit/refactor-463`，重跑 milestone/full gate，合入并清理 worktree/fixture。
