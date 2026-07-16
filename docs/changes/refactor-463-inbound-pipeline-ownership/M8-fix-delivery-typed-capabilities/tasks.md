@@ -10,7 +10,7 @@
 - [x] failed/cancelled cron 保留真实历史状态，不写成功 awareness；缺失 terminal event 时可终止为失败而不挂起。
 - [x] shadow sync 支持 typed-only external identity、拒绝 IM-origin identity，并保留 legacy metadata fallback。
 - [x] cron 与 heartbeat 创建 unattended session 时透传非空 `agent.config.skills`；空配置继续兼容为 `None`。
-- [ ] 聚焦回归、ruff 与 `pytest -m "not e2e"` 全部通过。
+- [x] 聚焦回归、ruff 与 `pytest -m "not e2e"` 全部通过。
 - [ ] milestone 分支合入并推送 `unit/refactor-463`，随后清理 milestone worktree/branch。
 
 ## Test strategy
