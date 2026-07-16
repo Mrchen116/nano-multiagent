@@ -6,6 +6,8 @@
 
 ## Changelog
 
+- v15 (2026-07-16): 按当前产品范围移除旧 `config.yaml` / 历史 backup 的兼容、自动迁移、清理与 legacy export 承诺；control-plane initialization/head 仅保留为 IM managed channel 的内部一致性机制，最终验收只覆盖通过 IM 新建/更新的通道路径。
+
 - v14 (2026-07-16): 追加第四轮实现门禁修复 M7，收口 Gateway 上行 FIFO 的 in-flight/superseded 状态归属、register/heartbeat 错误关联、升级前含密 backup 净化，以及 removal 自动成功后的旧 alert 清理。
 
 - v13 (2026-07-16): 追加第三轮门禁修复 M6，闭合统一上行 guard 的发送端兼容、migration 前含密 backup、断线内存状态队列、首次 apply failure 投影，以及 Reconnect/offline last-known/removal retry 三项产品问题；补全 reviewer 使用真实飞书测试应用的安全定位与可用性前置。
@@ -203,12 +205,12 @@ class ChannelManager:
 
 - `ChannelManager` 内部持有 manifest store、credential opener、provider runtime factories、并发安全 registry 和 status sink。
 - `channel_id` 是只在 control-plane、cache、status 与 lifecycle command 中使用的稳定 UUID；runtime factory 必须由受信 provider + Agent 派生稳定 `runtime_name`。飞书永远是 `feishu:<agent_id>`，该值继续写入 `InboundMessage.channel_name`、outbound route 与 session key，禁止把 UUID 渗入既有消息/影子会话身份。
-- Feishu factory 同时接管既有激活副作用。其 `FeishuActivationPolicy` 是唯一 owner：enabled channel 启动前，用现有 Agent config sync seam 为显式非空 skill allowlist 幂等加入 `feishu-doc`，按 `profile_version` 冲突后 refetch/retry，持久化并刷新 live pipeline；disable/delete 不自动移除，避免删除用户显式选择且保持现有单向补充语义。若 IM 暂不可用，已持久化过的本地 Agent config 继续生效；尚未完成的激活写入 cache pending marker、通道可降级连接但诊断显示 `feishu_doc_activation_pending`，重连 IM 后重试，完成前不得报告 diagnostics complete。旧 `ensure_feishu_doc_skill_for_feishu_agents()` 改为把 legacy/bootstrap item 送入同一 policy，不再另行枚举静态 YAML。
+- Feishu factory 同时接管既有激活副作用。其 `FeishuActivationPolicy` 是唯一 owner：enabled channel 启动前，用现有 Agent config sync seam 为显式非空 skill allowlist 幂等加入 `feishu-doc`，按 `profile_version` 冲突后 refetch/retry，持久化并刷新 live pipeline；disable/delete 不自动移除，避免删除用户显式选择且保持现有单向补充语义。若 IM 暂不可用，已持久化过的本地 Agent config 继续生效；尚未完成的激活写入 cache pending marker、通道可降级连接但诊断显示 `feishu_doc_activation_pending`，重连 IM 后重试，完成前不得报告 diagnostics complete。所有 IM-managed item 进入同一 policy，不再另行枚举静态 YAML。
 - `agent_channels.provider_runtime_json` 保存 Gateway 发现的非敏感 `bot_open_id/owner_open_id`，但其 owner 是具体 Feishu App identity，不是抽象 provider。IM 从 normalized App ID 计算 `provider_identity_fingerprint=SHA-256("feishu\0" + app_id)`，并保存单调 `provider_identity_revision`；两者随完整 manifest 下发，fingerprint 不由浏览器或 Gateway 自报。
 - App ID 不变的 secret replace 可以保留 owner/bot metadata；App ID 发生变化时，`ChannelControlStore` 在同一个 desired transaction 内递增 `provider_identity_revision`、清空全部 `provider_runtime_json`、递增 channel/manifest revision。新 runtime 必须重新 probe bot，并由新 App 下首个合法 sender 重新绑定 owner，旧 App 的 `open_id` 不能继承。
 - adapter binder 只调用 `ChannelManager.record_provider_metadata(channel_id, generation, patch)`。`generation` 固定包含 `provider_identity_fingerprint/provider_identity_revision/channel_revision/credential_revision` 并在 runtime 创建时捕获；manager 先对当前 cache 做 generation CAS，再经认证 WS 上报相同 generation。IM `ChannelControlStore` 只接受当前绑定 node 且四项 generation 与 current row 完全一致的 patch，旧 worker、旧 cache 和离线补传一律返回 stale，不递增 manifest。
 - owner 写入使用 generation 内的 set-if-null first-wins；并发的第二个 sender拿到权威既有 owner，不覆盖。Bot probe 的 `bot_open_id` 走同一路径但使用独立字段 CAS。合法 patch 先原子写本地 cache，再上报 IM；IM 离线时留在 cache，重连后只有仍匹配最新 manifest generation 的 patch 才补传。审批 callback 从 manager 当前 generation metadata 读取 owner，不再回写或遍历静态 `config.channels`。
-- metadata 变化不改变稳定 `runtime_name`；owner 变化只刷新 binder，App identity 变化进入 provider runtime fingerprint 并触发安全替换。迁移与 UI 新建共用上述 generation 规则，浏览器不能读写 provider metadata。
+- metadata 变化不改变稳定 `runtime_name`；owner 变化只刷新 binder，App identity 变化进入 provider runtime fingerprint 并触发安全替换。通过 IM 新建与更新的 channel 共用上述 generation 规则，浏览器不能读写 provider metadata。
 - 调和按 channel 串行、跨 channel 可并行；同一 channel 不允许 reconcile 与 manual reconnect 交错。
 - 替换配置时先做不启动 listener 的凭据/Bot probe，再从 registry 摘除旧 adapter、真实 stop 旧 worker、启动新 runtime，最后注册新 adapter。新凭据无效时旧 adapter 也会停止，避免继续使用用户已经替换掉的凭据。
 - disable/delete 先从 registry 摘除，阻止新 outbound，再停止 worker；delete 额外从本地 manifest 删除，但不触碰 IM conversations/messages。
@@ -309,16 +311,16 @@ Feishu provider 内部维护 capability catalog，每项包含 `check_id`、`acc
 - IM 服务端用 provider validator registry 校验 `config_json` 与 credential 字段，当前只有 Feishu adapter，测试使用 in-memory fake 而不是向产品暴露假 provider。
 - 唯一约束为 `UNIQUE(owner_id, agent_id, provider)`；`channel_id` 使用稳定 UUID，避免未来允许同类型多实例时重做所有路由。
 
-### 决策 8：旧 YAML 只做一次 bootstrap，初始化后“缺失”才具有删除语义
+### 决策 8：control-plane initialization 只建立 IM managed head，旧 YAML 兼容不在本期
 
 **用 node manifest head 的 initialized 状态消除“IM 没配置”和“用户删除了全部配置”的歧义。**
 
-首次初始化不是一次性的 register 回调，而是 IM `ChannelControlInitializationCoordinator` 管理的可重入状态机：只有 `node registered + owner bound + manifest head uninitialized` 三个条件同时成立才发送 bootstrap request。Gateway register 完成、人工/auto bind confirm 提交完成、WebSocket reconnect 三类事件都只调用同一个 `ensure_initialized(node_id)`；coordinator 以 per-node lock 合并并发触发，已经 initialized 时只下发当前 manifest，重复 bootstrap response 由 `ChannelControlStore` 幂等拒绝或返回既有 head。
+初始化不是一次性的 register 回调，而是 IM `ChannelControlInitializationCoordinator` 管理的可重入状态机：只有 `node registered + owner bound + manifest head uninitialized` 三个条件同时成立才执行初始化 handshake。Gateway register 完成、人工/auto bind confirm 提交完成、WebSocket reconnect 三类事件都只调用同一个 `ensure_initialized(node_id)`；coordinator 以 per-node lock 合并并发触发，已经 initialized 时只下发当前 manifest，重复 initialization response 由 `ChannelControlStore` 幂等拒绝或返回既有 head。
 
 - `node.register` 可能早于 owner binding：IM 先在当前 `GatewayConnection` 暂存 credential public key，不创建带错误 owner 的 channel row；register ack 发出后异步触发 coordinator，未绑定时只进入 `waiting_for_owner`。
-- `BindService.confirm()` 在 owner/node/profile 事务提交后调用注入的 `node_bound` event sink；manual 与 auto bind 共用同一 confirm 路径。coordinator 若看到当前 WS 仍在线，会立即发送 `channels.bootstrap.request`，无需 Gateway 断线重连；若不在线，下一次 register/reconnect 继续同一状态机。
-- 已绑定节点 register/reconnect 时，coordinator 把暂存公钥落入该 owner 的 `node_credential_keys` 后再 bootstrap/reconcile。request/response 有 `request_id`，失败保持 head 未初始化并在当前连接上有界退避重试；进程重启后条件仍可由持久 head 重建，不依赖内存 flag。
-- WS handler 必须在 `node.register` ack 已发送后调度 coordinator，避免 bootstrap frame 先于 register ack；HTTP bind route 不直接拼 channel 协议，只发布 committed binding event。
+- `BindService.confirm()` 在 owner/node/profile 事务提交后调用注入的 `node_bound` event sink；manual 与 auto bind 共用同一 confirm 路径。coordinator 若看到当前 WS 仍在线，会立即继续初始化，无需 Gateway 断线重连；若不在线，下一次 register/reconnect 继续同一状态机。
+- 已绑定节点 register/reconnect 时，coordinator 把暂存公钥落入该 owner 的 `node_credential_keys` 后再 initialization/reconcile。request/response 有 `request_id`，失败保持 head 未初始化并在当前连接上有界退避重试；进程重启后条件仍可由持久 head 重建，不依赖内存 flag。
+- WS handler 必须在 `node.register` ack 已发送后调度 coordinator，避免初始化 frame 先于 register ack；HTTP bind route 不直接拼 channel 协议，只发布 committed binding event。
 
 **本期明确禁止已绑定节点跨 owner 改绑，不自动迁移或 relabel channel 凭据。** envelope AAD、manifest head、removal receipt 和 Gateway cache 都绑定 owner；直接改写 owner 会造成跨租 Bot 继续运行或密文不可解。
 
@@ -326,22 +328,17 @@ Feishu provider 内部维护 capability catalog，每项包含 `check_id`、`acc
 - manual 与 auto bind 走同一 guard，不能由 auto-bind 绕过。拒绝结果不触发 `node_bound` event，也不改 Gateway 本地 cache；旧 owner 的 channel 继续属于旧 owner，旧/新 owner API 都按既有隔离规则检查。
 - owner transfer 是独立的安全运维流程，需先停 Gateway、撤销 channel/cache/凭据并重新录入，不在本 unit 内实现。当前用户若确需换 owner，必须配置新的 `node_id`；cache header 的 node mismatch 会拒绝旧 encrypted manifest，防止旧 Bot 在新节点身份下启动。
 
-- Gateway 未配置 IM，或从未成功初始化 channel control 时，继续按旧 YAML 启动，保持 standalone 行为。
-- 首次连接支持该能力的 IM 时：
-  1. Gateway 先注册 credential public key。
-  2. 若 `channel_manifest_heads.initialized_at IS NULL`，IM 请求 `channels.bootstrap`。
-  3. Gateway 把旧 YAML 中 `feishu:<agent_id>` 转成通用 desired items，并用本机公钥封装 secret。
-  4. IM 在一个事务内校验 Agent/node/owner、写入 items、设 initialized、生成 manifest revision 1。
-  5. Gateway 收到权威 manifest、写入 encrypted cache 后，从 YAML 中移除 managed `appSecret`，只保留非敏感 `credentialRef`/迁移标记；`web_relay` 不变。
-- initialized 之后，IM 的空 manifest 表示“所有 managed external channels 已删除”，Gateway 不再从旧 YAML 复活它们。
-- 提供仅供运维回退的 `scripts/channel-control-export-legacy.py`：用节点私钥把本地 cache 导出回旧 YAML 结构。正常运行和 UI 不调用它。
+- 用户只通过 IM 通道页新建或更新 managed external channel；首次 initialization 可以建立空 head，之后 IM 的空 manifest 表示“所有 managed external channels 已删除”。
+- 旧 `config.yaml` 中的 channel、历史 backup、临时文件和 standalone YAML 启动均不属于本 unit 的兼容契约：不承诺自动导入、继续使用、回退、净化、删除或导出。
+- `channels.bootstrap.request` / `channels.bootstrap` 若仍作为内部协议名存在，只表示初始化 handshake；不得把协议名解释为旧 YAML migration 的产品承诺。
+- 本期安全边界是：通过 IM 新建/更新 channel 时，App Secret 不写入 Gateway `config.yaml`。既有旧文件或历史副本中的明文不纳入本期 exit/gate。
 
 ### 决策 9：Milestone 按用户可用的纵向切片顺序实施
 
 **本 unit 预计超过 20 个生产/测试文件、远超 800 行且包含密码学、跨进程和前端状态机，因此拆成三个串行纵向 Milestone。**
 
 - M1 交付“在线新增/编辑/连接”，把安全控制面、真实 stop 和基础通道页一起打通。
-- M2 交付“离线收敛与完整生命周期”，包括 legacy migration、本地启动、启停/删除/重连。
+- M2 交付“离线收敛与完整生命周期”，包括 managed encrypted cache 启动、启停/删除/重连；不包含旧 YAML migration/export。
 - M3 交付“可操作权限诊断和所有异常/响应式状态”，并完成真栈验收。
 - 三个 Milestone 都跨 IM、Gateway 和前端形成可观察能力，不采用“先全部后端、再全部前端”的横切拆法；因共享文件较多，明确串行而不伪装成可并行。
 
@@ -610,12 +607,12 @@ stateDiagram-v2
 
 `Pending` 是 sync projection，不写入 Gateway connection state；`Limited/Unknown` 是 `connected + diagnostics_state` 的页面投影。
 
-### 旧配置迁移
+### 旧配置兼容（本期不承诺）
 
-- `ChannelManifestStore`、node key 和控制面初始化 marker 均位于 Gateway config 文件同目录，使用临时文件 + fsync + rename 原子写，文件权限 `0600`；manifest header 的 `node_id` 必须与当前 config 一致。
-- bootstrap 上传前不修改 YAML；只有 IM 事务成功、权威 manifest 回传且本地 cache 落盘后才清除旧 `appSecret`。
-- 任一步失败都继续使用原 YAML，不产生“IM 空 manifest 删除本地 channel”的半迁移状态。
-- export-legacy 脚本只读本地私钥和 cache，默认输出到 stdout 时拒绝 TTY，必须显式指定 `--output` 且目标权限 `0600`，避免误把 secret 打到终端记录。
+- 本 unit 不负责读取、导入、迁移、清理或恢复旧 `config.yaml` channel，也不处理历史 backup/temp 中的凭据。
+- 不保证 standalone Gateway 继续从旧 YAML 构建 external channels，不提供 legacy export 或旧二进制回退链路；需要保留旧配置行为时应另立兼容单元。
+- `ChannelManifestStore`、node key 与 control-plane initialization/head 仍是 IM-managed channel 的内部运行机制，不构成旧 YAML compatibility contract。
+- 当前可验收的安全保证仅是：用户通过 IM 通道页新建或更新飞书 channel 后，App Secret 不写入 Gateway `config.yaml`。
 
 ## 前端原型
 
@@ -663,11 +660,11 @@ stateDiagram-v2
 | 风险 | 约束/缓解 | 回退 |
 |---|---|---|
 | 节点私钥丢失导致密文不可解 | 稳定文件、0600、key_id 检测；失败显示 credential re-entry | 用户重新输入 secret；不尝试弱恢复 |
-| Feishu worker 进程增加资源占用 | 仅 listener 进程化；队列有界；每 Bot 进程数和退出受测 | feature rollback 前运行 export-legacy 恢复 YAML，由旧启动路径接管 |
+| Feishu worker 进程增加资源占用 | 仅 listener 进程化；队列有界；每 Bot 进程数和退出受测 | 回退本 feature 并通过 IM 重新录入凭据；不承诺导出旧 YAML |
 | SDK 私有 `_connect` seam 漂移 | 依赖下限 1.6.9、启动 contract test、2.0 上限 | seam 不匹配时 fail-fast，不宣称 connected |
 | desired/observed 事件乱序 | channel + manifest 双 revision；IM 拒绝 stale report | 重新下发完整 manifest 即可收敛 |
 | SQLite 共享 handle 交错事务 | channel control 使用独立短连接 + `BEGIN IMMEDIATE`，不复用 app-scoped handle | busy timeout 后返回可重试 503，不做非原子降级 |
-| 首次迁移半完成 | IM transaction + 本地原子 cache 成功后才清 YAML | 任一步失败继续旧 YAML；manifest 未 initialized 时可重试 |
+| control-plane initialization 中断 | coordinator 可重入、head 持久化、完整 manifest 重发 | 保持 pending 并在 register/bind/reconnect 后重试，不回退旧 YAML |
 | register 早于人工 bind | 三条件初始化 coordinator 同时监听 register/bind-confirm/reconnect | head 未初始化时可重入重试，不要求断线 |
 | 已绑定 node 被另一 owner 确认 | BindService 首次/同 owner/跨 owner 三分支；跨 owner 409 且零写入 | 使用新 node_id；本期不自动转移跨租凭据 |
 | App ID 更换复用旧 open_id | app fingerprint + identity revision；desired transaction 原子清 metadata；双端 generation CAS | 旧 patch 拒绝，新 App 首个 owner 重绑 |
@@ -678,7 +675,6 @@ stateDiagram-v2
 | 离线 barrier 重连时已 stale/removed | correlated terminal ACK 先释放 FIFO，再 drop/quarantine outbox/runtime | 完整 manifest 随后收敛，不让旧 frame 堵住 result/status |
 | removal ACK 丢失超过 retention | cleanup 需 applied head 覆盖；清理后可由 head 返回 terminal already-applied | per-token outbox 收到终态后删除 |
 | 受限权限误报 | missing 与 unknown 分开；catalog 集中；scope list 失败不猜测 | 页面降级为“权限待确认”，消息链路继续 |
-| 回滚旧二进制不能读 credentialRef | 实施时提供 export-legacy 脚本并纳入 reviewer runbook | 停 Gateway → 导出旧 YAML → 切旧二进制 → 启动 |
 
 ## Runbook for Reviewer
 
@@ -688,7 +684,7 @@ stateDiagram-v2
 
 **Review 驱动方式**：本 unit 改了客户端面，reviewer 必须真驱动浏览器中的 Agent detail → 通道页；至少走空态新增、在线连接、离线保存后重连、权限受限展开、停用/启用、手动重连、删除并确认历史仍在。确定性集成测试通过 composition root 注入 `FakeChannelRuntimeFactory`，直接驱动真实 `ChannelManager`/IM 协议；它不是生产配置开关，`e2e-up.sh` 不假装可切 fake provider。真实浏览器旅程走本机真 IM/Gateway，涉及确定性权限/断线投影时使用测试专用 runtime harness；另用真实飞书测试应用做一次凭据、长连接、card action request/result、权限目录和 stop/restart smoke。测试应用准备只使用页面中的开放平台链接，不扩写教程。
 
-**真实飞书验收前置**：测试应用的 App ID/App Secret 只从本机 `~/.nano-assistant/config.yaml` 的 `channels[name=feishu:default-agent].settings` 安全定位；`scripts/e2e-up.sh` 会把该文件复制成 worktree-local 隔离配置。运行前用 `test "$(stat -f %Lp ~/.nano-assistant/config.yaml)" = 600` 和 `yq -e '.channels[] | select(.name == "feishu:default-agent") | .settings | has("appId") and has("appSecret")' ~/.nano-assistant/config.yaml >/dev/null` 确认可用，不输出字段值。需要核对 Bot、长连接或权限时使用用户提供的已登录飞书开放平台浏览器会话，以 App ID 在页面内定位应用；具体 App ID、Secret、token、bind token 不得写入命令日志、截图、design、报告或 Git。若私密配置或登录会话不存在，真实 provider 旅程为阻断项，必须向用户索取安全 provision，不能用 fake 代替。
+**真实飞书验收前置**：测试应用的 App ID/App Secret 由用户通过安全会话或本机未跟踪且权限为 `0600` 的验收 fixture 提供，不依赖旧 Gateway `config.yaml`。需要核对 Bot、长连接或权限时使用用户提供的已登录飞书开放平台浏览器会话，以 App ID 在页面内定位应用；具体 App ID、Secret、token、bind token 不得写入命令日志、截图、design、报告或 Git。若安全 provision 或登录会话不存在，真实 provider 旅程为阻断项，必须向用户索取，不能用 fake 代替。
 
 额外验证：
 
@@ -697,11 +693,13 @@ stateDiagram-v2
 - 非 e2e 回归：`.venv/bin/pytest -m "not e2e"`
 - 格式/静态：`.venv/bin/ruff check src tests`
 - 真飞书 smoke 结束后确认 worker PID 已退出、同一 Bot 没有重复 listener、App Secret 未出现在 IM DB、Gateway cache、HTTP 响应或日志中。
-- 首次迁移 e2e 必须让 Gateway 先 register、再由浏览器人工 confirm bind，并保持同一 WebSocket 不重连；确认旧 YAML channel 仍会被 bootstrap 一次。App ID replacement e2e 随后注入旧 generation metadata patch，确认 IM/Gateway 双端拒绝且新 owner 重新绑定。
+- App ID replacement e2e 注入旧 generation metadata patch，确认 IM/Gateway 双端拒绝且新 owner 重新绑定；不执行旧 YAML migration/export/backup 验收。
 
 ## Milestones
 
-补充验收约束：M1-E6 覆盖 same-owner bind 幂等、online/offline cross-owner bind 返回 409 且 DB/cache/旧 owner API 隔离不变。M1-E7 必须覆盖 App ID replacement 清空 app-scoped metadata、新 owner 重绑、旧 generation patch 双端拒绝与审批 first-wins；这里的 legacy 只验 provider factory/generation seam，完整 bootstrap/credentialRef/export 仍归 M2。M1-E8 必须覆盖小容量 IPC queue 的 backpressure、status coalescing、priority error、stop drain/drop，以及跨 lane 逆序时 incarnation/sequence 归并；主动交错 A terminal frame 与 B seq=1，证明 stop A → active B → B seq=1 → start B 的 cutover 不变量。M2-E1/E5 必须覆盖 offline create→delete-before-first-sync、reload 仍显示 removal pending、zero-item `removals[]`/result 后才空态、stop/cache failure 可见且同 revision 可重试、result ACK 丢失后跨新 revision 的 per-token outcome 仍重放，以及离线超过 receipt retention 后由 applied head 返回终态。M2-E6 必须覆盖 Gateway 不重连的人工 bind-confirm 仍触发一次 bootstrap；M2-E8 的原型证据同时包含 `#channel-disabling/#channel-disabled/#channel-deleting`，验证启停/删除只在 observed/apply result 后进入终态。M3-E6 额外覆盖同 revision 的旧 incarnation/status sequence 不覆盖新状态，并覆盖 offline N barrier 对 IM N+1/delete 的 terminal ACK 会释放 FIFO、drop/quarantine 后继续 reconcile/result/status。
+**v15 current scope override**：下表保留各轮实施时的历史拆分与编号，不能据此恢复已经移出的兼容承诺。以下内容不再计入本 unit 的最终 exit/gate：M1-E7 中的 UI/legacy migration 路径（稳定 runtime/session identity、owner/bot metadata、`feishu-doc` 激活与审批交互仍保留）；M2-E6 的旧 YAML 导入部分与 M2-E7 的半迁移/`export-legacy` 部分；M4-E4 的 bootstrap backup/legacy export 部分；M5-E2；M6-E2；M7-E4。M7 当前范围仅为 E1、E2、E3、E5 及其 deterministic regression、frontend/browser 与聚合门禁；历史 E6 只作为这些在范围项的门禁记录，不扩张 legacy scope。
+
+当前补充验收约束：M1-E6 覆盖 same-owner bind 幂等、online/offline cross-owner bind 返回 409 且 DB/cache/旧 owner API 隔离不变。M1-E7 只覆盖 App ID replacement 清空 app-scoped metadata、新 owner 重绑、旧 generation patch 双端拒绝、稳定身份与审批 first-wins。M1-E8 必须覆盖小容量 IPC queue 的 backpressure、status coalescing、priority error、stop drain/drop，以及跨 lane 逆序时 incarnation/sequence 归并；主动交错 A terminal frame 与 B seq=1，证明 stop A → active B → B seq=1 → start B 的 cutover 不变量。M2-E1/E5 必须覆盖 offline create→delete-before-first-sync、reload 仍显示 removal pending、zero-item `removals[]`/result 后才空态、stop/cache failure 可见且同 revision 可重试、result ACK 丢失后跨新 revision 的 per-token outcome 仍重放，以及离线超过 receipt retention 后由 applied head 返回终态。M2-E8 的原型证据同时包含 `#channel-disabling/#channel-disabled/#channel-deleting`，验证启停/删除只在 observed/apply result 后进入终态。M3-E6 额外覆盖同 revision 的旧 incarnation/status sequence 不覆盖新状态，并覆盖 offline N barrier 对 IM N+1/delete 的 terminal ACK 会释放 FIFO、drop/quarantine 后继续 reconcile/result/status。
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|

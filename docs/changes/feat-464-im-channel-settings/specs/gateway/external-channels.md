@@ -22,7 +22,7 @@
 - **GIVEN** Gateway 本地运行某 managed channel
 - **WHEN** 已初始化节点收到更高 manifest revision，且其中不再包含该 channel
 - **THEN** 该飞书 Bot 的后续消息不再触发 Agent，Agent 也不再通过它发送
-- **AND** Gateway 重启后该 channel 仍不会从旧 YAML 恢复
+- **AND** Gateway 重启后该 channel 也不会从已提交的 managed cache 恢复
 - **AND** Gateway 在实际停止旧 channel 并提交本地 cache 后向 IM 回报 removal applied
 
 #### Scenario: 空 manifest 也回报实际应用结果
@@ -68,11 +68,11 @@ Gateway 在连接 IM 前先读取上次成功调和的 encrypted channel manifes
 
 ### Requirement: Managed Feishu 保持既有身份与能力
 
-通过 IM 新建和从旧 YAML 导入的飞书 channel 使用与既有配置相同的稳定 Agent channel 身份，并继续提供 owner 绑定、审批交互与飞书文档能力。控制面的 channel UUID 不改变外部会话归属或消息 session continuity。
+通过 IM 新建或更新的飞书 channel 使用稳定 Agent channel 身份，并继续提供 owner 绑定、审批交互与飞书文档能力。控制面的 channel UUID 不改变外部会话归属或消息 session continuity。
 
-#### Scenario: 控制面迁移不改变外部会话身份
+#### Scenario: 控制面更新不改变外部会话身份
 - **GIVEN** `feishu:<agent_id>` 已产生私聊或群聊影子会话
-- **WHEN** 该 channel 被导入 IM control plane 或在其中更新
+- **WHEN** 用户通过 IM 更新该 channel
 - **THEN** 同一飞书用户或群的后续消息继续进入原有 Agent 会话语义
 - **AND** 不因 control-plane channel UUID 创建另一套 channel 身份
 
@@ -180,31 +180,3 @@ Gateway 为每个 managed channel 上报当前内部配置代次、连接状态�
 - **THEN** IM 返回可消费的 stale revision 或 channel removed 终态
 - **AND** Gateway 丢弃旧状态、释放上行队列并继续接收完整 manifest
 - **AND** channel removed 时旧 cached runtime 立即停止，不能用旧状态复活
-
-### Requirement: 旧 YAML channel 只在控制面首次初始化时导入
-
-Gateway 在节点 channel control 未初始化时，把旧 YAML 中的 Feishu channel 作为一次性 bootstrap 候选上传；初始化完成后，以 IM manifest 和本地 encrypted cache 为权威，不再从旧 YAML 复活已删除配置。未配置 IM 的 standalone Gateway 继续支持旧 YAML。
-
-#### Scenario: 首次导入旧 Feishu 配置
-- **GIVEN** Gateway YAML 已配置 Feishu，IM 中该节点 channel control 尚未初始化
-- **WHEN** Gateway 首次连接支持 channel control 的 IM
-- **THEN** Gateway 上传旧配置，IM 返回权威 manifest
-- **AND** channel 随后能在 IM 通道页查看和管理
-
-#### Scenario: 人工绑定完成后无需重连即可初始化
-- **GIVEN** Gateway 已注册并等待用户确认节点绑定，channel control 尚未初始化
-- **WHEN** 用户在 IM 完成人工绑定且当前 Gateway WebSocket 仍在线
-- **THEN** IM 立即继续该节点的 channel bootstrap
-- **AND** 用户不需要重启或等待 Gateway 偶然重连
-- **AND** register、绑定确认或后续重连的重复触发不会重复导入 channel
-
-#### Scenario: bootstrap 半途失败
-- **GIVEN** 旧 YAML channel 尚未成功写入 IM 并缓存权威 manifest
-- **WHEN** bootstrap 任一步失败
-- **THEN** Gateway 保留并继续使用旧 YAML
-- **AND** 下次连接可安全重试
-
-#### Scenario: standalone Gateway 保持兼容
-- **GIVEN** Gateway 未配置 IM service
-- **WHEN** Gateway 启动
-- **THEN** 继续按旧 YAML 构建 external channels
