@@ -8,11 +8,11 @@
 
 ## 退出标准
 
-- [ ] 单图、多图、混合图片+文本、items 优先/files fallback、纯文本、非图片与 null item 的 paste 行为符合 M1-E1～M1-E6。
-- [ ] paste 与 drop 汇聚既有 `handleAdd`，保持顺序上传、partial success、pending chip 删除/随文字发送与 send busy 不变量。
-- [ ] unsupported type、too large、network、unknown 上传失败均显示本地化、可关闭的页面级附件错误 toast；失败项不进入 pending，成功项保留。
-- [ ] 指定 Vitest、production build 全绿，desktop Chromium 从 `/chat/:conversationId` 完成全部 must-match 原型对照且证据持久化到 `evidence/`。
-- [ ] 不调用主动 Clipboard API，不提交 `dist/`、临时配置或浏览器运行产物。
+- [x] 单图、多图、混合图片+文本、items 优先/files fallback、纯文本、非图片与 null item 的 paste 行为符合 M1-E1～M1-E6。
+- [x] paste 与 drop 汇聚既有 `handleAdd`，保持顺序上传、partial success、pending chip 删除/随文字发送与 send busy 不变量。
+- [x] unsupported type、too large、network、unknown 上传失败均显示本地化、可关闭的页面级附件错误 toast；失败项不进入 pending，成功项保留。
+- [x] 指定 Vitest、production build 全绿，desktop Chromium 从 `/chat/:conversationId` 完成全部 must-match 原型对照且证据持久化到 `evidence/`。
+- [x] 不调用主动 Clipboard API，不提交 `dist/`、临时配置或浏览器运行产物。
 
 ## 测试策略
 
@@ -71,6 +71,6 @@ Prototype / Reference Contract：
 
 ### R2 — 页面级本地化失败反馈与真入口验收
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 先以 ChatWorkspace integration 固定四类错误、partial success、dismiss；再由页面 owner 映射 typed/unknown error 并复用现有 toast。完成指定 Vitest、build 与 desktop Chromium must-match 对照，落持久 evidence。
 - 验证: 120+ tests 全绿、production build 全绿、`/chat/:conversationId` desktop Chromium 无 console error/failed network（预期失败上传请求单列说明），原型逐项 match。
