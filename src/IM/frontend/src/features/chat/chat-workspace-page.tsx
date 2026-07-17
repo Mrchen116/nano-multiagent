@@ -65,6 +65,7 @@ import { NewGroupModal } from "./components/new-group-modal";
 const HISTORY_PAGE_SIZE = 50;
 
 type ChatWorkspaceError = {
+  conversationId: string;
   kind: "send" | "attachment";
   message: string;
 };
@@ -761,15 +762,23 @@ export function ChatWorkspacePage() {
     return dispose;
   }, [queryClient]);
 
+  function clearSendError(sourceConversationId: string) {
+    setWorkspaceError((current) =>
+      current?.kind === "send" && current.conversationId === sourceConversationId
+        ? null
+        : current
+    );
+  }
+
   const sendMutation = useMutation({
-    mutationFn: (payload: { text: string; attachments: Attachment[] }) =>
+    mutationFn: (payload: { conversationId: string; text: string; attachments: Attachment[] }) =>
       createMessage({
-        conversationId: conversationId!,
+        conversationId: payload.conversationId,
         content: payload.text,
         attachments: payload.attachments
       }),
-    onSuccess: (created) => {
-      setWorkspaceError(null);
+    onSuccess: (created, payload) => {
+      clearSendError(payload.conversationId);
       // feat-340-M18 R9-3: optimistically render the user's own message immediately
       // after the POST resolves. The WS message.created echo path is reliable for
       // agent replies but not always for self-authored bubbles, so previously the
@@ -783,8 +792,10 @@ export function ChatWorkspacePage() {
       // Bump conversation list ordering on next refetch.
       void queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
     },
-    onError: (err) => {
+    onError: (err, payload) => {
+      if (conversationIdRef.current !== payload.conversationId) return;
       setWorkspaceError({
+        conversationId: payload.conversationId,
         kind: "send",
         message: err instanceof Error ? err.message : t("chat.messagePane.sendError")
       });
@@ -807,16 +818,18 @@ export function ChatWorkspacePage() {
   // copied to that point. Refresh the canonical conversation cache, jump into the
   // branch, and surface a brief success toast.
   const forkMutation = useMutation({
-    mutationFn: (messageId: string) =>
-      forkConversation(conversationId!, messageId),
-    onSuccess: async (conv) => {
-      setWorkspaceError(null);
+    mutationFn: (payload: { conversationId: string; messageId: string }) =>
+      forkConversation(payload.conversationId, payload.messageId),
+    onSuccess: async (conv, payload) => {
+      clearSendError(payload.conversationId);
       await queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
       navigate(`/chat/${conv.id}`);
       setForkToast(true);
     },
-    onError: (err) => {
+    onError: (err, payload) => {
+      if (conversationIdRef.current !== payload.conversationId) return;
       setWorkspaceError({
+        conversationId: payload.conversationId,
         kind: "send",
         message: err instanceof Error ? err.message : t("chat.messagePane.forkError")
       });
@@ -994,9 +1007,14 @@ export function ChatWorkspacePage() {
 
   const showList = !isMobile || !conversationId;
   const showDetail = !isMobile || Boolean(conversationId);
+  const visibleWorkspaceError = workspaceError?.conversationId === conversationId
+    ? workspaceError
+    : null;
 
-  function handleAttachmentUploadError(error: unknown) {
+  function handleAttachmentUploadError(sourceConversationId: string, error: unknown) {
+    if (conversationIdRef.current !== sourceConversationId) return;
     setWorkspaceError({
+      conversationId: sourceConversationId,
       kind: "attachment",
       message: t(attachmentErrorKey(error))
     });
@@ -1012,7 +1030,7 @@ export function ChatWorkspacePage() {
           </div>
         </div>
       )}
-      {workspaceError && (
+      {visibleWorkspaceError && (
         <div
           className="fixed left-4 top-4 z-50 flex max-w-xs items-start gap-3 rounded-2xl border border-[var(--im-danger)] bg-[oklch(0.98_0.02_25)] px-4 py-3 shadow-lg"
           role="alert"
@@ -1020,17 +1038,17 @@ export function ChatWorkspacePage() {
           <div className="min-w-0 flex-1">
             <p className="text-xs font-semibold text-[var(--im-danger)]">
               {t(
-                workspaceError.kind === "attachment"
+                visibleWorkspaceError.kind === "attachment"
                   ? "chat.messagePane.attachmentErrorTitle"
                   : "chat.messagePane.sendErrorTitle"
               )}
             </p>
-            <p className="mt-0.5 line-clamp-2 text-xs text-slate-700">{workspaceError.message}</p>
+            <p className="mt-0.5 line-clamp-2 text-xs text-slate-700">{visibleWorkspaceError.message}</p>
           </div>
           <button
             type="button"
             aria-label={t(
-              workspaceError.kind === "attachment"
+              visibleWorkspaceError.kind === "attachment"
                 ? "chat.messagePane.attachmentErrorDismiss"
                 : "chat.messagePane.sendErrorDismiss"
             )}
@@ -1077,14 +1095,21 @@ export function ChatWorkspacePage() {
             nodeStatus={headerAgentContext.nodeStatus}
             agentColor={headerAgentContext.agentColor}
             agentInitials={headerAgentContext.agentInitials}
-            onSend={(text, attachments) => sendMutation.mutateAsync({ text, attachments }).then(() => undefined)}
-            sendError={workspaceError?.kind === "send" ? workspaceError.message : null}
-            onAttachmentUploadError={handleAttachmentUploadError}
+            onSend={(text, attachments) => sendMutation.mutateAsync({
+              conversationId: activeConversation.id,
+              text,
+              attachments
+            }).then(() => undefined)}
+            sendError={visibleWorkspaceError?.kind === "send" ? visibleWorkspaceError.message : null}
+            onAttachmentUploadError={(error) => handleAttachmentUploadError(activeConversation.id, error)}
             selfUserId={selfUserId}
             isSending={sendMutation.isPending}
             isDirectChat={conversationKind === "direct-agent"}
             agentOnline={headerAgentContext.nodeStatus === "online"}
-            onFork={(messageId) => forkMutation.mutate(messageId)}
+            onFork={(messageId) => forkMutation.mutate({
+              conversationId: activeConversation.id,
+              messageId
+            })}
             forkPending={forkMutation.isPending}
             hasMoreHistory={hasMoreHistory}
             isLoadingHistory={isLoadingHistory}
