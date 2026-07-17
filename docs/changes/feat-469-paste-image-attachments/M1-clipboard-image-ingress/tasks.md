@@ -65,7 +65,7 @@ Prototype / Reference Contract：
 
 ### R1 — 剪贴板图片汇聚既有附件状态机
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 先以 MessagePane regression 固定 items 优先保序、files fallback、不重复、mixed/default 边界、send busy、删除/发送与 partial success；再只从 paste event 的 `clipboardData` 提取图片并调用既有 `handleAdd`，失败逐项上报可选 callback。
 - 验证: 聚焦运行 MessagePane tests；确认 C1 在缺少 paste 能力上失败、C2 后相关回归及既有附件测试全绿。
 
