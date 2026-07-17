@@ -71,6 +71,6 @@ Prototype / Reference Contract：
 
 ### R2 — 页面级本地化失败反馈与真入口验收
 
-- 状态: TODO
+- 状态: DOING
 - 步骤: 先以 ChatWorkspace integration 固定四类错误、partial success、dismiss；再由页面 owner 映射 typed/unknown error 并复用现有 toast。完成指定 Vitest、build 与 desktop Chromium must-match 对照，落持久 evidence。
 - 验证: 120+ tests 全绿、production build 全绿、`/chat/:conversationId` desktop Chromium 无 console error/failed network（预期失败上传请求单列说明），原型逐项 match。

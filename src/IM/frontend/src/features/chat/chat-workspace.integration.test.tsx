@@ -5,7 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import "../../i18n";
+import { setLanguage } from "../../i18n";
 import { useAuthStore } from "../auth/auth-store";
 import { ChatWorkspacePage } from "./chat-workspace-page";
 import type { Conversation } from "./chat-types";
@@ -163,16 +163,20 @@ function jsonResponse(data: unknown, init: ResponseInit = {}): Response {
   return new Response(JSON.stringify(data), { status: 200, headers: { "Content-Type": "application/json" }, ...init });
 }
 
+type UploadOutcome = { status: number; body?: string } | { error: Error } | null;
+
 function mockFetch(opts: {
   distillerVisible?: boolean;
   toolAllowlist?: string[];
   skillViewToolVisible?: boolean;
   skillViewDefaultOn?: boolean;
+  uploadOutcomes?: UploadOutcome[];
 } = {}): ReturnType<typeof vi.fn> {
   const distillerVisible = opts.distillerVisible ?? true;
   const toolAllowlist = opts.toolAllowlist ?? [];
   const skillViewToolVisible = opts.skillViewToolVisible ?? true;
   const skillViewDefaultOn = opts.skillViewDefaultOn ?? true;
+  const uploadOutcomes = [...(opts.uploadOutcomes ?? [])];
   const sent: { url: string; init?: RequestInit }[] = [];
   const conversations: Conversation[] = [...FIXTURES.conversations];
   const fn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -289,11 +293,17 @@ function mockFetch(opts: {
       });
     }
     if (/\/im\/v1\/uploads/.test(url) && init?.method === "POST") {
+      const outcome = uploadOutcomes.shift();
+      if (outcome && "error" in outcome) throw outcome.error;
+      if (outcome && "status" in outcome) {
+        return new Response(outcome.body ?? "upload rejected", { status: outcome.status });
+      }
+      const fileName = new URL(url, "http://im.local").searchParams.get("file_name") ?? "dropped.png";
       return jsonResponse(
         {
-          url: "http://im.local/im/uploads/dropped.png",
+          url: "http://im.local/im/uploads/" + fileName,
           content_type: "image/png",
-          file_name: "dropped.png"
+          file_name: fileName
         },
         { status: 201 }
       );
@@ -318,11 +328,26 @@ function renderAtRoute(initial: string, queryClient?: QueryClient) {
   );
 }
 
+function pasteImages(composer: HTMLElement, names: string[]) {
+  const files = names.map((name) => new File([new Uint8Array(8)], name, { type: "image/png" }));
+  fireEvent.paste(composer, {
+    clipboardData: {
+      items: files.map((file) => ({
+        kind: "file",
+        type: file.type,
+        getAsFile: () => file
+      } as DataTransferItem)),
+      files
+    }
+  });
+}
+
 describe("ChatWorkspacePage — integration", () => {
   let originalWS: typeof WebSocket;
   let fetchSpy: ReturnType<typeof mockFetch>;
 
   beforeEach(() => {
+    setLanguage("en");
     capturedStatusHandler = null;
     capturedResyncHandler = null;
     FakeWebSocket.instances = [];
@@ -1183,6 +1208,82 @@ describe("ChatWorkspacePage — integration", () => {
     expect(composer.value).toBe("");
     const composerChipStrip = composer.closest("form")?.querySelector(".chat-composer-chip-strip");
     expect(composerChipStrip?.querySelector("img[alt='dropped.png']")).toBeFalsy();
+  });
+
+  it.each([
+    {
+      label: "unsupported type",
+      locale: "en" as const,
+      outcome: { status: 415, body: "unsupported" },
+      expected: "This image type is not supported.",
+      dismiss: "Dismiss attachment error"
+    },
+    {
+      label: "too large",
+      locale: "en" as const,
+      outcome: { status: 413, body: "too large" },
+      expected: "This image is larger than the current attachment limit.",
+      dismiss: "Dismiss attachment error"
+    },
+    {
+      label: "network or server failure",
+      locale: "en" as const,
+      outcome: { status: 503, body: "unavailable" },
+      expected: "The attachment could not be uploaded. Check your connection and try again.",
+      dismiss: "Dismiss attachment error"
+    },
+    {
+      label: "unknown failure",
+      locale: "en" as const,
+      outcome: { error: new TypeError("unexpected fetch failure") },
+      expected: "The attachment could not be uploaded. Please try again.",
+      dismiss: "Dismiss attachment error"
+    },
+    {
+      label: "localized Chinese feedback",
+      locale: "zh" as const,
+      outcome: { status: 415, body: "unsupported" },
+      expected: "暂不支持这种图片格式。",
+      dismiss: "关闭附件错误"
+    }
+  ])("shows dismissible, localized attachment feedback for $label", async ({ locale, outcome, expected, dismiss }) => {
+    setLanguage(locale);
+    fetchSpy = mockFetch({ uploadOutcomes: [outcome] });
+    vi.stubGlobal("fetch", fetchSpy);
+    renderAtRoute("/chat/c1");
+    await screen.findByText("Hi Planner");
+    const composer = screen.getByRole("textbox");
+
+    pasteImages(composer, ["rejected.png"]);
+
+    const toast = await screen.findByRole("alert");
+    expect(within(toast).getByText(locale === "zh" ? "附件上传失败" : "Attachment upload failed")).toBeInTheDocument();
+    expect(within(toast).getByText(expected)).toBeInTheDocument();
+    expect(within(composer.closest("form") as HTMLElement).queryByRole("img", { name: "rejected.png" })).not.toBeInTheDocument();
+
+    await userEvent.click(within(toast).getByRole("button", { name: dismiss }));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("keeps successful pasted images when another upload fails and shows the page-level error", async () => {
+    fetchSpy = mockFetch({ uploadOutcomes: [null, { status: 413 }, null] });
+    vi.stubGlobal("fetch", fetchSpy);
+    renderAtRoute("/chat/c1");
+    await screen.findByText("Hi Planner");
+    const composer = screen.getByRole("textbox");
+    const composerForm = composer.closest("form") as HTMLElement;
+
+    pasteImages(composer, ["first-ok.png", "too-large.png", "last-ok.png"]);
+
+    const toast = await screen.findByRole("alert");
+    expect(within(toast).getByText("This image is larger than the current attachment limit.")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(within(composerForm).getAllByRole("img").map((image) => image.getAttribute("alt"))).toEqual([
+        "first-ok.png",
+        "last-ok.png"
+      ]);
+    });
+    expect(within(composerForm).queryByRole("img", { name: "too-large.png" })).not.toBeInTheDocument();
   });
 
   it("R9-3: optimistically renders the user's bubble in the pane the instant the POST resolves", async () => {
