@@ -220,7 +220,7 @@ def test_load_skills_special_case_retained() -> None:
 
 def test_registry_execute_surface_same_messages(registry: ToolRegistry) -> None:
     with pytest.raises(ToolError) as exc_info:
-        asyncio.run(registry.execute("multi_issue", {"required_a": 123}))
+        asyncio.run(registry.execute("multi_issue", {"required_a": 123, "required_b": 1}))
 
     message = str(exc_info.value)
     assert "multi_issue failed due to the following issue:" in message
