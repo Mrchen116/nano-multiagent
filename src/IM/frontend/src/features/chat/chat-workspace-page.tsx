@@ -31,6 +31,10 @@ import { useAuthStore } from "../auth/auth-store";
 import { subscribeUserStream } from "../../realtime/user-stream";
 import { useLocalUnreadFeedback } from "../notifications/local-unread-feedback";
 import {
+  AttachmentUploadError,
+  type AttachmentUploadErrorCode
+} from "./attachments/use-attachment-upload";
+import {
   classifyConversationKind,
   type Attachment,
   type Conversation,
@@ -59,6 +63,29 @@ import { MessagePane } from "./components/message-pane";
 import { NewGroupModal } from "./components/new-group-modal";
 
 const HISTORY_PAGE_SIZE = 50;
+
+type ChatWorkspaceError = {
+  kind: "send" | "attachment";
+  message: string;
+};
+
+const ATTACHMENT_ERROR_KEYS: Record<
+  AttachmentUploadErrorCode,
+  "chat.messagePane.attachmentUnsupportedType"
+  | "chat.messagePane.attachmentTooLarge"
+  | "chat.messagePane.attachmentNetwork"
+> = {
+  unsupportedType: "chat.messagePane.attachmentUnsupportedType",
+  tooLarge: "chat.messagePane.attachmentTooLarge",
+  network: "chat.messagePane.attachmentNetwork"
+};
+
+function attachmentErrorKey(error: unknown) {
+  return error instanceof AttachmentUploadError
+    ? ATTACHMENT_ERROR_KEYS[error.code]
+    : "chat.messagePane.attachmentUnknown";
+}
+
 function mergeMessageWithExisting(message: Message, existing?: Message): Message {
   let out = message;
   if (!message.token_usage && existing?.token_usage) {
@@ -263,7 +290,7 @@ export function ChatWorkspacePage() {
   const { t } = useTranslation();
   const [showNewGroup, setShowNewGroup] = useState(false);
   const [showGroupSettings, setShowGroupSettings] = useState(false);
-  const [sendError, setSendError] = useState<string | null>(null);
+  const [workspaceError, setWorkspaceError] = useState<ChatWorkspaceError | null>(null);
   const [distillMode, setDistillMode] = useState(false);
   const [selectedDistillConversationIds, setSelectedDistillConversationIds] = useState<Set<string>>(() => new Set());
   const [showDistillDialog, setShowDistillDialog] = useState(false);
@@ -742,7 +769,7 @@ export function ChatWorkspacePage() {
         attachments: payload.attachments
       }),
     onSuccess: (created) => {
-      setSendError(null);
+      setWorkspaceError(null);
       // feat-340-M18 R9-3: optimistically render the user's own message immediately
       // after the POST resolves. The WS message.created echo path is reliable for
       // agent replies but not always for self-authored bubbles, so previously the
@@ -757,7 +784,10 @@ export function ChatWorkspacePage() {
       void queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
     },
     onError: (err) => {
-      setSendError(err instanceof Error ? err.message : t("chat.messagePane.sendError"));
+      setWorkspaceError({
+        kind: "send",
+        message: err instanceof Error ? err.message : t("chat.messagePane.sendError")
+      });
     }
   });
 
@@ -780,13 +810,16 @@ export function ChatWorkspacePage() {
     mutationFn: (messageId: string) =>
       forkConversation(conversationId!, messageId),
     onSuccess: async (conv) => {
-      setSendError(null);
+      setWorkspaceError(null);
       await queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
       navigate(`/chat/${conv.id}`);
       setForkToast(true);
     },
     onError: (err) => {
-      setSendError(err instanceof Error ? err.message : t("chat.messagePane.forkError"));
+      setWorkspaceError({
+        kind: "send",
+        message: err instanceof Error ? err.message : t("chat.messagePane.forkError")
+      });
     }
   });
 
@@ -804,7 +837,7 @@ export function ChatWorkspacePage() {
     void queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
 
   // These four feed GroupSettings via mutateAsync so a rejection propagates to the
-  // panel, which renders the error inline (the global sendError toast sits below
+  // panel, which renders the error inline (the global workspace error toast sits below
   // the panel's z-index and would be hidden by the scrim / mobile full-screen).
   const renameMutation = useMutation({
     mutationFn: (title: string) => updateConversation(conversationId!, { title }),
@@ -962,6 +995,13 @@ export function ChatWorkspacePage() {
   const showList = !isMobile || !conversationId;
   const showDetail = !isMobile || Boolean(conversationId);
 
+  function handleAttachmentUploadError(error: unknown) {
+    setWorkspaceError({
+      kind: "attachment",
+      message: t(attachmentErrorKey(error))
+    });
+  }
+
   return (
     <div className="chat-workspace">
       {forkToast && (
@@ -972,17 +1012,30 @@ export function ChatWorkspacePage() {
           </div>
         </div>
       )}
-      {sendError && (
-        <div className="fixed left-4 top-4 z-50 flex max-w-xs items-start gap-3 rounded-2xl border border-[var(--im-danger)] bg-[oklch(0.98_0.02_25)] px-4 py-3 shadow-lg">
+      {workspaceError && (
+        <div
+          className="fixed left-4 top-4 z-50 flex max-w-xs items-start gap-3 rounded-2xl border border-[var(--im-danger)] bg-[oklch(0.98_0.02_25)] px-4 py-3 shadow-lg"
+          role="alert"
+        >
           <div className="min-w-0 flex-1">
-            <p className="text-xs font-semibold text-[var(--im-danger)]">{t("chat.messagePane.sendErrorTitle")}</p>
-            <p className="mt-0.5 line-clamp-2 text-xs text-slate-700">{sendError}</p>
+            <p className="text-xs font-semibold text-[var(--im-danger)]">
+              {t(
+                workspaceError.kind === "attachment"
+                  ? "chat.messagePane.attachmentErrorTitle"
+                  : "chat.messagePane.sendErrorTitle"
+              )}
+            </p>
+            <p className="mt-0.5 line-clamp-2 text-xs text-slate-700">{workspaceError.message}</p>
           </div>
           <button
             type="button"
-            aria-label="Dismiss"
+            aria-label={t(
+              workspaceError.kind === "attachment"
+                ? "chat.messagePane.attachmentErrorDismiss"
+                : "chat.messagePane.sendErrorDismiss"
+            )}
             className="shrink-0 rounded-full p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
-            onClick={() => setSendError(null)}
+            onClick={() => setWorkspaceError(null)}
           >
             ×
           </button>
@@ -1025,7 +1078,8 @@ export function ChatWorkspacePage() {
             agentColor={headerAgentContext.agentColor}
             agentInitials={headerAgentContext.agentInitials}
             onSend={(text, attachments) => sendMutation.mutateAsync({ text, attachments }).then(() => undefined)}
-            sendError={sendError}
+            sendError={workspaceError?.kind === "send" ? workspaceError.message : null}
+            onAttachmentUploadError={handleAttachmentUploadError}
             selfUserId={selfUserId}
             isSending={sendMutation.isPending}
             isDirectChat={conversationKind === "direct-agent"}
