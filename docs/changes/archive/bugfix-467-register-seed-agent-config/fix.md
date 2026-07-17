@@ -75,8 +75,39 @@ GitHub issue：https://github.com/Mrchen116/nano-multiagent/issues/201 （含完
 
 ## 修复
 
-<!-- 改了什么 + commits。 -->
+把空壳消灭在源头：
+
+1. `src/personal_assistant/reporter/upstream_reporter.py` 的 `UpstreamReporter.send_register()` 在 `node.register` 帧中新增两个 per-agent 映射字段：
+   - `agent_skills: {agent_id: [skill_id, ...]}`
+   - `agent_tool_allowlist: {agent_id: [tool_name, ...]}`
+   值直接来自本地 `AgentWorkspaceConfig.skills` / `tool_allowlist`，因此 mirror 出生即 yaml 真值。
+
+2. `src/IM/ws/gateway_handler.py` 的 `_handle_register` 解析上述两个字段并透传给 `GatewayNodePersistence.register()`；缺失或格式异常时降级为空种子，不影响旧 Gateway 兼容。
+
+3. `src/IM/infra/gateway_persistence.py` 的 `GatewayNodePersistence.register()` 新增 `agent_skills` / `agent_tool_allowlist` 参数，仅在 `existing is None`（profile 首次创建）时使用种子值写入；已存在 profile 保持现有 skills / tool_allowlist 不变，保护用户在 Gateway 离线期间特意清空的收敛。
+
+不变量保留：
+- reconcile 的版本比较规则未动。
+- `resolve_enabled_tools`「空=零工具」语义未动。
+- 未引入 v1/v2 启发式区分空壳 vs 用户清空。
+
+相关提交：
+- `7a5b8bd82` test(bugfix-467/M1/R1): 注册播种 skills/tool_allowlist 红测试
+- `573dd6185` fix(bugfix-467/M1/R2): node.register 携带 skills/tool_allowlist 并在 IM 创建 profile 时播种
 
 ## 验证
 
-<!-- 修前能复现 → 修后不能；相关功能回归正常。 -->
+- 单测：
+  - `tests/unit/personal_assistant/test_gateway_upstream_reporter.py::test_send_register_includes_agent_skills_and_tool_allowlist`
+  - `tests/im_service/unit/test_gateway_node_persistence.py::test_register_seeds_skills_and_tool_allowlist_on_create`
+  - `tests/im_service/unit/test_gateway_node_persistence.py::test_register_does_not_overwrite_existing_profile_skills_and_tool_allowlist`
+  - `tests/im_service/unit/test_gateway_handler.py::test_register_parses_and_seeds_agent_skills_and_tool_allowlist`
+  - 相关套件共 76 passed。
+
+- Live 真栈验证（worktree ephemeral IM + Gateway）：
+  - 启动：`cd .worktrees/bugfix-467-M1 && ./scripts/e2e-up.sh`
+  - `GET /im/v1/agents/plato/config?source=mirror` 返回 `skills: ["change-spec-author", "change-design-author", "change-orchestrator"]`、`tool_allowlist: ["read", "write", "edit", "bash", "agent", "task_stop", "web_fetch", "web_search", "skill_manage", "skill_view", "memory"]`、`profile_version: 1`，mirror 出生即真值。
+  - `GET /im/v1/agents/plato/config?source=live` 同样非空，reconcile 后 live 源也保持真值。
+  - 原始症状（mirror v1 空壳 skills=[] / tool_allowlist=[]）消失。
+  - 证据文件：`docs/changes/bugfix-467-register-seed-agent-config/M1-fix/evidence/plato_config_curl.json`
+  - 收尾：`./scripts/e2e-down.sh`

@@ -14,6 +14,7 @@ from IM.infra.gateway_persistence import (
     GatewayNodePersistence,
 )
 from IM.infra.repositories import (
+    AgentProfileRepository,
     ConversationRepository,
     MessageRepository,
     UsageMetricsRepository,
@@ -115,6 +116,77 @@ def test_register_heartbeat_and_report_track_connection_state(tmp_path: Path) ->
     assert snapshot.reports == [
         {"node_id": "node-1", "run_id": "run-1", "status": "completed"}
     ]
+
+
+def test_register_parses_and_seeds_agent_skills_and_tool_allowlist(
+    tmp_path: Path,
+) -> None:
+    """bugfix-467: WS handler parses agent_skills / agent_tool_allowlist into persistence."""
+    handler, connection = _build_handler_with_node_persistence(tmp_path)
+    websocket = StubWebSocket()
+
+    ack = asyncio.run(
+        handler.handle_message(
+            websocket=websocket,
+            message_type="node.register",
+            payload={
+                "node_id": "node-1",
+                "agents": ["agent-a"],
+                "agent_workspaces": {"agent-a": "/work/a"},
+                "agent_skills": {"agent-a": ["plan", "playwright"]},
+                "agent_tool_allowlist": {"agent-a": ["read", "bash", "edit"]},
+                "capabilities": {"relay": True},
+            },
+        )
+    )
+
+    assert ack == {
+        "type": "ack",
+        "payload": {"message_type": "node.register", "node_id": "node-1"},
+    }
+    profile = AgentProfileRepository(connection).get_profile(agent_id="agent-a")
+    assert profile is not None
+    assert profile.skills == ["plan", "playwright"]
+    assert profile.tool_allowlist == ["read", "bash", "edit"]
+
+
+def test_register_seed_normalizer_drops_invalid_items_but_keeps_valid_ones(
+    tmp_path: Path,
+) -> None:
+    """bugfix-467 fix-r1: mixed-type seed items filter per-item, not per-agent."""
+    handler, connection = _build_handler_with_node_persistence(tmp_path)
+    websocket = StubWebSocket()
+
+    asyncio.run(
+        handler.handle_message(
+            websocket=websocket,
+            message_type="node.register",
+            payload={
+                "node_id": "node-1",
+                "agents": ["agent-a", "agent-b"],
+                "agent_workspaces": {"agent-a": "/work/a", "agent-b": "/work/b"},
+                "agent_skills": {
+                    "agent-a": ["plan", 123, "playwright"],
+                    "agent-b": [456, 789],
+                },
+                "agent_tool_allowlist": {
+                    "agent-a": ["read", None, "bash"],
+                    "agent-b": [{}, []],
+                },
+                "capabilities": {"relay": True},
+            },
+        )
+    )
+
+    profiles = AgentProfileRepository(connection)
+    a = profiles.get_profile(agent_id="agent-a")
+    b = profiles.get_profile(agent_id="agent-b")
+    assert a is not None
+    assert a.skills == ["plan", "playwright"]
+    assert a.tool_allowlist == ["read", "bash"]
+    assert b is not None
+    assert b.skills == []
+    assert b.tool_allowlist == []
 
 
 def test_unknown_node_receives_not_registered_error(tmp_path: Path) -> None:

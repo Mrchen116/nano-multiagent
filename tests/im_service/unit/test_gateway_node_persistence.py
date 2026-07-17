@@ -57,6 +57,75 @@ def test_register_creates_node_profiles_and_agent_users(tmp_path: Path) -> None:
     assert users.get_user_by_username(username="agent:plain").display_name == "plain"
 
 
+def test_register_seeds_skills_and_tool_allowlist_on_create(tmp_path: Path) -> None:
+    """bugfix-467: first registration seeds skills/tool_allowlist from node.register."""
+    connection, persistence = _build(tmp_path)
+
+    result = persistence.register(
+        node_id="node-1",
+        node_name="Node 1",
+        version="v1",
+        agent_ids=["agent-a"],
+        agent_workspaces={"agent-a": "/work/a"},
+        agent_skills={"agent-a": ["plan", "playwright"]},
+        agent_tool_allowlist={"agent-a": ["read", "bash", "edit"]},
+    )
+
+    assert result.agent_ids == ("agent-a",)
+    profiles = AgentProfileRepository(connection)
+    profile = profiles.get_profile(agent_id="agent-a")
+    assert profile.skills == ["plan", "playwright"]
+    assert profile.tool_allowlist == ["read", "bash", "edit"]
+
+
+def test_register_does_not_overwrite_existing_profile_skills_and_tool_allowlist(
+    tmp_path: Path,
+) -> None:
+    """bugfix-467: re-registration must not clobber user-edited profile values."""
+    connection, persistence = _build(tmp_path)
+    persistence.register(
+        node_id="node-1",
+        node_name="Node 1",
+        version="v1",
+        agent_ids=["agent-a"],
+        agent_workspaces={"agent-a": "/work/a"},
+        agent_skills={"agent-a": ["plan", "playwright"]},
+        agent_tool_allowlist={"agent-a": ["read", "bash", "edit"]},
+    )
+
+    # Simulate user clearing skills/tools while Gateway was offline.
+    profiles = AgentProfileRepository(connection)
+    current = profiles.get_profile(agent_id="agent-a")
+    profiles.update_profile(
+        agent_id="agent-a",
+        profile_version=current.profile_version,
+        display_name=current.display_name,
+        description=current.description,
+        system_prompt=current.system_prompt,
+        skills=[],
+        tool_allowlist=[],
+        group_reply_policy=current.group_reply_policy,
+        default_model=current.default_model,
+    )
+
+    result = persistence.register(
+        node_id="node-1",
+        node_name="Node 1",
+        version="v1",
+        agent_ids=["agent-a"],
+        agent_workspaces={"agent-a": "/work/a"},
+        agent_skills={"agent-a": ["plan", "playwright"]},
+        agent_tool_allowlist={"agent-a": ["read", "bash", "edit"]},
+    )
+
+    assert result.agent_ids == ("agent-a",)
+    profile = profiles.get_profile(agent_id="agent-a")
+    assert profile.skills == [], "existing profile skills must not be re-seeded"
+    assert profile.tool_allowlist == [], (
+        "existing profile tool_allowlist must not be re-seeded"
+    )
+
+
 def test_reregister_preserves_profile_edits_and_reconciles_stale_agents(
     tmp_path: Path,
 ) -> None:
