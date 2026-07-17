@@ -688,7 +688,6 @@ export function AgentCreatePage() {
               isLoading={createStateQuery.isLoading}
               errorMessage={createStateQuery.isError ? queryErrorDetail : null}
               onRetry={() => void createStateQuery.refetch()}
-              useDefaultOn={false}
               onChange={(toolAllowlist) => {
                 toolsEditedRef.current = true;
                 autoDefaultToolsRef.current = [];
