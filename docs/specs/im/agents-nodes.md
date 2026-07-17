@@ -1,6 +1,6 @@
 # IM - Agents and Nodes Specification
 
-> 对齐: refactor-460 + feat-464 + bugfix-467
+> 对齐: refactor-460 + feat-464 + bugfix-467 + bugfix-468
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
@@ -354,3 +354,19 @@ probe 失败或返回信息不完整时显示“权限状态暂时无法确认�
 - **GIVEN** IM 已接收某 channel 当前配置和 runtime incarnation 的较新状态
 - **WHEN** 旧 revision、旧 incarnation 或较小 status sequence 的状态迟到
 - **THEN** IM 拒绝旧状态，页面不从已恢复/失败的当前事实回退到旧 connecting 或 connected
+
+### Requirement: 设置 detail 页工具勾选态按存储真值渲染
+
+agent 设置 detail 页的工具面板按存储的 `tool_allowlist` 渲染勾选态:存储为空时全部不亮,不再按
+capabilities `default_on` 显示为默认全开;用户勾选/取消直接写显式名单,空名单作为合法配置可表达、
+可保存、刷新后保持。
+
+#### Scenario: 存储为空全不亮
+- **GIVEN** agent 的存储 `tool_allowlist` 为空
+- **WHEN** 打开该 agent 的设置 detail 页
+- **THEN** 工具面板全部不亮
+
+#### Scenario: 显式清空保存后保持
+- **GIVEN** agent 当前启用若干工具
+- **WHEN** 用户取消全部勾选、保存、刷新页面
+- **THEN** 工具面板保持全部不亮

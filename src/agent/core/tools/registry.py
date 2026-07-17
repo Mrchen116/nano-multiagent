@@ -500,6 +500,39 @@ class ToolRegistry:
         log_hook_diagnostics(hook_ctx, event=event, diagnostics=diagnostics)
 
 
+def _type_name(value: Any) -> str:
+    """Return a JSON-schema-style type name for a Python value."""
+
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, int):
+        return "integer"
+    if isinstance(value, float):
+        return "number"
+    if isinstance(value, str):
+        return "string"
+    if isinstance(value, list):
+        return "array"
+    if isinstance(value, dict):
+        return "object"
+    return type(value).__name__
+
+
+def _format_validation_error(tool_name: str, issues: list[str]) -> str:
+    """Assemble CC-style multi-line validation error message.
+
+    Single issue uses the singular "issue" form; multiple issues use plural
+    "issues" and list each on its own line so the model can self-correct.
+    """
+
+    if not issues:
+        raise ValueError("validation issues must not be empty")
+    label = "issues" if len(issues) > 1 else "issue"
+    return f"{tool_name} failed due to the following {label}:\n" + "\n".join(issues)
+
+
 def _validate_args(
     *, name: str, args: Mapping[str, Any], schema: Mapping[str, Any]
 ) -> dict[str, Any]:
@@ -530,20 +563,17 @@ def _validate_args(
 
     missing = [field for field in required if field not in normalized]
     if missing:
+        # bugfix-468-M3: keep the historical bootstrap message for load_skills;
+        # all other missing fields use the CC-style field-named template.
         if "load_skills" in missing:
             raise ToolError(
                 "missing required argument: load_skills",
                 tool_name=name,
                 details={"missing": missing},
             )
-        if len(missing) == 1:
-            raise ToolError(
-                f"missing required argument: {missing[0]}",
-                tool_name=name,
-                details={"missing": missing},
-            )
+        issues = [f"The required parameter `{field}` is missing" for field in missing]
         raise ToolError(
-            "missing required tool args",
+            _format_validation_error(name, issues),
             tool_name=name,
             details={"missing": missing},
         )
@@ -551,8 +581,11 @@ def _validate_args(
     if not allow_unknown:
         unknown = sorted(key for key in normalized if key not in properties)
         if unknown:
+            issues = [
+                f"An unexpected parameter `{field}` was provided" for field in unknown
+            ]
             raise ToolError(
-                "unexpected tool args",
+                _format_validation_error(name, issues),
                 tool_name=name,
                 details={"unknown": unknown},
             )
@@ -579,36 +612,41 @@ def _validate_value(
     expected_type = schema.get("type")
     if expected_type == "string":
         if not isinstance(value, str):
+            issue = f"The parameter `{field_name}` type is expected as `string` but provided as `{_type_name(value)}`"
             raise ToolError(
-                "tool arg has invalid type",
+                _format_validation_error(tool_name, [issue]),
                 tool_name=tool_name,
                 details={"field": field_name, "expected": "string"},
             )
     elif expected_type == "integer":
         if isinstance(value, bool) or not isinstance(value, int):
+            issue = f"The parameter `{field_name}` type is expected as `integer` but provided as `{_type_name(value)}`"
             raise ToolError(
-                "tool arg has invalid type",
+                _format_validation_error(tool_name, [issue]),
                 tool_name=tool_name,
                 details={"field": field_name, "expected": "integer"},
             )
     elif expected_type == "number":
         if isinstance(value, bool) or not isinstance(value, (int, float)):
+            issue = f"The parameter `{field_name}` type is expected as `number` but provided as `{_type_name(value)}`"
             raise ToolError(
-                "tool arg has invalid type",
+                _format_validation_error(tool_name, [issue]),
                 tool_name=tool_name,
                 details={"field": field_name, "expected": "number"},
             )
     elif expected_type == "boolean":
         if not isinstance(value, bool):
+            issue = f"The parameter `{field_name}` type is expected as `boolean` but provided as `{_type_name(value)}`"
             raise ToolError(
-                "tool arg has invalid type",
+                _format_validation_error(tool_name, [issue]),
                 tool_name=tool_name,
                 details={"field": field_name, "expected": "boolean"},
             )
     elif expected_type == "array":
         if not isinstance(value, list):
+            issue = f"The parameter `{field_name}` type is expected as `array` but provided as `{_type_name(value)}`"
             raise ToolError(
-                "tool arg has invalid type",
+                _format_validation_error(tool_name, [issue]),
                 tool_name=tool_name,
                 details={"field": field_name, "expected": "array"},
             )

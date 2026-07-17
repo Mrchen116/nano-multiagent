@@ -1,0 +1,6 @@
+--- ToolError message ---
+edit failed due to the following issues:
+The required parameter `oldText` is missing
+The required parameter `newText` is missing
+--- details ---
+{'missing': ['oldText', 'newText'], 'tool_name': 'edit'}

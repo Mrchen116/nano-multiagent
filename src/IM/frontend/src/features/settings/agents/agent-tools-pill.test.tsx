@@ -1,8 +1,8 @@
 /**
- * Tool pills render with default_on state.
+ * Tool pills render the stored tool_allowlist truthfully.
  *
- * Empty tool_allowlist → default tools appear selected; non-default tools appear
- * unselected.  Pills follow true whitelist semantics (can deselect defaults).
+ * Empty tool_allowlist → no pills are selected. Non-empty allowlist → only the
+ * listed tools appear selected. Pills can be toggled in/out of the allowlist.
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -59,34 +59,10 @@ function renderDetailPage() {
   );
 }
 
-// Capability features that include heartbeat + cron_scheduling.
-const HB_CAP_FEATURE = {
-  key: "heartbeat",
-  label_i18n: "agents.features.heartbeat.label",
-  help_i18n: "agents.features.heartbeat.help",
-  default_on: false,
-  available: true,
-  requires_tool: null,
-};
-
-const CRON_CAP_FEATURE = {
-  key: "cron_scheduling",
-  label_i18n: "agents.features.cron_scheduling.label",
-  help_i18n: "agents.features.cron_scheduling.help",
-  default_on: false,
-  available: true,
-  requires_tool: "cron",
-};
-
 const TOOL_DEFAULT = { name: "read", description: "Read files", default_on: true };
 const TOOL_OPTIONAL = { name: "cron", description: "Cron scheduling", default_on: false };
 
-function makeAgentState(opts: {
-  configFeatures?: Record<string, boolean>;
-  capFeatures?: object[];
-  heartbeat?: object;
-  // cron field removed from AgentConfig; enable lives in features["cron_scheduling"].
-} = {}) {
+function makeAgentState(toolAllowlist: string[]) {
   return {
     config: {
       agent_id: "agent-m9c-1",
@@ -95,9 +71,9 @@ function makeAgentState(opts: {
       description: "",
       system_prompt: "",
       custom_prompt: "",
-      features: opts.configFeatures ?? {},
+      features: {},
       skills: [],
-      tool_allowlist: [] as string[],
+      tool_allowlist: toolAllowlist,
       group_reply_policy: "MENTION" as const,
       default_model: null,
       workspace_root: "/tmp",
@@ -107,8 +83,6 @@ function makeAgentState(opts: {
       node_name: "MacBook",
       node_status: "online",
       updated_at: "2026-03-13T10:00:00Z",
-      ...(opts.heartbeat !== undefined ? { heartbeat: opts.heartbeat } : {}),
-      // feat-394 M9-E: no cron config field; enable in features["cron_scheduling"].
     },
     capabilities: {
       node_id: "node-1",
@@ -120,7 +94,7 @@ function makeAgentState(opts: {
       model_options: [],
       platform_default_model: null,
       default_system_prompt: "",
-      features: opts.capFeatures ?? [HB_CAP_FEATURE, CRON_CAP_FEATURE],
+      features: [],
     },
     owningNode: null,
   };
@@ -146,57 +120,54 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+function pill(name: string) {
+  return document.querySelector<HTMLButtonElement>(`[data-pill-name="${name}"]`);
+}
 
-describe("tool pills render default_on state", () => {
-  it("default tools appear selected when tool_allowlist is empty", async () => {
-    // empty tool_allowlist → pills show 'read' (default_on=true) as selected,
-    // 'cron' (default_on=false) as unselected
-    apiMocks.getAgentDetailStateMock.mockResolvedValue(
-      makeAgentState({ configFeatures: {} })
-    );
+describe("tool pills render stored allowlist", () => {
+  it("empty tool_allowlist renders all pills unselected", async () => {
+    apiMocks.getAgentDetailStateMock.mockResolvedValue(makeAgentState([]));
 
     renderDetailPage();
     await screen.findByRole("heading", { name: "M9C Agent" });
 
-    // 'read' pill (default_on=true) must appear pressed
     await waitFor(() => {
-      const readPill = document.querySelector<HTMLButtonElement>(
-        '[data-pill-name="read"]'
-      );
-      expect(readPill, "'read' pill must exist").not.toBeNull();
-      expect(readPill?.getAttribute("aria-pressed"), "read pill should be 'pressed' when tool_allowlist is empty (default_on=true)").toBe("true");
+      expect(pill("read")?.getAttribute("aria-pressed")).toBe("false");
     });
-
-    // 'cron' pill (default_on=false) must appear not pressed
-    const cronPill = document.querySelector<HTMLButtonElement>('[data-pill-name="cron"]');
-    if (cronPill) {
-      expect(cronPill.getAttribute("aria-pressed"), "cron pill should be 'false' (default_on=false)").toBe("false");
-    }
+    expect(pill("cron")?.getAttribute("aria-pressed")).toBe("false");
   });
 
-  it("default tool can be deselected (true whitelist semantics)", async () => {
-    const user = userEvent.setup();
-    apiMocks.getAgentDetailStateMock.mockResolvedValue(
-      makeAgentState({ configFeatures: {} })
-    );
+  it("non-empty tool_allowlist renders only listed pills selected", async () => {
+    apiMocks.getAgentDetailStateMock.mockResolvedValue(makeAgentState(["read"]));
 
     renderDetailPage();
     await screen.findByRole("heading", { name: "M9C Agent" });
 
-    // 'read' appears selected (default_on=true, empty allowlist)
     await waitFor(() => {
-      const readPill = document.querySelector<HTMLButtonElement>('[data-pill-name="read"]');
-      expect(readPill?.getAttribute("aria-pressed")).toBe("true");
+      expect(pill("read")?.getAttribute("aria-pressed")).toBe("true");
+    });
+    expect(pill("cron")?.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("toggling a pill updates its selected state", async () => {
+    const user = userEvent.setup();
+    apiMocks.getAgentDetailStateMock.mockResolvedValue(makeAgentState([]));
+
+    renderDetailPage();
+    await screen.findByRole("heading", { name: "M9C Agent" });
+
+    await waitFor(() => {
+      expect(pill("read")?.getAttribute("aria-pressed")).toBe("false");
     });
 
-    // Click to deselect
-    const readPill = document.querySelector<HTMLButtonElement>('[data-pill-name="read"]');
-    if (readPill) await user.click(readPill);
-
-    // After deselect: 'read' is no longer selected
+    await user.click(pill("read")!);
     await waitFor(() => {
-      const readPill2 = document.querySelector<HTMLButtonElement>('[data-pill-name="read"]');
-      expect(readPill2?.getAttribute("aria-pressed"), "read pill should be deselected after click").toBe("false");
+      expect(pill("read")?.getAttribute("aria-pressed")).toBe("true");
+    });
+
+    await user.click(pill("read")!);
+    await waitFor(() => {
+      expect(pill("read")?.getAttribute("aria-pressed")).toBe("false");
     });
   });
 });

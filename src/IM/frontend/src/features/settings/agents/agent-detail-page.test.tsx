@@ -56,15 +56,17 @@ vi.mock("./im-agent-config-api", () => ({
 import { AgentDetailPage } from "./agent-detail-page";
 import { setLanguage } from "../../../i18n";
 
-function renderDetailPage() {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: { retry: false }
-    }
-  });
+function renderDetailPage(queryClient?: QueryClient) {
+  const client =
+    queryClient ??
+    new QueryClient({
+      defaultOptions: {
+        queries: { retry: false }
+      }
+    });
 
   return render(
-    <QueryClientProvider client={queryClient}>
+    <QueryClientProvider client={client}>
       <MemoryRouter>
         <AgentDetailPage />
       </MemoryRouter>
@@ -1201,14 +1203,12 @@ describe("preview tool_ids regression: uses draft.tool_allowlist directly", () =
   });
 });
 
-// bugfix: 默认工具模式下勾选 cron 特性不应导致其他默认工具 pill 变灰
-// 根因: feature-toggle handler 在默认模式(allowlistUserTouched=false, tool_allowlist=[])下
-// 直接用空 allowlist 计算 nextAllowlist，导致 [] → ["cron"]，默认工具全灰。
-// 修法: 镜像 onChange 的 materialize 逻辑，先把 default_on 工具展开再加 requires_tool。
-describe("bugfix: cron 特性勾选后默认工具 pill 不应变灰", () => {
+// bugfix-468-M1: 空 tool_allowlist 下开启 requires_tool feature 时只追加该工具本身，
+// 不再把整个 default_on 集合物化进去。
+describe("feature toggle with empty tool_allowlist", () => {
   // updateAgentConfig 必须返回完整 config，否则 onSuccess 把 draft 设成含 undefined 字段的对象
   // 导致 normalizeAgentConfig(draft) → normalizeText(undefined) → TypeError（exit 1）。
-  function makeCronBugfixConfig(overrides: Partial<{
+  function makeFeatureToggleConfig(overrides: Partial<{
     agent_id: string; display_name: string; tool_allowlist: string[]
   }> = {}) {
     return {
@@ -1233,14 +1233,12 @@ describe("bugfix: cron 特性勾选后默认工具 pill 不应变灰", () => {
     };
   }
 
-  // 场景: 初始未触碰 allowlist（工具列表处于默认模式），勾选 cron_scheduling 特性
-  // 期望: tool_allowlist 含全部 default_on 工具 + cron 所需工具，而不是只有 cron 工具
-  it("默认模式下勾 cron 特性 → tool_allowlist 含全部 default_on 工具 + cron 所需工具", async () => {
+  // 场景: 初始 tool_allowlist=[]，勾选 cron_scheduling 特性（requires_tool=cron_tool）
+  // 期望: tool_allowlist 只追加 cron_tool，不再物化 default_on 工具。
+  it("空 allowlist 下勾 cron 特性 → tool_allowlist 仅含 cron 所需工具", async () => {
     const user = userEvent.setup();
 
-    // capabilities: read(default_on) + bash(default_on) + cron_tool(NOT default_on)
-    // 初始 tool_allowlist=[] 表示"未触碰，走默认模式"
-    const baseConfig = makeCronBugfixConfig({ agent_id: "bugfix-cron-1", display_name: "Cron Agent" });
+    const baseConfig = makeFeatureToggleConfig({ agent_id: "bugfix-cron-1", display_name: "Cron Agent" });
     const state = {
       config: baseConfig,
       capabilities: {
@@ -1304,18 +1302,14 @@ describe("bugfix: cron 特性勾选后默认工具 pill 不应变灰", () => {
     const lastCall = calls[calls.length - 1];
     const patchBody = lastCall[1] as { tool_allowlist?: string[] };
 
-    // 修复前: tool_allowlist = ["cron_tool"]（默认工具 read/bash 丢失）
-    // 修复后: tool_allowlist 含 default_on 工具(read, bash) + cron 所需工具(cron_tool)
-    expect(patchBody.tool_allowlist, "默认工具 read 不应从 allowlist 丢失").toContain("read");
-    expect(patchBody.tool_allowlist, "默认工具 bash 不应从 allowlist 丢失").toContain("bash");
-    expect(patchBody.tool_allowlist, "cron 所需工具应被加入 allowlist").toContain("cron_tool");
+    expect(patchBody.tool_allowlist).toEqual(["cron_tool"]);
   });
 
-  // 收紧: 勾 heartbeat（requires_tool=null）不应触发 materialize，agent 应留在默认模式
-  it("默认模式下勾 heartbeat 特性(无 requires_tool) → tool_allowlist 仍为空、不离开默认模式", async () => {
+  // 收紧: 勾 heartbeat（requires_tool=null）不应改变 tool_allowlist。
+  it("空 allowlist 下勾 heartbeat 特性(无 requires_tool) → tool_allowlist 仍为空", async () => {
     const user = userEvent.setup();
 
-    const baseConfig = makeCronBugfixConfig({ agent_id: "bugfix-hb-1", display_name: "HB Agent" });
+    const baseConfig = makeFeatureToggleConfig({ agent_id: "bugfix-hb-1", display_name: "HB Agent" });
     const state = {
       config: baseConfig,
       capabilities: {
@@ -1376,10 +1370,113 @@ describe("bugfix: cron 特性勾选后默认工具 pill 不应变灰", () => {
     const lastCall = calls[calls.length - 1];
     const patchBody = lastCall[1] as { tool_allowlist?: string[] };
 
-    // 勾 heartbeat(requires_tool=null) 不该 materialize，tool_allowlist 应仍为空（默认模式不变）
     expect(
       patchBody.tool_allowlist,
-      "heartbeat 无 requires_tool，tool_allowlist 不应被 materialize"
+      "heartbeat 无 requires_tool，tool_allowlist 应保持为空"
     ).toEqual([]);
+  });
+});
+
+// bugfix-468-M1: 显式清空工具名单后，保存应提交空 allowlist；refetch 回空名单时
+// 所有 pill 保持未选中，不回弹 default_on。
+describe("bugfix-468-M1: explicit clear persists empty tool_allowlist", () => {
+  function makeClearConfig(toolAllowlist: string[], profileVersion: number) {
+    return {
+      agent_id: "agent-core-1",
+      owner_id: "owner-1",
+      display_name: "Core Planner",
+      description: "",
+      system_prompt: "",
+      custom_prompt: "",
+      skills: [] as string[],
+      tool_allowlist: toolAllowlist,
+      group_reply_policy: "MENTION" as const,
+      default_model: null,
+      workspace_root: "/tmp/agent-core-1",
+      workspace_is_default: false,
+      profile_version: profileVersion,
+      node_id: "node-1",
+      node_name: "MacBook",
+      node_status: "online",
+      updated_at: "2026-07-17T10:00:00Z",
+      features: {}
+    };
+  }
+
+  function makeClearState(toolAllowlist: string[], profileVersion: number) {
+    return {
+      config: makeClearConfig(toolAllowlist, profileVersion),
+      capabilities: {
+        node_id: "node-1",
+        node_name: "MacBook",
+        node_status: "online",
+        capabilities_updated_at: "2026-07-17T10:00:00Z",
+        skills: [],
+        tools: [
+          { name: "read", description: "Read tool", default_on: true },
+          { name: "write", description: "Write tool", default_on: true },
+          { name: "edit", description: "Edit tool", default_on: true }
+        ],
+        model_options: [],
+        platform_default_model: null,
+        default_system_prompt: "",
+        features: []
+      },
+      owningNode: null
+    };
+  }
+
+  function pill(name: string) {
+    return document.querySelector<HTMLButtonElement>(
+      `[data-testid="pill-selector-tools"] [data-pill-name="${name}"]`
+    );
+  }
+
+  it("取消所有 tool pill 后保存，PATCH payload 为 tool_allowlist: []；refetch 后不回弹 default_on", async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    apiMocks.getAgentDetailStateMock.mockResolvedValue(makeClearState(["read", "write"], 1));
+    apiMocks.updateAgentConfigMock.mockResolvedValue(makeClearConfig([], 2));
+
+    renderDetailPage(queryClient);
+    await screen.findByRole("heading", { name: "Core Planner" });
+
+    await waitFor(() => {
+      expect(pill("read")?.getAttribute("aria-pressed")).toBe("true");
+    });
+    expect(pill("write")?.getAttribute("aria-pressed")).toBe("true");
+
+    // 显式取消所有选中的 tool pill。
+    for (const name of ["read", "write"]) {
+      await user.click(pill(name)!);
+    }
+    await waitFor(() => {
+      expect(pill("read")?.getAttribute("aria-pressed")).toBe("false");
+    });
+    expect(pill("write")?.getAttribute("aria-pressed")).toBe("false");
+
+    // 保存。
+    await user.click(screen.getByRole("button", { name: /Save Agent/i }));
+
+    await waitFor(() => {
+      expect(apiMocks.updateAgentConfigMock).toHaveBeenCalled();
+    });
+
+    const calls = apiMocks.updateAgentConfigMock.mock.calls;
+    const patchBody = calls[calls.length - 1][1] as { tool_allowlist?: string[] };
+    expect(patchBody.tool_allowlist).toEqual([]);
+
+    // 模拟 refetch 返回空名单后重渲染，断言所有 pill 未选中（不回弹 default_on）。
+    apiMocks.getAgentDetailStateMock.mockResolvedValue(makeClearState([], 2));
+    await act(async () => {
+      await queryClient.refetchQueries({ queryKey: ["settings", "agents", "agent-core-1", "detail-state"] });
+    });
+
+    await waitFor(() => {
+      expect(pill("read")?.getAttribute("aria-pressed")).toBe("false");
+    });
+    expect(pill("write")?.getAttribute("aria-pressed")).toBe("false");
+    expect(pill("edit")?.getAttribute("aria-pressed")).toBe("false");
   });
 });

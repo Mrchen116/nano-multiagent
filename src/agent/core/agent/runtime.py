@@ -1612,6 +1612,16 @@ class AgentEngine:
         model_override: str | None = None,
     ):
         session_file_state = self._state().file_state
+        # bugfix-468-M2: when the session has an explicit tool_allowlist (including
+        # the empty tuple), narrow execution to the resolved available tools.
+        # None keeps the legacy unrestricted path for CLI / kernel defaults.
+        config = self._state().config
+        if config.tool_allowlist is not None:
+            tool_execution_allowlist = tuple(
+                tool.name for tool in (available_tools_override or ())
+            )
+        else:
+            tool_execution_allowlist = None
         async for msg in self._loop.run(
             AgentState(
                 session_id=session_id,
@@ -1633,6 +1643,7 @@ class AgentEngine:
             current_working_directory_override=current_working_directory_override,
             workspace_root=workspace_root,
             session_file_state=session_file_state,
+            tool_execution_allowlist=tool_execution_allowlist,
             model_override=model_override,
             prior_prompt_tokens=self._state().last_prompt_tokens,
             on_progress=self._record_turn_progress,

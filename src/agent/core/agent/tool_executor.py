@@ -175,7 +175,7 @@ class StreamingToolExecutor:
                     output=None,
                     error=build_reject_message(
                         approval=None,
-                        reason=None,
+                        reason=f"tool '{item.tool_call.name}' is not enabled in this session",
                         is_subagent=self._is_fork_sidechain,
                     ),
                     arguments=dict(item.tool_call.arguments),

@@ -801,3 +801,61 @@ async def test_fork_sidechain_flag_drives_subagent_reject_without_allowlist() ->
     results = await _drain(executor)
 
     assert results[0].error == SUBAGENT_REJECT_MESSAGE
+
+
+# ---------------------------------------------------------------------------
+# bugfix-468-M2: main-session tool_execution_allowlist enforcement
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_empty_allowlist_denies_all_tools_without_side_effects(
+    registry: _FakeRegistry,
+) -> None:
+    """An explicit empty allowlist blocks every tool call and never executes the tool."""
+    registry.register(_FakeTool(name="read"))
+    executor = StreamingToolExecutor(registry, tool_execution_allowlist=())
+
+    executor.add_tool(_call("read", {"path": "/tmp/foo"}))
+    results = await _drain(executor)
+
+    assert len(results) == 1
+    assert results[0].output is None
+    assert results[0].error is not None
+    assert "tool 'read' is not enabled in this session" in results[0].error
+    assert registry.execution_order == []
+
+
+@pytest.mark.asyncio
+async def test_explicit_allowlist_allows_listed_and_denies_outside(
+    registry: _FakeRegistry,
+) -> None:
+    """A non-empty allowlist permits listed tools and rejects outside tools."""
+    registry.register(_FakeTool(name="read"))
+    registry.register(_FakeTool(name="bash"))
+    executor = StreamingToolExecutor(registry, tool_execution_allowlist=("read",))
+
+    executor.add_tool(_call("read", {"path": "/tmp/foo"}))
+    executor.add_tool(_call("bash", {"cmd": "true"}))
+    results = await _drain(executor)
+
+    by_name = {r.name: r for r in results}
+    assert by_name["read"].output == {"name": "read", "args": {"path": "/tmp/foo"}}
+    assert by_name["bash"].error is not None
+    assert "tool 'bash' is not enabled in this session" in by_name["bash"].error
+    assert registry.execution_order == ["read"]
+
+
+@pytest.mark.asyncio
+async def test_none_allowlist_remains_unrestricted(registry: _FakeRegistry) -> None:
+    """tool_execution_allowlist=None keeps the default unrestricted behavior."""
+    registry.register(_FakeTool(name="read"))
+    executor = StreamingToolExecutor(registry, tool_execution_allowlist=None)
+
+    executor.add_tool(_call("read", {"path": "/tmp/foo"}))
+    results = await _drain(executor)
+
+    assert len(results) == 1
+    assert results[0].output == {"name": "read", "args": {"path": "/tmp/foo"}}
+    assert results[0].error is None
+    assert registry.execution_order == ["read"]
