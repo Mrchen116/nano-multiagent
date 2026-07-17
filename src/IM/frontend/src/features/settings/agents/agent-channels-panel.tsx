@@ -235,18 +235,18 @@ function ConnectionCard({
 
   return (
     <article className="im-agent-card im-channel-card" data-channel-state={state}>
-      <div className="im-channel-card-head flex flex-wrap items-center gap-3">
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-sm font-bold text-blue-700">
+      <div className="im-channel-card-head">
+        <span className="im-channel-provider-logo">
           {provider.icon}
         </span>
-        <div className="min-w-[180px] flex-1">
+        <div className="im-channel-card-copy min-w-[180px] flex-1">
           <div className="flex items-center gap-2">
-            <h3 className="m-0 text-[15px] font-bold text-slate-900">
+            <h3 className="m-0 text-[14px] font-bold text-slate-900">
               {t(textKey(provider.label))}
             </h3>
-            <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${statusClass}`}>{statusLabel}</span>
+            <span className={`im-channel-status-pill ${statusClass}`}>{statusLabel}</span>
           </div>
-          <p className="m-0 mt-1 text-xs text-slate-500">
+          <p className="im-channel-card-meta">
             {provider.summary.label} · {providerSummary(provider, channel)}
             {disabled ? ` · ${t("agents.channels.status.credentialsRetained")}` : null}
           </p>
@@ -263,7 +263,7 @@ function ConnectionCard({
         </div>
       </div>
       <DiagnosticsPanel channel={channel} provider={provider} />
-      <div className="im-channel-card-footer flex flex-wrap justify-between gap-2 border-t border-[var(--im-border)] pt-3 text-xs text-slate-500">
+      <div className="im-channel-card-footer">
         <span role={failed ? "alert" : undefined}>
           <strong className={failed ? "text-rose-700" : "text-slate-800"}>{detail.strong}</strong> · <span>{detail.copy}</span>
         </span>
@@ -757,7 +757,7 @@ export function AgentChannelsPanel({
           <h3 className="m-0 text-base font-bold text-slate-900">{t("agents.channels.title")}</h3>
           <p className="m-0 mt-1 text-xs text-slate-500">{t("agents.channels.subtitle")}</p>
         </div>
-        <button type="button" className="im-btn im-btn-primary" aria-label={t("agents.channels.actions.add")} onClick={() => { setRequestError(null); setDialog({ step: "provider", editing: null }); }}>
+        <button type="button" className="im-btn im-btn-primary im-channel-primary-action" aria-label={t("agents.channels.actions.add")} onClick={() => { setRequestError(null); setDialog({ step: "provider", editing: null }); }}>
           + {t("agents.channels.actions.add")}
         </button>
       </header>
@@ -783,7 +783,7 @@ export function AgentChannelsPanel({
             <h3 className="im-agent-card-title">{t("agents.channels.empty.title")}</h3>
             <p className="im-agent-card-sub mt-1">{t("agents.channels.empty.description")}</p>
           </div>
-          <button type="button" className="im-btn im-btn-primary" onClick={() => { setRequestError(null); setDialog({ step: "provider", editing: null }); }}>
+          <button type="button" className="im-btn im-btn-primary im-channel-primary-action" onClick={() => { setRequestError(null); setDialog({ step: "provider", editing: null }); }}>
             {t("agents.channels.actions.add")}
           </button>
         </section>

@@ -430,7 +430,11 @@ describe("agent detail page", () => {
 
     const panel = screen.getByTestId("agent-detail");
     expect(panel.className).toContain("im-agent-panel");
+    expect(panel.querySelector(".im-agent-panel-body")).toHaveClass("im-agent-detail-body");
     expect(panel.querySelectorAll(".im-agent-card").length).toBeGreaterThanOrEqual(4);
+    const rail = screen.getByTestId("agents-rail-desktop");
+    expect(rail).toHaveClass("lg:flex");
+    expect(rail).not.toHaveClass("md:flex");
 
     await user.click(screen.getByRole("button", { name: /Open chat/i }));
 
