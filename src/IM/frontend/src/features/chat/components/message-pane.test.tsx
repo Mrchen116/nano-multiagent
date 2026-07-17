@@ -1134,7 +1134,7 @@ describe("MessagePane", () => {
     ): ClipboardEvent {
       const event = createEvent.paste(composer, {
         clipboardData: input
-      });
+      }) as ClipboardEvent;
       fireEvent(composer, event);
       return event;
     }

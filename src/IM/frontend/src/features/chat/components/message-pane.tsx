@@ -1,4 +1,13 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import React, {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type FormEvent,
+  type KeyboardEvent
+} from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -70,6 +79,8 @@ export interface MessagePaneProps {
   onLoadOlder?(): void;
   /** Test seam: overrides the real upload helper so vitest can stub uploads. */
   uploadAttachment?(file: File): Promise<Attachment>;
+  /** Reports each rejected attachment to the page-level error owner. */
+  onAttachmentUploadError?(error: unknown): void;
 }
 
 const MENTION_RE = /@([^@\s]*)$/;
@@ -166,7 +177,8 @@ export function MessagePane({
   hasMoreHistory = null,
   isLoadingHistory = false,
   onLoadOlder,
-  uploadAttachment = uploadOneAttachment
+  uploadAttachment = uploadOneAttachment,
+  onAttachmentUploadError
 }: MessagePaneProps) {
   const { t } = useTranslation();
   const [draft, setDraft] = useState("");
@@ -316,11 +328,28 @@ export function MessagePane({
         // bursting `/im/v1/uploads` with N parallel large bodies.
         const att = await uploadAttachment(file);
         setPending((prev) => [...prev, att]);
-      } catch {
-        // Bubbling the error to a toast is the chat-workspace's job;
-        // here we just drop the failing file so the rest still flow.
+      } catch (error) {
+        onAttachmentUploadError?.(error);
       }
     }
+  }
+
+  function handlePaste(event: ClipboardEvent<HTMLTextAreaElement>) {
+    if (composerBusy) return;
+
+    const itemImages = Array.from(event.clipboardData.items)
+      .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => file !== null);
+    // Browsers commonly expose the same image through both collections. Files
+    // are therefore compatibility fallback, never an additional source.
+    const images = itemImages.length > 0
+      ? itemImages
+      : Array.from(event.clipboardData.files).filter((file) => file.type.startsWith("image/"));
+    if (images.length === 0) return;
+
+    event.preventDefault();
+    void handleAdd(images);
   }
 
   function messageRows(): HTMLElement[] {
@@ -589,6 +618,7 @@ export function MessagePane({
                 value={draft}
                 onChange={(e) => changeDraft(e.target.value)}
                 onKeyDown={handleKeyDown}
+                onPaste={handlePaste}
                 disabled={composerBusy}
                 onScroll={() => {
                   if (mirrorRef.current && composerRef.current) {
