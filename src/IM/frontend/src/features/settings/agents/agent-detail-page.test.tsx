@@ -50,15 +50,17 @@ vi.mock("./im-agent-config-api", () => ({
 import { AgentDetailPage } from "./agent-detail-page";
 import { setLanguage } from "../../../i18n";
 
-function renderDetailPage() {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: { retry: false }
-    }
-  });
+function renderDetailPage(queryClient?: QueryClient) {
+  const client =
+    queryClient ??
+    new QueryClient({
+      defaultOptions: {
+        queries: { retry: false }
+      }
+    });
 
   return render(
-    <QueryClientProvider client={queryClient}>
+    <QueryClientProvider client={client}>
       <MemoryRouter>
         <AgentDetailPage />
       </MemoryRouter>
@@ -1358,5 +1360,109 @@ describe("feature toggle with empty tool_allowlist", () => {
       patchBody.tool_allowlist,
       "heartbeat 无 requires_tool，tool_allowlist 应保持为空"
     ).toEqual([]);
+  });
+});
+
+// bugfix-468-M1: 显式清空工具名单后，保存应提交空 allowlist；refetch 回空名单时
+// 所有 pill 保持未选中，不回弹 default_on。
+describe("bugfix-468-M1: explicit clear persists empty tool_allowlist", () => {
+  function makeClearConfig(toolAllowlist: string[], profileVersion: number) {
+    return {
+      agent_id: "agent-core-1",
+      owner_id: "owner-1",
+      display_name: "Core Planner",
+      description: "",
+      system_prompt: "",
+      custom_prompt: "",
+      skills: [] as string[],
+      tool_allowlist: toolAllowlist,
+      group_reply_policy: "MENTION" as const,
+      default_model: null,
+      workspace_root: "/tmp/agent-core-1",
+      workspace_is_default: false,
+      profile_version: profileVersion,
+      node_id: "node-1",
+      node_name: "MacBook",
+      node_status: "online",
+      updated_at: "2026-07-17T10:00:00Z",
+      features: {}
+    };
+  }
+
+  function makeClearState(toolAllowlist: string[], profileVersion: number) {
+    return {
+      config: makeClearConfig(toolAllowlist, profileVersion),
+      capabilities: {
+        node_id: "node-1",
+        node_name: "MacBook",
+        node_status: "online",
+        capabilities_updated_at: "2026-07-17T10:00:00Z",
+        skills: [],
+        tools: [
+          { name: "read", description: "Read tool", default_on: true },
+          { name: "write", description: "Write tool", default_on: true },
+          { name: "edit", description: "Edit tool", default_on: true }
+        ],
+        model_options: [],
+        platform_default_model: null,
+        default_system_prompt: "",
+        features: []
+      },
+      owningNode: null
+    };
+  }
+
+  function pill(name: string) {
+    return document.querySelector<HTMLButtonElement>(
+      `[data-testid="pill-selector-tools"] [data-pill-name="${name}"]`
+    );
+  }
+
+  it("取消所有 tool pill 后保存，PATCH payload 为 tool_allowlist: []；refetch 后不回弹 default_on", async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    apiMocks.getAgentDetailStateMock.mockResolvedValue(makeClearState(["read", "write"], 1));
+    apiMocks.updateAgentConfigMock.mockResolvedValue(makeClearConfig([], 2));
+
+    renderDetailPage(queryClient);
+    await screen.findByRole("heading", { name: "Core Planner" });
+
+    await waitFor(() => {
+      expect(pill("read")?.getAttribute("aria-pressed")).toBe("true");
+    });
+    expect(pill("write")?.getAttribute("aria-pressed")).toBe("true");
+
+    // 显式取消所有选中的 tool pill。
+    for (const name of ["read", "write"]) {
+      await user.click(pill(name)!);
+    }
+    await waitFor(() => {
+      expect(pill("read")?.getAttribute("aria-pressed")).toBe("false");
+    });
+    expect(pill("write")?.getAttribute("aria-pressed")).toBe("false");
+
+    // 保存。
+    await user.click(screen.getByRole("button", { name: /Save Agent/i }));
+
+    await waitFor(() => {
+      expect(apiMocks.updateAgentConfigMock).toHaveBeenCalled();
+    });
+
+    const calls = apiMocks.updateAgentConfigMock.mock.calls;
+    const patchBody = calls[calls.length - 1][1] as { tool_allowlist?: string[] };
+    expect(patchBody.tool_allowlist).toEqual([]);
+
+    // 模拟 refetch 返回空名单后重渲染，断言所有 pill 未选中（不回弹 default_on）。
+    apiMocks.getAgentDetailStateMock.mockResolvedValue(makeClearState([], 2));
+    await act(async () => {
+      await queryClient.refetchQueries({ queryKey: ["settings", "agents", "agent-core-1", "detail-state"] });
+    });
+
+    await waitFor(() => {
+      expect(pill("read")?.getAttribute("aria-pressed")).toBe("false");
+    });
+    expect(pill("write")?.getAttribute("aria-pressed")).toBe("false");
+    expect(pill("edit")?.getAttribute("aria-pressed")).toBe("false");
   });
 });
