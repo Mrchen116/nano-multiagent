@@ -178,11 +178,23 @@ def test_gateway_websocket_error_correlates_rejected_agent_message(
 
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
+        register_and_authorize(client)
         with client.websocket_connect("/im/ws/gateway") as websocket:
+            websocket.send_json(
+                {
+                    "type": "node.register",
+                    "payload": {"node_id": "node-1", "agents": []},
+                }
+            )
+            assert websocket.receive_json() == {
+                "type": "ack",
+                "payload": {"message_type": "node.register", "node_id": "node-1"},
+            }
             websocket.send_json(
                 {
                     "type": "agent.message",
                     "payload": {
+                        "node_id": "node-1",
                         "from_session_id": "unknown-source",
                         "to": "conversation:missing",
                         "text": "not delivered",
