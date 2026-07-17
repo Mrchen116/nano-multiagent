@@ -1111,6 +1111,200 @@ describe("MessagePane", () => {
     expect(onSend).toHaveBeenCalledWith("hello world", []);
   });
 
+  describe("clipboard image attachments", () => {
+    function imageAttachment(file: File): Attachment {
+      return {
+        url: `http://im.local/im/uploads/${file.name}`,
+        content_type: file.type,
+        file_name: file.name
+      };
+    }
+
+    function fileItem(file: File, getAsFile: () => File | null = () => file): DataTransferItem {
+      return {
+        kind: "file",
+        type: file.type,
+        getAsFile
+      } as DataTransferItem;
+    }
+
+    function dispatchPaste(
+      composer: HTMLElement,
+      input: { items: DataTransferItem[]; files: File[] }
+    ): ClipboardEvent {
+      const event = createEvent.paste(composer, {
+        clipboardData: input
+      }) as ClipboardEvent;
+      fireEvent(composer, event);
+      return event;
+    }
+
+    it("uses image items in clipboard order, ignores duplicate files and accompanying text, then sends the removable chips", async () => {
+      const user = userEvent.setup();
+      const first = new File([new Uint8Array(4)], "first.png", { type: "image/png" });
+      const second = new File([new Uint8Array(4)], "second.jpeg", { type: "image/jpeg" });
+      const uploadAttachment = vi.fn(async (file: File) => imageAttachment(file));
+      const onSend = vi.fn();
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[]}
+          mentionCandidates={[]}
+          onSend={onSend}
+          uploadAttachment={uploadAttachment}
+        />
+      );
+      const composer = screen.getByRole("textbox");
+
+      const event = dispatchPaste(composer, {
+        items: [
+          fileItem(first),
+          { kind: "string", type: "text/plain", getAsString: vi.fn() } as unknown as DataTransferItem,
+          fileItem(second)
+        ],
+        files: [first, second]
+      });
+
+      expect(event.defaultPrevented).toBe(true);
+      await waitFor(() => expect(uploadAttachment).toHaveBeenCalledTimes(2));
+      expect(uploadAttachment.mock.calls.map(([file]) => file.name)).toEqual(["first.png", "second.jpeg"]);
+      expect(screen.getAllByRole("img").map((img) => img.getAttribute("alt"))).toEqual(["first.png", "second.jpeg"]);
+      expect((composer as HTMLTextAreaElement).value).toBe("");
+
+      await user.click(screen.getByRole("button", { name: "Remove first.png" }));
+      await user.type(composer, "caption");
+      await user.click(screen.getByRole("button", { name: /Send/i }));
+      expect(onSend).toHaveBeenCalledWith("caption", [imageAttachment(second)]);
+    });
+
+    it("falls back to clipboard files only when items produce no image file", async () => {
+      const unusableItemImage = new File([new Uint8Array(4)], "unusable.png", { type: "image/png" });
+      const fallbackImage = new File([new Uint8Array(4)], "fallback.png", { type: "image/png" });
+      const uploadAttachment = vi.fn(async (file: File) => imageAttachment(file));
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+          uploadAttachment={uploadAttachment}
+        />
+      );
+      const composer = screen.getByRole("textbox");
+
+      const event = dispatchPaste(composer, {
+        items: [fileItem(unusableItemImage, () => null)],
+        files: [fallbackImage]
+      });
+
+      expect(event.defaultPrevented).toBe(true);
+      expect(await screen.findByRole("img", { name: "fallback.png" })).toBeInTheDocument();
+      expect(uploadAttachment).toHaveBeenCalledTimes(1);
+      expect(uploadAttachment).toHaveBeenCalledWith(fallbackImage);
+    });
+
+    it.each([
+      {
+        label: "plain text",
+        items: [{ kind: "string", type: "text/plain", getAsString: vi.fn() } as unknown as DataTransferItem],
+        files: [] as File[]
+      },
+      {
+        label: "a non-image file",
+        items: [fileItem(new File([new Uint8Array(4)], "notes.pdf", { type: "application/pdf" }))],
+        files: [new File([new Uint8Array(4)], "notes.pdf", { type: "application/pdf" })]
+      },
+      {
+        label: "an unusable image item without a files fallback",
+        items: [fileItem(new File([new Uint8Array(4)], "missing.png", { type: "image/png" }), () => null)],
+        files: [] as File[]
+      }
+    ])("leaves native paste untouched for $label", async ({ items, files }) => {
+      const user = userEvent.setup();
+      const uploadAttachment = vi.fn();
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+          uploadAttachment={uploadAttachment}
+        />
+      );
+      const composer = screen.getByRole("textbox");
+      await user.type(composer, "keep draft");
+
+      const event = dispatchPaste(composer, { items, files });
+
+      expect(event.defaultPrevented).toBe(false);
+      expect(uploadAttachment).not.toHaveBeenCalled();
+      expect((composer as HTMLTextAreaElement).value).toBe("keep draft");
+      expect(screen.queryByRole("img")).not.toBeInTheDocument();
+    });
+
+    it("does not accept pasted attachments while the composer is busy sending", () => {
+      const image = new File([new Uint8Array(4)], "busy.png", { type: "image/png" });
+      const uploadAttachment = vi.fn();
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+          isSending
+          uploadAttachment={uploadAttachment}
+        />
+      );
+      const composer = screen.getByRole("textbox");
+
+      dispatchPaste(composer, { items: [fileItem(image)], files: [image] });
+
+      expect(uploadAttachment).not.toHaveBeenCalled();
+    });
+
+    it("keeps successful pasted images in order and reports each failed upload without aborting the batch", async () => {
+      const first = new File([new Uint8Array(4)], "first-ok.png", { type: "image/png" });
+      const failed = new File([new Uint8Array(4)], "failed.png", { type: "image/png" });
+      const last = new File([new Uint8Array(4)], "last-ok.png", { type: "image/png" });
+      const failure = new Error("upload rejected");
+      const uploadAttachment = vi.fn(async (file: File) => {
+        if (file === failed) throw failure;
+        return imageAttachment(file);
+      });
+      const onAttachmentUploadError = vi.fn();
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+          uploadAttachment={uploadAttachment}
+          onAttachmentUploadError={onAttachmentUploadError}
+        />
+      );
+      const composer = screen.getByRole("textbox");
+
+      dispatchPaste(composer, {
+        items: [fileItem(first), fileItem(failed), fileItem(last)],
+        files: [first, failed, last]
+      });
+
+      await waitFor(() => expect(uploadAttachment).toHaveBeenCalledTimes(3));
+      expect(uploadAttachment.mock.calls.map(([file]) => file.name)).toEqual([
+        "first-ok.png",
+        "failed.png",
+        "last-ok.png"
+      ]);
+      expect(onAttachmentUploadError).toHaveBeenCalledOnce();
+      expect(onAttachmentUploadError).toHaveBeenCalledWith(failure);
+      expect(screen.getAllByRole("img").map((img) => img.getAttribute("alt"))).toEqual([
+        "first-ok.png",
+        "last-ok.png"
+      ]);
+      expect(screen.queryByRole("img", { name: "failed.png" })).not.toBeInTheDocument();
+    });
+  });
+
   it("uploads dropped files and surfaces chips in the composer", async () => {
     const onSend = vi.fn();
     const uploaded: Attachment = {

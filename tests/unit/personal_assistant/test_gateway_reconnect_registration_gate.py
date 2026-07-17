@@ -41,7 +41,10 @@ def test_slow_on_connected_does_not_start_heartbeat_before_receive_loop(
     )
 
     async def _exercise() -> None:
-        task = asyncio.create_task(manager.connect_once())
+        await manager.connect_once()
+        # feat-464 makes register acceptance an explicit wire boundary, so the
+        # receive owner—not connect_once—consumes the ACK and runs convergence.
+        task = asyncio.create_task(manager._listen_once())  # noqa: SLF001
         await callback_started.wait()
         await asyncio.sleep(0.05)
         try:

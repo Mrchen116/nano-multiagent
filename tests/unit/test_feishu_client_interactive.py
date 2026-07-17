@@ -18,35 +18,14 @@ from personal_assistant.channels.feishu.client import (
 class TestFeishuClientInteractive:
     """Verify Feishu interactive card sending and callbacks."""
 
-    @patch("personal_assistant.channels.feishu.client.EventDispatcherHandler")
-    @patch("personal_assistant.channels.feishu.client.WSClient")
-    def test_start_registers_card_action_handler(
-        self, mock_ws_cls: MagicMock, mock_dispatcher: MagicMock
+    @patch("personal_assistant.channels.feishu.client.FeishuWorkerRuntime")
+    def test_start_forwards_card_action_handler_to_worker(
+        self, mock_worker_cls: MagicMock
     ) -> None:
-        mock_builder = MagicMock()
-        mock_builder.register_p2_im_message_receive_v1.return_value = mock_builder
-        mock_builder.register_p2_card_action_trigger.return_value = mock_builder
-        mock_builder.register_p2_im_message_reaction_created_v1.return_value = (
-            mock_builder
-        )
-        mock_builder.register_p2_im_message_reaction_deleted_v1.return_value = (
-            mock_builder
-        )
-        mock_builder.build.return_value = MagicMock()
-        mock_dispatcher.builder.return_value = mock_builder
-
+        on_card_action = MagicMock()
         client = FeishuClient(app_id="cli_abc", app_secret="secret")
-        client.start(MagicMock(), on_card_action=MagicMock())
-
-        mock_builder.register_p2_im_message_reaction_created_v1.assert_called_once_with(
-            client._ignore_reaction_event
-        )
-        mock_builder.register_p2_im_message_reaction_deleted_v1.assert_called_once_with(
-            client._ignore_reaction_event
-        )
-        mock_builder.register_p2_card_action_trigger.assert_called_once_with(
-            client._handle_card_action_event
-        )
+        client.start(MagicMock(), on_card_action=on_card_action)
+        assert mock_worker_cls.call_args.kwargs["on_card_action"] is on_card_action
 
     def test_send_interactive_message_calls_api_and_returns_message_id(self) -> None:
         mock_rest = MagicMock()

@@ -1,0 +1,25 @@
+{
+  "baseURL": "http://127.0.0.1:61561",
+  "viewport": "1440x1000",
+  "failureTextBeforeRetry": "channel manifest cache write failed (deterministic fixture) · This state remains after page reload",
+  "emptyVisibleBeforeRetry": false,
+  "retryStatus": 200,
+  "retryPath": "/im/v1/agents/default-agent/channel-removals/ch_3badda0d8543432cb10aa6904a3bdbe5/actions/retry",
+  "retryResponse": {
+    "resource_type": "removal",
+    "channel_id": "ch_3badda0d8543432cb10aa6904a3bdbe5",
+    "provider": "feishu",
+    "display_config": {
+      "app_id_suffix": "ntact"
+    },
+    "deletion_manifest_revision": 3,
+    "apply_state": "failed",
+    "apply_error": {
+      "code": "cache_commit_failed",
+      "message": "channel manifest cache write failed (deterministic fixture)"
+    },
+    "created_at": "2026-07-15T14:17:15.358156Z"
+  },
+  "emptyVisibleAfterRetry": true,
+  "removalCardVisibleAfterRetry": false
+}

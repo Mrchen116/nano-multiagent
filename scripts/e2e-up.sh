@@ -135,6 +135,10 @@ rm -f "$WT_ROOT/heartbeat-state.json"
 rm -f "$WT_ROOT/session_bindings.sqlite3"
 rm -f "$WT_ROOT/group_context_buffer.sqlite3"
 rm -f "$WT_ROOT/relay_dedup.sqlite3"
+# The copied config gets a fresh node id on every run, so its credential key and
+# encrypted manifest must be fresh as one isolation pair as well.
+rm -f "$WT_ROOT/channel-credentials-v1.pem"
+rm -f "$WT_ROOT/channel-manifest-v1.json"
 
 cd "$WT_ROOT"
 IM_JWT_SECRET="$JWT_SECRET" PYTHONPATH="$SRC_DIR" \

@@ -1,5 +1,6 @@
 """Account and device binding routes for IM HTTP APIs."""
 
+import asyncio
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -177,6 +178,17 @@ def bind_device(
         bind = service.confirm_bind(
             bind_id=payload.bind_id, bind_token=payload.bind_token, user_id=user.id
         )
+        event_loop = getattr(request.app.state, "event_loop", None)
+        gateway_handler = getattr(request.app.state, "gateway_handler", None)
+        if (
+            event_loop is not None
+            and not event_loop.is_closed()
+            and gateway_handler is not None
+        ):
+            asyncio.run_coroutine_threadsafe(
+                gateway_handler.initialize_channel_control(node_id=bind.node_id),
+                event_loop,
+            )
         return to_bind_response(bind, request=request)
     except ValueError as exc:
         detail = str(exc)
@@ -188,4 +200,6 @@ def bind_device(
             "bind_token not found",
         }:
             status_code = status.HTTP_404_NOT_FOUND
+        if detail == "node already bound to another owner":
+            status_code = status.HTTP_409_CONFLICT
         raise HTTPException(status_code=status_code, detail=detail) from exc

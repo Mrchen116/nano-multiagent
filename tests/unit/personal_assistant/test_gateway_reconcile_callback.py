@@ -115,7 +115,11 @@ def test_reconcile_callback_invoked_after_connect_once(tmp_path: Path) -> None:
         on_connected=_reconcile_callback,
     )
 
-    asyncio.run(manager.connect_once())
+    async def _connect_and_ack_register() -> None:
+        await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001 - exercise the wire ACK boundary
+
+    asyncio.run(_connect_and_ack_register())
 
     # connect_once 成功后对账回调被调用
     assert len(reconcile_calls) == 1
@@ -258,10 +262,12 @@ def test_reconcile_callback_invoked_on_each_connect_once_call(tmp_path: Path) ->
 
     async def _two_connects() -> None:
         await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001 - exercise the wire ACK boundary
         # 模拟断线后重连：强制重置连接状态，再调一次 connect_once
         manager._connected = False  # noqa: SLF001
         manager._websocket = None  # noqa: SLF001
         await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001 - exercise the wire ACK boundary
 
     asyncio.run(_two_connects())
 

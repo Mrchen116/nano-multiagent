@@ -77,6 +77,7 @@ def test_register_broadcasts_node_online_to_owner(tmp_path: Path) -> None:
             websocket=_StubGatewayWebSocket(),
             message_type="node.register",
             payload={"node_id": "node-1", "agents": [], "capabilities": {}},
+            authenticated_owner_id=owner.owner_id,
         )
     )
 
@@ -109,6 +110,7 @@ def test_register_with_agents_broadcasts_per_agent_status_online(
                 "agents": ["agent-a", "agent-b"],
                 "capabilities": {},
             },
+            authenticated_owner_id=owner.owner_id,
         )
     )
 
@@ -140,6 +142,7 @@ def test_heartbeat_with_same_status_does_not_rebroadcast(tmp_path: Path) -> None
             websocket=_StubGatewayWebSocket(),
             message_type="node.register",
             payload={"node_id": "node-1", "agents": [], "capabilities": {}},
+            authenticated_owner_id=owner.owner_id,
         )
     )
     frames_after_register = len(browser.frames)
@@ -171,6 +174,7 @@ def test_heartbeat_flip_to_degraded_broadcasts(tmp_path: Path) -> None:
             websocket=_StubGatewayWebSocket(),
             message_type="node.register",
             payload={"node_id": "node-1", "agents": [], "capabilities": {}},
+            authenticated_owner_id=owner.owner_id,
         )
     )
     browser.frames.clear()
@@ -205,6 +209,7 @@ def test_disconnect_broadcasts_node_and_agents_offline(tmp_path: Path) -> None:
             websocket=_StubGatewayWebSocket(),
             message_type="node.register",
             payload={"node_id": "node-1", "agents": ["agent-a"], "capabilities": {}},
+            authenticated_owner_id=owner.owner_id,
         )
     )
     browser.frames.clear()
@@ -237,6 +242,7 @@ def test_force_offline_removes_connection_before_persistence_failure(
             websocket=_StubGatewayWebSocket(),
             message_type="node.register",
             payload={"node_id": "node-1", "agents": [], "capabilities": {}},
+            authenticated_owner_id=owner.owner_id,
         )
     )
     connection.execute(
@@ -278,6 +284,7 @@ def test_cross_owner_isolation_no_leak(tmp_path: Path) -> None:
             websocket=_StubGatewayWebSocket(),
             message_type="node.register",
             payload={"node_id": "node-1", "agents": ["agent-a"], "capabilities": {}},
+            authenticated_owner_id=owner_a.owner_id,
         )
     )
 

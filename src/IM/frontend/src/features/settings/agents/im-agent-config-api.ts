@@ -170,6 +170,79 @@ export interface AgentDetailState {
   owningNode: AgentDetailNodeView | null;
 }
 
+export interface ChannelDiagnosticCheck {
+  check_id: string;
+  state: "satisfied" | "missing" | "unknown";
+  required: {
+    accepted_scope_sets: string[][];
+    recommended_scopes: string[];
+  };
+  effect: string;
+  remediation: string;
+}
+
+export interface ChannelObservedState {
+  observed_revision: number;
+  connection_state: string;
+  diagnostics_state?: string | null;
+  status_code?: string | null;
+  status_message?: string | null;
+  status_updated_at: string;
+  status_stale?: boolean;
+  checks?: ChannelDiagnosticCheck[];
+}
+
+export interface AgentChannel {
+  channel_id: string;
+  provider: string;
+  enabled: boolean;
+  config: Record<string, unknown>;
+  secret_configured: boolean;
+  channel_revision: number;
+  sync_state: string;
+  apply_error: { code: string; message: string } | null;
+  observed: ChannelObservedState | null;
+  updated_at: string;
+}
+
+export interface AgentChannelRemoval {
+  resource_type: "removal";
+  channel_id: string;
+  provider: string;
+  display_config: Record<string, unknown>;
+  deletion_manifest_revision: number;
+  apply_state: "pending" | "failed";
+  apply_error: { code: string; message: string } | null;
+  created_at: string;
+}
+
+export type AgentChannelResource = AgentChannel | AgentChannelRemoval;
+
+export function isAgentChannelRemoval(
+  resource: AgentChannelResource,
+): resource is AgentChannelRemoval {
+  return "resource_type" in resource && resource.resource_type === "removal";
+}
+
+export interface ChannelCredentialsInput {
+  mode: "keep" | "replace";
+  [credential: string]: string | undefined;
+}
+
+export interface CreateAgentChannelInput {
+  provider: string;
+  enabled: boolean;
+  config: Record<string, unknown>;
+  credentials: ChannelCredentialsInput;
+}
+
+export interface UpdateAgentChannelInput {
+  channel_revision: number;
+  enabled: boolean;
+  config: Record<string, unknown>;
+  credentials: ChannelCredentialsInput;
+}
+
 interface AgentCapabilitiesWire {
   agent_id?: string;
   node_id: string;
@@ -484,6 +557,62 @@ export async function updateAgentConfig(agentId: string, next: UpdateAgentConfig
     }),
   });
   return normalizeAgentConfigResponse(raw);
+}
+
+export async function listAgentChannels(agentId: string): Promise<AgentChannelResource[]> {
+  return requestJson<AgentChannelResource[]>(`/im/v1/agents/${encodeURIComponent(agentId)}/channels`);
+}
+
+export async function createAgentChannel(
+  agentId: string,
+  next: CreateAgentChannelInput,
+): Promise<AgentChannel> {
+  return requestJson<AgentChannel>(`/im/v1/agents/${encodeURIComponent(agentId)}/channels`, {
+    method: "POST",
+    body: JSON.stringify(next),
+  });
+}
+
+export async function updateAgentChannel(
+  agentId: string,
+  channelId: string,
+  next: UpdateAgentChannelInput,
+): Promise<AgentChannel> {
+  return requestJson<AgentChannel>(
+    `/im/v1/agents/${encodeURIComponent(agentId)}/channels/${encodeURIComponent(channelId)}`,
+    { method: "PATCH", body: JSON.stringify(next) },
+  );
+}
+
+export async function reconnectAgentChannel(
+  agentId: string,
+  channelId: string,
+): Promise<AgentChannel> {
+  return requestJson<AgentChannel>(
+    `/im/v1/agents/${encodeURIComponent(agentId)}/channels/${encodeURIComponent(channelId)}/actions/reconnect`,
+    { method: "POST" },
+  );
+}
+
+export async function deleteAgentChannel(
+  agentId: string,
+  channelId: string,
+  channelRevision: number,
+): Promise<AgentChannelRemoval> {
+  return requestJson<AgentChannelRemoval>(
+    `/im/v1/agents/${encodeURIComponent(agentId)}/channels/${encodeURIComponent(channelId)}?channel_revision=${channelRevision}`,
+    { method: "DELETE" },
+  );
+}
+
+export async function retryAgentChannelRemoval(
+  agentId: string,
+  channelId: string,
+): Promise<AgentChannelRemoval> {
+  return requestJson<AgentChannelRemoval>(
+    `/im/v1/agents/${encodeURIComponent(agentId)}/channel-removals/${encodeURIComponent(channelId)}/actions/retry`,
+    { method: "POST" },
+  );
 }
 
 // feat-379-M3: preview assembled system prompt for an agent with given feature flags and custom text.

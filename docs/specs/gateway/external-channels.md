@@ -1,13 +1,13 @@
 # gateway (personal_assistant) - External Channels Specification
 
-> 对齐: feat-447
+> 对齐: feat-447 + feat-464
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
 
 ## Purpose
 
-飞书和其他外部 channel 的消息收发、多 Bot、回复镜像、控制投递、群聊上下文、权限审批、内部 IM 同步、离线自治和隔离契约。
+飞书和其他外部 channel 的消息收发、IM 托管配置、多 Bot、回复镜像、控制投递、群聊上下文、权限审批、内部 IM 同步、离线自治和隔离契约。
 
 ## Requirements
 
@@ -226,3 +226,81 @@ Gateway 对内部 IM 的外部 channel 同步是 best-effort：IM 不可达不�
 - **WHEN** 用户在群里分别 @plato-bot 和 @luban-bot
 - **THEN** 内部 IM 中同时存在 `plato · 群名 · feishu` 和 `luban · 群名 · feishu` 两个独立 group 会话
 - **AND** 两个 agent 的上下文和回复互不混淆
+
+### Requirement: IM 托管的外部 channel 可热调和并离线自治
+
+用户经 IM 通道页保存的完整 desired manifest 是托管 external channel 的权威配置。Gateway 在 register
+成功后接收完整 manifest，由唯一 ChannelManager 幂等执行新增、替换、启停、重连和删除；不要求改本地
+`config.yaml` 或重启 Gateway。Gateway 只在内存中解封节点公钥 envelope，并把同一密文 manifest 原子缓存到
+本机；因此 IM 暂时不可达或 Gateway 重启时，已应用 channel 仍可启动和收发。内置 `web_relay` 不进入该
+managed manifest。旧 standalone YAML、历史 backup 或 legacy export 不属于本契约。
+
+#### Scenario: 在线保存后热连接且凭据不落普通配置
+- **GIVEN** 节点在线且 IM 下发一个有效飞书 desired item
+- **WHEN** Gateway 调和该 manifest
+- **THEN** ChannelManager 无需进程重启即启动 `feishu:<agent_id>` runtime，并上报 connecting 后的真实终态
+- **AND** App Secret 不写入 `config.yaml`、日志、状态 payload 或 HTTP 响应
+
+#### Scenario: 离线期间继续从密文 cache 启动
+- **GIVEN** 某 managed channel 已成功应用并写入节点绑定的密文 cache
+- **WHEN** Gateway 在 IM 不可达时重启
+- **THEN** Gateway 从 cache 启动该 channel，外部消息主路径保持可用
+- **AND** IM 恢复并下发更高 manifest 后，runtime 自动收敛到最新 desired state
+
+#### Scenario: disable/delete 真实停止且删除不清历史
+- **WHEN** manifest 停用或删除某 channel
+- **THEN** Gateway 先从出站 registry 摘除该 runtime，再有界停止 worker；失败回报可重试原因，不伪造 applied
+- **AND** 成功删除只清 runtime/cache identity，不删除 IM 影子会话或消息历史
+
+#### Scenario: 重复和失败后的同 revision manifest 可安全重放
+- **GIVEN** Gateway 已成功应用 manifest N，或上次应用 N 时发生可重试失败
+- **WHEN** IM 再次下发 N
+- **THEN** 已成功项不重复启动 listener，失败项继续重试未完成动作并回报真实 result
+- **AND** 旧于当前已见 revision 的 manifest 不覆盖较新 runtime
+
+#### Scenario: removal result 确认丢失后继续重放
+- **GIVEN** Gateway 已实际停止 channel，但 IM 对 removal outcome 的 ACK 丢失
+- **WHEN** Gateway 重连或继续处理更高 manifest
+- **THEN** 未确认 token 的 outcome 仍从密文 cache outbox 重放，不被新 revision 覆盖
+- **AND** IM 返回 accepted、already applied 或 applied-head 等价终态后才清除该 token
+
+#### Scenario: managed 更新保持稳定 channel 身份与 Agent 能力
+- **GIVEN** `feishu:<agent_id>` 已产生会话，且 Agent 使用显式非空 skill allowlist
+- **WHEN** 用户经 IM 新建或更新该飞书 channel
+- **THEN** 控制面 UUID 不改变 runtime channel name 或会话连续性，并幂等启用 `feishu-doc`
+- **AND** 停用/删除不自动移除用户已有 skill
+
+#### Scenario: 更换 App ID 后不继承旧应用身份
+- **GIVEN** channel 已记录旧 App 的 Bot/owner metadata
+- **WHEN** manifest 换为新 App ID
+- **THEN** 旧 runtime 停止，旧 metadata 与迟到 patch 被拒；新 App 重新 probe Bot 并由首个合法 owner 消息绑定 owner
+
+#### Scenario: 同节点多个 Bot 生命周期隔离
+- **GIVEN** 同一 Gateway 上不同 Agent 各有一个 managed 飞书 Bot
+- **WHEN** 其中一个 Bot 重连、停用、替换或失败
+- **THEN** 其他 Bot 的收发与 listener 生命周期不受影响
+
+### Requirement: 飞书权限诊断只依据可信租户授权并允许降级
+
+飞书 runtime 启动后执行 provider-owned probe。权限项只有在开放平台返回已授权且为 tenant identity 时才算
+满足；每项 capability 可接受 current 或明确列出的 legacy 等价 scope set。完整 probe 证明所有等价集合都不
+满足时才标 missing；网络/API/解析失败、grant 字段缺失或只有 user identity 时标 unknown。基础链路可用但
+权限不完整不停止 channel，而以上报的 structured checks 让 IM 显示 limited、raw scope、影响和修复方向。
+
+#### Scenario: tenant grant 满足 current 或 legacy 等价权限
+- **WHEN** scope probe 对某 capability 返回任一 accepted set，且所需 scope 均为 tenant granted
+- **THEN** 该 capability 标为 satisfied，不因另一个等价 scope 名缺失而误报 limited
+
+#### Scenario: 确定缺普通群消息权限时仍保留基础连接
+- **GIVEN** 私聊和 @Bot 基础链路可用，但完整 probe 证明普通群消息 accepted sets 均未授权
+- **WHEN** runtime 上报诊断
+- **THEN** connection 保持可用、diagnostics 标 limited，并指出群背景上下文不完整及应补的 scope
+
+#### Scenario: 权限 probe 失败时返回 unknown
+- **WHEN** 飞书权限接口失败、响应字段不足或只返回 user identity grant
+- **THEN** diagnostics 标 unknown 并建议重试，不生成确定的 missing scope 列表
+
+#### Scenario: 同一配置代次的状态保持因果顺序
+- **GIVEN** 某 channel 当前 runtime incarnation 已上报较新 status sequence
+- **WHEN** 旧 runtime、较小 sequence 或已被新 desired 淘汰的 cache barrier 迟到
+- **THEN** Gateway/IM 以 terminal stale/removed 结果释放上行 owner，不让旧状态覆盖当前状态或阻塞后续 manifest/result

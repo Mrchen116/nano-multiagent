@@ -30,7 +30,7 @@ import 内核内部(由 `tests/contract/` 把守)。
 | [Agent Capabilities](agent-capabilities.md) | 模型配置、tool_allowlist、context window、skills bootstrap | 6 |
 | [Heartbeat and Cron](heartbeat-cron.md) | per-agent heartbeat / cron 开关、调度、错过周期语义 | 1 |
 | [Relay Protocol](relay-protocol.md) | tool relay、skill usage RPC、附件透传、tool terminal events、图片、授权决策、cache/thinking、fork | 9 |
-| [External Channels](external-channels.md) | Feishu channel、多 Bot、trigger source、reply mirror、控制文本、群聊上下文、原生权限、shadow sync、offline autonomy、隔离 | 10 |
+| [External Channels](external-channels.md) | Feishu channel、IM 托管配置、多 Bot、trigger source、reply mirror、控制文本、群聊上下文、原生权限、shadow sync、offline autonomy、隔离 | 12 |
 
 ## Maintenance Rule
 

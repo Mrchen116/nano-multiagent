@@ -221,6 +221,127 @@
         "sessionsPlaceholder": "本期不设计会话页。保持空态，后续单独设计。"
       }
     },
+    "channels": {
+      "title": "外部通道",
+      "subtitle": "管理这个 Agent 在外部 IM 中的连接。配置与运行状态会分别保存。",
+      "loading": "正在加载通道…",
+      "loadError": "无法加载通道配置",
+      "empty": {
+        "title": "还没有外部通道",
+        "description": "添加一个通道，让用户可以从外部 IM 找到这个 Agent。当前支持飞书。"
+      },
+      "provider": { "added": "已添加" },
+      "feishu": {
+        "label": "飞书",
+        "description": "连接一个飞书应用机器人",
+        "guide": "在飞书开放平台创建应用、开启机器人能力并选择长连接接收事件。",
+        "openPlatform": "打开飞书开放平台"
+      },
+      "diagnostics": {
+        "limited": {
+          "title": "连接受限",
+          "detail": "基础消息链路可用，但部分能力因应用权限不完整而受限。"
+        },
+        "unknown": {
+          "title": "权限状态暂时无法确认",
+          "detail": "连接状态与权限检查相互独立；系统稍后会重新检查，不会把未知误报为缺失。"
+        },
+        "checkState": {
+          "missing": "权限缺失",
+          "unknown": "暂时无法确认",
+          "satisfied": "已满足"
+        },
+        "rawScopes": "飞书权限范围",
+        "effect": "影响",
+        "remediation": "修复方向",
+        "checkUnknown": "该项权限暂时无法确认",
+        "openPlatform": "前往开放平台检查",
+        "groupBackgroundEffect": "群背景上下文不完整：未 @ 机器人的消息不会进入 Agent 上下文。"
+      },
+      "dialog": {
+        "addTitle": "添加通道",
+        "editTitle": "编辑飞书通道",
+        "editTitleGeneric": "编辑{{provider}}通道",
+        "chooseProvider": "选择要连接的外部 IM 类型",
+        "credentialsSubtitle": "填写应用凭据并在线连接"
+      },
+      "credentials": {
+        "keep": "保留现有密钥",
+        "keepHelp": "本次不修改已保存的通道密钥",
+        "replace": "替换密钥",
+        "replaceHelp": "输入并保存新的通道密钥",
+        "secretHelp": "密钥将安全保存，之后不会再次明文显示。"
+      },
+      "validation": {
+        "appId": "请输入 App ID",
+        "appSecret": "请输入 App Secret"
+      },
+      "actions": {
+        "add": "添加通道",
+        "edit": "编辑",
+        "close": "关闭",
+        "cancel": "取消",
+        "saving": "保存中…",
+        "saveConnect": "保存并连接",
+        "reconnect": "重新连接",
+        "disable": "停用",
+        "enable": "重新启用",
+        "delete": "删除",
+        "nodeOffline": "节点离线",
+        "retryApply": "重新尝试应用"
+      },
+      "offline": {
+        "title": "节点当前离线",
+        "detail": "配置更改会安全保存，节点上线后自动应用。"
+      },
+      "confirm": {
+        "disableTitle": "停用飞书通道？",
+        "disableTitleGeneric": "停用{{provider}}通道？",
+        "disableBody": "节点应用后将停止新的消息收发，已保存凭据会保留。",
+        "disableAction": "确认停用",
+        "deleteTitle": "删除飞书通道？",
+        "deleteTitleGeneric": "删除{{provider}}通道？",
+        "deleteBody": "凭据会立即从 IM 删除；卡片会保留到节点确认停止，历史会话不会删除。",
+        "deleteAction": "确认删除"
+      },
+      "status": {
+        "connected": "已连接",
+        "connecting": "正在连接",
+        "pending": "等待节点应用",
+        "disabling": "正在停用",
+        "disabled": "已停用",
+        "reconnecting": "正在重新连接",
+        "offline": "节点离线",
+        "failed": "连接失败",
+        "synced": "运行状态已同步",
+        "applied": "当前配置已应用",
+        "savedSecurely": "配置与凭据已安全保存",
+        "connectingDetail": "正在建立飞书长连接",
+        "unknownFailure": "节点未能建立连接",
+        "updatedAt": "状态更新于 {{time}}",
+        "lastKnownUpdatedAt": "最后状态更新于 {{time}}",
+        "savedAt": "保存于 {{time}}",
+        "lastKnown": "最后已知状态",
+        "lastKnownDetail": "最后已知状态：{{status}}（节点离线，并非当前连接）",
+        "saved": "配置已保存",
+        "autoApply": "节点上线后自动应用",
+        "disableSaved": "停用配置已保存",
+        "disableWaiting": "等待节点停止后续消息收发",
+        "disabledApplied": "节点已应用停用状态",
+        "disabledDetail": "不再收发新消息",
+        "credentialsRetained": "凭据已保留",
+        "connectionInterrupted": "长连接暂时中断",
+        "autoRecover": "系统正在自动恢复，无需重新填写凭据",
+        "failureAction": "更新凭据或检查应用状态后重试",
+        "deletePending": "删除待应用",
+        "deleteFailed": "删除未完成",
+        "credentialsDeleted": "凭据已从 IM 删除",
+        "deleteSaved": "删除已保存，等待节点确认停止收发",
+        "deleteReload": "页面刷新后仍会保留此状态",
+        "retryWaitingForNode": "等待节点上线后继续删除",
+        "deleteUnknownFailure": "节点未能停止旧连接"
+      }
+    },
     "form": {
       "identity": {
         "title": "身份",
@@ -389,6 +510,13 @@
       "tokenWarnCritical": "⚠ 上下文即将满 — 考虑 /compact",
       "sendErrorTitle": "发送失败",
       "sendError": "消息发送失败,请重试。",
+      "sendErrorDismiss": "关闭发送错误",
+      "attachmentErrorTitle": "附件上传失败",
+      "attachmentUnsupportedType": "暂不支持这种图片格式。",
+      "attachmentTooLarge": "图片超过当前附件大小限制。",
+      "attachmentNetwork": "附件上传失败，请检查网络后重试。",
+      "attachmentUnknown": "附件上传失败，请重试。",
+      "attachmentErrorDismiss": "关闭附件错误",
       "copy": "复制",
       "copyError": "复制失败，请重试。",
       "fork": "fork",

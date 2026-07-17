@@ -22,8 +22,8 @@ from IM.infra.repositories import (
 from IM.ws.gateway_handler import GatewayHandler
 
 
-class _PostCommitBarrierPersistence(GatewayConversationPersistence):
-    """Expose a deterministic process-race boundary after the durable insert."""
+class _PreInsertBarrierPersistence(GatewayConversationPersistence):
+    """Make both handlers enter the durable first-write-wins race."""
 
     def __init__(self, *, db_path: Path, barrier: Barrier) -> None:
         self.connection = connect(db_path)
@@ -31,13 +31,12 @@ class _PostCommitBarrierPersistence(GatewayConversationPersistence):
         self._barrier = barrier
 
     def record_dispatch(self, record: AgentDispatchRecord) -> AgentDispatchRecord:
-        stored = super().record_dispatch(record)
         self._barrier.wait(timeout=5)
-        return stored
+        return super().record_dispatch(record)
 
 
 def _dispatch_once(*, db_path: Path, barrier: Barrier) -> dict[str, object]:
-    persistence = _PostCommitBarrierPersistence(db_path=db_path, barrier=barrier)
+    persistence = _PreInsertBarrierPersistence(db_path=db_path, barrier=barrier)
     handler = GatewayHandler(
         relay_service=RelayService(persistence.connection),
         conversation_persistence=persistence,

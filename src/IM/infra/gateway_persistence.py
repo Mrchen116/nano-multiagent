@@ -93,6 +93,11 @@ class GatewayNodePersistence:
         self._profiles = AgentProfileRepository(connection)
         self._users = UserRepository(connection)
 
+    def owner_for_node(self, *, node_id: str) -> str:
+        """Return the durable owner scope for a node, or an empty owner pre-bind."""
+        node = self._nodes.get_node(node_id=node_id)
+        return str(node.owner_id or "") if node is not None else ""
+
     def register(
         self,
         *,

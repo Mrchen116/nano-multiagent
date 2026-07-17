@@ -78,5 +78,7 @@ fi
 rm -f "$WT_ROOT/.e2e-ports.env"
 rm -f "$WT_ROOT/.e2e-jwt-secret"
 rm -f "$WT_ROOT/.gateway-config.yaml"
+rm -f "$WT_ROOT/channel-credentials-v1.pem"
+rm -f "$WT_ROOT/channel-manifest-v1.json"
 
 echo "e2e stack stopped (wt=$WT_ROOT)"

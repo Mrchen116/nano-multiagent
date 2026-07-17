@@ -1,0 +1,25 @@
+{
+  "baseURL": "http://127.0.0.1:61561",
+  "viewport": "1440x1000",
+  "initialState": "disabled",
+  "deleteStatus": 200,
+  "deletePath": "/im/v1/agents/default-agent/channels/ch_3badda0d8543432cb10aa6904a3bdbe5?channel_revision=1",
+  "deleteResponse": {
+    "resource_type": "removal",
+    "channel_id": "ch_3badda0d8543432cb10aa6904a3bdbe5",
+    "provider": "feishu",
+    "display_config": {
+      "app_id_suffix": "ntact"
+    },
+    "deletion_manifest_revision": 3,
+    "apply_state": "pending",
+    "apply_error": null,
+    "created_at": "2026-07-15T14:17:15.358156Z"
+  },
+  "failureText": "channel manifest cache write failed (deterministic fixture) · This state remains after page reload",
+  "retryVisible": true,
+  "emptyVisibleBeforeReload": false,
+  "reloadedFailureText": "channel manifest cache write failed (deterministic fixture) · This state remains after page reload",
+  "reloadedRetryVisible": true,
+  "emptyVisibleAfterReload": false
+}

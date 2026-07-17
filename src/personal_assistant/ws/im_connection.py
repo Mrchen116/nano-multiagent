@@ -11,7 +11,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Mapping, Protocol
+from typing import Any, Literal, Mapping, Protocol
 from urllib.parse import urlparse
 
 from personal_assistant._utils import _require_text
@@ -32,15 +32,28 @@ _PA_SHARED_SKILL_ROOTS: tuple[Path, ...] = (
 )
 
 
+class _RegistrationAckDeadlineExpired(TimeoutError):
+    """Signal that no downstream frame arrived before the registration deadline."""
+
+
 @dataclass(slots=True)
 class PendingFrame:
-    """Track one queued upstream frame plus its optional ack waiter."""
+    """Track one unsent upstream frame plus its optional ack waiter."""
 
     message_type: str
     payload: dict[str, object]
     ack_future: asyncio.Future[dict[str, object]] | None = field(
         default=None, repr=False
     )
+
+
+@dataclass(slots=True)
+class WireFrameOwner:
+    """Own the one control or business frame crossing or awaiting the wire."""
+
+    frame: PendingFrame
+    lane: Literal["control", "business"]
+    phase: Literal["sending", "awaiting_result"]
 
 
 class IMFrameRejectedError(RuntimeError):
@@ -134,6 +147,15 @@ SessionForkHandler = Callable[
     [Mapping[str, object]],
     Awaitable[Mapping[str, object]] | Mapping[str, object],
 ]
+ChannelManifestHandler = Callable[
+    [Mapping[str, object]],
+    Awaitable[Mapping[str, object]] | Mapping[str, object],
+]
+ChannelReconnectHandler = Callable[[str, int], Awaitable[object] | object]
+ChannelReconcileAckHandler = Callable[[Mapping[str, object]], Awaitable[None] | None]
+ChannelStatusResultHandler = Callable[[Mapping[str, object]], Awaitable[None] | None]
+ChannelBootstrapProvider = Callable[[Mapping[str, object]], list[Mapping[str, object]]]
+ChannelBootstrapAppliedHandler = Callable[[], None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -148,6 +170,8 @@ class IMConnectionConfig:
         heartbeat_interval_seconds: Delay between periodic node heartbeats while connected.
         heartbeat_ack_timeout_seconds: Maximum total wait to send one heartbeat and
             receive its IM acknowledgment.
+        registration_ack_timeout_seconds: Maximum total wait to send node
+            registration and receive its acknowledgment after transport connects.
     """
 
     url: str
@@ -156,6 +180,7 @@ class IMConnectionConfig:
     reconnect_max_seconds: float = 60.0
     heartbeat_interval_seconds: float = 30.0
     heartbeat_ack_timeout_seconds: float = 10.0
+    registration_ack_timeout_seconds: float = 10.0
 
     def normalized_heartbeat_interval_seconds(self) -> float | None:
         interval = self.heartbeat_interval_seconds
@@ -165,6 +190,12 @@ class IMConnectionConfig:
 
     def normalized_heartbeat_ack_timeout_seconds(self) -> float | None:
         timeout = self.heartbeat_ack_timeout_seconds
+        if timeout <= 0:
+            return None
+        return timeout
+
+    def normalized_registration_ack_timeout_seconds(self) -> float | None:
+        timeout = self.registration_ack_timeout_seconds
         if timeout <= 0:
             return None
         return timeout
@@ -221,6 +252,13 @@ class IMConnectionManager:
         token_getter: TokenGetter | None = None,
         permission_response_handler: PermissionResponseHandler | None = None,
         on_connected: Callable[[], Awaitable[None]] | None = None,
+        channel_manifest_handler: ChannelManifestHandler | None = None,
+        channel_reconnect_handler: ChannelReconnectHandler | None = None,
+        channel_reconcile_ack_handler: ChannelReconcileAckHandler | None = None,
+        channel_status_result_handler: ChannelStatusResultHandler | None = None,
+        channel_bootstrap_provider: ChannelBootstrapProvider | None = None,
+        channel_bootstrap_applied_handler: ChannelBootstrapAppliedHandler | None = None,
+        channel_reconcile_retry_delays: tuple[float, ...] = (0.5, 1.0, 2.0),
         connect: ConnectFn,
         sleep: SleepFn = asyncio.sleep,
     ) -> None:
@@ -246,6 +284,13 @@ class IMConnectionManager:
         # (node.register ack received). Used to trigger reconcile_all_agents so gateway
         # config converges to IM truth on connect and every reconnect.
         self._on_connected = on_connected
+        self._channel_manifest_handler = channel_manifest_handler
+        self._channel_reconnect_handler = channel_reconnect_handler
+        self._channel_reconcile_ack_handler = channel_reconcile_ack_handler
+        self._channel_status_result_handler = channel_status_result_handler
+        self._channel_bootstrap_provider = channel_bootstrap_provider
+        self._channel_bootstrap_applied_handler = channel_bootstrap_applied_handler
+        self._channel_reconcile_retry_delays = channel_reconcile_retry_delays
         self._connect = connect
         self._sleep = sleep
         self._websocket: ClientWebSocket | None = None
@@ -253,12 +298,15 @@ class IMConnectionManager:
         self._stop_requested = False
         self._reconnect_delay = config.reconnect_initial_seconds
         self._events: list[dict[str, object]] = []
+        self._pending_control_frames: deque[PendingFrame] = deque()
         self._pending_frames: deque[PendingFrame] = deque()
-        self._awaiting_ack_type: str | None = None
+        self._wire_frame_owner: WireFrameOwner | None = None
+        self._registered = False
+        self._registration_deadline: float | None = None
         self._outbound_drained: asyncio.Event | None = None
         self._flush_lock = asyncio.Lock()
         self._heartbeat_task: asyncio.Task[None] | None = None
-        self._heartbeat_ack_future: asyncio.Future[None] | None = None
+        self._heartbeat_ack_future: asyncio.Future[dict[str, object]] | None = None
         self._stop_event: asyncio.Event | None = None
         # bugfix-446-M1 (decision 3 guard): set after the first connect attempt resolves
         # (success OR failure). Heartbeat startup waits on this so the first tick never
@@ -267,12 +315,23 @@ class IMConnectionManager:
         # silently drops while not connected).  Lazily created so it binds to the loop
         # that actually runs run_forever.
         self._first_connect_resolved: asyncio.Event | None = None
+        self._event_loop: asyncio.AbstractEventLoop | None = None
+        self._latest_channel_manifest_revision = 0
+        self._channel_manifest_retry_task: asyncio.Task[None] | None = None
 
     @property
     def connected(self) -> bool:
         """Report whether the IM websocket is currently connected."""
 
         return self._connected
+
+    @property
+    def _awaiting_ack_type(self) -> str | None:
+        """Expose the derived wire response owner for focused protocol tests."""
+        owner = self._wire_frame_owner
+        if owner is None or owner.phase != "awaiting_result":
+            return None
+        return owner.frame.message_type
 
     def event_log(self) -> tuple[dict[str, object], ...]:
         """Return an immutable snapshot of connection lifecycle events."""
@@ -287,6 +346,7 @@ class IMConnectionManager:
         that was loaded at startup.
         """
 
+        self._event_loop = asyncio.get_running_loop()
         headers = {"User-Agent": "nano-multiagent-gateway"}
         # Resolve token: prefer token_getter (dynamic refresh path) over static config.token.
         if self._token_getter is not None:
@@ -298,22 +358,40 @@ class IMConnectionManager:
         websocket = await self._connect(self._config.websocket_url(), headers)
         self._websocket = websocket
         self._connected = True
-        self._reconnect_delay = self._config.reconnect_initial_seconds
+        registration_timeout = (
+            self._config.normalized_registration_ack_timeout_seconds()
+        )
+        self._registration_deadline = (
+            self._event_loop.time() + registration_timeout
+            if registration_timeout is not None
+            else None
+        )
         self._events.append({"event": "connected", "url": self._config.websocket_url()})
         try:
-            await self._send_frame("node.register", self._reporter.send_register())
-            await self._flush_pending_frames(raise_on_disconnect=True)
+            self._outbound_drained_event().clear()
+            self._pending_control_frames.append(
+                PendingFrame(
+                    message_type="node.register",
+                    payload=dict(self._reporter.send_register()),
+                )
+            )
+            if registration_timeout is None:
+                await self._flush_pending_frames(raise_on_disconnect=True)
+            else:
+                try:
+                    async with asyncio.timeout(registration_timeout):
+                        await self._flush_pending_frames(
+                            raise_on_disconnect=True,
+                            disconnect_on_cancel=False,
+                        )
+                except TimeoutError as exc:
+                    raise TimeoutError(
+                        "IM node.register send timed out after "
+                        f"{registration_timeout:.2f}s"
+                    ) from exc
         except Exception as exc:  # noqa: BLE001
             await self._disconnect_current_websocket(exc)
             raise
-        # feat-394-M12 决策 F: fire on_connected after WS bind succeeds so reconcile
-        # runs on every connect and reconnect. Errors in the callback are logged and
-        # suppressed — a reconcile failure must not tear down the WS connection.
-        if self._on_connected is not None:
-            try:
-                await self._on_connected()
-            except Exception as exc:  # noqa: BLE001
-                self._events.append({"event": "on_connected_error", "error": str(exc)})
 
     async def close(self) -> None:
         """Stop reconnect attempts and close the current websocket if present."""
@@ -323,15 +401,24 @@ class IMConnectionManager:
         if stop_event is not None:
             stop_event.set()
         heartbeat_task = self._heartbeat_task
+        retry_task = self._channel_manifest_retry_task
+        self._channel_manifest_retry_task = None
+        if retry_task is not None:
+            retry_task.cancel()
         self._stop_heartbeat_loop()
         websocket = self._websocket
         self._websocket = None
         self._connected = False
+        self._registered = False
+        self._registration_deadline = None
         if websocket is not None:
             await websocket.close()
         if heartbeat_task is not None and heartbeat_task is not asyncio.current_task():
             with contextlib.suppress(asyncio.CancelledError):
                 await heartbeat_task
+        if retry_task is not None and retry_task is not asyncio.current_task():
+            with contextlib.suppress(asyncio.CancelledError):
+                await retry_task
         self._events.append({"event": "closed"})
 
     async def drain(self, deadline: float) -> None:
@@ -345,13 +432,16 @@ class IMConnectionManager:
         """
 
         drained = self._outbound_drained_event()
-        if not self._pending_frames and self._awaiting_ack_type is None:
-            drained.set()
+        self._mark_outbound_drained_if_idle()
         try:
             async with asyncio.timeout_at(deadline):
                 await drained.wait()
         except TimeoutError:
-            queued = [frame.message_type for frame in self._pending_frames]
+            owner = self._wire_frame_owner
+            queued = [frame.message_type for frame in self._pending_control_frames]
+            if owner is not None:
+                queued.append(owner.frame.message_type)
+            queued.extend(frame.message_type for frame in self._pending_frames)
             raise TimeoutError(
                 f"IM outbound frames exceeded shutdown deadline: {queued}"
             ) from None
@@ -359,11 +449,32 @@ class IMConnectionManager:
     async def send_json(self, message_type: str, payload: Mapping[str, object]) -> None:
         """Queue one gateway -> IM protocol frame and flush it when the socket is available."""
 
-        self._outbound_drained_event().clear()
-        self._pending_frames.append(
+        self._queue_pending_frame(
             PendingFrame(message_type=message_type, payload=dict(payload))
         )
         await self._flush_pending_frames()
+
+    def send_json_threadsafe(
+        self, message_type: str, payload: Mapping[str, object]
+    ) -> bool:
+        """Queue one worker-thread status/metadata frame on the bound Gateway loop."""
+        loop = self._event_loop
+        if loop is None or loop.is_closed() or not loop.is_running():
+            return False
+        asyncio.run_coroutine_threadsafe(self.send_json(message_type, payload), loop)
+        return True
+
+    def has_pending_request(self, request_id: str) -> bool:
+        """Return whether one correlated request is already queued or in flight."""
+        owner = self._wire_frame_owner
+        return (
+            owner is not None
+            and owner.lane == "business"
+            and owner.frame.payload.get("request_id") == request_id
+        ) or any(
+            frame.payload.get("request_id") == request_id
+            for frame in self._pending_frames
+        )
 
     async def send_json_await_ack(
         self, message_type: str, payload: Mapping[str, object]
@@ -372,14 +483,66 @@ class IMConnectionManager:
 
         loop = asyncio.get_running_loop()
         ack_future: asyncio.Future[dict[str, object]] = loop.create_future()
-        self._outbound_drained_event().clear()
-        self._pending_frames.append(
+        self._queue_pending_frame(
             PendingFrame(
                 message_type=message_type, payload=dict(payload), ack_future=ack_future
             )
         )
         await self._flush_pending_frames()
         return await ack_future
+
+    def _queue_pending_frame(self, pending: PendingFrame) -> None:
+        """Append a frame, coalescing only statuses still owned by the pending queue.
+
+        The wire owner is transferred out of this queue before ``websocket.send`` may
+        yield.  Coalescing therefore cannot delete a frame whose send has begun.
+        """
+        self._outbound_drained_event().clear()
+        if pending.message_type != "channel.status":
+            self._pending_frames.append(pending)
+            return
+        channel_id = pending.payload.get("channel_id")
+        incarnation = pending.payload.get("runtime_incarnation")
+        if not isinstance(channel_id, str) or not isinstance(incarnation, str):
+            self._pending_frames.append(pending)
+            return
+
+        status_sequence = pending.payload.get("status_sequence")
+        retained: deque[PendingFrame] = deque()
+        for queued in self._pending_frames:
+            same_channel = (
+                queued.message_type == "channel.status"
+                and queued.payload.get("channel_id") == channel_id
+            )
+            if not same_channel or queued.ack_future is not None:
+                retained.append(queued)
+                continue
+            queued_incarnation = queued.payload.get("runtime_incarnation")
+            queued_sequence = queued.payload.get("status_sequence")
+            keep_barrier = (
+                queued_incarnation == incarnation
+                and queued_sequence == 1
+                and isinstance(status_sequence, int)
+                and status_sequence > 1
+            )
+            if keep_barrier:
+                retained.append(queued)
+        retained.append(pending)
+        self._pending_frames = retained
+
+    def _is_status_superseded_by_pending(self, frame: PendingFrame) -> bool:
+        if frame.message_type != "channel.status":
+            return False
+        channel_id = frame.payload.get("channel_id")
+        incarnation = frame.payload.get("runtime_incarnation")
+        if not isinstance(channel_id, str) or not isinstance(incarnation, str):
+            return False
+        return any(
+            pending.message_type == "channel.status"
+            and pending.payload.get("channel_id") == channel_id
+            and pending.payload.get("runtime_incarnation") != incarnation
+            for pending in self._pending_frames
+        )
 
     async def send_agent_message(self, payload: Mapping[str, object]) -> IMDispatchAck:
         """Send one agent.message frame and return the parsed IM dispatch ack."""
@@ -399,6 +562,14 @@ class IMConnectionManager:
             event = asyncio.Event()
             self._outbound_drained = event
         return event
+
+    def _mark_outbound_drained_if_idle(self) -> None:
+        if (
+            self._wire_frame_owner is None
+            and not self._pending_control_frames
+            and not self._pending_frames
+        ):
+            self._outbound_drained_event().set()
 
     def _stop_wait_event(self) -> asyncio.Event:
         if self._stop_event is None:
@@ -447,7 +618,17 @@ class IMConnectionManager:
                 if not self._connected:
                     await self.connect_once()
                     first_attempt.set()
-                await self._listen_once()
+                if not self._registered:
+                    await self._await_registration()
+                else:
+                    await self._listen_once()
+                if not self._connected:
+                    # Control-frame rejection closes the socket inside the frame
+                    # handler. Treat that normal return as a connection failure so
+                    # it shares the same bounded backoff as recv/connect failures.
+                    raise ConnectionError(
+                        "IM websocket disconnected while handling a control frame"
+                    )
             except asyncio.CancelledError:
                 first_attempt.set()
                 await self._disconnect_current_websocket()
@@ -465,6 +646,28 @@ class IMConnectionManager:
             finally:
                 first_attempt.set()
 
+    async def _await_registration(self) -> None:
+        """Process downstream frames until IM accepts this websocket identity."""
+        timeout = self._config.normalized_registration_ack_timeout_seconds()
+        if timeout is None:
+            while self._connected and not self._registered:
+                await self._listen_once()
+            return
+
+        deadline = self._registration_deadline
+        if deadline is None:
+            deadline = asyncio.get_running_loop().time() + timeout
+        try:
+            while self._connected and not self._registered:
+                remaining = deadline - asyncio.get_running_loop().time()
+                if remaining <= 0:
+                    raise _RegistrationAckDeadlineExpired
+                await self._listen_once(receive_timeout_seconds=remaining)
+        except _RegistrationAckDeadlineExpired as exc:
+            raise TimeoutError(
+                f"IM node.register ack timed out after {timeout:.2f}s"
+            ) from exc
+
     async def _sleep_until_stop(self, delay: float) -> bool:
         if self._stop_requested:
             return True
@@ -481,13 +684,103 @@ class IMConnectionManager:
             await sleep_task
         return self._stop_requested or stop_task in done
 
-    async def _listen_once(self) -> None:
-        # Heartbeat needs the receive path to be active so its ack can be consumed.
-        # Starting it in connect_once races a slow on_connected reconcile against a
-        # buffered ack and falsely tears down a healthy socket.
-        self._start_heartbeat_loop()
+    async def _apply_channel_manifest_and_send(
+        self,
+        *,
+        body: Mapping[str, object],
+        request_id: str,
+        supersede_retry: bool = True,
+    ) -> dict[str, object]:
+        handler = self._channel_manifest_handler
+        if handler is None:
+            raise RuntimeError("channel.reconcile requires channel_manifest_handler")
+        revision = int(body.get("manifest_revision") or 0)
+        if supersede_retry and revision >= self._latest_channel_manifest_revision:
+            self._latest_channel_manifest_revision = revision
+            retry_task = self._channel_manifest_retry_task
+            if retry_task is not None and retry_task is not asyncio.current_task():
+                retry_task.cancel()
+            self._channel_manifest_retry_task = None
+        result = await _maybe_await(handler(body))
+        result_payload = dict(result) if isinstance(result, Mapping) else {}
+        await self.send_json(
+            "channel.reconcile.result",
+            {
+                "request_id": request_id,
+                "node_id": self._reporter.node_id,
+                "manifest_revision": revision,
+                **result_payload,
+            },
+        )
+        return result_payload
+
+    def _schedule_channel_manifest_retry(
+        self,
+        *,
+        body: Mapping[str, object],
+        request_id: str,
+        result_payload: Mapping[str, object],
+    ) -> None:
+        if result_payload.get("outcome") != "retryable_failed":
+            return
+        revision = int(body.get("manifest_revision") or 0)
+        if revision != self._latest_channel_manifest_revision:
+            return
+        task = asyncio.create_task(
+            self._retry_channel_manifest(
+                body=dict(body),
+                request_id=request_id,
+                manifest_revision=revision,
+            ),
+            name=f"channel-manifest-retry:{revision}",
+        )
+        self._channel_manifest_retry_task = task
+        task.add_done_callback(self._channel_manifest_retry_done)
+
+    async def _retry_channel_manifest(
+        self,
+        *,
+        body: Mapping[str, object],
+        request_id: str,
+        manifest_revision: int,
+    ) -> None:
+        for attempt, delay in enumerate(self._channel_reconcile_retry_delays, start=1):
+            await self._sleep(delay)
+            if (
+                self._stop_requested
+                or manifest_revision != self._latest_channel_manifest_revision
+            ):
+                return
+            result = await self._apply_channel_manifest_and_send(
+                body=body,
+                request_id=f"{request_id}:retry:{attempt}",
+                supersede_retry=False,
+            )
+            if result.get("outcome") != "retryable_failed":
+                return
+
+    def _channel_manifest_retry_done(self, task: asyncio.Task[None]) -> None:
+        if self._channel_manifest_retry_task is task:
+            self._channel_manifest_retry_task = None
+        try:
+            task.result()
+        except asyncio.CancelledError:
+            return
+        except Exception:  # noqa: BLE001
+            _log.warning("channel manifest retry failed", exc_info=True)
+
+    async def _listen_once(
+        self, *, receive_timeout_seconds: float | None = None
+    ) -> None:
         websocket = self._require_websocket()
-        raw = await websocket.recv()
+        if receive_timeout_seconds is None:
+            raw = await websocket.recv()
+        else:
+            try:
+                async with asyncio.timeout(receive_timeout_seconds):
+                    raw = await websocket.recv()
+            except TimeoutError as exc:
+                raise _RegistrationAckDeadlineExpired from exc
         payload = _decode_message(raw)
         message_type = _require_text(payload.get("type"), field_name="type")
         body = payload.get("payload")
@@ -497,8 +790,16 @@ class IMConnectionManager:
             raise ValueError("payload must be an object")
         self._events.append({"event": "frame", "type": message_type})
         if message_type == "ack":
-            self._ack_pending_frame(body)
-            self._ack_heartbeat_frame(body)
+            released = self._ack_pending_frame(body)
+            if released is not None and released.message_type == "node.register":
+                self._registered = True
+                self._registration_deadline = None
+                self._reconnect_delay = self._config.reconnect_initial_seconds
+                await self._notify_registered()
+                # on_connected runs inside the receive owner after register ACK.
+                # Starting heartbeat earlier would send an ACK-gated control frame
+                # while this callback prevents the receive owner from consuming it.
+                self._start_heartbeat_loop()
             await self._flush_pending_frames()
             return
         if message_type == "relay.message":
@@ -507,6 +808,99 @@ class IMConnectionManager:
         if message_type == "config.sync":
             if self._sync_client is not None:
                 self._sync_client.handle_notification(body)
+            return
+        if message_type == "channel.reconcile":
+            if self._channel_manifest_handler is None:
+                raise RuntimeError(
+                    "channel.reconcile requires channel_manifest_handler"
+                )
+            request_id = _require_text(body.get("request_id"), field_name="request_id")
+            result_payload = await self._apply_channel_manifest_and_send(
+                body=body, request_id=request_id
+            )
+            self._schedule_channel_manifest_retry(
+                body=body,
+                request_id=request_id,
+                result_payload=result_payload,
+            )
+            return
+        if message_type == "channels.bootstrap.request":
+            if self._channel_bootstrap_provider is None:
+                raise RuntimeError(
+                    "channels.bootstrap.request requires channel_bootstrap_provider"
+                )
+            request_id = _require_text(body.get("request_id"), field_name="request_id")
+            await self.send_json(
+                "channels.bootstrap",
+                {
+                    "request_id": request_id,
+                    "node_id": self._reporter.node_id,
+                    "items": [
+                        dict(item) for item in self._channel_bootstrap_provider(body)
+                    ],
+                },
+            )
+            return
+        if message_type == "channels.bootstrap.result":
+            self._resolve_correlated_channel_result(
+                message_type=message_type, payload=body
+            )
+            manifest = body.get("manifest")
+            if not isinstance(manifest, Mapping):
+                raise ValueError("channels.bootstrap.result manifest is required")
+            if self._channel_manifest_handler is None:
+                raise RuntimeError(
+                    "channels.bootstrap.result requires channel_manifest_handler"
+                )
+            result = await _maybe_await(self._channel_manifest_handler(manifest))
+            result_payload = dict(result) if isinstance(result, Mapping) else {}
+            await self.send_json(
+                "channel.reconcile.result",
+                {
+                    "request_id": _require_text(
+                        manifest.get("request_id"), field_name="request_id"
+                    ),
+                    "node_id": self._reporter.node_id,
+                    "manifest_revision": int(manifest.get("manifest_revision") or 0),
+                    **result_payload,
+                },
+            )
+            if (
+                result_payload.get("outcome") == "applied"
+                and self._channel_bootstrap_applied_handler is not None
+            ):
+                self._channel_bootstrap_applied_handler()
+            return
+        if message_type == "channel.reconnect":
+            if self._channel_reconnect_handler is None:
+                raise RuntimeError(
+                    "channel.reconnect requires channel_reconnect_handler"
+                )
+            channel_id = _require_text(body.get("channel_id"), field_name="channel_id")
+            revision = int(body.get("channel_revision") or 0)
+            await _maybe_await(self._channel_reconnect_handler(channel_id, revision))
+            return
+        if message_type in {
+            "channel.status.result",
+            "channel.runtime_metadata.result",
+            "channels.reconcile.result.ack",
+        }:
+            resolved = self._resolve_correlated_channel_result(
+                message_type=message_type, payload=body
+            )
+            if (
+                resolved
+                and message_type == "channel.status.result"
+                and self._channel_status_result_handler is not None
+            ):
+                await _maybe_await(self._channel_status_result_handler(body))
+            if (
+                message_type == "channels.reconcile.result.ack"
+                and self._channel_reconcile_ack_handler is not None
+            ):
+                await _maybe_await(self._channel_reconcile_ack_handler(body))
+            if self._connected:
+                await self._flush_pending_frames()
             return
         if message_type == "heartbeat.trigger":
             if self._heartbeat_trigger is not None:
@@ -878,36 +1272,78 @@ class IMConnectionManager:
                     "type": "error",
                     "code": error_code,
                     "message": error_message,
+                    "rejected_type": rejected_type,
                     "message_type": rejected_type,
                 }
             )
-            if rejected_type is not None:
+            if rejected_type in {"node.register", "node.heartbeat"}:
+                await self._disconnect_current_websocket(
+                    RuntimeError(
+                        f"{error_code or 'protocol_error'}: "
+                        f"{error_message or 'control frame rejected'} "
+                        f"({rejected_type})"
+                    )
+                )
+            elif rejected_type is not None:
                 await self._flush_pending_frames()
             return
         raise ValueError(f"unsupported downstream message type: {message_type}")
 
-    async def _flush_pending_frames(self, *, raise_on_disconnect: bool = False) -> None:
+    async def _flush_pending_frames(
+        self,
+        *,
+        raise_on_disconnect: bool = False,
+        disconnect_on_cancel: bool = True,
+    ) -> None:
         async with self._flush_lock:
-            if self._awaiting_ack_type is not None or not self._pending_frames:
+            if self._wire_frame_owner is not None or not self._connected:
                 return
-            pending_frame = self._pending_frames[0]
+            lane: Literal["control", "business"]
+            if self._pending_control_frames:
+                pending_frame = self._pending_control_frames.popleft()
+                lane = "control"
+            elif self._registered and self._pending_frames:
+                pending_frame = self._pending_frames.popleft()
+                lane = "business"
+            else:
+                return
+            owner = WireFrameOwner(
+                frame=pending_frame,
+                lane=lane,
+                phase="sending",
+            )
+            self._wire_frame_owner = owner
             try:
                 await self._send_frame(
                     pending_frame.message_type, pending_frame.payload
                 )
+            except asyncio.CancelledError:
+                if disconnect_on_cancel:
+                    await self._disconnect_current_websocket(
+                        RuntimeError(f"{pending_frame.message_type} send was cancelled")
+                    )
+                raise
             except Exception as exc:  # noqa: BLE001
                 await self._disconnect_current_websocket(exc)
                 if raise_on_disconnect:
                     raise
                 return
-            self._awaiting_ack_type = pending_frame.message_type
+            if self._wire_frame_owner is owner:
+                owner.phase = "awaiting_result"
+            elif self._wire_frame_owner is not None:
+                raise RuntimeError("frame wire ownership changed during send")
 
     async def _send_frame(
         self, message_type: str, payload: Mapping[str, object]
     ) -> None:
         websocket = self._require_websocket()
+        wire_payload = dict(payload)
+        # Every Gateway business frame is node-scoped at the IM dispatcher.  The
+        # registered local reporter is the authority; individual producers must not
+        # be able to omit or select a different node identity.
+        wire_payload["node_id"] = self._reporter.node_id
         frame = json.dumps(
-            {"type": message_type, "payload": dict(payload)}, ensure_ascii=False
+            {"type": message_type, "payload": wire_payload}, ensure_ascii=False
         )
         await websocket.send(frame)
         self._events.append({"event": "sent", "type": message_type})
@@ -927,39 +1363,75 @@ class IMConnectionManager:
             with contextlib.suppress(asyncio.CancelledError):
                 await heartbeat_task
 
-    def _ack_pending_frame(self, payload: Mapping[str, object]) -> None:
-        awaiting = self._awaiting_ack_type
-        if awaiting is None:
-            return
+    def _ack_pending_frame(self, payload: Mapping[str, object]) -> PendingFrame | None:
+        owner = self._wire_frame_owner
+        if owner is None:
+            return None
+        awaiting = owner.frame.message_type
         ack_type = payload.get("message_type")
         if not isinstance(ack_type, str) or ack_type.strip() != awaiting:
-            return
-        pending_frame = self._pending_frames.popleft()
-        self._awaiting_ack_type = None
+            return None
+        pending_frame = owner.frame
+        self._wire_frame_owner = None
         if pending_frame.ack_future is not None and not pending_frame.ack_future.done():
             pending_frame.ack_future.set_result(dict(payload))
         self._events.append({"event": "acked", "type": awaiting})
-        if not self._pending_frames:
-            self._outbound_drained_event().set()
+        self._mark_outbound_drained_if_idle()
+        return pending_frame
+
+    def _resolve_correlated_channel_result(
+        self, *, message_type: str, payload: Mapping[str, object]
+    ) -> bool:
+        source_type = {
+            "channel.status.result": "channel.status",
+            "channel.runtime_metadata.result": "channel.runtime_metadata",
+            "channels.reconcile.result.ack": "channel.reconcile.result",
+            "channels.bootstrap.result": "channels.bootstrap",
+        }[message_type]
+        owner = self._wire_frame_owner
+        if (
+            owner is None
+            or owner.lane != "business"
+            or owner.frame.message_type != source_type
+        ):
+            return False
+        pending = owner.frame
+        request_id = payload.get("request_id")
+        if not isinstance(request_id, str) or request_id != pending.payload.get(
+            "request_id"
+        ):
+            return False
+        self._wire_frame_owner = None
+        if pending.ack_future is not None and not pending.ack_future.done():
+            pending.ack_future.set_result(dict(payload))
+        self._events.append(
+            {
+                "event": "channel_result",
+                "type": source_type,
+                "outcome": payload.get("outcome") or payload.get("head_outcome"),
+            }
+        )
+        self._mark_outbound_drained_if_idle()
+        return True
 
     def _reject_pending_frame(self, payload: Mapping[str, object]) -> str | None:
-        """Finish the serialized pending frame explicitly rejected by IM."""
+        """Terminally reject the single in-flight frame selected by wire FIFO.
 
-        awaiting = self._awaiting_ack_type
-        rejected_type = payload.get("message_type")
-        if (
-            awaiting is None
-            or not isinstance(rejected_type, str)
-            or rejected_type.strip() != awaiting
-            or not self._pending_frames
-        ):
+        IM serializes one response per upstream frame, while this client sends only
+        one unacknowledged queued frame at a time.  A generic protocol error therefore
+        belongs to the current head even when an older server omits request metadata.
+        Releasing it here preserves the connection and lets unrelated work continue.
+        """
+        owner = self._wire_frame_owner
+        if owner is None:
             return None
-        pending_frame = self._pending_frames.popleft()
-        self._awaiting_ack_type = None
-        code = str(payload.get("code") or "rejected")
-        message = str(payload.get("message") or "IM rejected the frame")
-        if pending_frame.ack_future is not None and not pending_frame.ack_future.done():
-            pending_frame.ack_future.set_exception(
+        pending = owner.frame
+        awaiting = pending.message_type
+        self._wire_frame_owner = None
+        code = str(payload.get("code") or "protocol_error")
+        message = str(payload.get("message") or "upstream frame rejected")
+        if pending.ack_future is not None and not pending.ack_future.done():
+            pending.ack_future.set_exception(
                 IMFrameRejectedError(
                     f"IM rejected {awaiting} frame ({code}): {message}"
                 )
@@ -972,18 +1444,8 @@ class IMConnectionManager:
                 "message": message,
             }
         )
-        if not self._pending_frames:
-            self._outbound_drained_event().set()
+        self._mark_outbound_drained_if_idle()
         return awaiting
-
-    def _ack_heartbeat_frame(self, payload: Mapping[str, object]) -> None:
-        ack_type = payload.get("message_type")
-        if not isinstance(ack_type, str) or ack_type.strip() != "node.heartbeat":
-            return
-        future = self._heartbeat_ack_future
-        if future is not None and not future.done():
-            future.set_result(None)
-        self._events.append({"event": "heartbeat_acked"})
 
     def _start_heartbeat_loop(self) -> None:
         interval = self._config.normalized_heartbeat_interval_seconds()
@@ -995,6 +1457,15 @@ class IMConnectionManager:
         self._heartbeat_task = asyncio.create_task(
             self._heartbeat_loop(interval), name="personal-assistant-im-heartbeat"
         )
+
+    async def _notify_registered(self) -> None:
+        """Run post-register convergence only after IM confirms the node identity."""
+        if self._on_connected is None:
+            return
+        try:
+            await self._on_connected()
+        except Exception as exc:  # noqa: BLE001
+            self._events.append({"event": "on_connected_error", "error": str(exc)})
 
     def _stop_heartbeat_loop(self) -> None:
         task = self._heartbeat_task
@@ -1018,27 +1489,37 @@ class IMConnectionManager:
 
     async def _send_heartbeat_and_wait_ack(self) -> None:
         loop = asyncio.get_running_loop()
-        ack_future = loop.create_future()
+        ack_future: asyncio.Future[dict[str, object]] = loop.create_future()
         self._heartbeat_ack_future = ack_future
         timeout = self._config.normalized_heartbeat_ack_timeout_seconds()
-        heartbeat_sent = False
+        heartbeat = PendingFrame(
+            message_type="node.heartbeat",
+            payload=dict(self._reporter.send_heartbeat(status="online")),
+            ack_future=ack_future,
+        )
+        self._outbound_drained_event().clear()
+        self._pending_control_frames.append(heartbeat)
         try:
             if timeout is None:
-                await self._send_frame(
-                    "node.heartbeat",
-                    self._reporter.send_heartbeat(status="online"),
-                )
+                await self._flush_pending_frames()
+                await asyncio.shield(ack_future)
                 return
             try:
                 async with asyncio.timeout(timeout):
-                    await self._send_frame(
-                        "node.heartbeat",
-                        self._reporter.send_heartbeat(status="online"),
-                    )
-                    heartbeat_sent = True
+                    # The timeout owner must report a precise send-vs-ack liveness
+                    # failure.  Let it disconnect after converting cancellation to
+                    # TimeoutError instead of logging a generic send cancellation here.
+                    await self._flush_pending_frames(disconnect_on_cancel=False)
                     await asyncio.shield(ack_future)
             except TimeoutError as exc:
-                phase = "ack" if heartbeat_sent else "send"
+                owner = self._wire_frame_owner
+                phase = (
+                    "ack"
+                    if owner is not None
+                    and owner.frame is heartbeat
+                    and owner.phase == "awaiting_result"
+                    else "send"
+                )
                 raise TimeoutError(
                     f"IM heartbeat {phase} timed out after {timeout:.2f}s"
                 ) from exc
@@ -1047,33 +1528,70 @@ class IMConnectionManager:
                 self._heartbeat_ack_future = None
             if not ack_future.done():
                 ack_future.cancel()
+            else:
+                with contextlib.suppress(asyncio.CancelledError):
+                    ack_future.exception()
+            self._pending_control_frames = deque(
+                frame
+                for frame in self._pending_control_frames
+                if frame is not heartbeat
+            )
 
     def _mark_disconnected(self, exc: Exception | None = None) -> None:
         had_connection = self._connected or self._websocket is not None
-        pending_frame = self._pending_frames[0] if self._pending_frames else None
+        owner = self._wire_frame_owner
+        business_frame = (
+            owner.frame if owner is not None and owner.lane == "business" else None
+        )
+        control_frames = list(self._pending_control_frames)
+        if owner is not None and owner.lane == "control":
+            control_frames.append(owner.frame)
         heartbeat_ack_future = self._heartbeat_ack_future
         self._connected = False
         self._websocket = None
-        self._awaiting_ack_type = None
+        self._registered = False
+        self._registration_deadline = None
+        self._wire_frame_owner = None
+        self._pending_control_frames.clear()
         self._heartbeat_ack_future = None
         self._stop_heartbeat_loop()
+        for control_frame in control_frames:
+            future = control_frame.ack_future
+            if future is not None and not future.done():
+                with contextlib.suppress(asyncio.InvalidStateError):
+                    future.set_exception(
+                        RuntimeError(
+                            f"IM websocket disconnected before {control_frame.message_type} ack"
+                        )
+                    )
         if heartbeat_ack_future is not None and not heartbeat_ack_future.done():
             with contextlib.suppress(asyncio.InvalidStateError):
                 heartbeat_ack_future.set_exception(
                     RuntimeError("IM websocket disconnected before heartbeat ack")
                 )
         if (
-            pending_frame is not None
-            and pending_frame.ack_future is not None
-            and not pending_frame.ack_future.done()
+            business_frame is not None
+            and business_frame.ack_future is not None
+            and not business_frame.ack_future.done()
         ):
             # bugfix-446-M1 decision 6 (pure defense): guard the TOCTOU where the future
             # is resolved between the done() check and set_exception. The single event
             # loop makes this practically unreachable, but the suppress is zero-cost.
             with contextlib.suppress(asyncio.InvalidStateError):
-                pending_frame.ack_future.set_exception(
+                business_frame.ack_future.set_exception(
                     RuntimeError("IM websocket disconnected before ack")
                 )
+        if business_frame is not None:
+            if self._is_status_superseded_by_pending(business_frame):
+                self._events.append(
+                    {
+                        "event": "superseded",
+                        "type": business_frame.message_type,
+                        "request_id": business_frame.payload.get("request_id"),
+                    }
+                )
+            else:
+                self._pending_frames.appendleft(business_frame)
         if had_connection:
             event: dict[str, object] = {"event": "disconnected"}
             if exc is not None:

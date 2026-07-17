@@ -201,6 +201,7 @@ def test_im_connection_replies_with_live_agent_config_snapshot(tmp_path: Path) -
         "type": "agent.config",
         "payload": {
             "request_id": "req-1",
+            "node_id": "node-1",
             "agent_id": "agent-a",
             "agent": {
                 "display_name": "Agent A",
@@ -360,8 +361,13 @@ def test_im_connection_retries_buffered_frame_after_reconnect(tmp_path: Path) ->
     )
     relay_adapter = WebRelayAdapter()
     relay_adapter.start(lambda _message: None)
-    first_socket = _FailOnNthSendWebSocket(fail_on_send_number=2)
-    second_socket = _FakeWebSocket()
+    register_ack = json.dumps(
+        {"type": "ack", "payload": {"message_type": "node.register"}}
+    )
+    first_socket = _FailOnNthSendWebSocket(
+        fail_on_send_number=2, incoming=[register_ack]
+    )
+    second_socket = _FakeWebSocket(incoming=[register_ack])
     sockets = [first_socket, second_socket]
     connect_calls: list[tuple[str, dict[str, str]]] = []
 
@@ -378,10 +384,12 @@ def test_im_connection_retries_buffered_frame_after_reconnect(tmp_path: Path) ->
 
     async def _exercise() -> None:
         await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001 - register before business
         await manager.send_json("node.report", {"run_id": "run-1", "status": "running"})
         assert manager.connected is False
         assert first_socket.closed == 1
         await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001 - replay after register ack
         assert first_socket.closed == 1
         assert second_socket.closed == 0
 
@@ -401,6 +409,7 @@ def test_im_connection_retries_buffered_frame_after_reconnect(tmp_path: Path) ->
     assert json.loads(second_socket.sent[1])["payload"] == {
         "run_id": "run-1",
         "status": "running",
+        "node_id": "node-1",
     }
 
 
@@ -412,15 +421,20 @@ def test_im_connection_retries_unacked_frame_after_disconnect(tmp_path: Path) ->
     )
     relay_adapter = WebRelayAdapter()
     relay_adapter.start(lambda _message: None)
-    first_socket = _FakeWebSocket()
+    first_socket = _FakeWebSocket(
+        incoming=[
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}})
+        ]
+    )
     second_socket = _FakeWebSocket(
         incoming=[
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
             json.dumps(
                 {
                     "type": "ack",
                     "payload": {"message_type": "node.report", "node_id": "node-1"},
                 }
-            )
+            ),
         ]
     )
     sockets = [first_socket, second_socket]
@@ -437,6 +451,7 @@ def test_im_connection_retries_unacked_frame_after_disconnect(tmp_path: Path) ->
 
     async def _exercise() -> None:
         await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001 - register before business
         await manager.send_json(
             "node.report", {"run_id": "run-1", "status": "completed"}
         )
@@ -448,27 +463,103 @@ def test_im_connection_retries_unacked_frame_after_disconnect(tmp_path: Path) ->
         await manager._disconnect_current_websocket(RuntimeError("socket dropped"))  # noqa: SLF001
         await manager.connect_once()
         assert [json.loads(frame)["type"] for frame in second_socket.sent] == [
+            "node.register"
+        ]
+        await manager._listen_once()  # noqa: SLF001 - register ack replays report
+        assert [json.loads(frame)["type"] for frame in second_socket.sent] == [
             "node.register",
             "node.report",
         ]
-        await manager._listen_once()  # noqa: SLF001
+        await manager._listen_once()  # noqa: SLF001 - report ack
         assert manager._awaiting_ack_type is None  # noqa: SLF001
         assert list(manager._pending_frames) == []  # noqa: SLF001
 
     asyncio.run(_exercise())
 
 
-def test_im_connection_drain_waits_for_every_queued_frame_ack(tmp_path: Path) -> None:
-    """Graceful shutdown cannot close the socket after merely queueing terminals."""
+def test_every_guarded_upstream_frame_carries_registered_node_identity(
+    tmp_path: Path,
+) -> None:
+    """Every production sender shape must satisfy IM's socket-rooted node guard."""
+    guarded_types = (
+        "node.heartbeat",
+        "node.report",
+        "node.delivery_receipt",
+        "agent.config",
+        "agent.created",
+        "agent.capabilities",
+        "node.capabilities",
+        "agent.prompt.preview",
+        "node.prompt.preview",
+        "node.heartbeat.md",
+        "node.cron.jobs",
+        "node.cron.delete",
+        "node.skills.usage",
+        "session.fork.result",
+        "channel.reconcile.result",
+        "channels.bootstrap",
+        "channel.status",
+        "channel.runtime_metadata",
+        "agent.message",
+        "node.streaming_delta",
+        "node.system_message",
+    )
+    reporter = UpstreamReporter(
+        node=NodeConfig(node_id="node-1"),
+        agents=_agents(tmp_path),
+        send_frame=lambda _message_type, _payload: None,
+    )
+    relay_adapter = WebRelayAdapter()
+    relay_adapter.start(lambda _message: None)
+    socket = _FakeWebSocket(
+        incoming=[
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}})
+        ]
+    )
+    manager = IMConnectionManager(
+        config=IMConnectionConfig(url="http://im.local:9000"),
+        reporter=reporter,
+        relay_adapter=relay_adapter,
+        connect=lambda url, headers: _connect_fake(socket, [], url, headers),
+    )
 
+    async def _exercise() -> None:
+        await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001 - establish registered boundary
+        for message_type in guarded_types:
+            await manager.send_json(message_type, {"request_id": message_type})
+            manager._ack_pending_frame(  # noqa: SLF001 - drive serialized wire FIFO
+                {"message_type": message_type}
+            )
+
+    asyncio.run(_exercise())
+
+    sent = [json.loads(frame) for frame in socket.sent[1:]]
+    assert [frame["type"] for frame in sent] == list(guarded_types)
+    assert {frame["payload"].get("node_id") for frame in sent} == {"node-1"}
+
+
+def test_protocol_error_terminally_releases_waiter_and_flushes_next_frame(
+    tmp_path: Path,
+) -> None:
+    """A rejected upstream frame cannot strand its waiter or the shared FIFO."""
     socket = _FakeWebSocket(
         incoming=[
             json.dumps(
                 {
                     "type": "ack",
-                    "payload": {"message_type": "node.report", "node_id": "node-1"},
+                    "payload": {"message_type": "node.register"},
                 }
-            )
+            ),
+            json.dumps(
+                {
+                    "type": "error",
+                    "payload": {
+                        "code": "bad_payload",
+                        "message": "node_id is required",
+                    },
+                }
+            ),
         ]
     )
     relay_adapter = WebRelayAdapter()
@@ -482,6 +573,56 @@ def test_im_connection_drain_waits_for_every_queued_frame_ack(tmp_path: Path) ->
 
     async def _exercise() -> None:
         await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001 - register before business
+        waiter = asyncio.create_task(
+            manager.send_json_await_ack("agent.message", {"text": "bad"})
+        )
+        await asyncio.sleep(0)
+        await manager.send_json("node.report", {"status": "healthy"})
+        await manager._listen_once()  # noqa: SLF001 - consume protocol rejection
+        with pytest.raises(RuntimeError, match="bad_payload.*node_id is required"):
+            await asyncio.wait_for(waiter, timeout=0.1)
+        assert manager._awaiting_ack_type == "node.report"  # noqa: SLF001
+
+    asyncio.run(_exercise())
+
+    assert [json.loads(frame)["type"] for frame in socket.sent] == [
+        "node.register",
+        "agent.message",
+        "node.report",
+    ]
+
+
+def test_im_connection_drain_waits_for_every_queued_frame_ack(tmp_path: Path) -> None:
+    """Graceful shutdown cannot close the socket after merely queueing terminals."""
+    socket = _FakeWebSocket(
+        incoming=[
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {"message_type": "node.register"},
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {"message_type": "node.report", "node_id": "node-1"},
+                }
+            ),
+        ]
+    )
+    relay_adapter = WebRelayAdapter()
+    relay_adapter.start(lambda _message: None)
+    manager = IMConnectionManager(
+        config=IMConnectionConfig(url="http://im.local:9000"),
+        reporter=_minimal_reporter(tmp_path),
+        relay_adapter=relay_adapter,
+        connect=lambda url, headers: _connect_fake(socket, [], url, headers),
+    )
+
+    async def _exercise() -> None:
+        await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001 - register before business
         await manager.send_json("node.report", {"status": "failed"})
         draining = asyncio.create_task(
             manager.drain(asyncio.get_running_loop().time() + 1)
@@ -657,6 +798,7 @@ def test_im_connection_send_agent_message_fails_when_socket_drops_before_ack(
 
     async def _exercise() -> None:
         await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001 - register before business
         task = asyncio.create_task(
             manager.send_agent_message({"to": "user-1", "text": "hi"})
         )

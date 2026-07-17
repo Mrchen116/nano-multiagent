@@ -1,0 +1,687 @@
+# Verification Report: feat-464-im-channel-settings
+
+## Summary
+
+Mode: full
+
+Delta range: N/A
+
+Focus issues: N/A
+
+requires_full_verification: false
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 22/24 个退出标准被完整证实（文档勾选为 24/24）；19/20 个 spec scenario 有完整实现 |
+| Correctness | 19/20 个 scenario 匹配；1 个缺实现；另有 1 个安全场景的永久回归证据不完整 |
+| Coherence | 6/9 个关键决策完整遵守；决策 1、5、6 存在偏离 |
+
+结论：**FAIL**。1 个 CRITICAL、3 个 WARNING；修复后再进入 PR。
+
+## Completeness
+
+- Tasks：M1-E1..E8、M2-E1..E8、M3-E1..E8 均被标记 `[x]`，但逐代码和测试核对后只有 22/24 被完整证实。
+  - M2-E4 未完成：凭据、Bot、长连接配置类失败仍折叠为 `runtime_start_failed` / `worker_crashed`，没有具体原因或下一步。
+  - M1-E6 仅部分证实：跨 owner 改绑实现有前置拒绝，但所称的 channel / manifest / credential / cache 不变未被永久测试直接断言。
+- Spec：6 个 Requirement 均有主体实现；“连接状态与可操作诊断”中的“凭据或连接无效”scenario 缺少 provider 级可操作失败分类，因此只有 19/20 scenario 完整落地。
+- Design：期望/实际状态、完整 manifest、removal receipt/outbox、Feishu 多进程隔离、accepted scope sets、状态因果、owner guard 和依赖方向均有实现；`credential_reentry_required`、真实 SDK worker 的 backpressure 关闭/有界重启、Bot/长连接/事件订阅检查未落地。
+- M3-E8 拆分口径：真实应用证据足以证明 complete probe、连接、stop/restart、secret 与单 listener；production-store → 真 IM HTTP → 真前端证据结合永久 provider/status/frontend 测试，足以证明 limited/unknown 的投影链路。该拆分不证明凭据无效、Bot 未启用或长连接配置错误的可操作失败分支，不能关闭 CRITICAL-1。
+- Prototype / Reference：design 中 11 个 must-match 行全部投影到 milestone，并存在仓库内 durable evidence；其中 `#channel-reconnecting/#channel-failed` 的“actionable credential/Bot/worker failure”只展示了通用 runtime 错误，故该行仍为 critical。
+
+## Correctness
+
+| Requirement / Scenario | 实现位置 | 永久测试覆盖 | 状态 |
+|---|---|---|---|
+| 通用页：空态、统一入口、无 Web IM | `src/IM/frontend/src/features/settings/agents/agent-channels-panel.tsx:577`、`:593`、`:613` | `agent-channels-panel.test.tsx:80` | covered |
+| 通用页：选择飞书 provider | `agent-channels-panel.tsx:22`、`:371` | `agent-channels-panel.test.tsx:80` | covered |
+| 通用页：已有飞书不可重复添加 | `agent-channels-panel.tsx:373`、`:577` | `agent-channels-panel.test.tsx:102`；服务端唯一性见 `test_agent_channels_api.py:46` | covered |
+| 通用页：列表失败显示 retry，不显示空态 | `agent-channels-panel.tsx:581` | `agent-channels-diagnostics.test.tsx:131` | covered |
+| 向导：简短准备说明与精确开放平台链接 | `agent-channels-panel.tsx:20`、`:394` | `agent-channels-panel.test.tsx:80` | covered |
+| 向导：在线保存立即连接且无需重启 | `agent-channels-panel.tsx:492`、`:513`；`src/IM/ws/gateway_handler.py:284`；`src/personal_assistant/gateway/channel_manager.py:245` | `test_channel_reconcile.py:93`、`agent-channels-panel.test.tsx:125` | covered |
+| 向导：App ID / Secret 必填 | `agent-channels-panel.tsx:341`、`:353` | `agent-channels-panel.test.tsx:80` | covered |
+| 向导：secret 不回显，显式 keep/replace | `agent-channels-panel.tsx:335`、`:406`、`:492`；`src/IM/infra/channel_control_store.py:931` | `agent-channels-panel.test.tsx:102`、`test_agent_channels_api.py:46`、`test_agent_channels.py:133` | covered |
+| 状态：权限完整且连接正常 | `agent-channels-panel.tsx:163`、`:199`；`src/personal_assistant/channels/feishu/client.py:271` | `test_channel_reconcile.py:93`；真实 complete evidence | covered |
+| 状态：权限不足但基础能力可用 | `agent-channels-panel.tsx:67`、`:230`；`src/personal_assistant/channels/feishu/diagnostics.py:201` | `test_feishu_capability_diagnostics.py:98`、`agent-channels-diagnostics.test.tsx:95` | covered；连接 pill 与诊断卡分层符合 design 决策 6 |
+| 状态：缺普通群消息权限并说明背景上下文影响 | `agent-channels-panel.tsx:103`、`:128`；`diagnostics.py:117` | `test_feishu_capability_diagnostics.py:59`、`agent-channels-diagnostics.test.tsx:95` | covered |
+| 状态：权限检查失败为 unknown，不伪造 missing | `src/personal_assistant/channels/feishu/client.py:244`；`diagnostics.py:201`；`agent-channels-panel.tsx:123` | `test_feishu_client_scopes.py:78`、`:98`；`test_feishu_capability_diagnostics.py:109`；`agent-channels-diagnostics.test.tsx:109` | covered |
+| 状态：App 凭据无效、Bot 未启用或连接失败给出可操作原因 | `src/personal_assistant/main.py:2270`、`:3209`；`channel_manager.py:565`；`worker.py:199` | 只有通用 runtime/worker failure：`agent-channels-panel.test.tsx:150`、`test_feishu_worker_runtime.py:242` | **缺实现**：Bot probe 失败被吞掉，错误文案仅为 runtime/worker 通用失败 |
+| 状态：暂时中断、自动恢复与手动重连 | `src/personal_assistant/channels/feishu/client.py:697`；`agent-channels-panel.tsx:536` | `agent-channels-panel.test.tsx:241`、`test_feishu_worker_runtime.py:253` | covered |
+| 离线：新增/修改/启停/删除保存为等待应用 | `src/IM/infra/channel_control_store.py:832`、`:931`、`:1056`；`agent-channels-panel.tsx:164`、`:468` | `test_agent_channels_api.py:149`、`agent-channels-panel.test.tsx:179`、`:215` | covered |
+| 离线：节点重连后完整 manifest 自动收敛 | `src/IM/ws/gateway_handler.py:284`；`src/personal_assistant/ws/im_connection.py:519`；`channel_manager.py:245` | `test_channel_reconcile.py:269`、`test_channel_bootstrap.py:29` | covered |
+| 生命周期：停用后不再收发且保留配置 | `channel_manager.py:269`、`:584`；`agent-channels-panel.tsx:521` | `test_channel_manifest_store.py:197`、`agent-channels-panel.test.tsx:179` | covered |
+| 生命周期：重新启用且无需重填 secret | `agent-channels-panel.tsx:521`；`channel_control_store.py:931` | `test_agent_channels_api.py:149`、`agent-channels-panel.test.tsx:179` | covered |
+| 生命周期：删除等待实际停止，失败可重试，保留历史 | `channel_control_store.py:1056`、`:1146`；`agent-channels-panel.tsx:245` | `test_agent_channels.py:197`、`:256`、`agent-channels-panel.test.tsx:215`、`:241` | covered |
+| Owner：跨 owner 改绑拒绝，同 owner 幂等 | `src/IM/application/bind_service.py:59`、`:77`；`src/IM/api/routes/account.py:178` | `test_account_binding_api.py:109` | 实现 covered；测试只断言 node/profile/config API，未覆盖 spec 所列 channel/manifest/credential/cache 不变（WARNING-3） |
+
+### 测试与门禁结果
+
+- 聚焦后端：79 passed（channel control、credential、binding、reconcile/bootstrap、manager/store、worker、diagnostics）。
+- 完整后端：`pytest -q -m 'not e2e'` → 3425 passed、1 skipped、20 deselected。
+- 架构与测试规范：5 passed（`test_multi_product_architecture.py`、`test_test_naming_and_size_contract.py`）。
+- 前端聚焦：54 passed；`npm run build` → 443 modules transformed，成功。
+- 完整前端：66 files / 617 tests passed；所有 feat-464 相关测试文件均低于 400 行。
+- Ruff（本 unit 新增/修改 Python 文件）与 `git diff --check`：通过。
+
+## Coherence
+
+| design 决策 | 遵守? | 代码证据 |
+|---|---|---|
+| 1. X25519/HKDF/AES-GCM 节点信封，IM/缓存无明文 | 部分 | 加密/AAD/0600/fixed vector 已实现：`src/IM/infra/channel_credentials.py:65`、`src/personal_assistant/channels/channel_credentials.py:55`；但 key loss / key_id change 没有进入 `credential_reentry_required`：`main.py:3275`、`channel_manifest_store.py:374`（WARNING-1） |
+| 2. desired 与 actual 分离、revision/CAS、短 SQLite transaction | 是 | `channel_control_store.py:177`、`:475`、`:653`、`:1322` |
+| 3. IM 权威完整 manifest + removals + Gateway 密文 cache/outbox | 是 | `channel_control_store.py:1379`；`channel_manifest_store.py:108`、`:135`、`:154`；`channel_manager.py:245` |
+| 4. ChannelManager 唯一生命周期 owner，稳定 `feishu:<agent_id>` | 是 | `channel_manager.py:178`、`:505`、`:542`；web_relay guard `:304` |
+| 5. 每 Bot 一个可终止 worker、三 lane、incarnation/sequence、backpressure fail+restart | 部分 | process/queue/pipe/stop 已实现：`worker.py:219`、`:293`、`:309`；满载只设置 child event，真实 SDK worker不消费该 event且 parent 无重启：`worker.py:141`、`client.py:657`（WARNING-2） |
+| 6. connection 与 diagnostics 分离；strict tenant grant；accepted sets；Bot/连接/订阅检查 | 部分 | scope catalog/unknown/汇总已实现：`diagnostics.py:85`、`:173`、`:201`、`:231`；Bot probe 结果被吞掉且 catalog 只有 scope 项：`main.py:2270`、`:3219`（CRITICAL-1） |
+| 7. 通用 REST/resource 与前端 provider registry | 是 | `src/IM/api/routes/agent_channels.py:115`、`:205`、`:233`；`agent-channels-panel.tsx:22` |
+| 8. 一次性 bootstrap、初始化协调、无跨 owner transfer、legacy export | 是 | `channel_control_store.py:286`、`:337`；`src/personal_assistant/config/local_store.py:246`；`bind_service.py:77` |
+| 9. 三个纵向 milestone 交付 | 是 | M1/M2/M3 tasks/progress/evidence 均存在，且代码/测试按三段能力闭环 |
+
+### Architecture coherence
+
+- `IM` 未 import `agent`；`personal_assistant` 产品边界仍仅通过 `agent.sdk` 使用内核，架构 contract 通过。
+- IM 与 Gateway 之间的 credential、manifest、status 都经 HTTP/WS 协议传输，没有跨机文件访问假设。
+- `ChannelManager` 扩展既有 registry/adapter seam，未建立与静态 `web_relay` 并行的第二个路由真相源。
+- `ChannelControlStore` 使用独立短连接和 `BEGIN IMMEDIATE`，没有把长事务挂在全局 IM connection 上。
+
+### Prototype / Reference Contract
+
+| Reference contract | Milestone projection | Implementation evidence | Durable evidence | Status |
+|---|---|---|---|---|
+| `#channels-empty` | M1-E1/E2 | `agent-channels-panel.tsx:593`、`:613` | `M1-online-secure-channel/evidence/output/playwright/channels-empty.png` + README hash | covered |
+| `#add-feishu` | M1-E2/E3/E4 | `agent-channels-panel.tsx:327`、`:371`、`:406` | `add-feishu-already-added.png`、`add-feishu-required.png`、`edit-feishu-keep-replace.png` | covered |
+| `#channel-connecting` | M1-E4 | `agent-channels-panel.tsx:164`、`:189` | `channel-connecting.png` + POST 201/status evidence | covered |
+| `#channel-connected` | M1-E5 | `agent-channels-panel.tsx:177`、`:199`、`:236` | `channel-connected.png` + DOM/network report | covered |
+| `#channel-pending` | M2-E1/E2 | `agent-channels-panel.tsx:164`、`:468`、`:604` | `channel-pending-offline-create.png` | covered |
+| `#channel-actions/#channel-disabling/#channel-disabled` | M2-E1/E3/E5 | `agent-channels-panel.tsx:219`、`:521`、`:661` | disable confirm/disabling/disabled/re-enable screenshots + browser QA | covered |
+| `#channel-deleting` | M2-E1/E5/E8 | `agent-channels-panel.tsx:245`、`:554`、`:568` | offline/reload/failed-retry/applied-empty screenshots + receipt DB report | covered |
+| `#channel-reconnecting/#channel-failed` | M2-E4、M3-E2 | `agent-channels-panel.tsx:166`、`:195`；runtime generic failure `channel_manager.py:565` | reconnecting/failed/unknown screenshots | **critical**：稳定状态与分层有证据，但 credential/Bot/worker failure 文案不具可操作性 |
+| `#channel-limited` | M3-E1/E2 | `agent-channels-panel.tsx:67` | `channel-limited-production-store.png`、reconnecting/failed unknown screenshots | covered；批准拆分与永久 provider/status tests 合并后证据充分 |
+| `#channels-error` | M3-E3 | `agent-channels-panel.tsx:581` | `channels-list-error-real-im-outage.png` + retry report | covered |
+| `#channels-mobile` | M3-E4 | `agent-channels-panel.tsx:298`、`:329` | 375x812 card/add/edit/delete bottom-sheet screenshots | covered |
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+1. **凭据、Bot 与平台配置失败没有可操作分类，spec scenario 与 M2-E4 未实现。** `_infer_feishu_bot_open_id_from_app_credentials()` 对 import、API、空 identity 全部返回 `None`（`src/personal_assistant/main.py:2270-2304`），managed factory 随后仍用 `bot_open_id=None` 启动 adapter（`src/personal_assistant/main.py:3219-3254`）；scope diagnostics 也只评估 scope（`src/personal_assistant/channels/feishu/client.py:264-269`）。启动异常最终只变成 `runtime_start_failed: Channel runtime could not start`（`src/personal_assistant/gateway/channel_manager.py:565-579`）或 `worker_crashed: Feishu listener process exited unexpectedly`（`src/personal_assistant/channels/feishu/worker.py:199-213`）。这不能满足 `spec.md:131-134` 的具体原因/下一步，也与 `design.md:273` 的 Bot/长连接/事件订阅检查冲突。**修复：**把身份/凭据 probe 改成结构化结果，区分 credential invalid、Bot disabled、长连接/订阅未配置、transient unknown；confirmed 配置错误通过当前 generation status sink 上报稳定错误码、用户可执行文案，不能继续宣称 connected；为 provider → manager → IM HTTP → frontend 增加每类永久测试，至少直接覆盖 Bot disabled 和 invalid credential。
+
+### WARNING（应该修）
+
+1. **key loss / key_id change 没有进入 `credential_reentry_required`，还可能错误推进 applied head。** live manifest 解封失败只把 channel 放进 `failed_ids`，随后把缺项 manifest 交给 manager（`src/personal_assistant/main.py:3275-3349`）；manager 会把缺项当作 desired removal、提交该不完整 cache，并返回 `outcome=applied`（`src/personal_assistant/gateway/channel_manager.py:269-345`），外层仅附加 failure 而不改变 outcome（`src/personal_assistant/main.py:3354-3368`）。IM 对 applied 无条件推进 head（`src/IM/infra/channel_control_store.py:503-516`）。离线启动时 cache key mismatch 又会在 IM 连接前从 `start_cached()` 抛出（`src/personal_assistant/gateway/channel_manifest_store.py:374-386`、`src/personal_assistant/main.py:1885-1889`）。这偏离 `design.md:133`、`:247`。**修复：**解封失败不得把 desired channel 当删除、不得提交不完整 manifest 或推进 head；上报 `credential_reentry_required` 并保留安全密文/现有 desired，允许 Gateway 继续连 IM；补 live reconcile 与 offline cache key-loss 的产品状态测试。
+
+2. **真实 SDK worker 在 backpressure 后不会关闭，也没有 design 要求的有界退避重启。** `publish_event()` 满载时只上报失败并设置 `context.stop_event`（`src/personal_assistant/channels/feishu/worker.py:141-156`），但真实 worker 随后阻塞在 `client.start()`，没有读取 stop event（`src/personal_assistant/channels/feishu/client.py:657-704`）；parent status loop 只转发状态，且 stop_event 已设置时不会把退出识别为 crash（`src/personal_assistant/channels/feishu/worker.py:370-401`）。现有压力测试使用收到 `False` 就主动 return 的 cooperative fake（`tests/unit/personal_assistant/test_feishu_worker_runtime.py:41-53`），没有证明真实 worker 关闭或重启。偏离 `design.md:224-225`。**修复：**parent 收到 `event_backpressure` 后必须 terminate/join 当前 child，并由 lifecycle owner 进行有上限、有退避的 restart（或保持明确 failed 直到人工重连）；增加非 cooperative worker 测试，断言旧 PID 被回收、无继续收发、重启次数受限且状态因果不倒退。
+
+3. **跨 owner 改绑的永久测试没有覆盖 spec 与 M1-E6 声称的全部数据边界。** 当前测试只创建 node/profile，拒绝后只断言 node owner、profile owner 和 config API（`tests/im_service/integration/test_account_binding_api.py:109-168`）；没有预置/快照 `agent_channels`、`channel_manifest_heads`、`node_credential_keys`、removal receipt，也没有断言拒绝路径不会触发 channel-control initialization/cache side effect。实现的 owner guard 位于任何 mutation 前（`src/IM/application/bind_service.py:74-90`），所以当前代码看起来安全，但安全回归证据不足。**修复：**扩展 online/offline 参数测试，先为 owner A 建立 channel/key/head/removal，再由 B confirm；断言相关行与 envelope 字节不变、B 的 channel API 全部不可读/不可控、拒绝路径不调用 initialization/push；保留 same-owner 幂等断言。
+
+### SUGGESTION（可以修）
+
+- 无。
+
+1 critical issue(s) found. Fix before PR.
+
+# Round 2
+
+## Summary
+
+Mode: full
+
+Delta range: `f47f169bbb85893f31617bd8529e25e15e392d1c..46096e3ec5a4875974345c6a5d82d5ebe8fba6e2`
+
+Focus issues: Round 1 全部问题与 M4 的 Gateway WS auth/cross-owner、manifest fail-closed/key recovery、bind 原子性、Feishu preflight/lifecycle/backpressure、secret migration/file mode、metadata/activation、provider registry、离线收敛/删除历史/失败重试。
+
+requires_full_verification: true
+
+Validated head: `46096e3ec5a4875974345c6a5d82d5ebe8fba6e2`
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 28/31 个退出标准被完整证实（文档勾选为 31/31）；M4-E3、M4-E4、聚合门禁 M4-E7 未闭合 |
+| Correctness | 20/20 个用户 spec scenario 有主体实现；2 个 M4 安全/调和失败路径与声明不符 |
+| Coherence | 8/9 个编号关键决策完整遵守；决策 3 的 complete-manifest fail-closed 有偏离，v11 WS 身份边界也只覆盖 register/channel 帧 |
+
+结论：**FAIL**。2 个 CRITICAL；修复后必须再做 full verification，不可进入 PR。
+
+## Round 1 问题复核
+
+| Round 1 问题 | Round 2 结果 | 证据 |
+|---|---|---|
+| CRITICAL-1：凭据/Bot/长连接失败被通用化 | closed | provider preflight 与稳定码见 `src/personal_assistant/channels/feishu/preflight.py:39-113`；真实 invalid-secret evidence 与 `test_feishu_preflight_and_metadata.py:51-122` |
+| WARNING-1：key loss / key mismatch 被当删除或阻止 IM 连接 | tested path closed，但 complete-manifest fail-closed 仍有新 CRITICAL-2 | key quarantine/re-entry 见 `channel_manifest_store.py:108-141`、`channel_manager.py:246-338`；合法 mapping 的 wrong-key 回归见 `test_channel_credential_recovery.py:142-210` |
+| WARNING-2：backpressure 不回收/无有界重启 | closed | `channel_manager.py:638-821`；非 cooperative child、三次重试和人工恢复见 `test_channel_lifecycle_failures.py:179-262` |
+| WARNING-3：跨 owner 永久测试未覆盖密文边界 | closed | `tests/im_service/integration/test_bind_atomicity.py:32-139` 快照 channel/head/key/removal 全表并验证一胜一败、同 owner 幂等 |
+| Round 1 acceptance：connected → disable 卡住 | closed | `channel_manager.py:340-486`；M4 real-stack evidence 记录 2.357s 到 disabled、旧 PID 退出、2.822s re-enable |
+
+## Completeness
+
+- Tasks：M1 8/8、M2 8/8、M3 8/8 均由实现、永久测试和 durable evidence 证实。M4 为 4/7：E1、E2、E5、E6 covered；E3 因非归属账号的已认证 socket 可提交已注册节点的非 channel 上行帧而未完成；E4 因非法 manifest item 会被静默省略并执行不完整 snapshot 而未完成；E7 的“十项缺口均有永久 regression”因此不成立。
+- Spec：6 个 Requirement、20 个 Scenario 的正常用户路径均有主体实现；owner bind 场景的跨 owner 事务隔离已补齐。两个 CRITICAL 属于 M4 新增的传输身份与失败恢复保证，并非可以因原始 20 个 scenario 正常路径通过而忽略。
+- Design/delta-spec：IM/Gateway 两份 delta 覆盖 desired/observed、完整 manifest、离线 cache、生命周期、诊断和 owner 隔离；编号决策 3 的“完整 manifest”实现对非法数组成员不 fail closed。canonical 长青 spec 尚未归并是 unit 收尾步骤，不作为本轮实现缺失。
+- Prototype / Reference：11 个 must-match 行均有 milestone 投影、实现与 durable screenshot/JSON 证据；M4 新增 connected/disabled/re-enabled/provider-failure/offline/delete/cache-failure/mobile 证据齐全。
+
+## Correctness
+
+| Requirement / Scenario | 实现位置 | 永久测试/证据 | 状态 |
+|---|---|---|---|
+| 通用页：空态、统一入口、不展示 Web IM | `src/IM/frontend/src/features/settings/agents/agent-channels-panel.tsx:690-721` | `agent-channels-panel.test.tsx` empty/wizard | covered |
+| 通用页：选择 provider | `agent-channels-panel.tsx:426-447`；`channel-provider-registry.ts:61-131` | `agent-channels-provider-registry.test.tsx:110-146` | covered |
+| 通用页：同 provider 已存在时禁选 | `agent-channels-panel.tsx:675-676`、`:428-444` | panel + provider registry tests | covered |
+| 通用页：列表失败显示 retry，不伪造空态 | `agent-channels-panel.tsx:679-687` | diagnostics/list-error frontend test + screenshot | covered |
+| 向导：简短说明与精确开放平台链接 | `channel-provider-registry.ts:58-79`；`agent-channels-panel.tsx:448-457` | wizard test | covered |
+| 向导：在线保存后立即连接，无需重启 | `agent-channels-panel.tsx:584-617`；`src/IM/ws/gateway_handler.py:305-365`；`channel_manager.py:340-486` | `tests/integration/test_channel_reconcile.py` + real connected evidence | covered |
+| 向导：App ID / Secret 必填 | `channel-provider-registry.ts:158-173`；`agent-channels-panel.tsx:400-405` | wizard/provider tests | covered |
+| 向导：secret 不回显，显式 keep/replace | `channel-provider-registry.ts:144-188`；`agent-channels-panel.tsx:475-523` | panel API/store tests | covered |
+| 状态：权限完整且连接正常 | `src/personal_assistant/channels/feishu/client.py:264-279`；`agent-channels-panel.tsx:151-249` | capability tests + real connected evidence | covered |
+| 状态：权限不足但基础能力可用 | `diagnostics.py` capability summary；`agent-channels-panel.tsx:62-136` | diagnostics tests + limited evidence | covered |
+| 状态：缺普通群消息权限并说明上下文影响 | `channel-provider-registry.ts:110-125` | capability/frontend diagnostics tests | covered |
+| 状态：权限检查失败为 unknown | `client.py:244-269`；`agent-channels-panel.tsx:62-136` | scope/diagnostics tests | covered |
+| 状态：凭据、Bot、长连接失败有具体下一步 | `preflight.py:39-113`；`channel_manager.py:686-778` | `test_feishu_preflight_and_metadata.py:51-122` + real invalid-secret evidence | covered |
+| 状态：暂断、自动恢复、手动重连 | `channel_manager.py:488-502`、`:638-821`；`agent-channels-panel.tsx:634-650` | lifecycle failures + frontend reconnect tests | covered |
+| 离线：新增/修改/启停/删除保存为 pending | `src/IM/infra/channel_control_store.py` desired mutations；`agent-channels-panel.tsx:702-706` | offline API/frontend tests + M4 screenshots | covered |
+| 离线：重连后完整 manifest 自动收敛 | `src/IM/ws/gateway_handler.py:326-365`；`src/personal_assistant/ws/im_connection.py:519-583` | reconcile/bootstrap tests + offline-converged evidence | covered |
+| 生命周期：停用后停止收发并保留凭据 | `channel_manager.py:368-409`；`agent-channels-panel.tsx:619-631` | `test_channel_lifecycle_failures.py:300-349` + real disabled evidence | covered |
+| 生命周期：重新启用且不重填 secret | `channel_manager.py:391-417`；frontend keep mutation | lifecycle/API test + real re-enabled evidence | covered |
+| 生命周期：删除等待实际停止、失败可重试、历史保留 | `channel_manager.py:368-485`；`agent-channels-panel.tsx:255-293`、`:652-673` | reconcile/removal tests + current-head cache-failure/history evidence | covered |
+| Owner：跨 owner bind 拒绝、数据边界不变、同 owner 幂等 | `src/IM/infra/binding_store.py:29-119` | `test_bind_atomicity.py:45-139` | covered |
+
+### M4 失败路径核对
+
+| M4 保证 | 当前实现 | 本地业务一致性复验 | 状态 |
+|---|---|---|---|
+| Gateway WS bearer identity 应约束非归属账号 | bearer 只在入口解析；`node.register` 校验 durable owner；channel 三类上行检查 websocket | 账号 B 开 socket但不 register，直接提交账号 A 节点的 `node.heartbeat`，收到 ACK，DB 状态被账号 B 的输入改写 | **critical** |
+| complete manifest 任一 item 失败不得做部分 reconcile | mapping item 的 key/envelope/open failure fail closed；非 mapping item 被 `continue` | 先运行 `ch-a`，再送 `channels=[None]`：返回 `outcome=applied`，旧 adapter 收到 stop，registry 为空 | **critical** |
+| key mismatch quarantine、Gateway 继续连接 IM | foreign-key cache 原字节 quarantine，status outbox 可重新建立 | credential recovery tests | covered |
+| bind guard/write 单事务、一胜一败 | 独立连接 `BEGIN IMMEDIATE` | two-thread integration test | covered |
+| preflight provider reason | tenant-token、bot、WS endpoint 分层 | unit + live invalid-secret | covered |
+| partial start/backpressure/stop 不阻塞 event loop | candidate cleanup、to_thread、PID reap、有界 restart | lifecycle failure tests | covered |
+| sensitive migration/export 首次可见即 0600、无 backup | secure temp + fsync + replace；export 复用 | sensitive config/legacy migration tests | covered |
+| metadata generation 持久化/重放，activation retry | cache CAS/update + reconnect replay；成功后 memoize | preflight/metadata tests | covered |
+| provider registry 真分派 | descriptor 驱动 fields/serialization/card/diagnostics/removal | injected Webhook provider test | covered |
+| offline/delete/cache failure 收敛 | desired manifest + removal receipt/outbox + retry | M4 browser/store evidence | covered |
+
+### 测试与门禁结果
+
+- M4 聚焦：25 passed（auth、bind、credential recovery、sensitive writer、preflight/metadata、lifecycle failures、reconcile）。
+- 完整后端：`pytest -m 'not e2e' -q` → 3447 passed、1 skipped、20 deselected。
+- 完整前端：67 files / 620 tests passed；`npm run build` → 444 modules transformed。验证 worktree 复用主仓 `node_modules`，测试与 build 均成功，生成物随后清理。
+- Ruff：`ruff check src tests` → PASS。
+- `git diff --check f47f169...46096e3` → PASS。
+- 新增/修改的 `test_*.py` 无超过 400 行；全量测试命名/大小 contract 也包含在完整后端门禁中。
+- 两个本地业务一致性复验均在 validated head 上独立执行并稳定复现；它们不是对既有失败测试的推断，也未访问任何外部目标。
+
+## Coherence
+
+| design 决策 | 遵守? | 代码证据 |
+|---|---|---|
+| 1. 节点公钥信封，IM/缓存不持久化明文 | 是 | `src/IM/infra/channel_credentials.py`；`src/personal_assistant/channels/channel_credentials.py:95-131`；sensitive writer `local_store.py:679-719` |
+| 2. desired/actual 分表、内部 revision/CAS、独立短事务 | 是 | `src/IM/infra/channel_control_store.py` 的 mutation/status/result transaction |
+| 3. IM 权威完整 manifest + Gateway 离线 cache/outbox | **部分** | 正常路径见 `channel_manager.py:340-485`；非法 channel item 在 `channel_manifest_apply.py:59-61` 被静默跳过后仍于 `:147-155` reconcile（CRITICAL-2） |
+| 4. ChannelManager 为唯一动态生命周期 owner | 是 | `channel_manager.py:197-928`；异步入口统一 `to_thread` |
+| 5. 每 Bot 可终止进程、三 lane、因果状态、backpressure 重启 | 是 | `worker.py:219-491`；`channel_manager.py:638-821` |
+| 6. connection/diagnostics 分层与 provider-owned probe | 是 | `preflight.py:39-113`；`client.py:244-279`；`diagnostics.py` |
+| 7. 通用 REST/resource + provider registry | 是 | `src/IM/api/routes/agent_channels.py`；`channel-provider-registry.ts` |
+| 8. 一次性 bootstrap、无跨 owner transfer、legacy export | 是 | `channel_control_store.py:286-455`；`binding_store.py:29-119`；`scripts/channel-control-export-legacy.py:37-85` |
+| 9. 纵向 milestone 交付 | 是 | M1-M4 tasks/progress/evidence 与永久测试均存在 |
+
+### Architecture coherence
+
+- `IM` 仍不 import `agent`；`personal_assistant` 对内核仅经 `agent.sdk`，完整 contract suite 通过。
+- credential/manifest/status 均经 HTTP/WS 协议，不假设 IM 可读 Gateway 文件；本地 key/cache/config 仍在 Gateway owner 边界。
+- `ChannelControlStore` 与新 `BindingStore` 均使用独立 SQLite connection；bind 并发 guard/write 已原子化。
+- **偏离：**`GatewayConnection.owner_id` 只保护 register 结果和 channel 帧的 websocket identity；通用 frame dispatcher 没有把已认证 owner/当前 websocket 作为所有节点上行操作的统一前置条件，形成第二套未授权路径（CRITICAL-1）。
+
+### Prototype / Reference Contract
+
+| Reference contract | Milestone projection | Implementation evidence | Durable evidence | Status |
+|---|---|---|---|---|
+| `#channels-empty` | M1-E1/E2 | `agent-channels-panel.tsx:690-721` | M1 empty screenshot | covered |
+| `#add-feishu` | M1-E2/E3/E4 | provider descriptor + `agent-channels-panel.tsx:426-534` | M1 add/required/keep-replace screenshots | covered |
+| `#channel-connecting` | M1-E4 | `agent-channels-panel.tsx:151-249` | M1 connecting + M4 real connection evidence | covered |
+| `#channel-connected` | M1-E5 | `agent-channels-panel.tsx:151-249` | M4 `r6-real-connected.png` | covered |
+| `#channel-pending` | M2-E1/E2 | `agent-channels-panel.tsx:151-249`、`:702-706` | M4 offline create/update evidence | covered |
+| `#channel-actions/#channel-disabling/#channel-disabled` | M2-E1/E3/E5 | card actions + toggle mutation | M4 disabling/disabled/re-enabled evidence | covered |
+| `#channel-deleting` | M2-E1/E5/E8 | `agent-channels-panel.tsx:255-293` | M4 cache-failure/reload/retry/history evidence | covered |
+| `#channel-reconnecting/#channel-failed` | M2-E4/M3-E2/M4-E2 | provider error + restart status | M4 invalid-credential/recovered evidence | covered |
+| `#channel-limited` | M3-E1/E2 | provider diagnostics descriptor + panel | M3 limited/unknown evidence | covered |
+| `#channels-error` | M3-E3 | `agent-channels-panel.tsx:679-687` | M3 outage/retry evidence | covered |
+| `#channels-mobile` | M3-E4/M4-E6 | mobile bottom sheet + generic provider picker | M4 375x812/picker evidence | covered |
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+1. **Gateway bearer identity 没有约束所有节点上行帧；非归属账号可更新已注册节点状态。** `/im/ws/gateway` 虽解析 token 并传入 `authenticated_owner_id`（`src/IM/app.py:404-436`），但 `GatewayHandler.handle_message()` 只把它传给 `node.register`（`src/IM/ws/gateway_handler.py:199-213`）。`node.heartbeat`、`node.report`、agent/config/capability/result 等分支随后都不校验当前 websocket 或 owner（`:214-260`）；例如 `_handle_heartbeat()` 只按 payload `node_id` 查找任意现存 connection 并持久化（`:1101-1137`）。本轮在本地 TestClient 中让账号 A 注册并绑定 `node-a`，随后账号 B 以合法 bearer 新开 socket但不 register，直接提交该节点的 heartbeat：账号 B 收到 ACK，`nodes.status/last_error` 被其输入改写。现有 auth test 只覆盖非归属账号再次执行 `node.register`（`tests/im_service/integration/test_gateway_auth_boundary.py:59-122`），未覆盖注册后的其他业务帧归属。**修复：**把注册连接的 `(websocket, authenticated_owner_id, node_id)` 校验提升为所有 node-scoped 上行帧的统一 dispatcher guard；未在该 websocket 完成 register、connection owner 与 token owner 不同、payload node_id 与注册 node 不同均关闭/拒绝，不能只在 channel 三个 handler 中局部调用 `_is_registered_sender`。补至少 heartbeat、report、agent result、channel result 的跨 owner/未注册 socket 回归，并断言 DB、waiter 与广播均零副作用。
+
+2. **fail-closed manifest applier 会静默跳过非法 item，执行不完整 snapshot 并把安全 runtime 当成删除。** `apply_channel_manifest_payload()` 对 `channels` 中非 mapping item 直接 `continue`（`src/personal_assistant/gateway/channel_manifest_apply.py:54-61`），对非 list/missing `channels` 也按空列表处理；之后仍构造 manifest 并调用 `manager.reconcile()`（`:133-155`）。本轮先启动 `ch-a`，再送 `manifest_revision=2, channels=[None]`：实现返回 `{outcome:'applied', failures:[]}`，旧 adapter 收到 `stop` 且 registry 为空，正好违反 M4-E4 和 progress 中“任一 item 失败整份 retryable_failed”的声明。现有回归只覆盖结构完整 item 的 `credential_key_id` mismatch（`tests/unit/personal_assistant/test_channel_credential_recovery.py:142-210`）。**修复：**在任何 lifecycle/cache mutation 前严格验证 `channels`/`removals` 均为 arrays 且每项为完整 mapping；任一结构、generation、key、envelope 或 opener 错误都返回 `retryable_failed`，不调用 `reconcile`、不 stop runtime、不 commit cache/advance applied head。增加 malformed member、missing/non-array channels、malformed removal 和 opener failure 回归，并直接断言旧 runtime/cache/applied head 保持。
+
+### WARNING（应该修）
+
+- 无。
+
+### SUGGESTION（可以修）
+
+- 无。
+
+2 critical issue(s) found. Fix before PR.
+
+# Round 3
+
+## Summary
+
+Mode: full
+
+Delta range: `dffe4d941d04ce8ad3bfa01e9859e4921a6e9186..033a3839c6de07b03064c78cb055cc995e277492`
+
+Focus issues: M5 的统一上行帧 guard / bind 后复核、运行时配置 owner、畸形 manifest fail-closed、cache commit 投影与重试、offline stale UI、incarnation outbox 有界性，以及 Round 2 两个 CRITICAL 的关闭情况。
+
+requires_full_verification: true
+
+Validated head: `033a3839c6de07b03064c78cb055cc995e277492`
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 36/39 个 milestone 退出标准被完整证实（文档勾选为 39/39）；M4-E4 的“迁移不留明文 backup”、聚合门禁 M4-E7/M5-E7 未闭合 |
+| Correctness | 原始 20/20 个用户 spec scenario 的主体实现仍完整；M5 六类边界修复本身均可复验，但 legacy startup 的一个真实组合路径仍把 secret 留在 backup |
+| Coherence | 8/9 个编号关键决策完整遵守；节点信封/安全迁移决策因 composition root 在迁移前调用普通全量 writer 而只有部分遵守 |
+
+结论：**FAIL**。1 个 CRITICAL；修复后必须再次 full verification，不可进入 PR。
+
+## Round 2 问题复核
+
+| Round 2 问题 | Round 3 结果 | 证据 |
+|---|---|---|
+| CRITICAL-1：Gateway bearer identity 未约束所有节点上行帧 | closed | 所有非 register 帧在 dispatcher 统一进入 socket-rooted guard：`src/IM/ws/gateway_handler.py:88-112`、`:232-261`、`:1165-1208`；跨 owner heartbeat/result 和 bind 后驱逐回归见 `tests/im_service/integration/test_gateway_auth_boundary.py:123-270` |
+| CRITICAL-2：畸形 manifest 被截断后执行不完整 snapshot | closed | 完整 payload 先严格 prepare，再统一解封，最后才调用 manager：`src/personal_assistant/gateway/channel_manifest_apply.py:151-263`；missing/non-array/non-mapping/incomplete/opener 回归见 `tests/unit/personal_assistant/test_channel_credential_recovery.py:255-354` |
+
+## Completeness
+
+- Tasks：M1 8/8、M2 8/8、M3 8/8 保持 covered。M4 为 5/7：E4 的明文 backup 保证未闭合，因此聚合 E7 也未闭合。M5 为 7/8：E1-E6 均有实现与永久回归，E7 的 secret scan / Round 3 full gate 因本轮 CRITICAL 不成立。
+- Spec：6 个 Requirement、20 个 Scenario 的正常用户路径均有主体实现；不展示 Web IM、多 provider 前端模型、在线/离线保存、权限受限降级、生命周期和跨 owner bind 行为均未在 M5 delta 中回退。
+- Design/delta-spec：desired/observed、完整 manifest、credential envelope、离线 cache/status、provider diagnostics 和 owner 隔离均有代码实现；`design.md:705-706` 对 plaintext backup 与 full gate 的硬保证仍有一个组合入口未覆盖。
+- Prototype / Reference：既有 11 个 must-match reference 均保留 durable evidence；M5 另有真 IM/Gateway 的 desktop + 375px offline stale 截图与 README 对账，在线 current、pending/failed 优先级和移动端结构符合投影。
+
+## Correctness
+
+| Requirement / Scenario | Round 3 证据 | 状态 |
+|---|---|---|
+| 通用通道页、空态、provider 选择、不展示 Web IM | provider registry + `AgentChannelsPanel`；全量前端 625 tests | covered |
+| 飞书向导、开放平台链接、必填校验、secret keep/replace | `channel-provider-registry.ts` + panel/API tests | covered |
+| 在线保存即连接、权限不足可降级且列出缺项、unknown 不伪造 missing | manager/diagnostics + provider/frontend tests | covered |
+| 凭据/Bot/长连接失败的稳定原因，暂断恢复与人工重连 | preflight/lifecycle tests + M4 durable evidence | covered |
+| 离线 desired mutation、重连完整收敛、启停/删除/历史保留 | channel control/reconcile/removal tests + evidence | covered |
+| 跨 owner bind 拒绝、数据边界不变、同 owner 幂等 | `test_bind_atomicity.py` + M5 bind 后 socket/key 驱逐 | covered |
+| 所有 node-scoped 上行帧统一身份边界 | dispatcher guard 从当前 websocket 反查唯一 connection，并核对 token/connection/durable owner 与 payload node | covered |
+| 完整 manifest 任一成员失败原子拒绝 | structure/generation/key/envelope/opener 全部在 `manager.reconcile()` 前验证 | covered |
+| cache commit 失败不显示 current success，跨 reload/重启保留并有界重试 | manifest head + apply error 投影、retry manifest、同 revision 退避回归 | covered |
+| 节点离线时 observed 只显示最后已知状态 | live node offline 优先于 cached observed，pending/apply failed 优先于 stale；desktop/mobile evidence | covered |
+| 新 incarnation 替换旧 outbox 且重启后有界 | 40 次 incarnation、迟到 ACK、legacy retired 清理回归 | covered |
+| legacy secret 迁移/导出不留明文 backup | migration writer 单独调用时安全；但 Feishu skill 自动激活会在 migration 前调用普通 writer 并生成含 secret backup | **critical** |
+
+### M5 边界复验
+
+| M5 保证 | 实现/永久回归 | 本轮结果 |
+|---|---|---|
+| all upstream frame guard + bind postcheck | `gateway_handler.py:232-261`、`:371-420`、`:1165-1208`；auth boundary tests | covered |
+| migration 后所有长期 writer 共用脱敏 config owner | `main.py:2920` 及 agent sync/token/binder/migration owner；`test_channel_legacy_migration.py:188-267` | covered；但 migration **前** activation writer 有新 CRITICAL |
+| malformed manifest fail-closed | `channel_manifest_apply.py:151-263`；credential recovery malformed/open failure tests | covered |
+| cache commit projection/reload/retry/restart | `channel_control_store.py:1328-1401`、`channel_manifest_store.py:114-227`、`im_connection.py:519-587` | covered |
+| offline stale UI + pending/failed precedence | `agent-channels-panel.tsx:168-267`；panel tests `:269-344`；M5 browser evidence | covered |
+| bounded incarnation outbox | `channel_manifest_store.py:331-421`、`:515-521`；status outbox tests `:90-185` | covered |
+
+### 测试与门禁结果
+
+- M5 聚焦：31 passed（auth boundary、manifest validation、cache failure projection/recovery/retry、stale UI 相关后端、status outbox、测试大小 contract）。
+- 完整后端：`pytest -m 'not e2e' -q` → 3465 passed、1 skipped、20 deselected。
+- 完整前端：67 files / 625 tests passed；`npm run build` → 444 modules transformed，成功。验证 worktree 临时复用主仓 `node_modules`，随后移除 symlink。
+- Ruff：`ruff check src tests` → PASS。
+- `git diff --check origin/main...HEAD` → PASS；完整后端已包含 test naming/size contract。
+- 独立 secret 组合复验：legacy Feishu `appSecret` + 显式 agent skills 缺少 `feishu-doc` 时，自动激活返回 changed；普通 save 产生 1 个 backup，main 与 backup 均仍含 marker secret。该复验只写 `TemporaryDirectory`，未修改 source 或外部状态。
+
+## Coherence
+
+| design 决策 | 遵守? | 代码证据 |
+|---|---|---|
+| 1. 节点公钥信封，IM/cache 不持久明文，legacy 安全迁移 | **部分** | 信封、0600 cache、secure migration 已实现；但 `main.py:2915-2919` 在迁移前调用 ordinary writer，后者序列化 `appSecret` 并 backup：`local_store.py:637-647`、`:715-718`（CRITICAL-1） |
+| 2. desired/actual 分离、revision/CAS、独立短事务 | 是 | `channel_control_store.py` mutation/result/projection |
+| 3. IM 权威完整 manifest + Gateway 密文 cache/outbox | 是 | strict applier、retry manifest、result/status outbox |
+| 4. ChannelManager 唯一动态 lifecycle owner | 是 | reconcile/start/stop/retry 都经 `channel_manager.py` |
+| 5. 每 Bot 可终止 worker、三 lane、因果状态、有界 restart | 是 | worker + manager lifecycle failures suite |
+| 6. connection/diagnostics 分层、provider-owned probe | 是 | preflight/client/diagnostics + provider registry |
+| 7. 通用 REST/resource + 前端 provider registry | 是 | agent channel resource + descriptor dispatch |
+| 8. bootstrap、owner 隔离、legacy export | 是 | bind/store/export 主路径；仅安全迁移 writer 顺序计入决策 1 的 partial |
+| 9. 纵向 milestone 交付 | 是 | M1-M5 docs/tests/evidence 完整，验收 gate 因 CRITICAL 保持 fail |
+
+### Architecture coherence
+
+- `IM` 未 import `agent`；`personal_assistant` 产品边界仍仅经 `agent.sdk`，完整架构 contract 通过。
+- M5 把 Gateway WS tenant 校验提升到 dispatcher 公共入口，没有继续在各业务 handler 复制 owner 规则；bind 初始化再次查 durable owner，边界方向正确。
+- manifest prepare/reconcile、retry cache/applied projection 与 status outbox 仍各有单一 owner，未引入第二套生命周期或状态真相源。
+- **偏离：**composition root 在建立共享 `RuntimeConfigOwner` 和 legacy bootstrap migration 前先执行一个普通全量 YAML writer；这绕开了本 unit 已建立的 secret-bearing config 安全写边界。
+
+## Prototype / Reference Contract
+
+| Reference contract | M5 implementation / evidence | Status |
+|---|---|---|
+| `#channel-connected/#channel-limited` | live node online 保持 current；停止 Gateway 后同卡片降级 last-known；desktop screenshot | covered |
+| `#channel-pending/#channel-failed` | pending desired 与 durable apply failed 均优先于 stale snapshot；Vitest + evidence | covered |
+| `#channels-mobile` | 375×812 单列卡片、offline banner、last-known 时间和 actions 可见 | covered |
+| M1-M4 其余 must-match reference | 全量 frontend tests/build 与既有 durable evidence 未回退 | covered |
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+1. **legacy 飞书配置在 bootstrap migration 前可能先被普通配置写入器备份，迁移完成后磁盘仍永久保留明文 `appSecret`。** Gateway composition root 先调用 `ensure_feishu_doc_skill_for_feishu_agents()`；当 legacy `feishu:<agent>` 已启用、该 agent 使用非空显式 skills 且缺少 `feishu-doc` 时，它返回 changed，`build_runtime()` 随即调用 `save_local_config(config, config.source_path)`（`src/personal_assistant/main.py:2915-2919`）。此时 `config` 仍是 legacy 形态，因为创建共享 owner 和 channel bootstrap migration 都在后面（`:2920`、`:3373-3386`）。普通 writer 会原样序列化 channel settings 中的 `appSecret`（`src/personal_assistant/config/local_store.py:637-647`），并在覆盖默认主配置前把旧文件复制到 `backups/config.*.yaml.bak`（`:510-555`、`:715-718`）。后续 secure migration 只替换主文件且按设计不触碰既有 backup，所以这个副本永久留密。现有安全测试只直接调用 migration writer（`tests/unit/personal_assistant/test_sensitive_local_config.py:48-68`），M5 writer 测试也从“已经迁移”的 owner 开始，没有覆盖该 startup 顺序。本轮用临时默认 config 独立复现：`changed=True`、`backup_count=1`、`main_has_plaintext=True`、`backup_has_plaintext=True`。这直接违反 M4-E4、M4-E7 与 M5-E7。**修复：**在任何可能带 legacy secret 的配置上，禁止 migration 前调用 ordinary writer；可把 skill activation 也纳入共享 owner/安全 writer，或延迟持久化直到 bootstrap migration 同一原子变换中完成。补一个 composition-root 回归：legacy secret + 缺 `feishu-doc` 的显式 skills，执行真实 startup/bootstrap 后递归扫描整个 config 目录，断言主文件只含 `credentialRef`、无任何含 secret backup/temp、mode 为 `0600`，同时 skills 修改仍持久化。
+
+### WARNING（应该修）
+
+- 无。
+
+### SUGGESTION（可以修）
+
+- 无。
+
+1 critical issue(s) found. Fix before PR.
+
+# Round 4
+
+## Summary
+
+Mode: full
+
+Delta range: `e05d59c56344f3f45c74474416b16d126198445d..397701f78971d28482f67d289c957a95b7b5b25d`
+
+Focus issues: M6 的公共 sender identity / protocol terminal dequeue、安全 startup migration、断线内存 status queue、无 observed apply error、Reconnect、offline last-known/removal feedback，以及 M1-M5 回归。
+
+requires_full_verification: true
+
+Validated head: `a08ac99be47fcaf62aff44e812366f05cd62f8f6`（runtime code head `397701f78971d28482f67d289c957a95b7b5b25d`；后续提交仅补 M6 evidence）
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 39/45 个 milestone 退出标准被完整证实（文档勾选为 45/45）；M4-E4/M4-E7、M5-E7、M6 安全迁移、M6 status replacement 和 M6 聚合门禁未闭合 |
+| Correctness | 原始 6 个 Requirement / 20 个 Scenario 的主体实现仍完整；M6 sender、apply error、Reconnect 和 UI 恢复已闭合，但 2 个明确的 M6 hardening scenario 可在 validated head 独立复现失败 |
+| Coherence | 7/9 个编号关键决策完整遵守；安全迁移边界与因果 status/outbox 边界只有部分遵守 |
+
+结论：**FAIL**。2 个 CRITICAL；修复后必须再次 full verification，不可进入 PR。
+
+## Round 3 问题复核
+
+| Round 3 问题 | Round 4 结果 | 证据 |
+|---|---|---|
+| CRITICAL-1：skill activation 在 legacy migration 前用普通 writer 生成新的含密 backup | specific reproduction closed | `RuntimeConfigOwner` 在 activation 前建立，activation 与 bootstrap cleanup 均使用 sensitive writer：`src/personal_assistant/main.py:2915-2924`、`:3377-3390`；真实 composition-root 回归见 `tests/unit/personal_assistant/test_builtin_skill_bootstrap.py:64-139` |
+| M6-E2 的递归零明文目录保证 | still open | sensitive writer 只安全替换主文件并清理自己的 temp，不处理启动前已经存在的 `backups/config.*.yaml.bak`：`src/personal_assistant/config/local_store.py:721-761`；详见本轮 CRITICAL-1 |
+
+## Completeness
+
+- Tasks：M1 8/8、M2 8/8、M3 8/8 保持 covered。M4 为 5/7（E4/E7 未闭合）；M5 为 7/8（E7 full gate 未闭合）；M6 为 3/6（安全迁移、断线 replacement、聚合 gate 未闭合）。文档中的 45 项均被勾选，但实现证据只支持 39 项。
+- Spec：通用多 provider 通道页、不展示 Web IM、简短飞书开放平台指引、在线/离线配置、权限不足降级与缺项展示、生命周期和跨 owner bind 的 20 个原始 Scenario 均未在 M6 delta 中回退。
+- M6 design：E1、E4、E5、E6 有生产实现、永久 regression 或真实产品证据；E2/E3 可稳定反例；E7 因 secret scan 和 full verifier 失败而不成立（`design.md:706`）。
+- Prototype / Reference：已检查 M6 四张 headed Chromium 截图及 README；Connected→Reconnect、375×812 offline failed last-known、offline removal waiting、恢复后空态清警报均与对应 prototype anchor 对齐，截图未暴露完整凭据。
+
+## Correctness
+
+| Requirement / Scenario | Round 4 证据 | 状态 |
+|---|---|---|
+| 公共 Gateway sender 为所有 guarded frame 注入当前 node identity | 最终 wire sender 强制覆盖 `node_id`：`src/personal_assistant/ws/im_connection.py:1140-1153`；永久测试枚举 server guard 的 21 个生产 frame type | covered |
+| generic protocol error terminal dequeue、失败 waiter、继续 FIFO | `im_connection.py:1105-1120`、`:1214-1236`；聚焦 FIFO regression 通过 | covered |
+| legacy startup 的 activation 与 bootstrap cleanup 不再新建明文 backup | composition root 统一 sensitive owner/writer；`test_builtin_skill_bootstrap.py:64-139` | covered for newly-created files |
+| startup/bootstrap 后配置目录递归不存在 legacy secret | writer 不清理升级前已有的含密 backup；预置 backup 的真实 startup/bootstrap 后 marker 仍存在 | **critical** |
+| offline replacement 只保留当前 incarnation，重连不重放 superseded status | queue 明确保留所有 `sent=True` 的同 channel status；断线后新 incarnation 只能合并 unsent tail | **critical** |
+| 无 observed row 的 durable apply error 投影 failed；同 revision 成功清错 | `src/IM/infra/channel_control_store.py:1345-1408`；projection regressions | covered |
+| Connected → Reconnect 使用真实 HTTP/WS 并保持同 revision | reconnect 查询补齐 manifest head 字段：`channel_control_store.py:1190-1213`；integration `test_channel_removal_reconcile.py:55-239` 返回 200 并下发 revision 1 frame | covered |
+| offline connected/limited/failed 为 last-known；pending/apply failure 优先 | `agent-channels-panel.tsx:168-229`；frontend 状态矩阵 tests + desktop/mobile evidence | covered |
+| offline removal retry 为等待节点文案，成功后 card/alert 同时消失 | frontend mutation/receipt tests、真实 mobile waiting 与 applied-empty evidence | covered |
+
+### M6 边界复验
+
+| M6 保证 | 实现/永久回归 | 本轮结果 |
+|---|---|---|
+| sender identity + terminal FIFO | 单一 `_send_frame` 覆盖 identity；generic error 释放 head | covered |
+| safe startup migration | 新写入路径安全，主文件 `0600`；回归从干净 config 目录开始 | **partial**：已有含密 backup 不清理 |
+| disconnected current-incarnation coalescing | `_queue_pending_frame()` 只删除 `sent=False` 的同 channel status；现有测试只在首次连接前构造全部 unsent queue | **critical** |
+| apply error without observed + clear | durable head error 先于 observed 判定；同 revision applied 清除 | covered |
+| reconnect / offline / removal product recovery | HTTP/WS integration、Vitest、4 张真实浏览器截图 | covered |
+| aggregate gates | focused/full suites、Ruff、frontend test/build、test-size、diff check 通过 | **failed**：独立 secret scan 与 queue causality 反例 |
+
+### 测试与门禁结果
+
+- 聚焦后端：65 passed（sender/FIFO、status protocol、bootstrap、apply projection、真实 reconnect/removal、auth boundary、credential/cache/outbox/migration recovery、test naming/size contract）。
+- 完整后端：`pytest -q -m 'not e2e'` → 3469 passed、1 skipped、20 deselected。
+- 完整前端：67 files / 626 tests passed；`npm run build` → 444 modules transformed。验证 worktree 临时复用主仓 `node_modules`，命令退出时已移除 symlink。
+- Ruff：`ruff check src tests` → PASS。
+- `git diff --check origin/main...HEAD` → PASS；worktree source 状态干净，完整后端包含测试命名/大小 contract。
+- 独立 status queue 复验：socket 1 发出 `old/inc-old` 后在 result 前断线，再离线入队 `new/inc-new`；队列为 `[(old, sent=True), (new, sent=False)]`，socket 2 重连后的首个 status 仍为 `old/inc-old`。
+- 独立 secret 复验：预先在默认配置目录放入一份含 legacy marker 的 `backups/config.preexisting.yaml.bak`，再执行真实 `build_runtime → bootstrap provider → applied handler`；主文件正确变为 `0600 + credentialRef`，但递归扫描仍命中该 backup。
+
+## Coherence
+
+| design 决策 | 遵守? | 代码证据 |
+|---|---|---|
+| 1. 节点公钥信封，IM/cache 不持久明文，legacy 安全迁移 | **部分** | 新 activation/bootstrap 写入已统一 sensitive writer；该 writer 不审计/清理已有 config backups（CRITICAL-1） |
+| 2. desired/actual 分离、revision/CAS、独立短事务 | 是 | channel control mutation/result/projection 与 reconnect query |
+| 3. IM 权威完整 manifest + Gateway 密文 cache/outbox | 是 | strict manifest applier、retry manifest、durable result/status outbox |
+| 4. ChannelManager 唯一动态 lifecycle owner | 是 | reconcile/start/stop/retry 仍统一经 manager |
+| 5. 每 Bot 可终止 worker、三 lane、因果 status、有界 restart | **部分** | 持久 outbox 有界；但内存 FIFO 在断线 replacement 后保留旧 sent incarnation 并先重放（CRITICAL-2） |
+| 6. connection/diagnostics 分层、provider-owned probe | 是 | preflight/client/diagnostics 与 capability catalog 未回退 |
+| 7. 通用 REST/resource + 前端 provider registry | 是 | agent channel API + descriptor-driven UI |
+| 8. bootstrap、owner 隔离、legacy export | 是 | bootstrap/cache/binding/export 主路径均保持 |
+| 9. 纵向 milestone 交付 | 是 | M1-M6 docs/tests/evidence 均存在；验收 gate 如实保持 fail |
+
+### Architecture coherence
+
+- `IM` 未 import `agent`；`personal_assistant` 产品依赖边界和完整 contract suite 均通过。
+- M6 把 node identity 放在唯一 wire sender，而不是要求每个 producer 自行补字段；generic protocol rejection 也在 FIFO owner 内处理，方向正确。
+- apply error、reconnect SQL、offline projection 和 removal receipt 仍各自服从已有状态真相源，没有引入第二套 revision 或 UI 私有成功态。
+- **偏离 1：**安全 writer 只保证“本次不创建含密 backup”，没有完成 design 要求的升级后整个配置目录零明文。
+- **偏离 2：**内存 FIFO 把“已写 socket 但未收到 result”永久视为必须重放，即使同 channel 的 runtime 已被新 incarnation 替代；这与持久 outbox 的 current-incarnation 因果模型不一致。
+
+## Prototype / Reference Contract
+
+| Reference contract | M6 implementation / evidence | 状态 |
+|---|---|---|
+| `#channel-reconnecting` | Connected 点击真实 Reconnect 后 HTTP 200，页面进入 Connecting，无版本文案 | covered |
+| `#channel-failed/#channels-mobile` | 375×812 offline failed 显示 Node offline + Last known status，而非当前失败结论 | covered |
+| `#channel-deleting` | offline Retry 显示等待节点；恢复 applied 后空态无旧 alert | covered |
+| M1-M5 其余 must-match reference | 完整 frontend tests/build 与既有 evidence 未回退 | covered |
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+1. **legacy migration 只阻止新建含密 backup，不会清理升级前已经存在的明文 backup，因此真实老用户启动后仍可能永久保留 `appSecret`。** M6 已把 skill activation 和 bootstrap cleanup 都改为 `save_sensitive_local_config`（`src/personal_assistant/main.py:2915-2924`、`:3377-3390`），关闭了 Round 3 的“本次启动新建 backup”复现；但 sensitive writer 只创建 mode-0600 temp、replace 主文件并删除自己的 temp（`src/personal_assistant/config/local_store.py:721-761`），完全不处理 `backups/`。普通 writer 的历史行为会保留最多 30 个 `backups/config.*.yaml.bak`（`:506-561`），而 legacy YAML 本来允许这些文件包含 `appSecret`。现有 composition-root 回归从空目录开始，并且显式断言没有 backup（`tests/unit/personal_assistant/test_builtin_skill_bootstrap.py:64-139`），因此无法发现升级场景。本轮预置一份含 marker 的历史 backup 后执行同一真实 startup/bootstrap：主文件已正确迁移且 mode `0600`，但 `secret_hits_after_migration=['backups/config.preexisting.yaml.bak']`。这直接违反 M4-E4 和 M6-E2 的“递归扫描 config 目录无 secret backup/temp”。**修复：**成功迁移 legacy credential 时，在不记录 secret 的前提下安全审计已知 config backup 目录，删除或原子脱敏所有仍含 legacy channel secret 的历史 backup，并 fsync 目录；保留不含 secret 的普通备份。增加预置含密 backup 的真实 composition-root regression，迁移后递归扫描必须零命中。
+
+2. **断线前已写出但未收到 result 的旧 `channel.status` 不会被新 runtime incarnation 淘汰，重连会先重放 superseded 状态。** `_queue_pending_frame()` 的合并条件显式保留所有 `queued.sent` frame（`src/personal_assistant/ws/im_connection.py:415-451`）；断线只清空 `_awaiting_ack_type`，不会重置或移除该 head（`:1310-1336`）；重连 `_flush_pending_frames()` 直接发送队首并再次标记 sent（`:1123-1138`）。因此 old status 写到 socket 1 后断线、offline replacement 入队 new status 时，队列仍是 old+new，socket 2 首先收到 old incarnation。现有 regression 名称声称 current incarnation survives，但只在首次 connect 前构造全部 `sent=False` 的 40 个状态（`tests/unit/personal_assistant/test_channel_status_protocol.py:209-281`），没有覆盖这个生产序列。这违反 M6-E3 的“只保留当前 incarnation、重连不发 superseded status”，并可能让 IM 在旧 send 从未落库时短暂重新建立已退役 runtime 的 observed 状态。**修复：**当连接已断且同 channel 的新 incarnation 到来时，连同 sent-but-unacknowledged 的旧 status 一并退休，同时不触碰其他 message FIFO；旧 request 的迟到 result 必须幂等忽略。补双 socket 永久回归：old 已 send → disconnect before result → enqueue new incarnation → reconnect，断言 wire 上只出现 new status，队列有界且后续非 status frame 顺序不变。
+
+### WARNING（应该修）
+
+- 无。
+
+### SUGGESTION（可以修）
+
+- 无。
+
+2 critical issue(s) found. Fix before PR.
+
+# Round 5
+
+## Summary
+
+Mode: full
+
+Delta range: `fb8308ae8ca6fb980fb748b9fb74140385edb8b5..c5b7b3c9240577aebede8064d6ad02d0545b57a7`
+
+Focus issues: M7 的 wire-send/in-flight ownership、断线 current-incarnation replay、register/heartbeat control correlation、removal response-lost 自动收敛，以及 v15 非 legacy 范围下 M1-M6 回归。
+
+requires_full_verification: true
+
+Validated head: `c93063c02cf3049f6cdb9f23a13f870b096ad994`（runtime code head `c5b7b3c9240577aebede8064d6ad02d0545b57a7`；后续提交仅收窄 v15 scope docs）
+
+Scope override: 按用户明确决定与 design v15，旧 `config.yaml`、历史 backup、standalone YAML、自动迁移/清理和 legacy export 均不属于本轮或本 unit 最终门禁；Round 4 的 historical plaintext backup 不再作为 issue 或退出标准。当前安全核对只覆盖经 IM 新建/更新的 channel 不向 `config.yaml` 写入 App Secret。
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 44/48 个 v15 in-scope milestone 退出标准被完整证实（原 tasks 文档 50/50 勾选；M5 legacy writer 与 M6 legacy startup 两个完整条目按 v15 排除） |
+| Correctness | 原始 6 个 Requirement / 20 个 Scenario 的主体实现仍完整；M7 四个当前重点中 disconnect replay 与 removal recovery 闭合，wire-send result ownership 和 heartbeat ACK correlation 仍有同一个可复现竞态 |
+| Coherence | 8/9 个编号关键决策完整遵守；决策 5 的单一因果 wire owner 在 response-during-send 时段没有闭合 |
+
+结论：**FAIL**。1 个 CRITICAL；修复后必须再次 full verification，不可进入 PR。
+
+## Round 4 问题复核
+
+| Round 4 问题 | Round 5 结果 | 证据 |
+|---|---|---|
+| CRITICAL-1：升级前历史 backup 仍含 legacy secret | removed from current scope | 用户明确不要求旧配置/backup 兼容、迁移或清理；design v15 scope override 与 Gateway delta 已移除该承诺，本轮不把它计入 issue、task 或 gate |
+| CRITICAL-2：断线前 sent/unacked 的旧 incarnation 在新 socket 重放 | closed | pending queue 与 wire owner 已分离；断线时若同 channel pending 已有新 incarnation，旧 owner 被标记 superseded 而不重排：`src/personal_assistant/ws/im_connection.py:1407-1460`；two-socket 永久回归见 `tests/unit/personal_assistant/test_gateway_status_frame_ownership.py:111-201` |
+
+## Completeness
+
+- Tasks：M1 8/8、M2 8/8、M3 8/8、M4 7/7 在 v15 保留范围内 covered；M5 排除完整 legacy writer 条目后 7/7；M6 排除完整 legacy startup 条目后为 4/5（generic protocol result/error 在 send yield 内仍可能丢失）；M7 为 2/5（current-incarnation reconnect 与 removal recovery covered，wire ownership/control correlation/aggregate gate 未闭合）。合计 44/48。
+- Spec：通用多 provider 通道页、不展示 Web IM、轻量开放平台链接、在线/离线保存、凭据不回显、权限受限降级与逐项缺失、生命周期、历史保留和跨 owner bind 的 20 个原始 Scenario 均有生产实现与永久测试。
+- 当前凭据边界：IM create/update 只把 `app_secret` 交给 channel control service 做 envelope sealing，读取投影只有 `secret_configured`（`src/IM/api/routes/agent_channels.py:47-87`、`:207-258`）；managed manifest/cache 路径不把 IM channel secret 写入 Gateway `config.yaml`。不验证旧 YAML 的任何兼容行为。
+- Prototype / Reference：M7 的 `#channel-deleting/#channels-empty` 均投影到 tasks、progress、永久 Vitest 与 durable screenshot；已检查 1440×1000 production 截图，最终只有通用空态，无 Web IM、旧 alert、waiting notice 或 retry button。
+
+## Correctness
+
+| Requirement / Scenario | Round 5 证据 | 状态 |
+|---|---|---|
+| status 在 send yield 前获得独占 owner，不会被 pending coalesce 删除 | flush 先 pop pending 并建立 `WireFrameOwner(phase="sending")`，再 await send：`im_connection.py:1167-1210`；yield/coalesce regression | covered for coalescing |
+| status result 只释放同 request，后继不阻塞 | request/type matching 正确，但 response 在 owner 仍为 `sending` 时被直接忽略且永久丢失 | **critical** |
+| disconnect 后新 incarnation 淘汰 old sent/unacked，新 socket 只发 current | `im_connection.py:473-485`、`:1407-1460`；two-socket + late old result regression | covered |
+| register ACK 前不 flush 业务 FIFO | `_registered=False` gate 与 control priority：`im_connection.py:291-297`、`:1167-1184`；register error reconnect regression | covered |
+| register/heartbeat error 不误弹业务队首/waiter | single wire owner 能隔离正常时序，但 heartbeat ACK/error 在 `websocket.send()` 尚未返回时同样被忽略，导致假 timeout/断线 | **critical** |
+| removal retry response-lost 后 receipt polling 为空即清旧 error/notice | feedback 绑定 removal id，resource 消失时 effect 清理：`agent-channels-panel.tsx:584-585`、`:701-737`；永久 Vitest + production screenshot | covered |
+| M1-M6 当前非 legacy 用户旅程 | focused/full evidence、完整 frontend、既有 integration/contract 与历轮 evidence | covered；仅 M6 terminal response 的 send-yield 边界被本轮 CRITICAL 重新打开 |
+
+### M7 边界复验
+
+| M7 保证 | 实现/永久回归 | 本轮结果 |
+|---|---|---|
+| in-flight status 不被 coalesce；result 同 request | pending/wire owner 分离；现有测试在 send 返回后才注入 result | **partial / critical**：send yield 内到达的 result 被消费但不释放 owner |
+| two-socket reconnect only current | disconnect supersede + request correlation regression | covered |
+| register/heartbeat 独立 owner，ACK/error 不伤业务 | register ACK gate 与 control lane 已实现；正常/拒绝 tests 通过 | **partial / critical**：heartbeat ACK 在 send yield 内丢失并超时 |
+| response-lost removal 自动进入无残影 empty | removal-owned error/notice effect + Vitest/browser | covered |
+| aggregate gates | focused、frontend、build、Ruff、size、diff 通过；worker full evidence 通过 | **failed**：本轮独立 wire race 反例；需修复后 full verifier |
+
+### 独立协议竞态复验
+
+本轮使用一个 deterministic fake socket：它先把 status/heartbeat 帧记录为“transport 已可见”，随后让 `websocket.send()` 保持 await；同时由 listener 收到对应 result/ACK，最后才释放 send。
+
+- status：result 到达时 owner phase 为 `sending`；handler 未调用；send 返回后 owner 仍为 `('status-early', 'awaiting_result')`，且该唯一 result 已被消费。
+- heartbeat：匹配 ACK 在 send yield 内到达后仍触发 `TimeoutError: IM heartbeat ack timed out`；owner 留在 `('node.heartbeat', 'awaiting_result')`。
+- 该交错是 asyncio 双任务的合法生产时序：发送协程在 transport drain 上 yield 时，独立 recv/listener 可以先处理服务端响应。它不是对 private coalesce 实现的假设。
+
+### 测试与门禁结果
+
+- M7/相关聚焦后端：53 passed（status ownership、control correlation、status protocol、connection behavior/resilience、reconcile callback、真实 reconnect/removal、test-size contract）。
+- 完整后端在本轮 managed sandbox：3460 passed、1 skipped、20 deselected；13 个失败均来自当前沙箱禁止 `ps/pgrep`、子进程操作或外网 DNS（与 M7 delta 无关）。M7 progress 在同一 runtime head 记录的非受限完整门禁为 3473 passed、1 skipped、20 deselected。
+- 完整前端：68 files / 627 tests passed；`npm run build` → 444 modules transformed。
+- Ruff：`ruff check src tests` → PASS；`git diff --check origin/main...HEAD` → PASS。
+- 新增 backend tests 分别 233/227 行，修改后的 `test_channel_status_protocol.py` 为 396 行，新 frontend regression 85 行；test naming/size contract 在聚焦套件中通过。
+- worktree 原有未跟踪 `output/` 未触碰；frontend `node_modules` 临时 symlink 已由命令 trap 清理。
+
+## Coherence
+
+| design 决策 | 遵守? | 代码证据 |
+|---|---|---|
+| 1. IM channel credential 使用节点公钥信封，读取面不透明 | 是 | IM create/update → envelope；GET/list 仅 `secret_configured`；不扩张到已排除 legacy YAML |
+| 2. desired/actual 分离、revision/CAS、独立短事务 | 是 | channel control mutation/result/projection |
+| 3. IM 权威完整 manifest + Gateway 密文 cache/outbox | 是 | strict manifest、retry result/status outbox |
+| 4. ChannelManager 唯一动态 lifecycle owner | 是 | reconcile/start/stop/reconnect 统一经 manager |
+| 5. 每 Bot 可终止 worker、三 lane、因果 status 与 wire correlation | **部分** | queue/wire owner 分离与 disconnect supersede 正确；response handlers 排除 `sending` owner，造成合法早到响应丢失（CRITICAL-1） |
+| 6. connection/diagnostics 分层、provider-owned probe | 是 | preflight/client/diagnostics 与 catalog 未回退 |
+| 7. 通用 REST/resource + provider registry | 是 | agent channel API + descriptor-driven UI |
+| 8. control-plane initialization 只建立 IM managed head；不承诺旧 YAML | 是 | design v15 与 Gateway delta 对齐；当前核对不要求 migration/export |
+| 9. 纵向 milestone 交付 | 是 | M1-M7 docs/tests/evidence 齐备；gate 因真实协议竞态保持 fail |
+
+### Architecture coherence
+
+- `IM` 未 import `agent`；`personal_assistant` 产品边界仍只经 `agent.sdk`，依赖方向未改变。
+- M7 使用一个公共 wire owner 承载 control/business 因果归属，没有为 status、register、heartbeat 各造平行 FIFO；方向与 design 一致。
+- removal 临时反馈以 durable receipt resource 为 owner，没有把 mutation response 提升成第二真相源。
+- **偏离：**owner 在 send 前已建立，但 response side 只承认 send 返回后的 `awaiting_result` phase；因此“wire 已可见”与“可接收响应”的边界不一致，单一 owner 在最关键的 yield 窗口并不真正拥有响应。
+
+## Prototype / Reference Contract
+
+| Reference contract | M7 implementation / evidence | 状态 |
+|---|---|---|
+| `#channel-deleting` | retry response lost 后继续以 receipt 为最终事实；polling 消失时反馈同步消失 | covered |
+| `#channels-empty` | production screenshot 显示唯一通用空态，alerts/waiting/retryButtons 均为 0，不展示 Web IM | covered |
+| M1-M6 其余 must-match reference | 完整 frontend tests/build 与既有 durable evidence未回退 | covered |
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+1. **服务端响应若在 `websocket.send()` yield 期间到达，会被 listener 永久丢弃，导致 status FIFO 卡死或 heartbeat 假超时断线。** M7 正确地在第一次 await 前建立 `WireFrameOwner(phase="sending")`（`src/personal_assistant/ws/im_connection.py:1185-1194`），但三个 response 入口都只接受 `phase == "awaiting_result"`：普通 ACK `:1242-1251`、correlated channel result `:1259-1282`、generic error `:1295-1305`。只有 send 返回后才把 phase 改成 awaiting（`:1208-1210`）。真实异步 socket 上，发送方可能已经把 frame 交给 transport、随后在 drain 上 yield；recv task 可以在 send coroutine 恢复前拿到服务端 ACK/result/error。此时当前实现消费该响应但返回 no-op，send 结束后 owner 进入 awaiting，永远等不到已被消费的唯一响应。本轮 deterministic 复现得到 `phase_when_result_arrived=sending`、`resolved=[]`、`owner_after_send=('status-early','awaiting_result')`；heartbeat 的同序列得到匹配 ACK 已接收但仍 `TimeoutError IM heartbeat ack timed out`。现有 status ownership regression 只在 `await asyncio.gather(old_send, new_send)` 之后才注入 result（`tests/unit/personal_assistant/test_gateway_status_frame_ownership.py:47-105`），control tests 也没有 response-during-send 交错。该缺口直接违反 M7-E1/M7-E3，并重新破坏 M6-E1 的 terminal result 保证。**修复：**让 wire owner 从 frame 对 transport 可见开始就能接收匹配响应，但不要在 send coroutine 返回前破坏 owner identity；可在 owner 上记录 deferred terminal response/error，send 完成后原子结算、唤醒 waiter并 flush next，或使用独立 response future/状态机表达 `sending_with_response`。新增 deterministic regressions：fake send 先记录 frame 再 await barrier，listener 在 barrier 内分别送 status result、heartbeat ACK 和 generic error；断言正确 owner 最终只结算一次、wrong request/type 仍 no-op、后继 business FIFO继续、heartbeat 不超时且不误伤业务 waiter。
+
+### WARNING（应该修）
+
+- 无。
+
+### SUGGESTION（可以修）
+
+- 无。
+
+1 critical issue(s) found. Fix before PR.
+
+# Round 6
+
+## Summary
+
+Mode: targeted-closure
+
+Delta range: working tree on `c93063c02cf3049f6cdb9f23a13f870b096ad994`
+
+Focus issues: Round 5 response-during-send CRITICAL；control rejection reconnect backoff；register send/ACK liveness deadline；offline removal waiting notice after node recovery。
+
+requires_full_verification: false
+
+Execution note: 用户明确要求本轮结束后不再派发 subagent；本轮由 orchestrator 亲自按 verifier 与 code-review closure 清单完成，只修改本报告，不冒充独立 reviewer 结论。
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 4/4 closure items complete |
+| Correctness | 4/4 focused regressions covered；相关面 60/60，最终 wire/liveness suite 6/6 |
+| Coherence | Followed；继续使用单一 wire owner、既有 run_forever backoff 与 removal receipt 真相源 |
+
+结论：**PASS**。Round 5 的 1 个 CRITICAL 及同轮 code-review 的 3 个关联问题均关闭；未发现新的 CRITICAL/WARNING/SUGGESTION。
+
+## Focus issue closure
+
+| Finding | 结论 | 代码与回归证据 |
+|---|---|---|
+| response 在 `websocket.send()` yield 期间被丢弃 | closed | wire owner 仍在 send 前建立；ACK、correlated result 与 generic error 不再排除 `sending` owner，send 返回时只在 owner 尚未被终态响应释放时转为 `awaiting_result`：`src/personal_assistant/ws/im_connection.py:1245-1289`、`:1321-1371`、`:1373-1397`。deterministic transport-visible/send-yield 回归覆盖 status result 与 heartbeat ACK：`tests/unit/personal_assistant/test_gateway_wire_liveness.py:72-149`。 |
+| register/heartbeat protocol rejection 正常 return 绕过 reconnect backoff | closed | frame handler 断开后，`run_forever()` 把 disconnected normal return 提升为 transient connection failure，再进入既有 `_sleep_until_stop` 与指数退避；退避只在 register ACK 后重置：`src/personal_assistant/ws/im_connection.py:562-605`、`:754-762`。回归断言首个 reconnect 前必先 sleep：`tests/unit/personal_assistant/test_gateway_wire_liveness.py:152-199`。 |
+| live socket 永不返回 register ACK 会永久冻结业务 FIFO | closed | `registration_ack_timeout_seconds` 默认 10 秒；同一 handshake deadline 同时覆盖 register send backpressure 与 ACK wait，deadline 在 ACK 收到时结束，不会取消其后的 convergence callback：`src/personal_assistant/ws/im_connection.py:163-203`、`:343-395`、`:609-629`、`:734-745`。send timeout、ACK timeout、post-ACK slow callback 三条回归：`tests/unit/personal_assistant/test_gateway_wire_liveness.py:202-304`。 |
+| 离线 retry waiting notice 在节点恢复后的在线 retry/error 仍残留 | closed | online retry 发起前清除旧 notice；非-offline error 也 fail-safe 清除，resource 消失仍由既有 receipt-owned effect 收敛：`src/IM/frontend/src/features/settings/agents/agent-channels-panel.tsx:701-734`、`:793-807`。offline→online→generic error 回归：`src/IM/frontend/src/features/settings/agents/agent-channels-removal-recovery.test.tsx:86-121`。 |
+
+## Correctness and regression evidence
+
+- 新增永久 backend regression：`tests/unit/personal_assistant/test_gateway_wire_liveness.py`，304 行，覆盖 early status result、early heartbeat ACK、control rejection backoff、register ACK timeout、register send timeout、ACK 后慢 convergence 不被误取消；新文件符合 400 行约束。
+- 聚焦相关面：status ownership、control correlation、connection behavior/resilience、status protocol、reconcile callback 与 channel reconcile/bootstrap/removal integration 共 `60 passed`；最终 wire/liveness + ownership/control/resilience closure 为 `21 passed`。
+- 完整前端：68 files / `628 passed`；相关 channels panel/removal suite `15 passed`。新增回归先稳定复现 waiting notice 与 generic error 同时存在，修复后只保留 error。
+- 完整后端先在 managed sandbox 得到 `3466 passed, 1 skipped, 20 deselected`，失败集合为 13 个依赖 `ps/pgrep`、进程/子进程或外网 DNS 的用例；开放权限后按 `.pytest_cache` 的精确 last-failed 清单复跑，`13 passed`（24.64s）。同一实现上的分段全量门禁因此闭合为 `3479 passed, 1 skipped, 20 deselected`；本轮新增 6 个 backend tests 也全部通过。
+- Ruff `src tests` PASS；test naming/size contract `2 passed`；`git diff --check` PASS。
+
+## Coherence
+
+- response closure 继续复用一个 `WireFrameOwner`，没有为 status/heartbeat 另造 FIFO；pending coalescing、disconnect incarnation supersede 和 result correlation 仍保持 M7 的单一因果模型。
+- registration deadline 落在 IM connection lifecycle owner，不进入 channel manager 或前端；reconnect backoff 仍由 `run_forever()` 唯一负责，并只在 IM 确认 register identity 后重置。
+- removal UI 仍以 durable removal receipt 是否存在为最终事实；本轮只修正瞬时 waiting/error 的 owner 切换，没有引入客户端成功态或版本概念。
+- `IM`/Gateway/agent 依赖方向未变化；本 delta 不新增跨包 import、跨机文件访问或平行配置源。
+
+## Issues
+
+### CRITICAL
+
+- 无。
+
+### WARNING
+
+- 无。
+
+### SUGGESTION
+
+- 无。
+
+All checks passed. Ready for PR.

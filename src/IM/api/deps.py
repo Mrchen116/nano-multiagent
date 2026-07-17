@@ -1,12 +1,16 @@
 """Dependency helpers for IM API routes."""
 
 import asyncio
+import concurrent.futures
 import os
+from collections.abc import Coroutine
+from typing import Any
 
 from fastapi import Depends, HTTPException, Request, status
 
 from IM.application.auth_service import AuthService, InvalidTokenError
 from IM.application.bind_service import BindService
+from IM.application.channel_control_service import ChannelControlService
 from IM.application.config_service import ConfigService
 from IM.application.event_service import EventService
 from IM.application.metrics_service import MetricsService
@@ -26,6 +30,8 @@ from IM.infra.repositories import (
     UsageMetricsRepository,
     UserRepository,
 )
+from IM.infra.binding_store import BindingStore
+from IM.infra.channel_control_store import ChannelManifest
 from IM.ws.gateway_handler import GatewayHandler
 
 
@@ -152,9 +158,49 @@ def get_bind_service(request: Request) -> BindService:
         nodes=_build_node_repository(request),
         binds=_build_bind_repository(request),
         profiles=_build_profile_repository(request),
+        binding_store=getattr(
+            request.app.state,
+            "binding_store",
+            BindingStore(request.app.state.db_path),
+        ),
         bind_base_url=os.getenv(
             "IM_BIND_BASE_URL", "http://127.0.0.1:8011/bind/confirm"
         ),
+    )
+
+
+def get_channel_control_service(request: Request) -> ChannelControlService:
+    """Return the app's independent external-channel control boundary."""
+    handler = get_gateway_handler(request)
+    event_loop: asyncio.AbstractEventLoop | None = getattr(
+        request.app.state, "event_loop", None
+    )
+
+    def run_live(coroutine: Coroutine[Any, Any, bool]) -> bool:
+        if event_loop is None or event_loop.is_closed():
+            return False
+        future = asyncio.run_coroutine_threadsafe(coroutine, event_loop)
+        try:
+            return bool(future.result(timeout=5))
+        except (concurrent.futures.TimeoutError, RuntimeError):
+            return False
+
+    def notify(manifest: ChannelManifest) -> bool:
+        return run_live(handler.push_channel_reconcile(manifest))
+
+    def reconnect(node_id: str, channel_id: str, channel_revision: int) -> bool:
+        return run_live(
+            handler.push_channel_reconnect(
+                target_node_id=node_id,
+                channel_id=channel_id,
+                channel_revision=channel_revision,
+            )
+        )
+
+    return ChannelControlService(
+        request.app.state.channel_control_store,
+        manifest_notifier=notify,
+        reconnect_notifier=reconnect,
     )
 
 

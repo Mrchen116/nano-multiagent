@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>feat-469 — Web IM 粘贴图片附件原型</title>
+  <style>
+    :root { --ink:#15202b; --muted:#68727d; --line:#d6dde4; --panel:#f7f9fb; --side:#151d21; --teal:#18a99a; --danger:#b42318; }
+    * { box-sizing: border-box; }
+    body { margin:0; font:14px/1.45 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color:var(--ink); background:#e8edf1; }
+    button, textarea { font:inherit; }
+    .note { padding:10px 16px; background:#fff7d6; border-bottom:1px solid #eadca7; color:#5c4a10; }
+    .controls { display:flex; flex-wrap:wrap; gap:8px; padding:12px 16px; background:white; border-bottom:1px solid var(--line); }
+    .controls button { border:1px solid var(--line); border-radius:9px; background:white; padding:7px 11px; cursor:pointer; }
+    .controls button:hover { border-color:var(--teal); color:#08796f; }
+    .app { height:760px; max-width:1280px; margin:20px auto; display:grid; grid-template-columns:250px 1fr; overflow:hidden; border-radius:12px; box-shadow:0 18px 55px #2b394326; background:white; }
+    .side { background:var(--side); color:white; padding:18px 12px; }
+    .side h1 { font-size:15px; margin:0 0 24px; }
+    .side .search { padding:10px; color:#879198; background:#242e33; border-radius:8px; }
+    .thread { margin-top:18px; padding:12px; background:#1c292d; border:1px solid #177d75; border-radius:9px; }
+    .main { position:relative; display:flex; flex-direction:column; background:#e5eaee; }
+    .header { height:64px; display:flex; align-items:center; gap:11px; padding:0 20px; background:#f7f9fb; border-bottom:1px solid var(--line); }
+    .avatar { width:34px; height:34px; border-radius:50%; display:grid; place-items:center; background:#9958bd; color:white; font-weight:800; }
+    .messages { flex:1; padding:30px; display:flex; flex-direction:column; justify-content:flex-end; gap:16px; overflow:hidden; }
+    .bubble { max-width:65%; padding:12px 14px; border-radius:16px; background:#d9dfe3; }
+    .bubble.mine { margin-left:auto; background:#008f80; color:white; }
+    .composer { background:#f8fafb; border-top:1px solid var(--line); padding:14px 16px 12px; }
+    .chips { min-height:0; display:flex; gap:8px; padding-bottom:0; transition:.15s; }
+    .chips.has { padding-bottom:10px; }
+    .chip { position:relative; width:64px; height:64px; overflow:hidden; border:1px solid var(--line); border-radius:8px; background:linear-gradient(135deg,#8ad1e3,#385678); }
+    .chip.second { background:linear-gradient(135deg,#f6c45f,#9e5c25); }
+    .chip::before { content:""; position:absolute; inset:13px 10px 8px; background:#ffffff44; clip-path:polygon(0 100%,33% 46%,52% 66%,72% 28%,100% 100%); }
+    .remove { position:absolute; top:2px; right:3px; width:19px; height:19px; border:0; border-radius:50%; color:white; background:#172027cc; cursor:pointer; }
+    .row { display:flex; gap:9px; align-items:end; }
+    textarea { flex:1; min-height:68px; resize:none; border:1px solid var(--line); border-radius:10px; background:#f8fafb; padding:12px; outline:none; }
+    textarea:focus { border-color:#62bdb5; box-shadow:0 0 0 3px #1aa99a1c; }
+    .send { width:44px; height:44px; border:0; border-radius:11px; color:white; background:#79c5bd; font-size:20px; }
+    .help { margin:7px 0 0; color:var(--muted); font-size:12px; }
+    .status { margin-left:auto; font-size:12px; color:var(--muted); }
+    .toast { display:none; position:absolute; left:16px; top:16px; max-width:330px; padding:12px 42px 12px 14px; background:white; border:1px solid #df7c73; border-radius:15px; box-shadow:0 12px 35px #21313b28; z-index:5; }
+    .toast.show { display:block; }
+    .toast strong { color:var(--danger); display:block; font-size:12px; }
+    .toast p { margin:3px 0 0; font-size:12px; color:#4c5861; }
+    .toast button { position:absolute; right:10px; top:10px; border:0; background:transparent; cursor:pointer; color:#77818a; }
+    .legend { position:absolute; right:18px; top:76px; background:#ffffffdb; border:1px solid var(--line); border-radius:9px; padding:8px 10px; color:var(--muted); font-size:12px; }
+  </style>
+</head>
+<body>
+  <div class="note"><strong>交互原型：</strong>按钮模拟用户在真实 textarea 上执行粘贴。它只表达本 unit 的状态与反馈，不连接后端。</div>
+  <div class="controls" aria-label="原型状态控制">
+    <button data-state="image">模拟 Cmd+V：单张截图</button>
+    <button data-state="multi">模拟 Cmd+V：两张图片</button>
+    <button data-state="mixed">模拟 Cmd+V：图片 + 网页地址</button>
+    <button data-state="text">模拟 Cmd+V：纯文本</button>
+    <button data-state="error">模拟 Cmd+V：图片过大</button>
+    <button data-state="reset">重置</button>
+  </div>
+  <div class="app">
+    <aside class="side">
+      <h1>✓ nano IM &nbsp;<small>Internal</small></h1>
+      <div class="search">Search…</div>
+      <div class="thread"><strong>Demo Agent</strong><br><small>Paste an image here</small></div>
+    </aside>
+    <main class="main">
+      <div id="attachment-error-toast" class="toast" role="alert">
+        <button aria-label="关闭" onclick="setState('reset')">×</button>
+        <strong>附件上传失败</strong>
+        <p>图片超过当前附件大小限制，请选择更小的图片。</p>
+      </div>
+      <header class="header"><div class="avatar">DE</div><div><strong>Demo Agent</strong><br><small>demo-node · online</small></div><span class="status">Agent</span></header>
+      <section class="messages">
+        <div class="bubble">可以直接把截图粘贴到下面的输入框。</div>
+        <div class="bubble mine">好的，我试一下。</div>
+      </section>
+      <section class="composer" id="composer-mixed">
+        <div class="chips" id="composer-pasted-images" aria-label="待发附件"></div>
+        <div class="row">
+          <textarea id="draft" aria-label="聊天输入框" placeholder="给 Demo Agent 发消息…"></textarea>
+          <button class="send" aria-label="发送">↑</button>
+        </div>
+        <p class="help" id="hint">Enter 发送 · Shift+Enter 换行 · Ctrl/Cmd+V 粘贴图片</p>
+      </section>
+      <div class="legend" id="result">当前：默认 composer</div>
+    </main>
+  </div>
+  <script>
+    const chips = document.getElementById('composer-pasted-images');
+    const draft = document.getElementById('draft');
+    const toast = document.getElementById('attachment-error-toast');
+    const result = document.getElementById('result');
+    function chip(second = false) {
+      const el = document.createElement('div');
+      el.className = `chip${second ? ' second' : ''}`;
+      el.innerHTML = '<button class="remove" aria-label="删除图片">×</button>';
+      el.querySelector('button').onclick = () => { el.remove(); chips.classList.toggle('has', chips.children.length > 0); };
+      return el;
+    }
+    function setState(state) {
+      chips.replaceChildren(); chips.classList.remove('has'); draft.value = ''; toast.classList.remove('show');
+      if (state === 'image') { chips.append(chip()); chips.classList.add('has'); result.textContent = '当前：图片进入待发区，可删除/发送'; }
+      if (state === 'multi') { chips.append(chip(), chip(true)); chips.classList.add('has'); result.textContent = '当前：多图按剪贴板顺序排列'; }
+      if (state === 'mixed') { chips.append(chip()); chips.classList.add('has'); result.textContent = '当前：只加入图片；草稿未插入网页地址'; }
+      if (state === 'text') { draft.value = '这段文字按浏览器原样粘贴'; result.textContent = '当前：纯文本默认粘贴；无附件'; }
+      if (state === 'error') { toast.classList.add('show'); result.textContent = '当前：失败项不进待发区，显示可关闭反馈'; }
+      if (state === 'reset') result.textContent = '当前：默认 composer';
+      draft.focus();
+    }
+    document.querySelectorAll('[data-state]').forEach(button => button.addEventListener('click', () => setState(button.dataset.state)));
+    setState('image');
+  </script>
+</body>
+</html>

@@ -5,8 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
+import os
 import shutil
-from typing import Any
+import threading
+from typing import Any, Callable, Mapping
+from uuid import uuid4
 
 import yaml
 
@@ -243,6 +246,29 @@ class ChannelConfig:
     settings: dict[str, Any] = field(default_factory=dict)
 
 
+def migrate_managed_channels_to_credential_refs(
+    channels: tuple[ChannelConfig, ...],
+    *,
+    credential_refs: Mapping[str, str],
+) -> tuple[ChannelConfig, ...]:
+    """Replace managed YAML plaintext only after cache authority is established.
+
+    The input objects are left untouched so a failed config write can continue using
+    the complete legacy configuration on the next process start.
+    """
+    migrated: list[ChannelConfig] = []
+    for channel in channels:
+        reference = credential_refs.get(channel.name)
+        if reference is None or not channel.name.startswith("feishu:"):
+            migrated.append(channel)
+            continue
+        settings = dict(channel.settings)
+        settings.pop("appSecret", None)
+        settings["credentialRef"] = reference
+        migrated.append(replace(channel, settings=settings))
+    return tuple(migrated)
+
+
 @dataclass(frozen=True, slots=True)
 class IMServiceConfig:
     """Describe optional upstream IM service connectivity.
@@ -314,6 +340,47 @@ class LocalConfig:
     im_service: IMServiceConfig | None
     llm: LLMConfigPayload
     source_path: Path
+
+
+class RuntimeConfigOwner:
+    """Own the process-wide immutable config snapshot across concurrent writers.
+
+    Args:
+        config: Initial configuration loaded for the Gateway process.
+
+    Notes:
+        A replacement becomes visible only after its durable write succeeds. This
+        prevents one stale component from restoring fields removed by another.
+    """
+
+    def __init__(self, config: LocalConfig) -> None:
+        self._config = config
+        self._lock = threading.RLock()
+
+    def snapshot(self) -> LocalConfig:
+        """Return the latest process-wide immutable config snapshot."""
+        with self._lock:
+            return self._config
+
+    def replace(self, config: LocalConfig) -> None:
+        """Replace the in-memory snapshot when no durable write is required."""
+        with self._lock:
+            self._config = config
+
+    def persist(
+        self,
+        transform: Callable[[LocalConfig], LocalConfig],
+        *,
+        save_config: Callable[[LocalConfig, str | Path], None],
+    ) -> LocalConfig:
+        """Transform, durably save, then publish one serialized config update."""
+        with self._lock:
+            updated = transform(self._config)
+            if updated == self._config:
+                return self._config
+            save_config(updated, updated.source_path)
+            self._config = updated
+            return updated
 
 
 def load_local_config(config_path: str | Path) -> LocalConfig:
@@ -651,6 +718,47 @@ def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
     dest.write_text(new_text, encoding="utf-8")
 
 
+def save_sensitive_local_config(config: LocalConfig, config_path: str | Path) -> None:
+    """Atomically write a potentially secret-bearing config as mode 0600.
+
+    Args:
+        config: Typed configuration to serialize.
+        config_path: Final path that becomes visible only after the secure temp is
+            flushed.
+
+    Side Effects:
+        Creates a mode-0600 temp file, fsyncs it, atomically replaces the target,
+        and fsyncs the parent directory. Unlike the normal config writer, this
+        deliberately creates no plaintext backup.
+    """
+    destination = Path(config_path).expanduser().resolve()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_name(f".{destination.name}.{uuid4().hex}.tmp")
+    descriptor: int | None = None
+    try:
+        descriptor = os.open(
+            temporary,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+            0o600,
+        )
+        os.close(descriptor)
+        descriptor = None
+        save_local_config(config, temporary)
+        with temporary.open("rb") as handle:
+            os.fsync(handle.fileno())
+        os.replace(temporary, destination)
+        os.chmod(destination, 0o600)
+        directory_fd = os.open(destination.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+        temporary.unlink(missing_ok=True)
+
+
 def _parse_node_config(payload: Any) -> NodeConfig:
     if not isinstance(payload, dict):
         raise ValueError("node must be a mapping")
@@ -910,9 +1018,16 @@ def _validate_feishu_settings(settings: dict[str, Any], *, prefix: str) -> None:
         ValueError: When required fields are missing or malformed.
     """
     _require_non_empty_string(settings.get("appId"), field_name=f"{prefix}.appId")
-    _require_non_empty_string(
-        settings.get("appSecret"), field_name=f"{prefix}.appSecret"
-    )
+    app_secret = settings.get("appSecret")
+    credential_ref = settings.get("credentialRef")
+    if app_secret is None and credential_ref is None:
+        raise ValueError(
+            f"{prefix}.appSecret or {prefix}.credentialRef must be provided"
+        )
+    if app_secret is not None:
+        _require_non_empty_string(app_secret, field_name=f"{prefix}.appSecret")
+    if credential_ref is not None:
+        _require_non_empty_string(credential_ref, field_name=f"{prefix}.credentialRef")
     owner_open_id = settings.get("ownerOpenId")
     if owner_open_id is not None:
         _require_non_empty_string(owner_open_id, field_name=f"{prefix}.ownerOpenId")

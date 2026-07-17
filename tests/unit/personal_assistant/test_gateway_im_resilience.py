@@ -42,13 +42,19 @@ class _BlockingRecvWebSocket(_FakeWebSocket):
 
 
 class _HalfOpenWebSocket(_FakeWebSocket):
-    """send succeeds, but recv never yields until close() unblocks it."""
+    """Registration succeeds, then recv never yields until close() unblocks it."""
 
     def __init__(self) -> None:
         super().__init__()
         self._closed = asyncio.Event()
+        self._registered = False
 
     async def recv(self) -> str:
+        if not self._registered:
+            self._registered = True
+            return json.dumps(
+                {"type": "ack", "payload": {"message_type": "node.register"}}
+            )
         await self._closed.wait()
         raise RuntimeError("socket closed")
 
@@ -423,7 +429,11 @@ def test_on_connected_failure_does_not_tear_down_connection(tmp_path: Path) -> N
 
     relay_adapter = WebRelayAdapter()
     relay_adapter.start(lambda _message: None)
-    socket = _FakeWebSocket(incoming=[])
+    socket = _FakeWebSocket(
+        incoming=[
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+        ]
+    )
 
     async def _failing_on_connected() -> None:
         raise GatewayStartupError(
@@ -438,7 +448,11 @@ def test_on_connected_failure_does_not_tear_down_connection(tmp_path: Path) -> N
         connect=lambda url, headers: _connect_fake(socket, [], url, headers),
     )
 
-    asyncio.run(manager.connect_once())
+    async def _connect_and_ack_register() -> None:
+        await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001 - exercise the wire ACK boundary
+
+    asyncio.run(_connect_and_ack_register())
 
     assert manager.connected is True, (
         "on_connected failure must not tear down the socket"

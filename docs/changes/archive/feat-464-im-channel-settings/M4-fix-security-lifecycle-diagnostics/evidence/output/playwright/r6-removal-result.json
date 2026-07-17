@@ -1,0 +1,12 @@
+{
+  "removalApplied": true,
+  "historyVisibleAfterRemoval": true,
+  "mutations": [
+    {
+      "method": "POST",
+      "path": "/im/v1/auth/login",
+      "status": 200
+    }
+  ],
+  "consoleErrorCount": 0
+}
