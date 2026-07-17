@@ -342,6 +342,14 @@ function pasteImages(composer: HTMLElement, names: string[]) {
   });
 }
 
+function deferredResponse() {
+  let resolve!: (response: Response) => void;
+  const promise = new Promise<Response>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
 describe("ChatWorkspacePage — integration", () => {
   let originalWS: typeof WebSocket;
   let fetchSpy: ReturnType<typeof mockFetch>;
@@ -1284,6 +1292,91 @@ describe("ChatWorkspacePage — integration", () => {
       ]);
     });
     expect(within(composerForm).queryByRole("img", { name: "too-large.png" })).not.toBeInTheDocument();
+  });
+
+  it("keeps an attachment error visible when a concurrent message send succeeds", async () => {
+    const user = userEvent.setup();
+    const upload = deferredResponse();
+    const send = deferredResponse();
+    const fallbackFetch = mockFetch();
+    fetchSpy = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (/\/im\/v1\/uploads/.test(url) && init?.method === "POST") return upload.promise;
+      if (/\/im\/v1\/conversations\/c1\/messages$/.test(url) && init?.method === "POST") return send.promise;
+      return fallbackFetch(input, init);
+    }) as ReturnType<typeof mockFetch>;
+    vi.stubGlobal("fetch", fetchSpy);
+    renderAtRoute("/chat/c1");
+    await screen.findByText("Hi Planner");
+    const composer = screen.getByRole("textbox");
+
+    pasteImages(composer, ["late-reject.png"]);
+    await waitFor(() => {
+      expect(fetchSpy.mock.calls.some(([input, init]) =>
+        /\/im\/v1\/uploads/.test(input.toString()) && init?.method === "POST"
+      )).toBe(true);
+    });
+    await user.type(composer, "send while upload is pending");
+    await user.click(screen.getByRole("button", { name: /Send/i }));
+    await waitFor(() => {
+      expect(fetchSpy.mock.calls.some(([input, init]) =>
+        /\/im\/v1\/conversations\/c1\/messages$/.test(input.toString()) && init?.method === "POST"
+      )).toBe(true);
+    });
+
+    await act(async () => {
+      upload.resolve(new Response("too large", { status: 413 }));
+      await upload.promise;
+    });
+    expect(await screen.findByText("This image is larger than the current attachment limit.")).toBeInTheDocument();
+
+    await act(async () => {
+      send.resolve(jsonResponse({
+        id: "m-concurrent",
+        conversation_id: "c1",
+        sender: { type: "user", id: "u-self", display_name: "You" },
+        sender_user_id: "u-self",
+        sender_type: "user",
+        content: "send while upload is pending",
+        attachments: [],
+        delivery_status: "sent",
+        created_at: "2026-05-01T00:00:03Z"
+      }));
+      await send.promise;
+    });
+    await screen.findByText("send while upload is pending");
+
+    expect(screen.getByRole("alert")).toHaveTextContent("This image is larger than the current attachment limit.");
+  });
+
+  it("does not show a late attachment failure after switching conversations", async () => {
+    const user = userEvent.setup();
+    const upload = deferredResponse();
+    const fallbackFetch = mockFetch();
+    fetchSpy = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (/\/im\/v1\/uploads/.test(url) && init?.method === "POST") return upload.promise;
+      return fallbackFetch(input, init);
+    }) as ReturnType<typeof mockFetch>;
+    vi.stubGlobal("fetch", fetchSpy);
+    renderAtRoute("/chat/c1");
+    await screen.findByText("Hi Planner");
+
+    pasteImages(screen.getByRole("textbox"), ["late-from-planner.png"]);
+    await waitFor(() => {
+      expect(fetchSpy.mock.calls.some(([input, init]) =>
+        /\/im\/v1\/uploads/.test(input.toString()) && init?.method === "POST"
+      )).toBe(true);
+    });
+    await user.click(screen.getByRole("button", { name: /Research Squad/ }));
+    await screen.findByRole("heading", { name: "Research Squad" });
+
+    await act(async () => {
+      upload.resolve(new Response("too large", { status: 413 }));
+      await upload.promise;
+    });
+
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("R9-3: optimistically renders the user's bubble in the pane the instant the POST resolves", async () => {
