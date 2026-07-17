@@ -105,6 +105,10 @@ describe("AgentChannelsPanel diagnostics and responsive states", () => {
     expect(screen.getAllByText("影响")).not.toHaveLength(0);
     expect(screen.getAllByText("修复方向")).not.toHaveLength(0);
     expect(screen.getByText("该项权限暂时无法确认")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /前往开放平台检查/ })).toHaveAttribute(
+      "href",
+      "https://open.feishu.cn/app/cli_original_1234/auth",
+    );
   });
 
   it("does not fabricate missing permissions when diagnostics are unknown", async () => {

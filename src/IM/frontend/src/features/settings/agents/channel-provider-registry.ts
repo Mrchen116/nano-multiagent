@@ -35,7 +35,7 @@ export interface ChannelProviderDescriptor {
   summary: { field: string; label: string; mask: boolean };
   removalSummary: { displayKey: string; label: string };
   diagnostics?: {
-    href: string;
+    href: string | ((channel: AgentChannel) => string);
     linkLabel: ChannelText;
     scopeLabel: ChannelText;
     effectOverrides: Readonly<Record<string, ChannelText>>;
@@ -108,7 +108,12 @@ export const CHANNEL_PROVIDERS: readonly ChannelProviderDescriptor[] = [{
   summary: { field: "appId", label: "App ID", mask: true },
   removalSummary: { displayKey: "app_id_suffix", label: "App ID" },
   diagnostics: {
-    href: FEISHU_OPEN_PLATFORM_URL,
+    href: (channel) => {
+      const appId = channel.config.app_id;
+      return typeof appId === "string" && appId.trim()
+        ? `https://open.feishu.cn/app/${encodeURIComponent(appId.trim())}/auth`
+        : FEISHU_OPEN_PLATFORM_URL;
+    },
     linkLabel: {
       default: "Check Open Platform",
       key: "agents.channels.diagnostics.openPlatform",
@@ -132,6 +137,14 @@ export const CHANNEL_PROVIDERS: readonly ChannelProviderDescriptor[] = [{
 
 export function textKey(text: ChannelText): string {
   return text.key ?? text.default;
+}
+
+export function providerDiagnosticsHref(
+  provider: ChannelProviderDescriptor,
+  channel: AgentChannel,
+): string | undefined {
+  const href = provider.diagnostics?.href;
+  return typeof href === "function" ? href(channel) : href;
 }
 
 export function providerById(

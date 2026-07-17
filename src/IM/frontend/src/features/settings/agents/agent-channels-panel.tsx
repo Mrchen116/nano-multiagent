@@ -10,6 +10,7 @@ import {
   ChannelText,
   initialProviderForm,
   providerById,
+  providerDiagnosticsHref,
   providerRemovalSummary,
   providerSummary,
   serializeProviderForm,
@@ -74,6 +75,7 @@ function DiagnosticsPanel({
     (check) => check.state !== "satisfied",
   );
   const diagnostics = provider.diagnostics;
+  const diagnosticsHref = providerDiagnosticsHref(provider, channel);
   return (
     <section
       className={`im-channel-diagnostics ${limited ? "im-channel-diagnostics--limited" : "im-channel-diagnostics--unknown"}`}
@@ -89,10 +91,10 @@ function DiagnosticsPanel({
             {t(`agents.channels.diagnostics.${state}.detail`)}
           </p>
         </div>
-        {diagnostics ? (
+        {diagnostics && diagnosticsHref ? (
           <a
             className="text-xs font-semibold text-blue-700 underline"
-            href={diagnostics.href}
+            href={diagnosticsHref}
             target="_blank"
             rel="noreferrer"
           >
