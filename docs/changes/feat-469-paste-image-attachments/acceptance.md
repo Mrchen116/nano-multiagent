@@ -84,3 +84,48 @@ None. 验收口径由 spec 的 7 个 Scenario 与 design 的 3 个 `must-match` 
 - [x] `docs/specs/im/`: **需要更新**；`web-chat-ux.md` 尚未反映图片粘贴、mixed 语义、原生文本回归与 partial-success 反馈，应由 orchestrator 收尾归并 delta-spec。
 - [x] `AGENTS.md` / `CLAUDE.md`: **无需更新**；无新的开发/运维约定。
 - [x] `docs/SPEC_GUIDE.md`: **无需更新**；本 unit 未改文档体系。
+
+---
+
+# Round 2 — 2026-07-17
+
+> Review mode: targeted fast-lane re-review (RF1)
+> Validated head: `0976bb7abebf4978ad3f46c9ebf504c3d530133d`
+
+## Verdict
+
+- **Verdict: pass**
+- **Highest Required Action: pass**
+- Issues: blocking 0 / major 0 / minor 0
+- Needs re-review: no
+
+RF1 的错误所有权与生命周期闭包通过。Round 1 的 7/7 spec Scenario 与 3/3 prototype `must-match` 结论继续保留：RF1 仅收窄页面级错误的 conversation/kind 归属与清除条件，没有改变 paste 入口、pending chip、mixed paste、发送形态或 prototype 视觉状态。因此本轮不重复完整旅程，只针对 RF1 风险面在重建后的 production bundle `index-dEKTYuvc.js` 上复验。
+
+## Targeted RF1 Coverage
+
+| 风险点 | 独立验证 | 证据 | 结果 |
+|---|---|---|---|
+| 上传 413 与纯文本发送并发 | 在 conversation B 发起超限图片上传，真实 `/uploads` 返回 413；随后纯文本消息 POST 返回 201、用户气泡出现，附件 toast 仍可见；点击关闭后 `role=alert` 为 0 | `M1-clipboard-image-ingress/evidence/acceptance-r2-send-preserves-attachment-toast.png` | pass |
+| late failure 不跨 conversation 泄漏 | 在 A 延迟真实超限上传，完成前切到 B；A 的请求随后返回 413，B 页面无 alert。回到 A 再触发同类 413，附件 toast 正常显示 | `acceptance-r2-cross-conversation-isolation.png`; `acceptance-r2-same-conversation-toast.png` | pass |
+| send/fork success 只清同会话 send error | 真浏览器确认同会话 send 201 不清 attachment error；结构核对确认 send 与 fork 的 success handler 均只调用 `clearSendError(sourceConversationId)`，该函数仅匹配同 conversation 且 `kind === "send"`，不会清除 attachment error | `acceptance-r2-send-preserves-attachment-toast.png`; `chat-workspace-page.tsx` 的 `clearSendError`、send/fork success handler | pass |
+| 原 partial success 与本地化反馈无回归 | 同批真实上传 201 / 413 / 201，仅首尾成功 chip 按原序保留；关闭后在中文 locale 再触发 413，toast 显示「附件上传失败 / 图片超过当前附件大小限制。」，并可关闭 | `acceptance-r2-partial-localized.png` | pass |
+
+## Retained vs Targeted Evidence
+
+- **Retained from Round 1:** 单图/多图/删除/发送、mixed paste、纯文本原生粘贴、非图片文件边界、合规图片与 prototype 三态；这些表面不在 RF1 diff 的行为风险内。
+- **Re-exercised in Round 2:** concurrent send、conversation switch 前后的 late failure、same-conversation failure、error-kind 清除边界，以及 partial success + localized dismissible toast。
+- Round 2 真请求结果：目标超限上传均为 413；并发纯文本消息 POST 为 201；partial batch 为 201 / 413 / 201。浏览器 console 仅有故意 413 对应的 resource errors。
+
+## Independent Supporting Checks
+
+- Production build: `npm run build` → 442 modules transformed, success.
+- Focused frontend regression: `message-pane.test.tsx` + `chat-workspace.integration.test.tsx` → 2 files / 135 tests passed；已有 React `act(...)` warnings，无 failure。
+- RF1 定向回归包括 `keeps an attachment error visible when a concurrent message send succeeds` 与 `does not show a late attachment failure after switching conversations`，均通过。
+
+## Issues
+
+None.
+
+## Upper-level Documentation Sync
+
+沿用 Round 1 结论：仅 `docs/specs/im/web-chat-ux.md` 需要由 orchestrator 在收尾阶段归并本 unit 的长青行为 delta；其余上层文档无需更新。
