@@ -34,16 +34,21 @@
 
 ## R3 — 全量测试、构建与浏览器验收
 
-- Context: 待补充。
-- Decision: 待补充。
-- Rationale: 待补充。
+- Context: milestone 退出标准要求 `npm run test` 全绿、`npm run build` 通过，并用真栈浏览器覆盖四种状态。
+- Decision: 跑全量 vitest → 生产构建 → `scripts/e2e-up.sh` 起隔离栈 → Playwright 登录后拍摄四种状态截图。
+- Rationale: 前端改动不能只看组件测试；空名单/非空名单/清空保存刷新/create 预选必须在真实浏览器与真实 Gateway 数据下验证。
 - Evidence:
-  - Tests: 待补充。
-  - Entry: 真栈 IM + Gateway + 浏览器。
-  - Frontend State Matrix: default / empty / mobile / desktop。
-  - Browser QA: 待补充 URL 与操作路径。
+  - Tests: `npm run test` → 64 passed / 605 tests；`npm run build` → tsc + vite build 成功。
+  - Entry: 真栈 IM (`http://127.0.0.1:53722`) + Gateway (`wt-bugfix-468-M1-98490`) + Chromium。
+  - Frontend State Matrix: default（非空名单显示存储值）、empty（空名单全不亮）、mobile viewport（375×812）、desktop viewport（1440×900）。
+  - Browser QA: 登录 → `/settings/agents/default-agent`（非空）→ `/settings/agents/plato`（空）→ default-agent 清空所有 tools 保存并刷新 → `/settings/agents/new` 选择节点观察预选。无 console error / failed network request（截图前检查）。
   - E2E/Regression: N/A（本项目前端无 browser E2E 套件，组件测试 + 真栈截图验收）。
-  - Visual/Interaction: 截图落 `evidence/`。
+  - Visual/Interaction:
+    - `evidence/01-non-empty-desktop.png`：read/write 选中，其余未选中。
+    - `evidence/02-non-empty-mobile.png`：read/write 选中。
+    - `evidence/03-empty-desktop.png`：plato 所有 tools 未选中。
+    - `evidence/04-cleared-refreshed-desktop.png`：default-agent 清空保存刷新后所有 tools 未选中。
+    - `evidence/05-create-preselect-desktop.png`：create 页 tools 按 default_on 预选（cron 未选中）。
   - Prototype Comparison: N/A。
-- Rollback: 待补充。
-- Commits: 待补充。
+- Rollback: `git revert 8ca1226f4` 后重新跑 e2e-up/build。
+- Commits: 本 R 无新增代码提交；测试与证据已落盘。
