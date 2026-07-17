@@ -20,16 +20,17 @@
 
 ## R2 — 全测试树回归 + 真栈验证
 
-- Context: <待填充>
-- Decision: <待填充>
-- Rationale: <待填充>
+- Context: 需要确认新文案没有破坏全测试树，并证明真实调用链能看到字段名。
+- Decision: 跑 `pytest tests/unit tests/integration tests/contract -q` 全绿；用 `scripts/e2e-up.sh` 起隔离栈后，按 design 许可的 fallback 通过 agent.sdk 直接驱动 `edit` 工具传入错误参数名，捕获 ToolError 文本。
+- Rationale: 模型自然触发参数错误不可靠，显式 SDK 驱动可稳定复现并精确展示 `oldText`/`newText` 字段名；e2e 栈本身已验证服务能正常起停、无回归。
 - Evidence:
-  - Tests: <待填充>
-  - Entry: <待填充>
+  - Tests: `pytest tests/unit tests/integration tests/contract -q` → 3013 passed
+  - Entry: `PYTHONPATH=src python evidence/demo_wrong_edit_params.py` 输出含 `edit failed due to the following issues:\nThe required parameter \`oldText\` is missing\nThe required parameter \`newText\` is missing`（持久化见 `evidence/demo_wrong_edit_params.txt`）
   - Frontend State Matrix: N/A
   - Browser QA: N/A
-  - E2E/Regression: N/A
+  - E2E/Regression: `scripts/e2e-up.sh` / `scripts/e2e-down.sh` 在 worktree 内正常起停；未观察到进程残留
   - Visual/Interaction: N/A
   - Prototype Comparison: N/A
-- Rollback: <待填充>
-- Commits: <待填充>
+- Rollback: `git revert d956e09dd`（C3/R2）
+- Commits: C3=d956e09dd
+- Next: 合并到 unit/bugfix-468

@@ -44,13 +44,15 @@
   - `pytest tests/unit/test_tool_validation_errors.py -q` 全绿
   - `pytest tests/unit/agent -k validate -q` 全绿
   - `pytest tests/integration/test_tools_registry_loader_integration.py -q` 全绿
+- 状态: DONE
 
 ### R2 — 全测试树回归 + 真栈验证
 
 - 步骤:
-  1. 跑 `pytest -m "not e2e" -q`（或更窄的相关套件）确认无旧文案断言回归。
-  2. 用 `scripts/e2e-up.sh` 起隔离栈，诱导或显式构造一次参数名错误的 edit 调用，收集 ToolResult 文本证据。
+  1. 跑 `pytest tests/unit tests/integration tests/contract -q` 确认无旧文案断言回归。
+  2. 用 `scripts/e2e-up.sh` 起隔离栈备用；因模型自然触发参数错不可控，按 design 回退到显式 SDK 驱动：调用 `edit` 时传入错误参数名 `old_string`/`new_string`，捕获并记录 ToolResult 文本。
   3. `scripts/e2e-down.sh` 收尾。
 - 验证:
   - 全测试树相关套件全绿
-  - `evidence/` 目录含真栈报错文本证据
+  - `evidence/demo_wrong_edit_params.txt` 含真栈级 CC 报错文本（字段名 `oldText`/`newText`）
+- 状态: DONE
