@@ -53,3 +53,22 @@
 - Rollback: 回退 C2 `639f124ee` 可移除 production 映射并保留 C1 红测；回退 C1 `629c7dd03` 可移除页面行为契约。R1 独立保持可用。
 - Commits: C1=`629c7dd03`，C2=`639f124ee`，C3=本次 docs 提交。
 - Next: milestone 已完成，进入完整门禁、rebase 与 unit integration。
+
+## Review Fix RF1 — 页面错误所有权隔离
+
+- §FL: 原 M1 worker 上下文复用于 reviewer 确认的两个强耦合竞态，采用 review fix fast lane，不重建 tasks/plan；因二者均改变用户可见行为，仍保留独立 C1 红测、C2 根因修复和 C3 持久证据。
+- Context: 原 `ChatWorkspaceError` 只有错误类型和文案，没有产生错误的会话/动作 owner。文本发送或 fork 成功会无条件清空页面错误；旧会话卸载前发起的上传 callback 也可在切换会话后迟到写入共享页面状态。因此一个全局 error slot 同时跨越错误类型和 conversation 生命周期。
+- Decision: error state 增加 `conversationId`；send/fork mutation 携带发起动作时的 conversation ID，只清理同会话的 send error，并丢弃旧会话的迟到失败；附件 callback 捕获其 source conversation，写入前用 `conversationIdRef` 校验当前会话；渲染层仅展示属于当前 route conversation 的错误。
+- Rationale: 把所有权放进异步状态转换本身，而不是靠完成顺序猜测当前 UI，既阻止 send/fork success 跨错误类型清 toast，也阻止旧会话 callback 污染新会话，并复用页面已有的 conversation lifecycle seam。
+- Evidence:
+  - Baseline: 指定双文件门禁 → 2 files / 133 tests passed。
+  - C1: `npm test -- src/features/chat/chat-workspace.integration.test.tsx` → 2 failed / 46 passed；失败分别证明 send 201 清掉并发 attachment toast，以及会话 A 的迟到 413 在会话 B 渲染 toast。
+  - C2 focused: integration → 48 passed；指定双文件门禁 → 135 passed。
+  - Full frontend: 64 files / 619 tests passed（既有 React `act(...)` / user stream warnings 保持不变）。
+  - Production build: 442 modules transformed；仅既有大于 500 kB chunk warning。
+  - Contract: `pytest tests/contract/test_test_naming_and_size_contract.py` → 2 passed。
+  - Browser QA: 真实 endpoint 的 413/201 竞态中，文本发送成功后附件 toast 仍可见；从会话 A 切到 B 后，A 的迟到 413 未在 B 显示。详见 `evidence/rf1-browser-qa.md`。
+  - Visual/Interaction: `evidence/rf1-concurrent-send-toast.png`、`evidence/rf1-switched-conversation-no-toast.png`；1440×900；未改变 prototype 对齐过的 toast/chip 视觉与交互，仅收紧异步状态所有权。
+- Rollback: 回退 C2 `e6da48525` 可移除所有权隔离并保留两条 C1 红测；回退 C1 `2551aa613` 可移除竞态回归契约。
+- Commits: C1=`2551aa613`，C2=`e6da48525`，C3=本次 docs/evidence 提交。
+- Next: 在 unit 锁内 rebase 到最新 `unit/feat-469`、合并并推送，然后清理 review-fix worktree 与运行时。
