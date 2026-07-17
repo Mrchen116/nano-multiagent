@@ -8,10 +8,9 @@ from __future__ import annotations
 
 import json
 import logging
-import threading
 import time
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Callable
 
 import lark_oapi as lark
@@ -31,8 +30,27 @@ from lark_oapi.api.im.v1 import (
 from lark_oapi.event.callback.model.p2_card_action_trigger import (
     P2CardActionTriggerResponse,
 )
+from lark_oapi.core.enum import LogLevel
 from lark_oapi.event.dispatcher_handler import EventDispatcherHandler
 from lark_oapi.ws import Client as WSClient
+
+from personal_assistant.channels.feishu.diagnostics import (
+    FeishuDiagnostics,
+    FeishuScopeProbe,
+    evaluate_scope_capabilities,
+    normalize_tenant_scope_grants,
+    summarize_diagnostics,
+)
+from personal_assistant.channels.feishu.worker import (
+    FeishuWorkerProcessContext,
+    FeishuWorkerRuntime,
+    FeishuWorkerStatus,
+    FeishuWorkerStopReport,
+    publish_event,
+    publish_priority_status,
+    publish_status,
+    request_card_action,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -146,15 +164,20 @@ class FeishuClient:
         app_id: str,
         app_secret: str,
         domain: str = "https://open.feishu.cn",
+        worker_incarnation: str | None = None,
+        status_callback: Callable[[FeishuWorkerStatus], None] | None = None,
     ) -> None:
         self._app_id = app_id
         self._app_secret = app_secret
         self._domain = domain
+        self._worker_incarnation = worker_incarnation or f"feishu-{time.time_ns()}"
+        self._status_callback = status_callback or self._log_worker_status
         self._on_message: Callable[[FeishuMessageEvent], None] | None = None
         self._on_card_action: CardActionHandler | None = None
-        self._ws_client: WSClient | None = None
         self._rest_client: lark.Client | None = None
-        self._thread: threading.Thread | None = None
+        self._worker: FeishuWorkerRuntime | None = None
+        self._last_stop_report: FeishuWorkerStopReport | None = None
+        self._diagnostics = summarize_diagnostics(evaluate_scope_capabilities(None))
 
     def start(
         self,
@@ -162,7 +185,7 @@ class FeishuClient:
         *,
         on_card_action: CardActionHandler | None = None,
     ) -> None:
-        """Start the WebSocket listener in a background daemon thread.
+        """Start REST in the parent and WebSocket in an isolated child process.
 
         Args:
             on_message: Callback invoked for each received message event.
@@ -171,22 +194,6 @@ class FeishuClient:
         self._on_message = on_message
         self._on_card_action = on_card_action
 
-        builder = EventDispatcherHandler.builder("", "")
-        builder.register_p2_im_message_receive_v1(self._handle_message_event)
-        builder.register_p2_im_message_reaction_created_v1(self._ignore_reaction_event)
-        builder.register_p2_im_message_reaction_deleted_v1(self._ignore_reaction_event)
-        if on_card_action is not None:
-            builder.register_p2_card_action_trigger(self._handle_card_action_event)
-        handler = builder.build()
-
-        self._ws_client = WSClient(
-            app_id=self._app_id,
-            app_secret=self._app_secret,
-            event_handler=handler,
-            domain=self._domain,
-            auto_reconnect=True,
-        )
-
         self._rest_client = (
             lark.Client.builder()
             .app_id(self._app_id)
@@ -194,50 +201,78 @@ class FeishuClient:
             .domain(self._domain)
             .build()
         )
-
-        # WSClient.start() blocks — run in daemon thread so gateway bootstrap
-        # is not blocked.
-        self._thread = threading.Thread(
-            target=self._ws_client.start,
-            name=f"feishu-ws-{self._app_id[:8]}",
-            daemon=True,
+        self._diagnostics = self.probe_capabilities()
+        self._worker = FeishuWorkerRuntime(
+            app_id=self._app_id,
+            app_secret=self._app_secret,
+            domain=self._domain,
+            incarnation=self._worker_incarnation,
+            on_event=on_message,
+            on_status=self._forward_worker_status,
+            on_card_action=on_card_action,
         )
-        self._thread.start()
+        self._worker.start()
         logger.info("feishu ws client started for app %s", self._app_id[:8])
 
-    def stop(self) -> None:
-        """Stop the WebSocket listener and release resources."""
+    def stop(self, *, drain: bool = True) -> None:
+        """Stop, join, and if necessary terminate the isolated listener process."""
         self._on_message = None
         self._on_card_action = None
-        # WSClient does not expose a clean stop(); the daemon thread will be
-        # killed when the process exits. Clear references to allow GC.
-        self._ws_client = None
+        if self._worker is not None:
+            self._last_stop_report = self._worker.stop(drain=drain)
+            self._worker = None
         self._rest_client = None
         logger.info("feishu ws client stopped for app %s", self._app_id[:8])
 
-    def has_scope(self, scope_name: str) -> bool | None:
-        """Return whether the app has a granted Feishu/Lark scope.
+    @property
+    def last_stop_report(self) -> FeishuWorkerStopReport | None:
+        """Expose the last child cleanup result for lifecycle diagnostics."""
+        return self._last_stop_report
 
-        Returns:
-            ``True`` when present, ``False`` when the scope list is readable but
-            absent, and ``None`` when the check cannot be completed.
-        """
+    @staticmethod
+    def _log_worker_status(status: FeishuWorkerStatus) -> None:
+        logger.info(
+            "feishu worker status: state=%s code=%s incarnation=%s seq=%s",
+            status.connection_state,
+            status.status_code,
+            status.runtime_incarnation,
+            status.status_sequence,
+        )
+
+    def probe_tenant_scope_grants(self) -> FeishuScopeProbe:
+        """Read one complete application-v6 tenant authorization snapshot."""
         if self._rest_client is None:
             raise RuntimeError("feishu client is not started")
-
-        response = self._rest_client.application.v6.scope.list(
-            ListScopeRequest.builder().build()
-        )
+        try:
+            response = self._rest_client.application.v6.scope.list(
+                ListScopeRequest.builder().build()
+            )
+        except Exception:  # noqa: BLE001 - SDK transport failures are unknown probes.
+            logger.warning("failed to list feishu app scopes", exc_info=True)
+            return FeishuScopeProbe(False, None, "scope_api_failed")
         if not response.success():
             logger.warning(
                 "failed to list feishu app scopes: code=%s, msg=%s",
                 response.code,
                 response.msg,
             )
-            return None
+            return FeishuScopeProbe(False, None, "scope_api_failed")
+        return normalize_tenant_scope_grants(getattr(response, "data", None))
 
-        scopes = _extract_scope_names(getattr(response, "data", None))
-        return scope_name in scopes
+    def probe_capabilities(self) -> FeishuDiagnostics:
+        """Evaluate every Feishu runtime capability from one tenant probe."""
+        probe = self.probe_tenant_scope_grants()
+        return summarize_diagnostics(evaluate_scope_capabilities(probe.granted_scopes))
+
+    def _forward_worker_status(self, status: FeishuWorkerStatus) -> None:
+        """Attach the immutable capability snapshot to every connection state."""
+        self._status_callback(
+            replace(
+                status,
+                diagnostics_state=self._diagnostics.state,
+                checks=self._diagnostics.check_payloads(),
+            )
+        )
 
     def send_message(
         self,
@@ -615,6 +650,56 @@ class FeishuClient:
         return None
 
 
+def _run_feishu_sdk_worker(context: FeishuWorkerProcessContext) -> None:
+    """Own one lark-oapi event loop and listener entirely inside its child process."""
+
+    def on_message(event: Any) -> None:
+        try:
+            publish_event(context, _parse_feishu_event(event))
+        except Exception:
+            logger.exception("failed to parse Feishu worker message")
+
+    def on_card_action(event: Any) -> P2CardActionTriggerResponse:
+        try:
+            parsed = _parse_feishu_card_action_event(event)
+            response = request_card_action(context, parsed)
+        except Exception:
+            logger.exception("failed to proxy Feishu card action")
+            response = None
+        return _card_action_response(response)
+
+    builder = EventDispatcherHandler.builder("", "")
+    builder.register_p2_im_message_receive_v1(on_message)
+    builder.register_p2_im_message_reaction_created_v1(lambda _event: None)
+    builder.register_p2_im_message_reaction_deleted_v1(lambda _event: None)
+    builder.register_p2_card_action_trigger(on_card_action)
+    client = WSClient(
+        app_id=context.app_id,
+        app_secret=context.app_secret,
+        # lark-oapi INFO logs include the complete WebSocket URL, whose query
+        # carries short-lived access_key and ticket credentials.
+        log_level=LogLevel.WARNING,
+        event_handler=builder.build(),
+        domain=context.domain,
+        auto_reconnect=True,
+    )
+    original_connect = client._connect
+
+    async def observed_connect() -> None:
+        await original_connect()
+        publish_priority_status(context, connection_state="connected")
+
+    client._connect = observed_connect
+    client.on_reconnecting = lambda: publish_status(
+        context, connection_state="reconnecting"
+    )
+    client.on_reconnected = lambda: publish_priority_status(
+        context, connection_state="connected"
+    )
+    publish_status(context, connection_state="connecting")
+    client.start()
+
+
 def _raise_api_error(response: Any, *, action: str) -> None:
     code: int = response.code
     msg: str = response.msg
@@ -858,18 +943,6 @@ def _extract_mentions(message: Any) -> list[FeishuMention]:
         if open_id:
             result.append(FeishuMention(open_id=open_id, name=name, key=key))
     return result
-
-
-def _extract_scope_names(data: Any) -> set[str]:
-    """Extract scope names from Feishu SDK response bodies."""
-    raw_scopes = _read_value(data, "scopes") or _read_value(data, "items") or []
-    names: set[str] = set()
-    for item in raw_scopes:
-        for key in ("scope_name", "scopeName", "name"):
-            value = _read_value(item, key)
-            if isinstance(value, str) and value.strip():
-                names.add(value.strip())
-    return names
 
 
 def _read_value(obj: Any, key: str) -> Any:

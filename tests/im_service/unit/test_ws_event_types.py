@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from IM.api.ws.event_types import (
+    EVENT_AGENT_CHANNEL_STATUS_CHANGED,
     EVENT_AGENT_STATUS_CHANGED,
     EVENT_MESSAGE_COMPLETED,
     EVENT_MESSAGE_CREATED,
@@ -11,6 +12,7 @@ from IM.api.ws.event_types import (
     EVENT_THINKING_SEGMENT,
     EVENT_TOOL_CALL_COMPLETED,
     EVENT_TOOL_CALL_UPSERTED,
+    build_agent_channel_status_changed_payload,
     build_agent_status_changed_payload,
     build_message_completed_payload,
     build_message_created_payload,
@@ -37,6 +39,7 @@ def test_event_type_constants_are_stable_strings() -> None:
     assert EVENT_TOOL_CALL_COMPLETED == "tool_call.completed"
     assert EVENT_NODE_STATUS_CHANGED == "node.status_changed"
     assert EVENT_AGENT_STATUS_CHANGED == "agent.status_changed"
+    assert EVENT_AGENT_CHANNEL_STATUS_CHANGED == "agent.channel.status_changed"
 
 
 def _make_agent_message(tmp_path: Path) -> Message:
@@ -299,3 +302,10 @@ def test_build_agent_status_changed_payload() -> None:
         seq=3, agent_id="agent-x", status="online"
     )
     assert payload == {"seq": 3, "agent_id": "agent-x", "status": "online"}
+
+
+def test_build_agent_channel_status_changed_payload() -> None:
+    payload = build_agent_channel_status_changed_payload(
+        seq=4, agent_id="agent-x", channel_id="ch-a"
+    )
+    assert payload == {"seq": 4, "agent_id": "agent-x", "channel_id": "ch-a"}

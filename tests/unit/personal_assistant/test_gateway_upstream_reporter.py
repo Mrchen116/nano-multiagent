@@ -70,6 +70,7 @@ def test_upstream_reporter_builds_register_heartbeat_report_and_receipt(
         "relay": True,
         "send_message": True,
         "config_sync": True,
+        "channel_bootstrap": True,
     }
     assert "capabilities" not in heartbeat
     assert heartbeat["running_runs"] == 2

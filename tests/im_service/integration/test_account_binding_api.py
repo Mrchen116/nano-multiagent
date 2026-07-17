@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import pytest
+
 from IM.infra.repositories import AgentProfileRepository, NodeRepository
 
 from .conftest import authorize, make_app_client, register_user
@@ -101,3 +103,66 @@ def test_bind_rejects_unknown_references(tmp_path: Path) -> None:
         )
         assert confirm_resp.status_code == 404
         assert confirm_resp.json()["detail"] == "bind_id not found"
+
+
+@pytest.mark.parametrize("node_status", ["online", "offline"])
+def test_bind_is_same_owner_idempotent_and_rejects_cross_owner_takeover(
+    tmp_path: Path, node_status: str
+) -> None:
+    """A bound node remains owned and visible only to its original tenant."""
+    with make_app_client(tmp_path) as client:
+        alice = register_user(client, username=f"alice-{node_status}")
+        bob = register_user(client, username=f"bob-{node_status}")
+        authorize(client, alice)
+        nodes = NodeRepository(client.app.state.connection)
+        nodes.upsert_node(
+            node_id="node-guarded",
+            node_name="Guarded",
+            owner_id=alice.owner_id,
+            status=node_status,
+        )
+        profiles = AgentProfileRepository(client.app.state.connection)
+        profiles.upsert_profile(
+            agent_id="agent-guarded",
+            owner_id=alice.owner_id,
+            node_id="node-guarded",
+            display_name="Guarded Agent",
+            description="",
+            system_prompt="Guard ownership.",
+            skills=[],
+            tool_allowlist=[],
+            group_reply_policy="manual",
+            default_model=None,
+            workspace_root=None,
+        )
+
+        same_start = client.post(
+            "/im/v1/bind", json={"action": "start", "node_id": "node-guarded"}
+        )
+        token = same_start.json()["bind_url"].split("token=", 1)[1]
+        first = client.post(
+            "/im/v1/bind", json={"action": "confirm", "bind_token": token}
+        )
+        repeated = client.post(
+            "/im/v1/bind", json={"action": "confirm", "bind_token": token}
+        )
+        assert first.status_code == repeated.status_code == 201
+        assert first.json() == repeated.json()
+
+        authorize(client, bob)
+        takeover_start = client.post(
+            "/im/v1/bind", json={"action": "start", "node_id": "node-guarded"}
+        )
+        takeover_token = takeover_start.json()["bind_url"].split("token=", 1)[1]
+        takeover = client.post(
+            "/im/v1/bind",
+            json={"action": "confirm", "bind_token": takeover_token},
+        )
+        assert takeover.status_code == 409
+        assert takeover.json()["detail"] == "node already bound to another owner"
+        assert nodes.get_node(node_id="node-guarded").owner_id == alice.owner_id
+        assert profiles.get_profile(agent_id="agent-guarded").owner_id == alice.owner_id
+        assert client.get("/im/v1/agents/agent-guarded/config").status_code == 404
+
+        authorize(client, alice)
+        assert client.get("/im/v1/agents/agent-guarded/config").status_code == 200

@@ -10,6 +10,7 @@ import { createConversation } from "../../chat/chat-api";
 import { Avatar, colorForAgent } from "../../chat/components/avatar";
 import { PillSelector } from "./pill-selector";
 import { SkillSourceSelector } from "./skill-source-selector";
+import { AgentChannelsPanel } from "./agent-channels-panel";
 import { useAgentStatusBroadcastConsumer } from "./agent-status-ws-consumer";
 import {
   AgentConfig,
@@ -1243,9 +1244,11 @@ function AgentSkillsUsagePanel({ agentId }: { agentId: string }) {
   );
 }
 
-// M20/R12-bis-1: desktop split layout — left 240px dark agent rail.
+// M20/R12-bis-1: wide desktop split layout — left 240px dark agent rail.
 // Prototype `im-settings-page.jsx::AgentListView` desktop: 240px dark sidebar
-// (`oklch(0.24 0.012 240)` bg) with clickable agent rows, active highlight.
+// (`oklch(0.24 0.012 240)` bg) with clickable agent rows, active highlight. Keep
+// the rail for >=1024px only: at tablet widths it would leave the detail panel
+// narrower than the prototype's content canvas and make channel actions wrap.
 function AgentsRailDesktop({ activeId }: { activeId: string }) {
   const navigate = useNavigate();
   const { t } = useTranslation();
@@ -1255,7 +1258,7 @@ function AgentsRailDesktop({ activeId }: { activeId: string }) {
   return (
     <aside
       data-testid="agents-rail-desktop"
-      className="hidden md:flex md:w-[240px] md:flex-col md:border-r md:border-[oklch(0.29_0.010_240)]"
+      className="hidden lg:flex lg:w-[240px] lg:flex-col lg:border-r lg:border-[oklch(0.29_0.010_240)]"
       style={{ background: "oklch(0.24 0.012 240)" }}
       aria-label={t("agents.title")}
     >
@@ -1643,7 +1646,7 @@ export function AgentDetailPage() {
         </nav>
       </header>
 
-      <div className="im-agent-panel-body">
+      <div className="im-agent-panel-body im-agent-detail-body">
         {activeSection === "skills" ? (
           <AgentSkillsUsagePanel agentId={agentId} />
         ) : activeSection === "overview" ? (
@@ -1651,9 +1654,7 @@ export function AgentDetailPage() {
             {t("agents.detail.sections.overviewPlaceholder")}
           </PrototypePlaceholder>
         ) : activeSection === "channels" ? (
-          <PrototypePlaceholder title={t("agents.detail.sections.channels")}>
-            {t("agents.detail.sections.channelsPlaceholder")}
-          </PrototypePlaceholder>
+          <AgentChannelsPanel agentId={agentId} nodeStatus={displayedNodeStatusRaw} />
         ) : activeSection === "sessions" ? (
           <PrototypePlaceholder title={t("agents.detail.sections.sessions")}>
             {t("agents.detail.sections.sessionsPlaceholder")}

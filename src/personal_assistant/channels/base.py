@@ -70,6 +70,19 @@ class OutboundMessage:
 InboundHandler = Callable[[InboundMessage], None]
 
 
+class ChannelStartupError(RuntimeError):
+    """Carry one provider-owned startup reason to the lifecycle/status boundary.
+
+    Args:
+        status_code: Stable machine-readable provider failure category.
+        message: Secret-free user-facing remediation summary.
+    """
+
+    def __init__(self, status_code: str, message: str) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
 class ChannelAdapter(Protocol):
     """Define the minimal process-local channel adapter contract."""
 

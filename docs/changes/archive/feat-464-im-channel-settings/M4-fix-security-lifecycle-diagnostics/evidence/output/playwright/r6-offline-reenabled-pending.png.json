@@ -1,0 +1,17 @@
+{
+  "action": "enable",
+  "expected": "pending",
+  "mutations": [
+    {
+      "method": "POST",
+      "path": "/im/v1/auth/login",
+      "status": 200
+    },
+    {
+      "method": "PATCH",
+      "path": "/im/v1/agents/default-agent/channels/ch_958257e2f8a5454282de1fea7e8a5bda",
+      "status": 200
+    }
+  ],
+  "consoleErrorCount": 2
+}

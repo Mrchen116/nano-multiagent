@@ -28,12 +28,12 @@ from personal_assistant.channels.feishu.client import (
     FeishuMessageEvent,
     FeishuMention,
 )
+from personal_assistant.channels.feishu.worker import FeishuWorkerStatus
 from personal_assistant.gateway.group_context_store import GroupContextStore
 
 logger = logging.getLogger(__name__)
 
 _ACK_REACTION_EMOJI_TYPE = "THINKING"
-_GROUP_MESSAGE_SCOPE = "im:message.group_msg"
 
 
 class FeishuAdapter:
@@ -73,6 +73,8 @@ class FeishuAdapter:
         ) = None,
         group_context_store: GroupContextStore,
         domain: str = "https://open.feishu.cn",
+        worker_incarnation: str | None = None,
+        status_callback: Callable[[FeishuWorkerStatus], None] | None = None,
     ) -> None:
         self._name = name
         self._app_id = app_id
@@ -85,6 +87,8 @@ class FeishuAdapter:
         self._owner_open_id_lock = threading.Lock()
         self._group_ctx = group_context_store
         self._domain = domain
+        self._worker_incarnation = worker_incarnation
+        self._status_callback = status_callback
         self._client: FeishuClient | None = None
         self._on_inbound: InboundHandler | None = None
         self._ack_reactions: dict[str, str] = {}
@@ -109,12 +113,13 @@ class FeishuAdapter:
             app_id=self._app_id,
             app_secret=self._app_secret,
             domain=self._domain,
+            worker_incarnation=self._worker_incarnation,
+            status_callback=self._status_callback,
         )
         self._client.start(
             self._handle_message,
             on_card_action=self._handle_card_action,
         )
-        self._warn_if_group_message_scope_missing()
         logger.info("feishu adapter %s started", self.name)
 
     def send(self, outbound: OutboundMessage) -> None:
@@ -178,6 +183,14 @@ class FeishuAdapter:
             self._client = None
         self._on_inbound = None
         logger.info("feishu adapter %s stopped", self.name)
+
+    def stop_invalidated(self) -> None:
+        """Drop queued input after disable/delete/credential replacement invalidation."""
+        if self._client is not None:
+            self._client.stop(drain=False)
+            self._client = None
+        self._on_inbound = None
+        logger.info("invalidated feishu adapter %s stopped", self.name)
 
     def send_permission_request(
         self,
@@ -496,44 +509,6 @@ class FeishuAdapter:
                 },
             )
             return None
-
-    def _warn_if_group_message_scope_missing(self) -> None:
-        """Warn when Feishu ordinary group messages are likely unavailable."""
-        if self._client is None:
-            return
-        try:
-            has_scope = self._client.has_scope(_GROUP_MESSAGE_SCOPE)
-        except (FeishuAuthError, FeishuAPIError, RuntimeError):
-            logger.warning(
-                "failed to verify feishu app scope %s; ordinary group messages "
-                "may not be delivered unless the app has this scope and the "
-                "matching event subscription is enabled",
-                _GROUP_MESSAGE_SCOPE,
-                exc_info=True,
-                extra={
-                    "error_code": "feishu_group_message_scope_check_failed",
-                    "agent_id": self._agent_id,
-                    "adapter": self.name,
-                },
-            )
-            return
-        if has_scope is False:
-            logger.warning(
-                "Feishu app for adapter %s does not appear to have scope %s; "
-                "ordinary group messages will not reach the agent/IM unless "
-                "the Feishu/Lark app enables this permission and subscribes to "
-                "group message events.",
-                self.name,
-                _GROUP_MESSAGE_SCOPE,
-            )
-        elif has_scope is None:
-            logger.warning(
-                "could not verify Feishu app scope %s for adapter %s; if ordinary "
-                "group messages are missing, check Feishu/Lark app permissions "
-                "and event subscriptions",
-                _GROUP_MESSAGE_SCOPE,
-                self.name,
-            )
 
 
 def _is_bot_mentioned(mentions: list[FeishuMention], bot_open_id: str | None) -> bool:

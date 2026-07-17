@@ -223,6 +223,127 @@
         "sessionsPlaceholder": "The sessions page is not included in this release. It will be designed separately."
       }
     },
+    "channels": {
+      "title": "External channels",
+      "subtitle": "Manage this Agent's connections to external messaging platforms. Configuration and runtime status are stored separately.",
+      "loading": "Loading channels…",
+      "loadError": "Unable to load channel configuration",
+      "empty": {
+        "title": "No external channels yet",
+        "description": "Add a channel so users can reach this Agent from an external messaging platform. Feishu is currently supported."
+      },
+      "provider": { "added": "Added" },
+      "feishu": {
+        "label": "Feishu",
+        "description": "Connect a Feishu application bot",
+        "guide": "Create an app in Feishu Open Platform, enable the bot, and receive events over a long connection.",
+        "openPlatform": "Open Feishu Open Platform"
+      },
+      "diagnostics": {
+        "limited": {
+          "title": "Connection limited",
+          "detail": "The basic messaging path works, but incomplete app permissions limit some capabilities."
+        },
+        "unknown": {
+          "title": "Permission status temporarily unavailable",
+          "detail": "Connection and permission checks are independent. The system will check again without reporting unknown as missing."
+        },
+        "checkState": {
+          "missing": "Permission missing",
+          "unknown": "Temporarily unavailable",
+          "satisfied": "Satisfied"
+        },
+        "rawScopes": "Feishu permission scopes",
+        "effect": "Impact",
+        "remediation": "Remediation",
+        "checkUnknown": "This permission cannot be confirmed right now",
+        "openPlatform": "Check Open Platform",
+        "groupBackgroundEffect": "Group background context is incomplete: messages without an @Bot mention do not enter the Agent context."
+      },
+      "dialog": {
+        "addTitle": "Add channel",
+        "editTitle": "Edit Feishu channel",
+        "editTitleGeneric": "Edit {{provider}} channel",
+        "chooseProvider": "Choose an external messaging provider",
+        "credentialsSubtitle": "Enter application credentials and connect online"
+      },
+      "credentials": {
+        "keep": "Keep existing secret",
+        "keepHelp": "Do not change the saved channel secret",
+        "replace": "Replace secret",
+        "replaceHelp": "Enter and save a new channel secret",
+        "secretHelp": "The secret is stored securely and will not be displayed again."
+      },
+      "validation": {
+        "appId": "Enter an App ID",
+        "appSecret": "Enter an App Secret"
+      },
+      "actions": {
+        "add": "Add channel",
+        "edit": "Edit",
+        "close": "Close",
+        "cancel": "Cancel",
+        "saving": "Saving…",
+        "saveConnect": "Save and connect",
+        "reconnect": "Reconnect",
+        "disable": "Disable",
+        "enable": "Re-enable",
+        "delete": "Delete",
+        "nodeOffline": "Node offline",
+        "retryApply": "Retry apply"
+      },
+      "offline": {
+        "title": "Node is offline",
+        "detail": "Changes are saved securely and apply automatically when the node returns."
+      },
+      "confirm": {
+        "disableTitle": "Disable the Feishu channel?",
+        "disableTitleGeneric": "Disable the {{provider}} channel?",
+        "disableBody": "New messaging stops after the node applies this change. Saved credentials are retained.",
+        "disableAction": "Confirm disable",
+        "deleteTitle": "Delete the Feishu channel?",
+        "deleteTitleGeneric": "Delete the {{provider}} channel?",
+        "deleteBody": "Credentials are removed from IM immediately. The card remains until the node stops; history is retained.",
+        "deleteAction": "Confirm delete"
+      },
+      "status": {
+        "connected": "Connected",
+        "connecting": "Connecting",
+        "pending": "Waiting for node",
+        "disabling": "Disabling",
+        "disabled": "Disabled",
+        "reconnecting": "Reconnecting",
+        "offline": "Node offline",
+        "failed": "Connection failed",
+        "synced": "Runtime status synchronized",
+        "applied": "Current configuration applied",
+        "savedSecurely": "Configuration and credentials saved securely",
+        "connectingDetail": "Establishing the Feishu long connection",
+        "unknownFailure": "The node could not establish a connection",
+        "updatedAt": "Status updated {{time}}",
+        "lastKnownUpdatedAt": "Last status updated {{time}}",
+        "savedAt": "Saved {{time}}",
+        "lastKnown": "Last known status",
+        "lastKnownDetail": "Last known status: {{status}} (node offline; not a current connection)",
+        "saved": "Configuration saved",
+        "autoApply": "Applies automatically when the node returns",
+        "disableSaved": "Disable change saved",
+        "disableWaiting": "Waiting for the node to stop messaging",
+        "disabledApplied": "Node applied the disabled state",
+        "disabledDetail": "No longer receiving or sending new messages",
+        "credentialsRetained": "credentials retained",
+        "connectionInterrupted": "Long connection interrupted",
+        "autoRecover": "The system is recovering automatically; credentials are unchanged",
+        "failureAction": "Update credentials or check the application, then retry",
+        "deletePending": "Deletion pending",
+        "deleteFailed": "Deletion incomplete",
+        "credentialsDeleted": "credentials removed from IM",
+        "deleteSaved": "Deletion saved; waiting for the node to stop",
+        "deleteReload": "This state remains after page reload",
+        "retryWaitingForNode": "Waiting for the node to return before continuing deletion",
+        "deleteUnknownFailure": "The node could not stop the old connection"
+      }
+    },
     "form": {
       "identity": {
         "title": "Identity",

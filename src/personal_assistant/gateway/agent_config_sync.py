@@ -6,6 +6,7 @@ import json
 import logging
 import time
 from collections.abc import Awaitable, Callable, Mapping
+from dataclasses import replace
 from pathlib import Path
 
 import httpx
@@ -13,10 +14,11 @@ import httpx
 from personal_assistant.config.local_store import (
     AgentWorkspaceConfig,
     LocalConfig,
+    RuntimeConfigOwner,
     WORKSPACE_CONFIG_DIRNAME as _WCD,
     default_local_config_path,
     ensure_workspace_defaults,
-    save_local_config,
+    save_sensitive_local_config,
 )
 from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
 from personal_assistant.gateway.im_http_transport import (
@@ -26,6 +28,10 @@ from personal_assistant.gateway.im_http_transport import (
 from personal_assistant.gateway.session_binder import GatewaySessionBinder
 from personal_assistant.gateway.workspace_authority import resolve_runtime_workspace
 from personal_assistant.reporter.upstream_reporter import UpstreamReporter
+
+# Preserve the extracted owner's injectable persistence seam while making its
+# production default safe for feat-464's secret-bearing channel configuration.
+save_local_config = save_sensitive_local_config
 
 _log = logging.getLogger(__name__)
 _PA_GLOBAL_SKILL_ROOT = Path("~/.nanoassistant/skills")
@@ -81,6 +87,7 @@ class IMAgentConfigSync:
         agent_catalog: LiveAgentCatalog,
         session_binder: GatewaySessionBinder,
         local_config: LocalConfig,
+        config_owner: RuntimeConfigOwner | None = None,
         workspace_root_factory: Callable[[str], Path] | None = None,
         reporter: UpstreamReporter | None = None,
         client: httpx.Client | None = None,
@@ -101,7 +108,7 @@ class IMAgentConfigSync:
         self._max_attempts = max(max_attempts, 1)
         self._agent_catalog = agent_catalog
         self._session_binder = session_binder
-        self._local_config = local_config
+        self._config_owner = config_owner or RuntimeConfigOwner(local_config)
         self._workspace_root_factory = (
             workspace_root_factory or self._default_workspace_root
         )
@@ -228,7 +235,7 @@ class IMAgentConfigSync:
         )
         self._publish_agent_config(agent_config)
         if self._reporter is not None:
-            self._reporter.replace_agents(tuple(self._local_config.agents))
+            self._reporter.replace_agents(tuple(self._config_snapshot().agents))
         if self._on_agent_created is not None:
             try:
                 self._on_agent_created(agent_id, workspace_root)
@@ -289,7 +296,7 @@ class IMAgentConfigSync:
                     skill_root,
                 )
                 return
-            for agent in tuple(self._local_config.agents):
+            for agent in tuple(self._config_snapshot().agents):
                 self._enable_created_skill_for_agent(agent, skill_name)
 
     def _enable_created_skill_for_agent(
@@ -371,11 +378,16 @@ class IMAgentConfigSync:
         return next(
             (
                 agent
-                for agent in self._local_config.agents
+                for agent in self._config_snapshot().agents
                 if agent.agent_id == agent_id
             ),
             None,
         )
+
+    def _config_snapshot(self) -> LocalConfig:
+        """Return the process-wide config snapshot shared by all durable writers."""
+
+        return self._config_owner.snapshot()
 
     @staticmethod
     def _agent_skill_root(agent: AgentWorkspaceConfig) -> Path:
@@ -407,7 +419,7 @@ class IMAgentConfigSync:
         """
         if memory_versions is None:
             memory_versions = {}
-        for agent in self._local_config.agents:
+        for agent in self._config_snapshot().agents:
             agent_id = agent.agent_id
             mem_ver = memory_versions.get(agent_id, 0)
             try:
@@ -447,7 +459,7 @@ class IMAgentConfigSync:
 
         workspace_root = resolve_runtime_workspace(
             agent_id=agent_id,
-            local_agents=self._local_config.agents,
+            local_agents=self._config_snapshot().agents,
             workspace_root_factory=self._workspace_root_factory,
         )
         raw_features = payload.get("features")
@@ -503,29 +515,24 @@ class IMAgentConfigSync:
         )
 
     def _persist_agent_config(self, agent_config: AgentWorkspaceConfig) -> None:
-        agents = list(self._local_config.agents)
-        for index, existing in enumerate(agents):
-            if existing.agent_id == agent_config.agent_id:
-                agents[index] = agent_config
-                break
-        else:
-            agents.append(agent_config)
-        persist_path = (
-            Path(self._local_config.source_path)
-            if self._local_config.source_path
-            else default_local_config_path()
+        def update(current: LocalConfig) -> LocalConfig:
+            agents = list(current.agents)
+            for index, existing in enumerate(agents):
+                if existing.agent_id == agent_config.agent_id:
+                    agents[index] = agent_config
+                    break
+            else:
+                agents.append(agent_config)
+            return replace(
+                current,
+                agents=tuple(agents),
+                source_path=current.source_path or default_local_config_path(),
+            )
+
+        self._config_owner.persist(
+            update,
+            save_config=save_local_config,
         )
-        self._local_config = LocalConfig(
-            node=self._local_config.node,
-            agents=tuple(agents),
-            channels=self._local_config.channels,
-            gateway=self._local_config.gateway,
-            heartbeat=self._local_config.heartbeat,
-            im_service=self._local_config.im_service,
-            llm=self._local_config.llm,
-            source_path=persist_path,
-        )
-        save_local_config(self._local_config, persist_path)
 
     def _publish_agent_config(self, agent_config: AgentWorkspaceConfig) -> None:
         """Converge durable and live owners independently, persisting first."""
@@ -546,7 +553,7 @@ class IMAgentConfigSync:
         )
 
     def current_agent_payload(self, *, agent_id: str) -> dict[str, object] | None:
-        for agent in self._local_config.agents:
+        for agent in self._config_snapshot().agents:
             if agent.agent_id != agent_id:
                 continue
             payload: dict[str, object] = {
