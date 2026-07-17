@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
+from tests.helpers.inbound_pipeline import build_inbound_pipeline
+
 import asyncio
 from pathlib import Path
 
 from personal_assistant.channels.base import InboundMessage
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.gateway.group_context_store import GroupContextStore
-from personal_assistant.gateway.inbound_pipeline import (
-    InboundPipeline,
-    _format_sender_text,
-)
+from personal_assistant.gateway.inbound_pipeline import InboundPipeline
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
 from personal_assistant.gateway.channel_registry import ChannelRegistry
@@ -101,7 +100,7 @@ def _build_pipeline(
     kernel = _FakeKernel()
     channel = _FakeChannel("web_relay")
     feishu_channel = _FakeChannel("feishu:agent-a")
-    pipeline = InboundPipeline(
+    pipeline = build_inbound_pipeline(
         kernel=kernel,
         agents=agents,
         outbound_router=OutboundRouter(ChannelRegistry((channel, feishu_channel))),
@@ -111,21 +110,6 @@ def _build_pipeline(
         default_agent_id="agent-a",
     )
     return pipeline, store, kernel
-
-
-# ── _format_sender_text unit tests ────────────────────────────────────────────
-
-
-def test_format_sender_text_with_non_empty_sender() -> None:
-    """Non-empty sender produces [sender] text prefix."""
-    result = _format_sender_text("user-1", "hello")
-    assert result == "[user-1] hello"
-
-
-def test_format_sender_text_with_empty_sender_returns_text_unchanged() -> None:
-    """Empty sender string leaves text unchanged."""
-    result = _format_sender_text("", "hello")
-    assert result == "hello"
 
 
 # ── Pipeline integration tests ────────────────────────────────────────────────

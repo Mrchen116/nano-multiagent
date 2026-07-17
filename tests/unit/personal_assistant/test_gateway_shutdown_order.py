@@ -78,7 +78,10 @@ class _FakeHeartbeatRunner:
     async def start(self) -> None:
         self._events.append("heartbeat.start")
 
-    async def close(self) -> None:
+    def request_stop(self) -> None:
+        self._events.append("heartbeat.seal")
+
+    async def close(self, _deadline: float) -> None:
         self._events.append("heartbeat.close")
 
 
@@ -138,7 +141,7 @@ def test_gateway_runtime_accepts_kernel_parameter(tmp_path: Path) -> None:
 def test_gateway_runtime_calls_kernel_aclose_before_im_close(tmp_path: Path) -> None:
     """Gateway shutdown must call kernel.aclose() before closing IM (Decision 7).
 
-    Order verified: heartbeat.close → kernel.aclose → im.close
+    Order verified: heartbeat.seal → kernel.aclose → heartbeat.close → im.close
     """
     events: list[str] = []
     config = _make_config(tmp_path)
@@ -163,17 +166,22 @@ def test_gateway_runtime_calls_kernel_aclose_before_im_close(tmp_path: Path) -> 
     runtime.run_forever()
     t.join(timeout=5.0)
 
-    # Verify order: heartbeat must close before kernel; kernel must close before IM.
+    # Logical seal precedes Kernel; physical tick drain follows Kernel terminal.
+    assert "heartbeat.seal" in events, "heartbeat.seal not in events"
     assert "heartbeat.close" in events, "heartbeat.close not in events"
     assert "kernel.aclose" in events, "kernel.aclose not in events"
     assert "im.close" in events, "im.close not in events"
 
+    seal_idx = events.index("heartbeat.seal")
     hb_idx = events.index("heartbeat.close")
     ka_idx = events.index("kernel.aclose")
     im_idx = events.index("im.close")
 
-    assert hb_idx < ka_idx, (
-        f"heartbeat.close ({hb_idx}) must precede kernel.aclose ({ka_idx}); got {events}"
+    assert seal_idx < ka_idx, (
+        f"heartbeat.seal ({seal_idx}) must precede kernel.aclose ({ka_idx}); got {events}"
+    )
+    assert ka_idx < hb_idx, (
+        f"kernel.aclose ({ka_idx}) must precede heartbeat.close ({hb_idx}); got {events}"
     )
     assert ka_idx < im_idx, (
         f"kernel.aclose ({ka_idx}) must precede im.close ({im_idx}); got {events}"

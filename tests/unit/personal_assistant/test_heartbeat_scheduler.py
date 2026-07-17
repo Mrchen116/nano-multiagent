@@ -301,3 +301,47 @@ async def test_heartbeat_session_metadata_contains_agent_id(tmp_path: Path) -> N
         f"create_session must receive metadata={{agent_id: {agent.agent_id!r}}}, "
         f"got: {metadata!r}"
     )
+
+
+@pytest.mark.asyncio
+async def test_scheduler_does_not_read_or_own_transcript_before_fast_submit(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Heartbeat scheduling leaves selective transcript cleanup to Kernel."""
+
+    agent = _agent(tmp_path, name="hb-fast")
+    _write_heartbeat(agent.workspace_root, "Check status.\n")
+    session_id = "canonical-fast"
+    session_dir = agent.workspace_root / ".nanoassistant" / "sessions"
+    session_dir.mkdir(parents=True)
+    session_file = session_dir / f"{session_id}.jsonl"
+    session_file.write_text('{"type":"session_created"}\n', encoding="utf-8")
+    original_read_text = Path.read_text
+
+    def _reject_transcript_read(path: Path, *args, **kwargs):
+        if path == session_file:
+            raise AssertionError("scheduler must not inspect Kernel transcript files")
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", _reject_transcript_read)
+
+    class _FastKernel(_FakeKernelClient):
+        def submit_message(
+            self, *, session_id: str, texts: list[str], **kwargs: object
+        ) -> dict[str, object]:
+            with session_file.open("a", encoding="utf-8") as handle:
+                handle.write('{"role":"user","content":"heartbeat"}\n')
+                handle.write('{"role":"assistant","content":"HEARTBEAT_OK"}\n')
+            return super().submit_message(session_id=session_id, texts=texts, **kwargs)
+
+    scheduler = HeartbeatScheduler(
+        agents=(agent,),
+        kernel_client=_FastKernel(),
+        state_store=HeartbeatSchedulerStateStore(tmp_path / "state.json"),
+        canonical_session_store={agent.agent_id: session_id},
+    )
+
+    summary = await scheduler.tick(now=datetime(2026, 7, 16, 9, 0, tzinfo=UTC))
+
+    assert summary.triggered_runs[0].run_id
+    assert len(original_read_text(session_file, encoding="utf-8").splitlines()) == 3

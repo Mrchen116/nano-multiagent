@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import os
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -214,13 +216,18 @@ class JsonlTranscript:
         messages: Sequence[Message],
         *,
         durable: bool = False,
+        turn_id: str | None = None,
     ) -> None:
         """Serialize and append messages onto the current reachable tail."""
 
         with self._mutex:
             self._append_turn_entries_locked(
                 [
-                    _message_to_raw(message, self._ref.session_id)
+                    _message_to_raw(
+                        message,
+                        self._ref.session_id,
+                        turn_id=turn_id,
+                    )
                     for message in messages
                 ],
                 durable=durable,
@@ -271,6 +278,7 @@ class JsonlTranscript:
                 "uuid": message_id,
                 "parent_uuid": self._tail_uuid,
                 "session_id": self._ref.session_id,
+                "turn_id": turn_id,
                 "role": role,
                 "content": request.content,
                 "timestamp": utc_now_iso(),
@@ -434,6 +442,70 @@ class JsonlTranscript:
         """Await durability without blocking the active event loop."""
 
         await self._writer.durable_barrier_async(self._path)
+
+    def discard_turn(self, turn_id: str) -> bool:
+        """Remove one persisted turn while preserving every later branch.
+
+        This is the transcript owner's selective rewrite path. It shares the
+        append mutex and writer barrier, reparents retained descendants around
+        removed messages, and rebuilds the cached tail before another append can
+        proceed. Product code must never truncate the JSONL file directly.
+
+        Args:
+            turn_id: Stable identity written on every message in one model turn.
+
+        Returns:
+            True when at least one matching message was removed, otherwise False.
+        """
+
+        normalized_turn_id = turn_id.strip()
+        if not normalized_turn_id:
+            return False
+        with self._mutex:
+            self._writer.durable_barrier(self._path)
+            raw = list(self._files.read_raw_entries(self._ref))
+            removed_parents = {
+                str(entry["uuid"]): entry.get("parent_uuid")
+                for entry in raw
+                if entry.get("type") == "turn"
+                and entry.get("turn_id") == normalized_turn_id
+                and isinstance(entry.get("uuid"), str)
+            }
+            if not removed_parents:
+                return False
+
+            retained: list[dict[str, Any]] = []
+            for raw_entry in raw:
+                if (
+                    raw_entry.get("type") == "turn"
+                    and raw_entry.get("turn_id") == normalized_turn_id
+                ):
+                    continue
+                entry = dict(raw_entry)
+                if entry.get("type") == "turn":
+                    entry["parent_uuid"] = _nearest_retained_parent(
+                        entry.get("parent_uuid"),
+                        removed_parents,
+                    )
+                retained.append(entry)
+
+            tmp_path = self._path.with_suffix(".jsonl.rewrite_tmp")
+            try:
+                tmp_path.write_text(
+                    "".join(
+                        json.dumps(entry, ensure_ascii=False) + "\n"
+                        for entry in retained
+                    ),
+                    encoding="utf-8",
+                )
+                os.replace(tmp_path, self._path)
+            finally:
+                tmp_path.unlink(missing_ok=True)
+
+            self._tail_known = False
+            self._tail_uuid = None
+            self._ensure_tail_locked()
+            return True
 
     def _ensure_tail_locked(self) -> None:
         if self._tail_known:
@@ -735,7 +807,12 @@ def _tool_name(entry: Mapping[str, Any], call_id: str) -> str | None:
     return None
 
 
-def _message_to_raw(message: Message, session_id: str) -> dict[str, Any]:
+def _message_to_raw(
+    message: Message,
+    session_id: str,
+    *,
+    turn_id: str | None = None,
+) -> dict[str, Any]:
     entry: dict[str, Any] = {
         "type": "turn",
         "uuid": message.message_id,
@@ -745,6 +822,8 @@ def _message_to_raw(message: Message, session_id: str) -> dict[str, Any]:
         "content": message.content,
         "timestamp": utc_now_iso(),
     }
+    if turn_id:
+        entry["turn_id"] = turn_id
     if message.parts:
         entry["parts"] = [dict(part) for part in message.parts]
     metadata = dict(message.metadata)
@@ -758,3 +837,20 @@ def _message_to_raw(message: Message, session_id: str) -> dict[str, Any]:
         metadata["reasoning_signature"] = message.reasoning_signature
     _copy_turn_metadata(entry, metadata)
     return entry
+
+
+def _nearest_retained_parent(
+    parent_uuid: object,
+    removed_parents: Mapping[str, object],
+) -> str | None:
+    """Resolve a retained ancestor when selective deletion removes a parent."""
+
+    current = parent_uuid if isinstance(parent_uuid, str) else None
+    seen: set[str] = set()
+    while current in removed_parents:
+        if current in seen:
+            return None
+        seen.add(current)
+        parent = removed_parents[current]
+        current = parent if isinstance(parent, str) else None
+    return current

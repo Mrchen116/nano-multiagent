@@ -27,7 +27,7 @@ class TestAcceptedPhaseSeedsRunContext:
     async def test_accepted_phase_seeds_run_context_with_empty_message_id(self):
         """Accepted phase must populate run_context_store with conversation/agent but empty message_id."""
         from personal_assistant.main import _build_relay_lifecycle_callback
-        from personal_assistant.gateway.inbound_pipeline import RelayLifecycleUpdate
+        from personal_assistant.gateway.inbound_models import RelayLifecycleUpdate
         from personal_assistant.channels.base import InboundMessage
 
         run_context_store: dict[str, dict[str, str]] = {}
@@ -73,7 +73,7 @@ class TestAcceptedPhaseSeedsRunContext:
     async def test_accepted_phase_does_not_store_user_message_id(self):
         """Accepted phase must NOT store user message_id as the agent message_id."""
         from personal_assistant.main import _build_relay_lifecycle_callback
-        from personal_assistant.gateway.inbound_pipeline import RelayLifecycleUpdate
+        from personal_assistant.gateway.inbound_models import RelayLifecycleUpdate
         from personal_assistant.channels.base import InboundMessage
 
         run_context_store: dict[str, dict[str, str]] = {}
@@ -122,7 +122,7 @@ class TestAcceptedPhaseSeedsRunContext:
         and bubble A is orphaned (observer can't finalize it → 120s relay-idle → A
         stuck running/failed, the #140 black-screen symptom)."""
         from personal_assistant.main import _build_relay_lifecycle_callback
-        from personal_assistant.gateway.inbound_pipeline import RelayLifecycleUpdate
+        from personal_assistant.gateway.inbound_models import RelayLifecycleUpdate
         from personal_assistant.channels.base import InboundMessage
 
         # The run already has a live bubble (A) streaming when the steer is accepted.
@@ -178,7 +178,7 @@ class TestAcceptedPhaseSeedsRunContextForNonRelay:
         """A message with no relay_task_id (e.g. from feishu) still populates
         run_context_store; no relay delivery receipt is sent."""
         from personal_assistant.main import _build_relay_lifecycle_callback
-        from personal_assistant.gateway.inbound_pipeline import RelayLifecycleUpdate
+        from personal_assistant.gateway.inbound_models import RelayLifecycleUpdate
         from personal_assistant.channels.base import InboundMessage
 
         run_context_store: dict[str, dict[str, str]] = {}
@@ -226,7 +226,7 @@ class TestAcceptedPhaseSeedsRunContextForNonRelay:
     async def test_completed_phase_without_relay_task_id_cleans_run_context(self):
         """A non-relay completed lifecycle must remove the run_context entry."""
         from personal_assistant.main import _build_relay_lifecycle_callback
-        from personal_assistant.gateway.inbound_pipeline import RelayLifecycleUpdate
+        from personal_assistant.gateway.inbound_models import RelayLifecycleUpdate
         from personal_assistant.channels.base import InboundMessage
 
         run_context_store: dict[str, dict[str, str]] = {

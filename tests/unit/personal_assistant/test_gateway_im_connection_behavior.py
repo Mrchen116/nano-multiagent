@@ -593,6 +593,48 @@ def test_protocol_error_terminally_releases_waiter_and_flushes_next_frame(
     ]
 
 
+def test_im_connection_drain_waits_for_every_queued_frame_ack(tmp_path: Path) -> None:
+    """Graceful shutdown cannot close the socket after merely queueing terminals."""
+    socket = _FakeWebSocket(
+        incoming=[
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {"message_type": "node.register"},
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {"message_type": "node.report", "node_id": "node-1"},
+                }
+            ),
+        ]
+    )
+    relay_adapter = WebRelayAdapter()
+    relay_adapter.start(lambda _message: None)
+    manager = IMConnectionManager(
+        config=IMConnectionConfig(url="http://im.local:9000"),
+        reporter=_minimal_reporter(tmp_path),
+        relay_adapter=relay_adapter,
+        connect=lambda url, headers: _connect_fake(socket, [], url, headers),
+    )
+
+    async def _exercise() -> None:
+        await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001 - register before business
+        await manager.send_json("node.report", {"status": "failed"})
+        draining = asyncio.create_task(
+            manager.drain(asyncio.get_running_loop().time() + 1)
+        )
+        await asyncio.sleep(0)
+        assert not draining.done()
+        await manager._listen_once()  # noqa: SLF001 - consume the real protocol ack
+        await draining
+
+    asyncio.run(_exercise())
+
+
 def test_im_connection_retries_with_exponential_backoff_until_cap(
     tmp_path: Path,
 ) -> None:

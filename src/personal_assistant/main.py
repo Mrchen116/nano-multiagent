@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from datetime import datetime, timezone
 import fcntl
 import hashlib
 import json
@@ -45,7 +44,6 @@ from personal_assistant.channels.channel_credentials import (
 )
 
 from personal_assistant.config.local_store import (
-    AgentWorkspaceConfig,
     ChannelConfig,
     HeartbeatConfig,
     IMServiceConfig,
@@ -53,7 +51,6 @@ from personal_assistant.config.local_store import (
     RuntimeConfigOwner,
     WORKSPACE_CONFIG_DIRNAME as _WCD,
     default_local_config_path,
-    ensure_workspace_defaults,
     ensure_feishu_doc_skill_for_feishu_agents,
     load_local_config,
     migrate_managed_channels_to_credential_refs,
@@ -80,10 +77,26 @@ from personal_assistant.gateway.channel_manifest_apply import (
     CredentialEnvelopeContext,
     apply_channel_manifest_payload,
 )
-from personal_assistant.gateway.group_context_store import GroupContextStore
 from personal_assistant.channels.feishu.preflight import probe_feishu_runtime
+from personal_assistant.gateway.agent_catalog import LiveAgentCatalog, LiveAgentSnapshot
+from personal_assistant.gateway.agent_config_sync import (
+    IMAgentConfigSync,
+    _make_workspace_root_factory,
+    _parse_heartbeat_from_im_payload,  # noqa: F401 - compatibility re-export
+)
+from personal_assistant.gateway.group_context_store import GroupContextStore
+from personal_assistant.gateway.background_subscriptions import (
+    BackgroundSubscriptionManager,
+)
+from personal_assistant.gateway.image_attachments import ImageAttachmentResolver
+from personal_assistant.gateway.im_http_transport import (
+    build_im_http_headers,
+    normalize_im_http_base_url,
+)
+from personal_assistant.gateway.inbound_dispatcher import InboundDispatcher
 from personal_assistant.gateway.inbound_pipeline import (
     InboundPipeline,
+    InboundRouteConfig,
 )
 from personal_assistant.gateway.runtime_delivery.context import (
     RunDeliveryContextStore,
@@ -100,17 +113,31 @@ from personal_assistant.gateway.runtime_delivery.observer import (
     extract_ack_message_id as _extract_ack_message_id,  # noqa: F401
     roll_bubble as _roll_bubble,  # noqa: F401
 )
-from personal_assistant.gateway.workspace_authority import resolve_runtime_workspace
-from personal_assistant.gateway.internal_dispatch import InternalDispatchHandler
+from personal_assistant.gateway.runtime_delivery.task_tracker import (
+    RuntimeDeliveryTaskTracker,
+)
+from personal_assistant.gateway.runtime_delivery.stream import (
+    stream_run_to_completion as _stream_run_to_completion,
+)
+from personal_assistant.gateway.internal_dispatch import (
+    InternalDispatchEndpoint,
+    InternalDispatchHandler,
+)
 from personal_assistant.gateway.outbound_router import OutboundRouter
-from personal_assistant.gateway.run_queue import SessionRunQueue
 from personal_assistant.gateway.session_keys import (
     PersistentSessionBindingStore,
-    SessionBindingStore,
-    bind_conversation_session,
     build_conversation_session_key,
     build_external_session_key,
 )
+from personal_assistant.gateway.session_binder import (
+    ConversationBindingRequest,
+    GatewaySessionBinder,
+)
+from personal_assistant.gateway.session_composition import (
+    project_agent_session_capabilities,
+)
+from personal_assistant.gateway.session_run_coordinator import SessionRunCoordinator
+from personal_assistant.gateway.shadow_sync import IMShadowConversationSync
 from personal_assistant.reporter.upstream_reporter import (
     UpstreamReporter,
     build_agent_capabilities_payload,
@@ -126,8 +153,11 @@ from personal_assistant.scheduler.cron_scheduler import (
     CronScheduler,
     CronSchedulerStateStore,
 )
+from personal_assistant.scheduler.cron_execution_service import (
+    CronExecutionService,
+    CronRunTerminalConsumer,
+)
 from personal_assistant.scheduler.cron_runner import CronRunner
-from personal_assistant.scheduler.cron_execution_service import CronExecutionService
 from personal_assistant.scheduler.cron_service_registry import CronServiceRegistry
 from personal_assistant.auth.im_auth_client import IMAuthClient, IMAuthError
 from personal_assistant.ws.im_connection import (
@@ -137,7 +167,6 @@ from personal_assistant.ws.im_connection import (
     PromptPreviewProvider,
     SessionForkHandler,
 )
-
 
 ProcessLike = subprocess.Popen[Any]
 BackgroundProcessFactory = Callable[[list[str], Path], ProcessLike]
@@ -234,8 +263,11 @@ class HeartbeatRunner(Protocol):
     async def start(self) -> None:
         """Start background scheduler ticking."""
 
-    async def close(self) -> None:
-        """Stop background scheduler ticking and wait for drain."""
+    def request_stop(self) -> None:
+        """Synchronously reject future scheduler passes."""
+
+    async def close(self, deadline: float) -> None:
+        """Wait for the current pass by the shared shutdown deadline."""
 
 
 class IMConnectionManagerLike(Protocol):
@@ -256,6 +288,9 @@ class IMConnectionManagerLike(Protocol):
 
     async def close(self) -> None:
         """Close the websocket and stop reconnect attempts."""
+
+    async def drain(self, deadline: float) -> None:
+        """Wait for all accepted outbound frames to be acknowledged."""
 
 
 class BrowserOpener(Protocol):
@@ -312,800 +347,6 @@ class GatewayRuntimeState:
     process_start: str | None = None
 
 
-def _default_pa_global_skill_names() -> tuple[str, ...]:
-    """Resolve the PA global user skills that new IM-created agents inherit."""
-
-    root = _PA_GLOBAL_SKILL_ROOT.expanduser().resolve()
-    if not root.is_dir():
-        return ()
-    try:
-        names: set[str] = set()
-        for skill_file in sorted(root.rglob("SKILL.md")):
-            if ".archive" in skill_file.parts:
-                continue
-            names.add(_read_skill_name(skill_file))
-        return tuple(sorted(names))
-    except Exception:  # noqa: BLE001
-        _log.warning(
-            "failed to resolve PA global skill defaults from %s", root, exc_info=True
-        )
-        return ()
-
-
-def _read_skill_name(skill_file: Path) -> str:
-    """Return the skill's declared name, falling back to its directory name."""
-
-    for line in skill_file.read_text(encoding="utf-8", errors="replace").splitlines():
-        stripped = line.strip()
-        if stripped == "---" or not stripped:
-            continue
-        if stripped.startswith("name:"):
-            return (
-                stripped.split(":", 1)[1].strip().strip("\"'") or skill_file.parent.name
-            )
-        if not stripped.startswith("#"):
-            break
-    return skill_file.parent.name
-
-
-class _IMConfigSyncClient:
-    """Fetch IM agent config snapshots and extend the live gateway agent registry."""
-
-    # bugfix-402-M6: optional callback invoked at the end of handle_agent_create
-    # so build_runtime can register a CronExecutionService for dynamically created
-    # agents without handle_agent_create needing to know about the cron subsystem.
-    on_agent_created: Callable[[str, Path], None] | None = None
-
-    def __init__(
-        self,
-        *,
-        base_url: str,
-        token: str | None,
-        pipeline: InboundPipeline,
-        local_config: LocalConfig,
-        config_owner: RuntimeConfigOwner | None = None,
-        workspace_root_factory: Callable[[str], Path] | None = None,
-        reporter: UpstreamReporter | None = None,
-        client: httpx.Client | None = None,
-        client_factory: BootstrapClientFactory | None = None,
-        global_skill_root: Path | None = None,
-        timeout_seconds: float = 5.0,
-        retry_interval_seconds: float = 0.1,
-        max_attempts: int = 50,
-        monotonic: Monotonic = time.monotonic,
-        sleep: Sleep = time.sleep,
-        token_getter: Callable[[], Awaitable[str | None]] | None = None,
-    ) -> None:
-        self._base_url = _im_http_base_url(base_url)
-        self._base_headers = _im_http_headers(token)
-        self._timeout_seconds = timeout_seconds
-        self._retry_interval_seconds = retry_interval_seconds
-        self._max_attempts = max(max_attempts, 1)
-        self._pipeline = pipeline
-        self._config_owner = config_owner or RuntimeConfigOwner(local_config)
-        self._workspace_root_factory = (
-            workspace_root_factory or self._default_workspace_root
-        )
-        self._reporter = reporter
-        self._client_factory = client_factory
-        self._client = client
-        self._global_skill_root = (
-            global_skill_root.expanduser().resolve()
-            if global_skill_root is not None
-            else None
-        )
-        self._monotonic = monotonic
-        self._sleep = sleep
-        # feat-394-M3 fix: accept token_getter so auto-bind token refresh propagates
-        # to config sync requests. Without this, sync_agent calls 401 after auto-bind
-        # because the initial token is empty and is never updated. Mirrors the pattern
-        # used by _IMBootstrapClient (main.py:599-613).
-        self._token_getter = token_getter
-
-    def sync_agent(self, *, agent_id: str, profile_version: int) -> None:
-        deadline = self._monotonic() + self._timeout_seconds
-        attempt = 0
-        while True:
-            attempt += 1
-            try:
-                payload = self._fetch_agent_config(agent_id=agent_id)
-                resolved_profile_version = int(payload.get("profile_version", 0))
-                if resolved_profile_version < profile_version:
-                    raise RuntimeError(
-                        f"agent {agent_id} config stale: expected >= {profile_version}, got {resolved_profile_version}"
-                    )
-                workspace_root = resolve_runtime_workspace(
-                    agent_id=agent_id,
-                    local_agents=self._local_config.agents,
-                    workspace_root_factory=self._workspace_root_factory,
-                )
-                # feat-379-M2: parse per-agent features/custom_prompt from IM mirror payload
-                raw_features = payload.get("features")
-                synced_features = (
-                    {
-                        k: v
-                        for k, v in raw_features.items()
-                        if isinstance(k, str) and isinstance(v, bool)
-                    }
-                    if isinstance(raw_features, dict)
-                    else {}
-                )
-                synced_custom_prompt_val = payload.get("custom_prompt")
-                synced_custom_prompt = (
-                    synced_custom_prompt_val.strip()
-                    if isinstance(synced_custom_prompt_val, str)
-                    and synced_custom_prompt_val.strip()
-                    else None
-                )
-                # feat-394 decision 5: parse heartbeat cadence (every / active_hours) from
-                # heartbeat_json; enable state lives in features["heartbeat"] (M9 decision D).
-                _hb_raw_str = payload.get("heartbeat_json")
-                if isinstance(_hb_raw_str, str) and _hb_raw_str.strip():
-                    import json as _json  # noqa: PLC0415
-
-                    try:
-                        _hb_raw = _json.loads(_hb_raw_str)
-                    except (ValueError, TypeError):
-                        _hb_raw = payload.get("heartbeat")
-                else:
-                    _hb_raw = payload.get("heartbeat")
-                (
-                    synced_heartbeat_every,
-                    synced_hb_start,
-                    synced_hb_end,
-                    synced_hb_tz,
-                ) = _parse_heartbeat_from_im_payload(_hb_raw)
-                # feat-394 fix: cron is a gated capability decoupled from the user tool
-                # whitelist — cron_enabled must NEVER be written into tool_allowlist.
-                # The cron tool is appended to the effective session toolset via the
-                # feature→requires_tool invariant (feat-394 M9 decision D).
-                _raw_allowlist = [
-                    item.strip()
-                    for item in payload.get("tool_allowlist", [])
-                    if isinstance(item, str) and item.strip()
-                ]
-                agent_config = AgentWorkspaceConfig(
-                    agent_id=agent_id,
-                    workspace_root=workspace_root,
-                    title=str(payload.get("display_name") or agent_id),
-                    skills=tuple(
-                        item.strip()
-                        for item in payload.get("skills", [])
-                        if isinstance(item, str) and item.strip()
-                    ),
-                    tool_allowlist=tuple(_raw_allowlist),
-                    system_prompt=(
-                        payload.get("system_prompt").strip()
-                        if isinstance(payload.get("system_prompt"), str)
-                        and payload.get("system_prompt").strip()
-                        else None
-                    ),
-                    group_reply_policy=(
-                        payload.get("group_reply_policy").strip()
-                        if isinstance(payload.get("group_reply_policy"), str)
-                        and payload.get("group_reply_policy").strip()
-                        else None
-                    ),
-                    default_model=(
-                        payload.get("default_model").strip()
-                        if isinstance(payload.get("default_model"), str)
-                        and payload.get("default_model").strip()
-                        else None
-                    ),
-                    features=synced_features,
-                    custom_prompt=synced_custom_prompt,
-                    heartbeat_every=synced_heartbeat_every,
-                    heartbeat_active_hours_start=synced_hb_start,
-                    heartbeat_active_hours_end=synced_hb_end,
-                    heartbeat_active_hours_timezone=synced_hb_tz,
-                )
-                self._pipeline.register_agent(agent_config)
-                self._persist_agent_config(agent_config)
-                self._pipeline.drop_agent_sessions(agent_id)
-                return
-            except (httpx.HTTPError, RuntimeError, ValueError):
-                if attempt >= self._max_attempts or self._monotonic() >= deadline:
-                    raise
-                self._sleep(self._retry_interval_seconds)
-
-    def handle_agent_create(
-        self, agent_payload: Mapping[str, object]
-    ) -> dict[str, object]:
-        """在节点上落地工作区并注册 Agent，供 IM ``agent.create`` / ``agent.created`` 回包使用。"""
-        agent_id_raw = agent_payload.get("agent_id")
-        if not isinstance(agent_id_raw, str) or not agent_id_raw.strip():
-            raise ValueError("agent.create requires non-empty agent_id")
-        agent_id = agent_id_raw.strip()
-        ws_raw = agent_payload.get("workspace_root")
-        if isinstance(ws_raw, str) and ws_raw.strip():
-            workspace_root = Path(ws_raw.strip()).expanduser()
-            if not workspace_root.is_absolute():
-                raise ValueError(
-                    "workspace_root must be an absolute path or start with ~/"
-                )
-            workspace_root = workspace_root.resolve()
-        else:
-            workspace_root = self._workspace_root_factory(agent_id)
-        workspace_root = ensure_workspace_defaults(workspace_root)
-        display = agent_payload.get("display_name")
-        title = (
-            display.strip()
-            if isinstance(display, str) and display.strip()
-            else agent_id
-        )
-        desc_val = agent_payload.get("description")
-        description_str = desc_val.strip() if isinstance(desc_val, str) else ""
-        system_prompt_val = agent_payload.get("system_prompt")
-        system_prompt = (
-            system_prompt_val.strip()
-            if isinstance(system_prompt_val, str) and system_prompt_val.strip()
-            else None
-        )
-        raw_skills = agent_payload.get("skills")
-        skills = tuple(
-            item.strip()
-            for item in (raw_skills if isinstance(raw_skills, list) else [])
-            if isinstance(item, str) and item.strip()
-        )
-        if "skills" not in agent_payload:
-            skills = _default_pa_global_skill_names()
-        raw_tools = agent_payload.get("tool_allowlist")
-        tool_allowlist = tuple(
-            item.strip()
-            for item in (raw_tools if isinstance(raw_tools, list) else [])
-            if isinstance(item, str) and item.strip()
-        )
-        grp = agent_payload.get("group_reply_policy")
-        group_reply_policy = (
-            grp.strip() if isinstance(grp, str) and grp.strip() else "MENTION"
-        )
-        dm = agent_payload.get("default_model")
-        default_model = dm.strip() if isinstance(dm, str) and dm.strip() else None
-        # feat-379-M2: per-agent features and custom_prompt from IM push payload
-        raw_features = agent_payload.get("features")
-        features = (
-            {
-                k: v
-                for k, v in raw_features.items()
-                if isinstance(k, str) and isinstance(v, bool)
-            }
-            if isinstance(raw_features, dict)
-            else {}
-        )
-        cp_val = agent_payload.get("custom_prompt")
-        custom_prompt = (
-            cp_val.strip() if isinstance(cp_val, str) and cp_val.strip() else None
-        )
-        agent_config = AgentWorkspaceConfig(
-            agent_id=agent_id,
-            workspace_root=workspace_root,
-            title=title,
-            skills=skills,
-            tool_allowlist=tool_allowlist,
-            system_prompt=system_prompt,
-            group_reply_policy=group_reply_policy,
-            default_model=default_model,
-            features=features,
-            custom_prompt=custom_prompt,
-        )
-        self._pipeline.register_agent(agent_config)
-        self._persist_agent_config(agent_config)
-        if self._reporter is not None:
-            self._reporter.replace_agents(tuple(self._local_config.agents))
-        # bugfix-402-M6: notify build_runtime so it can register a
-        # CronExecutionService for this newly created agent.  The callback is
-        # wired after im_config_sync_client is constructed (see build_runtime).
-        if self.on_agent_created is not None:
-            try:
-                self.on_agent_created(agent_id, workspace_root)
-            except Exception:  # noqa: BLE001
-                _log.warning(
-                    "on_agent_created callback failed for agent=%s; "
-                    "cron execution service may not be registered",
-                    agent_id,
-                )
-        return {
-            "agent_id": agent_id,
-            "display_name": title,
-            "description": description_str,
-            "system_prompt": system_prompt or "",
-            "skills": list(skills),
-            "tool_allowlist": list(tool_allowlist),
-            "group_reply_policy": group_reply_policy,
-            "default_model": default_model,
-            "workspace_root": str(workspace_root),
-            "features": features,
-            "custom_prompt": custom_prompt,
-        }
-
-    def handle_skill_created(self, agent_id: str, event: Mapping[str, object]) -> None:
-        """Enable a successfully created skill for the affected live agents."""
-
-        skill_name = event.get("name")
-        scope = event.get("scope")
-        raw_skill_root = event.get("skill_root")
-        if not (
-            isinstance(skill_name, str)
-            and skill_name.strip()
-            and isinstance(scope, str)
-            and isinstance(raw_skill_root, str)
-            and raw_skill_root.strip()
-        ):
-            return
-        skill_name = skill_name.strip()
-        skill_root = Path(raw_skill_root).expanduser().resolve()
-        if scope == "agent":
-            agent = self._local_agent(agent_id)
-            if agent is None:
-                return
-            if skill_root != self._agent_skill_root(agent):
-                _log.warning(
-                    "ignoring agent-scoped skill_created for %s: root %s is not the agent skill root",
-                    agent_id,
-                    skill_root,
-                )
-                return
-            self._enable_created_skill_for_agent(agent, skill_name)
-            return
-        if scope == "global":
-            if self._global_skill_root is None or skill_root != self._global_skill_root:
-                _log.warning(
-                    "ignoring global skill_created for %s: root %s is not configured global root",
-                    agent_id,
-                    skill_root,
-                )
-                return
-            for agent in tuple(self._local_config.agents):
-                self._enable_created_skill_for_agent(agent, skill_name)
-
-    def _enable_created_skill_for_agent(
-        self, agent: AgentWorkspaceConfig, skill_name: str
-    ) -> bool:
-        if not agent.skills:
-            self._pipeline.drop_agent_sessions(agent.agent_id)
-            return True
-        if skill_name in agent.skills:
-            self._pipeline.drop_agent_sessions(agent.agent_id)
-            return True
-        try:
-            payload = self._fetch_agent_config(agent_id=agent.agent_id)
-            next_skills = [
-                item.strip()
-                for item in payload.get("skills", [])
-                if isinstance(item, str) and item.strip()
-            ]
-            if skill_name not in next_skills:
-                next_skills.append(skill_name)
-                updated = self._patch_agent_skills(agent.agent_id, payload, next_skills)
-                profile_version = int(updated.get("profile_version", 0))
-                self.sync_agent(
-                    agent_id=agent.agent_id,
-                    profile_version=profile_version,
-                )
-            else:
-                self._pipeline.drop_agent_sessions(agent.agent_id)
-            return True
-        except (httpx.HTTPError, ValueError, RuntimeError):
-            _log.warning(
-                "failed to enable created skill %s for agent %s",
-                skill_name,
-                agent.agent_id,
-                exc_info=True,
-            )
-            return False
-
-    def _patch_agent_skills(
-        self,
-        agent_id: str,
-        payload: Mapping[str, object],
-        skills: list[str],
-    ) -> dict[str, object]:
-        raw_tools = payload.get("tool_allowlist")
-        raw_features = payload.get("features")
-        patch_payload: dict[str, object] = {
-            "profile_version": int(payload.get("profile_version", 1)),
-            "display_name": str(payload.get("display_name") or agent_id),
-            "description": str(payload.get("description") or ""),
-            "system_prompt": str(payload.get("system_prompt") or ""),
-            "skills": skills,
-            "tool_allowlist": [
-                item.strip()
-                for item in (raw_tools if isinstance(raw_tools, list) else [])
-                if isinstance(item, str) and item.strip()
-            ],
-            "group_reply_policy": str(payload.get("group_reply_policy") or "manual"),
-            "default_model": payload.get("default_model")
-            if isinstance(payload.get("default_model"), str)
-            else None,
-            "features": raw_features if isinstance(raw_features, dict) else {},
-            "custom_prompt": payload.get("custom_prompt")
-            if isinstance(payload.get("custom_prompt"), str)
-            else None,
-            "heartbeat_json": payload.get("heartbeat_json")
-            if isinstance(payload.get("heartbeat_json"), str)
-            else None,
-        }
-        response = self._get_client().patch(
-            f"/im/v1/agents/{agent_id}/config",
-            json=patch_payload,
-        )
-        response.raise_for_status()
-        updated = response.json()
-        if not isinstance(updated, dict):
-            raise ValueError("agent config patch response must be an object")
-        return updated
-
-    def _local_agent(self, agent_id: str) -> AgentWorkspaceConfig | None:
-        return next(
-            (
-                agent
-                for agent in self._local_config.agents
-                if agent.agent_id == agent_id
-            ),
-            None,
-        )
-
-    @staticmethod
-    def _agent_skill_root(agent: AgentWorkspaceConfig) -> Path:
-        return (agent.workspace_root / _WCD / "skills").expanduser().resolve()
-
-    def close(self) -> None:
-        client = self._client
-        if client is not None:
-            client.close()
-            self._client = None
-
-    def reconcile_all_agents(
-        self,
-        *,
-        memory_versions: dict[str, int] | None = None,
-    ) -> None:
-        """拉 IM 权威 profile 做全量对账，按 profile_version 取大覆盖内存 config。
-
-        feat-394-M12 决策 F：gateway WS bind 完成（含重连）后调用一次，消除「漏一次
-        增量推送即永久停在旧状态」的问题。对每个 local_config.agents 拉 source=mirror
-        profile；若 IM 返回的 profile_version >= memory_versions[agent_id] 则
-        register_agent 覆盖内存，否则保留内存（取大原则，避免回退新版本）。HTTP 失败
-        时记录警告并跳过该 agent——不抛出，WS 连接生命周期不受影响。
-
-        Args:
-            memory_versions: 可选的 agent_id → 当前内存 profile_version 映射（由
-                ConfigSyncClient 维护）。缺失或无对应 key 时视作内存版本为 0，即接受
-                任意 IM 版本。
-        """
-        if memory_versions is None:
-            memory_versions = {}
-        for agent in self._local_config.agents:
-            agent_id = agent.agent_id
-            mem_ver = memory_versions.get(agent_id, 0)
-            try:
-                payload = self._fetch_agent_config(agent_id=agent_id)
-            except (httpx.HTTPError, ValueError):
-                _log.warning(
-                    "reconcile_all_agents: failed to fetch profile for agent %s, skipping",
-                    agent_id,
-                )
-                continue
-            im_version = int(payload.get("profile_version", 0))
-            if im_version < mem_ver:
-                # IM 版本落后内存（增量推送已带来更新版本），保留内存不回退
-                _log.debug(
-                    "reconcile_all_agents: skipping agent %s — IM version %d < memory %d",
-                    agent_id,
-                    im_version,
-                    mem_ver,
-                )
-                continue
-            # IM 版本 >= 内存版本：覆盖内存 config 使其收敛到 IM 真值。
-            # Runtime workspace remains local-wins; IM workspace_root is mirror/display data.
-            workspace_root = resolve_runtime_workspace(
-                agent_id=agent_id,
-                local_agents=self._local_config.agents,
-                workspace_root_factory=self._workspace_root_factory,
-            )
-            raw_features = payload.get("features")
-            synced_features = (
-                {
-                    k: v
-                    for k, v in raw_features.items()
-                    if isinstance(k, str) and isinstance(v, bool)
-                }
-                if isinstance(raw_features, dict)
-                else {}
-            )
-            synced_custom_prompt_val = payload.get("custom_prompt")
-            synced_custom_prompt = (
-                synced_custom_prompt_val.strip()
-                if isinstance(synced_custom_prompt_val, str)
-                and synced_custom_prompt_val.strip()
-                else None
-            )
-            _hb_raw_str = payload.get("heartbeat_json")
-            if isinstance(_hb_raw_str, str) and _hb_raw_str.strip():
-                import json as _json  # noqa: PLC0415
-
-                try:
-                    _hb_raw = _json.loads(_hb_raw_str)
-                except (ValueError, TypeError):
-                    _hb_raw = payload.get("heartbeat")
-            else:
-                _hb_raw = payload.get("heartbeat")
-            (
-                synced_heartbeat_every,
-                synced_hb_start,
-                synced_hb_end,
-                synced_hb_tz,
-            ) = _parse_heartbeat_from_im_payload(_hb_raw)
-            _raw_allowlist = [
-                item.strip()
-                for item in payload.get("tool_allowlist", [])
-                if isinstance(item, str) and item.strip()
-            ]
-            agent_config = AgentWorkspaceConfig(
-                agent_id=agent_id,
-                workspace_root=workspace_root,
-                title=str(payload.get("display_name") or agent_id),
-                skills=tuple(
-                    item.strip()
-                    for item in payload.get("skills", [])
-                    if isinstance(item, str) and item.strip()
-                ),
-                tool_allowlist=tuple(_raw_allowlist),
-                system_prompt=(
-                    payload.get("system_prompt").strip()
-                    if isinstance(payload.get("system_prompt"), str)
-                    and payload.get("system_prompt").strip()
-                    else None
-                ),
-                group_reply_policy=(
-                    payload.get("group_reply_policy").strip()
-                    if isinstance(payload.get("group_reply_policy"), str)
-                    and payload.get("group_reply_policy").strip()
-                    else None
-                ),
-                default_model=(
-                    payload.get("default_model").strip()
-                    if isinstance(payload.get("default_model"), str)
-                    and payload.get("default_model").strip()
-                    else None
-                ),
-                features=synced_features,
-                custom_prompt=synced_custom_prompt,
-                heartbeat_every=synced_heartbeat_every,
-                heartbeat_active_hours_start=synced_hb_start,
-                heartbeat_active_hours_end=synced_hb_end,
-                heartbeat_active_hours_timezone=synced_hb_tz,
-            )
-            self._pipeline.register_agent(agent_config)
-            self._persist_agent_config(agent_config)
-            _log.debug(
-                "reconcile_all_agents: updated agent %s to IM version %d",
-                agent_id,
-                im_version,
-            )
-
-    def _persist_agent_config(self, agent_config: AgentWorkspaceConfig) -> None:
-        def update(current: LocalConfig) -> LocalConfig:
-            agents = list(current.agents)
-            for index, existing in enumerate(agents):
-                if existing.agent_id == agent_config.agent_id:
-                    agents[index] = agent_config
-                    break
-            else:
-                agents.append(agent_config)
-            persist_path = (
-                Path(current.source_path)
-                if current.source_path
-                else default_local_config_path()
-            )
-            return replace(current, agents=tuple(agents), source_path=persist_path)
-
-        self._config_owner.persist(update, save_config=save_sensitive_local_config)
-
-    @property
-    def _local_config(self) -> LocalConfig:
-        """Expose the shared snapshot to existing sync/read paths."""
-        return self._config_owner.snapshot()
-
-    def current_agent_payload(self, *, agent_id: str) -> dict[str, object] | None:
-        for agent in self._local_config.agents:
-            if agent.agent_id != agent_id:
-                continue
-            payload: dict[str, object] = {
-                "display_name": agent.title or agent.agent_id,
-                "system_prompt": agent.system_prompt or "",
-                "skills": list(agent.skills),
-                "tool_allowlist": list(agent.tool_allowlist),
-                "group_reply_policy": agent.group_reply_policy or "manual",
-                "default_model": agent.default_model,
-                "workspace_root": str(agent.workspace_root),
-                # feat-379-M2: expose per-agent features/custom_prompt for capabilities reporting
-                "features": dict(agent.features),
-                "custom_prompt": agent.custom_prompt,
-            }
-            return payload
-        return None
-
-    def _fetch_agent_config(self, *, agent_id: str) -> dict[str, object]:
-        response = self._get_client().get(
-            f"/im/v1/agents/{agent_id}/config", params={"source": "mirror"}
-        )
-        response.raise_for_status()
-        payload = response.json()
-        if not isinstance(payload, dict):
-            raise ValueError("agent config response must be an object")
-        return payload
-
-    def _get_client(self) -> httpx.Client:
-        if self._client is not None:
-            return self._client
-        if self._client_factory is not None:
-            self._client = self._client_factory(self._base_url)
-        else:
-            self._client = httpx.Client(
-                base_url=self._base_url,
-                headers=self._base_headers,
-                timeout=self._timeout_seconds,
-                trust_env=False,
-            )
-        return self._client
-
-    def update_token(self, token: str | None) -> None:
-        """Propagate a refreshed access token so future sync requests use it.
-
-        feat-394-M3 fix: called by the token_getter wrapper in _run_gateway after
-        each successful token refresh so this client does not hold a stale/empty
-        Bearer token when auto-bind has rotated credentials.  Mirrors the
-        _refresh_token pattern in _IMBootstrapClient (main.py:621-628).
-
-        Args:
-            token: New access token, or None to clear.
-        """
-        self._base_headers = _im_http_headers(token)
-        # Propagate updated headers to any live client instance so in-flight
-        # connections also pick up the new token without a full reconnect.
-        # Injected test clients (passed via constructor) are updated in-place;
-        # self-built clients are rebuilt by _get_client() on the next request
-        # if they were previously None (first call) or by headers update here.
-        if self._client is not None:
-            self._client.headers.update(self._base_headers)
-
-    @staticmethod
-    def _default_workspace_root(agent_id: str) -> Path:
-        return Path("~/nano-assistant/workspace").expanduser() / agent_id
-
-
-def _make_workspace_root_factory(
-    workspace_base: str | None,
-) -> Callable[[str], Path] | None:
-    """Build a workspace_root factory rooted at ``workspace_base`` (bugfix-424 / #127).
-
-    When ``workspace_base`` is set, dynamically-created agents (built via IM
-    ``agent.create`` without an explicit ``workspace_root``) get their workspace at
-    ``<workspace_base>/<agent_id>`` — the same isolation root preset agents use.
-    Returns ``None`` when ``workspace_base`` is unset so the caller keeps its legacy
-    ``~/nano-assistant/workspace`` default, leaving existing deployments unchanged.
-
-    Args:
-        workspace_base: Base directory from ``node.workspace_base``, or None.
-
-    Returns:
-        A factory mapping ``agent_id`` to an absolute workspace path, or None.
-    """
-    if not (isinstance(workspace_base, str) and workspace_base.strip()):
-        return None
-    base = Path(workspace_base.strip()).expanduser()
-
-    def _factory(agent_id: str, _base: Path = base) -> Path:
-        return _base / agent_id
-
-    return _factory
-
-
-class _IMShadowConversationSyncClient:
-    """Best-effort HTTP writer for external-channel shadow conversations."""
-
-    def __init__(
-        self,
-        *,
-        base_url: str,
-        token_getter: Callable[[], Awaitable[str | None]],
-        owner_user_id: str,
-        timeout_seconds: float = 3.0,
-        transport: httpx.AsyncBaseTransport | None = None,
-    ) -> None:
-        self._base_url = _im_http_base_url(base_url)
-        self._token_getter = token_getter
-        self._owner_user_id = owner_user_id.strip()
-        self._timeout_seconds = timeout_seconds
-        self._transport = transport
-        self._resolved_owner_user_id: str | None = None
-
-    async def sync_user_message(
-        self, message: InboundMessage, *, agent_id: str
-    ) -> str | None:
-        metadata = dict(message.metadata)
-        external_source = _metadata_text(metadata, key="external_source")
-        external_chat_id = _metadata_text(metadata, key="external_chat_id")
-        if external_source is None or external_chat_id is None:
-            return None
-        token = await self._token_getter()
-        headers = _im_http_headers(token)
-        async with httpx.AsyncClient(
-            base_url=self._base_url,
-            headers=headers,
-            timeout=self._timeout_seconds,
-            trust_env=False,
-            transport=self._transport,
-        ) as client:
-            owner_user_id = await self._resolve_owner_user_id(client)
-            conversation_response = await client.post(
-                "/im/v1/conversations/external/find-or-create",
-                json={
-                    "external_source": external_source,
-                    "external_chat_id": external_chat_id,
-                    "agent_id": agent_id,
-                    "title": _external_shadow_title(
-                        metadata, agent_id=agent_id, external_source=external_source
-                    ),
-                    "is_group": bool(message.is_group),
-                    "participant_ids": [
-                        f"user:{owner_user_id}",
-                        f"agent:{agent_id}",
-                    ],
-                    "metadata": {
-                        key: value
-                        for key, value in metadata.items()
-                        if isinstance(key, str)
-                    },
-                },
-            )
-            conversation_response.raise_for_status()
-            conversation_payload = conversation_response.json()
-            conversation_id = str(conversation_payload.get("id") or "").strip()
-            if not conversation_id:
-                raise ValueError("external shadow conversation response missing id")
-            message_response = await client.post(
-                f"/im/v1/conversations/{conversation_id}/messages",
-                json={
-                    "sender_user_id": owner_user_id,
-                    "sender_type": "user",
-                    "content": message.text,
-                    "sender_display_name": _metadata_text(
-                        metadata, key="sender_display_name"
-                    ),
-                    "suppress_relay": True,
-                },
-            )
-            message_response.raise_for_status()
-            return conversation_id
-
-    async def _resolve_owner_user_id(self, client: httpx.AsyncClient) -> str:
-        if self._resolved_owner_user_id:
-            return self._resolved_owner_user_id
-        response = await client.get("/im/v1/me")
-        response.raise_for_status()
-        payload = response.json()
-        user_id = payload.get("id") or payload.get("user_id")
-        if not isinstance(user_id, str) or not user_id.strip():
-            raise ValueError("IM /me response missing user id")
-        self._resolved_owner_user_id = user_id.strip()
-        return self._resolved_owner_user_id
-
-
-def _external_shadow_title(
-    metadata: Mapping[str, object], *, agent_id: str, external_source: str
-) -> str:
-    title = _metadata_text(metadata, key="conversation_title")
-    if title is not None:
-        return title
-    chat_name = _metadata_text(metadata, key="chat_name")
-    conversation_type = _metadata_text(metadata, key="conversation_type")
-    if conversation_type == "group":
-        return f"{agent_id} · {chat_name or '群聊'} · {external_source}"
-    return f"{agent_id} · {external_source}"
-
-
 class _IMBootstrapClient:
     """Query IM ownership state and launch browser binding when a node is unbound.
 
@@ -1134,7 +375,7 @@ class _IMBootstrapClient:
         token_getter: Callable[[], Awaitable[str | None]] | None = None,
     ) -> None:
         self._base_urls = _im_bootstrap_base_urls(base_url)
-        self._base_headers = _im_http_headers(token)
+        self._base_headers = build_im_http_headers(token)
         self._timeout_seconds = timeout_seconds
         self._client_factory = client_factory
         self._clients: dict[str, httpx.Client] = {}
@@ -1155,7 +396,7 @@ class _IMBootstrapClient:
             return
         token = asyncio.run(self._token_getter())
         if token:
-            self._base_headers = _im_http_headers(token)
+            self._base_headers = build_im_http_headers(token)
             for client in self._clients.values():
                 client.headers.update(self._base_headers)
 
@@ -1299,127 +540,6 @@ class _IMBootstrapClient:
         return client
 
 
-async def _stream_run_to_completion(
-    *,
-    run_id: str,
-    kernel_session_id: str,
-    agent_id: str,
-    owner_user_id: str,
-    kernel: Any,
-    run_context_store: dict[str, dict[str, str]] | RunDeliveryContextStore,
-    observer: Callable[..., Any] | None,
-    stream_anchor: int = 0,
-) -> tuple[str, dict | None]:
-    """Stream one kernel run to terminal state, driving the event observer.
-
-    Seeds run_context_store with the standard heartbeat/cron context (empty
-    conversation_id triggers lazy IM turn_start creation), then replays the
-    kernel event stream until a terminal run_status.
-
-    Args:
-        run_id: Kernel run ID to track.
-        kernel_session_id: Kernel session the run lives in.
-        agent_id: Agent ID, forwarded into run_context_store for routing.
-        owner_user_id: IM user_id of the gateway owner; drives lazy direct-chat
-            creation via to_user_id in the context entry.
-        kernel: In-process kernel; must implement stream(session_id, after_sequence).
-        run_context_store: Shared delivery context store seeded here and popped in
-            finally. Production passes RunDeliveryContextStore so the observer reads
-            and mutates the same typed runtime owner; legacy dict inputs remain
-            supported for narrow unit compatibility.
-        observer: kernel_event_observer callable (sync or async); None skips driving.
-        stream_anchor: after_sequence passed to kernel.stream; 0 means replay all.
-
-    Returns:
-        Tuple of (last_assistant_text, popped_ctx).  last_assistant_text is the last
-        assistant_message content seen, stripped (empty string on silence).
-        popped_ctx is the context entry that was removed from run_context_store on
-        completion — callers can inspect e.g. conversation_id to detect silent ticks.
-
-    Raises:
-        Nothing — stream failures are re-raised to the caller for per-path logging.
-    """
-    _seed_owner_direct_stream_context(
-        run_context_store=run_context_store,
-        run_id=run_id,
-        agent_id=agent_id,
-        kernel_session_id=kernel_session_id,
-        owner_user_id=owner_user_id,
-    )
-
-    final_result_text = ""
-    popped_ctx: dict | None = None
-    try:
-        async for event in kernel.stream(
-            kernel_session_id, after_sequence=stream_anchor
-        ):
-            if event.get("run_id") != run_id:
-                continue
-            if event.get("event") == "assistant_message":
-                content = str(event.get("content") or "").strip()
-                if content:
-                    final_result_text = content
-            if observer is not None:
-                obs_result = observer(event)
-                if asyncio.iscoroutine(obs_result):
-                    await obs_result
-            if event.get("event") == "run_status" and event.get("status") in (
-                "completed",
-                "failed",
-                "cancelled",
-                "error",
-            ):
-                break
-    except Exception:
-        # Re-raise so caller can log with per-path context (agent/job/run identifiers).
-        _pop_stream_context(run_context_store=run_context_store, run_id=run_id)
-        raise
-    finally:
-        popped_ctx = _pop_stream_context(
-            run_context_store=run_context_store, run_id=run_id
-        )
-
-    return final_result_text, popped_ctx
-
-
-def _seed_owner_direct_stream_context(
-    *,
-    run_context_store: dict[str, dict[str, str]] | RunDeliveryContextStore,
-    run_id: str,
-    agent_id: str,
-    kernel_session_id: str,
-    owner_user_id: str,
-) -> None:
-    if isinstance(run_context_store, RunDeliveryContextStore):
-        run_context_store.seed_owner_direct_run(
-            run_id=run_id,
-            agent_id=agent_id,
-            kernel_session_id=kernel_session_id,
-            owner_user_id=owner_user_id,
-        )
-        return
-    run_context_store[run_id] = {
-        "conversation_id": "",  # lazy: filled by IM turn_start ack
-        "message_id": "",  # lazy: filled by IM turn_start ack
-        "agent_id": agent_id,
-        "to_user_id": owner_user_id,
-        "kernel_session_id": kernel_session_id,
-    }
-
-
-def _pop_stream_context(
-    *,
-    run_context_store: dict[str, dict[str, str]] | RunDeliveryContextStore,
-    run_id: str,
-) -> dict[str, str] | None:
-    if isinstance(run_context_store, RunDeliveryContextStore):
-        context = run_context_store.get(run_id)
-        popped = context.to_legacy_dict() if context is not None else None
-        run_context_store.discard(run_id)
-        return popped
-    return run_context_store.pop(run_id, None)
-
-
 class PollingHeartbeatRunner:
     """Run the existing heartbeat scheduler as a background tick loop.
 
@@ -1455,7 +575,8 @@ class PollingHeartbeatRunner:
         owner_user_id: str = "",
         kernel_event_observer: Any | None = None,
         cron_tick_fn: Callable[[str], Awaitable[None]] | None = None,
-        agents: "dict[str, Any] | None" = None,
+        agent_catalog: LiveAgentCatalog | None = None,
+        session_binder: GatewaySessionBinder | None = None,
     ) -> None:
         self._scheduler = scheduler
         self._config = config
@@ -1472,7 +593,8 @@ class PollingHeartbeatRunner:
         # cron_tick_fn(agent_id) is called once per tick for each cron_enabled agent.
         # When None, cron is skipped (backward compat, no cron subsystem configured).
         self._cron_tick_fn = cron_tick_fn
-        self._agents = agents or {}
+        self._agent_catalog = agent_catalog
+        self._session_binder = session_binder
 
     async def start(self) -> None:
         """Start background scheduler ticking exactly once."""
@@ -1488,16 +610,41 @@ class PollingHeartbeatRunner:
         # letting it die silently (issue path 4). Mirrors the inbound dispatcher pattern.
         self._task.add_done_callback(_consume_task_exception)
 
-    async def close(self) -> None:
-        """Stop the background loop and wait for the worker task to finish."""
+    def request_stop(self) -> None:
+        """Synchronously stop admission without joining the current tick."""
+
+        self._stop_requested = True
+        self._wake_event.set()
+
+    async def close(self, deadline: float | None = None) -> None:
+        """Drain or cancel the current tick by an absolute loop deadline.
+
+        Args:
+            deadline: Shared Gateway ``loop.time()`` deadline. ``None`` preserves
+                the standalone caller behavior of waiting without a timeout.
+
+        Raises:
+            TimeoutError: When the current tick requires deadline cancellation.
+        """
 
         task = self._task
         if task is None:
             return
-        self._stop_requested = True
-        self._wake_event.set()
-        await task
-        self._task = None
+        self.request_stop()
+        try:
+            if deadline is None:
+                await task
+                return
+            remaining = max(0.0, deadline - asyncio.get_running_loop().time())
+            _, pending = await asyncio.wait((task,), timeout=remaining)
+            if not pending:
+                await task
+                return
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            raise TimeoutError("heartbeat tick exceeded Gateway shutdown deadline")
+        finally:
+            self._task = None
 
     def request_tick(self) -> None:
         """Wake the loop so a manual IM-triggered tick can run promptly."""
@@ -1532,7 +679,15 @@ class PollingHeartbeatRunner:
             # Design §架构总览: "统一 Polling 调度 tick（扩展现 PollingHeartbeatRunner）".
             # For each agent with cron_enabled=True, invoke the cron tick function.
             if self._cron_tick_fn is not None and not self._stop_requested:
-                for agent_id, agent in list(self._agents.items()):
+                active_agents = (
+                    (
+                        (snapshot.agent_id, snapshot.config)
+                        for snapshot in self._agent_catalog.values_snapshot()
+                    )
+                    if self._agent_catalog is not None
+                    else ()
+                )
+                for agent_id, agent in active_agents:
                     if self._stop_requested:
                         break
                     cron_enabled = getattr(agent, "cron_enabled", False)
@@ -1555,64 +710,6 @@ class PollingHeartbeatRunner:
                 continue
             finally:
                 self._wake_event.clear()
-
-    @staticmethod
-    async def trim_silent_tick(
-        *,
-        session_file: "Path",
-        pre_submit_line_count: int,
-    ) -> None:
-        """Truncate a JSONL session file to remove heartbeat turns added by a silent tick.
-
-        feat-394 decision 3 (transcript trim): after a silent heartbeat run (HEARTBEAT_OK
-        or empty response), the triggering prompt and ack turns are removed from the
-        canonical direct-chat session so they do not pollute the next LLM context window.
-        "Silent" is detected by the caller when run_context_store[run_id]["conversation_id"]
-        remains empty after the run completes (no turn_start was ever sent — zero IM trace).
-
-        The trim reads all lines, keeps only the first ``pre_submit_line_count`` non-empty
-        lines, and rewrites the file atomically (rename after write).  Lines beyond that
-        count are the heartbeat trigger prompt + HEARTBEAT_OK (or empty) assistant turn.
-
-        This approach is safe because:
-        - JSONL append is the only mutation normally done; we own the file.
-        - The rewrite is atomic (tmp file → rename) so a crash mid-write does not
-          corrupt existing history.
-        - heartbeat-only turns do not refresh session idle time (design §B requirement).
-
-        Args:
-            session_file: Absolute path to the session ``.jsonl`` file.
-            pre_submit_line_count: Number of non-empty lines present before the heartbeat
-                run was submitted.  Lines beyond this index are removed.
-        """
-
-        import os  # noqa: PLC0415
-
-        if not session_file.exists():
-            return  # nothing to trim
-        raw_text = session_file.read_text(encoding="utf-8")
-        all_lines = raw_text.splitlines(keepends=True)
-        # Count only non-empty lines to match the pre-submit count.
-        non_empty_indices: list[int] = []
-        for idx, line in enumerate(all_lines):
-            if line.strip():
-                non_empty_indices.append(idx)
-        if len(non_empty_indices) <= pre_submit_line_count:
-            return  # nothing to trim (no heartbeat lines were appended)
-        # Keep lines up to and including the last pre-submit non-empty line.
-        last_kept_line_idx = (
-            non_empty_indices[pre_submit_line_count - 1]
-            if pre_submit_line_count > 0
-            else -1
-        )
-        kept_lines = all_lines[: last_kept_line_idx + 1]
-        tmp_path = session_file.with_suffix(".jsonl.trim_tmp")
-        try:
-            tmp_path.write_text("".join(kept_lines), encoding="utf-8")
-            os.replace(tmp_path, session_file)
-        finally:
-            if tmp_path.exists():
-                tmp_path.unlink(missing_ok=True)
 
     async def _consume_heartbeat_run(self, record: "HeartbeatRunRecord") -> None:
         """Stream one heartbeat run to completion, driving the kernel_event_observer for IM delivery.
@@ -1637,41 +734,10 @@ class PollingHeartbeatRunner:
 
         assert self._run_context_store is not None  # guard (checked in _run_loop)
 
-        # feat-394 decision 3 transcript trim (B): snapshot session file line count before run.
-        # After a silent tick (HEARTBEAT_OK / empty), the triggered prompt + ack turns are
-        # removed so they don't pollute the canonical session's next LLM context window.
-        # We also don't refresh session idle time for heartbeat-only ticks.
-        _session_file_for_trim: "Path | None" = None
-        _pre_submit_line_count = 0
-        try:
-            _get_session_fn = getattr(self._kernel, "get_session", None)
-            if _get_session_fn is not None:
-                _sess_info = _get_session_fn(kernel_session_id)
-                _ws_root = (
-                    _sess_info.get("workspace_root")
-                    if isinstance(_sess_info, dict)
-                    else None
-                )
-                if _ws_root:
-                    _sess_path = (
-                        Path(_ws_root)
-                        / _WCD
-                        / "sessions"
-                        / f"{kernel_session_id}.jsonl"
-                    )
-                    if _sess_path.exists():
-                        _session_file_for_trim = _sess_path
-                        _content = _sess_path.read_text(encoding="utf-8")
-                        _pre_submit_line_count = sum(
-                            1 for ln in _content.splitlines() if ln.strip()
-                        )
-        except Exception:  # noqa: BLE001
-            pass  # trim snapshot failure is non-fatal; trim skipped for this tick
-
         try:
             # feat-393 fix-r2 Fix B: stream from the pre-submit anchor to skip replaying
             # history from prior ticks.  Falls back to 0 when anchor is absent (test path).
-            _, ctx = await _stream_run_to_completion(
+            outcome = await _stream_run_to_completion(
                 run_id=run_id,
                 kernel_session_id=kernel_session_id,
                 agent_id=agent_id,
@@ -1681,68 +747,37 @@ class PollingHeartbeatRunner:
                 observer=self._kernel_event_observer,
                 stream_anchor=record.stream_anchor,
             )
+            ctx = outcome.context
         except Exception:  # noqa: BLE001  — delivery failure does not disrupt gateway loop
             _hb_logger.exception(
                 "heartbeat run delivery failed: agent=%s run_id=%s", agent_id, run_id
             )
             return
 
-        # feat-394 B: silent-tick transcript trim.
-        # If conversation_id was never filled (no turn_start sent → zero IM trace → silent tick),
-        # truncate the session JSONL back to the pre-submit state.
+        if outcome.status != "completed":
+            _hb_logger.warning(
+                "heartbeat run reached non-success terminal: agent=%s run_id=%s "
+                "status=%s error=%s",
+                agent_id,
+                run_id,
+                outcome.status,
+                outcome.error,
+            )
+            return
+
+        # Silent heartbeat turns are removed by the Kernel conversation owner. The
+        # run identity is stable even if later foreground messages reached the same
+        # session before this consumer acquired its cleanup transaction.
         _was_silent = ctx is not None and not ctx.get("conversation_id")
-        if (
-            _was_silent
-            and _session_file_for_trim is not None
-            and _pre_submit_line_count > 0
-        ):
+        if _was_silent:
             try:
-                await self.trim_silent_tick(
-                    session_file=_session_file_for_trim,
-                    pre_submit_line_count=_pre_submit_line_count,
-                )
+                await self._kernel.discard_run_messages(run_id)
             except Exception:  # noqa: BLE001
                 _hb_logger.debug(
                     "heartbeat transcript trim failed (non-fatal): agent=%s run_id=%s",
                     agent_id,
                     run_id,
                 )
-
-
-class _InboundDispatcher:
-    """Bridge synchronous channel callbacks onto the async inbound pipeline."""
-
-    def __init__(self, pipeline: InboundPipeline) -> None:
-        self._pipeline = pipeline
-        self._loop: asyncio.AbstractEventLoop | None = None
-
-    def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
-        """Bind the runtime event loop used to execute inbound pipeline coroutines."""
-
-        self._loop = loop
-
-    def __call__(self, message: InboundMessage) -> None:
-        """Schedule one inbound message on the runtime loop.
-
-        Raises:
-            RuntimeError: When called before the runtime loop is available.
-        """
-
-        loop = self._loop
-        if loop is None:
-            raise RuntimeError("gateway runtime loop is not ready")
-        try:
-            running_loop = asyncio.get_running_loop()
-        except RuntimeError:
-            running_loop = None
-        if running_loop is loop:
-            task = loop.create_task(self._pipeline.handle_inbound(message))
-            task.add_done_callback(_consume_task_exception)
-            return
-        future = asyncio.run_coroutine_threadsafe(
-            self._pipeline.handle_inbound(message), loop
-        )
-        future.add_done_callback(_consume_future_exception)
 
 
 async def _run_kernel_background_analysis(
@@ -1817,10 +852,13 @@ class GatewayRuntime:
         resource_closers: tuple[Callable[[], None], ...] = (),
         feedback_sink: FeedbackSink = _emit_gateway_feedback,
         internal_dispatch_handler: InternalDispatchHandler | None = None,
+        internal_dispatch_endpoint: InternalDispatchEndpoint | None = None,
         gateway_internal_port: int = 8089,
         kernel: object | None = None,
         cron_dispatcher: CronServiceRegistry | None = None,
         channel_manager: ChannelManager | None = None,
+        run_coordinator: SessionRunCoordinator | None = None,
+        runtime_delivery_tasks: RuntimeDeliveryTaskTracker | None = None,
     ) -> None:
         self._config = config
         self._channel_registry = channel_registry or ChannelRegistry()
@@ -1832,6 +870,7 @@ class GatewayRuntime:
         self._resource_closers = resource_closers
         self._feedback_sink = feedback_sink
         self._internal_dispatch_handler = internal_dispatch_handler
+        self._internal_dispatch_endpoint = internal_dispatch_endpoint
         self._gateway_internal_port = gateway_internal_port
         # bugfix-402-M3 R3: explicit kernel reference for ordered async shutdown
         # (Decision 7). Kernel is closed via aclose() between producers and consumers,
@@ -1841,8 +880,15 @@ class GatewayRuntime:
         # worker threads (asyncio.to_thread) can schedule execute_fn correctly.
         self._cron_dispatcher = cron_dispatcher
         self._channel_manager = channel_manager
+        self._inbound_dispatcher = (
+            on_inbound if isinstance(on_inbound, InboundDispatcher) else None
+        )
+        self._run_coordinator = run_coordinator
+        self._runtime_delivery_tasks = runtime_delivery_tasks
         self._ready_event = threading.Event()
         self._shutdown_requested = threading.Event()
+        self._shutdown_request_lock = threading.Lock()
+        self._shutdown_started_at: float | None = None
         self._shutdown_async_event: asyncio.Event | None = None
         self._shutdown_loop: asyncio.AbstractEventLoop | None = None
 
@@ -1854,7 +900,10 @@ class GatewayRuntime:
     def request_shutdown(self) -> None:
         """Request graceful shutdown from another thread or signal handler."""
 
-        self._shutdown_requested.set()
+        with self._shutdown_request_lock:
+            if not self._shutdown_requested.is_set():
+                self._shutdown_started_at = time.monotonic()
+                self._shutdown_requested.set()
         loop = self._shutdown_loop
         event = self._shutdown_async_event
         if loop is not None and event is not None and loop.is_running():
@@ -1868,15 +917,17 @@ class GatewayRuntime:
         """
 
         self._ready_event.clear()
-        self._shutdown_requested.clear()
+        with self._shutdown_request_lock:
+            self._shutdown_requested.clear()
+            self._shutdown_started_at = None
         return asyncio.run(self._run_until_shutdown())
 
     async def _run_until_shutdown(self) -> int:
         loop = asyncio.get_running_loop()
         self._shutdown_loop = loop
         self._shutdown_async_event = asyncio.Event()
-        if isinstance(self._on_inbound, _InboundDispatcher):
-            self._on_inbound.bind_loop(loop)
+        if self._inbound_dispatcher is not None:
+            self._inbound_dispatcher.bind_loop(loop)
         # bugfix-402-M4: wire gateway loop into cron dispatcher so enqueue()
         # called from asyncio.to_thread (tool.run) can schedule execute_fn on
         # this loop rather than silently dropping (no-running-loop path).
@@ -1886,29 +937,41 @@ class GatewayRuntime:
         channels_started = False
         heartbeat_started = False
         dispatch_runner: Any | None = None
+        dispatch_site: Any | None = None
         im_task: asyncio.Task[None] | None = None
         try:
+            build_dispatch_handler = getattr(
+                self._internal_dispatch_handler, "build_aiohttp_handler", None
+            )
+            if callable(build_dispatch_handler):
+                from aiohttp import web as _aiohttp_web
+
+                _dispatch_app = _aiohttp_web.Application()
+                _dispatch_app.router.add_post(
+                    "/internal/dispatch",
+                    build_dispatch_handler(),
+                )
+                dispatch_runner = _aiohttp_web.AppRunner(_dispatch_app)
+                await dispatch_runner.setup()
+                dispatch_site = _aiohttp_web.TCPSite(
+                    dispatch_runner, "127.0.0.1", self._gateway_internal_port
+                )
+                await dispatch_site.start()
+                dispatch_server = getattr(dispatch_site, "_server", None)
+                dispatch_sockets = getattr(dispatch_server, "sockets", ())
+                if not dispatch_sockets:
+                    raise RuntimeError(
+                        "internal dispatch listener started without a bound socket"
+                    )
+                actual_port = int(dispatch_sockets[0].getsockname()[1])
+                if self._internal_dispatch_endpoint is not None:
+                    self._internal_dispatch_endpoint.publish(
+                        host="127.0.0.1", port=actual_port
+                    )
             start_channels(self._channel_registry, self._on_inbound)
             channels_started = True
             if self._channel_manager is not None:
                 await self._channel_manager.start_cached()
-            if self._internal_dispatch_handler is not None:
-                try:
-                    from aiohttp import web as _aiohttp_web
-
-                    _dispatch_app = _aiohttp_web.Application()
-                    _dispatch_app.router.add_post(
-                        "/internal/dispatch",
-                        self._internal_dispatch_handler.build_aiohttp_handler(),
-                    )
-                    dispatch_runner = _aiohttp_web.AppRunner(_dispatch_app)
-                    await dispatch_runner.setup()
-                    _dispatch_site = _aiohttp_web.TCPSite(
-                        dispatch_runner, "127.0.0.1", self._gateway_internal_port
-                    )
-                    await _dispatch_site.start()
-                except Exception:  # noqa: BLE001
-                    dispatch_runner = None
             await self._run_skill_maintenance()
             self._install_skill_batch_review_scheduler()
             self._ready_event.set()
@@ -1935,56 +998,181 @@ class GatewayRuntime:
             await self._wait_for_shutdown_request()
             return 0
         finally:
+            shutdown_started_at = self._shutdown_started_at or loop.time()
+            inner_deadline = shutdown_started_at + (
+                0.8 * self._config.gateway.shutdown_grace_seconds
+            )
             self._ready_event.clear()
-            if dispatch_runner is not None:
-                try:
-                    await dispatch_runner.cleanup()
-                except Exception as exc:
-                    # Cleanup failure (e.g. socket already closed) must not prevent
-                    # further shutdown steps; log so the error is observable (refactor-395-M1).
-                    _log.warning(
-                        "dispatch runner cleanup failed during shutdown: %s", exc
-                    )
+            if self._internal_dispatch_endpoint is not None:
+                self._internal_dispatch_endpoint.clear()
+
+            # Admission seal is deliberately synchronous: active HTTP handlers,
+            # heartbeat ticks and inbound roots remain consumers until after Kernel
+            # terminal events have crossed their delivery boundaries.
+            if self._inbound_dispatcher is not None:
+                self._run_shutdown_action(
+                    "inbound dispatcher seal", self._inbound_dispatcher.seal
+                )
+            if self._internal_dispatch_handler is not None:
+                self._run_shutdown_action(
+                    "internal dispatch seal", self._internal_dispatch_handler.seal
+                )
             if heartbeat_started and self._heartbeat_runner is not None:
-                await self._heartbeat_runner.close()
-            if self._channel_manager is not None:
-                await self._channel_manager.close()
-            if channels_started:
-                stop_channels(self._channel_registry)
-            # bugfix-402-M3 R3: drain in-flight runs before closing the IM transport
-            # (Decision 7). Producers are already stopped above; aclose() waits for
-            # the Registry to reach CLOSED before returning.
-            if self._kernel is not None and hasattr(self._kernel, "aclose"):
-                try:
-                    await self._kernel.aclose()
-                except Exception as exc:  # noqa: BLE001
-                    _log.warning("kernel.aclose() raised during shutdown: %s", exc)
-            # bugfix-402-M6 W-1: drain in-flight cron executions after kernel is
-            # closed (no new runs accepted) but before IM transport is torn down.
+                self._run_shutdown_action(
+                    "heartbeat request_stop", self._heartbeat_runner.request_stop
+                )
             if self._cron_dispatcher is not None:
-                try:
-                    await self._cron_dispatcher.drain_all()
-                except Exception as exc:  # noqa: BLE001
-                    _log.warning(
-                        "cron dispatcher drain_all() raised during shutdown: %s", exc
+                self._run_shutdown_action(
+                    "cron request_stop", self._cron_dispatcher.request_stop
+                )
+            if self._channel_manager is not None:
+                await self._run_shutdown_operation(
+                    "managed channel close",
+                    inner_deadline,
+                    self._channel_manager.close,
+                )
+            if channels_started:
+                self._run_shutdown_action(
+                    "channel stop", lambda: stop_channels(self._channel_registry)
+                )
+
+            if self._inbound_dispatcher is not None:
+                await self._run_shutdown_operation(
+                    "inbound admission settle",
+                    inner_deadline,
+                    lambda: self._inbound_dispatcher.settle_admission(inner_deadline),
+                    enforce_deadline=False,
+                )
+
+            # Kernel close precedes physical consumer drain so accepted runs can
+            # publish their final lifecycle through still-live subscribers/delivery.
+            if self._kernel is not None and hasattr(self._kernel, "aclose"):
+                await self._run_shutdown_operation(
+                    "kernel close",
+                    inner_deadline,
+                    self._kernel.aclose,
+                )
+
+            consumer_drains: list[
+                tuple[str, Callable[[], Awaitable[object]], bool]
+            ] = []
+            if dispatch_runner is not None:
+                consumer_drains.append(
+                    ("internal dispatch", dispatch_runner.cleanup, True)
+                )
+            if heartbeat_started and self._heartbeat_runner is not None:
+                consumer_drains.append(
+                    (
+                        "heartbeat",
+                        lambda: self._heartbeat_runner.close(inner_deadline),
+                        False,
                     )
+                )
+            if self._cron_dispatcher is not None:
+                consumer_drains.append(
+                    (
+                        "cron",
+                        lambda: self._cron_dispatcher.drain_all(inner_deadline),
+                        False,
+                    )
+                )
+            if self._inbound_dispatcher is not None:
+                consumer_drains.append(
+                    (
+                        "inbound roots",
+                        lambda: self._inbound_dispatcher.drain(inner_deadline),
+                        False,
+                    )
+                )
+            if self._run_coordinator is not None:
+                consumer_drains.append(
+                    (
+                        "session run coordinator",
+                        lambda: self._run_coordinator.drain(inner_deadline),
+                        False,
+                    )
+                )
+            if consumer_drains:
+                await asyncio.gather(
+                    *(
+                        asyncio.create_task(
+                            self._run_shutdown_operation(
+                                name,
+                                inner_deadline,
+                                operation,
+                                enforce_deadline=enforce_deadline,
+                            ),
+                            name=f"shutdown-drain:{name}",
+                        )
+                        for name, operation, enforce_deadline in consumer_drains
+                    )
+                )
+
+            if self._runtime_delivery_tasks is not None:
+                await self._run_shutdown_operation(
+                    "runtime delivery",
+                    inner_deadline,
+                    lambda: self._runtime_delivery_tasks.close_and_drain(
+                        inner_deadline
+                    ),
+                    enforce_deadline=False,
+                )
+
             if self._im_connection_manager is not None:
-                try:
-                    await self._im_connection_manager.close()
-                except Exception as exc:  # noqa: BLE001
-                    _log.warning("IM connection close raised during shutdown: %s", exc)
+                im_outbound_drain = getattr(self._im_connection_manager, "drain", None)
+                if callable(im_outbound_drain):
+                    await self._run_shutdown_operation(
+                        "IM outbound drain",
+                        inner_deadline,
+                        lambda: im_outbound_drain(inner_deadline),
+                        enforce_deadline=False,
+                    )
+                await self._run_shutdown_operation(
+                    "IM connection close",
+                    inner_deadline,
+                    self._im_connection_manager.close,
+                )
             if im_task is not None:
                 # issue path 3: cleanup must never be torn apart by a stored task
-                # exception. _await_background_task already absorbs cancellation; wrap the
-                # rest so any leaked fault is logged, not propagated out of finally.
-                try:
-                    await _await_background_task(im_task)
-                except BaseException as exc:  # noqa: BLE001
-                    _log.warning("IM task await raised during shutdown: %s", exc)
+                # exception. It uses the same absolute deadline as transport close;
+                # either timeout remains isolated so synchronous closers still run.
+                await self._run_shutdown_operation(
+                    "IM task await",
+                    inner_deadline,
+                    lambda: _await_background_task(im_task),
+                )
             for closer in self._resource_closers:
-                closer()
+                self._run_shutdown_action("resource closer", closer)
             self._shutdown_async_event = None
             self._shutdown_loop = None
+
+    @staticmethod
+    def _run_shutdown_action(name: str, action: Callable[[], None]) -> None:
+        """Run one synchronous seal/close action without skipping later owners."""
+
+        try:
+            action()
+        except BaseException as exc:  # noqa: BLE001
+            _log.warning("%s raised during shutdown: %s", name, exc)
+
+    @staticmethod
+    async def _run_shutdown_operation(
+        name: str,
+        deadline: float,
+        operation: Callable[[], Awaitable[object]],
+        *,
+        enforce_deadline: bool = True,
+    ) -> None:
+        """Run one async owner under the shared deadline with failure isolation."""
+
+        try:
+            if enforce_deadline:
+                async with asyncio.timeout_at(deadline):
+                    await operation()
+            else:
+                await operation()
+        except BaseException as exc:  # noqa: BLE001
+            _log.warning("%s raised during shutdown: %s", name, exc)
 
     def _shutdown_event_for_loop(self) -> asyncio.Event:
         loop = asyncio.get_running_loop()
@@ -2634,14 +1822,16 @@ class _KernelClientShim:
         self,
         kernel: "Kernel",
         *,
-        agents_by_id: dict[str, Any] | None = None,
+        agent_catalog: LiveAgentCatalog | None = None,
+        session_binder: GatewaySessionBinder | None = None,
         product_default_model: str | None = None,
     ) -> None:
         self._kernel = kernel
         # refactor-406-M1 R6: per-agent config for building PromptSlots at
         # session-open (决策 8).  heartbeat/cron sessions look up the agent by
         # metadata["agent_id"] and assemble the PA prompt via prompt_for.
-        self._agents_by_id = agents_by_id or {}
+        self._agent_catalog = agent_catalog
+        self._session_binder = session_binder
         # bugfix-429 决策2: product default model for the heartbeat/cron path.
         # Callers pass the agent's selected model (may be None); the shim falls
         # back to this so unattended runs use the same default as user turns.
@@ -2654,33 +1844,63 @@ class _KernelClientShim:
         product_id: str,
         title: str | None = None,
         metadata: dict[str, object] | None = None,
+        agent_snapshot: LiveAgentSnapshot | None = None,
     ) -> dict[str, object]:
-        # Build per-session PromptSlots from the agent config (决策 8).  cron /
-        # heartbeat sessions are direct (no group scenario), so only head/body/custom
-        # slots populate; the tail (group context) stays empty.
         prompt = None
         enabled_tools = None
         features = None
+        skills = None
         agent_id = (metadata or {}).get("agent_id")
-        agent = self._agents_by_id.get(agent_id) if isinstance(agent_id, str) else None
-        if agent is not None:
-            from personal_assistant.product import (  # noqa: PLC0415
-                prompt_for,
-                resolve_enabled_tools,
+        snapshot = agent_snapshot
+        if snapshot is None:
+            snapshot = (
+                self._agent_catalog.get(agent_id)
+                if self._agent_catalog is not None and isinstance(agent_id, str)
+                else None
             )
-
-            prompt = prompt_for(agent, scenario=metadata or {})
-            enabled_tools = resolve_enabled_tools(agent)
-            features = dict(getattr(agent, "features", {}) or {})
+        if snapshot is not None:
+            capabilities = project_agent_session_capabilities(
+                snapshot,
+                scenario=metadata or {},
+            )
+            prompt = capabilities.prompt
+            enabled_tools = capabilities.enabled_tools
+            features = capabilities.features
+            skills = capabilities.skills
         session = await self._kernel.create_session(
             title=title,
             workspace_root=Path(workspace_root),
             metadata=metadata,
             prompt=prompt,
+            skills=skills,
             enabled_tools=enabled_tools,
             features=features,
         )
+        if snapshot is not None and self._session_binder is not None:
+            self._session_binder.register_session_provenance(
+                snapshot,
+                kernel_session_id=session.session_id,
+            )
         return {"session_id": session.session_id}
+
+    async def create_agent_session(
+        self,
+        *,
+        agent_snapshot: LiveAgentSnapshot,
+        workspace_root: str,
+        product_id: str,
+        title: str | None = None,
+        metadata: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        """Create an unattended session from one captured Agent revision."""
+
+        return await self.create_session(
+            workspace_root=workspace_root,
+            product_id=product_id,
+            title=title,
+            metadata=metadata,
+            agent_snapshot=agent_snapshot,
+        )
 
     def submit_message(
         self,
@@ -2717,9 +1937,12 @@ class _KernelClientShim:
         # bugfix-429 决策2 / fix-r1 #3: resolve via the shared helper — explicit
         # model (heartbeat passes agent.default_model) wins; else the agent looked
         # up by agent_id (cron); else the product default. The kernel holds none.
-        resolved_agent = (
-            self._agents_by_id.get(agent_id) if isinstance(agent_id, str) else None
+        snapshot = (
+            self._agent_catalog.get(agent_id)
+            if self._agent_catalog is not None and isinstance(agent_id, str)
+            else None
         )
+        resolved_agent = snapshot.config if snapshot is not None else None
         resolved_model = resolve_run_model(
             resolved_agent,
             product_default=self._product_default_model,
@@ -2834,46 +2057,6 @@ def _make_prompt_preview_provider(kernel: Any) -> "PromptPreviewProvider":
     return _provider  # type: ignore[return-value]
 
 
-def _parse_heartbeat_from_im_payload(
-    raw: object,
-) -> tuple[str | None, str | None, str | None, str | None]:
-    """Parse heartbeat cadence fields from an IM agent config payload.
-
-    feat-394 decision 5 / M9-E: enable state lives in features["heartbeat"] (decision D).
-    This function only extracts cadence data: every, active_hours_{start,end,timezone}.
-
-    Args:
-        raw: The raw value of ``payload["heartbeat"]`` from an IM API response.
-
-    Returns:
-        4-tuple of (heartbeat_every, active_hours_start, active_hours_end,
-        active_hours_timezone).  All fields are None when absent.
-    """
-    if not isinstance(raw, dict):
-        return None, None, None, None
-    every_raw = raw.get("every")
-    heartbeat_every = (
-        every_raw.strip() if isinstance(every_raw, str) and every_raw.strip() else None
-    )
-    active_hours_raw = raw.get("active_hours")
-    if isinstance(active_hours_raw, dict):
-        start_raw = active_hours_raw.get("start")
-        end_raw = active_hours_raw.get("end")
-        tz_raw = active_hours_raw.get("timezone")
-        hb_start = (
-            start_raw.strip()
-            if isinstance(start_raw, str) and start_raw.strip()
-            else None
-        )
-        hb_end = (
-            end_raw.strip() if isinstance(end_raw, str) and end_raw.strip() else None
-        )
-        hb_tz = tz_raw.strip() if isinstance(tz_raw, str) and tz_raw.strip() else None
-    else:
-        hb_start, hb_end, hb_tz = None, None, None
-    return heartbeat_every, hb_start, hb_end, hb_tz
-
-
 def build_runtime(config: LocalConfig) -> GatewayRuntime:
     """Construct the default long-running gateway runtime from parsed local config.
 
@@ -2928,21 +2111,19 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     # reference means services registered after build (post-kernel_shim) are visible to
     # the already-built tool closure.
     _cron_dispatcher = CronServiceRegistry()
+    # The listener URL is a process-scoped capability. Construct its lifecycle owner
+    # before the PA Kernel so send_message can resolve current_url on every tool call;
+    # durable session metadata remains only a standalone/backward-compatible seed.
+    _internal_dispatch_endpoint = InternalDispatchEndpoint()
 
     kernel = build_pa_kernel(
         llm=llm,
         cron_services=_cron_dispatcher.services,  # shared mutable map (决策 9)
+        gateway_dispatch_url_provider=_internal_dispatch_endpoint.current_url,
         # can_use_tool=None: IM card flow; see submit_permission_decision.
     )
 
-    # Wrap Kernel as a _KernelClientLike shim so HeartbeatScheduler and
-    # InternalDispatchHandler (which still use kernel_client protocol) work
-    # without modification until M4 cleanup.
-    kernel_shim = _KernelClientShim(
-        kernel,
-        agents_by_id={a.agent_id: a for a in config.agents},
-        product_default_model=config.llm.default_model,
-    )
+    agent_catalog = LiveAgentCatalog(config.agents)
     permission_response_handler = _build_permission_response_handler(kernel=kernel)
 
     runtime_dir = config.source_path.parent
@@ -2952,9 +2133,8 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         db_path=runtime_dir / "group_context_buffer.sqlite3"
     )
     # The shim builds per-session PromptSlots/enabled_tools/features from agent config
-    # (决策 8).  Point it at the live pipeline._agents dict (set after the pipeline is
-    # built below) so config-sync register_agent updates — e.g. enabling heartbeat/cron —
-    # reach heartbeat/cron sessions; a startup snapshot would go stale.
+    # (决策 8). The shared LiveAgentCatalog keeps heartbeat/cron session creation
+    # current when config sync publishes a new Agent revision.
     channel_registry = _build_channel_registry(
         config.channels,
         dedup_db_path=runtime_dir / "relay_dedup.sqlite3",
@@ -2966,12 +2146,23 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     )
     outbound_router = OutboundRouter(channel_registry)
     # Use SQLite-backed store so kernel session mappings survive gateway restarts
-    # (NodeGateway-SPEC §4.2).  Live session validation is done via kernel.get_session
-    # inside InboundPipeline._binding_matches_workspace_root — no kernel_client needed.
+    # (NodeGateway-SPEC §4.2).  Live session validation is owned by
+    # GatewaySessionBinder via the in-process Kernel — no HTTP kernel client is needed.
     # Must be created before HeartbeatScheduler so the store can be injected for
     # tick-time canonical session lookup (feat-394 decision 3).
     session_store = PersistentSessionBindingStore(
         db_path=runtime_dir / "session_bindings.sqlite3"
+    )
+    session_binder = GatewaySessionBinder(
+        catalog=agent_catalog,
+        repository=session_store,
+        kernel=kernel,
+    )
+    kernel_shim = _KernelClientShim(
+        kernel,
+        agent_catalog=agent_catalog,
+        session_binder=session_binder,
+        product_default_model=config.llm.default_model,
     )
     # feat-394 decision 3: canonical direct-chat kernel session store.
     # Updated by HeartbeatScheduler.tick() via session_store.find_direct_by_agent()
@@ -2979,47 +2170,16 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     # This replaces the prior approach of populating from turn_start ack, which failed
     # for first-tick / restart / silent-polling scenarios (silent polls never ack → never fill).
     _canonical_session_store: dict[str, str] = {}
-    _heartbeat_scheduler = HeartbeatScheduler(
-        agents=config.agents,
-        kernel_client=kernel_shim,
-        state_store=HeartbeatSchedulerStateStore(_default_heartbeat_state_path(config)),
-        canonical_session_store=_canonical_session_store,
-        session_store=session_store,
-    )
     reporter: UpstreamReporter | None = None
     im_connection_manager: IMConnectionManager | None = None
     channel_manager: ChannelManager | None = None
     im_bootstrap_client: _IMBootstrapClient | None = None
-    im_config_sync_client: _IMConfigSyncClient | None = None
+    im_config_sync_client: IMAgentConfigSync | None = None
     run_delivery_contexts = RunDeliveryContextStore()
-    # feat-393: heartbeat_runner is built here (before im_connection_manager which references it),
-    # but the kernel_event_observer is wired after im_service block via attribute set below.
-    # NOTE: session_store + _heartbeat_scheduler are constructed earlier (feat-394 moved
-    # them up so HeartbeatScheduler can take the store for tick-time canonical lookup);
-    # this supersedes origin/main's simpler heartbeat_runner/session_store block here.
     _owner_user_id = config.node.user_id or ""
-    heartbeat_runner = PollingHeartbeatRunner(
-        scheduler=_heartbeat_scheduler,
-        config=config.heartbeat,
-        kernel=kernel if _owner_user_id else None,
-        run_context_store=run_delivery_contexts if _owner_user_id else None,
-        owner_user_id=_owner_user_id,
-        # kernel_event_observer is set below after _build_kernel_event_observer runs.
-    )
-    _gateway_internal_port = 8089
-    pipeline = InboundPipeline(
-        kernel=kernel,
-        agents=config.agents,
-        outbound_router=outbound_router,
-        run_queue=SessionRunQueue(),
-        session_store=session_store,
-        group_context_store=group_context_store,
-        gateway_internal_port=_gateway_internal_port,
-        # bugfix-429 决策2: product owns the default model; each turn falls back to
-        # this when the agent has not selected one (config.llm.default_model).
-        product_default_model=config.llm.default_model,
-    )
-    inbound_dispatcher = _InboundDispatcher(pipeline)
+    _gateway_internal_port = 0
+    shadow_sync: IMShadowConversationSync | None = None
+    image_resolver = ImageAttachmentResolver()
 
     def _send_external_reply(text: str, metadata: Mapping[str, str]) -> None:
         channel_name = metadata.get("channel_name") or ""
@@ -3070,6 +2230,13 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             return
         resolver(request_id=request_id, decision=decision)
 
+    def _on_agent_created(agent_id: str, workspace_root: Path) -> None:
+        try:
+            gateway_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            gateway_loop = None
+        _register_cron_service(agent_id, workspace_root, gateway_loop=gateway_loop)
+
     if config.im_service is not None:
         relay_adapter = channel_registry.get("web_relay")
         if not isinstance(relay_adapter, WebRelayAdapter):
@@ -3110,24 +2277,28 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         # node's configured workspace_base so they land under the same isolation
         # root as preset agents (e.g. a worktree's `.gateway-workspace`) instead of
         # the hardcoded `~/nano-assistant/workspace` default. When workspace_base is
-        # unset the factory stays None and _IMConfigSyncClient keeps its legacy
+        # unset the factory stays None and the config sync keeps its legacy
         # default — existing deployments are unaffected.
         workspace_root_factory = _make_workspace_root_factory(
             config.node.workspace_base
         )
-        im_config_sync_client = _IMConfigSyncClient(
+        im_config_sync_client = IMAgentConfigSync(
             base_url=config.im_service.url,
             token=config.im_service.token,
-            pipeline=pipeline,
+            agent_catalog=agent_catalog,
+            session_binder=session_binder,
             local_config=config,
             config_owner=config_owner,
             reporter=reporter,
             workspace_root_factory=workspace_root_factory,
             global_skill_root=PA_SKILL_SEARCH_ROOTS[0],
+            on_agent_created=_on_agent_created,
         )
         # Build a token_getter closure that auto-refreshes the access token on reconnect.
         # The auth client uses the IM HTTP base URL so it can reach /im/v1/auth/* endpoints.
-        _auth_client = IMAuthClient(base_url=_im_http_base_url(config.im_service.url))
+        _auth_client = IMAuthClient(
+            base_url=normalize_im_http_base_url(config.im_service.url)
+        )
         _raw_token_getter = _make_token_getter(
             im_service=config.im_service,
             local_config=config,
@@ -3146,39 +2317,30 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                 _sync_client_ref.update_token(token)
             return token
 
-        pipeline._shadow_sync = _IMShadowConversationSyncClient(  # noqa: SLF001
+        shadow_sync = IMShadowConversationSync(
             base_url=config.im_service.url,
             token_getter=_token_getter,
             owner_user_id=_owner_user_id,
+        )
+        image_resolver = ImageAttachmentResolver(
+            fetcher=_build_attachment_fetcher(token_getter=_token_getter)
         )
 
         # M3: permission response handler is no longer wired — the SDK's can_use_tool
         # callback handles all permission decisions in-process (design decision 3).
         _im_sync_client = ConfigSyncClient(fetcher=im_config_sync_client.sync_agent)
 
-        # bugfix-402-M6: wire cron service registration into the agent-create callback
-        # so dynamically created agents (via IM agent.create push) also get a
-        # CronExecutionService registered before their first cron tick fires.
-        #
-        # bugfix-402 round-2 code-review fix: capture the running loop at call site
-        # (inside the WS event loop) so the service gets a valid loop immediately
-        # instead of relying on get_running_loop() inside _register_cron_service.
-        def _on_agent_created(agent_id: str, workspace_root: Path) -> None:
-            try:
-                _loop = asyncio.get_running_loop()
-            except RuntimeError:
-                _loop = None
-            _register_cron_service(agent_id, workspace_root, gateway_loop=_loop)
-
-        im_config_sync_client.on_agent_created = _on_agent_created
-
         def _activate_feishu_skill(agent_id: str) -> bool:
             agent = im_config_sync_client._local_agent(agent_id)  # noqa: SLF001
-            if agent is not None:
-                return im_config_sync_client._enable_created_skill_for_agent(  # noqa: SLF001
-                    agent, "feishu-doc"
-                )
-            return False
+            if agent is None:
+                return False
+            im_config_sync_client._enable_created_skill_for_agent(  # noqa: SLF001
+                agent, "feishu-doc"
+            )
+            updated = im_config_sync_client._local_agent(agent_id)  # noqa: SLF001
+            return updated is not None and (
+                not updated.skills or "feishu-doc" in updated.skills
+            )
 
         def _send_channel_status(snapshot: ChannelStatusSnapshot) -> None:
             generation = snapshot.generation
@@ -3270,17 +2432,6 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                 ),
                 initial_metadata={"bot_open_id": preflight.bot_open_id},
             )
-
-        channel_manager = ChannelManager(
-            registry=channel_registry,
-            on_inbound=inbound_dispatcher,
-            provider_factories={"feishu": _build_managed_feishu},
-            status_sink=_send_channel_status,
-            metadata_sink=_send_provider_metadata,
-            activation_policy=FeishuActivationPolicy(_activate_feishu_skill),
-            manifest_store=channel_manifest_store,
-            credential_opener=_open_cached_channel,
-        )
 
         async def _apply_channel_manifest(
             body: Mapping[str, object],
@@ -3478,7 +2629,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             await channel_manager.reconnect(channel_id)
 
         im_bootstrap_client = _IMBootstrapClient(
-            base_url=_im_http_base_url(config.im_service.url),
+            base_url=normalize_im_http_base_url(config.im_service.url),
             token=config.im_service.token,
             token_getter=_token_getter,
         )
@@ -3548,48 +2699,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                 memory_versions=memory_versions,
             )
 
-        im_connection_manager = _build_im_connection_manager(
-            config=config,
-            relay_adapter=relay_adapter,
-            reporter=reporter,
-            heartbeat_runner=heartbeat_runner,
-            sync_client=_im_sync_client,
-            agent_config_provider=lambda agent_id: (
-                im_config_sync_client.current_agent_payload(agent_id=agent_id)
-            ),
-            agent_capabilities_provider=lambda agent_id, workspace_root: (
-                build_agent_capabilities_payload(
-                    kernel,
-                    workspace_root=workspace_root,
-                    tool_allowlist=_resolve_agent_tool_allowlist(
-                        im_config_sync_client, agent_id
-                    ),
-                )
-            ),
-            node_capabilities_provider=lambda: build_node_capabilities_payload(kernel),
-            # sdk-fix-prompt-preview: assemble_prompt_preview is now available on the
-            # in-process Kernel (refactor-387 M3 regression fix).  The provider
-            # signature matches PromptPreviewProvider: (agent_id, workspace_root,
-            # features, custom_prompt, tool_ids, scenario, skill_ids) → preview dict.
-            prompt_preview_provider=_make_prompt_preview_provider(kernel),
-            agent_create_handler=im_config_sync_client.handle_agent_create,
-            session_fork_handler=_build_session_fork_handler(
-                kernel=kernel,
-                session_store=session_store,
-                agents_getter=lambda: pipeline._agents,  # noqa: SLF001
-                channel_name=WebRelayAdapter.name,
-            ),
-            token_getter=_token_getter,
-            permission_response_handler=permission_response_handler,
-            on_connected=_reconcile_on_connect,
-            channel_manifest_handler=_apply_channel_manifest,
-            channel_reconnect_handler=_reconnect_managed_channel,
-            channel_reconcile_ack_handler=_ack_channel_reconcile,
-            channel_status_result_handler=_handle_channel_status_result,
-            channel_bootstrap_provider=_legacy_bootstrap_items,
-            channel_bootstrap_applied_handler=_mark_legacy_bootstrap_cached,
-        )
-    pipeline._relay_lifecycle_callback = _build_relay_lifecycle_callback(
+    relay_lifecycle_callback = _build_relay_lifecycle_callback(
         reporter=reporter,
         im_connection_manager_factory=lambda: im_connection_manager,
         run_context_store=run_delivery_contexts,
@@ -3597,6 +2707,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         channel_registry=channel_registry,
     )
 
+    runtime_delivery_tasks = RuntimeDeliveryTaskTracker()
     _kernel_event_observer = _build_kernel_event_observer(
         im_connection_manager_factory=lambda: im_connection_manager,
         run_context_store=run_delivery_contexts,
@@ -3606,40 +2717,63 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         skill_created_handler=getattr(
             im_config_sync_client, "handle_skill_created", None
         ),
+        task_tracker=runtime_delivery_tasks,
     )
-    pipeline._kernel_event_observer = _kernel_event_observer
-    # feat-393: wire observer into heartbeat_runner now that it's built. When IM is
-    # absent, the observer still mirrors external-channel permission/control events.
-    if _owner_user_id:
-        heartbeat_runner._kernel_event_observer = _kernel_event_observer  # noqa: SLF001
-    else:
-        # No owner bound → heartbeat delivery disabled; clear kernel reference.
-        heartbeat_runner._kernel = None  # noqa: SLF001
-    pipeline._bg_reply_sender = _build_bg_reply_sender(
+    bg_reply_sender = _build_bg_reply_sender(
         im_connection_manager_factory=lambda: im_connection_manager,
         external_reply_sender=_send_external_reply,
     )
+    session_event_callback = None
     if config.im_service is not None:
         # feat-349-M3: wire background session event callback so self_evolution_review
         # events published by background hooks reach IM as system/meta messages.
-        pipeline._session_event_callback = _build_session_event_callback(
+        session_event_callback = _build_session_event_callback(
             im_connection_manager_factory=lambda: im_connection_manager,
-            session_store=pipeline._session_store,
         )
-        # bugfix-433 决策1: wire the live attachment downloader so inbound image URLs
-        # are fetched (with the live IM token) and converted to base64 data URLs before
-        # reaching the kernel. Only wired when im_service is configured.
-        pipeline._attachment_fetcher = _build_attachment_fetcher(
-            token_getter=_token_getter,
+
+    background_subscriptions = BackgroundSubscriptionManager(
+        kernel=kernel,
+        session_event_callback=session_event_callback,
+        bg_reply_sender=bg_reply_sender,
+    )
+    run_coordinator = SessionRunCoordinator(
+        kernel=kernel,
+        session_binder=session_binder,
+        outbound_router=outbound_router,
+        group_context_store=group_context_store,
+        gateway_internal_port=_gateway_internal_port,
+        gateway_dispatch_url_provider=_internal_dispatch_endpoint.current_url,
+        product_default_model=config.llm.default_model,
+        relay_lifecycle_callback=relay_lifecycle_callback,
+        kernel_event_observer=_kernel_event_observer,
+        bg_reply_sender=bg_reply_sender,
+        background_subscriptions=background_subscriptions,
+        image_resolver=image_resolver,
+    )
+    pipeline = InboundPipeline(
+        agent_catalog=agent_catalog,
+        run_coordinator=run_coordinator,
+        group_context_store=group_context_store,
+        route_config=InboundRouteConfig(),
+        shadow_sync=shadow_sync,
+    )
+    inbound_dispatcher = InboundDispatcher(pipeline)
+    if config.im_service is not None:
+        channel_manager = ChannelManager(
+            registry=channel_registry,
+            on_inbound=inbound_dispatcher,
+            provider_factories={"feishu": _build_managed_feishu},
+            status_sink=_send_channel_status,
+            metadata_sink=_send_provider_metadata,
+            activation_policy=FeishuActivationPolicy(_activate_feishu_skill),
+            manifest_store=channel_manifest_store,
+            credential_opener=_open_cached_channel,
         )
 
     # bugfix-402-M4 R4 / bugfix-402-M6: build per-agent CronExecutionService and
-    # register with dispatcher.  execute_fn is a closure that captures kernel_shim,
-    # kernel, heartbeat_runner, etc.  All captured references are set before the
-    # first cron tick fires.  _canonical_session_store and
-    # heartbeat_runner._kernel_event_observer use late binding: they may be None
-    # at construction time but are populated by the im_service block before any
-    # tick runs.
+    # register with dispatcher. execute_fn captures only owners already constructed;
+    # the runtime-delivery observer is supplied directly rather than read from a
+    # heartbeat runner private field.
     #
     # bugfix-402 round-2: routing key changed from workspace_root to agent_id —
     # workspace_root has two data sources (local YAML vs IM-synced value from
@@ -3668,172 +2802,36 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         # Skip if already registered (idempotent — reconcile may call multiple times).
         if _cron_dispatcher.resolve(agent_id) is not None:
             return
-        execute_fn = _build_cron_execute_fn(agent_id=agent_id, ws_root=ws_root)
+        runner = CronRunner(
+            agent_id=agent_id,
+            workspace_root=ws_root,
+            kernel_client=kernel_shim,
+            session_binder=session_binder,
+            canonical_session_id_provider=lambda: _canonical_session_store.get(
+                agent_id
+            ),
+        )
+        terminal_consumer = CronRunTerminalConsumer(
+            kernel=kernel,
+            owner_user_id=_owner_user_id,
+            run_context_store=run_delivery_contexts,
+            observer=(
+                _kernel_event_observer
+                if _owner_user_id and _kernel_event_observer is not None
+                else None
+            ),
+        )
         service = CronExecutionService(
             agent_id=agent_id,
             workspace_root=ws_root,
-            execute_fn=execute_fn,
+            runner=runner,
+            terminal_consumer=terminal_consumer,
             gateway_loop=gateway_loop,
         )
         _cron_dispatcher.register(agent_id, service)
         # Converge stale accepted/running records from any previous crash so they
         # are never permanently in-progress.
-        service.runs_store.converge_stale_on_restart()
-
-    def _build_cron_execute_fn(
-        agent_id: str,
-        ws_root: Path,
-    ):
-        """Return the execute_fn for a single agent's CronExecutionService.
-
-        bugfix-402-M4: both scheduled ticks and manual tool calls share this
-        execution chain.  CronRunner is instantiated once per agent (not per tick)
-        so session binding state is preserved across runs.
-        """
-        _cron_runner = CronRunner(
-            agent_id=agent_id,
-            workspace_root=ws_root,
-            kernel_client=kernel_shim,
-            session_binding_store=session_store,
-        )
-
-        async def _execute(
-            *, agent_id: str, job_id: str, request_id: str, trigger: str
-        ) -> None:
-            """Submit cron job then stream result to IM direct chat.
-
-            bugfix-402-M4 Decision 2: replaces per-tick _submit_and_deliver_fn.
-            Both scheduled and manual triggers enter here via CronExecutionService.enqueue().
-            Writes accepted→running→(completed|failed) state transitions to runs.jsonl.
-            """
-            from personal_assistant.scheduler.cron_execution_service import (
-                CronRunsStore,
-            )  # noqa: PLC0415
-
-            _runs_store = CronRunsStore(workspace_root=ws_root)
-            _now = datetime.now(timezone.utc).isoformat()
-
-            job_store = CronJobStore(workspace_root=ws_root)
-            job = job_store.get(job_id)
-            if job is None:
-                _log.warning(
-                    "cron execute: job not found at execution time: agent=%s job=%s request=%s",
-                    agent_id,
-                    job_id,
-                    request_id,
-                )
-                _runs_store.update_status(
-                    request_id,
-                    "failed",
-                    finished_at=_now,
-                    error="job_not_found",
-                )
-                return
-
-            _runs_store.update_status(request_id, "running", started_at=_now)
-
-            # _submit_cron_job returns (run_id, kernel_session_id) or None.
-            result = await _cron_runner._submit_cron_job(job=job)  # noqa: SLF001
-            if result is None:
-                _log.warning(
-                    "cron: submit returned no result: agent=%s job=%s request=%s",
-                    agent_id,
-                    job_id,
-                    request_id,
-                )
-                _runs_store.update_status(
-                    request_id,
-                    "failed",
-                    finished_at=datetime.now(timezone.utc).isoformat(),
-                    error="submit_failed",
-                )
-                return
-            run_id, kernel_session_id = result
-            _runs_store.update_status(request_id, "running", kernel_run_id=run_id)
-
-            # Observer is set on heartbeat_runner after im_service block; read at call time.
-            _observer = heartbeat_runner._kernel_event_observer  # noqa: SLF001
-
-            if not _owner_user_id or _observer is None:
-                # No IM delivery path: fire-and-forget is correct.
-                _log.debug(
-                    "cron: no delivery path configured (owner=%r), skipping stream",
-                    _owner_user_id,
-                )
-                _runs_store.update_status(
-                    request_id,
-                    "completed",
-                    finished_at=datetime.now(timezone.utc).isoformat(),
-                    result_summary="no_delivery_path",
-                )
-                return
-
-            # Deliver result to IM by consuming the kernel stream.
-            final_result_text = ""
-            try:
-                final_result_text, _ = await _stream_run_to_completion(
-                    run_id=run_id,
-                    kernel_session_id=kernel_session_id,
-                    agent_id=agent_id,
-                    owner_user_id=_owner_user_id,
-                    kernel=kernel,
-                    run_context_store=run_delivery_contexts,
-                    observer=_observer,
-                    stream_anchor=0,
-                )
-            except Exception:  # noqa: BLE001
-                _log.exception(
-                    "cron: stream consume failed: agent=%s job=%s run=%s",
-                    agent_id,
-                    job_id,
-                    run_id,
-                )
-                _runs_store.update_status(
-                    request_id,
-                    "failed",
-                    finished_at=datetime.now(timezone.utc).isoformat(),
-                    error="stream_failed",
-                )
-                return
-
-            _runs_store.update_status(
-                request_id,
-                "completed",
-                finished_at=datetime.now(timezone.utc).isoformat(),
-                result_summary=(final_result_text[:200] if final_result_text else ""),
-            )
-
-            # Decision C-awareness: append result text as System(untrusted) to canonical
-            # direct-chat JSONL so user can ask follow-up questions about cron output.
-            if final_result_text:
-                # feat-394-M8 R6-2 fix: two-source canonical session resolution (priority order).
-                # (1) _canonical_session_store — populated by HeartbeatScheduler.tick().
-                # (2) _cron_runner._resolve_canonical_session_id() — SQLite session_bindings.
-                _awareness_session_id = (
-                    _canonical_session_store.get(agent_id)
-                    or _cron_runner._resolve_canonical_session_id()  # noqa: SLF001
-                )
-                if _awareness_session_id:
-                    try:
-                        await _cron_runner._append_awareness(  # noqa: SLF001
-                            session_id=_awareness_session_id,
-                            result_text=final_result_text,
-                            workspace_root=ws_root,
-                        )
-                    except Exception:  # noqa: BLE001
-                        _log.warning(
-                            "cron: awareness inject failed: agent=%s job=%s session=%s",
-                            agent_id,
-                            job_id,
-                            _awareness_session_id,
-                        )
-                else:
-                    _log.debug(
-                        "cron: awareness skip — no canonical session for agent=%s",
-                        agent_id,
-                    )
-
-        return _execute
+        service.converge_stale_on_restart()
 
     # Create one CronExecutionService per configured agent and register with dispatcher.
     # bugfix-402-M6: use _register_cron_service so dynamic (handle_agent_create) and
@@ -3853,9 +2851,10 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         shared CronExecutionService.enqueue(trigger="scheduled") for each due job.
         CronScheduler still handles due-time computation and last_due_at persistence.
         """
-        agent_cfg = pipeline._agents.get(agent_id)  # noqa: SLF001
-        if agent_cfg is None or not getattr(agent_cfg, "cron_enabled", False):
+        agent_snapshot = agent_catalog.get(agent_id)
+        if agent_snapshot is None or not agent_snapshot.config.cron_enabled:
             return
+        agent_cfg = agent_snapshot.config
         ws_root = Path(agent_cfg.workspace_root).expanduser().resolve()
 
         # bugfix-402 round-2: route by agent_id, not workspace_root.
@@ -3896,22 +2895,65 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         )
         await scheduler.tick()
 
-    # Provide agents dict reference (closure over pipeline for dynamic updates).
-    heartbeat_runner._cron_tick_fn = _cron_tick_for_agent  # noqa: SLF001
-    heartbeat_runner._agents = pipeline._agents  # noqa: SLF001
-    # refactor-406-M1 R6: share the live pipeline._agents dict so the shim's PromptSlots/
-    # features (built per heartbeat/cron session) reflect config-sync updates, same as
-    # the heartbeat scheduler/runner above.
-    kernel_shim._agents_by_id = pipeline._agents  # noqa: SLF001
-    # feat-394-M4 R3 S1.3 fix: wire a live agents_getter into the heartbeat scheduler
-    # so each tick reads the current agent config from pipeline._agents rather than the
-    # frozen config.agents tuple captured at init time.  This lets heartbeat_enabled=False
-    # take effect on the next tick without requiring a gateway restart.
-    _heartbeat_scheduler._agents_getter = lambda: pipeline._agents.values()  # noqa: SLF001
-    # feat-394-M4 R2-3 fix: wire SessionRunQueue into scheduler so heartbeat skips
-    # when a user message is currently being processed on the canonical session.
-    # This prevents the heartbeat LLM call from blocking user message responses.
-    _heartbeat_scheduler._run_queue = pipeline._run_queue  # noqa: SLF001
+    _heartbeat_scheduler = HeartbeatScheduler(
+        agents=config.agents,
+        kernel_client=kernel_shim,
+        state_store=HeartbeatSchedulerStateStore(_default_heartbeat_state_path(config)),
+        canonical_session_store=_canonical_session_store,
+        agent_catalog=agent_catalog,
+        session_binder=session_binder,
+        is_session_busy=run_coordinator.is_session_busy,
+    )
+    heartbeat_runner = PollingHeartbeatRunner(
+        scheduler=_heartbeat_scheduler,
+        config=config.heartbeat,
+        kernel=kernel if _owner_user_id else None,
+        run_context_store=run_delivery_contexts if _owner_user_id else None,
+        owner_user_id=_owner_user_id,
+        agent_catalog=agent_catalog,
+        kernel_event_observer=(_kernel_event_observer if _owner_user_id else None),
+        cron_tick_fn=_cron_tick_for_agent,
+    )
+
+    if config.im_service is not None:
+        assert reporter is not None
+        assert im_config_sync_client is not None
+        im_connection_manager = _build_im_connection_manager(
+            config=config,
+            relay_adapter=relay_adapter,
+            reporter=reporter,
+            heartbeat_runner=heartbeat_runner,
+            sync_client=_im_sync_client,
+            agent_config_provider=lambda agent_id: (
+                im_config_sync_client.current_agent_payload(agent_id=agent_id)
+            ),
+            agent_capabilities_provider=lambda agent_id, workspace_root: (
+                build_agent_capabilities_payload(
+                    kernel,
+                    workspace_root=workspace_root,
+                    tool_allowlist=_resolve_agent_tool_allowlist(
+                        im_config_sync_client, agent_id
+                    ),
+                )
+            ),
+            node_capabilities_provider=lambda: build_node_capabilities_payload(kernel),
+            prompt_preview_provider=_make_prompt_preview_provider(kernel),
+            agent_create_handler=im_config_sync_client.handle_agent_create,
+            session_fork_handler=_build_session_fork_handler(
+                kernel=kernel,
+                session_binder=session_binder,
+                channel_name=WebRelayAdapter.name,
+            ),
+            token_getter=_token_getter,
+            permission_response_handler=permission_response_handler,
+            on_connected=_reconcile_on_connect,
+            channel_manifest_handler=_apply_channel_manifest,
+            channel_reconnect_handler=_reconnect_managed_channel,
+            channel_reconcile_ack_handler=_ack_channel_reconcile,
+            channel_status_result_handler=_handle_channel_status_result,
+            channel_bootstrap_provider=_legacy_bootstrap_items,
+            channel_bootstrap_applied_handler=_mark_legacy_bootstrap_cached,
+        )
 
     # bugfix-402-M3 R3: kernel is closed explicitly via GatewayRuntime(kernel=) and
     # its aclose() in the ordered shutdown phase (Decision 7). It must not be in
@@ -3924,10 +2966,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     internal_dispatch_handler = InternalDispatchHandler(
         im_connection_manager=im_connection_manager,
         kernel_client=kernel_shim,
-        session_store=session_store,
-        agent_workspace_roots={
-            agent.agent_id: str(agent.workspace_root) for agent in config.agents
-        },
+        session_binder=session_binder,
     )
     return GatewayRuntime(
         config,
@@ -3937,9 +2976,12 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         on_inbound=inbound_dispatcher,
         resource_closers=tuple(closers),
         internal_dispatch_handler=internal_dispatch_handler,
+        internal_dispatch_endpoint=_internal_dispatch_endpoint,
         kernel=kernel,
         cron_dispatcher=_cron_dispatcher,
         channel_manager=channel_manager,
+        run_coordinator=run_coordinator,
+        runtime_delivery_tasks=runtime_delivery_tasks,
         gateway_internal_port=_gateway_internal_port,
     )
 
@@ -4260,8 +3302,7 @@ def _make_token_getter(
 def _build_session_fork_handler(
     *,
     kernel: Any,
-    session_store: SessionBindingStore,
-    agents_getter: Callable[[], Mapping[str, Any]],
+    session_binder: GatewaySessionBinder,
     channel_name: str,
 ) -> SessionForkHandler:
     """Build the gateway-side handler for IM-delegated session fork (feat-445-M1 决策 2).
@@ -4288,47 +3329,53 @@ def _build_session_fork_handler(
         ):
             return {"ok": False, "error": "fork request missing required fields"}
 
-        source_binding = session_store.get(
+        source = session_binder.capture_binding_provenance(
             build_conversation_session_key(
                 channel_name=channel_name,
                 conversation_id=source_conversation_id,
                 agent_id=agent_id,
-            )
+            ),
+            expected_agent_id=agent_id,
         )
-        if source_binding is None:
+        if source is None:
             external_source = str(payload.get("source_external_source") or "").strip()
             external_chat_id = str(payload.get("source_external_chat_id") or "").strip()
             if external_source and external_chat_id:
-                source_binding = session_store.get(
+                source = session_binder.capture_binding_provenance(
                     build_external_session_key(
                         external_source=external_source,
                         external_chat_id=external_chat_id,
                         agent_id=agent_id,
-                    )
+                    ),
+                    expected_agent_id=agent_id,
                 )
-        if source_binding is None:
+        if source is None:
             return {"ok": False, "error": "source session binding not found"}
-
-        agent_cfg = agents_getter().get(agent_id)
-        if agent_cfg is None:
-            return {"ok": False, "error": f"unknown agent {agent_id}"}
 
         try:
             new_session = await kernel.fork_session(
-                source_binding.kernel_session_id,
-                workspace_root=agent_cfg.workspace_root,
+                source.binding.kernel_session_id,
+                workspace_root=source.agent.config.workspace_root,
                 up_to=message_id,
             )
         except Exception as exc:  # noqa: BLE001 — report to IM, which rolls back
             return {"ok": False, "error": str(exc)}
 
-        bind_conversation_session(
-            store=session_store,
-            channel_name=channel_name,
-            conversation_id=new_conversation_id,
-            agent_id=agent_id,
-            kernel_session_id=new_session.session_id,
+        bind_result = session_binder.bind_conversation(
+            ConversationBindingRequest(
+                channel_name=channel_name,
+                conversation_id=new_conversation_id,
+                agent_id=agent_id,
+                kernel_session_id=new_session.session_id,
+                guard=source.guard,
+            ),
+            source.agent,
         )
+        if bind_result.status == "stale":
+            return {
+                "ok": False,
+                "error": "agent config changed while session fork was running",
+            }
         # feat-445-M2 #5: hand back the source→branch kernel-uuid re-stamp map so IM can
         # realign each copied bubble's kernel_message_id to the branch session's JSONL
         # uuids (else a recursive fork from a copied bubble 502s on the source uuid).
@@ -4450,7 +3497,7 @@ def _build_attachment_fetcher(
     async def _fetch(url: str) -> bytes:
         token = await token_getter()
         async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(url, headers=_im_http_headers(token))
+            response = await client.get(url, headers=build_im_http_headers(token))
             response.raise_for_status()
             return response.content
 
@@ -4766,7 +3813,7 @@ def _remove_gateway_state(
 
 
 def _resolve_agent_tool_allowlist(
-    sync_client: "_IMConfigSyncClient",
+    sync_client: "IMAgentConfigSync",
     agent_id: str,
 ) -> tuple[str, ...]:
     """Return the tool_allowlist for an agent from the live local config snapshot.
@@ -4790,28 +3837,8 @@ def _resolve_agent_tool_allowlist(
     return tuple(item for item in raw if isinstance(item, str))
 
 
-def _im_http_headers(token: str | None) -> dict[str, str]:
-    headers = {"User-Agent": "nano-multiagent-gateway-bootstrap"}
-    if token is not None:
-        headers["Authorization"] = f"Bearer {token}"
-    return headers
-
-
-def _im_http_base_url(url: str) -> str:
-    parsed = urlparse(url)
-    if parsed.scheme == "http":
-        return f"http://{parsed.netloc}{parsed.path}".rstrip("/")
-    if parsed.scheme == "https":
-        return f"https://{parsed.netloc}{parsed.path}".rstrip("/")
-    if parsed.scheme == "ws":
-        return f"http://{parsed.netloc}{parsed.path}".rstrip("/")
-    if parsed.scheme == "wss":
-        return f"https://{parsed.netloc}{parsed.path}".rstrip("/")
-    raise ValueError("IM URL must use http(s) or ws(s)")
-
-
 def _im_bootstrap_base_urls(url: str) -> tuple[str, ...]:
-    return (_im_http_base_url(url),)
+    return (normalize_im_http_base_url(url),)
 
 
 def _background_gateway_argv(
@@ -4954,13 +3981,6 @@ def _consume_task_exception(task: asyncio.Task[object]) -> None:
         pass
     except Exception as exc:
         _log.exception("background task raised unexpected exception: %s", exc)
-
-
-def _consume_future_exception(future: object) -> None:
-    result = getattr(future, "result", None)
-    if callable(result):
-        with suppress(asyncio.CancelledError):
-            result()
 
 
 if __name__ == "__main__":

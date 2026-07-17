@@ -22,7 +22,7 @@ from personal_assistant.reporter.upstream_reporter import (
     UpstreamReporter,
     build_runtime_capabilities,
 )
-from personal_assistant.main import _IMShadowConversationSyncClient
+from personal_assistant.gateway.shadow_sync import IMShadowConversationSync
 
 
 def _agents(tmp_path: Path) -> tuple[AgentWorkspaceConfig, ...]:
@@ -196,7 +196,7 @@ def test_external_shadow_sync_uses_authenticated_im_user_not_stale_config_user()
             return httpx.Response(201, json={"id": "msg-shadow"})
         raise AssertionError(f"unexpected request: {request.url.path}")
 
-    client = _IMShadowConversationSyncClient(
+    client = IMShadowConversationSync(
         base_url="http://im.local",
         token_getter=lambda: _async_value("token-1"),
         owner_user_id="stale-config-user",

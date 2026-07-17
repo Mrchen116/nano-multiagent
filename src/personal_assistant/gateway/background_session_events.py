@@ -31,6 +31,7 @@ _SESSION_EVENT_NAMES = frozenset({"self_evolution_review"})
 # Origin value produced by BACKGROUND_TASK-origin runs.
 # Must match RunOrigin.BACKGROUND_TASK.value = "background_task" (StrEnum, lowercase).
 _BACKGROUND_TASK_ORIGIN = "background_task"
+_STOP_HANDOFF_GRACE_SECONDS = 0.1
 
 
 class BackgroundSessionEventSubscriber:
@@ -89,9 +90,13 @@ class BackgroundSessionEventSubscriber:
         self._bg_run_output_callback = bg_run_output_callback
         self._task: asyncio.Task[None] | None = None
         self._stop_event = asyncio.Event()
+        self._callback_idle = asyncio.Event()
+        self._callback_idle.set()
 
     async def start(self) -> None:
         """Start the background subscription task."""
+        if self._task is not None and not self._task.done():
+            return
         self._stop_event.clear()
         self._task = asyncio.create_task(
             self._run_loop(),
@@ -100,7 +105,7 @@ class BackgroundSessionEventSubscriber:
 
     async def stop(self) -> None:
         """Stop the background subscription and wait for the task to finish."""
-        self._stop_event.set()
+        self.request_stop()
         if self._task is not None and not self._task.done():
             self._task.cancel()
             try:
@@ -115,6 +120,56 @@ class BackgroundSessionEventSubscriber:
                 )
         self._task = None
 
+    def request_stop(self) -> None:
+        """Synchronously reject future stream work without cancelling a callback."""
+
+        self._stop_event.set()
+
+    async def aclose(self, deadline: float) -> None:
+        """Let the current callback finish, then cancel only if the deadline expires.
+
+        Args:
+            deadline: Absolute monotonic deadline from the owning Gateway event loop.
+
+        Raises:
+            TimeoutError: When the subscriber cannot finish before the shared deadline.
+        """
+
+        self.request_stop()
+        task = self._task
+        if task is None:
+            return
+        loop = asyncio.get_running_loop()
+        # Give an event already dequeued by the async generator one scheduling
+        # handoff to reach its callback. An actually idle stream remains blocked and
+        # is cancelled after this short grace instead of consuming the whole Gateway
+        # shutdown deadline.
+        handoff = min(
+            _STOP_HANDOFF_GRACE_SECONDS,
+            max(0.0, deadline - loop.time()),
+        )
+        done, _ = await asyncio.wait({task}, timeout=handoff)
+        if task in done:
+            await asyncio.gather(task, return_exceptions=True)
+            self._task = None
+            return
+
+        if not self._callback_idle.is_set():
+            try:
+                async with asyncio.timeout_at(deadline):
+                    await self._callback_idle.wait()
+            except TimeoutError:
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+                self._task = None
+                raise TimeoutError(
+                    f"background subscriber {self._session_id} exceeded deadline"
+                ) from None
+
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        self._task = None
+
     async def _run_loop(self) -> None:
         """Reconnect-loop: re-establish SSE stream on error, stop when event is set."""
         delay = self._reconnect_delay
@@ -127,8 +182,6 @@ class BackgroundSessionEventSubscriber:
                     last_event_id=last_sequence if last_sequence > 0 else None,
                     workspace_root=self._workspace_root,  # Refs #64
                 ):
-                    if self._stop_event.is_set():
-                        return
                     # Track sequence for reconnect replay.
                     seq = event.get("_id") or event.get("sequence_num")
                     if isinstance(seq, int):
@@ -143,6 +196,7 @@ class BackgroundSessionEventSubscriber:
                         and event.get("origin") == _BACKGROUND_TASK_ORIGIN
                         and self._bg_run_output_callback is not None
                     ):
+                        self._callback_idle.clear()
                         try:
                             await self._bg_run_output_callback(event)
                         except Exception:
@@ -154,7 +208,10 @@ class BackgroundSessionEventSubscriber:
                                     "event": event_name,
                                 },
                             )
+                        finally:
+                            self._callback_idle.set()
                     elif event_name in self._event_filter:
+                        self._callback_idle.clear()
                         try:
                             await self._on_event(event)
                         except Exception:
@@ -166,6 +223,13 @@ class BackgroundSessionEventSubscriber:
                                     "event": event_name,
                                 },
                             )
+                        finally:
+                            self._callback_idle.set()
+                    # The stream may already have dequeued this event when shutdown
+                    # requested stop. Deliver that accepted buffer exactly once, then
+                    # leave without reconnecting or waiting for another event.
+                    if self._stop_event.is_set():
+                        return
                 # Stream ended cleanly — treat as transient; reconnect after delay.
                 delay = self._reconnect_delay
             except asyncio.CancelledError:

@@ -944,8 +944,10 @@ class _ThreadGatedClient:
 
     def __init__(self, gate) -> None:  # noqa: ANN001
         self._gate = gate
+        self.requests: list[Any] = []
 
     def generate(self, request: Any):  # noqa: ANN001, ANN201
+        self.requests.append(request)
         return self._generate()
 
     async def _generate(self):
@@ -971,6 +973,7 @@ async def test_submit_steer_active_run_injects_not_new_run(tmp_path: Path) -> No
             workspace_root=tmp_path,
         )
         await _wait_for_run_status(kernel, first.run_id, "running")
+        assert await kernel.discard_run_messages(first.run_id) is False
 
         runs_before = set(kernel._c.runs_registry._runs.keys())  # noqa: SLF001
         steered = kernel.submit(
@@ -991,13 +994,93 @@ async def test_submit_steer_active_run_injects_not_new_run(tmp_path: Path) -> No
         kernel.close()
 
 
-async def test_submit_steer_injects_render_user_text_content(tmp_path: Path) -> None:
-    """Injected content is built via the same parts→text rendering submit uses:
-    image parts collapse to the placeholder, text is preserved (决策2)."""
+async def test_try_steer_without_active_run_is_inject_only(tmp_path: Path) -> None:
+    """A rejected public steer attempt must never create a fallback run."""
+
+    kernel = _build_kernel(tmp_path)
+    try:
+        session = await kernel.create_session(workspace_root=tmp_path)
+        runs_before = set(kernel._c.runs_registry._runs)  # noqa: SLF001
+
+        result = kernel.try_steer(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "late steer"}],
+        )
+
+        assert result is None
+        assert set(kernel._c.runs_registry._runs) == runs_before  # noqa: SLF001
+    finally:
+        kernel.close()
+
+
+async def test_try_steer_active_run_reuses_existing_run(tmp_path: Path) -> None:
+    """The public inject-only seam returns the active run when admission wins."""
+
     import threading
 
     gate = threading.Event()
     kernel = _build_kernel(tmp_path, _llm_client_override=_ThreadGatedClient(gate))
+    try:
+        session = await kernel.create_session(workspace_root=tmp_path)
+        active = kernel.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "long task"}],
+            workspace_root=tmp_path,
+        )
+        await _wait_for_run_status(kernel, active.run_id, "running")
+        runs_before = set(kernel._c.runs_registry._runs)  # noqa: SLF001
+
+        steered = kernel.try_steer(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "use the new constraint"}],
+            expected_run_id=active.run_id,
+        )
+
+        assert steered is not None
+        assert steered.injected is True
+        assert steered.run_id == active.run_id
+        assert set(kernel._c.runs_registry._runs) == runs_before  # noqa: SLF001
+    finally:
+        gate.set()
+        kernel.close()
+
+
+async def test_try_steer_rejects_stale_expected_run_identity(tmp_path: Path) -> None:
+    """The public inject-only seam never redirects an old marker to a new run."""
+
+    import threading
+
+    gate = threading.Event()
+    kernel = _build_kernel(tmp_path, _llm_client_override=_ThreadGatedClient(gate))
+    try:
+        session = await kernel.create_session(workspace_root=tmp_path)
+        current = kernel.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "replacement run"}],
+            workspace_root=tmp_path,
+        )
+        await _wait_for_run_status(kernel, current.run_id, "running")
+
+        steered = kernel.try_steer(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "stale follower"}],
+            expected_run_id="run-that-already-ended",
+        )
+
+        assert steered is None
+        assert kernel.get_run(current.run_id).status == "running"
+    finally:
+        gate.set()
+        kernel.close()
+
+
+async def test_submit_steer_preserves_structured_image_content(tmp_path: Path) -> None:
+    """Active steer must preserve the same structured image blocks as normal submit."""
+    import threading
+
+    gate = threading.Event()
+    client = _ThreadGatedClient(gate)
+    kernel = _build_kernel(tmp_path, _llm_client_override=client)
     try:
         session = await kernel.create_session(workspace_root=tmp_path)
         first = kernel.submit(
@@ -1017,21 +1100,79 @@ async def test_submit_steer_injects_render_user_text_content(tmp_path: Path) -> 
             steer=True,
         )
 
-        # Inspect the active controller's pending queue: the injected message's
-        # content must be a rendered string (str), with the image as a placeholder.
+        # The pending queue is the ownership boundary before the next model round.
         registry = kernel._c.runs_registry  # noqa: SLF001
         controller = registry._controllers[first.run_id]  # noqa: SLF001
         pending = controller.drain_pending()
         assert len(pending) == 1
-        content = pending[0].message.content
-        assert isinstance(content, str)
-        assert "see this" in content
-        assert "[image:placeholder]" in content
+        assert pending[0].message.content == [
+            {"type": "text", "text": "see this"},
+            {"type": "image", "image_url": "data:image/png;base64,AAAA"},
+        ]
+        for item in pending:
+            assert controller.enqueue_message(item.message, item.origin)
 
         gate.set()
         await _wait_for_terminal_run(kernel, first.run_id)
+        assert len(client.requests) == 2
+        assert any(
+            message.content
+            == [
+                {"type": "text", "text": "see this"},
+                {"type": "image", "image_url": "data:image/png;base64,AAAA"},
+            ]
+            for message in client.requests[-1].messages
+        )
     finally:
         gate.set()
+        kernel.close()
+
+
+async def test_discard_run_messages_preserves_later_history_and_parent_chain(
+    tmp_path: Path,
+) -> None:
+    """Removing one terminal run must preserve later turns and future context."""
+
+    responses = iter(("base-ack", "HEARTBEAT_OK", "later-ack", "after-ack"))
+    captured_requests: list[Any] = []
+
+    class _CapturingSequenceClient:
+        def generate(self, request: Any):  # noqa: ANN201
+            captured_requests.append(request)
+            return _async_stub_messages(next(responses))
+
+    kernel = _build_kernel(tmp_path, _llm_client_override=_CapturingSequenceClient())
+    try:
+        session = await kernel.create_session(workspace_root=tmp_path)
+
+        async def _submit(text: str):
+            run = kernel.submit(
+                session_id=session.session_id,
+                parts=[{"type": "text", "text": text}],
+                workspace_root=tmp_path,
+            )
+            return await _wait_for_terminal_run(kernel, run.run_id)
+
+        await _submit("base")
+        heartbeat = await _submit("heartbeat prompt")
+        await _submit("later user message")
+
+        assert await kernel.discard_run_messages("unknown-run") is False
+        assert await kernel.discard_run_messages(heartbeat.run_id)
+        assert await kernel.discard_run_messages(heartbeat.run_id) is False
+        await _submit("after cleanup")
+
+        final_context = "\n".join(
+            _flatten_msg_text(message) for message in captured_requests[-1].messages
+        )
+        assert "base" in final_context
+        assert "base-ack" in final_context
+        assert "later user message" in final_context
+        assert "later-ack" in final_context
+        assert "after cleanup" in final_context
+        assert "heartbeat prompt" not in final_context
+        assert "HEARTBEAT_OK" not in final_context
+    finally:
         kernel.close()
 
 

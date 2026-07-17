@@ -35,7 +35,7 @@ from IM.infra.repositories import (
 )
 from IM.ws.gateway_handler import GatewayHandler
 from personal_assistant.channels.base import InboundMessage
-from personal_assistant.gateway.inbound_pipeline import RelayLifecycleUpdate
+from personal_assistant.gateway.inbound_models import RelayLifecycleUpdate
 from personal_assistant.gateway.runtime_delivery.context import (
     OwnerDirectTarget,
     RunDeliveryContext,
@@ -456,7 +456,7 @@ def test_stream_run_to_completion_seeds_typed_store_seen_by_observer(
         ]
     )
 
-    final_text, popped_ctx = asyncio.run(
+    outcome = asyncio.run(
         _stream_run_to_completion(
             run_id=run_id,
             kernel_session_id=session_id,
@@ -469,7 +469,9 @@ def test_stream_run_to_completion_seeds_typed_store_seen_by_observer(
         )
     )
 
-    assert final_text == "Daily summary from stream."
+    assert outcome.status == "completed"
+    assert outcome.final_text == "Daily summary from stream."
+    popped_ctx = outcome.context
     assert popped_ctx is not None
     assert popped_ctx["conversation_id"]
     assert popped_ctx["message_id"]

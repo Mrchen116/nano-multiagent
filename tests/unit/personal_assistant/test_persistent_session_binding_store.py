@@ -193,7 +193,7 @@ class TestR2KernelValidation:
 
     bugfix-348 (Option C): 内核无状态，按 workspace_root 定位 session 文件。
     binding 行不携带 workspace_root，所以 get() 无法（也不应）做带 workspace_root
-    的存活校验。存活/workspace 校验上移到 InboundPipeline._ensure_binding ->
+    的存活校验。存活/workspace 校验上移到 GatewaySessionBinder.resolve ->
     _binding_matches_workspace_root，那里知道 agent 的 workspace_root。
     set_kernel_client 仍保留为兼容性 setter，但 get() 不再调用它。
     """

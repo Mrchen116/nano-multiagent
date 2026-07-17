@@ -8,7 +8,7 @@ from pathlib import Path
 from personal_assistant.channels.base import InboundMessage, OutboundMessage
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.gateway.channel_registry import ChannelRegistry
-from personal_assistant.gateway.inbound_pipeline import InboundPipeline
+from tests.helpers.inbound_pipeline import build_inbound_pipeline, inbound_graph
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
 from personal_assistant.gateway.session_keys import SessionBindingStore
@@ -58,7 +58,7 @@ def test_group_message_without_mention_is_ignored(tmp_path: Path) -> None:
     agents = _agents(tmp_path)
     channel = _FakeChannel("web_relay")
     kernel = _FakeKernel()
-    pipeline = InboundPipeline(
+    pipeline = build_inbound_pipeline(
         kernel=kernel,
         agents=agents,
         outbound_router=OutboundRouter(ChannelRegistry((channel,))),
@@ -89,7 +89,7 @@ def test_group_message_with_mention_or_reply_runs(tmp_path: Path) -> None:
     agents = _agents(tmp_path)
     channel = _FakeChannel("web_relay")
     kernel = _FakeKernel()
-    pipeline = InboundPipeline(
+    pipeline = build_inbound_pipeline(
         kernel=kernel,
         agents=agents,
         outbound_router=OutboundRouter(ChannelRegistry((channel,))),
@@ -139,7 +139,7 @@ def test_group_message_with_mention_and_no_reply_token_stays_silent(
     channel = _FakeChannel("web_relay")
     kernel = _FakeKernel()
     kernel.default_output_text = "NO_REPLY"
-    pipeline = InboundPipeline(
+    pipeline = build_inbound_pipeline(
         kernel=kernel,
         agents=agents,
         outbound_router=OutboundRouter(ChannelRegistry((channel,))),
@@ -181,7 +181,7 @@ def test_register_agent_refresh_drops_old_session_binding_and_recreates_session(
     channel = _FakeChannel("web_relay")
     kernel = _FakeKernel()
     session_store = SessionBindingStore()
-    pipeline = InboundPipeline(
+    pipeline = build_inbound_pipeline(
         kernel=kernel,
         agents=agents,
         outbound_router=OutboundRouter(ChannelRegistry((channel,))),
@@ -201,12 +201,14 @@ def test_register_agent_refresh_drops_old_session_binding_and_recreates_session(
     refreshed_workspace.mkdir()
 
     first = asyncio.run(pipeline.handle_inbound(inbound))
-    pipeline.register_agent(
+    current = inbound_graph(pipeline).catalog.publish(
         AgentWorkspaceConfig(
             agent_id="agent-a", workspace_root=refreshed_workspace, title="Agent A v2"
         )
     )
-    session_store.drop_agent("agent-a")
+    inbound_graph(pipeline).binder.invalidate_stale(
+        "agent-a", current_revision=current.revision
+    )
     second = asyncio.run(pipeline.handle_inbound(inbound))
 
     assert first is not None
@@ -223,7 +225,7 @@ def test_local_channel_keeps_working_without_im_connection(tmp_path: Path) -> No
     agents = _agents(tmp_path)
     channel = _FakeChannel("qq")
     kernel = _FakeKernel()
-    pipeline = InboundPipeline(
+    pipeline = build_inbound_pipeline(
         kernel=kernel,
         agents=agents,
         outbound_router=OutboundRouter(ChannelRegistry((channel,))),
@@ -271,7 +273,7 @@ def test_group_multiagent_fanout_buffers_and_contextualises(tmp_path: Path) -> N
     channel = _FakeChannel("web_relay")
     kernel = _FakeKernel()
     store = GroupContextStore(db_path=tmp_path / "group_ctx.sqlite3")
-    pipeline = InboundPipeline(
+    pipeline = build_inbound_pipeline(
         kernel=kernel,
         agents=agents,
         outbound_router=OutboundRouter(ChannelRegistry((channel,))),

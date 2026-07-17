@@ -34,9 +34,9 @@ from personal_assistant.gateway.channel_manager import (
     ManagedChannelSpec,
 )
 from personal_assistant.gateway.channel_manifest_store import ChannelManifestStore
+from personal_assistant.gateway.agent_config_sync import IMAgentConfigSync
 from personal_assistant.main import (
     _build_feishu_owner_open_id_binder,
-    _IMConfigSyncClient,
     _make_token_getter,
 )
 
@@ -231,7 +231,7 @@ async def test_migrated_secret_never_returns_from_later_runtime_writers(
         save_config=save_sensitive_local_config,
     )
 
-    sync = _IMConfigSyncClient.__new__(_IMConfigSyncClient)
+    sync = IMAgentConfigSync.__new__(IMAgentConfigSync)
     sync._config_owner = owner  # noqa: SLF001
     sync._persist_agent_config(  # noqa: SLF001
         AgentWorkspaceConfig(

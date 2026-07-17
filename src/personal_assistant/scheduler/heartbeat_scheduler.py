@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Iterable
-from typing import Protocol
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Protocol
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from personal_assistant.config.local_store import AgentWorkspaceConfig
+from personal_assistant.config.local_store import (
+    AgentWorkspaceConfig,
+)
+from personal_assistant.gateway.agent_catalog import LiveAgentCatalog, LiveAgentSnapshot
 from personal_assistant.scheduler._schedule_primitives import (
     _INTERVAL_PATTERN,
     _AtSchedule,
@@ -23,6 +26,9 @@ _SCHEDULE_PREFIXES = ("interval:", "every:", "cron:", "at:")
 # feat-394-M11 decision E: default heartbeat cadence when agent.heartbeat_every is not set.
 # Provenance: openclaw/src/auto-reply/heartbeat.ts DEFAULT_HEARTBEAT_EVERY = "30m".
 _DEFAULT_HEARTBEAT_EVERY = "30m"
+
+if TYPE_CHECKING:
+    from personal_assistant.gateway.session_binder import GatewaySessionBinder
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,7 +142,12 @@ class _KernelClientLike(Protocol):
     # create_session is async — the gateway runs an asyncio event loop and
     # run_until_complete on an already-running loop raises RuntimeError.
     async def create_session(
-        self, *, workspace_root: str, product_id: str, title: str | None = None
+        self,
+        *,
+        workspace_root: str,
+        product_id: str,
+        title: str | None = None,
+        **kwargs: object,
     ) -> dict[str, object]: ...
 
     def submit_message(
@@ -213,24 +224,23 @@ class HeartbeatScheduler:
         state_store: HeartbeatSchedulerStateStore,
         canonical_session_store: dict[str, str] | None = None,
         busy_sessions: set[str] | None = None,
-        session_store: object | None = None,
-        agents_getter: "Callable[[], Iterable[AgentWorkspaceConfig]] | None" = None,
-        run_queue: "object | None" = None,
+        agent_catalog: LiveAgentCatalog | None = None,
+        session_binder: "GatewaySessionBinder | None" = None,
+        is_session_busy: Callable[[str], bool] | None = None,
     ) -> None:
         self._agents = agents
         # feat-394-M4 R3 S1.3 fix: when provided, agents_getter() is called on
-        # each tick to read the live agent configuration from pipeline._agents.
+        # each tick to read a live agent configuration source.
         # This allows toggle changes (heartbeat_enabled=False) to take effect on
         # the next tick without requiring a gateway restart.
         # When None, tick falls back to the frozen self._agents tuple (backward compat).
-        self._agents_getter = agents_getter
+        self._agent_catalog = agent_catalog
         self._kernel_client = kernel_client
         self._state_store = state_store
-        # feat-394-M4 R2-3 cron/heartbeat busy-skip: SessionRunQueue reference.
-        # When provided, tick checks run_queue._active_sessions for the agent's
-        # canonical session_key before submitting a heartbeat run.
+        # M3: the coordinator's public busy query includes queued, admitting, and
+        # active work without exposing its private queue or run markers.
         # This prevents heartbeat from stacking while user messages are in flight.
-        self._run_queue = run_queue
+        self._is_session_busy = is_session_busy or (lambda _key: False)
         # feat-394 decision 3: canonical direct chat kernel session per agent_id.
         # Updated by _refresh_canonical_sessions before each tick submission.
         # Falls back to the legacy _heartbeat_sessions dict when no binding is found.
@@ -243,15 +253,11 @@ class HeartbeatScheduler:
         self._busy_sessions: set[str] = (
             busy_sessions if busy_sessions is not None else set()
         )
-        # feat-394 decision 3: gateway session store for tick-time canonical session lookup.
-        # find_direct_by_agent reads the SQLite session_bindings table (pure gateway read,
-        # no IM HTTP call) and updates canonical_session_store before each heartbeat run.
-        # This replaces the prior reactive approach (turn_start ack → fill) which failed for
-        # first-tick / restart / silent polling (chicken-egg: silent polling never acks → never fills).
-        self._session_store: object | None = session_store
+        self._session_binder = session_binder
         # Legacy fallback session store (for when no canonical session binding is found yet).
         # In feat-394 mode, session_store lookup takes precedence.
         self._heartbeat_sessions: dict[str, str] = {}
+        self._heartbeat_session_revisions: dict[str, int] = {}
 
     async def tick(self, *, now: datetime | None = None) -> HeartbeatTickSummary:
         """Run one scheduler evaluation pass.
@@ -280,11 +286,15 @@ class HeartbeatScheduler:
         # feat-394-M4 R3 S1.3 fix: read live agent config on each tick when a
         # getter is available, so toggle changes take effect without restart.
         # Falls back to the frozen _agents tuple when no getter is configured.
-        active_agents = (
-            self._agents_getter() if self._agents_getter is not None else self._agents
-        )
+        if self._agent_catalog is not None:
+            active_agents = tuple(
+                (snapshot.config, snapshot)
+                for snapshot in self._agent_catalog.values_snapshot()
+            )
+        else:
+            active_agents = tuple((agent, None) for agent in self._agents)
 
-        for agent in active_agents:
+        for agent, agent_snapshot in active_agents:
             # feat-394 decision 5: per-agent heartbeat gate — skip without reading HEARTBEAT.md
             # when the agent's heartbeat_enabled flag is False (synced from IM via ConfigSyncNotifier).
             if not agent.heartbeat_enabled:
@@ -305,31 +315,34 @@ class HeartbeatScheduler:
             # reactive approach (turn_start ack → fill) which failed for first-tick,
             # restart, and silent-polling scenarios (silent polls never ack → never fill).
             # Pure gateway read — no IM HTTP call required.
-            _find_fn = getattr(self._session_store, "find_direct_by_agent", None)
             _canonical_session_key: str | None = None
-            if _find_fn is not None:
-                _binding = _find_fn(channel_name="web_relay", agent_id=agent.agent_id)
+            _binding = (
+                self._session_binder.find_canonical_direct(
+                    channel_name="web_relay", agent_id=agent.agent_id
+                )
+                if self._session_binder is not None
+                else None
+            )
+            if _binding is not None:
                 if _binding is not None and _binding.kernel_session_id:
                     self._canonical_session_store[agent.agent_id] = (
                         _binding.kernel_session_id
                     )
                     _canonical_session_key = _binding.session_key
+            elif self._session_binder is not None:
+                self._canonical_session_store.pop(agent.agent_id, None)
             # feat-394 decision 3: busy-session gate — skip when canonical session is running
             # a turn (avoid concurrent runs in the same direct-chat kernel session).
             canonical_session = self._canonical_session_store.get(agent.agent_id)
             if canonical_session and canonical_session in self._busy_sessions:
                 skipped_agents.append(agent.agent_id)
                 continue
-            # feat-394-M4 R2-3: run_queue busy-skip — skip when the canonical direct-chat
-            # session_key has an active run in the gateway SessionRunQueue.
+            # The coordinator busy gate covers queued, admitting, and active work for
+            # the canonical direct-chat session key.
             # This prevents heartbeat from executing while user messages are in flight,
             # which would force user messages to wait behind the heartbeat LLM call.
-            if self._run_queue is not None and _canonical_session_key is not None:
-                _active_sessions = getattr(self._run_queue, "_active_sessions", None)
-                if (
-                    _active_sessions is not None
-                    and _canonical_session_key in _active_sessions
-                ):
+            if _canonical_session_key is not None:
+                if self._is_session_busy(_canonical_session_key):
                     skipped_agents.append(agent.agent_id)
                     continue
             heartbeat_path = agent.workspace_root / "HEARTBEAT.md"
@@ -354,7 +367,10 @@ class HeartbeatScheduler:
                         any_due = True
                         triggered_runs.append(
                             await self._submit_run(
-                                agent=agent, due_at=due_at, instructions=task.prompt
+                                agent=agent,
+                                agent_snapshot=agent_snapshot,
+                                due_at=due_at,
+                                instructions=task.prompt,
                             )
                         )
                         per_task_last_due[task.name] = due_at.isoformat()
@@ -389,7 +405,10 @@ class HeartbeatScheduler:
                 for due_at in due_times:
                     triggered_runs.append(
                         await self._submit_run(
-                            agent=agent, due_at=due_at, instructions=spec.instructions
+                            agent=agent,
+                            agent_snapshot=agent_snapshot,
+                            due_at=due_at,
+                            instructions=spec.instructions,
                         )
                     )
                     state_agents[agent.agent_id] = _AgentState(
@@ -403,7 +422,10 @@ class HeartbeatScheduler:
         )
 
     async def _get_or_create_heartbeat_session(
-        self, *, agent: AgentWorkspaceConfig
+        self,
+        *,
+        agent: AgentWorkspaceConfig,
+        agent_snapshot: LiveAgentSnapshot | None,
     ) -> str:
         """Return the session to use for one agent's heartbeat run.
 
@@ -425,27 +447,50 @@ class HeartbeatScheduler:
 
         # Fallback: legacy per-agent :heartbeat session (feat-393 behaviour, or first heartbeat).
         session_id = self._heartbeat_sessions.get(agent.agent_id)
-        if session_id:
+        cached_revision = self._heartbeat_session_revisions.get(agent.agent_id)
+        if session_id and (
+            agent_snapshot is None or cached_revision == agent_snapshot.revision
+        ):
             return session_id
-        session_payload = await self._kernel_client.create_session(
-            workspace_root=str(agent.workspace_root),
-            product_id="personal_assistant",
-            title=agent.title,
-            metadata={"agent_id": agent.agent_id},
+        create_kwargs: dict[str, object] = {
+            "workspace_root": str(agent.workspace_root),
+            "product_id": "personal_assistant",
+            "title": agent.title,
+            "metadata": {"agent_id": agent.agent_id},
+        }
+        create_agent_session = getattr(
+            self._kernel_client, "create_agent_session", None
         )
+        if agent_snapshot is not None and callable(create_agent_session):
+            session_payload = await create_agent_session(
+                agent_snapshot=agent_snapshot,
+                **create_kwargs,
+            )
+        else:
+            session_payload = await self._kernel_client.create_session(**create_kwargs)
         new_session_id = str(session_payload.get("session_id", "")).strip()
         if not new_session_id:
             raise RuntimeError("kernel session creation did not return session_id")
         self._heartbeat_sessions[agent.agent_id] = new_session_id
+        if agent_snapshot is not None:
+            self._heartbeat_session_revisions[agent.agent_id] = agent_snapshot.revision
         return new_session_id
 
     async def _submit_run(
-        self, *, agent: AgentWorkspaceConfig, due_at: datetime, instructions: str
+        self,
+        *,
+        agent: AgentWorkspaceConfig,
+        agent_snapshot: LiveAgentSnapshot | None,
+        due_at: datetime,
+        instructions: str,
     ) -> HeartbeatRunRecord:
         # feat-393 decision 4: stable :heartbeat session reused across ticks instead of
         # fresh session per tick.  Reuse preserves standing-task context continuity and
         # ensures heartbeat runs are never detached from a resolvable IM conversation target.
-        session_id = await self._get_or_create_heartbeat_session(agent=agent)
+        session_id = await self._get_or_create_heartbeat_session(
+            agent=agent,
+            agent_snapshot=agent_snapshot,
+        )
         message = _build_heartbeat_message(
             agent_id=agent.agent_id, due_at=due_at, instructions=instructions
         )

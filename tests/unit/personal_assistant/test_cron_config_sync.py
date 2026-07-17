@@ -20,7 +20,13 @@ from personal_assistant.config.local_store import (
     LocalConfig,
     NodeConfig,
 )
-from personal_assistant.main import _IMConfigSyncClient
+from personal_assistant.gateway.agent_config_sync import (
+    IMAgentConfigSync as _IMConfigSyncClient,
+)
+from tests.unit.personal_assistant._config_sync_test_owners import (
+    build_config_sync_test_owners,
+)
+
 
 from agent.core.llm.config import LLMConfigPayload, LLMModelPayload, LLMProviderPayload
 
@@ -51,19 +57,6 @@ def _make_local_config(tmp_path: Path, workspace_root: Path) -> LocalConfig:
     )
 
 
-class _NullPipeline:
-    registered: list[AgentWorkspaceConfig]
-
-    def __init__(self) -> None:
-        self.registered = []
-
-    def register_agent(self, agent: AgentWorkspaceConfig) -> None:
-        self.registered.append(agent)
-
-    def drop_agent_sessions(self, agent_id: str) -> None:
-        pass
-
-
 # ---------------------------------------------------------------------------
 # cron_enabled field sync tests
 # ---------------------------------------------------------------------------
@@ -91,12 +84,12 @@ def test_sync_agent_passes_through_cron_enabled(tmp_path: Path) -> None:
             },
         )
 
-    pipeline = _NullPipeline()
     local_config = _make_local_config(tmp_path, workspace_root)
+    owners = build_config_sync_test_owners(local_config)
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,
-        pipeline=pipeline,
+        **owners.kwargs(),
         local_config=local_config,
         client=httpx.Client(
             transport=httpx.MockTransport(_handler),
@@ -108,7 +101,7 @@ def test_sync_agent_passes_through_cron_enabled(tmp_path: Path) -> None:
     )
     sync.sync_agent(agent_id="cron-agent", profile_version=1)
 
-    registered = next(a for a in pipeline.registered if a.agent_id == "cron-agent")
+    registered = owners.catalog.require("cron-agent").config
     assert registered.cron_enabled is True
 
 
@@ -128,12 +121,12 @@ def test_sync_agent_cron_disabled_by_default(tmp_path: Path) -> None:
             },
         )
 
-    pipeline = _NullPipeline()
     local_config = _make_local_config(tmp_path, workspace_root)
+    owners = build_config_sync_test_owners(local_config)
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,
-        pipeline=pipeline,
+        **owners.kwargs(),
         local_config=local_config,
         client=httpx.Client(
             transport=httpx.MockTransport(_handler),
@@ -145,7 +138,7 @@ def test_sync_agent_cron_disabled_by_default(tmp_path: Path) -> None:
     )
     sync.sync_agent(agent_id="nocron-agent", profile_version=1)
 
-    registered = next(a for a in pipeline.registered if a.agent_id == "nocron-agent")
+    registered = owners.catalog.require("nocron-agent").config
     assert registered.cron_enabled is False
 
 
@@ -166,12 +159,12 @@ def test_sync_agent_cron_enabled_false_in_payload(tmp_path: Path) -> None:
             },
         )
 
-    pipeline = _NullPipeline()
     local_config = _make_local_config(tmp_path, workspace_root)
+    owners = build_config_sync_test_owners(local_config)
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,
-        pipeline=pipeline,
+        **owners.kwargs(),
         local_config=local_config,
         client=httpx.Client(
             transport=httpx.MockTransport(_handler),
@@ -183,7 +176,7 @@ def test_sync_agent_cron_enabled_false_in_payload(tmp_path: Path) -> None:
     )
     sync.sync_agent(agent_id="cronoff-agent", profile_version=1)
 
-    registered = next(a for a in pipeline.registered if a.agent_id == "cronoff-agent")
+    registered = owners.catalog.require("cronoff-agent").config
     assert registered.cron_enabled is False
 
 
@@ -223,12 +216,12 @@ def test_sync_agent_cron_enabled_does_not_pollute_tool_allowlist(
             },
         )
 
-    pipeline = _NullPipeline()
     local_config = _make_local_config(tmp_path, workspace_root)
+    owners = build_config_sync_test_owners(local_config)
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,
-        pipeline=pipeline,
+        **owners.kwargs(),
         local_config=local_config,
         client=httpx.Client(
             transport=httpx.MockTransport(_handler),
@@ -240,7 +233,7 @@ def test_sync_agent_cron_enabled_does_not_pollute_tool_allowlist(
     )
     sync.sync_agent(agent_id="gate-agent", profile_version=1)
 
-    registered = next(a for a in pipeline.registered if a.agent_id == "gate-agent")
+    registered = owners.catalog.require("gate-agent").config
     assert registered.cron_enabled is True
     assert tuple(registered.tool_allowlist) == ("read", "write"), (
         "cron_enabled must NOT mutate the stored tool_allowlist — cron is a gated "
@@ -274,12 +267,12 @@ def test_sync_agent_empty_allowlist_stays_empty_when_cron_enabled(
             },
         )
 
-    pipeline = _NullPipeline()
     local_config = _make_local_config(tmp_path, workspace_root)
+    owners = build_config_sync_test_owners(local_config)
     sync = _IMConfigSyncClient(
         base_url="http://im.local",
         token=None,
-        pipeline=pipeline,
+        **owners.kwargs(),
         local_config=local_config,
         client=httpx.Client(
             transport=httpx.MockTransport(_handler),
@@ -291,7 +284,7 @@ def test_sync_agent_empty_allowlist_stays_empty_when_cron_enabled(
     )
     sync.sync_agent(agent_id="nogate-agent", profile_version=1)
 
-    registered = next(a for a in pipeline.registered if a.agent_id == "nogate-agent")
+    registered = owners.catalog.require("nogate-agent").config
     assert registered.cron_enabled is True
     assert tuple(registered.tool_allowlist) == (), (
         "empty whitelist must stay empty; cron_enabled must not inject 'cron'"

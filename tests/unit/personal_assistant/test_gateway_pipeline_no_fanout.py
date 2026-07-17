@@ -12,7 +12,9 @@ from pathlib import Path
 from personal_assistant.channels.base import InboundMessage, OutboundMessage
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.gateway.group_context_store import GroupContextStore
+from personal_assistant.gateway.inbound_models import build_group_context_key
 from personal_assistant.gateway.inbound_pipeline import InboundPipeline
+from tests.helpers.inbound_pipeline import build_inbound_pipeline
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
 from personal_assistant.gateway.channel_registry import ChannelRegistry
@@ -107,7 +109,7 @@ def _build_pipeline(
     store = GroupContextStore(db_path=tmp_path / "group_ctx.sqlite3")
     kernel = _FakeKernel()
     channel = _FakeChannel("web_relay")
-    pipeline = InboundPipeline(
+    pipeline = build_inbound_pipeline(
         kernel=kernel,
         agents=agents,
         outbound_router=OutboundRouter(ChannelRegistry((channel,))),
@@ -143,8 +145,8 @@ def test_no_mention_message_buffers_only_for_current_agent(tmp_path: Path) -> No
 
     assert result is None  # no mention → no processing
 
-    buf_key_a = pipeline._group_buf_key_for_agent(plain, "agent-a")
-    buf_key_b = pipeline._group_buf_key_for_agent(plain, "agent-b")
+    buf_key_a = build_group_context_key(plain, "agent-a")
+    buf_key_b = build_group_context_key(plain, "agent-b")
 
     # agent-a's buffer should contain the message (buffered for own future context)
     drained_a = store.drain(buf_key_a)
@@ -187,7 +189,7 @@ def test_mention_message_does_not_broadcast_to_non_target_agent_buffer(
     assert result is not None
     assert result.agent_id == "agent-b"
 
-    buf_key_a = pipeline._group_buf_key_for_agent(mention_b, "agent-a")
+    buf_key_a = build_group_context_key(mention_b, "agent-a")
     # After fan-out removal: agent-a's buffer must NOT contain the @agent-b message
     drained_a = store.drain(buf_key_a)
     assert drained_a == [], (
@@ -246,7 +248,7 @@ def test_peer_agent_reply_relay_buffers_when_self_not_mentioned(tmp_path: Path) 
         }
     ]
 
-    buf_key_a = pipeline._group_buf_key_for_agent(peer_reply_for_a, "agent-a")
+    buf_key_a = build_group_context_key(peer_reply_for_a, "agent-a")
     assert store.drain(buf_key_a) == []
 
 
@@ -356,5 +358,5 @@ def test_non_mentioned_group_relay_buffers_for_its_target_agent(tmp_path: Path) 
         "[user-1] @agent-a second turn",
     ]
 
-    buf_key_a = pipeline._group_buf_key_for_agent(relay_for_a, "agent-a")
+    buf_key_a = build_group_context_key(relay_for_a, "agent-a")
     assert store.drain(buf_key_a) == []

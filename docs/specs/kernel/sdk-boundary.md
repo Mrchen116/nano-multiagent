@@ -1,6 +1,6 @@
 # kernel (agent) - SDK Boundary Specification
 
-> 对齐: feat-446
+> 对齐: refactor-463
 > 上级: [kernel (agent) Specification](spec.md)
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)「给库/内核写契约的额外纪律」。本目录只收 **消费者经 `agent.sdk` 真正依赖的对外行为**(CDC 裁剪);内部如何装配/实现不在此层(那在代码 + 归档 design)。
@@ -85,8 +85,9 @@
 
 #### Scenario: Kernel 暴露稳定的对外方法集
 - **GIVEN** 一个已装配的 `Kernel`
-- **THEN** 它暴露异步会话生命周期方法 `create_session` / `fork_session` / `compact`,非阻塞方法
-  `submit` / `stream` / `interrupt` / `cancel` / `get_run` / `list_session_tools` /
+- **THEN** 它暴露异步会话生命周期方法 `create_session` / `fork_session` / `compact` /
+  `discard_run_messages`,非阻塞方法 `submit` / `try_steer` / `stream` / `interrupt` / `cancel` /
+  `get_run` / `list_session_tools` /
   `get_llm_config`,中立能力查询 `list_models` / `list_tools` / `list_features` /
   `list_skills`,以及 prompt 预览 `assemble_prompt_preview`;并同时暴露供异步消费者使用的 `aclose()`
   与同步兼容的 `close()`

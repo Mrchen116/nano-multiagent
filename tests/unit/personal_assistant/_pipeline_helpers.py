@@ -427,6 +427,25 @@ class _FakeKernel:
         record.injected = False
         return record
 
+    def try_steer(
+        self,
+        *,
+        session_id: str,
+        parts: list[dict],
+        origin: Any = None,
+        expected_run_id: str | None = None,
+    ) -> MagicMock | None:
+        """Mirror the public inject-only Kernel seam used by the coordinator."""
+        active = getattr(self, "active_run_by_session", {}).get(session_id)
+        if active is None or (
+            expected_run_id is not None and expected_run_id != active
+        ):
+            return None
+        record = MagicMock()
+        record.run_id = active
+        record.injected = True
+        return record
+
     def append_message(
         self,
         session_id: str,

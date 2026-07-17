@@ -41,32 +41,53 @@ _DEFAULT_TEST_LLM = LLMConfigPayload(
 
 def test_build_runtime_uses_persistent_session_binding_store(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """build_runtime 构造的 pipeline 使用 PersistentSessionBindingStore。"""
+    """build_runtime constructs the production persistent binding repository."""
     config = make_minimal_config(tmp_path)
+    created: list[PersistentSessionBindingStore] = []
 
-    runtime = build_runtime(config)
+    class _TrackingStore(PersistentSessionBindingStore):
+        def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+            super().__init__(*args, **kwargs)
+            created.append(self)
 
-    pipeline = runtime._on_inbound._pipeline  # noqa: SLF001
-    assert isinstance(pipeline._session_store, PersistentSessionBindingStore)  # noqa: SLF001
+    monkeypatch.setattr(
+        "personal_assistant.main.PersistentSessionBindingStore", _TrackingStore
+    )
+
+    build_runtime(config)
+
+    assert len(created) == 1
+    assert isinstance(created[0], PersistentSessionBindingStore)
 
 
 def test_build_runtime_session_store_db_path_is_under_config_dir(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """session_bindings.sqlite3 与 relay_dedup.sqlite3 同目录（config_path 的父目录）。"""
     config = make_minimal_config(tmp_path)
+    paths: list[Path] = []
 
-    runtime = build_runtime(config)
+    class _TrackingStore(PersistentSessionBindingStore):
+        def __init__(self, *, db_path: Path) -> None:
+            paths.append(db_path)
+            super().__init__(db_path=db_path)
 
-    pipeline = runtime._on_inbound._pipeline  # noqa: SLF001
-    store: PersistentSessionBindingStore = pipeline._session_store  # noqa: SLF001
+    monkeypatch.setattr(
+        "personal_assistant.main.PersistentSessionBindingStore", _TrackingStore
+    )
+
+    build_runtime(config)
+
     expected_db_path = tmp_path / "session_bindings.sqlite3"
-    assert store._db_path == expected_db_path  # noqa: SLF001
+    assert paths == [expected_db_path]
 
 
 def test_build_runtime_wires_external_delivery_without_im_service(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     base = make_minimal_config(tmp_path)
     config = LocalConfig(
@@ -90,11 +111,22 @@ def test_build_runtime_wires_external_delivery_without_im_service(
         source_path=base.source_path,
     )
 
-    runtime = build_runtime(config)
+    from personal_assistant.gateway.session_run_coordinator import SessionRunCoordinator
 
-    pipeline = runtime._on_inbound._pipeline  # noqa: SLF001
-    assert pipeline._kernel_event_observer is not None  # noqa: SLF001
-    assert pipeline._bg_reply_sender is not None  # noqa: SLF001
+    coordinator_kwargs: list[dict[str, object]] = []
+
+    def _capture_coordinator(**kwargs):  # noqa: ANN003, ANN202
+        coordinator_kwargs.append(dict(kwargs))
+        return SessionRunCoordinator(**kwargs)
+
+    monkeypatch.setattr(
+        "personal_assistant.main.SessionRunCoordinator", _capture_coordinator
+    )
+
+    build_runtime(config)
+
+    assert coordinator_kwargs[0]["kernel_event_observer"] is not None
+    assert coordinator_kwargs[0]["bg_reply_sender"] is not None
 
 
 def test_build_runtime_does_not_call_set_kernel_client(
@@ -397,7 +429,7 @@ async def test_reconcile_on_connect_continues_after_binding_failure_and_reports_
         return manager
 
     monkeypatch.setattr(gateway_main, "_IMBootstrapClient", _FailingBootstrap)
-    monkeypatch.setattr(gateway_main, "_IMConfigSyncClient", _RecordingSyncClient)
+    monkeypatch.setattr(gateway_main, "IMAgentConfigSync", _RecordingSyncClient)
     monkeypatch.setattr(
         gateway_main, "_build_im_connection_manager", _fake_build_im_connection_manager
     )

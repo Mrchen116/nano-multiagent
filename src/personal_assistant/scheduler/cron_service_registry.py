@@ -41,6 +41,7 @@ class CronServiceRegistry:
         self._services: dict[str, CronExecutionService] = (
             services if services is not None else {}
         )
+        self._sealed = False
 
     @property
     def services(self) -> dict[str, CronExecutionService]:
@@ -49,6 +50,9 @@ class CronServiceRegistry:
 
     def register(self, agent_id: str, service: CronExecutionService) -> None:
         """Register a CronExecutionService for ``agent_id`` (startup + dynamic)."""
+        if self._sealed:
+            service.request_stop()
+            raise RuntimeError("cron service registry is sealed")
         self._services[agent_id] = service
 
     def resolve(self, agent_id: str) -> CronExecutionService | None:
@@ -72,26 +76,47 @@ class CronServiceRegistry:
         for service in self._services.values():
             service._gateway_loop = loop  # noqa: SLF001
 
-    async def drain_all(self, timeout: float = 30.0) -> None:
+    def request_stop(self) -> None:
+        """Synchronously seal every unique cron execution service."""
+
+        self._sealed = True
+        for service in self._unique_services():
+            service.request_stop()
+
+    async def drain_all(self, deadline: float) -> None:
         """Drain pending execute_fn tasks across all services in parallel.
 
         Called on shutdown (after kernel.aclose(), before IM teardown) so
-        in-flight cron executions (stream consume + IM delivery) complete. All
-        services share one wall-clock timeout via asyncio.gather.
+        in-flight cron executions (stream consume + IM delivery) complete.
+
+        Args:
+            deadline: Shared absolute Gateway ``loop.time()`` deadline.
+
+        Raises:
+            ExceptionGroup: When one or more services fail or time out. Every
+                service is still awaited before the aggregate error is raised.
         """
+        services = self._unique_services()
+        if not services:
+            return
+        tasks = [
+            asyncio.create_task(
+                service.drain(deadline),
+                name=f"cron-drain:{index}",
+            )
+            for index, service in enumerate(services)
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        errors = [result for result in results if isinstance(result, Exception)]
+        if errors:
+            raise ExceptionGroup("cron service drain failed", errors)
+
+    def _unique_services(self) -> tuple[CronExecutionService, ...]:
         seen_ids: set[int] = set()
-        drain_coros = []
+        services: list[CronExecutionService] = []
         for service in self._services.values():
-            svc_id = id(service)
-            if svc_id in seen_ids:
+            if id(service) in seen_ids:
                 continue
-            seen_ids.add(svc_id)
-            drain_coros.append(service.drain(timeout=timeout))
-        if drain_coros:
-            try:
-                await asyncio.wait_for(
-                    asyncio.gather(*drain_coros, return_exceptions=True),
-                    timeout=timeout,
-                )
-            except (asyncio.TimeoutError, TimeoutError):
-                pass
+            seen_ids.add(id(service))
+            services.append(service)
+        return tuple(services)

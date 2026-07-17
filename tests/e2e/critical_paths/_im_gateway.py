@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 def _terminate_process_group(pid: int, *, grace: float = 10.0) -> None:
     """优雅杀 Gateway(SIGTERM → 等 → SIGKILL),对齐 e2e-down.sh / stop_pidfile。
 
-    Gateway 是 supervisor(范式 B):自己 spawn relay / heartbeat / run_queue 等 worker。
+    Gateway 是 supervisor(范式 B):进程内持有 relay、heartbeat 与 coordinator 运行任务。
     **只在 pid 是自己进程组的组长时**(``getpgid(pid) == pid``——即由 ``start_new_session``
     起的独立进程组)才 ``killpg`` 杀整组,这样它的 worker 不成孤儿。
 

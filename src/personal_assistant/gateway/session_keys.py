@@ -81,6 +81,35 @@ class SessionBindingStore:
             if session_key.endswith(suffix):
                 self._bindings.pop(session_key, None)
 
+    def drop(self, session_key: str) -> None:
+        """Remove one binding by its exact Gateway session key."""
+
+        self._bindings.pop(session_key, None)
+
+    def bindings_for_agent(self, agent_id: str) -> tuple[SessionBinding, ...]:
+        """Return a stable snapshot of all bindings routed to one Agent."""
+
+        suffix = f":{agent_id}"
+        return tuple(
+            binding for key, binding in self._bindings.items() if key.endswith(suffix)
+        )
+
+    def find_direct_by_agent(
+        self, *, channel_name: str, agent_id: str
+    ) -> SessionBinding | None:
+        """Return the oldest in-memory direct-chat binding for one Agent."""
+
+        prefix = f"{channel_name}:"
+        suffix = f":{agent_id}"
+        return next(
+            (
+                binding
+                for key, binding in self._bindings.items()
+                if key.startswith(prefix) and key.endswith(suffix)
+            ),
+            None,
+        )
+
 
 session_binding_store = SessionBindingStore()
 
@@ -101,6 +130,18 @@ CREATE TABLE IF NOT EXISTS session_bindings (
 _MIGRATE_ADD_CREATED_AT_SQL = """
 ALTER TABLE session_bindings ADD COLUMN created_at TEXT NOT NULL DEFAULT ''
 """
+
+_SQLITE_LIKE_ESCAPE = "!"
+
+
+def _literal_like_pattern(value: str) -> str:
+    """Escape one literal value embedded in a SQLite LIKE pattern."""
+
+    return (
+        value.replace(_SQLITE_LIKE_ESCAPE, _SQLITE_LIKE_ESCAPE * 2)
+        .replace("%", f"{_SQLITE_LIKE_ESCAPE}%")
+        .replace("_", f"{_SQLITE_LIKE_ESCAPE}_")
+    )
 
 
 class PersistentSessionBindingStore:
@@ -181,10 +222,9 @@ class PersistentSessionBindingStore:
             Liveness/workspace validation of the kernel session is **not** done
             here.  The stateless kernel locates a session JSONL by its
             ``workspace_root``, which this binding row does not carry.  The
-            authoritative check lives one layer up in
-            ``InboundPipeline._ensure_binding`` -> ``_binding_matches_workspace_root``,
-            which already knows the agent's ``workspace_root`` and refreshes a
-            stale binding by creating a fresh kernel session.  Probing here
+            authoritative check lives in :class:`GatewaySessionBinder`, which already
+            knows the agent's ``workspace_root`` and refreshes a stale binding by
+            creating a fresh kernel session.  Probing here
             (without ``workspace_root``) would always 404 against the stateless
             kernel and wrongly evict every binding after a gateway restart.
         """
@@ -265,12 +305,42 @@ class PersistentSessionBindingStore:
             Deletes matching rows from the SQLite table.
         """
 
-        suffix = f":{agent_id}"
+        suffix = f":{_literal_like_pattern(agent_id)}"
         self._conn.execute(
-            "DELETE FROM session_bindings WHERE session_key LIKE ?",
+            "DELETE FROM session_bindings WHERE session_key LIKE ? ESCAPE '!'",
             (f"%{suffix}",),
         )
         self._conn.commit()
+
+    def drop(self, session_key: str) -> None:
+        """Remove one persisted binding by its exact Gateway session key."""
+
+        self._conn.execute(
+            "DELETE FROM session_bindings WHERE session_key = ?",
+            (session_key,),
+        )
+        self._conn.commit()
+
+    def bindings_for_agent(self, agent_id: str) -> tuple[SessionBinding, ...]:
+        """Return all persisted bindings routed to one Agent."""
+
+        rows = self._conn.execute(
+            """
+            SELECT session_key, kernel_session_id, reply_context_json
+            FROM session_bindings
+            WHERE session_key LIKE ? ESCAPE '!'
+            ORDER BY created_at ASC, rowid ASC
+            """,
+            (f"%:{_literal_like_pattern(agent_id)}",),
+        ).fetchall()
+        return tuple(
+            SessionBinding(
+                session_key=row[0],
+                kernel_session_id=row[1],
+                reply_context=_deserialize_reply_context(row[2]),
+            )
+            for row in rows
+        )
 
     def find_by_kernel_session_id(
         self, kernel_session_id: str
@@ -315,9 +385,9 @@ class PersistentSessionBindingStore:
     ) -> SessionBinding | None:
         """Return the oldest direct-chat binding for one agent on one channel.
 
-        Searches for all session keys matching ``{channel_name}:%:{agent_id}``
-        (same LIKE pattern as :meth:`drop_agent`) and returns the binding with
-        the smallest ``updated_at`` timestamp — the oldest (canonical) direct chat,
+        Searches for all session keys matching the literal channel/Agent boundary
+        ``{channel_name}:*:{agent_id}`` and returns the binding with the smallest
+        ``created_at`` timestamp — the oldest (canonical) direct chat,
         consistent with IM's ``_find_canonical_direct_conversation`` which takes
         ``sorted(key=created_at)[0]``.
 
@@ -349,10 +419,11 @@ class PersistentSessionBindingStore:
             conversation.
         """
 
-        # Session key format: ``{channel_name}:{conversation_id}:{agent_id}``
-        # LIKE pattern mirrors drop_agent's ``%:{agent_id}`` suffix but further
-        # constrains to the correct channel prefix.
-        pattern = f"{channel_name}:%:{agent_id}"
+        # Only the conversation-id segment is a wildcard. Channel and Agent ids
+        # are business identifiers, so SQLite pattern metacharacters stay literal.
+        pattern = (
+            f"{_literal_like_pattern(channel_name)}:%:{_literal_like_pattern(agent_id)}"
+        )
         # feat-394: ORDER BY created_at ASC (not updated_at) so the result matches
         # IM's _find_canonical_direct_conversation(sorted(key=created_at)[0]).
         # created_at is written once at first INSERT and never updated on upsert,
@@ -362,7 +433,7 @@ class PersistentSessionBindingStore:
             """
             SELECT session_key, kernel_session_id, reply_context_json
             FROM session_bindings
-            WHERE session_key LIKE ?
+            WHERE session_key LIKE ? ESCAPE '!'
             ORDER BY created_at ASC, rowid ASC
             LIMIT 1
             """,

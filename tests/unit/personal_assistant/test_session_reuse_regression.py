@@ -85,70 +85,6 @@ def test_kernel_get_session_accepts_gateway_string_workspace_root(
         kernel.close()
 
 
-# ---------------------------------------------------------------------------
-# Contract test 2: _binding_matches_workspace_root reads top-level key
-# ---------------------------------------------------------------------------
-
-
-def test_binding_matches_workspace_root_reads_top_level_key(tmp_path: Path) -> None:
-    """_binding_matches_workspace_root must succeed when get_session returns workspace_root
-    at the top level (not in metadata).
-
-    If the implementation reads metadata.get("workspace_root"), this test fails
-    because the response has no metadata["workspace_root"] — reproducing the regression.
-    """
-    from personal_assistant.config.local_store import AgentWorkspaceConfig
-    from personal_assistant.gateway.channel_registry import ChannelRegistry
-    from personal_assistant.gateway.inbound_pipeline import InboundPipeline
-    from personal_assistant.gateway.outbound_router import OutboundRouter
-    from personal_assistant.gateway.run_queue import SessionRunQueue
-    from personal_assistant.gateway.session_keys import SessionBindingStore
-
-    workspace = tmp_path / "ws"
-    workspace.mkdir()
-    agent = AgentWorkspaceConfig(
-        agent_id="agent-a", workspace_root=workspace, title="A"
-    )
-
-    expected_workspace_root = str(workspace)
-
-    # get_session response with workspace_root at TOP LEVEL only (not in metadata)
-    class _StubKernel:
-        def get_session(
-            self, session_id: str, *, workspace_root: Any = None
-        ) -> dict[str, Any]:
-            return {
-                "session_id": session_id,
-                "status": "active",
-                "workspace_root": expected_workspace_root,  # top-level key
-                "metadata": {"agent_id": "agent-a"},  # no workspace_root here
-            }
-
-    class _FakeChan:
-        name = "web"
-
-    kernel_stub = _StubKernel()
-    registry = ChannelRegistry((_FakeChan(),))  # type: ignore[arg-type]
-    pipeline = InboundPipeline(
-        kernel=kernel_stub,  # type: ignore[arg-type]
-        agents=(agent,),
-        outbound_router=OutboundRouter(registry),
-        run_queue=SessionRunQueue(),
-        session_store=SessionBindingStore(),
-        default_agent_id="agent-a",
-    )
-
-    result = pipeline._binding_matches_workspace_root(  # noqa: SLF001
-        "sess-existing", expected_workspace_root=expected_workspace_root
-    )
-
-    assert result is True, (
-        "_binding_matches_workspace_root returned False even though get_session "
-        "provided workspace_root at the top level — implementation must read the "
-        "top-level key, not metadata['workspace_root']"
-    )
-
-
 def test_session_reuse_across_consecutive_messages(tmp_path: Path) -> None:
     """Same session_key sends two consecutive messages → same kernel_session_id is reused.
 
@@ -160,7 +96,7 @@ def test_session_reuse_across_consecutive_messages(tmp_path: Path) -> None:
     from personal_assistant.channels.base import InboundMessage
     from personal_assistant.config.local_store import AgentWorkspaceConfig
     from personal_assistant.gateway.channel_registry import ChannelRegistry
-    from personal_assistant.gateway.inbound_pipeline import InboundPipeline
+    from tests.helpers.inbound_pipeline import build_inbound_pipeline
     from personal_assistant.gateway.outbound_router import OutboundRouter
     from personal_assistant.gateway.run_queue import SessionRunQueue
     from personal_assistant.gateway.session_keys import SessionBindingStore
@@ -179,7 +115,7 @@ def test_session_reuse_across_consecutive_messages(tmp_path: Path) -> None:
     kernel = _FakeKernel()
     chan = _FakeChannel("web")
     registry = ChannelRegistry((chan,))
-    pipeline = InboundPipeline(
+    pipeline = build_inbound_pipeline(
         kernel=kernel,
         agents=(agent,),
         outbound_router=OutboundRouter(registry),
