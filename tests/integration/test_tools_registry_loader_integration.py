@@ -39,7 +39,7 @@ def test_registry_dispatches_and_validates_arguments(tmp_path: Path) -> None:
     result = asyncio.run(registry.execute("echo", {"text": "hi"}))
 
     assert result["echo"] == "hi"
-    with pytest.raises(ToolError, match="missing required"):
+    with pytest.raises(ToolError, match=r"The required parameter `text` is missing"):
         asyncio.run(registry.execute("echo", {}))
     with pytest.raises(ToolError, match="unknown tool"):
         asyncio.run(registry.execute("missing", {}))
