@@ -1187,14 +1187,12 @@ describe("preview tool_ids regression: uses draft.tool_allowlist directly", () =
   });
 });
 
-// bugfix: 默认工具模式下勾选 cron 特性不应导致其他默认工具 pill 变灰
-// 根因: feature-toggle handler 在默认模式(allowlistUserTouched=false, tool_allowlist=[])下
-// 直接用空 allowlist 计算 nextAllowlist，导致 [] → ["cron"]，默认工具全灰。
-// 修法: 镜像 onChange 的 materialize 逻辑，先把 default_on 工具展开再加 requires_tool。
-describe("bugfix: cron 特性勾选后默认工具 pill 不应变灰", () => {
+// bugfix-468-M1: 空 tool_allowlist 下开启 requires_tool feature 时只追加该工具本身，
+// 不再把整个 default_on 集合物化进去。
+describe("feature toggle with empty tool_allowlist", () => {
   // updateAgentConfig 必须返回完整 config，否则 onSuccess 把 draft 设成含 undefined 字段的对象
   // 导致 normalizeAgentConfig(draft) → normalizeText(undefined) → TypeError（exit 1）。
-  function makeCronBugfixConfig(overrides: Partial<{
+  function makeFeatureToggleConfig(overrides: Partial<{
     agent_id: string; display_name: string; tool_allowlist: string[]
   }> = {}) {
     return {
@@ -1219,14 +1217,12 @@ describe("bugfix: cron 特性勾选后默认工具 pill 不应变灰", () => {
     };
   }
 
-  // 场景: 初始未触碰 allowlist（工具列表处于默认模式），勾选 cron_scheduling 特性
-  // 期望: tool_allowlist 含全部 default_on 工具 + cron 所需工具，而不是只有 cron 工具
-  it("默认模式下勾 cron 特性 → tool_allowlist 含全部 default_on 工具 + cron 所需工具", async () => {
+  // 场景: 初始 tool_allowlist=[]，勾选 cron_scheduling 特性（requires_tool=cron_tool）
+  // 期望: tool_allowlist 只追加 cron_tool，不再物化 default_on 工具。
+  it("空 allowlist 下勾 cron 特性 → tool_allowlist 仅含 cron 所需工具", async () => {
     const user = userEvent.setup();
 
-    // capabilities: read(default_on) + bash(default_on) + cron_tool(NOT default_on)
-    // 初始 tool_allowlist=[] 表示"未触碰，走默认模式"
-    const baseConfig = makeCronBugfixConfig({ agent_id: "bugfix-cron-1", display_name: "Cron Agent" });
+    const baseConfig = makeFeatureToggleConfig({ agent_id: "bugfix-cron-1", display_name: "Cron Agent" });
     const state = {
       config: baseConfig,
       capabilities: {
@@ -1290,18 +1286,14 @@ describe("bugfix: cron 特性勾选后默认工具 pill 不应变灰", () => {
     const lastCall = calls[calls.length - 1];
     const patchBody = lastCall[1] as { tool_allowlist?: string[] };
 
-    // 修复前: tool_allowlist = ["cron_tool"]（默认工具 read/bash 丢失）
-    // 修复后: tool_allowlist 含 default_on 工具(read, bash) + cron 所需工具(cron_tool)
-    expect(patchBody.tool_allowlist, "默认工具 read 不应从 allowlist 丢失").toContain("read");
-    expect(patchBody.tool_allowlist, "默认工具 bash 不应从 allowlist 丢失").toContain("bash");
-    expect(patchBody.tool_allowlist, "cron 所需工具应被加入 allowlist").toContain("cron_tool");
+    expect(patchBody.tool_allowlist).toEqual(["cron_tool"]);
   });
 
-  // 收紧: 勾 heartbeat（requires_tool=null）不应触发 materialize，agent 应留在默认模式
-  it("默认模式下勾 heartbeat 特性(无 requires_tool) → tool_allowlist 仍为空、不离开默认模式", async () => {
+  // 收紧: 勾 heartbeat（requires_tool=null）不应改变 tool_allowlist。
+  it("空 allowlist 下勾 heartbeat 特性(无 requires_tool) → tool_allowlist 仍为空", async () => {
     const user = userEvent.setup();
 
-    const baseConfig = makeCronBugfixConfig({ agent_id: "bugfix-hb-1", display_name: "HB Agent" });
+    const baseConfig = makeFeatureToggleConfig({ agent_id: "bugfix-hb-1", display_name: "HB Agent" });
     const state = {
       config: baseConfig,
       capabilities: {
@@ -1362,10 +1354,9 @@ describe("bugfix: cron 特性勾选后默认工具 pill 不应变灰", () => {
     const lastCall = calls[calls.length - 1];
     const patchBody = lastCall[1] as { tool_allowlist?: string[] };
 
-    // 勾 heartbeat(requires_tool=null) 不该 materialize，tool_allowlist 应仍为空（默认模式不变）
     expect(
       patchBody.tool_allowlist,
-      "heartbeat 无 requires_tool，tool_allowlist 不应被 materialize"
+      "heartbeat 无 requires_tool，tool_allowlist 应保持为空"
     ).toEqual([]);
   });
 });
