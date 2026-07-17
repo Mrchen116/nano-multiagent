@@ -9,7 +9,12 @@ from typing import Any
 import pytest
 
 from agent.core.agent.runtime import AgentEngine
-from agent.core.llm.interfaces import LLMClient, LLMGenerateRequest, LLMMessage, LLMToolCall
+from agent.core.llm.interfaces import (
+    LLMClient,
+    LLMGenerateRequest,
+    LLMMessage,
+    LLMToolCall,
+)
 from agent.core.session.conversation import ConversationSession
 from agent.core.session.jsonl_files import JsonlSessionFiles
 from agent.core.session.jsonl_writer import JsonlWriter
@@ -77,9 +82,7 @@ class _ToolCallLLM:
         self._tool_calls = tool_calls
         self._final_content = final_content
 
-    async def generate(
-        self, request: LLMGenerateRequest
-    ) -> AsyncIterator[LLMMessage]:
+    async def generate(self, request: LLMGenerateRequest) -> AsyncIterator[LLMMessage]:
         has_tool_calls_in_history = any(
             msg.role == "assistant" and msg.tool_calls for msg in request.messages
         )
@@ -133,7 +136,9 @@ def _build_session(
 
 
 @pytest.mark.asyncio
-async def test_empty_tool_allowlist_rejects_tool_without_execution(tmp_path: Path) -> None:
+async def test_empty_tool_allowlist_rejects_tool_without_execution(
+    tmp_path: Path,
+) -> None:
     """Explicitly empty tool_allowlist blocks the tool and never executes it."""
     registry = _FakeRuntimeRegistry((_FakeTool("fake_read"),))
     session = _build_session(tmp_path, registry, tool_allowlist=())

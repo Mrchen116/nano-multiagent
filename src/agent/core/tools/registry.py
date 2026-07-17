@@ -530,9 +530,7 @@ def _format_validation_error(tool_name: str, issues: list[str]) -> str:
     if not issues:
         raise ValueError("validation issues must not be empty")
     label = "issues" if len(issues) > 1 else "issue"
-    return f"{tool_name} failed due to the following {label}:\n" + "\n".join(
-        issues
-    )
+    return f"{tool_name} failed due to the following {label}:\n" + "\n".join(issues)
 
 
 def _validate_args(
@@ -573,9 +571,7 @@ def _validate_args(
                 tool_name=name,
                 details={"missing": missing},
             )
-        issues = [
-            f"The required parameter `{field}` is missing" for field in missing
-        ]
+        issues = [f"The required parameter `{field}` is missing" for field in missing]
         raise ToolError(
             _format_validation_error(name, issues),
             tool_name=name,
@@ -586,8 +582,7 @@ def _validate_args(
         unknown = sorted(key for key in normalized if key not in properties)
         if unknown:
             issues = [
-                f"An unexpected parameter `{field}` was provided"
-                for field in unknown
+                f"An unexpected parameter `{field}` was provided" for field in unknown
             ]
             raise ToolError(
                 _format_validation_error(name, issues),

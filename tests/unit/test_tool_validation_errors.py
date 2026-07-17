@@ -155,9 +155,7 @@ def test_unexpected_details_dict_unchanged() -> None:
         "additionalProperties": False,
     }
     with pytest.raises(ToolError) as exc_info:
-        _validate_args(
-            name="echo", args={"text": "hi", "extra": 1}, schema=schema
-        )
+        _validate_args(name="echo", args={"text": "hi", "extra": 1}, schema=schema)
 
     assert exc_info.value.details["unknown"] == ["extra"]
 
@@ -220,11 +218,16 @@ def test_load_skills_special_case_retained() -> None:
 
 def test_registry_execute_surface_same_messages(registry: ToolRegistry) -> None:
     with pytest.raises(ToolError) as exc_info:
-        asyncio.run(registry.execute("multi_issue", {"required_a": 123, "required_b": 1}))
+        asyncio.run(
+            registry.execute("multi_issue", {"required_a": 123, "required_b": 1})
+        )
 
     message = str(exc_info.value)
     assert "multi_issue failed due to the following issue:" in message
-    assert "The parameter `required_a` type is expected as `string` but provided as `integer`" in message
+    assert (
+        "The parameter `required_a` type is expected as `string` but provided as `integer`"
+        in message
+    )
 
 
 def test_registry_execute_multiple_missing(registry: ToolRegistry) -> None:
