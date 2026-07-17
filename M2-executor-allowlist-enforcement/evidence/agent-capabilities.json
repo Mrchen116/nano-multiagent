@@ -1,0 +1,477 @@
+{
+  "agent_id": "default-agent",
+  "node_id": "wt-bugfix-468-M2-7219",
+  "workspace_root": "/Users/czj/Repos/nano-multiagent/.worktrees/bugfix-468-M2/.gateway-workspace/default-agent",
+  "models": [
+    {
+      "name": "codex_oauth:gpt-5.5",
+      "provider": "anthropic"
+    },
+    {
+      "name": "kimiCoding:K2.6",
+      "provider": "anthropic"
+    },
+    {
+      "name": "mimo:mimo-v2.5-pro",
+      "provider": "anthropic"
+    },
+    {
+      "name": "volcanoArk:doubao-seed-2-0-code-preview-260215",
+      "provider": "anthropic"
+    }
+  ],
+  "skills": [
+    {
+      "name": "change-code-review",
+      "description": "提 PR 前对代码 diff 做精确率导向的多角度 code review,与 change-reviewer / change-verifier 并列的验收闸。由 change-orchestrator 在主会话内执行(不派给 subagent);用户要求\"review 这个 diff / 提 PR 前把代码过一遍\"时也可触发。",
+      "default_on": true,
+      "location": "/Users/czj/Repos/nano-multiagent/.claude/skills/change-code-review/SKILL.md"
+    },
+    {
+      "name": "change-design-author",
+      "description": "用于在首文档(spec/incident/motivation)定稿后,和人交互式对齐\"怎么做\",产出 design.md + Milestone 拆分表 + 空目录骨架。触发条件:用户在某 unit 已有 spec/incident/motivation 的前提下提到\"出方案 / 写设计 / 拆 milestone / 该怎么做 / 准备开搞\"等任何\"开始落地\"的信号;或 `change-spec-author` 完成时给出\"门禁 1 通过\"提示后用户继续推进。这是门禁 2 之前唯一允许动笔的阶段,定稿后由 `change-orchestrator` 接手实施。不要用于:写代码、立 git 分支、预填 milestone 内的 tasks.md(那是 worker 的事)、回头改用户场景(那要回 change-spec-author)。",
+      "default_on": true,
+      "location": "/Users/czj/Repos/nano-multiagent/.claude/skills/change-design-author/SKILL.md"
+    },
+    {
+      "name": "change-design-reviewer",
+      "description": "用于在 design.md 定稿、进入 change-orchestrator 实施之前,由独立视角审查这份「技术方案文档本身」写得是否合格——只审文档质量,不写代码、不验实现、不走产品旅程。触发条件:用户说「review 一下这个 design / 帮我把方案过一遍 / 这个 design 能开干吗 / 门禁 2 前独立审一遍」,或 change-design-author 收尾时希望换个脑子独立复核。",
+      "default_on": true,
+      "location": "/Users/czj/Repos/nano-multiagent/.claude/skills/change-design-reviewer/SKILL.md"
+    },
+    {
+      "name": "change-impl-worker",
+      "description": "用于作为 subagent 执行单个 milestone 的编码实现,或处理 reviewer 反馈循环里的小修快车道(此时可能被 SendMessage 唤醒复用、不绑定 milestone)。触发条件:被 `change-orchestrator` 派发一个含 unit_id / milestone_id / worktree_dir / branch 的派发包,或派发包指示\"按 Reviewer 反馈循环的小修快车道处理\"。不要用于:写架构方案(那是 change-design-author)、不属于本 unit / 非 reviewer 反馈循环里的简单文档/配置修改。",
+      "default_on": true,
+      "location": "/Users/czj/Repos/nano-multiagent/.claude/skills/change-impl-worker/SKILL.md"
+    },
+    {
+      "name": "change-orchestrator",
+      "description": "用于在某个 unit 的 design.md 定稿后接管整个实施阶段——目标：统筹高质量完成该需求。创建 unit 集成分支、派发 worker 在 worktree 内并行/串行实施 milestone、调度 reviewer 验收、处理 fix-implementation 循环、最终给 main 提 PR 后退出。触发条件:用户说\"开干 / 跑这个 unit / 启动 orchestrator / 把 feat-X 做完 / 把这个 bugfix 跑完\";或 `change-design-author` 完成时给出\"门禁 2 通过\"提示后用户推进。不要用于:写代码(那是 worker)",
+      "default_on": true,
+      "location": "/Users/czj/Repos/nano-multiagent/.claude/skills/change-orchestrator/SKILL.md"
+    },
+    {
+      "name": "change-retro",
+      "description": "对一个走 change-* SDD 流程的变更单元(feat/bugfix/refactor)做取证式开发复盘:从用户每条反馈和日志倒推到真正引入问题的节点(哪个 skill 阶段 / 哪个 agent),证据落到 session/subagent jsonl 与沉淀文档,产出按 skill 的改进清单。用户说\"复盘 feat-X / 这次开发哪里出了问题 / feat-X 为什么拖这么久、这么多反复 / 这次 SDD 开发是个灾难帮我深挖根因\"等回看已发生开发、找根因的信号时触发。",
+      "default_on": true,
+      "location": "/Users/czj/Repos/nano-multiagent/.claude/skills/change-retro/SKILL.md"
+    },
+    {
+      "name": "change-reviewer",
+      "description": "用于从产品视角独立验收一个 unit 的所有 milestone 完成后是否对用户真正可用。触发条件:被 `change-orchestrator` 在 unit 全部 milestone 合到 unit 集成分支后派发;或用户要求\"验收 / 审视 / 体验一下这个功能 / 帮我看看 X 能不能用\"。读 spec/design/runbook + 真实走用户旅程,产出 `acceptance.md`(feat/refactor/perf)或 `regression.md`(bugfix full),含 verdict、问题清单、Recommended Action 路由建议。out-of-unit 严重问题立即 `gh issue create`。不要用于:代码审查，那是change-verifer。",
+      "default_on": true,
+      "location": "/Users/czj/Repos/nano-multiagent/.claude/skills/change-reviewer/SKILL.md"
+    },
+    {
+      "name": "change-spec-author",
+      "description": "用于和人交互式对齐\"做什么\",产出一个变更单元的首文档(spec.md / incident.md / motivation.md / fix.md)。触发条件:用户提到\"做个新功能 / 想修个 bug / 重构 X / 优化 Y / 立项 / 写 spec / 这是个新需求 / 这是个 bug / 帮我把这个想法落成需求\"等任何\"我要立一项变更\"的信号;或在 `docs/changes/` 下需要新建变更单元目录时。任何变更单元的生命周期都从这里开始,这是门禁 1 之前唯一允许动笔的阶段。不要用于:写架构方案(那是 change-design-author)、写代码、立 git 分支、建 milestone 目录。",
+      "default_on": true,
+      "location": "/Users/czj/Repos/nano-multiagent/.claude/skills/change-spec-author/SKILL.md"
+    },
+    {
+      "name": "change-spec-reviewer",
+      "description": "用于在 spec.md / 首文档定稿、进入 design 阶段之前,由独立视角审查这份「需求文档本身」写得是否合格——只审文档质量,不审代码、不走产品旅程。触发条件:用户说「review 一下这个 spec / 帮我把 spec 过一遍 / 这个 spec 能进 design 吗 / 门禁 1 前独立审一遍」,或 change-spec-author 收尾时希望换个脑子独立复核。",
+      "default_on": true,
+      "location": "/Users/czj/Repos/nano-multiagent/.claude/skills/change-spec-reviewer/SKILL.md"
+    },
+    {
+      "name": "change-verifier",
+      "description": "用于在一个 unit 所有 milestone 合到 unit 集成分支后,验证\"实现是否真的匹配 spec / design / tasks\"。读代码核对三维:Completeness(task 是否全完成、spec 的每条 requirement 是否有实现)、Correctness(每个 requirement / scenario 是否有对应实现、测试是否覆盖、有无偏离)、Coherence(实现是否遵守 design 关键决策、是否沿用项目既有模式)。产出 `verification.md`,含记分卡 + CRITICAL/WARNING/SUGGESTION 分级的问题清单 + 可执行修复建议。触发条件:被 `change-orchestrator` 在 unit 全部 milestone 合并后派发;或用户要求\"验证实现有没有匹配 spec / 对一下代码和需求\"。不要用于:走产品旅程做用户验收(那是 change-reviewer)",
+      "default_on": true,
+      "location": "/Users/czj/Repos/nano-multiagent/.claude/skills/change-verifier/SKILL.md"
+    },
+    {
+      "name": "codebase-design",
+      "description": "Shared vocabulary for designing deep modules. Use when the user wants to design or improve a module's interface, find deepening opportunities, decide where a seam goes, make code more testable or AI-navigable, or when another skill needs the deep-module vocabulary.",
+      "default_on": true,
+      "location": "/Users/czj/Repos/nano-multiagent/.claude/skills/codebase-design/SKILL.md"
+    },
+    {
+      "name": "conversation-skill-distiller",
+      "description": "Turn selected historical conversation JSONL transcripts into a reusable PA or agent skill when there is enough evidence.",
+      "default_on": true,
+      "location": "/Users/czj/Repos/nano-multiagent/.claude/skills/conversation-skill-distiller/SKILL.md"
+    },
+    {
+      "name": "doc",
+      "description": "Use when the task involves reading, creating, or editing `.docx` documents, especially when formatting or layout fidelity matters; prefer `python-docx` plus the bundled `scripts/render_docx.py` for visual checks.",
+      "default_on": false,
+      "location": "/Users/czj/.codex/skills/doc/SKILL.md"
+    },
+    {
+      "name": "feishu-doc",
+      "description": "教 agent 使用 feishu-cli 命令行工具操作飞书云文档（创建、读取、导入文档、知识库、电子表格、发消息）",
+      "default_on": true,
+      "location": "/Users/czj/Repos/nano-multiagent/.claude/skills/feishu-doc/SKILL.md"
+    },
+    {
+      "name": "handoff",
+      "description": "Compact the current conversation into a handoff document for another agent to pick up.",
+      "default_on": false,
+      "location": "/Users/czj/.codex/skills/handoff/SKILL.md"
+    },
+    {
+      "name": "imagegen",
+      "description": "Generate or edit raster images when the task benefits from AI-created bitmap visuals such as photos, illustrations, textures, sprites, mockups, or transparent-background cutouts. Use when Codex should create a brand-new image, transform an existing image, or derive visual variants from references, and the output should be a bitmap asset rather than repo-native code or vector. Do not use when the task is better handled by editing existing SVG/vector/code-native assets, extending an established icon or logo system, or building the visual directly in HTML/CSS/canvas.",
+      "default_on": false,
+      "location": "/Users/czj/.codex/skills/.system/imagegen/SKILL.md"
+    },
+    {
+      "name": "improve-codebase-architecture",
+      "description": "Scan a codebase for deepening opportunities, present them as a visual HTML report, then hand off whichever candidate the user picks to the project's existing change flow.",
+      "default_on": true,
+      "location": "/Users/czj/Repos/nano-multiagent/.claude/skills/improve-codebase-architecture/SKILL.md"
+    },
+    {
+      "name": "lark-approval",
+      "description": "飞书审批：查询和处理审批待办/已办/实例，搜索可发起审批定义、查看定义详情并发起原生审批实例。当用户要处理审批任务、查看审批实例、搜索或发起审批时使用。审批待办不是飞书任务；非审批类待办走 lark-task。不负责创建审批定义；三方审批定义不走原生提单。",
+      "default_on": false,
+      "location": "/Users/czj/.agents/skills/lark-approval/SKILL.md"
+    },
+    {
+      "name": "lark-apps",
+      "description": "妙搭（Spark/Miaoda）应用开发与托管：应用创建、HTML静态站点发布、本地全栈开发、云端生成迭代、AI相关能力和飞书平台能力或者其他外部能力集成、日志/Trace/监控指标/PV/UV 查询、环境变量管理。当用户要开发/新建一个系统·工具·平台·应用，或要本地开发 / 云端开发 / 修改 / 部署 / 发布 / 上线 / 拿可分享链接，或用 HTML 做页面·网站·部署到妙搭，或提到妙搭/Spark/Miaoda（应用运行时域名形如 *.aiforce.cloud）、应用数据库、应用文件存储、开放 API Key、可见范围、线上日志、接口请求量、错误量、延迟、访问量、环境变量时使用。不负责普通云盘文件上传（lark-drive）、飞书文档编辑（lark-doc）、原生幻灯片创建（lark-slides）。",
+      "default_on": false,
+      "location": "/Users/czj/.agents/skills/lark-apps/SKILL.md"
+    },
+    {
+      "name": "lark-attendance",
+      "description": "飞书考勤打卡：查询自己的考勤打卡记录",
+      "default_on": false,
+      "location": "/Users/czj/.agents/skills/lark-attendance/SKILL.md"
+    },
+    {
+      "name": "lark-base",
+      "description": "飞书多维表格（Base）操作：建表、字段、记录、视图、统计、公式/lookup、表单、仪表盘、workflow、角色权限；遇到 Base/多维表格/bitable 或 /base/ 链接时使用。文件导入转 lark-drive，认证/授权转 lark-shared。",
+      "default_on": false,
+      "location": "/Users/czj/.agents/skills/lark-base/SKILL.md"
+    },
+    {
+      "name": "lark-calendar",
+      "description": "飞书日历：管理日历日程和会议室。查看/搜索日程、创建/更新日程、管理参会人、查询忙闲和推荐时段、预定会议室。当用户需要查看日程安排、创建/修改会议、查询/预定会议室时使用。不负责：查询过去的视频会议记录（走 lark-vc）、待办任务（走 lark-task）。",
+      "default_on": false,
+      "location": "/Users/czj/.agents/skills/lark-calendar/SKILL.md"
+    },
+    {
+      "name": "lark-contact",
+      "description": "飞书 / Lark 通讯录:按姓名 / 邮箱解析成 open_id,或按 open_id 反查姓名 / 部门 / 邮箱 / 联系方式 / 个人状态 / 签名。当用户提到某人姓名要下一步发消息 / 排日程,或拿到 open_id 想查具体信息时使用。不负责部门树遍历、按部门列员工、组织架构图,这类需求走原生 OpenAPI。",
+      "default_on": false,
+      "location": "/Users/czj/.agents/skills/lark-contact/SKILL.md"
+    },
+    {
+      "name": "lark-doc",
+      "description": "飞书云文档（Docx / Wiki 文档）：读取和编辑飞书文档内容。当用户给出文档 URL 或 token，或需要查看、创建、编辑文档、插入或下载文档图片附件时使用。文档中嵌入的电子表格、多维表格、画板，先用本 skill 提取 token 再切到对应 skill。当用户给出 doubao.com 的 /docx/ 或 /wiki/ URL/token 时，也应直接使用本 skill；路由依据是 URL 路径模式和 token，而不是域名。不负责文档评论管理，也不负责表格或 Base 的数据操作。",
+      "default_on": false,
+      "location": "/Users/czj/.agents/skills/lark-doc/SKILL.md"
+    },
+    {
+      "name": "lark-drive",
+      "description": "飞书云空间（云盘/云存储）：管理 Drive 文件和文件夹，包含上传/下载、创建文件夹、复制/移动/删除、查看元数据、评论/权限/订阅、标题、版本和本地文件导入。用户需要整理云盘目录、处理云空间资源 URL/token，或导入 Word/Markdown/Excel/CSV/PPTX/.base 为 docx/sheet/bitable/slides 时使用；doubao.com 云空间 URL/token 也按资源路径和 token 路由，不回退 WebFetch。不负责：文档内容编辑（走 lark-doc）、表格/Base 表内数据操作（走 lark-sheets/lark-base）、知识空间节点/成员管理（走 lark-wiki）、原生 Markdown 文件读写/patch/diff（走 lark-markdown）。",
+      "default_on": false,
+      "location": "/Users/czj/.agents/skills/lark-drive/SKILL.md"
+    },
+    {
+      "name": "lark-event",
+      "description": "Lark/Feishu real-time event listening / subscribing / consuming: stream events as NDJSON via `lark-cli event consume <EventKey>` (covers IM messages/reactions/chat changes, Task updates, VC meeting started/joined/ended, Minutes generated, Whiteboard updated, etc.). Use for Lark bots, real-time message processing, long-running subscribers, streaming webhook/push handlers. Supports `--max-events` / `--timeout` bounded runs and a stderr ready-marker contract — designed for AI agents running as subprocesses.",
+      "default_on": false,
+      "location": "/Users/czj/.agents/skills/lark-event/SKILL.md"
+    },
+    {
+      "name": "lark-im",
+      "description": "飞书即时通讯：收发消息和管理群聊。发送和回复消息、搜索聊天记录、管理群聊成员、上传下载图片和文件（支持大文件分片下载）、管理表情回复、发送应用内/短信/电话加急、发送和处理交互卡片（Interactive Card）、监听卡片按钮回调（card.action.trigger）。当用户需要发消息、查看或搜索聊天记录、下载聊天中的文件、查看群成员、搜索群、创建群聊或话题群、管理标记数据、管理 Feed 置顶（添加/移除/查询置顶会话）、管理标签数据、处理卡片回调时使用。",
+      "default_on": false,
+      "location": "/Users/czj/.agents/skills/lark-im/SKILL.md"
+    },
+    {
+      "name": "lark-mail",
+      "description": "飞书邮箱：Use when user mentions 起草邮件、写邮件、草稿、发送/回复/转发邮件、查阅邮件、看邮件、搜索邮件、邮件文件夹、邮件标签、邮件联系人、监听新邮件、邮件收信规则等；use for mail/email intent only. Do not use for docs/sheets/calendar/auth setup/pure contact lookup/IM chat tasks.",
+      "default_on": false,
+      "location": "/Users/czj/.agents/skills/lark-mail/SKILL.md"
+    },
+    {
+      "name": "lark-markdown",
+      "description": "飞书 Markdown：查看、创建、上传、编辑和比较 Markdown 文件。当用户需要创建或编辑 Markdown 文件、读取、修改、局部 patch 或比较差异时使用。不负责将 Markdown 导入为飞书在线文档，也不负责文件搜索、权限、评论、移动、删除等云空间管理操作。",
+      "default_on": false,
+      "location": "/Users/czj/.agents/skills/lark-markdown/SKILL.md"
+    },
+    {
+      "name": "lark-minutes",
+      "description": "飞书妙记：搜索妙记、查看妙记基础信息、下载/上传音视频、读取或编辑妙记的产物内容、改标题、替换说话人/关键词。当给出minute_token、本地音视频文件，要查/改/转妙记产物时使用；本地音视频转纪要/逐字稿优先走本 skill，不要用 ffmpeg/whisper 本地转写。不负责：获取会议关联妙记，或仅按自然语言标题定位纪要",
+      "default_on": false,
+      "location": "/Users/czj/.agents/skills/lark-minutes/SKILL.md"
+    },
+    {
+      "name": "lark-note",
+      "description": "飞书会议纪要（Note）直查：已知 note_id 时查询纪要详情、展示类型、关联文档 token，并读取 unified 原始逐字记录。当用户已持有 note_id，或从文档显式 vc-node-id 获得 note_id 时使用。不负责会议/日程/妙记定位、文档标题搜索或 Docx 正文读取。",
+      "default_on": false,
+      "location": "/Users/czj/.agents/skills/lark-note/SKILL.md"
+    },
+    {
+      "name": "lark-okr",
+      "description": "飞书 OKR：管理目标与关键结果。查看和编辑 OKR 周期、目标、关键结果、对齐关系、量化指标和进展记录。当用户需要查看或创建 OKR、管理目标和关键结果、查看对齐关系时使用。不负责：待办任务管理（lark-task）、日程/会议安排（lark-calendar）、绩效评估",
+      "default_on": false,
+      "location": "/Users/czj/.agents/skills/lark-okr/SKILL.md"
+    },
+    {
+      "name": "lark-openapi-explorer",
+      "description": "飞书/Lark 原生 OpenAPI 探索：从官方文档库中挖掘未经 CLI 封装的原生 OpenAPI 接口。当用户的需求无法被现有 lark-* skill 或 lark-cli 已注册命令满足，需要查找并调用原生飞书 OpenAPI 时使用。",
+      "default_on": false,
+      "location": "/Users/czj/.agents/skills/lark-openapi-explorer/SKILL.md"
+    },
+    {
+      "name": "lark-shared",
+      "description": "Use for lark-cli setup/auth tasks: auth login/status/logout, user vs bot identity, business-domain permissions (--domain, including all/docs/drive), missing scopes, revoking authorization, or handling _notice JSON.",
+      "default_on": false,
+      "location": "/Users/czj/.agents/skills/lark-shared/SKILL.md"
+    },
+    {
+      "name": "lark-sheets",
+      "description": "飞书电子表格：创建和操作电子表格。支持创建表格、管理工作表与行列结构（增删/合并/调整尺寸/隐藏/冻结）、读写单元格（值/公式/样式/批注/单元格图片）、查找替换、多操作原子批量更新，以及图表、透视表、条件格式、筛选器、迷你图、浮动图片等对象的创建与维护。当用户需要创建电子表格、管理工作表、批量读写或编辑数据、统计汇总与可视化、表格美化、公式计算（含 Excel 公式迁移）、金融/财务建模（DCF、三张表、预算、Sensitivity 等）等任务时使用。若用户是想按名称或关键词搜索云空间（云盘/云存储）里的表格文件，请改用 lark-drive 的 drive +search 先定位资源。当用户给出 doubao.com 的 /sheets/ URL/token 时，也应直接使用本 skill，不要因为域名不是飞书而回退到 WebFetch；路由依据是 URL 路径模式和 token，而不是域名。",
+      "default_on": false,
+      "location": "/Users/czj/.agents/skills/lark-sheets/SKILL.md"
+    },
+    {
+      "name": "lark-skill-maker",
+      "description": "创建 lark-cli 的自定义 Skill。当用户需要把飞书 API 操作封装成可复用的 Skill（包装原子 API 或编排多步流程）时使用。",
+      "default_on": false,
+      "location": "/Users/czj/.agents/skills/lark-skill-maker/SKILL.md"
+    },
+    {
+      "name": "lark-slides",
+      "description": "飞书幻灯片：创建和编辑幻灯片。创建演示文稿、读取幻灯片内容、管理幻灯片页面（创建、删除、读取、局部替换）。当用户需要创建或编辑幻灯片、读取或修改单个页面时使用。当用户给出 doubao.com 的 /slides/ URL/token 时，也应直接使用本 skill，不要因为域名不是飞书而回退到 WebFetch；路由依据是 URL 路径模式和 token，而不是域名。不负责：云文档内容编辑（走 lark-doc）、云文档里的独立画板对象（走 lark-whiteboard，注意 slide 内嵌的流程图/架构图仍属本 skill）、上传或下载普通文件（走 lark-drive）。",
+      "default_on": false,
+      "location": "/Users/czj/.agents/skills/lark-slides/SKILL.md"
+    },
+    {
+      "name": "lark-task",
+      "description": "飞书任务：管理任务、清单和任务智能体。创建待办任务、查看和更新任务状态、拆分子任务、组织任务清单、分配协作成员、上传任务附件、注册或注销任务智能体、更新任务智能体的主页数据、写入智能体任务记录。当用户需要创建待办事项、查看任务列表、跟踪任务进度、管理项目清单或给他人分配任务、为任务上传附件文件、注册注销任务智能体、更新智能体主页数据、写入任务记录时使用。",
+      "default_on": false,
+      "location": "/Users/czj/.agents/skills/lark-task/SKILL.md"
+    },
+    {
+      "name": "lark-vc",
+      "description": "飞书视频会议：搜索历史会议记录、查询会议纪要（总结/待办/章节/逐字稿）、查询参会人快照。当用户查询已结束的会议、获取会议产物（纪要/妙记）、查看参会人时使用；查询未来日程走 lark-calendar。不负责：Agent 真实入会/离会、会中实时事件（走 lark-vc-agent）。",
+      "default_on": false,
+      "location": "/Users/czj/.agents/skills/lark-vc/SKILL.md"
+    },
+    {
+      "name": "lark-vc-agent",
+      "description": "飞书视频会议会中能力：用于让应用机器人真实加入或离开正在进行的会议，并读取当前身份可见的会中事件，如参会人加入/离开、发言、聊天、屏幕共享。适用于用户询问正在开的会议发生了什么、谁在发言、是否共享内容，或需要发现当前可读的进行中会议 ID。不负责已结束会议搜索、参会人快照、纪要、逐字稿或录制查询，这些使用 lark-vc 技能。",
+      "default_on": false,
+      "location": "/Users/czj/.agents/skills/lark-vc-agent/SKILL.md"
+    },
+    {
+      "name": "lark-whiteboard",
+      "description": "飞书画板：查询和编辑飞书云文档中的画板。支持导出画板为预览图片、导出原始节点结构、使用多种格式更新画板内容。\n当用户需要查看画板内容、导出画板图片、编辑画板时使用此 skill。不负责：飞书云文档内容编辑（lark-doc）、文档内嵌电子表格/Base（lark-sheets / lark-base）。",
+      "default_on": false,
+      "location": "/Users/czj/.agents/skills/lark-whiteboard/SKILL.md"
+    },
+    {
+      "name": "lark-wiki",
+      "description": "飞书知识库：管理知识空间、空间成员和文档节点。创建和查询知识空间、查看和管理空间成员、管理节点层级结构、在知识库中组织文档和快捷方式。当用户需要在知识库中查找或创建文档、浏览知识空间结构、查看或管理空间成员、移动或复制节点时使用。当用户给出 doubao.com 的 /wiki/ URL/token 时，也应直接使用本 skill，不要因为域名不是飞书而回退到 WebFetch；路由依据是 URL 路径模式和 token，而不是域名。不负责：上传文件到知识库节点下（走 lark-drive）、编辑文档/表格/Base 内容（走 lark-doc / lark-sheets / lark-base）。",
+      "default_on": false,
+      "location": "/Users/czj/.agents/skills/lark-wiki/SKILL.md"
+    },
+    {
+      "name": "lark-workflow-meeting-summary",
+      "description": "会议纪要整理工作流：汇总指定时间范围内的会议纪要并生成结构化报告。当用户需要整理会议纪要、生成会议周报、回顾一段时间内的会议内容时使用。",
+      "default_on": false,
+      "location": "/Users/czj/.agents/skills/lark-workflow-meeting-summary/SKILL.md"
+    },
+    {
+      "name": "lark-workflow-standup-report",
+      "description": "日程待办摘要：编排 calendar +agenda 和 task +get-my-tasks，生成指定日期的日程与未完成任务摘要。适用于了解今天/明天/本周的安排。",
+      "default_on": false,
+      "location": "/Users/czj/.agents/skills/lark-workflow-standup-report/SKILL.md"
+    },
+    {
+      "name": "openai-docs",
+      "description": "Use when the user asks how to build with OpenAI products or APIs, asks about Codex itself or choosing Codex surfaces, needs up-to-date official documentation with citations, help choosing the latest model for a use case, latest/current/default-model prompting guidance, or model upgrade and prompt-upgrade guidance; use OpenAI docs MCP tools for non-Codex docs questions, use the Codex manual helper first for broad Codex self-knowledge, and restrict fallback browsing to official OpenAI domains.",
+      "default_on": false,
+      "location": "/Users/czj/.codex/skills/.system/openai-docs/SKILL.md"
+    },
+    {
+      "name": "playwright",
+      "description": "Use when the task requires automating a real browser from the terminal (navigation, form filling, snapshots, screenshots, data extraction, UI-flow debugging) via `playwright-cli` or the bundled wrapper script.",
+      "default_on": false,
+      "location": "/Users/czj/.codex/skills/playwright/SKILL.md"
+    },
+    {
+      "name": "plugin-creator",
+      "description": "Create and scaffold plugin directories for Codex with a required `.codex-plugin/plugin.json`, optional plugin folders/files, valid manifest defaults, and personal-marketplace entries by default. Use when Codex needs to create a new personal plugin, add optional plugin structure, generate or update marketplace entries for plugin ordering and availability metadata, or update an existing local plugin during development with the CLI-driven cachebuster and reinstall flow.",
+      "default_on": false,
+      "location": "/Users/czj/.codex/skills/.system/plugin-creator/SKILL.md"
+    },
+    {
+      "name": "product-acceptance-reviewer",
+      "description": "用于从产品经理视角验收一个功能范围是否对用户真正可用。触发条件：被 orchestrator 派发验收 milestone，或用户要求\"验收/审视/体验一下这个功能\"。通过读需求/SPEC/文档 + 真实用户旅程体验来判断，输出 `docs/changes/<unit>/acceptance.md`（或 `regression.md`）验收报告（pass/fail + 问题清单）。不要用于：编码实现、代码审查。",
+      "default_on": false,
+      "location": "/Users/czj/.codex/skills/product-acceptance-reviewer/SKILL.md"
+    },
+    {
+      "name": "project-lead-orchestrator",
+      "description": "用于需要拆分需求为多个 milestone 并调度 subagent 并行执行的场景。触发条件：用户要求完成一个涉及多步骤/多模块的需求，或要求\"跑完所有 milestone\"/\"把这个需求做完\"。不要用于：单个小任务直接实现、纯代码审查、纯产品验收（用 product-acceptance-reviewer）、纯编码执行（用 tdd-execution-worker）。",
+      "default_on": false,
+      "location": "/Users/czj/.codex/skills/project-lead-orchestrator/SKILL.md"
+    },
+    {
+      "name": "refactor-playbook",
+      "description": "Execute behavior-preserving codebase refactors that improve readability, structure, and maintainability without changing external behavior. Use when users ask to refactor, clean up architecture, simplify modules, split large files, remove indirection, improve naming, reduce coupling, or make code easier to understand. Use especially for incremental, test-gated refactors that require small rollback-friendly commits and clear progress reporting.",
+      "default_on": false,
+      "location": "/Users/czj/.codex/skills/refactor-playbook/SKILL.md"
+    },
+    {
+      "name": "review-agent",
+      "description": "Perform a read-only, defect-first review of a specified code change and return every actionable finding. Use when another agent delegates review of uncommitted changes, a base-branch diff, a commit, or custom review instructions.",
+      "default_on": false,
+      "location": "/Users/czj/.codex/skills/.system/review-agent/SKILL.md"
+    },
+    {
+      "name": "session-truncate",
+      "description": "Use when the user wants to roll back / truncate a Claude Code session to an earlier point so it becomes resumable again — typically when a session is stuck in endless 'API error · Retrying' or won't resume after a heavy multi-agent fan-out. The user names a session id and where to cut to; this produces a fresh resumable session copy, leaving the original untouched.",
+      "default_on": false,
+      "location": "/Users/czj/.codex/skills/session-truncate/SKILL.md"
+    },
+    {
+      "name": "skill-creator",
+      "description": "Guide for creating effective skills. This skill should be used when users want to create a new skill (or update an existing skill) that extends Codex's capabilities with specialized knowledge, workflows, or tool integrations.",
+      "default_on": false,
+      "location": "/Users/czj/.codex/skills/.system/skill-creator/SKILL.md"
+    },
+    {
+      "name": "skill-installer",
+      "description": "Install Codex skills into $CODEX_HOME/skills from a curated list or a GitHub repo path. Use when a user asks to list installable skills, install a curated skill, or install a skill from another repo (including private repos).",
+      "default_on": false,
+      "location": "/Users/czj/.codex/skills/.system/skill-installer/SKILL.md"
+    },
+    {
+      "name": "systematic-debugging",
+      "description": "遇到任何 bug、测试失败或意外行为时,在提出修复方案之前使用",
+      "default_on": true,
+      "location": "/Users/czj/Repos/nano-multiagent/.claude/skills/systematic-debugging/SKILL.md"
+    },
+    {
+      "name": "tdd-execution-worker",
+      "description": "用于作为 subagent 执行单个 Milestone 的编码实现。触发条件：被 project-lead-orchestrator 派发一个含 milestone_id/goal/exit_criteria/test_command 的派发包，需要在 worktree 中完成 TDD 三提交循环（C1测试/C2实现/C3文档）并合并到 main。不要用于：调度多个 milestone（用 orchestrator）、不需要 TDD 流程的简单修改。",
+      "default_on": false,
+      "location": "/Users/czj/.codex/skills/tdd-execution-worker/SKILL.md"
+    }
+  ],
+  "tools": [
+    {
+      "name": "read",
+      "description": "",
+      "default_on": true,
+      "location": null
+    },
+    {
+      "name": "write",
+      "description": "",
+      "default_on": true,
+      "location": null
+    },
+    {
+      "name": "edit",
+      "description": "",
+      "default_on": true,
+      "location": null
+    },
+    {
+      "name": "bash",
+      "description": "",
+      "default_on": true,
+      "location": null
+    },
+    {
+      "name": "agent",
+      "description": "",
+      "default_on": true,
+      "location": null
+    },
+    {
+      "name": "task_stop",
+      "description": "",
+      "default_on": true,
+      "location": null
+    },
+    {
+      "name": "web_fetch",
+      "description": "",
+      "default_on": true,
+      "location": null
+    },
+    {
+      "name": "web_search",
+      "description": "",
+      "default_on": true,
+      "location": null
+    },
+    {
+      "name": "skill_manage",
+      "description": "",
+      "default_on": true,
+      "location": null
+    },
+    {
+      "name": "skill_view",
+      "description": "",
+      "default_on": true,
+      "location": null
+    },
+    {
+      "name": "memory",
+      "description": "",
+      "default_on": true,
+      "location": null
+    },
+    {
+      "name": "send_message",
+      "description": "",
+      "default_on": false,
+      "location": null
+    },
+    {
+      "name": "cron",
+      "description": "",
+      "default_on": false,
+      "location": null
+    }
+  ],
+  "platform_default_model": "kimiCoding:K2.6",
+  "default_system_prompt": "",
+  "features": [
+    {
+      "key": "memory_curation",
+      "label_i18n": "feature.memory_curation.label",
+      "help_i18n": "feature.memory_curation.help",
+      "default_on": true,
+      "available": false,
+      "requires_tool": "memory"
+    },
+    {
+      "key": "skill_creation",
+      "label_i18n": "feature.skill_creation.label",
+      "help_i18n": "feature.skill_creation.help",
+      "default_on": true,
+      "available": false,
+      "requires_tool": "skill_manage"
+    },
+    {
+      "key": "cron_scheduling",
+      "label_i18n": "feature.cron_scheduling.label",
+      "help_i18n": "feature.cron_scheduling.help",
+      "default_on": false,
+      "available": false,
+      "requires_tool": "cron"
+    },
+    {
+      "key": "heartbeat",
+      "label_i18n": "feature.heartbeat.label",
+      "help_i18n": "feature.heartbeat.help",
+      "default_on": false,
+      "available": true,
+      "requires_tool": null
+    }
+  ]
+}

@@ -31,7 +31,7 @@
 
 ## Roadpoints
 
-### R1 — executor + runtime allowlist enforcement
+### R1 — executor + runtime allowlist enforcement (DONE)
 
 - 步骤:
   - C1: 在 `test_streaming_tool_executor.py` 补显式空名单/非空名单/None 三类用例；新建 `test_runtime_tool_allowlist_enforcement.py` 验证 runtime 贯通。
