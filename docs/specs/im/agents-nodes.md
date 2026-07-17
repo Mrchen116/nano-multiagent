@@ -1,6 +1,6 @@
 # IM - Agents and Nodes Specification
 
-> 对齐: bugfix-467
+> 对齐: bugfix-468
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
@@ -251,3 +251,19 @@ Gateway 上行 `node.register` / `node.heartbeat` 驱动 IM 向**该节点 owner
 - **WHEN** IM 后台扫描运行
 - **THEN** 节点态翻 `offline`,向本租浏览器广播一帧 `node.status_changed status:"offline"
   last_error:"heartbeat_timeout"`;对已 offline 节点重复扫描是无副作用的幂等(不重复广播)
+
+### Requirement: 设置 detail 页工具勾选态按存储真值渲染
+
+agent 设置 detail 页的工具面板按存储的 `tool_allowlist` 渲染勾选态:存储为空时全部不亮,不再按
+capabilities `default_on` 显示为默认全开;用户勾选/取消直接写显式名单,空名单作为合法配置可表达、
+可保存、刷新后保持。
+
+#### Scenario: 存储为空全不亮
+- **GIVEN** agent 的存储 `tool_allowlist` 为空
+- **WHEN** 打开该 agent 的设置 detail 页
+- **THEN** 工具面板全部不亮
+
+#### Scenario: 显式清空保存后保持
+- **GIVEN** agent 当前启用若干工具
+- **WHEN** 用户取消全部勾选、保存、刷新页面
+- **THEN** 工具面板保持全部不亮

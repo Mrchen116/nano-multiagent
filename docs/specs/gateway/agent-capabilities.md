@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Agent Capabilities Specification
 
-> 对齐: feat-446
+> 对齐: bugfix-468
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -42,24 +42,24 @@ Gateway 在每个新 run(用户消息、heartbeat、cron 触发)按 agent 当前
 - **WHEN** Gateway 重启
 - **THEN** 该 agent 仍在、其模型仍是 B,继续用 B 对话
 
-### Requirement: Agent 工具集由 tool_allowlist 真白名单决定，能力特性按 requires_tool 联动其工具
+### Requirement: Agent 工具集由 tool_allowlist 真白名单决定并在执行层强制，能力特性按 requires_tool 联动其工具
 
 Gateway 为某 Agent 构建会话工具集时，以该 Agent 配置的 `tool_allowlist` 为白名单单一来源：非空时
-Agent 工具集**恰为**列出的这些（列表外的默认工具不提供，即默认文件/web 工具可被用户禁用）；为空时取
-产品默认工具集（未配置语义,包含 `skill_view`）。能力特性（如 cron）启用时，其 `requires_tool` 工具经"特性→工具"联动
-已落在该 Agent 的 `tool_allowlist` 里，Gateway 不在运行时另行注入——Agent 工具集与配置侧存储的
-`tool_allowlist` 一致，无分裂。
+Agent 工具集**恰为**列出的这些（列表外的默认工具不提供，即默认文件/web 工具可被用户禁用）；**显式
+为空时该 Agent 没有任何工具**。会话执行层按同一白名单强制：名单外工具调用（含模型未按声明自由发挥
+的调用）被拒且不产生副作用，调用方收到含工具名与「未在本会话启用」语义的错误结果。能力特性（如
+cron）启用时，其 `requires_tool` 工具经"特性→工具"联动已落在该 Agent 的 `tool_allowlist` 里，
+Gateway 不在运行时另行注入——Agent 工具集与配置侧存储的 `tool_allowlist` 一致，无分裂。
 
 #### Scenario: 用户禁用某默认工具后该工具不再提供
 - **GIVEN** 某 Agent 的 `tool_allowlist` 被设为不含某默认工具（如不含 `read`）的非空显式集
 - **WHEN** Gateway 为该 Agent 构建会话
 - **THEN** 该 Agent 工具集不含被禁的默认工具（下发给模型的工具列表里没有它）
 
-#### Scenario: 未配置 allowlist 的 Agent 拿到产品默认工具集
-- **GIVEN** 某 Agent 的 `tool_allowlist` 为空
-- **WHEN** Gateway 为该 Agent 构建会话
-- **THEN** 该 Agent 工具集 = 产品默认工具集
-- **AND** 默认工具集合包含 `skill_view`
+#### Scenario: 显式空名单的 Agent 会话拒绝一切工具调用
+- **GIVEN** 某 Agent 的 `tool_allowlist` 显式为空
+- **WHEN** 用户与该 Agent 会话，模型尝试调用工具
+- **THEN** 工具不执行，用户在会话中看到含工具名与未启用语义的明确反馈
 
 #### Scenario: 显式工具白名单不被默认集合自动扩宽
 - **GIVEN** PA agent 已持久化非空 `tool_allowlist`
