@@ -18,19 +18,19 @@
 
 ## R2 — 删除 detail 页 allowlistUserTouched 及物化分支
 
-- Context: 待补充。
-- Decision: 待补充。
-- Rationale: 待补充。
+- Context: design 决策 1 连动简化：`allowlistUserTouched` 及两处「空则物化默认集」分支失去存在意义；空名单下开启 requires_tool feature 时只追加该工具本身。
+- Decision: 删除 `allowlistUserTouched` 状态与 reset 逻辑；feature toggle 与 pill onChange 均直接操作 `draft.tool_allowlist`，不再物化 `default_on` 集合。
+- Rationale: runtime 自 PR #195 起已按「空=零工具」执行，UI 唯一职责是反映存储；继续物化默认集会在保存时把空名单变成非空名单，与真值语义冲突。
 - Evidence:
-  - Tests: 待补充。
-  - Entry: 前端组件测试。
+  - Tests: `npm run test -- src/features/settings/agents/agent-detail-page.test.tsx` → 1 passed / 28 tests。
+  - Entry: 前端组件测试（AgentDetailPage feature toggle + save）。
   - Frontend State Matrix: N/A。
   - Browser QA: N/A（R3 统一做）。
-  - E2E/Regression: N/A（组件测试覆盖）。
+  - E2E/Regression: `agent-detail-page.test.tsx` 回归「空 allowlist + cron 只追加 cron_tool」「空 allowlist + heartbeat 不改变 allowlist」。
   - Visual/Interaction: N/A（R3 统一做）。
   - Prototype Comparison: N/A。
-- Rollback: 待补充。
-- Commits: 待补充。
+- Rollback: `git revert efa83ab7c`。
+- Commits: C1=`ed30e726e`, C2=`efa83ab7c`。
 
 ## R3 — 全量测试、构建与浏览器验收
 
