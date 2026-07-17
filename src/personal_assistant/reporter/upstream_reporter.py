@@ -254,6 +254,15 @@ class UpstreamReporter:
                 for agent in self._agents
                 if agent.workspace_root is not None
             },
+            # bugfix-467: seed skills/tool_allowlist on first profile creation so
+            # the IM mirror is born with the YAML truth, avoiding reconcile from
+            # treating an empty v1 shell as authoritative and wiping the agent.
+            "agent_skills": {
+                agent.agent_id: list(agent.skills) for agent in self._agents
+            },
+            "agent_tool_allowlist": {
+                agent.agent_id: list(agent.tool_allowlist) for agent in self._agents
+            },
             "capabilities": self._capabilities.register_flags_payload(),
         }
         if self._node.user_id is not None:

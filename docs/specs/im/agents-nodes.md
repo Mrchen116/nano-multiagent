@@ -1,6 +1,6 @@
 # IM - Agents and Nodes Specification
 
-> 对齐: refactor-460
+> 对齐: bugfix-467
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
@@ -108,27 +108,30 @@ IM 进程**绝不**直读 gateway 侧 workspace 文件（IM 与 gateway 可跨�
 - **WHEN** 前端向不存在的 `node_id` 创建
 - **THEN** 404 `{detail:"node_id not found"}`(owner-scope 门禁先于网关派发拦下)
 
-### Requirement: node.register 首见 agent 时以上报 workspace_root 落库（bugfix-404-M2）
+### Requirement: node.register 首见 agent 时以上报种子值落库（bugfix-404-M2 / bugfix-467）
 
-IM 处理 `node.register` 时,对帧中**首次出现**(无既有 profile)的 agent,workspace_root 取帧内
-`agent_workspaces` 上报值落库;帧未携带该 agent 的值时才回落 managed default。已存在 profile 的
-agent,其 workspace_root 保持既有值不被注册改写(重连重发幂等)。
+IM 处理 `node.register` 时,对帧中**首次出现**(无既有 profile)的 agent,以帧内种子值落库:
+workspace_root 取 `agent_workspaces` 上报值(缺失时回落 managed default),skills / tool_allowlist
+取 `agent_skills` / `agent_tool_allowlist` 上报值(帧未携带或单 agent 值非法时按空落库,兼容旧帧;
+单 agent 值内混入非法项时仅丢弃非法项)。已存在 profile 的 agent,其各字段保持既有值不被注册
+改写(重连重发幂等),以保护用户经配置更新(含特意清空)后的收敛。
 
 #### Scenario: 首见 agent 用上报值落库
 - **GIVEN** IM 中无 agent X 的 profile
-- **WHEN** 收到 `node.register`,`agent_workspaces["X"]` 为非默认绝对路径 P
-- **THEN** agent X 的 profile workspace_root 落库为 P,`GET /im/v1/agents` 广播 P 且
-  `workspace_is_default=false`
+- **WHEN** 收到 `node.register`,`agent_workspaces["X"]` 为非默认绝对路径 P,
+  `agent_skills["X"]` 为技能列表 S,`agent_tool_allowlist["X"]` 为工具列表 T
+- **THEN** agent X 的 profile 落库 workspace_root=P、skills=S、tool_allowlist=T,
+  `GET /im/v1/agents` 广播 P 且 `workspace_is_default=false`
 
 #### Scenario: 已存在 profile 不被重注册改写
-- **GIVEN** agent X 的 profile workspace_root 已为 P
+- **GIVEN** agent X 的 profile 已存在(含用户特意清空的 skills / tool_allowlist)
 - **WHEN** 再次收到 `node.register`(无论帧内上报何值)
-- **THEN** profile workspace_root 仍为 P
+- **THEN** profile 的 workspace_root / skills / tool_allowlist 均保持既有值
 
-#### Scenario: 帧未带 agent_workspaces 退回默认(旧帧兼容)
+#### Scenario: 帧未带种子字段退回默认与空(旧帧兼容)
 - **GIVEN** IM 中无 agent Y 的 profile
-- **WHEN** 收到不含 `agent_workspaces` 字段的 `node.register`
-- **THEN** agent Y 按 managed default 落库
+- **WHEN** 收到不含 `agent_workspaces` / `agent_skills` / `agent_tool_allowlist` 字段的 `node.register`
+- **THEN** agent Y 的 workspace_root 按 managed default 落库,skills / tool_allowlist 落库为空
 
 ### Requirement: agent workspace_root 创建后不可经配置更新修改（bugfix-404-M2）
 

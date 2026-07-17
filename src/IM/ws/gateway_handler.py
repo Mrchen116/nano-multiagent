@@ -924,6 +924,20 @@ class GatewayHandler:
             if isinstance(raw_workspaces, dict)
             else {}
         )
+        # bugfix-467: optional per-agent skills/tool_allowlist seeds.  Older gateways
+        # omit these fields; IM creates an empty-shell profile as before.
+        raw_skills = payload.get("agent_skills")
+        agent_skills: dict[str, list[str]] = (
+            _normalize_agent_string_list_seed(raw_skills)
+            if isinstance(raw_skills, dict)
+            else {}
+        )
+        raw_tools = payload.get("agent_tool_allowlist")
+        agent_tool_allowlist: dict[str, list[str]] = (
+            _normalize_agent_string_list_seed(raw_tools)
+            if isinstance(raw_tools, dict)
+            else {}
+        )
         cap_raw = payload.get("capabilities")
         if cap_raw is None:
             capabilities: dict[str, object] = {}
@@ -948,6 +962,8 @@ class GatewayHandler:
                 version=version,
                 agent_ids=agents,
                 agent_workspaces=agent_workspaces,
+                agent_skills=agent_skills,
+                agent_tool_allowlist=agent_tool_allowlist,
             )
             prior_status = (
                 result.previous_node.status
@@ -2219,6 +2235,27 @@ def _optional_dict(value: object) -> dict[str, object] | None:
     if not isinstance(value, dict):
         raise ValueError("optional object fields must be objects when provided")
     return value
+
+
+def _normalize_agent_string_list_seed(
+    raw: dict[object, object],
+) -> dict[str, list[str]]:
+    """Normalize an per-agent string-list seed field from a node.register payload.
+
+    Invalid entries are dropped so a malformed single-agent seed cannot break
+    registration for the whole node.
+    """
+    result: dict[str, list[str]] = {}
+    if not isinstance(raw, dict):
+        return result
+    for agent_id, items in raw.items():
+        if not isinstance(agent_id, str) or not agent_id.strip():
+            continue
+        if isinstance(items, list):
+            cleaned = [item for item in items if isinstance(item, str)]
+            if cleaned:
+                result[agent_id] = cleaned
+    return result
 
 
 def _optional_usage(value: object) -> dict[str, int] | None:

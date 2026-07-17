@@ -101,6 +101,8 @@ class GatewayNodePersistence:
         version: str,
         agent_ids: list[str],
         agent_workspaces: dict[str, str],
+        agent_skills: dict[str, list[str]] | None = None,
+        agent_tool_allowlist: dict[str, list[str]] | None = None,
     ) -> GatewayRegistrationResult:
         """Persist one node advertisement using the legacy durable write sequence.
 
@@ -110,6 +112,10 @@ class GatewayNodePersistence:
             version: Gateway version string, or an empty string when omitted.
             agent_ids: Advertised agent identifiers in protocol order.
             agent_workspaces: Optional runtime workspace seed keyed by agent id.
+            agent_skills: Optional per-agent skill seed keyed by agent id.
+                Used only when creating a new profile (bugfix-467).
+            agent_tool_allowlist: Optional per-agent tool allowlist seed keyed by agent id.
+                Used only when creating a new profile (bugfix-467).
 
         Returns:
             Previous/current node snapshots and agent ids in protocol advertisement
@@ -129,6 +135,8 @@ class GatewayNodePersistence:
             version=version,
             agent_count=len(agent_ids),
         )
+        skills_seed = agent_skills or {}
+        tools_seed = agent_tool_allowlist or {}
         for agent_id in agent_ids:
             existing = self._profiles.get_profile(agent_id=agent_id)
             owner_id = (
@@ -140,8 +148,8 @@ class GatewayNodePersistence:
                 display_name = agent_id
                 description = f"Runtime agent advertised by {node_name}."
                 system_prompt = f"You are {agent_id}."
-                skills: list[str] = []
-                tool_allowlist: list[str] = []
+                skills = list(skills_seed.get(agent_id, []))
+                tool_allowlist = list(tools_seed.get(agent_id, []))
                 group_reply_policy = "MENTION"
                 default_model: str | None = None
                 workspace_root = agent_workspaces.get(
