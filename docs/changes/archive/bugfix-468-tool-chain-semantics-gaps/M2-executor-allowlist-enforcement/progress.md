@@ -33,4 +33,3 @@
   - C2: `6f4e934a7` feat(bugfix-468/M2): wire session tool_allowlist to executor and refine reject reason
   - C3: (this progress + evidence)
 - Next: 无，本 milestone 已完成，准备合入 unit/bugfix-468。
-
