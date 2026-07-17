@@ -8,11 +8,11 @@
 
 ## 退出标准
 
-- [ ] `pytest tests/unit/agent -k validate -q` 全绿
-- [ ] missing / unexpected / type 三类文案断言都包含字段名
-- [ ] details dict（missing / unknown / field / expected）结构保持不变
-- [ ] 全测试树相关套件全绿（特别注意其他包对旧文案的断言）
-- [ ] 真栈验证：诱导或显式触发一次带错参数名的 edit 调用，ToolResult 文本展示含字段名的 CC 风格报错
+- [x] `pytest tests/unit/agent -k validate -q` 全绿
+- [x] missing / unexpected / type 三类文案断言都包含字段名
+- [x] details dict（missing / unknown / field / expected）结构保持不变
+- [x] 全测试树相关套件全绿（特别注意其他包对旧文案的断言）
+- [x] 真栈验证：诱导或显式触发一次带错参数名的 edit 调用，ToolResult 文本展示含字段名的 CC 风格报错
 
 ## 测试策略
 
