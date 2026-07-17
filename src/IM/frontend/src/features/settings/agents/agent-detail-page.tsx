@@ -1339,9 +1339,6 @@ export function AgentDetailPage() {
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [activeSection, setActiveSection] = useState<AgentDetailSection>("config");
   const savedResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // feat-394 M9-C: once the user manually edits tool_allowlist, stop treating empty as
-  // "use product defaults" — the empty list becomes a genuine empty whitelist.
-  const [allowlistUserTouched, setAllowlistUserTouched] = useState(false);
 
   useEffect(() => {
     return () => {
@@ -1363,8 +1360,6 @@ export function AgentDetailPage() {
     if (detailQuery.data?.config) {
       setDraft(detailQuery.data.config);
       setErrorMessage(null);
-      // Reset touched flag when server data (re)loads — fresh state, back to "empty = defaults".
-      setAllowlistUserTouched(false);
     }
   }, [detailQuery.data]);
 
@@ -1727,23 +1722,15 @@ export function AgentDetailPage() {
             setSaved(false);
             setErrorMessage(null);
             // feat-379-M9 (決策 12): tick → add requires_tool to allowlist; untick → keep tool.
+            // bugfix-468-M1: empty allowlist means "no tools", so enabling a feature only appends
+            // its required tool; we no longer materialize the whole default_on set.
             const capFeats = capabilities?.features ?? [];
             const requiresTool = capFeats.find((f) => f.key === key)?.requires_tool ?? null;
-            // bugfix: mirror the materialize logic in PillSelector onChange — only materialize the
-            // default set when we are actually about to add a requires_tool entry. This guards against
-            // ticking a feature that has no requires_tool (e.g. heartbeat) incorrectly kicking the
-            // agent out of default mode and freezing its tool_allowlist as an explicit set.
             const willAddTool =
               value && requiresTool && !draft.tool_allowlist.includes(requiresTool);
-            const effectiveBase =
-              willAddTool && !allowlistUserTouched && draft.tool_allowlist.length === 0
-                ? (capabilities?.tools ?? [])
-                    .filter((t: { default_on?: boolean }) => t.default_on === true)
-                    .map((t: { name: string }) => t.name)
-                : draft.tool_allowlist;
-            const nextAllowlist = willAddTool ? [...effectiveBase, requiresTool!] : effectiveBase;
-            // Mark as touched only when defaults were actually materialized.
-            if (effectiveBase !== draft.tool_allowlist) setAllowlistUserTouched(true);
+            const nextAllowlist = willAddTool
+              ? [...draft.tool_allowlist, requiresTool!]
+              : draft.tool_allowlist;
             // feat-394 M9-E: features is the single-true-source for enable state.
             // HeartbeatCard reads features["heartbeat"]; CronCard reads features["cron_scheduling"].
             // No parallel sync into draft.heartbeat.enabled or draft.cron needed.
@@ -1853,23 +1840,12 @@ export function AgentDetailPage() {
               isLoading={detailQuery.isLoading}
               errorMessage={detailQuery.isError ? queryErrorDetail : null}
               onRetry={() => void detailQuery.refetch()}
-              useDefaultOn={!allowlistUserTouched}
               onChange={(toolAllowlist) => {
                 setSaved(false);
                 setErrorMessage(null);
-                // feat-394 M9-C: mark as touched so empty list means "no tools" not "defaults".
-                setAllowlistUserTouched(true);
                 // feat-379-M9 (決策 12): removed tool → uncheck any feature that requires it.
                 const capFeats = capabilities?.features ?? [];
-                // When transitioning from default mode (empty allowlist), the "removed" set is
-                // derived from the effective defaults rather than the stored empty list.
-                const effectiveAllowlist =
-                  !allowlistUserTouched && draft.tool_allowlist.length === 0
-                    ? (capabilities?.tools ?? [])
-                        .filter((t: { default_on?: boolean }) => t.default_on === true)
-                        .map((t: { name: string }) => t.name)
-                    : draft.tool_allowlist;
-                const removed = effectiveAllowlist.filter((t: string) => !toolAllowlist.includes(t));
+                const removed = draft.tool_allowlist.filter((t: string) => !toolAllowlist.includes(t));
                 const nextFeatures = { ...(draft.features ?? {}) };
                 for (const tool of removed) {
                   for (const feat of capFeats) {
