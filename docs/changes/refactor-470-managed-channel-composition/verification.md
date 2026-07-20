@@ -72,3 +72,45 @@ requires_full_verification: false
 - `gateway/composition.py:373-375` 的注释仍说“manifest migration removes them”，而决策 2 已删除该 migration（`design.md:175-204`）。删除或改写该历史失效表述，避免维护者误以为 legacy bridge 仍会运行。
 
 1 critical issue(s) found. Fix before PR.
+
+# Round 2
+
+## Summary
+
+Mode: targeted-closure
+
+Delta range: `a8494e1ba9dbbce1a0f6dd0aa9bd220bb5777095..0e6cee1ebeb427984133523aa9121ed7c3c8f812`
+
+Focus issues:
+
+1. CRITICAL: M1 five exit criteria unchecked (`M1-managed-channel-control/tasks.md:11-15`).
+2. WARNING: composition root retains credential/token/session-fork/permission/attachment policy.
+
+requires_full_verification: false
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 11/16；focus issue 1 still open |
+| Correctness | 未重跑：delta 未触及生产实现或测试 |
+| Coherence | focus issue 2 still open |
+
+## Targeted Closure
+
+- **CRITICAL — still open.** 增量只新增 `docs/changes/refactor-470-managed-channel-composition/acceptance-round-1.md`，未修改 `M1-managed-channel-control/tasks.md`；该文件 `:11-15` 仍全部为 `- [ ]`。因此 M1 退出标准仍未完成标记，任务完成度仍为 11/16。需逐项在 `tasks.md:11-15` 根据已有实现/测试证据改为 `[x]`，或若仍有真实缺口则留下未勾选并建立 fix roadpoint。
+- **WARNING — still open.** delta 未修改 `src/personal_assistant/gateway/composition.py`。Round 1 所列 policy helper 仍在 `composition.py:191-332, 942-1092, 1094-1181, 1224-1277`，包括 Feishu credential probe/config write、IM token refresh/persist、session fork、permission response、attachment fetch。该布局继续违背 `design.md:226-230` 的 composition boundary。需将每个 helper 移至相应既有 owner，并将其测试由 composition private helper import 改到真实 owner。
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+- `M1-managed-channel-control/tasks.md:11-15` 仍未标记完成；见本轮 Targeted Closure 的 first item。
+
+### WARNING（应该修）
+
+- `gateway/composition.py:191-332, 942-1092, 1094-1181, 1224-1277` 仍承载策略；见本轮 Targeted Closure 的 second item。
+
+### SUGGESTION（可以修）
+
+- `gateway/composition.py:373-375` 仍保留 “manifest migration removes them” 的失效说明，和已删除的 migration 不一致。
+
+1 critical issue(s) found. Fix before PR.
