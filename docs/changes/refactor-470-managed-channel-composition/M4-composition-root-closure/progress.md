@@ -100,11 +100,11 @@
 ## R3 — 真实入口与 Feishu 收口验证
 
 - Context: M4 需要验证真 Gateway process 的 IM resilience、restart session continuity、cron auto-push，以及真实 Feishu online/offline cached autonomy。
-- Decision: 使用 design 给定的 critical-path command；不改变用户持久配置以迎合测试固定模型，也不停止正在运行的主 Gateway 来抢占共享 Feishu Bot。
-- Rationale: cron failure 的根因是 `~/.nano-assistant/config.yaml` 当前 provider 清单不含测试硬编码的 `kimiCoding:K2.6`，Gateway 日志明确报 `no registered provider for model: kimiCoding:K2.6`，不属于 composition 改动。真实 Feishu runbook 要求先停止主 Gateway；该主 Gateway 属于共享用户实例，未经独占协调不得杀掉。
+- Decision: 不改变用户持久配置；从它派生 worktree 本地 E2E config，在同一个 `anthropic` provider 补入测试固定的 `kimiCoding:K2.6` model entry，并让既有 e2e-up.sh 继续隔离 node、workspace 和 IM。主 Gateway 未经独占协调不停止。
+- Rationale: critical path 的测试固定使用 `kimiCoding:K2.6`，E2E config 应独立提供其模型路由；这样可验证真实上游是否接受该模型，同时不污染用户配置。真实 Feishu runbook 仍要求先停止主 Gateway；该主 Gateway 属于共享用户实例，未经独占协调不得杀掉。
 - Evidence:
   - E2E: `scripts/e2e-critical.sh -k 'gateway_im_resilience or restart_session_continuity'`：3 passed, 14 deselected, 40.90s，覆盖真 IM + 真 Gateway 进程和用户可见 IM 往返。
-  - Cron E2E: 完整指定筛选首次运行时在 `test_cron_job_auto_pushes_message` 等待用户可见消息超时；保留的临时 Gateway log 指认模型 provider 配置根因，未改产品代码或测试阈值规避。随后单测直跑因 live gate env 未设置而 clean skip。
+  - Cron E2E: 首次完整筛选暴露 E2E source config 缺少测试固定模型。随后以新建的 worktree-local home/config 副本补入同 `anthropic` provider 的 `kimiCoding:K2.6`（沿用本地 proxy base URL，`thinking.adaptive`，context window 262144），以该副本作为 `HOME` 运行真栈：`NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1 ... pytest -q tests/e2e/critical_paths/test_cron_push_critical_path.py -o timeout=360 --tb=long`，`1 passed in 39.48s`。该用例经 IM 用户可见路径确认 agent 注册每 5 秒 cron 后收到新的哨兵消息；临时 home/config 已清理，未改用户持久 config、产品代码或测试阈值。
   - Feishu smoke: BLOCKED。runbook 所需的 `~/.nano-assistant/config.yaml`、`channel-manifest-v1.json` 和 `channel-credentials-v1.pem` 均存在；但 2026-07-20 核查到共享主 Gateway 仍以 PID `40097` 前台运行（启动于 2026-07-17 16:21:41，命令为 `python3 -m personal_assistant.main --config ~/.nano-assistant/config.yaml --foreground`）。runbook 规定必须先停止它以确保同一 Bot 只有一个 long-connection consumer；该进程不是本 milestone 启动，未经用户授权未停止。需要 orchestrator 协调独占时段后才能执行两次真实哨兵消息往返。未以启动日志替代。
   - Frontend State Matrix / Browser QA / Visual / Prototype Comparison: N/A。
 - Rollback: 不适用（验证未改产品行为）。
