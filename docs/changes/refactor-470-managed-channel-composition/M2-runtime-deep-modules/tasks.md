@@ -8,10 +8,10 @@
 
 ## 退出标准
 
-- [ ] `GatewayRuntime` 位于 `gateway/runtime.py`，保留 startup、watchdog、共享 shutdown deadline 与资源图语义。
-- [ ] `InProcessKernelClient` 位于 `gateway/kernel_client.py`，没有 `_KernelClientShim` 或 `main` re-export/alias。
-- [ ] `PollingHeartbeatRunner` 位于 `scheduler/heartbeat_runner.py`，heartbeat/cron polling 行为不变。
-- [ ] runtime/shutdown/heartbeat/cron/unattended 测试从真实 owner import，聚焦测试与 ruff 通过。
+- [x] `GatewayRuntime` 位于 `gateway/runtime.py`，保留 startup、watchdog、共享 shutdown deadline 与资源图语义。
+- [x] `InProcessKernelClient` 位于 `gateway/kernel_client.py`，没有 `_KernelClientShim` 或 `main` re-export/alias。
+- [x] `PollingHeartbeatRunner` 位于 `scheduler/heartbeat_runner.py`，heartbeat/cron polling 行为不变。
+- [x] runtime/shutdown/heartbeat/cron/unattended 测试从真实 owner import，聚焦测试与 ruff 通过。
 
 ## 测试策略
 
@@ -38,6 +38,6 @@
 
 ### R3 — 清理旧 runtime 表面并完成回归
 
-- 状态：TODO
+- 状态：DONE
 - 步骤：删除 `main.py` 中已迁移实现与旧符号，清理失效测试 import/patch 路径；补充 owner-location contract 并运行 M2 聚焦测试和 ruff。
-- 验证：无生产或测试路径引用 `_KernelClientShim`、`PollingHeartbeatRunner`/`GatewayRuntime` 的 main 实现；聚焦测试与 ruff 通过。
+- 验证：无生产或测试路径引用 `_KernelClientShim`、`PollingHeartbeatRunner`/`GatewayRuntime` 的 main 实现；聚焦测试与 ruff 通过，隔离 Gateway 前台进程完成 auto-bind 并在 SIGTERM 后退出。

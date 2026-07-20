@@ -21,7 +21,7 @@
   - Visual/Interaction: N/A。
   - Prototype Comparison: N/A。
 - Rollback: revert `7cb6e5037` 与 `7e63ce0c2`。
-- Commits: C1=`7e63ce0c2`, C2=`7cb6e5037`, C3=pending。
+- Commits: C1=`7e63ce0c2`, C2=`7cb6e5037`, C3=`56352b11e`。
 - Next: R2 迁移 kernel adapter 与 polling heartbeat runner。
 
 ### R2 — 迁移 kernel adapter 与 polling runner
@@ -38,5 +38,30 @@
   - Visual/Interaction: N/A。
   - Prototype Comparison: N/A。
 - Rollback: revert `a06353d8f` 与 `790cb4143`。
-- Commits: C1=`790cb4143`, C2=`a06353d8f`, C3=pending。
+- Commits: C1=`790cb4143`, C2=`a06353d8f`, C3=`57b90ad8d`。
 - Next: R3 清理旧 runtime 表面、补 owner contract 并执行真实 Gateway 入口验证。
+
+## [Design 修订] R3: architecture contract 随真实 owner 提前迁移
+
+- 现状方案: Milestone 表将两个 architecture contract 的更新列在 M4。
+- 新方案: M2 同步更新 `test_gateway_inbound_ownership_contract.py` 中三个直接锚定已迁移 owner 的断言；M4 继续负责入口 `__all__` 与其余 composition 收口 contract。
+- 原因: M2 删除 `main.py` 中 `GatewayRuntime`、`_run_until_shutdown` 和 `_KernelClientShim` 后，原 contract 依赖旧物理位置而失败。保留到 M4 会使已完成 M2 不能通过相关 contract 门禁，也会把已无意义的旧 location 断言临时保留。
+- 影响范围: 仅本 milestone 的真实 owner location 断言；M4 仍拥有 entry-only public surface 与 composition policy contract。
+- design.md 是否同步改: 是；orchestrator 于 2026-07-20 确认按 M2 范围整体迁移并禁止旧 re-export/alias，已更新 Milestone 表的 contract 归属。
+
+### R3 — 收口入口旧表面并完成真实入口验证
+
+- Context: `main.py` 已不再拥有 runtime、adapter 与 polling runner；直接 class import 会重新形成 test service locator，旧 shim 名也会误导 consumer 对进程内 SDK 边界的理解。
+- Decision: entry 改为模块限定消费 `runtime.GatewayRuntime`、`kernel_client.InProcessKernelClient` 和 `heartbeat_runner.PollingHeartbeatRunner`；`GatewayRuntimeState` 保持 entry lifecycle 的本地 owner；cron consumer 及测试术语同步改为 `InProcessKernelClient`。直接锚定 owner 的 contract 从 `main.py` 移至真实模块，入口 contract 明确不导出 `GatewayRuntime`。
+- Rationale: 入口保留构造职责而不泄漏成熟模块类型；每个迁出的实现只有一个生产 owner，同时保留既有 Gateway lifecycle 入口。
+- Evidence:
+  - Tests: `/Users/czj/Repos/nano-multiagent/.venv/bin/pytest -q tests/unit/personal_assistant/test_gateway_runtime_lifecycle.py tests/unit/personal_assistant/test_gateway_runtime_watchdog.py tests/unit/personal_assistant/test_gateway_shutdown_order.py tests/unit/personal_assistant/test_gateway_shutdown_resource_graph.py tests/unit/personal_assistant/test_gateway_shutdown_timeout_isolation.py tests/unit/personal_assistant/test_gateway_internal_dispatch_listener.py tests/unit/personal_assistant/test_cron_polling_runner.py tests/unit/personal_assistant/test_heartbeat_session_trim.py tests/unit/personal_assistant/test_unattended_session_skills.py tests/unit/personal_assistant/test_cron_run_origin.py tests/contract/test_gateway_inbound_ownership_contract.py tests/contract/test_personal_assistant_main_contract.py` → `60 passed`。
+  - Entry: `./scripts/e2e-up.sh` 在 worktree 隔离端口启动 IM 与 `python -m personal_assistant.main --foreground --auto-bind`；日志确认 node auto-bind，向 Gateway PID 发送 SIGTERM 后条件轮询得到 `gateway-terminal-state=absent`，随后 `./scripts/e2e-down.sh` 清理 IM/Gateway。
+  - Frontend State Matrix: N/A。
+  - Browser QA: N/A。
+  - E2E/Regression: `/Users/czj/Repos/nano-multiagent/.venv/bin/ruff check src/personal_assistant tests/unit/personal_assistant tests/contract/test_gateway_inbound_ownership_contract.py tests/contract/test_personal_assistant_main_contract.py` → `All checks passed!`；旧符号扫描未发现 `_KernelClientShim` 或从 `personal_assistant.main` 导入迁出类型的生产/测试路径。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: revert `2d968bb0f` 与 `0c82dccfb`。
+- Commits: C1=`0c82dccfb`, C2=`2d968bb0f`, C3=pending。
+- Next: rebase `origin/unit/refactor-470`，执行合并前完整测试门禁并集成 M2。
