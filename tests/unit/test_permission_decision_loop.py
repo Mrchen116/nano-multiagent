@@ -128,14 +128,14 @@ class TestPermissionResponseHandlerUsesKernel:
 
     def test_handler_calls_submit_on_kernel(self):
         """Handler must route IM permission_response frame to kernel.submit_permission_decision."""
-        from personal_assistant.gateway.composition import (
-            _build_permission_response_handler,
+        from personal_assistant.ws.im_connection import (
+            build_permission_response_handler,
         )
 
         kernel_mock = MagicMock()
         kernel_mock.submit_permission_decision.return_value = True
 
-        handler = _build_permission_response_handler(kernel=kernel_mock)
+        handler = build_permission_response_handler(kernel=kernel_mock)
 
         # Simulate IM sending a permission_response frame.
         handler({"request_id": "req-abc", "decision": "allow_once"})
@@ -148,12 +148,12 @@ class TestPermissionResponseHandlerUsesKernel:
 
     def test_handler_no_crash_on_missing_fields(self):
         """Handler must be a no-op when required fields are missing (defensive)."""
-        from personal_assistant.gateway.composition import (
-            _build_permission_response_handler,
+        from personal_assistant.ws.im_connection import (
+            build_permission_response_handler,
         )
 
         kernel_mock = MagicMock()
-        handler = _build_permission_response_handler(kernel=kernel_mock)
+        handler = build_permission_response_handler(kernel=kernel_mock)
 
         # Missing request_id → no-op.
         handler({"decision": "allow_once"})
@@ -165,13 +165,13 @@ class TestPermissionResponseHandlerUsesKernel:
 
     def test_handler_passes_reason(self):
         """Handler must forward the reason field when present."""
-        from personal_assistant.gateway.composition import (
-            _build_permission_response_handler,
+        from personal_assistant.ws.im_connection import (
+            build_permission_response_handler,
         )
 
         kernel_mock = MagicMock()
         kernel_mock.submit_permission_decision.return_value = True
-        handler = _build_permission_response_handler(kernel=kernel_mock)
+        handler = build_permission_response_handler(kernel=kernel_mock)
 
         handler({"request_id": "req-1", "decision": "deny", "reason": "sensitive"})
 

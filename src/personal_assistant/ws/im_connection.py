@@ -146,7 +146,7 @@ TokenGetter = Callable[[], Awaitable[str | None]]
 # Called when IM sends a node.streaming_delta kind=permission_response.
 # Payload keys: request_id, decision, message_id.  PA should POST the decision
 # to the agent inbound endpoint to unpark the auto_mode_gate hook.
-PermissionResponseHandler = Callable[[Mapping[str, object]], None]
+PermissionResponseHandler = Callable[[Mapping[str, object]], bool | None]
 # feat-445-M1: IM delegates session fork over WS. Given the fork request payload
 # (source_conversation_id / new_conversation_id / agent_id / fork_point.message_id),
 # the gateway-side handler locates the source kernel session, forks it at the point,
@@ -155,6 +155,30 @@ SessionForkHandler = Callable[
     [Mapping[str, object]],
     Awaitable[Mapping[str, object]] | Mapping[str, object],
 ]
+
+
+def build_permission_response_handler(
+    *, kernel: Any
+) -> Callable[[Mapping[str, object]], bool]:
+    """Build the WS permission-decision handler for the in-process Kernel."""
+
+    def handle(body: Mapping[str, object]) -> bool:
+        request_id = str(body.get("request_id") or "").strip()
+        decision = str(body.get("decision") or "").strip()
+        if not request_id or not decision:
+            return False
+        try:
+            return bool(
+                kernel.submit_permission_decision(
+                    request_id=request_id,
+                    decision=decision,
+                    reason=str(body.get("reason") or "").strip(),
+                )
+            )
+        except Exception:  # noqa: BLE001
+            return False
+
+    return handle
 
 
 @dataclass(frozen=True, slots=True)

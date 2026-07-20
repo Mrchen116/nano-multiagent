@@ -21,7 +21,7 @@ from personal_assistant.gateway.process_lifecycle import (
     launch_gateway_in_background,
 )
 
-import personal_assistant.gateway.composition as main_module
+import personal_assistant.config.local_store as local_store
 
 from ._main_helpers import _FakeProcess, build_config
 
@@ -180,7 +180,7 @@ def test_load_runtime_config_preserves_im_credentials_when_overriding_url(
         source_path=tmp_path / "node-config.yaml",
     )
 
-    loaded = main_module._load_runtime_config(
+    loaded = local_store.load_gateway_runtime_config(
         config.source_path,
         load_config=lambda _path: config,
         im_service_url_override="http://im.remote:9011",

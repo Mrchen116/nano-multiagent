@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
+import logging
 from pathlib import Path
 import os
 import shutil
@@ -52,6 +54,8 @@ class LLMConfigPayload:
     default_model: str
     providers: tuple[LLMProviderPayload, ...] = field(default_factory=tuple)
 
+
+_log = logging.getLogger("personal_assistant.config.local_store")
 
 DEFAULT_LOCAL_CONFIG_DIR = Path("~/.nano-assistant").expanduser()
 DEFAULT_LOCAL_CONFIG_PATH = DEFAULT_LOCAL_CONFIG_DIR / "config.yaml"
@@ -360,6 +364,202 @@ class RuntimeConfigOwner:
             return updated
 
 
+def load_gateway_runtime_config(
+    config_path: str | Path,
+    *,
+    load_config: Callable[[str | Path], LocalConfig] | None = None,
+    save_config: Callable[[LocalConfig, str | Path], None] | None = None,
+    im_service_url_override: str | None = None,
+) -> LocalConfig:
+    """Load startup config, provision Feishu identity, and apply an IM URL override.
+
+    Args:
+        config_path: Gateway configuration file to load.
+        load_config: Config reader used by the process lifecycle.
+        save_config: Writer for an inferred static Feishu bot identity.
+        im_service_url_override: Optional operator-supplied IM endpoint.
+
+    Returns:
+        Runtime-ready local configuration.
+    """
+    config = (load_config or load_local_config)(config_path)
+    config = autofill_feishu_bot_open_id(config, save_config=save_config)
+    if (
+        not isinstance(im_service_url_override, str)
+        or not im_service_url_override.strip()
+    ):
+        return config
+    override_url = im_service_url_override.strip()
+    old_im = config.im_service
+    if old_im is None:
+        return replace(config, im_service=IMServiceConfig(url=override_url))
+    return replace(
+        config,
+        im_service=IMServiceConfig(
+            url=override_url,
+            token=old_im.token,
+            refresh_token=old_im.refresh_token,
+            username=old_im.username,
+            password=old_im.password,
+        ),
+    )
+
+
+def autofill_feishu_bot_open_id(
+    config: LocalConfig,
+    *,
+    save_config: Callable[[LocalConfig, str | Path], None] | None = None,
+    bot_identity_fetcher: Callable[[str, str, str], str | None] | None = None,
+) -> LocalConfig:
+    """Persist missing static Feishu bot identities obtained from app credentials."""
+    fetcher = bot_identity_fetcher or infer_feishu_bot_open_id_from_app_credentials
+    writer = save_config or save_sensitive_local_config
+    updated_channels: list[ChannelConfig] = []
+    changed = False
+    for channel in config.channels:
+        if not channel.enabled or not channel.name.startswith("feishu:"):
+            updated_channels.append(channel)
+            continue
+        settings = dict(channel.settings)
+        bot_open_id = settings.get("botOpenId")
+        if isinstance(bot_open_id, str) and bot_open_id.strip():
+            updated_channels.append(channel)
+            continue
+        app_id = settings.get("appId")
+        app_secret = settings.get("appSecret")
+        if (
+            not isinstance(app_id, str)
+            or not app_id.strip()
+            or not isinstance(app_secret, str)
+            or not app_secret.strip()
+        ):
+            updated_channels.append(channel)
+            continue
+        domain = settings.get("domain")
+        open_id = fetcher(
+            app_id.strip(),
+            app_secret.strip(),
+            domain.strip()
+            if isinstance(domain, str) and domain.strip()
+            else "https://open.feishu.cn",
+        )
+        if open_id is None:
+            updated_channels.append(channel)
+            continue
+        settings["botOpenId"] = open_id
+        updated_channels.append(replace(channel, settings=settings))
+        changed = True
+    if not changed:
+        return config
+    updated = replace(config, channels=tuple(updated_channels))
+    if updated.source_path is not None:
+        writer(updated, updated.source_path)
+    return updated
+
+
+def infer_feishu_bot_open_id_from_app_credentials(
+    app_id: str, app_secret: str, domain: str
+) -> str | None:
+    """Return the Feishu bot identity for static-channel provisioning."""
+    try:
+        from lark_oapi.channel.bot_identity import fetch_bot_identity
+        from lark_oapi.core.model import Config
+    except ImportError:
+        _log.warning("lark-oapi bot identity helper unavailable; botOpenId not filled")
+        return None
+    sdk_config = Config()
+    sdk_config.app_id = app_id
+    sdk_config.app_secret = app_secret
+    sdk_config.domain = domain
+    sdk_config.timeout = 10
+    try:
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            identity = asyncio.run(fetch_bot_identity(sdk_config))
+        else:
+            identity = _run_sync_in_thread(
+                lambda: asyncio.run(fetch_bot_identity(sdk_config)),
+                name="feishu-bot-id-probe",
+            )
+    except Exception:  # noqa: BLE001
+        _log.warning("failed to probe Feishu bot identity", exc_info=True)
+        return None
+    open_id = getattr(identity, "open_id", None) if identity is not None else None
+    return open_id.strip() if isinstance(open_id, str) and open_id.strip() else None
+
+
+def build_feishu_owner_open_id_binder(
+    config: LocalConfig,
+    *,
+    config_owner: RuntimeConfigOwner | None = None,
+    save_config: Callable[[LocalConfig, str | Path], None] | None = None,
+) -> Callable[[str, str], str | None]:
+    """Build the serialized first-sender owner binding for static Feishu channels."""
+    owner = config_owner or RuntimeConfigOwner(config)
+    writer = save_config or save_sensitive_local_config
+
+    def bind(channel_name: str, sender_open_id: str) -> str | None:
+        sender = sender_open_id.strip() if isinstance(sender_open_id, str) else ""
+        if not sender:
+            return None
+        existing_owner: str | None = None
+
+        def update(current: LocalConfig) -> LocalConfig:
+            nonlocal existing_owner
+            for index, channel in enumerate(current.channels):
+                if channel.name != channel_name or not channel.enabled:
+                    continue
+                if not channel.name.startswith("feishu:"):
+                    return current
+                existing = channel.settings.get("ownerOpenId")
+                if isinstance(existing, str) and existing.strip():
+                    existing_owner = existing.strip()
+                    return current
+                settings = {**channel.settings, "ownerOpenId": sender}
+                channels = list(current.channels)
+                channels[index] = replace(channel, settings=settings)
+                return replace(current, channels=tuple(channels))
+            return current
+
+        current = owner.snapshot()
+        if current.source_path is not None:
+            try:
+                owner.persist(update, save_config=writer)
+            except Exception:  # noqa: BLE001
+                _log.warning(
+                    "failed to persist feishu ownerOpenId for channel %s",
+                    channel_name,
+                    exc_info=True,
+                )
+                return None
+        else:
+            owner.replace(update(current))
+        if existing_owner is not None:
+            return existing_owner
+        return sender if owner.snapshot() != current else None
+
+    return bind
+
+
+def _run_sync_in_thread(func: Callable[[], Any], *, name: str) -> Any:
+    result: list[Any] = []
+    errors: list[BaseException] = []
+
+    def target() -> None:
+        try:
+            result.append(func())
+        except BaseException as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    thread = threading.Thread(target=target, name=name, daemon=True)
+    thread.start()
+    thread.join()
+    if errors:
+        raise errors[0]
+    return result[0] if result else None
+
+
 def load_local_config(config_path: str | Path) -> LocalConfig:
     """Load one YAML config file into typed gateway settings.
 
@@ -435,6 +635,27 @@ def resolve_run_model(
     if agent is not None and getattr(agent, "default_model", None):
         return agent.default_model
     return product_default
+
+
+def provision_feishu_doc_skill_for_gateway(
+    config_owner: RuntimeConfigOwner,
+) -> LocalConfig:
+    """Persist required Feishu skill provisioning through the config owner.
+
+    Args:
+        config_owner: Serialized owner for the Gateway's mutable config snapshot.
+
+    Returns:
+        The latest configuration, after provisioning when it changed the skill list.
+    """
+    current = config_owner.snapshot()
+    _, changed = ensure_feishu_doc_skill_for_feishu_agents(current)
+    if not changed:
+        return current
+    return config_owner.persist(
+        lambda config: ensure_feishu_doc_skill_for_feishu_agents(config)[0],
+        save_config=save_sensitive_local_config,
+    )
 
 
 def ensure_feishu_doc_skill_for_feishu_agents(

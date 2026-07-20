@@ -1569,11 +1569,17 @@ def test_compose_gateway_wires_web_relay_dedup_db_under_config_dir(
         source_path=tmp_path / "node-config.yaml",
     )
 
+    class _Manager:
+        connected = True
+
+        def __init__(self, **_kwargs: object) -> None:
+            pass
+
+        def close(self) -> None:
+            return None
+
     monkeypatch.setattr(
-        "personal_assistant.gateway.composition._build_im_connection_manager",
-        lambda **kwargs: type(
-            "_Manager", (), {"connected": True, "close": lambda self: None}
-        )(),
+        "personal_assistant.gateway.composition.IMConnectionManager", _Manager
     )
 
     runtime = compose_gateway(config)
@@ -1724,15 +1730,19 @@ def test_compose_gateway_wires_prompt_preview_provider_when_im_service_configure
         source_path=tmp_path / "node-config.yaml",
     )
 
-    captured_kwargs: dict = {}
+    captured_kwargs: dict[str, object] = {}
 
-    def _fake_build_im_connection_manager(**kwargs: object) -> object:
-        captured_kwargs.update(kwargs)
-        return type("_Manager", (), {"connected": True, "close": lambda self: None})()
+    class _RecordingManager:
+        connected = True
+
+        def __init__(self, **kwargs: object) -> None:
+            captured_kwargs.update(kwargs)
+
+        def close(self) -> None:
+            return None
 
     monkeypatch.setattr(
-        "personal_assistant.gateway.composition._build_im_connection_manager",
-        _fake_build_im_connection_manager,
+        "personal_assistant.gateway.composition.IMConnectionManager", _RecordingManager
     )
 
     compose_gateway(config)

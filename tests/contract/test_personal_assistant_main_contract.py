@@ -75,18 +75,15 @@ def test_composition_does_not_own_gateway_policy_handlers() -> None:
     )
 
     assert [item for item in forbidden_definitions if item in source] == []
+    assert "save_sensitive_local_config" not in source
+    assert ".persist(" not in source
 
 
 def test_process_lifecycle_uses_public_startup_config_owner() -> None:
     source = (
-        REPO_ROOT
-        / "src"
-        / "personal_assistant"
-        / "gateway"
-        / "process_lifecycle.py"
+        REPO_ROOT / "src" / "personal_assistant" / "gateway" / "process_lifecycle.py"
     ).read_text()
 
-    assert "gateway.composition import" not in source
     assert "_load_runtime_config" not in source
     assert "load_gateway_runtime_config" in source
 
