@@ -32,7 +32,7 @@
 
 ### R2 — 迁移 kernel adapter 与 polling runner
 
-- 状态：TODO
+- 状态：DONE
 - 步骤：以真实 owner import 固定 unattended session capability 投影和 polling heartbeat/cron 行为；将 adapter 更名为 `InProcessKernelClient` 并迁至 `gateway/kernel_client.py`，将 runner 及必要 heartbeat helpers 迁至 `scheduler/heartbeat_runner.py`，更新消费端与测试 import。
 - 验证：unattended、heartbeat、cron 聚焦测试、Gateway 前台启动与关闭。
 
