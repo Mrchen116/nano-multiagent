@@ -120,12 +120,7 @@ def test_runtime_lifecycle_does_not_import_inbound_facade() -> None:
 
 
 def test_gateway_runtime_owns_only_coordinator_session_lifecycle() -> None:
-    main_source = _source("src/personal_assistant/main.py")
-    runtime_source = main_source[
-        main_source.index("class GatewayRuntime:") : main_source.index(
-            "def _load_runtime_config"
-        )
-    ]
+    runtime_source = _source("src/personal_assistant/gateway/runtime.py")
 
     assert "run_coordinator: SessionRunCoordinator" in runtime_source
     assert "self._run_coordinator" in runtime_source
@@ -150,7 +145,7 @@ def test_composition_builds_coordinator_before_public_heartbeat_wiring() -> None
     assert "run_queue=run_queue" not in build_source
     assert (
         "background_subscriptions=background_subscriptions"
-        not in build_source[build_source.rindex("return GatewayRuntime(") :]
+        not in build_source[build_source.rindex("return runtime.GatewayRuntime(") :]
     )
 
 
@@ -189,7 +184,7 @@ def test_config_sync_paths_share_one_mirror_decoder() -> None:
 
 
 def test_gateway_drains_im_outbound_frames_before_transport_close() -> None:
-    source = _source("src/personal_assistant/main.py")
+    source = _source("src/personal_assistant/gateway/runtime.py")
     shutdown = source[source.index("async def _run_until_shutdown") :]
 
     assert shutdown.index('"IM outbound drain"') < shutdown.index(
@@ -204,8 +199,8 @@ def test_foreground_and_unattended_session_capabilities_share_one_owner() -> Non
         method_name="resolve",
     )
     unattended_create = _method_node(
-        "src/personal_assistant/main.py",
-        class_name="_KernelClientShim",
+        "src/personal_assistant/gateway/kernel_client.py",
+        class_name="InProcessKernelClient",
         method_name="create_session",
     )
 

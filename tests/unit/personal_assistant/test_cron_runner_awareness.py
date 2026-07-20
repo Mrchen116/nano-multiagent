@@ -7,7 +7,7 @@ Covers:
 - Isolated cron turns do NOT enter the canonical direct-chat session
 - delete_after_run: job is removed from store after first execution
 - CronRunner respects cron_enabled gate
-- feat-394-M6 R1: CronRunner._submit_cron_job uses _KernelClientShim-compatible create_session signature
+- feat-394-M6 R1: CronRunner._submit_cron_job uses InProcessKernelClient-compatible create_session signature
 
 feat-394 decision C-awareness + decision 4.
 """
@@ -292,14 +292,14 @@ async def test_cron_runner_delete_after_run(tmp_path: Path) -> None:
 
 # ---------------------------------------------------------------------------
 # feat-394-M6 R1: durable contract tests — CronRunner must use
-# _KernelClientShim-compatible create_session (no session_id kwarg)
+# InProcessKernelClient-compatible create_session (no session_id kwarg)
 # ---------------------------------------------------------------------------
 
 
 class _ShimCompatibleKernelClient:
     """Strict shim-compatible fake that rejects unknown kwargs.
 
-    Mirrors the exact signature of _KernelClientShim.create_session:
+    Mirrors the exact signature of InProcessKernelClient.create_session:
       async def create_session(*, workspace_root, product_id, title, metadata)
     Any extra kwargs raise TypeError — identical to how the real shim behaves.
     """
@@ -316,7 +316,7 @@ class _ShimCompatibleKernelClient:
         title: str | None = None,
         metadata: dict | None = None,
     ) -> dict:
-        # Deliberately no session_id kwarg — mirrors real _KernelClientShim.
+        # Deliberately no session_id kwarg — mirrors real InProcessKernelClient.
         self._session_counter += 1
         self.called_with = {
             "workspace_root": workspace_root,
@@ -337,7 +337,7 @@ class _ShimCompatibleKernelClient:
 async def test_cron_runner_submit_no_session_id_kwarg_to_shim(tmp_path: Path) -> None:
     """CronRunner._submit_cron_job must NOT pass session_id to create_session.
 
-    feat-394-M6 R1 fix: _KernelClientShim.create_session has no session_id parameter.
+    feat-394-M6 R1 fix: InProcessKernelClient.create_session has no session_id parameter.
     Before the fix, cron_runner.py:96 passed session_id=isolated_session_id and crashed
     with: TypeError: create_session() got an unexpected keyword argument 'session_id'.
 
@@ -363,7 +363,7 @@ async def test_cron_runner_submit_no_session_id_kwarg_to_shim(tmp_path: Path) ->
     assert shim_client.called_with is not None, "create_session was never called"
     assert "session_id" not in (shim_client.called_with or {}), (
         "create_session must NOT receive session_id kwarg — "
-        "_KernelClientShim.create_session has no such parameter"
+        "InProcessKernelClient.create_session has no such parameter"
     )
     assert result is not None, "run result must be returned on success"
     run_id, kernel_session_id = result
