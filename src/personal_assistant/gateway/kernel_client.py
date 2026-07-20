@@ -8,7 +8,9 @@ from typing import TYPE_CHECKING
 from personal_assistant.config.local_store import resolve_run_model
 from personal_assistant.gateway.agent_catalog import LiveAgentCatalog, LiveAgentSnapshot
 from personal_assistant.gateway.session_binder import GatewaySessionBinder
-from personal_assistant.gateway.session_composition import project_agent_session_capabilities
+from personal_assistant.gateway.session_composition import (
+    project_agent_session_capabilities,
+)
 
 if TYPE_CHECKING:
     from agent.sdk import Kernel
@@ -206,5 +208,3 @@ class InProcessKernelClient:
 
     def close(self) -> None:
         pass
-
-
