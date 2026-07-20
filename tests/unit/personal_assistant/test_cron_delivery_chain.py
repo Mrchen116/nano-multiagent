@@ -105,7 +105,7 @@ class _FakeKernelForCron:
 
 
 class _FakeShimForCron:
-    """Shim-compatible fake for _KernelClientShim interface used by CronRunner."""
+    """Shim-compatible fake for InProcessKernelClient interface used by CronRunner."""
 
     def __init__(self) -> None:
         self.submitted: list[dict] = []

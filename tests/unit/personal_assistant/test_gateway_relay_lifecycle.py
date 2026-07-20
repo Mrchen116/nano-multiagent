@@ -36,8 +36,8 @@ from personal_assistant.gateway.runtime_delivery.lifecycle import (
 )
 from personal_assistant.gateway.runtime_delivery.observer import roll_bubble
 from personal_assistant.gateway.reply_visibility import ReplyVisibilityPolicy
+from personal_assistant.gateway.runtime import GatewayRuntime
 from personal_assistant.main import (
-    GatewayRuntime,
     GatewayStartupError,
     RuntimeFactories,
     _IMBootstrapClient,

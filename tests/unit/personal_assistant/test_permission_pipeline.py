@@ -373,7 +373,7 @@ class TestIMConnectionPermissionResponse:
 
 # Test 3 (TestKernelApiClientOrigin) deleted in refactor-387 M3:
 # KernelApiClient was removed. The origin field is now passed via kernel.submit()
-# RunOrigin enum in _KernelClientShim.submit_message.
+# RunOrigin enum in InProcessKernelClient.submit_message.
 
 
 # ---------------------------------------------------------------------------

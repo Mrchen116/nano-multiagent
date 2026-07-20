@@ -2,7 +2,7 @@
 
 These tests verify:
 1. RunOrigin.CRON exists and has value "cron"
-2. _KernelClientShim.submit_message maps origin="cron" → RunOrigin.CRON
+2. InProcessKernelClient.submit_message maps origin="cron" → RunOrigin.CRON
 3. auto_mode_gate._UNATTENDED_ORIGINS includes RunOrigin.CRON.value ("cron")
 """
 
@@ -40,11 +40,11 @@ def test_unattended_origins_includes_cron() -> None:
 
 
 def test_submit_message_maps_cron_origin(tmp_path: "Path") -> None:  # noqa: F821
-    """_KernelClientShim.submit_message must map origin='cron' → RunOrigin.CRON without AttributeError."""
+    """InProcessKernelClient.submit_message must map origin='cron' → RunOrigin.CRON without AttributeError."""
     from pathlib import Path
     from unittest.mock import MagicMock, patch
 
-    from personal_assistant.main import _KernelClientShim  # noqa: PLC2701
+    from personal_assistant.gateway.kernel_client import InProcessKernelClient
 
     captured_origin: list[RunOrigin] = []
 
@@ -62,7 +62,7 @@ def test_submit_message_maps_cron_origin(tmp_path: "Path") -> None:  # noqa: F82
     mock_kernel = MagicMock()
     mock_kernel.submit.side_effect = _fake_submit
 
-    shim = _KernelClientShim(mock_kernel)
+    shim = InProcessKernelClient(mock_kernel)
 
     # Must not raise AttributeError: type object 'RunOrigin' has no attribute 'SYSTEM'
     result = shim.submit_message(

@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from personal_assistant import main as personal_assistant_main
+from personal_assistant.gateway.runtime import GatewayRuntime
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -10,10 +11,10 @@ def test_personal_assistant_main_entry_exists() -> None:
     assert (REPO_ROOT / "src" / "personal_assistant" / "main.py").is_file()
 
 
-def test_personal_assistant_main_exports_runtime_lifecycle_controls() -> None:
-    assert hasattr(personal_assistant_main, "GatewayRuntime")
-    assert hasattr(personal_assistant_main.GatewayRuntime, "wait_until_ready")
-    assert hasattr(personal_assistant_main.GatewayRuntime, "request_shutdown")
+def test_gateway_runtime_exports_lifecycle_controls_from_its_owner() -> None:
+    assert not hasattr(personal_assistant_main, "GatewayRuntime")
+    assert hasattr(GatewayRuntime, "wait_until_ready")
+    assert hasattr(GatewayRuntime, "request_shutdown")
 
 
 def test_personal_assistant_main_does_not_define_relay_lifecycle_callback() -> None:
