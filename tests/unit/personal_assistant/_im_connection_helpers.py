@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
+import inspect
+from collections.abc import Callable, Mapping
 from pathlib import Path
+from typing import Any
 
 from personal_assistant.config.local_store import AgentWorkspaceConfig, NodeConfig
+from personal_assistant.gateway.managed_channel_control import (
+    ChannelStatusDirective,
+    ManagedChannelBindings,
+    ManagedChannelEmissionSource,
+)
 from personal_assistant.reporter.upstream_reporter import (
     UpstreamReporter,
     build_runtime_capabilities,
@@ -96,6 +104,65 @@ def _minimal_reporter(tmp_path: Path) -> UpstreamReporter:
         agents=agents,
         send_frame=lambda _mt, _p: None,
         capabilities=build_runtime_capabilities(kernel),
+    )
+
+
+def _managed_channel_bindings(
+    *,
+    apply_manifest: Callable[[Mapping[str, object]], object] | None = None,
+    reconnect: Callable[[str, int], object] | None = None,
+    acknowledge_reconcile: Callable[[Mapping[str, object]], object] | None = None,
+    handle_status_result: Callable[[Mapping[str, object]], object] | None = None,
+    reconcile_after_register: Callable[[], object] | None = None,
+) -> ManagedChannelBindings:
+    """Build explicit managed bindings for tests that exercise channel protocol frames."""
+
+    async def apply(payload: Mapping[str, object]) -> Mapping[str, object]:
+        result = apply_manifest(payload) if apply_manifest is not None else {}
+        if inspect.isawaitable(result):
+            result = await result
+        return dict(result) if isinstance(result, Mapping) else {}
+
+    async def reconnect_channel(channel_id: str, revision: int) -> None:
+        result = reconnect(channel_id, revision) if reconnect is not None else None
+        if inspect.isawaitable(result):
+            await result
+
+    def acknowledge(payload: Mapping[str, object]) -> None:
+        result = (
+            acknowledge_reconcile(payload)
+            if acknowledge_reconcile is not None
+            else None
+        )
+        if inspect.isawaitable(result):
+            raise TypeError("test reconcile acknowledgement must be synchronous")
+
+    async def handle_status(payload: Mapping[str, object]) -> ChannelStatusDirective:
+        result: Any = (
+            handle_status_result(payload) if handle_status_result is not None else None
+        )
+        if inspect.isawaitable(result):
+            result = await result
+        return (
+            result
+            if isinstance(result, ChannelStatusDirective)
+            else ChannelStatusDirective.CONTINUE
+        )
+
+    async def reconcile_registered(_sender: object) -> None:
+        result = (
+            reconcile_after_register() if reconcile_after_register is not None else None
+        )
+        if inspect.isawaitable(result):
+            await result
+
+    return ManagedChannelBindings(
+        apply_manifest=apply,
+        reconnect=reconnect_channel,
+        acknowledge_reconcile=acknowledge,
+        handle_status_result=handle_status,
+        reconcile_after_register=reconcile_registered,
+        emissions=ManagedChannelEmissionSource(),
     )
 
 

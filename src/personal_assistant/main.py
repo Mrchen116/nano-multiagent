@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import fcntl
-import hashlib
 import json
 import logging
 import os
@@ -17,7 +16,6 @@ import threading
 import time
 import tempfile
 import webbrowser
-from uuid import uuid4
 from collections.abc import Awaitable, Callable, Iterator, Mapping
 from contextlib import contextmanager, suppress
 from dataclasses import asdict, dataclass, replace
@@ -38,10 +36,7 @@ from personal_assistant.channels.web_relay_adapter import (
     WebRelayAdapter,
 )
 from personal_assistant.channels.feishu import FeishuAdapter
-from personal_assistant.channels.channel_credentials import (
-    GatewayChannelAad,
-    GatewayChannelKeyStore,
-)
+from personal_assistant.channels.channel_credentials import GatewayChannelKeyStore
 
 from personal_assistant.config.local_store import (
     ChannelConfig,
@@ -53,7 +48,6 @@ from personal_assistant.config.local_store import (
     default_local_config_path,
     ensure_feishu_doc_skill_for_feishu_agents,
     load_local_config,
-    migrate_managed_channels_to_credential_refs,
     resolve_run_model,
     save_local_config,
     save_sensitive_local_config,
@@ -61,23 +55,12 @@ from personal_assistant.config.local_store import (
 from personal_assistant.config.sync_client import ConfigSyncClient
 from personal_assistant.gateway.bootstrap import start_channels, stop_channels
 from personal_assistant.gateway.channel_registry import ChannelRegistry
-from personal_assistant.gateway.channel_manager import (
-    ChannelManager,
-    ChannelStatusSnapshot,
-    FeishuActivationPolicy,
-    ManagedChannelSpec,
-    ProviderMetadataReport,
-    ProviderRuntimeBuild,
+from personal_assistant.gateway.channel_manifest_store import ChannelManifestStore
+from personal_assistant.gateway.managed_channel_control import (
+    ManagedChannelBindings,
+    ManagedChannelConnectionSender,
+    ManagedChannelControl,
 )
-from personal_assistant.gateway.channel_manifest_store import (
-    CachedChannelSpec,
-    ChannelManifestStore,
-)
-from personal_assistant.gateway.channel_manifest_apply import (
-    CredentialEnvelopeContext,
-    apply_channel_manifest_payload,
-)
-from personal_assistant.channels.feishu.preflight import probe_feishu_runtime
 from personal_assistant.gateway.agent_catalog import LiveAgentCatalog, LiveAgentSnapshot
 from personal_assistant.gateway.agent_config_sync import (
     IMAgentConfigSync,
@@ -856,7 +839,7 @@ class GatewayRuntime:
         gateway_internal_port: int = 8089,
         kernel: object | None = None,
         cron_dispatcher: CronServiceRegistry | None = None,
-        channel_manager: ChannelManager | None = None,
+        managed_channel_control: ManagedChannelControl | None = None,
         run_coordinator: SessionRunCoordinator | None = None,
         runtime_delivery_tasks: RuntimeDeliveryTaskTracker | None = None,
     ) -> None:
@@ -879,7 +862,7 @@ class GatewayRuntime:
         # bugfix-402-M4: inject gateway loop into cron services so enqueue() from
         # worker threads (asyncio.to_thread) can schedule execute_fn correctly.
         self._cron_dispatcher = cron_dispatcher
-        self._channel_manager = channel_manager
+        self._managed_channel_control = managed_channel_control
         self._inbound_dispatcher = (
             on_inbound if isinstance(on_inbound, InboundDispatcher) else None
         )
@@ -970,8 +953,8 @@ class GatewayRuntime:
                     )
             start_channels(self._channel_registry, self._on_inbound)
             channels_started = True
-            if self._channel_manager is not None:
-                await self._channel_manager.start_cached()
+            if self._managed_channel_control is not None:
+                await self._managed_channel_control.start_cached()
             await self._run_skill_maintenance()
             self._install_skill_batch_review_scheduler()
             self._ready_event.set()
@@ -1025,11 +1008,11 @@ class GatewayRuntime:
                 self._run_shutdown_action(
                     "cron request_stop", self._cron_dispatcher.request_stop
                 )
-            if self._channel_manager is not None:
+            if self._managed_channel_control is not None:
                 await self._run_shutdown_operation(
                     "managed channel close",
                     inner_deadline,
-                    self._channel_manager.close,
+                    self._managed_channel_control.close,
                 )
             if channels_started:
                 self._run_shutdown_action(
@@ -2172,7 +2155,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     _canonical_session_store: dict[str, str] = {}
     reporter: UpstreamReporter | None = None
     im_connection_manager: IMConnectionManager | None = None
-    channel_manager: ChannelManager | None = None
+    managed_channel_control: ManagedChannelControl | None = None
     im_bootstrap_client: _IMBootstrapClient | None = None
     im_config_sync_client: IMAgentConfigSync | None = None
     run_delivery_contexts = RunDeliveryContextStore()
@@ -2250,22 +2233,6 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             key_id=channel_key.key_id,
         )
 
-        def _open_cached_channel(item: CachedChannelSpec) -> Mapping[str, str]:
-            cached = channel_manifest_store.load_manifest()
-            if cached is None:
-                raise ValueError("channel manifest cache is empty")
-            return channel_key.open(
-                envelope=item.credential_envelope,
-                aad=GatewayChannelAad(
-                    owner_id=cached.owner_id,
-                    node_id=cached.node_id,
-                    agent_id=item.agent_id,
-                    channel_id=item.channel_id,
-                    provider=item.provider,
-                    credential_revision=item.credential_revision,
-                ),
-            )
-
         reporter = UpstreamReporter(
             node=config.node,
             agents=config.agents,
@@ -2330,304 +2297,6 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         # callback handles all permission decisions in-process (design decision 3).
         _im_sync_client = ConfigSyncClient(fetcher=im_config_sync_client.sync_agent)
 
-        def _activate_feishu_skill(agent_id: str) -> bool:
-            agent = im_config_sync_client._local_agent(agent_id)  # noqa: SLF001
-            if agent is None:
-                return False
-            im_config_sync_client._enable_created_skill_for_agent(  # noqa: SLF001
-                agent, "feishu-doc"
-            )
-            updated = im_config_sync_client._local_agent(agent_id)  # noqa: SLF001
-            return updated is not None and (
-                not updated.skills or "feishu-doc" in updated.skills
-            )
-
-        def _send_channel_status(snapshot: ChannelStatusSnapshot) -> None:
-            generation = snapshot.generation
-            payload = {
-                "request_id": uuid4().hex,
-                "node_id": config.node.node_id,
-                "channel_id": snapshot.channel_id,
-                "provider_identity_fingerprint": generation.provider_identity_fingerprint,
-                "provider_identity_revision": generation.provider_identity_revision,
-                "channel_revision": generation.channel_revision,
-                "credential_revision": generation.credential_revision,
-                "runtime_incarnation": snapshot.runtime_incarnation,
-                "status_sequence": snapshot.status_sequence,
-                "instance_started": snapshot.instance_started,
-                "connection_state": snapshot.connection_state,
-                "diagnostics_state": snapshot.diagnostics_state,
-                "status_code": snapshot.status_code,
-                "status_message": snapshot.status_message,
-                "checks": [dict(item) for item in snapshot.checks],
-            }
-            sendable = channel_manifest_store.record_channel_status(payload)
-            connection = im_connection_manager
-            if connection is not None and sendable is not None:
-                connection.send_json_threadsafe("channel.status", sendable)
-
-        def _send_provider_metadata(report: ProviderMetadataReport) -> None:
-            connection = im_connection_manager
-            if connection is None:
-                return
-            generation = report.generation
-            connection.send_json_threadsafe(
-                "channel.runtime_metadata",
-                {
-                    "request_id": uuid4().hex,
-                    "node_id": config.node.node_id,
-                    "channel_id": report.channel_id,
-                    "provider_runtime_patch": dict(report.patch),
-                    "provider_identity_fingerprint": generation.provider_identity_fingerprint,
-                    "provider_identity_revision": generation.provider_identity_revision,
-                    "channel_revision": generation.channel_revision,
-                    "credential_revision": generation.credential_revision,
-                },
-            )
-
-        def _build_managed_feishu(
-            spec: ManagedChannelSpec,
-            metadata_binder: Callable[[dict[str, str]], dict[str, str] | None],
-            status_handler: Callable[..., bool],
-        ) -> ProviderRuntimeBuild:
-            app_id = str(spec.config.get("app_id") or "").strip()
-            app_secret = str(spec.credentials.get("app_secret") or "").strip()
-            if not app_id or not app_secret:
-                raise ValueError("Feishu credentials are required")
-            metadata = dict(spec.provider_runtime)
-            preflight = probe_feishu_runtime(
-                app_id=app_id,
-                app_secret=app_secret,
-                domain="https://open.feishu.cn",
-            )
-            bot_open_id = metadata.get("bot_open_id") or preflight.bot_open_id
-
-            def bind_owner(_channel_name: str, sender_open_id: str) -> str | None:
-                bound = metadata_binder({"owner_open_id": sender_open_id})
-                return bound.get("owner_open_id") if bound else None
-
-            def forward_status(worker_status: object) -> None:
-                status_handler(
-                    status_sequence=getattr(worker_status, "status_sequence"),
-                    connection_state=getattr(worker_status, "connection_state"),
-                    diagnostics_state=getattr(
-                        worker_status, "diagnostics_state", "unknown"
-                    ),
-                    status_code=getattr(worker_status, "status_code", None),
-                    status_message=getattr(worker_status, "status_message", None),
-                    checks=getattr(worker_status, "checks", ()),
-                )
-
-            return ProviderRuntimeBuild(
-                adapter=FeishuAdapter(
-                    name=f"feishu:{spec.agent_id}",
-                    app_id=app_id,
-                    app_secret=app_secret,
-                    bot_open_id=bot_open_id,
-                    owner_open_id=metadata.get("owner_open_id"),
-                    owner_open_id_binder=bind_owner,
-                    permission_decision_callback=permission_response_handler,
-                    group_context_store=group_context_store,
-                    status_callback=forward_status,
-                ),
-                initial_metadata={"bot_open_id": preflight.bot_open_id},
-            )
-
-        async def _apply_channel_manifest(
-            body: Mapping[str, object],
-        ) -> Mapping[str, object]:
-            def open_credentials(
-                context: CredentialEnvelopeContext,
-            ) -> Mapping[str, str]:
-                return channel_key.open(
-                    envelope=context.envelope,
-                    aad=GatewayChannelAad(
-                        owner_id=context.owner_id,
-                        node_id=context.node_id,
-                        agent_id=context.agent_id,
-                        channel_id=context.channel_id,
-                        provider=context.provider,
-                        credential_revision=context.credential_revision,
-                    ),
-                )
-
-            return await apply_channel_manifest_payload(
-                body=body,
-                node_id=config.node.node_id,
-                credential_key_id=channel_key.key_id,
-                credential_opener=open_credentials,
-                manager=channel_manager,
-            )
-
-        bootstrap_credential_refs: dict[str, str] = {}
-
-        def _legacy_bootstrap_items(
-            request: Mapping[str, object],
-        ) -> list[Mapping[str, object]]:
-            current_config = config_owner.snapshot()
-            owner_id = str(request.get("owner_id") or "")
-            items: list[Mapping[str, object]] = []
-            bootstrap_credential_refs.clear()
-            for channel in current_config.channels:
-                if not channel.name.startswith("feishu:"):
-                    continue
-                app_secret = channel.settings.get("appSecret")
-                app_id = channel.settings.get("appId")
-                agent_id = channel.name.removeprefix("feishu:")
-                if not (
-                    owner_id
-                    and agent_id
-                    and isinstance(app_id, str)
-                    and app_id.strip()
-                    and isinstance(app_secret, str)
-                    and app_secret.strip()
-                ):
-                    continue
-                digest = hashlib.sha256(
-                    f"{current_config.node.node_id}\0{channel.name}".encode()
-                ).hexdigest()[:24]
-                channel_id = f"ch_legacy_{digest}"
-                aad = GatewayChannelAad(
-                    owner_id=owner_id,
-                    node_id=current_config.node.node_id,
-                    agent_id=agent_id,
-                    channel_id=channel_id,
-                    provider="feishu",
-                    credential_revision=1,
-                )
-                runtime = {
-                    key: value
-                    for key, source in (
-                        ("owner_open_id", "ownerOpenId"),
-                        ("bot_open_id", "botOpenId"),
-                    )
-                    if isinstance((value := channel.settings.get(source)), str)
-                    and value
-                }
-                items.append(
-                    {
-                        "channel_id": channel_id,
-                        "agent_id": agent_id,
-                        "provider": "feishu",
-                        "enabled": channel.enabled,
-                        "config": {"app_id": app_id.strip()},
-                        "credential_envelope": channel_key.seal(
-                            secret={"app_secret": app_secret.strip()}, aad=aad
-                        ),
-                        "credential_key_id": channel_key.key_id,
-                        "credential_revision": 1,
-                        "provider_runtime": runtime,
-                    }
-                )
-                bootstrap_credential_refs[channel.name] = (
-                    f"channel-manifest:{channel_id}"
-                )
-            return items
-
-        def _mark_legacy_bootstrap_cached() -> None:
-            if not bootstrap_credential_refs:
-                return
-            try:
-                config_owner.persist(
-                    lambda current: replace(
-                        current,
-                        channels=migrate_managed_channels_to_credential_refs(
-                            current.channels,
-                            credential_refs=bootstrap_credential_refs,
-                        ),
-                    ),
-                    save_config=save_sensitive_local_config,
-                )
-            except Exception:  # noqa: BLE001
-                _log.warning(
-                    "channel bootstrap cache committed but legacy YAML cleanup failed",
-                    exc_info=True,
-                )
-
-        def _ack_channel_reconcile(payload: Mapping[str, object]) -> None:
-            token_outcomes = payload.get("removal_token_outcomes")
-            channel_manifest_store.ack_reconcile_result(
-                head_outcome=str(payload.get("head_outcome") or ""),
-                manifest_revision=int(payload.get("manifest_revision") or 0),
-                removal_token_outcomes=[
-                    item for item in token_outcomes if isinstance(item, Mapping)
-                ]
-                if isinstance(token_outcomes, list)
-                else [],
-            )
-
-        def _log_channel_status_retry(task: asyncio.Task[None]) -> None:
-            try:
-                task.result()
-            except asyncio.CancelledError:
-                return
-            except Exception:  # noqa: BLE001
-                _log.warning("channel status retry failed", exc_info=True)
-
-        async def _handle_channel_status_result(
-            payload: Mapping[str, object],
-        ) -> None:
-            request_id = str(payload.get("request_id") or "")
-            outcome = str(payload.get("outcome") or "")
-            ack = channel_manifest_store.apply_channel_status_result(
-                request_id=request_id,
-                outcome=outcome,
-            )
-            if ack is None:
-                return
-            await channel_manager.handle_status_result(
-                channel_id=ack.channel_id,
-                channel_revision=ack.channel_revision,
-                outcome=ack.outcome,
-            )
-            connection = im_connection_manager
-            if connection is None:
-                return
-            if ack.outcome == "fatal_owner_mismatch":
-                await connection.close()
-                return
-            if ack.next_payload is None:
-                return
-
-            async def _send_unblocked_status(*, delay: float = 0.0) -> None:
-                if delay:
-                    await asyncio.sleep(delay)
-                current = im_connection_manager
-                next_request_id = str(ack.next_payload.get("request_id") or "")
-                if delay and not any(
-                    status.get("request_id") == next_request_id
-                    for status in channel_manifest_store.pending_channel_statuses()
-                ):
-                    return
-                if current is None or current.has_pending_request(next_request_id):
-                    return
-                await current.send_json("channel.status", ack.next_payload)
-
-            if ack.outcome == "retryable_store_busy":
-                task = asyncio.create_task(
-                    _send_unblocked_status(delay=0.5),
-                    name=f"channel-status-retry:{ack.channel_id}",
-                )
-                task.add_done_callback(_log_channel_status_retry)
-            else:
-                await _send_unblocked_status()
-
-        async def _reconnect_managed_channel(
-            channel_id: str, channel_revision: int
-        ) -> None:
-            cached = channel_manifest_store.load_manifest()
-            desired = (
-                next(
-                    (item for item in cached.channels if item.channel_id == channel_id),
-                    None,
-                )
-                if cached is not None
-                else None
-            )
-            if desired is None or desired.channel_revision != channel_revision:
-                raise LookupError("channel reconnect revision is stale")
-            await channel_manager.reconnect(channel_id)
-
         im_bootstrap_client = _IMBootstrapClient(
             base_url=normalize_im_http_base_url(config.im_service.url),
             token=config.im_service.token,
@@ -2641,7 +2310,9 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         # ensure_node_binding 对已绑定节点幂等（return None），其失败都是连接恢复期
         # 的瞬态条件或需人工处理的绑定问题。两者都不能阻断 agent reconcile；失败先
         # 以 degraded heartbeat 暴露给 IM，再让配置对账继续收敛。
-        async def _reconcile_on_connect() -> None:
+        async def _reconcile_on_connect(
+            connection: ManagedChannelConnectionSender,
+        ) -> None:
             try:
                 await asyncio.to_thread(
                     im_bootstrap_client.ensure_node_binding,
@@ -2659,36 +2330,20 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                 )
                 _log.warning("IM node binding failed during reconnect: %s", summary)
                 _emit_gateway_feedback("ERROR", summary, next_step)
-                if im_connection_manager is not None:
-                    try:
-                        await im_connection_manager.send_json(
-                            "node.heartbeat",
-                            reporter.send_heartbeat(
-                                status="degraded", last_error=heartbeat_last_error
-                            ),
-                        )
-                    except Exception as heartbeat_exc:  # noqa: BLE001
-                        _log.warning(
-                            "failed to send degraded IM heartbeat after binding failure: %s",
-                            heartbeat_exc,
-                        )
-            if im_connection_manager is not None:
-                for status in channel_manifest_store.pending_channel_statuses():
-                    request_id = str(status.get("request_id") or "")
-                    if not im_connection_manager.has_pending_request(request_id):
-                        await im_connection_manager.send_json("channel.status", status)
-            channel_manager.replay_provider_metadata()
-            channel_manager.retry_pending_activations()
-            pending_result = channel_manifest_store.pending_reconcile_result()
-            if pending_result is not None and im_connection_manager is not None:
-                await im_connection_manager.send_json(
-                    "channel.reconcile.result",
-                    {
-                        "request_id": uuid4().hex,
-                        "node_id": config.node.node_id,
-                        **pending_result,
-                    },
-                )
+                try:
+                    await connection.send_json(
+                        "node.heartbeat",
+                        reporter.send_heartbeat(
+                            status="degraded", last_error=heartbeat_last_error
+                        ),
+                    )
+                except Exception as heartbeat_exc:  # noqa: BLE001
+                    _log.warning(
+                        "failed to send degraded IM heartbeat after binding failure: %s",
+                        heartbeat_exc,
+                    )
+            if managed_channel_control is not None:
+                await managed_channel_control.reconcile_after_register(connection)
             memory_versions = {
                 agent_id: ver
                 for agent_id in (a.agent_id for a in config.agents)
@@ -2759,15 +2414,16 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     )
     inbound_dispatcher = InboundDispatcher(pipeline)
     if config.im_service is not None:
-        channel_manager = ChannelManager(
+        assert im_config_sync_client is not None
+        managed_channel_control = ManagedChannelControl(
+            node_id=config.node.node_id,
+            channel_key=channel_key,
+            manifest_store=channel_manifest_store,
             registry=channel_registry,
             on_inbound=inbound_dispatcher,
-            provider_factories={"feishu": _build_managed_feishu},
-            status_sink=_send_channel_status,
-            metadata_sink=_send_provider_metadata,
-            activation_policy=FeishuActivationPolicy(_activate_feishu_skill),
-            manifest_store=channel_manifest_store,
-            credential_opener=_open_cached_channel,
+            agent_config_sync=im_config_sync_client,
+            group_context_store=group_context_store,
+            permission_decision_callback=permission_response_handler,
         )
 
     # bugfix-402-M4 R4 / bugfix-402-M6: build per-agent CronExecutionService and
@@ -2947,12 +2603,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             token_getter=_token_getter,
             permission_response_handler=permission_response_handler,
             on_connected=_reconcile_on_connect,
-            channel_manifest_handler=_apply_channel_manifest,
-            channel_reconnect_handler=_reconnect_managed_channel,
-            channel_reconcile_ack_handler=_ack_channel_reconcile,
-            channel_status_result_handler=_handle_channel_status_result,
-            channel_bootstrap_provider=_legacy_bootstrap_items,
-            channel_bootstrap_applied_handler=_mark_legacy_bootstrap_cached,
+            managed_channel_bindings=managed_channel_control.connection_bindings(),
         )
 
     # bugfix-402-M3 R3: kernel is closed explicitly via GatewayRuntime(kernel=) and
@@ -2979,7 +2630,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         internal_dispatch_endpoint=_internal_dispatch_endpoint,
         kernel=kernel,
         cron_dispatcher=_cron_dispatcher,
-        channel_manager=channel_manager,
+        managed_channel_control=managed_channel_control,
         run_coordinator=run_coordinator,
         runtime_delivery_tasks=runtime_delivery_tasks,
         gateway_internal_port=_gateway_internal_port,
@@ -3404,22 +3055,7 @@ def _build_im_connection_manager(
     token_getter: Callable[[], Awaitable[str | None]] | None = None,
     permission_response_handler: Callable[[Mapping[str, object]], bool] | None = None,
     on_connected: Callable[[], Awaitable[None]] | None = None,
-    channel_manifest_handler: Callable[
-        [Mapping[str, object]], Awaitable[Mapping[str, object]] | Mapping[str, object]
-    ]
-    | None = None,
-    channel_reconnect_handler: Callable[[str, int], Awaitable[object] | object]
-    | None = None,
-    channel_reconcile_ack_handler: Callable[[Mapping[str, object]], None] | None = None,
-    channel_status_result_handler: Callable[
-        [Mapping[str, object]], Awaitable[None] | None
-    ]
-    | None = None,
-    channel_bootstrap_provider: Callable[
-        [Mapping[str, object]], list[Mapping[str, object]]
-    ]
-    | None = None,
-    channel_bootstrap_applied_handler: Callable[[], None] | None = None,
+    managed_channel_bindings: ManagedChannelBindings | None = None,
 ) -> IMConnectionManager:
     im_service = config.im_service
     if im_service is None:
@@ -3440,12 +3076,7 @@ def _build_im_connection_manager(
         connect=_connect_websocket,
         permission_response_handler=permission_response_handler,
         on_connected=on_connected,
-        channel_manifest_handler=channel_manifest_handler,
-        channel_reconnect_handler=channel_reconnect_handler,
-        channel_reconcile_ack_handler=channel_reconcile_ack_handler,
-        channel_status_result_handler=channel_status_result_handler,
-        channel_bootstrap_provider=channel_bootstrap_provider,
-        channel_bootstrap_applied_handler=channel_bootstrap_applied_handler,
+        managed_channel_bindings=managed_channel_bindings,
     )
 
 

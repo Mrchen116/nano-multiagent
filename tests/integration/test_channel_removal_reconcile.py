@@ -21,6 +21,7 @@ from tests.unit.personal_assistant._im_connection_helpers import (
     _FakeWebSocket,
     _agents,
     _connect_fake,
+    _managed_channel_bindings,
 )
 
 
@@ -278,11 +279,13 @@ def test_gateway_consumes_manual_reconnect_and_per_token_result_ack(
         config=IMConnectionConfig(url="http://im.local"),
         reporter=reporter,
         relay_adapter=relay,
-        channel_reconnect_handler=lambda channel_id, revision: reconnects.append(
-            (channel_id, revision)
-        ),
-        channel_reconcile_ack_handler=lambda payload: acknowledgements.append(
-            dict(payload)
+        managed_channel_bindings=_managed_channel_bindings(
+            reconnect=lambda channel_id, revision: reconnects.append(
+                (channel_id, revision)
+            ),
+            acknowledge_reconcile=lambda payload: acknowledgements.append(
+                dict(payload)
+            ),
         ),
         connect=lambda url, headers: _connect_fake(socket, [], url, headers),
     )

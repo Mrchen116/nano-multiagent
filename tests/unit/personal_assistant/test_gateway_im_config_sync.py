@@ -595,6 +595,87 @@ def test_skill_created_agent_scope_only_enables_executing_agent(
     assert owners.catalog.require("agent-b").revision == agent_b_revision
 
 
+def test_ensure_agent_skill_enabled_updates_explicit_local_allowlist(
+    tmp_path: Path,
+) -> None:
+    """A managed Feishu runtime enables its declared skill through the public API."""
+    workspace_root = tmp_path / "agent-a"
+    skills = ["existing-skill"]
+    version = 1
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        nonlocal version, skills
+        body = (
+            dict(json.loads(request.content.decode("utf-8")))
+            if request.content
+            else None
+        )
+        if request.method == "GET":
+            return httpx.Response(
+                200,
+                json={
+                    "agent_id": "agent-a",
+                    "display_name": "Agent A",
+                    "description": "",
+                    "system_prompt": "",
+                    "skills": skills,
+                    "tool_allowlist": [],
+                    "group_reply_policy": "manual",
+                    "default_model": None,
+                    "workspace_root": str(workspace_root),
+                    "profile_version": version,
+                    "features": {},
+                    "custom_prompt": None,
+                },
+            )
+        assert request.method == "PATCH"
+        assert body is not None
+        skills = list(body["skills"])
+        version += 1
+        return httpx.Response(
+            200,
+            json={**body, "agent_id": "agent-a", "profile_version": version},
+        )
+
+    local_config = LocalConfig(
+        node=NodeConfig(node_id="node-1"),
+        agents=(
+            AgentWorkspaceConfig(
+                agent_id="agent-a",
+                workspace_root=workspace_root,
+                skills=("existing-skill",),
+            ),
+        ),
+        channels=(),
+        gateway=GatewayLifecycleConfig(),
+        heartbeat=HeartbeatConfig(),
+        im_service=None,
+        llm=_DEFAULT_TEST_LLM,
+        source_path=tmp_path / "config.yaml",
+    )
+    owners = build_config_sync_test_owners(local_config)
+    sync = _IMConfigSyncClient(
+        base_url="http://im.local",
+        token=None,
+        **owners.kwargs(),
+        local_config=local_config,
+        client=httpx.Client(
+            transport=httpx.MockTransport(_handler),
+            base_url="http://im.local",
+            trust_env=False,
+        ),
+        monotonic=lambda: 0.0,
+        sleep=lambda _: None,
+    )
+
+    assert sync.ensure_agent_skill_enabled("agent-a", "feishu-doc") is True
+    assert owners.catalog.require("agent-a").config.skills == (
+        "existing-skill",
+        "feishu-doc",
+    )
+    assert sync.ensure_agent_skill_enabled("missing", "feishu-doc") is False
+
+
 def test_sync_agent_passes_through_features(tmp_path: Path) -> None:
     """sync_agent must write features from IM payload into AgentWorkspaceConfig."""
     workspace_root = tmp_path / "ws"

@@ -7,9 +7,20 @@ import json
 from pathlib import Path
 
 from personal_assistant.channels.web_relay_adapter import WebRelayAdapter
+from personal_assistant.gateway.managed_channel_control import (
+    ChannelStatusDirective,
+    ChannelStatusEmission,
+    ManagedChannelBindings,
+    ManagedChannelEmissionSource,
+)
 from personal_assistant.ws.im_connection import IMConnectionConfig, IMConnectionManager
 
-from ._im_connection_helpers import _FakeWebSocket, _connect_fake, _minimal_reporter
+from ._im_connection_helpers import (
+    _FakeWebSocket,
+    _connect_fake,
+    _managed_channel_bindings,
+    _minimal_reporter,
+)
 
 
 def _status(request_id: str, *, incarnation: str, sequence: int) -> dict[str, object]:
@@ -67,7 +78,9 @@ def test_status_coalescing_cannot_remove_frame_after_wire_send_begins(
         config=IMConnectionConfig(url="http://im.local"),
         reporter=_minimal_reporter(tmp_path),
         relay_adapter=relay,
-        channel_status_result_handler=handle_status,
+        managed_channel_bindings=_managed_channel_bindings(
+            handle_status_result=handle_status
+        ),
         connect=lambda url, headers: _connect_fake(socket, [], url, headers),
     )
 
@@ -128,6 +141,184 @@ def test_status_coalescing_cannot_remove_frame_after_wire_send_begins(
     assert resolved == ["status-old", "status-new"]
 
 
+def test_fatal_status_directive_closes_before_later_business_frame_flushes(
+    tmp_path: Path,
+) -> None:
+    """A fatal status result closes in the receive stack before FIFO advances."""
+    socket = _FakeWebSocket(
+        incoming=[
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "channel.status.result",
+                    "payload": {
+                        "request_id": "status-fatal",
+                        "outcome": "fatal_owner_mismatch",
+                    },
+                }
+            ),
+        ]
+    )
+    relay = WebRelayAdapter()
+    relay.start(lambda _message: None)
+
+    async def apply_manifest(_payload: dict[str, object]) -> dict[str, object]:
+        return {}
+
+    async def reconnect(_channel_id: str, _revision: int) -> None:
+        return None
+
+    async def handle_status(_payload: dict[str, object]) -> ChannelStatusDirective:
+        return ChannelStatusDirective.CLOSE_CONNECTION
+
+    async def reconcile_after_register(_sender: object) -> None:
+        return None
+
+    bindings = ManagedChannelBindings(
+        apply_manifest=apply_manifest,
+        reconnect=reconnect,
+        acknowledge_reconcile=lambda _payload: None,
+        handle_status_result=handle_status,
+        reconcile_after_register=reconcile_after_register,
+        emissions=ManagedChannelEmissionSource(),
+    )
+    manager = IMConnectionManager(
+        config=IMConnectionConfig(url="http://im.local"),
+        reporter=_minimal_reporter(tmp_path),
+        relay_adapter=relay,
+        managed_channel_bindings=bindings,
+        connect=lambda url, headers: _connect_fake(socket, [], url, headers),
+    )
+
+    async def exercise() -> None:
+        await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001 - establish registration
+        await manager.send_json(
+            "channel.status",
+            _status("status-fatal", incarnation="inc-a", sequence=2),
+        )
+        await manager.send_json("node.report", {"status": "healthy"})
+        await manager._listen_once()  # noqa: SLF001 - consume fatal result
+
+    asyncio.run(exercise())
+
+    assert socket.closed == 1
+    assert [json.loads(frame)["type"] for frame in socket.sent] == [
+        "node.register",
+        "channel.status",
+    ]
+
+
+def test_pre_register_managed_emission_is_not_retained_in_wire_fifo(
+    tmp_path: Path,
+) -> None:
+    """A pre-register provider wake-up is discarded before it can enter the FIFO."""
+    socket = _FakeWebSocket(
+        incoming=[
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}})
+        ]
+    )
+    relay = WebRelayAdapter()
+    relay.start(lambda _message: None)
+    emissions = ManagedChannelEmissionSource()
+    manager = IMConnectionManager(
+        config=IMConnectionConfig(url="http://im.local"),
+        reporter=_minimal_reporter(tmp_path),
+        relay_adapter=relay,
+        managed_channel_bindings=ManagedChannelBindings(
+            apply_manifest=lambda _payload: _empty_manifest_result(),
+            reconnect=lambda _channel_id, _revision: _completed(),
+            acknowledge_reconcile=lambda _payload: None,
+            handle_status_result=lambda _payload: _continue_status(),
+            reconcile_after_register=lambda _sender: _completed(),
+            emissions=emissions,
+        ),
+        connect=lambda url, headers: _connect_fake(socket, [], url, headers),
+    )
+
+    async def exercise() -> None:
+        await manager.connect_once()
+        emissions.publish(
+            ChannelStatusEmission(
+                _status("pre-register", incarnation="inc-a", sequence=1)
+            )
+        )
+        await asyncio.sleep(0)
+        await manager._listen_once()  # noqa: SLF001 - accept registration
+
+    asyncio.run(exercise())
+
+    assert [json.loads(frame)["type"] for frame in socket.sent] == ["node.register"]
+
+
+def test_disconnected_managed_emission_is_not_retained_in_wire_fifo(
+    tmp_path: Path,
+) -> None:
+    """A durable status is replayed after registration, never from a stale FIFO."""
+    first_socket = _FakeWebSocket(
+        incoming=[
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}})
+        ]
+    )
+    second_socket = _FakeWebSocket(
+        incoming=[
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}})
+        ]
+    )
+    sockets = [first_socket, second_socket]
+    relay = WebRelayAdapter()
+    relay.start(lambda _message: None)
+    emissions = ManagedChannelEmissionSource()
+
+    manager = IMConnectionManager(
+        config=IMConnectionConfig(url="http://im.local"),
+        reporter=_minimal_reporter(tmp_path),
+        relay_adapter=relay,
+        managed_channel_bindings=ManagedChannelBindings(
+            apply_manifest=lambda _payload: _empty_manifest_result(),
+            reconnect=lambda _channel_id, _revision: _completed(),
+            acknowledge_reconcile=lambda _payload: None,
+            handle_status_result=lambda _payload: _continue_status(),
+            reconcile_after_register=lambda _sender: _completed(),
+            emissions=emissions,
+        ),
+        connect=lambda url, headers: _connect_fake(sockets.pop(0), [], url, headers),
+    )
+
+    async def exercise() -> None:
+        await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001 - establish registration
+        await manager._disconnect_current_websocket(  # noqa: SLF001
+            RuntimeError("socket dropped")
+        )
+        emissions.publish(
+            ChannelStatusEmission(
+                _status("durable-status", incarnation="inc-a", sequence=1)
+            )
+        )
+        await asyncio.sleep(0)
+        await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001 - establish next registration
+
+    asyncio.run(exercise())
+
+    assert [json.loads(frame)["type"] for frame in second_socket.sent] == [
+        "node.register"
+    ]
+
+
+async def _empty_manifest_result() -> dict[str, object]:
+    return {}
+
+
+async def _completed() -> None:
+    return None
+
+
+async def _continue_status() -> ChannelStatusDirective:
+    return ChannelStatusDirective.CONTINUE
+
+
 def test_new_incarnation_supersedes_disconnected_unacked_status_on_next_socket(
     tmp_path: Path,
 ) -> None:
@@ -173,7 +364,9 @@ def test_new_incarnation_supersedes_disconnected_unacked_status_on_next_socket(
         config=IMConnectionConfig(url="http://im.local"),
         reporter=_minimal_reporter(tmp_path),
         relay_adapter=relay,
-        channel_status_result_handler=handle_status,
+        managed_channel_bindings=_managed_channel_bindings(
+            handle_status_result=handle_status
+        ),
         connect=connect,
     )
 
