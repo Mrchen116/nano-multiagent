@@ -23,6 +23,15 @@ def test_personal_assistant_main_does_not_define_relay_lifecycle_callback() -> N
     assert "def _build_relay_lifecycle_callback(" not in source
 
 
+def test_personal_assistant_main_uses_lifecycle_owners_by_module() -> None:
+    source = (REPO_ROOT / "src" / "personal_assistant" / "main.py").read_text()
+
+    assert "from personal_assistant.gateway.im_bootstrap import" not in source
+    assert "from personal_assistant.gateway.process_lifecycle import" not in source
+    assert "process_lifecycle.launch_gateway_in_background(" in source
+    assert "im_bootstrap.IMBootstrapClient(" in source
+
+
 def test_runtime_delivery_observer_keeps_typed_store_owner_at_entry() -> None:
     source = (
         REPO_ROOT
