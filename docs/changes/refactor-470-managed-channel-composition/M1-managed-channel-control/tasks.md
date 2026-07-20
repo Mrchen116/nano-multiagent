@@ -31,12 +31,12 @@
 - 步骤：扩展 bootstrap integration regression，删除 migration/export 与专属测试、transport callback。
 - 验证：相关 bootstrap 与 sensitive-config 测试；真实 IM WebSocket bootstrap 请求返回空 items。
 
-### R2 — 建立 managed control 边界与 typed bindings（TODO）
+### R2 — 建立 managed control 边界与 typed bindings（DONE）
 
 - 步骤：实现 `ManagedChannelControl`、typed bindings/directive 与 upstream mailbox；将 control 策略移出入口并接入 `IMConnectionManager`。
 - 验证：新 owner unit、channel manager/status/outbox/reconcile 测试，以及 fatal directive receive-stack close regression。
 
-### R3 — 收口 public skill activation 与入口 wiring（TODO）
+### R3 — 收口 public skill activation 与入口 wiring（DONE）
 
 - 步骤：提供 `IMAgentConfigSync.ensure_agent_skill_enabled()`，删除私有穿透和 nullable connection closure；由 mailbox 以现有 FIFO 投递 emission。
 - 验证：agent config sync/channel 集成测试、相关 ruff；worktree 真 Gateway/IM 入口检查。
