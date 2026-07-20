@@ -33,11 +33,11 @@
   - Entry: `./scripts/e2e-up.sh` 后检查隔离 IM 的 `channel_manifest_heads`：Gateway 完成 bootstrap，`manifest_revision == 1`、`initialized_at` 非空、`agent_channels` 为 0；随后 `./scripts/e2e-down.sh` 清理 IM 与 Gateway。
   - Frontend State Matrix: N/A。
   - Browser QA: N/A。
-  - E2E/Regression: `tests/unit/personal_assistant/test_managed_channel_control.py` 覆盖 public control 的 fail-closed apply、status directive 和 durable register replay；`test_gateway_status_frame_ownership.py::test_disconnected_managed_emission_is_not_retained_in_wire_fifo` 覆盖断线 mailbox 不进入下一连接 FIFO；fatal status receive-stack close regression 继续通过。
+  - E2E/Regression: `tests/unit/personal_assistant/test_managed_channel_control.py` 覆盖 public control 的 fail-closed apply、status directive 和 durable register replay；`test_gateway_status_frame_ownership.py::test_pre_register_managed_emission_is_not_retained_in_wire_fifo` 与 `test_disconnected_managed_emission_is_not_retained_in_wire_fifo` 覆盖注册前和断线 mailbox 均不进入 wire FIFO；fatal status receive-stack close regression 继续通过。
   - Visual/Interaction: N/A。
   - Prototype Comparison: N/A。
 - Rollback: revert `3cbd614a6` 与 `df9d6601a`。
-- Commits: C1=`df9d6601a`，C2=`3cbd614a6`，C3=本提交。
+- Commits: C1=`df9d6601a`，C2=`3cbd614a6`，C3=`44d8de526`；后续 race regression=`3c8b48015`。
 - Next: R3 收口公开 skill activation 与入口 wiring。
 
 ### R3 — 收口 public skill activation 与入口 wiring
