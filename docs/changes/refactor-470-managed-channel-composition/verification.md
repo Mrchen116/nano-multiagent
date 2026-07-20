@@ -215,3 +215,55 @@ requires_full_verification: true
 - 无。
 
 1 critical issue(s) found. Fix before PR.
+
+# Round 5
+
+## Summary
+
+Mode: targeted-closure
+
+Delta range: `c9a605839..7dc223513`
+
+Focus issues:
+
+1. builtin skill install moves from composition to the real foreground process startup.
+2. Correct the report authority chain: `d5873b387` Cron critical is void; Round 4 acceptance used an isolated available model route and passed the true-stack Cron journey.
+3. Confirm existing M1, composition, startup and transport closures remain intact.
+
+requires_full_verification: false
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 16/16 tasks complete；M1 five exit criteria remain closed |
+| Correctness | 定向所有权/lifecycle 回归 70 passed；Round 4 isolated true-stack Cron 1 passed in 41.49s |
+| Coherence | composition 无 builtin install 或其他已关闭策略副作用；安装只由真实 foreground lifecycle owner 执行 |
+
+本轮唯一代码验证对象为 `7dc2235136ba259ef3e9597509f9370a37b740b1`。Round 3 的 `d5873b387` Cron CRITICAL 基于未配置测试固定模型的 source config，已由 `acceptance-round-4.md:17-21, 68-78` 作废和替代；不得将它继承为本轮 issue。
+
+## Targeted Closure
+
+- **Builtin skill install — closed.** `gateway/composition.py:166-690` 不再 import 或调用 `install_builtin_skills`，因此 `compose_gateway()` 只装配 runtime object graph。写入 `~/.nanoassistant/skills` 的操作由 `gateway/process_lifecycle.py:39-55` 的 `install_builtin_skills_for_gateway()` 持有，并仅在真前台 `run_gateway()` 于 build runtime 前调用（`:135-147`）；后台 launcher 只 spawn 子进程，不重复写入。`test_gateway_pid_lifecycle.py:113-175` 和 `test_gateway_inbound_ownership_contract.py:251-263` 分别覆盖启动顺序、后台不重复安装以及 composition 禁止依赖 builtin installer。
+- **Corrected Cron acceptance — closed.** `acceptance-round-4.md:17-21, 68-78` 已以隔离 HOME 和可用 `kimiCoding:K2.6` 路由取代 Round 3 的错误环境前置；真 IM/Gateway Cron 关键路径为 **1 passed in 41.49s**。这恢复 `motivation.md` 中 Cron 主动投递 requirement 的既有验收证据；Round 3 的 Cron fail 不作为本报告 verdict 的依据。
+- **Prior closures remain closed.** `M1-managed-channel-control/tasks.md:11-15` 均为 `[x]`；`gateway/managed_channel_control.py:160-180, 198-301`、`ws/im_connection.py:872-897` 仍保留 typed managed-control/cache/bootstrap 边界。`gateway/process_lifecycle.py:135-147` 和 `gateway/runtime.py:230-241` 仍将 provisioning、foreground lifecycle 与 Cron startup collaborator 分离；`tests/contract/test_gateway_inbound_ownership_contract.py:217-263` 仍按真实 consumer 守 transport owner 与 composition boundary。
+
+本轮实际执行：
+
+- `PYTHONPATH=src .venv/bin/pytest -q`（M1、composition/startup、PID lifecycle、transport contract 定向集合）→ **70 passed**。
+- `ruff check`（fix-r2 production/contract/test 文件）→ passed；`ruff format --check` → **4 files already formatted**。
+- 继承 fix-r2 progress 的 `pytest -q tests/contract` → **194 passed**、`pytest -q -m "not e2e"` → **3628 passed**、`scripts/e2e-critical.sh -k 'gateway_im_resilience or restart_session_continuity'` → **3 passed**；Round 4 的独立隔离 Cron critical path 如上通过。
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+- 无。
+
+### WARNING（应该修）
+
+- 无。
+
+### SUGGESTION（可以修）
+
+- 无。
+
+All checks passed. Ready for PR.
