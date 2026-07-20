@@ -15,13 +15,11 @@ import sys
 import threading
 import time
 import tempfile
-import webbrowser
 from collections.abc import Awaitable, Callable, Iterator, Mapping
 from contextlib import contextmanager, suppress
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
-from typing import Any, Protocol
-from urllib.parse import parse_qs, urlparse
+from typing import Any
 
 _log = logging.getLogger("personal_assistant.main")
 _PA_GLOBAL_SKILL_ROOT = Path("~/.nanoassistant/skills")
@@ -55,10 +53,15 @@ from personal_assistant.gateway.channel_registry import ChannelRegistry
 from personal_assistant.gateway.channel_manifest_store import ChannelManifestStore
 from personal_assistant.gateway.managed_channel_control import (
     ManagedChannelBindings,
-    ManagedChannelConnectionSender,
     ManagedChannelControl,
 )
 from personal_assistant.gateway import kernel_client, runtime
+from personal_assistant.gateway.connection_ready import ConnectionReadyCoordinator
+from personal_assistant.gateway.im_bootstrap import (
+    GatewayStartupError,
+    IMBootstrapClient,
+    emit_gateway_feedback,
+)
 from personal_assistant.scheduler import heartbeat_runner
 from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
 from personal_assistant.gateway.agent_config_sync import (
@@ -155,24 +158,51 @@ BootstrapClientFactory = Callable[[str], httpx.Client]
 FeedbackSink = Callable[[str, str, str | None], None]
 
 
-class GatewayStartupError(RuntimeError):
-    """Represent one actionable startup failure shown to gateway operators.
+@dataclass(frozen=True, slots=True)
+class RuntimeFactories:
+    """Collect replaceable construction hooks used by the gateway entry.
 
     Args:
-        summary: Human-readable failure summary.
-        next_step: Optional concrete remediation step shown alongside the error.
+        load_config: Function used to load YAML config into `LocalConfig`.
+        build_runtime: Factory that creates the runtime orchestrator from config.
+        install_signal_handlers: Optional hook that installs OS signal handlers before run.
     """
 
-    def __init__(self, *, summary: str, next_step: str | None = None) -> None:
-        cleaned_summary = summary.strip()
-        cleaned_next_step = (
-            next_step.strip()
-            if isinstance(next_step, str) and next_step.strip()
-            else None
-        )
-        super().__init__(cleaned_summary)
-        self.summary = cleaned_summary
-        self.next_step = cleaned_next_step
+    load_config: Callable[[str | Path], LocalConfig] = load_local_config
+    build_runtime: Callable[[LocalConfig], runtime.GatewayRuntimeLike] | None = None
+    install_signal_handlers: SignalHandlerInstaller | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class BackgroundLaunchResult:
+    """Describe the operator-facing result of a successful background launch.
+
+    Args:
+        pid: Process id of the detached foreground child now hosting the gateway runtime.
+        log_path: File receiving the detached child stdout/stderr stream.
+        im_service_url: Optional IM service URL configured for this gateway.
+    """
+
+    pid: int
+    log_path: Path
+    im_service_url: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class GatewayRuntimeState:
+    """Persist the operator-facing metadata needed to locate one background gateway.
+
+    Args:
+        pid: Background gateway process id launched for this config.
+        config_path: Absolute config path used for that process.
+        log_path: Log file receiving the detached process output.
+        process_start: OS process birth identity. ``None`` identifies legacy state.
+    """
+
+    pid: int
+    config_path: str
+    log_path: str
+    process_start: str | None = None
 
 
 def _read_log_last_error(
@@ -224,253 +254,6 @@ def _emit_gateway_feedback(
         print(f"{level} {summary}", file=sys.stderr)
         if next_step is not None:
             print(f"  → {next_step}", file=sys.stderr)
-
-
-class BrowserOpener(Protocol):
-    """Describe the minimal browser-launch interface needed by bind bootstrap."""
-
-    def __call__(self, url: str, new: int = 0, autoraise: bool = True) -> bool:
-        """Open one browser URL and report whether a handler accepted the request."""
-
-
-@dataclass(frozen=True, slots=True)
-class RuntimeFactories:
-    """Collect replaceable construction hooks used by the gateway entry.
-
-    Args:
-        load_config: Function used to load YAML config into `LocalConfig`.
-        build_runtime: Factory that creates the runtime orchestrator from config.
-        install_signal_handlers: Optional hook that installs OS signal handlers before run.
-    """
-
-    load_config: Callable[[str | Path], LocalConfig] = load_local_config
-    build_runtime: Callable[[LocalConfig], runtime.GatewayRuntimeLike] | None = None
-    install_signal_handlers: SignalHandlerInstaller | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class BackgroundLaunchResult:
-    """Describe the operator-facing result of a successful background launch.
-
-    Args:
-        pid: Process id of the detached foreground child now hosting the gateway runtime.
-        log_path: File receiving the detached child stdout/stderr stream.
-        im_service_url: Optional IM service URL configured for this gateway.
-    """
-
-    pid: int
-    log_path: Path
-    im_service_url: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class GatewayRuntimeState:
-    """Persist the operator-facing metadata needed to locate one background gateway.
-
-    Args:
-        pid: Background gateway process id launched for this config.
-        config_path: Absolute config path used for that process.
-        log_path: Log file receiving the detached process output.
-        process_start: OS process birth identity. ``None`` identifies legacy state.
-    """
-
-    pid: int
-    config_path: str
-    log_path: str
-    process_start: str | None = None
-
-
-class _IMBootstrapClient:
-    """Query IM ownership state and launch browser binding when a node is unbound.
-
-    Args:
-        base_url: HTTP base URL used for IM account and node APIs.
-        token: Optional bearer token forwarded to IM HTTP APIs.
-        client: Optional preconfigured HTTP client used by tests.
-        browser_opener: Function used to open the operator browser on pending bind URLs.
-        timeout_seconds: HTTP timeout used for node/bind bootstrap calls.
-        monotonic: Monotonic clock source used for short startup polling windows.
-        sleep: Sleep function used between node-visibility retries.
-    """
-
-    def __init__(
-        self,
-        *,
-        base_url: str,
-        token: str | None,
-        client: httpx.Client | None = None,
-        client_factory: BootstrapClientFactory | None = None,
-        browser_opener: BrowserOpener = webbrowser.open,
-        feedback_sink: FeedbackSink = _emit_gateway_feedback,
-        timeout_seconds: float = 5.0,
-        monotonic: Monotonic = time.monotonic,
-        sleep: Sleep = time.sleep,
-        token_getter: Callable[[], Awaitable[str | None]] | None = None,
-    ) -> None:
-        self._base_urls = _im_bootstrap_base_urls(base_url)
-        self._base_headers = build_im_http_headers(token)
-        self._timeout_seconds = timeout_seconds
-        self._client_factory = client_factory
-        self._clients: dict[str, httpx.Client] = {}
-        self._base_url = self._base_urls[0]
-        if client is not None:
-            self._clients[self._base_url] = client
-        self._browser_opener = browser_opener
-        self._feedback_sink = feedback_sink
-        self._monotonic = monotonic
-        self._sleep = sleep
-        self._token_getter = token_getter
-
-    def _refresh_token(self) -> None:
-        # bootstrap 跑在 asyncio.to_thread 工作线程里(main.py:894-896),无运行中 event
-        # loop,因此可以直接 asyncio.run 同步等异步 token_getter。fix bugfix-346 漏接
-        # bootstrap 路径导致 username/password 配置首次启动 401 的问题。
-        if self._token_getter is None:
-            return
-        token = asyncio.run(self._token_getter())
-        if token:
-            self._base_headers = build_im_http_headers(token)
-            for client in self._clients.values():
-                client.headers.update(self._base_headers)
-
-    def ensure_node_binding(self, *, node_id: str) -> str | None:
-        """Open the bind URL when the upstream node still has no owner.
-
-        Args:
-            node_id: Gateway node id that was just registered over IM websocket.
-
-        Returns:
-            The opened bind URL for unbound nodes, or `None` when the node is already owned.
-
-        Raises:
-            GatewayStartupError: When IM bootstrap APIs do not expose the registered
-                node or binding cannot be started/confirmed.
-        """
-
-        self._refresh_token()
-        owner_id, resolved_base_url = self._wait_for_owner(node_id=node_id)
-        if owner_id:
-            return None
-        client = self._get_client(resolved_base_url)
-        try:
-            response = client.post(
-                "/im/v1/bind", json={"action": "start", "node_id": node_id}
-            )
-            response.raise_for_status()
-        except Exception as exc:  # noqa: BLE001
-            raise GatewayStartupError(
-                summary=f"node {node_id} could not start IM binding",
-                next_step=f"Verify {resolved_base_url}/im/v1/bind is reachable, then rerun gateway.",
-            ) from exc
-        payload = response.json()
-        bind_url = _require_text(payload.get("bind_url"), field_name="bind_url")
-
-        # refactor-381: when NANO_MULTIAGENT_AUTO_BIND=1 (or --auto-bind via CLI),
-        # confirm the binding programmatically instead of asking the operator to
-        # click a URL. Removes the worktree-e2e blocker where automation cannot
-        # complete the interactive bind step.
-        if os.environ.get("NANO_MULTIAGENT_AUTO_BIND") == "1":
-            bind_token = _extract_bind_token(bind_url)
-            if not bind_token:
-                raise GatewayStartupError(
-                    summary=f"node {node_id} auto-bind failed: bind_url missing token",
-                    next_step=f"Inspect {bind_url} or unset NANO_MULTIAGENT_AUTO_BIND.",
-                )
-            try:
-                confirm_resp = client.post(
-                    "/im/v1/bind",
-                    json={"action": "confirm", "bind_token": bind_token},
-                )
-                confirm_resp.raise_for_status()
-            except Exception as exc:  # noqa: BLE001
-                raise GatewayStartupError(
-                    summary=f"node {node_id} auto-bind confirm failed",
-                    next_step=(
-                        f"POST {resolved_base_url}/im/v1/bind with action=confirm + bind_token failed. "
-                        "Verify the IM Bearer token has confirm permission, then rerun."
-                    ),
-                ) from exc
-            self._feedback_sink(
-                "INFO",
-                f"node {node_id} auto-bound to IM",
-                f"NANO_MULTIAGENT_AUTO_BIND=1 confirmed bind for {resolved_base_url}.",
-            )
-            return None
-
-        self._browser_opener(bind_url, new=2, autoraise=True)
-        self._feedback_sink(
-            "ACTION",
-            f"node {node_id} is waiting for IM binding",
-            f"Open {bind_url} to finish binding this node.",
-        )
-        return bind_url
-
-    def close(self) -> None:
-        """Release the owned HTTP client."""
-
-        seen_ids: set[int] = set()
-        for client in self._clients.values():
-            client_id = id(client)
-            if client_id in seen_ids:
-                continue
-            seen_ids.add(client_id)
-            client.close()
-
-    def _wait_for_owner(self, *, node_id: str) -> tuple[str, str]:
-        deadline = self._monotonic() + 5.0
-        last_error: Exception | None = None
-        while self._monotonic() <= deadline:
-            for base_url in self._base_urls:
-                try:
-                    return self._get_owner_id(
-                        node_id=node_id, base_url=base_url
-                    ), base_url
-                except Exception as exc:  # noqa: BLE001
-                    last_error = exc
-            self._sleep(0.1)
-        checked_urls = ", ".join(
-            f"{base_url}/im/v1/nodes" for base_url in self._base_urls
-        )
-        message = f"node {node_id} did not appear in IM bootstrap"
-        next_step = (
-            f"Verify the IM node API is reachable at {checked_urls} and rerun gateway."
-        )
-        if last_error is not None:
-            raise GatewayStartupError(
-                summary=message, next_step=next_step
-            ) from last_error
-        raise GatewayStartupError(summary=message, next_step=next_step)
-
-    def _get_owner_id(self, *, node_id: str, base_url: str) -> str:
-        response = self._get_client(base_url).get("/im/v1/nodes")
-        response.raise_for_status()
-        payload = response.json()
-        if not isinstance(payload, list):
-            raise RuntimeError("nodes response must be a list")
-        for item in payload:
-            if not isinstance(item, Mapping):
-                continue
-            if _require_text(item.get("node_id"), field_name="node_id") != node_id:
-                continue
-            owner_id = item.get("owner_id")
-            return owner_id.strip() if isinstance(owner_id, str) else ""
-        raise RuntimeError(f"node {node_id} not found")
-
-    def _get_client(self, base_url: str) -> httpx.Client:
-        client = self._clients.get(base_url)
-        if client is not None:
-            return client
-        if self._client_factory is not None:
-            client = self._client_factory(base_url)
-        else:
-            client = httpx.Client(
-                base_url=base_url,
-                headers=self._base_headers,
-                timeout=self._timeout_seconds,
-                trust_env=False,
-            )
-        self._clients[base_url] = client
-        return client
 
 
 def _load_runtime_config(
@@ -1078,7 +861,7 @@ def build_runtime(config: LocalConfig) -> runtime.GatewayRuntime:
     reporter: UpstreamReporter | None = None
     im_connection_manager: IMConnectionManager | None = None
     managed_channel_control: ManagedChannelControl | None = None
-    im_bootstrap_client: _IMBootstrapClient | None = None
+    im_bootstrap_client: IMBootstrapClient | None = None
     im_config_sync_client: IMAgentConfigSync | None = None
     run_delivery_contexts = RunDeliveryContextStore()
     _owner_user_id = config.node.user_id or ""
@@ -1219,62 +1002,11 @@ def build_runtime(config: LocalConfig) -> runtime.GatewayRuntime:
         # callback handles all permission decisions in-process (design decision 3).
         _im_sync_client = ConfigSyncClient(fetcher=im_config_sync_client.sync_agent)
 
-        im_bootstrap_client = _IMBootstrapClient(
+        im_bootstrap_client = IMBootstrapClient(
             base_url=normalize_im_http_base_url(config.im_service.url),
             token=config.im_service.token,
             token_getter=_token_getter,
         )
-
-        # feat-394-M12 决策 F: reconcile 回调——WS bind 完成后（含重连）拉全量 profile
-        # 对账，消除漏推送导致的内存状态滞留。reconcile_all_agents 是同步 HTTP 调用，
-        # 用 asyncio.to_thread 包装使其在 WS 事件循环中安全运行。
-        # bugfix-446-M1 决策 3: node binding 并入 on_connected（移出启动关键路径）。
-        # ensure_node_binding 对已绑定节点幂等（return None），其失败都是连接恢复期
-        # 的瞬态条件或需人工处理的绑定问题。两者都不能阻断 agent reconcile；失败先
-        # 以 degraded heartbeat 暴露给 IM，再让配置对账继续收敛。
-        async def _reconcile_on_connect(
-            connection: ManagedChannelConnectionSender,
-        ) -> None:
-            try:
-                await asyncio.to_thread(
-                    im_bootstrap_client.ensure_node_binding,
-                    node_id=config.node.node_id,
-                )
-            except Exception as exc:  # noqa: BLE001
-                if isinstance(exc, GatewayStartupError):
-                    summary = exc.summary
-                    next_step = exc.next_step
-                else:
-                    summary = f"node {config.node.node_id} binding failed: {exc}"
-                    next_step = None
-                heartbeat_last_error = (
-                    f"{summary}; next step: {next_step}" if next_step else summary
-                )
-                _log.warning("IM node binding failed during reconnect: %s", summary)
-                _emit_gateway_feedback("ERROR", summary, next_step)
-                try:
-                    await connection.send_json(
-                        "node.heartbeat",
-                        reporter.send_heartbeat(
-                            status="degraded", last_error=heartbeat_last_error
-                        ),
-                    )
-                except Exception as heartbeat_exc:  # noqa: BLE001
-                    _log.warning(
-                        "failed to send degraded IM heartbeat after binding failure: %s",
-                        heartbeat_exc,
-                    )
-            if managed_channel_control is not None:
-                await managed_channel_control.reconcile_after_register(connection)
-            memory_versions = {
-                agent_id: ver
-                for agent_id in (a.agent_id for a in config.agents)
-                if (ver := _im_sync_client.latest_profile_version(agent_id)) is not None
-            }
-            await asyncio.to_thread(
-                im_config_sync_client.reconcile_all_agents,
-                memory_versions=memory_versions,
-            )
 
     relay_lifecycle_callback = _build_relay_lifecycle_callback(
         reporter=reporter,
@@ -1346,6 +1078,16 @@ def build_runtime(config: LocalConfig) -> runtime.GatewayRuntime:
             agent_config_sync=im_config_sync_client,
             group_context_store=group_context_store,
             permission_decision_callback=permission_response_handler,
+        )
+        assert im_bootstrap_client is not None
+        connection_ready_coordinator = ConnectionReadyCoordinator(
+            node_id=config.node.node_id,
+            bootstrap_client=im_bootstrap_client,
+            reporter=reporter,
+            managed_channel_bindings=managed_channel_control.connection_bindings(),
+            sync_client=_im_sync_client,
+            agent_config_sync=im_config_sync_client,
+            agent_ids=(agent.agent_id for agent in config.agents),
         )
 
     # bugfix-402-M4 R4 / bugfix-402-M6: build per-agent CronExecutionService and
@@ -1524,7 +1266,7 @@ def build_runtime(config: LocalConfig) -> runtime.GatewayRuntime:
             ),
             token_getter=_token_getter,
             permission_response_handler=permission_response_handler,
-            on_connected=_reconcile_on_connect,
+            on_connected=connection_ready_coordinator.on_connected,
             managed_channel_bindings=managed_channel_control.connection_bindings(),
         )
 
@@ -1644,7 +1386,7 @@ def main(argv: list[str] | None = None) -> int:
         _print_gateway_started(result)
         return 0
     except GatewayStartupError as exc:
-        _emit_gateway_feedback("ERROR", exc.summary, exc.next_step)
+        emit_gateway_feedback("ERROR", exc.summary, exc.next_step)
         return 1
     except Exception as exc:  # noqa: BLE001
         print(f"ERROR {exc}", file=sys.stderr)
@@ -2079,19 +1821,6 @@ def _default_gateway_log_path(config: LocalConfig) -> Path:
     return config.source_path.parent / "gateway.log"
 
 
-def _extract_bind_token(bind_url: str) -> str | None:
-    """Pull the ``token`` query parameter out of an IM bind URL.
-
-    refactor-381: used by ``_IMBootstrapClient.ensure_node_binding`` when
-    NANO_MULTIAGENT_AUTO_BIND=1 to programmatically confirm the binding.
-    """
-
-    parsed = urlparse(bind_url)
-    qs = parse_qs(parsed.query)
-    tokens = qs.get("token") or qs.get("bind_token") or []
-    return tokens[0] if tokens else None
-
-
 def _legacy_gateway_pid_path(config: LocalConfig) -> Path:
     """Return the pre-refactor PID file path used only during live migration.
 
@@ -2388,10 +2117,6 @@ def _resolve_agent_tool_allowlist(
     if not isinstance(raw, list):
         return ()
     return tuple(item for item in raw if isinstance(item, str))
-
-
-def _im_bootstrap_base_urls(url: str) -> tuple[str, ...]:
-    return (normalize_im_http_base_url(url),)
 
 
 def _background_gateway_argv(
