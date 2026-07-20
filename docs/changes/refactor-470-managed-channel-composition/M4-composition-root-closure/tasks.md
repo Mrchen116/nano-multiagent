@@ -10,9 +10,9 @@
 
 ## 退出标准
 
-- [ ] `main.__all__ == ["main"]`，入口不再承载 runtime/composition policy。
-- [ ] `gateway.composition.compose_gateway(config)` 返回完整 `GatewayRuntime`，不新增跨调用可变状态、managed-channel/credential/retry/进程 policy。
-- [ ] 38 个 baseline 文件完成逐一 owner/删除/保留对账；非入口测试从真实 owner import。
+- [x] `main.__all__ == ["main"]`，入口不再承载 runtime/composition policy。
+- [x] `gateway.composition.compose_gateway(config)` 返回完整 `GatewayRuntime`，不新增跨调用可变状态、managed-channel/credential/retry/进程 policy。
+- [x] 38 个 baseline 文件完成逐一 owner/删除/保留对账；非入口测试从真实 owner import。
 - [ ] main 边界、test-size、ruff、非 e2e 回归及 design 指定关键 e2e 全绿；真实 Feishu smoke 按 runbook 有消息往返结论。
 
 ## 测试策略
@@ -29,16 +29,16 @@
 
 - 步骤: 增加入口/owner contract 断言，建立 38-file owner/删除/保留清单，并将测试导入切换计划固化。
 - 验证: 新 contract 在旧入口表面失败，且清单覆盖 `rg` 的恰好 38 个 baseline 文件。
-- 状态: DOING
+- 状态: DONE
 
 ### R2 — 迁移 composition 与真实 owner imports
 
 - 步骤: 新建 `gateway.composition`，将装配及无状态投影移出 `main`；把 lifecycle/config、channel registry、runtime delivery、session/permission、heartbeat 和测试导入转向真实 owner；删除 `main` compatibility symbols。
 - 验证: 聚焦 Gateway tests、architecture contract、ruff 和非 e2e 套件通过。
-- 状态: TODO
+- 状态: DONE
 
 ### R3 — 真实入口与 Feishu 收口验证
 
 - 步骤: 运行 design 指定 e2e critical paths；依 runbook 独占 real Feishu bot 后完成 online reconnect 与 IM-unreachable cached autonomy 两次哨兵消息往返，或如实记录阻塞。
 - 验证: 无启动日志替代消息往返；停止测试 Gateway 并恢复主 Gateway。
-- 状态: TODO
+- 状态: BLOCKED（真实 Feishu smoke 需独占共享 Bot，等待 orchestrator 协调；其余验收已完成）
