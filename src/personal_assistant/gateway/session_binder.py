@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from threading import Lock
 from typing import Any, Literal, Protocol
@@ -17,6 +17,7 @@ from personal_assistant.gateway.session_keys import (
     SessionBinding,
     build_conversation_reply_context,
     build_conversation_session_key,
+    build_external_session_key,
 )
 from personal_assistant.gateway.session_composition import (
     project_agent_session_capabilities,
@@ -641,3 +642,85 @@ def _optional_text(value: object) -> str | None:
         return None
     normalized = value.strip()
     return normalized or None
+
+
+def build_session_fork_handler(
+    *, kernel: Any, session_binder: GatewaySessionBinder, channel_name: str
+) -> Callable[[Mapping[str, object]], Any]:
+    """Build the IM session-fork operation from the session-binding owner.
+
+    Args:
+        kernel: In-process Kernel that performs the immutable history fork.
+        session_binder: Owner of source and destination conversation bindings.
+        channel_name: Gateway channel namespace used for IM conversations.
+
+    Returns:
+        Async handler returning the wire-ready fork result.
+    """
+
+    async def handle(payload: Mapping[str, object]) -> Mapping[str, object]:
+        source_conversation_id = str(payload.get("source_conversation_id") or "")
+        new_conversation_id = str(payload.get("new_conversation_id") or "")
+        agent_id = str(payload.get("agent_id") or "")
+        fork_point = payload.get("fork_point")
+        message_id = (
+            str(fork_point.get("message_id") or "")
+            if isinstance(fork_point, Mapping)
+            else ""
+        )
+        if not (
+            source_conversation_id and new_conversation_id and agent_id and message_id
+        ):
+            return {"ok": False, "error": "fork request missing required fields"}
+        source = session_binder.capture_binding_provenance(
+            build_conversation_session_key(
+                channel_name=channel_name,
+                conversation_id=source_conversation_id,
+                agent_id=agent_id,
+            ),
+            expected_agent_id=agent_id,
+        )
+        if source is None:
+            external_source = str(payload.get("source_external_source") or "").strip()
+            external_chat_id = str(payload.get("source_external_chat_id") or "").strip()
+            if external_source and external_chat_id:
+                source = session_binder.capture_binding_provenance(
+                    build_external_session_key(
+                        external_source=external_source,
+                        external_chat_id=external_chat_id,
+                        agent_id=agent_id,
+                    ),
+                    expected_agent_id=agent_id,
+                )
+        if source is None:
+            return {"ok": False, "error": "source session binding not found"}
+        try:
+            new_session = await kernel.fork_session(
+                source.binding.kernel_session_id,
+                workspace_root=source.agent.config.workspace_root,
+                up_to=message_id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": str(exc)}
+        bind_result = session_binder.bind_conversation(
+            ConversationBindingRequest(
+                channel_name=channel_name,
+                conversation_id=new_conversation_id,
+                agent_id=agent_id,
+                kernel_session_id=new_session.session_id,
+                guard=source.guard,
+            ),
+            source.agent,
+        )
+        if bind_result.status == "stale":
+            return {
+                "ok": False,
+                "error": "agent config changed while session fork was running",
+            }
+        return {
+            "ok": True,
+            "new_session_id": new_session.session_id,
+            "id_map": dict(new_session.fork_id_map or {}),
+        }
+
+    return handle

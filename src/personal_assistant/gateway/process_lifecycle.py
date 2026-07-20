@@ -22,6 +22,7 @@ from typing import Any
 from personal_assistant.config.local_store import (
     LocalConfig,
     default_local_config_path,
+    load_gateway_runtime_config,
     load_local_config,
 )
 from personal_assistant.gateway import runtime
@@ -112,7 +113,7 @@ def run_gateway(
     """
 
     resolved_factories = _coerce_factories(factories)
-    config = _load_runtime_config(
+    config = load_gateway_runtime_config(
         config_path,
         load_config=resolved_factories.load_config,
         im_service_url_override=im_service_url_override,
@@ -186,7 +187,7 @@ def _launch_gateway_in_background_unlocked(
 ) -> BackgroundLaunchResult:
     """Execute one background launch while the caller holds its lifecycle lock."""
 
-    config = _load_runtime_config(
+    config = load_gateway_runtime_config(
         config_path,
         load_config=load_config,
         im_service_url_override=im_service_url_override,
@@ -794,24 +795,6 @@ def _install_default_signal_handlers(
         return _restore
 
     return _installer
-
-
-def _load_runtime_config(
-    config_path: str | Path,
-    *,
-    load_config: Callable[[str | Path], LocalConfig] = load_local_config,
-    im_service_url_override: str | None = None,
-) -> LocalConfig:
-    """Load the composed runtime configuration through the composition seam."""
-    from personal_assistant.gateway.composition import (
-        _load_runtime_config as load_runtime_config,
-    )
-
-    return load_runtime_config(
-        config_path,
-        load_config=load_config,
-        im_service_url_override=im_service_url_override,
-    )
 
 
 def _default_build_runtime(config: LocalConfig) -> runtime.GatewayRuntimeLike:

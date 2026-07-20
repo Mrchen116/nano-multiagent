@@ -8,11 +8,11 @@
 
 ## 退出标准
 
-- [ ] 在线 apply/reconnect、失败隔离、离线 cached startup 与 register replay 保持既有行为。
-- [ ] `ManagedChannelControl` 提供 `start_cached()`、`connection_bindings()`、`close()`；mailbox 只做 typed ephemeral emission，不拥有 durable retry 或 wire FIFO。
-- [ ] Agent skill 激活改用正式 public operation；不再从入口穿透 `IMAgentConfigSync` 私有方法。
-- [ ] `channels.bootstrap.request` 直接返回空 `items`；legacy YAML migration、export、bootstrap callback 及测试删除。
-- [ ] 相关 unit/integration 测试与 ruff 通过。
+- [x] 在线 apply/reconnect、失败隔离、离线 cached startup 与 register replay 保持既有行为。
+- [x] `ManagedChannelControl` 提供 `start_cached()`、`connection_bindings()`、`close()`；mailbox 只做 typed ephemeral emission，不拥有 durable retry 或 wire FIFO。
+- [x] Agent skill 激活改用正式 public operation；不再从入口穿透 `IMAgentConfigSync` 私有方法。
+- [x] `channels.bootstrap.request` 直接返回空 `items`；legacy YAML migration、export、bootstrap callback 及测试删除。
+- [x] 相关 unit/integration 测试与 ruff 通过。
 
 ## 测试策略
 

@@ -15,7 +15,19 @@ network errors without parsing HTTP status codes themselves.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import replace
+from pathlib import Path
+from typing import TYPE_CHECKING
+
 import httpx
+
+if TYPE_CHECKING:
+    from personal_assistant.config.local_store import (
+        IMServiceConfig,
+        LocalConfig,
+        RuntimeConfigOwner,
+    )
 
 
 class IMAuthError(Exception):
@@ -126,3 +138,83 @@ class IMAuthClient:
         if not isinstance(refresh, str) or not refresh:
             raise IMAuthError(f"IM {operation} response missing refresh_token")
         return access, refresh
+
+
+class IMTokenProvider:
+    """Own rotating IM credentials across reconnect attempts.
+
+    Args:
+        im_service: Initial IM credentials read from Gateway config.
+        local_config: Config snapshot whose source path receives rotated tokens.
+        auth_client: HTTP authentication client for refresh and login.
+        config_owner: Serialized config snapshot owner shared by Gateway services.
+        save_config: Sensitive config writer used for token rotation.
+    """
+
+    def __init__(
+        self,
+        *,
+        im_service: "IMServiceConfig",
+        local_config: "LocalConfig",
+        auth_client: IMAuthClient,
+        config_owner: "RuntimeConfigOwner | None" = None,
+        save_config: "Callable[[LocalConfig, str | Path], None] | None" = None,
+    ) -> None:
+        from personal_assistant.config.local_store import (
+            RuntimeConfigOwner,
+            save_sensitive_local_config,
+        )
+
+        self._im_service = im_service
+        self._token = im_service.token
+        self._refresh_token = im_service.refresh_token
+        self._auth_client = auth_client
+        self._config_owner = config_owner or RuntimeConfigOwner(local_config)
+        self._save_config = save_config or save_sensitive_local_config
+        self._listeners: list[Callable[[str], None]] = []
+
+    def add_token_listener(self, listener: Callable[[str], None]) -> None:
+        """Notify one dependent IM client after a successful token rotation."""
+        self._listeners.append(listener)
+
+    async def get_token(self) -> str | None:
+        """Return a refreshed token, falling back to configured login then static token."""
+        if self._refresh_token is not None:
+            try:
+                access, refresh = await self._auth_client.refresh(self._refresh_token)
+            except IMAuthError:
+                pass
+            else:
+                self._accept(access, refresh)
+                return access
+        if self._im_service.username and self._im_service.password:
+            try:
+                access, refresh = await self._auth_client.login(
+                    username=self._im_service.username,
+                    password=self._im_service.password,
+                )
+            except IMAuthError:
+                pass
+            else:
+                self._accept(access, refresh)
+                return access
+        return self._token
+
+    def _accept(self, access: str, refresh: str) -> None:
+        self._token = access
+        self._refresh_token = refresh
+
+        def update(current: "LocalConfig") -> "LocalConfig":
+            if current.im_service is None:
+                return current
+            return replace(
+                current,
+                im_service=replace(
+                    current.im_service, token=access, refresh_token=refresh
+                ),
+            )
+
+        if self._config_owner.snapshot().im_service is not None:
+            self._config_owner.persist(update, save_config=self._save_config)
+        for listener in self._listeners:
+            listener(access)

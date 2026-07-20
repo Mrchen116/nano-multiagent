@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import sys
 import threading
 import time
 from collections.abc import Awaitable, Callable, Mapping
@@ -32,24 +31,6 @@ from personal_assistant.gateway.bootstrap import start_channels, stop_channels
 from personal_assistant.scheduler.cron_service_registry import CronServiceRegistry
 
 _log = logging.getLogger("personal_assistant.gateway.runtime")
-FeedbackSink = Callable[[str, str, str | None], None]
-
-
-def _emit_gateway_feedback(
-    level: str, summary: str, next_step: str | None = None
-) -> None:
-    """Print one operator-facing gateway feedback line to stderr."""
-
-    if level == "ERROR":
-        print("Gateway failed to start\n", file=sys.stderr)
-        for line in summary.splitlines():
-            print(f"  {line}", file=sys.stderr)
-        if next_step is not None:
-            print(f"\n  → {next_step}", file=sys.stderr)
-    else:
-        print(f"{level} {summary}", file=sys.stderr)
-        if next_step is not None:
-            print(f"  → {next_step}", file=sys.stderr)
 
 
 class GatewayRuntimeLike(Protocol):
@@ -165,7 +146,6 @@ class GatewayRuntime:
         im_watchdog_initial_seconds: float = 1.0,
         im_watchdog_max_seconds: float = 60.0,
         resource_closers: tuple[Callable[[], None], ...] = (),
-        feedback_sink: FeedbackSink = _emit_gateway_feedback,
         internal_dispatch_handler: InternalDispatchHandler | None = None,
         internal_dispatch_endpoint: InternalDispatchEndpoint | None = None,
         gateway_internal_port: int = 8089,
@@ -183,7 +163,6 @@ class GatewayRuntime:
         self._im_watchdog_initial_seconds = im_watchdog_initial_seconds
         self._im_watchdog_max_seconds = im_watchdog_max_seconds
         self._resource_closers = resource_closers
-        self._feedback_sink = feedback_sink
         self._internal_dispatch_handler = internal_dispatch_handler
         self._internal_dispatch_endpoint = internal_dispatch_endpoint
         self._gateway_internal_port = gateway_internal_port

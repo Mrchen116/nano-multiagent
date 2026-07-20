@@ -163,15 +163,15 @@ def test_compose_gateway_does_not_call_set_kernel_client(
     )
 
 
-def test_make_token_getter_is_importable() -> None:
-    """_make_token_getter 应从 personal_assistant.gateway.composition 可导入。"""
-    from personal_assistant.gateway.composition import _make_token_getter  # noqa: F401
+def test_im_token_provider_is_importable() -> None:
+    """IMTokenProvider 由 IM 认证 owner 公开提供。"""
+    from personal_assistant.auth.im_auth_client import IMTokenProvider  # noqa: F401
 
 
 @pytest.mark.asyncio
-async def test_make_token_getter_uses_refresh_token_first(tmp_path: Path) -> None:
+async def test_im_token_provider_uses_refresh_token_first(tmp_path: Path) -> None:
     """当 refresh_token 存在时，闭包应调用 IMAuthClient.refresh() 并返回新的 access_token。"""
-    from personal_assistant.gateway.composition import _make_token_getter
+    from personal_assistant.auth.im_auth_client import IMTokenProvider
     from personal_assistant.config.local_store import (
         IMServiceConfig,
         LocalConfig,
@@ -218,14 +218,14 @@ async def test_make_token_getter_uses_refresh_token_first(tmp_path: Path) -> Non
                 (cfg.im_service.token or "", cfg.im_service.refresh_token or "")
             )
 
-    token_getter = _make_token_getter(
+    token_getter = IMTokenProvider(
         im_service=im_service,
         local_config=local_config,
         auth_client=_FakeAuthClient(),
         save_config=_fake_save,
     )
 
-    result = await token_getter()
+    result = await token_getter.get_token()
 
     assert result == "new-access"
     # 新的 refresh_token 应已被持久化
@@ -234,11 +234,11 @@ async def test_make_token_getter_uses_refresh_token_first(tmp_path: Path) -> Non
 
 
 @pytest.mark.asyncio
-async def test_make_token_getter_falls_back_to_login_when_refresh_fails(
+async def test_im_token_provider_falls_back_to_login_when_refresh_fails(
     tmp_path: Path,
 ) -> None:
     """refresh 失败后应自动用 username+password 登录并返回 access_token。"""
-    from personal_assistant.gateway.composition import _make_token_getter
+    from personal_assistant.auth.im_auth_client import IMTokenProvider
     from personal_assistant.auth.im_auth_client import IMAuthError
     from personal_assistant.config.local_store import (
         IMServiceConfig,
@@ -285,14 +285,14 @@ async def test_make_token_getter_falls_back_to_login_when_refresh_fails(
                 (cfg.im_service.token or "", cfg.im_service.refresh_token or "")
             )
 
-    token_getter = _make_token_getter(
+    token_getter = IMTokenProvider(
         im_service=im_service,
         local_config=local_config,
         auth_client=_FakeAuthClient(),
         save_config=_fake_save,
     )
 
-    result = await token_getter()
+    result = await token_getter.get_token()
 
     assert result == "login-access"
     assert len(persisted) == 1
@@ -300,11 +300,11 @@ async def test_make_token_getter_falls_back_to_login_when_refresh_fails(
 
 
 @pytest.mark.asyncio
-async def test_make_token_getter_returns_static_token_when_no_refresh_or_credentials(
+async def test_im_token_provider_returns_static_token_when_no_refresh_or_credentials(
     tmp_path: Path,
 ) -> None:
     """当 refresh_token/username/password 均未配置时，返回静态 config.token（向后兼容）。"""
-    from personal_assistant.gateway.composition import _make_token_getter
+    from personal_assistant.auth.im_auth_client import IMTokenProvider
     from personal_assistant.config.local_store import (
         IMServiceConfig,
         LocalConfig,
@@ -337,14 +337,14 @@ async def test_make_token_getter_returns_static_token_when_no_refresh_or_credent
         source_path=config_path,
     )
 
-    token_getter = _make_token_getter(
+    token_getter = IMTokenProvider(
         im_service=im_service,
         local_config=local_config,
         auth_client=_FakeAuthClient(),
         save_config=lambda cfg, path: None,
     )
 
-    result = await token_getter()
+    result = await token_getter.get_token()
 
     assert result == "static-token"
 
@@ -412,10 +412,13 @@ async def test_reconcile_on_connect_continues_after_binding_failure_and_reports_
         ) -> None:
             reconcile_calls.append(dict(memory_versions or {}))
 
+    captured: dict[str, object] = {}
+
     class _RecordingManager:
         connected = True
 
-        def __init__(self) -> None:
+        def __init__(self, **kwargs: object) -> None:
+            captured.update(kwargs)
             self.sent: list[tuple[str, dict[str, object]]] = []
 
         async def send_json(
@@ -426,24 +429,16 @@ async def test_reconcile_on_connect_continues_after_binding_failure_and_reports_
         async def close(self) -> None:
             return None
 
-    captured: dict[str, object] = {}
     manager = _RecordingManager()
-
-    def _fake_build_im_connection_manager(**kwargs: object) -> object:
-        captured.update(kwargs)
-        return manager
 
     monkeypatch.setattr(
         "personal_assistant.gateway.im_bootstrap.IMBootstrapClient", _FailingBootstrap
     )
     monkeypatch.setattr(gateway_composition, "IMAgentConfigSync", _RecordingSyncClient)
-    monkeypatch.setattr(
-        gateway_composition,
-        "_build_im_connection_manager",
-        _fake_build_im_connection_manager,
-    )
+    monkeypatch.setattr(gateway_composition, "IMConnectionManager", _RecordingManager)
 
-    compose_gateway(config)
+    manager = compose_gateway(config)._im_connection_manager
+    assert isinstance(manager, _RecordingManager)
     on_connected = captured["on_connected"]
 
     await on_connected(manager)

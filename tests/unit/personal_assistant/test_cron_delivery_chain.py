@@ -501,29 +501,27 @@ class TestGatewayStartupConvergence:
     previous crash are marked as failed(gateway_restarted) before any new tick runs.
     """
 
-    def test_build_runtime_calls_converge_stale_on_restart(
-        self, tmp_path: Path, monkeypatch
+    def test_compose_gateway_converges_stale_runs_on_startup(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """build_runtime must call runs_store.converge_stale_on_restart() for each agent."""
+        """Gateway startup converges stale cron runs for every configured agent."""
+        from personal_assistant.gateway.composition import compose_gateway
         from personal_assistant.scheduler.cron_execution_service import CronRunsStore
+
+        from ._main_helpers import make_minimal_config
 
         converge_calls: list[str] = []
         original_converge = CronRunsStore.converge_stale_on_restart
 
-        def _recording_converge(self):
-            converge_calls.append(str(self._root))
+        def _recording_converge(self: CronRunsStore) -> int:
+            converge_calls.append(str(self._root))  # noqa: SLF001
             return original_converge(self)
 
         monkeypatch.setattr(
             CronRunsStore, "converge_stale_on_restart", _recording_converge
         )
 
-        # compose_gateway source must reference converge_stale_on_restart.
-        import inspect
-        import personal_assistant.gateway.composition as main_module
+        config = make_minimal_config(tmp_path)
+        compose_gateway(config)
 
-        source = inspect.getsource(main_module.compose_gateway)
-        assert "converge_stale_on_restart" in source, (
-            "build_runtime must call converge_stale_on_restart() on startup "
-            "(bugfix-402-M4 R5 exit criterion)"
-        )
+        assert converge_calls == [str((tmp_path / "agent-a").resolve())]

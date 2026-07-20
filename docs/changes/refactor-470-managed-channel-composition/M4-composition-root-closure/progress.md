@@ -113,3 +113,20 @@
 - Rollback: 不适用（验证未改产品行为）。
 - Commits: C1/C2=N/A，C3=本次 progress commit。
 - Next: R3 完成；请求 orchestrator 集成 M4。
+
+## Fix R1 — composition 策略归位复验
+
+- Context: verifier 指出 `gateway.composition` 仍持有 Feishu identity/persistence、IM token rotation、Cron lifecycle、session fork、permission response 与 attachment fetch policy，违反纯对象图 root 的边界；本轮同时必须重新验证改动过的 Feishu startup/binding/token 链路。
+- Decision: 将上述策略分别归还 config、auth、scheduler、session、WS 与 attachment owner；composition 仅构造对象并注入其公开 API。新增 contract 阻止 credential persistence 与策略 handler 回流 composition；`process_lifecycle` 使用公开的 config startup owner。
+- Rationale: 领域策略与持久化状态有唯一 owner，composition 才能保持无状态、可审计的装配职责，测试也能从真实 owner 导入而非依赖 composition 私有 helper。
+- Evidence:
+  - Focused regression: ownership 92 passed；config/composition 33 passed；Cron 26 passed；attachment/permission/shutdown 28 passed；IM auth/sync 31 passed。
+  - Architecture and full regression: `pytest -q tests/contract` 186 passed；`ruff check .` 与 `ruff format --check .` 通过；`pytest -q -m "not e2e"` 3611 passed, 1 skipped, 20 deselected；`scripts/e2e-critical.sh -k 'gateway_im_resilience or restart_session_continuity'` 3 passed, 14 deselected。
+  - Feishu online reconnect: 停止主 Gateway 后，以保留 `demo-node` identity 的临时 review directory 复制 config、encrypted manifest 和 key；对 `ch_legacy_f2e3c2ef23a198efd7c088df` 执行 authenticated reconnect，状态为 `applied/connected`。用户消息 `om_x100b6ad5d8f50cacb1af2fa75301009`（position 245）请求 `ONLINE-R1-OK-20260720-3`，Bot app 回复 `om_x100b6ad5d85dfca4b484d49e41739ad`（position 246）且文本精确匹配。
+  - Feishu cached offline autonomy: 停止 online review Gateway 后，复用同一 review directory 的 encrypted manifest/key，以不可达 `127.0.0.1:61861` 启动 cached Gateway。用户消息 `om_x100b6ad5d75168a8b22a9cc5e9b256a`（position 247）请求 `OFFLINE-R1-OK-20260720-1`，Bot app 回复 `om_x100b6ad5d73938a4b169a64a679e394`（position 248）且文本精确匹配。
+  - 上游模型诊断与恢复: 初始 mirror 的 `mimo:mimo-v2.5-pro` 再次返回 `anthropic: stream ended without terminal event`；仅为完成本次消息往返临时将 IM default-agent profile 切至可用 `volcanoArk:doubao-seed-2-0-code-preview-260215`，验收后已恢复为 `mimo:mimo-v2.5-pro`（profile version 6）。用户持久 config 未修改。
+  - Cleanup: 已停止两个 review Gateway、删除 review directory 与 worktree 临时 PID/pointer；主 Gateway 已恢复为 PID 70930，IM `demo-node=online`，仅该主 Gateway 为运行中的 `personal_assistant.main` consumer。
+  - Frontend State Matrix / Browser QA / Visual / Prototype Comparison: N/A。
+- Rollback: revert `274562801`，再 revert `3f4a8618f`。
+- Commits: C1=`3f4a8618f`，C2=`274562801`，C3=本次 progress commit。
+- Next: 提交本轮验证文档并交由 orchestrator 复核。

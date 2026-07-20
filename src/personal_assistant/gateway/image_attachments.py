@@ -8,6 +8,10 @@ from dataclasses import dataclass
 import logging
 from typing import Any, Literal
 
+import httpx
+
+from personal_assistant.gateway.im_http_transport import build_im_http_headers
+
 
 ImageFailureKind = Literal["download", "oversize", "corrupt"]
 DEFAULT_MAX_IMAGE_BYTES = 5 * 1024 * 1024
@@ -96,6 +100,21 @@ class ImageAttachmentResolver:
                 }
             )
         return ImageResolution(parts=tuple(parts))
+
+
+def build_im_attachment_fetcher(
+    *, token_getter: Callable[[], Awaitable[str | None]]
+) -> Callable[[str], Awaitable[bytes]]:
+    """Build the authenticated IM downloader used by image resolution."""
+
+    async def fetch(url: str) -> bytes:
+        token = await token_getter()
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(url, headers=build_im_http_headers(token))
+            response.raise_for_status()
+            return response.content
+
+    return fetch
 
 
 def _detect_image_mime(data: bytes) -> str | None:
