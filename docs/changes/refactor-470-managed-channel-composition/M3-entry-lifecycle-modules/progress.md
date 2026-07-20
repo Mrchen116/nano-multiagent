@@ -56,3 +56,17 @@
 - Rollback: `git revert bc403745b` 后恢复入口直接导入；`git revert b71c6923b` 可整体回退 lifecycle owner。
 - Commits: C1=a91ec5ff6, C2=bc403745b, C3=本提交。
 - Next: rebase 到 `origin/unit/refactor-470` 并完成 milestone 集成。
+
+## 集成签收补齐
+
+- Context: unit 分支完整 formatter gate 仍有两处 M2 遗留格式差异，且 `main.py` 直接导入 `ConnectionReadyCoordinator`，会把 connection-ready owner 暴露为入口 namespace。
+- Decision: 对 `scheduler/heartbeat_runner.py` 和 `test_cron_polling_runner.py` 仅执行 ruff format；入口改为 `connection_ready.ConnectionReadyCoordinator` 模块限定调用，并扩展 contract 阻止直接 import 回流。
+- Rationale: formatter cleanup 只恢复 unit 交付门禁，不改变 M3 行为；模块限定名保持入口只做 composition/dispatch，不产生事实 re-export。
+- Evidence:
+  - Tests: heartbeat/cron 与 lifecycle/auto-bind/reconnect/contract 聚焦测试 61 passed；随后 command/build-runtime/reconnect/contract 与 cron polling 聚焦测试 21 passed。
+  - Entry: 既有隔离 IM + Gateway `--foreground --auto-bind` 真入口证据保持有效；本次仅入口 import 收敛和 formatter baseline cleanup，不改变进程或网络路径。
+  - E2E/Regression: `test_personal_assistant_main_contract.py` 断言 connection_ready、im_bootstrap、process_lifecycle 均不可由入口直接 import，且必须经模块限定调用。
+  - Gate: `git diff --check`、`ruff check`、`ruff format --check .` 均通过。
+- Rollback: `git revert a21f71f26`。
+- Commits: C1=edcaddf38, C2=a21f71f26, C3=本提交。
+- Next: 增量合入 `unit/refactor-470`。

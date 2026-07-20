@@ -241,9 +241,9 @@ async def test_polling_runner_start_attaches_done_callback(tmp_path: Path) -> No
     """decision 4: the heartbeat loop task must carry a done callback so a truly
     unexpected loop crash is observed (logged) rather than swallowed silently."""
     from personal_assistant.scheduler.heartbeat_runner import (
-            PollingHeartbeatRunner,
-            _consume_task_exception,
-        )
+        PollingHeartbeatRunner,
+        _consume_task_exception,
+    )
 
     hb_scheduler = _FakeHeartbeatScheduler()
     hb_config = HeartbeatConfig(tick_interval_seconds=999)
