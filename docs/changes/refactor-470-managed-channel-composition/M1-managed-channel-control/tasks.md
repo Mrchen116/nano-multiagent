@@ -26,7 +26,7 @@
 
 ## Roadpoints
 
-### R1 — 固化空 bootstrap 与移除 legacy bridge（TODO）
+### R1 — 固化空 bootstrap 与移除 legacy bridge（DONE）
 
 - 步骤：扩展 bootstrap integration regression，删除 migration/export 与专属测试、transport callback。
 - 验证：相关 bootstrap 与 sensitive-config 测试；真实 IM WebSocket bootstrap 请求返回空 items。
