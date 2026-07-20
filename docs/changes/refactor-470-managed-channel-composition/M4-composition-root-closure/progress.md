@@ -130,3 +130,21 @@
 - Rollback: revert `274562801`，再 revert `3f4a8618f`。
 - Commits: C1=`3f4a8618f`，C2=`274562801`，C3=本次 progress commit。
 - Next: 提交本轮验证文档并交由 orchestrator 复核。
+
+## Fix R1 follow-up — Gateway startup ownership 收口
+
+- Context: follow-up patch review 发现 composition 仍通过浅 wrapper 构造 `RuntimeConfigOwner`，且 transport contract 错把 header builder 归给 composition；同时 Cron 初始注册需严格晚于 Gateway event loop 建立、早于 listener/channel/producer。
+- Decision: `load_gateway_runtime_config()` 保留 Feishu skill provisioning，`compose_gateway()` 直接构造共享 `RuntimeConfigOwner`，不调用 provisioning 或初始 Cron 注册。`GatewayRuntime` 在 event loop 建立后依次启动 `GatewayStartupCollaborator`、向其创建的 Cron services 注入 loop，随后才启动 listener/channel/producer；动态 agent callback 保持原有 active-loop 注册语义。
+- Rationale: config provisioning 是 process lifecycle 的公开 startup config owner，composition 合法地构造纯对象图但不承担领域副作用；Cron runtime 是初始注册与 stale-run recovery 的唯一 owner。transport consumer 仅依赖实际需要的 neutral public API，防止无主 import 掩盖边界。
+- Evidence:
+  - Focused regression: `/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -q tests/unit/personal_assistant/test_gateway_build_runtime.py tests/unit/personal_assistant/test_gateway_runtime_lifecycle.py tests/unit/personal_assistant/test_cron_delivery_chain.py tests/unit/personal_assistant/test_gateway_launch.py tests/contract/test_gateway_inbound_ownership_contract.py`：44 passed。
+  - Architecture: `/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -q tests/contract`：193 passed；contract 锁定 composition 不调 provisioning/initial registration、可直接构造 `RuntimeConfigOwner`，以及 agent_config_sync/shadow_sync 的 neutral header+normalize、composition 的 normalize、image_attachments 的 neutral header import。
+  - Static: `ruff check .` 通过；`ruff format --check .` 显示 856 files already formatted。
+  - Full regression: `/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -q -m "not e2e"`：3625 passed, 1 skipped, 20 deselected。
+  - Entry: `scripts/e2e-critical.sh -k 'gateway_im_resilience or restart_session_continuity'`：3 passed, 14 deselected, 38.29s，使用隔离高位端口的真 IM + 真 Gateway 进程；执行后未遗留 worktree `.im.pid`、`.gateway.pid`、`.vite.pid` 或相应进程。
+  - Review closure: patch review 两项（浅 `RuntimeConfigOwner` helper、composition 的无主 `build_im_http_headers` import）均已关闭；binder finding 经当前 startup 顺序与动态 callback 路径核查为 REFUTED。
+  - Verification/acceptance: 未修改 `verification.md` 或 `acceptance-round-1.md`；此前 durable Feishu/Cron live evidence 保留，本 follow-up 仅移动已验证逻辑的启动时机。
+  - Frontend State Matrix / Browser QA / Visual / Prototype Comparison: N/A。
+- Rollback: revert `8f212e7b3`，再按需 revert C1 red-test commits `c44507836` 与 `33a438288`。
+- Commits: C1=`33a438288`、`c44507836`，C2=`8f212e7b3`，C3=本 evidence commit（rebase 后）。
+- Next: 已 rebase 最新 `origin/unit/refactor-470`，推送 fix branch。
