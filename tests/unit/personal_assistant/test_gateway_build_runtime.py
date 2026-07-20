@@ -88,6 +88,69 @@ def test_compose_gateway_session_store_db_path_is_under_config_dir(
     assert paths == [expected_db_path]
 
 
+def test_compose_gateway_does_not_provision_feishu_skill(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Composition must not persist configuration before the Gateway process starts."""
+    base = make_minimal_config(tmp_path)
+    config = LocalConfig(
+        node=base.node,
+        agents=(
+            AgentWorkspaceConfig(
+                agent_id="agent-a",
+                workspace_root=base.agents[0].workspace_root,
+                skills=("memory",),
+            ),
+        ),
+        channels=(
+            ChannelConfig(
+                name="feishu:agent-a",
+                enabled=True,
+                settings={
+                    "appId": "cli_a",
+                    "appSecret": "secret",
+                    "botOpenId": "ou_bot",
+                },
+            ),
+        ),
+        gateway=base.gateway,
+        heartbeat=base.heartbeat,
+        im_service=None,
+        llm=base.llm,
+        source_path=base.source_path,
+    )
+
+    def _unexpected_save(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("compose_gateway must not provision Feishu configuration")
+
+    monkeypatch.setattr(
+        "personal_assistant.config.local_store.save_sensitive_local_config",
+        _unexpected_save,
+    )
+
+    compose_gateway(config)
+
+
+def test_compose_gateway_defers_cron_initial_registration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cron stale-run recovery belongs to the running Gateway lifecycle."""
+    registrations: list[str] = []
+
+    def _record_registration(_self: object) -> None:
+        registrations.append("registered")
+
+    monkeypatch.setattr(
+        "personal_assistant.scheduler.cron_gateway_runtime.GatewayCronRuntime.register_configured_agents",
+        _record_registration,
+    )
+
+    runtime = compose_gateway(make_minimal_config(tmp_path))
+
+    assert registrations == []
+    assert runtime._startup_action is not None  # noqa: SLF001
+
+
 def test_compose_gateway_wires_external_delivery_without_im_service(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
