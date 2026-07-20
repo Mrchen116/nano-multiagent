@@ -7,7 +7,10 @@ from pathlib import Path
 
 import pytest
 
-from personal_assistant.config.local_store import load_local_config, save_sensitive_local_config
+from personal_assistant.config.local_store import (
+    load_local_config,
+    save_sensitive_local_config,
+)
 
 
 def _legacy_config(path: Path, workspace: Path) -> None:
