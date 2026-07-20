@@ -38,12 +38,11 @@ from personal_assistant.gateway.runtime_delivery.lifecycle import (
 from personal_assistant.gateway.runtime_delivery.observer import roll_bubble
 from personal_assistant.gateway.reply_visibility import ReplyVisibilityPolicy
 from personal_assistant.gateway.runtime import GatewayRuntime
+from personal_assistant.gateway.process_lifecycle import RuntimeFactories, run_gateway
 from personal_assistant.main import (
-    RuntimeFactories,
     _build_channel_registry,
     _build_kernel_event_observer,
     build_runtime,
-    run_gateway,
 )
 from personal_assistant.reporter.upstream_reporter import UpstreamReporter
 
