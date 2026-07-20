@@ -8,7 +8,7 @@ from pathlib import Path
 import os
 import shutil
 import threading
-from typing import Any, Callable, Mapping
+from typing import Any, Callable
 from uuid import uuid4
 
 import yaml
@@ -244,29 +244,6 @@ class ChannelConfig:
     name: str
     enabled: bool = True
     settings: dict[str, Any] = field(default_factory=dict)
-
-
-def migrate_managed_channels_to_credential_refs(
-    channels: tuple[ChannelConfig, ...],
-    *,
-    credential_refs: Mapping[str, str],
-) -> tuple[ChannelConfig, ...]:
-    """Replace managed YAML plaintext only after cache authority is established.
-
-    The input objects are left untouched so a failed config write can continue using
-    the complete legacy configuration on the next process start.
-    """
-    migrated: list[ChannelConfig] = []
-    for channel in channels:
-        reference = credential_refs.get(channel.name)
-        if reference is None or not channel.name.startswith("feishu:"):
-            migrated.append(channel)
-            continue
-        settings = dict(channel.settings)
-        settings.pop("appSecret", None)
-        settings["credentialRef"] = reference
-        migrated.append(replace(channel, settings=settings))
-    return tuple(migrated)
 
 
 @dataclass(frozen=True, slots=True)

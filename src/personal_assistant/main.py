@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import fcntl
-import hashlib
 import json
 import logging
 import os
@@ -53,7 +52,6 @@ from personal_assistant.config.local_store import (
     default_local_config_path,
     ensure_feishu_doc_skill_for_feishu_agents,
     load_local_config,
-    migrate_managed_channels_to_credential_refs,
     resolve_run_model,
     save_local_config,
     save_sensitive_local_config,
@@ -2459,91 +2457,6 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                 manager=channel_manager,
             )
 
-        bootstrap_credential_refs: dict[str, str] = {}
-
-        def _legacy_bootstrap_items(
-            request: Mapping[str, object],
-        ) -> list[Mapping[str, object]]:
-            current_config = config_owner.snapshot()
-            owner_id = str(request.get("owner_id") or "")
-            items: list[Mapping[str, object]] = []
-            bootstrap_credential_refs.clear()
-            for channel in current_config.channels:
-                if not channel.name.startswith("feishu:"):
-                    continue
-                app_secret = channel.settings.get("appSecret")
-                app_id = channel.settings.get("appId")
-                agent_id = channel.name.removeprefix("feishu:")
-                if not (
-                    owner_id
-                    and agent_id
-                    and isinstance(app_id, str)
-                    and app_id.strip()
-                    and isinstance(app_secret, str)
-                    and app_secret.strip()
-                ):
-                    continue
-                digest = hashlib.sha256(
-                    f"{current_config.node.node_id}\0{channel.name}".encode()
-                ).hexdigest()[:24]
-                channel_id = f"ch_legacy_{digest}"
-                aad = GatewayChannelAad(
-                    owner_id=owner_id,
-                    node_id=current_config.node.node_id,
-                    agent_id=agent_id,
-                    channel_id=channel_id,
-                    provider="feishu",
-                    credential_revision=1,
-                )
-                runtime = {
-                    key: value
-                    for key, source in (
-                        ("owner_open_id", "ownerOpenId"),
-                        ("bot_open_id", "botOpenId"),
-                    )
-                    if isinstance((value := channel.settings.get(source)), str)
-                    and value
-                }
-                items.append(
-                    {
-                        "channel_id": channel_id,
-                        "agent_id": agent_id,
-                        "provider": "feishu",
-                        "enabled": channel.enabled,
-                        "config": {"app_id": app_id.strip()},
-                        "credential_envelope": channel_key.seal(
-                            secret={"app_secret": app_secret.strip()}, aad=aad
-                        ),
-                        "credential_key_id": channel_key.key_id,
-                        "credential_revision": 1,
-                        "provider_runtime": runtime,
-                    }
-                )
-                bootstrap_credential_refs[channel.name] = (
-                    f"channel-manifest:{channel_id}"
-                )
-            return items
-
-        def _mark_legacy_bootstrap_cached() -> None:
-            if not bootstrap_credential_refs:
-                return
-            try:
-                config_owner.persist(
-                    lambda current: replace(
-                        current,
-                        channels=migrate_managed_channels_to_credential_refs(
-                            current.channels,
-                            credential_refs=bootstrap_credential_refs,
-                        ),
-                    ),
-                    save_config=save_sensitive_local_config,
-                )
-            except Exception:  # noqa: BLE001
-                _log.warning(
-                    "channel bootstrap cache committed but legacy YAML cleanup failed",
-                    exc_info=True,
-                )
-
         def _ack_channel_reconcile(payload: Mapping[str, object]) -> None:
             token_outcomes = payload.get("removal_token_outcomes")
             channel_manifest_store.ack_reconcile_result(
@@ -2951,8 +2864,6 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             channel_reconnect_handler=_reconnect_managed_channel,
             channel_reconcile_ack_handler=_ack_channel_reconcile,
             channel_status_result_handler=_handle_channel_status_result,
-            channel_bootstrap_provider=_legacy_bootstrap_items,
-            channel_bootstrap_applied_handler=_mark_legacy_bootstrap_cached,
         )
 
     # bugfix-402-M3 R3: kernel is closed explicitly via GatewayRuntime(kernel=) and
@@ -3415,11 +3326,6 @@ def _build_im_connection_manager(
         [Mapping[str, object]], Awaitable[None] | None
     ]
     | None = None,
-    channel_bootstrap_provider: Callable[
-        [Mapping[str, object]], list[Mapping[str, object]]
-    ]
-    | None = None,
-    channel_bootstrap_applied_handler: Callable[[], None] | None = None,
 ) -> IMConnectionManager:
     im_service = config.im_service
     if im_service is None:
@@ -3444,8 +3350,6 @@ def _build_im_connection_manager(
         channel_reconnect_handler=channel_reconnect_handler,
         channel_reconcile_ack_handler=channel_reconcile_ack_handler,
         channel_status_result_handler=channel_status_result_handler,
-        channel_bootstrap_provider=channel_bootstrap_provider,
-        channel_bootstrap_applied_handler=channel_bootstrap_applied_handler,
     )
 
 

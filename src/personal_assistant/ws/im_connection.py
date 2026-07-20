@@ -154,8 +154,6 @@ ChannelManifestHandler = Callable[
 ChannelReconnectHandler = Callable[[str, int], Awaitable[object] | object]
 ChannelReconcileAckHandler = Callable[[Mapping[str, object]], Awaitable[None] | None]
 ChannelStatusResultHandler = Callable[[Mapping[str, object]], Awaitable[None] | None]
-ChannelBootstrapProvider = Callable[[Mapping[str, object]], list[Mapping[str, object]]]
-ChannelBootstrapAppliedHandler = Callable[[], None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -256,8 +254,6 @@ class IMConnectionManager:
         channel_reconnect_handler: ChannelReconnectHandler | None = None,
         channel_reconcile_ack_handler: ChannelReconcileAckHandler | None = None,
         channel_status_result_handler: ChannelStatusResultHandler | None = None,
-        channel_bootstrap_provider: ChannelBootstrapProvider | None = None,
-        channel_bootstrap_applied_handler: ChannelBootstrapAppliedHandler | None = None,
         channel_reconcile_retry_delays: tuple[float, ...] = (0.5, 1.0, 2.0),
         connect: ConnectFn,
         sleep: SleepFn = asyncio.sleep,
@@ -288,8 +284,6 @@ class IMConnectionManager:
         self._channel_reconnect_handler = channel_reconnect_handler
         self._channel_reconcile_ack_handler = channel_reconcile_ack_handler
         self._channel_status_result_handler = channel_status_result_handler
-        self._channel_bootstrap_provider = channel_bootstrap_provider
-        self._channel_bootstrap_applied_handler = channel_bootstrap_applied_handler
         self._channel_reconcile_retry_delays = channel_reconcile_retry_delays
         self._connect = connect
         self._sleep = sleep
@@ -825,19 +819,13 @@ class IMConnectionManager:
             )
             return
         if message_type == "channels.bootstrap.request":
-            if self._channel_bootstrap_provider is None:
-                raise RuntimeError(
-                    "channels.bootstrap.request requires channel_bootstrap_provider"
-                )
             request_id = _require_text(body.get("request_id"), field_name="request_id")
             await self.send_json(
                 "channels.bootstrap",
                 {
                     "request_id": request_id,
                     "node_id": self._reporter.node_id,
-                    "items": [
-                        dict(item) for item in self._channel_bootstrap_provider(body)
-                    ],
+                    "items": [],
                 },
             )
             return
@@ -865,11 +853,6 @@ class IMConnectionManager:
                     **result_payload,
                 },
             )
-            if (
-                result_payload.get("outcome") == "applied"
-                and self._channel_bootstrap_applied_handler is not None
-            ):
-                self._channel_bootstrap_applied_handler()
             return
         if message_type == "channel.reconnect":
             if self._channel_reconnect_handler is None:
