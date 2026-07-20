@@ -58,9 +58,8 @@ from personal_assistant.gateway.managed_channel_control import (
     ManagedChannelConnectionSender,
     ManagedChannelControl,
 )
-from personal_assistant.gateway.runtime import GatewayRuntime, GatewayRuntimeLike
-from personal_assistant.gateway.kernel_client import InProcessKernelClient
-from personal_assistant.scheduler.heartbeat_runner import PollingHeartbeatRunner
+from personal_assistant.gateway import kernel_client, runtime
+from personal_assistant.scheduler import heartbeat_runner
 from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
 from personal_assistant.gateway.agent_config_sync import (
     IMAgentConfigSync,
@@ -245,7 +244,7 @@ class RuntimeFactories:
     """
 
     load_config: Callable[[str | Path], LocalConfig] = load_local_config
-    build_runtime: Callable[[LocalConfig], GatewayRuntimeLike] | None = None
+    build_runtime: Callable[[LocalConfig], runtime.GatewayRuntimeLike] | None = None
     install_signal_handlers: SignalHandlerInstaller | None = None
 
 
@@ -963,7 +962,7 @@ def _make_prompt_preview_provider(kernel: Any) -> "PromptPreviewProvider":
     return _provider  # type: ignore[return-value]
 
 
-def build_runtime(config: LocalConfig) -> GatewayRuntime:
+def build_runtime(config: LocalConfig) -> runtime.GatewayRuntime:
     """Construct the default long-running gateway runtime from parsed local config.
 
     refactor-387 M3: kernel is now in-process via agent.sdk.  No kernel child
@@ -1064,7 +1063,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         repository=session_store,
         kernel=kernel,
     )
-    kernel_shim = InProcessKernelClient(
+    kernel_shim = kernel_client.InProcessKernelClient(
         kernel,
         agent_catalog=agent_catalog,
         session_binder=session_binder,
@@ -1483,7 +1482,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         session_binder=session_binder,
         is_session_busy=run_coordinator.is_session_busy,
     )
-    heartbeat_runner = PollingHeartbeatRunner(
+    polling_heartbeat_runner = heartbeat_runner.PollingHeartbeatRunner(
         scheduler=_heartbeat_scheduler,
         config=config.heartbeat,
         kernel=kernel if _owner_user_id else None,
@@ -1501,7 +1500,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             config=config,
             relay_adapter=relay_adapter,
             reporter=reporter,
-            heartbeat_runner=heartbeat_runner,
+            heartbeat_runner=polling_heartbeat_runner,
             sync_client=_im_sync_client,
             agent_config_provider=lambda agent_id: (
                 im_config_sync_client.current_agent_payload(agent_id=agent_id)
@@ -1529,7 +1528,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             managed_channel_bindings=managed_channel_control.connection_bindings(),
         )
 
-    # bugfix-402-M3 R3: kernel is closed explicitly via GatewayRuntime(kernel=) and
+    # bugfix-402-M3 R3: kernel is closed explicitly via runtime.GatewayRuntime(kernel=) and
     # its aclose() in the ordered shutdown phase (Decision 7). It must not be in
     # resource_closers — that list only holds lightweight sync cleanup (HTTP clients).
     closers: list[Callable[[], None]] = []
@@ -1542,10 +1541,10 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         kernel_client=kernel_shim,
         session_binder=session_binder,
     )
-    return GatewayRuntime(
+    return runtime.GatewayRuntime(
         config,
         channel_registry=channel_registry,
-        heartbeat_runner=heartbeat_runner,
+        heartbeat_runner=polling_heartbeat_runner,
         im_connection_manager=im_connection_manager,
         on_inbound=inbound_dispatcher,
         resource_closers=tuple(closers),
@@ -1967,7 +1966,7 @@ def _build_im_connection_manager(
     config: LocalConfig,
     relay_adapter: WebRelayAdapter,
     reporter: UpstreamReporter,
-    heartbeat_runner: PollingHeartbeatRunner,
+    heartbeat_runner: heartbeat_runner.PollingHeartbeatRunner,
     sync_client: ConfigSyncClient | None = None,
     agent_config_provider: Callable[[str], dict[str, object] | None] | None = None,
     agent_capabilities_provider: Callable[[str, str], dict[str, object]] | None = None,
@@ -2487,10 +2486,10 @@ def _kill_process_tree(pid: int, sig: int) -> None:
 
 
 def _install_default_signal_handlers(
-    runtime: GatewayRuntimeLike,
+    gateway_runtime: runtime.GatewayRuntimeLike,
 ) -> SignalHandlerInstaller:
     def _installer() -> Callable[[], None]:
-        if not isinstance(runtime, GatewayRuntime):
+        if not isinstance(gateway_runtime, runtime.GatewayRuntime):
             return lambda: None
         if threading.current_thread() is not threading.main_thread():
             return lambda: None
@@ -2498,7 +2497,7 @@ def _install_default_signal_handlers(
         previous: dict[signal.Signals, Any] = {}
 
         def _handler(_signum: int, _frame: Any) -> None:
-            runtime.request_shutdown()
+            gateway_runtime.request_shutdown()
 
         for sig in (signal.SIGINT, signal.SIGTERM):
             previous[sig] = signal.getsignal(sig)
