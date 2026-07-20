@@ -429,7 +429,9 @@ async def test_reconcile_on_connect_continues_after_binding_failure_and_reports_
         captured.update(kwargs)
         return manager
 
-    monkeypatch.setattr("personal_assistant.gateway.im_bootstrap.IMBootstrapClient", _FailingBootstrap)
+    monkeypatch.setattr(
+        "personal_assistant.gateway.im_bootstrap.IMBootstrapClient", _FailingBootstrap
+    )
     monkeypatch.setattr(gateway_main, "IMAgentConfigSync", _RecordingSyncClient)
     monkeypatch.setattr(
         gateway_main, "_build_im_connection_manager", _fake_build_im_connection_manager

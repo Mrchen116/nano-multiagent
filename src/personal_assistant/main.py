@@ -47,7 +47,12 @@ from personal_assistant.gateway.managed_channel_control import (
     ManagedChannelBindings,
     ManagedChannelControl,
 )
-from personal_assistant.gateway import im_bootstrap, kernel_client, process_lifecycle, runtime
+from personal_assistant.gateway import (
+    im_bootstrap,
+    kernel_client,
+    process_lifecycle,
+    runtime,
+)
 from personal_assistant.gateway.connection_ready import ConnectionReadyCoordinator
 from personal_assistant.scheduler import heartbeat_runner
 from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
@@ -134,6 +139,7 @@ from personal_assistant.ws.im_connection import (
     SessionForkHandler,
 )
 
+
 def _check_im_reachable(url: str) -> bool:
     """Return True if the IM service HTTP endpoint responds within 1 second."""
     try:
@@ -152,7 +158,6 @@ def _print_gateway_started(result: "process_lifecycle.BackgroundLaunchResult") -
         )
         print(f"IM service:      {result.im_service_url}  [{status}]")
     print(f"Log:             {result.log_path}")
-
 
 
 def _make_prompt_preview_provider(kernel: Any) -> "PromptPreviewProvider":
@@ -210,6 +215,7 @@ def _make_prompt_preview_provider(kernel: Any) -> "PromptPreviewProvider":
         )
 
     return _provider  # type: ignore[return-value]
+
 
 def _load_runtime_config(
     config_path: str | Path,

@@ -50,7 +50,8 @@ def test_launch_gateway_in_background_writes_runtime_state_file(
     config = build_config(tmp_path)
     process = _FakeProcess(wait_result=0, pid=2468)
     monkeypatch.setattr(
-        "personal_assistant.gateway.process_lifecycle._process_start_identity", lambda _pid: "birth-2468"
+        "personal_assistant.gateway.process_lifecycle._process_start_identity",
+        lambda _pid: "birth-2468",
     )
 
     def _publish_state(_child, _config, _timeout) -> None:
@@ -152,7 +153,8 @@ def test_launch_background_refuses_to_start_when_pid_file_shows_live_process(
     pid_path.write_text("12345", encoding="utf-8")
 
     monkeypatch.setattr(
-        "personal_assistant.gateway.process_lifecycle._process_start_identity", lambda _pid: "live-birth"
+        "personal_assistant.gateway.process_lifecycle._process_start_identity",
+        lambda _pid: "live-birth",
     )
     monkeypatch.setattr(
         "personal_assistant.gateway.process_lifecycle._process_command",
@@ -217,7 +219,10 @@ def test_stop_gateway_removes_pid_file_on_successful_stop(
     tmp_path: Path,
 ) -> None:
     """stop_gateway must delete gateway.pid after successfully stopping the process."""
-    from personal_assistant.gateway.process_lifecycle import _legacy_gateway_pid_path, stop_gateway
+    from personal_assistant.gateway.process_lifecycle import (
+        _legacy_gateway_pid_path,
+        stop_gateway,
+    )
 
     config = build_config(tmp_path)
     pid_path = _legacy_gateway_pid_path(config)
@@ -236,14 +241,19 @@ def test_stop_gateway_removes_pid_file_on_successful_stop(
         running = False
 
     monkeypatch.setattr(
-        "personal_assistant.gateway.process_lifecycle._process_start_identity", _process_start
+        "personal_assistant.gateway.process_lifecycle._process_start_identity",
+        _process_start,
     )
     monkeypatch.setattr(
         "personal_assistant.gateway.process_lifecycle._process_command",
         lambda _pid: _gateway_command(config.source_path),
     )
-    monkeypatch.setattr("personal_assistant.gateway.process_lifecycle.os.getpgid", lambda pid: pid)
-    monkeypatch.setattr("personal_assistant.gateway.process_lifecycle.os.killpg", _kill_group)
+    monkeypatch.setattr(
+        "personal_assistant.gateway.process_lifecycle.os.getpgid", lambda pid: pid
+    )
+    monkeypatch.setattr(
+        "personal_assistant.gateway.process_lifecycle.os.killpg", _kill_group
+    )
     result = stop_gateway(
         config_path=config.source_path, load_config=lambda _path: config
     )
@@ -258,7 +268,10 @@ def test_stop_gateway_stops_foreground_pid_without_runtime_state(
     tmp_path: Path,
 ) -> None:
     """stop_gateway must stop a live PID-file-only gateway started in foreground mode."""
-    from personal_assistant.gateway.process_lifecycle import _legacy_gateway_pid_path, stop_gateway
+    from personal_assistant.gateway.process_lifecycle import (
+        _legacy_gateway_pid_path,
+        stop_gateway,
+    )
 
     config = build_config(tmp_path)
     pid_path = _legacy_gateway_pid_path(config)
@@ -275,14 +288,19 @@ def test_stop_gateway_stops_foreground_pid_without_runtime_state(
         running = False
 
     monkeypatch.setattr(
-        "personal_assistant.gateway.process_lifecycle._process_start_identity", _process_start
+        "personal_assistant.gateway.process_lifecycle._process_start_identity",
+        _process_start,
     )
     monkeypatch.setattr(
         "personal_assistant.gateway.process_lifecycle._process_command",
         lambda _pid: _gateway_command(config.source_path),
     )
-    monkeypatch.setattr("personal_assistant.gateway.process_lifecycle.os.getpgid", lambda pid: pid)
-    monkeypatch.setattr("personal_assistant.gateway.process_lifecycle.os.killpg", _kill_group)
+    monkeypatch.setattr(
+        "personal_assistant.gateway.process_lifecycle.os.getpgid", lambda pid: pid
+    )
+    monkeypatch.setattr(
+        "personal_assistant.gateway.process_lifecycle.os.killpg", _kill_group
+    )
 
     result = stop_gateway(
         config_path=config.source_path, load_config=lambda _path: config
@@ -302,10 +320,12 @@ def test_stop_gateway_rejects_legacy_pid_owned_by_another_command(
     pid_path.write_text("2468", encoding="utf-8")
     state_path = _write_state(config.source_path, pid=2468, process_start=None)
     monkeypatch.setattr(
-        "personal_assistant.gateway.process_lifecycle._process_start_identity", lambda _pid: "birth-a"
+        "personal_assistant.gateway.process_lifecycle._process_start_identity",
+        lambda _pid: "birth-a",
     )
     monkeypatch.setattr(
-        "personal_assistant.gateway.process_lifecycle._process_command", lambda _pid: "/bin/sleep 100"
+        "personal_assistant.gateway.process_lifecycle._process_command",
+        lambda _pid: "/bin/sleep 100",
     )
     monkeypatch.setattr(
         "personal_assistant.gateway.process_lifecycle.os.kill",

@@ -19,7 +19,11 @@ from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any
 
-from personal_assistant.config.local_store import LocalConfig, default_local_config_path, load_local_config
+from personal_assistant.config.local_store import (
+    LocalConfig,
+    default_local_config_path,
+    load_local_config,
+)
 from personal_assistant.gateway import runtime
 from personal_assistant.gateway.im_bootstrap import GatewayStartupError
 
@@ -28,6 +32,7 @@ ProcessLike = subprocess.Popen[Any]
 BackgroundProcessFactory = Callable[[list[str], Path], ProcessLike]
 StartWaiter = Callable[[ProcessLike, LocalConfig, float], None]
 SignalHandlerInstaller = Callable[[], Callable[[], None]]
+
 
 @dataclass(frozen=True, slots=True)
 class RuntimeFactories:
@@ -76,7 +81,6 @@ class GatewayRuntimeState:
     process_start: str | None = None
 
 
-
 def _read_log_last_error(
     log_path: Path, *, offset: int = 0, lines: int = 20
 ) -> str | None:
@@ -89,7 +93,6 @@ def _read_log_last_error(
         return tail[-1] if tail else None
     except Exception:  # noqa: BLE001
         return None
-
 
 
 def run_gateway(
@@ -141,8 +144,6 @@ def run_gateway(
         _remove_gateway_state(_gateway_state_path(config), expected=state)
 
 
-
-
 def launch_gateway_in_background(
     *,
     config_path: str | Path,
@@ -173,8 +174,6 @@ def launch_gateway_in_background(
             wait_for_start=wait_for_start,
             im_service_url_override=im_service_url_override,
         )
-
-
 
 
 def _launch_gateway_in_background_unlocked(
@@ -256,8 +255,6 @@ def _launch_gateway_in_background_unlocked(
     return result
 
 
-
-
 def stop_gateway(
     *,
     config_path: str | Path,
@@ -277,8 +274,6 @@ def stop_gateway(
     """
     with _gateway_lifecycle_lock(config_path):
         return _stop_gateway_unlocked(config_path=config_path, load_config=load_config)
-
-
 
 
 def restart_gateway(
@@ -313,8 +308,6 @@ def restart_gateway(
             wait_for_start=wait_for_start,
             im_service_url_override=im_service_url_override,
         )
-
-
 
 
 def _stop_gateway_unlocked(
@@ -369,8 +362,6 @@ def _stop_gateway_unlocked(
     return f"STOPPED pid={pid} {success_target} forced=true"
 
 
-
-
 def _wait_for_gateway_exit(config: LocalConfig, state: GatewayRuntimeState) -> bool:
     """Wait one shutdown grace interval for the original process instance to exit."""
     deadline = time.monotonic() + config.gateway.shutdown_grace_seconds
@@ -382,8 +373,6 @@ def _wait_for_gateway_exit(config: LocalConfig, state: GatewayRuntimeState) -> b
     return True
 
 
-
-
 def _clear_gateway_lifecycle(
     config: LocalConfig,
     state_path: Path | None,
@@ -393,8 +382,6 @@ def _clear_gateway_lifecycle(
     if state_path is not None:
         _remove_gateway_state(state_path, expected=completed)
     _remove_legacy_gateway_pid(config, expected_pid=completed.pid)
-
-
 
 
 def _coerce_factories(
@@ -414,12 +401,8 @@ def _coerce_factories(
     )
 
 
-
-
 def _default_gateway_log_path(config: LocalConfig) -> Path:
     return config.source_path.parent / "gateway.log"
-
-
 
 
 def _legacy_gateway_pid_path(config: LocalConfig) -> Path:
@@ -429,8 +412,6 @@ def _legacy_gateway_pid_path(config: LocalConfig) -> Path:
         Path to ``gateway.pid`` inside the config's runtime directory.
     """
     return config.source_path.parent / "gateway.pid"
-
-
 
 
 @contextmanager
@@ -448,7 +429,6 @@ def _gateway_lifecycle_lock(config_path: str | Path) -> Iterator[None]:
         os.close(fd)
 
 
-
 def _remove_legacy_gateway_pid(
     config: LocalConfig, *, expected_pid: int | None = None
 ) -> None:
@@ -461,8 +441,6 @@ def _remove_legacy_gateway_pid(
         return
     with suppress(FileNotFoundError):
         _legacy_gateway_pid_path(config).unlink()
-
-
 
 
 def _read_legacy_gateway_pid(config: LocalConfig) -> int | None:
@@ -480,8 +458,6 @@ def _read_legacy_gateway_pid(config: LocalConfig) -> int | None:
         return None
 
 
-
-
 def _process_start_identity(pid: int) -> str | None:
     """Read the OS process birth identity for one PID without signalling it."""
     result = subprocess.run(
@@ -497,8 +473,6 @@ def _process_start_identity(pid: int) -> str | None:
     return " ".join(value.split())
 
 
-
-
 def _process_command(pid: int) -> str | None:
     """Read the full live command for one PID without signalling it."""
     result = subprocess.run(
@@ -510,8 +484,6 @@ def _process_command(pid: int) -> str | None:
     )
     command = result.stdout.strip()
     return command if result.returncode == 0 and command else None
-
-
 
 
 def _process_cwd(pid: int) -> Path | None:
@@ -537,8 +509,6 @@ def _process_cwd(pid: int) -> Path | None:
         if line.startswith("n") and len(line) > 1:
             return Path(line[1:]).resolve()
     return None
-
-
 
 
 def _legacy_gateway_command_matches(
@@ -576,8 +546,6 @@ def _legacy_gateway_command_matches(
                 return False
             candidate = cwd / candidate
     return candidate.resolve() == config.source_path.resolve()
-
-
 
 
 def _upgrade_legacy_gateway_state(
@@ -618,8 +586,6 @@ def _upgrade_legacy_gateway_state(
     return upgraded
 
 
-
-
 def _assert_gateway_state_static(
     config: LocalConfig,
     state: GatewayRuntimeState,
@@ -633,16 +599,12 @@ def _assert_gateway_state_static(
         raise RuntimeError("gateway state does not match process and config")
 
 
-
-
 def _gateway_process_matches(state: GatewayRuntimeState) -> bool:
     """Return whether the PID still names the original process birth."""
     return (
         state.process_start is not None
         and _process_start_identity(state.pid) == state.process_start
     )
-
-
 
 
 def _signal_gateway_process(state: GatewayRuntimeState, sig: int) -> bool:
@@ -666,12 +628,8 @@ def _signal_gateway_process(state: GatewayRuntimeState, sig: int) -> bool:
     return True
 
 
-
-
 def _gateway_state_path(config: LocalConfig) -> Path:
     return config.source_path.parent / ".gateway-state.json"
-
-
 
 
 def _write_gateway_state(config: LocalConfig, state: GatewayRuntimeState) -> None:
@@ -695,8 +653,6 @@ def _write_gateway_state(config: LocalConfig, state: GatewayRuntimeState) -> Non
             temp_path.unlink(missing_ok=True)
 
 
-
-
 def _read_gateway_state(state_path: Path) -> GatewayRuntimeState | None:
     if not state_path.exists():
         return None
@@ -713,8 +669,6 @@ def _read_gateway_state(state_path: Path) -> GatewayRuntimeState | None:
     )
 
 
-
-
 def _remove_gateway_state(
     state_path: Path, *, expected: GatewayRuntimeState | None = None
 ) -> None:
@@ -722,8 +676,6 @@ def _remove_gateway_state(
         return
     with suppress(FileNotFoundError):
         state_path.unlink()
-
-
 
 
 def _background_gateway_argv(
@@ -742,8 +694,6 @@ def _background_gateway_argv(
     return argv
 
 
-
-
 def _spawn_background_gateway_process(argv: list[str], log_path: Path) -> ProcessLike:
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with log_path.open("ab") as log_file:
@@ -754,8 +704,6 @@ def _spawn_background_gateway_process(argv: list[str], log_path: Path) -> Proces
             start_new_session=True,
             close_fds=True,
         )
-
-
 
 
 def _wait_for_gateway_start(
@@ -788,8 +736,6 @@ def _wait_for_gateway_start(
     )
 
 
-
-
 def _stop_background_process(process: ProcessLike, *, timeout_seconds: float) -> None:
     if process.poll() is not None:
         return
@@ -804,8 +750,6 @@ def _stop_background_process(process: ProcessLike, *, timeout_seconds: float) ->
         _kill_process_tree(process.pid, signal.SIGKILL)
         with suppress(TimeoutError, subprocess.TimeoutExpired):
             process.wait(timeout=timeout_seconds)
-
-
 
 
 def _kill_process_tree(pid: int, sig: int) -> None:
@@ -823,8 +767,6 @@ def _kill_process_tree(pid: int, sig: int) -> None:
         os.killpg(pgid, sig)
     except ProcessLookupError:
         return
-
-
 
 
 def _install_default_signal_handlers(
@@ -852,7 +794,6 @@ def _install_default_signal_handlers(
         return _restore
 
     return _installer
-
 
 
 def _load_runtime_config(

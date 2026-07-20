@@ -92,7 +92,8 @@ class ConnectionReadyCoordinator:
         memory_versions = {
             agent_id: version
             for agent_id in self._agent_ids
-            if (version := self._sync_client.latest_profile_version(agent_id)) is not None
+            if (version := self._sync_client.latest_profile_version(agent_id))
+            is not None
         }
         await asyncio.to_thread(
             self._agent_config_sync.reconcile_all_agents,

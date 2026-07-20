@@ -13,7 +13,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from personal_assistant.gateway.im_bootstrap import IMBootstrapClient, extract_bind_token
+from personal_assistant.gateway.im_bootstrap import (
+    IMBootstrapClient,
+    extract_bind_token,
+)
 
 
 class TestExtractBindToken:

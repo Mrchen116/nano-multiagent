@@ -19,7 +19,10 @@ from personal_assistant.config.local_store import (
 )
 from personal_assistant.gateway.channel_registry import ChannelRegistry
 from personal_assistant.gateway.inbound_models import RelayLifecycleUpdate
-from personal_assistant.gateway.im_bootstrap import GatewayStartupError, IMBootstrapClient
+from personal_assistant.gateway.im_bootstrap import (
+    GatewayStartupError,
+    IMBootstrapClient,
+)
 from personal_assistant.channels.base import InboundMessage
 from personal_assistant.gateway.runtime_protocol import (
     RuntimeProtocolFacts,

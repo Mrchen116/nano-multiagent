@@ -25,7 +25,8 @@ def test_main_defaults_to_background_launch(
         return result
 
     monkeypatch.setattr(
-        "personal_assistant.gateway.process_lifecycle.launch_gateway_in_background", _launch_background
+        "personal_assistant.gateway.process_lifecycle.launch_gateway_in_background",
+        _launch_background,
     )
     monkeypatch.setattr(
         "personal_assistant.gateway.process_lifecycle.run_gateway",
@@ -57,7 +58,8 @@ def test_main_passes_im_service_url_override_to_background_launch(
         )
 
     monkeypatch.setattr(
-        "personal_assistant.gateway.process_lifecycle.launch_gateway_in_background", _launch_background
+        "personal_assistant.gateway.process_lifecycle.launch_gateway_in_background",
+        _launch_background,
     )
     monkeypatch.setattr(
         "personal_assistant.main._check_im_reachable", lambda _url: False
@@ -106,7 +108,8 @@ def test_main_defaults_to_canonical_config_path_when_flag_missing(
         )
 
     monkeypatch.setattr(
-        "personal_assistant.gateway.process_lifecycle.launch_gateway_in_background", _launch_background
+        "personal_assistant.gateway.process_lifecycle.launch_gateway_in_background",
+        _launch_background,
     )
     monkeypatch.setattr(
         "personal_assistant.gateway.process_lifecycle.run_gateway",
@@ -134,7 +137,9 @@ def test_main_runs_gateway_in_foreground_when_requested(
         seen["foreground"] = (config_path, factories, im_service_url_override)
         return 0
 
-    monkeypatch.setattr("personal_assistant.gateway.process_lifecycle.run_gateway", _run_gateway)
+    monkeypatch.setattr(
+        "personal_assistant.gateway.process_lifecycle.run_gateway", _run_gateway
+    )
     monkeypatch.setattr(
         "personal_assistant.gateway.process_lifecycle.launch_gateway_in_background",
         lambda **_kwargs: (_ for _ in ()).throw(
@@ -159,7 +164,9 @@ def test_main_passes_im_service_url_override_to_foreground_run(
         seen["foreground"] = (config_path, factories, im_service_url_override)
         return 0
 
-    monkeypatch.setattr("personal_assistant.gateway.process_lifecycle.run_gateway", _run_gateway)
+    monkeypatch.setattr(
+        "personal_assistant.gateway.process_lifecycle.run_gateway", _run_gateway
+    )
     monkeypatch.setattr(
         "personal_assistant.gateway.process_lifecycle.launch_gateway_in_background",
         lambda **_kwargs: (_ for _ in ()).throw(
@@ -233,7 +240,9 @@ def test_main_stop_command_stops_background_gateway(
         seen["config_path"] = config_path
         return "STOPPED pid=999"
 
-    monkeypatch.setattr("personal_assistant.gateway.process_lifecycle.stop_gateway", _stop_background)
+    monkeypatch.setattr(
+        "personal_assistant.gateway.process_lifecycle.stop_gateway", _stop_background
+    )
 
     exit_code = main(["stop", "--config", str(tmp_path / "node-config.yaml")])
 
@@ -253,7 +262,9 @@ def test_main_stop_command_defaults_to_canonical_config_path_when_flag_missing(
         seen["config_path"] = config_path
         return "STOPPED pid=999"
 
-    monkeypatch.setattr("personal_assistant.gateway.process_lifecycle.stop_gateway", _stop_background)
+    monkeypatch.setattr(
+        "personal_assistant.gateway.process_lifecycle.stop_gateway", _stop_background
+    )
 
     exit_code = main(["stop"])
 
@@ -309,7 +320,9 @@ def test_main_restart_command_uses_serialized_lifecycle_operation(
             log_path=tmp_path / "gateway.log",
         )
 
-    monkeypatch.setattr("personal_assistant.gateway.process_lifecycle.restart_gateway", _restart)
+    monkeypatch.setattr(
+        "personal_assistant.gateway.process_lifecycle.restart_gateway", _restart
+    )
 
     config_path = str(tmp_path / "node-config.yaml")
     exit_code = main(["restart", "--config", config_path])

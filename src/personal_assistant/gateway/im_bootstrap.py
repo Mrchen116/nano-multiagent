@@ -201,7 +201,9 @@ class IMBootstrapClient:
         while self._monotonic() <= deadline:
             for base_url in self._base_urls:
                 try:
-                    return self._get_owner_id(node_id=node_id, base_url=base_url), base_url
+                    return self._get_owner_id(
+                        node_id=node_id, base_url=base_url
+                    ), base_url
                 except Exception as exc:  # noqa: BLE001
                     last_error = exc
             self._sleep(0.1)
@@ -213,7 +215,9 @@ class IMBootstrapClient:
             f"Verify the IM node API is reachable at {checked_urls} and rerun gateway."
         )
         if last_error is not None:
-            raise GatewayStartupError(summary=message, next_step=next_step) from last_error
+            raise GatewayStartupError(
+                summary=message, next_step=next_step
+            ) from last_error
         raise GatewayStartupError(summary=message, next_step=next_step)
 
     def _get_owner_id(self, *, node_id: str, base_url: str) -> str:
