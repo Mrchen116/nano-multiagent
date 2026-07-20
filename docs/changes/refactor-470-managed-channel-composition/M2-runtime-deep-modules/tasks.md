@@ -26,7 +26,7 @@
 
 ### R1 — 建立真实 runtime owner
 
-- 状态：TODO
+- 状态：DONE
 - 步骤：以 owner import 的回归断言固定 `GatewayRuntime` 的启动、watchdog 与 shutdown 资源图；将 runtime 与必要 lifecycle protocols/helpers 迁至 `gateway/runtime.py`，更新 runtime 测试 import。
 - 验证：runtime lifecycle/watchdog/shutdown 聚焦测试、Gateway 前台启动与关闭。
 
