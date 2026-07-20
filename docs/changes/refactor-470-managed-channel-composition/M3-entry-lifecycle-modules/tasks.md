@@ -8,9 +8,9 @@
 
 ## 退出标准
 
-- [ ] 默认后台启动、重复启动、stop/restart、auto-bind 与 IM reconnect 收敛保持不变。
-- [ ] lifecycle state 的安全采纳契约保持；`im_bootstrap` 不承担 channel 或 Agent 编排；on-connected 不捕获 nullable manager。
-- [ ] launch/PID/command/auto-bind/reconnect 测试从真实 owner import；聚焦测试与 ruff 通过。
+- [x] 默认后台启动、重复启动、stop/restart、auto-bind 与 IM reconnect 收敛保持不变。
+- [x] lifecycle state 的安全采纳契约保持；`im_bootstrap` 不承担 channel 或 Agent 编排；on-connected 不捕获 nullable manager。
+- [x] launch/PID/command/auto-bind/reconnect 测试从真实 owner import；聚焦测试与 ruff 通过。
 
 ## 测试策略
 
@@ -31,12 +31,12 @@
 
 ### R2 — 迁移后台进程生命周期 owner
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 新建 `gateway.process_lifecycle`，整体迁移后台启动、PID state、锁、进程身份、安全 signal 和 signal handler；迁移 launch/PID 测试 import。
 - 验证: launch/PID lifecycle 聚焦测试、ruff。
 
 ### R3 — 收窄 CLI 入口并验证真实命令路径
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: `main.py` 仅保留参数解析与到 lifecycle/composition owner 的模块限定调用；调整入口 contract 与 command tests，并用隔离 config 前台启动完成 auto-bind/关闭验收。
 - 验证: command/contract 聚焦测试、隔离 IM + Gateway 真入口启动停止、ruff。

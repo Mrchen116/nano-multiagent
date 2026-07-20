@@ -20,5 +20,39 @@
   - Visual/Interaction: N/A。
   - Prototype Comparison: N/A。
 - Rollback: `git revert aa0cc10a2` 后恢复 bootstrap 与收敛逻辑在入口的位置。
-- Commits: C1=7e8a0f52a, C2=aa0cc10a2, C3=待提交。
+- Commits: C1=7e8a0f52a, C2=aa0cc10a2, C3=cb8a7a4e1。
 - Next: R2 迁移后台进程生命周期 owner。
+
+### R2 — 迁移后台进程生命周期 owner
+
+- Context: 后台启动、PID state、进程身份确认、跨进程锁和安全 signal 原先与 runtime composition 混在入口模块中。
+- Decision: 将完整生命周期算法迁入 `gateway.process_lifecycle`；`main.py` 仅以 `process_lifecycle` 模块限定名分派 start、stop、restart 与 foreground run。
+- Rationale: lifecycle state 与 OS 进程控制是一个共享不变量，必须由同一具名 owner 持有；保持原有 process birth identity、legacy PID 语义校验和 signal 前后复核，避免 PID reuse 误杀。
+- Evidence:
+  - Tests: `test_gateway_launch.py`、`test_gateway_pid_lifecycle.py`、`test_gateway_relay_lifecycle.py` 共 48 passed；完整 `pytest -q -m "not e2e"` 为 3615 passed, 1 skipped, 20 deselected。
+  - Entry: R3 使用隔离 IM + Gateway 真入口统一验证。
+  - Frontend State Matrix: N/A。
+  - Browser QA: N/A。
+  - E2E/Regression: launch/PID lifecycle 测试从 `gateway.process_lifecycle` 导入，并覆盖重复启动、legacy state 安全采纳、优雅 stop/restart 与 process identity 复核。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: `git revert b71c6923b` 后恢复 lifecycle 实现在入口模块的位置。
+- Commits: C1=f8e9bd06d, C2=b71c6923b, C3=本提交。
+- Next: R3 收窄入口并执行真命令路径验收。
+
+### R3 — 收窄 CLI 入口并验证真实命令路径
+
+- Context: 入口仍须保持 CLI 参数、用户反馈和命令分派，同时禁止以直接导入形成 lifecycle/bootstrap 的事实 re-export。
+- Decision: `main.py` 通过 `process_lifecycle` 与 `im_bootstrap` 模块限定名分派；入口 contract 固定该边界，命令测试只验证参数、反馈和分派。
+- Rationale: CLI 入口不拥有进程或 IM bootstrap 策略，模块限定调用使 owner 清晰且不会给生产或测试留下旧 private import 路径。
+- Evidence:
+  - Tests: command/build-runtime/bootstrap/contract 聚焦测试共 38 passed；完整 `pytest -q -m "not e2e"` 为 3615 passed, 1 skipped, 20 deselected；相关 ruff check 通过。
+  - Entry: 执行 `./scripts/e2e-up.sh` 启动 worktree 隔离 IM 与 `personal_assistant.main --foreground --auto-bind`；经 IM 认证 API 确认唯一 node 已有 `owner_id`，Gateway 日志记录 `auto-bound to IM`；随后 `./scripts/e2e-down.sh` 优雅停止 Gateway 和 IM，`.gateway-state.json` 与 PID 文件均已清理。
+  - Frontend State Matrix: N/A。
+  - Browser QA: N/A。
+  - E2E/Regression: `test_gateway_main_command.py`、`test_auto_bind.py`、`test_gateway_reconnect_registration_gate.py` 和 `test_personal_assistant_main_contract.py` 覆盖命令分派、auto-bind、register-ready 收敛与入口 owner。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A。
+- Rollback: `git revert bc403745b` 后恢复入口直接导入；`git revert b71c6923b` 可整体回退 lifecycle owner。
+- Commits: C1=a91ec5ff6, C2=bc403745b, C3=本提交。
+- Next: rebase 到 `origin/unit/refactor-470` 并完成 milestone 集成。
