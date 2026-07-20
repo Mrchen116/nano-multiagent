@@ -56,3 +56,15 @@
 - Rollback: revert `e67e9fb74` 与 `51054aa31`。
 - Commits: C1=`51054aa31`，C2=`e67e9fb74`，C3=本提交。
 - Next: M1 完成，准备 rebase、完整 M1 验证和 unit 分支集成。
+
+### 收尾 — formatter gate 修正
+
+- Context: M1 diff 已删除 sensitive local config 的 legacy migration 测试/import；全范围 formatter gate 因该文件的 import wrapping 失败。
+- Decision: 仅按 Ruff 输出格式化该测试文件，不改变测试行为。
+- Rationale: 该文件属于本 milestone 改动，必须随 M1 代码满足全范围格式门禁。
+- Evidence:
+  - Tests: `PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/pytest -q tests/unit/personal_assistant/test_sensitive_local_config.py tests/unit/personal_assistant/test_builtin_skill_bootstrap.py tests/integration/test_channel_bootstrap.py` → `7 passed, 2 warnings`。
+  - Formatter: `/Users/czj/Repos/nano-multiagent/.venv/bin/ruff format --check src/personal_assistant tests/unit/personal_assistant tests/integration` → `245 files already formatted`。
+- Rollback: revert `5fabd41c7`。
+- Commit: `5fabd41c7`。
+- Next: M1 formatter gate 已通过，等待 unit 分支集成。
