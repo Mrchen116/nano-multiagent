@@ -110,6 +110,71 @@ def test_run_gateway_publishes_single_state_before_start_and_removes_on_exit(
     assert not state_path.exists()
 
 
+def test_run_gateway_installs_builtin_skills_before_building_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Foreground Gateway startup installs packaged skills before composition."""
+    from personal_assistant.gateway import process_lifecycle
+
+    config = build_config(tmp_path)
+    events: list[str] = []
+
+    class _Runtime:
+        def run_forever(self) -> int:
+            events.append("runtime.run")
+            return 0
+
+    monkeypatch.setattr(
+        process_lifecycle,
+        "install_builtin_skills",
+        lambda: events.append("skills.install") or {},
+        raising=False,
+    )
+
+    process_lifecycle.run_gateway(
+        config_path=config.source_path,
+        factories=RuntimeFactories(
+            load_config=lambda _path: config,
+            build_runtime=lambda _config: events.append("runtime.build") or _Runtime(),
+        ),
+    )
+
+    assert events == ["skills.install", "runtime.build", "runtime.run"]
+
+
+def test_background_launcher_does_not_install_builtin_skills(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Background launch delegates installation to its foreground child."""
+    from personal_assistant.gateway import process_lifecycle
+
+    config = build_config(tmp_path)
+    events: list[str] = []
+    process = _FakeProcess(wait_result=0, pid=2468)
+
+    monkeypatch.setattr(
+        process_lifecycle,
+        "install_builtin_skills",
+        lambda: events.append("skills.install") or {},
+        raising=False,
+    )
+
+    def _publish_state(_child, _config, _timeout) -> None:
+        events.append("child.wait")
+        _write_state(config.source_path, pid=2468, process_start="birth-2468")
+
+    process_lifecycle.launch_gateway_in_background(
+        config_path=config.source_path,
+        load_config=lambda _path: config,
+        spawn_process=lambda _argv, _log_path: events.append("child.spawn") or process,
+        wait_for_start=_publish_state,
+    )
+
+    assert events == ["child.spawn", "child.wait"]
+
+
 def test_run_gateway_removes_state_even_when_runtime_raises(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

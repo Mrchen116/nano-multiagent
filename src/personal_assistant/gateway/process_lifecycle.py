@@ -19,6 +19,7 @@ from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any
 
+from personal_assistant.builtin_skills.bootstrap import install_builtin_skills
 from personal_assistant.config.local_store import (
     LocalConfig,
     default_local_config_path,
@@ -33,6 +34,25 @@ ProcessLike = subprocess.Popen[Any]
 BackgroundProcessFactory = Callable[[list[str], Path], ProcessLike]
 StartWaiter = Callable[[ProcessLike, LocalConfig, float], None]
 SignalHandlerInstaller = Callable[[], Callable[[], None]]
+
+
+def install_builtin_skills_for_gateway() -> None:
+    """Install missing packaged skills without preventing Gateway startup.
+
+    The installation belongs to the foreground process because it writes the
+    user-global skill root. A background launcher only creates that process.
+    """
+    try:
+        installed_builtin_skills = install_builtin_skills()
+        if installed_builtin_skills:
+            installed_names = ", ".join(sorted(installed_builtin_skills))
+            _log.info(
+                "installed built-in personal assistant skills: %s", installed_names
+            )
+    except Exception:  # noqa: BLE001
+        _log.warning(
+            "failed to install built-in personal assistant skills", exc_info=True
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,6 +138,9 @@ def run_gateway(
         load_config=resolved_factories.load_config,
         im_service_url_override=im_service_url_override,
     )
+    # This foreground process owns persistent packaged-skill installation; detached
+    # launchers only spawn this entry and must not duplicate the filesystem effect.
+    install_builtin_skills_for_gateway()
     # refactor-406-M2: model registry init is build_kernel's responsibility (决策 5):
     # build_runtime → build_pa_kernel → build_kernel inits the registry from config.llm.
     builder = resolved_factories.build_runtime or _default_build_runtime

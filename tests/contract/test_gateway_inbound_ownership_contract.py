@@ -254,3 +254,10 @@ def test_composition_only_constructs_runtime_config_owner() -> None:
     assert "RuntimeConfigOwner(config)" in composition_source
     assert "provision_feishu_doc_skill_for_gateway" not in composition_source
     assert "register_configured_agents" not in composition_source
+
+
+def test_composition_does_not_install_builtin_skills() -> None:
+    composition_source = _source("src/personal_assistant/gateway/composition.py")
+
+    assert "builtin_skills.bootstrap" not in composition_source
+    assert "install_builtin_skills" not in composition_source
