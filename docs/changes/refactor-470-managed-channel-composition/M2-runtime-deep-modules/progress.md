@@ -59,9 +59,9 @@
   - Entry: `./scripts/e2e-up.sh` 在 worktree 隔离端口启动 IM 与 `python -m personal_assistant.main --foreground --auto-bind`；日志确认 node auto-bind，向 Gateway PID 发送 SIGTERM 后条件轮询得到 `gateway-terminal-state=absent`，随后 `./scripts/e2e-down.sh` 清理 IM/Gateway。
   - Frontend State Matrix: N/A。
   - Browser QA: N/A。
-  - E2E/Regression: `/Users/czj/Repos/nano-multiagent/.venv/bin/ruff check src/personal_assistant tests/unit/personal_assistant tests/contract/test_gateway_inbound_ownership_contract.py tests/contract/test_personal_assistant_main_contract.py` → `All checks passed!`；旧符号扫描未发现 `_KernelClientShim` 或从 `personal_assistant.main` 导入迁出类型的生产/测试路径。
+  - E2E/Regression: `/Users/czj/Repos/nano-multiagent/.venv/bin/ruff check src/personal_assistant tests/unit/personal_assistant tests/integration tests/contract` → `All checks passed!`；`/Users/czj/Repos/nano-multiagent/.venv/bin/pytest -q -m 'not e2e'` → `3614 passed, 1 skipped, 20 deselected`。全量回归首次收集到 `test_gateway_relay_lifecycle.py` 的 `GatewayRuntime` 与 `test_heartbeat_im_delivery.py` 的 stream helper 仍从 `main` 导入；两者已改为各自真实 owner 后重跑通过。旧符号扫描未发现 `_KernelClientShim` 或从 `personal_assistant.main` 导入迁出类型的生产/测试路径。
   - Visual/Interaction: N/A。
   - Prototype Comparison: N/A。
 - Rollback: revert `2d968bb0f` 与 `0c82dccfb`。
-- Commits: C1=`0c82dccfb`, C2=`2d968bb0f`, C3=pending。
+- Commits: C1=`0c82dccfb`, C2=`2d968bb0f`, regression-test=`1163a3155`, C3=pending。
 - Next: rebase `origin/unit/refactor-470`，执行合并前完整测试门禁并集成 M2。
