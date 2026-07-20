@@ -100,13 +100,16 @@
 ## R3 — 真实入口与 Feishu 收口验证
 
 - Context: M4 需要验证真 Gateway process 的 IM resilience、restart session continuity、cron auto-push，以及真实 Feishu online/offline cached autonomy。
-- Decision: 不改变用户持久配置；从它派生 worktree 本地 E2E config，在同一个 `anthropic` provider 补入测试固定的 `kimiCoding:K2.6` model entry，并让既有 e2e-up.sh 继续隔离 node、workspace 和 IM。主 Gateway 未经独占协调不停止。
-- Rationale: critical path 的测试固定使用 `kimiCoding:K2.6`，E2E config 应独立提供其模型路由；这样可验证真实上游是否接受该模型，同时不污染用户配置。真实 Feishu runbook 仍要求先停止主 Gateway；该主 Gateway 属于共享用户实例，未经独占协调不得杀掉。
+- Decision: 不改变用户持久配置；从它派生 worktree 本地 E2E config，在同一个 `anthropic` provider 补入测试固定的 `kimiCoding:K2.6` model entry，并让既有 e2e-up.sh 继续隔离 node、workspace 和 IM。真实 Feishu 期间使用单一 review Gateway；在线阶段由 IM reconnect，离线阶段以同一 review directory 的 cache/key 和指向无监听 localhost 高位端口的 `config-offline.yaml` 验证 cached autonomy。
+- Rationale: critical path 的测试固定使用 `kimiCoding:K2.6`，E2E config 应独立提供其模型路由；这样可验证真实上游是否接受该模型，同时不污染用户配置。Feishu 验收必须证明两次用户可见消息往返，而非仅以连接状态或启动日志替代。
 - Evidence:
   - E2E: `scripts/e2e-critical.sh -k 'gateway_im_resilience or restart_session_continuity'`：3 passed, 14 deselected, 40.90s，覆盖真 IM + 真 Gateway 进程和用户可见 IM 往返。
   - Cron E2E: 首次完整筛选暴露 E2E source config 缺少测试固定模型。随后以新建的 worktree-local home/config 副本补入同 `anthropic` provider 的 `kimiCoding:K2.6`（沿用本地 proxy base URL，`thinking.adaptive`，context window 262144），以该副本作为 `HOME` 运行真栈：`NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1 ... pytest -q tests/e2e/critical_paths/test_cron_push_critical_path.py -o timeout=360 --tb=long`，`1 passed in 39.48s`。该用例经 IM 用户可见路径确认 agent 注册每 5 秒 cron 后收到新的哨兵消息；临时 home/config 已清理，未改用户持久 config、产品代码或测试阈值。
-  - Feishu smoke: BLOCKED，已执行授权短停但没有伪造消息往返结论。以正式 `personal_assistant.main --config ~/.nano-assistant/config.yaml stop` 安全停止原 PID `40097` 并确认 state file 删除；复制 config、manifest cache 和 key 到权限为 `0700` 的 review 目录，保持 `node_id=demo-node`，启动唯一 review Gateway。随后经 IM HTTP 认证读取到 `demo-node=online`，`default-agent` 的 Feishu channel 为 `sync_state=applied` / `connection_state=connected`，所有 capability checks satisfied，证明 reconnect 后 runtime 已真实连接。但真实 `lark-cli auth status --json --verify` 在本机不返回并被运行环境终止（exit 137），因此无法安全取得 CLI user identity 或发出唯一 Feishu 1:1 哨兵，更不能进行第二次 offline autonomy 消息往返；未把 connected 状态或启动日志当作消息证据。已停止 review Gateway、删除 review directory；随即以正式后台启动命令恢复原 config，权威 state 给出新 PID `39854`（PPID 1，`Ss`），并经 IM API 确认 `demo-node=online`，进程扫描仅剩该一个 Gateway consumer。
+  - Feishu online reconnect: 在主 Gateway 停止后仅启动一个 review Gateway；IM 显示 `demo-node=online`，Feishu channel 为 `sync_state=applied` / `connection_state=connected`。真实用户消息 `message_id=om_x100b6ad40a8fc8a0b1b2c86dc19f7c1`、position `238`、文本 `refactor470-online-20260720-01 请只回复 ONLINE-470-OK`，收到 Bot 回复 `message_id=om_x100b6ad40a4694bcb2aad7a13981ed2`、position `239`、文本 `ONLINE-470-OK`。
+  - Feishu cached offline autonomy: 停止 online review Gateway 后，使用同一 review directory 的 cached manifest/key，并以指向无监听 localhost 高位端口的 `config-offline.yaml` 启动 Gateway。Gateway PID `24157` 在 IM 不可达时持续运行并持有 Feishu long-connection child process。真实用户消息 `message_id=om_x100b6ad402f0d4a4b14e53d4e049d2d`、position `240`、文本 `refactor470-offline-20260720-02 请只回复 OFFLINE-470-OK`，收到 Bot 回复 `message_id=om_x100b6ad4024ae4acb4af99a7295603e`、position `241`、文本 `OFFLINE-470-OK`。
+  - 上游诊断与恢复: 初始 `mimo:mimo-v2.5-pro` 路由返回上游 401，Gateway 表现为 `anthropic: stream ended without terminal event`；该问题是上游模型路由诊断，不是 composition refactor 产品失败。为完成隔离验收，临时将 IM mirror 与 review config 的 default-agent 路由切至已 curl 验证可用的 `volcanoArk:doubao-seed-2-0-code-preview-260215`。验收后已恢复 IM profile：`default_model=mimo:mimo-v2.5-pro`、`profile_version=4`；用户持久 config 未修改。
+  - 清理与恢复: review Gateway、临时目录和 review pointer 均已清理。主 Gateway 已恢复为 PID `26200`（PPID `1`、`Ss`）；IM 确认 `demo-node=online`，进程扫描仅有该一个 `personal_assistant.main` consumer。
   - Frontend State Matrix / Browser QA / Visual / Prototype Comparison: N/A。
 - Rollback: 不适用（验证未改产品行为）。
 - Commits: C1/C2=N/A，C3=本次 progress commit。
-- Next: 真实 Feishu 仍需一个可返回认证身份的 Lark sender；在该工具可用的独占窗口，重新执行两次唯一哨兵消息往返（online reconnect 与不可达 IM 下 cached autonomy）。主 Gateway 已恢复，无需再处理服务生命周期。
+- Next: R3 完成；请求 orchestrator 集成 M4。

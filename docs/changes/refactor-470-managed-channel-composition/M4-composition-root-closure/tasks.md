@@ -13,7 +13,7 @@
 - [x] `main.__all__ == ["main"]`，入口不再承载 runtime/composition policy。
 - [x] `gateway.composition.compose_gateway(config)` 返回完整 `GatewayRuntime`，不新增跨调用可变状态、managed-channel/credential/retry/进程 policy。
 - [x] 38 个 baseline 文件完成逐一 owner/删除/保留对账；非入口测试从真实 owner import。
-- [ ] main 边界、test-size、ruff、非 e2e 回归及 design 指定关键 e2e 全绿；真实 Feishu smoke 按 runbook 有消息往返结论。
+- [x] main 边界、test-size、ruff、非 e2e 回归及 design 指定关键 e2e 全绿；真实 Feishu smoke 按 runbook 完成 online reconnect 与 cached autonomy 消息往返。
 
 ## 测试策略
 
@@ -39,6 +39,6 @@
 
 ### R3 — 真实入口与 Feishu 收口验证
 
-- 步骤: 运行 design 指定 e2e critical paths；依 runbook 独占 real Feishu bot 后完成 online reconnect 与 IM-unreachable cached autonomy 两次哨兵消息往返，或如实记录阻塞。
-- 验证: 无启动日志替代消息往返；停止测试 Gateway 并恢复主 Gateway。
-- 状态: BLOCKED（已获独占窗口并验证 review Gateway online/reconnect；真实 Lark sender 的认证命令在本机无响应，尚无法完成两次用户可见哨兵消息往返）
+- 步骤: 运行 design 指定 e2e critical paths；依 runbook 独占 real Feishu bot 后完成 online reconnect 与 IM-unreachable cached autonomy 两次哨兵消息往返。
+- 验证: 两次真实用户消息均收到 Bot 指定回复；未以启动日志替代消息往返；review Gateway 已停止并恢复主 Gateway。
+- 状态: DONE
