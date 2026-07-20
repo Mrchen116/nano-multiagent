@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from personal_assistant.channels.web_relay_adapter import WebRelayAdapter
-from personal_assistant.main import GatewayRuntime
+from personal_assistant.gateway.runtime import GatewayRuntime
 from personal_assistant.ws.im_connection import IMConnectionConfig, IMConnectionManager
 
 from ._gateway_runtime_test_utils import make_config, run_in_thread
@@ -134,7 +134,7 @@ def test_shutdown_cleanup_continues_when_im_task_await_raises_base_exception(
 ) -> None:
     """A CancelledError from IM task cleanup must not skip later shutdown steps."""
 
-    from personal_assistant import main as gateway_main
+    from personal_assistant.gateway import runtime as gateway_runtime
 
     events: list[str] = []
 
@@ -142,7 +142,7 @@ def test_shutdown_cleanup_continues_when_im_task_await_raises_base_exception(
         events.append("await.im_task")
         raise asyncio.CancelledError()
 
-    monkeypatch.setattr(gateway_main, "_await_background_task", _raise_cancelled)
+    monkeypatch.setattr(gateway_runtime, "_await_background_task", _raise_cancelled)
 
     manager = _GateFakeIM(events)
     runtime = GatewayRuntime(

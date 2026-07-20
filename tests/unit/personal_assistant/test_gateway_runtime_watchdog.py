@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from personal_assistant.main import GatewayRuntime
+from personal_assistant.gateway.runtime import GatewayRuntime
 
 from ._gateway_runtime_test_utils import make_config, run_in_thread
 
@@ -228,7 +228,7 @@ def test_watchdog_backoff_does_not_consume_executor_threads(
     executor.
     """
 
-    from personal_assistant import main as gateway_main
+    from personal_assistant.gateway import runtime as gateway_runtime
 
     class _AlwaysCrashingIMManager:
         connected = False
@@ -247,7 +247,7 @@ def test_watchdog_backoff_does_not_consume_executor_threads(
         to_thread_calls += 1
         raise AssertionError("watchdog backoff must not use asyncio.to_thread")
 
-    monkeypatch.setattr(gateway_main.asyncio, "to_thread", _forbidden_to_thread)
+    monkeypatch.setattr(gateway_runtime.asyncio, "to_thread", _forbidden_to_thread)
 
     async def _exercise() -> None:
         runtime = GatewayRuntime(
