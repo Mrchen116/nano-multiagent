@@ -114,3 +114,49 @@ requires_full_verification: false
 - `gateway/composition.py:373-375` 仍保留 “manifest migration removes them” 的失效说明，和已删除的 migration 不一致。
 
 1 critical issue(s) found. Fix before PR.
+
+# Round 2 — Post-rebase correction
+
+## Summary
+
+Mode: targeted-closure
+
+Delta range: `a8494e1ba9dbbce1a0f6dd0aa9bd220bb5777095..88ab6f21ce9ee55998a7d205a202b2c0d2138fe1`
+
+Focus issues:
+
+1. CRITICAL: M1 five exit criteria unchecked (`M1-managed-channel-control/tasks.md:11-15`).
+2. WARNING: composition root retains credential/token/session-fork/permission/attachment policy.
+
+requires_full_verification: true
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 16/16 tasks complete；focus issue 1 closed |
+| Correctness | 两项 focus issue 的定向回归通过；完整 non-e2e 回归有 1 项确定性 contract 失败 |
+| Coherence | focus issue 2 closed；新 delta 跨越 architecture boundary，需在 contract 修复后重新 full verification |
+
+前一段 Round 2 结论基于 rebase 前的 `0e6cee1eb`；该结论不适用于本段所列 validated HEAD，以下为本轮权威结论。
+
+## Targeted Closure
+
+- **CRITICAL: M1 exit criteria — closed.** `M1-managed-channel-control/tasks.md:11-15` 已全部为 `[x]`，本 unit 所有 milestone task 均已勾选。实现仍由 `gateway/managed_channel_control.py:160-180, 198-301` 的 cached lifecycle、typed bindings 和 durable-store delegation，以及 `ws/im_connection.py:872-897` 的 reconcile/bootstrap dispatch 承担。定向执行 `test_managed_channel_control.py`、`test_gateway_status_frame_ownership.py`、`test_channel_bootstrap.py`、`test_agent_config_sync_ownership.py` 为 **12 passed**；ruff check/format 通过。
+- **WARNING: composition policy ownership — closed.** `gateway/composition.py:168-591` 仅装配和注入对象；不再定义 config loading / Feishu credential identity、token rotation、session fork、permission response、attachment fetch 或 Cron registration/tick policy。对应职责已分别由 `config/local_store.py:367-542`、`auth/im_auth_client.py:143-220`、`gateway/session_binder.py:647-726`、`ws/im_connection.py:160-181`、`gateway/image_attachments.py:105-117` 与 `scheduler/cron_gateway_runtime.py:30-152` 负责；`process_lifecycle.py:115-124` 通过公开 `load_gateway_runtime_config()` 进入 startup config owner。`test_personal_assistant_main_contract.py` 与相关 owner regressions 为 **84 passed**，并且 `test_composition_does_not_own_gateway_policy_handlers` 明确阻止这些 helper/persistence 回流。
+
+本轮还执行了完整 `pytest -q -m "not e2e"`：**3618 passed, 1 skipped, 20 deselected, 2 failed**。其中 `test_card_action_rpc_correlates_result_and_has_timeout_fallback` 单独重跑为 **1 passed**；另一个 contract failure 可稳定复现，见下方 CRITICAL。
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+- **修复后的 composition ownership delta 使全量 non-e2e 套件保持红色。** `tests/contract/test_gateway_inbound_ownership_contract.py:217-232` 要求 `gateway/composition.py` 同时 import `build_im_http_headers` 与 `normalize_im_http_base_url`。但本轮将 attachment HTTP header policy 归还 `gateway/image_attachments.py:105-117` 后，composition 只需要 `normalize_im_http_base_url`（`gateway/composition.py:56, 393, 413`）；单独执行该 contract 稳定失败。应将该 contract 改为按每个 consumer 的实际公开 transport 依赖断言：`composition` 只要求 `normalize_im_http_base_url`，attachment fetcher 自己要求 `build_im_http_headers`，并继续禁止私有 `_im_http_*` helper。否则测试强迫纯 composition 为满足断言保留无用 import，既违背 `design.md:227-230`，又阻断 CI。该 delta 改动 composition/credential/attachment/cron 架构边界，按 targeted-closure 规则需在修复后重新执行 full verification。
+
+### WARNING（应该修）
+
+- 无。
+
+### SUGGESTION（可以修）
+
+- 无。
+
+1 critical issue(s) found. Fix before PR.
