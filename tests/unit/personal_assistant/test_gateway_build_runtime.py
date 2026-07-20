@@ -16,7 +16,8 @@ from personal_assistant.config.local_store import (
     NodeConfig,
 )
 from personal_assistant.gateway.session_keys import PersistentSessionBindingStore
-from personal_assistant.main import GatewayStartupError, build_runtime
+from personal_assistant.gateway.im_bootstrap import GatewayStartupError
+from personal_assistant.main import build_runtime
 
 from ._main_helpers import make_minimal_config
 
@@ -428,7 +429,7 @@ async def test_reconcile_on_connect_continues_after_binding_failure_and_reports_
         captured.update(kwargs)
         return manager
 
-    monkeypatch.setattr(gateway_main, "IMBootstrapClient", _FailingBootstrap)
+    monkeypatch.setattr("personal_assistant.gateway.im_bootstrap.IMBootstrapClient", _FailingBootstrap)
     monkeypatch.setattr(gateway_main, "IMAgentConfigSync", _RecordingSyncClient)
     monkeypatch.setattr(
         gateway_main, "_build_im_connection_manager", _fake_build_im_connection_manager

@@ -47,12 +47,7 @@ from personal_assistant.gateway.managed_channel_control import (
     ManagedChannelBindings,
     ManagedChannelControl,
 )
-from personal_assistant.gateway import kernel_client, process_lifecycle, runtime
-from personal_assistant.gateway.im_bootstrap import (
-    GatewayStartupError,
-    IMBootstrapClient,
-    emit_gateway_feedback,
-)
+from personal_assistant.gateway import im_bootstrap, kernel_client, process_lifecycle, runtime
 from personal_assistant.gateway.connection_ready import ConnectionReadyCoordinator
 from personal_assistant.scheduler import heartbeat_runner
 from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
@@ -475,7 +470,7 @@ def build_runtime(config: LocalConfig) -> runtime.GatewayRuntime:
     reporter: UpstreamReporter | None = None
     im_connection_manager: IMConnectionManager | None = None
     managed_channel_control: ManagedChannelControl | None = None
-    im_bootstrap_client: IMBootstrapClient | None = None
+    im_bootstrap_client: im_bootstrap.IMBootstrapClient | None = None
     im_config_sync_client: IMAgentConfigSync | None = None
     run_delivery_contexts = RunDeliveryContextStore()
     _owner_user_id = config.node.user_id or ""
@@ -616,7 +611,7 @@ def build_runtime(config: LocalConfig) -> runtime.GatewayRuntime:
         # callback handles all permission decisions in-process (design decision 3).
         _im_sync_client = ConfigSyncClient(fetcher=im_config_sync_client.sync_agent)
 
-        im_bootstrap_client = IMBootstrapClient(
+        im_bootstrap_client = im_bootstrap.IMBootstrapClient(
             base_url=normalize_im_http_base_url(config.im_service.url),
             token=config.im_service.token,
             token_getter=_token_getter,
@@ -999,8 +994,8 @@ def main(argv: list[str] | None = None) -> int:
         )
         _print_gateway_started(result)
         return 0
-    except GatewayStartupError as exc:
-        emit_gateway_feedback("ERROR", exc.summary, exc.next_step)
+    except im_bootstrap.GatewayStartupError as exc:
+        im_bootstrap.emit_gateway_feedback("ERROR", exc.summary, exc.next_step)
         return 1
     except Exception as exc:  # noqa: BLE001
         print(f"ERROR {exc}", file=sys.stderr)
