@@ -13,7 +13,6 @@ from typing import Any
 _log = logging.getLogger("personal_assistant.gateway.composition")
 _PA_GLOBAL_SKILL_ROOT = Path("~/.nanoassistant/skills")
 
-import httpx
 import websockets
 from websockets.asyncio.client import ClientConnection
 
@@ -47,7 +46,6 @@ from personal_assistant.gateway import (
     connection_ready,
     im_bootstrap,
     kernel_client,
-    process_lifecycle,
     runtime,
 )
 from personal_assistant.scheduler import heartbeat_runner
@@ -131,26 +129,6 @@ from personal_assistant.ws.im_connection import (
     PromptPreviewProvider,
     SessionForkHandler,
 )
-
-
-def _check_im_reachable(url: str) -> bool:
-    """Return True if the IM service HTTP endpoint responds within 1 second."""
-    try:
-        httpx.get(url, timeout=1.0, trust_env=False)
-        return True
-    except Exception:  # noqa: BLE001
-        return False
-
-
-def _print_gateway_started(result: "process_lifecycle.BackgroundLaunchResult") -> None:
-    print(f"Gateway started (pid={result.pid})")
-    if result.im_service_url is not None:
-        reachable = _check_im_reachable(result.im_service_url)
-        status = (
-            "connected" if reachable else "unavailable (running offline, will retry)"
-        )
-        print(f"IM service:      {result.im_service_url}  [{status}]")
-    print(f"Log:             {result.log_path}")
 
 
 def _make_prompt_preview_provider(kernel: Any) -> "PromptPreviewProvider":
