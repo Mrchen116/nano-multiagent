@@ -76,9 +76,14 @@ def test_startup_action_runs_once_before_channel_producers(
         return ()
 
     monkeypatch.setattr(gateway_runtime, "start_channels", _start_channels)
+
+    class _Startup:
+        def start(self) -> None:
+            events.append("cron.initial_registration")
+
     runtime = GatewayRuntime(
         make_config(tmp_path),
-        startup_action=lambda: events.append("cron.initial_registration"),
+        startup_collaborators=(_Startup(),),
     )
 
     thread, outcome = run_in_thread(runtime)

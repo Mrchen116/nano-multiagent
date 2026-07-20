@@ -26,7 +26,6 @@ from personal_assistant.config.local_store import (
     LocalConfig,
     RuntimeConfigOwner,
     build_feishu_owner_open_id_binder,
-    provision_feishu_doc_skill_for_gateway,
 )
 from personal_assistant.config.sync_client import ConfigSyncClient
 from personal_assistant.gateway.channel_registry import ChannelRegistry
@@ -203,7 +202,6 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
             "failed to install built-in personal assistant skills", exc_info=True
         )
     config_owner = RuntimeConfigOwner(config)
-    config = provision_feishu_doc_skill_for_gateway(config_owner)
 
     # CronServiceRegistry holds the per-agent CronExecutionService map + lifecycle
     # (set_gateway_loop / drain_all / register).  refactor-406 决策 9: the cron *tool*
@@ -498,8 +496,6 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
             agent_ids=(agent.agent_id for agent in config.agents),
         )
 
-    cron_runtime.register_configured_agents()
-
     _heartbeat_scheduler = HeartbeatScheduler(
         agents=config.agents,
         kernel_client=kernel_shim,
@@ -584,6 +580,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         internal_dispatch_endpoint=_internal_dispatch_endpoint,
         kernel=kernel,
         cron_dispatcher=_cron_dispatcher,
+        startup_collaborators=(cron_runtime,),
         managed_channel_control=managed_channel_control,
         run_coordinator=run_coordinator,
         runtime_delivery_tasks=runtime_delivery_tasks,

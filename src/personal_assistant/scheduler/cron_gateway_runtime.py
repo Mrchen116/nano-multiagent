@@ -102,6 +102,10 @@ class GatewayCronRuntime:
         self._registry.register(agent_id, service)
         service.converge_stale_on_restart()
 
+    def start(self) -> None:
+        """Register initial agents and recover their stale Cron runs at Gateway startup."""
+        self.register_configured_agents()
+
     def register_configured_agents(self) -> None:
         """Register each agent present in the initial Gateway configuration."""
         for snapshot in self._agent_catalog.values_snapshot():

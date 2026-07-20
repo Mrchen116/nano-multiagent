@@ -148,7 +148,7 @@ def test_compose_gateway_defers_cron_initial_registration(
     runtime = compose_gateway(make_minimal_config(tmp_path))
 
     assert registrations == []
-    assert runtime._startup_action is not None  # noqa: SLF001
+    assert runtime._startup_collaborators  # noqa: SLF001
 
 
 def test_compose_gateway_wires_external_delivery_without_im_service(

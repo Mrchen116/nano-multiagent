@@ -216,17 +216,24 @@ def test_foreground_and_unattended_session_capabilities_share_one_owner() -> Non
 
 def test_im_http_consumers_depend_on_neutral_public_transport_owner() -> None:
     transport_module = "personal_assistant.gateway.im_http_transport"
-    expected_public = {
-        "build_im_http_headers",
-        "normalize_im_http_base_url",
+    expected_transport_imports = {
+        "src/personal_assistant/gateway/agent_config_sync.py": {
+            "build_im_http_headers",
+            "normalize_im_http_base_url",
+        },
+        "src/personal_assistant/gateway/shadow_sync.py": {
+            "build_im_http_headers",
+            "normalize_im_http_base_url",
+        },
+        "src/personal_assistant/gateway/composition.py": {
+            "normalize_im_http_base_url",
+        },
+        "src/personal_assistant/gateway/image_attachments.py": {
+            "build_im_http_headers",
+        },
     }
-    consumers = (
-        "src/personal_assistant/gateway/agent_config_sync.py",
-        "src/personal_assistant/gateway/shadow_sync.py",
-        "src/personal_assistant/gateway/composition.py",
-    )
 
-    for relative in consumers:
+    for relative, expected_public in expected_transport_imports.items():
         assert expected_public.issubset(
             _imported_names(relative, module=transport_module)
         )
@@ -239,3 +246,11 @@ def test_im_http_consumers_depend_on_neutral_public_transport_owner() -> None:
                 module="personal_assistant.gateway.agent_config_sync",
             )
         )
+
+
+def test_composition_only_constructs_runtime_config_owner() -> None:
+    composition_source = _source("src/personal_assistant/gateway/composition.py")
+
+    assert "RuntimeConfigOwner(config)" in composition_source
+    assert "provision_feishu_doc_skill_for_gateway" not in composition_source
+    assert "register_configured_agents" not in composition_source
