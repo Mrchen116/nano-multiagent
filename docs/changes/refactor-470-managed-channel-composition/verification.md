@@ -160,3 +160,58 @@ requires_full_verification: true
 - 无。
 
 1 critical issue(s) found. Fix before PR.
+
+# Round 3
+
+## Summary
+
+Mode: targeted-closure
+
+Delta range: `0e6cee1ebeb427984133523aa9121ed7c3c8f812..b52362df0ba1cf3edba6fff2ea2cd4a241d9b2be`
+
+Focus issues:
+
+1. Round 1 CRITICAL: M1 five exit criteria unchecked (`M1-managed-channel-control/tasks.md:11-15`).
+2. Round 1 WARNING: composition root retains credential/token/session-fork/permission/attachment policy.
+3. Follow-up closure: Feishu provisioning must belong to the startup config owner; Cron initial registration/recovery must run only after the Gateway event loop starts.
+4. Follow-up closure: transport-owner contract must match each real public consumer.
+
+requires_full_verification: false
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 16/16 tasks complete；M1 five exit criteria closed |
+| Correctness | 定向回归 76 passed；全量 non-e2e 3625 passed, 1 skipped, 20 deselected |
+| Coherence | 四项 focus issue closed；另发现 1 项 composition 持久化副作用偏离 |
+
+本轮以 `b52362df0` 为唯一验证对象。Round 2 及其 Post-rebase correction 分别基于错误 delta 和未完成中间态，按 orchestrator 指令仅保留为历史记录，不作为本轮或最终 verdict 的判据。
+
+## Targeted Closure
+
+- **Round 1 CRITICAL: M1 exit criteria — closed.** `M1-managed-channel-control/tasks.md:11-15` 全部为 `[x]`。`gateway/managed_channel_control.py:160-180, 198-301` 保留 cached startup、typed bindings、durable manifest/status owner delegation；`ws/im_connection.py:872-897` 直接执行 reconcile 与空 bootstrap handshake。`test_managed_channel_control.py`、`test_gateway_status_frame_ownership.py`、`test_channel_bootstrap.py` 与 `test_agent_config_sync_ownership.py` 纳入定向回归并通过。
+- **Round 1 WARNING: named composition policy ownership — closed.** credential rotation、session fork、permission response、attachment fetch、Cron registration/tick、retry/status/reconcile 已移至真实 owner；composition 未定义上述 policy、`.persist()` 或 sensitive config writer。对应领域 owner 是 `config/local_store.py:367-546`、`auth/im_auth_client.py:143-220`、`gateway/session_binder.py:647-726`、`ws/im_connection.py:160-181`、`gateway/image_attachments.py:105-117` 与 `scheduler/cron_gateway_runtime.py:30-156`；`test_personal_assistant_main_contract.py:59-88` 继续防止这些 policy 回流。另见下方 WARNING：composition 仍含一个未在本轮 focus 中列出的持久化副作用。
+- **Startup ownership — closed.** 前台和后台 lifecycle 均通过 `process_lifecycle.py:115-124, 190-194` 调用 `load_gateway_runtime_config()`；该 public startup-config owner 在 `config/local_store.py:367-409` 完成 Feishu identity 和 declared-skill provisioning，之后才交由 `compose_gateway()` 装配。Cron 初始注册/recovery 从 composition 移至 `GatewayCronRuntime.start()`（`scheduler/cron_gateway_runtime.py:105-108`），由 event-loop 已启动的 `GatewayRuntime._run_until_shutdown()` 在 channel producer 之前调用（`gateway/runtime.py:230-241, 277-280`）。`test_gateway_build_runtime.py:91-151` 与 `test_gateway_runtime_lifecycle.py:66-97` 断言无 compose-time 持久化/registration 和真实启动次序。
+- **Transport owner contract — closed.** `tests/contract/test_gateway_inbound_ownership_contract.py:217-248` 逐 consumer 断言：config sync/shadow sync 使用 public URL+headers；composition 仅使用 URL normalization；`gateway/image_attachments.py` 是 headers 的真实 attachment consumer。该 contract 通过，未以无用 import 反向污染 composition。
+
+本轮执行：
+
+- `PYTHONPATH=src .venv/bin/pytest -q`（M1、composition/startup、Cron、transport contracts 的定向集合）→ **76 passed**。
+- `PYTHONPATH=src .venv/bin/pytest -q tests/contract` → **193 passed**。
+- `PYTHONPATH=src .venv/bin/pytest -q -m "not e2e"` → **3625 passed, 1 skipped, 20 deselected**。
+- `.venv/bin/ruff check .` → passed；`.venv/bin/ruff format --check .` → **856 files already formatted**。
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+- 无。
+
+### WARNING（应该修）
+
+- **composition 仍执行 builtin-skill 安装，因而不是纯对象图构造。** `gateway/composition.py:193-203` 在每次 `compose_gateway()` 调用时执行 `install_builtin_skills()`；该操作会创建 `~/.nanoassistant/skills` 并在缺失时复制 packaged skill directory（`builtin_skills/bootstrap.py:16-55`）。这与 `design.md:227-230` 所述 composition 不承载持久化副作用相悖，也使测试或预检的 composition 调用改写用户全局目录。应将该安装操作归入启动 config/provisioning owner（在 `config/local_store.py:367-390` 的 startup 路径与 Feishu provisioning 一并运行），再由 composition 只消费已准备的 config/skill root；补充回归，断言 `compose_gateway()` 不创建或复制用户目录。
+
+### SUGGESTION（可以修）
+
+- 无。
+
+No critical issues. 1 warning(s) to consider. Ready for PR (with noted improvements).
