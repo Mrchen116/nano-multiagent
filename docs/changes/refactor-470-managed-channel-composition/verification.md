@@ -238,7 +238,7 @@ requires_full_verification: false
 | Correctness | 定向所有权/lifecycle 回归 70 passed；Round 4 isolated true-stack Cron 1 passed in 41.49s |
 | Coherence | composition 无 builtin install 或其他已关闭策略副作用；安装只由真实 foreground lifecycle owner 执行 |
 
-本轮唯一代码验证对象为 `7dc2235136ba259ef3e9597509f9370a37b740b1`。Round 3 的 `d5873b387` Cron CRITICAL 基于未配置测试固定模型的 source config，已由 `acceptance-round-4.md:17-21, 68-78` 作废和替代；不得将它继承为本轮 issue。
+本轮唯一代码验证对象为 `7dc2235136ba259ef3e9597509f9370a37b740b1`。`d1ae22ab9` 的 Round 3 acceptance Cron fail 与据此产生的 `d5873b387` Cron CRITICAL，均基于未配置测试固定模型的 source config，已被 `c9a605839` 的 `acceptance-round-4.md:17-21, 68-78` 校正并作废；不得将任一历史 verdict 继承为本轮 issue。`acceptance-round-4.md` 是 Cron 用户面结论的权威证据。
 
 ## Targeted Closure
 
