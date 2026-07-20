@@ -26,6 +26,7 @@ from tests.unit.personal_assistant._im_connection_helpers import (
     _FakeWebSocket,
     _agents,
     _connect_fake,
+    _managed_channel_bindings,
 )
 
 
@@ -316,7 +317,9 @@ def test_gateway_dispatches_manifest_and_correlated_result_releases_fifo(
         config=IMConnectionConfig(url="http://im.local"),
         reporter=reporter,
         relay_adapter=relay,
-        channel_manifest_handler=apply_manifest,
+        managed_channel_bindings=_managed_channel_bindings(
+            apply_manifest=apply_manifest
+        ),
         connect=lambda url, headers: _connect_fake(socket, [], url, headers),
     )
 

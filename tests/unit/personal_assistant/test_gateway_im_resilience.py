@@ -435,7 +435,7 @@ def test_on_connected_failure_does_not_tear_down_connection(tmp_path: Path) -> N
         ]
     )
 
-    async def _failing_on_connected() -> None:
+    async def _failing_on_connected(_sender: object) -> None:
         raise GatewayStartupError(
             summary="node not yet in IM bootstrap", next_step="retry on next connect"
         )

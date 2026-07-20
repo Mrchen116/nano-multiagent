@@ -437,7 +437,7 @@ async def test_reconcile_on_connect_continues_after_binding_failure_and_reports_
     build_runtime(config)
     on_connected = captured["on_connected"]
 
-    await on_connected()
+    await on_connected(manager)
 
     assert reconcile_calls == [{}]
     assert manager.sent == [

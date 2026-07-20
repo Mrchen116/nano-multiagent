@@ -104,7 +104,7 @@ def test_reconcile_callback_invoked_after_connect_once(tmp_path: Path) -> None:
 
     reconcile_calls: list[None] = []
 
-    async def _reconcile_callback() -> None:
+    async def _reconcile_callback(_sender: object) -> None:
         reconcile_calls.append(None)
 
     manager = IMConnectionManager(
@@ -148,7 +148,7 @@ def test_reconcile_callback_not_invoked_when_connect_fails(tmp_path: Path) -> No
 
     reconcile_calls: list[None] = []
 
-    async def _reconcile_callback() -> None:
+    async def _reconcile_callback(_sender: object) -> None:
         reconcile_calls.append(None)
 
     manager = IMConnectionManager(
@@ -249,7 +249,7 @@ def test_reconcile_callback_invoked_on_each_connect_once_call(tmp_path: Path) ->
         connect_calls.append((url, dict(headers)))
         return socket
 
-    async def _reconcile_callback() -> None:
+    async def _reconcile_callback(_sender: object) -> None:
         reconcile_calls.append(None)
 
     manager = IMConnectionManager(

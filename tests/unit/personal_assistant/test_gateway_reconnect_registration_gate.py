@@ -22,7 +22,7 @@ def test_slow_on_connected_does_not_start_heartbeat_before_receive_loop(
     release_callback = asyncio.Event()
     callback_started = asyncio.Event()
 
-    async def _on_connected() -> None:
+    async def _on_connected(_sender: object) -> None:
         callback_started.set()
         await release_callback.wait()
 

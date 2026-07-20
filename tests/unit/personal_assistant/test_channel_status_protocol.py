@@ -18,7 +18,12 @@ from personal_assistant.gateway.channel_manifest_store import ChannelManifestSto
 from personal_assistant.gateway.channel_registry import ChannelRegistry
 from personal_assistant.ws.im_connection import IMConnectionConfig, IMConnectionManager
 
-from ._im_connection_helpers import _FakeWebSocket, _connect_fake, _minimal_reporter
+from ._im_connection_helpers import (
+    _FakeWebSocket,
+    _connect_fake,
+    _managed_channel_bindings,
+    _minimal_reporter,
+)
 
 
 class _ManagedAdapter:
@@ -106,7 +111,9 @@ def test_status_result_releases_fifo_before_terminal_handler_runs(
         config=IMConnectionConfig(url="http://im.local"),
         reporter=_minimal_reporter(tmp_path),
         relay_adapter=relay,
-        channel_status_result_handler=handle_status,
+        managed_channel_bindings=_managed_channel_bindings(
+            handle_status_result=handle_status
+        ),
         connect=lambda url, headers: _connect_fake(socket, [], url, headers),
     )
 
@@ -188,7 +195,9 @@ def test_offline_barrier_removed_ack_drops_outbox_quarantines_and_continues_fifo
         config=IMConnectionConfig(url="http://im.local"),
         reporter=_minimal_reporter(tmp_path),
         relay_adapter=relay,
-        channel_status_result_handler=handle_status,
+        managed_channel_bindings=_managed_channel_bindings(
+            handle_status_result=handle_status
+        ),
         connect=lambda url, headers: _connect_fake(socket, [], url, headers),
     )
 
@@ -253,7 +262,9 @@ def test_disconnected_runtime_replacements_coalesce_unsent_statuses(
         config=IMConnectionConfig(url="http://im.local"),
         reporter=_minimal_reporter(tmp_path),
         relay_adapter=relay,
-        channel_status_result_handler=handle_status,
+        managed_channel_bindings=_managed_channel_bindings(
+            handle_status_result=handle_status
+        ),
         connect=lambda url, headers: _connect_fake(socket, [], url, headers),
     )
 
@@ -355,7 +366,9 @@ def test_retryable_manifest_is_reapplied_online_with_bounded_same_revision_retri
         config=IMConnectionConfig(url="http://im.local", heartbeat_interval_seconds=0),
         reporter=_minimal_reporter(tmp_path),
         relay_adapter=relay,
-        channel_manifest_handler=apply_manifest,
+        managed_channel_bindings=_managed_channel_bindings(
+            apply_manifest=apply_manifest
+        ),
         channel_reconcile_retry_delays=(0.1, 0.2),
         connect=lambda url, headers: _connect_fake(socket, [], url, headers),
         sleep=no_wait,
