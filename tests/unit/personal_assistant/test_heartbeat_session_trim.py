@@ -28,7 +28,7 @@ from personal_assistant.scheduler.heartbeat_scheduler import (
 
 def test_polling_runner_does_not_own_raw_transcript_rewrite() -> None:
     """Product heartbeat code must delegate transcript mutation to Kernel."""
-    from personal_assistant.main import PollingHeartbeatRunner
+    from personal_assistant.scheduler.heartbeat_runner import PollingHeartbeatRunner
 
     assert not hasattr(PollingHeartbeatRunner, "trim_silent_tick")
 
@@ -84,7 +84,7 @@ async def _drive_heartbeat_record(
     kernel: _HeartbeatStreamKernel,
     observer_events: list[dict[str, object]],
 ) -> None:
-    from personal_assistant.main import PollingHeartbeatRunner
+    from personal_assistant.scheduler.heartbeat_runner import PollingHeartbeatRunner
 
     consumed = asyncio.Event()
     agent = AgentWorkspaceConfig(

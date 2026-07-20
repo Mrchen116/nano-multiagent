@@ -18,7 +18,7 @@ from personal_assistant.config.local_store import (
 from personal_assistant.gateway.inbound_dispatcher import InboundDispatcher
 from personal_assistant.gateway.internal_dispatch import InternalDispatchHandler
 from personal_assistant.gateway.runtime import GatewayRuntime
-from personal_assistant.main import PollingHeartbeatRunner
+from personal_assistant.scheduler.heartbeat_runner import PollingHeartbeatRunner
 
 from ._gateway_runtime_test_utils import make_config, run_in_thread
 

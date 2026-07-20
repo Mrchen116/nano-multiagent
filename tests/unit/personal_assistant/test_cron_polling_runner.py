@@ -86,7 +86,7 @@ async def test_polling_runner_calls_cron_tick_for_cron_enabled_agent(
     CRITICAL-1: Before the fix, CronScheduler was never called by the gateway loop.
     After the fix, each polling tick must evaluate cron jobs for each cron_enabled agent.
     """
-    from personal_assistant.main import PollingHeartbeatRunner
+    from personal_assistant.scheduler.heartbeat_runner import PollingHeartbeatRunner
 
     ws = tmp_path / "ws-agent"
     ws.mkdir()
@@ -129,7 +129,7 @@ async def test_polling_runner_skips_cron_tick_for_cron_disabled_agent(
     tmp_path: Path,
 ) -> None:
     """PollingHeartbeatRunner must NOT call cron tick for agents with cron_enabled=False."""
-    from personal_assistant.main import PollingHeartbeatRunner
+    from personal_assistant.scheduler.heartbeat_runner import PollingHeartbeatRunner
 
     ws = tmp_path / "ws-nocron"
     ws.mkdir()
@@ -169,7 +169,7 @@ async def test_polling_runner_without_cron_fn_runs_normally(
     tmp_path: Path,
 ) -> None:
     """PollingHeartbeatRunner without cron_tick_fn must still work (backward compat)."""
-    from personal_assistant.main import PollingHeartbeatRunner
+    from personal_assistant.scheduler.heartbeat_runner import PollingHeartbeatRunner
 
     hb_scheduler = _FakeHeartbeatScheduler()
     hb_config = HeartbeatConfig(tick_interval_seconds=999)
@@ -215,7 +215,7 @@ async def test_polling_runner_survives_scheduler_tick_failure(tmp_path: Path) ->
     """decision 4: a failing scheduler.tick must not kill the polling loop — the loop
     logs and retries on the next interval. Before the fix, the bare ``await tick()``
     let the exception propagate and silently kill the heartbeat subsystem."""
-    from personal_assistant.main import PollingHeartbeatRunner
+    from personal_assistant.scheduler.heartbeat_runner import PollingHeartbeatRunner
 
     hb_scheduler = _FlakyHeartbeatScheduler(fail_times=1)
     hb_config = HeartbeatConfig(tick_interval_seconds=0.001)
@@ -240,7 +240,10 @@ async def test_polling_runner_survives_scheduler_tick_failure(tmp_path: Path) ->
 async def test_polling_runner_start_attaches_done_callback(tmp_path: Path) -> None:
     """decision 4: the heartbeat loop task must carry a done callback so a truly
     unexpected loop crash is observed (logged) rather than swallowed silently."""
-    from personal_assistant.main import PollingHeartbeatRunner, _consume_task_exception
+    from personal_assistant.scheduler.heartbeat_runner import (
+            PollingHeartbeatRunner,
+            _consume_task_exception,
+        )
 
     hb_scheduler = _FakeHeartbeatScheduler()
     hb_config = HeartbeatConfig(tick_interval_seconds=999)

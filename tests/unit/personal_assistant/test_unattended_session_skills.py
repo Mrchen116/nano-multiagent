@@ -16,7 +16,7 @@ from personal_assistant.gateway.session_binder import (
 )
 from personal_assistant.gateway.session_keys import SessionBindingStore
 from personal_assistant.channels.base import InboundMessage, ReplyContext
-from personal_assistant.main import _KernelClientShim  # noqa: PLC2701
+from personal_assistant.gateway.kernel_client import InProcessKernelClient
 
 
 class _Kernel:
@@ -55,7 +55,7 @@ async def test_unattended_session_inherits_agent_skill_scope(
         )
     )
     kernel = _Kernel()
-    shim = _KernelClientShim(kernel, agent_catalog=catalog)
+    shim = InProcessKernelClient(kernel, agent_catalog=catalog)
     metadata: dict[str, object] = {"agent_id": "agent-a"}
 
     if path == "cron":
@@ -132,7 +132,7 @@ async def test_foreground_and_unattended_sessions_share_capability_projection(
     )
     foreground = kernel.create_calls[-1]
 
-    shim = _KernelClientShim(kernel, agent_catalog=catalog)
+    shim = InProcessKernelClient(kernel, agent_catalog=catalog)
     await shim.create_agent_session(
         agent_snapshot=snapshot,
         workspace_root=str(workspace),

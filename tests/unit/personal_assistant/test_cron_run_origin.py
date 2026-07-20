@@ -44,7 +44,7 @@ def test_submit_message_maps_cron_origin(tmp_path: "Path") -> None:  # noqa: F82
     from pathlib import Path
     from unittest.mock import MagicMock, patch
 
-    from personal_assistant.main import _KernelClientShim  # noqa: PLC2701
+    from personal_assistant.gateway.kernel_client import InProcessKernelClient
 
     captured_origin: list[RunOrigin] = []
 
@@ -62,7 +62,7 @@ def test_submit_message_maps_cron_origin(tmp_path: "Path") -> None:  # noqa: F82
     mock_kernel = MagicMock()
     mock_kernel.submit.side_effect = _fake_submit
 
-    shim = _KernelClientShim(mock_kernel)
+    shim = InProcessKernelClient(mock_kernel)
 
     # Must not raise AttributeError: type object 'RunOrigin' has no attribute 'SYSTEM'
     result = shim.submit_message(
