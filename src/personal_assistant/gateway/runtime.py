@@ -13,7 +13,10 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from personal_assistant.channels.base import InboundMessage
-from personal_assistant.config.local_store import LocalConfig, WORKSPACE_CONFIG_DIRNAME as _WCD
+from personal_assistant.config.local_store import (
+    LocalConfig,
+    WORKSPACE_CONFIG_DIRNAME as _WCD,
+)
 from personal_assistant.gateway.channel_registry import ChannelRegistry
 from personal_assistant.gateway.inbound_dispatcher import InboundDispatcher
 from personal_assistant.gateway.internal_dispatch import (
@@ -21,7 +24,9 @@ from personal_assistant.gateway.internal_dispatch import (
     InternalDispatchHandler,
 )
 from personal_assistant.gateway.managed_channel_control import ManagedChannelControl
-from personal_assistant.gateway.runtime_delivery.task_tracker import RuntimeDeliveryTaskTracker
+from personal_assistant.gateway.runtime_delivery.task_tracker import (
+    RuntimeDeliveryTaskTracker,
+)
 from personal_assistant.gateway.session_run_coordinator import SessionRunCoordinator
 from personal_assistant.gateway.bootstrap import start_channels, stop_channels
 from personal_assistant.scheduler.cron_service_registry import CronServiceRegistry
@@ -690,5 +695,3 @@ async def _await_background_task(task: asyncio.Task[None]) -> None:
         task.cancel()
         with suppress(asyncio.CancelledError):
             await task
-
-

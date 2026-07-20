@@ -41,13 +41,12 @@
 - Commits: C1=`790cb4143`, C2=`a06353d8f`, C3=`57b90ad8d`。
 - Next: R3 清理旧 runtime 表面、补 owner contract 并执行真实 Gateway 入口验证。
 
-## [Design 修订] R3: architecture contract 随真实 owner 提前迁移
+## [Orchestrator scope clarification] R3: 真实 owner contract
 
-- 现状方案: Milestone 表将两个 architecture contract 的更新列在 M4。
-- 新方案: M2 同步更新 `test_gateway_inbound_ownership_contract.py` 中三个直接锚定已迁移 owner 的断言；M4 继续负责入口 `__all__` 与其余 composition 收口 contract。
-- 原因: M2 删除 `main.py` 中 `GatewayRuntime`、`_run_until_shutdown` 和 `_KernelClientShim` 后，原 contract 依赖旧物理位置而失败。保留到 M4 会使已完成 M2 不能通过相关 contract 门禁，也会把已无意义的旧 location 断言临时保留。
-- 影响范围: 仅本 milestone 的真实 owner location 断言；M4 仍拥有 entry-only public surface 与 composition policy contract。
-- design.md 是否同步改: 是；orchestrator 于 2026-07-20 确认按 M2 范围整体迁移并禁止旧 re-export/alias，已更新 Milestone 表的 contract 归属。
+- 澄清: M2 原退出标准已要求 runtime/shutdown/heartbeat/cron/unattended 测试从真实 owner import，以及 `InProcessKernelClient` 无 main re-export/alias。
+- 执行: orchestrator 于 2026-07-20 确认，直接锚定已迁出 owner 的三条 contract 随 M2 改读 `gateway/runtime.py` 和 `gateway/kernel_client.py`；保留 `build_runtime` 的构造顺序断言在 `main.py`。
+- 边界: 保留 `main` 不 re-export `GatewayRuntime` 的断言，因其直接守护 M2 的无 re-export 退出标准；M4 仍负责完整 `main.__all__ == ["main"]` 与 composition policy contract。
+- design.md: 未修改；此前 worker 对 Changelog/Milestone 表的越界改动已在 reviewer 反馈循环中回退。
 
 ### R3 — 收口入口旧表面并完成真实入口验证
 
