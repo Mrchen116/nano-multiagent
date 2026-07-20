@@ -46,6 +46,16 @@ def test_personal_assistant_main_delegates_only_to_lifecycle_owners() -> None:
     assert "im_bootstrap.IMBootstrapClient(" in composition_source
 
 
+def test_composition_does_not_depend_on_cli_lifecycle_owner() -> None:
+    source = (
+        REPO_ROOT / "src" / "personal_assistant" / "gateway" / "composition.py"
+    ).read_text()
+
+    assert "process_lifecycle" not in source
+    assert "def _print_gateway_started(" not in source
+    assert "def _check_im_reachable(" not in source
+
+
 def test_runtime_delivery_observer_keeps_typed_store_owner_at_entry() -> None:
     source = (
         REPO_ROOT
