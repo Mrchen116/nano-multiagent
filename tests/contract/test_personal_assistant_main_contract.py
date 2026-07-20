@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from personal_assistant import main as personal_assistant_main
+from personal_assistant.gateway import composition
 from personal_assistant.gateway.runtime import GatewayRuntime
 
 
@@ -9,6 +10,15 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 def test_personal_assistant_main_entry_exists() -> None:
     assert (REPO_ROOT / "src" / "personal_assistant" / "main.py").is_file()
+
+
+def test_personal_assistant_main_exports_only_cli_entry() -> None:
+    assert personal_assistant_main.__all__ == ["main"]
+
+
+def test_gateway_composition_exposes_the_only_runtime_factory() -> None:
+    assert hasattr(composition, "compose_gateway")
+    assert not hasattr(personal_assistant_main, "build_runtime")
 
 
 def test_gateway_runtime_exports_lifecycle_controls_from_its_owner() -> None:
