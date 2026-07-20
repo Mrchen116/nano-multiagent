@@ -25,7 +25,7 @@
 
 ### R1 — 迁移 IM bootstrap 与 register-ready 编排
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 新建 `gateway.im_bootstrap` 和 `gateway.connection_ready`，将 HTTP node binding/auto-bind 与 register ACK 后的错误隔离、channel/Agent 收敛顺序从入口迁出；迁移对应测试 import，并保留真实可观察行为断言。
 - 验证: auto-bind 与 reconnect registration 聚焦测试、ruff。
 
