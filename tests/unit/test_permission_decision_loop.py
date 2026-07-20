@@ -128,7 +128,9 @@ class TestPermissionResponseHandlerUsesKernel:
 
     def test_handler_calls_submit_on_kernel(self):
         """Handler must route IM permission_response frame to kernel.submit_permission_decision."""
-        from personal_assistant.main import _build_permission_response_handler
+        from personal_assistant.gateway.composition import (
+            _build_permission_response_handler,
+        )
 
         kernel_mock = MagicMock()
         kernel_mock.submit_permission_decision.return_value = True
@@ -146,7 +148,9 @@ class TestPermissionResponseHandlerUsesKernel:
 
     def test_handler_no_crash_on_missing_fields(self):
         """Handler must be a no-op when required fields are missing (defensive)."""
-        from personal_assistant.main import _build_permission_response_handler
+        from personal_assistant.gateway.composition import (
+            _build_permission_response_handler,
+        )
 
         kernel_mock = MagicMock()
         handler = _build_permission_response_handler(kernel=kernel_mock)
@@ -161,7 +165,9 @@ class TestPermissionResponseHandlerUsesKernel:
 
     def test_handler_passes_reason(self):
         """Handler must forward the reason field when present."""
-        from personal_assistant.main import _build_permission_response_handler
+        from personal_assistant.gateway.composition import (
+            _build_permission_response_handler,
+        )
 
         kernel_mock = MagicMock()
         kernel_mock.submit_permission_decision.return_value = True

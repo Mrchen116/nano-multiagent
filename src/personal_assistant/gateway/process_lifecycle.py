@@ -803,7 +803,9 @@ def _load_runtime_config(
     im_service_url_override: str | None = None,
 ) -> LocalConfig:
     """Load the composed runtime configuration through the composition seam."""
-    from personal_assistant.main import _load_runtime_config as load_runtime_config
+    from personal_assistant.gateway.composition import (
+        _load_runtime_config as load_runtime_config,
+    )
 
     return load_runtime_config(
         config_path,
@@ -814,6 +816,6 @@ def _load_runtime_config(
 
 def _default_build_runtime(config: LocalConfig) -> runtime.GatewayRuntimeLike:
     """Defer composition import until lifecycle execution to avoid import cycles."""
-    from personal_assistant.main import build_runtime
+    from personal_assistant.gateway.composition import compose_gateway
 
-    return build_runtime(config)
+    return compose_gateway(config)

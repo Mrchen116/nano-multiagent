@@ -91,12 +91,12 @@ def test_session_metadata_uses_published_listener_url_or_omits_it(
     )
 
 
-def test_build_runtime_injects_process_endpoint_provider_before_kernel(
+def test_compose_gateway_injects_process_endpoint_provider_before_kernel(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Production PA tool receives the endpoint owner created before Kernel build."""
 
-    from personal_assistant.main import build_runtime
+    from personal_assistant.gateway.composition import compose_gateway
     from personal_assistant.tools.send_message import SendMessageTool
 
     from ._main_helpers import make_minimal_config
@@ -112,13 +112,14 @@ def test_build_runtime_injects_process_endpoint_provider_before_kernel(
             )
 
     monkeypatch.setattr(
-        "personal_assistant.main.InternalDispatchEndpoint", lambda: endpoint
+        "personal_assistant.gateway.composition.InternalDispatchEndpoint",
+        lambda: endpoint,
     )
     monkeypatch.setattr(
         "personal_assistant.product.SendMessageTool", _TrackingSendMessageTool
     )
 
-    build_runtime(make_minimal_config(tmp_path))
+    compose_gateway(make_minimal_config(tmp_path))
 
     assert len(captured_providers) == 1
     provider = captured_providers[0]

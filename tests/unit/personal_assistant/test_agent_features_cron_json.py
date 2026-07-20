@@ -28,7 +28,9 @@ def _coerce_config_dicts(data: dict) -> dict:
 def _config_from_payload(payload: dict):
     """Build AgentWorkspaceConfig via the same parsing path as ConfigSyncNotifier."""
     from personal_assistant.config.local_store import AgentWorkspaceConfig
-    from personal_assistant.main import _parse_heartbeat_from_im_payload
+    from personal_assistant.gateway.agent_config_sync import (
+        _parse_heartbeat_from_im_payload,
+    )
 
     raw_features = payload.get("features")
     features = (
@@ -108,7 +110,9 @@ def test_gateway_reads_heartbeat_cadence_from_heartbeat_json() -> None:
 
 def test_parse_heartbeat_payload_returns_cadence_without_enable() -> None:
     """_parse_heartbeat_from_im_payload yields (every, start, end, tz) — no enable."""
-    from personal_assistant.main import _parse_heartbeat_from_im_payload
+    from personal_assistant.gateway.agent_config_sync import (
+        _parse_heartbeat_from_im_payload,
+    )
 
     every, start, end, tz = _parse_heartbeat_from_im_payload(
         {

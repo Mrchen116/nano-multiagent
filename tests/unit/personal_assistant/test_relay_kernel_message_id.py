@@ -17,7 +17,9 @@ from unittest.mock import MagicMock
 async def test_message_completed_carries_per_bubble_kernel_message_id() -> None:
     """一 run 产出两条 assistant 气泡（textA→textB，kernel id 不同触发 roll）→
     两个 message_completed 帧各带各自气泡的 kernel message_id。"""
-    from personal_assistant.main import _build_kernel_event_observer
+    from personal_assistant.gateway.runtime_delivery.observer import (
+        build_kernel_event_observer,
+    )
 
     send_calls: list[tuple] = []
     bubble_seq = {"n": 0}
@@ -52,7 +54,7 @@ async def test_message_completed_carries_per_bubble_kernel_message_id() -> None:
         }
     }
 
-    observer = _build_kernel_event_observer(
+    observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: manager,
         run_context_store=run_context_store,
     )
@@ -112,7 +114,9 @@ async def test_message_completed_carries_per_bubble_kernel_message_id() -> None:
 @pytest.mark.asyncio
 async def test_single_bubble_completed_carries_kernel_message_id() -> None:
     """单气泡 run：turn_end 的 message_completed 带该气泡的 kernel message_id。"""
-    from personal_assistant.main import _build_kernel_event_observer
+    from personal_assistant.gateway.runtime_delivery.observer import (
+        build_kernel_event_observer,
+    )
 
     send_calls: list[tuple] = []
     manager = MagicMock()
@@ -134,7 +138,7 @@ async def test_single_bubble_completed_carries_kernel_message_id() -> None:
     run_context_store: dict[str, dict[str, str]] = {
         "run-1": {"conversation_id": "conv-1", "message_id": "", "agent_id": "alpha"}
     }
-    observer = _build_kernel_event_observer(
+    observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: manager,
         run_context_store=run_context_store,
     )

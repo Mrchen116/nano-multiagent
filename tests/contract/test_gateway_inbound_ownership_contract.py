@@ -49,7 +49,7 @@ def _imported_names(relative: str, *, module: str) -> set[str]:
 
 def test_composition_and_schedulers_do_not_reach_pipeline_state() -> None:
     sources = {
-        "main": _source("src/personal_assistant/main.py"),
+        "composition": _source("src/personal_assistant/gateway/composition.py"),
         "heartbeat": _source("src/personal_assistant/scheduler/heartbeat_scheduler.py"),
         "cron": _source("src/personal_assistant/scheduler/cron_runner.py"),
     }
@@ -71,12 +71,12 @@ def test_composition_and_schedulers_do_not_reach_pipeline_state() -> None:
 
 
 def test_config_and_shadow_adapters_are_not_defined_in_composition_root() -> None:
-    main_source = _source("src/personal_assistant/main.py")
+    composition_source = _source("src/personal_assistant/gateway/composition.py")
 
-    assert "class _IMConfigSyncClient" not in main_source
-    assert "class _IMShadowConversationSyncClient" not in main_source
-    assert "_IMConfigSyncClient =" not in main_source
-    assert "_IMShadowConversationSyncClient =" not in main_source
+    assert "class _IMConfigSyncClient" not in composition_source
+    assert "class _IMShadowConversationSyncClient" not in composition_source
+    assert "_IMConfigSyncClient =" not in composition_source
+    assert "_IMShadowConversationSyncClient =" not in composition_source
 
 
 def test_runtime_consumers_do_not_import_binding_repository() -> None:
@@ -130,10 +130,8 @@ def test_gateway_runtime_owns_only_coordinator_session_lifecycle() -> None:
 
 
 def test_composition_builds_coordinator_before_public_heartbeat_wiring() -> None:
-    main_source = _source("src/personal_assistant/main.py")
-    build_source = main_source[
-        main_source.index("def build_runtime") : main_source.index("def main(")
-    ]
+    composition_source = _source("src/personal_assistant/gateway/composition.py")
+    build_source = composition_source[composition_source.index("def compose_gateway") :]
 
     coordinator = "run_coordinator = SessionRunCoordinator("
     heartbeat = "_heartbeat_scheduler = HeartbeatScheduler("
@@ -151,9 +149,9 @@ def test_composition_builds_coordinator_before_public_heartbeat_wiring() -> None
 
 def test_config_sync_callback_is_constructor_owned_and_tests_use_real_owners() -> None:
     config_sync = _source("src/personal_assistant/gateway/agent_config_sync.py")
-    build_runtime = _source("src/personal_assistant/main.py")
+    composition_source = _source("src/personal_assistant/gateway/composition.py")
 
-    assert "im_config_sync_client.on_agent_created =" not in build_runtime
+    assert "im_config_sync_client.on_agent_created =" not in composition_source
     assert "self.on_agent_created" not in config_sync
     for relative in (
         "tests/unit/personal_assistant/test_gateway_im_config_sync.py",
@@ -165,9 +163,9 @@ def test_config_sync_callback_is_constructor_owned_and_tests_use_real_owners() -
 
 
 def test_composition_root_does_not_implement_cron_execution_lifecycle() -> None:
-    build_runtime = _source("src/personal_assistant/main.py")
-    build_runtime = build_runtime[
-        build_runtime.index("def build_runtime") : build_runtime.index("def main(")
+    composition_source = _source("src/personal_assistant/gateway/composition.py")
+    build_runtime = composition_source[
+        composition_source.index("def compose_gateway") :
     ]
 
     assert "def _build_cron_execute_fn" not in build_runtime
@@ -225,7 +223,7 @@ def test_im_http_consumers_depend_on_neutral_public_transport_owner() -> None:
     consumers = (
         "src/personal_assistant/gateway/agent_config_sync.py",
         "src/personal_assistant/gateway/shadow_sync.py",
-        "src/personal_assistant/main.py",
+        "src/personal_assistant/gateway/composition.py",
     )
 
     for relative in consumers:

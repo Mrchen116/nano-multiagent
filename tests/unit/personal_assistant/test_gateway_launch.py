@@ -21,7 +21,7 @@ from personal_assistant.gateway.process_lifecycle import (
     launch_gateway_in_background,
 )
 
-import personal_assistant.main as main_module
+import personal_assistant.gateway.composition as main_module
 
 from ._main_helpers import _FakeProcess, build_config
 

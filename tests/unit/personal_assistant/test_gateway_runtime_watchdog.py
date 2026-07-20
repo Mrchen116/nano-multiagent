@@ -106,7 +106,7 @@ def test_watchdog_does_not_swallow_process_exit_signals(
         raise AssertionError("SystemExit must not enter watchdog rebuild backoff")
 
     monkeypatch.setattr(
-        "personal_assistant.main.asyncio.sleep", _unexpected_rebuild_sleep
+        "personal_assistant.gateway.runtime.asyncio.sleep", _unexpected_rebuild_sleep
     )
 
     with pytest.raises(SystemExit):
@@ -179,7 +179,7 @@ def test_watchdog_treats_manager_stop_return_as_clean_exit(
         )
 
     monkeypatch.setattr(
-        "personal_assistant.main.asyncio.sleep", _unexpected_rebuild_sleep
+        "personal_assistant.gateway.runtime.asyncio.sleep", _unexpected_rebuild_sleep
     )
 
     asyncio.run(runtime._supervise_im_connection(manager))  # noqa: SLF001

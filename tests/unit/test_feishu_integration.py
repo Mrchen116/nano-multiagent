@@ -15,7 +15,7 @@ from personal_assistant.config.local_store import (
     ChannelConfig,
 )
 from personal_assistant.gateway.group_context_store import GroupContextStore
-from personal_assistant.main import _build_channel_registry
+from personal_assistant.gateway.composition import _build_channel_registry
 
 
 def _feishu_settings(**overrides) -> dict[str, str]:
@@ -31,7 +31,7 @@ def _feishu_settings(**overrides) -> dict[str, str]:
 class TestBuildChannelRegistryFeishu:
     """Verify _build_channel_registry creates FeishuAdapter for feishu channels."""
 
-    @patch("personal_assistant.main.FeishuAdapter")
+    @patch("personal_assistant.gateway.composition.FeishuAdapter")
     def test_feishu_channel_creates_adapter(self, mock_fa_cls: MagicMock) -> None:
         from personal_assistant.gateway.group_context_store import GroupContextStore
 
@@ -52,7 +52,7 @@ class TestBuildChannelRegistryFeishu:
             assert call_kwargs["app_secret"] == "s_a"
             assert call_kwargs["name"] == "feishu:plato"
 
-    @patch("personal_assistant.main.FeishuAdapter")
+    @patch("personal_assistant.gateway.composition.FeishuAdapter")
     def test_multiple_feishu_accounts_registered(self, mock_fa_cls: MagicMock) -> None:
         from personal_assistant.gateway.group_context_store import GroupContextStore
 
@@ -84,7 +84,7 @@ class TestBuildChannelRegistryFeishu:
             assert "feishu:plato" in names
             assert "feishu:luban" in names
 
-    @patch("personal_assistant.main.FeishuAdapter")
+    @patch("personal_assistant.gateway.composition.FeishuAdapter")
     def test_feishu_disabled_not_registered(self, mock_fa_cls: MagicMock) -> None:
         channels = (
             ChannelConfig(
@@ -97,8 +97,8 @@ class TestBuildChannelRegistryFeishu:
         registry = _build_channel_registry(channels)
         mock_fa_cls.assert_not_called()
 
-    @patch("personal_assistant.main.FeishuAdapter")
-    @patch("personal_assistant.main.WebRelayAdapter")
+    @patch("personal_assistant.gateway.composition.FeishuAdapter")
+    @patch("personal_assistant.gateway.composition.WebRelayAdapter")
     def test_feishu_coexists_with_web_relay(
         self, mock_wra_cls: MagicMock, mock_fa_cls: MagicMock
     ) -> None:
@@ -242,7 +242,7 @@ class TestBuildChannelRegistryFeishuRealAdapter:
             assert adapter._bot_open_id == "ou_bot_123"
             assert adapter._owner_open_id == "ou_owner"
 
-    @patch("personal_assistant.main.FeishuAdapter")
+    @patch("personal_assistant.gateway.composition.FeishuAdapter")
     def test_build_channel_registry_allows_missing_owner_open_id(
         self, mock_fa_cls: MagicMock
     ) -> None:
@@ -265,7 +265,7 @@ class TestBuildChannelRegistryFeishuRealAdapter:
         mock_fa_cls.assert_called_once()
         assert mock_fa_cls.call_args.kwargs["owner_open_id"] is None
 
-    @patch("personal_assistant.main.FeishuAdapter")
+    @patch("personal_assistant.gateway.composition.FeishuAdapter")
     def test_build_channel_registry_passes_owner_open_id_binder(
         self, mock_fa_cls: MagicMock
     ) -> None:
