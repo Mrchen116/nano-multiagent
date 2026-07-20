@@ -148,3 +148,21 @@
 - Rollback: revert `8f212e7b3`，再按需 revert C1 red-test commits `c44507836` 与 `33a438288`。
 - Commits: C1=`33a438288`、`c44507836`，C2=`8f212e7b3`，C3=本 evidence commit（rebase 后）。
 - Next: 已 rebase 最新 `origin/unit/refactor-470`，推送 fix branch。
+
+## Fix R2 — builtin skill 安装归入真实 Gateway 前台入口
+
+- Context: `compose_gateway()` 每次装配对象图都会创建或复制 `~/.nanoassistant/skills`，违反 composition root 无持久化副作用的边界；后台 launcher 若在 parent 安装还会与 child 重复副作用。
+- Decision: 保留 `personal_assistant.builtin_skills.bootstrap` 作为安装实现 owner，新增 `process_lifecycle.install_builtin_skills_for_gateway()` 作为具名的 best-effort startup helper，并仅由真实前台 `run_gateway()` 在 runtime build 之前调用；后台 launcher 继续只 spawn child 并等待其 state。
+- Rationale: 持久化写入属于真实运行进程的 startup lifecycle，不是纯对象图 composition 的职责；将日志语义集中在 lifecycle helper，保持安装失败不阻止 Gateway 启动的既有行为。
+- Evidence:
+  - C1 Red: `test_run_gateway_installs_builtin_skills_before_building_runtime` 和 `test_composition_does_not_install_builtin_skills` 在旧实现稳定失败，分别显示缺少前台安装事件与 composition 中的 bootstrap import；另新增 background launcher regression，锁定 parent 不执行安装。
+  - Focused regression: `/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -q tests/unit/personal_assistant/test_gateway_pid_lifecycle.py tests/contract/test_gateway_inbound_ownership_contract.py`：27 passed。
+  - Gateway regression: 启动、runtime、watchdog、shutdown、unattended suite：33 passed；`/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -q tests/contract`：194 passed。
+  - Static: `ruff check` 通过；本轮四个改动文件 `ruff format --check` 通过。
+  - Full regression: `/Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -q -m "not e2e"`：3628 passed, 1 skipped, 20 deselected。
+  - Entry: `scripts/e2e-critical.sh -k 'gateway_im_resilience or restart_session_continuity'`：3 passed, 14 deselected, 36.81s；覆盖真 IM + 真 Gateway 前台子进程入口。
+  - Round 4 Cron correction: 已随最新 `origin/unit/refactor-470` 的 `c9a605839` 通过并保留，未修改 verification 或 acceptance 报告。
+  - Frontend State Matrix / Browser QA / Visual / Prototype Comparison: N/A。
+- Rollback: revert `2e6d69d6a`，再按需 revert C1 `f87f15d01`。
+- Commits: C1=`f87f15d01`，C2=`2e6d69d6a`，C3=本次 progress commit。
+- Next: 推送 fix branch 并交由 orchestrator 集成。
