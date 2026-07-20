@@ -62,5 +62,5 @@
   - Visual/Interaction: N/A。
   - Prototype Comparison: N/A。
 - Rollback: revert `2d968bb0f` 与 `0c82dccfb`。
-- Commits: C1=`0c82dccfb`, C2=`2d968bb0f`, regression-test=`1163a3155`, C3=pending。
-- Next: rebase `origin/unit/refactor-470`，执行合并前完整测试门禁并集成 M2。
+- Commits: C1=`0c82dccfb`, C2=`2d968bb0f`, regression-test=`1163a3155`, C3=`eaf60015d`, reviewer-fix=`ef8c255f8`。
+- Next: 已集成 M2；等待 M3。
