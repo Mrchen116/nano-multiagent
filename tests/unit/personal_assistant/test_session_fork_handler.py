@@ -37,7 +37,7 @@ def _store(tmp_path: Path) -> PersistentSessionBindingStore:
 
 
 def _handler(tmp_path: Path, kernel: _FakeKernel, store: PersistentSessionBindingStore):
-    from personal_assistant.main import _build_session_fork_handler
+    from personal_assistant.gateway.composition import _build_session_fork_handler
 
     catalog = LiveAgentCatalog(
         (AgentWorkspaceConfig(agent_id="alpha", workspace_root=tmp_path / "ws-alpha"),)
@@ -180,7 +180,7 @@ async def test_fork_handler_kernel_failure_returns_not_ok(tmp_path: Path) -> Non
         agent_id="alpha",
         kernel_session_id="ksess-src",
     )
-    from personal_assistant.main import _build_session_fork_handler
+    from personal_assistant.gateway.composition import _build_session_fork_handler
 
     catalog = LiveAgentCatalog(
         (AgentWorkspaceConfig(agent_id="alpha", workspace_root=tmp_path / "ws"),)
@@ -230,7 +230,7 @@ async def test_fork_publish_race_returns_failure_without_stale_branch_binding(
     from personal_assistant.config.local_store import AgentWorkspaceConfig
     from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
     from personal_assistant.gateway.session_binder import GatewaySessionBinder
-    from personal_assistant.main import _build_session_fork_handler
+    from personal_assistant.gateway.composition import _build_session_fork_handler
 
     class _BlockingKernel(_FakeKernel):
         def __init__(self) -> None:
@@ -306,7 +306,7 @@ async def test_fork_captures_source_binding_and_revision_atomically(
 
     from personal_assistant.gateway.session_binder import ConversationBindingRequest
     from personal_assistant.gateway.session_keys import SessionBindingStore
-    from personal_assistant.main import _build_session_fork_handler
+    from personal_assistant.gateway.composition import _build_session_fork_handler
 
     old_workspace = tmp_path / "old-atomic"
     new_workspace = tmp_path / "new-atomic"

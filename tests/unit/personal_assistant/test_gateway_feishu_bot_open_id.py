@@ -20,7 +20,7 @@ from personal_assistant.config.local_store import (
     LocalConfig,
     NodeConfig,
 )
-from personal_assistant.main import (
+from personal_assistant.gateway.composition import (
     _autofill_feishu_bot_open_id,
     _build_feishu_owner_open_id_binder,
     _infer_feishu_bot_open_id_from_app_credentials,

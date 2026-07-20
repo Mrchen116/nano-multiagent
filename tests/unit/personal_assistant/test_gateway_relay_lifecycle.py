@@ -38,14 +38,16 @@ from personal_assistant.gateway.runtime_delivery.context import (
 from personal_assistant.gateway.runtime_delivery.lifecycle import (
     build_relay_lifecycle_callback as _build_relay_lifecycle_callback,
 )
-from personal_assistant.gateway.runtime_delivery.observer import roll_bubble
+from personal_assistant.gateway.runtime_delivery.observer import (
+    build_kernel_event_observer as _build_kernel_event_observer,
+    roll_bubble,
+)
 from personal_assistant.gateway.reply_visibility import ReplyVisibilityPolicy
 from personal_assistant.gateway.runtime import GatewayRuntime
 from personal_assistant.gateway.process_lifecycle import RuntimeFactories, run_gateway
-from personal_assistant.main import (
+from personal_assistant.gateway.composition import (
     _build_channel_registry,
-    _build_kernel_event_observer,
-    build_runtime,
+    compose_gateway,
 )
 from personal_assistant.reporter.upstream_reporter import UpstreamReporter
 
@@ -434,8 +436,8 @@ def test_roll_bubble_updates_typed_context_runtime_state() -> None:
     assert ctx.rolling is False
 
 
-def test_build_runtime_wires_typed_delivery_context_store() -> None:
-    source = inspect.getsource(build_runtime)
+def test_compose_gateway_wires_typed_delivery_context_store() -> None:
+    source = inspect.getsource(compose_gateway)
 
     assert "RunDeliveryContextStore()" in source
     assert "_run_context_store" not in source
@@ -1545,7 +1547,7 @@ def test_build_channel_registry_passes_dedup_db_path(tmp_path: Path) -> None:
     assert relay_adapter._dedup_store._db_path == tmp_path / "relay-dedup.sqlite3"  # noqa: SLF001
 
 
-def test_build_runtime_wires_web_relay_dedup_db_under_config_dir(
+def test_compose_gateway_wires_web_relay_dedup_db_under_config_dir(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     workspace_root = tmp_path / "agent-a"
@@ -1568,13 +1570,13 @@ def test_build_runtime_wires_web_relay_dedup_db_under_config_dir(
     )
 
     monkeypatch.setattr(
-        "personal_assistant.main._build_im_connection_manager",
+        "personal_assistant.gateway.composition._build_im_connection_manager",
         lambda **kwargs: type(
             "_Manager", (), {"connected": True, "close": lambda self: None}
         )(),
     )
 
-    runtime = build_runtime(config)
+    runtime = compose_gateway(config)
     relay_adapter = runtime._channel_registry.get("web_relay")  # noqa: SLF001
 
     assert relay_adapter is not None
@@ -1687,11 +1689,11 @@ def test_im_bootstrap_client_only_uses_configured_im_base_url() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_build_runtime_wires_prompt_preview_provider_when_im_service_configured(
+def test_compose_gateway_wires_prompt_preview_provider_when_im_service_configured(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """build_runtime must wire a non-None prompt_preview_provider when im_service is set.
+    """compose_gateway must wire a non-None prompt_preview_provider when im_service is set.
 
     refactor-387 M3 regression: prompt_preview_provider was set to None because
     the kernel HTTP endpoint was deleted without an SDK replacement.  The fix adds
@@ -1729,15 +1731,15 @@ def test_build_runtime_wires_prompt_preview_provider_when_im_service_configured(
         return type("_Manager", (), {"connected": True, "close": lambda self: None})()
 
     monkeypatch.setattr(
-        "personal_assistant.main._build_im_connection_manager",
+        "personal_assistant.gateway.composition._build_im_connection_manager",
         _fake_build_im_connection_manager,
     )
 
-    build_runtime(config)
+    compose_gateway(config)
 
     provider = captured_kwargs.get("prompt_preview_provider")
     assert provider is not None, (
-        "build_runtime must wire a non-None prompt_preview_provider when im_service is set; "
+        "compose_gateway must wire a non-None prompt_preview_provider when im_service is set; "
         "None means agent settings page Preview shows empty (M3 regression)"
     )
     assert callable(provider), "prompt_preview_provider must be callable"

@@ -88,7 +88,7 @@ class TestAssemblePromptPreviewFeaturesGate:
         M9: these params are retired; callers use features dict instead.
         """
         import inspect
-        from personal_assistant.main import _make_prompt_preview_provider
+        from personal_assistant.gateway.composition import _make_prompt_preview_provider
 
         class _FakeKernel:
             def assemble_prompt_preview(self, **kwargs) -> dict:

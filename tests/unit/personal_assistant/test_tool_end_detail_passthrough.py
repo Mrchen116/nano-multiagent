@@ -12,7 +12,9 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from personal_assistant.main import _build_kernel_event_observer
+from personal_assistant.gateway.runtime_delivery.observer import (
+    build_kernel_event_observer,
+)
 
 
 class _FakeManager:
@@ -36,7 +38,7 @@ def _run_observer_with_tool_end(event: dict[str, Any]) -> _FakeManager:
             "agent_id": "agent-1",
         }
     }
-    observer = _build_kernel_event_observer(
+    observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: manager,
         run_context_store=run_ctx,
     )
@@ -172,7 +174,7 @@ def test_skill_created_event_reaches_handler_without_im_connection() -> None:
             "agent_id": "agent-1",
         }
     }
-    observer = _build_kernel_event_observer(
+    observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: None,
         run_context_store=run_ctx,
         skill_created_handler=lambda agent_id, event: received.append(

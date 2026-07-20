@@ -518,11 +518,11 @@ class TestGatewayStartupConvergence:
             CronRunsStore, "converge_stale_on_restart", _recording_converge
         )
 
-        # build_runtime source must reference converge_stale_on_restart.
+        # compose_gateway source must reference converge_stale_on_restart.
         import inspect
-        import personal_assistant.main as main_module
+        import personal_assistant.gateway.composition as main_module
 
-        source = inspect.getsource(main_module.build_runtime)
+        source = inspect.getsource(main_module.compose_gateway)
         assert "converge_stale_on_restart" in source, (
             "build_runtime must call converge_stale_on_restart() on startup "
             "(bugfix-402-M4 R5 exit criterion)"

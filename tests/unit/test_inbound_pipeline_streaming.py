@@ -26,7 +26,9 @@ class TestAcceptedPhaseSeedsRunContext:
     @pytest.mark.asyncio
     async def test_accepted_phase_seeds_run_context_with_empty_message_id(self):
         """Accepted phase must populate run_context_store with conversation/agent but empty message_id."""
-        from personal_assistant.main import _build_relay_lifecycle_callback
+        from personal_assistant.gateway.runtime_delivery.lifecycle import (
+            build_relay_lifecycle_callback,
+        )
         from personal_assistant.gateway.inbound_models import RelayLifecycleUpdate
         from personal_assistant.channels.base import InboundMessage
 
@@ -39,7 +41,7 @@ class TestAcceptedPhaseSeedsRunContext:
         reporter = MagicMock()
         reporter.send_delivery_receipt.return_value = {"type": "delivery_receipt"}
 
-        callback = _build_relay_lifecycle_callback(
+        callback = build_relay_lifecycle_callback(
             reporter=reporter,
             im_connection_manager_factory=lambda: manager,
             run_context_store=run_context_store,
@@ -72,7 +74,9 @@ class TestAcceptedPhaseSeedsRunContext:
     @pytest.mark.asyncio
     async def test_accepted_phase_does_not_store_user_message_id(self):
         """Accepted phase must NOT store user message_id as the agent message_id."""
-        from personal_assistant.main import _build_relay_lifecycle_callback
+        from personal_assistant.gateway.runtime_delivery.lifecycle import (
+            build_relay_lifecycle_callback,
+        )
         from personal_assistant.gateway.inbound_models import RelayLifecycleUpdate
         from personal_assistant.channels.base import InboundMessage
 
@@ -85,7 +89,7 @@ class TestAcceptedPhaseSeedsRunContext:
         reporter = MagicMock()
         reporter.send_delivery_receipt.return_value = {"type": "delivery_receipt"}
 
-        callback = _build_relay_lifecycle_callback(
+        callback = build_relay_lifecycle_callback(
             reporter=reporter,
             im_connection_manager_factory=lambda: manager,
             run_context_store=run_context_store,
@@ -121,7 +125,9 @@ class TestAcceptedPhaseSeedsRunContext:
         accepted phase must NOT re-seed/wipe it — otherwise message_id is reset to ""
         and bubble A is orphaned (observer can't finalize it → 120s relay-idle → A
         stuck running/failed, the #140 black-screen symptom)."""
-        from personal_assistant.main import _build_relay_lifecycle_callback
+        from personal_assistant.gateway.runtime_delivery.lifecycle import (
+            build_relay_lifecycle_callback,
+        )
         from personal_assistant.gateway.inbound_models import RelayLifecycleUpdate
         from personal_assistant.channels.base import InboundMessage
 
@@ -141,7 +147,7 @@ class TestAcceptedPhaseSeedsRunContext:
         reporter = MagicMock()
         reporter.send_delivery_receipt.return_value = {"type": "delivery_receipt"}
 
-        callback = _build_relay_lifecycle_callback(
+        callback = build_relay_lifecycle_callback(
             reporter=reporter,
             im_connection_manager_factory=lambda: manager,
             run_context_store=run_context_store,
@@ -177,7 +183,9 @@ class TestAcceptedPhaseSeedsRunContextForNonRelay:
     async def test_accepted_phase_without_relay_task_id_seeds_run_context(self):
         """A message with no relay_task_id (e.g. from feishu) still populates
         run_context_store; no relay delivery receipt is sent."""
-        from personal_assistant.main import _build_relay_lifecycle_callback
+        from personal_assistant.gateway.runtime_delivery.lifecycle import (
+            build_relay_lifecycle_callback,
+        )
         from personal_assistant.gateway.inbound_models import RelayLifecycleUpdate
         from personal_assistant.channels.base import InboundMessage
 
@@ -190,7 +198,7 @@ class TestAcceptedPhaseSeedsRunContextForNonRelay:
         reporter = MagicMock()
         reporter.send_delivery_receipt.return_value = {"type": "delivery_receipt"}
 
-        callback = _build_relay_lifecycle_callback(
+        callback = build_relay_lifecycle_callback(
             reporter=reporter,
             im_connection_manager_factory=lambda: manager,
             run_context_store=run_context_store,
@@ -225,7 +233,9 @@ class TestAcceptedPhaseSeedsRunContextForNonRelay:
     @pytest.mark.asyncio
     async def test_completed_phase_without_relay_task_id_cleans_run_context(self):
         """A non-relay completed lifecycle must remove the run_context entry."""
-        from personal_assistant.main import _build_relay_lifecycle_callback
+        from personal_assistant.gateway.runtime_delivery.lifecycle import (
+            build_relay_lifecycle_callback,
+        )
         from personal_assistant.gateway.inbound_models import RelayLifecycleUpdate
         from personal_assistant.channels.base import InboundMessage
 
@@ -240,7 +250,7 @@ class TestAcceptedPhaseSeedsRunContextForNonRelay:
         reporter = MagicMock()
         reporter.send_delivery_receipt.return_value = {"type": "delivery_receipt"}
 
-        callback = _build_relay_lifecycle_callback(
+        callback = build_relay_lifecycle_callback(
             reporter=reporter,
             im_connection_manager_factory=lambda: None,
             run_context_store=run_context_store,
@@ -271,7 +281,9 @@ class TestObserverHandlesDirectAssistantMessage:
     @pytest.mark.asyncio
     async def test_direct_assistant_message_sends_turn_start_then_delta(self):
         """assistant_message with empty message_id triggers turn_start + delta as one awaitable."""
-        from personal_assistant.main import _build_kernel_event_observer
+        from personal_assistant.gateway.runtime_delivery.observer import (
+            build_kernel_event_observer,
+        )
 
         send_calls: list[tuple] = []
 
@@ -303,7 +315,7 @@ class TestObserverHandlesDirectAssistantMessage:
             }
         }
 
-        observer = _build_kernel_event_observer(
+        observer = build_kernel_event_observer(
             im_connection_manager_factory=lambda: manager,
             run_context_store=run_context_store,
         )
@@ -334,7 +346,9 @@ class TestObserverHandlesDirectAssistantMessage:
     async def test_run_heartbeat_forwards_liveness_delta_to_im(self):
         """bugfix-417-M3 R4: a kernel run_heartbeat event is forwarded to IM as a
         run_heartbeat streaming_delta (advancing last_evt) when a message_id exists."""
-        from personal_assistant.main import _build_kernel_event_observer
+        from personal_assistant.gateway.runtime_delivery.observer import (
+            build_kernel_event_observer,
+        )
 
         send_calls: list[tuple] = []
 
@@ -354,7 +368,7 @@ class TestObserverHandlesDirectAssistantMessage:
             }
         }
 
-        observer = _build_kernel_event_observer(
+        observer = build_kernel_event_observer(
             im_connection_manager_factory=lambda: manager,
             run_context_store=run_context_store,
         )
@@ -377,7 +391,9 @@ class TestObserverHandlesDirectAssistantMessage:
     @pytest.mark.asyncio
     async def test_run_heartbeat_skipped_without_message_id(self):
         """No message_id yet (turn_start not acked) → no orphaned heartbeat delta."""
-        from personal_assistant.main import _build_kernel_event_observer
+        from personal_assistant.gateway.runtime_delivery.observer import (
+            build_kernel_event_observer,
+        )
 
         send_calls: list[tuple] = []
         manager = MagicMock()
@@ -395,7 +411,7 @@ class TestObserverHandlesDirectAssistantMessage:
                 "agent_id": "a",
             }
         }
-        observer = _build_kernel_event_observer(
+        observer = build_kernel_event_observer(
             im_connection_manager_factory=lambda: manager,
             run_context_store=run_context_store,
         )
@@ -406,7 +422,9 @@ class TestObserverHandlesDirectAssistantMessage:
     @pytest.mark.asyncio
     async def test_direct_assistant_message_updates_run_context_store(self):
         """run_context_store must be updated with ack message_id when turn_start is sent inline."""
-        from personal_assistant.main import _build_kernel_event_observer
+        from personal_assistant.gateway.runtime_delivery.observer import (
+            build_kernel_event_observer,
+        )
 
         manager = MagicMock()
         manager.connected = True
@@ -432,7 +450,7 @@ class TestObserverHandlesDirectAssistantMessage:
             }
         }
 
-        observer = _build_kernel_event_observer(
+        observer = build_kernel_event_observer(
             im_connection_manager_factory=lambda: manager,
             run_context_store=run_context_store,
         )
@@ -455,7 +473,9 @@ class TestObserverSendsTurnStart:
     @pytest.mark.asyncio
     async def test_observer_uses_agent_message_id_for_delta(self):
         """message_delta uses the agent message_id from run_context_store."""
-        from personal_assistant.main import _build_kernel_event_observer
+        from personal_assistant.gateway.runtime_delivery.observer import (
+            build_kernel_event_observer,
+        )
 
         send_calls: list[tuple] = []
 
@@ -485,7 +505,7 @@ class TestObserverSendsTurnStart:
             }
         }
 
-        observer = _build_kernel_event_observer(
+        observer = build_kernel_event_observer(
             im_connection_manager_factory=lambda: manager,
             run_context_store=run_context_store,
         )
@@ -519,7 +539,9 @@ class TestObserverSendsTurnStartAndUpdatesStore:
     @pytest.mark.asyncio
     async def test_observer_sends_turn_start_on_run_status_running(self):
         """run_status=running must emit kind=turn_start frame to gateway."""
-        from personal_assistant.main import _build_kernel_event_observer
+        from personal_assistant.gateway.runtime_delivery.observer import (
+            build_kernel_event_observer,
+        )
 
         send_calls: list[tuple] = []
 
@@ -551,7 +573,7 @@ class TestObserverSendsTurnStartAndUpdatesStore:
             }
         }
 
-        observer = _build_kernel_event_observer(
+        observer = build_kernel_event_observer(
             im_connection_manager_factory=lambda: manager,
             run_context_store=run_context_store,
         )
@@ -575,7 +597,9 @@ class TestObserverSendsTurnStartAndUpdatesStore:
     @pytest.mark.asyncio
     async def test_observer_updates_run_context_store_with_ack_message_id(self):
         """After turn_start ack, run_context_store must have the agent message_id from ack."""
-        from personal_assistant.main import _build_kernel_event_observer
+        from personal_assistant.gateway.runtime_delivery.observer import (
+            build_kernel_event_observer,
+        )
 
         manager = MagicMock()
         manager.connected = True
@@ -601,7 +625,7 @@ class TestObserverSendsTurnStartAndUpdatesStore:
             }
         }
 
-        observer = _build_kernel_event_observer(
+        observer = build_kernel_event_observer(
             im_connection_manager_factory=lambda: manager,
             run_context_store=run_context_store,
         )
@@ -623,7 +647,9 @@ class TestObserverSendsTurnStartAndUpdatesStore:
     @pytest.mark.asyncio
     async def test_delta_uses_message_id_from_turn_start_ack(self):
         """After turn_start ack updates run_context_store, message_delta must use the new message_id."""
-        from personal_assistant.main import _build_kernel_event_observer
+        from personal_assistant.gateway.runtime_delivery.observer import (
+            build_kernel_event_observer,
+        )
 
         send_calls: list[tuple] = []
 
@@ -654,7 +680,7 @@ class TestObserverSendsTurnStartAndUpdatesStore:
             }
         }
 
-        observer = _build_kernel_event_observer(
+        observer = build_kernel_event_observer(
             im_connection_manager_factory=lambda: manager,
             run_context_store=run_context_store,
         )
@@ -718,10 +744,12 @@ class TestTerminalToolCallReconcile:
 
     @pytest.mark.asyncio
     async def test_reconcile_closes_inflight_toolcall_with_reason(self):
-        from personal_assistant.main import _build_kernel_event_observer
+        from personal_assistant.gateway.runtime_delivery.observer import (
+            build_kernel_event_observer,
+        )
 
         manager, send_calls = self._manager()
-        observer = _build_kernel_event_observer(
+        observer = build_kernel_event_observer(
             im_connection_manager_factory=lambda: manager,
             run_context_store=self._ctx_store(),
         )
@@ -760,10 +788,12 @@ class TestTerminalToolCallReconcile:
 
     @pytest.mark.asyncio
     async def test_reconcile_does_not_rewrite_completed_toolcalls(self):
-        from personal_assistant.main import _build_kernel_event_observer
+        from personal_assistant.gateway.runtime_delivery.observer import (
+            build_kernel_event_observer,
+        )
 
         manager, send_calls = self._manager()
-        observer = _build_kernel_event_observer(
+        observer = build_kernel_event_observer(
             im_connection_manager_factory=lambda: manager,
             run_context_store=self._ctx_store(),
         )
@@ -806,10 +836,12 @@ class TestTerminalToolCallReconcile:
 
     @pytest.mark.asyncio
     async def test_reconcile_reason_interrupted_for_non_timeout(self):
-        from personal_assistant.main import _build_kernel_event_observer
+        from personal_assistant.gateway.runtime_delivery.observer import (
+            build_kernel_event_observer,
+        )
 
         manager, send_calls = self._manager()
-        observer = _build_kernel_event_observer(
+        observer = build_kernel_event_observer(
             im_connection_manager_factory=lambda: manager,
             run_context_store=self._ctx_store(),
         )
@@ -839,10 +871,12 @@ class TestTerminalToolCallReconcile:
         """bugfix-417-M5 (#114): a user /stop reconcile carries the CC-identical
         user-attribution content, which becomes the in-flight tool card's output
         (collapsed summary). badge reason stays interrupted (→ 已中断)."""
-        from personal_assistant.main import _build_kernel_event_observer
+        from personal_assistant.gateway.runtime_delivery.observer import (
+            build_kernel_event_observer,
+        )
 
         manager, send_calls = self._manager()
-        observer = _build_kernel_event_observer(
+        observer = build_kernel_event_observer(
             im_connection_manager_factory=lambda: manager,
             run_context_store=self._ctx_store(),
         )
@@ -874,10 +908,12 @@ class TestTerminalToolCallReconcile:
     async def test_reconcile_without_content_omits_tool_card_output(self):
         """A system reap (no content) must NOT set output — the card shows no
         user-attributed body, only the 已中断 badge."""
-        from personal_assistant.main import _build_kernel_event_observer
+        from personal_assistant.gateway.runtime_delivery.observer import (
+            build_kernel_event_observer,
+        )
 
         manager, send_calls = self._manager()
-        observer = _build_kernel_event_observer(
+        observer = build_kernel_event_observer(
             im_connection_manager_factory=lambda: manager,
             run_context_store=self._ctx_store(),
         )
@@ -906,12 +942,14 @@ class TestTerminalToolCallReconcile:
         """bugfix-410-fix-r1 (Eff-3): a run that completes normally (tool_end then
         turn_end, no reconcile) must not leak an empty per-run dict entry. A long-lived
         Gateway processes many runs; one residual entry per run is an unbounded leak."""
-        from personal_assistant.main import _build_kernel_event_observer
+        from personal_assistant.gateway.runtime_delivery.observer import (
+            build_kernel_event_observer,
+        )
 
         manager, _ = self._manager()
         # Injected so we can assert the map is reaped — no production caller passes it.
         running_tool_calls: dict[str, dict[str, dict[str, object]]] = {}
-        observer = _build_kernel_event_observer(
+        observer = build_kernel_event_observer(
             im_connection_manager_factory=lambda: manager,
             run_context_store=self._ctx_store(),
             running_tool_calls=running_tool_calls,
@@ -939,11 +977,13 @@ class TestTerminalToolCallReconcile:
     async def test_turn_end_backstops_run_entry_without_tool_end(self):
         """bugfix-410-fix-r1: even if a tool_call's tool_end never arrives on the normal
         path, turn_end must still reap the per-run entry so the map cannot grow."""
-        from personal_assistant.main import _build_kernel_event_observer
+        from personal_assistant.gateway.runtime_delivery.observer import (
+            build_kernel_event_observer,
+        )
 
         manager, _ = self._manager()
         running_tool_calls: dict[str, dict[str, dict[str, object]]] = {}
-        observer = _build_kernel_event_observer(
+        observer = build_kernel_event_observer(
             im_connection_manager_factory=lambda: manager,
             run_context_store=self._ctx_store(),
             running_tool_calls=running_tool_calls,
@@ -967,11 +1007,13 @@ class TestTerminalToolCallReconcile:
         The Gateway marks the reconcile finalize_bubble for a user /stop; the observer
         then closes the in-flight tool badge (已中断 + CC content) AND finalizes the
         bubble with message_completed/delivery_status=completed (clean user stop)."""
-        from personal_assistant.main import _build_kernel_event_observer
+        from personal_assistant.gateway.runtime_delivery.observer import (
+            build_kernel_event_observer,
+        )
 
         manager, send_calls = self._manager()
         running_tool_calls: dict[str, dict[str, dict[str, object]]] = {}
-        observer = _build_kernel_event_observer(
+        observer = build_kernel_event_observer(
             im_connection_manager_factory=lambda: manager,
             run_context_store=self._ctx_store(),
             running_tool_calls=running_tool_calls,
@@ -1013,11 +1055,13 @@ class TestTerminalToolCallReconcile:
         """A watchdog/crash reconcile (no finalize_bubble) closes the tool badge but
         must NOT finalize the bubble as completed — the bubble stays failed via the
         phase=failed lifecycle (Req B no-regression)."""
-        from personal_assistant.main import _build_kernel_event_observer
+        from personal_assistant.gateway.runtime_delivery.observer import (
+            build_kernel_event_observer,
+        )
 
         manager, send_calls = self._manager()
         running_tool_calls: dict[str, dict[str, dict[str, object]]] = {}
-        observer = _build_kernel_event_observer(
+        observer = build_kernel_event_observer(
             im_connection_manager_factory=lambda: manager,
             run_context_store=self._ctx_store(),
             running_tool_calls=running_tool_calls,
@@ -1042,7 +1086,9 @@ class TestTurnEndCachePassthrough:
 
     @pytest.mark.asyncio
     async def test_turn_end_token_usage_carries_cache_fields(self):
-        from personal_assistant.main import _build_kernel_event_observer
+        from personal_assistant.gateway.runtime_delivery.observer import (
+            build_kernel_event_observer,
+        )
 
         send_calls: list[tuple] = []
         manager = MagicMock()
@@ -1059,7 +1105,7 @@ class TestTurnEndCachePassthrough:
                 "agent_id": "alpha",
             }
         }
-        observer = _build_kernel_event_observer(
+        observer = build_kernel_event_observer(
             im_connection_manager_factory=lambda: manager,
             run_context_store=ctx_store,
         )
@@ -1095,7 +1141,9 @@ class TestTurnEndCachePassthrough:
     @pytest.mark.asyncio
     async def test_turn_end_without_cache_omits_or_zeroes(self):
         """旧内核/无缓存信息：usage 不带 cache 字段时，payload cache 字段为 0(不崩)。"""
-        from personal_assistant.main import _build_kernel_event_observer
+        from personal_assistant.gateway.runtime_delivery.observer import (
+            build_kernel_event_observer,
+        )
 
         send_calls: list[tuple] = []
         manager = MagicMock()
@@ -1112,7 +1160,7 @@ class TestTurnEndCachePassthrough:
                 "agent_id": "alpha",
             }
         }
-        observer = _build_kernel_event_observer(
+        observer = build_kernel_event_observer(
             im_connection_manager_factory=lambda: manager,
             run_context_store=ctx_store,
         )
@@ -1158,7 +1206,9 @@ class TestObserverForwardsThinkingSegment:
 
     @pytest.mark.asyncio
     async def test_empty_content_with_reasoning_forwards_thinking_segment(self):
-        from personal_assistant.main import _build_kernel_event_observer
+        from personal_assistant.gateway.runtime_delivery.observer import (
+            build_kernel_event_observer,
+        )
 
         send_calls: list[tuple] = []
         manager = self._manager_with_sink(send_calls)
@@ -1169,7 +1219,7 @@ class TestObserverForwardsThinkingSegment:
                 "agent_id": "Alpha",
             }
         }
-        observer = _build_kernel_event_observer(
+        observer = build_kernel_event_observer(
             im_connection_manager_factory=lambda: manager,
             run_context_store=run_context_store,
         )
@@ -1197,7 +1247,9 @@ class TestObserverForwardsThinkingSegment:
 
     @pytest.mark.asyncio
     async def test_empty_content_no_reasoning_is_dropped(self):
-        from personal_assistant.main import _build_kernel_event_observer
+        from personal_assistant.gateway.runtime_delivery.observer import (
+            build_kernel_event_observer,
+        )
 
         send_calls: list[tuple] = []
         manager = self._manager_with_sink(send_calls)
@@ -1208,7 +1260,7 @@ class TestObserverForwardsThinkingSegment:
                 "agent_id": "Alpha",
             }
         }
-        observer = _build_kernel_event_observer(
+        observer = build_kernel_event_observer(
             im_connection_manager_factory=lambda: manager,
             run_context_store=run_context_store,
         )
@@ -1228,7 +1280,9 @@ class TestObserverForwardsThinkingSegment:
 
     @pytest.mark.asyncio
     async def test_content_with_reasoning_forwards_both(self):
-        from personal_assistant.main import _build_kernel_event_observer
+        from personal_assistant.gateway.runtime_delivery.observer import (
+            build_kernel_event_observer,
+        )
 
         send_calls: list[tuple] = []
         manager = self._manager_with_sink(send_calls)
@@ -1239,7 +1293,7 @@ class TestObserverForwardsThinkingSegment:
                 "agent_id": "Alpha",
             }
         }
-        observer = _build_kernel_event_observer(
+        observer = build_kernel_event_observer(
             im_connection_manager_factory=lambda: manager,
             run_context_store=run_context_store,
         )
@@ -1266,7 +1320,9 @@ class TestObserverForwardsThinkingSegment:
 
     @pytest.mark.asyncio
     async def test_same_group_reasoning_is_forwarded_once(self):
-        from personal_assistant.main import _build_kernel_event_observer
+        from personal_assistant.gateway.runtime_delivery.observer import (
+            build_kernel_event_observer,
+        )
 
         send_calls: list[tuple] = []
         manager = self._manager_with_sink(send_calls)
@@ -1277,7 +1333,7 @@ class TestObserverForwardsThinkingSegment:
                 "agent_id": "Alpha",
             }
         }
-        observer = _build_kernel_event_observer(
+        observer = build_kernel_event_observer(
             im_connection_manager_factory=lambda: manager,
             run_context_store=run_context_store,
         )
@@ -1305,7 +1361,9 @@ class TestObserverForwardsThinkingSegment:
 
     @pytest.mark.asyncio
     async def test_same_text_different_group_reasoning_is_not_collapsed(self):
-        from personal_assistant.main import _build_kernel_event_observer
+        from personal_assistant.gateway.runtime_delivery.observer import (
+            build_kernel_event_observer,
+        )
 
         send_calls: list[tuple] = []
         manager = self._manager_with_sink(send_calls)
@@ -1316,7 +1374,7 @@ class TestObserverForwardsThinkingSegment:
                 "agent_id": "Alpha",
             }
         }
-        observer = _build_kernel_event_observer(
+        observer = build_kernel_event_observer(
             im_connection_manager_factory=lambda: manager,
             run_context_store=run_context_store,
         )
@@ -1347,7 +1405,9 @@ class TestObserverForwardsThinkingSegment:
 
     @pytest.mark.asyncio
     async def test_unsent_reasoning_does_not_poison_group_dedupe(self):
-        from personal_assistant.main import _build_kernel_event_observer
+        from personal_assistant.gateway.runtime_delivery.observer import (
+            build_kernel_event_observer,
+        )
 
         send_calls: list[tuple] = []
         manager = self._manager_with_sink(send_calls)
@@ -1361,7 +1421,7 @@ class TestObserverForwardsThinkingSegment:
                 "agent_id": "Alpha",
             }
         }
-        observer = _build_kernel_event_observer(
+        observer = build_kernel_event_observer(
             im_connection_manager_factory=lambda: manager,
             run_context_store=run_context_store,
         )
@@ -1403,7 +1463,9 @@ class TestObserverForwardsThinkingSegment:
 
     @pytest.mark.asyncio
     async def test_disconnected_turn_end_clears_reasoning_dedupe_state(self):
-        from personal_assistant.main import _build_kernel_event_observer
+        from personal_assistant.gateway.runtime_delivery.observer import (
+            build_kernel_event_observer,
+        )
 
         send_calls: list[tuple] = []
         manager = self._manager_with_sink(send_calls)
@@ -1414,7 +1476,7 @@ class TestObserverForwardsThinkingSegment:
                 "agent_id": "Alpha",
             }
         }
-        observer = _build_kernel_event_observer(
+        observer = build_kernel_event_observer(
             im_connection_manager_factory=lambda: manager,
             run_context_store=run_context_store,
         )

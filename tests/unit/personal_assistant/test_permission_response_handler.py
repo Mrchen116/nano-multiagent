@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from personal_assistant.main import _build_permission_response_handler
+from personal_assistant.gateway.composition import _build_permission_response_handler
 
 
 class _FakeKernel:

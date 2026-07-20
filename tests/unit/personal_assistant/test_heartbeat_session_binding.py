@@ -335,7 +335,7 @@ def test_parse_heartbeat_returns_cadence_4tuple() -> None:
     """_parse_heartbeat_from_im_payload returns (every, start, end, tz) 4-tuple (no enabled)."""
     import importlib
 
-    main_mod = importlib.import_module("personal_assistant.main")
+    main_mod = importlib.import_module("personal_assistant.gateway.agent_config_sync")
     result = main_mod._parse_heartbeat_from_im_payload(
         {"enabled": True, "every": "10m"}
     )
@@ -353,7 +353,7 @@ def test_parse_heartbeat_empty_input_returns_nones() -> None:
     """Empty raw heartbeat dict → (None, None, None, None)."""
     import importlib
 
-    main_mod = importlib.import_module("personal_assistant.main")
+    main_mod = importlib.import_module("personal_assistant.gateway.agent_config_sync")
     result = main_mod._parse_heartbeat_from_im_payload({})
     assert len(result) == 4
     assert all(v is None for v in result)
@@ -363,7 +363,7 @@ def test_parse_heartbeat_invalid_input_returns_nones() -> None:
     """Non-dict raw heartbeat → (None, None, None, None) (not 5-tuple with False first)."""
     import importlib
 
-    main_mod = importlib.import_module("personal_assistant.main")
+    main_mod = importlib.import_module("personal_assistant.gateway.agent_config_sync")
     result = main_mod._parse_heartbeat_from_im_payload(None)
     assert len(result) == 4
     assert all(v is None for v in result)

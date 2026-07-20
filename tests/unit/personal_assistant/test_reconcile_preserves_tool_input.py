@@ -14,7 +14,9 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from personal_assistant.main import _build_kernel_event_observer
+from personal_assistant.gateway.runtime_delivery.observer import (
+    build_kernel_event_observer,
+)
 
 
 class _FakeManager:
@@ -70,7 +72,7 @@ def test_reconcile_preserves_command_and_description() -> None:
         }
     }
     running_tool_calls: dict[str, dict[str, Any]] = {}
-    observer = _build_kernel_event_observer(
+    observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: manager,
         run_context_store=run_ctx,
         running_tool_calls=running_tool_calls,
@@ -121,7 +123,7 @@ def test_reconcile_preserves_running_presentation_for_history_replay() -> None:
         }
     }
     running_tool_calls: dict[str, dict[str, Any]] = {}
-    observer = _build_kernel_event_observer(
+    observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: manager,
         run_context_store=run_ctx,
         running_tool_calls=running_tool_calls,
@@ -213,7 +215,7 @@ def test_reconcile_stop_content_overrides_output_but_keeps_presentation_detail()
         }
     }
     running_tool_calls: dict[str, dict[str, Any]] = {}
-    observer = _build_kernel_event_observer(
+    observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: manager,
         run_context_store=run_ctx,
         running_tool_calls=running_tool_calls,
@@ -263,7 +265,7 @@ def test_reconcile_still_closes_in_flight_call_as_failed() -> None:
         }
     }
     running_tool_calls: dict[str, dict[str, Any]] = {}
-    observer = _build_kernel_event_observer(
+    observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: manager,
         run_context_store=run_ctx,
         running_tool_calls=running_tool_calls,
@@ -296,7 +298,7 @@ def test_abnormal_reconcile_finalizes_current_bubble_as_failed() -> None:
     """Shutdown/crash terminal cannot leave an empty provisional bubble running."""
 
     manager = _FakeManager()
-    observer = _build_kernel_event_observer(
+    observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: manager,
         run_context_store={
             "run-1": {

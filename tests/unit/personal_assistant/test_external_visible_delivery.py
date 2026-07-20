@@ -12,7 +12,9 @@ from personal_assistant.gateway.runtime_delivery.background import (
     build_session_event_callback,
 )
 from personal_assistant.gateway.session_keys import SessionBindingStore
-from personal_assistant.main import _build_kernel_event_observer
+from personal_assistant.gateway.runtime_delivery.observer import (
+    build_kernel_event_observer,
+)
 
 
 class _FakeIMManager:
@@ -133,7 +135,7 @@ def test_feishu_intermediate_reply_goes_to_external_without_im_manager() -> None
             "reply_thread_id": "om_trigger",
         }
     }
-    observer = _build_kernel_event_observer(
+    observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: None,
         run_context_store=run_context_store,
         external_reply_sender=lambda text, metadata: external.append(
