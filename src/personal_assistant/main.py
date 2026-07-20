@@ -48,12 +48,12 @@ from personal_assistant.gateway.managed_channel_control import (
     ManagedChannelControl,
 )
 from personal_assistant.gateway import (
+    connection_ready,
     im_bootstrap,
     kernel_client,
     process_lifecycle,
     runtime,
 )
-from personal_assistant.gateway.connection_ready import ConnectionReadyCoordinator
 from personal_assistant.scheduler import heartbeat_runner
 from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
 from personal_assistant.gateway.agent_config_sync import (
@@ -695,7 +695,7 @@ def build_runtime(config: LocalConfig) -> runtime.GatewayRuntime:
             permission_decision_callback=permission_response_handler,
         )
         assert im_bootstrap_client is not None
-        connection_ready_coordinator = ConnectionReadyCoordinator(
+        connection_ready_coordinator = connection_ready.ConnectionReadyCoordinator(
             node_id=config.node.node_id,
             bootstrap_client=im_bootstrap_client,
             reporter=reporter,

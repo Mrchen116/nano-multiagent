@@ -262,8 +262,6 @@ class PollingHeartbeatRunner:
                 )
 
 
-
-
 def _consume_task_exception(task: asyncio.Task[object]) -> None:
     try:
         task.result()
