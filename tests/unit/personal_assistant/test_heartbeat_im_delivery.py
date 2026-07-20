@@ -419,7 +419,9 @@ def test_stream_run_to_completion_seeds_typed_store_seen_by_observer(
 ) -> None:
     """Heartbeat/cron stream helper must seed the same typed store observer reads."""
 
-    from personal_assistant.main import _stream_run_to_completion
+    from personal_assistant.gateway.runtime_delivery.stream import (
+        stream_run_to_completion as _stream_run_to_completion,
+    )
 
     connection, handler = _build_im_db_and_handler(tmp_path)
     users = UserRepository(connection)
