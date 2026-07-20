@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import logging
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
-_log = logging.getLogger("personal_assistant.gateway.composition")
 _PA_GLOBAL_SKILL_ROOT = Path("~/.nanoassistant/skills")
 
 import websockets
@@ -175,7 +173,6 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
     # via its own factory (personal_assistant.product).  PA imports only agent.sdk +
     # its own package — no product_profile / host_capabilities.
     from agent.sdk import LLMConfig
-    from personal_assistant.builtin_skills.bootstrap import install_builtin_skills
     from personal_assistant.product import PA_SKILL_SEARCH_ROOTS, build_pa_kernel
 
     # PA does not supply can_use_tool: permission ask always parks on broker future
@@ -190,17 +187,6 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
     # build_kernel owns registry init internally from this LLMConfig.
     llm = LLMConfig.from_payload(config.llm)
 
-    try:
-        installed_builtin_skills = install_builtin_skills()
-        if installed_builtin_skills:
-            installed_names = ", ".join(sorted(installed_builtin_skills))
-            _log.info(
-                "installed built-in personal assistant skills: %s", installed_names
-            )
-    except Exception:  # noqa: BLE001
-        _log.warning(
-            "failed to install built-in personal assistant skills", exc_info=True
-        )
     config_owner = RuntimeConfigOwner(config)
 
     # CronServiceRegistry holds the per-agent CronExecutionService map + lifecycle
