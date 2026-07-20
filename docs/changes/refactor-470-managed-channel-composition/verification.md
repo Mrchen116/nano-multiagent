@@ -176,13 +176,13 @@ Focus issues:
 3. Follow-up closure: Feishu provisioning must belong to the startup config owner; Cron initial registration/recovery must run only after the Gateway event loop starts.
 4. Follow-up closure: transport-owner contract must match each real public consumer.
 
-requires_full_verification: false
+requires_full_verification: true
 
 | 维度 | 结果 |
 |---|---|
 | Completeness | 16/16 tasks complete；M1 five exit criteria closed |
-| Correctness | 定向回归 76 passed；全量 non-e2e 3625 passed, 1 skipped, 20 deselected |
-| Coherence | 四项 focus issue closed；另发现 1 项 composition 持久化副作用偏离 |
+| Correctness | 定向回归 76 passed、全量 non-e2e 3625 passed，但受本 delta 影响的真栈 Cron 用户旅程失败 |
+| Coherence | 三项 ownership focus issue closed；Cron delivery correctness still open，另有 1 项 composition 持久化副作用偏离 |
 
 本轮以 `b52362df0` 为唯一验证对象。Round 2 及其 Post-rebase correction 分别基于错误 delta 和未完成中间态，按 orchestrator 指令仅保留为历史记录，不作为本轮或最终 verdict 的判据。
 
@@ -190,7 +190,7 @@ requires_full_verification: false
 
 - **Round 1 CRITICAL: M1 exit criteria — closed.** `M1-managed-channel-control/tasks.md:11-15` 全部为 `[x]`。`gateway/managed_channel_control.py:160-180, 198-301` 保留 cached startup、typed bindings、durable manifest/status owner delegation；`ws/im_connection.py:872-897` 直接执行 reconcile 与空 bootstrap handshake。`test_managed_channel_control.py`、`test_gateway_status_frame_ownership.py`、`test_channel_bootstrap.py` 与 `test_agent_config_sync_ownership.py` 纳入定向回归并通过。
 - **Round 1 WARNING: named composition policy ownership — closed.** credential rotation、session fork、permission response、attachment fetch、Cron registration/tick、retry/status/reconcile 已移至真实 owner；composition 未定义上述 policy、`.persist()` 或 sensitive config writer。对应领域 owner 是 `config/local_store.py:367-546`、`auth/im_auth_client.py:143-220`、`gateway/session_binder.py:647-726`、`ws/im_connection.py:160-181`、`gateway/image_attachments.py:105-117` 与 `scheduler/cron_gateway_runtime.py:30-156`；`test_personal_assistant_main_contract.py:59-88` 继续防止这些 policy 回流。另见下方 WARNING：composition 仍含一个未在本轮 focus 中列出的持久化副作用。
-- **Startup ownership — closed.** 前台和后台 lifecycle 均通过 `process_lifecycle.py:115-124, 190-194` 调用 `load_gateway_runtime_config()`；该 public startup-config owner 在 `config/local_store.py:367-409` 完成 Feishu identity 和 declared-skill provisioning，之后才交由 `compose_gateway()` 装配。Cron 初始注册/recovery 从 composition 移至 `GatewayCronRuntime.start()`（`scheduler/cron_gateway_runtime.py:105-108`），由 event-loop 已启动的 `GatewayRuntime._run_until_shutdown()` 在 channel producer 之前调用（`gateway/runtime.py:230-241, 277-280`）。`test_gateway_build_runtime.py:91-151` 与 `test_gateway_runtime_lifecycle.py:66-97` 断言无 compose-time 持久化/registration 和真实启动次序。
+- **Startup ownership — structure closed; user-facing Cron correctness still open.** 前台和后台 lifecycle 均通过 `process_lifecycle.py:115-124, 190-194` 调用 `load_gateway_runtime_config()`；该 public startup-config owner 在 `config/local_store.py:367-409` 完成 Feishu identity 和 declared-skill provisioning，之后才交由 `compose_gateway()` 装配。Cron 初始注册/recovery 从 composition 移至 `GatewayCronRuntime.start()`（`scheduler/cron_gateway_runtime.py:105-108`），由 event-loop 已启动的 `GatewayRuntime._run_until_shutdown()` 在 channel producer 之前调用（`gateway/runtime.py:230-241, 277-280`）。`test_gateway_build_runtime.py:91-151` 与 `test_gateway_runtime_lifecycle.py:66-97` 断言无 compose-time 持久化/registration 和真实启动次序；但 rebase 后纳入的同一验证对象 acceptance evidence（`acceptance-round-3.md:29-35, 61-66`）显示真 Gateway/IM 的 Cron 主动消息等待超时。因此本项的 ownership structural closure 不足以关闭受直接影响的用户旅程，见下方 CRITICAL。
 - **Transport owner contract — closed.** `tests/contract/test_gateway_inbound_ownership_contract.py:217-248` 逐 consumer 断言：config sync/shadow sync 使用 public URL+headers；composition 仅使用 URL normalization；`gateway/image_attachments.py` 是 headers 的真实 attachment consumer。该 contract 通过，未以无用 import 反向污染 composition。
 
 本轮执行：
@@ -204,7 +204,7 @@ requires_full_verification: false
 
 ### CRITICAL（提 PR 前必须修）
 
-- 无。
+- **Cron 定时主动消息在受本启动时序 delta 影响的真栈旅程中未送达用户。** `acceptance-round-3.md:29-35, 61-66` 在 `b52362df0` 上记录：`NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1 ... test_cron_push_critical_path.py -o timeout=360 --tb=long` 等待用户可见 agent 消息超时。虽然 `GatewayCronRuntime.start()` 已从 composition 移至 runtime startup（`scheduler/cron_gateway_runtime.py:105-108`; `gateway/runtime.py:230-241`），这项直接用户可观察的 requirement 仍未通过。应诊断 live startup 后 `CronExecutionService` 的注册、gateway loop 注入、scheduled tick 到 terminal delivery 的实际链路，修复后运行该 Cron critical-path e2e，并重新 full verification；不得以 unit/contract 绿替代用户消息往返。
 
 ### WARNING（应该修）
 
@@ -214,4 +214,4 @@ requires_full_verification: false
 
 - 无。
 
-No critical issues. 1 warning(s) to consider. Ready for PR (with noted improvements).
+1 critical issue(s) found. Fix before PR.
