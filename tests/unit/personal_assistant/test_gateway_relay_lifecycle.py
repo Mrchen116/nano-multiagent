@@ -19,6 +19,10 @@ from personal_assistant.config.local_store import (
 )
 from personal_assistant.gateway.channel_registry import ChannelRegistry
 from personal_assistant.gateway.inbound_models import RelayLifecycleUpdate
+from personal_assistant.gateway.im_bootstrap import (
+    GatewayStartupError,
+    IMBootstrapClient,
+)
 from personal_assistant.channels.base import InboundMessage
 from personal_assistant.gateway.runtime_protocol import (
     RuntimeProtocolFacts,
@@ -37,14 +41,11 @@ from personal_assistant.gateway.runtime_delivery.lifecycle import (
 from personal_assistant.gateway.runtime_delivery.observer import roll_bubble
 from personal_assistant.gateway.reply_visibility import ReplyVisibilityPolicy
 from personal_assistant.gateway.runtime import GatewayRuntime
+from personal_assistant.gateway.process_lifecycle import RuntimeFactories, run_gateway
 from personal_assistant.main import (
-    GatewayStartupError,
-    RuntimeFactories,
-    _IMBootstrapClient,
     _build_channel_registry,
     _build_kernel_event_observer,
     build_runtime,
-    run_gateway,
 )
 from personal_assistant.reporter.upstream_reporter import UpstreamReporter
 
@@ -1600,7 +1601,7 @@ def test_im_bootstrap_client_opens_browser_for_unbound_node() -> None:
         base_url="http://im.local",
         trust_env=False,
     )
-    bootstrap = _IMBootstrapClient(
+    bootstrap = IMBootstrapClient(
         base_url="http://im.local",
         token=None,
         client=client,
@@ -1633,7 +1634,7 @@ def test_im_bootstrap_client_skips_browser_for_bound_node() -> None:
         base_url="http://im.local",
         trust_env=False,
     )
-    bootstrap = _IMBootstrapClient(
+    bootstrap = IMBootstrapClient(
         base_url="http://im.local",
         token=None,
         client=client,
@@ -1662,7 +1663,7 @@ def test_im_bootstrap_client_only_uses_configured_im_base_url() -> None:
             base_url=base_url, transport=httpx.MockTransport(_handler), trust_env=False
         )
 
-    bootstrap = _IMBootstrapClient(
+    bootstrap = IMBootstrapClient(
         base_url="http://127.0.0.1:8021",
         token=None,
         client_factory=_client_factory,

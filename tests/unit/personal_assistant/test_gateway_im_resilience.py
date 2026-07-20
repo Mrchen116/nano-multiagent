@@ -425,7 +425,7 @@ def test_on_connected_failure_does_not_tear_down_connection(tmp_path: Path) -> N
     failure (modeled as the on_connected callback raising GatewayStartupError) must be
     swallowed — the connection stays up and the error is recorded — so a transient
     binding failure during an IM restart never kills the connection."""
-    from personal_assistant.main import GatewayStartupError
+    from personal_assistant.gateway.im_bootstrap import GatewayStartupError
 
     relay_adapter = WebRelayAdapter()
     relay_adapter.start(lambda _message: None)

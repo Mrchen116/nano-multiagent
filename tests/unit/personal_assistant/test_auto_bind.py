@@ -1,5 +1,5 @@
 """refactor-381: cover the NANO_MULTIAGENT_AUTO_BIND env-gated path through
-_IMBootstrapClient.ensure_node_binding and the _extract_bind_token helper.
+IMBootstrapClient.ensure_node_binding and the extract_bind_token helper.
 
 bugfix-380 retro identified the IM node-binding step as a worktree-e2e blocker
 (operator must click a URL — automation cannot). The fix routes the same flow
@@ -13,33 +13,36 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from personal_assistant.main import _IMBootstrapClient, _extract_bind_token
+from personal_assistant.gateway.im_bootstrap import (
+    IMBootstrapClient,
+    extract_bind_token,
+)
 
 
 class TestExtractBindToken:
     def test_extracts_token_from_token_query_param(self) -> None:
-        assert _extract_bind_token("http://x/bind/confirm?token=abc123") == "abc123"
+        assert extract_bind_token("http://x/bind/confirm?token=abc123") == "abc123"
 
     def test_extracts_bind_token_alias(self) -> None:
         # Older fixtures / clients may emit `bind_token=` instead of `token=`.
-        assert _extract_bind_token("http://x/bind/confirm?bind_token=xyz") == "xyz"
+        assert extract_bind_token("http://x/bind/confirm?bind_token=xyz") == "xyz"
 
     def test_missing_token_returns_none(self) -> None:
-        assert _extract_bind_token("http://x/bind/confirm") is None
+        assert extract_bind_token("http://x/bind/confirm") is None
 
     def test_prefers_token_over_bind_token(self) -> None:
         # When both appear, `token` wins — matches IM's canonical query param.
         url = "http://x/bind/confirm?token=primary&bind_token=fallback"
-        assert _extract_bind_token(url) == "primary"
+        assert extract_bind_token(url) == "primary"
 
     def test_handles_extra_params(self) -> None:
         url = "http://x/?other=1&token=tk&extra=2"
-        assert _extract_bind_token(url) == "tk"
+        assert extract_bind_token(url) == "tk"
 
 
 class TestAutoBindFlow:
-    def _make_client(self) -> tuple[_IMBootstrapClient, MagicMock, list, list]:
-        """Build an _IMBootstrapClient wired to MagicMock httpx + capture lists."""
+    def _make_client(self) -> tuple[IMBootstrapClient, MagicMock, list, list]:
+        """Build an IMBootstrapClient wired to MagicMock httpx + capture lists."""
         client = MagicMock()
         start_resp = MagicMock()
         start_resp.json.return_value = {"bind_url": "http://x/bind/confirm?token=tok42"}
@@ -59,7 +62,7 @@ class TestAutoBindFlow:
 
         opened_urls: list = []
         feedback: list = []
-        bc = _IMBootstrapClient(
+        bc = IMBootstrapClient(
             base_url="http://x",
             token="dummy",
             client=client,
@@ -106,7 +109,7 @@ class TestAutoBindFlow:
     def test_auto_bind_missing_token_raises_startup_error(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from personal_assistant.main import GatewayStartupError
+        from personal_assistant.gateway.im_bootstrap import GatewayStartupError
 
         monkeypatch.setenv("NANO_MULTIAGENT_AUTO_BIND", "1")
         client = MagicMock()
@@ -116,7 +119,7 @@ class TestAutoBindFlow:
         start_resp.raise_for_status.return_value = None
         client.post.return_value = start_resp
 
-        bc = _IMBootstrapClient(
+        bc = IMBootstrapClient(
             base_url="http://x",
             token="dummy",
             client=client,

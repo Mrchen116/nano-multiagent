@@ -15,7 +15,7 @@ from personal_assistant.config.local_store import (
     LocalConfig,
     NodeConfig,
 )
-from personal_assistant.main import (
+from personal_assistant.gateway.process_lifecycle import (
     BackgroundLaunchResult,
     GatewayStartupError,
     launch_gateway_in_background,
@@ -51,7 +51,8 @@ def test_launch_gateway_in_background_spawns_foreground_child_and_waits_for_star
     process = _FakeProcess(wait_result=0, pid=2468)
     seen: dict[str, object] = {}
     monkeypatch.setattr(
-        "personal_assistant.main._process_start_identity", lambda _pid: "birth-2468"
+        "personal_assistant.gateway.process_lifecycle._process_start_identity",
+        lambda _pid: "birth-2468",
     )
 
     def _spawn_process(argv: list[str], log_path: Path) -> _FakeProcess:
@@ -107,7 +108,8 @@ def test_launch_gateway_in_background_passes_im_service_override_to_child_and_ru
     process = _FakeProcess(wait_result=0, pid=1357)
     seen: dict[str, object] = {}
     monkeypatch.setattr(
-        "personal_assistant.main._process_start_identity", lambda _pid: "birth-1357"
+        "personal_assistant.gateway.process_lifecycle._process_start_identity",
+        lambda _pid: "birth-1357",
     )
 
     def _spawn_process(argv: list[str], log_path: Path) -> _FakeProcess:
