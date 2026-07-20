@@ -209,6 +209,48 @@ def test_fatal_status_directive_closes_before_later_business_frame_flushes(
     ]
 
 
+def test_pre_register_managed_emission_is_not_retained_in_wire_fifo(
+    tmp_path: Path,
+) -> None:
+    """A pre-register provider wake-up is discarded before it can enter the FIFO."""
+    socket = _FakeWebSocket(
+        incoming=[
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}})
+        ]
+    )
+    relay = WebRelayAdapter()
+    relay.start(lambda _message: None)
+    emissions = ManagedChannelEmissionSource()
+    manager = IMConnectionManager(
+        config=IMConnectionConfig(url="http://im.local"),
+        reporter=_minimal_reporter(tmp_path),
+        relay_adapter=relay,
+        managed_channel_bindings=ManagedChannelBindings(
+            apply_manifest=lambda _payload: _empty_manifest_result(),
+            reconnect=lambda _channel_id, _revision: _completed(),
+            acknowledge_reconcile=lambda _payload: None,
+            handle_status_result=lambda _payload: _continue_status(),
+            reconcile_after_register=lambda _sender: _completed(),
+            emissions=emissions,
+        ),
+        connect=lambda url, headers: _connect_fake(socket, [], url, headers),
+    )
+
+    async def exercise() -> None:
+        await manager.connect_once()
+        emissions.publish(
+            ChannelStatusEmission(
+                _status("pre-register", incarnation="inc-a", sequence=1)
+            )
+        )
+        await asyncio.sleep(0)
+        await manager._listen_once()  # noqa: SLF001 - accept registration
+
+    asyncio.run(exercise())
+
+    assert [json.loads(frame)["type"] for frame in socket.sent] == ["node.register"]
+
+
 def test_disconnected_managed_emission_is_not_retained_in_wire_fifo(
     tmp_path: Path,
 ) -> None:
