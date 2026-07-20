@@ -105,7 +105,7 @@
 - Evidence:
   - E2E: `scripts/e2e-critical.sh -k 'gateway_im_resilience or restart_session_continuity'`：3 passed, 14 deselected, 40.90s，覆盖真 IM + 真 Gateway 进程和用户可见 IM 往返。
   - Cron E2E: 完整指定筛选首次运行时在 `test_cron_job_auto_pushes_message` 等待用户可见消息超时；保留的临时 Gateway log 指认模型 provider 配置根因，未改产品代码或测试阈值规避。随后单测直跑因 live gate env 未设置而 clean skip。
-  - Feishu smoke: BLOCKED。runbook 规定必须停止主 Gateway，当前检测到共享主 Gateway foreground 进程仍在运行；需要 orchestrator 协调独占时段后才能执行两次真实哨兵消息往返。未以启动日志替代。
+  - Feishu smoke: BLOCKED。runbook 所需的 `~/.nano-assistant/config.yaml`、`channel-manifest-v1.json` 和 `channel-credentials-v1.pem` 均存在；但 2026-07-20 核查到共享主 Gateway 仍以 PID `40097` 前台运行（启动于 2026-07-17 16:21:41，命令为 `python3 -m personal_assistant.main --config ~/.nano-assistant/config.yaml --foreground`）。runbook 规定必须先停止它以确保同一 Bot 只有一个 long-connection consumer；该进程不是本 milestone 启动，未经用户授权未停止。需要 orchestrator 协调独占时段后才能执行两次真实哨兵消息往返。未以启动日志替代。
   - Frontend State Matrix / Browser QA / Visual / Prototype Comparison: N/A。
 - Rollback: 不适用（验证未改产品行为）。
 - Commits: C1/C2=N/A，C3=本次 progress commit。
