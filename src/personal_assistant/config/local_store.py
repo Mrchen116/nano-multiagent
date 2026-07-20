@@ -384,6 +384,10 @@ def load_gateway_runtime_config(
     """
     config = (load_config or load_local_config)(config_path)
     config = autofill_feishu_bot_open_id(config, save_config=save_config)
+    config = provision_feishu_doc_skill_for_gateway(
+        RuntimeConfigOwner(config),
+        save_config=save_config,
+    )
     if (
         not isinstance(im_service_url_override, str)
         or not im_service_url_override.strip()
@@ -639,11 +643,14 @@ def resolve_run_model(
 
 def provision_feishu_doc_skill_for_gateway(
     config_owner: RuntimeConfigOwner,
+    *,
+    save_config: Callable[[LocalConfig, str | Path], None] | None = None,
 ) -> LocalConfig:
     """Persist required Feishu skill provisioning through the config owner.
 
     Args:
         config_owner: Serialized owner for the Gateway's mutable config snapshot.
+        save_config: Optional config writer used by startup lifecycle tests and callers.
 
     Returns:
         The latest configuration, after provisioning when it changed the skill list.
@@ -654,7 +661,7 @@ def provision_feishu_doc_skill_for_gateway(
         return current
     return config_owner.persist(
         lambda config: ensure_feishu_doc_skill_for_feishu_agents(config)[0],
-        save_config=save_sensitive_local_config,
+        save_config=save_config or save_sensitive_local_config,
     )
 
 

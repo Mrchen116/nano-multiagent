@@ -76,6 +76,13 @@ class IMConnectionManagerLike(Protocol):
         """Wait for all accepted outbound frames to be acknowledged."""
 
 
+class GatewayStartupCollaborator(Protocol):
+    """Describe a domain owner with synchronous Gateway-startup work."""
+
+    def start(self) -> None:
+        """Perform startup work after the Gateway event loop is available."""
+
+
 async def _run_kernel_background_analysis(
     kernel: Any,
     *,
@@ -133,6 +140,8 @@ class GatewayRuntime:
             maintenance loop after an abnormal exit (mirrors the IM reconnect policy).
         im_watchdog_max_seconds: Cap for the watchdog rebuild backoff.
         resource_closers: Additional cleanup callables invoked after runtime shutdown.
+        startup_collaborators: Domain owners whose startup work must finish after the
+            event loop is live and before Gateway producers accept work.
     """
 
     def __init__(
@@ -151,6 +160,7 @@ class GatewayRuntime:
         gateway_internal_port: int = 8089,
         kernel: object | None = None,
         cron_dispatcher: CronServiceRegistry | None = None,
+        startup_collaborators: tuple[GatewayStartupCollaborator, ...] = (),
         managed_channel_control: ManagedChannelControl | None = None,
         run_coordinator: SessionRunCoordinator | None = None,
         runtime_delivery_tasks: RuntimeDeliveryTaskTracker | None = None,
@@ -173,6 +183,7 @@ class GatewayRuntime:
         # bugfix-402-M4: inject gateway loop into cron services so enqueue() from
         # worker threads (asyncio.to_thread) can schedule execute_fn correctly.
         self._cron_dispatcher = cron_dispatcher
+        self._startup_collaborators = startup_collaborators
         self._managed_channel_control = managed_channel_control
         self._inbound_dispatcher = (
             on_inbound if isinstance(on_inbound, InboundDispatcher) else None
@@ -222,9 +233,10 @@ class GatewayRuntime:
         self._shutdown_async_event = asyncio.Event()
         if self._inbound_dispatcher is not None:
             self._inbound_dispatcher.bind_loop(loop)
-        # bugfix-402-M4: wire gateway loop into cron dispatcher so enqueue()
-        # called from asyncio.to_thread (tool.run) can schedule execute_fn on
-        # this loop rather than silently dropping (no-running-loop path).
+        for collaborator in self._startup_collaborators:
+            collaborator.start()
+        # Startup collaborators may create CronExecutionService instances. Inject the
+        # live loop before any listener or channel producer can enqueue work.
         if self._cron_dispatcher is not None:
             self._cron_dispatcher.set_gateway_loop(loop)
 

@@ -63,6 +63,40 @@ class _RecordingHeartbeatRunner:
         self._events.append("heartbeat.close")
 
 
+def test_startup_action_runs_once_before_channel_producers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Initial Cron registration must finish before Gateway producers start."""
+    from personal_assistant.gateway import runtime as gateway_runtime
+
+    events: list[str] = []
+
+    def _start_channels(*_args: object) -> tuple[str, ...]:
+        events.append("channels.start")
+        return ()
+
+    monkeypatch.setattr(gateway_runtime, "start_channels", _start_channels)
+
+    class _Startup:
+        def start(self) -> None:
+            events.append("cron.initial_registration")
+
+    runtime = GatewayRuntime(
+        make_config(tmp_path),
+        startup_collaborators=(_Startup(),),
+    )
+
+    thread, outcome = run_in_thread(runtime)
+    try:
+        assert runtime.wait_until_ready(timeout=2.0) is True
+        assert events == ["cron.initial_registration", "channels.start"]
+    finally:
+        runtime.request_shutdown()
+        thread.join(timeout=5.0)
+
+    assert outcome.get("exit_code") == 0
+
+
 def test_gateway_survives_unreachable_im_at_startup(tmp_path: Path) -> None:
     """Gateway reaches ready even when IM is unreachable at startup."""
 
