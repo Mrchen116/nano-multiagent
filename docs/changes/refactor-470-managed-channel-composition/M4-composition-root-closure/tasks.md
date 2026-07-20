@@ -41,4 +41,4 @@
 
 - 步骤: 运行 design 指定 e2e critical paths；依 runbook 独占 real Feishu bot 后完成 online reconnect 与 IM-unreachable cached autonomy 两次哨兵消息往返，或如实记录阻塞。
 - 验证: 无启动日志替代消息往返；停止测试 Gateway 并恢复主 Gateway。
-- 状态: BLOCKED（真实 Feishu smoke 需独占共享 Bot，等待 orchestrator 协调；其余验收已完成）
+- 状态: BLOCKED（已获独占窗口并验证 review Gateway online/reconnect；真实 Lark sender 的认证命令在本机无响应，尚无法完成两次用户可见哨兵消息往返）
