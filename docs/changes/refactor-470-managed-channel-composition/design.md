@@ -6,6 +6,9 @@
 
 ## Changelog
 
+- v2 (2026-07-20): 关闭首轮 design review 的 2 CRITICAL + 2 WARNING：fatal owner
+  mismatch 改为 receive stack 内同步 close directive；legacy cutoff 回写 motivation；测试
+  import 基线修正为 38；register-ready orchestration 独立为 `connection_ready` owner。
 - v1 (2026-07-20): 完成现状 grounding、Design It Twice 接口比较、managed-channel
   control boundary、legacy migration 截止、模块归属、验证策略与四个串行 milestone 设计。
 
@@ -24,9 +27,10 @@
 - `build_runtime()` 通过捕获稍后才赋值的 `im_connection_manager` 让 channel 状态
   回调反向发送 IM 帧，形成隐式构造环；Feishu skill 激活还直接调用
   `IMAgentConfigSync` 的 private 方法。
-- 当前有 24 个单测文件直接从 `personal_assistant.main` 导入内部实现，另有 2 个
-  contract 把 `GatewayRuntime` / kernel adapter 的物理位置写死。入口命令测试仍应
-  守 `main` 边界，其余测试随真实 owner 迁移。
+- 当前有 38 个测试文件 import 或引用 `personal_assistant.main`；其中既有直接
+  from-import，也有模块级 monkeypatch。另有 2 个 contract 把 `GatewayRuntime` /
+  kernel adapter 的物理位置写死。入口命令测试仍应守 `main` 边界，其余测试随真实
+  owner 迁移。
 
 ### 既有约束
 
@@ -37,8 +41,10 @@
 - `IMConnectionManager` 继续拥有 WebSocket、register gate、wire FIFO、ACK
   correlation 与 reconnect backoff；`ChannelManifestStore` 继续拥有 durable desired
   manifest、reconcile 结果和 status outbox。重构不得复制 retry/outbox ownership。
-- 现有配置格式、持久化数据、IM/Gateway 协议、channel identity、会话历史及用户可见
-  行为保持不变。当前长青契约明确承诺的旧 lifecycle state 安全采纳逻辑继续保留。
+- current `credentialRef` / encrypted manifest 配置格式、持久化数据、IM/Gateway 协议、
+  channel identity、会话历史及用户可见行为保持不变。唯一例外是决策 2 明确退休的
+  standalone YAML → managed manifest 非契约 bridge；standalone static channel 本身仍
+  保留。当前长青契约明确承诺的旧 lifecycle state 安全采纳逻辑继续保留。
 - 不保留旧 private import、test-only re-export、重命名 alias、双 owner、feature flag
   或临时 compatibility shim；同一策略完成迁移后只剩一个真实位置。
 - `channels.bootstrap` 初始化握手是现行协议，不能与旧 standalone YAML 明文导入混同。
@@ -87,11 +93,16 @@ graph TD
     C --> IMC["ws.im_connection<br/>IMConnectionManager"]
     C --> HB["scheduler.heartbeat_runner<br/>PollingHeartbeatRunner"]
     C --> KC["gateway.kernel_client<br/>InProcessKernelClient"]
-    C --> IB["gateway.im_bootstrap<br/>IM bootstrap / ready reconcile"]
+    C --> IB["gateway.im_bootstrap<br/>HTTP binding / auto-bind"]
+    C --> CR["gateway.connection_ready<br/>post-register convergence"]
     C --> SDK["agent.sdk"]
 
     IMC --> B["ManagedChannelBindings"]
     B --> MC
+    CR --> IB
+    CR --> B
+    CR --> ACS["IMAgentConfigSync"]
+    IMC -->|"current sender"| CR
     MC --> CM["ChannelManager<br/>runtime lifecycle owner"]
     MC --> MS["ChannelManifestStore<br/>durable desired / outbox owner"]
     MC --> MF["existing Feishu runtime factory"]
@@ -120,8 +131,8 @@ bindings，不再由 composition root 逐个拼接 callback。
 
 provider worker 产生的 status/metadata 通过一个 thread-safe upstream mailbox 交给
 IM event loop，随后仍进入 `IMConnectionManager` 现有的 single-writer wire FIFO。
-mailbox 只负责跨线程唤醒和传递 typed emission，不解释 ACK、retry、dedup 或 durable
-outbox 语义；这些 ownership 分别继续属于 `IMConnectionManager` 与
+mailbox 只负责跨线程唤醒和传递 status/metadata typed emission，不解释 ACK、retry、
+dedup 或 durable outbox 语义；这些 ownership 分别继续属于 `IMConnectionManager` 与
 `ChannelManifestStore`。由此消除对尚未构造的 `im_connection_manager` 的 nullable
 closure 捕获，也不建立第二条传输状态机。
 
@@ -146,6 +157,9 @@ credential key/opener、manifest apply、Feishu runtime factory 与 Agent skill 
   `message_type + dict` 作为内部通用消息总线。
 - mailbox 不得成为第二个 durable queue 或 ACK owner；断线期间的权威数据仍只来自
   `ChannelManifestStore`，重连重放不得同时消费两份权威状态。
+- `handle_status_result` 必须在 IM receive owner 的同一 await stack 返回 typed
+  `ChannelStatusDirective`；`fatal_owner_mismatch` 返回 `CLOSE_CONNECTION`，由
+  `IMConnectionManager` 先 `await close()` 再结束当前 frame，禁止经 mailbox 异步关闭。
 - `IMAgentConfigSync` 增加正式的 `ensure_agent_skill_enabled(agent_id, skill_id)`；迁移
   后删除对 `_local_agent()` / `_enable_created_skill_for_agent()` 的 private 穿透。
 - wiring aggregate、mailbox 和 bindings 均为 Gateway 内部实现；不得从 `main.py`
@@ -171,6 +185,8 @@ YAML cleanup callback。
 
 - `main.py` 中 `_legacy_bootstrap_items`、`_mark_legacy_bootstrap_cached` 及
   `bootstrap_credential_refs` 状态。
+- `IMConnectionManager` 构造参数和字段中的 `channel_bootstrap_provider` /
+  `channel_bootstrap_applied_handler` 及其专用 callback type。
 - `config/local_store.py` 中仅服务该路径的
   `migrate_managed_channels_to_credential_refs()`。
 - `scripts/channel-control-export-legacy.py`。
@@ -180,13 +196,12 @@ YAML cleanup callback。
 **保留清单 `[worker]`**：
 
 - `IMConnectionManager` 对 `channels.bootstrap.request` / result correlation 的 wire
-  protocol 处理。
-- 一条真实的 bootstrap provider/binding，未初始化时返回空 items；不得以 no-op
-  compatibility callback 或旧函数 alias 保留删除路径。
+  protocol 处理；收到 request 时由 transport 直接回空 `items`，不再委托 provider。
 - 已加密 manifest cache、credential key 和 `credentialRef` 的现行加载行为。
 
-该选择不改变长青契约。仍停留在旧 YAML 明文 channel 配置的部署不再由新版 Gateway
-自动导入 IM；发布说明应要求此类部署在升级前用当前版本完成迁移。代码回滚不会改写
+该选择不改变长青契约。仍停留在旧 YAML 明文 channel 配置的部署可继续由 standalone
+static channel 路径启动，但不再由新版 Gateway 自动导入 IM managed control；发布说明
+应要求希望进入 managed control 的部署在升级前用当前版本完成迁移。代码回滚不会改写
 现有 cache 或用户数据。
 
 ### 决策 3：按真实 owner 迁移，`main.py` 只保留命令入口
@@ -200,7 +215,8 @@ YAML cleanup callback。
 | `gateway.runtime` | `GatewayRuntime`、运行时 lifecycle protocols 和有序 shutdown 资源图 |
 | `gateway.process_lifecycle` | start/stop/restart、后台进程、state/PID lock、signal 和进程身份校验 |
 | `gateway.managed_channel_control` | managed-channel 集成策略、bindings 和 upstream mailbox |
-| `gateway.im_bootstrap` | IM HTTP bootstrap、node binding 与 auto-bind |
+| `gateway.im_bootstrap` | IM HTTP bootstrap client、node binding 与 auto-bind |
+| `gateway.connection_ready` | register ACK 后的跨 owner 收敛顺序、错误隔离与 degraded heartbeat |
 | `gateway.kernel_client` | 进程内 Kernel adapter，正式命名为 `InProcessKernelClient` |
 | `scheduler.heartbeat_runner` | polling runner；既有 heartbeat scheduler 算法保持原位 |
 
@@ -255,7 +271,6 @@ class ManagedChannelBindings:
     reconnect: ChannelReconnectHandler
     acknowledge_reconcile: ChannelReconcileAckHandler
     handle_status_result: ChannelStatusResultHandler
-    provide_bootstrap_items: ChannelBootstrapProvider
     reconcile_after_register: ChannelRegisterReadyHandler
     emissions: "ManagedChannelEmissionSource"
 
@@ -263,9 +278,12 @@ class ManagedChannelBindings:
 ManagedChannelEmission = (
     ChannelStatusEmission
     | ChannelRuntimeMetadataEmission
-    | ChannelReconcileResultEmission
-    | CloseIMConnectionEmission
 )
+
+
+class ChannelStatusDirective(Enum):
+    CONTINUE = "continue"
+    CLOSE_CONNECTION = "close_connection"
 ```
 
 - emission 必须是穷举的 typed union；不得退化为任意 `message_type: str` + `dict`。
@@ -274,8 +292,12 @@ ManagedChannelEmission = (
   durable store 中的权威状态，register-ready 阶段重新投影并发送。
 - `IMConnectionManager` 仍负责把 emission 转成 wire payload、进入既有 FIFO、关联
   request/result 与 reset reconnect backoff；control 不直接持有 connection 引用。
-- bootstrap provider 永远存在；删除 legacy importer 后它返回空 items。bootstrap result
-  仍由 transport 正常结算，但不存在 cleanup side effect。
+- live manifest result 由 `apply_manifest` 直接返回；register-ready reconcile result 由
+  当前 connection sender 直接发送。要求 transport ordering 的 close 不属于 emission：
+  `handle_status_result` 返回 `ChannelStatusDirective`，IM receive owner 同步执行。
+- bootstrap 不属于 managed control binding。删除 legacy importer 后，
+  `IMConnectionManager` 收到 `channels.bootstrap.request` 时直接返回空 items；bootstrap
+  result 仍由 transport 正常结算，但不存在 provider 或 cleanup callback。
 
 在线 manifest 的主路径如下：
 
@@ -305,15 +327,17 @@ sequenceDiagram
 ```
 
 关键失败路径保持现状：manifest 解密或 apply 失败返回 wire-ready failure，不污染已运行
-generation；stale targeted reconnect 抛 `LookupError`；`fatal_owner_mismatch` 通过 typed
-emission 请求关闭 IM connection；`retryable_store_busy` 的定时重试由 control 调度，但
+generation；stale targeted reconnect 抛 `LookupError`；`fatal_owner_mismatch` 由 status
+handler 返回 `CLOSE_CONNECTION`，`IMConnectionManager` 在同一 receive stack 先关闭再
+return，不允许 flush 后继业务帧；`retryable_store_busy` 的定时重试由 control 调度，但
 是否仍需发送以 store 中 request id 为准。
 
 ### IM register-ready 收敛
 
 `IMConnectionManager` 的 `on_connected` callback 改为接收一个最小的当前连接 sender，
-而不是让 callback 捕获稍后赋值的 manager。`gateway.im_bootstrap` 中的 connection-ready
-coordinator 按现有顺序执行：
+而不是让 callback 捕获稍后赋值的 manager。独立的
+`gateway.connection_ready.ConnectionReadyCoordinator` 按现有顺序编排三个 concrete
+owner：
 
 1. 在 worker thread 做幂等 node binding；失败反馈并发送 degraded heartbeat，但不阻断
    后续 agent reconcile。
@@ -323,6 +347,12 @@ coordinator 按现有顺序执行：
 
 sender 只暴露当前回调真正需要的 `send_json()` / pending-request query，不形成另一套
 transport abstraction；其 owner 仍是 `IMConnectionManager`。
+
+`gateway.im_bootstrap` 只保留 HTTP client、node binding 和 auto-bind，不 import managed
+channel 或 Agent reconcile owner；`ConnectionReadyCoordinator` 只拥有 register-ready
+顺序与错误隔离，不复制三个被编排 owner 的状态或业务策略。删除 coordinator 会让同一
+跨 owner 顺序重新落回 composition，因此它是具名 lifecycle coordinator，不是通用
+helper。
 
 ### 启动与关闭顺序
 
@@ -358,8 +388,8 @@ runtime close 产生的最后状态，也不能延长既有 shared deadline。
 | typed bindings 变成 callback bag，新策略仍回流 composition | control 的 public interface 行为测试 + contract 禁止 credential/status/reconcile policy 位于 composition/main | 回退对应 owner 迁移，不保留 forwarding shim |
 | provider status 来自 worker thread，loop 绑定或关闭竞态泄漏 task | 覆盖 pre-bind publish、disconnect、rebind、shutdown deadline 和 consumer task 清零 | 回退 mailbox 接线与 control，store 数据仍可被旧代码读取 |
 | module move 改变 runtime shutdown/startup 顺序 | 成熟类整体迁移；原 lifecycle/shutdown/watchdog 测试只改 import，并增加模块边界 contract | 每个 milestone 可独立 revert；无数据 migration |
-| 删除 legacy YAML migration 影响尚未完成迁移的部署 | 发布说明要求升级前用当前版本完成迁移；新版只接受 current credentialRef/cache 路径 | 回滚代码即可恢复 importer；不得让新版主动删除用户明文字段 |
-| 大量 import churn 让低价值测试继续守旧路径 | 24 个直接 import 文件逐一分类：入口测试留 main，其余转真实 owner；删除重叠/私有断言，不加 alias | 单 milestone 回退测试与 owner move，保持主干可运行 |
+| 删除 legacy YAML migration 影响尚未完成迁移的部署 | 发布说明要求希望进入 managed control 的部署升级前用当前版本完成迁移；新版 managed control 只接受 current credentialRef/cache，旧 YAML 仍走 standalone static channel | 回滚代码即可恢复 importer；不得让新版主动删除用户明文字段 |
+| 大量 import churn 让低价值测试继续守旧路径 | 38 个 import/reference 文件按 owner 逐一分类：入口测试留 main，其余转真实 owner；删除重叠/私有断言，不加 alias | 单 milestone 回退测试与 owner move，保持主干可运行 |
 | `composition.py` 取代 `main.py` 成为新巨石 | contract 检查 forbidden policy/import；review 以 state/ownership 而非行数判断；无领域归属的 helper 不准进入 | 阻止 M4 合入，继续从最后一个已通过 milestone 实施 |
 
 所有 milestone 都是代码与测试布局变更，不改 manifest/cache/key、session、message、PID
@@ -462,7 +492,7 @@ fixture 验证，不在共享真实 channel 上制造破坏性配置。
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| M1 | managed-channel control ownership | 无 | A | 新增 `gateway/managed_channel_control.py`；调整 `ws/im_connection.py`、`gateway/channel_manager.py`、`gateway/agent_config_sync.py` 与 `main.py` wiring；删除 legacy YAML migration/export；迁移 channel/bootstrap/status 测试 | [reviewer] 在线 apply/reconnect、失败隔离、离线 cached startup 和 register replay 与 motivation 一致；[worker] control 三入口与 typed bindings 覆盖，mailbox 不复制 durable/FIFO owner，private skill 穿透和 nullable IM closure 消失，legacy symbols/script/test 删除；相关 unit/integration、ruff 通过。 |
+| M1 | managed-channel control ownership | 无 | A | 新增 `gateway/managed_channel_control.py`；调整 `ws/im_connection.py`、`gateway/channel_manager.py`、`gateway/agent_config_sync.py` 与 `main.py` wiring；删除 legacy YAML migration/export 与 bootstrap provider/applied callbacks；迁移 channel/bootstrap/status 测试 | [reviewer] 在线 apply/reconnect、失败隔离、离线 cached startup 和 register replay 与 motivation 一致；[worker] control 三入口与 typed bindings 覆盖，mailbox 不复制 durable/FIFO owner，private skill 穿透和 nullable IM closure 消失，bootstrap wire 直接回空 items，legacy symbols/script/test/callback 删除；相关 unit/integration、ruff 通过。 |
 | M2 | runtime-side deep modules | M1 | B | 新增 `gateway/runtime.py`、`gateway/kernel_client.py`、`scheduler/heartbeat_runner.py`；整体迁移 `GatewayRuntime`、kernel adapter、polling runner 与就近 helper；迁移 runtime/shutdown/heartbeat/cron/unattended tests | [reviewer] runtime startup、heartbeat/cron 主动行为和有序关闭保持；[worker] `InProcessKernelClient` 是唯一实现名，无 main re-export/alias，原 lifecycle resource graph 与 shared deadline 测试只改真实 owner import，消费端注释不再引用 shim/main 路径；聚焦测试、ruff 通过。 |
-| M3 | entry-side lifecycle modules | M2 | C | 新增 `gateway/process_lifecycle.py`、`gateway/im_bootstrap.py`；整体迁移 start/stop/restart、state/PID/process identity、signal、node binding/auto-bind 与 connection-ready reconcile；收窄 `main.py` | [reviewer] 默认后台启动、重复启动、stop/restart、auto-bind 与 IM reconnect 收敛不变；[worker] lifecycle state 安全采纳契约保留，on-connected 不捕获 nullable manager，launch/PID/command/auto-bind/reconnect tests 从真实 owner import；聚焦测试、ruff 通过。 |
-| M4 | composition root 与测试表面收口 | M3 | D | 新增最终 `gateway/composition.py`；剩余 helper 归还现有 owner；`main.py` 收成 CLI entry；迁移 24 个直接 import 文件、更新 2 个 architecture contract；最终文档与验证 | [reviewer] motivation 中 channel、lifecycle、auto-bind、heartbeat/cron 受影响旅程通过，真实 Feishu smoke 有结论；[worker] `main.__all__ == ["main"]`，composition 无策略/可变状态，无 test-only re-export/compat alias/旧 symbol，test-size contract、ruff、`pytest -m "not e2e"` 与目标 e2e 通过。 |
+| M3 | entry-side lifecycle modules | M2 | C | 新增 `gateway/process_lifecycle.py`、`gateway/im_bootstrap.py`、`gateway/connection_ready.py`；整体迁移 start/stop/restart、state/PID/process identity、signal、node binding/auto-bind，并把 register-ready 跨 owner 顺序收进具名 coordinator；收窄 `main.py` | [reviewer] 默认后台启动、重复启动、stop/restart、auto-bind 与 IM reconnect 收敛不变；[worker] lifecycle state 安全采纳契约保留，`im_bootstrap` 不承担 channel/Agent 编排，on-connected 不捕获 nullable manager，launch/PID/command/auto-bind/reconnect tests 从真实 owner import；聚焦测试、ruff 通过。 |
+| M4 | composition root 与测试表面收口 | M3 | D | 新增最终 `gateway/composition.py`；剩余 helper 归还现有 owner；`main.py` 收成 CLI entry；对 38 个 baseline import/reference 文件完成对账，迁移此前 milestones 尚未归位的全部剩余文件，更新 2 个 architecture contract；最终文档与验证 | [reviewer] motivation 中 channel、lifecycle、auto-bind、heartbeat/cron 受影响旅程通过，真实 Feishu smoke 有结论；[worker] `main.__all__ == ["main"]`，38 个 baseline 文件都有 owner/删除/保留结论，composition 无策略/可变状态，无 test-only re-export/compat alias/旧 symbol，test-size contract、ruff、`pytest -m "not e2e"` 与目标 e2e 通过。 |

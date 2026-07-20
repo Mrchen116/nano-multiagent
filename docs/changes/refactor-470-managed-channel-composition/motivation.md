@@ -27,6 +27,9 @@
 - Q3: 成本控制上，是否保留完整 Candidate 05 的重构范围，但只对直接受影响的关键旅程做用户侧验收，其余行为依靠现有自动化回归？
   A(原话): 测试可能受影响的，哪些受影响的，你来判断
   Agent 解读: 用户授权 Agent 基于实际迁移边界与调用链判断受影响的测试和用户旅程；重构范围仍按 Q1 的完整 Candidate 05，不要求人工覆盖 Gateway 全部契约。
+- Q4: 旧 standalone YAML → managed manifest 的自动导入与 legacy export 不属于长青契约；本次是把它们继续搬进新 owner，还是干净截止、只保留 `channels.bootstrap` 协议？
+  A(原话): 好
+  Agent 解读: 用户确认干净截止：删除自动导入、明文 cleanup、legacy export 及专属兼容测试，不保留 bootstrap provider/applied no-op callback 或 alias；`channels.bootstrap` wire handshake 仍存在并直接回空 items。旧明文 YAML Feishu 仍可沿现有 standalone static channel 路径启动，但不再自动出现在 IM managed channel 中。仍依赖自动导入的部署须在升级前使用当前版本完成一次迁移。
 
 ## 现状痛点
 
@@ -40,11 +43,11 @@
 
 ## 目标状态
 
-本变更完整覆盖 Candidate 05，但不新增或改变产品能力：`main` 只保留命令入口、顶层 composition 和启动委托；managed channel 的完整控制生命周期有单一、可说明的 owner，composition 不再实现 credential、provider、status、retry 或 reconcile policy，也不穿透其他 owner 的 private state。
+本变更完整覆盖 Candidate 05，但不新增产品能力：`main` 只保留命令入口、顶层 composition 和启动委托；managed channel 的完整控制生命周期有单一、可说明的 owner，composition 不再实现 credential、provider、status、retry 或 reconcile policy，也不穿透其他 owner 的 private state。
 
 已经成形的 Gateway runtime、进程生命周期、heartbeat runner、IM bootstrap client 和 kernel adapter 保持现有深度与职责，整体迁移到真实所有者位置，不重新拆解其内部生命周期。测试直接面向真实 owner；只为旧 `main` namespace 存在的 compatibility re-export 被删除，不再建立第二套兼容表面。
 
-成功标准是 ownership、locality 和测试表面变清楚，不是达到某个文件行数。重构后，现有配置格式、持久化数据、IM/Gateway 协议、channel identity、会话历史和用户可见行为均保持不变。
+成功标准是 ownership、locality 和测试表面变清楚，不是达到某个文件行数。重构后，current `credentialRef` / encrypted manifest 配置格式、持久化数据、IM/Gateway 协议、channel identity、会话历史和用户可见行为均保持不变。唯一明确退休的行为是 Q4 所述非契约 legacy bridge：旧明文 YAML channel 继续作为 standalone static channel 启动，但新版不再替它自动生成 managed manifest、回写 `credentialRef` 或提供 legacy export。
 
 ## 用户侧验收标准（不变性）
 
@@ -114,7 +117,7 @@
 - `personal_assistant.main` 的测试表面：真正的入口与 lifecycle 命令仍从入口测试；runtime delivery、Agent 配置解析等 test-only re-export 改为从真实 owner 测试并删除旧转发。
 - **必须按行为重验**：managed channel manager/store/apply/status/outbox/reconcile 集成，Gateway runtime 启停与资源关闭，IM bootstrap/auto-bind，heartbeat/cron runner，外部 channel 冒烟链路。
 - **仅需迁移 import 并跑原回归**：InboundPipeline 的并发/插话/图片/群背景、permission、runtime delivery observer 等未改变 owner 的测试；不为它们新增重复的人工验收旅程。
-- 不改变 IM、Kernel、CLI 或外部 channel 的协议，不迁移用户配置/会话/消息数据，不增加新 provider 或用户设置。
+- 不改变 IM、Kernel、CLI 或外部 channel 的协议，不由本 unit 在线迁移用户配置/会话/消息数据，不增加新 provider 或用户设置。旧 YAML 部署若希望进入 managed control，必须在升级前由当前版本完成迁移；新版不会自动迁移。
 
 ## 迁移与回滚策略
 
@@ -123,3 +126,4 @@
 3. **成熟深模块整体迁移**：`GatewayRuntime` 等已经封装生命周期不变量的实现只改变物理归属与依赖接线，不借本单元重写内部算法或扩展产品语义。
 4. **测试随 owner 迁移**：入口命令测试保留在 `main` 表面；其余测试先切到真实 owner，再删除 test-only re-export。测试文件拆分继续遵守单文件大小契约，不以放宽 guardrail 换取迁移便利。
 5. **回滚边界**：任何切片若无法证明上文直接受影响的 channel、启停、auto-bind 或 heartbeat/cron 行为不变，则整体回退该切片；回滚代码即可恢复旧 composition，不改变或回写用户数据。
+6. **Legacy 截止**：删除 standalone YAML → managed manifest 的自动导入、明文 cleanup 与 legacy export；保留 `channels.bootstrap` wire handshake 和 standalone static channel 启动。实现与测试不得把已删除路径改名后续命。
