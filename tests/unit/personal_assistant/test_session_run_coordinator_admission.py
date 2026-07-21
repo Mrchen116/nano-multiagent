@@ -300,10 +300,59 @@ async def test_continuous_steer_uses_one_original_stream(
 
 
 @pytest.mark.asyncio
-async def test_active_run_keeps_original_session_across_config_publish(
+async def test_config_publish_reconfigures_same_session_only_for_next_run(
     tmp_path: Path,
 ) -> None:
-    """Steer and stop control the admitted session until its terminal event."""
+    """A completed run keeps its transcript session while the next run adopts config."""
+
+    kernel, catalog, binder, router, group_store = build_dependencies(tmp_path)
+    coordinator = SessionRunCoordinator(
+        kernel=kernel,
+        session_binder=binder,
+        outbound_router=router,
+        group_context_store=group_store,
+        product_default_model="fallback-model",
+    )
+    first_request = _request(inbound(chat_id="chat-a", text="old run"), catalog)
+    first = asyncio.create_task(coordinator.dispatch(first_request))
+    await kernel.wait_stream("run-1")
+    kernel.finish("run-1", text="old done")
+    assert (await first).kernel_session_id == "sess-1"
+
+    current = catalog.publish(
+        AgentWorkspaceConfig(
+            agent_id="agent-a",
+            workspace_root=first_request.agent.config.workspace_root,
+            title="Agent A v2",
+            default_model="model-v2",
+            skills=("research",),
+            tool_allowlist=("read",),
+            features={"memory_curation": False},
+            custom_prompt="Use the replacement configuration.",
+        )
+    )
+    next_run = asyncio.create_task(
+        coordinator.dispatch(_request(inbound(chat_id="chat-a", text="v2"), catalog))
+    )
+    await kernel.wait_stream("run-2")
+
+    assert kernel.create_calls == [str(first_request.agent.config.workspace_root)]
+    assert [session_id for session_id, _ in kernel.reconfigure_calls] == ["sess-1"]
+    replacement = kernel.reconfigure_calls[0][1]
+    assert replacement.model == "model-v2"
+    assert replacement.skills == ["research"]
+    assert replacement.enabled_tools == ["read"]
+    assert replacement.features == {"memory_curation": False}
+
+    kernel.finish("run-2", text="v2 done")
+    assert (await next_run).kernel_session_id == "sess-1"
+
+
+@pytest.mark.asyncio
+async def test_active_run_steer_keeps_original_runtime_after_config_publish(
+    tmp_path: Path,
+) -> None:
+    """A steer belongs to its active run and never admits a newer configuration."""
 
     kernel, catalog, binder, router, group_store = build_dependencies(tmp_path)
     coordinator = SessionRunCoordinator(
@@ -316,41 +365,23 @@ async def test_active_run_keeps_original_session_across_config_publish(
     running = asyncio.create_task(coordinator.dispatch(old_request))
     await kernel.wait_stream("run-1")
 
-    new_workspace = tmp_path / "agent-a-v2"
-    new_workspace.mkdir()
-    current = catalog.publish(
+    catalog.publish(
         AgentWorkspaceConfig(
             agent_id="agent-a",
-            workspace_root=new_workspace,
+            workspace_root=old_request.agent.config.workspace_root,
             title="Agent A v2",
+            default_model="model-v2",
         )
     )
-    binder.invalidate_stale("agent-a", current_revision=current.revision)
     kernel.inject_steer = True
 
     steered = await coordinator.dispatch(
         _request(inbound(chat_id="chat-a", text="new follow-up"), catalog)
     )
-    stopped = await coordinator.stop(
-        StopRunRequest(
-            message=inbound(chat_id="chat-a", text="/stop"),
-            agent=current,
-            session_key=old_request.session_key,
-        )
-    )
 
-    assert steered.run_id == stopped.run_id == "run-1"
+    assert steered.run_id == "run-1"
+    assert kernel.reconfigure_calls == []
     assert kernel.submit_calls[-1]["session_id"] == "sess-1"
-    assert kernel.interrupt_calls == ["sess-1"]
-    assert kernel.append_calls[-1]["session_id"] == "sess-1"
-    assert kernel.create_calls == [str(old_request.agent.config.workspace_root)]
 
-    kernel.finish("run-1", status="cancelled", text="")
+    kernel.finish("run-1", text="done")
     await running
-    next_run = asyncio.create_task(
-        coordinator.dispatch(_request(inbound(chat_id="chat-a", text="v2"), catalog))
-    )
-    await kernel.wait_stream("run-2")
-    kernel.finish("run-2", text="v2 done")
-    assert (await next_run).kernel_session_id == "sess-2"
-    assert kernel.create_calls[-1] == str(new_workspace)
