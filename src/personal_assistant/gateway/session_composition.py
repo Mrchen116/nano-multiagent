@@ -60,7 +60,7 @@ def project_agent_runtime(
             prompt=prompt_for(config, scenario=scenario),
             skills=list(config.skills) if config.skills else None,
             enabled_tools=resolve_enabled_tools(config),
-            features=dict(config.features) if config.features else None,
+            features=dict(config.features),
         ),
         profile_version=profile_version if isinstance(profile_version, int) else None,
     )
@@ -78,7 +78,7 @@ def project_agent_session_capabilities(
         prompt=prompt_for(config, scenario=scenario),
         skills=list(config.skills) if config.skills else None,
         enabled_tools=resolve_enabled_tools(config),
-        features=dict(config.features) if config.features else None,
+        features=dict(config.features),
     )
 
 
