@@ -1,0 +1,22 @@
+{
+  "run_tag": "BUGFIX471-CD110C29",
+  "started_at": "2026-07-21T07:04:02.243169+00:00",
+  "agent_id": "default-agent",
+  "features_semantics": {
+    "initial": {},
+    "after_direct_update": {},
+    "after_group_update": {}
+  },
+  "direct_initial_profile_version": 2,
+  "direct_conversation_id": "9958da1deb48420c88eded3ed8fd820d",
+  "direct_first_reply": "ACK DIRECT-858E651CD8",
+  "direct_final_profile_version": 3,
+  "gateway_restart_after": "2026-07-21T07:04:10.044684Z",
+  "direct_second_reply": "FINAL-DIRECT DIRECT-858E651CD8",
+  "group_initial_profile_version": 4,
+  "group_conversation_id": "84a4b587c4aa435f99307c4cf1bec764",
+  "group_first_reply": "ACK GROUP-C199C4971D.",
+  "group_final_profile_version": 5,
+  "group_second_reply": "FINAL-GROUP GROUP-C199C4971D.",
+  "completed_at": "2026-07-21T07:04:22.340747+00:00"
+}

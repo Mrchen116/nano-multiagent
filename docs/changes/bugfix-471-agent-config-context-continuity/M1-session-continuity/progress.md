@@ -49,4 +49,9 @@
 - Decision: 按 orchestrator 确认将 `src/personal_assistant/product.py` 纳入 M1；将非空 system_prompt 作为 `pa.system_prompt_override` 固定置于 custom slot 的 `pa.user_custom` 前，成为完整 runtime 与 identity 的一部分。
 - Rationale: system_prompt 是 M1-C1 明确要求下一新回复采用的运行配置；不在唯一投影点纳入会使 reconfigure 后的真实请求仍沿用旧语义。该最小改动不引入新决策，并保持未设置 system_prompt 的 golden 不变。
 - design.md 是否同步改: 否；orchestrator 明确无需修改。
-- 状态: R3 DOING；完整 runtime 的 adapter/scheduler、system_prompt projection 与 Kernel fork/idempotency 修复已落地。窄回归、IM direct/group 集成与 ruff 已通过；完整 non-e2e 已通过，真实 Feishu 与其 LLM 请求对账仍待完成。
+- 状态: R3 BLOCKED；完整 runtime 的 adapter/scheduler、system_prompt projection 与 Kernel fork/idempotency 修复已落地。
+- 已完成真栈 Web IM 证据：`evidence/live-web-im.json` 记录同一 direct session 在配置更新及 Gateway restart 后回复 `FINAL-DIRECT DIRECT-858E651CD8`，同一 group session 在配置更新后回复 `FINAL-GROUP GROUP-C199C4971D`。`evidence/live-llm-request-summary.json` 对账 direct/group 边界前后请求：后请求仍含前一 user message，model 为 `kimiCoding:kimi-for-coding`，tools 由 direct 的 `[]→[read]`、group 的 `[read]→[]` 采用最终完整配置。
+- 真栈 features 发现：IM profile 的显式 `{}` 在运行投影 `session_composition.py` 中被 truthiness 归并成 `None`；实测记录为 `config_features={}; runtime_features=None`。这违反 design 对 `None` 与 `{}` identity/persistence 区分的要求，不能声称该语义通过。
+- 真正 Feishu 外部旅程阻塞：授权最小 probe（含 @bot）已成功写入测试群，但未收到 bot 回复；受管 Gateway 持续记录 `open.feishu.cn` DNS/WS 连接失败，隔离 Gateway 的 `credentialRef` 也因 ephemeral IM 无 encrypted managed-channel manifest 被显式跳过。详见 `evidence/live-feishu-blocked.json`；等待可用的真实 channel 运行环境。
+- 验证：窄回归 `25 passed`；完整 `PYTHONPATH=src pytest -m 'not e2e'` — 3637 passed，20 deselected；modified-files `ruff check` 通过。
+- Commits: C2=`062fb92ea`；C3 待外部 blocker 与 features 语义解决后提交。
