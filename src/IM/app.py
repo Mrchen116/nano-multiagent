@@ -34,6 +34,7 @@ from IM.infra.gateway_persistence import (
     GatewayNodePersistence,
 )
 from IM.infra.repositories import (
+    AgentConfigBoundaryRepository,
     EventRepository,
     MessageRepository,
     UsageMetricsRepository,
@@ -305,6 +306,9 @@ def create_app(
         app_instance.state.user_event_notify = user_event_notify
 
         event_repository = EventRepository(connection, notify=user_event_notify)
+        boundary_repository = AgentConfigBoundaryRepository(
+            connection, notify=user_event_notify
+        )
         message_repository = MessageRepository(connection, notify=user_event_notify)
         event_service = EventService(events=event_repository)
         _user_notify_impl[0] = build_notify_enqueue(
@@ -314,6 +318,7 @@ def create_app(
             event_service=event_service,
         )
         app_instance.state.event_repository = event_repository
+        app_instance.state.boundary_repository = boundary_repository
         app_instance.state.message_repository = message_repository
 
         pump_task = asyncio.create_task(
@@ -328,6 +333,7 @@ def create_app(
             node_persistence=node_persistence,
             conversation_persistence=conversation_persistence,
             message_repository=message_repository,
+            boundary_repository=boundary_repository,
             event_repository=event_repository,
             metrics_service=MetricsService(metrics=UsageMetricsRepository(connection)),
             user_stream_registry=registry,

@@ -27,6 +27,7 @@ def test_initialize_schema_is_idempotent(tmp_path: Path) -> None:
     assert "agent_profiles" in table_names
     assert "nodes" in table_names
     assert "bind_requests" in table_names
+    assert "agent_config_boundaries" in table_names
 
     conversation_columns = {
         row["name"]
@@ -45,6 +46,19 @@ def test_initialize_schema_is_idempotent(tmp_path: Path) -> None:
     assert "sender_display_name" in message_columns
     assert "idx_conversations_external_identity" in conversation_indexes
     assert "idx_conversations_external_identity_unique" in conversation_indexes
+    boundary_columns = {
+        row["name"]
+        for row in connection.execute(
+            "PRAGMA table_info(agent_config_boundaries)"
+        ).fetchall()
+    }
+    assert {
+        "boundary_id",
+        "conversation_id",
+        "before_message_id",
+        "runtime_fingerprint",
+        "event_id",
+    } <= boundary_columns
 
 
 def test_initialize_schema_owns_dispatch_log_without_changing_legacy_rows(

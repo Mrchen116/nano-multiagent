@@ -62,8 +62,7 @@ def test_list_messages_contract_includes_delivery_status(tmp_path: Path) -> None
 
         assert listed.status_code == 200
         payload = listed.json()
-        assert len(payload["items"]) == 1
-        assert payload["items"][0]["delivery_status"] == "completed"
+        assert payload["items"] == [{"type": "message", "message": create_resp.json()}]
         assert payload["next_before_message_id"] is None
 
 
@@ -98,5 +97,5 @@ def test_message_contract_supports_sender_type_attachments_and_pagination(
         assert listed.status_code == 200
         payload = listed.json()
         assert list(payload.keys()) == ["items", "next_before_message_id"]
-        assert payload["items"][0]["sender_type"] == "agent"
-        assert payload["next_before_message_id"] == payload["items"][0]["id"]
+        assert payload["items"] == [{"type": "message", "message": created.json()}]
+        assert payload["next_before_message_id"] == created.json()["id"]

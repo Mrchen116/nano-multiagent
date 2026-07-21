@@ -345,7 +345,9 @@ def test_gateway_websocket_persists_completed_relay_chain_from_report_and_receip
         ]
         assert event_rows[-1]["delivery_status"] == "completed"
         assert message_row.status_code == 200
-        assert message_row.json()["items"][-1]["delivery_status"] == "completed"
+        assert (
+            message_row.json()["items"][-1]["message"]["delivery_status"] == "completed"
+        )
 
 
 def test_gateway_websocket_exposes_actionable_last_error_in_node_board(

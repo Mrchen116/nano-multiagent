@@ -70,3 +70,88 @@ def test_user_stream_contract_emits_json_events(tmp_path: Path) -> None:
             event_types = [b.get("event_type") for b in seen if b.get("op") == "event"]
             assert "message.sent" in event_types
             assert "message.delivered" in event_types
+
+
+def test_user_stream_replays_boundary_without_runtime_provenance(
+    tmp_path: Path,
+) -> None:
+    """A resumed owner receives one safe timeline boundary under its durable event id."""
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        alice = register_user(client, username="alice")
+        authorize(client, alice)
+        from tests.im_service._auth_helpers import seed_user_under_owner
+
+        agent_user_id = seed_user_under_owner(
+            client,
+            username="agent:planner",
+            owner_id=alice.owner_id,
+        )
+        conversation = client.post(
+            "/im/v1/conversations",
+            json={
+                "title": "Planner",
+                "participant_ids": [alice.id, agent_user_id],
+            },
+        )
+        assert conversation.status_code == 201, conversation.text
+        conversation_id = conversation.json()["id"]
+        anchor = client.post(
+            f"/im/v1/conversations/{conversation_id}/messages",
+            json={"sender_user_id": alice.id, "content": "use new runtime"},
+        )
+        assert anchor.status_code == 201, anchor.text
+
+        with client.websocket_connect("/im/ws/gateway") as gateway:
+            gateway.send_json(
+                {
+                    "type": "node.register",
+                    "payload": {"node_id": "node-1", "agents": ["planner"]},
+                }
+            )
+            assert gateway.receive_json()["type"] == "ack"
+            gateway.send_json(
+                {
+                    "type": "agent.config.boundary",
+                    "payload": {
+                        "boundary_id": "boundary-stream-1",
+                        "node_id": "node-1",
+                        "conversation_id": conversation_id,
+                        "agent_id": "planner",
+                        "before_message_id": anchor.json()["id"],
+                        "runtime_fingerprint": "secret-runtime-fingerprint",
+                        "fingerprint_schema": "v1",
+                        "profile_version": 9,
+                        "applied_at": "2026-07-21T00:00:00Z",
+                    },
+                }
+            )
+            acknowledged = gateway.receive_json()
+            assert acknowledged["type"] == "ack"
+
+        boundary_event_id = acknowledged["payload"]["event_id"]
+        with client.websocket_connect(
+            f"/im/ws/user?token={alice.access_token}"
+        ) as user_stream:
+            user_stream.send_text(
+                json.dumps({"op": "resume", "after_event_id": boundary_event_id - 1})
+            )
+            replayed = json.loads(user_stream.receive_text())
+
+        assert replayed["op"] == "event"
+        assert replayed["event_type"] == "agent.config.changed"
+        assert replayed["event_id"] == boundary_event_id
+        assert replayed["conversation_id"] == conversation_id
+        assert replayed["data"] == {
+            "id": "boundary-stream-1",
+            "conversation_id": conversation_id,
+            "agent_id": "planner",
+            "before_message_id": anchor.json()["id"],
+            "applied_at": "2026-07-21T00:00:00Z",
+            "event_id": boundary_event_id,
+            "message_id": None,
+            "delivery_status": "completed",
+            "created_at": replayed["data"]["created_at"],
+        }
+        assert "secret-runtime-fingerprint" not in json.dumps(replayed)
+        assert "profile_version" not in replayed["data"]

@@ -14,7 +14,7 @@ from IM.api.deps import (
 )
 from IM.application.relay_service import RelayService
 from IM.application.web_im_service import WebIMService
-from IM.domain.models import Attachment, Message, User
+from IM.domain.models import AgentConfigChangedBoundary, Attachment, Message, User
 from IM.ws.gateway_handler import GatewayHandler
 
 router = APIRouter(tags=["messages"])
@@ -145,10 +145,28 @@ class MessageResponse(BaseModel):
     permission_requests: list[dict] = []
 
 
-class ListMessagesResponse(BaseModel):
-    """Envelope returned when listing paginated messages."""
+class AgentConfigChangedResponse(BaseModel):
+    """Serialized non-message cache boundary returned in a conversation timeline."""
 
-    items: list[MessageResponse]
+    type: str = "agent_config_changed"
+    id: str
+    conversation_id: str
+    agent_id: str
+    before_message_id: str
+    applied_at: str
+
+
+class MessageTimelineItemResponse(BaseModel):
+    """Typed timeline wrapper for a normal conversation message."""
+
+    type: str = "message"
+    message: MessageResponse
+
+
+class ListMessagesResponse(BaseModel):
+    """Envelope returned when listing a message-counted typed timeline page."""
+
+    items: list[MessageTimelineItemResponse | AgentConfigChangedResponse]
     next_before_message_id: str | None
 
     def __iter__(self):
@@ -158,6 +176,19 @@ class ListMessagesResponse(BaseModel):
     def __len__(self) -> int:
         """Preserve legacy len() semantics for older tests and callers."""
         return len(self.items)
+
+
+def to_boundary_response(
+    boundary: AgentConfigChangedBoundary,
+) -> AgentConfigChangedResponse:
+    """Serialize only browser-safe boundary fields, excluding runtime provenance."""
+    return AgentConfigChangedResponse(
+        id=boundary.id,
+        conversation_id=boundary.conversation_id,
+        agent_id=boundary.agent_id,
+        before_message_id=boundary.before_message_id,
+        applied_at=boundary.applied_at,
+    )
 
 
 def to_message_response(message: Message) -> MessageResponse:
@@ -411,7 +442,7 @@ def list_messages(
         service=service, conversation_id=conversation_id, owner_id=user.owner_id
     )
     try:
-        items = service.list_messages(
+        items = service.list_timeline(
             conversation_id=conversation_id,
             limit=limit,
             before_message_id=before_message_id,
@@ -425,9 +456,17 @@ def list_messages(
             else status.HTTP_400_BAD_REQUEST
         )
         raise HTTPException(status_code=http_status, detail=detail) from exc
-    next_before_message_id = items[0].id if len(items) == limit else None
+    message_items = [item for item in items if isinstance(item, Message)]
+    next_before_message_id = (
+        message_items[0].id if len(message_items) == limit else None
+    )
     return ListMessagesResponse(
-        items=[to_message_response(item) for item in items],
+        items=[
+            MessageTimelineItemResponse(message=to_message_response(item))
+            if isinstance(item, Message)
+            else to_boundary_response(item)
+            for item in items
+        ],
         next_before_message_id=next_before_message_id,
     )
 

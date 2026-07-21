@@ -255,6 +255,88 @@ def test_gateway_boundary_is_idempotent_and_appears_before_its_anchor(
         assert rows["count"] == 1
 
 
+def test_gateway_boundary_rejects_conflicting_reuse_of_stable_identity(
+    tmp_path: Path,
+) -> None:
+    """A Gateway retry may reuse its identity only for the same durable fact."""
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        owner = register_and_authorize(client)
+        from tests.im_service._auth_helpers import seed_user_under_owner
+
+        agent_user_id = seed_user_under_owner(
+            client,
+            username="agent:planner",
+            owner_id=owner.owner_id,
+        )
+        conversation = client.post(
+            "/im/v1/conversations",
+            json={
+                "title": "Planner",
+                "participant_ids": [owner.id, agent_user_id],
+            },
+        )
+        assert conversation.status_code == 201, conversation.text
+        conversation_id = conversation.json()["id"]
+        first_anchor = client.post(
+            f"/im/v1/conversations/{conversation_id}/messages",
+            json={"sender_user_id": owner.id, "content": "first"},
+        )
+        second_anchor = client.post(
+            f"/im/v1/conversations/{conversation_id}/messages",
+            json={"sender_user_id": owner.id, "content": "second"},
+        )
+        assert first_anchor.status_code == 201, first_anchor.text
+        assert second_anchor.status_code == 201, second_anchor.text
+
+        with client.websocket_connect("/im/ws/gateway") as websocket:
+            websocket.send_json(
+                {
+                    "type": "node.register",
+                    "payload": {"node_id": "node-1", "agents": ["planner"]},
+                }
+            )
+            assert websocket.receive_json()["type"] == "ack"
+            common = {
+                "boundary_id": "stable-boundary-id",
+                "node_id": "node-1",
+                "conversation_id": conversation_id,
+                "agent_id": "planner",
+                "runtime_fingerprint": "runtime-a",
+                "fingerprint_schema": "v1",
+                "profile_version": 1,
+                "applied_at": "2026-07-21T00:00:00Z",
+            }
+            websocket.send_json(
+                {
+                    "type": "agent.config.boundary",
+                    "payload": {
+                        **common,
+                        "before_message_id": first_anchor.json()["id"],
+                    },
+                }
+            )
+            assert websocket.receive_json()["type"] == "ack"
+            websocket.send_json(
+                {
+                    "type": "agent.config.boundary",
+                    "payload": {
+                        **common,
+                        "before_message_id": second_anchor.json()["id"],
+                    },
+                }
+            )
+            rejected = websocket.receive_json()
+
+    assert rejected == {
+        "type": "error",
+        "payload": {
+            "code": "invalid_message",
+            "message": "boundary_id conflicts with persisted boundary",
+        },
+    }
+
+
 def test_gateway_websocket_error_correlates_rejected_agent_message(
     tmp_path: Path,
 ) -> None:

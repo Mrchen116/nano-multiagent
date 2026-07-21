@@ -146,6 +146,22 @@ CREATE TABLE IF NOT EXISTS conversation_events (
     FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS agent_config_boundaries (
+    boundary_id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    before_message_id TEXT NOT NULL,
+    runtime_fingerprint TEXT NOT NULL,
+    fingerprint_schema TEXT NOT NULL,
+    profile_version INTEGER NOT NULL,
+    applied_at TEXT NOT NULL,
+    event_id INTEGER NOT NULL UNIQUE,
+    UNIQUE(conversation_id, before_message_id, runtime_fingerprint),
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+    FOREIGN KEY (before_message_id) REFERENCES messages(id) ON DELETE CASCADE,
+    FOREIGN KEY (event_id) REFERENCES conversation_events(event_id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS relay_tasks (
     relay_task_id TEXT PRIMARY KEY,
     message_id TEXT NOT NULL,

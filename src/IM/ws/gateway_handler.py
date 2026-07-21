@@ -40,6 +40,7 @@ from IM.infra.gateway_persistence import (
 )
 from IM.infra.channel_control_store import ChannelControlStore, ChannelManifest
 from IM.infra.repositories import (
+    AgentConfigBoundaryRepository,
     EventRepository,
     MessageRepository,
 )
@@ -106,6 +107,7 @@ class GatewayHandler:
             "channel.status",
             "channel.runtime_metadata",
             "agent.message",
+            "agent.config.boundary",
             "node.streaming_delta",
             "node.system_message",
         }
@@ -118,6 +120,7 @@ class GatewayHandler:
         node_persistence: GatewayNodePersistence | None = None,
         conversation_persistence: GatewayConversationPersistence | None = None,
         message_repository: MessageRepository | None = None,
+        boundary_repository: AgentConfigBoundaryRepository | None = None,
         event_repository: EventRepository | None = None,
         metrics_service: MetricsService | None = None,
         user_stream_registry: UserStreamRegistry | None = None,
@@ -128,6 +131,7 @@ class GatewayHandler:
         self._node_persistence = node_persistence
         self._conversation_persistence = conversation_persistence
         self._message_repository = message_repository
+        self._boundary_repository = boundary_repository
         self._event_repository = event_repository
         self._metrics_service = metrics_service
         self._user_stream_registry = user_stream_registry
@@ -312,6 +316,8 @@ class GatewayHandler:
             )
         if message_type == "agent.message":
             return await self._handle_agent_message(payload=payload)
+        if message_type == "agent.config.boundary":
+            return await self._handle_agent_config_boundary(payload=payload)
         if message_type == "node.streaming_delta":
             return await self._handle_streaming_delta(payload=payload)
         if message_type == "node.system_message":
@@ -1450,6 +1456,52 @@ class GatewayHandler:
         return {
             "type": "ack",
             "payload": {"message_type": "node.report", "node_id": node_id},
+        }
+
+    async def _handle_agent_config_boundary(
+        self, *, payload: dict[str, object]
+    ) -> dict[str, object]:
+        """Persist a non-message cache boundary before acknowledging its Gateway outbox item."""
+        node_id = _require_text(payload.get("node_id"), field_name="node_id")
+        if self._boundary_repository is None:
+            raise RuntimeError("boundary_repository is not configured")
+        async with self._lock:
+            connection = self._connections.get(node_id)
+        if connection is None:
+            return _not_registered_error(node_id=node_id)
+        boundary = self._boundary_repository.record_from_gateway(
+            boundary_id=_require_text(
+                payload.get("boundary_id"), field_name="boundary_id"
+            ),
+            node_id=node_id,
+            owner_id=connection.owner_id,
+            conversation_id=_require_text(
+                payload.get("conversation_id"), field_name="conversation_id"
+            ),
+            agent_id=_require_text(payload.get("agent_id"), field_name="agent_id"),
+            before_message_id=_require_text(
+                payload.get("before_message_id"), field_name="before_message_id"
+            ),
+            runtime_fingerprint=_require_text(
+                payload.get("runtime_fingerprint"), field_name="runtime_fingerprint"
+            ),
+            fingerprint_schema=_require_text(
+                payload.get("fingerprint_schema"), field_name="fingerprint_schema"
+            ),
+            profile_version=_require_non_negative_int(
+                payload.get("profile_version"), field_name="profile_version"
+            ),
+            applied_at=_require_text(
+                payload.get("applied_at"), field_name="applied_at"
+            ),
+        )
+        return {
+            "type": "ack",
+            "payload": {
+                "message_type": "agent.config.boundary",
+                "boundary_id": boundary.id,
+                "event_id": boundary.event_id,
+            },
         }
 
     async def _handle_streaming_delta(
@@ -2591,6 +2643,12 @@ def _require_message_type(payload: dict[str, Any]) -> str:
 def _require_text(value: object, *, field_name: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{field_name} must be a non-empty string")
+    return value
+
+
+def _require_non_negative_int(value: object, *, field_name: str) -> int:
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise ValueError(f"{field_name} must be a non-negative integer")
     return value
 
 
