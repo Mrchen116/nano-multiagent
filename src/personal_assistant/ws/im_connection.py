@@ -16,6 +16,14 @@ from urllib.parse import urlparse
 
 from personal_assistant._utils import _require_text
 from personal_assistant.channels.web_relay_adapter import WebRelayAdapter
+from personal_assistant.gateway.managed_channel_control import (
+    ChannelRuntimeMetadataEmission,
+    ChannelStatusDirective,
+    ChannelStatusEmission,
+    ManagedChannelBindings,
+    ManagedChannelEmission,
+    ManagedChannelConnectionSender,
+)
 from personal_assistant.config.sync_client import ConfigSyncClient
 from personal_assistant.defaults import (
     WORKSPACE_CONFIG_DIRNAME as _PA_WORKSPACE_CFG_DIR,
@@ -138,7 +146,7 @@ TokenGetter = Callable[[], Awaitable[str | None]]
 # Called when IM sends a node.streaming_delta kind=permission_response.
 # Payload keys: request_id, decision, message_id.  PA should POST the decision
 # to the agent inbound endpoint to unpark the auto_mode_gate hook.
-PermissionResponseHandler = Callable[[Mapping[str, object]], None]
+PermissionResponseHandler = Callable[[Mapping[str, object]], bool | None]
 # feat-445-M1: IM delegates session fork over WS. Given the fork request payload
 # (source_conversation_id / new_conversation_id / agent_id / fork_point.message_id),
 # the gateway-side handler locates the source kernel session, forks it at the point,
@@ -147,15 +155,30 @@ SessionForkHandler = Callable[
     [Mapping[str, object]],
     Awaitable[Mapping[str, object]] | Mapping[str, object],
 ]
-ChannelManifestHandler = Callable[
-    [Mapping[str, object]],
-    Awaitable[Mapping[str, object]] | Mapping[str, object],
-]
-ChannelReconnectHandler = Callable[[str, int], Awaitable[object] | object]
-ChannelReconcileAckHandler = Callable[[Mapping[str, object]], Awaitable[None] | None]
-ChannelStatusResultHandler = Callable[[Mapping[str, object]], Awaitable[None] | None]
-ChannelBootstrapProvider = Callable[[Mapping[str, object]], list[Mapping[str, object]]]
-ChannelBootstrapAppliedHandler = Callable[[], None]
+
+
+def build_permission_response_handler(
+    *, kernel: Any
+) -> Callable[[Mapping[str, object]], bool]:
+    """Build the WS permission-decision handler for the in-process Kernel."""
+
+    def handle(body: Mapping[str, object]) -> bool:
+        request_id = str(body.get("request_id") or "").strip()
+        decision = str(body.get("decision") or "").strip()
+        if not request_id or not decision:
+            return False
+        try:
+            return bool(
+                kernel.submit_permission_decision(
+                    request_id=request_id,
+                    decision=decision,
+                    reason=str(body.get("reason") or "").strip(),
+                )
+            )
+        except Exception:  # noqa: BLE001
+            return False
+
+    return handle
 
 
 @dataclass(frozen=True, slots=True)
@@ -251,13 +274,9 @@ class IMConnectionManager:
         session_fork_handler: SessionForkHandler | None = None,
         token_getter: TokenGetter | None = None,
         permission_response_handler: PermissionResponseHandler | None = None,
-        on_connected: Callable[[], Awaitable[None]] | None = None,
-        channel_manifest_handler: ChannelManifestHandler | None = None,
-        channel_reconnect_handler: ChannelReconnectHandler | None = None,
-        channel_reconcile_ack_handler: ChannelReconcileAckHandler | None = None,
-        channel_status_result_handler: ChannelStatusResultHandler | None = None,
-        channel_bootstrap_provider: ChannelBootstrapProvider | None = None,
-        channel_bootstrap_applied_handler: ChannelBootstrapAppliedHandler | None = None,
+        on_connected: Callable[[ManagedChannelConnectionSender], Awaitable[None]]
+        | None = None,
+        managed_channel_bindings: ManagedChannelBindings | None = None,
         channel_reconcile_retry_delays: tuple[float, ...] = (0.5, 1.0, 2.0),
         connect: ConnectFn,
         sleep: SleepFn = asyncio.sleep,
@@ -284,12 +303,9 @@ class IMConnectionManager:
         # (node.register ack received). Used to trigger reconcile_all_agents so gateway
         # config converges to IM truth on connect and every reconnect.
         self._on_connected = on_connected
-        self._channel_manifest_handler = channel_manifest_handler
-        self._channel_reconnect_handler = channel_reconnect_handler
-        self._channel_reconcile_ack_handler = channel_reconcile_ack_handler
-        self._channel_status_result_handler = channel_status_result_handler
-        self._channel_bootstrap_provider = channel_bootstrap_provider
-        self._channel_bootstrap_applied_handler = channel_bootstrap_applied_handler
+        self._managed_channel_bindings = managed_channel_bindings
+        if managed_channel_bindings is not None:
+            managed_channel_bindings.emissions.bind_sender(self._send_managed_emission)
         self._channel_reconcile_retry_delays = channel_reconcile_retry_delays
         self._connect = connect
         self._sleep = sleep
@@ -302,6 +318,7 @@ class IMConnectionManager:
         self._pending_frames: deque[PendingFrame] = deque()
         self._wire_frame_owner: WireFrameOwner | None = None
         self._registered = False
+        self._connection_epoch = 0
         self._registration_deadline: float | None = None
         self._outbound_drained: asyncio.Event | None = None
         self._flush_lock = asyncio.Lock()
@@ -463,6 +480,49 @@ class IMConnectionManager:
             return False
         asyncio.run_coroutine_threadsafe(self.send_json(message_type, payload), loop)
         return True
+
+    def _send_managed_emission(self, emission: ManagedChannelEmission) -> None:
+        """Schedule one typed control emission on its current registered socket only."""
+
+        loop = self._event_loop
+        if (
+            loop is None
+            or loop.is_closed()
+            or not loop.is_running()
+            or not self._connected
+            or not self._registered
+        ):
+            return
+        connection_epoch = self._connection_epoch
+        asyncio.run_coroutine_threadsafe(
+            self._queue_managed_emission(emission, connection_epoch), loop
+        )
+
+    async def _queue_managed_emission(
+        self, emission: ManagedChannelEmission, connection_epoch: int
+    ) -> None:
+        """Project one live provider emission only while its socket stays registered."""
+
+        if (
+            not self._connected
+            or not self._registered
+            or connection_epoch != self._connection_epoch
+        ):
+            return
+        if isinstance(emission, ChannelStatusEmission):
+            message_type = "channel.status"
+        elif isinstance(emission, ChannelRuntimeMetadataEmission):
+            message_type = "channel.runtime_metadata"
+        else:
+            raise TypeError(f"unsupported managed channel emission: {type(emission)!r}")
+        request_id = emission.payload.get("request_id")
+        if (
+            isinstance(emission, ChannelStatusEmission)
+            and isinstance(request_id, str)
+            and self.has_pending_request(request_id)
+        ):
+            return
+        await self.send_json(message_type, emission.payload)
 
     def has_pending_request(self, request_id: str) -> bool:
         """Return whether one correlated request is already queued or in flight."""
@@ -691,9 +751,9 @@ class IMConnectionManager:
         request_id: str,
         supersede_retry: bool = True,
     ) -> dict[str, object]:
-        handler = self._channel_manifest_handler
-        if handler is None:
-            raise RuntimeError("channel.reconcile requires channel_manifest_handler")
+        bindings = self._managed_channel_bindings
+        if bindings is None:
+            raise RuntimeError("channel.reconcile requires managed_channel_bindings")
         revision = int(body.get("manifest_revision") or 0)
         if supersede_retry and revision >= self._latest_channel_manifest_revision:
             self._latest_channel_manifest_revision = revision
@@ -701,7 +761,7 @@ class IMConnectionManager:
             if retry_task is not None and retry_task is not asyncio.current_task():
                 retry_task.cancel()
             self._channel_manifest_retry_task = None
-        result = await _maybe_await(handler(body))
+        result = await bindings.apply_manifest(body)
         result_payload = dict(result) if isinstance(result, Mapping) else {}
         await self.send_json(
             "channel.reconcile.result",
@@ -810,9 +870,9 @@ class IMConnectionManager:
                 self._sync_client.handle_notification(body)
             return
         if message_type == "channel.reconcile":
-            if self._channel_manifest_handler is None:
+            if self._managed_channel_bindings is None:
                 raise RuntimeError(
-                    "channel.reconcile requires channel_manifest_handler"
+                    "channel.reconcile requires managed_channel_bindings"
                 )
             request_id = _require_text(body.get("request_id"), field_name="request_id")
             result_payload = await self._apply_channel_manifest_and_send(
@@ -825,19 +885,13 @@ class IMConnectionManager:
             )
             return
         if message_type == "channels.bootstrap.request":
-            if self._channel_bootstrap_provider is None:
-                raise RuntimeError(
-                    "channels.bootstrap.request requires channel_bootstrap_provider"
-                )
             request_id = _require_text(body.get("request_id"), field_name="request_id")
             await self.send_json(
                 "channels.bootstrap",
                 {
                     "request_id": request_id,
                     "node_id": self._reporter.node_id,
-                    "items": [
-                        dict(item) for item in self._channel_bootstrap_provider(body)
-                    ],
+                    "items": [],
                 },
             )
             return
@@ -848,11 +902,12 @@ class IMConnectionManager:
             manifest = body.get("manifest")
             if not isinstance(manifest, Mapping):
                 raise ValueError("channels.bootstrap.result manifest is required")
-            if self._channel_manifest_handler is None:
+            bindings = self._managed_channel_bindings
+            if bindings is None:
                 raise RuntimeError(
-                    "channels.bootstrap.result requires channel_manifest_handler"
+                    "channels.bootstrap.result requires managed_channel_bindings"
                 )
-            result = await _maybe_await(self._channel_manifest_handler(manifest))
+            result = await bindings.apply_manifest(manifest)
             result_payload = dict(result) if isinstance(result, Mapping) else {}
             await self.send_json(
                 "channel.reconcile.result",
@@ -865,20 +920,16 @@ class IMConnectionManager:
                     **result_payload,
                 },
             )
-            if (
-                result_payload.get("outcome") == "applied"
-                and self._channel_bootstrap_applied_handler is not None
-            ):
-                self._channel_bootstrap_applied_handler()
             return
         if message_type == "channel.reconnect":
-            if self._channel_reconnect_handler is None:
+            bindings = self._managed_channel_bindings
+            if bindings is None:
                 raise RuntimeError(
-                    "channel.reconnect requires channel_reconnect_handler"
+                    "channel.reconnect requires managed_channel_bindings"
                 )
             channel_id = _require_text(body.get("channel_id"), field_name="channel_id")
             revision = int(body.get("channel_revision") or 0)
-            await _maybe_await(self._channel_reconnect_handler(channel_id, revision))
+            await bindings.reconnect(channel_id, revision)
             return
         if message_type in {
             "channel.status.result",
@@ -888,17 +939,18 @@ class IMConnectionManager:
             resolved = self._resolve_correlated_channel_result(
                 message_type=message_type, payload=body
             )
+            bindings = self._managed_channel_bindings
             if (
                 resolved
                 and message_type == "channel.status.result"
-                and self._channel_status_result_handler is not None
+                and bindings is not None
             ):
-                await _maybe_await(self._channel_status_result_handler(body))
-            if (
-                message_type == "channels.reconcile.result.ack"
-                and self._channel_reconcile_ack_handler is not None
-            ):
-                await _maybe_await(self._channel_reconcile_ack_handler(body))
+                directive = await bindings.handle_status_result(body)
+                if directive == ChannelStatusDirective.CLOSE_CONNECTION:
+                    await self.close()
+                    return
+            if message_type == "channels.reconcile.result.ack" and bindings is not None:
+                bindings.acknowledge_reconcile(body)
             if self._connected:
                 await self._flush_pending_frames()
             return
@@ -1463,7 +1515,7 @@ class IMConnectionManager:
         if self._on_connected is None:
             return
         try:
-            await self._on_connected()
+            await self._on_connected(self)
         except Exception as exc:  # noqa: BLE001
             self._events.append({"event": "on_connected_error", "error": str(exc)})
 
@@ -1550,6 +1602,7 @@ class IMConnectionManager:
         self._connected = False
         self._websocket = None
         self._registered = False
+        self._connection_epoch += 1
         self._registration_deadline = None
         self._wire_frame_owner = None
         self._pending_control_frames.clear()

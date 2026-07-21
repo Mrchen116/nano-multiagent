@@ -13,7 +13,7 @@ import pytest
 from personal_assistant.config.local_store import GatewayLifecycleConfig
 from personal_assistant.gateway.inbound_dispatcher import InboundDispatcher
 from personal_assistant.gateway.internal_dispatch import InternalDispatchHandler
-from personal_assistant.main import GatewayRuntime
+from personal_assistant.gateway.runtime import GatewayRuntime
 
 from ._gateway_runtime_test_utils import make_config, run_in_thread
 

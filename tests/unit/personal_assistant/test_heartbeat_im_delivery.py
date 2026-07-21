@@ -147,7 +147,9 @@ def test_heartbeat_with_content_creates_real_message_row_in_fk_enforced_db(
     This is the M138 fake-green guard: FK is ON; any synthetic message_id would
     fail when the events table tries to reference messages.id.
     """
-    from personal_assistant.main import _build_kernel_event_observer
+    from personal_assistant.gateway.runtime_delivery.observer import (
+        build_kernel_event_observer,
+    )
 
     connection, handler = _build_im_db_and_handler(tmp_path)
     users = UserRepository(connection)
@@ -177,7 +179,7 @@ def test_heartbeat_with_content_creates_real_message_row_in_fk_enforced_db(
         "kernel_session_id": "sess-hb-1",
     }
 
-    observer = _build_kernel_event_observer(
+    observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: fake_manager,
         run_context_store=run_context_store,
     )
@@ -240,7 +242,9 @@ def test_heartbeat_with_content_creates_real_message_row_in_fk_enforced_db(
 
 def test_heartbeat_no_reply_produces_zero_message_rows(tmp_path: Path) -> None:
     """Heartbeat run that returns NO_REPLY → zero new message rows in IM DB (silent tick)."""
-    from personal_assistant.main import _build_kernel_event_observer
+    from personal_assistant.gateway.runtime_delivery.observer import (
+        build_kernel_event_observer,
+    )
 
     connection, handler = _build_im_db_and_handler(tmp_path)
     users = UserRepository(connection)
@@ -267,7 +271,7 @@ def test_heartbeat_no_reply_produces_zero_message_rows(tmp_path: Path) -> None:
         "kernel_session_id": "sess-hb-2",
     }
 
-    observer = _build_kernel_event_observer(
+    observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: fake_manager,
         run_context_store=run_context_store,
     )
@@ -419,7 +423,9 @@ def test_stream_run_to_completion_seeds_typed_store_seen_by_observer(
 ) -> None:
     """Heartbeat/cron stream helper must seed the same typed store observer reads."""
 
-    from personal_assistant.main import _stream_run_to_completion
+    from personal_assistant.gateway.runtime_delivery.stream import (
+        stream_run_to_completion as _stream_run_to_completion,
+    )
 
     connection, handler = _build_im_db_and_handler(tmp_path)
     users = UserRepository(connection)
@@ -488,7 +494,9 @@ def test_stream_run_to_completion_seeds_typed_store_seen_by_observer(
 
 def test_heartbeat_empty_content_produces_zero_message_rows(tmp_path: Path) -> None:
     """Heartbeat run with empty assistant content → zero message rows (silent tick)."""
-    from personal_assistant.main import _build_kernel_event_observer
+    from personal_assistant.gateway.runtime_delivery.observer import (
+        build_kernel_event_observer,
+    )
 
     connection, handler = _build_im_db_and_handler(tmp_path)
     users = UserRepository(connection)
@@ -515,7 +523,7 @@ def test_heartbeat_empty_content_produces_zero_message_rows(tmp_path: Path) -> N
         "kernel_session_id": "sess-hb-3",
     }
 
-    observer = _build_kernel_event_observer(
+    observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: fake_manager,
         run_context_store=run_context_store,
     )
@@ -548,7 +556,9 @@ def test_normal_chat_run_context_store_eager_bubble_unchanged(tmp_path: Path) ->
     Heartbeat lazy path must not change the behavior of normal chat runs, which
     seed run_context_store with conversation_id and expect eager bubble creation.
     """
-    from personal_assistant.main import _build_kernel_event_observer
+    from personal_assistant.gateway.runtime_delivery.observer import (
+        build_kernel_event_observer,
+    )
 
     connection, handler = _build_im_db_and_handler(tmp_path)
     users = UserRepository(connection)
@@ -579,7 +589,7 @@ def test_normal_chat_run_context_store_eager_bubble_unchanged(tmp_path: Path) ->
         "kernel_session_id": "sess-chat-1",
     }
 
-    observer = _build_kernel_event_observer(
+    observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: fake_manager,
         run_context_store=run_context_store,
     )

@@ -32,7 +32,9 @@ from tests.helpers.inbound_pipeline import build_inbound_pipeline
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
 from personal_assistant.gateway.session_keys import SessionBindingStore
-from personal_assistant.main import _build_kernel_event_observer
+from personal_assistant.gateway.runtime_delivery.observer import (
+    build_kernel_event_observer,
+)
 
 from ._pipeline_helpers import _FakeChannel, _FakeSseKernel, _agents
 
@@ -71,7 +73,7 @@ def test_collapse_window_steer_streams_reply_in_new_bubble_no_timeout(
         "run-1": {"conversation_id": "chat-1", "message_id": "", "agent_id": "agent-a"}
     }
     manager = _FakeIMManager()
-    observer = _build_kernel_event_observer(
+    observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: manager,
         run_context_store=run_context_store,
         running_tool_calls={},

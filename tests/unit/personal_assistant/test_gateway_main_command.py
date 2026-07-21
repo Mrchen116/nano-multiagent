@@ -4,11 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from personal_assistant.main import (
-    BackgroundLaunchResult,
-    GatewayStartupError,
-    main,
-)
+from personal_assistant.gateway.im_bootstrap import GatewayStartupError
+from personal_assistant.gateway.process_lifecycle import BackgroundLaunchResult
+from personal_assistant.main import main
 
 
 def test_main_defaults_to_background_launch(
@@ -27,10 +25,11 @@ def test_main_defaults_to_background_launch(
         return result
 
     monkeypatch.setattr(
-        "personal_assistant.main.launch_gateway_in_background", _launch_background
+        "personal_assistant.gateway.process_lifecycle.launch_gateway_in_background",
+        _launch_background,
     )
     monkeypatch.setattr(
-        "personal_assistant.main.run_gateway",
+        "personal_assistant.gateway.process_lifecycle.run_gateway",
         lambda **_kwargs: (_ for _ in ()).throw(
             AssertionError("foreground path should not run")
         ),
@@ -59,13 +58,14 @@ def test_main_passes_im_service_url_override_to_background_launch(
         )
 
     monkeypatch.setattr(
-        "personal_assistant.main.launch_gateway_in_background", _launch_background
+        "personal_assistant.gateway.process_lifecycle.launch_gateway_in_background",
+        _launch_background,
     )
     monkeypatch.setattr(
         "personal_assistant.main._check_im_reachable", lambda _url: False
     )
     monkeypatch.setattr(
-        "personal_assistant.main.run_gateway",
+        "personal_assistant.gateway.process_lifecycle.run_gateway",
         lambda **_kwargs: (_ for _ in ()).throw(
             AssertionError("foreground path should not run")
         ),
@@ -108,10 +108,11 @@ def test_main_defaults_to_canonical_config_path_when_flag_missing(
         )
 
     monkeypatch.setattr(
-        "personal_assistant.main.launch_gateway_in_background", _launch_background
+        "personal_assistant.gateway.process_lifecycle.launch_gateway_in_background",
+        _launch_background,
     )
     monkeypatch.setattr(
-        "personal_assistant.main.run_gateway",
+        "personal_assistant.gateway.process_lifecycle.run_gateway",
         lambda **_kwargs: (_ for _ in ()).throw(
             AssertionError("foreground path should not run")
         ),
@@ -136,9 +137,11 @@ def test_main_runs_gateway_in_foreground_when_requested(
         seen["foreground"] = (config_path, factories, im_service_url_override)
         return 0
 
-    monkeypatch.setattr("personal_assistant.main.run_gateway", _run_gateway)
     monkeypatch.setattr(
-        "personal_assistant.main.launch_gateway_in_background",
+        "personal_assistant.gateway.process_lifecycle.run_gateway", _run_gateway
+    )
+    monkeypatch.setattr(
+        "personal_assistant.gateway.process_lifecycle.launch_gateway_in_background",
         lambda **_kwargs: (_ for _ in ()).throw(
             AssertionError("background path should not run")
         ),
@@ -161,9 +164,11 @@ def test_main_passes_im_service_url_override_to_foreground_run(
         seen["foreground"] = (config_path, factories, im_service_url_override)
         return 0
 
-    monkeypatch.setattr("personal_assistant.main.run_gateway", _run_gateway)
     monkeypatch.setattr(
-        "personal_assistant.main.launch_gateway_in_background",
+        "personal_assistant.gateway.process_lifecycle.run_gateway", _run_gateway
+    )
+    monkeypatch.setattr(
+        "personal_assistant.gateway.process_lifecycle.launch_gateway_in_background",
         lambda **_kwargs: (_ for _ in ()).throw(
             AssertionError("background path should not run")
         ),
@@ -193,7 +198,7 @@ def test_main_returns_non_zero_when_background_launch_fails(
     monkeypatch, capsys, tmp_path: Path
 ) -> None:
     monkeypatch.setattr(
-        "personal_assistant.main.launch_gateway_in_background",
+        "personal_assistant.gateway.process_lifecycle.launch_gateway_in_background",
         lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("gateway failed")),
     )
 
@@ -207,7 +212,7 @@ def test_main_surfaces_next_step_for_gateway_startup_error(
     monkeypatch, capsys, tmp_path: Path
 ) -> None:
     monkeypatch.setattr(
-        "personal_assistant.main.launch_gateway_in_background",
+        "personal_assistant.gateway.process_lifecycle.launch_gateway_in_background",
         lambda **_kwargs: (_ for _ in ()).throw(
             GatewayStartupError(
                 summary="node-local did not appear in IM bootstrap",
@@ -235,7 +240,9 @@ def test_main_stop_command_stops_background_gateway(
         seen["config_path"] = config_path
         return "STOPPED pid=999"
 
-    monkeypatch.setattr("personal_assistant.main.stop_gateway", _stop_background)
+    monkeypatch.setattr(
+        "personal_assistant.gateway.process_lifecycle.stop_gateway", _stop_background
+    )
 
     exit_code = main(["stop", "--config", str(tmp_path / "node-config.yaml")])
 
@@ -255,7 +262,9 @@ def test_main_stop_command_defaults_to_canonical_config_path_when_flag_missing(
         seen["config_path"] = config_path
         return "STOPPED pid=999"
 
-    monkeypatch.setattr("personal_assistant.main.stop_gateway", _stop_background)
+    monkeypatch.setattr(
+        "personal_assistant.gateway.process_lifecycle.stop_gateway", _stop_background
+    )
 
     exit_code = main(["stop"])
 
@@ -270,7 +279,7 @@ def test_main_stop_command_reports_not_running(
     monkeypatch, capsys, tmp_path: Path
 ) -> None:
     monkeypatch.setattr(
-        "personal_assistant.main.stop_gateway",
+        "personal_assistant.gateway.process_lifecycle.stop_gateway",
         lambda **_kwargs: "NOT RUNNING config=node-config.yaml",
     )
 
@@ -284,7 +293,7 @@ def test_main_stop_command_reports_stale_runtime_state(
     monkeypatch, capsys, tmp_path: Path
 ) -> None:
     monkeypatch.setattr(
-        "personal_assistant.main.stop_gateway",
+        "personal_assistant.gateway.process_lifecycle.stop_gateway",
         lambda **_kwargs: "STALE pid=999 state=.gateway-state.json",
     )
 
@@ -311,7 +320,9 @@ def test_main_restart_command_uses_serialized_lifecycle_operation(
             log_path=tmp_path / "gateway.log",
         )
 
-    monkeypatch.setattr("personal_assistant.main.restart_gateway", _restart)
+    monkeypatch.setattr(
+        "personal_assistant.gateway.process_lifecycle.restart_gateway", _restart
+    )
 
     config_path = str(tmp_path / "node-config.yaml")
     exit_code = main(["restart", "--config", config_path])

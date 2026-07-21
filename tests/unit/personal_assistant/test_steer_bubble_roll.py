@@ -16,7 +16,9 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from personal_assistant.main import _build_kernel_event_observer
+from personal_assistant.gateway.runtime_delivery.observer import (
+    build_kernel_event_observer,
+)
 
 
 class _FakeManager:
@@ -70,7 +72,7 @@ def test_injection_consumed_closes_bubble_a_completed_then_opens_b() -> None:
             "kernel_message_id": "kmsg-A",
         }
     }
-    observer = _build_kernel_event_observer(
+    observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: manager,
         run_context_store=run_ctx,
         running_tool_calls={},
@@ -110,7 +112,7 @@ def test_injection_consumed_opens_b_even_when_message_id_empty() -> None:
             "agent_id": "agent-1",
         }
     }
-    observer = _build_kernel_event_observer(
+    observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: manager,
         run_context_store=run_ctx,
         running_tool_calls={},
@@ -138,7 +140,7 @@ def test_two_back_to_back_steers_roll_safely() -> None:
             "kernel_message_id": "kmsg-A",
         }
     }
-    observer = _build_kernel_event_observer(
+    observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: manager,
         run_context_store=run_ctx,
         running_tool_calls={},
@@ -175,7 +177,7 @@ def test_concurrent_injection_consumed_guard_drops_duplicate() -> None:
     double-close, no zombie running bubble)."""
     import asyncio as _asyncio
 
-    from personal_assistant.main import _roll_bubble
+    from personal_assistant.gateway.runtime_delivery.observer import roll_bubble
 
     class _BlockingManager:
         connected = True
@@ -207,7 +209,7 @@ def test_concurrent_injection_consumed_guard_drops_duplicate() -> None:
         }
 
         def _roll():
-            return _roll_bubble(
+            return roll_bubble(
                 manager,
                 run_id="run-1",
                 conversation_id="conv-1",

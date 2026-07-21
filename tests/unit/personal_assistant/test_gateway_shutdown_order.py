@@ -27,7 +27,7 @@ from personal_assistant.config.local_store import (
     LocalConfig,
     NodeConfig,
 )
-from personal_assistant.main import GatewayRuntime
+from personal_assistant.gateway.runtime import GatewayRuntime
 
 from agent.core.llm.config import LLMConfigPayload, LLMModelPayload, LLMProviderPayload
 
@@ -218,16 +218,16 @@ def test_gateway_runtime_kernel_aclose_called_exactly_once(tmp_path: Path) -> No
     )
 
 
-def test_build_runtime_does_not_add_kernel_close_to_resource_closers(
+def test_compose_gateway_does_not_add_kernel_close_to_resource_closers(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """build_runtime must not add kernel.close to resource_closers (bugfix-402-M3 R3).
+    """compose_gateway must not add kernel.close to resource_closers (bugfix-402-M3 R3).
 
     After R3, the Kernel is passed directly as ``kernel=`` to GatewayRuntime;
     the old ``resource_closers=(kernel.close,)`` pattern must be gone.
     """
-    from personal_assistant.main import build_runtime
+    from personal_assistant.gateway.composition import compose_gateway
 
     workspace_root = tmp_path / "agent-a"
     workspace_root.mkdir()
@@ -244,11 +244,11 @@ def test_build_runtime_does_not_add_kernel_close_to_resource_closers(
         source_path=tmp_path / "node-config.yaml",
     )
 
-    runtime = build_runtime(config)
+    runtime = compose_gateway(config)
 
     # None of the resource_closers should be the kernel's close method.
     # The most reliable check is that the Kernel is wired as runtime._kernel.
     assert hasattr(runtime, "_kernel"), (
-        "GatewayRuntime must have a _kernel attribute after build_runtime (M3 R3)"
+        "GatewayRuntime must have a _kernel attribute after compose_gateway (M3 R3)"
     )
     assert runtime._kernel is not None  # noqa: SLF001

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from personal_assistant.main import _build_permission_response_handler
+from personal_assistant.ws.im_connection import build_permission_response_handler
 
 
 class _FakeKernel:
@@ -36,7 +36,7 @@ class _FakeKernel:
 def test_handler_routes_to_kernel_submit_permission_decision() -> None:
     """Handler must call kernel.submit_permission_decision with request_id and decision."""
     kernel = _FakeKernel()
-    handler = _build_permission_response_handler(kernel=kernel)
+    handler = build_permission_response_handler(kernel=kernel)
 
     accepted = handler({"request_id": "req-abc", "decision": "allow_once"})
 
@@ -49,7 +49,7 @@ def test_handler_routes_to_kernel_submit_permission_decision() -> None:
 def test_handler_passes_reason_field() -> None:
     """Handler must forward the optional reason field."""
     kernel = _FakeKernel()
-    handler = _build_permission_response_handler(kernel=kernel)
+    handler = build_permission_response_handler(kernel=kernel)
 
     accepted = handler(
         {"request_id": "req-1", "decision": "deny", "reason": "user said no"}
@@ -64,7 +64,7 @@ def test_handler_passes_reason_field() -> None:
 def test_handler_ignores_malformed_frames() -> None:
     """Handler must be a no-op when required fields are missing."""
     kernel = _FakeKernel()
-    handler = _build_permission_response_handler(kernel=kernel)
+    handler = build_permission_response_handler(kernel=kernel)
 
     # Missing request_id
     assert handler({"decision": "allow_once"}) is False
@@ -79,7 +79,7 @@ def test_handler_ignores_malformed_frames() -> None:
 def test_handler_returns_kernel_decision_state() -> None:
     """Handler must expose first-wins state for non-IM approval surfaces."""
     kernel = _FakeKernel(result=False)
-    handler = _build_permission_response_handler(kernel=kernel)
+    handler = build_permission_response_handler(kernel=kernel)
 
     accepted = handler({"request_id": "req-old", "decision": "deny"})
 
@@ -94,7 +94,7 @@ def test_handler_swallows_kernel_errors() -> None:
         def submit_permission_decision(self, **_: Any) -> bool:
             raise RuntimeError("kernel unreachable")
 
-    handler = _build_permission_response_handler(kernel=_ThrowingKernel())
+    handler = build_permission_response_handler(kernel=_ThrowingKernel())
 
     # Must not raise.
     assert handler({"request_id": "r-1", "decision": "deny"}) is False

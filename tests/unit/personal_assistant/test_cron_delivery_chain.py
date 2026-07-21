@@ -105,7 +105,7 @@ class _FakeKernelForCron:
 
 
 class _FakeShimForCron:
-    """Shim-compatible fake for _KernelClientShim interface used by CronRunner."""
+    """Shim-compatible fake for InProcessKernelClient interface used by CronRunner."""
 
     def __init__(self) -> None:
         self.submitted: list[dict] = []
@@ -501,29 +501,36 @@ class TestGatewayStartupConvergence:
     previous crash are marked as failed(gateway_restarted) before any new tick runs.
     """
 
-    def test_build_runtime_calls_converge_stale_on_restart(
-        self, tmp_path: Path, monkeypatch
+    def test_runtime_converges_stale_runs_after_entering_startup(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """build_runtime must call runs_store.converge_stale_on_restart() for each agent."""
+        """Cron recovery starts only when the assembled GatewayRuntime starts."""
+        from personal_assistant.gateway.composition import compose_gateway
         from personal_assistant.scheduler.cron_execution_service import CronRunsStore
+
+        from ._gateway_runtime_test_utils import run_in_thread
+        from ._main_helpers import make_minimal_config
 
         converge_calls: list[str] = []
         original_converge = CronRunsStore.converge_stale_on_restart
 
-        def _recording_converge(self):
-            converge_calls.append(str(self._root))
+        def _recording_converge(self: CronRunsStore) -> int:
+            converge_calls.append(str(self._root))  # noqa: SLF001
             return original_converge(self)
 
         monkeypatch.setattr(
             CronRunsStore, "converge_stale_on_restart", _recording_converge
         )
 
-        # build_runtime source must reference converge_stale_on_restart.
-        import inspect
-        import personal_assistant.main as main_module
+        runtime = compose_gateway(make_minimal_config(tmp_path))
+        assert converge_calls == []
 
-        source = inspect.getsource(main_module.build_runtime)
-        assert "converge_stale_on_restart" in source, (
-            "build_runtime must call converge_stale_on_restart() on startup "
-            "(bugfix-402-M4 R5 exit criterion)"
-        )
+        thread, outcome = run_in_thread(runtime)
+        try:
+            assert runtime.wait_until_ready(timeout=2.0) is True
+        finally:
+            runtime.request_shutdown()
+            thread.join(timeout=5.0)
+
+        assert outcome.get("exit_code") == 0
+        assert converge_calls == [str((tmp_path / "agent-a").resolve())]

@@ -11,7 +11,11 @@ import pytest
 from personal_assistant.channels.web_relay_adapter import WebRelayAdapter
 from personal_assistant.ws.im_connection import IMConnectionConfig, IMConnectionManager
 
-from ._im_connection_helpers import _FakeWebSocket, _minimal_reporter
+from ._im_connection_helpers import (
+    _FakeWebSocket,
+    _managed_channel_bindings,
+    _minimal_reporter,
+)
 
 
 class _YieldingSendWebSocket(_FakeWebSocket):
@@ -72,13 +76,26 @@ def test_status_result_during_yielding_send_releases_wire_owner(
 ) -> None:
     """A server response may arrive before the local send coroutine resumes."""
     socket = _YieldingSendWebSocket("channel.status")
-    manager = _manager(tmp_path, socket)
     resolved: list[str] = []
 
     async def handle_status(payload) -> None:
         resolved.append(str(payload["request_id"]))
 
-    manager._channel_status_result_handler = handle_status  # noqa: SLF001
+    relay = WebRelayAdapter()
+    relay.start(lambda _message: None)
+
+    async def connect(_url: str, _headers: dict[str, str]) -> _FakeWebSocket:
+        return socket
+
+    manager = IMConnectionManager(
+        config=IMConnectionConfig(url="http://im.local", heartbeat_interval_seconds=0),
+        reporter=_minimal_reporter(tmp_path),
+        relay_adapter=relay,
+        managed_channel_bindings=_managed_channel_bindings(
+            handle_status_result=handle_status
+        ),
+        connect=connect,
+    )
 
     async def exercise() -> None:
         await manager.connect_once()
@@ -259,7 +276,7 @@ def test_register_timeout_does_not_cancel_post_ack_convergence(tmp_path: Path) -
     relay.start(lambda _message: None)
     convergence_completed = False
 
-    async def on_connected() -> None:
+    async def on_connected(_sender: object) -> None:
         nonlocal convergence_completed
         await asyncio.sleep(0.03)
         convergence_completed = True

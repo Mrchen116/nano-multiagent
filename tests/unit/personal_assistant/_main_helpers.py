@@ -1,4 +1,4 @@
-"""Shared test helpers for personal_assistant.main unit tests."""
+"""Shared Gateway unit-test helpers."""
 
 from __future__ import annotations
 

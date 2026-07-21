@@ -47,7 +47,9 @@ def _make_observer_with_run_ctx(
     run_id: str, conversation_id: str, message_id: str, agent_id: str
 ):
     """Build a kernel_event_observer with a pre-seeded run context."""
-    from personal_assistant.main import _build_kernel_event_observer
+    from personal_assistant.gateway.runtime_delivery.observer import (
+        build_kernel_event_observer,
+    )
 
     manager = _FakeManager()
     run_context_store: dict[str, dict[str, str]] = {
@@ -57,7 +59,7 @@ def _make_observer_with_run_ctx(
             "agent_id": agent_id,
         }
     }
-    observer = _build_kernel_event_observer(
+    observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: manager,
         run_context_store=run_context_store,
     )
@@ -122,7 +124,9 @@ class TestKernelObserverPermissionRequest:
     @pytest.mark.asyncio
     async def test_permission_request_without_message_id_skipped(self) -> None:
         """If no message_id in run_ctx yet, permission_request should not error and not send."""
-        from personal_assistant.main import _build_kernel_event_observer
+        from personal_assistant.gateway.runtime_delivery.observer import (
+            build_kernel_event_observer,
+        )
 
         manager = _FakeManager()
         run_context_store: dict[str, dict[str, str]] = {
@@ -132,7 +136,7 @@ class TestKernelObserverPermissionRequest:
                 "agent_id": "agent-alpha",
             }
         }
-        observer = _build_kernel_event_observer(
+        observer = build_kernel_event_observer(
             im_connection_manager_factory=lambda: manager,
             run_context_store=run_context_store,
         )
@@ -163,7 +167,9 @@ class TestKernelObserverPermissionRequest:
         self,
     ) -> None:
         """External channel approvals still receive the kernel request without IM row id."""
-        from personal_assistant.main import _build_kernel_event_observer
+        from personal_assistant.gateway.runtime_delivery.observer import (
+            build_kernel_event_observer,
+        )
 
         manager = _FakeManager()
         external_sender = MagicMock()
@@ -178,7 +184,7 @@ class TestKernelObserverPermissionRequest:
                 "feishu_message_id": "om_origin",
             }
         }
-        observer = _build_kernel_event_observer(
+        observer = build_kernel_event_observer(
             im_connection_manager_factory=lambda: manager,
             run_context_store=run_context_store,
             external_permission_request_sender=external_sender,
@@ -251,7 +257,9 @@ class TestKernelObserverPermissionRequest:
 
     @pytest.mark.asyncio
     async def test_external_permission_resolved_updates_channel_surface(self) -> None:
-        from personal_assistant.main import _build_kernel_event_observer
+        from personal_assistant.gateway.runtime_delivery.observer import (
+            build_kernel_event_observer,
+        )
 
         manager = _FakeManager()
         external_resolver = MagicMock()
@@ -265,7 +273,7 @@ class TestKernelObserverPermissionRequest:
                 "reply_target_chat_id": "feishu:cli_a:group:oc_group",
             }
         }
-        observer = _build_kernel_event_observer(
+        observer = build_kernel_event_observer(
             im_connection_manager_factory=lambda: manager,
             run_context_store=run_context_store,
             external_permission_resolved_sender=external_resolver,
@@ -373,7 +381,7 @@ class TestIMConnectionPermissionResponse:
 
 # Test 3 (TestKernelApiClientOrigin) deleted in refactor-387 M3:
 # KernelApiClient was removed. The origin field is now passed via kernel.submit()
-# RunOrigin enum in _KernelClientShim.submit_message.
+# RunOrigin enum in InProcessKernelClient.submit_message.
 
 
 # ---------------------------------------------------------------------------

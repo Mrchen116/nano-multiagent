@@ -259,6 +259,18 @@ class IMAgentConfigSync:
             "custom_prompt": custom_prompt,
         }
 
+    def ensure_agent_skill_enabled(self, agent_id: str, skill_id: str) -> bool:
+        """Enable one declared skill for a local agent when its allowlist is explicit."""
+
+        agent = self._local_agent(agent_id)
+        if agent is None:
+            return False
+        self._enable_created_skill_for_agent(agent, skill_id)
+        updated = self._local_agent(agent_id)
+        return updated is not None and (
+            not updated.skills or skill_id in updated.skills
+        )
+
     def handle_skill_created(self, agent_id: str, event: Mapping[str, object]) -> None:
         """Enable a successfully created skill for the affected live agents."""
 

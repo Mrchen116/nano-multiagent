@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from personal_assistant.main import GatewayRuntime
+from personal_assistant.gateway.runtime import GatewayRuntime
 
 from ._gateway_runtime_test_utils import make_config, run_in_thread
 
@@ -106,7 +106,7 @@ def test_watchdog_does_not_swallow_process_exit_signals(
         raise AssertionError("SystemExit must not enter watchdog rebuild backoff")
 
     monkeypatch.setattr(
-        "personal_assistant.main.asyncio.sleep", _unexpected_rebuild_sleep
+        "personal_assistant.gateway.runtime.asyncio.sleep", _unexpected_rebuild_sleep
     )
 
     with pytest.raises(SystemExit):
@@ -179,7 +179,7 @@ def test_watchdog_treats_manager_stop_return_as_clean_exit(
         )
 
     monkeypatch.setattr(
-        "personal_assistant.main.asyncio.sleep", _unexpected_rebuild_sleep
+        "personal_assistant.gateway.runtime.asyncio.sleep", _unexpected_rebuild_sleep
     )
 
     asyncio.run(runtime._supervise_im_connection(manager))  # noqa: SLF001
@@ -228,7 +228,7 @@ def test_watchdog_backoff_does_not_consume_executor_threads(
     executor.
     """
 
-    from personal_assistant import main as gateway_main
+    from personal_assistant.gateway import runtime as gateway_runtime
 
     class _AlwaysCrashingIMManager:
         connected = False
@@ -247,7 +247,7 @@ def test_watchdog_backoff_does_not_consume_executor_threads(
         to_thread_calls += 1
         raise AssertionError("watchdog backoff must not use asyncio.to_thread")
 
-    monkeypatch.setattr(gateway_main.asyncio, "to_thread", _forbidden_to_thread)
+    monkeypatch.setattr(gateway_runtime.asyncio, "to_thread", _forbidden_to_thread)
 
     async def _exercise() -> None:
         runtime = GatewayRuntime(

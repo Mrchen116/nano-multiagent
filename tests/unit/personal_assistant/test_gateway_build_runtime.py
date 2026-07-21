@@ -1,4 +1,4 @@
-"""Unit tests for build_runtime: PersistentSessionBindingStore wiring and token getter."""
+"""Unit tests for compose_gateway: PersistentSessionBindingStore wiring and token getter."""
 
 from __future__ import annotations
 
@@ -16,7 +16,8 @@ from personal_assistant.config.local_store import (
     NodeConfig,
 )
 from personal_assistant.gateway.session_keys import PersistentSessionBindingStore
-from personal_assistant.main import GatewayStartupError, build_runtime
+from personal_assistant.gateway.im_bootstrap import GatewayStartupError
+from personal_assistant.gateway.composition import compose_gateway
 
 from ._main_helpers import make_minimal_config
 
@@ -39,11 +40,11 @@ _DEFAULT_TEST_LLM = LLMConfigPayload(
 )
 
 
-def test_build_runtime_uses_persistent_session_binding_store(
+def test_compose_gateway_uses_persistent_session_binding_store(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """build_runtime constructs the production persistent binding repository."""
+    """compose_gateway constructs the production persistent binding repository."""
     config = make_minimal_config(tmp_path)
     created: list[PersistentSessionBindingStore] = []
 
@@ -53,16 +54,17 @@ def test_build_runtime_uses_persistent_session_binding_store(
             created.append(self)
 
     monkeypatch.setattr(
-        "personal_assistant.main.PersistentSessionBindingStore", _TrackingStore
+        "personal_assistant.gateway.composition.PersistentSessionBindingStore",
+        _TrackingStore,
     )
 
-    build_runtime(config)
+    compose_gateway(config)
 
     assert len(created) == 1
     assert isinstance(created[0], PersistentSessionBindingStore)
 
 
-def test_build_runtime_session_store_db_path_is_under_config_dir(
+def test_compose_gateway_session_store_db_path_is_under_config_dir(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -76,16 +78,80 @@ def test_build_runtime_session_store_db_path_is_under_config_dir(
             super().__init__(db_path=db_path)
 
     monkeypatch.setattr(
-        "personal_assistant.main.PersistentSessionBindingStore", _TrackingStore
+        "personal_assistant.gateway.composition.PersistentSessionBindingStore",
+        _TrackingStore,
     )
 
-    build_runtime(config)
+    compose_gateway(config)
 
     expected_db_path = tmp_path / "session_bindings.sqlite3"
     assert paths == [expected_db_path]
 
 
-def test_build_runtime_wires_external_delivery_without_im_service(
+def test_compose_gateway_does_not_provision_feishu_skill(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Composition must not persist configuration before the Gateway process starts."""
+    base = make_minimal_config(tmp_path)
+    config = LocalConfig(
+        node=base.node,
+        agents=(
+            AgentWorkspaceConfig(
+                agent_id="agent-a",
+                workspace_root=base.agents[0].workspace_root,
+                skills=("memory",),
+            ),
+        ),
+        channels=(
+            ChannelConfig(
+                name="feishu:agent-a",
+                enabled=True,
+                settings={
+                    "appId": "cli_a",
+                    "appSecret": "secret",
+                    "botOpenId": "ou_bot",
+                },
+            ),
+        ),
+        gateway=base.gateway,
+        heartbeat=base.heartbeat,
+        im_service=None,
+        llm=base.llm,
+        source_path=base.source_path,
+    )
+
+    def _unexpected_save(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("compose_gateway must not provision Feishu configuration")
+
+    monkeypatch.setattr(
+        "personal_assistant.config.local_store.save_sensitive_local_config",
+        _unexpected_save,
+    )
+
+    compose_gateway(config)
+
+
+def test_compose_gateway_defers_cron_initial_registration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cron stale-run recovery belongs to the running Gateway lifecycle."""
+    registrations: list[str] = []
+
+    def _record_registration(_self: object) -> None:
+        registrations.append("registered")
+
+    monkeypatch.setattr(
+        "personal_assistant.scheduler.cron_gateway_runtime.GatewayCronRuntime.register_configured_agents",
+        _record_registration,
+    )
+
+    runtime = compose_gateway(make_minimal_config(tmp_path))
+
+    assert registrations == []
+    assert runtime._startup_collaborators  # noqa: SLF001
+
+
+def test_compose_gateway_wires_external_delivery_without_im_service(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -120,20 +186,21 @@ def test_build_runtime_wires_external_delivery_without_im_service(
         return SessionRunCoordinator(**kwargs)
 
     monkeypatch.setattr(
-        "personal_assistant.main.SessionRunCoordinator", _capture_coordinator
+        "personal_assistant.gateway.composition.SessionRunCoordinator",
+        _capture_coordinator,
     )
 
-    build_runtime(config)
+    compose_gateway(config)
 
     assert coordinator_kwargs[0]["kernel_event_observer"] is not None
     assert coordinator_kwargs[0]["bg_reply_sender"] is not None
 
 
-def test_build_runtime_does_not_call_set_kernel_client(
+def test_compose_gateway_does_not_call_set_kernel_client(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """refactor-387 M3: build_runtime no longer calls set_kernel_client.
+    """refactor-387 M3: compose_gateway no longer calls set_kernel_client.
 
     Session validation is handled in-process via kernel.get_session inside
     InboundPipeline._binding_matches_workspace_root.  The old HTTP-based
@@ -148,25 +215,26 @@ def test_build_runtime_does_not_call_set_kernel_client(
             super().set_kernel_client(client)  # type: ignore[arg-type]
 
     monkeypatch.setattr(
-        "personal_assistant.main.PersistentSessionBindingStore", _TrackingStore
+        "personal_assistant.gateway.composition.PersistentSessionBindingStore",
+        _TrackingStore,
     )
 
-    build_runtime(config)
+    compose_gateway(config)
 
     assert len(injected_clients) == 0, (
         "M3: set_kernel_client must not be called — session validation is now in-process"
     )
 
 
-def test_make_token_getter_is_importable() -> None:
-    """_make_token_getter 应从 personal_assistant.main 可导入。"""
-    from personal_assistant.main import _make_token_getter  # noqa: F401
+def test_im_token_provider_is_importable() -> None:
+    """IMTokenProvider 由 IM 认证 owner 公开提供。"""
+    from personal_assistant.auth.im_auth_client import IMTokenProvider  # noqa: F401
 
 
 @pytest.mark.asyncio
-async def test_make_token_getter_uses_refresh_token_first(tmp_path: Path) -> None:
+async def test_im_token_provider_uses_refresh_token_first(tmp_path: Path) -> None:
     """当 refresh_token 存在时，闭包应调用 IMAuthClient.refresh() 并返回新的 access_token。"""
-    from personal_assistant.main import _make_token_getter
+    from personal_assistant.auth.im_auth_client import IMTokenProvider
     from personal_assistant.config.local_store import (
         IMServiceConfig,
         LocalConfig,
@@ -213,14 +281,14 @@ async def test_make_token_getter_uses_refresh_token_first(tmp_path: Path) -> Non
                 (cfg.im_service.token or "", cfg.im_service.refresh_token or "")
             )
 
-    token_getter = _make_token_getter(
+    token_getter = IMTokenProvider(
         im_service=im_service,
         local_config=local_config,
         auth_client=_FakeAuthClient(),
         save_config=_fake_save,
     )
 
-    result = await token_getter()
+    result = await token_getter.get_token()
 
     assert result == "new-access"
     # 新的 refresh_token 应已被持久化
@@ -229,11 +297,11 @@ async def test_make_token_getter_uses_refresh_token_first(tmp_path: Path) -> Non
 
 
 @pytest.mark.asyncio
-async def test_make_token_getter_falls_back_to_login_when_refresh_fails(
+async def test_im_token_provider_falls_back_to_login_when_refresh_fails(
     tmp_path: Path,
 ) -> None:
     """refresh 失败后应自动用 username+password 登录并返回 access_token。"""
-    from personal_assistant.main import _make_token_getter
+    from personal_assistant.auth.im_auth_client import IMTokenProvider
     from personal_assistant.auth.im_auth_client import IMAuthError
     from personal_assistant.config.local_store import (
         IMServiceConfig,
@@ -280,14 +348,14 @@ async def test_make_token_getter_falls_back_to_login_when_refresh_fails(
                 (cfg.im_service.token or "", cfg.im_service.refresh_token or "")
             )
 
-    token_getter = _make_token_getter(
+    token_getter = IMTokenProvider(
         im_service=im_service,
         local_config=local_config,
         auth_client=_FakeAuthClient(),
         save_config=_fake_save,
     )
 
-    result = await token_getter()
+    result = await token_getter.get_token()
 
     assert result == "login-access"
     assert len(persisted) == 1
@@ -295,11 +363,11 @@ async def test_make_token_getter_falls_back_to_login_when_refresh_fails(
 
 
 @pytest.mark.asyncio
-async def test_make_token_getter_returns_static_token_when_no_refresh_or_credentials(
+async def test_im_token_provider_returns_static_token_when_no_refresh_or_credentials(
     tmp_path: Path,
 ) -> None:
     """当 refresh_token/username/password 均未配置时，返回静态 config.token（向后兼容）。"""
-    from personal_assistant.main import _make_token_getter
+    from personal_assistant.auth.im_auth_client import IMTokenProvider
     from personal_assistant.config.local_store import (
         IMServiceConfig,
         LocalConfig,
@@ -332,14 +400,14 @@ async def test_make_token_getter_returns_static_token_when_no_refresh_or_credent
         source_path=config_path,
     )
 
-    token_getter = _make_token_getter(
+    token_getter = IMTokenProvider(
         im_service=im_service,
         local_config=local_config,
         auth_client=_FakeAuthClient(),
         save_config=lambda cfg, path: None,
     )
 
-    result = await token_getter()
+    result = await token_getter.get_token()
 
     assert result == "static-token"
 
@@ -351,7 +419,7 @@ async def test_reconcile_on_connect_continues_after_binding_failure_and_reports_
     """Binding failure during on_connected must not skip agent reconcile, and IM should
     receive a degraded heartbeat when the connected websocket can still send."""
 
-    from personal_assistant import main as gateway_main
+    from personal_assistant.gateway import composition as gateway_composition
 
     workspace = tmp_path / "agent-a"
     workspace.mkdir()
@@ -407,10 +475,13 @@ async def test_reconcile_on_connect_continues_after_binding_failure_and_reports_
         ) -> None:
             reconcile_calls.append(dict(memory_versions or {}))
 
+    captured: dict[str, object] = {}
+
     class _RecordingManager:
         connected = True
 
-        def __init__(self) -> None:
+        def __init__(self, **kwargs: object) -> None:
+            captured.update(kwargs)
             self.sent: list[tuple[str, dict[str, object]]] = []
 
         async def send_json(
@@ -421,23 +492,19 @@ async def test_reconcile_on_connect_continues_after_binding_failure_and_reports_
         async def close(self) -> None:
             return None
 
-    captured: dict[str, object] = {}
     manager = _RecordingManager()
 
-    def _fake_build_im_connection_manager(**kwargs: object) -> object:
-        captured.update(kwargs)
-        return manager
-
-    monkeypatch.setattr(gateway_main, "_IMBootstrapClient", _FailingBootstrap)
-    monkeypatch.setattr(gateway_main, "IMAgentConfigSync", _RecordingSyncClient)
     monkeypatch.setattr(
-        gateway_main, "_build_im_connection_manager", _fake_build_im_connection_manager
+        "personal_assistant.gateway.im_bootstrap.IMBootstrapClient", _FailingBootstrap
     )
+    monkeypatch.setattr(gateway_composition, "IMAgentConfigSync", _RecordingSyncClient)
+    monkeypatch.setattr(gateway_composition, "IMConnectionManager", _RecordingManager)
 
-    build_runtime(config)
+    manager = compose_gateway(config)._im_connection_manager
+    assert isinstance(manager, _RecordingManager)
     on_connected = captured["on_connected"]
 
-    await on_connected()
+    await on_connected(manager)
 
     assert reconcile_calls == [{}]
     assert manager.sent == [

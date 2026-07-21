@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from personal_assistant.channels.web_relay_adapter import WebRelayAdapter
-from personal_assistant.main import GatewayRuntime
+from personal_assistant.gateway.runtime import GatewayRuntime
 from personal_assistant.ws.im_connection import IMConnectionConfig, IMConnectionManager
 
 from ._gateway_runtime_test_utils import make_config, run_in_thread
@@ -61,6 +61,40 @@ class _RecordingHeartbeatRunner:
 
     async def close(self, _deadline: float) -> None:
         self._events.append("heartbeat.close")
+
+
+def test_startup_action_runs_once_before_channel_producers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Initial Cron registration must finish before Gateway producers start."""
+    from personal_assistant.gateway import runtime as gateway_runtime
+
+    events: list[str] = []
+
+    def _start_channels(*_args: object) -> tuple[str, ...]:
+        events.append("channels.start")
+        return ()
+
+    monkeypatch.setattr(gateway_runtime, "start_channels", _start_channels)
+
+    class _Startup:
+        def start(self) -> None:
+            events.append("cron.initial_registration")
+
+    runtime = GatewayRuntime(
+        make_config(tmp_path),
+        startup_collaborators=(_Startup(),),
+    )
+
+    thread, outcome = run_in_thread(runtime)
+    try:
+        assert runtime.wait_until_ready(timeout=2.0) is True
+        assert events == ["cron.initial_registration", "channels.start"]
+    finally:
+        runtime.request_shutdown()
+        thread.join(timeout=5.0)
+
+    assert outcome.get("exit_code") == 0
 
 
 def test_gateway_survives_unreachable_im_at_startup(tmp_path: Path) -> None:
@@ -134,7 +168,7 @@ def test_shutdown_cleanup_continues_when_im_task_await_raises_base_exception(
 ) -> None:
     """A CancelledError from IM task cleanup must not skip later shutdown steps."""
 
-    from personal_assistant import main as gateway_main
+    from personal_assistant.gateway import runtime as gateway_runtime
 
     events: list[str] = []
 
@@ -142,7 +176,7 @@ def test_shutdown_cleanup_continues_when_im_task_await_raises_base_exception(
         events.append("await.im_task")
         raise asyncio.CancelledError()
 
-    monkeypatch.setattr(gateway_main, "_await_background_task", _raise_cancelled)
+    monkeypatch.setattr(gateway_runtime, "_await_background_task", _raise_cancelled)
 
     manager = _GateFakeIM(events)
     runtime = GatewayRuntime(

@@ -125,12 +125,10 @@ def test_manual_bind_bootstraps_once_on_same_websocket_then_replays_manifest(
         assert [item["channel_id"] for item in listed.json()] == [channel_id]
 
 
-def test_gateway_bootstrap_response_applies_manifest_before_yaml_cleanup(
+def test_gateway_bootstrap_response_is_empty_without_legacy_yaml_bridge(
     tmp_path: Path,
 ) -> None:
-    """The client cleans legacy YAML only after authoritative cache application."""
-    applied: list[dict[str, object]] = []
-    cleaned: list[str] = []
+    """The current bootstrap handshake never imports local channel secrets."""
     socket = _FakeWebSocket(
         incoming=[
             json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
@@ -144,33 +142,6 @@ def test_gateway_bootstrap_response_applies_manifest_before_yaml_cleanup(
                     },
                 }
             ),
-            json.dumps(
-                {
-                    "type": "channels.bootstrap.result",
-                    "payload": {
-                        "request_id": "bootstrap-1",
-                        "outcome": "initialized",
-                        "manifest": {
-                            "request_id": "manifest-1",
-                            "owner_id": "owner-a",
-                            "node_id": "node-a",
-                            "manifest_revision": 1,
-                            "channels": [],
-                            "removals": [],
-                        },
-                    },
-                }
-            ),
-            json.dumps(
-                {
-                    "type": "channels.reconcile.result.ack",
-                    "payload": {
-                        "request_id": "manifest-1",
-                        "head_outcome": "accepted",
-                        "removal_token_outcomes": [],
-                    },
-                }
-            ),
         ]
     )
     reporter = UpstreamReporter(
@@ -180,37 +151,24 @@ def test_gateway_bootstrap_response_applies_manifest_before_yaml_cleanup(
     )
     relay = WebRelayAdapter()
     relay.start(lambda _message: None)
-
-    def apply_manifest(payload):
-        applied.append(dict(payload))
-        return {
-            "outcome": "applied",
-            "applied_channel_ids": [],
-            "removal_outcomes": [],
-            "failures": [],
-        }
-
     manager = IMConnectionManager(
         config=IMConnectionConfig(url="http://im.local"),
         reporter=reporter,
         relay_adapter=relay,
-        channel_manifest_handler=apply_manifest,
-        channel_bootstrap_provider=lambda request: [
-            {"provider": "feishu", "owner_id": request["owner_id"]}
-        ],
-        channel_bootstrap_applied_handler=lambda: cleaned.append("yaml"),
         connect=lambda url, headers: _connect_fake(socket, [], url, headers),
     )
 
     async def exercise() -> None:
         await manager.connect_once()
-        for _ in range(4):
-            await manager._listen_once()
+        await manager._listen_once()
+        await manager._listen_once()
 
     asyncio.run(exercise())
 
     sent = [json.loads(frame) for frame in socket.sent]
     bootstrap = next(frame for frame in sent if frame["type"] == "channels.bootstrap")
-    assert bootstrap["payload"]["items"][0]["owner_id"] == "owner-a"
-    assert applied[0]["manifest_revision"] == 1
-    assert cleaned == ["yaml"]
+    assert bootstrap["payload"] == {
+        "request_id": "bootstrap-1",
+        "node_id": "node-a",
+        "items": [],
+    }

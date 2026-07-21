@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from personal_assistant.main import (
+from personal_assistant.gateway.process_lifecycle import (
     GatewayStartupError,
     RuntimeFactories,
     launch_gateway_in_background,
@@ -50,7 +50,8 @@ def test_launch_gateway_in_background_writes_runtime_state_file(
     config = build_config(tmp_path)
     process = _FakeProcess(wait_result=0, pid=2468)
     monkeypatch.setattr(
-        "personal_assistant.main._process_start_identity", lambda _pid: "birth-2468"
+        "personal_assistant.gateway.process_lifecycle._process_start_identity",
+        lambda _pid: "birth-2468",
     )
 
     def _publish_state(_child, _config, _timeout) -> None:
@@ -77,7 +78,7 @@ def test_run_gateway_publishes_single_state_before_start_and_removes_on_exit(
     tmp_path: Path,
 ) -> None:
     """run_gateway publishes one complete state before runtime start."""
-    from personal_assistant.main import (
+    from personal_assistant.gateway.process_lifecycle import (
         _gateway_state_path,
         _read_gateway_state,
         run_gateway,
@@ -109,12 +110,77 @@ def test_run_gateway_publishes_single_state_before_start_and_removes_on_exit(
     assert not state_path.exists()
 
 
+def test_run_gateway_installs_builtin_skills_before_building_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Foreground Gateway startup installs packaged skills before composition."""
+    from personal_assistant.gateway import process_lifecycle
+
+    config = build_config(tmp_path)
+    events: list[str] = []
+
+    class _Runtime:
+        def run_forever(self) -> int:
+            events.append("runtime.run")
+            return 0
+
+    monkeypatch.setattr(
+        process_lifecycle,
+        "install_builtin_skills",
+        lambda: events.append("skills.install") or {},
+        raising=False,
+    )
+
+    process_lifecycle.run_gateway(
+        config_path=config.source_path,
+        factories=RuntimeFactories(
+            load_config=lambda _path: config,
+            build_runtime=lambda _config: events.append("runtime.build") or _Runtime(),
+        ),
+    )
+
+    assert events == ["skills.install", "runtime.build", "runtime.run"]
+
+
+def test_background_launcher_does_not_install_builtin_skills(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Background launch delegates installation to its foreground child."""
+    from personal_assistant.gateway import process_lifecycle
+
+    config = build_config(tmp_path)
+    events: list[str] = []
+    process = _FakeProcess(wait_result=0, pid=2468)
+
+    monkeypatch.setattr(
+        process_lifecycle,
+        "install_builtin_skills",
+        lambda: events.append("skills.install") or {},
+        raising=False,
+    )
+
+    def _publish_state(_child, _config, _timeout) -> None:
+        events.append("child.wait")
+        _write_state(config.source_path, pid=2468, process_start="birth-2468")
+
+    process_lifecycle.launch_gateway_in_background(
+        config_path=config.source_path,
+        load_config=lambda _path: config,
+        spawn_process=lambda _argv, _log_path: events.append("child.spawn") or process,
+        wait_for_start=_publish_state,
+    )
+
+    assert events == ["child.spawn", "child.wait"]
+
+
 def test_run_gateway_removes_state_even_when_runtime_raises(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     """run_gateway removes canonical state even when the runtime raises."""
-    from personal_assistant.main import run_gateway
+    from personal_assistant.gateway.process_lifecycle import run_gateway
 
     _reset_for_tests()  # run_gateway calls init_model_registry; must start from clean state
     config = build_config(tmp_path)
@@ -142,7 +208,7 @@ def test_launch_background_refuses_to_start_when_pid_file_shows_live_process(
     tmp_path: Path,
 ) -> None:
     """launch_gateway_in_background must raise GatewayStartupError with PID when already running."""
-    from personal_assistant.main import (
+    from personal_assistant.gateway.process_lifecycle import (
         _legacy_gateway_pid_path,
         launch_gateway_in_background,
     )
@@ -152,10 +218,11 @@ def test_launch_background_refuses_to_start_when_pid_file_shows_live_process(
     pid_path.write_text("12345", encoding="utf-8")
 
     monkeypatch.setattr(
-        "personal_assistant.main._process_start_identity", lambda _pid: "live-birth"
+        "personal_assistant.gateway.process_lifecycle._process_start_identity",
+        lambda _pid: "live-birth",
     )
     monkeypatch.setattr(
-        "personal_assistant.main._process_command",
+        "personal_assistant.gateway.process_lifecycle._process_command",
         lambda _pid: _gateway_command(config.source_path),
     )
 
@@ -174,7 +241,7 @@ def test_launch_background_clears_stale_pid_file_when_process_dead(
     tmp_path: Path,
 ) -> None:
     """launch_gateway_in_background must remove a stale gateway.pid if process is no longer running."""
-    from personal_assistant.main import (
+    from personal_assistant.gateway.process_lifecycle import (
         _legacy_gateway_pid_path,
         launch_gateway_in_background,
     )
@@ -193,7 +260,7 @@ def test_launch_background_clears_stale_pid_file_when_process_dead(
         _write_state(config.source_path, pid=1111, process_start="new-birth")
 
     monkeypatch.setattr(
-        "personal_assistant.main._process_start_identity",
+        "personal_assistant.gateway.process_lifecycle._process_start_identity",
         lambda pid: None if pid == 99999 else "new-birth",
     )
 
@@ -217,7 +284,10 @@ def test_stop_gateway_removes_pid_file_on_successful_stop(
     tmp_path: Path,
 ) -> None:
     """stop_gateway must delete gateway.pid after successfully stopping the process."""
-    from personal_assistant.main import _legacy_gateway_pid_path, stop_gateway
+    from personal_assistant.gateway.process_lifecycle import (
+        _legacy_gateway_pid_path,
+        stop_gateway,
+    )
 
     config = build_config(tmp_path)
     pid_path = _legacy_gateway_pid_path(config)
@@ -236,14 +306,19 @@ def test_stop_gateway_removes_pid_file_on_successful_stop(
         running = False
 
     monkeypatch.setattr(
-        "personal_assistant.main._process_start_identity", _process_start
+        "personal_assistant.gateway.process_lifecycle._process_start_identity",
+        _process_start,
     )
     monkeypatch.setattr(
-        "personal_assistant.main._process_command",
+        "personal_assistant.gateway.process_lifecycle._process_command",
         lambda _pid: _gateway_command(config.source_path),
     )
-    monkeypatch.setattr("personal_assistant.main.os.getpgid", lambda pid: pid)
-    monkeypatch.setattr("personal_assistant.main.os.killpg", _kill_group)
+    monkeypatch.setattr(
+        "personal_assistant.gateway.process_lifecycle.os.getpgid", lambda pid: pid
+    )
+    monkeypatch.setattr(
+        "personal_assistant.gateway.process_lifecycle.os.killpg", _kill_group
+    )
     result = stop_gateway(
         config_path=config.source_path, load_config=lambda _path: config
     )
@@ -258,7 +333,10 @@ def test_stop_gateway_stops_foreground_pid_without_runtime_state(
     tmp_path: Path,
 ) -> None:
     """stop_gateway must stop a live PID-file-only gateway started in foreground mode."""
-    from personal_assistant.main import _legacy_gateway_pid_path, stop_gateway
+    from personal_assistant.gateway.process_lifecycle import (
+        _legacy_gateway_pid_path,
+        stop_gateway,
+    )
 
     config = build_config(tmp_path)
     pid_path = _legacy_gateway_pid_path(config)
@@ -275,14 +353,19 @@ def test_stop_gateway_stops_foreground_pid_without_runtime_state(
         running = False
 
     monkeypatch.setattr(
-        "personal_assistant.main._process_start_identity", _process_start
+        "personal_assistant.gateway.process_lifecycle._process_start_identity",
+        _process_start,
     )
     monkeypatch.setattr(
-        "personal_assistant.main._process_command",
+        "personal_assistant.gateway.process_lifecycle._process_command",
         lambda _pid: _gateway_command(config.source_path),
     )
-    monkeypatch.setattr("personal_assistant.main.os.getpgid", lambda pid: pid)
-    monkeypatch.setattr("personal_assistant.main.os.killpg", _kill_group)
+    monkeypatch.setattr(
+        "personal_assistant.gateway.process_lifecycle.os.getpgid", lambda pid: pid
+    )
+    monkeypatch.setattr(
+        "personal_assistant.gateway.process_lifecycle.os.killpg", _kill_group
+    )
 
     result = stop_gateway(
         config_path=config.source_path, load_config=lambda _path: config
@@ -302,17 +385,19 @@ def test_stop_gateway_rejects_legacy_pid_owned_by_another_command(
     pid_path.write_text("2468", encoding="utf-8")
     state_path = _write_state(config.source_path, pid=2468, process_start=None)
     monkeypatch.setattr(
-        "personal_assistant.main._process_start_identity", lambda _pid: "birth-a"
+        "personal_assistant.gateway.process_lifecycle._process_start_identity",
+        lambda _pid: "birth-a",
     )
     monkeypatch.setattr(
-        "personal_assistant.main._process_command", lambda _pid: "/bin/sleep 100"
+        "personal_assistant.gateway.process_lifecycle._process_command",
+        lambda _pid: "/bin/sleep 100",
     )
     monkeypatch.setattr(
-        "personal_assistant.main.os.kill",
+        "personal_assistant.gateway.process_lifecycle.os.kill",
         lambda *_args: pytest.fail("an unrelated process must never receive a signal"),
     )
     monkeypatch.setattr(
-        "personal_assistant.main.os.killpg",
+        "personal_assistant.gateway.process_lifecycle.os.killpg",
         lambda *_args: pytest.fail("an unrelated process group must not be signalled"),
     )
 
@@ -334,15 +419,15 @@ def test_stop_gateway_does_not_signal_reused_pid(
         config.source_path, pid=2468, process_start="original-birth"
     )
     monkeypatch.setattr(
-        "personal_assistant.main._process_start_identity",
+        "personal_assistant.gateway.process_lifecycle._process_start_identity",
         lambda _pid: "reused-birth",
     )
     monkeypatch.setattr(
-        "personal_assistant.main.os.kill",
+        "personal_assistant.gateway.process_lifecycle.os.kill",
         lambda *_args: pytest.fail("a reused PID must never receive a signal"),
     )
     monkeypatch.setattr(
-        "personal_assistant.main.os.killpg",
+        "personal_assistant.gateway.process_lifecycle.os.killpg",
         lambda *_args: pytest.fail(
             "a reused process group must never receive a signal"
         ),

@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 from pathlib import Path
-import stat
 import tomllib
 
 from personal_assistant.builtin_skills.bootstrap import install_builtin_skills
 from personal_assistant.config.local_store import load_local_config
-from personal_assistant.main import build_runtime
 from personal_assistant.product import build_pa_kernel, prompt_for
 from personal_assistant.reporter.upstream_reporter import (
     build_agent_capabilities_payload,
@@ -59,81 +57,6 @@ llm:
       models:
         - name: kimiCoding:K2.6
 """
-
-
-def test_gateway_startup_persists_feishu_doc_for_feishu_bound_allowlist(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    home = tmp_path / "home"
-    monkeypatch.setenv("HOME", str(home))
-    feishu_workspace = tmp_path / "agents" / "feishu-agent"
-    plain_workspace = tmp_path / "agents" / "plain-agent"
-    feishu_workspace.mkdir(parents=True)
-    plain_workspace.mkdir(parents=True)
-    config_path = home / ".nano-assistant" / "config.yaml"
-    config_path.parent.mkdir(parents=True)
-    config_path.write_text(
-        "\n".join(
-            [
-                "node:",
-                "  node_id: node-local",
-                "agents:",
-                "  - agent_id: feishu-agent",
-                f"    workspace_root: {feishu_workspace}",
-                "    skills:",
-                "      - existing-skill",
-                "  - agent_id: plain-agent",
-                f"    workspace_root: {plain_workspace}",
-                "    skills:",
-                "      - existing-skill",
-                "channels:",
-                "  - name: web_relay",
-                "    enabled: true",
-                "  - name: feishu:feishu-agent",
-                "    settings:",
-                "      appId: cli_test",
-                "      appSecret: legacy-startup-marker",
-                "im_service:",
-                "  url: http://im.local:9000",
-            ]
-        )
-        + "\n"
-        + _LLM_YAML,
-        encoding="utf-8",
-    )
-
-    runtime = build_runtime(load_local_config(config_path))
-    connection = runtime._im_connection_manager  # noqa: SLF001
-    assert connection is not None
-    items = connection._channel_bootstrap_provider(  # noqa: SLF001
-        {"owner_id": "owner-a"}
-    )
-    assert len(items) == 1
-    connection._channel_bootstrap_applied_handler()  # noqa: SLF001
-
-    saved = load_local_config(config_path)
-    by_id = {agent.agent_id: agent for agent in saved.agents}
-    assert by_id["feishu-agent"].skills == ("existing-skill", "feishu-doc")
-    assert by_id["plain-agent"].skills == ("existing-skill",)
-    feishu_channel = next(
-        channel for channel in saved.channels if channel.name.startswith("feishu:")
-    )
-    assert feishu_channel.settings["appId"] == "cli_test"
-    assert str(feishu_channel.settings["credentialRef"]).startswith(
-        "channel-manifest:ch_legacy_"
-    )
-    assert "appSecret" not in feishu_channel.settings
-    assert stat.S_IMODE(config_path.stat().st_mode) == 0o600
-    files = [
-        candidate for candidate in config_path.parent.rglob("*") if candidate.is_file()
-    ]
-    assert not any(
-        "legacy-startup-marker" in candidate.read_bytes().decode(errors="ignore")
-        for candidate in files
-    )
-    assert list(config_path.parent.rglob("*.bak")) == []
-    assert list(config_path.parent.rglob("*.tmp")) == []
 
 
 def test_installed_feishu_doc_is_same_source_for_capabilities_preview_and_runtime(

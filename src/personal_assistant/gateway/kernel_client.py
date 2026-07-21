@@ -1,0 +1,210 @@
+"""Adapt the in-process Kernel to legacy Gateway consumer protocols."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+from personal_assistant.config.local_store import resolve_run_model
+from personal_assistant.gateway.agent_catalog import LiveAgentCatalog, LiveAgentSnapshot
+from personal_assistant.gateway.session_binder import GatewaySessionBinder
+from personal_assistant.gateway.session_composition import (
+    project_agent_session_capabilities,
+)
+
+if TYPE_CHECKING:
+    from agent.sdk import Kernel
+
+
+class InProcessKernelClient:
+    """Adapt agent.sdk.Kernel to the kernel_client protocol.
+
+    HeartbeatScheduler and InternalDispatchHandler use the old kernel_client
+    interface (create_session/submit_message/append_message).  This adapter bridges them to the in-process Kernel SDK.
+
+    create_session is async so it can be properly awaited from the gateway's
+    async event loop — run_until_complete on an already-running loop raises
+    RuntimeError (refactor-387 M4 fix; previously the adapter used that approach
+    which silently prevented all heartbeat/cron runs from being submitted).
+    """
+
+    def __init__(
+        self,
+        kernel: "Kernel",
+        *,
+        agent_catalog: LiveAgentCatalog | None = None,
+        session_binder: GatewaySessionBinder | None = None,
+        product_default_model: str | None = None,
+    ) -> None:
+        self._kernel = kernel
+        # refactor-406-M1 R6: per-agent config for building PromptSlots at
+        # session-open (决策 8).  heartbeat/cron sessions look up the agent by
+        # metadata["agent_id"] and assemble the PA prompt via prompt_for.
+        self._agent_catalog = agent_catalog
+        self._session_binder = session_binder
+        # bugfix-429 决策2: product default model for the heartbeat/cron path.
+        # Callers pass the agent's selected model (may be None); the adapter falls
+        # back to this so unattended runs use the same default as user turns.
+        self._product_default_model = product_default_model
+
+    async def create_session(
+        self,
+        *,
+        workspace_root: str,
+        product_id: str,
+        title: str | None = None,
+        metadata: dict[str, object] | None = None,
+        agent_snapshot: LiveAgentSnapshot | None = None,
+    ) -> dict[str, object]:
+        prompt = None
+        enabled_tools = None
+        features = None
+        skills = None
+        agent_id = (metadata or {}).get("agent_id")
+        snapshot = agent_snapshot
+        if snapshot is None:
+            snapshot = (
+                self._agent_catalog.get(agent_id)
+                if self._agent_catalog is not None and isinstance(agent_id, str)
+                else None
+            )
+        if snapshot is not None:
+            capabilities = project_agent_session_capabilities(
+                snapshot,
+                scenario=metadata or {},
+            )
+            prompt = capabilities.prompt
+            enabled_tools = capabilities.enabled_tools
+            features = capabilities.features
+            skills = capabilities.skills
+        session = await self._kernel.create_session(
+            title=title,
+            workspace_root=Path(workspace_root),
+            metadata=metadata,
+            prompt=prompt,
+            skills=skills,
+            enabled_tools=enabled_tools,
+            features=features,
+        )
+        if snapshot is not None and self._session_binder is not None:
+            self._session_binder.register_session_provenance(
+                snapshot,
+                kernel_session_id=session.session_id,
+            )
+        return {"session_id": session.session_id}
+
+    async def create_agent_session(
+        self,
+        *,
+        agent_snapshot: LiveAgentSnapshot,
+        workspace_root: str,
+        product_id: str,
+        title: str | None = None,
+        metadata: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        """Create an unattended session from one captured Agent revision."""
+
+        return await self.create_session(
+            workspace_root=workspace_root,
+            product_id=product_id,
+            title=title,
+            metadata=metadata,
+            agent_snapshot=agent_snapshot,
+        )
+
+    def submit_message(
+        self,
+        *,
+        session_id: str,
+        texts: list[str],
+        image_urls: list[dict[str, object]] | None = None,
+        workspace_root: str | None = None,
+        origin: str | None = None,
+        model: str | None = None,
+        agent_id: str | None = None,
+        **_kwargs: object,
+    ) -> dict[str, object]:
+        from agent.sdk import RunOrigin as _RunOrigin  # refactor-387-M4
+
+        parts: list[dict] = [{"type": "text", "text": t} for t in texts]
+        for img in image_urls or []:
+            url = img.get("url")
+            if isinstance(url, str) and url.strip():
+                img_part: dict = {"type": "image", "image_url": url.strip()}
+                mime = img.get("content_type")
+                if isinstance(mime, str) and mime.strip():
+                    img_part["mime_type"] = mime.strip()
+                parts.append(img_part)
+        # Map string origin → RunOrigin enum.
+        # feat-394-M7 R5-1 fix: cron is an unattended isolated origin (no user present);
+        # RunOrigin.SYSTEM does not exist — use per-origin explicit mapping.
+        if origin == "heartbeat":
+            run_origin: _RunOrigin = _RunOrigin.HEARTBEAT
+        elif origin == "cron":
+            run_origin = _RunOrigin.CRON
+        else:
+            run_origin = _RunOrigin.USER
+        # bugfix-429 决策2 / fix-r1 #3: resolve via the shared helper — explicit
+        # model (heartbeat passes agent.default_model) wins; else the agent looked
+        # up by agent_id (cron); else the product default. The kernel holds none.
+        snapshot = (
+            self._agent_catalog.get(agent_id)
+            if self._agent_catalog is not None and isinstance(agent_id, str)
+            else None
+        )
+        resolved_agent = snapshot.config if snapshot is not None else None
+        resolved_model = resolve_run_model(
+            resolved_agent,
+            product_default=self._product_default_model,
+            explicit=model,
+        )
+        run_record = self._kernel.submit(
+            session_id=session_id,
+            parts=parts,
+            origin=run_origin,
+            workspace_root=Path(workspace_root) if workspace_root else None,
+            model=resolved_model,
+        )
+        return {"run_id": run_record.run_id, "anchor_sequence": 0, "status": "queued"}
+
+    def current_event_sequence(self) -> int:
+        """Return the kernel's current max event sequence for use as a stream anchor.
+
+        Delegated to Kernel.current_event_sequence() which reads the EventStreamHub
+        without requiring access to agent.core internals.
+        """
+        return self._kernel.current_event_sequence()
+
+    def append_message(
+        self,
+        *,
+        session_id: str,
+        role: str,
+        content: str,
+        message_id: str | None = None,
+        workspace_root: str | None = None,
+        idempotency_key: str | None = None,
+        metadata: dict[str, object] | None = None,
+        **_kwargs: object,
+    ) -> dict[str, object]:
+        self._kernel.append_message(
+            session_id,
+            role=role,
+            content=content,
+            message_id=message_id,
+            workspace_root=Path(workspace_root) if workspace_root else None,
+            idempotency_key=idempotency_key,
+            metadata=metadata,
+        )
+        return {"status": "appended"}
+
+    def get_session(
+        self, *, session_id: str, workspace_root: str | None = None
+    ) -> dict[str, object]:
+        return self._kernel.get_session(
+            session_id,
+            workspace_root=Path(workspace_root) if workspace_root else None,
+        )
+
+    def close(self) -> None:
+        pass

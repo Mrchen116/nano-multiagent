@@ -20,10 +20,10 @@ from personal_assistant.config.local_store import (
     LocalConfig,
     NodeConfig,
 )
-from personal_assistant.main import (
-    _autofill_feishu_bot_open_id,
-    _build_feishu_owner_open_id_binder,
-    _infer_feishu_bot_open_id_from_app_credentials,
+from personal_assistant.config.local_store import (
+    autofill_feishu_bot_open_id,
+    build_feishu_owner_open_id_binder,
+    infer_feishu_bot_open_id_from_app_credentials,
 )
 
 
@@ -69,7 +69,7 @@ def test_autofill_feishu_bot_open_id_from_app_probe(
     )
     saved: list[LocalConfig] = []
 
-    updated = _autofill_feishu_bot_open_id(
+    updated = autofill_feishu_bot_open_id(
         config,
         save_config=lambda cfg, _path: saved.append(cfg),
         bot_identity_fetcher=lambda app_id, app_secret, domain: "ou_bot",
@@ -98,7 +98,7 @@ def test_autofill_feishu_bot_open_id_preserves_owner_open_id(
         ),
     )
 
-    updated = _autofill_feishu_bot_open_id(
+    updated = autofill_feishu_bot_open_id(
         config,
         save_config=lambda _cfg, _path: None,
         bot_identity_fetcher=lambda app_id, app_secret, domain: "ou_bot",
@@ -122,7 +122,7 @@ def test_feishu_owner_open_id_binder_persists_first_sender(
         ),
     )
     saved: list[LocalConfig] = []
-    binder = _build_feishu_owner_open_id_binder(
+    binder = build_feishu_owner_open_id_binder(
         config,
         save_config=lambda cfg, _path: saved.append(cfg),
     )
@@ -151,7 +151,7 @@ def test_feishu_owner_open_id_binder_keeps_existing_owner(
             ),
         ),
     )
-    binder = _build_feishu_owner_open_id_binder(
+    binder = build_feishu_owner_open_id_binder(
         config,
         save_config=lambda _cfg, _path: pytest.fail("must not persist existing"),
     )
@@ -186,7 +186,7 @@ def test_autofill_feishu_bot_open_id_without_source_path_keeps_memory_update(
         source_path=None,  # type: ignore[arg-type]
     )
 
-    updated = _autofill_feishu_bot_open_id(
+    updated = autofill_feishu_bot_open_id(
         config,
         save_config=lambda _cfg, _path: pytest.fail("source_path is unavailable"),
         bot_identity_fetcher=lambda app_id, app_secret, domain: "ou_bot",
@@ -218,7 +218,7 @@ def test_autofill_feishu_bot_open_id_uses_configured_domain(
         seen.append((app_id, app_secret, domain))
         return "ou_bot"
 
-    _autofill_feishu_bot_open_id(
+    autofill_feishu_bot_open_id(
         config,
         save_config=lambda _cfg, _path: None,
         bot_identity_fetcher=_fetch,
@@ -242,7 +242,7 @@ def test_infer_feishu_bot_open_id_from_inside_running_event_loop(
     )
 
     async def _exercise() -> str | None:
-        return _infer_feishu_bot_open_id_from_app_credentials(
+        return infer_feishu_bot_open_id_from_app_credentials(
             "cli_a", "secret", "https://open.feishu.cn"
         )
 
@@ -250,7 +250,7 @@ def test_infer_feishu_bot_open_id_from_inside_running_event_loop(
     assert seen == ["cli_a"]
 
 
-def test_autofill_feishu_bot_open_id_degrades_when_probe_fails(
+def testautofill_feishu_bot_open_id_degrades_when_probe_fails(
     tmp_path: Path,
 ) -> None:
     config = _local_config(
@@ -264,7 +264,7 @@ def test_autofill_feishu_bot_open_id_degrades_when_probe_fails(
         ),
     )
 
-    updated = _autofill_feishu_bot_open_id(
+    updated = autofill_feishu_bot_open_id(
         config,
         save_config=lambda _cfg, _path: pytest.fail("must not persist on failure"),
         bot_identity_fetcher=lambda app_id, app_secret, domain: None,
@@ -273,7 +273,7 @@ def test_autofill_feishu_bot_open_id_degrades_when_probe_fails(
     assert "botOpenId" not in updated.channels[0].settings
 
 
-def test_autofill_feishu_bot_open_id_skips_existing_bot_open_id(
+def testautofill_feishu_bot_open_id_skips_existing_bot_open_id(
     tmp_path: Path,
 ) -> None:
     config = _local_config(
@@ -291,7 +291,7 @@ def test_autofill_feishu_bot_open_id_skips_existing_bot_open_id(
         ),
     )
 
-    updated = _autofill_feishu_bot_open_id(
+    updated = autofill_feishu_bot_open_id(
         config,
         save_config=lambda _cfg, _path: pytest.fail("must not persist existing"),
         bot_identity_fetcher=lambda app_id, app_secret, domain: pytest.fail(
@@ -303,7 +303,7 @@ def test_autofill_feishu_bot_open_id_skips_existing_bot_open_id(
     assert updated.channels[0].settings["botOpenId"] == "ou_existing_bot"
 
 
-def test_autofill_feishu_bot_open_id_skips_missing_app_secret(
+def testautofill_feishu_bot_open_id_skips_missing_app_secret(
     tmp_path: Path,
 ) -> None:
     config = _local_config(
@@ -317,7 +317,7 @@ def test_autofill_feishu_bot_open_id_skips_missing_app_secret(
         ),
     )
 
-    updated = _autofill_feishu_bot_open_id(
+    updated = autofill_feishu_bot_open_id(
         config,
         save_config=lambda _cfg, _path: pytest.fail("must not persist"),
         bot_identity_fetcher=lambda app_id, app_secret, domain: pytest.fail(

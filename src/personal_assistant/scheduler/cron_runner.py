@@ -28,7 +28,7 @@ _logger = logging.getLogger(__name__)
 class _KernelClientLike(Protocol):
     """Kernel client interface needed by CronRunner.
 
-    Mirrors _KernelClientShim.create_session exactly — no session_id parameter.
+    Mirrors InProcessKernelClient.create_session exactly — no session_id parameter.
     The kernel assigns session IDs; callers read the id from the returned payload.
     feat-394-M6 R2 fix: removed session_id kwarg that caused TypeError in round-4.
     feat-394-M9 fix: append_message added for cache-aware awareness injection.
@@ -63,7 +63,7 @@ class _KernelClientLike(Protocol):
     ) -> dict[str, object]:
         """Append a message to a session without triggering a model run.
 
-        Provided by _KernelClientShim (main.py:1690).  Updating the session via
+        Provided by InProcessKernelClient (main.py:1690).  Updating the session via
         this method keeps the kernel's in-process session cache consistent; raw
         JSONL writes bypass the cache and make new entries invisible to the next
         LLM turn (feat-394-M9 root cause).
@@ -119,7 +119,7 @@ class CronRunner:
         Returns:
             (run_id, kernel_session_id) on success, or None on failure.
         """
-        # feat-394-M6 R2 fix: do not pass session_id to create_session — _KernelClientShim
+        # feat-394-M6 R2 fix: do not pass session_id to create_session — InProcessKernelClient
         # has no such parameter.  Kernel generates the session id; we read it from the payload.
         # The title "cron:<jobId>" is purely cosmetic (visible in session list).
         try:
