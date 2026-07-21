@@ -41,4 +41,4 @@
 - 状态：BLOCKED
 - 步骤：使 heartbeat 复用会话与 cron 新建会话采用完整 runtime，补回归与真栈验证；`gateway/kernel_client.py` 是 scheduler 进入 in-process Kernel 的必要 adapter seam，`product.py` 是 system_prompt 进入完整 runtime 的唯一 projection seam，均按 orchestrator 确认纳入本 roadpoint，不修改 `design.md`。
 - 验证：相关 scheduler 测试、`pytest -m "not e2e"`、真 Gateway restart 的 direct/group/Feishu 请求对账。
-- 阻塞：Web IM direct/group/restart 与 LLM 请求对账已完成；Feishu bot 因主 Gateway 到 `open.feishu.cn` 的 DNS/WS 连接故障无回复，且显式 `{}` features 在 Gateway runtime projection 中退化为 `None`，均不能按退出标准签收。
+- 阻塞：Web IM direct/group/restart 与 LLM 请求对账已完成；显式 `{}` features 已修复为完整 runtime 的空映射，有 Gateway admission 回归和隔离真栈的用户可见回复、restart、transcript 持久化证据（`evidence/live-empty-features-runtime.json`）。真实 Feishu 同会话连续性仍无法签收：恢复 probe 已由主 Gateway 接收过的受管 app 所在测试群接受，但用户未授权以 M1 分支替换主 Gateway，也禁止为同一 app 并行建立第二条 Gateway 连接，故不能取得可信的分支实现外部回复证据。详见 `evidence/live-feishu-blocked.json`。
