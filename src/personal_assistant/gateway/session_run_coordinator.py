@@ -7,8 +7,10 @@ from collections import OrderedDict
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, replace
+from datetime import datetime, timezone
 import logging
 from typing import TYPE_CHECKING, Any
+from uuid import uuid4
 
 from agent.sdk import (
     TERMINAL_RUN_STATUSES,
@@ -55,9 +57,13 @@ from personal_assistant.gateway.session_binder import (
     SessionBindingRequest,
 )
 from personal_assistant.gateway.session_keys import (
+    BoundaryIntent,
+    PendingBoundaryIntent,
     SessionBinding,
     build_reply_context,
 )
+from personal_assistant.gateway.boundary_outbox import BoundaryOutboxDispatcher
+from personal_assistant.gateway.runtime_protocol import runtime_protocol_or_derive
 
 if TYPE_CHECKING:
     from agent.sdk.kernel import Kernel
@@ -130,6 +136,8 @@ class SessionRunCoordinator:
         kernel_event_observer: Callable[[Mapping[str, Any]], object] | None = None,
         bg_reply_sender: Callable[[str, ReplyContext, str], Awaitable[None]]
         | None = None,
+        node_id: str | None = None,
+        boundary_outbox: BoundaryOutboxDispatcher | None = None,
         run_idle_timeout_seconds: float = _DEFAULT_RUN_IDLE_TIMEOUT_SECONDS,
         max_transition_locks: int = _MAX_SESSION_TRANSITION_LOCKS,
     ) -> None:
@@ -148,6 +156,8 @@ class SessionRunCoordinator:
         self._relay_lifecycle_callback = relay_lifecycle_callback
         self._kernel_event_observer = kernel_event_observer
         self._bg_reply_sender = bg_reply_sender
+        self._node_id = node_id
+        self._boundary_outbox = boundary_outbox
         self._run_idle_timeout_seconds = run_idle_timeout_seconds
         self._active_runs: dict[str, _ActiveRunHandle] = {}
         self._steered_requests: dict[str, list[InboundRunRequest]] = {}
@@ -389,6 +399,7 @@ class SessionRunCoordinator:
                 binding = await self._admit_runtime(
                     binding=binding,
                     agent=latest_agent,
+                    message=request.message,
                     runtime=runtime_projection.runtime,
                     profile_version=runtime_projection.profile_version,
                 )
@@ -691,6 +702,7 @@ class SessionRunCoordinator:
         *,
         binding: SessionBinding,
         agent: LiveAgentSnapshot,
+        message: InboundMessage,
         runtime: SessionRuntimeConfig,
         profile_version: int | None,
     ) -> SessionBinding:
@@ -707,6 +719,7 @@ class SessionRunCoordinator:
             session_id=binding.kernel_session_id,
             workspace_root=agent.config.workspace_root,
         )
+        replacement_has_known_baseline = current is not None
         if current is not None:
             binding = self._session_binder.persist_applied_runtime(
                 binding,
@@ -725,12 +738,110 @@ class SessionRunCoordinator:
             workspace_root=agent.config.workspace_root,
             runtime=runtime,
         )
+        boundary = (
+            self._boundary_for_runtime_replacement(
+                message=message,
+                agent_id=agent.agent_id,
+                runtime_fingerprint=result.state.identity.runtime_fingerprint,
+                fingerprint_schema=result.state.identity.fingerprint_schema,
+                profile_version=profile_version,
+            )
+            if replacement_has_known_baseline and result.changed
+            else None
+        )
+        if boundary is not None:
+            updated = self._session_binder.persist_applied_runtime_with_boundary(
+                binding,
+                runtime_fingerprint=result.state.identity.runtime_fingerprint,
+                fingerprint_schema=result.state.identity.fingerprint_schema,
+                profile_version=profile_version,
+                boundary=boundary,
+                agent=agent,
+            )
+            if self._boundary_outbox is not None:
+                self._boundary_outbox.notify_pending()
+            return updated
+        pending_boundary = (
+            self._pending_boundary_for_shadow_replacement(
+                message=message,
+                agent_id=agent.agent_id,
+                runtime_fingerprint=result.state.identity.runtime_fingerprint,
+                fingerprint_schema=result.state.identity.fingerprint_schema,
+                profile_version=profile_version,
+            )
+            if replacement_has_known_baseline and result.changed
+            else None
+        )
+        if pending_boundary is not None:
+            return self._session_binder.persist_applied_runtime_with_pending_boundary(
+                binding,
+                runtime_fingerprint=result.state.identity.runtime_fingerprint,
+                fingerprint_schema=result.state.identity.fingerprint_schema,
+                profile_version=profile_version,
+                boundary=pending_boundary,
+                agent=agent,
+            )
         return self._session_binder.persist_applied_runtime(
             binding,
             runtime_fingerprint=result.state.identity.runtime_fingerprint,
             fingerprint_schema=result.state.identity.fingerprint_schema,
             profile_version=profile_version,
             agent=agent,
+        )
+
+    def _boundary_for_runtime_replacement(
+        self,
+        *,
+        message: InboundMessage,
+        agent_id: str,
+        runtime_fingerprint: str,
+        fingerprint_schema: str,
+        profile_version: int | None,
+    ) -> BoundaryIntent | None:
+        """Build an outbox intent only when this user message has a durable IM anchor."""
+
+        node_id = self._node_id
+        protocol = runtime_protocol_or_derive(message)
+        shadow_ref = protocol.shadow_ref
+        if node_id is None or shadow_ref is None or shadow_ref.im_message_id is None:
+            return None
+        return BoundaryIntent(
+            boundary_id=str(uuid4()),
+            node_id=node_id,
+            conversation_id=shadow_ref.conversation_id,
+            agent_id=agent_id,
+            before_message_id=shadow_ref.im_message_id,
+            runtime_fingerprint=runtime_fingerprint,
+            fingerprint_schema=fingerprint_schema,
+            profile_version=profile_version,
+            applied_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+    def _pending_boundary_for_shadow_replacement(
+        self,
+        *,
+        message: InboundMessage,
+        agent_id: str,
+        runtime_fingerprint: str,
+        fingerprint_schema: str,
+        profile_version: int | None,
+    ) -> PendingBoundaryIntent | None:
+        """Retain an external replacement until its durable saga obtains an IM anchor."""
+
+        node_id = self._node_id
+        protocol = runtime_protocol_or_derive(message)
+        saga_id = protocol.shadow_saga_id
+        if node_id is None or saga_id is None:
+            return None
+        return PendingBoundaryIntent(
+            boundary_id=str(uuid4()),
+            node_id=node_id,
+            agent_id=agent_id,
+            runtime_fingerprint=runtime_fingerprint,
+            fingerprint_schema=fingerprint_schema,
+            profile_version=profile_version,
+            applied_at=datetime.now(timezone.utc).isoformat(),
+            shadow_saga_id=saga_id,
         )
 
     async def _ensure_binding_for_stop(self, request: StopRunRequest) -> SessionBinding:

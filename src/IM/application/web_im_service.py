@@ -201,6 +201,7 @@ class WebIMService:
         auto_complete_delivery: bool = True,
         sender_display_name: str | None = None,
         emit_created_event: bool = False,
+        caller_idempotency_key: str | None = None,
     ) -> Message:
         """Create one message inside a conversation.
 
@@ -212,6 +213,7 @@ class WebIMService:
             attachments: Attachment descriptors stored alongside the message.
             auto_complete_delivery: Whether this write can synchronously close to completed. Relay-backed
                 writes pass False so gateway receipts remain the source of truth for final completion.
+            caller_idempotency_key: Stable caller retry key for one logical message write.
 
         Returns:
             Created message snapshot.
@@ -225,6 +227,7 @@ class WebIMService:
             auto_complete_delivery=auto_complete_delivery,
             sender_display_name=sender_display_name,
             emit_created_event=emit_created_event,
+            caller_idempotency_key=caller_idempotency_key,
         )
         if self._metrics_service is not None and auto_complete_delivery:
             conversation = self._conversations.get_conversation(

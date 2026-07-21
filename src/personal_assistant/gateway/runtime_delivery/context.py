@@ -75,6 +75,7 @@ class RunDeliveryContext:
     reply_target_chat_id: str = ""
     reply_thread_id: str = ""
     feishu_message_id: str = ""
+    shadow_saga_id: str = ""
     conversation_id: str = ""
     message_id: str = ""
     kernel_message_id: str = ""
@@ -119,6 +120,7 @@ class RunDeliveryContext:
             "reply_target_chat_id": self.reply_target_chat_id,
             "reply_thread_id": self.reply_thread_id,
             "feishu_message_id": self.feishu_message_id,
+            "shadow_saga_id": self.shadow_saga_id,
             "kernel_message_id": self.kernel_message_id,
             "external_current_text": self.external_current_text,
             "external_intermediate_sent_marker": self.external_intermediate_sent_marker,
@@ -149,6 +151,7 @@ class RunDeliveryRuntimeView(MutableMapping[str, str]):
         "reply_target_chat_id",
         "reply_thread_id",
         "feishu_message_id",
+        "shadow_saga_id",
         "kernel_message_id",
         "external_current_text",
         "external_intermediate_sent_marker",
@@ -236,6 +239,8 @@ class RunDeliveryContextStore:
             return context.reply_thread_id or None
         if key == "feishu_message_id":
             return context.feishu_message_id or None
+        if key == "shadow_saga_id":
+            return context.shadow_saga_id or None
         if key == "kernel_message_id":
             return context.kernel_message_id or None
         if key == "external_current_text":
@@ -262,6 +267,8 @@ class RunDeliveryContextStore:
             context.conversation_id = value
         elif key == "message_id":
             context.message_id = value
+        elif key == "shadow_saga_id":
+            context.shadow_saga_id = value
         elif key == "kernel_message_id":
             context.kernel_message_id = value
         elif key == "external_current_text":
@@ -427,6 +434,7 @@ class RunDeliveryContextStore:
                 reply_target_chat_id=reply_target_chat_id,
                 reply_thread_id=reply_thread_id,
                 feishu_message_id=feishu_message_id,
+                shadow_saga_id=protocol.shadow_saga_id or "",
                 # Web relay owns the provisional Web IM bubble, so a protocol
                 # silence token must tombstone it instead of surviving history.
                 # Other shadow transports retain their pre-existing literal policy.

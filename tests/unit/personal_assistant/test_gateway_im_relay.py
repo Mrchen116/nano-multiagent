@@ -22,6 +22,7 @@ from personal_assistant.reporter.upstream_reporter import (
     UpstreamReporter,
     build_runtime_capabilities,
 )
+from personal_assistant.gateway.runtime_protocol import ShadowConversationRef
 from personal_assistant.gateway.shadow_sync import IMShadowConversationSync
 
 
@@ -216,9 +217,12 @@ def test_external_shadow_sync_uses_authenticated_im_user_not_stale_config_user()
         },
     )
 
-    conversation_id = asyncio.run(client.sync_user_message(inbound, agent_id="agent-a"))
+    shadow_ref = asyncio.run(client.sync_user_message(inbound, agent_id="agent-a"))
 
-    assert conversation_id == "conv-shadow"
+    assert shadow_ref == ShadowConversationRef(
+        conversation_id="conv-shadow",
+        im_message_id="msg-shadow",
+    )
     assert [item["path"] for item in requests] == [
         "/im/v1/me",
         "/im/v1/conversations/external/find-or-create",

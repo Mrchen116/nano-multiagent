@@ -156,6 +156,40 @@ def test_create_message_suppress_relay_persists_without_gateway_task(
         assert relay_count == 0
 
 
+def test_suppressed_message_reuses_caller_idempotency_key(tmp_path: Path) -> None:
+    """A replayed external shadow write returns its original IM anchor."""
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        alice_id = _create_user(client, "alice")
+        conversation_id = _create_conversation(client, alice_id)
+        request = {
+            "sender_user_id": alice_id,
+            "content": "external copy only",
+            "suppress_relay": True,
+        }
+
+        first = client.post(
+            f"/im/v1/conversations/{conversation_id}/messages",
+            headers={"Idempotency-Key": "shadow-user:saga-1"},
+            json=request,
+        )
+        replay = client.post(
+            f"/im/v1/conversations/{conversation_id}/messages",
+            headers={"Idempotency-Key": "shadow-user:saga-1"},
+            json=request,
+        )
+
+        assert first.status_code == replay.status_code == 201
+        assert replay.json()["id"] == first.json()["id"]
+        assert (
+            app.state.connection.execute(
+                "SELECT COUNT(*) FROM messages WHERE conversation_id = ?",
+                (conversation_id,),
+            ).fetchone()[0]
+            == 1
+        )
+
+
 def test_gateway_websocket_receives_config_and_heartbeat_pushes(tmp_path: Path) -> None:
     """Push config.sync and heartbeat.trigger frames to connected nodes."""
     app = create_app(db_path=tmp_path / "im.db")

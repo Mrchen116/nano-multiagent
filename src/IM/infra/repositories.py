@@ -1239,6 +1239,7 @@ class MessageRepository:
         delivery_status: str | None = None,
         sender_display_name: str | None = None,
         emit_created_event: bool = False,
+        caller_idempotency_key: str | None = None,
     ) -> Message:
         """Create a message in a conversation.
 
@@ -1266,6 +1267,40 @@ class MessageRepository:
             raise ValueError("message must include content or attachments")
         if sender_type not in {"user", "agent", "system"}:
             raise ValueError("sender_type must be one of: user, agent, system")
+        normalized_idempotency_key = (
+            caller_idempotency_key.strip() if caller_idempotency_key else None
+        )
+        if normalized_idempotency_key == "":
+            raise ValueError("caller_idempotency_key must be non-empty")
+        if normalized_idempotency_key is not None:
+            existing = self._connection.execute(
+                """
+                SELECT
+                    messages.id,
+                    messages.conversation_id,
+                    messages.sender_user_id,
+                    messages.sender_type,
+                    messages.content,
+                    messages.attachments_json,
+                    messages.delivery_status,
+                    messages.created_at,
+                    messages.tool_calls_json,
+                    messages.thinking_json,
+                    messages.token_usage_json,
+                    messages.elapsed_ms,
+                    messages.permission_request_json,
+                    messages.kernel_message_id,
+                    users.username AS sender_username,
+                    COALESCE(messages.sender_display_name, users.display_name)
+                        AS sender_display_name
+                FROM messages
+                LEFT JOIN users ON users.id = messages.sender_user_id
+                WHERE messages.caller_idempotency_key = ?
+                """,
+                (normalized_idempotency_key,),
+            ).fetchone()
+            if existing is not None:
+                return self._message_from_row(existing)
         conversation_exists = self._connection.execute(
             "SELECT owner_id FROM conversations WHERE id = ?",
             (conversation_id,),
@@ -1378,8 +1413,9 @@ class MessageRepository:
                     tool_calls_json,
                     token_usage_json,
                     kernel_message_id,
-                    sender_display_name
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    sender_display_name,
+                    caller_idempotency_key
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     message_id,
@@ -1394,6 +1430,7 @@ class MessageRepository:
                     token_usage_json,
                     kernel_message_id,
                     display_name_override,
+                    normalized_idempotency_key,
                 ),
             )
             pending_live_events.append(

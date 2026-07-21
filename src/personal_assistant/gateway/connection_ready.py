@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Iterable
+from collections.abc import Awaitable, Callable, Iterable
 
 from personal_assistant.gateway.agent_config_sync import IMAgentConfigSync
+from personal_assistant.gateway.boundary_outbox import BoundaryOutboxDispatcher
 from personal_assistant.gateway.im_bootstrap import (
     GatewayStartupError,
     IMBootstrapClient,
@@ -36,6 +37,8 @@ class ConnectionReadyCoordinator:
         sync_client: Snapshot source for locally observed profile versions.
         agent_config_sync: Owner of live Agent profile reconciliation.
         agent_ids: Configured Agent identities to reconcile.
+        boundary_outbox: Durable configuration-boundary delivery owner.
+        recover_external_shadows: Replays external anchors pending from a prior process.
     """
 
     def __init__(
@@ -48,6 +51,8 @@ class ConnectionReadyCoordinator:
         sync_client: ConfigSyncClient,
         agent_config_sync: IMAgentConfigSync,
         agent_ids: Iterable[str],
+        boundary_outbox: BoundaryOutboxDispatcher,
+        recover_external_shadows: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
         self._node_id = node_id
         self._bootstrap_client = bootstrap_client
@@ -56,6 +61,8 @@ class ConnectionReadyCoordinator:
         self._sync_client = sync_client
         self._agent_config_sync = agent_config_sync
         self._agent_ids = tuple(agent_ids)
+        self._boundary_outbox = boundary_outbox
+        self._recover_external_shadows = recover_external_shadows
 
     async def on_connected(self, connection: ManagedChannelConnectionSender) -> None:
         """Converge binding, managed channels, and Agent profiles after registration."""
@@ -99,3 +106,6 @@ class ConnectionReadyCoordinator:
             self._agent_config_sync.reconcile_all_agents,
             memory_versions=memory_versions,
         )
+        if self._recover_external_shadows is not None:
+            await self._recover_external_shadows()
+        self._boundary_outbox.schedule_drain(connection)

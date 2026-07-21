@@ -12,6 +12,7 @@ from personal_assistant.gateway.reply_visibility import (
     is_protocol_silence_token,
     should_suppress_reply,
 )
+from personal_assistant.gateway.shadow_saga import ExternalShadowOutput
 from personal_assistant.ws.im_connection import IMConnectionManager
 
 from .context import RunDeliveryContextStore
@@ -132,6 +133,12 @@ def build_kernel_event_observer(
     run_context_store: dict[str, dict[str, str]] | RunDeliveryContextStore,
     running_tool_calls: dict[str, dict[str, dict[str, Any]]] | None = None,
     external_reply_sender: Callable[[str, Mapping[str, str]], Any] | None = None,
+    shadow_output_prepare: (
+        Callable[[str, str, str, str | None, str], ExternalShadowOutput] | None
+    ) = None,
+    shadow_output_mirror: (
+        Callable[[ExternalShadowOutput], Coroutine[Any, Any, None]] | None
+    ) = None,
     external_permission_request_sender: (
         Callable[[Mapping[str, Any], Mapping[str, str]], Any] | None
     ) = None,
@@ -237,10 +244,23 @@ def build_kernel_event_observer(
         external_metadata = _external_context_metadata(ctx)
         if external_metadata is None:
             return
+        kernel_message_id = ctx.get("kernel_message_id") or None
+        saga_id = ctx.get("shadow_saga_id") or ""
+        if saga_id and shadow_output_prepare is not None:
+            output = shadow_output_prepare(
+                saga_id,
+                rid,
+                phase,
+                kernel_message_id,
+                cleaned_text,
+            )
+            if shadow_output_mirror is not None:
+                task_tracker.start(
+                    shadow_output_mirror(output),
+                    name=f"shadow-agent-mirror:{rid}:{phase}",
+                )
         bubble_key = (
-            ctx.get("kernel_message_id")
-            or ctx.get("message_id")
-            or f"text:{cleaned_text}"
+            kernel_message_id or ctx.get("message_id") or f"text:{cleaned_text}"
         )
         metadata: dict[str, str] = {
             "reply_phase": phase,

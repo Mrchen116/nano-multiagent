@@ -11,6 +11,7 @@ from personal_assistant.gateway.channel_registry import ChannelRegistry
 from tests.helpers.inbound_pipeline import build_inbound_pipeline, inbound_graph
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
+from personal_assistant.gateway.runtime_protocol import ShadowConversationRef
 from personal_assistant.gateway.session_keys import (
     SessionBindingStore,
     build_session_key,
@@ -26,9 +27,14 @@ class _ShadowSync:
 
     async def sync_user_message(
         self, message: InboundMessage, *, agent_id: str
-    ) -> str | None:
+    ) -> ShadowConversationRef | None:
         self.calls.append({"message": message, "agent_id": agent_id})
-        return self.conversation_id
+        if self.conversation_id is None:
+            return None
+        return ShadowConversationRef(
+            conversation_id=self.conversation_id,
+            im_message_id="shadow-message-1",
+        )
 
 
 def test_inbound_pipeline_runs_four_steps_and_replies_via_origin_channel(

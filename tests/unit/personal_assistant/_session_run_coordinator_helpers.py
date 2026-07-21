@@ -41,6 +41,7 @@ class ControlledKernel:
         self.cancel_calls: list[str] = []
         self.inject_steer = False
         self.forced_active_run_id: str | None = None
+        self.return_no_runtime = False
         self._session_index = 0
         self._run_index = 0
         self._sessions: dict[str, str] = {}
@@ -105,6 +106,8 @@ class ControlledKernel:
         self, *, session_id: str, workspace_root: Path
     ) -> SessionRuntimeState | None:
         del workspace_root
+        if self.return_no_runtime:
+            return None
         runtime = self._runtimes.get(session_id)
         if runtime is None:
             return None
@@ -279,6 +282,8 @@ class CountingImageResolver:
 
 def build_dependencies(
     tmp_path: Path,
+    *,
+    session_store: SessionBindingStore | None = None,
 ) -> tuple[
     ControlledKernel,
     LiveAgentCatalog,
@@ -303,7 +308,7 @@ def build_dependencies(
     )
     binder = GatewaySessionBinder(
         catalog=catalog,
-        repository=SessionBindingStore(),
+        repository=session_store or SessionBindingStore(),
         kernel=kernel,
     )
     router = OutboundRouter(ChannelRegistry((_FakeChannel("web_relay"),)))

@@ -130,6 +130,7 @@ CREATE TABLE IF NOT EXISTS messages (
     -- on_message_completed 写入 elapsed_ms = round((T1 − T0) * 1000)。
     elapsed_ms INTEGER,
     sender_display_name TEXT,
+    caller_idempotency_key TEXT UNIQUE,
     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
     FOREIGN KEY (sender_user_id) REFERENCES users(id) ON DELETE CASCADE
 );
@@ -592,6 +593,16 @@ def _migrate_messages_metadata(connection: sqlite3.Connection) -> None:
         connection.execute("ALTER TABLE messages ADD COLUMN kernel_message_id TEXT")
     if "sender_display_name" not in column_names:
         connection.execute("ALTER TABLE messages ADD COLUMN sender_display_name TEXT")
+    if "caller_idempotency_key" not in column_names:
+        connection.execute(
+            "ALTER TABLE messages ADD COLUMN caller_idempotency_key TEXT"
+        )
+    connection.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS "
+        "idx_messages_caller_idempotency_key "
+        "ON messages(caller_idempotency_key) "
+        "WHERE caller_idempotency_key IS NOT NULL"
+    )
 
 
 def _migrate_agent_profile_tables(connection: sqlite3.Connection) -> None:

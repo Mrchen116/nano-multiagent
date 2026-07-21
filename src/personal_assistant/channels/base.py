@@ -7,6 +7,19 @@ from typing import Any, Callable, Mapping, Protocol
 
 
 @dataclass(frozen=True, slots=True)
+class ExternalInboundEventIdentity:
+    """Identify one provider event independently of its conversation routing.
+
+    Args:
+        connector_account_id: Stable account/application identity at the provider.
+        provider_event_id: Stable provider event or message identity.
+    """
+
+    connector_account_id: str
+    provider_event_id: str
+
+
+@dataclass(frozen=True, slots=True)
 class InboundMessage:
     """Represent one normalized inbound message delivered by a channel adapter.
 
@@ -19,6 +32,7 @@ class InboundMessage:
         agent_id: Optional explicit target agent supplied by the channel payload.
         thread_id: Optional thread identifier required for threaded reply routing.
         metadata: Opaque adapter-provided metadata forwarded through the pipeline.
+        external_event_identity: Stable provider identity used by durable shadow mirroring.
     """
 
     channel_name: str
@@ -29,6 +43,7 @@ class InboundMessage:
     agent_id: str | None = None
     thread_id: str | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    external_event_identity: ExternalInboundEventIdentity | None = None
 
 
 @dataclass(frozen=True, slots=True)

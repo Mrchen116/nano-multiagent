@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Any, Mapping
 
-from personal_assistant.channels.base import InboundMessage
+from personal_assistant.channels.base import (
+    ExternalInboundEventIdentity,
+    InboundMessage,
+)
 
 _RUNTIME_PROTOCOL_KEY = "__runtime_protocol_facts__"
 
@@ -28,6 +31,7 @@ class ShadowConversationRef:
     conversation_id: str
     relay_task_id: str | None = None
     im_message_id: str | None = None
+    shadow_saga_id: str | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,6 +43,8 @@ class RuntimeProtocolFacts:
     im_message_id: str | None = None
     external_source: str | None = None
     external_identity: ExternalConversationIdentity | None = None
+    external_event_identity: ExternalInboundEventIdentity | None = None
+    shadow_saga_id: str | None = None
     shadow_ref: ShadowConversationRef | None = None
 
     @property
@@ -110,6 +116,7 @@ def derive_runtime_protocol(message: InboundMessage) -> RuntimeProtocolFacts:
         im_message_id=im_message_id,
         external_source=_metadata_text(metadata, "external_source"),
         external_identity=external_identity,
+        external_event_identity=getattr(message, "external_event_identity", None),
         shadow_ref=shadow_ref,
     )
 

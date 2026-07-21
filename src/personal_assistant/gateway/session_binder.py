@@ -14,6 +14,8 @@ from personal_assistant.gateway.agent_catalog import (
     LiveAgentSnapshot,
 )
 from personal_assistant.gateway.session_keys import (
+    BoundaryIntent,
+    PendingBoundaryIntent,
     SessionBinding,
     build_conversation_reply_context,
     build_conversation_session_key,
@@ -50,6 +52,26 @@ class _SessionBindingRepository(Protocol):
         runtime_fingerprint: str,
         fingerprint_schema: str,
         profile_version: int | None,
+    ) -> SessionBinding: ...
+
+    def apply_runtime_with_boundary(
+        self,
+        binding: SessionBinding,
+        *,
+        runtime_fingerprint: str,
+        fingerprint_schema: str,
+        profile_version: int | None,
+        boundary: BoundaryIntent,
+    ) -> SessionBinding: ...
+
+    def apply_runtime_with_pending_boundary(
+        self,
+        binding: SessionBinding,
+        *,
+        runtime_fingerprint: str,
+        fingerprint_schema: str,
+        profile_version: int | None,
+        boundary: PendingBoundaryIntent,
     ) -> SessionBinding: ...
 
     def drop(self, session_key: str) -> None: ...
@@ -221,7 +243,9 @@ class GatewaySessionBinder:
                         agent=agent,
                         generation=generation,
                     )
-                    self._record_provenance(refreshed, agent=agent, persist_binding=True)
+                    self._record_provenance(
+                        refreshed, agent=agent, persist_binding=True
+                    )
                 return refreshed
 
         metadata = _build_session_metadata(
@@ -319,6 +343,52 @@ class GatewaySessionBinder:
             runtime_fingerprint=runtime_fingerprint,
             fingerprint_schema=fingerprint_schema,
             profile_version=profile_version,
+        )
+        with self._lock:
+            self._record_provenance(updated, agent=agent, persist_binding=True)
+        return updated
+
+    def persist_applied_runtime_with_boundary(
+        self,
+        binding: SessionBinding,
+        *,
+        runtime_fingerprint: str,
+        fingerprint_schema: str,
+        profile_version: int | None,
+        boundary: BoundaryIntent,
+        agent: LiveAgentSnapshot,
+    ) -> SessionBinding:
+        """Atomically persist an actual runtime replacement and its user anchor."""
+
+        updated = self._repository.apply_runtime_with_boundary(
+            binding,
+            runtime_fingerprint=runtime_fingerprint,
+            fingerprint_schema=fingerprint_schema,
+            profile_version=profile_version,
+            boundary=boundary,
+        )
+        with self._lock:
+            self._record_provenance(updated, agent=agent, persist_binding=True)
+        return updated
+
+    def persist_applied_runtime_with_pending_boundary(
+        self,
+        binding: SessionBinding,
+        *,
+        runtime_fingerprint: str,
+        fingerprint_schema: str,
+        profile_version: int | None,
+        boundary: PendingBoundaryIntent,
+        agent: LiveAgentSnapshot,
+    ) -> SessionBinding:
+        """Atomically persist an external applied runtime before IM has its anchor."""
+
+        updated = self._repository.apply_runtime_with_pending_boundary(
+            binding,
+            runtime_fingerprint=runtime_fingerprint,
+            fingerprint_schema=fingerprint_schema,
+            profile_version=profile_version,
+            boundary=boundary,
         )
         with self._lock:
             self._record_provenance(updated, agent=agent, persist_binding=True)

@@ -67,6 +67,10 @@ class WireFrameOwner:
 class IMFrameRejectedError(RuntimeError):
     """Report one IM-rejected outbound frame to its owning caller."""
 
+    def __init__(self, message: str, *, code: str = "protocol_error") -> None:
+        super().__init__(message)
+        self.code = code
+
 
 @dataclass(frozen=True, slots=True)
 class IMDispatchAck:
@@ -1485,7 +1489,7 @@ class IMConnectionManager:
         if pending.ack_future is not None and not pending.ack_future.done():
             pending.ack_future.set_exception(
                 IMFrameRejectedError(
-                    f"IM rejected {awaiting} frame ({code}): {message}"
+                    f"IM rejected {awaiting} frame ({code}): {message}", code=code
                 )
             )
         self._events.append(

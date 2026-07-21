@@ -15,6 +15,7 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 from personal_assistant.channels.base import (
+    ExternalInboundEventIdentity,
     InboundHandler,
     InboundMessage,
     OutboundMessage,
@@ -374,6 +375,10 @@ class FeishuAdapter:
             external_chat_id=f"feishu:{self._app_id}:dm:{event.sender_open_id}",
             is_group=False,
             agent_id=self._agent_id,
+            external_event_identity=ExternalInboundEventIdentity(
+                connector_account_id=self._app_id,
+                provider_event_id=event.message_id,
+            ),
             metadata={
                 "feishu_message_id": event.message_id,
                 "feishu_chat_type": event.chat_type,
@@ -429,6 +434,10 @@ class FeishuAdapter:
             external_chat_id=external_chat_id,
             is_group=True,
             agent_id=self._agent_id,
+            external_event_identity=ExternalInboundEventIdentity(
+                connector_account_id=self._app_id,
+                provider_event_id=event.message_id,
+            ),
             metadata=metadata,
         )
         assert self._on_inbound is not None
