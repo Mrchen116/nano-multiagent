@@ -60,10 +60,11 @@
 
 ## Roadpoints
 
-### R1 — IM typed timeline 与配置边界协议（TODO）
+### R1 — IM typed timeline 与配置边界协议（DONE）
 
 - 步骤：增加 durable `agent_config_changed` entry、Gateway ACK 协议、owner/idempotency、分页/fork/user-stream 读写链路。
-- 验证：IM repository/HTTP/WS/contract 覆盖 anchor、late arrival、replay、pagination 和 fork。
+- 验证：IM repository/HTTP/WS/contract 覆盖 anchor、late arrival、replay、pagination 和 fork；`PYTHONPATH=src pytest -m "not e2e"` 全绿（3642 passed, 1 skipped, 20 deselected）。
+- 提交：C1 `f0a3fe6ab`，C2 `aa80518fc`，C3 `ee9a527d7`。
 
 ### R2 — Gateway outbox 与外部 shadow saga（TODO）
 
