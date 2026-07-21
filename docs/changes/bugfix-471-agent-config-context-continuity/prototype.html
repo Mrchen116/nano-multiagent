@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>bugfix-471 · 配置缓存分界线原型</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --sidebar: #171a21;
+      --sidebar-2: #222630;
+      --canvas: #f7f8fa;
+      --panel: #ffffff;
+      --text: #20242c;
+      --muted: #777e8b;
+      --hairline: #dfe3e9;
+      --agent: #eef1f5;
+      --user: #dfeaff;
+      --accent: #4e77db;
+      --shadow: 0 8px 24px rgba(28, 35, 48, .08);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: #e9ebef;
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    button { font: inherit; }
+    .review-bar {
+      height: 52px;
+      padding: 0 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      color: #f8f9fb;
+      background: #101218;
+      border-bottom: 1px solid #30343d;
+    }
+    .review-title { font-size: 13px; font-weight: 650; }
+    .review-controls { display: flex; align-items: center; gap: 8px; }
+    .review-controls button {
+      border: 1px solid #414652;
+      border-radius: 7px;
+      padding: 6px 10px;
+      color: #dfe3eb;
+      background: #242831;
+      cursor: pointer;
+    }
+    .review-controls button[aria-pressed="true"] {
+      color: #fff;
+      border-color: #6988dd;
+      background: #3d5fae;
+    }
+    .stage { padding: 22px; }
+    .device {
+      width: min(1440px, calc(100vw - 44px));
+      height: min(820px, calc(100vh - 96px));
+      min-height: 620px;
+      margin: 0 auto;
+      overflow: hidden;
+      display: grid;
+      grid-template-columns: 262px 1fr;
+      background: var(--panel);
+      border: 1px solid #cfd3da;
+      border-radius: 12px;
+      box-shadow: var(--shadow);
+    }
+    .sidebar {
+      min-width: 0;
+      color: #e9ebf0;
+      background: var(--sidebar);
+      border-right: 1px solid #2b2f38;
+    }
+    .brand {
+      height: 60px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 18px;
+      border-bottom: 1px solid #2a2e36;
+      font-size: 14px;
+      font-weight: 680;
+    }
+    .brand-mark {
+      width: 28px; height: 28px; border-radius: 8px;
+      display: grid; place-items: center;
+      background: linear-gradient(135deg, #7b91e7, #5269c9);
+    }
+    .side-section { padding: 14px 10px; }
+    .side-label {
+      padding: 0 8px 8px;
+      color: #848b99;
+      font-size: 11px;
+      letter-spacing: .04em;
+    }
+    .conversation {
+      display: grid;
+      grid-template-columns: 34px 1fr;
+      gap: 9px;
+      padding: 10px;
+      border-radius: 8px;
+      background: var(--sidebar-2);
+    }
+    .conversation .avatar, .message .avatar {
+      width: 34px; height: 34px; border-radius: 9px;
+      display: grid; place-items: center;
+      color: #fff; background: #697ac6;
+      font-size: 13px; font-weight: 700;
+    }
+    .conversation strong { display: block; font-size: 13px; }
+    .conversation small { color: #9ba1ad; font-size: 11px; }
+    .chat {
+      min-width: 0;
+      display: grid;
+      grid-template-rows: 60px 1fr 82px;
+      background: var(--canvas);
+    }
+    .chat-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+      background: rgba(255,255,255,.94);
+      border-bottom: 1px solid #e4e7ec;
+    }
+    .chat-header strong { display: block; font-size: 14px; }
+    .chat-header span { color: var(--muted); font-size: 11px; }
+    .header-action { color: var(--muted); font-size: 13px; }
+    .timeline {
+      overflow-y: auto;
+      padding: 22px 20px 30px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .day {
+      align-self: center;
+      color: #969ca7;
+      font-size: 11px;
+      margin: 2px 0 6px;
+    }
+    .message {
+      max-width: 72%;
+      display: grid;
+      grid-template-columns: 34px minmax(0, 1fr);
+      gap: 8px;
+      align-self: flex-start;
+    }
+    .message.user {
+      grid-template-columns: minmax(0, 1fr) 34px;
+      align-self: flex-end;
+    }
+    .message.user .avatar { grid-column: 2; background: #4f78be; }
+    .message.user .message-body { grid-column: 1; grid-row: 1; align-items: flex-end; }
+    .message-body { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+    .sender { color: #777e88; font-size: 11px; }
+    .bubble {
+      width: fit-content;
+      padding: 9px 12px;
+      border-radius: 12px;
+      background: var(--agent);
+      font-size: 13px;
+      line-height: 1.55;
+      box-shadow: 0 1px 1px rgba(21, 26, 35, .04);
+    }
+    .user .bubble { background: var(--user); }
+    .meta { color: #a0a5ae; font-size: 10px; padding: 0 3px; }
+    .tool-card {
+      margin-top: 6px;
+      padding: 8px 10px;
+      border: 1px solid #d9dee7;
+      border-radius: 8px;
+      color: #555d68;
+      background: #fafbfc;
+      font-size: 11px;
+    }
+    .boundary {
+      width: 100%;
+      display: grid;
+      grid-template-columns: minmax(18px, 1fr) auto minmax(18px, 1fr);
+      align-items: center;
+      gap: 10px;
+      padding: 8px 4px 5px;
+      color: #858c98;
+      font-size: 11px;
+      line-height: 1.4;
+      text-align: center;
+    }
+    .boundary::before, .boundary::after {
+      content: "";
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--hairline));
+    }
+    .boundary::after { background: linear-gradient(90deg, var(--hairline), transparent); }
+    .boundary span { max-width: 560px; }
+    .composer {
+      padding: 12px 20px 14px;
+      background: #fff;
+      border-top: 1px solid #e4e7ec;
+    }
+    .composer-box {
+      height: 54px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 9px 0 14px;
+      border: 1px solid #d9dde4;
+      border-radius: 11px;
+      color: #9da2ab;
+      background: #fbfbfc;
+      font-size: 12px;
+    }
+    .send {
+      width: 34px; height: 34px; border: 0; border-radius: 9px;
+      color: #fff; background: var(--accent);
+    }
+    .annotation {
+      position: fixed;
+      right: 18px;
+      bottom: 16px;
+      max-width: 310px;
+      padding: 10px 12px;
+      border: 1px solid #d6dae1;
+      border-radius: 8px;
+      color: #5f6672;
+      background: rgba(255,255,255,.94);
+      box-shadow: var(--shadow);
+      font-size: 11px;
+      line-height: 1.5;
+    }
+    .no-boundary .boundary { display: none; }
+    .device.mobile {
+      width: 375px;
+      height: min(760px, calc(100vh - 96px));
+      min-height: 600px;
+      grid-template-columns: 1fr;
+      border-radius: 16px;
+    }
+    .device.mobile .sidebar { display: none; }
+    .device.mobile .chat { grid-template-rows: 54px 1fr 76px; }
+    .device.mobile .chat-header { padding: 0 12px; }
+    .device.mobile .chat-header strong::before { content: "‹  "; color: #747b86; }
+    .device.mobile .timeline { padding: 16px 12px 24px; gap: 10px; }
+    .device.mobile .message { max-width: 88%; }
+    .device.mobile .boundary { gap: 7px; padding-inline: 0; font-size: 10.5px; }
+    .device.mobile .boundary span { max-width: 270px; }
+    .device.mobile .composer { padding: 10px 12px 12px; }
+    @media (max-width: 700px) {
+      .review-bar { height: auto; min-height: 58px; align-items: flex-start; flex-direction: column; padding: 10px 12px; }
+      .review-controls { width: 100%; overflow-x: auto; }
+      .stage { padding: 12px; }
+      .device:not(.mobile) { width: 100%; grid-template-columns: 1fr; }
+      .device:not(.mobile) .sidebar { display: none; }
+      .annotation { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <header class="review-bar">
+    <div>
+      <div class="review-title">bugfix-471 · Web IM 配置缓存分界线</div>
+      <small style="color:#9299a6">评审原型：只定义时间线增量，不重做聊天页面</small>
+    </div>
+    <div class="review-controls" aria-label="原型状态切换">
+      <button id="desktop" aria-pressed="true">Desktop 1440</button>
+      <button id="mobile" aria-pressed="false">Mobile 375</button>
+      <button id="toggle" aria-pressed="true">运行配置已变</button>
+    </div>
+  </header>
+
+  <main class="stage">
+    <section class="device" id="device" aria-label="Web IM 聊天页面原型">
+      <aside class="sidebar">
+        <div class="brand"><div class="brand-mark">N</div>Nano IM</div>
+        <div class="side-section">
+          <div class="side-label">最近聊天</div>
+          <div class="conversation">
+            <div class="avatar">A</div>
+            <div><strong>Research Agent</strong><small>现在可以继续了</small></div>
+          </div>
+        </div>
+      </aside>
+
+      <section class="chat">
+        <header class="chat-header">
+          <div><strong>Research Agent</strong><span>在线 · 直聊</span></div>
+          <div class="header-action">⋯</div>
+        </header>
+
+        <div class="timeline" id="timeline">
+          <div class="day">今天 00:12</div>
+
+          <article class="message user">
+            <div class="avatar">我</div>
+            <div class="message-body">
+              <div class="bubble">帮我查看项目里失败的测试，并告诉我原因。</div>
+              <div class="meta">00:12</div>
+            </div>
+          </article>
+
+          <article class="message">
+            <div class="avatar">A</div>
+            <div class="message-body">
+              <div class="sender">Research Agent</div>
+              <div class="bubble">我现在没有可用的终端工具，暂时无法读取项目测试结果。你可以为我开启 Bash 工具后继续。</div>
+              <div class="meta">00:12</div>
+            </div>
+          </article>
+
+          <div class="boundary" id="boundary" role="separator" aria-label="Agent 配置已更新">
+            <span>Agent 配置已更新 · 后续请求将不再命中此前的上下文缓存</span>
+          </div>
+
+          <article class="message user" id="anchor-message">
+            <div class="avatar">我</div>
+            <div class="message-body">
+              <div class="bubble">现在呢？继续刚才的任务。</div>
+              <div class="meta">00:16</div>
+            </div>
+          </article>
+
+          <article class="message">
+            <div class="avatar">A</div>
+            <div class="message-body">
+              <div class="sender">Research Agent</div>
+              <div class="bubble">
+                可以了。我会继续检查刚才提到的失败测试。
+                <div class="tool-card">✓ Bash · pytest -xvs tests/unit/…</div>
+              </div>
+              <div class="meta">00:16</div>
+            </div>
+          </article>
+        </div>
+
+        <footer class="composer">
+          <div class="composer-box"><span>发送消息…</span><button class="send" aria-label="发送">↑</button></div>
+        </footer>
+      </section>
+    </section>
+  </main>
+
+  <aside class="annotation">
+    <strong>评审重点</strong><br />
+    分界线是独立 timeline entry：位于第一条采用新配置的用户消息之前；没有头像、气泡、发送者、时间、状态或菜单。切换“运行配置已变”可查看纯展示配置变化时的无分界线状态。
+  </aside>
+
+  <script>
+    const device = document.getElementById('device');
+    const desktop = document.getElementById('desktop');
+    const mobile = document.getElementById('mobile');
+    const toggle = document.getElementById('toggle');
+
+    function setViewport(isMobile) {
+      device.classList.toggle('mobile', isMobile);
+      desktop.setAttribute('aria-pressed', String(!isMobile));
+      mobile.setAttribute('aria-pressed', String(isMobile));
+    }
+    desktop.addEventListener('click', () => setViewport(false));
+    mobile.addEventListener('click', () => setViewport(true));
+    toggle.addEventListener('click', () => {
+      const visible = toggle.getAttribute('aria-pressed') === 'true';
+      toggle.setAttribute('aria-pressed', String(!visible));
+      toggle.textContent = visible ? '仅展示配置变化' : '运行配置已变';
+      device.classList.toggle('no-boundary', visible);
+    });
+  </script>
+</body>
+</html>
