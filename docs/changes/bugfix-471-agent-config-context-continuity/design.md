@@ -30,7 +30,7 @@
 ### 可复用能力
 
 - **扩展** `ConversationSession` 的 lifecycle/turn gate 与 JSONL transcript：同一 seam 已负责 turn、compact、discard、close 的一致性，新增一个完整 replacement interface 能把持久化、原子性、幂等和恢复隐藏在内核里。
-- **复用** `project_agent_session_capabilities()`：创建 session、reconfigure 与 runtime fingerprint 必须来自同一次 projection，避免三份字段清单漂移。
+- **扩展** `project_agent_session_capabilities()` 为唯一 raw runtime projection：创建 session 与 reconfigure 共用同一 `SessionRuntimeConfig`；identity canonicalization 只由 `agent.sdk` 从该 value 计算，避免 Gateway 再维护一份 hash 字段清单。
 - **扩展** `SessionRunCoordinator._transition(session_key)`：reconfigure、binding applied-state 更新、配置边界登记与 submit 在同一 per-session admission 临界区排序。
 - **扩展** `PersistentSessionBindingStore`：它已是 crash-safe session binding 权威，适合同时持久化 applied runtime identity；不再用进程内 catalog revision 判断旧会话是否失效。
 - **扩展** IM conversation event/read model 与现有用户 WS stream：独立 timeline entry 沿用持久事件和 canonical WebSocket 投递模式，但不复用 relay delivery receipt，因为 receipt 只描述 relay task 生命周期，外部入站也可能没有该 task。
@@ -54,10 +54,10 @@ flowchart LR
   Sync -. 不批量触碰休眠聊天 .-> Catalog[LiveAgentCatalog]
 
   Inbound[下一条入站消息] --> Admission[SessionRunCoordinator\nper-session admission]
-  Catalog --> Projection[Capabilities projection\n+ stable fingerprint]
+  Catalog --> Projection[Gateway raw runtime projection]
   Projection --> Admission
   Binding[(Gateway binding SQLite\nkernel_session_id + applied identity)] --> Admission
-  Admission -->|必要时一次完整 replacement| SDK[agent.sdk\nreconfigure_session]
+  Admission -->|identity + 必要时完整 replacement| SDK[agent.sdk\nidentify / inspect / reconfigure]
   SDK --> Conversation[ConversationSession\nturn/config transaction]
   Conversation --> Transcript[(同一 Kernel JSONL\n历史 + config_update)]
   Admission -->|同一 session 紧接 submit| Run[新 run]
@@ -82,7 +82,7 @@ flowchart LR
 
 - **理由**：`ConversationSession` 已拥有配置、历史与 turn 序列化；一个完整 replacement interface 能把 JSONL schema、prompt seed、loaded-state invalidation 和幂等性藏在深模块内部。
 - **拒绝**：reconfigured fork 会制造第二份 session 身份和 transcript；IM 消息 hydration 会让产品层复制不完整的内核持久化语义；继续旧 session 但只换 model 则会产生混合配置。
-- **风险**：replacement 必须覆盖全部会影响后续请求的 session capabilities；遗漏字段会形成 fingerprint 与实际请求不一致，故 projection、fingerprint 与 reconfigure 共用一个 typed value。
+- **风险**：replacement 必须覆盖 resolved model 和全部会影响后续请求的 session capabilities；遗漏字段会形成 fingerprint 与实际请求不一致。`agent.sdk` 因此拥有 runtime identity 的 canonicalization，Gateway projection、持久化、reconfigure 与 submit 共用同一个 typed value，不接受 caller 自报 hash。
 
 ### 决策 2：配置生效点是“下一新 run 的 admission”，不是保存时或消息入站时
 
@@ -97,25 +97,26 @@ flowchart LR
 
 **fingerprint 对实际投影到一次新 run 的完整有效配置做 canonical hash，而不是使用进程 revision 或 IM profile version。**
 
-纳入：resolved model、四槽 `PromptSlots` 的有序名称与文本、resolved enabled tools、skills 的显式语义、effective Kernel features，以及未来真正改变模型请求或工具能力的字段。canonical representation 必须区分 `None`（默认发现/继承）与空集合（显式禁用），map key 排序、list 保持语义顺序，使用带 schema version 的 SHA-256。
+纳入：resolved model、四槽 `PromptSlots` 的有序名称与文本、resolved enabled tools、skills 的显式语义、effective Kernel features，以及未来真正改变模型请求或工具能力的字段。canonical representation 必须区分 `None`（默认发现/继承）与空集合（显式禁用），map key 排序、list 保持语义顺序，使用带 schema version 的 SHA-256。canonicalization 由 `agent.sdk` 单点拥有：它从原始 `SessionRuntimeConfig` 计算 `SessionRuntimeIdentity`，Gateway 不维护第二份字段清单。
 
 排除：title/display name、avatar、description、group reply routing、heartbeat cadence 等不改变该 foreground run 请求/能力的字段。`profile_version` 仅作为 provenance 持久化与排障，不参与等价判断。
 
 - **拒绝**：`LiveAgentSnapshot.revision` 在 Gateway 重启后重置；`profile_version` 表示 IM 配置同步代次，不证明某个 run 实际采用了哪些能力。
-- **风险**：fingerprint schema 未来变化不能给所有旧聊天制造虚假 divider；schema version 变化必须提供 baseline migration 或显式兼容比较。
+- **风险**：fingerprint schema 未来变化不能给所有旧聊天制造虚假 divider；schema mismatch 统一走决策 4 的“从持久 raw runtime 按当前 schema 重算 baseline”分支，禁止直接把不同 schema 判为配置变化。
 
 ### 决策 4：Gateway 持久化“实际采用状态”，旧 binding 惰性建立 baseline
 
 **每个 binding 持久化 `applied_runtime_fingerprint`、fingerprint schema、applied profile provenance；不再因 catalog revision 变化删除 binding。**
 
-- 新 binding 创建时用创建 session 的同一 projection 写入 applied identity。
-- 已有列值完整时，admission 直接与 desired fingerprint 比较。
-- 升级前旧 binding 列值为空时，Gateway 通过新的 SDK session inspection 读取该 transcript 当前已持久化的 runtime identity；能读取则回填 baseline，不产生 divider，再正常比较 desired。
-- 极旧 transcript 不含可计算 identity 时，第一次 admission 用当次 desired config reconfigure 同一 session并把它记为 baseline，**不显示 divider**。这是一次兼容性保守选择：宁可首轮不解释缓存边界，也不把部署升级误报成用户修改配置；此后变化均精确检测。
-- fork 后的新 binding 以 fork 结果 transcript 的当前 identity作为 baseline，fork 创建本身不产生配置更新 divider。
+- 新 binding 创建时，Gateway 先对创建 session 所用的同一 `SessionRuntimeConfig` 调 `identify_runtime()`；session durable 创建成功后，把返回的 SDK identity 写入 applied state。
+- binding fingerprint 与当前 SDK schema 相同且列值完整时，admission 直接与 desired identity 比较。
+- binding 列值为空或 fingerprint schema 不是当前版本时，Gateway 调 `get_session_runtime()`；SDK 从 transcript 持久化的 raw runtime（含 model）按**当前 schema**重算 identity。Gateway 先事务回填这份 baseline，**不产生 divider**，再将它与 desired identity 比较；若二者不同，随后正常 reconfigure 并为真实变化产生 divider。
+- inspection 明确返回 `None` 表示极旧 transcript 缺完整 raw runtime；第一次 admission 用当次 desired config reconfigure 同一 session并记为 baseline，**不显示 divider**。这是兼容性保守选择：宁可首轮少解释一次，也不把部署或 hash schema 升级误报成用户修改配置。
+- inspection 抛出读取/校验错误时不得静默重基线或 submit；当前消息以可重试配置 admission 错误结束，旧 binding 保持不变。
+- fork 后的新 binding 以 fork 结果 transcript 按当前 schema 计算的 identity 作为 baseline，fork 创建本身不产生配置更新 divider。
 
-- **拒绝**：把空列当“不相等”会使升级后所有活跃聊天首次使用都出现假提示；从当前 catalog 猜旧 session 配置无法区分升级前已经发生的配置变化。
-- **风险**：极旧 transcript 的第一次新配置切换可能不显示一次 divider，但历史连续和新配置生效仍受保证。
+- **拒绝**：把空列或 schema mismatch 直接当“不相等”会使升级后所有活跃聊天出现假提示；从当前 catalog 猜旧 session 配置无法区分已采用状态。
+- **风险**：极旧 transcript 的第一次真实配置切换可能少显示一次 divider，但历史连续和新配置生效仍受保证；此后变化均精确检测。
 
 ### 决策 5：缓存分界线是独立、可锚定、幂等的 timeline entry
 
@@ -132,8 +133,10 @@ flowchart LR
 
 **actual-applied 是 Gateway 才知道的事实；它先在本地事务中持久化 boundary intent，再异步通过新 upstream frame 投递到 IM，成功 ACK 后删除。**
 
-- intent 在 applied binding state 与 anchor identity 可用后写入本地 SQLite；包含稳定 idempotency key，Gateway 重启或 IM 重连后继续发送。
-- `IMConnectionManager` 的内存 pending queue 只覆盖进程存活期间的断线重发，不足以承担 crash durability；新 outbox 负责跨进程恢复，发送使用 `send_json_await_ack()`，IM 先幂等落库再 ACK。
+这里是**per-conversation actual-applied**，不是 Agent profile publish 成功：保存配置或更新 live catalog 不创建 boundary。Web relay 已有 user anchor，完成 reconfigure 后在 applied binding state 的同一 SQLite 事务写 anchored intent。external channel 离线时尚无 IM anchor，则同一事务写引用 shadow saga key 的 pending intent；取得 `ShadowConversationRef` 后再原子补齐 `conversation_id/before_message_id` 并转为可发送 outbox item。两条路径都保证 actual-applied 事实先 durable，再 submit。
+
+- anchored intent 包含稳定 idempotency key；Gateway 重启或 IM 重连后继续发送。pending intent 不能进入网络 outbox，直到 user anchor 已确认，因此不会生成孤立 divider。
+- `IMConnectionManager` 的内存 pending queue 只覆盖进程存活期间的断线重发，不足以承担 crash durability；新 outbox 负责跨进程恢复，发送使用 `send_json_await_ack()`，IM 先幂等落库再 ACK。error ACK 保留 durable item：可重试错误按退避重发，归属/anchor 等确定性校验错误进入可诊断 quarantine；两者都不删除事实，也不阻塞后续 outbox item。
 - Web relay 已有 `conversation_id` 与 `im_message_id`；external channel 的 shadow sync 必须返回 `ShadowConversationRef(conversation_id, im_message_id)`，而不只返回 conversation id，供同一 marker protocol 使用。
 - external channel 的业务回复不等待 IM marker 成功；IM 暂时离线时 outbox 重试，late marker 仍由 anchor 排序。Web IM 自身 relay path 可在 submit 前确认 anchor；若 boundary intent 不能持久化，当前 run 不应宣称完成配置切换。
 - 不复用 `node.report`/`node.delivery_receipt`：它们要求 run/message 或 relay task 生命周期，external ingress 可能没有 relay task，且其领域语义不是 timeline mutation。
@@ -146,7 +149,21 @@ flowchart LR
 
 Kernel fork 继续复制截至 fork 点的 transcript 与 resolved config；Gateway 为 target binding 建立 baseline applied identity。源会话中 anchor 在 fork 范围外的 divider 不复制；复制后的 boundary 使用新 stable id 与 target 幂等键。用户显式 fork 没有发生 Agent 配置更新，因此不新增 divider。
 
-### 决策 8：两个垂直 milestone 串行交付
+### 决策 8：外部 channel 的 shadow mirror 使用可恢复 saga，不能依赖 best-effort HTTP
+
+**外部事件先写本地 durable shadow saga，再允许执行和外部回复；IM 离线不阻塞主路径，恢复后按稳定 identity 补齐 user anchor、Agent mirror 与 divider。**
+
+- `channels.base.InboundMessage` 新增必填语义的 typed `ExternalInboundEventIdentity(connector_account_id, provider_event_id)`；`RuntimeProtocolFacts` 显式携带同一 value，不能从松散 metadata、聊天 id 或文本 hash 推导。`channel_name` 提供 external source，`external_chat_id/thread_id` 仍只表示会话路由，不充当事件 identity。
+- 每个启用 shadow mirror 的 external adapter 必须在 normalization 时填值。当前 Feishu 映射固定为 `connector_account_id=app_id`、`provider_event_id=Feishu event.message_id`；adapter contract test 锁定该映射。未来 adapter 只有在能提供 provider-stable message/event/delivery id 时才能宣称 durable shadow 能力。
+- saga 主键是 `owner_id + agent_id + channel_name + connector_account_id + external_chat_id + thread_id + provider_event_id`。typed identity 缺失时禁止进入 durable shadow saga、禁止生成 divider，也禁止回退到 chat/text identity；原 external 消息仍执行并正常回复，但 Gateway 记录可诊断的 `shadow_identity_unavailable` 降级事实。验收范围内的 Feishu 若缺值则视为 adapter contract 失败，不得以降级路径判通过。
+- 本地行至少保存 external identity、canonical inbound payload、reply target、nullable IM conversation/message ids、关联 session key、外部回复的稳定 output identity，以及各步骤 ACK 状态。它先于 Kernel submit 持久化，是跨重启 source of truth。
+- outbound mirror identity 由 Gateway 从 durable run/output facts 生成：最终回复为 `(saga_id, run_id, "final")`，流式/工具可见输出为 `(saga_id, run_id, output_kind, kernel_message_id)`；没有 Kernel message id 的同类多输出由 saga 持久分配 ordinal。不得把回复文本或 provider 返回时才产生的 id 用作 source identity。
+- 重放顺序固定为：find-or-create external conversation → 以 external event identity 幂等创建 shadow user message → 记录 `ShadowConversationRef(conversation_id, im_message_id)` → 以上述 output identity 幂等补写 Agent mirror → 投递 anchored config boundary。每步响应和本地 mark 之间崩溃都可安全重放。
+- IM 消息创建新增 caller idempotency key/唯一约束；SessionBinding/ReplyContext 引用 saga key，即使首次同步离线也不丢关联。
+- **拒绝**：当前 `IMShadowConversationSync` 失败即丢 metadata，且不保留 user message id；把 `external_chat_id` 当 IM id 会产生错误 FK/孤儿回复。
+- **风险**：这是 M2 中比 divider 更基础的 mirror durability；外部平台回复仍优先，不等待 IM，但需持久保存可补写的 canonical output。新增 adapter 时必须先满足 typed identity contract，否则只能走显式降级路径。
+
+### 决策 9：两个垂直 milestone 串行交付
 
 **拆为 M1“跨渠道上下文连续”与 M2“Web IM 持久缓存边界”，M2 依赖 M1。**
 
@@ -159,19 +176,32 @@ Kernel fork 继续复制截至 fork 点的 transcript 与 resolved config；Gate
 ```python
 @dataclass(frozen=True, slots=True)
 class SessionRuntimeConfig:
+    model: str
     prompt: PromptSlots
     skills: list[str] | None
     enabled_tools: list[str]
     features: dict[str, bool] | None
+
+@dataclass(frozen=True, slots=True)
+class SessionRuntimeIdentity:
     runtime_fingerprint: str
     fingerprint_schema: str
+
+@dataclass(frozen=True, slots=True)
+class SessionRuntimeState:
+    runtime: SessionRuntimeConfig
+    identity: SessionRuntimeIdentity
 
 @dataclass(frozen=True, slots=True)
 class SessionReconfigureResult:
     session_id: str
     changed: bool
-    runtime_fingerprint: str
-    fingerprint_schema: str
+    state: SessionRuntimeState
+
+def Kernel.identify_runtime(
+    *,
+    runtime: SessionRuntimeConfig,
+) -> SessionRuntimeIdentity: ...
 
 async def Kernel.reconfigure_session(
     *,
@@ -184,27 +214,26 @@ async def Kernel.get_session_runtime(
     *,
     session_id: str,
     workspace_root: Path | str,
-) -> SessionRuntimeConfig | None: ...
+) -> SessionRuntimeState | None: ...
 ```
 
 Interface 语义：
 
-- replacement，不是 patch；caller 提供完整 projected config，避免“未传字段是保留还是清空”的歧义。
+- replacement，不是 patch；caller 提供含 resolved model 的完整 projected config，避免“未传字段是保留还是清空”的歧义。
+- `agent.sdk` 校验 config、canonicalize 并返回 identity；caller 不传 fingerprint。`session_created`/`config_update` 持久化 raw runtime（含 model）和当时 identity，inspection 能按当前 schema 重算。
 - `ConversationSession` 与 turn/compact/discard 使用同一 lifecycle permit 和 turn gate；active turn 完成前 reconfigure 等待，持久化 `config_update` 后才使 loaded state 失效并返回。
-- 相同 fingerprint 且持久配置等价时 `changed=False`，不追加重复 entry。
+- 相同 current-schema identity 且持久配置等价时 `changed=False`，不追加重复 entry。
 - JSONL write 失败不修改可见 in-memory config；抛出明确异常，caller 不得 submit。
-- `get_session_runtime()` 只返回 SDK value，不暴露 reserved metadata 或 JSONL entry schema；极旧 archive 无完整 identity 时返回 `None`。
-- `create_session()` 与 `fork_session()` 的外部兼容 interface 保持，内部持久化同一 runtime identity。
+- 新 run 的 model 从 session 当前 runtime 读取；`Kernel.submit(..., model=...)` 过渡期只允许省略或与 session model 完全一致，不一致立即拒绝，避免双 owner。完成调用方迁移后删除 per-run override。
+- `get_session_runtime()` 只返回 SDK value，不暴露 reserved metadata 或 JSONL entry schema；极旧 archive 无完整 raw runtime 时返回 `None`。
+- `create_session()`/`fork_session()` 保持原能力但扩展 typed runtime 装配；fork 复制 fork 点 raw runtime 与 identity。
 
 ### Gateway projection 与 binding
 
 ```python
 @dataclass(frozen=True, slots=True)
 class ProjectedAgentRuntime:
-    model: str
-    capabilities: AgentSessionCapabilities
-    runtime_fingerprint: str
-    fingerprint_schema: str
+    runtime: SessionRuntimeConfig
     profile_version: int | None
 
 @dataclass(frozen=True, slots=True)
@@ -217,7 +246,7 @@ class SessionBinding:
     applied_profile_version: int | None
 ```
 
-`project_agent_runtime(snapshot, scenario, resolved_model)` 是创建、比较、reconfigure 和 submit 的唯一 projection。SQLite migration 新增 nullable applied columns；store 提供一个事务方法提交 applied identity 与可选 boundary intent，避免 caller 学会列级顺序。
+`project_agent_runtime(snapshot, scenario, resolved_model)` 是创建、reconfigure 和 submit 的唯一 Gateway projection，产出 raw `SessionRuntimeConfig`；stable identity 由 SDK 从该 value 计算并回传。SQLite migration 新增 nullable applied columns；store 提供一个事务方法提交 applied identity 与可选 boundary intent，避免 caller 学会列级顺序。
 
 ### 新 run admission 时序
 
@@ -239,19 +268,22 @@ sequenceDiagram
   else new run admission
     R->>B: resolve existing binding
     R->>G: read latest desired snapshot
-    R->>R: project effective runtime B + fingerprint
-    alt legacy binding has no baseline
+    R->>R: project raw effective runtime B
+    R->>K: identify_runtime(B)
+    K-->>R: current-schema desired identity
+    alt binding baseline missing or schema mismatched
       R->>K: get_session_runtime()
+      K-->>R: raw persisted runtime + current-schema identity / None / error
       R->>B: persist baseline without divider
     end
-    alt applied fingerprint != desired
+    alt applied identity != desired
       R->>K: reconfigure_session(runtime B)
-      K-->>R: durable success / error
-      R->>B: persist applied B + boundary intent
-      R->>K: submit(same session, model B)
-      R->>O: schedule delivery
+      K-->>R: durable runtime + identity / error
+      R->>B: persist applied B + anchored/pending boundary intent
+      R->>K: submit(same session; model from runtime B)
+      R->>O: schedule only anchored intent
     else equivalent config
-      R->>K: submit(same session, model B)
+      R->>K: submit(same session; model from current runtime)
     end
   end
   O->>I: agent.config.boundary (idempotency key)
@@ -290,13 +322,38 @@ interface ListTimelineResponse {
 
 分页规则：repository 先按 message timeline 选页，再把每个选中 message 的 anchored entries 紧邻放在 message 前；limit 仍按 message 数计，divider 不消耗 limit。`next_before_message_id` 仍取本页最早 message。这样旧客户端游标语义不变，typed response 由本 unit 的 Web frontend 同步升级。
 
-canonical WS event：
+Gateway upstream frame 使用现有 `{type,payload}` request/ACK 形状：
 
 ```json
 {
-  "type": "agent.config.changed",
+  "type": "agent.config.boundary",
   "payload": {
+    "boundary_id": "...",
+    "node_id": "...",
+    "conversation_id": "...",
+    "agent_id": "...",
+    "before_message_id": "...",
+    "runtime_fingerprint": "...",
+    "fingerprint_schema": "...",
+    "profile_version": 7,
+    "applied_at": "..."
+  }
+}
+```
+
+IM 只有在 owner/node/conversation/agent/anchor 归属校验和幂等 durable insert 成功后才回 success ACK；相同幂等键返回原 entry，冲突或持久化错误返回 error ACK，Gateway 保留 outbox item 重试。
+
+浏览器继续走 owner-scoped canonical user stream，不另造 WS 信封：
+
+```json
+{
+  "op": "event",
+  "event_type": "agent.config.changed",
+  "event_id": 12345,
+  "conversation_id": "...",
+  "data": {
     "id": "...",
+    "event_id": 12345,
     "conversation_id": "...",
     "agent_id": "...",
     "before_message_id": "...",
@@ -305,7 +362,36 @@ canonical WS event：
 }
 ```
 
-IM upstream protocol 接收 `agent.config.boundary`，按 owner/node/conversation/agent 归属校验并幂等落库；用户 WS 使用 `agent.config.changed`。协议内部可携带 fingerprint/provenance，面向浏览器 payload 不暴露 prompt 或完整配置。
+boundary 与 message 共用 `conversation_events.event_id` 的 owner replay/high-water 语义；浏览器用 `resume {after_event_id}` 重放，超出窗口时按既有 `resync_required` 重新抓 REST。live 与 replay 同一 event id 去重；timeline 内再按 boundary stable id 和 anchor 排序。面向浏览器的 `data` 不暴露 fingerprint、profile provenance、prompt 或完整配置。
+
+### Background run admission
+
+聊天 session 的 admission owner 仍是 `SessionRunCoordinator`。复用 session 的 heartbeat 必须在自己的 per-agent admission lock 内调用同一 `project_agent_runtime()`、SDK identity inspection/reconfigure，再 submit；不能再以 catalog revision 创建空 heartbeat session。cron 每次创建独立 session，创建时直接传当前完整 `SessionRuntimeConfig`，无需 reconfigure，但 model 同样从 session runtime 读取。两者都不产生 Web IM config divider：divider 只解释某个用户聊天时间线的缓存边界，后台专用 session 没有 anchor user message。
+
+### External shadow durable saga
+
+```python
+# personal_assistant.channels.base
+@dataclass(frozen=True, slots=True)
+class ExternalInboundEventIdentity:
+    connector_account_id: str
+    provider_event_id: str
+
+@dataclass(frozen=True, slots=True)
+class InboundMessage:
+    # existing normalized fields omitted
+    external_event_identity: ExternalInboundEventIdentity | None = None
+
+# personal_assistant.gateway.runtime_protocol
+@dataclass(frozen=True, slots=True)
+class RuntimeProtocolFacts:
+    # existing relay/shadow facts omitted
+    external_event_identity: ExternalInboundEventIdentity | None = None
+```
+
+External adapter 在 normalization seam 构造 typed identity，Gateway wrapper 只校验并原样传入 runtime facts；legacy opaque metadata 不允许成为 durable identity 来源。Pipeline 在调用 Kernel 前把 identity 与 canonical payload 写入 `external_shadow_pending`；IM 在线时同步到 `ShadowConversationRef(conversation_id, im_message_id)`，离线时仍运行并回复外部平台。恢复/重启重放同一 saga，先补 user anchor，再按 `(saga_id, run_id, output kind, logical output id)` 补 Agent mirror，最后投递 boundary。只有完成 user anchor 后 boundary outbox 才可发送，因此不会生成孤立 divider。
+
+Feishu 的 contract mapping 是 `app_id → connector_account_id`、`event.message_id → provider_event_id`。若 external adapter 没有 typed identity，Pipeline 跳过 shadow saga/boundary并产生可诊断降级状态，但不阻塞 external reply；M2 的 Feishu 真栈验收不得走该降级分支。
 
 ### Frontend state seam
 
@@ -354,8 +440,8 @@ IM upstream protocol 接收 `agent.config.boundary`，按 owner/node/conversatio
 ## 契约层增量 (delta-spec)
 
 - kernel: `specs/kernel/context-persistence.md`, `specs/kernel/prompts.md`
-- im: `specs/im/agents-nodes.md`, `specs/im/conversations-messages.md`, `specs/im/web-chat-ux.md`
-- gateway: `specs/gateway/agent-capabilities.md`, `specs/gateway/routing-delivery.md`
+- im: `specs/im/agents-nodes.md`, `specs/im/conversations-messages.md`, `specs/im/web-chat-ux.md`, `specs/im/gateway-relay.md`
+- gateway: `specs/gateway/agent-capabilities.md`, `specs/gateway/routing-delivery.md`, `specs/gateway/relay-protocol.md`
 - cli: no spec delta（CLI 不参与 Agent 配置同步或 Web IM timeline）
 
 ## 风险与回退
@@ -367,7 +453,8 @@ IM upstream protocol 接收 `agent.config.boundary`，按 owner/node/conversatio
 | IM 离线或 Gateway 在 marker ACK 前崩溃 | durable outbox 持有稳定幂等键；重连后重发，IM 重复 insert 返回同一 entry |
 | marker 晚于 anchor message到达 | `before_message_id` 决定顺序而非 arrival time；REST/WS reducer 使用同一 anchor 规则 |
 | 旧 binding 无 runtime identity | 惰性 baseline 不显示 divider；极旧 archive 首次 conservative reconfigure，避免全量假提示 |
-| fingerprint 演进 | schema version 入 hash 与 binding；schema 升级需显式 baseline migration，不能直接比较不同 schema |
+| fingerprint 演进 | schema mismatch 时从 transcript raw runtime 按当前 schema 重算并静默回填 baseline，再比较 desired；inspection 错误则失败重试，绝不直接比较不同 schema |
+| external shadow 同步离线或响应后崩溃 | durable saga 先于 run；conversation/message/Agent mirror 均用 stable external identity 幂等重放，boundary 等待 user anchor；前提是各 external adapter 能提供 provider-stable event/delivery id，否则该 adapter 不得宣称跨重启 mirror 恢复达标 |
 | removed tool 的历史 tool blocks 被新 allowlist 拒绝解析 | allowlist 只约束未来 dispatch；transcript materialization 必须保留既成 tool call/result，并加回归测试 |
 | timeline union 改动旧前端假设 | M2 内 REST、TS type、reducer、renderer 同步落地，API contract test 覆盖分页和 reconnect |
 
@@ -388,7 +475,7 @@ IM upstream protocol 接收 `agent.config.boundary`，按 owner/node/conversatio
 
 - Web IM 测试账号：`nano` / `nano1234`；`scripts/e2e-up.sh` 从 worktree 隔离配置启动，确保主配置含有效 `llm:`。
 - 至少一个可调用工具的测试 Agent，以及一个已有完整工具调用历史的聊天。
-- Feishu 测试 channel 与 `lark-cli` 已由当前开发环境提供；先发送一条探测消息并确认 Web IM shadow chat 可见，再执行外部连续性旅程。
+- Feishu 测试 channel 与 `lark-cli` 已由当前开发环境提供；先发送一条探测消息，确认 adapter 取得 provider-stable event/message id 且 Web IM shadow chat 可见，再执行外部连续性与离线恢复旅程。
 - LLM proxy 日志 `/Users/czj/Repos/LLM_PROXY/logs/<session_id>/` 用于 worker/verifier 证明配置边界两侧请求仍携带历史；reviewer 判定仍以产品回复和 UI 为准。
 
 ## Milestones
@@ -397,8 +484,8 @@ IM upstream protocol 接收 `agent.config.boundary`，按 owner/node/conversatio
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| bugfix-471-M1 | session-continuity | — | A | `src/agent/{core,platform,sdk}/session*`, `src/personal_assistant/gateway/{agent_config_sync,agent_catalog,session_binder,session_composition,session_keys,session_run_coordinator}.py` 及最窄 unit/integration/contract/e2e 测试 | **M1-C1 [reviewer]** 增加/删除 tools，或修改 model/prompt/skills 后，同一 Web IM 直聊与群聊下一新回复使用最终配置且理解修改前历史；删除工具只禁止未来调用，历史 tool result 可理解。 **M1-C2 [reviewer]** active 回复及被纳入该轮的插话保持旧配置，下一新 run 才采用最新配置；连续保存不重演中间版本。 **M1-C3 [reviewer]** Gateway 重启后配置边界两侧历史连续，不同聊天不串线；Feishu 同一外部对话继续新配置且理解前文。 **M1-C4 [worker]** Kernel public interface 测试覆盖 replacement、幂等、并发等待、持久恢复、write failure；Gateway 测试覆盖 admission ordering、legacy baseline、projection/fingerprint、失败不 submit。 **M1-C5 [worker]** 真栈证据包含边界前后 LLM 请求 messages/tools/model 对账、Gateway restart、Web IM direct/group 与真实 Feishu 外部旅程；`pytest -m "not e2e"` 相关树及 contract 全绿。 |
-| bugfix-471-M2 | cache-boundary | bugfix-471-M1 | B | `src/personal_assistant/{gateway,ws}/` boundary outbox/shadow identity，`src/IM/{domain,infra,application,api,ws}/` timeline，`src/IM/frontend/src/features/chat/`，fork/pagination/reconnect/e2e 与 durable visual evidence | **M2-C1 [reviewer]** 运行配置实际首次采用时，固定文案 divider 位于首条用户消息前；刷新、重进、重连、向前分页后位置稳定（prototype must-match）。 **M2-C2 [reviewer]** divider 不是消息气泡，无头像/发送者/状态/菜单，不进入 Agent 上下文；desktop 1440/1280 与 mobile 375 保持原聊天布局（prototype must-match）。 **M2-C3 [reviewer]** 休眠聊天无 marker；连续修改只出现最终一条；纯展示更新与保存失败无 marker；fork 复制既有边界但 fork 本身不新增边界。 **M2-C4 [reviewer]** IM 暂时离线时外部 channel 正常回复，恢复后 shadow timeline 在正确 anchor 前补齐唯一 divider，外部平台不收到伪造消息。 **M2-C5 [worker]** outbox crash/reconnect/ACK retry、IM owner/idempotency、timeline pagination/fork、frontend reset/prepend/live/refetch reducer 测试全绿；`npm run test && npm run build` 全绿。 **M2-C6 [worker]** `progress.md` 含 Prototype Comparison 表及真实浏览器截图/录屏，覆盖全部 must-match viewport/state；证据保存在 `M2-cache-boundary/evidence/`。 |
+| bugfix-471-M1 | session-continuity | — | A | `src/agent/{core,platform,sdk}/session*`, `src/personal_assistant/{main.py,gateway/{agent_config_sync,agent_catalog,session_binder,session_composition,session_keys,session_run_coordinator}.py,scheduler/{heartbeat_scheduler,cron_runner}.py}` 及最窄 unit/integration/contract/e2e 测试 | **M1-C1 [reviewer]** 增加/删除 tools，或修改 model/prompt/skills 后，同一 Web IM 直聊与群聊下一新回复使用最终配置且理解修改前历史；删除工具只禁止未来调用，历史 tool result 可理解。 **M1-C2 [reviewer]** active 回复及被纳入该轮的插话保持旧配置，下一新 run 才采用最新配置；连续保存不重演中间版本。 **M1-C3 [reviewer]** Gateway 重启后配置边界两侧历史连续，不同聊天不串线；Feishu 同一外部对话继续新配置且理解前文。 **M1-C4 [worker]** Kernel interface 测试覆盖 model+capabilities replacement、identity canonicalization、幂等、并发等待、持久恢复、write failure；Gateway 覆盖 admission ordering、legacy baseline、旧 fingerprint schema 静默迁移与 inspection failure、model baseline/restart、失败不 submit。 **M1-C5 [worker]** heartbeat 复用 session 时应用当前完整 runtime 且保留专用历史，cron 创建时使用当前完整 runtime；二者不生成聊天 divider。 **M1-C6 [worker]** 真栈证据包含边界前后 LLM 请求 messages/tools/model 对账、Gateway restart、Web IM direct/group 与真实 Feishu 外部旅程；`pytest -m "not e2e"` 相关树及 contract 全绿。 |
+| bugfix-471-M2 | cache-boundary | bugfix-471-M1 | B | `src/personal_assistant/channels/{base.py,feishu/adapter.py}` normalized external event identity，`src/personal_assistant/{gateway,ws}/` runtime protocol + boundary outbox + external shadow saga，`src/IM/{domain,infra,application,api,ws}/` timeline/protocol/idempotent shadow writes，`src/IM/frontend/src/features/chat/`，对应 channel/gateway/IM/frontend contract + fork/pagination/reconnect/e2e 与 durable visual evidence | **M2-C1 [reviewer]** 运行配置实际首次采用时，固定文案 divider 位于首条用户消息前；刷新、重进、重连、向前分页后位置稳定（prototype must-match）。 **M2-C2 [reviewer]** divider 不是消息气泡，无头像/发送者/状态/菜单，不进入 Agent 上下文；desktop 1440/1280 与 mobile 375 保持原聊天布局（prototype must-match）。 **M2-C3 [reviewer]** 休眠聊天无 marker；连续修改只出现最终一条；纯展示更新与保存失败无 marker；fork 复制既有边界但 fork 本身不新增边界。 **M2-C4 [reviewer]** IM 暂时离线时外部 channel 正常回复；Gateway 重启及 IM 恢复后 shadow user/Agent messages 与唯一 divider 按原 external event 补齐且顺序正确，外部平台不收到伪造消息。 **M2-C5 [worker]** boundary outbox crash/reconnect/ACK retry与 error ACK 保留、user-stream event_id replay/resync、IM owner/idempotency、timeline pagination/fork、frontend reset/prepend/live/refetch 测试全绿。 **M2-C6 [worker]** external shadow saga 覆盖 typed identity 缺失的显式降级、Feishu `app_id + event.message_id` mapping、stable run/output identity、response-before-local-mark 崩溃、user anchor 前依赖与 duplicate replay；禁止 chat/text hash fallback；`npm run test && npm run build` 全绿。 **M2-C7 [worker]** `progress.md` 含 Prototype Comparison 表及真实浏览器截图/录屏，覆盖全部 must-match viewport/state；证据保存在 `M2-cache-boundary/evidence/`。 |
 
 ```mermaid
 graph LR

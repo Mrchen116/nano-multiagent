@@ -2,9 +2,9 @@
 
 ## ADDED Requirements
 
-### Requirement: Agent 运行能力更新在既有聊天的下一新 run 整体生效
+### Requirement: Agent 运行能力更新在下一新 run 整体生效
 
-Gateway 对 model、PromptSlots、skills、tools 与内核 features 使用同一份有效运行配置。配置保存不打断 active run，也不重建既有聊天会话；某聊天下一次开始新 run 时采用最新完整配置并延续自己的历史。排队期间连续保存多次只采用真正开跑时的最终配置。
+Gateway 对 model、PromptSlots、skills、tools 与内核 features 使用同一份有效运行配置。配置保存不打断 active run，也不重建既有聊天会话；某聊天下一次开始新 run 时采用最新完整配置并延续自己的历史。排队期间连续保存多次只采用真正开跑时的最终配置。复用专用会话的 heartbeat 同样在下一 tick 前整体更新；每次创建独立会话的 cron 在创建时使用当前完整配置。
 
 #### Scenario: 增加工具后继续既有聊天
 - **GIVEN** Agent 因未配置某工具而无法完成既有聊天中的任务
@@ -56,9 +56,14 @@ Gateway 在每个新 run admission 时按 Agent 当前 `default_model` 选择模
 - **WHEN** 与其开始新 run
 - **THEN** 使用 Gateway 产品默认模型正常回复
 
-#### Scenario: heartbeat 与 cron 新 run 使用 Agent 当前模型
-- **WHEN** heartbeat 或 cron 为某 Agent 开始新 run
-- **THEN** 使用 admission 时该 Agent 当前模型或产品默认兜底
+#### Scenario: heartbeat 复用专用会话时采用当前完整配置
+- **GIVEN** heartbeat 专用会话已用配置 A 形成历史
+- **WHEN** Agent 更新为配置 B 后开始下一 heartbeat tick
+- **THEN** tick 使用 B 的 model、prompt、skills、tools 与 features，并保留该专用会话历史
+
+#### Scenario: cron 新会话使用 Agent 当前完整配置
+- **WHEN** cron 为某 Agent 创建会话并开始 run
+- **THEN** 新会话使用创建时该 Agent 当前的完整配置；未选模型时使用产品默认兜底
 
 ## REMOVED Requirements
 

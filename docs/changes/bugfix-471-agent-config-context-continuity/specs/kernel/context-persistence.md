@@ -4,11 +4,11 @@
 
 ### Requirement: 消费者可在同一会话上持久替换后续运行配置
 
-`agent.sdk` 的消费者可向一个已有会话提供完整的新运行配置；替换与当前 turn 串行，在返回成功前持久化，并保持 session id、既有 transcript、压缩状态和父链不变。相同配置的重复替换幂等。消费者不需要读取或改写 JSONL 格式，也不负责失效内核 live state。
+`agent.sdk` 的消费者可向一个已有会话提供包含 resolved model、prompt、skills、tools 与 features 的完整新运行配置；替换与当前 turn 串行，在返回成功前持久化，并保持 session id、既有 transcript、压缩状态和父链不变。相同配置的重复替换幂等。消费者不需要读取或改写 JSONL 格式，也不负责计算运行配置身份或失效内核 live state。
 
 #### Scenario: 替换配置后下一轮延续原历史
 - **GIVEN** 一个已有多轮消息与工具调用历史的会话
-- **WHEN** 消费者成功替换该会话的 prompt、skills、tools 或 features 后再提交下一轮
+- **WHEN** 消费者成功替换该会话的 model、prompt、skills、tools 或 features 后再提交下一轮
 - **THEN** 下一轮使用替换后的运行配置，并仍能看到替换前的完整可用历史
 - **AND** 会话 id 不变
 
@@ -38,15 +38,20 @@
 
 ### Requirement: 消费者可读取会话当前持久运行配置身份
 
-消费者可经 `agent.sdk` 读取一个会话当前持久化的完整运行配置及稳定身份，用于恢复外围绑定；内核不暴露 JSONL entry 或保留 metadata 的格式。缺少完整身份的旧档案以明确的不可用结果返回。
+消费者可经 `agent.sdk` 读取一个会话当前持久化的完整 raw 运行配置（含 model）及按当前 schema 计算的稳定身份，用于恢复外围绑定；身份 canonicalization 由 SDK 单点拥有，内核不暴露 JSONL entry 或保留 metadata 的格式。缺少完整 raw 配置的旧档案以明确的不可用结果返回。
 
 #### Scenario: 重启后读取已替换的运行配置
 - **GIVEN** 会话已持久化运行配置替换
 - **WHEN** 新 Kernel 实例读取该会话的当前运行配置
 - **THEN** 返回与替换成功时等价的运行配置和身份
 
+#### Scenario: fingerprint schema 升级时从 raw runtime 重算
+- **GIVEN** 会话保存了完整 raw runtime，但其历史 identity 使用旧 fingerprint schema
+- **WHEN** 消费者读取当前运行配置
+- **THEN** 返回按当前 schema 重算的 identity，不把 schema 变化解释为 runtime 变化
+
 #### Scenario: 极旧档案没有完整运行身份
-- **GIVEN** 旧会话档案没有足够信息重建完整运行配置身份
+- **GIVEN** 旧会话档案没有足够信息重建包含 model 的完整运行配置
 - **WHEN** 消费者读取当前运行配置
 - **THEN** 返回明确的不可用结果，不猜测一份配置，也不改写档案
 

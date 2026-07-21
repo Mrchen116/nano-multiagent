@@ -34,7 +34,12 @@ Gateway 为 active run 冻结其启动时的 Agent 运行配置。配置更新�
 - **GIVEN** 用户在外部 channel 的既有对话中触发新配置，IM 暂时离线
 - **WHEN** Agent 完成回复
 - **THEN** 回复照常发回外部 channel
-- **AND** IM 恢复后 shadow conversation 在对应用户消息前补齐边界，外部 channel 不收到边界文本
+- **AND** IM 恢复后 shadow conversation 补齐原用户消息、Agent 回复与其前唯一配置边界，外部 channel 不收到边界文本
+
+#### Scenario: Gateway 在 shadow 同步任一步骤后崩溃
+- **GIVEN** 外部消息已进入本地可恢复同步流程，IM 写入某一步后 Gateway 尚未记录成功
+- **WHEN** Gateway 重启并重放同一外部事件
+- **THEN** IM 复用同一 shadow conversation、用户消息和 Agent 回复，配置边界仍唯一且锚点正确
 
 #### Scenario: 纯展示变化与保存失败不产生边界
 - **WHEN** Agent 只发生展示信息变化，或配置保存没有成功
