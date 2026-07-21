@@ -12,6 +12,7 @@ from personal_assistant.channels.base import InboundMessage
 from personal_assistant.gateway.runtime_protocol import (
     ExternalConversationIdentity,
     RuntimeProtocolFacts,
+    ShadowConversationRef,
     attach_runtime_protocol,
 )
 from personal_assistant.gateway.shadow_sync import IMShadowConversationSync
@@ -70,9 +71,11 @@ def test_typed_only_external_identity_creates_shadow_conversation() -> None:
         ),
     )
 
-    conversation_id = asyncio.run(sync.sync_user_message(inbound, agent_id="agent-a"))
+    shadow_ref = asyncio.run(sync.sync_user_message(inbound, agent_id="agent-a"))
 
-    assert conversation_id == "shadow-a"
+    assert shadow_ref == ShadowConversationRef(
+        conversation_id="shadow-a", im_message_id="message-a"
+    )
     create_payload = requests[1]["payload"]
     assert create_payload["external_source"] == "feishu"
     assert create_payload["external_chat_id"] == "typed-chat-id"
@@ -100,9 +103,9 @@ def test_typed_im_origin_is_rejected_by_shadow_adapter() -> None:
         ),
     )
 
-    conversation_id = asyncio.run(sync.sync_user_message(inbound, agent_id="agent-a"))
+    shadow_ref = asyncio.run(sync.sync_user_message(inbound, agent_id="agent-a"))
 
-    assert conversation_id is None
+    assert shadow_ref is None
     assert requests == []
 
 
@@ -118,9 +121,11 @@ def test_legacy_external_metadata_remains_supported() -> None:
         }
     )
 
-    conversation_id = asyncio.run(sync.sync_user_message(inbound, agent_id="agent-a"))
+    shadow_ref = asyncio.run(sync.sync_user_message(inbound, agent_id="agent-a"))
 
-    assert conversation_id == "shadow-a"
+    assert shadow_ref == ShadowConversationRef(
+        conversation_id="shadow-a", im_message_id="message-a"
+    )
     create_payload = requests[1]["payload"]
     assert create_payload["external_source"] == "slack"
     assert create_payload["external_chat_id"] == "legacy-chat-id"
