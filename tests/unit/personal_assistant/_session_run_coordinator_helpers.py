@@ -294,7 +294,10 @@ def build_dependencies(
     catalog = LiveAgentCatalog(
         (
             AgentWorkspaceConfig(
-                agent_id="agent-a", workspace_root=workspace, title="Agent A"
+                agent_id="agent-a",
+                workspace_root=workspace,
+                title="Agent A",
+                default_model="test-model",
             ),
         )
     )

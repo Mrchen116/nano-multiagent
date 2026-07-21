@@ -10,14 +10,20 @@ from dataclasses import dataclass, replace
 import logging
 from typing import TYPE_CHECKING, Any
 
-from agent.sdk import TERMINAL_RUN_STATUSES, USER_INTERRUPT_RECOVERY_CONTENT
+from agent.sdk import (
+    TERMINAL_RUN_STATUSES,
+    USER_INTERRUPT_RECOVERY_CONTENT,
+    SessionRuntimeConfig,
+)
+
+from personal_assistant.config.local_store import resolve_run_model
+from personal_assistant.gateway.session_composition import project_agent_runtime
 
 from personal_assistant.channels.base import (
     InboundMessage,
     OutboundMessage,
     ReplyContext,
 )
-from personal_assistant.config.local_store import resolve_run_model
 from personal_assistant.gateway.background_subscriptions import (
     BackgroundSubscriptionManager,
     BackgroundSubscriptionRequest,
@@ -369,7 +375,23 @@ class SessionRunCoordinator:
         try:
             failure_kind: str | None = None
             async with self._transition(request.session_key):
-                binding = await self._ensure_binding(request)
+                latest_agent = self._latest_agent(request.agent)
+                runtime_projection = self._project_runtime(
+                    agent=latest_agent,
+                    message=request.message,
+                )
+                binding = await self._ensure_binding(
+                    request,
+                    agent=latest_agent,
+                    runtime=runtime_projection.runtime,
+                    profile_version=runtime_projection.profile_version,
+                )
+                binding = await self._admit_runtime(
+                    binding=binding,
+                    agent=latest_agent,
+                    runtime=runtime_projection.runtime,
+                    profile_version=runtime_projection.profile_version,
+                )
                 if prebuilt_parts is None:
                     parts, failure_kind = await self._build_message_parts(request)
                 else:
@@ -380,8 +402,7 @@ class SessionRunCoordinator:
                     record = self._kernel.submit(
                         session_id=binding.kernel_session_id,
                         parts=parts,
-                        workspace_root=request.agent.config.workspace_root,
-                        model=self._resolve_model(request),
+                        workspace_root=latest_agent.config.workspace_root,
                     )
                     run_id = record.run_id
                     anchor_sequence = record.start_sequence
@@ -389,7 +410,7 @@ class SessionRunCoordinator:
                         self._active_runs[request.session_key] = _ActiveRunHandle(
                             run_id=run_id,
                             binding=binding,
-                            agent=request.agent,
+                            agent=latest_agent,
                         )
                     admission_event.set()
             if failure_kind is not None:
@@ -619,7 +640,16 @@ class SessionRunCoordinator:
         parts.extend(resolution.parts)
         return parts, None
 
-    async def _ensure_binding(self, request: InboundRunRequest) -> SessionBinding:
+    async def _ensure_binding(
+        self,
+        request: InboundRunRequest,
+        *,
+        agent: LiveAgentSnapshot,
+        runtime: SessionRuntimeConfig,
+        profile_version: int | None,
+    ) -> SessionBinding:
+        """Resolve a stable binding while creating missing sessions with this runtime."""
+
         dispatch_url, fallback_port = self._dispatch_endpoint_metadata()
         return await self._session_binder.resolve(
             SessionBindingRequest(
@@ -628,11 +658,84 @@ class SessionRunCoordinator:
                 message=request.message,
                 gateway_internal_port=fallback_port,
                 gateway_dispatch_url=dispatch_url,
+                runtime=runtime,
+                profile_version=profile_version,
             ),
-            request.agent,
+            agent,
+        )
+
+    def _latest_agent(self, inbound_agent: LiveAgentSnapshot) -> LiveAgentSnapshot:
+        """Read the desired snapshot only after the new-run transition is owned."""
+
+        return self._session_binder.current_agent(inbound_agent.agent_id)
+
+    def _project_runtime(
+        self,
+        *,
+        agent: LiveAgentSnapshot,
+        message: InboundMessage,
+    ):
+        """Produce the sole model-and-capability value for a new run admission."""
+
+        model = self._resolve_agent_model(agent)
+        if model is None:
+            raise ValueError("new run requires a resolved model")
+        return project_agent_runtime(
+            agent,
+            scenario=dict(message.metadata),
+            resolved_model=model,
+        )
+
+    async def _admit_runtime(
+        self,
+        *,
+        binding: SessionBinding,
+        agent: LiveAgentSnapshot,
+        runtime: SessionRuntimeConfig,
+        profile_version: int | None,
+    ) -> SessionBinding:
+        """Durably align a retained session before the following synchronous submit."""
+
+        desired = self._kernel.identify_runtime(runtime=runtime)
+        applied_matches = (
+            binding.applied_fingerprint_schema == desired.fingerprint_schema
+            and binding.applied_runtime_fingerprint == desired.runtime_fingerprint
+        )
+        if applied_matches:
+            return binding
+        current = await self._kernel.get_session_runtime(
+            session_id=binding.kernel_session_id,
+            workspace_root=agent.config.workspace_root,
+        )
+        if current is not None:
+            binding = self._session_binder.persist_applied_runtime(
+                binding,
+                runtime_fingerprint=current.identity.runtime_fingerprint,
+                fingerprint_schema=current.identity.fingerprint_schema,
+                profile_version=binding.applied_profile_version,
+                agent=agent,
+            )
+            if (
+                current.identity.fingerprint_schema == desired.fingerprint_schema
+                and current.identity.runtime_fingerprint == desired.runtime_fingerprint
+            ):
+                return binding
+        result = await self._kernel.reconfigure_session(
+            session_id=binding.kernel_session_id,
+            workspace_root=agent.config.workspace_root,
+            runtime=runtime,
+        )
+        return self._session_binder.persist_applied_runtime(
+            binding,
+            runtime_fingerprint=result.state.identity.runtime_fingerprint,
+            fingerprint_schema=result.state.identity.fingerprint_schema,
+            profile_version=profile_version,
+            agent=agent,
         )
 
     async def _ensure_binding_for_stop(self, request: StopRunRequest) -> SessionBinding:
+        agent = self._latest_agent(request.agent)
+        runtime_projection = self._project_runtime(agent=agent, message=request.message)
         dispatch_url, fallback_port = self._dispatch_endpoint_metadata()
         return await self._session_binder.resolve(
             SessionBindingRequest(
@@ -641,8 +744,10 @@ class SessionRunCoordinator:
                 message=request.message,
                 gateway_internal_port=fallback_port,
                 gateway_dispatch_url=dispatch_url,
+                runtime=runtime_projection.runtime,
+                profile_version=runtime_projection.profile_version,
             ),
-            request.agent,
+            agent,
         )
 
     def _dispatch_endpoint_metadata(self) -> tuple[str | None, int | None]:
@@ -866,9 +971,13 @@ class SessionRunCoordinator:
         return self._resolve_agent_model(request.agent)
 
     def _resolve_agent_model(self, agent: LiveAgentSnapshot) -> str | None:
-        return resolve_run_model(
-            agent.config, product_default=self._product_default_model
-        )
+        configured_default = self._product_default_model
+        if configured_default is None:
+            get_llm_config = getattr(self._kernel, "get_llm_config", None)
+            if callable(get_llm_config):
+                config = get_llm_config()
+                configured_default = config.default_model or config.model
+        return resolve_run_model(agent.config, product_default=configured_default)
 
     @staticmethod
     def _is_no_reply_token(text: str) -> bool:

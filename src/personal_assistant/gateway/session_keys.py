@@ -28,6 +28,9 @@ class SessionBinding:
     session_key: str
     kernel_session_id: str
     reply_context: ReplyContext
+    applied_runtime_fingerprint: str | None = None
+    applied_fingerprint_schema: str | None = None
+    applied_profile_version: int | None = None
 
 
 class SessionBindingStore:
@@ -42,17 +45,59 @@ class SessionBindingStore:
         return self._bindings.get(session_key)
 
     def bind(
-        self, *, session_key: str, kernel_session_id: str, reply_context: ReplyContext
+        self,
+        *,
+        session_key: str,
+        kernel_session_id: str,
+        reply_context: ReplyContext,
+        applied_runtime_fingerprint: str | None = None,
+        applied_fingerprint_schema: str | None = None,
+        applied_profile_version: int | None = None,
     ) -> SessionBinding:
-        """Create or replace the binding for one session key."""
+        """Create or refresh one binding without losing known applied identity."""
 
+        previous = self._bindings.get(session_key)
         binding = SessionBinding(
             session_key=session_key,
             kernel_session_id=kernel_session_id,
             reply_context=reply_context,
+            applied_runtime_fingerprint=(
+                applied_runtime_fingerprint
+                if applied_runtime_fingerprint is not None
+                else previous.applied_runtime_fingerprint if previous else None
+            ),
+            applied_fingerprint_schema=(
+                applied_fingerprint_schema
+                if applied_fingerprint_schema is not None
+                else previous.applied_fingerprint_schema if previous else None
+            ),
+            applied_profile_version=(
+                applied_profile_version
+                if applied_profile_version is not None
+                else previous.applied_profile_version if previous else None
+            ),
         )
         self._bindings[session_key] = binding
         return binding
+
+    def apply_runtime(
+        self,
+        binding: SessionBinding,
+        *,
+        runtime_fingerprint: str,
+        fingerprint_schema: str,
+        profile_version: int | None,
+    ) -> SessionBinding:
+        """Persist one Kernel-confirmed applied runtime for a stable binding."""
+
+        return self.bind(
+            session_key=binding.session_key,
+            kernel_session_id=binding.kernel_session_id,
+            reply_context=binding.reply_context,
+            applied_runtime_fingerprint=runtime_fingerprint,
+            applied_fingerprint_schema=fingerprint_schema,
+            applied_profile_version=profile_version,
+        )
 
     def find_by_kernel_session_id(
         self, kernel_session_id: str
@@ -123,12 +168,24 @@ CREATE TABLE IF NOT EXISTS session_bindings (
     kernel_session_id  TEXT NOT NULL,
     reply_context_json TEXT NOT NULL,
     updated_at         TEXT NOT NULL,
-    created_at         TEXT NOT NULL DEFAULT ''
+    created_at         TEXT NOT NULL DEFAULT '',
+    applied_runtime_fingerprint TEXT,
+    applied_fingerprint_schema  TEXT,
+    applied_profile_version     INTEGER
 )
 """
 
 _MIGRATE_ADD_CREATED_AT_SQL = """
 ALTER TABLE session_bindings ADD COLUMN created_at TEXT NOT NULL DEFAULT ''
+"""
+_MIGRATE_ADD_APPLIED_RUNTIME_FINGERPRINT_SQL = """
+ALTER TABLE session_bindings ADD COLUMN applied_runtime_fingerprint TEXT
+"""
+_MIGRATE_ADD_APPLIED_FINGERPRINT_SCHEMA_SQL = """
+ALTER TABLE session_bindings ADD COLUMN applied_fingerprint_schema TEXT
+"""
+_MIGRATE_ADD_APPLIED_PROFILE_VERSION_SQL = """
+ALTER TABLE session_bindings ADD COLUMN applied_profile_version INTEGER
 """
 
 _SQLITE_LIKE_ESCAPE = "!"
@@ -191,6 +248,12 @@ class PersistentSessionBindingStore:
         }
         if "created_at" not in existing_cols:
             self._conn.execute(_MIGRATE_ADD_CREATED_AT_SQL)
+        if "applied_runtime_fingerprint" not in existing_cols:
+            self._conn.execute(_MIGRATE_ADD_APPLIED_RUNTIME_FINGERPRINT_SQL)
+        if "applied_fingerprint_schema" not in existing_cols:
+            self._conn.execute(_MIGRATE_ADD_APPLIED_FINGERPRINT_SCHEMA_SQL)
+        if "applied_profile_version" not in existing_cols:
+            self._conn.execute(_MIGRATE_ADD_APPLIED_PROFILE_VERSION_SQL)
         self._conn.commit()
         self._kernel_client: Any | None = None  # KernelApiClient removed in M3
 
@@ -230,7 +293,11 @@ class PersistentSessionBindingStore:
         """
 
         row = self._conn.execute(
-            "SELECT kernel_session_id, reply_context_json FROM session_bindings WHERE session_key = ?",
+            """
+            SELECT kernel_session_id, reply_context_json, applied_runtime_fingerprint,
+                   applied_fingerprint_schema, applied_profile_version
+            FROM session_bindings WHERE session_key = ?
+            """,
             (session_key,),
         ).fetchone()
         if row is None:
@@ -242,6 +309,9 @@ class PersistentSessionBindingStore:
             session_key=session_key,
             kernel_session_id=kernel_session_id,
             reply_context=reply_context,
+            applied_runtime_fingerprint=row[2],
+            applied_fingerprint_schema=row[3],
+            applied_profile_version=row[4],
         )
 
     def bind(
@@ -250,6 +320,9 @@ class PersistentSessionBindingStore:
         session_key: str,
         kernel_session_id: str,
         reply_context: ReplyContext,
+        applied_runtime_fingerprint: str | None = None,
+        applied_fingerprint_schema: str | None = None,
+        applied_profile_version: int | None = None,
     ) -> SessionBinding:
         """Upsert a session binding into the SQLite store.
 
@@ -279,20 +352,61 @@ class PersistentSessionBindingStore:
         self._conn.execute(
             """
             INSERT INTO session_bindings
-                (session_key, kernel_session_id, reply_context_json, updated_at, created_at)
-            VALUES (?, ?, ?, ?, ?)
+                (session_key, kernel_session_id, reply_context_json, updated_at, created_at,
+                 applied_runtime_fingerprint, applied_fingerprint_schema,
+                 applied_profile_version)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(session_key) DO UPDATE SET
                 kernel_session_id  = excluded.kernel_session_id,
                 reply_context_json = excluded.reply_context_json,
-                updated_at         = excluded.updated_at
+                updated_at         = excluded.updated_at,
+                applied_runtime_fingerprint = COALESCE(
+                    excluded.applied_runtime_fingerprint,
+                    session_bindings.applied_runtime_fingerprint
+                ),
+                applied_fingerprint_schema = COALESCE(
+                    excluded.applied_fingerprint_schema,
+                    session_bindings.applied_fingerprint_schema
+                ),
+                applied_profile_version = COALESCE(
+                    excluded.applied_profile_version,
+                    session_bindings.applied_profile_version
+                )
             """,
-            (session_key, kernel_session_id, rc_json, now_iso, now_iso),
+            (
+                session_key,
+                kernel_session_id,
+                rc_json,
+                now_iso,
+                now_iso,
+                applied_runtime_fingerprint,
+                applied_fingerprint_schema,
+                applied_profile_version,
+            ),
         )
         self._conn.commit()
-        return SessionBinding(
-            session_key=session_key,
-            kernel_session_id=kernel_session_id,
-            reply_context=reply_context,
+        binding = self.get(session_key)
+        if binding is None:  # pragma: no cover - SQLite commit invariant.
+            raise RuntimeError("binding disappeared after persistence")
+        return binding
+
+    def apply_runtime(
+        self,
+        binding: SessionBinding,
+        *,
+        runtime_fingerprint: str,
+        fingerprint_schema: str,
+        profile_version: int | None,
+    ) -> SessionBinding:
+        """Persist one Kernel-confirmed applied runtime for a stable binding."""
+
+        return self.bind(
+            session_key=binding.session_key,
+            kernel_session_id=binding.kernel_session_id,
+            reply_context=binding.reply_context,
+            applied_runtime_fingerprint=runtime_fingerprint,
+            applied_fingerprint_schema=fingerprint_schema,
+            applied_profile_version=profile_version,
         )
 
     def drop_agent(self, agent_id: str) -> None:
@@ -326,7 +440,9 @@ class PersistentSessionBindingStore:
 
         rows = self._conn.execute(
             """
-            SELECT session_key, kernel_session_id, reply_context_json
+            SELECT session_key, kernel_session_id, reply_context_json,
+                   applied_runtime_fingerprint, applied_fingerprint_schema,
+                   applied_profile_version
             FROM session_bindings
             WHERE session_key LIKE ? ESCAPE '!'
             ORDER BY created_at ASC, rowid ASC
@@ -338,6 +454,9 @@ class PersistentSessionBindingStore:
                 session_key=row[0],
                 kernel_session_id=row[1],
                 reply_context=_deserialize_reply_context(row[2]),
+                applied_runtime_fingerprint=row[3],
+                applied_fingerprint_schema=row[4],
+                applied_profile_version=row[5],
             )
             for row in rows
         )
@@ -362,7 +481,9 @@ class PersistentSessionBindingStore:
 
         row = self._conn.execute(
             """
-            SELECT session_key, kernel_session_id, reply_context_json
+            SELECT session_key, kernel_session_id, reply_context_json,
+                   applied_runtime_fingerprint, applied_fingerprint_schema,
+                   applied_profile_version
             FROM session_bindings
             WHERE kernel_session_id = ?
             LIMIT 1
@@ -378,6 +499,9 @@ class PersistentSessionBindingStore:
             session_key=session_key_val,
             kernel_session_id=kernel_session_id_val,
             reply_context=reply_context,
+            applied_runtime_fingerprint=row[3],
+            applied_fingerprint_schema=row[4],
+            applied_profile_version=row[5],
         )
 
     def find_direct_by_agent(
@@ -431,7 +555,9 @@ class PersistentSessionBindingStore:
         # was first established — independent of subsequent message activity.
         row = self._conn.execute(
             """
-            SELECT session_key, kernel_session_id, reply_context_json
+            SELECT session_key, kernel_session_id, reply_context_json,
+                   applied_runtime_fingerprint, applied_fingerprint_schema,
+                   applied_profile_version
             FROM session_bindings
             WHERE session_key LIKE ? ESCAPE '!'
             ORDER BY created_at ASC, rowid ASC
@@ -450,6 +576,9 @@ class PersistentSessionBindingStore:
             session_key=session_key_val,
             kernel_session_id=kernel_session_id_val,
             reply_context=reply_context,
+            applied_runtime_fingerprint=row[3],
+            applied_fingerprint_schema=row[4],
+            applied_profile_version=row[5],
         )
 
 

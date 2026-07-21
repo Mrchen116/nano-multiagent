@@ -61,6 +61,7 @@ class _BlockingReuseStore(SessionBindingStore):
         session_key: str,
         kernel_session_id: str,
         reply_context: ReplyContext,
+        **kwargs: Any,
     ):
         if kernel_session_id == self.block_session_id:
             self.bind_started.set()
@@ -70,6 +71,7 @@ class _BlockingReuseStore(SessionBindingStore):
             session_key=session_key,
             kernel_session_id=kernel_session_id,
             reply_context=reply_context,
+            **kwargs,
         )
 
 
@@ -196,7 +198,7 @@ async def test_publish_during_create_returns_old_session_without_stale_writeback
     assert binder.lookup(result.session_key) is None
 
 
-async def test_publish_during_old_binding_reuse_drops_old_row_before_new_resolve(
+async def test_publish_during_old_binding_reuse_retains_stable_row(
     tmp_path: Path,
 ) -> None:
     old_agent = _agent(tmp_path, title="Agent A old")
@@ -236,7 +238,7 @@ async def test_publish_during_old_binding_reuse_drops_old_row_before_new_resolve
 
     assert old_result.kernel_session_id == "persisted-old-session"
     assert old_result.reply_context == request.reply_context
-    assert binder.lookup(request.session_key) is None
+    assert binder.lookup(request.session_key) is not None
 
     new_result = await binder.resolve(request, current)
 
@@ -247,7 +249,7 @@ async def test_publish_during_old_binding_reuse_drops_old_row_before_new_resolve
     assert kernel.create_calls[0]["workspace_root"] == current.config.workspace_root
 
 
-def test_persistent_invalidation_treats_agent_wildcards_as_literals(
+def test_persistent_invalidation_keeps_agent_bindings(
     tmp_path: Path,
 ) -> None:
     agents = (
@@ -270,8 +272,8 @@ def test_persistent_invalidation_treats_agent_wildcards_as_literals(
     binder.invalidate_stale("team_a", current_revision=999)
     binder.invalidate_stale("team%a", current_revision=999)
 
-    assert store.get("web_relay:conv-0:team_a") is None
-    assert store.get("web_relay:conv-2:team%a") is None
+    assert store.get("web_relay:conv-0:team_a") is not None
+    assert store.get("web_relay:conv-2:team%a") is not None
     assert store.get("web_relay:conv-1:teamXa") is not None
     assert store.get("web_relay:conv-3:teamXXa") is not None
 

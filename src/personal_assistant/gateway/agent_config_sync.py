@@ -558,11 +558,9 @@ class IMAgentConfigSync:
         self._republish_agent(agent_config)
 
     def _republish_agent(self, agent_config: AgentWorkspaceConfig) -> None:
-        snapshot = self._agent_catalog.publish(agent_config)
-        self._session_binder.invalidate_stale(
-            agent_config.agent_id,
-            current_revision=snapshot.revision,
-        )
+        """Publish desired configuration without replacing existing chat sessions."""
+
+        self._agent_catalog.publish(agent_config)
 
     def current_agent_payload(self, *, agent_id: str) -> dict[str, object] | None:
         for agent in self._config_snapshot().agents:
