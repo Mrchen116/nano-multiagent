@@ -20,5 +20,21 @@
   - Visual/Interaction: N/A。
   - Prototype Comparison: N/A（M2）。
 - Rollback: 回退 `469c4eeb0`，恢复 per-run model 语义与无 replacement 的 session API。
-- Commits: C1=c2e46af7f，C2=469c4eeb0，C3=待提交。
-- Next: R2 在 Gateway admission 内惰性比较 desired/applied runtime，并保留已有 binding。
+- Commits: C1=c2e46af7f，C2=469c4eeb0，C3=34305241b。
+
+### R2 — Gateway admission continuity
+
+- Context: Agent 发布新配置后，旧机制按 catalog revision 删除 binding，导致下一条消息被送进空 transcript。
+- Decision: Gateway 用 `project_agent_runtime()` 统一创建与 reconfigure 的完整 raw runtime；binding SQLite 持久 applied identity/schema/profile provenance，正常新 run 在同一 transition lock 下读取最新 snapshot、inspect/reconfigure、持久 applied identity 后才 submit。发布只更新 catalog，不删除 binding。
+- Rationale: 只由 Kernel 生成 identity，且配置变更、runtime replacement 与 submit 的线性顺序由同一个聊天锁维护，避免 model 与能力集撕裂；活跃 run 的 steer 仍只复用冻结的 handle。
+- Evidence:
+  - Tests: `PYTHONPATH=src pytest -q tests/unit/personal_assistant/test_session_run_coordinator_admission.py tests/unit/personal_assistant/test_gateway_session_binder.py tests/unit/personal_assistant/test_persistent_session_binding_store.py tests/unit/personal_assistant/test_config_sync_concrete_owners.py tests/integration/test_session_run_coordinator_real_kernel.py tests/contract/test_gateway_inbound_ownership_contract.py` — 54 passed。
+  - Entry: 真实 `build_kernel()` integration 通过 coordinator 的 public `dispatch()` 入口运行，覆盖 Kernel terminal 与 Gateway active marker 的重叠窗口；其余配置更新行为以 Gateway 公开 binder/coordinator 接口回归保护。
+  - Frontend State Matrix: N/A。
+  - Browser QA: N/A。
+  - E2E/Regression: `tests/unit/personal_assistant/test_session_run_coordinator_admission.py::test_config_publish_reconfigures_same_session_only_for_next_run` 验证同一 `kernel_session_id` 保持且下一 run 才换完整 runtime；`test_active_run_steer_keeps_original_runtime_after_config_publish` 验证活跃 steer 不热切换。
+  - Visual/Interaction: N/A。
+  - Prototype Comparison: N/A（M2）。
+- Rollback: 回退 `190ba1dab`，恢复旧的按 revision 删除 binding 行为。
+- Commits: C1=a8e5572dc，C2=190ba1dab，C3=待提交。
+- Next: R3 让 heartbeat 与 cron 采用同一完整 runtime，并完成真栈验证。

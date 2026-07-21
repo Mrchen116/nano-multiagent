@@ -32,7 +32,7 @@
 
 ### R2 — Gateway admission continuity
 
-- 状态：TODO
+- 状态：DONE
 - 步骤：用统一 runtime projection 创建/重配；binding SQLite 持久 applied identity；配置发布不再删除绑定；在 SessionRunCoordinator admission 内按 latest snapshot inspect/reconfigure/持久 applied state 后 submit。
 - 验证：扩展 binder/store/coordinator 测试，覆盖 ordering、active steer、连续保存、legacy/schema baseline、inspection/reconfigure 失败与 restart。
 
