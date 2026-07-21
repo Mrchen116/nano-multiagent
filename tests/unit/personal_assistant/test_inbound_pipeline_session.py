@@ -35,8 +35,14 @@ from ._pipeline_helpers import _FakeChannel, _FakeKernel, _agents
 
 
 class _ShadowSync:
-    def __init__(self, *, conversation_id: str | None = "shadow-conv-1") -> None:
+    def __init__(
+        self,
+        *,
+        conversation_id: str | None = "shadow-conv-1",
+        shadow_saga_id: str | None = None,
+    ) -> None:
         self.conversation_id = conversation_id
+        self.shadow_saga_id = shadow_saga_id
         self.calls: list[dict[str, object]] = []
 
     async def sync_user_message(
@@ -48,6 +54,7 @@ class _ShadowSync:
         return ShadowConversationRef(
             conversation_id=self.conversation_id,
             im_message_id="shadow-message-1",
+            shadow_saga_id=self.shadow_saga_id,
         )
 
 
@@ -217,7 +224,14 @@ def test_im_outage_keeps_external_delivery_and_durably_records_final_shadow_outp
     """A pending IM anchor cannot suppress the external reply or its recovery fact."""
 
     agents = _agents(tmp_path)
-    channel = _FakeChannel("feishu:agent-a")
+    delivery_order: list[str] = []
+
+    class _OrderedChannel(_FakeChannel):
+        def send(self, outbound: OutboundMessage) -> None:
+            delivery_order.append("provider")
+            super().send(outbound)
+
+    channel = _OrderedChannel("feishu:agent-a")
     saga_store = ExternalShadowSagaStore(db_path=tmp_path / "shadow-sagas.sqlite3")
 
     def unavailable(_request: httpx.Request) -> httpx.Response:
@@ -233,6 +247,23 @@ def test_im_outage_keeps_external_delivery_and_durably_records_final_shadow_outp
         transport=httpx.MockTransport(unavailable),
         saga_store=saga_store,
     )
+
+    def prepare_output(
+        saga_id: str,
+        run_id: str,
+        output_kind: str,
+        kernel_message_id: str | None,
+        content: str,
+    ):
+        delivery_order.append("durable")
+        return sync.prepare_agent_output(
+            saga_id=saga_id,
+            run_id=run_id,
+            output_kind=output_kind,
+            kernel_message_id=kernel_message_id,
+            content=content,
+        )
+
     pipeline = build_inbound_pipeline(
         kernel=_FakeKernel(),
         agents=agents,
@@ -241,7 +272,7 @@ def test_im_outage_keeps_external_delivery_and_durably_records_final_shadow_outp
         session_store=SessionBindingStore(),
         default_agent_id="agent-a",
         shadow_sync=sync,
-        shadow_output_prepare=sync.prepare_agent_output,
+        shadow_output_prepare=prepare_output,
     )
     inbound = attach_runtime_protocol(
         replace(
@@ -270,10 +301,53 @@ def test_im_outage_keeps_external_delivery_and_durably_records_final_shadow_outp
     result = asyncio.run(pipeline.handle_inbound(inbound))
 
     assert result is not None
+    assert delivery_order == ["durable", "provider"]
     assert channel.sent[0].text == "reply:reply despite IM outage"
     saga = saga_store.pending()[0]
     assert saga_store.pending_outputs()[0].saga_id == saga.saga_id
     assert saga_store.pending_outputs()[0].content == "reply:reply despite IM outage"
+
+
+def test_online_shadow_anchor_does_not_prepare_duplicate_final_output(
+    tmp_path: Path,
+) -> None:
+    """A confirmed anchor delegates final output persistence to the observer path."""
+
+    agents = _agents(tmp_path)
+    channel = _FakeChannel("feishu:agent-a")
+    prepared: list[tuple[str, str, str, str | None, str]] = []
+    sync = _ShadowSync(shadow_saga_id="online-shadow-saga")
+    pipeline = build_inbound_pipeline(
+        kernel=_FakeKernel(),
+        agents=agents,
+        outbound_router=OutboundRouter(ChannelRegistry((channel,))),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+        shadow_sync=sync,
+        shadow_output_prepare=lambda saga_id, run_id, output_kind, kernel_message_id, content: (
+            prepared.append((saga_id, run_id, output_kind, kernel_message_id, content))
+        ),
+    )
+    inbound = InboundMessage(
+        channel_name="feishu:agent-a",
+        text="reply with confirmed IM anchor",
+        external_user_id="ou_user",
+        external_chat_id="oc_feishu_chat",
+        is_group=False,
+        agent_id="agent-a",
+        metadata={
+            "external_source": "feishu",
+            "external_chat_id": "oc_feishu_chat",
+            "trigger_source": "feishu",
+        },
+    )
+
+    result = asyncio.run(pipeline.handle_inbound(inbound))
+
+    assert result is not None
+    assert prepared == []
+    assert channel.sent[0].text == "reply:reply with confirmed IM anchor"
 
 
 def test_inbound_pipeline_passes_local_config_metadata_when_creating_new_kernel_sessions(

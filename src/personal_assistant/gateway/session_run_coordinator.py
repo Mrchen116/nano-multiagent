@@ -64,6 +64,7 @@ from personal_assistant.gateway.session_keys import (
 )
 from personal_assistant.gateway.boundary_outbox import BoundaryOutboxDispatcher
 from personal_assistant.gateway.runtime_protocol import runtime_protocol_or_derive
+from personal_assistant.gateway.shadow_saga import ExternalShadowOutput
 
 if TYPE_CHECKING:
     from agent.sdk.kernel import Kernel
@@ -134,6 +135,9 @@ class SessionRunCoordinator:
         product_default_model: str | None = None,
         relay_lifecycle_callback: RelayLifecycleCallback | None = None,
         kernel_event_observer: Callable[[Mapping[str, Any]], object] | None = None,
+        shadow_output_prepare: (
+            Callable[[str, str, str, str | None, str], ExternalShadowOutput] | None
+        ) = None,
         bg_reply_sender: Callable[[str, ReplyContext, str], Awaitable[None]]
         | None = None,
         node_id: str | None = None,
@@ -155,6 +159,7 @@ class SessionRunCoordinator:
         self._product_default_model = product_default_model
         self._relay_lifecycle_callback = relay_lifecycle_callback
         self._kernel_event_observer = kernel_event_observer
+        self._shadow_output_prepare = shadow_output_prepare
         self._bg_reply_sender = bg_reply_sender
         self._node_id = node_id
         self._boundary_outbox = boundary_outbox
@@ -607,6 +612,19 @@ class SessionRunCoordinator:
             return None, {"suppressed_by": "no_reply_token"}
         reply_context = binding.reply_context
         if _is_external_channel_inbound(request.message):
+            protocol = runtime_protocol_or_derive(request.message)
+            if (
+                protocol.shadow_saga_id is not None
+                and protocol.shadow_ref is None
+                and self._shadow_output_prepare is not None
+            ):
+                self._shadow_output_prepare(
+                    saga_id=protocol.shadow_saga_id,
+                    run_id=run_id,
+                    output_kind="final",
+                    kernel_message_id=None,
+                    content=reply_text.strip(),
+                )
             metadata = dict(reply_context.metadata)
             metadata.update(
                 {
@@ -1170,5 +1188,10 @@ def _normalize_dispatch_id_part(value: str) -> str:
 
 
 def _is_external_channel_inbound(message: InboundMessage) -> bool:
+    """Return whether normalized protocol facts identify an external ingress."""
+
+    external_identity = runtime_protocol_or_derive(message).external_identity
+    if external_identity is not None:
+        return external_identity.trigger_source != "im"
     trigger_source = message.metadata.get("trigger_source")
     return isinstance(trigger_source, str) and trigger_source.strip() not in {"", "im"}

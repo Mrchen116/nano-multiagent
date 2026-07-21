@@ -481,6 +481,21 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         product_default_model=config.llm.default_model,
         relay_lifecycle_callback=relay_lifecycle_callback,
         kernel_event_observer=_kernel_event_observer,
+        shadow_output_prepare=(
+            (
+                lambda saga_id, run_id, output_kind, kernel_message_id, content: (
+                    shadow_sync.prepare_agent_output(
+                        saga_id=saga_id,
+                        run_id=run_id,
+                        output_kind=output_kind,
+                        kernel_message_id=kernel_message_id,
+                        content=content,
+                    )
+                )
+            )
+            if shadow_sync is not None
+            else None
+        ),
         bg_reply_sender=bg_reply_sender,
         node_id=config.node.node_id,
         boundary_outbox=boundary_outbox,
