@@ -32,6 +32,12 @@ from .dto import (
     ToolInfo,
 )
 from .prompt import PromptSlots, PromptText
+from .runtime import (
+    SessionReconfigureResult,
+    SessionRuntimeConfig,
+    SessionRuntimeIdentity,
+    SessionRuntimeState,
+)
 from agent.core.tools.presentation import ToolPresentationEvent, ToolPresenter
 from agent.core.runs.origin import RunOrigin
 from agent.core.runs.registry import TERMINAL_RUN_STATUSES
@@ -49,6 +55,10 @@ __all__ = [
     "HookAPI",
     "PromptSlots",
     "PromptText",
+    "SessionRuntimeConfig",
+    "SessionRuntimeIdentity",
+    "SessionRuntimeState",
+    "SessionReconfigureResult",
     "LLMConfig",
     "LLMProvider",
     "LLMModel",

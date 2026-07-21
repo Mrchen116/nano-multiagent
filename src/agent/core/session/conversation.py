@@ -276,6 +276,44 @@ class ConversationSession:
             finally:
                 self._note_quiescent()
 
+    async def replace_runtime(
+        self,
+        *,
+        runtime_model: str,
+        skills: tuple[str, ...] | None,
+        tool_allowlist: tuple[str, ...],
+        metadata: dict[str, object],
+        prompt_seed: PromptSlotSeed,
+    ) -> bool:
+        """Replace future-turn configuration after every active turn has finished."""
+
+        self._bind_owner_loop()
+        with self._lifecycle.begin_operation():
+            try:
+                async with self._turn_gate:
+                    state = await self._ensure_loaded()
+                    if (
+                        state.config.runtime_model == runtime_model
+                        and state.config.skills == skills
+                        and state.config.tool_allowlist == tool_allowlist
+                        and state.config.metadata == metadata
+                        and state.prompt_seed == prompt_seed
+                    ):
+                        return False
+                    self._transcript.replace_runtime(
+                        runtime_model=runtime_model,
+                        skills=skills,
+                        tool_allowlist=tool_allowlist,
+                        metadata=metadata,
+                        prompt_seed=prompt_seed,
+                    )
+                    with self._state_guard:
+                        self._state = None
+                        self._loaded_external_epoch = None
+                    return True
+            finally:
+                self._note_quiescent()
+
     async def discard_turn(self, turn_id: str) -> bool:
         """Selectively remove one durable turn inside the conversation transaction."""
 

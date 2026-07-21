@@ -75,6 +75,7 @@ class SessionDirectory:
         )
         effective_spec = NewSession(
             workspace_root=ref.workspace_root,
+            runtime_model=spec.runtime_model,
             title=spec.title,
             system_prompt=spec.system_prompt,
             skills=spec.skills,
@@ -214,6 +215,7 @@ class SessionDirectory:
         target = self.create(
             NewSession(
                 workspace_root=snapshot.config.workspace_root,
+                runtime_model=snapshot.config.runtime_model,
                 system_prompt=snapshot.config.system_prompt,
                 skills=snapshot.config.skills,
                 tool_allowlist=snapshot.config.tool_allowlist,

@@ -66,6 +66,14 @@ from agent.sdk.dto import (
     ToolInfo,
 )
 from agent.sdk.prompt import PromptSlots
+from agent.sdk.runtime import (
+    SessionReconfigureResult,
+    SessionRuntimeConfig,
+    SessionRuntimeIdentity,
+    SessionRuntimeState,
+    identify_runtime,
+    runtime_metadata,
+)
 
 if TYPE_CHECKING:
     pass
@@ -894,6 +902,7 @@ class Kernel:
         enabled_tools: list[str] | None = None,
         features: dict[str, bool] | None = None,
         prompt: PromptSlots | None = None,
+        runtime: SessionRuntimeConfig | None = None,
         # --- legacy (扩张期保留) ---
         skills: list[str] | None = None,
         tool_allowlist: list[str] | None = None,
@@ -928,11 +937,16 @@ class Kernel:
         # process cwd when workspace_root is relative — otherwise is_file() silently
         # misses the file and falls back to defaults. Mirrors resolved_repo_root.
         effective_root = Path(workspace_root or self._repo_root).expanduser().resolve()
+        if runtime is not None:
+            enabled_tools = list(runtime.enabled_tools)
+            skills = list(runtime.skills) if runtime.skills is not None else None
+            features = dict(runtime.features) if runtime.features is not None else None
+            prompt = runtime.prompt
 
         effective_allowlist = (
             enabled_tools if enabled_tools is not None else tool_allowlist
         )
-        effective_metadata = dict(metadata) if metadata else {}
+        effective_metadata = runtime_metadata(runtime, existing=metadata) if runtime else (dict(metadata) if metadata else {})
         if features is not None:
             # Feature toggles drive the kernel feature gates via agent_features
             # (same key the runtime reads through resolve_flags_from_metadata).
@@ -960,6 +974,7 @@ class Kernel:
         conversation = self._c.directory.create(
             NewSession(
                 workspace_root=effective_root,
+                runtime_model=runtime.model if runtime is not None else None,
                 title=title,
                 skills=tuple(skills) if skills else None,
                 tool_allowlist=(
@@ -994,6 +1009,74 @@ class Kernel:
                 hook_ctx, event="session_start", diagnostics=diagnostics
             )
         return _to_session_info(session)
+
+    def identify_runtime(self, *, runtime: SessionRuntimeConfig) -> SessionRuntimeIdentity:
+        """Return the SDK-owned stable identity for a complete runtime."""
+
+        return identify_runtime(runtime)
+
+    async def get_session_runtime(
+        self,
+        *,
+        session_id: str,
+        workspace_root: Path | str,
+    ) -> SessionRuntimeState | None:
+        """Return a session's complete persisted runtime, if its archive supports it."""
+
+        root = Path(workspace_root).expanduser().resolve()
+        ref = SessionRef(session_id=session_id, workspace_root=root)
+        session = self._c.directory.get(ref)
+        if session is None:
+            raise ValueError(f"session does not exist: {session_id}")
+        conversation = self._c.directory.open(ref)
+        loaded = conversation._transcript.load()  # type: ignore[attr-defined]
+        config = loaded.config
+        if config.runtime_model is None:
+            return None
+        seed = loaded.prompt_seed
+        from agent.sdk.prompt import PromptText  # noqa: PLC0415
+        runtime = SessionRuntimeConfig(
+            model=config.runtime_model,
+            prompt=PromptSlots(
+                head=tuple(PromptText(item.name, item.text) for item in seed.head),
+                body=tuple(PromptText(item.name, item.text) for item in seed.body),
+                custom=tuple(PromptText(item.name, item.text) for item in seed.custom),
+                tail=tuple(PromptText(item.name, item.text) for item in seed.tail),
+            ),
+            skills=list(config.skills) if config.skills is not None else None,
+            enabled_tools=list(config.tool_allowlist or ()),
+            features=dict(config.metadata.get("agent_features") or {}) or None,
+        )
+        return SessionRuntimeState(runtime=runtime, identity=identify_runtime(runtime))
+
+    async def reconfigure_session(
+        self,
+        *,
+        session_id: str,
+        workspace_root: Path | str,
+        runtime: SessionRuntimeConfig,
+    ) -> SessionReconfigureResult:
+        """Durably replace every future-turn setting without changing session identity."""
+
+        root = Path(workspace_root).expanduser().resolve()
+        ref = SessionRef(session_id=session_id, workspace_root=root)
+        if self._c.directory.get(ref) is None:
+            raise ValueError(f"session does not exist: {session_id}")
+        conversation = self._c.directory.open(ref)
+        changed = await self._c.executor.replace_runtime(
+            conversation,
+            runtime_model=runtime.model,
+            skills=tuple(runtime.skills) if runtime.skills is not None else None,
+            tool_allowlist=tuple(runtime.enabled_tools),
+            metadata=runtime_metadata(runtime),
+            prompt_seed=_to_prompt_seed(runtime.prompt),
+        )
+        state = await self.get_session_runtime(
+            session_id=session_id, workspace_root=root
+        )
+        if state is None:  # pragma: no cover - replacement always persists raw runtime.
+            raise RuntimeError("session runtime disappeared after replacement")
+        return SessionReconfigureResult(session_id=session_id, changed=changed, state=state)
 
     async def fork_session(
         self,
@@ -1168,6 +1251,14 @@ class Kernel:
             run created); otherwise ``injected=False`` for a freshly created run.
         """
         effective_root = Path(workspace_root or self._repo_root).expanduser().resolve()
+        ref = SessionRef(session_id=session_id, workspace_root=effective_root)
+        if self._c.directory.get(ref) is None:
+            raise ValueError(f"session does not exist: {session_id}")
+        runtime_model = self._c.directory.open(ref)._transcript.load_config().runtime_model  # type: ignore[attr-defined]
+        if runtime_model is not None:
+            if model is not None and model != runtime_model:
+                raise ValueError("submit model must match the session runtime")
+            model = runtime_model
         if steer:
             injected = self.try_steer(session_id=session_id, parts=parts, origin=origin)
             if injected is not None:
