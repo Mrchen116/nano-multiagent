@@ -38,3 +38,13 @@
 - Rollback: 回退 `190ba1dab`，恢复旧的按 revision 删除 binding 行为。
 - Commits: C1=a8e5572dc，C2=190ba1dab，C3=待提交。
 - Next: R3 让 heartbeat 与 cron 采用同一完整 runtime，并完成真栈验证。
+
+## [Design 修订] R3: 后台完整 runtime 需要扩展 Gateway adapter
+
+- 现状方案: Milestone 范围列出 `heartbeat_scheduler.py` 与 `cron_runner.py`，未列出 `gateway/kernel_client.py`。
+- 新方案: 将 `src/personal_assistant/gateway/kernel_client.py` 纳入 M1 范围，使其在已解析 model 时以 `SessionRuntimeConfig` 创建后台会话，并在复用 heartbeat session 前调用 SDK inspection/reconfigure。
+- 原因: scheduler 只依赖该 adapter 的 `create_session` / `submit_message` seam，无法自行向 in-process Kernel 传递 typed runtime；保持 adapter 旧的 capability-only create 会产生无 runtime model 的后台 session，违背 M1-C5。
+- 影响范围: 仅本 milestone。
+- design.md 是否同步改: 待 orchestrator 确认。
+
+- 状态: R3 BLOCKED，等待范围确认；工作区中存在未提交的最小 adapter/scheduler/test 改动，窄测试 41 passed。

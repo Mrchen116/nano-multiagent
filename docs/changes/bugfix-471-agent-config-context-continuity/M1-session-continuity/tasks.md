@@ -38,6 +38,6 @@
 
 ### R3 — Background parity and live verification
 
-- 状态：TODO
+- 状态：BLOCKED
 - 步骤：使 heartbeat 复用会话与 cron 新建会话采用完整 runtime，补回归与真栈验证。
 - 验证：相关 scheduler 测试、`pytest -m "not e2e"`、真 Gateway restart 的 direct/group/Feishu 请求对账。
