@@ -76,6 +76,43 @@ async def test_unattended_session_inherits_agent_skill_scope(
 
 
 @pytest.mark.asyncio
+async def test_unattended_session_creates_complete_runtime_when_model_resolves(
+    tmp_path: Path,
+) -> None:
+    """Cron and heartbeat creation give Kernel one complete model-owned runtime."""
+
+    workspace = tmp_path / "agent-a"
+    workspace.mkdir()
+    catalog = LiveAgentCatalog(
+        (
+            AgentWorkspaceConfig(
+                agent_id="agent-a",
+                workspace_root=workspace,
+                default_model="model-a",
+                skills=("research",),
+                tool_allowlist=("read",),
+                features={"memory_curation": False},
+            ),
+        )
+    )
+    kernel = _Kernel()
+    shim = InProcessKernelClient(kernel, agent_catalog=catalog)
+
+    await shim.create_agent_session(
+        agent_snapshot=catalog.require("agent-a"),
+        workspace_root=str(workspace),
+        product_id="personal_assistant",
+        metadata={"agent_id": "agent-a"},
+    )
+
+    runtime = kernel.create_calls[0]["runtime"]
+    assert runtime.model == "model-a"
+    assert runtime.skills == ["research"]
+    assert runtime.enabled_tools == ["read"]
+    assert runtime.features == {"memory_curation": False}
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("configured_skills", "configured_tools", "configured_features"),
     [
