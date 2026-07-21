@@ -26,7 +26,7 @@
 
 ### R1 — Kernel runtime replacement
 
-- 状态：TODO
+- 状态：DONE
 - 步骤：定义 SDK runtime DTO/identity；把完整 raw runtime 写入 creation/config_update transcript；在 ConversationSession turn gate 内实现 durable replacement 与 inspection；让 submit 只接受 session runtime model。
 - 验证：扩展 Kernel/session 单元与集成测试，覆盖 identity、幂等、并发、恢复、写失败和能力替换。
 
