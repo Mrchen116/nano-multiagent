@@ -3,15 +3,29 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from pathlib import Path
 
-from personal_assistant.channels.base import InboundMessage, OutboundMessage
+import httpx
+
+from personal_assistant.channels.base import (
+    ExternalInboundEventIdentity,
+    InboundMessage,
+    OutboundMessage,
+)
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.gateway.channel_registry import ChannelRegistry
 from tests.helpers.inbound_pipeline import build_inbound_pipeline, inbound_graph
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
-from personal_assistant.gateway.runtime_protocol import ShadowConversationRef
+from personal_assistant.gateway.runtime_protocol import (
+    ExternalConversationIdentity,
+    RuntimeProtocolFacts,
+    ShadowConversationRef,
+    attach_runtime_protocol,
+)
+from personal_assistant.gateway.shadow_saga import ExternalShadowSagaStore
+from personal_assistant.gateway.shadow_sync import IMShadowConversationSync
 from personal_assistant.gateway.session_keys import (
     SessionBindingStore,
     build_session_key,
@@ -195,6 +209,71 @@ def test_external_shadow_sync_failure_does_not_block_or_seed_lazy_direct(
     assert result is not None
     assert lifecycle[0] == ("accepted", "run-1", None)
     assert channel.sent[0].target_chat_id == "oc_feishu_chat"
+
+
+def test_im_outage_keeps_external_delivery_and_durably_records_final_shadow_output(
+    tmp_path: Path,
+) -> None:
+    """A pending IM anchor cannot suppress the external reply or its recovery fact."""
+
+    agents = _agents(tmp_path)
+    channel = _FakeChannel("feishu:agent-a")
+    saga_store = ExternalShadowSagaStore(db_path=tmp_path / "shadow-sagas.sqlite3")
+
+    def unavailable(_request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("IM unavailable")
+
+    async def token_getter() -> str:
+        return "token-a"
+
+    sync = IMShadowConversationSync(
+        base_url="http://im.local",
+        token_getter=token_getter,
+        owner_user_id="owner-a",
+        transport=httpx.MockTransport(unavailable),
+        saga_store=saga_store,
+    )
+    pipeline = build_inbound_pipeline(
+        kernel=_FakeKernel(),
+        agents=agents,
+        outbound_router=OutboundRouter(ChannelRegistry((channel,))),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+        shadow_sync=sync,
+        shadow_output_prepare=sync.prepare_agent_output,
+    )
+    inbound = attach_runtime_protocol(
+        replace(
+            InboundMessage(
+                channel_name="feishu:agent-a",
+                text="reply despite IM outage",
+                external_user_id="ou_user",
+                external_chat_id="oc_feishu_chat",
+                is_group=False,
+                agent_id="agent-a",
+            ),
+            external_event_identity=ExternalInboundEventIdentity(
+                connector_account_id="app-a", provider_event_id="event-a"
+            ),
+        ),
+        RuntimeProtocolFacts(
+            external_identity=ExternalConversationIdentity(
+                external_source="feishu",
+                external_chat_id="oc_feishu_chat",
+                agent_id="agent-a",
+                trigger_source="external",
+            )
+        ),
+    )
+
+    result = asyncio.run(pipeline.handle_inbound(inbound))
+
+    assert result is not None
+    assert channel.sent[0].text == "reply:reply despite IM outage"
+    saga = saga_store.pending()[0]
+    assert saga_store.pending_outputs()[0].saga_id == saga.saga_id
+    assert saga_store.pending_outputs()[0].content == "reply:reply despite IM outage"
 
 
 def test_inbound_pipeline_passes_local_config_metadata_when_creating_new_kernel_sessions(
