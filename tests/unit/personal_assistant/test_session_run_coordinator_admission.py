@@ -318,6 +318,8 @@ async def test_config_publish_reconfigures_same_session_only_for_next_run(
     await kernel.wait_stream("run-1")
     kernel.finish("run-1", text="old done")
     assert (await first).kernel_session_id == "sess-1"
+    assert kernel.create_runtimes[0] is not None
+    assert kernel.create_runtimes[0].features == {}
 
     current = catalog.publish(
         AgentWorkspaceConfig(
