@@ -491,6 +491,14 @@ class HeartbeatScheduler:
             agent=agent,
             agent_snapshot=agent_snapshot,
         )
+        ensure_runtime = getattr(self._kernel_client, "ensure_agent_runtime", None)
+        if agent_snapshot is not None and callable(ensure_runtime):
+            await ensure_runtime(
+                session_id=session_id,
+                agent_snapshot=agent_snapshot,
+                workspace_root=str(agent.workspace_root),
+                metadata={"agent_id": agent.agent_id},
+            )
         message = _build_heartbeat_message(
             agent_id=agent.agent_id, due_at=due_at, instructions=instructions
         )

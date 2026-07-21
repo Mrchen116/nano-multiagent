@@ -76,6 +76,7 @@ class SessionDirectory:
         effective_spec = NewSession(
             workspace_root=ref.workspace_root,
             runtime_model=spec.runtime_model,
+            runtime_features=spec.runtime_features,
             title=spec.title,
             system_prompt=spec.system_prompt,
             skills=spec.skills,

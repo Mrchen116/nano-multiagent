@@ -9,6 +9,7 @@ from personal_assistant.config.local_store import resolve_run_model
 from personal_assistant.gateway.agent_catalog import LiveAgentCatalog, LiveAgentSnapshot
 from personal_assistant.gateway.session_binder import GatewaySessionBinder
 from personal_assistant.gateway.session_composition import (
+    project_agent_runtime,
     project_agent_session_capabilities,
 )
 
@@ -60,6 +61,7 @@ class InProcessKernelClient:
         enabled_tools = None
         features = None
         skills = None
+        runtime = None
         agent_id = (metadata or {}).get("agent_id")
         snapshot = agent_snapshot
         if snapshot is None:
@@ -69,18 +71,30 @@ class InProcessKernelClient:
                 else None
             )
         if snapshot is not None:
-            capabilities = project_agent_session_capabilities(
-                snapshot,
-                scenario=metadata or {},
+            model = resolve_run_model(
+                snapshot.config,
+                product_default=self._product_default_model,
             )
-            prompt = capabilities.prompt
-            enabled_tools = capabilities.enabled_tools
-            features = capabilities.features
-            skills = capabilities.skills
+            if model is not None:
+                runtime = project_agent_runtime(
+                    snapshot,
+                    scenario=metadata or {},
+                    resolved_model=model,
+                ).runtime
+            else:
+                capabilities = project_agent_session_capabilities(
+                    snapshot,
+                    scenario=metadata or {},
+                )
+                prompt = capabilities.prompt
+                enabled_tools = capabilities.enabled_tools
+                features = capabilities.features
+                skills = capabilities.skills
         session = await self._kernel.create_session(
             title=title,
             workspace_root=Path(workspace_root),
             metadata=metadata,
+            runtime=runtime,
             prompt=prompt,
             skills=skills,
             enabled_tools=enabled_tools,
@@ -111,6 +125,43 @@ class InProcessKernelClient:
             metadata=metadata,
             agent_snapshot=agent_snapshot,
         )
+
+    async def ensure_agent_runtime(
+        self,
+        *,
+        session_id: str,
+        agent_snapshot: LiveAgentSnapshot,
+        workspace_root: str,
+        metadata: dict[str, object] | None = None,
+    ) -> None:
+        """Align a reused unattended session before its next background run."""
+
+        model = resolve_run_model(
+            agent_snapshot.config,
+            product_default=self._product_default_model,
+        )
+        if model is None:
+            return
+        runtime = project_agent_runtime(
+            agent_snapshot,
+            scenario=metadata or {"agent_id": agent_snapshot.agent_id},
+            resolved_model=model,
+        ).runtime
+        desired = self._kernel.identify_runtime(runtime=runtime)
+        current = await self._kernel.get_session_runtime(
+            session_id=session_id,
+            workspace_root=Path(workspace_root),
+        )
+        if (
+            current is None
+            or current.identity.fingerprint_schema != desired.fingerprint_schema
+            or current.identity.runtime_fingerprint != desired.runtime_fingerprint
+        ):
+            await self._kernel.reconfigure_session(
+                session_id=session_id,
+                workspace_root=Path(workspace_root),
+                runtime=runtime,
+            )
 
     def submit_message(
         self,

@@ -25,6 +25,7 @@ from .jsonl_files import JsonlSessionFiles
 from .jsonl_writer import JsonlWriter
 from .types import (
     INTERNAL_PROMPT_SLOTS_KEY,
+    INTERNAL_RUNTIME_KEY,
     AppendMessageResult,
     ExternalMessage,
     NewSession,
@@ -82,7 +83,10 @@ class JsonlTranscript:
         transcript = cls(ref=ref, files=files, writer=writer, known_empty=True)
         metadata = internal_metadata(spec.metadata, prompt_seed=spec.prompt_seed)
         if spec.runtime_model is not None:
-            metadata["__nano_internal_runtime_v1__"] = {"model": spec.runtime_model}
+            metadata[INTERNAL_RUNTIME_KEY] = {
+                "model": spec.runtime_model,
+                "features": spec.runtime_features,
+            }
         if spec.title is not None:
             metadata["title"] = spec.title
         entry: dict[str, Any] = {
@@ -327,7 +331,9 @@ class JsonlTranscript:
             "tool_allowlist": list(tool_allowlist),
             "metadata": internal_metadata(metadata, prompt_seed=prompt_seed),
         }
-        entry["metadata"]["__nano_internal_runtime_v1__"] = {"model": runtime_model}
+        runtime_metadata = dict(metadata.get(INTERNAL_RUNTIME_KEY) or {})
+        runtime_metadata["model"] = runtime_model
+        entry["metadata"][INTERNAL_RUNTIME_KEY] = runtime_metadata
         with self._mutex:
             self._writer.enqueue_raw(self._path, entry)
             self._writer.durable_barrier(self._path)
@@ -754,7 +760,7 @@ def _to_config(ref: SessionRef, config: Mapping[str, Any]) -> SessionConfig:
     allowlist = config.get("tool_allowlist")
     metadata = config.get("metadata")
     metadata = dict(metadata) if isinstance(metadata, Mapping) else {}
-    runtime_payload = metadata.get("__nano_internal_runtime_v1__")
+    runtime_payload = metadata.get(INTERNAL_RUNTIME_KEY)
     runtime_model = (
         runtime_payload.get("model")
         if isinstance(runtime_payload, Mapping)

@@ -242,6 +242,17 @@ class ConversationSession:
                 return tuple(self._state.history)
         return tuple(self._transcript.load().messages)
 
+    def config_snapshot(self) -> tuple[SessionConfig, PromptSlotSeed]:
+        """Return one durable configuration snapshot without exposing transcript storage.
+
+        The transcript mutex makes this an all-before or all-after view relative to
+        a replacement write; callers that need lifecycle ordering must still use
+        the owner-loop operation that owns their mutation.
+        """
+
+        loaded = self._transcript.load()
+        return loaded.config, loaded.prompt_seed
+
     def partial_turn_result(self) -> TurnResult | None:
         """Snapshot durable progress when raw cancellation prevents a result."""
 

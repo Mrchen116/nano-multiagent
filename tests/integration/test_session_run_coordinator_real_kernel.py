@@ -159,7 +159,7 @@ async def test_kernel_reconfigures_one_session_without_losing_transcript(
         prompt=PromptSlots(body=(PromptText(name="identity", text="old prompt"),)),
         skills=None,
         enabled_tools=[],
-        features=None,
+        features={},
     )
     replacement = SessionRuntimeConfig(
         model="model-b",
@@ -172,6 +172,10 @@ async def test_kernel_reconfigures_one_session_without_losing_transcript(
         session = await kernel.create_session(
             workspace_root=workspace,
             runtime=initial,
+        )
+        created_runtime = await kernel.get_session_runtime(
+            session_id=session.session_id,
+            workspace_root=workspace,
         )
         first = kernel.submit(
             session_id=session.session_id,
@@ -196,6 +200,8 @@ async def test_kernel_reconfigures_one_session_without_losing_transcript(
         )
         await _wait_for_terminal(kernel, second.run_id)
 
+        assert created_runtime is not None
+        assert created_runtime.runtime == initial
         assert changed.changed is True
         assert current is not None
         assert current.runtime == replacement
@@ -206,6 +212,56 @@ async def test_kernel_reconfigures_one_session_without_losing_transcript(
         )
     finally:
         await kernel.aclose()
+
+
+@pytest.mark.asyncio
+async def test_kernel_recovery_preserves_empty_feature_runtime_identity(
+    tmp_path: Path,
+) -> None:
+    """A cold Kernel reconstructs the full runtime without collapsing {} into None."""
+    from agent.sdk import PromptSlots, PromptText, SessionRuntimeConfig
+
+    workspace = tmp_path / "agent-recovery"
+    workspace.mkdir()
+    runtime = SessionRuntimeConfig(
+        model="model-a",
+        prompt=PromptSlots(body=(PromptText(name="identity", text="persist me"),)),
+        skills=None,
+        enabled_tools=[],
+        features={},
+    )
+    config = LLMConfig(
+        provider="openai_compat",
+        model="test-model",
+        base_url="http://127.0.0.1:1",
+    )
+    first = build_kernel(
+        llm=config,
+        workspace_config_dirname=".nanoassistant",
+        repo_root=tmp_path,
+        _llm_client_override=_CountingClient(),
+    )
+    try:
+        session = await first.create_session(workspace_root=workspace, runtime=runtime)
+    finally:
+        await first.aclose()
+
+    recovered = build_kernel(
+        llm=config,
+        workspace_config_dirname=".nanoassistant",
+        repo_root=tmp_path,
+        _llm_client_override=_CountingClient(),
+    )
+    try:
+        state = await recovered.get_session_runtime(
+            session_id=session.session_id,
+            workspace_root=workspace,
+        )
+        assert state is not None
+        assert state.runtime == runtime
+        assert state.identity == recovered.identify_runtime(runtime=runtime)
+    finally:
+        await recovered.aclose()
 
 
 async def _wait_for_terminal(kernel, run_id: str) -> None:

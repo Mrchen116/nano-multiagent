@@ -40,6 +40,7 @@ from agent.core.session.jsonl_files import JsonlSessionFiles
 from agent.core.session.jsonl_writer import JsonlWriter
 from agent.core.session.types import (
     ExternalMessage,
+    INTERNAL_RUNTIME_KEY,
     NewSession,
     PromptSlotSeed,
     PromptSlotText,
@@ -975,6 +976,9 @@ class Kernel:
             NewSession(
                 workspace_root=effective_root,
                 runtime_model=runtime.model if runtime is not None else None,
+                runtime_features=(
+                    dict(runtime.features) if runtime is not None and runtime.features is not None else None
+                ),
                 title=title,
                 skills=tuple(skills) if skills else None,
                 tool_allowlist=(
@@ -1029,12 +1033,17 @@ class Kernel:
         if session is None:
             raise ValueError(f"session does not exist: {session_id}")
         conversation = self._c.directory.open(ref)
-        loaded = conversation._transcript.load()  # type: ignore[attr-defined]
-        config = loaded.config
+        config, seed = conversation.config_snapshot()
         if config.runtime_model is None:
             return None
-        seed = loaded.prompt_seed
         from agent.sdk.prompt import PromptText  # noqa: PLC0415
+
+        runtime_payload = config.metadata.get(INTERNAL_RUNTIME_KEY)
+        runtime_features = (
+            runtime_payload.get("features")
+            if isinstance(runtime_payload, dict)
+            else None
+        )
         runtime = SessionRuntimeConfig(
             model=config.runtime_model,
             prompt=PromptSlots(
@@ -1045,7 +1054,7 @@ class Kernel:
             ),
             skills=list(config.skills) if config.skills is not None else None,
             enabled_tools=list(config.tool_allowlist or ()),
-            features=dict(config.metadata.get("agent_features") or {}) or None,
+            features=dict(runtime_features) if runtime_features is not None else None,
         )
         return SessionRuntimeState(runtime=runtime, identity=identify_runtime(runtime))
 
@@ -1254,7 +1263,7 @@ class Kernel:
         ref = SessionRef(session_id=session_id, workspace_root=effective_root)
         if self._c.directory.get(ref) is None:
             raise ValueError(f"session does not exist: {session_id}")
-        runtime_model = self._c.directory.open(ref)._transcript.load_config().runtime_model  # type: ignore[attr-defined]
+        runtime_model = self._c.directory.open(ref).config_snapshot()[0].runtime_model
         if runtime_model is not None:
             if model is not None and model != runtime_model:
                 raise ValueError("submit model must match the session runtime")

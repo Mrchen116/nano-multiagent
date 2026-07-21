@@ -7,6 +7,8 @@ from hashlib import sha256
 import json
 from typing import Mapping
 
+from agent.core.session.types import INTERNAL_RUNTIME_KEY
+
 from .prompt import PromptSlots
 
 RUNTIME_FINGERPRINT_SCHEMA = "runtime-v1"
@@ -89,7 +91,10 @@ def runtime_metadata(
 
     metadata = dict(existing or {})
     metadata["agent_features"] = dict(runtime.features or {})
-    metadata["__nano_internal_runtime_v1__"] = {"model": runtime.model}
+    metadata[INTERNAL_RUNTIME_KEY] = {
+        "model": runtime.model,
+        "features": dict(runtime.features) if runtime.features is not None else None,
+    }
     return metadata
 
 
