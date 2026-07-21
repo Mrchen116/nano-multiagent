@@ -8,11 +8,11 @@
 
 ## 退出标准
 
-- [ ] 同一绑定在 model、prompt、skills、tools、features 变化后保留 session id 与 transcript，下一 run 使用完整最终配置。
-- [ ] active run 与其 steer 保持原配置；排队新 run 在 admission 时只采用 catalog 最新配置。
-- [ ] Gateway 重启后从 binding applied state 与 transcript 恢复正确 baseline；错误时不提交 run。
-- [ ] heartbeat 复用会话、cron 新建会话均采用完整 runtime，且不进入聊天边界语义。
-- [ ] `pytest -m "not e2e"` 与相关 contract 测试全绿；完成真实 Gateway/Web IM 入口验证。
+- [x] 同一绑定在 model、prompt、skills、tools、features 变化后保留 session id 与 transcript，下一 run 使用完整最终配置。
+- [x] active run 与其 steer 保持原配置；排队新 run 在 admission 时只采用 catalog 最新配置。
+- [x] Gateway 重启后从 binding applied state 与 transcript 恢复正确 baseline；错误时不提交 run。
+- [x] heartbeat 复用会话、cron 新建会话均采用完整 runtime，且不进入聊天边界语义。
+- [x] `pytest -m "not e2e"` 与相关 contract 测试全绿；完成真实 Gateway/Web IM 入口验证。
 
 ## 测试策略
 
@@ -38,7 +38,7 @@
 
 ### R3 — Background parity and live verification
 
-- 状态：BLOCKED
+- 状态：DONE
 - 步骤：使 heartbeat 复用会话与 cron 新建会话采用完整 runtime，补回归与真栈验证；`gateway/kernel_client.py` 是 scheduler 进入 in-process Kernel 的必要 adapter seam，`product.py` 是 system_prompt 进入完整 runtime 的唯一 projection seam，均按 orchestrator 确认纳入本 roadpoint，不修改 `design.md`。
 - 验证：相关 scheduler 测试、`pytest -m "not e2e"`、真 Gateway restart 的 direct/group/Feishu 请求对账。
-- 阻塞：Web IM direct/group/restart 与 LLM 请求对账已完成；显式 `{}` features 已修复为完整 runtime 的空映射，有 Gateway admission 回归和隔离真栈的用户可见回复、restart、transcript 持久化证据（`evidence/live-empty-features-runtime.json`）。真实 Feishu 同会话连续性仍无法签收：恢复 probe 已由主 Gateway 接收过的受管 app 所在测试群接受，但用户未授权以 M1 分支替换主 Gateway，也禁止为同一 app 并行建立第二条 Gateway 连接，故不能取得可信的分支实现外部回复证据。详见 `evidence/live-feishu-blocked.json`。
+- 证据：Web IM direct/group/restart 与 LLM 请求对账已完成；显式 `{}` features 有 Gateway admission 回归和隔离真栈的用户可见回复、restart、transcript 持久化证据（`evidence/live-empty-features-runtime.json`）。真实 Feishu 测试群在 M1 分支 Gateway 的单一 app 连接上完成配置边界与 restart：同一 `kernel_session_id` 在 phase one、phase two 与 restart 后保持不变，用户可见回复依次为 `ACK-FEISHU-4A7D`、`CONFIRMED-FEISHU-4A7D`、`RESTARTED-FEISHU-4A7D`；proxy 请求对账确认 model、system prompt、tools 与历史均正确，详见 `evidence/live-feishu.json`。
