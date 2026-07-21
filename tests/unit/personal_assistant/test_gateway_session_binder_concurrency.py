@@ -118,7 +118,9 @@ async def test_slow_workspace_validation_does_not_block_unrelated_bindings(
         binder.invalidate_stale("agent-c", current_revision=999)
 
         assert fast.kernel_session_id == "session-agent-b"
-        assert binder.lookup(_request("agent-c").session_key) is None
+        retained = binder.lookup(_request("agent-c").session_key)
+        assert retained is not None
+        assert retained.kernel_session_id == "session-agent-c"
         assert not kernel.validation_finished.is_set()
     finally:
         kernel.release_validation.set()
@@ -141,14 +143,19 @@ async def test_publish_during_slow_validation_never_republishes_stale_binding(
     assert not kernel.validation_finished.is_set()
     current = catalog.publish(_agent(tmp_path, "agent-a", version="v2"))
     binder.invalidate_stale("agent-a", current_revision=current.revision)
-    assert binder.lookup(request.session_key) is None
+    retained = binder.lookup(request.session_key)
+    assert retained is not None
+    assert retained.kernel_session_id == "session-agent-a"
 
     kernel.release_validation.set()
     old_result = await resolving
 
     assert old_result.kernel_session_id == "session-agent-a"
-    assert binder.lookup(request.session_key) is None
+    retained = binder.lookup(request.session_key)
+    assert retained is not None
+    assert retained.kernel_session_id == "session-agent-a"
     new_result = await binder.resolve(request, current)
+    assert new_result.kernel_session_id == "created-1"
     assert binder.lookup(request.session_key) == new_result
     assert kernel.create_calls == [str(current.config.workspace_root)]
 

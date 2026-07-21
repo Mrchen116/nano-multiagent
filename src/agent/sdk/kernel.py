@@ -947,7 +947,11 @@ class Kernel:
         effective_allowlist = (
             enabled_tools if enabled_tools is not None else tool_allowlist
         )
-        effective_metadata = runtime_metadata(runtime, existing=metadata) if runtime else (dict(metadata) if metadata else {})
+        effective_metadata = (
+            runtime_metadata(runtime, existing=metadata)
+            if runtime
+            else (dict(metadata) if metadata else {})
+        )
         if features is not None:
             # Feature toggles drive the kernel feature gates via agent_features
             # (same key the runtime reads through resolve_flags_from_metadata).
@@ -977,7 +981,9 @@ class Kernel:
                 workspace_root=effective_root,
                 runtime_model=runtime.model if runtime is not None else None,
                 runtime_features=(
-                    dict(runtime.features) if runtime is not None and runtime.features is not None else None
+                    dict(runtime.features)
+                    if runtime is not None and runtime.features is not None
+                    else None
                 ),
                 title=title,
                 skills=tuple(skills) if skills else None,
@@ -1014,7 +1020,9 @@ class Kernel:
             )
         return _to_session_info(session)
 
-    def identify_runtime(self, *, runtime: SessionRuntimeConfig) -> SessionRuntimeIdentity:
+    def identify_runtime(
+        self, *, runtime: SessionRuntimeConfig
+    ) -> SessionRuntimeIdentity:
         """Return the SDK-owned stable identity for a complete runtime."""
 
         return identify_runtime(runtime)
@@ -1072,20 +1080,45 @@ class Kernel:
         if self._c.directory.get(ref) is None:
             raise ValueError(f"session does not exist: {session_id}")
         conversation = self._c.directory.open(ref)
+        config, seed = conversation.config_snapshot()
+        target_metadata = runtime_metadata(runtime, existing=config.metadata)
+        target_prompt_seed = _to_prompt_seed(runtime.prompt)
+        if (
+            config.runtime_model == runtime.model
+            and config.skills
+            == (tuple(runtime.skills) if runtime.skills is not None else None)
+            and config.tool_allowlist == tuple(runtime.enabled_tools)
+            and config.metadata == target_metadata
+            and seed == target_prompt_seed
+        ):
+            state = await self.get_session_runtime(
+                session_id=session_id, workspace_root=root
+            )
+            if state is None:  # pragma: no cover - complete runtime already persisted.
+                raise RuntimeError(
+                    "session runtime disappeared during idempotent replacement"
+                )
+            return SessionReconfigureResult(
+                session_id=session_id,
+                changed=False,
+                state=state,
+            )
         changed = await self._c.executor.replace_runtime(
             conversation,
             runtime_model=runtime.model,
             skills=tuple(runtime.skills) if runtime.skills is not None else None,
             tool_allowlist=tuple(runtime.enabled_tools),
-            metadata=runtime_metadata(runtime),
-            prompt_seed=_to_prompt_seed(runtime.prompt),
+            metadata=target_metadata,
+            prompt_seed=target_prompt_seed,
         )
         state = await self.get_session_runtime(
             session_id=session_id, workspace_root=root
         )
         if state is None:  # pragma: no cover - replacement always persists raw runtime.
             raise RuntimeError("session runtime disappeared after replacement")
-        return SessionReconfigureResult(session_id=session_id, changed=changed, state=state)
+        return SessionReconfigureResult(
+            session_id=session_id, changed=changed, state=state
+        )
 
     async def fork_session(
         self,

@@ -7,6 +7,12 @@ from pathlib import Path
 from typing import Any, AsyncIterator
 from unittest.mock import MagicMock
 
+from agent.sdk import (
+    SessionReconfigureResult,
+    SessionRuntimeConfig,
+    SessionRuntimeState,
+)
+from agent.sdk.runtime import identify_runtime
 from personal_assistant.channels.base import OutboundMessage
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 
@@ -298,6 +304,7 @@ class _FakeKernel:
         self.run_states: dict[str, list[dict[str, str]] | dict[str, str]] = {}
         self.session_events: dict[str, list[list[dict[str, Any]]]] = {}
         self._session_metadata_by_id: dict[str, dict[str, Any]] = {}
+        self._session_runtime: dict[str, SessionRuntimeState] = {}
         self._session_index = 0
         self._run_index = 0
         self._last_run_id_by_session: dict[str, str] = {}
@@ -339,6 +346,12 @@ class _FakeKernel:
         # Kernel.get_session contract: workspace_root is a top-level key, not
         # injected into metadata (refactor-387 regression fix).
         self._session_metadata_by_id[session_id] = dict(metadata or {})
+        runtime = kwargs.get("runtime")
+        if runtime is not None:
+            self._session_runtime[session_id] = SessionRuntimeState(
+                runtime=runtime,
+                identity=identify_runtime(runtime),
+            )
         self.session_events.setdefault(session_id, [])
         session = _FakeSession(session_id=session_id, workspace_root=ws_str)
         self._sessions[session_id] = session
@@ -354,6 +367,35 @@ class _FakeKernel:
         self._sessions.setdefault(
             session_id,
             _FakeSession(session_id=session_id, workspace_root=ws),
+        )
+
+    def identify_runtime(self, *, runtime: SessionRuntimeConfig):
+        """Return the SDK-owned identity expected by Gateway admission."""
+        return identify_runtime(runtime)
+
+    async def get_session_runtime(
+        self, *, session_id: str, workspace_root: Path | str
+    ) -> SessionRuntimeState | None:
+        """Expose the persisted complete runtime for admission tests."""
+        del workspace_root
+        return self._session_runtime.get(session_id)
+
+    async def reconfigure_session(
+        self,
+        *,
+        session_id: str,
+        workspace_root: Path | str,
+        runtime: SessionRuntimeConfig,
+    ) -> SessionReconfigureResult:
+        """Replace a fake session's complete runtime without changing its address."""
+        del workspace_root
+        state = SessionRuntimeState(runtime=runtime, identity=identify_runtime(runtime))
+        previous = self._session_runtime.get(session_id)
+        self._session_runtime[session_id] = state
+        return SessionReconfigureResult(
+            session_id=session_id,
+            changed=previous != state,
+            state=state,
         )
 
     def get_session(

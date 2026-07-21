@@ -38,6 +38,6 @@
 
 ### R3 — Background parity and live verification
 
-- 状态：BLOCKED
-- 步骤：使 heartbeat 复用会话与 cron 新建会话采用完整 runtime，补回归与真栈验证。
+- 状态：DOING
+- 步骤：使 heartbeat 复用会话与 cron 新建会话采用完整 runtime，补回归与真栈验证；`gateway/kernel_client.py` 是 scheduler 进入 in-process Kernel 的必要 adapter seam，`product.py` 是 system_prompt 进入完整 runtime 的唯一 projection seam，均按 orchestrator 确认纳入本 roadpoint，不修改 `design.md`。
 - 验证：相关 scheduler 测试、`pytest -m "not e2e"`、真 Gateway restart 的 direct/group/Feishu 请求对账。

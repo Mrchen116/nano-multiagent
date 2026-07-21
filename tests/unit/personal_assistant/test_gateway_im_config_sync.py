@@ -146,7 +146,7 @@ def test_im_config_sync_client_retries_until_live_agent_config_reaches_target_ve
     assert (workspace_root / "HEARTBEAT.md").read_text(encoding="utf-8").strip()
 
 
-def test_im_config_sync_client_drops_existing_agent_session_bindings_after_profile_refresh(
+def test_im_config_sync_client_retains_existing_agent_session_bindings_after_profile_refresh(
     tmp_path: Path,
 ) -> None:
     workspace_root = tmp_path / "workspace"
@@ -209,7 +209,9 @@ def test_im_config_sync_client_drops_existing_agent_session_bindings_after_profi
     sync.sync_agent(agent_id="agent-live", profile_version=2)
 
     assert owners.catalog.require("agent-live").config.workspace_root == workspace_root
-    assert owners.binder.lookup("web:conv-1:agent-live") is None
+    retained = owners.binder.lookup("web:conv-1:agent-live")
+    assert retained is not None
+    assert retained.kernel_session_id == "sess-old"
     assert owners.binder.lookup("web:conv-2:agent-other") is not None
 
 

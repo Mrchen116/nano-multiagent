@@ -39,12 +39,14 @@
 - Commits: C1=a8e5572dc，C2=190ba1dab，C3=待提交。
 - Next: R3 让 heartbeat 与 cron 采用同一完整 runtime，并完成真栈验证。
 
-## [Design 修订] R3: 后台完整 runtime 需要扩展 Gateway adapter
+## [范围确认] R3: 完整 runtime 的必要投影与 Gateway adapter seams
 
-- 现状方案: Milestone 范围列出 `heartbeat_scheduler.py` 与 `cron_runner.py`，未列出 `gateway/kernel_client.py`。
-- 新方案: 将 `src/personal_assistant/gateway/kernel_client.py` 纳入 M1 范围，使其在已解析 model 时以 `SessionRuntimeConfig` 创建后台会话，并在复用 heartbeat session 前调用 SDK inspection/reconfigure。
-- 原因: scheduler 只依赖该 adapter 的 `create_session` / `submit_message` seam，无法自行向 in-process Kernel 传递 typed runtime；保持 adapter 旧的 capability-only create 会产生无 runtime model 的后台 session，违背 M1-C5。
+- 原范围清单遗漏: Milestone 范围列出 `heartbeat_scheduler.py` 与 `cron_runner.py`，未列出 `src/personal_assistant/gateway/kernel_client.py`。
+- Decision: 按 orchestrator 确认将该 adapter 纳入 M1；在已解析 model 时由它把完整 `SessionRuntimeConfig` 传入 Kernel 创建后台会话，并在复用 heartbeat session 前调用 SDK inspection/reconfigure。
+- Rationale: heartbeat 与 cron scheduler 只经 adapter 的 `create_session` / `submit_message` 进入 in-process Kernel，不能自行传递 typed runtime。维持 capability-only create 会生成缺少 runtime model 的后台 session，不能满足 design 已明确的 M1-C5 和 Background run admission。该改动是必要 seam 的最小实现，不新增设计决策。
 - 影响范围: 仅本 milestone。
-- design.md 是否同步改: 待 orchestrator 确认。
-
-- 状态: R3 BLOCKED，等待范围确认；工作区中存在未提交的最小 adapter/scheduler/test 改动，窄测试 41 passed。
+- `product.py` 原范围清单遗漏: `project_agent_runtime()` 的唯一 projection 最终调用 `prompt_for()`，但该函数原先忽略 `AgentWorkspaceConfig.system_prompt`，使完整 runtime identity 与实际模型 prompt 都缺少该字段。
+- Decision: 按 orchestrator 确认将 `src/personal_assistant/product.py` 纳入 M1；将非空 system_prompt 作为 `pa.system_prompt_override` 固定置于 custom slot 的 `pa.user_custom` 前，成为完整 runtime 与 identity 的一部分。
+- Rationale: system_prompt 是 M1-C1 明确要求下一新回复采用的运行配置；不在唯一投影点纳入会使 reconfigure 后的真实请求仍沿用旧语义。该最小改动不引入新决策，并保持未设置 system_prompt 的 golden 不变。
+- design.md 是否同步改: 否；orchestrator 明确无需修改。
+- 状态: R3 DOING；完整 runtime 的 adapter/scheduler、system_prompt projection 与 Kernel fork/idempotency 修复已落地。窄回归、IM direct/group 集成与 ruff 已通过；完整 non-e2e 已通过，真实 Feishu 与其 LLM 请求对账仍待完成。

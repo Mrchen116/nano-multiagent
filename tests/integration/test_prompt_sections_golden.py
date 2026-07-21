@@ -25,6 +25,7 @@ They will fail until core_sections.py and PA/LC prompt_sections.py are implement
 
 from __future__ import annotations
 
+from dataclasses import replace
 import platform
 from pathlib import Path
 
@@ -96,14 +97,25 @@ LC_FULL_TOOLS = (
 class _PaAgent:
     """Duck-typed agent for prompt_for (flags derived from the tool/scenario inputs)."""
 
-    def __init__(self, *, cron_enabled: bool, heartbeat_enabled: bool, custom: str):
+    def __init__(
+        self,
+        *,
+        cron_enabled: bool,
+        heartbeat_enabled: bool,
+        system: str,
+        custom: str,
+    ):
         self.cron_enabled = cron_enabled
         self.heartbeat_enabled = heartbeat_enabled
+        self.system_prompt = system or None
         self.custom_prompt = custom or None
 
 
 def _pa_sections(
-    tools: tuple[ToolSpec, ...], scenario: dict | None = None, custom_prompt: str = ""
+    tools: tuple[ToolSpec, ...],
+    scenario: dict | None = None,
+    system_prompt: str = "",
+    custom_prompt: str = "",
 ):
     """Return (skeleton, ctx-with-slots) so assemble produces the PA production prompt."""
     from agent.core.agent.prompt_sections.skeleton import build_kernel_prompt_skeleton
@@ -113,6 +125,7 @@ def _pa_sections(
     agent = _PaAgent(
         cron_enabled="cron" in tool_names,
         heartbeat_enabled=False,
+        system=system_prompt,
         custom=custom_prompt,
     )
     slots = prompt_for(agent, scenario=scenario or None)
@@ -315,6 +328,44 @@ def test_pa_golden_direct_with_custom_prompt():
     custom_pos = new_prompt.index("# Custom Agent Instructions")
     identity_pos = new_prompt.index("Nano Personal Assistant")
     assert custom_pos > identity_pos, "user_custom must come after identity"
+
+
+def test_pa_system_prompt_precedes_custom_prompt_in_runtime_identity():
+    """Configured system and custom prompts retain their distinct stable order."""
+    from agent.sdk import SessionRuntimeConfig
+    from agent.sdk.runtime import identify_runtime
+
+    system = "Follow the configured system instruction."
+    custom = "Add the operator-specific instruction."
+    sections, ctx = _pa_sections(
+        BASIC_PA_TOOLS,
+        system_prompt=system,
+        custom_prompt=custom,
+    )
+    slots = ctx.prompt_slots
+    assert slots is not None
+    assert [item.name for item in slots.custom] == [
+        "pa.system_prompt_override",
+        "pa.user_custom",
+    ]
+    prompt = assemble_system_prompt(sections, ctx)
+    assert prompt.index(system) < prompt.index(custom)
+
+    runtime = SessionRuntimeConfig(
+        model="test-model",
+        prompt=slots,
+        skills=None,
+        enabled_tools=[tool.name for tool in BASIC_PA_TOOLS],
+        features=None,
+    )
+    reordered = SessionRuntimeConfig(
+        model="test-model",
+        prompt=replace(slots, custom=tuple(reversed(slots.custom))),
+        skills=None,
+        enabled_tools=[tool.name for tool in BASIC_PA_TOOLS],
+        features=None,
+    )
+    assert identify_runtime(runtime) != identify_runtime(reordered)
 
 
 def test_pa_golden_direct_without_custom_prompt_no_custom_header():

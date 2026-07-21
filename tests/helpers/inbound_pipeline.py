@@ -78,6 +78,8 @@ def build_inbound_pipeline(
         repository=session_store,
         kernel=kernel,
     )
+    if product_default_model is None:
+        product_default_model = "test-model"
     coordinator = SessionRunCoordinator(
         kernel=kernel,
         session_binder=binder,
