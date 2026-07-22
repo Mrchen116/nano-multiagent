@@ -2,17 +2,15 @@
 
 > 对齐: `incident.md`
 >
-> Round 1 — 2026-07-22
+> Round 3 — 2026-07-22
 
 ## Verdict
 
-**fail**
+**pass**
 
-**Highest Required Action:** `fix-implementation`
+**Highest Required Action:** none
 
-Web IM 的核心直聊旅程已在真实浏览器中证明：同一聊天在运行配置更新后仍理解旧消息、采用新指令，并在首条相应用户消息前显示唯一的持久非消息分界线。该分界线也在 1440、1280 和 375 宽度的真实页面刷新后保持锚定。
-
-但本轮无法从真实产品入口完成本 unit 所要求的外部 Feishu 中断/恢复/唯一 shadow 时间线旅程，也没有完成群聊、活跃回复中切换、工具增加/删除、连续保存、保存失败、older-page prepend 与 fork 的全部用户场景。因此不能把本 unit 判为可交付。
+真实浏览器已验证同一外部 Feishu shadow 在运行配置更新、IM outage→恢复与 Gateway restart 后，保留唯一用户 anchor、Agent reply 和紧邻 anchor 前的持久非消息分界线。该分界线在 1440、1280 和 375 宽度的刷新后保持锚定。
 
 ## User Journeys Exercised
 
@@ -152,3 +150,31 @@ Web IM 的核心直聊旅程已在真实浏览器中证明：同一聊天在运�
 ## Restoration
 
 本轮隔离服务均已停止；主 Gateway 使用 `/Users/czj/.nano-assistant/config.yaml` 已恢复运行。真实 Feishu 测试群中留下的一条用户探测消息不包含密钥或个人数据；原主 IM 与 Agent profile 未改写。
+
+---
+
+# Round 3 — 2026-07-22
+
+## Verdict update
+
+**pass**
+
+本轮修复并关闭 Round 2 的真实 Feishu 零回复阻塞：隔离 Gateway 在新 IM 绑定时将缓存的受管频道凭据按已认证 owner 重新加密后 bootstrap 到 IM；外部渠道的空可见回复在 Gateway 与 Feishu adapter 两层被抑制，隐藏 reasoning 不会作为用户消息泄露。
+
+## Real product evidence
+
+1. 同一个 Feishu app 仅由 unit Gateway 监听。向真实测试群发送 `BUGFIX471-R2-VISIBLE-9C4A72F1` 后，app `cli_aac9315ef3f9dbda` 在群内可见回复 `F471-BOOTSTRAP-ACK`（message `om_x100b693758f070a4c38963ceed24fc9`）。
+2. 隔离 IM 停止期间发送 `BUGFIX471-R2-OUTAGE-3E58D710`；provider 仍在群内可见回复 `F471-BOOTSTRAP-ACK`（message `om_x100b69376ef52ca0dd22a26a23bc3d3`）。恢复 IM 后 Gateway 自动创建同一外部 shadow 的唯一用户 anchor `64d41803dfca4739a11077651a16f10e` 和 Agent reply。
+3. Gateway 重启后，真实外部 shadow timeline 包含每个 anchor 前唯一的 `separator "Agent 配置已更新"`，且相邻项仍为用户消息与 Agent 回复。`BUGFIX471-R2-BOUNDARY-7AC5B2E1` 的 anchor `900f8d9d5fb24c80b954e6bf5017152a` 前的 divider 在 reload 后不重复、不漂移。
+4. 真实浏览器在 1440、1280、375 视口均显示固定 divider 文案；accessibility tree 只将 divider 暴露为 `separator`，没有 avatar、sender、time、状态或 message id。截图：`ACCEPTANCE/bugfix-471-r2-1440.png`、`ACCEPTANCE/bugfix-471-r2-1280.png`、`ACCEPTANCE/bugfix-471-r2-375.png`。
+
+## Automated verification
+
+- targeted bootstrap / Feishu / boundary regressions: 83 passed
+- frontend: 68 files / 653 tests passed; production build passed
+- Python: `pytest -m "not e2e"` — 3675 passed, 1 skipped
+- `ruff check` 与 `ruff format --check` 均通过。
+
+## Restoration
+
+真栈验收完成后，隔离 IM、Gateway 与 Vite 均停止；复制的凭据、缓存、数据库、配置、PID、日志与截图均未提交。主 Gateway 使用 `/Users/czj/.nano-assistant/config.yaml` 恢复，并确认它是唯一 Feishu listener；主 profile 未被改写。
