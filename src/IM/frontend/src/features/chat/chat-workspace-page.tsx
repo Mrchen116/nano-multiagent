@@ -142,12 +142,14 @@ function streamReducer(
       return [{ type: "message", message }];
     });
     const retained = action.type === "reset"
-      ? [
-          ...(state.timeline?.filter((item) => item.type === "agent_config_changed") ?? []),
-          ...state.messages
-            .filter((message) => action.preserveMessageIds?.has(message.id))
-            .map((message) => ({ type: "message" as const, message }))
-        ]
+      ? state.conversation_id === targetConversationId
+        ? [
+            ...(state.timeline?.filter((item) => item.type === "agent_config_changed") ?? []),
+            ...state.messages
+              .filter((message) => action.preserveMessageIds?.has(message.id))
+              .map((message) => ({ type: "message" as const, message }))
+          ]
+        : []
       : state.timeline ?? state.messages.map((message) => ({ type: "message" as const, message }));
     const merged = mergeTimelineItems(retained, incoming);
     const messages = merged.flatMap((item) => item.type === "message" ? [item.message] : []);
