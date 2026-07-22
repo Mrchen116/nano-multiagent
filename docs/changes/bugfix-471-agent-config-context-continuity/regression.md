@@ -211,3 +211,41 @@
 ## Restoration
 
 真栈验收完成后，隔离 IM、Gateway 与 Vite 均停止；复制的凭据、缓存、数据库、配置、PID、日志与截图均未提交。主 Gateway 使用 `/Users/czj/.nano-assistant/config.yaml` 恢复，并确认它是唯一 Feishu listener；主 profile 未被改写。
+
+---
+
+# Round 4 — 2026-07-22
+
+## Targeted independent re-review
+
+**Verdict:** **pass**
+**Highest Required Action:** `pass`
+
+本轮复用协调方保持运行的凭据完整隔离栈，不重新启动服务、替换凭据或启动第二个 Gateway。验收时仅见 unit Gateway 一个常驻进程；真实 Feishu 群的新用户消息收到 app 的精确可见回复。随后从全新 Web IM 页面读取同一外部 shadow，确认此前 live、IM outage 和 Gateway restart 三段记录均在同一时间线上，且每个采用新配置的 anchor 前各只有一个非消息分界线。
+
+### 独立用户旅程与证据
+
+1. 在隔离 Web IM 的 `default-agent` 配置页，将 Custom Instructions 保存为新的精确回复标记 `F471-R4-INDEPENDENT-9B3D`；页面保存后显示无未保存更改，Profile Version 由 `v4` 变为 `v5`。
+2. 以真实 Feishu 用户身份向测试群发送 `BUGFIX471-R4-INDEPENDENT: reply with the configured exact token.`（message `om_x100b6937ac01a8acb2a2f75c52bd480`）。群内随后显示 app 的精确回复 `F471-R4-INDEPENDENT-9B3D`（message `om_x100b6937adefa4b4b1b8351b682ea91`）。这是本轮新保存配置后的独立 provider reply，不依赖先前轮次记录。
+3. 回到相同 Feishu shadow 的全新 Web IM 页面，看到新的 divider 紧邻该用户 anchor 之前，后接 Agent 可见回复；未出现伪造 divider 外发消息。截图：`ACCEPTANCE/bugfix-471-r4-independent-1440.png`。
+4. 在同一页面独立读取既有 outage 与 restart 段：`BUGFIX471-R4-OUTAGE` 后显示 `F471-R4-OUTAGE-OK`，`BUGFIX471-R4-RESTART` 后显示 `F471-R4-RESTART-OK`；两段均为「divider → 用户 anchor → Agent mirror」顺序。刷新后在 1280px 与 375px 仍各只有一个 divider，锚点不漂移；375px 文案自然换行且未见横向滚动。截图：`ACCEPTANCE/bugfix-471-r4-shadow-1440.png`、`ACCEPTANCE/bugfix-471-r4-shadow-1280-reload.png`、`ACCEPTANCE/bugfix-471-r4-shadow-375-reload.png`。
+5. 从真实 Feishu 群历史再次读取本轮独立用户消息及 app 回复；未观察到第二个 Gateway listener 或重复 provider reply。
+
+### Targeted coverage update
+
+| Focus scenario | 本轮用户可见证据 | 结果 |
+|---|---|---|
+| 外部渠道采用最新配置后继续回复 | 真实新配置保存后，Feishu 用户消息获得精确 app 回复。 | pass |
+| IM outage 后恢复 external shadow | Web IM 同一 shadow 中可见 outage 用户 anchor、Agent mirror 与其前唯一 divider。 | pass |
+| Gateway restart 后保持唯一性 | 同一 shadow 中 restart anchor、Agent mirror 和唯一 divider 在刷新后仍稳定。 | pass |
+| 1440 / 1280 / 375 durable evidence | 1440、1280 reload、375 reload 截图及真实页面 accessibility snapshot 均显示独立 `separator`。 | pass |
+
+本轮为 Feishu/outage/recovery/restart 的 targeted Fast-lane；Round 1 覆盖表中与本轮无关的工具变更、活跃回复插话、连续保存、失败保存、群聊和多聊天隔离项不由本轮重新执行，其历史结论不以本段替换。
+
+### Issues
+
+无新增 blocking、major 或 minor issue。
+
+### Runtime ownership
+
+按本轮指令，隔离 IM 与 unit Gateway 保持运行，未恢复主 Gateway，也未修改凭据缓存或服务配置；最终清理由协调方负责。
