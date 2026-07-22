@@ -1488,7 +1488,7 @@ class GatewayHandler:
             fingerprint_schema=_require_text(
                 payload.get("fingerprint_schema"), field_name="fingerprint_schema"
             ),
-            profile_version=_require_non_negative_int(
+            profile_version=_optional_non_negative_int(
                 payload.get("profile_version"), field_name="profile_version"
             ),
             applied_at=_require_text(
@@ -2650,6 +2650,12 @@ def _require_non_negative_int(value: object, *, field_name: str) -> int:
     if not isinstance(value, int) or isinstance(value, bool) or value < 0:
         raise ValueError(f"{field_name} must be a non-negative integer")
     return value
+
+
+def _optional_non_negative_int(value: object, *, field_name: str) -> int | None:
+    if value is None:
+        return None
+    return _require_non_negative_int(value, field_name=field_name)
 
 
 def _require_dict(value: object, *, field_name: str) -> dict[str, object]:

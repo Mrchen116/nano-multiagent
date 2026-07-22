@@ -3242,7 +3242,7 @@ class AgentConfigBoundaryRepository:
         before_message_id: str,
         runtime_fingerprint: str,
         fingerprint_schema: str,
-        profile_version: int,
+        profile_version: int | None,
         applied_at: str,
     ) -> AgentConfigChangedBoundary:
         """Durably record a Gateway-confirmed boundary after ownership validation.
@@ -3251,8 +3251,8 @@ class AgentConfigBoundaryRepository:
             ValueError: When the Gateway, conversation, agent, or anchor do not form
                 one owned conversation, or a reused boundary id changes its payload.
         """
-        if profile_version < 0:
-            raise ValueError("profile_version must be non-negative")
+        if profile_version is not None and profile_version < 0:
+            raise ValueError("profile_version must be non-negative when present")
         conversation = self._connection.execute(
             "SELECT owner_id FROM conversations WHERE id = ?", (conversation_id,)
         ).fetchone()
@@ -3358,7 +3358,7 @@ class AgentConfigBoundaryRepository:
         before_message_id: str,
         runtime_fingerprint: str,
         fingerprint_schema: str,
-        profile_version: int,
+        profile_version: int | None,
         applied_at: str,
     ) -> AgentConfigChangedBoundary:
         existing_by_id = self._connection.execute(
@@ -3473,7 +3473,11 @@ class AgentConfigBoundaryRepository:
             before_message_id=str(row["before_message_id"]),
             runtime_fingerprint=str(row["runtime_fingerprint"]),
             fingerprint_schema=str(row["fingerprint_schema"]),
-            profile_version=int(row["profile_version"]),
+            profile_version=(
+                int(row["profile_version"])
+                if row["profile_version"] is not None
+                else None
+            ),
             applied_at=str(row["applied_at"]),
             event_id=int(row["event_id"]),
         )

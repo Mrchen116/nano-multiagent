@@ -395,7 +395,7 @@ class AgentConfigChangedBoundary:
     before_message_id: str
     runtime_fingerprint: str
     fingerprint_schema: str
-    profile_version: int
+    profile_version: int | None
     applied_at: str
     event_id: int
 

@@ -3,6 +3,7 @@
 import json
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from IM.app import create_app
@@ -256,9 +257,10 @@ def test_gateway_boundary_is_idempotent_and_appears_before_its_anchor(
 
 
 def test_gateway_boundary_accepts_nullable_provenance_once_after_im_restart(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Replay an offline Gateway intent after IM restarts without duplicating it."""
+    monkeypatch.setenv("IM_JWT_SECRET", "nullable-provenance-restart-secret")
     db_path = tmp_path / "im.db"
     app = create_app(db_path=db_path)
     with TestClient(app) as client:
