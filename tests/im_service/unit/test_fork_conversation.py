@@ -13,13 +13,11 @@ from IM.application.web_im_service import (
     WebIMService,
 )
 from IM.infra.db import connect, initialize_schema
-from IM.infra.repositories import (
-    AgentConfigBoundaryRepository,
-    AgentProfileRepository,
-    ConversationRepository,
-    MessageRepository,
-    UserRepository,
-)
+from IM.infra.repositories.config_boundaries import AgentConfigBoundaryRepository
+from IM.infra.repositories.agents import AgentProfileRepository
+from IM.infra.repositories.conversations import ConversationRepository
+from IM.infra.repositories.messages import MessageRepository
+from IM.infra.repositories.users import UserRepository
 
 
 def _setup(tmp_path: Path):
@@ -426,7 +424,7 @@ async def test_fork_group_conversation_rejected(tmp_path: Path) -> None:
         tmp_path
     )
     # second agent → a 3-participant group (direct_kind != "user-agent")
-    from IM.infra.repositories import UserRepository
+    from IM.infra.repositories.users import UserRepository
 
     users = UserRepository(conversations._connection)  # type: ignore[attr-defined]
     agent2 = users.create_user(username="agent:builder", display_name="Builder")

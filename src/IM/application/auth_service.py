@@ -20,7 +20,8 @@ import bcrypt
 import jwt
 
 from IM.domain.models import User
-from IM.infra.repositories import UserAlreadyExistsError, UserRepository
+from IM.infra.repositories.users import UserAlreadyExistsError
+from IM.infra.repositories.users import UserRepository
 
 
 _ACCESS_TTL_DEFAULT_SECONDS = 15 * 60

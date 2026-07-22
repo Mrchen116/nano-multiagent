@@ -10,12 +10,10 @@ import threading
 from IM.application.bind_service import BindService
 from IM.infra.binding_store import BindingStore
 from IM.infra.db import connect, initialize_schema
-from IM.infra.repositories import (
-    AgentProfileRepository,
-    BindRepository,
-    NodeRepository,
-    UserRepository,
-)
+from IM.infra.repositories.agents import AgentProfileRepository
+from IM.infra.repositories.bindings import BindRepository
+from IM.infra.repositories.nodes import NodeRepository
+from IM.infra.repositories.users import UserRepository
 
 
 def _service(connection: sqlite3.Connection, db_path: Path) -> BindService:

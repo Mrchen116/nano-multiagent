@@ -13,11 +13,9 @@ import pytest
 from IM.application.web_im_service import ForkDelegationError, WebIMService
 from IM.domain.models import ConversationEvent
 from IM.infra.db import connect, initialize_schema
-from IM.infra.repositories import (
-    ConversationRepository,
-    MessageRepository,
-    UserRepository,
-)
+from IM.infra.repositories.conversations import ConversationRepository
+from IM.infra.repositories.messages import MessageRepository
+from IM.infra.repositories.users import UserRepository
 
 
 def _setup(tmp_path: Path, *, capture_events: bool = False):

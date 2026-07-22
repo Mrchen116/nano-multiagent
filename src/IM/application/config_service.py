@@ -10,7 +10,9 @@ from IM.domain.models import (
     is_managed_workspace_root,
     managed_workspace_root,
 )
-from IM.infra.repositories import AgentProfileRepository, NodeRepository, UserRepository
+from IM.infra.repositories.agents import AgentProfileRepository
+from IM.infra.repositories.nodes import NodeRepository
+from IM.infra.repositories.users import UserRepository
 
 ConfigSyncNotifier = Callable[[str, str, int], object]
 

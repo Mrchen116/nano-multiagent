@@ -9,7 +9,7 @@ from pathlib import Path
 from IM.application.relay_watchdog import scan_and_fail_stuck_running_messages
 from IM.domain.models import ConversationEvent
 from IM.infra.db import connect, initialize_schema
-from IM.infra.repositories import EventRepository
+from IM.infra.repositories.events import EventRepository
 
 
 def _utc_iso(dt: datetime) -> str:
@@ -593,17 +593,18 @@ def test_cutoff_format_is_single_sourced_with_stored_timestamps() -> None:
     timestamps via SQL text ordering, so the cutoff format and the writer format must be
     one source. _utc_now (the writer) is defined in terms of _format_utc (the comparator's
     formatter); any drift between them would silently break the comparison."""
-    from IM.infra.repositories import _format_utc, _utc_now
+    from IM.infra._timestamps import format_utc
+    from IM.infra._timestamps import utc_now
 
     fixed = datetime(2026, 1, 2, 3, 4, 5, 678000, tzinfo=timezone.utc)
-    formatted = _format_utc(fixed)
+    formatted = format_utc(fixed)
     assert formatted == "2026-01-02T03:04:05.678000Z"
     assert formatted.endswith("Z") and "+00:00" not in formatted
 
     # The writer used for awaiting_permission_at must route through the same formatter,
     # so a stored marker and a watchdog cutoff share an identical, comparable shape.
-    now = _utc_now()
-    assert now == _format_utc(datetime.fromisoformat(now.replace("Z", "+00:00")))
+    now = utc_now()
+    assert now == format_utc(datetime.fromisoformat(now.replace("Z", "+00:00")))
 
 
 def test_format_utc_rejects_naive_and_normalizes_aware() -> None:
@@ -615,14 +616,14 @@ def test_format_utc_rejects_naive_and_normalizes_aware() -> None:
 
     import pytest
 
-    from IM.infra.repositories import _format_utc
+    from IM.infra._timestamps import format_utc
 
     with pytest.raises(ValueError, match="timezone-aware"):
-        _format_utc(datetime(2026, 1, 2, 3, 4, 5))
+        format_utc(datetime(2026, 1, 2, 3, 4, 5))
 
     # 08:00 at +08:00 is 00:00 UTC → normalised and emitted with the Z suffix.
     plus8 = datetime(2026, 1, 2, 8, 0, 0, tzinfo=timezone(timedelta(hours=8)))
-    assert _format_utc(plus8) == "2026-01-02T00:00:00Z"
+    assert format_utc(plus8) == "2026-01-02T00:00:00Z"
 
 
 def test_fresh_heartbeat_written_via_utc_now_keeps_alive(tmp_path: Path) -> None:
@@ -630,7 +631,7 @@ def test_fresh_heartbeat_written_via_utc_now_keeps_alive(tmp_path: Path) -> None
     timestamped through the production formatter (_utc_now) must compare correctly against
     the watchdog's _format_utc cutoff and keep the row alive — proving writer/comparator
     formats line up end to end for the heartbeat liveness path."""
-    from IM.infra.repositories import _utc_now
+    from IM.infra._timestamps import utc_now
 
     connection = connect(tmp_path / "im.db")
     initialize_schema(connection)
@@ -648,7 +649,7 @@ def test_fresh_heartbeat_written_via_utc_now_keeps_alive(tmp_path: Path) -> None
         message_id="msg-alive",
         conversation_id="conv-1",
         event_type="run.heartbeat",
-        created_at=_utc_now(),
+        created_at=utc_now(),
     )
 
     captured: list[ConversationEvent] = []

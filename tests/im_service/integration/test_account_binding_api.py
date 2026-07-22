@@ -4,7 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from IM.infra.repositories import AgentProfileRepository, NodeRepository
+from IM.infra.repositories.agents import AgentProfileRepository
+from IM.infra.repositories.nodes import NodeRepository
 
 from .conftest import authorize, make_app_client, register_user
 

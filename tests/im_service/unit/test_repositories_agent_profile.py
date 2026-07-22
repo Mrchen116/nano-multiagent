@@ -5,15 +5,13 @@ from pathlib import Path
 import pytest
 
 from IM.infra.db import connect, initialize_schema
-from IM.infra.repositories import (
-    AgentProfileRepository,
-    AgentProfileVersionConflictError,
-    BindRepository,
-    ConversationRepository,
-    MessageRepository,
-    NodeRepository,
-    UserRepository,
-)
+from IM.infra.repositories.agents import AgentProfileRepository
+from IM.infra.repositories.agents import AgentProfileVersionConflictError
+from IM.infra.repositories.bindings import BindRepository
+from IM.infra.repositories.conversations import ConversationRepository
+from IM.infra.repositories.messages import MessageRepository
+from IM.infra.repositories.nodes import NodeRepository
+from IM.infra.repositories.users import UserRepository
 
 
 def _build_repositories(
@@ -145,7 +143,7 @@ def test_agent_profile_features_and_custom_prompt_roundtrip(tmp_path: Path) -> N
     """AgentProfile must store and return features_json + custom_prompt (feat-379-M2)."""
     _, _, _, profiles, _, _ = _build_repositories(tmp_path)
 
-    from IM.infra.repositories import AgentProfileRepository as _APR  # noqa: F401
+    from IM.infra.repositories.agents import AgentProfileRepository as _APR  # noqa: F401
 
     # features + custom_prompt must exist on AgentProfile dataclass
     from IM.domain.models import AgentProfile
@@ -161,7 +159,7 @@ def test_agent_profile_features_and_custom_prompt_roundtrip(tmp_path: Path) -> N
 def test_upsert_profile_stores_features_and_custom_prompt(tmp_path: Path) -> None:
     """upsert_profile must persist features and custom_prompt."""
     _, _, _, profiles, _, _ = _build_repositories(tmp_path)
-    from IM.infra.repositories import UserRepository
+    from IM.infra.repositories.users import UserRepository
 
     connection = profiles._connection
     users = UserRepository(connection)
@@ -195,7 +193,7 @@ def test_upsert_profile_stores_features_and_custom_prompt(tmp_path: Path) -> Non
 def test_update_profile_stores_features_and_custom_prompt(tmp_path: Path) -> None:
     """update_profile must persist features and custom_prompt changes."""
     _, _, _, profiles, _, _ = _build_repositories(tmp_path)
-    from IM.infra.repositories import UserRepository
+    from IM.infra.repositories.users import UserRepository
 
     connection = profiles._connection
     users = UserRepository(connection)
@@ -244,7 +242,7 @@ def test_upsert_profile_preserves_features_on_re_register(tmp_path: Path) -> Non
     existing row and leave features_json/custom_prompt untouched.
     """
     _, _, _, profiles, _, _ = _build_repositories(tmp_path)
-    from IM.infra.repositories import UserRepository
+    from IM.infra.repositories.users import UserRepository
 
     connection = profiles._connection
     users = UserRepository(connection)
@@ -308,7 +306,7 @@ def test_update_profile_preserves_non_default_workspace_root(tmp_path: Path) -> 
     这是修前缺陷的直接复现：update 前存 /custom/workspace，update 后变成 managed default。
     """
     from IM.infra.db import connect, initialize_schema
-    from IM.infra.repositories import AgentProfileRepository
+    from IM.infra.repositories.agents import AgentProfileRepository
 
     db = connect(tmp_path / "test_update_no_ws.db")
     initialize_schema(db)

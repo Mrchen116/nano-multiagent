@@ -17,7 +17,8 @@ import threading
 from fastapi.testclient import TestClient
 
 from IM.app import create_app
-from IM.infra.repositories import NodeRepository, UserRepository
+from IM.infra.repositories.nodes import NodeRepository
+from IM.infra.repositories.users import UserRepository
 
 from .conftest import authorize, register_user
 
@@ -125,7 +126,7 @@ def test_list_agents_lazy_provisions_user_row_for_legacy_seed(tmp_path: Path) ->
     with TestClient(app) as client:
         owner = register_user(client, username="owner", display_name="Owner")
         authorize(client, owner)
-        from IM.infra.repositories import AgentProfileRepository
+        from IM.infra.repositories.agents import AgentProfileRepository
 
         profiles = AgentProfileRepository(app.state.connection)
         NodeRepository(app.state.connection).upsert_node(

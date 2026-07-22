@@ -15,13 +15,11 @@ from IM.api.ws.event_types import (
     tool_call_to_dict,
 )
 from IM.domain.models import ToolCall
-from IM.infra.repositories import (
-    ConversationRepository,
-    MessageRepository,
-    UserRepository,
-    _decode_tool_calls,
-    _encode_tool_calls,
-)
+from IM.infra.repositories.conversations import ConversationRepository
+from IM.infra.repositories.messages import MessageRepository
+from IM.infra.repositories.users import UserRepository
+from IM.infra.repositories._message_projection import _decode_tool_calls
+from IM.infra.repositories._message_projection import _encode_tool_calls
 from IM.infra.db import connect, initialize_schema
 from IM.ws.gateway_handler import _parse_tool_call
 

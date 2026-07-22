@@ -12,8 +12,9 @@ from IM.infra.gateway_persistence import (
     GatewayConversationPersistence,
     GatewayNodePersistence,
 )
-from IM.infra.repositories import MessageRepository
-from IM.infra.repositories import AgentProfileRepository, ConversationRepository
+from IM.infra.repositories.messages import MessageRepository
+from IM.infra.repositories.agents import AgentProfileRepository
+from IM.infra.repositories.conversations import ConversationRepository
 from IM.ws.gateway_handler import GatewayHandler
 
 

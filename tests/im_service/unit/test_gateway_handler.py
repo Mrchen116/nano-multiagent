@@ -13,13 +13,11 @@ from IM.infra.gateway_persistence import (
     GatewayConversationPersistence,
     GatewayNodePersistence,
 )
-from IM.infra.repositories import (
-    AgentProfileRepository,
-    ConversationRepository,
-    MessageRepository,
-    UsageMetricsRepository,
-    UserRepository,
-)
+from IM.infra.repositories.agents import AgentProfileRepository
+from IM.infra.repositories.conversations import ConversationRepository
+from IM.infra.repositories.messages import MessageRepository
+from IM.infra.repositories.metrics import UsageMetricsRepository
+from IM.infra.repositories.users import UserRepository
 from IM.ws.gateway_handler import GatewayHandler
 
 
@@ -733,7 +731,7 @@ def _build_handler_with_event_bridge(tmp_path: Path) -> tuple["GatewayHandler", 
     This is the guard against M138-style fake-green tests that used mocks bypassing FK.
     """
     from IM.application.event_bridge import EventBridge
-    from IM.infra.repositories import EventRepository
+    from IM.infra.repositories.events import EventRepository
 
     connection = connect(tmp_path / "im.db")
     initialize_schema(connection)
@@ -1363,7 +1361,7 @@ def test_heartbeat_json_persisted_and_readable(tmp_path) -> None:
     """update_profile persists heartbeat_json; GET reads back same value."""
     import json
     from IM.infra.db import connect, initialize_schema
-    from IM.infra.repositories import AgentProfileRepository
+    from IM.infra.repositories.agents import AgentProfileRepository
 
     db = connect(tmp_path / "hb_persist.db")
     initialize_schema(db)
@@ -1407,7 +1405,7 @@ def test_heartbeat_json_persisted_and_readable(tmp_path) -> None:
 def test_update_profile_accepts_heartbeat_json_param() -> None:
     """AgentProfileRepository.update_profile must accept heartbeat_json parameter."""
     import inspect
-    from IM.infra.repositories import AgentProfileRepository
+    from IM.infra.repositories.agents import AgentProfileRepository
 
     sig = inspect.signature(AgentProfileRepository.update_profile)
     assert "heartbeat_json" in sig.parameters, (
@@ -1578,7 +1576,7 @@ def _build_handler_with_event_bridge_and_notify(
     a background agent sends a message to a human user.
     """
     from IM.application.event_bridge import EventBridge
-    from IM.infra.repositories import EventRepository
+    from IM.infra.repositories.events import EventRepository
 
     connection = connect(tmp_path / "im.db")
     initialize_schema(connection)

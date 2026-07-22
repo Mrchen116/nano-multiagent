@@ -5,12 +5,10 @@ from pathlib import Path
 import sqlite3
 
 from IM.infra.db import connect, initialize_schema
-from IM.infra.repositories import (
-    AgentProfileRepository,
-    ConversationRepository,
-    ExternalConversationWriteResult,
-    UserRepository,
-)
+from IM.infra.repositories.agents import AgentProfileRepository
+from IM.infra.repositories.conversations import ConversationRepository
+from IM.infra.repositories.conversations import ExternalConversationWriteResult
+from IM.infra.repositories.users import UserRepository
 
 
 class _InsertRaceConnection:

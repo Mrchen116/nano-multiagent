@@ -21,7 +21,7 @@ from IM.application.auth_service import (
     resolve_jwt_secret,
 )
 from IM.infra.db import connect, initialize_schema
-from IM.infra.repositories import UserRepository
+from IM.infra.repositories.users import UserRepository
 
 
 def run_init_admin(
