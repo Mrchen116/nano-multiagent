@@ -160,9 +160,7 @@ def stub_llm_stack(tmp_path: Path) -> Iterator[StubLLMStack]:
         pytest.fail("recording stub did not listen in time")
 
     main_for_up = tmp_path / "main-config-stubbed.yaml"
-    _rewrite_llm_to_stub(
-        _MAIN_CONFIG, main_for_up, f"http://127.0.0.1:{stub_port}"
-    )
+    _rewrite_llm_to_stub(_MAIN_CONFIG, main_for_up, f"http://127.0.0.1:{stub_port}")
 
     wt_dir = tmp_path / "stack"
     wt_dir.mkdir()
