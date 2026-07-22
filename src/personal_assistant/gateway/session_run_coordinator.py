@@ -605,6 +605,8 @@ class SessionRunCoordinator:
     ) -> tuple[OutboundMessage | None, Mapping[str, Any] | None]:
         if run_state.get("status") == "cancelled":
             return None, {"suppressed_by": "cancelled"}
+        if not reply_text.strip():
+            return None, {"suppressed_by": "empty_visible_reply"}
         if self._suppress_reply(reply_text, in_group=request.message.is_group) or (
             _is_external_channel_inbound(request.message)
             and self._is_no_reply_token(reply_text)

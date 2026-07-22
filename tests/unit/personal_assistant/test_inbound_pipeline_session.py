@@ -701,6 +701,47 @@ def test_inbound_pipeline_builds_reply_text_from_session_events_when_run_snapsho
     ]
 
 
+def test_inbound_pipeline_does_not_send_a_blank_completed_reply(
+    tmp_path: Path,
+) -> None:
+    """A reasoning-only completion has no user-visible content to deliver."""
+    agents = _agents(tmp_path)
+    channel = _FakeChannel("web_relay")
+    kernel_client = _FakeKernel()
+    pipeline = build_inbound_pipeline(
+        kernel=kernel_client,
+        agents=agents,
+        outbound_router=OutboundRouter(ChannelRegistry((channel,))),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+    )
+    kernel_client.session_events["sess-1"] = [
+        [{"event": "assistant_message", "run_id": "run-1", "content": "   "}]
+    ]
+    kernel_client.run_states["run-1"] = [
+        {"run_id": "run-1", "status": "completed", "error": None}
+    ]
+
+    result = asyncio.run(
+        pipeline.handle_inbound(
+            InboundMessage(
+                channel_name="web_relay",
+                text="ping",
+                external_user_id="user-1",
+                external_chat_id="conv-1",
+                is_group=False,
+                metadata={"relay_task_id": "relay-1", "message_id": "msg-1"},
+            )
+        )
+    )
+
+    assert result is not None
+    assert result.reply_text == "   "
+    assert result.outbound is None
+    assert channel.sent == []
+
+
 def test_inbound_pipeline_prefers_completed_run_output_text_over_streamed_text(
     tmp_path: Path,
 ) -> None:

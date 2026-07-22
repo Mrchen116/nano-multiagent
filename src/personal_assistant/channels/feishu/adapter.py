@@ -137,6 +137,8 @@ class FeishuAdapter:
         """
         if self._client is None:
             raise RuntimeError("feishu adapter is not started")
+        if not outbound.text.strip():
+            raise ValueError("feishu outbound text must be non-empty")
 
         # Extract raw feishu chat_id from external_chat_id
         # Format: "feishu:<app_id>:dm:<user_open_id>" or "feishu:<app_id>:group:<chat_id>"

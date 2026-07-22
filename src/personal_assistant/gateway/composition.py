@@ -583,6 +583,11 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
             permission_response_handler=permission_response_handler,
             on_connected=connection_ready_coordinator.on_connected,
             managed_channel_bindings=managed_channel_control.connection_bindings(),
+            channel_bootstrap_items_provider=lambda owner_id: (
+                channel_manifest_store.bootstrap_items(
+                    owner_id=owner_id, channel_key=channel_key
+                )
+            ),
         )
 
     # bugfix-402-M3 R3: kernel is closed explicitly via runtime.GatewayRuntime(kernel=) and

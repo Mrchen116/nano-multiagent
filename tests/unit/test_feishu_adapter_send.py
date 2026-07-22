@@ -65,6 +65,33 @@ class TestFeishuAdapterSend:
         assert call_kwargs["text"] == "reply from bot"
 
     @patch("personal_assistant.channels.feishu.adapter.FeishuClient")
+    def test_send_rejects_blank_message_before_provider_request(
+        self, mock_fc_cls: MagicMock
+    ) -> None:
+        """A reasoning-only model result must not become Feishu invalid content."""
+        mock_fc = MagicMock()
+        mock_fc_cls.return_value = mock_fc
+        adapter = FeishuAdapter(
+            app_id="cli_a",
+            app_secret="s",
+            name="feishu:plato",
+            group_context_store=MagicMock(spec=GroupContextStore),
+        )
+        adapter.start(MagicMock())
+
+        with pytest.raises(ValueError, match="text must be non-empty"):
+            adapter.send(
+                OutboundMessage(
+                    channel_name="feishu:plato",
+                    text="   ",
+                    target_chat_id="feishu:cli_a:group:oc_chat123",
+                    metadata={},
+                )
+            )
+
+        mock_fc.send_message.assert_not_called()
+
+    @patch("personal_assistant.channels.feishu.adapter.FeishuClient")
     def test_send_removes_ack_reaction_only_after_final_reply(
         self, mock_fc_cls: MagicMock
     ) -> None:
