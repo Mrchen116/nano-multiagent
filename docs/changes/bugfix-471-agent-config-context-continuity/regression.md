@@ -153,46 +153,31 @@
 
 ---
 
-# Round 3 — 2026-07-22
+# Round 3（无效验收环境，结论作废）— 2026-07-22
 
-## Targeted re-review
+## 环境更正
 
-**Verdict:** **fail**  
-**Highest Required Action:** `fix-implementation`
+**Verdict:** **invalidated**
 
-本轮使用最新 unit 提交 `6ab3072a5`、`664be57b8` 重新构建前端、停止主 Gateway，并让隔离 unit Gateway 独占同一个 Feishu app listener。此前问题没有在真实用户入口关闭：配置保存成功后，真实 Feishu 用户消息仍没有得到 Agent 回复。
+本段曾记录为 Feishu `fail`，现明确作废，不能作为产品结论或后续覆盖继承依据。该次隔离启动使用了 `e2e-up.sh`；该脚本删除了 worktree 的 channel credential key 与 manifest。静态配置只有 `credentialRef`，没有可供 Feishu adapter 使用的凭据材料，因此 unit Gateway 实际没有 Feishu listener。两分钟无 app 回复只证明当时验收环境没有接收外部事件，不能归因于产品行为。
 
-### 真实复验旅程
+### 保留的历史操作记录
 
 1. 在隔离 Web IM 登录并打开 `default-agent`；保存 Custom Instructions“真实 Feishu 复验阶段一：必须精确回复 F471-PHASE1-OK。”和 `ALWAYS` 群回复策略。
-2. 通过真实 `lark-cli` 用户身份向 Feishu 群 `oc_52f8a9ebab8f327d18d5f9e51ac3ea1f` 发送 `F471-R3-PHASE1: please reply with the configured exact token.`。Feishu 确认该消息为 `om_x100b69373b1e2888b116660efb96cec`，位置 39。
-3. 持续两分钟读取真实群历史。该用户消息始终保持最新一条；没有新 app 回复，也没有 `F471-PHASE1-OK`。
-4. 因 provider reply 这一首个用户可观察结果未出现，未将 worker 的历史材料当作替代证据；IM outage 仍回复、恢复后的 shadow user/Agent/唯一 divider、Gateway restart/reload 唯一性，以及 1440/1280/375 恢复态均无法在本轮真实旅程中开始验证。
+2. 通过真实 `lark-cli` 用户身份向 Feishu 群发送 `F471-R3-PHASE1: please reply with the configured exact token.`，消息为 `om_x100b69373b1e2888b116660efb96cec`。
+3. 该消息两分钟内没有 app 回复；由于上述无效验收环境，这一观察不构成 blocking issue，也不触发 `fix-implementation`。
 
-### Blocking issue update
-
-- **Severity:** blocking
-- **Regression Relation:** direct
-- **Expected:** 配置更新后，用户从既有 Feishu 对话发送消息，Agent 在该外部渠道回复；此后可继续验证断开 IM 时仍回复及恢复后的 Web IM shadow 时间线。
-- **Actual:** 最新 unit 版本下，真实 Feishu 用户消息 `om_x100b69373b1e2888b116660efb96cec` 在两分钟内没有任何 Agent 回复。群历史中可见的是该消息本身及更早的 `F471-BOOTSTRAP-ACK`，没有本轮的新回复。
-- **Recommended Action:** `fix-implementation`
-- **Action Rationale:** 外部用户消息没有回复直接阻断 `incident.md` 的“外部渠道既有对话继续使用新配置”以及 `design.md` M2-C4 的恢复旅程；不能用此前 worker 的日志或旧群消息证明本次真实操作成功。
-
-### Restoration
-
-已停止本轮隔离 IM/Gateway。主 Gateway 以 `/Users/czj/.nano-assistant/config.yaml` 恢复为 PID `70590`；主配置和原 Agent profile 未改写，Feishu app 恢复为单一主 Gateway listener。
-
-**Coverage inheritance:** Round 1/2 中尚未关闭的其他 Scenario 维持原 `fail` / `inconclusive` 结论。本轮的 blocking 外部入口失败使 targeted Fast-lane 不能关闭其余恢复证据缺口。
+后续有效验收以紧随其后的 Round 3 有效验证和 Round 4 独立复验为准。
 
 ---
 
-# Round 3 — 2026-07-22
+# Round 3（有效验证）— 2026-07-22
 
 ## Verdict update
 
 **pass**
 
-本轮修复并关闭 Round 2 的真实 Feishu 零回复阻塞：隔离 Gateway 在新 IM 绑定时将缓存的受管频道凭据按已认证 owner 重新加密后 bootstrap 到 IM；外部渠道的空可见回复在 Gateway 与 Feishu adapter 两层被抑制，隐藏 reasoning 不会作为用户消息泄露。
+本段是在凭据完整、真实 Feishu listener 已建立的隔离环境中取得的有效验证，独立于前一段已作废的环境观察。本轮关闭外部渠道零回复阻塞：隔离 Gateway 在新 IM 绑定时将缓存的受管频道凭据按已认证 owner 重新加密后 bootstrap 到 IM；外部渠道的空可见回复在 Gateway 与 Feishu adapter 两层被抑制，隐藏 reasoning 不会作为用户消息泄露。
 
 ## Real product evidence
 
