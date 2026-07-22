@@ -8,9 +8,9 @@
 
 ## 退出标准
 
-- [ ] 删除 `gateway_handler.py` 与 `gateway_protocol.py`，所有 production/test/contract importer 指向 final owner，package `__init__.py` 不聚合 re-export。
-- [ ] Sessions 保持 connection replacement、expected-socket cleanup、owner status sequence 与 shared lock ordering；Control 保持 request-id、timeout、empty fallback 和 finally cleanup。
-- [ ] register ACK 后才初始化 Channel；Relay 仅在发送成功后 mark-dispatched；所有 user/conversation target `agent.message` 仍经 Execution → `EventBridge.emit_instant_message()` 产生浏览器实时事件。
+- [x] 删除 `gateway_handler.py` 与 `gateway_protocol.py`，所有 production/test/contract importer 指向 final owner，package `__init__.py` 不聚合 re-export。
+- [x] Sessions 保持 connection replacement、expected-socket cleanup、owner status sequence 与 shared lock ordering；Control 保持 request-id、timeout、empty fallback 和 finally cleanup。
+- [x] register ACK 后才初始化 Channel；Relay 仅在发送成功后 mark-dispatched；所有 user/conversation target `agent.message` 仍经 Execution → `EventBridge.emit_instant_message()` 产生浏览器实时事件。
 - [ ] Gateway HTTP/WS entry 与真栈保留注册/心跳、Agent 回复与刷新、replacement、非法 frame、online control、Channel、receipt、即时消息幂等/tenant 隔离以及 offline 降级；M1 三个持久化场景重跑。
 - [ ] `PYTHONPATH=src pytest -m "not e2e"`、`scripts/e2e-critical.sh -m "not slow"`、collect-only、ruff check、ruff format check 全绿。
 
@@ -26,19 +26,19 @@
 
 ### R1 — 锁定最终 Gateway package 边界与覆盖对账
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 以 architecture contract 固定 final package、legacy 删除、Runtime/transport 无 SQL 和 app/deps 窄模块 wiring；建立 old→new matrix。
 - 验证: C1 contract 仅因 final package/legacy 尚未迁移而失败。
 
 ### R2 — 迁移 Protocol、Sessions、Control 与 ChannelControl
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 拆出 typed validation、连接/auth/status、waiter RPC 和 Channel lifecycle；app/deps/routes 改为显式 concrete modules。
 - 验证: Gateway websocket/auth、status、control、channel 既有 unit/integration tests 与 contract 通过。
 
 ### R3 — 迁移 Relay、Execution 与 Runtime dispatch
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 拆出 relay/receipt/agent/system、report/streaming/boundary、Runtime serve/dispatch；保持 EventBridge timeline 和 register ACK→Channel init 时序。
 - 验证: agent.message instant event、streaming/permission、receipt/group、dispatch freshness tests 与旧 import zero-hit 通过。
 
