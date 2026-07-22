@@ -255,6 +255,87 @@ def test_gateway_boundary_is_idempotent_and_appears_before_its_anchor(
         assert rows["count"] == 1
 
 
+def test_gateway_boundary_accepts_nullable_provenance_once_after_im_restart(
+    tmp_path: Path,
+) -> None:
+    """Replay an offline Gateway intent after IM restarts without duplicating it."""
+    db_path = tmp_path / "im.db"
+    app = create_app(db_path=db_path)
+    with TestClient(app) as client:
+        owner = register_and_authorize(client)
+        authorization = client.headers["Authorization"]
+        from tests.im_service._auth_helpers import seed_user_under_owner
+
+        agent_user_id = seed_user_under_owner(
+            client,
+            username="agent:planner",
+            owner_id=owner.owner_id,
+        )
+        conversation = client.post(
+            "/im/v1/conversations",
+            json={
+                "title": "Planner",
+                "participant_ids": [owner.id, agent_user_id],
+            },
+        )
+        assert conversation.status_code == 201, conversation.text
+        conversation_id = conversation.json()["id"]
+        anchor = client.post(
+            f"/im/v1/conversations/{conversation_id}/messages",
+            json={"sender_user_id": owner.id, "content": "external runtime change"},
+        )
+        assert anchor.status_code == 201, anchor.text
+        frame = {
+            "type": "agent.config.boundary",
+            "payload": {
+                "boundary_id": "nullable-provenance-boundary",
+                "node_id": "node-1",
+                "conversation_id": conversation_id,
+                "agent_id": "planner",
+                "before_message_id": anchor.json()["id"],
+                "runtime_fingerprint": "runtime-sha256",
+                "fingerprint_schema": "v1",
+                "profile_version": None,
+                "applied_at": "2026-07-22T00:00:00Z",
+            },
+        }
+        with client.websocket_connect("/im/ws/gateway") as websocket:
+            websocket.send_json(
+                {
+                    "type": "node.register",
+                    "payload": {"node_id": "node-1", "agents": ["planner"]},
+                }
+            )
+            assert websocket.receive_json()["type"] == "ack"
+            websocket.send_json(frame)
+            assert websocket.receive_json()["type"] == "ack"
+
+    restarted_app = create_app(db_path=db_path)
+    with TestClient(restarted_app) as client:
+        client.headers["Authorization"] = authorization
+        with client.websocket_connect("/im/ws/gateway") as websocket:
+            websocket.send_json(
+                {
+                    "type": "node.register",
+                    "payload": {"node_id": "node-1", "agents": ["planner"]},
+                }
+            )
+            assert websocket.receive_json()["type"] == "ack"
+            websocket.send_json(frame)
+            assert websocket.receive_json()["type"] == "ack"
+
+        timeline = client.get(f"/im/v1/conversations/{conversation_id}/messages")
+        assert timeline.status_code == 200, timeline.text
+        assert [item["type"] for item in timeline.json()["items"]] == [
+            "agent_config_changed",
+            "message",
+        ]
+        rows = restarted_app.state.connection.execute(
+            "SELECT COUNT(*) AS count FROM agent_config_boundaries"
+        ).fetchone()
+        assert rows["count"] == 1
+
+
 def test_gateway_boundary_rejects_conflicting_reuse_of_stable_identity(
     tmp_path: Path,
 ) -> None:
