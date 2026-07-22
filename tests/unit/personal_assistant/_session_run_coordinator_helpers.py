@@ -99,7 +99,9 @@ class ControlledKernel:
             self._runtimes[session_id] = runtime
         return SimpleNamespace(session_id=session_id)
 
-    def identify_runtime(self, *, runtime: SessionRuntimeConfig) -> SessionRuntimeIdentity:
+    def identify_runtime(
+        self, *, runtime: SessionRuntimeConfig
+    ) -> SessionRuntimeIdentity:
         return SessionRuntimeIdentity(runtime_fingerprint=runtime.model)
 
     async def get_session_runtime(

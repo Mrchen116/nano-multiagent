@@ -243,9 +243,7 @@ class KernelExecutor:
             )
         )
 
-    async def replace_runtime(
-        self, session: ConversationTarget, **kwargs: Any
-    ) -> bool:
+    async def replace_runtime(self, session: ConversationTarget, **kwargs: Any) -> bool:
         """Run a complete runtime replacement on the conversation owner loop."""
 
         return await asyncio.wrap_future(
