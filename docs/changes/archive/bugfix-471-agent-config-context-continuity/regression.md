@@ -212,8 +212,8 @@
 
 1. 在隔离 Web IM 的 `default-agent` 配置页，将 Custom Instructions 保存为新的精确回复标记 `F471-R4-INDEPENDENT-9B3D`；页面保存后显示无未保存更改，Profile Version 由 `v4` 变为 `v5`。
 2. 以真实 Feishu 用户身份向测试群发送 `BUGFIX471-R4-INDEPENDENT: reply with the configured exact token.`（message `om_x100b6937ac01a8acb2a2f75c52bd480`）。群内随后显示 app 的精确回复 `F471-R4-INDEPENDENT-9B3D`（message `om_x100b6937adefa4b4b1b8351b682ea91`）。这是本轮新保存配置后的独立 provider reply，不依赖先前轮次记录。
-3. 回到相同 Feishu shadow 的全新 Web IM 页面，看到新的 divider 紧邻该用户 anchor 之前，后接 Agent 可见回复；未出现伪造 divider 外发消息。截图：`ACCEPTANCE/bugfix-471-r4-independent-1440.png`。
-4. 在同一页面独立读取既有 outage 与 restart 段：`BUGFIX471-R4-OUTAGE` 后显示 `F471-R4-OUTAGE-OK`，`BUGFIX471-R4-RESTART` 后显示 `F471-R4-RESTART-OK`；两段均为「divider → 用户 anchor → Agent mirror」顺序。刷新后在 1280px 与 375px 仍各只有一个 divider，锚点不漂移；375px 文案自然换行且未见横向滚动。截图：`ACCEPTANCE/bugfix-471-r4-shadow-1440.png`、`ACCEPTANCE/bugfix-471-r4-shadow-1280-reload.png`、`ACCEPTANCE/bugfix-471-r4-shadow-375-reload.png`。
+3. 回到相同 Feishu shadow 的全新 Web IM 页面，看到新的 divider 紧邻该用户 anchor 之前，后接 Agent 可见回复；未出现伪造 divider 外发消息。截图：`M2-cache-boundary/evidence/bugfix-471-r4-independent-1440.png`。
+4. 在同一页面独立读取既有 outage 与 restart 段：`BUGFIX471-R4-OUTAGE` 后显示 `F471-R4-OUTAGE-OK`，`BUGFIX471-R4-RESTART` 后显示 `F471-R4-RESTART-OK`；两段均为「divider → 用户 anchor → Agent mirror」顺序。刷新后在 1280px 与 375px 仍各只有一个 divider，锚点不漂移；375px 文案自然换行且未见横向滚动。截图：`M2-cache-boundary/evidence/bugfix-471-r4-shadow-1440.png`、`M2-cache-boundary/evidence/bugfix-471-r4-shadow-1280-reload.png`、`M2-cache-boundary/evidence/bugfix-471-r4-shadow-375-reload.png`。
 5. 从真实 Feishu 群历史再次读取本轮独立用户消息及 app 回复；未观察到第二个 Gateway listener 或重复 provider reply。
 
 ### Targeted coverage update
