@@ -8,11 +8,11 @@
 
 ## 退出标准
 
-- [ ] 所有 repository production/test/contract importer 直接指向各领域 canonical module，旧 `repositories.py` 删除，package `__init__.py` 不聚合 re-export。
-- [ ] Message create/discard、Event append、Agent config boundary record 保持各自事务与 post-commit notify；共享 event-row primitive 不提交、不通知。
-- [ ] Conversation read model/hydration、external race、profile optimistic lock、BindingStore 独立事务和 Gateway register 历史分段提交语义均保持。
-- [ ] 账号/租户数据隔离、会话历史刷新完整、会话/Agent/节点/policy/metrics HTTP 入口回归通过。
-- [ ] persistence seam contract、全测试 collect、ruff check、ruff format check 通过。
+- [x] 所有 repository production/test/contract importer 直接指向各领域 canonical module，旧 `repositories.py` 删除，package `__init__.py` 不聚合 re-export。
+- [x] Message create/discard、Event append、Agent config boundary record 保持各自事务与 post-commit notify；共享 event-row primitive 不提交、不通知。
+- [x] Conversation read model/hydration、external race、profile optimistic lock、BindingStore 独立事务和 Gateway register 历史分段提交语义均保持。
+- [x] 账号/租户数据隔离、会话历史刷新完整、会话/Agent/节点/policy/metrics HTTP 入口回归通过。
+- [x] persistence seam contract、全测试 collect、ruff check、ruff format check 通过。
 
 ## 测试策略
 

@@ -44,8 +44,8 @@
   - Visual/Interaction: N/A。
   - Prototype Comparison: N/A。
 - Rollback: 回退 `34983d113` 后再回退 C1 `6ef66468f`。
-- Commits: C1=6ef66468f，C2=34983d113，C3=待提交。
-- Next: M1 已完成持久化 module 结构，进行真实入口收尾验证。
+- Commits: C1=6ef66468f，C2=34983d113，C3=0783e9ad8；首次 unit merge=874d5ab6b。
+- Next: 已补齐 reviewer 指定的真 HTTP 入口覆盖，更新验收记录后重新集成。
 
 ### R2 — 基础 aggregate 与共享时间格式
 
@@ -61,8 +61,8 @@
   - Visual/Interaction: N/A。
   - Prototype Comparison: N/A。
 - Rollback: 回退 `34983d113`。
-- Commits: C1=6ef66468f，C2=34983d113，C3=待提交。
-- Next: 保持 Message/Event/Boundary 的 transaction ownership 并完成入口验收。
+- Commits: C1=6ef66468f，C2=34983d113，C3=0783e9ad8；首次 unit merge=874d5ab6b。
+- Next: 已完成，补充 reviewer 要求的全入口验收记录后重新集成。
 
 ### R3 — timeline aggregate 与 transaction-neutral event row
 
@@ -78,8 +78,8 @@
   - Visual/Interaction: N/A。
   - Prototype Comparison: N/A。
 - Rollback: 回退 `34983d113`。
-- Commits: C1=6ef66468f，C2=34983d113，C3=待提交。
-- Next: 完成 old import/file zero-residue 和真实 HTTP 证据记录。
+- Commits: C1=6ef66468f，C2=34983d113，C3=0783e9ad8；首次 unit merge=874d5ab6b。
+- Next: 已完成，补充 reviewer 要求的全入口验收记录后重新集成。
 
 ### R4 — 删除旧入口与真实 HTTP 回归
 
@@ -95,5 +95,23 @@
   - Visual/Interaction: N/A。
   - Prototype Comparison: N/A。
 - Rollback: 回退 `34983d113`。
-- Commits: C1=6ef66468f，C2=34983d113，C3=待提交。
-- Next: 提交 milestone documentation，rebase 到 unit branch 并集成。
+- Commits: C1=6ef66468f，C2=34983d113，C3=0783e9ad8；首次 unit merge=874d5ab6b。
+- Next: 已完成，补充 reviewer 要求的全入口验收记录后重新集成。
+
+## [验收补齐] Reviewer 真实 HTTP 入口覆盖
+
+- Context: reviewer 要求对 M1 的持久化改动以隔离真 IM/Gateway 覆盖账号、会话、消息、Agent、节点、绑定、策略及用量的成功、冲突、跨 owner 拒绝和离线可观察结果；不能只引用 pytest。
+- Decision: 从首次集成的 `unit/refactor-472` HEAD `874d5ab6b` 重建 milestone worktree，以 `scripts/e2e-up.sh` 启动隔离真栈，在公开 HTTP 端点用两个登录 owner 执行完整旅程；随后显式停止 Gateway，轮询节点 board 的 offline 投影，再执行 `scripts/e2e-down.sh`。
+- Rationale: HTTP 边界证明 app wiring、认证 owner scope、repository construction 和 SQLite 持久化共同保持，而离线状态必须来自断开的真实 Gateway，不能由进程内 fixture 代替。
+- Evidence:
+  - Stack: IM=`http://127.0.0.1:55410`，node=`wt-refactor-472-M1-30602`；owner A=`01c70cb49925436f9169c4c4231f0fc6`、owner B=`05751f42c7a6402cb7ca26134324f1c9` 均通过 `POST /im/v1/auth/login`（200）。
+  - Account/tenant: A 的 `GET /im/v1/me` 为 200 且返回其 owner；B 读取 A 的 conversation `09c6ab3500d54e6b8b9ce102e5e03b05` 及向其发消息均为 404 `conversation_id not found`。
+  - Conversation/message/history: A 创建该 conversation（201），改名为 `M1 renamed final`（200），添加 `default-agent` 成员（200）后以 participant `user_id=144e7db3785841a38ed4fa07ea8b32fb` 删除（204）；消息 `3d2945307547499baa9210ca506fbd9d` 创建为 201，随后历史读取为 200 且包含该 message id。
+  - Node/binding/status: A 节点列表为 200 并显示 `online`；A 更新 node config alias=`M1 verified node` 为 200，B 更新同一 node 为 404 `node_id not found`；A bind start/confirm 分别为 201 pending/201 confirmed，B 对同 node start 后 confirm 为 409 `node already bound to another owner`。停止 Gateway pid `30674` 后轮询 `GET /im/v1/nodes`，同一 node 显示 `offline`（200，last_heartbeat_at=`2026-07-22T08:36:18.934488Z`）。
+  - Agent/config/create: A 读取 `default-agent` mirror config 为 200（profile_version=3），PATCH 为 200（version=4）；使用过期 version 重试为 409 `profile_version conflict`，B 读取该 agent 为 404 `agent_id not found`。A 经真实 Gateway RPC 创建 `m1-evidence-agent-owned`（201，owner A、node 同上、version=1），B 读取该 Agent mirror 为 404。
+  - Policy/metrics: A policy 初值 `retention_days=30`，PATCH 到 31 为 200、GET 读回 31 为 200，随后恢复 30；A `GET /im/v1/metrics/usage` 为 200（4 行，均属 A scope），B 为 200（0 行），确认 owner 过滤。
+  - Tests/static: 完整 `PYTHONPATH=src pytest -m "not e2e"` 为 3678 passed、1 skipped、21 deselected；`tests/im_service -m "not e2e"` 为 472 passed、1 skipped；persistence seam contract 为 11 passed；`ruff check .`、`ruff format --check .`、`pytest tests/ --collect-only -q` 均通过。
+  - Cleanup: 验收终态运行 `./scripts/e2e-down.sh`，隔离 IM/Gateway 均停止；本段不引入产品代码或持久化 schema 变更。
+- Rollback: 仅验收文档，回退本次文档 commit；代码回退目标仍为 `34983d113`。
+- Commits: 验收补齐文档待提交；后续 unit merge 待生成。
+- Next: 重新运行静态门禁，提交文档、rebase 并合并到 `unit/refactor-472`；完成后清理 worktree/branch。
