@@ -46,4 +46,18 @@
 
 ## R3 — Web IM timeline union 与真实浏览器验收
 
-- Status: TODO
+- Status: DONE
+- Context: REST 历史已能返回 `Message | agent_config_changed` 的 timeline union；前端不能为了兼容旧 messages-only 状态而在页面或组件各自排序，否则 live replay、分页和 reload 会让 divider 漂移或重复。
+- Decision: `ConversationState.timeline` 成为唯一顺序来源，`messages` 保留为兼容性投影。REST reset、older-page prepend、live `agent.config.changed` 和 anchor message 都通过 `mergeTimelineItems()` 合流，并按稳定 item id 幂等。boundary 仅在 anchor message 已加载时渲染，固定 separator 文案在该 message 前；它不经过 `MessageBubble`，没有消息 id、头像、发送者、时间、状态或菜单。
+- Reset safety: reset 仅在 `state.conversation_id === targetConversationId` 时保留既有 boundary 与 `preserveMessageIds` 的 optimistic/live message。跨会话 reset 不会把旧 boundary 带入新会话；同会话 REST 暂未返回的 optimistic/live message 保留一轮，后续历史可收敛。
+- Evidence:
+  - C1: `ff0f883f9` 增加 typed reducer 与 MessagePane red tests；workspace REST/live 接线的精确回归不在该 SHA。
+  - C2: `dbcae2d9c` 引入 typed API/reducer/workspace/render 合流与响应式 divider；随后补充 workspace integration regression，直接覆盖 typed REST boundary、shared user stream `agent.config.changed`、跨会话 reset 不泄漏，以及已有 optimistic send 跨 in-flight REST reset 的保留回归。
+  - Tests: `npm test -- --run src/features/chat/chat-stream-reducer.test.ts src/features/chat/components/message-pane.test.tsx src/features/chat/chat-workspace.integration.test.tsx` → `3 passed, 168 passed`；完整 `npm test -- --run` → `68 passed, 652 passed`；`npm run build` 通过（仅既有 bundle 大小告警）；`PYTHONPATH=src pytest -m "not e2e"` → `3667 passed, 1 skipped, 20 deselected`。
+  - Frontend State Matrix: typed REST 初载、live boundary 先到/anchor 后到、REST reset/reconnect replay 与 older prepend 均按 boundary id 去重；anchor 不在当前页时 boundary 被保留但不孤立渲染；旧 bare `Message[]` query cache 在 API seam 归一为 typed `message` item。
+  - Browser QA: 在隔离 IM `127.0.0.1:49888` 与独立 Vite `127.0.0.1:49966` 完成真实入口验收。`r3-chat-1440.png`、`r3-chat-1280.png`、`r3-chat-375.png` 验证三 viewport；reload 后 `r3-chat-375.png` 仍显示 divider 位于 anchor 前；IM restart/reconnect 后 `r3-reconnect-375.png` 仍保持同一锚定；`r3-older-prepend-1440.png` 显示 older page 加载后 divider 仍紧邻 anchor 前；`r3-fork-1440.png` 显示 fork 成功提示和 fork 会话中的同一边界。
+  - Durable response evidence: `evidence/r3-browser-timeline.json` 是隔离 IM 对话 `954046b4a7ec450bbc1251d359737d1b` 的 REST union 响应，stable boundary `r3-browser-boundary-1` 直接指向 anchor `fd6e037016e74f7988f9a50b16a86a5f`。
+  - Prototype Comparison: prototype `.boundary` 的固定文案、anchor 前位置和低优先级分隔线均匹配；产品实现使用现有 design tokens，长文案在 375px 自然换行且不产生横向滚动。sidebar、消息 bubble 与 composer 未改版。
+- Note: 完整 Vitest 输出仍包含既有 test mock 未提供 `/im/v1/sync` 时的 user-stream 404 日志和 React `act(...)` 警告；隔离 IM 实际定义该 endpoint（`IM/api/routes/web_im.py`），上述真实浏览器流程可完成 reload/reconnect 和历史恢复。
+- Commits: C1=`ff0f883f9`，C2=`dbcae2d9c`，C3=本提交。
+- Next: M2 交付完成。

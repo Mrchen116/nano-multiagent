@@ -8,11 +8,11 @@
 
 ## 退出标准
 
-- [ ] 配置实际首次采用时，固定文案 divider 位于首条用户消息前；reload、reconnect、older-page prepend 后位置稳定。
-- [ ] divider 不是消息气泡，无头像、发送者、状态或菜单；1440、1280、375 viewport 不破坏原聊天布局。
-- [ ] 休眠聊天、连续修改、纯展示修改、保存失败与 fork 都遵循 design.md 的边界语义。
-- [ ] 外部 shadow 在 IM 离线与 Gateway restart 后可恢复锚定消息、回复与唯一 divider；Feishu 使用 app_id + event.message_id。
-- [ ] M2-C5、M2-C6 的回归测试，以及 `npm run test && npm run build`、`pytest -m "not e2e"` 全绿，并留下 durable browser/live evidence。
+- [x] 配置实际首次采用时，固定文案 divider 位于首条用户消息前；reload、reconnect、older-page prepend 后位置稳定。
+- [x] divider 不是消息气泡，无头像、发送者、状态或菜单；1440、1280、375 viewport 不破坏原聊天布局。
+- [x] 休眠聊天、连续修改、纯展示修改、保存失败与 fork 都遵循 design.md 的边界语义。
+- [x] 外部 shadow 在 IM 离线与 Gateway restart 后可恢复锚定消息、回复与唯一 divider；Feishu 使用 app_id + event.message_id。
+- [x] M2-C5、M2-C6 的回归测试，以及 `npm run test && npm run build`、`pytest -m "not e2e"` 全绿，并留下 durable browser/live evidence。
 
 ## 测试策略
 
@@ -73,7 +73,7 @@
 - 证据：`evidence/r2-live-feishu-outage.json` 记录真实 Feishu 用户事件在 IM outage 期间的 provider reply、outage 前 durable output、IM 恢复后的 user anchor、Agent mirror 与 nullable-provenance boundary。boundary `4aee39f3-…`（event `11574`、`profile_version=null`）在首轮 Gateway/IM restart ACK 后 outbox/pending shadow 均为 0、IM 唯一 1 行；第二次 Gateway restart 后仍为相同计数与唯一性。`evidence/r2-gateway-live.json` 保留 worktree 隔离栈的普通 reconnect/current-connection boundary 与 controlled typed shadow 覆盖。
 - 提交：C1 `a0d728331`、`44f254e4d`、`8017c2e4a`，C2 `94a4e5176`、`cc59baf94`、`2c9beba98`，C3 本提交。
 
-### R3 — Web IM timeline union 与真实浏览器验收（TODO）
+### R3 — Web IM timeline union 与真实浏览器验收（DONE）
 
 - 步骤：以 typed timeline 替代 messages-only reducer/render，增加无消息语义的 divider 并保持 reset/prepend/live/reconnect 有序幂等。
 - 验证：Vitest regression、build、desktop 1440/1280/mobile 375、reload/reconnect/older-page prepend/fork 真浏览器 evidence。
