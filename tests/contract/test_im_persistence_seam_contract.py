@@ -99,11 +99,34 @@ def test_app_wires_gateway_delivery_collaborators_explicitly() -> None:
     assert "message_repository=message_repository" in source
 
 
-def test_event_replay_result_is_owned_only_by_infra() -> None:
+def test_repositories_use_domain_modules_without_legacy_aggregate() -> None:
+    """Keep durable aggregates in their canonical modules without a facade."""
+    repository_root = _ROOT / "src/IM/infra/repositories"
+    expected_modules = {
+        "users.py",
+        "settings.py",
+        "conversations.py",
+        "messages.py",
+        "agents.py",
+        "nodes.py",
+        "bindings.py",
+        "metrics.py",
+        "events.py",
+        "config_boundaries.py",
+        "_event_rows.py",
+        "_message_projection.py",
+    }
+    assert repository_root.is_dir()
+    assert expected_modules <= {path.name for path in repository_root.iterdir()}
+    assert not (_ROOT / "src/IM/infra/repositories.py").exists()
+    assert _source("src/IM/infra/repositories/__init__.py").strip() == ""
+
+
+def test_event_replay_result_is_owned_only_by_event_repository() -> None:
     """Keep replay result ownership one-way from WS into infra."""
     definitions: list[str] = []
     for relative_path in (
-        "src/IM/infra/repositories.py",
+        "src/IM/infra/repositories/events.py",
         "src/IM/ws/user_stream.py",
         "src/IM/application/event_service.py",
     ):
@@ -113,8 +136,29 @@ def test_event_replay_result_is_owned_only_by_infra() -> None:
             for node in ast.walk(tree)
         ):
             definitions.append(relative_path)
-    assert definitions == ["src/IM/infra/repositories.py"]
-    assert "IM.ws" not in _source("src/IM/infra/repositories.py")
+    assert definitions == ["src/IM/infra/repositories/events.py"]
+    assert "IM.ws" not in _source("src/IM/infra/repositories/events.py")
+
+
+def test_event_row_primitive_is_private_and_transaction_neutral() -> None:
+    """Prevent shared event rows from becoming a committing public repository."""
+    source = _source("src/IM/infra/repositories/_event_rows.py")
+    assert "def insert_event_row(" in source
+    assert ".commit(" not in source
+    assert "notify" not in source
+    for relative_path in (
+        "src/IM/infra/repositories/messages.py",
+        "src/IM/infra/repositories/events.py",
+        "src/IM/infra/repositories/config_boundaries.py",
+    ):
+        assert "IM.infra.repositories._event_rows" in _source(relative_path)
+
+
+def test_repository_package_has_no_aggregate_reexports() -> None:
+    """Require callers to name their actual aggregate dependency."""
+    source = _source("src/IM/infra/repositories/__init__.py")
+    assert "import " not in source
+    assert "__all__" not in source
 
 
 def test_web_im_route_receives_profile_repository_as_dependency() -> None:
