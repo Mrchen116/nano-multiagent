@@ -1,0 +1,72 @@
+{
+  "verified_at": "2026-07-22",
+  "result": "passed",
+  "isolated_stack": {
+    "im": "worktree-local ephemeral IM",
+    "gateway": "worktree-local foreground Gateway",
+    "config": ".gateway-config.yaml",
+    "runtime_state": "session_bindings.sqlite3 and external_shadow_sagas.sqlite3"
+  },
+  "boundary_delivery": {
+    "conversation_id": "398daa908b0547169532566f3742d23e",
+    "baseline_user_message_id": "2f1a2fbe6f5d4e2b94e9a2ac02514a31",
+    "reconnect_recovery": {
+      "boundary_id": "c06576f7-3a9d-40ea-8eb9-5fe61375ad1d",
+      "anchor_message_id": "46daeb4b08bc44ae8b762ec75bf57fe0",
+      "method": "Profile change applied by a real Gateway run; Gateway was restarted before upstream ACK; the restarted Gateway drained the persisted outbox and IM timeline placed exactly one divider before the anchor.",
+      "outbox_after_ack": {
+        "pending": 0,
+        "quarantined": 0
+      }
+    },
+    "current_connection_delivery": {
+      "boundary_id": "5628dd8c-6dd7-48db-b27a-dd40f00da112",
+      "anchor_message_id": "e702ba20570a421f94993b513abde447",
+      "method": "Profile change applied by a real Gateway run while its IM WebSocket remained registered; the divider appeared before the anchor without restarting either service.",
+      "outbox_after_ack": {
+        "pending": 0
+      }
+    },
+    "visible_agent_replies": ["ACK", "ACK", "ACK"]
+  },
+  "controlled_typed_shadow_recovery": {
+    "source": "A controlled typed Feishu-shaped ingress was persisted while the worktree IM process was stopped. It used the configured Feishu app identity and a unique provider event id; it was not a message received from the real Feishu event stream.",
+    "saga_id": "8ba5f874e5992b50bb04afb50b58c9c3d8fcd16205c577c292a6b47cf03533db",
+    "provider_event_id": "r2-offline-92806e6955814cfb9170d2e80741b67a",
+    "offline_fact": {
+      "shadow_ref": null,
+      "pending_output": "shadow-agent:8ba5f874e5992b50bb04afb50b58c9c3d8fcd16205c577c292a6b47cf03533db:controlled-r2-run:final:controlled-r2-kernel-message"
+    },
+    "gateway_recovery": {
+      "conversation_id": "095ed863677b41349292a887d044e2d1",
+      "user_anchor_message_id": "bc7770583df34becba54ce51d1b0394f",
+      "visible_messages": [
+        {"sender_type": "user", "content": "Controlled R2 offline shadow recovery."},
+        {"sender_type": "agent", "content": "Controlled R2 mirrored output."}
+      ],
+      "pending_outputs_after_recovery": 0
+    }
+  },
+  "nullable_provenance_restart_replay": {
+    "source": "The real Feishu outage saga recorded in r2-live-feishu-outage.json, revalidated after the nullable-provenance repair.",
+    "boundary_id": "4aee39f3-…",
+    "boundary_id_note": "脱敏证据仅保留稳定 id 前缀；同一 id 在两次 Gateway restart 后一致。",
+    "event_id": 11574,
+    "profile_version": null,
+    "first_gateway_im_restart": {
+      "acknowledged": true,
+      "outbox": 0,
+      "pending_shadow": 0,
+      "im_boundary_rows_for_anchor": 1
+    },
+    "second_gateway_restart": {
+      "outbox": 0,
+      "pending_shadow": 0,
+      "im_boundary_rows_for_anchor": 1
+    }
+  },
+  "test_gates": {
+    "focused": "32 passed: gateway protocol, DB bootstrap/migration, boundary delivery, and admission regression suites",
+    "full_non_e2e_before_nullable_repair": "3663 passed, 1 skipped, 20 deselected, 21 warnings"
+  }
+}

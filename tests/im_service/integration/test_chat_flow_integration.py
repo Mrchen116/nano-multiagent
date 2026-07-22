@@ -46,7 +46,11 @@ def test_human_chat_roundtrip_with_history_and_conversation_list(
 
         messages_resp = client.get(f"/im/v1/conversations/{conversation_id}/messages")
         assert messages_resp.status_code == 200
-        messages = messages_resp.json()["items"]
+        messages = [
+            item["message"]
+            for item in messages_resp.json()["items"]
+            if item["type"] == "message"
+        ]
         assert [item["content"] for item in messages] == ["hello", "hi"]
         assert [item["delivery_status"] for item in messages] == [
             "completed",

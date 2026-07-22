@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,45 @@ from personal_assistant.gateway.runtime_protocol import strip_runtime_protocol_m
 from personal_assistant.gateway.runtime_protocol import external_identity_from_message
 
 # KernelApiClient removed in M3 (refactor-387).
+
+
+@dataclass(frozen=True, slots=True)
+class BoundaryIntent:
+    """Represent one actual-applied configuration boundary awaiting IM acknowledgment.
+
+    The Gateway owns this durable fact because only admission knows when a retained
+    Kernel session crossed a runtime boundary. The IM-facing payload is deliberately
+    complete enough for a retry to be wire-identical.
+    """
+
+    boundary_id: str
+    node_id: str
+    conversation_id: str
+    agent_id: str
+    before_message_id: str
+    runtime_fingerprint: str
+    fingerprint_schema: str
+    profile_version: int | None
+    applied_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class PendingBoundaryIntent:
+    """Represent an applied runtime change awaiting a shadow saga anchor.
+
+    External ingress may execute while IM is unavailable.  Its runtime replacement is
+    still durable before submit, but it cannot enter the network outbox until the
+    saga has confirmed the user-message anchor.
+    """
+
+    boundary_id: str
+    node_id: str
+    agent_id: str
+    runtime_fingerprint: str
+    fingerprint_schema: str
+    profile_version: int | None
+    applied_at: str
+    shadow_saga_id: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,6 +68,9 @@ class SessionBinding:
     session_key: str
     kernel_session_id: str
     reply_context: ReplyContext
+    applied_runtime_fingerprint: str | None = None
+    applied_fingerprint_schema: str | None = None
+    applied_profile_version: int | None = None
 
 
 class SessionBindingStore:
@@ -35,6 +78,10 @@ class SessionBindingStore:
 
     def __init__(self) -> None:
         self._bindings: dict[str, SessionBinding] = {}
+        self._boundaries: dict[str, BoundaryIntent] = {}
+        self._quarantined_boundaries: dict[str, BoundaryIntent] = {}
+        self._boundary_retry_attempts: dict[str, int] = {}
+        self._boundary_retry_not_before: dict[str, float] = {}
 
     def get(self, session_key: str) -> SessionBinding | None:
         """Return one binding by session key."""
@@ -42,17 +89,185 @@ class SessionBindingStore:
         return self._bindings.get(session_key)
 
     def bind(
-        self, *, session_key: str, kernel_session_id: str, reply_context: ReplyContext
+        self,
+        *,
+        session_key: str,
+        kernel_session_id: str,
+        reply_context: ReplyContext,
+        applied_runtime_fingerprint: str | None = None,
+        applied_fingerprint_schema: str | None = None,
+        applied_profile_version: int | None = None,
     ) -> SessionBinding:
-        """Create or replace the binding for one session key."""
+        """Create or refresh one binding without losing known applied identity."""
 
+        previous = self._bindings.get(session_key)
         binding = SessionBinding(
             session_key=session_key,
             kernel_session_id=kernel_session_id,
             reply_context=reply_context,
+            applied_runtime_fingerprint=(
+                applied_runtime_fingerprint
+                if applied_runtime_fingerprint is not None
+                else previous.applied_runtime_fingerprint
+                if previous
+                else None
+            ),
+            applied_fingerprint_schema=(
+                applied_fingerprint_schema
+                if applied_fingerprint_schema is not None
+                else previous.applied_fingerprint_schema
+                if previous
+                else None
+            ),
+            applied_profile_version=(
+                applied_profile_version
+                if applied_profile_version is not None
+                else previous.applied_profile_version
+                if previous
+                else None
+            ),
         )
         self._bindings[session_key] = binding
         return binding
+
+    def apply_runtime(
+        self,
+        binding: SessionBinding,
+        *,
+        runtime_fingerprint: str,
+        fingerprint_schema: str,
+        profile_version: int | None,
+    ) -> SessionBinding:
+        """Persist one Kernel-confirmed applied runtime for a stable binding."""
+
+        return self.bind(
+            session_key=binding.session_key,
+            kernel_session_id=binding.kernel_session_id,
+            reply_context=binding.reply_context,
+            applied_runtime_fingerprint=runtime_fingerprint,
+            applied_fingerprint_schema=fingerprint_schema,
+            applied_profile_version=profile_version,
+        )
+
+    def apply_runtime_with_boundary(
+        self,
+        binding: SessionBinding,
+        *,
+        runtime_fingerprint: str,
+        fingerprint_schema: str,
+        profile_version: int | None,
+        boundary: BoundaryIntent,
+    ) -> SessionBinding:
+        """Persist the in-memory counterpart of one applied boundary fact."""
+
+        if (
+            boundary.runtime_fingerprint != runtime_fingerprint
+            or boundary.fingerprint_schema != fingerprint_schema
+            or boundary.profile_version != profile_version
+        ):
+            raise ValueError("boundary must describe the applied runtime")
+        updated = self.apply_runtime(
+            binding,
+            runtime_fingerprint=runtime_fingerprint,
+            fingerprint_schema=fingerprint_schema,
+            profile_version=profile_version,
+        )
+        self._boundaries.setdefault(boundary.boundary_id, boundary)
+        return updated
+
+    def apply_runtime_with_pending_boundary(
+        self,
+        binding: SessionBinding,
+        *,
+        runtime_fingerprint: str,
+        fingerprint_schema: str,
+        profile_version: int | None,
+        boundary: PendingBoundaryIntent,
+    ) -> SessionBinding:
+        """Persist an external runtime replacement before its IM anchor exists."""
+
+        if (
+            boundary.runtime_fingerprint != runtime_fingerprint
+            or boundary.fingerprint_schema != fingerprint_schema
+            or boundary.profile_version != profile_version
+        ):
+            raise ValueError("pending boundary must describe the applied runtime")
+        return self.apply_runtime(
+            binding,
+            runtime_fingerprint=runtime_fingerprint,
+            fingerprint_schema=fingerprint_schema,
+            profile_version=profile_version,
+        )
+
+    def promote_pending_boundary(
+        self, *, shadow_saga_id: str, shadow_ref: object
+    ) -> BoundaryIntent | None:
+        """Return None because the in-memory store has no cross-process recovery path."""
+
+        del shadow_saga_id, shadow_ref
+        return None
+
+    def pending_boundaries(self) -> tuple[BoundaryIntent, ...]:
+        """Return delivery-eligible in-memory boundary intents."""
+
+        return tuple(self._boundaries.values())
+
+    def quarantined_boundaries(self) -> tuple[BoundaryIntent, ...]:
+        """Return in-memory boundary intents rejected by IM."""
+
+        return tuple(self._quarantined_boundaries.values())
+
+    def acknowledge_boundary(self, boundary_id: str) -> None:
+        """Remove one acknowledged in-memory boundary intent."""
+
+        self._boundaries.pop(boundary_id, None)
+        self._boundary_retry_attempts.pop(boundary_id, None)
+        self._boundary_retry_not_before.pop(boundary_id, None)
+
+    def record_boundary_error(self, boundary_id: str, *, reason: str) -> None:
+        """Preserve one rejected in-memory intent for diagnosis."""
+
+        del reason
+        boundary = self._boundaries.pop(boundary_id, None)
+        self._boundary_retry_attempts.pop(boundary_id, None)
+        self._boundary_retry_not_before.pop(boundary_id, None)
+        if boundary is not None:
+            self._quarantined_boundaries[boundary_id] = boundary
+
+    def delivery_ready_boundaries(self) -> tuple[BoundaryIntent, ...]:
+        """Return in-memory intents whose retry deadline has elapsed."""
+
+        now = time.time()
+        return tuple(
+            intent
+            for boundary_id, intent in self._boundaries.items()
+            if self._boundary_retry_not_before.get(boundary_id, 0.0) <= now
+        )
+
+    def defer_boundary_retry(
+        self,
+        boundary_id: str,
+        *,
+        reason: str,
+        retry_initial_seconds: float,
+        retry_max_seconds: float,
+    ) -> None:
+        """Apply the same bounded retry semantics used by the durable store."""
+
+        del reason
+        if boundary_id not in self._boundaries:
+            return
+        attempts = self._boundary_retry_attempts.get(boundary_id, 0) + 1
+        delay = min(retry_initial_seconds * (2 ** (attempts - 1)), retry_max_seconds)
+        self._boundary_retry_attempts[boundary_id] = attempts
+        self._boundary_retry_not_before[boundary_id] = time.time() + delay
+
+    def next_boundary_retry_delay(self) -> float | None:
+        """Return seconds until the next delayed in-memory intent becomes ready."""
+
+        if not self._boundary_retry_not_before:
+            return None
+        return max(0.0, min(self._boundary_retry_not_before.values()) - time.time())
 
     def find_by_kernel_session_id(
         self, kernel_session_id: str
@@ -123,12 +338,62 @@ CREATE TABLE IF NOT EXISTS session_bindings (
     kernel_session_id  TEXT NOT NULL,
     reply_context_json TEXT NOT NULL,
     updated_at         TEXT NOT NULL,
-    created_at         TEXT NOT NULL DEFAULT ''
+    created_at         TEXT NOT NULL DEFAULT '',
+    applied_runtime_fingerprint TEXT,
+    applied_fingerprint_schema  TEXT,
+    applied_profile_version     INTEGER
 )
 """
 
 _MIGRATE_ADD_CREATED_AT_SQL = """
 ALTER TABLE session_bindings ADD COLUMN created_at TEXT NOT NULL DEFAULT ''
+"""
+_MIGRATE_ADD_APPLIED_RUNTIME_FINGERPRINT_SQL = """
+ALTER TABLE session_bindings ADD COLUMN applied_runtime_fingerprint TEXT
+"""
+_MIGRATE_ADD_APPLIED_FINGERPRINT_SCHEMA_SQL = """
+ALTER TABLE session_bindings ADD COLUMN applied_fingerprint_schema TEXT
+"""
+_MIGRATE_ADD_APPLIED_PROFILE_VERSION_SQL = """
+ALTER TABLE session_bindings ADD COLUMN applied_profile_version INTEGER
+"""
+_MIGRATE_ADD_BOUNDARY_RETRY_ATTEMPTS_SQL = """
+ALTER TABLE agent_config_boundary_outbox
+ADD COLUMN retry_attempts INTEGER NOT NULL DEFAULT 0
+"""
+_MIGRATE_ADD_BOUNDARY_RETRY_NOT_BEFORE_SQL = """
+ALTER TABLE agent_config_boundary_outbox ADD COLUMN retry_not_before REAL
+"""
+
+_CREATE_BOUNDARY_OUTBOX_SQL = """
+CREATE TABLE IF NOT EXISTS agent_config_boundary_outbox (
+    boundary_id TEXT PRIMARY KEY,
+    node_id TEXT NOT NULL,
+    conversation_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    before_message_id TEXT NOT NULL,
+    runtime_fingerprint TEXT NOT NULL,
+    fingerprint_schema TEXT NOT NULL,
+    profile_version INTEGER,
+    applied_at TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'pending',
+    error_reason TEXT,
+    retry_attempts INTEGER NOT NULL DEFAULT 0,
+    retry_not_before REAL
+)
+"""
+
+_CREATE_PENDING_BOUNDARY_SQL = """
+CREATE TABLE IF NOT EXISTS agent_config_pending_shadow_boundaries (
+    boundary_id TEXT PRIMARY KEY,
+    node_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    runtime_fingerprint TEXT NOT NULL,
+    fingerprint_schema TEXT NOT NULL,
+    profile_version INTEGER,
+    applied_at TEXT NOT NULL,
+    shadow_saga_id TEXT NOT NULL UNIQUE
+)
 """
 
 _SQLITE_LIKE_ESCAPE = "!"
@@ -179,6 +444,8 @@ class PersistentSessionBindingStore:
         # WAL mode reduces write contention; safe for single-process gateway.
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute(_CREATE_TABLE_SQL)
+        self._conn.execute(_CREATE_BOUNDARY_OUTBOX_SQL)
+        self._conn.execute(_CREATE_PENDING_BOUNDARY_SQL)
         # feat-394 migration: add created_at column if absent (existing databases).
         # created_at records when the binding was first established (proxy for the
         # direct chat's creation time, used by find_direct_by_agent to select the
@@ -191,6 +458,22 @@ class PersistentSessionBindingStore:
         }
         if "created_at" not in existing_cols:
             self._conn.execute(_MIGRATE_ADD_CREATED_AT_SQL)
+        if "applied_runtime_fingerprint" not in existing_cols:
+            self._conn.execute(_MIGRATE_ADD_APPLIED_RUNTIME_FINGERPRINT_SQL)
+        if "applied_fingerprint_schema" not in existing_cols:
+            self._conn.execute(_MIGRATE_ADD_APPLIED_FINGERPRINT_SCHEMA_SQL)
+        if "applied_profile_version" not in existing_cols:
+            self._conn.execute(_MIGRATE_ADD_APPLIED_PROFILE_VERSION_SQL)
+        boundary_cols = {
+            row[1]
+            for row in self._conn.execute(
+                "PRAGMA table_info(agent_config_boundary_outbox)"
+            ).fetchall()
+        }
+        if "retry_attempts" not in boundary_cols:
+            self._conn.execute(_MIGRATE_ADD_BOUNDARY_RETRY_ATTEMPTS_SQL)
+        if "retry_not_before" not in boundary_cols:
+            self._conn.execute(_MIGRATE_ADD_BOUNDARY_RETRY_NOT_BEFORE_SQL)
         self._conn.commit()
         self._kernel_client: Any | None = None  # KernelApiClient removed in M3
 
@@ -230,7 +513,11 @@ class PersistentSessionBindingStore:
         """
 
         row = self._conn.execute(
-            "SELECT kernel_session_id, reply_context_json FROM session_bindings WHERE session_key = ?",
+            """
+            SELECT kernel_session_id, reply_context_json, applied_runtime_fingerprint,
+                   applied_fingerprint_schema, applied_profile_version
+            FROM session_bindings WHERE session_key = ?
+            """,
             (session_key,),
         ).fetchone()
         if row is None:
@@ -242,6 +529,9 @@ class PersistentSessionBindingStore:
             session_key=session_key,
             kernel_session_id=kernel_session_id,
             reply_context=reply_context,
+            applied_runtime_fingerprint=row[2],
+            applied_fingerprint_schema=row[3],
+            applied_profile_version=row[4],
         )
 
     def bind(
@@ -250,6 +540,9 @@ class PersistentSessionBindingStore:
         session_key: str,
         kernel_session_id: str,
         reply_context: ReplyContext,
+        applied_runtime_fingerprint: str | None = None,
+        applied_fingerprint_schema: str | None = None,
+        applied_profile_version: int | None = None,
     ) -> SessionBinding:
         """Upsert a session binding into the SQLite store.
 
@@ -279,21 +572,376 @@ class PersistentSessionBindingStore:
         self._conn.execute(
             """
             INSERT INTO session_bindings
-                (session_key, kernel_session_id, reply_context_json, updated_at, created_at)
-            VALUES (?, ?, ?, ?, ?)
+                (session_key, kernel_session_id, reply_context_json, updated_at, created_at,
+                 applied_runtime_fingerprint, applied_fingerprint_schema,
+                 applied_profile_version)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(session_key) DO UPDATE SET
                 kernel_session_id  = excluded.kernel_session_id,
                 reply_context_json = excluded.reply_context_json,
-                updated_at         = excluded.updated_at
+                updated_at         = excluded.updated_at,
+                applied_runtime_fingerprint = COALESCE(
+                    excluded.applied_runtime_fingerprint,
+                    session_bindings.applied_runtime_fingerprint
+                ),
+                applied_fingerprint_schema = COALESCE(
+                    excluded.applied_fingerprint_schema,
+                    session_bindings.applied_fingerprint_schema
+                ),
+                applied_profile_version = COALESCE(
+                    excluded.applied_profile_version,
+                    session_bindings.applied_profile_version
+                )
             """,
-            (session_key, kernel_session_id, rc_json, now_iso, now_iso),
+            (
+                session_key,
+                kernel_session_id,
+                rc_json,
+                now_iso,
+                now_iso,
+                applied_runtime_fingerprint,
+                applied_fingerprint_schema,
+                applied_profile_version,
+            ),
         )
         self._conn.commit()
-        return SessionBinding(
-            session_key=session_key,
-            kernel_session_id=kernel_session_id,
-            reply_context=reply_context,
+        binding = self.get(session_key)
+        if binding is None:  # pragma: no cover - SQLite commit invariant.
+            raise RuntimeError("binding disappeared after persistence")
+        return binding
+
+    def apply_runtime(
+        self,
+        binding: SessionBinding,
+        *,
+        runtime_fingerprint: str,
+        fingerprint_schema: str,
+        profile_version: int | None,
+    ) -> SessionBinding:
+        """Persist one Kernel-confirmed applied runtime for a stable binding."""
+
+        return self.bind(
+            session_key=binding.session_key,
+            kernel_session_id=binding.kernel_session_id,
+            reply_context=binding.reply_context,
+            applied_runtime_fingerprint=runtime_fingerprint,
+            applied_fingerprint_schema=fingerprint_schema,
+            applied_profile_version=profile_version,
         )
+
+    def apply_runtime_with_boundary(
+        self,
+        binding: SessionBinding,
+        *,
+        runtime_fingerprint: str,
+        fingerprint_schema: str,
+        profile_version: int | None,
+        boundary: BoundaryIntent,
+    ) -> SessionBinding:
+        """Atomically record an applied identity and its anchored delivery intent.
+
+        The session's effective runtime and the boundary are one admission fact. A
+        crash between separate commits would either create a false divider or lose
+        the explanation for a real runtime replacement, so this method owns both
+        writes under one SQLite transaction.
+        """
+
+        if boundary.runtime_fingerprint != runtime_fingerprint:
+            raise ValueError("boundary fingerprint must match applied runtime")
+        if boundary.fingerprint_schema != fingerprint_schema:
+            raise ValueError("boundary schema must match applied runtime")
+        if boundary.profile_version != profile_version:
+            raise ValueError("boundary profile version must match applied runtime")
+        try:
+            self._conn.execute("BEGIN IMMEDIATE")
+            updated = self._conn.execute(
+                """
+                UPDATE session_bindings
+                SET applied_runtime_fingerprint = ?, applied_fingerprint_schema = ?,
+                    applied_profile_version = ?
+                WHERE session_key = ?
+                """,
+                (
+                    runtime_fingerprint,
+                    fingerprint_schema,
+                    profile_version,
+                    binding.session_key,
+                ),
+            )
+            if updated.rowcount != 1:
+                raise RuntimeError("binding disappeared before runtime application")
+            self._conn.execute(
+                """
+                INSERT INTO agent_config_boundary_outbox
+                    (boundary_id, node_id, conversation_id, agent_id, before_message_id,
+                     runtime_fingerprint, fingerprint_schema, profile_version, applied_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(boundary_id) DO NOTHING
+                """,
+                (
+                    boundary.boundary_id,
+                    boundary.node_id,
+                    boundary.conversation_id,
+                    boundary.agent_id,
+                    boundary.before_message_id,
+                    boundary.runtime_fingerprint,
+                    boundary.fingerprint_schema,
+                    boundary.profile_version,
+                    boundary.applied_at,
+                ),
+            )
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
+        updated_binding = self.get(binding.session_key)
+        if updated_binding is None:  # pragma: no cover - SQLite commit invariant.
+            raise RuntimeError("binding disappeared after runtime application")
+        return updated_binding
+
+    def apply_runtime_with_pending_boundary(
+        self,
+        binding: SessionBinding,
+        *,
+        runtime_fingerprint: str,
+        fingerprint_schema: str,
+        profile_version: int | None,
+        boundary: PendingBoundaryIntent,
+    ) -> SessionBinding:
+        """Atomically retain an applied external runtime until its saga has an anchor."""
+
+        if (
+            boundary.runtime_fingerprint != runtime_fingerprint
+            or boundary.fingerprint_schema != fingerprint_schema
+            or boundary.profile_version != profile_version
+        ):
+            raise ValueError("pending boundary must describe the applied runtime")
+        try:
+            self._conn.execute("BEGIN IMMEDIATE")
+            updated = self._conn.execute(
+                """
+                UPDATE session_bindings
+                SET applied_runtime_fingerprint = ?, applied_fingerprint_schema = ?,
+                    applied_profile_version = ?
+                WHERE session_key = ?
+                """,
+                (
+                    runtime_fingerprint,
+                    fingerprint_schema,
+                    profile_version,
+                    binding.session_key,
+                ),
+            )
+            if updated.rowcount != 1:
+                raise RuntimeError("binding disappeared before runtime application")
+            self._conn.execute(
+                """
+                INSERT INTO agent_config_pending_shadow_boundaries(
+                    boundary_id, node_id, agent_id, runtime_fingerprint,
+                    fingerprint_schema, profile_version, applied_at, shadow_saga_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(shadow_saga_id) DO NOTHING
+                """,
+                (
+                    boundary.boundary_id,
+                    boundary.node_id,
+                    boundary.agent_id,
+                    boundary.runtime_fingerprint,
+                    boundary.fingerprint_schema,
+                    boundary.profile_version,
+                    boundary.applied_at,
+                    boundary.shadow_saga_id,
+                ),
+            )
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
+        updated_binding = self.get(binding.session_key)
+        if updated_binding is None:  # pragma: no cover - SQLite commit invariant.
+            raise RuntimeError("binding disappeared after runtime application")
+        return updated_binding
+
+    def promote_pending_boundary(
+        self, *, shadow_saga_id: str, shadow_ref: object
+    ) -> BoundaryIntent | None:
+        """Make the saga's confirmed user anchor eligible for IM boundary delivery."""
+
+        conversation_id = getattr(shadow_ref, "conversation_id", None)
+        im_message_id = getattr(shadow_ref, "im_message_id", None)
+        if not isinstance(conversation_id, str) or not conversation_id:
+            raise ValueError("shadow boundary promotion requires conversation id")
+        if not isinstance(im_message_id, str) or not im_message_id:
+            raise ValueError("shadow boundary promotion requires IM message id")
+        try:
+            self._conn.execute("BEGIN IMMEDIATE")
+            row = self._conn.execute(
+                """
+                SELECT boundary_id, node_id, agent_id, runtime_fingerprint,
+                       fingerprint_schema, profile_version, applied_at
+                FROM agent_config_pending_shadow_boundaries
+                WHERE shadow_saga_id = ?
+                """,
+                (shadow_saga_id,),
+            ).fetchone()
+            if row is None:
+                self._conn.commit()
+                return None
+            intent = BoundaryIntent(
+                boundary_id=row[0],
+                node_id=row[1],
+                conversation_id=conversation_id,
+                agent_id=row[2],
+                before_message_id=im_message_id,
+                runtime_fingerprint=row[3],
+                fingerprint_schema=row[4],
+                profile_version=row[5],
+                applied_at=row[6],
+            )
+            self._conn.execute(
+                """
+                INSERT INTO agent_config_boundary_outbox(
+                    boundary_id, node_id, conversation_id, agent_id, before_message_id,
+                    runtime_fingerprint, fingerprint_schema, profile_version, applied_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(boundary_id) DO NOTHING
+                """,
+                (
+                    intent.boundary_id,
+                    intent.node_id,
+                    intent.conversation_id,
+                    intent.agent_id,
+                    intent.before_message_id,
+                    intent.runtime_fingerprint,
+                    intent.fingerprint_schema,
+                    intent.profile_version,
+                    intent.applied_at,
+                ),
+            )
+            self._conn.execute(
+                "DELETE FROM agent_config_pending_shadow_boundaries WHERE shadow_saga_id = ?",
+                (shadow_saga_id,),
+            )
+            self._conn.commit()
+            return intent
+        except Exception:
+            self._conn.rollback()
+            raise
+
+    def pending_boundaries(self) -> tuple[BoundaryIntent, ...]:
+        """Return durable intents eligible for upstream delivery in insertion order."""
+
+        return self._list_boundaries(state="pending")
+
+    def quarantined_boundaries(self) -> tuple[BoundaryIntent, ...]:
+        """Return terminally rejected intents for explicit operator diagnosis."""
+
+        return self._list_boundaries(state="quarantined")
+
+    def acknowledge_boundary(self, boundary_id: str) -> None:
+        """Delete a boundary only after IM durably acknowledges that exact id."""
+
+        self._conn.execute(
+            "DELETE FROM agent_config_boundary_outbox WHERE boundary_id = ?",
+            (boundary_id,),
+        )
+        self._conn.commit()
+
+    def record_boundary_error(self, boundary_id: str, *, reason: str) -> None:
+        """Quarantine a deterministically rejected boundary without erasing it."""
+
+        self._conn.execute(
+            """
+            UPDATE agent_config_boundary_outbox
+            SET state = 'quarantined', error_reason = ?
+            WHERE boundary_id = ?
+            """,
+            (reason, boundary_id),
+        )
+        self._conn.commit()
+
+    def delivery_ready_boundaries(self) -> tuple[BoundaryIntent, ...]:
+        """Return pending intents whose durable retry deadline has elapsed."""
+
+        return self._list_boundaries(state="pending", ready_at=time.time())
+
+    def defer_boundary_retry(
+        self,
+        boundary_id: str,
+        *,
+        reason: str,
+        retry_initial_seconds: float,
+        retry_max_seconds: float,
+    ) -> None:
+        """Persist one bounded exponential retry deadline before returning to the loop."""
+
+        if retry_initial_seconds < 0:
+            raise ValueError("boundary retry initial delay must not be negative")
+        if retry_max_seconds < retry_initial_seconds:
+            raise ValueError("boundary retry maximum delay must cover initial delay")
+        try:
+            self._conn.execute("BEGIN IMMEDIATE")
+            row = self._conn.execute(
+                """
+                SELECT retry_attempts FROM agent_config_boundary_outbox
+                WHERE boundary_id = ? AND state = 'pending'
+                """,
+                (boundary_id,),
+            ).fetchone()
+            if row is None:
+                self._conn.commit()
+                return
+            attempts = int(row[0]) + 1
+            delay = min(
+                retry_initial_seconds * (2 ** (attempts - 1)), retry_max_seconds
+            )
+            self._conn.execute(
+                """
+                UPDATE agent_config_boundary_outbox
+                SET retry_attempts = ?, retry_not_before = ?, error_reason = ?
+                WHERE boundary_id = ?
+                """,
+                (attempts, time.time() + delay, reason, boundary_id),
+            )
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
+
+    def next_boundary_retry_delay(self) -> float | None:
+        """Return seconds until the earliest deferred pending boundary is due."""
+
+        row = self._conn.execute(
+            """
+            SELECT MIN(retry_not_before)
+            FROM agent_config_boundary_outbox
+            WHERE state = 'pending' AND retry_not_before IS NOT NULL
+            """
+        ).fetchone()
+        retry_not_before = row[0] if row is not None else None
+        if retry_not_before is None:
+            return None
+        return max(0.0, float(retry_not_before) - time.time())
+
+    def _list_boundaries(
+        self, *, state: str, ready_at: float | None = None
+    ) -> tuple[BoundaryIntent, ...]:
+        clauses = ["state = ?"]
+        parameters: list[object] = [state]
+        if ready_at is not None:
+            clauses.append("(retry_not_before IS NULL OR retry_not_before <= ?)")
+            parameters.append(ready_at)
+        rows = self._conn.execute(
+            f"""
+            SELECT boundary_id, node_id, conversation_id, agent_id, before_message_id,
+                   runtime_fingerprint, fingerprint_schema, profile_version, applied_at
+            FROM agent_config_boundary_outbox
+            WHERE {" AND ".join(clauses)}
+            ORDER BY rowid ASC
+            """,
+            parameters,
+        ).fetchall()
+        return tuple(BoundaryIntent(*row) for row in rows)
 
     def drop_agent(self, agent_id: str) -> None:
         """Remove all bindings whose session_key ends with ``:{agent_id}``.
@@ -326,7 +974,9 @@ class PersistentSessionBindingStore:
 
         rows = self._conn.execute(
             """
-            SELECT session_key, kernel_session_id, reply_context_json
+            SELECT session_key, kernel_session_id, reply_context_json,
+                   applied_runtime_fingerprint, applied_fingerprint_schema,
+                   applied_profile_version
             FROM session_bindings
             WHERE session_key LIKE ? ESCAPE '!'
             ORDER BY created_at ASC, rowid ASC
@@ -338,6 +988,9 @@ class PersistentSessionBindingStore:
                 session_key=row[0],
                 kernel_session_id=row[1],
                 reply_context=_deserialize_reply_context(row[2]),
+                applied_runtime_fingerprint=row[3],
+                applied_fingerprint_schema=row[4],
+                applied_profile_version=row[5],
             )
             for row in rows
         )
@@ -362,7 +1015,9 @@ class PersistentSessionBindingStore:
 
         row = self._conn.execute(
             """
-            SELECT session_key, kernel_session_id, reply_context_json
+            SELECT session_key, kernel_session_id, reply_context_json,
+                   applied_runtime_fingerprint, applied_fingerprint_schema,
+                   applied_profile_version
             FROM session_bindings
             WHERE kernel_session_id = ?
             LIMIT 1
@@ -378,6 +1033,9 @@ class PersistentSessionBindingStore:
             session_key=session_key_val,
             kernel_session_id=kernel_session_id_val,
             reply_context=reply_context,
+            applied_runtime_fingerprint=row[3],
+            applied_fingerprint_schema=row[4],
+            applied_profile_version=row[5],
         )
 
     def find_direct_by_agent(
@@ -431,7 +1089,9 @@ class PersistentSessionBindingStore:
         # was first established — independent of subsequent message activity.
         row = self._conn.execute(
             """
-            SELECT session_key, kernel_session_id, reply_context_json
+            SELECT session_key, kernel_session_id, reply_context_json,
+                   applied_runtime_fingerprint, applied_fingerprint_schema,
+                   applied_profile_version
             FROM session_bindings
             WHERE session_key LIKE ? ESCAPE '!'
             ORDER BY created_at ASC, rowid ASC
@@ -450,6 +1110,9 @@ class PersistentSessionBindingStore:
             session_key=session_key_val,
             kernel_session_id=kernel_session_id_val,
             reply_context=reply_context,
+            applied_runtime_fingerprint=row[3],
+            applied_fingerprint_schema=row[4],
+            applied_profile_version=row[5],
         )
 
 

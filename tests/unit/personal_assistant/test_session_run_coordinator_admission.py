@@ -3,7 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from pathlib import Path
+
+from personal_assistant.gateway.runtime_protocol import (
+    RuntimeProtocolFacts,
+    ShadowConversationRef,
+    attach_runtime_protocol,
+)
 
 import pytest
 
@@ -13,7 +20,11 @@ from personal_assistant.gateway.inbound_models import (
     StopRunRequest,
 )
 from personal_assistant.gateway.image_attachments import ImageResolution
-from personal_assistant.gateway.session_keys import build_session_key
+from personal_assistant.gateway.session_keys import (
+    PersistentSessionBindingStore,
+    SessionBindingStore,
+    build_session_key,
+)
 from personal_assistant.gateway.session_run_coordinator import SessionRunCoordinator
 
 from ._session_run_coordinator_helpers import (
@@ -31,6 +42,181 @@ def _request(message, catalog) -> InboundRunRequest:
         session_key=build_session_key(message, agent_id=agent.agent_id),
         sender_label="Alice",
     )
+
+
+@pytest.mark.asyncio
+async def test_runtime_replacement_persists_web_anchor_before_submit(
+    tmp_path: Path,
+) -> None:
+    """A changed retained runtime records a durable divider anchored to this message."""
+
+    store = SessionBindingStore()
+    kernel, catalog, binder, router, group_store = build_dependencies(
+        tmp_path, session_store=store
+    )
+    coordinator = SessionRunCoordinator(
+        kernel=kernel,
+        session_binder=binder,
+        outbound_router=router,
+        group_context_store=group_store,
+        node_id="node-1",
+    )
+    first_message = attach_runtime_protocol(
+        inbound(chat_id="conversation-1", text="before"),
+        RuntimeProtocolFacts(
+            shadow_ref=ShadowConversationRef(
+                conversation_id="conversation-1", im_message_id="message-before"
+            )
+        ),
+    )
+    first = asyncio.create_task(coordinator.dispatch(_request(first_message, catalog)))
+    await kernel.wait_stream("run-1")
+    kernel.finish("run-1")
+    await first
+
+    current = catalog.require("agent-a").config
+    catalog.publish(replace(current, default_model="updated-model"))
+    changed_message = attach_runtime_protocol(
+        inbound(chat_id="conversation-1", text="after"),
+        RuntimeProtocolFacts(
+            shadow_ref=ShadowConversationRef(
+                conversation_id="conversation-1", im_message_id="message-after"
+            )
+        ),
+    )
+    changed = asyncio.create_task(
+        coordinator.dispatch(_request(changed_message, catalog))
+    )
+    await kernel.wait_stream("run-2")
+
+    assert store.pending_boundaries()[0].before_message_id == "message-after"
+    assert kernel.reconfigure_calls[-1][1].model == "updated-model"
+
+    kernel.finish("run-2")
+    await changed
+
+
+@pytest.mark.asyncio
+async def test_external_runtime_replacement_waits_for_saga_anchor_before_boundary_delivery(
+    tmp_path: Path,
+) -> None:
+    """An offline shadow event promotes one divider only after its user anchor exists."""
+
+    store = PersistentSessionBindingStore(db_path=tmp_path / "session_bindings.sqlite3")
+    kernel, catalog, binder, router, group_store = build_dependencies(
+        tmp_path, session_store=store
+    )
+    coordinator = SessionRunCoordinator(
+        kernel=kernel,
+        session_binder=binder,
+        outbound_router=router,
+        group_context_store=group_store,
+        node_id="node-1",
+    )
+    first = asyncio.create_task(
+        coordinator.dispatch(
+            _request(inbound(chat_id="external-chat", text="before"), catalog)
+        )
+    )
+    await kernel.wait_stream("run-1")
+    kernel.finish("run-1")
+    await first
+
+    current = catalog.require("agent-a").config
+    catalog.publish(replace(current, default_model="updated-model"))
+    pending_message = attach_runtime_protocol(
+        inbound(chat_id="external-chat", text="after"),
+        RuntimeProtocolFacts(shadow_saga_id="saga-1"),
+    )
+    changed = asyncio.create_task(
+        coordinator.dispatch(_request(pending_message, catalog))
+    )
+    await kernel.wait_stream("run-2")
+
+    assert store.pending_boundaries() == ()
+
+    promoted = store.promote_pending_boundary(
+        shadow_saga_id="saga-1",
+        shadow_ref=ShadowConversationRef(
+            conversation_id="shadow-conversation", im_message_id="shadow-user-message"
+        ),
+    )
+
+    assert promoted is not None
+    assert promoted.conversation_id == "shadow-conversation"
+    assert promoted.before_message_id == "shadow-user-message"
+    assert store.pending_boundaries() == (promoted,)
+    assert (
+        store.promote_pending_boundary(
+            shadow_saga_id="saga-1",
+            shadow_ref=ShadowConversationRef(
+                conversation_id="shadow-conversation",
+                im_message_id="shadow-user-message",
+            ),
+        )
+        is None
+    )
+    assert store.pending_boundaries() == (promoted,)
+
+    kernel.finish("run-2")
+    await changed
+
+
+@pytest.mark.asyncio
+async def test_unknown_legacy_runtime_establishes_baseline_without_boundary(
+    tmp_path: Path,
+) -> None:
+    """An unreadable legacy runtime adopts desired config without a false divider."""
+
+    store = SessionBindingStore()
+    kernel, catalog, binder, router, group_store = build_dependencies(
+        tmp_path, session_store=store
+    )
+    coordinator = SessionRunCoordinator(
+        kernel=kernel,
+        session_binder=binder,
+        outbound_router=router,
+        group_context_store=group_store,
+        node_id="node-1",
+    )
+    first_message = attach_runtime_protocol(
+        inbound(chat_id="conversation-1", text="before"),
+        RuntimeProtocolFacts(
+            shadow_ref=ShadowConversationRef(
+                conversation_id="conversation-1", im_message_id="message-before"
+            )
+        ),
+    )
+    first = asyncio.create_task(coordinator.dispatch(_request(first_message, catalog)))
+    await kernel.wait_stream("run-1")
+    kernel.finish("run-1")
+    await first
+
+    kernel.return_no_runtime = True
+    store.apply_runtime(
+        store.get("web_relay:conversation-1:agent-a"),
+        runtime_fingerprint="legacy-runtime",
+        fingerprint_schema="legacy-v0",
+        profile_version=None,
+    )
+    changed_message = attach_runtime_protocol(
+        inbound(chat_id="conversation-1", text="after"),
+        RuntimeProtocolFacts(
+            shadow_ref=ShadowConversationRef(
+                conversation_id="conversation-1", im_message_id="message-after"
+            )
+        ),
+    )
+
+    changed = asyncio.create_task(
+        coordinator.dispatch(_request(changed_message, catalog))
+    )
+    await kernel.wait_stream("run-2")
+
+    assert store.pending_boundaries() == ()
+
+    kernel.finish("run-2")
+    await changed
 
 
 class _GatedImageResolver:
@@ -300,10 +486,61 @@ async def test_continuous_steer_uses_one_original_stream(
 
 
 @pytest.mark.asyncio
-async def test_active_run_keeps_original_session_across_config_publish(
+async def test_config_publish_reconfigures_same_session_only_for_next_run(
     tmp_path: Path,
 ) -> None:
-    """Steer and stop control the admitted session until its terminal event."""
+    """A completed run keeps its transcript session while the next run adopts config."""
+
+    kernel, catalog, binder, router, group_store = build_dependencies(tmp_path)
+    coordinator = SessionRunCoordinator(
+        kernel=kernel,
+        session_binder=binder,
+        outbound_router=router,
+        group_context_store=group_store,
+        product_default_model="fallback-model",
+    )
+    first_request = _request(inbound(chat_id="chat-a", text="old run"), catalog)
+    first = asyncio.create_task(coordinator.dispatch(first_request))
+    await kernel.wait_stream("run-1")
+    kernel.finish("run-1", text="old done")
+    assert (await first).kernel_session_id == "sess-1"
+    assert kernel.create_runtimes[0] is not None
+    assert kernel.create_runtimes[0].features == {}
+
+    current = catalog.publish(
+        AgentWorkspaceConfig(
+            agent_id="agent-a",
+            workspace_root=first_request.agent.config.workspace_root,
+            title="Agent A v2",
+            default_model="model-v2",
+            skills=("research",),
+            tool_allowlist=("read",),
+            features={"memory_curation": False},
+            custom_prompt="Use the replacement configuration.",
+        )
+    )
+    next_run = asyncio.create_task(
+        coordinator.dispatch(_request(inbound(chat_id="chat-a", text="v2"), catalog))
+    )
+    await kernel.wait_stream("run-2")
+
+    assert kernel.create_calls == [str(first_request.agent.config.workspace_root)]
+    assert [session_id for session_id, _ in kernel.reconfigure_calls] == ["sess-1"]
+    replacement = kernel.reconfigure_calls[0][1]
+    assert replacement.model == "model-v2"
+    assert replacement.skills == ["research"]
+    assert replacement.enabled_tools == ["read"]
+    assert replacement.features == {"memory_curation": False}
+
+    kernel.finish("run-2", text="v2 done")
+    assert (await next_run).kernel_session_id == "sess-1"
+
+
+@pytest.mark.asyncio
+async def test_active_run_steer_keeps_original_runtime_after_config_publish(
+    tmp_path: Path,
+) -> None:
+    """A steer belongs to its active run and never admits a newer configuration."""
 
     kernel, catalog, binder, router, group_store = build_dependencies(tmp_path)
     coordinator = SessionRunCoordinator(
@@ -316,41 +553,23 @@ async def test_active_run_keeps_original_session_across_config_publish(
     running = asyncio.create_task(coordinator.dispatch(old_request))
     await kernel.wait_stream("run-1")
 
-    new_workspace = tmp_path / "agent-a-v2"
-    new_workspace.mkdir()
-    current = catalog.publish(
+    catalog.publish(
         AgentWorkspaceConfig(
             agent_id="agent-a",
-            workspace_root=new_workspace,
+            workspace_root=old_request.agent.config.workspace_root,
             title="Agent A v2",
+            default_model="model-v2",
         )
     )
-    binder.invalidate_stale("agent-a", current_revision=current.revision)
     kernel.inject_steer = True
 
     steered = await coordinator.dispatch(
         _request(inbound(chat_id="chat-a", text="new follow-up"), catalog)
     )
-    stopped = await coordinator.stop(
-        StopRunRequest(
-            message=inbound(chat_id="chat-a", text="/stop"),
-            agent=current,
-            session_key=old_request.session_key,
-        )
-    )
 
-    assert steered.run_id == stopped.run_id == "run-1"
+    assert steered.run_id == "run-1"
+    assert kernel.reconfigure_calls == []
     assert kernel.submit_calls[-1]["session_id"] == "sess-1"
-    assert kernel.interrupt_calls == ["sess-1"]
-    assert kernel.append_calls[-1]["session_id"] == "sess-1"
-    assert kernel.create_calls == [str(old_request.agent.config.workspace_root)]
 
-    kernel.finish("run-1", status="cancelled", text="")
+    kernel.finish("run-1", text="done")
     await running
-    next_run = asyncio.create_task(
-        coordinator.dispatch(_request(inbound(chat_id="chat-a", text="v2"), catalog))
-    )
-    await kernel.wait_stream("run-2")
-    kernel.finish("run-2", text="v2 done")
-    assert (await next_run).kernel_session_id == "sess-2"
-    assert kernel.create_calls[-1] == str(new_workspace)

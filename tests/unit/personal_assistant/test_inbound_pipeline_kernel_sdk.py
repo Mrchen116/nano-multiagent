@@ -13,6 +13,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from agent.sdk import (
+    SessionReconfigureResult,
+    SessionRuntimeConfig,
+    SessionRuntimeState,
+)
+from agent.sdk.runtime import identify_runtime
 from personal_assistant.channels.base import InboundMessage, OutboundMessage
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.gateway.channel_registry import ChannelRegistry
@@ -48,6 +54,7 @@ class _FakeKernel:
         self._session_index = 0
         self._run_index = 0
         self._sessions: dict[str, _FakeSession] = {}
+        self._session_runtime: dict[str, SessionRuntimeState] = {}
         # Test-controlled active run per kernel session. When set, a steer=True
         # submit injects into it (returns injected=True, reusing this run_id);
         # mirrors the real Kernel.submit(steer=True) atomic inject-or-new branch.
@@ -77,7 +84,42 @@ class _FakeKernel:
             }
         )
         self._sessions[session_id] = session
+        runtime = kwargs.get("runtime")
+        if runtime is not None:
+            self._session_runtime[session_id] = SessionRuntimeState(
+                runtime=runtime,
+                identity=identify_runtime(runtime),
+            )
         return session
+
+    def identify_runtime(self, *, runtime: SessionRuntimeConfig):
+        """Return the SDK-owned identity expected by Gateway admission."""
+        return identify_runtime(runtime)
+
+    async def get_session_runtime(
+        self, *, session_id: str, workspace_root: Path | str
+    ) -> SessionRuntimeState | None:
+        """Expose the persisted complete runtime for admission tests."""
+        del workspace_root
+        return self._session_runtime.get(session_id)
+
+    async def reconfigure_session(
+        self,
+        *,
+        session_id: str,
+        workspace_root: Path | str,
+        runtime: SessionRuntimeConfig,
+    ) -> SessionReconfigureResult:
+        """Replace a fake session's complete runtime without changing its address."""
+        del workspace_root
+        state = SessionRuntimeState(runtime=runtime, identity=identify_runtime(runtime))
+        previous = self._session_runtime.get(session_id)
+        self._session_runtime[session_id] = state
+        return SessionReconfigureResult(
+            session_id=session_id,
+            changed=previous != state,
+            state=state,
+        )
 
     def submit(
         self,
@@ -318,7 +360,8 @@ def test_inbound_pipeline_submits_agent_selected_model(tmp_path: Path) -> None:
 
     asyncio.run(pipeline.handle_inbound(inbound))
 
-    assert kernel.submit_calls[0]["model"] == "codex_oauth:gpt-5.5"
+    assert kernel.submit_calls[0]["model"] is None
+    assert kernel._session_runtime["sess-1"].runtime.model == "codex_oauth:gpt-5.5"  # noqa: SLF001
 
 
 def test_inbound_pipeline_falls_back_to_product_default_model(tmp_path: Path) -> None:
@@ -348,7 +391,8 @@ def test_inbound_pipeline_falls_back_to_product_default_model(tmp_path: Path) ->
 
     asyncio.run(pipeline.handle_inbound(inbound))
 
-    assert kernel.submit_calls[0]["model"] == "kimiCoding:K2.6"
+    assert kernel.submit_calls[0]["model"] is None
+    assert kernel._session_runtime["sess-1"].runtime.model == "kimiCoding:K2.6"  # noqa: SLF001
 
 
 def test_inbound_pipeline_kernel_sdk_stream_delivers_events(tmp_path: Path) -> None:

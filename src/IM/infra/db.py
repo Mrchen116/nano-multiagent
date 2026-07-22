@@ -130,6 +130,8 @@ CREATE TABLE IF NOT EXISTS messages (
     -- on_message_completed 写入 elapsed_ms = round((T1 − T0) * 1000)。
     elapsed_ms INTEGER,
     sender_display_name TEXT,
+    caller_idempotency_key TEXT,
+    UNIQUE(conversation_id, caller_idempotency_key),
     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
     FOREIGN KEY (sender_user_id) REFERENCES users(id) ON DELETE CASCADE
 );
@@ -144,6 +146,22 @@ CREATE TABLE IF NOT EXISTS conversation_events (
     created_at TEXT NOT NULL,
     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
     FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS agent_config_boundaries (
+    boundary_id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    before_message_id TEXT NOT NULL,
+    runtime_fingerprint TEXT NOT NULL,
+    fingerprint_schema TEXT NOT NULL,
+    profile_version INTEGER,
+    applied_at TEXT NOT NULL,
+    event_id INTEGER NOT NULL UNIQUE,
+    UNIQUE(conversation_id, before_message_id, runtime_fingerprint),
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+    FOREIGN KEY (before_message_id) REFERENCES messages(id) ON DELETE CASCADE,
+    FOREIGN KEY (event_id) REFERENCES conversation_events(event_id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS relay_tasks (
@@ -297,6 +315,7 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
     _migrate_relay_tasks(connection)
     _migrate_usage_metrics(connection)
     _migrate_settings_policies(connection)
+    _migrate_boundary_provenance_nullable(connection)
     _reconcile_conversation_summary_previews(connection)
     connection.commit()
 
@@ -576,6 +595,17 @@ def _migrate_messages_metadata(connection: sqlite3.Connection) -> None:
         connection.execute("ALTER TABLE messages ADD COLUMN kernel_message_id TEXT")
     if "sender_display_name" not in column_names:
         connection.execute("ALTER TABLE messages ADD COLUMN sender_display_name TEXT")
+    if "caller_idempotency_key" not in column_names:
+        connection.execute(
+            "ALTER TABLE messages ADD COLUMN caller_idempotency_key TEXT"
+        )
+    connection.execute("DROP INDEX IF EXISTS idx_messages_caller_idempotency_key")
+    connection.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS "
+        "idx_messages_conversation_caller_idempotency_key "
+        "ON messages(conversation_id, caller_idempotency_key) "
+        "WHERE caller_idempotency_key IS NOT NULL"
+    )
 
 
 def _migrate_agent_profile_tables(connection: sqlite3.Connection) -> None:
@@ -819,6 +849,50 @@ def _reconcile_conversation_summary_previews(connection: sqlite3.Connection) -> 
             "UPDATE conversations SET last_message_preview = ?, last_message_at = ? WHERE id = ?",
             (chosen_preview, chosen_created_at, conversation_id),
         )
+
+
+def _migrate_boundary_provenance_nullable(connection: sqlite3.Connection) -> None:
+    """Allow absent profile provenance in boundaries created by external channels."""
+    columns = connection.execute(
+        "PRAGMA table_info(agent_config_boundaries)"
+    ).fetchall()
+    profile_version = next(
+        (column for column in columns if column["name"] == "profile_version"), None
+    )
+    if profile_version is None or not bool(profile_version["notnull"]):
+        return
+    connection.execute("PRAGMA foreign_keys = OFF")
+    try:
+        connection.executescript(
+            """
+            ALTER TABLE agent_config_boundaries RENAME TO agent_config_boundaries_legacy;
+            CREATE TABLE agent_config_boundaries (
+                boundary_id TEXT PRIMARY KEY,
+                conversation_id TEXT NOT NULL,
+                agent_id TEXT NOT NULL,
+                before_message_id TEXT NOT NULL,
+                runtime_fingerprint TEXT NOT NULL,
+                fingerprint_schema TEXT NOT NULL,
+                profile_version INTEGER,
+                applied_at TEXT NOT NULL,
+                event_id INTEGER NOT NULL UNIQUE,
+                UNIQUE(conversation_id, before_message_id, runtime_fingerprint),
+                FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+                FOREIGN KEY (before_message_id) REFERENCES messages(id) ON DELETE CASCADE,
+                FOREIGN KEY (event_id) REFERENCES conversation_events(event_id) ON DELETE CASCADE
+            );
+            INSERT INTO agent_config_boundaries(
+                boundary_id, conversation_id, agent_id, before_message_id,
+                runtime_fingerprint, fingerprint_schema, profile_version, applied_at, event_id
+            )
+            SELECT boundary_id, conversation_id, agent_id, before_message_id,
+                   runtime_fingerprint, fingerprint_schema, profile_version, applied_at, event_id
+            FROM agent_config_boundaries_legacy;
+            DROP TABLE agent_config_boundaries_legacy;
+            """
+        )
+    finally:
+        connection.execute("PRAGMA foreign_keys = ON")
 
 
 DEFAULT_SETTINGS_POLICIES = {

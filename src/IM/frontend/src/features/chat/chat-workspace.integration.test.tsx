@@ -408,6 +408,91 @@ describe("ChatWorkspacePage — integration", () => {
     expect(await screen.findByText("Hi Planner")).toBeInTheDocument();
   });
 
+  it("merges typed REST boundaries and live agent.config.changed events into the active timeline", async () => {
+    const baseFetch = mockFetch();
+    fetchSpy = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (/\/im\/v1\/conversations\/c1\/messages/.test(url) && (!init || init.method === undefined || init.method === "GET")) {
+        return jsonResponse({
+          items: [
+            {
+              type: "agent_config_changed",
+              id: "rest-config-boundary",
+              conversation_id: "c1",
+              agent_id: "a-planner",
+              before_message_id: "m1",
+              applied_at: "2026-05-01T00:00:00Z"
+            },
+            { type: "message", message: FIXTURES.messagesC1[0] }
+          ],
+          next_before_message_id: null
+        });
+      }
+      return baseFetch(input, init);
+    }) as ReturnType<typeof mockFetch>;
+    vi.stubGlobal("fetch", fetchSpy);
+
+    renderAtRoute("/chat/c1");
+    const anchor = await screen.findByText("Hi Planner");
+    await waitFor(() => expect(screen.getAllByRole("separator", { name: "Agent 配置已更新" })).toHaveLength(1));
+    expect(screen.getByRole("separator", { name: "Agent 配置已更新" }).compareDocumentPosition(anchor)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+
+    act(() => {
+      emitSharedChatEvent({
+        type: "agent.config.changed",
+        id: "live-config-boundary",
+        conversation_id: "c1",
+        agent_id: "a-planner",
+        before_message_id: "m1",
+        applied_at: "2026-05-01T00:00:01Z"
+      }, 501);
+    });
+
+    await waitFor(() => expect(screen.getAllByRole("separator", { name: "Agent 配置已更新" })).toHaveLength(2));
+    expect(screen.getAllByRole("separator", { name: "Agent 配置已更新" }).at(-1)!.compareDocumentPosition(anchor)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it("does not carry a prior conversation boundary into a reset for another conversation", async () => {
+    const baseFetch = mockFetch();
+    fetchSpy = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (/\/im\/v1\/conversations\/c1\/messages/.test(url) && (!init || init.method === undefined || init.method === "GET")) {
+        return jsonResponse({
+          items: [
+            {
+              type: "agent_config_changed",
+              id: "c1-config-boundary",
+              conversation_id: "c1",
+              agent_id: "a-planner",
+              before_message_id: "m1",
+              applied_at: "2026-05-01T00:00:00Z"
+            },
+            { type: "message", message: FIXTURES.messagesC1[0] }
+          ],
+          next_before_message_id: null
+        });
+      }
+      if (/\/im\/v1\/conversations\/c2\/messages/.test(url) && (!init || init.method === undefined || init.method === "GET")) {
+        return jsonResponse({
+          // Deliberately shares the opaque anchor id: this makes an accidentally
+          // retained c1 boundary visible instead of merely leaving it latent.
+          items: [{ type: "message", message: { ...FIXTURES.messagesC1[0], conversation_id: "c2", content: "c2 anchor" } }],
+          next_before_message_id: null
+        });
+      }
+      return baseFetch(input, init);
+    }) as ReturnType<typeof mockFetch>;
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const user = userEvent.setup();
+    renderAtRoute("/chat/c1");
+    await screen.findByRole("separator", { name: "Agent 配置已更新" });
+    await user.click(screen.getByRole("button", { name: /Research Squad/ }));
+
+    expect(await screen.findByText("c2 anchor")).toBeInTheDocument();
+    expect(screen.queryByRole("separator", { name: "Agent 配置已更新" })).not.toBeInTheDocument();
+  });
+
   it("prefills the distiller skill prompt for a single-source conversation", async () => {
     const user = userEvent.setup();
     renderAtRoute("/chat");

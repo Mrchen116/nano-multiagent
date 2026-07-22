@@ -8,7 +8,7 @@
 // also makes it cheap to add `sync` replay later (decision §3) by treating the
 // /im/v1/sync response as a sequence of synthetic events.
 
-import type { Message, ToolCall, WsEvent } from "./chat-types";
+import type { Message, TimelineItem, ToolCall, WsEvent } from "./chat-types";
 import {
   isCanonicalChatStreamEventType,
   validateCanonicalUserStreamEvent
@@ -26,13 +26,86 @@ export function toChatWsEvent(
 
 export interface ConversationState {
   conversation_id: string | null;
+  /** Compatibility projection for message-specific consumers. */
   messages: Message[];
+  /** Canonical union used to preserve non-message entries across every load path. */
+  timeline?: TimelineItem[];
 }
 
 export const emptyConversationState: ConversationState = {
   conversation_id: null,
-  messages: []
+  messages: [],
+  timeline: []
 };
+
+function itemId(item: TimelineItem): string {
+  return item.type === "message" ? `message:${item.message.id}` : `boundary:${item.id}`;
+}
+
+/**
+ * Merge REST pages and live entries by durable identity.
+ *
+ * Boundaries deliberately follow their anchor rather than timestamps: the API
+ * promises they explain the request represented by `before_message_id`.
+ */
+export function mergeTimelineItems(
+  current: TimelineItem[],
+  incoming: TimelineItem[]
+): TimelineItem[] {
+  const byId = new Map<string, TimelineItem>();
+  for (const item of current) byId.set(itemId(item), item);
+  for (const item of incoming) byId.set(itemId(item), item);
+
+  const messages = Array.from(byId.values())
+    .filter((item): item is Extract<TimelineItem, { type: "message" }> => item.type === "message")
+    .sort((a, b) => compareMessages(a.message, b.message));
+  const boundariesByAnchor = new Map<string, Extract<TimelineItem, { type: "agent_config_changed" }>[] >();
+  const unanchored: Extract<TimelineItem, { type: "agent_config_changed" }>[] = [];
+  const messageIds = new Set(messages.map((item) => item.message.id));
+  for (const item of byId.values()) {
+    if (item.type !== "agent_config_changed") continue;
+    if (!messageIds.has(item.before_message_id)) {
+      unanchored.push(item);
+      continue;
+    }
+    const entries = boundariesByAnchor.get(item.before_message_id) ?? [];
+    entries.push(item);
+    boundariesByAnchor.set(item.before_message_id, entries);
+  }
+  const orderBoundaries = (items: Extract<TimelineItem, { type: "agent_config_changed" }>[]) =>
+    items.sort((a, b) => a.id.localeCompare(b.id));
+  const result: TimelineItem[] = [];
+  for (const item of messages) {
+    result.push(...orderBoundaries(boundariesByAnchor.get(item.message.id) ?? []), item);
+  }
+  // Keep a late live boundary durable in memory. MessagePane hides it until the
+  // anchor page arrives, at which point a merge makes the pair adjacent.
+  return [...orderBoundaries(unanchored), ...result];
+}
+
+function stateTimeline(state: ConversationState): TimelineItem[] {
+  return state.timeline && state.timeline.length > 0
+    ? state.timeline
+    : state.messages.map((message) => ({ type: "message" as const, message }));
+}
+
+function withTimeline(state: ConversationState, timeline: TimelineItem[]): ConversationState {
+  return {
+    ...state,
+    timeline,
+    messages: timeline.flatMap((item) => item.type === "message" ? [item.message] : [])
+  };
+}
+
+function withMessages(state: ConversationState, messages: Message[]): ConversationState {
+  return withTimeline(
+    state,
+    mergeTimelineItems(
+      stateTimeline(state).filter((item) => item.type !== "message"),
+      messages.map((message) => ({ type: "message" as const, message }))
+    )
+  );
+}
 
 /**
  * Compare two messages by created_at ascending, with message id as a tie-break
@@ -60,14 +133,20 @@ function patchMessage(
   messageId: string,
   patch: (m: Message) => Message
 ): ConversationState {
-  let changed = false;
-  const messages = state.messages.map((m) => {
-    if (m.id !== messageId) return m;
-    changed = true;
-    return patch(m);
-  });
-  if (!changed) return state;
-  return { ...state, messages };
+  const current = state.messages.find((message) => message.id === messageId);
+  if (!current) return state;
+  const patched = patch(current);
+  if (patched === current) return state;
+  // Live patches never alter message identity or ordering. Replacing only the
+  // matching entry preserves adjacent configuration boundaries without paying a
+  // full union merge/sort for every token, thinking segment, or tool update.
+  const messages = state.messages.map((message) => message.id === messageId ? patched : message);
+  const timeline = stateTimeline(state).map((item) =>
+    item.type === "message" && item.message.id === messageId
+      ? { type: "message" as const, message: patched }
+      : item
+  );
+  return { ...state, messages, timeline };
 }
 
 function isEmptyValue(v: unknown): boolean {
@@ -149,7 +228,23 @@ export function applyWsEvent(
       // bugfix-419: sort by created_at so WS arrival order does not dictate
       // render order. The tie-break on id makes ordering deterministic when two
       // messages share the same timestamp (e.g. optimistic insert + WS echo).
-      return { ...state, messages: [...state.messages, created].sort(compareMessages) };
+      return withTimeline(
+        state,
+        mergeTimelineItems(stateTimeline(state), [{ type: "message", message: created }])
+      );
+    }
+    case "agent.config.changed": {
+      return withTimeline(
+        state,
+        mergeTimelineItems(stateTimeline(state), [{
+          type: "agent_config_changed",
+          id: ev.id,
+          conversation_id: ev.conversation_id,
+          agent_id: ev.agent_id,
+          before_message_id: ev.before_message_id,
+          applied_at: ev.applied_at
+        }])
+      );
     }
     case "message.delta": {
       return patchMessage(state, ev.message_id, (m) => ({ ...m, content: m.content + ev.delta_text }));
@@ -169,7 +264,7 @@ export function applyWsEvent(
     }
     case "message.discarded": {
       const messages = state.messages.filter((message) => message.id !== ev.message_id);
-      return messages.length === state.messages.length ? state : { ...state, messages };
+      return messages.length === state.messages.length ? state : withMessages(state, messages);
     }
     case "tool_call.upserted":
     case "tool_call.completed": {

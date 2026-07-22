@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Agent Capabilities Specification
 
-> 对齐: bugfix-468
+> 对齐: bugfix-471
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -11,29 +11,66 @@ agent 模型选择、工具白名单、上下文窗口和内置 skills 自举的
 
 ## Requirements
 
-### Requirement: agent 选定的模型在对话中生效,按当前配置每轮路由
+### Requirement: Agent 选定的模型在每次新回复开始时生效
 
-Gateway 在每个新 run(用户消息、heartbeat、cron 触发)按 agent 当前 `default_model` 选择模型,传给内核
-生效;agent 未选模型时回退到 Gateway 配置的产品层全局默认。
+Gateway 在每次新回复开始时按 Agent 当前 `default_model` 选择模型；未选模型时回退产品层全局默认。既有聊天改模型不创建空会话，模型与同代 prompt、skills、tools、features 一起生效并保留历史。已经开始的整轮及其采纳的插话继续使用启动时模型。
 
-#### Scenario: agent 选定模型后对话用该模型
-- **GIVEN** 某 agent 配置 `default_model = codex_oauth:gpt-5.5`
-- **WHEN** 用户与该 agent 对话
-- **THEN** 该轮 LLM 请求用 `codex_oauth:gpt-5.5`(而非全局默认)
+#### Scenario: Agent 选定模型后对话用该模型
+- **GIVEN** 某 Agent 配置模型 B
+- **WHEN** 用户与该 Agent 开始一轮新交流
+- **THEN** 该轮使用 B
 
-#### Scenario: 改模型后旧会话继续聊用新模型
-- **GIVEN** 某 agent 曾用模型 A 聊过、存在历史会话
-- **WHEN** 在配置页改为模型 B 后回到该历史会话发新消息
-- **THEN** 新消息用模型 B
+#### Scenario: 改模型后旧会话继续聊用新模型且保留历史
+- **GIVEN** 某 Agent 曾用模型 A 形成历史会话
+- **WHEN** 配置改为模型 B 后回到该历史会话发新消息
+- **THEN** 新回复使用 B，并仍能引用模型 A 代次的聊天历史
 
-#### Scenario: agent 未选模型时用产品层默认兜底
-- **GIVEN** 某 agent 的 `default_model` 为空
-- **WHEN** 与其对话
-- **THEN** 用 Gateway 配置的全局默认模型正常回复,不报错
+#### Scenario: 正在进行的回复不在中途换模型
+- **GIVEN** Agent 正在用模型 A 回复
+- **WHEN** 配置改为模型 B，且用户插话被纳入当前回复
+- **THEN** 当前整轮仍使用 A，下一轮新回复才使用 B
 
-#### Scenario: heartbeat/cron 触发的轮次也用 agent 当前模型
-- **WHEN** heartbeat 或 cron 为某 agent 触发一轮
-- **THEN** 该轮用该 agent 当前 `default_model`(或产品默认兜底)
+#### Scenario: Agent 未选模型时用产品层默认兜底
+- **GIVEN** Agent 的 `default_model` 为空
+- **WHEN** 与其开始一轮新交流
+- **THEN** 使用 Gateway 产品默认模型正常回复
+
+#### Scenario: heartbeat 复用专用会话时采用当前完整配置
+- **GIVEN** heartbeat 专用会话已用配置 A 形成历史
+- **WHEN** Agent 更新为配置 B 后开始下一 heartbeat tick
+- **THEN** tick 使用 B 的 model、prompt、skills、tools 与 features，并保留该专用会话历史
+
+#### Scenario: cron 新会话使用 Agent 当前完整配置
+- **WHEN** cron 为某 Agent 创建会话并开始执行
+- **THEN** 新会话使用创建时该 Agent 当前的完整配置；未选模型时使用产品默认兜底
+
+### Requirement: Agent 运行能力更新在下一轮新回复整体生效
+
+Gateway 对 model、PromptSlots、skills、tools 与内核 features 使用同一份有效运行配置。配置保存不打断正在进行的回复，也不重建既有聊天；某聊天下一次开始新回复时采用最新完整配置并延续自己的历史。排队期间连续保存多次只采用真正开始时的最终配置。
+
+#### Scenario: 增加工具后继续既有聊天
+- **GIVEN** Agent 因未配置某工具而无法完成既有聊天中的任务
+- **WHEN** 用户增加该工具后在同一聊天继续
+- **THEN** 新回复可使用该工具并理解此前的问题与回复
+
+#### Scenario: 删除工具后保留既成工具历史
+- **GIVEN** 既有聊天历史中已有某工具调用及结果
+- **WHEN** 用户删除该工具后继续聊天
+- **THEN** 新回复不能再执行该工具，但能理解历史调用与结果
+
+#### Scenario: 修改 prompt、skills 或 features 后继续历史
+- **GIVEN** 某聊天已形成历史
+- **WHEN** 用户修改会影响后续模型请求的 prompt、skills 或 features 后发起新交流
+- **THEN** 新回复体现完整的新运行配置，并仍能引用修改前历史
+
+#### Scenario: 连续保存多次只采用最终运行配置
+- **GIVEN** 某聊天空闲或消息仍在等待处理
+- **WHEN** 用户连续成功保存多份 Agent 运行配置
+- **THEN** 下一轮新回复使用真正开始时最新的完整配置，不依次重演中间版本
+
+#### Scenario: 配置替换失败不使用混合配置回复
+- **WHEN** Gateway 无法把最新完整运行配置持久应用到既有会话
+- **THEN** 当前消息以真实失败结束，不以新 model 搭配旧 prompt 或 tools 的混合配置运行
 
 ### Requirement: 动态新建 agent 的模型选择持久化
 

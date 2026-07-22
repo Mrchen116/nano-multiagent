@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from pathlib import Path
 import stat
 
 import pytest
 
 from personal_assistant.channels.base import InboundHandler, OutboundMessage
+from personal_assistant.channels.channel_credentials import (
+    GatewayChannelAad,
+    GatewayChannelKeyStore,
+)
 from personal_assistant.gateway.channel_manager import (
     ChannelGeneration,
     ChannelManager,
@@ -106,6 +111,60 @@ def test_manifest_cache_is_atomic_secret_free_and_node_key_scoped(
         ChannelManifestStore(path, node_id="node-b", key_id="key-a").load_manifest()
     with pytest.raises(ChannelManifestStoreError, match="key_id mismatch"):
         ChannelManifestStore(path, node_id="node-a", key_id="key-b").load_manifest()
+
+
+def test_bootstrap_items_reseal_cached_credentials_for_new_im_owner(
+    tmp_path: Path,
+) -> None:
+    """Bootstrap transports a new-owner envelope without returning plaintext."""
+    key = GatewayChannelKeyStore(
+        tmp_path / "channel-credentials-v1.pem"
+    ).load_or_create()
+    old_owner_id = "owner-old"
+    channel = _spec()
+    credentials = {"app_secret": "plaintext-must-not-return"}
+    sealed = key.seal(
+        secret=credentials,
+        aad=GatewayChannelAad(
+            owner_id=old_owner_id,
+            node_id="node-a",
+            agent_id=channel.agent_id,
+            channel_id=channel.channel_id,
+            provider=channel.provider,
+            credential_revision=channel.generation.credential_revision,
+        ),
+    )
+    channel = replace(
+        channel,
+        credential_envelope=sealed,
+        credential_key_id=key.key_id,
+    )
+    store = ChannelManifestStore(
+        tmp_path / "channel-manifest-v1.json", node_id="node-a", key_id=key.key_id
+    )
+    store.commit_manifest(
+        replace(_manifest(revision=1, channels=(channel,)), owner_id=old_owner_id)
+    )
+
+    items = store.bootstrap_items(owner_id="owner-new", channel_key=key)
+
+    assert len(items) == 1
+    assert "plaintext-must-not-return" not in str(items)
+    assert items[0]["credential_key_id"] == key.key_id
+    assert (
+        key.open(
+            envelope=items[0]["credential_envelope"],
+            aad=GatewayChannelAad(
+                owner_id="owner-new",
+                node_id="node-a",
+                agent_id="agent-a",
+                channel_id="ch-a",
+                provider="feishu",
+                credential_revision=1,
+            ),
+        )
+        == credentials
+    )
 
 
 def test_removal_outcome_survives_new_revision_until_per_token_terminal_ack(

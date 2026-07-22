@@ -5,8 +5,14 @@ from collections.abc import Awaitable, Callable, Mapping
 
 from IM.application.metrics_service import MetricsService
 from IM.application.relay_service import RelayEnqueueResult, RelayService
-from IM.domain.models import Attachment, Conversation, Message
+from IM.domain.models import (
+    AgentConfigChangedBoundary,
+    Attachment,
+    Conversation,
+    Message,
+)
 from IM.infra.repositories import (
+    AgentConfigBoundaryRepository,
     ConversationRepository,
     ExternalConversationWriteResult,
     MessageRepository,
@@ -43,6 +49,7 @@ class WebIMService:
         *,
         conversations: ConversationRepository,
         messages: MessageRepository,
+        boundaries: AgentConfigBoundaryRepository | None = None,
         relay_service: RelayService | None = None,
         metrics_service: MetricsService | None = None,
     ) -> None:
@@ -56,6 +63,7 @@ class WebIMService:
         """
         self._conversations = conversations
         self._messages = messages
+        self._boundaries = boundaries
         self._relay_service = relay_service
         self._metrics_service = metrics_service
 
@@ -193,6 +201,7 @@ class WebIMService:
         auto_complete_delivery: bool = True,
         sender_display_name: str | None = None,
         emit_created_event: bool = False,
+        caller_idempotency_key: str | None = None,
     ) -> Message:
         """Create one message inside a conversation.
 
@@ -204,6 +213,7 @@ class WebIMService:
             attachments: Attachment descriptors stored alongside the message.
             auto_complete_delivery: Whether this write can synchronously close to completed. Relay-backed
                 writes pass False so gateway receipts remain the source of truth for final completion.
+            caller_idempotency_key: Stable caller retry key for one logical message write.
 
         Returns:
             Created message snapshot.
@@ -217,6 +227,7 @@ class WebIMService:
             auto_complete_delivery=auto_complete_delivery,
             sender_display_name=sender_display_name,
             emit_created_event=emit_created_event,
+            caller_idempotency_key=caller_idempotency_key,
         )
         if self._metrics_service is not None and auto_complete_delivery:
             conversation = self._conversations.get_conversation(
@@ -259,6 +270,33 @@ class WebIMService:
             before_message_id=before_message_id,
             mark_as_read=mark_as_read,
         )
+
+    def list_timeline(
+        self,
+        *,
+        conversation_id: str,
+        limit: int = 50,
+        before_message_id: str | None = None,
+        mark_as_read: bool = False,
+    ) -> list[Message | AgentConfigChangedBoundary]:
+        """List one message-counted page with each boundary immediately before its anchor."""
+        messages = self.list_messages(
+            conversation_id=conversation_id,
+            limit=limit,
+            before_message_id=before_message_id,
+            mark_as_read=mark_as_read,
+        )
+        if self._boundaries is None:
+            return list(messages)
+        by_anchor = self._boundaries.list_for_message_ids(
+            conversation_id=conversation_id,
+            message_ids=[message.id for message in messages],
+        )
+        timeline: list[Message | AgentConfigChangedBoundary] = []
+        for message in messages:
+            timeline.extend(by_anchor.get(message.id, []))
+            timeline.append(message)
+        return timeline
 
     async def fork_conversation(
         self,
@@ -371,6 +409,7 @@ class WebIMService:
         # otherwise leave the branch half-copied with the kernel session already bound (no
         # unbind RPC). Roll the branch back and flag the now-orphaned kernel session.
         try:
+            target_message_ids: dict[str, str] = {}
             for message in history[: fork_index + 1]:
                 sender_user_id = (
                     actor_user_id if message.sender_type == "user" else agent.user_id
@@ -393,6 +432,7 @@ class WebIMService:
                     auto_complete_delivery=True,
                     allow_empty=True,
                 )
+                target_message_ids[message.id] = copied.id
                 # Preserve the thinking segments so the branch回看 keeps the full bubble.
                 for segment in sorted(
                     message.thinking or [],
@@ -401,6 +441,19 @@ class WebIMService:
                     self._messages.append_thinking_segment(
                         message_id=copied.id, text=segment.text
                     )
+            if self._boundaries is not None:
+                for boundary in self._boundaries.list_all(
+                    conversation_id=source_conversation_id
+                ):
+                    target_anchor_id = target_message_ids.get(
+                        boundary.before_message_id
+                    )
+                    if target_anchor_id is not None:
+                        self._boundaries.copy_boundary(
+                            source=boundary,
+                            conversation_id=new_conversation.id,
+                            before_message_id=target_anchor_id,
+                        )
         except BaseException:
             self._rollback_fork(new_conversation.id, actor_user_id)
             _log.warning(

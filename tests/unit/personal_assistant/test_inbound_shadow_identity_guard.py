@@ -12,6 +12,7 @@ from personal_assistant.gateway.run_queue import SessionRunQueue
 from personal_assistant.gateway.runtime_protocol import (
     ExternalConversationIdentity,
     RuntimeProtocolFacts,
+    ShadowConversationRef,
     attach_runtime_protocol,
 )
 from personal_assistant.gateway.session_keys import SessionBindingStore
@@ -24,9 +25,14 @@ class _ShadowSync:
     def __init__(self) -> None:
         self.calls: list[InboundMessage] = []
 
-    async def sync_user_message(self, message: InboundMessage, *, agent_id: str) -> str:
+    async def sync_user_message(
+        self, message: InboundMessage, *, agent_id: str
+    ) -> ShadowConversationRef:
         self.calls.append(message)
-        return f"shadow-{agent_id}"
+        return ShadowConversationRef(
+            conversation_id=f"shadow-{agent_id}",
+            im_message_id="message-1",
+        )
 
 
 def test_im_originated_typed_identity_skips_external_shadow_sync(tmp_path) -> None:

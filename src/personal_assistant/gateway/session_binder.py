@@ -14,12 +14,17 @@ from personal_assistant.gateway.agent_catalog import (
     LiveAgentSnapshot,
 )
 from personal_assistant.gateway.session_keys import (
+    BoundaryIntent,
+    PendingBoundaryIntent,
     SessionBinding,
     build_conversation_reply_context,
     build_conversation_session_key,
     build_external_session_key,
 )
+from agent.sdk import SessionRuntimeConfig
 from personal_assistant.gateway.session_composition import (
+    ProjectedAgentRuntime,
+    project_agent_runtime,
     project_agent_session_capabilities,
 )
 
@@ -35,6 +40,38 @@ class _SessionBindingRepository(Protocol):
         session_key: str,
         kernel_session_id: str,
         reply_context: ReplyContext,
+        applied_runtime_fingerprint: str | None = None,
+        applied_fingerprint_schema: str | None = None,
+        applied_profile_version: int | None = None,
+    ) -> SessionBinding: ...
+
+    def apply_runtime(
+        self,
+        binding: SessionBinding,
+        *,
+        runtime_fingerprint: str,
+        fingerprint_schema: str,
+        profile_version: int | None,
+    ) -> SessionBinding: ...
+
+    def apply_runtime_with_boundary(
+        self,
+        binding: SessionBinding,
+        *,
+        runtime_fingerprint: str,
+        fingerprint_schema: str,
+        profile_version: int | None,
+        boundary: BoundaryIntent,
+    ) -> SessionBinding: ...
+
+    def apply_runtime_with_pending_boundary(
+        self,
+        binding: SessionBinding,
+        *,
+        runtime_fingerprint: str,
+        fingerprint_schema: str,
+        profile_version: int | None,
+        boundary: PendingBoundaryIntent,
     ) -> SessionBinding: ...
 
     def drop(self, session_key: str) -> None: ...
@@ -67,6 +104,8 @@ class SessionBindingRequest:
     message: InboundMessage
     gateway_internal_port: int | None = None
     gateway_dispatch_url: str | None = None
+    runtime: SessionRuntimeConfig | None = None
+    profile_version: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,85 +205,47 @@ class GatewaySessionBinder:
         request: SessionBindingRequest,
         agent: LiveAgentSnapshot,
     ) -> SessionBinding:
-        """Reuse or create the binding for one captured Agent snapshot.
+        """Reuse one binding, creating a complete-runtime session only when absent.
 
-        Args:
-            request: Routed session key, reply target, and message facts.
-            agent: Snapshot captured at the inbound operation's linearization point.
-
-        Returns:
-            A binding usable by this operation. A session created from a snapshot
-            that became stale during ``create_session`` is returned ephemerally but
-            is not written to the repository.
+        Config publication never changes the session address. The coordinator admits
+        a new runtime on the retained binding before it submits the next run.
         """
 
         if request.session_key.rsplit(":", 1)[-1] != agent.agent_id:
             raise ValueError("session binding request agent does not match snapshot")
-        while True:
-            with self._lock:
-                generation = self._generations.get(agent.agent_id, 0)
-                existing = self._repository.get(request.session_key)
-                revision = (
-                    self._binding_revision(request.session_key, agent=agent)
-                    if existing is not None
-                    else None
-                )
-                if existing is None or revision != agent.revision:
-                    self._verified_binding_ownership.pop(request.session_key, None)
-                    break
-                ownership_is_verified = self._ownership_is_verified(
+        with self._lock:
+            generation = self._generations.get(agent.agent_id, 0)
+            existing = self._repository.get(request.session_key)
+            ownership_is_verified = (
+                existing is not None
+                and self._ownership_is_verified(
                     existing,
                     agent=agent,
                     generation=generation,
                 )
+            )
 
+        if existing is not None:
             workspace_matches = ownership_is_verified or await asyncio.to_thread(
                 self._binding_matches_workspace_root,
                 existing.kernel_session_id,
                 expected_workspace_root=str(agent.config.workspace_root),
             )
-            if not workspace_matches:
-                break
-
-            refreshed = SessionBinding(
-                session_key=request.session_key,
-                kernel_session_id=existing.kernel_session_id,
-                reply_context=request.reply_context,
-            )
-            with self._lock:
-                current = self._repository.get(request.session_key)
-                candidate_is_current = (
-                    current is not None
-                    and current.kernel_session_id == existing.kernel_session_id
-                    and self._binding_revision(request.session_key, agent=agent)
-                    == agent.revision
+            if workspace_matches:
+                refreshed = self._repository.bind(
+                    session_key=existing.session_key,
+                    kernel_session_id=existing.kernel_session_id,
+                    reply_context=request.reply_context,
                 )
-                guard_is_current = self._write_guard_is_current(
-                    agent=agent,
-                    generation=generation,
-                )
-                if candidate_is_current:
+                with self._lock:
                     self._record_verified_ownership(
                         refreshed,
                         agent=agent,
                         generation=generation,
                     )
-                if not guard_is_current:
                     self._record_provenance(
-                        refreshed,
-                        agent=agent,
-                        persist_binding=candidate_is_current,
+                        refreshed, agent=agent, persist_binding=True
                     )
-                    return refreshed
-                if not candidate_is_current:
-                    continue
-                refreshed = self._repository.bind(
-                    session_key=refreshed.session_key,
-                    kernel_session_id=refreshed.kernel_session_id,
-                    reply_context=refreshed.reply_context,
-                )
-                self._binding_revisions[request.session_key] = agent.revision
-                self._record_provenance(refreshed, agent=agent, persist_binding=True)
                 return refreshed
 
         metadata = _build_session_metadata(
@@ -253,19 +254,27 @@ class GatewaySessionBinder:
             gateway_internal_port=request.gateway_internal_port,
             gateway_dispatch_url=request.gateway_dispatch_url,
         )
-        capabilities = project_agent_session_capabilities(
-            agent,
-            scenario=metadata,
-        )
-        session = await self._kernel.create_session(
-            title=agent.config.title,
-            workspace_root=agent.config.workspace_root,
-            skills=capabilities.skills,
-            enabled_tools=capabilities.enabled_tools,
-            features=capabilities.features,
-            prompt=capabilities.prompt,
-            metadata=metadata,
-        )
+        runtime = request.runtime
+        if runtime is None:
+            capabilities = project_agent_session_capabilities(agent, scenario=metadata)
+            session = await self._kernel.create_session(
+                title=agent.config.title,
+                workspace_root=agent.config.workspace_root,
+                skills=capabilities.skills,
+                enabled_tools=capabilities.enabled_tools,
+                features=capabilities.features,
+                prompt=capabilities.prompt,
+                metadata=metadata,
+            )
+            identity = None
+        else:
+            session = await self._kernel.create_session(
+                title=agent.config.title,
+                workspace_root=agent.config.workspace_root,
+                runtime=runtime,
+                metadata=metadata,
+            )
+            identity = self._kernel.identify_runtime(runtime=runtime)
         kernel_session_id = str(getattr(session, "session_id", "")).strip()
         if not kernel_session_id:
             raise RuntimeError("kernel session creation did not return session_id")
@@ -273,27 +282,125 @@ class GatewaySessionBinder:
             session_key=request.session_key,
             kernel_session_id=kernel_session_id,
             reply_context=request.reply_context,
+            applied_runtime_fingerprint=(
+                identity.runtime_fingerprint if identity is not None else None
+            ),
+            applied_fingerprint_schema=(
+                identity.fingerprint_schema if identity is not None else None
+            ),
+            applied_profile_version=request.profile_version,
         )
         with self._lock:
             self._session_agents[kernel_session_id] = agent
-            if not self._write_guard_is_current(
-                agent=agent,
-                generation=generation,
-            ):
+            if not self._write_guard_is_current(agent=agent, generation=generation):
                 return ephemeral
             binding = self._repository.bind(
                 session_key=request.session_key,
                 kernel_session_id=kernel_session_id,
                 reply_context=request.reply_context,
+                applied_runtime_fingerprint=ephemeral.applied_runtime_fingerprint,
+                applied_fingerprint_schema=ephemeral.applied_fingerprint_schema,
+                applied_profile_version=ephemeral.applied_profile_version,
             )
-            self._binding_revisions[request.session_key] = agent.revision
-            self._binding_agents[request.session_key] = agent
-            self._record_verified_ownership(
-                binding,
-                agent=agent,
-                generation=generation,
-            )
+            self._record_verified_ownership(binding, agent=agent, generation=generation)
+            self._record_provenance(binding, agent=agent, persist_binding=True)
             return binding
+
+    def project_runtime(
+        self,
+        *,
+        agent: LiveAgentSnapshot,
+        message: InboundMessage,
+        resolved_model: str,
+    ) -> ProjectedAgentRuntime:
+        """Project the sole raw runtime used by session creation and reconfiguration."""
+
+        metadata = _build_session_metadata(
+            message,
+            agent=agent,
+            gateway_internal_port=None,
+            gateway_dispatch_url=None,
+        )
+        return project_agent_runtime(
+            agent,
+            scenario=metadata,
+            resolved_model=resolved_model,
+        )
+
+    def persist_applied_runtime(
+        self,
+        binding: SessionBinding,
+        *,
+        runtime_fingerprint: str,
+        fingerprint_schema: str,
+        profile_version: int | None,
+        agent: LiveAgentSnapshot,
+    ) -> SessionBinding:
+        """Persist only a Kernel-confirmed identity after durable reconfiguration."""
+
+        updated = self._repository.apply_runtime(
+            binding,
+            runtime_fingerprint=runtime_fingerprint,
+            fingerprint_schema=fingerprint_schema,
+            profile_version=profile_version,
+        )
+        with self._lock:
+            self._record_provenance(updated, agent=agent, persist_binding=True)
+        return updated
+
+    def persist_applied_runtime_with_boundary(
+        self,
+        binding: SessionBinding,
+        *,
+        runtime_fingerprint: str,
+        fingerprint_schema: str,
+        profile_version: int | None,
+        boundary: BoundaryIntent,
+        agent: LiveAgentSnapshot,
+    ) -> SessionBinding:
+        """Atomically persist an actual runtime replacement and its user anchor."""
+
+        updated = self._repository.apply_runtime_with_boundary(
+            binding,
+            runtime_fingerprint=runtime_fingerprint,
+            fingerprint_schema=fingerprint_schema,
+            profile_version=profile_version,
+            boundary=boundary,
+        )
+        with self._lock:
+            self._record_provenance(updated, agent=agent, persist_binding=True)
+        return updated
+
+    def persist_applied_runtime_with_pending_boundary(
+        self,
+        binding: SessionBinding,
+        *,
+        runtime_fingerprint: str,
+        fingerprint_schema: str,
+        profile_version: int | None,
+        boundary: PendingBoundaryIntent,
+        agent: LiveAgentSnapshot,
+    ) -> SessionBinding:
+        """Atomically persist an external applied runtime before IM has its anchor."""
+
+        updated = self._repository.apply_runtime_with_pending_boundary(
+            binding,
+            runtime_fingerprint=runtime_fingerprint,
+            fingerprint_schema=fingerprint_schema,
+            profile_version=profile_version,
+            boundary=boundary,
+        )
+        with self._lock:
+            self._record_provenance(updated, agent=agent, persist_binding=True)
+        return updated
+
+    def current_agent(self, agent_id: str) -> LiveAgentSnapshot:
+        """Return the latest published snapshot for a queued new-run admission."""
+
+        agent = self._catalog.get(agent_id)
+        if agent is None:
+            raise ValueError(f"unknown agent: {agent_id}")
+        return agent
 
     def lookup(self, session_key: str) -> SessionBinding | None:
         """Return one binding by its Gateway session key."""
@@ -302,31 +409,17 @@ class GatewaySessionBinder:
             return self._repository.get(session_key)
 
     def invalidate_stale(self, agent_id: str, *, current_revision: int) -> None:
-        """Drop only bindings older than the published Agent revision.
+        """Invalidate transient ownership checks after a configuration publication.
 
-        Args:
-            agent_id: Agent whose prior bindings must no longer be reused.
-            current_revision: Revision returned by the immediately preceding
-                catalog publication.
-
-        Side Effects:
-            Advances the Agent's binder generation and deletes stale rows without
-            touching rows already created for ``current_revision``.
+        Durable bindings remain address-stable. The next new-run admission compares
+        the complete runtime identity and replaces configuration in that same
+        session rather than deleting its transcript.
         """
 
         with self._lock:
             self._generations[agent_id] = self._generations.get(agent_id, 0) + 1
-            startup_revision = self._startup_revisions.get(agent_id)
             for binding in self._repository.bindings_for_agent(agent_id):
                 self._verified_binding_ownership.pop(binding.session_key, None)
-                revision = self._binding_revisions.get(
-                    binding.session_key,
-                    startup_revision,
-                )
-                if revision == current_revision:
-                    continue
-                self._repository.drop(binding.session_key)
-                self._binding_revisions.pop(binding.session_key, None)
                 self._binding_agents.pop(binding.session_key, None)
             self._startup_revisions[agent_id] = current_revision
 

@@ -132,3 +132,234 @@ async def test_terminal_observer_window_creates_one_fallback_run(
     finally:
         release_terminal.set()
         await kernel.aclose()
+
+
+@pytest.mark.asyncio
+async def test_kernel_reconfigures_one_session_without_losing_transcript(
+    tmp_path: Path,
+) -> None:
+    """A complete runtime replacement keeps the stable transcript address."""
+    from agent.sdk import PromptSlots, PromptText, SessionRuntimeConfig
+
+    workspace = tmp_path / "agent-a"
+    workspace.mkdir()
+    client = _CountingClient()
+    kernel = build_kernel(
+        llm=LLMConfig(
+            provider="openai_compat",
+            model="test-model",
+            base_url="http://127.0.0.1:1",
+        ),
+        workspace_config_dirname=".nanoassistant",
+        repo_root=tmp_path,
+        _llm_client_override=client,
+    )
+    initial = SessionRuntimeConfig(
+        model="model-a",
+        prompt=PromptSlots(body=(PromptText(name="identity", text="old prompt"),)),
+        skills=None,
+        enabled_tools=[],
+        features={},
+    )
+    replacement = SessionRuntimeConfig(
+        model="model-b",
+        prompt=PromptSlots(body=(PromptText(name="identity", text="new prompt"),)),
+        skills=["research"],
+        enabled_tools=["read"],
+        features={"memory_curation": False},
+    )
+    try:
+        session = await kernel.create_session(
+            workspace_root=workspace,
+            runtime=initial,
+        )
+        created_runtime = await kernel.get_session_runtime(
+            session_id=session.session_id,
+            workspace_root=workspace,
+        )
+        first = kernel.submit(
+            session_id=session.session_id,
+            workspace_root=workspace,
+            parts=[{"type": "text", "text": "remember this"}],
+        )
+        await _wait_for_terminal(kernel, first.run_id)
+
+        changed = await kernel.reconfigure_session(
+            session_id=session.session_id,
+            workspace_root=workspace,
+            runtime=replacement,
+        )
+        unchanged = await kernel.reconfigure_session(
+            session_id=session.session_id,
+            workspace_root=workspace,
+            runtime=replacement,
+        )
+        current = await kernel.get_session_runtime(
+            session_id=session.session_id,
+            workspace_root=workspace,
+        )
+        second = kernel.submit(
+            session_id=session.session_id,
+            workspace_root=workspace,
+            parts=[{"type": "text", "text": "what did I say?"}],
+        )
+        await _wait_for_terminal(kernel, second.run_id)
+
+        assert created_runtime is not None
+        assert created_runtime.runtime == initial
+        assert changed.changed is True
+        assert unchanged.changed is False
+        assert unchanged.state == changed.state
+        assert current is not None
+        assert current.runtime == replacement
+        assert changed.state == current
+        assert client.requests[-1].model == "model-b"
+        assert any(
+            message.content == "remember this"
+            for message in client.requests[-1].messages
+        )
+    finally:
+        await kernel.aclose()
+
+
+@pytest.mark.asyncio
+async def test_kernel_recovery_preserves_empty_feature_runtime_identity(
+    tmp_path: Path,
+) -> None:
+    """A cold Kernel reconstructs the full runtime without collapsing {} into None."""
+    from agent.sdk import PromptSlots, PromptText, SessionRuntimeConfig
+
+    workspace = tmp_path / "agent-recovery"
+    workspace.mkdir()
+    runtime = SessionRuntimeConfig(
+        model="model-a",
+        prompt=PromptSlots(body=(PromptText(name="identity", text="persist me"),)),
+        skills=None,
+        enabled_tools=[],
+        features={},
+    )
+    config = LLMConfig(
+        provider="openai_compat",
+        model="test-model",
+        base_url="http://127.0.0.1:1",
+    )
+    first = build_kernel(
+        llm=config,
+        workspace_config_dirname=".nanoassistant",
+        repo_root=tmp_path,
+        _llm_client_override=_CountingClient(),
+    )
+    try:
+        session = await first.create_session(workspace_root=workspace, runtime=runtime)
+    finally:
+        await first.aclose()
+
+    recovered = build_kernel(
+        llm=config,
+        workspace_config_dirname=".nanoassistant",
+        repo_root=tmp_path,
+        _llm_client_override=_CountingClient(),
+    )
+    try:
+        state = await recovered.get_session_runtime(
+            session_id=session.session_id,
+            workspace_root=workspace,
+        )
+        assert state is not None
+        assert state.runtime == runtime
+        assert state.identity == recovered.identify_runtime(runtime=runtime)
+    finally:
+        await recovered.aclose()
+
+
+@pytest.mark.asyncio
+async def test_runtime_identity_canonicalizes_maps_but_preserves_list_order() -> None:
+    """Runtime fingerprints normalize mapping order without erasing ordered semantics."""
+    from agent.sdk import PromptSlots, PromptText, SessionRuntimeConfig
+
+    def runtime(*, features: dict[str, bool], tools: list[str]) -> SessionRuntimeConfig:
+        return SessionRuntimeConfig(
+            model="model-a",
+            prompt=PromptSlots(body=(PromptText(name="identity", text="same"),)),
+            skills=["research", "review"],
+            enabled_tools=tools,
+            features=features,
+        )
+
+    canonical = runtime(
+        features={"memory_curation": False, "auto_mode": True},
+        tools=["read", "write"],
+    )
+    reordered_map = runtime(
+        features={"auto_mode": True, "memory_curation": False},
+        tools=["read", "write"],
+    )
+    reordered_tools = runtime(
+        features={"memory_curation": False, "auto_mode": True},
+        tools=["write", "read"],
+    )
+
+    kernel = build_kernel(
+        llm=LLMConfig(
+            provider="openai_compat",
+            model="test-model",
+            base_url="http://127.0.0.1:1",
+        ),
+        repo_root=Path.cwd(),
+        _llm_client_override=_CountingClient(),
+    )
+    try:
+        assert kernel.identify_runtime(runtime=canonical) == kernel.identify_runtime(
+            runtime=reordered_map
+        )
+        assert kernel.identify_runtime(runtime=canonical) != kernel.identify_runtime(
+            runtime=reordered_tools
+        )
+    finally:
+        await kernel.aclose()
+
+
+@pytest.mark.asyncio
+async def test_kernel_fork_preserves_complete_runtime(tmp_path: Path) -> None:
+    """A fork carries the source runtime, including explicit feature overrides."""
+    from agent.sdk import PromptSlots, PromptText, SessionRuntimeConfig
+
+    workspace = tmp_path / "agent-fork"
+    workspace.mkdir()
+    runtime = SessionRuntimeConfig(
+        model="model-a",
+        prompt=PromptSlots(body=(PromptText(name="identity", text="fork me"),)),
+        skills=["research"],
+        enabled_tools=["read"],
+        features={"memory_curation": False},
+    )
+    kernel = build_kernel(
+        llm=LLMConfig(
+            provider="openai_compat",
+            model="test-model",
+            base_url="http://127.0.0.1:1",
+        ),
+        workspace_config_dirname=".nanoassistant",
+        repo_root=tmp_path,
+        _llm_client_override=_CountingClient(),
+    )
+    try:
+        source = await kernel.create_session(workspace_root=workspace, runtime=runtime)
+        fork = await kernel.fork_session(source.session_id, workspace_root=workspace)
+        state = await kernel.get_session_runtime(
+            session_id=fork.session_id,
+            workspace_root=workspace,
+        )
+
+        assert state is not None
+        assert state.runtime == runtime
+    finally:
+        await kernel.aclose()
+
+
+async def _wait_for_terminal(kernel, run_id: str) -> None:
+    while True:
+        record = kernel.get_run(run_id)
+        if record is not None and record.status in {"completed", "failed", "cancelled"}:
+            return
+        await asyncio.sleep(0)

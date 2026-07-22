@@ -12,6 +12,7 @@ Ctrl-C. None of them require dependencies beyond Python stdlib.
 | Script | Failure mode | Resulting `ModelError` |
 |---|---|---|
 | `anthropic_sse_error.py` | Anthropic-format `event: error\ndata: {"type":"error",...}` SSE frame | `retryable=False`, ~1s fail |
+| `anthropic_sse_ok_recording.py` | Anthropic-format happy-path SSE; records each POST body to `NANO_FIXTURE_RECORD_PATH` | none (returns `ACK-<n>` text) |
 | `openai_compat_error.py` | OpenAI-format top-level `data: {"error":{...}}` SSE frame | `retryable=False`, ~1s fail |
 | `http_error.py <port> <code>` | HTTP 401 / 403 / 429 / 500 / 502 / 503 response | `retryable=False`(non-2xx),~1s fail |
 | `slow_stream.py <port> truncate` | Opens stream, writes partial `message_start`, closes before `message_stop` | `retryable=True`("stream ended without terminal event"),进 retry 循环 |
@@ -61,9 +62,9 @@ contacted.
 ## What this is not
 
 - **Not** a load-test tool. Single-shot serve, then idle.
-- **Not** a happy-path mock. If you need to test successful streaming,
-  write a fixture provider that produces real `content_block_*` / `message_stop`
-  frames — that's a different artifact.
+- **Not** a substitute for the live-proxy critical-path suite. Happy-path
+  recording lives in ``anthropic_sse_ok_recording.py`` for deterministic
+  process-level e2e that must inspect request bodies without burning tokens.
 - **Not** automatically wired by `scripts/e2e-up.sh`. The e2e bootstrap
   scripts start IM/Gateway only; fixtures are independent tools you
   start manually when you want to inject failures.

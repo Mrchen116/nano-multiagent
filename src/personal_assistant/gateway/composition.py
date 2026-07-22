@@ -78,6 +78,8 @@ from personal_assistant.gateway.internal_dispatch import (
     InternalDispatchHandler,
 )
 from personal_assistant.gateway.outbound_router import OutboundRouter
+from personal_assistant.gateway.boundary_outbox import BoundaryOutboxDispatcher
+from personal_assistant.gateway.shadow_saga import ExternalShadowSagaStore
 from personal_assistant.gateway.session_keys import PersistentSessionBindingStore
 from personal_assistant.gateway.session_binder import (
     GatewaySessionBinder,
@@ -243,6 +245,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         repository=session_store,
         kernel=kernel,
     )
+    boundary_outbox = BoundaryOutboxDispatcher(store=session_store)
     kernel_shim = kernel_client.InProcessKernelClient(
         kernel,
         agent_catalog=agent_catalog,
@@ -385,6 +388,16 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
             base_url=config.im_service.url,
             token_getter=token_getter,
             owner_user_id=_owner_user_id,
+            saga_store=ExternalShadowSagaStore(
+                db_path=runtime_dir / "external_shadow_sagas.sqlite3"
+            ),
+            promote_pending_boundary=lambda saga_id, shadow_ref: (
+                session_store.promote_pending_boundary(
+                    shadow_saga_id=saga_id,
+                    shadow_ref=shadow_ref,
+                ),
+                boundary_outbox.notify_pending(),
+            )[0],
         )
         image_resolver = ImageAttachmentResolver(
             fetcher=build_im_attachment_fetcher(token_getter=token_getter)
@@ -409,10 +422,33 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
     )
 
     runtime_delivery_tasks = RuntimeDeliveryTaskTracker()
+    shadow_output_prepare = (
+        (
+            lambda saga_id, run_id, output_kind, kernel_message_id, content: (
+                shadow_sync.prepare_agent_output(
+                    saga_id=saga_id,
+                    run_id=run_id,
+                    output_kind=output_kind,
+                    kernel_message_id=kernel_message_id,
+                    content=content,
+                )
+            )
+        )
+        if shadow_sync is not None
+        else None
+    )
     _kernel_event_observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: im_connection_manager,
         run_context_store=run_delivery_contexts,
         external_reply_sender=_send_external_reply,
+        shadow_output_prepare=shadow_output_prepare,
+        shadow_output_mirror=(
+            lambda output: (
+                shadow_sync.mirror_prepared_agent_output(output)
+                if shadow_sync is not None
+                else None
+            )
+        ),
         external_permission_request_sender=_send_external_permission_request,
         external_permission_resolved_sender=_mark_external_permission_resolved,
         skill_created_handler=getattr(
@@ -447,7 +483,10 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         product_default_model=config.llm.default_model,
         relay_lifecycle_callback=relay_lifecycle_callback,
         kernel_event_observer=_kernel_event_observer,
+        shadow_output_prepare=shadow_output_prepare,
         bg_reply_sender=bg_reply_sender,
+        node_id=config.node.node_id,
+        boundary_outbox=boundary_outbox,
         background_subscriptions=background_subscriptions,
         image_resolver=image_resolver,
     )
@@ -480,6 +519,10 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
             sync_client=_im_sync_client,
             agent_config_sync=im_config_sync_client,
             agent_ids=(agent.agent_id for agent in config.agents),
+            boundary_outbox=boundary_outbox,
+            recover_external_shadows=(
+                shadow_sync.recover_pending if shadow_sync is not None else None
+            ),
         )
 
     _heartbeat_scheduler = HeartbeatScheduler(
@@ -540,6 +583,11 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
             permission_response_handler=permission_response_handler,
             on_connected=connection_ready_coordinator.on_connected,
             managed_channel_bindings=managed_channel_control.connection_bindings(),
+            channel_bootstrap_items_provider=lambda owner_id: (
+                channel_manifest_store.bootstrap_items(
+                    owner_id=owner_id, channel_key=channel_key
+                )
+            ),
         )
 
     # bugfix-402-M3 R3: kernel is closed explicitly via runtime.GatewayRuntime(kernel=) and

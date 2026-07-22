@@ -40,7 +40,7 @@ class _Kernel:
         return {"session_id": session_id, "workspace_root": workspace_root}
 
 
-def test_v1_to_v2_publish_invalidates_binding_and_next_resolve_uses_v2(
+def test_v1_to_v2_publish_preserves_binding_for_next_admission(
     tmp_path,
 ) -> None:
     workspace = tmp_path / "agent-a"
@@ -115,12 +115,11 @@ def test_v1_to_v2_publish_invalidates_binding_and_next_resolve_uses_v2(
 
     assert v2.revision > v1.revision
     assert v2.config.custom_prompt == "prompt-v2"
-    assert binder.lookup(request.session_key) is None
+    assert binder.lookup(request.session_key) == old_binding
 
     new_binding = asyncio.run(binder.resolve(request, v2))
-    assert new_binding.kernel_session_id != old_binding.kernel_session_id
-    prompt = kernel.create_calls[-1]["prompt"]
-    assert prompt.custom[0].text.endswith("prompt-v2")
+    assert new_binding.kernel_session_id == old_binding.kernel_session_id
+    assert len(kernel.create_calls) == 1
 
 
 def _unchanged_payload(workspace) -> dict[str, object]:

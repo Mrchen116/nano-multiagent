@@ -7,17 +7,25 @@ from collections import OrderedDict
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, replace
+from datetime import datetime, timezone
 import logging
 from typing import TYPE_CHECKING, Any
+from uuid import uuid4
 
-from agent.sdk import TERMINAL_RUN_STATUSES, USER_INTERRUPT_RECOVERY_CONTENT
+from agent.sdk import (
+    TERMINAL_RUN_STATUSES,
+    USER_INTERRUPT_RECOVERY_CONTENT,
+    SessionRuntimeConfig,
+)
+
+from personal_assistant.config.local_store import resolve_run_model
+from personal_assistant.gateway.session_composition import project_agent_runtime
 
 from personal_assistant.channels.base import (
     InboundMessage,
     OutboundMessage,
     ReplyContext,
 )
-from personal_assistant.config.local_store import resolve_run_model
 from personal_assistant.gateway.background_subscriptions import (
     BackgroundSubscriptionManager,
     BackgroundSubscriptionRequest,
@@ -49,9 +57,14 @@ from personal_assistant.gateway.session_binder import (
     SessionBindingRequest,
 )
 from personal_assistant.gateway.session_keys import (
+    BoundaryIntent,
+    PendingBoundaryIntent,
     SessionBinding,
     build_reply_context,
 )
+from personal_assistant.gateway.boundary_outbox import BoundaryOutboxDispatcher
+from personal_assistant.gateway.runtime_protocol import runtime_protocol_or_derive
+from personal_assistant.gateway.shadow_saga import ExternalShadowOutput
 
 if TYPE_CHECKING:
     from agent.sdk.kernel import Kernel
@@ -122,8 +135,13 @@ class SessionRunCoordinator:
         product_default_model: str | None = None,
         relay_lifecycle_callback: RelayLifecycleCallback | None = None,
         kernel_event_observer: Callable[[Mapping[str, Any]], object] | None = None,
+        shadow_output_prepare: (
+            Callable[[str, str, str, str | None, str], ExternalShadowOutput] | None
+        ) = None,
         bg_reply_sender: Callable[[str, ReplyContext, str], Awaitable[None]]
         | None = None,
+        node_id: str | None = None,
+        boundary_outbox: BoundaryOutboxDispatcher | None = None,
         run_idle_timeout_seconds: float = _DEFAULT_RUN_IDLE_TIMEOUT_SECONDS,
         max_transition_locks: int = _MAX_SESSION_TRANSITION_LOCKS,
     ) -> None:
@@ -141,7 +159,10 @@ class SessionRunCoordinator:
         self._product_default_model = product_default_model
         self._relay_lifecycle_callback = relay_lifecycle_callback
         self._kernel_event_observer = kernel_event_observer
+        self._shadow_output_prepare = shadow_output_prepare
         self._bg_reply_sender = bg_reply_sender
+        self._node_id = node_id
+        self._boundary_outbox = boundary_outbox
         self._run_idle_timeout_seconds = run_idle_timeout_seconds
         self._active_runs: dict[str, _ActiveRunHandle] = {}
         self._steered_requests: dict[str, list[InboundRunRequest]] = {}
@@ -369,7 +390,24 @@ class SessionRunCoordinator:
         try:
             failure_kind: str | None = None
             async with self._transition(request.session_key):
-                binding = await self._ensure_binding(request)
+                latest_agent = self._latest_agent(request.agent)
+                runtime_projection = self._project_runtime(
+                    agent=latest_agent,
+                    message=request.message,
+                )
+                binding = await self._ensure_binding(
+                    request,
+                    agent=latest_agent,
+                    runtime=runtime_projection.runtime,
+                    profile_version=runtime_projection.profile_version,
+                )
+                binding = await self._admit_runtime(
+                    binding=binding,
+                    agent=latest_agent,
+                    message=request.message,
+                    runtime=runtime_projection.runtime,
+                    profile_version=runtime_projection.profile_version,
+                )
                 if prebuilt_parts is None:
                     parts, failure_kind = await self._build_message_parts(request)
                 else:
@@ -380,8 +418,7 @@ class SessionRunCoordinator:
                     record = self._kernel.submit(
                         session_id=binding.kernel_session_id,
                         parts=parts,
-                        workspace_root=request.agent.config.workspace_root,
-                        model=self._resolve_model(request),
+                        workspace_root=latest_agent.config.workspace_root,
                     )
                     run_id = record.run_id
                     anchor_sequence = record.start_sequence
@@ -389,7 +426,7 @@ class SessionRunCoordinator:
                         self._active_runs[request.session_key] = _ActiveRunHandle(
                             run_id=run_id,
                             binding=binding,
-                            agent=request.agent,
+                            agent=latest_agent,
                         )
                     admission_event.set()
             if failure_kind is not None:
@@ -568,6 +605,8 @@ class SessionRunCoordinator:
     ) -> tuple[OutboundMessage | None, Mapping[str, Any] | None]:
         if run_state.get("status") == "cancelled":
             return None, {"suppressed_by": "cancelled"}
+        if not reply_text.strip():
+            return None, {"suppressed_by": "empty_visible_reply"}
         if self._suppress_reply(reply_text, in_group=request.message.is_group) or (
             _is_external_channel_inbound(request.message)
             and self._is_no_reply_token(reply_text)
@@ -575,6 +614,19 @@ class SessionRunCoordinator:
             return None, {"suppressed_by": "no_reply_token"}
         reply_context = binding.reply_context
         if _is_external_channel_inbound(request.message):
+            protocol = runtime_protocol_or_derive(request.message)
+            if (
+                protocol.shadow_saga_id is not None
+                and protocol.shadow_ref is None
+                and self._shadow_output_prepare is not None
+            ):
+                self._shadow_output_prepare(
+                    saga_id=protocol.shadow_saga_id,
+                    run_id=run_id,
+                    output_kind="final",
+                    kernel_message_id=None,
+                    content=reply_text.strip(),
+                )
             metadata = dict(reply_context.metadata)
             metadata.update(
                 {
@@ -619,7 +671,16 @@ class SessionRunCoordinator:
         parts.extend(resolution.parts)
         return parts, None
 
-    async def _ensure_binding(self, request: InboundRunRequest) -> SessionBinding:
+    async def _ensure_binding(
+        self,
+        request: InboundRunRequest,
+        *,
+        agent: LiveAgentSnapshot,
+        runtime: SessionRuntimeConfig,
+        profile_version: int | None,
+    ) -> SessionBinding:
+        """Resolve a stable binding while creating missing sessions with this runtime."""
+
         dispatch_url, fallback_port = self._dispatch_endpoint_metadata()
         return await self._session_binder.resolve(
             SessionBindingRequest(
@@ -628,11 +689,184 @@ class SessionRunCoordinator:
                 message=request.message,
                 gateway_internal_port=fallback_port,
                 gateway_dispatch_url=dispatch_url,
+                runtime=runtime,
+                profile_version=profile_version,
             ),
-            request.agent,
+            agent,
+        )
+
+    def _latest_agent(self, inbound_agent: LiveAgentSnapshot) -> LiveAgentSnapshot:
+        """Read the desired snapshot only after the new-run transition is owned."""
+
+        return self._session_binder.current_agent(inbound_agent.agent_id)
+
+    def _project_runtime(
+        self,
+        *,
+        agent: LiveAgentSnapshot,
+        message: InboundMessage,
+    ):
+        """Produce the sole model-and-capability value for a new run admission."""
+
+        model = self._resolve_agent_model(agent)
+        if model is None:
+            raise ValueError("new run requires a resolved model")
+        return project_agent_runtime(
+            agent,
+            scenario=dict(message.metadata),
+            resolved_model=model,
+        )
+
+    async def _admit_runtime(
+        self,
+        *,
+        binding: SessionBinding,
+        agent: LiveAgentSnapshot,
+        message: InboundMessage,
+        runtime: SessionRuntimeConfig,
+        profile_version: int | None,
+    ) -> SessionBinding:
+        """Durably align a retained session before the following synchronous submit."""
+
+        desired = self._kernel.identify_runtime(runtime=runtime)
+        applied_matches = (
+            binding.applied_fingerprint_schema == desired.fingerprint_schema
+            and binding.applied_runtime_fingerprint == desired.runtime_fingerprint
+        )
+        if applied_matches:
+            return binding
+        current = await self._kernel.get_session_runtime(
+            session_id=binding.kernel_session_id,
+            workspace_root=agent.config.workspace_root,
+        )
+        replacement_has_known_baseline = current is not None
+        if current is not None:
+            binding = self._session_binder.persist_applied_runtime(
+                binding,
+                runtime_fingerprint=current.identity.runtime_fingerprint,
+                fingerprint_schema=current.identity.fingerprint_schema,
+                profile_version=binding.applied_profile_version,
+                agent=agent,
+            )
+            if (
+                current.identity.fingerprint_schema == desired.fingerprint_schema
+                and current.identity.runtime_fingerprint == desired.runtime_fingerprint
+            ):
+                return binding
+        result = await self._kernel.reconfigure_session(
+            session_id=binding.kernel_session_id,
+            workspace_root=agent.config.workspace_root,
+            runtime=runtime,
+        )
+        boundary = (
+            self._boundary_for_runtime_replacement(
+                message=message,
+                agent_id=agent.agent_id,
+                runtime_fingerprint=result.state.identity.runtime_fingerprint,
+                fingerprint_schema=result.state.identity.fingerprint_schema,
+                profile_version=profile_version,
+            )
+            if replacement_has_known_baseline and result.changed
+            else None
+        )
+        if boundary is not None:
+            updated = self._session_binder.persist_applied_runtime_with_boundary(
+                binding,
+                runtime_fingerprint=result.state.identity.runtime_fingerprint,
+                fingerprint_schema=result.state.identity.fingerprint_schema,
+                profile_version=profile_version,
+                boundary=boundary,
+                agent=agent,
+            )
+            if self._boundary_outbox is not None:
+                self._boundary_outbox.notify_pending()
+            return updated
+        pending_boundary = (
+            self._pending_boundary_for_shadow_replacement(
+                message=message,
+                agent_id=agent.agent_id,
+                runtime_fingerprint=result.state.identity.runtime_fingerprint,
+                fingerprint_schema=result.state.identity.fingerprint_schema,
+                profile_version=profile_version,
+            )
+            if replacement_has_known_baseline and result.changed
+            else None
+        )
+        if pending_boundary is not None:
+            return self._session_binder.persist_applied_runtime_with_pending_boundary(
+                binding,
+                runtime_fingerprint=result.state.identity.runtime_fingerprint,
+                fingerprint_schema=result.state.identity.fingerprint_schema,
+                profile_version=profile_version,
+                boundary=pending_boundary,
+                agent=agent,
+            )
+        return self._session_binder.persist_applied_runtime(
+            binding,
+            runtime_fingerprint=result.state.identity.runtime_fingerprint,
+            fingerprint_schema=result.state.identity.fingerprint_schema,
+            profile_version=profile_version,
+            agent=agent,
+        )
+
+    def _boundary_for_runtime_replacement(
+        self,
+        *,
+        message: InboundMessage,
+        agent_id: str,
+        runtime_fingerprint: str,
+        fingerprint_schema: str,
+        profile_version: int | None,
+    ) -> BoundaryIntent | None:
+        """Build an outbox intent only when this user message has a durable IM anchor."""
+
+        node_id = self._node_id
+        protocol = runtime_protocol_or_derive(message)
+        shadow_ref = protocol.shadow_ref
+        if node_id is None or shadow_ref is None or shadow_ref.im_message_id is None:
+            return None
+        return BoundaryIntent(
+            boundary_id=str(uuid4()),
+            node_id=node_id,
+            conversation_id=shadow_ref.conversation_id,
+            agent_id=agent_id,
+            before_message_id=shadow_ref.im_message_id,
+            runtime_fingerprint=runtime_fingerprint,
+            fingerprint_schema=fingerprint_schema,
+            profile_version=profile_version,
+            applied_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+    def _pending_boundary_for_shadow_replacement(
+        self,
+        *,
+        message: InboundMessage,
+        agent_id: str,
+        runtime_fingerprint: str,
+        fingerprint_schema: str,
+        profile_version: int | None,
+    ) -> PendingBoundaryIntent | None:
+        """Retain an external replacement until its durable saga obtains an IM anchor."""
+
+        node_id = self._node_id
+        protocol = runtime_protocol_or_derive(message)
+        saga_id = protocol.shadow_saga_id
+        if node_id is None or saga_id is None:
+            return None
+        return PendingBoundaryIntent(
+            boundary_id=str(uuid4()),
+            node_id=node_id,
+            agent_id=agent_id,
+            runtime_fingerprint=runtime_fingerprint,
+            fingerprint_schema=fingerprint_schema,
+            profile_version=profile_version,
+            applied_at=datetime.now(timezone.utc).isoformat(),
+            shadow_saga_id=saga_id,
         )
 
     async def _ensure_binding_for_stop(self, request: StopRunRequest) -> SessionBinding:
+        agent = self._latest_agent(request.agent)
+        runtime_projection = self._project_runtime(agent=agent, message=request.message)
         dispatch_url, fallback_port = self._dispatch_endpoint_metadata()
         return await self._session_binder.resolve(
             SessionBindingRequest(
@@ -641,8 +875,10 @@ class SessionRunCoordinator:
                 message=request.message,
                 gateway_internal_port=fallback_port,
                 gateway_dispatch_url=dispatch_url,
+                runtime=runtime_projection.runtime,
+                profile_version=runtime_projection.profile_version,
             ),
-            request.agent,
+            agent,
         )
 
     def _dispatch_endpoint_metadata(self) -> tuple[str | None, int | None]:
@@ -866,9 +1102,13 @@ class SessionRunCoordinator:
         return self._resolve_agent_model(request.agent)
 
     def _resolve_agent_model(self, agent: LiveAgentSnapshot) -> str | None:
-        return resolve_run_model(
-            agent.config, product_default=self._product_default_model
-        )
+        configured_default = self._product_default_model
+        if configured_default is None:
+            get_llm_config = getattr(self._kernel, "get_llm_config", None)
+            if callable(get_llm_config):
+                config = get_llm_config()
+                configured_default = config.default_model or config.model
+        return resolve_run_model(agent.config, product_default=configured_default)
 
     @staticmethod
     def _is_no_reply_token(text: str) -> bool:
@@ -950,5 +1190,10 @@ def _normalize_dispatch_id_part(value: str) -> str:
 
 
 def _is_external_channel_inbound(message: InboundMessage) -> bool:
+    """Return whether normalized protocol facts identify an external ingress."""
+
+    external_identity = runtime_protocol_or_derive(message).external_identity
+    if external_identity is not None:
+        return external_identity.trigger_source != "im"
     trigger_source = message.metadata.get("trigger_source")
     return isinstance(trigger_source, str) and trigger_source.strip() not in {"", "im"}

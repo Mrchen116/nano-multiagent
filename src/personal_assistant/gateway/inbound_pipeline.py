@@ -18,9 +18,15 @@ from personal_assistant.gateway.inbound_models import (
     StopRunRequest,
     build_group_context_key,
 )
-from personal_assistant.gateway.runtime_protocol import external_identity_from_message
+from personal_assistant.gateway.runtime_protocol import (
+    ShadowConversationRef,
+    attach_runtime_protocol,
+    external_identity_from_message,
+    runtime_protocol_or_derive,
+)
 from personal_assistant.gateway.session_keys import build_session_key
 from personal_assistant.gateway.session_run_coordinator import SessionRunCoordinator
+from personal_assistant.gateway.shadow_sync import ShadowSyncPendingError
 
 
 class ShadowConversationSync(Protocol):
@@ -28,8 +34,8 @@ class ShadowConversationSync(Protocol):
 
     async def sync_user_message(
         self, message: InboundMessage, *, agent_id: str
-    ) -> str | None:
-        """Persist one inbound user message and return its shadow conversation id."""
+    ) -> ShadowConversationRef | None:
+        """Persist one inbound user message and return its durable IM anchor."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,31 +151,45 @@ class InboundPipeline:
     ) -> InboundMessage:
         sync = self._shadow_sync
         external_identity = external_identity_from_message(message)
-        if (
-            sync is None
-            or external_identity is None
-            or external_identity.trigger_source == "im"
-        ):
+        if sync is None or message.channel_name == "web_relay":
             return message
-        metadata = dict(message.metadata)
+        if external_identity is not None and external_identity.trigger_source == "im":
+            return message
         try:
-            shadow_conversation_id = await sync.sync_user_message(
-                message, agent_id=agent_id
-            )
-        except Exception as exc:  # noqa: BLE001
+            shadow_ref = await sync.sync_user_message(message, agent_id=agent_id)
+        except ShadowSyncPendingError as exc:
             logging.getLogger(__name__).warning(
-                "external shadow sync failed channel=%s chat=%s agent=%s: %s",
+                "external shadow anchor pending channel=%s chat=%s agent=%s: %s",
                 message.channel_name,
                 message.external_chat_id,
                 agent_id,
                 exc,
             )
-            shadow_conversation_id = None
-        if isinstance(shadow_conversation_id, str) and shadow_conversation_id.strip():
-            metadata["shadow_conversation_id"] = shadow_conversation_id.strip()
-        else:
-            metadata.pop("shadow_conversation_id", None)
-        return replace(message, metadata=metadata)
+            protocol = runtime_protocol_or_derive(message)
+            return attach_runtime_protocol(
+                message,
+                replace(protocol, shadow_saga_id=exc.saga_id),
+            )
+        if shadow_ref is None:
+            return message
+        protocol = runtime_protocol_or_derive(message)
+        enriched = replace(
+            message,
+            metadata={
+                **message.metadata,
+                "shadow_conversation_id": shadow_ref.conversation_id,
+                "message_id": shadow_ref.im_message_id,
+            },
+        )
+        return attach_runtime_protocol(
+            enriched,
+            replace(
+                protocol,
+                shadow_saga_id=shadow_ref.shadow_saga_id,
+                shadow_ref=shadow_ref,
+                im_message_id=shadow_ref.im_message_id,
+            ),
+        )
 
     def _resolve_agent(self, message: InboundMessage) -> str:
         metadata = message.metadata

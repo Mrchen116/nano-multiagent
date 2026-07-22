@@ -21,7 +21,8 @@ import {
   type Attachment,
   type Conversation,
   type MentionCandidate,
-  type Message
+  type Message,
+  type TimelineItem
 } from "../chat-types";
 import { Avatar, colorForAgentSeed } from "./avatar";
 import { KindBadge } from "./kind-badge";
@@ -41,7 +42,10 @@ import { remarkMention } from "./remark-mention";
 
 export interface MessagePaneProps {
   conversation: Conversation;
-  messages: Message[];
+  /** Typed timeline keeps durable non-message entries out of MessageBubble. */
+  timeline?: TimelineItem[];
+  /** Compatibility input for callers not yet upgraded to the typed timeline. */
+  messages?: Message[];
   mentionCandidates: MentionCandidate[];
   draftSeed?: { id: string; text: string } | null;
   /** feat-430: enabled skills for this conversation's agent(s), for the slash picker. */
@@ -155,7 +159,8 @@ function reconstructWireContent(draftText: string, mentions: DraftMention[]): st
  */
 export function MessagePane({
   conversation,
-  messages,
+  timeline,
+  messages: messagesProp,
   mentionCandidates,
   draftSeed = null,
   slashSkills = [],
@@ -181,6 +186,9 @@ export function MessagePane({
   onAttachmentUploadError
 }: MessagePaneProps) {
   const { t } = useTranslation();
+  const messages = messagesProp ?? timeline?.flatMap((item) => item.type === "message" ? [item.message] : []) ?? [];
+  const renderedTimeline = timeline ?? messages.map((message) => ({ type: "message" as const, message }));
+  const anchoredMessageIds = new Set(messages.map((message) => message.id));
   const [draft, setDraft] = useState("");
   const [draftMentions, setDraftMentions] = useState<DraftMention[]>([]);
   const [pending, setPending] = useState<Attachment[]>([]);
@@ -551,18 +559,26 @@ export function MessagePane({
                   : t("chat.messagePane.historyEnd")}
               </div>
             )}
-            {messages.map((m) => (
-              <MessageBubble
-                key={m.id}
-                message={m}
-                isMobile={isMobile}
-                participants={conversation.participants}
-                isDirectChat={isDirectChat}
-                agentOnline={agentOnline}
-                onFork={onFork}
-                forkPending={forkPending}
-              />
-            ))}
+            {renderedTimeline.map((item) => {
+              if (item.type === "agent_config_changed") {
+                return anchoredMessageIds.has(item.before_message_id)
+                  ? <ConfigurationBoundaryDivider key={item.id} />
+                  : null;
+              }
+              const m = item.message;
+              return (
+                <MessageBubble
+                  key={m.id}
+                  message={m}
+                  isMobile={isMobile}
+                  participants={conversation.participants}
+                  isDirectChat={isDirectChat}
+                  agentOnline={agentOnline}
+                  onFork={onFork}
+                  forkPending={forkPending}
+                />
+              );
+            })}
           </>
         )}
       </div>
@@ -647,6 +663,14 @@ export function MessagePane({
         </AttachmentDropzone>
       </form>
     </section>
+  );
+}
+
+function ConfigurationBoundaryDivider() {
+  return (
+    <div className="chat-configuration-boundary" role="separator" aria-label="Agent 配置已更新">
+      <span>Agent 配置已更新 · 后续请求将不再命中此前的上下文缓存</span>
+    </div>
   );
 }
 

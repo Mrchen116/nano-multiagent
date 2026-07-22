@@ -29,6 +29,7 @@ from personal_assistant.gateway.session_keys import (
     session_binding_store,
 )
 from personal_assistant.gateway.session_run_coordinator import SessionRunCoordinator
+from personal_assistant.gateway.shadow_saga import ExternalShadowOutput
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +68,9 @@ def build_inbound_pipeline(
     image_resolver: ImageAttachmentResolver | None = None,
     background_subscriptions: BackgroundSubscriptionManager | None = None,
     shadow_sync: ShadowConversationSync | None = None,
+    shadow_output_prepare: (
+        Callable[[str, str, str, str | None, str], ExternalShadowOutput] | None
+    ) = None,
     bg_reply_sender: Callable[[str, ReplyContext, str], Awaitable[None]] | None = None,
     max_session_drain_locks: int = 4096,
 ) -> InboundPipeline:
@@ -78,6 +82,8 @@ def build_inbound_pipeline(
         repository=session_store,
         kernel=kernel,
     )
+    if product_default_model is None:
+        product_default_model = "test-model"
     coordinator = SessionRunCoordinator(
         kernel=kernel,
         session_binder=binder,
@@ -91,6 +97,7 @@ def build_inbound_pipeline(
         product_default_model=product_default_model,
         relay_lifecycle_callback=relay_lifecycle_callback,
         kernel_event_observer=kernel_event_observer,
+        shadow_output_prepare=shadow_output_prepare,
         bg_reply_sender=bg_reply_sender,
         run_idle_timeout_seconds=run_idle_timeout_seconds,
         max_transition_locks=max_session_drain_locks,

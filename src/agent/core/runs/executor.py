@@ -83,6 +83,9 @@ class ConversationTarget(Protocol):
     async def discard_turn(self, turn_id: str) -> bool:
         """Selectively remove one persisted turn inside the owner loop."""
 
+    async def replace_runtime(self, **kwargs: Any) -> bool:
+        """Replace one conversation runtime on the owner loop."""
+
 
 class AuxiliaryHandle:
     """Expose typed auxiliary cancellation/result without a raw coroutine seam."""
@@ -237,6 +240,15 @@ class KernelExecutor:
             self._admit_lifecycle(
                 "discard_turn",
                 lambda: session.discard_turn(turn_id),
+            )
+        )
+
+    async def replace_runtime(self, session: ConversationTarget, **kwargs: Any) -> bool:
+        """Run a complete runtime replacement on the conversation owner loop."""
+
+        return await asyncio.wrap_future(
+            self._admit_lifecycle(
+                "replace_runtime", lambda: session.replace_runtime(**kwargs)
             )
         )
 

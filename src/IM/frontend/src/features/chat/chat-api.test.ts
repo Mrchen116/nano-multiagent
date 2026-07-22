@@ -64,12 +64,12 @@ describe("chat-api", () => {
   it("listMessages includes mark_as_read=true and parses items", async () => {
     const f = fetch as unknown as ReturnType<typeof vi.fn>;
     f.mockResolvedValueOnce(jsonResponse({ items: [
-      { id: "m1", conversation_id: "c1", sender: { type: "user", id: "user-1" }, sender_user_id: "user:user-1", sender_type: "user", content: "hi", attachments: [], delivery_status: "completed", created_at: "2026-01-01T00:00:01Z" }
+      { type: "message", message: { id: "m1", conversation_id: "c1", sender: { type: "user", id: "user-1" }, sender_user_id: "user:user-1", sender_type: "user", content: "hi", attachments: [], delivery_status: "completed", created_at: "2026-01-01T00:00:01Z", permission_requests: [] } }
     ], next_before_message_id: null }));
 
     const out = await listMessages("c1", { markAsRead: true });
     expect(out.items).toHaveLength(1);
-    expect(out.items[0]!.content).toBe("hi");
+    expect(out.items[0]).toMatchObject({ type: "message", message: { content: "hi" } });
     expect((f.mock.calls[0]![0] as string)).toContain("mark_as_read=true");
   });
 

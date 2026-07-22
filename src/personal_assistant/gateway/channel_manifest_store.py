@@ -8,6 +8,11 @@ import os
 from pathlib import Path
 import threading
 from typing import TYPE_CHECKING, Mapping
+
+from personal_assistant.channels.channel_credentials import (
+    GatewayChannelAad,
+    GatewayChannelKey,
+)
 from uuid import uuid4
 
 if TYPE_CHECKING:
@@ -116,6 +121,60 @@ class ChannelManifestStore:
         with self._state_lock:
             state = self._read_state()
         return self._decode_manifest_payload(state.get("retry_manifest"))
+
+    def bootstrap_items(
+        self, *, owner_id: str, channel_key: GatewayChannelKey
+    ) -> list[Mapping[str, object]]:
+        """Re-seal cached channels for the owner that accepted the new node binding.
+
+        The encrypted cache may predate the IM instance receiving the bootstrap. Its
+        owner is authenticated AAD, so each envelope is opened locally and immediately
+        re-sealed for the requesting owner. Plaintext credentials never enter the frame,
+        cache, logs, or return value.
+        """
+        cached = self.load_manifest()
+        if cached is None:
+            return []
+        if not owner_id:
+            raise ChannelManifestStoreError("bootstrap owner_id is required")
+        items: list[Mapping[str, object]] = []
+        for channel in cached.channels:
+            credentials = channel_key.open(
+                envelope=channel.credential_envelope,
+                aad=GatewayChannelAad(
+                    owner_id=cached.owner_id,
+                    node_id=cached.node_id,
+                    agent_id=channel.agent_id,
+                    channel_id=channel.channel_id,
+                    provider=channel.provider,
+                    credential_revision=channel.credential_revision,
+                ),
+            )
+            envelope = channel_key.seal(
+                secret=credentials,
+                aad=GatewayChannelAad(
+                    owner_id=owner_id,
+                    node_id=cached.node_id,
+                    agent_id=channel.agent_id,
+                    channel_id=channel.channel_id,
+                    provider=channel.provider,
+                    credential_revision=channel.credential_revision,
+                ),
+            )
+            items.append(
+                {
+                    "channel_id": channel.channel_id,
+                    "agent_id": channel.agent_id,
+                    "provider": channel.provider,
+                    "enabled": channel.enabled,
+                    "config": dict(channel.config),
+                    "credential_envelope": envelope,
+                    "credential_key_id": channel.credential_key_id,
+                    "credential_revision": channel.credential_revision,
+                    "provider_runtime": dict(channel.provider_runtime),
+                }
+            )
+        return items
 
     def quarantine_key_mismatch(self) -> CachedChannelManifest | None:
         """Move a foreign-key cache aside and return its non-secret desired metadata.

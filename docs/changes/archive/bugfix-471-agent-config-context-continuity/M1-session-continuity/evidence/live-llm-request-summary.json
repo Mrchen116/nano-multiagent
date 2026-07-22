@@ -1,0 +1,52 @@
+[
+  {
+    "file": "/Users/czj/Repos/LLM_PROXY/logs/session/2026-07-21_15-04-02_269_sess_f4581d9e33eb82fd/2026-07-21_15-04-02_269-req-anthropic_messages.json",
+    "model": "kimiCoding:kimi-for-coding",
+    "user_message_count": 1,
+    "user_texts": [
+      "BUGFIX471-CD110C29: Remember this exact direct token DIRECT-858E651CD8. Reply with exactly ACK DIRECT-858E651CD8."
+    ],
+    "tool_names": [],
+    "system_has_phase_one": true,
+    "system_has_phase_two": false
+  },
+  {
+    "file": "/Users/czj/Repos/LLM_PROXY/logs/session/2026-07-21_15-04-02_269_sess_f4581d9e33eb82fd/2026-07-21_15-04-13_139-req-anthropic_messages.json",
+    "model": "kimiCoding:kimi-for-coding",
+    "user_message_count": 2,
+    "user_texts": [
+      "BUGFIX471-CD110C29: Remember this exact direct token DIRECT-858E651CD8. Reply with exactly ACK DIRECT-858E651CD8.",
+      "BUGFIX471-CD110C29: What prior direct token did I ask you to remember? Follow the current system instruction exactly."
+    ],
+    "tool_names": [
+      "read"
+    ],
+    "system_has_phase_one": false,
+    "system_has_phase_two": true
+  },
+  {
+    "file": "/Users/czj/Repos/LLM_PROXY/logs/session/2026-07-21_15-04-16_216_sess_06537293e32afdd3/2026-07-21_15-04-16_216-req-anthropic_messages.json",
+    "model": "kimiCoding:kimi-for-coding",
+    "user_message_count": 1,
+    "user_texts": [
+      "[Test User] <mention type=\"agent\" target_id=\"default-agent\"/> BUGFIX471-CD110C29: Remember group token GROUP-C199C4971D; reply ACK GROUP-C199C4971D."
+    ],
+    "tool_names": [
+      "read"
+    ],
+    "system_has_phase_one": true,
+    "system_has_phase_two": false
+  },
+  {
+    "file": "/Users/czj/Repos/LLM_PROXY/logs/session/2026-07-21_15-04-16_216_sess_06537293e32afdd3/2026-07-21_15-04-19_294-req-anthropic_messages.json",
+    "model": "kimiCoding:kimi-for-coding",
+    "user_message_count": 2,
+    "user_texts": [
+      "[Test User] <mention type=\"agent\" target_id=\"default-agent\"/> BUGFIX471-CD110C29: Remember group token GROUP-C199C4971D; reply ACK GROUP-C199C4971D.",
+      "[Test User] <mention type=\"agent\" target_id=\"default-agent\"/> BUGFIX471-CD110C29: What group token did I ask you to remember? Follow the current system instruction exactly."
+    ],
+    "tool_names": [],
+    "system_has_phase_one": false,
+    "system_has_phase_two": true
+  }
+]

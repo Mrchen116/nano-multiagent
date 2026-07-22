@@ -1,0 +1,93 @@
+{
+  "verified_at": "2026-07-21T07:56:18Z",
+  "result": "passed",
+  "channel": {
+    "provider": "feishu",
+    "chat_id": "oc_52f8a9ebab8f327d18d5f9e51ac3ea1f",
+    "bot_open_id": "ou_b33ae16df1338a00a77d4cdbec653b71",
+    "single_gateway_connection": "The main Gateway was stopped before starting the M1 foreground Gateway. Each M1 restart stopped the preceding foreground process before starting its replacement; the final listener child held one established Feishu TLS connection."
+  },
+  "persistent_binding": {
+    "session_key": "feishu:feishu:cli_aac9315ef3f9dbda:group:oc_52f8a9ebab8f327d18d5f9e51ac3ea1f:default-agent",
+    "kernel_session_id": "sess_2b91b25422a18eee",
+    "created_at": "2026-07-21T07:53:17.743227+00:00",
+    "updated_at_after_restart_run": "2026-07-21T07:56:18.452829+00:00",
+    "runtime_identity_schema": "runtime-v1",
+    "runtime_identity_after_phase_two": "f6b2f7e9b4fa85006caf8c0cee9e036974d82508455a55678918d873a516a615"
+  },
+  "phase_one": {
+    "profile": {
+      "profile_version": 7,
+      "model": "kimiCoding:kimi-for-coding",
+      "system_prompt": "BUGFIX471 Feishu phase one: reply exactly ACK-FEISHU-4A7D when asked for the phase-one token.",
+      "tool_allowlist": [],
+      "features": {}
+    },
+    "trigger": {
+      "message_id": "om_x100b6ac6180f0028b1636da11130edb",
+      "text": "@nano BUGFIX471-FEISHU-M1-A4: remember external token FEISHU-4A7D. Reply exactly ACK-FEISHU-4A7D."
+    },
+    "visible_reply": {
+      "message_id": "om_x100b6ac619e4f888b32eee3fcc6e8a8",
+      "text": "ACK-FEISHU-4A7D"
+    },
+    "request": {
+      "proxy_file": "/Users/czj/Repos/LLM_PROXY/logs/session/2026-07-21_15-53-17_750_sess_2b91b25422a18eee/2026-07-21_15-53-17_750-req-anthropic_messages.json",
+      "model": "kimiCoding:kimi-for-coding",
+      "tools": [],
+      "message_count": 4,
+      "system_contains_phase_one": true,
+      "contains_prior_phase_one_message": false
+    }
+  },
+  "phase_two": {
+    "profile": {
+      "profile_version": 8,
+      "model": "kimiCoding:kimi-for-coding",
+      "system_prompt": "BUGFIX471 Feishu phase two: preserve the prior external token and reply exactly CONFIRMED-FEISHU-4A7D when asked to cite it.",
+      "tool_allowlist": ["read"],
+      "features": {}
+    },
+    "trigger": {
+      "message_id": "om_x100b6ac6120ebca4b2ce1f6c773e5d2",
+      "text": "@nano BUGFIX471-FEISHU-M1-B: cite the external token from phase one. Reply exactly CONFIRMED-FEISHU-4A7D."
+    },
+    "visible_reply": {
+      "message_id": "om_x100b6ac613e41098b1cff944e304e28",
+      "text": "CONFIRMED-FEISHU-4A7D"
+    },
+    "request": {
+      "proxy_file": "/Users/czj/Repos/LLM_PROXY/logs/session/2026-07-21_15-53-17_750_sess_2b91b25422a18eee/2026-07-21_15-54-53_691-req-anthropic_messages.json",
+      "model": "kimiCoding:kimi-for-coding",
+      "tools": ["read"],
+      "message_count": 3,
+      "system_contains_phase_two": true,
+      "contains_phase_one_trigger": true
+    }
+  },
+  "restart": {
+    "operation": "Stopped the M1 foreground Gateway, verified that its listener had exited, then started one replacement M1 foreground Gateway using the same persistent Gateway config and runtime directory.",
+    "trigger": {
+      "message_id": "om_x100b6ac62cc13ca8b10304422e5b89d",
+      "text": "@nano BUGFIX471-FEISHU-M1-C: after Gateway restart, cite the external token again. Reply exactly RESTARTED-FEISHU-4A7D."
+    },
+    "visible_reply": {
+      "message_id": "om_x100b6ac62c4800b0b26f58b537ecd9e",
+      "text": "RESTARTED-FEISHU-4A7D"
+    },
+    "request": {
+      "proxy_file": "/Users/czj/Repos/LLM_PROXY/logs/session/2026-07-21_15-53-17_750_sess_2b91b25422a18eee/2026-07-21_15-56-18_460-req-anthropic_messages.json",
+      "model": "kimiCoding:kimi-for-coding",
+      "tools": ["read"],
+      "message_count": 5,
+      "system_contains_phase_two": true,
+      "contains_phase_one_trigger": true,
+      "contains_phase_two_trigger": true
+    }
+  },
+  "restoration": {
+    "profile": "The default-agent profile was restored to its pre-validation system prompt, model, tool allowlist, and empty feature map.",
+    "gateway": "The M1 foreground Gateway was stopped. The main Gateway was restarted from /Users/czj/Repos/nano-multiagent with its persistent config; its Feishu listener child held one established TLS connection."
+  },
+  "conclusion": "The real Feishu group retained one external conversation binding and kernel session across complete configuration replacement and Gateway restart. Requests at each new-run boundary used the expected complete runtime, and later requests retained the phase-one user history."
+}

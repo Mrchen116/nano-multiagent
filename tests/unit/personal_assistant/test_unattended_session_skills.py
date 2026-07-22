@@ -22,10 +22,15 @@ from personal_assistant.gateway.kernel_client import InProcessKernelClient
 class _Kernel:
     def __init__(self) -> None:
         self.create_calls: list[dict[str, Any]] = []
+        self.submit_calls: list[dict[str, Any]] = []
 
     async def create_session(self, **kwargs: Any) -> SimpleNamespace:
         self.create_calls.append(kwargs)
         return SimpleNamespace(session_id="session-a")
+
+    def submit(self, **kwargs: Any) -> SimpleNamespace:
+        self.submit_calls.append(kwargs)
+        return SimpleNamespace(run_id="run-a")
 
 
 @pytest.mark.asyncio
@@ -73,6 +78,90 @@ async def test_unattended_session_inherits_agent_skill_scope(
         )
 
     assert kernel.create_calls[0]["skills"] == expected_skills
+
+
+@pytest.mark.asyncio
+async def test_unattended_session_creates_complete_runtime_when_model_resolves(
+    tmp_path: Path,
+) -> None:
+    """Cron and heartbeat creation give Kernel one complete model-owned runtime."""
+
+    workspace = tmp_path / "agent-a"
+    workspace.mkdir()
+    catalog = LiveAgentCatalog(
+        (
+            AgentWorkspaceConfig(
+                agent_id="agent-a",
+                workspace_root=workspace,
+                default_model="model-a",
+                skills=("research",),
+                tool_allowlist=("read",),
+                features={"memory_curation": False},
+            ),
+        )
+    )
+    kernel = _Kernel()
+    shim = InProcessKernelClient(kernel, agent_catalog=catalog)
+
+    await shim.create_agent_session(
+        agent_snapshot=catalog.require("agent-a"),
+        workspace_root=str(workspace),
+        product_id="personal_assistant",
+        metadata={"agent_id": "agent-a"},
+    )
+
+    runtime = kernel.create_calls[0]["runtime"]
+    assert runtime.model == "model-a"
+    assert runtime.skills == ["research"]
+    assert runtime.enabled_tools == ["read"]
+    assert runtime.features == {"memory_curation": False}
+
+
+@pytest.mark.asyncio
+async def test_cron_runner_creates_complete_runtime_through_gateway_adapter(
+    tmp_path: Path,
+) -> None:
+    """Cron's public runner path gives Kernel one complete isolated runtime."""
+    from personal_assistant.scheduler.cron_runner import CronRunner
+    from personal_assistant.scheduler.cron_scheduler import CronJob
+
+    workspace = tmp_path / "agent-a"
+    workspace.mkdir()
+    catalog = LiveAgentCatalog(
+        (
+            AgentWorkspaceConfig(
+                agent_id="agent-a",
+                workspace_root=workspace,
+                default_model="model-a",
+                skills=("research",),
+                tool_allowlist=("read",),
+                features={"memory_curation": False},
+            ),
+        )
+    )
+    kernel = _Kernel()
+    runner = CronRunner(
+        agent_id="agent-a",
+        workspace_root=workspace,
+        kernel_client=InProcessKernelClient(kernel, agent_catalog=catalog),
+    )
+
+    submitted = await runner.submit(
+        job=CronJob(
+            id="cron-a",
+            name="Cron A",
+            schedule={"kind": "every", "everyMs": 60_000},
+            instruction="Check status",
+        )
+    )
+
+    assert submitted == ("run-a", "session-a")
+    runtime = kernel.create_calls[0]["runtime"]
+    assert runtime.model == "model-a"
+    assert runtime.skills == ["research"]
+    assert runtime.enabled_tools == ["read"]
+    assert runtime.features == {"memory_curation": False}
+    assert kernel.submit_calls[0]["model"] == "model-a"
 
 
 @pytest.mark.asyncio

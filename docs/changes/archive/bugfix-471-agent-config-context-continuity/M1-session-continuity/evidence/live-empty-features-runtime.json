@@ -1,0 +1,33 @@
+{
+  "run_tag": "BUGFIX471-FEATURES-EMPTY",
+  "environment": "worktree-isolated IM and Gateway started by scripts/e2e-up.sh",
+  "conversation": {
+    "conversation_id": "fdadff84cae84d3189f2dae9c0312581",
+    "kernel_session_id": "sess_96103c1d26475e35",
+    "agent_id": "default-agent",
+    "profile_features": {}
+  },
+  "before_restart": {
+    "user_message_id": "f948db790e224c41a4d830a65120ad08",
+    "user_text": "BUGFIX471-FEATURES-EMPTY: reply exactly ACK-FEATURES-EMPTY.",
+    "agent_message_id": "12c21f51ae30477db33a8d3b37bdc0e1",
+    "agent_reply": "ACK-FEATURES-EMPTY"
+  },
+  "durable_runtime": {
+    "transcript_metadata": {
+      "agent_features": {},
+      "__nano_internal_runtime_v1__": {
+        "model": "kimiCoding:kimi-for-coding",
+        "features": {}
+      }
+    },
+    "result": "the complete runtime persisted the explicit empty mapping rather than null"
+  },
+  "after_gateway_restart": {
+    "user_message_id": "93927389ffc24e098c7a4e4d878fc5b8",
+    "user_text": "BUGFIX471-FEATURES-EMPTY: after Gateway restart, what exact acknowledgement did I request? Reply exactly ACK-FEATURES-EMPTY.",
+    "agent_message_id": "e7d7eebd22384952b45faf6543f22661",
+    "agent_reply": "ACK-FEATURES-EMPTY",
+    "result": "the same conversation retained prior context and replied after an isolated Gateway restart"
+  }
+}

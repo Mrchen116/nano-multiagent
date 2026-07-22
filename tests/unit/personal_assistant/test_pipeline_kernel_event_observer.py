@@ -12,6 +12,12 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from agent.sdk import (
+    SessionReconfigureResult,
+    SessionRuntimeConfig,
+    SessionRuntimeState,
+)
+from agent.sdk.runtime import identify_runtime
 from personal_assistant.channels.base import InboundMessage, OutboundMessage
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.gateway.channel_registry import ChannelRegistry
@@ -49,10 +55,47 @@ class _StreamingKernel:
         self._session_counter = 0
         self.run_id: str = "run-1"
         self._run_counter = 0
+        self._runtime_by_session: dict[str, SessionRuntimeState] = {}
 
-    async def create_session(self, **_kwargs: Any) -> _FakeSession:
+    async def create_session(self, **kwargs: Any) -> _FakeSession:
         self._session_counter += 1
-        return _FakeSession(session_id=f"sess-{self._session_counter}")
+        session_id = f"sess-{self._session_counter}"
+        runtime = kwargs.get("runtime")
+        if runtime is not None:
+            self._runtime_by_session[session_id] = SessionRuntimeState(
+                runtime=runtime,
+                identity=identify_runtime(runtime),
+            )
+        return _FakeSession(session_id=session_id)
+
+    def identify_runtime(self, *, runtime: SessionRuntimeConfig):
+        """Return the SDK-owned identity expected by Gateway admission."""
+        return identify_runtime(runtime)
+
+    async def get_session_runtime(
+        self, *, session_id: str, workspace_root: Path | str
+    ) -> SessionRuntimeState | None:
+        """Expose the persisted complete runtime for admission tests."""
+        del workspace_root
+        return self._runtime_by_session.get(session_id)
+
+    async def reconfigure_session(
+        self,
+        *,
+        session_id: str,
+        workspace_root: Path | str,
+        runtime: SessionRuntimeConfig,
+    ) -> SessionReconfigureResult:
+        """Replace a fake session's complete runtime without changing its address."""
+        del workspace_root
+        state = SessionRuntimeState(runtime=runtime, identity=identify_runtime(runtime))
+        previous = self._runtime_by_session.get(session_id)
+        self._runtime_by_session[session_id] = state
+        return SessionReconfigureResult(
+            session_id=session_id,
+            changed=previous != state,
+            state=state,
+        )
 
     def get_session(
         self, session_id: str, *, workspace_root: Any = None, **_kwargs

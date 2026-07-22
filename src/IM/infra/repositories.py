@@ -3,6 +3,7 @@
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
+import hashlib
 import json
 from pathlib import Path
 import sqlite3
@@ -10,6 +11,7 @@ from uuid import uuid4
 
 from IM.domain.models import (
     Actor,
+    AgentConfigChangedBoundary,
     AgentProfile,
     Attachment,
     Conversation,
@@ -1238,6 +1240,7 @@ class MessageRepository:
         delivery_status: str | None = None,
         sender_display_name: str | None = None,
         emit_created_event: bool = False,
+        caller_idempotency_key: str | None = None,
     ) -> Message:
         """Create a message in a conversation.
 
@@ -1265,12 +1268,56 @@ class MessageRepository:
             raise ValueError("message must include content or attachments")
         if sender_type not in {"user", "agent", "system"}:
             raise ValueError("sender_type must be one of: user, agent, system")
+        normalized_idempotency_key = (
+            caller_idempotency_key.strip() if caller_idempotency_key else None
+        )
+        if normalized_idempotency_key == "":
+            raise ValueError("caller_idempotency_key must be non-empty")
         conversation_exists = self._connection.execute(
             "SELECT owner_id FROM conversations WHERE id = ?",
             (conversation_id,),
         ).fetchone()
         if conversation_exists is None:
             raise ValueError("conversation_id not found")
+        stored_idempotency_key = (
+            _scoped_caller_idempotency_key(conversation_id, normalized_idempotency_key)
+            if normalized_idempotency_key is not None
+            else None
+        )
+        if stored_idempotency_key is not None:
+            existing = self._connection.execute(
+                """
+                SELECT
+                    messages.id,
+                    messages.conversation_id,
+                    messages.sender_user_id,
+                    messages.sender_type,
+                    messages.content,
+                    messages.attachments_json,
+                    messages.delivery_status,
+                    messages.created_at,
+                    messages.tool_calls_json,
+                    messages.thinking_json,
+                    messages.token_usage_json,
+                    messages.elapsed_ms,
+                    messages.permission_request_json,
+                    messages.kernel_message_id,
+                    users.username AS sender_username,
+                    COALESCE(messages.sender_display_name, users.display_name)
+                        AS sender_display_name
+                FROM messages
+                LEFT JOIN users ON users.id = messages.sender_user_id
+                WHERE messages.conversation_id = ?
+                  AND messages.caller_idempotency_key IN (?, ?)
+                """,
+                (
+                    conversation_id,
+                    stored_idempotency_key,
+                    normalized_idempotency_key,
+                ),
+            ).fetchone()
+            if existing is not None:
+                return self._message_from_row(existing)
 
         sender_user = self._resolve_sender_user_row(
             sender_user_id=sender_user_id,
@@ -1377,8 +1424,9 @@ class MessageRepository:
                     tool_calls_json,
                     token_usage_json,
                     kernel_message_id,
-                    sender_display_name
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    sender_display_name,
+                    caller_idempotency_key
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     message_id,
@@ -1393,6 +1441,7 @@ class MessageRepository:
                     token_usage_json,
                     kernel_message_id,
                     display_name_override,
+                    stored_idempotency_key,
                 ),
             )
             pending_live_events.append(
@@ -3182,6 +3231,269 @@ class RelayRunIdentity:
     agent_id: str | None
 
 
+class AgentConfigBoundaryRepository:
+    """Persist non-message runtime-cache boundaries and their replay events."""
+
+    def __init__(
+        self,
+        connection: sqlite3.Connection,
+        notify: Callable[[ConversationEvent], None] | None = None,
+    ) -> None:
+        self._connection = connection
+        self._notify = notify
+
+    def record_from_gateway(
+        self,
+        *,
+        boundary_id: str,
+        node_id: str,
+        owner_id: str,
+        conversation_id: str,
+        agent_id: str,
+        before_message_id: str,
+        runtime_fingerprint: str,
+        fingerprint_schema: str,
+        profile_version: int | None,
+        applied_at: str,
+    ) -> AgentConfigChangedBoundary:
+        """Durably record a Gateway-confirmed boundary after ownership validation.
+
+        Raises:
+            ValueError: When the Gateway, conversation, agent, or anchor do not form
+                one owned conversation, or a reused boundary id changes its payload.
+        """
+        if profile_version is not None and profile_version < 0:
+            raise ValueError("profile_version must be non-negative when present")
+        conversation = self._connection.execute(
+            "SELECT owner_id FROM conversations WHERE id = ?", (conversation_id,)
+        ).fetchone()
+        if conversation is None:
+            raise ValueError("conversation_id not found")
+        if owner_id and str(conversation["owner_id"]) != owner_id:
+            raise ValueError("conversation is outside gateway owner scope")
+        anchor = self._connection.execute(
+            "SELECT conversation_id FROM messages WHERE id = ?", (before_message_id,)
+        ).fetchone()
+        if anchor is None or str(anchor["conversation_id"]) != conversation_id:
+            raise ValueError("before_message_id is not in conversation")
+        agent = self._connection.execute(
+            """
+            SELECT agent_profiles.node_id
+            FROM conversation_participants
+            JOIN users ON users.id = conversation_participants.user_id
+            JOIN agent_profiles ON agent_profiles.agent_id = substr(users.username, 7)
+            WHERE conversation_participants.conversation_id = ?
+              AND users.username = ?
+            """,
+            (conversation_id, f"agent:{agent_id}"),
+        ).fetchone()
+        if agent is None:
+            raise ValueError("agent_id is not a conversation participant")
+        if str(agent["node_id"] or "") != node_id:
+            raise ValueError("agent_id is not hosted by gateway node")
+        return self._record(
+            boundary_id=boundary_id,
+            conversation_id=conversation_id,
+            agent_id=agent_id,
+            before_message_id=before_message_id,
+            runtime_fingerprint=runtime_fingerprint,
+            fingerprint_schema=fingerprint_schema,
+            profile_version=profile_version,
+            applied_at=applied_at,
+        )
+
+    def copy_boundary(
+        self,
+        *,
+        source: AgentConfigChangedBoundary,
+        conversation_id: str,
+        before_message_id: str,
+    ) -> AgentConfigChangedBoundary:
+        """Copy a pre-fork boundary onto its mapped target anchor."""
+        return self._record(
+            boundary_id=uuid4().hex,
+            conversation_id=conversation_id,
+            agent_id=source.agent_id,
+            before_message_id=before_message_id,
+            runtime_fingerprint=source.runtime_fingerprint,
+            fingerprint_schema=source.fingerprint_schema,
+            profile_version=source.profile_version,
+            applied_at=source.applied_at,
+        )
+
+    def list_for_message_ids(
+        self, *, conversation_id: str, message_ids: list[str]
+    ) -> dict[str, list[AgentConfigChangedBoundary]]:
+        """Return boundaries keyed by their anchor message in stable event order."""
+        if not message_ids:
+            return {}
+        placeholders = ", ".join("?" for _ in message_ids)
+        rows = self._connection.execute(
+            f"""
+            SELECT boundary_id, conversation_id, agent_id, before_message_id,
+                   runtime_fingerprint, fingerprint_schema, profile_version,
+                   applied_at, event_id
+            FROM agent_config_boundaries
+            WHERE conversation_id = ? AND before_message_id IN ({placeholders})
+            ORDER BY event_id
+            """,
+            (conversation_id, *message_ids),
+        ).fetchall()
+        result: dict[str, list[AgentConfigChangedBoundary]] = {}
+        for row in rows:
+            boundary = self._boundary_from_row(row)
+            result.setdefault(boundary.before_message_id, []).append(boundary)
+        return result
+
+    def list_all(self, *, conversation_id: str) -> list[AgentConfigChangedBoundary]:
+        """Return all boundaries in durable insertion order for fork projection."""
+        rows = self._connection.execute(
+            """
+            SELECT boundary_id, conversation_id, agent_id, before_message_id,
+                   runtime_fingerprint, fingerprint_schema, profile_version,
+                   applied_at, event_id
+            FROM agent_config_boundaries
+            WHERE conversation_id = ?
+            ORDER BY event_id
+            """,
+            (conversation_id,),
+        ).fetchall()
+        return [self._boundary_from_row(row) for row in rows]
+
+    def _record(
+        self,
+        *,
+        boundary_id: str,
+        conversation_id: str,
+        agent_id: str,
+        before_message_id: str,
+        runtime_fingerprint: str,
+        fingerprint_schema: str,
+        profile_version: int | None,
+        applied_at: str,
+    ) -> AgentConfigChangedBoundary:
+        existing_by_id = self._connection.execute(
+            """
+            SELECT boundary_id, conversation_id, agent_id, before_message_id,
+                   runtime_fingerprint, fingerprint_schema, profile_version,
+                   applied_at, event_id
+            FROM agent_config_boundaries WHERE boundary_id = ?
+            """,
+            (boundary_id,),
+        ).fetchone()
+        if existing_by_id is not None:
+            existing = self._boundary_from_row(existing_by_id)
+            if (
+                existing.conversation_id != conversation_id
+                or existing.agent_id != agent_id
+                or existing.before_message_id != before_message_id
+                or existing.runtime_fingerprint != runtime_fingerprint
+                or existing.fingerprint_schema != fingerprint_schema
+                or existing.profile_version != profile_version
+                or existing.applied_at != applied_at
+            ):
+                raise ValueError("boundary_id conflicts with persisted boundary")
+            return existing
+        existing_natural = self._connection.execute(
+            """
+            SELECT boundary_id, conversation_id, agent_id, before_message_id,
+                   runtime_fingerprint, fingerprint_schema, profile_version,
+                   applied_at, event_id
+            FROM agent_config_boundaries
+            WHERE conversation_id = ? AND before_message_id = ? AND runtime_fingerprint = ?
+            """,
+            (conversation_id, before_message_id, runtime_fingerprint),
+        ).fetchone()
+        if existing_natural is not None:
+            return self._boundary_from_row(existing_natural)
+        payload = {
+            "id": boundary_id,
+            "conversation_id": conversation_id,
+            "agent_id": agent_id,
+            "before_message_id": before_message_id,
+            "applied_at": applied_at,
+        }
+        event_created_at = _utc_now()
+        event: ConversationEvent
+        with self._connection:
+            cursor = self._connection.execute(
+                """
+                INSERT INTO conversation_events(
+                    conversation_id, message_id, event_type, delivery_status,
+                    payload_json, created_at
+                ) VALUES (?, NULL, 'agent.config.changed', 'completed', ?, ?)
+                """,
+                (
+                    conversation_id,
+                    json.dumps(payload, ensure_ascii=True, separators=(",", ":")),
+                    event_created_at,
+                ),
+            )
+            event = ConversationEvent(
+                event_id=int(cursor.lastrowid),
+                conversation_id=conversation_id,
+                message_id=None,
+                event_type="agent.config.changed",
+                delivery_status="completed",
+                payload_json=json.dumps(
+                    payload, ensure_ascii=True, separators=(",", ":")
+                ),
+                created_at=event_created_at,
+            )
+            self._connection.execute(
+                """
+                INSERT INTO agent_config_boundaries(
+                    boundary_id, conversation_id, agent_id, before_message_id,
+                    runtime_fingerprint, fingerprint_schema, profile_version,
+                    applied_at, event_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    boundary_id,
+                    conversation_id,
+                    agent_id,
+                    before_message_id,
+                    runtime_fingerprint,
+                    fingerprint_schema,
+                    profile_version,
+                    applied_at,
+                    event.event_id,
+                ),
+            )
+        boundary = AgentConfigChangedBoundary(
+            id=boundary_id,
+            conversation_id=conversation_id,
+            agent_id=agent_id,
+            before_message_id=before_message_id,
+            runtime_fingerprint=runtime_fingerprint,
+            fingerprint_schema=fingerprint_schema,
+            profile_version=profile_version,
+            applied_at=applied_at,
+            event_id=event.event_id,
+        )
+        if self._notify is not None:
+            self._notify(event)
+        return boundary
+
+    @staticmethod
+    def _boundary_from_row(row: sqlite3.Row) -> AgentConfigChangedBoundary:
+        return AgentConfigChangedBoundary(
+            id=str(row["boundary_id"]),
+            conversation_id=str(row["conversation_id"]),
+            agent_id=str(row["agent_id"]),
+            before_message_id=str(row["before_message_id"]),
+            runtime_fingerprint=str(row["runtime_fingerprint"]),
+            fingerprint_schema=str(row["fingerprint_schema"]),
+            profile_version=(
+                int(row["profile_version"])
+                if row["profile_version"] is not None
+                else None
+            ),
+            applied_at=str(row["applied_at"]),
+            event_id=int(row["event_id"]),
+        )
+
+
 class EventRepository:
     """Persist and query conversation events."""
 
@@ -3952,6 +4264,17 @@ def _format_utc(dt: datetime) -> str:
     if dt.tzinfo is None:
         raise ValueError("_format_utc requires a timezone-aware datetime")
     return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _scoped_caller_idempotency_key(
+    conversation_id: str, caller_idempotency_key: str
+) -> str:
+    """Return an opaque retry key that is unique only within one conversation."""
+    digest = hashlib.sha256()
+    digest.update(conversation_id.encode("utf-8"))
+    digest.update(b"\0")
+    digest.update(caller_idempotency_key.encode("utf-8"))
+    return digest.hexdigest()
 
 
 def _utc_now() -> str:

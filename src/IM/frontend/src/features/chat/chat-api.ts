@@ -7,7 +7,8 @@ import type {
   Actor,
   Attachment,
   Conversation,
-  Message
+  Message,
+  TimelineItem
 } from "./chat-types";
 
 export async function listConversations(): Promise<Conversation[]> {
@@ -26,7 +27,7 @@ export interface ListMessagesOptions {
 }
 
 export interface ListMessagesResult {
-  items: Message[];
+  items: TimelineItem[];
   next_before_message_id: string | null;
 }
 
@@ -40,7 +41,17 @@ export async function listMessages(
   if (opts.markAsRead) params.set("mark_as_read", "true");
   const qs = params.toString();
   const url = `/im/v1/conversations/${encodeURIComponent(conversationId)}/messages${qs ? `?${qs}` : ""}`;
-  return authFetchJson<ListMessagesResult>(url, undefined, "listMessages");
+  const response = await authFetchJson<{ items: Array<TimelineItem | Message>; next_before_message_id: string | null }>(
+    url,
+    undefined,
+    "listMessages"
+  );
+  // During rolling deploys a stale IM can still return the former bare-message
+  // page. Normalize at the API seam so the workspace remains a typed consumer.
+  return {
+    ...response,
+    items: response.items.map((item) => "type" in item ? item : { type: "message", message: item })
+  };
 }
 
 export interface CreateMessageRequest {

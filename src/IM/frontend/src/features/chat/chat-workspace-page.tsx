@@ -21,7 +21,7 @@ import {
 } from "./chat-api";
 import {
   applyWsEvent,
-  compareMessages,
+  mergeTimelineItems,
   emptyConversationState,
   toChatWsEvent,
   type ConversationState
@@ -40,6 +40,7 @@ import {
   type Conversation,
   type Message,
   type PermissionRequest,
+  type TimelineItem,
   type WsEvent
 } from "./chat-types";
 import {
@@ -113,50 +114,46 @@ function mergeMessageWithExisting(message: Message, existing?: Message): Message
 function streamReducer(
   state: ConversationState,
   action:
-    | { type: "reset"; conversationId: string; messages: Message[]; preserveMessageIds?: ReadonlySet<string>; discardedMessageIds?: ReadonlySet<string> }
-    | { type: "prepend_history"; messages: Message[] }
+    | { type: "reset"; conversationId: string; timeline: TimelineItem[]; preserveMessageIds?: ReadonlySet<string>; discardedMessageIds?: ReadonlySet<string> }
+    | { type: "prepend_history"; timeline: TimelineItem[] }
     | { type: "event"; event: WsEvent; sendersById?: Record<string, string | undefined> }
     | { type: "append_optimistic"; message: Message }
 ): ConversationState {
-  if (action.type === "reset") {
-    // Preserve token_usage from existing state if server response lacks it
-    // (token_usage is only available via WS message.completed, not in history fetch)
-    const existingById = state.conversation_id === action.conversationId
+  if (action.type === "reset" || action.type === "prepend_history") {
+    const targetConversationId = action.type === "reset" ? action.conversationId : state.conversation_id;
+    if (targetConversationId === null) return state;
+    // REST does not carry live-only token usage. Preserve that projection while
+    // merging the typed union so a refetch cannot erase a boundary or token chip.
+    const existingById = state.conversation_id === targetConversationId
       ? new Map(state.messages.map((m) => [m.id, m]))
-      : new Map();
-    const merged = action.messages.flatMap((m) => {
-      if (action.discardedMessageIds?.has(m.id)) return [];
-      const existing = existingById.get(m.id);
-      const message = existing && action.preserveMessageIds?.has(m.id)
+      : new Map<string, Message>();
+    const incoming = action.timeline.flatMap((rawItem): TimelineItem[] => {
+      // Query cache hydrated by an older client can retain bare messages. Keep
+      // that cache usable while normalizing the new REST union at this seam.
+      const item: TimelineItem = "type" in rawItem
+        ? rawItem
+        : { type: "message", message: rawItem as unknown as Message };
+      if (item.type !== "message") return [item];
+      if (action.type === "reset" && action.discardedMessageIds?.has(item.message.id)) return [];
+      const existing = existingById.get(item.message.id);
+      const message = action.type === "reset" && existing && action.preserveMessageIds?.has(item.message.id)
         ? existing
-        : mergeMessageWithExisting(m, existing);
-      return [message];
+        : mergeMessageWithExisting(item.message, existing);
+      return [{ type: "message", message }];
     });
-    const byId = new Map<string, Message>();
-    for (const m of merged) byId.set(m.id, m);
-    for (const m of state.messages) {
-      if (
-        state.conversation_id === action.conversationId
-        && !byId.has(m.id)
-        && action.preserveMessageIds?.has(m.id)
-      ) {
-        byId.set(m.id, m);
-      }
-    }
-    // bugfix-419: REST history may already be sorted, but sort explicitly so
-    // any WS messages merged in via existingById keep the ordering invariant.
-    return { conversation_id: action.conversationId, messages: Array.from(byId.values()).sort(compareMessages) };
-  }
-  if (action.type === "prepend_history") {
-    if (state.conversation_id === null) return state;
-    const existingById = new Map(state.messages.map((m) => [m.id, m]));
-    const mergedOlder = action.messages.map((m) => mergeMessageWithExisting(m, existingById.get(m.id)));
-    const byId = new Map<string, Message>();
-    for (const m of mergedOlder) byId.set(m.id, m);
-    for (const m of state.messages) {
-      if (!byId.has(m.id)) byId.set(m.id, m);
-    }
-    return { ...state, messages: Array.from(byId.values()).sort(compareMessages) };
+    const retained = action.type === "reset"
+      ? state.conversation_id === targetConversationId
+        ? [
+            ...(state.timeline?.filter((item) => item.type === "agent_config_changed") ?? []),
+            ...state.messages
+              .filter((message) => action.preserveMessageIds?.has(message.id))
+              .map((message) => ({ type: "message" as const, message }))
+          ]
+        : []
+      : state.timeline ?? state.messages.map((message) => ({ type: "message" as const, message }));
+    const merged = mergeTimelineItems(retained, incoming);
+    const messages = merged.flatMap((item) => item.type === "message" ? [item.message] : []);
+    return { conversation_id: targetConversationId, timeline: merged, messages };
   }
   if (action.type === "append_optimistic") {
     // feat-340-M18 R9-3: insert the user-authored bubble the moment the POST
@@ -167,7 +164,8 @@ function streamReducer(
     if (state.messages.some((m) => m.id === action.message.id)) return state;
     // bugfix-419: sort the new list so a WS echo with a different created_at
     // (e.g. server clock vs. client optimistic timestamp) lands in order.
-    return { ...state, messages: [...state.messages, action.message].sort(compareMessages) };
+    const timeline = mergeTimelineItems(state.timeline ?? [], [{ type: "message", message: action.message }]);
+    return { ...state, timeline, messages: timeline.flatMap((item) => item.type === "message" ? [item.message] : []) };
   }
   return applyWsEvent(state, action.event, { sendersById: action.sendersById });
 }
@@ -581,8 +579,8 @@ export function ChatWorkspacePage() {
     }
   }, [streamState.messages]);
 
-  const visibleMessages = streamState.conversation_id === conversationId
-    ? streamState.messages
+  const visibleTimeline = streamState.conversation_id === conversationId
+    ? streamState.timeline ?? []
     : [];
 
   useEffect(() => {
@@ -594,7 +592,7 @@ export function ChatWorkspacePage() {
     pendingLiveMessageIdsRef.current.clear();
     pendingDiscardedMessageIdsRef.current.clear();
     if (conversationId) {
-      dispatch({ type: "reset", conversationId, messages: [] });
+      dispatch({ type: "reset", conversationId, timeline: [] });
     }
   }, [conversationId]);
 
@@ -605,24 +603,25 @@ export function ChatWorkspacePage() {
     if (!conversationId || !messagesQuery.data) return;
     setHistoryCursor(messagesQuery.data.next_before_message_id);
     setHasMoreHistory(messagesQuery.data.next_before_message_id !== null);
-    const restored = messagesQuery.data.items.map((m) => {
+    const restored = messagesQuery.data.items.map((item): TimelineItem => {
+      if (item.type !== "message") return item;
+      const m = item.message;
       const cached = tokenUsageCache.current.get(m.id);
       if (cached) {
-        return { ...m, token_usage: cached.token_usage, delivery_status: cached.delivery_status };
+        return { type: "message", message: { ...m, token_usage: cached.token_usage, delivery_status: cached.delivery_status } };
       }
       // Fallback to existing reducer state (legacy merge path)
-      if (m.token_usage) return m;
+      if (m.token_usage) return item;
       const existing = streamState.conversation_id === conversationId
         ? streamState.messages.find((sm) => sm.id === m.id)
         : undefined;
-      if (existing?.token_usage) {
-        return { ...m, token_usage: existing.token_usage, delivery_status: existing.delivery_status };
-      }
-      return m;
+      return existing?.token_usage
+        ? { type: "message", message: { ...m, token_usage: existing.token_usage, delivery_status: existing.delivery_status } }
+        : item;
     });
     const preserveMessageIds = new Set(pendingLiveMessageIdsRef.current);
     const discardedMessageIds = new Set(pendingDiscardedMessageIdsRef.current);
-    dispatch({ type: "reset", conversationId, messages: restored, preserveMessageIds, discardedMessageIds });
+    dispatch({ type: "reset", conversationId, timeline: restored, preserveMessageIds, discardedMessageIds });
     pendingLiveMessageIdsRef.current.clear();
     pendingDiscardedMessageIdsRef.current.clear();
   }, [conversationId, messagesQuery.data]);
@@ -640,7 +639,7 @@ export function ChatWorkspacePage() {
         markAsRead: false
       });
       if (conversationIdRef.current !== conversationId) return;
-      dispatch({ type: "prepend_history", messages: page.items });
+      dispatch({ type: "prepend_history", timeline: page.items });
       setHistoryCursor(page.next_before_message_id);
       setHasMoreHistory(page.next_before_message_id !== null);
     } finally {
@@ -682,7 +681,7 @@ export function ChatWorkspacePage() {
       onEvent: (event) => {
         const chatEvent = toChatWsEvent(event.eventType, event.payload, event.eventId);
         if (chatEvent && chatEvent.conversation_id === conversationIdRef.current) {
-          if (messagesQueryFetchingRef.current) {
+          if (messagesQueryFetchingRef.current && chatEvent.type !== "agent.config.changed") {
             if (chatEvent.type === "message.discarded") {
               pendingLiveMessageIdsRef.current.delete(chatEvent.message_id);
               pendingDiscardedMessageIdsRef.current.add(chatEvent.message_id);
@@ -1087,7 +1086,7 @@ export function ChatWorkspacePage() {
         activeConversation ? (
           <MessagePane
             conversation={activeConversation}
-            messages={visibleMessages}
+            timeline={visibleTimeline}
             mentionCandidates={mentionCandidates}
             draftSeed={draftSeed}
             slashSkills={slashSkills}

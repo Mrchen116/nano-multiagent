@@ -85,6 +85,7 @@ def get_web_im_service(request: Request) -> WebIMService:
     return WebIMService(
         conversations=_build_conversation_repository(request),
         messages=_build_message_repository(request),
+        boundaries=request.app.state.boundary_repository,
         relay_service=RelayService(request.app.state.connection),
         metrics_service=MetricsService(
             metrics=UsageMetricsRepository(request.app.state.connection)

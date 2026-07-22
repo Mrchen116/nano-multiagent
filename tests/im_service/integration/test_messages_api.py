@@ -42,6 +42,11 @@ def _create_conversation(client: TestClient, user_id: str, title: str) -> str:
     return response.json()["id"]
 
 
+def _message_items(timeline_items: list[dict]) -> list[dict]:
+    """Extract normal messages from a typed conversation timeline response."""
+    return [item["message"] for item in timeline_items if item["type"] == "message"]
+
+
 def test_messages_roundtrip_and_order(tmp_path: Path) -> None:
     """Create and list messages in insertion order for one conversation."""
     app = create_app(db_path=tmp_path / "im.db")
@@ -65,7 +70,10 @@ def test_messages_roundtrip_and_order(tmp_path: Path) -> None:
         assert listed.status_code == 200
         payload = listed.json()["items"]
 
-        assert [item["content"] for item in payload] == ["hello", "world"]
+        assert [item["content"] for item in _message_items(payload)] == [
+            "hello",
+            "world",
+        ]
 
 
 def test_external_find_or_create_and_message_display_name_roundtrip(
@@ -212,7 +220,7 @@ def test_list_messages_mark_as_read_clears_conversation_unread_counter(
             f"/im/v1/conversations/{conversation_id}/messages?mark_as_read=true"
         )
         assert listed.status_code == 200
-        assert [item["content"] for item in listed.json()["items"]] == [
+        assert [item["content"] for item in _message_items(listed.json()["items"])] == [
             "hello",
             "world",
         ]
@@ -272,6 +280,87 @@ def test_messages_are_isolated_by_conversation(tmp_path: Path) -> None:
         assert second_list.json()["next_before_message_id"] is None
 
 
+def test_timeline_pagination_keeps_boundary_with_anchor_without_spending_limit(
+    tmp_path: Path,
+) -> None:
+    """A boundary follows its anchor's message cursor rather than becoming a page item."""
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        owner_id = _create_user(client, "alice")
+        owner = UserRepository(app.state.connection).get_user(user_id=owner_id)
+        assert owner is not None
+        agent_user_id = seed_user_under_owner(
+            client,
+            username="agent:planner",
+            owner_id=owner.owner_id,
+        )
+        conversation = client.post(
+            "/im/v1/conversations",
+            json={
+                "title": "Planner",
+                "participant_ids": [owner_id, agent_user_id],
+            },
+        )
+        assert conversation.status_code == 201, conversation.text
+        conversation_id = conversation.json()["id"]
+        posted = [
+            client.post(
+                f"/im/v1/conversations/{conversation_id}/messages",
+                json={"sender_user_id": owner_id, "content": content},
+            )
+            for content in ("m1", "m2", "m3")
+        ]
+        assert all(response.status_code == 201 for response in posted)
+        anchor_id = posted[-1].json()["id"]
+
+        with client.websocket_connect("/im/ws/gateway") as gateway:
+            gateway.send_json(
+                {
+                    "type": "node.register",
+                    "payload": {"node_id": "node-1", "agents": ["planner"]},
+                }
+            )
+            assert gateway.receive_json()["type"] == "ack"
+            gateway.send_json(
+                {
+                    "type": "agent.config.boundary",
+                    "payload": {
+                        "boundary_id": "before-m3",
+                        "node_id": "node-1",
+                        "conversation_id": conversation_id,
+                        "agent_id": "planner",
+                        "before_message_id": anchor_id,
+                        "runtime_fingerprint": "runtime-3",
+                        "fingerprint_schema": "v1",
+                        "profile_version": 3,
+                        "applied_at": "2026-07-21T00:00:00Z",
+                    },
+                }
+            )
+            assert gateway.receive_json()["type"] == "ack"
+
+        newest_page = client.get(
+            f"/im/v1/conversations/{conversation_id}/messages?limit=1"
+        )
+        assert newest_page.status_code == 200, newest_page.text
+        assert [item["type"] for item in newest_page.json()["items"]] == [
+            "agent_config_changed",
+            "message",
+        ]
+        newest_messages = _message_items(newest_page.json()["items"])
+        assert [item["content"] for item in newest_messages] == ["m3"]
+        assert newest_page.json()["next_before_message_id"] == anchor_id
+
+        older_page = client.get(
+            f"/im/v1/conversations/{conversation_id}/messages?limit=1&before_message_id={anchor_id}"
+        )
+        assert older_page.status_code == 200, older_page.text
+        assert [item["type"] for item in older_page.json()["items"]] == ["message"]
+        older_messages = _message_items(older_page.json()["items"])
+        assert [item["content"] for item in older_messages] == ["m2"]
+        assert older_page.json()["next_before_message_id"] == older_messages[0]["id"]
+
+
 def test_messages_support_sender_type_attachments_and_pagination(
     tmp_path: Path,
 ) -> None:
@@ -314,7 +403,7 @@ def test_messages_support_sender_type_attachments_and_pagination(
             f"/im/v1/conversations/{conversation_id}/messages?limit=2"
         )
         assert first_page.status_code == 200
-        first_items = first_page.json()["items"]
+        first_items = _message_items(first_page.json()["items"])
         assert [item["content"] for item in first_items] == ["m2", "m3"]
         assert first_page.json()["next_before_message_id"] == first_items[0]["id"]
 
@@ -322,7 +411,7 @@ def test_messages_support_sender_type_attachments_and_pagination(
             f"/im/v1/conversations/{conversation_id}/messages?limit=2&before_message_id={first_items[0]['id']}"
         )
         assert second_page.status_code == 200
-        second_items = second_page.json()["items"]
+        second_items = _message_items(second_page.json()["items"])
         assert [item["content"] for item in second_items] == ["m1"]
         assert second_page.json()["next_before_message_id"] is None
 
@@ -519,7 +608,7 @@ def test_messages_endpoint_includes_visible_relay_history_on_first_load(
 
         listed = client.get(f"/im/v1/conversations/{conversation_id}/messages")
         assert listed.status_code == 200
-        items = listed.json()["items"]
+        items = _message_items(listed.json()["items"])
         assert [item["content"] for item in items] == [
             "大家下午去哪里了",
             "我不在现场，无法得知。你想让我帮你发消息问大家吗？",
@@ -769,7 +858,53 @@ def test_list_messages_returns_elapsed_ms_for_completed_agent_message(
         ]
         assert len(items) == 1
         # elapsed_ms 字段必须出现在序列化结果里（user 消息为 None 也算字段存在）
-        assert "elapsed_ms" in items[0]
+        assert "elapsed_ms" in items[0]["message"]
+
+
+def test_caller_idempotency_key_is_scoped_to_conversation_and_owner(
+    tmp_path: Path,
+) -> None:
+    """A caller retry key must not disclose or suppress another conversation's message."""
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as owner_client, TestClient(app) as other_owner_client:
+        owner = register_user(owner_client, username="idempotency-owner")
+        authorize(owner_client, owner)
+        first_conversation = _create_conversation(owner_client, owner.id, "first")
+        second_conversation = _create_conversation(owner_client, owner.id, "second")
+        other_owner = register_user(other_owner_client, username="idempotency-other")
+        authorize(other_owner_client, other_owner)
+        other_conversation = _create_conversation(
+            other_owner_client, other_owner.id, "other"
+        )
+
+        first = owner_client.post(
+            f"/im/v1/conversations/{first_conversation}/messages",
+            json={"sender_user_id": owner.id, "content": "first"},
+            headers={"Idempotency-Key": "shared-retry-key"},
+        )
+        same_retry = owner_client.post(
+            f"/im/v1/conversations/{first_conversation}/messages",
+            json={"sender_user_id": owner.id, "content": "first retry"},
+            headers={"Idempotency-Key": "shared-retry-key"},
+        )
+        second = owner_client.post(
+            f"/im/v1/conversations/{second_conversation}/messages",
+            json={"sender_user_id": owner.id, "content": "second"},
+            headers={"Idempotency-Key": "shared-retry-key"},
+        )
+        other = other_owner_client.post(
+            f"/im/v1/conversations/{other_conversation}/messages",
+            json={"sender_user_id": other_owner.id, "content": "other"},
+            headers={"Idempotency-Key": "shared-retry-key"},
+        )
+
+        assert first.status_code == 201, first.text
+        assert same_retry.status_code == 201, same_retry.text
+        assert same_retry.json()["id"] == first.json()["id"]
+        assert second.status_code == 201, second.text
+        assert second.json()["id"] != first.json()["id"]
+        assert other.status_code == 201, other.text
+        assert other.json()["id"] not in {first.json()["id"], second.json()["id"]}
 
 
 def test_to_message_response_serializes_cache_hit_fields() -> None:

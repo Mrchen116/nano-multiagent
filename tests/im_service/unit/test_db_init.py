@@ -27,6 +27,7 @@ def test_initialize_schema_is_idempotent(tmp_path: Path) -> None:
     assert "agent_profiles" in table_names
     assert "nodes" in table_names
     assert "bind_requests" in table_names
+    assert "agent_config_boundaries" in table_names
 
     conversation_columns = {
         row["name"]
@@ -45,6 +46,113 @@ def test_initialize_schema_is_idempotent(tmp_path: Path) -> None:
     assert "sender_display_name" in message_columns
     assert "idx_conversations_external_identity" in conversation_indexes
     assert "idx_conversations_external_identity_unique" in conversation_indexes
+    boundary_columns = {
+        row["name"]
+        for row in connection.execute(
+            "PRAGMA table_info(agent_config_boundaries)"
+        ).fetchall()
+    }
+    assert {
+        "boundary_id",
+        "conversation_id",
+        "before_message_id",
+        "runtime_fingerprint",
+        "event_id",
+    } <= boundary_columns
+
+
+def test_initialize_schema_replaces_global_caller_idempotency_index(
+    tmp_path: Path,
+) -> None:
+    """Legacy global retry indexes must not block independent conversations."""
+    connection = connect(tmp_path / "legacy-idempotency.db")
+    initialize_schema(connection)
+    connection.execute(
+        "CREATE UNIQUE INDEX idx_messages_caller_idempotency_key "
+        "ON messages(caller_idempotency_key) "
+        "WHERE caller_idempotency_key IS NOT NULL"
+    )
+    connection.commit()
+
+    initialize_schema(connection)
+
+    indexes = {
+        row["name"]
+        for row in connection.execute("PRAGMA index_list(messages)").fetchall()
+    }
+    assert "idx_messages_caller_idempotency_key" not in indexes
+    assert "idx_messages_conversation_caller_idempotency_key" in indexes
+
+
+def test_initialize_schema_migrates_boundary_profile_provenance_to_nullable(
+    tmp_path: Path,
+) -> None:
+    """An IM restart upgrades existing boundary rows without losing provenance."""
+    connection = connect(tmp_path / "legacy-boundary.db")
+    initialize_schema(connection)
+    connection.executescript(
+        """
+        INSERT INTO users(id, username, display_name, owner_id, created_at)
+        VALUES ('owner-1', 'owner', 'Owner', 'owner-1', '2026-07-22T00:00:00Z');
+        INSERT INTO conversations(id, title, owner_id, creator_id, created_at)
+        VALUES ('conversation-1', 'Chat', 'owner-1', 'owner-1', '2026-07-22T00:00:00Z');
+        INSERT INTO messages(
+            id, conversation_id, sender_user_id, content, delivery_status, created_at
+        ) VALUES (
+            'message-1', 'conversation-1', 'owner-1', 'anchor', 'completed',
+            '2026-07-22T00:00:00Z'
+        );
+        INSERT INTO conversation_events(
+            event_id, conversation_id, event_type, delivery_status, payload_json, created_at
+        ) VALUES (
+            1, 'conversation-1', 'agent.config.changed', 'completed', '{}',
+            '2026-07-22T00:00:00Z'
+        );
+        """
+    )
+    connection.commit()
+    connection.execute("PRAGMA foreign_keys = OFF")
+    connection.executescript(
+        """
+        DROP TABLE agent_config_boundaries;
+        CREATE TABLE agent_config_boundaries (
+            boundary_id TEXT PRIMARY KEY,
+            conversation_id TEXT NOT NULL,
+            agent_id TEXT NOT NULL,
+            before_message_id TEXT NOT NULL,
+            runtime_fingerprint TEXT NOT NULL,
+            fingerprint_schema TEXT NOT NULL,
+            profile_version INTEGER NOT NULL,
+            applied_at TEXT NOT NULL,
+            event_id INTEGER NOT NULL UNIQUE,
+            UNIQUE(conversation_id, before_message_id, runtime_fingerprint),
+            FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+            FOREIGN KEY (before_message_id) REFERENCES messages(id) ON DELETE CASCADE,
+            FOREIGN KEY (event_id) REFERENCES conversation_events(event_id) ON DELETE CASCADE
+        );
+        INSERT INTO agent_config_boundaries(
+            boundary_id, conversation_id, agent_id, before_message_id,
+            runtime_fingerprint, fingerprint_schema, profile_version, applied_at, event_id
+        ) VALUES ('boundary-1', 'conversation-1', 'agent-1', 'message-1',
+                  'fingerprint-1', 'v1', 7, '2026-07-22T00:00:00Z', 1);
+        """
+    )
+    connection.execute("PRAGMA foreign_keys = ON")
+
+    initialize_schema(connection)
+
+    profile_version = next(
+        row
+        for row in connection.execute(
+            "PRAGMA table_info(agent_config_boundaries)"
+        ).fetchall()
+        if row["name"] == "profile_version"
+    )
+    row = connection.execute(
+        "SELECT profile_version FROM agent_config_boundaries WHERE boundary_id = 'boundary-1'"
+    ).fetchone()
+    assert profile_version["notnull"] == 0
+    assert row["profile_version"] == 7
 
 
 def test_initialize_schema_owns_dispatch_log_without_changing_legacy_rows(

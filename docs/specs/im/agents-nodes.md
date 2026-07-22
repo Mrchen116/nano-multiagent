@@ -1,6 +1,6 @@
 # IM - Agents and Nodes Specification
 
-> 对齐: refactor-460 + feat-464 + bugfix-467 + bugfix-468
+> 对齐: bugfix-471
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
@@ -11,32 +11,49 @@ Agent 配置中心、外部 channel 控制面、节点绑定、节点状态、ru
 
 ## Requirements
 
-### Requirement: Agent 配置中心可读可改,版本乐观锁,IM 自有字段不被 live 快照覆盖
+### Requirement: Agent 配置中心可读可改，版本乐观锁，新运行配置由既有聊天下一轮新回复采用
 
-前端经 `/im/v1/agents/*` 读写各 Agent 的展示名/描述/system_prompt/skills/tools 白名单/群聊策略/默认
-模型/features/custom_prompt;配置版本化(`profile_version` 乐观锁);更新仅对新会话生效。当 IM 向在线网关
-拉 live 快照合并时,IM 自有字段(`features`/`custom_prompt`)以持久化值为准,不被省略它们的 live 快照清空。
+前端经 `/im/v1/agents/*` 读写 Agent 展示与运行配置，配置以 `profile_version` 乐观锁持久化。展示字段更新立即反映在 UI；model、system/custom prompt、skills、tools 与运行 features 等配置由 Gateway 在每个既有聊天下一轮新回复开始时采用，并保持该聊天历史。已在进行的整轮不切换。IM 自有字段在 live 快照合并时仍以持久值为准。
 
 #### Scenario: 读配置暴露稳定字段集
-- **WHEN** 前端 `GET /im/v1/agents/{id}/config`
-- **THEN** 200 响应至少含 `{agent_id, owner_id, node_id, display_name, description, system_prompt,
-  skills, tool_allowlist, group_reply_policy, default_model, workspace_root, workspace_is_default,
-  profile_version, updated_at, features, custom_prompt}` 等字段(随产品演进可增,不应静默删/改名)
+- **WHEN** 前端读取 Agent 配置
+- **THEN** 响应保留既有稳定配置字段及 profile version
 
-#### Scenario: PATCH 持久化 features 与 custom_prompt(乐观锁)
-- **WHEN** 前端带 `profile_version` `PATCH /im/v1/agents/{id}/config { ..., features, custom_prompt }`
-- **THEN** 200 回显写入的 `features`/`custom_prompt`,随后 `GET` 也反映该值(证明落库非仅回显);
-  版本陈旧时按乐观锁拒绝(409 冲突)
+#### Scenario: PATCH 持久化运行配置并保持乐观锁
+- **WHEN** 前端带当前 profile version 保存配置
+- **THEN** 成功响应与随后读取反映持久值；过期 version 被拒且不覆盖新值
+
+#### Scenario: 既有聊天下一轮新回复采用成功保存的运行配置
+- **GIVEN** 某聊天已形成历史且当前没有新回复在开始
+- **WHEN** 用户成功更新 Agent 运行配置后回到该聊天发消息
+- **THEN** 下一轮新回复使用更新配置并延续原聊天历史
 
 #### Scenario: live 合并保留 IM 自有字段
-- **GIVEN** 持久化 profile 含 `features={memory_curation:false}` / `custom_prompt` 非空,网关在线
-- **WHEN** 前端 `GET /im/v1/agents/{id}/config?source=live`(IM 向网关取 live 快照后合并)
-- **THEN** 即便 live 快照不带这两字段,响应仍保留持久化的 `features` 与 `custom_prompt`(不回落默认)
+- **GIVEN** 持久 profile 含 IM 自有运行字段
+- **WHEN** IM 拉取并合并 Gateway live snapshot
+- **THEN** live payload 省略这些字段时不把持久值清空
 
-#### Scenario: heartbeat cadence 返回真实配置值(feat-394 决策 E)
-- **WHEN** 前端 `GET /im/v1/agents/{id}/config` 读某 Agent 的 heartbeat cadence
-- **THEN** 返回该 Agent 的真实 `heartbeat.every` 配置值;未配置时体现为默认 `30m`(由后端/前端据此渲染,
-  cadence 显示值不是前端写死的占位)
+#### Scenario: heartbeat cadence 返回真实配置值
+- **WHEN** 前端读取某 Agent 的 heartbeat cadence
+- **THEN** 返回该 Agent 的真实 `heartbeat.every` 配置值；未配置时体现为默认 `30m`
+
+### Requirement: Agent 配置保存与聊天实际采用状态分离
+
+IM 持久化 Agent 配置并用 `profile_version` 做乐观锁；保存成功表示新的期望配置可供 Gateway 同步，不表示所有既有聊天已经采用。名称、头像、描述等展示字段不会被解释为模型上下文缓存边界。运行配置真正应用到某个聊天时，由 Gateway 单独上报实际采用事实。
+
+#### Scenario: 运行配置成功保存后由各聊天惰性采用
+- **GIVEN** 同一 Agent 有多个既有聊天
+- **WHEN** 用户成功保存会改变后续模型请求的配置
+- **THEN** IM 持久化新配置并通知 Gateway
+- **AND** 不在保存时向所有休眠聊天批量插入配置边界
+
+#### Scenario: 纯展示字段保存不产生运行边界
+- **WHEN** 用户只修改 Agent 名称、头像或描述并保存
+- **THEN** 配置读取反映新展示信息，但既有聊天不出现上下文缓存边界
+
+#### Scenario: 保存失败不产生实际采用事实
+- **WHEN** Agent 配置因版本冲突、校验或网络错误未保存
+- **THEN** IM 不产生配置已采用的聊天边界，既有配置保持权威
 
 ### Requirement: Agent 配置页可管理 skill_view 工具
 

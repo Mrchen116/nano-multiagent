@@ -164,7 +164,7 @@ def test_register_agent_keeps_existing_direct_sessions_and_uses_new_workspace_fo
     }
 
 
-def test_drop_agent_sessions_forces_group_mentions_to_create_a_fresh_kernel_session(
+def test_config_publish_reconfigures_group_session_without_changing_address(
     tmp_path: Path,
 ) -> None:
     agent_a_dir = tmp_path / "agent-a"
@@ -207,7 +207,7 @@ def test_drop_agent_sessions_forces_group_mentions_to_create_a_fresh_kernel_sess
         )
     )
 
-    # Simulate config sync: update system_prompt via register_agent + drop stale sessions.
+    # Simulate configuration publication; the next new run reconfigures this address.
     current = inbound_graph(pipeline).catalog.publish(
         AgentWorkspaceConfig(
             agent_id="agent-a",
@@ -242,41 +242,13 @@ def test_drop_agent_sessions_forces_group_mentions_to_create_a_fresh_kernel_sess
     assert first is not None
     assert second is not None
     assert first.kernel_session_id == "sess-1"
-    assert second.kernel_session_id == "sess-2"
-    assert kernel_client.create_session_calls == [
-        {
-            "workspace_root": str(agent_a_dir),
-            "product_id": "personal_assistant",
-            "title": "Agent A",
-            "metadata": {
-                "agent_id": "agent-a",
-                "conversation_id": "conv-group-1",
-                "config_profile_version": 1,
-                "system_prompt": "Reply with ALPHA_ACK_M170.",
-                "conversation_type": "group",
-                "participant_agent_ids": ["agent-a"],
-                "external_chat_id": "conv-group-1",
-                "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
-                "agent_features": {},
-            },
-        },
-        {
-            "workspace_root": str(agent_a_dir),
-            "product_id": "personal_assistant",
-            "title": "Agent A",
-            "metadata": {
-                "agent_id": "agent-a",
-                "conversation_id": "conv-group-1",
-                "config_profile_version": 2,
-                "system_prompt": "When mentioned in a group chat, reply exactly with NO_REPLY.",
-                "conversation_type": "group",
-                "participant_agent_ids": ["agent-a"],
-                "external_chat_id": "conv-group-1",
-                "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
-                "agent_features": {},
-            },
-        },
-    ]
+    assert second.kernel_session_id == "sess-1"
+    assert len(kernel_client.create_session_calls) == 1
+    runtime = kernel_client._session_runtime["sess-1"]  # noqa: SLF001
+    assert any(
+        item.text == "When mentioned in a group chat, reply exactly with NO_REPLY."
+        for item in runtime.runtime.prompt.custom
+    )
 
 
 def test_session_run_queue_serializes_same_session_and_allows_cross_session_parallelism() -> (

@@ -326,6 +326,61 @@ def test_heartbeat_scheduler_reuses_stable_heartbeat_session_across_ticks(
     )
 
 
+def test_heartbeat_reused_session_aligns_current_agent_runtime(tmp_path: Path) -> None:
+    """A live snapshot refreshes a reused heartbeat session before submitting it."""
+    from personal_assistant.config.local_store import AgentWorkspaceConfig
+    from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
+    from personal_assistant.scheduler.heartbeat_scheduler import (
+        HeartbeatScheduler,
+        HeartbeatSchedulerStateStore,
+    )
+
+    workspace = tmp_path / "agent-runtime"
+    workspace.mkdir()
+    (workspace / "HEARTBEAT.md").write_text("- Check status\n", encoding="utf-8")
+    catalog = LiveAgentCatalog(
+        (
+            AgentWorkspaceConfig(
+                agent_id="agent-runtime",
+                workspace_root=workspace,
+                features={"heartbeat": True},
+            ),
+        )
+    )
+
+    class _RuntimeAwareKernel:
+        def __init__(self) -> None:
+            self.runtime_calls: list[dict[str, object]] = []
+
+        async def create_session(self, **_kwargs: object) -> dict[str, str]:
+            return {"session_id": "heartbeat-session"}
+
+        async def ensure_agent_runtime(self, **kwargs: object) -> None:
+            self.runtime_calls.append(dict(kwargs))
+
+        def submit_message(self, **_kwargs: object) -> dict[str, str]:
+            return {"run_id": "heartbeat-run"}
+
+    kernel = _RuntimeAwareKernel()
+    scheduler = HeartbeatScheduler(
+        agents=(),
+        agent_catalog=catalog,
+        kernel_client=kernel,
+        state_store=HeartbeatSchedulerStateStore(tmp_path / "state.json"),
+    )
+
+    asyncio.run(scheduler.tick(now=datetime(2026, 6, 1, 9, 0, tzinfo=UTC)))
+
+    assert kernel.runtime_calls == [
+        {
+            "session_id": "heartbeat-session",
+            "agent_snapshot": catalog.require("agent-runtime"),
+            "workspace_root": str(workspace),
+            "metadata": {"agent_id": "agent-runtime"},
+        }
+    ]
+
+
 # ---------------------------------------------------------------------------
 # feat-394 防回归: _parse_heartbeat_from_im_payload 4-tuple 签名（来自 M9-E）
 # ---------------------------------------------------------------------------

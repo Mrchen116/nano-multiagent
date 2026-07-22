@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 
 INTERNAL_METADATA_PREFIX = "__nano_internal_"
 INTERNAL_PROMPT_SLOTS_KEY = "__nano_internal_prompt_slots_v1__"
+INTERNAL_RUNTIME_KEY = "__nano_internal_runtime_v1__"
 _PROMPT_SLOT_NAMES = ("head", "body", "custom", "tail")
 
 
@@ -113,6 +114,7 @@ class SessionConfig:
     session_id: str
     created_at: str
     workspace_root: Path
+    runtime_model: str | None = None
     system_prompt: str | None = None
     skills: tuple[str, ...] | None = None
     tool_allowlist: tuple[str, ...] | None = None
@@ -124,6 +126,8 @@ class NewSession:
     """Describe the complete immutable seed for a new conversation."""
 
     workspace_root: Path
+    runtime_model: str | None = None
+    runtime_features: dict[str, bool] | None = None
     title: str | None = None
     system_prompt: str | None = None
     skills: tuple[str, ...] | None = None

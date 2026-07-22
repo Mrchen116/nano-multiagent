@@ -242,6 +242,17 @@ class ConversationSession:
                 return tuple(self._state.history)
         return tuple(self._transcript.load().messages)
 
+    def config_snapshot(self) -> tuple[SessionConfig, PromptSlotSeed]:
+        """Return one durable configuration snapshot without exposing transcript storage.
+
+        The transcript mutex makes this an all-before or all-after view relative to
+        a replacement write; callers that need lifecycle ordering must still use
+        the owner-loop operation that owns their mutation.
+        """
+
+        loaded = self._transcript.load()
+        return loaded.config, loaded.prompt_seed
+
     def partial_turn_result(self) -> TurnResult | None:
         """Snapshot durable progress when raw cancellation prevents a result."""
 
@@ -273,6 +284,44 @@ class ConversationSession:
                 async with self._turn_gate:
                     state = await self._ensure_loaded()
                     return await self._engine.compact(state)
+            finally:
+                self._note_quiescent()
+
+    async def replace_runtime(
+        self,
+        *,
+        runtime_model: str,
+        skills: tuple[str, ...] | None,
+        tool_allowlist: tuple[str, ...],
+        metadata: dict[str, object],
+        prompt_seed: PromptSlotSeed,
+    ) -> bool:
+        """Replace future-turn configuration after every active turn has finished."""
+
+        self._bind_owner_loop()
+        with self._lifecycle.begin_operation():
+            try:
+                async with self._turn_gate:
+                    state = await self._ensure_loaded()
+                    if (
+                        state.config.runtime_model == runtime_model
+                        and state.config.skills == skills
+                        and state.config.tool_allowlist == tool_allowlist
+                        and state.config.metadata == metadata
+                        and state.prompt_seed == prompt_seed
+                    ):
+                        return False
+                    self._transcript.replace_runtime(
+                        runtime_model=runtime_model,
+                        skills=skills,
+                        tool_allowlist=tool_allowlist,
+                        metadata=metadata,
+                        prompt_seed=prompt_seed,
+                    )
+                    with self._state_guard:
+                        self._state = None
+                        self._loaded_external_epoch = None
+                    return True
             finally:
                 self._note_quiescent()
 

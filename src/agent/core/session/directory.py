@@ -16,6 +16,7 @@ from .jsonl_writer import JsonlWriter
 from .models import Session
 from .transcript import JsonlTranscript
 from .types import (
+    INTERNAL_RUNTIME_KEY,
     NewSession,
     SessionAddressMismatch,
     SessionConfig,
@@ -75,6 +76,8 @@ class SessionDirectory:
         )
         effective_spec = NewSession(
             workspace_root=ref.workspace_root,
+            runtime_model=spec.runtime_model,
+            runtime_features=spec.runtime_features,
             title=spec.title,
             system_prompt=spec.system_prompt,
             skills=spec.skills,
@@ -209,11 +212,19 @@ class SessionDirectory:
         """Capture, re-stamp, persist, and intern one independent fork target."""
 
         snapshot = await source.capture_fork(up_to=up_to)
+        runtime_payload = snapshot.config.metadata.get(INTERNAL_RUNTIME_KEY)
+        runtime_features = (
+            runtime_payload.get("features")
+            if isinstance(runtime_payload, dict)
+            else None
+        )
         metadata = strip_internal_metadata(snapshot.config.metadata)
         metadata["forked_from"] = source.ref.session_id
         target = self.create(
             NewSession(
                 workspace_root=snapshot.config.workspace_root,
+                runtime_model=snapshot.config.runtime_model,
+                runtime_features=runtime_features,
                 system_prompt=snapshot.config.system_prompt,
                 skills=snapshot.config.skills,
                 tool_allowlist=snapshot.config.tool_allowlist,

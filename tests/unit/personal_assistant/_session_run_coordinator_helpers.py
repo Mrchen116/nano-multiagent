@@ -7,6 +7,12 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, AsyncIterator
 
+from agent.sdk import (
+    SessionReconfigureResult,
+    SessionRuntimeConfig,
+    SessionRuntimeIdentity,
+    SessionRuntimeState,
+)
 from personal_assistant.channels.base import InboundMessage
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.gateway.agent_catalog import LiveAgentCatalog
@@ -25,6 +31,8 @@ class ControlledKernel:
 
     def __init__(self) -> None:
         self.create_calls: list[str] = []
+        self.create_runtimes: list[SessionRuntimeConfig | None] = []
+        self.reconfigure_calls: list[tuple[str, SessionRuntimeConfig]] = []
         self.submit_calls: list[dict[str, Any]] = []
         self.try_steer_calls: list[dict[str, Any]] = []
         self.operations: list[tuple[str, str]] = []
@@ -33,9 +41,11 @@ class ControlledKernel:
         self.cancel_calls: list[str] = []
         self.inject_steer = False
         self.forced_active_run_id: str | None = None
+        self.return_no_runtime = False
         self._session_index = 0
         self._run_index = 0
         self._sessions: dict[str, str] = {}
+        self._runtimes: dict[str, SessionRuntimeConfig] = {}
         self._latest_run_by_session: dict[str, str] = {}
         self._events: dict[str, asyncio.Queue[dict[str, Any]]] = {}
         self._stream_started: dict[str, asyncio.Event] = {}
@@ -74,13 +84,60 @@ class ControlledKernel:
         return SimpleNamespace(run_id=run_id, injected=True)
 
     async def create_session(
-        self, *, workspace_root: Path, **_kwargs: Any
+        self,
+        *,
+        workspace_root: Path,
+        runtime: SessionRuntimeConfig | None = None,
+        **_kwargs: Any,
     ) -> SimpleNamespace:
         self.create_calls.append(str(workspace_root))
+        self.create_runtimes.append(runtime)
         self._session_index += 1
         session_id = f"sess-{self._session_index}"
         self._sessions[session_id] = str(workspace_root)
+        if runtime is not None:
+            self._runtimes[session_id] = runtime
         return SimpleNamespace(session_id=session_id)
+
+    def identify_runtime(
+        self, *, runtime: SessionRuntimeConfig
+    ) -> SessionRuntimeIdentity:
+        return SessionRuntimeIdentity(runtime_fingerprint=runtime.model)
+
+    async def get_session_runtime(
+        self, *, session_id: str, workspace_root: Path
+    ) -> SessionRuntimeState | None:
+        del workspace_root
+        if self.return_no_runtime:
+            return None
+        runtime = self._runtimes.get(session_id)
+        if runtime is None:
+            return None
+        return SessionRuntimeState(
+            runtime=runtime,
+            identity=self.identify_runtime(runtime=runtime),
+        )
+
+    async def reconfigure_session(
+        self,
+        *,
+        session_id: str,
+        workspace_root: Path,
+        runtime: SessionRuntimeConfig,
+    ) -> SessionReconfigureResult:
+        del workspace_root
+        previous = self._runtimes.get(session_id)
+        changed = previous != runtime
+        self._runtimes[session_id] = runtime
+        self.reconfigure_calls.append((session_id, runtime))
+        return SessionReconfigureResult(
+            session_id=session_id,
+            changed=changed,
+            state=SessionRuntimeState(
+                runtime=runtime,
+                identity=self.identify_runtime(runtime=runtime),
+            ),
+        )
 
     def get_session(
         self, session_id: str, *, workspace_root: str | None = None
@@ -227,6 +284,8 @@ class CountingImageResolver:
 
 def build_dependencies(
     tmp_path: Path,
+    *,
+    session_store: SessionBindingStore | None = None,
 ) -> tuple[
     ControlledKernel,
     LiveAgentCatalog,
@@ -242,13 +301,16 @@ def build_dependencies(
     catalog = LiveAgentCatalog(
         (
             AgentWorkspaceConfig(
-                agent_id="agent-a", workspace_root=workspace, title="Agent A"
+                agent_id="agent-a",
+                workspace_root=workspace,
+                title="Agent A",
+                default_model="test-model",
             ),
         )
     )
     binder = GatewaySessionBinder(
         catalog=catalog,
-        repository=SessionBindingStore(),
+        repository=session_store or SessionBindingStore(),
         kernel=kernel,
     )
     router = OutboundRouter(ChannelRegistry((_FakeChannel("web_relay"),)))

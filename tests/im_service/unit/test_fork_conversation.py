@@ -14,6 +14,8 @@ from IM.application.web_im_service import (
 )
 from IM.infra.db import connect, initialize_schema
 from IM.infra.repositories import (
+    AgentConfigBoundaryRepository,
+    AgentProfileRepository,
     ConversationRepository,
     MessageRepository,
     UserRepository,
@@ -26,7 +28,10 @@ def _setup(tmp_path: Path):
     users = UserRepository(connection)
     conversations = ConversationRepository(connection)
     messages = MessageRepository(connection)
-    service = WebIMService(conversations=conversations, messages=messages)
+    boundaries = AgentConfigBoundaryRepository(connection)
+    service = WebIMService(
+        conversations=conversations, messages=messages, boundaries=boundaries
+    )
 
     human = users.create_user(username="alice", display_name="Alice")
     agent_user = users.create_user(username="agent:planner", display_name="Planner")
@@ -39,7 +44,7 @@ def _setup(tmp_path: Path):
         participant_ids=[f"user:{human.id}", "agent:planner"],
         caller_owner_id=human.owner_id,
     )
-    return service, conversations, messages, human, agent_user, conv
+    return service, conversations, messages, boundaries, human, agent_user, conv
 
 
 def _seed_history(messages: MessageRepository, conv_id, human, agent_user):
@@ -121,7 +126,9 @@ def _ok_fork(calls, id_map=None):
 
 @pytest.mark.asyncio
 async def test_fork_copies_history_through_M_and_delegates(tmp_path: Path) -> None:
-    service, conversations, messages, human, agent_user, conv = _setup(tmp_path)
+    service, conversations, messages, _boundaries, human, agent_user, conv = _setup(
+        tmp_path
+    )
     a1, a2 = _seed_history(messages, conv.id, human, agent_user)
     calls: list[dict] = []
 
@@ -171,10 +178,78 @@ async def test_fork_copies_history_through_M_and_delegates(tmp_path: Path) -> No
 
 
 @pytest.mark.asyncio
+async def test_fork_copies_existing_boundary_with_mapped_anchor(tmp_path: Path) -> None:
+    """Forks preserve only source boundaries whose anchors are copied."""
+    service, _conversations, messages, boundaries, human, _agent_user, conv = _setup(
+        tmp_path
+    )
+    a1, a2 = _seed_history(messages, conv.id, human, _agent_user)
+    messages_in_source = messages.list_messages(conversation_id=conv.id, limit=100)
+    first_user = messages_in_source[0]
+    profiles = AgentProfileRepository(_conversations._connection)
+    profiles.upsert_profile(
+        agent_id="planner",
+        owner_id=human.owner_id,
+        node_id="node-1",
+        display_name="Planner",
+        description="",
+        system_prompt="",
+        skills=[],
+        tool_allowlist=[],
+        group_reply_policy="manual",
+        default_model=None,
+        workspace_root=None,
+    )
+    boundaries.record_from_gateway(
+        boundary_id="before-a1",
+        node_id="node-1",
+        owner_id=human.owner_id,
+        conversation_id=conv.id,
+        agent_id="planner",
+        before_message_id=a1.id,
+        runtime_fingerprint="runtime-a",
+        fingerprint_schema="v1",
+        profile_version=1,
+        applied_at="2026-07-21T00:00:00Z",
+    )
+    boundaries.record_from_gateway(
+        boundary_id="after-fork-point",
+        node_id="node-1",
+        owner_id=human.owner_id,
+        conversation_id=conv.id,
+        agent_id="planner",
+        before_message_id=a2.id,
+        runtime_fingerprint="runtime-b",
+        fingerprint_schema="v1",
+        profile_version=2,
+        applied_at="2026-07-21T00:01:00Z",
+    )
+
+    new_conv = await service.fork_conversation(
+        source_conversation_id=conv.id,
+        fork_message_id=a1.id,
+        owner_id=human.owner_id,
+        actor_user_id=human.id,
+        check_agent_online=_online(None),
+        request_fork=_ok_fork([], id_map={"kmsg-a1": "branch-kmsg-a1"}),
+    )
+
+    copied_messages = messages.list_messages(conversation_id=new_conv.id, limit=100)
+    copied_by_content = {message.content: message.id for message in copied_messages}
+    copied_boundaries = boundaries.list_all(conversation_id=new_conv.id)
+    assert [
+        (item.before_message_id, item.runtime_fingerprint) for item in copied_boundaries
+    ] == [(copied_by_content["a1"], "runtime-a")]
+    assert first_user.id != copied_by_content["u1"]
+
+
+@pytest.mark.asyncio
 async def test_fork_external_shadow_conversation_forwards_external_identity(
     tmp_path: Path,
 ) -> None:
-    service, conversations, messages, human, agent_user, conv = _setup(tmp_path)
+    service, conversations, messages, _boundaries, human, agent_user, conv = _setup(
+        tmp_path
+    )
     conversations._connection.execute(
         """
         UPDATE conversations
@@ -212,7 +287,9 @@ async def test_fork_external_shadow_conversation_forwards_external_identity(
 async def test_fork_offline_agent_rejected_no_conversation_created(
     tmp_path: Path,
 ) -> None:
-    service, conversations, messages, human, agent_user, conv = _setup(tmp_path)
+    service, conversations, messages, _boundaries, human, agent_user, conv = _setup(
+        tmp_path
+    )
     a1, _ = _seed_history(messages, conv.id, human, agent_user)
     before = len(conversations.list_conversations_for_owner(owner_id=human.owner_id))
 
@@ -231,7 +308,9 @@ async def test_fork_offline_agent_rejected_no_conversation_created(
 
 @pytest.mark.asyncio
 async def test_fork_rpc_failure_rolls_back_new_conversation(tmp_path: Path) -> None:
-    service, conversations, messages, human, agent_user, conv = _setup(tmp_path)
+    service, conversations, messages, _boundaries, human, agent_user, conv = _setup(
+        tmp_path
+    )
     a1, _ = _seed_history(messages, conv.id, human, agent_user)
     before = len(conversations.list_conversations_for_owner(owner_id=human.owner_id))
 
@@ -253,7 +332,9 @@ async def test_fork_rpc_failure_rolls_back_new_conversation(tmp_path: Path) -> N
 
 @pytest.mark.asyncio
 async def test_fork_timeout_none_result_rolls_back(tmp_path: Path) -> None:
-    service, conversations, messages, human, agent_user, conv = _setup(tmp_path)
+    service, conversations, messages, _boundaries, human, agent_user, conv = _setup(
+        tmp_path
+    )
     a1, _ = _seed_history(messages, conv.id, human, agent_user)
     before = len(conversations.list_conversations_for_owner(owner_id=human.owner_id))
 
@@ -277,7 +358,9 @@ async def test_fork_timeout_none_result_rolls_back(tmp_path: Path) -> None:
 async def test_fork_old_bubble_without_kernel_message_id_rejected(
     tmp_path: Path,
 ) -> None:
-    service, conversations, messages, human, agent_user, conv = _setup(tmp_path)
+    service, conversations, messages, _boundaries, human, agent_user, conv = _setup(
+        tmp_path
+    )
     # An agent message WITHOUT kernel_message_id (pre-feature bubble)
     old = messages.create_message(
         conversation_id=conv.id,
@@ -299,7 +382,9 @@ async def test_fork_old_bubble_without_kernel_message_id_rejected(
 
 @pytest.mark.asyncio
 async def test_fork_user_message_rejected(tmp_path: Path) -> None:
-    service, conversations, messages, human, agent_user, conv = _setup(tmp_path)
+    service, conversations, messages, _boundaries, human, agent_user, conv = _setup(
+        tmp_path
+    )
     u = messages.create_message(
         conversation_id=conv.id,
         sender_user_id=human.id,
@@ -319,7 +404,9 @@ async def test_fork_user_message_rejected(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_fork_cross_tenant_not_found(tmp_path: Path) -> None:
-    service, conversations, messages, human, agent_user, conv = _setup(tmp_path)
+    service, conversations, messages, _boundaries, human, agent_user, conv = _setup(
+        tmp_path
+    )
     a1, _ = _seed_history(messages, conv.id, human, agent_user)
     with pytest.raises(ForkNotFoundError):
         await service.fork_conversation(
@@ -335,7 +422,9 @@ async def test_fork_cross_tenant_not_found(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_fork_group_conversation_rejected(tmp_path: Path) -> None:
     """群聊源 → 400（fork 只在 user↔单 agent 直聊可用；后端独立校验，不依赖前端隐藏入口）。"""
-    service, conversations, messages, human, agent_user, conv = _setup(tmp_path)
+    service, conversations, messages, _boundaries, human, agent_user, conv = _setup(
+        tmp_path
+    )
     # second agent → a 3-participant group (direct_kind != "user-agent")
     from IM.infra.repositories import UserRepository
 

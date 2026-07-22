@@ -10,6 +10,12 @@ from unittest.mock import MagicMock
 from fastapi.testclient import TestClient
 
 from IM.infra.repositories import AgentProfileRepository, NodeRepository
+from agent.sdk import (
+    SessionReconfigureResult,
+    SessionRuntimeConfig,
+    SessionRuntimeState,
+)
+from agent.sdk.runtime import identify_runtime
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 
 
@@ -54,6 +60,7 @@ class _FakeKernel:
         self.run_states: dict[str, dict[str, str] | list[dict[str, str]]] = {}
         self.session_events: dict[str, list[list[dict[str, object]]]] = {}
         self._session_metadata_by_id: dict[str, dict[str, Any]] = {}
+        self._session_runtime_by_id: dict[str, SessionRuntimeState] = {}
         self._session_index = 0
         self._run_index = 0
         self._get_run_calls: dict[str, int] = {}
@@ -85,6 +92,12 @@ class _FakeKernel:
             **(metadata or {}),
             "workspace_root": ws_str,
         }
+        runtime = kwargs.get("runtime")
+        if runtime is not None:
+            self._session_runtime_by_id[session_id] = SessionRuntimeState(
+                runtime=runtime,
+                identity=identify_runtime(runtime),
+            )
         self.session_events.setdefault(session_id, [])
         return _FakeSession(session_id=session_id)
 
@@ -113,6 +126,35 @@ class _FakeKernel:
         self._session_metadata_by_id[session_id] = dict(metadata or {})
         self.session_events.setdefault(session_id, [])
 
+    def identify_runtime(self, *, runtime: SessionRuntimeConfig):
+        """Return the SDK-owned identity expected by Gateway admission."""
+        return identify_runtime(runtime)
+
+    async def get_session_runtime(
+        self, *, session_id: str, workspace_root: Path | str
+    ) -> SessionRuntimeState | None:
+        """Expose the persisted complete runtime for admission tests."""
+        del workspace_root
+        return self._session_runtime_by_id.get(session_id)
+
+    async def reconfigure_session(
+        self,
+        *,
+        session_id: str,
+        workspace_root: Path | str,
+        runtime: SessionRuntimeConfig,
+    ) -> SessionReconfigureResult:
+        """Replace a fake session's complete runtime without changing its address."""
+        del workspace_root
+        state = SessionRuntimeState(runtime=runtime, identity=identify_runtime(runtime))
+        previous = self._session_runtime_by_id.get(session_id)
+        self._session_runtime_by_id[session_id] = state
+        return SessionReconfigureResult(
+            session_id=session_id,
+            changed=previous != state,
+            state=state,
+        )
+
     def submit(
         self,
         *,
@@ -132,22 +174,24 @@ class _FakeKernel:
             {"session_id": session_id, "text": rendered_text, "run_id": run_id}
         )
         session_metadata = self._session_metadata_by_id.get(session_id, {})
+        runtime = self._session_runtime_by_id.get(session_id)
         output_text = f"gateway-reply:{rendered_text}"
-        # Determine NO_REPLY based on session system_prompt + profile_version, not message text.
-        # This mirrors kernel behavior: prompt instructs the model to say NO_REPLY.
-        system_prompt = session_metadata.get("system_prompt", "")
-        profile_version = session_metadata.get("config_profile_version")
+        # Complete runtime replacement changes future prompt semantics without
+        # recreating the durable session address.
+        prompt_text = (
+            "\n".join(
+                item.text
+                for slot in ("head", "body", "custom", "tail")
+                for item in getattr(runtime.runtime.prompt, slot, ())
+            )
+            if runtime is not None
+            else session_metadata.get("system_prompt", "")
+        )
         if (
-            system_prompt
-            == "When mentioned in a group chat, reply exactly with NO_REPLY."
-            and profile_version == 2
+            "When mentioned in a group chat, reply exactly with NO_REPLY."
+            in prompt_text
         ):
             output_text = "NO_REPLY"
-        elif (
-            system_prompt
-            == "When mentioned in a group chat, reply exactly with NO_REPLY."
-        ):
-            output_text = "ALPHA_ACK_M170"
         self.run_states[run_id] = {
             "run_id": run_id,
             "status": "completed",

@@ -25,6 +25,7 @@ from .jsonl_files import JsonlSessionFiles
 from .jsonl_writer import JsonlWriter
 from .types import (
     INTERNAL_PROMPT_SLOTS_KEY,
+    INTERNAL_RUNTIME_KEY,
     AppendMessageResult,
     ExternalMessage,
     NewSession,
@@ -81,6 +82,11 @@ class JsonlTranscript:
 
         transcript = cls(ref=ref, files=files, writer=writer, known_empty=True)
         metadata = internal_metadata(spec.metadata, prompt_seed=spec.prompt_seed)
+        if spec.runtime_model is not None:
+            metadata[INTERNAL_RUNTIME_KEY] = {
+                "model": spec.runtime_model,
+                "features": spec.runtime_features,
+            }
         if spec.title is not None:
             metadata["title"] = spec.title
         entry: dict[str, Any] = {
@@ -305,6 +311,32 @@ class JsonlTranscript:
                 ),
                 created=True,
             )
+
+    def replace_runtime(
+        self,
+        *,
+        runtime_model: str,
+        skills: Sequence[str] | None,
+        tool_allowlist: Sequence[str],
+        metadata: Mapping[str, Any],
+        prompt_seed: PromptSlotSeed,
+    ) -> None:
+        """Durably replace the complete next-run configuration in one entry."""
+
+        entry: dict[str, Any] = {
+            "type": "config_update",
+            "session_id": self._ref.session_id,
+            "timestamp": utc_now_iso(),
+            "skills": list(skills) if skills is not None else None,
+            "tool_allowlist": list(tool_allowlist),
+            "metadata": internal_metadata(metadata, prompt_seed=prompt_seed),
+        }
+        runtime_metadata = dict(metadata.get(INTERNAL_RUNTIME_KEY) or {})
+        runtime_metadata["model"] = runtime_model
+        entry["metadata"][INTERNAL_RUNTIME_KEY] = runtime_metadata
+        with self._mutex:
+            self._writer.enqueue_raw(self._path, entry)
+            self._writer.durable_barrier(self._path)
 
     def append_tool_call_recovery(
         self,
@@ -727,10 +759,19 @@ def _to_config(ref: SessionRef, config: Mapping[str, Any]) -> SessionConfig:
     skills = config.get("skills")
     allowlist = config.get("tool_allowlist")
     metadata = config.get("metadata")
+    metadata = dict(metadata) if isinstance(metadata, Mapping) else {}
+    runtime_payload = metadata.get(INTERNAL_RUNTIME_KEY)
+    runtime_model = (
+        runtime_payload.get("model")
+        if isinstance(runtime_payload, Mapping)
+        and isinstance(runtime_payload.get("model"), str)
+        else None
+    )
     return SessionConfig(
         session_id=ref.session_id,
         created_at=str(config.get("created_at") or utc_now_iso()),
         workspace_root=persisted_root,
+        runtime_model=runtime_model,
         system_prompt=config.get("system_prompt")
         if isinstance(config.get("system_prompt"), str)
         else None,
@@ -740,7 +781,7 @@ def _to_config(ref: SessionRef, config: Mapping[str, Any]) -> SessionConfig:
         tool_allowlist=tuple(item for item in allowlist if isinstance(item, str))
         if isinstance(allowlist, list)
         else None,
-        metadata=dict(metadata) if isinstance(metadata, Mapping) else {},
+        metadata=metadata,
     )
 
 

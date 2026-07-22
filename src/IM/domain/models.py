@@ -382,6 +382,25 @@ class DeviceBindRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class AgentConfigChangedBoundary:
+    """Represent one non-message runtime-cache boundary in a conversation timeline.
+
+    The runtime provenance fields remain durable for idempotency and diagnostics but
+    never enter the browser timeline payload.
+    """
+
+    id: str
+    conversation_id: str
+    agent_id: str
+    before_message_id: str
+    runtime_fingerprint: str
+    fingerprint_schema: str
+    profile_version: int | None
+    applied_at: str
+    event_id: int
+
+
+@dataclass(frozen=True, slots=True)
 class ConversationEvent:
     """Represent a persisted conversation event for SSE replay/reconnect."""
 

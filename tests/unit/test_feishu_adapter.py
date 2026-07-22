@@ -85,6 +85,9 @@ class TestFeishuAdapterDM:
         assert msg.metadata["external_source"] == "feishu"
         assert msg.metadata["external_chat_id"] == "feishu:cli_a:dm:ou_user1"
         assert msg.metadata["trigger_source"] == "feishu"
+        assert msg.external_event_identity is not None
+        assert msg.external_event_identity.connector_account_id == "cli_a"
+        assert msg.external_event_identity.provider_event_id == "msg_001"
 
     @patch("personal_assistant.channels.feishu.adapter.FeishuClient")
     def test_dm_always_responds_no_mention_needed(self, mock_fc_cls: MagicMock) -> None:

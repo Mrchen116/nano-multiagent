@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Relay Protocol Specification
 
-> 对齐: feat-446
+> 对齐: bugfix-471
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -143,6 +143,57 @@ Gateway 把内核工具执行事件中继到 IM 时，除既有的 reason 徽标
 #### Scenario: 既无正文也无思考的回合
 - **WHEN** 某回合既无正文也无思考
 - **THEN** 不向 IM 中继该回合（不产生空消息）
+
+### Requirement: Gateway 可靠上报聊天实际采用的配置边界
+
+当某聊天首次采用不同的有效运行配置时，Gateway 先持久记录稳定的配置边界 intent。已有 IM 用户消息锚点的 intent 直接进入 durable outbox，外部 channel 尚无锚点时保持 pending，取得锚点后才进入 outbox。Gateway 经既有 WebSocket 串行 ACK 通道发送 `agent.config.boundary`，只有 IM durable success ACK 才删除 outbox item；断线、error ACK 或进程重启后保留并继续处理。该事实不复用 run report 或 message delivery receipt，也不携带 prompt、完整配置、secret、工具参数或变更字段明细。
+
+#### Scenario: IM 断线后重放配置边界
+- **GIVEN** Gateway 已持久记录聊天配置边界，但 IM 暂时断线
+- **WHEN** 连接恢复或 Gateway 重启后重新注册
+- **THEN** Gateway 重放同一 `agent.config.boundary`，直到收到 durable success ACK
+- **AND** 重放使用相同幂等身份
+
+#### Scenario: error ACK 保留待投递事实
+- **WHEN** IM 因归属、锚点或持久化错误返回 error ACK
+- **THEN** Gateway 不删除本地 outbox item，也不把 error ACK 当作已交付
+- **AND** 可重试错误退避重放，确定性校验错误保留为可诊断状态，均不阻塞其他待投递事实
+
+### Requirement: 外部 channel 影子镜像以稳定事件身份可恢复补写
+
+外部入站 adapter 在规范化消息上提供 typed provider-stable event identity，包含 connector/account identity 与 provider message/event/delivery id；Gateway 不从松散 metadata、`external_chat_id` 或文本 hash 推导它。Gateway 在运行前持久记录该 identity 与 canonical payload。IM 可用时，Gateway 按固定顺序幂等找建影子聊天、创建用户消息、按稳定输出身份补写 Agent 回复，再投递锚定配置边界；IM 离线时外部回复不等待，Gateway 重启或 IM 恢复后重放未完成步骤。
+
+#### Scenario: IM 离线时外部回复继续
+- **GIVEN** 外部消息已持久进入影子同步流程，IM 当前不可达
+- **WHEN** Agent 完成回复
+- **THEN** 回复照常投递到外部 channel，待补写步骤保持可恢复
+
+#### Scenario: 恢复后补齐原影子时间线
+- **WHEN** IM 恢复或 Gateway 重启并重放同一外部事件
+- **THEN** Gateway 复用稳定事件身份补齐唯一用户消息与 Agent 回复
+- **AND** 配置边界只在用户消息锚点确认后投递，并位于该消息之前
+
+#### Scenario: IM 写入成功后本地标记前崩溃
+- **GIVEN** IM 已创建某影子消息，但 Gateway 在记录返回 id 前崩溃
+- **WHEN** Gateway 重启并重放同一步骤
+- **THEN** IM 按 caller idempotency key 返回原消息，时间线不产生重复或孤儿消息
+
+#### Scenario: Feishu 入站映射稳定事件身份
+- **WHEN** Feishu adapter 规范化一条 provider message event
+- **THEN** Gateway 收到的 typed identity 以该 app identity 区分 connector account，并以 provider message id 区分事件
+- **AND** 重放同一 provider event 复用同一影子同步记录
+
+#### Scenario: 外部 adapter 缺少稳定事件身份
+- **GIVEN** 一个 external adapter 无法为某入站提供 provider-stable message/event/delivery id
+- **WHEN** Gateway 接收该入站
+- **THEN** 外部 Agent 回复仍可继续，但该事件不创建 durable 影子同步或配置边界，并暴露可诊断降级状态
+- **AND** Gateway 不以聊天 id、回复文本或文本 hash 伪造事件身份
+
+#### Scenario: Agent 镜像使用稳定输出身份
+- **GIVEN** 同一外部事件的 Agent 执行已产生最终回复或带 Kernel message id 的可见输出
+- **WHEN** Gateway 因重启或响应后崩溃而重放影子镜像
+- **THEN** 最终回复按事件与执行的 final identity 去重，其他输出按事件、执行、output kind 与 logical output id 去重
+- **AND** 回复文本变化或 provider response id 是否已返回不改变 source identity
 
 ### Requirement: Gateway 受 IM 委托对某 agent 会话按 fork 点 fork 出独立新会话
 

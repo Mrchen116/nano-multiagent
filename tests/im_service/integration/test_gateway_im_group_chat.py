@@ -220,26 +220,10 @@ def test_group_chat_uses_live_updated_profile_after_config_sync_in_same_conversa
             ],
             "participant_agent_ids": ["agent-a", "agent-b"],
         },
-        {
-            "agent_id": "agent-a",
-            "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
-            "conversation_id": conversation_id,
-            "agent_features": {},
-            "config_profile_version": 2,
-            "system_prompt": "When mentioned in a group chat, reply exactly with NO_REPLY.",
-            "conversation_type": "group",
-            "external_chat_id": conversation_id,
-            "participants": [
-                {"type": "user", "user_id": human_user_id, "display_name": "Alice"},
-                {"type": "agent", "agent_id": "agent-a", "display_name": "agent-a v2"},
-                {"type": "agent", "agent_id": "agent-b", "display_name": "B"},
-            ],
-            "participant_agent_ids": ["agent-a", "agent-b"],
-        },
     ]
     assert [call["session_id"] for call in kernel_client.send_calls] == [
         "sess-1",
-        "sess-2",
+        "sess-1",
     ]
     assert first_relay["payload"]["metadata"] == {
         "conversation_type": "group",

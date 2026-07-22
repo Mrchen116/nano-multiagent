@@ -182,6 +182,60 @@ def test_feishu_intermediate_reply_goes_to_external_without_im_manager() -> None
     ]
 
 
+def test_external_output_is_durable_before_provider_reply() -> None:
+    """A shadow saga captures the Agent output before Feishu receives it."""
+
+    delivery_order: list[str] = []
+    run_context_store = {
+        "run-1": {
+            "agent_id": "agent-a",
+            "trigger_source": "feishu",
+            "reply_channel_name": "feishu:agent-a",
+            "reply_target_chat_id": "feishu:app:dm:ou_user",
+            "shadow_saga_id": "saga-1",
+            "kernel_message_id": "kmsg-1",
+            "external_current_text": "好的，我查一下。",
+        }
+    }
+
+    def prepare(
+        saga_id: str,
+        run_id: str,
+        output_kind: str,
+        kernel_message_id: str | None,
+        content: str,
+    ) -> None:
+        assert (saga_id, run_id, output_kind, kernel_message_id, content) == (
+            "saga-1",
+            "run-1",
+            "intermediate",
+            "kmsg-1",
+            "好的，我查一下。",
+        )
+        delivery_order.append("durable")
+
+    observer = build_kernel_event_observer(
+        im_connection_manager_factory=lambda: None,
+        run_context_store=run_context_store,
+        external_reply_sender=lambda _text, _metadata: delivery_order.append(
+            "provider"
+        ),
+        shadow_output_prepare=prepare,
+    )
+
+    observer(
+        {
+            "event": "tool_start",
+            "run_id": "run-1",
+            "call_id": "call-1",
+            "name": "read",
+            "arguments": {},
+        }
+    )
+
+    assert delivery_order == ["durable", "provider"]
+
+
 def test_im_shadow_visible_text_does_not_go_back_to_feishu() -> None:
     manager = _FakeIMManager()
     external: list[tuple[str, dict[str, str]]] = []

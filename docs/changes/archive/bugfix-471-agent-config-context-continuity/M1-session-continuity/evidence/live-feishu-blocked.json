@@ -1,0 +1,33 @@
+{
+  "attempted_at": "2026-07-21T07:07:57Z",
+  "chat_id": "oc_52f8a9ebab8f327d18d5f9e51ac3ea1f",
+  "bot_open_id": "ou_b33ae16df1338a00a77d4cdbec653b71",
+  "messages": [
+    {
+      "message_id": "om_x100b6ac5eb509ca8b3ed898cfdd4a84",
+      "idempotency_key": "bugfix471-probe-20260721",
+      "text": "BUGFIX471 external probe: please reply exactly BUGFIX471-PROBE-ACK."
+    },
+    {
+      "message_id": "om_x100b6ac5e21068a0b271c3ac7dc71c7",
+      "idempotency_key": "bugfix471-mention-probe-20260721",
+      "text": "BUGFIX471 external mention probe: reply exactly BUGFIX471-MENTION-ACK."
+    }
+  ],
+  "observed": {
+    "lark_api_send": "both messages accepted by Feishu",
+    "bot_reply": "not observed after the probes",
+    "gateway_state": "the isolated Gateway omits the legacy credentialRef channel because only an IM encrypted managed-channel manifest can provide appSecret; its ephemeral IM has no configured managed channel",
+    "main_gateway_log": "historical logs reported open.feishu.cn DNS resolution failure or Lark WebSocket connection loss; this was not used as a claim about the current production connection"
+  },
+  "recovery_probe": {
+    "attempted_at": "2026-07-21T07:20:57Z",
+    "message_id": "om_x100b6ac593554d10b11cc8d8dc0a0c2",
+    "idempotency_key": "bugfix471-recovery-20260721",
+    "text": "BUGFIX471 recovery probe: please reply exactly BUGFIX471-RECOVERY-ACK.",
+    "lark_api_send": "accepted by Feishu",
+    "observed_after_poll": "no app reply in the subsequent 60-second group-message poll; this unmentioned group message cannot prove current Gateway inbound delivery because the configured group reply policy may suppress it",
+    "historical_delivery_signal": "the configured app posted '模型调用失败:anthropic: stream ended without terminal event' at 2026-07-21 15:10 for the earlier mentioned probe, demonstrating that the main Gateway had previously received and processed that external event"
+  },
+  "result": "blocked: an M1-branch Gateway may not replace or parallel-connect to the production Feishu app without user authorization; therefore no real external same-conversation continuity journey can be proved in this milestone"
+}

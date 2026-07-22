@@ -109,6 +109,58 @@ describe("MessagePane", () => {
     expect(screen.getByText("Hi back")).toBeInTheDocument();
   });
 
+  it("renders the configuration boundary before its anchor without message-bubble semantics", () => {
+    render(
+      <MessagePane
+        conversation={DIRECT_CONV}
+        timeline={[
+          { type: "message", message: SAMPLE_MESSAGES[0]! },
+          {
+            type: "agent_config_changed",
+            id: "boundary-1",
+            conversation_id: "c1",
+            agent_id: "a-planner",
+            before_message_id: "m2",
+            applied_at: "2026-07-22T00:00:00Z"
+          },
+          { type: "message", message: SAMPLE_MESSAGES[1]! }
+        ]}
+        mentionCandidates={[]}
+        onSend={() => {}}
+      />
+    );
+
+    const divider = screen.getByRole("separator", { name: "Agent 配置已更新" });
+    const anchor = screen.getByTestId("message-bubble-m2");
+    expect(divider).toHaveTextContent("Agent 配置已更新 · 后续请求将不再命中此前的上下文缓存");
+    expect(divider.compareDocumentPosition(anchor) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    expect(divider).not.toHaveClass("chat-bubble");
+    expect(divider.querySelector("[data-message-id]")).toBeNull();
+  });
+
+  it("does not render an unanchored configuration boundary as an orphan timeline entry", () => {
+    render(
+      <MessagePane
+        conversation={DIRECT_CONV}
+        timeline={[
+          {
+            type: "agent_config_changed",
+            id: "orphan-boundary",
+            conversation_id: "c1",
+            agent_id: "a-planner",
+            before_message_id: "not-loaded",
+            applied_at: "2026-07-22T00:00:00Z"
+          },
+          { type: "message", message: SAMPLE_MESSAGES[0]! }
+        ]}
+        mentionCandidates={[]}
+        onSend={() => {}}
+      />
+    );
+
+    expect(screen.queryByRole("separator", { name: "Agent 配置已更新" })).not.toBeInTheDocument();
+  });
+
   describe("history pagination scroll trigger (feat-451 R1)", () => {
     const MANY_MESSAGES: Message[] = Array.from({ length: 8 }, (_, idx) => ({
       id: `hist-${idx + 1}`,

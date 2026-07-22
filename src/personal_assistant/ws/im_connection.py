@@ -67,6 +67,10 @@ class WireFrameOwner:
 class IMFrameRejectedError(RuntimeError):
     """Report one IM-rejected outbound frame to its owning caller."""
 
+    def __init__(self, message: str, *, code: str = "protocol_error") -> None:
+        super().__init__(message)
+        self.code = code
+
 
 @dataclass(frozen=True, slots=True)
 class IMDispatchAck:
@@ -155,6 +159,9 @@ SessionForkHandler = Callable[
     [Mapping[str, object]],
     Awaitable[Mapping[str, object]] | Mapping[str, object],
 ]
+# Provides encrypted managed-channel items for a newly bound IM. The IM owner id
+# is needed to re-seal a cache that was associated with a different IM instance.
+ChannelBootstrapItemsProvider = Callable[[str], list[Mapping[str, object]]]
 
 
 def build_permission_response_handler(
@@ -249,6 +256,8 @@ class IMConnectionManager:
         relay_adapter: Downstream relay adapter that receives ``relay.message`` pushes.
         sync_client: Optional config sync handler.
         heartbeat_trigger: Optional local callback for ``heartbeat.trigger`` pushes.
+        channel_bootstrap_items_provider: Optional encrypted cache exporter used when a
+            newly bound IM requests managed-channel initialization.
         connect: Async websocket connector implementation.
         sleep: Async sleep implementation used for reconnect backoff.
 
@@ -277,6 +286,7 @@ class IMConnectionManager:
         on_connected: Callable[[ManagedChannelConnectionSender], Awaitable[None]]
         | None = None,
         managed_channel_bindings: ManagedChannelBindings | None = None,
+        channel_bootstrap_items_provider: ChannelBootstrapItemsProvider | None = None,
         channel_reconcile_retry_delays: tuple[float, ...] = (0.5, 1.0, 2.0),
         connect: ConnectFn,
         sleep: SleepFn = asyncio.sleep,
@@ -304,6 +314,7 @@ class IMConnectionManager:
         # config converges to IM truth on connect and every reconnect.
         self._on_connected = on_connected
         self._managed_channel_bindings = managed_channel_bindings
+        self._channel_bootstrap_items_provider = channel_bootstrap_items_provider
         if managed_channel_bindings is not None:
             managed_channel_bindings.emissions.bind_sender(self._send_managed_emission)
         self._channel_reconcile_retry_delays = channel_reconcile_retry_delays
@@ -886,12 +897,15 @@ class IMConnectionManager:
             return
         if message_type == "channels.bootstrap.request":
             request_id = _require_text(body.get("request_id"), field_name="request_id")
+            owner_id = _require_text(body.get("owner_id"), field_name="owner_id")
+            provider = self._channel_bootstrap_items_provider
+            items = provider(owner_id) if provider is not None else []
             await self.send_json(
                 "channels.bootstrap",
                 {
                     "request_id": request_id,
                     "node_id": self._reporter.node_id,
-                    "items": [],
+                    "items": items,
                 },
             )
             return
@@ -1485,7 +1499,7 @@ class IMConnectionManager:
         if pending.ack_future is not None and not pending.ack_future.done():
             pending.ack_future.set_exception(
                 IMFrameRejectedError(
-                    f"IM rejected {awaiting} frame ({code}): {message}"
+                    f"IM rejected {awaiting} frame ({code}): {message}", code=code
                 )
             )
         self._events.append(

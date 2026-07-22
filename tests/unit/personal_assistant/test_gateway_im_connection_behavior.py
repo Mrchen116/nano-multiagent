@@ -477,6 +477,71 @@ def test_im_connection_retries_unacked_frame_after_disconnect(tmp_path: Path) ->
     asyncio.run(_exercise())
 
 
+def test_im_connection_bootstraps_cached_managed_channels(
+    tmp_path: Path,
+) -> None:
+    """A fresh IM receives opaque cached channels instead of deleting the listener."""
+    relay_adapter = WebRelayAdapter()
+    relay_adapter.start(lambda _message: None)
+    socket = _FakeWebSocket(
+        incoming=[
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "channels.bootstrap.request",
+                    "payload": {
+                        "request_id": "bootstrap-1",
+                        "node_id": "node-1",
+                        "owner_id": "owner-1",
+                    },
+                }
+            ),
+        ]
+    )
+    reporter = UpstreamReporter(
+        node=NodeConfig(node_id="node-1"),
+        agents=_agents(tmp_path),
+        send_frame=lambda _message_type, _payload: None,
+    )
+    cached_item = {
+        "channel_id": "ch-cached",
+        "agent_id": "agent-a",
+        "provider": "feishu",
+        "enabled": True,
+        "config": {"app_id": "cli_cached"},
+        "credential_envelope": {"ciphertext": "opaque"},
+        "credential_key_id": "key-cached",
+        "credential_revision": 1,
+        "provider_runtime": {"bot_open_id": "ou_bot"},
+    }
+    manager = IMConnectionManager(
+        config=IMConnectionConfig(url="http://im.local:9000"),
+        reporter=reporter,
+        relay_adapter=relay_adapter,
+        channel_bootstrap_items_provider=lambda owner_id: (
+            [cached_item] if owner_id == "owner-1" else []
+        ),
+        connect=lambda url, headers: _connect_fake(socket, [], url, headers),
+    )
+
+    async def _exercise() -> None:
+        await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001 - node.register ACK
+        await manager._listen_once()  # noqa: SLF001 - bootstrap request
+
+    asyncio.run(_exercise())
+
+    response = json.loads(socket.sent[-1])
+    assert response == {
+        "type": "channels.bootstrap",
+        "payload": {
+            "request_id": "bootstrap-1",
+            "node_id": "node-1",
+            "items": [cached_item],
+        },
+    }
+
+
 def test_every_guarded_upstream_frame_carries_registered_node_identity(
     tmp_path: Path,
 ) -> None:
