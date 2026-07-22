@@ -3,17 +3,26 @@
 > 单一权威的「用户旅程 ↔ 守护它的 e2e 测试 ↔ 归属子系统 ↔ 引入 unit」对账表。
 > 引入 unit：feat-421（拆自 #117 的结构性建议，Closes #119）。
 
-这套 e2e **经真 Gateway 进程**（真 IM + 真 Gateway 子进程 + 真 LLM proxy），把测试当成
-一个真实 IM 用户，只走 IM 对外 HTTP + WebSocket 接口发消息/读回复，断言只看「用户在 IM
-上能否观察到预期结果」。它平时不跑（真 LLM 烧 token），**想测时一条命令全跑**：
+这套 e2e **经真 Gateway 进程**（真 IM + 真 Gateway 子进程），把测试当成一个真实 IM
+用户，只走 IM 对外 HTTP + WebSocket 接口发消息/读回复。按是否需要真模型分成两类：
+
+- **真 LLM proxy**（默认多数路径）：断言用户在 IM 上能否观察到预期结果；依赖 `:4000`。
+- **fake / recording LLM**（如 #14）：Gateway 的 `llm.providers[].base_url` 指向
+  `scripts/fixtures/anthropic_sse_ok_recording.py`，断言上游请求体（messages/tools）
+  是否守住架构不变量；**不门控 / 不调用**真 proxy。
+
+真 LLM 路径平时不跑（烧 token），**想测时一条命令全跑**：
 
 ```bash
 scripts/e2e-critical.sh                 # 跑全部关键路径
 scripts/e2e-critical.sh -m "not slow"   # 跳过时间驱动（cron/heartbeat）路径
+# 只跑 fake-LLM 路径（无需 :4000）:
+PYTHONPATH=src pytest -m e2e tests/e2e/critical_paths/test_agent_config_context_continuity_critical_path.py
 ```
 
 缺本地 LLM proxy（`:4000/health`）或缺 `~/.nano-assistant/config.yaml`（含 `llm:` 段）时，
-套件**干净 skip**而非报错。失败时 IM/Gateway 日志 tail 进报告，可定位断在哪一段。
+**真 LLM 路径干净 skip**而非报错；fake-LLM 路径只要主 config 存在即可跑。失败时
+IM/Gateway 日志 tail 进报告，可定位断在哪一段。
 
 ## 登记纪律
 
@@ -42,6 +51,7 @@ scripts/e2e-critical.sh -m "not slow"   # 跳过时间驱动（cron/heartbeat）
 | 11 | **经 IM 创建 agent 并落地可聊**——在 IM 配置中心新建一个 agent，它在节点落地 workspace 并上线，随后能跟它聊出回复 | `test_create_agent_via_im_critical_path.py::test_agent_created_via_im_lands_and_replies` | im（`docs/specs/im/spec.md`）+ gateway | feat-421 |
 | 12 | **从消息 fork 出分支单聊**——在一条已完成 agent 回复上 fork，进入同 agent 的新分支单聊，分支带着到 fork 点的记忆（基于历史追问答得对）、不含 fork 点之后的消息，原会话保持不变（两线独立） | `test_message_fork_critical_path.py::test_fork_branch_carries_memory_and_leaves_source_intact` | im（`docs/specs/im/spec.md`）+ gateway + kernel | feat-445 |
 | 13 | **Gateway-IM 连接韧性**——节点 online 后 kill IM 再重启，**无需手动重启 Gateway**节点自动回 online；先起 Gateway（IM 未起）Gateway 不崩、IM 起后节点变 online（覆盖断网/休眠/IM 重启/启动早于 IM 四类瞬态故障，经 `/im/v1/nodes` 观察） | `test_gateway_im_resilience_critical_path.py::test_gateway_recovers_node_online_after_transient_faults`（驱动 `scripts/e2e-resilience.sh`；**不门控 LLM proxy**，连接韧性不调模型） | gateway（`docs/specs/gateway/spec.md`） | bugfix-446 |
+| 14 | **Agent 配置更新后上下文连续**——既有直聊先形成历史，再改 tools 等运行配置，回到同一聊天继续；Agent 仍带着改配置前的上文（不因换配置开空 session）。**fake LLM**：真 IM + 真 Gateway + recording Anthropic stub，断言最后一次上游请求 messages 同时含配置变更前后用户句；**不门控 / 不调用** `:4000` 真 proxy | `test_agent_config_context_continuity_critical_path.py::test_agent_config_update_keeps_chat_context_with_stub_llm` | gateway + kernel + im | bugfix-471 |
 
 ## 已知缺口 / backlog（暂无 e2e 兜底）
 
