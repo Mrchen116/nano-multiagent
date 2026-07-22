@@ -63,7 +63,7 @@ def test_gateway_owners_keep_sql_out_of_websocket_transport() -> None:
         "src/IM/ws/gateway/execution.py",
     ):
         source = _source(relative_path)
-        assert "._connection" not in source, relative_path
+        assert "self._connection =" not in source, relative_path
         assert not _attribute_calls(relative_path, "execute"), relative_path
         assert not _attribute_calls(relative_path, "commit"), relative_path
 

@@ -15,15 +15,25 @@ from IM.infra.gateway_persistence import (
 from IM.infra.repositories.messages import MessageRepository
 from IM.infra.repositories.agents import AgentProfileRepository
 from IM.infra.repositories.conversations import ConversationRepository
-from IM.ws.gateway_handler import GatewayHandler
+from IM.ws.gateway.channel_control import GatewayChannelControl
+from IM.ws.gateway.control import GatewayControl
+from IM.ws.gateway.execution import GatewayExecution
+from IM.ws.gateway.relay import GatewayRelay
+from IM.ws.gateway.runtime import GatewayRuntime
+from IM.ws.gateway.sessions import GatewaySessions
 
 
 class _RecordingWebSocket:
     def __init__(self) -> None:
         self.sent_json: list[dict[str, object]] = []
+        self._after_first_send = None
 
     async def send_json(self, payload: dict[str, object]) -> None:
         self.sent_json.append(payload)
+        callback = self._after_first_send
+        self._after_first_send = None
+        if callback is not None:
+            callback()
 
 
 class _RebindAfterDispatchPersistence(GatewayConversationPersistence):
@@ -39,29 +49,37 @@ class _RebindAfterDispatchPersistence(GatewayConversationPersistence):
         return stored
 
 
-class _RebindOnFirstGroupPushHandler(GatewayHandler):
-    """Rebind the later peer while the first peer's push is awaited."""
-
-    def __init__(self, *, connection, **kwargs) -> None:  # noqa: ANN001
-        super().__init__(**kwargs)
-        self._test_connection = connection
-        self._push_count = 0
-
-    async def push_relay_message(
-        self, *, relay_task_id: str, target_node_id: str, payload: dict[str, object]
-    ) -> bool:
-        delivered = await super().push_relay_message(
-            relay_task_id=relay_task_id,
-            target_node_id=target_node_id,
-            payload=payload,
-        )
-        self._push_count += 1
-        if self._push_count == 1:
-            self._test_connection.execute(
-                "UPDATE agent_profiles SET node_id = 'node-a-new' WHERE agent_id = 'A'"
-            )
-            self._test_connection.commit()
-        return delivered
+def _build_runtime(
+    *,
+    relay_service: RelayService,
+    node_persistence: GatewayNodePersistence,
+    conversation_persistence: GatewayConversationPersistence,
+    message_repository: MessageRepository,
+) -> GatewayRuntime:
+    lock = asyncio.Lock()
+    sessions = GatewaySessions(node_persistence=node_persistence, lock=lock)
+    execution = GatewayExecution(
+        sessions=sessions,
+        conversation_persistence=conversation_persistence,
+        message_repository=message_repository,
+        lock=lock,
+    )
+    return GatewayRuntime(
+        sessions=sessions,
+        control=GatewayControl(sessions=sessions, lock=lock),
+        channel_control=GatewayChannelControl(
+            sessions=sessions, channel_control_store=None, lock=lock
+        ),
+        relay=GatewayRelay(
+            sessions=sessions,
+            execution=execution,
+            relay_service=relay_service,
+            conversation_persistence=conversation_persistence,
+            message_repository=message_repository,
+            lock=lock,
+        ),
+        execution=execution,
+    )
 
 
 def _insert_user(
@@ -128,7 +146,7 @@ def test_direct_dispatch_rebinds_to_latest_node_before_enqueue(tmp_path: Path) -
     old_ws = _RecordingWebSocket()
     new_ws = _RecordingWebSocket()
     persistence = _RebindAfterDispatchPersistence(connection)
-    handler = GatewayHandler(
+    handler = _build_runtime(
         relay_service=RelayService(connection),
         node_persistence=GatewayNodePersistence(connection),
         conversation_persistence=persistence,
@@ -221,12 +239,17 @@ def test_group_fanout_rebinds_later_peer_before_its_enqueue(tmp_path: Path) -> N
             "node-a-new",
         )
     }
-    handler = _RebindOnFirstGroupPushHandler(
-        connection=connection,
+    handler = _build_runtime(
         relay_service=relay_service,
         node_persistence=GatewayNodePersistence(connection),
         conversation_persistence=GatewayConversationPersistence(connection),
         message_repository=MessageRepository(connection),
+    )
+    sockets["node-z-old"]._after_first_send = lambda: (
+        connection.execute(
+            "UPDATE agent_profiles SET node_id = 'node-a-new' WHERE agent_id = 'A'"
+        ),
+        connection.commit(),
     )
     for node_id, agents in (
         ("node-source", ["S"]),

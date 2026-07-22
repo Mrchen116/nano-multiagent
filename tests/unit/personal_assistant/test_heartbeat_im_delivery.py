@@ -31,7 +31,8 @@ from IM.infra.repositories.events import EventRepository
 from IM.infra.repositories.messages import MessageRepository
 from IM.infra.repositories.metrics import UsageMetricsRepository
 from IM.infra.repositories.users import UserRepository
-from IM.ws.gateway_handler import GatewayHandler
+from IM.ws.gateway.execution import GatewayExecution
+from IM.ws.gateway.sessions import GatewaySessions
 from personal_assistant.channels.base import InboundMessage
 from personal_assistant.gateway.inbound_models import RelayLifecycleUpdate
 from personal_assistant.gateway.runtime_delivery.context import (
@@ -56,11 +57,11 @@ class _FakeIMManager:
     """Fake IMConnectionManager that records sent frames and returns scripted acks.
 
     Crucially, send_json_await_ack routes turn_start frames through the real
-    GatewayHandler to get a real IM message_id (not a synthetic one).
+    GatewayExecution to get a real IM message_id (not a synthetic one).
     """
 
-    def __init__(self, gateway_handler: GatewayHandler) -> None:
-        self._handler = gateway_handler
+    def __init__(self, gateway_execution: GatewayExecution) -> None:
+        self._handler = gateway_execution
         self._sent_frames: list[tuple[str, dict]] = []
         self.connected = True
 
@@ -72,22 +73,14 @@ class _FakeIMManager:
         self._sent_frames.append((message_type, dict(payload)))
         # Route streaming_delta frames through real handler to persist to DB
         if message_type == "node.streaming_delta":
-            await self._handler.handle_message(
-                websocket=_NullWebSocket(),
-                message_type=message_type,
-                payload=dict(payload),
-            )
+            await self._handler.handle_streaming_delta(payload=dict(payload))
 
     async def send_json_await_ack(
         self, message_type: str, payload: Mapping[str, Any]
     ) -> dict[str, object]:
         self._sent_frames.append((message_type, dict(payload)))
         if message_type == "node.streaming_delta":
-            response = await self._handler.handle_message(
-                websocket=_NullWebSocket(),
-                message_type=message_type,
-                payload=dict(payload),
-            )
+            response = await self._handler.handle_streaming_delta(payload=dict(payload))
             if response is not None:
                 return response
         return {}
@@ -112,7 +105,7 @@ class _StreamingKernel:
 
 
 # ---------------------------------------------------------------------------
-# Helper: build GatewayHandler wired to FK-enforced DB
+# Helper: build GatewayExecution wired to FK-enforced DB
 # ---------------------------------------------------------------------------
 
 
@@ -122,12 +115,14 @@ def _build_im_db_and_handler(tmp_path: Path):  # noqa: ANN202
     msg_repo = MessageRepository(connection)
     evt_repo = EventRepository(connection)
     bridge = EventBridge(message_repository=msg_repo, event_repository=evt_repo)
-    handler = GatewayHandler(
-        relay_service=RelayService(connection),
+    lock = asyncio.Lock()
+    handler = GatewayExecution(
+        sessions=GatewaySessions(lock=lock),
         metrics_service=MetricsService(metrics=UsageMetricsRepository(connection)),
         conversation_persistence=GatewayConversationPersistence(connection),
         message_repository=msg_repo,
         event_bridge=bridge,
+        lock=lock,
     )
     return connection, handler
 
@@ -153,15 +148,6 @@ def test_heartbeat_with_content_creates_real_message_row_in_fk_enforced_db(
     users = UserRepository(connection)
     owner = users.create_user(username="nano", display_name="Nano")
     users.create_user(username="agent:alpha", display_name="Alpha")
-
-    # Register the node so gateway_handler allows streaming_delta from it
-    asyncio.run(
-        handler.handle_message(
-            websocket=_NullWebSocket(),
-            message_type="node.register",
-            payload={"node_id": "node-1", "agents": ["alpha"], "capabilities": {}},
-        )
-    )
 
     run_context_store: dict[str, dict[str, str]] = {}
     fake_manager = _FakeIMManager(handler)
@@ -249,14 +235,6 @@ def test_heartbeat_no_reply_produces_zero_message_rows(tmp_path: Path) -> None:
     owner = users.create_user(username="nano2", display_name="Nano2")
     users.create_user(username="agent:beta", display_name="Beta")
 
-    asyncio.run(
-        handler.handle_message(
-            websocket=_NullWebSocket(),
-            message_type="node.register",
-            payload={"node_id": "node-1", "agents": ["beta"], "capabilities": {}},
-        )
-    )
-
     run_context_store: dict[str, dict[str, str]] = {}
     fake_manager = _FakeIMManager(handler)
 
@@ -306,14 +284,6 @@ def test_owner_direct_context_store_suppresses_heartbeat_ok(tmp_path: Path) -> N
     owner = users.create_user(username="nano-ok", display_name="Nano OK")
     users.create_user(username="agent:epsilon", display_name="Epsilon")
 
-    asyncio.run(
-        handler.handle_message(
-            websocket=_NullWebSocket(),
-            message_type="node.register",
-            payload={"node_id": "node-1", "agents": ["epsilon"], "capabilities": {}},
-        )
-    )
-
     context_store = RunDeliveryContextStore()
     context_store.seed(
         RunDeliveryContext(
@@ -362,14 +332,6 @@ def test_owner_direct_context_store_ack_backfills_and_continues_delta(
     users = UserRepository(connection)
     owner = users.create_user(username="nano-ack", display_name="Nano Ack")
     users.create_user(username="agent:zeta", display_name="Zeta")
-
-    asyncio.run(
-        handler.handle_message(
-            websocket=_NullWebSocket(),
-            message_type="node.register",
-            payload={"node_id": "node-1", "agents": ["zeta"], "capabilities": {}},
-        )
-    )
 
     context_store = RunDeliveryContextStore()
     context_store.seed(
@@ -429,14 +391,6 @@ def test_stream_run_to_completion_seeds_typed_store_seen_by_observer(
     users = UserRepository(connection)
     owner = users.create_user(username="nano-stream", display_name="Nano Stream")
     users.create_user(username="agent:theta", display_name="Theta")
-
-    asyncio.run(
-        handler.handle_message(
-            websocket=_NullWebSocket(),
-            message_type="node.register",
-            payload={"node_id": "node-1", "agents": ["theta"], "capabilities": {}},
-        )
-    )
 
     run_id = "run-hb-stream-typed"
     session_id = "sess-hb-stream-typed"
@@ -501,14 +455,6 @@ def test_heartbeat_empty_content_produces_zero_message_rows(tmp_path: Path) -> N
     owner = users.create_user(username="nano3", display_name="Nano3")
     users.create_user(username="agent:gamma", display_name="Gamma")
 
-    asyncio.run(
-        handler.handle_message(
-            websocket=_NullWebSocket(),
-            message_type="node.register",
-            payload={"node_id": "node-1", "agents": ["gamma"], "capabilities": {}},
-        )
-    )
-
     run_context_store: dict[str, dict[str, str]] = {}
     fake_manager = _FakeIMManager(handler)
 
@@ -567,14 +513,6 @@ def test_normal_chat_run_context_store_eager_bubble_unchanged(tmp_path: Path) ->
         title="chat", participant_ids=[owner.id, agent_user.id]
     )
 
-    asyncio.run(
-        handler.handle_message(
-            websocket=_NullWebSocket(),
-            message_type="node.register",
-            payload={"node_id": "node-1", "agents": ["delta"], "capabilities": {}},
-        )
-    )
-
     run_context_store: dict[str, dict[str, str]] = {}
     fake_manager = _FakeIMManager(handler)
 
@@ -625,13 +563,6 @@ def test_group_no_reply_leaves_zero_agent_rows_in_fk_enforced_db(
     agent_user = users.create_user(username="agent:quiet", display_name="Quiet")
     conv = ConversationRepository(connection).create_conversation(
         title="quiet group", participant_ids=[owner.id, agent_user.id]
-    )
-    asyncio.run(
-        handler.handle_message(
-            websocket=_NullWebSocket(),
-            message_type="node.register",
-            payload={"node_id": "node-1", "agents": ["quiet"], "capabilities": {}},
-        )
     )
 
     run_id = "run-group-no-reply-1"
@@ -690,13 +621,6 @@ def test_direct_web_no_reply_leaves_zero_agent_rows_in_fk_enforced_db(
     agent_user = users.create_user(username="agent:quiet", display_name="Quiet")
     conv = ConversationRepository(connection).create_conversation(
         title="quiet direct", participant_ids=[owner.id, agent_user.id]
-    )
-    asyncio.run(
-        handler.handle_message(
-            websocket=_NullWebSocket(),
-            message_type="node.register",
-            payload={"node_id": "node-1", "agents": ["quiet"], "capabilities": {}},
-        )
     )
 
     run_id = "run-direct-web-no-reply-1"
@@ -764,17 +688,6 @@ def test_direct_web_empty_completion_after_process_leaves_zero_agent_rows(
     agent_user = users.create_user(username="agent:quiet-empty", display_name="Quiet")
     conv = ConversationRepository(connection).create_conversation(
         title="quiet direct", participant_ids=[owner.id, agent_user.id]
-    )
-    asyncio.run(
-        handler.handle_message(
-            websocket=_NullWebSocket(),
-            message_type="node.register",
-            payload={
-                "node_id": "node-1",
-                "agents": ["quiet-empty"],
-                "capabilities": {},
-            },
-        )
     )
 
     run_id = "run-direct-web-empty-1"

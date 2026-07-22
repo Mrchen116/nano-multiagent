@@ -68,7 +68,7 @@ class TestPreviewRoutePassesParams:
         request_cron: "bool | None",
         captured_calls: list,
     ):
-        """Invoke the route and capture what gateway_handler.request_prompt_preview received."""
+        """Invoke the route and capture the control RPC request parameters."""
         import asyncio
         from IM.api.routes.agents import PromptPreviewRequest, agent_prompt_preview
 

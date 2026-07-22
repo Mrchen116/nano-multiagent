@@ -71,17 +71,17 @@ def test_user_stream_does_not_execute_persistence_operations() -> None:
     assert not _attribute_calls(relative_path, "commit")
 
 
-def test_gateway_handler_node_lifecycle_uses_only_gateway_persistence() -> None:
-    """Prevent node/profile/user registration SQL from returning to the handler."""
-    source = _source("src/IM/ws/gateway_handler.py")
+def test_gateway_sessions_node_lifecycle_uses_only_gateway_persistence() -> None:
+    """Prevent node/profile/user registration SQL from returning to WS sessions."""
+    source = _source("src/IM/ws/gateway/sessions.py")
     assert "_node_repository" not in source
     assert "AgentProfileRepository" not in source
     assert "GatewayNodePersistence" in source
 
 
-def test_gateway_handler_delivery_uses_only_gateway_persistence() -> None:
+def test_gateway_relay_delivery_uses_only_gateway_persistence() -> None:
     """Keep delivery SQL and owner policy behind the conversation persistence seam."""
-    relative_path = "src/IM/ws/gateway_handler.py"
+    relative_path = "src/IM/ws/gateway/relay.py"
     source = _source(relative_path)
     assert "GatewayConversationPersistence" in source
     assert not _attribute_references(relative_path, "_connection")
@@ -92,11 +92,13 @@ def test_gateway_handler_delivery_uses_only_gateway_persistence() -> None:
 
 
 def test_app_wires_gateway_delivery_collaborators_explicitly() -> None:
-    """Require the composition root to inject persistence and message collaborators."""
+    """Require the composition root to inject Relay and Execution collaborators."""
     source = _source("src/IM/app.py")
     assert "GatewayConversationPersistence(connection)" in source
     assert "conversation_persistence=conversation_persistence" in source
     assert "message_repository=message_repository" in source
+    assert "GatewayRelay(" in source
+    assert "GatewayExecution(" in source
 
 
 def test_repositories_use_domain_modules_without_legacy_aggregate() -> None:

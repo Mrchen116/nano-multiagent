@@ -179,14 +179,18 @@ def bind_device(
             bind_id=payload.bind_id, bind_token=payload.bind_token, user_id=user.id
         )
         event_loop = getattr(request.app.state, "event_loop", None)
-        gateway_handler = getattr(request.app.state, "gateway_handler", None)
+        gateway_channel_control = getattr(
+            request.app.state, "gateway_channel_control", None
+        )
         if (
             event_loop is not None
             and not event_loop.is_closed()
-            and gateway_handler is not None
+            and gateway_channel_control is not None
         ):
             asyncio.run_coroutine_threadsafe(
-                gateway_handler.initialize_channel_control(node_id=bind.node_id),
+                gateway_channel_control.initialize_channel_control(
+                    node_id=bind.node_id
+                ),
                 event_loop,
             )
         return to_bind_response(bind, request=request)

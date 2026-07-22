@@ -1,13 +1,14 @@
 """Unit tests for M14 streaming chain: node.streaming_delta → EventBridge → WS push.
 
 Tests verify:
-1. GatewayHandler.handle_message("node.streaming_delta") calls EventBridge correctly
+1. GatewayExecution.handle_streaming_delta calls EventBridge correctly
 2. Cross-tenant isolation: streaming frames only broadcast to caller's owner WS
 3. token_usage carried in relay.report event payload
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections import defaultdict
 from unittest.mock import AsyncMock, MagicMock, call, patch
@@ -16,21 +17,19 @@ import pytest
 
 from IM.application.event_bridge import EventBridge
 from IM.domain.models import ConversationEvent, Message, TokenUsage, ToolCall
-from IM.ws.gateway_handler import GatewayHandler
+from IM.ws.gateway.execution import GatewayExecution
+from IM.ws.gateway.sessions import GatewaySessions
 from IM.ws.user_stream import UserStreamRegistry
 
 
 # ─── helpers ─────────────────────────────────────────────────────────────────
 
 
-def _make_minimal_handler(
+def _make_minimal_execution(
     *,
     event_bridge: EventBridge | None = None,
-    user_stream_registry: UserStreamRegistry | None = None,
-) -> GatewayHandler:
-    """Build a GatewayHandler with just enough config for streaming tests."""
-    relay_service = MagicMock()
-    relay_service.get_relay_task = MagicMock(return_value=None)
+) -> GatewayExecution:
+    """Build the concrete Execution owner for streaming behavior tests."""
 
     event_repo = MagicMock()
     event_repo.append_event.return_value = ConversationEvent(
@@ -43,26 +42,26 @@ def _make_minimal_handler(
         created_at="2026-01-01T00:00:00Z",
     )
 
-    handler = GatewayHandler(
-        relay_service=relay_service,
+    lock = asyncio.Lock()
+    return GatewayExecution(
+        sessions=GatewaySessions(lock=lock),
         event_repository=event_repo,
-        user_stream_registry=user_stream_registry or UserStreamRegistry(),
         event_bridge=event_bridge,
+        lock=lock,
     )
-    return handler
 
 
 # ─── R1 tests: gateway_handler receives node.streaming_delta ─────────────────
 
 
 class TestNodeStreamingDeltaHandling:
-    """GatewayHandler.handle_message('node.streaming_delta') dispatches to EventBridge."""
+    """GatewayExecution.handle_streaming_delta dispatches to EventBridge."""
 
     @pytest.mark.asyncio
     async def test_streaming_delta_calls_event_bridge_on_message_delta(self):
         """node.streaming_delta with kind=message_delta calls EventBridge.on_message_delta."""
         bridge = MagicMock(spec=EventBridge)
-        handler = _make_minimal_handler(event_bridge=bridge)
+        handler = _make_minimal_execution(event_bridge=bridge)
 
         ws = AsyncMock()
         payload = {
@@ -72,9 +71,7 @@ class TestNodeStreamingDeltaHandling:
             "delta_text": "Hello",
             "owner_id": "owner-A",
         }
-        await handler.handle_message(
-            websocket=ws, message_type="node.streaming_delta", payload=payload
-        )
+        await handler.handle_streaming_delta(payload=payload)
         bridge.on_message_delta.assert_called_once_with(
             message_id="msg-1", delta_text="Hello"
         )
@@ -93,7 +90,7 @@ class TestNodeStreamingDeltaHandling:
             delivery_status="running",
             created_at="2026-01-01T00:00:00Z",
         )
-        handler = _make_minimal_handler(event_bridge=bridge)
+        handler = _make_minimal_execution(event_bridge=bridge)
         ws = AsyncMock()
         payload = {
             "kind": "turn_start",
@@ -102,9 +99,7 @@ class TestNodeStreamingDeltaHandling:
             "agent_id": "alpha",
             "owner_id": "owner-A",
         }
-        result = await handler.handle_message(
-            websocket=ws, message_type="node.streaming_delta", payload=payload
-        )
+        result = await handler.handle_streaming_delta(payload=payload)
         bridge.on_turn_start.assert_called_once_with(
             conversation_id="conv-1",
             agent_user_id="agent-user-1",
@@ -117,7 +112,7 @@ class TestNodeStreamingDeltaHandling:
     async def test_streaming_delta_tool_call_upserted(self):
         """node.streaming_delta with kind=tool_call_upserted calls on_tool_call_upserted."""
         bridge = MagicMock(spec=EventBridge)
-        handler = _make_minimal_handler(event_bridge=bridge)
+        handler = _make_minimal_execution(event_bridge=bridge)
         ws = AsyncMock()
         payload = {
             "kind": "tool_call_upserted",
@@ -130,9 +125,7 @@ class TestNodeStreamingDeltaHandling:
             },
             "owner_id": "owner-A",
         }
-        await handler.handle_message(
-            websocket=ws, message_type="node.streaming_delta", payload=payload
-        )
+        await handler.handle_streaming_delta(payload=payload)
         assert bridge.on_tool_call_upserted.called
         tc_arg = bridge.on_tool_call_upserted.call_args[1]["tool_call"]
         assert tc_arg.id == "tc-1"
@@ -143,7 +136,7 @@ class TestNodeStreamingDeltaHandling:
         """bugfix-417-M3 R4: node.streaming_delta kind=run_heartbeat calls
         EventBridge.on_run_heartbeat so the message's last_evt advances (liveness)."""
         bridge = MagicMock(spec=EventBridge)
-        handler = _make_minimal_handler(event_bridge=bridge)
+        handler = _make_minimal_execution(event_bridge=bridge)
         ws = AsyncMock()
         payload = {
             "kind": "run_heartbeat",
@@ -151,9 +144,7 @@ class TestNodeStreamingDeltaHandling:
             "run_id": "run-1",
             "source": "permission",
         }
-        result = await handler.handle_message(
-            websocket=ws, message_type="node.streaming_delta", payload=payload
-        )
+        result = await handler.handle_streaming_delta(payload=payload)
         assert bridge.on_run_heartbeat.called
         kwargs = bridge.on_run_heartbeat.call_args[1]
         assert kwargs["message_id"] == "msg-1"
@@ -164,7 +155,7 @@ class TestNodeStreamingDeltaHandling:
     async def test_streaming_delta_tool_call_completed(self):
         """node.streaming_delta with kind=tool_call_completed calls on_tool_call_completed."""
         bridge = MagicMock(spec=EventBridge)
-        handler = _make_minimal_handler(event_bridge=bridge)
+        handler = _make_minimal_execution(event_bridge=bridge)
         ws = AsyncMock()
         payload = {
             "kind": "tool_call_completed",
@@ -179,16 +170,14 @@ class TestNodeStreamingDeltaHandling:
             },
             "owner_id": "owner-A",
         }
-        await handler.handle_message(
-            websocket=ws, message_type="node.streaming_delta", payload=payload
-        )
+        await handler.handle_streaming_delta(payload=payload)
         assert bridge.on_tool_call_completed.called
 
     @pytest.mark.asyncio
     async def test_streaming_delta_message_completed(self):
         """node.streaming_delta with kind=message_completed calls on_message_completed."""
         bridge = MagicMock(spec=EventBridge)
-        handler = _make_minimal_handler(event_bridge=bridge)
+        handler = _make_minimal_execution(event_bridge=bridge)
         ws = AsyncMock()
         payload = {
             "kind": "message_completed",
@@ -197,9 +186,7 @@ class TestNodeStreamingDeltaHandling:
             "token_usage": {"prompt": 10, "completion": 5, "total": 15},
             "owner_id": "owner-A",
         }
-        await handler.handle_message(
-            websocket=ws, message_type="node.streaming_delta", payload=payload
-        )
+        await handler.handle_streaming_delta(payload=payload)
         assert bridge.on_message_completed.called
         kwargs = bridge.on_message_completed.call_args[1]
         assert kwargs["message_id"] == "msg-1"
@@ -217,7 +204,7 @@ class TestNodeStreamingDeltaHandling:
         must forward that terminal state instead of overwriting with 'completed'.
         """
         bridge = MagicMock(spec=EventBridge)
-        handler = _make_minimal_handler(event_bridge=bridge)
+        handler = _make_minimal_execution(event_bridge=bridge)
         ws = AsyncMock()
         payload = {
             "kind": "message_completed",
@@ -226,9 +213,7 @@ class TestNodeStreamingDeltaHandling:
             "delivery_status": "failed",
             "owner_id": "owner-A",
         }
-        await handler.handle_message(
-            websocket=ws, message_type="node.streaming_delta", payload=payload
-        )
+        await handler.handle_streaming_delta(payload=payload)
         assert bridge.on_message_completed.called
         kwargs = bridge.on_message_completed.call_args[1]
         assert kwargs["delivery_status"] == "failed"
@@ -243,7 +228,7 @@ class TestNodeStreamingDeltaHandling:
         downgrade to the bugfix-380 pre-fix bug (empty bubble marked 'completed').
         """
         bridge = MagicMock(spec=EventBridge)
-        handler = _make_minimal_handler(event_bridge=bridge)
+        handler = _make_minimal_execution(event_bridge=bridge)
         ws = AsyncMock()
         payload = {
             "kind": "message_completed",
@@ -253,18 +238,14 @@ class TestNodeStreamingDeltaHandling:
             "owner_id": "owner-A",
         }
         with pytest.raises(ValueError, match="delivery_status must be"):
-            await handler.handle_message(
-                websocket=ws, message_type="node.streaming_delta", payload=payload
-            )
+            await handler.handle_streaming_delta(payload=payload)
         # bridge must NOT have been called — frame is rejected before reaching IM
         assert not bridge.on_message_completed.called
 
     @pytest.mark.asyncio
     async def test_streaming_delta_without_bridge_returns_ack(self):
         """Without EventBridge (no repos wired), node.streaming_delta returns ack without crash."""
-        # Build a handler with no conversation/event repos so event_bridge auto-creation is skipped.
-        relay_service = MagicMock()
-        handler = GatewayHandler(relay_service=relay_service)
+        handler = _make_minimal_execution()
         ws = AsyncMock()
         payload = {
             "kind": "message_delta",
@@ -273,9 +254,7 @@ class TestNodeStreamingDeltaHandling:
             "delta_text": "Hello",
             "owner_id": "owner-A",
         }
-        result = await handler.handle_message(
-            websocket=ws, message_type="node.streaming_delta", payload=payload
-        )
+        result = await handler.handle_streaming_delta(payload=payload)
         assert result is not None
         assert result.get("type") == "ack"
 
@@ -306,10 +285,11 @@ class TestRelayReportTokenUsage:
         event_repo.append_event.side_effect = capture_append
         event_repo.update_message_delivery_status = MagicMock()
 
-        relay_service = MagicMock()
-        handler = GatewayHandler(
-            relay_service=relay_service,
+        lock = asyncio.Lock()
+        handler = GatewayExecution(
+            sessions=GatewaySessions(lock=lock),
             event_repository=event_repo,
+            lock=lock,
         )
         payload = {
             "node_id": "node-1",
@@ -348,9 +328,7 @@ class TestCrossTenantStreamingIsolation:
         registry.broadcast_to_user = AsyncMock()
         registry.broadcast_to_users = AsyncMock()
 
-        handler = _make_minimal_handler(
-            event_bridge=bridge, user_stream_registry=registry
-        )
+        handler = _make_minimal_execution(event_bridge=bridge)
 
         ws = AsyncMock()
         payload = {
@@ -360,9 +338,7 @@ class TestCrossTenantStreamingIsolation:
             "delta_text": "secret A",
             "owner_id": "owner-A",
         }
-        await handler.handle_message(
-            websocket=ws, message_type="node.streaming_delta", payload=payload
-        )
+        await handler.handle_streaming_delta(payload=payload)
 
         # broadcast_to_users (all users) must not be called for streaming frames
         registry.broadcast_to_users.assert_not_called()
@@ -388,7 +364,7 @@ class TestTurnStartAckReturnsMessageId:
             delivery_status="running",
             created_at="2026-01-01T00:00:00Z",
         )
-        handler = _make_minimal_handler(event_bridge=bridge)
+        handler = _make_minimal_execution(event_bridge=bridge)
         ws = AsyncMock()
         payload = {
             "kind": "turn_start",
@@ -397,9 +373,7 @@ class TestTurnStartAckReturnsMessageId:
             "agent_id": "alpha",
             "owner_id": "owner-A",
         }
-        result = await handler.handle_message(
-            websocket=ws, message_type="node.streaming_delta", payload=payload
-        )
+        result = await handler.handle_streaming_delta(payload=payload)
         assert result is not None
         assert result.get("type") == "ack"
         # message_id must appear in the ack payload so the PA observer can update run_context_store

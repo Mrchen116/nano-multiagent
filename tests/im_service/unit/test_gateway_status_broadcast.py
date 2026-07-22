@@ -1,4 +1,4 @@
-"""Unit tests for GatewayHandler node/agent status broadcast (feat-340-M10)."""
+"""Unit tests for GatewaySessions node/agent status broadcast (feat-340-M10)."""
 
 from __future__ import annotations
 
@@ -9,23 +9,16 @@ import sqlite3
 
 import pytest
 
-from IM.application.metrics_service import MetricsService
-from IM.application.relay_service import RelayService
 from IM.infra.db import connect, initialize_schema
-from IM.infra.gateway_persistence import (
-    GatewayConversationPersistence,
-    GatewayNodePersistence,
-)
-from IM.infra.repositories.messages import MessageRepository
+from IM.infra.gateway_persistence import GatewayNodePersistence
 from IM.infra.repositories.nodes import NodeRepository
-from IM.infra.repositories.metrics import UsageMetricsRepository
 from IM.infra.repositories.users import UserRepository
-from IM.ws.gateway_handler import GatewayHandler
+from IM.ws.gateway.sessions import GatewaySessions
 from IM.ws.user_stream import UserStreamRegistry
 
 
 class _StubGatewayWebSocket:
-    """Echo websocket sufficient for GatewayHandler register/heartbeat protocol."""
+    """Echo websocket sufficient for GatewaySessions register/heartbeat protocol."""
 
     async def send_json(
         self, payload: dict[str, object]
@@ -48,16 +41,13 @@ def _build(tmp_path: Path):  # noqa: ANN202
     initialize_schema(connection)
     registry = UserStreamRegistry()
     nodes = NodeRepository(connection)
-    handler = GatewayHandler(
-        relay_service=RelayService(connection),
+    sessions = GatewaySessions(
         node_persistence=GatewayNodePersistence(connection),
-        metrics_service=MetricsService(metrics=UsageMetricsRepository(connection)),
-        conversation_persistence=GatewayConversationPersistence(connection),
-        message_repository=MessageRepository(connection),
         user_stream_registry=registry,
+        lock=asyncio.Lock(),
     )
     users = UserRepository(connection)
-    return handler, nodes, registry, connection, users
+    return sessions, nodes, registry, connection, users
 
 
 def test_register_broadcasts_node_online_to_owner(tmp_path: Path) -> None:
@@ -71,9 +61,8 @@ def test_register_broadcasts_node_online_to_owner(tmp_path: Path) -> None:
     asyncio.run(registry.add(owner.owner_id, browser))
 
     asyncio.run(
-        handler.handle_message(
+        handler.register(
             websocket=_StubGatewayWebSocket(),
-            message_type="node.register",
             payload={"node_id": "node-1", "agents": [], "capabilities": {}},
             authenticated_owner_id=owner.owner_id,
         )
@@ -100,9 +89,8 @@ def test_register_with_agents_broadcasts_per_agent_status_online(
     asyncio.run(registry.add(owner.owner_id, browser))
 
     asyncio.run(
-        handler.handle_message(
+        handler.register(
             websocket=_StubGatewayWebSocket(),
-            message_type="node.register",
             payload={
                 "node_id": "node-1",
                 "agents": ["agent-a", "agent-b"],
@@ -136,9 +124,8 @@ def test_heartbeat_with_same_status_does_not_rebroadcast(tmp_path: Path) -> None
     asyncio.run(registry.add(owner.owner_id, browser))
 
     asyncio.run(
-        handler.handle_message(
+        handler.register(
             websocket=_StubGatewayWebSocket(),
-            message_type="node.register",
             payload={"node_id": "node-1", "agents": [], "capabilities": {}},
             authenticated_owner_id=owner.owner_id,
         )
@@ -146,9 +133,7 @@ def test_heartbeat_with_same_status_does_not_rebroadcast(tmp_path: Path) -> None
     frames_after_register = len(browser.frames)
 
     asyncio.run(
-        handler.handle_message(
-            websocket=_StubGatewayWebSocket(),
-            message_type="node.heartbeat",
+        handler.heartbeat(
             payload={"node_id": "node-1", "status": "online"},
         )
     )
@@ -168,9 +153,8 @@ def test_heartbeat_flip_to_degraded_broadcasts(tmp_path: Path) -> None:
     asyncio.run(registry.add(owner.owner_id, browser))
 
     asyncio.run(
-        handler.handle_message(
+        handler.register(
             websocket=_StubGatewayWebSocket(),
-            message_type="node.register",
             payload={"node_id": "node-1", "agents": [], "capabilities": {}},
             authenticated_owner_id=owner.owner_id,
         )
@@ -178,9 +162,7 @@ def test_heartbeat_flip_to_degraded_broadcasts(tmp_path: Path) -> None:
     browser.frames.clear()
 
     asyncio.run(
-        handler.handle_message(
-            websocket=_StubGatewayWebSocket(),
-            message_type="node.heartbeat",
+        handler.heartbeat(
             payload={"node_id": "node-1", "status": "online", "last_error": "boom"},
         )
     )
@@ -203,9 +185,8 @@ def test_disconnect_broadcasts_node_and_agents_offline(tmp_path: Path) -> None:
     asyncio.run(registry.add(owner.owner_id, browser))
 
     asyncio.run(
-        handler.handle_message(
+        handler.register(
             websocket=_StubGatewayWebSocket(),
-            message_type="node.register",
             payload={"node_id": "node-1", "agents": ["agent-a"], "capabilities": {}},
             authenticated_owner_id=owner.owner_id,
         )
@@ -236,9 +217,8 @@ def test_force_offline_removes_connection_before_persistence_failure(
     owner = users.create_user(username="owner-a", display_name="Owner A")
     nodes.upsert_node(node_id="node-1", node_name="N1", owner_id=owner.owner_id)
     asyncio.run(
-        handler.handle_message(
+        handler.register(
             websocket=_StubGatewayWebSocket(),
-            message_type="node.register",
             payload={"node_id": "node-1", "agents": [], "capabilities": {}},
             authenticated_owner_id=owner.owner_id,
         )
@@ -278,9 +258,8 @@ def test_cross_owner_isolation_no_leak(tmp_path: Path) -> None:
     asyncio.run(registry.add(owner_b.owner_id, ws_b))
 
     asyncio.run(
-        handler.handle_message(
+        handler.register(
             websocket=_StubGatewayWebSocket(),
-            message_type="node.register",
             payload={"node_id": "node-1", "agents": ["agent-a"], "capabilities": {}},
             authenticated_owner_id=owner_a.owner_id,
         )
@@ -299,10 +278,10 @@ def test_orphan_node_without_owner_does_not_broadcast(tmp_path: Path) -> None:
     asyncio.run(registry.add(owner.owner_id, browser))
 
     asyncio.run(
-        handler.handle_message(
+        handler.register(
             websocket=_StubGatewayWebSocket(),
-            message_type="node.register",
             payload={"node_id": "orphan", "agents": [], "capabilities": {}},
+            authenticated_owner_id="",
         )
     )
 

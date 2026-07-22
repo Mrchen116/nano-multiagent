@@ -7,7 +7,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from IM.app import create_app
-from IM.ws.gateway_handler import GatewayConnection
+from IM.ws.gateway.sessions import GatewayConnection
 
 from .conftest import authorize, register_user, seed_user_under_owner
 
@@ -43,7 +43,7 @@ class FailingGatewaySocket:
 
 
 async def _register_failing_gateway(app, *, node_id: str) -> None:  # noqa: ANN001
-    await app.state.gateway_handler.handle_message(
+    await app.state.gateway_runtime.handle_message(
         websocket=FailingGatewaySocket(),
         message_type="node.register",
         payload={
@@ -57,7 +57,7 @@ async def _register_failing_gateway(app, *, node_id: str) -> None:  # noqa: ANN0
 
 
 async def _snapshot_gateway(app, *, node_id: str) -> GatewayConnection | None:  # noqa: ANN001
-    return await app.state.gateway_handler.snapshot_connection(node_id=node_id)
+    return await app.state.gateway_sessions.snapshot_connection(node_id=node_id)
 
 
 def test_gateway_websocket_registers_and_receives_relay_messages(
@@ -214,14 +214,14 @@ def test_gateway_websocket_receives_config_and_heartbeat_pushes(tmp_path: Path) 
             import asyncio
 
             pushed_config = asyncio.run(
-                app.state.gateway_handler.push_config_sync(
+                app.state.gateway_control.push_config_sync(
                     target_node_id="node-1",
                     agent_id="agent-a",
                     profile_version=3,
                 )
             )
             pushed_heartbeat = asyncio.run(
-                app.state.gateway_handler.push_heartbeat_trigger(
+                app.state.gateway_control.push_heartbeat_trigger(
                     target_node_id="node-1",
                     agent_id="agent-a",
                     reason="manual",

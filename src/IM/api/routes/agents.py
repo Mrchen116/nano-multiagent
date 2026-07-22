@@ -9,16 +9,16 @@ from typing import Any
 from IM.api.deps import (
     current_user,
     get_config_service,
-    get_gateway_handler,
     get_node_service,
     get_user_service,
 )
 from IM.application.config_service import ConfigService
 from IM.application.node_service import NodeService
 from IM.application.user_service import UserService
+from IM.api.deps import get_gateway_control
+from IM.ws.gateway.control import GatewayControl
 from IM.domain.models import AgentProfile, User
 from IM.infra.repositories.agents import AgentProfileVersionConflictError
-from IM.ws.gateway_handler import GatewayHandler
 
 router = APIRouter(tags=["agents"])
 
@@ -325,7 +325,7 @@ async def get_agent_config(
     source: str = Query(default="live"),
     user: User = Depends(current_user),
     service: ConfigService = Depends(get_config_service),
-    gateway_handler: GatewayHandler = Depends(get_gateway_handler),
+    gateway_handler: GatewayControl = Depends(get_gateway_control),
 ) -> AgentConfigResponse:
     """Return one agent configuration profile, owner-scoped to the caller's tenant.
 
@@ -360,7 +360,7 @@ async def get_agent_capabilities(
     agent_id: str,
     user: User = Depends(current_user),
     service: ConfigService = Depends(get_config_service),
-    gateway_handler: GatewayHandler = Depends(get_gateway_handler),
+    gateway_handler: GatewayControl = Depends(get_gateway_control),
 ) -> AgentCapabilitiesResponse:
     """Resolve runtime capabilities for one agent from its owning node (owner-scoped)."""
     profile = service.get_profile_for_owner(agent_id=agent_id, owner_id=user.owner_id)
@@ -599,7 +599,7 @@ async def agent_prompt_preview(
     payload: PromptPreviewRequest,
     user: User = Depends(current_user),
     service: ConfigService = Depends(get_config_service),
-    gateway_handler: GatewayHandler = Depends(get_gateway_handler),
+    gateway_handler: GatewayControl = Depends(get_gateway_control),
 ) -> PromptPreviewResponse:
     """Proxy a prompt-preview request to the owning Gateway node (owner-scoped).
 
@@ -740,7 +740,7 @@ class SkillsUsageResponse(BaseModel):
 async def list_agent_cron_jobs(
     agent_id: str,
     service: ConfigService = Depends(get_config_service),
-    gateway_handler: GatewayHandler = Depends(get_gateway_handler),
+    gateway_handler: GatewayControl = Depends(get_gateway_control),
     user: User = Depends(current_user),
 ) -> list[CronJobSummary]:
     """Return all cron jobs registered for an agent via gateway WS RPC.
@@ -795,7 +795,7 @@ async def list_agent_cron_jobs(
 async def get_agent_skills_usage(
     agent_id: str,
     service: ConfigService = Depends(get_config_service),
-    gateway_handler: GatewayHandler = Depends(get_gateway_handler),
+    gateway_handler: GatewayControl = Depends(get_gateway_control),
     user: User = Depends(current_user),
 ) -> SkillsUsageResponse:
     """Return skill usage stats via gateway WS RPC.
@@ -839,7 +839,7 @@ async def delete_agent_cron_job(
     agent_id: str,
     job_id: str,
     service: ConfigService = Depends(get_config_service),
-    gateway_handler: GatewayHandler = Depends(get_gateway_handler),
+    gateway_handler: GatewayControl = Depends(get_gateway_control),
     user: User = Depends(current_user),
 ) -> None:
     """Remove one cron job via gateway WS RPC.
@@ -881,7 +881,7 @@ async def delete_agent_cron_job(
 async def get_agent_heartbeat_md(
     agent_id: str,
     service: ConfigService = Depends(get_config_service),
-    gateway_handler: GatewayHandler = Depends(get_gateway_handler),
+    gateway_handler: GatewayControl = Depends(get_gateway_control),
     user: User = Depends(current_user),
 ) -> HeartbeatMdResponse:
     """Return raw HEARTBEAT.md content for the agent detail preview panel.

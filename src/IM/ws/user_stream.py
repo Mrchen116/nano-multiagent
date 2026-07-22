@@ -202,7 +202,7 @@ def build_notify_enqueue(
 
 async def scan_and_flip_stale_nodes(
     *,
-    handler,  # type: GatewayHandler — late-imported to avoid circular ref
+    handler,  # GatewaySessions; omitted import avoids a user-stream cycle.
     node_persistence: GatewayNodePersistence,
     timeout_seconds: int = 60,
 ) -> int:
@@ -225,7 +225,7 @@ async def scan_and_flip_stale_nodes(
 
 async def run_offline_guard(
     *,
-    handler,  # type: GatewayHandler
+    handler,  # GatewaySessions; omitted import avoids a user-stream cycle.
     node_persistence: GatewayNodePersistence,
     interval_seconds: int = 10,
     timeout_seconds: int = 60,

@@ -200,18 +200,6 @@ async def test_background_subscriber_reconnects_on_stream_error() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_gateway_handler_handles_node_system_message() -> None:
-    """gateway_handler.handle() must accept ``node.system_message`` message type."""
-    from IM.ws.gateway_handler import GatewayHandler
-
-    # handler is dispatch-table driven; we just verify the method exists
-    assert (
-        hasattr(GatewayHandler, "_handle_system_message")
-        or callable(getattr(GatewayHandler, "_handle_system_message", None))
-        or True
-    )  # checked via integration test below
-
-
 @pytest.mark.asyncio
 async def test_gateway_handler_node_system_message_creates_system_message() -> None:
     """``node.system_message`` must persist a system-type message in the conversation."""
@@ -221,7 +209,9 @@ async def test_gateway_handler_node_system_message_creates_system_message() -> N
     from IM.infra.repositories.conversations import ConversationRepository
     from IM.infra.repositories.messages import MessageRepository
     from IM.infra.repositories.users import UserRepository
-    from IM.ws.gateway_handler import GatewayHandler
+    from IM.ws.gateway.execution import GatewayExecution
+    from IM.ws.gateway.relay import GatewayRelay
+    from IM.ws.gateway.sessions import GatewaySessions
 
     # Use the real IM schema so all column names are correct.
     conn = sqlite3.connect(":memory:")
@@ -239,16 +229,18 @@ async def test_gateway_handler_node_system_message_creates_system_message() -> N
         caller_owner_id=owner.owner_id,
     )
 
-    relay_service = MagicMock()
-    handler = GatewayHandler(
-        relay_service=relay_service,
+    lock = asyncio.Lock()
+    sessions = GatewaySessions(lock=lock)
+    handler = GatewayRelay(
+        sessions=sessions,
+        execution=GatewayExecution(sessions=sessions, lock=lock),
+        relay_service=MagicMock(),
         conversation_persistence=GatewayConversationPersistence(conn),
         message_repository=MessageRepository(conn),
+        lock=lock,
     )
 
-    result = await handler.handle_message(
-        websocket=MagicMock(),
-        message_type="node.system_message",
+    result = await handler.handle_system_message(
         payload={
             "conversation_id": conv.id,
             "text": "· background self-evolution review: skills updated",
