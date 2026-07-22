@@ -109,3 +109,46 @@ Web IM 的核心直聊旅程已在真实浏览器中证明：同一聊天在运�
 - [x] `docs/specs/<包>/`（长青行为契约层）：需要更新/归并；unit 已提供 kernel、gateway、IM 的 delta-spec，PR 收尾须归并至 canonical specs。
 - [x] `AGENTS.md` / `CLAUDE.md`：无需更新。
 - [x] `docs/SPEC_GUIDE.md`（文档规范）：无需更新。
+
+---
+
+# Round 2 — 2026-07-22
+
+## Verdict update
+
+**fail**
+
+**Highest Required Action:** `fix-implementation`
+
+按协调方补充的直接授权，本轮已将同一个 Feishu app 的唯一 listener 从主 Gateway 切换到隔离 unit Gateway，并向真实 Feishu 测试群发送消息。隔离 Gateway 的 Agent 配置已在真实 Web IM 成功保存为 `ALWAYS` 群回复策略及精确回复指令。随后在真实群中发送的 `BUGFIX471-R1-FEISHU-OUTAGE: reply with the configured exact token.` 用户消息可见，但等待两分钟仍没有 Agent 回复。因此外部渠道主路径在配置切换后的真实用户操作中走不通，未能进入 IM outage / shadow 恢复 / Gateway restart 后续步骤。
+
+## Round 2 User Journey
+
+1. 停止主 Gateway，确认它退出；启动隔离 IM 与 unit Gateway，二者使用 unit worktree 的临时配置，并由同一 `cli_aac9315ef3f9dbda` app 保持唯一 listener。
+2. 在隔离 Web IM 登录 `nano`，为 `default-agent` 保存 Custom Instructions“回复必须精确为 F471-OUTAGE-ACK”与 `ALWAYS` 群回复策略。
+3. 用 `lark-cli` 向真实 Feishu 群 `oc_52f8a9ebab8f327d18d5f9e51ac3ea1f` 发送用户消息 `BUGFIX471-R1-FEISHU-OUTAGE: reply with the configured exact token.`；Feishu 返回用户消息 id `om_x100b6935b033e4b4b30e89b4efac2dd`，随后连续读取用户可见群历史两分钟。
+4. 未看到任何 Agent 回复，因此不继续伪造 outage/recovery 成功。停止隔离 IM/Gateway，恢复主 Gateway、主 IM 配置和原有 Agent profile；恢复后仅主 Gateway 进程 `39473` 作为 Feishu listener。
+
+## Round 2 Evidence
+
+- Feishu 用户可见发送结果：chat `oc_52f8a9ebab8f327d18d5f9e51ac3ea1f`，message `om_x100b6935b033e4b4b30e89b4efac2dd`，时间 2026-07-22 09:42。
+- 在发送后的两分钟内，`lark-cli im +chat-messages-list` 的最新五条记录中该用户消息仍排在最前，未出现 app id `cli_aac9315ef3f9dbda` 的新回复；最后一次读取的真实结果附于本轮命令输出。
+- 隔离 Web IM 的 Agent 配置保存页在发送前显示运行配置已保存；此项不替代外部用户可见回复。
+
+## Issue 1 update: Feishu 主路径真实失败
+
+- **Severity:** blocking
+- **Regression Relation:** direct
+- **Expected:** 用户在既有 Feishu 对话发送消息后收到 Agent 回复；此后才可验证 IM outage、恢复、shadow user/Agent 消息和唯一 divider。
+- **Actual:** 用户消息 `om_x100b6935b033e4b4b30e89b4efac2dd` 已成功出现在真实 Feishu 测试群，但两分钟内未出现 Agent 回复。因第一步没有回复，IM outage / shadow 恢复 / Gateway restart 旅程均不能开始。
+- **Reproduction:** 停止主 Gateway，使同一 Feishu app 仅由隔离 unit Gateway 监听；在隔离 Web IM 将 `default-agent` 配置为 `ALWAYS` 并保存精确回复指令；向上述群发送该消息；等待并读取真实群历史。
+- **Recommended Action:** `fix-implementation`
+- **Action Rationale:** 这是 `incident.md` 外部渠道继续对话场景和 `design.md` M2-C4 的前置主路径。外部用户发消息后没有任何回复，属于直接阻塞。
+
+## Coverage update
+
+`外部渠道既有对话继续使用新配置` 由 Round 1 的 `inconclusive` 更新为 **fail**：真实用户消息在隔离 Gateway 接管后未得到回复。其余 Round 1 未完成场景继续保持原结论。
+
+## Restoration
+
+本轮隔离服务均已停止；主 Gateway 使用 `/Users/czj/.nano-assistant/config.yaml` 已恢复运行。真实 Feishu 测试群中留下的一条用户探测消息不包含密钥或个人数据；原主 IM 与 Agent profile 未改写。
