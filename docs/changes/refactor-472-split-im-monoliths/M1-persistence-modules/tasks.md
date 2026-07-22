@@ -26,27 +26,27 @@
 
 ### R1 — 锁定最终 package 边界与导入契约
 
-- 状态: DOING
+- 状态: DONE
 - 步骤: 将 persistence seam contract 改为最终 package 结构的 red contract；建立 tasks/progress 及 old→new coverage matrix。
-- 验证: 旧巨石尚在时 contract 失败，失败原因仅为缺少 final package/旧文件仍存在。
+- 验证: C1 证明旧巨石缺少 final package；C2 `tests/contract/test_im_persistence_seam_contract.py` 11 passed。
 
 ### R2 — 迁移基础 aggregate repositories 与时间格式
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 拆分 users/settings/agents/nodes/bindings/metrics/conversations，抽取共享 UTC formatter，直接迁移所有 importer。
 - 验证: owner scope、profile optimistic lock、node/metrics、binding 与 Gateway registration 现有 SQLite/interface 测试通过；旧 import 零命中。
 
 ### R3 — 迁移 timeline aggregates 与原子 event row
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 拆分 messages/events/config_boundaries 及 projection/event-row private modules；以 transaction-neutral primitive 复用行插入，保留各 owner 的 commit/notify。
-- 验证: messages/event/boundary SQLite tests 与 HTTP messages/timeline regression 通过；transaction/notify 语义由现有测试覆盖。
+- 验证: messages/event/boundary SQLite tests 与 HTTP messages/timeline regression 通过；`_event_rows.py` 不 commit、不 notify，三个 transaction owner 直接复用。
 
 ### R4 — 删除旧入口并完成入口回归
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 删除 `repositories.py`，迁移所有 production/test/contract imports，更新 seam architecture contract，运行全量静态和持久化测试；启动隔离 IM 走关键 HTTP 数据面入口。
-- 验证: 全仓 old import 零命中、collect/ruff 通过；真实 HTTP 验证两 owner 隔离、历史读取、policy/nodes/metrics 成功。
+- 验证: 全仓 old import 零命中、collect/ruff 通过；真 IM HTTP 验证 owner 隔离、消息历史、policy 与 metrics 数据面。
 
 ## Old→New Coverage Matrix
 
