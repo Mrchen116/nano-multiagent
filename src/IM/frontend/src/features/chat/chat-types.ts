@@ -161,6 +161,19 @@ export interface Message {
   permission_requests: PermissionRequest[];
 }
 
+/** One durable entry in a conversation timeline. Configuration boundaries remain
+ * outside the message domain so they cannot be mistaken for model context. */
+export type TimelineItem =
+  | { type: "message"; message: Message }
+  | {
+      type: "agent_config_changed";
+      id: string;
+      conversation_id: string;
+      agent_id: string;
+      before_message_id: string;
+      applied_at: string;
+    };
+
 export interface Conversation {
   id: string;
   title: string;
@@ -214,6 +227,7 @@ export function classifyConversationKind(c: Pick<Conversation, "type" | "direct_
 // it as optional here — useful when reducing but never required to parse.
 
 export type WsEvent =
+  | { type: "agent.config.changed"; seq?: number; id: string; conversation_id: string; agent_id: string; before_message_id: string; applied_at: string }
   | { type: "message.created"; seq?: number; conversation_id: string; message_id: string; sender_user_id: string; sender_type: string; sender?: Actor | null; sender_display_name?: string | null; content: string; attachments?: Attachment[]; tool_calls: ToolCall[]; thinking?: ThinkingSegment[]; token_usage: TokenUsage | null; delivery_status: DeliveryStatus; created_at: string }
   | { type: "message.delta"; seq?: number; conversation_id: string; message_id: string; delta_text: string }
   | { type: "message.completed"; seq?: number; conversation_id: string; message_id: string; content: string; token_usage: TokenUsage | null; delivery_status?: Extract<DeliveryStatus, "completed" | "failed">; elapsed_ms?: number | null; kernel_message_id?: string | null }

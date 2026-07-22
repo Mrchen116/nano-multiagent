@@ -15,7 +15,8 @@ const CHAT_STREAM_EVENT_TYPES = new Set([
   "tool_call.completed",
   "thinking.segment",
   "permission.request",
-  "permission.resolved"
+  "permission.resolved",
+  "agent.config.changed"
 ]);
 
 export function isCanonicalChatStreamEventType(eventType: string): boolean {
@@ -59,7 +60,17 @@ export function validateCanonicalUserStreamEvent(
   payload: Record<string, unknown>
 ): void {
   if (!isCanonicalChatStreamEventType(eventType)) return;
-  if (!isText(payload.conversation_id) || !isText(payload.message_id)) malformed(eventType);
+  if (!isText(payload.conversation_id)) malformed(eventType);
+  if (eventType === "agent.config.changed") {
+    if (
+      !isText(payload.id)
+      || !isText(payload.agent_id)
+      || !isText(payload.before_message_id)
+      || !isText(payload.applied_at)
+    ) malformed(eventType);
+    return;
+  }
+  if (!isText(payload.message_id)) malformed(eventType);
   switch (eventType) {
     case "message.created":
       if (
