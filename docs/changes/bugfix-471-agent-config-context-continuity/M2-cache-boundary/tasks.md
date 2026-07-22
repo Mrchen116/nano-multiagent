@@ -66,10 +66,12 @@
 - 验证：IM repository/HTTP/WS/contract 覆盖 anchor、late arrival、replay、pagination 和 fork；`PYTHONPATH=src pytest -m "not e2e"` 全绿（3642 passed, 1 skipped, 20 deselected）。
 - 提交：C1 `f0a3fe6ab`，C2 `aa80518fc`，C3 `ee9a527d7`。
 
-### R2 — Gateway outbox 与外部 shadow saga（TODO）
+### R2 — Gateway outbox 与外部 shadow saga（DONE）
 
 - 步骤：将 actual-applied intent 写入 durable outbox；扩展 external typed identity、Feishu mapping、shadow anchor/response 的可恢复幂等流程。
 - 验证：断线/ACK/restart/重复重放、typed identity 缺失与 Feishu mapping 回归；真 Feishu shadow 恢复旅程。
+- 证据：`evidence/r2-live-feishu-outage.json` 记录真实 Feishu 用户事件在 IM outage 期间的 provider reply、outage 前 durable output、IM 恢复后的 user anchor、Agent mirror 与 nullable-provenance boundary。boundary `4aee39f3-…`（event `11574`、`profile_version=null`）在首轮 Gateway/IM restart ACK 后 outbox/pending shadow 均为 0、IM 唯一 1 行；第二次 Gateway restart 后仍为相同计数与唯一性。`evidence/r2-gateway-live.json` 保留 worktree 隔离栈的普通 reconnect/current-connection boundary 与 controlled typed shadow 覆盖。
+- 提交：C1 `a0d728331`、`44f254e4d`、`8017c2e4a`，C2 `94a4e5176`、`cc59baf94`、`2c9beba98`，C3 本提交。
 
 ### R3 — Web IM timeline union 与真实浏览器验收（TODO）
 

@@ -27,7 +27,22 @@
 
 ## R2 — Gateway outbox 与外部 shadow saga
 
-- Status: TODO
+- Status: DONE
+- Context: actual-applied runtime 必须在 submit 前与 boundary intent 同事务持久化；外部 Feishu ingress 在 IM 暂时不可用时仍须回复，并在恢复后以相同外部事件身份补齐 Web IM shadow history。
+- Decision: Gateway 使用 ACK-gated SQLite boundary outbox；确定性拒绝进入 quarantine，连接和 ACK 不确定性以 durable exponential backoff 保留。external shadow saga 先于 Kernel 持久化 canonical source fact，以 `(app_id, event.message_id)` 形成 Feishu identity；用户 anchor、Agent output 和 pending boundary 按 user → Agent → boundary 顺序恢复。离线的 terminal output 由 coordinator 仅在 typed `shadow_saga_id` 存在且 `shadow_ref` 缺失时持久化，已确认 anchor 的输出继续由 streaming observer 负责，避免双写。
+- Rationale: actual-applied 与 provider-visible reply 分别是 Gateway 和外部 adapter 才能确认的事实，必须先成为本地 durable fact，不能由 IM 临时可达性或内存队列决定是否存在；typed ownership 条件确保 online observer 与 outage fallback 不会竞争同一个 output identity。
+- Evidence:
+  - Tests: `PYTHONPATH=src pytest -q tests/im_service/contract/test_gateway_protocol_contract.py tests/im_service/unit/test_db_init.py tests/unit/personal_assistant/test_gateway_boundary_delivery.py tests/unit/personal_assistant/test_session_run_coordinator_admission.py` → `32 passed, 7 warnings`；nullable provenance 的 WS contract 与旧 NOT NULL boundary 表迁移均在该门禁覆盖。
+  - Entry: 真 Feishu outage 旅程以临时 profile `13 → 14`、policy `ALWAYS` 和 marker `1983A314` 执行。IM outage 期间接收的用户 event 是 `om_x100b6ac22f27c8acb2e5d0ac0929808`，provider 在 IM 恢复前以 `om_x100b6ac22cf840a0b1de40d17d723f5` 回复精确文本 `R2-LIVE-1983A314`。详见脱敏摘要 `evidence/r2-live-feishu-outage.json`。
+  - Recovery: saga `d5d938a3c723375ca42178075302d5a240ec629fa9442c373dc1fae651e82e77` 在 outage 中无 IM anchor；其 `run_671b881f5725c2f3` final output 在 provider 可见前已 durable。IM 恢复后补写 user anchor `f2c907c20b35497c82d9d69c2db1837c` 和 Agent mirror `af5b32e442cd4aadb20bd1662cc69001`，conversation 为 `5a78be2c00db4eeaa5edee07ec1dd7fb`。该 saga 的 nullable-provenance boundary `4aee39f3-…`（event `11574`）在修复后首轮 Gateway/IM restart 获 ACK，`profile_version=null`，outbox 与 pending shadow 均为 `0`，anchor 下 IM boundary 唯一 `1` 行；第二次 Gateway restart 后仍为 outbox `0`、pending shadow `0` 与唯一 `1` 行。
+  - E2E/Regression: `test_gateway_boundary_accepts_nullable_provenance_once_after_im_restart` 经真实 Gateway WebSocket 和 IM restart 断言可空 provenance ACK 与唯一 divider；`test_initialize_schema_migrates_boundary_profile_provenance_to_nullable` 保留旧行迁移。真实 Feishu provider/shadow 与 restart 取证见 `evidence/r2-live-feishu-outage.json`；worktree reconnect 与 controlled typed shadow 取证见 `evidence/r2-gateway-live.json`。
+  - Frontend State Matrix: N/A，R3 负责。
+  - Browser QA: N/A，R3 负责。
+  - Visual/Interaction: N/A，R3 负责。
+  - Prototype Comparison: N/A，R3 负责。
+- Rollback: `cc59baf94`（R2 原实现）；nullable provenance 修复可回退 `2c9beba98`。
+- Commits: C1=`a0d728331`、`44f254e4d`、`8017c2e4a`，C2=`94a4e5176`、`cc59baf94`、`2c9beba98`，C3=本提交。
+- Next: R3 将 REST、live/reconnect 和 older-page prepend 归并为 typed timeline reducer，并以真实浏览器覆盖全部 prototype must-match 状态。
 
 ## R3 — Web IM timeline union 与真实浏览器验收
 

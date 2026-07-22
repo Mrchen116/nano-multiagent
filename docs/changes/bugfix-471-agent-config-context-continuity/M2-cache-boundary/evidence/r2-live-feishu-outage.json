@@ -1,0 +1,53 @@
+{
+  "verified_at": "2026-07-22",
+  "result": "passed",
+  "scope": "real Feishu provider reply during IM outage with durable shadow recovery and nullable-provenance boundary replay",
+  "profile": {
+    "from_version": 13,
+    "to_version": 14,
+    "temporary_model": "kimiCoding:kimi-for-coding",
+    "group_reply_policy": "ALWAYS"
+  },
+  "marker": "1983A314",
+  "expected_reply": "R2-LIVE-1983A314",
+  "outage": {
+    "user_message_id": "om_x100b6ac22f27c8acb2e5d0ac0929808",
+    "provider_reply_message_id": "om_x100b6ac22cf840a0b1de40d17d723f5",
+    "provider_reply_before_im_recovery": true,
+    "provider_reply_content": "R2-LIVE-1983A314"
+  },
+  "durable_shadow": {
+    "saga_id": "d5d938a3c723375ca42178075302d5a240ec629fa9442c373dc1fae651e82e77",
+    "outage_shadow_ref": null,
+    "run_id": "run_671b881f5725c2f3",
+    "final_output_durable_before_provider_reply": true,
+    "final_output_im_message_id_during_outage": null
+  },
+  "recovery": {
+    "conversation_id": "5a78be2c00db4eeaa5edee07ec1dd7fb",
+    "user_anchor_message_id": "f2c907c20b35497c82d9d69c2db1837c",
+    "agent_mirror_message_id": "af5b32e442cd4aadb20bd1662cc69001",
+    "replay_order": ["user_anchor", "agent_mirror", "boundary"],
+    "boundary": {
+      "boundary_id": "4aee39f3-…",
+      "boundary_id_note": "脱敏证据仅保留稳定 id 前缀；同一 id 在两次 Gateway restart 后一致。",
+      "event_id": 11574,
+      "profile_version": null,
+      "first_gateway_im_restart": {
+        "acknowledged": true,
+        "outbox": 0,
+        "pending_shadow": 0,
+        "im_boundary_rows_for_anchor": 1
+      },
+      "second_gateway_restart": {
+        "outbox": 0,
+        "pending_shadow": 0,
+        "im_boundary_rows_for_anchor": 1
+      }
+    }
+  },
+  "notes": [
+    "Earlier Mimo attempts returned upstream 401 invalid_key and are excluded from implementation verdict.",
+    "The nullable profile version is provenance only; it is intentionally not synthesized from the catalog."
+  ]
+}
