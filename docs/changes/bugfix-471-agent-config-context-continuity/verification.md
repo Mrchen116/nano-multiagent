@@ -111,3 +111,58 @@ None.
 ## Verdict
 
 No critical issues. 1 warning(s) to consider. Ready for PR (with noted improvements).
+
+---
+
+# Round 2 — Targeted Closure
+
+### Summary
+
+Mode: targeted-closure
+Delta range: `dd2fa43de..664be57b8`
+Focus issues: 首轮 code review 的 correctness/performance/cleanup 修复；Feishu bootstrap 与空可见回复修复；`ruff format` warning
+requires_full_verification: false
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 已核对本 delta 的 9 个源码/测试修复文件与验收记录 |
+| Correctness | Focus issues closed；bootstrap、空回复与协议边界均有覆盖 |
+| Coherence | Followed |
+
+### Focus issue closure
+
+1. **Feishu managed-channel bootstrap 已恢复且不污染主配置。**
+   `ChannelManifestStore.bootstrap_items()` 从 node/key-scoped、mode-0600 的本地 encrypted cache 读取（`src/personal_assistant/gateway/channel_manifest_store.py:102-177,533-548`），以缓存 owner AAD 解封并立即以本次绑定的 owner AAD 重封；返回值只含 opaque envelope、非敏感配置与 runtime metadata，不含 plaintext credential（`channel_manifest_store.py:125-177`）。它不写入 `LocalConfig` 或主配置，故不会污染持久主配置。
+
+2. **owner 隔离与 secret 边界已核对。**
+   bootstrap request 的 owner 来自 IM 中已注册、owner-bound node 的 durable owner（`src/IM/ws/gateway_handler.py:410-445`）；Gateway 在其既有 authenticated websocket 上使用该 owner 重新封装（`src/personal_assistant/ws/im_connection.py:897-911`）。IM 收到 bootstrap 后再次校验 sender registration，读取同一 node 的 owner 和当前 node public-key identity，再原子写入 owner/node-scoped channel state（`src/IM/ws/gateway_handler.py:1352-1379`、`src/IM/infra/channel_control_store.py:346-454`）。envelope 的 AES-GCM AAD 绑定 owner、node、agent、channel、provider、credential revision，scope 不匹配会 fail closed（`src/personal_assistant/channels/channel_credentials.py:28-40,95-137`）。没有发现 owner 跨租户复用、secret 明文进入 websocket frame/cache/log 或主配置写入的问题。
+
+3. **Feishu 零回复已在两层阻断。**
+   coordinator 在生成 outbound 与 shadow output 前抑制 whitespace-only visible reply（`src/personal_assistant/gateway/session_run_coordinator.py:597-629`）；Feishu adapter 也在 provider 调用前拒绝空文本（`src/personal_assistant/channels/feishu/adapter.py:137-140`）。这既避免 provider invalid-content 失败，也避免 reasoning-only 内容成为用户可见消息。
+
+4. **回归覆盖足够且层次正确。**
+   manifest store regression 验证跨 owner re-seal、opaque returned item 与新 owner AAD 打开（`tests/unit/personal_assistant/test_channel_manifest_store.py:116-176`）；websocket regression 验证 bootstrap request 会发送缓存 item（`tests/unit/personal_assistant/test_gateway_im_connection_behavior.py:477-542`）；pipeline 与 adapter regressions 分别验证不投递 whitespace reply、且 provider 未被调用（`tests/unit/personal_assistant/test_inbound_pipeline_session.py:701-747`、`tests/unit/test_feishu_adapter_send.py:64-91`）。本轮实跑这五个关联 test module：**94 passed**；受影响架构/协议 contract：**14 passed**。
+
+5. **真实 Feishu/恢复验收已记录。**
+   `regression.md:156-180` 记录 unit Gateway 单 listener 下的可见回复、IM outage 期间外部回复、恢复后唯一 shadow user/Agent/divider、Gateway restart 与 1440/1280/375 浏览器证据。该记录还列出全 non-e2e、frontend 和 format 检查的完成结果。
+
+6. **首轮 format warning 已关闭。**
+   本轮对先前唯一失败文件 `src/agent/sdk/runtime.py` 及 delta Python 文件运行 `ruff format --check`，结果为 **6 files already formatted**；对 delta Python 文件运行 `ruff check`，结果为 **All checks passed**。首轮 WARNING 关闭。
+
+### Issues
+
+### CRITICAL
+
+None.
+
+### WARNING
+
+None.
+
+### SUGGESTION
+
+None.
+
+## Verdict
+
+All checks passed. Ready for PR.
