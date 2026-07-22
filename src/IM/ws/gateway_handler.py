@@ -39,11 +39,9 @@ from IM.infra.gateway_persistence import (
     GatewayNodePersistence,
 )
 from IM.infra.channel_control_store import ChannelControlStore, ChannelManifest
-from IM.infra.repositories import (
-    AgentConfigBoundaryRepository,
-    EventRepository,
-    MessageRepository,
-)
+from IM.infra.repositories.config_boundaries import AgentConfigBoundaryRepository
+from IM.infra.repositories.events import EventRepository
+from IM.infra.repositories.messages import MessageRepository
 from IM.ws.user_stream import UserStreamRegistry
 from IM.ws.gateway_protocol import (
     parse_delivery_receipt_event,

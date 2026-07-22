@@ -26,13 +26,11 @@ from IM.application.metrics_service import MetricsService
 from IM.application.relay_service import RelayService
 from IM.infra.db import connect, initialize_schema
 from IM.infra.gateway_persistence import GatewayConversationPersistence
-from IM.infra.repositories import (
-    ConversationRepository,
-    EventRepository,
-    MessageRepository,
-    UsageMetricsRepository,
-    UserRepository,
-)
+from IM.infra.repositories.conversations import ConversationRepository
+from IM.infra.repositories.events import EventRepository
+from IM.infra.repositories.messages import MessageRepository
+from IM.infra.repositories.metrics import UsageMetricsRepository
+from IM.infra.repositories.users import UserRepository
 from IM.ws.gateway_handler import GatewayHandler
 from personal_assistant.channels.base import InboundMessage
 from personal_assistant.gateway.inbound_models import RelayLifecycleUpdate

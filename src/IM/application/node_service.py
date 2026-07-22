@@ -4,7 +4,7 @@ from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
 from IM.domain.models import NodeStatus
-from IM.infra.repositories import NodeRepository
+from IM.infra.repositories.nodes import NodeRepository
 
 _ONLINE_HEARTBEAT_MAX_AGE = timedelta(seconds=90)
 

@@ -6,12 +6,10 @@ from dataclasses import dataclass
 import sqlite3
 
 from IM.domain.models import NodeStatus, managed_workspace_root
-from IM.infra.repositories import (
-    AgentProfileRepository,
-    ConversationRepository,
-    NodeRepository,
-    UserRepository,
-)
+from IM.infra.repositories.agents import AgentProfileRepository
+from IM.infra.repositories.conversations import ConversationRepository
+from IM.infra.repositories.nodes import NodeRepository
+from IM.infra.repositories.users import UserRepository
 
 
 @dataclass(frozen=True, slots=True)

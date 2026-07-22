@@ -15,7 +15,8 @@ from IM.infra.channel_control_store import (
 )
 from IM.infra.channel_credentials import generate_channel_key_pair
 from IM.infra.db import connect, initialize_schema
-from IM.infra.repositories import AgentProfileRepository, NodeRepository
+from IM.infra.repositories.agents import AgentProfileRepository
+from IM.infra.repositories.nodes import NodeRepository
 
 
 def _seed_store(tmp_path: Path) -> tuple[ChannelControlStore, str]:

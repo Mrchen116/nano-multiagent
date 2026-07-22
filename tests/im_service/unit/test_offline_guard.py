@@ -14,12 +14,10 @@ from IM.infra.gateway_persistence import (
     GatewayConversationPersistence,
     GatewayNodePersistence,
 )
-from IM.infra.repositories import (
-    MessageRepository,
-    NodeRepository,
-    UsageMetricsRepository,
-    UserRepository,
-)
+from IM.infra.repositories.messages import MessageRepository
+from IM.infra.repositories.nodes import NodeRepository
+from IM.infra.repositories.metrics import UsageMetricsRepository
+from IM.infra.repositories.users import UserRepository
 from IM.ws.gateway_handler import GatewayHandler
 from IM.ws.user_stream import UserStreamRegistry, scan_and_flip_stale_nodes
 

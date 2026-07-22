@@ -17,7 +17,7 @@ from IM.application.config_service import ConfigService
 from IM.application.node_service import NodeService
 from IM.application.user_service import UserService
 from IM.domain.models import AgentProfile, User
-from IM.infra.repositories import AgentProfileVersionConflictError
+from IM.infra.repositories.agents import AgentProfileVersionConflictError
 from IM.ws.gateway_handler import GatewayHandler
 
 router = APIRouter(tags=["agents"])

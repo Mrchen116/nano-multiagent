@@ -218,11 +218,9 @@ async def test_gateway_handler_node_system_message_creates_system_message() -> N
     import sqlite3
     from IM.infra.db import initialize_schema
     from IM.infra.gateway_persistence import GatewayConversationPersistence
-    from IM.infra.repositories import (
-        ConversationRepository,
-        MessageRepository,
-        UserRepository,
-    )
+    from IM.infra.repositories.conversations import ConversationRepository
+    from IM.infra.repositories.messages import MessageRepository
+    from IM.infra.repositories.users import UserRepository
     from IM.ws.gateway_handler import GatewayHandler
 
     # Use the real IM schema so all column names are correct.

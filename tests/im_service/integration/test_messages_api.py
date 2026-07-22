@@ -8,7 +8,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from IM.app import create_app
-from IM.infra.repositories import AgentProfileRepository, NodeRepository, UserRepository
+from IM.infra.repositories.agents import AgentProfileRepository
+from IM.infra.repositories.nodes import NodeRepository
+from IM.infra.repositories.users import UserRepository
 
 from .conftest import authorize, make_app_client, register_user, seed_user_under_owner
 
@@ -798,14 +800,12 @@ def test_list_messages_returns_elapsed_ms_for_completed_agent_message(
     from IM.application.event_bridge import EventBridge
     from IM.domain.models import TokenUsage
     from IM.infra.db import connect, initialize_schema
-    from IM.infra.repositories import (
-        AgentProfileRepository,
-        ConversationRepository,
-        EventRepository,
-        MessageRepository,
-        NodeRepository,
-        UserRepository,
-    )
+    from IM.infra.repositories.agents import AgentProfileRepository
+    from IM.infra.repositories.conversations import ConversationRepository
+    from IM.infra.repositories.events import EventRepository
+    from IM.infra.repositories.messages import MessageRepository
+    from IM.infra.repositories.nodes import NodeRepository
+    from IM.infra.repositories.users import UserRepository
 
     # 直接建库，模拟一条完成的 agent 消息
     db_path = tmp_path / "im.db"

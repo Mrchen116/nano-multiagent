@@ -19,7 +19,7 @@ from IM.application.web_im_service import (
     WebIMService,
 )
 from IM.domain.models import Conversation, User
-from IM.infra.repositories import AgentProfileRepository
+from IM.infra.repositories.agents import AgentProfileRepository
 from IM.ws.gateway_handler import GatewayHandler
 
 router = APIRouter(tags=["web-im"])

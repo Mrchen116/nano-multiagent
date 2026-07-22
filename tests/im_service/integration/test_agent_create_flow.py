@@ -7,7 +7,8 @@ from fastapi.testclient import TestClient
 
 from IM.app import create_app
 from IM.domain.models import managed_workspace_root
-from IM.infra.repositories import NodeRepository, UserRepository
+from IM.infra.repositories.nodes import NodeRepository
+from IM.infra.repositories.users import UserRepository
 
 from .conftest import authorize, register_user
 

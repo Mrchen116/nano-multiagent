@@ -18,7 +18,8 @@ from IM.api.ws.event_types import EVENT_PERMISSION_REQUEST, EVENT_PERMISSION_RES
 from IM.application.event_bridge import EventBridge
 from IM.domain.models import Message
 from IM.infra.db import initialize_schema as build_schema
-from IM.infra.repositories import EventRepository, MessageRepository
+from IM.infra.repositories.events import EventRepository
+from IM.infra.repositories.messages import MessageRepository
 
 
 # ---------------------------------------------------------------------------
@@ -348,11 +349,9 @@ class TestPermissionRestEndpoint:
     def _make_app(self, tmp_path) -> tuple[object, dict]:
         from IM.app import create_app
         from IM.infra.db import connect, initialize_schema
-        from IM.infra.repositories import (
-            AgentProfileRepository,
-            MessageRepository,
-            UserRepository,
-        )
+        from IM.infra.repositories.agents import AgentProfileRepository
+        from IM.infra.repositories.messages import MessageRepository
+        from IM.infra.repositories.users import UserRepository
         from fastapi.testclient import TestClient
 
         db_path = tmp_path / "im.db"

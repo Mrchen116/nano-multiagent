@@ -9,7 +9,8 @@ from unittest.mock import MagicMock
 
 from fastapi.testclient import TestClient
 
-from IM.infra.repositories import AgentProfileRepository, NodeRepository
+from IM.infra.repositories.agents import AgentProfileRepository
+from IM.infra.repositories.nodes import NodeRepository
 from agent.sdk import (
     SessionReconfigureResult,
     SessionRuntimeConfig,

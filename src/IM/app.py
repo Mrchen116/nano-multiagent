@@ -33,13 +33,11 @@ from IM.infra.gateway_persistence import (
     GatewayConversationPersistence,
     GatewayNodePersistence,
 )
-from IM.infra.repositories import (
-    AgentConfigBoundaryRepository,
-    EventRepository,
-    MessageRepository,
-    UsageMetricsRepository,
-    UserRepository,
-)
+from IM.infra.repositories.config_boundaries import AgentConfigBoundaryRepository
+from IM.infra.repositories.events import EventRepository
+from IM.infra.repositories.messages import MessageRepository
+from IM.infra.repositories.metrics import UsageMetricsRepository
+from IM.infra.repositories.users import UserRepository
 from IM.ws.gateway_handler import GatewayHandler
 from IM.ws.user_stream import (
     UserStreamRegistry,
@@ -411,7 +409,7 @@ def create_app(
     async def gateway_websocket(websocket: WebSocket) -> None:
         """Serve the Gateway websocket protocol used by IM relay delivery."""
         from IM.application.auth_service import InvalidTokenError
-        from IM.infra.repositories import UserRepository
+        from IM.infra.repositories.users import UserRepository
         from IM.ws.gateway_handler import GatewayAuthorizationError
 
         authorization = websocket.headers.get("authorization", "")

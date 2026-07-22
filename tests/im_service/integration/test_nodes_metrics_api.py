@@ -5,7 +5,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from IM.infra.repositories import NodeRepository
+from IM.infra.repositories.nodes import NodeRepository
 
 from .conftest import authorize, make_app_client, register_user, seed_user_under_owner
 

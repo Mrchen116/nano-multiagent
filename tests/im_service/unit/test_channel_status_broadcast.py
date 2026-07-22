@@ -15,12 +15,10 @@ from IM.infra.gateway_persistence import (
     GatewayConversationPersistence,
     GatewayNodePersistence,
 )
-from IM.infra.repositories import (
-    AgentProfileRepository,
-    MessageRepository,
-    NodeRepository,
-    UsageMetricsRepository,
-)
+from IM.infra.repositories.agents import AgentProfileRepository
+from IM.infra.repositories.messages import MessageRepository
+from IM.infra.repositories.nodes import NodeRepository
+from IM.infra.repositories.metrics import UsageMetricsRepository
 from IM.ws.gateway_handler import GatewayHandler
 from IM.ws.user_stream import UserStreamRegistry
 

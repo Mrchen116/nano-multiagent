@@ -12,11 +12,9 @@ from IM.infra.gateway_persistence import (
     AgentDispatchRecord,
     GatewayConversationPersistence,
 )
-from IM.infra.repositories import (
-    AgentProfileRepository,
-    ConversationRepository,
-    UserRepository,
-)
+from IM.infra.repositories.agents import AgentProfileRepository
+from IM.infra.repositories.conversations import ConversationRepository
+from IM.infra.repositories.users import UserRepository
 
 
 def _build(

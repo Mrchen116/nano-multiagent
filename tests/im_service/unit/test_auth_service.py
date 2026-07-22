@@ -16,7 +16,7 @@ from IM.application.auth_service import (
     TokenPair,
 )
 from IM.infra.db import connect, initialize_schema
-from IM.infra.repositories import UserRepository
+from IM.infra.repositories.users import UserRepository
 
 
 @pytest.fixture()

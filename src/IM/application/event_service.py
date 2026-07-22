@@ -7,7 +7,7 @@ import json
 
 from IM.domain.models import ConversationEvent
 from IM.infra._helpers import _optional_text
-from IM.infra.repositories import EventRepository
+from IM.infra.repositories.events import EventRepository
 
 
 class EventService:

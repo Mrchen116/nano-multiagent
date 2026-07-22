@@ -38,7 +38,8 @@ from IM.api.ws.event_types import (
     build_tool_call_upserted_payload,
 )
 from IM.domain.models import Message, TokenUsage, ToolCall
-from IM.infra.repositories import EventRepository, MessageRepository
+from IM.infra.repositories.events import EventRepository
+from IM.infra.repositories.messages import MessageRepository
 
 
 def _persisted_tool_call(updated: Message, incoming: ToolCall) -> ToolCall:

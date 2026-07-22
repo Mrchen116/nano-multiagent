@@ -9,11 +9,9 @@ from fastapi.testclient import TestClient
 
 from IM.app import create_app
 from IM.infra.db import connect, initialize_schema
-from IM.infra.repositories import (
-    AgentProfileRepository,
-    ConversationRepository,
-    UserRepository,
-)
+from IM.infra.repositories.agents import AgentProfileRepository
+from IM.infra.repositories.conversations import ConversationRepository
+from IM.infra.repositories.users import UserRepository
 
 
 def _setup_group_conversation(tmp_path: Path) -> tuple[TestClient, str, str, MagicMock]:

@@ -1,7 +1,7 @@
 """Application service for IM usage metrics APIs."""
 
 from IM.domain.models import UsageMetric
-from IM.infra.repositories import UsageMetricsRepository
+from IM.infra.repositories.metrics import UsageMetricsRepository
 
 
 class MetricsService:

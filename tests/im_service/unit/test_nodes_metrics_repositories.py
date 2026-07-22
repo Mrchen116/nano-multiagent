@@ -3,7 +3,8 @@
 from pathlib import Path
 
 from IM.infra.db import connect, initialize_schema
-from IM.infra.repositories import NodeRepository, UsageMetricsRepository
+from IM.infra.repositories.nodes import NodeRepository
+from IM.infra.repositories.metrics import UsageMetricsRepository
 
 
 def test_node_repository_aggregates_degraded_and_offline_states(tmp_path: Path) -> None:

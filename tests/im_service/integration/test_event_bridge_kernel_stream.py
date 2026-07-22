@@ -23,12 +23,10 @@ from IM.api.ws.event_types import (
 from IM.application.event_bridge import EventBridge
 from IM.domain.models import ConversationEvent, TokenUsage, ToolCall
 from IM.infra.db import connect, initialize_schema
-from IM.infra.repositories import (
-    ConversationRepository,
-    EventRepository,
-    MessageRepository,
-    UserRepository,
-)
+from IM.infra.repositories.conversations import ConversationRepository
+from IM.infra.repositories.events import EventRepository
+from IM.infra.repositories.messages import MessageRepository
+from IM.infra.repositories.users import UserRepository
 
 
 def _translate_kernel_event(

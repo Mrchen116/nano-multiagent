@@ -20,16 +20,14 @@ from IM.application.relay_service import RelayService
 from IM.application.user_service import UserService
 from IM.application.web_im_service import WebIMService
 from IM.domain.models import User
-from IM.infra.repositories import (
-    AgentProfileRepository,
-    BindRepository,
-    ConversationRepository,
-    MessageRepository,
-    NodeRepository,
-    SettingsPolicyRepository,
-    UsageMetricsRepository,
-    UserRepository,
-)
+from IM.infra.repositories.agents import AgentProfileRepository
+from IM.infra.repositories.bindings import BindRepository
+from IM.infra.repositories.conversations import ConversationRepository
+from IM.infra.repositories.messages import MessageRepository
+from IM.infra.repositories.nodes import NodeRepository
+from IM.infra.repositories.settings import SettingsPolicyRepository
+from IM.infra.repositories.metrics import UsageMetricsRepository
+from IM.infra.repositories.users import UserRepository
 from IM.infra.binding_store import BindingStore
 from IM.infra.channel_control_store import ChannelManifest
 from IM.ws.gateway_handler import GatewayHandler
