@@ -155,6 +155,39 @@
 
 # Round 3 — 2026-07-22
 
+## Targeted re-review
+
+**Verdict:** **fail**  
+**Highest Required Action:** `fix-implementation`
+
+本轮使用最新 unit 提交 `6ab3072a5`、`664be57b8` 重新构建前端、停止主 Gateway，并让隔离 unit Gateway 独占同一个 Feishu app listener。此前问题没有在真实用户入口关闭：配置保存成功后，真实 Feishu 用户消息仍没有得到 Agent 回复。
+
+### 真实复验旅程
+
+1. 在隔离 Web IM 登录并打开 `default-agent`；保存 Custom Instructions“真实 Feishu 复验阶段一：必须精确回复 F471-PHASE1-OK。”和 `ALWAYS` 群回复策略。
+2. 通过真实 `lark-cli` 用户身份向 Feishu 群 `oc_52f8a9ebab8f327d18d5f9e51ac3ea1f` 发送 `F471-R3-PHASE1: please reply with the configured exact token.`。Feishu 确认该消息为 `om_x100b69373b1e2888b116660efb96cec`，位置 39。
+3. 持续两分钟读取真实群历史。该用户消息始终保持最新一条；没有新 app 回复，也没有 `F471-PHASE1-OK`。
+4. 因 provider reply 这一首个用户可观察结果未出现，未将 worker 的历史材料当作替代证据；IM outage 仍回复、恢复后的 shadow user/Agent/唯一 divider、Gateway restart/reload 唯一性，以及 1440/1280/375 恢复态均无法在本轮真实旅程中开始验证。
+
+### Blocking issue update
+
+- **Severity:** blocking
+- **Regression Relation:** direct
+- **Expected:** 配置更新后，用户从既有 Feishu 对话发送消息，Agent 在该外部渠道回复；此后可继续验证断开 IM 时仍回复及恢复后的 Web IM shadow 时间线。
+- **Actual:** 最新 unit 版本下，真实 Feishu 用户消息 `om_x100b69373b1e2888b116660efb96cec` 在两分钟内没有任何 Agent 回复。群历史中可见的是该消息本身及更早的 `F471-BOOTSTRAP-ACK`，没有本轮的新回复。
+- **Recommended Action:** `fix-implementation`
+- **Action Rationale:** 外部用户消息没有回复直接阻断 `incident.md` 的“外部渠道既有对话继续使用新配置”以及 `design.md` M2-C4 的恢复旅程；不能用此前 worker 的日志或旧群消息证明本次真实操作成功。
+
+### Restoration
+
+已停止本轮隔离 IM/Gateway。主 Gateway 以 `/Users/czj/.nano-assistant/config.yaml` 恢复为 PID `70590`；主配置和原 Agent profile 未改写，Feishu app 恢复为单一主 Gateway listener。
+
+**Coverage inheritance:** Round 1/2 中尚未关闭的其他 Scenario 维持原 `fail` / `inconclusive` 结论。本轮的 blocking 外部入口失败使 targeted Fast-lane 不能关闭其余恢复证据缺口。
+
+---
+
+# Round 3 — 2026-07-22
+
 ## Verdict update
 
 **pass**
