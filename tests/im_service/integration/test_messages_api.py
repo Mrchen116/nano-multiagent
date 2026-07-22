@@ -861,6 +861,52 @@ def test_list_messages_returns_elapsed_ms_for_completed_agent_message(
         assert "elapsed_ms" in items[0]["message"]
 
 
+def test_caller_idempotency_key_is_scoped_to_conversation_and_owner(
+    tmp_path: Path,
+) -> None:
+    """A caller retry key must not disclose or suppress another conversation's message."""
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as owner_client, TestClient(app) as other_owner_client:
+        owner = register_user(owner_client, username="idempotency-owner")
+        authorize(owner_client, owner)
+        first_conversation = _create_conversation(owner_client, owner.id, "first")
+        second_conversation = _create_conversation(owner_client, owner.id, "second")
+        other_owner = register_user(other_owner_client, username="idempotency-other")
+        authorize(other_owner_client, other_owner)
+        other_conversation = _create_conversation(
+            other_owner_client, other_owner.id, "other"
+        )
+
+        first = owner_client.post(
+            f"/im/v1/conversations/{first_conversation}/messages",
+            json={"sender_user_id": owner.id, "content": "first"},
+            headers={"Idempotency-Key": "shared-retry-key"},
+        )
+        same_retry = owner_client.post(
+            f"/im/v1/conversations/{first_conversation}/messages",
+            json={"sender_user_id": owner.id, "content": "first retry"},
+            headers={"Idempotency-Key": "shared-retry-key"},
+        )
+        second = owner_client.post(
+            f"/im/v1/conversations/{second_conversation}/messages",
+            json={"sender_user_id": owner.id, "content": "second"},
+            headers={"Idempotency-Key": "shared-retry-key"},
+        )
+        other = other_owner_client.post(
+            f"/im/v1/conversations/{other_conversation}/messages",
+            json={"sender_user_id": other_owner.id, "content": "other"},
+            headers={"Idempotency-Key": "shared-retry-key"},
+        )
+
+        assert first.status_code == 201, first.text
+        assert same_retry.status_code == 201, same_retry.text
+        assert same_retry.json()["id"] == first.json()["id"]
+        assert second.status_code == 201, second.text
+        assert second.json()["id"] != first.json()["id"]
+        assert other.status_code == 201, other.text
+        assert other.json()["id"] not in {first.json()["id"], second.json()["id"]}
+
+
 def test_to_message_response_serializes_cache_hit_fields() -> None:
     """feat-439-M1: REST 序列化(to_message_response)第二条路径也带缓存命中两字段。"""
     from IM.api.routes.messages import to_message_response

@@ -317,7 +317,20 @@ class GatewayHandler:
         if message_type == "agent.message":
             return await self._handle_agent_message(payload=payload)
         if message_type == "agent.config.boundary":
-            return await self._handle_agent_config_boundary(payload=payload)
+            try:
+                return await self._handle_agent_config_boundary(payload=payload)
+            except ValueError as exc:
+                # A malformed or semantically impossible durable intent is local to
+                # this outbox item. Reply so the Gateway can quarantine it while
+                # retaining the registered socket for later FIFO entries.
+                return {
+                    "type": "error",
+                    "payload": {
+                        "code": _boundary_rejection_code(exc),
+                        "message": str(exc),
+                        "message_type": message_type,
+                    },
+                }
         if message_type == "node.streaming_delta":
             return await self._handle_streaming_delta(payload=payload)
         if message_type == "node.system_message":
@@ -2640,6 +2653,20 @@ def _require_message_type(payload: dict[str, Any]) -> str:
 # RuntimeError) prevents silently routing bad data into the domain layer.
 # The _helpers.py variants return None on missing values; that lenient behaviour is
 # correct for HTTP request parsing, not for WS frames where the schema is contract-level.
+def _boundary_rejection_code(error: ValueError) -> str:
+    """Map durable boundary validation failures to dispatcher quarantine codes."""
+    message = str(error)
+    if "anchor" in message and "not found" in message:
+        return "anchor_not_found"
+    if "participant" in message:
+        return "agent_not_participant"
+    if "agent" in message and "not found" in message:
+        return "agent_not_found"
+    if "conversation" in message and "not found" in message:
+        return "conversation_not_found"
+    return "bad_payload"
+
+
 def _require_text(value: object, *, field_name: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{field_name} must be a non-empty string")

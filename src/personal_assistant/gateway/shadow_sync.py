@@ -163,7 +163,12 @@ class IMShadowConversationSync:
                 message_response = await client.post(
                     f"/im/v1/conversations/{conversation_id}/messages",
                     headers=_shadow_message_headers(
-                        message, saga_id=saga.saga_id if saga else None
+                        message,
+                        saga_user_idempotency_key=(
+                            saga.shadow_user_idempotency_key
+                            if saga is not None
+                            else None
+                        ),
                     ),
                     json={
                         "sender_user_id": owner_user_id,
@@ -383,12 +388,12 @@ class IMShadowConversationSync:
 
 
 def _shadow_message_headers(
-    message: InboundMessage, *, saga_id: str | None
+    message: InboundMessage, *, saga_user_idempotency_key: str | None
 ) -> dict[str, str] | None:
     """Return the stable caller key for one provider-owned shadow message."""
 
-    if saga_id is not None:
-        return {"Idempotency-Key": f"shadow-user:{saga_id}"}
+    if saga_user_idempotency_key is not None:
+        return {"Idempotency-Key": saga_user_idempotency_key}
     event_identity = message.external_event_identity
     external_identity = external_identity_from_message(message)
     if event_identity is None or external_identity is None:

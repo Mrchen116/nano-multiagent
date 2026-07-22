@@ -133,14 +133,20 @@ function patchMessage(
   messageId: string,
   patch: (m: Message) => Message
 ): ConversationState {
-  let changed = false;
-  const messages = state.messages.map((m) => {
-    if (m.id !== messageId) return m;
-    changed = true;
-    return patch(m);
-  });
-  if (!changed) return state;
-  return withMessages(state, messages);
+  const current = state.messages.find((message) => message.id === messageId);
+  if (!current) return state;
+  const patched = patch(current);
+  if (patched === current) return state;
+  // Live patches never alter message identity or ordering. Replacing only the
+  // matching entry preserves adjacent configuration boundaries without paying a
+  // full union merge/sort for every token, thinking segment, or tool update.
+  const messages = state.messages.map((message) => message.id === messageId ? patched : message);
+  const timeline = stateTimeline(state).map((item) =>
+    item.type === "message" && item.message.id === messageId
+      ? { type: "message" as const, message: patched }
+      : item
+  );
+  return { ...state, messages, timeline };
 }
 
 function isEmptyValue(v: unknown): boolean {

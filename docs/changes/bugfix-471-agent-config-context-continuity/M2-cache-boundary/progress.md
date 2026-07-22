@@ -61,3 +61,12 @@
 - Note: 完整 Vitest 输出仍包含既有 test mock 未提供 `/im/v1/sync` 时的 user-stream 404 日志和 React `act(...)` 警告；隔离 IM 实际定义该 endpoint（`IM/api/routes/web_im.py`），上述真实浏览器流程可完成 reload/reconnect 和历史恢复。
 - Commits: C1=`ff0f883f9`，C2=`dbcae2d9c`，C3=本提交。
 - Next: M2 交付完成。
+
+## Round 2 — 验收 findings 修复
+
+- Status: DONE
+- Idempotency: caller key 以 conversation 派生的 opaque storage key 持久化；同会话 retry 仍返回原 message，跨会话与跨 owner 的相同 caller header 不再复用或泄漏既有 message。旧的全局 index 在 schema bootstrap 时替换为 conversation-scoped partial index。
+- Recovery and delivery: register-ready 先启动 boundary outbox，external shadow replay 转为同连接生命周期内的受管后台 retry，不阻塞 receive/heartbeat；shadow pending boundary promotion 立即 `notify_pending()` 已连接 dispatcher。
+- Protocol and rendering: IM 将 boundary 的确定性 `ValueError` 映射为含 `message_type` 的 quarantine-compatible error，socket 保持并可继续处理下一 boundary；live message patch 直接替换 timeline 对应 message，保留边界对象及其锚定顺序，不再执行全量 merge/sort。
+- Evidence: focused regression `69 passed, 1 skipped`（connection-ready slow/fail retry、shadow header property、protocol poison 后续 ACK、idempotency owner/conversation、migration、timeline patch）；完整 frontend `653 passed` 和 build 通过；`PYTHONPATH=src pytest -m "not e2e"` → `3670 passed, 1 skipped, 20 deselected`；ruff check/format 通过。完整 Python 测试的 21 warnings 为既有第三方弃用、JWT short test key 与 session cache coroutine warning。
+- Compatibility: durable saga user anchor header 现在直接使用 `ExternalShadowSaga.shadow_user_idempotency_key`，composition 两处共享同一 shadow output adapter；`shadow_sync is None` 时仍传 `None`。

@@ -61,6 +61,29 @@ def test_initialize_schema_is_idempotent(tmp_path: Path) -> None:
     } <= boundary_columns
 
 
+def test_initialize_schema_replaces_global_caller_idempotency_index(
+    tmp_path: Path,
+) -> None:
+    """Legacy global retry indexes must not block independent conversations."""
+    connection = connect(tmp_path / "legacy-idempotency.db")
+    initialize_schema(connection)
+    connection.execute(
+        "CREATE UNIQUE INDEX idx_messages_caller_idempotency_key "
+        "ON messages(caller_idempotency_key) "
+        "WHERE caller_idempotency_key IS NOT NULL"
+    )
+    connection.commit()
+
+    initialize_schema(connection)
+
+    indexes = {
+        row["name"]
+        for row in connection.execute("PRAGMA index_list(messages)").fetchall()
+    }
+    assert "idx_messages_caller_idempotency_key" not in indexes
+    assert "idx_messages_conversation_caller_idempotency_key" in indexes
+
+
 def test_initialize_schema_migrates_boundary_profile_provenance_to_nullable(
     tmp_path: Path,
 ) -> None:

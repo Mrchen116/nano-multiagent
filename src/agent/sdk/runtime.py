@@ -80,8 +80,12 @@ def identify_runtime(runtime: SessionRuntimeConfig) -> SessionRuntimeIdentity:
         "enabled_tools": runtime.enabled_tools,
         "features": runtime.features,
     }
-    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    return SessionRuntimeIdentity(runtime_fingerprint=sha256(encoded.encode()).hexdigest())
+    encoded = json.dumps(
+        payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    )
+    return SessionRuntimeIdentity(
+        runtime_fingerprint=sha256(encoded.encode()).hexdigest()
+    )
 
 
 def runtime_metadata(

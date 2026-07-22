@@ -410,14 +410,28 @@ def test_gateway_boundary_rejects_conflicting_reuse_of_stable_identity(
                 }
             )
             rejected = websocket.receive_json()
+            websocket.send_json(
+                {
+                    "type": "agent.config.boundary",
+                    "payload": {
+                        **common,
+                        "boundary_id": "next-boundary-id",
+                        "before_message_id": second_anchor.json()["id"],
+                    },
+                }
+            )
+            following_ack = websocket.receive_json()
 
     assert rejected == {
         "type": "error",
         "payload": {
-            "code": "invalid_message",
+            "code": "bad_payload",
             "message": "boundary_id conflicts with persisted boundary",
+            "message_type": "agent.config.boundary",
         },
     }
+    assert following_ack["type"] == "ack"
+    assert following_ack["payload"]["boundary_id"] == "next-boundary-id"
 
 
 def test_gateway_websocket_error_correlates_rejected_agent_message(

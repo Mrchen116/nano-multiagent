@@ -3,6 +3,7 @@
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
+import hashlib
 import json
 from pathlib import Path
 import sqlite3
@@ -1272,7 +1273,18 @@ class MessageRepository:
         )
         if normalized_idempotency_key == "":
             raise ValueError("caller_idempotency_key must be non-empty")
-        if normalized_idempotency_key is not None:
+        conversation_exists = self._connection.execute(
+            "SELECT owner_id FROM conversations WHERE id = ?",
+            (conversation_id,),
+        ).fetchone()
+        if conversation_exists is None:
+            raise ValueError("conversation_id not found")
+        stored_idempotency_key = (
+            _scoped_caller_idempotency_key(conversation_id, normalized_idempotency_key)
+            if normalized_idempotency_key is not None
+            else None
+        )
+        if stored_idempotency_key is not None:
             existing = self._connection.execute(
                 """
                 SELECT
@@ -1295,18 +1307,17 @@ class MessageRepository:
                         AS sender_display_name
                 FROM messages
                 LEFT JOIN users ON users.id = messages.sender_user_id
-                WHERE messages.caller_idempotency_key = ?
+                WHERE messages.conversation_id = ?
+                  AND messages.caller_idempotency_key IN (?, ?)
                 """,
-                (normalized_idempotency_key,),
+                (
+                    conversation_id,
+                    stored_idempotency_key,
+                    normalized_idempotency_key,
+                ),
             ).fetchone()
             if existing is not None:
                 return self._message_from_row(existing)
-        conversation_exists = self._connection.execute(
-            "SELECT owner_id FROM conversations WHERE id = ?",
-            (conversation_id,),
-        ).fetchone()
-        if conversation_exists is None:
-            raise ValueError("conversation_id not found")
 
         sender_user = self._resolve_sender_user_row(
             sender_user_id=sender_user_id,
@@ -1430,7 +1441,7 @@ class MessageRepository:
                     token_usage_json,
                     kernel_message_id,
                     display_name_override,
-                    normalized_idempotency_key,
+                    stored_idempotency_key,
                 ),
             )
             pending_live_events.append(
@@ -4253,6 +4264,17 @@ def _format_utc(dt: datetime) -> str:
     if dt.tzinfo is None:
         raise ValueError("_format_utc requires a timezone-aware datetime")
     return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _scoped_caller_idempotency_key(
+    conversation_id: str, caller_idempotency_key: str
+) -> str:
+    """Return an opaque retry key that is unique only within one conversation."""
+    digest = hashlib.sha256()
+    digest.update(conversation_id.encode("utf-8"))
+    digest.update(b"\0")
+    digest.update(caller_idempotency_key.encode("utf-8"))
+    return digest.hexdigest()
 
 
 def _utc_now() -> str:

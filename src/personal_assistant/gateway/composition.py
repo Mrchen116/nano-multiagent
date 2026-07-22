@@ -395,8 +395,9 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
                 session_store.promote_pending_boundary(
                     shadow_saga_id=saga_id,
                     shadow_ref=shadow_ref,
-                )
-            ),
+                ),
+                boundary_outbox.notify_pending(),
+            )[0],
         )
         image_resolver = ImageAttachmentResolver(
             fetcher=build_im_attachment_fetcher(token_getter=token_getter)
@@ -421,25 +422,26 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
     )
 
     runtime_delivery_tasks = RuntimeDeliveryTaskTracker()
+    shadow_output_prepare = (
+        (
+            lambda saga_id, run_id, output_kind, kernel_message_id, content: (
+                shadow_sync.prepare_agent_output(
+                    saga_id=saga_id,
+                    run_id=run_id,
+                    output_kind=output_kind,
+                    kernel_message_id=kernel_message_id,
+                    content=content,
+                )
+            )
+        )
+        if shadow_sync is not None
+        else None
+    )
     _kernel_event_observer = build_kernel_event_observer(
         im_connection_manager_factory=lambda: im_connection_manager,
         run_context_store=run_delivery_contexts,
         external_reply_sender=_send_external_reply,
-        shadow_output_prepare=(
-            lambda saga_id, run_id, output_kind, kernel_message_id, content: (
-                (
-                    shadow_sync.prepare_agent_output(
-                        saga_id=saga_id,
-                        run_id=run_id,
-                        output_kind=output_kind,
-                        kernel_message_id=kernel_message_id,
-                        content=content,
-                    )
-                )
-                if shadow_sync is not None
-                else None
-            )
-        ),
+        shadow_output_prepare=shadow_output_prepare,
         shadow_output_mirror=(
             lambda output: (
                 shadow_sync.mirror_prepared_agent_output(output)
@@ -481,21 +483,7 @@ def compose_gateway(config: LocalConfig) -> runtime.GatewayRuntime:
         product_default_model=config.llm.default_model,
         relay_lifecycle_callback=relay_lifecycle_callback,
         kernel_event_observer=_kernel_event_observer,
-        shadow_output_prepare=(
-            (
-                lambda saga_id, run_id, output_kind, kernel_message_id, content: (
-                    shadow_sync.prepare_agent_output(
-                        saga_id=saga_id,
-                        run_id=run_id,
-                        output_kind=output_kind,
-                        kernel_message_id=kernel_message_id,
-                        content=content,
-                    )
-                )
-            )
-            if shadow_sync is not None
-            else None
-        ),
+        shadow_output_prepare=shadow_output_prepare,
         bg_reply_sender=bg_reply_sender,
         node_id=config.node.node_id,
         boundary_outbox=boundary_outbox,

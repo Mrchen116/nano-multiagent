@@ -154,6 +154,12 @@ def test_durable_saga_reuses_confirmed_anchor_after_gateway_restart(
     assert [request["path"] for request in requests].count(
         "/im/v1/conversations/shadow-a/messages"
     ) == 1
+    saga = (
+        saga_store.pending()[0]
+        if saga_store.pending()
+        else saga_store.require(first.shadow_saga_id or "")
+    )
+    assert requests[2]["idempotency_key"] == saga.shadow_user_idempotency_key
 
 
 def test_recovery_replays_pending_durable_saga(tmp_path: Path) -> None:

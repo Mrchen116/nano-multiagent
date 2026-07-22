@@ -130,7 +130,8 @@ CREATE TABLE IF NOT EXISTS messages (
     -- on_message_completed 写入 elapsed_ms = round((T1 − T0) * 1000)。
     elapsed_ms INTEGER,
     sender_display_name TEXT,
-    caller_idempotency_key TEXT UNIQUE,
+    caller_idempotency_key TEXT,
+    UNIQUE(conversation_id, caller_idempotency_key),
     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
     FOREIGN KEY (sender_user_id) REFERENCES users(id) ON DELETE CASCADE
 );
@@ -598,10 +599,11 @@ def _migrate_messages_metadata(connection: sqlite3.Connection) -> None:
         connection.execute(
             "ALTER TABLE messages ADD COLUMN caller_idempotency_key TEXT"
         )
+    connection.execute("DROP INDEX IF EXISTS idx_messages_caller_idempotency_key")
     connection.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS "
-        "idx_messages_caller_idempotency_key "
-        "ON messages(caller_idempotency_key) "
+        "idx_messages_conversation_caller_idempotency_key "
+        "ON messages(conversation_id, caller_idempotency_key) "
         "WHERE caller_idempotency_key IS NOT NULL"
     )
 

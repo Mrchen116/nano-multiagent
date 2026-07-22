@@ -63,6 +63,7 @@ class ConnectionReadyCoordinator:
         self._agent_ids = tuple(agent_ids)
         self._boundary_outbox = boundary_outbox
         self._recover_external_shadows = recover_external_shadows
+        self._shadow_recovery_task: asyncio.Task[None] | None = None
 
     async def on_connected(self, connection: ManagedChannelConnectionSender) -> None:
         """Converge binding, managed channels, and Agent profiles after registration."""
@@ -106,6 +107,30 @@ class ConnectionReadyCoordinator:
             self._agent_config_sync.reconcile_all_agents,
             memory_versions=memory_versions,
         )
-        if self._recover_external_shadows is not None:
-            await self._recover_external_shadows()
+        # The dispatcher is independent of shadow replay and must start before a
+        # slow or failed recovery can delay ordinary boundary delivery.
         self._boundary_outbox.schedule_drain(connection)
+        if self._recover_external_shadows is not None:
+            if (
+                self._shadow_recovery_task is not None
+                and not self._shadow_recovery_task.done()
+            ):
+                self._shadow_recovery_task.cancel()
+            self._shadow_recovery_task = asyncio.create_task(
+                self._recover_external_shadows_until_success()
+            )
+
+    async def _recover_external_shadows_until_success(self) -> None:
+        """Replay external shadows off the receive path and retry transient failure."""
+        assert self._recover_external_shadows is not None
+        while True:
+            try:
+                await self._recover_external_shadows()
+                return
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001
+                _log.exception(
+                    "external shadow recovery failed; retrying on this connection"
+                )
+                await asyncio.sleep(1.0)

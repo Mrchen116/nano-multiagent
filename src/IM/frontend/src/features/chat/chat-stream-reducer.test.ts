@@ -686,6 +686,32 @@ describe("chat-stream-reducer", () => {
       ]);
     });
 
+    it("patches a live message without rebuilding or reordering its timeline boundaries", () => {
+      const anchor = timelineMessage("m-anchor", "2026-07-22T00:00:02Z");
+      const following = timelineMessage("m-following", "2026-07-22T00:00:03Z");
+      const timeline = [boundary(), anchor, following];
+      const state: ConversationState = {
+        conversation_id: "c1",
+        timeline,
+        messages: [anchor.message, following.message]
+      };
+
+      const next = applyWsEvent(state, {
+        type: "message.delta",
+        conversation_id: "c1",
+        message_id: "m-anchor",
+        delta_text: " patched"
+      });
+
+      expect(next.timeline).not.toBe(timeline);
+      expect(next.timeline![0]).toBe(timeline[0]);
+      expect(next.timeline![2]).toBe(timeline[2]);
+      expect(next.timeline!.map((item) => item.type === "message" ? item.message.id : item.id)).toEqual([
+        "boundary-1", "m-anchor", "m-following"
+      ]);
+      expect(next.messages[0]!.content).toBe("m-anchor patched");
+    });
+
     it("deduplicates REST reset, reconnect replay, and older-page prepend by stable item id", async () => {
       const { mergeTimelineItems } = await import("./chat-stream-reducer");
       const rest = [boundary(), timelineMessage("m-anchor", "2026-07-22T00:00:02Z")];
