@@ -45,7 +45,7 @@
   - Prototype Comparison: N/A。
 - Rollback: 回退 `34983d113` 后再回退 C1 `6ef66468f`。
 - Commits: C1=6ef66468f，C2=34983d113，C3=0783e9ad8；首次 unit merge=874d5ab6b。
-- Next: 已补齐 reviewer 指定的真 HTTP 入口覆盖，更新验收记录后重新集成。
+- Next: 已完成。
 
 ### R2 — 基础 aggregate 与共享时间格式
 
