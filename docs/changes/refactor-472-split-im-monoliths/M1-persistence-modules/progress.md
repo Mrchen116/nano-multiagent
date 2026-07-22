@@ -62,7 +62,7 @@
   - Prototype Comparison: N/A。
 - Rollback: 回退 `34983d113`。
 - Commits: C1=6ef66468f，C2=34983d113，C3=0783e9ad8；首次 unit merge=874d5ab6b。
-- Next: 已完成，补充 reviewer 要求的全入口验收记录后重新集成。
+- Next: 已完成。
 
 ### R3 — timeline aggregate 与 transaction-neutral event row
 
@@ -79,7 +79,7 @@
   - Prototype Comparison: N/A。
 - Rollback: 回退 `34983d113`。
 - Commits: C1=6ef66468f，C2=34983d113，C3=0783e9ad8；首次 unit merge=874d5ab6b。
-- Next: 已完成，补充 reviewer 要求的全入口验收记录后重新集成。
+- Next: 已完成。
 
 ### R4 — 删除旧入口与真实 HTTP 回归
 
@@ -96,7 +96,7 @@
   - Prototype Comparison: N/A。
 - Rollback: 回退 `34983d113`。
 - Commits: C1=6ef66468f，C2=34983d113，C3=0783e9ad8；首次 unit merge=874d5ab6b。
-- Next: 已完成，补充 reviewer 要求的全入口验收记录后重新集成。
+- Next: 已完成。
 
 ## [验收补齐] Reviewer 真实 HTTP 入口覆盖
 
@@ -113,5 +113,5 @@
   - Tests/static: 完整 `PYTHONPATH=src pytest -m "not e2e"` 为 3678 passed、1 skipped、21 deselected；`tests/im_service -m "not e2e"` 为 472 passed、1 skipped；persistence seam contract 为 11 passed；`ruff check .`、`ruff format --check .`、`pytest tests/ --collect-only -q` 均通过。
   - Cleanup: 验收终态运行 `./scripts/e2e-down.sh`，隔离 IM/Gateway 均停止；本段不引入产品代码或持久化 schema 变更。
 - Rollback: 仅验收文档，回退本次文档 commit；代码回退目标仍为 `34983d113`。
-- Commits: 验收补齐文档待提交；后续 unit merge 待生成。
-- Next: 重新运行静态门禁，提交文档、rebase 并合并到 `unit/refactor-472`；完成后清理 worktree/branch。
+- Commits: 验收补齐文档=7e08fdef9；补证 unit merge=54314bd44。
+- Next: 已完成。
