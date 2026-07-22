@@ -1,6 +1,6 @@
 # kernel (agent) Specification
 
-> 对齐: bugfix-456
+> 对齐: bugfix-471
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)「给库/内核写契约的额外纪律」。本目录只收 **消费者经 `agent.sdk` 真正依赖的对外行为**(CDC 裁剪);内部如何装配/实现不在此层(那在代码 + 归档 design)。
 
@@ -26,7 +26,7 @@
 | [Runs](runs.md) | create_session、submit/stream、steer、权限、中断、liveness、关闭 | 9 |
 | [Model Runtime](model-runtime.md) | LLM config、per-run model routing、模型错误恢复 | 2 |
 | [Background Tasks](background-tasks.md) | 后台完成通知、subagent follow-up、task_stop、派生子 agent 隔离 | 4 |
-| [Context and Persistence](context-persistence.md) | compaction、JSONL 档案、事件恢复、append_message、tool call 闭合、AGENTS.md、图片、fork_session | 9 |
+| [Context and Persistence](context-persistence.md) | compaction、会话档案、事件恢复、append_message、tool call 闭合、AGENTS.md、图片、运行配置、fork_session | 11 |
 | [Tools and Hooks](tools-hooks.md) | built-in tools、Hook、presenter、授权决策、cache/thinking、拒绝文本 | 7 |
 | [Skills](skills.md) | Skill 发现、读取、管理、生命周期、使用统计、preview/list_skills | 5 |
 | [Prompts](prompts.md) | PromptSlots、产品中立 prompt、系统提示模板 | 2 |

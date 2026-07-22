@@ -1,6 +1,6 @@
 # IM - Conversations and Messages Specification
 
-> 对齐: feat-446 + feat-447
+> 对齐: bugfix-471
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
@@ -11,34 +11,76 @@
 
 ## Requirements
 
-### Requirement: 会话与消息以 Actor 语义建模,响应字段稳定且分页
+### Requirement: 会话消息与时间线条目响应字段稳定且按消息游标分页
 
-前端经 `/im/v1/conversations*` 创建/读取会话与消息;消息发送者是 Actor(人/Agent/system),响应暴露
-稳定的 `delivery_status` / `sender_type` / `attachments` 等字段并以 `{items, next_before_message_id}`
-信封分页。未知会话的消息/详情/更新接口保持稳定的 404 语义。
+前端经会话 endpoints 创建和读取消息；消息继续使用 Actor 语义并暴露 delivery status、sender type 与 attachments。历史读取的 `items` 是 typed timeline union，可包含普通 message 与独立 config boundary；`next_before_message_id` 继续作为消息游标。未知会话保持稳定 404。
 
 #### Scenario: 创建会话指定参与者 Actor
-- **WHEN** 前端 `POST /im/v1/conversations {title, participant_ids:[...]}`
-- **THEN** 201 返回含会话 `id`;后续以该 `conversation_id` 读写消息
+- **WHEN** 前端创建带参与者的会话
+- **THEN** 返回会话 id，后续可据此读写消息
 
-#### Scenario: 创建消息回显投递状态与发送者类型
-- **WHEN** 前端 `POST /im/v1/conversations/{id}/messages {sender_user_id, content, sender_type?, attachments?}`
-- **THEN** 201 返回 `{id, conversation_id, delivery_status, sender_type, attachments, ...}`;
-  `sender_type` 缺省为 `user`,可显式为 `agent`;`attachments` 为空时是 `[]`
+#### Scenario: 创建消息回显既有消息字段
+- **WHEN** 前端创建用户或 Agent 消息
+- **THEN** 响应继续包含既有 message id、conversation id、delivery status、sender type 与 attachments
 
-#### Scenario: 列消息走 items+游标信封并暴露同样字段
-- **WHEN** 前端 `GET /im/v1/conversations/{id}/messages?limit=N`
-- **THEN** 200 返回恰含键 `["items","next_before_message_id"]`;每条携 `delivery_status`/`sender_type`/
-  `attachments`;最后一页 `next_before_message_id` 为 `null`,有更多时为下一游标 message id
+#### Scenario: 列时间线走 items 与消息游标信封
+- **WHEN** 前端读取会话历史
+- **THEN** 响应含 `items` 与 `next_before_message_id`
+- **AND** 每个 item 由 type 明确区分 message 与 Agent 配置边界，面向浏览器的 boundary 只含定位与展示所需字段
 
 #### Scenario: 未知会话相关读写返回稳定 404
-- **WHEN** 前端对不存在的 `conversation_id` 调 messages / 详情(GET) / 更新(PATCH)
-- **THEN** 全部 404,`detail == "conversation_id not found"`
+- **WHEN** 前端对不存在的 conversation id 读写消息或时间线
+- **THEN** 返回既有 conversation not found 语义
 
 #### Scenario: conversation 列表与 sync 暴露通用运行态
 - **WHEN** 浏览器前端请求 conversation 列表或 sync 数据
-- **THEN** 每个 conversation item 包含通用字段 `run_state`,取值至少支持 `"idle"` 与 `"running"`
-- **AND** 该字段不带 distill 命名,可被其他功能复用
+- **THEN** 每个 conversation item 包含通用字段 `run_state`，取值至少支持 `"idle"` 与 `"running"`
+- **AND** 该字段不带 distill 命名，可被其他功能复用
+
+### Requirement: 聊天时间线支持非消息型 Agent 配置边界
+
+IM 可在聊天时间线中持久化 `agent_config_changed` 条目。该条目不是用户、Agent 或 system message，不带发送者，不进入 Agent 对话上下文；它稳定锚在第一条实际采用新运行配置的用户消息之前。重复上报幂等，晚到也不改变锚定位置；持久数据不包含 prompt、完整 Agent 配置、secret、工具参数或变更字段明细。
+
+#### Scenario: 配置边界随历史读取并锚在用户消息前
+- **GIVEN** 某用户消息开始了首次采用新配置的回复
+- **WHEN** 浏览器读取该聊天时间线
+- **THEN** 返回唯一的配置边界，并紧邻显示在该用户消息之前
+
+#### Scenario: 晚到与重复上报不改变结果
+- **GIVEN** 锚点用户消息已持久化并可能已显示
+- **WHEN** 同一配置边界晚到或被 Gateway 重试多次
+- **THEN** 时间线最终只有一个条目，位置仍在锚点消息之前
+
+#### Scenario: 配置边界不进入消息或 Agent 上下文
+- **WHEN** 用户继续聊天或读取普通消息数据
+- **THEN** 分界线不成为 user、agent 或 system message，也不被发送给模型
+- **AND** 分界线不暴露 prompt、完整 Agent 配置、secret、工具参数或变更字段明细
+
+### Requirement: 消息游标分页把配置边界与锚点作为原子时间线单元
+
+消息历史 endpoint 返回 typed timeline items，同时保留 `next_before_message_id` 游标。分页 limit 继续按消息计数；某页包含锚点消息时必须同时包含其配置边界，分界线不单独消耗 message limit，也不会孤立在相邻页面。
+
+#### Scenario: 锚点位于分页边缘
+- **GIVEN** 配置边界锚定的用户消息正好是某页最早或最晚消息
+- **WHEN** 浏览器按 message cursor 加载该页
+- **THEN** 分界线与锚点在同一 response 中且顺序稳定
+
+#### Scenario: 向前分页不重复分界线
+- **WHEN** 浏览器连续加载当前页与更早页并合并时间线
+- **THEN** 每个 stable boundary id 最多出现一次，message cursor 能继续定位更早消息
+
+### Requirement: fork 复制 fork 点以前的配置边界并重锚
+
+IM fork 复制源消息历史时，同时复制锚点在 fork 范围内的配置边界，并映射到目标会话中对应的新 message id。fork 操作本身不表示 Agent 配置更新，不额外生成边界。
+
+#### Scenario: fork 点以前已有配置边界
+- **GIVEN** 源单聊在 fork 点以前已有配置边界
+- **WHEN** 用户 fork 到该点
+- **THEN** 新单聊的复制历史包含同等边界，位于复制后的对应用户消息前
+
+#### Scenario: fork 创建本身不新增配置边界
+- **WHEN** 用户从一条回复 fork 出分支单聊
+- **THEN** 除复制范围内既有边界外，不因 fork 动作新增“Agent 配置已更新”条目
 
 ### Requirement: 外部 channel 影子会话按外部身份幂等创建
 
