@@ -640,4 +640,68 @@ describe("chat-stream-reducer", () => {
 
     expect(next.messages).toEqual([]);
   });
+
+  describe("bugfix-471 R3 typed timeline", () => {
+    function boundary(id = "boundary-1", beforeMessageId = "m-anchor") {
+      return {
+        type: "agent_config_changed" as const,
+        id,
+        conversation_id: "c1",
+        agent_id: "agent-a",
+        before_message_id: beforeMessageId,
+        applied_at: "2026-07-22T00:00:00Z"
+      };
+    }
+
+    function timelineMessage(id: string, createdAt: string) {
+      return { type: "message" as const, message: { ...userMessage(id, id), created_at: createdAt } };
+    }
+
+    it("orders a REST boundary immediately before its anchor instead of treating it as a message", async () => {
+      const { mergeTimelineItems } = await import("./chat-stream-reducer");
+      const timeline = mergeTimelineItems([], [
+        timelineMessage("m-before", "2026-07-22T00:00:00Z"),
+        timelineMessage("m-anchor", "2026-07-22T00:00:02Z"),
+        boundary(),
+        timelineMessage("m-after", "2026-07-22T00:00:03Z")
+      ]);
+
+      expect(timeline.map((item) => item.type === "message" ? item.message.id : item.id)).toEqual([
+        "m-before",
+        "boundary-1",
+        "m-anchor",
+        "m-after"
+      ]);
+    });
+
+    it("keeps a live boundary pending until its anchor arrives, then makes the pair adjacent", async () => {
+      const { mergeTimelineItems } = await import("./chat-stream-reducer");
+      const pending = mergeTimelineItems([], [boundary()]);
+      expect(pending).toEqual([boundary()]);
+
+      const resolved = mergeTimelineItems(pending, [timelineMessage("m-anchor", "2026-07-22T00:00:02Z")]);
+      expect(resolved.map((item) => item.type === "message" ? item.message.id : item.id)).toEqual([
+        "boundary-1",
+        "m-anchor"
+      ]);
+    });
+
+    it("deduplicates REST reset, reconnect replay, and older-page prepend by stable item id", async () => {
+      const { mergeTimelineItems } = await import("./chat-stream-reducer");
+      const rest = [boundary(), timelineMessage("m-anchor", "2026-07-22T00:00:02Z")];
+      const afterReconnect = mergeTimelineItems(rest, [boundary(), timelineMessage("m-anchor", "2026-07-22T00:00:02Z")]);
+      const afterOlderPrepend = mergeTimelineItems(afterReconnect, [
+        timelineMessage("m-older", "2026-07-22T00:00:01Z"),
+        boundary()
+      ]);
+
+      expect(afterOlderPrepend.map((item) => item.type === "message" ? item.message.id : item.id)).toEqual([
+        "m-older",
+        "boundary-1",
+        "m-anchor"
+      ]);
+      expect(afterOlderPrepend.filter((item) => item.type === "agent_config_changed")).toHaveLength(1);
+      expect(afterOlderPrepend.filter((item) => item.type === "message" && item.message.id === "m-anchor")).toHaveLength(1);
+    });
+  });
 });
