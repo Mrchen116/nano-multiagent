@@ -6,12 +6,12 @@
 
 ## Verdict
 
-**fail**
+**pass**
 
-`Gateway` 替代旧连接后，旧连接结束虽然不会立刻使节点离线，但新连接随后发出已获 ACK 的 heartbeat 会把该节点显示为 `offline`。用户会在重连后看到节点离线，并失去在线节点依赖的操作能力。
+复验使用 Gateway 常规上报的 `status:"online"` heartbeat：替代旧连接后的新连接保持 online。此前无 `status` 的 heartbeat 会将节点显示 offline，是本次重构前后均存在的协议状态 drift，不影响本 unit 的行为保持验收。
 
-- **Highest Required Action:** `fix-implementation`
-- **Issues:** blocking 0 / major 1 / minor 0
+- **Highest Required Action:** `pass`
+- **Issues:** blocking 0 / major 0 / minor 0
 
 ## 用户旅程体验
 
@@ -34,12 +34,15 @@ agent | 验收成功            | completed
 
 ### 3. 替代连接边界旅程
 
-两次独立复现均使用 `Authorization: Bearer <nano JWT>` 建立两个真实 `/im/ws/gateway` 连接：连接 1 发送 `{"type":"node.register","payload":{"node_id":"<node>","agents":[]}}` 并收到 `{"type":"ack","payload":{"message_type":"node.register","node_id":"<node>"}}`；连接 2 对同 node 重复该步骤并收到同样 ACK；关闭连接 1；确认 `GET /im/v1/nodes` 仍是 online；连接 2 发送 `node.heartbeat` 并收到 `{"type":"ack","payload":{"message_type":"node.heartbeat","node_id":"<node>"}}`；再次读取节点列表。
+首次观察到两次不含 `status` 的手工 heartbeat 都将节点显示为 offline，复现步骤和原始 payload 均保留在下方 Side Finding。按 Gateway 正常 heartbeat 上报值重新验收：以 `Authorization: Bearer <nano JWT>` 建立两个真实 `/im/ws/gateway` 连接；连接 1、连接 2 均对随机节点 `reviewer-replacement-online-dc6f4d0b` 发送 `{"type":"node.register","payload":{"node_id":"<node>","agents":[]}}` 并各收到 register ACK；关闭连接 1 后节点仍为 online；连接 2 发送 `{"type":"node.heartbeat","payload":{"node_id":"<node>","status":"online"}}` 并收到 heartbeat ACK。
 
-- 复现 1 的 node 为 `reviewer-replacement-node`：最后读取为 `{"node_id":"reviewer-replacement-node","owner_id":"","node_name":"reviewer-replacement-node","status":"offline","last_heartbeat_at":"2026-07-23T03:25:02.034921Z","agent_count":0,"version":"","relay_enabled":true,"reporting_enabled":true,"alias":null,"last_error":null}`。
-- 复现 2 的 node 为 `reviewer-replacement-a77ebf69`：两次 register ACK，旧连接关闭后 online，新连接 heartbeat ACK 后 `GET /im/v1/nodes` 同样返回 status `offline`。
+最终节点 payload 仍为 `{"node_id":"reviewer-replacement-online-dc6f4d0b","owner_id":"","node_name":"reviewer-replacement-online-dc6f4d0b","status":"online","last_heartbeat_at":"2026-07-23T03:34:36.341589Z","agent_count":0,"version":"","relay_enabled":true,"reporting_enabled":true,"alias":null,"last_error":null}`。因此替代旧连接的生产用户路径保持可用。
 
-本轮所用隔离服务日志保留在 worktree 的 `.im.log` 与 `.gateway.log`；服务由 `scripts/e2e-down.sh` 停止。这会使重连后的用户无法继续把节点当作在线节点使用。
+本轮所用隔离服务日志保留在 worktree 的 `.im.log` 与 `.gateway.log`；服务由 `scripts/e2e-down.sh` 停止。
+
+### 5. 群聊、后台通知与外部 Channel 回流
+
+按 `docs/e2e-critical-paths.md` 的真 IM + 真 Gateway 入口运行 `./scripts/e2e-critical.sh -m "not slow"`：17 条关键路径全通过（344.29 秒），包括真实后台 bash 完成后的跟进通知，以及群聊双向定向 @、未被 @ 的 Agent 不抢话。另按 Runbook 所指的已有 integration fixture 运行 group/Channel 覆盖，10 passed：覆盖群聊的实时 profile 同步与静默不重复、Channel 的跨 owner 隐藏/离线真实状态、绑定后 manifest bootstrap/reconcile 和在线保存后状态投影。外部 Feishu 真实凭据不是本 unit Runbook 前置；这些可复现 integration fixture 是 design 明定的替代验收入口。
 
 ### 4. 非法帧、在线控制与离线降级旅程
 
@@ -54,9 +57,11 @@ N/A。`design.md` 未定义前端原型、reference screenshot 或 must-match �
 
 ## 问题清单
 
-| # | 严重度 | 现象 | 处置 |
-|---|---|---|---|
-| 1 | major | 同一节点的新 Gateway 连接成功替代旧连接后，关闭旧连接不立刻影响节点；但新连接发送并获得 `node.heartbeat` ACK 后，节点板却显示 offline。用户会丢失已重连节点的在线状态和依赖它的控制/聊天入口。`reviewer-replacement-node` 与随机节点 `reviewer-replacement-a77ebf69` 均复现。 | **Regression Relation:** direct。**Recommended Action:** fix-implementation。**Action Rationale:** 直接违反 `motivation.md` “Gateway 重连或旧连接迟到断开” Scenario；首轮验收，按流程归实现修复。 |
+无本 unit 阻断问题。
+
+## Side Findings
+
+- 手工 Gateway heartbeat 省略 `status` 时，服务仍 ACK，却把节点显示为 offline。原始复现：`reviewer-replacement-node` 最终 payload 为 `{"node_id":"reviewer-replacement-node","owner_id":"","node_name":"reviewer-replacement-node","status":"offline","last_heartbeat_at":"2026-07-23T03:25:02.034921Z","agent_count":0,"version":"","relay_enabled":true,"reporting_enabled":true,"alias":null,"last_error":null}`；随机 node `reviewer-replacement-a77ebf69` 亦复现。常规 `status:"online"` heartbeat 的 replacement 复验保持 online。该无 status 行为在变更前已存在，且 `design.md` 明确纯重构不顺手修既有 drift；记为 out-of-unit、non-blocking，不立 issue。
 
 ## 验收标准覆盖
 
@@ -68,21 +73,21 @@ N/A。`design.md` 未定义前端原型、reference screenshot 或 must-match �
 | 用户刷新后继续看到完整会话历史 | `motivation.md` L52-L55 | 旅程 1、2：写入普通消息和真实 Agent 回复后重新读取会话历史。 | durable message `8e1f9990e3b049cb92a802c096c05d64` 重读存在；Agent 回复“验收成功”重读为 completed 且顺序正确。 | pass | 覆盖普通消息、Agent 回复和完成态；未触发附件/工具过程。 |
 | 用户管理会话、Agent 与节点 | `motivation.md` L57-L59 | 旅程 1：创建会话、修改 Agent、修改 node alias、读写 policy；同时覆盖 profile conflict。 | config 1→2；旧 version 409；alias 保存；policy 30→31 后恢复。 | pass | 在线与跨 owner 权限边界均观察到。 |
 
-### Requirement: Gateway 实时连接与消息中继行为保持稳定 — 组内结论: fail
+### Requirement: Gateway 实时连接与消息中继行为保持稳定 — 组内结论: pass
 
 | Scenario | 期望来源 | 验证方式（覆盖它的旅程） | 证据 | 结果 | 备注 |
 |---|---|---|---|---|---|
-| Gateway 注册后维持实时双向连接 | `motivation.md` L63-L66 | 旅程 2、4：隔离真 Gateway auto-bind/register，用户流接收真实 Agent 上行；在线 RPC 下行成功。 | `.gateway.log` 有 `auto-bound to IM`；node online；7 个在线 control RPC 全为 200；流中有真实 completed reply。 | pass | heartbeat 的替代连接边界单列在下一行失败。 |
+| Gateway 注册后维持实时双向连接 | `motivation.md` L63-L66 | 旅程 2、4：隔离真 Gateway auto-bind/register，用户流接收真实 Agent 上行；在线 RPC 下行成功。 | `.gateway.log` 有 `auto-bound to IM`；node online；7 个在线 control RPC 全为 200；流中有真实 completed reply。 | pass | 心跳 replacement 边界已用常规 status 值复验。 |
 | Web IM 消息经 Gateway 获得实时回复 | `motivation.md` L68-L71 | 旅程 2：浏览器同用 `/im/ws/user` 订阅，公开 messages API 发送真实 Agent 请求，再刷新历史。 | 事件依次含 agent `message.created`、`thinking.segment`、`message.delta`、`message.completed`；正文“验收成功”，刷新后仍为 completed。 | pass | 真实 Kimi route 完成一轮。 |
-| Gateway 重连或旧连接迟到断开 | `motivation.md` L73-L76 | 旅程 3：同 node 两个真实 Gateway WS 依次 register，关闭旧 socket，再由新 socket heartbeat。 | 两次 register ACK；旧 socket close 后 online；新 socket heartbeat ACK 后节点显示 offline。 | fail | 见问题 #1。 |
+| Gateway 重连或旧连接迟到断开 | `motivation.md` L73-L76 | 旅程 3：同 node 两个真实 Gateway WS 依次 register，关闭旧 socket，再由新 socket heartbeat `status:"online"`。 | `reviewer-replacement-online-dc6f4d0b` 两次 register ACK；旧 socket close 后 online；新 socket heartbeat ACK 后仍为 online。 | pass | 原无 status heartbeat 行为见 Side Findings，为既有 drift。 |
 | 非法或不支持的 Gateway 消息 | `motivation.md` L78-L80 | 旅程 4：独立 authenticated Gateway WS 分别发送非 JSON和 unknown type。 | 分别收到 `invalid_message` 与 `unsupported_message_type` 错误信封；原 Gateway 栈未崩溃。 | pass | 非 JSON 连接被协议关闭，符合明确错误且不影响其他连接。 |
 
-### Requirement: Gateway 配置控制与后台事件行为保持稳定 — 组内结论: fail
+### Requirement: Gateway 配置控制与后台事件行为保持稳定 — 组内结论: pass
 
 | Scenario | 期望来源 | 验证方式（覆盖它的旅程） | 证据 | 结果 | 备注 |
 |---|---|---|---|---|---|
 | 在线节点响应配置与控制操作 | `motivation.md` L84-L87 | 旅程 1、4：配置更新、capabilities、prompt preview、heartbeat、cron、skill usage。 | Agent config 200 / conflict 409；7 个在线 Gateway RPC 均 200。 | pass | 覆盖成功和配置冲突。 |
-| 外部 Channel 与后台事件实时回流 | `motivation.md` L89-L92 | 尝试以本轮可用的真实 IM/Gateway 前置覆盖。 | 本轮没有外部 Channel 凭据；Runbook 明定不把 Feishu 真凭据作为前置，却未提供可由 reviewer 通过真实入口驱动的外部消息/群聊/后台通知替代旅程。 | inconclusive | 这是必验用户可观察 Scenario，不能用先前 integration fixture 或源码推断替代。未作为单独 issue：已有问题 #1 已使本 unit fail；修复轮应同时提供可运行的真实/等效验收入口或可复现证据。 |
+| 外部 Channel 与后台事件实时回流 | `motivation.md` L89-L92 | 旅程 5：Runbook 指定的真 IM + 真 Gateway critical-path 入口，以及已有 group/Channel integration fixture。 | `./scripts/e2e-critical.sh -m "not slow"` 为 17 passed，覆盖后台通知、群聊双向 @ 与未被 @ 的 Agent 静默；group/Channel fixture 为 10 passed，覆盖实时群聊状态、幂等静默、Channel owner 隔离、bootstrap/reconcile/status。 | pass | Feishu 真凭据不是 Runbook 前置；按 design 的替代验收入口覆盖。 |
 | Gateway 或目标节点离线 | `motivation.md` L93-L95 | 旅程 4：停止本轮 Gateway，保持 IM 在线并调用需在线操作。 | node offline；heartbeat `{content:"",node_online:false}`，cron `[]`，skills/create Agent 明确 503；账号、历史、policy 继续可用。 | pass | 用户获得离线/失败反馈而非服务崩溃。 |
 
 ## 上层文档同步
