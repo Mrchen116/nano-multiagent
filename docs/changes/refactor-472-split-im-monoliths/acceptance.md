@@ -34,7 +34,12 @@ agent | 验收成功            | completed
 
 ### 3. 替代连接边界旅程
 
-同一 authenticated owner 以两个 Gateway WebSocket 先后注册随机节点 `reviewer-replacement-a77ebf69`。第二连接注册成功；关闭第一连接后节点仍为 online。但第二连接发送并收到 `node.heartbeat` ACK 后，节点列表将该节点显示为 offline。这会使重连后的用户无法继续把它当作在线节点使用。
+两次独立复现均使用 `Authorization: Bearer <nano JWT>` 建立两个真实 `/im/ws/gateway` 连接：连接 1 发送 `{"type":"node.register","payload":{"node_id":"<node>","agents":[]}}` 并收到 `{"type":"ack","payload":{"message_type":"node.register","node_id":"<node>"}}`；连接 2 对同 node 重复该步骤并收到同样 ACK；关闭连接 1；确认 `GET /im/v1/nodes` 仍是 online；连接 2 发送 `node.heartbeat` 并收到 `{"type":"ack","payload":{"message_type":"node.heartbeat","node_id":"<node>"}}`；再次读取节点列表。
+
+- 复现 1 的 node 为 `reviewer-replacement-node`：最后读取为 `{"node_id":"reviewer-replacement-node","owner_id":"","node_name":"reviewer-replacement-node","status":"offline","last_heartbeat_at":"2026-07-23T03:25:02.034921Z","agent_count":0,"version":"","relay_enabled":true,"reporting_enabled":true,"alias":null,"last_error":null}`。
+- 复现 2 的 node 为 `reviewer-replacement-a77ebf69`：两次 register ACK，旧连接关闭后 online，新连接 heartbeat ACK 后 `GET /im/v1/nodes` 同样返回 status `offline`。
+
+本轮所用隔离服务日志保留在 worktree 的 `.im.log` 与 `.gateway.log`；服务由 `scripts/e2e-down.sh` 停止。这会使重连后的用户无法继续把节点当作在线节点使用。
 
 ### 4. 非法帧、在线控制与离线降级旅程
 
@@ -86,3 +91,7 @@ N/A。`design.md` 未定义前端原型、reference screenshot 或 must-match �
 - [x] `docs/specs/im/`、`docs/specs/gateway/`（长青行为契约层）：无需更新。设计声明 no spec delta；本轮发现是回归，应修复实现而非修改契约。
 - [x] `AGENTS.md` / `CLAUDE.md`：无需更新。
 - [x] `docs/SPEC_GUIDE.md`（文档规范）：无需更新。
+
+## 清理结果
+
+已在每次真栈旅程后执行 `./scripts/e2e-down.sh`。最终检查确认 unit worktree 不存在 `.im.pid`、`.gateway.pid`、`.e2e-ports.env`、`.e2e-jwt-secret`、`.gateway-config.yaml` 或 `.gateway-state.json`；仅保留 `.im.log` 与 `.gateway.log` 作为上述复现的服务日志证据。
