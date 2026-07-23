@@ -71,8 +71,8 @@ pass
 ## 上层文档同步
 
 - [x] `SPEC.md`（跨包顶点架构）：无需更新 —— 本 unit 未改包边界/依赖方向。
-- [x] `docs/specs/kernel/`（长青行为契约层：`tools-hooks.md`/`background-tasks.md`/`skills.md`/`prompts.md`）：**需要更新** —— delta 文件已就绪于 `docs/changes/feat-474-agent-tool-ergonomics/specs/kernel/`，但对应 canonical 文档（`docs/specs/kernel/tools-hooks.md` 等）尚未反映本次改动（已核对 `tools-hooks.md` 无 `load_skills`/`subagent_type`/`Explore` 等字样）。按 design.md 与本 skill §7 约定，写回属于 orchestrator §7.0 收尾归并职责，reviewer 不代为编辑。
+- [x] `docs/specs/kernel/`（长青行为契约层：`tools-hooks.md`/`background-tasks.md`/`skills.md`/`prompts.md`）：**已由 orchestrator §7.0 归并** —— canonical 已反映 feat-474（去掉 load_skills/category/timeout_seconds；真类型 general-purpose/Explore/Plan；未知类型 Available agents）。delta 仍保留于本归档目录 `specs/kernel/` 供对照。
 - [x] `AGENTS.md` / `CLAUDE.md`：无需更新 —— 未涉及命令面/依赖方向约定变化。
 - [x] `docs/SPEC_GUIDE.md`：无需更新 —— 未改文档体系本身。
 
-需要更新的项：`docs/specs/kernel/{tools-hooks,background-tasks,skills,prompts}.md` 待 orchestrator 在提 PR 阶段按 delta 归并。
+需要更新的项：无（canonical 已归并）。
