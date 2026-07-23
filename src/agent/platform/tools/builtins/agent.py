@@ -22,6 +22,13 @@ from agent.platform.tools.presentation import (
     _enforce_cap,
     _truncate,
 )
+from agent.platform.tools.subagent_types import (
+    DEFAULT_AGENT_TYPE_NAME,
+    SubagentTypeDefinition,
+    apply_tool_deny,
+    iter_agent_types,
+    resolve_agent_type,
+)
 
 # Foreground budget before auto-backgrounding (seconds)
 _DEFAULT_FOREGROUND_BUDGET = 120.0
@@ -53,9 +60,7 @@ class _AgentPresenter:
             detail={
                 "description": description,
                 "prompt": str(args.get("prompt", "")),
-                "subagent_type": str(
-                    args.get("subagent_type") or args.get("category") or ""
-                ),
+                "subagent_type": str(args.get("subagent_type") or DEFAULT_AGENT_TYPE_NAME),
             },
         )
 
@@ -67,7 +72,7 @@ class _AgentPresenter:
     ) -> ToolPresentationEvent:
         description = str(args.get("description", ""))
         prompt = str(args.get("prompt", ""))
-        subagent_type = str(args.get("subagent_type") or args.get("category") or "")
+        subagent_type = str(args.get("subagent_type") or DEFAULT_AGENT_TYPE_NAME)
         output = getattr(result, "output", None) or {}
         error = getattr(result, "error", None)
         if error:
@@ -133,29 +138,42 @@ class _AgentPresenter:
 _AGENT_PRESENTER = _AgentPresenter()
 
 
-class AgentTool(WiringMixin):
-    """Launch autonomous subagents with background/foreground/continuation support."""
+def _build_description() -> str:
+    """Compose the tool description, listing built-in types from the catalog.
 
-    name = "agent"
-    is_concurrency_safe = False
-    presenter = _AGENT_PRESENTER  # 决策 12: presentation travels with the tool object
-    description = (
+    feat-474 决策 5: whenToUse + 缺省行为随 `subagent_types` 目录自动列出，扩展类型
+    只需改目录，不必手改这段文案（对齐 CC：类型列表不塞进 schema enum）。
+    """
+
+    type_lines = "\n".join(
+        f"  - {definition.name}: {definition.when_to_use}"
+        for definition in iter_agent_types()
+    )
+    return (
         "Launch a new agent to handle complex, multi-step tasks autonomously.\n\n"
         "Use this tool for tasks that are complex, multi-step, require independent context, "
         "or can be run in parallel with other work. Do not use it for reading a specific file path, "
         "searching a single symbol, or simple lookups across 2-3 files — use read/bash/search tools instead.\n\n"
         "- description: Short task description (3-5 words).\n"
         "- prompt: Full detailed prompt for the agent. Must include goal, background, constraints, "
-        "known information, and expected output.\n"
-        "- subagent_type: Specific agent type (e.g., 'oracle', 'explore').\n"
-        "- category: Predefined category that selects a specialized agent. Mutually exclusive with subagent_type for new tasks.\n"
-        "- load_skills: Skill names to inject. Pass [] when no extra skills are needed.\n"
+        "known information, and expected output. Need a skill loaded? Name it and its usage in the prompt.\n"
+        f"- subagent_type: Optional; defaults to '{DEFAULT_AGENT_TYPE_NAME}' when omitted. Available types:\n"
+        f"{type_lines}\n"
         "- run_in_background: true=run in background (returns agent_id immediately); false=wait for result. "
-        "Default: false. Background tasks complete automatically; do not sleep, poll, or proactively check progress.\n"
-        "- agent_id: Send a follow-up to an existing agent by ID. If running, message is queued; if stopped, resumes from transcript.\n"
-        "- timeout_seconds: Maximum foreground wait before auto-backgrounding. Overrides the default 120s budget.\n\n"
+        "Default: false. Background tasks complete automatically; do not sleep, poll, or proactively check progress. "
+        "A foreground call that runs past the default budget is auto-backgrounded — there is no timeout parameter.\n"
+        "- agent_id: Send a follow-up to an existing agent by ID. If running, message is queued; if stopped, resumes from transcript.\n\n"
         "Prompts MUST be in English."
     )
+
+
+class AgentTool(WiringMixin):
+    """Launch autonomous subagents with background/foreground/continuation support."""
+
+    name = "agent"
+    is_concurrency_safe = False
+    presenter = _AGENT_PRESENTER  # 决策 12: presentation travels with the tool object
+    description = _build_description()
     input_schema = {
         "type": "object",
         "properties": {
@@ -173,16 +191,10 @@ class AgentTool(WiringMixin):
             },
             "subagent_type": {
                 "type": "string",
-                "description": "The type of specialized agent to use for this task.",
-            },
-            "category": {
-                "type": "string",
-                "description": "Predefined category that selects a specialized agent. Mutually exclusive with subagent_type for new tasks.",
-            },
-            "load_skills": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": "Skill names to load for the spawned agent. Pass [] when no extra skills are needed.",
+                "description": (
+                    f"Built-in agent type; defaults to '{DEFAULT_AGENT_TYPE_NAME}' "
+                    "when omitted. See tool description for the available types."
+                ),
             },
             "run_in_background": {
                 "type": "boolean",
@@ -200,12 +212,8 @@ class AgentTool(WiringMixin):
                     "Do not use this to check background progress or output; read output_file for output."
                 ),
             },
-            "timeout_seconds": {
-                "type": "number",
-                "description": "Maximum foreground wait before this call stops waiting. Overrides the default 120 second auto-background budget.",
-            },
         },
-        "required": ["load_skills", "description", "prompt"],
+        "required": ["description", "prompt"],
         "additionalProperties": False,
     }
 
@@ -227,19 +235,33 @@ class AgentTool(WiringMixin):
         if agent_id is not None:
             return self._run_continuation(agent_id=agent_id, args=args, ctx=ctx)
 
+        self._validate_new_agent_args(args)
+        # Resolve the type before doing anything else (agent_id generation,
+        # session creation): an unknown/mis-cased type must fail fast with no
+        # side effects, matching CC (决策 8 澄清).
+        type_definition = resolve_agent_type(
+            _normalize_optional_text(args.get("subagent_type"))
+        )
         run_in_background = _normalize_run_in_background(args.get("run_in_background"))
-        self._validate_new_agent_args(args, ctx=ctx)
 
         if run_in_background:
-            return self._run_background(args=args, ctx=ctx)
-        return self._run_foreground(args=args, ctx=ctx)
+            return self._run_background(
+                args=args, ctx=ctx, type_definition=type_definition
+            )
+        return self._run_foreground(
+            args=args, ctx=ctx, type_definition=type_definition
+        )
 
     # ------------------------------------------------------------------
     # Background launch
     # ------------------------------------------------------------------
 
     def _run_background(
-        self, args: Mapping[str, Any], ctx: ToolContext
+        self,
+        args: Mapping[str, Any],
+        ctx: ToolContext,
+        *,
+        type_definition: SubagentTypeDefinition,
     ) -> dict[str, Any]:
         control = self._require_control(ctx)
         wiring = self._require_wiring()
@@ -248,16 +270,15 @@ class AgentTool(WiringMixin):
         agent_id = generate_agent_id()
         description = _normalize_optional_text(args.get("description")) or ""
         prompt = _normalize_optional_text(args.get("prompt")) or ""
-        agent_type = _resolve_agent_name(args)
+        agent_type = type_definition.name
 
         # Create subagent session with metadata
         agent_session_id = self._create_subagent_session(
             control=control,
             ctx=ctx,
             agent_id=agent_id,
-            agent_type=agent_type,
+            type_definition=type_definition,
             description=description,
-            args=args,
         )
 
         # Subagent sessions are created with workspace_root=ctx.cwd; their JSONL
@@ -315,7 +336,11 @@ class AgentTool(WiringMixin):
     # ------------------------------------------------------------------
 
     def _run_foreground(
-        self, args: Mapping[str, Any], ctx: ToolContext
+        self,
+        args: Mapping[str, Any],
+        ctx: ToolContext,
+        *,
+        type_definition: SubagentTypeDefinition,
     ) -> dict[str, Any]:
         control = self._require_control(ctx)
         wiring = self._require_wiring()
@@ -323,16 +348,18 @@ class AgentTool(WiringMixin):
         agent_id = generate_agent_id()
         description = _normalize_optional_text(args.get("description")) or ""
         prompt = _normalize_optional_text(args.get("prompt")) or ""
-        agent_type = _resolve_agent_name(args)
-        timeout_seconds = _resolve_timeout_seconds(args)
+        agent_type = type_definition.name
+        # feat-474: the foreground budget is a fixed system default, not a
+        # model-tunable schema field (spec Q1 — aligned with CC's ~120s, no
+        # `timeout_seconds` parameter).
+        timeout_seconds = _DEFAULT_FOREGROUND_BUDGET
 
         agent_session_id = self._create_subagent_session(
             control=control,
             ctx=ctx,
             agent_id=agent_id,
-            agent_type=agent_type,
+            type_definition=type_definition,
             description=description,
-            args=args,
         )
 
         # Subagent sessions are created with workspace_root=ctx.cwd; thread it so
@@ -576,18 +603,44 @@ class AgentTool(WiringMixin):
         control: Any,
         ctx: ToolContext,
         agent_id: str,
-        agent_type: str,
+        type_definition: SubagentTypeDefinition,
         description: str,
-        args: Mapping[str, Any],
     ) -> str:
-        load_skills = _normalize_skill_names(
-            args.get("load_skills"), tool_name=self.name
+        """Create the child session with an explicit tool set, role prompt, and
+        inherited skills (feat-474 决策 2/3/4).
+
+        The child's ``tool_allowlist`` is always written explicitly (never bare
+        ``None``): a parent with a persisted allowlist passes it straight
+        through; a parent with none (product default) resolves its currently
+        active turn's already-resolved tool names via the control's narrow
+        window, so this never reaches into runtime private ``_resolve_*``
+        methods. The type's ``disallowed_tools`` is then subtracted.
+
+        ``skills`` is read from the parent session as-is (``None`` / non-empty /
+        empty) and passed through unfolded — the child must never be wider than
+        the parent's configured skill visibility.
+        """
+
+        parent_session = control.directory.get(control.ref)
+        if parent_session is None:
+            raise ToolError(
+                "parent session not found while creating subagent",
+                tool_name=self.name,
+            )
+        parent_tools = (
+            parent_session.tool_allowlist
+            if parent_session.tool_allowlist is not None
+            else tuple(control.list_parent_enabled_tool_names())
         )
+        effective_tools = apply_tool_deny(
+            parent_tools, type_definition.disallowed_tools
+        )
+
         effective_workspace = ctx.cwd
         metadata: dict[str, Any] = {
             "kind": "subagent",
             "agent_id": agent_id,
-            "agent_type": agent_type,
+            "agent_type": type_definition.name,
             "description": description,
             "workspace_root": str(effective_workspace.resolve())
             if effective_workspace
@@ -595,7 +648,9 @@ class AgentTool(WiringMixin):
         }
         session = control.create_subagent(
             workspace_root=effective_workspace,
-            skills=load_skills if load_skills else None,
+            skills=parent_session.skills,
+            tool_allowlist=effective_tools,
+            prompt_seed=type_definition.role_prompt_seed,
             metadata=metadata,
             parent_session_id=ctx.session_id,
         )
@@ -623,46 +678,24 @@ class AgentTool(WiringMixin):
             raise ToolError("subagent control is not configured", tool_name=self.name)
         return control
 
-    def _validate_new_agent_args(
-        self, args: Mapping[str, Any], *, ctx: ToolContext
-    ) -> None:
+    def _validate_new_agent_args(self, args: Mapping[str, Any]) -> None:
+        """Validate the two fields every new-agent call still needs.
+
+        feat-474: skill selection and category/subagent_type mutual-exclusion
+        no longer exist as schema fields — the JSON Schema's
+        ``additionalProperties: false`` already rejects any caller still
+        passing the removed ``load_skills`` / ``category`` / `timeout_seconds`
+        fields (spec「已删除的仪式字段不可再传」), so this method only checks
+        what schema validation cannot: non-empty content for the two required
+        strings.
+        """
+
         if _normalize_optional_text(args.get("description")) is None:
             raise ToolError(
                 "description must be a non-empty string", tool_name=self.name
             )
         if _normalize_optional_text(args.get("prompt")) is None:
             raise ToolError("prompt must be a non-empty string", tool_name=self.name)
-
-        load_skills = _normalize_skill_names(
-            args.get("load_skills"), tool_name=self.name
-        )
-        # bugfix-431 决策 3: use runtime.resolve_available_skills so subagent skill
-        # validation uses the same resolver as runtime and preview (同源).
-        available = self._require_control(ctx).resolve_available_skills(
-            ctx.repo_root,
-            include_names=load_skills,
-        )
-        available_names = {skill.name for skill in available}
-        missing_skills = [name for name in load_skills if name not in available_names]
-        if missing_skills:
-            raise ToolError(
-                "unknown skills requested",
-                tool_name=self.name,
-                details={"missing_skills": missing_skills},
-            )
-
-        category = _normalize_optional_text(args.get("category"))
-        subagent_type = _normalize_optional_text(args.get("subagent_type"))
-        if category and subagent_type:
-            raise ToolError(
-                "category and subagent_type are mutually exclusive",
-                tool_name=self.name,
-            )
-        if not category and not subagent_type:
-            raise ToolError(
-                "either category or subagent_type is required for new agent",
-                tool_name=self.name,
-            )
 
     # ------------------------------------------------------------------
     # Result formatting
@@ -822,44 +855,6 @@ def _normalize_run_in_background(value: Any) -> bool:
     if not isinstance(value, bool):
         raise ToolError("run_in_background must be a boolean", tool_name="agent")
     return value
-
-
-def _resolve_timeout_seconds(args: Mapping[str, Any]) -> float:
-    raw = args.get("timeout_seconds")
-    if raw is None:
-        return _DEFAULT_FOREGROUND_BUDGET
-    timeout = float(raw)
-    if timeout <= 0:
-        raise ToolError("timeout_seconds must be > 0", tool_name="agent")
-    return timeout
-
-
-def _normalize_skill_names(value: Any, *, tool_name: str) -> tuple[str, ...]:
-    if not isinstance(value, list):
-        raise ToolError("load_skills must be an array of strings", tool_name=tool_name)
-    normalized: list[str] = []
-    for item in value:
-        if not isinstance(item, str):
-            raise ToolError(
-                "load_skills must be an array of strings", tool_name=tool_name
-            )
-        name = item.strip()
-        if not name:
-            raise ToolError(
-                "load_skills contains an empty skill name", tool_name=tool_name
-            )
-        normalized.append(name)
-    return tuple(normalized)
-
-
-def _resolve_agent_name(args: Mapping[str, Any]) -> str:
-    subagent_type = _normalize_optional_text(args.get("subagent_type"))
-    if subagent_type is not None:
-        return subagent_type
-    category = _normalize_optional_text(args.get("category"))
-    if category is not None:
-        return category
-    return "unknown"
 
 
 def _extract_assistant_text(turn: TurnResult | Any) -> str | None:

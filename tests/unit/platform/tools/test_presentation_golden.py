@@ -116,7 +116,11 @@ _START_CASES = [
             "Agent",
             "Refactor auth module",
             "",
-            {"description": "Refactor auth module", "prompt": "", "subagent_type": ""},
+            {
+                "description": "Refactor auth module",
+                "prompt": "",
+                "subagent_type": "general-purpose",
+            },
         ),
     ),
     (

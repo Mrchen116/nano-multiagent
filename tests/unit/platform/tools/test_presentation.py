@@ -389,7 +389,7 @@ class TestAgentPresenter:
         assert evt.detail == {
             "description": "Refactor auth module",
             "prompt": "do it",
-            "subagent_type": "",
+            "subagent_type": "general-purpose",
         }
 
     def test_end_completed_has_full_prompt_before_result(self) -> None:
