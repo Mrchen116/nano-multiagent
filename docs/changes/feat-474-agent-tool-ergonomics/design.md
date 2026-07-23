@@ -6,6 +6,8 @@
 
 ## Changelog
 
+- 2026-07-23: 按 design-review 修 CRITICAL/WARNING——platform 只产 `PromptSlotSeed`（禁 sdk `PromptSlots`）；skills/background-tasks delta 锚点与继承 Scenario；旧字段随 `additionalProperties: false` 校验失败；补父 tools 解析取法。
+
 ## 现状分析
 
 ### 涉及范围
@@ -26,7 +28,7 @@
 
 ### 可复用能力
 
-- Session 级 `tool_allowlist` + `prompt_seed`（PromptSlots）——真类型差异应走这两条，不新开 runner。
+- Session 级 `tool_allowlist` + `prompt_seed`（core `PromptSlotSeed`；公共会话仍经 sdk `PromptSlots`）——真类型差异应走这两条，不新开 runner。
 - `AgentTool` + background registry / `agent_id` continuation —— 生命周期保留。
 - 实机 CC 提示词摘录：`cc-subagent-system-prompts/` —— 角色文案语义参考。
 
@@ -45,7 +47,7 @@
 
 ## 架构总览
 
-核心思路：把「类型名」从 metadata 标签升级为 **内置类型目录（deny-list ∩ 父有效工具 + 角色 PromptSlots）**，在 `create_subagent` 时写入子 session；`AgentTool` schema 变瘦。
+核心思路：把「类型名」从 metadata 标签升级为 **内置类型目录（deny-list ∩ 父有效工具 + 角色 PromptSlotSeed）**，在 `create_subagent` 时写入子 session；`AgentTool` schema 变瘦。
 
 ```mermaid
 graph TD
@@ -71,9 +73,9 @@ after：解析类型 → 显式写入子 session allowlist + 角色 prompt + 继
 
 ### 决策 1: 内置类型目录归属与定义形状
 
-**选了 A：目录放在内核 platform（靠近 AgentTool）；定义 = `{name, disallowed_tools, when_to_use, role_prompt_slots}`。**
+**选了 A：目录放在内核 platform（靠近 AgentTool）；定义 = `{name, disallowed_tools, when_to_use, role_prompt_seed: PromptSlotSeed}`。**
 
-- **理由**: 真类型是内核行为，产品只经 sdk 消费；本期无产品定制类型需求；与既有 `tool_allowlist` + `prompt_seed` 扩展点对齐。`disallowed_tools` 与决策 2 / CC 同构（`general-purpose` 的 deny 为空）。
+- **理由**: 真类型是内核行为，产品只经 sdk 消费；本期无产品定制类型需求；与既有 `tool_allowlist` + `prompt_seed` 扩展点对齐。`disallowed_tools` 与决策 2 / CC 同构（`general-purpose` 的 deny 为空）。角色文案用 **core** `PromptSlotSeed` / `PromptSlotText`（`agent.core.session.types`），**禁止** platform import `agent.sdk.PromptSlots`（分层：`platform → core`，`sdk → platform`）。
 - **拒绝**: B（经 build_kernel 注入可替换 registry）——本期无调用方、面过大；C（常量全塞进 agent.py）——工具名单 + 长提示会撑爆工具文件。
 - **风险**: 日后若要产品级自定义 agents 目录，需另开 unit 把目录抽成可注入 registry；本期不预埋。
 
@@ -87,9 +89,9 @@ after：解析类型 → 显式写入子 session allowlist + 角色 prompt + 继
 
 ### 决策 3: 类型角色提示注入方式
 
-**选了 A：不继承父产品 PromptSlots；类型文案写入子 session 的 head（短身份）+ body（角色指引 / READ-ONLY）。**
+**选了 A：不继承父产品 prompt 四槽；类型文案以 core `PromptSlotSeed` 写入子 session（head=短身份，body=角色指引 / READ-ONLY）。**
 
-- **理由**: 对齐 CC「专用人格」而非主会话副本；走既有 PromptSlots 语义，不绕骨架。
+- **理由**: 对齐 CC「专用人格」而非主会话副本；走既有四槽语义与骨架，且不让 platform 碰 sdk `PromptSlots`。
 - **拒绝**: B（继承父再追加）——会带入 cron/心跳等主会话噪音；C（整段塞 custom）——绕开 head/body 约定。
 - **风险**: 文案需按 nano 工具名改写（语义对齐 `cc-subagent-system-prompts/`，非逐字强制）。
 
@@ -134,12 +136,12 @@ sequenceDiagram
   alt 未知类型
     Cat-->>Parent: ToolError + Available agents
   else 已知类型
-    Cat-->>Parent: deny 集 + role PromptSlots
+    Cat-->>Parent: deny 集 + role PromptSlotSeed
     Parent->>Parent: effective_tools =<br/>parent_tools − deny
-    Parent->>Ctrl: skills=父原样<br/>tool_allowlist=effective<br/>prompt=类型 slots<br/>metadata.agent_type
+    Parent->>Ctrl: skills=父原样<br/>tool_allowlist=effective<br/>prompt_seed=类型 seed<br/>metadata.agent_type
     Ctrl->>Child: NewSession 持久化
     Parent->>Run: start / start_foreground
-    Run->>Child: turn(prompt)
+    Run->>Child: turn(任务 prompt)
   end
 ```
 
@@ -147,7 +149,7 @@ sequenceDiagram
 
 | 表面 | 变化 |
 |---|---|
-| `agent` 工具 schema | 删除 `load_skills` / `category` / `timeout_seconds`；`required` 仅 `description` + `prompt`；`subagent_type` 可选 string |
+| `agent` 工具 schema | 删除 `load_skills` / `category` / `timeout_seconds`；`required` 仅 `description` + `prompt`；`subagent_type` 可选 string；**保持 `additionalProperties: false`**——仍传已删字段则校验失败（与删字段一致，不静默忽略） |
 | `agent` 工具 description | 列出 `general-purpose` / `Explore` / `Plan` 的 whenToUse + 工具约束摘要；注明缺省 `general-purpose` |
 | 未知 / 错误大小写类型 | 工具失败；文案含类型未找到 + `Available agents: general-purpose, Explore, Plan`（顺序稳定、与 CC 同风格） |
 | 子 session 配置 | 新建时写入显式 `tool_allowlist`、类型 `prompt_seed`、继承的 `skills`；`metadata.agent_type` 仍为类型名 |
@@ -159,21 +161,29 @@ sequenceDiagram
 在既有 `_SessionSubagentControl.create_subagent` 上增加并贯通到 `NewSession`：
 
 - `tool_allowlist: Sequence[str] | None` — 本期新建路径应传**已解析的显式列表**（不要 `None`）
-- `prompt: PromptSlots | None` — 转为 `prompt_seed`（与 `Kernel.create_session` 同路径）
+- `prompt_seed: PromptSlotSeed | None` — **直接**写入 `NewSession.prompt_seed`（core 类型）。公共 `Kernel.create_session` 仍只暴露 sdk `PromptSlots` 并经 `_to_prompt_seed` 转换；子 agent 内部控制面不经 `PromptSlots`，避免 platform→sdk。
 - `skills: Sequence[str] | None` — **保留三态**：`None` / 非空 / 空序列；禁止 `if skills else None` 折叠
 
-父有效工具解析：读父 session 的 `tool_allowlist`；若为 `None`，取父 turn 当前运行时已解析的可用工具名集合（与父 LLM 实际可见工具一致），再应用类型 deny。
+父有效工具解析（推荐取法，避免 worker 探 runtime 私有方法）：
+
+1. `control.directory.get(control.ref)` 读父 session 持久化的 `tool_allowlist`；
+2. 若为非空元组 → 即父有效工具名；
+3. 若为 `None` → 经 subagent control **新增的窄口**（如 `list_parent_enabled_tool_names()`）返回与父 turn 同源的已解析工具名列表（实现可委派 runtime，但不得让 `AgentTool` 直接依赖私有 `_resolve_*`）；再对该列表应用类型 deny。
+
+父 `skills`：同路径读 `Session.skills` 原样传入（含 `None` / `()`）。
+
+已知同源：`Kernel.create_session` 亦有 `skills` 假值折叠；**本期只修 `create_subagent`**，不扩 scope。
 
 ### 类型目录模块（platform 新增）
 
 建议落点：`src/agent/platform/tools/subagent_types/`（或等价邻近路径），导出：
 
-- 三类型常量定义
+- 三类型常量定义（`role_prompt_seed: PromptSlotSeed`，import 自 `agent.core.session.types`）
 - `resolve_agent_type(name: str | None) -> Definition | error`
 - `format_available_agents() -> str`（供 description 与错误文案共用）
 - `apply_tool_deny(parent_tools, disallowed) -> list[str]`
 
-`AgentTool` 只编排，不内联长文案。
+`AgentTool` 只编排，不内联长文案；**不得** `import agent.sdk`。
 
 ## 风险与回退
 
@@ -182,7 +192,7 @@ sequenceDiagram
 | Explore/Plan 仍有 `bash`，模型可能用 shell 改文件 | 工具 deny 去掉 write/edit；prompt READ-ONLY 禁止写向命令；验收用「write/edit 不在工具列表」为主判据，shell 写盘为提示层约束（与 CC 同） |
 | `create_subagent` 空 skills 折叠成 `None` 导致父「零 skill」被加宽 | 显式修三态传递；单测覆盖 `skills=()` |
 | 父 `tool_allowlist=None` 时若子仍写 `None`，子会拿到 registry 全量 | 新建路径必须写入**解析后的显式列表** |
-| 旧调用方 / 测试仍传 `load_skills`/`category` | 视为未知字段忽略或校验失败（实现选一并测）；契约与 description 不再要求 |
+| 旧调用方 / 测试仍传 `load_skills`/`category`/`timeout_seconds` | **拍死**：schema 保持 `additionalProperties: false`，多余字段 → 工具入参校验失败；description / 契约不再列出这些字段 |
 | 续跑路径误用类型目录再次改 allowlist | 续跑不重建类型配置；只跟已有子 session |
 | 回滚 | 回退本 unit diff；无数据迁移。已创建的旧子 session 仍按当时 config 跑 |
 
@@ -233,7 +243,7 @@ curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8011/
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| feat-474-M1 | agent-type-ergonomics | — | A | `src/agent/platform/tools/builtins/agent.py`；新增 `src/agent/platform/tools/subagent_types/`（或等价）；`src/agent/sdk/kernel.py`（`create_subagent`）；必要时 `src/agent/core/session/` 仅当三态 skills 传递需动；相关单测；`docs/specs/kernel/{tools-hooks,background-tasks,skills,prompts}.md`（经本 unit delta 归并） | `[reviewer]` 覆盖 spec：最少参数默认 general-purpose；Explore/Plan 只读；未知/错大小写失败含 Available agents；无 load_skills/category/timeout_seconds；前台超时自动转后台仍在；agent_id 插话仍在。<br/>`[worker]` 最窄相关 pytest 全绿（AgentTool schema/类型解析/deny 求交/skills 三态/未知类型文案）。<br/>`[worker]` 子 session 新建路径写入显式 tool_allowlist + 类型 prompt_seed + 继承 skills；续跑不改配置。 |
+| feat-474-M1 | agent-type-ergonomics | — | A | `src/agent/platform/tools/builtins/agent.py`；新增 `src/agent/platform/tools/subagent_types/`（或等价，仅依赖 core）；`src/agent/sdk/kernel.py`（`create_subagent` + 父有效工具窄口）；必要时 `src/agent/core/session/` 仅当三态 skills 传递需动；相关单测；`docs/specs/kernel/{tools-hooks,background-tasks,skills,prompts}.md`（经本 unit delta 归并） | `[reviewer]` 覆盖 spec：最少参数默认 general-purpose；Explore/Plan 只读；未知/错大小写失败含 Available agents；无 load_skills/category/timeout_seconds（多传则失败）；前台超时自动转后台仍在；agent_id 插话仍在；子 agent skills 不宽于父。<br/>`[worker]` 最窄相关 pytest 全绿（AgentTool schema/类型解析/deny 求交/skills 三态/未知类型文案/additionalProperties）。<br/>`[worker]` 子 session 新建路径写入显式 tool_allowlist + 类型 PromptSlotSeed + 继承 skills；platform 无 `agent.sdk` import；续跑不改配置。 |
 
 目录：`docs/changes/feat-474-agent-tool-ergonomics/M1-agent-type-ergonomics/`
 
@@ -241,9 +251,9 @@ curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8011/
 
 见 `docs/changes/feat-474-agent-tool-ergonomics/specs/kernel/`：
 
-- `tools-hooks.md` — agent 参数面与真类型
-- `background-tasks.md` — 去掉 category 措辞；保留自动转后台语义
-- `skills.md` — 移除 load_skills 子 agent 校验 scenario
-- `prompts.md` — 子 agent 按类型注入 PromptSlots
+- `tools-hooks.md` — agent 参数面与真类型；旧字段校验失败
+- `background-tasks.md` — 去掉 category 措辞；MODIFIED 既有超预算通知 Scenario，并入「不可调超时」
+- `skills.md` — MODIFIED 既有「preview/list/runtime 一致」Requirement（删 load_skills Scenario）+ ADDED 子 agent 继承父 skills
+- `prompts.md` — 子 agent 按类型注入专用四槽（消费者可见为 PromptSlots 语义）
 
 gateway / im / cli：**no spec delta**（产品只消费内核 `agent` 行为变化，无独立产品契约增量）。

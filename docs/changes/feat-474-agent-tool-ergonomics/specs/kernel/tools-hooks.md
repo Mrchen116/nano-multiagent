@@ -25,6 +25,10 @@
 - **THEN** 该工具调用失败
 - **AND** 失败信息指出类型未找到，并列出当前可用类型
 
+#### Scenario: 已删除的仪式字段不可再传
+- **WHEN** 消费者调用 `agent` 时仍传入 `load_skills` / `category` / `timeout_seconds` 任一已删除字段
+- **THEN** 该工具调用因入参不符合 schema 而失败（不静默忽略）
+
 ## MODIFIED Requirements
 
 （无整段替换；既有「agent 工具的 detail 含完整派发 prompt」Scenario 保持，detail 中不再依赖 category / load_skills 字段。）
