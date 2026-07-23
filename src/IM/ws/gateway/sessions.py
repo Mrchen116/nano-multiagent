@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from fastapi import WebSocket, WebSocketDisconnect
@@ -214,6 +215,33 @@ class GatewaySessions:
         """Return one tracked connection snapshot for tests and diagnostics."""
         async with self._lock:
             return self._connections.get(node_id)
+
+    async def record_report(
+        self,
+        *,
+        node_id: str,
+        payload: dict[str, object],
+        report_recorder: Callable[[dict[str, object]], None],
+    ) -> GatewayConnection | None:
+        """Atomically confirm a connected node and record its report state.
+
+        Args:
+            node_id: Node claiming to have produced the report.
+            payload: Validated report payload retained for diagnostics.
+            report_recorder: Execution-owned recorder invoked while the connection
+                membership is still protected by the shared lock.
+
+        Returns:
+            The current connection when the report was recorded, otherwise ``None``
+            if disconnect or force-offline removed the node first.
+        """
+        async with self._lock:
+            connection = self._connections.get(node_id)
+            if connection is None:
+                return None
+            connection.reports.append(payload)
+            report_recorder(payload)
+            return connection
 
     async def list_connected_node_ids(self) -> set[str]:
         """Return all currently connected node identifiers."""

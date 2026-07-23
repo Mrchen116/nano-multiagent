@@ -56,9 +56,10 @@ def build_gateway(
     user_stream_registry=None,
     event_bridge=None,
     channel_control_store=None,
+    lock: asyncio.Lock | None = None,
 ) -> GatewayTestStack:
     """Assemble the same concrete Gateway graph as the application root."""
-    lock = asyncio.Lock()
+    lock = lock or asyncio.Lock()
     sessions = GatewaySessions(
         node_persistence=node_persistence,
         user_stream_registry=user_stream_registry,
@@ -198,6 +199,88 @@ def test_register_heartbeat_and_report_track_connection_state(tmp_path: Path) ->
     assert snapshot.reports == [
         {"node_id": "node-1", "run_id": "run-1", "status": "completed"}
     ]
+
+
+def test_report_after_disconnect_wins_shared_lock_is_not_persisted(
+    tmp_path: Path,
+) -> None:
+    """断连先获共享锁时，后到的 report 返回未注册且不写事件库。"""
+
+    async def _report_after_disconnect() -> tuple[dict[str, object], int]:
+        connection = connect(tmp_path / "im.db")
+        initialize_schema(connection)
+        users = UserRepository(connection)
+        owner = users.create_user(username="owner", display_name="Owner")
+        agent = users.create_user(username="agent", display_name="Agent")
+        conversation = ConversationRepository(connection).create_conversation(
+            title="chat", participant_ids=[owner.id, agent.id]
+        )
+        message = MessageRepository(connection).create_message(
+            conversation_id=conversation.id,
+            sender_user_id=agent.id,
+            sender_type="agent",
+            content="placeholder",
+        )
+        lock = asyncio.Lock()
+        handler = build_gateway(
+            relay_service=RelayService(connection),
+            conversation_persistence=GatewayConversationPersistence(connection),
+            message_repository=MessageRepository(connection),
+            event_repository=EventRepository(connection),
+            lock=lock,
+        )
+        websocket = StubWebSocket()
+        await handler.runtime.handle_message(
+            websocket=websocket,
+            message_type="node.register",
+            payload={"node_id": "node-1", "agents": [], "capabilities": {}},
+        )
+        payload = {
+            "node_id": "node-1",
+            "run_id": "run-1",
+            "status": "completed",
+            "agent_id": "agent",
+            "conversation_id": conversation.id,
+            "message_id": message.id,
+        }
+
+        persisted_before = connection.execute(
+            "SELECT COUNT(*) AS count FROM conversation_events WHERE conversation_id = ?",
+            (conversation.id,),
+        ).fetchone()["count"]
+
+        await lock.acquire()
+        disconnect_task = asyncio.create_task(
+            handler.sessions.disconnect(node_id="node-1")
+        )
+        await asyncio.sleep(0)
+        report_task = asyncio.create_task(
+            handler.runtime.handle_message(
+                websocket=websocket,
+                message_type="node.report",
+                payload=payload,
+            )
+        )
+        await asyncio.sleep(0)
+        lock.release()
+        response = await report_task
+        await disconnect_task
+        persisted = connection.execute(
+            "SELECT COUNT(*) AS count FROM conversation_events WHERE conversation_id = ?",
+            (conversation.id,),
+        ).fetchone()["count"]
+        return response, persisted - persisted_before
+
+    response, persisted = asyncio.run(_report_after_disconnect())
+
+    assert response == {
+        "type": "error",
+        "payload": {
+            "code": "node_not_registered",
+            "message": "node node-1 is not registered",
+        },
+    }
+    assert persisted == 0
 
 
 def test_register_parses_and_seeds_agent_skills_and_tool_allowlist(

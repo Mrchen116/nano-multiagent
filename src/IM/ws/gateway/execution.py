@@ -74,12 +74,13 @@ class GatewayExecution:
                 "type": "error",
                 "payload": {"code": "bad_payload", "message": str(exc)},
             }
-        connection = await self._sessions.snapshot_connection(node_id=node_id)
+        connection = await self._sessions.record_report(
+            node_id=node_id,
+            payload=payload,
+            report_recorder=self._reports.append,
+        )
         if connection is None:
             return _not_registered_error(node_id=node_id)
-        connection.reports.append(payload)
-        async with self._lock:
-            self._reports.append(payload)
         # Persist errors (e.g. FK violations from synthetic conversation_id/message_id) must not
         # propagate out of the WS dispatch layer. A malformed heartbeat payload lacking real FK
         # rows in the messages table would raise sqlite3.IntegrityError here and close the
