@@ -34,7 +34,7 @@ def test_agent_created_via_im_lands_and_replies(
         new_agent_id,
         display_name=f"E2E New {new_agent_id}",
         system_prompt="你是一个测试助手。用户让你原样回复某个 token 时，只回复那个 token 本身。",
-        default_model="volcanoArk:doubao-seed-2-0-code-preview-260215",
+        default_model="kimiCoding:kimi-for-coding",
     )
 
     # 落地上线信号:新 agent 出现在 IM agent 列表。

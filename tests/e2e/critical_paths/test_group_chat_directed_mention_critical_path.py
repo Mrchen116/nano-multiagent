@@ -43,7 +43,7 @@ def _make_group_agent(im_user: IMClient, node_id: str, agent_id: str) -> None:
             '<mention type="agent" target_id="对方的agent_id"/> 标签来 @ 他。'
         ),
         group_reply_policy="MENTION",
-        default_model="volcanoArk:doubao-seed-2-0-code-preview-260215",
+        default_model="kimiCoding:kimi-for-coding",
     )
 
 
