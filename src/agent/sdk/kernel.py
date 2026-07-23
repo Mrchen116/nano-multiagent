@@ -134,18 +134,62 @@ class _SessionSubagentControl:
         skills: Sequence[str] | None,
         metadata: dict[str, Any],
         parent_session_id: str | None,
+        tool_allowlist: Sequence[str] | None = None,
+        prompt_seed: PromptSlotSeed | None = None,
     ) -> SessionRef:
+        """Create one child session for the ``agent`` tool's new-agent path.
+
+        feat-474: unlike the legacy call (metadata + ``skills`` only), the new
+        path always supplies an explicit, already-resolved ``tool_allowlist``
+        (never bare ``None`` — a ``None`` here would let the child inherit the
+        full registry, wider than any parent) and a type-specific
+        ``prompt_seed`` (core-owned, not the sdk ``PromptSlots`` the public
+        session surface uses — this internal control plane stays sdk-internal
+        so ``platform``/``AgentTool`` never needs to import ``agent.sdk``).
+
+        ``skills`` keeps its three states verbatim (``None`` / non-empty /
+        empty tuple) — folding an empty sequence to ``None`` here would widen
+        a deliberately empty parent skill set for the child (bugfix target of
+        this change; the legacy ``if skills else None`` did exactly that).
+
+        Args:
+            workspace_root: Workspace root for the child session's JSONL.
+            skills: The child's skill visibility, passed through unfolded.
+            metadata: Caller-supplied session metadata (e.g. ``agent_type``).
+            parent_session_id: Must equal this control's own session id.
+            tool_allowlist: Explicit tool names for the child; ``None`` only
+                for callers that intentionally want the registry default.
+            prompt_seed: Core ``PromptSlotSeed`` for the child's dedicated
+                system-prompt slots; ``None`` falls back to an empty seed.
+        """
+
         if parent_session_id != self.ref.session_id:
             raise ValueError("subagent parent must be the active conversation")
         conversation = self.directory.create(
             NewSession(
                 workspace_root=workspace_root,
-                skills=tuple(skills) if skills else None,
+                skills=tuple(skills) if skills is not None else None,
+                tool_allowlist=tuple(tool_allowlist)
+                if tool_allowlist is not None
+                else None,
                 metadata=metadata,
                 parent_session_id=self.ref.session_id,
+                prompt_seed=prompt_seed if prompt_seed is not None else PromptSlotSeed(),
             )
         )
         return conversation.ref
+
+    def list_parent_enabled_tool_names(self) -> tuple[str, ...]:
+        """Return this session's active-run resolved tool names (narrow window).
+
+        feat-474: used by ``AgentTool`` only when the parent session's
+        persisted ``tool_allowlist`` is ``None`` (product-default case) — the
+        persisted value, when non-``None``, is read directly via
+        ``directory.get(ref).tool_allowlist`` instead, so this delegates to
+        the engine rather than duplicating its default-tool-id resolution.
+        """
+
+        return self.engine.resolve_active_enabled_tool_names(self.ref.session_id)
 
     def output_path(
         self,

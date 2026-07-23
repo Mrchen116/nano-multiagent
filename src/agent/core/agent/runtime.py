@@ -995,6 +995,42 @@ class AgentEngine:
             return None
         return state.active_model
 
+    def resolve_active_enabled_tool_names(self, session_id: str) -> tuple[str, ...]:
+        """Return the resolved tool names for a session's currently active run.
+
+        feat-474: the ``agent`` tool needs its parent's already-resolved
+        effective tool set (whether the parent's persisted ``tool_allowlist``
+        is ``None`` — the product-default case) to build a child's explicit
+        allowlist, without reaching into this engine's private
+        ``_resolve_session_available_tools_from_config``. This mirrors the
+        ``resolve_run_model`` pattern: only valid when called from within
+        ``session_id``'s own active turn (i.e. by a tool it is currently
+        executing), which is exactly when the ``agent`` tool calls it.
+
+        Args:
+            session_id: The session whose active turn is expected to be
+                running right now (the caller's own session, not the child's).
+
+        Returns:
+            The resolved tool names for that active run, honoring its
+            ``tool_allowlist`` (``None`` → product default set; explicit tuple,
+            including empty, used as-is).
+
+        Raises:
+            RuntimeError: No conversation is active for ``session_id`` — this
+                is a caller invariant violation (must be called from inside
+                that session's own turn), not a normal "not found" outcome.
+        """
+
+        state = self._active_state.get()
+        if state is None or session_id != state.ref.session_id:
+            raise RuntimeError(
+                "resolve_active_enabled_tool_names requires an active run for "
+                f"session {session_id!r}"
+            )
+        tools = self._resolve_session_available_tools_from_config(state.config)
+        return tuple(tool.name for tool in tools)
+
     async def _recover_orphaned_tool_calls(
         self,
         *,
