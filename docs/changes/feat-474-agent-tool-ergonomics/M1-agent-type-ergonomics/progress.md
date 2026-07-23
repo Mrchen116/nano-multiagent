@@ -126,6 +126,6 @@ AGENTS.md / TESTING_GUIDE.md / 现有 `AgentTool` / `_SessionSubagentControl` / 
     TESTING_GUIDE §4 不跨层重复断言同一逻辑）
   - Visual/Interaction: N/A
   - Prototype Comparison: N/A
-- Rollback: 待提交后填 commit hash（见下）
-- Commits: 待补
+- Rollback: `git revert fc9326db1`
+- Commits: fc9326db1
 - Next: R4 — 真实入口验收 + 收尾
