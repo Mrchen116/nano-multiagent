@@ -60,7 +60,8 @@ _WHITELIST: frozenset[str] = frozenset(
         # refactor-462 fix-r2 deterministic writer shutdown added an import.
         # feat-474-M1: _SessionSubagentControl.create_subagent/list_parent_enabled_tool_names
         # docstrings + params added above build_kernel, shifted 248→292.
-        "src/agent/sdk/kernel.py:292",
+        # feat-474 style: ruff format 对 create_subagent 签名/注解换行，.nano fallback 292→294。
+        "src/agent/sdk/kernel.py:294",
         # kernel.py: M3fix #2 workspace .nano/hooks dir for the _SearchRootsResolver
         # (决策2-style workspace discovery; literal .nano, not workspace_config_dirname);
         # M3fix-r2 dead-code removal shifted 369→370.
@@ -70,7 +71,8 @@ _WHITELIST: frozenset[str] = frozenset(
         # utc_now_iso import shifted it to 380; global_skill_root param to 382.
         # refactor-462 shared composition setup shifted the hook root literal.
         # feat-474-M1: same net shift as above (+44 lines earlier in the file), 497→541.
-        "src/agent/sdk/kernel.py:541",
+        # feat-474 style: ruff format 连带下移 541→543。
+        "src/agent/sdk/kernel.py:543",
         # kernel.py: M3fix-r2 R2-1 workspace .nano/tools dir loaded via
         # _load_tools_from_single_dir(replace=True) (决策2 workspace discovery; literal .nano).
         # bugfix-417-M7: foreground_stopper injection comment expanded (decision 12); shifted 480→483.
@@ -85,7 +87,8 @@ _WHITELIST: frozenset[str] = frozenset(
         # refactor-462 shared resource finalizer shifted the tool root literal.
         # refactor-462 fix-r3 best-effort finalization shifted this root again.
         # feat-474-M1: same net shift as above, 702→746.
-        "src/agent/sdk/kernel.py:746",
+        # feat-474 style: ruff format 连带下移 746→748。
+        "src/agent/sdk/kernel.py:748",
         # skills/discovery.py: .nano skill search root — platform default, pre-185
         "src/agent/core/skills/discovery.py:45",
         # jsonl_files.py: transcript address fallback when no product dirname is supplied.
