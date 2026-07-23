@@ -201,12 +201,55 @@ def test_register_heartbeat_and_report_track_connection_state(tmp_path: Path) ->
     ]
 
 
-def test_report_after_disconnect_wins_shared_lock_is_not_persisted(
+def test_report_after_disconnect_wins_shared_lock_is_not_registered(
     tmp_path: Path,
 ) -> None:
-    """断连先获共享锁时，后到的 report 返回未注册且不写事件库。"""
+    """断连先取得 report 临界区时，后到的 report 被拒绝。"""
 
-    async def _report_after_disconnect() -> tuple[dict[str, object], int]:
+    async def _report_after_disconnect() -> dict[str, object]:
+        connection = connect(tmp_path / "im.db")
+        initialize_schema(connection)
+        lock = asyncio.Lock()
+        handler = build_gateway(relay_service=RelayService(connection), lock=lock)
+        websocket = StubWebSocket()
+        await handler.runtime.handle_message(
+            websocket=websocket,
+            message_type="node.register",
+            payload={"node_id": "node-1", "agents": [], "capabilities": {}},
+        )
+        await lock.acquire()
+        disconnect_task = asyncio.create_task(
+            handler.sessions.disconnect(node_id="node-1")
+        )
+        await asyncio.sleep(0)
+        report_task = asyncio.create_task(
+            handler.runtime.handle_message(
+                websocket=websocket,
+                message_type="node.report",
+                payload={"node_id": "node-1", "run_id": "run-1", "status": "completed"},
+            )
+        )
+        await asyncio.sleep(0)
+        lock.release()
+        response = await report_task
+        await disconnect_task
+        return response
+
+    assert asyncio.run(_report_after_disconnect()) == {
+        "type": "error",
+        "payload": {
+            "code": "node_not_registered",
+            "message": "node node-1 is not registered",
+        },
+    }
+
+
+def test_report_before_disconnect_keeps_legacy_ack_and_persistence(
+    tmp_path: Path,
+) -> None:
+    """已取得 report 临界区的节点即使随后断连仍完成既有持久化和 ACK。"""
+
+    async def _report_before_disconnect() -> tuple[dict[str, object], int]:
         connection = connect(tmp_path / "im.db")
         initialize_schema(connection)
         users = UserRepository(connection)
@@ -243,23 +286,22 @@ def test_report_after_disconnect_wins_shared_lock_is_not_persisted(
             "conversation_id": conversation.id,
             "message_id": message.id,
         }
-
         persisted_before = connection.execute(
             "SELECT COUNT(*) AS count FROM conversation_events WHERE conversation_id = ?",
             (conversation.id,),
         ).fetchone()["count"]
 
         await lock.acquire()
-        disconnect_task = asyncio.create_task(
-            handler.sessions.disconnect(node_id="node-1")
-        )
-        await asyncio.sleep(0)
         report_task = asyncio.create_task(
             handler.runtime.handle_message(
                 websocket=websocket,
                 message_type="node.report",
                 payload=payload,
             )
+        )
+        await asyncio.sleep(0)
+        disconnect_task = asyncio.create_task(
+            handler.sessions.disconnect(node_id="node-1")
         )
         await asyncio.sleep(0)
         lock.release()
@@ -271,16 +313,13 @@ def test_report_after_disconnect_wins_shared_lock_is_not_persisted(
         ).fetchone()["count"]
         return response, persisted - persisted_before
 
-    response, persisted = asyncio.run(_report_after_disconnect())
+    response, persisted = asyncio.run(_report_before_disconnect())
 
     assert response == {
-        "type": "error",
-        "payload": {
-            "code": "node_not_registered",
-            "message": "node node-1 is not registered",
-        },
+        "type": "ack",
+        "payload": {"message_type": "node.report", "node_id": "node-1"},
     }
-    assert persisted == 0
+    assert persisted == 1
 
 
 def test_register_parses_and_seeds_agent_skills_and_tool_allowlist(
@@ -687,23 +726,73 @@ def test_suppressed_group_reply_is_not_broadcast_to_peer_agents(
     """A completed NO_REPLY receipt must stop before creating any peer relay task."""
     connection = connect(tmp_path / "im.db")
     initialize_schema(connection)
+    users = UserRepository(connection)
+    profiles = AgentProfileRepository(connection)
     relay_service = RelayService(connection)
     handler = build_gateway(
         relay_service=relay_service,
-        metrics_service=MetricsService(metrics=UsageMetricsRepository(connection)),
         conversation_persistence=GatewayConversationPersistence(connection),
     )
-
-    asyncio.run(
-        handler.relay._broadcast_group_reply_context(  # noqa: SLF001
-            task=object(),
+    websocket = StubWebSocket()
+    owner = users.create_user(username="owner", display_name="Owner")
+    agent = users.create_user(username="agent:A", display_name="A")
+    peer = users.create_user(username="agent:Q", display_name="Q")
+    for agent_id in ("A", "Q"):
+        profiles.upsert_profile(
+            agent_id=agent_id,
+            owner_id=owner.owner_id,
             node_id="node-1",
-            detail="suppressed_by=no_reply_token",
+            display_name=agent_id,
+            description="test agent",
+            system_prompt="test prompt",
+            skills=[],
+            tool_allowlist=[],
+            group_reply_policy="MENTION",
+            default_model=None,
+            workspace_root=f"/work/{agent_id}",
+        )
+    conversation = ConversationRepository(connection).create_conversation(
+        title="group", participant_ids=[owner.id, agent.id, peer.id]
+    )
+    message = MessageRepository(connection).create_message(
+        conversation_id=conversation.id,
+        sender_user_id=owner.id,
+        sender_type="user",
+        content="@agent:A hi",
+    )
+    task = relay_service.enqueue_message_relay(
+        message=message,
+        target_node_id="node-1",
+        idempotency_key="relay:no-reply",
+        sender_user_id=owner.id,
+        conversation_type="group",
+        _override_agent_id="A",
+    ).relay_task
+    asyncio.run(
+        handler.runtime.handle_message(
+            websocket=websocket,
+            message_type="node.register",
+            payload={"node_id": "node-1", "agents": ["A", "Q"], "capabilities": {}},
         )
     )
 
+    response = asyncio.run(
+        handler.runtime.handle_message(
+            websocket=websocket,
+            message_type="node.delivery_receipt",
+            payload={
+                "node_id": "node-1",
+                "relay_task_id": task.relay_task_id,
+                "delivery_status": "completed",
+                "detail": "NO_REPLY",
+            },
+        )
+    )
+
+    assert response is not None
+    assert response["type"] == "ack"
     count = connection.execute("SELECT COUNT(*) FROM relay_tasks").fetchone()[0]
-    assert count == 0
+    assert count == 1
 
 
 def test_handle_agent_message_routes_user_target_and_persists_message(
@@ -895,7 +984,7 @@ def test_parse_token_usage_cache_defaults_zero_when_absent() -> None:
 
 def _build_handler_with_event_bridge(
     tmp_path: Path,
-) -> tuple["GatewayTestStack", object]:
+) -> tuple["GatewayTestStack", object, EventBridge]:
     """Build a GatewayTestStack with a real EventBridge wired to a FK-enforced DB.
 
     FK enforcement comes from initialize_schema which calls PRAGMA foreign_keys=ON.
@@ -916,12 +1005,12 @@ def _build_handler_with_event_bridge(
         message_repository=msg_repo,
         event_bridge=bridge,
     )
-    return handler, connection
+    return handler, connection, bridge
 
 
 def test_streaming_delta_thinking_segment_persists_via_bridge(tmp_path: Path) -> None:
     """feat-439-M2 R3: kind=thinking_segment 经 gateway_handler 落到 message.thinking。"""
-    handler, connection = _build_handler_with_event_bridge(tmp_path)
+    handler, connection, bridge = _build_handler_with_event_bridge(tmp_path)
     users = UserRepository(connection)
     owner = users.create_user(username="nano", display_name="Nano")
     agent_user = users.create_user(username="agent:alpha", display_name="Alpha")
@@ -932,7 +1021,7 @@ def test_streaming_delta_thinking_segment_persists_via_bridge(tmp_path: Path) ->
     conv = ConversationRepository(connection).create_conversation(
         title="t", participant_ids=[owner.id]
     )
-    msg = handler.execution._event_bridge.on_turn_start(
+    msg = bridge.on_turn_start(
         conversation_id=conv.id, agent_user_id=agent_user.id, agent_id="alpha"
     )
 
@@ -964,7 +1053,7 @@ def test_turn_start_to_user_id_resolves_canonical_direct_conversation_and_create
     FK-enforced DB path: messages row must exist before events row is written.
     M138 fake-green guard: initialize_schema sets PRAGMA foreign_keys=ON; any synthetic FK would raise here.
     """
-    handler, connection = _build_handler_with_event_bridge(tmp_path)
+    handler, connection, _bridge = _build_handler_with_event_bridge(tmp_path)
     websocket = StubWebSocket()
     users = UserRepository(connection)
     owner = users.create_user(username="nano", display_name="Nano")
@@ -1021,7 +1110,7 @@ def test_turn_start_to_user_id_creates_direct_conversation_when_none_exists(
     tmp_path: Path,
 ) -> None:
     """turn_start with to_user_id auto-creates the canonical direct conversation when owner has no prior chat."""
-    handler, connection = _build_handler_with_event_bridge(tmp_path)
+    handler, connection, _bridge = _build_handler_with_event_bridge(tmp_path)
     websocket = StubWebSocket()
     users = UserRepository(connection)
     owner = users.create_user(username="new-owner", display_name="New Owner")
@@ -1064,7 +1153,7 @@ def test_turn_start_to_user_id_uses_oldest_conversation_when_multiple_exist(
     """turn_start with to_user_id selects the canonical (oldest) direct conversation when owner has multiple."""
     import time
 
-    handler, connection = _build_handler_with_event_bridge(tmp_path)
+    handler, connection, _bridge = _build_handler_with_event_bridge(tmp_path)
     websocket = StubWebSocket()
     users = UserRepository(connection)
     convs = ConversationRepository(connection)
@@ -1116,7 +1205,7 @@ def test_turn_start_conversation_id_mode_unchanged_normal_chat_path(
 
     Ensures the to_user_id branch does not interfere with normal chat eager placeholder behavior.
     """
-    handler, connection = _build_handler_with_event_bridge(tmp_path)
+    handler, connection, _bridge = _build_handler_with_event_bridge(tmp_path)
     websocket = StubWebSocket()
     users = UserRepository(connection)
     convs = ConversationRepository(connection)
@@ -1170,7 +1259,7 @@ def test_turn_start_to_user_id_owner_not_in_db_returns_skipped_ack_not_exception
     types' real exceptions still surface.  This test uses a FK-enforced DB (foreign_keys=ON
     via initialize_schema) to ensure the FK violation path is exercised, not mocked away.
     """
-    handler, connection = _build_handler_with_event_bridge(tmp_path)
+    handler, connection, _bridge = _build_handler_with_event_bridge(tmp_path)
     websocket = StubWebSocket()
     # Register agent user so agent lookup succeeds; owner user intentionally absent.
     users = UserRepository(connection)
