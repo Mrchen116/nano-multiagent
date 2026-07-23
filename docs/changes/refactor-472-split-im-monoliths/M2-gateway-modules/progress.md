@@ -85,10 +85,23 @@
 - Decision: `GatewaySessions.record_report()` 在同一 shared lock 内确认连接、记录 connection report，并通过回调记录 Execution-owned `_reports`；Execution 仅依据该 intent-level 调用结果决定继续持久化和 ACK，未注册节点沿用 `node_not_registered`。
 - Rationale: Sessions 继续独占连接映射，Execution 不读取 `_connections`；连接成员资格与两份内存 report 状态一起提交，恢复拆分前同锁语义。
 - Evidence:
-  - Tests: `PYTHONPATH=src pytest tests/im_service/unit/test_gateway_handler.py::test_report_after_disconnect_wins_shared_lock_is_not_persisted tests/im_service/unit/test_gateway_handler.py::test_register_heartbeat_and_report_track_connection_state tests/im_service/unit/test_gateway_handler.py::test_completed_report_persists_real_usage_metrics -q` → `3 passed`；显式交错让 disconnect 先获得 shared lock，断言 `node_not_registered` 且不新增 report event。
+  - Tests: 初版聚焦 test 与正常 report/usage 为 `3 passed`；后续交错回归按 legacy 临界区语义更新为断连先获锁时 `node_not_registered`，而 report 先进入临界区时仍 ACK 并持久化。
   - Gateway regression: Gateway unit/contract 集合 → `107 passed`；Gateway integration 集合 → `27 passed`。
   - Static: `ruff check src/IM/ws/gateway/sessions.py src/IM/ws/gateway/execution.py tests/im_service/unit/test_gateway_handler.py`、`ruff format --check ...`、`git diff --check` 通过。
   - Entry / Frontend State Matrix / Browser QA / Visual / Prototype Comparison: N/A；本次仅修复 IM 内存连接与 report 持久化的并发边界，回归通过 Runtime 的 `node.report` dispatch 验证。
 - Rollback: 回退 `2207bac00`。
 - Commits: fast-lane C1 独立提交省略（修复自包含且回归测试随实现提交）；C2=`2207bac00`，C3=本提交。
 - Next: 已完成。
+
+### Reviewer fast-lane follow-up — report 临界区、E2E catalog 与测试边界
+
+- Context: 审阅澄清要求只恢复 report 的 lookup、connection report 和 Execution report 的原子临界区；锁外的持久化与 ACK 必须保持旧 `GatewayHandler` 语义。另有四条动态 Agent 关键路径指定 `kimiCoding:kimi-for-coding`，而 e2e-up 仅复制用户配置，最小 AGENTS catalog 不保证该 model 可解析。测试还穿透 Relay 私有 helper 和 Execution 私有 EventBridge。
+- Decision: report 交错回归区分临界区前的断连拒绝与临界区后的既有 ACK/持久化；e2e-up 仅在 worktree-local copied config 中经 `e2e_catalog.py` 幂等注册 Kimi catalog 条目；NO_REPLY 断言改走 Runtime `node.delivery_receipt`，EventBridge fixture 显式返回 bridge。
+- Rationale: 不改变 replacement/disconnect 发生在 report 临界区后的 legacy 结果，隔离栈不依赖用户私有模型目录，测试只穿过公开 Runtime flow 或显式 fixture 协作对象。
+- Evidence:
+  - Tests: `PYTHONPATH=src pytest tests/im_service/unit/test_gateway_handler.py tests/im_service/integration/test_gateway_websocket_api.py tests/unit/test_e2e_catalog.py -q` → `57 passed`；`ruff check`、`ruff format --check` 与 `git diff --check` 通过。
+  - E2E: `NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1 scripts/e2e-critical.sh -q` 运行 create-agent、cron、group mention、heartbeat 四项动态 Agent 路径；前三项通过，heartbeat 在等待 bubble 时超时。`:4000/health` 为 `{"ok":true}`；该未全绿结果未作为模型目录完成依据掩盖。
+  - Entry / Frontend State Matrix / Browser QA / Visual / Prototype Comparison: N/A；本次无前端变更。
+- Rollback: 回退 `f604a17a6`。
+- Commits: C2=`f604a17a6`，C3=本提交。
+- Next: 保留 heartbeat timeout 供后续真栈诊断；report 临界区与 catalog 防回归已完成。
