@@ -59,7 +59,9 @@ def _control(tmp_path: Path) -> _SessionSubagentControl:
     )
 
 
-def _load_prompt_seed(control: _SessionSubagentControl, ref: SessionRef) -> PromptSlotSeed:
+def _load_prompt_seed(
+    control: _SessionSubagentControl, ref: SessionRef
+) -> PromptSlotSeed:
     config = JsonlTranscript(
         ref=ref, files=control.files, writer=JsonlWriter()
     ).load_config()

@@ -288,9 +288,7 @@ class AgentTool(WiringMixin):
             return self._run_background(
                 args=args, ctx=ctx, type_definition=type_definition
             )
-        return self._run_foreground(
-            args=args, ctx=ctx, type_definition=type_definition
-        )
+        return self._run_foreground(args=args, ctx=ctx, type_definition=type_definition)
 
     # ------------------------------------------------------------------
     # Background launch

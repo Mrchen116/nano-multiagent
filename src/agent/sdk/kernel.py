@@ -174,7 +174,9 @@ class _SessionSubagentControl:
                 else None,
                 metadata=metadata,
                 parent_session_id=self.ref.session_id,
-                prompt_seed=prompt_seed if prompt_seed is not None else PromptSlotSeed(),
+                prompt_seed=prompt_seed
+                if prompt_seed is not None
+                else PromptSlotSeed(),
             )
         )
         return conversation.ref

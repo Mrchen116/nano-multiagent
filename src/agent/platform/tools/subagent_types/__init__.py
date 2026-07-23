@@ -127,9 +127,7 @@ def iter_agent_types() -> tuple[SubagentTypeDefinition, ...]:
 def format_available_agents() -> str:
     """渲染未知类型错误信息复用的 'Available agents: …' 文案，顺序稳定。"""
 
-    return "Available agents: " + ", ".join(
-        definition.name for definition in _REGISTRY
-    )
+    return "Available agents: " + ", ".join(definition.name for definition in _REGISTRY)
 
 
 def resolve_agent_type(name: str | None) -> SubagentTypeDefinition:

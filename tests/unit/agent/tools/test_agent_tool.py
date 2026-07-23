@@ -98,7 +98,14 @@ class _Control:
         self,
         workspace_root: Path,
         *,
-        parent_tool_allowlist: tuple[str, ...] | None = ("read", "write", "edit", "bash", "agent", "skill_manage"),
+        parent_tool_allowlist: tuple[str, ...] | None = (
+            "read",
+            "write",
+            "edit",
+            "bash",
+            "agent",
+            "skill_manage",
+        ),
         parent_skills: tuple[str, ...] | None = (),
         active_enabled_tools: tuple[str, ...] = (),
     ) -> None:
@@ -379,7 +386,14 @@ def test_default_omitted_type_resolves_general_purpose_with_full_parent_tools(
 ) -> None:
     tool, context, control, _runner, _registry = _make_tool(
         tmp_path,
-        parent_tool_allowlist=("read", "write", "edit", "bash", "agent", "skill_manage"),
+        parent_tool_allowlist=(
+            "read",
+            "write",
+            "edit",
+            "bash",
+            "agent",
+            "skill_manage",
+        ),
     )
 
     result = tool.run(_new_agent_args(), context)

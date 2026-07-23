@@ -55,8 +55,7 @@ def test_apply_tool_deny_with_empty_denylist_returns_full_parent_set() -> None:
 
 def test_format_available_agents_lists_in_stable_registration_order() -> None:
     assert (
-        format_available_agents()
-        == "Available agents: general-purpose, Explore, Plan"
+        format_available_agents() == "Available agents: general-purpose, Explore, Plan"
     )
 
 
