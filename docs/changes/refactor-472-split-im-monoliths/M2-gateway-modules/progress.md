@@ -100,8 +100,10 @@
 - Rationale: 不改变 replacement/disconnect 发生在 report 临界区后的 legacy 结果，隔离栈不依赖用户私有模型目录，测试只穿过公开 Runtime flow 或显式 fixture 协作对象。
 - Evidence:
   - Tests: `PYTHONPATH=src pytest tests/im_service/unit/test_gateway_handler.py tests/im_service/integration/test_gateway_websocket_api.py tests/unit/test_e2e_catalog.py -q` → `57 passed`；`ruff check`、`ruff format --check` 与 `git diff --check` 通过。
-  - E2E: `NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1 scripts/e2e-critical.sh -q` 运行 create-agent、cron、group mention、heartbeat 四项动态 Agent 路径；前三项通过，heartbeat 在等待 bubble 时超时。`:4000/health` 为 `{"ok":true}`；该未全绿结果未作为模型目录完成依据掩盖。
+  - E2E: 对当前 `f604a17a6` 与 catalog 前基线 `f604a17a6^` 各运行 `scripts/e2e-critical.sh -q -rxX --timeout=240 tests/e2e/critical_paths/test_heartbeat_bubble_critical_path.py`，均为 exit 0 的 `1 xfailed`（约 186 秒），理由均为既有 #126。默认 `pytest-timeout=90` 会在 test 内 180 秒 polling 完成前以 thread timeout 中断，故该命令必须显式覆盖为 240 秒才能让 strict xfail 捕获最终 assertion。
+  - Boundary evidence: 前后隔离 config 的 `llm.default_model` 都是 `kimiCoding:kimi-for-coding`，且 Anthropic catalog 都已经有同名条目；这是当前用户源 config 已包含该模型，`e2e_catalog.py` 在两边等价配置中均为幂等 no-op。两边动态 heartbeat agent 均为 `default_model=kimiCoding:kimi-for-coding`、`features.heartbeat=true`、`heartbeat.every=5s`。两边 heartbeat state 都记录已 due，session history 都记录完整 sentinel prompt 后的 `HEARTBEAT_OK`，IM 只持续轮询 conversation history 而无 bubble。故 catalog patch 不改变 #126 的既有结果。
+  - External Channel: `docs/e2e-critical-paths.md` 已将 Feishu 1:1、群聊背景上下文和原生审批卡片列为缺少稳定真 Gateway E2E 的 out-of-unit gap；`tests/im_service/integration/test_agent_channels_api.py` 只覆盖 HTTP control，不构成外部 channel 真栈 Scenario 证据。
   - Entry / Frontend State Matrix / Browser QA / Visual / Prototype Comparison: N/A；本次无前端变更。
 - Rollback: 回退 `f604a17a6`。
 - Commits: C2=`f604a17a6`，C3=本提交。
-- Next: 保留 heartbeat timeout 供后续真栈诊断；report 临界区与 catalog 防回归已完成。
+- Next: report 临界区与 catalog 防回归已完成；heartbeat 是 catalog 前后等价的既有 #126 strict xfail，不阻塞本 fast-lane。#126 修复后应去掉 xfail 并将该旅程移回关键路径门禁。
