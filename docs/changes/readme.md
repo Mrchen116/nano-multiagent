@@ -105,7 +105,7 @@ agent 应该把澄清问题一轮一轮抛给用户，每轮记录 Q/A 到首文
 
 ### 阶段 3：实施（Apply）
 
-由 `change-impl-worker` 在 worktree 里跑 TDD 三提交循环（C1 测试 / C2 实现 / C3 文档）。每完成一个 roadpoint 实时更新 `progress.md`。
+由 `change-impl-worker` 在 worktree 里按 roadpoint 跑 TDD（先 Red/Verify，再 Green）。每完成一个 roadpoint 实时更新 `progress.md`。
 
 **硬约束：实现期发现 design 偏差，立即暂停。**
 

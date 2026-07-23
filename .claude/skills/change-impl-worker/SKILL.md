@@ -9,7 +9,7 @@ description: 用于作为 subagent 执行单个 milestone 的编码实现,或处
 
 把这一个 milestone **真正做好**:代码落在架构意图该在的位置、产品从真实入口确实能用、留下能防复发的测试。
 
-你在自己的 worktree 里写测试/验收、写实现、补文档,完成后合到 unit 集成分支,清理退出。三提交、测试门禁、状态矩阵这些是**保证质量的手段**,不是目的——别为了走完流程而走流程,目的始终是"这个 milestone 的功能用户真的能用、且不会悄悄退化"。
+你在自己的 worktree 里写测试/验收、写实现、补文档,完成后合到 unit 集成分支,清理退出。TDD 红绿、测试门禁、状态矩阵这些是**保证质量的手段**,不是目的——别为了走完流程而走流程,目的始终是"这个 milestone 的功能用户真的能用、且不会悄悄退化"。
 
 **流程不可能面面俱到。** 它没写到的情况出现时,以这个目标为准绳自己判断,像一个对交付质量负责的工程师。遇到自己拍不了板的决策,随时找 orchestrator(你的 leader)——见 §2.5。
 
@@ -17,17 +17,16 @@ description: 用于作为 subagent 执行单个 milestone 的编码实现,或处
 
 1. **遵循 design;design 没写到、你自己填的地方,默认复用 / 扩展现有架构**。design 定了的(关键决策 / 接口 / 数据流)照 design 做。但 **design 总会留一堆实现细节让你自己填**——这些自决处,**你要让实现和现有架构一致,而不只是图"尽快跑起来 / 测试过"**:先看项目里**同类的事已有怎么做**(service / repo / API client / 组件 / 状态 / 校验 / 错误处理 / 配置 / 权限 / 持久化 / 测试),默认沿用扩展,**注意别新写一套局部能跑的平行物**。(design 本身让你造一套和既有重复的 → 那是 design 问题,走 §4 pause。)
 2. **禁止兜底/降级/防御性编程**。不要写假装稳定的代码——`try/except` 吞错、神秘 fallback、临时常量、heuristic 修补——它们让数据静默错误而你毫不知情。错误应该大声失败(raise/assert),不要静默吞掉。
-3. **测试/验收必须证明产品能用,不只是代码能跑**。新功能、以及**修复用户报告的运行时缺陷**,都必须**至少一个真实入口验证**(浏览器 / CLI / HTTP endpoint)——新功能证明用户真能用,bug 修复证明用户报的那个症状真的消失。后端/API 通常沉淀为自动化入口测试;前端 UI 按 §3.1 风险分级选择 regression 保护,并记录真实浏览器验收证据。"全是 mock 的单元测试全绿"不是完成依据——历史上多次单测全绿但产品根本不能用 / bug 仍在(单测复现的是你写的那段代码,不是用户报的那个现象)。**对跨进程 / 运行时行为(投递、集成、调度),"真实入口验证"= 真把系统跑起来、跑到用户可见结果(真消息进直聊 / 页面真出现);stub、进程内 tick、"集成测试用桩"都不算——它们恰好掩盖集成缝的 bug,还会把确定性 bug 误导成"race / 需底层支持"。env 跑不通时不许降级用单测/集成顶替凑 DONE(见 §0.11)。**
-4. **强制三提交不合并**。每个 roadpoint:C1(测试/验收清单/状态矩阵,Red 或 Verify)→ C2(实现,Green)→ C3(文档,progress.md 补齐)。不得跳过、合并、或乱序。
-5. **测试门禁**。C2 提交前 `<test_command>` 必须全绿。
-6. **Pause-on-design-issue**。实现期发现 design 偏差,立即停手,走 §4 的修订流程,**禁止悄悄绕过**。
-7. **范围边界**。只改 design.md Milestone 表"范围"列里的文件;越界要先停手,通过 progress.md 记录 + 通知 orchestrator,不要顺手扩范围。
-8. **out-of-unit 发现立 issue 不顺手修**。发现根因不在本 unit 的 bug → `gh issue create`,继续做本职工作,不要顺手修(顺手修会让本 unit 范围爆炸,也会让 reviewer 验收逻辑错乱)。
-9. **worktree 路径锚定主仓**。`$(git rev-parse --show-toplevel)/.worktrees/<milestone_id>`,绝对路径,禁止嵌套 worktree。
-10. **前端 UI 变更必须真实浏览器验收**。任何影响用户界面的改动,不能只依赖 jsdom、组件测试、类型检查或截图脑补。必须用真实浏览器打开相关页面/状态,完成关键交互,检查 console error / network failure,并在 progress.md 记录证据。核心业务路径和历史 bug 必须留下可重复的 regression 保护;若项目已有浏览器 E2E 体系,核心路径优先沉淀为 E2E 用例;没有则补适合现有测试体系的交互/回归测试,不为单个 milestone 强行引入新基础设施。视觉/样式细节以截图证据和状态覆盖为主,不强行用 E2E 测样式。
-11. **假设主机被并发使用,自取并回收运行时资源**。任何占端口 / 绑 socket / 起长驻服务的动作:**之前**分配空闲端口(项目 AGENTS.md 应有端口 helper 和服务参数化清单),**之后**退出/HANDOFF 前 kill 自己起的进程。资源被占且无法切换 → 阻塞,按 §8.2 HANDOFF,不准改写 evidence 标准回避。**live 环境跑不通(proxy / WS / 绑定 / 服务起不来)同样算阻塞**:不许自己降级成"API 层验证 / 集成测试也行"凑 DONE,而是 `SendMessage` 找 orchestrator(§2.5.1,它会修 env 或调整),并在回报里**如实披露 env 受阻**——别报一个干净的 DONE 把"其实没跑通 live"吞掉(这会让 orchestrator 误签收、把 live 验证甩进往返轮)。
-12. **撞到 bug 先找根因再修**。遇到非平凡 bug / 测试失败 / 意外行为 → **动手修之前先 invoke `systematic-debugging` skill 走根因纪律**,禁止「猜一个改一下试试」。与 §0.2(禁兜底)同源:都要求修根因、不修症状、不让错误静默蔓延。根因定位后回 §5 三提交(C1 写复现测试再修)。展开见 §7.2。
-13. **契约层永不由你写**。`docs/specs/`(canonical,归 orchestrator)、`<unit_path>/specs/`(delta,归 design-author)都不归你——你只写 milestone 内 `progress.md` / `tasks.md`。对外行为有变就在 progress.md 记一句给 orchestrator,别顺手写:实现视角写出的契约必带实现细节。
+3. **测试/验收必须证明产品能用,不只是代码能跑**。新功能、以及**修复用户报告的运行时缺陷**,都必须**至少一个真实入口验证**(浏览器 / CLI / HTTP endpoint)——新功能证明用户真能用,bug 修复证明用户报的那个症状真的消失。后端/API 通常沉淀为自动化入口测试;前端 UI 按 §3.1 风险分级选择 regression 保护,并记录真实浏览器验收证据。"全是 mock 的单元测试全绿"不是完成依据——历史上多次单测全绿但产品根本不能用 / bug 仍在(单测复现的是你写的那段代码,不是用户报的那个现象)。**对跨进程 / 运行时行为(投递、集成、调度),"真实入口验证"= 真把系统跑起来、跑到用户可见结果(真消息进直聊 / 页面真出现);stub、进程内 tick、"集成测试用桩"都不算——它们恰好掩盖集成缝的 bug,还会把确定性 bug 误导成"race / 需底层支持"。env 跑不通时不许降级用单测/集成顶替凑 DONE(见 §0.10)。**
+4. **测试门禁**。提交实现前 `<test_command>` 必须全绿。
+5. **Pause-on-design-issue**。实现期发现 design 偏差,立即停手,走 §4 的修订流程,**禁止悄悄绕过**。
+6. **范围边界**。只改 design.md Milestone 表"范围"列里的文件;越界要先停手,通过 progress.md 记录 + 通知 orchestrator,不要顺手扩范围。
+7. **out-of-unit 发现立 issue 不顺手修**。发现根因不在本 unit 的 bug → `gh issue create`,继续做本职工作,不要顺手修(顺手修会让本 unit 范围爆炸,也会让 reviewer 验收逻辑错乱)。
+8. **worktree 路径锚定主仓**。`$(git rev-parse --show-toplevel)/.worktrees/<milestone_id>`,绝对路径,禁止嵌套 worktree。
+9. **前端 UI 变更必须真实浏览器验收**。任何影响用户界面的改动,不能只依赖 jsdom、组件测试、类型检查或截图脑补。必须用真实浏览器打开相关页面/状态,完成关键交互,检查 console error / network failure,并在 progress.md 记录证据。核心业务路径和历史 bug 必须留下可重复的 regression 保护;若项目已有浏览器 E2E 体系,核心路径优先沉淀为 E2E 用例;没有则补适合现有测试体系的交互/回归测试,不为单个 milestone 强行引入新基础设施。视觉/样式细节以截图证据和状态覆盖为主,不强行用 E2E 测样式。
+10. **假设主机被并发使用,自取并回收运行时资源**。任何占端口 / 绑 socket / 起长驻服务的动作:**之前**分配空闲端口(项目 AGENTS.md 应有端口 helper 和服务参数化清单),**之后**退出/HANDOFF 前 kill 自己起的进程。资源被占且无法切换 → 阻塞,按 §8.2 HANDOFF,不准改写 evidence 标准回避。**live 环境跑不通(proxy / WS / 绑定 / 服务起不来)同样算阻塞**:不许自己降级成"API 层验证 / 集成测试也行"凑 DONE,而是 `SendMessage` 找 orchestrator(§2.5.1,它会修 env 或调整),并在回报里**如实披露 env 受阻**——别报一个干净的 DONE 把"其实没跑通 live"吞掉(这会让 orchestrator 误签收、把 live 验证甩进往返轮)。
+11. **撞到 bug 先找根因再修**。遇到非平凡 bug / 测试失败 / 意外行为 → **动手修之前先 invoke `systematic-debugging` skill 走根因纪律**,禁止「猜一个改一下试试」。与 §0.2(禁兜底)同源:都要求修根因、不修症状、不让错误静默蔓延。根因定位后回 §5(先写复现红测再修)。展开见 §7.2。
+12. **契约层永不由你写**。`docs/specs/`(canonical,归 orchestrator)、`<unit_path>/specs/`(delta,归 design-author)都不归你——你只写 milestone 内 `progress.md` / `tasks.md`。对外行为有变就在 progress.md 记一句给 orchestrator,别顺手写:实现视角写出的契约必带实现细节。
 
 ---
 
@@ -40,9 +39,9 @@ orchestrator 把这批 fix 标为「reviewer 反馈循环的小修」(派发措�
 - **但若你是被新派来修 fix 的**(不是原 worker):这些**不能省**,该读的上下文读全、该跑的基线跑——否则不懂架构容易治标(见 ③)。
 
 **② 减流程仪式** —— fix 单点、一步到位时:
-- §0.4 三提交 → 允许单 commit;§3 → 不复制 tasks.md 模板,fix 列表写 commit message 或 progress 续段。
+- §3 → 不复制 tasks.md 模板,fix 列表写 commit message 或 progress 续段。
 - **判据**:fix 自包含、不需要拆 roadpoint。装不下(>100 行 / 跨 3+ 文件 / 需分步)→ 升级回主流程。
-- ⚡**红测试不豁免行为/契约类 fix**:只有 typo / 样式 / 文案这类**本质写不出有意义断言**的才免 §5 C1 红测试。**只要这个 fix 能被测试断言(逻辑 / 契约 / 数据流改动),就必须先写红测试**——当初漏 bug 往往正因没测到,免了下轮还漏。
+- ⚡**红测试不豁免行为/契约类 fix**:只有 typo / 样式 / 文案这类**本质写不出有意义断言**的才免 §5 红测。**只要这个 fix 能被测试断言(逻辑 / 契约 / 数据流改动),就必须先写红测试**——当初漏 bug 往往正因没测到,免了下轮还漏。
 
 **③ 架构治本(底线,不是轻量化)** —— §0.1 在 fix 下**不放松**:reviewer 给的「最小路径 / 改第 X 行」是现象线索,不是方案。判断根因在哪层,在架构正确的位置治本,不在崩溃点贴补丁绕过契约。复用原 worker 反而更利于此——你最懂自己写过的那层。
 
@@ -53,7 +52,7 @@ orchestrator 把这批 fix 标为「reviewer 反馈循环的小修」(派发措�
 3. 集成路径不变(§6 rebase + unit 锁 + merge **不放松**)
 4. 单 commit 可 `git revert` 到上一稳定态
 
-**保留**:§0.1-§0.3、§0.7-§0.11、§6 集成。
+**保留**:§0.1-§0.3、§0.6-§0.10、§6 集成。
 
 每次走轻量化在 commit message 或 progress 写一句"省略 §X,理由 <Y>",留决策痕迹。
 
@@ -137,7 +136,7 @@ repo_root=$(git rev-parse --show-toplevel)
 3. **`CLAUDE.md` / `AGENTS.md`** —— 项目级约定(测试命令、注释规范、模块边界)
 4. **`LOGBOOK.md`(若有)** —— 跨任务经验,提取与本 milestone 相关的注意事项
 5. **现有代码结构** —— 模块划分、命名约定、已有 fixture / helper(避免重复造轮子)
-6. **`docs/TESTING_GUIDE.md`** —— 测试规范的唯一真源:测什么/不测什么的停止条件、**MUST NOT 测私有函数/实现细节**、「改个内部写法就变红的测试是负债——它测的是实现不是行为」。**在写任何测试(含 C1 红测)之前必须读完**——它定义本 milestone 测试的取舍。放在「现有测试」之前读:**先立标准,再看样本**。
+6. **`docs/TESTING_GUIDE.md`** —— 测试规范的唯一真源:测什么/不测什么的停止条件、**MUST NOT 测私有函数/实现细节**、「改个内部写法就变红的测试是负债——它测的是实现不是行为」。**在写任何测试(含红测)之前必须读完**——它定义本 milestone 测试的取舍。放在「现有测试」之前读:**先立标准,再看样本**。
 7. **现有测试结构** —— 已有哪些测试、组织方式、入口测试是怎么写的。⚠️ 现状里可能掺着反模式(mock 断言某内部函数「被调用」、测一条已失效/no-op 的实现路径);先用上一条 TESTING_GUIDE 的判据过一遍再参照,**别无脑模仿现状**——坏样本会让你把实现细节当成测试目标。
 
 读完后心里要有清晰的:**本 milestone 的边界 / 涉及的文件 / 已有可复用的东西 / 测试该测什么·不该测什么**。
@@ -194,7 +193,7 @@ rm -f "<unit_path>/<milestone_dir>/.gitkeep"
 - **目标**:抄 design.md Milestone 表对应行的"退出标准"(lite 模式抄 fix.md "现象/根因"段)
 - **退出标准**:同上,可补充
 - **测试策略**:见 §3.1
-- **Roadpoints**:把 milestone 拆成 3-7 个 roadpoint(R1/R2/...),每个能独立 C1+C2+C3 提交完成。tasks.md 里每个 roadpoint 状态字段用 `TODO / DOING / DONE / BLOCKED` 四档之一
+- **Roadpoints**:把 milestone 拆成 3-7 个 roadpoint(R1/R2/...),每个能独立按 §5 Red→Green 完成。tasks.md 里每个 roadpoint 状态字段用 `TODO / DOING / DONE / BLOCKED` 四档之一
 
 复制 `assets/progress.md` 模板到 `<unit_path>/<milestone_dir>/progress.md`(空骨架,后续每个 R 完成补齐)。
 
@@ -334,11 +333,13 @@ rm -f "<unit_path>/<milestone_dir>/.gitkeep"
 
 ---
 
-## §5 执行循环:每个 roadpoint 三提交
+## §5 执行循环:每个 roadpoint 走 TDD(Red → Green)
 
-每个 roadpoint 仍然保持 C1 → C2 → C3,但 C1 的含义按任务类型区分:
+每个 roadpoint 工作顺序是 Red/Verify → Green →(必要的 Browser QA / Refactor)→ 门禁 → 提交并补齐 progress。同一 roadpoint 的测试、实现、progress 通常一次提交。
 
-| 任务类型 | C1 应提交什么 |
+Red/Verify 的含义按任务类型区分:
+
+| 任务类型 | Red/Verify 应产出什么 |
 |---|---|
 | 后端/API/纯逻辑 | 失败测试,确认失败点 = 当前缺失能力 |
 | 前端核心业务路径 | 失败/可复现的 E2E(若已有体系)或交互/集成 regression |
@@ -346,15 +347,14 @@ rm -f "<unit_path>/<milestone_dir>/.gitkeep"
 | 前端历史 bug | 能复现 bug 的 regression test / 验收脚本 / 截图证据 |
 | 前端视觉细节 | 状态矩阵 + reference/截图验收说明,不强行写 E2E |
 
-| 步骤 | 做什么 | 提交 |
+| 步骤 | 做什么 | 说明 |
 |---|---|---|
-| Verify/Red | 写测试、状态矩阵、验收清单或截图对照说明,明确当前缺失能力 | `test\|verify(<unit>/<milestone>/R<n>): <描述>` |
+| Verify/Red | 写测试、状态矩阵、验收清单或截图对照说明,明确当前缺失能力;**后端/API 必须亲眼确认测试红** | 必须先于实现,不得跳过 |
 | Green | 最小实现让测试/状态/路径通过 | — |
 | Browser QA | 前端任务必须真实浏览器验收;后端/API 任务必须真实入口验收 | — |
 | Refactor | 行为不变的重构;改行为先补测试/状态/验收清单 | — |
-| 门禁 | `<test_command>` 以及本 roadpoint 相关浏览器/E2E/组件检查按 `tasks.md` 规划通过 | — |
-| Commit | 提交实现 | `feat\|fix\|refactor(<unit>/<milestone>/R<n>): <描述>` |
-| 文档 | 更新 tasks.md(状态→DONE)+ progress.md(补齐证据) | `docs(<unit>/<milestone>/R<n>): <描述>` |
+| 门禁 | `<test_command>` 以及本 roadpoint 相关浏览器/E2E/组件检查按 `tasks.md` 规划通过 | 提交前必过 |
+| Commit | 提交本 roadpoint(测试+实现+progress) | `feat\|fix\|refactor\|test\|docs(<unit>/<milestone>/R<n>): <描述>` |
 | Push | `git push` 保存现场 | — |
 
 冒号后描述用中文,简短具体。
@@ -376,7 +376,7 @@ rm -f "<unit_path>/<milestone_dir>/.gitkeep"
   - Visual/Interaction: <截图/录屏路径、viewport、reference 对照结论;非前端写 N/A>
   - Prototype Comparison: <若 design 有前端原型/reference,填逐项对照表;非前端写 N/A>
 - Rollback: <回退到哪个 commit>
-- Commits: C1=<hash>, C2=<hash>, C3=<hash>
+- Commits: <hash>
 - Next: <下一步,或本 milestone 已完成>
 ```
 
@@ -442,13 +442,13 @@ git add <resolved> → git rebase --continue → 重复直到完成
 
 分析原因 → 修复 → 重跑 → 全绿 → 提交修复。**不许 skip 测试 / 加 `xfail` 蒙混过关**。
 
-「分析原因」不是扫一眼报错就改——**invoke `systematic-debugging` skill 走根因纪律**:逐字读报错 → 稳定复现 → 多组件系统先打边界日志定位是哪层断 → 反向追到坏值源头 → 写下单一假设最小验证。根因定位后才回 §5 三提交(C1 写复现测试)动手修。撞到 flaky 别加 `sleep`/重试蒙,按 skill 的 condition-based-waiting 根治。
+「分析原因」不是扫一眼报错就改——**invoke `systematic-debugging` skill 走根因纪律**:逐字读报错 → 稳定复现 → 多组件系统先打边界日志定位是哪层断 → 反向追到坏值源头 → 写下单一假设最小验证。根因定位后才回 §5(先写复现红测再修)动手修。撞到 flaky 别加 `sleep`/重试蒙,按 skill 的 condition-based-waiting 根治。
 
 ### §7.3 连续失败回退
 
 同一 roadpoint 连续失败 > 6 次:
 
-1. 回退到上一稳定 commit(该 roadpoint 的 C1 或上一 roadpoint 的 C3)
+1. 回退到上一稳定 commit(本 roadpoint 开始前,或上一 roadpoint 完成点)
 2. 在 progress.md 记录:失败现象、根因、回退目标、重拆方案
 3. roadpoint 拆小,从 Verify/Red 重做
 
@@ -503,8 +503,8 @@ orchestrator 会派新 worker 接同一个 worktree 续跑。新 worker 启动�
 
 ## §9 反 anti-pattern
 
-- **不要为了三提交而三提交**。如果 R 太小不够拆出测试 + 实现 + 文档三档,合并 R 或重新规划。强凑会污染 commit 历史。
-- **不要在 C1 写"通过测试"**。后端/API/纯逻辑的 C1 必须 Red(失败);前端 UI 的 C1 必须沉淀可验证验收清单、状态矩阵或 regression 复现。C1 的目的都是证明当前缺失能力,不是宣称已经完成。
+- **不要跳过红、直接写"已通过"的测试**。后端/API/纯逻辑必须先写失败测试并确认失败点 = 缺失能力;前端 UI 必须先沉淀可验证验收清单、状态矩阵或 regression 复现。Red/Verify 的目的是证明当前缺失能力,不是宣称已经完成。
+- **不要把 R 拆得太碎**。装不下有意义的红测+实现就合并 R 或重新规划。
 - **不要 mock 真实入口**。HTTP 测试就发真请求(到本地 server),CLI 测试就跑真命令(子进程)。mock 入口等于不测试。
 - **不要用注释/TODO 留尾巴**。"// TODO: 这里以后改" 在本 milestone 内必须解决,否则就拆成新 R 或新 milestone。LOGBOOK 才是经验沉淀的地方。
 - **不要逐行复述代码做注释**。注释写"为什么 / 约束 / 来源"(照抄外部实现时标 `Provenance: <源>` 是对的),**不写"这行在做什么"**——几乎每处都挂注释 = 噪声,收尾会被人要求清掉。
