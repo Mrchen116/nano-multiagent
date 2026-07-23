@@ -77,4 +77,4 @@
   - Frontend State Matrix / Browser QA / Visual / Prototype Comparison: N/A；未修改前端，用户可见实时事件由真实 `/im/ws/user` 验证。
 - Rollback: C2 前可回退至 `fd4c7dc29`。
 - Commits: C1=`13a84ae2d`，C2=`7da848968`、`ca1051d1f`、`c9bf98477`、`85516fc34`，C3=`748fdde9d`；follow-up C2=`5a61bceea`，C3=本提交。
-- Next: R4 退出标准已逐项核实；提交后集成 follow-up。
+- Next: R4 已完成；终态 follow-up 已合并至 `f282ba8c2`。
