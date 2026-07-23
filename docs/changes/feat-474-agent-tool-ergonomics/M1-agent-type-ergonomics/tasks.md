@@ -45,22 +45,22 @@
 
 ## Roadpoints
 
-### R1 — 内置类型目录模块
+### R1 — 内置类型目录模块 [DONE]
 
 - 步骤：新增 `src/agent/platform/tools/subagent_types/`：类型定义（`name` / `disallowed_tools` / `when_to_use` / `role_prompt_seed: PromptSlotSeed`，import 自 `agent.core.session.types`）；`resolve_agent_type(name) -> Definition`（未知抛 ToolError 含 Available agents）；`format_available_agents()`；`apply_tool_deny(parent_tools, disallowed)`。三类型：`general-purpose`（disallowed=空）、`Explore`/`Plan`（disallowed={write,edit,agent,skill_manage}）。角色文案参考 `cc-subagent-system-prompts/*.md`（改写 nano 工具名，非逐字抄）。
 - 验证：新建 `tests/unit/agent/tools/test_subagent_types.py`：resolve 三个已知类型成功；未知类型/错误大小写抛 ToolError 且消息含 Available agents 列表；`apply_tool_deny` 正确求交且保序；`format_available_agents()` 顺序稳定。
 
-### R2 — kernel `create_subagent` 三态扩展 + runtime 窄口
+### R2 — kernel `create_subagent` 三态扩展 + runtime 窄口 [DONE]
 
 - 步骤：`_SessionSubagentControl.create_subagent` 增加 `tool_allowlist` / `prompt_seed` 参数并贯通 `NewSession`；修 `skills` 三态折叠 bug（`None`/`()`/非空原样传递，不再 `if skills else None`）。`AgentEngine` 新增公开方法 `resolve_active_enabled_tool_names(session_id)`（镜像 `resolve_run_model` 的 `_active_state` 读取模式），供 `_SessionSubagentControl.list_parent_enabled_tool_names()` 委派。
 - 验证：扩展 `tests/unit/agent/tools/test_agent_tool.py` 里对 `control.created[...]` 的断言覆盖新参数（经 R3 的 AgentTool 改造后一并跑通）；新建 `tests/unit/agent/test_runtime_active_enabled_tools.py`：仿 `test_runtime_tool_allowlist_enforcement.py` 模式，用真实 `AgentEngine` + `ConversationSession`，工具执行期调用 `resolve_active_enabled_tool_names` 断言与 `tool_allowlist=None`（走默认集合）和显式 allowlist 两种父配置下的返回值一致；未在活动 run 内调用时抛错。
 
-### R3 — `AgentTool` 瘦身 + 类型集成
+### R3 — `AgentTool` 瘦身 + 类型集成 [DONE]
 
 - 步骤：schema 删 `load_skills`/`category`/`timeout_seconds`；`required=[description, prompt]`；`additionalProperties: false` 保留；description 列出三类型 whenToUse + 默认。`_resolve_agent_name` 改为解析类型目录（缺省 general-purpose，未知抛错）。`_create_subagent_session` 计算父有效工具（`control.directory.get(control.ref)` 读 `tool_allowlist`，非 None 直接用；None 则 `control.list_parent_enabled_tool_names()`）→ 应用类型 deny → 传入 `create_subagent(tool_allowlist=..., prompt_seed=type_def.role_prompt_seed, skills=parent_session.skills)`。移除 `_normalize_skill_names` 校验路径（skill 相关字段已删）。前台预算常量保留，去掉 `timeout_seconds` 入参解析（`_resolve_timeout_seconds` 删除，直接用默认预算）。presenter/description 里的 `load_skills`/`category`/`timeout_seconds` 措辞一并清理。
 - 验证：改造 `tests/unit/agent/tools/test_agent_tool.py` 的 fake `_Control`（加 `.directory`/`.ref`，或等价窄口方法）+ `_new_agent_args` 去掉 `load_skills`；覆盖：默认 general-purpose 全量父工具；Explore/Plan 工具集不含 write/edit/agent/skill_manage；未知类型失败含 Available agents；旧字段（`load_skills`/`category`/`timeout_seconds`）再传即 schema 校验失败（经 `builtin_tools()` schema 层，非 `run()` 层——`run()` 不做 schema 校验，由上游 loop 校验，需确认现状校验点并在对应层断言）。更新 `tests/unit/test_agent_tool_schema.py` 冻结新 schema 形状。
 
-### R4 — 真实入口验收 + 收尾
+### R4 — 真实入口验收 + 收尾 [DONE]
 
 - 步骤：用 `coding_cli.main --text`（真实 LLM，本地代理 `kimiCoding:K2.6`）在 worktree 内实跑：(a) 默认新建子 agent 改一个 scratch 文件；(b) `Explore` 只读探索不改文件；(c) 故意传错类型名验证失败文案。跑窄测试门禁 + 全量单测门禁。补齐 progress.md 每个 R 的证据段。检查是否有 LOGBOOK 沉淀。
 - 验证：三个真实入口调用的终端记录（记入 progress.md，不落测试文件）；`<test_command>` 全绿。

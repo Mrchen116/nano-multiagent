@@ -129,3 +129,45 @@ AGENTS.md / TESTING_GUIDE.md / 现有 `AgentTool` / `_SessionSubagentControl` / 
 - Rollback: `git revert fc9326db1`
 - Commits: fc9326db1
 - Next: R4 — 真实入口验收 + 收尾
+
+## R4 — 真实入口验收 + 收尾
+
+- Context: §0.3 要求新功能至少一条真实入口验证；design Runbook 建议用 Coding CLI 或 Web IM 对话
+  真实调用 `agent` 工具。R1-R3 已用单测覆盖内部逻辑，本 R 补一条跨真实 LLM 的端到端确认。
+- Decision: 在 worktree 内用 `PYTHONPATH=src python3 -m coding_cli.main --text "<中文自然语言指令>"`
+  （真实 LLM，本地代理 `kimiCoding:K2.6`，`http://127.0.0.1:4000`）跑三个旅程：
+  1. 不传 `subagent_type`（默认）派前台子 agent 写文件 → 子 agent 真的写入并被主 agent 读回，
+     presentation 显示 `"subagent_type": "general-purpose"`。
+  2. `subagent_type=Explore` 派前台子 agent 尝试写文件 → 子 agent 自陈"没有 write/edit 工具"，
+     主 agent 额外用 `bash ls` 确认文件确实未被创建。
+  3. 显式传不存在的 `subagent_type=oracle` → 工具调用 `status=failed`，`error` 精确等于
+     `"Agent type 'oracle' not found. Available agents: general-purpose, Explore, Plan"`，
+     主 agent 原样转述。
+- Rationale: 三条旅程精确对应 spec 三条核心 Requirement（轻量派发默认类型 / 类型能力可区分 /
+  未知类型失败可理解），且都跑过真实 LLM + 真实 Kernel + 真实文件系统，不是 mock 出的假设行为。
+  按 TESTING_GUIDE §6，这属于一次性验收证据（终端记录），不落 `test_*.py`（已有的 unit 层覆盖同一
+  逻辑的确定性回归，二者不重复）。
+- Evidence:
+  - Tests: `pytest tests/unit tests/contract -q -m "not e2e"` → 3162 passed（收尾门禁，与 R3 相同基线）
+  - Entry:
+    - 旅程 1（默认 general-purpose 可写）：`tool_end` 显示
+      `"subagent_type": "general-purpose"`，子 agent 结果 `content` 确认文件已含
+      `FEAT474_DEFAULT_OK`；主 agent 独立 `read` 校验内容一致。终端记录：本节 R4 对应的
+      shell 会话输出（未落盘为文件；如需复查可按本段旅程 1 的 prompt 在同环境重跑）。
+    - 旅程 2（Explore 只读）：子 agent 原话"没有文件写入/编辑工具...无法写文件"；主 agent
+      `bash ls ./feat474_r4_explore_should_fail.txt` 返回 `No such file or directory`，
+      证明确实没有写权限，不只是嘴上说没有。
+    - 旅程 3（未知类型失败）：`tool_end.status=failed`，
+      `error="Agent type 'oracle' not found. Available agents: general-purpose, Explore, Plan"`
+      与 R1 单测断言的文案完全一致。
+    - 验证后清理：三次旅程产生的 `.nanocode/`（CLI 会话存储）与 scratch 文件
+      （`feat474_r4_scratch.txt` 等）已删除，未提交进 worktree。
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: N/A（跨真实 LLM 的行为已现场验证；不新增 e2e 用例——design 未要求，
+    reviewer 阶段会用同类真实旅程独立复验，避免同一逻辑在 worker/reviewer 两层重复固化）
+  - Visual/Interaction: N/A
+  - Prototype Comparison: N/A
+- Rollback: 本 R 无代码变更（纯验收），无需回退
+- Commits: （无新 commit；tasks.md/progress.md 收尾一并提交，见下）
+- Next: 本 milestone 已完成；LOGBOOK 无新增沉淀（本期未发现超出既有记录的可复用经验/坑）
