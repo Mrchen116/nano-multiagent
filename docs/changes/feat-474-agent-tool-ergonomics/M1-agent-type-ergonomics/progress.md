@@ -233,6 +233,6 @@ AGENTS.md / TESTING_GUIDE.md / 现有 `AgentTool` / `_SessionSubagentControl` / 
   - E2E/Regression: N/A（见上，单测已覆盖数据流全链路，跨层不重复）
   - Visual/Interaction: N/A
   - Prototype Comparison: N/A
-- Rollback: `git revert <见下方 commit hash>`
-- Commits: 见回报
+- Rollback: `git revert 7282438f7`
+- Commits: 7282438f7
 - Next: 本 fix 完成，无后续动作
