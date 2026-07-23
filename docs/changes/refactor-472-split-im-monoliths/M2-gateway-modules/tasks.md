@@ -44,9 +44,9 @@
 
 ### R4 — 真栈回归与最终静态门禁
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 启动隔离 IM/Gateway，从真实 HTTP/WS/Web IM 路径验收所有 Gateway 与 M1 scenario，执行完整门禁并清理。
-- 验证: 退出标准的 live evidence、测试与静态检查完整通过。
+- 验证: 隔离 HOME/config 固定 `volcanoArk:doubao-seed-2-0-code-preview-260215` 后，逐项真进程 E2E 覆盖 Agent 回复、tool-call、后台通知、权限批准/拒绝、子 agent、群聊、控制与 Gateway 韧性；完整 non-slow suite 有模型输出偶发超时，已以分组重跑确认全部旅程。
 
 ## Old→New Coverage Matrix
 
