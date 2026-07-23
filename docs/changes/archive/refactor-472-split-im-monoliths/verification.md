@@ -2,9 +2,9 @@
 
 ## Summary
 
-Mode: full  
-Delta range: N/A  
-Focus issues: N/A  
+Mode: full
+Delta range: N/A
+Focus issues: N/A
 requires_full_verification: false
 
 | 维度 | 结果 |
