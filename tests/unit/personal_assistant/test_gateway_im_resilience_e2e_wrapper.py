@@ -166,12 +166,12 @@ def test_e2e_up_script_yq_path_sets_each_agent_workspace_independently(
                 "  username: nano",
                 "  password: nano1234",
                 "llm:",
-                "  default_model: kimiCoding:K2.6",
+                "  default_model: codex_oauth:gpt-5.5",
                 "  providers:",
-                "    - name: anthropic",
+                "    - name: openai_compat",
                 "      base_url: http://127.0.0.1:4000",
                 "      models:",
-                "        - name: kimiCoding:K2.6",
+                "        - name: codex_oauth:gpt-5.5",
                 "",
             ]
         )
@@ -209,6 +209,9 @@ def test_e2e_up_script_yq_path_sets_each_agent_workspace_independently(
         ]
         assert (workspace_dir / "alpha").is_dir()
         assert (workspace_dir / "beta").is_dir()
+        assert [provider["name"] for provider in mutated["llm"]["providers"]] == [
+            "openai_compat"
+        ]
     finally:
         subprocess.run(
             [

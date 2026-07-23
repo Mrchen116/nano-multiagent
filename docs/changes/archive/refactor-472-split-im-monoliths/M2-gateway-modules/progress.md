@@ -96,7 +96,7 @@
 ### Reviewer fast-lane follow-up — report 临界区、E2E catalog 与测试边界
 
 - Context: 审阅澄清要求只恢复 report 的 lookup、connection report 和 Execution report 的原子临界区；锁外的持久化与 ACK 必须保持旧 `GatewayHandler` 语义。另有四条动态 Agent 关键路径指定 `kimiCoding:kimi-for-coding`，而 e2e-up 仅复制用户配置，最小 AGENTS catalog 不保证该 model 可解析。测试还穿透 Relay 私有 helper 和 Execution 私有 EventBridge。
-- Decision: report 交错回归区分临界区前的断连拒绝与临界区后的既有 ACK/持久化；e2e-up 仅在 worktree-local copied config 中经 `e2e_catalog.py` 幂等注册 Kimi catalog 条目；NO_REPLY 断言改走 Runtime `node.delivery_receipt`，EventBridge fixture 显式返回 bridge。
+- Decision: report 交错回归区分临界区前的断连拒绝与临界区后的既有 ACK/持久化；critical-path wrapper 在 worktree-local copied config 中经 `e2e_catalog.py` 幂等注册 Kimi catalog 条目；NO_REPLY 断言改走 Runtime `node.delivery_receipt`，EventBridge fixture 显式返回 bridge。
 - Rationale: 不改变 replacement/disconnect 发生在 report 临界区后的 legacy 结果，隔离栈不依赖用户私有模型目录，测试只穿过公开 Runtime flow 或显式 fixture 协作对象。
 - Evidence:
   - Tests: `PYTHONPATH=src pytest tests/im_service/unit/test_gateway_handler.py tests/im_service/integration/test_gateway_websocket_api.py tests/unit/test_e2e_catalog.py -q` → `57 passed`；`ruff check`、`ruff format --check` 与 `git diff --check` 通过。
@@ -107,3 +107,13 @@
 - Rollback: 回退 `f604a17a6`。
 - Commits: C2=`f604a17a6`，C3=本提交。
 - Next: report 临界区与 catalog 防回归已完成；heartbeat 是 catalog 前后等价的既有 #126 strict xfail，不阻塞本 fast-lane。#126 修复后应去掉 xfail 并将该旅程移回关键路径门禁。
+
+### PR follow-up — 保持通用 e2e-up 的 provider 兼容性
+
+- Context: patch review 确认无条件运行 `e2e_catalog.py` 会让通用 `e2e-up.sh` 拒绝仅含 `openai_compat` 的合法 provider catalog，尽管该启动器原本可用于任意可解析的 Gateway 配置。
+- Decision: `e2e-up.sh` 仅在 `NANO_MULTIAGENT_ENABLE_CRITICAL_PATH_CATALOG=1` 时补 Kimi catalog；`e2e-critical.sh` 显式设置该变量，使固定模型的 critical-path 继续获得隔离配置保障。
+- Rationale: 模型目录补齐是 critical-path 的专有前置条件，不应收窄通用隔离启动器的配置接口。
+- Evidence: `PYTHONPATH=src python -m pytest tests/unit/test_e2e_catalog.py -q` → `4 passed`；`bash -n scripts/e2e-up.sh`、`bash -n scripts/e2e-critical.sh`、`git diff --check` 通过。
+- Rollback: 回退本段关联提交。
+- Commits: C2/C3=本提交。
+- Next: 已完成。

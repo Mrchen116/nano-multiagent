@@ -110,9 +110,11 @@ with open(path, "w") as f: yaml.safe_dump(cfg, f, allow_unicode=True, sort_keys=
 PY
 fi
 
-# Dynamic critical-path agents explicitly select this model.  The source config is
-# user-owned and may omit it, so register it only in the isolated copy.
-python3 "$SCRIPT_DIR/e2e_catalog.py" "$WT_CFG"
+# Dynamic critical-path agents explicitly select this model. Their wrapper opts in
+# so the general-purpose stack launcher remains compatible with any valid catalog.
+if [[ "${NANO_MULTIAGENT_ENABLE_CRITICAL_PATH_CATALOG:-}" == "1" ]]; then
+  python3 "$SCRIPT_DIR/e2e_catalog.py" "$WT_CFG"
+fi
 
 # Pre-create each agent's workspace dir; Gateway refuses to start otherwise.
 python3 - "$WT_CFG" "$WORKSPACE_DIR" <<'PY'
