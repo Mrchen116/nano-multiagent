@@ -78,3 +78,17 @@
 - Rollback: C2 前可回退至 `fd4c7dc29`。
 - Commits: C1=`13a84ae2d`，C2=`7da848968`、`ca1051d1f`、`c9bf98477`、`85516fc34`，C3=`748fdde9d`；follow-up C2=`5a61bceea`，C3=本提交。
 - Next: R4 已完成；终态 follow-up 已合并至 `f282ba8c2`。
+
+### Reviewer fast-lane — report 与断连原子性
+
+- Context: `GatewayExecution.handle_report()` 曾先通过 `snapshot_connection()` 检查连接，再在锁外分别记录 connection report 与 Execution report；在两步之间 `disconnect()` 或 `force_mark_offline()` 可移除节点，仍使 report 落库并返回 ACK。
+- Decision: `GatewaySessions.record_report()` 在同一 shared lock 内确认连接、记录 connection report，并通过回调记录 Execution-owned `_reports`；Execution 仅依据该 intent-level 调用结果决定继续持久化和 ACK，未注册节点沿用 `node_not_registered`。
+- Rationale: Sessions 继续独占连接映射，Execution 不读取 `_connections`；连接成员资格与两份内存 report 状态一起提交，恢复拆分前同锁语义。
+- Evidence:
+  - Tests: `PYTHONPATH=src pytest tests/im_service/unit/test_gateway_handler.py::test_report_after_disconnect_wins_shared_lock_is_not_persisted tests/im_service/unit/test_gateway_handler.py::test_register_heartbeat_and_report_track_connection_state tests/im_service/unit/test_gateway_handler.py::test_completed_report_persists_real_usage_metrics -q` → `3 passed`；显式交错让 disconnect 先获得 shared lock，断言 `node_not_registered` 且不新增 report event。
+  - Gateway regression: Gateway unit/contract 集合 → `107 passed`；Gateway integration 集合 → `27 passed`。
+  - Static: `ruff check src/IM/ws/gateway/sessions.py src/IM/ws/gateway/execution.py tests/im_service/unit/test_gateway_handler.py`、`ruff format --check ...`、`git diff --check` 通过。
+  - Entry / Frontend State Matrix / Browser QA / Visual / Prototype Comparison: N/A；本次仅修复 IM 内存连接与 report 持久化的并发边界，回归通过 Runtime 的 `node.report` dispatch 验证。
+- Rollback: 回退 `2207bac00`。
+- Commits: fast-lane C1 独立提交省略（修复自包含且回归测试随实现提交）；C2=`2207bac00`，C3=本提交。
+- Next: 已完成。
