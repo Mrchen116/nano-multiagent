@@ -275,6 +275,31 @@ def test_terminal_continuation_resumes_same_conversation(tmp_path: Path) -> None
     assert result["status"] == "async_launched"
     assert runner.start_calls[-1]["agent_session_id"] == "subagent-session"
     assert runner.start_calls[-1]["model"] == "parent-model"
+    # bugfix-474-fix1: the resumed result carries the record's real
+    # agent_type so the presenter can show it instead of guessing.
+    assert result["agent_type"] == "general-purpose"
+
+
+def test_running_continuation_message_queued_carries_real_agent_type(
+    tmp_path: Path,
+) -> None:
+    # bugfix-474-fix1: a still-running continuation's message_queued output
+    # must also surface the record's real agent_type — the presenter has no
+    # other way to distinguish an Explore/Plan follow-up from general-purpose.
+    tool, context, _control, _runner, _registry = _make_tool(tmp_path)
+    launched = tool.run(_new_agent_args(subagent_type="Explore"), context)
+
+    result = tool.run(
+        {
+            "description": "inspect subsystem",
+            "agent_id": launched["agent_id"],
+            "prompt": "Keep exploring.",
+        },
+        context,
+    )
+
+    assert result["status"] == "message_queued"
+    assert result["agent_type"] == "Explore"
 
 
 def test_cold_continuation_rehydrates_through_control(tmp_path: Path) -> None:
@@ -299,6 +324,9 @@ def test_cold_continuation_rehydrates_through_control(tmp_path: Path) -> None:
 
     assert result["status"] == "async_launched"
     assert runner.start_calls[-1]["agent_session_id"] == "cold-subagent"
+    # bugfix-474-fix1: rehydrated-from-JSONL type also flows into the result
+    # so the presenter shows the real type, not a general-purpose guess.
+    assert result["agent_type"] == "Explore"
 
 
 def test_unknown_cold_agent_fails_explicitly(tmp_path: Path) -> None:

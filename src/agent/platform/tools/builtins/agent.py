@@ -53,16 +53,49 @@ class _AgentPresenter:
 
     def format_start(self, args: Mapping[str, Any]) -> ToolPresentationEvent:
         description = str(args.get("description", ""))
+        detail: dict[str, Any] = {
+            "description": description,
+            "prompt": str(args.get("prompt", "")),
+        }
+        # bugfix-474-fix1: a continuation call (`agent_id` present) never
+        # resolves a type — `_run_continuation` dispatches straight to the
+        # existing session, it doesn't call `resolve_agent_type`. Defaulting
+        # to DEFAULT_AGENT_TYPE_NAME here would mislabel an Explore/Plan
+        # follow-up as general-purpose. Only genuinely new agents (no
+        # agent_id) get the default; format_end fills in the real type once
+        # the result is available.
+        if _normalize_optional_text(args.get("agent_id")) is None:
+            detail["subagent_type"] = str(
+                args.get("subagent_type") or DEFAULT_AGENT_TYPE_NAME
+            )
         return ToolPresentationEvent(
             visible=True,
             label="Agent",
             summary=_truncate(description, 80),
-            detail={
-                "description": description,
-                "prompt": str(args.get("prompt", "")),
-                "subagent_type": str(args.get("subagent_type") or DEFAULT_AGENT_TYPE_NAME),
-            },
+            detail=detail,
         )
+
+    def _resolve_display_type(
+        self, args: Mapping[str, Any], output: Any, *, is_continuation: bool
+    ) -> str | None:
+        """Resolve the type to show in presentation detail, or ``None`` to omit it.
+
+        New agents always show a type — default general-purpose when omitted,
+        mirroring `resolve_agent_type`'s actual runtime default. Continuation
+        calls never re-resolve a type, so faking the default would mislabel an
+        Explore/Plan follow-up; prefer the real type carried on the result
+        (``output["agent_type"]``, sourced from the registry record/JSONL
+        metadata) and otherwise show nothing rather than a guess.
+        """
+
+        explicit = _normalize_optional_text(args.get("subagent_type"))
+        if explicit is not None:
+            return explicit
+        if not is_continuation:
+            return DEFAULT_AGENT_TYPE_NAME
+        if isinstance(output, Mapping):
+            return _normalize_optional_text(output.get("agent_type"))
+        return None
 
     def format_end(
         self,
@@ -72,36 +105,42 @@ class _AgentPresenter:
     ) -> ToolPresentationEvent:
         description = str(args.get("description", ""))
         prompt = str(args.get("prompt", ""))
-        subagent_type = str(args.get("subagent_type") or DEFAULT_AGENT_TYPE_NAME)
+        is_continuation = _normalize_optional_text(args.get("agent_id")) is not None
         output = getattr(result, "output", None) or {}
         error = getattr(result, "error", None)
+        subagent_type = self._resolve_display_type(
+            args, output, is_continuation=is_continuation
+        )
         if error:
             # feat-409 failalign: out-of-band 失败态 summary = 干净主参数(description),
             # 不含 error 文本。detail 保留 description + 完整 prompt(失败时 prompt 最有
             # 价值,原型:Agent 展开必含完整派发 prompt),让 AgentCard 渲染 error 一次。
+            detail: dict[str, Any] = {
+                "description": description,
+                "prompt": prompt,
+            }
+            if subagent_type is not None:
+                detail["subagent_type"] = subagent_type
+            detail["status"] = "failed"
+            detail["error"] = str(error)
             return ToolPresentationEvent(
                 visible=True,
                 label="Agent",
                 summary=_truncate(description, 80) if description else "failed",
-                detail=_enforce_cap(
-                    {
-                        "description": description,
-                        "prompt": prompt,
-                        "subagent_type": subagent_type,
-                        "status": "failed",
-                        "error": str(error),
-                    }
-                ),
+                detail=_enforce_cap(detail),
             )
         if isinstance(output, Mapping):
             status = str(output.get("status", "completed"))
             # Order matters: description + full prompt first, result fields after —
             # the front-end renders this top-to-bottom (prompt before result, spec).
-            detail = _enforce_cap(
+            detail = {
+                "description": description,
+                "prompt": prompt,
+            }
+            if subagent_type is not None:
+                detail["subagent_type"] = subagent_type
+            detail.update(
                 {
-                    "description": description,
-                    "prompt": prompt,
-                    "subagent_type": subagent_type,
                     "status": status,
                     "agent_id": str(output.get("agent_id", "")),
                     "content": str(output.get("content", "")),
@@ -111,6 +150,7 @@ class _AgentPresenter:
                     "error": str(output.get("error", "")),
                 }
             )
+            detail = _enforce_cap(detail)
             # The agent tool reports in-band failure via output.status == "failed"
             # (foreground exception path) rather than result.error — surface it as a
             # red "failed" summary like the out-of-band error branch above.
@@ -453,6 +493,10 @@ class AgentTool(WiringMixin):
                         "agent_id": agent_id,
                         "description": record.description,
                         "output_file": record.output_file,
+                        # bugfix-474-fix1: real type off the registry record so
+                        # the presenter shows it instead of guessing
+                        # general-purpose for a still-running continuation.
+                        "agent_type": record.agent_type or "",
                     }
                 current = registry.get(agent_id)
                 if (
@@ -591,6 +635,10 @@ class AgentTool(WiringMixin):
             "agent_id": agent_id,
             "description": description,
             "output_file": output_file,
+            # bugfix-474-fix1: real type (registry record / rehydrated JSONL
+            # metadata) so the presenter shows it instead of guessing
+            # general-purpose for a resumed continuation.
+            "agent_type": agent_type or "",
         }
 
     # ------------------------------------------------------------------

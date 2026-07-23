@@ -171,3 +171,68 @@ AGENTS.md / TESTING_GUIDE.md / 现有 `AgentTool` / `_SessionSubagentControl` / 
 - Rollback: 本 R 无代码变更（纯验收），无需回退
 - Commits: （无新 commit；tasks.md/progress.md 收尾一并提交，见下）
 - Next: 本 milestone 已完成；LOGBOOK 无新增沉淀（本期未发现超出既有记录的可复用经验/坑）
+
+## Fix 1 — reviewer 反馈循环小修：续聊误标 general-purpose（§FL 小修快车道）
+
+省略 §2.3 全量六读、§3 tasks.md 模板、§2.4 复用原 worktree 的部分——理由 FL①/②：本 fix
+单点、一步到位，改动收敛在 `_AgentPresenter` 一处类 + `_run_continuation`/`_resume_subagent`
+两处返回值，未跨 3+ 文件也未超 100 行；已按派单方要求读了 design.md 相关段（决策 5 / 类型解析
+时序图）、现有 `agent.py` presenter 实现、`tests/unit/platform/tools/test_presentation*.py`
++ `tests/unit/agent/tools/test_agent_tool.py`。**未跳过 §FL 的红测豁免**——finding 是行为/契约
+类改动，先写了红测再修（见下）。
+
+- Context（CONFIRMED finding）: `_AgentPresenter.format_start`/`format_end` 无条件把缺省
+  `subagent_type` 展示成 `DEFAULT_AGENT_TYPE_NAME`（general-purpose）。续聊路径
+  `agent(agent_id=..., prompt=...)` 通常不传 `subagent_type`，`AgentTool.run` 直接走
+  `_run_continuation`——这条路径从不调用 `resolve_agent_type`，真实类型只存在于 registry
+  record / JSONL metadata 里。于是 UI 把 Explore/Plan 续聊误标成 general-purpose。
+- Decision（治本，未在崩溃点贴补丁）:
+  1. presenter 新增 `_resolve_display_type(args, output, is_continuation)`：显式传
+     `subagent_type` 时以调用参数为准；新建（无 `agent_id`）缺省 `general-purpose`（保留
+     R3 既有行为，反映 `resolve_agent_type` 的真实运行时缺省）；续聊（有 `agent_id`）没有
+     显式类型时，优先读 `output["agent_type"]`（真实类型），拿不到就返回 `None`——`detail`
+     里不写这个 key，而不是伪造一个类型。
+  2. `format_start`/`format_end` 按上述结果决定是否把 `subagent_type` 写进 `detail`；
+     `None` 时省略 key（不是空串——省略在前端 `str(undefined) === ""` 语义下渲染效果一致，
+     但更诚实地表达"未知"而非"已知为空"）。
+  3. `_run_continuation` 的 `message_queued` 分支、`_resume_subagent` 的返回值补
+     `"agent_type": record.agent_type or ""` / `agent_type or ""`——三条续聊子路径（运行中
+     插话、终态恢复、冷启动从 JSONL 重建）此前都拿到了真实 `agent_type`（分别来自
+     `record.agent_type` / `current.agent_type` / `metadata.get("agent_type")`）却从未透传给
+     调用方，presenter 因此拿不到真值只能瞎猜。这一步是"更好"选项（README 里 reviewer 给的
+     第 3 条修法）：数据本来就在手边，补一个字段传递不破坏分层（`AgentTool` 内部方法间传递，
+     不涉及 `agent.sdk`/`agent.core` 边界）。
+- Rationale: 与 §0.1 一致——根因是"续聊路径从不解析类型，presenter 却假装它解析了"，不是展示层
+  拍脑袋加个 if。选"读真实值优先、拿不到就不展示"而非"续聊一律留空"，是因为数据已经在
+  `_run_continuation` 内部唾手可得，多传一个字段的成本远低于继续让 UI 展示空白。
+- Evidence:
+  - Tests:
+    - 红：新增 5 个 presenter 用例（`test_start_continuation_without_subagent_type_omits_it`
+      / `test_end_continuation_without_real_type_omits_it` /
+      `test_end_continuation_uses_real_type_from_result` 等，见
+      `tests/unit/platform/tools/test_presentation.py::TestAgentPresenter`）+
+      3 个 `AgentTool` 返回值断言（`tests/unit/agent/tools/test_agent_tool.py` 里
+      `test_terminal_continuation_resumes_same_conversation` /
+      `test_running_continuation_message_queued_carries_real_agent_type`（新增）/
+      `test_cold_continuation_rehydrates_through_control`）——改动前跑本组用例，3 个
+      presenter 断言 + 3 个 `KeyError: 'agent_type'` 全红，确认失败点=缺失能力。
+    - 绿：`pytest tests/unit/platform/tools/test_presentation.py
+      tests/unit/platform/tools/test_presentation_golden.py
+      tests/unit/agent/tools/test_agent_tool.py -q` → 90 passed（含既有 golden 用例
+      `test_format_start_golden[agent-...]` 不变——新建路径缺省展示不受影响）。
+    - 全量基线：`pytest tests/unit tests/contract -m "not e2e" -q` → 3168 passed，无回归。
+  - Entry: N/A——presenter 是纯格式化层（无 I/O、无跨进程），行为已被
+    `tests/unit/agent/tools/test_agent_tool.py` 里真实 `AgentTool.run()`（非 mock 内部逻辑，
+    只 fake 了 runner/registry 边界，与既有测试体系一致）串起 registry→presenter 的完整数据
+    流覆盖；本 fix 范围内无需另起真实 LLM/浏览器旅程（R4 已验证过同一 `agent` 工具的真实入口
+    可用性，本 fix 不改变工具的功能行为，只改展示层怎么读已有数据）。
+  - Frontend State Matrix: N/A（未改前端代码；已确认 `AgentCard`
+    `str(detail.subagent_type)` 对 `undefined` 返回 `""`，省略 key 与旧的空串展示效果一致，
+    不需要前端改动或新增前端测试）。
+  - Browser QA: N/A
+  - E2E/Regression: N/A（见上，单测已覆盖数据流全链路，跨层不重复）
+  - Visual/Interaction: N/A
+  - Prototype Comparison: N/A
+- Rollback: `git revert <见下方 commit hash>`
+- Commits: 见回报
+- Next: 本 fix 完成，无后续动作
