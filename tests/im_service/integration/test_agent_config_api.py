@@ -8,7 +8,9 @@ from fastapi.testclient import TestClient
 
 from IM.api.routes import agents as agent_routes
 from IM.app import create_app
-from IM.infra.repositories import AgentProfileRepository, NodeRepository, UserRepository
+from IM.infra.repositories.agents import AgentProfileRepository
+from IM.infra.repositories.nodes import NodeRepository
+from IM.infra.repositories.users import UserRepository
 
 from .conftest import authorize, register_user
 
@@ -702,10 +704,10 @@ def test_node_capabilities_return_current_selectable_items(
             "models": ["kimiCoding:K2.6", "codex_oauth:gpt-5.5"],
         }
 
-    from IM.ws.gateway_handler import GatewayHandler
+    from IM.ws.gateway.control import GatewayControl
 
     monkeypatch.setattr(
-        GatewayHandler, "request_node_capabilities", _fake_node_capabilities
+        GatewayControl, "request_node_capabilities", _fake_node_capabilities
     )
 
     app = create_app(db_path=tmp_path / "im.db")
@@ -739,7 +741,7 @@ def test_list_cron_jobs_calls_rpc_not_direct_file_read(
     feat-394-M13 (决策 G): IM must never directly read gateway workspace files.
     The cron jobs list must arrive via the WS RPC path.
     """
-    from IM.ws.gateway_handler import GatewayHandler
+    from IM.ws.gateway.control import GatewayControl
 
     rpc_calls: list[dict] = []
 
@@ -763,7 +765,7 @@ def test_list_cron_jobs_calls_rpc_not_direct_file_read(
             }
         ]
 
-    monkeypatch.setattr(GatewayHandler, "request_node_cron_jobs", _fake_cron_jobs)
+    monkeypatch.setattr(GatewayControl, "request_node_cron_jobs", _fake_cron_jobs)
 
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
@@ -812,14 +814,14 @@ def test_list_cron_jobs_returns_empty_when_node_offline(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """GET /im/v1/agents/{id}/cron/jobs returns [] when node is offline (RPC → None)."""
-    from IM.ws.gateway_handler import GatewayHandler
+    from IM.ws.gateway.control import GatewayControl
 
     async def _offline_rpc(
         self, *, target_node_id, agent_id, workspace_root, timeout_seconds=10.0
     ) -> None:
         return None  # node offline / timeout
 
-    monkeypatch.setattr(GatewayHandler, "request_node_cron_jobs", _offline_rpc)
+    monkeypatch.setattr(GatewayControl, "request_node_cron_jobs", _offline_rpc)
 
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
@@ -862,7 +864,7 @@ def test_get_skills_usage_calls_rpc_not_direct_file_read(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """GET /im/v1/agents/{id}/skills/usage must use gateway WS RPC."""
-    from IM.ws.gateway_handler import GatewayHandler
+    from IM.ws.gateway.control import GatewayControl
 
     rpc_calls: list[dict[str, str]] = []
 
@@ -911,7 +913,7 @@ def test_get_skills_usage_calls_rpc_not_direct_file_read(
             },
         }
 
-    monkeypatch.setattr(GatewayHandler, "request_node_skills_usage", _fake_skills_usage)
+    monkeypatch.setattr(GatewayControl, "request_node_skills_usage", _fake_skills_usage)
 
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
@@ -962,14 +964,14 @@ def test_get_skills_usage_reports_offline_when_rpc_times_out(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """GET /skills/usage returns 503 when the gateway node is offline."""
-    from IM.ws.gateway_handler import GatewayHandler
+    from IM.ws.gateway.control import GatewayControl
 
     async def _offline_rpc(
         self, *, target_node_id, agent_id, workspace_root, timeout_seconds=10.0
     ) -> None:
         return None
 
-    monkeypatch.setattr(GatewayHandler, "request_node_skills_usage", _offline_rpc)
+    monkeypatch.setattr(GatewayControl, "request_node_skills_usage", _offline_rpc)
 
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
@@ -1012,7 +1014,7 @@ def test_delete_cron_job_calls_rpc_not_direct_file_write(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """DELETE /im/v1/agents/{id}/cron/jobs/{job_id} must use request_node_cron_delete RPC."""
-    from IM.ws.gateway_handler import GatewayHandler
+    from IM.ws.gateway.control import GatewayControl
 
     rpc_calls: list[dict] = []
 
@@ -1030,7 +1032,7 @@ def test_delete_cron_job_calls_rpc_not_direct_file_write(
         )
         return True  # job found and deleted
 
-    monkeypatch.setattr(GatewayHandler, "request_node_cron_delete", _fake_cron_delete)
+    monkeypatch.setattr(GatewayControl, "request_node_cron_delete", _fake_cron_delete)
 
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
@@ -1074,14 +1076,14 @@ def test_delete_cron_job_returns_404_when_node_offline(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """DELETE returns 404 when node is offline (RPC → None)."""
-    from IM.ws.gateway_handler import GatewayHandler
+    from IM.ws.gateway.control import GatewayControl
 
     async def _offline_rpc(
         self, *, target_node_id, agent_id, workspace_root, job_id, timeout_seconds=10.0
     ):
         return None
 
-    monkeypatch.setattr(GatewayHandler, "request_node_cron_delete", _offline_rpc)
+    monkeypatch.setattr(GatewayControl, "request_node_cron_delete", _offline_rpc)
 
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
@@ -1123,7 +1125,7 @@ def test_get_heartbeat_md_calls_rpc(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """GET /im/v1/agents/{id}/heartbeat-md must use request_node_heartbeat_md RPC."""
-    from IM.ws.gateway_handler import GatewayHandler
+    from IM.ws.gateway.control import GatewayControl
 
     async def _fake_hb_md(
         self,
@@ -1135,7 +1137,7 @@ def test_get_heartbeat_md_calls_rpc(
     ) -> str:
         return "# HEARTBEAT\n- Watch CPU daily"
 
-    monkeypatch.setattr(GatewayHandler, "request_node_heartbeat_md", _fake_hb_md)
+    monkeypatch.setattr(GatewayControl, "request_node_heartbeat_md", _fake_hb_md)
 
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
@@ -1179,14 +1181,14 @@ def test_get_heartbeat_md_returns_empty_when_node_offline(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """GET /heartbeat-md returns empty content when node is offline (RPC → None)."""
-    from IM.ws.gateway_handler import GatewayHandler
+    from IM.ws.gateway.control import GatewayControl
 
     async def _offline_rpc(
         self, *, target_node_id, agent_id, workspace_root, timeout_seconds=10.0
     ):
         return None
 
-    monkeypatch.setattr(GatewayHandler, "request_node_heartbeat_md", _offline_rpc)
+    monkeypatch.setattr(GatewayControl, "request_node_heartbeat_md", _offline_rpc)
 
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:

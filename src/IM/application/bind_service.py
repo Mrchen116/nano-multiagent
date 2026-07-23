@@ -2,12 +2,10 @@
 
 from IM.domain.models import DeviceBindRequest, User
 from IM.infra.binding_store import BindingStore
-from IM.infra.repositories import (
-    AgentProfileRepository,
-    BindRepository,
-    NodeRepository,
-    UserRepository,
-)
+from IM.infra.repositories.agents import AgentProfileRepository
+from IM.infra.repositories.bindings import BindRepository
+from IM.infra.repositories.nodes import NodeRepository
+from IM.infra.repositories.users import UserRepository
 
 
 class BindService:

@@ -11,7 +11,8 @@ from fastapi.testclient import TestClient
 
 from IM.app import create_app
 from IM.infra.channel_credentials import generate_channel_key_pair
-from IM.infra.repositories import AgentProfileRepository, NodeRepository
+from IM.infra.repositories.agents import AgentProfileRepository
+from IM.infra.repositories.nodes import NodeRepository
 from personal_assistant.channels.web_relay_adapter import WebRelayAdapter
 from personal_assistant.config.local_store import NodeConfig
 from personal_assistant.reporter.upstream_reporter import UpstreamReporter

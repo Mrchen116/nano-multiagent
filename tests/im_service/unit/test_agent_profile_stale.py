@@ -13,7 +13,8 @@ from pathlib import Path
 import pytest
 
 from IM.infra.db import connect, initialize_schema
-from IM.infra.repositories import AgentProfileRepository, NodeRepository
+from IM.infra.repositories.agents import AgentProfileRepository
+from IM.infra.repositories.nodes import NodeRepository
 
 
 # ---------------------------------------------------------------------------
@@ -150,7 +151,7 @@ def test_list_runtime_selectable_excludes_stale(repos) -> None:
 def test_list_runtime_selectable_for_owner_excludes_stale(repos) -> None:
     """list_runtime_selectable_profiles_for_owner must not return stale agents."""
     profiles, nodes = repos
-    from IM.infra.repositories import UserRepository
+    from IM.infra.repositories.users import UserRepository
     from IM.infra.db import connect
 
     # reuse the same connection from repos fixture via the profiles object

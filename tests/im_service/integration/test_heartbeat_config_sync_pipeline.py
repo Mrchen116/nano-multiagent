@@ -19,7 +19,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from IM.app import create_app
-from IM.infra.repositories import AgentProfileRepository, NodeRepository, UserRepository
+from IM.infra.repositories.agents import AgentProfileRepository
+from IM.infra.repositories.nodes import NodeRepository
+from IM.infra.repositories.users import UserRepository
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.config.sync_client import ConfigSyncClient
 from tests.helpers.inbound_pipeline import build_inbound_pipeline

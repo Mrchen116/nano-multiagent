@@ -96,6 +96,7 @@ def test_permission_approve_lets_tool_run(
 ) -> None:
     """批准 → 工具执行 → 那个 dangerous 文件真被写出且含哨兵。"""
     agent_id = im_user.first_agent_id()
+    im_user.update_agent_config(agent_id, tool_allowlist=["bash", "write", "agent"])
     conversation_id = im_user.create_direct_conversation(agent_id)
     # 哨兵随机唯一 → 文件是否出现可精确归因到本次 approve,无需 pre-clean。
     sentinel = "PERMOK" + secrets.token_hex(4).upper()
@@ -137,6 +138,7 @@ def test_permission_approve_lets_tool_run(
 def test_permission_deny_blocks_tool(im_user: IMClient, e2e_stack: E2EStack) -> None:
     """拒绝 → 工具不执行 → 那个 dangerous 文件根本不存在,run 据此收口。"""
     agent_id = im_user.first_agent_id()
+    im_user.update_agent_config(agent_id, tool_allowlist=["bash", "write", "agent"])
     conversation_id = im_user.create_direct_conversation(agent_id)
     # 哨兵随机唯一 → 「该哨兵的文件从未出现」可干净归因到 deny,无需 pre-clean。
     sentinel = "PERMNO" + secrets.token_hex(4).upper()

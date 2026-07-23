@@ -4,13 +4,11 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from IM.infra.db import connect, initialize_schema
-from IM.infra.repositories import (
-    AgentProfileRepository,
-    ConversationRepository,
-    EventReplayResult,
-    EventRepository,
-    UserRepository,
-)
+from IM.infra.repositories.agents import AgentProfileRepository
+from IM.infra.repositories.conversations import ConversationRepository
+from IM.infra.repositories.events import EventReplayResult
+from IM.infra.repositories.events import EventRepository
+from IM.infra.repositories.users import UserRepository
 
 
 def _build_event_fixture(tmp_path: Path):

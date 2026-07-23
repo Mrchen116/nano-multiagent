@@ -240,7 +240,7 @@ def build_node_status_changed_payload(
 ) -> dict[str, Any]:
     """Build payload for the ``node.status_changed`` event (feat-340 §4).
 
-    Emitted by ``GatewayHandler`` on register / heartbeat status flip / disconnect
+    Emitted by ``GatewaySessions`` on register / heartbeat status flip / disconnect
     / offline-timeout. ``seq`` is owner-scoped monotonic — frontend uses it to
     detect gaps. ``last_error`` is None when status is online or no error context.
     """

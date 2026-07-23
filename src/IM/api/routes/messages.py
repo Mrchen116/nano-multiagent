@@ -8,14 +8,15 @@ from pydantic import BaseModel, Field, model_validator
 
 from IM.api.deps import (
     current_user,
-    get_gateway_handler,
     get_relay_service,
     get_web_im_service,
 )
 from IM.application.relay_service import RelayService
 from IM.application.web_im_service import WebIMService
+from IM.api.deps import get_gateway_control, get_gateway_relay
+from IM.ws.gateway.control import GatewayControl
+from IM.ws.gateway.relay import GatewayRelay
 from IM.domain.models import AgentConfigChangedBoundary, Attachment, Message, User
-from IM.ws.gateway_handler import GatewayHandler
 
 router = APIRouter(tags=["messages"])
 
@@ -346,7 +347,7 @@ async def create_message(
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     user: User = Depends(current_user),
     service: WebIMService = Depends(get_web_im_service),
-    gateway_handler: GatewayHandler = Depends(get_gateway_handler),
+    gateway_handler: GatewayRelay = Depends(get_gateway_relay),
 ) -> MessageResponse:
     """Create a message in a conversation and optionally relay it to one gateway."""
     del request
@@ -506,7 +507,7 @@ async def submit_permission_decision(
     user: User = Depends(current_user),
     service: WebIMService = Depends(get_web_im_service),
     relay_service: RelayService = Depends(get_relay_service),
-    gateway_handler: GatewayHandler = Depends(get_gateway_handler),
+    gateway_control: GatewayControl = Depends(get_gateway_control),
 ) -> dict:
     """Forward user's permission decision to the gateway node hosting the parked run.
 
@@ -537,7 +538,7 @@ async def submit_permission_decision(
     # blank "the user said:\n   ". The frontend already trims, but the backend must
     # not trust it.
     normalized_reason = payload.reason.strip() if payload.reason is not None else None
-    delivered = await gateway_handler.push_permission_response(
+    delivered = await gateway_control.push_permission_response(
         target_node_id=target_node_id,
         message_id=payload.message_id,
         request_id=request_id,

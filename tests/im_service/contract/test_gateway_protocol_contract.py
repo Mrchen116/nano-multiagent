@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from IM.app import create_app
-from IM.ws.gateway_protocol import (
+from IM.ws.gateway.protocol import (
     parse_delivery_receipt_event,
     parse_node_report_event,
     parse_relay_message_frame,

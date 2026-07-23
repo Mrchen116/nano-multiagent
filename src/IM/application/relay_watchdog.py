@@ -14,7 +14,8 @@ import logging
 import sqlite3
 from datetime import datetime, timedelta, timezone
 
-from IM.infra.repositories import EventRepository, _format_utc
+from IM.infra.repositories.events import EventRepository
+from IM.infra._timestamps import format_utc
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +43,7 @@ def scan_and_fail_stuck_running_messages(
     # bugfix-410-fix-r1: format the cutoff via repositories._format_utc so the SQL string
     # comparison below can never break from a format drift between writer and comparator.
     now = datetime.now(timezone.utc)
-    cutoff = _format_utc(now - timedelta(seconds=timeout_seconds))
+    cutoff = format_utc(now - timedelta(seconds=timeout_seconds))
     # bugfix-383: judge liveness by the most recent event timestamp, not message
     # creation time. Multi-turn tool loops run for many minutes while pushing events
     # continuously; only silence (no new event) for `timeout_seconds` means stuck.

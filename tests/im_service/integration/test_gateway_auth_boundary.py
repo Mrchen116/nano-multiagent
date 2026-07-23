@@ -64,7 +64,7 @@ def test_gateway_websocket_rejects_missing_bearer_before_registration(
         )
         connected = client.portal.call(
             partial(
-                client.app.state.gateway_handler.snapshot_connection,
+                client.app.state.gateway_sessions.snapshot_connection,
                 node_id="node-anon",
             )
         )
@@ -123,7 +123,7 @@ def test_authenticated_wrong_owner_cannot_replace_bound_node_socket_or_key(
 
             connection = client.portal.call(
                 partial(
-                    client.app.state.gateway_handler.snapshot_connection,
+                    client.app.state.gateway_sessions.snapshot_connection,
                     node_id="node-owned",
                 )
             )
@@ -160,7 +160,7 @@ def test_registered_socket_cannot_mutate_another_owners_node(
                 assert bob_socket.receive_json()["type"] == "ack"
                 _bind(client, node_id="node-bob")
                 bob_broadcast_seq = (
-                    client.app.state.gateway_handler._status_seq_by_owner.get(  # noqa: SLF001
+                    client.app.state.gateway_sessions._status_seq_by_owner.get(  # noqa: SLF001
                         bob.owner_id, 0
                     )
                 )
@@ -183,7 +183,7 @@ def test_registered_socket_cannot_mutate_another_owners_node(
                 ).fetchone()
                 assert tuple(row) == ("online", None)
                 assert (
-                    client.app.state.gateway_handler._status_seq_by_owner.get(  # noqa: SLF001
+                    client.app.state.gateway_sessions._status_seq_by_owner.get(  # noqa: SLF001
                         bob.owner_id, 0
                     )
                     == bob_broadcast_seq
@@ -212,7 +212,7 @@ def test_cross_owner_result_cannot_release_another_nodes_waiter(
                 assert bob_socket.receive_json()["type"] == "ack"
 
                 async def seed_waiter() -> None:
-                    handler = client.app.state.gateway_handler
+                    handler = client.app.state.gateway_control
                     handler._agent_create_waiters["request-b"] = (  # noqa: SLF001
                         asyncio.get_running_loop().create_future()
                     )
@@ -232,7 +232,7 @@ def test_cross_owner_result_cannot_release_another_nodes_waiter(
                 assert rejection["payload"]["code"] == "gateway_owner_mismatch"
 
                 async def waiter_done() -> bool:
-                    waiter = client.app.state.gateway_handler._agent_create_waiters[  # noqa: SLF001
+                    waiter = client.app.state.gateway_control._agent_create_waiters[  # noqa: SLF001
                         "request-b"
                     ]
                     return waiter.done()
@@ -259,7 +259,7 @@ def test_binding_evicts_a_pre_registered_socket_from_the_wrong_owner(
             for _ in range(50):
                 connection = client.portal.call(
                     partial(
-                        client.app.state.gateway_handler.snapshot_connection,
+                        client.app.state.gateway_sessions.snapshot_connection,
                         node_id="node-prebound",
                     )
                 )

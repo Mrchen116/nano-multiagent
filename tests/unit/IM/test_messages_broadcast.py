@@ -9,11 +9,9 @@ from fastapi.testclient import TestClient
 
 from IM.app import create_app
 from IM.infra.db import connect, initialize_schema
-from IM.infra.repositories import (
-    AgentProfileRepository,
-    ConversationRepository,
-    UserRepository,
-)
+from IM.infra.repositories.agents import AgentProfileRepository
+from IM.infra.repositories.conversations import ConversationRepository
+from IM.infra.repositories.users import UserRepository
 
 
 def _setup_group_conversation(tmp_path: Path) -> tuple[TestClient, str, str, MagicMock]:
@@ -126,8 +124,7 @@ def test_group_message_pushes_relay_to_each_agent(tmp_path: Path) -> None:
     mock_gateway.push_relay_message = _fake_push
 
     with TestClient(app) as client:
-        # Replace gateway_handler in running app state after lifespan startup
-        client.app.state.gateway_handler = mock_gateway
+        client.app.state.gateway_relay = mock_gateway
         resp = client.post(
             f"/im/v1/conversations/{conv_id}/messages",
             json={"sender_user_id": alice_id, "content": "hello group"},
@@ -162,7 +159,7 @@ def test_group_message_partial_push_failure_continues(tmp_path: Path) -> None:
     mock_gateway.push_relay_message = _fake_push
 
     with TestClient(app) as client:
-        client.app.state.gateway_handler = mock_gateway
+        client.app.state.gateway_relay = mock_gateway
         resp = client.post(
             f"/im/v1/conversations/{conv_id}/messages",
             json={"sender_user_id": alice_id, "content": "hello group"},
@@ -196,7 +193,7 @@ def test_group_message_all_push_failure_returns_503(tmp_path: Path) -> None:
     mock_gateway.push_relay_message = _fake_push
 
     with TestClient(app) as client:
-        client.app.state.gateway_handler = mock_gateway
+        client.app.state.gateway_relay = mock_gateway
         resp = client.post(
             f"/im/v1/conversations/{conv_id}/messages",
             json={"sender_user_id": alice_id, "content": "hello group"},

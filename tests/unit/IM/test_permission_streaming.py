@@ -8,6 +8,7 @@ permission_requests list 以让 REST 历史回放完整还原"按了多少次同
 
 from __future__ import annotations
 
+import asyncio
 import json
 import sqlite3
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -18,7 +19,8 @@ from IM.api.ws.event_types import EVENT_PERMISSION_REQUEST, EVENT_PERMISSION_RES
 from IM.application.event_bridge import EventBridge
 from IM.domain.models import Message
 from IM.infra.db import initialize_schema as build_schema
-from IM.infra.repositories import EventRepository, MessageRepository
+from IM.infra.repositories.events import EventRepository
+from IM.infra.repositories.messages import MessageRepository
 
 
 # ---------------------------------------------------------------------------
@@ -265,23 +267,24 @@ class TestEventBridgePermissionRequest:
 
 
 # ---------------------------------------------------------------------------
-# gateway_handler — streaming_delta permission_request / permission_resolved kinds
+# GatewayExecution — streaming_delta permission_request / permission_resolved kinds
 # ---------------------------------------------------------------------------
 
 
-class TestGatewayHandlerPermissionKinds:
-    """gateway_handler._handle_streaming_delta routes new permission kinds to EventBridge."""
+class TestGatewayExecutionPermissionKinds:
+    """GatewayExecution routes permission kinds to EventBridge."""
 
     def _make_handler_with_mock_bridge(self):
-        from IM.ws.gateway_handler import GatewayHandler
-        from IM.application.relay_service import RelayService
-
-        relay_service = MagicMock(spec=RelayService)
-        handler = GatewayHandler(relay_service=relay_service)
+        from IM.ws.gateway.execution import GatewayExecution
+        from IM.ws.gateway.sessions import GatewaySessions
 
         mock_bridge = MagicMock()
-        handler._event_bridge = mock_bridge
-        return handler, mock_bridge
+        execution = GatewayExecution(
+            sessions=GatewaySessions(lock=asyncio.Lock()),
+            event_bridge=mock_bridge,
+            lock=asyncio.Lock(),
+        )
+        return execution, mock_bridge
 
     @pytest.mark.asyncio
     async def test_permission_request_kind_calls_bridge(self) -> None:
@@ -298,7 +301,7 @@ class TestGatewayHandlerPermissionKinds:
                 "options": [],
             },
         }
-        result = await handler._handle_streaming_delta(payload=payload)
+        result = await handler.handle_streaming_delta(payload=payload)
         assert result["type"] == "ack"
         mock_bridge.on_permission_request.assert_called_once_with(
             message_id="msg-1",
@@ -315,7 +318,7 @@ class TestGatewayHandlerPermissionKinds:
             "request_id": "req-1",
             "decision": "deny",
         }
-        result = await handler._handle_streaming_delta(payload=payload)
+        result = await handler.handle_streaming_delta(payload=payload)
         assert result["type"] == "ack"
         mock_bridge.on_permission_resolved.assert_called_once_with(
             message_id="msg-1",
@@ -325,7 +328,7 @@ class TestGatewayHandlerPermissionKinds:
 
     @pytest.mark.asyncio
     async def test_permission_response_kind_forwarded_to_pa(self) -> None:
-        """permission_response kind (IM→PA direction) is a no-op in GatewayHandler streaming delta."""
+        """permission_response kind (IM→PA direction) is a no-op in GatewayExecution streaming delta."""
         handler, _ = self._make_handler_with_mock_bridge()
 
         payload = {
@@ -333,7 +336,7 @@ class TestGatewayHandlerPermissionKinds:
             "request_id": "req-1",
             "decision": "allow_once",
         }
-        result = await handler._handle_streaming_delta(payload=payload)
+        result = await handler.handle_streaming_delta(payload=payload)
         assert result["type"] == "ack"
 
 
@@ -348,11 +351,9 @@ class TestPermissionRestEndpoint:
     def _make_app(self, tmp_path) -> tuple[object, dict]:
         from IM.app import create_app
         from IM.infra.db import connect, initialize_schema
-        from IM.infra.repositories import (
-            AgentProfileRepository,
-            MessageRepository,
-            UserRepository,
-        )
+        from IM.infra.repositories.agents import AgentProfileRepository
+        from IM.infra.repositories.messages import MessageRepository
+        from IM.infra.repositories.users import UserRepository
         from fastapi.testclient import TestClient
 
         db_path = tmp_path / "im.db"
@@ -434,7 +435,7 @@ class TestPermissionRestEndpoint:
 
         with TestClient(app) as client:
             with patch.object(
-                client.app.state.gateway_handler,
+                client.app.state.gateway_control,
                 "push_permission_response",
                 new=AsyncMock(return_value=True),
             ) as mock_push:
@@ -460,7 +461,7 @@ class TestPermissionRestEndpoint:
 
         with TestClient(app) as client:
             with patch.object(
-                client.app.state.gateway_handler,
+                client.app.state.gateway_control,
                 "push_permission_response",
                 new=AsyncMock(return_value=True),
             ) as mock_push:
@@ -493,7 +494,7 @@ class TestPermissionRestEndpoint:
 
         with TestClient(app) as client:
             with patch.object(
-                client.app.state.gateway_handler,
+                client.app.state.gateway_control,
                 "push_permission_response",
                 new=AsyncMock(return_value=True),
             ) as mock_push:
@@ -519,7 +520,7 @@ class TestPermissionRestEndpoint:
 
         with TestClient(app) as client:
             with patch.object(
-                client.app.state.gateway_handler,
+                client.app.state.gateway_control,
                 "push_permission_response",
                 new=AsyncMock(return_value=True),
             ) as mock_push:
@@ -537,7 +538,7 @@ class TestPermissionRestEndpoint:
         assert mock_push.call_args.kwargs["reason"] == "先别动"
 
     def test_submit_decision_without_reason_passes_none(self, tmp_path) -> None:
-        """reason is optional — omitting it forwards None; gateway_handler normalizes
+        """reason is optional — omitting it forwards None; GatewayControl normalizes
         to "" in the frame (single normalization point)."""
         from fastapi.testclient import TestClient
 
@@ -545,7 +546,7 @@ class TestPermissionRestEndpoint:
 
         with TestClient(app) as client:
             with patch.object(
-                client.app.state.gateway_handler,
+                client.app.state.gateway_control,
                 "push_permission_response",
                 new=AsyncMock(return_value=True),
             ) as mock_push:

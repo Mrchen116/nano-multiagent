@@ -12,7 +12,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from IM.infra.db import connect, initialize_schema
-from IM.infra.repositories import ConversationRepository, UserRepository
+from IM.infra.repositories.conversations import ConversationRepository
+from IM.infra.repositories.users import UserRepository
 
 
 def _build_repos(tmp_path: Path) -> tuple[UserRepository, ConversationRepository]:

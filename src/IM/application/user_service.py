@@ -1,7 +1,7 @@
 """Application service for IM user management."""
 
 from IM.domain.models import User
-from IM.infra.repositories import UserRepository
+from IM.infra.repositories.users import UserRepository
 
 
 class UserService:

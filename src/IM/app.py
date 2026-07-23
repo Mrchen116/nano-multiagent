@@ -33,14 +33,17 @@ from IM.infra.gateway_persistence import (
     GatewayConversationPersistence,
     GatewayNodePersistence,
 )
-from IM.infra.repositories import (
-    AgentConfigBoundaryRepository,
-    EventRepository,
-    MessageRepository,
-    UsageMetricsRepository,
-    UserRepository,
-)
-from IM.ws.gateway_handler import GatewayHandler
+from IM.infra.repositories.config_boundaries import AgentConfigBoundaryRepository
+from IM.infra.repositories.events import EventRepository
+from IM.infra.repositories.messages import MessageRepository
+from IM.infra.repositories.metrics import UsageMetricsRepository
+from IM.infra.repositories.users import UserRepository
+from IM.ws.gateway.channel_control import GatewayChannelControl
+from IM.ws.gateway.control import GatewayControl
+from IM.ws.gateway.execution import GatewayExecution
+from IM.ws.gateway.relay import GatewayRelay
+from IM.ws.gateway.runtime import GatewayRuntime
+from IM.ws.gateway.sessions import GatewayAuthorizationError, GatewaySessions
 from IM.ws.user_stream import (
     UserStreamRegistry,
     build_notify_enqueue,
@@ -328,25 +331,56 @@ def create_app(
 
         node_persistence = GatewayNodePersistence(connection)
         conversation_persistence = GatewayConversationPersistence(connection)
-        app_instance.state.gateway_handler = GatewayHandler(
-            relay_service=RelayService(connection),
+        gateway_lock = asyncio.Lock()
+        gateway_sessions = GatewaySessions(
             node_persistence=node_persistence,
+            user_stream_registry=registry,
+            lock=gateway_lock,
+        )
+        gateway_execution = GatewayExecution(
+            sessions=gateway_sessions,
             conversation_persistence=conversation_persistence,
             message_repository=message_repository,
             boundary_repository=boundary_repository,
             event_repository=event_repository,
             metrics_service=MetricsService(metrics=UsageMetricsRepository(connection)),
-            user_stream_registry=registry,
             event_bridge=EventBridge(
                 message_repository=message_repository,
                 event_repository=event_repository,
             ),
-            channel_control_store=app_instance.state.channel_control_store,
+            lock=gateway_lock,
         )
+        gateway_control = GatewayControl(sessions=gateway_sessions, lock=gateway_lock)
+        gateway_channel_control = GatewayChannelControl(
+            sessions=gateway_sessions,
+            channel_control_store=app_instance.state.channel_control_store,
+            lock=gateway_lock,
+        )
+        gateway_relay = GatewayRelay(
+            sessions=gateway_sessions,
+            execution=gateway_execution,
+            relay_service=RelayService(connection),
+            conversation_persistence=conversation_persistence,
+            message_repository=message_repository,
+            event_repository=event_repository,
+            lock=gateway_lock,
+        )
+        gateway_runtime = GatewayRuntime(
+            sessions=gateway_sessions,
+            control=gateway_control,
+            channel_control=gateway_channel_control,
+            relay=gateway_relay,
+            execution=gateway_execution,
+        )
+        app_instance.state.gateway_sessions = gateway_sessions
+        app_instance.state.gateway_control = gateway_control
+        app_instance.state.gateway_channel_control = gateway_channel_control
+        app_instance.state.gateway_relay = gateway_relay
+        app_instance.state.gateway_execution = gateway_execution
+        app_instance.state.gateway_runtime = gateway_runtime
         offline_guard_task = asyncio.create_task(
             run_offline_guard(
-                handler=app_instance.state.gateway_handler,
-                node_persistence=node_persistence,
+                handler=gateway_sessions, node_persistence=node_persistence
             )
         )
         app_instance.state.offline_guard_task = offline_guard_task
@@ -411,8 +445,7 @@ def create_app(
     async def gateway_websocket(websocket: WebSocket) -> None:
         """Serve the Gateway websocket protocol used by IM relay delivery."""
         from IM.application.auth_service import InvalidTokenError
-        from IM.infra.repositories import UserRepository
-        from IM.ws.gateway_handler import GatewayAuthorizationError
+        from IM.infra.repositories.users import UserRepository
 
         authorization = websocket.headers.get("authorization", "")
         scheme, _, raw_token = authorization.partition(" ")
@@ -429,7 +462,7 @@ def create_app(
             await websocket.close(code=1008)
             return
         try:
-            await app.state.gateway_handler.serve(
+            await app.state.gateway_runtime.serve(
                 websocket, authenticated_owner_id=user.owner_id
             )
         except GatewayAuthorizationError as exc:

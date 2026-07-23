@@ -11,12 +11,10 @@ from IM.domain.models import (
     Conversation,
     Message,
 )
-from IM.infra.repositories import (
-    AgentConfigBoundaryRepository,
-    ConversationRepository,
-    ExternalConversationWriteResult,
-    MessageRepository,
-)
+from IM.infra.repositories.config_boundaries import AgentConfigBoundaryRepository
+from IM.infra.repositories.conversations import ConversationRepository
+from IM.infra.repositories.conversations import ExternalConversationWriteResult
+from IM.infra.repositories.messages import MessageRepository
 
 _log = logging.getLogger(__name__)
 

@@ -13,7 +13,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 from IM.application.event_service import EventService
 from IM.domain.models import ConversationEvent
 from IM.infra.gateway_persistence import GatewayNodePersistence
-from IM.infra.repositories import EventRepository
+from IM.infra.repositories.events import EventRepository
 
 # 与迁移计划对齐；可用环境变量覆盖（后续可加）
 REPLAY_MAX_BATCH = 500
@@ -202,7 +202,7 @@ def build_notify_enqueue(
 
 async def scan_and_flip_stale_nodes(
     *,
-    handler,  # type: GatewayHandler — late-imported to avoid circular ref
+    handler,  # GatewaySessions; omitted import avoids a user-stream cycle.
     node_persistence: GatewayNodePersistence,
     timeout_seconds: int = 60,
 ) -> int:
@@ -225,7 +225,7 @@ async def scan_and_flip_stale_nodes(
 
 async def run_offline_guard(
     *,
-    handler,  # type: GatewayHandler
+    handler,  # GatewaySessions; omitted import avoids a user-stream cycle.
     node_persistence: GatewayNodePersistence,
     interval_seconds: int = 10,
     timeout_seconds: int = 60,

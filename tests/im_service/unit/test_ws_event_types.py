@@ -24,11 +24,9 @@ from IM.api.ws.event_types import (
 )
 from IM.domain.models import Attachment, Message, ThinkingSegment, TokenUsage, ToolCall
 from IM.infra.db import connect, initialize_schema
-from IM.infra.repositories import (
-    ConversationRepository,
-    MessageRepository,
-    UserRepository,
-)
+from IM.infra.repositories.conversations import ConversationRepository
+from IM.infra.repositories.messages import MessageRepository
+from IM.infra.repositories.users import UserRepository
 
 
 def test_event_type_constants_are_stable_strings() -> None:

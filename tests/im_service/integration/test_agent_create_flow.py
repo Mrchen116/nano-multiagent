@@ -7,7 +7,8 @@ from fastapi.testclient import TestClient
 
 from IM.app import create_app
 from IM.domain.models import managed_workspace_root
-from IM.infra.repositories import NodeRepository, UserRepository
+from IM.infra.repositories.nodes import NodeRepository
+from IM.infra.repositories.users import UserRepository
 
 from .conftest import authorize, register_user
 
@@ -296,7 +297,7 @@ def test_create_agent_without_workspace_persists_managed_default_workspace_root(
                 "workspace_root": managed_workspace_root(str(payload["agent_id"])),
             }
 
-        app.state.gateway_handler.request_agent_create = fake_request_agent_create
+        app.state.gateway_control.request_agent_create = fake_request_agent_create
 
         created = client.post(
             "/im/v1/nodes/node-1/agents",

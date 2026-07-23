@@ -7,14 +7,12 @@ import sqlite3
 import pytest
 
 from IM.infra.db import connect, initialize_schema
-from IM.infra.repositories import (
-    AgentProfileRepository,
-    BindRepository,
-    ConversationRepository,
-    MessageRepository,
-    NodeRepository,
-    UserRepository,
-)
+from IM.infra.repositories.agents import AgentProfileRepository
+from IM.infra.repositories.bindings import BindRepository
+from IM.infra.repositories.conversations import ConversationRepository
+from IM.infra.repositories.messages import MessageRepository
+from IM.infra.repositories.nodes import NodeRepository
+from IM.infra.repositories.users import UserRepository
 
 
 def _build_repositories(

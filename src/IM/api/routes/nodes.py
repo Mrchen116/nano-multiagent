@@ -6,7 +6,6 @@ from pydantic import BaseModel, Field
 from IM.api.deps import (
     current_user,
     get_config_service,
-    get_gateway_handler,
     get_node_service,
 )
 from IM.api.routes.agents import (
@@ -22,8 +21,10 @@ from IM.api.routes.agents import (
 )
 from IM.application.config_service import ConfigService
 from IM.application.node_service import NodeService
+from IM.api.deps import get_gateway_control, get_gateway_sessions
+from IM.ws.gateway.control import GatewayControl
+from IM.ws.gateway.sessions import GatewaySessions
 from IM.domain.models import NodeStatus, User, managed_workspace_root
-from IM.ws.gateway_handler import GatewayHandler
 
 router = APIRouter(tags=["nodes"])
 
@@ -124,10 +125,10 @@ def to_node_response(node: NodeStatus) -> NodeResponse:
 async def list_nodes(
     user: User = Depends(current_user),
     service: NodeService = Depends(get_node_service),
-    gateway_handler: GatewayHandler = Depends(get_gateway_handler),
+    gateway_sessions: GatewaySessions = Depends(get_gateway_sessions),
 ) -> list[NodeResponse]:
     """List node board snapshots visible to the caller's tenant (+ ownerless fresh nodes)."""
-    connected_node_ids = await gateway_handler.list_connected_node_ids()
+    connected_node_ids = await gateway_sessions.list_connected_node_ids()
     return [
         to_node_response(item)
         for item in service.list_nodes_for_owner(
@@ -143,7 +144,7 @@ async def get_node_capabilities(
     node_id: str,
     user: User = Depends(current_user),
     service: NodeService = Depends(get_node_service),
-    gateway_handler: GatewayHandler = Depends(get_gateway_handler),
+    gateway_handler: GatewayControl = Depends(get_gateway_control),
 ) -> NodeCapabilitiesResponse:
     """向已连接的网关节点当场请求运行时能力（不在 IM 库中缓存目录数据）。"""
     if service.get_node_for_owner(node_id=node_id, owner_id=user.owner_id) is None:
@@ -181,7 +182,7 @@ async def node_prompt_preview(
     payload: NodePromptPreviewRequest,
     user: User = Depends(current_user),
     service: NodeService = Depends(get_node_service),
-    gateway_handler: GatewayHandler = Depends(get_gateway_handler),
+    gateway_handler: GatewayControl = Depends(get_gateway_control),
 ) -> PromptPreviewResponse:
     """Proxy a node-level prompt-preview request to the Gateway node (owner-scoped).
 
@@ -229,7 +230,7 @@ async def create_node_agent(
     user: User = Depends(current_user),
     node_service: NodeService = Depends(get_node_service),
     service: ConfigService = Depends(get_config_service),
-    gateway_handler: GatewayHandler = Depends(get_gateway_handler),
+    gateway_handler: GatewayControl = Depends(get_gateway_control),
 ) -> AgentConfigResponse:
     """Create one agent under the requested node using node-managed workspace allocation.
 

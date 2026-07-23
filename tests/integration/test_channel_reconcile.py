@@ -12,7 +12,8 @@ from fastapi.testclient import TestClient
 
 from IM.app import create_app
 from IM.infra.channel_credentials import ChannelEnvelopeAad, seal_channel_secret
-from IM.infra.repositories import AgentProfileRepository, NodeRepository
+from IM.infra.repositories.agents import AgentProfileRepository
+from IM.infra.repositories.nodes import NodeRepository
 from personal_assistant.channels.channel_credentials import (
     GatewayChannelAad,
     GatewayChannelKeyStore,

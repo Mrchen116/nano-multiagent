@@ -5,7 +5,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from IM.app import create_app
-from IM.infra.repositories import NodeRepository
+from IM.infra.repositories.nodes import NodeRepository
 
 from tests.im_service._auth_helpers import authorize, register_user
 
@@ -41,7 +41,7 @@ def test_agent_create_contract_shape_and_validation(tmp_path: Path) -> None:
                 "workspace_root": "/srv/agents/agent-1",
             }
 
-        app.state.gateway_handler.request_agent_create = fake_request_agent_create
+        app.state.gateway_control.request_agent_create = fake_request_agent_create
 
         created = client.post(
             "/im/v1/nodes/node-1/agents",
@@ -166,10 +166,10 @@ def test_agent_create_defaults_omitted_skills_from_node_capabilities(
                 "workspace_root": "/srv/agents/agent-1",
             }
 
-        app.state.gateway_handler.request_node_capabilities = (
+        app.state.gateway_control.request_node_capabilities = (
             fake_request_node_capabilities
         )
-        app.state.gateway_handler.request_agent_create = fake_request_agent_create
+        app.state.gateway_control.request_agent_create = fake_request_agent_create
 
         created = client.post(
             "/im/v1/nodes/node-1/agents",
@@ -229,10 +229,10 @@ def test_agent_create_omits_skills_when_capabilities_unavailable(
                 "workspace_root": "/srv/agents/agent-1",
             }
 
-        app.state.gateway_handler.request_node_capabilities = (
+        app.state.gateway_control.request_node_capabilities = (
             fake_request_node_capabilities
         )
-        app.state.gateway_handler.request_agent_create = fake_request_agent_create
+        app.state.gateway_control.request_agent_create = fake_request_agent_create
 
         created = client.post(
             "/im/v1/nodes/node-1/agents",

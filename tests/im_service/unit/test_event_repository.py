@@ -3,12 +3,10 @@
 from pathlib import Path
 
 from IM.infra.db import connect, initialize_schema
-from IM.infra.repositories import (
-    ConversationRepository,
-    EventRepository,
-    MessageRepository,
-    UserRepository,
-)
+from IM.infra.repositories.conversations import ConversationRepository
+from IM.infra.repositories.events import EventRepository
+from IM.infra.repositories.messages import MessageRepository
+from IM.infra.repositories.users import UserRepository
 
 
 def _build_repositories(

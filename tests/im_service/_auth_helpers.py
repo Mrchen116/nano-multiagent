@@ -77,7 +77,7 @@ def seed_user_under_owner(
     owner_id: str,
 ) -> str:
     """Create a passwordless participant user manually placed under ``owner_id`` and return id."""
-    from IM.infra.repositories import UserRepository
+    from IM.infra.repositories.users import UserRepository
 
     connection = client.app.state.connection
     repo = UserRepository(connection)

@@ -1,7 +1,7 @@
 """Application service for IM settings-policy APIs."""
 
 from IM.domain.models import SettingsPolicy
-from IM.infra.repositories import SettingsPolicyRepository
+from IM.infra.repositories.settings import SettingsPolicyRepository
 
 
 class PolicyService:

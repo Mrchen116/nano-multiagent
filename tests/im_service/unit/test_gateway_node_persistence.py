@@ -10,7 +10,9 @@ import pytest
 
 from IM.infra.db import connect, initialize_schema
 from IM.infra.gateway_persistence import GatewayNodePersistence
-from IM.infra.repositories import AgentProfileRepository, NodeRepository, UserRepository
+from IM.infra.repositories.agents import AgentProfileRepository
+from IM.infra.repositories.nodes import NodeRepository
+from IM.infra.repositories.users import UserRepository
 
 
 def _build(tmp_path: Path) -> tuple[sqlite3.Connection, GatewayNodePersistence]:

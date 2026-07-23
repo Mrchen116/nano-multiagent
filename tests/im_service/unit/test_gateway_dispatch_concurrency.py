@@ -14,12 +14,14 @@ from IM.infra.gateway_persistence import (
     GatewayConversationPersistence,
     GatewayNodePersistence,
 )
-from IM.infra.repositories import (
-    ConversationRepository,
-    MessageRepository,
-    UserRepository,
-)
-from IM.ws.gateway_handler import GatewayHandler
+from IM.infra.repositories.conversations import ConversationRepository
+from IM.infra.repositories.messages import MessageRepository
+from IM.infra.repositories.users import UserRepository
+from IM.ws.gateway.control import GatewayControl
+from IM.ws.gateway.execution import GatewayExecution
+from IM.ws.gateway.relay import GatewayRelay
+from IM.ws.gateway.runtime import GatewayRuntime
+from IM.ws.gateway.sessions import GatewaySessions
 
 
 class _PreInsertBarrierPersistence(GatewayConversationPersistence):
@@ -37,14 +39,27 @@ class _PreInsertBarrierPersistence(GatewayConversationPersistence):
 
 def _dispatch_once(*, db_path: Path, barrier: Barrier) -> dict[str, object]:
     persistence = _PreInsertBarrierPersistence(db_path=db_path, barrier=barrier)
-    handler = GatewayHandler(
+    lock = asyncio.Lock()
+    sessions = GatewaySessions(lock=lock)
+    execution = GatewayExecution(sessions=sessions, lock=lock)
+    relay = GatewayRelay(
+        sessions=sessions,
+        execution=execution,
         relay_service=RelayService(persistence.connection),
         conversation_persistence=persistence,
         message_repository=MessageRepository(persistence.connection),
+        lock=lock,
+    )
+    runtime = GatewayRuntime(
+        sessions=sessions,
+        control=GatewayControl(sessions=sessions, lock=lock),
+        channel_control=None,
+        relay=relay,
+        execution=execution,
     )
     try:
         response = asyncio.run(
-            handler.handle_message(
+            runtime.handle_message(
                 websocket=object(),
                 message_type="agent.message",
                 payload={

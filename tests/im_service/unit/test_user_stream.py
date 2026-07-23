@@ -7,7 +7,7 @@ from contextlib import suppress
 import json
 
 from IM.domain.models import ConversationEvent
-from IM.infra.repositories import EventReplayResult
+from IM.infra.repositories.events import EventReplayResult
 from IM.ws.user_stream import (
     UserStreamRegistry,
     conversation_event_to_wire_data,

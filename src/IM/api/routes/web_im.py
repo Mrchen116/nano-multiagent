@@ -6,7 +6,6 @@ from pydantic import BaseModel, Field, model_validator
 from IM.api.deps import (
     current_user,
     get_event_service,
-    get_gateway_handler,
     get_profile_repository,
     get_web_im_service,
 )
@@ -18,9 +17,11 @@ from IM.application.web_im_service import (
     ForkValidationError,
     WebIMService,
 )
+from IM.api.deps import get_gateway_control, get_gateway_sessions
+from IM.ws.gateway.control import GatewayControl
+from IM.ws.gateway.sessions import GatewaySessions
 from IM.domain.models import Conversation, User
-from IM.infra.repositories import AgentProfileRepository
-from IM.ws.gateway_handler import GatewayHandler
+from IM.infra.repositories.agents import AgentProfileRepository
 
 router = APIRouter(tags=["web-im"])
 
@@ -221,7 +222,8 @@ async def fork_conversation(
     payload: ForkConversationRequest,
     user: User = Depends(current_user),
     service: WebIMService = Depends(get_web_im_service),
-    gateway_handler: GatewayHandler = Depends(get_gateway_handler),
+    gateway_sessions: GatewaySessions = Depends(get_gateway_sessions),
+    gateway_control: GatewayControl = Depends(get_gateway_control),
     profiles: AgentProfileRepository = Depends(get_profile_repository),
 ) -> ConversationResponse:
     """Fork a direct agent chat at one completed agent reply into a new branch chat.
@@ -234,7 +236,7 @@ async def fork_conversation(
         profile = profiles.get_profile(agent_id=agent_id)
         if profile is None or not profile.node_id:
             return False
-        return await gateway_handler.is_connected(node_id=profile.node_id)
+        return await gateway_sessions.is_connected(node_id=profile.node_id)
 
     async def _request_fork(
         *,
@@ -248,7 +250,7 @@ async def fork_conversation(
         profile = profiles.get_profile(agent_id=agent_id)
         if profile is None or not profile.node_id:
             return None
-        return await gateway_handler.request_fork_session(
+        return await gateway_control.request_fork_session(
             target_node_id=profile.node_id,
             source_conversation_id=source_conversation_id,
             new_conversation_id=new_conversation_id,
