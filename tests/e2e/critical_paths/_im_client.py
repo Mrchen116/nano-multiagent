@@ -319,14 +319,18 @@ class IMClient:
         return resp.json()["id"]
 
     def list_messages(self, conversation_id: str, *, limit: int = 50) -> list[dict]:
-        """按插入序列出会话消息(返回 ``items`` 列表)。"""
+        """按插入序列出会话中的普通消息，忽略非消息 timeline 项。"""
         resp = self._http.get(
             f"/im/v1/conversations/{conversation_id}/messages",
             headers=self._auth_headers,
             params={"limit": limit},
         )
         resp.raise_for_status()
-        return resp.json()["items"]
+        return [
+            item["message"]
+            for item in resp.json()["items"]
+            if item.get("type") == "message" and isinstance(item.get("message"), dict)
+        ]
 
     def fork_conversation(self, conversation_id: str, fork_message_id: str) -> str:
         """从一条已完成 agent 回复 fork 出分支单聊(feat-445)，返回新 conversation_id。"""
