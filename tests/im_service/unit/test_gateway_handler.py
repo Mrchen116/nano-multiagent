@@ -18,7 +18,91 @@ from IM.infra.repositories.conversations import ConversationRepository
 from IM.infra.repositories.messages import MessageRepository
 from IM.infra.repositories.metrics import UsageMetricsRepository
 from IM.infra.repositories.users import UserRepository
-from IM.ws.gateway_handler import GatewayHandler
+from dataclasses import dataclass
+
+from IM.application.event_bridge import EventBridge
+from IM.infra.channel_control_store import ChannelControlStore
+from IM.infra.repositories.config_boundaries import AgentConfigBoundaryRepository
+from IM.infra.repositories.events import EventRepository
+from IM.ws.gateway.channel_control import GatewayChannelControl
+from IM.ws.gateway.control import GatewayControl
+from IM.ws.gateway.execution import GatewayExecution
+from IM.ws.gateway.relay import GatewayRelay
+from IM.ws.gateway.runtime import GatewayRuntime
+from IM.ws.gateway.sessions import GatewaySessions
+
+
+@dataclass
+class GatewayTestStack:
+    """Concrete Gateway modules assembled for behavior-level unit tests."""
+
+    runtime: GatewayRuntime
+    sessions: GatewaySessions
+    control: GatewayControl
+    channel_control: GatewayChannelControl
+    relay: GatewayRelay
+    execution: GatewayExecution
+
+
+def build_gateway(
+    *,
+    relay_service: RelayService,
+    node_persistence=None,
+    conversation_persistence=None,
+    message_repository=None,
+    boundary_repository=None,
+    event_repository=None,
+    metrics_service=None,
+    user_stream_registry=None,
+    event_bridge=None,
+    channel_control_store=None,
+) -> GatewayTestStack:
+    """Assemble the same concrete Gateway graph as the application root."""
+    lock = asyncio.Lock()
+    sessions = GatewaySessions(
+        node_persistence=node_persistence,
+        user_stream_registry=user_stream_registry,
+        lock=lock,
+    )
+    execution = GatewayExecution(
+        sessions=sessions,
+        conversation_persistence=conversation_persistence,
+        message_repository=message_repository,
+        boundary_repository=boundary_repository,
+        event_repository=event_repository,
+        metrics_service=metrics_service,
+        event_bridge=event_bridge,
+        lock=lock,
+    )
+    control = GatewayControl(sessions=sessions, lock=lock)
+    channel_control = GatewayChannelControl(
+        sessions=sessions,
+        channel_control_store=channel_control_store,
+        lock=lock,
+    )
+    relay = GatewayRelay(
+        sessions=sessions,
+        execution=execution,
+        relay_service=relay_service,
+        conversation_persistence=conversation_persistence,
+        message_repository=message_repository,
+        event_repository=event_repository,
+        lock=lock,
+    )
+    return GatewayTestStack(
+        runtime=GatewayRuntime(
+            sessions=sessions,
+            control=control,
+            channel_control=channel_control,
+            relay=relay,
+            execution=execution,
+        ),
+        sessions=sessions,
+        control=control,
+        channel_control=channel_control,
+        relay=relay,
+        execution=execution,
+    )
 
 
 class StubWebSocket:
@@ -34,10 +118,10 @@ class FailingWebSocket(StubWebSocket):
         raise RuntimeError("socket closed")
 
 
-def _build_handler(tmp_path: Path) -> GatewayHandler:
+def _build_handler(tmp_path: Path) -> GatewayTestStack:
     connection = connect(tmp_path / "im.db")
     initialize_schema(connection)
-    return GatewayHandler(
+    return build_gateway(
         relay_service=RelayService(connection),
         metrics_service=MetricsService(metrics=UsageMetricsRepository(connection)),
         conversation_persistence=GatewayConversationPersistence(connection),
@@ -47,13 +131,13 @@ def _build_handler(tmp_path: Path) -> GatewayHandler:
 
 def _build_handler_with_node_persistence(
     tmp_path: Path,
-) -> tuple[GatewayHandler, object]:
+) -> tuple[GatewayTestStack, object]:
     """构建带 node persistence seam 的 handler，用于验证 profile 落库行为。"""
 
     connection = connect(tmp_path / "im.db")
     initialize_schema(connection)
     return (
-        GatewayHandler(
+        build_gateway(
             relay_service=RelayService(connection),
             metrics_service=MetricsService(metrics=UsageMetricsRepository(connection)),
             conversation_persistence=GatewayConversationPersistence(connection),
@@ -70,7 +154,7 @@ def test_register_heartbeat_and_report_track_connection_state(tmp_path: Path) ->
     websocket = StubWebSocket()
 
     register_ack = asyncio.run(
-        handler.handle_message(
+        handler.runtime.handle_message(
             websocket=websocket,
             message_type="node.register",
             payload={
@@ -81,20 +165,20 @@ def test_register_heartbeat_and_report_track_connection_state(tmp_path: Path) ->
         )
     )
     heartbeat_ack = asyncio.run(
-        handler.handle_message(
+        handler.runtime.handle_message(
             websocket=websocket,
             message_type="node.heartbeat",
             payload={"node_id": "node-1", "status": "online"},
         )
     )
     report_ack = asyncio.run(
-        handler.handle_message(
+        handler.runtime.handle_message(
             websocket=websocket,
             message_type="node.report",
             payload={"node_id": "node-1", "run_id": "run-1", "status": "completed"},
         )
     )
-    snapshot = asyncio.run(handler.snapshot_connection(node_id="node-1"))
+    snapshot = asyncio.run(handler.sessions.snapshot_connection(node_id="node-1"))
 
     assert register_ack == {
         "type": "ack",
@@ -124,7 +208,7 @@ def test_register_parses_and_seeds_agent_skills_and_tool_allowlist(
     websocket = StubWebSocket()
 
     ack = asyncio.run(
-        handler.handle_message(
+        handler.runtime.handle_message(
             websocket=websocket,
             message_type="node.register",
             payload={
@@ -156,7 +240,7 @@ def test_register_seed_normalizer_drops_invalid_items_but_keeps_valid_ones(
     websocket = StubWebSocket()
 
     asyncio.run(
-        handler.handle_message(
+        handler.runtime.handle_message(
             websocket=websocket,
             message_type="node.register",
             payload={
@@ -193,7 +277,7 @@ def test_unknown_node_receives_not_registered_error(tmp_path: Path) -> None:
     websocket = StubWebSocket()
 
     response = asyncio.run(
-        handler.handle_message(
+        handler.runtime.handle_message(
             websocket=websocket,
             message_type="node.heartbeat",
             payload={"node_id": "missing", "status": "online"},
@@ -214,16 +298,16 @@ def test_disconnect_removes_active_connection(tmp_path: Path) -> None:
     handler = _build_handler(tmp_path)
     websocket = StubWebSocket()
     asyncio.run(
-        handler.handle_message(
+        handler.runtime.handle_message(
             websocket=websocket,
             message_type="node.register",
             payload={"node_id": "node-1", "agents": [], "capabilities": {}},
         )
     )
 
-    assert asyncio.run(handler.is_connected(node_id="node-1")) is True
-    asyncio.run(handler.disconnect(node_id="node-1"))
-    assert asyncio.run(handler.is_connected(node_id="node-1")) is False
+    assert asyncio.run(handler.sessions.is_connected(node_id="node-1")) is True
+    asyncio.run(handler.sessions.disconnect(node_id="node-1"))
+    assert asyncio.run(handler.sessions.is_connected(node_id="node-1")) is False
 
 
 def test_request_agent_config_timeout_returns_none_for_connected_gateway(
@@ -234,12 +318,12 @@ def test_request_agent_config_timeout_returns_none_for_connected_gateway(
     websocket = StubWebSocket()
 
     async def _request_without_reply() -> dict[str, object] | None:
-        await handler.handle_message(
+        await handler.runtime.handle_message(
             websocket=websocket,
             message_type="node.register",
             payload={"node_id": "node-1", "agents": ["agent-a"], "capabilities": {}},
         )
-        return await handler.request_agent_config(
+        return await handler.control.request_agent_config(
             target_node_id="node-1",
             agent_id="agent-a",
             timeout_seconds=0,
@@ -263,23 +347,25 @@ def test_stale_disconnect_preserves_replacement_connection(tmp_path: Path) -> No
         "capabilities": {},
     }
     asyncio.run(
-        handler.handle_message(
+        handler.runtime.handle_message(
             websocket=old_websocket,
             message_type="node.register",
             payload=register_payload,
         )
     )
     asyncio.run(
-        handler.handle_message(
+        handler.runtime.handle_message(
             websocket=new_websocket,
             message_type="node.register",
             payload=register_payload,
         )
     )
 
-    asyncio.run(handler.disconnect(node_id="node-1", expected_websocket=old_websocket))
+    asyncio.run(
+        handler.sessions.disconnect(node_id="node-1", expected_websocket=old_websocket)
+    )
 
-    snapshot = asyncio.run(handler.snapshot_connection(node_id="node-1"))
+    snapshot = asyncio.run(handler.sessions.snapshot_connection(node_id="node-1"))
     assert snapshot is not None
     assert snapshot.websocket is new_websocket
 
@@ -292,7 +378,7 @@ def test_completed_report_persists_real_usage_metrics(tmp_path: Path) -> None:
     users = UserRepository(connection)
     conversations = ConversationRepository(connection)
     messages_repo = MessageRepository(connection)
-    handler = GatewayHandler(
+    handler = build_gateway(
         relay_service=RelayService(connection),
         metrics_service=MetricsService(metrics=metrics_repo),
         conversation_persistence=GatewayConversationPersistence(connection),
@@ -306,7 +392,7 @@ def test_completed_report_persists_real_usage_metrics(tmp_path: Path) -> None:
     )
 
     asyncio.run(
-        handler.handle_message(
+        handler.runtime.handle_message(
             websocket=websocket,
             message_type="node.register",
             payload={
@@ -318,7 +404,7 @@ def test_completed_report_persists_real_usage_metrics(tmp_path: Path) -> None:
     )
 
     response = asyncio.run(
-        handler.handle_message(
+        handler.runtime.handle_message(
             websocket=websocket,
             message_type="node.report",
             payload={
@@ -363,7 +449,7 @@ def test_push_relay_message_returns_false_when_socket_send_fails(
     handler = _build_handler(tmp_path)
     websocket = FailingWebSocket()
     asyncio.run(
-        handler.handle_message(
+        handler.runtime.handle_message(
             websocket=websocket,
             message_type="node.register",
             payload={"node_id": "node-1", "agents": [], "capabilities": {}},
@@ -371,7 +457,7 @@ def test_push_relay_message_returns_false_when_socket_send_fails(
     )
 
     delivered = asyncio.run(
-        handler.push_relay_message(
+        handler.relay.push_relay_message(
             relay_task_id="relay-1",
             target_node_id="node-1",
             payload={"message": {"content": "hello"}},
@@ -379,7 +465,7 @@ def test_push_relay_message_returns_false_when_socket_send_fails(
     )
 
     assert delivered is False
-    assert asyncio.run(handler.is_connected(node_id="node-1")) is False
+    assert asyncio.run(handler.sessions.is_connected(node_id="node-1")) is False
 
 
 def test_completed_group_reply_broadcasts_background_context_to_peer_agents(
@@ -390,7 +476,7 @@ def test_completed_group_reply_broadcasts_background_context_to_peer_agents(
     users = UserRepository(connection)
     conversations = ConversationRepository(connection)
     relay_service = RelayService(connection)
-    handler = GatewayHandler(
+    handler = build_gateway(
         relay_service=relay_service,
         metrics_service=MetricsService(metrics=UsageMetricsRepository(connection)),
         conversation_persistence=GatewayConversationPersistence(connection),
@@ -467,7 +553,7 @@ def test_completed_group_reply_broadcasts_background_context_to_peer_agents(
         _override_agent_id="A",
     ).relay_task
     asyncio.run(
-        handler.handle_message(
+        handler.runtime.handle_message(
             websocket=websocket,
             message_type="node.register",
             payload={
@@ -479,7 +565,7 @@ def test_completed_group_reply_broadcasts_background_context_to_peer_agents(
     )
 
     response = asyncio.run(
-        handler.handle_message(
+        handler.runtime.handle_message(
             websocket=websocket,
             message_type="node.delivery_receipt",
             payload={
@@ -519,14 +605,14 @@ def test_suppressed_group_reply_is_not_broadcast_to_peer_agents(
     connection = connect(tmp_path / "im.db")
     initialize_schema(connection)
     relay_service = RelayService(connection)
-    handler = GatewayHandler(
+    handler = build_gateway(
         relay_service=relay_service,
         metrics_service=MetricsService(metrics=UsageMetricsRepository(connection)),
         conversation_persistence=GatewayConversationPersistence(connection),
     )
 
     asyncio.run(
-        handler._broadcast_group_reply_context(  # noqa: SLF001
+        handler.relay._broadcast_group_reply_context(  # noqa: SLF001
             task=object(),
             node_id="node-1",
             detail="suppressed_by=no_reply_token",
@@ -545,7 +631,7 @@ def test_handle_agent_message_routes_user_target_and_persists_message(
     users = UserRepository(connection)
     conversations = ConversationRepository(connection)
     messages_repo = MessageRepository(connection)
-    handler = GatewayHandler(
+    handler = build_gateway(
         relay_service=RelayService(connection),
         metrics_service=MetricsService(metrics=UsageMetricsRepository(connection)),
         conversation_persistence=GatewayConversationPersistence(connection),
@@ -556,7 +642,7 @@ def test_handle_agent_message_routes_user_target_and_persists_message(
     teammate = users.create_user(username="teammate", display_name="Teammate")
 
     response = asyncio.run(
-        handler.handle_message(
+        handler.runtime.handle_message(
             websocket=websocket,
             message_type="agent.message",
             payload={
@@ -597,7 +683,7 @@ def test_handle_agent_message_returns_error_for_invalid_source(tmp_path: Path) -
     websocket = StubWebSocket()
 
     response = asyncio.run(
-        handler.handle_message(
+        handler.runtime.handle_message(
             websocket=websocket,
             message_type="agent.message",
             payload={
@@ -621,7 +707,7 @@ def test_handle_agent_message_deduplicates_same_dispatch_request(
     users = UserRepository(connection)
     conversations = ConversationRepository(connection)
     messages_repo = MessageRepository(connection)
-    handler = GatewayHandler(
+    handler = build_gateway(
         relay_service=RelayService(connection),
         metrics_service=MetricsService(metrics=UsageMetricsRepository(connection)),
         conversation_persistence=GatewayConversationPersistence(connection),
@@ -637,14 +723,14 @@ def test_handle_agent_message_deduplicates_same_dispatch_request(
         "text": "hello B",
     }
     first = asyncio.run(
-        handler.handle_message(
+        handler.runtime.handle_message(
             websocket=websocket,
             message_type="agent.message",
             payload=payload,
         )
     )
     second = asyncio.run(
-        handler.handle_message(
+        handler.runtime.handle_message(
             websocket=websocket,
             message_type="agent.message",
             payload=payload,
@@ -670,7 +756,7 @@ def test_handle_agent_message_deduplicates_same_dispatch_request(
 
 def test_parse_token_usage_preserves_total_field() -> None:
     """_parse_token_usage must surface the total (prompt+completion) so the chip shows real usage, not just completion."""
-    from IM.ws.gateway_handler import _parse_token_usage
+    from IM.ws.gateway.protocol import _parse_token_usage
 
     parsed = _parse_token_usage({"prompt": 2428, "completion": 1, "total": 2429})
     assert parsed is not None
@@ -684,7 +770,7 @@ def test_parse_token_usage_preserves_total_field() -> None:
 
 def test_parse_token_usage_derives_total_when_missing() -> None:
     """_parse_token_usage derives total = prompt + completion when not provided."""
-    from IM.ws.gateway_handler import _parse_token_usage
+    from IM.ws.gateway.protocol import _parse_token_usage
 
     parsed = _parse_token_usage({"prompt": 12, "completion": 30})
     assert parsed is not None
@@ -693,7 +779,7 @@ def test_parse_token_usage_derives_total_when_missing() -> None:
 
 def test_parse_token_usage_reads_cache_hit_fields() -> None:
     """feat-439-M1: gateway streaming_delta 带缓存命中两字段时落入 domain TokenUsage。"""
-    from IM.ws.gateway_handler import _parse_token_usage
+    from IM.ws.gateway.protocol import _parse_token_usage
 
     parsed = _parse_token_usage(
         {
@@ -711,7 +797,7 @@ def test_parse_token_usage_reads_cache_hit_fields() -> None:
 
 def test_parse_token_usage_cache_defaults_zero_when_absent() -> None:
     """无 cache 字段(旧 gateway)时默认 0，不丢其它字段。"""
-    from IM.ws.gateway_handler import _parse_token_usage
+    from IM.ws.gateway.protocol import _parse_token_usage
 
     parsed = _parse_token_usage({"prompt": 12, "completion": 30})
     assert parsed is not None
@@ -724,8 +810,10 @@ def test_parse_token_usage_cache_defaults_zero_when_absent() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _build_handler_with_event_bridge(tmp_path: Path) -> tuple["GatewayHandler", object]:
-    """Build a GatewayHandler with a real EventBridge wired to a FK-enforced DB.
+def _build_handler_with_event_bridge(
+    tmp_path: Path,
+) -> tuple["GatewayTestStack", object]:
+    """Build a GatewayTestStack with a real EventBridge wired to a FK-enforced DB.
 
     FK enforcement comes from initialize_schema which calls PRAGMA foreign_keys=ON.
     This is the guard against M138-style fake-green tests that used mocks bypassing FK.
@@ -738,7 +826,7 @@ def _build_handler_with_event_bridge(tmp_path: Path) -> tuple["GatewayHandler", 
     msg_repo = MessageRepository(connection)
     evt_repo = EventRepository(connection)
     bridge = EventBridge(message_repository=msg_repo, event_repository=evt_repo)
-    handler = GatewayHandler(
+    handler = build_gateway(
         relay_service=RelayService(connection),
         metrics_service=MetricsService(metrics=UsageMetricsRepository(connection)),
         conversation_persistence=GatewayConversationPersistence(connection),
@@ -761,12 +849,12 @@ def test_streaming_delta_thinking_segment_persists_via_bridge(tmp_path: Path) ->
     conv = ConversationRepository(connection).create_conversation(
         title="t", participant_ids=[owner.id]
     )
-    msg = handler._event_bridge.on_turn_start(
+    msg = handler.execution._event_bridge.on_turn_start(
         conversation_id=conv.id, agent_user_id=agent_user.id, agent_id="alpha"
     )
 
     response = asyncio.run(
-        handler.handle_message(
+        handler.runtime.handle_message(
             websocket=StubWebSocket(),
             message_type="node.streaming_delta",
             payload={
@@ -800,7 +888,7 @@ def test_turn_start_to_user_id_resolves_canonical_direct_conversation_and_create
     agent_user = users.create_user(username="agent:alpha", display_name="Alpha")
 
     asyncio.run(
-        handler.handle_message(
+        handler.runtime.handle_message(
             websocket=websocket,
             message_type="node.register",
             payload={"node_id": "node-1", "agents": ["alpha"], "capabilities": {}},
@@ -808,7 +896,7 @@ def test_turn_start_to_user_id_resolves_canonical_direct_conversation_and_create
     )
 
     response = asyncio.run(
-        handler.handle_message(
+        handler.runtime.handle_message(
             websocket=websocket,
             message_type="node.streaming_delta",
             payload={
@@ -859,7 +947,7 @@ def test_turn_start_to_user_id_creates_direct_conversation_when_none_exists(
     assert len(ConversationRepository(connection).list_conversations()) == 0
 
     asyncio.run(
-        handler.handle_message(
+        handler.runtime.handle_message(
             websocket=websocket,
             message_type="node.register",
             payload={"node_id": "node-1", "agents": ["beta"], "capabilities": {}},
@@ -867,7 +955,7 @@ def test_turn_start_to_user_id_creates_direct_conversation_when_none_exists(
     )
 
     response = asyncio.run(
-        handler.handle_message(
+        handler.runtime.handle_message(
             websocket=websocket,
             message_type="node.streaming_delta",
             payload={
@@ -911,7 +999,7 @@ def test_turn_start_to_user_id_uses_oldest_conversation_when_multiple_exist(
     )
 
     asyncio.run(
-        handler.handle_message(
+        handler.runtime.handle_message(
             websocket=websocket,
             message_type="node.register",
             payload={"node_id": "node-1", "agents": ["gamma"], "capabilities": {}},
@@ -919,7 +1007,7 @@ def test_turn_start_to_user_id_uses_oldest_conversation_when_multiple_exist(
     )
 
     response = asyncio.run(
-        handler.handle_message(
+        handler.runtime.handle_message(
             websocket=websocket,
             message_type="node.streaming_delta",
             payload={
@@ -956,7 +1044,7 @@ def test_turn_start_conversation_id_mode_unchanged_normal_chat_path(
     )
 
     asyncio.run(
-        handler.handle_message(
+        handler.runtime.handle_message(
             websocket=websocket,
             message_type="node.register",
             payload={"node_id": "node-1", "agents": ["delta"], "capabilities": {}},
@@ -964,7 +1052,7 @@ def test_turn_start_conversation_id_mode_unchanged_normal_chat_path(
     )
 
     response = asyncio.run(
-        handler.handle_message(
+        handler.runtime.handle_message(
             websocket=websocket,
             message_type="node.streaming_delta",
             payload={
@@ -1006,7 +1094,7 @@ def test_turn_start_to_user_id_owner_not_in_db_returns_skipped_ack_not_exception
     users.create_user(username="agent:epsilon", display_name="Epsilon")
 
     asyncio.run(
-        handler.handle_message(
+        handler.runtime.handle_message(
             websocket=websocket,
             message_type="node.register",
             payload={"node_id": "node-1", "agents": ["epsilon"], "capabilities": {}},
@@ -1015,7 +1103,7 @@ def test_turn_start_to_user_id_owner_not_in_db_returns_skipped_ack_not_exception
 
     nonexistent_owner_id = "00000000000000000000000000000000"
     response = asyncio.run(
-        handler.handle_message(
+        handler.runtime.handle_message(
             websocket=websocket,
             message_type="node.streaming_delta",
             payload={
@@ -1056,7 +1144,7 @@ def test_request_node_heartbeat_md_returns_none_when_node_offline(
     handler = _build_handler(tmp_path)
 
     result = asyncio.run(
-        handler.request_node_heartbeat_md(
+        handler.control.request_node_heartbeat_md(
             target_node_id="offline-node",
             agent_id="agent-x",
             workspace_root="/fake/workspace",
@@ -1065,60 +1153,6 @@ def test_request_node_heartbeat_md_returns_none_when_node_offline(
     )
 
     assert result is None
-
-
-def test_handle_heartbeat_md_resolves_waiter(tmp_path: Path) -> None:
-    """_handle_heartbeat_md resolves the matching future with content.
-
-    feat-394-M13: gateway sends node.heartbeat.md back with {request_id, content}.
-    The IM waiter must receive the content string.
-    """
-    handler = _build_handler(tmp_path)
-    loop = asyncio.new_event_loop()
-    try:
-        future: asyncio.Future[str | None] = loop.create_future()
-
-        async def _run() -> dict[str, object]:
-            async with handler._lock:  # noqa: SLF001
-                handler._heartbeat_md_waiters["req-hb-1"] = future  # noqa: SLF001
-            return await handler._handle_heartbeat_md(  # noqa: SLF001
-                payload={
-                    "request_id": "req-hb-1",
-                    "node_id": "node-1",
-                    "content": "# HEARTBEAT\n- Watch server uptime",
-                }
-            )
-
-        ack = loop.run_until_complete(_run())
-    finally:
-        loop.close()
-
-    assert ack == {
-        "type": "ack",
-        "payload": {"message_type": "node.heartbeat.md", "request_id": "req-hb-1"},
-    }
-    assert future.result() == "# HEARTBEAT\n- Watch server uptime"
-
-
-def test_handle_heartbeat_md_accepts_empty_content(tmp_path: Path) -> None:
-    """Gateway may return empty string when HEARTBEAT.md does not exist yet."""
-    handler = _build_handler(tmp_path)
-    loop = asyncio.new_event_loop()
-    try:
-        future: asyncio.Future[str | None] = loop.create_future()
-
-        async def _run() -> None:
-            async with handler._lock:  # noqa: SLF001
-                handler._heartbeat_md_waiters["req-hb-2"] = future  # noqa: SLF001
-            await handler._handle_heartbeat_md(  # noqa: SLF001
-                payload={"request_id": "req-hb-2", "node_id": "n1", "content": ""}
-            )
-
-        loop.run_until_complete(_run())
-    finally:
-        loop.close()
-
-    assert future.result() == ""
 
 
 def test_request_node_cron_jobs_returns_none_when_node_offline(
@@ -1132,7 +1166,7 @@ def test_request_node_cron_jobs_returns_none_when_node_offline(
     handler = _build_handler(tmp_path)
 
     result = asyncio.run(
-        handler.request_node_cron_jobs(
+        handler.control.request_node_cron_jobs(
             target_node_id="offline-node",
             agent_id="agent-x",
             workspace_root="/fake/workspace",
@@ -1154,7 +1188,7 @@ def test_request_node_skills_usage_returns_none_when_node_offline(
     handler = _build_handler(tmp_path)
 
     result = asyncio.run(
-        handler.request_node_skills_usage(
+        handler.control.request_node_skills_usage(
             target_node_id="offline-node",
             agent_id="agent-x",
             workspace_root="/fake/workspace",
@@ -1163,90 +1197,6 @@ def test_request_node_skills_usage_returns_none_when_node_offline(
     )
 
     assert result is None
-
-
-def test_handle_cron_jobs_resolves_waiter_with_job_list(tmp_path: Path) -> None:
-    """_handle_cron_jobs resolves the matching future with the job list payload.
-
-    feat-394-M13: gateway sends node.cron.jobs back with {request_id, jobs:[...]}.
-    """
-    handler = _build_handler(tmp_path)
-    loop = asyncio.new_event_loop()
-    jobs_payload = [{"id": "job-1", "name": "tick", "schedule": {"kind": "every"}}]
-    try:
-        future: asyncio.Future[list | None] = loop.create_future()
-
-        async def _run() -> dict[str, object]:
-            async with handler._lock:  # noqa: SLF001
-                handler._cron_jobs_waiters["req-cj-1"] = future  # noqa: SLF001
-            return await handler._handle_cron_jobs(  # noqa: SLF001
-                payload={
-                    "request_id": "req-cj-1",
-                    "node_id": "node-1",
-                    "jobs": jobs_payload,
-                }
-            )
-
-        ack = loop.run_until_complete(_run())
-    finally:
-        loop.close()
-
-    assert ack == {
-        "type": "ack",
-        "payload": {"message_type": "node.cron.jobs", "request_id": "req-cj-1"},
-    }
-    assert future.result() == jobs_payload
-
-
-def test_handle_skills_usage_resolves_waiter_with_usage_payload(
-    tmp_path: Path,
-) -> None:
-    """_handle_skills_usage resolves the matching future with the usage payload."""
-    handler = _build_handler(tmp_path)
-    loop = asyncio.new_event_loop()
-    usage_payload = {
-        "agent_id": "agent-x",
-        "node_id": "node-1",
-        "skills": [
-            {
-                "skill_id": "deploy-check",
-                "name": "deploy-check",
-                "source": "F3",
-                "state": "active",
-                "use_count": 3,
-                "trend_buckets": [0] * 30,
-            }
-        ],
-        "heatmap_data": [0] * 30,
-        "health": {
-            "created_auto_total": 1,
-            "active_auto_total": 1,
-            "used_auto_total": 1,
-        },
-    }
-    try:
-        future: asyncio.Future[dict[str, object] | None] = loop.create_future()
-
-        async def _run() -> dict[str, object]:
-            async with handler._lock:  # noqa: SLF001
-                handler._skills_usage_waiters["req-su-1"] = future  # noqa: SLF001
-            return await handler._handle_skills_usage(  # noqa: SLF001
-                payload={
-                    "request_id": "req-su-1",
-                    "node_id": "node-1",
-                    "usage": usage_payload,
-                }
-            )
-
-        ack = loop.run_until_complete(_run())
-    finally:
-        loop.close()
-
-    assert ack == {
-        "type": "ack",
-        "payload": {"message_type": "node.skills.usage", "request_id": "req-su-1"},
-    }
-    assert future.result() == usage_payload
 
 
 def test_request_node_cron_delete_returns_none_when_node_offline(
@@ -1260,7 +1210,7 @@ def test_request_node_cron_delete_returns_none_when_node_offline(
     handler = _build_handler(tmp_path)
 
     result = asyncio.run(
-        handler.request_node_cron_delete(
+        handler.control.request_node_cron_delete(
             target_node_id="offline-node",
             agent_id="agent-x",
             workspace_root="/fake/workspace",
@@ -1270,62 +1220,6 @@ def test_request_node_cron_delete_returns_none_when_node_offline(
     )
 
     assert result is None
-
-
-def test_handle_cron_delete_resolves_waiter_with_deleted_flag(
-    tmp_path: Path,
-) -> None:
-    """_handle_cron_delete resolves the future with deleted=True when job was found."""
-    handler = _build_handler(tmp_path)
-    loop = asyncio.new_event_loop()
-    try:
-        future: asyncio.Future[bool | None] = loop.create_future()
-
-        async def _run() -> dict[str, object]:
-            async with handler._lock:  # noqa: SLF001
-                handler._cron_delete_waiters["req-cd-1"] = future  # noqa: SLF001
-            return await handler._handle_cron_delete(  # noqa: SLF001
-                payload={
-                    "request_id": "req-cd-1",
-                    "node_id": "node-1",
-                    "deleted": True,
-                }
-            )
-
-        ack = loop.run_until_complete(_run())
-    finally:
-        loop.close()
-
-    assert ack == {
-        "type": "ack",
-        "payload": {"message_type": "node.cron.delete", "request_id": "req-cd-1"},
-    }
-    assert future.result() is True
-
-
-def test_handle_cron_delete_resolves_waiter_with_not_found(tmp_path: Path) -> None:
-    """Gateway returns deleted=False when job_id was not found in the file."""
-    handler = _build_handler(tmp_path)
-    loop = asyncio.new_event_loop()
-    try:
-        future: asyncio.Future[bool | None] = loop.create_future()
-
-        async def _run() -> None:
-            async with handler._lock:  # noqa: SLF001
-                handler._cron_delete_waiters["req-cd-2"] = future  # noqa: SLF001
-            await handler._handle_cron_delete(  # noqa: SLF001
-                payload={
-                    "request_id": "req-cd-2",
-                    "node_id": "n1",
-                    "deleted": False,
-                }
-            )
-
-        loop.run_until_complete(_run())
-    finally:
-        loop.close()
-
-    assert future.result() is False
 
 
 # ---------------------------------------------------------------------------
@@ -1442,7 +1336,7 @@ def test_handle_register_with_agent_workspaces_seeds_first_seen_profile(
     handler, connection = _build_handler_with_node_persistence(tmp_path)
     ws_path = "/worktrees/bugfix-404-M2/.gateway-workspace/Arch"
     asyncio.run(
-        handler.handle_message(
+        handler.runtime.handle_message(
             websocket=StubWebSocket(),
             message_type="node.register",
             payload={
@@ -1469,7 +1363,7 @@ def test_handle_register_runtime_profile_provisions_agent_user(
     handler, connection = _build_handler_with_node_persistence(tmp_path)
 
     asyncio.run(
-        handler.handle_message(
+        handler.runtime.handle_message(
             websocket=StubWebSocket(),
             message_type="node.register",
             payload={
@@ -1498,7 +1392,7 @@ def test_handle_register_preserves_existing_workspace_on_reregister(
     new_ws = "/different/workspace/Arch"
     # 首次注册，确立原始值
     asyncio.run(
-        handler.handle_message(
+        handler.runtime.handle_message(
             websocket=StubWebSocket(),
             message_type="node.register",
             payload={
@@ -1511,7 +1405,7 @@ def test_handle_register_preserves_existing_workspace_on_reregister(
     )
     # 重新注册，携带不同 workspace（模拟断线重连）
     asyncio.run(
-        handler.handle_message(
+        handler.runtime.handle_message(
             websocket=StubWebSocket(),
             message_type="node.register",
             payload={
@@ -1540,7 +1434,7 @@ def test_handle_register_without_agent_workspaces_falls_back_to_managed_default(
     """
     handler, connection = _build_handler_with_node_persistence(tmp_path)
     asyncio.run(
-        handler.handle_message(
+        handler.runtime.handle_message(
             websocket=StubWebSocket(),
             message_type="node.register",
             payload={
@@ -1568,8 +1462,8 @@ def test_handle_register_without_agent_workspaces_falls_back_to_managed_default(
 
 def _build_handler_with_event_bridge_and_notify(
     tmp_path: Path,
-) -> tuple["GatewayHandler", object, list]:
-    """Build a GatewayHandler with repositories wired to a notify-collecting list.
+) -> tuple["GatewayTestStack", object, list]:
+    """Build a GatewayTestStack with repositories wired to a notify-collecting list.
 
     The notify list captures every ConversationEvent produced so tests can assert
     that message.created (not just message.sent/message.delivered) is emitted when
@@ -1587,7 +1481,7 @@ def _build_handler_with_event_bridge_and_notify(
         message_repository=msg_repo,
         event_repository=evt_repo,
     )
-    handler = GatewayHandler(
+    handler = build_gateway(
         relay_service=RelayService(connection),
         metrics_service=MetricsService(metrics=UsageMetricsRepository(connection)),
         conversation_persistence=GatewayConversationPersistence(connection),
@@ -1617,7 +1511,7 @@ def test_agent_message_user_target_emits_message_created_event(
     human = users.create_user(username="nano", display_name="Nano User")
 
     response = asyncio.run(
-        handler.handle_message(
+        handler.runtime.handle_message(
             websocket=websocket,
             message_type="agent.message",
             payload={
@@ -1682,14 +1576,14 @@ def test_agent_message_user_target_dedup_does_not_double_emit(
     }
 
     first = asyncio.run(
-        handler.handle_message(
+        handler.runtime.handle_message(
             websocket=websocket, message_type="agent.message", payload=payload
         )
     )
     first_event_count = len(emitted)
 
     second = asyncio.run(
-        handler.handle_message(
+        handler.runtime.handle_message(
             websocket=websocket, message_type="agent.message", payload=payload
         )
     )
@@ -1712,7 +1606,7 @@ def test_push_permission_response_writes_reason_into_frame(tmp_path: Path) -> No
     handler = _build_handler(tmp_path)
     websocket = StubWebSocket()
     asyncio.run(
-        handler.handle_message(
+        handler.runtime.handle_message(
             websocket=websocket,
             message_type="node.register",
             payload={"node_id": "node-1", "agents": [], "capabilities": {}},
@@ -1720,7 +1614,7 @@ def test_push_permission_response_writes_reason_into_frame(tmp_path: Path) -> No
     )
 
     delivered = asyncio.run(
-        handler.push_permission_response(
+        handler.control.push_permission_response(
             target_node_id="node-1",
             message_id="msg-1",
             request_id="req-1",
@@ -1743,7 +1637,7 @@ def test_push_permission_response_defaults_reason_to_empty(tmp_path: Path) -> No
     handler = _build_handler(tmp_path)
     websocket = StubWebSocket()
     asyncio.run(
-        handler.handle_message(
+        handler.runtime.handle_message(
             websocket=websocket,
             message_type="node.register",
             payload={"node_id": "node-1", "agents": [], "capabilities": {}},
@@ -1751,7 +1645,7 @@ def test_push_permission_response_defaults_reason_to_empty(tmp_path: Path) -> No
     )
 
     asyncio.run(
-        handler.push_permission_response(
+        handler.control.push_permission_response(
             target_node_id="node-1",
             message_id="msg-1",
             request_id="req-1",

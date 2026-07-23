@@ -43,7 +43,7 @@ def test_heartbeat_bubbles_actionable_message(
         agent_id,
         display_name=agent_id,
         system_prompt="你是一个测试助手。心跳触发时，按 HEARTBEAT.md 的指示主动发言。",
-        default_model="kimiCoding:K2.6",
+        default_model="volcanoArk:doubao-seed-2-0-code-preview-260215",
     )
 
     # 建直聊(让心跳冒泡有归属对话;canonical 直聊由 owner+agent 唯一确定)。

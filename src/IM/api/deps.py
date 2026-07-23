@@ -30,7 +30,10 @@ from IM.infra.repositories.metrics import UsageMetricsRepository
 from IM.infra.repositories.users import UserRepository
 from IM.infra.binding_store import BindingStore
 from IM.infra.channel_control_store import ChannelManifest
-from IM.ws.gateway_handler import GatewayHandler
+from IM.ws.gateway.channel_control import GatewayChannelControl
+from IM.ws.gateway.control import GatewayControl
+from IM.ws.gateway.relay import GatewayRelay
+from IM.ws.gateway.sessions import GatewaySessions
 
 
 def _build_conversation_repository(request: Request) -> ConversationRepository:
@@ -98,7 +101,7 @@ def get_event_service(request: Request) -> EventService:
 
 def get_config_service(request: Request) -> ConfigService:
     """Build the agent config application service from app-scoped dependencies."""
-    gateway_handler = get_gateway_handler(request)
+    gateway_control = get_gateway_control(request)
     # feat-394 bugfix: update_agent_config is a sync route (runs in a thread pool).
     # asyncio.get_running_loop() fails in the thread, so the previous code fell back to
     # asyncio.run(push_config_sync(...)), creating an isolated event loop that cannot
@@ -110,7 +113,7 @@ def get_config_service(request: Request) -> ConfigService:
     )
 
     def _push_config_sync(node_id: str, agent_id: str, profile_version: int) -> None:
-        coro = gateway_handler.push_config_sync(
+        coro = gateway_control.push_config_sync(
             target_node_id=node_id,
             agent_id=agent_id,
             profile_version=profile_version,
@@ -170,7 +173,7 @@ def get_bind_service(request: Request) -> BindService:
 
 def get_channel_control_service(request: Request) -> ChannelControlService:
     """Return the app's independent external-channel control boundary."""
-    handler = get_gateway_handler(request)
+    channel_control = get_gateway_channel_control(request)
     event_loop: asyncio.AbstractEventLoop | None = getattr(
         request.app.state, "event_loop", None
     )
@@ -185,11 +188,11 @@ def get_channel_control_service(request: Request) -> ChannelControlService:
             return False
 
     def notify(manifest: ChannelManifest) -> bool:
-        return run_live(handler.push_channel_reconcile(manifest))
+        return run_live(channel_control.push_reconcile(manifest))
 
     def reconnect(node_id: str, channel_id: str, channel_revision: int) -> bool:
         return run_live(
-            handler.push_channel_reconnect(
+            channel_control.push_reconnect(
                 target_node_id=node_id,
                 channel_id=channel_id,
                 channel_revision=channel_revision,
@@ -208,9 +211,24 @@ def get_relay_service(request: Request) -> RelayService:
     return RelayService(request.app.state.connection)
 
 
-def get_gateway_handler(request: Request) -> GatewayHandler:
-    """Return the singleton gateway websocket handler for the running IM app."""
-    return request.app.state.gateway_handler
+def get_gateway_sessions(request: Request) -> GatewaySessions:
+    """Return the connection-state owner for route composition."""
+    return request.app.state.gateway_sessions
+
+
+def get_gateway_control(request: Request) -> GatewayControl:
+    """Return the online control RPC owner for route composition."""
+    return request.app.state.gateway_control
+
+
+def get_gateway_channel_control(request: Request) -> GatewayChannelControl:
+    """Return the Channel control transport owner for route composition."""
+    return request.app.state.gateway_channel_control
+
+
+def get_gateway_relay(request: Request) -> GatewayRelay:
+    """Return the relay delivery owner for route composition."""
+    return request.app.state.gateway_relay
 
 
 def assert_conversation_exists(request: Request, *, conversation_id: str) -> None:

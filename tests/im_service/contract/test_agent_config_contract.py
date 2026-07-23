@@ -9,7 +9,7 @@ from IM.app import create_app
 from IM.infra.repositories.agents import AgentProfileRepository
 from IM.infra.repositories.nodes import NodeRepository
 from IM.infra.repositories.users import UserRepository
-from IM.ws.gateway_handler import GatewayHandler
+from IM.ws.gateway.control import GatewayControl
 
 from tests.im_service._auth_helpers import authorize, register_user
 
@@ -141,7 +141,7 @@ def test_node_capabilities_contract_shape(
         }
 
     monkeypatch.setattr(
-        GatewayHandler, "request_node_capabilities", _fake_node_capabilities
+        GatewayControl, "request_node_capabilities", _fake_node_capabilities
     )
 
     app = create_app(db_path=tmp_path / "im.db")
@@ -209,7 +209,7 @@ def test_node_capabilities_includes_features_list(
         }
 
     monkeypatch.setattr(
-        GatewayHandler,
+        GatewayControl,
         "request_node_capabilities",
         _fake_node_capabilities_with_features,
     )
@@ -259,7 +259,7 @@ def test_get_agent_config_live_merge_preserves_features_and_custom_prompt(
             "tool_allowlist": ["memory"],
         }
 
-    monkeypatch.setattr(GatewayHandler, "request_agent_config", _fake_agent_config)
+    monkeypatch.setattr(GatewayControl, "request_agent_config", _fake_agent_config)
 
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
@@ -324,7 +324,7 @@ def test_agent_prompt_preview_proxy_contract(
         return {"prompt": "You are a helpful assistant.", "section_count": 2}
 
     monkeypatch.setattr(
-        GatewayHandler, "request_prompt_preview", _fake_request_prompt_preview
+        GatewayControl, "request_prompt_preview", _fake_request_prompt_preview
     )
 
     app = create_app(db_path=tmp_path / "im.db")
@@ -411,7 +411,7 @@ def test_agent_capabilities_features_contract(
         }
 
     monkeypatch.setattr(
-        GatewayHandler, "request_agent_capabilities", _fake_agent_capabilities
+        GatewayControl, "request_agent_capabilities", _fake_agent_capabilities
     )
 
     app = create_app(db_path=tmp_path / "im.db")
@@ -494,7 +494,7 @@ def test_agent_prompt_preview_forwards_skill_ids_to_gateway(
         return {"prompt": "preview", "section_count": 1}
 
     monkeypatch.setattr(
-        GatewayHandler, "request_prompt_preview", _fake_request_prompt_preview
+        GatewayControl, "request_prompt_preview", _fake_request_prompt_preview
     )
 
     app = create_app(db_path=tmp_path / "im.db")
@@ -563,7 +563,7 @@ def test_node_prompt_preview_derives_workspace_root_from_agent_id_hint(
         return {"prompt": "node-preview", "section_count": 1}
 
     monkeypatch.setattr(
-        GatewayHandler, "request_node_prompt_preview", _fake_request_node_prompt_preview
+        GatewayControl, "request_node_prompt_preview", _fake_request_node_prompt_preview
     )
 
     from IM.domain.models import managed_workspace_root
@@ -626,7 +626,7 @@ def test_node_prompt_preview_workspace_root_empty_when_no_agent_id_hint(
         return {"prompt": "node-preview-empty", "section_count": 1}
 
     monkeypatch.setattr(
-        GatewayHandler, "request_node_prompt_preview", _fake_request_node_prompt_preview
+        GatewayControl, "request_node_prompt_preview", _fake_request_node_prompt_preview
     )
 
     app = create_app(db_path=tmp_path / "im.db")

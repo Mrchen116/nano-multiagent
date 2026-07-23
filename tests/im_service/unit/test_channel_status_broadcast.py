@@ -6,20 +6,18 @@ import asyncio
 import json
 from pathlib import Path
 
-from IM.application.metrics_service import MetricsService
-from IM.application.relay_service import RelayService
 from IM.infra.channel_control_store import ChannelControlStore
 from IM.infra.channel_credentials import generate_channel_key_pair
 from IM.infra.db import connect, initialize_schema
-from IM.infra.gateway_persistence import (
-    GatewayConversationPersistence,
-    GatewayNodePersistence,
-)
 from IM.infra.repositories.agents import AgentProfileRepository
-from IM.infra.repositories.messages import MessageRepository
+from IM.infra.gateway_persistence import GatewayNodePersistence
 from IM.infra.repositories.nodes import NodeRepository
-from IM.infra.repositories.metrics import UsageMetricsRepository
-from IM.ws.gateway_handler import GatewayHandler
+from IM.ws.gateway.channel_control import GatewayChannelControl
+from IM.ws.gateway.control import GatewayControl
+from IM.ws.gateway.execution import GatewayExecution
+from IM.ws.gateway.relay import GatewayRelay
+from IM.ws.gateway.runtime import GatewayRuntime
+from IM.ws.gateway.sessions import GatewaySessions
 from IM.ws.user_stream import UserStreamRegistry
 
 
@@ -76,14 +74,26 @@ def test_accepted_status_broadcasts_precise_agent_channel_event_once(
         secret={"app_secret": "secret"},
     ).channel
     registry = UserStreamRegistry()
-    handler = GatewayHandler(
-        relay_service=RelayService(connection),
+    lock = asyncio.Lock()
+    sessions = GatewaySessions(
         node_persistence=GatewayNodePersistence(connection),
-        metrics_service=MetricsService(metrics=UsageMetricsRepository(connection)),
-        conversation_persistence=GatewayConversationPersistence(connection),
-        message_repository=MessageRepository(connection),
         user_stream_registry=registry,
-        channel_control_store=store,
+        lock=lock,
+    )
+    execution = GatewayExecution(sessions=sessions, lock=lock)
+    handler = GatewayRuntime(
+        sessions=sessions,
+        control=GatewayControl(sessions=sessions, lock=lock),
+        channel_control=GatewayChannelControl(
+            sessions=sessions, channel_control_store=store, lock=lock
+        ),
+        relay=GatewayRelay(
+            sessions=sessions,
+            execution=execution,
+            relay_service=None,
+            lock=lock,
+        ),
+        execution=execution,
     )
     gateway = _GatewayWebSocket()
     browser = _BrowserWebSocket()

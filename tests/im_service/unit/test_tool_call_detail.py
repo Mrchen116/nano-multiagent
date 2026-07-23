@@ -21,7 +21,7 @@ from IM.infra.repositories.users import UserRepository
 from IM.infra.repositories._message_projection import _decode_tool_calls
 from IM.infra.repositories._message_projection import _encode_tool_calls
 from IM.infra.db import connect, initialize_schema
-from IM.ws.gateway_handler import _parse_tool_call
+from IM.ws.gateway.protocol import _parse_tool_call
 
 
 _SAMPLE_DETAIL = {

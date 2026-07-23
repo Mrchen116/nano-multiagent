@@ -7,18 +7,11 @@ import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from IM.application.metrics_service import MetricsService
-from IM.application.relay_service import RelayService
 from IM.infra.db import connect, initialize_schema
-from IM.infra.gateway_persistence import (
-    GatewayConversationPersistence,
-    GatewayNodePersistence,
-)
-from IM.infra.repositories.messages import MessageRepository
+from IM.infra.gateway_persistence import GatewayNodePersistence
 from IM.infra.repositories.nodes import NodeRepository
-from IM.infra.repositories.metrics import UsageMetricsRepository
 from IM.infra.repositories.users import UserRepository
-from IM.ws.gateway_handler import GatewayHandler
+from IM.ws.gateway.sessions import GatewaySessions
 from IM.ws.user_stream import UserStreamRegistry, scan_and_flip_stale_nodes
 
 
@@ -35,13 +28,10 @@ def _build(tmp_path: Path):  # noqa: ANN202
     initialize_schema(connection)
     registry = UserStreamRegistry()
     nodes = NodeRepository(connection)
-    handler = GatewayHandler(
-        relay_service=RelayService(connection),
+    handler = GatewaySessions(
         node_persistence=GatewayNodePersistence(connection),
-        metrics_service=MetricsService(metrics=UsageMetricsRepository(connection)),
-        conversation_persistence=GatewayConversationPersistence(connection),
-        message_repository=MessageRepository(connection),
         user_stream_registry=registry,
+        lock=asyncio.Lock(),
     )
     users = UserRepository(connection)
     return handler, nodes, registry, connection, users
@@ -56,9 +46,8 @@ def test_scan_flips_stale_online_node_to_offline_and_broadcasts(tmp_path: Path) 
     browser = _RecordingWS()
     asyncio.run(registry.add(owner.owner_id, browser))
     asyncio.run(
-        handler.handle_message(
+        handler.register(
             websocket=type("X", (), {"send_json": lambda self, p: asyncio.sleep(0)})(),  # noqa: E501
-            message_type="node.register",
             payload={"node_id": "node-1", "agents": ["agent-a"], "capabilities": {}},
             authenticated_owner_id=owner.owner_id,
         )
@@ -104,9 +93,8 @@ def test_scan_skips_fresh_node(tmp_path: Path) -> None:
     browser = _RecordingWS()
     asyncio.run(registry.add(owner.owner_id, browser))
     asyncio.run(
-        handler.handle_message(
+        handler.register(
             websocket=type("X", (), {"send_json": lambda self, p: asyncio.sleep(0)})(),
-            message_type="node.register",
             payload={"node_id": "node-1", "agents": [], "capabilities": {}},
             authenticated_owner_id=owner.owner_id,
         )
