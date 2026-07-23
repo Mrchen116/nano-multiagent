@@ -67,14 +67,14 @@
 ### R4 — 真栈回归与最终静态门禁
 
 - Context: M2 需要以真 IM/Gateway 和能用工具的模型验证用户可见实时路径；关键路径客户端须从 typed HTTP timeline 中只取普通消息给回复轮询 consumer。
-- Decision: 隔离 HOME/config 将产品和动态创建 Agent 固定到 `volcanoArk:doubao-seed-2-0-code-preview-260215`；`IMClient.list_messages()` 过滤 `type="message"` 并解包 `message`，不把 config boundary wrapper 交给普通消息 consumer；权限旅程显式配置后续子 Agent 仍需的 allowlist。
-- Rationale: 动态 Agent 原先硬编码的 `kimiCoding:K2.6` 不在隔离 provider catalog，导致 Gateway 在真实上行路径明确报 `no registered provider for model: kimiCoding:K2.6`；权限测试的 PATCH 会替换 tool allowlist，必须保留后续旅程的 `agent`。两项均属验收配置/客户端适配，不改变 IM/Gateway 协议或 M2 production seam。
+- Decision: 隔离 HOME/config 将预置和动态创建 Agent 都固定到 provider catalog 已注册的 `kimiCoding:kimi-for-coding`；`IMClient.list_messages()` 过滤 `type="message"` 并解包 `message`，不把 config boundary wrapper 交给普通消息 consumer；权限旅程显式配置后续子 Agent 仍需的 allowlist。
+- Rationale: 动态 Agent 原先硬编码的 `kimiCoding:K2.6` 不在隔离 provider catalog，导致 Gateway 在真实上行路径明确报 `no registered provider for model: kimiCoding:K2.6`。随后 Doubao route 在背景通知和 created-agent 回复中返回无 terminal event，导致用户侧轮询超时；将整个验收栈收敛到已验证能完成 tool/agent 轮次的 Kimi route，消除同一套件的 route 分裂。权限测试的 PATCH 会替换 tool allowlist，必须保留后续旅程的 `agent`。这些均属验收配置/客户端适配，不改变 IM/Gateway 协议或 M2 production seam。
 - Evidence:
-  - Tests: `PYTHONPATH=src pytest tests/e2e/critical_paths/test_im_client.py -q` 先红（wrapper 与普通消息不等）后绿（1 passed）。
-  - Entry: 隔离真栈验证 created Agent 回复（1 passed）、权限批准/拒绝（2 passed）、权限后前台子 Agent（3 passed），并在完整 suite 的不同运行中验证 Agent config continuity、后台 bash 通知、前台 bash timeout、Gateway 韧性、群 @、fork、restart、stop run、subagent failure、subagent foreground。
+  - Tests: `PYTHONPATH=src pytest tests/e2e/critical_paths/test_im_client.py -q` 先红（wrapper 与普通消息不等）后绿（1 passed）；Kimi route 下 created Agent 真栈路径为 `1 passed, 18 deselected`。
+  - Entry: 隔离真栈完整运行验证 Agent config continuity、后台 bash 通知、前台 bash timeout、created Agent 回复、Gateway 韧性、群 @、fork、权限批准/拒绝、restart、stop run、subagent failure、subagent foreground 和 tool call。
   - Gateway HTTP/WS: 旧连接 replacement、非法 frame、online control RPC、Channel bootstrap、relay receipt、offline 503、`agent.message` 的实时 `message.created`/`message.completed`、刷新一致、幂等和双 owner 隔离，以及 M1 owner/message/policy/metrics 场景均由公开 HTTP/WS 真栈保留；精确 event/message/control/relay IDs 见本文件 R4 前次真栈记录。
-  - E2E/Regression: `scripts/e2e-critical.sh -m "not slow"` 在隔离 HOME/config 下多次运行；由于上游模型单次输出会偶发在 90 秒内不终止，完整单次运行未取得全绿（分别超时于 created-agent、permission、group 或 background reply 等模型输出等待），每个受影响旅程均通过后续隔离真栈分组重跑。`PYTHONPATH=src pytest -m "not e2e"` 为 `3676 passed, 1 skipped, 22 deselected`；`PYTHONPATH=src pytest tests/ --collect-only -q` 为 `3698 tests collected`；`ruff check .`、`ruff format --check .`、`git diff --check` 通过。
+  - E2E/Regression: `HOME=<isolated> scripts/e2e-critical.sh -m "not slow"` 为 `17 passed, 2 deselected in 333.17s`。`PYTHONPATH=src pytest -m "not e2e"` 为 `3676 passed, 1 skipped, 22 deselected`；`PYTHONPATH=src pytest tests/ --collect-only -q` 为 `3699 tests collected`；`ruff check .`、`ruff format --check .`、`git diff --check` 通过。
   - Frontend State Matrix / Browser QA / Visual / Prototype Comparison: N/A；未修改前端，用户可见实时事件由真实 `/im/ws/user` 验证。
 - Rollback: C2 前可回退至 `fd4c7dc29`。
-- Commits: C1=`13a84ae2d`，C2=`7da848968`、`ca1051d1f`、`c9bf98477`、`85516fc34`，C3=`748fdde9d`。
-- Next: 本 milestone 的代码、静态门禁和逐项真栈验收已完成；完整单次 E2E 的上游模型偶发超时如需作为硬交付门槛，需在稳定模型环境复跑。
+- Commits: C1=`13a84ae2d`，C2=`7da848968`、`ca1051d1f`、`c9bf98477`、`85516fc34`，C3=`748fdde9d`；follow-up C2=`5a61bceea`，C3=本提交。
+- Next: R4 退出标准已逐项核实；提交后集成 follow-up。

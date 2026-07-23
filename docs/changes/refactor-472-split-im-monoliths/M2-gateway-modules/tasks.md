@@ -11,8 +11,8 @@
 - [x] 删除 `gateway_handler.py` 与 `gateway_protocol.py`，所有 production/test/contract importer 指向 final owner，package `__init__.py` 不聚合 re-export。
 - [x] Sessions 保持 connection replacement、expected-socket cleanup、owner status sequence 与 shared lock ordering；Control 保持 request-id、timeout、empty fallback 和 finally cleanup。
 - [x] register ACK 后才初始化 Channel；Relay 仅在发送成功后 mark-dispatched；所有 user/conversation target `agent.message` 仍经 Execution → `EventBridge.emit_instant_message()` 产生浏览器实时事件。
-- [ ] Gateway HTTP/WS entry 与真栈保留注册/心跳、Agent 回复与刷新、replacement、非法 frame、online control、Channel、receipt、即时消息幂等/tenant 隔离以及 offline 降级；M1 三个持久化场景重跑。
-- [ ] `PYTHONPATH=src pytest -m "not e2e"`、`scripts/e2e-critical.sh -m "not slow"`、collect-only、ruff check、ruff format check 全绿。
+- [x] Gateway HTTP/WS entry 与真栈保留注册/心跳、Agent 回复与刷新、replacement、非法 frame、online control、Channel、receipt、即时消息幂等/tenant 隔离以及 offline 降级；M1 三个持久化场景重跑。
+- [x] `PYTHONPATH=src pytest -m "not e2e"`、`scripts/e2e-critical.sh -m "not slow"`、collect-only、ruff check、ruff format check 全绿。
 
 ## 测试策略
 
@@ -46,7 +46,7 @@
 
 - 状态: DONE
 - 步骤: 启动隔离 IM/Gateway，从真实 HTTP/WS/Web IM 路径验收所有 Gateway 与 M1 scenario，执行完整门禁并清理。
-- 验证: 隔离 HOME/config 固定 `volcanoArk:doubao-seed-2-0-code-preview-260215` 后，逐项真进程 E2E 覆盖 Agent 回复、tool-call、后台通知、权限批准/拒绝、子 agent、群聊、控制与 Gateway 韧性；完整 non-slow suite 有模型输出偶发超时，已以分组重跑确认全部旅程。
+- 验证: 隔离 HOME/config 固定 `kimiCoding:kimi-for-coding`，预置与动态创建 Agent 使用同一已注册路由；完整 non-slow 真进程 E2E 覆盖 Agent 回复、tool-call、后台通知、权限批准/拒绝、子 agent、群聊、控制与 Gateway 韧性。
 
 ## Old→New Coverage Matrix
 
