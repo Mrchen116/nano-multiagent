@@ -14,7 +14,7 @@ from agent.core.tools.base import (
 )
 from agent.platform.tools.base import ToolContext
 from agent.platform.tools.builtins.read import ReadTool
-from agent.platform.tools.registry import ToolRegistry
+from agent.core.tools.registry import ToolRegistry
 from agent.platform.tools.safety import ToolSafety, ToolSafetyConfig
 
 set_tool_safety_factory(ToolSafety)
