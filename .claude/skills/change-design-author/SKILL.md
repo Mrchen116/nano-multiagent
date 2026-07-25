@@ -554,7 +554,51 @@ mkdir -p docs/changes/<unit_dir>/specs/<包>/   # 仅为有对外行为变化的
 
 ---
 
-## §6 完成信号 + 门禁 2 交接
+## §6 独立设计审查闭环(门禁 2 必做)
+
+§5 自检通过只说明"你认为可以送审",**不代表门禁 2 通过**。你负责调度下面的独立审查闭环,直到最新报告和自己的判断都确认无实质问题。
+
+### §6.1 每轮启动全新独立 reviewer
+
+每一轮都用当前 harness 的 subagent 工具启动一个**全新 subagent**,明确要求它完整执行 `change-design-reviewer` skill:
+
+- 不得由你自己扮演 reviewer,也不得复用上一轮 reviewer。使用不继承当前对齐对话的独立上下文(例如 Codex `fork_turns: "none"`)。
+- 派发包只给 `unit_id`、`unit_dir` 和任务:"从首文档、design、delta-spec、prototype、canonical specs 与真实代码重新取证,完整执行 `change-design-reviewer`,把报告写到 `docs/changes/<unit_dir>/design-review.md`"。**不要附你的结论、怀疑点或期望答案**。
+- 若已有上一轮 `design-review.md`,要求 reviewer 不读取其中的结论,从原始产物重建台账;本轮完成后覆盖该文件,使它始终代表**最新一轮**完整报告。
+- reviewer 运行期间冻结 `design.md`、delta-spec、prototype 和 Milestone 骨架,等待它完成全部台账与架构进攻。不要边审边改,也不要用你的快速印象替代尚未完成的报告。
+- 当前 harness 无法启动独立 subagent、或无法隔离当前对齐上下文时,门禁 2 被阻断;明确报告这个能力缺口,不能降级成你再次自检。
+
+### §6.2 逐条判真,不盲从报告
+
+reviewer 完成后,读完整报告,对每条 Issue 和 Recommendation **自己回到首文档、canonical specs、真实代码与生产 wiring 核实**。reviewer 提供独立证据,不替你做最终判断:
+
+- **问题真实,且不推翻用户已确认的关键架构决策** → 自主修正所有受影响产物,不只改 reviewer 点名的那一句;同步检查图、接口、Milestone、delta-spec、prototype 与 Runbook。
+- **问题不真实 / 证据不足 / 只是口味偏好** → 有证据地驳回,不要为了让报告好看而修改设计,也不要把你的反驳喂给下一轮 reviewer 造成锚定。
+- **问题真实,但修复会推翻用户已确认的关键架构决策** → 暂停闭环,带事实、后果和推荐方案重新找用户对齐;用户拍板后再修改并复审。
+- **问题暴露首文档的用户场景、验收标准或范围需要改变** → 按 §0 回 `change-spec-author`;不能在 design 内静默改写需求。
+- Recommendation 若揭示你认同的实质改进,按真实问题处理;纯可选润色且没有下游后果的建议不强制采纳。
+
+除上述需要重新拍板或修改首文档的情况,审查修订循环**自主进行**,不把每轮常规 findings 交给用户处理。
+
+### §6.3 修订后必须重新全量审查
+
+每轮报告未满足停止条件时:
+
+1. 修改了受审产物 → 按 §5.1 重跑受影响的自检项;动了关键决策、架构边界或 Milestone 拆法时重跑完整 §5.1。
+2. 无论是否修改受审产物,都启动一个**全新** reviewer subagent,让它从头执行完整 `change-design-reviewer`;不能只复查上轮问题。
+3. 重复"独立审查 → 判真 → 修订 → 自检 → 全新复审",不设"最多两轮"之类提前退出条件。
+
+停止循环必须同时满足:
+
+- 最新 `design-review.md` 结论为 `Approved`,且为 `0 CRITICAL / 0 WARNING`;
+- 你逐条核过台账、架构进攻和 Recommendations,自己判断没有仍值得修改的实质问题;
+- 最终审查完成后,受审产物没有再变化。任何变化都会让报告过期,必须重新送审。
+
+只有满足这三个条件,才能进入 §7。固定路径只保留最新完整报告,不额外制造轮次台账。
+
+---
+
+## §7 完成信号 + 门禁 2 交接
 
 完成判据:
 
@@ -568,18 +612,18 @@ mkdir -p docs/changes/<unit_dir>/specs/<包>/   # 仅为有对外行为变化的
 - [ ] Milestone 表完整(每行字段都填),数量 = `docs/changes/<unit_dir>/M*/` 子目录数
 - [ ] milestone 子目录仅含 `.gitkeep`，没有预填 tasks.md / progress.md
 - [ ] 对外行为有变化的包都按最窄 canonical 落点产了 delta-spec `docs/changes/<unit_dir>/specs/<包>/<target>.md`(§4.8);纯内部 unit 在 design.md 注 "no spec delta"
-- [ ] 已 commit 到 `main`(`docs/changes/<unit_dir>/` 含 design.md 与 milestone 空目录)
+- [ ] §6 独立审查闭环已完成:最新报告 `Approved` 且 `0 CRITICAL / 0 WARNING`,你确认无实质问题,受审产物此后未变化
 
-通过后,在主仓 `main` 上 commit + push `docs/changes/<unit_dir>/`(勿建 `unit/*` 分支)。
+通过后,在主仓 `main` 上 commit + push `docs/changes/<unit_dir>/`(包含最终 `design-review.md`,勿建 `unit/*` 分支)。
 
 然后告诉用户:
 
-> Design 定稿,门禁 2 通过。可以按照 `change-orchestrator` skill实施。
+> Design 定稿,已通过独立 design review 闭环,门禁 2 通过。可以按照 `change-orchestrator` skill实施。
 > 按照 Orchestrator skill 会做 sync gate、创建 unit 分支 `unit/<unit-id>`、按 Milestone 表派发 worker。
 
 ---
 
-## §7 输入输出契约
+## §8 输入输出契约
 
 **输入**(本 skill 启动时必须存在):
 
@@ -594,6 +638,7 @@ mkdir -p docs/changes/<unit_dir>/specs/<包>/   # 仅为有对外行为变化的
 - `docs/changes/<unit_dir>/prototype.html`(仅前端相关 unit 必须产出;非前端 unit 不产)
 - `docs/changes/<unit_dir>/M*/` 目录，仅含 `.gitkeep`(orchestrator 据此校验 milestone 数量一致)
 - `docs/changes/<unit_dir>/specs/<包>/<target>.md` delta-spec(§4.8,仅有对外行为变化的包,可有多个 target;orchestrator §7.0 据此校正 + 软对账 + 合并进对应 canonical area。纯内部 unit 无此文件,design.md 注 "no spec delta")
+- `docs/changes/<unit_dir>/design-review.md`,最新一轮完整独立评审报告(`Approved`,`0 CRITICAL / 0 WARNING`;你另已确认无仍值得修改的实质问题)
 
 下游(orchestrator + worker + reviewer)对你的依赖:
 
