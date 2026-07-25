@@ -1,6 +1,6 @@
 # kernel (agent) - Tools and Hooks Specification
 
-> 对齐: bugfix-468
+> 对齐: feat-474
 > 上级: [kernel (agent) Specification](spec.md)
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)「给库/内核写契约的额外纪律」。本目录只收 **消费者经 `agent.sdk` 真正依赖的对外行为**(CDC 裁剪);内部如何装配/实现不在此层(那在代码 + 归档 design)。
@@ -214,3 +214,28 @@ observe 事件只观察;单个 hook 异常/超时不中断主流程(fail-open)�
 #### Scenario: 类型错误列出字段与期望类型
 - **WHEN** 模型为某字段提供了错误类型的值
 - **THEN** 错误文本包含该字段名、期望类型与实际类型
+
+### Requirement: agent 工具以轻量参数派发真类型子 agent
+
+消费者经会话启用的 `agent` 工具新建子 agent 时，只需提供短描述与任务说明；不必提供 skill 列表、类别别名或前台超时参数。可选 `subagent_type` 从内置真类型中选取；省略时按 `general-purpose` 运行。工具说明向消费者列出至少 `general-purpose`、`Explore`、`Plan` 及缺省行为。各类型在父会话允许的工具范围内提供可区分能力：`general-purpose` 可做修改类工作；`Explore` 与 `Plan` 不能获得会改仓库的写文件类工具，并携带只读角色指引。
+
+#### Scenario: 最少参数新建成功且默认 general-purpose
+- **WHEN** 消费者经 `agent` 新建子 agent，只提供 description 与 prompt，不传 skill 列表、类别或前台超时
+- **THEN** 派发成功，子 agent 按 `general-purpose` 能力运行
+
+#### Scenario: 工具说明列出可用类型与缺省
+- **WHEN** 消费者查看 `agent` 工具的说明
+- **THEN** 说明中可获知可用类型至少包含 `general-purpose`、`Explore`、`Plan`，以及不传类型时默认 `general-purpose`
+
+#### Scenario: Explore / Plan 无写仓库工具
+- **WHEN** 消费者以 `Explore` 或 `Plan` 新建子 agent
+- **THEN** 该子会话面向模型暴露的工具集合不含会直接改仓库的写/编辑类工具（在父会话已启用这些工具的前提下仍被去掉）
+
+#### Scenario: 未知或错误大小写类型失败并可理解
+- **WHEN** 消费者以不存在的类型名或错误大小写（如 `explore`）新建子 agent
+- **THEN** 该工具调用失败
+- **AND** 失败信息指出类型未找到，并列出当前可用类型
+
+#### Scenario: 已删除的仪式字段不可再传
+- **WHEN** 消费者调用 `agent` 时仍传入 `load_skills` / `category` / `timeout_seconds` 任一已删除字段
+- **THEN** 该工具调用因入参不符合 schema 而失败（不静默忽略）

@@ -13,7 +13,7 @@ import pytest
 from agent.core.background_tasks.models import BackgroundTaskStatus
 from agent.core.background_tasks.registry import BackgroundTaskRegistry
 from agent.core.errors import ToolError
-from agent.core.skills import SkillMetadata
+from agent.core.session.types import PromptSlotSeed
 from agent.core.tools.base import ToolContext
 from agent.platform.tools.builtins.agent import AgentTool
 from agent.platform.tools.safety import ToolSafety, ToolSafetyConfig
@@ -63,36 +63,67 @@ class _Runner:
         return _Handle(timeout_once=self.foreground_timeout)
 
 
-class _Control:
-    def __init__(self, workspace_root: Path, *, skills: tuple[str, ...] = ()) -> None:
-        self.workspace_root = workspace_root
-        self.model = "parent-model"
+class _ParentSession:
+    """Stands in for `directory.get(control.ref)` — the parent's persisted config."""
+
+    def __init__(
+        self,
+        *,
+        tool_allowlist: tuple[str, ...] | None,
+        skills: tuple[str, ...] | None,
+    ) -> None:
+        self.tool_allowlist = tool_allowlist
         self.skills = skills
+
+
+class _Directory:
+    def __init__(self, session: _ParentSession | None) -> None:
+        self._session = session
+
+    def get(self, ref: Any) -> _ParentSession | None:
+        del ref
+        return self._session
+
+
+class _Control:
+    """Fakes the `_SessionSubagentControl` surface `AgentTool` depends on.
+
+    feat-474: `AgentTool` now reads the parent's `tool_allowlist`/`skills` via
+    `control.directory.get(control.ref)` and, when the parent has no persisted
+    allowlist, falls back to `control.list_parent_enabled_tool_names()` — this
+    fake mirrors both paths so tests can exercise either.
+    """
+
+    def __init__(
+        self,
+        workspace_root: Path,
+        *,
+        parent_tool_allowlist: tuple[str, ...] | None = (
+            "read",
+            "write",
+            "edit",
+            "bash",
+            "agent",
+            "skill_manage",
+        ),
+        parent_skills: tuple[str, ...] | None = (),
+        active_enabled_tools: tuple[str, ...] = (),
+    ) -> None:
+        self.workspace_root = workspace_root
+        self.ref = object()
+        self.directory = _Directory(
+            _ParentSession(tool_allowlist=parent_tool_allowlist, skills=parent_skills)
+        )
+        self._active_enabled_tools = active_enabled_tools
+        self.model = "parent-model"
         self.created: list[dict[str, Any]] = []
         self.found: dict[str, Any] | None = None
 
     def resolve_run_model(self) -> str:
         return self.model
 
-    def resolve_available_skills(
-        self,
-        workspace_root: Path,
-        *,
-        include_names: tuple[str, ...] | None = None,
-    ) -> tuple[SkillMetadata, ...]:
-        del workspace_root
-        names = self.skills if include_names is None else include_names
-        known = set(self.skills)
-        return tuple(
-            SkillMetadata(
-                name=name,
-                description=f"{name} description",
-                location=self.workspace_root,
-                base_dir=self.workspace_root,
-            )
-            for name in names
-            if name in known
-        )
+    def list_parent_enabled_tool_names(self) -> tuple[str, ...]:
+        return self._active_enabled_tools
 
     def create_subagent(self, **kwargs: Any) -> SimpleNamespace:
         self.created.append(dict(kwargs))
@@ -115,10 +146,24 @@ class _Control:
 def _make_tool(
     tmp_path: Path,
     *,
-    skills: tuple[str, ...] = (),
     foreground_timeout: bool = False,
+    parent_tool_allowlist: tuple[str, ...] | None = (
+        "read",
+        "write",
+        "edit",
+        "bash",
+        "agent",
+        "skill_manage",
+    ),
+    parent_skills: tuple[str, ...] | None = (),
+    active_enabled_tools: tuple[str, ...] = (),
 ) -> tuple[AgentTool, ToolContext, _Control, _Runner, BackgroundTaskRegistry]:
-    control = _Control(tmp_path, skills=skills)
+    control = _Control(
+        tmp_path,
+        parent_tool_allowlist=parent_tool_allowlist,
+        parent_skills=parent_skills,
+        active_enabled_tools=active_enabled_tools,
+    )
     runner = _Runner(foreground_timeout=foreground_timeout)
     registry = BackgroundTaskRegistry()
     wiring = SimpleNamespace(registry=registry, subagent_runner=runner)
@@ -137,8 +182,6 @@ def _new_agent_args(**overrides: Any) -> dict[str, Any]:
     args: dict[str, Any] = {
         "description": "inspect subsystem",
         "prompt": "Inspect the subsystem and report findings.",
-        "subagent_type": "explore",
-        "load_skills": [],
         "run_in_background": True,
     }
     args.update(overrides)
@@ -164,9 +207,7 @@ def test_foreground_completion_stays_out_of_background_registry(
 ) -> None:
     tool, context, _control, runner, registry = _make_tool(tmp_path)
 
-    result = tool.run(
-        _new_agent_args(run_in_background=False, timeout_seconds=0.1), context
-    )
+    result = tool.run(_new_agent_args(run_in_background=False), context)
 
     assert result == {
         "status": "completed",
@@ -183,9 +224,7 @@ def test_foreground_timeout_hands_off_and_watcher_completes(tmp_path: Path) -> N
         tmp_path, foreground_timeout=True
     )
 
-    result = tool.run(
-        _new_agent_args(run_in_background=False, timeout_seconds=0.01), context
-    )
+    result = tool.run(_new_agent_args(run_in_background=False), context)
     assert result["status"] == "async_launched"
 
     for _ in range(50):
@@ -205,10 +244,9 @@ def test_running_continuation_requires_live_delivery(tmp_path: Path) -> None:
 
     result = tool.run(
         {
-            "agent_id": launched["agent_id"],
             "description": "inspect subsystem",
+            "agent_id": launched["agent_id"],
             "prompt": "Also inspect shutdown behavior.",
-            "load_skills": [],
         },
         context,
     )
@@ -219,10 +257,9 @@ def test_running_continuation_requires_live_delivery(tmp_path: Path) -> None:
     with pytest.raises(ToolError, match="did not confirm live delivery"):
         tool.run(
             {
-                "agent_id": launched["agent_id"],
                 "description": "inspect subsystem",
+                "agent_id": launched["agent_id"],
                 "prompt": "This must not be falsely acknowledged.",
-                "load_skills": [],
             },
             context,
         )
@@ -235,10 +272,9 @@ def test_terminal_continuation_resumes_same_conversation(tmp_path: Path) -> None
 
     result = tool.run(
         {
-            "agent_id": launched["agent_id"],
             "description": "inspect subsystem",
+            "agent_id": launched["agent_id"],
             "prompt": "Continue with tests.",
-            "load_skills": [],
         },
         context,
     )
@@ -246,6 +282,31 @@ def test_terminal_continuation_resumes_same_conversation(tmp_path: Path) -> None
     assert result["status"] == "async_launched"
     assert runner.start_calls[-1]["agent_session_id"] == "subagent-session"
     assert runner.start_calls[-1]["model"] == "parent-model"
+    # bugfix-474-fix1: the resumed result carries the record's real
+    # agent_type so the presenter can show it instead of guessing.
+    assert result["agent_type"] == "general-purpose"
+
+
+def test_running_continuation_message_queued_carries_real_agent_type(
+    tmp_path: Path,
+) -> None:
+    # bugfix-474-fix1: a still-running continuation's message_queued output
+    # must also surface the record's real agent_type — the presenter has no
+    # other way to distinguish an Explore/Plan follow-up from general-purpose.
+    tool, context, _control, _runner, _registry = _make_tool(tmp_path)
+    launched = tool.run(_new_agent_args(subagent_type="Explore"), context)
+
+    result = tool.run(
+        {
+            "description": "inspect subsystem",
+            "agent_id": launched["agent_id"],
+            "prompt": "Keep exploring.",
+        },
+        context,
+    )
+
+    assert result["status"] == "message_queued"
+    assert result["agent_type"] == "Explore"
 
 
 def test_cold_continuation_rehydrates_through_control(tmp_path: Path) -> None:
@@ -254,7 +315,7 @@ def test_cold_continuation_rehydrates_through_control(tmp_path: Path) -> None:
         "session_id": "cold-subagent",
         "metadata": {
             "description": "cold task",
-            "agent_type": "explore",
+            "agent_type": "Explore",
         },
         "output_path": tmp_path / "cold.jsonl",
     }
@@ -264,13 +325,15 @@ def test_cold_continuation_rehydrates_through_control(tmp_path: Path) -> None:
             "agent_id": "a-cold",
             "description": "cold task",
             "prompt": "Resume from disk.",
-            "load_skills": [],
         },
         context,
     )
 
     assert result["status"] == "async_launched"
     assert runner.start_calls[-1]["agent_session_id"] == "cold-subagent"
+    # bugfix-474-fix1: rehydrated-from-JSONL type also flows into the result
+    # so the presenter shows the real type, not a general-purpose guess.
+    assert result["agent_type"] == "Explore"
 
 
 def test_unknown_cold_agent_fails_explicitly(tmp_path: Path) -> None:
@@ -282,7 +345,6 @@ def test_unknown_cold_agent_fails_explicitly(tmp_path: Path) -> None:
                 "agent_id": "a-missing",
                 "description": "missing task",
                 "prompt": "Resume.",
-                "load_skills": [],
             },
             context,
         )
@@ -295,7 +357,6 @@ def test_unknown_cold_agent_fails_explicitly(tmp_path: Path) -> None:
     [
         ({"description": ""}, "description"),
         ({"prompt": ""}, "prompt"),
-        ({"category": "coding"}, "mutually exclusive"),
     ],
 )
 def test_new_agent_validation(
@@ -307,25 +368,131 @@ def test_new_agent_validation(
         tool.run(_new_agent_args(**overrides), context)
 
 
-def test_skill_validation_uses_conversation_control(tmp_path: Path) -> None:
-    tool, context, _control, _runner, _registry = _make_tool(
-        tmp_path, skills=("known-skill",)
-    )
-
-    result = tool.run(_new_agent_args(load_skills=["known-skill"]), context)
-    assert result["status"] == "async_launched"
-
-    with pytest.raises(ToolError) as exc_info:
-        tool.run(_new_agent_args(load_skills=["missing-skill"]), context)
-    assert exc_info.value.details["missing_skills"] == ["missing-skill"]
-
-
 def test_missing_control_fails_without_reaching_wiring(tmp_path: Path) -> None:
     safety = ToolSafety(repo_root=tmp_path, config=ToolSafetyConfig())
     context = ToolContext(repo_root=tmp_path, cwd=tmp_path, safety=safety)
 
     with pytest.raises(ToolError, match="subagent control is not configured"):
         AgentTool().run(_new_agent_args(), context)
+
+
+# ---------------------------------------------------------------------------
+# feat-474: built-in agent type resolution, tool deny sets, skills/prompt_seed
+# ---------------------------------------------------------------------------
+
+
+def test_default_omitted_type_resolves_general_purpose_with_full_parent_tools(
+    tmp_path: Path,
+) -> None:
+    tool, context, control, _runner, _registry = _make_tool(
+        tmp_path,
+        parent_tool_allowlist=(
+            "read",
+            "write",
+            "edit",
+            "bash",
+            "agent",
+            "skill_manage",
+        ),
+    )
+
+    result = tool.run(_new_agent_args(), context)
+
+    assert result["status"] == "async_launched"
+    created = control.created[0]
+    assert created["tool_allowlist"] == [
+        "read",
+        "write",
+        "edit",
+        "bash",
+        "agent",
+        "skill_manage",
+    ]
+    assert created["metadata"]["agent_type"] == "general-purpose"
+
+
+@pytest.mark.parametrize("type_name", ["Explore", "Plan"])
+def test_read_only_types_drop_write_edit_agent_skill_manage(
+    tmp_path: Path, type_name: str
+) -> None:
+    tool, context, control, _runner, _registry = _make_tool(
+        tmp_path,
+        parent_tool_allowlist=(
+            "read",
+            "write",
+            "edit",
+            "bash",
+            "agent",
+            "skill_manage",
+            "web_fetch",
+        ),
+    )
+
+    result = tool.run(_new_agent_args(subagent_type=type_name), context)
+
+    assert result["status"] == "async_launched"
+    created = control.created[0]
+    assert created["tool_allowlist"] == ["read", "bash", "web_fetch"]
+    assert created["metadata"]["agent_type"] == type_name
+
+
+def test_parent_none_allowlist_falls_back_to_active_enabled_tools(
+    tmp_path: Path,
+) -> None:
+    """spec: parent `tool_allowlist=None` (product default) still yields an
+    explicit child allowlist, resolved via the control's narrow window rather
+    than staying `None` (which would let the child inherit the full registry —
+    potentially wider than the parent)."""
+    tool, context, control, _runner, _registry = _make_tool(
+        tmp_path,
+        parent_tool_allowlist=None,
+        active_enabled_tools=("read", "bash", "agent"),
+    )
+
+    result = tool.run(_new_agent_args(), context)
+
+    assert result["status"] == "async_launched"
+    assert control.created[0]["tool_allowlist"] == ["read", "bash", "agent"]
+
+
+@pytest.mark.parametrize("bad_name", ["oracle", "explore", "PLAN", "general_purpose"])
+def test_unknown_or_wrong_case_type_fails_with_available_agents(
+    tmp_path: Path, bad_name: str
+) -> None:
+    tool, context, control, _runner, _registry = _make_tool(tmp_path)
+
+    with pytest.raises(ToolError) as exc_info:
+        tool.run(_new_agent_args(subagent_type=bad_name), context)
+
+    assert "Available agents: general-purpose, Explore, Plan" in str(exc_info.value)
+    assert control.created == []
+
+
+@pytest.mark.parametrize("skills", [None, (), ("known-skill", "another-skill")])
+def test_child_skills_mirror_parent_without_folding(
+    tmp_path: Path, skills: tuple[str, ...] | None
+) -> None:
+    tool, context, control, _runner, _registry = _make_tool(
+        tmp_path, parent_skills=skills
+    )
+
+    result = tool.run(_new_agent_args(), context)
+
+    assert result["status"] == "async_launched"
+    assert control.created[0]["skills"] == skills
+
+
+def test_type_specific_prompt_seed_is_passed_to_create_subagent(
+    tmp_path: Path,
+) -> None:
+    tool, context, control, _runner, _registry = _make_tool(tmp_path)
+
+    tool.run(_new_agent_args(subagent_type="Explore"), context)
+
+    seed = control.created[0]["prompt_seed"]
+    assert isinstance(seed, PromptSlotSeed)
+    body_text = " ".join(item.text for item in seed.body)
+    assert "READ-ONLY" in body_text
 
 
 @pytest.mark.parametrize(

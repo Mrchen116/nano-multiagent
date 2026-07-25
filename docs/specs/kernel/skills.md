@@ -1,6 +1,6 @@
 # kernel (agent) - Skills Specification
 
-> 对齐: feat-446
+> 对齐: feat-474
 > 上级: [kernel (agent) Specification](spec.md)
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)「给库/内核写契约的额外纪律」。本目录只收 **消费者经 `agent.sdk` 真正依赖的对外行为**(CDC 裁剪);内部如何装配/实现不在此层(那在代码 + 归档 design)。
@@ -133,12 +133,6 @@ session turn 注入 system prompt `<available_skills>` 的技能,对同一 `(wor
   执行一轮后 LLM 请求中 `<available_skills>` 列出的技能
 - **THEN** 两者为同一集合(同名 + 同路径),不会出现预览齐全而运行时缩水成单个共享根技能的情形
 
-#### Scenario: 子 agent 的 load_skills 校验与 list_skills 同口径
-- **GIVEN** 某 session 的 agent 经 `agent` 工具创建子 agent 并传入 `load_skills`
-- **WHEN** 工具校验 `load_skills`
-- **THEN** 在该 workspace 配置目录或 `skill_search_roots` 下暴露的技能名通过校验,不存在的技能名报错;
-  通过的集合与 `list_skills(workspace_root)` 对同一名集合的结果一致
-
 #### Scenario: 未提供 workspace_config_dirname 时技能集合为空
 - **GIVEN** 经 `build_kernel()` 未传入 `workspace_config_dirname`
 - **WHEN** 取 preview / `list_skills` / 运行时注入的技能
@@ -147,3 +141,12 @@ session turn 注入 system prompt `<available_skills>` 的技能,对同一 `(wor
 #### Scenario: list_skills 返回项携带 SKILL.md 路径
 - **WHEN** 消费者调用 `list_skills(workspace_root)`
 - **THEN** 返回的每个 `SkillInfo` 携带 `location`(该技能 SKILL.md 路径,可空),消费者据此区分同名但不同路径的技能
+
+### Requirement: 经 agent 工具新建的子会话继承父会话 skills 配置
+
+经 `agent` 工具新建子 agent 时，子会话的 `skills` 配置与父会话相同（`None` 表示未收窄、非空为白名单、空序列为零可见 skill），不得比父会话更宽。`agent` 工具不再接受单独的 skill 列表参数来加宽或覆盖。
+
+#### Scenario: 子会话 skills 与父会话一致且不更宽
+- **GIVEN** 父会话 `skills` 为某一配置（未收窄 / 白名单 / 空）
+- **WHEN** 消费者经 `agent` 新建子 agent（不传已删除的 skill 列表字段）
+- **THEN** 子会话面向模型可见的 skill 集合与父会话在同一 workspace 解析口径下一致，且不出现父不可见而子可见的 skill

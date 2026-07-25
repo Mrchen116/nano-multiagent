@@ -389,7 +389,7 @@ class TestAgentPresenter:
         assert evt.detail == {
             "description": "Refactor auth module",
             "prompt": "do it",
-            "subagent_type": "",
+            "subagent_type": "general-purpose",
         }
 
     def test_end_completed_has_full_prompt_before_result(self) -> None:
@@ -473,6 +473,81 @@ class TestAgentPresenter:
         )
         assert isinstance(evt.detail["error"], str)
         assert evt.detail["error"] == ""
+
+    # -- bugfix-474-fix1: continuation must not fabricate a display type ----
+
+    def test_start_continuation_without_subagent_type_omits_it(self) -> None:
+        # 续聊路径(有 agent_id,无 subagent_type)在 format_start 阶段还不知道
+        # 真实类型 —— `_run_continuation` 从不 resolve_agent_type。缺省填
+        # general-purpose 会把 Explore/Plan 续聊误标成 general-purpose。
+        evt = _presenter("agent").format_start(
+            {"agent_id": "agt-1", "prompt": "继续排查"}
+        )
+        assert "subagent_type" not in evt.detail
+
+    def test_start_new_agent_without_subagent_type_still_defaults(self) -> None:
+        # 新建(无 agent_id)时缺省展示 general-purpose 的行为不变。
+        evt = _presenter("agent").format_start(
+            {"description": "新任务", "prompt": "go"}
+        )
+        assert evt.detail["subagent_type"] == "general-purpose"
+
+    def test_end_continuation_without_real_type_omits_it(self) -> None:
+        # 续聊 message_queued/async_launched 的 output 若未带真实 agent_type
+        # (旧行为/异常兜底),不得回退成 general-purpose——宁可不展示。
+        evt = _presenter("agent").format_end(
+            {"agent_id": "agt-1", "prompt": "继续排查"},
+            _FakeResult(
+                output={
+                    "status": "message_queued",
+                    "agent_id": "agt-1",
+                    "description": "排查数据库",
+                    "output_file": "/tmp/out.jsonl",
+                }
+            ),
+            duration_ms=5,
+        )
+        assert "subagent_type" not in evt.detail
+
+    def test_end_continuation_uses_real_type_from_result(self) -> None:
+        # 续聊时若 result 带上真实 agent_type(来自 registry record),展示它
+        # 而不是猜测的 general-purpose。
+        evt = _presenter("agent").format_end(
+            {"agent_id": "agt-1", "prompt": "继续排查"},
+            _FakeResult(
+                output={
+                    "status": "async_launched",
+                    "agent_id": "agt-1",
+                    "description": "排查数据库",
+                    "output_file": "/tmp/out.jsonl",
+                    "agent_type": "Explore",
+                }
+            ),
+            duration_ms=5,
+        )
+        assert evt.detail["subagent_type"] == "Explore"
+
+    def test_end_continuation_explicit_subagent_type_arg_wins(self) -> None:
+        # 若调用方显式传了 subagent_type(理论上不常见,但 schema 允许),
+        # 以调用参数为准。
+        evt = _presenter("agent").format_end(
+            {
+                "agent_id": "agt-1",
+                "prompt": "继续排查",
+                "subagent_type": "Plan",
+            },
+            _FakeResult(
+                output={
+                    "status": "async_launched",
+                    "agent_id": "agt-1",
+                    "description": "排查数据库",
+                    "output_file": "/tmp/out.jsonl",
+                    "agent_type": "Explore",
+                }
+            ),
+            duration_ms=5,
+        )
+        assert evt.detail["subagent_type"] == "Plan"
 
 
 class TestMemoryPresenter:
