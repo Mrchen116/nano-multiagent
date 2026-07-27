@@ -1,0 +1,1438 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>feat-484 · 商业级消息内容交互原型</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --page: oklch(0.965 0.004 240);
+      --surface: oklch(0.985 0.003 240);
+      --surface-2: oklch(0.945 0.006 240);
+      --bubble: oklch(0.91 0.007 240);
+      --border: oklch(0.86 0.008 240);
+      --text: oklch(0.22 0.012 240);
+      --muted: oklch(0.52 0.014 240);
+      --accent: oklch(0.52 0.14 142);
+      --accent-strong: oklch(0.42 0.14 142);
+      --link: oklch(0.50 0.18 255);
+      --danger: oklch(0.55 0.17 25);
+      --sidebar: oklch(0.20 0.013 240);
+      --shadow: 0 18px 50px -30px oklch(0.12 0.02 240 / 0.55);
+      --focus: 0 0 0 3px oklch(0.72 0.12 220 / 0.42);
+      font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI",
+        "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body { min-height: 100%; }
+
+    body {
+      margin: 0;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 12% -8%, oklch(0.91 0.06 145 / 0.55), transparent 31rem),
+        linear-gradient(180deg, #f8faf9 0%, #edf1f2 100%);
+    }
+
+    button, textarea { font: inherit; }
+    button { color: inherit; }
+
+    .prototype-shell {
+      width: min(1480px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 24px 0 36px;
+    }
+
+    .prototype-head {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 20px;
+      margin-bottom: 16px;
+    }
+
+    .prototype-kicker {
+      margin: 0 0 5px;
+      color: var(--accent-strong);
+      font-size: 12px;
+      font-weight: 750;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(21px, 2.2vw, 30px);
+      line-height: 1.16;
+      letter-spacing: -.025em;
+    }
+
+    .prototype-sub {
+      margin: 7px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .prototype-controls {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    .control-group {
+      display: inline-flex;
+      gap: 3px;
+      padding: 3px;
+      border: 1px solid var(--border);
+      border-radius: 11px;
+      background: oklch(0.99 0.002 240 / .86);
+      box-shadow: 0 7px 22px -19px #000;
+    }
+
+    .control-button {
+      border: 0;
+      border-radius: 8px;
+      padding: 7px 10px;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 650;
+      white-space: nowrap;
+    }
+
+    .control-button:hover { background: var(--surface-2); color: var(--text); }
+    .control-button[aria-pressed="true"] {
+      color: oklch(0.30 0.10 142);
+      background: oklch(0.92 0.06 145);
+    }
+
+    .control-button:focus-visible,
+    .icon-button:focus-visible,
+    .menu-item:focus-visible,
+    .sheet-action:focus-visible,
+    .code-copy:focus-visible,
+    a:focus-visible,
+    textarea:focus-visible {
+      outline: none;
+      box-shadow: var(--focus);
+    }
+
+    .stage-wrap {
+      display: flex;
+      justify-content: center;
+      padding: 10px;
+      border: 1px solid oklch(0.85 0.01 240 / .9);
+      border-radius: 22px;
+      background:
+        linear-gradient(135deg, oklch(0.93 0.012 240 / .7), oklch(0.98 0.004 240 / .9));
+      box-shadow: var(--shadow);
+    }
+
+    .app {
+      position: relative;
+      display: grid;
+      grid-template-columns: 280px minmax(0, 1fr);
+      width: 100%;
+      height: min(790px, calc(100vh - 190px));
+      min-height: 610px;
+      overflow: hidden;
+      border: 1px solid oklch(0.82 0.01 240);
+      border-radius: 16px;
+      background: var(--page);
+      box-shadow: 0 16px 38px -27px #000;
+      transition: width .2s ease, height .2s ease, border-radius .2s ease;
+    }
+
+    .sidebar {
+      display: flex;
+      min-width: 0;
+      flex-direction: column;
+      padding: 18px 12px;
+      color: oklch(0.92 0.01 240);
+      background: var(--sidebar);
+    }
+
+    .sidebar-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 8px 18px;
+      font-size: 14px;
+      font-weight: 760;
+    }
+
+    .brand-mark {
+      display: grid;
+      width: 28px;
+      height: 28px;
+      place-items: center;
+      border-radius: 9px;
+      color: white;
+      background: var(--accent);
+      font-size: 12px;
+    }
+
+    .sidebar-label {
+      padding: 0 9px 7px;
+      color: oklch(0.60 0.01 240);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    .conversation {
+      display: grid;
+      grid-template-columns: 34px minmax(0, 1fr);
+      gap: 9px;
+      padding: 10px 9px;
+      border-radius: 11px;
+    }
+
+    .conversation.active { background: oklch(0.28 0.015 240); }
+    .conversation + .conversation { margin-top: 3px; }
+
+    .mini-avatar,
+    .avatar {
+      display: grid;
+      flex: 0 0 auto;
+      place-items: center;
+      border-radius: 50%;
+      color: white;
+      background: oklch(0.49 0.15 118);
+      font-weight: 780;
+    }
+
+    .mini-avatar { width: 34px; height: 34px; font-size: 11px; }
+    .conversation-title { font-size: 12px; font-weight: 690; }
+    .conversation-preview {
+      margin-top: 3px;
+      overflow: hidden;
+      color: oklch(0.60 0.01 240);
+      font-size: 11px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .chat {
+      display: grid;
+      min-height: 0;
+      min-width: 0;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      overflow: hidden;
+      background: oklch(0.94 0.006 240);
+    }
+
+    .chat-head {
+      display: flex;
+      min-height: 64px;
+      align-items: center;
+      gap: 11px;
+      padding: 11px 20px;
+      border-bottom: 1px solid var(--border);
+      background: oklch(0.975 0.003 240 / .96);
+    }
+
+    .chat-head .mini-avatar { width: 36px; height: 36px; }
+    .chat-title { font-size: 14px; font-weight: 760; }
+    .chat-meta { margin-top: 2px; color: var(--muted); font-size: 11px; }
+    .online-dot {
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      margin-right: 4px;
+      border-radius: 50%;
+      background: var(--accent);
+    }
+
+    .messages {
+      overflow: auto;
+      padding: 28px 28px 34px;
+      scroll-behavior: smooth;
+    }
+
+    .message-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      max-width: 78%;
+    }
+
+    .message-row + .message-row { margin-top: 20px; }
+    .message-row.user { margin-left: auto; flex-direction: row-reverse; }
+    .avatar { width: 31px; height: 31px; font-size: 11px; }
+    .message-column { min-width: 0; }
+
+    .sender {
+      margin: 0 0 5px 2px;
+      color: oklch(0.42 0.13 112);
+      font-size: 12px;
+      font-weight: 750;
+    }
+
+    .bubble {
+      position: relative;
+      padding: 12px 15px;
+      border-radius: 16px;
+      background: var(--bubble);
+      font-size: 14px;
+      line-height: 1.56;
+      -webkit-touch-callout: default;
+      user-select: text;
+    }
+
+    .user .bubble {
+      color: oklch(0.24 0.02 153);
+      background: oklch(0.89 0.055 145);
+    }
+
+    .message-body { min-width: 0; }
+    .message-body > :first-child { margin-top: 0; }
+    .message-body > :last-child { margin-bottom: 0; }
+    .message-body p { margin: 0 0 10px; }
+    .message-body ul { margin: 6px 0 12px; padding-left: 20px; }
+    .message-body li + li { margin-top: 4px; }
+    .message-body blockquote {
+      margin: 10px 0;
+      padding: 2px 0 2px 10px;
+      border-left: 3px solid oklch(0.71 0.045 240);
+      color: oklch(0.41 0.015 240);
+    }
+
+    .message-body a {
+      color: var(--link);
+      text-decoration: underline;
+      text-decoration-thickness: 1px;
+      text-underline-offset: 2px;
+      overflow-wrap: anywhere;
+    }
+
+    .message-body a:hover { color: oklch(0.42 0.18 255); }
+    .named-external::after {
+      content: "↗";
+      display: inline-block;
+      margin-left: 3px;
+      font-size: .78em;
+      font-weight: 760;
+      text-decoration: none;
+      transform: translateY(-1px);
+      user-select: none;
+    }
+
+    .code-block {
+      position: relative;
+      margin: 12px 0;
+      overflow: hidden;
+      border: 1px solid oklch(0.28 0.015 240);
+      border-radius: 9px;
+      background: oklch(0.14 0.014 240);
+      color: oklch(0.88 0.02 240);
+    }
+
+    .code-label {
+      padding: 7px 46px 6px 11px;
+      color: oklch(0.65 0.02 240);
+      border-bottom: 1px solid oklch(0.27 0.014 240);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 10px;
+      text-transform: lowercase;
+    }
+
+    pre {
+      margin: 0;
+      overflow: auto;
+      padding: 12px;
+      font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+
+    .code-copy {
+      position: absolute;
+      z-index: 2;
+      top: 5px;
+      right: 6px;
+      display: grid;
+      width: 32px;
+      height: 30px;
+      place-items: center;
+      border: 1px solid oklch(0.39 0.018 240);
+      border-radius: 7px;
+      color: oklch(0.78 0.018 240);
+      background: oklch(0.22 0.015 240);
+      cursor: pointer;
+    }
+
+    .code-copy:hover { color: white; background: oklch(0.29 0.02 240); }
+    .code-copy svg, .icon-button svg { width: 16px; height: 16px; }
+
+    .process-strip {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 7px;
+      margin-top: 12px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .process-pill {
+      padding: 3px 7px;
+      border: 1px solid oklch(0.81 0.01 240);
+      border-radius: 999px;
+      background: oklch(0.94 0.005 240);
+    }
+
+    .status {
+      display: flex;
+      min-height: 26px;
+      align-items: center;
+      gap: 7px;
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .user .status { justify-content: flex-end; }
+
+    .toolbar {
+      position: absolute;
+      z-index: 6;
+      top: -15px;
+      right: 8px;
+      display: flex;
+      gap: 2px;
+      padding: 3px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: oklch(0.99 0.002 240 / .98);
+      box-shadow: 0 10px 24px -16px #000;
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(3px);
+      transition: opacity .12s ease, transform .12s ease;
+    }
+
+    .bubble:hover .toolbar,
+    .bubble:focus-within .toolbar,
+    .bubble.force-actions .toolbar {
+      opacity: 1;
+      pointer-events: auto;
+      transform: translateY(0);
+    }
+
+    .icon-button {
+      position: relative;
+      display: grid;
+      width: 30px;
+      height: 28px;
+      place-items: center;
+      border: 0;
+      border-radius: 7px;
+      background: transparent;
+      color: oklch(0.43 0.02 240);
+      cursor: pointer;
+    }
+
+    .icon-button:hover { color: var(--accent-strong); background: var(--surface-2); }
+    .icon-button[aria-disabled="true"] { color: oklch(0.62 0.008 240); cursor: not-allowed; }
+
+    .tip {
+      position: absolute;
+      right: 0;
+      bottom: calc(100% + 7px);
+      width: max-content;
+      max-width: 190px;
+      padding: 5px 7px;
+      border-radius: 6px;
+      color: white;
+      background: oklch(0.21 0.012 240);
+      font-size: 10px;
+      line-height: 1.3;
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(2px);
+      transition: opacity .1s ease, transform .1s ease;
+    }
+
+    .icon-button:hover .tip,
+    .icon-button:focus-visible .tip {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .tip-reason {
+      display: block;
+      margin-top: 2px;
+      color: oklch(0.82 0.018 240);
+      font-weight: 500;
+    }
+
+    .more-button {
+      display: none;
+      width: 44px;
+      height: 44px;
+      margin: -10px -11px -10px 0;
+      place-items: center;
+      border: 0;
+      border-radius: 50%;
+      color: var(--muted);
+      background: transparent;
+      cursor: pointer;
+      font-size: 20px;
+      letter-spacing: 1px;
+    }
+
+    .more-button:hover { background: oklch(0.89 0.008 240); color: var(--text); }
+
+    .composer {
+      display: flex;
+      gap: 10px;
+      align-items: flex-end;
+      padding: 12px 18px 16px;
+      border-top: 1px solid var(--border);
+      background: oklch(0.975 0.003 240);
+    }
+
+    .composer textarea {
+      min-height: 43px;
+      max-height: 90px;
+      flex: 1;
+      resize: none;
+      border: 1px solid var(--border);
+      border-radius: 13px;
+      padding: 10px 12px;
+      color: var(--text);
+      background: white;
+      line-height: 1.4;
+    }
+
+    .send {
+      width: 42px;
+      height: 42px;
+      border: 0;
+      border-radius: 12px;
+      color: white;
+      background: var(--accent);
+      cursor: pointer;
+      font-weight: 800;
+    }
+
+    .context-menu {
+      position: absolute;
+      z-index: 30;
+      display: none;
+      width: 218px;
+      overflow: hidden;
+      padding: 5px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--surface);
+      box-shadow: 0 18px 45px -24px #000;
+    }
+
+    .context-menu.open { display: block; }
+
+    .menu-item,
+    .sheet-action {
+      display: flex;
+      width: 100%;
+      align-items: center;
+      gap: 10px;
+      border: 0;
+      background: transparent;
+      cursor: pointer;
+      text-align: left;
+    }
+
+    .menu-item {
+      min-height: 38px;
+      padding: 8px 10px;
+      border-radius: 7px;
+      font-size: 13px;
+    }
+
+    .menu-item:hover { background: var(--surface-2); }
+    .menu-item svg, .sheet-action svg { width: 17px; height: 17px; color: var(--muted); }
+
+    .action-label {
+      display: flex;
+      min-width: 0;
+      flex: 1;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .action-reason {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 500;
+      line-height: 1.35;
+    }
+
+    .action-reason:empty { display: none; }
+    .js-branch[aria-disabled="true"] { color: oklch(0.48 0.008 240); cursor: not-allowed; }
+    .js-branch[aria-disabled="true"] svg { color: oklch(0.64 0.008 240); }
+
+    .sheet-backdrop {
+      position: absolute;
+      z-index: 40;
+      inset: 0;
+      display: none;
+      align-items: flex-end;
+      background: oklch(0.08 0.01 240 / .38);
+    }
+
+    .sheet-backdrop.open { display: flex; }
+
+    .action-sheet {
+      width: 100%;
+      padding: 8px 10px calc(10px + env(safe-area-inset-bottom, 0px));
+      border-radius: 20px 20px 0 0;
+      background: oklch(0.985 0.003 240);
+      box-shadow: 0 -18px 45px -30px #000;
+      transform-origin: bottom;
+      animation: sheet-in .16s ease-out;
+    }
+
+    @keyframes sheet-in {
+      from { transform: translateY(12px); opacity: .55; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+
+    .sheet-handle {
+      width: 36px;
+      height: 4px;
+      margin: 2px auto 9px;
+      border-radius: 4px;
+      background: oklch(0.79 0.01 240);
+    }
+
+    .sheet-title {
+      margin: 0;
+      padding: 4px 10px 8px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .04em;
+    }
+
+    .sheet-action {
+      min-height: 52px;
+      padding: 0 12px;
+      border-radius: 10px;
+      font-size: 15px;
+      font-weight: 620;
+    }
+
+    .sheet-action:hover { background: var(--surface-2); }
+    .sheet-action.cancel {
+      justify-content: center;
+      margin-top: 5px;
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+    }
+
+    .toast {
+      position: absolute;
+      z-index: 60;
+      left: 50%;
+      bottom: 82px;
+      max-width: calc(100% - 30px);
+      padding: 8px 13px;
+      border-radius: 999px;
+      color: white;
+      background: oklch(0.24 0.014 240 / .94);
+      box-shadow: 0 13px 28px -18px #000;
+      font-size: 12px;
+      font-weight: 650;
+      opacity: 0;
+      pointer-events: none;
+      transform: translate(-50%, 7px);
+      transition: opacity .14s ease, transform .14s ease;
+    }
+
+    .toast.show { opacity: 1; transform: translate(-50%, 0); }
+    .toast.error { background: var(--danger); }
+
+    .app.is-mobile {
+      width: 390px;
+      height: min(780px, calc(100vh - 190px));
+      min-height: 600px;
+      grid-template-columns: minmax(0, 1fr);
+      border-radius: 28px;
+    }
+
+    .app.is-mobile .sidebar { display: none; }
+    .app.is-mobile .chat-head { min-height: 57px; padding: 9px 14px; }
+    .app.is-mobile .chat-head .mini-avatar { width: 32px; height: 32px; }
+    .app.is-mobile .chat-meta { display: none; }
+    .app.is-mobile .messages { padding: 20px 13px 30px; }
+    .app.is-mobile .message-row.user { display: none; }
+    .app.is-mobile .message-row { max-width: 91%; gap: 8px; }
+    .app.is-mobile .avatar { width: 28px; height: 28px; }
+    .app.is-mobile .bubble { padding: 11px 13px; border-radius: 15px; font-size: 13.5px; }
+    .app.is-mobile .toolbar { display: none; }
+    .app.is-mobile .more-button { display: grid; }
+    .app.is-mobile .code-copy { width: 44px; height: 42px; top: 0; right: 0; border-radius: 0 8px 0 9px; }
+    .app.is-mobile .composer { padding: 9px 10px calc(11px + env(safe-area-inset-bottom, 0px)); }
+    .app.is-mobile .composer textarea { min-height: 40px; }
+    .app.is-mobile .send { width: 40px; height: 40px; }
+    .app.is-mobile .toast { bottom: 75px; }
+
+    .app.is-hybrid {
+      width: min(1024px, 100%);
+    }
+
+    .app.is-hybrid .more-button { display: grid; }
+    .app.is-hybrid .action-sheet {
+      width: min(420px, calc(100% - 24px));
+      margin: 0 auto 12px;
+      border-radius: 20px;
+    }
+
+    .prototype-notes {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 13px;
+    }
+
+    .note {
+      padding: 12px 14px;
+      border: 1px solid oklch(0.86 0.008 240);
+      border-radius: 13px;
+      background: oklch(0.985 0.003 240 / .8);
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .note strong { display: block; margin-bottom: 3px; color: var(--text); font-size: 12px; }
+
+    @media (max-width: 900px) {
+      .prototype-head { align-items: flex-start; flex-direction: column; }
+      .prototype-controls { justify-content: flex-start; }
+      .app:not(.is-mobile) { grid-template-columns: 220px minmax(0, 1fr); }
+      .prototype-notes { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 470px) {
+      .prototype-shell { width: 100%; padding: 14px 0 20px; }
+      .prototype-head, .prototype-notes { margin-left: 12px; margin-right: 12px; }
+      .stage-wrap { padding: 0; border-left: 0; border-right: 0; border-radius: 0; }
+      .app.is-mobile { width: 100%; border-left: 0; border-right: 0; border-radius: 0; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; animation: none !important; transition: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="prototype-shell">
+    <header class="prototype-head">
+      <div>
+        <p class="prototype-kicker">feat-484 · Interaction contract</p>
+        <h1 data-i18n="title">消息正文优先，操作按需出现</h1>
+        <p class="prototype-sub" data-i18n="subtitle">本控制条只用于评审；下方气泡沿用当前 Web IM 的布局与视觉。</p>
+      </div>
+      <div class="prototype-controls" aria-label="Prototype controls">
+        <div class="control-group" aria-label="Viewport">
+          <button class="control-button" data-viewport="desktop" aria-pressed="true">Desktop</button>
+          <button class="control-button" data-viewport="mobile" aria-pressed="false">Mobile</button>
+          <button class="control-button" data-viewport="hybrid" aria-pressed="false">Hybrid</button>
+        </div>
+        <div class="control-group" aria-label="State">
+          <button class="control-button" data-state="default" aria-pressed="true" data-i18n="stateDefault">阅读态</button>
+          <button class="control-button" data-state="actions" aria-pressed="false" data-i18n="stateActions">操作态</button>
+          <button class="control-button" data-state="menu" aria-pressed="false" data-i18n="stateMenu">菜单态</button>
+        </div>
+        <div class="control-group" aria-label="Branch state">
+          <button class="control-button" data-branch-state="available" aria-pressed="true" data-i18n="branchReady">可分支</button>
+          <button class="control-button" data-branch-state="offline" aria-pressed="false" data-i18n="branchOffline">离线</button>
+          <button class="control-button" data-branch-state="pending" aria-pressed="false" data-i18n="branchPending">生成中</button>
+          <button class="control-button" data-branch-state="absent" aria-pressed="false" data-i18n="branchAbsent">不适用</button>
+        </div>
+        <div class="control-group" aria-label="Language">
+          <button class="control-button" data-lang="zh" aria-pressed="true">中</button>
+          <button class="control-button" data-lang="en" aria-pressed="false">EN</button>
+        </div>
+      </div>
+    </header>
+
+    <div class="stage-wrap">
+      <main class="app" id="app">
+        <aside class="sidebar" aria-label="Conversation list">
+          <div class="sidebar-brand">
+            <span class="brand-mark">N</span>
+            <span>nano IM</span>
+          </div>
+          <div class="sidebar-label" data-i18n="recent">最近会话</div>
+          <div class="conversation active">
+            <span class="mini-avatar">DE</span>
+            <div>
+              <div class="conversation-title">default-agent</div>
+              <div class="conversation-preview" data-i18n="preview">消息交互设计已收敛…</div>
+            </div>
+          </div>
+          <div class="conversation">
+            <span class="mini-avatar" style="background:oklch(.51 .13 282)">RE</span>
+            <div>
+              <div class="conversation-title">reviewer</div>
+              <div class="conversation-preview">Design review · Approved</div>
+            </div>
+          </div>
+        </aside>
+
+        <section class="chat" aria-label="Chat">
+          <header class="chat-head">
+            <span class="mini-avatar">DE</span>
+            <div>
+              <div class="chat-title">default-agent</div>
+              <div class="chat-meta"><span class="online-dot"></span><span data-i18n="online">在线 · 直接会话</span></div>
+            </div>
+          </header>
+
+          <div class="messages" id="messages">
+            <article class="message-row user">
+              <div class="message-column">
+                <div class="bubble" data-i18n="userPrompt">帮我把消息复制和链接交互做得更自然。</div>
+                <div class="status"><span>11:43</span></div>
+              </div>
+            </article>
+
+            <article class="message-row" id="primaryMessage">
+              <span class="avatar" aria-hidden="true">DE</span>
+              <div class="message-column">
+                <div class="sender">default-agent</div>
+                <div class="bubble" id="primaryBubble" data-message-id="agent-message-1" tabindex="-1">
+                  <div class="toolbar" role="toolbar" data-i18n-aria="messageActions" aria-label="消息操作" data-clipboard-exclude>
+                    <button class="icon-button js-copy-message" type="button" data-i18n-aria="copyMessage" aria-label="复制整条消息">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                        <rect x="8" y="8" width="10" height="11" rx="2"></rect>
+                        <path d="M15 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path>
+                      </svg>
+                      <span class="tip" data-i18n="copyMessage">复制整条消息</span>
+                    </button>
+                    <button class="icon-button js-branch" type="button" data-i18n-aria="branch" aria-label="从此处分支">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                        <circle cx="7" cy="5" r="2"></circle>
+                        <circle cx="17" cy="7" r="2"></circle>
+                        <circle cx="17" cy="17" r="2"></circle>
+                        <path d="M7 7v4a6 6 0 0 0 6 6h2M9 8a6 6 0 0 0 6-1"></path>
+                      </svg>
+                      <span class="tip" id="toolbarBranchTip"><span data-i18n="branch">从此处分支</span><span class="tip-reason js-branch-reason"></span></span>
+                    </button>
+                  </div>
+
+                  <div class="message-body" id="messageBody">
+                    <p data-i18n="bodyIntro">最终交互只有一条原则：正文先交给浏览器，消息操作再按需出现。</p>
+                    <p>
+                      <span data-i18n="bodyLinks">这里同时展示</span>
+                      <a class="named-external" href="https://example.com/product-design" target="_blank" rel="noopener noreferrer" data-external-label="namedLink">
+                        <span data-i18n="namedLink">商业 IM 设计参考</span>
+                      </a><span data-i18n="separator">、</span>
+                      <a href="https://example.com/reference" target="_blank" rel="noopener noreferrer" data-external-label="rawExternal">https://example.com/reference</a>
+                      <span data-i18n="andWord">以及</span>
+                      <a href="#internal-demo" data-i18n="internalLink">当前 IM 内链</a><span data-i18n="period">。</span>
+                    </p>
+                    <p>
+                      <span data-i18n="linkCases">同源与安全降级样例：</span>
+                      <a href="/chat/demo-conversation" data-i18n="productLink">产品会话</a><span data-i18n="separator">、</span>
+                      <a href="/openapi.json" data-i18n="resourceLink">同源资源</a><span data-i18n="separator">、</span>
+                      <span data-i18n="unsupportedLink">不支持目标 tel:+86-0000</span><span data-i18n="period">。</span>
+                    </p>
+                    <blockquote data-i18n="selectionHint">拖选这句话的前半段：选区内右键保留浏览器菜单，同一段选区外右键仍是消息菜单。</blockquote>
+                    <ul>
+                      <li data-i18n="listOne">普通气泡区域右键：Copy message / Branch from here</li>
+                      <li data-i18n="listTwo">链接、代码或选区内右键：浏览器原生能力</li>
+                    </ul>
+                    <div class="code-block">
+                      <div class="code-label" data-clipboard-exclude>typescript</div>
+                      <button class="code-copy js-copy-code" type="button" data-i18n-aria="copyCode" aria-label="复制代码" data-clipboard-exclude>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                          <rect x="8" y="8" width="10" height="11" rx="2"></rect>
+                          <path d="M15 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path>
+                        </svg>
+                      </button>
+                      <pre><code>const preserveNative = selection.intersects(messageBody);
+
+if (!preserveNative) openMessageMenu();</code></pre>
+                    </div>
+                  </div>
+
+                  <div class="process-strip" data-clipboard-exclude>
+                    <span class="process-pill" data-i18n="process">› 过程 · 1 工具 · 2 段思考</span>
+                    <span class="process-pill">17.4k tok · 6%</span>
+                  </div>
+                </div>
+                <div class="status">
+                  <span>11:44</span>
+                  <span>⏱ 26.1s</span>
+                  <button class="more-button" id="mobileMore" type="button" data-i18n-aria="more" aria-label="更多消息操作">•••</button>
+                </div>
+              </div>
+            </article>
+          </div>
+
+          <footer class="composer">
+            <textarea aria-label="Message draft" data-i18n-placeholder="draft" placeholder="未发送的草稿会保留">这段未发送的草稿不会因打开外链而丢失。</textarea>
+            <button class="send" type="button" aria-label="Send">↑</button>
+          </footer>
+        </section>
+
+        <div class="context-menu" id="contextMenu" role="menu" data-i18n-aria="messageActions" aria-label="消息操作">
+          <button class="menu-item js-copy-message" type="button" role="menuitem">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+              <rect x="8" y="8" width="10" height="11" rx="2"></rect><path d="M15 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path>
+            </svg>
+            <span data-i18n="copyMessage">复制整条消息</span>
+          </button>
+          <button class="menu-item js-branch" type="button" role="menuitem">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+              <circle cx="7" cy="5" r="2"></circle><circle cx="17" cy="7" r="2"></circle><circle cx="17" cy="17" r="2"></circle><path d="M7 7v4a6 6 0 0 0 6 6h2M9 8a6 6 0 0 0 6-1"></path>
+            </svg>
+            <span class="action-label"><span data-i18n="branch">从此处分支</span><span class="action-reason js-branch-reason"></span></span>
+          </button>
+        </div>
+
+        <div class="sheet-backdrop" id="sheetBackdrop">
+          <section class="action-sheet" id="actionSheet" role="dialog" aria-modal="true" data-i18n-aria="messageActions" aria-label="消息操作">
+            <div class="sheet-handle" aria-hidden="true"></div>
+            <p class="sheet-title" data-i18n="messageActions">消息操作</p>
+            <button class="sheet-action js-copy-message" type="button">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                <rect x="8" y="8" width="10" height="11" rx="2"></rect><path d="M15 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path>
+              </svg>
+              <span data-i18n="copyMessage">复制整条消息</span>
+            </button>
+            <button class="sheet-action js-branch" type="button">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                <circle cx="7" cy="5" r="2"></circle><circle cx="17" cy="7" r="2"></circle><circle cx="17" cy="17" r="2"></circle><path d="M7 7v4a6 6 0 0 0 6 6h2M9 8a6 6 0 0 0 6-1"></path>
+              </svg>
+              <span class="action-label"><span data-i18n="branch">从此处分支</span><span class="action-reason js-branch-reason"></span></span>
+            </button>
+            <button class="sheet-action cancel" id="sheetCancel" type="button" data-i18n="cancel">取消</button>
+          </section>
+        </div>
+
+        <div class="toast" id="toast" role="status" aria-live="polite">已复制</div>
+      </main>
+    </div>
+
+    <div class="prototype-notes" aria-label="Design notes">
+      <div class="note"><strong data-i18n="noteNativeTitle">原生交互不被劫持</strong><span data-i18n="noteNative">正文可以真实拖选；选区、链接、代码右键不弹 IM 菜单。</span></div>
+      <div class="note"><strong data-i18n="noteActionsTitle">消息操作只有两项</strong><span data-i18n="noteActions">整条复制 + eligible 分支；桌面按需出现，移动端从 More 进入。</span></div>
+      <div class="note"><strong data-i18n="noteNoRedesignTitle">不是聊天页重做</strong><span data-i18n="noteNoRedesign">头像、气泡、正文、过程/token 和 composer 的层级都保持现状。</span></div>
+    </div>
+  </div>
+
+  <script>
+    (() => {
+      const app = document.getElementById("app");
+      const bubble = document.getElementById("primaryBubble");
+      const body = document.getElementById("messageBody");
+      const menu = document.getElementById("contextMenu");
+      const sheet = document.getElementById("sheetBackdrop");
+      const actionSheet = document.getElementById("actionSheet");
+      const more = document.getElementById("mobileMore");
+      const toast = document.getElementById("toast");
+      const messages = document.getElementById("messages");
+      const inertSurfaces = [
+        document.querySelector(".prototype-head"),
+        document.querySelector(".prototype-notes"),
+        app.querySelector(".sidebar"),
+        app.querySelector(".chat"),
+        menu
+      ];
+      let language = "zh";
+      let branchState = "available";
+      let toastTimer = null;
+      let noticeToken = 0;
+      let menuTrigger = null;
+      let recentPointer = null;
+      let activeSurface = null;
+      let nextSurfaceToken = 0;
+      let latestCopyAttempt = 0;
+
+      const dictionary = {
+        zh: {
+          title: "消息正文优先，操作按需出现",
+          subtitle: "本控制条只用于评审；下方气泡沿用当前 Web IM 的布局与视觉。",
+          stateDefault: "阅读态", stateActions: "操作态", stateMenu: "菜单态",
+          recent: "最近会话", preview: "消息交互设计已收敛…", online: "在线 · 直接会话",
+          userPrompt: "帮我把消息复制和链接交互做得更自然。",
+          bodyIntro: "最终交互只有一条原则：正文先交给浏览器，消息操作再按需出现。",
+          bodyLinks: "这里同时展示", namedLink: "商业 IM 设计参考", separator: "、", andWord: "以及", internalLink: "当前 IM 内链", period: "。",
+          linkCases: "同源与安全降级样例：", productLink: "产品会话", resourceLink: "同源资源", unsupportedLink: "不支持目标 tel:+86-0000",
+          selectionHint: "拖选这句话的前半段：选区内右键保留浏览器菜单，同一段选区外右键仍是消息菜单。",
+          listOne: "普通气泡区域右键：复制整条消息 / 从此处分支",
+          listTwo: "链接、代码或选区内右键：浏览器原生能力",
+          process: "› 过程 · 1 工具 · 2 段思考", draft: "未发送的草稿会保留",
+          messageActions: "消息操作", copyMessage: "复制整条消息", copyCode: "复制代码",
+          branch: "从此处分支", more: "更多消息操作", cancel: "取消", rawExternal: "https://example.com/reference",
+          branchReady: "可分支", branchOffline: "离线", branchPending: "生成中", branchAbsent: "不适用",
+          branchOfflineReason: "Agent 离线，暂不可分支", branchPendingReason: "正在创建分支…",
+          copied: "已复制", copyFailed: "复制失败，请重试", branchDemo: "这里会进入新的分支会话",
+          newTab: "在新标签页打开",
+          noteNativeTitle: "原生交互不被劫持", noteNative: "正文可以真实拖选；选区、链接、代码右键不弹 IM 菜单。",
+          noteActionsTitle: "消息操作只有两项", noteActions: "整条复制 + eligible 分支；mouse/keyboard 按需出现，coarse/hybrid 从 More 进入。",
+          noteNoRedesignTitle: "不是聊天页重做", noteNoRedesign: "头像、气泡、正文、过程/token 和 composer 的层级都保持现状。"
+        },
+        en: {
+          title: "Content first. Message actions on demand.",
+          subtitle: "The controls are prototype-only; the bubble keeps the current Web IM structure and tone.",
+          stateDefault: "Reading", stateActions: "Actions", stateMenu: "Menu",
+          recent: "Recent chats", preview: "Message interactions are aligned…", online: "Online · Direct chat",
+          userPrompt: "Make message copying and link navigation feel more natural.",
+          bodyIntro: "The final interaction follows one rule: the browser owns content first; message actions appear on demand.",
+          bodyLinks: "This message includes a", namedLink: "commercial IM design reference", separator: ", ", andWord: ", and an", internalLink: "internal IM link", period: ".",
+          linkCases: "Same-origin and safe fallback examples:", productLink: "product chat", resourceLink: "same-origin resource", unsupportedLink: "unsupported target tel:+86-0000",
+          selectionHint: "Select the first half of this sentence: right-click inside the range for the browser menu, or outside it for message actions.",
+          listOne: "Right-click ordinary bubble space: Copy message / Branch from here",
+          listTwo: "Right-click a link, code, or inside a selection: browser-native actions",
+          process: "› Process · 1 tool · 2 thoughts", draft: "Your unsent draft stays here",
+          messageActions: "Message actions", copyMessage: "Copy message", copyCode: "Copy code",
+          branch: "Branch from here", more: "More message actions", cancel: "Cancel", rawExternal: "https://example.com/reference",
+          branchReady: "Ready", branchOffline: "Offline", branchPending: "Pending", branchAbsent: "Not eligible",
+          branchOfflineReason: "Agent is offline. Branching is unavailable.", branchPendingReason: "Creating a branch…",
+          copied: "Copied", copyFailed: "Copy failed. Please try again.", branchDemo: "This opens a new branch chat",
+          newTab: "Opens in a new tab",
+          noteNativeTitle: "Native content stays native", noteNative: "Text is genuinely selectable; selections, links, and code keep the browser menu.",
+          noteActionsTitle: "Only two message actions", noteActions: "Copy message + eligible branch; on demand for mouse/keyboard, under More for coarse and hybrid input.",
+          noteNoRedesignTitle: "Not a chat redesign", noteNoRedesign: "Avatar, bubble, content, process/token, and composer hierarchy stay intact."
+        }
+      };
+
+      function t(key) {
+        return dictionary[language][key] || key;
+      }
+
+      function updateExternalLabels() {
+        document.querySelectorAll("[data-external-label]").forEach((anchor) => {
+          const label = t(anchor.dataset.externalLabel);
+          const separator = language === "zh" ? "，" : ". ";
+          anchor.setAttribute("aria-label", `${label}${separator}${t("newTab")}`);
+        });
+      }
+
+      function branchReason() {
+        if (branchState === "offline") return t("branchOfflineReason");
+        if (branchState === "pending") return t("branchPendingReason");
+        return "";
+      }
+
+      function updateBranchPresentation() {
+        const isAbsent = branchState === "absent";
+        const isDisabled = branchState === "offline" || branchState === "pending";
+        const reason = branchReason();
+        document.querySelectorAll(".js-branch").forEach((button) => {
+          button.hidden = isAbsent;
+          if (isDisabled) button.setAttribute("aria-disabled", "true");
+          else button.removeAttribute("aria-disabled");
+          if (button.classList.contains("icon-button") && isDisabled) {
+            button.setAttribute("aria-describedby", "toolbarBranchTip");
+          } else {
+            button.removeAttribute("aria-describedby");
+          }
+        });
+        document.querySelectorAll(".js-branch-reason").forEach((node) => {
+          node.textContent = reason;
+        });
+        document.querySelectorAll("[data-branch-state]").forEach((button) => {
+          button.setAttribute("aria-pressed", String(button.dataset.branchState === branchState));
+        });
+      }
+
+      function applyLanguage(next) {
+        language = next;
+        document.documentElement.lang = next === "zh" ? "zh-CN" : "en";
+        document.querySelectorAll("[data-i18n]").forEach((node) => {
+          node.textContent = t(node.dataset.i18n);
+        });
+        document.querySelectorAll("[data-i18n-aria]").forEach((node) => {
+          node.setAttribute("aria-label", t(node.dataset.i18nAria));
+        });
+        document.querySelectorAll("[data-i18n-placeholder]").forEach((node) => {
+          node.setAttribute("placeholder", t(node.dataset.i18nPlaceholder));
+        });
+        document.querySelectorAll("[data-lang]").forEach((button) => {
+          button.setAttribute("aria-pressed", String(button.dataset.lang === next));
+        });
+        updateExternalLabels();
+        updateBranchPresentation();
+        toast.textContent = t("copied");
+      }
+
+      function showToast(message, kind = "success") {
+        window.clearTimeout(toastTimer);
+        const ownNoticeToken = ++noticeToken;
+        toast.textContent = message;
+        toast.classList.toggle("error", kind === "error");
+        toast.classList.add("show");
+        toastTimer = window.setTimeout(() => {
+          if (noticeToken === ownNoticeToken) toast.classList.remove("show");
+        }, kind === "error" ? 4000 : 1600);
+      }
+
+      function closeMenu(restore = false) {
+        menu.classList.remove("open");
+        if (activeSurface?.type === "menu") activeSurface = null;
+        if (restore && menuTrigger && menuTrigger.isConnected) menuTrigger.focus();
+      }
+
+      function closeSheet(restore = true) {
+        sheet.classList.remove("open");
+        if (activeSurface?.type === "sheet") activeSurface = null;
+        inertSurfaces.forEach((surface) => {
+          if (surface) surface.removeAttribute("inert");
+        });
+        if (restore && more.isConnected) more.focus();
+      }
+
+      function openSheet() {
+        closeMenu();
+        sheet.classList.add("open");
+        inertSurfaces.forEach((surface) => {
+          if (surface) surface.setAttribute("inert", "");
+        });
+        activeSurface = { type: "sheet", token: ++nextSurfaceToken };
+        actionSheet.querySelector(".sheet-action:not([hidden])").focus();
+      }
+
+      function openMenuAt(clientX, clientY, trigger = bubble) {
+        closeSheet(false);
+        const appRect = app.getBoundingClientRect();
+        menu.style.left = "8px";
+        menu.style.top = "8px";
+        menu.classList.add("open");
+        const width = menu.offsetWidth;
+        const height = menu.offsetHeight;
+        const x = Math.min(Math.max(8, clientX - appRect.left), appRect.width - width - 8);
+        const y = Math.min(Math.max(8, clientY - appRect.top), appRect.height - height - 8);
+        menu.style.left = `${x}px`;
+        menu.style.top = `${y}px`;
+        menuTrigger = trigger;
+        activeSurface = { type: "menu", token: ++nextSurfaceToken };
+        menu.querySelector('[role="menuitem"]').focus();
+      }
+
+      function selectionPointDisposition(clientX, clientY) {
+        const selection = window.getSelection();
+        if (!selection || selection.isCollapsed || selection.rangeCount === 0) return "none";
+        const ranges = [...Array(selection.rangeCount).keys()]
+          .map((index) => selection.getRangeAt(index))
+          .filter((range) => {
+            try {
+              return body.contains(range.commonAncestorContainer) || range.intersectsNode(body);
+            } catch {
+              return false;
+            }
+          });
+        if (ranges.length === 0) return "none";
+        const bodyRect = body.getBoundingClientRect();
+        if (clientX < bodyRect.left || clientX > bodyRect.right || clientY < bodyRect.top || clientY > bodyRect.bottom) {
+          return "outside";
+        }
+
+        let node = null;
+        let offset = 0;
+        if (typeof document.caretPositionFromPoint === "function") {
+          const position = document.caretPositionFromPoint(clientX, clientY);
+          node = position?.offsetNode ?? null;
+          offset = position?.offset ?? 0;
+        } else if (typeof document.caretRangeFromPoint === "function") {
+          const pointRange = document.caretRangeFromPoint(clientX, clientY);
+          node = pointRange?.startContainer ?? null;
+          offset = pointRange?.startOffset ?? 0;
+        } else {
+          return "unresolved";
+        }
+
+        if (!node || !body.contains(node)) return "outside";
+        try {
+          return ranges.some((range) => range.comparePoint(node, offset) === 0) ? "inside" : "outside";
+        } catch {
+          return "unresolved";
+        }
+      }
+
+      function normalizePointerType(pointerType) {
+        return ["mouse", "touch", "pen"].includes(pointerType) ? pointerType : "unknown";
+      }
+
+      function mouseSecondaryKind(facts) {
+        if (facts.button === 2) return "button-2";
+        if (facts.button === 0 && facts.ctrlKey === true) return "control-primary";
+        return null;
+      }
+
+      function resolveContextModality(event, messageId) {
+        const direct = normalizePointerType(event.pointerType);
+        const contextSecondaryKind = mouseSecondaryKind(event);
+        if (event.button < 0) return "keyboard";
+        if (direct === "touch" || direct === "pen") return direct;
+        if (direct === "mouse") return contextSecondaryKind ? "mouse" : "keyboard";
+        if (!contextSecondaryKind) return "unknown";
+        if (!recentPointer || recentPointer.messageId !== messageId) return "unknown";
+        const elapsed = event.timeStamp - recentPointer.timeStamp;
+        const distance = Math.hypot(event.clientX - recentPointer.x, event.clientY - recentPointer.y);
+        if (elapsed < 0 || elapsed > 1500 || distance > 8) return "unknown";
+        const recentType = normalizePointerType(recentPointer.type);
+        if (recentType === "mouse" && mouseSecondaryKind(recentPointer) !== contextSecondaryKind) return "unknown";
+        return recentType;
+      }
+
+      function cleanInlineText(value) {
+        return value.replace(/\s+/g, " ").replace(/\s+([，。；：！？、,.!?;:])/g, "$1").trim();
+      }
+
+      function serializeInline(node) {
+        if (node.nodeType === Node.TEXT_NODE) return node.nodeValue || "";
+        if (!(node instanceof Element) || node.hasAttribute("data-clipboard-exclude")) return "";
+        if (node.tagName === "BR") return "\n";
+        const label = cleanInlineText([...node.childNodes].map(serializeInline).join(""));
+        if (node.tagName !== "A") return label;
+        const href = node.href;
+        if (!href) return label;
+        let sameTarget = label === href;
+        try {
+          sameTarget = new URL(label, document.baseURI).href === new URL(href, document.baseURI).href;
+        } catch {
+          // A non-URL label is intentionally serialized with its target.
+        }
+        return sameTarget ? label : `${label} (${href})`;
+      }
+
+      function serializeList(list, depth = 0) {
+        const items = [...list.children].filter((child) => child.tagName === "LI");
+        let ordinal = Number(list.getAttribute("start") || 1);
+        return items.map((item) => {
+          const explicitValue = item.getAttribute("value");
+          if (explicitValue !== null) ordinal = Number(explicitValue);
+          const marker = list.tagName === "OL" ? `${ordinal++}. ` : "- ";
+          const ownText = cleanInlineText(
+            [...item.childNodes]
+              .filter((child) => !(child instanceof Element && ["UL", "OL"].includes(child.tagName)))
+              .map(serializeInline)
+              .join("")
+          );
+          const nested = [...item.children]
+            .filter((child) => ["UL", "OL"].includes(child.tagName))
+            .map((child) => serializeList(child, depth + 1))
+            .join("\n");
+          const line = `${"  ".repeat(depth)}${marker}${ownText}`;
+          return nested ? `${line}\n${nested}` : line;
+        }).join("\n");
+      }
+
+      function serializeBlock(element) {
+        if (element.hasAttribute("data-clipboard-exclude")) return "";
+        if (element.tagName === "UL" || element.tagName === "OL") return serializeList(element);
+        if (element.tagName === "TABLE") {
+          return [...element.querySelectorAll("tr")]
+            .map((row) => [...row.children].map((cell) => cleanInlineText(serializeInline(cell))).join("\t"))
+            .join("\n");
+        }
+        if (element.tagName === "PRE") return element.textContent.replace(/\r?\n$/, "");
+        const ownPre = element.matches(".code-block") ? element.querySelector("pre") : null;
+        if (ownPre) return ownPre.textContent.replace(/\r?\n$/, "");
+        return cleanInlineText(serializeInline(element));
+      }
+
+      function serializeMessageBody() {
+        const clone = body.cloneNode(true);
+        clone.querySelectorAll("[data-clipboard-exclude]").forEach((node) => node.remove());
+        return [...clone.children].map(serializeBlock).filter(Boolean).join("\n\n").trim();
+      }
+
+      async function writeClipboard(text) {
+        try {
+          if (!navigator.clipboard || !navigator.clipboard.writeText) throw new Error("clipboard unavailable");
+          await navigator.clipboard.writeText(text);
+        } catch (error) {
+          // prototype.html must also work when opened as file://; product design intentionally has no deprecated fallback.
+          const textarea = document.createElement("textarea");
+          textarea.value = text;
+          textarea.style.cssText = "position:fixed;left:-10000px;top:0";
+          document.body.append(textarea);
+          textarea.select();
+          const copied = document.execCommand && document.execCommand("copy");
+          textarea.remove();
+          if (!copied) throw error;
+        }
+      }
+
+      function captureCopyOwnership(event) {
+        const fromSurface = event?.currentTarget?.closest("#contextMenu, #actionSheet");
+        return fromSurface && activeSurface ? activeSurface.token : null;
+      }
+
+      function copyResultIsCurrent(attemptToken, surfaceToken) {
+        if (attemptToken !== latestCopyAttempt) return false;
+        return surfaceToken === null || activeSurface?.token === surfaceToken;
+      }
+
+      function closeOwnedSurface(surfaceToken) {
+        if (surfaceToken === null || activeSurface?.token !== surfaceToken) return;
+        if (activeSurface.type === "menu") closeMenu(true);
+        else closeSheet(true);
+      }
+
+      async function copyMessage(event) {
+        const surfaceToken = captureCopyOwnership(event);
+        const attemptToken = ++latestCopyAttempt;
+        try {
+          await writeClipboard(serializeMessageBody());
+          if (!copyResultIsCurrent(attemptToken, surfaceToken)) return;
+          closeOwnedSurface(surfaceToken);
+          showToast(t("copied"));
+        } catch {
+          if (!copyResultIsCurrent(attemptToken, surfaceToken)) return;
+          showToast(t("copyFailed"), "error");
+        }
+      }
+
+      async function copyCode() {
+        const attemptToken = ++latestCopyAttempt;
+        const code = body.querySelector("pre code").textContent.replace(/\r?\n$/, "");
+        try {
+          await writeClipboard(code);
+          if (!copyResultIsCurrent(attemptToken, null)) return;
+          showToast(t("copied"));
+        } catch {
+          if (!copyResultIsCurrent(attemptToken, null)) return;
+          showToast(t("copyFailed"), "error");
+        }
+      }
+
+      function branchDemo(event) {
+        if (branchState !== "available") {
+          event.preventDefault();
+          return;
+        }
+        closeOwnedSurface(captureCopyOwnership(event));
+        showToast(t("branchDemo"));
+      }
+
+      function setBranchState(next) {
+        branchState = next;
+        updateBranchPresentation();
+      }
+
+      function setViewport(viewport) {
+        app.classList.toggle("is-mobile", viewport === "mobile");
+        app.classList.toggle("is-hybrid", viewport === "hybrid");
+        document.querySelectorAll("[data-viewport]").forEach((button) => {
+          button.setAttribute("aria-pressed", String(button.dataset.viewport === viewport));
+        });
+        setState("default");
+        messages.scrollTop = messages.scrollHeight;
+        window.setTimeout(() => {
+          messages.scrollTop = messages.scrollHeight;
+        }, 0);
+      }
+
+      function setState(state) {
+        bubble.classList.toggle("force-actions", state === "actions");
+        closeMenu();
+        closeSheet(false);
+        if (state === "menu") {
+          if (app.classList.contains("is-mobile") || app.classList.contains("is-hybrid")) {
+            openSheet();
+          } else {
+            const rect = bubble.getBoundingClientRect();
+            openMenuAt(rect.right - 14, rect.top + 42, bubble);
+          }
+        }
+        document.querySelectorAll("[data-state]").forEach((button) => {
+          button.setAttribute("aria-pressed", String(button.dataset.state === state));
+        });
+      }
+
+      document.querySelectorAll("[data-viewport]").forEach((button) => {
+        button.addEventListener("click", () => setViewport(button.dataset.viewport));
+      });
+      document.querySelectorAll("[data-state]").forEach((button) => {
+        button.addEventListener("click", () => setState(button.dataset.state));
+      });
+      document.querySelectorAll("[data-branch-state]").forEach((button) => {
+        button.addEventListener("click", () => setBranchState(button.dataset.branchState));
+      });
+      document.querySelectorAll("[data-lang]").forEach((button) => {
+        button.addEventListener("click", () => applyLanguage(button.dataset.lang));
+      });
+      document.querySelectorAll(".js-copy-message").forEach((button) => button.addEventListener("click", copyMessage));
+      document.querySelectorAll(".js-copy-code").forEach((button) => button.addEventListener("click", copyCode));
+      document.querySelectorAll(".js-branch").forEach((button) => button.addEventListener("click", branchDemo));
+
+      bubble.addEventListener("pointerdown", (event) => {
+        recentPointer = {
+          messageId: bubble.dataset.messageId,
+          type: event.pointerType || "unknown",
+          button: event.button,
+          ctrlKey: event.ctrlKey,
+          x: event.clientX,
+          y: event.clientY,
+          timeStamp: event.timeStamp
+        };
+      }, true);
+
+      bubble.addEventListener("contextmenu", (event) => {
+        if (resolveContextModality(event, bubble.dataset.messageId) !== "mouse") return;
+        const targetElement = event.target instanceof Element ? event.target : event.target?.parentElement;
+        const nativeTarget = targetElement?.closest("a, pre, code, button, input, textarea, [contenteditable='true']");
+        const selectionPoint = selectionPointDisposition(event.clientX, event.clientY);
+        if (nativeTarget || selectionPoint === "inside" || selectionPoint === "unresolved") return;
+        event.preventDefault();
+        openMenuAt(event.clientX, event.clientY, bubble);
+      });
+
+      more.addEventListener("click", openSheet);
+      document.getElementById("sheetCancel").addEventListener("click", () => closeSheet());
+      sheet.addEventListener("mousedown", (event) => {
+        if (event.target === sheet) closeSheet();
+      });
+
+      document.addEventListener("mousedown", (event) => {
+        if (menu.classList.contains("open") && !menu.contains(event.target) && event.target !== bubble) closeMenu();
+      });
+
+      menu.addEventListener("keydown", (event) => {
+        const items = [...menu.querySelectorAll('[role="menuitem"]:not([hidden])')];
+        const current = items.indexOf(document.activeElement);
+        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+          event.preventDefault();
+          const delta = event.key === "ArrowDown" ? 1 : -1;
+          items[(current + delta + items.length) % items.length].focus();
+        } else if (event.key === "Home" || event.key === "End") {
+          event.preventDefault();
+          items[event.key === "Home" ? 0 : items.length - 1].focus();
+        }
+      });
+
+      actionSheet.addEventListener("keydown", (event) => {
+        if (event.key !== "Tab") return;
+        const items = [...actionSheet.querySelectorAll("button:not([hidden])")];
+        const current = Math.max(0, items.indexOf(document.activeElement));
+        const delta = event.shiftKey ? -1 : 1;
+        event.preventDefault();
+        items[(current + delta + items.length) % items.length].focus();
+      });
+
+      document.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape") return;
+        if (sheet.classList.contains("open")) closeSheet();
+        else if (menu.classList.contains("open")) closeMenu(true);
+      });
+
+      messages.scrollTop = messages.scrollHeight;
+      applyLanguage("zh");
+    })();
+  </script>
+</body>
+</html>
