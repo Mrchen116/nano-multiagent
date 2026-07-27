@@ -5,7 +5,8 @@
 > `change-design-author`(design 阶段产出本单元的 delta-spec —— 对 canonical 的 ADDED/MODIFIED/REMOVED);
 > `change-orchestrator`(收尾据实际代码 diff 校正 delta 后,合并进 canonical)。
 >
-> 顶点架构(包、依赖方向、部署拓扑)在 [`SPEC.md`](../SPEC.md);本指南只管单包行为契约层。
+> 全仓文档权威地图见 [`README.md`](README.md)；顶点架构(包、依赖方向、部署拓扑)在
+> [`SPEC.md`](../SPEC.md)。本指南只管单包行为契约层。
 
 ## 这套体系长什么样
 
@@ -44,11 +45,16 @@ design,也不建独立 ADR 层(`docs/decisions/`);决策的家是 per-unit `desi
 |---|---|
 | 函数 / 类名、实现走查、内部数据结构、库选型 | 代码 + 注释(COMMENTING_GUIDE) |
 | "当初为什么这么选"(决策) | 该单元 `docs/changes/<unit>/design.md` 的 `## 关键决策` |
-| 启停命令、调试 how-to、加 channel 教程 | `AGENTS.md` / `docs/operator-runbook.md` |
+| 本地环境、常用命令、提交格式、测试身份 | `docs/development/local-development.md` |
+| worktree 服务端口、config、PID 与 auto-bind 隔离 | `docs/development/worktree-runtime.md` |
+| 启停命令、调试 how-to、加 channel 教程 | `docs/operator-runbook.md` |
 | 跨包架构总图、依赖方向、部署拓扑 | `SPEC.md`(顶点) |
 | 进行中的 bug / TODO / 迁移笔记 | `docs/changes/<unit>/` / GitHub issue |
+| 是否建立 change unit、Full/Bugfix lite 开发流程与门禁 | `docs/development/change-workflow.md` |
+| change unit 的目录、命名和归档规则 | `docs/changes/readme.md` |
 
-**单一 canonical 落点**:同一事实只在一处写全,其余靠链接。契约层与 SPEC.md 不重复同一句话。
+**单一 canonical 落点**:同一事实只在一处写全,其余靠链接。完整权威矩阵见 `docs/README.md`；
+契约层与 SPEC.md 不重复同一句话。
 
 ## 契约层目录骨架
 

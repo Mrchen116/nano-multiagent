@@ -1,7 +1,8 @@
 """Gateway 进程生死管理 —— 重启 worktree 内的 Gateway（验证进程重启后会话续接）。
 
 从 ``_im_client`` 拆出（单文件 ≤400 行）：IM 黑盒 HTTP 客户端与「重启被测 Gateway 子进程」
-是两件事，后者集中在此。杀进程**组**（非单 pid）对齐 e2e-down.sh / AGENTS.md stop_pidfile
+是两件事，后者集中在此。杀进程**组**（非单 pid）对齐 e2e-down.sh /
+docs/development/worktree-runtime.md 的 stop_pidfile
 范式，避免 relay/heartbeat worker 成孤儿。
 """
 

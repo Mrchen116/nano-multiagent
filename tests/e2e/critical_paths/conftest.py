@@ -47,8 +47,8 @@ def _gate_or_skip() -> None:
         pytest.skip(f"LLM proxy unavailable at {_LLM_PROXY_HEALTH}")
     if not _MAIN_CONFIG.exists():
         pytest.skip(
-            f"main config not found: {_MAIN_CONFIG} — create it first (see AGENTS.md "
-            "'minimum config example', must include the llm: section)"
+            f"main config not found: {_MAIN_CONFIG} — create it first (see "
+            "docs/development/worktree-runtime.md; must include the llm: section)"
         )
 
 

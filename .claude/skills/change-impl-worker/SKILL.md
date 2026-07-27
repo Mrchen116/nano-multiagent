@@ -24,7 +24,7 @@ description: 用于作为 subagent 执行单个 milestone 的编码实现,或处
 7. **out-of-unit 发现立 issue 不顺手修**。发现根因不在本 unit 的 bug → `gh issue create`,继续做本职工作,不要顺手修(顺手修会让本 unit 范围爆炸,也会让 reviewer 验收逻辑错乱)。
 8. **worktree 路径锚定主仓**。`$(git rev-parse --show-toplevel)/.worktrees/<milestone_id>`,绝对路径,禁止嵌套 worktree。
 9. **前端 UI 变更必须真实浏览器验收**。任何影响用户界面的改动,不能只依赖 jsdom、组件测试、类型检查或截图脑补。必须用真实浏览器打开相关页面/状态,完成关键交互,检查 console error / network failure,并在 progress.md 记录证据。核心业务路径和历史 bug 必须留下可重复的 regression 保护;若项目已有浏览器 E2E 体系,核心路径优先沉淀为 E2E 用例;没有则补适合现有测试体系的交互/回归测试,不为单个 milestone 强行引入新基础设施。视觉/样式细节以截图证据和状态覆盖为主,不强行用 E2E 测样式。
-10. **假设主机被并发使用,自取并回收运行时资源**。任何占端口 / 绑 socket / 起长驻服务的动作:**之前**分配空闲端口(项目 AGENTS.md 应有端口 helper 和服务参数化清单),**之后**退出/HANDOFF 前 kill 自己起的进程。资源被占且无法切换 → 阻塞,按 §8.2 HANDOFF,不准改写 evidence 标准回避。**live 环境跑不通(proxy / WS / 绑定 / 服务起不来)同样算阻塞**:不许自己降级成"API 层验证 / 集成测试也行"凑 DONE,而是 `SendMessage` 找 orchestrator(§2.5.1,它会修 env 或调整),并在回报里**如实披露 env 受阻**——别报一个干净的 DONE 把"其实没跑通 live"吞掉(这会让 orchestrator 误签收、把 live 验证甩进往返轮)。
+10. **假设主机被并发使用,自取并回收运行时资源**。任何占端口 / 绑 socket / 起长驻服务的动作:**之前**按 `docs/development/worktree-runtime.md` 分配空闲端口并隔离 config,**之后**退出/HANDOFF 前 kill 自己起的进程。资源被占且无法切换 → 阻塞,按 §8.2 HANDOFF,不准改写 evidence 标准回避。**live 环境跑不通(proxy / WS / 绑定 / 服务起不来)同样算阻塞**:不许自己降级成"API 层验证 / 集成测试也行"凑 DONE,而是 `SendMessage` 找 orchestrator(§2.5.1,它会修 env 或调整),并在回报里**如实披露 env 受阻**——别报一个干净的 DONE 把"其实没跑通 live"吞掉(这会让 orchestrator 误签收、把 live 验证甩进往返轮)。
 11. **撞到 bug 先找根因再修**。遇到非平凡 bug / 测试失败 / 意外行为 → **动手修之前先 invoke `systematic-debugging` skill 走根因纪律**,禁止「猜一个改一下试试」。与 §0.2(禁兜底)同源:都要求修根因、不修症状、不让错误静默蔓延。根因定位后回 §5(先写复现红测再修)。展开见 §7.2。
 12. **契约层永不由你写**。`docs/specs/`(canonical,归 orchestrator)、`<unit_path>/specs/`(delta,归 design-author)都不归你——你只写 milestone 内 `progress.md` / `tasks.md`。对外行为有变就在 progress.md 记一句给 orchestrator,别顺手写:实现视角写出的契约必带实现细节。
 
@@ -133,7 +133,8 @@ repo_root=$(git rev-parse --show-toplevel)
 
 1. **`<unit_path>/<首文档>.md`** —— 用户视角和验收标准(lite 模式下首文档是 fix.md,前两段已写)
 2. **`<unit_path>/design.md`** —— 架构意图、关键决策、接口、Milestone 表对应行(本 milestone 的"范围 / 退出标准")。如果 design.md 链接了前端原型 `prototype.html`,必须在规划前打开参考,并提取 `## 前端原型` 的原型对齐契约;本 milestone 相关的 `must-match` 行要复制到 `tasks.md` 的 Prototype / Reference Contract。**lite 模式跳过这步**(没有 design.md)
-3. **`CLAUDE.md` / `AGENTS.md`** —— 项目级约定(测试命令、注释规范、模块边界)
+3. **`CLAUDE.md` / `AGENTS.md`** —— 项目级硬约束与文档路由；环境/命令继续读其指向的
+   `docs/development/local-development.md`
 4. **`LOGBOOK.md`(若有)** —— 跨任务经验,提取与本 milestone 相关的注意事项
 5. **现有代码结构** —— 模块划分、命名约定、已有 fixture / helper(避免重复造轮子)
 6. **`docs/TESTING_GUIDE.md`** —— 测试规范的唯一真源:测什么/不测什么的停止条件、**MUST NOT 测私有函数/实现细节**、「改个内部写法就变红的测试是负债——它测的是实现不是行为」。**在写任何测试(含红测)之前必须读完**——它定义本 milestone 测试的取舍。放在「现有测试」之前读:**先立标准,再看样本**。

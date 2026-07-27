@@ -123,7 +123,8 @@ def stub_llm_stack(tmp_path: Path) -> Iterator[StubLLMStack]:
     """起 recording Anthropic stub + 真 IM/Gateway;Gateway 的 llm 全指向 stub。"""
     if not _MAIN_CONFIG.exists():
         pytest.skip(
-            f"main config not found: {_MAIN_CONFIG} — create it first (see AGENTS.md)"
+            f"main config not found: {_MAIN_CONFIG} — create it first (see "
+            "docs/development/worktree-runtime.md)"
         )
     if not _RECORDING_STUB.exists():
         pytest.fail(f"missing fixture script: {_RECORDING_STUB}")

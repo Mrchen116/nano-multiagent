@@ -90,7 +90,8 @@ git pull --ff-only origin "unit/<unit_id>"
 1. **`<unit_path>/<首文档>.md`** —— 用户场景、验收标准(这是你的真值)。验收标准是 **Requirement / Scenario 结构**(`### Requirement` 下挂 `#### Scenario`,每个 scenario 有 WHEN/THEN)——每个 **Scenario** 就是你覆盖表的一行,也是旅程脚本(见 §3.1)
 2. **`<unit_path>/design.md`** —— 大概架构(§架构总览 + §关键决策),为可能的 revise-design 引用准备;Runbook 按 §2.5 读取
 3. **`README.md` / `docs/operator-runbook.md`** —— 怎么启动、怎么用
-4. **`CLAUDE.md` / `AGENTS.md`** —— 项目级约定,怎么跑产品
+4. **`CLAUDE.md` / `AGENTS.md`** —— 项目级硬约束与文档路由；产品启动按其指向的
+   `docs/operator-runbook.md` / `docs/development/worktree-runtime.md`
 5. **历轮验收报告**(若 `review_round > 1`)—— 上一轮的 issues、Recommended Action、修复路径
 6. **每个 milestone 的 `<unit_path>/M<N>-*/progress.md`** —— **简短扫一眼**,知道大概实现了什么、有没有"[Design 修订]"段。**不要**深读代码意图——你不是 code reviewer。
 
@@ -112,7 +113,7 @@ git pull --ff-only origin "unit/<unit_id>"
 2. **清单内每个服务**:
    a. 有 PID 跑则 kill(含 worker 残留、本 worktree PID 文件)。
    b. **重建 runbook 列出的非入仓产物**(典型:`cd src/IM/frontend && npm run build`)。worktree 内 build 的产物随 worktree 删除,unit worktree 上必须重 build。
-   c. **并发隔离**:监听端口的服务一律分配空闲端口起(默认端口留给主实例),per-unit secret 本轮生成。具体参数化方式见项目 AGENTS.md;缺则报告 flag。
+   c. **并发隔离**:监听端口的服务一律分配空闲端口起(默认端口留给主实例),per-unit secret 本轮生成。具体参数化方式见 `docs/development/worktree-runtime.md`;缺则报告 flag。
    d. 启动后**产物指纹核验**:从服务取首页产物 hash(如 `index-<hash>.js`),`grep` 验证本 unit 关键 marker 命中。不中 → 报告记 blocking,停止走旅程。
 3. **清单外的服务**(数据库 / 消息队列 / 第三方依赖等)**不要碰**——它们不在本 unit 范围,误重启可能破坏其他人的环境。
 

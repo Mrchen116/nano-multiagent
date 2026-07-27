@@ -102,7 +102,8 @@ session → subagent agentType`)。阶段边界:`humans` 里的 `/change-*` 命�
 
 ### 6. 落盘
 写进 `<unit_path>/` 下一个新 md(如 `retro-pipeline-rootcause.md`),结构照
-`references/output-template.md`。按用户指示 commit/push 到 PR 分支(commit 格式见 AGENTS.md,别擅自合并)。
+`references/output-template.md`。按用户指示 commit/push 到 PR 分支(commit 格式见
+`docs/development/local-development.md`,别擅自合并)。
 不覆盖已有 retro.md;必要时在文中指出当事人 retro 的盲区/误判并给 jsonl 证据。
 
 ## 追问反射:把表面声明戳穿到根因

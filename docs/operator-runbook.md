@@ -9,10 +9,13 @@
 4. 打开 Web IM，确认聊天输入区可用后发送第一条消息。
 
 > 历史 operator-only API 验证命令保留在附录；默认主链路不需要手工拼 `bind` / `message` curl。
+> worktree 内不要照搬本页默认端口和主 config；隔离规则统一见
+> [`development/worktree-runtime.md`](development/worktree-runtime.md)。
 
 ## 前置条件
 
-1. Python 3.11+，并已执行 `pip install -e ".[dev]"`。
+1. Python 3.11+，并已执行 `pip install -e ".[dev]"`；完整本地环境命令见
+   [`development/local-development.md`](development/local-development.md)。
 2. 在仓库根目录运行命令，或显式带上 `PYTHONPATH=src`。
 3. 基础设施启动不需要外部 LLM API key；只有 agent 真正生成回复时才需要上游 LLM 配置。
 
@@ -38,7 +41,8 @@ IM ready 信号：
 
 ## 2. 准备最小 Gateway 配置
 
-创建 `node-config.yaml`：
+Gateway 默认读取并持续维护 `~/.nano-assistant/config.yaml`。也可以创建仓库内的
+`node-config.yaml`，并在启动时显式传 `--config`：
 
 ```yaml
 node:
@@ -58,6 +62,9 @@ heartbeat:
 
 im_service:
   url: http://127.0.0.1:8011
+  # 可选：配置后 Gateway 启动时自动登录并在 token 过期后恢复。
+  # username: nano
+  # password: nano1234
 
 llm:
   default_model: kimiCoding:K2.6
@@ -69,6 +76,8 @@ llm:
 ```
 
 说明：
+- 默认 config 是持久化状态：Gateway 会把 agents 同步到 IM，也会把 IM 前端新建的 agent 和刷新后的
+  credential 写回该文件。不要把需要跨重启保留的主实例 config 放在 `/tmp`。
 - 省略 `agents[].workspace_root` 时，Gateway 默认使用 `~/nano-assistant/workspace/<agent_id>/`，并在首次加载配置时自动创建目录。
 - `im_service.url` 指向 IM 服务后，Gateway 才会把节点接到 Web IM 的 relay 链路上。
 - `llm` 段为必填；上例假定本机已有 OpenAI-compatible/Anthropic-compatible 代理监听在 `127.0.0.1:4000`。
@@ -77,6 +86,10 @@ llm:
 
 ```bash
 cd <repo>
+# 使用默认持久 config：~/.nano-assistant/config.yaml
+PYTHONPATH=src python -m personal_assistant.main
+
+# 或使用显式 config
 PYTHONPATH=src python -m personal_assistant.main --config ./node-config.yaml
 ```
 
@@ -104,6 +117,8 @@ Gateway 默认启动顺序：
 停止当前配置对应的后台 Gateway：
 
 ```bash
+PYTHONPATH=src python -m personal_assistant.main stop
+# 显式 config 对应显式停止：
 PYTHONPATH=src python -m personal_assistant.main stop --config ./node-config.yaml
 ```
 
@@ -225,6 +240,9 @@ curl -s http://127.0.0.1:8011/im/v1/nodes | python -m json.tool
 
 **方式 A：用 e2e 脚本全链路自检**
 
+完整的生成文件、手工 fallback 和清理约束见
+[`development/worktree-runtime.md`](development/worktree-runtime.md)。
+
 ```bash
 ./scripts/e2e-up.sh          # 起 IM + Gateway，自动分配端口、config 隔离、auto-bind
 source .e2e-ports.env        # 拿到 $IM_URL
@@ -256,7 +274,7 @@ PYTHONPATH=src python -m personal_assistant.main stop
 | Gateway 启动后立刻退出 | 配置解析、LLM 配置、channel bootstrap 或 IM bootstrap 失败 | 看终端里的 `NEXT ...`，再核对 `http://127.0.0.1:8011/im/v1/nodes` 的 `last_error` |
 | 未绑定时没有完成关联 | 绑定页未打开或未确认 | 从终端复制 `NEXT Open ...` 链接，完成绑定后刷新 `/chat` |
 | Web IM 能打开但发消息时报无可用节点 | Gateway 未连上 IM，或节点还未 `online` | 先看 Gateway 是否常驻，再看 `/im/v1/nodes` 是否已有在线节点 |
-| Gateway 进程存在，但能力/技能列表为空或能力接口返回 503 | 上一次 Gateway 未完全退出，新旧进程使用同一 `node_id` 重连 | worktree 环境先运行 `./scripts/e2e-down.sh`，确认旧 Gateway 已退出后再 `./scripts/e2e-up.sh`；手工管理 PID 时按 `AGENTS.md` 的 `stop_pidfile` 范式等待退出 |
+| Gateway 进程存在，但能力/技能列表为空或能力接口返回 503 | 上一次 Gateway 未完全退出，新旧进程使用同一 `node_id` 重连 | worktree 环境先运行 `./scripts/e2e-down.sh`，确认旧 Gateway 已退出后再 `./scripts/e2e-up.sh`；手工管理 PID 时按 [`development/worktree-runtime.md`](development/worktree-runtime.md) 的停止范式等待退出 |
 | Feishu channel 启动失败 | `appId` / `appSecret` 缺失或无效 | 核对 `channels[].settings.appId/appSecret`，确认 Feishu app 已启用机器人与事件订阅 |
 | Feishu 群里未 @Bot 的普通消息没有进入背景上下文 | Feishu app 未投递普通群消息，或缺 `im:message.group_msg` | 查看 Gateway 日志中的 scope warning；补齐 Feishu app 权限后重启 Gateway |
 | Feishu 群审批点击无效 | 点击者不是 owner，或 `ownerOpenId` 尚未绑定 | 让 owner 先从该 Feishu channel 发一条真实入站消息，或在配置里显式填写 `ownerOpenId` |

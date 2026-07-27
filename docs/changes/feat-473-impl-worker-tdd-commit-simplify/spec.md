@@ -69,7 +69,7 @@
 ### Requirement: 流程文档只描述现状
 
 #### Scenario: skill / 变更流程说明不提旧仪式
-- **WHEN** 协作者阅读 `change-impl-worker`、`systematic-debugging` 以及 `docs/changes/readme.md` 中与 worker 执行相关的现行说明
+- **WHEN** 协作者阅读 `change-impl-worker`、`systematic-debugging` 以及 `docs/development/change-workflow.md` 中与 worker 执行相关的现行说明
 - **THEN** 看到的是「按 roadpoint 做 TDD（先 Red/Verify 再 Green）」的现行做法
 - **AND** 不出现需要读者先理解「以前三提交」才能读懂的对比表述
 
@@ -90,7 +90,7 @@
 - 在范围：
   - `change-impl-worker` 现行执行约定（TDD / roadpoint / 提交与 progress）
   - `systematic-debugging` 中与 worker 衔接的措辞
-  - `docs/changes/readme.md` 中阶段 3（实施）对 worker 的现行描述
+  - `docs/development/change-workflow.md` 中“阶段 3：实施”对 worker 的现行描述
 - 非目标：
   - 不改 roadpoint 拆分哲学、测试门禁、真实入口验收、前端浏览器验收等其他质量手段
   - 不改 §FL 小修快车道的其余轻量化（复用上下文、可省 tasks 模板等）

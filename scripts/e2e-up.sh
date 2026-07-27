@@ -40,7 +40,7 @@ done
 
 if [[ ! -f "$MAIN_CFG" ]]; then
   echo "main config not found: $MAIN_CFG" >&2
-  echo "create ~/.nano-assistant/config.yaml first (see AGENTS.md) or pass --main-config" >&2
+  echo "create ~/.nano-assistant/config.yaml first (see docs/development/worktree-runtime.md) or pass --main-config" >&2
   exit 1
 fi
 
@@ -203,7 +203,7 @@ fi
 
 if ! python3 -c "import yaml; cfg=yaml.safe_load(open('$WT_CFG')); exit(0 if 'llm' in cfg else 1)" 2>/dev/null; then
   echo "ERROR: '$WT_CFG' is missing the 'llm:' section." >&2
-  echo "Add the llm: block to ~/.nano-assistant/config.yaml first (see AGENTS.md 'minimum config example')." >&2
+  echo "Add the llm: block to ~/.nano-assistant/config.yaml first (see docs/development/worktree-runtime.md)." >&2
   exit 1
 fi
 

@@ -1,9 +1,13 @@
 # SPEC.md — nano-multiagent 架构规约
 
-> **版本** v1.4 | **日期** 2026-06-01 | **对齐** feat-392
+> **版本** v1.5 | **日期** 2026-07-27 | **对齐** `docs/README.md`
 > 本文档是 nano-multiagent 的**跨包顶点**架构权威文件（包 / 依赖方向 / 部署拓扑）。
-> 单包"现在怎么表现"看长青行为契约层 `docs/specs/<包>/`（§6）；文档体系怎么分层见
-> `docs/SPEC_GUIDE.md`。若与其他设计文档冲突，以本文档为准。
+> 单包"现在怎么表现"看长青行为契约层 `docs/specs/<包>/`（§6）；全仓文档权威与冲突裁决见
+> `docs/README.md`，长青 spec 写法见 `docs/SPEC_GUIDE.md`。在跨包架构范围内与其他设计文档冲突时，
+> 以本文档为准。
+>
+> **v1.5 变更**：全仓文档权威、生命周期与冲突裁决移至 `docs/README.md`；本文 §6 只保留架构相关路由，
+> 不再维护第二份全仓文档索引。
 >
 > **v1.4 变更（feat-392）**：§6 文档索引重定位到长青行为契约层 `docs/specs/`；四份混合高度子系统
 > 设计 SPEC（内核设计 / IM / NodeGateway / CodingCLI）蒸馏进契约层后**全部退役**移入 `docs/archive/`，
@@ -169,68 +173,14 @@ IM 无关、产品无关的 Agent 运行时。只负责"单 Agent 可运行 + �
 
 ---
 
-## 6. 文档索引
+## 6. 相关文档
 
-本节是顶点索引。**单包的"系统现在怎么表现"看长青行为契约层** `docs/specs/<包>/`(收尾归并保持
-current);每个包的 `spec.md` 是短入口,同目录 area 文档承载具体 Requirement/Scenario。本 `SPEC.md`
-只讲跨包架构,不与契约层重复。文档体系怎么分层、契约层怎么写,见
-[`docs/SPEC_GUIDE.md`](docs/SPEC_GUIDE.md)。
+本文只负责跨包架构。全仓文档地图、权威矩阵、生命周期和历史/研究材料入口统一见
+[`docs/README.md`](docs/README.md)。
 
-### 长青行为契约层（current，单一权威）
+- 单包 current 行为：[`docs/specs/README.md`](docs/specs/README.md)
+- 长青 spec 与 delta-spec 写法：[`docs/SPEC_GUIDE.md`](docs/SPEC_GUIDE.md)
+- 开发变更流程：[`docs/development/change-workflow.md`](docs/development/change-workflow.md)
+- change unit 目录与归档：[`docs/changes/readme.md`](docs/changes/readme.md)
 
-| 包 | 路径 | 内容 |
-|---|---|---|
-| **index** | [`docs/specs/README.md`](docs/specs/README.md) | 长青行为契约层目录索引 |
-| **kernel (agent)** | [`docs/specs/kernel/`](docs/specs/kernel/spec.md) | 内核经 `agent.sdk` 暴露的对外行为契约：SDK 边界、run、模型、后台任务、上下文/持久化、工具/Hook/Skill、prompt |
-| **im** | [`docs/specs/im/`](docs/specs/im/spec.md) | IM 服务对外行为契约：auth/tenancy、会话消息、Web Chat UX、工具时间线、Agent/节点、Gateway relay |
-| **gateway** | [`docs/specs/gateway/`](docs/specs/gateway/spec.md) | Node Gateway 对外行为契约：路由投递、服务生命周期、agent 能力、heartbeat/cron、relay、外部 channel |
-| **cli** | [`docs/specs/cli/spec.md`](docs/specs/cli/spec.md) | Coding CLI 对外行为契约：REPL 运行模式/会话懒创建与 resume/斜杠命令/事件流与预算/错误分层/单命令与 --text/边界 |
-
-### 文档规范与约定
-
-| 文档 | 路径 | 内容 |
-|---|---|---|
-| **文档规范 SPEC_GUIDE** | [`docs/SPEC_GUIDE.md`](docs/SPEC_GUIDE.md) | 长青 spec 放什么/不放什么、判据、契约层骨架、收尾归并与 grounding checklist |
-| 测试规范 | `docs/TESTING_GUIDE.md` | 测什么/不测什么、命名落层、临时验收 vs 回归 |
-| 注释规范 | `COMMENTING_GUIDE.md` | docstring 风格、注释写"为什么/约束" |
-| 操作手册 | `docs/operator-runbook.md` | 启动、调试、常见问题 |
-| LLM API 联调 | `docs/可用LLM_API与联调说明.md` | 可用模型、本地代理地址、验证 curl |
-
-### 内核实现细化（实现叙事，非契约层）
-
-> 这些是实现层细化文档，不是对外契约。"内核现在怎么表现"以 `docs/specs/kernel/` 为准；下面几份
-> 描述内部参数/事件清单等实现细节，作实现参考。
-
-| 文档 | 路径 | 内容 |
-|---|---|---|
-| 工具设计细化 | `docs/内核设计细化/工具设计细化.md` | 5 工具参数、返回值、安全策略 |
-| Hook 体系细化 | `docs/内核设计细化/Hook体系设计细化.md` | 事件清单、拦截/观察契约、闭包模型 |
-| Skill 体系细化 | `docs/内核设计细化/Skill体系设计细化.md` | 自动/显式 skill 机制 |
-| 系统提示词模板 | `docs/内核设计细化/系统提示词.md` | Runtime 填充的 prompt 模板 |
-
-### 其他实现层 / 信息架构文档
-
-> 四份混合高度子系统设计 SPEC（`内核设计SPEC` feat-392-M1、`IM-SPEC` feat-392-M2、
-> `NodeGateway-SPEC` feat-392-M3、`CodingCLI-SPEC` feat-392-M4）已**全部退役**，蒸馏进长青契约层
-> 后移入 `docs/archive/`，对应契约改看 `docs/specs/<包>/`。下表两份不是子系统契约，
-> 不在退役范围内：
-
-| 文档 | 路径 | 内容 |
-|---|---|---|
-| IM 前端蓝图 | `docs/IM前端蓝图.md` | 前端信息架构、响应式设计 |
-| 需求文档 | `docs/需求.md` | 内核 vs 助手产品需求定义 |
-
-### 归档（历史参考，已被 SPEC 覆盖）
-
-| 文档 | 路径 |
-|---|---|
-| 内核设计 SPEC（已退役，契约见 `docs/specs/kernel/spec.md`） | `docs/archive/内核设计SPEC.md` |
-| IM 服务 SPEC（已退役，契约见 `docs/specs/im/spec.md`） | `docs/archive/IM-SPEC.md` |
-| NodeGateway SPEC（已退役，契约见 `docs/specs/gateway/spec.md`） | `docs/archive/NodeGateway-SPEC.md` |
-| Coding CLI SPEC（已退役，契约见 `docs/specs/cli/spec.md`） | `docs/archive/CodingCLI-SPEC.md` |
-| 内核设计蓝图 | `docs/archive/内核设计蓝图.md` |
-| 多产品架构调整建议 | `docs/archive/多产品架构调整建议.md` |
-| Agent 助手蓝图 | `docs/archive/Agent 助手（基于 SDK 的上层应用）蓝图.md` |
-| Agent 节点蓝图 | `docs/archive/Agent节点蓝图.md` |
-| IM 服务蓝图 | `docs/archive/IM服务蓝图.md` |
-| CLI 时序图 | `docs/archive/CLI到工具调用时序图.md` |
+退役子系统 SPEC 和旧蓝图保留在 `docs/archive/`，仅作历史参考，不能覆盖本文或 `docs/specs/`。

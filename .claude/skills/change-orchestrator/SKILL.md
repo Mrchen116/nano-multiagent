@@ -32,7 +32,7 @@ Codex 执行本 skill 时,工具映射差异见 `references/codex-execution-note
 13. **派发必须后台运行**。Agent 工具派发 worker / reviewer / verifier 一律 `run_in_background: true`。前台(阻塞)派发会让本 skill 卡死在单个子 agent 上——无法并行(§0.6)、无法监控(§3.2),也无法回应开工报信 / 澄清(§3.1.1):前台子 agent 在返回最终结果前,orchestrator 不执行回合,收不到也回不了 `SendMessage`。
 14. **派发时给每个子 agent 稳定 `name`**。Agent 工具派发 worker / reviewer / verifier 时一律传一个稳定可寻址的 `name`(worker 用 `<milestone_id>`、reviewer 用 `<unit_id>-reviewer`、verifier 用 `<unit_id>-verifier`),之后失败循环 / Fast-lane 复验 / PR 反馈处理(§6.FL / §7.5)用 `SendMessage` 按该 `name`(或派发返回的 agent ID)唤醒续跑,保上下文。不给 `name` 则只能新开实例丢上下文。
 15. **主仓 HEAD 不动**。整个 unit 生命周期内,所有针对 `unit/<unit_id>` 分支的 checkout / pull / merge / push / rebase / PR 一律在专属 `unit_worktree_dir`(§2.3)里跑,**严禁**在主仓 `git checkout unit/<id>`——多 orchestrator 并发时主仓 HEAD 会被互相踩翻,用户也可能正在主仓做别的事。Sync Gate(§2.2)操作的是主仓的 main,不在此限。
-16. **任何退出路径必须先 sweep 服务 PID,再处置 worktree**(§7.6 / §6.4 escalate / §0.7 cap 都过这条)。reviewer/worker 正常退出会自 kill,但崩溃时不会,孤儿进程会让用户误把分支代码当主仓在跑。sweep snippet 见项目 AGENTS.md;§7.6 sweep 完后 `git worktree remove`,§6.4 / §0.7 只 sweep 进程、保留 worktree 与日志 / DB 给人排查。
+16. **任何退出路径必须先 sweep 服务 PID,再处置 worktree**(§7.6 / §6.4 escalate / §0.7 cap 都过这条)。reviewer/worker 正常退出会自 kill,但崩溃时不会,孤儿进程会让用户误把分支代码当主仓在跑。sweep snippet 见 `docs/development/worktree-runtime.md`;§7.6 sweep 完后 `git worktree remove`,§6.4 / §0.7 只 sweep 进程、保留 worktree 与日志 / DB 给人排查。
 17. **提 PR 前必须归档 unit**。§7.3 把整个 `docs/changes/<unit_dir>/` 移到
     `docs/changes/archive/<unit_dir>/`;不删除历史、不只搬报告。归档后 PR body、CI fix 和复验都使用
     `unit_path` 解析后的路径。未归档不得创建 PR。已退出的 orchestrator 只自动恢复自包含的 review/CI
@@ -508,7 +508,7 @@ AFTER=$(git -C "$unit_worktree" rev-parse HEAD)
 NEW_COMMITS=$(git -C "$unit_worktree" log --oneline "$BEFORE..$AFTER")
 ```
 
-预期:`NEW_COMMITS` **只包含本轮 selected gates 的报告 commit**——若派了 reviewer,应有 `docs(<unit_id>): round <N> acceptance — verdict ...`;若派了 verifier,应有 `docs(<unit_id>): round <N> verification — verdict ...`(commit message 格式详见 AGENTS.md)。retained / skipped 的闸不期待新报告 commit。出现任何改了源码/测试/配置的 commit → 走 §6.6 处置(verifier 越界同 reviewer:作废本轮该 agent 的 verdict、revert 越界 commit、issues 转 fix worker 重做)。
+预期:`NEW_COMMITS` **只包含本轮 selected gates 的报告 commit**——若派了 reviewer,应有 `docs(<unit_id>): round <N> acceptance — verdict ...`;若派了 verifier,应有 `docs(<unit_id>): round <N> verification — verdict ...`(commit message 格式详见 `docs/development/local-development.md`)。retained / skipped 的闸不期待新报告 commit。出现任何改了源码/测试/配置的 commit → 走 §6.6 处置(verifier 越界同 reviewer:作废本轮该 agent 的 verdict、revert 越界 commit、issues 转 fix worker 重做)。
 
 ---
 
@@ -675,7 +675,7 @@ Recommended next action: 启动 change-design-author 修订 design.md(必须 Cha
 Resume: 修订完成后调 orchestrator,带 unit_id 即可续跑
 ```
 
-4. **sweep 服务 PID**(§0.16,见 AGENTS.md snippet),保留 worktree 与日志 / DB。
+4. **sweep 服务 PID**(§0.16,见 `docs/development/worktree-runtime.md`),保留 worktree 与日志 / DB。
 5. orchestrator **退出**。等人完成 design 修订并主动重启。
 
 ### §6.5 `out-of-unit`(reviewer 已立 issue)
