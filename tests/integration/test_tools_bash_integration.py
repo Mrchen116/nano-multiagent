@@ -12,7 +12,7 @@ from agent.platform.background_tasks.shell_runner import ShellRunner
 from agent.platform.background_tasks.wiring import wire_background_tasks
 from agent.platform.tools.base import ToolContext
 from agent.platform.tools.builtins.bash import BashTool
-from agent.platform.tools.registry import ToolRegistry
+from agent.core.tools.registry import ToolRegistry
 from agent.platform.tools.safety import ToolSafety, ToolSafetyConfig
 
 set_tool_safety_factory(ToolSafety)

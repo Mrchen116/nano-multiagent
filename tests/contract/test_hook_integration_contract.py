@@ -8,7 +8,7 @@ from agent.core.hooks.context import HookContext
 from agent.core.hooks.registry import HookRegistry
 from agent.core.hooks.runner import HookRunner
 from agent.platform.tools.base import ToolContext
-from agent.platform.tools.registry import ToolRegistry
+from agent.core.tools.registry import ToolRegistry
 from agent.core.tools.base import (
     set_tool_safety_config_factory,
     set_tool_safety_factory,
