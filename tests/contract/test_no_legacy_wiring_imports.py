@@ -35,7 +35,6 @@ FORBIDDEN_IMPORTS = {
     ),
     # products/base.py removed in refactor-406-M2 (products/ dissolved).
     # platform/http_api/ deleted in refactor-387-M4; entries removed.
-    "platform/tools/registry.py": ("agent.observability",),
     "platform/hooks/builtins/usage_metrics.py": ("agent.hooks.session_usage",),
     "platform/hooks/builtins/auto_mode_gate.py": ("agent.tools.safety",),
 }

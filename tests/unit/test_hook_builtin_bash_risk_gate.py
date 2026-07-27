@@ -15,7 +15,7 @@ from agent.platform.hooks.loader import build_hook_registry
 from agent.core.hooks.runner import HookRunner
 from agent.platform.tools.base import ToolContext
 from agent.platform.tools.builtins.bash import BashTool
-from agent.platform.tools.registry import ToolRegistry
+from agent.core.tools.registry import ToolRegistry
 from agent.core.tools.base import (
     set_tool_safety_config_factory,
     set_tool_safety_factory,

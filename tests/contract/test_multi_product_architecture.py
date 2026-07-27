@@ -97,7 +97,6 @@ EXPECTED_EXISTING_PATHS = (
     "platform/tools/builtins/write.py",
     "platform/tools/constants.py",
     "platform/tools/loader.py",
-    "platform/tools/registry.py",
     "platform/tools/safety.py",
     # products/ dissolved in refactor-406-M2 (决策 1: product layer removed; product
     # defaults live in the consumer factories coding_cli.product / personal_assistant.product).

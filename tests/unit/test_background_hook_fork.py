@@ -398,7 +398,7 @@ async def test_fork_executor_denies_unlisted_tool_at_execution_layer():
     )
     from agent.platform.tools.safety import ToolSafety, ToolSafetyConfig
     from agent.platform.tools.base import ToolContext
-    from agent.platform.tools.registry import ToolRegistry
+    from agent.core.tools.registry import ToolRegistry
     from agent.core.types import ToolSpec
     from pathlib import Path
     import tempfile

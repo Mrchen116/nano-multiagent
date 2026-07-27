@@ -9,7 +9,6 @@ from agent.platform.tools.constants import (
     DEFAULT_MAX_KILOBYTES,
     DEFAULT_MAX_LINES,
 )
-from agent.platform.tools.registry import ToolRegistry
 from agent.platform.tools.builtins import builtin_tools, register_builtin_tools
 from agent.platform.tools.loader import (
     build_tool_registry,
@@ -49,10 +48,9 @@ def test_platform_tools_safety_is_canonical_home() -> None:
     assert load_tool_safety_config.__module__ == "agent.platform.tools.safety"
 
 
-def test_platform_tool_contracts_are_compatibility_facades() -> None:
-    """Platform tool contracts stay importable while canonical home lives in core."""
+def test_platform_tool_base_facade_and_constants_are_stable() -> None:
+    """Platform base contracts stay importable while canonical home lives in core."""
     assert ToolContext.__module__ == "agent.core.tools.base"
-    assert ToolRegistry.__module__ == "agent.core.tools.registry"
     assert DEFAULT_MAX_LINES == 2000
     assert DEFAULT_MAX_BYTES == 50 * 1024
     assert DEFAULT_MAX_KILOBYTES == 50
