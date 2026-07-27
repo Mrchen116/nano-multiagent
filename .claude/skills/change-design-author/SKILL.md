@@ -558,43 +558,46 @@ mkdir -p docs/changes/<unit_dir>/specs/<包>/   # 仅为有对外行为变化的
 
 §5 自检通过只说明"你认为可以送审",**不代表门禁 2 通过**。你负责调度下面的独立审查闭环,直到最新报告和自己的判断都确认无实质问题。
 
-### §6.1 每轮启动全新独立 reviewer
+### §6.1 R1 创建一次固定独立 reviewer
 
-每一轮都用当前 harness 的 subagent 工具启动一个**全新 subagent**,明确要求它完整执行 `change-design-reviewer` skill:
+一个 unit 的整个 Gate 2 闭环只创建**一个** reviewer:
 
-- 不得由你自己扮演 reviewer,也不得复用上一轮 reviewer。使用不继承当前对齐对话的独立上下文(例如 Codex `fork_turns: "none"`)。
-- 派发包只给 `unit_id`、`unit_dir` 和任务:"从首文档、design、delta-spec、prototype、canonical specs 与真实代码重新取证,完整执行 `change-design-reviewer`,把报告写到 `docs/changes/<unit_dir>/design-review.md`"。**不要附你的结论、怀疑点或期望答案**。
-- 若已有上一轮 `design-review.md`,要求 reviewer 不读取其中的结论,从原始产物重建台账;本轮完成后覆盖该文件,使它始终代表**最新一轮**完整报告。
-- reviewer 运行期间冻结 `design.md`、delta-spec、prototype 和 Milestone 骨架,等待它完成全部台账与架构进攻。不要边审边改,也不要用你的快速印象替代尚未完成的报告。
-- 当前 harness 无法启动独立 subagent、或无法隔离当前对齐上下文时,门禁 2 被阻断;明确报告这个能力缺口,不能降级成你再次自检。
+- R1 用不继承当前设计对齐对话的独立上下文创建 subagent(例如 Codex `fork_turns: "none"`),稳定 `name` 用 `<unit_id>-design-reviewer`;保存 harness 返回的 target / agent ID。
+- 派发包只给 `unit_id`、`unit_dir` 和中性任务:"从首文档、design、delta-spec、prototype、canonical specs 与真实代码重新取证,完整执行 `change-design-reviewer`,把 Round 1 追加到 `docs/changes/<unit_dir>/design-review.md`"。**不要附你的结论、怀疑点或期望答案**。R1 必须是 `full`。
+- R2 及以后不再创建 reviewer,只通过 `followup_task`、`SendMessage` 或当前 harness 的等价唤醒机制恢复同一个 target。独立性的边界是"不是 design-author 自己审",不是"每轮强制遗忘";reviewer 已建立的 unit 上下文正是要复用的资产。
+- reviewer 运行期间冻结首文档、`design.md`、delta-spec、prototype 和 Milestone 骨架。不要边审边改,也不要用你的快速印象替代尚未完成的 Round。
+- 当前 harness 无法创建独立 reviewer 时,门禁 2 被阻断。原 reviewer **客观不可恢复**时才允许 failover:下一 Round 记录原因、旧/新 reviewer 标识,替代者该轮强制 `full`;不得为了方便或想"换个脑子"轮换。
 
 ### §6.2 逐条判真,不盲从报告
 
-reviewer 完成后,读完整报告,对每条 Issue 和 Recommendation **自己回到首文档、canonical specs、真实代码与生产 wiring 核实**。reviewer 提供独立证据,不替你做最终判断:
+reviewer 完成后,读最新 Round,对每条 Issue 和 Recommendation **自己回到首文档、canonical specs、真实代码与生产 wiring 核实**。reviewer 提供独立证据,不替你做最终判断:
 
 - **问题真实,且不推翻用户已确认的关键架构决策** → 自主修正所有受影响产物,不只改 reviewer 点名的那一句;同步检查图、接口、Milestone、delta-spec、prototype 与 Runbook。
-- **问题不真实 / 证据不足 / 只是口味偏好** → 有证据地驳回,不要为了让报告好看而修改设计,也不要把你的反驳喂给下一轮 reviewer 造成锚定。
+- **问题不真实 / 证据不足 / 只是口味偏好** → 有证据地驳回,不要为了让报告好看而修改设计。
 - **问题真实,但修复会推翻用户已确认的关键架构决策** → 暂停闭环,带事实、后果和推荐方案重新找用户对齐;用户拍板后再修改并复审。
 - **问题暴露首文档的用户场景、验收标准或范围需要改变** → 按 §0 回 `change-spec-author`;不能在 design 内静默改写需求。
 - Recommendation 若揭示你认同的实质改进,按真实问题处理;纯可选润色且没有下游后果的建议不强制采纳。
 
+在该 Round 末尾追加 `### Author Resolutions`,逐条用稳定 issue ID 记录 `accepted | rejected | escalated`、判真证据和改动位置。**只追加,不改 reviewer 原始问题文本**。下一 Round 必须核这些 Resolution 是否真的关闭问题。
+
 除上述需要重新拍板或修改首文档的情况,审查修订循环**自主进行**,不把每轮常规 findings 交给用户处理。
 
-### §6.3 修订后必须重新全量审查
+### §6.3 修订后唤醒同一 reviewer,由它选择 review_mode
 
 每轮报告未满足停止条件时:
 
 1. 修改了受审产物 → 按 §5.1 重跑受影响的自检项;动了关键决策、架构边界或 Milestone 拆法时重跑完整 §5.1。
-2. 无论是否修改受审产物,都启动一个**全新** reviewer subagent,让它从头执行完整 `change-design-reviewer`;不能只复查上轮问题。
-3. 重复"独立审查 → 判真 → 修订 → 自检 → 全新复审",不设"最多两轮"之类提前退出条件。
+2. 准备事实型 follow-up 包:`round`、`unit_id/unit_dir`、同一 reviewer target、改过的文件/段落/当前 sha256、上一轮 issue ID + Resolution。**不传 `review_mode`、期望 verdict 或"只看这些问题"**。
+3. 唤醒 §6.1 的同一 reviewer。由 reviewer 核实际 delta 后自主选择 `closure | delta | full`,写明理由;轻量检查中发现影响扩大时由 reviewer 自行升级。
+4. reviewer 把完整 `## Round N` **追加**到同一个 `design-review.md`;不得覆盖、重排或改写旧 Round。重复"同一 reviewer 审查 → author 判真/Resolution → 修订/自检 → 同一 reviewer 复审",不设提前退出轮数。
 
 停止循环必须同时满足:
 
-- 最新 `design-review.md` 结论为 `Approved`,且为 `0 CRITICAL / 0 WARNING`;
-- 你逐条核过台账、架构进攻和 Recommendations,自己判断没有仍值得修改的实质问题;
-- 最终审查完成后,受审产物没有再变化。任何变化都会让报告过期,必须重新送审。
+- `design-review.md` 最后一个完整 Round 为 `Approved`,且为 `0 CRITICAL / 0 WARNING`;
+- 你逐条核过本轮 Coverage / 台账 / 架构进攻 / 历史 issue closure / Recommendations,并已追加 Resolution,自己判断没有仍值得修改的实质问题;
+- 最新 Round 的 `reviewed_artifact_manifest` 是**完整受审集合**:首文档、`design.md`、全部 delta-spec、存在时的 `prototype.html`、全部 Milestone skeleton;当前路径集合与每项 sha256 都完全一致。新增、删除、重命名或内容变化都会让 Round 过期。
 
-只有满足这三个条件,才能进入 §7。固定路径只保留最新完整报告,不额外制造轮次台账。
+只有满足这三个条件,才能进入 §7。固定路径保留**全部按时间顺序排列的 Round**;每轮的问题、耗时和 Resolution 都留在自己的 Round 内。
 
 ---
 
@@ -612,7 +615,7 @@ reviewer 完成后,读完整报告,对每条 Issue 和 Recommendation **自己�
 - [ ] Milestone 表完整(每行字段都填),数量 = `docs/changes/<unit_dir>/M*/` 子目录数
 - [ ] milestone 子目录仅含 `.gitkeep`，没有预填 tasks.md / progress.md
 - [ ] 对外行为有变化的包都按最窄 canonical 落点产了 delta-spec `docs/changes/<unit_dir>/specs/<包>/<target>.md`(§4.8);纯内部 unit 在 design.md 注 "no spec delta"
-- [ ] §6 独立审查闭环已完成:最新报告 `Approved` 且 `0 CRITICAL / 0 WARNING`,你确认无实质问题,受审产物此后未变化
+- [ ] §6 独立审查闭环已完成:同一 reviewer target 贯穿所有可恢复轮次;最后一个 Round `Approved` 且 `0 CRITICAL / 0 WARNING`;你确认无实质问题;完整 manifest 与当前受审路径/sha256 一致
 
 通过后,在主仓 `main` 上 commit + push `docs/changes/<unit_dir>/`(包含最终 `design-review.md`,勿建 `unit/*` 分支)。
 
@@ -638,7 +641,7 @@ reviewer 完成后,读完整报告,对每条 Issue 和 Recommendation **自己�
 - `docs/changes/<unit_dir>/prototype.html`(仅前端相关 unit 必须产出;非前端 unit 不产)
 - `docs/changes/<unit_dir>/M*/` 目录，仅含 `.gitkeep`(orchestrator 据此校验 milestone 数量一致)
 - `docs/changes/<unit_dir>/specs/<包>/<target>.md` delta-spec(§4.8,仅有对外行为变化的包,可有多个 target;orchestrator §7.0 据此校正 + 软对账 + 合并进对应 canonical area。纯内部 unit 无此文件,design.md 注 "no spec delta")
-- `docs/changes/<unit_dir>/design-review.md`,最新一轮完整独立评审报告(`Approved`,`0 CRITICAL / 0 WARNING`;你另已确认无仍值得修改的实质问题)
+- `docs/changes/<unit_dir>/design-review.md`,按时间顺序保留全部 Round 的独立评审日志;最后一轮为 `Approved`,`0 CRITICAL / 0 WARNING`,完整 manifest 与当前产物一致,且你已记录 Resolution 并确认无实质问题
 
 下游(orchestrator + worker + reviewer)对你的依赖:
 
