@@ -27,6 +27,7 @@
 ## R2 — 气泡事件路由与共享 action model
 
 - Context: 原 `MessageBubble` 同时抢占正文事件并直接复制 `message.content`；需要把正文原生行为与消息级操作分开，且三种表面（toolbar、右键菜单、More sheet）共享同一 action model。
+- WIP 审查结论：**沿用**前任未 commit 的 R2 WIP。理由：WIP 已在 `MessageBubble` 中建立 pointer-down 记录、context-menu modality 路由、共享 action model 与 toolbar/More 渲染入口，整体架构与 design.md 决策 1/2/6 一致；仅存在 `console.log` 污染、`draftSeed` effect 被误删、i18n/CSS 未补、测试断言需调等可局部修复的问题，回退重做成本更高。
 - Decision:
   - 移除旧长按定时器与 touch 接管逻辑；`MessageBubble` 在 capture phase 记录 `pointerdown` 的 modality/坐标/secondary kind。
   - `handleContextMenu` 调用 `resolveContextMenuModality` + `shouldKeepNativeContextMenu`：只有明确 mouse、非原生 target、且 caret point 位于当前选区外时才 `preventDefault()` 并请求 Pane 打开 IM menu；touch/pen/keyboard/unknown 一律交给浏览器。
