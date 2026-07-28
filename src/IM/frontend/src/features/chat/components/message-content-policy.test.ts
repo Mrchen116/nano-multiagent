@@ -205,12 +205,15 @@ describe("shouldKeepNativeContextMenu", () => {
     sel.addRange(range);
 
     const originalCaretRangeFromPoint = (document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }).caretRangeFromPoint;
-    (document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }).caretRangeFromPoint = undefined;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    delete (document as any).caretRangeFromPoint;
 
     try {
       expect(shouldKeepNativeContextMenu("mouse", body, body, 10, 10, null, document)).toBe(true);
     } finally {
-      (document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }).caretRangeFromPoint = originalCaretRangeFromPoint;
+      if (originalCaretRangeFromPoint) {
+        (document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }).caretRangeFromPoint = originalCaretRangeFromPoint;
+      }
       sel.removeAllRanges();
     }
   });

@@ -844,7 +844,7 @@ describe("MessagePane", () => {
     });
   });
 
-  describe("message action menu (feat-451 R3)", () => {
+  describe("message action menu (feat-484-M1)", () => {
     function stubClipboard() {
       const writeText = vi.fn(async () => undefined);
       Object.defineProperty(navigator, "clipboard", {
@@ -854,7 +854,23 @@ describe("MessagePane", () => {
       return writeText;
     }
 
-    it("opens a desktop right-click menu and copies the message text", async () => {
+    function fireContextMenu(
+      element: HTMLElement,
+      opts: { button: number; buttons: number; clientX: number; clientY: number; pointerType?: string }
+    ) {
+      const event = new MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+        button: opts.button,
+        buttons: opts.buttons,
+        clientX: opts.clientX,
+        clientY: opts.clientY,
+      });
+      Object.defineProperty(event, "pointerType", { value: opts.pointerType ?? "", configurable: true });
+      fireEvent(element, event);
+    }
+
+    it("copies the whole message from the desktop toolbar", async () => {
       const user = userEvent.setup();
       const writeText = stubClipboard();
       render(
@@ -866,17 +882,35 @@ describe("MessagePane", () => {
         />
       );
 
-      fireEvent.contextMenu(screen.getByTestId("message-bubble-m2"));
-      expect(screen.getByRole("menu")).toBeInTheDocument();
-      await user.click(screen.getByRole("menuitem", { name: /Copy/i }));
+      await user.click(screen.getByTestId("message-copy-m2"));
 
-      expect(writeText).toHaveBeenCalledWith("Hi back");
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith("Hi back"));
+      expect(await screen.findByText(/Copied/i)).toBeInTheDocument();
+    });
+
+    it("opens a desktop right-click context menu and copies the message", async () => {
+      const user = userEvent.setup();
+      const writeText = stubClipboard();
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={SAMPLE_MESSAGES}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+
+      const bubble = screen.getByTestId("message-bubble-m2");
+      fireContextMenu(bubble, { button: 2, buttons: 2, clientX: 0, clientY: 0, pointerType: "mouse" });
+
+      expect(screen.getByRole("menu")).toBeInTheDocument();
+      await user.click(screen.getByRole("menuitem", { name: /Copy message/i }));
+
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith("Hi back"));
       expect(screen.queryByRole("menu")).not.toBeInTheDocument();
     });
 
-    it("keeps the mobile long-press copy menu open after touch release and synthetic mouse down", async () => {
-      vi.useFakeTimers();
-      const writeText = stubClipboard();
+    it("does not open a custom menu on mobile long-press", () => {
       render(
         <MessagePane
           conversation={DIRECT_CONV}
@@ -888,61 +922,15 @@ describe("MessagePane", () => {
       );
 
       const bubble = screen.getByTestId("message-bubble-m1");
-      fireEvent.touchStart(bubble, {
-        touches: [{ clientX: 24, clientY: 32 }],
-      });
-      act(() => vi.advanceTimersByTime(650));
+      fireEvent.touchStart(bubble, { touches: [{ clientX: 24, clientY: 32 }] });
       fireEvent.touchEnd(bubble);
-      fireEvent.mouseDown(bubble);
-      expect(screen.getByRole("menu")).toBeInTheDocument();
-      fireEvent.click(screen.getByRole("menuitem", { name: /Copy/i }));
-
-      expect(writeText).toHaveBeenCalledWith("Hello");
-      await act(async () => {
-        await Promise.resolve();
-        await Promise.resolve();
-      });
       expect(screen.queryByRole("menu")).not.toBeInTheDocument();
-      vi.useRealTimers();
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
 
-    it("keeps the mobile long-press fork menu open after touch release and synthetic mouse down", () => {
-      vi.useFakeTimers();
-      const onFork = vi.fn();
-      const forkable: Message = {
-        ...SAMPLE_MESSAGES[1]!,
-        id: "forkable-mobile",
-        kernel_message_id: "kernel-forkable",
-        delivery_status: "completed"
-      };
-      render(
-        <MessagePane
-          conversation={DIRECT_CONV}
-          messages={[forkable]}
-          mentionCandidates={[]}
-          isMobile
-          isDirectChat
-          agentOnline
-          onFork={onFork}
-          onSend={() => {}}
-        />
-      );
-
-      const bubble = screen.getByTestId("message-bubble-forkable-mobile");
-      fireEvent.touchStart(bubble, {
-        touches: [{ clientX: 48, clientY: 72 }],
-      });
-      act(() => vi.advanceTimersByTime(650));
-      fireEvent.touchEnd(bubble);
-      fireEvent.mouseDown(bubble);
-      expect(screen.getByRole("menu")).toBeInTheDocument();
-      fireEvent.click(screen.getByRole("menuitem", { name: /fork/i }));
-
-      expect(onFork).toHaveBeenCalledWith("forkable-mobile");
-      vi.useRealTimers();
-    });
-
-    it("prevents the native mobile context menu after long press", () => {
+    it("opens the More action sheet and copies the message", async () => {
+      const user = userEvent.setup();
+      const writeText = stubClipboard();
       render(
         <MessagePane
           conversation={DIRECT_CONV}
@@ -953,15 +941,15 @@ describe("MessagePane", () => {
         />
       );
 
-      const event = createEvent.contextMenu(screen.getByTestId("message-bubble-m1"));
-      const preventDefault = vi.spyOn(event, "preventDefault");
-      fireEvent(screen.getByTestId("message-bubble-m1"), event);
+      await user.click(screen.getByTestId("message-more-m2"));
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
 
-      expect(preventDefault).toHaveBeenCalled();
-      expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: /Copy message/i }));
+
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith("Hi back"));
     });
 
-    it("keeps the menu open and reports a clipboard rejection", async () => {
+    it("shows a copy error snackbar and keeps the menu open on clipboard rejection", async () => {
       const writeText = vi.fn(async () => {
         throw new Error("denied");
       });
@@ -978,15 +966,16 @@ describe("MessagePane", () => {
         />
       );
 
-      fireEvent.contextMenu(screen.getByTestId("message-bubble-m2"));
-      fireEvent.click(screen.getByRole("menuitem", { name: /Copy/i }));
+      const bubble = screen.getByTestId("message-bubble-m2");
+      fireContextMenu(bubble, { button: 2, buttons: 2, clientX: 0, clientY: 0, pointerType: "mouse" });
+      fireEvent.click(screen.getByRole("menuitem", { name: /Copy message/i }));
 
       expect(writeText).toHaveBeenCalledWith("Hi back");
       expect(await screen.findByText(/Copy failed/i)).toBeInTheDocument();
       expect(screen.getByRole("menu")).toBeInTheDocument();
     });
 
-    it("keeps the menu open and reports when clipboard is unavailable", async () => {
+    it("shows a copy error snackbar when clipboard is unavailable", async () => {
       Object.defineProperty(navigator, "clipboard", {
         configurable: true,
         value: undefined,
@@ -1000,11 +989,9 @@ describe("MessagePane", () => {
         />
       );
 
-      fireEvent.contextMenu(screen.getByTestId("message-bubble-m2"));
-      fireEvent.click(screen.getByRole("menuitem", { name: /Copy/i }));
+      fireEvent.click(screen.getByTestId("message-copy-m2"));
 
       expect(await screen.findByText(/Copy failed/i)).toBeInTheDocument();
-      expect(screen.getByRole("menu")).toBeInTheDocument();
     });
   });
 

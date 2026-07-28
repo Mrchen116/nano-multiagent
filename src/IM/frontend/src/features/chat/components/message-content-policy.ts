@@ -285,7 +285,7 @@ export function shouldKeepNativeContextMenu(
     return true;
   }
 
-  const effectiveSelection = selection ?? getSelectionForMessage(bodyRoot);
+  const effectiveSelection = (selection && !selection.isCollapsed ? selection : null) ?? getSelectionForMessage(bodyRoot);
   if (!effectiveSelection) {
     // No selection in this message: proceed to IM menu if not on native target.
     return false;

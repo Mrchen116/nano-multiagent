@@ -16,7 +16,7 @@
 - [x] M1-R6: toolbar/menu/sheet/link/code button 焦点、本地化、回焦、More 触控区 >=44px、Radix Dialog 焦点陷阱正确。
 - [x] M1-R7: fork `onFork(message.id)`、资格、offline/pending disabled、防双击与成功跳转语义不变；`message-pane-fork.test.tsx` 全绿。
 - [x] M1-R8: `message-content-policy.test.ts` + `message-pane.test.tsx` 覆盖策略与三表面行为；删除/改写 feat-451 旧长按测试。
-- [x] M1-R9: 真浏览器验收 Chromium desktop/hybrid 与 Playwright WebKit mobile，证据落 `M1-impl/evidence/`。
+- [ ] M1-R9: 真浏览器验收 Chromium desktop/hybrid 与 Playwright WebKit mobile，证据落 `M1-impl/evidence/`。
 - [x] M1-R10: `npm run test`（指定三文件）、`npm run build`、`git diff --check` 全绿；不提交 `dist/`。
 
 ## 测试策略
@@ -92,6 +92,7 @@
 
 ### R1 — 内容策略与单元测试
 
+- 状态: DONE
 - 步骤:
   1. 创建 `message-content-policy.ts`，暴露 `classifyChatLink`、`resolveContextMenuModality`、`shouldKeepNativeContextMenu`、`serializeMessageBody`、`extractCodeText`。
   2. 创建 `message-content-policy.test.ts`，覆盖 modality、选区、链接分类、序列化 fixture、代码提取。
@@ -100,6 +101,7 @@
 
 ### R2 — 气泡事件路由与共享 action model
 
+- 状态: DONE
 - 步骤:
   1. 在 `MessageBubble` 移除 long-press 定时器与 touch 接管逻辑；新增 pointerdown 记录。
   2. 实现 context-menu handler：modality 解析 → caret point / native target 判断 → 仅在 mouse 普通区域阻止默认并请求 Pane 打开菜单。
@@ -110,6 +112,7 @@
 
 ### R3 — Pane copy coordinator、反馈与 Radix action sheet
 
+- 状态: DONE
 - 步骤:
   1. 在 `MessagePane` 实现 copy coordinator：conversation generation、attempt token、surface token、notice token 管理。
   2. 实现单一 copy snackbar / live region，success 1.6s / error 4s，旧 timer 不污染新 notice。
@@ -120,6 +123,7 @@
 
 ### R4 — Markdown 链接分类与代码块复制
 
+- 状态: DONE
 - 步骤:
   1. 新增 `ChatMarkdownLink` component：按 `classifyChatLink` 渲染 external target/rel、same-origin 无 target、system、unsupported span。
   2. 具名 external 用 CSS pseudo-element `↗`，aria-label 本地化。
@@ -130,6 +134,7 @@
 
 ### R5 — i18n 与 CSS
 
+- 状态: DONE
 - 步骤:
   1. 更新 `zh.json` 与 `en.json`：新增“复制整条消息”“复制代码”“更多操作”“已复制”“复制失败，请重试”“在新标签页打开”“从此处分支”“Agent 离线，暂不可分支”“正在创建分支…”。
   2. 更新 `global.css`：toolbar、menu、action sheet、link indicator、code copy button、focus ring、More 触控区。
@@ -140,6 +145,7 @@
 
 ### R6 — 扩展测试与完整门禁
 
+- 状态: DONE
 - 步骤:
   1. 改写 `message-pane.test.tsx` 中 feat-451 旧长按/复制测试为新行为。
   2. 更新 `message-pane-fork.test.tsx`：toolbar/More/sheet 中 Branch disabled 语义、不调用 onFork。
@@ -150,6 +156,7 @@
 
 ### R7 — 真浏览器验收与证据归档
 
+- 状态: TODO
 - 步骤:
   1. 按 design.md Runbook 起隔离真栈。
   2. Chromium desktop 1440×900：选区右键、toolbar、Branch 四状态、copy、link、code copy、焦点回焦。

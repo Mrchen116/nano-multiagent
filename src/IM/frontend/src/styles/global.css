@@ -1726,71 +1726,23 @@ body {
   font-size: 0.875rem;
   line-height: 1.5;
   box-shadow: none;
-  -webkit-touch-callout: none;
+  /* feat-484-M1: body text regains native selection and callout; product actions are
+     reached via explicit toolbar/More instead of intercepting long-press/right-click. */
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 @media (pointer: coarse) {
   .chat-bubble-card {
-    -webkit-user-select: none;
-    user-select: none;
     touch-action: manipulation;
   }
-}
-
-/* feat-445-M1: message-level fork action. Child of .chat-bubble-card and overlapping
-   its top edge (no hover gap), so the cursor never leaves .chat-bubble--agent's hover
-   region. Revealed on hover via .is-forkable / .is-offline (mirrors prototype.html). */
-.chat-bubble-fork {
-  position: absolute;
-  top: -10px;
-  right: 6px;
-  display: none;
-  align-items: center;
-  gap: 4px;
-  background: var(--im-surface);
-  border: 1px solid var(--im-border);
-  border-radius: 0.5rem;
-  padding: 2px 7px;
-  font: inherit;
-  font-size: 0.7rem;
-  color: var(--im-accent-2);
-  cursor: pointer;
-  box-shadow: 0 6px 18px -12px rgba(0, 0, 0, 0.4);
-  white-space: nowrap;
-}
-.chat-bubble--agent.is-forkable:hover .chat-bubble-fork,
-.chat-bubble--agent.is-offline:hover .chat-bubble-fork {
-  display: inline-flex;
-}
-.chat-bubble-fork:hover {
-  background: var(--im-surface-2);
-  color: var(--im-text);
-}
-.chat-bubble-fork[disabled] {
-  color: var(--im-text-muted);
-  cursor: not-allowed;
-  border-style: dashed;
-}
-.fork-tip {
-  position: absolute;
-  top: -34px;
-  right: 6px;
-  background: oklch(0.21 0.012 240);
-  color: #fff;
-  font-size: 11px;
-  padding: 4px 8px;
-  border-radius: 6px;
-  white-space: nowrap;
-  display: none;
-}
-.chat-bubble--agent.is-offline:hover .fork-tip {
-  display: block;
 }
 
 .chat-message-menu {
   position: fixed;
   z-index: 80;
-  min-width: 132px;
+  min-width: 148px;
+  max-width: 260px;
   overflow: hidden;
   background: var(--im-surface);
   border: 1px solid var(--im-border);
@@ -1799,41 +1751,196 @@ body {
   padding: 4px;
 }
 
-.chat-message-menu-item {
+/* feat-484-M1: shared action model rendered as toolbar / context menu / action sheet. */
+.chat-message-toolbar {
+  position: absolute;
+  top: -10px;
+  right: 6px;
+  display: none;
+  align-items: center;
+  gap: 2px;
+  background: var(--im-surface);
+  border: 1px solid var(--im-border);
+  border-radius: 0.5rem;
+  padding: 2px;
+  box-shadow: 0 6px 18px -12px rgba(0, 0, 0, 0.4);
+}
+
+.chat-bubble-card:hover .chat-message-toolbar,
+.chat-bubble-card:focus-within .chat-message-toolbar,
+.chat-message-toolbar:focus-within {
+  display: inline-flex;
+}
+
+.chat-message-more {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  min-width: 44px;
+  min-height: 44px;
+  margin: -8px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--im-text-muted);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.chat-message-more:hover,
+.chat-message-more:focus-visible {
+  background: var(--im-surface-2);
+  color: var(--im-text);
+  outline: none;
+}
+
+/* Compact viewport or any coarse pointer: reveal the More trigger. */
+@media (max-width: 767px), (any-pointer: coarse) {
+  .chat-message-more {
+    display: inline-flex;
+  }
+}
+
+.chat-message-actions {
+  display: flex;
+}
+
+.chat-message-actions--horizontal {
+  flex-direction: row;
+  align-items: center;
+  gap: 1px;
+}
+
+.chat-message-actions--vertical {
+  flex-direction: column;
+  gap: 1px;
+}
+
+.chat-message-action {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
   width: 100%;
   border: 0;
   border-radius: 6px;
   background: transparent;
   color: var(--im-text);
   cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
   font: inherit;
   font-size: 0.82rem;
   padding: 7px 9px;
   text-align: left;
+  min-height: 32px;
 }
 
-.chat-message-menu-item:hover,
-.chat-message-menu-item:focus-visible {
+.chat-message-action:hover,
+.chat-message-action:focus-visible {
   background: var(--im-surface-2);
   outline: none;
 }
 
-.chat-message-menu-item:disabled {
+.chat-message-action[aria-disabled="true"] {
   color: var(--im-text-muted);
   cursor: not-allowed;
 }
 
-.chat-message-menu-error {
-  border-top: 1px solid var(--im-border);
-  color: var(--im-danger);
+.chat-message-action--copy {
+  font-weight: 500;
+}
+
+.chat-message-action--branch {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.chat-message-action-reason {
   font-size: 0.72rem;
+  color: var(--im-text-muted);
   line-height: 1.35;
-  margin-top: 3px;
-  padding: 6px 9px 5px;
-  max-width: 180px;
+}
+
+.chat-message-actions--horizontal .chat-message-action {
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  min-height: 26px;
+  padding: 0;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.chat-action-sheet-overlay {
+  position: fixed;
+  inset: 0;
+  background: oklch(0.2 0.012 240 / 0.35);
+  z-index: 90;
+}
+
+.chat-action-sheet-content {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 91;
+  background: var(--im-surface);
+  border-top: 1px solid var(--im-border);
+  border-radius: 1rem 1rem 0 0;
+  padding: 0.75rem 1rem calc(0.75rem + env(safe-area-inset-bottom));
+  box-shadow: 0 -8px 32px -12px rgba(0, 0, 0, 0.35);
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.chat-action-sheet-title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--im-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin: 0 0 0.5rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--im-border);
+}
+
+.chat-action-sheet-content .chat-message-actions--vertical {
+  gap: 0;
+}
+
+.chat-action-sheet-content .chat-message-action {
+  padding: 12px 8px;
+  min-height: 44px;
+  font-size: 0.94rem;
+  border-radius: 8px;
+}
+
+.chat-copy-notice {
+  position: fixed;
+  left: 50%;
+  bottom: 1rem;
+  transform: translateX(-50%);
+  z-index: 100;
+  padding: 0.5rem 0.875rem;
+  border-radius: 0.5rem;
+  font-size: 0.82rem;
+  font-weight: 500;
+  box-shadow: var(--im-shadow-strong);
+  pointer-events: none;
+}
+
+.chat-copy-notice--success {
+  background: var(--im-text);
+  color: var(--im-surface);
+}
+
+.chat-copy-notice--error {
+  background: var(--im-danger);
+  color: #fff;
 }
 
 /* fork success toast — IM in-app-toast form (top-left card, white rounded + border +
@@ -2002,6 +2109,54 @@ body {
 
 .im-md a:hover {
   color: oklch(0.42 0.18 255);
+}
+
+.im-md-link--external {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15em;
+}
+
+.im-md-link-indicator::after {
+  content: "↗";
+  display: inline;
+  font-size: 0.82em;
+  color: var(--im-text-muted);
+  text-decoration: none;
+}
+
+.im-code-block {
+  position: relative;
+}
+
+.im-code-copy {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  min-width: 32px;
+  min-height: 32px;
+  border: 1px solid oklch(0.35 0.02 240);
+  border-radius: 0.35rem;
+  background: oklch(0.22 0.02 240);
+  color: oklch(0.8 0.02 240);
+  font-size: 0.9rem;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.55;
+  transition: opacity 0.15s ease;
+}
+
+.im-code-block:hover .im-code-copy,
+.im-code-copy:hover,
+.im-code-copy:focus-visible {
+  opacity: 1;
+  outline: none;
 }
 
 .chat-bubble-attachments {

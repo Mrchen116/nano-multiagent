@@ -1,3 +1,4 @@
+import * as Dialog from "@radix-ui/react-dialog";
 import React, {
   useEffect,
   useLayoutEffect,
@@ -6,12 +7,22 @@ import React, {
   useState,
   type ClipboardEvent,
   type FormEvent,
-  type KeyboardEvent
+  type KeyboardEvent,
+  type PointerEvent as ReactPointerEvent
 } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { useTranslation } from "../../../i18n";
+import {
+  classifyChatLink,
+  extractCodeText,
+  resolveContextMenuModality,
+  serializeMessageBody,
+  shouldKeepNativeContextMenu,
+  type ContextMenuContextFacts,
+  type RecentPointerRecord
+} from "./message-content-policy";
 import { AttachmentChip } from "../attachments/attachment-chip";
 import { AttachmentDropzone } from "../attachments/attachment-dropzone";
 import { uploadOneAttachment } from "../attachments/use-attachment-upload";
@@ -213,18 +224,191 @@ export function MessagePane({
   const sendInFlightRef = useRef(false);
   const composerBusy = Boolean(isSending || composerSending);
 
+  // feat-484-M1: pane-level copy coordination.
+  const conversationGenerationRef = useRef(0);
+  const surfaceTokenRef = useRef(0);
+  const attemptTokenRef = useRef(0);
+  const noticeTokenRef = useRef(0);
+  const noticeTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const latestCopyAttemptRef = useRef<{
+    attemptToken: number;
+    conversationGeneration: number;
+    surfaceToken: number | null;
+  } | null>(null);
+
+  type ActiveMessageAction = {
+    surfaceToken: number;
+    conversationId: string;
+    messageId: string;
+    bodyElement: HTMLElement;
+    surface: "context-menu" | "action-sheet";
+    anchor: { x: number; y: number } | null;
+    trigger: HTMLElement | null;
+  };
+
+  const [activeMessageAction, setActiveMessageAction] = useState<ActiveMessageAction | null>(null);
+
+  type CopyNotice = {
+    noticeToken: number;
+    attemptToken: number;
+    conversationGeneration: number;
+    kind: "success" | "error";
+    message: string;
+  } | null;
+
+  const [copyNotice, setCopyNotice] = useState<CopyNotice>(null);
+
   useEffect(() => {
     if (!draftSeed) return;
     setDraft(draftSeed.text);
-    setDraftMentions([]);
-    setSlashDismissed(false);
-    requestAnimationFrame(() => {
-      const el = composerRef.current;
-      if (!el) return;
-      el.focus();
-      el.setSelectionRange(draftSeed.text.length, draftSeed.text.length);
-    });
+    const el = composerRef.current;
+    if (el) {
+      requestAnimationFrame(() => {
+        el.setSelectionRange(draftSeed.text.length, draftSeed.text.length);
+      });
+    }
   }, [draftSeed?.id]);
+
+  useLayoutEffect(() => {
+    // Bump generation before new conversation paint so any in-flight copy from the
+    // previous conversation becomes a no-op.
+    conversationGenerationRef.current += 1;
+    setActiveMessageAction(null);
+    setCopyNotice(null);
+    if (noticeTimerRef.current !== null) {
+      window.clearTimeout(noticeTimerRef.current);
+      noticeTimerRef.current = null;
+    }
+  }, [conversation.id]);
+
+  function closeActionSurface(reason: "copy-success" | "branch" | "dismiss") {
+    setActiveMessageAction((current) => {
+      if (!current) return null;
+      const trigger = current.trigger;
+      const shouldRestoreFocus = reason !== "copy-success" || trigger?.isConnected === true;
+      if (shouldRestoreFocus && trigger?.isConnected) {
+        requestAnimationFrame(() => trigger.focus({ preventScroll: true }));
+      }
+      return null;
+    });
+  }
+
+  function showCopyNotice(kind: "success" | "error") {
+    noticeTokenRef.current += 1;
+    const token = noticeTokenRef.current;
+    const generation = conversationGenerationRef.current;
+    const message = kind === "success"
+      ? t("chat.messagePane.copySuccess")
+      : t("chat.messagePane.copyError");
+    setCopyNotice({ noticeToken: token, attemptToken: latestCopyAttemptRef.current?.attemptToken ?? token, conversationGeneration: generation, kind, message });
+    if (noticeTimerRef.current !== null) {
+      window.clearTimeout(noticeTimerRef.current);
+    }
+    noticeTimerRef.current = window.setTimeout(() => {
+      setCopyNotice((current) => {
+        if (!current) return null;
+        if (current.noticeToken !== token || current.conversationGeneration !== generation) return current;
+        return null;
+      });
+    }, kind === "success" ? 1600 : 4000);
+  }
+
+  function publishCopyResult(
+    attemptToken: number,
+    kind: "success" | "error",
+    surfaceToken: number | null
+  ) {
+    const latest = latestCopyAttemptRef.current;
+    if (!latest) return;
+    if (latest.attemptToken !== attemptToken) return;
+    if (latest.conversationGeneration !== conversationGenerationRef.current) return;
+
+    if (surfaceToken !== null) {
+      const surface = activeMessageAction;
+      if (!surface || surface.surfaceToken !== surfaceToken) return;
+    }
+
+    if (kind === "success") {
+      closeActionSurface("copy-success");
+    }
+    showCopyNotice(kind);
+  }
+
+  function requestCopy(payload: {
+    conversationId: string;
+    messageId: string;
+    bodyElement?: HTMLElement;
+    codeElement?: HTMLElement;
+    surfaceToken?: number;
+  }) {
+    if (payload.conversationId !== conversation.id) return;
+    const currentGeneration = conversationGenerationRef.current;
+
+    const target = payload.codeElement ?? payload.bodyElement;
+    if (!target) return;
+    if (!target.isConnected) return;
+
+    const text = payload.codeElement
+      ? extractCodeText(payload.codeElement)
+      : serializeMessageBody(payload.bodyElement!);
+
+    const writeText = navigator.clipboard?.writeText;
+    if (!writeText) {
+      attemptTokenRef.current += 1;
+      const attemptToken = attemptTokenRef.current;
+      latestCopyAttemptRef.current = { attemptToken, conversationGeneration: currentGeneration, surfaceToken: payload.surfaceToken ?? null };
+      publishCopyResult(attemptToken, "error", payload.surfaceToken ?? null);
+      return;
+    }
+
+    attemptTokenRef.current += 1;
+    const attemptToken = attemptTokenRef.current;
+    latestCopyAttemptRef.current = { attemptToken, conversationGeneration: currentGeneration, surfaceToken: payload.surfaceToken ?? null };
+
+    writeText
+      .call(navigator.clipboard, text)
+      .then(() => publishCopyResult(attemptToken, "success", payload.surfaceToken ?? null))
+      .catch(() => publishCopyResult(attemptToken, "error", payload.surfaceToken ?? null));
+  }
+
+  function requestMessageMenu(payload: {
+    messageId: string;
+    bodyElement: HTMLElement;
+    x: number;
+    y: number;
+    trigger: HTMLElement | null;
+  }) {
+    if (payload.bodyElement?.isConnected !== true) return;
+    surfaceTokenRef.current += 1;
+    setActiveMessageAction({
+      surfaceToken: surfaceTokenRef.current,
+      conversationId: conversation.id,
+      messageId: payload.messageId,
+      bodyElement: payload.bodyElement,
+      surface: "context-menu",
+      anchor: { x: payload.x, y: payload.y },
+      trigger: payload.trigger,
+    });
+  }
+
+  function requestActionSheet(payload: {
+    messageId: string;
+    bodyElement: HTMLElement;
+    trigger: HTMLElement | null;
+  }) {
+    if (payload.bodyElement?.isConnected !== true) return;
+    surfaceTokenRef.current += 1;
+    setActiveMessageAction({
+      surfaceToken: surfaceTokenRef.current,
+      conversationId: conversation.id,
+      messageId: payload.messageId,
+      bodyElement: payload.bodyElement,
+      surface: "action-sheet",
+      anchor: null,
+      trigger: payload.trigger,
+    });
+  }
+
 
   const kind = classifyConversationKind(conversation);
   const isGroup = kind === "group" || kind === "agent-network";
@@ -570,12 +754,16 @@ export function MessagePane({
                 <MessageBubble
                   key={m.id}
                   message={m}
+                  conversationId={conversation.id}
                   isMobile={isMobile}
                   participants={conversation.participants}
                   isDirectChat={isDirectChat}
                   agentOnline={agentOnline}
                   onFork={onFork}
                   forkPending={forkPending}
+                  onCopyRequest={requestCopy}
+                  onMenuRequest={requestMessageMenu}
+                  onSheetRequest={requestActionSheet}
                 />
               );
             })}
@@ -662,6 +850,118 @@ export function MessagePane({
           )}
         </AttachmentDropzone>
       </form>
+
+      {/* feat-484-M1: single pane-level copy snackbar / live region. */}
+      {copyNotice && (
+        <div
+          className={`chat-copy-notice chat-copy-notice--${copyNotice.kind}`}
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          {copyNotice.message}
+        </div>
+      )}
+
+      {/* feat-484-M1: single pane-level context menu for mouse right-clicks. */}
+      {activeMessageAction?.surface === "context-menu" && activeMessageAction.anchor && (
+        <div
+          ref={(el) => {
+            if (el && activeMessageAction.anchor) {
+              const { x, y } = activeMessageAction.anchor;
+              const menuWidth = el.offsetWidth || 160;
+              const menuHeight = el.offsetHeight || 80;
+              el.style.left = `${Math.min(Math.max(8, x), Math.max(8, window.innerWidth - menuWidth))}px`;
+              el.style.top = `${Math.min(Math.max(8, y), Math.max(8, window.innerHeight - menuHeight))}px`;
+            }
+          }}
+          role="menu"
+          className="chat-message-menu"
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              e.preventDefault();
+              closeActionSurface("dismiss");
+            }
+          }}
+        >
+          <MessageActionList
+            message={messages.find((m) => m.id === activeMessageAction.messageId)!}
+            isDirectChat={isDirectChat}
+            agentOnline={agentOnline}
+            forkPending={forkPending}
+            surface="context-menu"
+            onCopy={() =>
+              requestCopy({
+                conversationId: activeMessageAction.conversationId,
+                messageId: activeMessageAction.messageId,
+                bodyElement: activeMessageAction.bodyElement,
+                surfaceToken: activeMessageAction.surfaceToken,
+              })
+            }
+            onFork={() => {
+              if (agentOnline && !forkPending && onFork) {
+                closeActionSurface("branch");
+                onFork(activeMessageAction.messageId);
+              }
+            }}
+            onClose={() => closeActionSurface("dismiss")}
+          />
+        </div>
+      )}
+
+      {/* feat-484-M1: mobile/coarse action sheet. */}
+      <Dialog.Root
+        open={activeMessageAction?.surface === "action-sheet"}
+        onOpenChange={(open) => {
+          if (!open) closeActionSurface("dismiss");
+        }}
+      >
+        <Dialog.Portal>
+          <Dialog.Overlay className="chat-action-sheet-overlay" />
+          <Dialog.Content
+            className="chat-action-sheet-content"
+            onCloseAutoFocus={(e) => {
+              const trigger = activeMessageAction?.trigger;
+              if (trigger?.isConnected) {
+                trigger.focus({ preventScroll: true });
+              } else {
+                e.preventDefault();
+              }
+            }}
+          >
+            <Dialog.Title className="chat-action-sheet-title">
+              {t("chat.messagePane.messageActions")}
+            </Dialog.Title>
+            <Dialog.Description className="sr-only">
+              {t("chat.messagePane.messageActions")}
+            </Dialog.Description>
+            {activeMessageAction && (
+              <MessageActionList
+                message={messages.find((m) => m.id === activeMessageAction.messageId)!}
+                isDirectChat={isDirectChat}
+                agentOnline={agentOnline}
+                forkPending={forkPending}
+                surface="action-sheet"
+                onCopy={() =>
+                  requestCopy({
+                    conversationId: activeMessageAction.conversationId,
+                    messageId: activeMessageAction.messageId,
+                    bodyElement: activeMessageAction.bodyElement,
+                    surfaceToken: activeMessageAction.surfaceToken,
+                  })
+                }
+                onFork={() => {
+                  if (agentOnline && !forkPending && onFork) {
+                    closeActionSurface("branch");
+                    onFork(activeMessageAction.messageId);
+                  }
+                }}
+                onClose={() => closeActionSurface("dismiss")}
+              />
+            )}
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </section>
   );
 }
@@ -674,22 +974,151 @@ function ConfigurationBoundaryDivider() {
   );
 }
 
+// CR-3: remarkPlugins 和无闭包依赖的 table/th/td components 提到模块级常量，
+// 避免每次 render 重建引用导致 react-markdown 重建 unified pipeline。
+
+// CR-2: node prop 不透传 DOM（react-markdown v10 ExtraProps 传 node，不是合法 DOM attr）。
+// CR-6: hast-util-to-jsx-runtime 已将 hast align → style.textAlign，直接透传 props
+// 即可保留对齐（无需在 components 中二次转换 align 属性）。
+const MD_REMARK_PLUGINS = [remarkGfm, remarkMention];
+const MD_TABLE_COMPONENTS: Pick<Components, "table" | "th" | "td"> = {
+  table: ({ node: _node, ...props }) => (
+    <table {...props} className="im-md-table" />
+  ),
+  th: ({ node: _node, ...props }) => <th {...props} />,
+  td: ({ node: _node, ...props }) => <td {...props} />,
+};
+
+function MessageActionList({
+  message,
+  isDirectChat = false,
+  agentOnline = false,
+  forkPending = false,
+  surface = "context-menu",
+  onCopy,
+  onFork,
+  onClose,
+}: {
+  message: Message;
+  isDirectChat?: boolean;
+  agentOnline?: boolean;
+  forkPending?: boolean;
+  surface?: "toolbar" | "context-menu" | "action-sheet";
+  onCopy: () => void;
+  onFork: () => void;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  const isAgent = message.sender.type === "agent";
+  const forkEligible =
+    isAgent &&
+    message.delivery_status === "completed" &&
+    isDirectChat &&
+    Boolean(message.kernel_message_id);
+
+  const forkAvailable = forkEligible && agentOnline && !forkPending;
+  const forkReason = forkEligible
+    ? forkPending
+      ? t("chat.messagePane.branchPending")
+      : agentOnline
+        ? null
+        : t("chat.messagePane.branchOffline")
+    : null;
+
+  function handleFork() {
+    if (forkAvailable) {
+      onFork();
+    }
+  }
+
+  const layout = surface === "toolbar" ? "horizontal" : "vertical";
+  const itemRole = surface === "context-menu" ? "menuitem" : undefined;
+  const isCompact = surface !== "toolbar";
+
+  return (
+    <div className={`chat-message-actions chat-message-actions--${layout}`} role="group" aria-label={t("chat.messagePane.messageActions")} data-testid={`message-actions-${message.id}`}>
+      <button
+        type="button"
+        role={itemRole}
+        className="chat-message-action chat-message-action--copy"
+        data-testid={`message-copy-${message.id}`}
+        onClick={onCopy}
+        aria-label={t("chat.messagePane.copyMessage")}
+        title={t("chat.messagePane.copyMessage")}
+      >
+        {surface === "toolbar" ? "⎘" : t("chat.messagePane.copyMessage")}
+      </button>
+      {forkEligible && (
+        <button
+          type="button"
+          role={itemRole}
+          className="chat-message-action chat-message-action--branch"
+          data-testid={`message-branch-${message.id}`}
+          onClick={handleFork}
+          aria-disabled={!forkAvailable}
+          aria-label={t("chat.messagePane.branchFromHere")}
+          title={forkReason ?? t("chat.messagePane.branchFromHere")}
+        >
+          {surface === "toolbar" ? "⑂" : t("chat.messagePane.branchFromHere")}
+          {isCompact && forkReason && (
+            <span className="chat-message-action-reason">{forkReason}</span>
+          )}
+        </button>
+      )}
+      {isCompact && (
+        <button
+          type="button"
+          role={itemRole}
+          className="chat-message-action chat-message-action--cancel"
+          onClick={onClose}
+        >
+          {t("common.cancel")}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function MessageBubble({
   message,
+  conversationId,
   isMobile,
   participants,
   isDirectChat = false,
   agentOnline = false,
   onFork,
   forkPending = false,
+  onCopyRequest,
+  onMenuRequest,
+  onSheetRequest,
 }: {
   message: Message;
+  conversationId: string;
   isMobile?: boolean;
   participants?: Actor[];
   isDirectChat?: boolean;
   agentOnline?: boolean;
   onFork?(messageId: string): void;
   forkPending?: boolean;
+  onCopyRequest(payload: {
+    conversationId: string;
+    messageId: string;
+    bodyElement?: HTMLElement;
+    codeElement?: HTMLElement;
+    surfaceToken?: number;
+  }): void;
+  onMenuRequest(payload: {
+    messageId: string;
+    bodyElement: HTMLElement;
+    x: number;
+    y: number;
+    trigger: HTMLElement | null;
+  }): void;
+  onSheetRequest(payload: {
+    messageId: string;
+    bodyElement: HTMLElement;
+    trigger: HTMLElement | null;
+  }): void;
 }) {
   const { t } = useTranslation();
   const isSystem = message.sender.type === "system";
@@ -704,125 +1133,101 @@ function MessageBubble({
   const statusAlign = isUser ? "justify-end" : "justify-start";
   const deliveryStatus = message.delivery_status;
 
-  // feat-445-M1: fork is offered only on a *completed agent reply* in a *direct chat*
-  // that carries a kernel message id (the fork anchor — legacy bubbles have none). When
-  // the agent is offline the button still renders but disabled, with an explanatory tip.
   const forkEligible =
     isAgent &&
     deliveryStatus === "completed" &&
     isDirectChat &&
     Boolean(message.kernel_message_id);
-  const forkClass = forkEligible ? (agentOnline ? " is-forkable" : " is-offline") : "";
-  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
-  const [copyError, setCopyError] = useState<string | null>(null);
-  const cardRef = useRef<HTMLDivElement | null>(null);
-  const menuRef = useRef<HTMLDivElement | null>(null);
-  const longPressRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
-  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
-  const ignoreNextCardMouseDownRef = useRef(false);
+  const forkAvailable = forkEligible && agentOnline && !forkPending;
 
-  function clearLongPress() {
-    if (longPressRef.current !== null) {
-      window.clearTimeout(longPressRef.current);
-      longPressRef.current = null;
-    }
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  const toolbarRef = useRef<HTMLDivElement | null>(null);
+  const moreButtonRef = useRef<HTMLButtonElement | null>(null);
+  const recentPointerRef = useRef<RecentPointerRecord | null>(null);
+
+  function recordPointer(e: ReactPointerEvent<HTMLElement>) {
+    const native = e.nativeEvent;
+    const secondaryKind =
+      native.button === 2 ? "button-2" :
+      native.button === 0 && native.ctrlKey ? "control-primary" :
+      null;
+    if (native.pointerType === "mouse" && secondaryKind === null) return;
+    recentPointerRef.current = {
+      messageId: message.id,
+      pointerType: native.pointerType,
+      button: native.button,
+      ctrlKey: native.ctrlKey,
+      clientX: native.clientX,
+      clientY: native.clientY,
+      timeStamp: native.timeStamp,
+    };
   }
 
-  function openMenu(x: number, y: number) {
-    const menuWidth = 148;
-    const menuHeight = isMobile && forkEligible ? 92 : 52;
-    setCopyError(null);
-    setMenu({
-      x: Math.min(Math.max(8, x), Math.max(8, window.innerWidth - menuWidth)),
-      y: Math.min(Math.max(8, y), Math.max(8, window.innerHeight - menuHeight)),
+  function handleContextMenu(e: React.MouseEvent<HTMLDivElement>) {
+    const body = bodyRef.current;
+    if (!body) return;
+
+    const native = e.nativeEvent as MouseEvent & { pointerType?: string };
+    const contextFacts: ContextMenuContextFacts = {
+      messageId: message.id,
+      pointerType: native.pointerType,
+      button: native.button,
+      buttons: native.buttons,
+      ctrlKey: native.ctrlKey,
+      clientX: native.clientX,
+      clientY: native.clientY,
+      timeStamp: native.timeStamp,
+    };
+    const modality = resolveContextMenuModality(contextFacts, recentPointerRef.current);
+    const keepNative = shouldKeepNativeContextMenu(
+      modality,
+      body,
+      native.target,
+      native.clientX,
+      native.clientY,
+      window.getSelection(),
+      document
+    );
+
+    if (keepNative) {
+      recentPointerRef.current = null;
+      return;
+    }
+
+    e.preventDefault();
+    onMenuRequest({
+      messageId: message.id,
+      bodyElement: body,
+      x: native.clientX,
+      y: native.clientY,
+      trigger: cardRef.current,
     });
   }
 
-  function handleContextMenu(e: React.MouseEvent) {
-    e.preventDefault();
-    if (isMobile) return;
-    openMenu(e.clientX, e.clientY);
+  function handleCopy() {
+    const body = bodyRef.current;
+    if (!body) return;
+    onCopyRequest({ conversationId, messageId: message.id, bodyElement: body });
   }
 
-  function handleTouchStart(e: React.TouchEvent) {
-    if (!isMobile || e.touches.length === 0) return;
-    const touch = e.touches[0]!;
-    touchStartRef.current = { x: touch.clientX, y: touch.clientY };
-    clearLongPress();
-    longPressRef.current = window.setTimeout(() => {
-      openMenu(touch.clientX, touch.clientY);
-      ignoreNextCardMouseDownRef.current = true;
-      longPressRef.current = null;
-    }, 600);
-  }
-
-  function handleTouchMove(e: React.TouchEvent) {
-    const start = touchStartRef.current;
-    if (!start || e.touches.length === 0) return;
-    const touch = e.touches[0]!;
-    if (Math.abs(touch.clientX - start.x) > 10 || Math.abs(touch.clientY - start.y) > 10) {
-      clearLongPress();
+  function handleFork() {
+    if (forkAvailable && onFork) {
+      onFork(message.id);
     }
   }
 
-  function handleTouchEnd(e: React.TouchEvent) {
-    if (menu) e.preventDefault();
-    clearLongPress();
-    touchStartRef.current = null;
+  function handleMore() {
+    const body = bodyRef.current;
+    if (!body) return;
+    onSheetRequest({
+      messageId: message.id,
+      bodyElement: body,
+      trigger: moreButtonRef.current,
+    });
   }
 
-  function handleTouchCancel() {
-    clearLongPress();
-    touchStartRef.current = null;
-  }
-
-  async function handleCopy() {
-    setCopyError(null);
-    const writeText = navigator.clipboard?.writeText;
-    if (!writeText) {
-      setCopyError(t("chat.messagePane.copyError"));
-      return;
-    }
-    try {
-      await writeText.call(navigator.clipboard, message.content ?? "");
-      setMenu(null);
-    } catch {
-      setCopyError(t("chat.messagePane.copyError"));
-    }
-  }
-
-  function handleMenuFork() {
-    if (agentOnline && !forkPending) onFork?.(message.id);
-    setMenu(null);
-  }
-
-  useEffect(() => clearLongPress, []);
-
-  useEffect(() => {
-    if (!menu) return;
-    function onDocumentMouseDown(e: MouseEvent) {
-      const target = e.target as Node;
-      if (menuRef.current?.contains(target)) return;
-      if (ignoreNextCardMouseDownRef.current && cardRef.current?.contains(target)) {
-        ignoreNextCardMouseDownRef.current = false;
-        return;
-      }
-      ignoreNextCardMouseDownRef.current = false;
-      setMenu(null);
-    }
-    function onDocumentKeyDown(e: globalThis.KeyboardEvent) {
-      if (e.key === "Escape") setMenu(null);
-    }
-    document.addEventListener("mousedown", onDocumentMouseDown);
-    document.addEventListener("keydown", onDocumentKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", onDocumentMouseDown);
-      document.removeEventListener("keydown", onDocumentKeyDown);
-    };
-  }, [menu]);
-
-  // feat-414 决策 2: running 时前端本地 tick（锚 message.created_at），
-  // completed 后用后端权威 elapsed_ms 定格，不再 tick。
+  // feat-414: running tick state.
   const [tickMs, setTickMs] = useState<number>(() => {
     if (deliveryStatus !== "running") return 0;
     return Math.max(0, Date.now() - new Date(message.created_at).getTime());
@@ -834,7 +1239,6 @@ function MessageBubble({
     return () => clearInterval(id);
   }, [deliveryStatus, message.created_at]);
 
-  // completed 用权威后端值；running 用前端本地 tick；其余（user/failed）不展示。
   const elapsedDisplay: string | null = isAgent
     ? deliveryStatus === "completed" && message.elapsed_ms != null
       ? formatDuration(message.elapsed_ms)
@@ -854,7 +1258,7 @@ function MessageBubble({
   return (
     <div
       data-message-id={message.id}
-      className={`chat-bubble chat-bubble--${isUser ? "user" : "agent"}${forkClass} flex ${rowFlex} gap-2 items-end`}
+      className={`chat-bubble chat-bubble--${isUser ? "user" : "agent"} flex ${rowFlex} gap-2 items-end`}
     >
       {!isUser && (
         <span
@@ -878,16 +1282,15 @@ function MessageBubble({
           ref={cardRef}
           data-testid={`message-bubble-${message.id}`}
           className="chat-bubble-card"
+          onPointerDown={recordPointer}
           onContextMenu={handleContextMenu}
-          onTouchStart={handleTouchStart}
-          onTouchMove={handleTouchMove}
-          onTouchEnd={handleTouchEnd}
-          onTouchCancel={handleTouchCancel}
         >
           {message.content && (
-            isUser
-              ? <div className="chat-bubble-content">{renderInlineContent(message.content, participants)}</div>
-              : <MarkdownContent content={message.content} participants={participants} />
+            <div ref={bodyRef} className="chat-message-body">
+              {isUser
+                ? renderInlineContent(message.content, participants)
+                : <MarkdownContent content={message.content} participants={participants} onCopyCode={(codeElement) => onCopyRequest({ conversationId, messageId: message.id, codeElement })} />}
+            </div>
           )}
           {message.attachments && message.attachments.length > 0 && (
             <div className="chat-bubble-attachments">
@@ -896,7 +1299,6 @@ function MessageBubble({
               ))}
             </div>
           )}
-          {/* feat-439-M2: 过程盘在有工具调用 OR 有思考段时渲染（无思考不留空壳）。 */}
           {isAgent &&
             ((message.tool_calls && message.tool_calls.length > 0) ||
               (message.thinking && message.thinking.length > 0)) && (
@@ -908,9 +1310,6 @@ function MessageBubble({
           {isAgent && deliveryStatus === "completed" && message.token_usage && (
             <TokenChip usage={message.token_usage} dataTestId={`message-token-chip-${message.id}`} />
           )}
-          {/* feat-434 决策 1/3: 待决审批卡收进气泡内最下方（不再飘在气泡外的墙）。只渲染
-              pending —— 已决审批已并入工具行的闸门区，独立已决卡取消（决策 3）。同一 message
-              多次 ask 时，已决的并入工具面板，pending 的在此醒目可操作。 */}
           {isAgent && (message.permission_requests ?? [])
             .filter((req) => req.status !== "resolved")
             .map((req) => (
@@ -922,71 +1321,38 @@ function MessageBubble({
                 onResolved={() => {/* WS event will update the message status */}}
               />
             ))}
-          {/* feat-445-M1: fork from this completed agent reply. Child of the bubble
-              card (zero hover gap), revealed on hover via CSS .is-forkable/.is-offline. */}
-          {forkEligible && !isMobile && (
-            <>
-              <button
-                type="button"
-                data-testid={`message-fork-${message.id}`}
-                className="chat-bubble-fork"
-                disabled={!agentOnline || forkPending}
-                onClick={() => {
-                  // #7: ignore clicks while a fork is in flight (button is also disabled).
-                  if (agentOnline && !forkPending) onFork?.(message.id);
-                }}
-                aria-label={t("chat.messagePane.fork")}
-              >
-                ⑂ {t("chat.messagePane.fork")}
-              </button>
-              {!agentOnline && (
-                <div className="fork-tip">{t("chat.messagePane.forkOffline")}</div>
-              )}
-            </>
-          )}
-          {menu && (
-            <div
-              ref={menuRef}
-              role="menu"
-              className="chat-message-menu"
-              style={{ left: menu.x, top: menu.y }}
-            >
-              <button type="button" role="menuitem" className="chat-message-menu-item" onClick={handleCopy}>
-                {t("chat.messagePane.copy")}
-              </button>
-              {isMobile && forkEligible && (
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="chat-message-menu-item"
-                  disabled={!agentOnline || forkPending}
-                  onClick={handleMenuFork}
-                >
-                  {t("chat.messagePane.fork")}
-                </button>
-              )}
-              {copyError && (
-                <div className="chat-message-menu-error" role="status">
-                  {copyError}
-                </div>
-              )}
-            </div>
-          )}
+
+          {/* Desktop fine-pointer / keyboard toolbar. */}
+          <div
+            ref={toolbarRef}
+            className="chat-message-toolbar"
+            role="toolbar"
+            aria-label={t("chat.messagePane.messageActions")}
+          >
+            <MessageActionList
+              message={message}
+              isDirectChat={isDirectChat}
+              agentOnline={agentOnline}
+              forkPending={forkPending}
+              surface="toolbar"
+              onCopy={handleCopy}
+              onFork={handleFork}
+              onClose={() => {}}
+            />
+          </div>
         </div>
+
         <div className={`chat-bubble-status mt-[2px] flex items-center gap-2 text-[11px] text-[oklch(0.55 0.01 240)] ${statusAlign}`}>
           <span data-testid={`message-timestamp-${message.id}`}>{ts}</span>
           {deliveryStatus === "running" && (
-            // feat-414: oklch 任意值含空格，Tailwind 会拆词导致类名失效；改用内联 style 确保颜色可靠渲染
             <span className="flex items-center gap-1" style={{ color: "oklch(0.65 0.15 60)" }}>
               <span
                 className="inline-block w-[6px] h-[6px] rounded-full animate-pulse"
                 style={{ backgroundColor: "oklch(0.70 0.18 60)" }}
               />
-              {/* feat-414: running 态实时走 tick；有值时加 ⏱ 与 prototype.html 对齐，无值时回退文案 */}
               {elapsedDisplay != null ? `⏱ ${elapsedDisplay}` : t("chat.messagePane.running")}
             </span>
           )}
-          {/* feat-414: completed agent 消息在时间戳右侧显示本轮墙钟，中性灰 */}
           {deliveryStatus === "completed" && elapsedDisplay && (
             <span
               data-testid={`message-elapsed-${message.id}`}
@@ -998,45 +1364,36 @@ function MessageBubble({
           {deliveryStatus === "failed" && (
             <span className="text-[oklch(0.55 0.15 25)]">{t("chat.messagePane.failed")}</span>
           )}
+
+          {/* Compact / coarse More trigger. Always rendered; CSS decides visibility. */}
+          <button
+            ref={moreButtonRef}
+            type="button"
+            className="chat-message-more"
+            data-testid={`message-more-${message.id}`}
+            onClick={handleMore}
+            aria-label={t("chat.messagePane.messageActions")}
+            aria-haspopup="dialog"
+          >
+            ⋯
+          </button>
         </div>
       </div>
     </div>
   );
 }
 
-// CR-3: remarkPlugins 和无闭包依赖的 table/th/td components 提到模块级常量，
-// 避免每次 render 重建引用导致 react-markdown 重建 unified pipeline。
 
-// CR-2: node prop 不透传 DOM（react-markdown v10 ExtraProps 传 node，不是合法 DOM attr）。
-// CR-6: hast-util-to-jsx-runtime 已将 hast align → style.textAlign，直接透传 props
-// 即可保留对齐（无需在 components 中二次转换 align 属性）。
-const MD_REMARK_PLUGINS = [remarkGfm, remarkMention];
-const MD_TABLE_COMPONENTS: Pick<Components, "table" | "th" | "td"> = {
-  table: ({ node: _node, ...props }) => (
-    <table {...props} className="im-md-table" />
-  ),
-  th: ({ node: _node, ...props }) => <th {...props} />,
-  td: ({ node: _node, ...props }) => <td {...props} />,
-};
-
-/**
- * MarkdownContent — 渲染 agent/对方气泡的块级 Markdown 内容。
- *
- * bugfix-413: 改用 react-markdown + remark-gfm 取代手写渲染器，彻底支持
- * CommonMark/GFM（标题/分隔线/引用块/嵌套列表/链接/表格/代码块）。
- * @mention 经 remarkMention 插件在 mdast 层切出，注入带 data-* 属性的 <span>，
- * 再由 components.span 映射渲染成 .chat-mention-chip。
- *
- * 对外 props 签名不变，调用点（message-pane.tsx:401）零改动。
- * raw HTML 安全：不引 rehype-raw，agent 输出的 <script> 等一律转义为字面量。
- */
 function MarkdownContent({
   content,
   participants,
+  onCopyCode,
 }: {
   content: string;
   participants?: Actor[];
+  onCopyCode?(codeElement: HTMLElement): void;
 }) {
+  const { t } = useTranslation();
   // CR-3: participantMap 和 components 用 useMemo，仅 participants 变化时重建，
   // 保证 react-markdown 的 components 引用稳定，不触发不必要的 pipeline 重建。
   const participantMap = useMemo(() => {
@@ -1053,12 +1410,13 @@ function MarkdownContent({
     ...MD_TABLE_COMPONENTS,
     // CR-2: node prop 不透传 DOM。
     // remarkMention sets data-mention-target-id on the injected <span>.
-    span: ({ node: _node, children, ...props }) => {
-      const targetId = (props as Record<string, unknown>)["data-mention-target-id"] as string | undefined;
+    span: (props: any) => {
+      const { node: _node, children, ...rest } = props;
+      const targetId = rest["data-mention-target-id"] as string | undefined;
 
       if (!targetId) {
         // Plain span — pass through untouched.
-        return <span {...props}>{children}</span>;
+        return <span {...rest}>{children}</span>;
       }
 
       const displayName = participantMap.get(targetId);
@@ -1076,7 +1434,69 @@ function MarkdownContent({
         </span>
       );
     },
-  }), [participantMap]);
+    a: (props: any) => {
+      const { node: _node, children, href, ...rest } = props;
+      const label = React.Children.toArray(children).map((c) =>
+        typeof c === "string" ? c : ""
+      ).join("");
+      const disposition = classifyChatLink(href ?? "", label, window.location.href);
+      if (disposition === "unsupported") {
+        return <span className="im-md-link-unsupported">{children}</span>;
+      }
+      if (disposition === "system") {
+        return <a {...rest} href={href} className="im-md-link-system">{children}</a>;
+      }
+      const isExternal = disposition === "external";
+      let isNamedExternal = false;
+      if (isExternal) {
+        try {
+          const normalizedLabel = new URL(label, window.location.href);
+          const normalizedHref = new URL(href ?? "", window.location.href);
+          isNamedExternal = normalizedLabel.href !== normalizedHref.href;
+        } catch {
+          isNamedExternal = true;
+        }
+      }
+      return (
+        <a
+          {...rest}
+          href={href}
+          target={isExternal ? "_blank" : undefined}
+          rel={isExternal ? "noopener noreferrer" : undefined}
+          className={`im-md-link ${isExternal ? "im-md-link--external" : ""}`}
+          aria-label={
+            isExternal
+              ? t("chat.messagePane.linkOpensInNewTab", { label: label || href })
+              : undefined
+          }
+        >
+          {children}
+          {isNamedExternal && <span className="im-md-link-indicator" aria-hidden="true" />}
+        </a>
+      );
+    },
+    pre: (props: any) => {
+      const { node: _node, children, ...rest } = props;
+      return (
+        <div className="im-code-block" data-clipboard-exclude>
+          <button
+            type="button"
+            className="im-code-copy"
+            onClick={(e) => {
+              const codeEl = (e.currentTarget.parentElement?.querySelector("pre > code") ??
+                e.currentTarget.parentElement?.querySelector("code")) as HTMLElement | null;
+              if (codeEl && onCopyCode) onCopyCode(codeEl);
+            }}
+            aria-label={t("chat.messagePane.copyCode")}
+            title={t("chat.messagePane.copyCode")}
+          >
+            ⎘
+          </button>
+          <pre {...rest}>{children}</pre>
+        </div>
+      );
+    },
+  }), [participantMap, onCopyCode, t]);
 
   return (
     <div className="im-md">
