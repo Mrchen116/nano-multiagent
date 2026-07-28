@@ -42,7 +42,7 @@
 
 目标状态是：一个 unit 的整个 Gate 2 审查闭环只创建一个独立 reviewer。它在第一轮建立完整上下文，后续由 design-author 唤醒复用。author 只交代本轮修订事实，不替 reviewer 选择检查深度；reviewer 根据真实影响选择 `closure`、`delta` 或 `full`，必要时自行升级。
 
-同一个 `design-review.md` 按时间顺序保留全部轮次。每轮的问题、核实台账、结论和耗时放在自己的轮次块内，author 的逐条处理结果也紧邻该轮问题。这样下一轮 reviewer 能快速定位未闭合项，后续复盘也能看出每轮为什么发生、花了多久、解决了什么。
+同一个 `design-review.md` 按时间顺序保留全部轮次。每轮的问题、实际核实证据、结论和耗时放在自己的轮次块内，author 的逐条处理结果也紧邻该轮问题。这样下一轮 reviewer 能快速定位未闭合项，后续复盘也能看出每轮为什么发生、花了多久、解决了什么。
 
 ## 验收标准
 
@@ -60,6 +60,12 @@
 - **WHEN** author 发起下一轮 review
 - **THEN** 用户看到 author 唤醒同一个 reviewer 实例，而不是创建新的 reviewer
 - **AND** reviewer 可以复用已经建立的 unit、代码和问题上下文
+
+#### Scenario: 已有轮次后重新进入 design-author
+- **GIVEN** `design-review.md` 已存在一个或多个 Round
+- **WHEN** 用户在同一或新的任务中重新进入 design-author
+- **THEN** author 先读取最后轮次和 reviewer 标识，从下一轮编号继续
+- **AND** 不重新创建 reviewer、不再次写 Round 1
 
 #### Scenario: 固定 reviewer 客观不可恢复
 - **GIVEN** 原 reviewer 实例已不可用或上下文无法恢复
@@ -84,8 +90,8 @@
 #### Scenario: 轻量轮保留未失效的审查证据
 - **GIVEN** reviewer 选择 `closure` 或 `delta`
 - **WHEN** 本轮没有重新执行上一轮的某些核实项或架构进攻角度
-- **THEN** 本轮记录说明这些检查继承自哪个 Round
-- **AND** reviewer 给出本轮 delta 未使其失效的证据，而不是静默省略
+- **THEN** 本轮简要说明其余检查继承自哪个 Round，以及为什么本轮变化未使其失效
+- **AND** 不重复抄写上一轮完整台账或架构进攻
 
 #### Scenario: 轻量检查发现影响扩大
 - **GIVEN** reviewer 原计划执行 `closure` 或 `delta`
@@ -103,7 +109,7 @@
 #### Scenario: 每轮问题独立成组
 - **GIVEN** 某轮产生 CRITICAL、WARNING 或 Recommendation
 - **WHEN** 人或 agent 阅读 `design-review.md`
-- **THEN** 该轮的核实台账、架构进攻、问题和建议都位于同一个轮次块
+- **THEN** 该轮实际执行的核实证据、问题和建议都位于同一个轮次块
 - **AND** 每个问题有包含来源轮次的稳定 ID，后续轮次能逐条引用其关闭状态
 
 #### Scenario: Author 处理一轮问题
@@ -145,7 +151,7 @@
 - 在范围:
   - `change-design-author` 的 reviewer 生命周期、返工派发和 Gate 2 判据。
   - `change-design-reviewer` 的 mode 路由、轮次格式、时间记录和追加写入契约。
-  - 已提交基线中的 change workflow 索引与 agent 路由说明。
+  - `docs/changes/readme.md` 中 Gate 2 流程与 `design-review.md` 产物说明。
 - 非目标:
   - 让 `change-orchestrator` 读取或校验 `design-review.md`。
   - 用 sha256、byte length 或完整产物 manifest 证明报告历史和受审产物一致。

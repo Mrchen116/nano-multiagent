@@ -558,15 +558,15 @@ mkdir -p docs/changes/<unit_dir>/specs/<包>/   # 仅为有对外行为变化的
 
 §5 自检通过只说明"你认为可以送审",**不代表门禁 2 通过**。你负责调度下面的独立审查闭环,直到最新报告和自己的判断都确认无实质问题。
 
-### §6.1 R1 创建一次固定独立 reviewer
+### §6.1 先恢复已有 reviewer；没有历史才创建 R1
 
 一个 unit 的整个 Gate 2 闭环只创建**一个** reviewer:
 
-- R1 用不继承当前设计对齐对话的独立上下文创建 subagent(例如 Codex `fork_turns: "none"`),稳定 `name` 用 `<unit_id>-design-reviewer`;保存 harness 返回的 target / agent ID。
-- 派发包只给 `unit_id`、`unit_dir` 和中性任务:"从首文档、design、delta-spec、prototype、canonical specs 与真实代码重新取证,完整执行 `change-design-reviewer`,把 Round 1 追加到 `docs/changes/<unit_dir>/design-review.md`"。**不要附你的结论、怀疑点或期望答案**。R1 必须是 `full`。
-- R2 及以后不再创建 reviewer,只通过 `followup_task`、`SendMessage` 或当前 harness 的等价唤醒机制恢复同一个 target。独立性的边界是"不是 design-author 自己审",不是"每轮强制遗忘";reviewer 已建立的 unit 上下文正是要复用的资产。
+- 进入 §6 时先读 `design-review.md`。已有 Round 就取最后轮次和其中记录的 reviewer target,从 `N+1` 继续;不得重新创建 reviewer 或再次写 Round 1。若最新 Round 已满足停止条件且受审产物此后未变,直接进入 §7。
+- 有历史且还需复审时,通过 `followup_task`、`SendMessage` 或当前 harness 的等价唤醒机制恢复该 target。独立性的边界是"不是 design-author 自己审",不是"每轮强制遗忘";reviewer 已建立的 unit 上下文正是要复用的资产。
+- 只有没有任何 Round 时才创建 R1:使用不继承当前设计对齐对话的独立上下文(例如 Codex `fork_turns: "none"`),稳定 `name` 用 `<unit_id>-design-reviewer`,保存 harness 返回的 target / agent ID;派发中性任务,不附你的结论、怀疑点或期望答案。R1 必须是 `full`。
 - reviewer 运行期间冻结首文档、`design.md`、delta-spec、prototype 和 Milestone 骨架。不要边审边改,也不要用你的快速印象替代尚未完成的 Round。
-- 当前 harness 无法创建独立 reviewer 时,门禁 2 被阻断。原 reviewer **客观不可恢复**时才允许 failover:下一 Round 记录原因、旧/新 reviewer 标识,替代者该轮强制 `full`;不得为了方便或想"换个脑子"轮换。
+- 当前 harness 无法创建 R1 时,门禁 2 被阻断。历史 target **客观不可恢复**时才允许 failover:创建替代 reviewer,在 `N+1` 记录原因、旧/新 reviewer 标识,该轮强制 `full`;不得为了方便或想"换个脑子"轮换。
 
 ### §6.2 逐条判真,不盲从报告
 
@@ -588,13 +588,13 @@ reviewer 完成后,读最新 Round,对每条 Issue 和 Recommendation **自己�
 
 1. 修改了受审产物 → 按 §5.1 重跑受影响的自检项;动了关键决策、架构边界或 Milestone 拆法时重跑完整 §5.1。
 2. 准备事实型 follow-up 包:`round`、`unit_id/unit_dir`、同一 reviewer target、改过的文件/段落、上一轮 issue ID + Resolution。**不传 `review_mode`、期望 verdict 或"只看这些问题"**。
-3. 唤醒 §6.1 的同一 reviewer。由 reviewer 核实际 delta 后自主选择 `closure | delta | full`,写明理由;轻量检查中发现影响扩大时由 reviewer 自行升级。
+3. 唤醒 §6.1 的同一 reviewer。由 reviewer 结合既有上下文和修订事实自主选择 `closure | delta | full`,写明理由;差异边界不清或轻量检查中发现影响扩大时由 reviewer 自行升级。
 4. reviewer 把完整 `## Round N` **追加**到同一个 `design-review.md`;不得覆盖、重排或改写旧 Round。重复"同一 reviewer 审查 → author 判真/Resolution → 修订/自检 → 同一 reviewer 复审",不设提前退出轮数。
 
 停止循环必须同时满足:
 
 - `design-review.md` 最后一个完整 Round 为 `Approved`,且为 `0 CRITICAL / 0 WARNING`;
-- 你逐条核过本轮 Coverage / 台账 / 架构进攻 / 历史 issue closure / Recommendations,并已追加 Resolution,自己判断没有仍值得修改的实质问题;
+- 你逐条核过最新 Round 中与其 mode 相符的检查证据、历史 issue closure 和 Recommendations,并已追加必要的 Resolution,自己判断没有仍值得修改的实质问题;
 - 最新 Round 完成后没有再修改受审产物;若有修改,继续唤醒同一 reviewer 追加下一 Round。
 
 只有满足这三个条件,才能进入 §7。固定路径保留**全部按时间顺序排列的 Round**;每轮的问题、耗时和 Resolution 都留在自己的 Round 内。

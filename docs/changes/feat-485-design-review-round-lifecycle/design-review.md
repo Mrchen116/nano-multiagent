@@ -360,3 +360,11 @@ Approved — 0 CRITICAL / 0 WARNING
 - `change-orchestrator` 不需要检查 `design-review.md`，撤回对应修改；本条取代 R2-R1 的实施方向。
 - 不记录 sha256、byte length 或完整产物 manifest；保留由 agent 直接判断的 reviewer lifecycle、mode 路由和按轮历史。
 - `tests/contract/test_design_review_round_contract.py` 整个删除；skill 与流程文档不建立字符串断言契约测试。
+- 根级 `AGENTS.md` 不增加 design-review 细节；该规则属于相关 skill 与 change workflow 文档。`docs/changes/readme.md` 中与本需求无关的 milestone skeleton 改写一并撤回。
+
+### PR Review Resolutions
+
+- recorded_at: `2026-07-28T14:37:24+08:00`
+- 已有 Round 的 unit 重新进入 design-author 时，先恢复报告中记录的 reviewer 并从 `N+1` 继续；只有无历史时创建 R1，客观不可恢复才留痕 failover。
+- `closure` 只记录历史问题关闭证据，`delta` 只展开受影响项；不再要求轻量轮复写全量 Coverage、台账和架构进攻。
+- 恢复既有严重度语义：非实质 WARNING 不因本 PR 被提升为强制返工条件。

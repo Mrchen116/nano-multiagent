@@ -12,6 +12,9 @@ feat-475 把 Gate 2 固化为“每轮新 reviewer + 每轮 full + 覆盖旧报�
 - `design-review.md` 按 Round 追加；每轮记录时区时间、耗时和稳定 issue ID。
 - `change-orchestrator` 不消费 `design-review.md`；Gate 2 由 design-author 在交接前收口。
 - 不记录 sha256、byte length 或完整产物 manifest，保留 agent 可直接理解和执行的最小契约。
+- 根级 `AGENTS.md` 不承载 design-review 细节；流程规则只落在相关 skill 与 `docs/changes/readme.md`。同时撤回 readme 中与本需求无关的 milestone skeleton 改写。
+- design-author 每次进入 Gate 2 先读取已有 Round：有历史则恢复 reviewer 并从 `N+1` 继续，无历史才创建 R1。
+- 轻量 mode 同时收缩检查与报告：closure 只写 closure 证据，delta 只展开受影响项；不重复全量台账。
 
 ## Rationale
 

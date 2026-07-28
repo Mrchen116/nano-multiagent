@@ -354,7 +354,6 @@ Gateway 第一次连一个新 IM 实例时,IM 要求确认绑定 owner,默认会
 ## Agent workflow
 
 - Read AGENTS.md / SPEC.md before making changes.
-- Full unit 的 Gate 2 只创建一个独立 design reviewer；返工后始终唤醒同一实例，由 reviewer 自主选择 `closure` / `delta` / `full`。`design-review.md` 按 Round 追加并保留每轮时间、问题与 Resolution。
 - Prefer small, reviewable diffs.
 - After code changes, run the narrowest relevant test first, then broader checks if needed.
 - Do not commit secrets or generated local files.

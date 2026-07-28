@@ -67,6 +67,8 @@ R1 由 author 创建一个不继承 author 设计对齐上下文的独立 review
 
 “独立”定义为 reviewer 与 author 角色和上下文分离，不定义为 reviewer 每轮遗忘。复用 reviewer 的历史上下文正是本次优化要保留的资产。
 
+每次进入 Gate 2 都先读已有 `design-review.md`。有历史时从最后 Round 提取 reviewer target 和下一轮编号；最新 Round 已通过且产物未变则直接收口，否则恢复同一 target 续审。只有没有历史时才创建 R1，避免跨任务重入时重复创建 reviewer 或再次写 Round 1。
+
 唯一 failover 是原实例客观不可恢复。author 必须先确认恢复失败，再创建替代 reviewer；替换原因、旧/新标识写入下一轮元数据，替代者首轮强制 `full`。
 
 ### 决策 2：Reviewer 拥有 review-mode 路由权
@@ -86,20 +88,21 @@ reviewer 先读历史轮次、当前产物与 author 提供的修订事实，验
 
 | mode | 适用条件 | 最低检查范围 |
 |---|---|---|
-| `closure` | 仅证据、引用、措辞消歧或其他不改变架构/契约语义的局部修正，影响可封闭 | 逐条关闭旧 issue，核改动位置与直接依赖，确认没有语义漂移 |
+| `closure` | 仅证据、引用、措辞消歧或其他不改变架构/契约语义的局部修正，影响可封闭 | 逐条关闭旧 issue，核改动位置，确认没有语义漂移 |
 | `delta` | 有有界的设计语义变化，但未改变需求范围、核心架构边界或无法枚举的共享契约 | 旧 issue + 全部 changed atoms + 其上下游依赖 + 受影响的架构进攻角度 |
 | `full` | R1；reviewer failover/上下文丢失；需求或非目标变化；核心边界、跨模块接口、数据流、milestone 拆分、共享契约发生高风险变化；影响无法界定 | 完整重建五类承重原子台账并执行全部四角度架构进攻 |
 
-`closure`/`delta` 过程中一旦发现新副作用、未声明 delta、影响无法封闭或新的 CRITICAL/WARNING，reviewer 在同一轮扩大范围并记录升级后的 mode；author 无权阻止或降级。
+`closure`/`delta` 过程中一旦发现影响扩大或无法封闭，reviewer 在同一轮扩大范围并记录升级后的 mode；author 无权阻止或降级。
 
-轻量 mode 省的是**未失效证据的重复取证**，不是降低审查维度。每个 `closure`/`delta` Round 都必须有 `Coverage`：
+轻量 mode 既省重复取证，也省重复报告：
 
-| 分组 | 要记录什么 |
+| mode | 本轮记录 |
 |---|---|
-| `rechecked` | 本轮重新核实的旧 issue、changed atoms、直接/间接依赖和架构进攻角度，以及新证据 |
-| `retained` | 未重跑的 atom/angle 按可审计分组列出 `inherited_from: Round N`，以及为什么本轮 delta 没有使结论失效 |
+| `closure` | 历史 issue closure 与直接证据；不重抄 Coverage、台账或架构进攻 |
+| `delta` | 精简 Coverage、历史 issue closure、本轮重查证据；未受影响部分只写一条 `retained_from: Round N` 与理由 |
+| `full` | 完整 Coverage、五类台账与四角度架构进攻 |
 
-不能证明某组 retained evidence 仍有效、无法枚举影响边界、或发现未声明变化时，必须扩大 `rechecked`，必要时升级 `full`。不得让未重跑项从报告里静默消失；严重度和四角度定义保持不变。
+无法从既有上下文和 author 的修订事实确认影响边界时，必须升级 `full`。轻量轮要准确说明本轮检查了什么、继承自哪一轮，但不枚举所有未重跑原子。
 
 ### 决策 3：`design-review.md` 以 Round 为不可覆盖的一级单元
 
@@ -151,7 +154,7 @@ reviewer 写入的 Round 正文在完成后不可改写；author 只能在该 Ro
 
 reviewer 在开始读取本轮输入前记录 `started_at`，落盘前记录 `completed_at`，并计算 `duration`。两个时间都使用 ISO 8601 和显式时区；duration 使用人可读 wall-clock 时长。
 
-不记录 sha256、byte length 或完整产物 manifest。reviewer 根据历史、当前产物和实际 delta 判断 Coverage；append-only 由明确写入规则约束，不增加机器证明。
+不记录 sha256、byte length 或完整产物 manifest。reviewer 根据历史、当前产物、既有上下文和 author 的修订事实判断检查范围；append-only 由明确写入规则约束，不增加机器证明。
 
 ### 决策 5：Design-author 以最新完成 Round 收口 Gate 2
 
@@ -172,7 +175,6 @@ Gate 2 通过需同时满足：
 - `.claude/skills/change-design-author/SKILL.md`
 - `.claude/skills/change-design-reviewer/SKILL.md`
 - `docs/changes/readme.md`
-- `AGENTS.md`
 
 创建 worktree 时，主仓的 `docs/README.md` 和 `docs/development/` 仍未提交，属于其他任务。本 unit 不复制它们的工作副本。合并顺序是硬 gate：
 
@@ -192,7 +194,7 @@ reviewer 负责：
 1. 确认 round 编号等于文件中最后一轮 + 1；
 2. 记录开始时间；
 3. 选择并执行 mode，必要时升级；
-4. 记录 Coverage、完成时间与 duration；
+4. 按 mode 记录必要证据、完成时间与 duration；
 5. 一次性把完整 Round 追加到文件末尾。
 
 ### Author → report
@@ -204,8 +206,8 @@ author 对本轮每个 Issue/Recommendation 独立判真，在同一 Round 的 `
 | 风险 | 应对 |
 |---|---|
 | 复用 reviewer 产生锚定偏差 | R1 仍是隔离上下文；mode 由 reviewer 决定；高风险和不明影响强制 full；author 不传期望结论 |
-| author 低报 delta 诱导轻量检查 | reviewer 必须先验证实际产物与 resolution，发现未声明变化就升级范围并报 issue |
-| 轻量 mode 变成静默少审 | 每轮把未重跑维度列入 retained coverage，并证明本轮 delta 未使其失效；证明不了就升级 |
+| author 的修订说明不足以界定影响 | reviewer 不猜测，直接扩大范围或升级 full |
+| 轻量 mode 变成换一种方式写全量报告 | closure 只写 closure 证据，delta 只展开受影响项；不枚举所有未重跑原子 |
 | 旧轮内容被后续 agent 改写 | reviewer 与 author skill 都禁止覆盖、重排、改写旧 Round；纠错只能在新 Round 说明 |
 | 报告无限增长 | 历史是用户明确要求的复盘资产；不拆文件、不压缩，阅读时从最新 Round 和未关闭 issue 开始 |
 | 原 reviewer 丢失 | 留痕 failover，新 reviewer 首轮 full，不伪造上下文连续性 |
@@ -221,7 +223,7 @@ author 对本轮每个 Issue/Recommendation 独立判真，在同一 Round 的 `
 - Review 驱动方式：本 unit 自身就是可控 workflow canary。
   1. 读取 `design-review.md` 的 Round 1 与 `Author Resolutions`。
   2. 通过 harness 的 follow-up/SendMessage 唤醒 Round 1 记录的同一 reviewer target，不传 mode，只传 changed artifacts 与 resolutions。
-  3. 验证 Round 2 的 reviewer 标识不变、mode 由 reviewer 给出且有理由、Coverage 区分 rechecked/retained、Round 2 有完整时间字段，Round 1 仍原样保留。
+  3. 验证 Round 2 的 reviewer 标识不变、mode 由 reviewer 给出且有理由、证据量与 mode 匹配、Round 2 有完整时间字段，Round 1 仍原样保留。
   4. 确认所有写入都发生在指定 worktree，主仓目标路径没有本 unit 引入的改动。
 - 最窄验证：
   - 对两个修改的 skill 分别运行 `/Users/czj/Repos/nano-multiagent/.venv/bin/python /Users/czj/.codex/skills/.system/skill-creator/scripts/quick_validate.py <skill-dir>`。
@@ -231,7 +233,7 @@ author 对本轮每个 Issue/Recommendation 独立判真，在同一 Round 的 `
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| feat-485-M1 | skill-contract | 无 | serial | `change-design-author`、`change-design-reviewer`、`docs/changes/readme.md`、`AGENTS.md` 与 feat-485 文档 | `[reviewer]` spec 中 reviewer 复用、mode 路由、轮次留痕、时间记录与主仓隔离场景全部成立；`[worker]` 两个 skill 校验和 diff check 全绿 |
+| feat-485-M1 | skill-contract | 无 | serial | `change-design-author`、`change-design-reviewer`、`docs/changes/readme.md` 与 feat-485 文档 | `[reviewer]` spec 中 reviewer 复用、mode 路由、轮次留痕、时间记录与主仓隔离场景全部成立；`[worker]` 两个 skill 校验和 diff check 全绿 |
 
 milestone_dir 为 `M1-skill-contract`。不拆多 milestone：reviewer 生命周期、mode 路由与报告格式共同定义一个不可分割的 Gate 2 审查协议。
 
