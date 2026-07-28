@@ -126,3 +126,49 @@
 - Rollback: 本节合并提交可 `git revert`.
 - Commits: 见 R2-R6 合并提交.
 - Next: R7 真浏览器验收与证据归档.
+
+## R7 — 真浏览器验收与证据归档
+
+- Context: 需要在隔离真栈中验证 desktop/hybrid/mobile 三矩阵的交互、视觉与焦点行为。
+- Decision:
+  - 使用 `./scripts/e2e-up.sh` 在 worktree 内起隔离 IM + Gateway（IM port 57714）。
+  - 通过 `/settings/agents/default-agent` → Open chat 创建 direct chat，发送要求返回 paragraph / nested list / named external link / bare URL / two code blocks 的消息，得到 completed Agent 回复。
+  - Playwright 自动化：Chromium 1440×900 截图 default / hover toolbar / context menu / copy success / external link / code block；Chromium 1024×768 hybrid 截图 toolbar+More 共存与 action sheet；WebKit 390×844 mobile 截图 default / tap / action sheet。
+- Rationale: 真实浏览器验证跨 viewport 事件路由、Radix Dialog 焦点陷阱、CSS 可见性与触控尺寸。
+- Evidence:
+  - Tests: N/A（一次性验收）。
+  - Entry: `$IM_URL/chat/dc420a5ec31e47f58d95164dd91e825d`（隔离 IM）。
+  - Frontend State Matrix: default / hover / focus / compact / coarse / mobile / desktop。
+  - Browser QA: 成功打开真实页面，执行 hover、右键、copy、More、action sheet；console 无新错误（未观察到阻塞性 error）。
+  - E2E/Regression: 本 milestone 新增 Vitest 回归已覆盖。
+  - Visual/Interaction:
+    - `r7-desktop-default.png`: 1440×900 默认阅读态，toolbar 隐藏。
+    - `r7-desktop-hover-toolbar.png`: hover 显示 Copy + Branch 两图标。
+    - `r7-desktop-context-menu.png`: 右键显示 Copy message + Branch from here。
+    - `r7-desktop-copy-success.png`: 点击 Copy message 后显示 "Copied" snackbar。
+    - `r7-desktop-external-link.png`: 具名外链 `Example↗` 与裸 URL `https://example.org` 同框。
+    - `r7-desktop-code-block.png`: 代码块 hover 显示 copy button。
+    - `r7-hybrid-toolbar-more.png`: 1024×768 同时显示 toolbar 与 More 按钮。
+    - `r7-hybrid-action-sheet.png`: Radix action sheet 打开。
+    - `r7-mobile-webkit-default.png`: 390×844 WebKit 默认态。
+    - `r7-mobile-tap.png`: tap 正文无自定义菜单覆盖。
+    - `r7-mobile-action-sheet.png`: mobile More 打开 action sheet。
+  - Prototype Comparison:
+    - fine pointer/keyboard toolbar: match（hover 显示 Copy + Branch）。
+    - mouse 精确选区/普通区域 IM menu: match（右键打开短菜单）。
+    - clean whole-message copy + snackbar: match。
+    - named external / raw URL: match（具名外链带 ↗，裸 URL 无 ↗）。
+    - code block copy button: match。
+    - compact/coarse More + Radix sheet: match。
+    - 原型色值/阴影: may-adapt（使用现有 global.css tokens）。
+    - viewport/state/language 控制条: out-of-scope。
+- Rollback: 本节提交可 `git revert`。
+- Commits: 见 R7 提交。
+- Next: 合并到 unit/feat-484 分支。
+
+## 集成门禁
+
+- `npm run test`（全 69 文件 690 tests）: passed。
+- `npm run build`: passed。
+- `git diff --check`: clean。
+- 未提交 `src/IM/frontend/dist/`。

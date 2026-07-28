@@ -1867,12 +1867,13 @@ body {
 
 .chat-message-actions--horizontal .chat-message-action {
   justify-content: center;
-  width: 26px;
-  height: 26px;
-  min-height: 26px;
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
   padding: 0;
-  font-size: 1rem;
+  font-size: 1.1rem;
   line-height: 1;
+  color: var(--im-text);
 }
 
 .chat-action-sheet-overlay {

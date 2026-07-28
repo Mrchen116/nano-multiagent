@@ -16,7 +16,7 @@
 - [x] M1-R6: toolbar/menu/sheet/link/code button 焦点、本地化、回焦、More 触控区 >=44px、Radix Dialog 焦点陷阱正确。
 - [x] M1-R7: fork `onFork(message.id)`、资格、offline/pending disabled、防双击与成功跳转语义不变；`message-pane-fork.test.tsx` 全绿。
 - [x] M1-R8: `message-content-policy.test.ts` + `message-pane.test.tsx` 覆盖策略与三表面行为；删除/改写 feat-451 旧长按测试。
-- [ ] M1-R9: 真浏览器验收 Chromium desktop/hybrid 与 Playwright WebKit mobile，证据落 `M1-impl/evidence/`。
+- [x] M1-R9: 真浏览器验收 Chromium desktop/hybrid 与 Playwright WebKit mobile，证据落 `M1-impl/evidence/`。
 - [x] M1-R10: `npm run test`（指定三文件）、`npm run build`、`git diff --check` 全绿；不提交 `dist/`。
 
 ## 测试策略
@@ -156,7 +156,7 @@
 
 ### R7 — 真浏览器验收与证据归档
 
-- 状态: TODO
+- 状态: DONE
 - 步骤:
   1. 按 design.md Runbook 起隔离真栈。
   2. Chromium desktop 1440×900：选区右键、toolbar、Branch 四状态、copy、link、code copy、焦点回焦。
