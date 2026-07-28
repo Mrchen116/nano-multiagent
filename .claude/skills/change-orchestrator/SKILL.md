@@ -17,7 +17,7 @@ Codex 执行本 skill 时,工具映射差异见 `references/codex-execution-note
 
 ## §0 不可越界的硬规则
 
-1. **门禁 2 没过不能启动**。Full unit 同时检查 `design.md` 结构和 `design-review.md` 的最新 Round:必须 `Approved`、`0 CRITICAL / 0 WARNING`、历史阻断项均闭环、完整受审 manifest 与当前路径/sha256 一致。任一不满足,**拒绝启动**,提示用户回 `change-design-author` 唤醒同一 design reviewer 收口。
+1. **门禁 2 没过不能启动**。检查 `docs/changes/<unit>/design.md`:无 `<!-- 模板说明 -->`、Milestone 表完整、空目录数量 = 表行数。任一不满足,**拒绝启动**,提示用户回 `change-design-author` 收口。
 2. **Sync Gate 不通过不动作**。启动第一件事是 main 同步检查(§2),分叉直接停下让人介入,不要强制 reset。
 3. **不写代码、不改 design / 变更稿 spec**。escalation 时通知人介入,由 design-author / spec-author 修订。**两个例外**:(a) 在 PR body / Changelog 这类调度产物里写文字;(b) §7.0 收尾归并:据本 unit delta-spec 把行为增量合并进**长青行为契约层** `docs/specs/<包>/<target>.md`(顶层 canonical,你是单一 owner),并可校正 delta 文件 `<unit_path>/specs/<包>/<target>.md`——注意这与 `<unit_path>/spec.md`(变更稿,禁改)是两回事。
 4. **Agent 工具派发时不设置 isolation 参数**。worktree 由本 skill 分配路径并指示 worker 自建。设了 `isolation=worktree` 会在 `.claude/worktrees/` 创建冲突 worktree,破坏整个流程。
@@ -116,16 +116,6 @@ fi
 - [ ] Milestone 表完整(每行字段都填:ID / 标题 / 依赖 / 并行组 / 范围 / 退出标准)
 - [ ] `<unit_path>/M*/` 子目录数量 = Milestone 表行数
 - [ ] 子目录仅含 `.gitkeep`(没有预填 tasks.md / progress.md——那是 worker 的事)
-- [ ] `<unit_path>/design-review.md` 存在且按 `## Round N` 追加;最后一个完整 Round 的 Verdict 为 `Approved — 0 CRITICAL / 0 WARNING`
-- [ ] 最新 Round 的历史问题闭环 + `Author Resolutions` 没有仍开放的 CRITICAL / WARNING;Recommendation 已记录 author 取舍
-- [ ] 可恢复轮次复用同一 reviewer 标识;若发生 failover,该 Round 记录原因、旧/新标识且 mode 为 `full`
-- [ ] 最新 Round 的 `reviewed_artifact_manifest` 完整列出并匹配当前受审集合:首文档、`design.md`、全部 delta-spec、存在时的 `prototype.html`、全部 `M*/.gitkeep`
-
-manifest 是独立 Gate 事实,不能拿 author 的 `changed_artifacts` 代替。按路径排序重新枚举当前受审文件,用 `shasum -a 256` 计算每项;路径集合和 hash 必须同时相等,所以新增、删除、重命名、内容变化都会让旧 Round 失效。`design-review.md` 自身不进入 manifest。
-
-这是首次派 worker 与 design 修订后重启 orchestrator 的共同门。失败时不要自己补报告、不要派 worker:
-
-> Unit `<unit_id>` 的 design review 已缺失、未通过或与当前受审产物不一致。请回 `change-design-author`;优先唤醒报告里的同一 design reviewer target 追加下一 Round,原实例客观不可恢复时才走留痕 failover。
 
 任一不通过,**立即退出**:
 

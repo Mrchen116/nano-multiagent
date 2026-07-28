@@ -587,7 +587,7 @@ reviewer 完成后,读最新 Round,对每条 Issue 和 Recommendation **自己�
 每轮报告未满足停止条件时:
 
 1. 修改了受审产物 → 按 §5.1 重跑受影响的自检项;动了关键决策、架构边界或 Milestone 拆法时重跑完整 §5.1。
-2. 准备事实型 follow-up 包:`round`、`unit_id/unit_dir`、同一 reviewer target、改过的文件/段落/当前 sha256、上一轮 issue ID + Resolution。**不传 `review_mode`、期望 verdict 或"只看这些问题"**。
+2. 准备事实型 follow-up 包:`round`、`unit_id/unit_dir`、同一 reviewer target、改过的文件/段落、上一轮 issue ID + Resolution。**不传 `review_mode`、期望 verdict 或"只看这些问题"**。
 3. 唤醒 §6.1 的同一 reviewer。由 reviewer 核实际 delta 后自主选择 `closure | delta | full`,写明理由;轻量检查中发现影响扩大时由 reviewer 自行升级。
 4. reviewer 把完整 `## Round N` **追加**到同一个 `design-review.md`;不得覆盖、重排或改写旧 Round。重复"同一 reviewer 审查 → author 判真/Resolution → 修订/自检 → 同一 reviewer 复审",不设提前退出轮数。
 
@@ -595,7 +595,7 @@ reviewer 完成后,读最新 Round,对每条 Issue 和 Recommendation **自己�
 
 - `design-review.md` 最后一个完整 Round 为 `Approved`,且为 `0 CRITICAL / 0 WARNING`;
 - 你逐条核过本轮 Coverage / 台账 / 架构进攻 / 历史 issue closure / Recommendations,并已追加 Resolution,自己判断没有仍值得修改的实质问题;
-- 最新 Round 的 `reviewed_artifact_manifest` 是**完整受审集合**:首文档、`design.md`、全部 delta-spec、存在时的 `prototype.html`、全部 Milestone skeleton;当前路径集合与每项 sha256 都完全一致。新增、删除、重命名或内容变化都会让 Round 过期。
+- 最新 Round 完成后没有再修改受审产物;若有修改,继续唤醒同一 reviewer 追加下一 Round。
 
 只有满足这三个条件,才能进入 §7。固定路径保留**全部按时间顺序排列的 Round**;每轮的问题、耗时和 Resolution 都留在自己的 Round 内。
 
@@ -615,7 +615,7 @@ reviewer 完成后,读最新 Round,对每条 Issue 和 Recommendation **自己�
 - [ ] Milestone 表完整(每行字段都填),数量 = `docs/changes/<unit_dir>/M*/` 子目录数
 - [ ] milestone 子目录仅含 `.gitkeep`，没有预填 tasks.md / progress.md
 - [ ] 对外行为有变化的包都按最窄 canonical 落点产了 delta-spec `docs/changes/<unit_dir>/specs/<包>/<target>.md`(§4.8);纯内部 unit 在 design.md 注 "no spec delta"
-- [ ] §6 独立审查闭环已完成:同一 reviewer target 贯穿所有可恢复轮次;最后一个 Round `Approved` 且 `0 CRITICAL / 0 WARNING`;你确认无实质问题;完整 manifest 与当前受审路径/sha256 一致
+- [ ] §6 独立审查闭环已完成:同一 reviewer target 贯穿所有可恢复轮次;最后一个 Round `Approved` 且 `0 CRITICAL / 0 WARNING`;你确认无实质问题且该 Round 后未再修改受审产物
 
 通过后,在主仓 `main` 上 commit + push `docs/changes/<unit_dir>/`(包含最终 `design-review.md`,勿建 `unit/*` 分支)。
 
@@ -632,7 +632,7 @@ reviewer 完成后,读最新 Round,对每条 Issue 和 Recommendation **自己�
 
 - `docs/changes/<unit>/<首文档>.md` 通过门禁 1 检查
 
-**输出**(下游 `change-orchestrator` 会读):
+**输出**:
 
 - `docs/changes/<unit_dir>/design.md`,含:
   - Unit branch 声明(意图,orchestrator 据此创建分支)
@@ -641,7 +641,7 @@ reviewer 完成后,读最新 Round,对每条 Issue 和 Recommendation **自己�
 - `docs/changes/<unit_dir>/prototype.html`(仅前端相关 unit 必须产出;非前端 unit 不产)
 - `docs/changes/<unit_dir>/M*/` 目录，仅含 `.gitkeep`(orchestrator 据此校验 milestone 数量一致)
 - `docs/changes/<unit_dir>/specs/<包>/<target>.md` delta-spec(§4.8,仅有对外行为变化的包,可有多个 target;orchestrator §7.0 据此校正 + 软对账 + 合并进对应 canonical area。纯内部 unit 无此文件,design.md 注 "no spec delta")
-- `docs/changes/<unit_dir>/design-review.md`,按时间顺序保留全部 Round 的独立评审日志;最后一轮为 `Approved`,`0 CRITICAL / 0 WARNING`,完整 manifest 与当前产物一致,且你已记录 Resolution 并确认无实质问题
+- `docs/changes/<unit_dir>/design-review.md`,按时间顺序保留全部 Round 的独立评审日志;最后一轮为 `Approved`,`0 CRITICAL / 0 WARNING`,且你已记录 Resolution、确认无实质问题并保证该 Round 后未再修改受审产物
 
 下游(orchestrator + worker + reviewer)对你的依赖:
 

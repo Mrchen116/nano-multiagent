@@ -104,7 +104,6 @@ agent 应该把澄清问题一轮一轮抛给用户，每轮记录 Q/A 到首文
 - [ ] 每个 milestone 的退出标准独立可验
 - [ ] R1 创建了一个独立 design reviewer；后续返工始终唤醒同一 reviewer，由 reviewer 自主选择 `closure` / `delta` / `full`
 - [ ] `design-review.md` 按 `## Round N` 保留全部轮次、每轮时间、问题与 Author Resolutions；最后一轮 `Approved`、`0 CRITICAL / 0 WARNING`
-- [ ] 最后一轮的完整受审产物 manifest 与当前路径集合、sha256 一致；`change-orchestrator` 启动或 design 修订后恢复时会重复核验
 
 ### 阶段 3：实施（Apply）
 
@@ -237,7 +236,7 @@ docs/changes/feat-104-chat-mention-picker/
 |------|------|------------|
 | `spec.md` | 定义功能边界、用户场景、验收标准来源。回答"做什么"。**只写用户视角，禁止讨论模块/接口/数据结构/库选型**——这些属于 design。 | 需求分解阶段，拆 milestone 之前 |
 | `design.md` | 记录架构决策、接口设计、数据流、关键权衡与拒绝的方案。回答"怎么做"。顶部维护**变更日志**（见下）。 | 需求明确后、实现前 |
-| `design-review.md` | 按 `Round` 保留固定独立 reviewer 的检查 mode、时间、完整 manifest、台账、问题与 author 处理结果。 | design 自检后开始，Gate 2 每轮只追加 |
+| `design-review.md` | 按 `Round` 保留固定独立 reviewer 的检查 mode、时间、台账、问题与 author 处理结果。 | design 自检后开始，Gate 2 每轮只追加 |
 | `tasks.md` | 把 milestone 目标拆成可执行的 roadpoint，明确验收标准和测试策略。 | worktree 启动后、编码前 |
 | `progress.md` | 记录每个 roadpoint 的完整执行过程（Context/Decision/Rationale/Evidence/Rollback/Commits）。 | 每个 roadpoint 完成后实时更新 |
 | `acceptance.md` | 从产品经理视角判断功能是否对用户可用，记录用户旅程体验、问题清单与 verdict。 | 所有实现型 milestone 完成后 |

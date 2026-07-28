@@ -353,3 +353,10 @@ Approved — 0 CRITICAL / 0 WARNING
 
 - [R2-R1] accepted — 实施 `change-orchestrator` Gate 时除最新 Verdict、0C/0W 和完整 manifest 外，显式核对最新 Round 对历史阻断 issue 的 closure 记录与 author Resolution，不按短摘要漏掉第三类条件；契约测试固定该要求。
 - [R2-R2] accepted — 验证主仓隔离时以本次操作始终使用 worktree 绝对路径、主仓目标路径的 path-scoped 状态和最终可归因 diff 为主证据；整份 status hash 只作并发提示，不把其他任务的变化误判为本 unit 写入。
+
+### User Direction After Round 2
+
+- recorded_at: `2026-07-28T14:24:48+08:00`
+- `change-orchestrator` 不需要检查 `design-review.md`，撤回对应修改；本条取代 R2-R1 的实施方向。
+- 不记录 sha256、byte length 或完整产物 manifest；保留由 agent 直接判断的 reviewer lifecycle、mode 路由和按轮历史。
+- `tests/contract/test_design_review_round_contract.py` 整个删除；skill 与流程文档不建立字符串断言契约测试。

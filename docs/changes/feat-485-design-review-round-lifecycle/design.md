@@ -1,6 +1,6 @@
 # feat-485: Design review 轮次生命周期 — 技术方案
 
-> 对齐: spec.md v2
+> 对齐: spec.md v3
 >
 > Implementation branch: `codex/design-review-round-history`（用户明确要求在独立 worktree 实施）
 
@@ -22,7 +22,6 @@ flowchart LR
     D --> H
     F --> H
     H --> A
-    H -->|"latest Approved<br/>完整 manifest 相等"| O["Change orchestrator<br/>Gate 2 consumer"]
 ```
 
 主流程中 author 不再承担检查深度判断，也不创建第 N 个 reviewer：
@@ -40,12 +39,10 @@ sequenceDiagram
     A->>R: 唤醒同一实例，提交 R2 修订事实
     R->>R: 自主选择 closure / delta / full
     R->>L: 追加 Round 2，核对旧 issue 并记录新发现
-    A->>O: Gate 2 交接
-    O->>L: 核最新 Round + 完整 manifest
-    alt 结论与当前产物一致
-        O->>O: 允许派 worker
-    else stale / 未通过
-        O-->>A: 退回同一 reviewer 的下一 Round
+    alt 最新 Round 通过且未再修改受审产物
+        A->>A: Gate 2 完成
+    else 仍有问题或继续修改
+        A->>R: 唤醒同一实例追加下一 Round
     end
 ```
 
@@ -59,7 +56,6 @@ sequenceDiagram
 | reviewer 输出格式只有单次报告，没有轮次元数据或 mode | `.claude/skills/change-design-reviewer/SKILL.md:161-214` | reviewer 无法表达复验范围，author 也无法稳定引用历史 issue |
 | feat-475 把 fresh/full/overwrite 写成原始需求 | `docs/changes/feat-475-design-review-loop/spec.md:62-73,138-144` | 本 unit 必须作为显式后续决策覆盖旧流程，不能静默改词 |
 | orchestrator 已有“复用热上下文 + 按 delta 选复验范围”的相邻模式 | `.claude/skills/change-orchestrator/SKILL.md:575-639` | 可复用其 `closure/delta/full` 词汇，但路由所有权改由 design reviewer 承担 |
-| 真正放行实施的是 orchestrator，但当前启动门不读 design review | `.claude/skills/change-orchestrator/SKILL.md:93-122` | 只改 author/reviewer 会留下可绕过的纸面 Gate 2，orchestrator 必须成为消费者 |
 
 本 unit 不涉及产品 runtime、常驻服务或 canonical 产品行为契约；没有 delta-spec。
 
@@ -82,7 +78,7 @@ author 的返工派发包只提供事实，不提供 `review_mode` 或期望结�
 | `round` | 下一轮编号 |
 | `unit_id` / `unit_dir` | unit 定位 |
 | `reviewer_target` | 被唤醒的稳定 reviewer 标识 |
-| `changed_artifacts` | 改过的文件、段落与当前内容哈希 |
+| `changed_artifacts` | 改过的文件与段落 |
 | `resolutions` | 上轮 issue ID、author 判真结果、改动位置与证据 |
 | `task` | 先判定影响，再自主选择 mode，完成检查并追加本轮 |
 
@@ -101,7 +97,7 @@ reviewer 先读历史轮次、当前产物与 author 提供的修订事实，验
 | 分组 | 要记录什么 |
 |---|---|
 | `rechecked` | 本轮重新核实的旧 issue、changed atoms、直接/间接依赖和架构进攻角度，以及新证据 |
-| `retained` | 未重跑的 atom/angle 按可审计分组列出 `inherited_from: Round N`、来源 artifact hash，以及为什么本轮 delta 没有使结论失效 |
+| `retained` | 未重跑的 atom/angle 按可审计分组列出 `inherited_from: Round N`，以及为什么本轮 delta 没有使结论失效 |
 
 不能证明某组 retained evidence 仍有效、无法枚举影响边界、或发现未声明变化时，必须扩大 `rechecked`，必要时升级 `full`。不得让未重跑项从报告里静默消失；严重度和四角度定义保持不变。
 
@@ -121,9 +117,6 @@ reviewer 先读历史轮次、当前产物与 author 提供的修订事实，验
 - started_at: 2026-07-27T10:00:00+08:00
 - completed_at: 2026-07-27T10:21:34+08:00
 - duration: 21m34s
-- reviewed_artifact_manifest:
-  - spec.md: sha256:<hash>
-  - design.md: sha256:<hash>
 
 ### Verdict
 Issues Found — 1 CRITICAL / 1 WARNING
@@ -154,30 +147,23 @@ Issues Found — 1 CRITICAL / 1 WARNING
 
 reviewer 写入的 Round 正文在完成后不可改写；author 只能在该 Round 末尾追加 `Author Resolutions`。后续纠错通过新 Round 的“历史 issue 核实”说明，不回写旧结论。稳定 issue ID 使用 `R<round>-C<n>`、`R<round>-W<n>`、`R<round>-R<n>`。
 
-### 决策 4：每轮记录可复盘的时间与受审快照
+### 决策 4：每轮记录可复盘的时间
 
 reviewer 在开始读取本轮输入前记录 `started_at`，落盘前记录 `completed_at`，并计算 `duration`。两个时间都使用 ISO 8601 和显式时区；duration 使用人可读 wall-clock 时长。
 
-路由输入与 Gate 事实分开：
+不记录 sha256、byte length 或完整产物 manifest。reviewer 根据历史、当前产物和实际 delta 判断 Coverage；append-only 由明确写入规则约束，不增加机器证明。
 
-- `changed_artifacts`：author 提供的本轮改动路径、段落和当前哈希，只帮助 reviewer 判断影响，不作为 Gate 快照。
-- `reviewed_artifact_manifest`：reviewer 在**每一轮、任意 mode** 都重新物化的完整受审集合。按路径排序，包含首文档、`design.md`、所有 delta-spec、存在时的 `prototype.html`，以及全部 Milestone skeleton 文件；不适用的 artifact class 显式记录 absent。每一项记录当前 sha256。
-
-完整 manifest 的路径集合和值都属于 Gate 事实。比较时必须检测新增、删除、重命名和内容变化；不能因为某文件本轮未改就从最新 Round 省略。生成完整 manifest 很便宜，不意味着对每个文件重新做 full review。
-
-R2 及以后还记录追加前整份 `design-review.md` 的 `prior_history_sha256` 与 `prior_history_bytes`，让后续检查能证明新 Round 是追加而非重写旧历史。
-
-### 决策 5：最新完成 Round 是 Gate 2 权威，历史只追加不参与覆盖
+### 决策 5：Design-author 以最新完成 Round 收口 Gate 2
 
 Gate 2 通过需同时满足：
 
 1. `design-review.md` 最后一个完成的 Round 为 `Approved`，且 `0 CRITICAL / 0 WARNING`；
 2. author 已处理并记录该轮及仍开放历史 issue，确认无实质问题；
-3. 最新 Round 的完整 manifest 与当前受审路径集合、内容 sha256 完全一致。
+3. 最新 Round 完成后，author 没有再修改受审产物。
 
 任一受审产物随后变化，就追加下一轮；旧 Round 保留，不再称“最新报告覆盖旧报告”。
 
-`change-orchestrator` 是独立消费者，不信任 author 的口头交接。它在 Full unit 首次派 worker 前，以及 design 修订后的任何 resume 前，必须重复核对上述三项。缺报告、最新 Round 未通过、计数非零、manifest 缺项或集合/哈希不一致时都拒绝派发，并把 unit 退回 design-author；design-author 优先唤醒报告里的同一 reviewer target 开下一 Round，只有客观不可恢复才走留痕 failover。
+`change-orchestrator` 不读取或校验 `design-review.md`。Gate 2 的审查闭环由 design-author 在交接前完成，orchestrator 保持只检查 `design.md` 结构的既有职责。
 
 ### 决策 6：同步全部已提交消费入口，不复制主仓在途文档
 
@@ -185,10 +171,8 @@ Gate 2 通过需同时满足：
 
 - `.claude/skills/change-design-author/SKILL.md`
 - `.claude/skills/change-design-reviewer/SKILL.md`
-- `.claude/skills/change-orchestrator/SKILL.md`
 - `docs/changes/readme.md`
 - `AGENTS.md`
-- 文档契约测试
 
 创建 worktree 时，主仓的 `docs/README.md` 和 `docs/development/` 仍未提交，属于其他任务。本 unit 不复制它们的工作副本。合并顺序是硬 gate：
 
@@ -208,16 +192,12 @@ reviewer 负责：
 1. 确认 round 编号等于文件中最后一轮 + 1；
 2. 记录开始时间；
 3. 选择并执行 mode，必要时升级；
-4. 记录 Coverage、完成时间、duration、完整 artifact manifest；
+4. 记录 Coverage、完成时间与 duration；
 5. 一次性把完整 Round 追加到文件末尾。
 
 ### Author → report
 
 author 对本轮每个 Issue/Recommendation 独立判真，在同一 Round 的 `Author Resolutions` 末尾追加处理结果。若需要用户重新拍板，状态写 `escalated`，不得伪装为已关闭。
-
-### Report → orchestrator
-
-orchestrator 定位最后一个完整 Round，核 Verdict、CRITICAL/WARNING 计数，并从当前 unit 重新生成同一完整 manifest。只有路径集合与所有 sha256 相等才允许首次派发或 design-revision resume。
 
 ## 风险与回退
 
@@ -226,10 +206,10 @@ orchestrator 定位最后一个完整 Round，核 Verdict、CRITICAL/WARNING 计
 | 复用 reviewer 产生锚定偏差 | R1 仍是隔离上下文；mode 由 reviewer 决定；高风险和不明影响强制 full；author 不传期望结论 |
 | author 低报 delta 诱导轻量检查 | reviewer 必须先验证实际产物与 resolution，发现未声明变化就升级范围并报 issue |
 | 轻量 mode 变成静默少审 | 每轮把未重跑维度列入 retained coverage，并证明本轮 delta 未使其失效；证明不了就升级 |
-| 旧轮内容被后续 agent 改写 | skill 和契约测试同时禁止覆盖、重排、改写旧 Round；纠错只能在新 Round 说明 |
+| 旧轮内容被后续 agent 改写 | reviewer 与 author skill 都禁止覆盖、重排、改写旧 Round；纠错只能在新 Round 说明 |
 | 报告无限增长 | 历史是用户明确要求的复盘资产；不拆文件、不压缩，阅读时从最新 Round 和未关闭 issue 开始 |
 | 原 reviewer 丢失 | 留痕 failover，新 reviewer 首轮 full，不伪造上下文连续性 |
-| author 通过后改 design 并绕过复审 | orchestrator 在派发和 design-revision resume 时独立重算完整 manifest，不信任口头结论 |
+| author 通过后又改 design | design-author 的停止条件明确要求最新 Round 后未再修改；有修改就继续唤醒同一 reviewer |
 | 与主仓在途文档架构冲突 | 分支不复制未提交文件；合并前 rebase 后把契约归并到届时 canonical workflow |
 
 回退方式：恢复 feat-475 的 fresh/full/overwrite 规则，同时保留已经生成的历史报告，不删除既有 Round。
@@ -239,23 +219,21 @@ orchestrator 定位最后一个完整 Round，核 Verdict、CRITICAL/WARNING 计
 - 常驻服务：无。
 - 仓库外前置：无。
 - Review 驱动方式：本 unit 自身就是可控 workflow canary。
-  1. 读取 `design-review.md` 的 Round 1 与 `Author Resolutions`，记录进入 R2 前文件的 byte length 和 sha256。
+  1. 读取 `design-review.md` 的 Round 1 与 `Author Resolutions`。
   2. 通过 harness 的 follow-up/SendMessage 唤醒 Round 1 记录的同一 reviewer target，不传 mode，只传 changed artifacts 与 resolutions。
-  3. 验证 Round 2 的 reviewer 标识不变、mode 由 reviewer 给出且有理由、Coverage 区分 rechecked/retained、Round 1 前缀字节未变化、Round 2 有完整 manifest 和时间字段。
-  4. 在不改主仓的前提下，用 worktree 当前文件重算 manifest；再在临时副本中改变一个未列入 `changed_artifacts` 的受审文件，验证 Gate 2 consumer 会因完整 manifest 不相等而拒绝派发。
-  5. 比较实施前后主仓 `git status --porcelain=v1 -z` 的 sha256，确认根工作区状态未变。
+  3. 验证 Round 2 的 reviewer 标识不变、mode 由 reviewer 给出且有理由、Coverage 区分 rechecked/retained、Round 2 有完整时间字段，Round 1 仍原样保留。
+  4. 确认所有写入都发生在指定 worktree，主仓目标路径没有本 unit 引入的改动。
 - 最窄验证：
-  - 对三个 skill 分别运行 `/Users/czj/Repos/nano-multiagent/.venv/bin/python /Users/czj/.codex/skills/.system/skill-creator/scripts/quick_validate.py <skill-dir>`。
-  - 运行 design review round contract test。
+  - 对两个修改的 skill 分别运行 `/Users/czj/Repos/nano-multiagent/.venv/bin/python /Users/czj/.codex/skills/.system/skill-creator/scripts/quick_validate.py <skill-dir>`。
   - 运行 `git diff --check`。
 
 ## Milestone
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| feat-485-M1 | skill-contract | 无 | serial | `change-design-author`、`change-design-reviewer`、`change-orchestrator`、`docs/changes/readme.md`、`AGENTS.md`、feat-485 文档与契约测试 | `[reviewer]` spec 中 reviewer 复用、mode 路由、轮次留痕、时间记录、orchestrator Gate 与主仓隔离场景全部成立；`[worker]` 三个 skill 校验、契约测试、diff check 全绿 |
+| feat-485-M1 | skill-contract | 无 | serial | `change-design-author`、`change-design-reviewer`、`docs/changes/readme.md`、`AGENTS.md` 与 feat-485 文档 | `[reviewer]` spec 中 reviewer 复用、mode 路由、轮次留痕、时间记录与主仓隔离场景全部成立；`[worker]` 两个 skill 校验和 diff check 全绿 |
 
-milestone_dir 为 `M1-skill-contract`。不拆多 milestone：所有改动共同定义一个不可分割的 Gate 2 协议，拆开会让 author、reviewer 与 orchestrator 在中间提交中契约不一致。
+milestone_dir 为 `M1-skill-contract`。不拆多 milestone：reviewer 生命周期、mode 路由与报告格式共同定义一个不可分割的 Gate 2 审查协议。
 
 ## Delta-spec
 

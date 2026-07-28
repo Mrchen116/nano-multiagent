@@ -37,7 +37,7 @@ R1 恒为 `full`。R2+ 先读历史 Round、Resolution、当前受审产物与�
 轻量 mode 省的是重复取证,不是删审查维度。每轮都写 `Coverage`:
 
 - `rechecked`:本轮重新核实的 issue / atom / 依赖 / attack angle 与新证据。
-- `retained`:未重跑部分按可审计分组列 `inherited_from: Round N`、来源 artifact hash、本轮 delta 未使它失效的证据。不能证明就重查或升级,不许静默省略。
+- `retained`:未重跑部分按可审计分组列 `inherited_from: Round N` 与本轮 delta 未使它失效的证据。不能证明就重查或升级,不许静默省略。
 
 ## 先理解 design.md 是什么、不是什么(否则你会拿错尺子量)
 
@@ -82,7 +82,7 @@ R1 恒为 `full`。R2+ 先读历史 Round、Resolution、当前受审产物与�
 
 枚举求全不求快:漏掉一类原子,就等于把那一整片盲区放行了。
 
-`closure`/`delta` 不从零重建整张表,而是以最近一个仍有效的完整台账为 inventory:把实际 delta、旧 issue 和波及链加入 `rechecked`,其余按 atom class / 决策组 / milestone 组列入 `retained` 并给出来源 Round/hash与未失效证据。找不到可信 inventory、当前路径/hash 对不上、或无法说明 retained 边界时,升级 `full`。
+`closure`/`delta` 不从零重建整张表,而是以最近一个仍有效的完整台账为 inventory:把实际 delta、旧 issue 和波及链加入 `rechecked`,其余按 atom class / 决策组 / milestone 组列入 `retained` 并给出来源 Round 与未失效证据。找不到可信 inventory、发现未声明变化、或无法说明 retained 边界时,升级 `full`。
 
 ## 第二步:逐条核(每条一个动作 + 记证据)
 
@@ -165,7 +165,7 @@ delta-spec(`docs/changes/<unit_dir>/specs/<包>/<target>.md`)是收尾归并进�
 
 前三步是**核对**:拿着 design 逐条问「这条成立吗」。但一个**每条都成立、整体却绕了远路**的方案,核对全过照样放行。所以补一条**进攻**腿:不核对 design 写了什么,而是主动拿 design 的**每个新增 / 搬动的模块、抽象、职责、间接层**去攻——问「是不是最好的走法」。
 
-`full` 的进攻要**四角度逐个走、记下发现**,不许凭印象说一句「方案挺合理」。`delta` 重跑受影响角度,`closure` 在没有结构语义变化时可继承;未重跑角度仍必须进 `Coverage.retained`,注明来源 Round/hash 与未失效依据。四个角度:
+`full` 的进攻要**四角度逐个走、记下发现**,不许凭印象说一句「方案挺合理」。`delta` 重跑受影响角度,`closure` 在没有结构语义变化时可继承;未重跑角度仍必须进 `Coverage.retained`,注明来源 Round 与未失效依据。四个角度:
 
 - **角度一·归属**:这个抽象 / 职责最自然该住哪一层 / 哪个模块?design 放的地方,和项目既定的依赖方向 / 分层规则、和「谁依赖谁」顺吗?**特别核多个决策叠加后的隐含依赖方向**——单条决策都合法,两条组合可能让内层反向依赖外层。→ 找错放层、跨层 / 反向依赖、职责落在不该管它的模块。
 - **角度二·该不该存在**:对每个新增模块 / helper / 包装 / 间接层做一次**删除测试**——把它删掉、让调用方直接做它做的事,复杂度是**集中**了还是只**搬了个地方**?只是搬走 → 多余间接层。它包装的实现现在只有**一处**、却造了一层「将来可能多态」的抽象 → 这层接缝是假想的,YAGNI。→ 找多余封装、为「将来可能」预造的空抽象、一处实现却套了工厂 / 策略 / Protocol。
@@ -203,14 +203,6 @@ design 是**架构对齐**文档,不是实现计划。拿「实现计划」或�
 - started_at: `<ISO 8601,显式时区>`
 - completed_at: `<ISO 8601,显式时区>`
 - duration: `<wall-clock>`
-- code_baseline: `<本轮 grounding 使用的 commit sha>`
-- prior_history_sha256: `<R2+ 追加前整份文件的 sha256>`
-- prior_history_bytes: `<R2+ 追加前字节数>`
-- reviewed_artifact_manifest:
-  - `design.md`: `sha256:<hash>`
-  - `spec.md`: `sha256:<hash>`
-- absent_artifact_classes:
-  - `prototype.html`: not applicable
 
 ### Verdict
 
@@ -221,7 +213,7 @@ Approved — 0 CRITICAL / 0 WARNING
 | 分组 | 覆盖内容 | 结论 + 证据 |
 |---|---|---|
 | rechecked | R1-C1 + changed decision 4 | ... |
-| retained | milestone atoms; inherited_from Round 1 / design hash ... | delta 未触及拆分或范围 |
+| retained | milestone atoms; inherited_from Round 1 | delta 未触及拆分或范围 |
 
 ### 历史问题闭环
 
@@ -260,11 +252,9 @@ Approved — 0 CRITICAL / 0 WARNING
 - **Approved 是双闸**:本轮 Coverage 证明所有检查维度已 rechecked 或仍可 retained,且有效检查范围内无存活问题。任一 CRITICAL 或 WARNING 都写 `Issues Found`;只有 `0 CRITICAL / 0 WARNING` 才写 `Approved`。
 - **Recommendations 永不阻断**。
 
-### 时间、历史与完整 manifest
+### 时间与历史
 
 - 开始读取本轮输入前记 `started_at`;落盘前记 `completed_at`,计算 wall-clock `duration`;都用 ISO 8601 + 显式时区。
-- R2+ 在动文件前记录当前整个 `design-review.md` 的 sha256 与 byte length;写完后确认此前字节前缀完全没变。
-- 每轮无论 mode 都重新物化完整 `reviewed_artifact_manifest`:首文档、`design.md`、全部 delta-spec、存在时的 `prototype.html`、全部 `M*/.gitkeep`;按路径排序并记录 sha256。缺失的可选 artifact class 显式写 absent。`changed_artifacts` 只用于路由,不能代替完整 manifest。
 - reviewer 写完 Round 后不再改它。author 只能在该 Round 末尾追加 `### Author Resolutions`;下一轮再核。旧结论需要纠错时写进新 Round,不回写历史。
 
 ## 落盘
