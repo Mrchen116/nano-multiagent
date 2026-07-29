@@ -80,10 +80,13 @@ async function runDesktopChromium() {
   await screenshot(page, "r7-desktop-default");
 
   const bubbles = await page.locator('[data-testid^="message-bubble-"]').all();
-  const lastAgentBubble = bubbles.filter(async (b) => {
+  let lastAgentBubble = bubbles[bubbles.length - 1];
+  for (const b of bubbles) {
     const cls = await b.getAttribute("class");
-    return cls?.includes("chat-bubble--agent");
-  }).pop() || bubbles[bubbles.length - 1];
+    if (cls?.includes("chat-bubble--agent")) {
+      lastAgentBubble = b;
+    }
+  }
 
   await lastAgentBubble.hover();
   await sleep(300);
