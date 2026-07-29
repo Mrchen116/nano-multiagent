@@ -413,6 +413,7 @@ unit 收尾归并 delta 时，除更新 `docs/specs/im/web-chat-ux.md` 外，还
 - **M2-F2 `[worker]`** code review round 1 的 8 条 findings 全部关闭：MarkdownContent components memo 不被 onCopyCode 击穿；有序列表显式 `value` 后编号顺延；draftSeed effect 恢复 mention/slash 状态重置与聚焦；clipboard/notice 副作用有 unmount 清理；菜单随 resize 不出屏；消息消失时不崩溃。
 - **M2-F3 `[worker]`** M1 worker 残留 WIP 合法化：`publishCopyResult` 的 surface ownership 校验读取最新 surface（旧 copy resolve 不得关闭新菜单）；连续 code block copy 每次生效；WIP 全部测试转绿并提交。
 - **M2-F4 `[worker]`** verifier round 1 指出的缺失测试补齐：copy coordinator deferred-Promise 异步 ownership（same-pane 新 surface / 会话切换 / A→B→A / newer attempt / 旧 notice timer）、跨 text node 选区、external link 渲染属性、code block copy button 与 inline code 无按钮。
+- **M2-F5 `[worker]`** reviewer round 1 issue 1（major）关闭：复制整条消息的粘贴结构与 design.md 冻结 rich-copy fixture 一致——具名外链不被 `display: inline-flex` 误判为块级而断行（块级判定按语义标签而非 computed style）、列表项间不引入空白文本节点导致的多余空行；worker 必须真栈实测 Copy message 自证（jsdom 无法暴露），证据落 M2 evidence。
 
 ### M1 退出标准
 
