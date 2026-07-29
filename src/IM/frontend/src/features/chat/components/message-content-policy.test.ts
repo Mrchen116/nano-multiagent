@@ -217,39 +217,117 @@ describe("shouldKeepNativeContextMenu", () => {
       sel.removeAllRanges();
     }
   });
+
+  it("keeps native for a Text node target inside a link", () => {
+    const body = makeBody('<p><a href="https://x.com">link text</a></p>');
+    const linkText = body.querySelector("a")!.firstChild!;
+    expect(shouldKeepNativeContextMenu("mouse", body, linkText, 10, 10, null, document)).toBe(true);
+  });
+
+  it("keeps native for a Text node target inside code", () => {
+    const body = makeBody("<pre><code>code text</code></pre>");
+    const codeText = body.querySelector("code")!.firstChild!;
+    expect(shouldKeepNativeContextMenu("mouse", body, codeText, 10, 10, null, document)).toBe(true);
+  });
+
+  it("keeps native when caret point is inside a cross-text-node selection", () => {
+    const body = makeBody("<p id='p'><span>hello</span><span>world</span></p>");
+    const first = body.querySelector("#p")!.firstChild!.firstChild!;
+    const second = body.querySelector("#p")!.lastChild!.firstChild!;
+    const range = document.createRange();
+    range.setStart(first, 2);
+    range.setEnd(second, 2);
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(range);
+
+    const originalCaretRangeFromPoint = (document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }).caretRangeFromPoint;
+    (document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }).caretRangeFromPoint = () => {
+      const r = document.createRange();
+      r.setStart(first, 3);
+      r.setEnd(first, 3);
+      return r;
+    };
+
+    try {
+      expect(shouldKeepNativeContextMenu("mouse", body, body, 10, 10, null, document)).toBe(true);
+    } finally {
+      (document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }).caretRangeFromPoint = originalCaretRangeFromPoint;
+      sel.removeAllRanges();
+    }
+  });
+
+  it("opens IM menu when caret point is outside a cross-text-node selection", () => {
+    const body = makeBody("<p id='p'><span>hello</span><span>world</span></p>");
+    const first = body.querySelector("#p")!.firstChild!.firstChild!;
+    const second = body.querySelector("#p")!.lastChild!.firstChild!;
+    const range = document.createRange();
+    range.setStart(first, 2);
+    range.setEnd(second, 2);
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(range);
+
+    const originalCaretRangeFromPoint = (document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }).caretRangeFromPoint;
+    (document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }).caretRangeFromPoint = () => {
+      const r = document.createRange();
+      r.setStart(second, 4);
+      r.setEnd(second, 4);
+      return r;
+    };
+
+    try {
+      expect(shouldKeepNativeContextMenu("mouse", body, body, 10, 10, null, document)).toBe(false);
+    } finally {
+      (document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }).caretRangeFromPoint = originalCaretRangeFromPoint;
+      sel.removeAllRanges();
+    }
+  });
 });
 
 describe("classifyChatLink", () => {
   it("classifies relative URL as same-origin-document", () => {
-    expect(classifyChatLink("/chat/c2", "chat", CURRENT_URL)).toBe("same-origin-document");
+    expect(classifyChatLink("/chat/c2", CURRENT_URL)).toBe("same-origin-document");
+  });
+
+  it("classifies bare relative URL as same-origin-document", () => {
+    expect(classifyChatLink("foo/bar", CURRENT_URL)).toBe("same-origin-document");
   });
 
   it("classifies hash as same-origin-document", () => {
-    expect(classifyChatLink("#section", "section", CURRENT_URL)).toBe("same-origin-document");
+    expect(classifyChatLink("#section", CURRENT_URL)).toBe("same-origin-document");
   });
 
   it("classifies same-origin absolute URL as same-origin-document", () => {
-    expect(classifyChatLink("https://app.example.com/openapi.json", "api", CURRENT_URL)).toBe("same-origin-document");
+    expect(classifyChatLink("https://app.example.com/openapi.json", CURRENT_URL)).toBe("same-origin-document");
+  });
+
+  it("classifies protocol-relative same-origin as same-origin-document", () => {
+    expect(classifyChatLink("//app.example.com/openapi.json", CURRENT_URL)).toBe("same-origin-document");
+  });
+
+  it("classifies protocol-relative cross-origin as external", () => {
+    expect(classifyChatLink("//other.example.com/docs", CURRENT_URL)).toBe("external");
   });
 
   it("classifies cross-origin http(s) as external", () => {
-    expect(classifyChatLink("https://example.com/docs", "Docs", CURRENT_URL)).toBe("external");
+    expect(classifyChatLink("https://example.com/docs", CURRENT_URL)).toBe("external");
   });
 
   it("classifies mailto as system", () => {
-    expect(classifyChatLink("mailto:hi@example.com", "email", CURRENT_URL)).toBe("system");
+    expect(classifyChatLink("mailto:hi@example.com", CURRENT_URL)).toBe("system");
   });
 
   it("classifies empty href as unsupported", () => {
-    expect(classifyChatLink("", "x", CURRENT_URL)).toBe("unsupported");
+    expect(classifyChatLink("", CURRENT_URL)).toBe("unsupported");
   });
 
   it("classifies tel (rejected by sanitizer) as unsupported", () => {
-    expect(classifyChatLink("tel:+123", "call", CURRENT_URL)).toBe("unsupported");
+    expect(classifyChatLink("tel:+123", CURRENT_URL)).toBe("unsupported");
   });
 
   it("classifies malformed URL as unsupported", () => {
-    expect(classifyChatLink("::not-a-url", "x", CURRENT_URL)).toBe("unsupported");
+    expect(classifyChatLink("::not-a-url", CURRENT_URL)).toBe("unsupported");
   });
 });
 
@@ -304,6 +382,11 @@ describe("serializeMessageBody", () => {
   it("does not duplicate URL for raw URL links", () => {
     const el = body('<p><a href="https://example.com/">https://example.com</a></p>');
     expect(serializeMessageBody(el)).toBe("https://example.com");
+  });
+
+  it("continues ordered list numbering after an explicit li value", () => {
+    const el = body('<ol start="1"><li value="4">Fourth</li><li>Fifth</li><li>Sixth</li></ol>');
+    expect(serializeMessageBody(el)).toBe("4. Fourth\n5. Fifth\n6. Sixth");
   });
 
   it("preserves inline code without extra formatting", () => {

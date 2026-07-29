@@ -993,6 +993,429 @@ describe("MessagePane", () => {
 
       expect(await screen.findByText(/Copy failed/i)).toBeInTheDocument();
     });
+
+    it("restores focus to the connected trigger after copy success closes the menu", async () => {
+      const user = userEvent.setup();
+      const writeText = stubClipboard();
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={SAMPLE_MESSAGES}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+
+      const bubble = screen.getByTestId("message-bubble-m2");
+      fireContextMenu(bubble, { button: 2, buttons: 2, clientX: 0, clientY: 0, pointerType: "mouse" });
+      const copyItem = screen.getByRole("menuitem", { name: /Copy message/i });
+      await user.click(copyItem);
+
+      await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
+      await waitFor(() => expect(document.activeElement).toBe(bubble));
+    });
+
+    it("does not restore focus when the original trigger is no longer connected", async () => {
+      const user = userEvent.setup();
+      const writeText = stubClipboard();
+      const { rerender } = render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={SAMPLE_MESSAGES}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+
+      const bubble = screen.getByTestId("message-bubble-m2");
+      fireContextMenu(bubble, { button: 2, buttons: 2, clientX: 0, clientY: 0, pointerType: "mouse" });
+      await user.click(screen.getByRole("menuitem", { name: /Copy message/i }));
+
+      // Remove the bubble before the copy settles.
+      rerender(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={SAMPLE_MESSAGES.filter((m) => m.id !== "m2")}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+      await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
+      // Should not throw; focus simply stays on body.
+      expect(document.activeElement).toBe(document.body);
+    });
+
+    function deferredClipboard() {
+      let resolve!: () => void;
+      let reject!: (err: Error) => void;
+      const promise = new Promise<void>((res, rej) => {
+        resolve = res;
+        reject = rej;
+      });
+      const writeText = vi.fn(() => promise);
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: { writeText },
+      });
+      return { writeText, resolve, reject };
+    }
+
+    it("ignores a stale copy promise when a newer context menu surface is open", async () => {
+      const { writeText, resolve } = deferredClipboard();
+
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={SAMPLE_MESSAGES}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+
+      const bubble = screen.getByTestId("message-bubble-m2");
+      fireContextMenu(bubble, { button: 2, buttons: 2, clientX: 0, clientY: 0, pointerType: "mouse" });
+      fireEvent.click(screen.getByRole("menuitem", { name: /Copy message/i }));
+      // First copy is in-flight; menu is still open because promise is pending.
+      expect(screen.getByRole("menu")).toBeInTheDocument();
+
+      // Open a second context menu on the same bubble before the first promise resolves.
+      fireContextMenu(bubble, { button: 2, buttons: 2, clientX: 0, clientY: 0, pointerType: "mouse" });
+      expect(screen.getByRole("menu")).toBeInTheDocument();
+
+      // Resolve the first (now stale) copy promise.
+      resolve();
+
+      // The newer menu must stay open and no stale notice should appear.
+      await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+      expect(screen.getByRole("menu")).toBeInTheDocument();
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    });
+
+    it("makes an old copy promise a no-op after switching conversations", async () => {
+      const { writeText, resolve } = deferredClipboard();
+
+      const { rerender } = render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={SAMPLE_MESSAGES}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+
+      const bubble = screen.getByTestId("message-bubble-m2");
+      fireContextMenu(bubble, { button: 2, buttons: 2, clientX: 0, clientY: 0, pointerType: "mouse" });
+      fireEvent.click(screen.getByRole("menuitem", { name: /Copy message/i }));
+
+      // Switch conversation before the promise resolves.
+      rerender(
+        <MessagePane
+          conversation={{ ...DIRECT_CONV, id: "c2" }}
+          messages={SAMPLE_MESSAGES.map((m) => ({ ...m, conversation_id: "c2" }))}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+      expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+
+      resolve();
+      await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    });
+
+    it("makes an old copy promise a no-op after A→B→A conversation switches", async () => {
+      const { writeText, resolve } = deferredClipboard();
+
+      const { rerender } = render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={SAMPLE_MESSAGES}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+
+      const bubble = screen.getByTestId("message-bubble-m2");
+      fireContextMenu(bubble, { button: 2, buttons: 2, clientX: 0, clientY: 0, pointerType: "mouse" });
+      fireEvent.click(screen.getByRole("menuitem", { name: /Copy message/i }));
+
+      rerender(
+        <MessagePane
+          conversation={{ ...DIRECT_CONV, id: "c2" }}
+          messages={SAMPLE_MESSAGES.map((m) => ({ ...m, conversation_id: "c2" }))}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+      rerender(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={SAMPLE_MESSAGES}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+
+      resolve();
+      await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    });
+
+    it("ignores an older copy attempt when a newer attempt supersedes it", async () => {
+      const first = deferredClipboard();
+
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={SAMPLE_MESSAGES}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+
+      // First copy.
+      fireEvent.click(screen.getByTestId("message-copy-m2"));
+      expect(first.writeText).toHaveBeenCalledTimes(1);
+
+      // Replace navigator.clipboard with second deferred before second click.
+      const second = deferredClipboard();
+      fireEvent.click(screen.getByTestId("message-copy-m2"));
+      expect(second.writeText).toHaveBeenCalledTimes(1);
+
+      // Resolve the older (first) promise.
+      first.resolve();
+      await new Promise((r) => setTimeout(r, 50));
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
+
+      // Resolve the newer (second) promise.
+      second.resolve();
+      expect(await screen.findByText(/Copied/i)).toBeInTheDocument();
+    });
+
+    it("does not let an old notice timer clear a newer notice", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const user = userEvent.setup();
+      const writeText = stubClipboard();
+
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={SAMPLE_MESSAGES}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+
+      fireEvent.click(screen.getByTestId("message-copy-m2"));
+      expect(await screen.findByText(/Copied/i)).toBeInTheDocument();
+
+      // Wait a bit, then trigger a second copy before the first 1.6s timer expires.
+      await act(async () => {
+        vi.advanceTimersByTime(400);
+      });
+      fireEvent.click(screen.getByTestId("message-copy-m2"));
+      expect(await screen.findByText(/Copied/i)).toBeInTheDocument();
+
+      // Advance past the original first timer expiry; the newer notice must remain.
+      await act(async () => {
+        vi.advanceTimersByTime(1400);
+      });
+      expect(screen.getByText(/Copied/i)).toBeInTheDocument();
+
+      // Advance past the second timer expiry; now it should disappear.
+      await act(async () => {
+        vi.advanceTimersByTime(1400);
+      });
+      await waitFor(() => expect(screen.queryByText(/Copied/i)).not.toBeInTheDocument());
+      vi.useRealTimers();
+    });
+  });
+
+
+  describe("message interactions (feat-484-M1)", () => {
+    const RICH_MD_MESSAGE: Message = {
+      id: "m-rich",
+      conversation_id: "c1",
+      sender: { type: "agent", id: "a-planner", display_name: "Planner" },
+      sender_user_id: "u1",
+      sender_type: "agent",
+      content: [
+        "Intro paragraph.",
+        "",
+        "- Alpha",
+        "- Beta",
+        "  - Nested",
+        "",
+        "3. Third",
+        "4. Fourth",
+        "",
+        "| Name | Value |",
+        "|------|-------|",
+        "| Count | 2 |",
+        "",
+        "```js",
+        "if (ready) {",
+        "",
+        "  run();",
+        "}",
+        "```",
+        "",
+        "Visit [Example](https://example.com) or see inline `code` here.",
+        "Raw URL: https://example.org",
+        "",
+        "```python",
+        'print("second block")',
+        "```",
+      ].join("\n"),
+      attachments: [],
+      delivery_status: "completed",
+      created_at: "2026-01-01T00:00:02Z",
+      kernel_message_id: "km-rich",
+      permission_requests: [],
+    };
+
+    it("renders external links with target, rel and localized aria-label", () => {
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[RICH_MD_MESSAGE]}
+          mentionCandidates={[]}
+          isDirectChat
+          onSend={() => {}}
+        />
+      );
+
+      const namedExternal = screen.getByText("Example").closest("a") as HTMLAnchorElement;
+      expect(namedExternal).toHaveAttribute("target", "_blank");
+      expect(namedExternal).toHaveAttribute("rel", "noopener noreferrer");
+      expect(namedExternal).toHaveAttribute("aria-label", "Example, opens in new tab");
+
+      const rawExternal = screen.getByText("https://example.org").closest("a") as HTMLAnchorElement;
+      expect(rawExternal).toHaveAttribute("target", "_blank");
+      expect(rawExternal).toHaveAttribute("rel", "noopener noreferrer");
+    });
+
+    it("renders same-origin links without target", () => {
+      const sameOriginMsg: Message = {
+        ...RICH_MD_MESSAGE,
+        id: "m-same-origin",
+        content: "[OpenAPI](/openapi.json)",
+      };
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[sameOriginMsg]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+
+      const link = screen.getByRole("link", { name: /OpenAPI/i }) as HTMLAnchorElement;
+      expect(link).not.toHaveAttribute("target");
+      expect(link).not.toHaveAttribute("rel");
+    });
+
+    it("renders a copy button on fenced code blocks and copies only that block", async () => {
+      const user = userEvent.setup();
+      const writeText = vi.fn(async () => undefined);
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: { writeText },
+      });
+
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[RICH_MD_MESSAGE]}
+          mentionCandidates={[]}
+          isDirectChat
+          onSend={() => {}}
+        />
+      );
+
+      const codeBlocks = screen.getAllByRole("button", { name: /Copy code/i });
+      expect(codeBlocks).toHaveLength(2);
+
+      await user.click(codeBlocks[0]);
+      await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+      expect(writeText).toHaveBeenLastCalledWith("if (ready) {\n\n  run();\n}");
+
+      const codeBlocks2 = screen.getAllByRole("button", { name: /Copy code/i });
+      await user.click(codeBlocks2[1]);
+      await waitFor(() => expect(writeText).toHaveBeenCalledTimes(2));
+      expect(writeText).toHaveBeenLastCalledWith('print("second block")');
+    });
+
+    it("does not render a copy button on inline code", () => {
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[RICH_MD_MESSAGE]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+
+      const inlineCode = screen.getByText("code");
+      expect(inlineCode.tagName).toBe("CODE");
+      expect(inlineCode.closest(".im-code-block")).toBeNull();
+    });
+
+    it("renders the More button in compact viewport and keeps toolbar on hybrid", () => {
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={SAMPLE_MESSAGES}
+          mentionCandidates={[]}
+          isMobile
+          onSend={() => {}}
+        />
+      );
+
+      expect(screen.getByTestId("message-more-m2")).toBeInTheDocument();
+    });
+
+    it("opens the More action sheet and restores focus to More on close", async () => {
+      const user = userEvent.setup();
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={SAMPLE_MESSAGES}
+          mentionCandidates={[]}
+          isMobile
+          onSend={() => {}}
+        />
+      );
+
+      const more = screen.getByTestId("message-more-m2");
+      await user.click(more);
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+      // Dialog should trap focus: first action is focused.
+      expect(screen.getByRole("button", { name: /Copy message/i })).toHaveFocus();
+
+      await user.keyboard("{Escape}");
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      expect(more).toHaveFocus();
+    });
+
+    it("shows localized Chinese labels without isolated English 'fork'", () => {
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[RICH_MD_MESSAGE]}
+          mentionCandidates={[]}
+          isDirectChat
+          onSend={() => {}}
+        />
+      );
+
+      // No isolated "fork" text anywhere in the pane.
+      expect(screen.queryByText(/fork/i)).not.toBeInTheDocument();
+      // Branch action uses localized text.
+      const branchButton = screen.getByTestId("message-branch-m-rich");
+      expect(branchButton).toHaveAttribute("aria-label", "Branch from here");
+    });
   });
 
 
