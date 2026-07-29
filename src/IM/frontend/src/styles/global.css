@@ -1756,9 +1756,11 @@ body {
   position: absolute;
   top: -10px;
   right: 6px;
-  display: none;
+  display: inline-flex;
   align-items: center;
   gap: 2px;
+  opacity: 0;
+  pointer-events: none;
   background: var(--im-surface);
   border: 1px solid var(--im-border);
   border-radius: 0.5rem;
@@ -1769,7 +1771,8 @@ body {
 .chat-bubble-card:hover .chat-message-toolbar,
 .chat-bubble-card:focus-within .chat-message-toolbar,
 .chat-message-toolbar:focus-within {
-  display: inline-flex;
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .chat-message-more {

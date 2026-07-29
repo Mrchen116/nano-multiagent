@@ -1,5 +1,6 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import React, {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -17,6 +18,7 @@ import { useTranslation } from "../../../i18n";
 import {
   classifyChatLink,
   extractCodeText,
+  isLabelJustUrl,
   resolveContextMenuModality,
   serializeMessageBody,
   shouldKeepNativeContextMenu,
@@ -247,6 +249,10 @@ export function MessagePane({
   };
 
   const [activeMessageAction, setActiveMessageAction] = useState<ActiveMessageAction | null>(null);
+  // Mirror the latest active surface so async callbacks read current state, not a closure snapshot.
+  const activeMessageActionRef = useRef<ActiveMessageAction | null>(null);
+  const lastSurfaceTriggerRef = useRef<HTMLElement | null>(null);
+  const mountedRef = useRef(true);
 
   type CopyNotice = {
     noticeToken: number;
@@ -261,8 +267,11 @@ export function MessagePane({
   useEffect(() => {
     if (!draftSeed) return;
     setDraft(draftSeed.text);
+    setDraftMentions([]);
+    setSlashDismissed(false);
     const el = composerRef.current;
     if (el) {
+      el.focus();
       requestAnimationFrame(() => {
         el.setSelectionRange(draftSeed.text.length, draftSeed.text.length);
       });
@@ -274,6 +283,8 @@ export function MessagePane({
     // previous conversation becomes a no-op.
     conversationGenerationRef.current += 1;
     setActiveMessageAction(null);
+    activeMessageActionRef.current = null;
+    lastSurfaceTriggerRef.current = null;
     setCopyNotice(null);
     if (noticeTimerRef.current !== null) {
       window.clearTimeout(noticeTimerRef.current);
@@ -281,16 +292,36 @@ export function MessagePane({
     }
   }, [conversation.id]);
 
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (noticeTimerRef.current !== null) {
+        window.clearTimeout(noticeTimerRef.current);
+        noticeTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!activeMessageAction) return;
+    if (!messages.find((m) => m.id === activeMessageAction.messageId)) {
+      closeActionSurface("dismiss");
+    }
+  }, [activeMessageAction, messages, closeActionSurface]);
+
   function closeActionSurface(reason: "copy-success" | "branch" | "dismiss") {
     setActiveMessageAction((current) => {
       if (!current) return null;
       const trigger = current.trigger;
+      lastSurfaceTriggerRef.current = trigger;
       const shouldRestoreFocus = reason !== "copy-success" || trigger?.isConnected === true;
       if (shouldRestoreFocus && trigger?.isConnected) {
         requestAnimationFrame(() => trigger.focus({ preventScroll: true }));
       }
       return null;
     });
+    activeMessageActionRef.current = null;
   }
 
   function showCopyNotice(kind: "success" | "error") {
@@ -305,6 +336,7 @@ export function MessagePane({
       window.clearTimeout(noticeTimerRef.current);
     }
     noticeTimerRef.current = window.setTimeout(() => {
+      if (!mountedRef.current) return;
       setCopyNotice((current) => {
         if (!current) return null;
         if (current.noticeToken !== token || current.conversationGeneration !== generation) return current;
@@ -318,13 +350,14 @@ export function MessagePane({
     kind: "success" | "error",
     surfaceToken: number | null
   ) {
+    if (!mountedRef.current) return;
     const latest = latestCopyAttemptRef.current;
     if (!latest) return;
     if (latest.attemptToken !== attemptToken) return;
     if (latest.conversationGeneration !== conversationGenerationRef.current) return;
 
     if (surfaceToken !== null) {
-      const surface = activeMessageAction;
+      const surface = activeMessageActionRef.current;
       if (!surface || surface.surfaceToken !== surfaceToken) return;
     }
 
@@ -380,7 +413,7 @@ export function MessagePane({
   }) {
     if (payload.bodyElement?.isConnected !== true) return;
     surfaceTokenRef.current += 1;
-    setActiveMessageAction({
+    const next: ActiveMessageAction = {
       surfaceToken: surfaceTokenRef.current,
       conversationId: conversation.id,
       messageId: payload.messageId,
@@ -388,7 +421,10 @@ export function MessagePane({
       surface: "context-menu",
       anchor: { x: payload.x, y: payload.y },
       trigger: payload.trigger,
-    });
+    };
+    activeMessageActionRef.current = next;
+    lastSurfaceTriggerRef.current = payload.trigger;
+    setActiveMessageAction(next);
   }
 
   function requestActionSheet(payload: {
@@ -398,7 +434,7 @@ export function MessagePane({
   }) {
     if (payload.bodyElement?.isConnected !== true) return;
     surfaceTokenRef.current += 1;
-    setActiveMessageAction({
+    const next: ActiveMessageAction = {
       surfaceToken: surfaceTokenRef.current,
       conversationId: conversation.id,
       messageId: payload.messageId,
@@ -406,7 +442,10 @@ export function MessagePane({
       surface: "action-sheet",
       anchor: null,
       trigger: payload.trigger,
-    });
+    };
+    activeMessageActionRef.current = next;
+    lastSurfaceTriggerRef.current = payload.trigger;
+    setActiveMessageAction(next);
   }
 
 
@@ -673,6 +712,11 @@ export function MessagePane({
     return () => document.removeEventListener("mousedown", onDocMouseDown);
   }, [slashOpen]);
 
+  const activeSurface = activeMessageAction;
+  const activeMessage = activeSurface
+    ? messages.find((m) => m.id === activeSurface.messageId)
+    : null;
+
   return (
     <section className="chat-pane" aria-label={conversation.title}>
       <header className="chat-pane-header">
@@ -864,54 +908,37 @@ export function MessagePane({
       )}
 
       {/* feat-484-M1: single pane-level context menu for mouse right-clicks. */}
-      {activeMessageAction?.surface === "context-menu" && activeMessageAction.anchor && (
-        <div
-          ref={(el) => {
-            if (el && activeMessageAction.anchor) {
-              const { x, y } = activeMessageAction.anchor;
-              const menuWidth = el.offsetWidth || 160;
-              const menuHeight = el.offsetHeight || 80;
-              el.style.left = `${Math.min(Math.max(8, x), Math.max(8, window.innerWidth - menuWidth))}px`;
-              el.style.top = `${Math.min(Math.max(8, y), Math.max(8, window.innerHeight - menuHeight))}px`;
-            }
-          }}
-          role="menu"
-          className="chat-message-menu"
-          onKeyDown={(e) => {
-            if (e.key === "Escape") {
-              e.preventDefault();
-              closeActionSurface("dismiss");
-            }
-          }}
+      {activeSurface?.surface === "context-menu" && activeSurface.anchor && activeMessage && (
+        <ContextMenu
+          anchor={activeSurface.anchor}
+          onClose={() => closeActionSurface("dismiss")}
         >
           <MessageActionList
-            message={messages.find((m) => m.id === activeMessageAction.messageId)!}
+            message={activeMessage}
             isDirectChat={isDirectChat}
             agentOnline={agentOnline}
             forkPending={forkPending}
             surface="context-menu"
             onCopy={() =>
               requestCopy({
-                conversationId: activeMessageAction.conversationId,
-                messageId: activeMessageAction.messageId,
-                bodyElement: activeMessageAction.bodyElement,
-                surfaceToken: activeMessageAction.surfaceToken,
+                conversationId: activeSurface.conversationId,
+                messageId: activeSurface.messageId,
+                bodyElement: activeSurface.bodyElement,
+                surfaceToken: activeSurface.surfaceToken,
               })
             }
             onFork={() => {
-              if (agentOnline && !forkPending && onFork) {
-                closeActionSurface("branch");
-                onFork(activeMessageAction.messageId);
-              }
+              closeActionSurface("branch");
+              onFork?.(activeSurface.messageId);
             }}
             onClose={() => closeActionSurface("dismiss")}
           />
-        </div>
+        </ContextMenu>
       )}
 
       {/* feat-484-M1: mobile/coarse action sheet. */}
       <Dialog.Root
-        open={activeMessageAction?.surface === "action-sheet"}
+        open={activeSurface?.surface === "action-sheet" && activeMessage !== null}
         onOpenChange={(open) => {
           if (!open) closeActionSurface("dismiss");
         }}
@@ -921,7 +948,7 @@ export function MessagePane({
           <Dialog.Content
             className="chat-action-sheet-content"
             onCloseAutoFocus={(e) => {
-              const trigger = activeMessageAction?.trigger;
+              const trigger = lastSurfaceTriggerRef.current;
               if (trigger?.isConnected) {
                 trigger.focus({ preventScroll: true });
               } else {
@@ -935,26 +962,24 @@ export function MessagePane({
             <Dialog.Description className="sr-only">
               {t("chat.messagePane.messageActions")}
             </Dialog.Description>
-            {activeMessageAction && (
+            {activeMessage && activeSurface && (
               <MessageActionList
-                message={messages.find((m) => m.id === activeMessageAction.messageId)!}
+                message={activeMessage}
                 isDirectChat={isDirectChat}
                 agentOnline={agentOnline}
                 forkPending={forkPending}
                 surface="action-sheet"
                 onCopy={() =>
                   requestCopy({
-                    conversationId: activeMessageAction.conversationId,
-                    messageId: activeMessageAction.messageId,
-                    bodyElement: activeMessageAction.bodyElement,
-                    surfaceToken: activeMessageAction.surfaceToken,
+                    conversationId: activeSurface.conversationId,
+                    messageId: activeSurface.messageId,
+                    bodyElement: activeSurface.bodyElement,
+                    surfaceToken: activeSurface.surfaceToken,
                   })
                 }
                 onFork={() => {
-                  if (agentOnline && !forkPending && onFork) {
-                    closeActionSurface("branch");
-                    onFork(activeMessageAction.messageId);
-                  }
+                  closeActionSurface("branch");
+                  onFork?.(activeSurface.messageId);
                 }}
                 onClose={() => closeActionSurface("dismiss")}
               />
@@ -1075,6 +1100,109 @@ function MessageActionList({
           {t("common.cancel")}
         </button>
       )}
+    </div>
+  );
+}
+
+/**
+ * feat-484-M2: pane-level mouse context menu with focus management.
+ *
+ * - Positions itself from the right-click anchor and clamps to viewport.
+ * - Closes on outside mousedown or window resize.
+ * - Auto-focuses the first enabled menuitem and supports ArrowUp/ArrowDown/Home/End roving.
+ */
+function ContextMenu({
+  anchor,
+  onClose,
+  children,
+}: {
+  anchor: { x: number; y: number };
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const menu = menuRef.current;
+    if (!menu) return;
+
+    function handleMouseDown(e: globalThis.MouseEvent) {
+      if (!menu!.contains(e.target as Node)) {
+        // Prevent the default action of the outside click (e.g. text selection)
+        // from interfering with the dismiss intent.
+        e.preventDefault();
+        onClose();
+      }
+    }
+
+    function handleResize() {
+      onClose();
+    }
+
+    function handleKeyDown(e: globalThis.KeyboardEvent) {
+      const items = Array.from(
+        menu!.querySelectorAll<HTMLElement>('[role="menuitem"]:not([aria-disabled="true"])')
+      );
+      if (items.length === 0) return;
+      const active = document.activeElement as HTMLElement | null;
+      const idx = active ? items.indexOf(active) : -1;
+      let nextIdx = idx;
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        nextIdx = (idx + 1) % items.length;
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        nextIdx = idx <= 0 ? items.length - 1 : idx - 1;
+      } else if (e.key === "Home") {
+        e.preventDefault();
+        nextIdx = 0;
+      } else if (e.key === "End") {
+        e.preventDefault();
+        nextIdx = items.length - 1;
+      }
+      if (nextIdx !== idx && items[nextIdx]) {
+        items[nextIdx].focus();
+      }
+    }
+
+    const items = Array.from(
+      menu.querySelectorAll<HTMLElement>('[role="menuitem"]:not([aria-disabled="true"])')
+    );
+    items[0]?.focus();
+
+    document.addEventListener("mousedown", handleMouseDown);
+    window.addEventListener("resize", handleResize);
+    menu.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handleMouseDown);
+      window.removeEventListener("resize", handleResize);
+      menu.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      ref={(el) => {
+        menuRef.current = el;
+        if (el) {
+          const { x, y } = anchor;
+          const menuWidth = el.offsetWidth || 160;
+          const menuHeight = el.offsetHeight || 80;
+          el.style.left = `${Math.min(Math.max(8, x), Math.max(8, window.innerWidth - menuWidth))}px`;
+          el.style.top = `${Math.min(Math.max(8, y), Math.max(8, window.innerHeight - menuHeight))}px`;
+        }
+      }}
+      role="menu"
+      tabIndex={-1}
+      className="chat-message-menu"
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          onClose();
+        }
+      }}
+    >
+      {children}
     </div>
   );
 }
@@ -1211,6 +1339,10 @@ function MessageBubble({
     onCopyRequest({ conversationId, messageId: message.id, bodyElement: body });
   }
 
+  const handleCopyCode = useCallback((codeElement: HTMLElement) => {
+    onCopyRequest({ conversationId, messageId: message.id, codeElement });
+  }, [conversationId, message.id, onCopyRequest]);
+
   function handleFork() {
     if (forkAvailable && onFork) {
       onFork(message.id);
@@ -1282,14 +1414,15 @@ function MessageBubble({
           ref={cardRef}
           data-testid={`message-bubble-${message.id}`}
           className="chat-bubble-card"
-          onPointerDown={recordPointer}
+          onPointerDownCapture={recordPointer}
           onContextMenu={handleContextMenu}
+          tabIndex={-1}
         >
           {message.content && (
             <div ref={bodyRef} className="chat-message-body">
               {isUser
                 ? renderInlineContent(message.content, participants)
-                : <MarkdownContent content={message.content} participants={participants} onCopyCode={(codeElement) => onCopyRequest({ conversationId, messageId: message.id, codeElement })} />}
+                : <MarkdownContent content={message.content} participants={participants} onCopyCode={handleCopyCode} />}
             </div>
           )}
           {message.attachments && message.attachments.length > 0 && (
@@ -1439,7 +1572,7 @@ function MarkdownContent({
       const label = React.Children.toArray(children).map((c) =>
         typeof c === "string" ? c : ""
       ).join("");
-      const disposition = classifyChatLink(href ?? "", label, window.location.href);
+      const disposition = classifyChatLink(href ?? "", window.location.href);
       if (disposition === "unsupported") {
         return <span className="im-md-link-unsupported">{children}</span>;
       }
@@ -1447,16 +1580,7 @@ function MarkdownContent({
         return <a {...rest} href={href} className="im-md-link-system">{children}</a>;
       }
       const isExternal = disposition === "external";
-      let isNamedExternal = false;
-      if (isExternal) {
-        try {
-          const normalizedLabel = new URL(label, window.location.href);
-          const normalizedHref = new URL(href ?? "", window.location.href);
-          isNamedExternal = normalizedLabel.href !== normalizedHref.href;
-        } catch {
-          isNamedExternal = true;
-        }
-      }
+      const isNamedExternal = isExternal && !isLabelJustUrl(label, href ?? "", window.location.href);
       return (
         <a
           {...rest}

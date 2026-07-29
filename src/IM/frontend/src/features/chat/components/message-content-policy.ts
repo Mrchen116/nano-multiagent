@@ -115,10 +115,6 @@ function normalizeUrl(url: string): string {
   }
 }
 
-function looksLikeUrl(text: string): boolean {
-  return /^https?:\/\//i.test(text.trim());
-}
-
 /**
  * 对 react-markdown 默认 urlTransform 后的 href 做链接分类。
  *
@@ -129,7 +125,6 @@ function looksLikeUrl(text: string): boolean {
  */
 export function classifyChatLink(
   href: string,
-  label: string,
   currentUrl: string | URL
 ): ChatLinkDisposition {
   if (!href || href.trim() === "") return "unsupported";
@@ -157,14 +152,22 @@ export function classifyChatLink(
     return "external";
   }
 
-  // Relative paths, hash links, query-only links.
-  if (
-    trimmedHref.startsWith("/") ||
-    trimmedHref.startsWith("./") ||
-    trimmedHref.startsWith("../") ||
-    trimmedHref.startsWith("#") ||
-    trimmedHref.startsWith("?")
-  ) {
+  // Protocol-relative URLs: parse against the current base and compare origins.
+  if (trimmedHref.startsWith("//")) {
+    try {
+      const base = typeof currentUrl === "string" ? new URL(currentUrl) : currentUrl;
+      const resolved = new URL(`${base.protocol}${trimmedHref}`);
+      return resolved.origin.toLowerCase() === base.origin.toLowerCase()
+        ? "same-origin-document"
+        : "external";
+    } catch {
+      return "unsupported";
+    }
+  }
+
+  // Any remaining href without a scheme is treated as same-origin-document:
+  // relative paths, hash/query-only links, or bare filenames like "foo/bar".
+  if (!/^[a-z][a-z0-9+.-]*:/i.test(trimmedHref) && !trimmedHref.startsWith(":")) {
     return "same-origin-document";
   }
 
@@ -172,7 +175,7 @@ export function classifyChatLink(
   return "unsupported";
 }
 
-function isLabelJustUrl(label: string, href: string, currentUrl: string | URL): boolean {
+export function isLabelJustUrl(label: string, href: string, currentUrl: string | URL): boolean {
   const trimmed = label.trim();
   if (!trimmed) return false;
   try {
@@ -242,18 +245,12 @@ function isPointInsideSelection(
 }
 
 function isNativeInteractiveTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof Element)) return false;
-  const tag = target.tagName.toLowerCase();
-  return (
-    tag === "a" ||
-    tag === "button" ||
-    tag === "input" ||
-    tag === "textarea" ||
-    tag === "select" ||
-    tag === "code" ||
-    target.closest("code") !== null ||
-    target.closest("pre") !== null
-  );
+  const el = target instanceof Element
+    ? target
+    : target instanceof Node
+      ? target.parentElement
+      : null;
+  return el?.closest("a, button, input, textarea, select, code, pre") !== null;
 }
 
 /**
@@ -322,6 +319,27 @@ function isBlockElement(node: Node): boolean {
   return false;
 }
 
+function orderedListValue(li: Element): number {
+  const parent = li.parentElement;
+  if (!parent || parent.tagName.toLowerCase() !== "ol") return 1;
+  const children = Array.from(parent.children);
+  const idx = children.indexOf(li);
+  let value: number | null = null;
+  for (let i = idx; i >= 0; i--) {
+    const child = children[i] as HTMLElement;
+    const explicit = child.getAttribute("value");
+    if (explicit !== null) {
+      value = Number(explicit) + (idx - i);
+      break;
+    }
+  }
+  if (value === null) {
+    const start = Number(parent.getAttribute("start") || "1");
+    value = start + idx;
+  }
+  return value;
+}
+
 function collectText(
   node: Node,
   opts: { excludeSelector: string; withinCode: boolean }
@@ -355,9 +373,7 @@ function collectText(
   if (tag === "li") {
     const parent = node.parentElement;
     if (parent?.tagName.toLowerCase() === "ol") {
-      const start = Number(parent.getAttribute("start") || "1");
-      const value = Number(node.getAttribute("value") || String(start + Array.from(parent.children).indexOf(node)));
-      prefix = `${value}. `;
+      prefix = `${orderedListValue(node)}. `;
     } else {
       const depth = listDepth(node);
       prefix = `${"  ".repeat(Math.max(0, depth))}- `;

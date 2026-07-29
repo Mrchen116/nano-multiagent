@@ -521,7 +521,7 @@
       "copyMessage": "复制整条消息",
       "copyCode": "复制代码",
       "copySuccess": "已复制",
-      "copyError": "复制失败，请重试。",
+      "copyError": "复制失败，请重试",
       "messageActions": "消息操作",
       "moreActions": "更多操作",
       "branchFromHere": "从此处分支",
