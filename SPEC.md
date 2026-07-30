@@ -179,4 +179,5 @@ IM 无关、产品无关的 Agent 运行时。只负责"单 Agent 可运行 + �
 
 - 单包 current 行为：[`docs/specs/README.md`](docs/specs/README.md)
 - 长青 spec 与 delta-spec 写法：[`docs/SPEC_GUIDE.md`](docs/SPEC_GUIDE.md)
-- change unit 流程、目录与归档：[`docs/changes/readme.md`](docs/changes/readme.md)
+- 开发变更生命周期与门禁：[`docs/development/change-workflow.md`](docs/development/change-workflow.md)
+- change unit 目录与归档：[`docs/changes/readme.md`](docs/changes/readme.md)
