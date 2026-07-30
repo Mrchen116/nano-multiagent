@@ -38,7 +38,7 @@ nano-multiagent 由四个顶层包组成：`agent` 是进程内内核库，`codi
 
 ## 调研与联调入口
 
-LLM 交互日志：`/Users/czj/Repos/LLM_PROXY/logs/<session_id>/`
+LLM 交互日志：`/Users/czj/Repos/LLM_PROXY/logs/session/*_<session_id>/`
 
 | 参考项目 | 本地路径 | 本仓主要参考面 |
 |---|---|---|

@@ -9,6 +9,7 @@
 | 判断是否建立 change unit、选择 Full 或 Bugfix lite | [`change-workflow.md`](change-workflow.md) |
 | 安装环境、运行常用命令、开发 CLI 或前端 | [`local-development.md`](local-development.md) |
 | 决定测什么、测试放在哪一层 | [`testing.md`](testing.md) |
+| 判断某类证据能证明什么、结果保存在哪里 | [`evidence.md`](evidence.md) |
 | 在 worktree 内启动隔离 IM、Gateway 或 Vite | [`worktree-runtime.md`](worktree-runtime.md) |
 | 查看必须长期守护的真实用户旅程 | [`e2e-critical-paths.md`](e2e-critical-paths.md) |
 | 编写 docstring、注释或 TODO/FIXME | [`commenting.md`](commenting.md) |
@@ -23,6 +24,7 @@
 | [`change-workflow.md`](change-workflow.md) | 何时建 unit、Full/Bugfix lite 生命周期、角色和门禁 |
 | [`local-development.md`](local-development.md) | Python/前端环境、常用命令、测试身份和提交格式 |
 | [`testing.md`](testing.md) | 测试选择、分层、命名、长期回归与临时证据边界 |
+| [`evidence.md`](evidence.md) | 测试、CI、真栈、报告、runtime 与 LLM 日志的能力边界和归并规则 |
 | [`worktree-runtime.md`](worktree-runtime.md) | 临时服务的端口、config、数据、进程和清理契约 |
 | [`e2e-critical-paths.md`](e2e-critical-paths.md) | 用户旅程与长期 E2E 守护测试的对账 |
 | [`commenting.md`](commenting.md) | public API docstring、意图注释和 TODO/FIXME 规则 |
@@ -34,4 +36,4 @@
 2. 按 [`change-workflow.md`](change-workflow.md) 选择流程，在既有行为的最低有效层运行最窄反馈。
 3. 代码级反馈通过后，再按风险扩大到 integration、contract、前端构建或完整测试。
 4. 涉及真实进程、浏览器或用户主链路时，使用 [`worktree-runtime.md`](worktree-runtime.md) 建立隔离环境，并对照 [`e2e-critical-paths.md`](e2e-critical-paths.md) 判断是否需要长期守护。
-5. 交付前更新本次变更影响的 current 文档；一次性日志、截图和运行结果留在 change evidence，不写成长期规则。
+5. 按 [`evidence.md`](evidence.md) 记录 claim、baseline、method、result、locator 和 limit；交付前把验证过的长期结论归并到唯一 owner。

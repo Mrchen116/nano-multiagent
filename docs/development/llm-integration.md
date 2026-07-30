@@ -6,7 +6,24 @@
 
 - LLM_PROXY 代码：`/Users/czj/Repos/LLM_PROXY`
 - 协议与启动说明：`/Users/czj/Repos/LLM_PROXY/README.md`
-- 每次 LLM 交互日志：`/Users/czj/Repos/LLM_PROXY/logs/<session_id>/`
+- 按 session 聚合的交互日志：`/Users/czj/Repos/LLM_PROXY/logs/session/*_<session_id>/`
+- 按协议保存的原始捕获：`/Users/czj/Repos/LLM_PROXY/logs/raw/<protocol>/`
+
+nano 的 provider translator 会把 kernel session id 放入 `X-Session-Id`。定位一次交互：
+
+```bash
+nano_session_id="sess_..."
+find /Users/czj/Repos/LLM_PROXY/logs/session \
+  -mindepth 1 -maxdepth 1 -type d -name "*_${nano_session_id}"
+```
+
+session 目录中的 `*-req-*` 是代理收到的请求，`*-downstream-res-*` 是返回调用方的响应，
+`*-non-stream-res-*` 是聚合后的非流式结果。需要排查协议转换或 session 未被识别时，再按时间和协议查看
+`logs/raw/`；Session Inspector 也从 `logs/session/` 构建 timeline。
+
+这些日志证明 provider 实际收到和返回了什么，应用是否正确消费、持久化并送达用户仍需结合 Gateway/IM
+runtime evidence。原始内容可能含 prompt、工具参数和第三方数据，不提交进本仓；unit 中只记录 session id、
+时间范围、要证明的 claim 和必要的脱敏摘要。日志会按 LLM_PROXY 的 retention 配置清理，长期回归应进入测试。
 
 ## 本地代理接口
 - Base URL: `http://127.0.0.1:4000`
