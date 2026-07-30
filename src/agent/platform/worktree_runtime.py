@@ -1,9 +1,7 @@
 """Prepare shared runtime files for milestone worktrees.
 
-Milestone worktrees under ``<repo_root>/.worktrees`` must not keep their own copy
-of runtime coordination files. In particular, the dispatch board and merge locks
-must resolve to the same repository-owned paths so multiple workers do not fork
-scheduler state.
+Milestone worktrees under ``<repo_root>/.worktrees`` must use repository-owned
+merge locks so multiple workers do not fork lock state.
 """
 
 from __future__ import annotations
@@ -13,7 +11,6 @@ import shutil
 
 
 _SHARED_RUNTIME_PATHS: tuple[tuple[str, bool], ...] = (
-    ("data/dev-tasks.json", False),
     ("data/locks", True),
 )
 _WORKTREE_LOCAL_RUNTIME_DIRS: tuple[str, ...] = ("data",)

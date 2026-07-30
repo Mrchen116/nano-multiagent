@@ -765,6 +765,21 @@ delta 若混入也在此滤掉)。只有包级职责、边界或 area 索引变�
 
 归并完成后,继续 §7.1。
 
+### §7.0A 归并跨任务知识
+
+逐个读取 milestone `progress.md` 的 `Promotion Candidates`。对每条候选先用本 unit 的代码、测试和 evidence
+核实，再按它回答的问题归并到唯一 owner：
+
+- 跨包职责、依赖方向或架构不变量 → `SPEC.md`；
+- 当前对外行为 → `docs/specs/`；
+- 可重复的开发、测试或 worktree 规则 → `docs/development/`；
+- 启动、恢复和排障规则 → `docs/operations/`；
+- 能机械保护的约束 → 代码、测试、CI、脚本或 skill；
+- 只对本次实现成立、证据不足或没有长期复用价值 → 不 promotion，留在归档 unit 中。
+
+归并时写入现有 canonical 页面并从对应领域索引链接；不要创建泛化 `LOGBOOK.md`，也不要把同一规则同时复制到
+多个 owner。将 accepted/rejected 结论回填到候选表，方便后续读者知道它是否已经进入 current。
+
 ### §7.1 sync gate 重跑
 
 ```bash

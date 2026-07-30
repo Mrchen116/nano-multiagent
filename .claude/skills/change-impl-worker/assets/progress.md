@@ -38,3 +38,14 @@ Prototype Comparison（仅前端原型 / reference milestone 保留；证据必�
 |  |  |  |  | match / deviation / blocked |  |
 
 ## R2 — ...
+
+## Promotion Candidates
+
+<!--
+只记录已经有本 milestone 证据支持、且可能跨任务复用的知识。没有则写 None。
+每条给出唯一建议 owner；本页只保存候选，orchestrator 收尾时决定归并或保留为历史。
+-->
+
+| Candidate | Suggested owner | Scope | Evidence |
+|---|---|---|---|
+|  | `SPEC.md` / `docs/specs/` / `docs/development/` / `docs/operations/` / code-test-CI / skill |  |  |

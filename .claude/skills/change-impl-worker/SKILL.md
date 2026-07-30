@@ -90,7 +90,7 @@ fi
 unit_path=$unit_matches
 ```
 
-其他配置(`test_command` / `forbidden_scope` / `prevention_rules`)**不在派发包里**——你自己从 `<unit_path>/design.md`(lite 模式下读 fix.md)和项目级文档(`CLAUDE.md` / `AGENTS.md` / `LOGBOOK.md`)读出来。设计期省派发包字段,实施期 worker 自取上下文。
+其他配置(`test_command` / `forbidden_scope` / `prevention_rules`)**不在派发包里**——你自己从 `<unit_path>/design.md`(lite 模式下读 fix.md)、`AGENTS.md` 和它路由到的 canonical 文档读出来。设计期省派发包字段,实施期 worker 自取上下文。
 
 **完整路径推导**:`<unit_path>/<milestone_dir>/`;`unit_path` 可能位于活动区或 archive。
 
@@ -134,7 +134,7 @@ repo_root=$(git rev-parse --show-toplevel)
 1. **`<unit_path>/<首文档>.md`** —— 用户视角和验收标准(lite 模式下首文档是 fix.md,前两段已写)
 2. **`<unit_path>/design.md`** —— 架构意图、关键决策、接口、Milestone 表对应行(本 milestone 的"范围 / 退出标准")。如果 design.md 链接了前端原型 `prototype.html`,必须在规划前打开参考,并提取 `## 前端原型` 的原型对齐契约;本 milestone 相关的 `must-match` 行要复制到 `tasks.md` 的 Prototype / Reference Contract。**lite 模式跳过这步**(没有 design.md)
 3. **`CLAUDE.md` / `AGENTS.md`** —— 项目级约定(测试命令、注释规范、模块边界)
-4. **`LOGBOOK.md`(若有)** —— 跨任务经验,提取与本 milestone 相关的注意事项
+4. **`docs/README.md` 路由到的相关 current 文档** —— 架构、行为、开发或运行规则按问题读取，不从历史日志提取现行约束
 5. **现有代码结构** —— 模块划分、命名约定、已有 fixture / helper(避免重复造轮子)
 6. **`docs/development/testing.md`** —— 测试规范的唯一真源:测什么/不测什么的停止条件、**MUST NOT 测私有函数/实现细节**、「改个内部写法就变红的测试是负债——它测的是实现不是行为」。**在写任何测试(含红测)之前必须读完**——它定义本 milestone 测试的取舍。放在「现有测试」之前读:**先立标准,再看样本**。
 7. **现有测试结构** —— 已有哪些测试、组织方式、入口测试是怎么写的。⚠️ 现状里可能掺着反模式(mock 断言某内部函数「被调用」、测一条已失效/no-op 的实现路径);先用上一条测试规范的判据过一遍再参照,**别无脑模仿现状**——坏样本会让你把实现细节当成测试目标。
@@ -386,7 +386,9 @@ Red/Verify 的含义按任务类型区分:
 |---|---|---|---|---|---|
 | <prototype.html 区域或 reference 名> | <must-match 内容> | <unit 目录内截图/录屏/报告路径> | <desktop/mobile/empty/error 等> | match / deviation / blocked | <若 deviation,引用 design 授权;否则写 N/A> |
 
-可复用的经验/坑写 `LOGBOOK.md`(跟随 unit 分支,自然合并到 main),实现思路写 progress.md。
+实现中发现可能跨任务复用的规则时，先写到本 milestone `progress.md` 的 `Promotion Candidates`。每条必须给出
+建议 owner（`SPEC.md`、`docs/specs/`、`docs/development/`、`docs/operations/`、代码/测试/CI 或 skill）、
+证据和适用范围。它仍是候选，不直接新建通用日志；orchestrator 在收尾时核实并归并到唯一 owner。
 
 ---
 
@@ -479,14 +481,14 @@ key_design_summary: <一两句>
 live_evidence: <live-critical 工作必填:真端到端跑到用户可见结果的证据(消息/截图/log 路径);非 live-critical 写 N/A>
 prototype_evidence: <前端原型/reference milestone 必填:Prototype Comparison 表位置 + durable evidence 目录;非前端写 N/A>
 env_caveats: <如实写有没有 env 受阻 / 降级 / 没跑通 live 的地方;全部真跑通写 none——绝不留空或掩盖>
-new_logbook_entries: [<title 1>, <title 2>]   # 如果有沉淀
+promotion_candidates: [<候选标题 + 建议 owner>]   # 没有则 []
 ```
 
 若本 milestone 涉及前端原型 / reference,但 `prototype_evidence` 缺失、只有 `/tmp` 证据、或没有逐项对照结论,不得回报 `DONE`;改报 `BLOCKED` 或继续补证据。
 
 ### §8.2 需要交棒(未完成)
 
-1. 更新 tasks.md(未完成 roadpoint 标 `DOING` 或 `BLOCKED`)+ progress.md(写当前卡点)+ LOGBOOK,提交 + push
+1. 更新 tasks.md(未完成 roadpoint 标 `DOING` 或 `BLOCKED`)+ progress.md(写当前卡点和 promotion candidates),提交 + push
 2. **保留 worktree 和 branch**,不删
 3. 向 orchestrator 回报:
 
@@ -506,7 +508,7 @@ orchestrator 会派新 worker 接同一个 worktree 续跑。新 worker 启动�
 - **不要跳过红、直接写"已通过"的测试**。后端/API/纯逻辑必须先写失败测试并确认失败点 = 缺失能力;前端 UI 必须先沉淀可验证验收清单、状态矩阵或 regression 复现。Red/Verify 的目的是证明当前缺失能力,不是宣称已经完成。
 - **不要把 R 拆得太碎**。装不下有意义的红测+实现就合并 R 或重新规划。
 - **不要 mock 真实入口**。HTTP 测试就发真请求(到本地 server),CLI 测试就跑真命令(子进程)。mock 入口等于不测试。
-- **不要用注释/TODO 留尾巴**。"// TODO: 这里以后改" 在本 milestone 内必须解决,否则就拆成新 R 或新 milestone。LOGBOOK 才是经验沉淀的地方。
+- **不要用注释/TODO 留尾巴**。"// TODO: 这里以后改" 在本 milestone 内必须解决,否则就拆成新 R 或新 milestone。可复用知识先写 progress.md 的 Promotion Candidates，不能用泛化日志代替 owner 归并。
 - **不要逐行复述代码做注释**。注释写"为什么 / 约束 / 来源"(照抄外部实现时标 `Provenance: <源>` 是对的),**不写"这行在做什么"**——几乎每处都挂注释 = 噪声,收尾会被人要求清掉。
 - **不要把一次性测试留成永久回归**。迁移期红测、"断言某死代码 / 字段已不存在"、跨层重复的断言,落地后该删就删(判据见 `docs/development/testing.md`:半年后还该每次 CI 跑吗?否则删)——别攒成一堆没回归价值的测试拖垮体量。
 - **不要在没通知的情况下扩范围**。design.md "范围"列写哪里就改哪里。需要扩范围 → §4 Pause-on-design-issue。
@@ -532,7 +534,7 @@ orchestrator 会派新 worker 接同一个 worktree 续跑。新 worker 启动�
 - `<unit_path>/<milestone_dir>/tasks.md` —— roadpoint 列表,全部 DONE
 - `<unit_path>/<milestone_dir>/progress.md` —— 每个 roadpoint 的 Context/Decision/Rationale/Evidence/Rollback/Commits 段
 - 代码 + 测试/验收清单/验收证据,合到 `unit/<unit_id>` 分支
-- `LOGBOOK.md`(若有沉淀)
+- `progress.md` 的 Promotion Candidates(若发现需要归并到长期 owner 的知识)
 - design.md 的 Changelog(若实施期有偏差修订)
 - lite 模式还需:`<unit_path>/fix.md` 的"修复"和"验证"段已回填
 - `gh issue create` 立的 out-of-unit issue(若有)

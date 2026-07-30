@@ -74,7 +74,7 @@
 | [`brainstorms/`](brainstorms/) | 脑暴与阶段性方案材料 |
 | [`archive/`](archive/) | 已退役独立文档 |
 
-根目录的 `LOGBOOK.md`、`ROADMAP.md`、`TASKS.md`、`PROGRESS.md` 以及 `TASKS/`、`PROGRESS/`、`ACCEPTANCE/` 属于旧开发记录体系。新 change 的工作状态和证据写入 `docs/changes/<unit>/`；迁移完成前保留旧记录用于取证，但不要据目录位置或更新时间猜测它是否仍然有效。
+根目录的 `LOGBOOK.md`、`ROADMAP.md`、`TASKS.md`、`PROGRESS.md` 以及 `TASKS/`、`PROGRESS/`、`ACCEPTANCE/` 属于已经冻结的旧开发记录体系。当前 skills 和 scripts 不再向这些路径写入；新 change 的状态、过程和证据只写入 `docs/changes/<unit>/`。旧记录将在独立机械提交中整体迁入 `docs/archive/legacy-development-records/`，不能据其目录位置或更新时间推断当前工作。
 
 ## 维护规则
 
