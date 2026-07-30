@@ -133,3 +133,67 @@ requires_full_verification: false
 ---
 
 *Report produced by change-verifier, round 1.*
+
+---
+
+# Round 2: targeted-closure
+
+## Summary
+
+Mode: targeted-closure  
+Delta range: `fc93a3c26..b649ef33a`  
+Focus issues: 13 items from round 1 + reviewer round 1 issue 1  
+requires_full_verification: false
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | M2 exit criteria met; all P0/P1/P2 items addressed |
+| Correctness | all focus-issue correctness gaps closed |
+| Coherence | mostly followed; 2 residual low-risk items noted below |
+
+**Verdict: pass** — no CRITICAL issues remain. 2 WARNING/SUGGESTION items to consider before PR.
+
+## Focus Issues Closure
+
+| Round-1 issue | Severity | Fix status | Implementation evidence | Notes |
+|---|---|---|---|---|
+| CRITICAL: `isNativeInteractiveTarget` 对 Text-node target 漏判 | CRITICAL | **closed** | `message-content-policy.ts:247-254`; tests `message-content-policy.test.ts:221-231` | now normalizes Text node → parent element before `closest()` |
+| W2: context menu 缺自动聚焦首项 + Arrow/Home/End roving + outside-click/Escape/resize 关闭 | WARNING | **closed** | new `ContextMenu` component `message-pane.tsx:1114-1208`; focus restore tests `message-pane.test.tsx:997-1046` | residual: roving skips `aria-disabled` items; `onClose` is unstable inline arrow (see New Issues) |
+| W3: toolbar `display:none` 违反决策2 | WARNING | **closed** | `styles/global.css:1759-1776` | now `opacity:0; pointer-events:none` with `display:inline-flex` always |
+| W4: `classifyChatLink` bare relative / protocol-relative 边界 | WARNING | **closed** | `message-content-policy.ts:155-172`; tests `message-content-policy.test.ts:293-311` | bare relative → same-origin-document; `//` parsed by origin |
+| W5: `isNamedExternal` 未复用策略层 normalization | WARNING | **closed** | `message-pane.tsx:1583` imports `isLabelJustUrl`; `message-content-policy.ts:178-188` | external indicator now consistent with serializer |
+| W6: 缺 copy coordinator deferred-Promise 异步 ownership 测试 | WARNING | **closed** | `message-pane.test.tsx:1048-1228` | covers same-pane new surface, conversation switch, A→B→A, newer attempt, stale notice timer |
+| W7: 缺跨 text node 选区测试 | WARNING | **closed** | `message-content-policy.test.ts:233-285` | inside/outside cross-node selection with mocked caret point |
+| W8: 缺 link 渲染 / code block copy button 组件级测试 | WARNING | **closed** | `message-pane.test.tsx:1277-1369` | external `target`/`rel`/`aria-label`, same-origin no-target, fenced code copy button, inline code no button |
+| W9: `zh.json` copyError 句号 | WARNING | **closed** | `i18n/zh.json:524` | now `"复制失败，请重试"` |
+| S10: `recordPointer` capture phase | SUGGESTION | **closed** | `message-pane.tsx:1417` uses `onPointerDownCapture` |
+| S11: context-menu `onFork` 冗余 guard | SUGGESTION | **closed** | `message-pane.tsx:930-933` now delegates guard to `MessageActionList` |
+| S12: r7 脚本 async filter 缺陷 | SUGGESTION | **closed** | `M1-impl/evidence/r7-browser-qa.js:82-89` now uses `for...of` |
+| Reviewer R1 issue 1: serializeMessageBody 块级误判 / loose list 空行 | major | **closed** | `message-content-policy.ts:309-328` inline semantic set; `message-content-policy.ts:351-458` whitespace/loose-list handling; tests `message-content-policy.test.ts:387-413` | M2 R5 adds `isBlockElement` inline set, drops formatting whitespace, flattens loose-list paragraph gaps |
+
+## Delta Risk Assessment
+
+- **Scope:** changes remain inside `src/IM/frontend/src/` and `docs/changes/feat-484-chat-message-interactions/`.
+- **Architecture boundaries:** no cross-package or cross-process changes; no new parallel mechanisms.
+- **New components:** `ContextMenu` is a local component inside `message-pane.tsx`, not a generic design-system addition.
+- **No data/schema migrations.**
+
+## New / Residual Issues
+
+### WARNING
+
+1. **`ContextMenu` re-runs its setup effect on every parent render because `onClose` is an unstable inline arrow.** `message-pane.tsx:914` passes `onClose={() => closeActionSurface("dismiss")}` to `ContextMenu`. Since `closeActionSurface` is not memoized with `useCallback`, every `MessagePane` render creates a new `onClose` reference, causing `ContextMenu`'s `useEffect` (`message-pane.tsx:1125-1181`) to cleanup and re-subscribe document/window listeners and re-focus the first menu item. If the user has Arrow-key navigated to a later item, a background re-render will steal focus back to the first item.
+   - **Fix:** wrap `closeActionSurface` in `useCallback` (deps: empty or `[setActiveMessageAction]` if needed), or pass a stable ref-based close handler to `ContextMenu`.
+
+### SUGGESTION
+
+2. **Context-menu roving navigation skips `aria-disabled` items.** `ContextMenu` `handleKeyDown` (`message-pane.tsx:1142-1166`) builds its item list with `'[role="menuitem"]:not([aria-disabled="true"])'`, so disabled Branch items are skipped by Arrow/Home/End. `design.md` 决策2 states disabled Branch should remain focusable in roving focus so keyboard users can discover the reason. The items are still reachable via Tab, but the Arrow-roving behavior is inconsistent with that design decision and with the Radix Dialog sheet behavior.
+   - **Fix:** include `aria-disabled` items in the roving list and skip only `disabled` (native) attributes; if an item is `aria-disabled`, allow focus but prevent activation on Enter/Space.
+
+## Final Verdict
+
+- All round-1 CRITICAL and WARNING focus issues have been addressed in the delta.
+- No new CRITICAL issues introduced.
+- Two low-risk residual items remain (unstable `ContextMenu` effect dependency; roving focus skips disabled items). They should be fixed before merge if possible, but do not block PR on their own.
+
+**Round 2 verdict: pass.**
