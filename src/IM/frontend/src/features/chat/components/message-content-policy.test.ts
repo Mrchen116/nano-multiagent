@@ -423,6 +423,13 @@ describe("serializeMessageBody", () => {
     );
     expect(serializeMessageBody(el)).toBe("before\n\nif (ready) {\n\n  run();\n}\n\nafter");
   });
+
+  it("preserves multiple consecutive blank lines inside code blocks", () => {
+    const el = body(
+      '<p>before</p><pre><code>def hello():\n\n\n    return "world"</code></pre><p>after</p>'
+    );
+    expect(serializeMessageBody(el)).toBe('before\n\ndef hello():\n\n\n    return "world"\n\nafter');
+  });
 });
 
 describe("extractCodeText", () => {
