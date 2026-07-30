@@ -4,6 +4,8 @@
 
 整体架构：./SPEC.md
 
+全仓文档地图：docs/README.md
+
 开发规范：COMMENTING_GUIDE.md
 
 测试规范：docs/TESTING_GUIDE.md

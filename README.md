@@ -135,7 +135,7 @@ stop 反馈语义：
 - 看到 `Chat unavailable` + `Next: Open bind flow`：先完成绑定。
 - 看到 `Chat unavailable` + `Next: Bring Gateway online`：先把 Gateway 恢复到在线状态。
 
-更完整的启动、Feishu channel 配置、状态说明与调试附录见 `docs/operator-runbook.md`。前端开发模式、Mock/真实 IM 边界见 `src/IM/frontend/README.md`。
+全仓文档地图见 `docs/README.md`。更完整的启动、Feishu channel 配置、状态说明与调试附录见 `docs/operator-runbook.md`。前端开发模式、Mock/真实 IM 边界见 `src/IM/frontend/README.md`。
 
 ## CLI
 

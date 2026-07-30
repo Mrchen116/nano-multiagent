@@ -5,7 +5,8 @@
 > `change-design-author`(design 阶段产出本单元的 delta-spec —— 对 canonical 的 ADDED/MODIFIED/REMOVED);
 > `change-orchestrator`(收尾据实际代码 diff 校正 delta 后,合并进 canonical)。
 >
-> 顶点架构(包、依赖方向、部署拓扑)在 [`SPEC.md`](../SPEC.md);本指南只管单包行为契约层。
+> 全仓文档地图见 [`README.md`](README.md)；顶点架构(包、依赖方向、部署拓扑)在
+> [`SPEC.md`](../SPEC.md)。本指南只管单包行为契约层。
 
 ## 这套体系长什么样
 
