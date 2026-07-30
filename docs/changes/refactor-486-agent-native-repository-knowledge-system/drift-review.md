@@ -131,6 +131,154 @@
   未参与测试的 user-stream runtime，并决定哪些 stderr 应成为失败。
 - 状态：Awaiting user review；本次没有修改前端测试、Vitest 配置或 warning 策略。
 
+### D-014：架构 contract test 的名称和说明仍携带旧架构术语
+
+- 现状：`tests/contract/test_cli_http_only_contract.py` 实际守护的是 SDK-only 架构，文件名仍是
+  `http_only`；`tests/contract/test_agent_sdk_boundary_contract.py` 的模块说明仍把已退役的
+  `agent.products` 写在 `agent.sdk` 的当前依赖层中。
+- 边界：测试断言本身仍会拦截产品越界 import，并未发现由这些旧术语造成的实际边界失守。
+- 影响：Agent 按文件名或模块说明寻找 current 架构门禁时，可能误以为仓库仍保留旧 HTTP/products
+  结构。
+- 待决定：是否建立低风险清理 issue，重命名测试文件并更新说明；若改名，需要同步所有精确路径引用。
+- 状态：Awaiting user review；测试和注释未修改。
+
+### D-015：SDK 表面契约与实际豁免、允许 import 形态没有完全对齐
+
+- 现状：`docs/specs/kernel/sdk-boundary.md` 声称显式豁免名单逐字钉死，并列出五个 re-export；当前
+  `agent.sdk.__all__` 和 `test_agent_sdk_surface_guard.py` 还包含
+  `USER_INTERRUPT_RECOVERY_CONTENT` 这一 core-owned string re-export，current spec 未列出。
+- 现状：同一 spec 写“消费者只能 import `agent.sdk`”；Gateway 两个文件在 `TYPE_CHECKING` 下使用
+  `from agent.sdk.kernel import Kernel`。现有 contract 只禁止 `agent.core`、`agent.platform` 和
+  `agent.products`，没有裁决“只能从 `agent.sdk` 根导入”还是“可以从任意 `agent.sdk.*` 子模块导入”。
+- 影响：公开表面名单已经发生可验证漂移；对 SDK 子模块是否属于 public surface 也缺少一致、可机械保护的
+  解释。
+- 待决定：
+  1. 把 recovery constant 补入 current spec 的豁免名单；
+  2. 明确 SDK 消费者的 import 政策，并据此统一 Gateway type import 与 contract test。
+- 状态：Awaiting user review；spec、代码和测试未修改。
+
+### D-016：Paused `feat-444` 的 reviewer runbook 使用不存在的 Gateway 健康检查
+
+- 现状：`docs/changes/feat-444-session-wakeup/design.md` 指示 reviewer 请求
+  `http://127.0.0.1:8000/v1/health`；当前 Gateway 没有这条路由。该 unit 的 `status.md` 已标记
+  `Paused after design`，并要求恢复前重新 grounding。
+- 影响：Agent 如果直接深链 design 并照 runbook 执行，会把无效检查误判为实现或环境故障。
+- 待决定：恢复该 unit 时是否先修订 runbook 并重过 design review；或现在就建立 issue，避免 paused
+  design 长期保留不可执行指令。
+- 状态：Awaiting user review；paused unit 未修改。
+
+### D-017：`feat-484` 的恢复快照没有覆盖当前验收现场
+
+- 现状：2026-07-30 冷启动恢复检查确认 `status.md` 的 branch SHA、无 PR 和“最新修复仍需复验”方向
+  正确，但 unit worktree 同时存在：
+  - 未跟踪的 Round 3 runner、runtime 数据、channel credential/manifest 和 Gateway state；
+  - 仍存活的隔离 IM/Gateway（检查时 PID `81982` / `82006`）；
+  - 空的 Round 3 evidence 目录和已经停止的 runner；
+  - 嵌套 verifier worktree，HEAD 为当前 unit HEAD，但没有新的 verification 结论；
+  - `git diff --check main...unit/feat-484` 报告多处历史 evidence/报告 trailing whitespace。
+- 文档缺口：`status.md` 没有记录最后有效 verification 的 validated head/range、Round 3 中断现场或运行
+  owner；M2 tasks/progress 也未签收最后两个 fix commits。新 `status.md` 目前只存在于文档重构分支，
+  尚未进入 main 或 unit branch。
+- 其他待裁决记录：M2 退出标准表写 `F1–F4`，正文存在 `F5`；design-review 的冻结表述与后来追加 M2
+  的做法没有留下裁决；progress 记录 orchestrator 在 worker 403 后亲自实现，与当前 orchestrator
+  “不写代码”边界不一致。
+- 影响：新 Agent 若只相信恢复快照，可能重复派验收、误清理现场、遗漏当前 HEAD 复验，或用宽泛
+  `git add -A` 暂存本机 credential。
+- 待决定：由 `feat-484` owner 审核现场后，决定继续复验还是安全清理；将真实 validated range、运行
+  locator 和下一动作写回 unit；另行判断 credential ignore、trailing whitespace 和历史流程偏差是否建
+  issue。
+- 状态：Awaiting user review；本次未停止进程、清理文件、恢复 agent 或修改该 unit。
+
+### D-018：并行 reviewer/verifier 的报告 push 存在竞态
+
+- 现状：`change-orchestrator` 要求 reviewer 与 verifier 并行。reviewer 在 unit worktree commit 并直接
+  push；verifier 在独立 detached worktree fetch/rebase 后 push。orchestrator 等两者返回后只读取
+  unit worktree 的本地 `BEFORE..AFTER`，没有先把远端 verifier report commit 快进回本地。
+- 风险：两者可能发生 non-fast-forward；或者远端已有两个报告、unit worktree 只含 reviewer 报告，后续
+  `push --force-with-lease` 覆盖 verifier 报告。
+- 待决定：报告产出是否改成串行集成；或由 orchestrator 在每个报告返回后 fetch/fast-forward，并验证所有
+  report commits 都是本地 HEAD 祖先后再继续。
+- 状态：Awaiting user review；skills 未修改。
+
+### D-019：归档步骤会在本地 CI 之后改变文档图，却没有重跑 docs-check
+
+- 现状：`change-orchestrator` 先跑本地 CI，再 `git mv` 整个 unit 到 archive；归档步骤没有删除
+  `docs/changes/README.md` 的 active 索引行，之后只要求 `git diff --check`。当前 CI 的
+  `./scripts/docs-check` 会检查 active index、status 路径和 unit 唯一性。
+- 影响：按 skill 原样执行可能在本地 CI 已绿后制造确定性的文档门禁失败，直到远端 CI 才暴露。
+- 待决定：归档动作是否必须同步更新 active index，并在归档 commit 后重跑 docs-check 或整套受影响门禁。
+- 状态：Awaiting user review；skills 和归档流程未修改。
+
+### D-020：远端 CI 全绿后再提交最终 status，会使绿色结论立即过期
+
+- 现状：`change-orchestrator` 要求先 `gh pr checks --watch` 等 CI 全绿，随后把 archive 内
+  `status.md` 改为 `Completed — PR open` 并 commit + push，然后直接退出。
+- 影响：最后一次 status push 产生新的 PR head 和新一轮 CI；skill 却可能把前一个 head 的绿色结果当作
+  最终交付证据。
+- 待决定：调整最后状态写入时机，或要求最终一次 push 后重新核对 `headRefOid` 并等待该 head CI 全绿，
+  且之后不再产生 commit。
+- 状态：Awaiting user review；skills 未修改。
+
+### D-021：Verifier WARNING 是否阻塞收尾的口径不一致
+
+- 现状：`change-verifier` 把 spec/design 偏离和缺测试列为“应该修”的 WARNING，但规定“无 CRITICAL
+  即 verdict=pass / Ready for PR”；`change-orchestrator` 只有在存在 CRITICAL、reviewer fix 或 code
+  review 阻塞项时才进入 fix，此时才顺带打包 WARNING。
+- 影响：只有 WARNING 的 verifier 报告可能作为 pass 穿过收尾，和“应该修、缺测试必须补”的文字承诺
+  冲突。
+- 待决定：WARNING 默认阻塞；或允许显式接受，但必须定义接受者、理由和 PR 记录字段。
+- 状态：Awaiting user review；原门禁语义未修改。
+
+### D-022：`pass-with-issues` 的 acceptance bar 没有稳定输入
+
+- 现状：`change-reviewer` 允许第三轮起由 caller 放宽 major issue 为 `pass-with-issues`；
+  `change-orchestrator` 也允许“acceptance bar 允许”时收尾，但 reviewer 派发包没有 acceptance bar
+  字段，也没有规定谁、何时、依据什么授权放宽。
+- 影响：同一验收结果可能因 orchestrator 临场判断得到不同路由，恢复后也无法知道当时使用了哪条 bar。
+- 待决定：保持 major 默认 fail；或为人工/流程授权定义显式字段，并持久化到 status/report/PR。
+- 状态：Awaiting user review；skills 未修改。
+
+### D-023：验收完成后的 main rebase 没有完整的门禁失效判断
+
+- 现状：selected gates 通过并归并 current spec 后，orchestrator 才 rebase `origin/main`。skill 在别处把
+  “rebase 后非平凡冲突或大范围 delta”列为 full 条件，但 sync gate 没有要求比较 rebase 前后 delta、
+  重新选择 retained/targeted/full 或更新 validated head。
+- 影响：main 新提交即使没有文本冲突，也可能改变调用链或用户旅程；原门禁结论会落后于最终 PR head。
+- 待决定：把最终 sync 提前到 gates 前；或在 rebase 后增加显式 invalidation assessment，并按 delta
+  重跑受影响门禁。
+- 状态：Awaiting user review；流程未修改。
+
+### D-024：部分收尾状态只存在于 orchestrator 内存
+
+- 现状：同 issue 的 5 轮上限依赖“orchestrator 内存中的 issue 指纹表”；code-review findings 没有稳定
+  报告文件。中断前虽然要求更新 `status.md`，但没有固定保存 finding origin head、open/closed 状态、
+  retained 理由和轮次指纹的字段。
+- 影响：跨 session 恢复后无法可靠继续轮次计数、closure diff 或 retained 判定，可能重复修复或错误放行。
+- 待决定：是否把每轮最小 finding ledger 写入 `status.md` 或独立报告，并明确 code review 的 durable
+  evidence owner。
+- 状态：Awaiting user review；没有扩展 status 契约。
+
+### D-025：校正后 delta 的软对账缺少可恢复的执行契约
+
+- 现状：orchestrator 在所有门禁后校正 delta，并要求 reviewer/verifier 对每条 Requirement/Scenario
+  “软对账”；但两类 skill 的派发包和报告 schema 都没有 corrected delta path/SHA、对账 mode 或固定
+  报告段。
+- 影响：Agent 可以口头声称已经对账，却无法从 archive 判断哪个角色核对了哪个 delta 版本。
+- 待决定：为 corrected-delta review 定义稳定输入和 durable report；或把该检查并入已有门禁且明确
+  invalidation/复验规则。
+- 状态：Awaiting user review；delta 流程未修改。
+
+### D-026：Codex 执行映射与当前 collaboration tool schema 漂移
+
+- 现状：`.claude/skills/change-orchestrator/references/codex-execution-notes.md` 要求
+  `spawn_agent(agent_type=...)`，当前工具没有 `agent_type` 参数；模型表使用带空格的
+  `gpt-5.6 sol` / `gpt-5.6 Terra`，当前可用标识为连字符形式，并列出当前未暴露的
+  `gpt-5.3-codex-spark`。
+- 影响：orchestrator 若逐字执行映射，会在派发阶段参数校验失败，或无法按文档指定模型启动 agent。
+- 待决定：按当前工具 schema 更新映射，并明确模型不可用时的兼容策略；这属于运行时适配更新，不应改变
+  Full/lite、spec review 或三类门禁的产品流程语义。
+- 状态：Awaiting user review；Codex 映射未修改。
+
 ## 本规则建立前已经直接校正、需要复核
 
 ### D-008：Feishu channel 的操作入口
