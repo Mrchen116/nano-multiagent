@@ -331,3 +331,124 @@ Round 2 报告的代码块整体丢失已修复：两个 fenced 代码块内容�
 - 追加验收段落: `docs/changes/feat-484-chat-message-interactions/acceptance.md`
 - 真浏览器证据目录: `docs/changes/feat-484-chat-message-interactions/M1-impl/review-r3-evidence/`
 - 自动化采集脚本: `docs/changes/feat-484-chat-message-interactions/M1-impl/review-r3-runner.mjs` 及 `r3-contextmenu-probe.mjs` / `r3-copy-activate-probe.mjs` / `r3-branch-probe.mjs` / `r3-reading-state-probe.mjs`（运行副本置于 `src/IM/frontend/` 下以解析 playwright）
+
+---
+
+# Round 4 — 2026-07-30 (targeted revalidation)
+
+> 复验范围: round 3 issue #3（整条复制折叠 code 内部空行）+ 自 round 1 起挂起的两条移动端长按 Scenario。
+> 修复 delta: `8c3de8fea..4b5f98814`；验收对象: unit HEAD `4b5f98814`。
+> 工作区: `/Users/czj/Repos/nano-multiagent/.worktrees/unit-feat-484`；从当前 HEAD 重新构建前端并启动全新隔离真栈（IM port 56859）。
+
+## Verdict
+
+**pass**
+
+**Highest Required Action**: `pass`
+
+Round 3 的唯一实现问题已关闭：在真实 Web IM 中点击 Agent 消息的 Copy message 后，macOS 系统剪贴板逐字包含 `def hello():\n\n\n    return "world"`，即 code 内两个连续空行完整保留；同一 payload 的列表、具名链接和 UI 排除边界也未回退。
+
+Round 1 起挂起的两条移动端长按 Scenario 也按 design.md `Runbook for Reviewer` 冻结的 WebKit 替代验法关闭：headed Playwright WebKit 在 390×844、iPhone Safari UA、coarse pointer 环境中，正文与具名链接均可建立真实 Selection 并经 Cmd-C 写入系统剪贴板；900ms 的可信 touch 序列到达正文和链接后均未被页面阻止，也未打开 IM menu / action sheet；computed CSS 保持 `-webkit-user-select: text`，且未设置 `-webkit-touch-callout: none`。
+
+## User Journeys Exercised
+
+### Journey 1: Chromium desktop 1440×900 — whole-message copy
+
+- 登录隔离 Web IM，经 Agent 配置页进入 direct chat，发送要求返回段落、嵌套列表、具名外链、裸 URL、同源文本和两个 fenced code block 的消息。
+- Agent 真实回复第一个 code block 为 `def hello():` + 两个完全空白行 + 四空格缩进的 `return "world"`。
+- hover Agent 气泡后点击 Copy message，页面显示 `Copied`；读取 macOS 系统剪贴板并逐字核对。
+- 实际关键片段:
+
+  ```text
+  def hello():
+
+
+      return "world"
+  ```
+
+- 同一剪贴板还满足:
+  - `- 项目一\n- 项目二\n  - 子项 A`，列表无多余空行；
+  - `文档 (https://example.com/docs)` 保持内联；
+  - 不包含 `⎘` 或消息外围状态。
+
+### Journey 2: headed WebKit mobile 390×844 — Selection 与长按 ownership
+
+- 环境事实: `innerWidth=390`、`innerHeight=844`、`devicePixelRatio=3`、`(any-pointer: coarse)=true`、`(any-hover: none)=true`；UA 为 iPhone Safari / AppleWebKit 605.1.15。
+- 正文 Selection: WebKit 对 `Intro` 建立真实 Selection，Cmd-C 后系统剪贴板精确为 `Intro`。
+- 链接 Selection: WebKit 对具名链接建立真实 Selection，Cmd-C 后系统剪贴板精确为 `文档\n`，不含视觉 `↗`；anchor 仍为 `href=https://example.com/docs`、`target=_blank`。
+- 正文长按路径: 向正文发出 900ms 可信 touch hold，浏览器实际产生 `pointerdown(pointerType=touch, isTrusted=true)` 与 `touchstart(isTrusted=true)`；两者在 document bubble 后 `defaultPrevented=false`，期间和结束后均无 `[role=menu]` / `[role=dialog]`。
+- 链接长按路径: 对具名链接重复同样的 900ms 可信 touch hold，target 为 `A`，touch 事件同样未被阻止，且无 IM menu / action sheet。
+- CSS: 正文与链接均为 `-webkit-user-select:text`、`pointer-events:auto`、`touch-action:auto`；`-webkit-touch-callout` 未被产品 CSS 设为 `none`。
+
+> 证据边界: Playwright MiniBrowser 不渲染 iOS 系统选择柄/链接 callout 的 OS 像素，本轮不声称看到了该像素层。pass 依据是 design.md Runbook 明确指定的组合判据：真实 WebKit Selection/Cmd-C + 正文/link 长按路径不被 IM handler 接管 + computed CSS。该组合已全部在 390×844 headed WebKit 中成立；若要求对 iOS 系统 popover 外观做像素验收，仍需连接真机，但这不是当前 Runbook 的 pass 必要条件。
+
+## Round 3 Issue #3 修复验证
+
+| 检查项 | R3 状态 | R4 结果 | 证据 |
+|---|---|---|---|
+| 整条复制包含两个 fenced code block | pass | pass | 系统剪贴板含 `def hello():` 与 `echo "done"` |
+| 第一个 code block 内两个空行完整保留 | fail | pass | 系统剪贴板命中 `def hello():\n\n\n    return "world"` |
+| 代码缩进保留 | pass | pass | `return "world"` 前四空格仍在 |
+| 列表连续、具名链接内联 | pass | pass | 系统剪贴板逐字核对通过 |
+| 不混入 copy 按钮或外围信息 | pass | pass | 无 `⎘`、头像、时间、Process、token、投递状态 |
+| Copy 成功反馈 | pass | pass | 点击后显示 `Copied` |
+
+## 覆盖表更新
+
+### Requirement: 复制整条消息得到可复用正文并获得反馈 — 组内结论:pass
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 复制整条富文本消息 | spec.md + design.md fixture | Chromium 真栈点击 Copy message，读取系统剪贴板并逐字核对 | 本轮 Journey 1 剪贴板原文与断言 | pass | R1 列表/链接、R2 代码块丢失、R3 code 内部空行三层问题均已关闭 |
+| 复制成功 | spec.md | 点击复制后观察反馈 | `Copied` 可见 | pass | 未改变当前聊天 |
+| 有选区时仍可明确复制整条消息 | spec.md | 继承 R1 pass | R1 证据 | pass | 本轮 delta 不触及选区路由 |
+| 整条复制不混入消息外围信息 | spec.md | 检查系统剪贴板 | 本轮 Journey 1 剪贴板原文 | pass | 仅正文 |
+| 复制失败 | spec.md | 继承 R1 pass | R1 证据 | pass | 本轮 delta 不触及失败路径 |
+
+### Requirement: 消息正文支持原生文本选择与局部复制 — 组内结论:pass
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 移动端长按选择消息文字 | spec.md + design.md Runbook | headed WebKit 390×844：真实 Selection/Cmd-C；900ms 可信 touch ownership；computed CSS | `Intro` Selection 与系统剪贴板；touch 事件 facts；CSS facts | pass | 原 R1 inconclusive 已关闭；IM 未阻止 touch，未打开自定义菜单 |
+| 桌面端复制选中的局部文字 | spec.md | 继承 R1 pass | R1 证据 | pass | 本轮 delta 不触及 |
+| 桌面端选中文字后打开右键菜单 | spec.md | 继承 R1 pass | R1 证据 | pass | 本轮 delta 不触及 |
+
+### Requirement: 聊天链接按目标自然导航 — 移动端挂起项关闭
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 移动端长按外部链接 | spec.md + design.md Runbook | headed WebKit 390×844：链接 Selection/Cmd-C；900ms 可信 touch ownership；anchor/CSS facts | 系统剪贴板 `文档\n`；touch target `A` 且未阻止；`target=_blank` | pass | 原 R1 inconclusive 已关闭；无 IM menu / action sheet |
+
+其余 Scenario 继承 Round 1–3 的既有结论；本轮 fix delta 仅触及 whole-message serializer，未观察到新的用户面副作用。
+
+## Reference Artifacts Reviewed
+
+| Reference | Required contract | Actual product evidence | Viewport / state | Conclusion |
+|---|---|---|---|---|
+| design.md 决策 3 rich-copy fixture | code 内部空行不折叠，列表/链接结构不回退 | Journey 1 系统剪贴板逐字核对 | Chromium 1440×900 / Copy success | match |
+| design.md Runbook for Reviewer | WebKit Selection/Cmd-C、正文/link touch 不被接管、computed CSS | Journey 2 WebKit facts | WebKit 390×844 / coarse + no-hover | match |
+
+## Issues
+
+无。
+
+## Side Findings
+
+- 本机无 Xcode Simulator，也未连接 iPhone/iPad；因此未补 iOS 系统 callout 像素截图。该限制已按上方“证据边界”记录，不影响 design.md Runbook 的组合判据。
+- 真 Safari desktop 可登录并打开同一会话，正文、链接及 code 空行均正常呈现；Safari 的开发者响应式模式未启用，本轮没有擅自修改用户的持久化 Safari 设置。
+- Vitest 运行期间仍输出既有 React `act(...)` warning，但 3 个目标文件 161 tests 全绿；未观察到对应用户面失败。
+
+## 验证门禁
+
+- `message-content-policy.test.ts`: 50 passed。
+- `message-pane.test.tsx`: 104 passed。
+- `message-pane-fork.test.tsx`: 7 passed。
+- `npm run build`: passed（当前 HEAD bundle `index-DhfuTnPD.js`）。
+- `git diff --check`: clean。
+
+## 上层文档同步（Round 4）
+
+- [x] `SPEC.md`: 无需更新。
+- [x] `docs/specs/im/`: 仍由 orchestrator §7.0 在 unit 收尾时归并既有 delta；本轮没有新增行为契约。
+- [x] `AGENTS.md` / `CLAUDE.md`: 无需更新。
+- [x] `docs/SPEC_GUIDE.md`: 无需更新。
