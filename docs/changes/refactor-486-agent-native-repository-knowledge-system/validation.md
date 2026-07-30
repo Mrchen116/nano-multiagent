@@ -30,9 +30,14 @@ Agent session，因此“新 Agent 不依赖迁移对话也能完成任务”仍
 
 ## Mechanical Evidence
 
-- `./scripts/docs-check`：196 份受维护 Markdown、85 个必须入口，全部通过。
-- `pytest -q tests/unit/test_docs_check.py tests/contract/test_change_workflow_documentation_contract.py`：
-  8 passed。
+- `./scripts/docs-check`：197 份受维护 Markdown、85 个必须入口，全部通过。
+- `ruff check .`：passed；`ruff format --check .`：894 files already formatted。
+- `pytest -m "not e2e" -n 4 --dist worksteal`：3733 passed、1 skipped；第三方 Feishu SDK 的一次非确定性
+  RuntimeWarning 记录为 [`D-011`](drift-review.md#d-011全量测试偶发回收未-await-的飞书-sdk-cache-协程)。
+- clean `npm ci` 后执行 `npm run test`：68 test files / 653 tests passed；依赖 audit 与 stderr 噪声分别记录为
+  [`D-012`](drift-review.md#d-012前端-clean-install-报告-9-个依赖漏洞) 和
+  [`D-013`](drift-review.md#d-013前端测试全绿但-stderr-噪声规模很大)，没有在本 unit 自动修复。
+- `git diff --check origin/main...HEAD`：passed。
 - active unit `status.md` 的实时核对使用 `git worktree list`、本地/远端 branch HEAD 和 worktree
   `git status`，没有依据文档快照覆盖实时状态。
 - 当前已知、但不应在本次迁移中自动裁决的 drift 仍只记录在
