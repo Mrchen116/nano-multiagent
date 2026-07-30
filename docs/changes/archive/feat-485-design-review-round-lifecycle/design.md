@@ -1,5 +1,8 @@
 # feat-485: Design review 轮次生命周期 — 技术方案
 
+> 状态：Completed history。当前流程以 `.claude/skills/change-design-author/`、
+> `.claude/skills/change-design-reviewer/` 和 `docs/development/change-workflow.md` 为准。
+
 > 对齐: spec.md v3
 >
 > Implementation branch: `codex/design-review-round-history`（用户明确要求在独立 worktree 实施）
@@ -54,7 +57,7 @@ sequenceDiagram
 | 任意返工都强制全量复审 | `.claude/skills/change-design-author/SKILL.md:583-589` | 局部修订与高风险架构改写承担同样成本 |
 | 固定报告路径只保留最新报告，并明确不保留轮次台账 | `.claude/skills/change-design-author/SKILL.md:593-597` | 无法按轮复盘耗时、问题和收敛过程 |
 | reviewer 输出格式只有单次报告，没有轮次元数据或 mode | `.claude/skills/change-design-reviewer/SKILL.md:161-214` | reviewer 无法表达复验范围，author 也无法稳定引用历史 issue |
-| feat-475 把 fresh/full/overwrite 写成原始需求 | `docs/changes/feat-475-design-review-loop/spec.md:62-73,138-144` | 本 unit 必须作为显式后续决策覆盖旧流程，不能静默改词 |
+| feat-475 把 fresh/full/overwrite 写成原始需求 | `docs/changes/archive/feat-475-design-review-loop/spec.md:62-73,138-144` | 本 unit 必须作为显式后续决策覆盖旧流程，不能静默改词 |
 | orchestrator 已有“复用热上下文 + 按 delta 选复验范围”的相邻模式 | `.claude/skills/change-orchestrator/SKILL.md:575-639` | 可复用其 `closure/delta/full` 词汇，但路由所有权改由 design reviewer 承担 |
 
 本 unit 不涉及产品 runtime、常驻服务或 canonical 产品行为契约；没有 delta-spec。

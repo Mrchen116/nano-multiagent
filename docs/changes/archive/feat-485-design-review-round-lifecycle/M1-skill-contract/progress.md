@@ -1,5 +1,7 @@
 # feat-485-M1: 实施记录
 
+> 状态：Completed history。
+
 ## Context
 
 feat-475 把 Gate 2 固化为“每轮新 reviewer + 每轮 full + 覆盖旧报告”。feat-484 的真实连续 review 暴露了重复冷启动和重复取证成本。本 milestone 将 review 上下文生命周期、检查范围路由和报告历史一起调整，避免只优化其中一项后仍由其他入口绕过。

@@ -1,5 +1,7 @@
 # feat-466: Design 验收前置保障
 
+> 状态：Completed。行为由提交 `e3d9182fb` 进入 `main`；本文件随 unit 冻结为历史。
+
 ## Relations
 
 - Related: feat-464

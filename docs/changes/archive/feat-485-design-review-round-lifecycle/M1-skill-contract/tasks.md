@@ -1,5 +1,7 @@
 # feat-485-M1: skill-contract
 
+> 状态：Completed history。
+
 ## Roadpoints
 
 - [x] R1：建立 feat-485 spec/design，并由独立 reviewer 完成首轮 full review。

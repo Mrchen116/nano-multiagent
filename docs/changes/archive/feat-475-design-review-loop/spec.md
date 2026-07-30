@@ -1,5 +1,8 @@
 # feat-475: Design Author 独立审查闭环
 
+> 状态：Completed。行为由提交 `206609a62` 进入 `main`，随后被 feat-485 的 reviewer 复用与轮次生命周期
+> 规则显式修订；本文件随 unit 冻结为历史。
+
 > 回顾性 spec：本 unit 的行为边界先在对话中完成对齐，随后修改
 > `change-design-author/SKILL.md`；本文档按用户要求补记这项特殊需求，并与 skill 修改一同提交。
 

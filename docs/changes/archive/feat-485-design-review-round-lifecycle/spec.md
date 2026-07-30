@@ -1,5 +1,8 @@
 # feat-485: Design review 轮次生命周期
 
+> 状态：Completed。实现经 [PR #214](https://github.com/Mrchen116/nano-multiagent/pull/214) 合入
+> `main`；本 unit 随后冻结为历史。
+
 ## Relations
 
 - Related: feat-475

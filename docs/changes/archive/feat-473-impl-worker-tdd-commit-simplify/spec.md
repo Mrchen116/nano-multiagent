@@ -1,5 +1,7 @@
 # feat-473: impl-worker 保留 TDD、去掉三提交仪式
 
+> 状态：Completed。行为由提交 `9980d2792` 进入 `main`；本文件随 unit 冻结为历史。
+
 ## Relations
 
 - Related: feat-352, feat-389, feat-396

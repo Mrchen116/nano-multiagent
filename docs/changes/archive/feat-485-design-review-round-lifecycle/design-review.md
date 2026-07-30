@@ -1,5 +1,7 @@
 # Design Review: feat-485
 
+> 状态：Completed history。以下 Round 与 Author Resolutions 按完成时内容保留。
+
 ## Round 1
 
 ### Metadata
@@ -33,7 +35,7 @@ Issues Found — 2 CRITICAL / 3 WARNING
 | G2：任意返工都强制全量复审 | 追非通过报告后的循环分支 | ✓ 无论是否改产物，当前 §6.3 都要求全新 reviewer 从头执行完整 review（`.claude/skills/change-design-author/SKILL.md:583-589`）。 |
 | G3：固定报告路径只保留最新结果 | 追 author 的停止条件与输出契约 | ✓ 当前规则明确覆盖旧报告、只保留最新完整报告且不建轮次台账（`.claude/skills/change-design-author/SKILL.md:567,591-597,641`）。 |
 | G4：reviewer 只有单次报告格式，无 Round/mode/time/hash | 逐段检查 reviewer 输出与落盘契约 | ✓ 当前格式从结论直接进入台账/进攻/Issues/Recommendations，落盘只描述一份完整报告，没有 round metadata 或 mode（`.claude/skills/change-design-reviewer/SKILL.md:164-210`）。 |
-| G5：feat-475 把 fresh/full/overwrite 固化成历史需求 | 对照 related unit 的 Requirement 与非目标 | ✓ feat-475 要求修订后换新 reviewer 全量复审，并把历史报告列为非目标（`docs/changes/feat-475-design-review-loop/spec.md:62-73,110-123,140-145`）；feat-485 作为后续 unit 显式覆盖是正确做法。 |
+| G5：feat-475 把 fresh/full/overwrite 固化成历史需求 | 对照 related unit 的 Requirement 与非目标 | ✓ feat-475 要求修订后换新 reviewer 全量复审，并把历史报告列为非目标（`docs/changes/archive/feat-475-design-review-loop/spec.md:62-73,110-123,140-145`）；feat-485 作为后续 unit 显式覆盖是正确做法。 |
 | G6：orchestrator 已有稳定 agent 与选择性复验相邻模式 | 追 orchestrator 的稳定 name、delta selection 和热上下文恢复 | ✓ 稳定 name/ID 与 `SendMessage` 复用在 `.claude/skills/change-orchestrator/SKILL.md:32-34`；`retained/closure/delta/full` 路由及升级条件在 `:568-605`；热 worker 恢复在 `:611-637`。 |
 | G7：本 unit 不触及产品 runtime 或四包行为契约 | 核 planned write set 与跨包权威 | ✓ 决策 6 的 planned writes 全是 skills/workflow/docs/tests（`design.md:151-161`）；`SPEC.md:153-171` 的四包职责和依赖方向均不受影响，`no spec delta` 成立。 |
 | G8：真实 Gate 2 消费者是 change-orchestrator 启动门 | 从 author 交接正向追到 worker 派发前检查 | ✗ author 之后的真实消费者只检查 design 模板、Unit branch、Milestone 字段和空目录（`.claude/skills/change-orchestrator/SKILL.md:93-122`），完全不读 `design-review.md`、Verdict 或 artifact hashes；而本设计的 write set 未包含 orchestrator（`design.md:151-161`）。见 R1-C2。 |
