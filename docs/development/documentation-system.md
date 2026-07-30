@@ -277,7 +277,7 @@ flowchart LR
 
 是否使用 RFC、KEP、ADR、change unit 或普通 PR，由风险和复杂度决定。小修不应承担与跨组件高风险
 变化相同的流程成本。本仓现行 change 生命周期见 [`change-workflow.md`](change-workflow.md)，
-spec/delta 写法见 [`../SPEC_GUIDE.md`](../SPEC_GUIDE.md)；本文不改变其门禁。
+spec/delta 写法见 [`../specs/CONTRIBUTING.md`](../specs/CONTRIBUTING.md)；本文不改变其门禁。
 
 ## 反馈编译闭环
 
