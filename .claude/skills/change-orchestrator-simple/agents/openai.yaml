@@ -1,0 +1,4 @@
+interface:
+  display_name: "Change Unit Delivery"
+  short_description: "端到端实施、验收并交付一个完整 change unit"
+  default_prompt: "Use $change-orchestrator-simple to implement, validate, and deliver this change unit."
