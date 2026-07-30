@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Architecture review — nano-multiagent</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="module">
+      import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+      mermaid.initialize({ startOnLoad: true, theme: "neutral", securityLevel: "loose" });
+    </script>
+    <style>
+      .seam { border-style: dashed; }
+      .deep { background: linear-gradient(135deg, #0f172a, #1e293b); }
+      .paper-grid {
+        background-image: radial-gradient(#cbd5e1 0.7px, transparent 0.7px);
+        background-size: 14px 14px;
+      }
+      .leak-arrow { color: #dc2626; font-weight: 800; }
+      .module-shadow { box-shadow: 4px 4px 0 rgba(15, 23, 42, 0.08); }
+    </style>
+  </head>
+  <body class="bg-stone-50 text-slate-900 font-sans">
+    <main class="max-w-6xl mx-auto px-5 py-10 md:px-8 md:py-14 space-y-12">
+      <header class="space-y-6">
+        <div class="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+          <div>
+            <p class="text-xs uppercase tracking-[0.24em] text-emerald-700">Architecture review</p>
+            <h1 class="mt-2 text-4xl font-serif tracking-tight">nano-multiagent</h1>
+          </div>
+          <p class="text-sm text-slate-500">Deepening opportunities · 4 candidates</p>
+        </div>
+
+        <dl class="grid gap-px overflow-hidden rounded-xl border border-slate-200 bg-slate-200 md:grid-cols-2">
+          <div class="bg-white p-4"><dt class="text-xs uppercase tracking-wider text-slate-500">Generated</dt><dd class="mt-1 font-mono text-sm">2026-07-11 10:56:16 CST</dd></div>
+          <div class="bg-white p-4"><dt class="text-xs uppercase tracking-wider text-slate-500">Branch</dt><dd class="mt-1 font-mono text-sm">main</dd></div>
+          <div class="bg-white p-4 md:col-span-2"><dt class="text-xs uppercase tracking-wider text-slate-500">Commit</dt><dd class="mt-1 break-all font-mono text-sm">395a54b5befcea98f76a207114e222b8ea0694e1</dd></div>
+          <div class="bg-white p-4 md:col-span-2"><dt class="text-xs uppercase tracking-wider text-slate-500">Working tree</dt><dd class="mt-1 font-mono text-sm font-semibold text-amber-700">dirty · tracked and untracked changes present</dd></div>
+        </dl>
+
+        <div class="rounded-xl border-2 border-amber-400 bg-amber-50 px-5 py-4 text-sm text-amber-950">
+          <strong>Snapshot warning:</strong> 本报告包含未提交的 working-tree 状态；仅凭上述 commit 无法完整复现本次分析。
+        </div>
+
+        <div class="flex flex-wrap gap-x-5 gap-y-2 text-xs text-slate-600">
+          <span class="inline-flex items-center gap-2"><i class="h-4 w-6 rounded border-2 border-slate-500 bg-white"></i>module</span>
+          <span class="inline-flex items-center gap-2"><i class="h-0 w-7 border-t-2 border-dashed border-slate-500"></i>seam</span>
+          <span class="inline-flex items-center gap-2"><b class="text-lg leading-none text-red-600">→</b>leakage</span>
+          <span class="inline-flex items-center gap-2"><i class="deep h-4 w-6 rounded border-2 border-slate-950"></i>deep module</span>
+        </div>
+      </header>
+
+      <section id="candidates" class="space-y-12">
+        <article id="im-persistence" class="module-shadow overflow-hidden rounded-2xl border border-slate-300 bg-white">
+          <div class="border-b border-slate-200 p-6 md:p-8">
+            <div class="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p class="text-xs uppercase tracking-[0.2em] text-slate-500">Candidate 01</p>
+                <h2 class="mt-2 text-2xl font-serif">深化 IM 持久化 module，封住 SQLite leakage</h2>
+              </div>
+              <div class="flex gap-2">
+                <span class="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800">Strong</span>
+                <span class="rounded-full bg-sky-100 px-3 py-1 text-xs font-semibold text-sky-800">local-substitutable</span>
+              </div>
+            </div>
+            <p class="mt-5 font-mono text-xs leading-6 text-slate-600">src/IM/infra/repositories.py · src/IM/ws/gateway_handler.py · src/IM/ws/user_stream.py · src/IM/application/web_im_service.py · src/IM/application/event_service.py</p>
+          </div>
+
+          <div class="grid gap-6 p-6 md:grid-cols-2 md:p-8 paper-grid">
+            <figure class="rounded-xl border border-red-200 bg-white p-4">
+              <figcaption class="mb-3 text-xs font-bold uppercase tracking-wider text-red-700">Before · seam leaks</figcaption>
+              <pre class="mermaid">
+flowchart TB
+  W["GatewayHandler"] -->|"repository methods"| R["Repositories"]
+  A["Application modules"] -->|"repository methods"| R
+  W -. "._connection + SQL + commit" .-> DB[("SQLite")]
+  A -. "._connection + SQL" .-> DB
+  R --> DB
+  T["Tests"] -. "private connection" .-> DB
+  classDef leak stroke:#dc2626,stroke-width:3px,color:#991b1b;
+  class W,A,T leak;
+              </pre>
+            </figure>
+            <figure class="rounded-xl border border-emerald-200 bg-white p-4">
+              <figcaption class="mb-3 text-xs font-bold uppercase tracking-wider text-emerald-700">After · one persistence owner</figcaption>
+              <pre class="mermaid">
+flowchart TB
+  W["WebSocket intent"] --> P["Deep IM persistence module"]
+  A["Application intent"] --> P
+  T["Behaviour tests"] --> P
+  subgraph P0["implementation"]
+    Q["queries + mapping + transaction"] --> DB[("SQLite")]
+  end
+  P --> P0
+  classDef deep fill:#172033,color:#fff,stroke:#0f172a,stroke-width:4px;
+  class P deep;
+              </pre>
+            </figure>
+          </div>
+
+          <div class="grid gap-6 border-t border-slate-200 p-6 md:grid-cols-3 md:p-8">
+            <div><h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Problem</h3><p class="mt-2 text-sm leading-6">Repository interface 不是实际 test surface；WS 与 application 调用方还要懂 schema、SQL 和 commit 顺序。</p></div>
+            <div><h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Solution</h3><p class="mt-2 text-sm leading-6">把 domain 查询、幂等写与事务范围收回 concrete persistence module；调用方只表达业务意图。</p></div>
+            <div><h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Wins</h3><ul class="mt-2 space-y-1 text-sm"><li>locality: SQL 集中</li><li>locality: 事务集中</li><li>interface 成为 test surface</li><li>SQLite adapter 保持 concrete</li></ul></div>
+          </div>
+          <div class="mx-6 mb-6 rounded-lg bg-slate-50 px-4 py-3 font-mono text-xs text-slate-600 md:mx-8 md:mb-8">Evidence: gateway_handler.py:101–109, 855–877, 1463–1513, 2055–2122 · user_stream.py:226–257 · web_im_service.py:72–105 · event_service.py:110–156</div>
+        </article>
+
+        <article id="turn-transaction" class="module-shadow overflow-hidden rounded-2xl border border-slate-300 bg-white">
+          <div class="border-b border-slate-200 p-6 md:p-8">
+            <div class="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p class="text-xs uppercase tracking-[0.2em] text-slate-500">Candidate 02</p>
+                <h2 class="mt-2 text-2xl font-serif">把 AgentRuntime 的整轮事务深化为内部 module</h2>
+              </div>
+              <div class="flex gap-2">
+                <span class="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800">Strong</span>
+                <span class="rounded-full bg-violet-100 px-3 py-1 text-xs font-semibold text-violet-800">in-process</span>
+              </div>
+            </div>
+            <p class="mt-5 font-mono text-xs leading-6 text-slate-600">src/agent/core/agent/runtime.py · src/agent/core/session/* · src/agent/core/agent/prompt* · tests/unit/test_agent_runtime.py · tests/unit/agent/runtime/*</p>
+          </div>
+
+          <div class="grid gap-6 p-6 md:grid-cols-2 md:p-8">
+            <figure class="rounded-xl border border-red-200 bg-stone-50 p-4">
+              <figcaption class="mb-4 text-xs font-bold uppercase tracking-wider text-red-700">Before · one method owns six lifecycles</figcaption>
+              <div class="space-y-2">
+                <div class="h-10 rounded border-l-4 border-red-500 bg-white px-3 py-2 text-sm">transcript repair + load</div>
+                <div class="h-10 rounded border-l-4 border-red-500 bg-white px-3 py-2 text-sm">skill / tool resolution</div>
+                <div class="h-10 rounded border-l-4 border-red-500 bg-white px-3 py-2 text-sm">hook context + prompt snapshot</div>
+                <div class="h-10 rounded border-l-4 border-red-500 bg-white px-3 py-2 text-sm">message persistence</div>
+                <div class="h-10 rounded border-l-4 border-red-500 bg-white px-3 py-2 text-sm">loop + overflow retry</div>
+                <div class="h-10 rounded border-l-4 border-red-500 bg-white px-3 py-2 text-sm">orphan recovery + finalization</div>
+              </div>
+              <p class="mt-4 text-center text-xs text-red-700">tests patch private methods and construct partial objects</p>
+            </figure>
+            <figure class="rounded-xl border border-emerald-200 bg-stone-50 p-4">
+              <figcaption class="mb-4 text-xs font-bold uppercase tracking-wider text-emerald-700">After · transaction semantics gain locality</figcaption>
+              <div class="deep flex min-h-[292px] flex-col justify-between rounded-xl border-4 border-slate-950 p-5 text-white">
+                <div class="rounded bg-white/10 px-3 py-2 text-xs uppercase tracking-wider">small internal interface</div>
+                <div class="grid grid-cols-2 gap-2 text-center text-xs text-slate-200">
+                  <span class="rounded border border-white/20 p-3">load</span><span class="rounded border border-white/20 p-3">prepare</span>
+                  <span class="rounded border border-white/20 p-3">execute</span><span class="rounded border border-white/20 p-3">recover</span>
+                  <span class="col-span-2 rounded border border-white/20 p-3">commit observable outcome</span>
+                </div>
+                <div class="text-center text-sm font-semibold">Deep per-turn transaction module</div>
+              </div>
+            </figure>
+          </div>
+
+          <div class="grid gap-6 border-t border-slate-200 p-6 md:grid-cols-3 md:p-8">
+            <div><h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Problem</h3><p class="mt-2 text-sm leading-6">`_run_locked` 同时拥有 load、hooks、prompt、persistence、retry 与 recovery；测试只能穿透 private state。</p></div>
+            <div><h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Solution</h3><p class="mt-2 text-sm leading-6">不改 `agent.sdk` seam；在 core 内按共同生命周期收口一轮执行的事务语义，不做函数搬家。</p></div>
+            <div><h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Wins</h3><ul class="mt-2 space-y-1 text-sm"><li>locality: turn 原子语义</li><li>interface 替代 monkeypatch</li><li>retry / recovery 同测</li><li>SDK seam 保持不变</li></ul></div>
+          </div>
+          <div class="mx-6 mb-6 rounded-lg bg-slate-50 px-4 py-3 font-mono text-xs text-slate-600 md:mx-8 md:mb-8">Evidence: runtime.py:146–170, 322–975, 1680+, 2141–2245+ · tests patch `_execute_loop`, `_memory_snapshots`, and use `AgentRuntime.__new__`</div>
+        </article>
+
+        <article id="rpc-correlation" class="module-shadow overflow-hidden rounded-2xl border border-slate-300 bg-white">
+          <div class="border-b border-slate-200 p-6 md:p-8">
+            <div class="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p class="text-xs uppercase tracking-[0.2em] text-slate-500">Candidate 03</p>
+                <h2 class="mt-2 text-2xl font-serif">深化 IM↔Gateway WS RPC correlation module</h2>
+              </div>
+              <div class="flex gap-2">
+                <span class="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800">Strong</span>
+                <span class="rounded-full bg-indigo-100 px-3 py-1 text-xs font-semibold text-indigo-800">ports &amp; adapters</span>
+              </div>
+            </div>
+            <p class="mt-5 font-mono text-xs leading-6 text-slate-600">src/IM/ws/gateway_handler.py · src/IM/ws/gateway_protocol.py · src/IM/api/routes/agents.py · src/IM/api/routes/nodes.py · src/IM/api/routes/web_im.py</p>
+          </div>
+
+          <div class="grid gap-6 p-6 md:grid-cols-2 md:p-8 paper-grid">
+            <figure class="rounded-xl border border-red-200 bg-white p-4">
+              <figcaption class="mb-3 text-xs font-bold uppercase tracking-wider text-red-700">Before · lifecycle copied per RPC</figcaption>
+              <pre class="mermaid">
+sequenceDiagram
+  participant A as API route
+  participant H as GatewayHandler
+  participant W as waiter dict × 11
+  participant G as Gateway
+  A->>H: request_node_*()
+  H->>W: create + store Future
+  H->>G: push frame
+  H->>W: wait_for(timeout)
+  G-->>H: matching result frame
+  H->>W: lookup + set_result
+  H->>W: finally pop
+              </pre>
+            </figure>
+            <figure class="rounded-xl border border-emerald-200 bg-white p-4">
+              <figcaption class="mb-3 text-xs font-bold uppercase tracking-wider text-emerald-700">After · one lifecycle owner</figcaption>
+              <pre class="mermaid">
+sequenceDiagram
+  participant A as Domain RPC
+  participant C as Deep correlation module
+  participant G as Gateway adapter
+  A->>C: correlated request
+  C->>G: frame
+  G-->>C: response frame
+  C-->>A: typed outcome
+  Note over C: timeout · disconnect · late response · cleanup
+              </pre>
+            </figure>
+          </div>
+
+          <div class="grid gap-6 border-t border-slate-200 p-6 md:grid-cols-3 md:p-8">
+            <div><h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Problem</h3><p class="mt-2 text-sm leading-6">11 组 waiter dict 与成对 request/result handler 复制 timeout、cleanup 和 late-response 规则。</p></div>
+            <div><h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Solution</h3><p class="mt-2 text-sm leading-6">在 IM package 内收口 correlation lifecycle；各 domain RPC 仍拥有自己的 validation 与语义。</p></div>
+            <div><h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Wins</h3><ul class="mt-2 space-y-1 text-sm"><li>leverage: 一处服务 N 个 RPC</li><li>locality: timeout / cleanup</li><li>tests 不写 waiter dict</li><li>新增 RPC 不复制状态机</li></ul></div>
+          </div>
+          <div class="mx-6 mb-6 rounded-lg bg-slate-50 px-4 py-3 font-mono text-xs text-slate-600 md:mx-8 md:mb-8">Evidence: gateway_handler.py:133–164, 330–793, 1555–1783 · test_gateway_handler.py directly writes six private waiter paths</div>
+        </article>
+
+        <article id="web-chat-seam" class="module-shadow overflow-hidden rounded-2xl border border-slate-300 bg-white">
+          <div class="border-b border-slate-200 p-6 md:p-8">
+            <div class="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p class="text-xs uppercase tracking-[0.2em] text-slate-500">Candidate 04</p>
+                <h2 class="mt-2 text-2xl font-serif">完成 Web IM v2 chat seam 的迁移收口</h2>
+              </div>
+              <div class="flex gap-2">
+                <span class="rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-900">Worth exploring</span>
+                <span class="rounded-full bg-sky-100 px-3 py-1 text-xs font-semibold text-sky-800">local-substitutable</span>
+              </div>
+            </div>
+            <p class="mt-5 font-mono text-xs leading-6 text-slate-600">src/IM/frontend/src/features/chat/im-chat-api.ts · chat-api.ts · v2/chat-api.ts · v2/chat-workspace-page.tsx · settings/nodes/* · settings/agents/*</p>
+          </div>
+
+          <div class="grid gap-6 p-6 md:grid-cols-2 md:p-8">
+            <figure class="rounded-xl border border-red-200 bg-stone-50 p-4">
+              <figcaption class="mb-4 text-xs font-bold uppercase tracking-wider text-red-700">Before · migration seam crosses backward</figcaption>
+              <div class="relative min-h-[300px] space-y-4">
+                <div class="rounded-lg border-2 border-slate-400 bg-white p-3 text-center text-sm font-semibold">v2 chat workspace</div>
+                <div class="flex items-center justify-center gap-3 text-sm"><span>REST → v2 client</span><span class="leak-arrow">↘</span><span>stream → legacy</span></div>
+                <div class="grid grid-cols-2 gap-3">
+                  <div class="rounded-lg border-2 border-emerald-400 bg-emerald-50 p-4 text-center text-sm">v2/chat-api</div>
+                  <div class="rounded-lg border-2 border-red-400 bg-red-50 p-4 text-center text-sm">im-chat-api<br><span class="text-xs">2107 lines</span></div>
+                </div>
+                <div class="grid grid-cols-3 gap-2 text-center text-xs">
+                  <span class="rounded border bg-white p-3">global toast</span><span class="rounded border bg-white p-3">node settings</span><span class="rounded border bg-white p-3">agent status</span>
+                </div>
+                <p class="text-center text-xs text-red-700">transport · cache · WS cursor · presentation coexist</p>
+              </div>
+            </figure>
+            <figure class="rounded-xl border border-emerald-200 bg-stone-50 p-4">
+              <figcaption class="mb-4 text-xs font-bold uppercase tracking-wider text-emerald-700">After · shared runtime, thin adapters</figcaption>
+              <div class="space-y-4">
+                <div class="grid grid-cols-3 gap-2 text-center text-xs">
+                  <span class="rounded border bg-white p-3">v2 chat</span><span class="rounded border bg-white p-3">settings</span><span class="rounded border bg-white p-3">toast</span>
+                </div>
+                <div class="flex justify-center text-2xl text-emerald-700">↓</div>
+                <div class="deep min-h-[160px] rounded-xl border-4 border-slate-950 p-5 text-white">
+                  <div class="rounded bg-white/10 px-3 py-2 text-xs uppercase tracking-wider">small shared interface</div>
+                  <div class="mt-5 grid grid-cols-2 gap-3 text-center text-xs text-slate-200"><span class="rounded border border-white/20 p-3">authenticated transport</span><span class="rounded border border-white/20 p-3">user-stream lifecycle</span><span class="col-span-2 rounded border border-white/20 p-3">cursor · reconnect · resync</span></div>
+                </div>
+                <p class="text-center text-xs text-emerald-800">legacy retains only remaining presentation mapping</p>
+              </div>
+            </figure>
+          </div>
+
+          <div class="grid gap-6 border-t border-slate-200 p-6 md:grid-cols-3 md:p-8">
+            <div><h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Problem</h3><p class="mt-2 text-sm leading-6">v2 已有 narrow client，却仍从 legacy module 获取共享 user-stream；多个页面继续依赖 legacy mutable lifecycle。</p></div>
+            <div><h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Solution</h3><p class="mt-2 text-sm leading-6">让 authenticated transport 与 user-stream 成为共享 deep module；legacy 只保留尚未迁移的 presentation adapter。</p></div>
+            <div><h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Wins</h3><ul class="mt-2 space-y-1 text-sm"><li>locality: reconnect / cursor</li><li>leverage: 多页面一处复用</li><li>v2 不再反向依赖 legacy</li><li>stream interface 独立测试</li></ul></div>
+          </div>
+          <div class="mx-6 mb-6 rounded-lg bg-slate-50 px-4 py-3 font-mono text-xs text-slate-600 md:mx-8 md:mb-8">Evidence: im-chat-api.ts:599–665, 983–1044, 1386–1433, 1760–2029 · v2/chat-workspace-page.tsx imports legacy `attachUserConversationStream`</div>
+        </article>
+      </section>
+
+      <section id="top-recommendation" class="rounded-2xl border-4 border-slate-950 bg-slate-900 p-7 text-white md:p-10">
+        <p class="text-xs uppercase tracking-[0.22em] text-emerald-300">Top recommendation</p>
+        <h2 class="mt-3 text-3xl font-serif"><a class="underline decoration-emerald-400 underline-offset-8" href="#im-persistence">深化 IM 持久化 module</a></h2>
+        <p class="mt-5 max-w-3xl text-slate-200">它已经有跨 WS、application、infra 的 schema 与事务 leakage；把这些行为收回 concrete persistence module，可同时恢复 locality、形成真实 test surface，并兑现现有 repository 决策。</p>
+      </section>
+    </main>
+  </body>
+</html>

@@ -42,6 +42,12 @@ CURRENT_DOC_ROOTS = (
     Path("docs/specs"),
 )
 
+RESEARCH_COLLECTION_ROOTS = (
+    Path("docs/research/architecture-reviews"),
+    Path("docs/research/brainstorms"),
+    Path("docs/research/comparisons"),
+)
+
 RETIRED_LINK_PREFIXES = (
     Path("COMMENTING_GUIDE.md"),
     Path("ROADMAP.md"),
@@ -278,7 +284,14 @@ def required_reachable_files(tracked: set[Path]) -> set[Path]:
         if any(_is_under(path, root) for root in CURRENT_DOC_ROOTS):
             required.add(path)
         elif _is_under(path, Path("docs/research")):
-            required.add(path)
+            covered_by_collection = any(
+                path != collection_root / "README.md"
+                and _is_under(path, collection_root)
+                and collection_root / "README.md" in tracked
+                for collection_root in RESEARCH_COLLECTION_ROOTS
+            )
+            if not covered_by_collection:
+                required.add(path)
         elif _is_under(path, Path("docs/archive")) and path.name == "README.md":
             required.add(path)
     return required

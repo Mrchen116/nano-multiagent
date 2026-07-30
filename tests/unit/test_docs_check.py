@@ -58,6 +58,51 @@ def test_reachability_follows_explicit_index_chain(tmp_path: Path) -> None:
     assert orphan not in reachable
 
 
+def test_research_collection_index_routes_all_collection_members(
+    tmp_path: Path,
+) -> None:
+    collection_index = _write(
+        tmp_path,
+        "docs/research/architecture-reviews/README.md",
+        "# Architecture reviews\n",
+    )
+    nested_index = _write(
+        tmp_path,
+        "docs/research/architecture-reviews/2026-07-30/README.md",
+        "# Snapshot\n",
+    )
+    snapshot = _write(
+        tmp_path,
+        "docs/research/architecture-reviews/2026-07-30/review.html",
+        "<html></html>\n",
+    )
+    research_note = _write(
+        tmp_path,
+        "docs/research/architecture-reviews/2026-07-30/analysis.md",
+        "# Analysis\n",
+    )
+    standalone_research = _write(
+        tmp_path,
+        "docs/research/standalone.md",
+        "# Standalone research\n",
+    )
+    tracked = {
+        collection_index,
+        nested_index,
+        snapshot,
+        research_note,
+        standalone_research,
+    }
+
+    required = docs_check.required_reachable_files(tracked)
+
+    assert collection_index in required
+    assert standalone_research in required
+    assert nested_index not in required
+    assert research_note not in required
+    assert snapshot not in required
+
+
 def test_change_unit_check_requires_unique_id(tmp_path: Path) -> None:
     active = _write(
         tmp_path,

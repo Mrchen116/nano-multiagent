@@ -23,7 +23,7 @@
 - 哪些结论已经进入 current code/spec/workflow，哪些仍待裁决；
 - 对应 current owner 或 active issue/change。
 
-研究正文记录当时的观察。后续代码前进时更新页首状态和索引，不把历史正文改写成今天的结论。
+研究正文记录当时的观察。后续代码前进时只更新页首状态和 current owner，不把历史正文改写成今天的结论。
 
 ## 消费规则
 
@@ -31,4 +31,4 @@
 2. 把研究结论当作调查线索，回到当前代码、[`../../SPEC.md`](../../SPEC.md)、
    [`../specs/`](../specs/README.md) 或 [`../development/`](../development/README.md) 核实。
 3. 仍值得实施的缺口进入 issue/change；已经验证的稳定结论归并到唯一 current owner。
-4. 本机生成但未纳入索引的报告仍是 local snapshot，不因文件位于 `docs/` 就获得仓库权威。
+4. 本机生成但没有提交的报告仍是 local snapshot，不因文件位于 `docs/` 就获得仓库权威。

@@ -72,15 +72,11 @@
 
 ### D-010：本地主工作树的架构审查快照是否进入仓库历史
 
-- 现状：主工作树有 5 份未跟踪 HTML 和 1 份组合 Markdown；HTML 都明确标记为 dirty snapshot，不能只靠
-  commit 复现。
-- 现状：`395a54b5` 与 `d33025cf` 两份报告被 completed change 引用；其余报告没有 live 引用。
-- 现状：2026-07-25 组合稿有较高综合价值，但引用了主工作树尚未纳入本迁移分支的 476–483 units。
-- 待决定：
-  1. 只选择性提交被历史 change 引用的两份报告；
-  2. 同时提交组合稿并先处理其 unit 引用；
-  3. 全部保留为 local evidence，不进入 Git。
-- 状态：Awaiting user review；本次只建立未来报告的 research 入口，没有复制任何既有未跟踪报告。
+- 用户裁决：5 份 HTML 架构审查快照全部进入 Git；它们的 dirty warning 必须保留。
+- 处理：快照迁入 `docs/research/architecture-reviews/`；completed change 中对旧目录的引用同步改到新路径。
+- 组织规则：目录入口只说明这类快照的用途和读取限制，不手工维护文件清单；文件名和报告正文承载时间、基线及 working-tree 状态。
+- 剩余问题：2026-07-25 组合 Markdown 是否进入 Git 仍待单独裁决。该组合稿和同日 HTML 都引用了本迁移分支尚未纳入的 476–483 units。
+- 状态：Partially resolved；HTML 已纳入，组合 Markdown 未复制。
 
 ### D-011：全量测试偶发回收未 await 的 Feishu SDK cache 协程
 

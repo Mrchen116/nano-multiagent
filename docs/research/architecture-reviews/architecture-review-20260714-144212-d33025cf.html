@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>架构评审报告 — nano-multiagent</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    :root { --accent: #0f766e; --accent-light: #ccfbf1; --warn: #b45309; }
+    body { font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif; }
+    .candidate { scroll-margin-top: 1.5rem; }
+    .badge-strong { background: #fee2e2; color: #991b1b; }
+    .badge-worth { background: #fef3c7; color: #92400e; }
+    .badge-spec { background: #e0e7ff; color: #3730a3; }
+    .badge-skip { background: #e2e8f0; color: #475569; }
+    .diagram-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: .5rem; }
+    .before { border-left: 4px solid #ef4444; }
+    .after { border-left: 4px solid #10b981; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800">
+  <div class="max-w-6xl mx-auto px-6 py-10">
+
+    <!-- Header -->
+    <header class="mb-10">
+      <div class="flex items-center justify-between">
+        <h1 class="text-3xl font-bold tracking-tight text-slate-900">架构评审报告</h1>
+        <span class="text-sm text-slate-500">deep-module 扫描</span>
+      </div>
+      <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+        <div class="bg-white border border-slate-200 rounded-lg p-4 shadow-sm">
+          <p><span class="font-semibold text-slate-600">仓库:</span> nano-multiagent</p>
+          <p><span class="font-semibold text-slate-600">生成时间:</span> 2026-07-14 14:42:12</p>
+          <p><span class="font-semibold text-slate-600">分支:</span> main</p>
+          <p class="break-all"><span class="font-semibold text-slate-600">Commit:</span> d33025cf0bea6b548b25bb0dabb396799c49de23</p>
+        </div>
+        <div class="bg-amber-50 border border-amber-200 rounded-lg p-4 shadow-sm">
+          <p class="font-semibold text-amber-900">⚠️ 工作区存在未提交变更</p>
+          <p class="text-amber-800 mt-1">本报告包含未提交工作区状态，仅依赖 commit SHA 无法完全复现当前快照。</p>
+        </div>
+      </div>
+    </header>
+
+    <!-- Summary -->
+    <section class="mb-12">
+      <h2 class="text-xl font-bold text-slate-900 mb-3">概述</h2>
+      <p class="text-slate-700 leading-relaxed">
+        本次评审对 nano-multiagent 应用 <code>/codebase-design</code> 词汇（module、interface、depth、seam、adapter、leverage、locality）进行深模块扫描。发现两类主要摩擦：一类是删除后复杂度直接消失的<strong>死 shim</strong>；另一类是表面入口很窄、但真实 interface 通过私有字段接线、共享状态和穿透式测试泄漏到调用方的大型 module。文件行数和 implementation 宽度本身不是问题；判据是调用方必须掌握多少隐含不变量，以及状态与生命周期是否有单一 owner。
+      </p>
+    </section>
+
+    <!-- Candidate 1 -->
+    <article class="candidate bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-8">
+      <div class="flex items-start justify-between gap-4">
+        <div>
+          <h2 class="text-lg font-bold text-slate-900">1. Platform Tool Registry 透传 shim</h2>
+          <p class="text-sm text-slate-500 mt-1">src/agent/platform/tools/registry.py（5 行）</p>
+        </div>
+        <span class="px-3 py-1 rounded-full text-xs font-semibold badge-strong">Strong</span>
+      </div>
+
+      <div class="mt-5 grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div>
+          <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Problem</h3>
+          <p class="mt-2 text-slate-700">
+            该文件只是 <code>agent.core.tools.registry.ToolRegistry</code> 的纯 re-export；生产代码没有调用方，只有旧测试仍依赖这条兼容路径。删除测试很明确：删掉它不会让复杂度转移，而是直接消失。
+          </p>
+        </div>
+        <div>
+          <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Solution</h3>
+          <p class="mt-2 text-slate-700">
+            删除这个 shim，并把测试导入迁到 canonical <code>agent.core.tools.registry</code>。工具加载与 SDK 装配若要收敛，应单独治理现有 <code>platform.tools.loader</code> 与 <code>sdk.kernel</code> 的策略重复，不把这个死路径改造成第二个 factory。
+          </p>
+        </div>
+      </div>
+
+      <div class="mt-5">
+        <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Benefits</h3>
+        <ul class="mt-2 list-disc list-inside text-slate-700 space-y-1">
+          <li><strong>Leverage:</strong> 调用方只需学一个概念，而不是两个完全相同的东西。</li>
+          <li><strong>Locality:</strong> ToolRegistry 的 identity 与测试锚点只留在 canonical module。</li>
+        </ul>
+      </div>
+
+      <div class="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="diagram-box p-4 before">
+          <h4 class="text-xs font-bold uppercase text-red-700 mb-3">Before — 浅层透传</h4>
+          <pre class="mermaid text-xs">
+flowchart LR
+    A[caller] -->|uses| B[platform.tools.registry]
+    B -->|re-exports| C[core.tools.registry]
+    style B fill:#fee2e2
+          </pre>
+        </div>
+        <div class="diagram-box p-4 after">
+          <h4 class="text-xs font-bold uppercase text-emerald-700 mb-3">After — 删除假 seam</h4>
+          <pre class="mermaid text-xs">
+flowchart LR
+    A[caller] -->|uses| C[core.tools.registry]
+    style C fill:#ccfbf1
+          </pre>
+        </div>
+      </div>
+    </article>
+
+    <!-- Candidate 2 -->
+    <article class="candidate bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-8">
+      <div class="flex items-start justify-between gap-4">
+        <div>
+          <h2 class="text-lg font-bold text-slate-900">2. SDK Kernel facade 混合装配、API 与 DTO 映射</h2>
+          <p class="text-sm text-slate-500 mt-1">src/agent/sdk/kernel.py（1,870 行）</p>
+        </div>
+        <span class="px-3 py-1 rounded-full text-xs font-semibold badge-worth">Worth exploring</span>
+      </div>
+
+      <div class="mt-5 grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div>
+          <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Problem</h3>
+          <p class="mt-2 text-slate-700">
+            <code>build_kernel()</code> 与 <code>Kernel</code> 位于同一文件。该文件同时承担模型注册表初始化、LLM client 工厂装配、hook registry 装配、tool registry 装配、workspace 工具扫描、self-evolution 配置读取、权限 broker 绑定以及 DTO 翻译。<code>Kernel</code> 暴露了 20 多个公共方法，interface 过宽。
+          </p>
+        </div>
+        <div>
+          <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Solution</h3>
+          <p class="mt-2 text-slate-700">
+            拆分为三个 deep module：<code>KernelAssembler</code>（窄 interface <code>assemble(config) -&gt; components</code>）、<code>Kernel</code>（仅暴露 session/run/stream/permission 语义），以及一个边界映射模块，统一拥有 SDK-to-internal 的 DTO 转换。
+          </p>
+        </div>
+      </div>
+
+      <div class="mt-5">
+        <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Benefits</h3>
+        <ul class="mt-2 list-disc list-inside text-slate-700 space-y-1">
+          <li><strong>Locality:</strong> 装配 bug 留在 assembler，而不是公共 API 文件里。</li>
+          <li><strong>Leverage:</strong> 测试公共 Kernel 只需了解语义层面，无需掌握 wiring graph。</li>
+        </ul>
+      </div>
+
+      <div class="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="diagram-box p-4 before">
+          <h4 class="text-xs font-bold uppercase text-red-700 mb-3">Before — 一个文件三种角色</h4>
+          <pre class="mermaid text-xs">
+flowchart TB
+    subgraph kernel.py
+      A[build_kernel 装配逻辑]
+      B[Kernel 20+ 公共方法]
+      C[DTO mappers]
+    end
+    P[personal_assistant] --> B
+    C[cli] --> B
+    style A fill:#fee2e2
+    style B fill:#fee2e2
+    style C fill:#fee2e2
+          </pre>
+        </div>
+        <div class="diagram-box p-4 after">
+          <h4 class="text-xs font-bold uppercase text-emerald-700 mb-3">After — 窄 seams</h4>
+          <pre class="mermaid text-xs">
+flowchart TB
+    A[KernelAssembler] -->|assembles| B[Kernel]
+    C[SDK DTO Mapper] -->|maps| B
+    P[products] -->|use small interface| B
+    style B fill:#ccfbf1
+          </pre>
+        </div>
+      </div>
+    </article>
+
+    <!-- Candidate 3 -->
+    <article class="candidate bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-8">
+      <div class="flex items-start justify-between gap-4">
+        <div>
+          <h2 class="text-lg font-bold text-slate-900">3. 权限请求闭包缺乏 locality</h2>
+          <p class="text-sm text-slate-500 mt-1">src/agent/core/agent/runtime.py（2,177 行）</p>
+        </div>
+        <span class="px-3 py-1 rounded-full text-xs font-semibold badge-worth">Worth exploring</span>
+      </div>
+
+      <div class="mt-5 grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div>
+          <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Problem</h3>
+          <p class="mt-2 text-slate-700">
+            <code>AgentEngine._build_hook_context()</code> 在运行时现场构造了一个巨大的 async 闭包 <code>_permission_requester</code>，其中混合了 PermissionBroker future 注册、事件发送、<code>can_use_tool</code> callback 与 broker future 的 race、权限等待期间的 liveness ticker、响应对象 duck-typing 构造以及取消/超时/异常回退。真正的 bug 不在某条纯函数里，而在「怎么被构造、怎么被调用、怎么与 run lifecycle 交互」。
+          </p>
+        </div>
+        <div>
+          <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Solution</h3>
+          <p class="mt-2 text-slate-700">
+            把权限请求流程抽象成一个注入式的 <code>PermissionRequester</code> adapter，窄 interface 大致为 <code>request(req) -&gt; response</code>。<code>AgentEngine</code> 只负责把它注入 <code>HookContext</code>；具体的 broker/publisher/ticker/race 逻辑封装在 platform 层的 deep module 里。
+          </p>
+        </div>
+      </div>
+
+      <div class="mt-5">
+        <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Benefits</h3>
+        <ul class="mt-2 list-disc list-inside text-slate-700 space-y-1">
+          <li><strong>Locality:</strong> 权限 race 逻辑集中在一个 adapter，不再散落在 engine runtime 各处。</li>
+          <li><strong>Testability:</strong> engine 单元测试注入 fake requester；requester 测试独立演练真实 race 条件。</li>
+        </ul>
+      </div>
+
+      <div class="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="diagram-box p-4 before">
+          <h4 class="text-xs font-bold uppercase text-red-700 mb-3">Before — 闭包现场拼装</h4>
+          <pre class="mermaid text-xs">
+flowchart LR
+    E[AgentEngine._run_locked] -->|builds| P["_permission_requester closure\nbroker + publisher + ticker + race"]
+    P -->|used by| H[HookContext]
+    style P fill:#fee2e2
+          </pre>
+        </div>
+        <div class="diagram-box p-4 after">
+          <h4 class="text-xs font-bold uppercase text-emerald-700 mb-3">After — 注入式 adapter</h4>
+          <pre class="mermaid text-xs">
+flowchart LR
+    E[AgentEngine] -->|injects| R[PermissionRequester]
+    R -->|narrow interface| H[HookContext]
+    RP[platform layer] -->|implements| R
+    style R fill:#ccfbf1
+          </pre>
+        </div>
+      </div>
+    </article>
+
+    <!-- Candidate 4 -->
+    <article class="candidate bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-8">
+      <div class="flex items-start justify-between gap-4">
+        <div>
+          <h2 class="text-lg font-bold text-slate-900">4. InboundPipeline 的真实 interface 与状态所有权泄漏</h2>
+          <p class="text-sm text-slate-500 mt-1">src/personal_assistant/gateway/inbound_pipeline.py · src/personal_assistant/main.py · gateway/runtime_delivery/</p>
+        </div>
+        <span class="px-3 py-1 rounded-full text-xs font-semibold badge-worth">Worth exploring</span>
+      </div>
+
+      <div class="mt-5 grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div>
+          <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Problem</h3>
+          <p class="mt-2 text-slate-700">
+            窄 <code>handle_inbound()</code> 隐藏宽 implementation 本身是 depth；真正的摩擦是其真实 interface 被藏在 18 个构造参数、<code>main.py</code> 对 6 个私有字段的事后接线、其他运行时对 <code>_agents</code>/<code>_session_store</code> 的直接读取，以及大量测试对私有状态的穿透中。active run、steer、<code>/stop</code>、terminal reconcile、附件预处理和 background subscriber 还拥有不同的状态生命周期。
+          </p>
+        </div>
+        <div>
+          <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Solution</h3>
+          <p class="mt-2 text-slate-700">
+            保留 <code>InboundPipeline</code> 作为稳定 facade，按状态 owner 深化为 <code>LiveAgentCatalog</code>/<code>SessionBinder</code>、<code>SessionRunCoordinator</code>、<code>ImageAttachmentResolver</code> 与 <code>BackgroundSubscriptionManager</code>。<code>/stop</code> 必须与 steer、active-run marker、stream terminal 和 reconcile 一起归 <code>SessionRunCoordinator</code>；relay lifecycle 继续复用现有 <code>runtime_delivery.lifecycle</code> seam，不重复提取 emitter。
+          </p>
+        </div>
+      </div>
+
+      <div class="mt-5">
+        <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Benefits</h3>
+        <ul class="mt-2 list-disc list-inside text-slate-700 space-y-1">
+          <li><strong>Locality:</strong> stop、steer 与 terminal 不变量集中在一个 run module。</li>
+          <li><strong>Leverage:</strong> composition root、运行时与测试只跨显式 interface。</li>
+          <li><strong>Testability:</strong> 测试不再修改 pipeline 私有状态。</li>
+        </ul>
+      </div>
+
+      <div class="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="diagram-box p-4 before">
+          <h4 class="text-xs font-bold uppercase text-red-700 mb-3">Before — 隐式 interface 泄漏</h4>
+          <pre class="mermaid text-xs">
+flowchart TB
+    C[channel] --> P[InboundPipeline]
+    M[main.py] -.mutates 6 private fields.-> P
+    T[32 test files] -.private methods and state.-> P
+    O[schedulers and fork wiring] -.read private stores.-> P
+    P --> R[route and session binding]
+    P --> L[queue steer stop reconcile]
+    P --> I[image preprocessing]
+    P --> B[subscriber lifecycle]
+    style P fill:#fee2e2
+    style M fill:#fff7ed
+    style T fill:#fff7ed
+    style O fill:#fff7ed
+          </pre>
+        </div>
+        <div class="diagram-box p-4 after">
+          <h4 class="text-xs font-bold uppercase text-emerald-700 mb-3">After — 按状态 owner 深化</h4>
+          <pre class="mermaid text-xs">
+flowchart TB
+    C[channel] --> P[InboundPipeline]
+    CR[composition root] --> P
+    P --> A[LiveAgentCatalog]
+    P --> S[SessionBinder]
+    P --> R[SessionRunCoordinator]
+    R --> I[ImageAttachmentResolver]
+    R --> B[BackgroundSubscriptionManager]
+    P --> L[existing relay lifecycle seam]
+    style P fill:#ccfbf1
+    style A fill:#ccfbf1
+    style S fill:#ccfbf1
+    style R fill:#ccfbf1
+    style I fill:#ccfbf1
+    style B fill:#ccfbf1
+          </pre>
+        </div>
+      </div>
+    </article>
+
+    <!-- Candidate 5 -->
+    <article class="candidate bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-8">
+      <div class="flex items-start justify-between gap-4">
+        <div>
+          <h2 class="text-lg font-bold text-slate-900">5. Kernel event observer 是巨型事件翻译闭包</h2>
+          <p class="text-sm text-slate-500 mt-1">src/personal_assistant/gateway/runtime_delivery/observer.py（1,191 行）</p>
+        </div>
+        <span class="px-3 py-1 rounded-full text-xs font-semibold badge-worth">Worth exploring</span>
+      </div>
+
+      <div class="mt-5 grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div>
+          <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Problem</h3>
+          <p class="mt-2 text-slate-700">
+            <code>build_kernel_event_observer()</code> 返回的闭包是一条超长的 <code>if/elif</code> 链，覆盖 run_status、assistant_message、turn_end、tool_start/tool_end、permission_request/permission_resolved、injection_consumed、run_terminal_reconcile、run_heartbeat、thinking_segment 等。路由逻辑与每种 event 的具体翻译压在一个函数里，新增 event 还得改同一个 1,191 行的文件。
+          </p>
+        </div>
+        <div>
+          <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Solution</h3>
+          <p class="mt-2 text-slate-700">
+            把 observer 改成 event name → handler 的注册表/dispatcher。每个 handler 是一个独立 deep module，只暴露 <code>handle(event, run_context, manager)</code>。<code>build_kernel_event_observer</code> 变成 narrow seam：负责 context lookup、dispatcher 调用、公共错误 swallow。
+          </p>
+        </div>
+      </div>
+
+      <div class="mt-5">
+        <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Benefits</h3>
+        <ul class="mt-2 list-disc list-inside text-slate-700 space-y-1">
+          <li><strong>Leverage:</strong> 新增 event type 只需写新 handler，不必让中央闭包继续膨胀。</li>
+          <li><strong>Locality:</strong> heartbeat lazy bubble、reasoning deduplication、external reply mirroring 各自独立成模块。</li>
+        </ul>
+      </div>
+
+      <div class="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="diagram-box p-4 before">
+          <h4 class="text-xs font-bold uppercase text-red-700 mb-3">Before — 一个闭包分发所有事件</h4>
+          <pre class="mermaid text-xs">
+flowchart LR
+    K[kernel events] --> O["observer() giant if/elif"]
+    O -->|translates| IM[IM messages]
+    style O fill:#fee2e2
+          </pre>
+        </div>
+        <div class="diagram-box p-4 after">
+          <h4 class="text-xs font-bold uppercase text-emerald-700 mb-3">After — handler 注册表</h4>
+          <pre class="mermaid text-xs">
+flowchart LR
+    K[kernel events] --> D[EventDispatcher]
+    D --> H1[RunStatusHandler]
+    D --> H2[ToolEventHandler]
+    D --> H3[HeartbeatHandler]
+    D --> H4[PermissionHandler]
+    style D fill:#ccfbf1
+          </pre>
+        </div>
+      </div>
+    </article>
+
+    <!-- Candidate 6 -->
+    <article class="candidate bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-8">
+      <div class="flex items-start justify-between gap-4">
+        <div>
+          <h2 class="text-lg font-bold text-slate-900">6. IM GatewayHandler 是 WS/RPC/streaming god class</h2>
+          <p class="text-sm text-slate-500 mt-1">src/IM/ws/gateway_handler.py（2,306 行）</p>
+        </div>
+        <span class="px-3 py-1 rounded-full text-xs font-semibold badge-spec">Speculative</span>
+      </div>
+
+      <div class="mt-5 grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div>
+          <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Problem</h3>
+          <p class="mt-2 text-slate-700">
+            <code>GatewayHandler</code> 同时持有连接表、9 种 request/response waiter dict、node/agent 状态广播、streaming_delta 翻译、<code>agent.message</code> 持久化、delivery receipt 处理。<code>handle_message()</code> 是超长 <code>if/elif</code> 链，<code>_handle_streaming_delta()</code> 内部又是按 <code>kind</code> 的巨型 switch。<code>request_agent_config</code>、<code>request_agent_create</code>、<code>request_agent_capabilities</code>、<code>request_fork_session</code> 等方法大量重复「生成 request_id → 建 future → push_downstream → wait_for → cleanup」的样板。
+          </p>
+        </div>
+        <div>
+          <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Solution</h3>
+          <p class="mt-2 text-slate-700">
+            抽出 <code>GatewayConnectionManager</code>（只负责 WS 连接注册/断开）、<code>GatewayRPCHandler</code>（把 request/response waiter 模式封装成统一 RPC seam）、<code>StreamingDeltaTranslator</code>（与 observer.py 对应，按 kind 分发成 handler 注册表）。<code>GatewayHandler</code> 只保留协议顶层路由。
+          </p>
+        </div>
+      </div>
+
+      <div class="mt-5">
+        <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Benefits</h3>
+        <ul class="mt-2 list-disc list-inside text-slate-700 space-y-1">
+          <li><strong>Leverage:</strong> RPC 样板只写一次，所有 request type 复用。</li>
+          <li><strong>Locality:</strong> streaming 翻译改动只影响 translator，不影响 connection manager。</li>
+        </ul>
+      </div>
+
+      <div class="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="diagram-box p-4 before">
+          <h4 class="text-xs font-bold uppercase text-red-700 mb-3">Before — handler 持有协议栈</h4>
+          <pre class="mermaid text-xs">
+flowchart TB
+    G[Gateway WebSocket] --> H[GatewayHandler]
+    H --> C[connection table]
+    H --> W[9 waiter dicts]
+    H --> B[broadcast]
+    H --> S[streaming delta switch]
+    H --> P[message persistence]
+    style H fill:#fee2e2
+          </pre>
+        </div>
+        <div class="diagram-box p-4 after">
+          <h4 class="text-xs font-bold uppercase text-emerald-700 mb-3">After — 分层 seams</h4>
+          <pre class="mermaid text-xs">
+flowchart TB
+    G[Gateway WS] --> CM[ConnectionManager]
+    CM --> H[GatewayHandler]
+    H --> RPC[RPCHandler]
+    H --> ST[StreamingTranslator]
+    H --> S[StatusBroadcaster]
+    style CM fill:#ccfbf1
+    style RPC fill:#ccfbf1
+    style ST fill:#ccfbf1
+          </pre>
+        </div>
+      </div>
+    </article>
+
+    <!-- Candidate 7 -->
+    <article class="candidate bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-8">
+      <div class="flex items-start justify-between gap-4">
+        <div>
+          <h2 class="text-lg font-bold text-slate-900">7. IM repositories 是单体持久化层</h2>
+          <p class="text-sm text-slate-500 mt-1">src/IM/infra/repositories.py（3,959 行）</p>
+        </div>
+        <span class="px-3 py-1 rounded-full text-xs font-semibold badge-worth">Worth exploring</span>
+      </div>
+
+      <div class="mt-5 grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div>
+          <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Problem</h3>
+          <p class="mt-2 text-slate-700">
+            一个文件里塞了 <code>UserRepository</code>、<code>ConversationRepository</code>、<code>MessageRepository</code>、<code>EventRepository</code>，以及大量 SQL、row-to-model 映射和辅助查询。<code>find_or_create_external_conversation()</code>、<code>create_message()</code>、<code>update_runtime_state()</code> 等方法包含大量分支和特殊 case。新增查询要编辑一个近 4,000 行的文件，locality 差；测试也难以针对单一 repository 进行。
+          </p>
+        </div>
+        <div>
+          <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Solution</h3>
+          <p class="mt-2 text-slate-700">
+            按边界拆成 <code>users.py</code>、<code>conversations.py</code>、<code>messages.py</code>、<code>events.py</code> 等独立 deep module；或在 repository 与 SQL 之间引入 <code>Query</code> + <code>RowMapper</code> seam，把 SQL 文本和模型映射隐藏起来，让 repository 方法只表达业务意图。
+          </p>
+        </div>
+      </div>
+
+      <div class="mt-5">
+        <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Benefits</h3>
+        <ul class="mt-2 list-disc list-inside text-slate-700 space-y-1">
+          <li><strong>Locality:</strong> 消息持久化改动留在 message 模块。</li>
+          <li><strong>Testability:</strong> 每个 repository seam 都可通过专注的 in-memory adapter 测试。</li>
+        </ul>
+      </div>
+
+      <div class="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="diagram-box p-4 before">
+          <h4 class="text-xs font-bold uppercase text-red-700 mb-3">Before — 4 个 repos，1 个文件</h4>
+          <pre class="mermaid text-xs">
+flowchart TB
+    subgraph repositories.py
+      U[UserRepository]
+      C[ConversationRepository]
+      M[MessageRepository]
+      E[EventRepository]
+      SQL[SQL + mappers]
+    end
+    style repositories.py fill:#fee2e2
+          </pre>
+        </div>
+        <div class="diagram-box p-4 after">
+          <h4 class="text-xs font-bold uppercase text-emerald-700 mb-3">After — 按实体 seam 拆分</h4>
+          <pre class="mermaid text-xs">
+flowchart TB
+    S[IM services] --> U[UserRepo]
+    S --> C[ConversationRepo]
+    S --> M[MessageRepo]
+    S --> E[EventRepo]
+    U --> Q[Query + RowMapper]
+    style U fill:#ccfbf1
+    style C fill:#ccfbf1
+    style M fill:#ccfbf1
+    style E fill:#ccfbf1
+          </pre>
+        </div>
+      </div>
+    </article>
+
+    <!-- Candidate 8 -->
+    <article class="candidate bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-8 opacity-75">
+      <div class="flex items-start justify-between gap-4">
+        <div>
+          <div class="flex items-center gap-2">
+            <h2 class="text-lg font-bold text-slate-900">8. Gateway main.py 混合产品装配与进程生命周期</h2>
+            <span class="px-2 py-0.5 rounded text-xs font-semibold bg-slate-200 text-slate-700">与 REFACTOR-461 重叠</span>
+          </div>
+          <p class="text-sm text-slate-500 mt-1">src/personal_assistant/main.py（4,376 行）</p>
+        </div>
+        <span class="px-3 py-1 rounded-full text-xs font-semibold badge-skip">Skip</span>
+      </div>
+
+      <div class="mt-4 bg-amber-50 border border-amber-200 rounded-lg p-3">
+        <p class="text-sm text-amber-900">
+          <strong>本次评审忽略:</strong> 该候选与正在推进的单元 <code>refactor-461-dead-kernel-subprocess-seam</code> 直接重叠，后者已在重塑 Gateway composition root、service lifecycle 和配置所有权。请勿在此处并行启动重构。
+        </p>
+      </div>
+
+      <div class="mt-5 grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div>
+          <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Problem</h3>
+          <p class="mt-2 text-slate-700">
+            Gateway 入口同时承担参数解析、子进程启动/守护、kernel/SDK 装配、channel/scheduler/IM connection/heartbeat/cron 生命周期、内部 HTTP dispatch server、信号处理、capability 上报。虽然已经在使用 <code>ProcessLike</code>、<code>ProcessFactory</code>、<code>ReadyWaiter</code>、<code>AsyncConnect</code> 等可注入 seam，但它们都住在同一个文件里，composition graph 与进程生命周期仍然耦合。
+          </p>
+        </div>
+        <div>
+          <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Solution</h3>
+          <p class="mt-2 text-slate-700">
+            将 <code>build_runtime(config)</code> 提升为独立的产品 composition root，输出 <code>GatewayRuntime</code>。引入 <code>LaunchMode</code> adapter seam 处理 foreground、daemon、attach 模式。<code>main.py</code> 退化为只做 argparse 并调用 composition root 的薄入口。
+          </p>
+        </div>
+      </div>
+
+      <div class="mt-5">
+        <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Benefits</h3>
+        <ul class="mt-2 list-disc list-inside text-slate-700 space-y-1">
+          <li><strong>Leverage:</strong> 同一 runtime 可通过切换 launch adapter 在测试、前台、守护模式下启动。</li>
+          <li><strong>Locality:</strong> 进程启动 bug 与产品装配 bug 分离。</li>
+        </ul>
+      </div>
+
+      <div class="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="diagram-box p-4 before">
+          <h4 class="text-xs font-bold uppercase text-red-700 mb-3">Before — 入口包揽一切</h4>
+          <pre class="mermaid text-xs">
+flowchart TB
+    M[main.py] --> A[argparse]
+    M --> D[daemon/spawn]
+    M --> B[build_runtime]
+    M --> S[signal handling]
+    M --> C[capability reporting]
+    style M fill:#fee2e2
+          </pre>
+        </div>
+        <div class="diagram-box p-4 after">
+          <h4 class="text-xs font-bold uppercase text-emerald-700 mb-3">After — composition root + launch adapter</h4>
+          <pre class="mermaid text-xs">
+flowchart TB
+    M[main.py] --> CR[CompositionRoot]
+    CR --> R[GatewayRuntime]
+    M --> L[LaunchMode adapter]
+    L --> R
+    style CR fill:#ccfbf1
+    style L fill:#ccfbf1
+          </pre>
+        </div>
+      </div>
+    </article>
+
+    <!-- Top recommendation -->
+    <section class="bg-teal-50 border border-teal-200 rounded-xl p-6">
+      <h2 class="text-xl font-bold text-teal-900 mb-3">Top recommendation</h2>
+      <p class="text-teal-900 font-medium">先删除候选 1 的死 shim；再把候选 4 作为独立 refactor 进入 spec/design，而不是直接机械拆类。</p>
+      <p class="mt-3 text-teal-800 leading-relaxed">
+        候选 1 是确定、低风险的删除，不应借机新增 factory。候选 4 的 leverage 更高但并发与终态风险也更高：先消除私有字段接线和共享 store 泄漏，再按 active-run、session、附件与 subscriber 的状态所有权确定 deep modules；尤其不要把 <code>StopCommandHandler</code> 从 steer/reconcile 生命周期中单独切走。候选 8 因已纳入 <code>refactor-461</code>，此处故意跳过。
+      </p>
+    </section>
+
+    <footer class="mt-10 text-sm text-slate-400">
+      <p>Generated by /improve-codebase-architecture · nano-multiagent · 工作区存在未提交变更</p>
+    </footer>
+  </div>
+
+  <script>
+    mermaid.initialize({ startOnLoad: true, theme: 'default' });
+  </script>
+</body>
+</html>
