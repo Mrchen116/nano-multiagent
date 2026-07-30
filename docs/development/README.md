@@ -30,7 +30,7 @@
 | [`worktree-runtime.md`](worktree-runtime.md) | 临时服务的端口、config、数据、进程和清理契约 |
 | [`e2e-critical-paths.md`](e2e-critical-paths.md) | 用户旅程与长期 E2E 守护测试的对账 |
 | [`commenting.md`](commenting.md) | public API docstring、意图注释和 TODO/FIXME 规则 |
-| [`llm-integration.md`](llm-integration.md) | 本地 LLM 代理入口、协议、日志和最近验证记录 |
+| [`llm-integration.md`](llm-integration.md) | 本地 LLM 代理配置、协议、日志和验证方法 |
 
 ## 开发反馈顺序
 

@@ -1,6 +1,6 @@
 # LLM Integration
 
-本文记录 nano-multiagent 开发和真实链路验收使用的本地 LLM 代理入口、协议、交互日志和最近验证快照。Gateway 的 `llm:` 配置结构见 [`../operations/gateway.md`](../operations/gateway.md)。
+本文记录 nano-multiagent 开发和真实链路验收使用的本地 LLM 代理入口、当前配置、协议、交互日志和验证方法。Gateway 的 `llm:` 配置结构见 [`../operations/gateway.md`](../operations/gateway.md)。
 
 ## 调研与诊断入口
 
@@ -41,6 +41,35 @@ runtime evidence。原始内容可能含 prompt、工具参数和第三方数据
 - OpenAI Chat Completions：`POST /v1/chat/completions`
 - Anthropic Messages：`POST /v1/messages`
 
+## 当前配置与模型
+
+- LLM_PROXY 默认配置文件：`/Users/czj/Repos/LLM_PROXY/upstreams.json`
+- 配置结构说明：`/Users/czj/Repos/LLM_PROXY/README-zh.md` 的“上游配置”
+- 实际进程设置了 `UPSTREAM_CONFIG_PATH` 时，以该路径为准。
+
+`defaultProfile` 指定默认 profile，`profiles.<name>.defaults.model` 记录该 profile 的默认模型，`profiles.<name>.capabilities.ingress` 记录它支持的入口协议。请求中的模型 ID 使用 `profile:model`；`codex_oauth` profile 还支持可选的 `@effort` 后缀。
+
+用下面的命令只查看非敏感的模型路由字段：
+
+```bash
+llm_proxy_config="${UPSTREAM_CONFIG_PATH:-/Users/czj/Repos/LLM_PROXY/upstreams.json}"
+jq -r '
+  .defaultProfile as $default
+  | .profiles
+  | to_entries[]
+  | [
+      .key,
+      (.value.provider // ""),
+      (.value.defaults.model // ""),
+      ((.value.capabilities.ingress // []) | join(",")),
+      (if .key == $default then "default" else "" end)
+    ]
+  | @tsv
+' "$llm_proxy_config"
+```
+
+输出依次是 profile、provider、默认模型、支持的入口协议和是否为默认 profile。配置文件可能包含鉴权信息，不要把完整文件复制进本仓、change evidence 或聊天记录。
+
 ## 快速验证
 
 ### 1) 健康检查
@@ -49,7 +78,11 @@ runtime evidence。原始内容可能含 prompt、工具参数和第三方数据
 curl -sS -i http://127.0.0.1:4000/health
 ```
 
-下面两条模型请求使用最近一次留档的 model id。先通过健康检查，并按 LLM_PROXY 当前配置替换 model id，再把请求结果和对应 `<session_id>` 日志一起作为本次联调证据。
+先从当前配置中选择支持目标入口协议的 profile 和模型，再设置：
+
+```bash
+nano_smoke_model="<profile>:<model>"
+```
 
 ### 2) OpenAI Chat Completions
 
@@ -58,11 +91,8 @@ nano_smoke_session_id="nano-smoke-openai-$(date +%Y%m%d-%H%M%S)"
 curl -sS -i http://127.0.0.1:4000/v1/chat/completions \
   -H 'Content-Type: application/json' \
   -H "X-Session-Id: ${nano_smoke_session_id}" \
-  -d '{
-    "model":"codexOAuth:gpt-5.2-codex",
-    "messages":[{"role":"user","content":"reply with one word: pong"}],
-    "stream":false
-  }'
+  -d "$(jq -nc --arg model "$nano_smoke_model" \
+    '{model:$model,messages:[{role:"user",content:"reply with one word: pong"}],stream:false}')"
 ```
 
 ### 3) Anthropic Messages
@@ -72,20 +102,6 @@ nano_smoke_session_id="nano-smoke-anthropic-$(date +%Y%m%d-%H%M%S)"
 curl -sS -i http://127.0.0.1:4000/v1/messages \
   -H 'Content-Type: application/json' \
   -H "X-Session-Id: ${nano_smoke_session_id}" \
-  -d '{
-    "model":"codexOAuth:gpt-5.2-codex",
-    "max_tokens":64,
-    "messages":[{"role":"user","content":"reply with one word: pong"}]
-  }'
+  -d "$(jq -nc --arg model "$nano_smoke_model" \
+    '{model:$model,max_tokens:64,messages:[{role:"user",content:"reply with one word: pong"}]}')"
 ```
-
-## 最近验证快照
-
-2026-02-26 的留档结果：
-
-- 请求：`POST /v1/messages`
-- 模型：`codexOAuth:gpt-5.2-codex`
-- 返回：`HTTP/1.1 200 OK`
-- 结果：`content[0].text = "pong"`
-
-这是一条带日期的运行证据，不保证该 model id 在后续代理配置中持续可用。若 `codexOAuth:gpt-5.2-codex` 不可用，历史上使用过 `moonshot:kimi-k2.5`；实际联调仍以当前代理配置、健康检查、请求响应和 session 日志为准。
