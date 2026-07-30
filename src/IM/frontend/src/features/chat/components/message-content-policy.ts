@@ -314,6 +314,14 @@ function isBlockElement(node: Node): boolean {
     "BR", "HR"
   ]);
   if (blockish.has(node.tagName)) return true;
+  // 内联语义标签永远按内联序列化:产品 CSS(如外链 indicator 的
+  // display:inline-flex)不得把链接/代码/强调等内容元素变成块级断行。
+  const inline = new Set([
+    "A", "SPAN", "CODE", "STRONG", "EM", "DEL", "S", "B", "I", "SMALL",
+    "SUP", "SUB", "ABBR", "TIME", "MARK", "KBD", "SAMP", "VAR", "Q",
+    "CITE", "DFN", "IMG", "INPUT", "BUTTON", "LABEL", "WBR"
+  ]);
+  if (inline.has(node.tagName)) return false;
   const display = window.getComputedStyle?.(node).display;
   if (display && display !== "inline") return true;
   return false;
@@ -396,6 +404,24 @@ function collectText(
   }
 
   for (const child of Array.from(node.childNodes)) {
+    // 块级容器之间 HTML 源码的格式化空白不是内容,丢弃避免穿透成空行
+    // (React 渲染的 DOM 本无此类节点,防御 innerHTML/SSR 来源)。
+    if (
+      child.nodeType === Node.TEXT_NODE &&
+      !(child.textContent ?? "").trim() &&
+      (tag === "ul" || tag === "ol" || tag === "li" || tag === "table" ||
+        tag === "thead" || tag === "tbody" || tag === "tr" || tag === "blockquote")
+    ) {
+      continue;
+    }
+    // loose list 的 <li><p>…</p><ul>… 结构里,项内段落的块级双换行在拼
+    // 嵌套列表前压成单换行,保持"列表项连续"的复制语义。
+    if (tag === "li" && child instanceof HTMLElement) {
+      const childTag = child.tagName.toLowerCase();
+      if (childTag === "ul" || childTag === "ol") {
+        text = text.replace(/\s+$/g, "") + "\n";
+      }
+    }
     const childResult = collectText(child, { ...opts, withinCode: tag === "pre" });
     if (childResult.endsWithBlock && text.length > prefix.length && !text.endsWith("\n")) {
       text += "\n";

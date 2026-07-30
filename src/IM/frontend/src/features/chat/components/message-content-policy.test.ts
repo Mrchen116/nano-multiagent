@@ -389,6 +389,29 @@ describe("serializeMessageBody", () => {
     expect(serializeMessageBody(el)).toBe("4. Fourth\n5. Fifth\n6. Sixth");
   });
 
+  it("keeps loose list items consecutive (p-wrapped li)", () => {
+    const el = body(
+      "<ul><li><p>Alpha</p></li><li><p>Beta</p><ul><li><p>Nested</p></li></ul></li></ul>"
+    );
+    expect(serializeMessageBody(el)).toBe("- Alpha\n- Beta\n  - Nested");
+  });
+
+  it("ignores formatting whitespace text nodes between block children", () => {
+    const el = body(
+      "<ul>\n  <li>Alpha</li>\n  <li>Beta\n    <ul>\n      <li>Nested</li>\n    </ul>\n  </li>\n</ul>"
+    );
+    expect(serializeMessageBody(el)).toBe("- Alpha\n- Beta\n  - Nested");
+  });
+
+  it("serializes links as inline even when product CSS sets display:inline-flex", () => {
+    const el = body(
+      '<p>参考 <a href="https://example.com/docs" style="display:inline-flex">文档</a> 或访问 <a href="https://example.com" style="display:inline-flex">https://example.com</a> 以及 <a href="/chat">/chat</a></p>'
+    );
+    expect(serializeMessageBody(el)).toBe(
+      "参考 文档 (https://example.com/docs) 或访问 https://example.com 以及 /chat"
+    );
+  });
+
   it("preserves inline code without extra formatting", () => {
     const el = body("<p>use <code>const x = 1</code> please</p>");
     expect(serializeMessageBody(el)).toBe("use const x = 1 please");
