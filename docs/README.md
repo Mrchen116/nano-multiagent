@@ -20,7 +20,7 @@
 | 在 worktree 内运行真实服务或关键路径 E2E | [`development/worktree-runtime.md`](development/worktree-runtime.md) → [`development/e2e-critical-paths.md`](development/e2e-critical-paths.md) |
 | 查某个变更为什么这样设计 | 活动区或历史区的 [`changes/`](changes/README.md) unit |
 | 查 LLM 交互日志或本地参考项目 | [`../AGENTS.md`](../AGENTS.md#调研与联调入口) |
-| 查外部项目比较、脑暴或阶段性审查 | 对应研究材料；先核对日期、代码基线和当前权威，不能直接当作 current |
+| 查外部项目比较、脑暴或阶段性审查 | [`research/`](research/README.md)；先核对日期、代码基线和当前权威 |
 
 ## 当前权威分工
 
@@ -54,7 +54,7 @@
 | Active / Proposed | `docs/changes/<unit>/` | 描述正在讨论、设计或实施的目标状态；完成前不能覆盖 current |
 | Completed history | `docs/changes/archive/<unit>/` | 解释已完成变更的需求、设计、实施与验收过程 |
 | Retired | `docs/archive/` | 保存已被 current 文档取代的独立旧文档 |
-| Research snapshot | `docs/tools-diff-cc/`、`docs/kernel-diff-cc/`、`docs/brainstorms/` 等 | 提供特定时间和基线下的研究证据 |
+| Research snapshot | `docs/research/` | 提供特定时间和基线下的研究证据 |
 | Local / runtime | 本机配置、日志、PID、数据库、截图和临时运行目录 | 只服务当前机器或单次运行，不作为仓库长期规范 |
 
 ## 冲突怎么处理
@@ -72,8 +72,9 @@
 | [`archive/migration-plans/`](archive/migration-plans/README.md) | 已实施迁移的历史计划；current 用户流行为见 IM specs |
 | [`archive/audits/`](archive/audits/README.md) | 已结束的 drift 审计；可复现问题应重新进入 active work |
 | [`archive/implementation-narratives/`](archive/implementation-narratives/README.md) | 已退役实现叙事；current 行为从 kernel specs 读取 |
-| [`tools-diff-cc/`](tools-diff-cc/)、[`kernel-diff-cc/`](kernel-diff-cc/) | 外部实现比较快照 |
-| [`brainstorms/`](brainstorms/) | 脑暴与阶段性方案材料 |
+| [`research/comparisons/`](research/comparisons/) | 外部实现比较快照；current 结论仍需回到代码和 specs 核实 |
+| [`research/brainstorms/`](research/brainstorms/) | 脑暴与阶段性方案材料 |
+| [`research/architecture-reviews/`](research/architecture-reviews/README.md) | 带 commit 和 working-tree 状态的架构审查快照 |
 | [`archive/`](archive/README.md) | 已退役独立文档和旧开发记录的索引 |
 
 旧 TDD control-tower 的 `LOGBOOK/ROADMAP/TASKS/PROGRESS/ACCEPTANCE` 已停止写入并整体迁入
