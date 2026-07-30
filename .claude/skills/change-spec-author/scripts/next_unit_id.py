@@ -17,9 +17,13 @@ CHANGE_TYPES = ("feat", "bugfix", "refactor", "perf", "docs", "chore")
 
 
 def existing_numbers(changes_dir: Path) -> set[int]:
-    """Collect unit numbers from active and archived unit directories."""
+    """Collect unit numbers from active, archived, and retired unit directories."""
     numbers: set[int] = set()
-    for parent in (changes_dir, changes_dir / "archive"):
+    for parent in (
+        changes_dir,
+        changes_dir / "archive",
+        changes_dir / "retired",
+    ):
         if not parent.is_dir():
             continue
         for child in parent.iterdir():

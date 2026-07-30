@@ -1,20 +1,38 @@
 # Change Unit Storage
 
-本文定义 `docs/changes/` 的目录、命名、文件归属以及 active/archive 状态。是否建立 unit、Full/Bugfix lite 路径、开发阶段和门禁见 [`../development/change-workflow.md`](../development/change-workflow.md)。
+本文定义 `docs/changes/` 的目录、命名、文件归属、恢复信息以及 active/retired/archive 状态。是否建立 unit、Full/Bugfix lite 路径、开发阶段和门禁见 [`../development/change-workflow.md`](../development/change-workflow.md)。
 
 ## 目录语义
 
 ```text
 docs/changes/
 ├── readme.md
-├── <unit-dir>/              # active：探索、设计、实施、验收中，或完成证据不足
+├── <unit-dir>/              # active / paused：仍可能继续推进
+├── retired/
+│   └── <unit-dir>/          # 未完成，但已经明确不会按原方案继续
 └── archive/
-    └── <unit-dir>/          # completed：达到可交付状态，随实现 PR 一起归档
+    └── <unit-dir>/          # completed：达到可交付状态
 ```
 
 `docs/changes/archive/` 保存 completed change 的整套历史；`docs/archive/` 保存被 current 文档取代的独立旧文档。两者不能混用。
 
 归档必须 `git mv` 整个 unit，不能删除、压缩或拆散首文档、design、milestone、报告、delta-spec 和 evidence。
+
+`retired/` 与 `archive/` 的差别是是否完成：retired unit 只保存被放弃或被后续方案取代的工作上下文，不能当作已经实现；若未来重新提出同一目标，应建立新 unit，并在 Relations 中链接旧 unit。
+
+## 活动区索引
+
+活动区只保留仍可能推进的 unit。每个目录根部必须有 `status.md`，因此 Agent 不需要根据目录时间或文档完整度猜测状态。
+
+| Unit | Lifecycle | 恢复入口 |
+|---|---|---|
+| [`bugfix-448-web-fetch-cancel`](bugfix-448-web-fetch-cancel/status.md) | Paused after design | `status.md` |
+| [`feat-397-spec-design-agent-team`](feat-397-spec-design-agent-team/status.md) | Paused after Gate 1 | `status.md` |
+| [`feat-444-session-wakeup`](feat-444-session-wakeup/status.md) | Paused after design | `status.md` |
+| [`feat-484-chat-message-interactions`](feat-484-chat-message-interactions/status.md) | Active — post-acceptance fixes | `status.md` |
+| [`refactor-486-agent-native-repository-knowledge-system`](refactor-486-agent-native-repository-knowledge-system/status.md) | Active — repository documentation migration | `status.md` |
+
+状态变化时必须同步更新本表。`status.md` 保存单个 unit 的恢复快照，本表负责让 Agent 发现有哪些活动工作。
 
 ## 是否建立 unit
 
@@ -45,7 +63,7 @@ docs/changes/
 python3 .claude/skills/change-spec-author/scripts/next_unit_id.py <type>
 ```
 
-脚本同时扫描 active/archive，并在 Git common dir 原子保留编号。已 reservation 但尚未建立目录的编号不复用。
+脚本同时扫描 active/archive/retired，并在 Git common dir 原子保留编号。已 reservation 但尚未建立目录的编号不复用。
 
 ### Milestone 目录
 
@@ -79,6 +97,7 @@ Full 模式在 design 阶段只创建含 `.gitkeep` 的空 milestone 骨架。wo
 
 ```text
 docs/changes/<unit-dir>/
+├── status.md                         # 跨 session 恢复快照
 ├── spec.md | incident.md | motivation.md
 ├── spec-review.md                    # 可选；spec review 发现问题时留痕
 ├── design.md
@@ -104,6 +123,7 @@ docs/changes/<unit-dir>/
 
 ```text
 docs/changes/<unit-dir>/
+├── status.md
 ├── fix.md
 └── M1-fix/
     ├── tasks.md
@@ -117,6 +137,7 @@ docs/changes/<unit-dir>/
 
 | 文件 | Owner | 内容 |
 |---|---|---|
+| `status.md` | 当前阶段 owner；实施期为 `change-orchestrator` | 状态、Git/PR 定位、完成项、证据、阻塞和下一动作 |
 | `spec.md` / `incident.md` / `motivation.md` / `fix.md` 前两部分 | `change-spec-author` | 做什么、为什么、验收标准或 RCA |
 | `spec-review.md`（可选） | `change-spec-reviewer` | 按需复核发现问题时留下的台账 |
 | `design.md`、`prototype.html`、`specs/**`、milestone 空骨架 | `change-design-author` | 怎么做、契约增量和实施切片 |
@@ -140,7 +161,32 @@ docs/changes/<unit-dir>/
 
 实现期发现 design 问题时，worker 按 workflow 暂停并升级，不能在 `progress.md` 中维护一套与 `design.md` 不同的影子方案。
 
-## Active、归档与恢复
+## 状态与恢复
+
+### `status.md` 最小契约
+
+`status.md` 是恢复入口，不是过程日志。它固定记录：
+
+| Field | 含义 |
+|---|---|
+| Lifecycle | 当前阶段；暂停、退役或完成时明确写出 |
+| Last checked | 最近一次与 Git、PR 和 unit 文档核对的日期 |
+| Branch | 当前实现分支；尚未创建时写 `None` |
+| Worktree | 当前 worktree；不存在时写 `None` |
+| Pull request | PR URL；尚未创建时写 `None` |
+| Completed | 已完成的阶段或 milestone |
+| Evidence | 可复查的报告、提交或 evidence 入口 |
+| Blocker | 阻塞原因；没有时写 `None` |
+| Next action | 下一位 Agent 可以直接执行的一步 |
+
+恢复时先读 `status.md`，再用 `git status`、`git worktree list`、branch head 和 `gh pr view` 核对会变化的外部状态。核对结果与快照不一致时，以实时状态为准并立即更新 `status.md`。milestone 内的 roadpoint 细节仍由 `tasks.md` 和 `progress.md` 负责，不能复制到状态页。
+
+阶段 owner 在以下时点更新：
+
+- `change-spec-author` 建立 unit，并在 Gate 1 后写明下一入口；
+- `change-design-author` 开始设计、通过 Gate 2 或因需求问题暂停；
+- `change-orchestrator` 建立实现 worktree、签收 milestone、完成验收、升级阻塞、归档和创建 PR；
+- 人工暂停或退役 unit 时，执行决定的人负责留下原因和下一动作。
 
 ### Active
 
@@ -152,6 +198,14 @@ docs/changes/<unit-dir>/
 - 完成证据不足，无法证明已达到可交付状态。
 
 不能按编号大小、目录年龄或“看起来做完了”推断完成。
+
+### Paused
+
+Paused unit 仍留在活动区。`status.md` 必须说明暂停原因、恢复前需要重新核对的事实和第一步动作。暂停不等于完成，也不允许释放其 unit id。
+
+### Retired
+
+只有负责人已经明确决定不再按原 unit 推进，且文档中能指出替代方案或放弃原因时，才把整个目录移到 `retired/`。退役前将 `Lifecycle`、`Blocker` 和 `Next action` 更新为最终状态；retired unit 不允许由 orchestrator 恢复实施。
 
 ### 归档
 
@@ -172,10 +226,11 @@ PR body、同一交付会话中的 CI/fix 和复验继续使用归档路径。PR
 
 ## 唯一定位
 
-按 `unit_id` 查找时同时检查 active 和 archive，并要求结果唯一：
+按 `unit_id` 查找时同时检查 active、archive 和 retired，并要求结果唯一：
 
 ```bash
-unit_matches=$(find docs/changes docs/changes/archive -mindepth 1 -maxdepth 1 -type d \
+unit_matches=$(find docs/changes docs/changes/archive docs/changes/retired \
+  -mindepth 1 -maxdepth 1 -type d \
   \( -name "<unit_id>" -o -name "<unit_id>-*" \) -print 2>/dev/null)
 match_count=$(printf '%s\n' "$unit_matches" | sed '/^$/d' | wc -l | tr -d ' ')
 if [[ "$match_count" -ne 1 ]]; then
@@ -185,7 +240,7 @@ fi
 unit_path=$unit_matches
 ```
 
-禁止用 `head -1` 吞掉歧义。
+禁止用 `head -1` 吞掉歧义。执行型 skill 只能接手 active unit；archive 只允许开放 PR 的受限小修，retired 一律拒绝启动。
 
 ## Evidence 与本地产物
 

@@ -14,7 +14,7 @@ description: 用于和人交互式对齐"做什么",产出一个变更单元的�
 3. **澄清是交互式的,一次一个问题**。每提一个问题,给出你推荐的答案 + 简短理由。等用户回答后再问下一个,记录 Q/A 到"澄清记录"段。**禁止**一次抛出 5 个问题让用户挨个答——用户答不全,你也不会按答复更新文档。
 4. **澄清未完成,不能写后续段**。"用户场景 / 验收标准 / 根因 / 目标状态 / 范围与非目标"这些结论性段落,在澄清没收敛前一律留空。
 5. **读代码尽管深入,目的是吃透产品特性;推给 design 的是实现层的"拍板",不是"读代码"本身**。为搞清"这是个什么产品特性、用户得到什么、是一个机制还是两个",该读现状代码、该读用户点名的参考就读,**该多深读多深,直到产品特性理解透彻**(见 §3.0)。spec 不做的只是实现层的**选型/决策**(用什么库、数据存哪、走什么协议、放哪个模块)——那是 design 拍的板。界线不在"读得深不深",在"读来干嘛":理解产品特性(尽管深读)vs 定实现方案(留给 design)。**别因为怕越界就浅尝辄止**——特性没吃透,整单可能建在错前提上。
-6. **不写产品代码、不建 unit/milestone 分支**。定稿后 commit 到 `main`(§5)。本 skill 只动 `docs/changes/<unit>/` 下的首文档。
+6. **不写产品代码、不建 unit/milestone 分支**。定稿后 commit 到 `main`(§5)。本 skill 只动 `docs/changes/<unit>/` 下的首文档和恢复入口 `status.md`。
 
 为什么这些规则严:之前的痛点是 agent 在 spec 阶段被技术选型污染、把用户答复改写丢掉暗信号、批量生成时跳过澄清。所以拆轮次 + 钉边界 + 原话落盘。
 
@@ -38,7 +38,7 @@ bugfix lite vs full 的判据(参考 `docs/changes/readme.md`):**默认 lite**;�
 ### §1.2 决定 unit_id 和目录名
 
 - **id**:在仓库根目录执行 `python3 <skill_dir>/scripts/next_unit_id.py <type>`，只执行一次并直接使用输出的
-  `unit_id`。脚本同时扫描 `docs/changes/` 活动区与 `docs/changes/archive/`，并在 Git common dir 中原子保留
+  `unit_id`。脚本同时扫描 `docs/changes/` 活动区、`docs/changes/archive/` 与 `docs/changes/retired/`，并在 Git common dir 中原子保留
   新编号；同一 clone 的并发进程和 worktree 不会拿到重复编号。已保留但尚未建目录的编号不复用，禁止为
   “看一下下个编号”重复执行，也禁止临时拼 `find`/`sed` 只扫活动区。例：
   `python3 .claude/skills/change-spec-author/scripts/next_unit_id.py feat` → `feat-<next-number>`。
@@ -66,9 +66,12 @@ bugfix lite vs full 的判据(参考 `docs/changes/readme.md`):**默认 lite**;�
 ```
 mkdir docs/changes/<unit_dir>/
 Read <skill_dir>/assets/<template>.md → 替换 <type-id> 占位符 + 标题 → Write 到 docs/changes/<unit_dir>/<首文档>.md
+Read <skill_dir>/assets/status.md → 替换 unit id、日期和首文档链接 → Write 到 docs/changes/<unit_dir>/status.md
 ```
 
 `<skill_dir>` 是本 SKILL.md 所在目录(harness 会告诉你绝对路径)。
+
+`status.md` 只保存当前恢复快照。创建时 Lifecycle 为 `Spec alignment`；尚未存在的 branch、worktree 和 PR 填 `None`。
 
 ---
 
@@ -236,9 +239,10 @@ Q1: <一句话问题>
 - [ ] **每个 Scenario 都是用户可观察的**(用户在产品上看到 / 听到 / 操作到),且能追溯到【用户场景】的某段叙事;无实现 / 协议 / 接口 / 内部状态条目(那些归 design.md)
 - [ ] Relations 段填妥(无依赖也要显式写"无"或省略整段)
 - [ ] bugfix:RCA 已写,不只是表面现象
+- [ ] `status.md` 已更新：full 的 Lifecycle/Next action 为 `Ready for design` / 启动 `change-design-author`；bugfix lite 为 `Ready for implementation` / 启动 `change-orchestrator`
 - [ ] 已 commit 到 `main`(仅 `docs/changes/<unit_dir>/`)
 
-全部勾上后,在主仓 `main` 上 commit + push `docs/changes/<unit_dir>/`(勿建 `unit/*` 分支)。
+全部勾上后,在主仓 `main` 上 commit + push `docs/changes/<unit_dir>/`(首文档与 `status.md` 一起提交，勿建 `unit/*` 分支)。
 
 然后在对话中告诉用户:
 
@@ -269,6 +273,7 @@ Q1: <一句话问题>
 `change-design-author` 启动时会读你产出的文档。它需要:
 
 - 首文档完整、无残留模板说明
+- `status.md` 已给出当前阶段和下一入口
 - 验收标准是用户视角且独立可验
 - Relations 已填(影响 design 阶段的依赖判断)
 - 范围与非目标已界定(影响 design 阶段的 milestone 拆分边界——`design.md` Milestone 表的"范围"列里写的文件就是从这里推下来的)

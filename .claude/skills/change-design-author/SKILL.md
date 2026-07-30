@@ -7,7 +7,7 @@ description: 用于在首文档(spec/incident/motivation)定稿后,和人交互�
 
 你是一个**架构对齐者**。你的产物是 `design.md`。
 
-你不写代码,也不打开实现 git 分支。你只动 `docs/changes/<unit>/` 下的 `design.md` 和子目录。
+你不写代码,也不打开实现 git 分支。你只动 `docs/changes/<unit>/` 下的设计产物、milestone 骨架和恢复入口 `status.md`。
 
 ## design.md 的双目的(贯穿全 skill 的第一性原则)
 
@@ -46,6 +46,7 @@ description: 用于在首文档(spec/incident/motivation)定稿后,和人交互�
 - 启动时如果用户只给 `unit_id`,**自查 unit_dir**:`ls -d docs/changes/<unit_id> docs/changes/<unit_id>-* 2>/dev/null | head -1`
 
 启动第一件事——读 `docs/changes/<unit_dir>/` 下的首文档(`spec.md` / `incident.md` / `motivation.md` / `fix.md`)。
+同时读 `status.md`，核对 unit 仍在活动区；如果状态页缺失，先按 `docs/changes/readme.md` 的最小契约补齐。
 
 ### §1.1 门禁 1 检查清单
 
@@ -61,7 +62,7 @@ description: 用于在首文档(spec/incident/motivation)定稿后,和人交互�
 
 > 首文档 `<path>` 还没通过门禁 1(指出具体缺哪段),请先回 `change-spec-author` 收口。
 
-通过后才继续。
+通过后把 `status.md` 的 Lifecycle 更新为 `Design`、Next action 更新为当前设计阶段，再继续。
 
 **接收 spec-author 的实现层交接**:启动时主动问用户:"spec 阶段有没有实现层问题、或'复刻 / 对标某实现'这类实现保真要求、实现约束被推迟到 design 阶段?",收集后:实现层**问题**并入 §3 关键决策对话;实现保真要求 / 实现约束落成 design.md 的 **`[worker]` 轨实现层验收标准**(见 §4.6)。spec 的验收标准只承载用户可观察的东西,实现层标准的家在 design.md。
 
@@ -616,8 +617,9 @@ reviewer 完成后,读最新 Round,对每条 Issue 和 Recommendation **自己�
 - [ ] milestone 子目录仅含 `.gitkeep`，没有预填 tasks.md / progress.md
 - [ ] 对外行为有变化的包都按最窄 canonical 落点产了 delta-spec `docs/changes/<unit_dir>/specs/<包>/<target>.md`(§4.8);纯内部 unit 在 design.md 注 "no spec delta"
 - [ ] §6 独立审查闭环已完成:同一 reviewer target 贯穿所有可恢复轮次;最后一个 Round `Approved` 且 `0 CRITICAL / 0 WARNING`;你确认无实质问题且该 Round 后未再修改受审产物
+- [ ] `status.md` 已更新为 `Ready for implementation`，Completed/Evidence 指向 Gate 2 产物，Next action 指向 `change-orchestrator`
 
-通过后,在主仓 `main` 上 commit + push `docs/changes/<unit_dir>/`(包含最终 `design-review.md`,勿建 `unit/*` 分支)。
+通过后,在主仓 `main` 上 commit + push `docs/changes/<unit_dir>/`(包含最终 `design-review.md` 与 `status.md`,勿建 `unit/*` 分支)。
 
 然后告诉用户:
 
@@ -642,6 +644,7 @@ reviewer 完成后,读最新 Round,对每条 Issue 和 Recommendation **自己�
 - `docs/changes/<unit_dir>/M*/` 目录，仅含 `.gitkeep`(orchestrator 据此校验 milestone 数量一致)
 - `docs/changes/<unit_dir>/specs/<包>/<target>.md` delta-spec(§4.8,仅有对外行为变化的包,可有多个 target;orchestrator §7.0 据此校正 + 软对账 + 合并进对应 canonical area。纯内部 unit 无此文件,design.md 注 "no spec delta")
 - `docs/changes/<unit_dir>/design-review.md`,按时间顺序保留全部 Round 的独立评审日志;最后一轮为 `Approved`,`0 CRITICAL / 0 WARNING`,且你已记录 Resolution、确认无实质问题并保证该 Round 后未再修改受审产物
+- `docs/changes/<unit_dir>/status.md`，Lifecycle 为 `Ready for implementation`，并给出下一动作和 Gate 2 evidence
 
 下游(orchestrator + worker + reviewer)对你的依赖:
 
