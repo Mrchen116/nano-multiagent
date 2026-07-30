@@ -1,7 +1,7 @@
 # Evergreen Specifications
 
 > 全仓文档地图见 [`../README.md`](../README.md)；写法与归并规则见
-> [`../SPEC_GUIDE.md`](../SPEC_GUIDE.md)；跨包架构见 [`../../SPEC.md`](../../SPEC.md)。
+> [`CONTRIBUTING.md`](CONTRIBUTING.md)；跨包架构见 [`../../SPEC.md`](../../SPEC.md)。
 
 本目录是长青行为契约层。每个包目录的 `spec.md` 是短入口索引;具体 Requirement/Scenario 写在同目录的 area 文档里。
 

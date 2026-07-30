@@ -714,7 +714,7 @@ unit 内所有 issues 解决,reviewer 给 `pass`(或 `pass-with-issues` 且 acce
 
 提 PR 前的最后一道实质动作——把本 unit 的对外行为增量并进长青行为契约层 `docs/specs/<包>/<target>.md`,
 让它保持 current。**不全量重扫 canonical**,而是据 design 阶段产的 **delta-spec**
-(`<unit_path>/specs/<包>/<target>.md`)合并。规范见 `docs/SPEC_GUIDE.md`「契约层增量」+
+(`<unit_path>/specs/<包>/<target>.md`)合并。规范见 `docs/specs/CONTRIBUTING.md`「契约层增量」+
 「收尾归并 checklist」。
 
 > **fix 路径无 delta 的兜底**:lite 模式 / post-PR fix(§6.FL)没走 design-author,没有 delta 文件。若这类

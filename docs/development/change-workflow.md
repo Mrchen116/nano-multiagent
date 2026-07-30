@@ -162,6 +162,6 @@ CI 全绿后 orchestrator 交棒，由人审查和 merge。归档表示 unit 已
 - 本文负责是否建立 unit、Full/Bugfix lite 路径、生命周期、角色组合和门禁选择。
 - 每个 `.claude/skills/change-*/SKILL.md` 负责该角色内部的动作、输入输出和恢复细节。
 - [`../changes/readme.md`](../changes/readme.md) 负责 unit 的目录、命名、文件归属和归档位置。
-- [`../SPEC_GUIDE.md`](../SPEC_GUIDE.md) 负责 canonical spec 与 delta-spec 的内容规范。
+- [`../specs/CONTRIBUTING.md`](../specs/CONTRIBUTING.md) 负责 canonical spec 与 delta-spec 的内容规范。
 
 这些位置发生冲突时暂停流程，先核对已经生效的规则并同步修正文档；不能由 agent 临场选择一份顺手的版本。

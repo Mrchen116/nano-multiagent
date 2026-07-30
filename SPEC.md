@@ -3,7 +3,7 @@
 > **版本** v1.5 | **日期** 2026-07-30 | **对齐** `docs/README.md`
 > 本文档是 nano-multiagent 的**跨包顶点**架构权威文件（包 / 依赖方向 / 部署拓扑）。
 > 单包"现在怎么表现"看长青行为契约层 `docs/specs/<包>/`；全仓文档地图和冲突处理见
-> `docs/README.md`，长青 spec 写法见 `docs/SPEC_GUIDE.md`。在跨包架构范围内与其他设计文档冲突时，
+> `docs/README.md`，长青 spec 写法见 `docs/specs/CONTRIBUTING.md`。在跨包架构范围内与其他设计文档冲突时，
 > 以本文档为准。
 >
 > **v1.5 变更**：全仓文档索引、权威分工与生命周期移至 `docs/README.md`；本文 §6 只保留架构相关入口。
@@ -178,6 +178,6 @@ IM 无关、产品无关的 Agent 运行时。只负责"单 Agent 可运行 + �
 [`docs/README.md`](docs/README.md)。
 
 - 单包 current 行为：[`docs/specs/README.md`](docs/specs/README.md)
-- 长青 spec 与 delta-spec 写法：[`docs/SPEC_GUIDE.md`](docs/SPEC_GUIDE.md)
+- 长青 spec 与 delta-spec 写法：[`docs/specs/CONTRIBUTING.md`](docs/specs/CONTRIBUTING.md)
 - 开发变更生命周期与门禁：[`docs/development/change-workflow.md`](docs/development/change-workflow.md)
 - change unit 目录与归档：[`docs/changes/readme.md`](docs/changes/readme.md)

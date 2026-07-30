@@ -88,7 +88,7 @@
 
 <!-- §4.8：本 unit 对长青契约层 docs/specs/<包>/ 的增量状态。逐包一行。
      有对外行为变化 → 按最窄落点产 docs/changes/<unit_dir>/specs/<包>/<target>.md，这里列出全部 target；
-     纯内部无变化 → 写 "no spec delta"。规范见 docs/SPEC_GUIDE.md「契约层增量」。 -->
+     纯内部无变化 → 写 "no spec delta"。规范见 docs/specs/CONTRIBUTING.md「契约层增量」。 -->
 
 - kernel: <specs/kernel/<target>.md[, ...] | no spec delta>
 - im:     <specs/im/<target>.md[, ...] | no spec delta>

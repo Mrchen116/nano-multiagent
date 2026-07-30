@@ -459,7 +459,7 @@ touch docs/changes/<unit_dir>/M1-<title>/.gitkeep docs/changes/<unit_dir>/M2-<ti
 - **变了** → 按最窄 canonical 落点产出一个或多个 `docs/changes/<unit_dir>/specs/<包>/<target>.md`。
 - **没变**(纯内部重构) → 不产该包文件,在 design.md 对应决策处显式注明 "no spec delta"。
 
-**怎么写**(完整规范见 [`docs/SPEC_GUIDE.md`](../../../docs/SPEC_GUIDE.md)「契约层增量(delta-spec)」节):
+**怎么写**(完整规范见 [`docs/specs/CONTRIBUTING.md`](../../../docs/specs/CONTRIBUTING.md)「契约层增量(delta-spec)」节):
 
 - 镜像 canonical target:`docs/changes/<unit_dir>/specs/<包>/<target>.md` → `docs/specs/<包>/<target>.md`;
   只有包级职责、边界或 area 索引变化才以入口 `spec.md` 为 target。

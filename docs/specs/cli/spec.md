@@ -2,7 +2,7 @@
 
 > 对齐: bugfix-426-midrun-message-steering
 >
-> 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本契约层只收 **终端用户在 CLI 上可观察的对外
+> 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本契约层只收 **终端用户在 CLI 上可观察的对外
 > 行为**;CLI 内部如何编排内核、渲染、消费事件不在此层(那在代码 + 归档 design)。每条 Scenario 的主语 =
 > 在终端敲命令/读输出的人,或脚本/CI(消费 `--text` NDJSON、单命令 JSON),或 `tests/contract/` 契约测试。
 
