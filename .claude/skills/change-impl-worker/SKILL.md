@@ -1,6 +1,6 @@
 ---
 name: change-impl-worker
-description: 用于作为 subagent 执行单个 milestone 的编码实现,或处理 reviewer 反馈循环里的小修快车道(此时可能被 SendMessage 唤醒复用、不绑定 milestone)。触发条件:被 `change-orchestrator` 派发一个含 unit_id / milestone_id / worktree_dir / branch 的派发包,或派发包指示"按 Reviewer 反馈循环的小修快车道处理"。不要用于:写架构方案(那是 change-design-author)、不属于本 unit / 非 reviewer 反馈循环里的简单文档/配置修改。
+description: 仅当 `change-orchestrator` 在派发给 subagent 的任务中明确要求使用本 skill 时触发：执行指定 milestone，或处理其 reviewer 反馈循环中的定向 fix。其他场景不得由 agent 自行选择。
 ---
 
 # Implementation Worker: 后端 TDD,前端状态驱动 + 浏览器验收
