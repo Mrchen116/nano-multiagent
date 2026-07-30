@@ -413,12 +413,13 @@ export function MessagePane({
 
   function requestMessageMenu(payload: {
     messageId: string;
-    bodyElement: HTMLElement;
+    bodyElement: HTMLElement | null;
     x: number;
     y: number;
     trigger: HTMLElement | null;
   }) {
-    if (payload.bodyElement?.isConnected !== true) return;
+    if (payload.trigger?.isConnected !== true) return;
+    if (payload.bodyElement !== null && !payload.bodyElement.isConnected) return;
     surfaceTokenRef.current += 1;
     const next: ActiveMessageAction = {
       surfaceToken: surfaceTokenRef.current,
@@ -1260,7 +1261,7 @@ function MessageBubble({
   }): void;
   onMenuRequest(payload: {
     messageId: string;
-    bodyElement: HTMLElement;
+    bodyElement: HTMLElement | null;
     x: number;
     y: number;
     trigger: HTMLElement | null;
@@ -1319,7 +1320,8 @@ function MessageBubble({
 
   function handleContextMenu(e: React.MouseEvent<HTMLDivElement>) {
     const body = bodyRef.current;
-    if (!body) return;
+    const interactionRoot = body ?? (forkEligible ? cardRef.current : null);
+    if (!interactionRoot) return;
 
     const native = e.nativeEvent as MouseEvent & { pointerType?: string };
     const contextFacts: ContextMenuContextFacts = {
@@ -1335,7 +1337,7 @@ function MessageBubble({
     const modality = resolveContextMenuModality(contextFacts, recentPointerRef.current);
     const keepNative = shouldKeepNativeContextMenu(
       modality,
-      body,
+      interactionRoot,
       native.target,
       native.clientX,
       native.clientY,
