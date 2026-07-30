@@ -93,7 +93,7 @@ fi
 
 unit 的所有信息从 `$unit_path/` 读出来——先读 `status.md` 恢复阶段、Git/PR 定位和下一动作，再实时核对
 branch/worktree/PR；design.md Milestone 表是 full 模式的派发依据，lite 模式读 fix.md。活动 unit 缺少
-`status.md` 时先按 `docs/changes/readme.md` 补齐，不能靠聊天历史猜进度。
+`status.md` 时先按 `docs/changes/README.md` 补齐，不能靠聊天历史猜进度。
 
 ---
 

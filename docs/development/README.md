@@ -14,7 +14,7 @@
 | 编写 docstring、注释或 TODO/FIXME | [`commenting.md`](commenting.md) |
 | 联调 LLM provider、本地代理或查看交互日志 | [`llm-integration.md`](llm-integration.md) |
 | 编写 current spec 或归并 delta-spec | [`../specs/CONTRIBUTING.md`](../specs/CONTRIBUTING.md) |
-| 查 change unit 的目录、文件归属和归档规则 | [`../changes/readme.md`](../changes/readme.md) |
+| 查 change unit 的目录、文件归属和归档规则 | [`../changes/README.md`](../changes/README.md) |
 
 ## 文档分工
 

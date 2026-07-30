@@ -6,7 +6,7 @@
 
 ```text
 docs/changes/
-├── readme.md
+├── README.md
 ├── <unit-dir>/              # active / paused：仍可能继续推进
 ├── retired/
 │   └── <unit-dir>/          # 未完成，但已经明确不会按原方案继续

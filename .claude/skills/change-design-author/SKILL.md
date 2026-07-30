@@ -46,7 +46,7 @@ description: 用于在首文档(spec/incident/motivation)定稿后,和人交互�
 - 启动时如果用户只给 `unit_id`,**自查 unit_dir**:`ls -d docs/changes/<unit_id> docs/changes/<unit_id>-* 2>/dev/null | head -1`
 
 启动第一件事——读 `docs/changes/<unit_dir>/` 下的首文档(`spec.md` / `incident.md` / `motivation.md` / `fix.md`)。
-同时读 `status.md`，核对 unit 仍在活动区；如果状态页缺失，先按 `docs/changes/readme.md` 的最小契约补齐。
+同时读 `status.md`，核对 unit 仍在活动区；如果状态页缺失，先按 `docs/changes/README.md` 的最小契约补齐。
 
 ### §1.1 门禁 1 检查清单
 

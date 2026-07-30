@@ -33,7 +33,7 @@ description: 用于和人交互式对齐"做什么",产出一个变更单元的�
 
 不确定时**先问一句**:"我把这个理解为新功能(feat)还是 bug 修复(bugfix)?",再选模板。
 
-bugfix lite vs full 的判据(参考 `docs/changes/readme.md`):**默认 lite**;只有满足以下任一才升 full:跨多 milestone / 需要独立回归矩阵文档 / 根因横跨多模块。第一次写时优先 lite,后面发现影响面大再升级。
+bugfix lite vs full 的判据(参考 `docs/changes/README.md`):**默认 lite**;只有满足以下任一才升 full:跨多 milestone / 需要独立回归矩阵文档 / 根因横跨多模块。第一次写时优先 lite,后面发现影响面大再升级。
 
 ### §1.2 决定 unit_id 和目录名
 

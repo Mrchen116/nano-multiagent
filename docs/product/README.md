@@ -11,7 +11,7 @@
 | Web IM 的稳定体验原则 | [`web-im-principles.md`](web-im-principles.md) |
 | 四个包怎样分工和部署 | [`../../SPEC.md`](../../SPEC.md) |
 | 某个包当前应该表现为什么 | [`../specs/`](../specs/README.md) |
-| 准备改变什么 | [`../changes/`](../changes/readme.md) |
+| 准备改变什么 | [`../changes/`](../changes/README.md) |
 
 产品原则说明“为什么”和长期取舍，不复制页面字段、API、状态机或实现结构；这些可观察行为由 current specs 维护。产品原则变化需要建立对应 change，并同步核对受影响的架构和行为契约。
 

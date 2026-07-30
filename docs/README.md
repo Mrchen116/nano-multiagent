@@ -12,12 +12,12 @@
 | 修改用户或外部消费者可观察行为 | 相关包的 [`specs/`](specs/README.md) → [`development/change-workflow.md`](development/change-workflow.md) |
 | 编写或归并行为契约 | [`specs/CONTRIBUTING.md`](specs/CONTRIBUTING.md) → [`specs/README.md`](specs/README.md) |
 | 判断是否建立 unit、选择 Full/Bugfix lite、查看阶段和门禁 | [`development/change-workflow.md`](development/change-workflow.md) |
-| 查 change unit 的目录、命名、文件归属或归档位置 | [`changes/readme.md`](changes/readme.md) |
+| 查 change unit 的目录、命名、文件归属或归档位置 | [`changes/README.md`](changes/README.md) |
 | 跟踪本次 Agent-Native 仓库知识体系迁移 | [`refactor-486 plan`](changes/refactor-486-agent-native-repository-knowledge-system/plan.md)（Active Work，不覆盖 current） |
 | 配置开发环境、运行测试或开发 CLI/前端 | [`development/`](development/README.md) |
 | 启动、调试或恢复服务 | [`operations/`](operations/README.md) |
 | 在 worktree 内运行真实服务或关键路径 E2E | [`development/worktree-runtime.md`](development/worktree-runtime.md) → [`development/e2e-critical-paths.md`](development/e2e-critical-paths.md) |
-| 查某个变更为什么这样设计 | 活动区或历史区的 [`changes/`](changes/readme.md) unit |
+| 查某个变更为什么这样设计 | 活动区或历史区的 [`changes/`](changes/README.md) unit |
 | 查 LLM 交互日志或本地参考项目 | [`../AGENTS.md`](../AGENTS.md#project-overview) |
 | 查外部项目比较、脑暴或阶段性审查 | 对应研究材料；先核对日期、代码基线和当前权威，不能直接当作 current |
 
@@ -33,7 +33,7 @@
 | 单包当前应该表现为什么 | [`specs/<package>/`](specs/README.md) | current 行为契约 |
 | 长青 spec 如何编写、delta-spec 如何归并 | [`specs/CONTRIBUTING.md`](specs/CONTRIBUTING.md) | 契约层内容规则 |
 | change unit 如何选择、推进，经过哪些角色和门禁 | [`development/change-workflow.md`](development/change-workflow.md) | 当前开发变更生命周期 |
-| change unit 如何命名，文件放在哪里、由谁维护和归档 | [`changes/readme.md`](changes/readme.md) | unit 存储与文件归属 |
+| change unit 如何命名，文件放在哪里、由谁维护和归档 | [`changes/README.md`](changes/README.md) | unit 存储与文件归属 |
 | 开发流程、环境、测试和联调文档如何进入 | [`development/`](development/README.md) | 开发任务地图 |
 | 本地环境如何安装、常用命令和提交格式是什么 | [`development/local-development.md`](development/local-development.md) | 开发者本地入口 |
 | worktree 内如何隔离启动真实服务并完成清理 | [`development/worktree-runtime.md`](development/worktree-runtime.md) | 临时端口、config、进程、数据和绑定隔离 |
