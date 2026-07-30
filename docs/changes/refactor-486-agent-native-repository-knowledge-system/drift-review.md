@@ -178,23 +178,15 @@
 
 ### D-025：校正后 delta 的软对账缺少可恢复的执行契约
 
-- 现状：orchestrator 在所有门禁后校正 delta，并要求 reviewer/verifier 对每条 Requirement/Scenario
-  “软对账”；但两类 skill 的派发包和报告 schema 都没有 corrected delta path/SHA、对账 mode 或固定
-  报告段。
-- 影响：Agent 可以口头声称已经对账，却无法从 archive 判断哪个角色核对了哪个 delta 版本。
-- 待决定：为 corrected-delta review 定义稳定输入和 durable report；或把该检查并入已有门禁且明确
-  invalidation/复验规则。
-- 状态：Awaiting user review；delta 流程未修改。
+- 原因：feat-392 为防止长青 spec 与代码漂移，借鉴 OpenSpec verify 引入了 reviewer/verifier 软对账；后来流程改为 design 阶段生成 delta-spec、orchestrator 在门禁后校正时，这条旧机制被迁移到“校正后 delta”，但没有同步调整执行顺序和角色契约。
+- 用户决定：保留一次校正后对账，仅由 verifier 负责，reviewer 不参与。orchestrator 提交校正结果后，verifier 从最新 unit 分支逐条核对 delta-spec 与实现、测试，在 `verification.md` 留下报告；通过后 orchestrator 再归并 canonical spec。
+- 状态：Resolved；已新增 verifier `corrected-delta` 模式和三种 outcome 路由。派发只声明模式，verifier 自行发现 unit delta；报告只保留最新对账结果，不建立专属 SHA/diff-range、尝试次数或重复状态协议。历史 feat-392 决策记录保持原样。
 
 ### D-026：Codex 执行映射与当前 collaboration tool schema 漂移
 
-- 现状：`.claude/skills/change-orchestrator/references/codex-execution-notes.md` 要求
-  `spawn_agent(agent_type=...)`，当前工具没有 `agent_type` 参数；模型表使用带空格的
-  `gpt-5.6 sol` / `gpt-5.6 Terra`，当前可用标识为连字符形式，并列出当前未暴露的
-  `gpt-5.3-codex-spark`。
+- 现状：`.claude/skills/change-orchestrator/references/codex-execution-notes.md` 要求 `spawn_agent(agent_type=...)`，当前工具没有 `agent_type` 参数；模型表使用带空格的 `gpt-5.6 sol` / `gpt-5.6 Terra`，当前可用标识为连字符形式，并列出当前未暴露的 `gpt-5.3-codex-spark`。
 - 影响：orchestrator 若逐字执行映射，会在派发阶段参数校验失败，或无法按文档指定模型启动 agent。
-- 待决定：按当前工具 schema 更新映射，并明确模型不可用时的兼容策略；这属于运行时适配更新，不应改变
-  Full/lite、spec review 或三类门禁的产品流程语义。
+- 待决定：按当前工具 schema 更新映射，并明确模型不可用时的兼容策略；这属于运行时适配更新，不应改变 Full/lite、spec review 或三类门禁的产品流程语义。
 - 状态：Awaiting user review；Codex 映射未修改。
 
 ## 本规则建立前已经直接校正、需要复核
@@ -204,11 +196,13 @@
 - 已改内容：operations 从“在 Gateway YAML 写 App Secret”改成由 Web IM Agent Channels 页面托管。
 - 依据：当前代码与 current specs。
 - Commit：`c9122e85e`。
-- 待复核：确认当前实现就是期望产品行为；否则恢复原规范并为实现偏差建立 issue。
+- 用户复核：当前由 Web IM Agent Channels 页面托管 Feishu channel 配置就是期望产品行为。
+- 状态：Resolved。
 
 ### D-009：CLI current spec 的旧命令和 product profile
 
 - 已改内容：移除已不存在的 `llm-config set`、已解散 product profile 叙事，并按当前代码拆分 CLI area。
 - 依据：当前 CLI 代码、测试和包边界。
 - Commit：`7434a7711`。
-- 待复核：确认这些能力确实已经退役；否则应恢复规范并为缺失实现建立 issue。
+- 用户复核：`llm-config set` 已退役；内核中的 `local_coding` product profile 叙事已由 CLI 自有装配取代。
+- 状态：Resolved。

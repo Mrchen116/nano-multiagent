@@ -163,7 +163,7 @@ Full unit 由 `change-design-author` 基于首文档、current specs 和真实�
 
 Full 与 Bugfix lite 由 `change-orchestrator` 收尾，快速开发由 `change-fast-close` 收尾，均按以下顺序完成交付：
 
-1. 根据实际实现校正 delta-spec，并归并到 `docs/specs/<package>/<area>.md`；lite bugfix 触及对外行为但没有 delta 时补齐 delta。
+1. 根据实际实现校正 delta-spec。Full unit 由 `change-verifier` 对校正结果逐条核对实现与测试，通过后归并到 `docs/specs/<package>/<area>.md`；Bugfix lite 触及对外行为但没有 delta 时由 orchestrator 补齐并直接归并；快速开发继续使用已记录的用户验收，不补 verifier。
 2. 重新执行与 `origin/main` 的 sync gate。
 3. 按当前 CI 配置运行本地等价检查。
 4. 将整个 unit 从 `docs/changes/<unit>/` 移入 `docs/changes/archive/<unit>/`。

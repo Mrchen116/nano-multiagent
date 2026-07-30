@@ -450,8 +450,8 @@ touch docs/changes/<unit_dir>/M1-<title>/.gitkeep docs/changes/<unit_dir>/M2-<ti
 ## §4.8 产出 canonical delta-spec(本 unit 对长青契约层的增量)
 
 关键决策 + Milestone 定了之后,产出本 unit 对长青行为契约层的 **delta-spec**——声明"本 unit 要给
-`docs/specs/<包>/<target>.md` 加 / 改 / 删哪些 Requirement"。它是收尾(orchestrator §7.0)据以**软对账 +
-合并进 canonical** 的依据;**不写它,收尾就只能全量重扫 canonical**(每单元全量不现实)。
+`docs/specs/<包>/<target>.md` 加 / 改 / 删哪些 Requirement"。它是收尾时 orchestrator 据以校正、verifier
+据以对账并最终合并进 canonical 的依据;**不写它,收尾就只能全量重扫 canonical**(每单元全量不现实)。
 
 **判定**:对本 unit 触及的每个包(kernel / im / gateway / cli),问"经 `agent.sdk` / 产品入口的消费者,
 可观察行为变了吗":
@@ -640,7 +640,7 @@ reviewer 完成后,读最新 Round,对每条 Issue 和 Recommendation **自己�
   - 空 Changelog(orchestrator 在实施期偏差时由 worker 维护)
 - `docs/changes/<unit_dir>/prototype.html`(仅前端相关 unit 必须产出;非前端 unit 不产)
 - `docs/changes/<unit_dir>/M*/` 目录，仅含 `.gitkeep`(orchestrator 据此校验 milestone 数量一致)
-- `docs/changes/<unit_dir>/specs/<包>/<target>.md` delta-spec(§4.8,仅有对外行为变化的包,可有多个 target;orchestrator §7.0 据此校正 + 软对账 + 合并进对应 canonical area。纯内部 unit 无此文件,design.md 注 "no spec delta")
+- `docs/changes/<unit_dir>/specs/<包>/<target>.md` delta-spec(§4.8,仅有对外行为变化的包,可有多个 target;orchestrator §7.0 校正后由 verifier 对账,再合并进对应 canonical area。纯内部 unit 无此文件,design.md 注 "no spec delta")
 - `docs/changes/<unit_dir>/design-review.md`,按时间顺序保留全部 Round 的独立评审日志;最后一轮为 `Approved`,`0 CRITICAL / 0 WARNING`,且你已记录 Resolution、确认无实质问题并保证该 Round 后未再修改受审产物
 下游(orchestrator + worker + reviewer)对你的依赖:
 

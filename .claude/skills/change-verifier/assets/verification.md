@@ -66,3 +66,17 @@
 
 ### SUGGESTION（可以修）
 - <问题 + file:line + 怎么改>
+
+<!-- 仅 verification_mode=corrected-delta 时填写；复验时更新本段，不追加 Attempt 历史。 -->
+
+## Corrected Delta Reconciliation
+
+| Delta item | Implementation evidence | Test evidence | Outcome |
+|---|---|---|---|
+| <path + Requirement / Scenario> | <file:line> | <test file:line or N/A> | aligned / delta-mismatch / implementation-mismatch |
+
+### Uncovered Observable Behavior
+
+None / <unit diff 中未被 delta 覆盖的行为及证据>
+
+Outcome: aligned | delta-mismatch | implementation-mismatch

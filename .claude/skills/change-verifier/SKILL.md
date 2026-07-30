@@ -1,11 +1,11 @@
 ---
 name: change-verifier
-description: 用于在一个 unit 所有 milestone 合到 unit 集成分支后,验证"实现是否真的匹配 spec / design / tasks"。读代码核对三维:Completeness(task 是否全完成、spec 的每条 requirement 是否有实现)、Correctness(每个 requirement / scenario 是否有对应实现、测试是否覆盖、有无偏离)、Coherence(实现是否遵守 design 关键决策、是否沿用项目既有模式)。产出 `verification.md`,含记分卡 + CRITICAL/WARNING/SUGGESTION 分级的问题清单 + 可执行修复建议。触发条件:被 `change-orchestrator` 在 unit 全部 milestone 合并后派发;或用户要求"验证实现有没有匹配 spec / 对一下代码和需求"。不要用于:走产品旅程做用户验收(那是 change-reviewer)
+description: 用于在 unit 实现完成后核对实现是否匹配 spec/design/tasks，或在 orchestrator 校正 delta-spec 后核对校正结果。触发条件：被 change-orchestrator 派发 verifier 工作，或用户要求核对代码与需求。不要用于产品旅程验收。
 ---
 
 # Change Verifier
 
-你验证一件事:**实现是否真的匹配当初要求的东西**——spec 的每条 requirement / scenario 有没有落进代码、测试有没有覆盖、有没有偏离;design 的关键决策有没有被遵守。
+你验证一件事:**实现是否真的匹配当初要求的东西**——spec 的每条 requirement / scenario 有没有落进代码、测试有没有覆盖、有没有偏离;design 的关键决策有没有被遵守。收尾的 `corrected-delta` 模式只核对 orchestrator 已校正并固定的 delta-spec。
 
 跨三个维度,产出一份分级的验证报告:
 
@@ -17,7 +17,7 @@ description: 用于在一个 unit 所有 milestone 合到 unit 集成分支后,�
 
 1. **只读 + 报告,不修不改**。整个工作期严禁 `Write` / `Edit` 任意源码、测试、配置(本 unit 的 `verification.md` 报告除外);严禁 `commit` / `push` / `merge` / `rebase` / `reset` 等改动代码的 git 操作(除 §5.2 提交报告并用 `fetch → rebase → push` 将其同步到 unit 分支)。发现问题在报告里写,由 orchestrator 派 worker 改。
 2. **建议要可执行**。报告每条问题给具体、可操作的修复建议,**带相关 file:line**;不要"建议复查一下"这种空话。
-3. **范围内核对**。只核对本 unit 的 spec requirement / design 决策 / Milestone 范围内的代码。
+3. **范围内核对**。普通模式只核对本 unit 的 spec requirement / design 决策 / Milestone 范围内的代码；`corrected-delta` 只核对本 unit 的全部 delta-spec 和 unit diff。
 
 ---
 
@@ -30,15 +30,16 @@ unit_id: <type>-<id>
 unit_dir: <type>-<id>[-<short-desc>]
 branch: unit/<unit_id>                        # 验证对象——unit 集成分支
 verify_worktree_dir: <repo_root>/.worktrees/verify-<unit_id>   # 你的只读工作目录
+verification_mode: full | targeted-closure | delta | corrected-delta
 review_round: 1 | 2 | ...
 prior_verification_path: <unit_path>/verification.md   # 第 2 轮起
-verification_mode: full | targeted-closure | delta
 fix_delta_range: <pre_fix_head>..<HEAD>        # targeted-closure / delta 必传
 focus_issues: [<上一轮 CRITICAL/WARNING 指纹或摘要>]   # targeted-closure 必传
-mode: full
 ```
 
-所有操作在 `verify_worktree_dir` 内。**bugfix lite 不派 verifier**(无 spec/design);若被错派,立即退出并提示 orchestrator。
+`review_round`、`prior_verification_path`、`fix_delta_range` 和 `focus_issues` 只服务普通验证及其复验；
+`corrected-delta` 不需要这些字段。所有操作在 `verify_worktree_dir` 内。Bugfix lite 不派 verifier；
+`corrected-delta` 也只用于 Full unit。
 
 进入 worktree 后先解析 unit 文档根路径,兼容提 PR 前已归档的 unit：
 
@@ -55,16 +56,19 @@ fi
 unit_path=$unit_matches
 ```
 
-启动:自建 worktree(orchestrator 只给路径,不创建),只读签出 unit 分支:
+启动:自建 worktree(orchestrator 只给路径,不创建),只读签出最新 unit 分支:
 ```bash
 repo_root=$(git rev-parse --show-toplevel)
-# 已存在 → 复用(换人续跑);否则从 origin/unit/<unit-id> 自建
-[[ -d "$verify_worktree_dir" ]] && cd "$verify_worktree_dir" || \
+git -C "$repo_root" fetch origin "unit/<unit_id>"
+if [[ -d "$verify_worktree_dir" ]]; then
+  git -C "$verify_worktree_dir" checkout --detach "origin/unit/<unit_id>"
+else
   git -C "$repo_root" worktree add "$verify_worktree_dir" "origin/unit/<unit_id>"
+fi
 ```
-显式从 `origin/unit/<unit_id>` 拉,拿到最新合并态。verifier 不开新分支(只读核对),报告 commit 直接提到 unit 分支(§5.2)。
+verifier 不开新分支(只读核对),报告 commit 直接提到 unit 分支(§5.2)。
 
-读上下文(只读),分两类:
+普通模式读上下文(只读),分两类:
 
 **① 本 unit 文档**(核对对象):`spec.md`(requirement / scenario)、`design.md`(关键决策;若含 `## 前端原型`,还要抽出原型对齐契约)、各 milestone `M<N>-*/tasks.md` / `progress.md`、历轮 `verification.md`(round > 1 继承未关闭项)。
 
@@ -75,7 +79,9 @@ repo_root=$(git rev-parse --show-toplevel)
 
 这些文档因项目而异,通常在仓库根或 `docs/` 下;`CLAUDE.md` / `AGENTS.md` 一般是索引入口,从那里找对应的规范文档再读。
 
-**若 tasks 为空 / 不存在**:报告 "No tasks to verify",退出。
+`corrected-delta` 模式读取本 unit `specs/` 下的全部 delta 文件、最终代码 diff、unit 首文档/design 和已有 `verification.md`。没有 delta 文件时停止并告知 orchestrator。
+
+**普通模式若 tasks 为空 / 不存在**:报告 "No tasks to verify",退出。
 
 ### §1.1 Verification Modes
 
@@ -86,6 +92,7 @@ repo_root=$(git rev-parse --show-toplevel)
 | `full` | 跑完整 §2 / §3 / §4,逐 task / requirement / scenario / design 决策核对 |
 | `targeted-closure` | 只验证上一轮 `focus_issues` 是否被 fix 关闭,并核对相关 requirement / scenario / test / design decision |
 | `delta` | 只看 `fix_delta_range` 的改动文件,判断这些改动是否引入新的 spec/design 偏离或架构自洽风险 |
+| `corrected-delta` | 逐条核对本 unit 的 delta-spec 与最终实现/测试，并检查 unit diff 是否还有 delta 未覆盖的对外行为 |
 
 `targeted-closure` 和 `delta` 都是**只读报告**,不是降低判断标准:
 
@@ -93,6 +100,8 @@ repo_root=$(git rev-parse --show-toplevel)
 - 发现 delta 触及架构边界 / 依赖方向 / 跨机边界 / 平行机制 → 标 CRITICAL,并在报告写 `requires_full_verification: true`。
 - 无法判断旧 full 结论是否仍有效 → 不勉强 pass,报告 `requires_full_verification: true`,让 orchestrator 升级 full。
 - 不重新全量扫所有 requirement,但若 delta 明显改变用户可观察行为或契约映射,必须指出需要 reviewer targeted 或 verifier full。
+
+`corrected-delta` 不重新验收整个 unit，也不替代上一轮 full/targeted verifier 结论。它只判断校正后的契约增量是否与已经通过门禁的最终实现一致。进入该模式后跳过 §2、§3.1–§3.3 和 §4，只执行 §3.4。
 
 ---
 
@@ -141,6 +150,20 @@ repo_root=$(git rev-parse --show-toplevel)
 - **缺测试**(有实现但无测试覆盖该 scenario)→ 标 **WARNING**。
 - **测试过剩 / 垃圾测试**(一次性迁移红测、断言"某死代码 / 字段已不存在"、跨层重复断言等无长期回归价值的)→ 标 **SUGGESTION**,建议按 `docs/development/testing.md` 剪掉(半年后还该每次 CI 跑吗?否则删)。不只查"缺测试",也查"测试堆积"。
 
+### §3.4 Corrected Delta Reconciliation
+
+仅 `verification_mode=corrected-delta` 执行，完成以下检查后直接进入 §5：
+
+1. 对本 unit 全部 delta 文件中的每条 ADDED/MODIFIED/REMOVED Requirement 和 Scenario，定位最终实现与测试证据。
+2. 判断 delta 对可观察行为的描述是否与实现一致；不能因为代码当前如此，就忽略它与 unit 首文档或已批准 design 的冲突。
+3. 检查本 unit 最终代码 diff 中新增或改变的对外行为是否都被 delta 覆盖。
+4. 给出一个结论：
+   - `aligned`：delta 与实现、测试一致，也没有遗漏本 unit 新增或改变的对外行为。
+   - `delta-mismatch`：实现符合已批准意图，但 delta 表述错误、遗漏或多写。
+   - `implementation-mismatch`：实现或测试不符合 unit spec/design；如果两类问题同时存在，也使用此结论。
+
+这是一项基于 Agent 判断的对账，不要求建立 Requirement↔测试的永久机械绑定。
+
 ---
 
 ## §4 Coherence Verification(实现 ↔ design + 代码仓既有架构)
@@ -168,9 +191,11 @@ repo_root=$(git rev-parse --show-toplevel)
 
 ## §5 验证报告(verification.md)
 
-模板在本 skill `assets/verification.md`。第 2 轮起追加 `# Round N` 段,不覆盖历史。
+模板在本 skill `assets/verification.md`。普通模式第 2 轮起追加 `# Round N` 段；`corrected-delta` 更新其中唯一的 `Corrected Delta Reconciliation` 段，旧结果由 Git 历史保留。
 
 ### §5.1 报告结构
+
+`corrected-delta` 直接使用模板中的对应段。普通模式继续使用以下结构。
 
 **① 记分卡 summary**
 ```
@@ -205,7 +230,9 @@ requires_full_verification: <true|false>
 ```bash
 cd "$verify_worktree_dir"
 git add <unit_path>/verification.md
-git commit -m "docs(<unit_id>): round <N> verification — verdict <pass|fail>"
+git commit -m "docs(<unit_id>): round <N> verification — verdict <pass|fail>"   # 普通模式
+# corrected-delta 使用:
+# git commit -m "docs(<unit_id>): corrected delta reconciliation — <outcome>"
 # §1 是 detached 签出,报告 commit 在 detached HEAD:推 HEAD,别用 `push origin unit/<id>`
 # (后者推本地同名分支、不含本 commit,会静默 "up-to-date" 致报告丢失)
 git fetch origin "unit/<unit_id>"
@@ -222,11 +249,12 @@ git -C "$repo_root" worktree remove "$verify_worktree_dir"
 若本轮还要复验(orchestrator 会再派),可保留 worktree 给下一轮复用——但默认验完即删,下一轮按 §1 自建/复用。
 
 ### §5.3 回报 orchestrator
+普通模式:
 ```
 unit_id: <id>
 review_round: <N>
 verification_mode: <full|targeted-closure|delta>
-verdict: pass | fail            # 有任一 CRITICAL → fail,否则 pass
+verdict: pass | fail
 issues: { critical: N, warning: N, suggestion: N }
 validated_issues: [<focus issue ids closed / still open>]
 requires_full_verification: true | false
@@ -235,16 +263,28 @@ report_commit: <最终 push 成功后的 commit SHA>
 top_concern: <一句话>
 ```
 
-`verdict = fail`(有 CRITICAL)→ orchestrator 据严重度路由(CRITICAL/WARNING issues 进 fix milestone)。
+`corrected-delta`:
+```
+unit_id: <id>
+verification_mode: corrected-delta
+outcome: aligned | delta-mismatch | implementation-mismatch
+report_path: <unit_path>/verification.md
+report_commit: <最终 push 成功后的 commit SHA>
+```
+
+普通模式 `verdict = fail`(有 CRITICAL)→ orchestrator 据严重度路由。`corrected-delta` 由 orchestrator
+§7.0 按 `outcome` 路由。
 
 ---
 
 ## §6 Flexible Artifact Handling(按实际存在的文档降级)
 
-你的系统门禁保证 full 模式 unit 有 spec + design + tasks,所以只需处理:
+你的系统门禁保证 full 模式 unit 有 spec + design + tasks,所以普通模式只需处理:
 
 - **零用户面 unit**(spec 无 requirement / scenario,但有 design):跳过 §2.2 / §3,只做 Completeness 的 task 检查 + Coherence,注明哪些检查被跳过。
 - **无 design.md**(罕见):跳过 §4.1,仍做 Completeness + Correctness。
+
+`corrected-delta` 不因 tasks 缺失而降级；它只要求本 unit 存在 delta 文件。
 
 ---
 

@@ -459,7 +459,6 @@ design-author 已经按反向门槛拆好 milestone(默认单 M1,拆分要举证
   fix_delta_range: <pre_fix_head>..<HEAD>        # 非 full 时必传
   focus_issues: [<上一轮 CRITICAL/WARNING 指纹或摘要>]   # targeted-closure 时必传
   frontend_reference_contract: <若 design.md 有 ## 前端原型,粘贴相关 must-match 行供 verifier 做证据链核对;否则 N/A>
-  mode: full
 ```
 
 **派发包 — reviewer**:
@@ -522,7 +521,7 @@ NEW_COMMITS=$(git -C "$unit_worktree" log --oneline "$BEFORE..$AFTER")
 
 任一 `report_commit` 不在 `AFTER` 中,要求对应 agent 先完成同步和 push,不要继续路由。
 
-预期:`NEW_COMMITS` **只包含本轮 selected gates 的报告 commit**——若派了 reviewer,应有 `docs(<unit_id>): round <N> acceptance — verdict ...`;若派了 verifier,应有 `docs(<unit_id>): round <N> verification — verdict ...`(commit message 格式详见 AGENTS.md)。retained / skipped 的闸不期待新报告 commit。出现任何改了源码/测试/配置的 commit → 走 §6.6 处置(verifier 越界同 reviewer:作废本轮该 agent 的 verdict、revert 越界 commit、issues 转 fix worker 重做)。
+预期:`NEW_COMMITS` **只包含本轮 selected gates 的报告 commit**，格式以对应验收 skill 为准。retained / skipped 的闸不期待新报告 commit。出现任何改了源码/测试/配置的 commit → 走 §6.6 处置(verifier 越界同 reviewer:作废本轮该 agent 的 verdict、revert 越界 commit、issues 转 fix worker 重做)。
 
 ---
 
@@ -732,25 +731,30 @@ unit 内所有 issues 解决,reviewer 给 `pass`(或 `pass-with-issues` 且 acce
 
 > **fix 路径无 delta 的兜底**:lite 模式 / post-PR fix(§6.FL)没走 design-author,没有 delta 文件。若这类
 > 改动触及对外行为(典型:bugfix 恢复或改变了用户可观察行为),orchestrator 据实际代码**自己补一份 delta**
-> 到 `<unit_path>/specs/<包>/`(套 ③ 的实现层红线),再走下面三步——契约写入不留给 worker
+> 到 `<unit_path>/specs/<包>/`(套 ④ 的实现层红线),再走下面流程——契约写入不留给 worker
 
 > **canonical `docs/specs/` 与 delta `<unit_path>/specs/` 都在 unit_worktree 的
 > `unit/<unit_id>` 分支上**,和源码 diff 同处一棵树——在 `$unit_worktree` 里编辑 + commit,随 PR 一起
 > 进 main。不动主仓 HEAD(§0.15)。
 
-对本 unit **每个 delta 文件**(可在同一包下有多个 target),按下面三步走:
+对本 unit 的全部 delta 文件(可在同一包下有多个 target),按下面四步走:
 
 **① 校正 delta(design 草案 → 实际代码)**:delta 是 design 期的预测,worker 实现可能偏。拿实际代码 diff
 核对 delta 每条 ADDED/MODIFIED/REMOVED——实现期新增的对外行为补进 delta、design 写了但没落地的删掉。
 design 注 "no spec delta" 且 diff 也无对外行为变化 → 该包跳过(PR body 记 "no spec delta")。
 
-**② 软对账(advisory,不出红测)** —— 复用已派的 reviewer / verifier 做,不另起机制。派 §5
-reviewer / verifier 时(或本步现派一轮)让其对**校正后 delta 的每条** Requirement/Scenario **搜代码 +
-测试**,报告三类:契约与实现一致 / 契约声明的行为代码已背离 / 本 unit 新增代码产生了 delta 未覆盖的对外
-行为。背离与缺口**显式列在报告里**(advisory,不出红测、不机械硬卡)。范围 = 本 unit delta,**不是
-canonical 全量**。靠 agent 尽责对账,不靠机械绑定。
+**② 提交校正结果**:若①产生修改,commit 并 push；若文件无需修改,直接继续。verifier 从最新
+`unit/<unit_id>` 分支读取本 unit 的全部 delta 文件。
 
-**③ 合并 delta 进 canonical**:按相对路径把校正后 delta 机械合并进对应 `docs/specs/<包>/<target>.md`——ADDED 追加、
+**③ Full unit 由 verifier 对账**:只派 `change-verifier`,传 `unit_id`、`unit_dir`、`branch`、`verify_worktree_dir` 和 `verification_mode: corrected-delta`。以当前 unit HEAD 为派发前基线,按 §5.2 同步报告并校验越界:
+
+- `outcome=aligned` → 进入④。
+- `outcome=delta-mismatch` → 你按报告校正 delta,重新执行②③；不重跑产品 reviewer 或 code review。
+- `outcome=implementation-mismatch` → 回 §6.2 修实现/测试,按 §6.2.1 复验原门禁；全部通过后重新执行 §7.0。
+
+Bugfix lite 保持 §2.1 的门禁政策,不追加 verifier；它的 delta 由 orchestrator 校正后直接进入④。
+
+**④ 合并 delta 进 canonical**:按相对路径把已对账的校正后 delta 机械合并进对应 `docs/specs/<包>/<target>.md`——ADDED 追加、
 MODIFIED 替换对应条目、REMOVED 删对应条目(delta 与 canonical 同骨架,对应是机械的)。每条进 canonical
 前再过 `docs/specs/CONTRIBUTING.md` 的「两问判据」+「库契约四纪律」(WHEN/THEN 主语=消费者、CDC 裁剪、纯
 `Purpose + Requirement/Scenario`,**无** `覆盖:` 行 / `[可执行]` 标签 / freshness 测试),并守**实现层红线**:
@@ -760,8 +764,7 @@ delta 若混入也在此滤掉)。只有包级职责、边界或 area 索引变�
 (或多包分别 commit)。
 
 > 你是单一 owner、串行收尾,无并行写冲突。delta 把"该验 / 该合并什么"限定到本 unit 增量,不必全量
-> 重扫;非确定性由 delta 固定骨架 + 校正 / 软对账兜——真飘了下个 unit 收尾再修(纯增量、advisory,
-> 不阻塞本 PR)。
+> 重扫;你负责校正和归并,verifier 只对校正结果做一次独立对账。
 
 归并完成后,继续 §7.1。
 
