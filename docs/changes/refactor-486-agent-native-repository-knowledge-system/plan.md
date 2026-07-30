@@ -112,7 +112,7 @@ flowchart LR
 
 ### 阶段 1：完成 Control 与 Repository Harness 入口
 
-状态：In Progress
+状态：Completed
 
 #### 当前进度
 
@@ -120,7 +120,7 @@ flowchart LR
 - [x] 将 AGENTS、开发文档、runbook、skills 和 tests 中的 live 引用迁到新 owner。
 - [x] 建立 `docs/operations/`，按主链路、Gateway 生命周期和排障恢复拆分旧 runbook。
 - [x] 建立 `docs/development/` 领域入口并归并测试、注释、关键路径 E2E 与 LLM 联调规范。
-- [ ] 最终缩减根 `AGENTS.md`。
+- [x] 最终缩减根 `AGENTS.md`。
 
 #### 要解决的问题
 
@@ -170,12 +170,12 @@ Agent 已经能看到 `docs/README.md`，但自动加载的 `AGENTS.md` 仍包�
 
 #### 退出条件
 
-- [ ] `AGENTS.md` 不再保存完整 runbook、配置样例、PID helper 或架构树。
-- [ ] 参考仓和 LLM 日志仍能从 `AGENTS.md` 直接发现。
-- [ ] 从 `docs/README.md` 能进入 development 和 operations 的领域索引。
-- [ ] skills、scripts 和 tests 不再引用已经移走的 `AGENTS.md` 段落。
-- [ ] 本地开发、主服务运行和 worktree 隔离各有唯一 owner。
-- [ ] 所有启动命令至少有静态核对，关键脚本能够执行 `--help` 或最小 dry-run。
+- [x] `AGENTS.md` 不再保存完整 runbook、配置样例、PID helper 或架构树。
+- [x] 参考仓和 LLM 日志仍能从 `AGENTS.md` 直接发现。
+- [x] 从 `docs/README.md` 能进入 development 和 operations 的领域索引。
+- [x] skills、scripts 和 tests 不再引用已经移走的 `AGENTS.md` 段落。
+- [x] 本地开发、主服务运行和 worktree 隔离各有唯一 owner。
+- [x] 所有启动命令至少有静态核对，关键脚本能够执行 `--help` 或最小 dry-run。
 
 ### 阶段 2：规整 Truth 平面
 

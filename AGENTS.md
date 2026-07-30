@@ -1,131 +1,51 @@
 # AGENTS.md
 
-## Project overview
+## 项目与架构红线
 
-整体架构：./SPEC.md
+nano-multiagent 由四个顶层包组成：`agent` 是进程内内核库，`coding_cli` 和 `personal_assistant` 是两个产品，`IM` 是独立中心服务。跨包架构以 [`SPEC.md`](SPEC.md) 为准。
 
-全仓文档地图：docs/README.md
+- `coding_cli` / `personal_assistant` 只能 import `agent.sdk`，不得 import `agent.core` / `agent.platform` 内部。
+- `IM` 不调用 `agent`；`coding_cli`、`personal_assistant`、`IM` 三者之间不得相互 import。
+- 内核依赖方向是 `platform → core`、`sdk → core + platform`；`core` 不依赖 `platform`。
+- 内核是库，不恢复独立 HTTP server、旧 `--mode managed/remote` 或相关 HTTP CLI 子命令。
 
-开发变更流程：docs/development/change-workflow.md
+这些边界由 `tests/contract/` 自动验收；详细职责、部署拓扑和例外裁决只写在 [`SPEC.md`](SPEC.md)。
 
-本地开发：docs/development/local-development.md
+## 开工路由
 
-开发文档地图：docs/development/README.md
+先从 [`docs/README.md`](docs/README.md) 判断任务属于哪类知识，再按需读取：
 
-注释规范：docs/development/commenting.md
+| 任务 | 入口 |
+|---|---|
+| 产品介绍与最短可用路径 | [`README.md`](README.md) |
+| 单包 current behavior | [`docs/specs/`](docs/specs/README.md) |
+| 是否建立 change unit、Full/Bugfix lite 与门禁 | [`docs/development/change-workflow.md`](docs/development/change-workflow.md) |
+| 开发环境、测试、注释、worktree E2E 与 LLM 联调 | [`docs/development/`](docs/development/README.md) |
+| 启动、观察、排障和恢复 current 系统 | [`docs/operations/`](docs/operations/README.md) |
+| change unit 目录、文件归属和归档 | [`docs/changes/readme.md`](docs/changes/readme.md) |
 
-测试规范：docs/development/testing.md
+当前任务涉及用户可观察行为时，先读对应 `docs/specs/<package>/`；active change 描述目标状态，完成归并前不能覆盖 current spec。需要 change unit 的工作按 `change-workflow.md` 调用相应 `change-*` skills；符合“不建 unit”判据的小修可以直接实施。
 
-LLM交互日志：/Users/czj/Repos/LLM_PROXY/logs/<session_id>/
+## 工作红线
 
-参考项目代码：
-- Claude Code(CC) ~/Repos/opensource-hub/claude-code —— Anthropic 官方 Claude Code CLI （TypeScript/Bun），最优秀的商业coding agent harness。本项目agent core / coding agent主要参考实现。
-- openclaw ~/Repos/opensource-hub/openclaw —— 开源个人 agent 助手，以 channel 形式接入各类 IM，本项目个人助手产品的整体架构主要参考它。他首创在agent个人助手设计中heartbeat、cron 自动化，agent identity、soul设定等特性。
-- hermes agent ~/Repos/opensource-hub/self-evolution/hermes-agent —— 自进化个人 agent 助手，继openclaw 后的下一代技术演进，带闭环学习循环、自创建/自改进 skills、子 agent 并行、多 IM/多终端后端，本项目个人助手的自进化体系参考它。
-- opencode ~/Repos/opensource-hub/opencode —— 多 provider / 多客户端架构的开源 AI Coding Agent，本项目 hook 事件设计、单一 agent 内核同时支撑两个产品的架构参考它。
-- codex-cli ~/Repos/opensource-hub/codex —— OpenAI 官方coding agent harness（Rust + TypeScript），可参考其agent core / coding agent 设计，与CC对照。
+- 先确认 checkout、branch 和 `git status`；保留用户已有 dirty/untracked 内容，只提交本任务明确修改的文件。
+- 保持 diff 小而可审；代码修改后先跑最窄相关测试，再按风险扩大。测试规则见 [`docs/development/testing.md`](docs/development/testing.md)。
+- public API 使用 Google 风格 docstring；注释写“为什么/约束”，不复述代码。完整规则见 [`docs/development/commenting.md`](docs/development/commenting.md)。
+- worktree 内真实服务必须隔离端口、Gateway config、运行数据、workspace 和 node identity，并清理自己启动的进程。优先使用 `./scripts/e2e-up.sh` / `./scripts/e2e-down.sh`，完整契约见 [`docs/development/worktree-runtime.md`](docs/development/worktree-runtime.md)。
+- `src/IM/frontend/dist/` 是本地构建产物，不提交。
+- 不提交 secret、本机 config、日志、PID、数据库、截图缓存或 worktree runtime 文件。
+- 同一事实只在 canonical owner 写全；新增、移动或退役长期文档时同步维护 [`docs/README.md`](docs/README.md) 和对应领域入口。
 
-## 服务启动
+## 调研与联调入口
 
-### 启动 IM 服务
+LLM 交互日志：`/Users/czj/Repos/LLM_PROXY/logs/<session_id>/`
 
-```bash
-PYTHONPATH=src python -m uvicorn IM.app:app --host 0.0.0.0 --port 8011
-```
-
-Web IM 入口：`http://127.0.0.1:8011/`
-
-### 启动 Gateway（个人助手）
-
-Gateway 默认读取 `~/.nano-assistant/config.yaml`。该文件是**持久化配置**：
-- Gateway 启动时会将 config 中的 agents 同步到 IM
-- 在 IM 前端新建 agent 时，Gateway 会自动把新 agent 写回该文件
-- 因此服务重启后所有 agent 配置不会丢失
-
-```bash
-# 启动（后台，使用默认持久化配置）
-PYTHONPATH=src python -m personal_assistant.main
-
-# 或显式指定配置路径
-PYTHONPATH=src python -m personal_assistant.main --config ~/.nano-assistant/config.yaml
-
-# 显式指定远端 IM
-PYTHONPATH=src python -m personal_assistant.main --im-service-url http://<im-host>:8011
-
-# 停止 / 重启
-PYTHONPATH=src python -m personal_assistant.main stop
-PYTHONPATH=src python -m personal_assistant.main restart
-```
-
-## 架构总览
-
-四个顶层包。内核（agent）是**库**，对外只暴露 `agent.sdk`；两个产品 import 它进程内直跑：
-
-```
-src/
-├── agent/                # Agent 内核库（对外只暴露 agent.sdk，不内置 HTTP API）
-│   ├── core/             # 纯逻辑：runtime/loop/runs/tools/hooks/skills/session；只持 LLMClient 端口
-│   ├── platform/         # 集成层：LLM provider 具体实现、persistence、safety
-│   └── sdk/              # 唯一对外面：build_kernel() 共享基座 + create_session() per-agent → Kernel
-├── coding_cli/           # 本地编码 CLI（async-native REPL，import agent.sdk 进程内直跑）
-├── personal_assistant/   # 个人助手 Node Gateway（常驻进程，import agent.sdk 进程内持有 Kernel）
-└── IM/                   # IM 中心服务（Web IM + 配置中心 + 消息中继）
-    └── frontend/         # React + TS + Vite
-```
-
-依赖方向硬规则（由 `tests/contract/` 自动验收）：
-- `coding_cli` / `personal_assistant` → **只许 import `agent.sdk`**，禁止 import `agent.core` / `agent.platform` 内部
-- `IM` 不调用 `agent`，只与用户和 `personal_assistant` 交互
-- `coding_cli` / `personal_assistant` / `IM` 三者之间禁止相互 import
-
-agent 内核三层（refactor-406 决策1：原 `products` 装配层解散，方案下沉为消费者工厂）：
-`core`（纯逻辑）→ `platform`（接环境）→ `sdk`（对外面，两层装配：build_kernel 共享基座 + create_session per-agent）。
-依赖方向：`platform → core`；`sdk → core + platform`（唯一对外面）；`core` 不依赖 `platform`。
-
-## Worktree 运行隔离
-
-内核是进程内库，不为它启动独立服务。在 worktree 内启动 IM、Gateway 或 Vite 时，监听服务必须使用空闲端口，Gateway config、运行数据和 workspace 必须隔离，并停止自己启动的全部进程；主实例的 `8011` 和常用 Vite 端口 `5173` 不用于分支验证。
-
-优先使用仓库脚本：
-
-```bash
-./scripts/e2e-up.sh
-source .e2e-ports.env
-# 执行验证
-./scripts/e2e-down.sh
-```
-
-脚本启动 IM + Gateway，不启动 Vite。端口、Gateway 生命周期、auto-bind、手工调试、运行证据和退出检查见 [`docs/development/worktree-runtime.md`](docs/development/worktree-runtime.md)。
-
-## 关键文档索引
-
-> 单包"现在怎么表现"看**长青行为契约层** `docs/specs/<包>/`（current 权威，收尾归并保持）；
-> 每个包的 `spec.md` 是入口索引，同目录 area 文档承载具体 Requirement/Scenario；
-> 文档体系怎么分层、契约层怎么写见 `docs/SPEC_GUIDE.md`；跨包架构看 `SPEC.md`。
-
-| 文档 | 路径 | 内容 |
+| 参考项目 | 本地路径 | 本仓主要参考面 |
 |---|---|---|
-| 本地开发 | docs/development/local-development.md | Python 环境、测试命令、CLI/前端开发、测试身份与提交格式 |
-| **文档规范** | docs/SPEC_GUIDE.md | 长青 spec 放什么/不放什么、判据、契约层骨架、收尾归并 + grounding checklist |
-| **架构总览（顶点）** | SPEC.md | 四个包职责、依赖方向、部署图（跨包，不下钻单包行为） |
-| **长青契约索引** | docs/specs/README.md | 长青行为契约层入口与 area 文档索引 |
-| **内核契约层** | docs/specs/kernel/ | 内核经 `agent.sdk` 暴露的对外行为契约（入口 + area 文档） |
-| IM 契约层 | docs/specs/im/ | IM 对外行为契约（入口 + area 文档） |
-| Gateway 契约层 | docs/specs/gateway/ | Node Gateway 对外行为契约（入口 + area 文档） |
-| CLI 契约层 | docs/specs/cli/spec.md | Coding CLI 对外行为契约（current） |
-| 开发文档 | docs/development/README.md | 变更流程、环境、测试、注释、worktree E2E 与 LLM 联调 |
-| 测试规范 | docs/development/testing.md | 测什么/不测什么、命名落层、临时验收 vs 回归、tasks.md 测试策略必填 |
-| 运行与排障 | docs/operations/README.md | 主链路启动、Gateway 生命周期、外部通道与故障恢复 |
-| LLM 联调 | docs/development/llm-integration.md | 本地代理、协议、交互日志与最近验证记录 |
-| **关键路径 e2e 清单** | docs/development/e2e-critical-paths.md | 必保活的关键用户旅程 ↔ 守护 e2e 测试 ↔ 归属子系统 对账表（经真 Gateway 进程）；`scripts/e2e-critical.sh` 一键全跑；新增关键特性须登记一行 + 配 e2e |
+| Claude Code | `~/Repos/opensource-hub/claude-code` | agent core、coding agent harness |
+| openclaw | `~/Repos/opensource-hub/openclaw` | 多 channel 个人助手、heartbeat、cron、identity/soul |
+| hermes-agent | `~/Repos/opensource-hub/self-evolution/hermes-agent` | 自进化、skills、子 agent、多终端 |
+| opencode | `~/Repos/opensource-hub/opencode` | 多 provider/客户端、hook、共享 agent 内核 |
+| codex-cli | `~/Repos/opensource-hub/codex` | coding agent core，与 Claude Code 对照 |
 
-> 四份混合高度子系统 SPEC（`内核设计SPEC` feat-392-M1、`IM-SPEC` feat-392-M2、
-> `NodeGateway-SPEC` feat-392-M3、`CodingCLI-SPEC` feat-392-M4）已**全部退役**至
-> `docs/archive/`，对应契约改看 `docs/specs/<包>/`。
-
-## Agent workflow
-
-- Read AGENTS.md / SPEC.md before making changes.
-- Prefer small, reviewable diffs.
-- After code changes, run the narrowest relevant test first, then broader checks if needed.
-- Do not commit secrets or generated local files.
+参考项目是调研材料，不是本仓 current 契约；结论必须回到本仓代码、[`SPEC.md`](SPEC.md) 和 [`docs/specs/`](docs/specs/README.md) 核实。
