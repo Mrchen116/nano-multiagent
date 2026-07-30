@@ -69,8 +69,8 @@
 - 现状：`src/personal_assistant/gateway/composition.py` 引用 `NodeGateway-SPEC §4.2`。
 - current 替代入口：`docs/specs/gateway/routing-delivery.md` 的“重启后同一通道会话续接原内核会话”。
 - 影响：从生产代码追踪约束时会进入 retired 文档。
-- 待决定：改为 current spec 路径；或把足够的“为什么”直接保留在代码注释中。
-- 状态：Awaiting user review；代码未修改。
+- 处理决定：保留原注释说明的持久化原因，将文档引用改为 current spec 路径。
+- 状态：Resolved。
 
 ### D-010：本地主工作树的架构审查快照是否进入仓库历史
 
