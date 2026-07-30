@@ -14,7 +14,7 @@
 | 查 change unit 的目录、命名、文件归属或归档位置 | [`changes/readme.md`](changes/readme.md) |
 | 跟踪本次 Agent-Native 仓库知识体系迁移 | [`refactor-486 plan`](changes/refactor-486-agent-native-repository-knowledge-system/plan.md)（Active Work，不覆盖 current） |
 | 配置开发环境、运行测试或开发 CLI/前端 | [`development/local-development.md`](development/local-development.md) → [`TESTING_GUIDE.md`](TESTING_GUIDE.md) |
-| 启动、调试或恢复服务 | [`operator-runbook.md`](operator-runbook.md) |
+| 启动、调试或恢复服务 | [`operations/`](operations/README.md) |
 | 在 worktree 内运行真实服务或关键路径 E2E | [`development/worktree-runtime.md`](development/worktree-runtime.md) → [`e2e-critical-paths.md`](e2e-critical-paths.md) |
 | 查某个变更为什么这样设计 | 活动区或历史区的 [`changes/`](changes/readme.md) unit |
 | 查 LLM 交互日志或本地参考项目 | [`../AGENTS.md`](../AGENTS.md#project-overview) |
@@ -36,7 +36,7 @@
 | worktree 内如何隔离启动真实服务并完成清理 | [`development/worktree-runtime.md`](development/worktree-runtime.md) | 临时端口、config、进程、数据和绑定隔离 |
 | 测试如何分层、什么值得进入长期测试 | [`TESTING_GUIDE.md`](TESTING_GUIDE.md) | 测试规范 |
 | 哪些真实用户旅程必须长期守护 | [`e2e-critical-paths.md`](e2e-critical-paths.md) | 关键路径与 E2E 对账 |
-| 服务如何启动、观察、恢复和排障 | [`operator-runbook.md`](operator-runbook.md) | 操作手册 |
+| 服务如何启动、观察、恢复和排障 | [`operations/`](operations/README.md) | 按任务进入主链路、Gateway 或排障文档 |
 | LLM provider 与本地代理如何联调 | [`可用LLM_API与联调说明.md`](可用LLM_API与联调说明.md) | 模型与代理入口 |
 | 注释和 docstring 如何编写 | [`../COMMENTING_GUIDE.md`](../COMMENTING_GUIDE.md) | 代码注释规范 |
 | Agent 开始任务前必须知道什么 | [`../AGENTS.md`](../AGENTS.md) | 仓库级指令、关键入口与运行约束 |

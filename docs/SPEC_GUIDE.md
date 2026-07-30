@@ -47,7 +47,7 @@ design,也不建独立 ADR 层(`docs/decisions/`);决策的家是 per-unit `desi
 | "当初为什么这么选"(决策) | 该单元 `docs/changes/<unit>/design.md` 的 `## 关键决策` |
 | 本地环境、测试命令、提交格式和测试身份 | `docs/development/local-development.md` |
 | worktree 服务隔离与进程清理 | [`development/worktree-runtime.md`](development/worktree-runtime.md) |
-| 启停命令、调试 how-to、加 channel 教程 | `docs/operator-runbook.md` |
+| 启停命令、调试 how-to、加 channel 教程 | [`operations/`](operations/README.md) |
 | 跨包架构总图、依赖方向、部署拓扑 | `SPEC.md`(顶点) |
 | 进行中的 bug / TODO / 迁移笔记 | `docs/changes/<unit>/` / GitHub issue |
 

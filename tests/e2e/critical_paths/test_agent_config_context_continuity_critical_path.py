@@ -124,7 +124,7 @@ def stub_llm_stack(tmp_path: Path) -> Iterator[StubLLMStack]:
     if not _MAIN_CONFIG.exists():
         pytest.skip(
             f"main config not found: {_MAIN_CONFIG} — create it first "
-            "(see docs/operator-runbook.md)"
+            "(see docs/operations/gateway.md)"
         )
     if not _RECORDING_STUB.exists():
         pytest.fail(f"missing fixture script: {_RECORDING_STUB}")

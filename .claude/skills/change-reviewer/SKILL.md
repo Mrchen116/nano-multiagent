@@ -89,7 +89,7 @@ git pull --ff-only origin "unit/<unit_id>"
 
 1. **`<unit_path>/<首文档>.md`** —— 用户场景、验收标准(这是你的真值)。验收标准是 **Requirement / Scenario 结构**(`### Requirement` 下挂 `#### Scenario`,每个 scenario 有 WHEN/THEN)——每个 **Scenario** 就是你覆盖表的一行,也是旅程脚本(见 §3.1)
 2. **`<unit_path>/design.md`** —— 大概架构(§架构总览 + §关键决策),为可能的 revise-design 引用准备;Runbook 按 §2.5 读取
-3. **`README.md` / `docs/operator-runbook.md`** —— 怎么启动、怎么用
+3. **`README.md` / [`docs/operations/README.md`](../../../docs/operations/README.md)** —— 怎么启动、怎么用
 4. **`CLAUDE.md` / `AGENTS.md`** —— 项目级约定,怎么跑产品
 5. **历轮验收报告**(若 `review_round > 1`)—— 上一轮的 issues、Recommended Action、修复路径
 6. **每个 milestone 的 `<unit_path>/M<N>-*/progress.md`** —— **简短扫一眼**,知道大概实现了什么、有没有"[Design 修订]"段。**不要**深读代码意图——你不是 code reviewer。

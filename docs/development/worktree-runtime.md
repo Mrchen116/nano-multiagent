@@ -1,6 +1,6 @@
 # Worktree Runtime Isolation
 
-本文负责在 worktree 或临时目录中运行真实 IM、Gateway 和可选 Vite 时的隔离、观察与清理。这里的服务用于开发和 E2E 验证，生命周期随本次任务结束；主仓日常使用的持久服务见 [`../operator-runbook.md`](../operator-runbook.md)。
+本文负责在 worktree 或临时目录中运行真实 IM、Gateway 和可选 Vite 时的隔离、观察与清理。这里的服务用于开发和 E2E 验证，生命周期随本次任务结束；主仓日常使用的持久服务见 [`../operations/`](../operations/README.md)。
 
 ## 适用场景
 
@@ -23,7 +23,7 @@
 ## 前置条件
 
 - 当前 Python 环境已安装项目依赖，并且 `python -c "import yaml"` 成功。worktree 没有独立 `.venv` 时，可以复用主 checkout 的虚拟环境。
-- `~/.nano-assistant/config.yaml` 已存在并包含有效的 `llm:` 配置；也可以通过 `--main-config` 指定其他源 config。配置结构见 [`../operator-runbook.md`](../operator-runbook.md)。
+- `~/.nano-assistant/config.yaml` 已存在并包含有效的 `llm:` 配置；也可以通过 `--main-config` 指定其他源 config。配置结构见 [`../operations/gateway.md`](../operations/gateway.md)。
 - `curl` 可用；手工改写 YAML 时 `yq` 可选，脚本在没有 `yq` 时使用 PyYAML。
 - `WT_ROOT` 使用实际 worktree 或临时目录的绝对路径。Agent 收到派发包中的 `worktree_dir` 时直接使用该值，不根据调用 shell 的 `$PWD` 猜测。
 
@@ -149,7 +149,7 @@ VITE_IM_PROXY_TARGET="$IM_URL" \
 Gateway 的两种生命周期不能混用：
 
 - worktree 验证使用 `--foreground`，`.gateway.pid` 是外部 shell 记录的进程身份。
-- 主仓持久实例使用 Gateway wrapper 的 start/stop/restart 和 config 同目录的 `.gateway-state.json`，详见 operator runbook。
+- 主仓持久实例使用 Gateway wrapper 的 start/stop/restart 和 config 同目录的 `.gateway-state.json`，详见 [`../operations/gateway.md`](../operations/gateway.md)。
 
 ## 退出与完成证明
 

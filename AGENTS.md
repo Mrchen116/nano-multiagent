@@ -112,7 +112,7 @@ source .e2e-ports.env
 | Gateway 契约层 | docs/specs/gateway/ | Node Gateway 对外行为契约（入口 + area 文档） |
 | CLI 契约层 | docs/specs/cli/spec.md | Coding CLI 对外行为契约（current） |
 | 测试规范 | docs/TESTING_GUIDE.md | 测什么/不测什么、命名落层、临时验收 vs 回归、tasks.md 测试策略必填 |
-| 操作手册 | docs/operator-runbook.md | 启动、调试、常见问题 |
+| 运行与排障 | docs/operations/README.md | 主链路启动、Gateway 生命周期、外部通道与故障恢复 |
 | LLM 联调 | docs/可用LLM_API与联调说明.md | 可用模型、本地代理地址、验证 curl |
 | **关键路径 e2e 清单** | docs/e2e-critical-paths.md | 必保活的关键用户旅程 ↔ 守护 e2e 测试 ↔ 归属子系统 对账表（经真 Gateway 进程）；`scripts/e2e-critical.sh` 一键全跑；新增关键特性须登记一行 + 配 e2e |
 

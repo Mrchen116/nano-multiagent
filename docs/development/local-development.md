@@ -1,6 +1,6 @@
 # Local Development
 
-本文负责本地开发环境、常用测试命令、产品开发入口、测试身份和提交约定。IM、Gateway 与 Web IM 的启动和排障见 [`../operator-runbook.md`](../operator-runbook.md)；worktree 内真实服务的隔离规则见 [`worktree-runtime.md`](worktree-runtime.md)。
+本文负责本地开发环境、常用测试命令、产品开发入口、测试身份和提交约定。IM、Gateway 与 Web IM 的启动和排障见 [`../operations/`](../operations/README.md)；worktree 内真实服务的隔离规则见 [`worktree-runtime.md`](worktree-runtime.md)。
 
 ## Python 环境
 
@@ -84,7 +84,7 @@ IM_JWT_SECRET="demo-jwt-secret-for-feat340-testing" \
   --host 0.0.0.0 --port 8011
 ```
 
-Gateway 的 `im_service.username` / `password` 可以使用这组测试身份，以便启动和重连时自动登录。完整配置和启动顺序见 [`../operator-runbook.md`](../operator-runbook.md)。
+Gateway 的 `im_service.username` / `password` 可以使用这组测试身份，以便启动和重连时自动登录。完整配置见 [`../operations/gateway.md`](../operations/gateway.md)，启动顺序见 [`../operations/local-stack.md`](../operations/local-stack.md)。
 
 `scripts/e2e-up.sh` 会为隔离运行生成随机 secret，并在临时 IM 中注册测试身份；不要为它手工复用主实例的数据库或 token。
 

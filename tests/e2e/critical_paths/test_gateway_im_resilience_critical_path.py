@@ -37,7 +37,7 @@ def _gate_or_skip() -> None:
     if not _MAIN_CONFIG.exists():
         pytest.skip(
             f"main config not found: {_MAIN_CONFIG} — create it first "
-            "(see docs/operator-runbook.md; it must include the llm: section)"
+            "(see docs/operations/gateway.md; it must include the llm: section)"
         )
 
 
