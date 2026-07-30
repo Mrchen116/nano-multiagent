@@ -1,3 +1,11 @@
+---
+status: review-pending
+recorded-at: 2026-04-20
+nano-baseline: 2be76c276c020f743b90efeb645fe534beb6a115
+source-baseline: not-recorded
+current-owner: pending-review
+---
+
 # `web_fetch` 工具实现对比与设计：nano-multiagent vs claude-code
 
 > **状态**：Phase 1 ✅ + Phase 2 ✅ 已完成（2026-04-20）。

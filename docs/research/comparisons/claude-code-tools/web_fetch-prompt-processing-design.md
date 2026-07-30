@@ -1,3 +1,11 @@
+---
+status: review-pending
+recorded-at: 2026-04-20
+nano-baseline: 2be76c276c020f743b90efeb645fe534beb6a115
+source-baseline: not-recorded
+current-owner: pending-review
+---
+
 # web_fetch prompt-based 内容处理架构设计
 
 > **状态**：✅ 已实现（2026-04-20）。

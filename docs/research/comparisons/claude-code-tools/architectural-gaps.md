@@ -1,3 +1,11 @@
+---
+status: review-pending
+recorded-at: 2026-04-18
+nano-baseline: f07e9d7f094ae67397b72e46d2b8f9370d6204ae
+source-baseline: not-recorded
+current-owner: pending-review
+---
+
 # nano-multiagent vs claude-code：跨工具的共性架构差距
 
 > 本文件汇总 5 个工具对比分析（read / write / edit / bash / task）后发现的**共性问题**——这些问题无法通过逐个工具单点修补解决，而需要在**工具框架层、运行时层或会话层**进行系统性重构。

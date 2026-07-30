@@ -8,8 +8,8 @@
 | 入口 | 内容 | 使用方式 |
 |---|---|---|
 | [`upstreams.md`](upstreams.md) | 本地参考仓、主要参考面和基线记录规则 | 开始外部实现调研时先读 |
-| [`comparisons/`](comparisons/) | Claude Code tools/kernel 等外部实现比较 | 读取页首基线，再回当前实现核实 |
-| [`brainstorms/`](brainstorms/) | 尚未成为 current 的方案探索 | 核对 adopted/superseded/review pending 状态 |
+| [`comparisons/`](comparisons/README.md) | Claude Code tools/kernel 等外部实现比较 | 读取页首基线，再回当前实现核实 |
+| [`brainstorms/`](brainstorms/README.md) | 尚未成为 current 的方案探索 | 核对 adopted/superseded/review pending 状态 |
 | [`architecture-reviews/`](architecture-reviews/README.md) | 针对特定代码基线生成的架构审查快照 | 查候选来源；再回 current 架构和代码验证 |
 
 Agent-Native 文档体系研究会在完成来源对账后接入本索引。

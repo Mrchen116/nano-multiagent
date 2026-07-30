@@ -1,3 +1,11 @@
+---
+status: review-pending
+recorded-at: 2026-05-12
+nano-baseline: fb3a7784982280c04595d57879fed349bee7e2d8
+source-baseline: n/a
+current-owner: docs/development/change-workflow.md
+---
+
 # Brainstorm: Change 类型与 Review Gate
 
 > 草稿。这里记录的是工作流设计想法,不是已经定稿的规范。

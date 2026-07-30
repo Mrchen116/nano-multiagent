@@ -72,8 +72,8 @@
 | [`archive/migration-plans/`](archive/migration-plans/README.md) | 已实施迁移的历史计划；current 用户流行为见 IM specs |
 | [`archive/audits/`](archive/audits/README.md) | 已结束的 drift 审计；可复现问题应重新进入 active work |
 | [`archive/implementation-narratives/`](archive/implementation-narratives/README.md) | 已退役实现叙事；current 行为从 kernel specs 读取 |
-| [`research/comparisons/`](research/comparisons/) | 外部实现比较快照；current 结论仍需回到代码和 specs 核实 |
-| [`research/brainstorms/`](research/brainstorms/) | 脑暴与阶段性方案材料 |
+| [`research/comparisons/`](research/comparisons/README.md) | 外部实现比较快照；current 结论仍需回到代码和 specs 核实 |
+| [`research/brainstorms/`](research/brainstorms/README.md) | 脑暴与阶段性方案材料 |
 | [`research/architecture-reviews/`](research/architecture-reviews/README.md) | 带 commit 和 working-tree 状态的架构审查快照 |
 | [`archive/`](archive/README.md) | 已退役独立文档和旧开发记录的索引 |
 

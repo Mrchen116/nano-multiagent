@@ -42,23 +42,26 @@
 
 ### D-004：Claude Code tools 比较材料仍把已经实现的能力写成缺口
 
-- 现状：`docs/tools-diff-cc/` 中 Read-Before-Write、SessionFileState 等材料记录的是旧 nano 基线；
-  当前代码已经包含相关能力。
+- 现状：原 `docs/tools-diff-cc/`（现
+  `docs/research/comparisons/claude-code-tools/`）中 Read-Before-Write、SessionFileState 等材料记录的是
+  旧 nano 基线；当前代码已经包含相关能力。
 - 影响：旧研究如果继续靠近 current 入口，Agent 可能把历史差距当成当前缺陷。
 - 待决定：迁入 research 并冻结为带基线的 snapshot；其中仍未解决的缺口是否建立 issue，需逐项审核。
 - 状态：Awaiting user review；正文不重写。
 
 ### D-005：Autocompact 设计仍把已前进的工作写成待实施
 
-- 现状：`docs/kernel-diff-cc/autocompact-spec.md` 仍写 Phase 2 待实现，current code、tests 和
-  `docs/specs/kernel/context-persistence.md` 已经前进。
+- 现状：原 `docs/kernel-diff-cc/autocompact-spec.md`（现
+  `docs/research/comparisons/claude-code-kernel/autocompact-spec.md`）仍写 Phase 2 待实现，current code、
+  tests 和 `docs/specs/kernel/context-persistence.md` 已经前进。
 - 影响：Agent 可能从历史设计启动重复实施。
 - 待决定：标记为 superseded research design；若原设计中仍有未实现且期望保留的部分，再建立 issue。
 - 状态：Awaiting user review；正文不重写。
 
 ### D-006：Change review 脑暴结论没有被现行三类门禁采用
 
-- 现状：`docs/brainstorms/change-review-gates.md` 的暂定结论主张一个通用 reviewer；当前流程使用
+- 现状：原 `docs/brainstorms/change-review-gates.md`（现
+  `docs/research/brainstorms/change-review-gates.md`）的暂定结论主张一个通用 reviewer；当前流程使用
   `change-verifier + change-reviewer + change-code-review`。
 - 影响：Agent 可能把脑暴方案误读为仍待落地的目标流程。
 - 待决定：确认该方案已经放弃并标记 superseded；或建立 issue 继续评估，不能在本次文档整理中改流程。
@@ -71,6 +74,18 @@
 - 影响：从生产代码追踪约束时会进入 retired 文档。
 - 待决定：改为 current spec 路径；或把足够的“为什么”直接保留在代码注释中。
 - 状态：Awaiting user review；代码未修改。
+
+### D-010：本地主工作树的架构审查快照是否进入仓库历史
+
+- 现状：主工作树有 5 份未跟踪 HTML 和 1 份组合 Markdown；HTML 都明确标记为 dirty snapshot，不能只靠
+  commit 复现。
+- 现状：`395a54b5` 与 `d33025cf` 两份报告被 completed change 引用；其余报告没有 live 引用。
+- 现状：2026-07-25 组合稿有较高综合价值，但引用了主工作树尚未纳入本迁移分支的 476–483 units。
+- 待决定：
+  1. 只选择性提交被历史 change 引用的两份报告；
+  2. 同时提交组合稿并先处理其 unit 引用；
+  3. 全部保留为 local evidence，不进入 Git。
+- 状态：Awaiting user review；本次只建立未来报告的 research 入口，没有复制任何既有未跟踪报告。
 
 ## 本规则建立前已经直接校正、需要复核
 

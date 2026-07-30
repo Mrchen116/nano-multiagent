@@ -1,3 +1,11 @@
+---
+status: review-pending
+recorded-at: 2026-04-18
+nano-baseline: 211d86d099753bb3728d7043a5887d317348bd81
+source-baseline: not-recorded
+current-owner: pending-review
+---
+
 # Read Tool mtime 去重 — 架构设计文档
 
 ## 目标

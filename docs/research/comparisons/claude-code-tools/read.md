@@ -1,3 +1,11 @@
+---
+status: review-pending
+recorded-at: 2026-04-18
+nano-baseline: f07e9d7f094ae67397b72e46d2b8f9370d6204ae
+source-baseline: not-recorded
+current-owner: pending-review
+---
+
 # `read` 工具实现对比：nano-multiagent vs claude-code
 
 ## 1. 接口与 Schema

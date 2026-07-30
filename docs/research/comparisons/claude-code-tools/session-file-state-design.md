@@ -1,3 +1,11 @@
+---
+status: review-pending
+recorded-at: 2026-04-19
+nano-baseline: e42d70e4647568c974dd494c365ed60dd4eabf66
+source-baseline: not-recorded
+current-owner: pending-review
+---
+
 # Session File State — 需求&设计文档
 
 > 本文档定义 nano-multiagent 的**跨工具会话级文件状态基础设施**。核心决策：用一个统一的 `SessionFileState` 取代现有的 `FileStateCache`，同时支撑 Read 去重和 Write/Edit 的 Read-Before-Write 校验。

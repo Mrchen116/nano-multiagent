@@ -1,3 +1,11 @@
+---
+status: review-pending
+recorded-at: 2026-04-20
+nano-baseline: eaf7b6b951cfbc2a1187a4fe398b488d0f31cfb9
+source-baseline: not-recorded
+current-owner: pending-review
+---
+
 # Autocompact Spec & Design
 
 ## 设计原则

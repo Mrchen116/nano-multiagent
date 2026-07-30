@@ -1,3 +1,11 @@
+---
+status: review-pending
+recorded-at: 2026-04-18
+nano-baseline: f07e9d7f094ae67397b72e46d2b8f9370d6204ae
+source-baseline: not-recorded
+current-owner: pending-review
+---
+
 # nano-multiagent `task` vs claude-code `AgentTool` 对比分析
 
 ## 1. Interface & Schema（接口与参数）
