@@ -109,6 +109,26 @@ describe("MessagePane", () => {
     expect(screen.getByText("Hi back")).toBeInTheDocument();
   });
 
+  it("preserves authored line breaks and wrapping semantics in user messages", () => {
+    const multilineUserMessage: Message = {
+      ...SAMPLE_MESSAGES[0],
+      id: "m-multiline-user",
+      content: "line one\nline two",
+    };
+    render(
+      <MessagePane
+        conversation={DIRECT_CONV}
+        messages={[multilineUserMessage]}
+        mentionCandidates={[]}
+        onSend={() => {}}
+      />
+    );
+
+    expect(screen.getByTestId("message-bubble-m-multiline-user")
+      .querySelector(".chat-message-body"))
+      .toHaveClass("chat-bubble-content");
+  });
+
   it("renders the configuration boundary before its anchor without message-bubble semantics", () => {
     render(
       <MessagePane
@@ -949,6 +969,64 @@ describe("MessagePane", () => {
       await waitFor(() => expect(writeText).toHaveBeenCalledWith("Hi back"));
     });
 
+    it("does not expose dead Copy or More controls for an attachment-only user message", () => {
+      const attachmentOnlyMessage: Message = {
+        ...SAMPLE_MESSAGES[0],
+        id: "m-attachment-only",
+        content: "",
+        attachments: [
+          {
+            url: "http://im.local/im/uploads/report.pdf",
+            content_type: "application/pdf",
+            file_name: "report.pdf",
+          },
+        ],
+      };
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[attachmentOnlyMessage]}
+          mentionCandidates={[]}
+          isMobile
+          onSend={() => {}}
+        />
+      );
+
+      expect(screen.getByText("report.pdf")).toBeInTheDocument();
+      expect(screen.queryByTestId("message-copy-m-attachment-only")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("message-more-m-attachment-only")).not.toBeInTheDocument();
+    });
+
+    it("keeps Branch available without Copy for an empty forkable agent reply", async () => {
+      const user = userEvent.setup();
+      const onFork = vi.fn();
+      const emptyForkableMessage: Message = {
+        ...SAMPLE_MESSAGES[1],
+        id: "m-empty-forkable",
+        content: "",
+        kernel_message_id: "km-empty-forkable",
+      } as Message;
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[emptyForkableMessage]}
+          mentionCandidates={[]}
+          isDirectChat
+          agentOnline
+          isMobile
+          onFork={onFork}
+          onSend={() => {}}
+        />
+      );
+
+      expect(screen.queryByTestId("message-copy-m-empty-forkable")).not.toBeInTheDocument();
+      await user.click(screen.getByTestId("message-more-m-empty-forkable"));
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /Copy message/i })).not.toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: /Branch from here/i }));
+      expect(onFork).toHaveBeenCalledWith("m-empty-forkable");
+    });
+
     it("shows a copy error snackbar and keeps the menu open on clipboard rejection", async () => {
       const writeText = vi.fn(async () => {
         throw new Error("denied");
@@ -1046,6 +1124,11 @@ describe("MessagePane", () => {
       const branch = screen.getByRole("menuitem", { name: /Branch from here/i });
       expect(branch).toHaveFocus();
       expect(branch).toHaveAttribute("aria-disabled", "true");
+      expect(branch).toHaveAttribute(
+        "title",
+        "This agent is offline; branching is unavailable."
+      );
+      expect(screen.getByText("This agent is offline; branching is unavailable.")).toBeInTheDocument();
     });
 
     it("does not restore focus when the original trigger is no longer connected", async () => {
@@ -1326,6 +1409,26 @@ describe("MessagePane", () => {
       const rawExternal = screen.getByText("https://example.org").closest("a") as HTMLAnchorElement;
       expect(rawExternal).toHaveAttribute("target", "_blank");
       expect(rawExternal).toHaveAttribute("rel", "noopener noreferrer");
+    });
+
+    it("uses recursively formatted link text as the external link accessible name", () => {
+      const formattedLinkMessage: Message = {
+        ...RICH_MD_MESSAGE,
+        id: "m-formatted-link",
+        content: "[**OpenAI Docs**](https://example.com)",
+      };
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[formattedLinkMessage]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+
+      expect(
+        screen.getByRole("link", { name: "OpenAI Docs, opens in new tab" })
+      ).toBeInTheDocument();
     });
 
     it("renders same-origin links without target", () => {

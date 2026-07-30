@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   classifyChatLink,
   extractCodeText,
+  isLabelJustUrl,
   resolveContextMenuModality,
   serializeMessageBody,
   shouldKeepNativeContextMenu,
@@ -331,6 +332,35 @@ describe("classifyChatLink", () => {
   });
 });
 
+describe("isLabelJustUrl", () => {
+  it("normalizes only host case, default port, and a trailing path slash", () => {
+    expect(
+      isLabelJustUrl(
+        "https://EXAMPLE.com:443/docs/",
+        "https://example.com/docs",
+        CURRENT_URL
+      )
+    ).toBe(true);
+  });
+
+  it("keeps path, query, and fragment differences significant", () => {
+    expect(
+      isLabelJustUrl(
+        "https://example.com/Docs?mode=FULL#intro",
+        "https://example.com/docs?mode=full#intro",
+        CURRENT_URL
+      )
+    ).toBe(false);
+    expect(
+      isLabelJustUrl(
+        "https://example.com/docs#intro",
+        "https://example.com/docs#install",
+        CURRENT_URL
+      )
+    ).toBe(false);
+  });
+});
+
 describe("serializeMessageBody", () => {
   function body(html: string): HTMLElement {
     const el = document.createElement("div");
@@ -429,6 +459,11 @@ describe("serializeMessageBody", () => {
       '<p>before</p><pre><code>def hello():\n\n\n    return "world"</code></pre><p>after</p>'
     );
     expect(serializeMessageBody(el)).toBe('before\n\ndef hello():\n\n\n    return "world"\n\nafter');
+  });
+
+  it("preserves indentation when a code block is the first message content", () => {
+    const el = body("<pre><code>  return 42\nnext()</code></pre>");
+    expect(serializeMessageBody(el)).toBe("  return 42\nnext()");
   });
 });
 
