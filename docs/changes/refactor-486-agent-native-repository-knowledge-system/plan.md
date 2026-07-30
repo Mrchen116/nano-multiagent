@@ -352,9 +352,10 @@ Agent 已经能看到 `docs/README.md`，但自动加载的 `AGENTS.md` 仍包�
 1. 明确 evidence 分类：
    - 可长期执行的回归保护 → tests/CI；
    - unit 临时验收证据 → `<unit>/M*/evidence/`；
-   - unit 级结论 → acceptance/verification/review 报告；
+   - unit 级 verifier/reviewer 结论 → acceptance/verification 报告；
+   - code review 结论 → unit `status.md` 与 PR Validation Summary；
    - 本机运行证据 → gitignored runtime/log path；
-   - LLM 交互记录 → `/Users/czj/Repos/LLM_PROXY/logs/<session_id>/`。
+   - LLM 交互记录 → `/Users/czj/Repos/LLM_PROXY/logs/session/*_<session_id>/`。
 2. 在 `docs/development/README.md` 和 `AGENTS.md` 保留 LLM 日志的直接入口，并在 LLM integration 文档说明 session 定位、常见诊断方式和保留边界。
 3. 审核 `ACCEPTANCE/` 的现有生产者，迁移到 unit evidence。
 4. 对每类验证写清：
@@ -674,7 +675,7 @@ Agent 能搜索文件，但没有显式入口的正确文档仍可能在任务�
 ### 仓外但必须可发现的 Evidence
 
 ```text
-/Users/czj/Repos/LLM_PROXY/logs/<session_id>/   # LLM 原始交互日志
+/Users/czj/Repos/LLM_PROXY/logs/session/*_<session_id>/   # LLM 原始交互日志
 ```
 
 该路径继续从 `AGENTS.md` 直接可见，并在 `docs/development/llm-integration.md` 中解释如何定位和消费。它不进入 Git，也不因为仓外存储而从知识地图中消失。

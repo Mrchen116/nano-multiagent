@@ -8,7 +8,7 @@
 | Worktree | `.worktrees/docs-knowledge-system-rebuild` |
 | Pull request | None |
 | Completed | Control/Harness, Truth, Work and Evidence phases |
-| Evidence | [`plan.md`](plan.md) phase records and branch commits |
+| Evidence | [`plan.md`](plan.md) phase records and branch commits；[`drift-review.md`](drift-review.md) 等待用户裁决的原有漂移 |
 | Blocker | None |
 | Next action | Complete Memory, link governance and final validation phases |
 

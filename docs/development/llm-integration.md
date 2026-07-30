@@ -54,8 +54,10 @@ curl -sS -i http://127.0.0.1:4000/health
 ### 2) OpenAI Chat Completions
 
 ```bash
+nano_smoke_session_id="nano-smoke-openai-$(date +%Y%m%d-%H%M%S)"
 curl -sS -i http://127.0.0.1:4000/v1/chat/completions \
   -H 'Content-Type: application/json' \
+  -H "X-Session-Id: ${nano_smoke_session_id}" \
   -d '{
     "model":"codexOAuth:gpt-5.2-codex",
     "messages":[{"role":"user","content":"reply with one word: pong"}],
@@ -66,8 +68,10 @@ curl -sS -i http://127.0.0.1:4000/v1/chat/completions \
 ### 3) Anthropic Messages
 
 ```bash
+nano_smoke_session_id="nano-smoke-anthropic-$(date +%Y%m%d-%H%M%S)"
 curl -sS -i http://127.0.0.1:4000/v1/messages \
   -H 'Content-Type: application/json' \
+  -H "X-Session-Id: ${nano_smoke_session_id}" \
   -d '{
     "model":"codexOAuth:gpt-5.2-codex",
     "max_tokens":64,

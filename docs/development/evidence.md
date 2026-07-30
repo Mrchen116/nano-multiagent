@@ -11,7 +11,8 @@
 | 前端测试与 build | 组件行为、静态构建可完成 | 真实后端、浏览器布局和完整用户旅程 | `src/IM/frontend` 的 `npm run test` / `npm run build` | 测试代码；结果摘要写 `progress.md` |
 | 关键路径 E2E | 真 IM + Gateway 进程上的指定用户旅程 | 清单之外的产品完整性、所有浏览器状态 | [`e2e-critical-paths.md`](e2e-critical-paths.md) | 长期脚本和 `tests/e2e/`；当次结果写 `progress.md` |
 | 手工真栈 / 浏览器验收 | 某个 commit、环境和 viewport 下的真实体验 | 未来回归、其他环境或未走到的场景 | [`worktree-runtime.md`](worktree-runtime.md) + unit reviewer runbook | `<unit>/M*/evidence/` 与 acceptance/regression 报告 |
-| verifier / reviewer / code review 报告 | 对 spec/design、用户旅程或 diff 的独立判定 | 报告未覆盖的行为；原始运行本身 | [`change-workflow.md`](change-workflow.md) | unit 根部的 verification/acceptance/regression/review 记录 |
+| verifier / reviewer 报告 | 对 spec/design 或用户旅程的独立判定 | 报告未覆盖的行为；原始运行本身 | [`change-workflow.md`](change-workflow.md) | unit 根部的 verification/acceptance/regression 报告 |
+| code review 结果 | 对指定 diff range 的 correctness 与维护风险判定 | 产品旅程或未进入该 diff 的代码 | `change-code-review`，由 orchestrator 执行和判真 | 通过状态写 unit `status.md`；最终写 PR Validation Summary 的 diff range + result |
 | 本地 runtime state 与服务日志 | 某次运行的进程、连接、事件和错误 | 长期规范或其他时间点的系统状态 | [`../operations/`](../operations/README.md) | gitignored state/log/DB；unit 中记录定位信息和必要摘要 |
 | LLM 交互日志 | 实际发给 provider 的请求和返回链路 | 应用已正确消费、消息已送达用户 | [`llm-integration.md`](llm-integration.md) | `LLM_PROXY/logs/session/*_<session_id>/`，仓内只记录 locator |
 | GitHub CI | PR head 在 CI 环境通过仓库定义的 jobs | 未进入 CI 的 E2E、外部凭据和人工体验 | `.github/workflows/ci.yml`、`gh pr checks` | GitHub check/run URL；PR 和 unit 状态页记录链接 |
@@ -26,7 +27,7 @@
 |---|---|---|---|
 | 最窄开发反馈 | 每个 roadpoint 修改后，先验证直接受影响的行为 | [`testing.md`](testing.md) 与现有测试/包脚本 | 命令和结果摘要写当前 `progress.md` |
 | 风险扩展验证 | 跨模块、架构边界、前端静态构建或真实进程受到影响时 | [`local-development.md`](local-development.md)、[`worktree-runtime.md`](worktree-runtime.md) | 记录选择依据、命令、结果和未覆盖面 |
-| selected validation gates | unit 的所有 milestone 合入后，按 unit 类型做独立 verifier、reviewer 和 code review | [`change-workflow.md`](change-workflow.md#阶段-4selected-validation-gates) | unit 根部的正式门禁报告 |
+| selected validation gates | unit 的所有 milestone 合入后，按 unit 类型做独立 verifier、reviewer 和 code review | [`change-workflow.md`](change-workflow.md#阶段-4selected-validation-gates) | verifier/reviewer 写 unit 报告；code review 状态写 `status.md` 和 PR Validation Summary |
 | 本地 CI 等价检查 | 归档和提 PR 前 | 当前 [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) 中每个 job 的实际命令 | unit 状态页或收尾记录写通过的 job |
 | 远端 CI | PR head 已推送后 | GitHub check/run | 记录 PR head SHA、check URL 和最终状态 |
 
@@ -51,7 +52,8 @@
 ## 保存与引用
 
 - 小型、可审查且不含 secret 的截图、录屏、请求摘要和对照表放在对应 `<unit>/M*/evidence/`。
-- unit 级结论写在 `verification.md`、`acceptance.md`、`regression.md` 或 code review 记录中，并链接原始 evidence。
+- verifier/reviewer 的 unit 级结论写在 `verification.md`、`acceptance.md` 或 `regression.md` 并链接
+  原始 evidence；code review 的通过状态写入 `status.md`，最终进入 PR Validation Summary。
 - PID、完整服务日志、数据库、临时 config、浏览器缓存和原始 LLM 对话保留在 gitignored/仓外位置；unit 记录
   时间、session id、路径和必要的脱敏摘要。
 - evidence 含 token、cookie、个人数据、完整 prompt 或第三方内容时，不提交原件；保存可复现定位信息和脱敏结论。
