@@ -9,6 +9,8 @@
 
 # Verification Report: <unit_id>
 
+> Validation snapshot: `<executed_base> → <validated_at>`
+
 ## Summary
 
 | 维度 | 结果 |

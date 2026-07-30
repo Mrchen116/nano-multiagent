@@ -468,7 +468,7 @@ touch docs/changes/<unit_dir>/M1-<title>/.gitkeep docs/changes/<unit_dir>/M2-<ti
 - **从【验收标准】+ 关键决策投影**——终端产品(im/gateway/cli)多是验收标准 Scenario 的契约层镜像;
   **kernel 要把用户视角翻译成 `agent.sdk` 消费者视角**(主语=消费者),不照抄。
 - 每条过 `docs/specs/CONTRIBUTING.md`「两问判据」+「库契约四纪律」。
-- **实现层红线**:Scenario 的 THEN 只写消费者可观察的结果(API 响应 / WS 帧 / UI / session JSONL 可见的 turn);**禁止**内部函数名、类名、日志字符串、`<符号> 被调用 / 不被调用` 断言——那是单测的事。从【验收标准】投影自然合规;一旦从实现投影就会踩线(orchestrator §7.0 合并时同守这条红线)。
+- **实现层红线**:Scenario 的 THEN 只写消费者可观察的结果(API 响应 / WS 帧 / UI / session JSONL 可见的 turn);**禁止**内部函数名、类名、日志字符串、`<符号> 被调用 / 不被调用` 断言——那是单测的事。从【验收标准】投影自然合规;一旦从实现投影就会踩线(orchestrator §7.1 合并时同守这条红线)。
 
 > 它是 design 期的**草案**:声明"预计改什么"。worker 实现可能偏,收尾会拿实际 diff 校正——所以这里
 > 不必追求和最终代码逐字一致,**把对外行为增量说全**即可。
@@ -640,7 +640,7 @@ reviewer 完成后,读最新 Round,对每条 Issue 和 Recommendation **自己�
   - 空 Changelog(orchestrator 在实施期偏差时由 worker 维护)
 - `docs/changes/<unit_dir>/prototype.html`(仅前端相关 unit 必须产出;非前端 unit 不产)
 - `docs/changes/<unit_dir>/M*/` 目录，仅含 `.gitkeep`(orchestrator 据此校验 milestone 数量一致)
-- `docs/changes/<unit_dir>/specs/<包>/<target>.md` delta-spec(§4.8,仅有对外行为变化的包,可有多个 target;orchestrator §7.0 校正后由 verifier 对账,再合并进对应 canonical area。纯内部 unit 无此文件,design.md 注 "no spec delta")
+- `docs/changes/<unit_dir>/specs/<包>/<target>.md` delta-spec(§4.8,仅有对外行为变化的包,可有多个 target;orchestrator §7.1 校正后由 verifier 对账,再合并进对应 canonical area。纯内部 unit 无此文件,design.md 注 "no spec delta")
 - `docs/changes/<unit_dir>/design-review.md`,按时间顺序保留全部 Round 的独立评审日志;最后一轮为 `Approved`,`0 CRITICAL / 0 WARNING`,且你已记录 Resolution、确认无实质问题并保证该 Round 后未再修改受审产物
 下游(orchestrator + worker + reviewer)对你的依赖:
 

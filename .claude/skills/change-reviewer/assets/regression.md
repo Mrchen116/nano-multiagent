@@ -8,6 +8,8 @@ bugfix full 的回归验证报告。bugfix milestone 完成后写。
 
 > 对齐: incident.md
 
+> Validation snapshot: `<executed_base> → <validated_at>`
+
 ## Verdict
 
 <!-- pass / fail -->
@@ -29,6 +31,6 @@ bugfix full 的回归验证报告。bugfix milestone 完成后写。
 <!-- bug 修复偶尔会牵动架构假设；显式检查。无需更新也要勾，证明检查过。 -->
 
 - [ ] `SPEC.md`（跨包顶点架构）：__需要更新 / 无需更新__
-- [ ] `docs/specs/<包>/`（长青行为契约层，本 unit 触及的 area；通常由 orchestrator §7.0 收尾归并写入）：__需要更新 / 无需更新__
+- [ ] `docs/specs/<包>/`（长青行为契约层，本 unit 触及的 area；通常由 orchestrator §7.1 收尾归并写入）：__需要更新 / 无需更新__
 - [ ] `AGENTS.md` / `CLAUDE.md`：__需要更新 / 无需更新__
 - [ ] `docs/specs/CONTRIBUTING.md`（文档规范，仅当本 unit 改了文档体系本身时）：__需要更新 / 无需更新__

@@ -160,10 +160,10 @@
 
 ### D-023：验收完成后的 main rebase 没有完整的门禁失效判断
 
-- 现状：selected gates 通过并归并 current spec 后，orchestrator 才 rebase `origin/main`。skill 在别处把 “rebase 后非平凡冲突或大范围 delta”列为 full 条件，但 sync gate 没有要求比较 rebase 前后 delta、重新选择 retained/targeted/full 或更新 validated head。
-- 影响：main 新提交即使没有文本冲突，也可能改变调用链或用户旅程；原门禁结论会落后于最终 PR head。
-- 待决定：把最终 sync 提前到 gates 前；或在 rebase 后增加显式 invalidation assessment，并按 delta 重跑受影响门禁。
-- 状态：Awaiting user review；流程未修改。
+- 原因：原流程在 selected gates 和 corrected-delta 对账完成后才 rebase `origin/main`，随后直接进入 CI；§6.2.1 虽然把高风险 rebase delta 列为 full 条件，§7 的 sync gate 却没有调用 Revalidation Selection。
+- 用户决定：最终 sync 前移到 corrected-delta 与 canonical spec 归并之前。rebase 后逐道判断 main 增量是否使 reviewer、verifier、code review 失效；无影响时记录 retained，局部影响时重跑对应门禁，高风险或无法说明 retained 依据时重跑所有适用门禁。
+- 处理：orchestrator 在派 gate 前记录 `executed_base` 和 `validated_at`；最终 sync 后结合 main 增量、门禁后 unit 增量和最终 unit diff 逐道选择 retained 或重跑，并记录 `effective_base`、`effective_through` 与理由。归档前对收尾提交和 main 推进再做一次同样判断。
+- 状态：Resolved；current spec 只在门禁对最终集成树仍然有效后校正和归并。
 
 ### D-024：部分收尾状态只存在于 orchestrator 内存
 

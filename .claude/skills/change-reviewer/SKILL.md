@@ -44,11 +44,13 @@ unit_id: <type>-<id>                          # 例: feat-104
 unit_dir: <type>-<id>[-<short-desc>]          # 例: feat-104-chat-mention-picker
 branch: unit/<unit_id>                        # 验收对象——unit 集成分支
 unit_worktree_dir: <repo_root>/.worktrees/unit-<unit_id>   # 你的工作目录,不进主仓
+validated_at: <commit sha>                    # 本轮实际验收的 unit tree
+executed_base: <origin/main commit sha>        # 本轮执行时的 main base
 review_round: 1 | 2 | 3 | ...                 # 第几轮验收
 prior_acceptance_paths: [<unit_path>/acceptance.md]   # 第 2 轮起,之前的报告
 revalidation_mode: full | targeted             # targeted 进入 §FL Fast-lane
 focus_scenarios_or_issues: [<上一轮 fail/inconclusive issue 或 Scenario>]   # targeted 必传
-fix_delta_range: <pre_fix_head>..<HEAD>         # targeted 必传
+fix_delta_range: <pre_fix_head>..<validated_at>         # targeted 必传
 mode: full | lite                             # lite 不应该派 reviewer,详见 §1.1
 ```
 
@@ -383,7 +385,7 @@ acceptance / regression 模板都有"上层文档同步"段。逐项核对:
 - `AGENTS.md` / `CLAUDE.md`
 - `docs/specs/CONTRIBUTING.md`(文档规范,仅当本 unit 改了文档体系本身时)
 
-**每一项都要勾**,即使是"无需更新"——证明你检查了。需要更新的,在报告里标记,但**不要自己改**——交给 orchestrator 在 PR 阶段或下一个文档同步 unit 处理。长青契约层的写回本就是 orchestrator §7.0 收尾归并的职责(据最终实现校正 delta-spec 并合并进 canonical),reviewer 只勾"是否已反映本 unit 行为增量",不亲自重写契约层。
+**每一项都要勾**,即使是"无需更新"——证明你检查了。需要更新的,在报告里标记,但**不要自己改**——交给 orchestrator 在 PR 阶段或下一个文档同步 unit 处理。长青契约层的写回本就是 orchestrator §7.1 收尾归并的职责(据最终实现校正 delta-spec 并合并进 canonical),reviewer 只勾"是否已反映本 unit 行为增量",不亲自重写契约层。
 
 ---
 

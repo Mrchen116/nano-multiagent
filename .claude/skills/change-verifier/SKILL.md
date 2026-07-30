@@ -30,10 +30,12 @@ unit_id: <type>-<id>
 unit_dir: <type>-<id>[-<short-desc>]
 branch: unit/<unit_id>                        # 验证对象——unit 集成分支
 verify_worktree_dir: <repo_root>/.worktrees/verify-<unit_id>   # 你的只读工作目录
+validated_at: <commit sha>                    # 本轮实际核对的 unit tree
+executed_base: <origin/main commit sha>        # 本轮执行时的 main base
 verification_mode: full | targeted-closure | delta | corrected-delta
 review_round: 1 | 2 | ...
 prior_verification_path: <unit_path>/verification.md   # 第 2 轮起
-fix_delta_range: <pre_fix_head>..<HEAD>        # targeted-closure / delta 必传
+fix_delta_range: <pre_fix_head>..<validated_at>        # targeted-closure / delta 必传
 focus_issues: [<上一轮 CRITICAL/WARNING 指纹或摘要>]   # targeted-closure 必传
 ```
 
@@ -274,7 +276,7 @@ report_commit: <最终 push 成功后的 commit SHA>
 ```
 
 普通模式 `verdict = fail`(有 CRITICAL 或 WARNING)→ orchestrator 据严重度路由。`corrected-delta` 由 orchestrator
-§7.0 按 `outcome` 路由。
+§7.1 按 `outcome` 路由。
 
 ---
 
