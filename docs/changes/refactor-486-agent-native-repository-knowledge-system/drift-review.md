@@ -10,16 +10,10 @@
 
 ### D-001：关键路径 E2E 清单的计数与“已有门禁”不一致
 
-- 现状：`docs/development/e2e-critical-paths.md` 写“v1 必保活当前为 12 条”，表中实际有 13 行
-  （1–6、8–14）。
-- 现状：同页声称清单与测试 drift 时“门禁不过”，但现有 `tests/unit/test_e2e_catalog.py` 只检查隔离
-  Gateway model catalog 注入，没有解析这份 Markdown 或核对表中的测试符号。
-- 影响：读者会高估当前关键路径数量的准确性和机械保护程度。
-- 待决定：
-  1. 如果这份清单应是强约束，修正计数并在 `scripts/docs-check` 中加入表项/测试符号检查；
-  2. 如果它只是人工 catalog，修正计数并收回“门禁不过”的承诺；
-  3. 如果其中某行不应属于 v1，先调整清单内容，再决定检查方式。
-- 状态：Awaiting user review；原文未修改。
+- 用户裁决：13 条用户旅程当前都对应真实测试；保留机械门禁，但只保护可以客观判断的结构关系，不把语义覆盖或真实 E2E 运行纳入常态 CI。
+- 处理：计数修正为 13；`scripts/docs-check` 校验 v1 表格结构、唯一编号、非空字段、声明计数，以及每个守护测试 node id 能被 `pytest --collect-only` 收集。
+- 边界：CI 不运行真实 E2E，不要求测试目录中的每个测试都登记为关键路径，也不声称机器能够判断测试是否真正覆盖旅程语义。
+- 状态：Resolved；窄门禁已写入 current catalog 和文档完整性检查。
 
 ### D-002：测试 conftest 引用不可定位的 `regression.md`
 

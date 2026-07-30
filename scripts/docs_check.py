@@ -7,6 +7,7 @@ import argparse
 import os
 import re
 import subprocess
+import sys
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -87,6 +88,11 @@ RESEARCH_STATUSES = {
 UNIT_DIR_RE = re.compile(
     r"^(?P<unit_id>(?:feat|bugfix|refactor|perf)-\d+)(?:-[a-z0-9][a-z0-9-]*)?$"
 )
+E2E_CRITICAL_PATH_CATALOG = Path("docs/development/e2e-critical-paths.md")
+E2E_CRITICAL_PATH_TEST_ROOT = Path("tests/e2e/critical_paths")
+E2E_CATALOG_COLUMNS = ("#", "用户旅程", "守护测试", "归属子系统", "引入 unit")
+E2E_CATALOG_COUNT_RE = re.compile(r"v1 必保活当前为\s*(\d+)\s*条")
+INLINE_CODE_RE = re.compile(r"`([^`\n]+)`")
 
 _MARKDOWN = MarkdownIt("commonmark")
 
@@ -450,6 +456,253 @@ def check_research_metadata(root: Path, tracked: set[Path]) -> list[Problem]:
     return problems
 
 
+def _markdown_table_cells(line: str) -> tuple[str, ...] | None:
+    stripped = line.strip()
+    if not stripped.startswith("|") or not stripped.endswith("|"):
+        return None
+    return tuple(
+        cell.replace(r"\|", "|").strip()
+        for cell in re.split(r"(?<!\\)\|", stripped[1:-1])
+    )
+
+
+def _catalog_test_node_ids(test_cell: str) -> tuple[str, ...]:
+    nodes: list[str] = []
+    current_file: Path | None = None
+    for code in INLINE_CODE_RE.findall(test_cell):
+        if code.startswith("::"):
+            if current_file is not None:
+                nodes.append(f"{current_file.as_posix()}{code}")
+            continue
+        if ".py::" not in code:
+            continue
+        file_text, test_name = code.split("::", 1)
+        file_path = Path(file_text)
+        if file_path.parent == Path("."):
+            current_file = E2E_CRITICAL_PATH_TEST_ROOT / file_path
+        elif file_path.is_relative_to(E2E_CRITICAL_PATH_TEST_ROOT):
+            current_file = file_path
+        else:
+            continue
+        nodes.append(f"{current_file.as_posix()}::{test_name}")
+    return tuple(nodes)
+
+
+def _collect_e2e_test_node_ids(root: Path) -> tuple[set[str], Problem | None]:
+    try:
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                "--collect-only",
+                "-q",
+                E2E_CRITICAL_PATH_TEST_ROOT.as_posix(),
+            ],
+            cwd=root,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        return set(), Problem(
+            "E2E_CATALOG_COLLECTION",
+            E2E_CRITICAL_PATH_TEST_ROOT,
+            "pytest collection exceeded 30 seconds",
+        )
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip().splitlines()
+        summary = detail[-1] if detail else f"pytest exited {result.returncode}"
+        return set(), Problem(
+            "E2E_CATALOG_COLLECTION",
+            E2E_CRITICAL_PATH_TEST_ROOT,
+            summary,
+        )
+    prefix = f"{E2E_CRITICAL_PATH_TEST_ROOT.as_posix()}/"
+    nodes = {
+        line.strip()
+        for line in result.stdout.splitlines()
+        if line.startswith(prefix) and "::" in line
+    }
+    if not nodes:
+        return set(), Problem(
+            "E2E_CATALOG_COLLECTION",
+            E2E_CRITICAL_PATH_TEST_ROOT,
+            "pytest collected no critical-path tests",
+        )
+    return nodes, None
+
+
+def _node_is_collected(node: str, collected: set[str]) -> bool:
+    return node in collected or any(item.startswith(f"{node}[") for item in collected)
+
+
+def check_e2e_critical_path_catalog(
+    root: Path,
+    tracked: set[Path],
+    *,
+    collected_node_ids: set[str] | None = None,
+) -> list[Problem]:
+    """Check the structural contract between the critical-path table and pytest."""
+    catalog = E2E_CRITICAL_PATH_CATALOG
+    if catalog not in tracked or not (root / catalog).is_file():
+        return []
+
+    text = (root / catalog).read_text(encoding="utf-8")
+    lines = text.splitlines()
+    heading_index = next(
+        (
+            index
+            for index, line in enumerate(lines)
+            if line.strip() == "## v1 必保活路径"
+        ),
+        None,
+    )
+    if heading_index is None:
+        return [
+            Problem(
+                "E2E_CATALOG_TABLE",
+                catalog,
+                "missing '## v1 必保活路径' section",
+            )
+        ]
+
+    header_index: int | None = None
+    for index in range(heading_index + 1, len(lines)):
+        if lines[index].startswith("## "):
+            break
+        if _markdown_table_cells(lines[index]) == E2E_CATALOG_COLUMNS:
+            header_index = index
+            break
+    if header_index is None:
+        return [
+            Problem(
+                "E2E_CATALOG_TABLE",
+                catalog,
+                "missing critical-path table or expected five-column header",
+                heading_index + 1,
+            )
+        ]
+
+    problems: list[Problem] = []
+    separator = (
+        _markdown_table_cells(lines[header_index + 1])
+        if header_index + 1 < len(lines)
+        else None
+    )
+    if (
+        separator is None
+        or len(separator) != len(E2E_CATALOG_COLUMNS)
+        or any(re.fullmatch(r":?-{3,}:?", cell) is None for cell in separator)
+    ):
+        problems.append(
+            Problem(
+                "E2E_CATALOG_TABLE",
+                catalog,
+                "table header must be followed by a five-column separator",
+                header_index + 2,
+            )
+        )
+
+    rows: list[tuple[int, tuple[str, ...]]] = []
+    for index in range(header_index + 2, len(lines)):
+        cells = _markdown_table_cells(lines[index])
+        if cells is None:
+            break
+        rows.append((index + 1, cells))
+
+    count_match = E2E_CATALOG_COUNT_RE.search(text)
+    if count_match is not None and int(count_match.group(1)) != len(rows):
+        count_line = text[: count_match.start()].count("\n") + 1
+        problems.append(
+            Problem(
+                "E2E_CATALOG_COUNT",
+                catalog,
+                f"declares {count_match.group(1)} paths but table has {len(rows)} rows",
+                count_line,
+            )
+        )
+
+    seen_ids: set[str] = set()
+    referenced: list[tuple[int, str, str]] = []
+    for line_number, cells in rows:
+        if len(cells) != len(E2E_CATALOG_COLUMNS):
+            problems.append(
+                Problem(
+                    "E2E_CATALOG_ROW",
+                    catalog,
+                    f"expected five columns, found {len(cells)}",
+                    line_number,
+                )
+            )
+            continue
+        row_id = cells[0]
+        if not row_id.isdigit():
+            problems.append(
+                Problem(
+                    "E2E_CATALOG_ID",
+                    catalog,
+                    f"row id must be an integer, got {row_id!r}",
+                    line_number,
+                )
+            )
+        elif row_id in seen_ids:
+            problems.append(
+                Problem(
+                    "E2E_CATALOG_ID",
+                    catalog,
+                    f"duplicate row id {row_id}",
+                    line_number,
+                )
+            )
+        seen_ids.add(row_id)
+
+        missing_fields = [
+            E2E_CATALOG_COLUMNS[index] for index, value in enumerate(cells) if not value
+        ]
+        if missing_fields:
+            problems.append(
+                Problem(
+                    "E2E_CATALOG_ROW",
+                    catalog,
+                    f"row {row_id or '?'} has empty fields: {', '.join(missing_fields)}",
+                    line_number,
+                )
+            )
+
+        node_ids = _catalog_test_node_ids(cells[2])
+        if not node_ids:
+            problems.append(
+                Problem(
+                    "E2E_CATALOG_TEST",
+                    catalog,
+                    f"row {row_id or '?'} must reference a critical-path pytest node id",
+                    line_number,
+                )
+            )
+        referenced.extend((line_number, row_id, node) for node in node_ids)
+
+    if not referenced:
+        return problems
+    if collected_node_ids is None:
+        collected_node_ids, collection_problem = _collect_e2e_test_node_ids(root)
+        if collection_problem is not None:
+            problems.append(collection_problem)
+            return problems
+    for line_number, row_id, node in referenced:
+        if not _node_is_collected(node, collected_node_ids):
+            problems.append(
+                Problem(
+                    "E2E_CATALOG_TEST",
+                    catalog,
+                    f"row {row_id} references uncollectable test {node}",
+                    line_number,
+                )
+            )
+    return problems
+
+
 def check_agent_bootstrap(root: Path, tracked: set[Path]) -> list[Problem]:
     """Keep resident instructions bounded and the Claude adapter minimal."""
     problems: list[Problem] = []
@@ -508,6 +761,7 @@ def run_checks(root: Path, tracked: set[Path] | None = None) -> list[Problem]:
         *check_reachability(root, tracked),
         *check_change_units(root, tracked),
         *check_research_metadata(root, tracked),
+        *check_e2e_critical_path_catalog(root, tracked),
         *check_agent_bootstrap(root, tracked),
     ]
     return sorted(

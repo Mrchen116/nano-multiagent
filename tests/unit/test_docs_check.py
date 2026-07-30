@@ -90,6 +90,88 @@ def test_research_metadata_requires_provenance_fields(tmp_path: Path) -> None:
     assert "nano-baseline" in problems[0].message
 
 
+def test_e2e_catalog_accepts_collectable_full_and_shorthand_node_ids(
+    tmp_path: Path,
+) -> None:
+    catalog = _write(
+        tmp_path,
+        "docs/development/e2e-critical-paths.md",
+        "# Catalog\n\n"
+        "> v1 必保活当前为 2 条。\n\n"
+        "## v1 必保活路径\n\n"
+        "| # | 用户旅程 | 守护测试 | 归属子系统 | 引入 unit |\n"
+        "|---|---|---|---|---|\n"
+        "| 1 | first | `test_first.py::test_one` | gateway | feat-1 |\n"
+        "| 2 | second | `test_second.py::test_two` + `::test_three` | kernel | feat-2 |\n",
+    )
+    collected = {
+        "tests/e2e/critical_paths/test_first.py::test_one",
+        "tests/e2e/critical_paths/test_second.py::test_two",
+        "tests/e2e/critical_paths/test_second.py::test_three",
+    }
+
+    problems = docs_check.check_e2e_critical_path_catalog(
+        tmp_path,
+        {catalog},
+        collected_node_ids=collected,
+    )
+
+    assert problems == []
+
+
+def test_e2e_catalog_rejects_wrong_count_and_uncollectable_test(
+    tmp_path: Path,
+) -> None:
+    catalog = _write(
+        tmp_path,
+        "docs/development/e2e-critical-paths.md",
+        "# Catalog\n\n"
+        "> v1 必保活当前为 2 条。\n\n"
+        "## v1 必保活路径\n\n"
+        "| # | 用户旅程 | 守护测试 | 归属子系统 | 引入 unit |\n"
+        "|---|---|---|---|---|\n"
+        "| 1 | journey | `test_missing.py::test_missing` | gateway | feat-1 |\n",
+    )
+
+    problems = docs_check.check_e2e_critical_path_catalog(
+        tmp_path,
+        {catalog},
+        collected_node_ids=set(),
+    )
+    codes = {problem.code for problem in problems}
+
+    assert codes == {"E2E_CATALOG_COUNT", "E2E_CATALOG_TEST"}
+    assert "uncollectable test" in next(
+        problem.message for problem in problems if problem.code == "E2E_CATALOG_TEST"
+    )
+
+
+def test_e2e_catalog_rejects_duplicate_id_and_empty_field(tmp_path: Path) -> None:
+    catalog = _write(
+        tmp_path,
+        "docs/development/e2e-critical-paths.md",
+        "# Catalog\n\n"
+        "## v1 必保活路径\n\n"
+        "| # | 用户旅程 | 守护测试 | 归属子系统 | 引入 unit |\n"
+        "|---|---|---|---|---|\n"
+        "| 1 | first | `test_first.py::test_one` | gateway | feat-1 |\n"
+        "| 1 | second | `test_second.py::test_two` |  | feat-2 |\n",
+    )
+    collected = {
+        "tests/e2e/critical_paths/test_first.py::test_one",
+        "tests/e2e/critical_paths/test_second.py::test_two",
+    }
+
+    problems = docs_check.check_e2e_critical_path_catalog(
+        tmp_path,
+        {catalog},
+        collected_node_ids=collected,
+    )
+    codes = {problem.code for problem in problems}
+
+    assert codes == {"E2E_CATALOG_ID", "E2E_CATALOG_ROW"}
+
+
 def test_agent_bootstrap_budget_and_adapter(tmp_path: Path) -> None:
     agents = _write(tmp_path, "AGENTS.md", "\n".join(["rule"] * 121))
     claude = _write(tmp_path, "CLAUDE.md", "@AGENTS.md\nextra\n")

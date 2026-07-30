@@ -29,15 +29,13 @@ IM/Gateway 日志 tail 进报告，可定位断在哪一段。
 ## 登记纪律
 
 **新增一个关键特性时，必须在下表「v1 必保活」段登记一行，并配一条能跑的守护测试。**
-每条「必保活」路径都必须对应一个真实存在、能跑的测试函数；清单与测试一旦 drift，门禁不过。
+每条「必保活」路径都必须引用至少一个能被 pytest 收集的守护测试；CI 通过 `scripts/docs-check` 校验表格结构、计数和引用关系。路径是否应纳入清单、测试是否真正覆盖该旅程，由变更评审和按需 E2E 验收判断。
 当前还没有 e2e 兜底的关键路径，诚实登记在「已知缺口 backlog」段，而非默认为已覆盖。
 
 ## v1 必保活路径
 
 > 「守护测试」列指向 `tests/e2e/critical_paths/` 下的测试函数，均经真 Gateway 进程真跑通过。
-> heartbeat（原 #7）端到端不冒泡（真实产品 bug #126），其 e2e 旅程已写但标
-> `@pytest.mark.xfail(strict=True, #126)`（真跑 → 预期 XFAIL；#126 修复后转 XPASS 即 strict
-> 报错提醒去 xfail），暂移至下方 backlog 段——故 v1 必保活当前为 12 条。
+> heartbeat（原 #7）端到端不冒泡（真实产品 bug #126），其 e2e 旅程已写但标 `@pytest.mark.xfail(strict=True, #126)`（真跑 → 预期 XFAIL；#126 修复后转 XPASS 即 strict 报错提醒去 xfail），暂移至下方 backlog 段——故 v1 必保活当前为 13 条。
 
 | # | 用户旅程 | 守护测试 | 归属子系统 | 引入 unit |
 |---|---|---|---|---|
