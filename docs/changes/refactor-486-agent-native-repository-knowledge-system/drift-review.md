@@ -17,12 +17,10 @@
 
 ### D-002：测试 conftest 引用不可定位的 `regression.md`
 
-- 现状：`tests/unit/personal_assistant/conftest.py` 写 `See regression.md §4.1`，没有路径。
-- 来源：该说明由 commit `5ae0ffaf9` 引入；对应内容位于
-  `docs/changes/archive/refactor-372-test-suite-health/regression.md` §4.1。
-- 影响：Agent 无法从代码注释稳定找到设计理由，也可能误读其他 unit 的同名报告。
-- 待决定：改成完整 archive 路径；或把仍长期有效的环境约束写在测试注释中，不再依赖历史报告。
-- 状态：Awaiting user review；代码未修改。
+- 用户裁决：archive 只保留历史来由，live 测试不依赖历史报告解释当前行为。
+- 处理：删除不可定位且不提供当前增量信息的 `See regression.md §4.1`；保留 docstring 中对代理变量、`httpx` 和 `socksio` 故障机制的完整说明。
+- 复核：原 `KernelApiClient` 测试虽已删除，但当前 listener HTTP 测试和 DDGS 集成检查仍会继承宿主机代理，因此该 fixture 仍有实际作用。
+- 状态：Resolved；当前理由已在代码中自包含，历史报告保持冻结。
 
 ### D-003：Testing 指南高估了 contract tests 的保护范围
 
