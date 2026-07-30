@@ -7,6 +7,7 @@
 |---|---|---|
 | [`product-source-materials/`](product-source-materials/README.md) | 已完成原则蒸馏的早期需求稿与蓝图 | [`docs/product/`](../product/README.md) |
 | [`implementation-narratives/`](implementation-narratives/README.md) | 已被代码和 current specs 取代的实现说明 | [`SPEC.md`](../../SPEC.md) 与 [`docs/specs/`](../specs/README.md) |
+| [`retired-specs/`](retired-specs/README.md) | 已被 current 架构和分包契约取代的独立 SPEC/蓝图 | [`SPEC.md`](../../SPEC.md) 与 [`docs/specs/`](../specs/README.md) |
 | [`migration-plans/`](migration-plans/README.md) | 已实施的独立迁移计划 | 对应 current specs |
 | [`audits/`](audits/README.md) | 已结束、只对当时基线负责的审计 | 新问题重新进入 active change 或 issue |
 | [`legacy-development-records/`](legacy-development-records/README.md) | 旧 TDD control-tower 的任务、进度、验收和经验记录 | [`docs/changes/`](../changes/README.md) |

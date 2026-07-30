@@ -1,5 +1,9 @@
 # IM服务与Agent节点契约蓝图
 
+> 状态：Retired。Current 包职责见 [`SPEC.md`](../../../SPEC.md)，产品行为见
+> [`docs/specs/gateway/`](../../specs/gateway/spec.md) 与 [`docs/specs/im/`](../../specs/im/spec.md)。
+> 以下正文冻结，只用于历史解释。
+
 版本：v0.3  
 日期：2026-03-03
 

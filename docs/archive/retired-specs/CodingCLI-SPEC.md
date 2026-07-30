@@ -1,5 +1,8 @@
 # Coding CLI SPEC — src/coding_cli/
 
+> 状态：Retired。Current CLI 行为见 [`docs/specs/cli/`](../../specs/cli/spec.md)。
+> 以下正文冻结，只用于历史解释。
+
 > **版本** v1.0 | **日期** 2026-03-10
 > 本文档是 `src/coding_cli/` 的设计权威文件，从属于顶层 `SPEC.md`。
 

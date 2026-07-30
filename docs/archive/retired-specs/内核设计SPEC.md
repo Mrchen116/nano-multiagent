@@ -1,5 +1,8 @@
 # 内核设计 SPEC — src/agent/
 
+> 状态：Retired。Current 内核边界见 [`SPEC.md`](../../../SPEC.md)，行为见
+> [`docs/specs/kernel/`](../../specs/kernel/spec.md)。以下正文冻结，只用于历史解释。
+
 > **版本** v1.0 | **日期** 2026-03-10
 > 本文档是 `src/agent/` 内核包的设计权威文件，从属于顶层 `SPEC.md`。
 

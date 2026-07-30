@@ -1,5 +1,8 @@
 # Agent节点蓝图
 
+> 状态：Retired。Current Gateway/Agent 边界见 [`SPEC.md`](../../../SPEC.md) 与
+> [`docs/specs/gateway/`](../../specs/gateway/spec.md)。以下正文冻结，只用于历史解释。
+
 版本：v0.4  
 日期：2026-03-03
 

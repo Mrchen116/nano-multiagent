@@ -1,5 +1,8 @@
 # IM服务蓝图
 
+> 状态：Retired。Current IM 行为见 [`docs/specs/im/`](../../specs/im/spec.md)。
+> 以下正文冻结，只用于历史解释。
+
 版本：v0.1  
 日期：2026-03-03
 

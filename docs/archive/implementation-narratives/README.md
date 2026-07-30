@@ -16,3 +16,9 @@
 
 仍需长期保证的消费者行为已经写入 current specs；准确的类名、参数、模板文本和内部数据流由代码、类型和
 测试表达。历史文档保留原文，只新增退役说明和 current 入口。
+
+## CLI call sequence
+
+[`CLI到工具调用时序图.md`](CLI到工具调用时序图.md) 记录早期 HTTP ServerClient/API 架构下的 CLI
+调用链。当前 CLI 已直接装配进程内 kernel；行为入口见
+[`docs/specs/cli/`](../../specs/cli/spec.md)，精确调用链由 `src/coding_cli/` 和 tests 表达。

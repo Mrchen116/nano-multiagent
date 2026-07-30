@@ -1,5 +1,9 @@
 # 【重要】CLI 从用户发消息到工具调用的时序图
 
+> 状态：Retired implementation narrative。Current CLI 行为见
+> [`docs/specs/cli/`](../../specs/cli/spec.md)，精确调用链以当前代码和测试为准。
+> 以下正文冻结，只用于历史解释。
+
 > 简化版：仅包含文本输入流程，不含斜杠命令。
 
 ```mermaid

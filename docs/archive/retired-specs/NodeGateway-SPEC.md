@@ -1,5 +1,8 @@
 # Node Gateway SPEC — src/personal_assistant/
 
+> 状态：Retired。Current Gateway 行为见 [`docs/specs/gateway/`](../../specs/gateway/spec.md)。
+> 以下正文冻结，只用于历史解释。
+
 > **版本** v1.1 | **日期** 2026-03-27
 > 本文档是 `src/personal_assistant/` 的设计权威文件，从属于顶层 `SPEC.md`。
 
