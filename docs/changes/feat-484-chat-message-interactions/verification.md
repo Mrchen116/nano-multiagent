@@ -2,9 +2,9 @@
 
 ## Summary
 
-Mode: full  
-Delta range: N/A  
-Focus issues: N/A  
+Mode: full
+Delta range: N/A
+Focus issues: N/A
 requires_full_verification: false
 
 | 维度 | 结果 |
@@ -140,9 +140,9 @@ requires_full_verification: false
 
 ## Summary
 
-Mode: targeted-closure  
-Delta range: `fc93a3c26..b649ef33a`  
-Focus issues: 13 items from round 1 + reviewer round 1 issue 1  
+Mode: targeted-closure
+Delta range: `fc93a3c26..b649ef33a`
+Focus issues: 13 items from round 1 + reviewer round 1 issue 1
 requires_full_verification: false
 
 | 维度 | 结果 |
