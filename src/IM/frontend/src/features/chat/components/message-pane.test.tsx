@@ -1027,6 +1027,38 @@ describe("MessagePane", () => {
       expect(onFork).toHaveBeenCalledWith("m-empty-forkable");
     });
 
+    it("opens a Branch-only desktop context menu for an empty forkable agent reply", async () => {
+      const user = userEvent.setup();
+      const onFork = vi.fn();
+      const emptyForkableMessage: Message = {
+        ...SAMPLE_MESSAGES[1],
+        id: "m-empty-forkable-context",
+        content: "",
+        kernel_message_id: "km-empty-forkable-context",
+      } as Message;
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[emptyForkableMessage]}
+          mentionCandidates={[]}
+          isDirectChat
+          agentOnline
+          onFork={onFork}
+          onSend={() => {}}
+        />
+      );
+
+      fireContextMenu(
+        screen.getByTestId("message-bubble-m-empty-forkable-context"),
+        { button: 2, buttons: 2, clientX: 0, clientY: 0, pointerType: "mouse" }
+      );
+
+      expect(screen.getByRole("menu")).toBeInTheDocument();
+      expect(screen.queryByRole("menuitem", { name: /Copy message/i })).not.toBeInTheDocument();
+      await user.click(screen.getByRole("menuitem", { name: /Branch from here/i }));
+      expect(onFork).toHaveBeenCalledWith("m-empty-forkable-context");
+    });
+
     it("shows a copy error snackbar and keeps the menu open on clipboard rejection", async () => {
       const writeText = vi.fn(async () => {
         throw new Error("denied");
