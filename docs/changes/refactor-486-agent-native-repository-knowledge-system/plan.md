@@ -455,7 +455,21 @@ external comparisons、brainstorms、迁移计划和退役设计目前靠文件�
 
 ### 阶段 6：完成显式链接图
 
-状态：Pending
+状态：Completed
+
+#### 已完成
+
+- 固化 `AGENTS.md → docs/README.md → 领域 README → 具体文档` 的显式入口链；具体文档继续链接相邻
+  current、work、evidence 或 memory，而不是依赖 Agent 偶然搜索到文件。
+- 补齐 product、development、operations、specs、changes、research 和 archive 的领域入口；索引同时说明
+  文档内容、适用任务、状态与 current owner。
+- 将原 comparisons、brainstorms、architecture reviews、退役 subsystem 文档和 Agent-Native 研究记录
+  分流到 research/archive，并在索引和页首标明非 current 状态。
+- 保持 `docs/changes/archive/` 原样冻结；completed unit 通过 change index、unit id 和搜索按需发现，没有把
+  1124 份历史材料逐篇拉入 live 阅读链。
+- 使用 Markdown AST 从 `AGENTS.md` 遍历仓库链接：84 个要求可达的根入口、live 长期文档、research
+  快照、archive README 和 active unit `status.md` 全部可达，`missing=0`。阶段 7 将把这次一次性检查
+  固化为仓库脚本和 CI。
 
 #### 要解决的问题
 
@@ -489,10 +503,10 @@ Agent 能搜索文件，但没有显式入口的正确文档仍可能在任务�
 
 #### 退出条件
 
-- [ ] 所有 live 长期文档从根入口可达。
-- [ ] 索引不是裸路径清单，每项都有用途和状态。
-- [ ] research/archive 不进入 current 的默认阅读路径。
-- [ ] 删除、移动一份 current 文档时，能够枚举所有 live 入口。
+- [x] 所有 live 长期文档从根入口可达。
+- [x] 索引不是裸路径清单，每项都有用途和状态。
+- [x] research/archive 不进入 current 的默认阅读路径。
+- [x] 删除、移动一份 current 文档时，能够枚举所有 live 入口。
 
 ### 阶段 7：加入机械治理与 promotion 闭环
 
