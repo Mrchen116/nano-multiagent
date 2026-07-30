@@ -49,3 +49,5 @@ LLM 交互日志：`/Users/czj/Repos/LLM_PROXY/logs/session/*_<session_id>/`
 | codex-cli | `~/Repos/opensource-hub/codex` | coding agent core，与 Claude Code 对照 |
 
 参考项目是调研材料，不是本仓 current 契约；结论必须回到本仓代码、[`SPEC.md`](SPEC.md) 和 [`docs/specs/`](docs/specs/README.md) 核实。
+完整用途、基线记录规则和其他研究入口见
+[`docs/research/upstreams.md`](docs/research/upstreams.md)。
