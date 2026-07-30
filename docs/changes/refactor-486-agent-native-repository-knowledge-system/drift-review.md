@@ -174,14 +174,9 @@
 
 ### D-018：并行 reviewer/verifier 的报告 push 存在竞态
 
-- 现状：`change-orchestrator` 要求 reviewer 与 verifier 并行。reviewer 在 unit worktree commit 并直接
-  push；verifier 在独立 detached worktree fetch/rebase 后 push。orchestrator 等两者返回后只读取
-  unit worktree 的本地 `BEFORE..AFTER`，没有先把远端 verifier report commit 快进回本地。
-- 风险：两者可能发生 non-fast-forward；或者远端已有两个报告、unit worktree 只含 reviewer 报告，后续
-  `push --force-with-lease` 覆盖 verifier 报告。
-- 待决定：报告产出是否改成串行集成；或由 orchestrator 在每个报告返回后 fetch/fast-forward，并验证所有
-  report commits 都是本地 HEAD 祖先后再继续。
-- 状态：Awaiting user review；skills 未修改。
+- 原因：reviewer 与 verifier 并行从同一个 unit HEAD 产生报告 commit，并竞争推进同一个远端 unit 分支；原 orchestrator 又只读取 unit worktree 的本地 HEAD，可能看不到 verifier 已 push 的报告。
+- 决定：保留并行验收和各自提交。每个验收 Agent 在普通 push 被拒绝时自行 `fetch → rebase → push`，直到自己的报告进入远端 unit 分支；Orchestrator 等两者返回后同步远端，确认本轮两份 `report_commit` 都已纳入再路由。
+- 状态：Resolved；不增加报告分支、锁或固定重试状态机，Orchestrator 不替验收 Agent 提交报告。
 
 ### D-019：归档步骤曾与手工活动索引冲突
 

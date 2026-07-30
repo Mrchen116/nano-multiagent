@@ -25,7 +25,7 @@ Codex 执行本 skill 时,工具映射差异见 `references/codex-execution-note
 6. **默认并行**。无依赖、无文件冲突的 milestone 必须并行派发;不并行才需要理由。
 7. **轮次上限**。同 issue 5 轮 / 同 unit 7 轮验收没 pass → 强制全停,通知人。
 8. **revise-design 三道闸**。reviewer 给的 `revise-design` 不合规(首轮 / 没引用 design.md 段落 / fix-implementation < 2 轮)直接降级回 fix-implementation,详见 §6.3。
-9. **reviewer / verifier 越界硬处置**。这两个验收角色都严禁写源码/测试/提 commit(详见 change-reviewer §0 / change-verifier §0)。若回报时 unit 分支多了非报告类 commit,**强制 revert** 这些 commit(`git reset` 到该 agent 派发前的 HEAD,`push --force-with-lease`)后,把该轮该 agent 的 verdict **作废**,issues 重新打包派 fix worker 实施(参见 §6.6)。不要"接受验收 agent 顺手修的代码"——既验又改不可信。
+9. **reviewer / verifier 越界硬处置**。这两个验收角色都严禁写源码/测试/提交非报告 commit(详见 change-reviewer §0 / change-verifier §0)。若回报时 unit 分支多了非报告类 commit,**强制 revert** 这些 commit(`git reset` 到该 agent 派发前的 HEAD,`push --force-with-lease`)后,把该轮该 agent 的 verdict **作废**,issues 重新打包派 fix worker 实施(参见 §6.6)。不要"接受验收 agent 顺手修的代码"——既验又改不可信。
 10. **退出标准必须逐条严格核对**。worker 回报 DONE 时,orchestrator **必须**对 design.md 该 milestone 行"退出标准"列里的每一条,在 progress.md 找到对应证据并判定是否真的达标(详见 §3.3)。这一步**不许跳过、不许走过场、不许只看证据存不存在**。任一项不达标 → 不算 DONE,退回 worker 补齐。**尤其:live-critical 工作(运行时行为 / 投递 / 跨进程集成)的达标证据必须是真端到端跑到用户可见结果——pytest / stub 绿不算。worker 没给 live 证据时(常因 env 坏了它自降证据),自己把 env 修好或打回 worker 真跑,绝不签收后把 live 验证甩给下一轮 reviewer——那正是 worker→reviewer 往返轮的来源(详见 §3.3 live 签收闸)。**
 11. **派发 reviewer 的 prompt 口径净化**。orchestrator 在派发包里**只许**透传 design.md 已有的"用户可观察"验收语,**严禁**手写"WS 帧必须有 X / API 必须返回 Y / 函数必须被调用"这类协议/接口/实现级标准——这会把 reviewer 推进 engineer 模式。详见 §5。
 12. **CI 绿了才退出,但不等 merge**——提 PR 后等远端 CI,红了走 fix 循环修到绿再交棒;merge 由人做(§7)。
@@ -500,18 +500,27 @@ reviewer 的真值是首文档(spec / motivation / incident)里**用户可观察
 
 需要协议级验证的是 worker 写单测时的事,不是 reviewer 的事。reviewer 一旦拿到协议级标准,就会去抓帧 / 读 handler / 加 debug log,**整轮验收作废**。
 
-### §5.2 续接 + 越界校验(两个 agent 都查)
+### §5.2 同步报告 + 越界校验(两个 agent 都查)
 
-本轮被派发的 reviewer / verifier 报告都回后,合并路由见 §6。路由前必须**校验 verifier / reviewer 越界**(§0.9)——两者都是零写入,unit 分支上只该多出本轮实际派发闸对应的报告 commit:
+本轮被派发的 reviewer / verifier 报告都回后,先同步远端 unit 分支,确认两者返回的 `report_commit` 都已纳入,再按 §6 合并路由。Orchestrator 不替验收角色提交报告。随后必须**校验 verifier / reviewer 越界**(§0.9)——两者都是零写入,unit 分支上只该多出本轮实际派发闸对应的报告 commit:
 
 ```bash
 # 派发前记下基线(派 verifier+reviewer 之前)
 BEFORE=$(git -C "$unit_worktree" rev-parse HEAD)
 
-# 本轮派出的 reviewer/verifier 报告都回、都 push 后比对
+# 本轮派出的 reviewer/verifier 报告都回、都 push 后同步远端
+git -C "$unit_worktree" fetch origin "unit/<unit_id>"
+git -C "$unit_worktree" merge --ff-only "origin/unit/<unit_id>"
 AFTER=$(git -C "$unit_worktree" rev-parse HEAD)
+
+# 对本轮 selected 的闸逐一检查;retained / skipped 不检查
+git -C "$unit_worktree" merge-base --is-ancestor "<reviewer report_commit>" "$AFTER"
+git -C "$unit_worktree" merge-base --is-ancestor "<verifier report_commit>" "$AFTER"
+
 NEW_COMMITS=$(git -C "$unit_worktree" log --oneline "$BEFORE..$AFTER")
 ```
+
+任一 `report_commit` 不在 `AFTER` 中,要求对应 agent 先完成同步和 push,不要继续路由。
 
 预期:`NEW_COMMITS` **只包含本轮 selected gates 的报告 commit**——若派了 reviewer,应有 `docs(<unit_id>): round <N> acceptance — verdict ...`;若派了 verifier,应有 `docs(<unit_id>): round <N> verification — verdict ...`(commit message 格式详见 AGENTS.md)。retained / skipped 的闸不期待新报告 commit。出现任何改了源码/测试/配置的 commit → 走 §6.6 处置(verifier 越界同 reviewer:作废本轮该 agent 的 verdict、revert 越界 commit、issues 转 fix worker 重做)。
 

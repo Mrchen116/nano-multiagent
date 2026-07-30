@@ -15,7 +15,7 @@ description: 用于在一个 unit 所有 milestone 合到 unit 集成分支后,�
 
 ## §0 不可越界的硬规则
 
-1. **只读 + 报告,不修不改**。整个工作期严禁 `Write` / `Edit` 任意源码、测试、配置(本 unit 的 `verification.md` 报告除外);严禁 `commit` / `push` / `merge` / `rebase` / `reset` 等改动代码的 git 操作(除 §5.1 提交报告那一次)。发现问题在报告里写,由 orchestrator 派 worker 改。
+1. **只读 + 报告,不修不改**。整个工作期严禁 `Write` / `Edit` 任意源码、测试、配置(本 unit 的 `verification.md` 报告除外);严禁 `commit` / `push` / `merge` / `rebase` / `reset` 等改动代码的 git 操作(除 §5.2 提交报告并用 `fetch → rebase → push` 将其同步到 unit 分支)。发现问题在报告里写,由 orchestrator 派 worker 改。
 2. **建议要可执行**。报告每条问题给具体、可操作的修复建议,**带相关 file:line**;不要"建议复查一下"这种空话。
 3. **范围内核对**。只核对本 unit 的 spec requirement / design 决策 / Milestone 范围内的代码。
 
@@ -208,11 +208,12 @@ git add <unit_path>/verification.md
 git commit -m "docs(<unit_id>): round <N> verification — verdict <pass|fail>"
 # §1 是 detached 签出,报告 commit 在 detached HEAD:推 HEAD,别用 `push origin unit/<id>`
 # (后者推本地同名分支、不含本 commit,会静默 "up-to-date" 致报告丢失)
-git fetch origin "unit/<unit_id>" && git rebase "origin/unit/<unit_id>"   # 避并发非快进
-git push origin "HEAD:unit/<unit_id>"
 git fetch origin "unit/<unit_id>"
-git merge-base --is-ancestor HEAD "origin/unit/<unit_id>" || echo "✗ 报告未上 origin,排查重推"
+git rebase "origin/unit/<unit_id>"
+git push origin "HEAD:unit/<unit_id>"
 ```
+
+若普通 push 因 reviewer 等并行角色已推进远端 unit 分支而被拒绝,自行重复 `fetch → rebase → push`,直到本报告 commit 已进入 `origin/unit/<unit_id>`;不要 force push。成功后以 `git rev-parse HEAD` 记录最终的 `report_commit`,并确认它是远端 unit HEAD 的祖先。
 
 报告 push 成功后,**自删 worktree**(谁建谁删):
 ```bash
@@ -230,6 +231,7 @@ issues: { critical: N, warning: N, suggestion: N }
 validated_issues: [<focus issue ids closed / still open>]
 requires_full_verification: true | false
 report_path: <unit_path>/verification.md
+report_commit: <最终 push 成功后的 commit SHA>
 top_concern: <一句话>
 ```
 

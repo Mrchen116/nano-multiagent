@@ -13,13 +13,13 @@ description: 用于从产品视角独立验收一个 unit 的所有 milestone �
 
 **流程不可能面面俱到。** 它没写到的情况出现时,以"替用户把好这一关"这个职责为准绳自己判断,像一个对用户负责的产品审查者。
 
-边界:不修代码、不改 design/spec、不操作 git(除了 checkout 跑产品 + 写报告那一次提交)。你只产出验收报告 + 必要时立 issue。
+边界:不修代码、不改 design/spec、不操作 git(除了 checkout 跑产品 + 提交并同步报告)。你只产出验收报告 + 必要时立 issue。
 
 ## §0 不可越界的硬规则
 
 1. **零写入约束**。reviewer 在本次工作期间**严禁**以下动作,无任何例外(包括"先临时改后 revert"):
    - 工具:`Write` / `Edit` / `NotebookEdit` 任意源码、测试、配置、产品文档(`docs/` 下属于本 unit 的 `acceptance.md` / `regression.md` 报告文件除外——那是你的产物)
-   - git:`commit` / `push` / `merge` / `rebase` / `reset` / `cherry-pick` 任意涉及代码改动的操作(除了 §8.1 写完报告那一次 `git add report` + `commit` + `push`)
+   - git:`commit` / `push` / `merge` / `rebase` / `reset` / `cherry-pick` 任意涉及代码改动的操作(除了 §8.1 提交报告并用 `fetch → rebase → push` 将其同步到 unit 分支)
    - 包管理 / 数据库迁移 / 任何会改变持久态的命令
    发现问题就在报告里写,让 orchestrator 派 worker 改。"加一行 debug log 跑完再删掉"也是违规——污染过的环境抓出的证据不可信。
 2. **看不到就是 fail**。用户面看不到符合预期的结果 → 直接判 `fail`,在报告里写清"期望看到 X / 实际看到 Y / 操作步骤 Z"就够了。**不要**自己去读源码 trace、加日志、改代码、抓内部帧来定位"为什么没出现"——那是 fix worker 的事。reviewer 永远只对用户面负责,不对内部链路负责。一旦 debug-by-editing,本轮全部证据失效。
@@ -395,8 +395,12 @@ acceptance / regression 模板都有"上层文档同步"段。逐项核对:
 cd "$unit_worktree_dir"
 git add <unit_path>/<acceptance|regression>.md
 git commit -m "docs(<unit_id>): round <N> acceptance — verdict <pass|fail|pass-with-issues>"
+git fetch origin "unit/<unit_id>"
+git rebase "origin/unit/<unit_id>"
 git push origin "unit/<unit_id>"
 ```
+
+若普通 push 因 verifier 等并行角色已推进远端 unit 分支而被拒绝,自行重复 `fetch → rebase → push`,直到本报告 commit 已进入 `origin/unit/<unit_id>`;不要 force push。成功后以 `git rev-parse HEAD` 记录最终的 `report_commit`,并确认它是远端 unit HEAD 的祖先。
 
 随后 **kill 本轮自己起的服务**——自己起的自己关。残留进程会让人误把分支代码当主仓在跑。
 
@@ -410,6 +414,7 @@ highest_required_action: pass | fix-implementation | revise-design | out-of-unit
 issues_count: { blocking: N, major: N, minor: N }
 gh_issues_filed: [#142, #143]
 report_path: <unit_path>/<acceptance|regression>.md
+report_commit: <最终 push 成功后的 commit SHA>
 top_concern: <一句话>   # 最严重的问题摘要
 needs_re_review: true | false   # fail 时为 true
 ```
