@@ -141,13 +141,13 @@ Agent 已经能看到 `docs/README.md`，但自动加载的 `AGENTS.md` 仍包�
    - `local-stack.md`：主 IM + Gateway + Web IM 的启动与健康检查；
    - `gateway.md`：持久化 config、start/stop/restart、状态文件和恢复；
    - `troubleshooting.md`：常见故障、症状、证据和恢复路径。
-3. 建立 `docs/development/README.md`，索引 change workflow、local development、runtime、testing、commenting、E2E 与 LLM integration。
+3. 建立 `docs/development/README.md`，索引 change workflow、local development、runtime、testing、coding guidelines、E2E 与 LLM integration。
 4. 将现有开发规则迁入：
    - `docs/TESTING_GUIDE.md` → `docs/development/testing.md`；
-   - `COMMENTING_GUIDE.md` → `docs/development/commenting.md`；
+   - `COMMENTING_GUIDE.md` → `docs/development/coding-guidelines.md`；
    - `docs/e2e-critical-paths.md` → `docs/development/e2e-critical-paths.md`；
    - `docs/可用LLM_API与联调说明.md` → `docs/development/llm-integration.md`。
-5. 先更新 live consumers，再保留旧路径兼容跳转：
+5. 先更新 live consumers；`COMMENTING_GUIDE.md` 直接删除，其他旧路径按迁移表决定是否保留兼容跳转：
    - skills；
    - scripts；
    - tests；
@@ -656,7 +656,7 @@ Agent 能搜索文件，但没有显式入口的正确文档仍可能在任务�
 | 当前路径 | 目标位置 | 处理方式 |
 |---|---|---|
 | `AGENTS.md` 大段 runbook/架构/索引 | development、operations、`SPEC.md`、docs map | 先建 owner，再删除重复正文 |
-| `COMMENTING_GUIDE.md` | `docs/development/commenting.md` | 迁移 canonical，旧路径保留兼容跳转 |
+| `COMMENTING_GUIDE.md` | `docs/development/coding-guidelines.md` | 扩展为仓库代码编写规范的 canonical owner，删除旧路径 |
 | `docs/TESTING_GUIDE.md` | `docs/development/testing.md` | 迁移 canonical，更新 skills，旧路径兼容 |
 | `docs/e2e-critical-paths.md` | `docs/development/e2e-critical-paths.md` | 迁移并加入 development index |
 | `docs/可用LLM_API与联调说明.md` | `docs/development/llm-integration.md` | 保留 provider、代理、日志与诊断入口 |
@@ -704,7 +704,7 @@ Agent 能搜索文件，但没有显式入口的正确文档仍可能在任务�
     │   ├── local-development.md      # 依赖安装、开发命令、测试身份
     │   ├── worktree-runtime.md       # 为开发/E2E 临时隔离端口、config、PID 和数据
     │   ├── testing.md                # 测试分层和长期测试判据
-    │   ├── commenting.md             # 注释与 docstring 约定
+    │   ├── coding-guidelines.md      # 跨模块通用代码编写规范；当前包含注释与 docstring
     │   ├── e2e-critical-paths.md     # 由自动化长期守护的真实用户旅程
     │   └── llm-integration.md        # provider 协议、代理联调、live/fake 测试和日志定位
     │

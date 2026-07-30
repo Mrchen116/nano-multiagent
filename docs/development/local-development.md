@@ -90,8 +90,7 @@ Gateway 的 `im_service.username` / `password` 可以使用这组测试身份，
 
 ## 开发约定
 
-- 注释与 TODO/FIXME：以 [`commenting.md`](commenting.md) 为准。
-- TODO/FIXME 格式：`TODO(<issue-id>): <改进> — <删除条件>` / `FIXME(<issue-id>): <缺陷> — <影响/风险>`。
+- 代码编写、注释与 TODO/FIXME：以 [`coding-guidelines.md`](coding-guidelines.md) 为准。
 - 模块边界：以 [`../../SPEC.md`](../../SPEC.md) 为准；产品包不得绕过 `agent.sdk`。
 - 测试分层：以 [`testing.md`](testing.md) 为准。
 - 前端产物：`src/IM/frontend/dist/` 不提交。

@@ -1,14 +1,23 @@
-# Commenting and Docstrings
+# Coding Guidelines
 
-目标：让调用者不用读实现也会用；让维护者看懂“为什么/约束”，避免过期注释。
+本文承载 nano-multiagent 跨模块通用的代码编写规范。当前先收录注释与 docstring 规则；后续只有在本仓形成稳定、跨模块的编码约定时才继续扩展。
 
-## 1) Docstring（Google 风格）— 写“契约”
-### MUST 写 docstring
+架构边界以 [`../../SPEC.md`](../../SPEC.md) 为准，测试规范以 [`testing.md`](testing.md) 为准；本文不复制这些领域的规则。
+
+## Commenting and Docstrings
+
+目标：让调用者不用读实现也会用，让维护者看懂“为什么/约束”，避免过期注释。
+
+### Docstring（Google 风格）— 写“契约”
+
+#### MUST 写 docstring
+
 - 所有 public：module / class / function / method
 - 入口：CLI、HTTP/RPC handler、任务入口、SDK API
 - 抽象基类/接口
 
-### Docstring 写什么（类型标注已强制，所以不重复类型）
+#### Docstring 写什么（类型标注已强制，所以不重复类型）
+
 - 一句话 summary（动词开头）
 - Args：**语义/单位/范围/默认行为**（不写类型）
 - Returns：**语义**（是否可能为 None、是否排序/去重等）
@@ -33,11 +42,12 @@ def f(x: int) -> int:
     """
 ```
 
-## 2) 注释（comments）— 写“意图”
+### 注释（comments）— 写“意图”
 
 原则：代码表达“做什么”，注释表达“为什么/约束/边界/代价”。
 
-### MUST 注释的场景
+#### MUST 注释的场景
+
 - 业务规则：看代码不知“为什么这样算/判”
 - 边界/历史兼容：特殊 case、脏数据修复
 - 性能关键：复杂度、缓存、避免重复 I/O
@@ -46,19 +56,23 @@ def f(x: int) -> int:
 - 协议/格式：字段语义、版本兼容策略
 - workaround/技术债：必须 TODO/FIXME（含 issue id + 删除条件）
 
-### MUST NOT
+#### MUST NOT
+
 - 复述代码（如 i += 1  # increment i）
 - 写实现流程细节（除非与正确性/性能强相关）
 
-### 颗粒度
+#### 颗粒度
+
 - 优先块注释解释一段逻辑
 - 行尾注释只用于“这行很怪但必须这样写”
 
-## 3) TODO/FIXME 格式（MUST）
+### TODO/FIXME 格式（MUST）
+
 - TODO(<issue-id>): <改进> — <删除条件>
 - FIXME(<issue-id>): <缺陷> — <影响/风险>
 
-## 4) 快速自查
+### 快速自查
+
 - public API 都有 docstring（Args/Returns/Raises/Side Effects 需要则写）
 - 写清副作用、失败模式、可重试/幂等（如相关）
 - 性能/并发/安全/协议关键点有注释

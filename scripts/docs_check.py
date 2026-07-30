@@ -27,7 +27,6 @@ ROOT_ENTRYPOINTS = {
 }
 
 COMPATIBILITY_SHIMS = {
-    Path("COMMENTING_GUIDE.md"),
     Path("docs/TESTING_GUIDE.md"),
     Path("docs/e2e-critical-paths.md"),
     Path("docs/operator-runbook.md"),

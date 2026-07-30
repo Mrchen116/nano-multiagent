@@ -40,7 +40,7 @@ design,也不建独立 ADR 层(`docs/decisions/`);决策的家是 per-unit `desi
 
 | 不进长青 spec 的内容 | 落点 |
 |---|---|
-| 函数 / 类名、实现走查、内部数据结构、库选型 | 代码 + [`development/commenting.md`](../development/commenting.md) |
+| 函数 / 类名、实现走查、内部数据结构、库选型 | 代码；跨模块通用写法遵守 [`development/coding-guidelines.md`](../development/coding-guidelines.md) |
 | "当初为什么这么选"(决策) | 该单元 `docs/changes/<unit>/design.md` 的 `## 关键决策` |
 | 本地环境、测试命令、提交格式和测试身份 | `docs/development/local-development.md` |
 | worktree 服务隔离与进程清理 | [`development/worktree-runtime.md`](../development/worktree-runtime.md) |

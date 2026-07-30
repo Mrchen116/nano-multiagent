@@ -13,7 +13,7 @@
 | 设计、移动、退役或治理仓库知识 | [`documentation-system.md`](documentation-system.md)（Draft） |
 | 在 worktree 内启动隔离 IM、Gateway 或 Vite | [`worktree-runtime.md`](worktree-runtime.md) |
 | 查看必须长期守护的真实用户旅程 | [`e2e-critical-paths.md`](e2e-critical-paths.md) |
-| 编写 docstring、注释或 TODO/FIXME | [`commenting.md`](commenting.md) |
+| 编写代码、docstring、注释或 TODO/FIXME | [`coding-guidelines.md`](coding-guidelines.md) |
 | 联调 LLM provider、本地代理或查看交互日志 | [`llm-integration.md`](llm-integration.md) |
 | 编写 current spec 或归并 delta-spec | [`../specs/CONTRIBUTING.md`](../specs/CONTRIBUTING.md) |
 | 查 change unit 的目录、文件归属和归档规则 | [`../changes/README.md`](../changes/README.md) |
@@ -29,7 +29,7 @@
 | [`documentation-system.md`](documentation-system.md) | Agent-Native 仓库知识体系方法论与维护检查表；完成本次迁移验证前为 Draft |
 | [`worktree-runtime.md`](worktree-runtime.md) | 临时服务的端口、config、数据、进程和清理契约 |
 | [`e2e-critical-paths.md`](e2e-critical-paths.md) | 用户旅程与长期 E2E 守护测试的对账 |
-| [`commenting.md`](commenting.md) | public API docstring、意图注释和 TODO/FIXME 规则 |
+| [`coding-guidelines.md`](coding-guidelines.md) | 跨模块通用代码编写规范；当前包含 public API docstring、意图注释和 TODO/FIXME |
 | [`llm-integration.md`](llm-integration.md) | 本地 LLM 代理配置、协议、日志和验证方法 |
 
 ## 开发反馈顺序

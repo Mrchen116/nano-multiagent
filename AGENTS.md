@@ -32,7 +32,7 @@ nano-multiagent 是一个同时支持终端 Coding Agent 和多渠道个人助�
 
 - 先确认 checkout、branch 和 `git status`；保留用户已有 dirty/untracked 内容，只提交本任务明确修改的文件。
 - 保持 diff 小而可审；代码修改后先跑最窄相关测试，再按风险扩大。测试规则见 [docs/development/testing.md](docs/development/testing.md)。
-- public API 使用 Google 风格 docstring；注释写“为什么/约束”，不复述代码。完整规则见 [docs/development/commenting.md](docs/development/commenting.md)。
+- public API 使用 Google 风格 docstring；注释写“为什么/约束”，不复述代码。完整规则见 [docs/development/coding-guidelines.md](docs/development/coding-guidelines.md)。
 - worktree 内真实服务必须隔离端口、Gateway config、运行数据、workspace 和 node identity，并清理自己启动的进程。优先使用 `./scripts/e2e-up.sh` / `./scripts/e2e-down.sh`，完整契约见 [docs/development/worktree-runtime.md](docs/development/worktree-runtime.md)。
 - `src/IM/frontend/dist/` 是本地构建产物，不提交。
 - 不提交 secret、本机 config、日志、PID、数据库、截图缓存或 worktree runtime 文件。
