@@ -7,8 +7,8 @@
 | 问题 | 权威位置 |
 |---|---|
 | 产品是什么、如何最短开始使用 | [`../../README.md`](../../README.md) |
-| 产品定位、目标用户和长期原则 | 本目录的 `vision.md` |
-| Web IM 的稳定体验原则 | 本目录的 `web-im-principles.md` |
+| 产品定位、目标用户和长期原则 | [`vision.md`](vision.md) |
+| Web IM 的稳定体验原则 | [`web-im-principles.md`](web-im-principles.md) |
 | 四个包怎样分工和部署 | [`../../SPEC.md`](../../SPEC.md) |
 | 某个包当前应该表现为什么 | [`../specs/`](../specs/README.md) |
 | 准备改变什么 | [`../changes/`](../changes/readme.md) |
