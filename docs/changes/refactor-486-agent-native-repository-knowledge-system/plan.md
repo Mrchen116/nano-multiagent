@@ -582,27 +582,31 @@ Agent 能搜索文件，但没有显式入口的正确文档仍可能在任务�
 
 ### 阶段 8：用真实 Agent 工作循环验收
 
-状态：Partial — 独立冷启动 Agent session 尚未执行
+状态：Completed
 
 #### 已完成
 
 - 新增 [`validation.md`](validation.md)，逐项记录架构边界、IM 行为修改、worktree runtime、LLM 日志、
   active unit 恢复、历史架构理由和 change 收尾七类任务的入口链与结果。
-- 同一 Agent 从根入口复走七类任务，均定位到 current owner；查询历史架构决定时先读 completed change，
-  再回 `SPEC.md` 与 current kernel spec 核实，没有让 history 覆盖 current。
+- 七类任务分别使用不继承本次聊天历史的独立 Agent。为避免仓库中的 `validation.md` 变成参考答案，
+  后四项和 IM 重跑使用阶段 7 完成、但尚未写入验收结果的 detached snapshot `4e95552a4`。
+- 冷启动 Agent 均能从根入口定位 current owner；查询历史架构决定时先找 completed change 的原始理由，
+  再回 `SPEC.md`、current kernel spec、代码和 contract tests 核实，没有让 history 覆盖 current。
 - 使用临时目录真实启动 IM + Gateway：随机端口 ready、Gateway auto-bind、两进程存活；执行
   `e2e-down.sh` 后两 PID 消失，敏感临时文件清理完成。
+- 独立 runtime Agent 再次从文档入口完成真实启停，并验证 HTTP、node online、bind、heartbeat、主配置
+  不变及无孤儿进程；两次自加错误假设均能通过源码和更强 evidence 纠正。
 - 验证 LLM session 目录可按 `AGENTS.md` 和 LLM integration 文档定位，并能区分 request、downstream
-  response 和 non-stream response；没有读取或提交敏感正文。
+  response 和 non-stream response；冷启动 Agent 在缺少真实 session ID 时没有猜测，并只做脱敏结构检查。
+- active unit Agent 没有把 `status.md` 当实时真相，继续核对 branch、PR、worktree、进程、日志和 validated
+  range；change 收尾 Agent 正确还原门禁与 promotion/archive/PR 链，同时发现现行 skill 的治理缺口。
 - 执行全分支门禁：docs-check、Ruff、3733 个非 E2E Python tests 和 653 个前端 tests 均通过。
-- 验收发现的原有 SDK warning、前端依赖漏洞和测试 stderr 噪声只进入 `drift-review.md`，没有借本次迁移
-  修改产品代码、依赖或测试策略。
+- 验收发现的原有文档、active unit、SDK、依赖、测试和 change skill 漂移只进入
+  `drift-review.md`，没有借本次迁移修改产品代码、依赖、测试策略或既有流程。
 
-#### 尚未完成
+#### 验收后待裁决
 
-- 当前执行模式没有创建新的独立 Agent session。七项任务的入口和运行路径已经验证，但“一个完全不知道
-  本次迁移对话的新 Agent 是否会自主选择同一路径”仍缺少盲测证据。
-- `drift-review.md` 中 D-001–D-013 等待用户裁决；在裁决前不自动创建 issues，也不把本 unit 归档为
+- `drift-review.md` 中 D-001–D-026 等待用户裁决；在裁决前不自动创建 issues，也不把本 unit 归档为
   completed history。
 
 #### 要解决的问题
@@ -641,8 +645,8 @@ Agent 能搜索文件，但没有显式入口的正确文档仍可能在任务�
 
 #### 退出条件
 
-- [x] 代表性任务均能从根入口找到正确上下文（同 session 复走）。
-- [ ] Agent 不依赖本次聊天历史即可启动、验证和恢复。
+- [x] 代表性任务均能从根入口找到正确上下文（独立冷启动复走）。
+- [x] Agent 不依赖本次聊天历史即可启动、验证和恢复。
 - [x] 没有 research/history 冒充 current 的关键错误。
 - [x] 环境、反馈、门禁和清理流程能够真实执行。
 - [x] 失败后能够定位到具体知识或 Harness 缺口，而不是靠人临场补充。
