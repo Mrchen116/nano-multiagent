@@ -387,7 +387,32 @@ Agent 已经能看到 `docs/README.md`，但自动加载的 `AGENTS.md` 仍包�
 
 ### 阶段 5：规整 Memory 平面
 
-状态：Pending
+状态：Completed（语义漂移和本机报告取舍仍由 [`drift-review.md`](drift-review.md) 等待用户裁决）
+
+#### 已完成
+
+- 建立 `docs/research/README.md` 与 `upstreams.md`，让外部比较、脑暴、架构审查和 Agent-Native
+  知识体系研究从全仓文档图可达。
+- 将 Claude Code tools/kernel 比较与 change review 脑暴迁入 research；Markdown 记录日期、nano
+  baseline、未知 upstream baseline 和 current owner 状态，HTML 增加可见 snapshot banner。
+- 原研究正文保持记录时语境；“旧缺口是否仍应实现”进入 drift queue，没有按当前代码反向改写历史。
+- 将 `improve-codebase-architecture` 的未来输出改到 `docs/research/architecture-reviews/`；本地主工作树
+  已有 dirty snapshots 未被复制，选择方案进入 `D-010`。
+- 将 archive 根部独立 SPEC、蓝图、实现叙事和迁移建议分入 `retired-specs/`、
+  `implementation-narratives/` 与 `migration-plans/`，并在页首提供 current 替代入口。
+- 将本次外部研究记录和通用方法草案从主工作树复制到隔离分支；源文件未被修改，方法草案等待阶段 7/8
+  的仓库验证后再定稿。
+
+#### 已提交
+
+| Commit | 内容 |
+|---|---|
+| `fcd728ac3` | 建立 research map 与 upstream catalog |
+| `d928ff0c2` | 将未来 architecture review 输出路由到 research |
+| `b1b4c0031` | 机械迁移 comparisons 与 brainstorms |
+| `ed7bbe085` | 为比较和脑暴快照补索引、基线与 review-pending 状态 |
+| `040f5b132` | 分类 retired subsystem specs、蓝图、实现叙事与迁移计划 |
+| `21e18d264` | 纳入 Agent-Native 知识体系研究记录和方法草案 |
 
 #### 要解决的问题
 
@@ -422,10 +447,11 @@ external comparisons、brainstorms、迁移计划和退役设计目前靠文件�
 
 #### 退出条件
 
-- [ ] research/history 从路径和页面头部即可识别为非 current。
-- [ ] 每份重要研究都能追溯代码与外部基线。
-- [ ] 已验证结论已经进入 Truth/Control，而不只留在研究报告里。
-- [ ] completed change 与 retired independent docs 有不同入口和语义。
+- [x] research/history 从路径和页面头部即可识别为非 current。
+- [x] 每份重要研究都能追溯已记录的代码与外部基线；历史未记录的 upstream 版本明确标为
+  `not-recorded`，没有反向伪造。
+- [x] 已验证结论已经进入 Truth/Control，而不只留在研究报告里。
+- [x] completed change 与 retired independent docs 有不同入口和语义。
 
 ### 阶段 6：完成显式链接图
 
