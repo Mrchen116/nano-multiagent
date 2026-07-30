@@ -1,6 +1,6 @@
 ---
 name: change-code-review
-description: 提 PR 前对代码 diff 做精确率导向的多角度 code review,与 change-reviewer / change-verifier 并列的验收闸。由 change-orchestrator 在主会话内执行(不派给 subagent);用户要求"review 这个 diff / 提 PR 前把代码过一遍"时也可触发。
+description: 提 PR 前对代码 diff 做精确率导向的多角度 code review,与 change-reviewer / change-verifier 并列的验收闸。由 change-orchestrator 或 change-orchestrator-simple 在主会话内执行(不派给 subagent);用户要求"review 这个 diff / 提 PR 前把代码过一遍"时也可触发。
 ---
 
 # Change Code Review

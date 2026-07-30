@@ -185,6 +185,12 @@
 - 待决定：按当前工具 schema 更新映射，并明确模型不可用时的兼容策略；这属于运行时适配更新，不应改变 Full/lite、spec review 或三类门禁的产品流程语义。
 - 状态：Awaiting user review；Codex 映射未修改。
 
+### D-027：简化实施与零用户面 Full 的 reviewer 政策冲突
+
+- 用户决定：简化实施不能比原流程增加门禁；它只减少实施编排成本，沿用原有门禁适用性。
+- 处理：两种 Full 实施方式共用同一 selected-gates 矩阵。存在用户可观察旅程时执行 reviewer、verifier、code review；零用户面时只执行 verifier 与 code review。
+- 状态：Resolved。
+
 ## 本规则建立前已经直接校正、需要复核
 
 ### D-008：Feishu channel 的操作入口

@@ -1,6 +1,6 @@
 ---
 name: change-verifier
-description: 用于在 unit 实现完成后核对实现是否匹配 spec/design/tasks，或在 orchestrator 校正 delta-spec 后核对校正结果。触发条件：被 change-orchestrator 派发 verifier 工作，或用户要求核对代码与需求。不要用于产品旅程验收。
+description: 用于在 unit 实现完成后核对实现是否匹配 spec/design/milestone，或在 orchestrator 校正 delta-spec 后核对校正结果。触发条件：被 change-orchestrator 或 change-orchestrator-simple 派发 verifier 工作，或用户要求核对代码与需求。不要用于产品旅程验收。
 ---
 
 # Change Verifier
@@ -9,7 +9,7 @@ description: 用于在 unit 实现完成后核对实现是否匹配 spec/design/
 
 跨三个维度,产出一份分级的验证报告:
 
-1. **Completeness** —— task 都做完了吗?spec 的 requirement 都有实现吗?
+1. **Completeness** —— milestone 都完成了吗?spec 的 requirement 都有实现吗?
 2. **Correctness** —— 实现符合 spec 吗?scenario 被覆盖了吗?
 3. **Coherence** —— 实现合理吗?遵守 design.md 了吗?
 
@@ -70,7 +70,7 @@ verifier 不开新分支(只读核对),报告 commit 直接提到 unit 分支(§
 
 普通模式读上下文(只读),分两类:
 
-**① 本 unit 文档**(核对对象):`spec.md`(requirement / scenario)、`design.md`(关键决策;若含 `## 前端原型`,还要抽出原型对齐契约)、各 milestone `M<N>-*/tasks.md` / `progress.md`、历轮 `verification.md`(round > 1 继承未关闭项)。
+**① 本 unit 文档**(核对对象):`spec.md`(requirement / scenario)、`design.md`(关键决策和 milestone;若含 `## 前端原型`,还要抽出原型对齐契约)、各 milestone 中实际存在的实施记录与 evidence、历轮 `verification.md`(round > 1 继承未关闭项)。
 
 **② 项目权威规范**(若有；判据,不是背景):§2/§3/§4 判定靠的标尺在项目级规范里,不在 unit 局部文档里。至少找齐这几类再读:
 - **测试规范** —— 判「测试覆盖够不够、该不该有、写在哪层、是不是临时验收证据冒充永久回归」(§3.2/§3.3)。
@@ -81,7 +81,7 @@ verifier 不开新分支(只读核对),报告 commit 直接提到 unit 分支(§
 
 `corrected-delta` 模式读取本 unit `specs/` 下的全部 delta 文件、最终代码 diff、unit 首文档/design 和已有 `verification.md`。没有 delta 文件时停止并告知 orchestrator。
 
-**普通模式若 tasks 为空 / 不存在**:报告 "No tasks to verify",退出。
+普通模式不要求 `tasks.md` / `progress.md` 必然存在。存在时把它们作为实施记录核对；不存在时直接从 design 的 milestone 目标和退出标准追到代码、测试、commits 与 evidence。缺少文件本身不是 finding，无法证明 milestone 已完成才是。
 
 ### §1.1 Verification Modes
 
@@ -89,7 +89,7 @@ verifier 不开新分支(只读核对),报告 commit 直接提到 unit 分支(§
 
 | Mode | 范围 |
 |---|---|
-| `full` | 跑完整 §2 / §3 / §4,逐 task / requirement / scenario / design 决策核对 |
+| `full` | 跑完整 §2 / §3 / §4,逐 milestone / requirement / scenario / design 决策核对 |
 | `targeted-closure` | 只验证上一轮 `focus_issues` 是否被 fix 关闭,并核对相关 requirement / scenario / test / design decision |
 | `delta` | 只看 `fix_delta_range` 的改动文件,判断这些改动是否引入新的 spec/design 偏离或架构自洽风险 |
 | `corrected-delta` | 逐条核对本 unit 的 delta-spec 与最终实现/测试，并检查 unit diff 是否还有 delta 未覆盖的对外行为 |
@@ -110,9 +110,11 @@ verifier 不开新分支(只读核对),报告 commit 直接提到 unit 分支(§
 验证所有该做的工作是否完成。
 
 ### §2.1 Task 完成检查
-读各 milestone 的 `tasks.md`,统计标 `- [x]`(完成)vs `- [ ]`(未完成):
-- 全部完成 → 报告 "Tasks: N/N complete",该维度通过。
-- 有未完成 → 报告 "Tasks: X/N complete",**逐条列出未完成项**,标 **CRITICAL**,建议:"完成剩余 task,或若已实现则标记完成"。
+先从 design 提取全部 milestone 目标和退出标准，再核对其实施结果：
+- milestone 有 `tasks.md` 时，统计 `- [x]` 与 `- [ ]`，并把 task 与退出标准一起核对。
+- milestone 没有 `tasks.md` 时，从代码、测试、commits、实际存在的实施记录和 evidence 判断退出标准是否已经满足。
+- 全部满足 → 报告 milestone 完成度，该维度通过。
+- 有未完成或无法证明的退出标准 → 逐条列出，标 **CRITICAL**，说明缺少的实现或证据。
 
 ### §2.2 Spec 覆盖检查
 从 spec 的验收标准里**抽出每条 requirement**,在代码库里搜索它的实现:
@@ -122,7 +124,7 @@ verifier 不开新分支(只读核对),报告 commit 直接提到 unit 分支(§
 若 `design.md` 有 `## 前端原型` 或引用 reference artifact:
 
 - 抽出原型对齐契约里的每个 `must-match` 行。
-- 检查这些行是否投影到 Milestone 退出标准、`tasks.md` 的 Prototype / Reference Contract、`progress.md` 的 Prototype Comparison 或 acceptance 报告证据。
+- 检查这些行是否投影到 Milestone 退出标准、实际存在的实施记录或 acceptance 报告证据。
 - 证据路径必须可复查且落在 unit 目录或仓库内;只写 `/tmp/...`、临时浏览器状态、口头描述、"页面能渲染"均标 **WARNING**;完全没有 evidence / comparison 标 **CRITICAL**。
 - 若 contract 明确要求某个用户可观察结构/交互,而代码明显不符合,标 **CRITICAL** 并引用 code file:line。不要做主观美术判断,只核 explicit contract。
 

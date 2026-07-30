@@ -47,6 +47,7 @@ def test_gate_two_reuses_one_reviewer_until_clean_approval() -> None:
 def test_selected_validation_gate_matrix_does_not_drift() -> None:
     workflow = _read("docs/development/change-workflow.md")
     orchestrator = _read(".claude/skills/change-orchestrator/SKILL.md")
+    simple_orchestrator = _read(".claude/skills/change-orchestrator-simple/SKILL.md")
     rows = _table_rows(workflow)
 
     assert rows["Full，存在用户可观察旅程"] == ("必须", "必须", "必须")
@@ -56,3 +57,9 @@ def test_selected_validation_gate_matrix_does_not_drift() -> None:
         "full 普通 unit → 三道闸全跑;零用户面 unit → verifier + code review;"
         "lite → 只跑 code review"
     ) in orchestrator
+    assert "用户点名 `$change-orchestrator-simple` 时使用" in simple_orchestrator
+    assert (
+        "零用户面：执行 `$change-verifier` 和 `$change-code-review`"
+        in simple_orchestrator
+    )
+    assert "不派产品 reviewer" in simple_orchestrator

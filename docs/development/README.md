@@ -6,7 +6,7 @@
 
 | 任务 | 先读 |
 |---|---|
-| 判断是否建立 change unit、选择 Full、Bugfix lite 或快速开发 | [`change-workflow.md`](change-workflow.md) |
+| 判断是否建立 change unit、选择生命周期或 Full 的原流程/简化实施 | [`change-workflow.md`](change-workflow.md) |
 | 安装环境、运行常用命令、开发 CLI 或前端 | [`local-development.md`](local-development.md) |
 | 决定测什么、测试放在哪一层 | [`testing.md`](testing.md) |
 | 判断某类证据能证明什么、结果保存在哪里 | [`evidence.md`](evidence.md) |
@@ -22,7 +22,7 @@
 
 | 文档 | 负责的事实 |
 |---|---|
-| [`change-workflow.md`](change-workflow.md) | 何时建 unit、Full/Bugfix lite/快速开发生命周期、角色和门禁 |
+| [`change-workflow.md`](change-workflow.md) | 何时建 unit、生命周期、Full 实施方式、角色和门禁 |
 | [`local-development.md`](local-development.md) | Python/前端环境、常用命令、测试身份和提交格式 |
 | [`testing.md`](testing.md) | 测试选择、分层、命名、长期回归与临时证据边界 |
 | [`evidence.md`](evidence.md) | 测试、CI、真栈、报告、runtime 与 LLM 日志的能力边界和归并规则 |

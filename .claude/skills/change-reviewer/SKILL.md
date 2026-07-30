@@ -1,6 +1,6 @@
 ---
 name: change-reviewer
-description: 用于从产品视角独立验收一个 unit 的所有 milestone 完成后是否对用户真正可用。触发条件:被 `change-orchestrator` 在 unit 全部 milestone 合到 unit 集成分支后派发;或用户要求"验收 / 审视 / 体验一下这个功能 / 帮我看看 X 能不能用"。读 spec/design/runbook + 真实走用户旅程,产出 `acceptance.md`(feat/refactor/perf)或 `regression.md`(bugfix full),含 verdict、问题清单、Recommended Action 路由建议。out-of-unit 严重问题立即 `gh issue create`。不要用于:代码审查，那是change-verifer。
+description: 用于从产品视角独立验收一个 unit 的所有 milestone 完成后是否对用户真正可用。触发条件:被 `change-orchestrator` 或 `change-orchestrator-simple` 在 unit 实现完成后派发;或用户要求"验收 / 审视 / 体验一下这个功能 / 帮我看看 X 能不能用"。读 spec/design/runbook + 真实走用户旅程,产出 `acceptance.md`(feat/refactor/perf)或 `regression.md`(bugfix full),含 verdict、问题清单、Recommended Action 路由建议。out-of-unit 严重问题立即 `gh issue create`。不要用于代码审查，那是 `change-code-review`。
 ---
 
 # Product Acceptance Reviewer
@@ -92,7 +92,7 @@ git pull --ff-only origin "unit/<unit_id>"
 3. **`README.md` / [`docs/operations/README.md`](../../../docs/operations/README.md)** —— 怎么启动、怎么用
 4. **`CLAUDE.md` / `AGENTS.md`** —— 项目级约定,怎么跑产品
 5. **历轮验收报告**(若 `review_round > 1`)—— 上一轮的 issues、Recommended Action、修复路径
-6. **每个 milestone 的 `<unit_path>/M<N>-*/progress.md`** —— **简短扫一眼**,知道大概实现了什么、有没有"[Design 修订]"段。**不要**深读代码意图——你不是 code reviewer。
+6. **每个 milestone 中实际存在的实施记录** —— 若有 `progress.md`，简短扫一眼，知道大概实现了什么、有没有"[Design 修订]"段。没有过程记录时直接继续，不把它当作产品验收缺陷。**不要**深读代码意图——你不是 code reviewer。
 
 读完后心里要清晰:
 - 这个 unit 的验收标准有哪些条
