@@ -2,7 +2,7 @@
 
 > 状态：Archived source material。当前稳定体验原则见 [`../../product/web-im-principles.md`](../../product/web-im-principles.md)，具体行为见 [`../../specs/im/`](../../specs/im/spec.md)。
 
-版本：v0.4  
+版本：v0.4
 日期：2026-03-27
 
 ## 1. 放置位置

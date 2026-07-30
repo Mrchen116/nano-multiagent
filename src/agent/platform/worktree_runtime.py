@@ -10,9 +10,7 @@ from pathlib import Path
 import shutil
 
 
-_SHARED_RUNTIME_PATHS: tuple[tuple[str, bool], ...] = (
-    ("data/locks", True),
-)
+_SHARED_RUNTIME_PATHS: tuple[tuple[str, bool], ...] = (("data/locks", True),)
 _WORKTREE_LOCAL_RUNTIME_DIRS: tuple[str, ...] = ("data",)
 
 
