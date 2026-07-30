@@ -6,7 +6,7 @@
 
 ## Changelog
 
-<!-- design 阶段保持空。 -->
+- 2026-07-31：将 reviewer runbook 更新为当前 worktree 隔离栈入口；本 unit 恢复实施前仍须重新 grounding 并重过 design review。
 
 ## 现状分析
 
@@ -209,12 +209,23 @@ sequenceDiagram
 
 ## Runbook for Reviewer
 
-本 unit 改动 Gateway 进程，需要重启 Gateway 验证。
+> 本 unit 当前为 paused。本段更新只修正已经失效的运行入口，不表示其余设计已按当前代码重新批准；恢复实施前必须重新 grounding 并重过 design review。
 
-| 服务 | 停止命令 | 启动命令 | 健康检查 |
-|---|---|---|---|
-| Gateway | `PYTHONPATH=src python -m personal_assistant.main stop` | `PYTHONPATH=src python -m personal_assistant.main` | `curl http://127.0.0.1:8000/v1/health` |
-| IM | 无需重启 | — | — |
+本 unit 改动 Gateway 进程。Reviewer 按 [`docs/development/worktree-runtime.md`](../../development/worktree-runtime.md) 使用隔离 IM + Gateway 栈，不调用 Gateway HTTP health endpoint：
+
+```bash
+WT_ROOT="$(git rev-parse --show-toplevel)"
+./scripts/e2e-down.sh --wt "$WT_ROOT"
+./scripts/e2e-up.sh --wt "$WT_ROOT"
+source "$WT_ROOT/.e2e-ports.env"
+
+kill -0 "$(cat "$WT_ROOT/.im.pid")"
+kill -0 "$(cat "$WT_ROOT/.gateway.pid")"
+curl -fsS "$IM_URL/openapi.json" >/dev/null
+tail -n 50 "$WT_ROOT/.gateway.log"
+```
+
+以上只证明本次隔离栈已经启动；功能可用性仍以本 unit 的真实消息旅程为准。验收结束后执行 `./scripts/e2e-down.sh --wt "$WT_ROOT"` 并确认两个 PID 已退出。
 
 **Review 驱动方式**: 端到端真栈;客户端面不改（IM 前端不变），用 IM HTTP API 代驱动（发消息 → 观察 agent 回复中的唤醒计划 → 等待唤醒触发 → 观察 agent 自动继续）
 

@@ -109,10 +109,10 @@
 
 ### D-016：Paused `feat-444` 的 reviewer runbook 使用不存在的 Gateway 健康检查
 
-- 现状：`docs/changes/feat-444-session-wakeup/design.md` 指示 reviewer 请求 `http://127.0.0.1:8000/v1/health`；当前 Gateway 没有这条路由。该 unit 仍停留在设计产物阶段，恢复前需要重新 grounding。
-- 影响：Agent 如果直接深链 design 并照 runbook 执行，会把无效检查误判为实现或环境故障。
-- 待决定：恢复该 unit 时是否先修订 runbook 并重过 design review；或现在就建立 issue，避免 paused design 长期保留不可执行指令。
-- 状态：Awaiting user review；paused unit 未修改。
+- 用户决定：现在修正失效 runbook，不等待该 unit 恢复。
+- 处理：改用 current `worktree-runtime.md` 的隔离 `e2e-up.sh` / `e2e-down.sh` 入口，以进程、IM OpenAPI、新鲜 Gateway 日志和真实消息往返组合判断可用性；明确 Gateway 没有供 reviewer 调用的 HTTP health endpoint。
+- 边界：本次只修正运行入口，不重新批准暂停前的技术方案；`feat-444` 恢复实施前仍须重新 grounding 并重过 design review。
+- 状态：Resolved。
 
 ### D-017：`feat-484` 的 unit 文档没有覆盖当前验收现场
 
