@@ -526,6 +526,7 @@
       "moreActions": "更多操作",
       "branchFromHere": "从此处分支",
       "branchPending": "正在创建分支…",
+      "branchOffline": "Agent 离线，暂不可分支",
       "linkOpensInNewTab": "{{label}}，在新标签页打开",
       "fork": "分支",
       "forkOffline": "Agent 离线，暂不可分支",

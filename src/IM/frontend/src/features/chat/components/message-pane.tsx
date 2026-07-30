@@ -242,7 +242,7 @@ export function MessagePane({
     surfaceToken: number;
     conversationId: string;
     messageId: string;
-    bodyElement: HTMLElement;
+    bodyElement: HTMLElement | null;
     surface: "context-menu" | "action-sheet";
     anchor: { x: number; y: number } | null;
     trigger: HTMLElement | null;
@@ -331,7 +331,7 @@ export function MessagePane({
     }
   }, [activeMessageAction, messages, closeActionSurface]);
 
-  function showCopyNotice(kind: "success" | "error") {
+  const showCopyNotice = useCallback((kind: "success" | "error") => {
     noticeTokenRef.current += 1;
     const token = noticeTokenRef.current;
     const generation = conversationGenerationRef.current;
@@ -350,13 +350,13 @@ export function MessagePane({
         return null;
       });
     }, kind === "success" ? 1600 : 4000);
-  }
+  }, [t]);
 
-  function publishCopyResult(
+  const publishCopyResult = useCallback((
     attemptToken: number,
     kind: "success" | "error",
     surfaceToken: number | null
-  ) {
+  ) => {
     if (!mountedRef.current) return;
     const latest = latestCopyAttemptRef.current;
     if (!latest) return;
@@ -372,15 +372,15 @@ export function MessagePane({
       closeActionSurface("copy-success");
     }
     showCopyNotice(kind);
-  }
+  }, [closeActionSurface, showCopyNotice]);
 
-  function requestCopy(payload: {
+  const requestCopy = useCallback((payload: {
     conversationId: string;
     messageId: string;
     bodyElement?: HTMLElement;
     codeElement?: HTMLElement;
     surfaceToken?: number;
-  }) {
+  }) => {
     if (payload.conversationId !== conversation.id) return;
     const currentGeneration = conversationGenerationRef.current;
 
@@ -409,7 +409,7 @@ export function MessagePane({
       .call(navigator.clipboard, text)
       .then(() => publishCopyResult(attemptToken, "success", payload.surfaceToken ?? null))
       .catch(() => publishCopyResult(attemptToken, "error", payload.surfaceToken ?? null));
-  }
+  }, [conversation.id, publishCopyResult]);
 
   function requestMessageMenu(payload: {
     messageId: string;
@@ -436,10 +436,11 @@ export function MessagePane({
 
   function requestActionSheet(payload: {
     messageId: string;
-    bodyElement: HTMLElement;
+    bodyElement: HTMLElement | null;
     trigger: HTMLElement | null;
   }) {
-    if (payload.bodyElement?.isConnected !== true) return;
+    if (payload.trigger?.isConnected !== true) return;
+    if (payload.bodyElement !== null && !payload.bodyElement.isConnected) return;
     surfaceTokenRef.current += 1;
     const next: ActiveMessageAction = {
       surfaceToken: surfaceTokenRef.current,
@@ -922,6 +923,7 @@ export function MessagePane({
         >
           <MessageActionList
             message={activeMessage}
+            copyAvailable={activeSurface.bodyElement !== null}
             isDirectChat={isDirectChat}
             agentOnline={agentOnline}
             forkPending={forkPending}
@@ -930,7 +932,7 @@ export function MessagePane({
               requestCopy({
                 conversationId: activeSurface.conversationId,
                 messageId: activeSurface.messageId,
-                bodyElement: activeSurface.bodyElement,
+                bodyElement: activeSurface.bodyElement ?? undefined,
                 surfaceToken: activeSurface.surfaceToken,
               })
             }
@@ -972,6 +974,7 @@ export function MessagePane({
             {activeMessage && activeSurface && (
               <MessageActionList
                 message={activeMessage}
+                copyAvailable={activeSurface.bodyElement !== null}
                 isDirectChat={isDirectChat}
                 agentOnline={agentOnline}
                 forkPending={forkPending}
@@ -980,7 +983,7 @@ export function MessagePane({
                   requestCopy({
                     conversationId: activeSurface.conversationId,
                     messageId: activeSurface.messageId,
-                    bodyElement: activeSurface.bodyElement,
+                    bodyElement: activeSurface.bodyElement ?? undefined,
                     surfaceToken: activeSurface.surfaceToken,
                   })
                 }
@@ -1021,8 +1024,18 @@ const MD_TABLE_COMPONENTS: Pick<Components, "table" | "th" | "td"> = {
   td: ({ node: _node, ...props }) => <td {...props} />,
 };
 
+function getReactNodeText(node: React.ReactNode): string {
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(getReactNodeText).join("");
+  if (React.isValidElement<{ children?: React.ReactNode }>(node)) {
+    return getReactNodeText(node.props.children);
+  }
+  return "";
+}
+
 function MessageActionList({
   message,
+  copyAvailable = true,
   isDirectChat = false,
   agentOnline = false,
   forkPending = false,
@@ -1032,6 +1045,7 @@ function MessageActionList({
   onClose,
 }: {
   message: Message;
+  copyAvailable?: boolean;
   isDirectChat?: boolean;
   agentOnline?: boolean;
   forkPending?: boolean;
@@ -1069,17 +1083,19 @@ function MessageActionList({
 
   return (
     <div className={`chat-message-actions chat-message-actions--${layout}`} role="group" aria-label={t("chat.messagePane.messageActions")} data-testid={`message-actions-${message.id}`}>
-      <button
-        type="button"
-        role={itemRole}
-        className="chat-message-action chat-message-action--copy"
-        data-testid={`message-copy-${message.id}`}
-        onClick={onCopy}
-        aria-label={t("chat.messagePane.copyMessage")}
-        title={t("chat.messagePane.copyMessage")}
-      >
-        {surface === "toolbar" ? "⎘" : t("chat.messagePane.copyMessage")}
-      </button>
+      {copyAvailable && (
+        <button
+          type="button"
+          role={itemRole}
+          className="chat-message-action chat-message-action--copy"
+          data-testid={`message-copy-${message.id}`}
+          onClick={onCopy}
+          aria-label={t("chat.messagePane.copyMessage")}
+          title={t("chat.messagePane.copyMessage")}
+        >
+          {surface === "toolbar" ? "⎘" : t("chat.messagePane.copyMessage")}
+        </button>
+      )}
       {forkEligible && (
         <button
           type="button"
@@ -1251,7 +1267,7 @@ function MessageBubble({
   }): void;
   onSheetRequest(payload: {
     messageId: string;
-    bodyElement: HTMLElement;
+    bodyElement: HTMLElement | null;
     trigger: HTMLElement | null;
   }): void;
 }) {
@@ -1274,6 +1290,8 @@ function MessageBubble({
     isDirectChat &&
     Boolean(message.kernel_message_id);
   const forkAvailable = forkEligible && agentOnline && !forkPending;
+  const hasCopyableBody = Boolean(message.content);
+  const hasMessageActions = hasCopyableBody || forkEligible;
 
   const cardRef = useRef<HTMLDivElement | null>(null);
   const bodyRef = useRef<HTMLDivElement | null>(null);
@@ -1358,7 +1376,6 @@ function MessageBubble({
 
   function handleMore() {
     const body = bodyRef.current;
-    if (!body) return;
     onSheetRequest({
       messageId: message.id,
       bodyElement: body,
@@ -1426,7 +1443,10 @@ function MessageBubble({
           tabIndex={-1}
         >
           {message.content && (
-            <div ref={bodyRef} className="chat-message-body">
+            <div
+              ref={bodyRef}
+              className={`chat-message-body${isUser ? " chat-bubble-content" : ""}`}
+            >
               {isUser
                 ? renderInlineContent(message.content, participants)
                 : <MarkdownContent content={message.content} participants={participants} onCopyCode={handleCopyCode} />}
@@ -1463,23 +1483,26 @@ function MessageBubble({
             ))}
 
           {/* Desktop fine-pointer / keyboard toolbar. */}
-          <div
-            ref={toolbarRef}
-            className="chat-message-toolbar"
-            role="toolbar"
-            aria-label={t("chat.messagePane.messageActions")}
-          >
-            <MessageActionList
-              message={message}
-              isDirectChat={isDirectChat}
-              agentOnline={agentOnline}
-              forkPending={forkPending}
-              surface="toolbar"
-              onCopy={handleCopy}
-              onFork={handleFork}
-              onClose={() => {}}
-            />
-          </div>
+          {hasMessageActions && (
+            <div
+              ref={toolbarRef}
+              className="chat-message-toolbar"
+              role="toolbar"
+              aria-label={t("chat.messagePane.messageActions")}
+            >
+              <MessageActionList
+                message={message}
+                copyAvailable={hasCopyableBody}
+                isDirectChat={isDirectChat}
+                agentOnline={agentOnline}
+                forkPending={forkPending}
+                surface="toolbar"
+                onCopy={handleCopy}
+                onFork={handleFork}
+                onClose={() => {}}
+              />
+            </div>
+          )}
         </div>
 
         <div className={`chat-bubble-status mt-[2px] flex items-center gap-2 text-[11px] text-[oklch(0.55 0.01 240)] ${statusAlign}`}>
@@ -1505,18 +1528,20 @@ function MessageBubble({
             <span className="text-[oklch(0.55 0.15 25)]">{t("chat.messagePane.failed")}</span>
           )}
 
-          {/* Compact / coarse More trigger. Always rendered; CSS decides visibility. */}
-          <button
-            ref={moreButtonRef}
-            type="button"
-            className="chat-message-more"
-            data-testid={`message-more-${message.id}`}
-            onClick={handleMore}
-            aria-label={t("chat.messagePane.messageActions")}
-            aria-haspopup="dialog"
-          >
-            ⋯
-          </button>
+          {/* Compact / coarse More trigger. CSS decides visibility when actions exist. */}
+          {hasMessageActions && (
+            <button
+              ref={moreButtonRef}
+              type="button"
+              className="chat-message-more"
+              data-testid={`message-more-${message.id}`}
+              onClick={handleMore}
+              aria-label={t("chat.messagePane.messageActions")}
+              aria-haspopup="dialog"
+            >
+              ⋯
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -1524,7 +1549,7 @@ function MessageBubble({
 }
 
 
-function MarkdownContent({
+const MarkdownContent = React.memo(function MarkdownContent({
   content,
   participants,
   onCopyCode,
@@ -1576,9 +1601,7 @@ function MarkdownContent({
     },
     a: (props: any) => {
       const { node: _node, children, href, ...rest } = props;
-      const label = React.Children.toArray(children).map((c) =>
-        typeof c === "string" ? c : ""
-      ).join("");
+      const label = getReactNodeText(children);
       const disposition = classifyChatLink(href ?? "", window.location.href);
       if (disposition === "unsupported") {
         return <span className="im-md-link-unsupported">{children}</span>;
@@ -1640,7 +1663,7 @@ function MarkdownContent({
       </ReactMarkdown>
     </div>
   );
-}
+});
 
 /**
  * Render a text segment that may contain inline mention tags and markdown emphasis.

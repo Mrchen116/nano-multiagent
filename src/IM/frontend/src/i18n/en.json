@@ -529,6 +529,7 @@
       "moreActions": "More actions",
       "branchFromHere": "Branch from here",
       "branchPending": "Creating branch…",
+      "branchOffline": "This agent is offline; branching is unavailable.",
       "linkOpensInNewTab": "{{label}}, opens in new tab",
       "fork": "fork",
       "forkOffline": "This agent is offline; fork is unavailable right now",

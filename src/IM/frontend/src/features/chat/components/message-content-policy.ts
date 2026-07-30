@@ -109,9 +109,9 @@ function normalizeUrl(url: string): string {
     if (pathname !== "/" && pathname.endsWith("/")) {
       pathname = pathname.slice(0, -1);
     }
-    return `${u.protocol}//${host}${pathname}${u.search}`.toLowerCase();
+    return `${u.protocol}//${host}${pathname}${u.search}${u.hash}`;
   } catch {
-    return url.trim().toLowerCase();
+    return url.trim();
   }
 }
 
@@ -480,7 +480,9 @@ function listDepth(li: Element): number {
 
 function collapseBlockSpacing(text: string): string {
   // Collapse 3+ consecutive newlines down to 2 (one blank line between blocks).
-  return text.replace(/\n{3,}/g, "\n\n").trim();
+  // Only structural edge newlines may be removed: generic trim() would also
+  // destroy meaningful indentation when the message starts with a code block.
+  return text.replace(/\n{3,}/g, "\n\n").replace(/^\n+|\n+$/g, "");
 }
 
 /**
