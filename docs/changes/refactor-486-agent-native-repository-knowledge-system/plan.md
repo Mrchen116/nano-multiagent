@@ -179,7 +179,7 @@ Agent 已经能看到 `docs/README.md`，但自动加载的 `AGENTS.md` 仍包�
 
 ### 阶段 2：规整 Truth 平面
 
-状态：Pending
+状态：In Progress
 
 #### 要解决的问题
 

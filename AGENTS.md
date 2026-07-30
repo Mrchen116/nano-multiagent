@@ -17,7 +17,7 @@ nano-multiagent 由四个顶层包组成：`agent` 是进程内内核库，`codi
 
 | 任务 | 入口 |
 |---|---|
-| 产品介绍与最短可用路径 | [`README.md`](README.md) |
+| 产品定位与稳定体验原则 | [`docs/product/`](docs/product/README.md) |
 | 单包 current behavior | [`docs/specs/`](docs/specs/README.md) |
 | 是否建立 change unit、Full/Bugfix lite 与门禁 | [`docs/development/change-workflow.md`](docs/development/change-workflow.md) |
 | 开发环境、测试、注释、worktree E2E 与 LLM 联调 | [`docs/development/`](docs/development/README.md) |
