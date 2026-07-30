@@ -1,0 +1,4 @@
+def main():
+    print("第一行")
+
+    print("前面有缩进和空行")

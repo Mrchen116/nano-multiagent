@@ -152,5 +152,80 @@
 ## 本轮产物
 
 - 验收报告: `docs/changes/feat-484-chat-message-interactions/acceptance.md`
-- 真浏览器证据目录: `docs/changes/feat-484-chat-message-interactions/M1-impl/review-r1-evidence/`
-- 自动化采集脚本: `docs/changes/feat-484-chat-message-interactions/M1-impl/review-r1-runner.mjs`
+- 真浏览器证据目录:
+  - `docs/changes/feat-484-chat-message-interactions/M1-impl/review-r1-evidence/`
+  - `docs/changes/feat-484-chat-message-interactions/M1-impl/review-r2-evidence/`
+- 自动化采集脚本:
+  - `docs/changes/feat-484-chat-message-interactions/M1-impl/review-r1-runner.mjs`
+  - `docs/changes/feat-484-chat-message-interactions/M1-impl/review-r2-runner.mjs`
+
+---
+
+# Round 2 — 2026-07-30 (targeted revalidation)
+
+> 复验范围: round 1 issue #1（rich-copy 序列化）+ 受 M2 delta 影响的回归面（context menu 关闭/键盘可达、连续 code copy、链接分类）。
+> 工作区状态: unit HEAD + WIP 已并入分支，干净；已重新 `npm ci && npm run build` 并起隔离 e2e 栈（IM port 63036）。
+
+## Verdict
+
+**fail**
+
+**Highest Required Action**: `fix-implementation`
+
+Round 1 报告的列表项空行与具名外链断行问题已修复；但真栈读剪贴板发现 fenced 代码块内容被整个 `.im-code-block` 上的 `data-clipboard-exclude` 排除，导致“复制整条富文本消息”仍不满足 design.md 冻结 fixture。其余回归面均通过。
+
+## 复验发现
+
+### Issue 1 修复验证（Round 1 major）
+
+| 检查项 | R1 状态 | R2 结果 | 证据 |
+|---|---|---|---|
+| 列表项连续无多余空行 | fail | pass | `r2-desktop-clipboard-message.txt` 中 `- 项目一` / `- 项目二` / `  - 子项 A` 连续 |
+| 具名外链内联输出 `label (absolute URL)` | fail | pass | `r2-desktop-clipboard-message.txt` 中 `文档 (https://example.com/docs)` |
+| 裸 URL 单次 | fail（被断行） | pass | `r2-desktop-clipboard-message.txt` 中 `https://example.com` 单行 |
+| 同源 `/chat` 无追加 | pass | pass | `r2-desktop-clipboard-message.txt` 中 `/chat` 无额外 URL |
+
+### 新增/剩余问题
+
+| # | 严重度 | Regression Relation | 现象 | Recommended Action | Action Rationale |
+|---|---|---|---|---|---|
+| 2 | major | direct | 整条复制时 fenced 代码块内容丢失：`.im-code-block` 容器带有 `data-clipboard-exclude`，序列化器跳过整个代码块，仅保留前后说明文字。与 design.md 边界图（仅 copy button / link indicator 应被排除）及 rich-copy fixture（含 code block 内容）矛盾。 | fix-implementation | 仍直接违反“复制整条富文本消息”Scenario；应仅对代码复制按钮加 `data-clipboard-exclude`，保留 `pre > code` 内容。 |
+
+### 回归面验证
+
+| 回归面 | 结果 | 证据/日志 |
+|---|---|---|
+| Context menu Escape 关闭 | pass | `context menu after Escape: false`；焦点回到气泡 DIV |
+| Context menu 外部点击关闭 | pass | `context menu after outside click: false` |
+| Toolbar 默认态键盘可聚焦 | pass | computed `display: flex`（非 `none`）；连续 13 次 Tab 可聚焦到 Copy 按钮 |
+| 连续两次 code copy 均生效 | pass | block 0 length 51，block 1 length 18，两次均提示 Copied |
+| 具名外链/裸 URL/同源链接分类 | pass | named external `target="_blank"`；raw URL `target="_blank"`；same-origin `/chat` `target=null` |
+| Hybrid toolbar + More 共存 | pass | `r2-hybrid-hover-toolbar.png`, `r2-hybrid-sheet.png` |
+| Mobile More sheet + 焦点陷阱 | pass | `r2-mobile-sheet.png`；Tab 后焦点在 Copy 按钮；Escape 关闭 |
+
+## 覆盖表更新
+
+### Requirement: 复制整条消息得到可复用正文并获得反馈 — 组内结论:fail
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 复制整条富文本消息 | spec.md + design.md fixture | toolbar 点击 Copy message，读取剪贴板 | `r2-desktop-clipboard-message.txt`, `r2-desktop-copy-success.png` | fail | R1 的列表/链接问题已修复，但 fenced 代码块内容丢失（Issue #2） |
+| 复制成功 | spec.md | 点击复制后观察反馈 | `r2-desktop-copy-success.png` | pass | 仍显示 "Copied" |
+| 有选区时仍可明确复制整条消息 | spec.md | 未在 R2 复测；继承 R1 pass | R1 证据 | pass | 未回归 |
+| 整条复制不混入消息外围信息 | spec.md | 检查剪贴板无头像/时间/token/过程等 | `r2-desktop-clipboard-message.txt` | pass | 仍仅含正文 |
+| 复制失败 | spec.md | 未在 R2 复测；继承 R1 pass | R1 证据 | pass | 未回归 |
+
+其余 Requirement 继承 R1 结论不变。
+
+## 上层文档同步（Round 2）
+
+- [x] `SPEC.md`：无需更新。
+- [x] `docs/specs/im/`：仍建议由 orchestrator §7.0 归并；新增 Issue #2 行为增量。
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新。
+- [x] `docs/SPEC_GUIDE.md`：无需更新。
+
+## 本轮产物（Round 2）
+
+- 追加验收段落: `docs/changes/feat-484-chat-message-interactions/acceptance.md`
+- 真浏览器证据目录: `docs/changes/feat-484-chat-message-interactions/M1-impl/review-r2-evidence/`
+- 自动化采集脚本: `docs/changes/feat-484-chat-message-interactions/M1-impl/review-r2-runner.mjs`
