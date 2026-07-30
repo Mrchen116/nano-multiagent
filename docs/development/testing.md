@@ -2,7 +2,7 @@
 
 目标：让 worker 写出**证明产品能用、且不腐烂**的测试。原则——测试的价值在"每次改动被它挡一次",不在数量。写之前先问"该不该写、写在哪、归谁"，而不是想到什么测什么。
 
-> 适用面：本指南是 `change-impl-worker` 写测试时的硬规范。能被机械校验的条目(命名/落层/marker/依赖/行数)由 `tests/contract/` 兜底；其余靠 worker 遵守 + reviewer 复核。
+> 适用面：本指南是 `change-impl-worker` 写测试时的硬规范。
 
 ## 1) 测什么 / 不测什么（停止条件）
 
@@ -37,8 +37,7 @@
 | 架构边界/契约(依赖方向、事件 schema) | `tests/contract/` | — |
 | 起真进程 / 真浏览器 / 真 LLM / 重外部依赖 | `tests/e2e/` | `@pytest.mark.e2e` |
 
-- 浏览器(playwright)、真实 LLM、真实长驻进程的测试 **MUST 放 `tests/e2e/` 且打 `@pytest.mark.e2e`**。放错目录会让 `pytest -m "not e2e"` 误跑它。
-- **目录与 marker 必须一致**:放进 `tests/e2e/` 就 MUST 打 `@pytest.mark.e2e`。只放目录不打 marker 会让 `pytest -m "not e2e"` 照跑它，而它需要真实进程/浏览器 → 失败。(用 `tests/conftest.py` 给 e2e 目录自动打 marker 也可，但每个文件显式写更稳。)
+- 浏览器(playwright)、真实 LLM、真实长驻进程的测试 **MUST 放 `tests/e2e/`**。`tests/e2e/conftest.py` 会按路径统一添加 `e2e` marker，不要求每个文件重复声明；放错目录会让 `pytest -m "not e2e"` 误跑它。
 
 ## 4) 跨层不重复
 
@@ -71,7 +70,7 @@ TDD 过程里产生两种东西，去向不同：
 ## 7) 结构与上限
 
 - AAA 结构(Arrange-Act-Assert)，一个测试一个清晰主题。
-- 单测试文件软上限 **400 行**，超了按行为拆分。(现存 2000+ 行文件是反面教材。)
+- 新增测试文件不得超过 **400 行**，超出时按行为拆分；扩展既有超长文件时，不继续向其中堆积新的独立行为。
 - MUST NOT `skip`/`xfail` 蒙混过关。测试该绿就让它绿，该删就删。**唯一合规例外**：已知产品回归（测试正确、产品有 bug）可打 `@pytest.mark.xfail(strict=True, reason="<现象>; tracked in #<N>")`，条件：① 必须附 issue 编号；② `strict=True`（修好后转 xpass 自动报错，强制摘标）；③ 该测试不得删除（删除=掩盖 bug）。无 issue 编号的 xfail 视同蒙混，审查拒绝。
 - 复用现有 fixture/helper，不重复造。
 

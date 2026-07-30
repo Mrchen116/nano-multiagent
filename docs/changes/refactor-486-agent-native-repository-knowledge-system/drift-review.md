@@ -22,11 +22,9 @@
 
 ### D-003：Testing 指南高估了 contract tests 的保护范围
 
-- 现状：`docs/development/testing.md` 声称命名、落层、marker、依赖和行数都由 `tests/contract/`机械兜底。
-- 实际：contract tests 当前只锁定新测试命名和 400 行上限；E2E marker 由 `tests/e2e/conftest.py` 自动添加，落层和 optional dependency 没有对应 contract。
-- 影响：读者可能把人工规范误认为已有 CI 保护。
-- 待决定：收回文档承诺到真实覆盖范围；或补齐希望机械保护的检查，并明确自动 marker 的实际机制。
-- 状态：Awaiting user review；原文未修改。
+- 用户裁决：收回超出真实实现的机械保护承诺，不为了匹配文档增加依赖语义猜测的启发式检查。
+- 处理：删除“命名、落层、marker、依赖和行数均由 contract tests 兜底”的总括声明。Worker 指南只保留作业规则，并在对应位置说明 `tests/e2e/conftest.py` 自动添加 marker；真实机械范围仍是新增测试文件的 milestone 命名禁令、新增文件 400 行上限和 E2E 路径 marker。
+- 状态：Resolved。
 
 ### D-004：Claude Code tools 比较材料仍把已经实现的能力写成缺口
 
