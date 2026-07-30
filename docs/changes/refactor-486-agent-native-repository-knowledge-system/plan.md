@@ -518,22 +518,22 @@ Agent 能搜索文件，但没有显式入口的正确文档仍可能在任务�
     │   ├── vision.md                 # 产品定位、目标用户、长期原则
     │   └── web-im-principles.md      # Web IM 稳定交互原则
     │
-    ├── development/
-    │   ├── README.md                 # 开发 Harness 入口
+    ├── development/                  # 修改仓库：开发环境、流程、反馈与临时隔离运行
+    │   ├── README.md                 # 开发任务路由
     │   ├── documentation-system.md   # 本仓验证后的知识体系与维护规则
     │   ├── change-workflow.md        # 生命周期、Full/lite、角色和门禁
-    │   ├── local-development.md      # 环境、命令、开发入口、测试身份
-    │   ├── worktree-runtime.md       # 端口/config/PID/auto-bind 隔离
+    │   ├── local-development.md      # 依赖安装、开发命令、测试身份
+    │   ├── worktree-runtime.md       # 为开发/E2E 临时隔离端口、config、PID 和数据
     │   ├── testing.md                # 测试分层和长期测试判据
     │   ├── commenting.md             # 注释与 docstring 约定
-    │   ├── e2e-critical-paths.md     # 长期守护的真实用户旅程
-    │   └── llm-integration.md        # provider、代理、日志与诊断
+    │   ├── e2e-critical-paths.md     # 由自动化长期守护的真实用户旅程
+    │   └── llm-integration.md        # provider 协议、代理联调、live/fake 测试和日志定位
     │
-    ├── operations/
-    │   ├── README.md                 # 操作任务路由
-    │   ├── local-stack.md            # IM + Gateway + Web IM 主链路
-    │   ├── gateway.md                # Gateway 生命周期与持久化状态
-    │   └── troubleshooting.md        # 症状、证据、恢复
+    ├── operations/                   # 运行 current 系统：启动、观察、排障与恢复
+    │   ├── README.md                 # 运行任务路由
+    │   ├── local-stack.md            # 启动主 IM + Gateway + Web IM 并检查健康
+    │   ├── gateway.md                # 持久配置、start/stop/restart、状态和恢复
+    │   └── troubleshooting.md        # 运行故障的症状、证据、定位和恢复
     │
     ├── specs/
     │   ├── README.md                 # current behavior 总入口
