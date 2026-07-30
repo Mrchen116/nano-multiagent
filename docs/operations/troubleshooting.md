@@ -38,7 +38,7 @@ tail -n 100 "$GATEWAY_DIR/gateway.log"
 | Web IM 显示 Gateway offline | Gateway 进程、IM WebSocket、节点页面和 `last_error` | 先恢复 Gateway → IM 连接，再验证一次真实消息往返 |
 | 进程存在但 Agent 能力为空或接口返回 503 | 是否残留旧 Gateway、`node_id` 是否被其他实例复用 | 停止目标 config 的旧实例，确认进程退出后再启动 |
 | `workspace_root does not exist` | config 中显式 workspace 路径 | 创建准确目录，或移除显式值使用默认 workspace |
-| Agent 不回复或 LLM 报错 | `llm.default_model`、provider 协议、代理健康和本次 LLM 日志 | 按 [`../可用LLM_API与联调说明.md`](../可用LLM_API与联调说明.md) 验证上游，再重试当前消息 |
+| Agent 不回复或 LLM 报错 | `llm.default_model`、provider 协议、代理健康和本次 LLM 日志 | 按 [`../development/llm-integration.md`](../development/llm-integration.md) 验证上游，再重试当前消息 |
 | 飞书配置已保存但未连接 | Agent 通道页 runtime 诊断、节点 online 状态、App ID/Secret 和飞书长连接设置 | 先让节点 online；按页面诊断修正凭据或权限并执行重连 |
 | 飞书普通群消息未进入上下文 | 飞书应用是否有 `im:message.group_msg` | 补齐 scope，等待或触发通道重连后复测 |
 | 飞书主路径可用但 Web IM 没有新影子消息 | IM 是否离线或 Gateway 正在重连 | 先恢复 IM 连接；外部通道离线自治期间的单次同步允许暂缺 |
@@ -113,4 +113,4 @@ curl -sS -X POST http://127.0.0.1:8011/im/v1/bind \
 wscat -c "ws://127.0.0.1:8011/im/ws/user?token=$TOKEN"
 ```
 
-自动化关键路径和真实进程测试属于开发反馈体系，入口见 [`../e2e-critical-paths.md`](../e2e-critical-paths.md) 与 [`../development/worktree-runtime.md`](../development/worktree-runtime.md)。
+自动化关键路径和真实进程测试属于开发反馈体系，入口见 [`../development/e2e-critical-paths.md`](../development/e2e-critical-paths.md) 与 [`../development/worktree-runtime.md`](../development/worktree-runtime.md)。

@@ -31,7 +31,7 @@ pip install -e ".[dev]"
 .venv/bin/python -m pytest -m "not e2e"
 ```
 
-先跑最窄相关测试，再按改动风险扩大到 integration、contract 或完整套件。测试应该放在哪一层、何时使用 e2e marker、哪些临时证据不应固化为回归测试，以 [`../TESTING_GUIDE.md`](../TESTING_GUIDE.md) 为准。
+先跑最窄相关测试，再按改动风险扩大到 integration、contract 或完整套件。测试应该放在哪一层、何时使用 e2e marker、哪些临时证据不应固化为回归测试，以 [`testing.md`](testing.md) 为准。
 
 ## 产品开发入口
 
@@ -90,10 +90,10 @@ Gateway 的 `im_service.username` / `password` 可以使用这组测试身份，
 
 ## 开发约定
 
-- 注释与 TODO/FIXME：以 [`../../COMMENTING_GUIDE.md`](../../COMMENTING_GUIDE.md) 为准。
+- 注释与 TODO/FIXME：以 [`commenting.md`](commenting.md) 为准。
 - TODO/FIXME 格式：`TODO(<issue-id>): <改进> — <删除条件>` / `FIXME(<issue-id>): <缺陷> — <影响/风险>`。
 - 模块边界：以 [`../../SPEC.md`](../../SPEC.md) 为准；产品包不得绕过 `agent.sdk`。
-- 测试分层：以 [`../TESTING_GUIDE.md`](../TESTING_GUIDE.md) 为准。
+- 测试分层：以 [`testing.md`](testing.md) 为准。
 - 前端产物：`src/IM/frontend/dist/` 不提交。
 
 Commit message：

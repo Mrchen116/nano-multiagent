@@ -41,7 +41,7 @@ llm:
 - `im_service` 存在时需要启用内置 `web_relay`。
 - `agents[].workspace_root` 省略时，Gateway 为该 Agent 使用默认 workspace；需要固定位置时显式填写绝对路径。
 - `im_service.username` / `password` 可用于 Gateway 首次登录和 token 刷新失败后的凭据回退。
-- 当前可用模型、本地代理和验证命令见 [`../可用LLM_API与联调说明.md`](../可用LLM_API与联调说明.md)。
+- 本地 LLM 代理、协议、交互日志和最近验证记录见 [`../development/llm-integration.md`](../development/llm-integration.md)。
 
 ## 启动、停止与重启
 

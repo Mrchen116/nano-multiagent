@@ -139,7 +139,7 @@ repo_root=$(git rev-parse --show-toplevel)
 - **实现偏离 spec**(有实现但和 spec 意图对不上)→ 标 **WARNING**,说明差在哪,建议:要么改实现、要么改 spec 对齐现实。
 - **缺实现**(找不到某 requirement 的实现)→ 标 **CRITICAL**,建议:"实现 requirement X" 并说明需要什么。
 - **缺测试**(有实现但无测试覆盖该 scenario)→ 标 **WARNING**。
-- **测试过剩 / 垃圾测试**(一次性迁移红测、断言"某死代码 / 字段已不存在"、跨层重复断言等无长期回归价值的)→ 标 **SUGGESTION**,建议按 `docs/TESTING_GUIDE.md` 剪掉(半年后还该每次 CI 跑吗?否则删)。不只查"缺测试",也查"测试堆积"。
+- **测试过剩 / 垃圾测试**(一次性迁移红测、断言"某死代码 / 字段已不存在"、跨层重复断言等无长期回归价值的)→ 标 **SUGGESTION**,建议按 `docs/development/testing.md` 剪掉(半年后还该每次 CI 跑吗?否则删)。不只查"缺测试",也查"测试堆积"。
 
 ---
 
