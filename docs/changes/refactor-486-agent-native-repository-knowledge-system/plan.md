@@ -321,7 +321,27 @@ Agent 已经能看到 `docs/README.md`，但自动加载的 `AGENTS.md` 仍包�
 
 ### 阶段 4：规整 Evidence 平面
 
-状态：Pending
+状态：Completed
+
+#### 已完成
+
+- 建立 `docs/development/evidence.md`，区分测试、构建、真栈验收、独立门禁报告、runtime state、
+  LLM 日志和远端 CI 各自能证明与不能证明的声明。
+- 定义可复查证据记录的 Claim、Baseline、Method、Result、Locator 和 Limit，以及一次证据进入
+  tests、current specs、架构、development、operations 或历史的 promotion 路径。
+- 将 LLM 日志入口保留在根 `AGENTS.md`，并补充已知 session id 与只知道发生时间时的两种定位方法。
+- 审核现行 skills、scripts 和 tests：新验收结果都进入 change unit；两份只服务旧 milestone 的
+  `scripts/acceptance/` 脚本移入 legacy archive。
+- 明确最窄反馈、风险扩展验证、selected gates、本地 CI 等价检查和远端 CI 的 owner；CI job 命令只以
+  workflow 文件为执行权威。
+
+#### 已提交
+
+| Commit | 内容 |
+|---|---|
+| `a7b4f1c9e` | 建立 evidence 能力边界、保存与 promotion 规则 |
+| `0acd15a6d` | 退役没有现行生产调用者的 milestone acceptance scripts |
+| `5a52e40cc` | 对齐开发反馈、交付门禁和 LLM session 定位 |
 
 #### 要解决的问题
 
@@ -354,11 +374,11 @@ Agent 已经能看到 `docs/README.md`，但自动加载的 `AGENTS.md` 仍包�
 
 #### 退出条件
 
-- [ ] Agent 知道某条证据能证明什么、在哪里找。
-- [ ] 新验收证据不写入根 `ACCEPTANCE/`。
-- [ ] 一次性截图/日志不会冒充长期规范。
-- [ ] 值得长期保护的缺陷有回归测试或明确不固化理由。
-- [ ] LLM session 能从任务或运行线索定位到对应日志。
+- [x] Agent 知道某条证据能证明什么、在哪里找。
+- [x] 新验收证据不写入根 `ACCEPTANCE/`。
+- [x] 一次性截图/日志不会冒充长期规范。
+- [x] 值得长期保护的缺陷有回归测试或明确不固化理由。
+- [x] LLM session 能从任务或运行线索定位到对应日志。
 
 ### 阶段 5：规整 Memory 平面
 
