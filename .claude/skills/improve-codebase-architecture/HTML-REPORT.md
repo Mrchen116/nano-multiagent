@@ -1,6 +1,6 @@
 # HTML Report Format
 
-The architectural review is rendered as a single HTML snapshot in `<root>/docs/architecture-reviews/`, where `<root>` is the Git root when available and otherwise the current working directory. Each filename contains local generation time plus the short commit SHA (or `no-git`), and collisions receive an incrementing suffix so an older report is never overwritten. Tailwind and Mermaid both come from CDNs. Mermaid handles graph-shaped diagrams reliably; hand-built divs and inline SVG handle the more editorial visuals (mass diagrams, cross-sections). Mix the two — don't lean on Mermaid for everything, it'll start to look generic.
+The architectural review is rendered as a single research snapshot in `<root>/docs/research/architecture-reviews/`, where `<root>` is the Git root when available and otherwise the current working directory. Each filename contains local generation time plus the short commit SHA (or `no-git`), and collisions receive an incrementing suffix so an older report is never overwritten. Tailwind and Mermaid both come from CDNs. Mermaid handles graph-shaped diagrams reliably; hand-built divs and inline SVG handle the more editorial visuals (mass diagrams, cross-sections). Mix the two — don't lean on Mermaid for everything, it'll start to look generic.
 
 ## Scaffold
 
