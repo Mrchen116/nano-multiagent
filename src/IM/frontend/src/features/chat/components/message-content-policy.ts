@@ -435,6 +435,14 @@ function collectText(
   }
 
   if (isBlockElement(node)) {
+    if (tag === "pre") {
+      // code 内部空行是内容,但 collapseBlockSpacing 会在序列化完成后对
+      // 全文折叠 3+ 连续换行;先把内部换行换成 NUL 占位穿过折叠,由
+      // serializeMessageBody 统一换回(纯字符串阶段已无 code 区间信息,
+      // NUL 不会合法出现在 text/plain  payload 中)。
+      const inner = text.replace(/\n+$/g, "").replace(/\n/g, "\u0000");
+      return { text: inner + "\n\n", endsWithBlock: true };
+    }
     // Block elements are separated by a blank line (two newlines).
     text = text.replace(/\n+$/g, "") + "\n\n";
     return { text, endsWithBlock: true };
@@ -487,7 +495,8 @@ function collapseBlockSpacing(text: string): string {
  */
 export function serializeMessageBody(root: HTMLElement): string {
   const raw = collectText(root, { excludeSelector: "[data-clipboard-exclude]", withinCode: false });
-  return collapseBlockSpacing(raw.text);
+  // pre 分支用 NUL 占位的 code 内部换行在此换回,保证块间距折叠不压 code 内容。
+  return collapseBlockSpacing(raw.text).replace(/\u0000/g, "\n");
 }
 
 /**
