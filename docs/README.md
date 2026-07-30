@@ -13,10 +13,9 @@
 | 编写或归并行为契约 | [`specs/CONTRIBUTING.md`](specs/CONTRIBUTING.md) → [`specs/README.md`](specs/README.md) |
 | 判断是否建立 unit、选择生命周期或 Full 实施方式、查看阶段和门禁 | [`development/change-workflow.md`](development/change-workflow.md) |
 | 查 change unit 的目录、命名、文件归属或归档位置 | [`changes/README.md`](changes/README.md) |
-| 跟踪本次 Agent-Native 仓库知识体系迁移 | [`refactor-486 plan`](changes/refactor-486-agent-native-repository-knowledge-system/plan.md)（Active Work，不覆盖 current） |
 | 配置开发环境、运行测试或开发 CLI/前端 | [`development/`](development/README.md) |
 | 判断测试、CI、截图、runtime 或 LLM 日志能证明什么 | [`development/evidence.md`](development/evidence.md) |
-| 设计、移动或退役长期文档 | [`development/documentation-system.md`](development/documentation-system.md)（Draft） |
+| 设计、移动或退役长期文档 | [`development/documentation-system.md`](development/documentation-system.md) |
 | 启动、调试或恢复服务 | [`operations/`](operations/README.md) |
 | 在 worktree 内运行真实服务或关键路径 E2E | [`development/worktree-runtime.md`](development/worktree-runtime.md) → [`development/e2e-critical-paths.md`](development/e2e-critical-paths.md) |
 | 查某个变更为什么这样设计 | 活动区或历史区的 [`changes/`](changes/README.md) unit |
@@ -46,7 +45,7 @@
 | LLM provider、本地代理与交互日志如何联调 | [`development/llm-integration.md`](development/llm-integration.md) | 模型与代理入口 |
 | 仓库代码应遵守哪些编写规范 | [`development/coding-guidelines.md`](development/coding-guidelines.md) | 跨模块通用编码规范；当前包含注释与 docstring |
 | Agent 开始任务前必须知道什么 | [`../AGENTS.md`](../AGENTS.md) | 仓库级指令、关键入口与运行约束 |
-| Agent-Native 仓库知识体系如何设计和维护 | [`development/documentation-system.md`](development/documentation-system.md) | 通用方法草案；证据来源见 research |
+| Agent-Native 仓库知识体系如何设计和维护 | [`development/documentation-system.md`](development/documentation-system.md) | 已经本仓迁移与真实 Agent 任务验证；证据来源见 research |
 
 ## 文档状态
 

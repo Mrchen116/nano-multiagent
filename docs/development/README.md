@@ -10,7 +10,7 @@
 | 安装环境、运行常用命令、开发 CLI 或前端 | [`local-development.md`](local-development.md) |
 | 决定测什么、测试放在哪一层 | [`testing.md`](testing.md) |
 | 判断某类证据能证明什么、结果保存在哪里 | [`evidence.md`](evidence.md) |
-| 设计、移动、退役或治理仓库知识 | [`documentation-system.md`](documentation-system.md)（Draft） |
+| 设计、移动、退役或治理仓库知识 | [`documentation-system.md`](documentation-system.md) |
 | 在 worktree 内启动隔离 IM、Gateway 或 Vite | [`worktree-runtime.md`](worktree-runtime.md) |
 | 查看必须长期守护的真实用户旅程 | [`e2e-critical-paths.md`](e2e-critical-paths.md) |
 | 编写代码、docstring、注释或 TODO/FIXME | [`coding-guidelines.md`](coding-guidelines.md) |
@@ -26,7 +26,7 @@
 | [`local-development.md`](local-development.md) | Python/前端环境、常用命令、测试身份和提交格式 |
 | [`testing.md`](testing.md) | 测试选择、分层、命名、长期回归与临时证据边界 |
 | [`evidence.md`](evidence.md) | 测试、CI、真栈、报告、runtime 与 LLM 日志的能力边界和归并规则 |
-| [`documentation-system.md`](documentation-system.md) | Agent-Native 仓库知识体系方法论与维护检查表；完成本次迁移验证前为 Draft |
+| [`documentation-system.md`](documentation-system.md) | Agent-Native 仓库知识体系方法论与维护检查表；已通过本仓迁移和真实 Agent 任务验证 |
 | [`worktree-runtime.md`](worktree-runtime.md) | 临时服务的端口、config、数据、进程和清理契约 |
 | [`e2e-critical-paths.md`](e2e-critical-paths.md) | 用户旅程与长期 E2E 守护测试的对账 |
 | [`coding-guidelines.md`](coding-guidelines.md) | 跨模块通用代码编写规范；当前包含 public API docstring、意图注释和 TODO/FIXME |

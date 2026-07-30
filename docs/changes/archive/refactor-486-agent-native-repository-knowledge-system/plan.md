@@ -2,11 +2,11 @@
 
 > Unit：`refactor-486-agent-native-repository-knowledge-system`
 >
-> 状态：Active
+> 状态：Completed
 >
 > 目标：按 Agent-Native 代码仓知识体系重构整个 nano-multiagent 仓库，而不只是缩短 `AGENTS.md`。
 >
-> 权威边界：本文是迁移期间的工作计划，不覆盖 [`docs/README.md`](../../README.md)、[`SPEC.md`](../../../SPEC.md)、[`docs/specs/`](../../specs/README.md) 或已经生效的开发流程。
+> 权威边界：本文是迁移期间的工作计划，不覆盖 [`docs/README.md`](../../../README.md)、[`SPEC.md`](../../../../SPEC.md)、[`docs/specs/`](../../../specs/README.md) 或已经生效的开发流程。
 >
 > 执行方式：用户已明确授权本次文档整理直接增量实施，不要求套用完整 `change-*` 生命周期。每个阶段仍拆成可独立审阅和回退的提交；当前授权为连续完成全计划后统一 review。
 
@@ -82,7 +82,7 @@ flowchart LR
 
 ### 阶段 0：建立迁移基线
 
-状态：Completed（仓库原有漂移另见临时 [`drift-review.md`](drift-review.md)，等待用户裁决）
+状态：Completed
 
 #### 要解决的问题
 
@@ -316,7 +316,7 @@ Agent 已经能看到 `docs/README.md`，但自动加载的 `AGENTS.md` 仍包�
 - 将 LLM 日志入口保留在根 `AGENTS.md`，并补充已知 session id 与只知道发生时间时的两种定位方法。
 - 审核现行 skills、scripts 和 tests：新验收结果都进入 change unit；两份只服务旧 milestone 的 `scripts/acceptance/` 脚本移入 legacy archive。
 - 明确最窄反馈、风险扩展验证、selected gates、本地 CI 等价检查和远端 CI 的 owner；CI job 命令只以 workflow 文件为执行权威。
-- 本次迁移引入的 evidence 描述和格式门禁错误已经修正；审计发现的原有流程/文档漂移不自动裁决，统一进入 `drift-review.md`。
+- 本次迁移引入的 evidence 描述和格式门禁错误已经修正；审计发现的原有流程/文档漂移先集中留证，最终由用户逐项裁决为修复、无需处理或 GitHub issue。
 
 #### 已提交
 
@@ -368,7 +368,7 @@ Agent 已经能看到 `docs/README.md`，但自动加载的 `AGENTS.md` 仍包�
 
 ### 阶段 5：规整 Memory 平面
 
-状态：Completed（语义漂移和本机报告取舍仍由 [`drift-review.md`](drift-review.md) 等待用户裁决）
+状态：Completed
 
 #### 已完成
 
@@ -495,7 +495,7 @@ Agent 能搜索文件，但没有显式入口的正确文档仍可能在任务�
 - 新增 change workflow 契约测试，锁定 spec review 可选、Gate 2 复用同一 reviewer 并达到 `Approved + 0 CRITICAL / 0 WARNING`、普通 Full / 零用户面 Full / Bugfix lite 的 selected gates。
 - 将新信息归位、索引接入、active work 留证、完成时 promotion、独立文档退役和机械保护写入 `docs/development/documentation-system.md`。
 - 在 Python CI 安装依赖后、Ruff 和 pytest 前执行 `./scripts/docs-check`。
-- D-001 的 E2E catalog 计数和门禁承诺仍在 `drift-review.md` 等待用户裁决，没有借治理阶段改变既有约束。
+- D-001 的 E2E catalog 已按用户裁决校正计数，并只对可客观判断的结构关系建立机械门禁。
 
 #### 已提交
 
@@ -558,11 +558,11 @@ Agent 能搜索文件，但没有显式入口的正确文档仍可能在任务�
 - 验证 LLM session 目录可按 `AGENTS.md` 和 LLM integration 文档定位，并能区分 request、downstream response 和 non-stream response；冷启动 Agent 在缺少真实 session ID 时没有猜测，并只做脱敏结构检查。
 - active unit Agent 在当时的快照中仍继续核对 branch、PR、worktree、进程、日志和 validated range；用户复审后删除了没有增量信息的 `status.md`，恢复路径改为直接读取阶段产物与实时状态。change 收尾 Agent 正确还原门禁与 promotion/archive/PR 链，同时发现现行 skill 的治理缺口。
 - 执行全分支门禁：docs-check、Ruff、3733 个非 E2E Python tests 和 653 个前端 tests 均通过。
-- 验收发现的原有文档、active unit、SDK、依赖、测试和 change skill 漂移只进入 `drift-review.md`，没有借本次迁移修改产品代码、依赖、测试策略或既有流程。
+- 验收发现的原有文档、active unit、SDK、依赖、测试和 change skill 漂移均先留证，再由用户逐项裁决；需要延期的工作已经进入 GitHub issues。
 
-#### 验收后待裁决
+#### 验收后裁决
 
-- `drift-review.md` 中 D-001–D-026 等待用户裁决；在裁决前不自动创建 issues，也不把本 unit 归档为 completed history。
+- D-001–D-027 已全部裁决：明确属于本迁移的漂移已经修复；无需处理的项目保留原状；延期工作进入 Issues #216–#220。临时 drift queue 在归档前删除，裁决过程继续保留在 Git 历史中。
 
 #### 要解决的问题
 
@@ -735,7 +735,7 @@ Agent 能搜索文件，但没有显式入口的正确文档仍可能在任务�
 
 ## 七、PR 与提交组织
 
-建议按能力拆成多个 PR，而不是把整个目录迁移压成一个大 PR：
+实施期间按能力拆成独立提交并逐步与用户对齐；用户最终决定汇总为一个 PR。以下分组继续用于说明各提交的主要能力边界：
 
 | PR | 主要能力 | 典型内容 |
 |---|---|---|
@@ -755,15 +755,15 @@ Agent 能搜索文件，但没有显式入口的正确文档仍可能在任务�
 
 ## 八、最终完成判据
 
-- [ ] 根 `AGENTS.md` 是高价值 resident bootstrap，不是 runbook 或全量知识副本。
-- [ ] `docs/README.md` 能回答“有哪些文档、写什么、什么时候读、谁是权威、处于什么状态”。
-- [ ] Truth、Work、Evidence、Memory、Control 均有清晰 owner 和 promotion 关系。
-- [ ] 产品、架构、current behavior、开发和操作文档边界明确。
-- [ ] active work 可跨 session 恢复，legacy 路径停止新写入。
-- [ ] 参考仓和 LLM 日志从根入口直接可发现。
-- [ ] research、history、retired 文档不会覆盖 current。
-- [ ] 所有 live 文档可从显式链接图到达。
-- [ ] docs-check 与 CI 能阻止主要漂移。
-- [ ] 代表性 Agent 工作任务全部通过，并记录过至少一轮基于失败模式的改进。
-- [ ] 验证后的稳定方法已经进入 `docs/development/documentation-system.md`。
-- [ ] 本计划归档到 `docs/changes/archive/refactor-486-agent-native-repository-knowledge-system/`。
+- [x] 根 `AGENTS.md` 是高价值 resident bootstrap，不是 runbook 或全量知识副本。
+- [x] `docs/README.md` 能回答“有哪些文档、写什么、什么时候读、谁是权威、处于什么状态”。
+- [x] Truth、Work、Evidence、Memory、Control 均有清晰 owner 和 promotion 关系。
+- [x] 产品、架构、current behavior、开发和操作文档边界明确。
+- [x] active work 可跨 session 恢复，legacy 路径停止新写入。
+- [x] 参考仓和 LLM 日志从根入口直接可发现。
+- [x] research、history、retired 文档不会覆盖 current。
+- [x] 所有 live 文档可从显式链接图到达。
+- [x] docs-check 与 CI 能阻止主要漂移。
+- [x] 代表性 Agent 工作任务全部通过，并记录过至少一轮基于失败模式的改进。
+- [x] 验证后的稳定方法已经进入 `docs/development/documentation-system.md`。
+- [x] 本计划归档到 `docs/changes/archive/refactor-486-agent-native-repository-knowledge-system/`。

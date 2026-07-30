@@ -8,7 +8,7 @@
 
 机械可达性、真实隔离 runtime 和七类独立冷启动 Agent 任务均通过。Agent 能从根入口找到正确知识，区分 current、proposed、history 与 runtime evidence，并在文档快照与实时状态不一致时继续核对代码、测试、Git、进程和日志。
 
-冷测也发现了仓库原有的文档、skill 和 active unit 漂移。它们集中记录在 [`drift-review.md`](drift-review.md)，没有借验收过程直接修改产品流程或代码。
+冷测也发现了仓库原有的文档、skill 和 active unit 漂移。验收阶段先集中留证，之后由用户逐项裁决：本迁移范围内的问题已经修复，延期工作进入 Issues #216–#220，无需处理的项目保持原状。
 
 ## 冷启动测试设计
 
@@ -22,12 +22,12 @@
 
 | 任务 | 实际入口链 | 观察结果 | 结论 |
 |---|---|---|---|
-| 判断四个顶层包的依赖边界 | [`AGENTS.md`](../../../AGENTS.md) → [`docs/README.md`](../../README.md) → [`SPEC.md`](../../../SPEC.md) → code / `tests/contract/` | 正确还原四包职责和允许/禁止依赖，未使用 history；主动定位并运行 21 个聚焦 contract tests | Pass（冷启动） |
-| 修改 IM 用户可观察行为 | `AGENTS.md` → docs map → [`IM spec`](../../specs/im/spec.md) → [`web-chat-ux.md`](../../specs/im/web-chat-ux.md) → [`change-workflow.md`](../../development/change-workflow.md) → active unit | 严格重跑仍能区分 current area 与 `feat-484` proposed delta，并核对 unit branch/acceptance；未把更详细或更新的 delta 当 current | Pass（无答案快照重跑） |
-| 在 worktree 启动真实 IM/Gateway | `AGENTS.md` → docs map → [`worktree-runtime.md`](../../development/worktree-runtime.md) → [`e2e-up.sh`](../../../scripts/e2e-up.sh) / [`e2e-down.sh`](../../../scripts/e2e-down.sh) | 自行选择随机端口和临时 config；验证 HTTP ready、node online、bind、heartbeat；两次过强自检失败均由 trap 清理，随后通过源码和更强 evidence 修正假设 | Pass（冷启动真实 runtime） |
-| 定位一次模型调用记录 | `AGENTS.md` → operations → [`llm-integration.md`](../../development/llm-integration.md) → [`evidence.md`](../../development/evidence.md) → LLM_PROXY owner/logs | 任务未提供真实 session ID，Agent 明确拒绝猜测；用既有 session 做脱敏结构验证，只输出 keys/计数/状态，不读取正文或发起模型调用 | Pass（正确保留输入边界） |
-| 恢复一个中断的 active unit | `AGENTS.md` → docs map → [`changes/README.md`](../README.md) → `feat-484` 阶段产物 → live Git/PR/worktree/process/log | 当时的测试快照曾经过后来删除的 `status.md`，但实际判断来自 unit branch、未跟踪 credential/runtime、存活服务、未完成 Round 3、旧 validated range 和 `diff --check`；Agent 因此停止，没有重复派发或清理 | Pass（冷启动安全恢复；状态快照已撤销） |
-| 查询历史架构选择 | docs map → [`refactor-387 motivation`](../archive/refactor-387-kernel-sdk-no-http-api/motivation.md) / [`design`](../archive/refactor-387-kernel-sdk-no-http-api/design.md) → current architecture/code/tests | 找到移除 loopback Kernel HTTP 的原始理由和提交链，再用 current spec、源码和 16 个 contract tests确认今天仍采用进程内 SDK | Pass（history 未覆盖 current） |
+| 判断四个顶层包的依赖边界 | [`AGENTS.md`](../../../../AGENTS.md) → [`docs/README.md`](../../../README.md) → [`SPEC.md`](../../../../SPEC.md) → code / `tests/contract/` | 正确还原四包职责和允许/禁止依赖，未使用 history；主动定位并运行 21 个聚焦 contract tests | Pass（冷启动） |
+| 修改 IM 用户可观察行为 | `AGENTS.md` → docs map → [`IM spec`](../../../specs/im/spec.md) → [`web-chat-ux.md`](../../../specs/im/web-chat-ux.md) → [`change-workflow.md`](../../../development/change-workflow.md) → active unit | 严格重跑仍能区分 current area 与 `feat-484` proposed delta，并核对 unit branch/acceptance；未把更详细或更新的 delta 当 current | Pass（无答案快照重跑） |
+| 在 worktree 启动真实 IM/Gateway | `AGENTS.md` → docs map → [`worktree-runtime.md`](../../../development/worktree-runtime.md) → [`e2e-up.sh`](../../../../scripts/e2e-up.sh) / [`e2e-down.sh`](../../../../scripts/e2e-down.sh) | 自行选择随机端口和临时 config；验证 HTTP ready、node online、bind、heartbeat；两次过强自检失败均由 trap 清理，随后通过源码和更强 evidence 修正假设 | Pass（冷启动真实 runtime） |
+| 定位一次模型调用记录 | `AGENTS.md` → operations → [`llm-integration.md`](../../../development/llm-integration.md) → [`evidence.md`](../../../development/evidence.md) → LLM_PROXY owner/logs | 任务未提供真实 session ID，Agent 明确拒绝猜测；用既有 session 做脱敏结构验证，只输出 keys/计数/状态，不读取正文或发起模型调用 | Pass（正确保留输入边界） |
+| 恢复一个中断的 active unit | `AGENTS.md` → docs map → [`changes/README.md`](../../README.md) → `feat-484` 阶段产物 → live Git/PR/worktree/process/log | 当时的测试快照曾经过后来删除的 `status.md`，但实际判断来自 unit branch、未跟踪 credential/runtime、存活服务、未完成 Round 3、旧 validated range 和 `diff --check`；Agent 因此停止，没有重复派发或清理 | Pass（冷启动安全恢复；状态快照已撤销） |
+| 查询历史架构选择 | docs map → [`refactor-387 motivation`](../refactor-387-kernel-sdk-no-http-api/motivation.md) / [`design`](../refactor-387-kernel-sdk-no-http-api/design.md) → current architecture/code/tests | 找到移除 loopback Kernel HTTP 的原始理由和提交链，再用 current spec、源码和 16 个 contract tests确认今天仍采用进程内 SDK | Pass（history 未覆盖 current） |
 | 完成一次 change 收尾 | workflow / changes / spec contribution / evidence → repo-local `change-*` skills → CI | 正确还原 Full/lite 门禁、delta 校正、promotion、archive、PR/CI 和恢复顺序；同时识别并行 report push、归档后门禁和最终 CI head 等流程缺口 | Pass（主链可用，漂移待裁决） |
 
 ## Agent 行为评估
@@ -53,16 +53,16 @@
 
 - `./scripts/docs-check`：197 份受维护 Markdown、85 个必须入口，全部通过。
 - `ruff check .`：passed；`ruff format --check .`：894 files already formatted。
-- `pytest -m "not e2e" -n 4 --dist worksteal`：3733 passed、1 skipped；第三方 Feishu SDK 的一次非确定性 RuntimeWarning 记录为 [`D-011`](drift-review.md#d-011全量测试偶发回收未-await-的飞书-sdk-cache-协程)。
-- clean `npm ci` 后执行 `npm run test`：68 test files / 653 tests passed；依赖 audit 与 stderr 噪声分别记录为 [`D-012`](drift-review.md#d-012前端-clean-install-报告-9-个依赖漏洞) 和 [`D-013`](drift-review.md#d-013前端测试全绿但-stderr-噪声规模很大)，没有在本 unit 自动修复。
+- `pytest -m "not e2e" -n 4 --dist worksteal`：3733 passed、1 skipped；第三方 Feishu SDK 的一次非确定性 RuntimeWarning 后续进入 [Issue #218](https://github.com/Mrchen116/nano-multiagent/issues/218)。
+- clean `npm ci` 后执行 `npm run test`：68 test files / 653 tests passed；依赖 audit 与 stderr 噪声后续分别进入 [Issue #219](https://github.com/Mrchen116/nano-multiagent/issues/219) 和 [Issue #217](https://github.com/Mrchen116/nano-multiagent/issues/217)，没有在本 unit 自动修复。
 - `git diff --check origin/main...HEAD`：passed。
 - 冷启动 architecture Agent 运行 21 个聚焦架构 contract tests；history Agent 运行 16 个 Kernel HTTP removal contract tests；LLM Agent 运行 2 个 mock provider/header tests，均通过。
 - active unit 恢复使用 `git worktree list`、本地/远端 branch HEAD 和 worktree `git status` 核对实时状态；用户复审后删除了不提供增量信息的 `status.md`，当前恢复直接读取阶段产物与这些实时来源。
-- 当前已知、但不应在本次迁移中自动裁决的 drift 仍只记录在 [`drift-review.md`](drift-review.md)。
+- 验收发现的漂移均已由用户裁决；延期的 change-code-review、测试噪声、Feishu 协程、前端依赖与 `pass-with-issues` 工作分别由 Issues #216–#220 跟踪。
 
 ## 尚未覆盖
 
 1. 模型日志任务没有收到真实 session ID，因此只验证了定位路径、日志结构、隐私边界和 mock header 契约；没有判断某次真实异常，也没有额外产生付费模型调用。
 2. active unit 恢复是 2026-07-30 的只读现场快照；没有停止 `feat-484` 服务、清理 credential/runtime 文件或继续验收。
-3. change 收尾任务只验证知识发现和流程自洽性，没有实际归档 unit、创建 PR 或 push；其发现的流程缺口需要用户裁决后另行修复。
+3. change 收尾任务只验证知识发现和流程自洽性，没有在冷启动测试内实际归档 unit、创建 PR 或 push；其发现的流程缺口后来已经按用户裁决修复或进入 GitHub issues。
 4. 真栈验证覆盖进程 ready、bind/heartbeat 和清理，没有覆盖浏览器用户旅程；本次迁移没有改变产品行为。
