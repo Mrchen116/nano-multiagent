@@ -106,3 +106,17 @@
 - Rollback: `git revert 1b41a8ce6`。
 - Commits: 1b41a8ce6。
 - Next: 合并 unit,复验(verifier targeted-closure + reviewer targeted)。
+
+## R6 — reviewer round 3 issue 3 修复:整条复制不再折叠 code 内部空行
+
+- Context: reviewer round 3 真栈读剪贴板发现 code block 内部空行被折叠(`\n\n\n`→`\n\n`),违反 design.md fixture "code 内部空行不折叠";独立代码复制路径正确,问题锁定在整条复制序列化。
+- Diagnosis: `collapseBlockSpacing` 在序列化完成后对全文无差别折叠 3+ 连续换行——此时已是纯字符串,code 区间信息丢失,code 内部空行被当作"块间多余空行"压掉。
+- Decision: `collectText` 的 `pre` 分支先把 code 内部换行换成 NUL 占位穿过折叠,`serializeMessageBody` 在 `collapseBlockSpacing` 后统一换回;块间距规整不再越界进 code 内容。选 NUL 因为纯字符串阶段无区间信息,而 NUL 不会合法出现在 text/plain payload 中;改动集中于 pre 分支 + serializeMessageBody 两行,不触碰列表/链接/table 等已收敛路径。
+- Evidence:
+  - Tests: `message-content-policy.test.ts` 50 全绿(新增 "preserves multiple consecutive blank lines inside code blocks" 红测先行);`message-pane.test.tsx` + `message-pane-fork.test.tsx` 111 全绿;`npm run build` 成功;`git diff --check` clean。
+  - Entry: 隔离真栈(IM :49373)发富文本 prompt 得 completed 回复(第一个 fenced 块含 `\n\n\n` 两个连续空行),toolbar Copy message 后读剪贴板。
+  - Browser QA: `m2-fix-r3-selfcheck.mjs` 逐字断言全过——两个 fenced 块逐字包含于剪贴板(内部空行完整)、具名链接内联、列表无多余空行、无 ⎘。
+  - 剪贴板原文: `evidence/m2-fix-r3-clipboard-whole.txt`;agent 回复原文: `evidence/m2-fix-r3-agent-reply.md`;截图: `evidence/m2-fix-r3-copy-result.png`。
+- Rollback: `git revert 704cb26d3`。
+- Commits: 83a796303(红测), 704cb26d3(实现)。
+- Next: reviewer round 4 targeted 复验(同时需关闭 R1 起挂起的两条移动端长按 inconclusive)。
