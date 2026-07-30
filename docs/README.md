@@ -71,7 +71,7 @@
 | [`product/`](product/README.md) | 产品定位与稳定体验原则；原始需求稿和蓝图从该入口进入 archive |
 | [`archive/migration-plans/`](archive/migration-plans/README.md) | 已实施迁移的历史计划；current 用户流行为见 IM specs |
 | [`archive/audits/`](archive/audits/README.md) | 已结束的 drift 审计；可复现问题应重新进入 active work |
-| [`内核设计细化/`](内核设计细化/README.md) | 已退役实现叙事的兼容入口；current 行为从 kernel specs 读取 |
+| [`archive/implementation-narratives/`](archive/implementation-narratives/README.md) | 已退役实现叙事；current 行为从 kernel specs 读取 |
 | [`tools-diff-cc/`](tools-diff-cc/)、[`kernel-diff-cc/`](kernel-diff-cc/) | 外部实现比较快照 |
 | [`brainstorms/`](brainstorms/) | 脑暴与阶段性方案材料 |
 | [`archive/`](archive/README.md) | 已退役独立文档和旧开发记录的索引 |
