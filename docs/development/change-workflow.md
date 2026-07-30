@@ -75,9 +75,9 @@ Bugfix lite
 - 首文档来自原始对话和用户决定，不能只根据最终代码反推需求；
 - `design.md` 是标明事后形成的 as-built design，必须以实际代码、diff、测试和已确认决策为依据；
 - 不补造没有发生过的 milestone、`tasks.md`、`progress.md`、design review、verifier 或产品 reviewer 记录；
-- 用户亲自测试并确认的旅程记录在 `status.md`，作为本路径的产品验收事实；
+- 用户亲自测试并确认结果后才能进入 `change-fast-close`；本路径不再重复产品验收；
 - `change-code-review` 是唯一独立质量门禁；review 修复改变用户可观察行为时，用户需要重新确认受影响旅程；
-- 收尾未完成或用户尚未确认时，unit 保持 active，并在 `status.md` 写清 blocker 和下一动作。
+- 收尾未完成或用户尚未确认时，unit 保持 active。
 
 `change-fast-close` 负责锁定现有 diff、建立事后 unit、回填文档、执行 code review、归并 canonical spec 并按用户授权交付。
 

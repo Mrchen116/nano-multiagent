@@ -18,7 +18,7 @@ description: 用户明确选择快速开发模式，已经边对齐边完成实�
 任一条件不满足时不要伪造完成状态：
 
 - 尚未开始实现：按 `docs/development/change-workflow.md` 选择 Full 或 Bugfix lite；
-- 用户尚未完成体验验证：可以先整理文档和运行代码级检查，但保持 active，并在 `status.md` 把用户验收列为 blocker；
+- 用户尚未完成体验验证：暂停收尾，请用户先完成实际体验并确认结果；
 - 已存在对应 active unit：恢复该 unit 的既有生命周期，不创建第二个 unit；
 - diff 混有其他任务或用户已有修改：先划定本次范围，只处理和提交明确属于本次需求的文件。
 
@@ -45,7 +45,6 @@ python3 .claude/skills/change-spec-author/scripts/next_unit_id.py <type>
 
 ```text
 docs/changes/<unit-dir>/
-├── status.md
 ├── spec.md | incident.md | motivation.md
 ├── design.md
 ├── specs/
@@ -53,11 +52,11 @@ docs/changes/<unit-dir>/
 └── code-review.md
 ```
 
-使用本 skill 的 `assets/status.md`、`assets/design.md` 和 `assets/code-review.md`。首文档的字段骨架复用 `.claude/skills/change-spec-author/assets/` 中对应的 `spec.md`、`incident.md` 或 `motivation.md`，删除模板注释后按已经确认的事实填写。
+使用本 skill 的 `assets/design.md` 和 `assets/code-review.md`。首文档的字段骨架复用 `.claude/skills/change-spec-author/assets/` 中对应的 `spec.md`、`incident.md` 或 `motivation.md`，删除模板注释后按已经确认的事实填写。
 
 快速开发 unit 不创建 milestone 目录、`tasks.md`、`progress.md`、`design-review.md`、`verification.md` 或 reviewer 产出的 `acceptance.md`。没有发生过的过程不能事后补造。
 
-如果收尾不能在当前 session 完成，将 unit 加入 `docs/changes/README.md` 的活动区索引，并确保 `status.md` 给出可直接执行的 `Next action`。
+如果收尾不能在当前 session 完成，将 unit 留在 `docs/changes/` 活动区；后续从已有首文档、as-built design、code review 记录和 Git diff 继续。
 
 ## 3. 回填真实知识
 
@@ -87,14 +86,12 @@ docs/changes/<unit-dir>/
 逐项比较实现后的 observable behavior 与 `docs/specs/`：
 
 - 行为发生变化：编写 delta-spec，并在 code review 通过后归并到 canonical spec；
-- 只有内部实现变化：在 `design.md` 和 `status.md` 记录“无 canonical spec 变更”及具体理由；
+- 只有内部实现变化：在 `design.md` 记录“无 canonical spec 变更”及具体理由；
 - current spec 与真实实现存在无关漂移：不要顺手决定预期，把它记录为独立问题交给用户审核。
 
-## 4. 记录用户验收
+## 4. 确认用户验收
 
-从当前对话中提取用户亲自测试的旅程、环境和结论，写入 `status.md` 的 `User acceptance` 与 `Evidence`。只记录用户明确表达的事实，不扩写为未执行的测试。
-
-用户验收替代快速开发路径中的 `change-reviewer`；本路径不调用 `change-verifier`。代码级测试仍按改动风险运行，但不重复执行一轮产品验收。
+确认当前对话中用户已经亲自测试并认可结果。用户验收替代快速开发路径中的 `change-reviewer`，不另写 reviewer 报告；本路径也不调用 `change-verifier`。代码级测试仍按改动风险运行，但不重复执行一轮产品验收。
 
 ## 5. 强制 code review
 
@@ -112,11 +109,10 @@ code review 未通过时 unit 保持 active，不能归档。
 
 满足以下条件后才归档：
 
-- 用户验收已经明确记录；
+- 用户已经在当前对话确认结果；
 - 首文档和 as-built design 与最终实现一致；
 - 必要的 delta-spec 已归并，或已说明无 canonical spec 变更；
 - 强制 code review 通过；
 - 受影响的最窄测试、文档检查和按风险选择的本地 CI 通过；
-- `status.md` 的 Git、证据和下一动作已经更新。
 
-将整个 unit 移入 `docs/changes/archive/<unit-dir>/`，并从 active 索引移除。提交、push 和 PR 只做到用户当前明确授权的范围；用户要求先审文档时，在归档或 commit 前停下汇报。
+将整个 unit 移入 `docs/changes/archive/<unit-dir>/`。提交、push 和 PR 只做到用户当前明确授权的范围；用户要求先审文档时，在归档或 commit 前停下汇报。

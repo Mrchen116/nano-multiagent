@@ -34,7 +34,7 @@
 | 修改 IM 用户可观察行为 | `AGENTS.md` → docs map → [`IM spec`](../../specs/im/spec.md) → [`web-chat-ux.md`](../../specs/im/web-chat-ux.md) → [`change-workflow.md`](../../development/change-workflow.md) → active unit | 严格重跑仍能区分 current area 与 `feat-484` proposed delta，并核对 unit branch/acceptance；未把更详细或更新的 delta 当 current | Pass（无答案快照重跑） |
 | 在 worktree 启动真实 IM/Gateway | `AGENTS.md` → docs map → [`worktree-runtime.md`](../../development/worktree-runtime.md) → [`e2e-up.sh`](../../../scripts/e2e-up.sh) / [`e2e-down.sh`](../../../scripts/e2e-down.sh) | 自行选择随机端口和临时 config；验证 HTTP ready、node online、bind、heartbeat；两次过强自检失败均由 trap 清理，随后通过源码和更强 evidence 修正假设 | Pass（冷启动真实 runtime） |
 | 定位一次模型调用记录 | `AGENTS.md` → operations → [`llm-integration.md`](../../development/llm-integration.md) → [`evidence.md`](../../development/evidence.md) → LLM_PROXY owner/logs | 任务未提供真实 session ID，Agent 明确拒绝猜测；用既有 session 做脱敏结构验证，只输出 keys/计数/状态，不读取正文或发起模型调用 | Pass（正确保留输入边界） |
-| 恢复一个中断的 active unit | `AGENTS.md` → docs map → [`changes/README.md`](../README.md) → [`feat-484 status`](../feat-484-chat-message-interactions/status.md) → live Git/PR/worktree/process/log | 没有把 status 快照当实时真相；发现未跟踪 credential/runtime、存活服务、未完成 Round 3、旧 validated range 和 `diff --check` 失败后停止，不重复派发或清理 | Pass（冷启动安全恢复） |
+| 恢复一个中断的 active unit | `AGENTS.md` → docs map → [`changes/README.md`](../README.md) → `feat-484` 阶段产物 → live Git/PR/worktree/process/log | 当时的测试快照曾经过后来删除的 `status.md`，但实际判断来自 unit branch、未跟踪 credential/runtime、存活服务、未完成 Round 3、旧 validated range 和 `diff --check`；Agent 因此停止，没有重复派发或清理 | Pass（冷启动安全恢复；状态快照已撤销） |
 | 查询历史架构选择 | docs map → [`refactor-387 motivation`](../archive/refactor-387-kernel-sdk-no-http-api/motivation.md) / [`design`](../archive/refactor-387-kernel-sdk-no-http-api/design.md) → current architecture/code/tests | 找到移除 loopback Kernel HTTP 的原始理由和提交链，再用 current spec、源码和 16 个 contract tests确认今天仍采用进程内 SDK | Pass（history 未覆盖 current） |
 | 完成一次 change 收尾 | workflow / changes / spec contribution / evidence → repo-local `change-*` skills → CI | 正确还原 Full/lite 门禁、delta 校正、promotion、archive、PR/CI 和恢复顺序；同时识别并行 report push、归档后门禁和最终 CI head 等流程缺口 | Pass（主链可用，漂移待裁决） |
 
@@ -69,8 +69,7 @@
 - `git diff --check origin/main...HEAD`：passed。
 - 冷启动 architecture Agent 运行 21 个聚焦架构 contract tests；history Agent 运行 16 个 Kernel HTTP
   removal contract tests；LLM Agent 运行 2 个 mock provider/header tests，均通过。
-- active unit `status.md` 的实时核对使用 `git worktree list`、本地/远端 branch HEAD 和 worktree
-  `git status`，没有依据文档快照覆盖实时状态。
+- active unit 恢复使用 `git worktree list`、本地/远端 branch HEAD 和 worktree `git status` 核对实时状态；用户复审后删除了不提供增量信息的 `status.md`，当前恢复直接读取阶段产物与这些实时来源。
 - 当前已知、但不应在本次迁移中自动裁决的 drift 仍只记录在
   [`drift-review.md`](drift-review.md)。
 

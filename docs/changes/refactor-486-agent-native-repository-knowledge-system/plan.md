@@ -255,8 +255,7 @@ Agent 已经能看到 `docs/README.md`，但自动加载的 `AGENTS.md` 仍包�
 
 - 逐个核对活动区 unit 与 branch、worktree、PR 和实现提交，将仍可推进的 unit 标为 Active/Paused，
   已交付 unit 整体归档，被当前架构取代且未完成的提案进入 `retired/`。
-- 为每个活动 unit 建立 `status.md` 恢复入口，并把创建、设计、实施、暂停、归档和 PR 阶段的更新责任接入
-  change skills；unit id 分配同时扫描 active/archive/retired。
+- 核对活动 unit 的阶段产物与实时 branch、worktree 和 PR；用户复审后撤销了曾引入的 `status.md` 快照与活动表，恢复状态继续从首文档、design、milestone progress、验收报告和 Git/PR 实时状态获得。unit id 分配仍同时扫描 active/archive/retired。
 - 将 change 存储入口标准化为 `docs/changes/README.md`，同步所有 live consumers。
 - 停止 worker 向根 `LOGBOOK.md` 写通用经验；可复用知识先写 unit 内 Promotion Candidates，再由
   orchestrator 核实并归并到唯一长期 owner。
@@ -272,7 +271,7 @@ Agent 已经能看到 `docs/README.md`，但自动加载的 `AGENTS.md` 仍包�
 | `4d6b30d77` | 核对并标记活动与暂停 unit |
 | `d05d30fef` | 归档已完成 unit |
 | `069c63a0d` | 将被后续方案取代的未完成提案移入 retired |
-| `d8b7378ee` | 定义 active unit 跨 session 恢复契约 |
+| `d8b7378ee` | 曾引入 active unit `status.md` 恢复契约；后续用户复审认为没有增量信息并撤销 |
 | `747033fcd` | 标准化 change index 文件名和 live routes |
 | `c3c2ec333` | 停止 legacy work/logbook 写入并移除旧 task board 接线 |
 | `18c4cd1c9` | 整体迁移冻结的旧开发记录 |
@@ -290,13 +289,7 @@ Agent 已经能看到 `docs/README.md`，但自动加载的 `AGENTS.md` 仍包�
    - 完成证据不足；
    - 与开放 PR/branch/worktree 的对应关系。
 2. 将 `docs/changes/readme.md` 改为标准 `docs/changes/README.md`，历史路径保留兼容跳转或同步修正 live consumers。
-3. 为 active unit 明确最小恢复信息：
-   - 状态；
-   - 当前 branch/worktree；
-   - 已完成 milestone；
-   - 未决问题；
-   - 下一动作；
-   - evidence 入口。
+3. active unit 的恢复直接读取首文档、design/design-review、milestone tasks/progress、验收报告和 evidence；branch、worktree、PR 与 CI 从实时系统核对，不另存生命周期快照。
 4. 冻结 legacy 写入路径：
    - 更新所有 skills/scripts，不再向根 `TASKS/`、`PROGRESS/`、`ACCEPTANCE/` 写入新内容；
    - 确认 `data/dev-tasks.json` 是否仍有运行时消费者。
@@ -357,7 +350,7 @@ Agent 已经能看到 `docs/README.md`，但自动加载的 `AGENTS.md` 仍包�
    - 可长期执行的回归保护 → tests/CI；
    - unit 临时验收证据 → `<unit>/M*/evidence/`；
    - unit 级 verifier/reviewer 结论 → acceptance/verification 报告；
-   - code review 结论 → unit `status.md` 与 PR Validation Summary；
+   - code review 结论 → PR Validation Summary；快速开发另存 unit `code-review.md`；
    - 本机运行证据 → gitignored runtime/log path；
    - LLM 交互记录 → `/Users/czj/Repos/LLM_PROXY/logs/session/*_<session_id>/`。
 2. 在 `docs/development/README.md` 和 `AGENTS.md` 保留 LLM 日志的直接入口，并在 LLM integration 文档说明 session 定位、常见诊断方式和保留边界。
@@ -468,7 +461,7 @@ external comparisons、brainstorms、迁移计划和退役设计目前靠文件�
 - 保持 `docs/changes/archive/` 原样冻结；completed unit 通过 change index、unit id 和搜索按需发现，没有把
   1124 份历史材料逐篇拉入 live 阅读链。
 - 使用 Markdown AST 从 `AGENTS.md` 遍历仓库链接：84 个要求可达的根入口、live 长期文档、research
-  快照、archive README 和 active unit `status.md` 全部可达，`missing=0`。阶段 7 将把这次一次性检查
+  快照和 archive README 全部可达，`missing=0`。活动 unit 通过 `docs/changes/` 目录和统一产物结构发现，不逐项维护手工索引。阶段 7 将把这次一次性检查
   固化为仓库脚本和 CI。
 
 #### 已提交
@@ -520,12 +513,12 @@ Agent 能搜索文件，但没有显式入口的正确文档仍可能在任务�
 
 #### 已完成
 
-- 新增 `scripts/docs-check`，通过 Markdown AST 检查 196 份受维护 Markdown 的本地链接与图片，不把代码块
+- 新增 `scripts/docs-check`，通过 Markdown AST 检查 192 份受维护 Markdown 的本地链接与图片，不把代码块
   示例误判为 live 引用。
-- 将根入口、current docs、research snapshots、archive README 和 active unit status 定义为必须可达集合；
-  当前 85 个入口从 `AGENTS.md` 全部可达。
-- 拒绝 live 文档重新链接兼容入口和已退役目录；检查 research metadata、active unit 恢复字段、逻辑
-  unit id 唯一性、`AGENTS.md` 120 行 / 12 KiB 预算和 `CLAUDE.md` 适配器。
+- 将根入口、current docs、research snapshots 和 archive README 定义为必须可达集合；
+  当前 80 个入口从 `AGENTS.md` 全部可达。
+- 拒绝 live 文档重新链接兼容入口和已退役目录；检查 research metadata、逻辑 unit id 唯一性、
+  `AGENTS.md` 120 行 / 12 KiB 预算和 `CLAUDE.md` 适配器。
 - 新增 change workflow 契约测试，锁定 spec review 可选、Gate 2 复用同一 reviewer 并达到
   `Approved + 0 CRITICAL / 0 WARNING`、普通 Full / 零用户面 Full / Bugfix lite 的 selected gates。
 - 将新信息归位、索引接入、active work 留证、完成时 promotion、独立文档退役和机械保护写入
@@ -598,8 +591,7 @@ Agent 能搜索文件，但没有显式入口的正确文档仍可能在任务�
   不变及无孤儿进程；两次自加错误假设均能通过源码和更强 evidence 纠正。
 - 验证 LLM session 目录可按 `AGENTS.md` 和 LLM integration 文档定位，并能区分 request、downstream
   response 和 non-stream response；冷启动 Agent 在缺少真实 session ID 时没有猜测，并只做脱敏结构检查。
-- active unit Agent 没有把 `status.md` 当实时真相，继续核对 branch、PR、worktree、进程、日志和 validated
-  range；change 收尾 Agent 正确还原门禁与 promotion/archive/PR 链，同时发现现行 skill 的治理缺口。
+- active unit Agent 在当时的快照中仍继续核对 branch、PR、worktree、进程、日志和 validated range；用户复审后删除了没有增量信息的 `status.md`，恢复路径改为直接读取阶段产物与实时状态。change 收尾 Agent 正确还原门禁与 promotion/archive/PR 链，同时发现现行 skill 的治理缺口。
 - 执行全分支门禁：docs-check、Ruff、3733 个非 E2E Python tests 和 653 个前端 tests 均通过。
 - 验收发现的原有文档、active unit、SDK、依赖、测试和 change skill 漂移只进入
   `drift-review.md`，没有借本次迁移修改产品代码、依赖、测试策略或既有流程。
@@ -621,7 +613,7 @@ Agent 能搜索文件，但没有显式入口的正确文档仍可能在任务�
 | 修改一个 IM 用户可观察行为 | docs map → IM current spec → change workflow | 正确区分 current 与 proposed delta |
 | 在 worktree 启动真实 IM/Gateway | worktree runtime | 使用隔离端口/config，结束后无孤儿进程 |
 | 诊断一次模型调用异常 | AGENTS → LLM integration → session logs | 能从 session 线索定位日志并区分 evidence 与规范 |
-| 恢复一个中断的 active unit | changes index → unit recovery state | 找到 branch、进度、未决问题、下一动作和 evidence |
+| 恢复一个中断的 active unit | changes storage → unit 阶段产物 → live Git/PR | 找到 branch、进度、未决问题和 evidence |
 | 查询一个历史架构选择 | research/change archive | 找到历史理由，同时回到 current architecture 验证 |
 | 完成一次 change 收尾 | workflow → gates → spec promotion → archive | current、evidence 和 memory 同步更新 |
 
@@ -730,9 +722,8 @@ Agent 能搜索文件，但没有显式入口的正确文档仍可能在任务�
     │       └── spec.md
     │
     ├── changes/
-    │   ├── README.md                 # unit 目录、恢复契约、active/retired/archive
+    │   ├── README.md                 # unit 目录、产物约定、active/retired/archive
     │   ├── <active-unit>/
-    │   │   ├── status.md             # 当前阶段、Git/PR 定位、证据和下一动作
     │   │   ├── <first-document>.md
     │   │   ├── design.md
     │   │   ├── design-review.md

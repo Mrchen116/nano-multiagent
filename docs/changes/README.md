@@ -1,6 +1,6 @@
 # Change Unit Storage
 
-本文定义 `docs/changes/` 的目录、命名、文件归属、恢复信息以及 active/retired/archive 状态。是否建立 unit、Full/Bugfix lite/快速开发路径、开发阶段和门禁见 [`../development/change-workflow.md`](../development/change-workflow.md)。
+本文定义 `docs/changes/` 的目录、命名、文件归属以及 active/retired/archive 状态。是否建立 unit、Full/Bugfix lite/快速开发路径、开发阶段和门禁见 [`../development/change-workflow.md`](../development/change-workflow.md)。
 
 ## 目录语义
 
@@ -20,19 +20,7 @@ docs/changes/
 
 `retired/` 与 `archive/` 的差别是是否完成：retired unit 只保存被放弃或被后续方案取代的工作上下文，不能当作已经实现；若未来重新提出同一目标，应建立新 unit，并在 Relations 中链接旧 unit。
 
-## 活动区索引
-
-活动区只保留仍可能推进的 unit。每个目录根部必须有 `status.md`，因此 Agent 不需要根据目录时间或文档完整度猜测状态。
-
-| Unit | Lifecycle | 恢复入口 |
-|---|---|---|
-| [`bugfix-448-web-fetch-cancel`](bugfix-448-web-fetch-cancel/status.md) | Paused after design | `status.md` |
-| [`feat-397-spec-design-agent-team`](feat-397-spec-design-agent-team/status.md) | Paused after Gate 1 | `status.md` |
-| [`feat-444-session-wakeup`](feat-444-session-wakeup/status.md) | Paused after design | `status.md` |
-| [`feat-484-chat-message-interactions`](feat-484-chat-message-interactions/status.md) | Active — post-acceptance fixes | `status.md` |
-| [`refactor-486-agent-native-repository-knowledge-system`](refactor-486-agent-native-repository-knowledge-system/status.md) | Active — Awaiting drift review | `status.md` |
-
-状态变化时必须同步更新本表。`status.md` 保存单个 unit 的恢复快照，本表负责让 Agent 发现有哪些活动工作。
+`docs/changes/` 的直属 unit 目录就是活动区，其中可以包含正在推进或暂停的工作。具体阶段由 unit 已有文档及其门禁内容判断，不维护另一份活动清单或状态快照。
 
 ## 是否建立 unit
 
@@ -98,7 +86,6 @@ Full 模式在 design 阶段只创建含 `.gitkeep` 的空 milestone 骨架。wo
 
 ```text
 docs/changes/<unit-dir>/
-├── status.md                         # 跨 session 恢复快照
 ├── spec.md | incident.md | motivation.md
 ├── spec-review.md                    # 可选；spec review 发现问题时留痕
 ├── design.md
@@ -124,7 +111,6 @@ docs/changes/<unit-dir>/
 
 ```text
 docs/changes/<unit-dir>/
-├── status.md
 ├── fix.md
 └── M1-fix/
     ├── tasks.md
@@ -138,7 +124,6 @@ docs/changes/<unit-dir>/
 
 ```text
 docs/changes/<unit-dir>/
-├── status.md
 ├── spec.md | incident.md | motivation.md
 ├── design.md                         # 实现后根据真实代码整理的 as-built design
 ├── specs/                            # 可选；对 canonical specs 的 delta
@@ -146,13 +131,12 @@ docs/changes/<unit-dir>/
 └── code-review.md                    # 强制 code review 的范围、finding 与闭环
 ```
 
-快速开发 unit 不创建 milestone、`tasks.md`、`progress.md`、`design-review.md`、`verification.md` 或 reviewer 产出的 `acceptance.md`。用户已经完成的实际体验和确认记录在 `status.md`；没有发生过的过程不事后补造。
+快速开发 unit 不创建 milestone、`tasks.md`、`progress.md`、`design-review.md`、`verification.md` 或 reviewer 产出的 `acceptance.md`。用户已经亲自测试并确认结果是进入收尾的前提；没有发生过的过程不事后补造。
 
 ## 文件归属
 
 | 文件 | Owner | 内容 |
 |---|---|---|
-| `status.md` | 当前阶段 owner；实施期为 `change-orchestrator`，快速开发收尾为 `change-fast-close` | 状态、Git/PR 定位、完成项、证据、阻塞和下一动作 |
 | `spec.md` / `incident.md` / `motivation.md` / `fix.md` 前两部分 | `change-spec-author`；快速开发为 `change-fast-close` | 做什么、为什么、验收标准或 RCA |
 | `spec-review.md`（可选） | `change-spec-reviewer` | 按需复核发现问题时留下的台账 |
 | `design.md`、`prototype.html`、`specs/**`、milestone 空骨架 | `change-design-author`；快速开发的 as-built design 与 delta 为 `change-fast-close` | 怎么做、实际怎么实现、契约增量和实施切片 |
@@ -178,42 +162,23 @@ docs/changes/<unit-dir>/
 
 实现期发现 design 问题时，worker 按 workflow 暂停并升级，不能在 `progress.md` 中维护一套与 `design.md` 不同的影子方案。
 
-## 状态与恢复
+## 恢复活动 unit
 
-### `status.md` 最小契约
+恢复时直接读取 unit 已有产物，并核对实时 Git/PR 状态：
 
-`status.md` 是恢复入口，不是过程日志。它固定记录：
+1. 首文档说明目标、范围和 Gate 1 是否已经收口。
+2. `design.md`、`design-review.md` 和 milestone 骨架说明 Full unit 的设计与 Gate 2 状态；`fix.md` 说明 Bugfix lite 状态。
+3. milestone 的 `tasks.md`、`progress.md`、commits 和 evidence 说明实施进度；Full unit 的验收报告和快速开发 unit 的 `code-review.md` 说明已经完成的门禁。
+4. branch、worktree、PR 和 CI 通过 Git、`git worktree` 与 GitHub 实时查询，不写入手工快照。
 
-| Field | 含义 |
-|---|---|
-| Lifecycle | 当前阶段；暂停、退役或完成时明确写出 |
-| Last checked | 最近一次与 Git、PR 和 unit 文档核对的日期 |
-| Branch | 当前实现分支；尚未创建时写 `None` |
-| Worktree | 当前 worktree；不存在时写 `None` |
-| Pull request | PR URL；尚未创建时写 `None` |
-| Completed | 已完成的阶段或 milestone |
-| Evidence | 可复查的报告、提交或 evidence 入口 |
-| Blocker | 阻塞原因；没有时写 `None` |
-| Next action | 下一位 Agent 可以直接执行的一步 |
-
-快速开发 unit 还必须记录 `Implementation scope` 和 `User acceptance`：前者定位实际 base、head 与纳入范围的 dirty files，后者只写用户明确完成的体验和结论。
-
-恢复时先读 `status.md`，再用 `git status`、`git worktree list`、branch head 和 `gh pr view` 核对会变化的外部状态。核对结果与快照不一致时，以实时状态为准并立即更新 `status.md`。milestone 内的 roadpoint 细节仍由 `tasks.md` 和 `progress.md` 负责，不能复制到状态页。
-
-阶段 owner 在以下时点更新：
-
-- `change-spec-author` 建立 unit，并在 Gate 1 后写明下一入口；
-- `change-design-author` 开始设计、通过 Gate 2 或因需求问题暂停；
-- `change-orchestrator` 建立实现 worktree、签收 milestone、完成验收、升级阻塞、归档和创建 PR；
-- `change-fast-close` 建立事后 unit、完成 code review、归并契约、归档和按授权交付；
-- 人工暂停或退役 unit 时，执行决定的人负责留下原因和下一动作。
+发生非显然暂停时，把原因和恢复条件写入当前阶段已经存在的记录，例如 `design-review.md`、milestone `progress.md`、验收报告、issue 或 PR；不为所有 unit 复制一份生命周期摘要。
 
 ### Active
 
 下列任一情况存在时，unit 留在 `docs/changes/<unit-dir>/`：
 
 - 仍在探索、设计、实施或验收；
-- 有失败或 inconclusive 的门禁，或快速开发尚未获得明确的用户验收；
+- 有失败或 inconclusive 的门禁，或快速开发尚未获得用户确认；
 - 有开放设计问题或未完成 milestone；
 - 完成证据不足，无法证明已达到可交付状态。
 
@@ -221,15 +186,15 @@ docs/changes/<unit-dir>/
 
 ### Paused
 
-Paused unit 仍留在活动区。`status.md` 必须说明暂停原因、恢复前需要重新核对的事实和第一步动作。暂停不等于完成，也不允许释放其 unit id。
+Paused unit 仍留在活动区。恢复时根据当前阶段产物中的未完成项、阻塞记录和实时 Git/PR 状态继续；暂停不等于完成，也不允许释放其 unit id。
 
 ### Retired
 
-只有负责人已经明确决定不再按原 unit 推进，且文档中能指出替代方案或放弃原因时，才把整个目录移到 `retired/`。退役前将 `Lifecycle`、`Blocker` 和 `Next action` 更新为最终状态；retired unit 不允许由 orchestrator 恢复实施。
+只有负责人已经明确决定不再按原 unit 推进，且首文档或 `retired/README.md` 能指出替代方案或放弃原因时，才把整个目录移到 `retired/`。retired unit 不允许由 orchestrator 恢复实施。
 
 ### 归档
 
-Full 与 Bugfix lite 在 selected gates、canonical spec 归并和本地 CI 全部通过后归档。快速开发在用户验收已记录、强制 code review 通过、canonical spec 完成归并且本地检查通过后归档：
+Full 与 Bugfix lite 在 selected gates、canonical spec 归并和本地 CI 全部通过后归档。快速开发在用户已经确认结果、强制 code review 通过、canonical spec 完成归并且本地检查通过后归档：
 
 ```bash
 mkdir -p docs/changes/archive

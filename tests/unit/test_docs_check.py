@@ -58,32 +58,23 @@ def test_reachability_follows_explicit_index_chain(tmp_path: Path) -> None:
     assert orphan not in reachable
 
 
-def test_change_unit_check_requires_recovery_fields_and_unique_id(
-    tmp_path: Path,
-) -> None:
-    index = _write(
+def test_change_unit_check_requires_unique_id(tmp_path: Path) -> None:
+    active = _write(
         tmp_path,
-        "docs/changes/README.md",
-        "[active](feat-7-one/status.md)\n",
-    )
-    status = _write(
-        tmp_path,
-        "docs/changes/feat-7-one/status.md",
-        "| Field | Value |\n|---|---|\n| Lifecycle | Active |\n",
+        "docs/changes/feat-7-one/spec.md",
+        "# Current proposal\n",
     )
     archived = _write(
         tmp_path,
         "docs/changes/archive/feat-7-old/spec.md",
         "# Old\n",
     )
-    tracked = {index, status, archived}
+    tracked = {active, archived}
 
     problems = docs_check.check_change_units(tmp_path, tracked)
     codes = {problem.code for problem in problems}
 
-    assert "UNIT_ID_DUPLICATE" in codes
-    assert "ACTIVE_STATUS_FIELDS" in codes
-    assert "ACTIVE_STATUS_UNINDEXED" not in codes
+    assert codes == {"UNIT_ID_DUPLICATE"}
 
 
 def test_research_metadata_requires_provenance_fields(tmp_path: Path) -> None:

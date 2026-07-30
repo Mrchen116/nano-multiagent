@@ -162,34 +162,26 @@
 
 ### D-016：Paused `feat-444` 的 reviewer runbook 使用不存在的 Gateway 健康检查
 
-- 现状：`docs/changes/feat-444-session-wakeup/design.md` 指示 reviewer 请求
-  `http://127.0.0.1:8000/v1/health`；当前 Gateway 没有这条路由。该 unit 的 `status.md` 已标记
-  `Paused after design`，并要求恢复前重新 grounding。
+- 现状：`docs/changes/feat-444-session-wakeup/design.md` 指示 reviewer 请求 `http://127.0.0.1:8000/v1/health`；当前 Gateway 没有这条路由。该 unit 仍停留在设计产物阶段，恢复前需要重新 grounding。
 - 影响：Agent 如果直接深链 design 并照 runbook 执行，会把无效检查误判为实现或环境故障。
 - 待决定：恢复该 unit 时是否先修订 runbook 并重过 design review；或现在就建立 issue，避免 paused
   design 长期保留不可执行指令。
 - 状态：Awaiting user review；paused unit 未修改。
 
-### D-017：`feat-484` 的恢复快照没有覆盖当前验收现场
+### D-017：`feat-484` 的 unit 文档没有覆盖当前验收现场
 
-- 现状：2026-07-30 冷启动恢复检查确认 `status.md` 的 branch SHA、无 PR 和“最新修复仍需复验”方向
-  正确，但 unit worktree 同时存在：
+- 现状：2026-07-30 冷启动恢复检查发现 unit worktree 同时存在：
   - 未跟踪的 Round 3 runner、runtime 数据、channel credential/manifest 和 Gateway state；
   - 仍存活的隔离 IM/Gateway（检查时 PID `81982` / `82006`）；
   - 空的 Round 3 evidence 目录和已经停止的 runner；
   - 嵌套 verifier worktree，HEAD 为当前 unit HEAD，但没有新的 verification 结论；
   - `git diff --check main...unit/feat-484` 报告多处历史 evidence/报告 trailing whitespace。
-- 文档缺口：`status.md` 没有记录最后有效 verification 的 validated head/range、Round 3 中断现场或运行
-  owner；M2 tasks/progress 也未签收最后两个 fix commits。新 `status.md` 目前只存在于文档重构分支，
-  尚未进入 main 或 unit branch。
+- 文档缺口：M2 tasks/progress 没有记录最后有效 verification 的 validated head/range、Round 3 中断现场，也未签收最后两个 fix commits。
 - 其他待裁决记录：M2 退出标准表写 `F1–F4`，正文存在 `F5`；design-review 的冻结表述与后来追加 M2
   的做法没有留下裁决；progress 记录 orchestrator 在 worker 403 后亲自实现，与当前 orchestrator
   “不写代码”边界不一致。
-- 影响：新 Agent 若只相信恢复快照，可能重复派验收、误清理现场、遗漏当前 HEAD 复验，或用宽泛
-  `git add -A` 暂存本机 credential。
-- 待决定：由 `feat-484` owner 审核现场后，决定继续复验还是安全清理；将真实 validated range、运行
-  locator 和下一动作写回 unit；另行判断 credential ignore、trailing whitespace 和历史流程偏差是否建
-  issue。
+- 影响：新 Agent 若没有核对运行现场和实时 Git 状态，可能重复派验收、误清理现场、遗漏当前 HEAD 复验，或用宽泛 `git add -A` 暂存本机 credential。
+- 待决定：由 `feat-484` owner 审核现场后，决定继续复验还是安全清理；将真实 validated range 和运行 locator 写回对应 milestone progress/evidence；另行判断 credential ignore、trailing whitespace 和历史流程偏差是否建 issue。
 - 状态：Awaiting user review；本次未停止进程、清理文件、恢复 agent 或修改该 unit。
 
 ### D-018：并行 reviewer/verifier 的报告 push 存在竞态
@@ -203,24 +195,17 @@
   report commits 都是本地 HEAD 祖先后再继续。
 - 状态：Awaiting user review；skills 未修改。
 
-### D-019：归档步骤会在本地 CI 之后改变文档图，却没有重跑 docs-check
+### D-019：归档步骤曾与手工活动索引冲突
 
-- 现状：`change-orchestrator` 先跑本地 CI，再 `git mv` 整个 unit 到 archive；归档步骤没有删除
-  `docs/changes/README.md` 的 active 索引行，之后只要求 `git diff --check`。当前 CI 的
-  `./scripts/docs-check` 会检查 active index、status 路径和 unit 唯一性。
-- 影响：按 skill 原样执行可能在本地 CI 已绿后制造确定性的文档门禁失败，直到远端 CI 才暴露。
-- 待决定：归档动作是否必须同步更新 active index，并在归档 commit 后重跑 docs-check 或整套受影响门禁。
-- 状态：Awaiting user review；skills 和归档流程未修改。
+- 原因：本次重构一度要求 `docs/changes/README.md` 手工列出 active unit，并由 `docs-check` 检查索引与 `status.md`。
+- 决定：用户确认活动表和 `status.md` 都没有增量信息，已经撤销这套重复维护；归档继续以 `git mv` 后的目录位置和 unit 唯一性为准。
+- 状态：Resolved；无需建立 issue。
 
-### D-020：远端 CI 全绿后再提交最终 status，会使绿色结论立即过期
+### D-020：远端 CI 全绿后再提交最终状态曾使绿色结论过期
 
-- 现状：`change-orchestrator` 要求先 `gh pr checks --watch` 等 CI 全绿，随后把 archive 内
-  `status.md` 改为 `Completed — PR open` 并 commit + push，然后直接退出。
-- 影响：最后一次 status push 产生新的 PR head 和新一轮 CI；skill 却可能把前一个 head 的绿色结果当作
-  最终交付证据。
-- 待决定：调整最后状态写入时机，或要求最终一次 push 后重新核对 `headRefOid` 并等待该 head CI 全绿，
-  且之后不再产生 commit。
-- 状态：Awaiting user review；skills 未修改。
+- 原因：本次重构一度要求远端 CI 绿后再提交 archive 内的 `status.md`。
+- 决定：`status.md` 制度已经撤销，CI 绿后不再产生这次纯状态提交；最终结论继续绑定 PR head。
+- 状态：Resolved；无需建立 issue。
 
 ### D-021：Verifier WARNING 是否阻塞收尾的口径不一致
 
@@ -238,7 +223,7 @@
   `change-orchestrator` 也允许“acceptance bar 允许”时收尾，但 reviewer 派发包没有 acceptance bar
   字段，也没有规定谁、何时、依据什么授权放宽。
 - 影响：同一验收结果可能因 orchestrator 临场判断得到不同路由，恢复后也无法知道当时使用了哪条 bar。
-- 待决定：保持 major 默认 fail；或为人工/流程授权定义显式字段，并持久化到 status/report/PR。
+- 待决定：保持 major 默认 fail；或为人工/流程授权定义显式字段，并持久化到 report/PR。
 - 状态：Awaiting user review；skills 未修改。
 
 ### D-023：验收完成后的 main rebase 没有完整的门禁失效判断
@@ -253,13 +238,10 @@
 
 ### D-024：部分收尾状态只存在于 orchestrator 内存
 
-- 现状：同 issue 的 5 轮上限依赖“orchestrator 内存中的 issue 指纹表”；code-review findings 没有稳定
-  报告文件。中断前虽然要求更新 `status.md`，但没有固定保存 finding origin head、open/closed 状态、
-  retained 理由和轮次指纹的字段。
+- 现状：同 issue 的 5 轮上限依赖“orchestrator 内存中的 issue 指纹表”；Full/lite 的 code-review findings 没有稳定报告文件，也没有固定保存 finding origin head、open/closed 状态、retained 理由和轮次指纹。
 - 影响：跨 session 恢复后无法可靠继续轮次计数、closure diff 或 retained 判定，可能重复修复或错误放行。
-- 待决定：是否把每轮最小 finding ledger 写入 `status.md` 或独立报告，并明确 code review 的 durable
-  evidence owner。
-- 状态：Awaiting user review；没有扩展 status 契约。
+- 待决定：是否把每轮最小 finding ledger 写入独立报告，并明确 code review 的 durable evidence owner。
+- 状态：Awaiting user review。
 
 ### D-025：校正后 delta 的软对账缺少可恢复的执行契约
 

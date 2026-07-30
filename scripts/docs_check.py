@@ -84,18 +84,6 @@ RESEARCH_STATUSES = {
     "superseded",
 }
 
-STATUS_FIELDS = (
-    "Lifecycle",
-    "Last checked",
-    "Branch",
-    "Worktree",
-    "Pull request",
-    "Completed",
-    "Evidence",
-    "Blocker",
-    "Next action",
-)
-
 UNIT_DIR_RE = re.compile(
     r"^(?P<unit_id>(?:feat|bugfix|refactor|perf)-\d+)(?:-[a-z0-9][a-z0-9-]*)?$"
 )
@@ -287,12 +275,6 @@ def required_reachable_files(tracked: set[Path]) -> set[Path]:
             required.add(path)
         elif _is_under(path, Path("docs/archive")) and path.name == "README.md":
             required.add(path)
-        elif (
-            _is_active_unit_file(path)
-            and path.name == "status.md"
-            and len(path.parts) == 4
-        ):
-            required.add(path)
     return required
 
 
@@ -324,7 +306,7 @@ def reachable_files(root: Path, tracked: set[Path]) -> set[Path]:
 
 
 def check_reachability(root: Path, tracked: set[Path]) -> list[Problem]:
-    """Require current, research, archive-index and active-status routes."""
+    """Require current, research and archive-index routes."""
     seen = reachable_files(root, tracked)
     return [
         Problem(
@@ -350,19 +332,8 @@ def _unit_directories(tracked: set[Path]) -> list[tuple[str, str]]:
     return sorted(units)
 
 
-def _status_table_fields(text: str) -> set[str]:
-    fields: set[str] = set()
-    for line in text.splitlines():
-        if not line.startswith("|") or not line.endswith("|"):
-            continue
-        cells = [cell.strip() for cell in line.strip("|").split("|")]
-        if len(cells) >= 2 and cells[0] not in {"Field", "---"}:
-            fields.add(cells[0])
-    return fields
-
-
 def check_change_units(root: Path, tracked: set[Path]) -> list[Problem]:
-    """Check active recovery contracts and logical unit-id uniqueness."""
+    """Check logical unit-id uniqueness across lifecycle directories."""
     problems: list[Problem] = []
     by_id: dict[str, list[tuple[str, str]]] = {}
     units = _unit_directories(tracked)
@@ -395,60 +366,6 @@ def check_change_units(root: Path, tracked: set[Path]) -> list[Problem]:
                 )
             )
 
-    index = Path("docs/changes/README.md")
-    if index in tracked and (root / index).is_file():
-        index_links = {
-            link.target for link in local_links(root, index) if not link.is_directory
-        }
-    else:
-        index_links = set()
-        problems.append(
-            Problem(
-                "CHANGE_INDEX_MISSING",
-                index,
-                "active units require a tracked change index",
-            )
-        )
-    for scope, directory in units:
-        if scope != "active":
-            continue
-        status = Path("docs/changes") / directory / "status.md"
-        if status not in tracked:
-            problems.append(
-                Problem(
-                    "ACTIVE_STATUS_MISSING",
-                    status,
-                    "active or paused unit must provide status.md",
-                )
-            )
-            continue
-        if not (root / status).is_file():
-            problems.append(
-                Problem(
-                    "ACTIVE_STATUS_MISSING",
-                    status,
-                    "tracked status.md is absent from the working tree",
-                )
-            )
-            continue
-        if status not in index_links:
-            problems.append(
-                Problem(
-                    "ACTIVE_STATUS_UNINDEXED",
-                    status,
-                    "docs/changes/README.md must link this recovery entry",
-                )
-            )
-        fields = _status_table_fields((root / status).read_text(encoding="utf-8"))
-        missing = [field for field in STATUS_FIELDS if field not in fields]
-        if missing:
-            problems.append(
-                Problem(
-                    "ACTIVE_STATUS_FIELDS",
-                    status,
-                    f"missing recovery fields: {', '.join(missing)}",
-                )
-            )
     return problems
 
 

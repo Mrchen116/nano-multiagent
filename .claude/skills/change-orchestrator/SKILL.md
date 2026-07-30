@@ -91,9 +91,7 @@ fi
 必须报歧义并退出，禁止 `head -1` 随机选。只命中 archive 且没有对应开放 PR 说明 unit 已完成，拒绝重复启动；
 只命中 archive 且显式给出对应开放 PR 时进入受限的 `post-pr` 小修模式；retired unit 一律拒绝启动。
 
-unit 的所有信息从 `$unit_path/` 读出来——先读 `status.md` 恢复阶段、Git/PR 定位和下一动作，再实时核对
-branch/worktree/PR；design.md Milestone 表是 full 模式的派发依据，lite 模式读 fix.md。活动 unit 缺少
-`status.md` 时先按 `docs/changes/README.md` 补齐，不能靠聊天历史猜进度。
+unit 的阶段从 `$unit_path/` 的实际产物判断：full 模式读取首文档、`design.md`、`design-review.md`、milestone 的 `tasks.md` / `progress.md` 和验收报告，lite 模式读取 `fix.md` 与 `M1-fix/`。branch、worktree、PR 和 CI 必须实时核对，不能靠聊天历史或手工快照猜进度。
 
 ---
 
@@ -207,11 +205,6 @@ fi
 ```
 
 后续所有针对 unit 分支的操作(派发包字段、rebase、merge、push、PR、teardown)一律以 `$unit_worktree` 为工作目录,主仓 HEAD 不动。
-
-worktree 就绪后，在 `$unit_worktree/$unit_path/status.md` 写入 Lifecycle `Implementation`、实际 branch/worktree、
-已完成 milestone、当前 evidence 和下一动作，并在派 worker 前提交到 unit 分支。之后每次签收 milestone 或
-验收轮次，都更新 Completed/Evidence/Next action；`status.md` 只保留最新恢复快照，roadpoint 流水仍写在各
-milestone 的 `progress.md`。
 
 ### §2.4 worktree 路径规划
 
@@ -688,8 +681,7 @@ Resume: 修订完成后调 orchestrator,带 unit_id 即可续跑
 ```
 
 4. **sweep 服务 PID**(§0.16,见 [`docs/development/worktree-runtime.md`](../../../docs/development/worktree-runtime.md)),保留 worktree 与日志 / DB。
-5. 在 `status.md` 记录 Lifecycle `Paused — escalated`、原因、最后报告和推荐的下一动作，提交并 push。
-6. orchestrator **退出**。等人完成 design 修订并主动重启。
+5. orchestrator **退出**。等人完成 design 修订并主动重启。
 
 ### §6.5 `out-of-unit`(reviewer 已立 issue)
 
@@ -794,8 +786,7 @@ git -C "$unit_worktree" push --force-with-lease origin "unit/<unit_id>"
 
 ### §7.3 归档完成 unit
 
-本地门禁全绿说明 unit 已达到可提 PR 状态。先把 `status.md` 更新为 `Ready for PR`，Completed/Evidence
-列出通过的门禁、canonical spec 归并和本地 CI，Pull request 仍为 `None`。然后把完整 unit 目录移入历史区并单独提交：
+本地门禁全绿说明 unit 已达到可提 PR 状态。把完整 unit 目录移入历史区并单独提交：
 
 ```bash
 archive_root="docs/changes/archive"
@@ -847,9 +838,6 @@ EOF
 PR title 格式:`[<type>] <短描述> (<unit_id>)`,例:`[feat] chat mention picker (feat-104)`、`[bugfix] session leak on restart (bugfix-200)`。
 
 提 PR 后等远端 CI 跑完(`gh pr checks --watch`)——本地门禁只防低级红,环境差异 / 并发 main 推进仍可能红。全绿 → §7.6。有红当 bug 走 §6.2(`gh run view --log-failed` 取失败详情作线索,派 worker 修;push 后 CI 自动重跑,再 watch),修到绿才退。此时 unit 已在 archive;本会话继续使用 `$unit_path`,所有派发包仍传原 `unit_dir`,接收角色必须唯一解析到归档路径。fix push 改变 HEAD 后，重新计算 `pr_head_sha` 并更新 PR body 的 blob 链接和 Validation Summary，再继续 watch。
-
-PR 创建后立即把 archive 内 `status.md` 的 Pull request 更新为 URL；远端 CI 全绿后将 Lifecycle 更新为
-`Completed — PR open`，Evidence 记录 PR head 与 CI，Next action 写明等待人工 review/merge，并 commit + push。
 
 ### §7.6 退出
 
@@ -912,7 +900,6 @@ orchestrator 等 CI 绿后退出,不等 merge。
 - `<unit_path>/M<N>-*/tasks.md` + `progress.md`(worker 写)
 - `<unit_path>/<acceptance|regression>.md`(reviewer 写,仅 full 模式)
 - `<unit_path>/fix.md` 后两段已回填(仅 lite 模式)
-- `<unit_path>/status.md` 已与最终 branch、PR、CI 和下一动作对齐
 - design.md 可能新增 Changelog / 新增 fix milestone 行
 - 给 main 的 GitHub PR(URL 输出给用户)
 - 必要时 escalation 通知
