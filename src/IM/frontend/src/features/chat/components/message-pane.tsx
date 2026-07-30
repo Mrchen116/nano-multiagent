@@ -303,14 +303,9 @@ export function MessagePane({
     };
   }, []);
 
-  useEffect(() => {
-    if (!activeMessageAction) return;
-    if (!messages.find((m) => m.id === activeMessageAction.messageId)) {
-      closeActionSurface("dismiss");
-    }
-  }, [activeMessageAction, messages, closeActionSurface]);
-
-  function closeActionSurface(reason: "copy-success" | "branch" | "dismiss") {
+  // useCallback 稳定引用:ContextMenu 的 effect 依赖 onClose,不稳定会让
+  // 每次 render 重挂监听并把键盘导航中的焦点抢回首项。
+  const closeActionSurface = useCallback((reason: "copy-success" | "branch" | "dismiss") => {
     setActiveMessageAction((current) => {
       if (!current) return null;
       const trigger = current.trigger;
@@ -322,7 +317,19 @@ export function MessagePane({
       return null;
     });
     activeMessageActionRef.current = null;
-  }
+  }, []);
+
+  const dismissActionSurface = useCallback(
+    () => closeActionSurface("dismiss"),
+    [closeActionSurface]
+  );
+
+  useEffect(() => {
+    if (!activeMessageAction) return;
+    if (!messages.find((m) => m.id === activeMessageAction.messageId)) {
+      closeActionSurface("dismiss");
+    }
+  }, [activeMessageAction, messages, closeActionSurface]);
 
   function showCopyNotice(kind: "success" | "error") {
     noticeTokenRef.current += 1;
@@ -911,7 +918,7 @@ export function MessagePane({
       {activeSurface?.surface === "context-menu" && activeSurface.anchor && activeMessage && (
         <ContextMenu
           anchor={activeSurface.anchor}
-          onClose={() => closeActionSurface("dismiss")}
+          onClose={dismissActionSurface}
         >
           <MessageActionList
             message={activeMessage}
@@ -931,7 +938,7 @@ export function MessagePane({
               closeActionSurface("branch");
               onFork?.(activeSurface.messageId);
             }}
-            onClose={() => closeActionSurface("dismiss")}
+            onClose={dismissActionSurface}
           />
         </ContextMenu>
       )}
@@ -981,7 +988,7 @@ export function MessagePane({
                   closeActionSurface("branch");
                   onFork?.(activeSurface.messageId);
                 }}
-                onClose={() => closeActionSurface("dismiss")}
+                onClose={dismissActionSurface}
               />
             )}
           </Dialog.Content>
@@ -1141,7 +1148,7 @@ function ContextMenu({
 
     function handleKeyDown(e: globalThis.KeyboardEvent) {
       const items = Array.from(
-        menu!.querySelectorAll<HTMLElement>('[role="menuitem"]:not([aria-disabled="true"])')
+        menu!.querySelectorAll<HTMLElement>('[role="menuitem"]')
       );
       if (items.length === 0) return;
       const active = document.activeElement as HTMLElement | null;
@@ -1166,7 +1173,7 @@ function ContextMenu({
     }
 
     const items = Array.from(
-      menu.querySelectorAll<HTMLElement>('[role="menuitem"]:not([aria-disabled="true"])')
+      menu.querySelectorAll<HTMLElement>('[role="menuitem"]')
     );
     items[0]?.focus();
 

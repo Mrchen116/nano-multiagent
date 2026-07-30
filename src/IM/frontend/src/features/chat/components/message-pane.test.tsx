@@ -1015,6 +1015,39 @@ describe("MessagePane", () => {
       await waitFor(() => expect(document.activeElement).toBe(bubble));
     });
 
+    it("roving navigation can focus an aria-disabled Branch item", async () => {
+      const forkableMessage: Message = {
+        ...SAMPLE_MESSAGES[1],
+        id: "m-fork",
+        kernel_message_id: "km-fork",
+      } as Message;
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[forkableMessage]}
+          mentionCandidates={[]}
+          isDirectChat
+          agentOnline={false}
+          onFork={() => {}}
+          onSend={() => {}}
+        />
+      );
+
+      const bubble = screen.getByTestId("message-bubble-m-fork");
+      fireContextMenu(bubble, { button: 2, buttons: 2, clientX: 0, clientY: 0, pointerType: "mouse" });
+      const menu = screen.getByRole("menu");
+
+      // 首项自动聚焦,ArrowDown 应能把焦点移到 aria-disabled 的 Branch 上
+      // (可聚焦以发现 disabled 原因,激活仍由 action model 拒绝)。
+      await waitFor(() =>
+        expect(screen.getByRole("menuitem", { name: /Copy message/i })).toHaveFocus()
+      );
+      fireEvent.keyDown(menu, { key: "ArrowDown" });
+      const branch = screen.getByRole("menuitem", { name: /Branch from here/i });
+      expect(branch).toHaveFocus();
+      expect(branch).toHaveAttribute("aria-disabled", "true");
+    });
+
     it("does not restore focus when the original trigger is no longer connected", async () => {
       const user = userEvent.setup();
       const writeText = stubClipboard();
