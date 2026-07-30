@@ -249,7 +249,33 @@ Agent 已经能看到 `docs/README.md`，但自动加载的 `AGENTS.md` 仍包�
 
 ### 阶段 3：规整 Work 平面
 
-状态：Pending
+状态：Completed
+
+#### 已完成
+
+- 逐个核对活动区 unit 与 branch、worktree、PR 和实现提交，将仍可推进的 unit 标为 Active/Paused，
+  已交付 unit 整体归档，被当前架构取代且未完成的提案进入 `retired/`。
+- 为每个活动 unit 建立 `status.md` 恢复入口，并把创建、设计、实施、暂停、归档和 PR 阶段的更新责任接入
+  change skills；unit id 分配同时扫描 active/archive/retired。
+- 将 change 存储入口标准化为 `docs/changes/README.md`，同步所有 live consumers。
+- 停止 worker 向根 `LOGBOOK.md` 写通用经验；可复用知识先写 unit 内 Promotion Candidates，再由
+  orchestrator 核实并归并到唯一长期 owner。
+- 审计 `data/dev-tasks.json`：文件不存在，现行 orchestrator 明确不用它；唯一残留是没有生产调用者的旧
+  worktree symlink helper，已移除该兼容接线并保留 merge lock 共享。
+- 将根级 `ROADMAP/TASKS/PROGRESS/LOGBOOK/ACCEPTANCE` 共 516 个冻结文件整体迁入
+  `docs/archive/legacy-development-records/`，保留原层级和内容。
+
+#### 已提交
+
+| Commit | 内容 |
+|---|---|
+| `4d6b30d77` | 核对并标记活动与暂停 unit |
+| `d05d30fef` | 归档已完成 unit |
+| `069c63a0d` | 将被后续方案取代的未完成提案移入 retired |
+| `d8b7378ee` | 定义 active unit 跨 session 恢复契约 |
+| `747033fcd` | 标准化 change index 文件名和 live routes |
+| `c3c2ec333` | 停止 legacy work/logbook 写入并移除旧 task board 接线 |
+| `18c4cd1c9` | 整体迁移冻结的旧开发记录 |
 
 #### 要解决的问题
 
@@ -287,11 +313,11 @@ Agent 已经能看到 `docs/README.md`，但自动加载的 `AGENTS.md` 仍包�
 
 #### 退出条件
 
-- [ ] 新工作只有一个 active 写入体系。
-- [ ] 任一 active unit 可以在新 session 中从仓库状态恢复。
-- [ ] 根 legacy 目录没有新的写入者。
-- [ ] active/archive 同一 `unit_id` 不会歧义。
-- [ ] 不依据目录年龄猜测 change 是否完成。
+- [x] 新工作只有一个 active 写入体系。
+- [x] 任一 active unit 可以在新 session 中从仓库状态恢复。
+- [x] 根 legacy 目录没有新的写入者。
+- [x] active/archive/retired 同一 `unit_id` 不会歧义。
+- [x] 不依据目录年龄猜测 change 是否完成。
 
 ### 阶段 4：规整 Evidence 平面
 
@@ -584,8 +610,9 @@ Agent 能搜索文件，但没有显式入口的正确文档仍可能在任务�
     │       └── spec.md
     │
     ├── changes/
-    │   ├── README.md                 # unit 目录、文件归属、active/archive
+    │   ├── README.md                 # unit 目录、恢复契约、active/retired/archive
     │   ├── <active-unit>/
+    │   │   ├── status.md             # 当前阶段、Git/PR 定位、证据和下一动作
     │   │   ├── <first-document>.md
     │   │   ├── design.md
     │   │   ├── design-review.md
@@ -594,6 +621,8 @@ Agent 能搜索文件，但没有显式入口的正确文档仍可能在任务�
     │   │       ├── tasks.md
     │   │       ├── progress.md
     │   │       └── evidence/
+    │   ├── retired/
+    │   │   └── <superseded-unit>/    # 未完成且不再按原方案继续
     │   └── archive/
     │       └── <completed-unit>/      # 冻结的完整 change history
     │
@@ -613,6 +642,10 @@ Agent 能搜索文件，但没有显式入口的正确文档仍可能在任务�
         ├── product-source-materials/
         ├── migration-plans/
         └── legacy-development-records/
+            ├── ROADMAP.md
+            ├── TASKS.md
+            ├── PROGRESS.md
+            ├── LOGBOOK.md
             ├── TASKS/
             ├── PROGRESS/
             └── ACCEPTANCE/
