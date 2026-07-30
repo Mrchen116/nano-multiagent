@@ -83,7 +83,7 @@ flowchart LR
 
 ### 阶段 0：建立迁移基线
 
-状态：Completed
+状态：Completed（仓库原有漂移另见临时 [`drift-review.md`](drift-review.md)，等待用户裁决）
 
 #### 要解决的问题
 
@@ -334,6 +334,8 @@ Agent 已经能看到 `docs/README.md`，但自动加载的 `AGENTS.md` 仍包�
   `scripts/acceptance/` 脚本移入 legacy archive。
 - 明确最窄反馈、风险扩展验证、selected gates、本地 CI 等价检查和远端 CI 的 owner；CI job 命令只以
   workflow 文件为执行权威。
+- 本次迁移引入的 evidence 描述和格式门禁错误已经修正；审计发现的原有流程/文档漂移不自动裁决，
+  统一进入 `drift-review.md`。
 
 #### 已提交
 
@@ -342,6 +344,8 @@ Agent 已经能看到 `docs/README.md`，但自动加载的 `AGENTS.md` 仍包�
 | `a7b4f1c9e` | 建立 evidence 能力边界、保存与 promotion 规则 |
 | `0acd15a6d` | 退役没有现行生产调用者的 milestone acceptance scripts |
 | `5a52e40cc` | 对齐开发反馈、交付门禁和 LLM session 定位 |
+| `cdc727151` | 修正 evidence owner 与 smoke session locator，并建立 drift review queue |
+| `363dbbf20` | 恢复分支的 Ruff format 与 diff hygiene 门禁 |
 
 #### 要解决的问题
 
