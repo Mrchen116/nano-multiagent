@@ -35,7 +35,7 @@ generated index 和 git/PR history。它们可信的方式不同，不能放进�
 
 ## 五个逻辑平面
 
-逻辑平面描述职责，不要求创建五个同名目录。
+五个平面用于区分知识的职责、可信方式和流转方向。
 
 | 平面 | 回答的问题 | 常见内容 |
 |---|---|---|
@@ -440,7 +440,7 @@ Promotion 前至少要核对来源、现有重复、适用版本、遗漏代价�
 | Security | secret、外部 skill 来源/版本/权限、日志访问与脱敏、Agent allowed paths |
 | Consistency | workflow/skill 门禁、脚本提示、测试错误信息和 live 文档没有互相矛盾 |
 
-`AGENTS.md` 的行数、字节和 token 预算只能触发审计，不能独立决定失败。Research 必须声明日期、基线、
+`AGENTS.md` 的行数、字节和 token 预算适合触发审计，不能代替内容判断。Research 必须声明日期、基线、
 状态和 current 替代入口。自动检查不替代语义审查；current 是否与真实调用链一致，仍需结合代码、
 tests 和运行状态。
 
@@ -520,6 +520,39 @@ tests 和运行状态。
   [`../research/agent-era-repository-knowledge-system.md`](../research/agent-era-repository-knowledge-system.md)
 
 新增、移动或退役长期文档时，应同时检查这些 live 入口，但不批量改写历史材料中的语境链接。
+
+### 本仓的更新闭环
+
+1. **归位。** 先按 [`../README.md`](../README.md) 判断新信息属于产品、架构、current behavior、开发、
+   operations、active work、evidence、research 还是 archive，再找到该类事实的唯一 owner。
+2. **接入。** 新的长期文档必须从对应领域 `README.md` 获得带用途和状态的链接；领域入口再由
+   `docs/README.md` 路由。极难从仓库推导、且遗漏代价高的入口才上提到 `AGENTS.md`。
+3. **实施与留证。** 尚未交付的目标、决定、进度和临时证据留在 active change unit；它们不能提前覆盖
+   `SPEC.md` 或 `docs/specs/`。
+4. **Promotion。** change 收尾时，按实际实现校正 delta：用户可观察行为进入 current specs，跨包边界
+   进入 `SPEC.md`，稳定开发或运行发现进入 development/operations，可重复判定的缺陷进入 tests、scripts
+   或 CI。验证报告和过程材料随整个 unit 冻结为 completed history。
+5. **退役。** 先建立新 owner 并更新所有 live consumers，再把旧独立文档移入 `docs/archive/`；需要承接
+   历史链接时保留只指向 canonical owner 的兼容入口。research 和 archive 的历史正文保持记录时语境。
+
+### 本仓的机械保护
+
+| 入口 | 保护的边界 |
+|---|---|
+| [`../../scripts/docs-check`](../../scripts/docs-check) | Markdown 链接与图片、根入口可达性、retired 路径引用、research metadata、active unit 恢复字段与 ID、`AGENTS.md` 预算、`CLAUDE.md` 适配器 |
+| [`../../tests/contract/test_change_workflow_documentation_contract.py`](../../tests/contract/test_change_workflow_documentation_contract.py) | spec review 仍为可选、Gate 2 复用同一 reviewer、selected validation gates 的现行矩阵 |
+| [`../../tests/contract/`](../../tests/contract/) | 包边界和其他能够确定性判断的仓库不变量 |
+| [CI workflow](../../.github/workflows/ci.yml) | 在 PR 与 main push 上执行文档、格式、测试和前端门禁 |
+
+本地运行：
+
+```bash
+./scripts/docs-check
+pytest -q tests/contract/test_change_workflow_documentation_contract.py
+```
+
+本仓把 `AGENTS.md` 的 120 行 / 12 KiB 设为 CI 审计闸。超限时应重新判断哪些内容值得常驻、哪些应通过
+链接按需加载；不能通过机械删字让语义缺失。
 
 ## Review Checklist
 
