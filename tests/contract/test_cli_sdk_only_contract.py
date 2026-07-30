@@ -214,11 +214,11 @@ def test_cli_exposes_required_repl_commands_contract() -> None:
     assert not hasattr(cli_commands, "supported_repl_commands")
 
 
-def test_readme_documents_cli_module_boundaries_and_json_contract() -> None:
+def test_readme_documents_cli_module_boundaries_and_ndjson_contract() -> None:
     readme = Path("README.md").read_text(encoding="utf-8")
 
-    assert "CLI module boundary" in readme
+    assert "### CLI 模块边界" in readme
     assert "`commands.py`" in readme
     assert "`repl_input.py`" in readme
     assert "`repl_commands.py`" in readme
-    assert "single final JSON object on stdout" in readme
+    assert "`--text` 的 stdout 保持 NDJSON 事件流" in readme
