@@ -91,6 +91,9 @@ RESEARCH_STATUSES = {
     "superseded",
 }
 
+SPEC_ROOT = Path("docs/specs")
+SPEC_AREA_TABLE_COLUMNS = ("Area", "Covers", "Requirements")
+SPEC_AREA_LINK_RE = re.compile(r"^\[([^\]]+)\]\(([^)]+)\)$")
 UNIT_DIR_RE = re.compile(
     r"^(?P<unit_id>(?:feat|bugfix|refactor|perf)-\d+)(?:-[a-z0-9][a-z0-9-]*)?$"
 )
@@ -479,6 +482,212 @@ def _markdown_table_cells(line: str) -> tuple[str, ...] | None:
     )
 
 
+def _requirement_heading_count(path: Path) -> int:
+    text = path.read_text(encoding="utf-8")
+    tokens = _MARKDOWN.parse(text)
+    return sum(
+        1
+        for index, token in enumerate(tokens[:-1])
+        if token.type == "heading_open"
+        and token.tag == "h3"
+        and tokens[index + 1].type == "inline"
+        and tokens[index + 1].content.startswith("Requirement:")
+    )
+
+
+def _canonical_spec_entries(tracked: set[Path]) -> list[Path]:
+    return sorted(
+        path
+        for path in tracked
+        if path.name == "spec.md" and path.parent.parent == SPEC_ROOT
+    )
+
+
+def check_spec_area_indexes(root: Path, tracked: set[Path]) -> list[Problem]:
+    """Check package area coverage and derived Requirement counts."""
+    problems: list[Problem] = []
+    for entry in _canonical_spec_entries(tracked):
+        entry_path = root / entry
+        if not entry_path.is_file():
+            problems.append(
+                Problem(
+                    "SPEC_AREA_SOURCE",
+                    entry,
+                    "tracked package spec entry is absent",
+                )
+            )
+            continue
+
+        lines = entry_path.read_text(encoding="utf-8").splitlines()
+        heading_index = next(
+            (
+                index
+                for index, line in enumerate(lines)
+                if line.strip() == "## Canonical Areas"
+            ),
+            None,
+        )
+        if heading_index is None:
+            problems.append(
+                Problem(
+                    "SPEC_AREA_TABLE",
+                    entry,
+                    "missing '## Canonical Areas' section",
+                )
+            )
+            continue
+
+        header_index: int | None = None
+        for index in range(heading_index + 1, len(lines)):
+            if lines[index].startswith("## "):
+                break
+            if _markdown_table_cells(lines[index]) == SPEC_AREA_TABLE_COLUMNS:
+                header_index = index
+                break
+        if header_index is None:
+            problems.append(
+                Problem(
+                    "SPEC_AREA_TABLE",
+                    entry,
+                    "missing canonical area table or expected three-column header",
+                    heading_index + 1,
+                )
+            )
+            continue
+
+        separator = (
+            _markdown_table_cells(lines[header_index + 1])
+            if header_index + 1 < len(lines)
+            else None
+        )
+        if (
+            separator is None
+            or len(separator) != len(SPEC_AREA_TABLE_COLUMNS)
+            or any(re.fullmatch(r":?-{3,}:?", cell) is None for cell in separator)
+        ):
+            problems.append(
+                Problem(
+                    "SPEC_AREA_TABLE",
+                    entry,
+                    "table header must be followed by a three-column separator",
+                    header_index + 2,
+                )
+            )
+
+        rows: list[tuple[int, tuple[str, ...]]] = []
+        for index in range(header_index + 2, len(lines)):
+            cells = _markdown_table_cells(lines[index])
+            if cells is None:
+                break
+            rows.append((index + 1, cells))
+
+        indexed_areas: set[Path] = set()
+        for line_number, cells in rows:
+            if len(cells) != len(SPEC_AREA_TABLE_COLUMNS):
+                problems.append(
+                    Problem(
+                        "SPEC_AREA_ROW",
+                        entry,
+                        f"expected three columns, found {len(cells)}",
+                        line_number,
+                    )
+                )
+                continue
+
+            area_match = SPEC_AREA_LINK_RE.fullmatch(cells[0])
+            if area_match is None:
+                problems.append(
+                    Problem(
+                        "SPEC_AREA_ROW",
+                        entry,
+                        "Area cell must contain one Markdown link",
+                        line_number,
+                    )
+                )
+                continue
+
+            area_name, href = area_match.groups()
+            link = _resolve_local_link(root, entry, href, line_number)
+            if (
+                link is None
+                or link.is_directory
+                or link.target.parent != entry.parent
+                or link.target.name == "spec.md"
+                or link.target.suffix.lower() != ".md"
+            ):
+                problems.append(
+                    Problem(
+                        "SPEC_AREA_TARGET",
+                        entry,
+                        f"{area_name} must link to an area Markdown file in {entry.parent}",
+                        line_number,
+                    )
+                )
+                continue
+
+            if link.target in indexed_areas:
+                problems.append(
+                    Problem(
+                        "SPEC_AREA_DUPLICATE",
+                        entry,
+                        f"{link.target.name} is indexed more than once",
+                        line_number,
+                    )
+                )
+            indexed_areas.add(link.target)
+
+            if link.target not in tracked or not (root / link.target).is_file():
+                problems.append(
+                    Problem(
+                        "SPEC_AREA_TARGET",
+                        entry,
+                        f"{area_name} points to missing tracked area {link.target}",
+                        line_number,
+                    )
+                )
+                continue
+
+            declared_count = cells[2]
+            if not declared_count.isdigit():
+                problems.append(
+                    Problem(
+                        "SPEC_REQUIREMENT_COUNT",
+                        entry,
+                        f"{area_name} Requirement count must be an integer",
+                        line_number,
+                    )
+                )
+                continue
+            actual_count = _requirement_heading_count(root / link.target)
+            if int(declared_count) != actual_count:
+                problems.append(
+                    Problem(
+                        "SPEC_REQUIREMENT_COUNT",
+                        entry,
+                        f"{area_name} declares {declared_count} Requirements, "
+                        f"but {link.target.name} contains {actual_count}",
+                        line_number,
+                    )
+                )
+
+        package_area_files = {
+            path
+            for path in tracked
+            if path.parent == entry.parent
+            and path.name != "spec.md"
+            and path.suffix.lower() == ".md"
+        }
+        for missing in sorted(package_area_files - indexed_areas):
+            problems.append(
+                Problem(
+                    "SPEC_AREA_UNINDEXED",
+                    entry,
+                    f"{missing.name} is not listed in Canonical Areas",
+                )
+            )
+    return problems
+
+
 def _catalog_test_node_ids(test_cell: str) -> tuple[str, ...]:
     nodes: list[str] = []
     current_file: Path | None = None
@@ -774,6 +983,7 @@ def run_checks(root: Path, tracked: set[Path] | None = None) -> list[Problem]:
         *check_reachability(root, tracked),
         *check_change_units(root, tracked),
         *check_research_metadata(root, tracked),
+        *check_spec_area_indexes(root, tracked),
         *check_e2e_critical_path_catalog(root, tracked),
         *check_agent_bootstrap(root, tracked),
     ]

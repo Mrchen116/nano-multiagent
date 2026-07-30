@@ -135,6 +135,74 @@ def test_research_metadata_requires_provenance_fields(tmp_path: Path) -> None:
     assert "nano-baseline" in problems[0].message
 
 
+def test_spec_area_index_accepts_matching_count_and_ignores_code_blocks(
+    tmp_path: Path,
+) -> None:
+    entry = _write(
+        tmp_path,
+        "docs/specs/kernel/spec.md",
+        "# Kernel\n\n"
+        "## Canonical Areas\n\n"
+        "| Area | Covers | Requirements |\n"
+        "|---|---|---|\n"
+        "| [Runs](runs.md) | run lifecycle | 1 |\n",
+    )
+    area = _write(
+        tmp_path,
+        "docs/specs/kernel/runs.md",
+        "# Runs\n\n"
+        "```markdown\n### Requirement: example only\n```\n\n"
+        "### Requirement: submit a run\n",
+    )
+
+    problems = docs_check.check_spec_area_indexes(tmp_path, {entry, area})
+
+    assert problems == []
+
+
+def test_spec_area_index_rejects_drift_duplicates_missing_and_unindexed_areas(
+    tmp_path: Path,
+) -> None:
+    entry = _write(
+        tmp_path,
+        "docs/specs/kernel/spec.md",
+        "# Kernel\n\n"
+        "## Canonical Areas\n\n"
+        "| Area | Covers | Requirements |\n"
+        "|---|---|---|\n"
+        "| [Runs](runs.md) | run lifecycle | 2 |\n"
+        "| [Runs again](runs.md) | duplicate | 1 |\n"
+        "| [Missing](missing.md) | absent | 0 |\n",
+    )
+    runs = _write(
+        tmp_path,
+        "docs/specs/kernel/runs.md",
+        "# Runs\n\n### Requirement: submit a run\n",
+    )
+    skills = _write(
+        tmp_path,
+        "docs/specs/kernel/skills.md",
+        "# Skills\n\n### Requirement: discover skills\n",
+    )
+
+    problems = docs_check.check_spec_area_indexes(
+        tmp_path,
+        {entry, runs, skills},
+    )
+    codes = {problem.code for problem in problems}
+
+    assert codes == {
+        "SPEC_AREA_DUPLICATE",
+        "SPEC_AREA_TARGET",
+        "SPEC_AREA_UNINDEXED",
+        "SPEC_REQUIREMENT_COUNT",
+    }
+    assert any(
+        "declares 2 Requirements, but runs.md contains 1" in problem.message
+        for problem in problems
+    )
+
+
 def test_e2e_catalog_accepts_collectable_full_and_shorthand_node_ids(
     tmp_path: Path,
 ) -> None:

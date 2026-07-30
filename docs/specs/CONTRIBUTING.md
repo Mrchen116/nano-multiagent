@@ -101,6 +101,7 @@ design,也不建独立 ADR 层(`docs/decisions/`);决策的家是 per-unit `desi
 - **不写** `覆盖: tests/...` 行、**不加** `[可执行]` / `[行为]` 标签、**不建** freshness/锚点测试。
   测试映射和验证记录属于测试或 change evidence，不写入契约正文。
 - `> 对齐: <unit-id>` 记录最后修改该文件的 change unit。只有实际发生变化的入口或 area 文件更新该标记。
+- 包入口 `Canonical Areas` 表中的 `Requirements` 是便于浏览的派生数量；`scripts/docs-check` 会按对应 area 文档中的 `### Requirement:` 标题机械校验数量、重复登记和遗漏登记。
 - `Requirement` 是一份契约(一条规则),不是模块清单。一个 `Requirement` 配一个或多个 `Scenario`。
 - 每个 area 文档优先控制在可一次读完的范围内。若单个 area 持续膨胀,先按语义继续拆 area,不要把入口
   `spec.md` 重新变成大文件。
