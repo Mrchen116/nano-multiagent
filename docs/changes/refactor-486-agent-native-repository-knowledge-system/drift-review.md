@@ -125,8 +125,8 @@
 - 文档缺口：M2 tasks/progress 没有记录最后有效 verification 的 validated head/range、Round 3 中断现场，也未签收最后两个 fix commits。
 - 其他待裁决记录：M2 退出标准表写 `F1–F4`，正文存在 `F5`；design-review 的冻结表述与后来追加 M2 的做法没有留下裁决；progress 记录 orchestrator 在 worker 403 后亲自实现，与当前 orchestrator “不写代码”边界不一致。
 - 影响：新 Agent 若没有核对运行现场和实时 Git 状态，可能重复派验收、误清理现场、遗漏当前 HEAD 复验，或用宽泛 `git add -A` 暂存本机 credential。
-- 待决定：由 `feat-484` owner 审核现场后，决定继续复验还是安全清理；将真实 validated range 和运行 locator 写回对应 milestone progress/evidence；另行判断 credential ignore、trailing whitespace 和历史流程偏差是否建 issue。
-- 状态：Awaiting user review；本次未停止进程、清理文件、恢复 agent 或修改该 unit。
+- 用户决定：本次文档体系重构不处理，也不另建 issue；由 `feat-484` 恢复时重新核对现场，并在该 unit 内决定继续复验还是安全清理。
+- 状态：Resolved；本次未停止进程、清理文件、恢复 agent 或修改该 unit。
 
 ### D-018：并行 reviewer/verifier 的报告 push 存在竞态
 
@@ -156,8 +156,8 @@
 
 - 现状：`change-reviewer` 允许第三轮起由 caller 放宽 major issue 为 `pass-with-issues`；`change-orchestrator` 也允许“acceptance bar 允许”时收尾，但 reviewer 派发包没有 acceptance bar 字段，也没有规定谁、何时、依据什么授权放宽。
 - 影响：同一验收结果可能因 orchestrator 临场判断得到不同路由，恢复后也无法知道当时使用了哪条 bar。
-- 待决定：保持 major 默认 fail；或为人工/流程授权定义显式字段，并持久化到 report/PR。
-- 状态：Awaiting user review；skills 未修改。
+- 用户决定：本次不修改验收流程，后续通过 [Issue #220](https://github.com/Mrchen116/nano-multiagent/issues/220) 明确 `pass-with-issues` 的适用边界并消除隐式 acceptance bar。
+- 状态：Deferred to Issue #220。
 
 ### D-023：验收完成后的 main rebase 没有完整的门禁失效判断
 
@@ -183,8 +183,8 @@
 
 - 现状：`.claude/skills/change-orchestrator/references/codex-execution-notes.md` 要求 `spawn_agent(agent_type=...)`，当前工具没有 `agent_type` 参数；模型表使用带空格的 `gpt-5.6 sol` / `gpt-5.6 Terra`，当前可用标识为连字符形式，并列出当前未暴露的 `gpt-5.3-codex-spark`。
 - 影响：orchestrator 若逐字执行映射，会在派发阶段参数校验失败，或无法按文档指定模型启动 agent。
-- 待决定：按当前工具 schema 更新映射，并明确模型不可用时的兼容策略；这属于运行时适配更新，不应改变 Full/lite、spec review 或三类门禁的产品流程语义。
-- 状态：Awaiting user review；Codex 映射未修改。
+- 用户决定：不处理；保留现有 Codex 执行映射，不修改 skill，也不建立 issue。
+- 状态：Resolved；已知映射可能与当前 collaboration tool schema 不兼容。
 
 ### D-027：简化实施与零用户面 Full 的 reviewer 政策冲突
 
