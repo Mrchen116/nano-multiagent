@@ -533,7 +533,7 @@ NEW_COMMITS=$(git -C "$unit_worktree" log --oneline "$BEFORE..$AFTER")
 
 - **code review findings 的判定**:返回 `[]` → 该闸 pass。非空时由你逐条判:CONFIRMED 的 correctness bug **按 CRITICAL 对待**,必须并入 fix;PLAUSIBLE 及 cleanup / altitude 类发现你用技术领导者判断——值得修的并入同一个 fix milestone,不值得阻塞 PR 的记入 PR body 已知事项(并说明不修理由)。
 - **所有 required gates 都 pass**(派发闸 pass + retained 闸仍有效 + skipped 闸不适用)→ §6.1(各做完整性检查)→ §7 提 PR。
-- **verifier 有 CRITICAL,或 reviewer 给 fix-implementation,或 code review 有阻塞发现** → §6.2:**把 verifier 的 CRITICAL/WARNING issues + reviewer 的 fix issues + code review 的阻塞 findings 合并打包进同一个 fix 任务**,一个 fix worker 改完后先过 worker DONE / live 签收闸,再走 §6.2.1 Revalidation Selection。verifier 报"缺测试"(WARNING)的,worker 必须补上对应测试。
+- **verifier `verdict=fail`,或 reviewer 给 fix-implementation,或 code review 有阻塞发现** → §6.2:**把 verifier 的 CRITICAL/WARNING issues + reviewer 的 fix issues + code review 的阻塞 findings 合并打包进同一个 fix 任务**,一个 fix worker 改完后先过 worker DONE / live 签收闸,再走 §6.2.1 Revalidation Selection。verifier 报"缺测试"(WARNING)的,worker 必须补上对应测试。
 - **reviewer 给 `revise-design`** → §6.3 三道闸。(verifier 不给 revise-design;它若把某 design 决策违背报成 WARNING,默认走 fix-implementation 让实现去对齐 design;真要改 design 仍由 reviewer 的 revise-design 三道闸驱动。)
 - **reviewer 给 `out-of-unit`** → §6.5。
 
@@ -545,7 +545,7 @@ NEW_COMMITS=$(git -C "$unit_worktree" log --oneline "$BEFORE..$AFTER")
 
 所有 required gates 都 pass 时,对参与或被继承的报告做完整性检查:
 
-**verifier 报告**:记分卡三维齐全、Correctness 逐 requirement/scenario 有结论、CRITICAL 计数为 0。
+**verifier 报告**:记分卡三维齐全、Correctness 逐 requirement/scenario 有结论、CRITICAL / WARNING 计数均为 0。
 **reviewer 报告**:
 
 - acceptance/regression 报告必须有验收标准覆盖表,且没有明显只列 focus fix、漏掉首文档必验项。

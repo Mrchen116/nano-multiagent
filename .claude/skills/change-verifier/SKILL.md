@@ -215,16 +215,15 @@ requires_full_verification: <true|false>
 ```
 
 **② 问题按优先级分组**(发现问题时):
-1. **CRITICAL** —— 提 PR 前必须修(缺实现、未完成 task、**架构自洽性违反**:依赖方向 / 跨机边界 / 另造平行机制,见 §4.3)
-2. **WARNING** —— 应该修(偏离 spec/design、缺测试)
+1. **CRITICAL** —— 严重阻塞,提 PR 前必须修(缺实现、未完成 task、**架构自洽性违反**:依赖方向 / 跨机边界 / 另造平行机制,见 §4.3)
+2. **WARNING** —— 普通阻塞,提 PR 前必须修(偏离 spec/design、缺测试)
 3. **SUGGESTION** —— 可以修(表层模式不一致、测试过剩、小改进)
 
 每条问题:具体、可操作的修复建议,带 file:line(适用时)。避免 "consider reviewing" 这种空话。
 
 **③ 结尾消息**:
-- 全部通过 → `All checks passed. Ready for PR.`
-- 有 CRITICAL → `X critical issue(s) found. Fix before PR.`(**不要建议提 PR**)
-- 无 CRITICAL 但有 WARNING → `No critical issues. Y warning(s) to consider. Ready for PR (with noted improvements).`
+- CRITICAL / WARNING 都为 0 → `All checks passed. Ready for PR.`
+- 有任一 CRITICAL / WARNING → `X critical issue(s), Y warning(s) found. Fix before PR.`(**不要建议提 PR**)
 
 ### §5.2 写完报告 + commit
 ```bash
@@ -254,7 +253,7 @@ git -C "$repo_root" worktree remove "$verify_worktree_dir"
 unit_id: <id>
 review_round: <N>
 verification_mode: <full|targeted-closure|delta>
-verdict: pass | fail
+verdict: pass | fail            # CRITICAL / WARNING 都为 0 才 pass
 issues: { critical: N, warning: N, suggestion: N }
 validated_issues: [<focus issue ids closed / still open>]
 requires_full_verification: true | false
@@ -272,7 +271,7 @@ report_path: <unit_path>/verification.md
 report_commit: <最终 push 成功后的 commit SHA>
 ```
 
-普通模式 `verdict = fail`(有 CRITICAL)→ orchestrator 据严重度路由。`corrected-delta` 由 orchestrator
+普通模式 `verdict = fail`(有 CRITICAL 或 WARNING)→ orchestrator 据严重度路由。`corrected-delta` 由 orchestrator
 §7.0 按 `outcome` 路由。
 
 ---
@@ -293,7 +292,7 @@ report_commit: <最终 push 成功后的 commit SHA>
 - **不要改代码 / 加测试再删**。只读 + 报告,缺测试就报"缺测试"(WARNING),让 worker 补。
 - **不要只查证据"存不存在"**。"有个测试文件"不等于"覆盖了这条 scenario"——要真判测试断言对不对得上 scenario。
 - **不要给空泛建议**。每条问题带 file:line + 具体怎么改的方向。
-- **有 CRITICAL 不要建议提 PR**。报告必须明确"修完再提"。
+- **有 CRITICAL / WARNING 不要建议提 PR**。报告必须明确"修完再提"。
 
 ---
 
@@ -305,4 +304,4 @@ report_commit: <最终 push 成功后的 commit SHA>
 - `<unit_path>/verification.md`(模板见 `assets/`)
 - 回报字符串(§5.3)给 orchestrator
 
-下游(orchestrator):据 verdict + 严重度计数路由,把 CRITICAL/WARNING issues 打包成 fix milestone(见 orchestrator §6)。
+下游(orchestrator):`verdict=fail` 时把 CRITICAL/WARNING issues 打包成 fix milestone(见 orchestrator §6)。

@@ -150,10 +150,9 @@
 
 ### D-021：Verifier WARNING 是否阻塞收尾的口径不一致
 
-- 现状：`change-verifier` 把 spec/design 偏离和缺测试列为“应该修”的 WARNING，但规定“无 CRITICAL 即 verdict=pass / Ready for PR”；`change-orchestrator` 只有在存在 CRITICAL、reviewer fix 或 code review 阻塞项时才进入 fix，此时才顺带打包 WARNING。
-- 影响：只有 WARNING 的 verifier 报告可能作为 pass 穿过收尾，和“应该修、缺测试必须补”的文字承诺冲突。
-- 待决定：WARNING 默认阻塞；或允许显式接受，但必须定义接受者、理由和 PR 记录字段。
-- 状态：Awaiting user review；原门禁语义未修改。
+- 用户决定：CRITICAL 是严重阻塞，WARNING 是普通阻塞，SUGGESTION 非阻塞；只有 CRITICAL / WARNING 都为 0 时 verifier 才能 pass。
+- 处理：orchestrator 统一按 verifier `verdict=fail` 进入现有 fix 流程，不增加 WARNING 豁免、接受者或额外记录字段。
+- 状态：Resolved。
 
 ### D-022：`pass-with-issues` 的 acceptance bar 没有稳定输入
 
