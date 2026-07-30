@@ -416,6 +416,13 @@ describe("serializeMessageBody", () => {
     const el = body("<p>use <code>const x = 1</code> please</p>");
     expect(serializeMessageBody(el)).toBe("use const x = 1 please");
   });
+
+  it("keeps code block content and excludes only the copy button in whole-message copy", () => {
+    const el = body(
+      '<p>before</p><div class="im-code-block"><button class="im-code-copy" data-clipboard-exclude>⎘</button><pre><code>if (ready) {\n\n  run();\n}</code></pre></div><p>after</p>'
+    );
+    expect(serializeMessageBody(el)).toBe("before\n\nif (ready) {\n\n  run();\n}\n\nafter");
+  });
 });
 
 describe("extractCodeText", () => {

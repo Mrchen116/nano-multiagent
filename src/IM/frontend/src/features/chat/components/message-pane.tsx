@@ -1602,10 +1602,11 @@ function MarkdownContent({
     pre: (props: any) => {
       const { node: _node, children, ...rest } = props;
       return (
-        <div className="im-code-block" data-clipboard-exclude>
+        <div className="im-code-block">
           <button
             type="button"
             className="im-code-copy"
+            data-clipboard-exclude
             onClick={(e) => {
               const codeEl = (e.currentTarget.parentElement?.querySelector("pre > code") ??
                 e.currentTarget.parentElement?.querySelector("code")) as HTMLElement | null;

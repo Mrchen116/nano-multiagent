@@ -46,11 +46,10 @@ async function sendMessage(page, text) {
 }
 
 async function waitForAgentReply(page, timeoutMs = 180000) {
-  await page.waitForFunction(
-    () => !document.querySelector('[data-testid^="message-elapsed-"]'),
-    null,
-    { timeout: timeoutMs }
-  );
+  // 先等 agent 气泡出现,再等 message-elapsed-* 出现(该 testid 仅在
+  // deliveryStatus === "completed" 时渲染,即 run 完成的可靠信号)。
+  await page.waitForSelector(".chat-bubble--agent .chat-message-body", { timeout: timeoutMs });
+  await page.waitForSelector('[data-testid^="message-elapsed-"]', { timeout: timeoutMs });
   await sleep(500);
 }
 
@@ -82,11 +81,11 @@ async function getLastAgentBubble(page) {
       "请用中文回复一段演示消息,必须包含:",
       "1) 两段正文;2) 一个无序列表至少三项,列表项之间用空行分隔,其中一项含嵌套子列表;",
       "3) 具名外链 [文档](https://example.com/docs);4) 裸 URL https://example.com;5) 相对链接 /chat;",
-      "6) 一个 fenced 代码块。只输出结构化内容,不要寒暄。",
+      '6) 一个 fenced 代码块,内容必须是: print("MAGIC_CODE_SENTINEL")',
+      "只输出结构化内容,不要寒暄。",
     ].join("\n")
   );
   await waitForAgentReply(page);
-  await page.waitForSelector(".chat-bubble--agent .chat-message-body", { timeout: 10000 });
   await sleep(500);
 
   const bubble = await getLastAgentBubble(page);
@@ -120,6 +119,13 @@ async function getLastAgentBubble(page) {
   }
   if (/\/chat \(http/.test(clipboard)) {
     failures.push("同源相对链接被错误追加 absolute URL");
+  }
+  // round 2 issue 2: fenced 代码块内容必须出现在整条复制里
+  if (!clipboard.includes("MAGIC_CODE_SENTINEL")) {
+    failures.push("fenced 代码块内容未出现在整条复制中(round 2 issue 2)");
+  }
+  if (/⎘/.test(clipboard)) {
+    failures.push("代码块 copy button 的 ⎘ 符号混入整条复制");
   }
 
   if (failures.length) {
