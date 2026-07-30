@@ -15,7 +15,7 @@
 | 跟踪本次 Agent-Native 仓库知识体系迁移 | [`refactor-486 plan`](changes/refactor-486-agent-native-repository-knowledge-system/plan.md)（Active Work，不覆盖 current） |
 | 配置开发环境、运行测试或开发 CLI/前端 | [`development/local-development.md`](development/local-development.md) → [`TESTING_GUIDE.md`](TESTING_GUIDE.md) |
 | 启动、调试或恢复服务 | [`operator-runbook.md`](operator-runbook.md) |
-| 在 worktree 内运行真实服务或关键路径 E2E | [`../AGENTS.md`](../AGENTS.md#运行时服务并行启动) → [`e2e-critical-paths.md`](e2e-critical-paths.md) |
+| 在 worktree 内运行真实服务或关键路径 E2E | [`development/worktree-runtime.md`](development/worktree-runtime.md) → [`e2e-critical-paths.md`](e2e-critical-paths.md) |
 | 查某个变更为什么这样设计 | 活动区或历史区的 [`changes/`](changes/readme.md) unit |
 | 查 LLM 交互日志或本地参考项目 | [`../AGENTS.md`](../AGENTS.md#project-overview) |
 | 查外部项目比较、脑暴或阶段性审查 | 对应研究材料；先核对日期、代码基线和当前权威，不能直接当作 current |
@@ -33,6 +33,7 @@
 | change unit 如何选择、推进，经过哪些角色和门禁 | [`development/change-workflow.md`](development/change-workflow.md) | 当前开发变更生命周期 |
 | change unit 如何命名，文件放在哪里、由谁维护和归档 | [`changes/readme.md`](changes/readme.md) | unit 存储与文件归属 |
 | 本地环境如何安装、常用命令和提交格式是什么 | [`development/local-development.md`](development/local-development.md) | 开发者本地入口 |
+| worktree 内如何隔离启动真实服务并完成清理 | [`development/worktree-runtime.md`](development/worktree-runtime.md) | 临时端口、config、进程、数据和绑定隔离 |
 | 测试如何分层、什么值得进入长期测试 | [`TESTING_GUIDE.md`](TESTING_GUIDE.md) | 测试规范 |
 | 哪些真实用户旅程必须长期守护 | [`e2e-critical-paths.md`](e2e-critical-paths.md) | 关键路径与 E2E 对账 |
 | 服务如何启动、观察、恢复和排障 | [`operator-runbook.md`](operator-runbook.md) | 操作手册 |

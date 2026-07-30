@@ -114,6 +114,12 @@ flowchart LR
 
 状态：In Progress
 
+#### 当前进度
+
+- [x] 建立 `docs/development/worktree-runtime.md`，并从 `docs/README.md` 接入全仓文档图。
+- [ ] 将 AGENTS、开发文档、runbook、skills 和 tests 中的 live 引用迁到新 owner。
+- [ ] 建立 development 与 operations 领域入口，最终缩减根 `AGENTS.md`。
+
 #### 要解决的问题
 
 Agent 已经能看到 `docs/README.md`，但自动加载的 `AGENTS.md` 仍包含大量服务启动、PID、config 和完整架构正文；runtime、operations 和开发规范也缺少稳定领域入口。
