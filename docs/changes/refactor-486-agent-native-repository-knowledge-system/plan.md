@@ -471,6 +471,12 @@ external comparisons、brainstorms、迁移计划和退役设计目前靠文件�
   快照、archive README 和 active unit `status.md` 全部可达，`missing=0`。阶段 7 将把这次一次性检查
   固化为仓库脚本和 CI。
 
+#### 已提交
+
+| Commit | 内容 |
+|---|---|
+| `c602e685e` | 完成仓库显式文档图并记录可达性证据 |
+
 #### 要解决的问题
 
 Agent 能搜索文件，但没有显式入口的正确文档仍可能在任务中近似不存在；只有文件清单也不足以说明何时读取、是否 current。
@@ -510,7 +516,31 @@ Agent 能搜索文件，但没有显式入口的正确文档仍可能在任务�
 
 ### 阶段 7：加入机械治理与 promotion 闭环
 
-状态：Pending
+状态：Completed
+
+#### 已完成
+
+- 新增 `scripts/docs-check`，通过 Markdown AST 检查 196 份受维护 Markdown 的本地链接与图片，不把代码块
+  示例误判为 live 引用。
+- 将根入口、current docs、research snapshots、archive README 和 active unit status 定义为必须可达集合；
+  当前 85 个入口从 `AGENTS.md` 全部可达。
+- 拒绝 live 文档重新链接兼容入口和已退役目录；检查 research metadata、active unit 恢复字段、逻辑
+  unit id 唯一性、`AGENTS.md` 120 行 / 12 KiB 预算和 `CLAUDE.md` 适配器。
+- 新增 change workflow 契约测试，锁定 spec review 可选、Gate 2 复用同一 reviewer 并达到
+  `Approved + 0 CRITICAL / 0 WARNING`、普通 Full / 零用户面 Full / Bugfix lite 的 selected gates。
+- 将新信息归位、索引接入、active work 留证、完成时 promotion、独立文档退役和机械保护写入
+  `docs/development/documentation-system.md`。
+- 在 Python CI 安装依赖后、Ruff 和 pytest 前执行 `./scripts/docs-check`。
+- D-001 的 E2E catalog 计数和门禁承诺仍在 `drift-review.md` 等待用户裁决，没有借治理阶段改变既有约束。
+
+#### 已提交
+
+| Commit | 内容 |
+|---|---|
+| `f914c334a` | 修正方法文档指向兼容 spec guide 的迁移错误 |
+| `e787dd04d` | 新增文档检查器、单元测试与 change workflow 契约测试 |
+| `6807bbb16` | 固化本仓知识更新、promotion、退役和机械保护规则 |
+| `1ef6ae3b4` | 将文档完整性检查接入 CI |
 
 #### 要解决的问题
 
@@ -544,11 +574,11 @@ Agent 能搜索文件，但没有显式入口的正确文档仍可能在任务�
 
 #### 退出条件
 
-- [ ] 断链、不可达 live 文档和退役引用能在 CI 中失败。
-- [ ] `AGENTS.md` 超预算会触发审计。
-- [ ] change 流程关键不变量漂移能被发现。
-- [ ] 新信息能够按明确规则进入 Truth、Work、Evidence、Memory 或 Control。
-- [ ] 完成的 change 会同时更新 current 文档并冻结历史。
+- [x] 断链、不可达 live 文档和退役引用能在 CI 中失败。
+- [x] `AGENTS.md` 超预算会触发审计。
+- [x] change 流程关键不变量漂移能被发现。
+- [x] 新信息能够按明确规则进入 Truth、Work、Evidence、Memory 或 Control。
+- [x] 完成的 change 会同时更新 current 文档并冻结历史。
 
 ### 阶段 8：用真实 Agent 工作循环验收
 

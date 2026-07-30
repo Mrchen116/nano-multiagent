@@ -30,7 +30,7 @@ docs/changes/
 | [`feat-397-spec-design-agent-team`](feat-397-spec-design-agent-team/status.md) | Paused after Gate 1 | `status.md` |
 | [`feat-444-session-wakeup`](feat-444-session-wakeup/status.md) | Paused after design | `status.md` |
 | [`feat-484-chat-message-interactions`](feat-484-chat-message-interactions/status.md) | Active — post-acceptance fixes | `status.md` |
-| [`refactor-486-agent-native-repository-knowledge-system`](refactor-486-agent-native-repository-knowledge-system/status.md) | Active — Mechanical governance | `status.md` |
+| [`refactor-486-agent-native-repository-knowledge-system`](refactor-486-agent-native-repository-knowledge-system/status.md) | Active — Representative Agent validation | `status.md` |
 
 状态变化时必须同步更新本表。`status.md` 保存单个 unit 的恢复快照，本表负责让 Agent 发现有哪些活动工作。
 
