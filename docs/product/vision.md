@@ -46,4 +46,4 @@ heartbeat、cron 和后台任务让长期 Agent 从被动问答扩展到主动�
 - Gateway、主动任务和外部通道 current behavior：[`../specs/gateway/`](../specs/gateway/spec.md)
 - Coding CLI current behavior：[`../specs/cli/spec.md`](../specs/cli/spec.md)
 
-本文从早期 [`需求.md`](../需求.md) 蒸馏，并以当前架构、specs 和代码重新核对。旧稿中尚未实现、已经改变或属于具体方案的内容不进入本页。
+本文从早期 [`需求.md`](../archive/product-source-materials/需求.md) 蒸馏，并以当前架构、specs 和代码重新核对。旧稿中尚未实现、已经改变或属于具体方案的内容不进入本页。

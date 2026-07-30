@@ -66,8 +66,7 @@
 
 | 位置 | 当前作用 |
 |---|---|
-| [`需求.md`](需求.md) | 产品背景草稿；有效原则仍需与 current 架构和行为契约核对 |
-| [`IM前端蓝图.md`](IM前端蓝图.md) | 前端信息架构和设计背景 |
+| [`product/`](product/README.md) | 产品定位与稳定体验原则；原始需求稿和蓝图从该入口进入 archive |
 | [`IM-user-stream-migration-plan.md`](IM-user-stream-migration-plan.md) | 已实施迁移的历史计划 |
 | [`spec-implementation-conflicts.md`](spec-implementation-conflicts.md) | 一次 spec/code drift 审计 |
 | [`内核设计细化/`](内核设计细化/) | 内核实现层参考 |

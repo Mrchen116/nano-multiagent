@@ -15,11 +15,11 @@
 
 产品原则说明“为什么”和长期取舍，不复制页面字段、API、状态机或实现结构；这些可观察行为由 current specs 维护。产品原则变化需要建立对应 change，并同步核对受影响的架构和行为契约。
 
-## 迁移中的来源材料
+## 来源材料
 
 | 文档 | 状态 | 用途 |
 |---|---|---|
-| [`../需求.md`](../需求.md) | Legacy source | 早期产品需求、竞品判断和范围设想 |
-| [`../IM前端蓝图.md`](../IM前端蓝图.md) | Legacy source | Web IM 早期信息架构与视觉交互设想 |
+| [`../archive/product-source-materials/需求.md`](../archive/product-source-materials/需求.md) | Archived source | 早期产品需求、竞品判断和范围设想 |
+| [`../archive/product-source-materials/IM前端蓝图.md`](../archive/product-source-materials/IM前端蓝图.md) | Archived source | Web IM 早期信息架构与视觉交互设想 |
 
-来源材料用于还原语境，不能覆盖 README、SPEC 或 current specs。稳定结论完成对账后进入本目录，原稿转入 `docs/archive/product-source-materials/`。
+来源材料用于还原语境，不能覆盖 README、SPEC 或 current specs。已经验证的稳定结论只在本目录维护。

@@ -42,4 +42,4 @@ Web IM 是用户理解 Agent 团队、发起协作和管理节点配置的默认
 - Agent、Node 和外部通道配置：[`../specs/im/agents-nodes.md`](../specs/im/agents-nodes.md)
 - 实时中继和离线状态：[`../specs/im/gateway-relay.md`](../specs/im/gateway-relay.md)
 
-本文从早期 [`IM前端蓝图.md`](../IM前端蓝图.md) 的稳定设计目标蒸馏，并以 current specs 和前端实现重新核对。旧稿中的具体路由、字段表、技术选型和阶段验收不在本页维护。
+本文从早期 [`IM前端蓝图.md`](../archive/product-source-materials/IM前端蓝图.md) 的稳定设计目标蒸馏，并以 current specs 和前端实现重新核对。旧稿中的具体路由、字段表、技术选型和阶段验收不在本页维护。
