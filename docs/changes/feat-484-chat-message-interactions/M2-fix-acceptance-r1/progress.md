@@ -89,3 +89,20 @@
 - worktree 内 `.gateway-config.yaml` 的 `default-agent.default_model` 从主仓的 `kimiCoding:kimi-for-coding` 临时改为 `kimiCoding:K2.6`，因为当前 LLM proxy 无前者；验收脚本只读该 worktree 本地副本，未污染主仓 `~/.nano-assistant/config.yaml`。
 - 真栈已用 `./scripts/e2e-down.sh` 清理。
 - 未提交 `src/IM/frontend/dist/`。
+
+## R5 — P0-22 修复:整条复制的块级误判与列表空行(orchestrator 接管)
+
+- Context: worker 完成 R1–R4 后撞 403 死亡,reviewer round 1 的唯一 major issue(真栈实测剪贴板与 rich-copy fixture 不符)未修;orchestrator 按用户指示亲自接管。
+- Diagnosis: 一次性 jsdom 诊断(已删)复现三机制——①`.im-md-link--external` 的 `display:inline-flex` 被 `isBlockElement` 的 computed-style fallback 误判块级,链接断行且丢失 "label (URL)" 追加(块级分支提前 return);②loose list `<li><p>…</p><ul>…` 中项内段落双换行穿透,列表项间多一空行;③块级容器间格式化空白文本节点原样穿透。
+- Decision: `isBlockElement` 增加内联语义标签集合(A/SPAN/CODE/STRONG/EM/IMG/INPUT 等)永远判内联,产品 CSS 不再干扰复制结构;li 内拼嵌套 ul/ol 前把末尾空白压成单换行;ul/ol/li/table/blockquote 的纯空白文本子节点丢弃。
+- Rationale: 块级/内联判定按语义标签而非 computed style——复制是内容操作,不应被展示层 CSS 改变结构;loose/tight list 是渲染细节,复制语义统一为"列表项连续"(design fixture 冻结)。
+- Evidence:
+  - Tests: `npm run test` 69 文件 715 tests 全绿(新增 loose list / whitespace / inline-flex link 三个回归测试);`npm run build` 成功;`git diff --check` clean。
+  - Entry: 隔离真栈(IM :62079)发 PROMPT_RICH 得 completed 回复,toolbar Copy message 后读剪贴板。
+  - Browser QA: `m2-p022-copy-qa.js` 断言全过——列表连续(顶级+嵌套)、具名外链内联 `文档 (https://example.com/docs)`、裸 URL 恰好 1 次、同源 /chat 无追加。
+  - Visual/Interaction: `m2-p022-hover-toolbar.png`、`m2-p022-copy-result.png`。
+  - 剪贴板原文: `m2-p022-clipboard-message.txt`。
+  - Prototype Comparison: clean whole-message copy must-match → match(真栈剪贴板与 fixture 结构一致)。
+- Rollback: `git revert 1b41a8ce6`。
+- Commits: 1b41a8ce6。
+- Next: 合并 unit,复验(verifier targeted-closure + reviewer targeted)。
