@@ -146,7 +146,7 @@ Agent 已经能看到 `docs/README.md`，但自动加载的 `AGENTS.md` 仍包�
    - `COMMENTING_GUIDE.md` → `docs/development/coding-guidelines.md`；
    - `docs/e2e-critical-paths.md` → `docs/development/e2e-critical-paths.md`；
    - `docs/可用LLM_API与联调说明.md` → `docs/development/llm-integration.md`。
-5. 先更新 live consumers；`COMMENTING_GUIDE.md` 直接删除，其他旧路径按迁移表决定是否保留兼容跳转：
+5. 先更新 live consumers；确认没有 live consumer 后删除旧路径，不长期保留兼容跳转：
    - skills；
    - scripts；
    - tests；
@@ -184,7 +184,7 @@ Agent 已经能看到 `docs/README.md`，但自动加载的 `AGENTS.md` 仍包�
 #### 已完成
 
 - 建立产品 Truth 入口，并从旧需求稿和 Web IM 蓝图中蒸馏仍由 current spec/代码支持的长期原则。
-- 将原始产品稿归档并保留兼容入口，避免旧字段、路由和配置叙事继续冒充 current。
+- 将原始产品稿归档，避免旧字段、路由和配置叙事继续冒充 current；live consumers 全部迁移后删除旧路径兼容入口。
 - 将长青 spec 编写规范归到 `docs/specs/CONTRIBUTING.md`，所有 live consumers 使用新入口。
 - 审核四个 package spec：kernel、IM、Gateway 已是短入口 + area；将 CLI 的 11 条契约拆为 interactive、automation、product integration 三个 area。
 - 依据现有代码与测试清除 CLI spec 中已删除的 `llm-config set`、已解散 product profile 和错误扩展路径。
@@ -218,7 +218,7 @@ Agent 已经能看到 `docs/README.md`，但自动加载的 `AGENTS.md` 仍包�
    - 每个包的 `spec.md` 只做入口和包级边界；
    - area 文档承载具体 current Requirement/Scenario；
    - active delta 未完成归并前不能覆盖 current。
-7. 将 `docs/SPEC_GUIDE.md` 的 canonical 内容迁到 `docs/specs/CONTRIBUTING.md`，旧路径保留兼容跳转。
+7. 将 `docs/SPEC_GUIDE.md` 的 canonical 内容迁到 `docs/specs/CONTRIBUTING.md`，更新所有 live consumers 后删除旧路径。
 8. 审视 `docs/内核设计细化/`：
    - 代码、类型、schema 已能准确表达的内容删除长期副本；
    - 稳定的跨模块思想或约束归并到 `SPEC.md`、current specs 或代码注释；
@@ -612,16 +612,16 @@ Agent 能搜索文件，但没有显式入口的正确文档仍可能在任务�
 |---|---|---|
 | `AGENTS.md` 大段 runbook/架构/索引 | development、operations、`SPEC.md`、docs map | 先建 owner，再删除重复正文 |
 | `COMMENTING_GUIDE.md` | `docs/development/coding-guidelines.md` | 扩展为仓库代码编写规范的 canonical owner，删除旧路径 |
-| `docs/TESTING_GUIDE.md` | `docs/development/testing.md` | 迁移 canonical，更新 skills，旧路径兼容 |
-| `docs/e2e-critical-paths.md` | `docs/development/e2e-critical-paths.md` | 迁移并加入 development index |
+| `docs/TESTING_GUIDE.md` | `docs/development/testing.md` | 迁移 canonical，更新 consumers 后删除旧路径 |
+| `docs/e2e-critical-paths.md` | `docs/development/e2e-critical-paths.md` | 迁移并加入 development index，删除旧路径 |
 | `docs/可用LLM_API与联调说明.md` | `docs/development/llm-integration.md` | 保留 provider、代理、日志与诊断入口 |
-| `docs/operator-runbook.md` | `docs/operations/` | 按 local stack、Gateway、troubleshooting 拆分 |
-| `docs/SPEC_GUIDE.md` | `docs/specs/CONTRIBUTING.md` | 与 current specs 放在同一领域，旧路径兼容 |
-| `docs/需求.md` | `docs/product/vision.md` + archive 原稿 | 蒸馏 current 原则，原稿只作历史 |
-| `docs/IM前端蓝图.md` | `docs/product/web-im-principles.md` + archive 原稿 | 蒸馏稳定体验原则 |
-| `docs/内核设计细化/` | code/spec/comment 或 archive/research | 逐篇做 code-as-documentation 判断 |
-| `docs/spec-implementation-conflicts.md` | active issue/change 或 history | 核对未决项后分流 |
-| `docs/IM-user-stream-migration-plan.md` | `docs/archive/migration-plans/` | 已实施计划归档 |
+| `docs/operator-runbook.md` | `docs/operations/` | 按 local stack、Gateway、troubleshooting 拆分，删除旧路径 |
+| `docs/SPEC_GUIDE.md` | `docs/specs/CONTRIBUTING.md` | 与 current specs 放在同一领域，删除旧路径 |
+| `docs/需求.md` | `docs/product/vision.md` + archive 原稿 | 蒸馏 current 原则，删除旧路径 |
+| `docs/IM前端蓝图.md` | `docs/product/web-im-principles.md` + archive 原稿 | 蒸馏稳定体验原则，删除旧路径 |
+| `docs/内核设计细化/` | code/spec/comment 或 archive/research | 逐篇做 code-as-documentation 判断，删除旧路径 |
+| `docs/spec-implementation-conflicts.md` | active issue/change 或 history | 核对未决项后分流，删除旧路径 |
+| `docs/IM-user-stream-migration-plan.md` | `docs/archive/migration-plans/` | 已实施计划归档，删除旧路径 |
 | `docs/tools-diff-cc/` | `docs/research/comparisons/claude-code-tools-2026-04-20/` | 补日期、代码基线和状态 |
 | `docs/kernel-diff-cc/` | `docs/research/comparisons/claude-code-kernel-2026-04-20/` | 补日期、代码基线和状态 |
 | `docs/brainstorms/` | `docs/research/brainstorms/` | 标记非 current |
@@ -633,7 +633,7 @@ Agent 能搜索文件，但没有显式入口的正确文档仍可能在任务�
 
 ## 六、最终目标目录树
 
-下面是 canonical 目录的目标形态。迁移期间旧路径可以保留一行兼容跳转；完成 live consumer 迁移后，再决定是否长期保留。
+下面是 canonical 目录的目标形态。旧路径在 live consumers 全部迁移后删除。
 
 ```text
 .

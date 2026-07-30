@@ -27,14 +27,6 @@ ROOT_ENTRYPOINTS = {
     Path("docs/changes/README.md"),
 }
 
-COMPATIBILITY_SHIMS = {
-    Path("docs/TESTING_GUIDE.md"),
-    Path("docs/e2e-critical-paths.md"),
-    Path("docs/operator-runbook.md"),
-    Path("docs/SPEC_GUIDE.md"),
-    Path("docs/可用LLM_API与联调说明.md"),
-}
-
 CURRENT_DOC_ROOTS = (
     Path("docs/product"),
     Path("docs/development"),
@@ -161,7 +153,7 @@ def maintained_markdown_sources(tracked: set[Path]) -> set[Path]:
     for path in tracked:
         if path.suffix.lower() != ".md":
             continue
-        if path in ROOT_ENTRYPOINTS or path in COMPATIBILITY_SHIMS:
+        if path in ROOT_ENTRYPOINTS:
             sources.add(path)
             continue
         if any(_is_under(path, root) for root in CURRENT_DOC_ROOTS):
