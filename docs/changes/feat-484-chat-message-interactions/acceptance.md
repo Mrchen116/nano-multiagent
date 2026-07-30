@@ -229,3 +229,105 @@ Round 1 报告的列表项空行与具名外链断行问题已修复；但真栈
 - 追加验收段落: `docs/changes/feat-484-chat-message-interactions/acceptance.md`
 - 真浏览器证据目录: `docs/changes/feat-484-chat-message-interactions/M1-impl/review-r2-evidence/`
 - 自动化采集脚本: `docs/changes/feat-484-chat-message-interactions/M1-impl/review-r2-runner.mjs`
+
+---
+
+# Round 3 — 2026-07-30 (targeted revalidation)
+
+> 复验范围: round 2 issue #2（整条复制丢失代码块）修复 + R2 后 delta（`d4a274349` 整条复制保留代码块、`8c22b5e6e` ContextMenu onClose 引用与 roving 覆盖 aria-disabled）触及的回归面（整条复制全要素、context menu 打开/键盘 roving/关闭/回焦、Branch 激活、阅读态）。
+> 工作区状态: unit HEAD `8c22b5e6e`，干净；重新 `npm run build`（bundle `index-DKuwunzo.js`，grep 命中 `data-clipboard-exclude` / `Copy failed` / `opens in new tab` marker）并重启隔离 e2e 栈（IM port 54488，Gateway auto-bind，4 agent online）。
+
+## Verdict
+
+**fail**
+
+**Highest Required Action**: `fix-implementation`
+
+Round 2 报告的代码块整体丢失已修复：两个 fenced 代码块内容均进入剪贴板、无 copy 按钮符号、缩进保留；context menu 全部回归面通过。但真栈读剪贴板发现**代码块内部空行被折叠**（原始两个空行粘贴后剩一个），违反 design.md 冻结的 rich-copy fixture（"code 内部空行不折叠"），"复制整条富文本消息" Scenario 仍不能判 pass。
+
+## 复验发现
+
+### Issue 2 修复验证（Round 2 major）
+
+| 检查项 | R2 状态 | R3 结果 | 证据 |
+|---|---|---|---|
+| 整条复制包含 fenced 代码块内容 | fail（整体丢失） | pass | `r3-desktop-clipboard-message.txt` 含 `def hello():` 与 `echo "done"` 两段代码 |
+| 不混入 copy 按钮符号 | fail | pass | 剪贴板无 `⎘` |
+| 代码缩进保留 | fail | pass | `    return "world"` 四空格缩进在 |
+| 独立代码块复制 | pass | pass | `r3-desktop-clipboard-code.txt` 仅含该块代码、内部两个空行完整保留、无 fence |
+| R1 修复不回退（列表连续/具名链接内联/裸 URL 单次/同源无追加） | pass | pass | `r3-desktop-clipboard-message.txt` 逐项核对 |
+
+### 新增问题
+
+| # | 严重度 | Regression Relation | 现象 | Recommended Action | Action Rationale |
+|---|---|---|---|---|---|
+| 3 | major | direct | 整条复制时 fenced 代码块**内部空行被折叠**：agent 原始回复第一个代码块内为 `def hello():` + 两个空行 + `    return "world"`，粘贴结果只剩一个空行（od 字节级确认 `\n\n\n` → `\n\n`）。同一条消息的独立代码块复制则完整保留两个空行。 | fix-implementation | 直接违反 design.md 决策 3 "code block 保留内部换行和缩进；只规整正文块之间的多余空行" 与冻结 fixture "code 内部空行不折叠"（`if (ready) {` 后空行原样保留），及 M1-R3 逐字符匹配要求。独立代码复制路径正确，说明问题在整条复制序列化对 code block 内部空白的规整越界。历史脉络：R1 剪贴板中代码块内容整体缺失（当时未抓到）、R2 抓整体丢失、修复后本轮暴露内部空行层——同一 rich-copy 保真问题的第三层，design 契约本身明确无矛盾，属实现未达契约。建议 fix worker 本轮对 fixture 的 code 保真整段对齐并真栈自证，而非再修单点。 |
+
+### Issue 3 证据
+
+- 触发: toolbar "Copy message"（桌面端 1440×900，granted clipboard 权限）。
+- 期望: 代码块内部两个空行原样保留（与独立代码复制一致）。
+- 实际: `r3-desktop-clipboard-message.txt` 第 17-19 行 `def hello():` / 单个空行 / `    return "world"`（od 确认 `def hello():\n\n    return`）；对照 `r3-desktop-clipboard-code.txt`（独立复制）为 `def hello():\n\n\n    return`（两个空行）。
+- agent 原始回复: 会话 `8ea103f32c3f4b6cb66ea50dcac37d82`，` ```python ` 块内确为两个空行。
+
+### 回归面验证（R2 后 delta 触及面）
+
+| 回归面 | 结果 | 证据/日志 |
+|---|---|---|
+| 右键普通区域开 IM 菜单（Copy message / Branch from here / Cancel） | pass | `r3-contextmenu-open.png`；Branch `aria-disabled="false"`（eligible） |
+| 菜单键盘 roving（ArrowDown / Home / End） | pass | ArrowDown Copy→Branch；End→Cancel；Home→Copy message |
+| Escape 关闭菜单 + 焦点回气泡 | pass | 日志 `menu visible after Escape: false`，activeElement 为气泡 DIV |
+| 外部点击关闭菜单 | pass | 日志 `menu visible after outside click: false` |
+| 键盘 Enter 激活 Copy → 菜单关闭 + Copied 反馈 + 回焦 + 剪贴板写入 | pass | `r3-keyboard-copy-result.png`；日志各项 true |
+| 指针点击激活 Copy → 菜单关闭 + Copied 反馈 | pass | `r3-pointer-copy-result.png` |
+| 菜单激活 Branch from here → fork 跳转新会话 | pass | 日志 URL `8ea103…` → `94ed83…`，`r3-branch-result.png` |
+| 阅读态干净无常驻按钮 | pass | `r3-desktop-reading-clean.png`（mouse 驻留远处时气泡无 toolbar） |
+| 复制成功反馈 | pass | `r3-desktop-copy-success.png` / `r3-keyboard-copy-result.png` 显示 "Copied" |
+| 整条复制不混入外围信息 | pass | 剪贴板无头像/发送者/时间/Process/thinking/token/投递状态 |
+
+> 注: `r3-desktop-reading.png` 中气泡 toolbar 隐约可见，经 `r3-reading-state-probe.mjs` 证实为探针 mouse 坐标残留（登录页 Sign in 点击位置恰好落在气泡上）造成的 hover 态，非产品问题；mouse 移开后阅读态干净（`r3-desktop-reading-clean.png`）。
+
+## 覆盖表更新
+
+### Requirement: 复制整条消息得到可复用正文并获得反馈 — 组内结论:fail
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 复制整条富文本消息 | spec.md + design.md fixture | toolbar 点击 Copy message，读取剪贴板 | `r3-desktop-clipboard-message.txt`, `r3-desktop-clipboard-code.txt` | fail | R1 列表/链接、R2 代码块丢失已修复；代码块内部空行被折叠（Issue #3） |
+| 复制成功 | spec.md | 点击/键盘激活复制后观察反馈 | `r3-desktop-copy-success.png`, `r3-keyboard-copy-result.png` | pass | "Copied" 反馈，菜单 action-close，焦点回气泡 |
+| 有选区时仍可明确复制整条消息 | spec.md | 未在 R3 复测；继承 R1 pass | R1 证据 | pass | 未回归（delta 不触及选区路径） |
+| 整条复制不混入消息外围信息 | spec.md | 检查剪贴板无头像/时间/token/过程等 | `r3-desktop-clipboard-message.txt` | pass | 仍仅含正文 |
+| 复制失败 | spec.md | 未在 R3 复测；继承 R1 pass | R1 证据 | pass | 未回归 |
+
+### Requirement: 消息级操作可发现且不干扰阅读 — 组内结论:pass（R3 复验加强）
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 桌面端普通气泡右键 | spec.md + prototype | 无选区普通区域右键 | `r3-contextmenu-open.png` | pass | 短菜单三项，含 eligible Branch |
+| 消息处于普通阅读状态 | spec.md + prototype | mouse 远离气泡观察默认态 | `r3-desktop-reading-clean.png` | pass | 无 toolbar 常驻；代码块 copy 按钮常驻与 R1 结论一致 |
+| 桌面端按需显示消息操作 | spec.md + prototype | 继承 R1/R2 pass（delta 不触及 hover/focus 触发） | R1/R2 证据 | pass | 未回归 |
+| 链接与正文选区保留原生右键能力 | spec.md | 继承 R1/R2 pass（delta 不触及） | R1/R2 证据 | pass | 未回归 |
+| 移动端打开消息操作 | spec.md + prototype | 继承 R2 pass（delta 不触及 sheet 路径） | R2 证据 | pass | 未回归 |
+
+### Requirement: 消息交互跨设备与输入方式保持一致 — 组内结论:pass（R3 复验加强）
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 键盘访问消息操作 | spec.md | roving/Home/End/Escape/Enter 激活/回焦全链路 | 探针日志 + `r3-keyboard-copy-result.png` | pass | 菜单关闭后焦点回气泡；Branch eligible 可激活 |
+| 界面语言保持一致 | spec.md | 继承 R1 pass（delta 不触及文案） | R1 证据 | pass | 未回归 |
+| 触控入口易于点击 | spec.md | 继承 R1 pass（delta 不触及） | R1 证据 | pass | 未回归 |
+
+其余 Requirement 继承 R1/R2 结论不变。两条移动端长按 Scenario（`移动端长按选择消息文字`、`移动端长按外部链接`）自 R1 起为 `inconclusive`（headless WebKit 无法捕获系统选择柄），本轮 targeted 未跑 WebKit 矩阵，继续继承——**下一轮复验须用真 WebKit/真机手测关闭这两条，否则即使 Issue #3 修复也无法给 pass**。
+
+## 上层文档同步（Round 3）
+
+- [x] `SPEC.md`：无需更新。
+- [x] `docs/specs/im/`：仍建议由 orchestrator §7.0 归并；新增 Issue #3 行为增量。
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新。
+- [x] `docs/SPEC_GUIDE.md`：无需更新。
+
+## 本轮产物（Round 3）
+
+- 追加验收段落: `docs/changes/feat-484-chat-message-interactions/acceptance.md`
+- 真浏览器证据目录: `docs/changes/feat-484-chat-message-interactions/M1-impl/review-r3-evidence/`
+- 自动化采集脚本: `docs/changes/feat-484-chat-message-interactions/M1-impl/review-r3-runner.mjs` 及 `r3-contextmenu-probe.mjs` / `r3-copy-activate-probe.mjs` / `r3-branch-probe.mjs` / `r3-reading-state-probe.mjs`（运行副本置于 `src/IM/frontend/` 下以解析 playwright）
