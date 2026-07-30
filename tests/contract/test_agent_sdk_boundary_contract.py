@@ -2,7 +2,8 @@
 
 This file establishes the guard framework for the target architecture where
 coding_cli and personal_assistant may only import from agent.sdk — not from
-agent.core, agent.platform, or agent.products internals.
+agent.core or agent.platform internals. The retired agent.products namespace
+also remains forbidden to prevent the old layer from being reintroduced.
 
 Phase status (refactor-387):
 - M1: Framework established; agent.sdk has no reverse dependencies (verified).
@@ -10,9 +11,9 @@ Phase status (refactor-387):
 - M4: All violations resolved; dead files deleted; full strict guard active (Closes #39).
 
 Architecture invariant enforced here:
-  agent.sdk → agent.core + agent.platform + agent.products  (correct, downward)
-  agent.core / agent.platform / agent.products ↛ agent.sdk  (no upward dep)
-  coding_cli / personal_assistant → only agent.sdk          (target, M2/M3/M4)
+  agent.sdk → agent.core + agent.platform           (correct, downward)
+  agent.core / agent.platform ↛ agent.sdk           (no upward dependency)
+  coding_cli / personal_assistant → only agent.sdk  (target, M2/M3/M4)
 """
 
 from __future__ import annotations

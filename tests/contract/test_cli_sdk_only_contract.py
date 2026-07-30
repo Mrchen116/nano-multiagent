@@ -170,7 +170,7 @@ def test_spec_declares_sdk_only_boundary_rules() -> None:
         "coding_cli` 和 `personal_assistant` 通过 **`import agent.sdk` 进程内调用** agent",
         "**只允许 import `agent.sdk`**，禁止 import `agent.core` / `agent.platform` 内部模块",
         # Verification clause
-        "test_cli_http_only_contract.py",
+        "test_cli_sdk_only_contract.py",
     )
     spec_text = SPEC_PATH.read_text(encoding="utf-8")
     for snippet in SPEC_BOUNDARY_SNIPPETS:

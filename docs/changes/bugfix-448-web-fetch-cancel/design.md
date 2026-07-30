@@ -248,7 +248,7 @@ PYTHONPATH=src pytest -q \
   tests/unit/personal_assistant/test_gateway_stop_command.py \
   tests/contract/test_agent_sdk_surface_guard.py \
   tests/contract/test_kernel_sdk_behavior_contract.py \
-  tests/contract/test_cli_http_only_contract.py \
+  tests/contract/test_cli_sdk_only_contract.py \
   tests/contract/test_core_no_platform_imports.py
 ```
 

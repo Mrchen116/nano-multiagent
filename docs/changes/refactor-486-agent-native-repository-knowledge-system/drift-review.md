@@ -94,8 +94,9 @@
 - 现状：`tests/contract/test_cli_http_only_contract.py` 实际守护的是 SDK-only 架构，文件名仍是 `http_only`；`tests/contract/test_agent_sdk_boundary_contract.py` 的模块说明仍把已退役的 `agent.products` 写在 `agent.sdk` 的当前依赖层中。
 - 边界：测试断言本身仍会拦截产品越界 import，并未发现由这些旧术语造成的实际边界失守。
 - 影响：Agent 按文件名或模块说明寻找 current 架构门禁时，可能误以为仓库仍保留旧 HTTP/products 结构。
-- 待决定：是否建立低风险清理 issue，重命名测试文件并更新说明；若改名，需要同步所有精确路径引用。
-- 状态：Awaiting user review；测试和注释未修改。
+- 用户决定：在本 PR 内完成行为不变的术语清理。
+- 已修复：测试文件重命名为 `tests/contract/test_cli_sdk_only_contract.py`，SDK 边界模块说明改为当前 `sdk → core + platform` 依赖关系，并同步 live 文档、测试、脚本中的旧测试路径。
+- 状态：Resolved。
 
 ### D-015：SDK 表面契约与实际豁免、允许 import 形态没有完全对齐
 

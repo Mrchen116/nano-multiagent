@@ -158,7 +158,7 @@ IM 无关、产品无关的 Agent 运行时。只负责"单 Agent 可运行 + �
 - `IM` 不调用 agent，只与用户浏览器和各机器上的 `personal_assistant` 交互（HTTP/WS）
 - 内核分层（refactor-406 决策1：products 层解散）：`core` 不依赖 `platform`；`platform → core`；`sdk → core + platform`（唯一对外面）
 - `agent.sdk` 不被任何内核内部层反向依赖；`coding_cli` / `personal_assistant` / `IM` 三者之间无相互 import
-- 验收口径：`src/coding_cli/`、`src/personal_assistant/` 只许 import `agent.sdk`，不得 import `agent.core` / `agent.platform`；`src/IM/` 不得 import `agent`；`src/agent/core/` 不得 import `agent.platform`。相关断言由 `tests/contract/test_cli_http_only_contract.py` 与 `test_core_no_platform_imports.py` 自动执行
+- 验收口径：`src/coding_cli/`、`src/personal_assistant/` 只许 import `agent.sdk`，不得 import `agent.core` / `agent.platform`；`src/IM/` 不得 import `agent`；`src/agent/core/` 不得 import `agent.platform`。相关断言由 `tests/contract/test_cli_sdk_only_contract.py` 与 `test_core_no_platform_imports.py` 自动执行
 
 ---
 
