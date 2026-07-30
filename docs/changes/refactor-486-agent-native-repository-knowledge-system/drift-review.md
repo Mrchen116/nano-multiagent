@@ -87,6 +87,50 @@
   3. 全部保留为 local evidence，不进入 Git。
 - 状态：Awaiting user review；本次只建立未来报告的 research 入口，没有复制任何既有未跟踪报告。
 
+### D-011：全量测试偶发回收未 await 的 Feishu SDK cache 协程
+
+- 现状：`pytest -m "not e2e" -n 4` 全部通过（3733 passed、1 skipped），但一次全量运行在
+  `test_gateway_boundary_outbox.py::test_applied_runtime_and_boundary_survive_gateway_restart` 结束附近报告
+  `RuntimeWarning: coroutine 'ExpiringCache._start_clear_cron' was never awaited`。
+- 来源：协程定义在当前环境的第三方 `lark_oapi/core/cache/expiring_cache.py`。`ExpiringCache.__init__`
+  取得当前 event loop 并立即 `create_task()` 启动永久清理循环；warning 显示在
+  `session_keys.py:934` 只是该对象被回收时的当前位置，不能据此判定 session binding 是根因。
+- 复现：目标测试单跑，以及与 Feishu worker 测试用 xdist 并跑，均通过且没有再次出现该 RuntimeWarning；
+  当前证据只支持“测试顺序或 worker teardown 相关”，尚未得到稳定复现和完整根因。
+- 影响：当前 CI 不失败，但可能掩盖 SDK import-time event-loop 任务的资源生命周期问题，并给测试日志带来
+  非确定性噪声。
+- 待决定：是否建立 issue，专门稳定复现并判断应由 SDK 升级、隔离 import/lifecycle，还是测试 teardown
+  处理；在根因确认前不应根据偶发 warning 修改业务代码或屏蔽全部 RuntimeWarning。
+- 状态：Awaiting user review；本次没有修改代码、依赖版本或 warning 策略。
+
+### D-012：前端 clean install 报告 9 个依赖漏洞
+
+- 现状：在 `src/IM/frontend` 按 CI 顺序执行 `npm ci` 后，npm audit 报告 9 个漏洞：
+  1 critical、6 high、2 low。
+- 直接依赖：`vitest <3.2.6` 为 critical；`react-router-dom 7.0.0-pre.0–7.14.1` 与
+  `vite 7.0.0–7.3.3` 为 high。
+- 传递依赖：`picomatch`、`postcss`、`react-router`、`ws` 为 high，`@babel/core`、`esbuild` 为 low。
+  当前 audit 对各项都报告存在可用修复，但尚未核对升级后的兼容性、生产可达性和 advisory 适用条件。
+- 影响：当前 CI 只执行 `npm ci` 和 Vitest，不会因 audit 结果失败；其中部分是开发工具依赖，但不能仅凭
+  “测试通过”判断风险可忽略。
+- 待决定：是否建立 dependency/security issue，逐项确认 advisory、生产/开发作用域和最小兼容升级；
+  不应在本次文档迁移中直接运行 `npm audit fix` 改 lockfile。
+- 状态：Awaiting user review；`package.json` 与 `package-lock.json` 未修改。
+
+### D-013：前端测试全绿但 stderr 噪声规模很大
+
+- 现状：本机 Node `v25.8.2`、clean `npm ci` 后，Vitest 68 files / 653 tests 全部通过；第二次运行按固定
+  模式统计到 408 条 React “not wrapped in act” warning、40 条 `user stream runtime error` 和 68 条
+  `--localstorage-file` warning。
+- 边界：`user stream runtime error` 中一部分来自测试主动制造 404、无效游标或未 mock 的 `/im/v1/sync`；
+  `--localstorage-file` 可能与本机 Node 25 有关，而 CI 使用 Node 20。当前只确认输出噪声，不把每条都判成
+  产品 bug。
+- 影响：大量预期/未隔离 stderr 会降低真实回归的可见度；全绿摘要无法区分测试刻意验证的错误与意外后台
+  runtime error。
+- 待决定：是否建立 test-hygiene issue，先在 CI Node 20 复现并分类，再逐步修 `act()` 生命周期、关闭
+  未参与测试的 user-stream runtime，并决定哪些 stderr 应成为失败。
+- 状态：Awaiting user review；本次没有修改前端测试、Vitest 配置或 warning 策略。
+
 ## 本规则建立前已经直接校正、需要复核
 
 ### D-008：Feishu channel 的操作入口
