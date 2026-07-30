@@ -9,12 +9,22 @@
 - 按 session 聚合的交互日志：`/Users/czj/Repos/LLM_PROXY/logs/session/*_<session_id>/`
 - 按协议保存的原始捕获：`/Users/czj/Repos/LLM_PROXY/logs/raw/<protocol>/`
 
-nano 的 provider translator 会把 kernel session id 放入 `X-Session-Id`。定位一次交互：
+nano 的 provider translator 会把 kernel session id 放入 `X-Session-Id`。先从触发请求的一侧取得
+session id：Coding CLI 可用 `/session`，自动化测试应从 fixture/结果中记录；其他产品路径如果没有直接
+暴露 id，就用发生时间、模型和消息中的唯一标记缩小日志目录，再从目录后缀确认 id。
+
+已知 session id 时直接定位：
 
 ```bash
 nano_session_id="sess_..."
 find /Users/czj/Repos/LLM_PROXY/logs/session \
   -mindepth 1 -maxdepth 1 -type d -name "*_${nano_session_id}"
+```
+
+只知道发生时间时，先查看最近写入的 session，再打开候选请求核对模型和脱敏后的消息标记：
+
+```bash
+ls -td /Users/czj/Repos/LLM_PROXY/logs/session/* | head
 ```
 
 session 目录中的 `*-req-*` 是代理收到的请求，`*-downstream-res-*` 是返回调用方的响应，

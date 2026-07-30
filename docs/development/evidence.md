@@ -18,6 +18,22 @@
 
 测试选择、持久化位置和产品门禁各有自己的 owner；本页负责解释它们如何组成证据链，不复制完整流程和命令。
 
+## 反馈层与交付门禁
+
+一次改动通常会经过多层反馈，但各层解决的问题不同：
+
+| 层次 | 何时使用 | 权威入口 | 结果如何记录 |
+|---|---|---|---|
+| 最窄开发反馈 | 每个 roadpoint 修改后，先验证直接受影响的行为 | [`testing.md`](testing.md) 与现有测试/包脚本 | 命令和结果摘要写当前 `progress.md` |
+| 风险扩展验证 | 跨模块、架构边界、前端静态构建或真实进程受到影响时 | [`local-development.md`](local-development.md)、[`worktree-runtime.md`](worktree-runtime.md) | 记录选择依据、命令、结果和未覆盖面 |
+| selected validation gates | unit 的所有 milestone 合入后，按 unit 类型做独立 verifier、reviewer 和 code review | [`change-workflow.md`](change-workflow.md#阶段-4selected-validation-gates) | unit 根部的正式门禁报告 |
+| 本地 CI 等价检查 | 归档和提 PR 前 | 当前 [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) 中每个 job 的实际命令 | unit 状态页或收尾记录写通过的 job |
+| 远端 CI | PR head 已推送后 | GitHub check/run | 记录 PR head SHA、check URL 和最终状态 |
+
+本地 CI 的命令不在多份文档里复制维护；工作流文件是当前 job 的执行权威。当前远端 CI 也不自动代表
+前端 build、真实进程 E2E、真实 LLM 或人工用户旅程已经通过，这些验证按改动风险和 selected gates
+另行执行并记录。
+
 ## 一条可复查记录需要什么
 
 在 `progress.md`、验收报告或 `status.md` 引用证据时，至少写清：
