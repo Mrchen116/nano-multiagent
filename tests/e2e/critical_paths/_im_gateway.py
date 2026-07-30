@@ -1,8 +1,8 @@
 """Gateway 进程生死管理 —— 重启 worktree 内的 Gateway（验证进程重启后会话续接）。
 
 从 ``_im_client`` 拆出（单文件 ≤400 行）：IM 黑盒 HTTP 客户端与「重启被测 Gateway 子进程」
-是两件事，后者集中在此。杀进程**组**（非单 pid）对齐 e2e-down.sh / AGENTS.md stop_pidfile
-范式，避免 relay/heartbeat worker 成孤儿。
+是两件事，后者集中在此。杀进程**组**（非单 pid）对齐 e2e-down.sh 和
+docs/development/worktree-runtime.md 的清理契约，避免 relay/heartbeat worker 成孤儿。
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 
 
 def _terminate_process_group(pid: int, *, grace: float = 10.0) -> None:
-    """优雅杀 Gateway(SIGTERM → 等 → SIGKILL),对齐 e2e-down.sh / stop_pidfile。
+    """优雅杀 Gateway(SIGTERM → 等 → SIGKILL),对齐 e2e-down.sh 的退出契约。
 
     Gateway 是 supervisor(范式 B):进程内持有 relay、heartbeat 与 coordinator 运行任务。
     **只在 pid 是自己进程组的组长时**(``getpgid(pid) == pid``——即由 ``start_new_session``

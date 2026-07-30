@@ -124,7 +124,7 @@ Gateway ready 信号：
 - 默认路径下，终端会先返回 `Gateway started (pid=...)`；这是进程启动确认，不是 runtime/channel
   readiness。后续 readiness/绑定反馈写入 `gateway.log`，并可能自动打开绑定页。
 - 若你改用 `--foreground` 调试路径，终端会保持常驻，并直接看到 `ACTION ...` / `NEXT ...`。
-- 验证 Gateway 生命周期闭环，推荐用 `./scripts/e2e-up.sh` 一键起停后轮询 `/im/v1/nodes` 看到 `online` 即可（详见 §7）。
+- 验证 Gateway 生命周期闭环，推荐用 `./scripts/e2e-up.sh` 一键起停后轮询 `/im/v1/nodes` 看到 `online` 即可（详见 §7）；worktree 的完整隔离与清理契约见 [`development/worktree-runtime.md`](development/worktree-runtime.md)。
 
 ## 4. 观察未绑定 / 已绑定行为
 
@@ -226,6 +226,8 @@ curl -s http://127.0.0.1:8011/im/v1/nodes | python -m json.tool
 
 **方式 A：用 e2e 脚本全链路自检**
 
+以下命令只用于临时开发验证。端口、config、PID、Vite 和退出检查见 [`development/worktree-runtime.md`](development/worktree-runtime.md)。
+
 ```bash
 ./scripts/e2e-up.sh          # 起 IM + Gateway，自动分配端口、config 隔离、auto-bind
 source .e2e-ports.env        # 拿到 $IM_URL
@@ -257,7 +259,7 @@ PYTHONPATH=src python -m personal_assistant.main stop
 | Gateway 启动后立刻退出 | 配置解析、LLM 配置、channel bootstrap 或 IM bootstrap 失败 | 看终端里的 `NEXT ...`，再核对 `http://127.0.0.1:8011/im/v1/nodes` 的 `last_error` |
 | 未绑定时没有完成关联 | 绑定页未打开或未确认 | 从终端复制 `NEXT Open ...` 链接，完成绑定后刷新 `/chat` |
 | Web IM 能打开但发消息时报无可用节点 | Gateway 未连上 IM，或节点还未 `online` | 先看 Gateway 是否常驻，再看 `/im/v1/nodes` 是否已有在线节点 |
-| Gateway 进程存在，但能力/技能列表为空或能力接口返回 503 | 上一次 Gateway 未完全退出，新旧进程使用同一 `node_id` 重连 | worktree 环境先运行 `./scripts/e2e-down.sh`，确认旧 Gateway 已退出后再 `./scripts/e2e-up.sh`；手工管理 PID 时按 `AGENTS.md` 的 `stop_pidfile` 范式等待退出 |
+| Gateway 进程存在，但能力/技能列表为空或能力接口返回 503 | 上一次 Gateway 未完全退出，新旧进程使用同一 `node_id` 重连 | worktree 环境先按 [`development/worktree-runtime.md`](development/worktree-runtime.md) 运行 down、核对 PID/端口，再重新 up |
 | Feishu channel 启动失败 | `appId` / `appSecret` 缺失或无效 | 核对 `channels[].settings.appId/appSecret`，确认 Feishu app 已启用机器人与事件订阅 |
 | Feishu 群里未 @Bot 的普通消息没有进入背景上下文 | Feishu app 未投递普通群消息，或缺 `im:message.group_msg` | 查看 Gateway 日志中的 scope warning；补齐 Feishu app 权限后重启 Gateway |
 | Feishu 群审批点击无效 | 点击者不是 owner，或 `ownerOpenId` 尚未绑定 | 让 owner 先从该 Feishu channel 发一条真实入站消息，或在配置里显式填写 `ownerOpenId` |

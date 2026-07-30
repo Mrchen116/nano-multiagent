@@ -1,6 +1,6 @@
 # Local Development
 
-本文负责本地开发环境、常用测试命令、产品开发入口、测试身份和提交约定。IM、Gateway 与 Web IM 的启动和排障见 [`../operator-runbook.md`](../operator-runbook.md)；worktree 内真实服务的隔离规则暂见 [`../../AGENTS.md`](../../AGENTS.md#运行时服务并行启动)。
+本文负责本地开发环境、常用测试命令、产品开发入口、测试身份和提交约定。IM、Gateway 与 Web IM 的启动和排障见 [`../operator-runbook.md`](../operator-runbook.md)；worktree 内真实服务的隔离规则见 [`worktree-runtime.md`](worktree-runtime.md)。
 
 ## Python 环境
 

@@ -36,8 +36,8 @@ def _gate_or_skip() -> None:
         )
     if not _MAIN_CONFIG.exists():
         pytest.skip(
-            f"main config not found: {_MAIN_CONFIG} — create it first (see AGENTS.md, "
-            "must include the llm: section)"
+            f"main config not found: {_MAIN_CONFIG} — create it first "
+            "(see docs/operator-runbook.md; it must include the llm: section)"
         )
 
 

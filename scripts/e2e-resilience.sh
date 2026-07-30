@@ -37,7 +37,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ ! -f "$MAIN_CFG" ]]; then
-  echo "main config not found: $MAIN_CFG (see AGENTS.md, must include the llm: section)" >&2
+  echo "main config not found: $MAIN_CFG (see docs/operator-runbook.md; it must include the llm: section)" >&2
   exit 1
 fi
 

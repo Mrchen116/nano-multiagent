@@ -112,7 +112,7 @@ git pull --ff-only origin "unit/<unit_id>"
 2. **清单内每个服务**:
    a. 有 PID 跑则 kill(含 worker 残留、本 worktree PID 文件)。
    b. **重建 runbook 列出的非入仓产物**(典型:`cd src/IM/frontend && npm run build`)。worktree 内 build 的产物随 worktree 删除,unit worktree 上必须重 build。
-   c. **并发隔离**:监听端口的服务一律分配空闲端口起(默认端口留给主实例),per-unit secret 本轮生成。具体参数化方式见项目 AGENTS.md;缺则报告 flag。
+   c. **并发隔离**:监听端口的服务一律分配空闲端口起(默认端口留给主实例),per-unit secret 本轮生成。具体参数化方式见 [`docs/development/worktree-runtime.md`](../../../docs/development/worktree-runtime.md);缺则报告 flag。
    d. 启动后**产物指纹核验**:从服务取首页产物 hash(如 `index-<hash>.js`),`grep` 验证本 unit 关键 marker 命中。不中 → 报告记 blocking,停止走旅程。
 3. **清单外的服务**(数据库 / 消息队列 / 第三方依赖等)**不要碰**——它们不在本 unit 范围,误重启可能破坏其他人的环境。
 

@@ -117,7 +117,7 @@ flowchart LR
 #### 当前进度
 
 - [x] 建立 `docs/development/worktree-runtime.md`，并从 `docs/README.md` 接入全仓文档图。
-- [ ] 将 AGENTS、开发文档、runbook、skills 和 tests 中的 live 引用迁到新 owner。
+- [x] 将 AGENTS、开发文档、runbook、skills 和 tests 中的 live 引用迁到新 owner。
 - [ ] 建立 development 与 operations 领域入口，最终缩减根 `AGENTS.md`。
 
 #### 要解决的问题
