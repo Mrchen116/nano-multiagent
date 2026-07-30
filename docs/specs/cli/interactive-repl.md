@@ -11,19 +11,16 @@
 
 ### Requirement: 无参启动即进入进程内异步 REPL，无 HTTP 或 agent 子进程
 
-终端用户无需任何参数、无需先拉起任何服务，直接运行 CLI 即进入交互式异步 REPL；内核在同进程内经
-`agent.sdk` 装配，不监听端口、不启动 agent 子进程。
+终端用户无需任何参数、无需先拉起任何服务，直接运行 CLI 即进入交互式异步 REPL；内核在同进程内经 `agent.sdk` 装配，不监听端口、不启动 agent 子进程。
 
 #### Scenario: 直接运行进入交互式 REPL
 - **GIVEN** 一个开发者在终端
 - **WHEN** 他不带任何子命令运行 CLI（`python -m coding_cli.main`）
-- **THEN** 进入交互式 REPL 等待输入；全程在本进程内运行，不连接 loopback agent HTTP 服务，也不启动
-  agent 子进程
+- **THEN** 进入交互式 REPL 等待输入；全程在本进程内运行，不连接 loopback agent HTTP 服务，也不启动 agent 子进程
 
 ### Requirement: REPL 会话懒创建并绑定当前工作目录，可经 --resume 复用既有会话
 
-REPL 启动时不预先创建会话；用户首次发普通消息时才创建会话，工作区根绑定为 CLI 启动时的当前工作目录。
-该会话持续复用，直到用户 `/new` 新建或 `/use <id>` 切换。带 `--resume <session_id>` 启动则使用指定会话。
+REPL 启动时不预先创建会话；用户首次发普通消息时才创建会话，工作区根绑定为 CLI 启动时的当前工作目录。该会话持续复用，直到用户 `/new` 新建或 `/use <id>` 切换。带 `--resume <session_id>` 启动则使用指定会话。
 
 #### Scenario: 首次发消息时懒创建会话并绑定 cwd
 - **GIVEN** 刚进入的 REPL，尚无活跃会话
@@ -36,13 +33,11 @@ REPL 启动时不预先创建会话；用户首次发普通消息时才创建会
 
 ### Requirement: REPL 提供固定一组斜杠命令管理会话与上下文
 
-REPL 暴露稳定的斜杠命令集合管理会话生命周期、查看工具、压缩上下文、回看历史与退出；斜杠命令不计入
-对话消息历史。
+REPL 暴露稳定的斜杠命令集合管理会话生命周期、查看工具、压缩上下文、回看历史与退出；斜杠命令不计入对话消息历史。
 
 #### Scenario: 斜杠命令集合稳定
 - **WHEN** 用户在 REPL 中查看可用命令
-- **THEN** 至少包含 `/help`、`/new`、`/use <id>`、`/session`、`/tools`、`/compact`、
-  `/history [n]`、`/exit`
+- **THEN** 至少包含 `/help`、`/new`、`/use <id>`、`/session`、`/tools`、`/compact`、`/history [n]`、`/exit`
 
 #### Scenario: /new 与 /use 切换活跃会话
 - **WHEN** 用户执行 `/new`
@@ -59,8 +54,7 @@ REPL 暴露稳定的斜杠命令集合管理会话生命周期、查看工具、
 
 ### Requirement: REPL 实时呈现工具调用与文本增量，每轮后给出用量与上下文预算
 
-发送普通消息后，CLI 实时显示该轮的工具调用进度与助手文本增量；该轮结束后渲染最终响应，并显示本轮
-token 用量与上下文预算。预算接近上限时给出渐进的 `/compact` 提示。
+发送普通消息后，CLI 实时显示该轮的工具调用进度与助手文本增量；该轮结束后渲染最终响应，并显示本轮 token 用量与上下文预算。预算接近上限时给出渐进的 `/compact` 提示。
 
 #### Scenario: 一轮对话呈现工具与文本，收尾给出用量
 - **GIVEN** 一个活跃会话
@@ -93,8 +87,7 @@ run 执行期间 REPL 输入不被阻塞；用户在 run 运行中提交的普�
 
 ### Requirement: 错误对终端用户分层呈现，携带可执行修复建议
 
-CLI 把异常归类到 `input` / `network` / `runtime` 三层之一，并随错误给出一条可执行的修复建议。REPL 内
-的轮次错误就地内联呈现，不打断 REPL 循环。
+CLI 把异常归类到 `input` / `network` / `runtime` 三层之一，并随错误给出一条可执行的修复建议。REPL 内的轮次错误就地内联呈现，不打断 REPL 循环。
 
 #### Scenario: REPL 内轮次错误内联呈现且不中断循环
 - **GIVEN** 一个会话在发消息时遇到错误

@@ -66,8 +66,7 @@ Before (legacy):
 
 **架构失败根因**：一次性生成全部 artifacts（spec + design + tasks）的"全自动 fast-forward"模式，让 agent 缺乏中间校验点、对当前状态无感知。**spec agent 生成时不知道已有哪些上下文，design agent 生成时不知道 spec 是否完整**，错误无法在阶段内发现，只能到流水线末端才暴露。
 
-**源码路径**（本地）：`/Users/czj/Repos/opensource-hub/OpenSpec/docs/opsx.md`
-`/Users/czj/Repos/opensource-hub/OpenSpec/CHANGELOG.md`（v1.0.0 节）
+**源码路径**（本地）：`/Users/czj/Repos/opensource-hub/OpenSpec/docs/opsx.md` `/Users/czj/Repos/opensource-hub/OpenSpec/CHANGELOG.md`（v1.0.0 节）
 
 ---
 

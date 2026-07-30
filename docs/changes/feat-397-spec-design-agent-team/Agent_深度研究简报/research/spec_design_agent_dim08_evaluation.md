@@ -2,10 +2,7 @@
 
 ## 深度研究报告
 
-**研究维度**: Dimension 08 - Evaluation Methods & Benchmarks
-**研究使命**: 深度调研"如何直接评测spec/design质量"的方法、benchmark和rubric，为agent team提供可优化的目标函数基础
-**日期**: 2025年
-**置信度**: 综合多源证据，整体high confidence（核心框架），部分medium confidence（具体数值因上下文而异）
+**研究维度**: Dimension 08 - Evaluation Methods & Benchmarks **研究使命**: 深度调研"如何直接评测spec/design质量"的方法、benchmark和rubric，为agent team提供可优化的目标函数基础 **日期**: 2025年 **置信度**: 综合多源证据，整体high confidence（核心框架），部分medium confidence（具体数值因上下文而异）
 
 ---
 
@@ -642,15 +639,9 @@ overall_score = (
 2. Requirement smell检测（规则基础）
 3. Basic completeness check（关键元素存在性）
 
-**Phase 2 (短期)**:
-4. Multi-dimensional rubric with Likert scoring (Completeness, Consistency, Correctness, Clarity, Modifiability)
-5. Monte Carlo LLM judging (10 runs, report mean±std)
-6. Pass@1作为downstream proxy
+**Phase 2 (短期)**: 4. Multi-dimensional rubric with Likert scoring (Completeness, Consistency, Correctness, Clarity, Modifiability) 5. Monte Carlo LLM judging (10 runs, report mean±std) 6. Pass@1作为downstream proxy
 
-**Phase 3 (中期)**:
-7. ATDx-inspired architectural debt评估
-8. Scenario-based evolvability评估（semi-automated）
-9. Full Req2Run-style end-to-end评测
+**Phase 3 (中期)**: 7. ATDx-inspired architectural debt评估 8. Scenario-based evolvability评估（semi-automated）9. Full Req2Run-style end-to-end评测
 
 ### 10.2 关键设计决策
 

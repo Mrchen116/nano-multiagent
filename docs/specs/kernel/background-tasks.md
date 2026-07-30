@@ -13,14 +13,7 @@
 
 ### Requirement: 后台任务完成后发起 session 收到结果通知，跨 workspace 可靠
 
-后台 bash / subagent 任务自然终态（成功或失败）后，发起它的 session 在下一轮输入中收到一条
-`<task-notification>` 消息，内含任务结果——消费者无需轮询即可感知。该通知在任意 workspace_root 下均
-可靠送达，不因 session 绑定非默认工作区而丢失。（经 `task_stop` 主动终止后的通知去重 / 携带部分结果行为，
-见下方「经 task_stop 停止后台任务」要求。）反之，同步前台工具（前台 bash 或前台 subagent 在预算内
-完成 / 失败 / 超时 / 被中断）的结果只经该工具的 tool result 同步返回，绝不再额外发 `<task-notification>`——
-一次执行只走一条结果通路。仅当前台调用超出前台预算、真正转为后台任务（auto-background）后，其后续完成才
-发一次 `<task-notification>`（此后它就是后台任务）。前台子 agent 的前台预算由系统默认决定，消费者无法经
-`agent` 工具参数自定义该超时。
+后台 bash / subagent 任务自然终态（成功或失败）后，发起它的 session 在下一轮输入中收到一条 `<task-notification>` 消息，内含任务结果——消费者无需轮询即可感知。该通知在任意 workspace_root 下均可靠送达，不因 session 绑定非默认工作区而丢失。（经 `task_stop` 主动终止后的通知去重 / 携带部分结果行为，见下方「经 task_stop 停止后台任务」要求。）反之，同步前台工具（前台 bash 或前台 subagent 在预算内完成 / 失败 / 超时 / 被中断）的结果只经该工具的 tool result 同步返回，绝不再额外发 `<task-notification>`—— 一次执行只走一条结果通路。仅当前台调用超出前台预算、真正转为后台任务（auto-background）后，其后续完成才发一次 `<task-notification>`（此后它就是后台任务）。前台子 agent 的前台预算由系统默认决定，消费者无法经 `agent` 工具参数自定义该超时。
 
 #### Scenario: 非默认 workspace 下后台任务完成通知送达
 - **GIVEN** 一个绑定非默认 workspace_root 的 session 启动了后台任务
@@ -52,9 +45,7 @@
 
 ### Requirement: 运行中的后台 subagent follow-up 必须先被 live session 接收再确认 queued
 
-消费者经 `agent` 工具向一个仍在运行的后台 subagent 发送 follow-up prompt 时，内核只有在确认该 prompt
-已被同一个 live subagent session 接收、可在安全轮次边界消费后，才向消费者报告 follow-up 已 queued。
-内核不得静默丢弃 prompt，也不得为该 prompt 偷偷启动另一个无关的并发 subagent。
+消费者经 `agent` 工具向一个仍在运行的后台 subagent 发送 follow-up prompt 时，内核只有在确认该 prompt 已被同一个 live subagent session 接收、可在安全轮次边界消费后，才向消费者报告 follow-up 已 queued。内核不得静默丢弃 prompt，也不得为该 prompt 偷偷启动另一个无关的并发 subagent。
 
 #### Scenario: running follow-up 被同一个 subagent 消费
 - **GIVEN** 消费者已启动一个后台 subagent，并拿到其 `agent_id`
@@ -70,10 +61,7 @@
 
 ### Requirement: 经 task_stop 停止后台任务，model-facing 通知不与 tool_result 重复
 
-消费者经 `task_stop` 停止一个后台任务后，发起 session **不应**收到一条与 `task_stop` tool result 内容
-重复、且不带任何新增 payload 的 `<task-notification>`。按任务类型分两支：停后台 bash 抑制 model-facing
-通知；停后台 subagent 保留通知但携带子 agent 被停前的部分产出。无论哪支，被停任务最终都进入 killed 终态，
-且仍可经 `agent` 工具从 transcript 续跑。
+消费者经 `task_stop` 停止一个后台任务后，发起 session **不应**收到一条与 `task_stop` tool result 内容重复、且不带任何新增 payload 的 `<task-notification>`。按任务类型分两支：停后台 bash 抑制 model-facing 通知；停后台 subagent 保留通知但携带子 agent 被停前的部分产出。无论哪支，被停任务最终都进入 killed 终态，且仍可经 `agent` 工具从 transcript 续跑。
 
 #### Scenario: 停后台 bash 不再发重复通知
 - **GIVEN** 消费者派了一个后台 bash 任务且它仍在运行
@@ -99,9 +87,7 @@
 
 ### Requirement: 派生子 agent 的前台执行与内核 run 隔离
 
-经 `agent` 工具派发的前台子 agent，复用内核同一事件循环执行，不在独立的瞬时事件循环上运行共享内核
-组件；因此前台子 agent 能正常完成并返回结果。任意工具调用（含子 agent）的失败被收敛在该工具的 tool
-result 边界内，不破坏内核的 run、不影响同一内核上的其它 run，也不中断该消费者进程的其它常驻活动。
+经 `agent` 工具派发的前台子 agent，复用内核同一事件循环执行，不在独立的瞬时事件循环上运行共享内核组件；因此前台子 agent 能正常完成并返回结果。任意工具调用（含子 agent）的失败被收敛在该工具的 tool result 边界内，不破坏内核的 run、不影响同一内核上的其它 run，也不中断该消费者进程的其它常驻活动。
 
 #### Scenario: 前台子 agent 正常返回结果
 - **WHEN** 消费者经 `agent` 工具派发一个前台子 agent（提供 description 与 prompt；可选 `subagent_type`）

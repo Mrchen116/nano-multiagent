@@ -2,9 +2,7 @@
 
 > 临时审阅文件，不是 current spec、backlog 或开发指令。
 >
-> 本次文档迁移发现仓库原有资料与代码、测试或现行流程不一致时，先在这里保留证据，不自动把文档改成
-> 代码现状，也不自动把代码判成 bug。由用户审核后决定：接受当前实现并修文档、恢复原意图、建立 issue，
-> 或确认无需处理。完成裁决后删除本文件，并把结论写入对应权威位置。
+> 本次文档迁移发现仓库原有资料与代码、测试或现行流程不一致时，先在这里保留证据，不自动把文档改成代码现状，也不自动把代码判成 bug。由用户审核后决定：接受当前实现并修文档、恢复原意图、建立 issue，或确认无需处理。完成裁决后删除本文件，并把结论写入对应权威位置。
 
 ## 待审核
 
@@ -24,40 +22,29 @@
 
 ### D-003：Testing 指南高估了 contract tests 的保护范围
 
-- 现状：`docs/development/testing.md` 声称命名、落层、marker、依赖和行数都由 `tests/contract/`
-  机械兜底。
-- 实际：contract tests 当前只锁定新测试命名和 400 行上限；E2E marker 由
-  `tests/e2e/conftest.py` 自动添加，落层和 optional dependency 没有对应 contract。
+- 现状：`docs/development/testing.md` 声称命名、落层、marker、依赖和行数都由 `tests/contract/`机械兜底。
+- 实际：contract tests 当前只锁定新测试命名和 400 行上限；E2E marker 由 `tests/e2e/conftest.py` 自动添加，落层和 optional dependency 没有对应 contract。
 - 影响：读者可能把人工规范误认为已有 CI 保护。
 - 待决定：收回文档承诺到真实覆盖范围；或补齐希望机械保护的检查，并明确自动 marker 的实际机制。
 - 状态：Awaiting user review；原文未修改。
 
 ### D-004：Claude Code tools 比较材料仍把已经实现的能力写成缺口
 
-- 现状：原 `docs/tools-diff-cc/`（现
-  `docs/research/comparisons/claude-code-tools-2026-04-20/`）中 Read-Before-Write、SessionFileState 等材料
-  记录的是旧 nano 基线；当前代码已经包含相关能力。
-- 用户裁决：比较研究天然只对记录时点负责，过时不构成文档漂移。comparison 子目录统一采用
-  `<比较对象>-<YYYY-MM-DD>`，日期表示该组快照的截止日期；后续复查建立新的日期目录，不覆盖旧快照。
-- 处理：目录已带上 2026-04-20 截止日期，子目录索引继续保留每篇页面的精确日期和 nano commit，旧正文不重写。
-  某项今天是否仍是缺口，必须重新核对 current code/spec 后再决定是否建立 issue。
+- 现状：原 `docs/tools-diff-cc/`（现 `docs/research/comparisons/claude-code-tools-2026-04-20/`）中 Read-Before-Write、SessionFileState 等材料记录的是旧 nano 基线；当前代码已经包含相关能力。
+- 用户裁决：比较研究天然只对记录时点负责，过时不构成文档漂移。comparison 子目录统一采用 `<比较对象>-<YYYY-MM-DD>`，日期表示该组快照的截止日期；后续复查建立新的日期目录，不覆盖旧快照。
+- 处理：目录已带上 2026-04-20 截止日期，子目录索引继续保留每篇页面的精确日期和 nano commit，旧正文不重写。某项今天是否仍是缺口，必须重新核对 current code/spec 后再决定是否建立 issue。
 - 状态：Resolved；按用户裁决归类为冻结研究快照。
 
 ### D-005：Autocompact 设计仍把已前进的工作写成待实施
 
-- 现状：原 `docs/kernel-diff-cc/autocompact-spec.md`（现
-  `docs/research/comparisons/claude-code-kernel-2026-04-20/autocompact-spec.md`）仍写 Phase 2 待实现，current
-  code、tests 和 `docs/specs/kernel/context-persistence.md` 已经前进。
+- 现状：原 `docs/kernel-diff-cc/autocompact-spec.md`（现 `docs/research/comparisons/claude-code-kernel-2026-04-20/autocompact-spec.md`）仍写 Phase 2 待实现，current code、tests 和 `docs/specs/kernel/context-persistence.md` 已经前进。
 - 用户裁决：同 D-004，带时间的 comparison 是历史快照，不因 current 实现前进而改写正文。
-- 处理：目录已带上 2026-04-20 截止日期并冻结。原设计中某项今天是否仍需实施，重新核对 current
-  code/spec 后再决定是否建立 issue。
+- 处理：目录已带上 2026-04-20 截止日期并冻结。原设计中某项今天是否仍需实施，重新核对 current code/spec 后再决定是否建立 issue。
 - 状态：Resolved；按用户裁决归类为冻结研究快照。
 
 ### D-006：Change review 脑暴结论没有被现行三类门禁采用
 
-- 现状：原 `docs/brainstorms/change-review-gates.md`（现
-  `docs/research/brainstorms/change-review-gates.md`）的暂定结论主张一个通用 reviewer；当前流程使用
-  `change-verifier + change-reviewer + change-code-review`。
+- 现状：原 `docs/brainstorms/change-review-gates.md`（现 `docs/research/brainstorms/change-review-gates.md`）的暂定结论主张一个通用 reviewer；当前流程使用 `change-verifier + change-reviewer + change-code-review`。
 - 影响：Agent 可能把脑暴方案误读为仍待落地的目标流程。
 - 待决定：确认该方案已经放弃并标记 superseded；或建立 issue 继续评估，不能在本次文档整理中改流程。
 - 状态：Awaiting user review；流程和脑暴正文均未修改。
@@ -80,69 +67,43 @@
 
 ### D-011：全量测试偶发回收未 await 的 Feishu SDK cache 协程
 
-- 现状：`pytest -m "not e2e" -n 4` 全部通过（3733 passed、1 skipped），但一次全量运行在
-  `test_gateway_boundary_outbox.py::test_applied_runtime_and_boundary_survive_gateway_restart` 结束附近报告
-  `RuntimeWarning: coroutine 'ExpiringCache._start_clear_cron' was never awaited`。
-- 来源：协程定义在当前环境的第三方 `lark_oapi/core/cache/expiring_cache.py`。`ExpiringCache.__init__`
-  取得当前 event loop 并立即 `create_task()` 启动永久清理循环；warning 显示在
-  `session_keys.py:934` 只是该对象被回收时的当前位置，不能据此判定 session binding 是根因。
-- 复现：目标测试单跑，以及与 Feishu worker 测试用 xdist 并跑，均通过且没有再次出现该 RuntimeWarning；
-  当前证据只支持“测试顺序或 worker teardown 相关”，尚未得到稳定复现和完整根因。
-- 影响：当前 CI 不失败，但可能掩盖 SDK import-time event-loop 任务的资源生命周期问题，并给测试日志带来
-  非确定性噪声。
-- 待决定：是否建立 issue，专门稳定复现并判断应由 SDK 升级、隔离 import/lifecycle，还是测试 teardown
-  处理；在根因确认前不应根据偶发 warning 修改业务代码或屏蔽全部 RuntimeWarning。
+- 现状：`pytest -m "not e2e" -n 4` 全部通过（3733 passed、1 skipped），但一次全量运行在 `test_gateway_boundary_outbox.py::test_applied_runtime_and_boundary_survive_gateway_restart` 结束附近报告 `RuntimeWarning: coroutine 'ExpiringCache._start_clear_cron' was never awaited`。
+- 来源：协程定义在当前环境的第三方 `lark_oapi/core/cache/expiring_cache.py`。`ExpiringCache.__init__`取得当前 event loop 并立即 `create_task()` 启动永久清理循环；warning 显示在 `session_keys.py:934` 只是该对象被回收时的当前位置，不能据此判定 session binding 是根因。
+- 复现：目标测试单跑，以及与 Feishu worker 测试用 xdist 并跑，均通过且没有再次出现该 RuntimeWarning；当前证据只支持“测试顺序或 worker teardown 相关”，尚未得到稳定复现和完整根因。
+- 影响：当前 CI 不失败，但可能掩盖 SDK import-time event-loop 任务的资源生命周期问题，并给测试日志带来非确定性噪声。
+- 待决定：是否建立 issue，专门稳定复现并判断应由 SDK 升级、隔离 import/lifecycle，还是测试 teardown 处理；在根因确认前不应根据偶发 warning 修改业务代码或屏蔽全部 RuntimeWarning。
 - 状态：Awaiting user review；本次没有修改代码、依赖版本或 warning 策略。
 
 ### D-012：前端 clean install 报告 9 个依赖漏洞
 
-- 现状：在 `src/IM/frontend` 按 CI 顺序执行 `npm ci` 后，npm audit 报告 9 个漏洞：
-  1 critical、6 high、2 low。
-- 直接依赖：`vitest <3.2.6` 为 critical；`react-router-dom 7.0.0-pre.0–7.14.1` 与
-  `vite 7.0.0–7.3.3` 为 high。
-- 传递依赖：`picomatch`、`postcss`、`react-router`、`ws` 为 high，`@babel/core`、`esbuild` 为 low。
-  当前 audit 对各项都报告存在可用修复，但尚未核对升级后的兼容性、生产可达性和 advisory 适用条件。
-- 影响：当前 CI 只执行 `npm ci` 和 Vitest，不会因 audit 结果失败；其中部分是开发工具依赖，但不能仅凭
-  “测试通过”判断风险可忽略。
-- 待决定：是否建立 dependency/security issue，逐项确认 advisory、生产/开发作用域和最小兼容升级；
-  不应在本次文档迁移中直接运行 `npm audit fix` 改 lockfile。
+- 现状：在 `src/IM/frontend` 按 CI 顺序执行 `npm ci` 后，npm audit 报告 9 个漏洞：1 critical、6 high、2 low。
+- 直接依赖：`vitest <3.2.6` 为 critical；`react-router-dom 7.0.0-pre.0–7.14.1` 与 `vite 7.0.0–7.3.3` 为 high。
+- 传递依赖：`picomatch`、`postcss`、`react-router`、`ws` 为 high，`@babel/core`、`esbuild` 为 low。当前 audit 对各项都报告存在可用修复，但尚未核对升级后的兼容性、生产可达性和 advisory 适用条件。
+- 影响：当前 CI 只执行 `npm ci` 和 Vitest，不会因 audit 结果失败；其中部分是开发工具依赖，但不能仅凭 “测试通过”判断风险可忽略。
+- 待决定：是否建立 dependency/security issue，逐项确认 advisory、生产/开发作用域和最小兼容升级；不应在本次文档迁移中直接运行 `npm audit fix` 改 lockfile。
 - 状态：Awaiting user review；`package.json` 与 `package-lock.json` 未修改。
 
 ### D-013：前端测试全绿但 stderr 噪声规模很大
 
-- 现状：本机 Node `v25.8.2`、clean `npm ci` 后，Vitest 68 files / 653 tests 全部通过；第二次运行按固定
-  模式统计到 408 条 React “not wrapped in act” warning、40 条 `user stream runtime error` 和 68 条
-  `--localstorage-file` warning。
-- 边界：`user stream runtime error` 中一部分来自测试主动制造 404、无效游标或未 mock 的 `/im/v1/sync`；
-  `--localstorage-file` 可能与本机 Node 25 有关，而 CI 使用 Node 20。当前只确认输出噪声，不把每条都判成
-  产品 bug。
-- 影响：大量预期/未隔离 stderr 会降低真实回归的可见度；全绿摘要无法区分测试刻意验证的错误与意外后台
-  runtime error。
-- 待决定：是否建立 test-hygiene issue，先在 CI Node 20 复现并分类，再逐步修 `act()` 生命周期、关闭
-  未参与测试的 user-stream runtime，并决定哪些 stderr 应成为失败。
+- 现状：本机 Node `v25.8.2`、clean `npm ci` 后，Vitest 68 files / 653 tests 全部通过；第二次运行按固定模式统计到 408 条 React “not wrapped in act” warning、40 条 `user stream runtime error` 和 68 条 `--localstorage-file` warning。
+- 边界：`user stream runtime error` 中一部分来自测试主动制造 404、无效游标或未 mock 的 `/im/v1/sync`；`--localstorage-file` 可能与本机 Node 25 有关，而 CI 使用 Node 20。当前只确认输出噪声，不把每条都判成产品 bug。
+- 影响：大量预期/未隔离 stderr 会降低真实回归的可见度；全绿摘要无法区分测试刻意验证的错误与意外后台 runtime error。
+- 待决定：是否建立 test-hygiene issue，先在 CI Node 20 复现并分类，再逐步修 `act()` 生命周期、关闭未参与测试的 user-stream runtime，并决定哪些 stderr 应成为失败。
 - 状态：Awaiting user review；本次没有修改前端测试、Vitest 配置或 warning 策略。
 
 ### D-014：架构 contract test 的名称和说明仍携带旧架构术语
 
-- 现状：`tests/contract/test_cli_http_only_contract.py` 实际守护的是 SDK-only 架构，文件名仍是
-  `http_only`；`tests/contract/test_agent_sdk_boundary_contract.py` 的模块说明仍把已退役的
-  `agent.products` 写在 `agent.sdk` 的当前依赖层中。
+- 现状：`tests/contract/test_cli_http_only_contract.py` 实际守护的是 SDK-only 架构，文件名仍是 `http_only`；`tests/contract/test_agent_sdk_boundary_contract.py` 的模块说明仍把已退役的 `agent.products` 写在 `agent.sdk` 的当前依赖层中。
 - 边界：测试断言本身仍会拦截产品越界 import，并未发现由这些旧术语造成的实际边界失守。
-- 影响：Agent 按文件名或模块说明寻找 current 架构门禁时，可能误以为仓库仍保留旧 HTTP/products
-  结构。
+- 影响：Agent 按文件名或模块说明寻找 current 架构门禁时，可能误以为仓库仍保留旧 HTTP/products 结构。
 - 待决定：是否建立低风险清理 issue，重命名测试文件并更新说明；若改名，需要同步所有精确路径引用。
 - 状态：Awaiting user review；测试和注释未修改。
 
 ### D-015：SDK 表面契约与实际豁免、允许 import 形态没有完全对齐
 
-- 现状：`docs/specs/kernel/sdk-boundary.md` 声称显式豁免名单逐字钉死，并列出五个 re-export；当前
-  `agent.sdk.__all__` 和 `test_agent_sdk_surface_guard.py` 还包含
-  `USER_INTERRUPT_RECOVERY_CONTENT` 这一 core-owned string re-export，current spec 未列出。
-- 现状：同一 spec 写“消费者只能 import `agent.sdk`”；Gateway 两个文件在 `TYPE_CHECKING` 下使用
-  `from agent.sdk.kernel import Kernel`。现有 contract 只禁止 `agent.core`、`agent.platform` 和
-  `agent.products`，没有裁决“只能从 `agent.sdk` 根导入”还是“可以从任意 `agent.sdk.*` 子模块导入”。
-- 影响：公开表面名单已经发生可验证漂移；对 SDK 子模块是否属于 public surface 也缺少一致、可机械保护的
-  解释。
+- 现状：`docs/specs/kernel/sdk-boundary.md` 声称显式豁免名单逐字钉死，并列出五个 re-export；当前 `agent.sdk.__all__` 和 `test_agent_sdk_surface_guard.py` 还包含 `USER_INTERRUPT_RECOVERY_CONTENT` 这一 core-owned string re-export，current spec 未列出。
+- 现状：同一 spec 写“消费者只能 import `agent.sdk`”；Gateway 两个文件在 `TYPE_CHECKING` 下使用 `from agent.sdk.kernel import Kernel`。现有 contract 只禁止 `agent.core`、`agent.platform` 和 `agent.products`，没有裁决“只能从 `agent.sdk` 根导入”还是“可以从任意 `agent.sdk.*` 子模块导入”。
+- 影响：公开表面名单已经发生可验证漂移；对 SDK 子模块是否属于 public surface 也缺少一致、可机械保护的解释。
 - 待决定：
   1. 把 recovery constant 补入 current spec 的豁免名单；
   2. 明确 SDK 消费者的 import 政策，并据此统一 Gateway type import 与 contract test。
@@ -152,8 +113,7 @@
 
 - 现状：`docs/changes/feat-444-session-wakeup/design.md` 指示 reviewer 请求 `http://127.0.0.1:8000/v1/health`；当前 Gateway 没有这条路由。该 unit 仍停留在设计产物阶段，恢复前需要重新 grounding。
 - 影响：Agent 如果直接深链 design 并照 runbook 执行，会把无效检查误判为实现或环境故障。
-- 待决定：恢复该 unit 时是否先修订 runbook 并重过 design review；或现在就建立 issue，避免 paused
-  design 长期保留不可执行指令。
+- 待决定：恢复该 unit 时是否先修订 runbook 并重过 design review；或现在就建立 issue，避免 paused design 长期保留不可执行指令。
 - 状态：Awaiting user review；paused unit 未修改。
 
 ### D-017：`feat-484` 的 unit 文档没有覆盖当前验收现场
@@ -165,9 +125,7 @@
   - 嵌套 verifier worktree，HEAD 为当前 unit HEAD，但没有新的 verification 结论；
   - `git diff --check main...unit/feat-484` 报告多处历史 evidence/报告 trailing whitespace。
 - 文档缺口：M2 tasks/progress 没有记录最后有效 verification 的 validated head/range、Round 3 中断现场，也未签收最后两个 fix commits。
-- 其他待裁决记录：M2 退出标准表写 `F1–F4`，正文存在 `F5`；design-review 的冻结表述与后来追加 M2
-  的做法没有留下裁决；progress 记录 orchestrator 在 worker 403 后亲自实现，与当前 orchestrator
-  “不写代码”边界不一致。
+- 其他待裁决记录：M2 退出标准表写 `F1–F4`，正文存在 `F5`；design-review 的冻结表述与后来追加 M2 的做法没有留下裁决；progress 记录 orchestrator 在 worker 403 后亲自实现，与当前 orchestrator “不写代码”边界不一致。
 - 影响：新 Agent 若没有核对运行现场和实时 Git 状态，可能重复派验收、误清理现场、遗漏当前 HEAD 复验，或用宽泛 `git add -A` 暂存本机 credential。
 - 待决定：由 `feat-484` owner 审核现场后，决定继续复验还是安全清理；将真实 validated range 和运行 locator 写回对应 milestone progress/evidence；另行判断 credential ignore、trailing whitespace 和历史流程偏差是否建 issue。
 - 状态：Awaiting user review；本次未停止进程、清理文件、恢复 agent 或修改该 unit。
@@ -192,31 +150,23 @@
 
 ### D-021：Verifier WARNING 是否阻塞收尾的口径不一致
 
-- 现状：`change-verifier` 把 spec/design 偏离和缺测试列为“应该修”的 WARNING，但规定“无 CRITICAL
-  即 verdict=pass / Ready for PR”；`change-orchestrator` 只有在存在 CRITICAL、reviewer fix 或 code
-  review 阻塞项时才进入 fix，此时才顺带打包 WARNING。
-- 影响：只有 WARNING 的 verifier 报告可能作为 pass 穿过收尾，和“应该修、缺测试必须补”的文字承诺
-  冲突。
+- 现状：`change-verifier` 把 spec/design 偏离和缺测试列为“应该修”的 WARNING，但规定“无 CRITICAL 即 verdict=pass / Ready for PR”；`change-orchestrator` 只有在存在 CRITICAL、reviewer fix 或 code review 阻塞项时才进入 fix，此时才顺带打包 WARNING。
+- 影响：只有 WARNING 的 verifier 报告可能作为 pass 穿过收尾，和“应该修、缺测试必须补”的文字承诺冲突。
 - 待决定：WARNING 默认阻塞；或允许显式接受，但必须定义接受者、理由和 PR 记录字段。
 - 状态：Awaiting user review；原门禁语义未修改。
 
 ### D-022：`pass-with-issues` 的 acceptance bar 没有稳定输入
 
-- 现状：`change-reviewer` 允许第三轮起由 caller 放宽 major issue 为 `pass-with-issues`；
-  `change-orchestrator` 也允许“acceptance bar 允许”时收尾，但 reviewer 派发包没有 acceptance bar
-  字段，也没有规定谁、何时、依据什么授权放宽。
+- 现状：`change-reviewer` 允许第三轮起由 caller 放宽 major issue 为 `pass-with-issues`；`change-orchestrator` 也允许“acceptance bar 允许”时收尾，但 reviewer 派发包没有 acceptance bar 字段，也没有规定谁、何时、依据什么授权放宽。
 - 影响：同一验收结果可能因 orchestrator 临场判断得到不同路由，恢复后也无法知道当时使用了哪条 bar。
 - 待决定：保持 major 默认 fail；或为人工/流程授权定义显式字段，并持久化到 report/PR。
 - 状态：Awaiting user review；skills 未修改。
 
 ### D-023：验收完成后的 main rebase 没有完整的门禁失效判断
 
-- 现状：selected gates 通过并归并 current spec 后，orchestrator 才 rebase `origin/main`。skill 在别处把
-  “rebase 后非平凡冲突或大范围 delta”列为 full 条件，但 sync gate 没有要求比较 rebase 前后 delta、
-  重新选择 retained/targeted/full 或更新 validated head。
+- 现状：selected gates 通过并归并 current spec 后，orchestrator 才 rebase `origin/main`。skill 在别处把 “rebase 后非平凡冲突或大范围 delta”列为 full 条件，但 sync gate 没有要求比较 rebase 前后 delta、重新选择 retained/targeted/full 或更新 validated head。
 - 影响：main 新提交即使没有文本冲突，也可能改变调用链或用户旅程；原门禁结论会落后于最终 PR head。
-- 待决定：把最终 sync 提前到 gates 前；或在 rebase 后增加显式 invalidation assessment，并按 delta
-  重跑受影响门禁。
+- 待决定：把最终 sync 提前到 gates 前；或在 rebase 后增加显式 invalidation assessment，并按 delta 重跑受影响门禁。
 - 状态：Awaiting user review；流程未修改。
 
 ### D-024：部分收尾状态只存在于 orchestrator 内存

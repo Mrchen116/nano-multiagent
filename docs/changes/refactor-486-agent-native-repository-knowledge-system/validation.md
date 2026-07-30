@@ -2,28 +2,20 @@
 
 > 日期：2026-07-30
 >
-> 范围：验证重构后的知识入口、current/history 边界、恢复能力和隔离运行入口。本文是
-> `refactor-486` 的验收记录，不是新的 current owner。
+> 范围：验证重构后的知识入口、current/history 边界、恢复能力和隔离运行入口。本文是 `refactor-486` 的验收记录，不是新的 current owner。
 
 ## 结论
 
-机械可达性、真实隔离 runtime 和七类独立冷启动 Agent 任务均通过。Agent 能从根入口找到正确知识，
-区分 current、proposed、history 与 runtime evidence，并在文档快照与实时状态不一致时继续核对代码、
-测试、Git、进程和日志。
+机械可达性、真实隔离 runtime 和七类独立冷启动 Agent 任务均通过。Agent 能从根入口找到正确知识，区分 current、proposed、history 与 runtime evidence，并在文档快照与实时状态不一致时继续核对代码、测试、Git、进程和日志。
 
-冷测也发现了仓库原有的文档、skill 和 active unit 漂移。它们集中记录在
-[`drift-review.md`](drift-review.md)，没有借验收过程直接修改产品流程或代码。
+冷测也发现了仓库原有的文档、skill 和 active unit 漂移。它们集中记录在 [`drift-review.md`](drift-review.md)，没有借验收过程直接修改产品流程或代码。
 
 ## 冷启动测试设计
 
-- 每项任务使用没有本次聊天历史的独立 Agent，只提供仓库路径、任务场景、只读/清理边界和回报格式；
-  不提供预期文档路径或标准答案。
-- 第一批架构、IM 和 runtime 任务在当前迁移分支执行。IM Agent 在结论形成后的一次宽泛搜索中看见了
-  本文件摘要，因此该结果没有作为严格盲测证据。
-- 后续任务与 IM 重跑使用 detached snapshot `4e95552a4`。该提交已包含阶段 0–7 的目标文档体系，但
-  尚不存在 `validation.md`，消除了仓库内参考答案污染。
-- 每个 Agent 必须报告真实读取顺序、命令、authority 判断、误入路径和阻塞；评价以行为轨迹为准，
-  不只看最终答案。
+- 每项任务使用没有本次聊天历史的独立 Agent，只提供仓库路径、任务场景、只读/清理边界和回报格式；不提供预期文档路径或标准答案。
+- 第一批架构、IM 和 runtime 任务在当前迁移分支执行。IM Agent 在结论形成后的一次宽泛搜索中看见了本文件摘要，因此该结果没有作为严格盲测证据。
+- 后续任务与 IM 重跑使用 detached snapshot `4e95552a4`。该提交已包含阶段 0–7 的目标文档体系，但尚不存在 `validation.md`，消除了仓库内参考答案污染。
+- 每个 Agent 必须报告真实读取顺序、命令、authority 判断、误入路径和阻塞；评价以行为轨迹为准，不只看最终答案。
 - 所有调查 worktree 最终保持 clean；真实 runtime Agent 只创建临时隔离目录，并在验收后清理。
 
 ## 代表性任务
@@ -61,24 +53,16 @@
 
 - `./scripts/docs-check`：197 份受维护 Markdown、85 个必须入口，全部通过。
 - `ruff check .`：passed；`ruff format --check .`：894 files already formatted。
-- `pytest -m "not e2e" -n 4 --dist worksteal`：3733 passed、1 skipped；第三方 Feishu SDK 的一次非确定性
-  RuntimeWarning 记录为 [`D-011`](drift-review.md#d-011全量测试偶发回收未-await-的飞书-sdk-cache-协程)。
-- clean `npm ci` 后执行 `npm run test`：68 test files / 653 tests passed；依赖 audit 与 stderr 噪声分别记录为
-  [`D-012`](drift-review.md#d-012前端-clean-install-报告-9-个依赖漏洞) 和
-  [`D-013`](drift-review.md#d-013前端测试全绿但-stderr-噪声规模很大)，没有在本 unit 自动修复。
+- `pytest -m "not e2e" -n 4 --dist worksteal`：3733 passed、1 skipped；第三方 Feishu SDK 的一次非确定性 RuntimeWarning 记录为 [`D-011`](drift-review.md#d-011全量测试偶发回收未-await-的飞书-sdk-cache-协程)。
+- clean `npm ci` 后执行 `npm run test`：68 test files / 653 tests passed；依赖 audit 与 stderr 噪声分别记录为 [`D-012`](drift-review.md#d-012前端-clean-install-报告-9-个依赖漏洞) 和 [`D-013`](drift-review.md#d-013前端测试全绿但-stderr-噪声规模很大)，没有在本 unit 自动修复。
 - `git diff --check origin/main...HEAD`：passed。
-- 冷启动 architecture Agent 运行 21 个聚焦架构 contract tests；history Agent 运行 16 个 Kernel HTTP
-  removal contract tests；LLM Agent 运行 2 个 mock provider/header tests，均通过。
+- 冷启动 architecture Agent 运行 21 个聚焦架构 contract tests；history Agent 运行 16 个 Kernel HTTP removal contract tests；LLM Agent 运行 2 个 mock provider/header tests，均通过。
 - active unit 恢复使用 `git worktree list`、本地/远端 branch HEAD 和 worktree `git status` 核对实时状态；用户复审后删除了不提供增量信息的 `status.md`，当前恢复直接读取阶段产物与这些实时来源。
-- 当前已知、但不应在本次迁移中自动裁决的 drift 仍只记录在
-  [`drift-review.md`](drift-review.md)。
+- 当前已知、但不应在本次迁移中自动裁决的 drift 仍只记录在 [`drift-review.md`](drift-review.md)。
 
 ## 尚未覆盖
 
-1. 模型日志任务没有收到真实 session ID，因此只验证了定位路径、日志结构、隐私边界和 mock header 契约；
-   没有判断某次真实异常，也没有额外产生付费模型调用。
-2. active unit 恢复是 2026-07-30 的只读现场快照；没有停止 `feat-484` 服务、清理 credential/runtime 文件
-   或继续验收。
-3. change 收尾任务只验证知识发现和流程自洽性，没有实际归档 unit、创建 PR 或 push；其发现的流程缺口
-   需要用户裁决后另行修复。
+1. 模型日志任务没有收到真实 session ID，因此只验证了定位路径、日志结构、隐私边界和 mock header 契约；没有判断某次真实异常，也没有额外产生付费模型调用。
+2. active unit 恢复是 2026-07-30 的只读现场快照；没有停止 `feat-484` 服务、清理 credential/runtime 文件或继续验收。
+3. change 收尾任务只验证知识发现和流程自洽性，没有实际归档 unit、创建 PR 或 push；其发现的流程缺口需要用户裁决后另行修复。
 4. 真栈验证覆盖进程 ready、bind/heartbeat 和清理，没有覆盖浏览器用户旅程；本次迁移没有改变产品行为。

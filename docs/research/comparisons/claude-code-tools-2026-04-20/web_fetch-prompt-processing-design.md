@@ -41,8 +41,7 @@ Web page content:
 {guidelines}
 ```
 
-**Guidelines**（统一，不区分域名类型）：
-`Provide a concise response based on the content above. Include relevant details, code examples, and documentation excerpts as needed.`
+**Guidelines**（统一，不区分域名类型）：`Provide a concise response based on the content above. Include relevant details, code examples, and documentation excerpts as needed.`
 
 ### 1.3 模型与参数
 

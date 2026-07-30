@@ -67,29 +67,11 @@ Scrum Master agent读取PRD和架构文档后，将工作分解为独立的story
 
 ### 1.5 局限性
 
-**Claim**: BMAD的QA agent存在"完美实现"幻觉
-**Source**: Five Claude Code Frameworks Compared
-**URL**: https://www.everydev.ai/p/blog-five-claude-code-frameworks-compared-when-to-use-each-when-to-use-none
-**Date**: 2026-05-02
-**Excerpt**: "The Gray Cat uses BMAD for a week...the QA agent reports 'Perfect implementation. Amazing work!' on a build that does not even start."
-**Context**: BMAD的QA agent基于artifact进行推理，而不是实际运行应用
-**Confidence**: high
+**Claim**: BMAD的QA agent存在"完美实现"幻觉 **Source**: Five Claude Code Frameworks Compared **URL**: https://www.everydev.ai/p/blog-five-claude-code-frameworks-compared-when-to-use-each-when-to-use-none **Date**: 2026-05-02 **Excerpt**: "The Gray Cat uses BMAD for a week...the QA agent reports 'Perfect implementation. Amazing work!' on a build that does not even start." **Context**: BMAD的QA agent基于artifact进行推理，而不是实际运行应用 **Confidence**: high
 
-**Claim**: BMAD在需求变更时脆弱
-**Source**: Five Claude Code Frameworks Compared
-**URL**: https://www.everydev.ai/p/blog-five-claude-code-frameworks-compared-when-to-use-each-when-to-use-none
-**Date**: 2026-05-02
-**Excerpt**: "BMAD shines on locked-spec greenfield work. Mid-stream requirement changes make the model 'miss little details' and force expensive replanning."
-**Context**: 适用于规格锁定的greenfield项目，不适用于探索阶段的产品
-**Confidence**: high
+**Claim**: BMAD在需求变更时脆弱 **Source**: Five Claude Code Frameworks Compared **URL**: https://www.everydev.ai/p/blog-five-claude-code-frameworks-compared-when-to-use-each-when-to-use-none **Date**: 2026-05-02 **Excerpt**: "BMAD shines on locked-spec greenfield work. Mid-stream requirement changes make the model 'miss little details' and force expensive replanning." **Context**: 适用于规格锁定的greenfield项目，不适用于探索阶段的产品 **Confidence**: high
 
-**Claim**: 文档量过大导致上下文死亡螺旋
-**Source**: BMAD Method Guide
-**URL**: https://redreamality.com/garden/notes/bmad-method-guide/
-**Date**: 2026-01-10
-**Excerpt**: "A 1,600-line architecture document, a sharded PRD, story files, and the conversation make everything noticeably slower...Users worry about IDE compaction silently dropping critical earlier context."
-**Context**: 长会话中IDE的上下文压缩会丢失关键早期信息
-**Confidence**: high
+**Claim**: 文档量过大导致上下文死亡螺旋 **Source**: BMAD Method Guide **URL**: https://redreamality.com/garden/notes/bmad-method-guide/ **Date**: 2026-01-10 **Excerpt**: "A 1,600-line architecture document, a sharded PRD, story files, and the conversation make everything noticeably slower...Users worry about IDE compaction silently dropping critical earlier context." **Context**: 长会话中IDE的上下文压缩会丢失关键早期信息 **Confidence**: high
 
 ### 1.6 与用户场景匹配度
 
@@ -138,13 +120,7 @@ MetaGPT是一个基于SOP（Standard Operating Procedures）的多agent协作框
 
 **根因分析**：
 
-**Claim**: MetaGPT质量低的根因是SOP过于僵化，agent间缺乏真正的协作性沟通
-**Source**: ChatDev: Communicative Agents for Software Development (ACL 2024)
-**URL**: https://aclanthology.org/2024.acl-long.810.pdf
-**Date**: 2024
-**Excerpt**: "in comparison to MetaGPT, ChatDev significantly raises the Quality from 0.1523 to 0.3953. This advancement is largely attributed to the agents employing a cooperative communication method, which involves autonomously proposing and continuously refining source code through a blend of natural and programming languages, as opposed to merely delivering responses based on human-predefined instructions."
-**Context**: MetaGPT依赖人工预设的SOP指令，缺乏动态协作优化
-**Confidence**: high
+**Claim**: MetaGPT质量低的根因是SOP过于僵化，agent间缺乏真正的协作性沟通 **Source**: ChatDev: Communicative Agents for Software Development (ACL 2024) **URL**: https://aclanthology.org/2024.acl-long.810.pdf **Date**: 2024 **Excerpt**: "in comparison to MetaGPT, ChatDev significantly raises the Quality from 0.1523 to 0.3953. This advancement is largely attributed to the agents employing a cooperative communication method, which involves autonomously proposing and continuously refining source code through a blend of natural and programming languages, as opposed to merely delivering responses based on human-predefined instructions." **Context**: MetaGPT依赖人工预设的SOP指令，缺乏动态协作优化 **Confidence**: high
 
 **其他限制**：
 - MetaGPT生成的需求文档通常只包含简单的用户故事，对复杂功能不够有效 [^764^]
@@ -273,13 +249,7 @@ Kiro是AWS推出的基于Code OSS（VS Code内核）的Agentic IDE，核心卖�
 **三阶段Spec工作流**：[^814^] [^817^]
 
 ```
-需求描述（你说的一句话）
-       ↓
-┌─ requirements.md ─┐  ← EARS 格式的需求列表
-├─ design.md ────────┤  ← 技术方案（数据模型、API、组件结构）
-└─ tasks.md ─────────┘  ← 可执行的任务清单（带 checkbox）
-       ↓
-  逐个任务生成代码
+需求描述（你说的一句话）↓ ┌─ requirements.md ─┐  ← EARS 格式的需求列表 ├─ design.md ────────┤  ← 技术方案（数据模型、API、组件结构）└─ tasks.md ─────────┘  ← 可执行的任务清单（带 checkbox）↓ 逐个任务生成代码
 ```
 
 1. **Requirements Phase**：将自然语言描述转化为EARS格式的结构化需求文档 [^734^]
@@ -299,8 +269,7 @@ Kiro使用 **EARS（Easy Approach to Requirements Syntax）** 作为需求标记
 
 **示例**：[^817^]
 ```
-WHEN o usuário envia uma avaliação sem texto
-THEN o sistema SHALL exibir uma mensagem de erro solicitando ao menos 10 caracteres
+WHEN o usuário envia uma avaliação sem texto THEN o sistema SHALL exibir uma mensagem de erro solicitando ao menos 10 caracteres
 ```
 
 Kiro还能基于EARS格式的需求生成**property-based tests（属性测试）**，比传统单元测试更全面。[^814^]
@@ -410,29 +379,11 @@ GitHub Spec Kit是一个开源的Python CLI框架，支持30+ AI coding agents�
 
 **负面反馈**：
 
-**Claim**: Spec Kit产生"工作的幻觉"
-**Source**: GitHub Spec Kit社区讨论
-**URL**: https://github.com/github/spec-kit/discussions/1784
-**Date**: 2025-09-17
-**Excerpt**: "It feels that Claude (which I used) loses relative fast the overall Picture after starting an Implementation...It keeps falling into the TDD trap of concentrating on the test cases and starts iterating on those issues very fast and after a short time it loses the initial todo very fast."
-**Context**: Claude在实现阶段快速丢失整体图景，陷入TDD陷阱
-**Confidence**: high
+**Claim**: Spec Kit产生"工作的幻觉" **Source**: GitHub Spec Kit社区讨论 **URL**: https://github.com/github/spec-kit/discussions/1784 **Date**: 2025-09-17 **Excerpt**: "It feels that Claude (which I used) loses relative fast the overall Picture after starting an Implementation...It keeps falling into the TDD trap of concentrating on the test cases and starts iterating on those issues very fast and after a short time it loses the initial todo very fast." **Context**: Claude在实现阶段快速丢失整体图景，陷入TDD陷阱 **Confidence**: high
 
-**Claim**: 完整流程对小型功能过重
-**Source**: GitHub Spec Kit社区讨论
-**URL**: https://github.com/github/spec-kit/discussions/1822
-**Date**: 2026-03-23
-**Excerpt**: "having to go through full set of steps for small features is often called out as a paint point from folks who have tried spec-kit in the past."
-**Context**: 社区用户反馈对小型功能需要简化流程
-**Confidence**: high
+**Claim**: 完整流程对小型功能过重 **Source**: GitHub Spec Kit社区讨论 **URL**: https://github.com/github/spec-kit/discussions/1822 **Date**: 2026-03-23 **Excerpt**: "having to go through full set of steps for small features is often called out as a paint point from folks who have tried spec-kit in the past." **Context**: 社区用户反馈对小型功能需要简化流程 **Confidence**: high
 
-**Claim**: Agent在实现后不能正确更新任务列表
-**Source**: GitHub Spec Kit社区讨论
-**URL**: https://github.com/github/spec-kit/discussions/1784
-**Date**: 2025-09-17
-**Excerpt**: "Also it keeps failing to update the Tasklist with the work it has done and if there is an new Session Started the Agent is not aware enough of the overall way to work."
-**Context**: 跨会话的状态保持是挑战
-**Confidence**: high
+**Claim**: Agent在实现后不能正确更新任务列表 **Source**: GitHub Spec Kit社区讨论 **URL**: https://github.com/github/spec-kit/discussions/1784 **Date**: 2025-09-17 **Excerpt**: "Also it keeps failing to update the Tasklist with the work it has done and if there is an new Session Started the Agent is not aware enough of the overall way to work." **Context**: 跨会话的状态保持是挑战 **Confidence**: high
 
 ### 5.4 局限性
 

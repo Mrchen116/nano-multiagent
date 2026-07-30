@@ -1,7 +1,6 @@
 # Evidence
 
-一次验证只有在“要证明的声明、验证方法、运行结果、保存位置和能力边界”能够连起来时，才可供下一位 Agent
-复查。不同证据回答不同问题，交付结论通常需要把其中几类串成证据链。
+一次验证只有在“要证明的声明、验证方法、运行结果、保存位置和能力边界”能够连起来时，才可供下一位 Agent 复查。不同证据回答不同问题，交付结论通常需要把其中几类串成证据链。
 
 ## 证据类型与能力边界
 
@@ -31,9 +30,7 @@
 | 本地 CI 等价检查 | 归档和提 PR 前 | 当前 [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) 中每个 job 的实际命令 | PR Validation Summary 写通过的 job |
 | 远端 CI | PR head 已推送后 | GitHub check/run | 记录 PR head SHA、check URL 和最终状态 |
 
-本地 CI 的命令不在多份文档里复制维护；工作流文件是当前 job 的执行权威。当前远端 CI 也不自动代表
-前端 build、真实进程 E2E、真实 LLM 或人工用户旅程已经通过，这些验证按改动风险和 selected gates
-另行执行并记录。
+本地 CI 的命令不在多份文档里复制维护；工作流文件是当前 job 的执行权威。当前远端 CI 也不自动代表前端 build、真实进程 E2E、真实 LLM 或人工用户旅程已经通过，这些验证按改动风险和 selected gates 另行执行并记录。
 
 ## 一条可复查记录需要什么
 
@@ -46,15 +43,13 @@
 5. **Locator**：测试名、CI URL、unit evidence 相对路径、日志 session id 或本机 runtime 路径。
 6. **Limit**：本证据没有覆盖的环境、状态或行为。
 
-截图、JSON 和日志只有与 Claim、Baseline、Method 建立链接后才有解释力。证据目录中的文件名使用场景和状态命名，
-避免只写 `final.png`、`result2.json`。
+截图、JSON 和日志只有与 Claim、Baseline、Method 建立链接后才有解释力。证据目录中的文件名使用场景和状态命名，避免只写 `final.png`、`result2.json`。
 
 ## 保存与引用
 
 - 小型、可审查且不含 secret 的截图、录屏、请求摘要和对照表放在对应 `<unit>/M*/evidence/`。
 - verifier/reviewer 的 unit 级结论写在 `verification.md`、`acceptance.md` 或 `regression.md` 并链接原始 evidence；code review 结果进入 PR Validation Summary，快速开发同时保留在 unit `code-review.md`。
-- PID、完整服务日志、数据库、临时 config、浏览器缓存和原始 LLM 对话保留在 gitignored/仓外位置；unit 记录
-  时间、session id、路径和必要的脱敏摘要。
+- PID、完整服务日志、数据库、临时 config、浏览器缓存和原始 LLM 对话保留在 gitignored/仓外位置；unit 记录时间、session id、路径和必要的脱敏摘要。
 - evidence 含 token、cookie、个人数据、完整 prompt 或第三方内容时，不提交原件；保存可复现定位信息和脱敏结论。
 - `/tmp` 或浏览器临时会话只适合当场调查。交付依赖它时，先把必要结果转存到 unit evidence 或可重复测试。
 

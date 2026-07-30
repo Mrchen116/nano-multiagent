@@ -8,8 +8,7 @@
 >
 > 权威边界：本文是迁移期间的工作计划，不覆盖 [`docs/README.md`](../../README.md)、[`SPEC.md`](../../../SPEC.md)、[`docs/specs/`](../../specs/README.md) 或已经生效的开发流程。
 >
-> 执行方式：用户已明确授权本次文档整理直接增量实施，不要求套用完整 `change-*` 生命周期。每个阶段仍拆成
-> 可独立审阅和回退的提交；当前授权为连续完成全计划后统一 review。
+> 执行方式：用户已明确授权本次文档整理直接增量实施，不要求套用完整 `change-*` 生命周期。每个阶段仍拆成可独立审阅和回退的提交；当前授权为连续完成全计划后统一 review。
 
 ## 一、目标与完成定义
 
@@ -187,12 +186,10 @@ Agent 已经能看到 `docs/README.md`，但自动加载的 `AGENTS.md` 仍包�
 - 建立产品 Truth 入口，并从旧需求稿和 Web IM 蓝图中蒸馏仍由 current spec/代码支持的长期原则。
 - 将原始产品稿归档并保留兼容入口，避免旧字段、路由和配置叙事继续冒充 current。
 - 将长青 spec 编写规范归到 `docs/specs/CONTRIBUTING.md`，所有 live consumers 使用新入口。
-- 审核四个 package spec：kernel、IM、Gateway 已是短入口 + area；将 CLI 的 11 条契约拆为
-  interactive、automation、product integration 三个 area。
+- 审核四个 package spec：kernel、IM、Gateway 已是短入口 + area；将 CLI 的 11 条契约拆为 interactive、automation、product integration 三个 area。
 - 依据现有代码与测试清除 CLI spec 中已删除的 `llm-config set`、已解散 product profile 和错误扩展路径。
 - 将四篇早期内核实现叙事归档；长期行为由 kernel specs 表达，精确接口、目录和模板由代码与测试表达。
-- 将已完成的 IM user-stream 迁移计划和 2026-03 drift 审计归档。M311 因缺少问题描述与复现步骤只保留为
-  不完整历史记录，不能冒充 active backlog。
+- 将已完成的 IM user-stream 迁移计划和 2026-03 drift 审计归档。M311 因缺少问题描述与复现步骤只保留为不完整历史记录，不能冒充 active backlog。
 
 #### 已提交
 
@@ -253,16 +250,12 @@ Agent 已经能看到 `docs/README.md`，但自动加载的 `AGENTS.md` 仍包�
 
 #### 已完成
 
-- 逐个核对活动区 unit 与 branch、worktree、PR 和实现提交，将仍可推进的 unit 标为 Active/Paused，
-  已交付 unit 整体归档，被当前架构取代且未完成的提案进入 `retired/`。
+- 逐个核对活动区 unit 与 branch、worktree、PR 和实现提交，将仍可推进的 unit 标为 Active/Paused，已交付 unit 整体归档，被当前架构取代且未完成的提案进入 `retired/`。
 - 核对活动 unit 的阶段产物与实时 branch、worktree 和 PR；用户复审后撤销了曾引入的 `status.md` 快照与活动表，恢复状态继续从首文档、design、milestone progress、验收报告和 Git/PR 实时状态获得。unit id 分配仍同时扫描 active/archive/retired。
 - 将 change 存储入口标准化为 `docs/changes/README.md`，同步所有 live consumers。
-- 停止 worker 向根 `LOGBOOK.md` 写通用经验；可复用知识先写 unit 内 Promotion Candidates，再由
-  orchestrator 核实并归并到唯一长期 owner。
-- 审计 `data/dev-tasks.json`：文件不存在，现行 orchestrator 明确不用它；唯一残留是没有生产调用者的旧
-  worktree symlink helper，已移除该兼容接线并保留 merge lock 共享。
-- 将根级 `ROADMAP/TASKS/PROGRESS/LOGBOOK/ACCEPTANCE` 共 516 个冻结文件整体迁入
-  `docs/archive/legacy-development-records/`，保留原层级和内容。
+- 停止 worker 向根 `LOGBOOK.md` 写通用经验；可复用知识先写 unit 内 Promotion Candidates，再由 orchestrator 核实并归并到唯一长期 owner。
+- 审计 `data/dev-tasks.json`：文件不存在，现行 orchestrator 明确不用它；唯一残留是没有生产调用者的旧 worktree symlink helper，已移除该兼容接线并保留 merge lock 共享。
+- 将根级 `ROADMAP/TASKS/PROGRESS/LOGBOOK/ACCEPTANCE` 共 516 个冻结文件整体迁入 `docs/archive/legacy-development-records/`，保留原层级和内容。
 
 #### 已提交
 
@@ -318,17 +311,12 @@ Agent 已经能看到 `docs/README.md`，但自动加载的 `AGENTS.md` 仍包�
 
 #### 已完成
 
-- 建立 `docs/development/evidence.md`，区分测试、构建、真栈验收、独立门禁报告、runtime state、
-  LLM 日志和远端 CI 各自能证明与不能证明的声明。
-- 定义可复查证据记录的 Claim、Baseline、Method、Result、Locator 和 Limit，以及一次证据进入
-  tests、current specs、架构、development、operations 或历史的 promotion 路径。
+- 建立 `docs/development/evidence.md`，区分测试、构建、真栈验收、独立门禁报告、runtime state、LLM 日志和远端 CI 各自能证明与不能证明的声明。
+- 定义可复查证据记录的 Claim、Baseline、Method、Result、Locator 和 Limit，以及一次证据进入 tests、current specs、架构、development、operations 或历史的 promotion 路径。
 - 将 LLM 日志入口保留在根 `AGENTS.md`，并补充已知 session id 与只知道发生时间时的两种定位方法。
-- 审核现行 skills、scripts 和 tests：新验收结果都进入 change unit；两份只服务旧 milestone 的
-  `scripts/acceptance/` 脚本移入 legacy archive。
-- 明确最窄反馈、风险扩展验证、selected gates、本地 CI 等价检查和远端 CI 的 owner；CI job 命令只以
-  workflow 文件为执行权威。
-- 本次迁移引入的 evidence 描述和格式门禁错误已经修正；审计发现的原有流程/文档漂移不自动裁决，
-  统一进入 `drift-review.md`。
+- 审核现行 skills、scripts 和 tests：新验收结果都进入 change unit；两份只服务旧 milestone 的 `scripts/acceptance/` 脚本移入 legacy archive。
+- 明确最窄反馈、风险扩展验证、selected gates、本地 CI 等价检查和远端 CI 的 owner；CI job 命令只以 workflow 文件为执行权威。
+- 本次迁移引入的 evidence 描述和格式门禁错误已经修正；审计发现的原有流程/文档漂移不自动裁决，统一进入 `drift-review.md`。
 
 #### 已提交
 
@@ -384,17 +372,12 @@ Agent 已经能看到 `docs/README.md`，但自动加载的 `AGENTS.md` 仍包�
 
 #### 已完成
 
-- 建立 `docs/research/README.md` 与 `upstreams.md`，让外部比较、脑暴、架构审查和 Agent-Native
-  知识体系研究从全仓文档图可达。
-- 将 Claude Code tools/kernel 比较与 change review 脑暴迁入 research；Markdown 记录日期、nano
-  baseline、未知 upstream baseline 和 current owner 状态，HTML 增加可见 snapshot banner。
+- 建立 `docs/research/README.md` 与 `upstreams.md`，让外部比较、脑暴、架构审查和 Agent-Native 知识体系研究从全仓文档图可达。
+- 将 Claude Code tools/kernel 比较与 change review 脑暴迁入 research；Markdown 记录日期、nano baseline、未知 upstream baseline 和 current owner 状态，HTML 增加可见 snapshot banner。
 - 原研究正文保持记录时语境；“旧缺口是否仍应实现”进入 drift queue，没有按当前代码反向改写历史。
-- 将 `improve-codebase-architecture` 的未来输出改到 `docs/research/architecture-reviews/`；本地主工作树
-  已有 dirty snapshots 未被复制，选择方案进入 `D-010`。
-- 将 archive 根部独立 SPEC、蓝图、实现叙事和迁移建议分入 `retired-specs/`、
-  `implementation-narratives/` 与 `migration-plans/`，并在页首提供 current 替代入口。
-- 将本次外部研究记录和通用方法草案从主工作树复制到隔离分支；源文件未被修改，方法草案等待阶段 7/8
-  的仓库验证后再定稿。
+- 将 `improve-codebase-architecture` 的未来输出改到 `docs/research/architecture-reviews/`；本地主工作树已有 dirty snapshots 未被复制，选择方案进入 `D-010`。
+- 将 archive 根部独立 SPEC、蓝图、实现叙事和迁移建议分入 `retired-specs/`、`implementation-narratives/` 与 `migration-plans/`，并在页首提供 current 替代入口。
+- 将本次外部研究记录和通用方法草案从主工作树复制到隔离分支；源文件未被修改，方法草案等待阶段 7/8 的仓库验证后再定稿。
 
 #### 已提交
 
@@ -441,8 +424,7 @@ external comparisons、brainstorms、迁移计划和退役设计目前靠文件�
 #### 退出条件
 
 - [x] research/history 从路径和页面头部即可识别为非 current。
-- [x] 每份重要研究都能追溯已记录的代码与外部基线；历史未记录的 upstream 版本明确标为
-  `not-recorded`，没有反向伪造。
+- [x] 每份重要研究都能追溯已记录的代码与外部基线；历史未记录的 upstream 版本明确标为 `not-recorded`，没有反向伪造。
 - [x] 已验证结论已经进入 Truth/Control，而不只留在研究报告里。
 - [x] completed change 与 retired independent docs 有不同入口和语义。
 
@@ -452,17 +434,11 @@ external comparisons、brainstorms、迁移计划和退役设计目前靠文件�
 
 #### 已完成
 
-- 固化 `AGENTS.md → docs/README.md → 领域 README → 具体文档` 的显式入口链；具体文档继续链接相邻
-  current、work、evidence 或 memory，而不是依赖 Agent 偶然搜索到文件。
-- 补齐 product、development、operations、specs、changes、research 和 archive 的领域入口；索引同时说明
-  文档内容、适用任务、状态与 current owner。
-- 将原 comparisons、brainstorms、architecture reviews、退役 subsystem 文档和 Agent-Native 研究记录
-  分流到 research/archive，并在索引和页首标明非 current 状态。
-- 保持 `docs/changes/archive/` 原样冻结；completed unit 通过 change index、unit id 和搜索按需发现，没有把
-  1124 份历史材料逐篇拉入 live 阅读链。
-- 使用 Markdown AST 从 `AGENTS.md` 遍历仓库链接：84 个要求可达的根入口、live 长期文档、research
-  快照和 archive README 全部可达，`missing=0`。活动 unit 通过 `docs/changes/` 目录和统一产物结构发现，不逐项维护手工索引。阶段 7 将把这次一次性检查
-  固化为仓库脚本和 CI。
+- 固化 `AGENTS.md → docs/README.md → 领域 README → 具体文档` 的显式入口链；具体文档继续链接相邻 current、work、evidence 或 memory，而不是依赖 Agent 偶然搜索到文件。
+- 补齐 product、development、operations、specs、changes、research 和 archive 的领域入口；索引同时说明文档内容、适用任务、状态与 current owner。
+- 将原 comparisons、brainstorms、architecture reviews、退役 subsystem 文档和 Agent-Native 研究记录分流到 research/archive，并在索引和页首标明非 current 状态。
+- 保持 `docs/changes/archive/` 原样冻结；completed unit 通过 change index、unit id 和搜索按需发现，没有把 1124 份历史材料逐篇拉入 live 阅读链。
+- 使用 Markdown AST 从 `AGENTS.md` 遍历仓库链接：84 个要求可达的根入口、live 长期文档、research 快照和 archive README 全部可达，`missing=0`。活动 unit 通过 `docs/changes/` 目录和统一产物结构发现，不逐项维护手工索引。阶段 7 将把这次一次性检查固化为仓库脚本和 CI。
 
 #### 已提交
 
@@ -513,16 +489,11 @@ Agent 能搜索文件，但没有显式入口的正确文档仍可能在任务�
 
 #### 已完成
 
-- 新增 `scripts/docs-check`，通过 Markdown AST 检查 192 份受维护 Markdown 的本地链接与图片，不把代码块
-  示例误判为 live 引用。
-- 将根入口、current docs、research snapshots 和 archive README 定义为必须可达集合；
-  当前 80 个入口从 `AGENTS.md` 全部可达。
-- 拒绝 live 文档重新链接兼容入口和已退役目录；检查 research metadata、逻辑 unit id 唯一性、
-  `AGENTS.md` 120 行 / 12 KiB 预算和 `CLAUDE.md` 适配器。
-- 新增 change workflow 契约测试，锁定 spec review 可选、Gate 2 复用同一 reviewer 并达到
-  `Approved + 0 CRITICAL / 0 WARNING`、普通 Full / 零用户面 Full / Bugfix lite 的 selected gates。
-- 将新信息归位、索引接入、active work 留证、完成时 promotion、独立文档退役和机械保护写入
-  `docs/development/documentation-system.md`。
+- 新增 `scripts/docs-check`，通过 Markdown AST 检查 192 份受维护 Markdown 的本地链接与图片，不把代码块示例误判为 live 引用。
+- 将根入口、current docs、research snapshots 和 archive README 定义为必须可达集合；当前 80 个入口从 `AGENTS.md` 全部可达。
+- 拒绝 live 文档重新链接兼容入口和已退役目录；检查 research metadata、逻辑 unit id 唯一性、`AGENTS.md` 120 行 / 12 KiB 预算和 `CLAUDE.md` 适配器。
+- 新增 change workflow 契约测试，锁定 spec review 可选、Gate 2 复用同一 reviewer 并达到 `Approved + 0 CRITICAL / 0 WARNING`、普通 Full / 零用户面 Full / Bugfix lite 的 selected gates。
+- 将新信息归位、索引接入、active work 留证、完成时 promotion、独立文档退役和机械保护写入 `docs/development/documentation-system.md`。
 - 在 Python CI 安装依赖后、Ruff 和 pytest 前执行 `./scripts/docs-check`。
 - D-001 的 E2E catalog 计数和门禁承诺仍在 `drift-review.md` 等待用户裁决，没有借治理阶段改变既有约束。
 
@@ -579,27 +550,19 @@ Agent 能搜索文件，但没有显式入口的正确文档仍可能在任务�
 
 #### 已完成
 
-- 新增 [`validation.md`](validation.md)，逐项记录架构边界、IM 行为修改、worktree runtime、LLM 日志、
-  active unit 恢复、历史架构理由和 change 收尾七类任务的入口链与结果。
-- 七类任务分别使用不继承本次聊天历史的独立 Agent。为避免仓库中的 `validation.md` 变成参考答案，
-  后四项和 IM 重跑使用阶段 7 完成、但尚未写入验收结果的 detached snapshot `4e95552a4`。
-- 冷启动 Agent 均能从根入口定位 current owner；查询历史架构决定时先找 completed change 的原始理由，
-  再回 `SPEC.md`、current kernel spec、代码和 contract tests 核实，没有让 history 覆盖 current。
-- 使用临时目录真实启动 IM + Gateway：随机端口 ready、Gateway auto-bind、两进程存活；执行
-  `e2e-down.sh` 后两 PID 消失，敏感临时文件清理完成。
-- 独立 runtime Agent 再次从文档入口完成真实启停，并验证 HTTP、node online、bind、heartbeat、主配置
-  不变及无孤儿进程；两次自加错误假设均能通过源码和更强 evidence 纠正。
-- 验证 LLM session 目录可按 `AGENTS.md` 和 LLM integration 文档定位，并能区分 request、downstream
-  response 和 non-stream response；冷启动 Agent 在缺少真实 session ID 时没有猜测，并只做脱敏结构检查。
+- 新增 [`validation.md`](validation.md)，逐项记录架构边界、IM 行为修改、worktree runtime、LLM 日志、active unit 恢复、历史架构理由和 change 收尾七类任务的入口链与结果。
+- 七类任务分别使用不继承本次聊天历史的独立 Agent。为避免仓库中的 `validation.md` 变成参考答案，后四项和 IM 重跑使用阶段 7 完成、但尚未写入验收结果的 detached snapshot `4e95552a4`。
+- 冷启动 Agent 均能从根入口定位 current owner；查询历史架构决定时先找 completed change 的原始理由，再回 `SPEC.md`、current kernel spec、代码和 contract tests 核实，没有让 history 覆盖 current。
+- 使用临时目录真实启动 IM + Gateway：随机端口 ready、Gateway auto-bind、两进程存活；执行 `e2e-down.sh` 后两 PID 消失，敏感临时文件清理完成。
+- 独立 runtime Agent 再次从文档入口完成真实启停，并验证 HTTP、node online、bind、heartbeat、主配置不变及无孤儿进程；两次自加错误假设均能通过源码和更强 evidence 纠正。
+- 验证 LLM session 目录可按 `AGENTS.md` 和 LLM integration 文档定位，并能区分 request、downstream response 和 non-stream response；冷启动 Agent 在缺少真实 session ID 时没有猜测，并只做脱敏结构检查。
 - active unit Agent 在当时的快照中仍继续核对 branch、PR、worktree、进程、日志和 validated range；用户复审后删除了没有增量信息的 `status.md`，恢复路径改为直接读取阶段产物与实时状态。change 收尾 Agent 正确还原门禁与 promotion/archive/PR 链，同时发现现行 skill 的治理缺口。
 - 执行全分支门禁：docs-check、Ruff、3733 个非 E2E Python tests 和 653 个前端 tests 均通过。
-- 验收发现的原有文档、active unit、SDK、依赖、测试和 change skill 漂移只进入
-  `drift-review.md`，没有借本次迁移修改产品代码、依赖、测试策略或既有流程。
+- 验收发现的原有文档、active unit、SDK、依赖、测试和 change skill 漂移只进入 `drift-review.md`，没有借本次迁移修改产品代码、依赖、测试策略或既有流程。
 
 #### 验收后待裁决
 
-- `drift-review.md` 中 D-001–D-026 等待用户裁决；在裁决前不自动创建 issues，也不把本 unit 归档为
-  completed history。
+- `drift-review.md` 中 D-001–D-026 等待用户裁决；在裁决前不自动创建 issues，也不把本 unit 归档为 completed history。
 
 #### 要解决的问题
 

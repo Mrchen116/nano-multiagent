@@ -48,8 +48,7 @@
 
 ### Insight 3: "渐进式品味内化"——从human-on-the-loop到human-out-of-the-loop的路径
 
-**Insight**: 存在一个可行的渐进路径，让agent team逐步内化用户品味：
-阶段1（现在）: Constitution + Critic + Few-shot案例 → 阶段2（短期）: Core Memory + 在线偏好收集 → 阶段3（长期）: 个性化模型。但关键是human-on-the-loop在阶段3也不应完全退出。
+**Insight**: 存在一个可行的渐进路径，让agent team逐步内化用户品味：阶段1（现在）: Constitution + Critic + Few-shot案例 → 阶段2（短期）: Core Memory + 在线偏好收集 → 阶段3（长期）: 个性化模型。但关键是human-on-the-loop在阶段3也不应完全退出。
 
 **Derived From**:
 - Dim01: 混合方案（Letta Code: core memory + skill learning）最接近完整方案

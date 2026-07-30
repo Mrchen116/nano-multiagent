@@ -84,10 +84,7 @@ IM fork 复制源消息历史时，同时复制锚点在 fork 范围内的配置
 
 ### Requirement: 外部 channel 影子会话按外部身份幂等创建
 
-IM 支持为 Gateway 创建带 `external_source` 和 `external_chat_id` 标记的影子会话,用于镜像外部
-channel 中的聊天。1:1 私聊映射为 `direct` 类型,群聊映射为 `group` 类型。会话按
-`(external_source, external_chat_id, agent_id, owner_id)` 幂等创建或查找;`agent_id` 使用 IM 现有
-conversation agent 配置维度,不引入第二套 agent 身份来源。
+IM 支持为 Gateway 创建带 `external_source` 和 `external_chat_id` 标记的影子会话,用于镜像外部 channel 中的聊天。1:1 私聊映射为 `direct` 类型,群聊映射为 `group` 类型。会话按 `(external_source, external_chat_id, agent_id, owner_id)` 幂等创建或查找;`agent_id` 使用 IM 现有 conversation agent 配置维度,不引入第二套 agent 身份来源。
 
 #### Scenario: 外部 1:1 会话在内部 IM 有独立会话
 - **GIVEN** Gateway 请求为 plato 的飞书 1:1 聊天创建影子会话
@@ -108,9 +105,7 @@ conversation agent 配置维度,不引入第二套 agent 身份来源。
 
 ### Requirement: 外部 channel 用户消息可写入影子会话
 
-IM 支持 Gateway 将来自外部 channel 的用户消息写入影子会话。消息持久化发送者显示名
-`sender_display_name`;外部群成员显示原名字,IM owner 自己从外部 channel 发送的消息显示为「你」。
-外部消息与普通 IM 消息共享读取、分页、权限和投递状态语义。
+IM 支持 Gateway 将来自外部 channel 的用户消息写入影子会话。消息持久化发送者显示名 `sender_display_name`;外部群成员显示原名字,IM owner 自己从外部 channel 发送的消息显示为「你」。外部消息与普通 IM 消息共享读取、分页、权限和投递状态语义。
 
 #### Scenario: 外部 1:1 用户消息显示为「你」
 - **GIVEN** Gateway 写入一条 IM owner 从飞书 1:1 发来的消息
@@ -124,9 +119,7 @@ IM 支持 Gateway 将来自外部 channel 的用户消息写入影子会话。�
 
 ### Requirement: 外部 channel 用户消息实时出现
 
-IM 将外部 channel 用户消息写入影子会话后,必须通过浏览器 user-stream 发出足以直接插入当前会话
-消息列表的 live 事件。打开中的影子会话不得依赖刷新历史才能看到飞书/Lark 用户刚发来的消息。
-该 live 事件必须携带消息正文、附件、发送者类型、发送者显示名、delivery status 和创建时间。
+IM 将外部 channel 用户消息写入影子会话后,必须通过浏览器 user-stream 发出足以直接插入当前会话消息列表的 live 事件。打开中的影子会话不得依赖刷新历史才能看到飞书/Lark 用户刚发来的消息。该 live 事件必须携带消息正文、附件、发送者类型、发送者显示名、delivery status 和创建时间。
 
 #### Scenario: 打开的影子会话不刷新即可看到飞书用户消息
 - **GIVEN** 用户已经在浏览器打开 `plato · feishu` 影子会话
@@ -143,9 +136,7 @@ IM 将外部 channel 用户消息写入影子会话后,必须通过浏览器 use
 
 ### Requirement: 外部 channel mention-only 消息可见
 
-外部群聊中的 @Bot 是用户可见消息内容。IM 必须能持久化并实时显示 mention-only 和 mention+正文消息,
-不得因为 Gateway 做 mention gate 而只保留去掉 @ 后的正文,也不得因为正文去除 mention 后为空而拒绝写入。
-Gateway 写入时应提供规范化非空内容(例如 IM mention wire 或 `@nano`)或等效结构化展示字段。
+外部群聊中的 @Bot 是用户可见消息内容。IM 必须能持久化并实时显示 mention-only 和 mention+正文消息, 不得因为 Gateway 做 mention gate 而只保留去掉 @ 后的正文,也不得因为正文去除 mention 后为空而拒绝写入。Gateway 写入时应提供规范化非空内容(例如 IM mention wire 或 `@nano`)或等效结构化展示字段。
 
 #### Scenario: 纯 @Bot 消息写入 shadow group
 - **GIVEN** 用户在飞书群里只发送 `@nano`
@@ -161,10 +152,7 @@ Gateway 写入时应提供规范化非空内容(例如 IM mention wire 或 `@nan
 
 ### Requirement: 外部 channel 会话元数据回环
 
-IM 通过 WebSocket relay 把影子会话中的用户消息转发给 Gateway 时,必须携带该会话的外部 channel
-元数据(`external_source`、`external_chat_id`、`agent_id`、`conversation_type`)以及触发来源标记
-(`trigger_source`),使 Gateway 能够复用同一 agent 会话、识别影子 group,并按触发源决定回复去向。
-`external_chat_id` 指外部 channel 的 chat id,不是 IM conversation id。
+IM 通过 WebSocket relay 把影子会话中的用户消息转发给 Gateway 时,必须携带该会话的外部 channel 元数据(`external_source`、`external_chat_id`、`agent_id`、`conversation_type`)以及触发来源标记 (`trigger_source`),使 Gateway 能够复用同一 agent 会话、识别影子 group,并按触发源决定回复去向。`external_chat_id` 指外部 channel 的 chat id,不是 IM conversation id。
 
 #### Scenario: 内部 IM 消息被 Gateway 识别为 IM 来源
 - **GIVEN** 内部 IM 中存在 `plato · feishu` 影子会话
@@ -189,26 +177,21 @@ IM 通过 WebSocket relay 把影子会话中的用户消息转发给 Gateway 时
 
 ### Requirement: 聊天流消息按时间顺序渲染，实时与刷新一致
 
-聊天流中的消息按各自创建时刻先后渲染。该顺序在实时事件流到达时即生效，无需刷新，
-且与刷新页面（走历史拉取）后的顺序一致。
+聊天流中的消息按各自创建时刻先后渲染。该顺序在实时事件流到达时即生效，无需刷新，且与刷新页面（走历史拉取）后的顺序一致。
 
 #### Scenario: 实时到达的 agent 回复按时间排在用户消息之后
 - **GIVEN** 用户在会话里发了一条消息，其后 agent 产生一条更晚的回复
 - **WHEN** agent 回复经实时事件流到达前端（无需刷新）
-- **THEN** 用户消息在上、agent 回复在下，与刷新页面后的顺序一致；
-  不会出现「回复气泡短暂排在用户消息之前」的错位
+- **THEN** 用户消息在上、agent 回复在下，与刷新页面后的顺序一致；不会出现「回复气泡短暂排在用户消息之前」的错位
 
 #### Scenario: 实时事件到达顺序与时间顺序不一致时仍按时间渲染
 - **GIVEN** 两条消息的时间先后已定（由各自创建时刻决定）
 - **WHEN** 它们的实时事件以与时间相反的顺序先后到达前端
-- **THEN** 聊天流仍按创建时刻先后渲染，到达先后不影响最终顺序；
-  时刻相同的消息有稳定确定的相对次序，不抖动
+- **THEN** 聊天流仍按创建时刻先后渲染，到达先后不影响最终顺序；时刻相同的消息有稳定确定的相对次序，不抖动
 
 ### Requirement: 群会话支持成员增减、改名与解散（owner 隔离、解散限创建者）
 
-前端经 `/im/v1/conversations/{id}*` 对一个已存在的群会话管理其成员与元数据：向群添加参与者（Actor）、
-移除某个参与者、修改群名、解散整个群。所有操作按 owner 租户隔离（跨租户 404）；解散仅会话创建者可执行，
-非创建者被拒。这些能力让用户在内置 Web IM 里完成基本群治理，无需重建群。
+前端经 `/im/v1/conversations/{id}*` 对一个已存在的群会话管理其成员与元数据：向群添加参与者（Actor）、移除某个参与者、修改群名、解散整个群。所有操作按 owner 租户隔离（跨租户 404）；解散仅会话创建者可执行，非创建者被拒。这些能力让用户在内置 Web IM 里完成基本群治理，无需重建群。
 
 #### Scenario: 向已存在的群会话添加参与者
 - **GIVEN** 终端用户在自己租户下有一个群会话，且账号下存在尚未加入该群的 agent

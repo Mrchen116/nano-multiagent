@@ -1,21 +1,13 @@
 # SPEC.md — nano-multiagent 架构规约
 
-> **版本** v1.5 | **日期** 2026-07-30 | **对齐** `docs/README.md`
-> 本文档是 nano-multiagent 的**跨包顶点**架构权威文件（包 / 依赖方向 / 部署拓扑）。
-> 单包"现在怎么表现"看长青行为契约层 `docs/specs/<包>/`；全仓文档地图和冲突处理见
-> `docs/README.md`，长青 spec 写法见 `docs/specs/CONTRIBUTING.md`。在跨包架构范围内与其他设计文档冲突时，
-> 以本文档为准。
+> **版本** v1.5 | **日期** 2026-07-30 | **对齐** `docs/README.md`本文档是 nano-multiagent 的**跨包顶点**架构权威文件（包 / 依赖方向 / 部署拓扑）。单包"现在怎么表现"看长青行为契约层 `docs/specs/<包>/`；全仓文档地图和冲突处理见 `docs/README.md`，长青 spec 写法见 `docs/specs/CONTRIBUTING.md`。在跨包架构范围内与其他设计文档冲突时，以本文档为准。
 >
 > **v1.5 变更**：全仓文档索引、权威分工与生命周期移至 `docs/README.md`；本文 §6 只保留架构相关入口。
 >
-> **v1.4 变更（feat-392）**：§6 文档索引重定位到长青行为契约层 `docs/specs/`；四份混合高度子系统
-> 设计 SPEC（内核设计 / IM / NodeGateway / CodingCLI）蒸馏进契约层后**全部退役**移入 `docs/archive/`，
-> 对应契约改看 `docs/specs/<包>/`。
+> **v1.4 变更（feat-392）**：§6 文档索引重定位到长青行为契约层 `docs/specs/`；四份混合高度子系统设计 SPEC（内核设计 / IM / NodeGateway / CodingCLI）蒸馏进契约层后**全部退役**移入 `docs/archive/`，对应契约改看 `docs/specs/<包>/`。
 >
-> **v1.3 变更（refactor-387）**：内核移除内置 HTTP API，改为纯库形态——对外只暴露
-> `agent.sdk`（进程内 `build_kernel()` → `Kernel`）。两个产品由「spawn 内核 uvicorn 子进程
-> + loopback HTTP」改为「import `agent.sdk` 进程内直调」。**内核与产品形态正交**：产品呈现为
-> 终端软件、常驻 gateway 还是（未来的）云 API，是产品层决策，内核不内置任何形态偏好。
+> **v1.3 变更（refactor-387）**：内核移除内置 HTTP API，改为纯库形态——对外只暴露 `agent.sdk`（进程内 `build_kernel()` → `Kernel`）。两个产品由「spawn 内核 uvicorn 子进程
+> + loopback HTTP」改为「import `agent.sdk` 进程内直调」。**内核与产品形态正交**：产品呈现为终端软件、常驻 gateway 还是（未来的）云 API，是产品层决策，内核不内置任何形态偏好。
 
 ---
 
@@ -90,9 +82,7 @@ nano-multiagent 是一个 Python 多模型 Agent 框架，由四个独立可部�
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-内核是**库**，不是服务：`agent.sdk.build_kernel()` 返回进程内的 `Kernel`，产品 import 后直调（async）。
-内核不内置 HTTP API；未来若要云化，由独立产品包 import `agent.sdk` 按需包一层 API，而非内核内置。
-IM Service 是唯一对外网络服务（多用户 / Web 前端 / 消息中继，HTTP+WS 名正言顺），不直接调内核。
+内核是**库**，不是服务：`agent.sdk.build_kernel()` 返回进程内的 `Kernel`，产品 import 后直调（async）。内核不内置 HTTP API；未来若要云化，由独立产品包 import `agent.sdk` 按需包一层 API，而非内核内置。IM Service 是唯一对外网络服务（多用户 / Web 前端 / 消息中继，HTTP+WS 名正言顺），不直接调内核。
 
 ---
 
@@ -174,8 +164,7 @@ IM 无关、产品无关的 Agent 运行时。只负责"单 Agent 可运行 + �
 
 ## 6. 相关文档
 
-本文只负责跨包架构。全仓文档地图、权威分工、生命周期和历史/研究材料入口见
-[`docs/README.md`](docs/README.md)。
+本文只负责跨包架构。全仓文档地图、权威分工、生命周期和历史/研究材料入口见 [`docs/README.md`](docs/README.md)。
 
 - 单包 current 行为：[`docs/specs/README.md`](docs/specs/README.md)
 - 长青 spec 与 delta-spec 写法：[`docs/specs/CONTRIBUTING.md`](docs/specs/CONTRIBUTING.md)

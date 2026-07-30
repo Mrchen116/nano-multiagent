@@ -271,10 +271,7 @@ gsd-core 的 `must_haves.truths` 格式可直接参考。
 3. **spec-handoff.md（brief 锚点 + author 假设声明）** — 新增一个 artifact，解决 F4/F5 可见性
 4. **Pre-Gate Artifact 完整性检查（bytes + headers）** — 10 行 Python，防止静默降质
 
-**次优先（依赖前者完成）**：
-5. **Elicitation 两轮 persona（user-context.md + deploy-context.md）** — spec-author system prompt 改写
-6. **must_haves.truths 必填段落** — spec 模板改写 + 门禁 1 确定性检查扩展
-7. **冲突三分类路由（QUARE schema）** — spec-verdict.md schema 扩展
+**次优先（依赖前者完成）**：5. **Elicitation 两轮 persona（user-context.md + deploy-context.md）** — spec-author system prompt 改写 6. **must_haves.truths 必填段落** — spec 模板改写 + 门禁 1 确定性检查扩展 7. **冲突三分类路由（QUARE schema）** — spec-verdict.md schema 扩展
 
 **先别做（等 ROI 更高的先稳定）**：
 - 强制对立 Debater 对（MAD 三角结构）— 成本 3×，在简单 brief 上收益有限；等 Cascade 机制确立后再加

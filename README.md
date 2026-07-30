@@ -82,8 +82,7 @@ IM service:      http://<im-host>:8011  [connected|unavailable (running offline,
 Log:             <config目录>/gateway.log
 ```
 
-这只确认后台子进程已写出带进程出生标识的运行态并仍存活，不代表运行时或渠道已经就绪。
-IM 连接、节点绑定和渠道启动结果仍需查看 `gateway.log` 或 Web IM 节点状态。
+这只确认后台子进程已写出带进程出生标识的运行态并仍存活，不代表运行时或渠道已经就绪。IM 连接、节点绑定和渠道启动结果仍需查看 `gateway.log` 或 Web IM 节点状态。
 
 启动后的预期行为：
 - 未绑定节点：Gateway 会把 `ACTION ...` / `NEXT ...` 写入 `gateway.log`，并尝试打开绑定页；默认绑定页位于 `http://127.0.0.1:8011/bind/confirm?token=...`。
@@ -104,9 +103,7 @@ PYTHONPATH=src python -m personal_assistant.main restart
 PYTHONPATH=src python -m personal_assistant.main restart --im-service-url http://<im-host>:8011
 ```
 
-**单实例保护**：同一份配置同一时刻只允许运行一个 Gateway 实例。`start` / `stop` / `restart`
-由配置同目录的一把生命周期锁串行化；PID 和进程出生标识原子记录在唯一的
-`.gateway-state.json` 中。若已有实例在运行，`start` 会拒绝启动并提示当前 PID：
+**单实例保护**：同一份配置同一时刻只允许运行一个 Gateway 实例。`start` / `stop` / `restart`由配置同目录的一把生命周期锁串行化；PID 和进程出生标识原子记录在唯一的 `.gateway-state.json` 中。若已有实例在运行，`start` 会拒绝启动并提示当前 PID：
 
 ```text
 ERROR gateway already running (pid=<pid>). Run `stop` first or `restart` to replace it.
@@ -127,8 +124,7 @@ ERROR gateway already running (pid=<pid>). Run `stop` first or `restart` to repl
 - 打开 `http://127.0.0.1:8011/`。IM 服务会提供 Web IM 页面，并在浏览器里进入 `/chat`。
 - Web IM 会自动准备本地 `You` 用户和默认初始会话；正常用户不需要手工创建用户、会话或拼装 `message` API。
 - 如果未绑定，消息输入区会直接禁用，并显示统一的 `Chat unavailable` 卡片，提示先完成 Gateway 绑定。
-- 如果已绑定但 Gateway 离线，消息输入区仍会保持禁用，并显示同一套 `Chat unavailable` 卡片，明确提示
-  `Bring the node online or bind another online node`。
+- 如果已绑定但 Gateway 离线，消息输入区仍会保持禁用，并显示同一套 `Chat unavailable` 卡片，明确提示 `Bring the node online or bind another online node`。
 - 如果页面已可发送但目标节点在提交瞬间不可用，发送区会保留草稿，并显示同样的 `Chat unavailable` 失败提示；用户无需查看终端日志即可理解问题。
 - 如果刚完成绑定，刷新 `/` 或重新打开 `/chat` 即可开始聊天。
 
@@ -184,8 +180,7 @@ PYTHONPATH=src python3 -m coding_cli.main
 
 - CLI 进程内通过 `agent.sdk` 构建 Kernel；不要恢复 `--mode` / `--base-url` / HTTP API 子命令。
 - 避免空转发层：不要在 `commands.py` 里重新导出输入、渲染或 REPL 命令模块的内部实现。
-- 保持脚本机读稳定：`--text` 的 stdout 保持 NDJSON 事件流；不要再把它描述为 stdout 上的单个最终
-  JSON 对象。
+- 保持脚本机读稳定：`--text` 的 stdout 保持 NDJSON 事件流；不要再把它描述为 stdout 上的单个最终 JSON 对象。
 
 交互输入体验：
 
@@ -203,8 +198,7 @@ REPL 会在每轮消息以及执行 `/compact` 后打印会话上下文预算：
 错误输出会标明层级并给出可执行建议：
 
 - REPL 错误包含 `Layer: input|network|runtime` 和 `Suggestion`。
-- 非交互命令失败时保持 JSON 结构并包含 `layer`，例如
-  `{"error":"...","layer":"network","suggestion":"..."}`。
+- 非交互命令失败时保持 JSON 结构并包含 `layer`，例如 `{"error":"...","layer":"network","suggestion":"..."}`。
 
 ### 发布可观测性辅助工具
 
@@ -247,12 +241,10 @@ PYTHONPATH=src python3 -m coding_cli.main llm-config get
 
 - `NANO_MULTIAGENT_REQUEST_ID`（可选）
 - `NANO_MULTIAGENT_SESSION_ID`（可选，作为 REPL 或 `--text` 启动时的默认会话）
-- LLM 覆盖参数只对当前进程生效：`--provider`、`--model`、`--llm-base-url`、`--api-key`、
-  `--timeout-seconds`
+- LLM 覆盖参数只对当前进程生效：`--provider`、`--model`、`--llm-base-url`、`--api-key`、`--timeout-seconds`
 
 ### 故障排查
 
-- `unknown argument: --mode` / `--base-url`：这些参数属于已经移除的 HTTP API 架构；请使用进程内
-  REPL 或 `--text`。
+- `unknown argument: --mode` / `--base-url`：这些参数属于已经移除的 HTTP API 架构；请使用进程内 REPL 或 `--text`。
 - LLM 连接失败：检查当前进程配置的服务商、模型、基础 URL 和 API 密钥。
 - `--text` 以非零状态退出：检查输出的 NDJSON `run_status` 事件，确认最终状态和原因。

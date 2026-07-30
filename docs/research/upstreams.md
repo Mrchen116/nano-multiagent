@@ -1,7 +1,6 @@
 # Upstream Reference Repositories
 
-这些仓库用于比较实现、验证设计假设和诊断行为。它们是研究输入；引用结论时仍需记录实际查看的 upstream
-commit，并回到 nano 当前代码和规范核实。
+这些仓库用于比较实现、验证设计假设和诊断行为。它们是研究输入；引用结论时仍需记录实际查看的 upstream commit，并回到 nano 当前代码和规范核实。
 
 | 参考项目 | 本地路径 | 主要参考面 |
 |---|---|---|
@@ -25,5 +24,4 @@ scope: <files / subsystem / question>
 current_landing: <nano code/spec/workflow | pending review>
 ```
 
-本地路径只负责可发现性，不代表当前 checkout 就是历史研究使用的版本。缺少历史 upstream commit 时保留
-`not recorded`，并限制结论的可复现性。
+本地路径只负责可发现性，不代表当前 checkout 就是历史研究使用的版本。缺少历史 upstream commit 时保留 `not recorded`，并限制结论的可复现性。

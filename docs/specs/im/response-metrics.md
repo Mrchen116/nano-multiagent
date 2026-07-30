@@ -13,10 +13,7 @@ agent 回复墙钟耗时、工具聚合展示和缓存命中率 token 气泡的�
 
 ### Requirement: agent 回复轮次的本轮墙钟耗时随终态对外可见
 
-一轮 agent 回复从占位消息创建(`message.created`,`delivery_status=running`)到收尾(`message.completed`)
-之间的本轮处理墙钟,在收尾时作为该消息的 `elapsed_ms`(整数毫秒)对消费者可见——既随
-`message.completed` 事件帧下发,也在历史消息读取的响应里回填。起点为占位消息的 `created_at`
-(agent 开始处理这一轮),终点为收尾时刻;仅 agent 消息有该值,进行中(未收尾)的消息无 `elapsed_ms`。
+一轮 agent 回复从占位消息创建(`message.created`,`delivery_status=running`)到收尾(`message.completed`)之间的本轮处理墙钟,在收尾时作为该消息的 `elapsed_ms`(整数毫秒)对消费者可见——既随 `message.completed` 事件帧下发,也在历史消息读取的响应里回填。起点为占位消息的 `created_at` (agent 开始处理这一轮),终点为收尾时刻;仅 agent 消息有该值,进行中(未收尾)的消息无 `elapsed_ms`。
 
 #### Scenario: message.completed 携带本轮墙钟
 - **GIVEN** 一条 agent 占位消息已于 `created_at` 创建、处于 `running`
@@ -34,9 +31,7 @@ agent 回复墙钟耗时、工具聚合展示和缓存命中率 token 气泡的�
 
 ### Requirement: agent 气泡呈现本轮墙钟,工具聚合徽标不再呈现累加耗时
 
-agent 回复气泡显示本轮墙钟:进行中实时增长,收尾后定格为最终值;零工具的纯文本回复同样显示;
-用户自己的消息气泡不显示耗时。工具调用聚合徽标折叠态只呈现调用次数,不再呈现各工具执行耗时的累加;
-展开后每个工具仍各自显示其执行耗时。
+agent 回复气泡显示本轮墙钟:进行中实时增长,收尾后定格为最终值;零工具的纯文本回复同样显示; 用户自己的消息气泡不显示耗时。工具调用聚合徽标折叠态只呈现调用次数,不再呈现各工具执行耗时的累加; 展开后每个工具仍各自显示其执行耗时。
 
 #### Scenario: agent 气泡显示本轮墙钟(进行中与定格)
 - **WHEN** 一轮 agent 回复正在进行

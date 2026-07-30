@@ -1,8 +1,6 @@
 # R2D5 — Escalation 的工程做法（黑盒）
 
-> **研究维度**：只靠"多次采样比一致性 + prompted 置信 + 确定性 gate + human-approval 节点"
-> 能把"何时该问人"做到什么程度？value-fork（价值判断 vs 事实判断）能否纯靠 prompting 检测？
-> 对开放式生成任务有没有 SHIPPED 的置信/escalation 证据？conformal 只保留黑盒可落地的部分。
+> **研究维度**：只靠"多次采样比一致性 + prompted 置信 + 确定性 gate + human-approval 节点" 能把"何时该问人"做到什么程度？value-fork（价值判断 vs 事实判断）能否纯靠 prompting 检测？对开放式生成任务有没有 SHIPPED 的置信/escalation 证据？conformal 只保留黑盒可落地的部分。
 >
 > **方法**：直接翻本地参考项目源码 + 第一轮报告的 escalation 章节取证，重新整合，给出工程结论。
 
@@ -12,8 +10,7 @@
 
 ### 1.1 SHIPPED：Deny-by-default 权限门控是最广泛落地的 escalation 工程模式
 
-🟢 **SHIPPED** — **Claude Code** (`src/utils/permissions/permissions.ts`) 实现了一套完整的多层
-permission pipeline，是目前可读到的最完整的生产级 escalation 机制。核心结构：
+🟢 **SHIPPED** — **Claude Code** (`src/utils/permissions/permissions.ts`) 实现了一套完整的多层 permission pipeline，是目前可读到的最完整的生产级 escalation 机制。核心结构：
 
 ```
 1. deny rules（最高优先） → 直接 block
@@ -28,19 +25,11 @@ permission pipeline，是目前可读到的最完整的生产级 escalation 机�
 
 关键设计决策（源码可直接证实）：
 
-- **deny-by-default for headless agent**：当 `shouldAvoidPermissionPrompts=true`（背景/异步 agent），
-  无法弹出对话框时，走 PermissionRequest hook 链，如 hook 未决策则**自动 deny**，而不是自动 allow。
-  这是"宁可少做错事"的安全偏好。
-  — `permissions.ts:953–973`
+- **deny-by-default for headless agent**：当 `shouldAvoidPermissionPrompts=true`（背景/异步 agent），无法弹出对话框时，走 PermissionRequest hook 链，如 hook 未决策则**自动 deny**，而不是自动 allow。这是"宁可少做错事"的安全偏好。— `permissions.ts:953–973`
 
-- **连续 deny 计数触发人工复查（denial tracking）**：
-  `DENIAL_LIMITS.maxTotal` 或 `consecutiveDenials` 超限后，即使在 auto 模式下也 fall back to
-  prompting（CLI）或直接 abort（headless），避免 agent 在 classifier 持续拒绝时无限卡循环。
-  — `permissions.ts:900–948`（`handleDenialLimitExceeded`）
+- **连续 deny 计数触发人工复查（denial tracking）**：`DENIAL_LIMITS.maxTotal` 或 `consecutiveDenials` 超限后，即使在 auto 模式下也 fall back to prompting（CLI）或直接 abort（headless），避免 agent 在 classifier 持续拒绝时无限卡循环。— `permissions.ts:900–948`（`handleDenialLimitExceeded`）
 
-- **safetyCheck bypass-immune**：`.git/`、`.claude/`、shell 配置等路径的 safety check
-  在 bypassPermissions 模式下也**不能被绕过**，classifier 可审查但 human approval 不能被取消。
-  — `permissions.ts:1167–1173`（step 1g）
+- **safetyCheck bypass-immune**：`.git/`、`.claude/`、shell 配置等路径的 safety check 在 bypassPermissions 模式下也**不能被绕过**，classifier 可审查但 human approval 不能被取消。— `permissions.ts:1167–1173`（step 1g）
 
 **源码路径**：`~/Repos/opensource-hub/claude-code/src/utils/permissions/permissions.ts`
 
@@ -48,8 +37,7 @@ permission pipeline，是目前可读到的最完整的生产级 escalation 机�
 
 ### 1.2 SHIPPED：LLM-as-classifier（transcript-based）用于替代逐次 human prompt
 
-🟢 **SHIPPED** — Claude Code "auto mode" 用**一个独立的 LLM 调用**（`classifyYoloAction`）作为
-permission classifier，读取完整会话 transcript 决定是否 block 某个 tool use，取代逐次弹窗。
+🟢 **SHIPPED** — Claude Code "auto mode" 用**一个独立的 LLM 调用**（`classifyYoloAction`）作为 permission classifier，读取完整会话 transcript 决定是否 block 某个 tool use，取代逐次弹窗。
 
 工程关键点（源码 `yoloClassifier.ts`）：
 
@@ -73,15 +61,12 @@ permission classifier，读取完整会话 transcript 决定是否 block 某个 
 🟢 **SHIPPED** — **opencode** 实现了两个独立的异步 interrupt 机制：
 
 **Permission.ask（tool-level）**：
-- `permission/index.ts` 中，`ask()` 方法在检测到需要确认时把请求注册为 pending，
-  通过 `Bus.publish(Event.Asked, info)` 发出事件，然后 `Deferred.await(deferred)` 挂起 agent 线程，
-  等待 UI/前端回调 `reply()` 解除挂起。
+- `permission/index.ts` 中，`ask()` 方法在检测到需要确认时把请求注册为 pending，通过 `Bus.publish(Event.Asked, info)` 发出事件，然后 `Deferred.await(deferred)` 挂起 agent 线程，等待 UI/前端回调 `reply()` 解除挂起。
 - Reply 有三种：`once`（本次放行）、`always`（持久化 allow rule）、`reject`（拒绝并 cascade 拒绝同 session 所有 pending）。
 - **源码**：`~/Repos/opensource-hub/opencode/packages/opencode/src/permission/index.ts:179–271`
 
 **Question.ask（agent-level 结构化问题）**：
-- `question/index.ts` 实现了多选题式的 human-in-the-loop。agent 通过 LLM tool call 触发 `question.asked`
-  事件，前端弹出选项（带 label + description），用户选择后 resolve。
+- `question/index.ts` 实现了多选题式的 human-in-the-loop。agent 通过 LLM tool call 触发 `question.asked`事件，前端弹出选项（带 label + description），用户选择后 resolve。
 - 支持 `custom=true` 允许用户输入自由文本。
 - 支持 `multiple` 多选。
 - **源码**：`~/Repos/opensource-hub/opencode/packages/opencode/src/question/index.ts:155–180`
@@ -104,8 +89,7 @@ permission classifier，读取完整会话 transcript 决定是否 block 某个 
 - `is_known_safe_command` + `command_might_be_dangerous` 作为启发式 fast path
 - `Granular` 配置下可以细分：sandbox approval 开关、rules approval 开关分别控制
 
-**模式**：deterministic rule-based fast path → heuristic "dangerous command" detection → ask
-— **无 LLM classifier**，完全确定性，速度快，可预测，但覆盖不了语义模糊的情形。
+**模式**：deterministic rule-based fast path → heuristic "dangerous command" detection → ask — **无 LLM classifier**，完全确定性，速度快，可预测，但覆盖不了语义模糊的情形。
 
 **源码**：`~/Repos/opensource-hub/codex/codex-rs/core/src/exec_policy.rs`
 
@@ -113,11 +97,9 @@ permission classifier，读取完整会话 transcript 决定是否 block 某个 
 
 ### 1.5 SHIPPED：hermes-agent skills_guard — 静态扫描触发 "ask" 升级
 
-🟢 **SHIPPED** — `skills_guard.py` 对 agent-created skills 实施 trust-level × verdict 策略矩阵，
-`"agent-created"` 来源 + `"dangerous"` verdict → 返回 `"ask"`，要求用户确认才安装。
+🟢 **SHIPPED** — `skills_guard.py` 对 agent-created skills 实施 trust-level × verdict 策略矩阵，`"agent-created"` 来源 + `"dangerous"` verdict → 返回 `"ask"`，要求用户确认才安装。
 
-这是一个**非 LLM、纯确定性的 escalation gate**：正则静态扫描 → 危险等级 → 安装策略。
-说明 escalation 不必须走 LLM confidence：确定性规则对于"这件事明显危险"类决策更可靠。
+这是一个**非 LLM、纯确定性的 escalation gate**：正则静态扫描 → 危险等级 → 安装策略。说明 escalation 不必须走 LLM confidence：确定性规则对于"这件事明显危险"类决策更可靠。
 
 **源码**：`~/Repos/opensource-hub/self-evolution/hermes-agent/tools/skills_guard.py:41–51`
 
@@ -125,20 +107,16 @@ permission classifier，读取完整会话 transcript 决定是否 block 某个 
 
 ### 1.6 RESEARCH（黑盒可落地）：Sampling-based self-consistency 作为置信代理
 
-🟡 **RESEARCH** — 多次采样对比一致性（Self-Consistency, SC）是第一轮报告中证据最强的**黑盒**不确定性信号。
-斯坦福医学信息学研究显示 SC by sentence embedding 在正确/错误回答区分上 ROC AUC 0.68–0.79，
-优于 verbalized confidence 和 token-level probability。
+🟡 **RESEARCH** — 多次采样对比一致性（Self-Consistency, SC）是第一轮报告中证据最强的**黑盒**不确定性信号。斯坦福医学信息学研究显示 SC by sentence embedding 在正确/错误回答区分上 ROC AUC 0.68–0.79，优于 verbalized confidence 和 token-level probability。
 
 **对开放式生成任务（非选择题）的适用性**：
 
 - SC 原本为选择题设计（多次采样 → majority vote）。
-- 对开放式生成（spec 段落、设计文档），SC 需要改造为
-  **embedding similarity 矩阵**：N 次采样 → 两两相似度 → 平均相似度作为置信分。
+- 对开放式生成（spec 段落、设计文档），SC 需要改造为 **embedding similarity 矩阵**：N 次采样 → 两两相似度 → 平均相似度作为置信分。
 - 若平均相似度高（>0.85），agent 的多次输出高度一致，置信高；若低（<0.6），说明有结构性不确定，触发 escalate。
 - 这是**黑盒可行的**，只需 N 次 LLM 调用 + embedding 调用，无需 logprob。
 
-**生产中是否 SHIPPED**：目前无已知开源 harness 对"spec/design 质量置信"做了 SC。
-Claude Code 的 auto-mode classifier 是 transcript-level 判断，不是 output-level SC。
+**生产中是否 SHIPPED**：目前无已知开源 harness 对"spec/design 质量置信"做了 SC。Claude Code 的 auto-mode classifier 是 transcript-level 判断，不是 output-level SC。
 
 ---
 
@@ -151,15 +129,13 @@ Claude Code 的 auto-mode classifier 是 transcript-level 判断，不是 output
 - answer generation 电路与 confidence verbalization 电路在 LLM 内部解耦，导致系统性 overconfidence
 - **对开放式生成任务更差**：没有"正确答案"作为校准锚点
 
-**黑盒替代**：SC by embedding similarity。若计算成本不可接受，verbalized confidence 仍可作为**辅助信号**，
-但不能作为 escalation 的主要依据。建议：verbalized confidence < 0.5 强制 escalate（精确率差但 recall 好）。
+**黑盒替代**：SC by embedding similarity。若计算成本不可接受，verbalized confidence 仍可作为**辅助信号**，但不能作为 escalation 的主要依据。建议：verbalized confidence < 0.5 强制 escalate（精确率差但 recall 好）。
 
 ---
 
 ### 1.8 RESEARCH（黑盒，有校准集要求）：ConU / LofreeCP
 
-🟡 **RESEARCH（黑盒可落地，有前置条件）** — ConU 和 LofreeCP 是 Conformal Prediction 的
-logit-free 扩展，不需要 logprob，纯文本输出即可。
+🟡 **RESEARCH（黑盒可落地，有前置条件）** — ConU 和 LofreeCP 是 Conformal Prediction 的 logit-free 扩展，不需要 logprob，纯文本输出即可。
 
 **落地条件**：
 1. 需要一个**校准集**（exchangeable i.i.d. 样本，历史 human-reviewed 的 spec/design 决策）
@@ -187,8 +163,7 @@ logit-free 扩展，不需要 logprob，纯文本输出即可。
 - spec/design 中的"隐性取舍"（如一个看起来是技术决策的选择，背后是架构哲学选择）
 
 **工程对策**：不要依赖 agent 自行识别 value fork，而是**预置一份 value-sensitive decision checkpoint 列表**：
-> "凡涉及以下类别的决策，无论 agent 置信度多高，一律 escalate：
-> 数据模型设计、对外 API 接口设计、存储策略、技术栈选择、删除已有功能"
+> "凡涉及以下类别的决策，无论 agent 置信度多高，一律 escalate：数据模型设计、对外 API 接口设计、存储策略、技术栈选择、删除已有功能"
 
 这是 deterministic gate，不依赖 LLM 的 value-fork 自我检测能力。
 
@@ -229,8 +204,7 @@ MANDATORY_ESCALATE_CATEGORIES:
   - security_policy       # 权限、认证、加密策略
 ```
 
-实现：在 spec-author / design-author agent 的 output 阶段，用**正则/关键词规则**检查
-是否触及以上类别 → 触及则在 artifact 中打上 `requires_human_decision: true` 标记。
+实现：在 spec-author / design-author agent 的 output 阶段，用**正则/关键词规则**检查是否触及以上类别 → 触及则在 artifact 中打上 `requires_human_decision: true` 标记。
 
 参考实现模式：hermes-agent `skills_guard.py` 的 INSTALL_POLICY 矩阵（category × trust_level → allow/ask/block）
 
@@ -247,8 +221,7 @@ MANDATORY_ESCALATE_CATEGORIES:
 }
 ```
 
-agent 被 prompt 为：若存在多种合理选择且没有明确技术理由偏向某一方，必须报告
-`value_sensitive_decision: true` 并在 `open_questions` 中列出。
+agent 被 prompt 为：若存在多种合理选择且没有明确技术理由偏向某一方，必须报告 `value_sensitive_decision: true` 并在 `open_questions` 中列出。
 
 **注意**：这个字段作为**参考信号**，不作为唯一 escalation 依据（verbalized confidence 有系统性偏差）。
 
@@ -275,15 +248,13 @@ agent 被 prompt 为：若存在多种合理选择且没有明确技术理由偏
 5. 收到 reply 后，写入 design artifact，继续 orchestrator 流程
 ```
 
-关键：**每次 escalation 都写入 audit log**（决策内容、触发原因、人的回答），
-这些日志成为后续 few-shot 案例库的来源。
+关键：**每次 escalation 都写入 audit log**（决策内容、触发原因、人的回答），这些日志成为后续 few-shot 案例库的来源。
 
 ---
 
 ### 3.3 escalation rate 监控
 
-参考第一轮报告中 I-CALM 的结论（4.1% abstention 增量 → 13% 成本降低），
-建议设置 spec/design pipeline 的 escalation dashboard：
+参考第一轮报告中 I-CALM 的结论（4.1% abstention 增量 → 13% 成本降低），建议设置 spec/design pipeline 的 escalation dashboard：
 
 | 指标 | 目标值 | 超标含义 |
 |---|---|---|
@@ -300,8 +271,7 @@ agent 被 prompt 为：若存在多种合理选择且没有明确技术理由偏
 
 **DO**：
 - 维护一份**明确的 value-fork 触发词/决策类别列表**（deterministic）
-- 在 critic agent 的 review schema 中加 `decision_type: factual | preference`，
-  `preference` 类决策自动 escalate
+- 在 critic agent 的 review schema 中加 `decision_type: factual | preference`，`preference` 类决策自动 escalate
 - 每次人工裁决后，把"为什么这是 value 而非 fact"的原因写进 few-shot 案例库
 
 **DON'T**：
@@ -320,8 +290,7 @@ agent 被 prompt 为：若存在多种合理选择且没有明确技术理由偏
 
 **哪些需要一些工作但黑盒可行**：
 
-4. LLM-as-classifier side-query：claude-code auto mode 的工程实现可以参考，
-   对 spec/design pipeline，classifier 的 system prompt 需要针对"spec/design review"场景定制
+4. LLM-as-classifier side-query：claude-code auto mode 的工程实现可以参考，对 spec/design pipeline，classifier 的 system prompt 需要针对"spec/design review"场景定制
 5. 结构化输出中的置信字段：加 schema 约束，一次 LLM 调用出结果，但 calibration 有限
 
 **哪些是 hype / 对开放式生成任务帮倒忙**：
@@ -332,12 +301,9 @@ agent 被 prompt 为：若存在多种合理选择且没有明确技术理由偏
 
 **最大工程风险**：
 
-- **Silent value fork**：agent 高置信地做了一个架构决策，实际上是隐性的价值判断，
-  任何黑盒技术都无法可靠检测。唯一对策是预置 mandatory escalation category 列表。
-- **Escalation fatigue**：如果 escalation rate 过高（>30%），人会开始无脑批准，
-  系统丧失 human-on-the-loop 的实质价值。要从一开始就把 mandatory gate 设计得精准。
-- **Audit trail 缺失**：如果 escalation 历史不被记录为结构化日志，
-  就无法反向优化 few-shot 案例库和 constitution，系统无法自我改进。
+- **Silent value fork**：agent 高置信地做了一个架构决策，实际上是隐性的价值判断，任何黑盒技术都无法可靠检测。唯一对策是预置 mandatory escalation category 列表。
+- **Escalation fatigue**：如果 escalation rate 过高（>30%），人会开始无脑批准，系统丧失 human-on-the-loop 的实质价值。要从一开始就把 mandatory gate 设计得精准。
+- **Audit trail 缺失**：如果 escalation 历史不被记录为结构化日志，就无法反向优化 few-shot 案例库和 constitution，系统无法自我改进。
 
 ---
 
@@ -353,5 +319,4 @@ agent 被 prompt 为：若存在多种合理选择且没有明确技术理由偏
 
 ---
 
-*生成日期：2026-06-04*
-*源码验证：本报告中所有"SHIPPED"条目均经过实际源码 grep/read 验证，非二手总结*
+*生成日期：2026-06-04* *源码验证：本报告中所有"SHIPPED"条目均经过实际源码 grep/read 验证，非二手总结*

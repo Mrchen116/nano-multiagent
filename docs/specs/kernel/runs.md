@@ -13,8 +13,7 @@
 
 ### Requirement: 创建会话必须绑定 workspace_root
 
-消费者创建会话时绑定一个 `workspace_root`;该路径绑定到会话生命周期,后续该会话内工具执行的
-`cwd` / 安全沙箱边界、以及工具/hook/skill 的工作区层扫描均以此为根。
+消费者创建会话时绑定一个 `workspace_root`;该路径绑定到会话生命周期,后续该会话内工具执行的 `cwd` / 安全沙箱边界、以及工具/hook/skill 的工作区层扫描均以此为根。
 
 #### Scenario: 创建会话返回绑定工作区的 Session
 - **WHEN** 消费者 `await kernel.create_session(workspace_root=<path>)`
@@ -22,15 +21,12 @@
 
 ### Requirement: submit 非阻塞调度一轮运行,事件经 stream 异步消费
 
-`submit()` 把一轮(turn)调度到内核后台事件循环并立即返回一个 `RunRecord`(初始状态 QUEUED);消费者
-经 `stream()` 异步迭代该会话的事件,跨自己的事件循环也能收到。
+`submit()` 把一轮(turn)调度到内核后台事件循环并立即返回一个 `RunRecord`(初始状态 QUEUED);消费者经 `stream()` 异步迭代该会话的事件,跨自己的事件循环也能收到。
 
 #### Scenario: 提交后从 stream 收到运行状态事件
 - **GIVEN** 一个已创建的会话
-- **WHEN** 消费者 `kernel.submit(session_id, parts=[{type:text,...}], workspace_root=...)` 后
-  `async for ev in kernel.stream(session_id, after_sequence=0)`
-- **THEN** 收到扁平化事件 dict(含 `event` / `session_id` / `sequence_num` + payload 字段),
-  其中出现 `run_status` 事件,运行完成时其 `status` 为 `completed`(或失败时 `failed`)
+- **WHEN** 消费者 `kernel.submit(session_id, parts=[{type:text,...}], workspace_root=...)` 后 `async for ev in kernel.stream(session_id, after_sequence=0)`
+- **THEN** 收到扁平化事件 dict(含 `event` / `session_id` / `sequence_num` + payload 字段), 其中出现 `run_status` 事件,运行完成时其 `status` 为 `completed`(或失败时 `failed`)
 
 #### Scenario: 同步提交完成后运行记录可查
 - **WHEN** 提交一轮并轮询 `kernel.get_run(run_id)`
@@ -125,14 +121,12 @@
 
 ### Requirement: 工具使用权限经注入的 can_use_tool 回调裁决
 
-内核不内置权限策略;消费者在 `build_kernel` 时注入 `can_use_tool` 异步回调。当某轮需要工具使用许可
-时,内核调该回调并据其 `PermissionDecision` 放行或拒绝。
+内核不内置权限策略;消费者在 `build_kernel` 时注入 `can_use_tool` 异步回调。当某轮需要工具使用许可时,内核调该回调并据其 `PermissionDecision` 放行或拒绝。
 
 #### Scenario: 需要许可时 can_use_tool 被调用并采纳其决定
 - **GIVEN** 一个注入了 `can_use_tool` 的 Kernel
 - **WHEN** 运行中触发一次工具许可请求
-- **THEN** `can_use_tool(tool_name, tool_input, ...)` 被调用;它返回 `allow` 则该次工具被放行,
-  返回 `deny` 则被拒绝
+- **THEN** `can_use_tool(tool_name, tool_input, ...)` 被调用;它返回 `allow` 则该次工具被放行, 返回 `deny` 则被拒绝
 
 #### Scenario: 等待许可期间 interrupt 解除挂起
 - **GIVEN** 一次许可请求正阻塞在 `can_use_tool`(模拟用户迟迟未决)
@@ -141,10 +135,7 @@
 
 ### Requirement: 自动工具权限判定必须基于稳定的工具动作描述
 
-当消费者启用自动工具权限判定时,内核在判定一次非安全工具调用前必须提供当前工具动作的可解释描述;
-找不到当前工具、当前工具无法提供动作描述、或动作描述为空时,该次工具调用必须 fail closed 到显式权限
-决策,不得用空当前动作继续自动判定。历史 transcript 中的工具调用必须按当时记录的工具名与输入稳定描述,
-不得被当前注册表中同名工具的替换实现改写或丢弃。
+当消费者启用自动工具权限判定时,内核在判定一次非安全工具调用前必须提供当前工具动作的可解释描述; 找不到当前工具、当前工具无法提供动作描述、或动作描述为空时,该次工具调用必须 fail closed 到显式权限决策,不得用空当前动作继续自动判定。历史 transcript 中的工具调用必须按当时记录的工具名与输入稳定描述, 不得被当前注册表中同名工具的替换实现改写或丢弃。
 
 #### Scenario: 当前非安全工具缺少动作描述时不进入自动判定
 - **GIVEN** 消费者启用自动工具权限判定,且某会话尝试执行一个非安全工具
@@ -172,10 +163,7 @@
 
 ### Requirement: 运行可被中断与取消
 
-消费者可中断某会话当前活动运行(`interrupt`),或按 `run_id` 取消排队/运行中的运行(`cancel`);两者对
-不存在的目标安全无害。`cancel` 必须**强制终止**承载该 run 的执行(不依赖被取消代码合作式自查),使该
-run 即使 parked 在工具执行、LLM 等待或权限决策上也能终止;终止后该 run 占用的 session 串行锁必须释放,
-同一 session 后续 `submit` 不被此前 run 永久阻塞。取消同时取消该 run 仍在等待的权限请求(resolve 为拒绝)。
+消费者可中断某会话当前活动运行(`interrupt`),或按 `run_id` 取消排队/运行中的运行(`cancel`);两者对不存在的目标安全无害。`cancel` 必须**强制终止**承载该 run 的执行(不依赖被取消代码合作式自查),使该 run 即使 parked 在工具执行、LLM 等待或权限决策上也能终止;终止后该 run 占用的 session 串行锁必须释放, 同一 session 后续 `submit` 不被此前 run 永久阻塞。取消同时取消该 run 仍在等待的权限请求(resolve 为拒绝)。
 
 #### Scenario: 取消运行中的运行,二次取消幂等
 - **GIVEN** 一个运行中的运行
@@ -203,10 +191,7 @@ run 即使 parked 在工具执行、LLM 等待或权限决策上也能终止;终
 
 ### Requirement: alive-but-quiet 窗口经 stream 持续发出 liveness 事件
 
-当一条 run 处于"活着但暂无业务输出"的窗口(执行静默长工具、等待 LLM 返回、parked 等待用户权限决策)时,
-内核必须经 `kernel.stream` 周期性发出 liveness 事件(携带 run_id),间隔显著小于消费者侧的存活判定窗口。
-该事件仅表征"该 run 仍存活",消费者可据其判定存活而不误判为卡死。三类窗口走同一事件通路,消费者无需按
-窗口类型分别豁免。
+当一条 run 处于"活着但暂无业务输出"的窗口(执行静默长工具、等待 LLM 返回、parked 等待用户权限决策)时, 内核必须经 `kernel.stream` 周期性发出 liveness 事件(携带 run_id),间隔显著小于消费者侧的存活判定窗口。该事件仅表征"该 run 仍存活",消费者可据其判定存活而不误判为卡死。三类窗口走同一事件通路,消费者无需按窗口类型分别豁免。
 
 #### Scenario: 执行静默长工具期间 stream 仍有事件
 - **GIVEN** 某 run 正在执行一个长时间无标准输出的工具(如长命令)
@@ -225,16 +210,12 @@ run 即使 parked 在工具执行、LLM 等待或权限决策上也能终止;终
 
 ### Requirement: Kernel 关闭会收拢所有 owned runs
 
-`Kernel.aclose()` 与同步兼容接口 `Kernel.close()` 必须共享幂等关闭状态,停止接受新运行,
-解除权限等待,中断或取消仍在执行/排队的 run,等待 RunsRegistry 自己创建的 Task 在所属
-event loop 与 Context 中进入终态,再停止并关闭 loop。关闭开始后不得创建新的 queued run;
-异步消费者使用 `aclose()` 时不得阻塞其 event loop。
+`Kernel.aclose()` 与同步兼容接口 `Kernel.close()` 必须共享幂等关闭状态,停止接受新运行, 解除权限等待,中断或取消仍在执行/排队的 run,等待 RunsRegistry 自己创建的 Task 在所属 event loop 与 Context 中进入终态,再停止并关闭 loop。关闭开始后不得创建新的 queued run; 异步消费者使用 `aclose()` 时不得阻塞其 event loop。
 
 #### Scenario: 有活动运行时关闭
 - **GIVEN** Kernel 存在 running run 或权限等待
 - **WHEN** 异步消费者 await `kernel.aclose()` 或同步消费者调用 `kernel.close()`
-- **THEN** 相关 run 在有限 grace period 内进入 completed/failed/cancelled 之一,Registry 不遗留
-  Task,tracing scope 在原 Task Context 中退出
+- **THEN** 相关 run 在有限 grace period 内进入 completed/failed/cancelled 之一,Registry 不遗留 Task,tracing scope 在原 Task Context 中退出
 
 #### Scenario: 异步关闭不阻塞消费者 loop
 - **GIVEN** 消费者的 event loop 还有 heartbeat、IM 或 UI 状态任务

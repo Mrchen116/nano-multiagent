@@ -20,17 +20,13 @@ current-owner: docs/development/documentation-system.md
 
 本研究试图回答：
 
-> 当 Coding Agent 成为代码仓的主要参与者之一，而且每次任务只能获得有限上下文时，仓库应如何组织、
-> 路由、维护和验证知识，使人和 Agent 都能以较低成本获得足够、可信、不过载的信息？
+> 当 Coding Agent 成为代码仓的主要参与者之一，而且每次任务只能获得有限上下文时，仓库应如何组织、路由、维护和验证知识，使人和 Agent 都能以较低成本获得足够、可信、不过载的信息？
 
-研究目标不是设计某个 Agent 产品的 instruction 文件，也不是为 nano-multiagent 单独整理一套目录。
-最终产物应该是一套工具中立、可以在不同规模仓库中采用的方法论；`AGENTS.md`、skills 和本仓
-`change-*` 流程都只是它的具体适配。
+研究目标不是设计某个 Agent 产品的 instruction 文件，也不是为 nano-multiagent 单独整理一套目录。最终产物应该是一套工具中立、可以在不同规模仓库中采用的方法论；`AGENTS.md`、skills 和本仓 `change-*` 流程都只是它的具体适配。
 
 ## 子问题
 
-1. **知识模型**：current、proposed、decision、history、operations、research、generated 和 local
-   等知识应如何区分？同一事实的权威如何确定？
+1. **知识模型**：current、proposed、decision、history、operations、research、generated 和 local 等知识应如何区分？同一事实的权威如何确定？
 2. **上下文架构**：什么应进入常驻上下文，什么应按任务发现和加载？如何兼顾可发现性与上下文成本？
 3. **开发闭环**：需求、设计、实现、验证、current 文档更新和历史归档如何形成一个生命周期？
 4. **可信度治理**：读者如何判断文档是否适用、仍然有效、由谁维护？哪些检查可以机械化？
@@ -83,9 +79,7 @@ current-owner: docs/development/documentation-system.md
 
 ### 2026-07-27：课题校准
 
-最初把问题错误地收窄为“各 Coding Agent 如何加载 instruction”。用户校准后的课题是整个代码仓的
-知识与上下文管理体系，并且最终要跨仓复用。后续仍会研究 Agent 的上下文约束，但只把它作为知识系统
-的一个输入条件。
+最初把问题错误地收窄为“各 Coding Agent 如何加载 instruction”。用户校准后的课题是整个代码仓的知识与上下文管理体系，并且最终要跨仓复用。后续仍会研究 Agent 的上下文约束，但只把它作为知识系统的一个输入条件。
 
 ### 2026-07-27：第一批候选证据
 
@@ -103,25 +97,18 @@ current-owner: docs/development/documentation-system.md
 
 ### 2026-07-28：用户补充二次调研
 
-用户提供了两份由 ChatGPT 生成的综合调研，核心主题包括 `Repository as Harness`、Agent 自主检索、
-上下文的作用域/加载时机/约束强度/生命周期、验证闭环、长任务状态外部化，以及把重复纠正沉淀为
-测试、脚本、skill 或长期文档。
+用户提供了两份由 ChatGPT 生成的综合调研，核心主题包括 `Repository as Harness`、Agent 自主检索、上下文的作用域/加载时机/约束强度/生命周期、验证闭环、长任务状态外部化，以及把重复纠正沉淀为测试、脚本、skill 或长期文档。
 
 这两份材料用于发现来源和挑战现有模型，不直接作为证据。核验后的处理原则：
 
 - 能由官方文章、真实仓库或论文支持的事实，回到原始来源记录；
 - 二次材料自己的分类和命名只作为 E 级候选推论；
-- 引用不支持的产品事实不进入结论。例如其中一处把 `/goal` 描述为 Codex 长程模式，但所引链接实际是
-  Claude Code best-practices 页面，不能用该引用证明 Codex 的行为；
-- `Repository as Harness` 与当前 `Repository Knowledge System` 并非二选一：前者还包括工具接口、
-  执行环境、验证、隔离和权限；后者是其中负责权威、记忆、上下文交付和知识演进的子系统。
+- 引用不支持的产品事实不进入结论。例如其中一处把 `/goal` 描述为 Codex 长程模式，但所引链接实际是 Claude Code best-practices 页面，不能用该引用证明 Codex 的行为；
+- `Repository as Harness` 与当前 `Repository Knowledge System` 并非二选一：前者还包括工具接口、执行环境、验证、隔离和权限；后者是其中负责权威、记忆、上下文交付和知识演进的子系统。
 
-二次材料提出的“作用域、加载时机、约束强度、生命周期”四维模型适合描述 context delivery，但不足以
-独立治理仓库知识：它没有回答知识的主要角色、来源/权威和 owner。本研究将其分别吸收到 `Scope`、
-`Delivery`、`Enforcement`、`State`，并保留 `Role`、`Authority/Provenance`、`Owner`，形成七属性模型。
+二次材料提出的“作用域、加载时机、约束强度、生命周期”四维模型适合描述 context delivery，但不足以独立治理仓库知识：它没有回答知识的主要角色、来源/权威和 owner。本研究将其分别吸收到 `Scope`、`Delivery`、`Enforcement`、`State`，并保留 `Role`、`Authority/Provenance`、`Owner`，形成七属性模型。
 
-本轮补充核验还发现一项 2026-07-20 提交的对照研究，直接比较强 Agent harness 的自主导航与
-progressive disclosure。它被单独记录为 B9，而不是用社区经验代替效果证据。
+本轮补充核验还发现一项 2026-07-20 提交的对照研究，直接比较强 Agent harness 的自主导航与 progressive disclosure。它被单独记录为 B9，而不是用社区经验代替效果证据。
 
 ### 2026-07-28：可搜索性与可发现性的校正
 
@@ -137,23 +124,17 @@ progressive disclosure。它被单独记录为 B9，而不是用社区经验代�
 
 - [Harness engineering: leveraging Codex in an agent-first world](https://openai.com/index/harness-engineering/)
 
-证据性质：OpenAI 团队对一个近百万行、约 1,500 个 PR、主要由 Codex 生成的真实内部代码仓所做的一手
-工程复盘。文章也明确提醒，这种自治程度依赖该仓库的具体结构和工具投入，不能无条件外推。
+证据性质：OpenAI 团队对一个近百万行、约 1,500 个 PR、主要由 Codex 生成的真实内部代码仓所做的一手工程复盘。文章也明确提醒，这种自治程度依赖该仓库的具体结构和工具投入，不能无条件外推。
 
 实际实践：
 
-- 早期尝试用一份巨大的 `AGENTS.md` 作为总手册，遇到了上下文挤占、信号稀释、快速腐化和无法机械
-  校验等问题。
-- 后来把约 100 行的 `AGENTS.md` 当作目录，把结构化 `docs/` 当作 repository knowledge 的
-  system of record。
-- 仓内区分 architecture、design docs、product specs、active/completed execution plans、
-  generated references、quality、reliability 和 security 等知识内容。
+- 早期尝试用一份巨大的 `AGENTS.md` 作为总手册，遇到了上下文挤占、信号稀释、快速腐化和无法机械校验等问题。
+- 后来把约 100 行的 `AGENTS.md` 当作目录，把结构化 `docs/` 当作 repository knowledge 的 system of record。
+- 仓内区分 architecture、design docs、product specs、active/completed execution plans、generated references、quality、reliability 和 security 等知识内容。
 - 大任务的 execution plan、progress 和 decision log 进入版本控制；小任务保留轻量计划。
-- 用 CI 检查知识库的结构、交叉链接和更新状态，并运行周期性 doc-gardening agent 找陈旧文档、提交
-  修复 PR。
+- 用 CI 检查知识库的结构、交叉链接和更新状态，并运行周期性 doc-gardening agent 找陈旧文档、提交修复 PR。
 - 架构约束不只写在文档中，还通过自定义 lint 和 structural tests 机械执行。
-- 团队把 Agent 失败当作 repository environment 缺口的信号：补充工具、guardrail 或文档，使后续
-  Agent 可以直接复用。
+- 团队把 Agent 失败当作 repository environment 缺口的信号：补充工具、guardrail 或文档，使后续 Agent 可以直接复用。
 
 对本研究的影响：
 
@@ -173,18 +154,14 @@ progressive disclosure。它被单独记录为 B9，而不是用社区经验代�
 
 - [Effective context engineering for AI agents](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents)
 
-证据性质：Anthropic 基于内部开发和客户实践总结的 Agent context engineering 原则，不是专门的
-代码仓文档规范。
+证据性质：Anthropic 基于内部开发和客户实践总结的 Agent context engineering 原则，不是专门的代码仓文档规范。
 
 实际观察：
 
-- 上下文越长，模型在远距离关系和精确检索上的表现会逐渐下降；更长的窗口并没有消除
-  context pollution。
+- 上下文越长，模型在远距离关系和精确检索上的表现会逐渐下降；更长的窗口并没有消除 context pollution。
 - 有效上下文的目标是寻找“能最大化目标结果概率的最小高信号 token 集合”。
-- just-in-time context 不预装所有资料，只保留文件路径、查询和链接等轻量标识，让 Agent 在运行时
-  主动检索。
-- 长任务依赖 compaction、structured note-taking 等外部记忆机制；压缩时要保存架构决策、未解决问题
-  和实现状态，丢弃冗余工具输出。
+- just-in-time context 不预装所有资料，只保留文件路径、查询和链接等轻量标识，让 Agent 在运行时主动检索。
+- 长任务依赖 compaction、structured note-taking 等外部记忆机制；压缩时要保存架构决策、未解决问题和实现状态，丢弃冗余工具输出。
 - 系统提示既不应把流程硬编码得过细，也不能停留在无法执行的空泛原则。
 
 对本研究的影响：
@@ -237,22 +214,17 @@ progressive disclosure。它被单独记录为 B9，而不是用社区经验代�
 实际实践：
 
 - Minions 已经每周产出上千个合并 PR，代码由 Agent 端到端完成，但仍由人类评审。
-- Agent 通过统一工具面检索内部文档、任务详情、构建状态和 code intelligence；固定的 git、lint、test
-  阶段尽量由确定性程序执行。
-- Stripe 发现 Agent 会依据过期训练知识生成已经淘汰的支付集成，于是建立真实集成 benchmark，再用
-  benchmark 的结果反向调整文档和 Agent context。
-- 面向开发者的文档提供原始 Markdown 表示，去掉网页导航等无关 token；复杂集成还提供可复制给
-  LLM 的结构化 blueprint。
+- Agent 通过统一工具面检索内部文档、任务详情、构建状态和 code intelligence；固定的 git、lint、test 阶段尽量由确定性程序执行。
+- Stripe 发现 Agent 会依据过期训练知识生成已经淘汰的支付集成，于是建立真实集成 benchmark，再用 benchmark 的结果反向调整文档和 Agent context。
+- 面向开发者的文档提供原始 Markdown 表示，去掉网页导航等无关 token；复杂集成还提供可复制给 LLM 的结构化 blueprint。
 - 2026 keynote 报告，Agent 已约占 Stripe 文档流量的 40%，因此文档不再只有人类读者。
 
 对本研究的影响：
 
 - “Agent 可访问”不能只理解为把链接写进 instruction；文档要有稳定、轻量、可检索的机器表示。
-- 组织方法论应把文档消费面与文档源分开：Markdown/source 是 canonical，网页或 LLM projection
-  是派生视图。
+- 组织方法论应把文档消费面与文档源分开：Markdown/source 是 canonical，网页或 LLM projection 是派生视图。
 - 评价知识系统应使用真实领域任务 benchmark，观察 Agent 是否选对 API、方案和验证路径。
-- 确定性规则应下沉到脚本、lint、tests 和 workflow nodes；自然语言负责解释和路由，不负责重复执行
-  机器可以稳定完成的判断。
+- 确定性规则应下沉到脚本、lint、tests 和 workflow nodes；自然语言负责解释和路由，不负责重复执行机器可以稳定完成的判断。
 
 局限：
 
@@ -265,28 +237,21 @@ progressive disclosure。它被单独记录为 B9，而不是用社区经验代�
 
 - [Using `PLANS.md` for multi-hour problem solving](https://developers.openai.com/cookbook/articles/codex_exec_plans)
 
-证据性质：OpenAI 提供的一种长时间 Coding Agent 工作方式。它是一套可采用的实践模板，不是所有仓库
-都必须照搬的协议。
+证据性质：OpenAI 提供的一种长时间 Coding Agent 工作方式。它是一套可采用的实践模板，不是所有仓库都必须照搬的协议。
 
 实际机制：
 
 - `AGENTS.md` 只保留“什么情况下启用 ExecPlan”的短规则，完整方法放在单独的 `PLANS.md`。
-- 每个 ExecPlan 是 living document，要求在执行过程中持续维护 `Progress`、
-  `Surprises & Discoveries`、`Decision Log` 和 `Outcomes & Retrospective`。
-- 新 session 应能够只凭工作树和 ExecPlan 恢复工作；计划需要明确路径、命令、环境假设、可观察验收、
-  幂等性、失败恢复方式和关键证据。
+- 每个 ExecPlan 是 living document，要求在执行过程中持续维护 `Progress`、`Surprises & Discoveries`、`Decision Log` 和 `Outcomes & Retrospective`。
+- 新 session 应能够只凭工作树和 ExecPlan 恢复工作；计划需要明确路径、命令、环境假设、可观察验收、幂等性、失败恢复方式和关键证据。
 - 计划描述用户最终能观察到什么，而不是只列出内部类或文件已经创建。
 - 已经入仓的前序计划可以按路径引用；未持久化的关键上下文必须重新写进当前计划。
 
 它暴露出的重要张力：
 
-- ExecPlan 为了跨 session 恢复，刻意要求较强的 self-containment，甚至允许重复必要背景；而长期知识
-  治理通常要求同一事实只在 canonical source 写全。
-- 这两条并不真正矛盾。任务计划保存的是“在某一变更和代码基线上足以继续工作的上下文快照”，
-  current 文档保存的是“现在对所有任务成立的事实”。前者必须注明来源、基线和适用范围，完成后也
-  不能继续覆盖后者。
-- 对稳定且已入仓的知识，优先使用带用途说明的引用；对可能在计划执行期间变化、又会影响恢复的关键
-  假设，可以在计划中留下经过压缩的快照，并记录其来源。
+- ExecPlan 为了跨 session 恢复，刻意要求较强的 self-containment，甚至允许重复必要背景；而长期知识治理通常要求同一事实只在 canonical source 写全。
+- 这两条并不真正矛盾。任务计划保存的是“在某一变更和代码基线上足以继续工作的上下文快照”，current 文档保存的是“现在对所有任务成立的事实”。前者必须注明来源、基线和适用范围，完成后也不能继续覆盖后者。
+- 对稳定且已入仓的知识，优先使用带用途说明的引用；对可能在计划执行期间变化、又会影响恢复的关键假设，可以在计划中留下经过压缩的快照，并记录其来源。
 
 对本研究的影响：
 
@@ -304,30 +269,23 @@ progressive disclosure。它被单独记录为 B9，而不是用社区经验代�
 - [Docs Agent workflow](https://github.com/openclaw/openclaw/blob/0dfea099d6facb4c317f82869c8d3125a3495db1/.github/workflows/docs-agent.yml)
 - [Docs directory](https://github.com/openclaw/openclaw/blob/0dfea099d6facb4c317f82869c8d3125a3495db1/docs/start/docs-directory.md)
 
-证据性质：大型、快速演进、以 Agent 为核心产品的开源仓库真实代码快照；它证明机制已经被采用，
-但没有公开对照数据证明这些机制提高了多少任务成功率。
+证据性质：大型、快速演进、以 Agent 为核心产品的开源仓库真实代码快照；它证明机制已经被采用，但没有公开对照数据证明这些机制提高了多少任务成功率。
 
 实际机制：
 
 - 根入口要求 Agent 先运行 `pnpm docs:list`，再只读与任务匹配的资料。
-- live Markdown 页面普遍使用 `summary` 与自然语言 `read_when` frontmatter。
-  `docs-list.js` 把路径、摘要和读取条件生成成紧凑目录，并主动排除 `archive`、`research`。
-- 本次快照中脚本列出 463 份 Markdown；445 份带 `read_when`，只有 2 份被报告缺 frontmatter。
-  这说明检索 metadata 已经形成高覆盖的写作制度，而不只是少量示例。
+- live Markdown 页面普遍使用 `summary` 与自然语言 `read_when` frontmatter。`docs-list.js` 把路径、摘要和读取条件生成成紧凑目录，并主动排除 `archive`、`research`。
+- 本次快照中脚本列出 463 份 Markdown；445 份带 `read_when`，只有 2 份被报告缺 frontmatter。这说明检索 metadata 已经形成高覆盖的写作制度，而不只是少量示例。
 - `docs/start/docs-directory.md` 明确区分精选的高频入口和完整 hubs，避免让新读者面对平铺的全量列表。
-- 主分支 CI 成功后可以触发 Codex Docs Agent。它根据真实 commit diff 检查既有文档，只允许修改
-  `docs/**`、`README.md`、`CHANGELOG.md`，禁止新增、删除、重命名或修改代码；随后再运行 docs checks。
+- 主分支 CI 成功后可以触发 Codex Docs Agent。它根据真实 commit diff 检查既有文档，只允许修改 `docs/**`、`README.md`、`CHANGELOG.md`，禁止新增、删除、重命名或修改代码；随后再运行 docs checks。
 - workflow 还检查目标 commit 是否仍是最新 main、限制执行频率，并在 main 已推进时放弃过期更新。
 
 对本研究的影响：
 
 - 路由表不必完全手写；“页面元数据 → 可生成目录/检索面”可以让大量文档保持可发现。
-- `read_when` 比裸路径多回答了两个 Agent 真正需要的问题：为什么读、何时读。它也是
-  `Blind Reference` 的一种工程化修复。
-- 文档园艺 Agent 需要最小权限、明确 allowed paths、输入 commit 范围、陈旧写入保护和确定性检查；
-  “定期让 Agent 自由整理整个 docs”风险过大。
-- 防止文档爆炸也可以成为自动化约束。该 Docs Agent 只能校正既有页面，需要新增文档时仍回到
-  人类可见的普通设计/评审流程。
+- `read_when` 比裸路径多回答了两个 Agent 真正需要的问题：为什么读、何时读。它也是 `Blind Reference` 的一种工程化修复。
+- 文档园艺 Agent 需要最小权限、明确 allowed paths、输入 commit 范围、陈旧写入保护和确定性检查；“定期让 Agent 自由整理整个 docs”风险过大。
+- 防止文档爆炸也可以成为自动化约束。该 Docs Agent 只能校正既有页面，需要新增文档时仍回到人类可见的普通设计/评审流程。
 
 ### A7. Vercel：检索面可以动态选择，但必须排序、去重、限额并验证
 
@@ -337,25 +295,19 @@ progressive disclosure。它被单独记录为 B9，而不是用社区经验代�
 - [Make your documentation readable by AI agents](https://vercel.com/kb/guide/make-your-documentation-readable-by-ai-agents)
 - [Chrome Lighthouse：`llms.txt`](https://developer.chrome.com/docs/lighthouse/agentic-browsing/llms-txt)
 
-证据性质：Vercel 对其 Agent context 和文档交付能力的官方产品说明；部分内容带有产品推广性质。
-Chrome 文档将 `llms.txt` 明确称为 emerging convention，并说明当前仍是可选项。
+证据性质：Vercel 对其 Agent context 和文档交付能力的官方产品说明；部分内容带有产品推广性质。Chrome 文档将 `llms.txt` 明确称为 emerging convention，并说明当前仍是可选项。
 
 实际机制：
 
-- Vercel 的 injection engine 根据文件 glob、命令、import 和 prompt 信号选择知识，进行优先级排序、
-  去重和预算控制，而不是让所有 platform knowledge 常驻。
-- 编辑后 hook 检查 deprecated pattern、sunset package 和 stale API，把一部分“别用旧知识”的要求
-  变成即时验证。
-- 面向站点文档，Vercel 建议把发现、干净 Markdown retrieval、结构化 freshness/canonical metadata
-  和精确查询工具分层；`llms.txt`/`sitemap.md` 是索引，单页 Markdown 才是正文表示。
+- Vercel 的 injection engine 根据文件 glob、命令、import 和 prompt 信号选择知识，进行优先级排序、去重和预算控制，而不是让所有 platform knowledge 常驻。
+- 编辑后 hook 检查 deprecated pattern、sunset package 和 stale API，把一部分“别用旧知识”的要求变成即时验证。
+- 面向站点文档，Vercel 建议把发现、干净 Markdown retrieval、结构化 freshness/canonical metadata 和精确查询工具分层；`llms.txt`/`sitemap.md` 是索引，单页 Markdown 才是正文表示。
 
 对本研究的影响：
 
-- progressive disclosure 不只是一组链接，还可以是一个有 rank、dedupe、budget 和触发信号的
-  retrieval policy。
+- progressive disclosure 不只是一组链接，还可以是一个有 rank、dedupe、budget 和触发信号的 retrieval policy。
 - 机器友好入口应被视为 canonical source 的投影，不应成为另一份人工维护的正文。
-- `llms.txt` 之类仍是新兴、可选的站点协议；仓库方法论应吸收“轻索引 + 干净正文”这个能力，
-  不能把某个文件名写成普适强制标准。
+- `llms.txt` 之类仍是新兴、可选的站点协议；仓库方法论应吸收“轻索引 + 干净正文”这个能力，不能把某个文件名写成普适强制标准。
 
 ### A8. 四个 Agent 项目的真实仓库：不存在由文件长度决定的单一成熟形态
 
@@ -366,8 +318,7 @@ Chrome 文档将 `llms.txt` 明确称为 emerging convention，并说明当前�
 - [OpenCode `AGENTS.md`](https://github.com/anomalyco/opencode/blob/014dbd34c4f5612d9a037b3641a8244b213a8a30/AGENTS.md)
 - [Hermes Agent `AGENTS.md`](https://github.com/NousResearch/hermes-agent/blob/e20ff352b91623d51ae05ea586a1800aee852402/AGENTS.md)
 
-证据性质：对四个公开 Agent 项目本地镜像的只读结构快照。它们反映真实采用方式，但不能单凭文件存在
-或 star 数推出效果优劣。
+证据性质：对四个公开 Agent 项目本地镜像的只读结构快照。它们反映真实采用方式，但不能单凭文件存在或 star 数推出效果优劣。
 
 | 仓库 | 根 `AGENTS.md` | 全仓 `AGENTS.md` 数 | 主要形状 |
 |---|---:|---:|---|
@@ -379,10 +330,8 @@ Chrome 文档将 `llms.txt` 明确称为 emerging convention，并说明当前�
 当前只能得出的结论：
 
 - “Agent 项目都已收敛到 100 行入口”并不符合公开仓库现实。
-- 根文件长度可以发现值得审计的异常，但不是独立质量指标；内容是否高频、高后果、难发现，以及它对
-  真实任务的净效果更重要。
-- nested guide 是 monorepo 的一种作用域机制，但其加载语义依赖 harness；通用方法论应描述
-  “组件局部知识”能力，再由各工具 adapter 实现。
+- 根文件长度可以发现值得审计的异常，但不是独立质量指标；内容是否高频、高后果、难发现，以及它对真实任务的净效果更重要。
+- nested guide 是 monorepo 的一种作用域机制，但其加载语义依赖 harness；通用方法论应描述 “组件局部知识”能力，再由各工具 adapter 实现。
 - Hermes 等反例值得后续做任务级对照，不能仅依据 1,399 行就宣告其工程方式失败。
 
 ### A9. Anthropic：只有能证明结果改善时，才增加 workflow 复杂度
@@ -391,24 +340,21 @@ Chrome 文档将 `llms.txt` 明确称为 emerging convention，并说明当前�
 
 - [Building effective agents](https://www.anthropic.com/engineering/building-effective-agents)
 
-证据性质：Anthropic 基于内部实现与客户实践给出的通用 agentic system 设计经验，不专门讨论仓库
-文档，但直接约束 workflow、tool 和 evaluation 应如何进入知识系统。
+证据性质：Anthropic 基于内部实现与客户实践给出的通用 agentic system 设计经验，不专门讨论仓库文档，但直接约束 workflow、tool 和 evaluation 应如何进入知识系统。
 
 关键原则：
 
 - 从最简单可行方案开始，只有效果提升能够被测量时才增加多步 workflow 或 autonomous agent。
 - workflow 适合可预测、可分解的任务；Agent 适合无法预先确定步骤的开放任务，两者成本与可靠性不同。
 - Agent 在每一步都需要从工具结果和代码执行中取得 environmental ground truth。
-- prompt chain 中可以插入 programmatic gate；Coding Agent 的输出天然适合用 tests 做客观验证，
-  但仍需要人类评审判断更广的系统要求。
+- prompt chain 中可以插入 programmatic gate；Coding Agent 的输出天然适合用 tests 做客观验证，但仍需要人类评审判断更广的系统要求。
 - tool interface 需要像 HCI 一样被认真设计、记录并反复测试；防误用的参数和结构通常比追加提醒更有效。
 
 对本研究的影响：
 
 - 仓库不应因为“Agent 时代”就默认建立最重的 spec/reviewer/orchestrator/skill 体系。
 - workflow、router、metadata 和 docs automation 都应从任务失败模式出发，并用结果决定是否升级。
-- tests、schema、脚本和 runtime observation 不是文档的附属物，而是 Agent 校准工作状态的 grounding
-  interface。
+- tests、schema、脚本和 runtime observation 不是文档的附属物，而是 Agent 校准工作状态的 grounding interface。
 
 ### A10. Agentic search 是 harness 能力，仓库路由不应变成固定检索行程
 
@@ -418,26 +364,20 @@ Chrome 文档将 `llms.txt` 明确称为 emerging convention，并说明当前�
 - Claude Code：[Best practices](https://code.claude.com/docs/en/best-practices)
 - Cursor：[Best practices for coding with agents](https://cursor.com/blog/agent-best-practices)
 
-证据性质：前者是 Anthropic 对约 40 万个 Claude Code sessions 的观察研究；后两项是产品方对各自
-Agent 的当前使用建议。它们说明现有 harness 如何分工和找上下文，不是跨产品的独立效果证明。
+证据性质：前者是 Anthropic 对约 40 万个 Claude Code sessions 的观察研究；后两项是产品方对各自 Agent 的当前使用建议。它们说明现有 harness 如何分工和找上下文，不是跨产品的独立效果证明。
 
 已核实的事实：
 
-- Anthropic 样本中，人平均做约 70% 的 planning decisions、约 20% 的 execution decisions；典型
-  session 中 Claude 做约 80% 的 execution decisions。它支持“人定义做什么，Agent 决定怎么做”
-  这一观察，但不代表任何任务都应采用同样自治比例。
-- Claude Code 的官方建议是先 Explore，再 Plan、Implement、Commit，并要求为 Agent 提供可执行的
-  验证手段。
-- Cursor 明确建议：已知精确文件时可以直接引用；否则不必手工标记所有文件，Agent 会使用 grep、
-  semantic search 和分支上下文按需寻找。无关文件反而可能干扰判断。
+- Anthropic 样本中，人平均做约 70% 的 planning decisions、约 20% 的 execution decisions；典型 session 中 Claude 做约 80% 的 execution decisions。它支持“人定义做什么，Agent 决定怎么做”这一观察，但不代表任何任务都应采用同样自治比例。
+- Claude Code 的官方建议是先 Explore，再 Plan、Implement、Commit，并要求为 Agent 提供可执行的验证手段。
+- Cursor 明确建议：已知精确文件时可以直接引用；否则不必手工标记所有文件，Agent 会使用 grep、semantic search 和分支上下文按需寻找。无关文件反而可能干扰判断。
 
 对本研究的影响：
 
 - Agentic search 是引用图的补充，不是替代。知识库应先通过根入口、目录索引、页面摘要和交叉引用声明“有哪些长期知识以及如何进入”；Agent 再使用搜索跳转、补漏和验证。
 - 文档地图和 router 不应规定 Agent 必须按固定文件序列或固定检索算法探索仓库，但必须让受治理的重要文档从已知入口可达，并暴露适用状态、authority 和 `read-when`。
 - 代码、测试、配置和 git history 的开放探索默认交给 harness 的 agentic search；文档 corpus 的基本引用覆盖不需要等到评测失败才建立。只有更深层级的 catalog、专用检索或跨仓基础设施才应由规模和任务数据触发。
-- 任务入口应优先把目标、约束、完成标准和不可推断事实说清楚；不应由人预先拼接一大包“可能相关”
-  文件替代 Agent 的探索。
+- 任务入口应优先把目标、约束、完成标准和不可推断事实说清楚；不应由人预先拼接一大包“可能相关”文件替代 Agent 的探索。
 
 ### A11. 常驻上下文的最佳形状会随模型与 harness 演进
 
@@ -446,24 +386,18 @@ Agent 的当前使用建议。它们说明现有 harness 如何分工和找上�
 - Anthropic：[The new rules of context engineering for Claude 5 generation models](https://claude.com/blog/the-new-rules-of-context-engineering-for-claude-5-generation-models)
 - Anthropic：[Steering Claude Code: when to use CLAUDE.md, skills, hooks, and subagents](https://claude.com/blog/steering-claude-code-skills-hooks-rules-subagents-and-more)
 
-证据性质：Anthropic 对 2026 年 Claude 5 系列和 Claude Code 的一手产品复盘。结论受到特定模型、
-harness 工具集和内部 coding eval 约束，不能直接外推到旧模型或其他 Agent。
+证据性质：Anthropic 对 2026 年 Claude 5 系列和 Claude Code 的一手产品复盘。结论受到特定模型、harness 工具集和内部 coding eval 约束，不能直接外推到旧模型或其他 Agent。
 
 关键事实：
 
-- Anthropic 报告为 Claude 5 高级模型删除了 Claude Code 超过 80% 的 system prompt，在其 coding
-  evaluations 上没有可测量损失；原因包括旧提示过度约束、多个来源冲突，以及新模型和工具已有更好判断。
-- 其当前建议从“规则和示例堆叠”转向更清晰的工具接口、渐进式披露、轻量 `CLAUDE.md` 和按需 skill；
-  根文件主要保留 repo 概览和代码中无法可靠推断的 gotchas。
-- 另一篇文章把根/子目录 `CLAUDE.md`、path rules、skills、hooks、subagents 等按加载时机、压缩行为、
-  context cost 和用途区分，并建议根文件由 owner 维护、作为 overview/index。
+- Anthropic 报告为 Claude 5 高级模型删除了 Claude Code 超过 80% 的 system prompt，在其 coding evaluations 上没有可测量损失；原因包括旧提示过度约束、多个来源冲突，以及新模型和工具已有更好判断。
+- 其当前建议从“规则和示例堆叠”转向更清晰的工具接口、渐进式披露、轻量 `CLAUDE.md` 和按需 skill；根文件主要保留 repo 概览和代码中无法可靠推断的 gotchas。
+- 另一篇文章把根/子目录 `CLAUDE.md`、path rules、skills、hooks、subagents 等按加载时机、压缩行为、context cost 和用途区分，并建议根文件由 owner 维护、作为 overview/index。
 
 对本研究的影响：
 
-- 常驻内容不是一次设计后永久正确的配置；它必须声明适用 harness/model 范围，并接受版本升级后的删减
-  和配对评测。
-- “以前模型需要”不足以成为继续常驻的理由。重复提示、过窄示例和已经由工具接口表达的知识都应成为
-  定期删除候选。
+- 常驻内容不是一次设计后永久正确的配置；它必须声明适用 harness/model 范围，并接受版本升级后的删减和配对评测。
+- “以前模型需要”不足以成为继续常驻的理由。重复提示、过窄示例和已经由工具接口表达的知识都应成为定期删除候选。
 - 固定行数只能触发 review；真正标准仍是任务效果、冲突率、token/tool 成本和遗漏后果。
 
 ### A12. 约束强度必须与执行机制分开表达
@@ -474,26 +408,19 @@ harness 工具集和内部 coding eval 约束，不能直接外推到旧模型�
 - Anthropic：[Building verification loops in Claude Code with skills](https://claude.com/blog/building-verification-loops-in-claude-code-with-skills)
 - Block：[3 Principles for Designing Agent Skills](https://engineering.block.xyz/blog/3-principles-for-designing-agent-skills)
 
-证据性质：前两项是 Claude Code 产品机制和团队实践；Block 是其内部多种 Agent skills 的工程经验。
-它们支持机制分工，但不证明每个仓库都应采用某个产品的 hook/skill 形式。
+证据性质：前两项是 Claude Code 产品机制和团队实践；Block 是其内部多种 Agent skills 的工程经验。它们支持机制分工，但不证明每个仓库都应采用某个产品的 hook/skill 形式。
 
 关键机制：
 
-- Anthropic 明确指出，真正“绝不能发生”的行为不能只靠 `NEVER` 文本；需要 permissions 或确定性
-  hook。常驻说明、按路径规则、skill、hook 和权限具有不同 context cost 与 enforcement 能力。
-- verification loop 是“收集上下文 → 行动 → 运行测试/lint/自定义检查 → 修复”的重复反馈；可在本地、
-  PR/CI、spec validation 或独立 grader 中运行。
-- Block 把固定评分、命令和查询结构交给脚本，把诊断、解释和冲突判断留给 Agent。稳定部分追求确定性，
-  情境部分保留判断空间。
+- Anthropic 明确指出，真正“绝不能发生”的行为不能只靠 `NEVER` 文本；需要 permissions 或确定性 hook。常驻说明、按路径规则、skill、hook 和权限具有不同 context cost 与 enforcement 能力。
+- verification loop 是“收集上下文 → 行动 → 运行测试/lint/自定义检查 → 修复”的重复反馈；可在本地、PR/CI、spec validation 或独立 grader 中运行。
+- Block 把固定评分、命令和查询结构交给脚本，把诊断、解释和冲突判断留给 Agent。稳定部分追求确定性，情境部分保留判断空间。
 
 对本研究的影响：
 
-- 当前的知识属性需要新增 **Enforcement**：背景信息、行为指导、程序契约、确定性门禁、权限边界不能只靠
-  文件名或“必须”措辞区分。
-- 自然语言可以解释意图与后果，但不能冒充技术权限或稳定门禁；可形式化规则优先下沉到 schema、tests、
-  scripts、CI、sandbox 和 credential policy。
-- 这不意味着 scripts/tests 是所有 claim 的“最高权威”。它们主要约束 implementation 和
-  observational claims；产品应该怎样表现仍由对应 normative authority 决定。
+- 当前的知识属性需要新增 **Enforcement**：背景信息、行为指导、程序契约、确定性门禁、权限边界不能只靠文件名或“必须”措辞区分。
+- 自然语言可以解释意图与后果，但不能冒充技术权限或稳定门禁；可形式化规则优先下沉到 schema、tests、scripts、CI、sandbox 和 credential policy。
+- 这不意味着 scripts/tests 是所有 claim 的“最高权威”。它们主要约束 implementation 和 observational claims；产品应该怎样表现仍由对应 normative authority 决定。
 
 ### A13. Skill 需要运行入口、维护契约、来源与评测分层
 
@@ -502,23 +429,18 @@ harness 工具集和内部 coding eval 约束，不能直接外推到旧模型�
 - Sentry：[`getsentry/skills` snapshot `e7a87fa`](https://github.com/getsentry/skills/tree/e7a87fa72645158f9b5e722cbb1c7e09266f48f1)
 - [Agent Skills specification](https://github.com/agentskills/agentskills)
 
-证据性质：公开仓库当前结构和开放格式规范，证明这些机制已被实际采用；文件存在和 star 数不证明其对
-软件任务有净收益。
+证据性质：公开仓库当前结构和开放格式规范，证明这些机制已被实际采用；文件存在和 star 数不证明其对软件任务有净收益。
 
 实际结构：
 
-- Agent Skills 规范把 discovery metadata、激活后加载的 `SKILL.md`、执行时按需读取的
-  `scripts/references/assets` 分开，形成渐进式披露。
-- Sentry 把 `SKILL.md` 定位为 runtime instructions，把 `SPEC.md` 定位为维护契约，把来源清单放入
-  `SOURCES.md`、长期样例放入 `references/evidence/`，并为 skill-writer 保留可重复的 `EVAL.md`。
-- Sentry 还显式区分 global、domain-specific 和 repo-specific skill 的物理归属，并让
-  `CLAUDE.md` 链接到 `AGENTS.md`，避免维护两套根事实。
+- Agent Skills 规范把 discovery metadata、激活后加载的 `SKILL.md`、执行时按需读取的 `scripts/references/assets` 分开，形成渐进式披露。
+- Sentry 把 `SKILL.md` 定位为 runtime instructions，把 `SPEC.md` 定位为维护契约，把来源清单放入 `SOURCES.md`、长期样例放入 `references/evidence/`，并为 skill-writer 保留可重复的 `EVAL.md`。
+- Sentry 还显式区分 global、domain-specific 和 repo-specific skill 的物理归属，并让 `CLAUDE.md` 链接到 `AGENTS.md`，避免维护两套根事实。
 
 对本研究的影响：
 
 - “按需加载”只解决 delivery，不自动解决来源、兼容版本、owner、评测和退役问题。
-- runtime 路由与 maintenance contract 可以逻辑分离；小 skill 不必机械创建所有文件，但必须具备等价的
-  intent、scope、source、compatibility、evaluation 和 limitation 信息。
+- runtime 路由与 maintenance contract 可以逻辑分离；小 skill 不必机械创建所有文件，但必须具备等价的 intent、scope、source、compatibility、evaluation 和 limitation 信息。
 - skill 目录深度同样需要任务验证，不能把根上下文膨胀转移成无人能导航的 reference tree。
 
 ### A14. Compound Engineering 把纠正写回仓库，但仍需要 promotion 门槛
@@ -528,23 +450,18 @@ harness 工具集和内部 coding eval 约束，不能直接外推到旧模型�
 - Every：[`compound-engineering-plugin` snapshot `a9f6d53`](https://github.com/EveryInc/compound-engineering-plugin/tree/a9f6d530d4446d805a3100387dedd86268d7e695)
 - 社区对照：[`obra/superpowers` snapshot `3dcbd5c`](https://github.com/obra/superpowers/tree/3dcbd5c4b48e02263fbf4a3c01e3fe4f81d584d9)
 
-证据性质：两个被广泛采用的公开 workflow/skill 系统的现行机制。它们展示可运行的流程设计，但公开
-仓库没有提供足以证明整套流程普遍优于轻量开发的受控结果。
+证据性质：两个被广泛采用的公开 workflow/skill 系统的现行机制。它们展示可运行的流程设计，但公开仓库没有提供足以证明整套流程普遍优于轻量开发的受控结果。
 
 实际机制：
 
-- Every 的主循环是 brainstorm → plan → work → simplify → review → compound；`ce-compound` 把本轮
-  学习写入 `docs/solutions/`，让后续 brainstorm/plan 读取。
-- Superpowers 把 plan、独立任务上下文、fresh subagent、验证和分阶段 review 编成程序性 skill，并把
-  “先观察无 skill 时的失败，再写最小 skill，再复测”类比为 process documentation 的 TDD。
+- Every 的主循环是 brainstorm → plan → work → simplify → review → compound；`ce-compound` 把本轮学习写入 `docs/solutions/`，让后续 brainstorm/plan 读取。
+- Superpowers 把 plan、独立任务上下文、fresh subagent、验证和分阶段 review 编成程序性 skill，并把 “先观察无 skill 时的失败，再写最小 skill，再复测”类比为 process documentation 的 TDD。
 
 对本研究的影响：
 
 - “每次工作让下一次更容易”是重要目标，但一次解决方案不应自动成为 current、常驻 rule 或通用 skill。
-- 需要一个显式反馈编译过程：纠正/发现先成为候选证据，再按 claim 类型路由，做重复性和任务效果验证，
-  最后 promotion 或退役。
-- 没有 candidate 状态、source grounding、去重和负反馈时，compound loop 会自我强化偶然经验并形成
-  `learnings/solutions` 垃圾场。
+- 需要一个显式反馈编译过程：纠正/发现先成为候选证据，再按 claim 类型路由，做重复性和任务效果验证，最后 promotion 或退役。
+- 没有 candidate 状态、source grounding、去重和负反馈时，compound loop 会自我强化偶然经验并形成 `learnings/solutions` 垃圾场。
 
 ### A15. LLM Wiki 与 Google Cloud OKF：索引链和交叉引用共同构成知识的发现图
 
@@ -592,10 +509,8 @@ harness 工具集和内部 coding eval 约束，不能直接外推到旧模型�
 
 第一项研究：
 
-- 在 SWE-bench 及 12 个真实包含开发者 context file 的仓库、138 个 issue 组成的 CTXbench 上比较多个
-  Agent/模型。
-- context file 会使 Agent 更多探索、测试并遵循仓库工具，但整体成功率没有显著提高，推理成本增加
-  约 20% 以上。
+- 在 SWE-bench 及 12 个真实包含开发者 context file 的仓库、138 个 issue 组成的 CTXbench 上比较多个 Agent/模型。
+- context file 会使 Agent 更多探索、测试并遵循仓库工具，但整体成功率没有显著提高，推理成本增加约 20% 以上。
 - 开发者维护的文件平均优于自动生成的文件；自动生成的 context file 经常只是重复已有文档。
 - 当研究者移除仓库其他文档、使 context file 成为唯一文档时，自动生成 context 才显示小幅收益。
 - 研究者因此建议只保留 README 中没有、而且确实必需的要求，并在采用前做严格评估。
@@ -625,14 +540,10 @@ harness 工具集和内部 coding eval 约束，不能直接外推到旧模型�
 实际实践与失败：
 
 - 对话和邮件可以留下 paper trail，但其主要目标不是教学，难以替代正式文档。
-- 文档若不可搜索、不可预测地发现，实际效果近似于不存在；Google 的 g3doc 把文档放到源码旁，并让
-  ownership、review 和变更历史可见。
-- 早期共享 Wiki 因无 owner、无新增流程、扁平命名空间而产生大量重复和过期页面；同一 Borg setup
-  一度存在 7～10 份文档，只有少数还维护。
-- canonical information 需要更高投入、显式 owner 和领域专家 vetting；不是所有局部知识都值得提升
-  成组织级 canonical。
-- 文档应进入现有工程工作流：有 owner、随代码评审、像 bug 一样跟踪问题、周期性评估，条件允许时
-  衡量准确度和 freshness。
+- 文档若不可搜索、不可预测地发现，实际效果近似于不存在；Google 的 g3doc 把文档放到源码旁，并让 ownership、review 和变更历史可见。
+- 早期共享 Wiki 因无 owner、无新增流程、扁平命名空间而产生大量重复和过期页面；同一 Borg setup 一度存在 7～10 份文档，只有少数还维护。
+- canonical information 需要更高投入、显式 owner 和领域专家 vetting；不是所有局部知识都值得提升成组织级 canonical。
+- 文档应进入现有工程工作流：有 owner、随代码评审、像 bug 一样跟踪问题、周期性评估，条件允许时衡量准确度和 freshness。
 - landing page 的主要职责是交通指挥；如果它同时承担用户手册、团队主页和完整说明，会很快失控。
 - 读者发现过期或缺失内容时，需要直接、低摩擦的反馈入口，并能找到负责响应的人。
 
@@ -640,8 +551,7 @@ harness 工具集和内部 coding eval 约束，不能直接外推到旧模型�
 
 - “仓内”本身不保证 canonical；可预测位置、唯一入口、owner、review 和反馈闭环缺一不可。
 - canonical 应按作用域分层：组织级、仓库级、组件级、本地团队级，而不是把所有事实集中到一个顶点。
-- 文档治理不仅是 CI，也包含责任和激励；如果修正文档总是额外工作，自动 Agent 也只会制造更多无人
-  维护的页面。
+- 文档治理不仅是 CI，也包含责任和激励；如果修正文档总是额外工作，自动 Agent 也只会制造更多无人维护的页面。
 - Agent 时代继承了 Wiki 时代的重复/漂移问题，并因生成速度更快而放大。
 
 ### B3. GitLab：文档与设计方案进入同一 MR 流程，但复杂度门槛必须显式
@@ -658,15 +568,11 @@ harness 工具集和内部 coding eval 约束，不能直接外推到旧模型�
 实际实践：
 
 - 文档和代码同库，并通过 MR、lint、链接检查、redirect 检查、构建、owner metadata 等 CI 规则治理。
-- 用户/API/workflow 的产品变化要求在同一 milestone 更新文档，且建议尽早进入开发流程，而不是最后
-  补写。
+- 用户/API/workflow 的产品变化要求在同一 milestone 更新文档，且建议尽早进入开发流程，而不是最后补写。
 - 顶层导航按用户 workflow 组织；月度报告寻找没有进入导航的孤儿页面，明确排除项必须写 metadata。
-- 复杂、跨团队、跨 milestone 或高风险变更使用 Architecture Design Workflow；小 refactor、依赖升级、
-  flaky test 等走普通轻量流程。
-- design document 是 version-controlled、持续演进的主文档；讨论通过 MR 归并回同一正文，避免读者
-  穿越多个 issue/thread 才能重建当前提案。
-- design doc 有 `proposed / accepted / ongoing / implemented / rejected` 状态、DRI、领域专家和
-  blocking authority。
+- 复杂、跨团队、跨 milestone 或高风险变更使用 Architecture Design Workflow；小 refactor、依赖升级、flaky test 等走普通轻量流程。
+- design document 是 version-controlled、持续演进的主文档；讨论通过 MR 归并回同一正文，避免读者穿越多个 issue/thread 才能重建当前提案。
+- design doc 有 `proposed / accepted / ongoing / implemented / rejected` 状态、DRI、领域专家和 blocking authority。
 - 关键 decision 可以拆成轻量 ADR；常见做法是 immutable，改变时标记 superseded 并建立新 ADR。
 - 工作完成后，可以把 design doc 校正为长期知识，也可以在没有持续价值时归档。
 
@@ -689,10 +595,8 @@ harness 工具集和内部 coding eval 约束，不能直接外推到旧模型�
 
 Kubernetes KEP 的机制：
 
-- 通过标准化、版本化的文档把 feature tracking、需求和设计结合起来，目标之一是减少散落在会议、邮件和
-  讨论区的 tribal knowledge。
-- metadata 显式记录 `status`、owning/participating SIG、authors、reviewers、approvers、创建和更新
-  日期、replaces/superseded-by。
+- 通过标准化、版本化的文档把 feature tracking、需求和设计结合起来，目标之一是减少散落在会议、邮件和讨论区的 tribal knowledge。
+- metadata 显式记录 `status`、owning/participating SIG、authors、reviewers、approvers、创建和更新日期、replaces/superseded-by。
 - lifecycle 区分 `provisional / implementable / implemented / deferred / rejected / withdrawn /
   replaced`；rejected 仍作为历史保留。
 - 对 process 本身也提出指标：各状态停留时间、orphaned、retired、superseded 数量等。
@@ -701,8 +605,7 @@ Kubernetes KEP 的机制：
 Rust RFC 的机制：
 
 - 只有 substantial change 进入 RFC；bugfix、文档改善和不改语义的重构可走普通 PR。
-- RFC 合并后只是 `active`，表示主要利益相关方原则上同意实施，不代表已经实现、已有负责人、确定优先级
-  或最终一定进入产品。
+- RFC 合并后只是 `active`，表示主要利益相关方原则上同意实施，不代表已经实现、已有负责人、确定优先级或最终一定进入产品。
 - accepted RFC 实施后可能与原始设计不同；重大变化用新 RFC，并从旧 RFC 链接过去，而不是重写历史。
 - 线下讨论必须摘要回 PR，长讨论在决策前先总结主要 trade-off 和分歧。
 
@@ -720,24 +623,19 @@ Rust RFC 的机制：
 
 - [Evaluating Repository-level Software Documentation via Question Answering and Feature-Driven Development](https://arxiv.org/abs/2604.06793)
 
-证据性质：2026 年预印本，提出 4,170 条 repository-level 文档评测样本，并在 57 个
-SWE-bench Verified 实例上做下游 issue-solving 实验。尚不能当成业界定论，但研究问题和评测形状与
-本课题高度一致。
+证据性质：2026 年预印本，提出 4,170 条 repository-level 文档评测样本，并在 57 个 SWE-bench Verified 实例上做下游 issue-solving 实验。尚不能当成业界定论，但研究问题和评测形状与本课题高度一致。
 
 评测设计：
 
 - 不让一个不了解仓库的 LLM 直接按“清晰、完整、有用”给文档打印象分。
-- 从真实高质量 PR 构造三个连续任务：
-  `Functionality Detection → Functionality Localization → Functionality Completion`。
+- 从真实高质量 PR 构造三个连续任务：`Functionality Detection → Functionality Localization → Functionality Completion`。
 - 依次测量读者能否判断能力是否存在、能否定位相关文件、能否取得足够具体的信息完成实现。
-- 在该实验中，给 SWE-Agent 提供检索出的文档后，issue-solving rate 相对提高 8%～20%，相关文件
-  定位也提高；文档与源码结合始终优于只询问文档。
+- 在该实验中，给 SWE-Agent 提供检索出的文档后，issue-solving rate 相对提高 8%～20%，相关文件定位也提高；文档与源码结合始终优于只询问文档。
 - 论文案例显示，表面流畅的文档可能被 LLM judge 同样打满分，但在跨文件细节填空中完全失败。
 
 对本研究的影响：
 
-- 文档体系的核心效果指标可以直接对应开发路径：
-  “判断已有能力 → 找到修改点 → 正确使用接口 → 完成并验证变化”。
+- 文档体系的核心效果指标可以直接对应开发路径：“判断已有能力 → 找到修改点 → 正确使用接口 → 完成并验证变化”。
 - 文档不是代码的替代物；高价值文档补充代码难以局部观察的全局关系、意图和定位线索。
 - 不能只检查“有没有索引、链接是否有效、写得是否顺”，还要用仓库真实任务验证检索和实现效果。
 - 评测必须保留任务基线、Agent/模型/工具配置和多次 trial，否则结果无法比较。
@@ -756,32 +654,22 @@ SWE-bench Verified 实例上做下游 issue-solving 实验。尚不能当成业�
 - [SWE-Skills-Bench](https://arxiv.org/abs/2603.15401)
 - [From Anatomy to Smells: An Empirical Study of `SKILL.md`](https://arxiv.org/abs/2607.01456)
 
-证据性质：全部是 2026 年的新兴实证研究或预印本，结论仍可能随 Agent、模型和数据集变化。它们的
-价值主要在于否定“拆成 instruction/skill 就自然有效”的假设。
+证据性质：全部是 2026 年的新兴实证研究或预印本，结论仍可能随 Agent、模型和数据集变化。它们的价值主要在于否定“拆成 instruction/skill 就自然有效”的假设。
 
 主要结果：
 
-- 对 100 个热门开源仓库的 context file 挖掘发现，91 个至少命中一种所定义的 smell；
-  `Lint Leakage` 62%、`Context Bloat` 42%、`Skill Leakage` 35%。论文还提出
-  `Blind Reference`：只给路径而不说明用途和读取条件。
-- SkillsBench 在 86 个跨领域任务、7,308 条 trajectory 上报告：人工精选 skill 平均提升
-  16.2 个百分点，但软件工程领域只提升 4.5 个百分点，84 个任务中有 16 个出现负向变化；
-  自动生成 skill 平均没有收益。
-- SWE-Skills-Bench 的约 565 个软件工程任务中，49 个 skill 只有 7 个取得显著提升，3 个因版本不匹配
-  和项目上下文冲突使表现下降；平均提升只有 1.2%。
-- `SKILL.md` smell 研究发现其样本中的质量问题很少随演进自然消失，但作者也明确承认：单个 smell
-  对实际 Agent 表现的直接因果影响仍待验证。
+- 对 100 个热门开源仓库的 context file 挖掘发现，91 个至少命中一种所定义的 smell；`Lint Leakage` 62%、`Context Bloat` 42%、`Skill Leakage` 35%。论文还提出 `Blind Reference`：只给路径而不说明用途和读取条件。
+- SkillsBench 在 86 个跨领域任务、7,308 条 trajectory 上报告：人工精选 skill 平均提升 16.2 个百分点，但软件工程领域只提升 4.5 个百分点，84 个任务中有 16 个出现负向变化；自动生成 skill 平均没有收益。
+- SWE-Skills-Bench 的约 565 个软件工程任务中，49 个 skill 只有 7 个取得显著提升，3 个因版本不匹配和项目上下文冲突使表现下降；平均提升只有 1.2%。
+- `SKILL.md` smell 研究发现其样本中的质量问题很少随演进自然消失，但作者也明确承认：单个 smell 对实际 Agent 表现的直接因果影响仍待验证。
 
 对本研究的影响：
 
-- instruction、skill 和 workflow 都需要 owner、版本、适用条件、验证与退役，
-  不是“把正文搬进去”后的免维护区。
-- skill 应优先承载确实重复、任务特定、难由仓库直接推导的程序性知识；通用常识、lint 规则和
-  已有文档正文不应再次复制。
+- instruction、skill 和 workflow 都需要 owner、版本、适用条件、验证与退役，不是“把正文搬进去”后的免维护区。
+- skill 应优先承载确实重复、任务特定、难由仓库直接推导的程序性知识；通用常识、lint 规则和已有文档正文不应再次复制。
 - 路由项必须写“何时读、解决什么问题”，不能只列路径。
 - 外部或跨仓 skill 必须声明兼容版本，且仓库本地事实优先；否则旧框架知识会与当前代码冲突。
-- 是否保留一个 workflow/skill，应通过配对任务观察成功率、token/tool 成本和失败模式，不靠
-  “看起来很完整”判断。
+- 是否保留一个 workflow/skill，应通过配对任务观察成功率、token/tool 成本和失败模式，不靠 “看起来很完整”判断。
 
 局限：
 
@@ -794,14 +682,12 @@ SWE-bench Verified 实例上做下游 issue-solving 实验。尚不能当成业�
 
 - [Detecting outdated code element references in software repository documentation](https://link.springer.com/article/10.1007/s10664-023-10397-6)
 
-证据性质：2024 年发表的 repository mining 研究，不针对 Coding Agent，但直接研究仓库文档与代码演进
-之间的漂移。
+证据性质：2024 年发表的 repository mining 研究，不针对 Coding Agent，但直接研究仓库文档与代码演进之间的漂移。
 
 主要结果：
 
 - 研究比较“文档最后更新时的代码快照”和“当前代码”，检测文档中已经不存在的 code element。
-- 在可分析的 top-1000 开源仓库样本中，19.2% 的文档、28.9% 的项目至少含一个当前陈旧引用；
-  Google 开源仓样本中分别为 9.7% 和 5.4%。
+- 在可分析的 top-1000 开源仓库样本中，19.2% 的文档、28.9% 的项目至少含一个当前陈旧引用；Google 开源仓样本中分别为 9.7% 和 5.4%。
 - 研究还沿 git history 计算引用从有效到失效的时间，并通过 issue 向维护者报告。
 
 对本研究的影响：
@@ -812,8 +698,7 @@ SWE-bench Verified 实例上做下游 issue-solving 实验。尚不能当成业�
 
 局限：
 
-- exact string/reference 消失只能发现一部分陈旧问题；实现仍存在但语义改变时可能漏报，也可能因重命名
-  产生误报。
+- exact string/reference 消失只能发现一部分陈旧问题；实现仍存在但语义改变时可能漏报，也可能因重命名产生误报。
 
 ### B8. 知识、指令与行动授权必须是三条不同的信任链
 
@@ -824,31 +709,21 @@ SWE-bench Verified 实例上做下游 issue-solving 实验。尚不能当成业�
 - [Agent Skills in the Wild: An Empirical Study of Security Vulnerabilities at Scale](https://arxiv.org/abs/2601.10338)
 - [Skill-Inject: Measuring Agent Vulnerability to Skill File Attacks](https://arxiv.org/abs/2602.20156)
 
-证据性质：前两项是平台方公开的实际威胁模型与控制；后两项是 2026 年预印本，其自动检测率与攻击
-成功率只能解释为特定数据集和 harness 下的风险信号。
+证据性质：前两项是平台方公开的实际威胁模型与控制；后两项是 2026 年预印本，其自动检测率与攻击成功率只能解释为特定数据集和 harness 下的风险信号。
 
 关键事实：
 
-- GitHub 明确把 issue/comment 中的隐藏文本视为 prompt injection 来源，并通过触发者权限、分支限制、
-  人类合并、workflow 审批、session/audit log 等机制限制后果。
-- OpenAI 把 sandbox、approval、network policy、identity/credential 和 agent-native telemetry
-  作为独立控制面；文本指令不能自行扩大 Agent 的技术权限。
-- 大规模 skill 挖掘研究在 31,132 个样本中标记 26.1% 含值得安全审查的模式，并发现带 executable
-  script 的 skill 更高风险。作者特别提醒，该比例混合恶意、疏忽与模糊模式，不等于 26.1% 都是恶意。
-- Skill-Inject 在 202 个攻击任务对上观察到最高 80% attack success rate，并判断仅靠模型变强或简单
-  输入过滤不足以解决问题。
+- GitHub 明确把 issue/comment 中的隐藏文本视为 prompt injection 来源，并通过触发者权限、分支限制、人类合并、workflow 审批、session/audit log 等机制限制后果。
+- OpenAI 把 sandbox、approval、network policy、identity/credential 和 agent-native telemetry 作为独立控制面；文本指令不能自行扩大 Agent 的技术权限。
+- 大规模 skill 挖掘研究在 31,132 个样本中标记 26.1% 含值得安全审查的模式，并发现带 executable script 的 skill 更高风险。作者特别提醒，该比例混合恶意、疏忽与模糊模式，不等于 26.1% 都是恶意。
+- Skill-Inject 在 202 个攻击任务对上观察到最高 80% attack success rate，并判断仅靠模型变强或简单输入过滤不足以解决问题。
 
 对本研究的影响：
 
-- 仓库中“可以被检索的文本”不自动成为 instruction。issue、PR comment、LLM 交互日志、外部网页、
-  research snapshot 和 generated summary 都应默认视为 evidence/input，而不是行动授权。
-- 根 instruction、workflow 和 skill 会直接影响 Agent 行为，需要 owner、review、变更审计和明确适用域；
-  外部 skill 还应像依赖一样 pin 版本、审查脚本与权限，并支持撤销。
-- “允许做什么”应由 sandbox、branch protection、CODEOWNERS、CI、credential scope 和审批策略实现，
-  不应只靠 Markdown 中一句“不要做”。
-- LLM 交互日志对复现和诊断非常重要，但它们同时可能包含 secret、个人信息、外部不可信内容和已过期
-  上下文。知识地图应清楚路由到日志位置和检索方法，同时设置访问、留存、脱敏和引用规则，不能把整段
-  日志复制进常驻上下文。
+- 仓库中“可以被检索的文本”不自动成为 instruction。issue、PR comment、LLM 交互日志、外部网页、research snapshot 和 generated summary 都应默认视为 evidence/input，而不是行动授权。
+- 根 instruction、workflow 和 skill 会直接影响 Agent 行为，需要 owner、review、变更审计和明确适用域；外部 skill 还应像依赖一样 pin 版本、审查脚本与权限，并支持撤销。
+- “允许做什么”应由 sandbox、branch protection、CODEOWNERS、CI、credential scope 和审批策略实现，不应只靠 Markdown 中一句“不要做”。
+- LLM 交互日志对复现和诊断非常重要，但它们同时可能包含 secret、个人信息、外部不可信内容和已过期上下文。知识地图应清楚路由到日志位置和检索方法，同时设置访问、留存、脱敏和引用规则，不能把整段日志复制进常驻上下文。
 
 ### B9. 渐进式披露补的是 context budget，不是 Agent 智力
 
@@ -856,24 +731,19 @@ SWE-bench Verified 实例上做下游 issue-solving 实验。尚不能当成业�
 
 - [Is Progressive Disclosure All You Need for Long-Context Agents?](https://arxiv.org/abs/2607.17598)
 
-证据性质：2026-07-20 提交的 v1 预印本。研究在 InfiniteBench 长文问答上，跨三个 Agent harness、
-三个模型家族，对比 raw-document navigation、多种 Agent Skills 分层和传统 hybrid retriever。它不是
-代码仓开发任务，但直接检验了“让强 Agent 自主读文件”和“预建渐进式路由”的边界。
+证据性质：2026-07-20 提交的 v1 预印本。研究在 InfiniteBench 长文问答上，跨三个 Agent harness、三个模型家族，对比 raw-document navigation、多种 Agent Skills 分层和传统 hybrid retriever。它不是代码仓开发任务，但直接检验了“让强 Agent 自主读文件”和“预建渐进式路由”的边界。
 
 主要结果：
 
-- 单本材料中，progressive disclosure 的收益依赖 harness：当 harness 自身导航弱时收益较大；强
-  harness 已能切分和检索时，额外收益接近零。
+- 单本材料中，progressive disclosure 的收益依赖 harness：当 harness 自身导航弱时收益较大；强 harness 已能切分和检索时，额外收益接近零。
 - 跨多本材料时，raw navigation 明显退化，一层 progressive disclosure 下降更慢并取得优势。
 - 第二层更深路由没有带来收益，并在部分设置中破坏准确率。
 
 对本研究的影响：
 
 - progressive disclosure 主要购买的是 context scalability，不是给 Agent 增加推理能力。
-- 默认应让 Agent 直接搜索代码和少量清晰资料；只有 corpus、跨仓范围或实际错误定位证明需要时，才加
-  一层紧凑路由。
-- 多层 catalog/reference tree 不应被当作天然成熟形态。每增加一层都要证明它降低定位成本，而不是增加
-  选择错误和维护漂移。
+- 默认应让 Agent 直接搜索代码和少量清晰资料；只有 corpus、跨仓范围或实际错误定位证明需要时，才加一层紧凑路由。
+- 多层 catalog/reference tree 不应被当作天然成熟形态。每增加一层都要证明它降低定位成本，而不是增加选择错误和维护漂移。
 
 局限：
 
@@ -955,8 +825,7 @@ SWE-Explore 的设计与结果：
 
 对本研究的影响：
 
-- 决策历史与 current architecture 应形成链接，但职责不同：前者解释“为什么当时这么选”，后者说明
-  “现在系统是什么”。
+- 决策历史与 current architecture 应形成链接，但职责不同：前者解释“为什么当时这么选”，后者说明 “现在系统是什么”。
 - 是否独立建立 `adr/` 是适配选择；“决策必须有上下文、后果和替代链”才是方法论内核。
 - 如果 change unit 已完整承担这些字段和不可变历史，就不必为了目录形式再复制一份 ADR。
 
@@ -970,8 +839,7 @@ SWE-Explore 的设计与结果：
 核心机制：
 
 - 纯文本源、版本控制、peer review、自动构建与发布。
-- 文档与代码共同 branch、merge 和 version；Backstage 建议文档源与所描述组件 co-locate，并通过组件
-  catalog 提供发现和 ownership。
+- 文档与代码共同 branch、merge 和 version；Backstage 建议文档源与所描述组件 co-locate，并通过组件 catalog 提供发现和 ownership。
 - 生成后的 HTML/PDF/网站是派生物，source 才是应编辑和评审的入口。
 
 对本研究的影响：
@@ -991,14 +859,12 @@ SWE-Explore 的设计与结果：
 核心机制：
 
 - 区分 tutorial、how-to、reference、explanation 四类读者需要。
-- 它是一种判断内容目的的方法，不要求物理目录只能有四个盒子；复杂项目还要考虑 topic、产品和受众
-  等第二维度。
+- 它是一种判断内容目的的方法，不要求物理目录只能有四个盒子；复杂项目还要考虑 topic、产品和受众等第二维度。
 - 文档改进应从真实页面和读者问题小步推进，不应先制造一套空目录再强迫内容进入。
 
 对本研究的影响：
 
-- Diátaxis 更适合约束“页面在帮助读者做什么”，而不是替代 lifecycle、authority 或 repository
-  artifact 分类。
+- Diátaxis 更适合约束“页面在帮助读者做什么”，而不是替代 lifecycle、authority 或 repository artifact 分类。
 - `operations/` 中仍可以同时存在 how-to、reference 和 explanation，但一篇页面不应混淆主要模式。
 - 目录结构应从读者任务、领域所有权和生命周期共同推导，不从四象限机械复制。
 
@@ -1010,8 +876,7 @@ SWE-Explore 的设计与结果：
 
 核心机制：
 
-- 对中等规模仓库提供短的 bird’s-eye view、coarse-grained codemap、模块关系、边界、architectural
-  invariants 和 cross-cutting concerns。
+- 对中等规模仓库提供短的 bird’s-eye view、coarse-grained codemap、模块关系、边界、architectural invariants 和 cross-cutting concerns。
 - 重点回答“做 X 去哪里”“眼前模块负责什么”；下钻实现细节另放文档或代码。
 - 只记录不易频繁变化的结构，降低同步成本。
 
@@ -1033,8 +898,7 @@ SWE-Explore 的设计与结果：
 
 - 组件 metadata 与代码一起存入版本控制，由组件 owner 通过正常 Git workflow 维护。
 - Catalog 汇集组件、owner、lifecycle、关系、API 和外部工具入口，使数千个软件实体可以被发现。
-- Backstage 明确提醒：Catalog 是聚合和展示信息的 hub/cache，不应反过来成为所有事实的最终
-  source of truth；动态运行状态继续由外部运行系统拥有。
+- Backstage 明确提醒：Catalog 是聚合和展示信息的 hub/cache，不应反过来成为所有事实的最终 source of truth；动态运行状态继续由外部运行系统拥有。
 - orphan、处理错误和无效 owner 可以成为显式状态，而不是让缺失关系静默发生。
 - Catalog graph 代表有用的人类心智模型，不追求复制所有动态依赖和运行时细节。
 
@@ -1042,8 +906,7 @@ SWE-Explore 的设计与结果：
 
 - 大型 monorepo 或多仓组织需要一个 discovery/control plane，但正文仍可以由组件就近维护。
 - 目录中的 owner、状态、路径和关系可以集中，领域事实不必集中；“统一入口”不等于“统一正文”。
-- generated site、搜索索引、知识图谱和 Agent retrieval index 都应注明上游 source，并支持重建；
-  对它们的直接人工编辑应被禁止或回写到源。
+- generated site、搜索索引、知识图谱和 Agent retrieval index 都应注明上游 source，并支持重建；对它们的直接人工编辑应被禁止或回写到源。
 - owner 不能只是装饰性字符串：失效 owner 和 orphan 文档需要可检测、可分派的治理路径。
 
 ### D1. 社区实践：静态 workflow 与 instruction 必须证明自己有用
@@ -1059,12 +922,9 @@ SWE-Explore 的设计与结果：
 
 共同信号：
 
-- HumanLayer 主张 root instruction 只放普适信息，通过自描述文件名和链接做 progressive disclosure，
-  并把格式、lint 等可确定规则交给工具；同时承认很多建议尚未严格验证。
-- Armin Ronacher 删除了许多没有形成使用习惯的 slash commands；他观察到静态 context 自动化经常取
-  太多或太少，要求一种自动化只有在重复任务上做过多次并对比结果后才保留。
-- Thorsten Ball 倾向短 session，把 architecture、陷阱、相关代码、测试和 trade-off 作为当前任务的
-  定向 context；也把 git commit/history 当成高价值的历史知识载体。
+- HumanLayer 主张 root instruction 只放普适信息，通过自描述文件名和链接做 progressive disclosure，并把格式、lint 等可确定规则交给工具；同时承认很多建议尚未严格验证。
+- Armin Ronacher 删除了许多没有形成使用习惯的 slash commands；他观察到静态 context 自动化经常取太多或太少，要求一种自动化只有在重复任务上做过多次并对比结果后才保留。
+- Thorsten Ball 倾向短 session，把 architecture、陷阱、相关代码、测试和 trade-off 作为当前任务的定向 context；也把 git commit/history 当成高价值的历史知识载体。
 - 社区经验反复指向：快速、低噪声的工具反馈，通常比把同一规则再写成一段自然语言更可靠。
 
 对本研究的影响：
@@ -1176,8 +1036,7 @@ Code-QA-Bench 和 SWE-Explore 都是新预印本，前者还使用 LLM judge，�
 
 这使本研究逐渐从“文档目录设计”转向一个更完整的问题：
 
-> 如何让仓库中的事实、工作记忆、历史证据和执行知识各有权威与生命周期，再通过一个可预算、可观测、
-> 可机械约束的检索与反馈平面，把当前任务需要的最小可信集合交给人或 Agent？
+> 如何让仓库中的事实、工作记忆、历史证据和执行知识各有权威与生命周期，再通过一个可预算、可观测、可机械约束的检索与反馈平面，把当前任务需要的最小可信集合交给人或 Agent？
 
 ## 阶段性综合 v0.1（E 级推论）
 
@@ -1185,9 +1044,7 @@ Code-QA-Bench 和 SWE-Explore 都是新预印本，前者还使用 LLM judge，�
 
 ### 1. Repository Knowledge System 是 Repository Harness 的一个子系统
 
-代码仓作为 Coding Agent 的长期 Harness，至少还包括可操作的代码/环境、工具接口、验证反馈、隔离和
-权限。Repository Knowledge System 负责其中的权威、工作记忆、证据、历史和上下文交付，不能独自替代
-一个可运行、可观察、可验证的工程环境。
+代码仓作为 Coding Agent 的长期 Harness，至少还包括可操作的代码/环境、工具接口、验证反馈、隔离和权限。Repository Knowledge System 负责其中的权威、工作记忆、证据、历史和上下文交付，不能独自替代一个可运行、可观察、可验证的工程环境。
 
 知识系统至少包含五个逻辑平面；这些是职责，不要求对应五个物理目录：
 
@@ -1211,14 +1068,12 @@ Code-QA-Bench 和 SWE-Explore 都是新预印本，前者还使用 LLM judge，�
 1. **Role**：它属于上面哪个主要平面，回答什么问题？
 2. **Scope**：组织、仓库、组件、变更、环境还是单次运行？
 3. **State**：draft、proposed、accepted、active、implemented、current、superseded、archived 中的哪一种？
-4. **Authority/Provenance**：人工 source、schema/code source、generated projection、observed evidence、
-   imported snapshot 中的哪一种？上游是什么？
+4. **Authority/Provenance**：人工 source、schema/code source、generated projection、observed evidence、imported snapshot 中的哪一种？上游是什么？
 5. **Owner**：谁有责任评审、校正和退役？
 6. **Delivery**：常驻、路由后读取、按查询检索、任务胶囊，还是由源生成的 projection？
 7. **Enforcement**：它只是背景/建议、Agent 程序契约、确定性门禁，还是技术权限边界？
 
-这些属性可以由目录、frontmatter、catalog metadata、CODEOWNERS 或索引表表达，不应把一种 YAML 格式
-变成方法论本身。
+这些属性可以由目录、frontmatter、catalog metadata、CODEOWNERS 或索引表表达，不应把一种 YAML 格式变成方法论本身。
 
 ### 3. “单一事实来源”需要改写成 claim-scoped authority
 
@@ -1266,8 +1121,7 @@ Resident bootstrap
 
 因此，“文件清单”和“语义路由”不是二选一：链接清单先声明知识集合及其用途，state、authority、read-when 等语义帮助 Agent 正确选择和解释。默认保持顶层地图加局部入口的一层紧凑结构；只有仓库任务评测证明 corpus 规模仍导致定位失败时，才增加更深层级或专用检索。
 
-外部网站的 clean Markdown、`llms.txt`、MCP、搜索索引和 generated architecture map 都是 delivery
-projection。它们应能追溯和重建，不能与源并列人工维护。
+外部网站的 clean Markdown、`llms.txt`、MCP、搜索索引和 generated architecture map 都是 delivery projection。它们应能追溯和重建，不能与源并列人工维护。
 
 ### 5. 通用 lifecycle 是 promotion，不是文件搬家
 
@@ -1319,8 +1173,7 @@ Current truth
 | Security | secret、外部 skill provenance/版本/权限、日志访问与脱敏、Agent allowed paths |
 | Effect | 真实任务成功率、检索正确率、首次正确定位成本、token/tool 成本、人工返工 |
 
-自动 Docs Agent 适合修复范围窄、事实可由 diff grounding 的问题；新增权威、改变语义或删除历史仍应走
-显式评审。
+自动 Docs Agent 适合修复范围窄、事实可由 diff grounding 的问题；新增权威、改变语义或删除历史仍应走显式评审。
 
 ### 8. 评测单位应该是仓库任务，不是页面
 
@@ -1350,24 +1203,20 @@ Current truth
 | Structured | 多组件、长任务、Agent 经常改代码 | docs map、claim authority、current/change 分离、active work memory、owner、docs checks、task eval |
 | Federated | monorepo/多仓、多团队、高风险或生产自治 | 全局 catalog + 组件局部知识、正式 proposal 状态、generated projections、权限/审计、受限 gardening、持续 eval |
 
-升级 profile 应由真实痛点触发，例如错误定位、重复文档、owner 缺失、并行 change 冲突、长任务频繁失忆
-或 Agent 已成为主要贡献者；不按 LOC 或文件数机械创建空目录。
+升级 profile 应由真实痛点触发，例如错误定位、重复文档、owner 缺失、并行 change 冲突、长任务频繁失忆或 Agent 已成为主要贡献者；不按 LOC 或文件数机械创建空目录。
 
 ## 待验证假设
 
 这些是假设，不是结论：
 
-1. Agent 时代没有推翻 Docs-as-Code、ADR、RFC 等传统实践，而是放大了它们对明确权威、结构化状态和
-   自动治理的要求。
+1. Agent 时代没有推翻 Docs-as-Code、ADR、RFC 等传统实践，而是放大了它们对明确权威、结构化状态和自动治理的要求。
 2. 仓库需要的是“短入口 + 可导航知识图”，而不是一份覆盖所有内容的总手册。
-3. 文档类型和文档生命周期是两个独立维度；只按 `guide/reference` 分类或只按
-   `active/archive` 分类都不够。
+3. 文档类型和文档生命周期是两个独立维度；只按 `guide/reference` 分类或只按 `active/archive` 分类都不够。
 4. proposed 与 current 的明确隔离，是防止 Agent 用未来设计解释当前代码的关键机制。
 5. Agent 可执行的 workflow/skill 属于知识体系，但不应成为架构、行为和历史事实的唯一存储位置。
 6. 文档质量最终应通过真实任务的检索与完成效果来评估，而不只是链接检查、文件长度或目录覆盖率。
 7. 强 Coding Agent 默认能够自主搜索仓库，但搜索不能替代知识的显式可达性；结构化路由首先让 Agent 知道有哪些知识、各自用途和关系，在大 corpus 中进一步控制 context，同时不替 Agent 设计固定检索流程。
-8. 人类纠正只有经过候选、分类、验证和 promotion，才可能成为可复用仓库能力；直接追加到根文件会造成
-   经验污染。
+8. 人类纠正只有经过候选、分类、验证和 promotion，才可能成为可复用仓库能力；直接追加到根文件会造成经验污染。
 
 ## 尚未形成结论的争议
 

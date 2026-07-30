@@ -78,8 +78,7 @@ MetaGPT 的 SOP-based 顺序流水线（PM → Architect → Engineer → QA）�
 - 可执行性评分：多 agent 3.75 vs ChatDev 2.25 vs 单 agent 1.0
 - 关键前提：**有明确 SOP 的任务**（模拟软件公司工作流）
 
-消融实验明确：从 4 角色降到单 agent 时，代码可执行性从 4.0 降至 1.0（完全失败）。
-**但**：MetaGPT 在项目级任务上因 agent 间通信崩溃而大幅退化（E2E-SD Framework 评测），即使是 GPT-4o 驱动也几乎无法完成所有测试用例。
+消融实验明确：从 4 角色降到单 agent 时，代码可执行性从 4.0 降至 1.0（完全失败）。**但**：MetaGPT 在项目级任务上因 agent 间通信崩溃而大幅退化（E2E-SD Framework 评测），即使是 GPT-4o 驱动也几乎无法完成所有测试用例。
 
 来源：`research/spec_design_agent_dim04_collaboration_topology.md`，MetaGPT 原论文 arXiv:2308.00352
 

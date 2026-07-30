@@ -1,17 +1,13 @@
 # 关键路径 e2e 清单（catalog）
 
-> 单一权威的「用户旅程 ↔ 守护它的 e2e 测试 ↔ 归属子系统 ↔ 引入 unit」对账表。
-> 引入 unit：feat-421（拆自 #117 的结构性建议，Closes #119）。
+> 单一权威的「用户旅程 ↔ 守护它的 e2e 测试 ↔ 归属子系统 ↔ 引入 unit」对账表。引入 unit：feat-421（拆自 #117 的结构性建议，Closes #119）。
 
 测试选择与分层遵循 [`testing.md`](testing.md)；真实进程的端口、config、数据和清理契约见 [`worktree-runtime.md`](worktree-runtime.md)。
 
-这套 e2e **经真 Gateway 进程**（真 IM + 真 Gateway 子进程），把测试当成一个真实 IM
-用户，只走 IM 对外 HTTP + WebSocket 接口发消息/读回复。按是否需要真模型分成两类：
+这套 e2e **经真 Gateway 进程**（真 IM + 真 Gateway 子进程），把测试当成一个真实 IM 用户，只走 IM 对外 HTTP + WebSocket 接口发消息/读回复。按是否需要真模型分成两类：
 
 - **真 LLM proxy**（默认多数路径）：断言用户在 IM 上能否观察到预期结果；依赖 `:4000`。
-- **fake / recording LLM**（如 #14）：Gateway 的 `llm.providers[].base_url` 指向
-  `scripts/fixtures/anthropic_sse_ok_recording.py`，断言上游请求体（messages/tools）
-  是否守住架构不变量；**不门控 / 不调用**真 proxy。
+- **fake / recording LLM**（如 #14）：Gateway 的 `llm.providers[].base_url` 指向 `scripts/fixtures/anthropic_sse_ok_recording.py`，断言上游请求体（messages/tools）是否守住架构不变量；**不门控 / 不调用**真 proxy。
 
 真 LLM 路径平时不跑（烧 token），**想测时一条命令全跑**：
 
@@ -22,20 +18,15 @@ scripts/e2e-critical.sh -m "not slow"   # 跳过时间驱动（cron/heartbeat）
 PYTHONPATH=src pytest -m e2e tests/e2e/critical_paths/test_agent_config_context_continuity_critical_path.py
 ```
 
-缺本地 LLM proxy（`:4000/health`）或缺 `~/.nano-assistant/config.yaml`（含 `llm:` 段）时，
-**真 LLM 路径干净 skip**而非报错；fake-LLM 路径只要主 config 存在即可跑。失败时
-IM/Gateway 日志 tail 进报告，可定位断在哪一段。
+缺本地 LLM proxy（`:4000/health`）或缺 `~/.nano-assistant/config.yaml`（含 `llm:` 段）时，**真 LLM 路径干净 skip**而非报错；fake-LLM 路径只要主 config 存在即可跑。失败时 IM/Gateway 日志 tail 进报告，可定位断在哪一段。
 
 ## 登记纪律
 
-**新增一个关键特性时，必须在下表「v1 必保活」段登记一行，并配一条能跑的守护测试。**
-每条「必保活」路径都必须引用至少一个能被 pytest 收集的守护测试；CI 通过 `scripts/docs-check` 校验表格结构、计数和引用关系。路径是否应纳入清单、测试是否真正覆盖该旅程，由变更评审和按需 E2E 验收判断。
-当前还没有 e2e 兜底的关键路径，诚实登记在「已知缺口 backlog」段，而非默认为已覆盖。
+**新增一个关键特性时，必须在下表「v1 必保活」段登记一行，并配一条能跑的守护测试。** 每条「必保活」路径都必须引用至少一个能被 pytest 收集的守护测试；CI 通过 `scripts/docs-check` 校验表格结构、计数和引用关系。路径是否应纳入清单、测试是否真正覆盖该旅程，由变更评审和按需 E2E 验收判断。当前还没有 e2e 兜底的关键路径，诚实登记在「已知缺口 backlog」段，而非默认为已覆盖。
 
 ## v1 必保活路径
 
-> 「守护测试」列指向 `tests/e2e/critical_paths/` 下的测试函数，均经真 Gateway 进程真跑通过。
-> heartbeat（原 #7）端到端不冒泡（真实产品 bug #126），其 e2e 旅程已写但标 `@pytest.mark.xfail(strict=True, #126)`（真跑 → 预期 XFAIL；#126 修复后转 XPASS 即 strict 报错提醒去 xfail），暂移至下方 backlog 段——故 v1 必保活当前为 13 条。
+> 「守护测试」列指向 `tests/e2e/critical_paths/` 下的测试函数，均经真 Gateway 进程真跑通过。heartbeat（原 #7）端到端不冒泡（真实产品 bug #126），其 e2e 旅程已写但标 `@pytest.mark.xfail(strict=True, #126)`（真跑 → 预期 XFAIL；#126 修复后转 XPASS 即 strict 报错提醒去 xfail），暂移至下方 backlog 段——故 v1 必保活当前为 13 条。
 
 | # | 用户旅程 | 守护测试 | 归属子系统 | 引入 unit |
 |---|---|---|---|---|
@@ -55,8 +46,7 @@ IM/Gateway 日志 tail 进报告，可定位断在哪一段。
 
 ## 已知缺口 / backlog（暂无 e2e 兜底）
 
-下列关键路径在各包契约层已声明，但**当前尚无经 Gateway 进程的 e2e 守护**——显式登记在册，
-留待后续 unit，不被默认为已覆盖。
+下列关键路径在各包契约层已声明，但**当前尚无经 Gateway 进程的 e2e 守护**——显式登记在册，留待后续 unit，不被默认为已覆盖。
 
 | 关键路径 | 为什么暂缺 | 归属子系统 | 计划 |
 |---|---|---|---|

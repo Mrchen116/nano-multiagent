@@ -64,8 +64,7 @@ TDD 过程里产生两种东西，去向不同：
 
 判据:问自己"半年后这个测试还该每次 CI 都跑吗?"——否 → 它是验收证据，不是回归测试。
 
-一次性证据的 Claim/Baseline/Method/Result/Locator/Limit 记录方式、保存位置和 promotion 规则见
-[`evidence.md`](evidence.md)。
+一次性证据的 Claim/Baseline/Method/Result/Locator/Limit 记录方式、保存位置和 promotion 规则见 [`evidence.md`](evidence.md)。
 
 **被测逻辑 MUST 住在 `src/`，不靠 `importlib` exec 一次性脚本取用。** 反模式:把有回归价值的纯逻辑(DB 读取、解析、状态判定)留在 `ACCEPTANCE/*.py` 这类一次性验收脚本里，测试用 `importlib.util.spec_from_file_location` 把整个脚本 exec 进来取函数。后果:① 脚本的顶层依赖(playwright 等)会连坐进收集，缺依赖就炸；② 被测逻辑不在产品代码里，等于没真正落地。正确做法:有长期价值的逻辑提进 `src/`，测试直接 `import`；一次性脚本不作为被测对象。
 
@@ -73,8 +72,7 @@ TDD 过程里产生两种东西，去向不同：
 
 - AAA 结构(Arrange-Act-Assert)，一个测试一个清晰主题。
 - 单测试文件软上限 **400 行**，超了按行为拆分。(现存 2000+ 行文件是反面教材。)
-- MUST NOT `skip`/`xfail` 蒙混过关。测试该绿就让它绿，该删就删。
-  **唯一合规例外**：已知产品回归（测试正确、产品有 bug）可打 `@pytest.mark.xfail(strict=True, reason="<现象>; tracked in #<N>")`，条件：① 必须附 issue 编号；② `strict=True`（修好后转 xpass 自动报错，强制摘标）；③ 该测试不得删除（删除=掩盖 bug）。无 issue 编号的 xfail 视同蒙混，审查拒绝。
+- MUST NOT `skip`/`xfail` 蒙混过关。测试该绿就让它绿，该删就删。**唯一合规例外**：已知产品回归（测试正确、产品有 bug）可打 `@pytest.mark.xfail(strict=True, reason="<现象>; tracked in #<N>")`，条件：① 必须附 issue 编号；② `strict=True`（修好后转 xpass 自动报错，强制摘标）；③ 该测试不得删除（删除=掩盖 bug）。无 issue 编号的 xfail 视同蒙混，审查拒绝。
 - 复用现有 fixture/helper，不重复造。
 
 ## 8) tasks.md 测试策略段必填

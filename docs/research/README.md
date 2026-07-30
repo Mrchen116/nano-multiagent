@@ -1,7 +1,6 @@
 # Research
 
-本目录保存外部项目比较、阶段性审查、脑暴和其他带时间/基线的研究快照。它们提供调查证据和历史语境；
-当前产品、架构、行为和开发流程仍从 [`../README.md`](../README.md) 路由到各自的 current owner。
+本目录保存外部项目比较、阶段性审查、脑暴和其他带时间/基线的研究快照。它们提供调查证据和历史语境；当前产品、架构、行为和开发流程仍从 [`../README.md`](../README.md) 路由到各自的 current owner。
 
 ## 研究入口
 
@@ -28,7 +27,6 @@
 ## 消费规则
 
 1. 先读页面状态、日期和基线。
-2. 把研究结论当作调查线索，回到当前代码、[`../../SPEC.md`](../../SPEC.md)、
-   [`../specs/`](../specs/README.md) 或 [`../development/`](../development/README.md) 核实。
+2. 把研究结论当作调查线索，回到当前代码、[`../../SPEC.md`](../../SPEC.md)、[`../specs/`](../specs/README.md) 或 [`../development/`](../development/README.md) 核实。
 3. 仍值得实施的缺口进入 issue/change；已经验证的稳定结论归并到唯一 current owner。
 4. 本机生成但没有提交的报告仍是 local snapshot，不因文件位于 `docs/` 就获得仓库权威。

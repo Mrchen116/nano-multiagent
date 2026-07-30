@@ -76,8 +76,7 @@ claude-code 只有一个 `readFileState`：
 
 用一个 `SessionFileState`，key = 文件路径，value = `FileReadState`（含最后读取的 offset/limit）。
 
-**去重行为**：
-`check_unchanged` 同时比较文件指纹（mtime_ns + size）和读取范围（offset + limit）。只有**范围完全相同且文件未变**时才返回 True。不同范围代表不同内容，正常读取——这是正确行为。
+**去重行为**：`check_unchanged` 同时比较文件指纹（mtime_ns + size）和读取范围（offset + limit）。只有**范围完全相同且文件未变**时才返回 True。不同范围代表不同内容，正常读取——这是正确行为。
 
 **与旧 FileStateCache 的区别**：
 - 旧：`FileStateCache` key 是 `(path, offset, limit)`，可以同时记住同一文件的多个不同范围，每个独立去重

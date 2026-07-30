@@ -668,55 +668,8 @@ Layer 4: 个性化生成层 (Personalized Generation)
 
 ## 9. 参考文献索引
 
-[^25^] A Survey of Personalized Large Language Models: Progress and Future Directions, 2025
-[^1130^] MATO: Multi-objective Personalized Alignment with Test-time Optimization, 2026
-[^1131^] Learning to summarize user information for personalized RLHF, 2025
-[^1132^] Drift: Decoding-time Personalized Alignments with Implicit User Preferences, 2025
-[^1133^] Drift (v3), arXiv 2025
-[^1134^] Learning to summarize user information for personalized RLHF (PDF)
-[^1135^] PPT: Personalized Adaptation via In-Context Preference Learning, 2024
-[^1136^] P-Check: Advancing Personalized Reward Model via Learning to Generate Dynamic Checklist, 2026
-[^1137^] VPL: Personalizing RLHF with Variational Preference Learning, 2024
-[^1138^] Enhancing Personalized Multi-Turn Dialogue with Curiosity Reward, 2025
-[^1139^] Uncertainty-Aware Variational Reward Factorization, 2026
-[^1140^] Drift (v2), 2025
-[^1141^] AMULET: ReAlignment During Test Time for Personalized Preference Adaptation, ICLR 2025
-[^1142^] PReF: Language Model Personalization via Reward Factorization, 2025
-[^1143^] Personalization of Large Language Models: A Survey, 2024
-[^1144^] Persona Tailoring: Improving Personalization via Inferred User Personas, 2025
-[^1147^] P-GenRM: Personalized Generative Reward Model with Test-time User-based Scaling, 2025
-[^1149^] RLPA: Dynamic Profile Modeling for Personalized Alignment (OpenReview), 2025
-[^1158^] RLPA (arXiv), 2025
-[^1167^] Personalization of Large Language Models: A Survey (v2), 2024
-[^1168^] Lifelong Learning of Large Language Model based Agents, 2024
-[^1169^] Rethinking Code Review Workflows with LLM Assistance, 2025
-[^1170^] A Survey on Personalized Alignment in LLMs (TechRxiv), 2025
-[^1172^] A Survey on Personalized Alignment—The Missing Piece, ACL 2025
-[^1183^] MemoryCD Benchmark: Long-Context User Memory for Lifelong Cross-Domain Personalization, 2026
-[^1184^] Mitigating Catastrophic Forgetting in Continual Learning through Model Growth, 2025
-[^1187^] Non-Stationary DPO under Preference Drift, 2024
-[^1188^] Analyzing Mitigation Strategies for Catastrophic Forgetting, 2025
-[^1189^] SAGE: Smart home Agent with Grounded Execution, 2023
-[^1191^] Enabling Personalized Long-term Interactions through Persistent Memory and User Profiles, 2025
-[^1193^] CURLoRA: Stable LLM Continual Fine-Tuning and Catastrophic Forgetting Mitigation, 2024
-[^1196^] EpiPersona: Persona Projection and Episode Coupling, 2026
-[^1197^] NS-DPO: Non-Stationary Direct Preference Optimization under Preference Drift, ICML 2024
-[^1198^] NS-DPO (v3), 2024
-[^1200^] A Survey of Personalized Large Language Models (v1), 2025
-[^1202^] Personalization of Large Language Models: A Survey (PRISM dataset)
-[^121^] Personalization of Large Language Models: A Survey (PDF)
-[^242^] T-POP: Test-Time Personalization with Online Preference Feedback, ICML 2026
-[^1221^] Mem0 AI Memory Layer (official website)
-[^1225^] Bi-Mem: Bidirectional Construction of Hierarchical Memory, 2025
-[^1226^] FERMI: Few-shot Personalization of LLMs with Mis-aligned Responses, 2024
-[^1253^] DITTO: Aligning Language Models with Demonstrated Feedback, 2024
-[^1257^] USER-LLM: Contextualizing LLMs through User Embeddings, 2024
-[^1258^] On-Device Personalization: Cloud-device Collaborative Data Augmentation, 2025
-[^1260^] Persona Tailoring (v1), 2025
-[^1262^] SynthesizeMe! Inducing Persona-Guided Prompts, 2025
+[^25^] A Survey of Personalized Large Language Models: Progress and Future Directions, 2025 [^1130^] MATO: Multi-objective Personalized Alignment with Test-time Optimization, 2026 [^1131^] Learning to summarize user information for personalized RLHF, 2025 [^1132^] Drift: Decoding-time Personalized Alignments with Implicit User Preferences, 2025 [^1133^] Drift (v3), arXiv 2025 [^1134^] Learning to summarize user information for personalized RLHF (PDF) [^1135^] PPT: Personalized Adaptation via In-Context Preference Learning, 2024 [^1136^] P-Check: Advancing Personalized Reward Model via Learning to Generate Dynamic Checklist, 2026 [^1137^] VPL: Personalizing RLHF with Variational Preference Learning, 2024 [^1138^] Enhancing Personalized Multi-Turn Dialogue with Curiosity Reward, 2025 [^1139^] Uncertainty-Aware Variational Reward Factorization, 2026 [^1140^] Drift (v2), 2025 [^1141^] AMULET: ReAlignment During Test Time for Personalized Preference Adaptation, ICLR 2025 [^1142^] PReF: Language Model Personalization via Reward Factorization, 2025 [^1143^] Personalization of Large Language Models: A Survey, 2024 [^1144^] Persona Tailoring: Improving Personalization via Inferred User Personas, 2025 [^1147^] P-GenRM: Personalized Generative Reward Model with Test-time User-based Scaling, 2025 [^1149^] RLPA: Dynamic Profile Modeling for Personalized Alignment (OpenReview), 2025 [^1158^] RLPA (arXiv), 2025 [^1167^] Personalization of Large Language Models: A Survey (v2), 2024 [^1168^] Lifelong Learning of Large Language Model based Agents, 2024 [^1169^] Rethinking Code Review Workflows with LLM Assistance, 2025 [^1170^] A Survey on Personalized Alignment in LLMs (TechRxiv), 2025 [^1172^] A Survey on Personalized Alignment—The Missing Piece, ACL 2025 [^1183^] MemoryCD Benchmark: Long-Context User Memory for Lifelong Cross-Domain Personalization, 2026 [^1184^] Mitigating Catastrophic Forgetting in Continual Learning through Model Growth, 2025 [^1187^] Non-Stationary DPO under Preference Drift, 2024 [^1188^] Analyzing Mitigation Strategies for Catastrophic Forgetting, 2025 [^1189^] SAGE: Smart home Agent with Grounded Execution, 2023 [^1191^] Enabling Personalized Long-term Interactions through Persistent Memory and User Profiles, 2025 [^1193^] CURLoRA: Stable LLM Continual Fine-Tuning and Catastrophic Forgetting Mitigation, 2024 [^1196^] EpiPersona: Persona Projection and Episode Coupling, 2026 [^1197^] NS-DPO: Non-Stationary Direct Preference Optimization under Preference Drift, ICML 2024 [^1198^] NS-DPO (v3), 2024 [^1200^] A Survey of Personalized Large Language Models (v1), 2025 [^1202^] Personalization of Large Language Models: A Survey (PRISM dataset) [^121^] Personalization of Large Language Models: A Survey (PDF) [^242^] T-POP: Test-Time Personalization with Online Preference Feedback, ICML 2026 [^1221^] Mem0 AI Memory Layer (official website) [^1225^] Bi-Mem: Bidirectional Construction of Hierarchical Memory, 2025 [^1226^] FERMI: Few-shot Personalization of LLMs with Mis-aligned Responses, 2024 [^1253^] DITTO: Aligning Language Models with Demonstrated Feedback, 2024 [^1257^] USER-LLM: Contextualizing LLMs through User Embeddings, 2024 [^1258^] On-Device Personalization: Cloud-device Collaborative Data Augmentation, 2025 [^1260^] Persona Tailoring (v1), 2025 [^1262^] SynthesizeMe! Inducing Persona-Guided Prompts, 2025
 
 ---
 
-*报告生成时间: 2025年*
-*研究方法: 25+次独立搜索，覆盖arXiv、技术博客、官方文档*
-*重点关注: 2023-2025年最新研究*
+*报告生成时间: 2025年* *研究方法: 25+次独立搜索，覆盖arXiv、技术博客、官方文档* *重点关注: 2023-2025年最新研究*

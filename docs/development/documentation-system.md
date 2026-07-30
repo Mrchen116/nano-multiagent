@@ -4,14 +4,11 @@
 >
 > 适用范围：面向人类与 Coding Agent 的代码仓，工具中立、跨仓复用。
 >
-> 证据与推论过程见
-> [`../research/agent-era-repository-knowledge-system.md`](../research/agent-era-repository-knowledge-system.md)；
-> 本仓当前有哪些文档、每类事实由谁负责，以 [`../README.md`](../README.md) 为准。
+> 证据与推论过程见 [`../research/agent-era-repository-knowledge-system.md`](../research/agent-era-repository-knowledge-system.md)；本仓当前有哪些文档、每类事实由谁负责，以 [`../README.md`](../README.md) 为准。
 
 ## 核心命题
 
-Coding Agent 工作在整个代码仓提供的 **Repository Harness** 中，而不是只工作在文档里。这个 Harness
-至少由以下能力组成：
+Coding Agent 工作在整个代码仓提供的 **Repository Harness** 中，而不是只工作在文档里。这个 Harness 至少由以下能力组成：
 
 | 能力 | 作用 |
 |---|---|
@@ -29,9 +26,7 @@ Coding Agent 工作在整个代码仓提供的 **Repository Harness** 中，而�
 - 让高后果约束通过代码、schema、测试、权限和 CI 落地；
 - 用真实开发任务验证体系是否有效，而不只检查目录是否整齐。
 
-这里的“知识”不仅包括手写文档，也包括代码、schema、tests、运行状态、LLM 交互日志、Agent workflow、
-generated index 和 git/PR history。它们可信的方式不同，不能放进一条全局优先级。知识体系也不能
-弥补一个无法启动、无法观察、没有验证或缺少权限隔离的仓库 Harness。
+这里的“知识”不仅包括手写文档，也包括代码、schema、tests、运行状态、LLM 交互日志、Agent workflow、generated index 和 git/PR history。它们可信的方式不同，不能放进一条全局优先级。知识体系也不能弥补一个无法启动、无法观察、没有验证或缺少权限隔离的仓库 Harness。
 
 ## 五个逻辑平面
 
@@ -66,12 +61,9 @@ generated index 和 git/PR history。它们可信的方式不同，不能放进�
 | Delivery | 常驻、经路由读取、按查询检索、任务恢复胶囊，还是由 source 生成的 projection？ |
 | Enforcement | 背景/建议、Agent 程序契约、确定性门禁，还是技术权限边界？ |
 
-这些属性可以通过目录、frontmatter、索引表、catalog metadata、CODEOWNERS 或已有流程表达。方法论要求
-能力存在，不强制所有仓库采用同一种 YAML。
+这些属性可以通过目录、frontmatter、索引表、catalog metadata、CODEOWNERS 或已有流程表达。方法论要求能力存在，不强制所有仓库采用同一种 YAML。
 
-`Enforcement` 不能从语气推断。一句“绝对不要”仍然只是自然语言；真正不可违背的边界应落在 tests、
-scripts、CI、sandbox、credential scope、branch protection 或审批机制。反过来，机器检查主要约束
-implementation/observational claims，也不能自动取代产品和架构的 normative authority。
+`Enforcement` 不能从语气推断。一句“绝对不要”仍然只是自然语言；真正不可违背的边界应落在 tests、scripts、CI、sandbox、credential scope、branch protection 或审批机制。反过来，机器检查主要约束 implementation/observational claims，也不能自动取代产品和架构的 normative authority。
 
 ### 常见内容角色
 
@@ -86,8 +78,7 @@ implementation/observational claims，也不能自动取代产品和架构的 no
 | 研究材料 | 在某个日期、代码基线和证据范围下观察到了什么 |
 | 历史材料 | 过去为什么这样决策、怎样完成了变化 |
 
-不要让一篇文档同时承担多个主要角色。教程、操作步骤、行为参考和设计解释混在一起时，对人和 Agent
-都会产生检索噪声。
+不要让一篇文档同时承担多个主要角色。教程、操作步骤、行为参考和设计解释混在一起时，对人和 Agent 都会产生检索噪声。
 
 ### 生命周期不是内容类型
 
@@ -102,13 +93,11 @@ implementation/observational claims，也不能自动取代产品和架构的 no
 | Superseded / Retired | 已被新版本替代 | 否 |
 | Archived history | 冻结的历史、理由和证据 | 否 |
 
-最重要的边界仍是：`accepted` 不等于 `implemented`，`implemented` 也不自动等于 current 文档已经完成
-归并。
+最重要的边界仍是：`accepted` 不等于 `implemented`，`implemented` 也不自动等于 current 文档已经完成归并。
 
 ## 上下文交付
 
-Agent context 是知识系统的 delivery path，不是新的 source of truth。下面描述的是逐步披露关系，不是
-要求 Agent 按固定顺序读取文件：
+Agent context 是知识系统的 delivery path，不是新的 source of truth。下面描述的是逐步披露关系，不是要求 Agent 按固定顺序读取文件：
 
 ```mermaid
 flowchart TD
@@ -135,15 +124,11 @@ flowchart TD
            - 重复与陈旧风险
 ```
 
-它不是固定行数公式。行数和字节只用于触发审计；真实判断要看代表性任务的成功率、成本和错误模式。
-例如关键参考仓、LLM 交互日志位置可能不在每个任务中使用，但极难从当前代码推导，且一旦需要就有很高
-诊断价值，因此应在入口中带用途说明地直接可见。完整配置、低频操作步骤和大段示例则应按需加载。
+它不是固定行数公式。行数和字节只用于触发审计；真实判断要看代表性任务的成功率、成本和错误模式。例如关键参考仓、LLM 交互日志位置可能不在每个任务中使用，但极难从当前代码推导，且一旦需要就有很高诊断价值，因此应在入口中带用途说明地直接可见。完整配置、低频操作步骤和大段示例则应按需加载。
 
 ### Router / catalog
 
-代码、测试、配置和 git history 的探索默认交给 Coding Agent harness 自带的搜索与工具能力。Router
-不替 Agent 设计 grep、semantic search 或文件阅读行程；它主要暴露无法从代码可靠推断的入口、适用状态
-和 authority。
+代码、测试、配置和 git history 的探索默认交给 Coding Agent harness 自带的搜索与工具能力。Router 不替 Agent 设计 grep、semantic search 或文件阅读行程；它主要暴露无法从代码可靠推断的入口、适用状态和 authority。
 
 路由项至少回答：
 
@@ -152,9 +137,7 @@ flowchart TD
 - 它是 current、proposed、history 还是 evidence；
 - 谁负责，或从哪个 source 生成。
 
-裸路径不是合格路由。默认优先保持一层紧凑路由；对大型文档库或跨仓 corpus，可以在代表性任务证明
-自主导航失败后，从页面 metadata 生成 task-aware search index，并把 research/archive 默认排除出
-current 检索面。增加第二层及更深目录前，应验证它确实降低定位成本，而不是制造更多选择。
+裸路径不是合格路由。默认优先保持一层紧凑路由；对大型文档库或跨仓 corpus，可以在代表性任务证明自主导航失败后，从页面 metadata 生成 task-aware search index，并把 research/archive 默认排除出 current 检索面。增加第二层及更深目录前，应验证它确实降低定位成本，而不是制造更多选择。
 
 ### Selected sources 与 recovery capsule
 
@@ -164,15 +147,11 @@ current 检索面。增加第二层及更深目录前，应验证它确实降低
 - task skill 只承载经验证的程序性知识，不承载领域事实的唯一副本。
 - 长任务需要可恢复的计划、进度、决定、发现和证据记录。
 
-任务胶囊为了跨 session 恢复，可以保存带来源和代码基线的必要快照；这是一种有边界的重复。完成后必须
-把长期有效结论 promotion 到 Truth/Control，再把胶囊冻结为 Memory。不要通过 eager import 把所有
-下层正文重新塞回常驻上下文。聊天历史和模型记忆可以辅助恢复，但不能成为任务实际进度、Git 状态和
-未决决定的唯一权威。
+任务胶囊为了跨 session 恢复，可以保存带来源和代码基线的必要快照；这是一种有边界的重复。完成后必须把长期有效结论 promotion 到 Truth/Control，再把胶囊冻结为 Memory。不要通过 eager import 把所有下层正文重新塞回常驻上下文。聊天历史和模型记忆可以辅助恢复，但不能成为任务实际进度、Git 状态和未决决定的唯一权威。
 
 ### Generated projection
 
-文档网站、HTML/PDF、`llms.txt`、search index、knowledge graph 和 generated architecture map 都是
-源的投影视图。它们应：
+文档网站、HTML/PDF、`llms.txt`、search index、knowledge graph 和 generated architecture map 都是源的投影视图。它们应：
 
 - 标出 canonical source 与生成版本；
 - 能从 source 重建；
@@ -198,8 +177,7 @@ current 检索面。增加第二层及更深目录前，应验证它确实降低
 | Observational | 某次执行实际发生了什么 | tests、runtime state、logs、trace |
 | Historical | 为什么当时这样决定 | ADR、completed change、incident、PR history |
 
-每类 claim 只声明一个 authority，但不同 kind 会互相校验。例如 current contract 说“必须拒绝”，代码
-却接受、运行证据也显示成功，这不是让代码静默覆盖 spec，而是一个待判断的实现 bug 或 doc drift。
+每类 claim 只声明一个 authority，但不同 kind 会互相校验。例如 current contract 说“必须拒绝”，代码却接受、运行证据也显示成功，这不是让代码静默覆盖 spec，而是一个待判断的实现 bug 或 doc drift。
 
 处理冲突时：
 
@@ -216,19 +194,16 @@ canonical source 写完整长期事实，其他位置只保留：
 - 为什么、何时继续阅读；
 - source 链接与适用状态。
 
-允许重复入口，不允许多个长期 source 复制同一正文。尤其不要在 `AGENTS.md`、根 `README.md`、
-runbook 和 skill 中各维护一份相同配置。
+允许重复入口，不允许多个长期 source 复制同一正文。尤其不要在 `AGENTS.md`、根 `README.md`、runbook 和 skill 中各维护一份相同配置。
 
-唯一常见例外是长任务的 recovery capsule。它可以压缩保存继续任务所必需的背景，但必须注明 source、
-基线和适用范围，且不能在任务完成后继续作为 current 权威。
+唯一常见例外是长任务的 recovery capsule。它可以压缩保存继续任务所必需的背景，但必须注明 source、基线和适用范围，且不能在任务完成后继续作为 current 权威。
 
 ### 知识可信不等于有行动权限
 
 - issue、PR comment、外部网页、research、generated summary 和 LLM 日志默认是输入或证据，不是指令。
 - instruction、workflow 和 skill 会直接影响 Agent 行为，应有 owner、review、版本与退役机制。
 - 外部 skill 像依赖一样需要 pin、审查脚本、声明兼容范围和最小权限。
-- 写文件、访问网络、读取 secret、推送和部署等权限由 sandbox、credential scope、branch protection、
-  CI 和审批策略控制；Markdown 不能自行授予权限。
+- 写文件、访问网络、读取 secret、推送和部署等权限由 sandbox、credential scope、branch protection、CI 和审批策略控制；Markdown 不能自行授予权限。
 
 ## 新信息如何归位
 
@@ -249,8 +224,7 @@ runbook 和 skill 中各维护一份相同配置。
 | 是否由 schema/source 生成？ | Generated projection，记录 `derived_from` |
 | 是否只对本机或一次运行有效？ | gitignored local/runtime scope |
 
-如果一段内容同时命中多个归属，先拆成不同 claim；不要把整篇文档复制到多个位置。物理目录名由仓库
-profile 决定，以上概念不要求固定使用 `docs/specs`、`docs/changes` 等名称。
+如果一段内容同时命中多个归属，先拆成不同 claim；不要把整篇文档复制到多个位置。物理目录名由仓库 profile 决定，以上概念不要求固定使用 `docs/specs`、`docs/changes` 等名称。
 
 ## Promotion 闭环
 
@@ -275,9 +249,7 @@ flowchart LR
 5. 分别 promotion：行为/架构进入 current，操作发现进入 runbook，经重复验证的程序进入 workflow/skill。
 6. 需求、理由、决定和交付证据冻结为 Memory，并从 active 路由移除。
 
-是否使用 RFC、KEP、ADR、change unit 或普通 PR，由风险和复杂度决定。小修不应承担与跨组件高风险
-变化相同的流程成本。本仓现行 change 生命周期见 [`change-workflow.md`](change-workflow.md)，
-spec/delta 写法见 [`../specs/CONTRIBUTING.md`](../specs/CONTRIBUTING.md)；本文不改变其门禁。
+是否使用 RFC、KEP、ADR、change unit 或普通 PR，由风险和复杂度决定。小修不应承担与跨组件高风险变化相同的流程成本。本仓现行 change 生命周期见 [`change-workflow.md`](change-workflow.md)，spec/delta 写法见 [`../specs/CONTRIBUTING.md`](../specs/CONTRIBUTING.md)；本文不改变其门禁。
 
 ## 反馈编译闭环
 
@@ -303,9 +275,7 @@ flowchart LR
 | 一次运行实际发生的事 | evidence/log，使用稳定引用 |
 | 已由代码、配置或工具清楚表达的局部事实 | 通常不新增长期文档 |
 
-一次出现只证明它发生过，不自动证明值得常驻；“第二次犯错”适合触发候选审查，也不自动决定载体。
-Promotion 前至少要核对来源、现有重复、适用版本、遗漏代价和可验证案例。后续任务无收益、持续误触发
-或事实已经被其他机制覆盖时，应缩小作用域或退役，而不是继续累加说明。
+一次出现只证明它发生过，不自动证明值得常驻；“第二次犯错”适合触发候选审查，也不自动决定载体。Promotion 前至少要核对来源、现有重复、适用版本、遗漏代价和可验证案例。后续任务无收益、持续误触发或事实已经被其他机制覆盖时，应缩小作用域或退役，而不是继续累加说明。
 
 ## 文档如何拆分
 
@@ -360,8 +330,7 @@ Promotion 前至少要核对来源、现有重复、适用版本、遗漏代价�
 > Current 替代入口：<如有>
 ```
 
-比较外部参考项目时，还要记录 upstream URL、实际检查的 commit/version 和本地镜像入口。参考实现是
-研究证据，不自动成为本仓 current；采用结论必须回到本仓约束、代码和验证。
+比较外部参考项目时，还要记录 upstream URL、实际检查的 commit/version 和本地镜像入口。参考实现是研究证据，不自动成为本仓 current；采用结论必须回到本仓约束、代码和验证。
 
 研究得出的长期规则必须提炼进对应 canonical source，不能只留在报告里等待后续 agent 猜测。
 
@@ -407,8 +376,7 @@ Promotion 前至少要核对来源、现有重复、适用版本、遗漏代价�
 - 多个 active change 修改同一事实却彼此不可见；
 - Agent 已成为主要贡献者，但仍没有可重复的任务评测和审计。
 
-目录示例只能作为 profile 的一种实现。小仓库不需要预先创建空的 `research/`、`decisions/` 或
-`changes/`；出现对应知识和生命周期后再建立。
+目录示例只能作为 profile 的一种实现。小仓库不需要预先创建空的 `research/`、`decisions/` 或 `changes/`；出现对应知识和生命周期后再建立。
 
 ## 渐进式迁移方法
 
@@ -440,9 +408,7 @@ Promotion 前至少要核对来源、现有重复、适用版本、遗漏代价�
 | Security | secret、外部 skill 来源/版本/权限、日志访问与脱敏、Agent allowed paths |
 | Consistency | workflow/skill 门禁、脚本提示、测试错误信息和 live 文档没有互相矛盾 |
 
-`AGENTS.md` 的行数、字节和 token 预算适合触发审计，不能代替内容判断。Research 必须声明日期、基线、
-状态和 current 替代入口。自动检查不替代语义审查；current 是否与真实调用链一致，仍需结合代码、
-tests 和运行状态。
+`AGENTS.md` 的行数、字节和 token 预算适合触发审计，不能代替内容判断。Research 必须声明日期、基线、状态和 current 替代入口。自动检查不替代语义审查；current 是否与真实调用链一致，仍需结合代码、tests 和运行状态。
 
 受限 Docs Agent 可以做持续园艺，但应具备：
 
@@ -477,9 +443,7 @@ tests 和运行状态。
 - human review：需求覆盖、设计合理性、遗漏、过度工程和风险判断；
 - maintenance metrics：orphan、陈旧引用、owner 覆盖、重复事实、change 收尾延迟。
 
-同时观察 task success 和 cost。只让 Agent “读了更多文档”、只提高规则遵循，或只减少 token，都不等于
-总体更好。对 workflow/skill 应专门做启用与不启用的配对试验；结果无提升或变差时，应修订、缩小适用域
-或退役。
+同时观察 task success 和 cost。只让 Agent “读了更多文档”、只提高规则遵循，或只减少 token，都不等于总体更好。对 workflow/skill 应专门做启用与不启用的配对试验；结果无提升或变差时，应修订、缩小适用域或退役。
 
 ## 常见反模式
 
@@ -516,24 +480,17 @@ tests 和运行状态。
 - 运维入口：[`../operations/README.md`](../operations/README.md)
 - change unit：[`../changes/README.md`](../changes/README.md)
 - LLM 交互日志与参考仓入口：[`../../AGENTS.md`](../../AGENTS.md#调研与联调入口)
-- 本方法论的证据记录：
-  [`../research/agent-era-repository-knowledge-system.md`](../research/agent-era-repository-knowledge-system.md)
+- 本方法论的证据记录：[`../research/agent-era-repository-knowledge-system.md`](../research/agent-era-repository-knowledge-system.md)
 
 新增、移动或退役长期文档时，应同时检查这些 live 入口，但不批量改写历史材料中的语境链接。
 
 ### 本仓的更新闭环
 
-1. **归位。** 先按 [`../README.md`](../README.md) 判断新信息属于产品、架构、current behavior、开发、
-   operations、active work、evidence、research 还是 archive，再找到该类事实的唯一 owner。
-2. **接入。** 新的长期文档必须从对应领域 `README.md` 获得带用途和状态的链接；领域入口再由
-   `docs/README.md` 路由。极难从仓库推导、且遗漏代价高的入口才上提到 `AGENTS.md`。
-3. **实施与留证。** 尚未交付的目标、决定、进度和临时证据留在 active change unit；它们不能提前覆盖
-   `SPEC.md` 或 `docs/specs/`。
-4. **Promotion。** change 收尾时，按实际实现校正 delta：用户可观察行为进入 current specs，跨包边界
-   进入 `SPEC.md`，稳定开发或运行发现进入 development/operations，可重复判定的缺陷进入 tests、scripts
-   或 CI。验证报告和过程材料随整个 unit 冻结为 completed history。
-5. **退役。** 先建立新 owner 并更新所有 live consumers，再把旧独立文档移入 `docs/archive/`；需要承接
-   历史链接时保留只指向 canonical owner 的兼容入口。research 和 archive 的历史正文保持记录时语境。
+1. **归位。** 先按 [`../README.md`](../README.md) 判断新信息属于产品、架构、current behavior、开发、operations、active work、evidence、research 还是 archive，再找到该类事实的唯一 owner。
+2. **接入。** 新的长期文档必须从对应领域 `README.md` 获得带用途和状态的链接；领域入口再由 `docs/README.md` 路由。极难从仓库推导、且遗漏代价高的入口才上提到 `AGENTS.md`。
+3. **实施与留证。** 尚未交付的目标、决定、进度和临时证据留在 active change unit；它们不能提前覆盖 `SPEC.md` 或 `docs/specs/`。
+4. **Promotion。** change 收尾时，按实际实现校正 delta：用户可观察行为进入 current specs，跨包边界进入 `SPEC.md`，稳定开发或运行发现进入 development/operations，可重复判定的缺陷进入 tests、scripts 或 CI。验证报告和过程材料随整个 unit 冻结为 completed history。
+5. **退役。** 先建立新 owner 并更新所有 live consumers，再把旧独立文档移入 `docs/archive/`；需要承接历史链接时保留只指向 canonical owner 的兼容入口。research 和 archive 的历史正文保持记录时语境。
 
 ### 本仓的机械保护
 
@@ -551,8 +508,7 @@ tests 和运行状态。
 pytest -q tests/contract/test_change_workflow_documentation_contract.py
 ```
 
-本仓把 `AGENTS.md` 的 120 行 / 12 KiB 设为 CI 审计闸。超限时应重新判断哪些内容值得常驻、哪些应通过
-链接按需加载；不能通过机械删字让语义缺失。
+本仓把 `AGENTS.md` 的 120 行 / 12 KiB 设为 CI 审计闸。超限时应重新判断哪些内容值得常驻、哪些应通过链接按需加载；不能通过机械删字让语义缺失。
 
 ## Review Checklist
 

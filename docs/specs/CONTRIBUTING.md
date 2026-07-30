@@ -2,8 +2,7 @@
 
 > 本指南规定本仓**长青行为契约层** `docs/specs/<包>/` 的内容边界、文件结构和写法，以及 **delta-spec** 如何表达并归入 canonical spec。
 >
-> 全仓文档地图见 [`docs/README.md`](../README.md)；顶点架构(包、依赖方向、部署拓扑)在
-> [`SPEC.md`](../../SPEC.md)。本指南只管单包行为契约层。
+> 全仓文档地图见 [`docs/README.md`](../README.md)；顶点架构(包、依赖方向、部署拓扑)在 [`SPEC.md`](../../SPEC.md)。本指南只管单包行为契约层。
 
 ## 这套体系长什么样
 
@@ -22,10 +21,7 @@
                                                架构决策记在 design.md §关键决策
 ```
 
-长青层是 **current 状态的单一权威**:打开对应包目录就知道"系统现在怎么表现",不必脑内合并 N 个历史单元。
-`docs/specs/<包>/spec.md` 是短入口,负责说明包职责、边界和 area 索引;具体契约以同目录 area 文档为准。
-它**不是 design**——HOW / 为什么留在 per-unit `design.md`(归档不维护)。本仓不维护 living 全量
-design,也不建独立 ADR 层(`docs/decisions/`);决策的家是 per-unit `design.md` 的 `## 关键决策`。
+长青层是 **current 状态的单一权威**:打开对应包目录就知道"系统现在怎么表现",不必脑内合并 N 个历史单元。`docs/specs/<包>/spec.md` 是短入口,负责说明包职责、边界和 area 索引;具体契约以同目录 area 文档为准。它**不是 design**——HOW / 为什么留在 per-unit `design.md`(归档不维护)。本仓不维护 living 全量 design,也不建独立 ADR 层(`docs/decisions/`);决策的家是 per-unit `design.md` 的 `## 关键决策`。
 
 ## 判据:这条该不该进契约层(两问,都 yes 才进)
 
@@ -98,31 +94,22 @@ design,也不建独立 ADR 层(`docs/decisions/`);决策的家是 per-unit `desi
 格式纪律(本仓决策,务必遵守):
 
 - 契约层保持**纯** `Purpose + Requirement/Scenario`。
-- **不写** `覆盖: tests/...` 行、**不加** `[可执行]` / `[行为]` 标签、**不建** freshness/锚点测试。
-  测试映射和验证记录属于测试或 change evidence，不写入契约正文。
+- **不写** `覆盖: tests/...` 行、**不加** `[可执行]` / `[行为]` 标签、**不建** freshness/锚点测试。测试映射和验证记录属于测试或 change evidence，不写入契约正文。
 - `> 对齐: <unit-id>` 记录最后修改该文件的 change unit。只有实际发生变化的入口或 area 文件更新该标记。
 - 包入口 `Canonical Areas` 表中的 `Requirements` 是便于浏览的派生数量；`scripts/docs-check` 会按对应 area 文档中的 `### Requirement:` 标题机械校验数量、重复登记和遗漏登记。
 - `Requirement` 是一份契约(一条规则),不是模块清单。一个 `Requirement` 配一个或多个 `Scenario`。
-- 每个 area 文档优先控制在可一次读完的范围内。若单个 area 持续膨胀,先按语义继续拆 area,不要把入口
-  `spec.md` 重新变成大文件。
+- 每个 area 文档优先控制在可一次读完的范围内。若单个 area 持续膨胀,先按语义继续拆 area,不要把入口 `spec.md` 重新变成大文件。
 
 ## 给「库 / 内核」写契约的额外纪律
 
-终端产品(IM / Gateway / CLI)的"可观察行为"= 人在产品上看到/敲到什么。**内核 `agent` 是库**,
-没有 UI,它的"消费者"是经 `agent.sdk` 调用它的两个产品 + `tests/contract/` 里的契约测试。给库写契约
-照 Design by Contract(pre/post/invariant)+ Consumer-Driven Contracts 裁剪,四条硬纪律:
+终端产品(IM / Gateway / CLI)的"可观察行为"= 人在产品上看到/敲到什么。**内核 `agent` 是库**, 没有 UI,它的"消费者"是经 `agent.sdk` 调用它的两个产品 + `tests/contract/` 里的契约测试。给库写契约照 Design by Contract(pre/post/invariant)+ Consumer-Driven Contracts 裁剪,四条硬纪律:
 
-1. **WHEN/THEN 的主语必须是消费者**(产品 / `agent.sdk` 调用方 / contract 测试)。一旦写成
-   "core 调 platform 的 X"就是实现走查,踢出契约层。
+1. **WHEN/THEN 的主语必须是消费者**(产品 / `agent.sdk` 调用方 / contract 测试)。一旦写成 "core 调 platform 的 X"就是实现走查,踢出契约层。
 2. **每个 Requirement 是一份 pre→post 契约,或一条 invariant**——不是模块清单。
-   - `GIVEN` 写调用方/Kernel 的前置态(precondition);`WHEN` 写调用方经 sdk 发起调用;
-     `THEN` 写调用方可观察的结果(postcondition:返回形态 / 抛的错 / 不变量被保住)。
-   - 跨层不变量(如"`core` 不依赖 `platform`""产品只能 import `agent.sdk`")写成 invariant 型
-     `Requirement`(SHALL NOT…),它由 `tests/contract/` 的硬不变量测试照常把守(与是否在 spec 声明无关)。
-3. **按 CDC 裁剪范围**:只收**调用方依赖的对外行为**,内部可变能力不进。这天然防止 kernel spec
-   滑成"内部实现清单"。
-4. **spec-anchored**:契约 spec 有文档价值、可对账,但**不要求**代码从 spec 全量生成。维护方式 =
-   文档化 + 与代码对账,不是 regenerate。
+   - `GIVEN` 写调用方/Kernel 的前置态(precondition);`WHEN` 写调用方经 sdk 发起调用; `THEN` 写调用方可观察的结果(postcondition:返回形态 / 抛的错 / 不变量被保住)。
+   - 跨层不变量(如"`core` 不依赖 `platform`""产品只能 import `agent.sdk`")写成 invariant 型 `Requirement`(SHALL NOT…),它由 `tests/contract/` 的硬不变量测试照常把守(与是否在 spec 声明无关)。
+3. **按 CDC 裁剪范围**:只收**调用方依赖的对外行为**,内部可变能力不进。这天然防止 kernel spec 滑成"内部实现清单"。
+4. **spec-anchored**:契约 spec 有文档价值、可对账,但**不要求**代码从 spec 全量生成。维护方式 = 文档化 + 与代码对账,不是 regenerate。
 
 ## 契约层增量（delta-spec）
 
@@ -177,5 +164,4 @@ delta-spec 是一份只包含变更条目的“迷你 canonical”，沿用 Requ
 2. `src/<包>/` 实际代码逆向。
 3. 旧子系统 SPEC(`docs/archive/*-SPEC.md` 等)仅作参考线索:每条进新层前拿代码重核,核不上即弃。
 
-**不从旧文档蒸馏**——旧文档 rot 太久,直接蒸馏=把旧 drift 种进新层(例:旧内核 SPEC 仍描述
-refactor-387 已删的 HTTP API)。
+**不从旧文档蒸馏**——旧文档 rot 太久,直接蒸馏=把旧 drift 种进新层(例:旧内核 SPEC 仍描述 refactor-387 已删的 HTTP API)。

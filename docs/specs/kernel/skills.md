@@ -13,13 +13,11 @@ Skill 发现、按名读取、管理、生命周期、使用统计与能力预�
 
 ### Requirement: Skill 自动发现走 prompt 列表,显式调用改写为自然语言
 
-存在可见 skill 时,内核在 system prompt 注入 `<available_skills>` 列表(名称 + 描述 + 路径),模型按需
-用 `skill_view(name=...)` 加载 SKILL.md 全文;消费者输入的 `/skill:<name>` 被改写为自然语言指令;命令前可选的 `[..]` 标注段被原样保留(内核不解析其内容),多 part 输入中改写作用于命令所在的那个 part。
+存在可见 skill 时,内核在 system prompt 注入 `<available_skills>` 列表(名称 + 描述 + 路径),模型按需用 `skill_view(name=...)` 加载 SKILL.md 全文;消费者输入的 `/skill:<name>` 被改写为自然语言指令;命令前可选的 `[..]` 标注段被原样保留(内核不解析其内容),多 part 输入中改写作用于命令所在的那个 part。
 
 #### Scenario: 显式 skill 命令被改写
 - **WHEN** 消费者输入 `/skill:doc`(或带参数 `/skill:doc fix heading spacing`)
-- **THEN** 内核将其改写为 `Use the "doc" skill for this request.`(带参数时追加 `User input:` 段),
-  然后走常规推理,不在改写阶段直接展开 SKILL.md 原文
+- **THEN** 内核将其改写为 `Use the "doc" skill for this request.`(带参数时追加 `User input:` 段), 然后走常规推理,不在改写阶段直接展开 SKILL.md 原文
 
 #### Scenario: 命令前带标注段时改写保留该标注
 - **WHEN** 消费者提交 `[Alice] /skill:doc fix spacing`(命令前有一个 `[..]` 标注段,如 IM 群聊的发送者标注)
@@ -32,8 +30,7 @@ Skill 发现、按名读取、管理、生命周期、使用统计与能力预�
 #### Scenario: skill_view 启用时 available skills guidance 引导按名加载
 - **GIVEN** 消费者创建的 session 启用了 `skill_view`
 - **WHEN** 系统提示词包含 `<available_skills>`
-- **THEN** 每个 skill 仍包含 name / description / location,且 guidance 指示 agent 通过 `skill_view`
-  按名字加载 skill 内容
+- **THEN** 每个 skill 仍包含 name / description / location,且 guidance 指示 agent 通过 `skill_view`按名字加载 skill 内容
 
 #### Scenario: skill_view 关闭时不渲染 skill_view 调用 guidance
 - **GIVEN** 消费者创建的 session 未启用 `skill_view`
@@ -42,8 +39,7 @@ Skill 发现、按名读取、管理、生命周期、使用统计与能力预�
 
 ### Requirement: skill_view 工具按名字加载 skill 并记录可审计使用
 
-消费者可在会话工具集中启用 `skill_view`。agent 调用该工具后,内核按当前会话可见 skill 搜索根解析同名
-skill,返回命中的内容与位置,并把成功读取记录为 skill 使用统计。
+消费者可在会话工具集中启用 `skill_view`。agent 调用该工具后,内核按当前会话可见 skill 搜索根解析同名 skill,返回命中的内容与位置,并把成功读取记录为 skill 使用统计。
 
 #### Scenario: agent 调用 skill_view 读取 skill
 - **WHEN** agent 调用 `skill_view(name="some-skill")`
@@ -70,8 +66,7 @@ skill,返回命中的内容与位置,并把成功读取记录为 skill 使用统
 
 #### Scenario: skill_view 调用注册 compaction 存活
 - **WHEN** agent 在 session 中调用 `skill_view` 成功
-- **THEN** 该 skill 的 name/location 被注册到 invoked skills 列表,compaction 后以内核 reminder 重新注入
-  当前 SKILL.md 内容
+- **THEN** 该 skill 的 name/location 被注册到 invoked skills 列表,compaction 后以内核 reminder 重新注入当前 SKILL.md 内容
 
 ### Requirement: skill_manage 工具 action 枚举保持写入与列表语义
 
@@ -121,16 +116,11 @@ Skill 使用统计中的生命周期状态影响候选集合;自动创建的 ski
 
 ### Requirement: 同一 workspace 下 preview、list_skills 与运行时注入的技能集合一致
 
-`assemble_prompt_preview` 预览展示的技能、`list_skills(workspace_root)` 查询返回的技能、以及一次真实
-session turn 注入 system prompt `<available_skills>` 的技能,对同一 `(workspace_root, skills)` 配置解析
-出**同一集合**——搜索根均为 `<workspace_root>/<workspace_config_dirname>/skills` 叠加
-`build_kernel(skill_search_roots=…)`,不存在「预览看得到、运行时看不到」的分歧。
+`assemble_prompt_preview` 预览展示的技能、`list_skills(workspace_root)` 查询返回的技能、以及一次真实 session turn 注入 system prompt `<available_skills>` 的技能,对同一 `(workspace_root, skills)` 配置解析出**同一集合**——搜索根均为 `<workspace_root>/<workspace_config_dirname>/skills` 叠加 `build_kernel(skill_search_roots=…)`,不存在「预览看得到、运行时看不到」的分歧。
 
 #### Scenario: 预览与运行时技能一致
-- **GIVEN** `build_kernel(skill_search_roots=…, workspace_config_dirname=…)` 装配的 Kernel,某 session
-  的 `skills` 含若干在 workspace 配置目录或 `skill_search_roots` 下暴露的技能名
-- **WHEN** 取 `assemble_prompt_preview(skill_ids=…, workspace_root=…)` 展示的技能,与该 session 真实
-  执行一轮后 LLM 请求中 `<available_skills>` 列出的技能
+- **GIVEN** `build_kernel(skill_search_roots=…, workspace_config_dirname=…)` 装配的 Kernel,某 session 的 `skills` 含若干在 workspace 配置目录或 `skill_search_roots` 下暴露的技能名
+- **WHEN** 取 `assemble_prompt_preview(skill_ids=…, workspace_root=…)` 展示的技能,与该 session 真实执行一轮后 LLM 请求中 `<available_skills>` 列出的技能
 - **THEN** 两者为同一集合(同名 + 同路径),不会出现预览齐全而运行时缩水成单个共享根技能的情形
 
 #### Scenario: 未提供 workspace_config_dirname 时技能集合为空

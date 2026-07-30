@@ -9,12 +9,9 @@
 `agent`(内核)是整个系统唯一的 Agent 执行内核,是一个**库**:单 Agent 运行时 + 工具执行 + 技能发现
 + 事件扩展 + 会话持久化 + 上下文压缩 + 多 LLM provider 适配。
 
-它对外**只暴露 `agent.sdk`**——`build_kernel()` 装配出一个进程内 `Kernel`,消费者持有它并 `await` /
-调用其方法。内核**不内置任何 HTTP / 网络 API**;呈现为终端软件、常驻 gateway 还是云 API,是产品层
-决策,内核不持形态偏好(refactor-387)。
+它对外**只暴露 `agent.sdk`**——`build_kernel()` 装配出一个进程内 `Kernel`,消费者持有它并 `await` / 调用其方法。内核**不内置任何 HTTP / 网络 API**;呈现为终端软件、常驻 gateway 还是云 API,是产品层决策,内核不持形态偏好(refactor-387)。
 
-**显式不负责**:不知道什么是 coding / assistant(产品语义);不做 IM 接入 / channel 路由 / heartbeat
-调度;不做 CLI 交互;不做对外网络服务。这些由消费它的产品承担。
+**显式不负责**:不知道什么是 coding / assistant(产品语义);不做 IM 接入 / channel 路由 / heartbeat 调度;不做 CLI 交互;不做对外网络服务。这些由消费它的产品承担。
 
 ## Canonical Areas
 

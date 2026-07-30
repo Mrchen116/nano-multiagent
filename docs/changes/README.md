@@ -229,8 +229,7 @@ unit_path=$unit_matches
 
 ## Evidence 与本地产物
 
-- 各类证据能证明什么、记录字段、保存位置和 promotion 规则见
-  [`docs/development/evidence.md`](../development/evidence.md)；
+- 各类证据能证明什么、记录字段、保存位置和 promotion 规则见 [`docs/development/evidence.md`](../development/evidence.md)；
 - 可复查证据放在对应 milestone 的 `evidence/`，或 unit 根部的正式 review/verification 报告中；
 - 新证据不再写入根目录 `ACCEPTANCE/`；
 - PID、日志、SQLite、截图缓存、临时 config 和 worktree runtime 文件保持 gitignored；
@@ -238,10 +237,6 @@ unit_path=$unit_matches
 
 ## 历史迁移
 
-根目录旧 `TASKS/`、`PROGRESS/`、`ACCEPTANCE/` 已停止接收新内容并整体迁入
-[`docs/archive/legacy-development-records/`](../archive/legacy-development-records/README.md)。旧 milestone id
-只代表当时的 TDD control-tower 流程，不能机械映射成 change unit。
+根目录旧 `TASKS/`、`PROGRESS/`、`ACCEPTANCE/` 已停止接收新内容并整体迁入 [`docs/archive/legacy-development-records/`](../archive/legacy-development-records/README.md)。旧 milestone id 只代表当时的 TDD control-tower 流程，不能机械映射成 change unit。
 
-`data/dev-tasks.json` 当前不存在；现行 orchestrator 明确只在内存和 unit 文档中维护调度状态。审计只发现一个
-无生产调用者的旧 worktree symlink helper 及其测试，本次已移除该兼容接线；gitignore 条目暂时保留，避免旧
-worktree 的本机残留进入版本控制。
+`data/dev-tasks.json` 当前不存在；现行 orchestrator 明确只在内存和 unit 文档中维护调度状态。审计只发现一个无生产调用者的旧 worktree symlink helper 及其测试，本次已移除该兼容接线；gitignore 条目暂时保留，避免旧 worktree 的本机残留进入版本控制。

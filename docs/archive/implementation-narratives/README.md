@@ -1,7 +1,6 @@
 # 已退役实现叙事
 
-本目录保存曾用于指导实现、后来已被代码和 current specs 取代的长篇实现说明。它们可用于理解历史语境，
-不能用来判断系统当前接口、目录结构或运行行为。
+本目录保存曾用于指导实现、后来已被代码和 current specs 取代的长篇实现说明。它们可用于理解历史语境，不能用来判断系统当前接口、目录结构或运行行为。
 
 ## Kernel design details
 
@@ -14,11 +13,8 @@
 | [`工具设计细化.md`](kernel-design-details/工具设计细化.md) | 外部实现摘录和具体返回文案容易与代码分叉，旧 `task` 接口已退役 | [`docs/specs/kernel/tools-hooks.md`](../../specs/kernel/tools-hooks.md) + `src/agent/platform/tools/` |
 | [`系统提示词.md`](kernel-design-details/系统提示词.md) | 单体模板已被 prompt skeleton、sections 和 `PromptSlots` 取代 | [`docs/specs/kernel/prompts.md`](../../specs/kernel/prompts.md) + `src/agent/core/agent/prompt_sections/` |
 
-仍需长期保证的消费者行为已经写入 current specs；准确的类名、参数、模板文本和内部数据流由代码、类型和
-测试表达。历史文档保留原文，只新增退役说明和 current 入口。
+仍需长期保证的消费者行为已经写入 current specs；准确的类名、参数、模板文本和内部数据流由代码、类型和测试表达。历史文档保留原文，只新增退役说明和 current 入口。
 
 ## CLI call sequence
 
-[`CLI到工具调用时序图.md`](CLI到工具调用时序图.md) 记录早期 HTTP ServerClient/API 架构下的 CLI
-调用链。当前 CLI 已直接装配进程内 kernel；行为入口见
-[`docs/specs/cli/`](../../specs/cli/spec.md)，精确调用链由 `src/coding_cli/` 和 tests 表达。
+[`CLI到工具调用时序图.md`](CLI到工具调用时序图.md) 记录早期 HTTP ServerClient/API 架构下的 CLI 调用链。当前 CLI 已直接装配进程内 kernel；行为入口见 [`docs/specs/cli/`](../../specs/cli/spec.md)，精确调用链由 `src/coding_cli/` 和 tests 表达。
