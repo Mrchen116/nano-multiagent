@@ -12,6 +12,7 @@
 | 编写或归并行为契约 | [`SPEC_GUIDE.md`](SPEC_GUIDE.md) → [`specs/README.md`](specs/README.md) |
 | 判断是否建立 unit、选择 Full/Bugfix lite、查看阶段和门禁 | [`development/change-workflow.md`](development/change-workflow.md) |
 | 查 change unit 的目录、命名、文件归属或归档位置 | [`changes/readme.md`](changes/readme.md) |
+| 跟踪本次 Agent-Native 仓库知识体系迁移 | [`refactor-486 plan`](changes/refactor-486-agent-native-repository-knowledge-system/plan.md)（Active Work，不覆盖 current） |
 | 配置开发环境、运行测试或开发 CLI/前端 | [`development/local-development.md`](development/local-development.md) → [`TESTING_GUIDE.md`](TESTING_GUIDE.md) |
 | 启动、调试或恢复服务 | [`operator-runbook.md`](operator-runbook.md) |
 | 在 worktree 内运行真实服务或关键路径 E2E | [`../AGENTS.md`](../AGENTS.md#运行时服务并行启动) → [`e2e-critical-paths.md`](e2e-critical-paths.md) |
