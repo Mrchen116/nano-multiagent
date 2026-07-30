@@ -1,9 +1,6 @@
 # 长青行为契约编写规范
 
-> 本指南规定本仓**长青行为契约层** `docs/specs/<包>/` 的写法,以及单元如何把行为增量经
-> **delta-spec** 归并回去。它服务三类作者:写契约的人/agent(判断"这条该不该进 spec、怎么落");
-> `change-design-author`(design 阶段产出本单元的 delta-spec —— 对 canonical 的 ADDED/MODIFIED/REMOVED);
-> `change-orchestrator`(收尾据实际代码 diff 校正 delta 后,合并进 canonical)。
+> 本指南规定本仓**长青行为契约层** `docs/specs/<包>/` 的内容边界、文件结构和写法，以及 **delta-spec** 如何表达并归入 canonical spec。
 >
 > 全仓文档地图见 [`docs/README.md`](../README.md)；顶点架构(包、依赖方向、部署拓扑)在
 > [`SPEC.md`](../../SPEC.md)。本指南只管单包行为契约层。
@@ -18,10 +15,10 @@
                                                —— 经 delta-spec 归并保持 current,本指南管这一层
 契约层增量    docs/changes/<unit>/specs/<包>/*.md   (delta-spec,镜像 canonical 目录)
                                                per-unit 对 canonical 的 ADDED/MODIFIED/REMOVED Requirements;
-                                               design 阶段产,收尾据实际 diff 校正后合并进长青层;
-                                               完成后随 unit 移到 docs/changes/archive/<unit>/
+                                               实现完成后以最终行为为准归入长青层;
+                                               unit 结束后随其移到 docs/changes/archive/<unit>/
 变更稿        docs/changes/<unit>/{spec,design,tasks}.md
-                                               per-unit,易逝,提 PR 时归档到 docs/changes/archive/<unit>/;
+                                               per-unit,易逝,unit 结束后归档到 docs/changes/archive/<unit>/;
                                                架构决策记在 design.md §关键决策
 ```
 
@@ -102,8 +99,8 @@ design,也不建独立 ADR 层(`docs/decisions/`);决策的家是 per-unit `desi
 
 - 契约层保持**纯** `Purpose + Requirement/Scenario`。
 - **不写** `覆盖: tests/...` 行、**不加** `[可执行]` / `[行为]` 标签、**不建** freshness/锚点测试。
-  drift 不靠机械绑定,靠收尾软对账(见下「收尾归并 checklist」)。
-- `> 对齐: <unit-id>` 行是该文件被哪个单元最后更新的标记,收尾归并时 bump。只 bump 实际修改的入口或 area 文件。
+  测试映射和验证记录属于测试或 change evidence，不写入契约正文。
+- `> 对齐: <unit-id>` 记录最后修改该文件的 change unit。只有实际发生变化的入口或 area 文件更新该标记。
 - `Requirement` 是一份契约(一条规则),不是模块清单。一个 `Requirement` 配一个或多个 `Scenario`。
 - 每个 area 文档优先控制在可一次读完的范围内。若单个 area 持续膨胀,先按语义继续拆 area,不要把入口
   `spec.md` 重新变成大文件。
@@ -126,21 +123,17 @@ design,也不建独立 ADR 层(`docs/decisions/`);决策的家是 per-unit `desi
 4. **spec-anchored**:契约 spec 有文档价值、可对账,但**不要求**代码从 spec 全量生成。维护方式 =
    文档化 + 与代码对账,不是 regenerate。
 
-## 契约层增量(delta-spec):何时产、放哪、怎么写
+## 契约层增量（delta-spec）
 
-长青层**不靠**"每个单元收尾全量重扫 canonical"维护(每单元全量既不现实也无必要),而是用
-**delta 归并**:每个单元只声明它对 canonical 的**增量**,收尾把增量并回去。
+长青层通过 delta-spec 接收单个 change unit 对 canonical spec 的增量，不要求每个 unit 全量重写或重扫 canonical。只有对外可观察行为发生变化时才需要 delta-spec；纯内部重构不产生 delta 文件。
 
-**何时产 / 谁产**:`change-design-author` 在 design 阶段产出——那时已握有首文档【验收标准】+ 关键决策 +
-契约层 grounding 三份输入,能投影出"本单元对 canonical 改什么"。它是 design 的**派生产物**,不是首文档,
-不回头改用户场景(发现验收标准有疏漏仍按规矩停下回 `change-spec-author`)。
+### 放在哪里
 
-**放哪**:`docs/changes/<unit>/specs/<包>/<target>.md` —— **镜像** canonical `docs/specs/<包>/<target>.md`
-的目录结构。`<target>` 可以是入口 `spec.md`,也可以是具体 area(如 `external-channels.md`)。与变更稿
-`spec.md`/`design.md` 同处 unit 目录;提 PR 时整个 unit 移到
-`docs/changes/archive/<unit>/`。本单元没碰的包/area 不建对应文件。
+delta-spec 位于 `docs/changes/<unit>/specs/<包>/<target>.md`，其相对路径镜像 canonical `docs/specs/<包>/<target>.md`。`<target>` 可以是入口 `spec.md`，也可以是具体 area（如 `external-channels.md`）。没有变化的包或 area 不创建对应文件。
 
-**怎么写**:一份"迷你 canonical",同骨架(可选 `## Purpose`)+ 三个 delta 段,只写**变更的** Requirement:
+### 如何编写
+
+delta-spec 是一份只包含变更条目的“迷你 canonical”，沿用 Requirement/Scenario 骨架，并用三个区段表达增量：
 
 ```markdown
 # <包> <target> Specification (delta for <unit-id>)
@@ -150,57 +143,30 @@ design,也不建独立 ADR 层(`docs/decisions/`);决策的家是 per-unit `desi
 #### Scenario: ...
 
 ## MODIFIED Requirements
-### Requirement: <被改的契约,写改后的完整条目>
+### Requirement: <被改的契约，写改后的完整条目>
 #### Scenario: ...
 
 ## REMOVED Requirements
 ### Requirement: <被删的契约名>
 ```
 
-- 每条仍过本指南「两问判据」+「库契约四纪律」(尤其 kernel:主语=消费者,把用户视角的验收标准
-  **翻译**成 sdk 消费者视角,不照抄)。
-- 终端产品(im/gateway/cli)的 delta 多是验收标准 Scenario 的契约层镜像;kernel 需视角翻译。
-- 本单元无对外行为变化(纯内部重构)→ **不产 delta 文件**,在 design.md 显式注明 "no spec delta"。
+- 每条仍须通过本指南的“两问判据”和“库契约四纪律”。
+- `ADDED` 写新增条目的完整内容。
+- `MODIFIED` 写修改后的完整条目。
+- `REMOVED` 只写待删除的 Requirement 名称。
+- 终端产品（IM、Gateway、CLI）的 delta 通常是用户验收场景在契约层的投影；kernel 必须转换为 `agent.sdk` 消费者视角。
 
-**它和首文档【验收标准】的关系**:验收标准是**用户视角**的本单元验收清单(给 reviewer 走旅程);delta-spec
-是**契约视角**的 canonical 增量(给收尾合并)。两者对终端产品内容重合,是**视角投影**不是冗余——delta 由
-design-author 从【验收标准】+ 决策投影而来。
+用户验收标准描述一次 change 的用户视角结果，delta-spec 描述 canonical spec 将发生的契约变化。两者可能覆盖相同场景，但承担的知识角色不同。实现前形成的 delta 只是目标状态；归并版本必须以最终实现的可观察行为为准。
 
-**为什么是草案、收尾要校正**:design 期产的 delta 是"预计要改什么"。worker 实现时会偏(加了没预见的对外
-行为、或某条没落地),所以收尾(orchestrator §7.0)**先拿实际代码 diff 校正 delta,再合并**。
+## delta-spec 归并规则
 
-## 收尾归并 checklist(orchestrator 在提 PR 前执行)
+归并只处理 delta-spec 指向的 canonical 文件和列出的 Requirement，不扩展成 canonical 全量重写。
 
-单元的行为增量经 design 阶段产的 **delta-spec**(`docs/changes/<unit>/specs/<包>/*.md`)合并回
-canonical——**不全量重扫**,只动 delta 列的条目。对每个有 delta 文件的目标 canonical 文件:
-
-- [ ] **校正 delta(design 草案 → 实际代码)**:delta 是 design 期预测,worker 实现可能偏。拿实际代码
-      diff 核对 delta 每条 ADDED/MODIFIED/REMOVED——实现期新增的对外行为补进 delta、design 写了但没
-      落地的删掉。无 delta 文件(design 注 "no spec delta")且 diff 也无对外行为变化 → 跳过本包。
-- [ ] **软对账(advisory,不出红测)**:复用 reviewer 旅程 + verifier——对**校正后 delta 的每条**
-      Requirement/Scenario 搜代码 + 测试,确认契约与实现一致,背离则在报告里**显式报出**(改实现或改
-      delta),不静默累积。**软对账,不出红测、不机械硬卡**;靠 reviewer/verifier 尽责兜。范围 = 本单元
-      delta,**不是 canonical 全量**(canonical 其余条目由各自所属单元收尾时已对过账)。
-- [ ] **把 delta 合并进对应 `docs/specs/<包>/<target>.md`**:ADDED 追加、MODIFIED 替换对应条目、REMOVED
-      删对应条目(机械对应,因 delta 与 canonical 同骨架)。每条进 canonical 前再过「两问判据」+「库契约四纪律」。
-      若新增 area 或移动 Requirement,同步更新对应包入口 `spec.md` 的 `Canonical Areas` 表。
-- [ ] **bump 头部 `> 对齐:` 行**到本 unit-id。
-
-> 为什么 delta + 软对账够用:`tests/contract/` 的硬不变量测试本就每次 pytest 跑,与 spec 是否声明链
-> 无关——放弃显式 `覆盖:` 绑定损失很小,换来契约层格式干净。delta 把"该验 / 该合并什么"限定到本单元
-> 增量,收尾不必全量重扫;手改的非确定性由 delta 固定骨架 + 收尾校正 / 软对账兜。
-
-## 读侧 grounding checklist(change-* 作者在各自阶段执行)
-
-长青层只有被读才有价值。`change-*` 作者按阶段读契约层:
-
-- [ ] **spec 阶段**(`change-spec-author`):立项调研对应包时,读 `docs/specs/<包>`(current 契约层)
-      取词汇 / 对齐既有行为,而非读会误导的过期子系统设计叙事。
-- [ ] **design 阶段**(`change-design-author`):读 `docs/specs/<包>` **并对当前代码做 grounding**——
-      拿契约层声明的行为与 `src/<包>/` 实际代码核对;发现契约层与代码**不一致**即在「现状摘要」里
-      报出(契约层可能已 drift,本单元不一定负责修,但要让人看见)。**并据【验收标准】+ 关键决策产出
-      本单元 delta-spec**(`docs/changes/<unit>/specs/<包>/*.md`,见上「契约层增量」节)。
-- [ ] **收尾阶段**(orchestrator):见上「收尾归并 checklist」——校正 delta、软对账、合并进 canonical。
+1. 归并前的 delta 必须与最终实现的可观察行为一致。
+2. `ADDED` 追加到对应 canonical 文件，`MODIFIED` 替换同名条目，`REMOVED` 删除同名条目。
+3. 归入 canonical 的每个条目仍须满足本指南的内容判据和格式纪律。
+4. 新增 area 或移动 Requirement 时，同步更新包入口 `spec.md` 的 `Canonical Areas` 表。
+5. 只更新实际发生变化的入口或 area 文件，并将其头部 `> 对齐:` 标记更新为当前 unit-id。
 
 ## 迁移料源优先级(逆向已有包的当前契约时)
 
@@ -208,7 +174,7 @@ canonical——**不全量重扫**,只动 delta 列的条目。对每个有 delt
 
 1. `tests/contract/` + 各包测试套(**可执行契约,不 drift**)——锚点。
 2. `src/<包>/` 实际代码逆向。
-3. 旧子系统 SPEC(`docs/archive/*-SPEC.md` 等)**仅作 checklist**:每条进新层前拿代码重核,核不上即弃。
+3. 旧子系统 SPEC(`docs/archive/*-SPEC.md` 等)仅作参考线索:每条进新层前拿代码重核,核不上即弃。
 
 **不从旧文档蒸馏**——旧文档 rot 太久,直接蒸馏=把旧 drift 种进新层(例:旧内核 SPEC 仍描述
 refactor-387 已删的 HTTP API)。

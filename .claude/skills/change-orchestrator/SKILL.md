@@ -727,8 +727,7 @@ unit 内所有 issues 解决,reviewer 给 `pass`(或 `pass-with-issues` 且 acce
 
 提 PR 前的最后一道实质动作——把本 unit 的对外行为增量并进长青行为契约层 `docs/specs/<包>/<target>.md`,
 让它保持 current。**不全量重扫 canonical**,而是据 design 阶段产的 **delta-spec**
-(`<unit_path>/specs/<包>/<target>.md`)合并。规范见 `docs/specs/CONTRIBUTING.md`「契约层增量」+
-「收尾归并 checklist」。
+(`<unit_path>/specs/<包>/<target>.md`)合并。规范见 `docs/specs/CONTRIBUTING.md`「契约层增量」和「delta-spec 归并规则」。
 
 > **fix 路径无 delta 的兜底**:lite 模式 / post-PR fix(§6.FL)没走 design-author,没有 delta 文件。若这类
 > 改动触及对外行为(典型:bugfix 恢复或改变了用户可观察行为),orchestrator 据实际代码**自己补一份 delta**
@@ -752,7 +751,7 @@ canonical 全量**。靠 agent 尽责对账,不靠机械绑定。
 
 **③ 合并 delta 进 canonical**:按相对路径把校正后 delta 机械合并进对应 `docs/specs/<包>/<target>.md`——ADDED 追加、
 MODIFIED 替换对应条目、REMOVED 删对应条目(delta 与 canonical 同骨架,对应是机械的)。每条进 canonical
-前再过 SPEC_GUIDE 的「两问判据」+「库契约四纪律」(WHEN/THEN 主语=消费者、CDC 裁剪、纯
+前再过 `docs/specs/CONTRIBUTING.md` 的「两问判据」+「库契约四纪律」(WHEN/THEN 主语=消费者、CDC 裁剪、纯
 `Purpose + Requirement/Scenario`,**无** `覆盖:` 行 / `[可执行]` 标签 / freshness 测试),并守**实现层红线**:
 Scenario 的 THEN / 正文不得出现内部函数名、类名、日志字符串、`<符号> 被调用 / 不被调用` 断言(那是单测的事;
 delta 若混入也在此滤掉)。只有包级职责、边界或 area 索引变化才写入口 `spec.md`;否则必须选择语义最窄的 area。

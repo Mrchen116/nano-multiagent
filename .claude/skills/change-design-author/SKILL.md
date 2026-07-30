@@ -468,7 +468,7 @@ touch docs/changes/<unit_dir>/M1-<title>/.gitkeep docs/changes/<unit_dir>/M2-<ti
   (改的写改后完整条目、删的只写名)。
 - **从【验收标准】+ 关键决策投影**——终端产品(im/gateway/cli)多是验收标准 Scenario 的契约层镜像;
   **kernel 要把用户视角翻译成 `agent.sdk` 消费者视角**(主语=消费者),不照抄。
-- 每条过 SPEC_GUIDE「两问判据」+「库契约四纪律」。
+- 每条过 `docs/specs/CONTRIBUTING.md`「两问判据」+「库契约四纪律」。
 - **实现层红线**:Scenario 的 THEN 只写消费者可观察的结果(API 响应 / WS 帧 / UI / session JSONL 可见的 turn);**禁止**内部函数名、类名、日志字符串、`<符号> 被调用 / 不被调用` 断言——那是单测的事。从【验收标准】投影自然合规;一旦从实现投影就会踩线(orchestrator §7.0 合并时同守这条红线)。
 
 > 它是 design 期的**草案**:声明"预计改什么"。worker 实现可能偏,收尾会拿实际 diff 校正——所以这里
