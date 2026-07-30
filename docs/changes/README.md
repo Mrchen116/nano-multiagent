@@ -251,9 +251,9 @@ unit_path=$unit_matches
 
 ## 历史迁移
 
-根目录旧 `TASKS/`、`PROGRESS/`、`ACCEPTANCE/` 已停止接收新内容，将整体迁入
-`docs/archive/legacy-development-records/`。旧 milestone id 只代表当时的 TDD control-tower 流程，不能机械映射
-成 change unit。
+根目录旧 `TASKS/`、`PROGRESS/`、`ACCEPTANCE/` 已停止接收新内容并整体迁入
+[`docs/archive/legacy-development-records/`](../archive/legacy-development-records/README.md)。旧 milestone id
+只代表当时的 TDD control-tower 流程，不能机械映射成 change unit。
 
 `data/dev-tasks.json` 当前不存在；现行 orchestrator 明确只在内存和 unit 文档中维护调度状态。审计只发现一个
 无生产调用者的旧 worktree symlink helper 及其测试，本次已移除该兼容接线；gitignore 条目暂时保留，避免旧

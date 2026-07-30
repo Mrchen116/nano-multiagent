@@ -72,9 +72,11 @@
 | [`内核设计细化/`](内核设计细化/README.md) | 已退役实现叙事的兼容入口；current 行为从 kernel specs 读取 |
 | [`tools-diff-cc/`](tools-diff-cc/)、[`kernel-diff-cc/`](kernel-diff-cc/) | 外部实现比较快照 |
 | [`brainstorms/`](brainstorms/) | 脑暴与阶段性方案材料 |
-| [`archive/`](archive/) | 已退役独立文档 |
+| [`archive/`](archive/README.md) | 已退役独立文档和旧开发记录的索引 |
 
-根目录的 `LOGBOOK.md`、`ROADMAP.md`、`TASKS.md`、`PROGRESS.md` 以及 `TASKS/`、`PROGRESS/`、`ACCEPTANCE/` 属于已经冻结的旧开发记录体系。当前 skills 和 scripts 不再向这些路径写入；新 change 的状态、过程和证据只写入 `docs/changes/<unit>/`。旧记录将在独立机械提交中整体迁入 `docs/archive/legacy-development-records/`，不能据其目录位置或更新时间推断当前工作。
+旧 TDD control-tower 的 `LOGBOOK/ROADMAP/TASKS/PROGRESS/ACCEPTANCE` 已停止写入并整体迁入
+[`archive/legacy-development-records/`](archive/legacy-development-records/README.md)。新 change 的状态、过程和
+证据只写入 `docs/changes/<unit>/`；旧记录只用于历史取证，不能据其中的状态或更新时间推断当前工作。
 
 ## 维护规则
 
