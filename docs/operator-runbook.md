@@ -12,7 +12,8 @@
 
 ## 前置条件
 
-1. Python 3.11+，并已执行 `pip install -e ".[dev]"`。
+1. Python 3.11+，并已执行 `pip install -e ".[dev]"`；完整环境安装见
+   [`development/local-development.md`](development/local-development.md)。
 2. 在仓库根目录运行命令，或显式带上 `PYTHONPATH=src`。
 3. 基础设施启动不需要外部 LLM API key；只有 agent 真正生成回复时才需要上游 LLM 配置。
 

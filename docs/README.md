@@ -12,7 +12,7 @@
 | 编写或归并行为契约 | [`SPEC_GUIDE.md`](SPEC_GUIDE.md) → [`specs/README.md`](specs/README.md) |
 | 判断是否建立 unit、选择 Full/Bugfix lite、查看阶段和门禁 | [`development/change-workflow.md`](development/change-workflow.md) |
 | 查 change unit 的目录、命名、文件归属或归档位置 | [`changes/readme.md`](changes/readme.md) |
-| 配置开发环境、运行测试 | [`../AGENTS.md`](../AGENTS.md#常用命令) → [`TESTING_GUIDE.md`](TESTING_GUIDE.md) |
+| 配置开发环境、运行测试或开发 CLI/前端 | [`development/local-development.md`](development/local-development.md) → [`TESTING_GUIDE.md`](TESTING_GUIDE.md) |
 | 启动、调试或恢复服务 | [`operator-runbook.md`](operator-runbook.md) |
 | 在 worktree 内运行真实服务或关键路径 E2E | [`../AGENTS.md`](../AGENTS.md#运行时服务并行启动) → [`e2e-critical-paths.md`](e2e-critical-paths.md) |
 | 查某个变更为什么这样设计 | 活动区或历史区的 [`changes/`](changes/readme.md) unit |
@@ -31,6 +31,7 @@
 | 长青 spec 如何编写、delta-spec 如何归并 | [`SPEC_GUIDE.md`](SPEC_GUIDE.md) | 契约层内容规则 |
 | change unit 如何选择、推进，经过哪些角色和门禁 | [`development/change-workflow.md`](development/change-workflow.md) | 当前开发变更生命周期 |
 | change unit 如何命名，文件放在哪里、由谁维护和归档 | [`changes/readme.md`](changes/readme.md) | unit 存储与文件归属 |
+| 本地环境如何安装、常用命令和提交格式是什么 | [`development/local-development.md`](development/local-development.md) | 开发者本地入口 |
 | 测试如何分层、什么值得进入长期测试 | [`TESTING_GUIDE.md`](TESTING_GUIDE.md) | 测试规范 |
 | 哪些真实用户旅程必须长期守护 | [`e2e-critical-paths.md`](e2e-critical-paths.md) | 关键路径与 E2E 对账 |
 | 服务如何启动、观察、恢复和排障 | [`operator-runbook.md`](operator-runbook.md) | 操作手册 |

@@ -8,7 +8,9 @@
 
 开发变更流程：docs/development/change-workflow.md
 
-开发规范：COMMENTING_GUIDE.md
+本地开发：docs/development/local-development.md
+
+注释规范：COMMENTING_GUIDE.md
 
 测试规范：docs/TESTING_GUIDE.md
 
@@ -21,28 +23,7 @@ LLM交互日志：/Users/czj/Repos/LLM_PROXY/logs/<session_id>/
 - opencode ~/Repos/opensource-hub/opencode —— 多 provider / 多客户端架构的开源 AI Coding Agent，本项目 hook 事件设计、单一 agent 内核同时支撑两个产品的架构参考它。
 - codex-cli ~/Repos/opensource-hub/codex —— OpenAI 官方coding agent harness（Rust + TypeScript），可参考其agent core / coding agent 设计，与CC对照。
 
-## 常用命令
-
-### 安装依赖
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
-```
-
-### 运行测试
-
-```bash
-# 全部测试
-pytest
-
-# 单个测试文件
-pytest -xvs tests/unit/test_xxx.py
-
-# 跳过 e2e（不需要本地运行时依赖）
-pytest -m "not e2e"
-```
+## 服务启动
 
 ### 启动 IM 服务
 
@@ -73,89 +54,6 @@ PYTHONPATH=src python -m personal_assistant.main --im-service-url http://<im-hos
 PYTHONPATH=src python -m personal_assistant.main stop
 PYTHONPATH=src python -m personal_assistant.main restart
 ```
-
-### 启动 Coding CLI
-
-```bash
-PYTHONPATH=src python3 -m coding_cli.main
-
-# 或指定模型
-PYTHONPATH=src python3 -m coding_cli.main --model volcanoArk:doubao-seed-2-0-code-preview-260215
-```
-
-### 前端开发（IM）
-
-```bash
-cd src/IM/frontend
-npm install
-npm run dev        # Vite dev server
-npm run build      # 生产构建（tsc + vite build）
-npm run test       # vitest
-```
-
-## 测试账号
-
-```yaml
-username:   nano
-password:   nano1234
-display_name: Test User
-im_url:     http://127.0.0.1:8011
-```
-
-注册：`curl -X POST $im_url/im/v1/auth/register -H "Content-Type: application/json" -d '{"username":"nano","password":"nano1234","display_name":"Test User"}'`
-
-IM 启动必须带固定 secret，否则 token 随重启失效：
-`IM_JWT_SECRET="demo-jwt-secret-for-feat340-testing" PYTHONPATH=src python -m uvicorn IM.app:app --host 0.0.0.0 --port 8011`
-
-**Gateway config 路径**：`~/.nano-assistant/config.yaml`（持久化，不要在 `/tmp` 下创建，否则系统重启后 agent 配置会丢失）
-
-最小可用配置示例：
-
-```yaml
-node:
-  node_id: demo-node
-  user_id: <your-user-id>
-agents:
-  - agent_id: default-agent
-    workspace_root: ~/nano-assistant/workspace/default-agent
-channels:
-  - name: web_relay
-    enabled: true
-im_service:
-  url: http://127.0.0.1:8011
-  username: nano      # Gateway 启动时自动登录，无需手动填 token
-  password: nano1234
-llm:
-  default_model: kimiCoding:K2.6
-  providers:
-    - name: anthropic
-      base_url: http://127.0.0.1:4000
-      models:
-        - name: kimiCoding:K2.6
-          extra_request_body:
-            thinking:
-              type: adaptive
-        - name: volcanoArk:doubao-seed-2-0-code-preview-260215
-          extra_request_body:
-            thinking:
-              type: adaptive
-    - name: openai_compat
-      base_url: http://127.0.0.1:4000
-      models:
-        - name: codex_oauth:gpt-5.5
-```
-
-> **注意（refactor-382）**：`llm:` 段为必填。Gateway 启动时若缺失则拒绝启动并报错。`e2e-up.sh` 复制 `~/.nano-assistant/config.yaml` 作为 worktree 隔离副本，请确保主 config 已包含 `llm:` 段。
-
-`username` + `password` 方式：Gateway 启动时自动调 `POST /im/v1/auth/login` 获取 token，断线后自动重连，IM 重启后自动恢复，全程无需人工干预。
-
-启动：`PYTHONPATH=src python -m personal_assistant.main`
-
-### 非交互式 CLI 命令
-
-> refactor-387 起：内核无 HTTP API。`--mode managed/remote`、`--base-url`，以及
-> `health` / `create-session` / `send-message` 等「对 HTTP 端点喊话」的子命令已移除——
-> 它们只为旧的内核 HTTP server 而存在。CLI 即进程内 REPL（见上节）。
 
 ## 架构总览
 
@@ -322,15 +220,6 @@ Gateway 第一次连一个新 IM 实例时,IM 要求确认绑定 owner,默认会
 
 > 测 LLM 上游故障路径时,`scripts/fixtures/` 有 ready-made HTTP 桩。详见该目录 README。
 
-## 开发约定
-
-- **注释规范**：见 COMMENTING_GUIDE.md。public API 必须写 Google 风格 docstring；注释写"为什么/约束"而非"做什么"。
-- **TODO/FIXME 格式**：`TODO(<issue-id>): <改进> — <删除条件>` / `FIXME(<issue-id>): <缺陷> — <影响/风险>`
-- **Commit message 格式**：`<type>(<unit>/<milestone>/<roadpoint>): <desc>`，scope 用 unit 实际目录下的 id（如 `bugfix-355/M5/R1`）。milestone 级 commit 省 roadpoint（`bugfix-355/M5`），unit 级省 milestone（`bugfix-355`）。phase 通过 type 体现：C1 红测=`test`、C2 实现=`feat`/`fix`/`refactor`、C3 文档=`docs`。
-- **模块边界**：产品（CLI / Gateway）只能 import `agent.sdk`，不得 import `agent.core` / `agent.platform` 内部；不要在 `commands.py` 里重新导出内核内部实现。
-- **单测优先**：修改后先跑最窄的单元测试，再跑集成/contract。
-- **前端产物**：`src/IM/frontend/dist/` 是构建产物，不提交；需要时在前端目录执行 `npm run build`。
-
 ## 关键文档索引
 
 > 单包"现在怎么表现"看**长青行为契约层** `docs/specs/<包>/`（current 权威，收尾归并保持）；
@@ -339,6 +228,7 @@ Gateway 第一次连一个新 IM 实例时,IM 要求确认绑定 owner,默认会
 
 | 文档 | 路径 | 内容 |
 |---|---|---|
+| 本地开发 | docs/development/local-development.md | Python 环境、测试命令、CLI/前端开发、测试身份与提交格式 |
 | **文档规范** | docs/SPEC_GUIDE.md | 长青 spec 放什么/不放什么、判据、契约层骨架、收尾归并 + grounding checklist |
 | **架构总览（顶点）** | SPEC.md | 四个包职责、依赖方向、部署图（跨包，不下钻单包行为） |
 | **长青契约索引** | docs/specs/README.md | 长青行为契约层入口与 area 文档索引 |
