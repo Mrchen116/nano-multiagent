@@ -8,7 +8,8 @@
 >
 > 权威边界：本文是迁移期间的工作计划，不覆盖 [`docs/README.md`](../../README.md)、[`SPEC.md`](../../../SPEC.md)、[`docs/specs/`](../../specs/README.md) 或已经生效的开发流程。
 >
-> 执行方式：用户已明确授权本次文档整理直接增量实施，不要求套用完整 `change-*` 生命周期。每个阶段仍拆成可独立审阅的提交，完成一段就停下来对齐。
+> 执行方式：用户已明确授权本次文档整理直接增量实施，不要求套用完整 `change-*` 生命周期。每个阶段仍拆成
+> 可独立审阅和回退的提交；当前授权为连续完成全计划后统一 review。
 
 ## 一、目标与完成定义
 
@@ -179,7 +180,31 @@ Agent 已经能看到 `docs/README.md`，但自动加载的 `AGENTS.md` 仍包�
 
 ### 阶段 2：规整 Truth 平面
 
-状态：In Progress
+状态：Completed
+
+#### 已完成
+
+- 建立产品 Truth 入口，并从旧需求稿和 Web IM 蓝图中蒸馏仍由 current spec/代码支持的长期原则。
+- 将原始产品稿归档并保留兼容入口，避免旧字段、路由和配置叙事继续冒充 current。
+- 将长青 spec 编写规范归到 `docs/specs/CONTRIBUTING.md`，所有 live consumers 使用新入口。
+- 审核四个 package spec：kernel、IM、Gateway 已是短入口 + area；将 CLI 的 11 条契约拆为
+  interactive、automation、product integration 三个 area。
+- 依据现有代码与测试清除 CLI spec 中已删除的 `llm-config set`、已解散 product profile 和错误扩展路径。
+- 将四篇早期内核实现叙事归档；长期行为由 kernel specs 表达，精确接口、目录和模板由代码与测试表达。
+- 将已完成的 IM user-stream 迁移计划和 2026-03 drift 审计归档。M311 因缺少问题描述与复现步骤只保留为
+  不完整历史记录，不能冒充 active backlog。
+
+#### 已提交
+
+| Commit | 内容 |
+|---|---|
+| `67bc146b8` | 建立产品 Truth 层 |
+| `97c59d2d2` | 从旧稿蒸馏仍成立的产品原则 |
+| `bfe556ef0` | 归档产品源材料 |
+| `46b812ba7` | 将 spec 写作规范迁入 current specs |
+| `523bcc1e2` | 对账并归档内核实现叙事 |
+| `7434a7711` | 将 CLI current behavior 拆为 area 文档并修正已确认 drift |
+| `e2a568b10` | 归档已完成迁移计划和历史冲突审计 |
 
 #### 要解决的问题
 
@@ -216,11 +241,11 @@ Agent 已经能看到 `docs/README.md`，但自动加载的 `AGENTS.md` 仍包�
 
 #### 退出条件
 
-- [ ] 产品定位、跨包架构和单包行为分别有明确 owner。
-- [ ] `docs/需求.md`、`docs/IM前端蓝图.md` 不再被当作 current 权威。
-- [ ] 同一个 current behavior 不在多个文档中维护完整副本。
-- [ ] 实现说明逐项回答“为什么必须长期写文档，而不是由代码表达”。
-- [ ] current 文档与代码存在的已知 drift 都被修复或登记为 active work。
+- [x] 产品定位、跨包架构和单包行为分别有明确 owner。
+- [x] `docs/需求.md`、`docs/IM前端蓝图.md` 不再被当作 current 权威。
+- [x] 同一个 current behavior 不在多个文档中维护完整副本。
+- [x] 实现说明逐项回答“为什么必须长期写文档，而不是由代码表达”。
+- [x] 本阶段审计发现的 current 文档与代码 drift 已修复；不可恢复的旧待办已明确降为历史。
 
 ### 阶段 3：规整 Work 平面
 
