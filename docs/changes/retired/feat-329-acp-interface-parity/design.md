@@ -1,5 +1,8 @@
 # Design: Agent Core 核心能力补全（P0 + P1）
 
+> 状态：Retired / superseded。本文的 HTTP routes、ServerClient 和旧 runtime 路径不再适用；当前架构与
+> 对外行为分别见 `SPEC.md`、`docs/specs/kernel/` 和 `docs/specs/cli/`。
+
 ## 范围
 
 本文档覆盖 P0（会话生命周期补齐）和 P1（会话高级操作）的技术方案。

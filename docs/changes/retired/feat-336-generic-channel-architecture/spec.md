@@ -1,5 +1,8 @@
 # Spec: Generic Multi-IM Channel Architecture
 
+> 状态：Retired / superseded。本文是 Feishu 与通用 channel 实施前的架构提案；后续 feat-447 及相关
+> changes 已按当前 Gateway 边界交付具体能力。当前行为以 Gateway/IM specs 和代码为准。
+
 ## 1. 背景
 
 `personal_assistant` Node Gateway 现在已经有一套可工作的极简 Channel 骨架：

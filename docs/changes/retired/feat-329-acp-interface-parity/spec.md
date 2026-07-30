@@ -1,5 +1,8 @@
 # Spec: Agent Core 核心能力补全（参考 ACP）
 
+> 状态：Retired / superseded。本文依赖已退役的 kernel HTTP server 与旧 Coding CLI client 架构，
+> 从未作为一个完整 unit 交付；其中部分能力后来经独立 change 以 `agent.sdk` 进程内接口实现。
+
 ## 目标
 
 参考 ACP（Agent Client Protocol）定义的标准 Agent 能力范围，系统性地识别 Agent Kernel 当前缺失的核心功能，逐一补齐。不引入 ACP 协议本身（不改接口名、不改通信格式、不做 initialize/authenticate 握手），只补齐功能缺口。
