@@ -18,7 +18,7 @@ from personal_assistant.gateway.reply_visibility import (
 )
 
 if TYPE_CHECKING:
-    from agent.sdk.kernel import Kernel
+    from agent.sdk import Kernel
 
 
 @dataclass(frozen=True, slots=True)

@@ -13,12 +13,12 @@
 
 ### Requirement: 内核对外只经 agent.sdk 暴露,产品不得依赖内核内部
 
-`agent.sdk` 是内核唯一对外面。消费者只能 import `agent.sdk`;内核内部层(`agent.core` / `agent.platform`)不得被产品直接 import,`agent.sdk` 也不得反向依赖任何产品包。`agent.sdk` 的公开符号是一份**精确允许名单**(逐字钉死,见归档 design 接口总表),由表面守卫 contract 测试守卫:多导出或少导出都失败。除显式豁免外,每个导出对象的类型须由 `agent.sdk` 自身拥有(SDK-owned),不得是内核内部模块拥有的对象直接外泄。
+`agent.sdk` 是内核唯一对外面。消费者只能从根包 `agent.sdk` 导入公开符号，不得依赖 `agent.sdk.*` 子模块或内核内部层(`agent.core` / `agent.platform`)；`agent.sdk` 也不得反向依赖任何产品包。`agent.sdk` 的公开符号是一份**精确允许名单**(逐字钉死,见归档 design 接口总表),由表面守卫 contract 测试守卫:多导出或少导出都失败。除显式豁免外,每个导出对象的类型须由 `agent.sdk` 自身拥有(SDK-owned),不得是内核内部模块拥有的对象直接外泄。
 
-#### Scenario: 产品越界 import 内核内部被拦
+#### Scenario: 产品绕过 SDK 根入口被拦
 - **GIVEN** `coding_cli` 或 `personal_assistant` 的某文件
-- **WHEN** 它写下 `import agent.core...` / `import agent.platform...` / `import agent.products...`
-- **THEN** 契约测试(`tests/contract/test_agent_sdk_boundary_contract.py`)失败,挡住越界 (`agent.products` 包已退役,但其前缀仍在禁止名单内,防止以旧概念重建)
+- **WHEN** 它从 `agent.sdk.*` 子模块、`agent.core...`、`agent.platform...` 或已退役的 `agent.products...` 导入
+- **THEN** 契约测试(`tests/contract/test_agent_sdk_boundary_contract.py`)失败；产品只能从 `agent.sdk` 根包导入允许名单中的符号
 
 #### Scenario: agent.sdk 不上行依赖产品
 - **WHEN** 审阅 `agent.sdk` 下任一模块的 import
@@ -36,8 +36,8 @@
 - **WHEN** `agent.sdk` 的某导出(不在显式豁免名单内),其类型定义在 `agent.core` / `agent.platform`内部模块
 - **THEN** 所有权守卫 contract 测试失败
 
-#### Scenario: 豁免名单容纳内核必拥有的边界类型
-- **WHEN** 导出属于显式豁免名单(`RunOrigin` / `PermissionDecision` / `TERMINAL_RUN_STATUSES` / `ToolPresenter` / `ToolPresentationEvent`——core/platform 引用、物理上无法 sdk-owned,由 sdk re-export)
+#### Scenario: 豁免名单容纳内核必拥有的边界对象
+- **WHEN** 导出属于显式豁免名单(`RunOrigin` / `PermissionDecision` / `TERMINAL_RUN_STATUSES` / `ToolPresenter` / `ToolPresentationEvent` / `USER_INTERRUPT_RECOVERY_CONTENT`——由 core/platform 拥有或作为内核共享常量，由 sdk re-export)
 - **THEN** 所有权守卫放行;但豁免名单本身逐字钉死,增删名单成员同样使测试失败
 
 #### Scenario: sdk-owned typing 别名不计入豁免
@@ -109,7 +109,7 @@
 
 ### Requirement: Kernel 出入参为 SDK-owned 类型
 
-`create_session` / `fork_session` 返回 `SessionInfo`;`submit` / `get_run` / `cancel` 返回 `RunInfo`。`SessionInfo` / `RunInfo` / `LLMConfig` 为真 SDK-owned 纯边界 DTO(内核边界处映射,core 不回引);内核内部 `Session` / `RunRecord` / `LLMFactoryConfig` 不出边界。`RunOrigin` / `TERMINAL_RUN_STATUSES` / `PermissionDecision` / `ToolPresenter` / `ToolPresentationEvent` 因 core/platform 引用,保持其拥有、sdk re-export(闸 2 豁免)。
+`create_session` / `fork_session` 返回 `SessionInfo`;`submit` / `get_run` / `cancel` 返回 `RunInfo`。`SessionInfo` / `RunInfo` / `LLMConfig` 为真 SDK-owned 纯边界 DTO(内核边界处映射,core 不回引);内核内部 `Session` / `RunRecord` / `LLMFactoryConfig` 不出边界。`RunOrigin` / `TERMINAL_RUN_STATUSES` / `PermissionDecision` / `ToolPresenter` / `ToolPresentationEvent` 因 core/platform 引用，`USER_INTERRUPT_RECOVERY_CONTENT` 因需与内核共享同一恢复文本，均保持原始拥有并由 sdk re-export(闸 2 豁免)。
 
 #### Scenario: 会话与运行结果不暴露内核内部对象
 - **WHEN** 消费者调上述方法

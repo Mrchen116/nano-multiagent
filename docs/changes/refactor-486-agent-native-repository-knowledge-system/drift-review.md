@@ -102,10 +102,9 @@
 - 现状：`docs/specs/kernel/sdk-boundary.md` 声称显式豁免名单逐字钉死，并列出五个 re-export；当前 `agent.sdk.__all__` 和 `test_agent_sdk_surface_guard.py` 还包含 `USER_INTERRUPT_RECOVERY_CONTENT` 这一 core-owned string re-export，current spec 未列出。
 - 现状：同一 spec 写“消费者只能 import `agent.sdk`”；Gateway 两个文件在 `TYPE_CHECKING` 下使用 `from agent.sdk.kernel import Kernel`。现有 contract 只禁止 `agent.core`、`agent.platform` 和 `agent.products`，没有裁决“只能从 `agent.sdk` 根导入”还是“可以从任意 `agent.sdk.*` 子模块导入”。
 - 影响：公开表面名单已经发生可验证漂移；对 SDK 子模块是否属于 public surface 也缺少一致、可机械保护的解释。
-- 待决定：
-  1. 把 recovery constant 补入 current spec 的豁免名单；
-  2. 明确 SDK 消费者的 import 政策，并据此统一 Gateway type import 与 contract test。
-- 状态：Awaiting user review；spec、代码和测试未修改。
+- 用户决定：`agent.sdk` 根包是产品唯一公开入口，`coding_cli` / `personal_assistant` 不得直接 import `agent.sdk.*` 子模块。
+- 处理：current spec 补入 `USER_INTERRUPT_RECOVERY_CONTENT` 豁免；两处 Gateway type import 改走根包；contract test 现在机械阻止产品绕过 `agent.sdk` 根入口。
+- 状态：Resolved。
 
 ### D-016：Paused `feat-444` 的 reviewer runbook 使用不存在的 Gateway 健康检查
 

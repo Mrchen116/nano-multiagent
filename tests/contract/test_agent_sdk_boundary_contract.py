@@ -25,20 +25,15 @@ SRC_ROOT = PROJECT_ROOT / "src"
 AGENT_SDK_ROOT = SRC_ROOT / "agent" / "sdk"
 
 
-# M4: All M2/M3 violations resolved; dead files deleted; whitelist is now empty.
-# coding_cli and personal_assistant now import only agent.sdk (no known violations).
-_M2_M3_KNOWN_VIOLATIONS: dict[str, list[str]] = {}
-
-# Agent-internal prefixes that products must NOT import directly in the target arch.
-_FORBIDDEN_INTERNAL_PREFIXES = [
-    "agent.core",
-    "agent.platform",
-    "agent.products",
-]
+def _is_forbidden_product_agent_import(module: str) -> bool:
+    """Return whether a product import bypasses the agent.sdk root surface."""
+    if module == "agent.sdk":
+        return False
+    return module == "agent" or module.startswith("agent.")
 
 
 def _collect_product_agent_imports(package_root: Path) -> list[tuple[str, int, str]]:
-    """Return (rel_path, lineno, import_str) for each forbidden agent.* import."""
+    """Return product imports that bypass the agent.sdk root surface."""
     violations: list[tuple[str, int, str]] = []
     for py_file in sorted(package_root.rglob("*.py")):
         rel = str(py_file.relative_to(SRC_ROOT))
@@ -50,20 +45,11 @@ def _collect_product_agent_imports(package_root: Path) -> list[tuple[str, int, s
             elif isinstance(node, ast.Import):
                 for alias in node.names:
                     m = alias.name
-                    if any(m.startswith(p) for p in _FORBIDDEN_INTERNAL_PREFIXES):
+                    if _is_forbidden_product_agent_import(m):
                         violations.append((rel, node.lineno, m))
                 continue
-            if module and any(
-                module.startswith(p) for p in _FORBIDDEN_INTERNAL_PREFIXES
-            ):
-                # Check if this is in the known M2/M3 violations whitelist.
-                if rel not in _M2_M3_KNOWN_VIOLATIONS:
-                    violations.append((rel, node.lineno, module))
-                elif not any(
-                    module.startswith(v) for v in _M2_M3_KNOWN_VIOLATIONS[rel]
-                ):
-                    # The file is known to violate, but this specific prefix is NEW.
-                    violations.append((rel, node.lineno, module))
+            if module and _is_forbidden_product_agent_import(module):
+                violations.append((rel, node.lineno, module))
     return violations
 
 
@@ -97,12 +83,8 @@ def test_agent_sdk_has_no_upward_dependency_on_products() -> None:
                     )
 
 
-def test_no_new_unexpected_product_agent_internal_imports() -> None:
-    """Products must not introduce NEW forbidden agent.core/platform imports beyond M2/M3 whitelist.
-
-    In M1, known violations are whitelisted (M2/M3 will fix them).
-    Any import NOT in the whitelist will fail immediately — preventing scope creep.
-    """
+def test_products_import_only_agent_sdk_root() -> None:
+    """Products must import the kernel only through the agent.sdk root surface."""
     coding_cli_root = SRC_ROOT / "coding_cli"
     pa_root = SRC_ROOT / "personal_assistant"
 
@@ -117,8 +99,7 @@ def test_no_new_unexpected_product_agent_internal_imports() -> None:
             for rel, lineno, module in all_violations
         ]
         raise AssertionError(
-            "Product files have UNEXPECTED new agent internal imports "
-            "(not in M2/M3 whitelist — add to _M2_M3_KNOWN_VIOLATIONS if legitimately deferred):\n"
+            "Product files bypass the agent.sdk root surface:\n"
             + "\n".join(lines)
         )
 
