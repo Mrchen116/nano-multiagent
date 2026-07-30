@@ -43,20 +43,23 @@
 ### D-004：Claude Code tools 比较材料仍把已经实现的能力写成缺口
 
 - 现状：原 `docs/tools-diff-cc/`（现
-  `docs/research/comparisons/claude-code-tools/`）中 Read-Before-Write、SessionFileState 等材料记录的是
-  旧 nano 基线；当前代码已经包含相关能力。
-- 影响：旧研究如果继续靠近 current 入口，Agent 可能把历史差距当成当前缺陷。
-- 待决定：迁入 research 并冻结为带基线的 snapshot；其中仍未解决的缺口是否建立 issue，需逐项审核。
-- 状态：Awaiting user review；正文不重写。
+  `docs/research/comparisons/claude-code-tools-2026-04-20/`）中 Read-Before-Write、SessionFileState 等材料
+  记录的是旧 nano 基线；当前代码已经包含相关能力。
+- 用户裁决：比较研究天然只对记录时点负责，过时不构成文档漂移。comparison 子目录统一采用
+  `<比较对象>-<YYYY-MM-DD>`，日期表示该组快照的截止日期；后续复查建立新的日期目录，不覆盖旧快照。
+- 处理：目录已带上 2026-04-20 截止日期，子目录索引继续保留每篇页面的精确日期和 nano commit，旧正文不重写。
+  某项今天是否仍是缺口，必须重新核对 current code/spec 后再决定是否建立 issue。
+- 状态：Resolved；按用户裁决归类为冻结研究快照。
 
 ### D-005：Autocompact 设计仍把已前进的工作写成待实施
 
 - 现状：原 `docs/kernel-diff-cc/autocompact-spec.md`（现
-  `docs/research/comparisons/claude-code-kernel/autocompact-spec.md`）仍写 Phase 2 待实现，current code、
-  tests 和 `docs/specs/kernel/context-persistence.md` 已经前进。
-- 影响：Agent 可能从历史设计启动重复实施。
-- 待决定：标记为 superseded research design；若原设计中仍有未实现且期望保留的部分，再建立 issue。
-- 状态：Awaiting user review；正文不重写。
+  `docs/research/comparisons/claude-code-kernel-2026-04-20/autocompact-spec.md`）仍写 Phase 2 待实现，current
+  code、tests 和 `docs/specs/kernel/context-persistence.md` 已经前进。
+- 用户裁决：同 D-004，带时间的 comparison 是历史快照，不因 current 实现前进而改写正文。
+- 处理：目录已带上 2026-04-20 截止日期并冻结。原设计中某项今天是否仍需实施，重新核对 current
+  code/spec 后再决定是否建立 issue。
+- 状态：Resolved；按用户裁决归类为冻结研究快照。
 
 ### D-006：Change review 脑暴结论没有被现行三类门禁采用
 

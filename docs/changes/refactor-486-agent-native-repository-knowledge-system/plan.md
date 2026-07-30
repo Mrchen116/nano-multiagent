@@ -423,8 +423,8 @@ external comparisons、brainstorms、迁移计划和退役设计目前靠文件�
 1. 建立 `docs/research/README.md`，索引研究主题、状态、日期、基线和 current 替代项。
 2. 建立 `docs/research/upstreams.md`，维护参考项目、用途和本地路径；`AGENTS.md` 保留高价值摘要与一跳入口。
 3. 迁移：
-   - `docs/tools-diff-cc/` → `docs/research/comparisons/claude-code-tools/`；
-   - `docs/kernel-diff-cc/` → `docs/research/comparisons/claude-code-kernel/`；
+   - `docs/tools-diff-cc/` → `docs/research/comparisons/claude-code-tools-2026-04-20/`；
+   - `docs/kernel-diff-cc/` → `docs/research/comparisons/claude-code-kernel-2026-04-20/`；
    - `docs/brainstorms/` → `docs/research/brainstorms/`；
    - architecture review snapshots → `docs/research/architecture-reviews/`。
 4. 先修改 `improve-codebase-architecture` 的输出约定，再逐份判断本地主工作树中尚未跟踪的 `docs/architecture-reviews/` 是否值得提交；不把生成目录整体带入本分支。
@@ -667,8 +667,8 @@ Agent 能搜索文件，但没有显式入口的正确文档仍可能在任务�
 | `docs/内核设计细化/` | code/spec/comment 或 archive/research | 逐篇做 code-as-documentation 判断 |
 | `docs/spec-implementation-conflicts.md` | active issue/change 或 history | 核对未决项后分流 |
 | `docs/IM-user-stream-migration-plan.md` | `docs/archive/migration-plans/` | 已实施计划归档 |
-| `docs/tools-diff-cc/` | `docs/research/comparisons/claude-code-tools/` | 补日期、代码基线和状态 |
-| `docs/kernel-diff-cc/` | `docs/research/comparisons/claude-code-kernel/` | 补日期、代码基线和状态 |
+| `docs/tools-diff-cc/` | `docs/research/comparisons/claude-code-tools-2026-04-20/` | 补日期、代码基线和状态 |
+| `docs/kernel-diff-cc/` | `docs/research/comparisons/claude-code-kernel-2026-04-20/` | 补日期、代码基线和状态 |
 | `docs/brainstorms/` | `docs/research/brainstorms/` | 标记非 current |
 | 本地主工作树未跟踪的 `docs/architecture-reviews/` | `docs/research/architecture-reviews/` | 先改生成者，再逐份判断是否值得纳入 Memory |
 | 根 `TASKS/`、`PROGRESS/`、`ACCEPTANCE/` | `docs/archive/legacy-development-records/` | 先停写，再单独机械迁移 |
@@ -751,8 +751,8 @@ Agent 能搜索文件，但没有显式入口的正确文档仍可能在任务�
     │   ├── upstreams.md              # 参考项目与本地入口
     │   ├── agent-era-repository-knowledge-system.md
     │   ├── comparisons/
-    │   │   ├── claude-code-tools/
-    │   │   └── claude-code-kernel/
+    │   │   ├── claude-code-tools-2026-04-20/
+    │   │   └── claude-code-kernel-2026-04-20/
     │   ├── architecture-reviews/
     │   └── brainstorms/
     │

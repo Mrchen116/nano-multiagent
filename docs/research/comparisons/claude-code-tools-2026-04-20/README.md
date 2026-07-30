@@ -1,8 +1,7 @@
-# Claude Code Tool Comparisons
+# Claude Code Tool Comparisons — 2026-04-20 Snapshot
 
-> 状态：Research snapshots；对当前缺口的判断等待
-> [`D-004`](../../../changes/refactor-486-agent-native-repository-knowledge-system/drift-review.md#d-004claude-code-tools-比较材料仍把已经实现的能力写成缺口)
-> 裁决。
+> 快照截止日期：2026-04-20。组内页面记录于 2026-04-18 至 2026-04-20，只描述各自记录时的比较结果，
+> 不代表当前缺口清单。
 >
 > 上游 Claude Code commit：当时未记录，不能用当前 checkout 反向代填。
 
@@ -19,5 +18,5 @@
 | [`web_fetch.md`](web_fetch.md) | 2026-04-20 / `2be76c27` | Web Fetch 对比与阶段设计 | web_fetch builtin、权限/运行测试 |
 | [`web_fetch-prompt-processing-design.md`](web_fetch-prompt-processing-design.md) | 2026-04-20 / `2be76c27` | prompt-based 内容处理 | web_fetch builtin 与测试 |
 
-旧正文保持记录时的观察。若用户确认某项仍是期望缺口，再建立 issue/change；已经进入 current 的能力由代码、
-tests 和 [`../../../specs/kernel/`](../../../specs/kernel/spec.md) 承担。
+旧正文保持记录时的观察。若要判断某项今天是否仍是缺口，重新核对 current code、tests 和
+[`../../../specs/kernel/`](../../../specs/kernel/spec.md)；确认仍需处理后再建立 issue/change。
