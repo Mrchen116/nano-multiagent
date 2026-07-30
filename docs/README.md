@@ -11,7 +11,7 @@
 | 修改跨包职责、依赖方向或部署拓扑 | [`../SPEC.md`](../SPEC.md) |
 | 修改用户或外部消费者可观察行为 | 相关包的 [`specs/`](specs/README.md) → [`development/change-workflow.md`](development/change-workflow.md) |
 | 编写或归并行为契约 | [`specs/CONTRIBUTING.md`](specs/CONTRIBUTING.md) → [`specs/README.md`](specs/README.md) |
-| 判断是否建立 unit、选择 Full/Bugfix lite、查看阶段和门禁 | [`development/change-workflow.md`](development/change-workflow.md) |
+| 判断是否建立 unit、选择 Full/Bugfix lite/快速开发、查看阶段和门禁 | [`development/change-workflow.md`](development/change-workflow.md) |
 | 查 change unit 的目录、命名、文件归属或归档位置 | [`changes/README.md`](changes/README.md) |
 | 跟踪本次 Agent-Native 仓库知识体系迁移 | [`refactor-486 plan`](changes/refactor-486-agent-native-repository-knowledge-system/plan.md)（Active Work，不覆盖 current） |
 | 配置开发环境、运行测试或开发 CLI/前端 | [`development/`](development/README.md) |

@@ -1,6 +1,6 @@
 # Change Workflow
 
-本文记录 nano-multiagent 当前的开发变更生命周期，负责说明什么时候建立 change unit、Full 与 Bugfix lite 如何选择、各阶段怎样流转，以及每类 unit 需要经过哪些门禁。
+本文记录 nano-multiagent 当前的开发变更生命周期，负责说明什么时候建立 change unit、Full、Bugfix lite 与快速开发如何选择、各阶段怎样流转，以及每类 unit 需要经过哪些门禁。
 
 各 `change-*` skill 负责角色内部的具体执行方法；[`../changes/README.md`](../changes/README.md) 负责 unit 的目录、命名、文件归属和归档位置。
 
@@ -14,14 +14,15 @@
 
 判据是能否写出有意义的首文档：如果没有用户视角的需求、问题、架构动机或性能目标需要对齐，就不建立 unit。用户能够感知到错误行为时，建立 bugfix unit。
 
-## Full 与 Bugfix lite
+## Full、Bugfix lite 与快速开发
 
 | 路径 | 适用条件 | 首文档 | 省略的阶段 |
 |---|---|---|---|
 | Bugfix lite | 单 milestone、影响面小、无独立设计决策、不需要独立回归矩阵的 bugfix | `fix.md` | 独立 design、verifier、产品 reviewer |
 | Full | feat、refactor、perf；或跨多个 milestone、需要独立回归矩阵、根因横跨多个模块的 bugfix | `spec.md`、`motivation.md` 或 `incident.md` | 不省略下述 Full 门禁 |
+| 快速开发 | 用户明确选择边对齐、边实现、边测试，并在实现后补齐正式记录 | 实现后补 `spec.md`、`motivation.md` 或 `incident.md`，以及 as-built `design.md` | 事前 Gate 1/2、orchestrator/worker、verifier、产品 reviewer |
 
-Bugfix 默认选择 lite；实施前发现影响面扩大时升级为 Full。
+Bugfix 默认选择 lite；实施前发现影响面扩大时升级为 Full。快速开发必须由用户明确选择，Agent 不能因为想减少文档或门禁而自行切换。
 
 ## 总流程
 
@@ -49,9 +50,36 @@ Bugfix lite
        → 本地 CI
        → archive
        → PR + 远端 CI
+
+快速开发
+  用户与 Agent 持续对齐、实现和测试
+    → 用户亲自测试并确认结果
+    → change-fast-close
+       → 建立 unit，补首文档、as-built design 与必要的 delta-spec
+       → change-code-review
+       → canonical spec 归并
+       → 本地 CI
+       → archive
+       → 按用户授权提交、push 或创建 PR
 ```
 
 `change-retro` 是完成后的可选取证流程，不属于交付门禁。
+
+## 快速开发模式
+
+快速开发适合用户希望在同一段交互中持续给反馈、Agent 持续修改、用户直接体验结果的工作。它改变的是 change 文档形成的时间：实现可以先发生，交付前仍要把最终用户意图、实际设计、契约变化和 code review 结果写回仓库。
+
+这条路径遵守以下约束：
+
+- 只有用户可以明确选择快速开发；未选择时仍按 Full 或 Bugfix lite 判断；
+- 首文档来自原始对话和用户决定，不能只根据最终代码反推需求；
+- `design.md` 是标明事后形成的 as-built design，必须以实际代码、diff、测试和已确认决策为依据；
+- 不补造没有发生过的 milestone、`tasks.md`、`progress.md`、design review、verifier 或产品 reviewer 记录；
+- 用户亲自测试并确认的旅程记录在 `status.md`，作为本路径的产品验收事实；
+- `change-code-review` 是唯一独立质量门禁；review 修复改变用户可观察行为时，用户需要重新确认受影响旅程；
+- 收尾未完成或用户尚未确认时，unit 保持 active，并在 `status.md` 写清 blocker 和下一动作。
+
+`change-fast-close` 负责锁定现有 diff、建立事后 unit、回填文档、执行 code review、归并 canonical spec 并按用户授权交付。
 
 ## 阶段 1：首文档
 
@@ -120,18 +148,20 @@ Full unit 由 `change-design-author` 基于首文档、current specs 和真实�
 | Full，存在用户可观察旅程 | 必须 | 必须 | 必须 |
 | Full，零用户面 | 必须 | 跳过 | 必须 |
 | Bugfix lite | 跳过 | 跳过 | 必须 |
+| 快速开发 | 跳过 | 跳过；使用已记录的用户验收 | 必须 |
 
 - verifier 核对实现是否完整、正确且与 spec、design、tasks 一致；
 - reviewer 走真实产品旅程，只验用户可观察结果；
 - code review 审查 unit diff；
-- 三类门禁只读；发现问题后由 orchestrator 判真并派 worker 修复；
-- 修复后，orchestrator 根据变更范围重跑、局部复验或保留仍然有效的门禁结论。
+- Full 与 Bugfix lite 的门禁发现问题后由 orchestrator 判真并派 worker 修复；
+- 快速开发的 code review 发现问题后，由执行 `change-fast-close` 的主会话判真和修复；
+- 修复后按变更范围重跑、局部复验或保留仍然有效的门禁结论；快速开发的修复改变用户可观察行为时交回用户确认。
 
 所有适用门禁通过后才能收尾。
 
 ## 收尾
 
-`change-orchestrator` 按以下顺序完成交付：
+Full 与 Bugfix lite 由 `change-orchestrator` 收尾，快速开发由 `change-fast-close` 收尾，均按以下顺序完成交付：
 
 1. 根据实际实现校正 delta-spec，并归并到 `docs/specs/<package>/<area>.md`；lite bugfix 触及对外行为但没有 delta 时补齐 delta。
 2. 重新执行与 `origin/main` 的 sync gate。
@@ -139,7 +169,7 @@ Full unit 由 `change-design-author` 基于首文档、current specs 和真实�
 4. 将整个 unit 从 `docs/changes/<unit>/` 移入 `docs/changes/archive/<unit>/`。
 5. 创建 PR，等待远端 CI；CI 或 review 小修改变代码后，重新执行受影响门禁。
 
-CI 全绿后 orchestrator 交棒，由人审查和 merge。归档表示 unit 已达到可交付状态，不表示 PR 已合并。
+CI 全绿后收尾 owner 交棒，由人审查和 merge。归档表示 unit 已达到可交付状态，不表示 PR 已合并。
 
 开放 PR 的同一交付会话可以继续处理自包含小修。会话退出后，恢复前必须核对 unit branch、PR head 和 clean worktree；需要修改 design 或新增 milestone 的反馈交由人判断，不能在 archive 中启动第二套生命周期。
 
@@ -153,13 +183,14 @@ CI 全绿后 orchestrator 交棒，由人审查和 merge。归档表示 unit 已
 | `change-design-reviewer` | 独立审查设计，并在同一上下文中完成后续轮次 | 修改方案或实现 |
 | `change-orchestrator` | sync、调度、判真、门禁、契约归并、归档和 PR/CI | 实现 milestone |
 | `change-impl-worker` | 单 milestone 实现、测试、任务记录和证据 | 擅自改写需求或绕过设计 |
+| `change-fast-close` | 为已完成的快速开发 diff 补 unit、as-built design、用户验收记录、code review、契约归并和归档 | 伪造事前流程、代替用户验收 |
 | `change-verifier` | 实现与 spec/design/tasks 的一致性 | 写代码、产品体验判断 |
 | `change-reviewer` | 用户旅程和产品可用性 | 写代码、用源码检查替代真实旅程 |
 | `change-code-review` | diff correctness 和维护风险 | 直接实施 finding |
 
 ## 权威边界
 
-- 本文负责是否建立 unit、Full/Bugfix lite 路径、生命周期、角色组合和门禁选择。
+- 本文负责是否建立 unit、Full/Bugfix lite/快速开发路径、生命周期、角色组合和门禁选择。
 - 每个 `.claude/skills/change-*/SKILL.md` 负责该角色内部的动作、输入输出和恢复细节。
 - [`../changes/README.md`](../changes/README.md) 负责 unit 的目录、命名、文件归属和归档位置。
 - [`../specs/CONTRIBUTING.md`](../specs/CONTRIBUTING.md) 负责 canonical spec 与 delta-spec 的内容规范。

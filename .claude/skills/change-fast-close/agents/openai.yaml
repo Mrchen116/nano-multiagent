@@ -1,0 +1,4 @@
+interface:
+  display_name: "快速开发收尾"
+  short_description: "为快速开发模式补齐 unit 文档并完成 code review 收尾"
+  default_prompt: "使用 $change-fast-close 为当前快速开发改动补齐 change unit 文档并完成 code review 收尾。"
