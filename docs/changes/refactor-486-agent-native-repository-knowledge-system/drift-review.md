@@ -44,8 +44,8 @@
 
 - 现状：原 `docs/brainstorms/change-review-gates.md`（现 `docs/research/brainstorms/change-review-gates.md`）的暂定结论主张一个通用 reviewer；当前流程使用 `change-verifier + change-reviewer + change-code-review`。
 - 影响：Agent 可能把脑暴方案误读为仍待落地的目标流程。
-- 待决定：确认该方案已经放弃并标记 superseded；或建立 issue 继续评估，不能在本次文档整理中改流程。
-- 状态：Awaiting user review；流程和脑暴正文均未修改。
+- 用户决定：不处理；保留为 research 中的历史脑暴，不修改现行三类门禁，也不建立 issue。
+- 状态：Resolved；流程和脑暴正文均未修改。
 
 ### D-007：生产代码注释仍指向 retired Gateway SPEC
 
@@ -60,8 +60,8 @@
 - 用户裁决：5 份 HTML 架构审查快照全部进入 Git；它们的 dirty warning 必须保留。
 - 处理：快照迁入 `docs/research/architecture-reviews/`；completed change 中对旧目录的引用同步改到新路径。
 - 组织规则：目录入口只说明这类快照的用途和读取限制，不手工维护文件清单；文件名和报告正文承载时间、基线及 working-tree 状态。
-- 剩余问题：2026-07-25 组合 Markdown 是否进入 Git 仍待单独裁决。该组合稿和同日 HTML 都引用了本迁移分支尚未纳入的 476–483 units。
-- 状态：Partially resolved；HTML 已纳入，组合 Markdown 未复制。
+- 用户决定：2026-07-25 组合 Markdown 不处理、不复制进 Git。
+- 状态：Resolved；HTML 已纳入，组合 Markdown 保持本地文件。
 
 ### D-011：全量测试偶发回收未 await 的 Feishu SDK cache 协程
 
@@ -69,8 +69,8 @@
 - 来源：协程定义在当前环境的第三方 `lark_oapi/core/cache/expiring_cache.py`。`ExpiringCache.__init__`取得当前 event loop 并立即 `create_task()` 启动永久清理循环；warning 显示在 `session_keys.py:934` 只是该对象被回收时的当前位置，不能据此判定 session binding 是根因。
 - 复现：目标测试单跑，以及与 Feishu worker 测试用 xdist 并跑，均通过且没有再次出现该 RuntimeWarning；当前证据只支持“测试顺序或 worker teardown 相关”，尚未得到稳定复现和完整根因。
 - 影响：当前 CI 不失败，但可能掩盖 SDK import-time event-loop 任务的资源生命周期问题，并给测试日志带来非确定性噪声。
-- 待决定：是否建立 issue，专门稳定复现并判断应由 SDK 升级、隔离 import/lifecycle，还是测试 teardown 处理；在根因确认前不应根据偶发 warning 修改业务代码或屏蔽全部 RuntimeWarning。
-- 状态：Awaiting user review；本次没有修改代码、依赖版本或 warning 策略。
+- 用户决定：本次不修改代码、依赖版本或 warning 策略，后续通过 [Issue #218](https://github.com/Mrchen116/nano-multiagent/issues/218) 稳定复现并处理。
+- 状态：Deferred to Issue #218。
 
 ### D-012：前端 clean install 报告 9 个依赖漏洞
 
@@ -78,16 +78,16 @@
 - 直接依赖：`vitest <3.2.6` 为 critical；`react-router-dom 7.0.0-pre.0–7.14.1` 与 `vite 7.0.0–7.3.3` 为 high。
 - 传递依赖：`picomatch`、`postcss`、`react-router`、`ws` 为 high，`@babel/core`、`esbuild` 为 low。当前 audit 对各项都报告存在可用修复，但尚未核对升级后的兼容性、生产可达性和 advisory 适用条件。
 - 影响：当前 CI 只执行 `npm ci` 和 Vitest，不会因 audit 结果失败；其中部分是开发工具依赖，但不能仅凭 “测试通过”判断风险可忽略。
-- 待决定：是否建立 dependency/security issue，逐项确认 advisory、生产/开发作用域和最小兼容升级；不应在本次文档迁移中直接运行 `npm audit fix` 改 lockfile。
-- 状态：Awaiting user review；`package.json` 与 `package-lock.json` 未修改。
+- 用户决定：本次不修改 `package.json` 或 `package-lock.json`，后续通过 [Issue #219](https://github.com/Mrchen116/nano-multiagent/issues/219) 逐项审计并升级。
+- 状态：Deferred to Issue #219。
 
 ### D-013：前端测试全绿但 stderr 噪声规模很大
 
 - 现状：本机 Node `v25.8.2`、clean `npm ci` 后，Vitest 68 files / 653 tests 全部通过；第二次运行按固定模式统计到 408 条 React “not wrapped in act” warning、40 条 `user stream runtime error` 和 68 条 `--localstorage-file` warning。
 - 边界：`user stream runtime error` 中一部分来自测试主动制造 404、无效游标或未 mock 的 `/im/v1/sync`；`--localstorage-file` 可能与本机 Node 25 有关，而 CI 使用 Node 20。当前只确认输出噪声，不把每条都判成产品 bug。
 - 影响：大量预期/未隔离 stderr 会降低真实回归的可见度；全绿摘要无法区分测试刻意验证的错误与意外后台 runtime error。
-- 待决定：是否建立 test-hygiene issue，先在 CI Node 20 复现并分类，再逐步修 `act()` 生命周期、关闭未参与测试的 user-stream runtime，并决定哪些 stderr 应成为失败。
-- 状态：Awaiting user review；本次没有修改前端测试、Vitest 配置或 warning 策略。
+- 用户决定：本次不修改前端测试、Vitest 配置或 warning 策略，后续通过 [Issue #217](https://github.com/Mrchen116/nano-multiagent/issues/217) 在 Node 20 下分类、治理并建立门禁。
+- 状态：Deferred to Issue #217。
 
 ### D-014：架构 contract test 的名称和说明仍携带旧架构术语
 
@@ -170,8 +170,8 @@
 
 - 现状：同 issue 的 5 轮上限依赖“orchestrator 内存中的 issue 指纹表”；Full/lite 的 code-review findings 没有稳定报告文件，也没有固定保存 finding origin head、open/closed 状态、retained 理由和轮次指纹。
 - 影响：跨 session 恢复后无法可靠继续轮次计数、closure diff 或 retained 判定，可能重复修复或错误放行。
-- 待决定：是否把每轮最小 finding ledger 写入独立报告，并明确 code review 的 durable evidence owner。
-- 状态：Awaiting user review。
+- 用户决定：后续通过 [Issue #216](https://github.com/Mrchen116/nano-multiagent/issues/216) 为 `change-code-review` 建立可恢复的持久报告，并取消对 orchestrator 内存指纹表的依赖。
+- 状态：Deferred to Issue #216。
 
 ### D-025：校正后 delta 的软对账缺少可恢复的执行契约
 
