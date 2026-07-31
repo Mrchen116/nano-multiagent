@@ -1775,6 +1775,15 @@ body {
   pointer-events: auto;
 }
 
+/* Code has its own in-place copy action.  Keep the message-level controls in
+   their bubble-edge position, but suppress them while the pointer is in a code
+   block so the two copy affordances never compete for the same corner.  Do not
+   suppress a focused toolbar: it remains reachable with the keyboard. */
+.chat-bubble-card:has(.im-code-block:hover) .chat-message-toolbar:not(:focus-within) {
+  opacity: 0;
+  pointer-events: none;
+}
+
 .chat-message-more {
   display: none;
   align-items: center;
