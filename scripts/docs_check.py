@@ -38,6 +38,7 @@ RESEARCH_COLLECTION_ROOTS = (
     Path("docs/research/architecture-reviews"),
     Path("docs/research/brainstorms"),
     Path("docs/research/comparisons"),
+    Path("docs/research/studies"),
 )
 
 RETIRED_LINK_PREFIXES = (

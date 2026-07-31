@@ -10,7 +10,7 @@
 | [`comparisons/`](comparisons/README.md) | Claude Code tools/kernel 等外部实现比较 | 读取页首基线，再回当前实现核实 |
 | [`brainstorms/`](brainstorms/README.md) | 尚未成为 current 的方案探索 | 核对 adopted/superseded/review pending 状态 |
 | [`architecture-reviews/`](architecture-reviews/README.md) | 针对特定代码基线生成的架构审查快照 | 查候选来源；再回 current 架构和代码验证 |
-| [`agent-era-repository-knowledge-system.md`](agent-era-repository-knowledge-system.md) | Agent-Native 代码仓知识体系的来源、案例和推论记录 | Research in progress；方法草案见 development |
+| [`studies/`](studies/README.md) | 带来源记录、结论文章和必要视觉资产的主体研究包 | 从主题目录的 README 判断范围、日期与 current owner |
 
 ## 快照最小信息
 
