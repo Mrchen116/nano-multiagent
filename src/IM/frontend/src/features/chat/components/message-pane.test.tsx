@@ -924,6 +924,7 @@ describe("MessagePane", () => {
       fireContextMenu(bubble, { button: 2, buttons: 2, clientX: 0, clientY: 0, pointerType: "mouse" });
 
       expect(screen.getByRole("menu")).toBeInTheDocument();
+      expect(screen.queryByRole("menuitem", { name: /^Cancel$/i })).not.toBeInTheDocument();
       await user.click(screen.getByRole("menuitem", { name: /Copy message/i }));
 
       await waitFor(() => expect(writeText).toHaveBeenCalledWith("Hi back"));
@@ -963,6 +964,7 @@ describe("MessagePane", () => {
 
       await user.click(screen.getByTestId("message-more-m2"));
       expect(screen.getByRole("dialog")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /^Cancel$/i })).not.toBeInTheDocument();
 
       await user.click(screen.getByRole("button", { name: /Copy message/i }));
 

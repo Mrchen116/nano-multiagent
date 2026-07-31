@@ -941,7 +941,6 @@ export function MessagePane({
               closeActionSurface("branch");
               onFork?.(activeSurface.messageId);
             }}
-            onClose={dismissActionSurface}
           />
         </ContextMenu>
       )}
@@ -992,7 +991,6 @@ export function MessagePane({
                   closeActionSurface("branch");
                   onFork?.(activeSurface.messageId);
                 }}
-                onClose={dismissActionSurface}
               />
             )}
           </Dialog.Content>
@@ -1043,7 +1041,6 @@ function MessageActionList({
   surface = "context-menu",
   onCopy,
   onFork,
-  onClose,
 }: {
   message: Message;
   copyAvailable?: boolean;
@@ -1053,7 +1050,6 @@ function MessageActionList({
   surface?: "toolbar" | "context-menu" | "action-sheet";
   onCopy: () => void;
   onFork: () => void;
-  onClose: () => void;
 }) {
   const { t } = useTranslation();
   const isAgent = message.sender.type === "agent";
@@ -1112,16 +1108,6 @@ function MessageActionList({
           {isCompact && forkReason && (
             <span className="chat-message-action-reason">{forkReason}</span>
           )}
-        </button>
-      )}
-      {isCompact && (
-        <button
-          type="button"
-          role={itemRole}
-          className="chat-message-action chat-message-action--cancel"
-          onClick={onClose}
-        >
-          {t("common.cancel")}
         </button>
       )}
     </div>
@@ -1501,7 +1487,6 @@ function MessageBubble({
                 surface="toolbar"
                 onCopy={handleCopy}
                 onFork={handleFork}
-                onClose={() => {}}
               />
             </div>
           )}
